@@ -1,8 +1,12 @@
 from __future__ import annotations
 
+import json
+
 from helpers import load_script_module
 
-evaluate = load_script_module("check_codex_review_gate").evaluate
+check_codex_review_gate = load_script_module("check_codex_review_gate")
+evaluate = check_codex_review_gate.evaluate
+read_json_array = check_codex_review_gate._read_json_array
 
 
 def test_gate_passes_for_clean_codex_approval_reaction() -> None:
@@ -274,3 +278,32 @@ def test_gate_ignores_stale_blocking_issue_comment_for_current_head() -> None:
 
     assert ok
     assert reasons == []
+
+
+def test_read_json_array_flattens_slurped_paginated_arrays(tmp_path) -> None:
+    artifact = tmp_path / "artifact.json"
+    artifact.write_text(
+        json.dumps(
+            [
+                [
+                    {"id": 1, "user": {"login": "chatgpt-codex-connector[bot]"}},
+                    {"id": 2, "ignored": False},
+                ],
+                [{"id": 3}],
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    assert read_json_array(artifact) == [
+        {"id": 1, "user": {"login": "chatgpt-codex-connector[bot]"}},
+        {"id": 2, "ignored": False},
+        {"id": 3},
+    ]
+
+
+def test_read_json_array_flattens_deeply_nested_page_arrays(tmp_path) -> None:
+    artifact = tmp_path / "artifact.json"
+    artifact.write_text(json.dumps([[[{"id": 1}]], [{"id": 2}]]), encoding="utf-8")
+
+    assert read_json_array(artifact) == [{"id": 1}, {"id": 2}]

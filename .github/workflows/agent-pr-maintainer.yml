@@ -5,6 +5,8 @@ on:
     types: [opened, ready_for_review, synchronize, reopened, labeled]
   pull_request_review:
     types: [submitted, edited, dismissed]
+  pull_request_review_comment:
+    types: [created, edited, deleted]
   issue_comment:
     types: [created, edited, deleted]
   workflow_dispatch:
@@ -35,6 +37,14 @@ jobs:
       ) ||
       (
         github.event_name == 'pull_request_review' &&
+        (
+          contains(github.event.pull_request.labels.*.name, 'agent-pr') ||
+          startsWith(github.event.pull_request.title, '[codex]') ||
+          startsWith(github.event.pull_request.title, '[claude]')
+        )
+      ) ||
+      (
+        github.event_name == 'pull_request_review_comment' &&
         (
           contains(github.event.pull_request.labels.*.name, 'agent-pr') ||
           startsWith(github.event.pull_request.title, '[codex]') ||
@@ -117,10 +127,10 @@ jobs:
           if [ "$checks_status" -ne 0 ] && [ "$checks_status" -ne 8 ]; then
             exit "$checks_status"
           fi
-          gh api --paginate "repos/${GITHUB_REPOSITORY}/pulls/${PR}/reviews" > pr-reviews.json
-          gh api --paginate "repos/${GITHUB_REPOSITORY}/pulls/${PR}/comments" > pr-review-comments.json
-          gh api --paginate "repos/${GITHUB_REPOSITORY}/issues/${PR}/comments" > pr-issue-comments.json
-          gh api --paginate "repos/${GITHUB_REPOSITORY}/issues/${PR}/reactions" > pr-reactions.json
+          gh api --paginate --slurp "repos/${GITHUB_REPOSITORY}/pulls/${PR}/reviews" > pr-reviews.json
+          gh api --paginate --slurp "repos/${GITHUB_REPOSITORY}/pulls/${PR}/comments" > pr-review-comments.json
+          gh api --paginate --slurp "repos/${GITHUB_REPOSITORY}/issues/${PR}/comments" > pr-issue-comments.json
+          gh api --paginate --slurp "repos/${GITHUB_REPOSITORY}/issues/${PR}/reactions" > pr-reactions.json
 
       - name: Persist watcher state marker
         if: steps.scope.outputs.is_agent_pr == 'true'
@@ -145,6 +155,7 @@ jobs:
             --bootstrap-workflow .github/workflows/agent-pr-maintainer.yml
 
       - name: Check Codex review gate
+        id: codex_gate
         if: steps.scope.outputs.is_agent_pr == 'true' && github.event_name != 'pull_request_target'
         working-directory: trusted
         run: |
@@ -162,7 +173,11 @@ jobs:
           echo "A pull_request_review or trusted Codex issue_comment event will evaluate the current head review artifact."
 
       - name: Enable auto-merge when explicitly allowed
-        if: steps.scope.outputs.is_agent_pr == 'true' && env.AGENT_PR_AUTO_MERGE == 'true'
+        if: >-
+          steps.scope.outputs.is_agent_pr == 'true' &&
+          env.AGENT_PR_AUTO_MERGE == 'true' &&
+          github.event_name != 'pull_request_target' &&
+          steps.codex_gate.outcome == 'success'
         working-directory: trusted
         run: |
           HEAD_SHA="$(python -c 'import json; print(json.load(open("pr-state.json"))["headRefOid"])')"

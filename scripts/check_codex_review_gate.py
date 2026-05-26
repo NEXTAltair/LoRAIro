@@ -24,12 +24,22 @@ UNAVAILABLE_BODY_RE = re.compile(
 APPROVAL_REACTIONS = {"+1", "hooray"}
 
 
+def _flatten_json_items(loaded: Any) -> list[dict[str, Any]]:
+    if not isinstance(loaded, list):
+        raise ValueError("artifact JSON must be an array")
+
+    items: list[dict[str, Any]] = []
+    for item in loaded:
+        if isinstance(item, list):
+            items.extend(_flatten_json_items(item))
+        elif isinstance(item, dict):
+            items.append(item)
+    return items
+
+
 def _read_json_array(path: Path) -> list[dict[str, Any]]:
     with path.open(encoding="utf-8") as handle:
-        loaded = json.load(handle)
-    if not isinstance(loaded, list):
-        raise ValueError(f"{path} must contain a JSON array")
-    return [item for item in loaded if isinstance(item, dict)]
+        return _flatten_json_items(json.load(handle))
 
 
 def _login_from(item: dict[str, Any]) -> str:
