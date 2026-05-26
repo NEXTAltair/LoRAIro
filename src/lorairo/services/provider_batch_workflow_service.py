@@ -17,6 +17,14 @@ from typing import TYPE_CHECKING, Any
 from lorairo.database.db_repository import ImageRepository
 from lorairo.services.annotation_save_service import AnnotationSaveResult, AnnotationSaveService
 from lorairo.services.configuration_service import ConfigurationService
+from lorairo.services.provider_batch_library_compat import (
+    to_library_handle,
+    to_library_submit_request,
+    to_provider_batch_fetch_result,
+    to_provider_batch_models,
+    to_provider_batch_status,
+    to_provider_batch_submission,
+)
 from lorairo.services.provider_batch_service import (
     BatchJobHandle,
     BatchSubmitItem,
@@ -77,16 +85,34 @@ class ProviderBatchLibraryAdapter:
         self._client = client
 
     def submit_batch(self, request: BatchSubmitRequest) -> Any:
-        return self._call_client("submit_batch", request)
+        return to_provider_batch_submission(
+            self._call_client("submit_batch", to_library_submit_request(request)),
+            self.provider,
+        )
 
     def retrieve_batch(self, handle: BatchJobHandle) -> Any:
-        return self._call_client("retrieve_batch", handle)
+        return to_provider_batch_status(
+            self._call_client("retrieve_batch", to_library_handle(handle)),
+            self.provider,
+        )
 
     def cancel_batch(self, handle: BatchJobHandle) -> Any:
-        return self._call_client("cancel_batch", handle)
+        return to_provider_batch_status(
+            self._call_client("cancel_batch", to_library_handle(handle)),
+            self.provider,
+        )
 
     def fetch_batch_results(self, handle: BatchJobHandle, destination_dir: Path) -> Any:
-        return self._call_client("fetch_batch_results", handle, destination_dir)
+        return to_provider_batch_fetch_result(
+            self._call_client("fetch_batch_results", to_library_handle(handle), destination_dir),
+            self.provider,
+            destination_dir,
+            fallback_provider_job_id=handle.provider_job_id,
+        )
+
+    def list_batch_capable_models(self) -> tuple[Any, ...]:
+        """Return image-annotator-lib Provider Batch model metadata."""
+        return to_provider_batch_models(self._call_client("list_batch_capable_models"))
 
     def _call_client(self, method_name: str, *args: Any) -> Any:
         method = getattr(self._client, method_name, None)

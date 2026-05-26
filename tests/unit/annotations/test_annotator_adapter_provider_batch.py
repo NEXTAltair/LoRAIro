@@ -12,9 +12,9 @@ from lorairo.annotations.annotator_adapter import AnnotatorLibraryAdapter
 from lorairo.services.provider_batch_service import (
     BatchJobHandle,
     BatchSubmitRequest,
-    ProviderBatchArtifactRef,
-    ProviderBatchArtifacts,
     ProviderBatchError,
+    ProviderBatchFetchResult,
+    ProviderBatchResultItem,
     ProviderBatchStatus,
     ProviderBatchSubmission,
 )
@@ -35,23 +35,24 @@ class TestAnnotatorAdapterProviderBatch:
     ) -> None:
         calls: list[tuple[str, object]] = []
 
-        def submit_batch(request: BatchSubmitRequest) -> ProviderBatchSubmission:
+        def submit_batch(request: object) -> ProviderBatchSubmission:
             calls.append(("submit", request))
             return ProviderBatchSubmission(provider_job_id="batch_123", provider_status="validating")
 
-        def retrieve_batch(handle: BatchJobHandle) -> ProviderBatchStatus:
+        def retrieve_batch(handle: object) -> ProviderBatchStatus:
             calls.append(("retrieve", handle))
             return ProviderBatchStatus(provider_job_id="batch_123", provider_status="completed")
 
-        def cancel_batch(handle: BatchJobHandle) -> ProviderBatchStatus:
+        def cancel_batch(handle: object) -> ProviderBatchStatus:
             calls.append(("cancel", handle))
             return ProviderBatchStatus(provider_job_id="batch_123", provider_status="cancelled")
 
-        def fetch_batch_results(handle: BatchJobHandle, destination_dir: Path) -> ProviderBatchArtifacts:
-            calls.append(("fetch", destination_dir))
-            return ProviderBatchArtifacts(
+        def fetch_batch_results(handle: object) -> ProviderBatchFetchResult:
+            calls.append(("fetch", handle))
+            return ProviderBatchFetchResult(
                 provider_job_id="batch_123",
-                artifacts=(ProviderBatchArtifactRef("output", destination_dir / "output.jsonl"),),
+                provider_status="completed",
+                items=(ProviderBatchResultItem("img-1", "succeeded", annotation={"tags": ["tag"]}),),
             )
 
         monkeypatch.setattr(image_annotator_lib, "submit_batch", submit_batch, raising=False)
@@ -72,10 +73,98 @@ class TestAnnotatorAdapterProviderBatch:
         assert adapter.submit_batch(request).provider_status == "validating"
         assert adapter.retrieve_batch(handle).provider_status == "completed"
         assert adapter.cancel_batch(handle).provider_status == "cancelled"
-        assert adapter.fetch_batch_results(handle, tmp_path).artifacts[0].local_path == (
-            tmp_path / "output.jsonl"
-        )
+        assert adapter.fetch_batch_results(handle, tmp_path).items[0].annotation == {"tags": ["tag"]}
         assert [name for name, _value in calls] == ["submit", "retrieve", "cancel", "fetch"]
+        assert calls[0][1].provider == "openai"
+        assert calls[3][1].provider_job_id == "batch_123"
+
+    def test_list_batch_capable_models_forwards_to_image_annotator_lib(
+        self,
+        adapter: AnnotatorLibraryAdapter,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        monkeypatch.setattr(
+            image_annotator_lib,
+            "list_batch_capable_models",
+            lambda: ["anthropic/claude-test"],
+            raising=False,
+        )
+
+        assert adapter.list_batch_capable_models() == ("anthropic/claude-test",)
+
+    def test_fetch_batch_results_forwards_destination_dir_when_library_accepts_it(
+        self,
+        adapter: AnnotatorLibraryAdapter,
+        monkeypatch: pytest.MonkeyPatch,
+        tmp_path: Path,
+    ) -> None:
+        calls: list[tuple[object, Path]] = []
+
+        def fetch_batch_results(handle: object, destination_dir: Path) -> ProviderBatchFetchResult:
+            calls.append((handle, destination_dir))
+            return ProviderBatchFetchResult(
+                provider_job_id="batch_123",
+                provider_status="completed",
+            )
+
+        monkeypatch.setattr(image_annotator_lib, "fetch_batch_results", fetch_batch_results, raising=False)
+
+        handle = BatchJobHandle(provider="openai", provider_job_id="batch_123", api_keys={})
+
+        adapter.fetch_batch_results(handle, tmp_path)
+
+        assert calls[0][1] == tmp_path
+
+    @pytest.mark.parametrize("signature_error", [TypeError, ValueError])
+    def test_fetch_batch_results_falls_back_when_signature_is_unavailable(
+        self,
+        adapter: AnnotatorLibraryAdapter,
+        monkeypatch: pytest.MonkeyPatch,
+        tmp_path: Path,
+        signature_error: type[Exception],
+    ) -> None:
+        calls: list[object] = []
+
+        def fetch_batch_results(handle: object) -> ProviderBatchFetchResult:
+            calls.append(handle)
+            return ProviderBatchFetchResult(
+                provider_job_id="batch_123",
+                provider_status="completed",
+            )
+
+        monkeypatch.setattr(image_annotator_lib, "fetch_batch_results", fetch_batch_results, raising=False)
+        monkeypatch.setattr("inspect.signature", lambda _method: (_ for _ in ()).throw(signature_error))
+
+        handle = BatchJobHandle(provider="openai", provider_job_id="batch_123", api_keys={})
+
+        adapter.fetch_batch_results(handle, tmp_path)
+
+        assert len(calls) == 1
+
+    def test_fetch_batch_results_tries_destination_dir_when_signature_is_unavailable(
+        self,
+        adapter: AnnotatorLibraryAdapter,
+        monkeypatch: pytest.MonkeyPatch,
+        tmp_path: Path,
+    ) -> None:
+        calls: list[tuple[object, Path]] = []
+
+        def fetch_batch_results(handle: object, destination_dir: Path) -> ProviderBatchFetchResult:
+            calls.append((handle, destination_dir))
+            return ProviderBatchFetchResult(
+                provider_job_id="batch_123",
+                provider_status="completed",
+            )
+
+        monkeypatch.setattr(image_annotator_lib, "fetch_batch_results", fetch_batch_results, raising=False)
+        monkeypatch.setattr("inspect.signature", lambda _method: (_ for _ in ()).throw(ValueError))
+
+        handle = BatchJobHandle(provider="openai", provider_job_id="batch_123", api_keys={})
+
+        adapter.fetch_batch_results(handle, tmp_path)
+
+        assert len(calls) == 1
+        assert calls[0][1] == tmp_path
 
     def test_provider_batch_methods_raise_when_library_api_is_unavailable(
         self,
