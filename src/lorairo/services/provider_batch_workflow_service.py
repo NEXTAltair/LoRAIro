@@ -33,7 +33,7 @@ from lorairo.services.provider_batch_service import (
 from lorairo.utils.log import logger
 
 if TYPE_CHECKING:
-    from lorairo.database.schema import ProviderBatchJob
+    from lorairo.database.schema import ProviderBatchItem, ProviderBatchJob
 
 
 @dataclass(frozen=True)
@@ -58,6 +58,15 @@ class ProviderBatchImportResult:
     total_count: int
     missing_custom_ids: tuple[str, ...] = field(default_factory=tuple)
     job_imported: bool = False
+
+
+@dataclass(frozen=True)
+class _PreparedProviderBatchImport:
+    results_by_model_id: Mapping[int, Mapping[int, Any]]
+    imported_custom_ids: tuple[str, ...]
+    missing_custom_ids: tuple[str, ...]
+    already_imported_count: int
+    non_importable_count: int
 
 
 class ProviderBatchLibraryAdapter:
@@ -269,43 +278,34 @@ class ProviderBatchWorkflowService:
         )
 
         refreshed_job = self._require_job(job_id)
-        items_by_custom_id = {item.custom_id: item for item in refreshed_job.items}
-        results_by_image_id: dict[int, Any] = {}
-        imported_custom_ids: list[str] = []
-        missing_custom_ids: list[str] = list(apply_result.missing_custom_ids)
+        prepared = self._prepare_import_results(refreshed_job, normalized_fetch, apply_result)
 
-        for raw_item in normalized_fetch.items:
-            item = self._coerce_result_item(raw_item)
-            db_item = items_by_custom_id.get(item.custom_id)
-            if db_item is None or db_item.image_id is None:
-                missing_custom_ids.append(item.custom_id)
-                continue
-            if item.status not in {"succeeded", "completed", "imported"} or item.annotation is None:
-                continue
-            results_by_image_id[db_item.image_id] = item.annotation
-            imported_custom_ids.append(item.custom_id)
-
-        model_id = refreshed_job.model_id or self._first_item_model_id(refreshed_job)
-        if results_by_image_id and model_id is None:
-            raise ProviderBatchError(f"Provider batch import に model_id が必要です: job_id={job_id}")
-        self._validate_importable_job_state(refreshed_job, results_by_image_id)
-        model_name = self._model_name_for_job(refreshed_job, model_id)
-        save_result = self._annotation_save_service.save_provider_batch_results_by_image_id(
-            results_by_image_id,
-            model_id=model_id,
-            model_name=model_name,
+        importable_count = sum(
+            len(results_by_image_id) for results_by_image_id in prepared.results_by_model_id.values()
         )
+        self._validate_importable_job_state(refreshed_job, importable_count)
+        save_result = self._save_results_by_model(refreshed_job, prepared.results_by_model_id)
 
-        unique_missing_custom_ids = tuple(sorted(set(missing_custom_ids)))
+        unique_missing_custom_ids = tuple(sorted(set(prepared.missing_custom_ids)))
+        settled_count = save_result.success_count + prepared.already_imported_count
+        import_clean = (
+            save_result.error_count == 0
+            and save_result.skip_count == 0
+            and not unique_missing_custom_ids
+            and prepared.non_importable_count == 0
+        )
         job_imported = (
-            save_result.success_count > 0 and save_result.error_count == 0 and not unique_missing_custom_ids
+            bool(normalized_fetch.items) and settled_count == len(normalized_fetch.items) and import_clean
         )
         mark_imported_items = (
-            save_result.success_count == len(imported_custom_ids) and save_result.error_count == 0
+            save_result.success_count == len(prepared.imported_custom_ids)
+            and save_result.error_count == 0
+            and save_result.skip_count == 0
         )
         if mark_imported_items:
-            self._mark_items_imported(job_id, imported_custom_ids)
+            self._mark_items_imported(job_id, prepared.imported_custom_ids)
         if job_imported:
+            ProviderBatchJobService.validate_transition(refreshed_job.status, "imported")
             self._repository.update_provider_batch_job(
                 job_id,
                 {"status": "imported", "imported_at": datetime.now(UTC)},
@@ -315,7 +315,10 @@ class ProviderBatchWorkflowService:
             save_result=save_result,
             apply_result=apply_result,
             imported_count=save_result.success_count,
-            skipped_count=save_result.skip_count + len(unique_missing_custom_ids),
+            skipped_count=save_result.skip_count
+            + len(unique_missing_custom_ids)
+            + prepared.non_importable_count
+            + prepared.already_imported_count,
             error_count=save_result.error_count,
             total_count=len(normalized_fetch.items),
             missing_custom_ids=unique_missing_custom_ids,
@@ -323,11 +326,86 @@ class ProviderBatchWorkflowService:
         )
 
     @staticmethod
-    def _validate_importable_job_state(
-        job: ProviderBatchJob, results_by_image_id: Mapping[int, Any]
-    ) -> None:
-        if results_by_image_id:
+    def _validate_importable_job_state(job: ProviderBatchJob, importable_count: int) -> None:
+        if importable_count:
             ProviderBatchJobService.validate_transition(job.status, "imported")
+
+    def _prepare_import_results(
+        self,
+        job: ProviderBatchJob,
+        fetch_result: ProviderBatchFetchResult,
+        apply_result: ProviderBatchResultApplyResult,
+    ) -> _PreparedProviderBatchImport:
+        items_by_custom_id = {item.custom_id: item for item in job.items}
+        results_by_model_id: dict[int, dict[int, Any]] = {}
+        imported_custom_ids: list[str] = []
+        missing_custom_ids: list[str] = list(apply_result.missing_custom_ids)
+        already_imported_count = 0
+        non_importable_count = 0
+
+        for raw_item in fetch_result.items:
+            item = self._coerce_result_item(raw_item)
+            db_item = items_by_custom_id.get(item.custom_id)
+            if db_item is None or db_item.image_id is None:
+                missing_custom_ids.append(item.custom_id)
+                continue
+            if db_item.status == "imported":
+                already_imported_count += 1
+                continue
+            if item.status not in {"succeeded", "completed", "imported"} or item.annotation is None:
+                non_importable_count += 1
+                continue
+            model_id = self._model_id_for_item(job, db_item)
+            if model_id is None:
+                raise ProviderBatchError(f"Provider batch import に model_id が必要です: job_id={job.id}")
+            results_by_model_id.setdefault(model_id, {})[db_item.image_id] = item.annotation
+            imported_custom_ids.append(item.custom_id)
+
+        return _PreparedProviderBatchImport(
+            results_by_model_id=results_by_model_id,
+            imported_custom_ids=tuple(imported_custom_ids),
+            missing_custom_ids=tuple(missing_custom_ids),
+            already_imported_count=already_imported_count,
+            non_importable_count=non_importable_count,
+        )
+
+    def _save_results_by_model(
+        self,
+        job: ProviderBatchJob,
+        results_by_model_id: Mapping[int, Mapping[int, Any]],
+    ) -> AnnotationSaveResult:
+        if not results_by_model_id:
+            return AnnotationSaveResult(success_count=0, skip_count=0, error_count=0, total_count=0)
+
+        success_count = 0
+        skip_count = 0
+        error_count = 0
+        total_count = 0
+        error_details: list[str] = []
+        for model_id, results_by_image_id in results_by_model_id.items():
+            model_name = self._model_name_for_job(job, model_id)
+            result = self._annotation_save_service.save_provider_batch_results_by_image_id(
+                results_by_image_id,
+                model_id=model_id,
+                model_name=model_name,
+            )
+            success_count += result.success_count
+            skip_count += result.skip_count
+            error_count += result.error_count
+            total_count += result.total_count
+            error_details.extend(result.error_details)
+
+        return AnnotationSaveResult(
+            success_count=success_count,
+            skip_count=skip_count,
+            error_count=error_count,
+            total_count=total_count,
+            error_details=error_details,
+        )
+
+    @staticmethod
+    def _model_id_for_item(job: ProviderBatchJob, item: ProviderBatchItem) -> int | None:
+        return item.model_id if item.model_id is not None else job.model_id
 
     def _mark_items_imported(self, job_id: int, custom_ids: Sequence[str]) -> None:
         updates_by_custom_id = {custom_id: {"status": "imported"} for custom_id in custom_ids}
@@ -350,11 +428,18 @@ class ProviderBatchWorkflowService:
                 f"job_id={job_id}, expected={job.provider_job_id}, actual={provider_job_id}"
             )
 
+        current_items_by_custom_id = {item.custom_id: item for item in job.items}
         updates_by_custom_id: dict[str, dict[str, Any]] = {}
         for raw_item in items:
             item = self._coerce_result_item(raw_item)
+            current_item = current_items_by_custom_id.get(item.custom_id)
+            next_status = (
+                "imported"
+                if current_item is not None and current_item.status == "imported"
+                else item.status
+            )
             updates_by_custom_id[item.custom_id] = {
-                "status": item.status,
+                "status": next_status,
                 "error_type": item.error_type,
                 "error_message": item.error_message,
                 "raw_response": self._serialize_payload(item.raw_response),
@@ -490,16 +575,13 @@ class ProviderBatchWorkflowService:
         )
 
     @staticmethod
-    def _first_item_model_id(job: ProviderBatchJob) -> int | None:
-        for item in job.items:
-            if item.model_id is not None:
-                return item.model_id
-        return None
-
-    @staticmethod
     def _model_name_for_job(job: ProviderBatchJob, model_id: int | None) -> str:
         model = job.model
-        litellm_model_id = getattr(model, "litellm_model_id", None) if model is not None else None
+        litellm_model_id = (
+            getattr(model, "litellm_model_id", None)
+            if model is not None and job.model_id == model_id
+            else None
+        )
         if litellm_model_id:
             return str(litellm_model_id)
         if model_id is not None:

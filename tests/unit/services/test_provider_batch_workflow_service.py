@@ -438,11 +438,7 @@ class TestProviderBatchWorkflowService:
             ),
         )
 
-        annotation_save.save_provider_batch_results_by_image_id.assert_called_once_with(
-            {},
-            model_id=10,
-            model_name="__provider_batch_model_10__",
-        )
+        annotation_save.save_provider_batch_results_by_image_id.assert_not_called()
         assert result.missing_custom_ids == ("img-404",)
         assert result.job_imported is False
         job = test_repository.get_provider_batch_job(job_id)
@@ -500,6 +496,211 @@ class TestProviderBatchWorkflowService:
         assert job is not None
         assert job.status == "completed"
         assert job.imported_at is None
+
+    def test_fetch_results_preserves_imported_item_status(
+        self,
+        test_repository: ImageRepository,
+        batch_config: Mock,
+        db_session_factory: sessionmaker,
+    ) -> None:
+        adapter = FakeProviderBatchAdapter()
+        service = ProviderBatchWorkflowService(test_repository, batch_config, adapters={"openai": adapter})
+        _insert_image(db_session_factory, 1, "/tmp/images/one.webp")
+        job_id = service.submit_images(
+            provider="openai",
+            endpoint="responses",
+            litellm_model_id="openai/gpt-test",
+            prompt_profile="default",
+            image_ids=[1],
+            model_id=10,
+        )
+        test_repository.update_provider_batch_job(job_id, {"status": "completed"})
+        test_repository.update_provider_batch_items_by_custom_id(job_id, {"img-1": {"status": "imported"}})
+        adapter.fetch_result = ProviderBatchFetchResult(
+            provider_job_id="batch_123",
+            provider_status="completed",
+            items=(ProviderBatchResultItem("img-1", "succeeded", annotation={"tags": ["tag"]}),),
+        )
+
+        service.fetch_results(job_id)
+
+        assert test_repository.list_provider_batch_items(job_id)[0].status == "imported"
+
+    def test_import_results_preserves_imported_item_status_on_retry_error(
+        self,
+        test_repository: ImageRepository,
+        batch_config: Mock,
+        db_session_factory: sessionmaker,
+    ) -> None:
+        adapter = FakeProviderBatchAdapter()
+        annotation_save = Mock()
+        annotation_save.save_provider_batch_results_by_image_id.return_value = AnnotationSaveResult(
+            success_count=0,
+            skip_count=0,
+            error_count=1,
+            total_count=1,
+            error_details=["image_id=2: write failed"],
+        )
+        service = ProviderBatchWorkflowService(
+            test_repository,
+            batch_config,
+            adapters={"openai": adapter},
+            annotation_save_service=annotation_save,
+        )
+        _insert_image(db_session_factory, 1, "/tmp/images/one.webp")
+        _insert_image(db_session_factory, 2, "/tmp/images/two.webp")
+        job_id = service.submit_images(
+            provider="openai",
+            endpoint="responses",
+            litellm_model_id="openai/gpt-test",
+            prompt_profile="default",
+            image_ids=[1, 2],
+            model_id=10,
+        )
+        test_repository.update_provider_batch_items_by_custom_id(job_id, {"img-1": {"status": "imported"}})
+
+        result = service.import_results(
+            job_id,
+            ProviderBatchFetchResult(
+                provider_job_id="batch_123",
+                provider_status="completed",
+                items=(
+                    ProviderBatchResultItem("img-1", "succeeded", annotation={"tags": ["old"]}),
+                    ProviderBatchResultItem("img-2", "succeeded", annotation={"tags": ["new"]}),
+                ),
+            ),
+        )
+
+        assert result.error_count == 1
+        assert result.skipped_count == 1
+        items = {item.custom_id: item for item in test_repository.list_provider_batch_items(job_id)}
+        assert items["img-1"].status == "imported"
+        assert items["img-2"].status == "succeeded"
+        annotation_save.save_provider_batch_results_by_image_id.assert_called_once_with(
+            {2: {"tags": ["new"]}},
+            model_id=10,
+            model_name="__provider_batch_model_10__",
+        )
+
+    def test_import_results_preserves_per_item_model_ids(
+        self,
+        test_repository: ImageRepository,
+        batch_config: Mock,
+        db_session_factory: sessionmaker,
+    ) -> None:
+        adapter = FakeProviderBatchAdapter()
+        annotation_save = Mock()
+        annotation_save.save_provider_batch_results_by_image_id.return_value = AnnotationSaveResult(
+            success_count=1,
+            skip_count=0,
+            error_count=0,
+            total_count=1,
+        )
+        service = ProviderBatchWorkflowService(
+            test_repository,
+            batch_config,
+            adapters={"openai": adapter},
+            annotation_save_service=annotation_save,
+        )
+        model_id_1 = test_repository.insert_model(
+            name="gpt-test-a",
+            provider="openai",
+            model_types=["multimodal"],
+            litellm_model_id="openai/gpt-test-a",
+        )
+        model_id_2 = test_repository.insert_model(
+            name="gpt-test-b",
+            provider="openai",
+            model_types=["multimodal"],
+            litellm_model_id="openai/gpt-test-b",
+        )
+        _insert_image(db_session_factory, 1, "/tmp/images/one.webp")
+        _insert_image(db_session_factory, 2, "/tmp/images/two.webp")
+        job_id = service.submit_images(
+            provider="openai",
+            endpoint="responses",
+            litellm_model_id="openai/gpt-test-a",
+            prompt_profile="default",
+            image_ids=[1, 2],
+            model_id=model_id_1,
+        )
+        test_repository.update_provider_batch_items_by_custom_id(
+            job_id,
+            {"img-2": {"model_id": model_id_2}},
+        )
+
+        result = service.import_results(
+            job_id,
+            ProviderBatchFetchResult(
+                provider_job_id="batch_123",
+                provider_status="completed",
+                items=(
+                    ProviderBatchResultItem("img-1", "succeeded", annotation={"tags": ["one"]}),
+                    ProviderBatchResultItem("img-2", "succeeded", annotation={"tags": ["two"]}),
+                ),
+            ),
+        )
+
+        assert result.imported_count == 2
+        annotation_save.save_provider_batch_results_by_image_id.assert_any_call(
+            {1: {"tags": ["one"]}},
+            model_id=model_id_1,
+            model_name="openai/gpt-test-a",
+        )
+        annotation_save.save_provider_batch_results_by_image_id.assert_any_call(
+            {2: {"tags": ["two"]}},
+            model_id=model_id_2,
+            model_name=f"__provider_batch_model_{model_id_2}__",
+        )
+
+    def test_import_results_counts_non_importable_items_as_skipped(
+        self,
+        test_repository: ImageRepository,
+        batch_config: Mock,
+        db_session_factory: sessionmaker,
+    ) -> None:
+        adapter = FakeProviderBatchAdapter()
+        annotation_save = Mock()
+        annotation_save.save_provider_batch_results_by_image_id.return_value = AnnotationSaveResult(
+            success_count=1,
+            skip_count=0,
+            error_count=0,
+            total_count=1,
+        )
+        service = ProviderBatchWorkflowService(
+            test_repository,
+            batch_config,
+            adapters={"openai": adapter},
+            annotation_save_service=annotation_save,
+        )
+        _insert_image(db_session_factory, 1, "/tmp/images/one.webp")
+        _insert_image(db_session_factory, 2, "/tmp/images/two.webp")
+        job_id = service.submit_images(
+            provider="openai",
+            endpoint="responses",
+            litellm_model_id="openai/gpt-test",
+            prompt_profile="default",
+            image_ids=[1, 2],
+            model_id=10,
+        )
+
+        result = service.import_results(
+            job_id,
+            ProviderBatchFetchResult(
+                provider_job_id="batch_123",
+                provider_status="completed",
+                items=(
+                    ProviderBatchResultItem("img-1", "failed", annotation=None),
+                    ProviderBatchResultItem("img-2", "succeeded", annotation={"tags": ["tag"]}),
+                ),
+            ),
+        )
+
+        assert result.imported_count == 1
+        assert result.skipped_count == 1
+        assert result.error_count == 0
+        assert result.total_count == 2
+        assert result.job_imported is False
 
     def test_import_results_uses_fallback_job_id_when_object_result_omits_provider_job_id(
         self,
