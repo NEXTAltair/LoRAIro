@@ -20,7 +20,7 @@ from rich.table import Table
 
 from lorairo.cli._console import make_console
 from lorairo.cli._glyphs import FAIL, OK
-from lorairo.cli.commands import annotate, export, images, models, project
+from lorairo.cli.commands import annotate, batch, export, images, models, project
 from lorairo.services.service_container import get_service_container
 from lorairo.utils.config import DEFAULT_CLI_LOG_PATH, DEFAULT_CONFIG_PATH
 from lorairo.utils.log import initialize_logging
@@ -51,6 +51,7 @@ console = make_console()
 app.add_typer(project.app, name="project", help="Project management commands")
 app.add_typer(images.app, name="images", help="Image management commands")
 app.add_typer(annotate.app, name="annotate", help="Annotation commands")
+app.add_typer(batch.app, name="batch", help="Provider Batch job management commands")
 app.add_typer(export.app, name="export", help="Dataset export commands")
 app.add_typer(models.app, name="models", help="Model registry commands")
 
