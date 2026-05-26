@@ -31,11 +31,23 @@ the code-editing session that applies fixes in the existing worktree.
 ## Core Policy
 
 - Continue in the same agent session and same dedicated worktree used to create the PR.
-- For agent PRs, the GitHub Actions watcher in `.github/workflows/agent-pr-maintainer.yml` may normalize
-  draft state, persist the hidden PR state marker, and expose gate failures.
-- The watcher observes Codex review artifacts; it must not post `@codex review` or otherwise trigger Codex
-  review from GitHub Actions. Rely on repository-level Codex Automatic Reviews, or on a connected human/user
-  manually requesting review when needed.
+- Create agent PRs ready for review by default. Do not pass `--draft` to `gh pr create` unless the user
+  explicitly asked for draft-only publication or the implementation is not reviewable yet.
+- Immediately after creating a PR, enforce the no-draft postcondition before polling CI or setting up auto-merge:
+
+  ```bash
+  IS_DRAFT="$(gh pr view "$PR" --json isDraft -q .isDraft)"
+  if [ "$IS_DRAFT" = "true" ]; then
+    gh pr ready "$PR"
+  fi
+
+  IS_DRAFT="$(gh pr view "$PR" --json isDraft -q .isDraft)"
+  if [ "$IS_DRAFT" = "true" ]; then
+    echo "PR is still draft; aborting auto-merge setup."
+    exit 1
+  fi
+  ```
+
 - Do not stop at the draft PR URL when the PR is reviewable. First mark it ready for review, then immediately
   enter the polling workflow.
 - Leave a PR in draft only when the user explicitly asked for draft-only publication, local validation is
@@ -50,10 +62,8 @@ the code-editing session that applies fixes in the existing worktree.
 - Allow up to 4 repair loops.
 - If repair loops continue after the 4th attempt, or review fixes create more design-level review findings,
   stop and escalate to design discussion.
-- Merge without human intervention only when bot review has completed cleanly, required checks are clean, and
-  the repository has explicitly opted into automation such as `AGENT_PR_AUTO_MERGE=true`.
+- Merge without human intervention only when bot review has completed cleanly and required checks are clean.
 - Treat an empty review/comment set as "review not completed yet", not as clean.
-- Treat stale review artifacts for older head SHAs as not applicable to the current PR head.
 - Use squash merge.
 
 ## Polling Workflow
@@ -85,10 +95,6 @@ Review completion gate:
   blocking review comments.
 - If CI is green but there are no reviews/comments/reactions yet, keep waiting until the 20 minute polling timeout.
 - Only treat review as clean after a bot review artifact exists and contains no blocking findings.
-- The clean review artifact must match the current head SHA. Do not merge based on a stale review from an
-  earlier commit.
-- Ignore connector failure comments such as `To use Codex here, create a Codex account and connect to github.`;
-  they mean Codex review did not run.
 - If no bot review artifact appears within 20 minutes, comment on the PR in Japanese that CI is green but
   review did not complete within the polling window, then stop without merging.
 
@@ -159,17 +165,10 @@ Not allowed in automatic repair:
 
 - `.github/workflows/**` changes
 - GitHub Actions permission changes
-- Branch protection, ruleset, CODEOWNERS, or repository policy changes
 - Secret or environment configuration changes
 - Direct push to main/default branch
 - Git history rewriting
 - Large design rewrites
-
-The bootstrap PR that introduces `.github/workflows/agent-pr-maintainer.yml` is privileged and must be manually
-reviewed. Do not treat that bootstrap exception as permission for future automatic repair loops to modify
-workflows, permissions, secrets, or repository policy.
-Do not rely on PR-body marker text to authorize forbidden workflow/secret/policy changes. The marker is
-diagnostic state; privileged exceptions must be explicit and tied to trusted base-branch state.
 
 On escalation:
 
@@ -183,6 +182,8 @@ On escalation:
 Before merge, verify:
 
 - PR is not draft.
+- The PR creation postcondition confirmed `isDraft == false`; if the PR is still draft, do not run
+  `gh pr merge --auto`.
 - Head SHA matches the last checked SHA.
 - Required checks are successful.
 - Bot review has completed and has no blocking findings.
@@ -198,28 +199,10 @@ gh pr merge "$PR" --squash --auto --delete-branch --match-head-commit "$HEAD_SHA
 
 ## State
 
-Keep loop count, latest checked head SHA, and review-generation observations in session memory while actively
-repairing the PR. The GitHub Actions watcher also stores the latest observed state in a hidden PR body marker:
-
-```markdown
-<!-- agent-pr-maintainer
-{
-  "loop": 0,
-  "last_checked_head_sha": "abc123",
-  "last_reviewed_head_sha": null,
-  "status": "observing"
-}
--->
-```
-
-When resuming maintenance in a new session, read this marker before deciding whether the current head SHA has
-already been checked. If the marker is absent, reconstruct state from `gh pr view` and continue conservatively.
-Set `status` to `repairing` before applying automatic repair commits so the watcher enforces forbidden-change
-checks for workflow and secret/env paths.
+Keep loop count, latest checked head SHA, and review-generation observations in session memory. Do not add
+persistent state for now. If the session is lost, stop; the user will give a fresh instruction.
 
 ## References
 
 - `docs/decisions/0039-agent-pr-maintenance-automation.md`
-- `docs/decisions/0040-agent-pr-maintenance-workflow-runner.md`
-- `.github/workflows/agent-pr-maintainer.yml`
 - `AGENTS.md`
