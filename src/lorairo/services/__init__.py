@@ -23,6 +23,12 @@ from .provider_batch_service import (
     ProviderBatchStatus,
     ProviderBatchSubmission,
 )
+from .provider_batch_workflow_service import (
+    ProviderBatchLibraryAdapter,
+    ProviderBatchResultApplyResult,
+    ProviderBatchResultItem,
+    ProviderBatchWorkflowService,
+)
 from .service_container import ServiceContainer, get_service_container
 
 __all__ = [
@@ -41,8 +47,12 @@ __all__ = [
     "ProviderBatchArtifacts",
     "ProviderBatchError",
     "ProviderBatchJobService",
+    "ProviderBatchLibraryAdapter",
+    "ProviderBatchResultApplyResult",
+    "ProviderBatchResultItem",
     "ProviderBatchStatus",
     "ProviderBatchSubmission",
+    "ProviderBatchWorkflowService",
     "ServiceContainer",
     "format_datetime_for_display",
     "get_service_container",

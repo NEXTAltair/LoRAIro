@@ -122,6 +122,24 @@ class TestProviderBatchRepository:
         assert len(failed_items) == 1
         assert failed_items[0].error_message == "bad request"
 
+        updated_custom_ids = test_repository.update_provider_batch_items_by_custom_id(
+            job_id,
+            {
+                "img-1-model-1-task-tags-run-abcd": {
+                    "status": "imported",
+                    "raw_response": '{"ok":true}',
+                },
+                "img-missing": {
+                    "status": "failed",
+                    "error_type": "missing",
+                },
+            },
+        )
+        assert updated_custom_ids == {"img-1-model-1-task-tags-run-abcd"}
+        imported_items = test_repository.list_provider_batch_items(job_id, status="imported")
+        assert len(imported_items) == 1
+        assert imported_items[0].raw_response == '{"ok":true}'
+
         assert test_repository.delete_provider_batch_job(job_id)
         assert test_repository.get_provider_batch_job(job_id) is None
         assert test_repository.list_provider_batch_items(job_id) == []
@@ -165,3 +183,9 @@ class TestProviderBatchRepository:
 
         with pytest.raises(ValueError):
             test_repository.update_provider_batch_item_by_custom_id(job_id, "missing", {"custom_id": "x"})
+
+        with pytest.raises(ValueError):
+            test_repository.update_provider_batch_items_by_custom_id(
+                job_id,
+                {"missing": {"custom_id": "x"}},
+            )

@@ -1,7 +1,7 @@
 """DBリポジトリ"""
 
 import datetime
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from pathlib import Path
 from typing import Any, ClassVar, cast
 
@@ -3071,6 +3071,43 @@ class ImageRepository:
             except SQLAlchemyError as e:
                 session.rollback()
                 logger.error(f"Provider batch item 更新中にエラーが発生しました: {e}", exc_info=True)
+                raise
+
+    def update_provider_batch_items_by_custom_id(
+        self,
+        job_id: int,
+        updates_by_custom_id: Mapping[str, Mapping[str, Any]],
+    ) -> set[str]:
+        """job_id + custom_id ごとの Provider Batch API job item 更新を 1 transaction で反映する。"""
+        for updates in updates_by_custom_id.values():
+            invalid_fields = set(updates) - self.PROVIDER_BATCH_ITEM_UPDATE_FIELDS
+            if invalid_fields:
+                raise ValueError(f"更新できない provider batch item フィールド: {sorted(invalid_fields)}")
+        if not updates_by_custom_id:
+            return set()
+
+        with self.session_factory() as session:
+            try:
+                updated_custom_ids: set[str] = set()
+                for custom_id, updates in updates_by_custom_id.items():
+                    if not updates:
+                        continue
+                    stmt = (
+                        update(ProviderBatchItem)
+                        .where(
+                            ProviderBatchItem.job_id == job_id,
+                            ProviderBatchItem.custom_id == custom_id,
+                        )
+                        .values(**dict(updates), updated_at=func.now())
+                    )
+                    result = cast(CursorResult[Any], session.execute(stmt))
+                    if result.rowcount:
+                        updated_custom_ids.add(custom_id)
+                session.commit()
+                return updated_custom_ids
+            except SQLAlchemyError as e:
+                session.rollback()
+                logger.error(f"Provider batch item 一括更新中にエラーが発生しました: {e}", exc_info=True)
                 raise
 
     def create_provider_batch_artifact(self, data: ProviderBatchArtifactData) -> int:
