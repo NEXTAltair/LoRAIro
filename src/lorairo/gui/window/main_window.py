@@ -42,6 +42,7 @@ from ..widgets.error_log_viewer_dialog import ErrorLogViewerDialog
 from ..widgets.error_notification_widget import ErrorNotificationWidget
 from ..widgets.filter_search_panel import FilterSearchPanel
 from ..widgets.image_preview import ImagePreviewWidget
+from ..widgets.provider_batch_job_widget import ProviderBatchJobWidget
 from ..widgets.quick_tag_dialog import QuickTagDialog
 from ..widgets.selected_image_details_widget import SelectedImageDetailsWidget
 from ..widgets.tag_management_dialog import TagManagementDialog
@@ -88,6 +89,7 @@ class MainWindow(QMainWindow, Ui_MainWindow):
     thumbnail_selector: ThumbnailSelectorWidget | None
     image_preview_widget: ImagePreviewWidget | None
     selected_image_details_widget: SelectedImageDetailsWidget | None
+    provider_batch_job_widget: ProviderBatchJobWidget | None
 
     # Tab widget (programmatically created)
     tabWidgetMainMode: QTabWidget
@@ -373,6 +375,9 @@ class MainWindow(QMainWindow, Ui_MainWindow):
         # BatchTagAddWidget再配置（Phase 2.5統合、Day 2）
         WidgetSetupService.setup_batch_tag_tab_widgets(self)
 
+        # Provider Batch job management tab (Issue #483)
+        self._setup_provider_batch_tab()
+
         # QTabWidget初期化（タブ切り替え用）
         self._setup_tab_widget()
 
@@ -426,6 +431,25 @@ class MainWindow(QMainWindow, Ui_MainWindow):
         # 初期表示は画像詳細タブ（インデックス0）
         self.tab_widget_right_panel.setCurrentIndex(0)
         logger.info("tabWidgetRightPanel initialized with 1 tab: 画像詳細")
+
+    def _setup_provider_batch_tab(self) -> None:
+        """Add the Provider Batch job management tab without editing generated UI."""
+        self.provider_batch_job_widget = None
+        if not hasattr(self, "tabWidgetMainMode") or not self.tabWidgetMainMode:
+            logger.warning("tabWidgetMainMode not found - provider batch tab skipped")
+            return
+
+        try:
+            self.provider_batch_job_widget = ProviderBatchJobWidget(
+                service_container=self.service_container,
+                dataset_state_manager=self.dataset_state_manager,
+                parent=self,
+            )
+            self.tabWidgetMainMode.addTab(self.provider_batch_job_widget, "Provider Batch")
+            logger.info("Provider Batch job management tab added")
+        except Exception as e:
+            logger.error(f"Provider Batch tab setup failed: {e}", exc_info=True)
+            self.provider_batch_job_widget = None
 
     def _show_error_log_dialog(self) -> None:
         """エラーログダイアログを表示（オンデマンド）"""
@@ -1614,6 +1638,10 @@ class MainWindow(QMainWindow, Ui_MainWindow):
         elif index == 1:  # バッチタグ
             logger.info("Switched to Batch Tag tab")
             self._refresh_batch_tag_staging()
+        elif self.tabWidgetMainMode.widget(index) is getattr(self, "provider_batch_job_widget", None):
+            logger.info("Switched to Provider Batch tab")
+            if self.provider_batch_job_widget is not None:
+                self.provider_batch_job_widget.refresh_jobs()
         else:
             logger.warning(f"Unknown tab index: {index}")
 
