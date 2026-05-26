@@ -355,6 +355,9 @@ class ProviderBatchJobWidget(QWidget):
     def _on_job_selection_changed(self) -> None:
         selected = self.tableJobs.selectedItems()
         if not selected:
+            self._current_job_id = None
+            self.textEditJobDetail.clear()
+            self.tableItems.setRowCount(0)
             return
         job_id = selected[0].data(Qt.ItemDataRole.UserRole)
         self._current_job_id = int(job_id)
@@ -419,6 +422,11 @@ class ProviderBatchJobWidget(QWidget):
             return None
         return self._current_job_id
 
+    def _handle_action_error(self, action: str, error: Exception) -> None:
+        logger.error(f"Provider Batch {action} failed: {error}", exc_info=True)
+        QMessageBox.critical(self, "Provider Batch", str(error))
+        self.labelStatus.setText(f"{action.capitalize()} failed")
+
     @Slot()
     def refresh_selected_job_status(self) -> None:
         job_id = self._require_current_job_id()
@@ -432,6 +440,8 @@ class ProviderBatchJobWidget(QWidget):
         except ProviderBatchError as e:
             QMessageBox.warning(self, "Provider Batch", str(e))
             self.labelStatus.setText(str(e))
+        except Exception as e:
+            self._handle_action_error("refresh", e)
 
     @Slot()
     def cancel_selected_job(self) -> None:
@@ -446,6 +456,8 @@ class ProviderBatchJobWidget(QWidget):
         except ProviderBatchError as e:
             QMessageBox.warning(self, "Provider Batch", str(e))
             self.labelStatus.setText(str(e))
+        except Exception as e:
+            self._handle_action_error("cancel", e)
 
     @Slot()
     def fetch_selected_job(self) -> None:
@@ -462,6 +474,8 @@ class ProviderBatchJobWidget(QWidget):
         except ProviderBatchError as e:
             QMessageBox.warning(self, "Provider Batch", str(e))
             self.labelStatus.setText(str(e))
+        except Exception as e:
+            self._handle_action_error("fetch", e)
 
     @Slot()
     def import_selected_job(self) -> None:
@@ -478,3 +492,5 @@ class ProviderBatchJobWidget(QWidget):
         except ProviderBatchError as e:
             QMessageBox.warning(self, "Provider Batch", str(e))
             self.labelStatus.setText(str(e))
+        except Exception as e:
+            self._handle_action_error("import", e)

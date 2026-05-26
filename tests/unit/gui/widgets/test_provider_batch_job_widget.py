@@ -191,3 +191,33 @@ def test_refresh_cancel_fetch_import_actions_call_workflow(widget, dependencies)
     workflow.fetch_results.assert_called_once_with(42)
     workflow.import_results.assert_called_once_with(42)
     assert "Imported 1/1" in widget.labelStatus.text()
+
+
+@pytest.mark.unit
+@pytest.mark.gui
+def test_clearing_job_selection_resets_current_job(widget, dependencies):
+    workflow, repository, model_source = dependencies
+    widget.set_dependencies(workflow, repository, model_source)
+    widget.tableJobs.selectRow(0)
+
+    widget.tableJobs.clearSelection()
+
+    assert widget._current_job_id is None
+    assert widget.textEditJobDetail.toPlainText() == ""
+    assert widget.tableItems.rowCount() == 0
+
+
+@pytest.mark.unit
+@pytest.mark.gui
+def test_action_handlers_catch_unexpected_errors(widget, dependencies, monkeypatch):
+    workflow, repository, model_source = dependencies
+    widget.set_dependencies(workflow, repository, model_source)
+    widget.tableJobs.selectRow(0)
+    workflow.cancel.side_effect = RuntimeError("adapter exploded")
+    critical = MagicMock()
+    monkeypatch.setattr("lorairo.gui.widgets.provider_batch_job_widget.QMessageBox.critical", critical)
+
+    widget.cancel_selected_job()
+
+    critical.assert_called_once()
+    assert widget.labelStatus.text() == "Cancel failed"
