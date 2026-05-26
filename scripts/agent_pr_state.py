@@ -66,7 +66,7 @@ def _build_state(
     *,
     pr_state_path: Path,
     existing_body_path: Path,
-    status: str,
+    status: str | None,
     loop: int | None,
 ) -> AgentPrState:
     pr_state = _read_json(pr_state_path)
@@ -76,12 +76,17 @@ def _build_state(
     head_sha = str(pr_state["headRefOid"])
     next_loop = loop if loop is not None else (existing_state.loop if existing_state is not None else 0)
     reviewed_sha = existing_state.last_reviewed_head_sha if existing_state is not None else None
+    next_status = (
+        status
+        if status is not None
+        else (existing_state.status if existing_state is not None else "observing")
+    )
 
     return AgentPrState(
         loop=next_loop,
         last_checked_head_sha=head_sha,
         last_reviewed_head_sha=reviewed_sha,
-        status=status,
+        status=next_status,
     )
 
 
@@ -106,6 +111,18 @@ def show(args: argparse.Namespace) -> int:
     return 0
 
 
+def head_sha(args: argparse.Namespace) -> int:
+    state = _read_json(Path(args.state_file))
+    print(str(state["headRefOid"]))
+    return 0
+
+
+def base_ref(args: argparse.Namespace) -> int:
+    state = _read_json(Path(args.state_file))
+    print(str(state["baseRefName"]))
+    return 0
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     subparsers = parser.add_subparsers(required=True)
@@ -114,13 +131,21 @@ def main() -> int:
     update_parser.add_argument("--body-file", required=True)
     update_parser.add_argument("--state-file", required=True)
     update_parser.add_argument("--output", required=True)
-    update_parser.add_argument("--status", default="observing")
+    update_parser.add_argument("--status")
     update_parser.add_argument("--loop", type=int)
     update_parser.set_defaults(func=update_body)
 
     show_parser = subparsers.add_parser("show")
     show_parser.add_argument("--body-file", required=True)
     show_parser.set_defaults(func=show)
+
+    head_sha_parser = subparsers.add_parser("head-sha")
+    head_sha_parser.add_argument("--state-file", required=True)
+    head_sha_parser.set_defaults(func=head_sha)
+
+    base_ref_parser = subparsers.add_parser("base-ref")
+    base_ref_parser.add_argument("--state-file", required=True)
+    base_ref_parser.set_defaults(func=base_ref)
 
     args = parser.parse_args()
     return int(args.func(args))

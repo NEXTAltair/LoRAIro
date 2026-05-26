@@ -25,16 +25,20 @@ GitHub Actions 上で実行する。
 - タイトルが `[codex]` または `[claude]` で始まる
 - `workflow_dispatch` で PR 番号または URL が明示された
 
+workflow runner は `pull_request_target` で起動し、policy script は base branch 側の trusted checkout
+から実行する。PR head は `pr/` に別 checkout し、検査対象としてのみ扱う。
+
 workflow runner は以下を行う。
 
-1. PR branch を checkout する
+1. base branch を `trusted/` に checkout し、PR branch を `pr/` に checkout する
 2. `gh pr ready "$PR" || true` で Draft PR を ready 化する
 3. PR 作成 / 更新で自動実行される Codex review artifact を待つ
 4. PR state / checks / reviews / review comments / issue comments / reactions を `gh` / REST API で取得する
 5. PR body に `agent-pr-maintainer` hidden marker を保存し、確認済み head SHA と状態を永続化する
 6. PR marker が `repairing` の場合、自動修正で禁止される `.github/workflows/**` と
-   secret / env 系 path を検出する
-7. Codex bot review artifact が存在し、blocking finding が残っていないことを check として検証する
+   secret / env 系 path を PR の実 base branch との差分で検出する
+7. 現在の head SHA に対する Codex bot review artifact が存在し、blocking finding が残っていないことを
+   check として検証する
 8. repository variable `AGENT_PR_AUTO_MERGE=true` が明示された場合のみ、
    `gh pr merge --squash --auto --delete-branch --match-head-commit "$HEAD_SHA"` を実行する
 
@@ -45,9 +49,13 @@ trigger コメントも投稿しない。Codex review はPR作成 / 更新時の
 
 ## Rationale
 
-GitHub Actions に ready 化、review trigger、状態取得、gate 判定を移すことで、PR 作成エージェントの
+GitHub Actions に ready 化、状態取得、gate 判定を移すことで、PR 作成エージェントの
 セッションが落ちても、PR 側に次の判断材料が残る。PR body の hidden marker は、外部 storage を
 導入せずに head SHA と loop/status を復元するための最小の永続化手段である。
+
+policy script を PR head から実行すると、PR author が gate 自体を書き換えて通過できる。
+そのため runner は base branch 側 checkout の script を実行し、PR head checkout は diff / file state
+の検査対象としてのみ扱う。
 
 merge は GitHub の required checks / branch protection / auto-merge に寄せる。
 Codex review は merge 判断の参考信号ではなく、`check_codex_review_gate.py` の exit code を通じて
@@ -60,9 +68,9 @@ conversation resolution が確実に設定される前に、workflow だけで m
 
 **良い点:**
 
-- Draft PR の ready 化と Codex review trigger を人間の手順から外せる
+- Draft PR の ready 化を人間の手順から外せる
 - PR body marker により、別セッションでも確認済み head SHA と状態を復元できる
-- Bot review blocking 判定と禁止変更検出が機械的な check になる
+- Bot review blocking 判定と禁止変更検出が base branch 側 policy による機械的な check になる
 - auto-merge は branch protection と `--match-head-commit` に委譲できる
 
 **悪い点:**
@@ -70,6 +78,8 @@ conversation resolution が確実に設定される前に、workflow だけで m
 - `.github/workflows/**` 変更を禁止する check と、この workflow 自体の導入は別扱いにする必要がある
 - Bot review の blocking 判定は文言ベースを含むため、Codex 側の表現変更に合わせた調整が必要
 - workflow は修正 commit を生成しないため、CI failure の自動修復には Codex / Claude Code の再実行が必要
+- 初回導入 PR は base branch に runner / policy script がまだ存在しないため、人間レビューで
+  bootstrap 変更として扱う必要がある
 
 ## Related
 

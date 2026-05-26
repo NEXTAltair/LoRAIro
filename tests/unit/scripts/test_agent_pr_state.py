@@ -9,6 +9,7 @@ AgentPrState = agent_pr_state.AgentPrState
 extract_state = agent_pr_state.extract_state
 render_marker = agent_pr_state.render_marker
 upsert_state = agent_pr_state.upsert_state
+build_state = agent_pr_state._build_state
 
 
 def test_upsert_state_adds_hidden_marker() -> None:
@@ -59,3 +60,26 @@ def test_render_marker_outputs_json_payload() -> None:
     payload = marker.removeprefix("<!-- agent-pr-maintainer\n").removesuffix("\n-->")
 
     assert json.loads(payload)["last_checked_head_sha"] == "abc123"
+
+
+def test_build_state_preserves_existing_status_when_not_overridden(tmp_path) -> None:
+    body_file = tmp_path / "body.md"
+    state_file = tmp_path / "state.json"
+    existing = AgentPrState(
+        loop=2,
+        last_checked_head_sha="old",
+        last_reviewed_head_sha="reviewed",
+        status="repairing",
+    )
+    body_file.write_text(upsert_state("body", existing), encoding="utf-8")
+    state_file.write_text(json.dumps({"headRefOid": "new"}), encoding="utf-8")
+
+    updated = build_state(
+        pr_state_path=state_file,
+        existing_body_path=body_file,
+        status=None,
+        loop=None,
+    )
+
+    assert updated.status == "repairing"
+    assert updated.last_checked_head_sha == "new"

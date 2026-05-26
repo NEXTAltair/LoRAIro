@@ -1,12 +1,12 @@
 name: Agent PR Maintainer
 
 on:
-  pull_request:
+  pull_request_target:
     types: [opened, ready_for_review, synchronize, reopened, labeled]
   pull_request_review:
-    types: [submitted, edited]
+    types: [submitted, edited, dismissed]
   issue_comment:
-    types: [created, edited]
+    types: [created, edited, deleted]
   workflow_dispatch:
     inputs:
       pr:
@@ -26,7 +26,7 @@ jobs:
     if: >-
       github.event_name == 'workflow_dispatch' ||
       (
-        github.event_name == 'pull_request' &&
+        github.event_name == 'pull_request_target' &&
         (
           contains(github.event.pull_request.labels.*.name, 'agent-pr') ||
           startsWith(github.event.pull_request.title, '[codex]') ||
@@ -53,35 +53,49 @@ jobs:
       AGENT_PR_AUTO_MERGE: ${{ vars.AGENT_PR_AUTO_MERGE || 'false' }}
 
     steps:
-      - name: Checkout repository
+      - name: Checkout trusted policy scripts
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
           submodules: recursive
+          path: trusted
 
       - name: Verify agent PR scope
         id: scope
+        working-directory: trusted
         run: |
           if [ "${GITHUB_EVENT_NAME}" = "workflow_dispatch" ]; then
+            head_sha="$(gh pr view "$PR" --json headRefOid -q .headRefOid)"
             echo "is_agent_pr=true" >> "${GITHUB_OUTPUT}"
+            echo "head_sha=${head_sha}" >> "${GITHUB_OUTPUT}"
             exit 0
           fi
 
           is_agent_pr="$(gh pr view "$PR" --json title,labels \
             -q 'if ((.labels | map(.name) | index("agent-pr")) or (.title | startswith("[codex]")) or (.title | startswith("[claude]"))) then "true" else "false" end')"
+          head_sha="$(gh pr view "$PR" --json headRefOid -q .headRefOid)"
           echo "is_agent_pr=${is_agent_pr}" >> "${GITHUB_OUTPUT}"
+          echo "head_sha=${head_sha}" >> "${GITHUB_OUTPUT}"
 
-      - name: Checkout PR branch
+      - name: Checkout PR branch for diff inspection
         if: steps.scope.outputs.is_agent_pr == 'true'
-        run: gh pr checkout "$PR"
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ github.repository }}
+          ref: ${{ steps.scope.outputs.head_sha }}
+          fetch-depth: 0
+          submodules: recursive
+          path: pr
 
       - name: Normalize PR state
-        if: steps.scope.outputs.is_agent_pr == 'true' && (github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch')
+        if: steps.scope.outputs.is_agent_pr == 'true' && (github.event_name == 'pull_request_target' || github.event_name == 'workflow_dispatch')
+        working-directory: trusted
         run: |
           gh pr ready "$PR" || true
 
       - name: Inspect PR state
         if: steps.scope.outputs.is_agent_pr == 'true'
+        working-directory: trusted
         run: |
           gh pr view "$PR" --json \
             number,title,isDraft,headRefName,headRefOid,baseRefName,mergeStateStatus,reviewDecision,statusCheckRollup,labels \
@@ -95,23 +109,31 @@ jobs:
 
       - name: Persist watcher state marker
         if: steps.scope.outputs.is_agent_pr == 'true'
+        working-directory: trusted
         run: |
           gh pr view "$PR" --json body -q .body > pr-body.md
           python scripts/agent_pr_state.py update-body \
             --body-file pr-body.md \
             --state-file pr-state.json \
-            --status observing \
             --output pr-body-updated.md
           gh pr edit "$PR" --body-file pr-body-updated.md
 
       - name: Check forbidden automatic-repair changes
         if: steps.scope.outputs.is_agent_pr == 'true'
-        run: python scripts/check_agent_forbidden_changes.py --base-ref origin/main --state-marker-body pr-body-updated.md
+        working-directory: pr
+        run: |
+          BASE_REF="$(python ../trusted/scripts/agent_pr_state.py base-ref --state-file ../trusted/pr-state.json)"
+          git fetch origin "${BASE_REF}" --depth=1
+          python ../trusted/scripts/check_agent_forbidden_changes.py \
+            --base-ref "origin/${BASE_REF}" \
+            --state-marker-body ../trusted/pr-body-updated.md
 
       - name: Check Codex review gate
         if: steps.scope.outputs.is_agent_pr == 'true'
+        working-directory: trusted
         run: |
           python scripts/check_codex_review_gate.py \
+            --head-sha "$(python scripts/agent_pr_state.py head-sha --state-file pr-state.json)" \
             --reviews pr-reviews.json \
             --review-comments pr-review-comments.json \
             --issue-comments pr-issue-comments.json \
@@ -119,6 +141,7 @@ jobs:
 
       - name: Enable auto-merge when explicitly allowed
         if: steps.scope.outputs.is_agent_pr == 'true' && env.AGENT_PR_AUTO_MERGE == 'true'
+        working-directory: trusted
         run: |
           HEAD_SHA="$(python -c 'import json; print(json.load(open("pr-state.json"))["headRefOid"])')"
           gh pr merge "$PR" \
@@ -133,9 +156,9 @@ jobs:
         with:
           name: agent-pr-maintainer-${{ github.run_id }}
           path: |
-            pr-state.json
-            pr-checks.json
-            pr-reviews.json
-            pr-review-comments.json
-            pr-issue-comments.json
-            pr-reactions.json
+            trusted/pr-state.json
+            trusted/pr-checks.json
+            trusted/pr-reviews.json
+            trusted/pr-review-comments.json
+            trusted/pr-issue-comments.json
+            trusted/pr-reactions.json
