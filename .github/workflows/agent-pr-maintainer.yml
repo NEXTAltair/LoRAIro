@@ -52,6 +52,7 @@ jobs:
     runs-on: ubuntu-latest
     env:
       GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
       PR: ${{ github.event_name == 'workflow_dispatch' && inputs.pr || github.event.pull_request.number || github.event.issue.number }}
       AGENT_PR_AUTO_MERGE: ${{ vars.AGENT_PR_AUTO_MERGE || 'false' }}
 
