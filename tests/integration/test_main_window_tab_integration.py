@@ -31,12 +31,13 @@ class TestMainWindowTabInitialization:
         assert main_window_with_tabs.tabWidgetMainMode is not None
         assert isinstance(main_window_with_tabs.tabWidgetMainMode, QTabWidget)
 
-    def test_two_tabs_created(self, main_window_with_tabs):
-        """2つのタブ（ワークスペース、バッチタグ）が作成される"""
+    def test_three_tabs_created(self, main_window_with_tabs):
+        """3つのタブ（ワークスペース、バッチタグ、Provider Batch）が作成される"""
         tab_widget = main_window_with_tabs.tabWidgetMainMode
-        assert tab_widget.count() == 2
+        assert tab_widget.count() == 3
         assert tab_widget.tabText(0) == "ワークスペース"
         assert tab_widget.tabText(1) == "バッチタグ"
+        assert tab_widget.tabText(2) == "Provider Batch"
 
     def test_workspace_tab_contains_splitter(self, main_window_with_tabs):
         """ワークスペースタブにsplitterMainWorkAreaが含まれる"""
@@ -66,6 +67,13 @@ class TestMainWindowTabInitialization:
         # 操作パネルが存在
         operations_group = batch_tag_tab.findChild(object, "groupBoxBatchOperations")
         assert operations_group is not None
+
+    def test_provider_batch_tab_structure(self, main_window_with_tabs):
+        """Provider Batchタブが適切な構造を持つ"""
+        provider_batch_tab = main_window_with_tabs.tabWidgetMainMode.widget(2)
+        assert provider_batch_tab is not None
+        assert provider_batch_tab.objectName() == "providerBatchJobWidget"
+        assert main_window_with_tabs.provider_batch_job_widget is provider_batch_tab
 
 
 class TestTabSwitching:
@@ -101,6 +109,15 @@ class TestTabSwitching:
         qtbot.wait(10)
 
         assert tab_widget.currentIndex() == 0
+
+    def test_can_switch_to_provider_batch_tab(self, main_window_with_tabs, qtbot):
+        """Provider Batchタブに切り替えられる"""
+        tab_widget = main_window_with_tabs.tabWidgetMainMode
+
+        tab_widget.setCurrentIndex(2)
+        qtbot.wait(10)
+
+        assert tab_widget.currentIndex() == 2
 
 
 class TestBatchTagWidgetIntegration:
