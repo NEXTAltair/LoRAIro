@@ -31,6 +31,8 @@ the code-editing session that applies fixes in the existing worktree.
 ## Core Policy
 
 - Continue in the same agent session and same dedicated worktree used to create the PR.
+- For agent PRs, the GitHub Actions watcher in `.github/workflows/agent-pr-maintainer.yml` may normalize
+  draft state, trigger Codex review, persist the hidden PR state marker, and expose gate failures.
 - Do not stop at the draft PR URL when the PR is reviewable. First mark it ready for review, then immediately
   enter the polling workflow.
 - Leave a PR in draft only when the user explicitly asked for draft-only publication, local validation is
@@ -180,10 +182,26 @@ gh pr merge "$PR" --squash --auto --delete-branch --match-head-commit "$HEAD_SHA
 
 ## State
 
-Keep loop count, latest checked head SHA, and review-generation observations in session memory. Do not add
-persistent state for now. If the session is lost, stop; the user will give a fresh instruction.
+Keep loop count, latest checked head SHA, and review-generation observations in session memory while actively
+repairing the PR. The GitHub Actions watcher also stores the latest observed state in a hidden PR body marker:
+
+```markdown
+<!-- agent-pr-maintainer
+{
+  "loop": 0,
+  "last_checked_head_sha": "abc123",
+  "last_reviewed_head_sha": null,
+  "status": "observing"
+}
+-->
+```
+
+When resuming maintenance in a new session, read this marker before deciding whether the current head SHA has
+already been checked. If the marker is absent, reconstruct state from `gh pr view` and continue conservatively.
 
 ## References
 
 - `docs/decisions/0039-agent-pr-maintenance-automation.md`
+- `docs/decisions/0040-agent-pr-maintenance-workflow-runner.md`
+- `.github/workflows/agent-pr-maintainer.yml`
 - `AGENTS.md`
