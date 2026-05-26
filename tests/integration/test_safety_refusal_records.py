@@ -381,7 +381,12 @@ def test_get_image_ids_by_filepaths_isolates_row_resolution_failures(
         failures.append(image_id_arg)
         return None  # helper 自体が失敗をキャプチャした体で None 返却
 
-    monkeypatch.setattr(ImageRepository, "_safe_resolve_stored_path", staticmethod(flaky_safe_resolve))
+    # ADR 0035 段階 4: `_safe_resolve_stored_path` は新 `repository.image.ImageRepository`
+    # に移設済み。レガシー facade (`db_repository.ImageRepository`) は delegating wrapper
+    # を持つだけなので、static helper の patch は新クラス側に当てる。
+    from lorairo.database.repository.image import ImageRepository as _NewImageRepository
+
+    monkeypatch.setattr(_NewImageRepository, "_safe_resolve_stored_path", staticmethod(flaky_safe_resolve))
 
     result = repo.get_image_ids_by_filepaths([file_path, "/nonexistent/foo.png"])
 

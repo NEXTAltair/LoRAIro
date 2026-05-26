@@ -33,7 +33,9 @@ class TestGetImagesMetadataBatch:
         repository.session_factory.return_value.__exit__ = Mock(return_value=False)
 
         expected = [{"id": 1, "filename": "a.jpg"}, {"id": 2, "filename": "b.jpg"}]
-        with patch.object(repository, "_fetch_filtered_metadata", return_value=expected) as mock_fetch:
+        with patch.object(
+            repository._image_repo, "_fetch_filtered_metadata", return_value=expected
+        ) as mock_fetch:
             result = repository.get_images_metadata_batch([1, 2])
 
         mock_fetch.assert_called_once_with(mock_session, [1, 2], resolution=0)
@@ -47,7 +49,7 @@ class TestGetImagesMetadataBatch:
         repository.session_factory.return_value.__exit__ = Mock(return_value=False)
 
         with patch.object(
-            repository,
+            repository._image_repo,
             "_fetch_filtered_metadata",
             side_effect=[
                 [{"id": 1}, {"id": 2}, {"id": 3}],
@@ -67,7 +69,7 @@ class TestGetImagesMetadataBatch:
         repository.session_factory.return_value.__exit__ = Mock(return_value=False)
 
         with patch.object(
-            repository,
+            repository._image_repo,
             "_fetch_filtered_metadata",
             return_value=[{"id": 1}, {"id": 2}, {"id": 3}],
         ) as mock_fetch:
@@ -84,7 +86,7 @@ class TestGetImagesMetadataBatch:
         repository.session_factory.return_value.__exit__ = Mock(return_value=False)
 
         with patch.object(
-            repository,
+            repository._image_repo,
             "_fetch_filtered_metadata",
             side_effect=[
                 [{"id": 1}, {"id": 2}, {"id": 3}],
@@ -107,7 +109,7 @@ class TestGetImagesMetadataBatch:
         repository.session_factory.return_value.__exit__ = Mock(return_value=False)
 
         with patch.object(
-            repository,
+            repository._image_repo,
             "_fetch_filtered_metadata",
             return_value=[{"id": 99}],
         ) as mock_fetch:
@@ -124,7 +126,7 @@ class TestGetImagesMetadataBatch:
         repository.session_factory.return_value.__exit__ = Mock(return_value=False)
 
         with patch.object(
-            repository,
+            repository._image_repo,
             "_fetch_filtered_metadata",
             side_effect=[
                 [{"id": 1}, {"id": 2}],
@@ -143,7 +145,7 @@ class TestGetImagesMetadataBatch:
         repository.session_factory.return_value.__exit__ = Mock(return_value=False)
 
         with patch.object(
-            repository,
+            repository._image_repo,
             "_fetch_filtered_metadata",
             side_effect=SQLAlchemyError("test"),
         ):
