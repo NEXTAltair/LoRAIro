@@ -115,6 +115,13 @@ def _handle_error(error: Exception) -> None:
     raise typer.Exit(code=1) from error
 
 
+def _validate_submit_provider(provider: str) -> str:
+    provider_key = provider.strip().lower()
+    if provider_key == "google":
+        raise ProviderBatchError("Google Provider Batch is disabled / not configured until Phase 3.")
+    return provider_key
+
+
 @app.command("submit")
 def submit(
     project: str = typer.Option(..., "--project", "-p", help="Project name"),
@@ -137,8 +144,9 @@ def submit(
     """Submit images to a Provider Batch job."""
     try:
         container = _active_container(project)
+        provider_key = _validate_submit_provider(provider)
         job_id = container.provider_batch_workflow_service.submit_images(
-            provider=provider,
+            provider=provider_key,
             endpoint=endpoint,
             litellm_model_id=model,
             prompt_profile=prompt_profile,

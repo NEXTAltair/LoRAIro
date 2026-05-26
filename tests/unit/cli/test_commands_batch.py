@@ -142,6 +142,34 @@ def test_submit_prints_service_error(mock_get_container: MagicMock) -> None:
 @pytest.mark.unit
 @pytest.mark.cli
 @patch("lorairo.cli.commands.batch.get_service_container")
+def test_submit_rejects_google_until_phase3(mock_get_container: MagicMock) -> None:
+    container, workflow, _repository = _container()
+    mock_get_container.return_value = container
+
+    result = runner.invoke(
+        app,
+        [
+            "batch",
+            "submit",
+            "-p",
+            "demo",
+            "--provider",
+            "google",
+            "--model",
+            "gemini-2.0-flash",
+            "--image-id",
+            "10",
+        ],
+    )
+
+    assert result.exit_code == 1
+    workflow.submit_images.assert_not_called()
+    assert "disabled / not configured" in result.stdout
+
+
+@pytest.mark.unit
+@pytest.mark.cli
+@patch("lorairo.cli.commands.batch.get_service_container")
 def test_list_shows_jobs_with_filters(mock_get_container: MagicMock) -> None:
     container, _workflow, repository = _container()
     repository.list_provider_batch_jobs.return_value = [_job()]
