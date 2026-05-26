@@ -1472,6 +1472,7 @@ class ImageRepository:
                 stmt = (
                     select(ProviderBatchJob)
                     .options(
+                        selectinload(ProviderBatchJob.model),
                         selectinload(ProviderBatchJob.items),
                         selectinload(ProviderBatchJob.artifacts),
                     )

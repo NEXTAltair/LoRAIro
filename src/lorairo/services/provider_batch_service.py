@@ -141,6 +141,37 @@ class ProviderBatchArtifacts:
     raw_provider_payload: ProviderBatchRawPayload = None
 
 
+@dataclass(frozen=True)
+class ProviderBatchResultItem:
+    """Provider-neutral normalized batch result item."""
+
+    custom_id: str
+    status: str
+    annotation: Any | None = None
+    error_type: str | None = None
+    error_message: str | None = None
+    raw_response: ProviderBatchRawPayload = None
+
+
+@dataclass(frozen=True)
+class ProviderBatchFetchResult:
+    """Provider adapter の normalized fetch/import 結果。"""
+
+    provider_job_id: str
+    provider_status: str
+    status: str | None = None
+    request_count: int | None = None
+    succeeded_count: int | None = None
+    failed_count: int | None = None
+    canceled_count: int | None = None
+    expired_count: int | None = None
+    completed_at: datetime | None = None
+    expires_at: datetime | None = None
+    artifacts: tuple[ProviderBatchArtifactRef, ...] = field(default_factory=tuple)
+    items: tuple[ProviderBatchResultItem, ...] = field(default_factory=tuple)
+    raw_provider_payload: ProviderBatchRawPayload = None
+
+
 class ProviderBatchAdapter(Protocol):
     """image-annotator-lib batch API client interface."""
 
@@ -158,8 +189,10 @@ class ProviderBatchAdapter(Protocol):
         """Provider batch job を cancel する。"""
         ...
 
-    def fetch_batch_results(self, handle: BatchJobHandle, destination_dir: Path) -> ProviderBatchArtifacts:
-        """Provider batch job の output/error artifacts を download する。"""
+    def fetch_batch_results(
+        self, handle: BatchJobHandle, destination_dir: Path
+    ) -> ProviderBatchFetchResult:
+        """Provider batch job の normalized result と artifacts を取得する。"""
         ...
 
 
@@ -399,26 +432,67 @@ class ProviderBatchJobService:
         destination_dir: Path,
         api_keys: Mapping[str, str] | None = None,
     ) -> ProviderBatchArtifacts:
-        """Provider result artifacts を download し、artifact records を保存する。"""
+        """Provider result artifacts を download し、artifact records を保存する。
+
+        互換 wrapper。正規化済み result item を扱う新規経路は ``fetch_results()`` を使う。
+        """
+        fetch_result = self.fetch_results(job_id, destination_dir, api_keys=api_keys)
+        return ProviderBatchArtifacts(
+            provider_job_id=fetch_result.provider_job_id,
+            artifacts=fetch_result.artifacts,
+            raw_provider_payload=fetch_result.raw_provider_payload,
+        )
+
+    def fetch_results(
+        self,
+        job_id: int,
+        destination_dir: Path,
+        api_keys: Mapping[str, str] | None = None,
+    ) -> ProviderBatchFetchResult:
+        """Provider result を取得し、job/artifact metadata を保存する。"""
         job = self._require_job(job_id)
         if job.provider_job_id is None:
             raise ProviderBatchError(f"provider_job_id が未設定です: job_id={job_id}")
 
+        fetch_result = self._fetch_from_adapter(job, destination_dir, api_keys)
+        self._validate_provider_job_id(job, fetch_result.provider_job_id)
+
+        updates = self._register_fetch_artifacts(job_id, fetch_result.artifacts)
+        updates.update(self._build_fetch_job_updates(job, fetch_result))
+        if fetch_result.raw_provider_payload is not None:
+            updates["raw_provider_payload"] = self._serialize_payload(fetch_result.raw_provider_payload)
+        if updates:
+            self._repository.update_provider_batch_job(job_id, updates)
+
+        return fetch_result
+
+    def _fetch_from_adapter(
+        self,
+        job: ProviderBatchJob,
+        destination_dir: Path,
+        api_keys: Mapping[str, str] | None,
+    ) -> ProviderBatchFetchResult:
         adapter = self._get_adapter(job.provider)
         if hasattr(adapter, "fetch_batch_results"):
-            artifacts = adapter.fetch_batch_results(self._build_handle(job, api_keys), destination_dir)
+            raw_result = adapter.fetch_batch_results(self._build_handle(job, api_keys), destination_dir)
         else:
-            artifacts = adapter.download_results(  # type: ignore[attr-defined]
-                job.provider_job_id, destination_dir
+            raw_result = adapter.download_results(  # type: ignore[attr-defined]
+                job.provider_job_id,
+                destination_dir,
             )
-        self._validate_provider_job_id(job, artifacts.provider_job_id)
+        return self._coerce_fetch_result(raw_result, job.provider_job_id or "")
 
+    def _register_fetch_artifacts(
+        self,
+        job_id: int,
+        artifacts: tuple[ProviderBatchArtifactRef, ...],
+    ) -> dict[str, Any]:
         updates: dict[str, Any] = {}
         existing_artifact_keys = {
             (registered.artifact_type, registered.local_path)
             for registered in self._repository.list_provider_batch_artifacts(job_id)
         }
-        for artifact in artifacts.artifacts:
+        for artifact in artifacts:
             local_path = str(artifact.local_path)
             artifact_key = (artifact.artifact_type, local_path)
             if artifact_key not in existing_artifact_keys:
@@ -438,13 +512,31 @@ class ProviderBatchJobService:
                 updates["output_artifact_path"] = local_path
             elif artifact.artifact_type == "error":
                 updates["error_artifact_path"] = local_path
+        return updates
 
-        if artifacts.raw_provider_payload is not None:
-            updates["raw_provider_payload"] = self._serialize_payload(artifacts.raw_provider_payload)
-        if updates:
-            self._repository.update_provider_batch_job(job_id, updates)
-
-        return artifacts
+    def _build_fetch_job_updates(
+        self,
+        job: ProviderBatchJob,
+        fetch_result: ProviderBatchFetchResult,
+    ) -> dict[str, Any]:
+        updates: dict[str, Any] = {}
+        provider_status = fetch_result.status or fetch_result.provider_status
+        if provider_status:
+            next_status = self.normalize_status(job.provider, provider_status)
+            self.validate_transition(job.status, next_status)
+            updates["status"] = next_status
+            updates["provider_status"] = fetch_result.provider_status
+        optional_fields = {
+            "request_count": fetch_result.request_count,
+            "succeeded_count": fetch_result.succeeded_count,
+            "failed_count": fetch_result.failed_count,
+            "canceled_count": fetch_result.canceled_count,
+            "expired_count": fetch_result.expired_count,
+            "completed_at": fetch_result.completed_at,
+            "expires_at": fetch_result.expires_at,
+        }
+        updates.update({key: value for key, value in optional_fields.items() if value is not None})
+        return updates
 
     @classmethod
     def normalize_status(cls, provider: str, provider_status: str) -> str:
@@ -507,6 +599,102 @@ class ProviderBatchJobService:
         if refreshed is None:
             raise ProviderBatchError(f"更新後の provider batch job が見つかりません: job_id={job.id}")
         return refreshed
+
+    @classmethod
+    def _coerce_fetch_result(
+        cls,
+        result: ProviderBatchFetchResult | ProviderBatchArtifacts | Mapping[str, Any] | Any,
+        fallback_provider_job_id: str,
+    ) -> ProviderBatchFetchResult:
+        if isinstance(result, ProviderBatchFetchResult):
+            return result
+        if isinstance(result, ProviderBatchArtifacts):
+            return ProviderBatchFetchResult(
+                provider_job_id=result.provider_job_id,
+                provider_status="completed",
+                artifacts=result.artifacts,
+                raw_provider_payload=result.raw_provider_payload,
+            )
+        if isinstance(result, Mapping):
+            provider_job_id = cls._optional_str(result.get("provider_job_id")) or fallback_provider_job_id
+            provider_status = cls._optional_str(result.get("provider_status") or result.get("status"))
+            if provider_status is None:
+                provider_status = "completed"
+            return ProviderBatchFetchResult(
+                provider_job_id=provider_job_id,
+                provider_status=provider_status,
+                status=cls._optional_str(result.get("status")),
+                request_count=cls._optional_int(result.get("request_count")),
+                succeeded_count=cls._optional_int(result.get("succeeded_count")),
+                failed_count=cls._optional_int(result.get("failed_count")),
+                canceled_count=cls._optional_int(result.get("canceled_count")),
+                expired_count=cls._optional_int(result.get("expired_count")),
+                completed_at=result.get("completed_at"),
+                expires_at=result.get("expires_at"),
+                artifacts=tuple(result.get("artifacts") or ()),
+                items=tuple(cls._coerce_result_item(item) for item in result.get("items") or ()),
+                raw_provider_payload=result.get("raw_provider_payload"),
+            )
+
+        provider_job_id = (
+            cls._optional_str(getattr(result, "provider_job_id", None)) or fallback_provider_job_id
+        )
+        provider_status = cls._optional_str(
+            getattr(result, "provider_status", None) or getattr(result, "status", None)
+        )
+        if provider_status is None:
+            provider_status = "completed"
+        return ProviderBatchFetchResult(
+            provider_job_id=provider_job_id,
+            provider_status=provider_status,
+            status=cls._optional_str(getattr(result, "status", None)),
+            request_count=cls._optional_int(getattr(result, "request_count", None)),
+            succeeded_count=cls._optional_int(getattr(result, "succeeded_count", None)),
+            failed_count=cls._optional_int(getattr(result, "failed_count", None)),
+            canceled_count=cls._optional_int(getattr(result, "canceled_count", None)),
+            expired_count=cls._optional_int(getattr(result, "expired_count", None)),
+            completed_at=getattr(result, "completed_at", None),
+            expires_at=getattr(result, "expires_at", None),
+            artifacts=tuple(getattr(result, "artifacts", ()) or ()),
+            items=tuple(cls._coerce_result_item(item) for item in getattr(result, "items", ()) or ()),
+            raw_provider_payload=getattr(result, "raw_provider_payload", None),
+        )
+
+    @classmethod
+    def _coerce_result_item(
+        cls, item: ProviderBatchResultItem | Mapping[str, Any] | Any
+    ) -> ProviderBatchResultItem:
+        if isinstance(item, ProviderBatchResultItem):
+            return item
+        if isinstance(item, Mapping):
+            error = item.get("error")
+            return ProviderBatchResultItem(
+                custom_id=str(item["custom_id"]),
+                status=str(item["status"]),
+                annotation=item.get("annotation"),
+                error_type=cls._optional_str(
+                    item.get("error_type") or cls._extract_error_field(error, "type")
+                ),
+                error_message=cls._optional_str(
+                    item.get("error_message")
+                    or item.get("message")
+                    or cls._extract_error_field(error, "message")
+                ),
+                raw_response=item.get("raw_response"),
+            )
+        error = getattr(item, "error", None)
+        return ProviderBatchResultItem(
+            custom_id=str(item.custom_id),
+            status=str(item.status),
+            annotation=getattr(item, "annotation", None),
+            error_type=cls._optional_str(
+                getattr(item, "error_type", None) or cls._extract_error_field(error, "type")
+            ),
+            error_message=cls._optional_str(
+                getattr(item, "error_message", None) or cls._extract_error_field(error, "message")
+            ),
+            raw_response=getattr(item, "raw_response", None),
+        )
 
     def _require_job(self, job_id: int) -> ProviderBatchJob:
         job = self._repository.get_provider_batch_job(job_id)
@@ -573,6 +761,26 @@ class ProviderBatchJobService:
     @staticmethod
     def _normalize_provider_name(provider: str) -> str:
         return provider.strip().lower()
+
+    @staticmethod
+    def _optional_str(value: Any) -> str | None:
+        if value is None:
+            return None
+        return str(value)
+
+    @staticmethod
+    def _optional_int(value: Any) -> int | None:
+        if value is None:
+            return None
+        return int(value)
+
+    @staticmethod
+    def _extract_error_field(error: Any, field_name: str) -> Any:
+        if error is None:
+            return None
+        if isinstance(error, Mapping):
+            return error.get(field_name) or error.get(f"error_{field_name}")
+        return getattr(error, field_name, None) or getattr(error, f"error_{field_name}", None)
 
     @staticmethod
     def _serialize_payload(payload: ProviderBatchRawPayload) -> str | None:

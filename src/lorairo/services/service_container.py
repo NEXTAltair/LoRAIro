@@ -303,6 +303,7 @@ class ServiceContainer:
                 self.image_repository,
                 self.config_service,
                 adapters=adapters,
+                annotation_save_service=self.annotation_save_service,
             )
             logger.debug("ProviderBatchWorkflowService初期化完了")
         return self._provider_batch_workflow_service

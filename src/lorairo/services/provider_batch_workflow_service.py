@@ -10,10 +10,12 @@ from __future__ import annotations
 import json
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from lorairo.database.db_repository import ImageRepository
+from lorairo.services.annotation_save_service import AnnotationSaveResult, AnnotationSaveService
 from lorairo.services.configuration_service import ConfigurationService
 from lorairo.services.provider_batch_service import (
     BatchJobHandle,
@@ -22,24 +24,15 @@ from lorairo.services.provider_batch_service import (
     ProviderBatchAdapter,
     ProviderBatchArtifacts,
     ProviderBatchError,
+    ProviderBatchFetchResult,
     ProviderBatchJobService,
     ProviderBatchRawPayload,
+    ProviderBatchResultItem,
 )
 from lorairo.utils.log import logger
 
 if TYPE_CHECKING:
     from lorairo.database.schema import ProviderBatchJob
-
-
-@dataclass(frozen=True)
-class ProviderBatchResultItem:
-    """Provider-neutral batch result item state for LoRAIro persistence."""
-
-    custom_id: str
-    status: str
-    error_type: str | None = None
-    error_message: str | None = None
-    raw_response: ProviderBatchRawPayload = None
 
 
 @dataclass(frozen=True)
@@ -50,6 +43,20 @@ class ProviderBatchResultApplyResult:
     missing_count: int
     total_count: int
     missing_custom_ids: tuple[str, ...] = field(default_factory=tuple)
+
+
+@dataclass(frozen=True)
+class ProviderBatchImportResult:
+    """Summary of importing normalized provider batch results into annotations."""
+
+    save_result: AnnotationSaveResult
+    apply_result: ProviderBatchResultApplyResult
+    imported_count: int
+    skipped_count: int
+    error_count: int
+    total_count: int
+    missing_custom_ids: tuple[str, ...] = field(default_factory=tuple)
+    job_imported: bool = False
 
 
 class ProviderBatchLibraryAdapter:
@@ -87,10 +94,12 @@ class ProviderBatchWorkflowService:
         config_service: ConfigurationService,
         job_service: ProviderBatchJobService | None = None,
         adapters: Mapping[str, ProviderBatchAdapter] | None = None,
+        annotation_save_service: AnnotationSaveService | None = None,
     ) -> None:
         self._repository = repository
         self._config_service = config_service
         self._job_service = job_service or ProviderBatchJobService(repository, adapters)
+        self._annotation_save_service = annotation_save_service or AnnotationSaveService(repository)
 
     def register_adapter(self, adapter: ProviderBatchAdapter) -> None:
         """Register a provider adapter with the underlying job service."""
@@ -200,15 +209,113 @@ class ProviderBatchWorkflowService:
         destination_dir: str | Path | None = None,
     ) -> ProviderBatchArtifacts:
         """Download provider artifacts into the configured batch results directory by default."""
+        fetch_result = self.fetch_results(job_id, destination_dir)
+        return ProviderBatchArtifacts(
+            provider_job_id=fetch_result.provider_job_id,
+            artifacts=fetch_result.artifacts,
+            raw_provider_payload=fetch_result.raw_provider_payload,
+        )
+
+    def fetch_results(
+        self,
+        job_id: int,
+        destination_dir: str | Path | None = None,
+    ) -> ProviderBatchFetchResult:
+        """Fetch normalized provider results and apply per-item result state."""
         resolved_destination = (
             Path(destination_dir)
             if destination_dir is not None
             else self._config_service.get_batch_results_directory()
         )
-        return self._job_service.download_results(
+        fetch_result = self._job_service.fetch_results(
             job_id,
             resolved_destination,
             api_keys=self._config_service.get_api_keys(),
+        )
+        if fetch_result.items:
+            self.apply_result_items(job_id, fetch_result.provider_job_id, fetch_result.items)
+        return fetch_result
+
+    def import_results(
+        self,
+        job_id: int,
+        fetch_result: ProviderBatchFetchResult | Mapping[str, Any] | Any | None = None,
+        destination_dir: str | Path | None = None,
+    ) -> ProviderBatchImportResult:
+        """Import normalized provider batch results using custom_id as the mapping SSoT."""
+        job = self._require_job(job_id)
+        if job.status == "imported" or job.imported_at is not None:
+            raise ProviderBatchError(f"Provider batch job は import 済みです: job_id={job_id}")
+        if job.provider_job_id is None:
+            raise ProviderBatchError(f"provider_job_id が未設定です: job_id={job_id}")
+
+        normalized_fetch = (
+            self._coerce_fetch_result(fetch_result, job.provider_job_id)
+            if fetch_result is not None
+            else self.fetch_results(job_id, destination_dir)
+        )
+        if normalized_fetch.provider_job_id != job.provider_job_id:
+            raise ProviderBatchError(
+                "Provider batch import job ID mismatch: "
+                f"job_id={job_id}, expected={job.provider_job_id}, actual={normalized_fetch.provider_job_id}"
+            )
+        self._apply_fetch_job_state(job, normalized_fetch)
+
+        apply_result = (
+            self.apply_result_items(job_id, normalized_fetch.provider_job_id, normalized_fetch.items)
+            if normalized_fetch.items
+            else ProviderBatchResultApplyResult(updated_count=0, missing_count=0, total_count=0)
+        )
+
+        refreshed_job = self._require_job(job_id)
+        items_by_custom_id = {item.custom_id: item for item in refreshed_job.items}
+        results_by_image_id: dict[int, Any] = {}
+        imported_custom_ids: list[str] = []
+        missing_custom_ids: list[str] = list(apply_result.missing_custom_ids)
+
+        for raw_item in normalized_fetch.items:
+            item = self._coerce_result_item(raw_item)
+            db_item = items_by_custom_id.get(item.custom_id)
+            if db_item is None or db_item.image_id is None:
+                missing_custom_ids.append(item.custom_id)
+                continue
+            if item.status not in {"succeeded", "completed", "imported"} or item.annotation is None:
+                continue
+            results_by_image_id[db_item.image_id] = item.annotation
+            imported_custom_ids.append(item.custom_id)
+
+        model_id = refreshed_job.model_id or self._first_item_model_id(refreshed_job)
+        if results_by_image_id and model_id is None:
+            raise ProviderBatchError(f"Provider batch import に model_id が必要です: job_id={job_id}")
+        model_name = self._model_name_for_job(refreshed_job, model_id)
+        save_result = self._annotation_save_service.save_provider_batch_results_by_image_id(
+            results_by_image_id,
+            model_id=model_id,
+            model_name=model_name,
+        )
+
+        unique_missing_custom_ids = tuple(sorted(set(missing_custom_ids)))
+        job_imported = (
+            bool(normalized_fetch.items) and save_result.error_count == 0 and not unique_missing_custom_ids
+        )
+        if job_imported:
+            updates_by_custom_id = {custom_id: {"status": "imported"} for custom_id in imported_custom_ids}
+            if updates_by_custom_id:
+                self._repository.update_provider_batch_items_by_custom_id(job_id, updates_by_custom_id)
+            self._repository.update_provider_batch_job(
+                job_id,
+                {"status": "imported", "imported_at": datetime.now(UTC)},
+            )
+
+        return ProviderBatchImportResult(
+            save_result=save_result,
+            apply_result=apply_result,
+            imported_count=save_result.success_count,
+            skipped_count=save_result.skip_count + len(unique_missing_custom_ids),
+            error_count=save_result.error_count,
+            total_count=len(normalized_fetch.items),
+            missing_custom_ids=unique_missing_custom_ids,
+            job_imported=job_imported,
         )
 
     def apply_result_items(
@@ -254,6 +361,90 @@ class ProviderBatchWorkflowService:
             missing_custom_ids=tuple(missing_custom_ids),
         )
 
+    def _apply_fetch_job_state(
+        self,
+        job: ProviderBatchJob,
+        fetch_result: ProviderBatchFetchResult,
+    ) -> None:
+        provider_status = fetch_result.status or fetch_result.provider_status
+        if not provider_status:
+            return
+        next_status = ProviderBatchJobService.normalize_status(job.provider, provider_status)
+        ProviderBatchJobService.validate_transition(job.status, next_status)
+        updates: dict[str, Any] = {
+            "status": next_status,
+            "provider_status": fetch_result.provider_status,
+        }
+        optional_fields = {
+            "request_count": fetch_result.request_count,
+            "succeeded_count": fetch_result.succeeded_count,
+            "failed_count": fetch_result.failed_count,
+            "canceled_count": fetch_result.canceled_count,
+            "expired_count": fetch_result.expired_count,
+            "completed_at": fetch_result.completed_at,
+            "expires_at": fetch_result.expires_at,
+        }
+        updates.update({key: value for key, value in optional_fields.items() if value is not None})
+        self._repository.update_provider_batch_job(job.id, updates)
+
+    def _require_job(self, job_id: int) -> ProviderBatchJob:
+        job = self._repository.get_provider_batch_job(job_id)
+        if job is None:
+            raise ProviderBatchError(f"Provider batch job が見つかりません: job_id={job_id}")
+        return job
+
+    @classmethod
+    def _coerce_fetch_result(
+        cls,
+        result: ProviderBatchFetchResult | ProviderBatchArtifacts | Mapping[str, Any] | Any,
+        fallback_provider_job_id: str,
+    ) -> ProviderBatchFetchResult:
+        if isinstance(result, ProviderBatchFetchResult):
+            return result
+        if isinstance(result, ProviderBatchArtifacts):
+            return ProviderBatchFetchResult(
+                provider_job_id=result.provider_job_id,
+                provider_status="completed",
+                artifacts=result.artifacts,
+                raw_provider_payload=result.raw_provider_payload,
+            )
+        if isinstance(result, Mapping):
+            return ProviderBatchFetchResult(
+                provider_job_id=str(result.get("provider_job_id") or fallback_provider_job_id),
+                provider_status=str(result.get("provider_status") or result.get("status") or "completed"),
+                status=cls._optional_str(result.get("status")),
+                artifacts=tuple(result.get("artifacts") or ()),
+                items=tuple(cls._coerce_result_item(item) for item in result.get("items") or ()),
+                raw_provider_payload=result.get("raw_provider_payload"),
+            )
+        return ProviderBatchFetchResult(
+            provider_job_id=str(getattr(result, "provider_job_id", fallback_provider_job_id)),
+            provider_status=str(
+                getattr(result, "provider_status", None) or getattr(result, "status", None) or "completed"
+            ),
+            status=cls._optional_str(getattr(result, "status", None)),
+            artifacts=tuple(getattr(result, "artifacts", ()) or ()),
+            items=tuple(cls._coerce_result_item(item) for item in getattr(result, "items", ()) or ()),
+            raw_provider_payload=getattr(result, "raw_provider_payload", None),
+        )
+
+    @staticmethod
+    def _first_item_model_id(job: ProviderBatchJob) -> int | None:
+        for item in job.items:
+            if item.model_id is not None:
+                return item.model_id
+        return None
+
+    @staticmethod
+    def _model_name_for_job(job: ProviderBatchJob, model_id: int | None) -> str:
+        model = job.model
+        litellm_model_id = getattr(model, "litellm_model_id", None) if model is not None else None
+        if litellm_model_id:
+            return str(litellm_model_id)
+        if model_id is not None:
+            return f"__provider_batch_model_{model_id}__"
+        return "__provider_batch_model_unknown__"
+
     @classmethod
     def _coerce_result_item(
         cls, item: ProviderBatchResultItem | Mapping[str, Any] | Any
@@ -261,18 +452,32 @@ class ProviderBatchWorkflowService:
         if isinstance(item, ProviderBatchResultItem):
             return item
         if isinstance(item, Mapping):
+            error = item.get("error")
             return ProviderBatchResultItem(
                 custom_id=str(item["custom_id"]),
                 status=str(item["status"]),
-                error_type=cls._optional_str(item.get("error_type")),
-                error_message=cls._optional_str(item.get("error_message")),
+                annotation=item.get("annotation"),
+                error_type=cls._optional_str(
+                    item.get("error_type") or cls._extract_error_field(error, "type")
+                ),
+                error_message=cls._optional_str(
+                    item.get("error_message")
+                    or item.get("message")
+                    or cls._extract_error_field(error, "message")
+                ),
                 raw_response=item.get("raw_response"),
             )
+        error = getattr(item, "error", None)
         return ProviderBatchResultItem(
             custom_id=str(item.custom_id),
             status=str(item.status),
-            error_type=cls._optional_str(getattr(item, "error_type", None)),
-            error_message=cls._optional_str(getattr(item, "error_message", None)),
+            annotation=getattr(item, "annotation", None),
+            error_type=cls._optional_str(
+                getattr(item, "error_type", None) or cls._extract_error_field(error, "type")
+            ),
+            error_message=cls._optional_str(
+                getattr(item, "error_message", None) or cls._extract_error_field(error, "message")
+            ),
             raw_response=getattr(item, "raw_response", None),
         )
 
@@ -289,3 +494,11 @@ class ProviderBatchWorkflowService:
         if isinstance(payload, str):
             return payload
         return json.dumps(payload, ensure_ascii=False, sort_keys=True)
+
+    @staticmethod
+    def _extract_error_field(error: Any, field_name: str) -> Any:
+        if error is None:
+            return None
+        if isinstance(error, Mapping):
+            return error.get(field_name) or error.get(f"error_{field_name}")
+        return getattr(error, field_name, None) or getattr(error, f"error_{field_name}", None)
