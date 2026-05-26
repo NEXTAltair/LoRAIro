@@ -33,6 +33,9 @@ the code-editing session that applies fixes in the existing worktree.
 - Continue in the same agent session and same dedicated worktree used to create the PR.
 - For agent PRs, the GitHub Actions watcher in `.github/workflows/agent-pr-maintainer.yml` may normalize
   draft state, persist the hidden PR state marker, and expose gate failures.
+- The watcher observes Codex review artifacts; it must not post `@codex review` or otherwise trigger Codex
+  review from GitHub Actions. Rely on repository-level Codex Automatic Reviews, or on a connected human/user
+  manually requesting review when needed.
 - Do not stop at the draft PR URL when the PR is reviewable. First mark it ready for review, then immediately
   enter the polling workflow.
 - Leave a PR in draft only when the user explicitly asked for draft-only publication, local validation is
@@ -47,8 +50,10 @@ the code-editing session that applies fixes in the existing worktree.
 - Allow up to 4 repair loops.
 - If repair loops continue after the 4th attempt, or review fixes create more design-level review findings,
   stop and escalate to design discussion.
-- Merge without human intervention only when bot review has completed cleanly and required checks are clean.
+- Merge without human intervention only when bot review has completed cleanly, required checks are clean, and
+  the repository has explicitly opted into automation such as `AGENT_PR_AUTO_MERGE=true`.
 - Treat an empty review/comment set as "review not completed yet", not as clean.
+- Treat stale review artifacts for older head SHAs as not applicable to the current PR head.
 - Use squash merge.
 
 ## Polling Workflow
@@ -80,6 +85,10 @@ Review completion gate:
   blocking review comments.
 - If CI is green but there are no reviews/comments/reactions yet, keep waiting until the 20 minute polling timeout.
 - Only treat review as clean after a bot review artifact exists and contains no blocking findings.
+- The clean review artifact must match the current head SHA. Do not merge based on a stale review from an
+  earlier commit.
+- Ignore connector failure comments such as `To use Codex here, create a Codex account and connect to github.`;
+  they mean Codex review did not run.
 - If no bot review artifact appears within 20 minutes, comment on the PR in Japanese that CI is green but
   review did not complete within the polling window, then stop without merging.
 
@@ -150,10 +159,15 @@ Not allowed in automatic repair:
 
 - `.github/workflows/**` changes
 - GitHub Actions permission changes
+- Branch protection, ruleset, CODEOWNERS, or repository policy changes
 - Secret or environment configuration changes
 - Direct push to main/default branch
 - Git history rewriting
 - Large design rewrites
+
+The bootstrap PR that introduces `.github/workflows/agent-pr-maintainer.yml` is privileged and must be manually
+reviewed. Do not treat that bootstrap exception as permission for future automatic repair loops to modify
+workflows, permissions, secrets, or repository policy.
 
 On escalation:
 

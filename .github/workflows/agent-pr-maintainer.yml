@@ -14,11 +14,11 @@ on:
         description: PR number or URL
 
 permissions:
-  contents: write
+  contents: read
   pull-requests: write
   checks: read
   actions: read
-  issues: write
+  issues: read
 
 jobs:
   maintain:
@@ -137,7 +137,7 @@ jobs:
             --state-marker-body ../trusted/pr-body-updated.md
 
       - name: Check Codex review gate
-        if: steps.scope.outputs.is_agent_pr == 'true'
+        if: steps.scope.outputs.is_agent_pr == 'true' && github.event_name != 'pull_request_target'
         working-directory: trusted
         run: |
           python scripts/check_codex_review_gate.py \
@@ -146,6 +146,12 @@ jobs:
             --review-comments pr-review-comments.json \
             --issue-comments pr-issue-comments.json \
             --reactions pr-reactions.json
+
+      - name: Defer Codex review gate until review artifact event
+        if: steps.scope.outputs.is_agent_pr == 'true' && github.event_name == 'pull_request_target'
+        run: |
+          echo "Codex review gate is observing only on pull_request_target events."
+          echo "A pull_request_review or trusted Codex issue_comment event will evaluate the current head review artifact."
 
       - name: Enable auto-merge when explicitly allowed
         if: steps.scope.outputs.is_agent_pr == 'true' && env.AGENT_PR_AUTO_MERGE == 'true'
