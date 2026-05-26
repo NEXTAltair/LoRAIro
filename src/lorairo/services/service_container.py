@@ -288,11 +288,21 @@ class ServiceContainer:
     def provider_batch_workflow_service(self) -> "ProviderBatchWorkflowService":
         """Provider Batch 共通 workflow サービス取得（遅延初期化）"""
         if self._provider_batch_workflow_service is None:
-            from .provider_batch_workflow_service import ProviderBatchWorkflowService
+            from .provider_batch_workflow_service import (
+                ProviderBatchLibraryAdapter,
+                ProviderBatchWorkflowService,
+            )
+
+            annotator_library = self.annotator_library
+            adapters = {
+                provider: ProviderBatchLibraryAdapter(provider, annotator_library)
+                for provider in ("openai", "anthropic", "google")
+            }
 
             self._provider_batch_workflow_service = ProviderBatchWorkflowService(
                 self.image_repository,
                 self.config_service,
+                adapters=adapters,
             )
             logger.debug("ProviderBatchWorkflowService初期化完了")
         return self._provider_batch_workflow_service

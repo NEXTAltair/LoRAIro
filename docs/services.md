@@ -158,6 +158,7 @@ Qt依存のないビジネスロジックサービス群。CLI、GUI、API全て
 - **Path**: `src/lorairo/services/provider_batch_workflow_service.py`
 - **Purpose**: GUI / API / CLI から再利用する Provider Batch API workflow facade
 - **Operations**: image ID からの submit request 構築、設定由来 API key / artifact directory 適用、normalized item state 反映
+- **Adapter wiring**: `ServiceContainer.provider_batch_workflow_service` は image-annotator-lib 境界へ委譲する `ProviderBatchLibraryAdapter` を主要 provider 用に登録する
 
 #### BatchImportService
 - **Path**: `src/lorairo/services/batch_import_service.py`

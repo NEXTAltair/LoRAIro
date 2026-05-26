@@ -16,6 +16,7 @@ from typing import TYPE_CHECKING, Any
 from lorairo.database.db_repository import ImageRepository
 from lorairo.services.configuration_service import ConfigurationService
 from lorairo.services.provider_batch_service import (
+    BatchJobHandle,
     BatchSubmitItem,
     BatchSubmitRequest,
     ProviderBatchAdapter,
@@ -49,6 +50,32 @@ class ProviderBatchResultApplyResult:
     missing_count: int
     total_count: int
     missing_custom_ids: tuple[str, ...] = field(default_factory=tuple)
+
+
+class ProviderBatchLibraryAdapter:
+    """Adapter that forwards provider batch operations to image-annotator-lib."""
+
+    def __init__(self, provider: str, client: Any) -> None:
+        self.provider = provider
+        self._client = client
+
+    def submit_batch(self, request: BatchSubmitRequest) -> Any:
+        return self._call_client("submit_batch", request)
+
+    def retrieve_batch(self, handle: BatchJobHandle) -> Any:
+        return self._call_client("retrieve_batch", handle)
+
+    def cancel_batch(self, handle: BatchJobHandle) -> Any:
+        return self._call_client("cancel_batch", handle)
+
+    def fetch_batch_results(self, handle: BatchJobHandle, destination_dir: Path) -> Any:
+        return self._call_client("fetch_batch_results", handle, destination_dir)
+
+    def _call_client(self, method_name: str, *args: Any) -> Any:
+        method = getattr(self._client, method_name, None)
+        if method is None:
+            raise ProviderBatchError(f"image-annotator-lib batch API method is unavailable: {method_name}")
+        return method(*args)
 
 
 class ProviderBatchWorkflowService:
@@ -200,32 +227,28 @@ class ProviderBatchWorkflowService:
                 f"job_id={job_id}, expected={job.provider_job_id}, actual={provider_job_id}"
             )
 
-        updated_count = 0
-        missing_custom_ids: list[str] = []
+        updates_by_custom_id: dict[str, dict[str, Any]] = {}
         for raw_item in items:
             item = self._coerce_result_item(raw_item)
-            updates: dict[str, Any] = {
+            updates_by_custom_id[item.custom_id] = {
                 "status": item.status,
                 "error_type": item.error_type,
                 "error_message": item.error_message,
                 "raw_response": self._serialize_payload(item.raw_response),
             }
-            applied = self._repository.update_provider_batch_item_by_custom_id(
-                job_id,
-                item.custom_id,
-                updates,
-            )
-            if applied:
-                updated_count += 1
-            else:
-                missing_custom_ids.append(item.custom_id)
+
+        updated_custom_ids = self._repository.update_provider_batch_items_by_custom_id(
+            job_id,
+            updates_by_custom_id,
+        )
+        missing_custom_ids = sorted(set(updates_by_custom_id) - updated_custom_ids)
 
         if missing_custom_ids:
             logger.warning(
                 f"Provider batch result に DB item が見つからない custom_id があります: {missing_custom_ids}"
             )
         return ProviderBatchResultApplyResult(
-            updated_count=updated_count,
+            updated_count=len(updated_custom_ids),
             missing_count=len(missing_custom_ids),
             total_count=len(items),
             missing_custom_ids=tuple(missing_custom_ids),

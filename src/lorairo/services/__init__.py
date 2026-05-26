@@ -24,6 +24,7 @@ from .provider_batch_service import (
     ProviderBatchSubmission,
 )
 from .provider_batch_workflow_service import (
+    ProviderBatchLibraryAdapter,
     ProviderBatchResultApplyResult,
     ProviderBatchResultItem,
     ProviderBatchWorkflowService,
@@ -46,6 +47,7 @@ __all__ = [
     "ProviderBatchArtifacts",
     "ProviderBatchError",
     "ProviderBatchJobService",
+    "ProviderBatchLibraryAdapter",
     "ProviderBatchResultApplyResult",
     "ProviderBatchResultItem",
     "ProviderBatchStatus",
