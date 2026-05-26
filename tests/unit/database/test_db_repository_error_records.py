@@ -204,7 +204,7 @@ class TestGetImagesByIds:
         ]
         repository.session_factory.return_value.__enter__.return_value = mock_session
 
-        with patch.object(repository, "_format_annotations_for_metadata", return_value={}):
+        with patch.object(repository._image_repo, "_format_annotations_for_metadata", return_value={}):
             images = repository.get_images_by_ids([1])
 
         assert len(images) == 1

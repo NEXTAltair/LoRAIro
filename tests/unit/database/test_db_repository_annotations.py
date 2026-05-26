@@ -308,7 +308,7 @@ class TestFetchFilteredMetadataAnnotations:
         mock_result.scalars.return_value.all.return_value = [mock_image]
         mock_session.execute.return_value = mock_result
 
-        with patch.object(repository, "_format_annotations_for_metadata") as mock_format:
+        with patch.object(repository._image_repo, "_format_annotations_for_metadata") as mock_format:
             mock_format.return_value = {
                 "tags": [{"id": 1, "tag": "test"}],
                 "captions": [],
@@ -369,8 +369,8 @@ class TestFetchFilteredMetadataAnnotations:
         mock_session.execute.side_effect = mock_execute
 
         with (
-            patch.object(repository, "_format_annotations_for_metadata") as mock_format,
-            patch.object(repository, "_filter_by_resolution") as mock_filter,
+            patch.object(repository._image_repo, "_format_annotations_for_metadata") as mock_format,
+            patch.object(repository._image_repo, "_filter_by_resolution") as mock_filter,
         ):
             mock_format.return_value = {
                 "tags": [{"id": 1, "tag": "test"}],

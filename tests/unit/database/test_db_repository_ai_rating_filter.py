@@ -132,8 +132,10 @@ class TestGetImagesByFilterAIRating:
         """manual_rating_filter が ai_rating_filter より優先されることを確認"""
         repository, _mock_session = mock_session_and_repository
 
-        with patch.object(repository, "_apply_manual_filters") as mock_manual:
-            with patch.object(repository, "_apply_ai_rating_filter") as mock_ai:
+        # ADR 0035 段階 4: get_images_by_filter は新 ImageRepository (`_image_repo`) に
+        # delegate しているため、internal filter helpers はそちらを mock する。
+        with patch.object(repository._image_repo, "_apply_manual_filters") as mock_manual:
+            with patch.object(repository._image_repo, "_apply_ai_rating_filter") as mock_ai:
                 mock_manual.return_value = select(Image.id)
                 mock_ai.return_value = select(Image.id)
 
@@ -149,7 +151,9 @@ class TestGetImagesByFilterAIRating:
         """ai_rating_filter のみが指定された場合、適用されることを確認"""
         repository, _mock_session = mock_session_and_repository
 
-        with patch.object(repository, "_apply_ai_rating_filter") as mock_ai:
+        # ADR 0035 段階 4: get_images_by_filter は新 ImageRepository (`_image_repo`) に
+        # delegate しているため、internal filter helpers はそちらを mock する。
+        with patch.object(repository._image_repo, "_apply_ai_rating_filter") as mock_ai:
             mock_ai.return_value = select(Image.id)
 
             # ai_rating_filter のみを指定
@@ -333,8 +337,14 @@ class TestUnratedFilter:
         base_query = select(Image.id)
         mock_session = Mock(spec=Session)
 
-        # _get_or_create_manual_edit_modelをモック
-        with patch.object(repository, "_get_or_create_manual_edit_model", return_value=1):
+        # ADR 0035 段階 4: 新 ImageRepository (`repository/image.py`) は
+        # MANUAL_EDIT model lookup を `ModelRepository._get_or_create_manual_edit_model`
+        # static helper に直接委譲しているため、import 元 (`lorairo.database.repository.image`)
+        # の参照を mock する。
+        with patch(
+            "lorairo.database.repository.image.ModelRepository._get_or_create_manual_edit_model",
+            return_value=1,
+        ):
             result_query = repository._apply_manual_filters(base_query, "UNRATED", None, mock_session)
 
         # クエリが変更されたことを確認
