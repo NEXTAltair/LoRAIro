@@ -142,6 +142,37 @@ class ImageRepository:
         # TagRegisterServiceは遅延初期化（登録時のみ必要）
         self.tag_register_service: TagRegisterService | None = None
 
+    # ADR 0035 段階 4 (#423, PR #488 Codex review P2 / P3):
+    # `session_factory` および `BATCH_CHUNK_SIZE` をテストやランタイムで facade に
+    # 書き戻すケース (例: `repository.session_factory = MagicMock(...)`) で、内部
+    # delegating repos (`_image_repo` 等) の同名属性が古い snapshot のまま drift
+    # しないように propagate する。__init__ 内で先に `_*_repo` が生成されている
+    # 必要があるため、`__init__` の組み立て順 (session_factory → _model_repo →
+    # _project_repo → _error_record_repo → _image_repo) を保つこと。
+    _DELEGATED_REPO_ATTRS: ClassVar[tuple[str, ...]] = (
+        "_model_repo",
+        "_project_repo",
+        "_error_record_repo",
+        "_image_repo",
+    )
+    _PROPAGATED_ATTRS: ClassVar[frozenset[str]] = frozenset({"session_factory", "BATCH_CHUNK_SIZE"})
+
+    def __setattr__(self, name: str, value: Any) -> None:
+        """facade に書き戻された共有属性を内部 delegating repos に伝播する。
+
+        `session_factory` / `BATCH_CHUNK_SIZE` は本クラス自身の動作 (stage 5
+        領域の `save_annotations` / `update_*_batch` 等) と内部 `_image_repo`
+        の両方で参照される。書き換え後の drift を防ぐため、本 `__setattr__` で
+        透過的に propagate する。`_*_repo` 属性そのものを置き換える代入では
+        propagate しない (循環を避ける目的)。
+        """
+        super().__setattr__(name, value)
+        if name in self._PROPAGATED_ATTRS:
+            for repo_attr in self._DELEGATED_REPO_ATTRS:
+                repo = self.__dict__.get(repo_attr)
+                if repo is not None:
+                    object.__setattr__(repo, name, value)
+
     def _initialize_merged_reader(self) -> MergedTagReader | None:
         """外部タグDBリーダーを初期化（遅延初期化対応）。
 

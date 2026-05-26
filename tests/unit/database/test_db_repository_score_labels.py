@@ -270,8 +270,6 @@ class TestGetImageAnnotationsScoreLabels:
         mock_session.execute.return_value = mock_result
 
         repository.session_factory = MagicMock(return_value=mock_session)
-
-        repository._image_repo.session_factory = repository.session_factory
         return mock_session
 
     def test_get_image_annotations_includes_score_labels_key_when_empty(
@@ -364,7 +362,6 @@ class TestGetImageAnnotationsQualitySummary:
         mock_result.unique.return_value.scalar_one_or_none.return_value = image
         mock_session.execute.return_value = mock_result
         repository.session_factory = MagicMock(return_value=mock_session)
-        repository._image_repo.session_factory = repository.session_factory
         return mock_session
 
     def test_quality_summary_no_score_when_empty(self, repository: ImageRepository) -> None:

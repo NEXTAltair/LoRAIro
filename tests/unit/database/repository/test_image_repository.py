@@ -335,6 +335,46 @@ class TestFacadeDelegation:
 
 
 @pytest.mark.unit
+class TestFacadeAttributePropagation:
+    """PR #488 Codex review P2/P3: facade の共有属性が内部 delegating repos に伝播する。
+
+    `repository.session_factory = X` / `repository.BATCH_CHUNK_SIZE = N` を
+    init 後に書き戻すケース (テストやランタイム fixture) で内部 `_image_repo` /
+    `_model_repo` / `_project_repo` / `_error_record_repo` が drift しないことを
+    保証する。
+    """
+
+    def test_session_factory_propagates_to_internal_repos(self, memory_session_factory) -> None:
+        """facade.session_factory 書き換えで内部 repos も同期される。"""
+        facade = LegacyImageRepository(session_factory=memory_session_factory)
+        new_factory = MagicMock(name="replacement")
+        facade.session_factory = new_factory
+        assert facade.session_factory is new_factory
+        assert facade._image_repo.session_factory is new_factory
+        assert facade._model_repo.session_factory is new_factory
+        assert facade._project_repo.session_factory is new_factory
+        assert facade._error_record_repo.session_factory is new_factory
+
+    def test_batch_chunk_size_propagates_to_internal_repos(self, memory_session_factory) -> None:
+        """facade.BATCH_CHUNK_SIZE 書き換えで内部 repos の chunking もそれに従う。"""
+        facade = LegacyImageRepository(session_factory=memory_session_factory)
+        facade.BATCH_CHUNK_SIZE = 7
+        assert facade.BATCH_CHUNK_SIZE == 7
+        assert facade._image_repo.BATCH_CHUNK_SIZE == 7
+        assert facade._model_repo.BATCH_CHUNK_SIZE == 7
+        assert facade._project_repo.BATCH_CHUNK_SIZE == 7
+        assert facade._error_record_repo.BATCH_CHUNK_SIZE == 7
+
+    def test_other_attribute_assignment_does_not_propagate(self, memory_session_factory) -> None:
+        """propagation 対象外の属性 (merged_reader 等) は伝播されない。"""
+        facade = LegacyImageRepository(session_factory=memory_session_factory)
+        facade.merged_reader = "sentinel-value"  # type: ignore[assignment]
+        assert facade.merged_reader == "sentinel-value"
+        # 内部 repos に merged_reader 属性が新規追加されないこと
+        assert not hasattr(facade._image_repo, "merged_reader")
+
+
+@pytest.mark.unit
 class TestImageDatabaseManagerDIContract:
     """ImageDatabaseManager が image_repo を inject 経由で保持することを確認。"""
 

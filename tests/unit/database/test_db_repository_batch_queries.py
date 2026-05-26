@@ -44,7 +44,6 @@ class TestGetImagesMetadataBatch:
     def test_chunking_splits_large_input(self, repository):
         """BATCH_CHUNK_SIZE を超える入力がチャンク分割される"""
         repository.BATCH_CHUNK_SIZE = 3
-        repository._image_repo.BATCH_CHUNK_SIZE = 3
         mock_session = MagicMock()
         repository.session_factory.return_value.__enter__ = Mock(return_value=mock_session)
         repository.session_factory.return_value.__exit__ = Mock(return_value=False)
@@ -65,7 +64,6 @@ class TestGetImagesMetadataBatch:
     def test_chunking_exact_boundary(self, repository):
         """入力がちょうどBATCH_CHUNK_SIZEの場合、1チャンクで処理される"""
         repository.BATCH_CHUNK_SIZE = 3
-        repository._image_repo.BATCH_CHUNK_SIZE = 3
         mock_session = MagicMock()
         repository.session_factory.return_value.__enter__ = Mock(return_value=mock_session)
         repository.session_factory.return_value.__exit__ = Mock(return_value=False)
@@ -83,7 +81,6 @@ class TestGetImagesMetadataBatch:
     def test_chunking_boundary_plus_one(self, repository):
         """入力がBATCH_CHUNK_SIZE+1の場合、2チャンクに分割される"""
         repository.BATCH_CHUNK_SIZE = 3
-        repository._image_repo.BATCH_CHUNK_SIZE = 3
         mock_session = MagicMock()
         repository.session_factory.return_value.__enter__ = Mock(return_value=mock_session)
         repository.session_factory.return_value.__exit__ = Mock(return_value=False)
@@ -107,7 +104,6 @@ class TestGetImagesMetadataBatch:
     def test_chunking_single_element(self, repository):
         """要素1つの場合、1チャンクで処理される"""
         repository.BATCH_CHUNK_SIZE = 3
-        repository._image_repo.BATCH_CHUNK_SIZE = 3
         mock_session = MagicMock()
         repository.session_factory.return_value.__enter__ = Mock(return_value=mock_session)
         repository.session_factory.return_value.__exit__ = Mock(return_value=False)
@@ -125,7 +121,6 @@ class TestGetImagesMetadataBatch:
     def test_chunking_exact_multiple(self, repository):
         """入力がBATCH_CHUNK_SIZEの整数倍の場合、余りチャンクが生成されない"""
         repository.BATCH_CHUNK_SIZE = 2
-        repository._image_repo.BATCH_CHUNK_SIZE = 2
         mock_session = MagicMock()
         repository.session_factory.return_value.__enter__ = Mock(return_value=mock_session)
         repository.session_factory.return_value.__exit__ = Mock(return_value=False)
@@ -187,7 +182,6 @@ class TestGetAnnotatedImageIds:
     def test_chunking_merges_results(self, repository):
         """チャンク分割結果がsetにマージされる"""
         repository.BATCH_CHUNK_SIZE = 2
-        repository._image_repo.BATCH_CHUNK_SIZE = 2
         mock_session = MagicMock()
         repository.session_factory.return_value.__enter__ = Mock(return_value=mock_session)
         repository.session_factory.return_value.__exit__ = Mock(return_value=False)
@@ -214,7 +208,6 @@ class TestGetAnnotatedImageIds:
     def test_chunking_exact_boundary(self, repository):
         """入力がちょうどBATCH_CHUNK_SIZEの場合、1チャンクで処理される"""
         repository.BATCH_CHUNK_SIZE = 3
-        repository._image_repo.BATCH_CHUNK_SIZE = 3
         mock_session = MagicMock()
         repository.session_factory.return_value.__enter__ = Mock(return_value=mock_session)
         repository.session_factory.return_value.__exit__ = Mock(return_value=False)
@@ -228,7 +221,6 @@ class TestGetAnnotatedImageIds:
     def test_chunking_boundary_plus_one(self, repository):
         """入力がBATCH_CHUNK_SIZE+1の場合、2チャンクに分割される"""
         repository.BATCH_CHUNK_SIZE = 3
-        repository._image_repo.BATCH_CHUNK_SIZE = 3
         mock_session = MagicMock()
         repository.session_factory.return_value.__enter__ = Mock(return_value=mock_session)
         repository.session_factory.return_value.__exit__ = Mock(return_value=False)
@@ -253,7 +245,6 @@ class TestGetAnnotatedImageIds:
     def test_chunking_single_element(self, repository):
         """要素1つの場合、1チャンクで処理される"""
         repository.BATCH_CHUNK_SIZE = 3
-        repository._image_repo.BATCH_CHUNK_SIZE = 3
         mock_session = MagicMock()
         repository.session_factory.return_value.__enter__ = Mock(return_value=mock_session)
         repository.session_factory.return_value.__exit__ = Mock(return_value=False)
@@ -267,7 +258,6 @@ class TestGetAnnotatedImageIds:
     def test_chunking_no_results_across_chunks(self, repository):
         """全チャンクで結果が空の場合、空setが返る"""
         repository.BATCH_CHUNK_SIZE = 2
-        repository._image_repo.BATCH_CHUNK_SIZE = 2
         mock_session = MagicMock()
         repository.session_factory.return_value.__enter__ = Mock(return_value=mock_session)
         repository.session_factory.return_value.__exit__ = Mock(return_value=False)
@@ -324,7 +314,6 @@ class TestFindImageIdsByPhashes:
     def test_chunking_merges_results(self, repository):
         """チャンク分割結果がdictにマージされる"""
         repository.BATCH_CHUNK_SIZE = 2
-        repository._image_repo.BATCH_CHUNK_SIZE = 2
         mock_session = MagicMock()
         repository.session_factory.return_value.__enter__ = Mock(return_value=mock_session)
         repository.session_factory.return_value.__exit__ = Mock(return_value=False)
@@ -357,7 +346,6 @@ class TestFindImageIdsByPhashes:
     def test_chunking_exact_boundary(self, repository):
         """入力がちょうどBATCH_CHUNK_SIZEの場合、1チャンクで処理される"""
         repository.BATCH_CHUNK_SIZE = 3
-        repository._image_repo.BATCH_CHUNK_SIZE = 3
         mock_session = MagicMock()
         repository.session_factory.return_value.__enter__ = Mock(return_value=mock_session)
         repository.session_factory.return_value.__exit__ = Mock(return_value=False)
@@ -374,7 +362,6 @@ class TestFindImageIdsByPhashes:
     def test_chunking_boundary_plus_one(self, repository):
         """入力がBATCH_CHUNK_SIZE+1の場合、2チャンクに分割される"""
         repository.BATCH_CHUNK_SIZE = 3
-        repository._image_repo.BATCH_CHUNK_SIZE = 3
         mock_session = MagicMock()
         repository.session_factory.return_value.__enter__ = Mock(return_value=mock_session)
         repository.session_factory.return_value.__exit__ = Mock(return_value=False)
@@ -403,7 +390,6 @@ class TestFindImageIdsByPhashes:
     def test_chunking_single_element(self, repository):
         """要素1つの場合、1チャンクで処理される"""
         repository.BATCH_CHUNK_SIZE = 3
-        repository._image_repo.BATCH_CHUNK_SIZE = 3
         mock_session = MagicMock()
         repository.session_factory.return_value.__enter__ = Mock(return_value=mock_session)
         repository.session_factory.return_value.__exit__ = Mock(return_value=False)
@@ -417,7 +403,6 @@ class TestFindImageIdsByPhashes:
     def test_chunking_no_results_across_chunks(self, repository):
         """全チャンクで結果が空の場合、空dictが返る"""
         repository.BATCH_CHUNK_SIZE = 2
-        repository._image_repo.BATCH_CHUNK_SIZE = 2
         mock_session = MagicMock()
         repository.session_factory.return_value.__enter__ = Mock(return_value=mock_session)
         repository.session_factory.return_value.__exit__ = Mock(return_value=False)
