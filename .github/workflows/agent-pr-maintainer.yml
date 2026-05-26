@@ -71,9 +71,11 @@ jobs:
         id: scope
         run: |
           if [ "${GITHUB_EVENT_NAME}" = "workflow_dispatch" ]; then
+            is_agent_pr="$(gh pr view "$PR" --json title,labels \
+              -q 'if ((.labels | map(.name) | index("agent-pr")) or (.title | startswith("[codex]")) or (.title | startswith("[claude]"))) then "true" else "false" end')"
             head_sha="$(gh pr view "$PR" --json headRefOid -q .headRefOid)"
             base_ref="$(gh pr view "$PR" --json baseRefName -q .baseRefName)"
-            echo "is_agent_pr=true" >> "${GITHUB_OUTPUT}"
+            echo "is_agent_pr=${is_agent_pr}" >> "${GITHUB_OUTPUT}"
             echo "head_sha=${head_sha}" >> "${GITHUB_OUTPUT}"
             echo "base_ref=${base_ref}" >> "${GITHUB_OUTPUT}"
             exit 0

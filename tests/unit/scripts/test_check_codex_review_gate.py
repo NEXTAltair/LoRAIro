@@ -237,6 +237,50 @@ def test_gate_does_not_block_negated_priority_phrase() -> None:
     assert reasons == []
 
 
+def test_gate_blocks_mixed_negated_and_blocking_phrase() -> None:
+    ok, reasons = evaluate(
+        reviews=[
+            {
+                "user": {"login": "chatgpt-codex-connector[bot]"},
+                "state": "COMMENTED",
+                "body": "No changes requested from earlier comments, but P1: current head is unsafe.",
+            }
+        ],
+        review_comments=[],
+        issue_comments=[],
+        reactions=[],
+    )
+
+    assert not ok
+    assert reasons == ["bot review body has blocking text: chatgpt-codex-connector[bot]"]
+
+
+def test_gate_ignores_pending_bot_review_when_selecting_latest_review() -> None:
+    ok, reasons = evaluate(
+        reviews=[
+            {
+                "user": {"login": "chatgpt-codex-connector[bot]"},
+                "state": "CHANGES_REQUESTED",
+                "submitted_at": "2026-05-26T01:00:00Z",
+                "commit": {"oid": "def456"},
+            },
+            {
+                "user": {"login": "chatgpt-codex-connector[bot]"},
+                "state": "PENDING",
+                "created_at": "2026-05-26T02:00:00Z",
+                "commit": {"oid": "def456"},
+            },
+        ],
+        review_comments=[],
+        issue_comments=[],
+        reactions=[],
+        head_sha="def456",
+    )
+
+    assert not ok
+    assert reasons == ["bot review requested changes: chatgpt-codex-connector[bot]"]
+
+
 def test_gate_does_not_accept_issue_comment_as_current_head_review() -> None:
     ok, reasons = evaluate(
         reviews=[],

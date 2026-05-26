@@ -59,9 +59,7 @@ def _body_from(item: dict[str, Any]) -> str:
 
 
 def _has_blocking_text(item: dict[str, Any]) -> bool:
-    body = _body_from(item)
-    if NEGATED_BLOCKING_RE.search(body):
-        return False
+    body = NEGATED_BLOCKING_RE.sub("", _body_from(item))
     if re.search(r"\bP[01]\b", body, re.IGNORECASE):
         return True
     return bool(BLOCKING_BODY_RE.search(body))
@@ -94,12 +92,13 @@ def _submitted_at(item: dict[str, Any]) -> str:
 
 
 def _latest_bot_review(reviews: list[dict[str, Any]], head_sha: str | None) -> dict[str, Any] | None:
+    submitted_states = {"APPROVED", "CHANGES_REQUESTED", "COMMENTED"}
     matching_reviews = [
         review
         for review in reviews
         if _is_bot_artifact(review)
         and _commit_matches(review, head_sha)
-        and str(review.get("state", "")).upper() != "DISMISSED"
+        and str(review.get("state", "")).upper() in submitted_states
     ]
     if not matching_reviews:
         return None

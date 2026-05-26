@@ -34,3 +34,15 @@ def test_workflow_requires_codex_gate_pass_before_auto_merge() -> None:
     assert "steps.codex_gate.outcome == 'success'" in text
     auto_merge_section = text.split("- name: Enable auto-merge when explicitly allowed", maxsplit=1)[1]
     assert "steps.codex_gate.outcome == 'success'" in auto_merge_section
+
+
+def test_workflow_dispatch_verifies_agent_pr_scope() -> None:
+    dispatch_section = (
+        workflow_text()
+        .split('if [ "${GITHUB_EVENT_NAME}" = "workflow_dispatch" ]; then', maxsplit=1)[1]
+        .split("exit 0", maxsplit=1)[0]
+    )
+
+    assert 'gh pr view "$PR" --json title,labels' in dispatch_section
+    assert 'echo "is_agent_pr=${is_agent_pr}"' in dispatch_section
+    assert 'echo "is_agent_pr=true"' not in dispatch_section
