@@ -108,8 +108,14 @@ jobs:
           gh pr view "$PR" --json \
             number,title,isDraft,headRefName,headRefOid,baseRefName,mergeStateStatus,reviewDecision,statusCheckRollup,labels \
             > pr-state.json
+          set +e
           gh pr checks "$PR" --json name,state,bucket,link,startedAt,completedAt,workflow \
             > pr-checks.json
+          checks_status="$?"
+          set -e
+          if [ "$checks_status" -ne 0 ] && [ "$checks_status" -ne 8 ]; then
+            exit "$checks_status"
+          fi
           gh api --paginate "repos/${GITHUB_REPOSITORY}/pulls/${PR}/reviews" > pr-reviews.json
           gh api --paginate "repos/${GITHUB_REPOSITORY}/pulls/${PR}/comments" > pr-review-comments.json
           gh api --paginate "repos/${GITHUB_REPOSITORY}/issues/${PR}/comments" > pr-issue-comments.json
@@ -134,7 +140,8 @@ jobs:
           git fetch origin "${BASE_REF}"
           python ../trusted/scripts/check_agent_forbidden_changes.py \
             --base-ref "origin/${BASE_REF}" \
-            --state-marker-body ../trusted/pr-body-updated.md
+            --state-marker-body ../trusted/pr-body-updated.md \
+            --bootstrap-workflow .github/workflows/agent-pr-maintainer.yml
 
       - name: Check Codex review gate
         if: steps.scope.outputs.is_agent_pr == 'true' && github.event_name != 'pull_request_target'

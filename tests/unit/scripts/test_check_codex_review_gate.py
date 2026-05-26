@@ -215,6 +215,24 @@ def test_gate_does_not_block_negated_phrase() -> None:
     assert reasons == []
 
 
+def test_gate_does_not_block_negated_priority_phrase() -> None:
+    ok, reasons = evaluate(
+        reviews=[
+            {
+                "user": {"login": "chatgpt-codex-connector[bot]"},
+                "state": "COMMENTED",
+                "body": "No P1 findings for this revision.",
+            }
+        ],
+        review_comments=[],
+        issue_comments=[],
+        reactions=[],
+    )
+
+    assert ok
+    assert reasons == []
+
+
 def test_gate_does_not_accept_issue_comment_as_current_head_review() -> None:
     ok, reasons = evaluate(
         reviews=[],
@@ -231,3 +249,28 @@ def test_gate_does_not_accept_issue_comment_as_current_head_review() -> None:
 
     assert not ok
     assert reasons == ["no Codex bot review artifact found"]
+
+
+def test_gate_ignores_stale_blocking_issue_comment_for_current_head() -> None:
+    ok, reasons = evaluate(
+        reviews=[
+            {
+                "user": {"login": "chatgpt-codex-connector[bot]"},
+                "state": "COMMENTED",
+                "submittedAt": "2026-05-26T02:00:00Z",
+                "commit": {"oid": "def456"},
+            }
+        ],
+        review_comments=[],
+        issue_comments=[
+            {
+                "user": {"login": "chatgpt-codex-connector[bot]"},
+                "body": "P1: stale issue comment from an older run.",
+            }
+        ],
+        reactions=[],
+        head_sha="def456",
+    )
+
+    assert ok
+    assert reasons == []

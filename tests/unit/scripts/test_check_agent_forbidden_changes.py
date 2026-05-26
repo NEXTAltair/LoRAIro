@@ -5,6 +5,7 @@ from helpers import load_script_module
 check_agent_forbidden_changes = load_script_module("check_agent_forbidden_changes")
 forbidden_reasons = check_agent_forbidden_changes.forbidden_reasons
 marker_status = check_agent_forbidden_changes._marker_status
+paths_from_name_status = check_agent_forbidden_changes._paths_from_name_status
 should_enforce_for_status = check_agent_forbidden_changes.should_enforce_for_status
 
 
@@ -34,6 +35,31 @@ def test_forbidden_reasons_reject_repository_policy_paths() -> None:
 
 def test_forbidden_reasons_allows_application_changes() -> None:
     assert forbidden_reasons(["src/lorairo/main.py", "tests/unit/test_main.py"]) == []
+
+
+def test_forbidden_reasons_allows_explicit_bootstrap_workflow_path() -> None:
+    assert (
+        forbidden_reasons(
+            [".github/workflows/agent-pr-maintainer.yml"],
+            allowed_workflow_paths={".github/workflows/agent-pr-maintainer.yml"},
+        )
+        == []
+    )
+
+
+def test_paths_from_name_status_includes_both_sides_of_renames() -> None:
+    output = "\n".join(
+        [
+            "R100\t.github/workflows/agent-pr-maintainer.yml\tdocs/agent-pr-maintainer.yml",
+            "A\tsrc/lorairo/main.py",
+        ]
+    )
+
+    assert paths_from_name_status(output) == [
+        ".github/workflows/agent-pr-maintainer.yml",
+        "docs/agent-pr-maintainer.yml",
+        "src/lorairo/main.py",
+    ]
 
 
 def test_marker_status_reads_repairing_state(tmp_path) -> None:

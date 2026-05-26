@@ -14,7 +14,7 @@ BLOCKING_BODY_RE = re.compile(
     re.IGNORECASE,
 )
 NEGATED_BLOCKING_RE = re.compile(
-    r"\b(non-blocking|not\s+blocking|no\s+blocking|no\s+changes?\s+requested)\b",
+    r"\b(non-blocking|not\s+blocking|no\s+blocking|no\s+changes?\s+requested|no\s+P[01](\s+findings?)?)\b",
     re.IGNORECASE,
 )
 UNAVAILABLE_BODY_RE = re.compile(
@@ -50,10 +50,10 @@ def _body_from(item: dict[str, Any]) -> str:
 
 def _has_blocking_text(item: dict[str, Any]) -> bool:
     body = _body_from(item)
-    if re.search(r"\bP[01]\b", body, re.IGNORECASE):
-        return True
     if NEGATED_BLOCKING_RE.search(body):
         return False
+    if re.search(r"\bP[01]\b", body, re.IGNORECASE):
+        return True
     return bool(BLOCKING_BODY_RE.search(body))
 
 
@@ -171,7 +171,8 @@ def evaluate(
     )
     reasons.extend(review_reasons)
     reasons.extend(review_comment_reasons)
-    reasons.extend(issue_comment_reasons)
+    if head_sha is None:
+        reasons.extend(issue_comment_reasons)
 
     if not bot_artifact_seen:
         reasons.extend(sorted(set(unavailable_reasons)) or ["no Codex bot review artifact found"])

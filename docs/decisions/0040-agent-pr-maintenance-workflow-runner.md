@@ -35,8 +35,9 @@ workflow runner は以下を行う。
 3. PR 作成 / 更新で自動実行される Codex review artifact を観測する
 4. PR state / checks / reviews / review comments / issue comments / reactions を `gh` / REST API で取得する
 5. PR body に `agent-pr-maintainer` hidden marker を保存し、確認済み head SHA と状態を永続化する
-6. PR marker が `repairing` の場合、自動修正で禁止される `.github/workflows/**` と
-   secret / env 系 path を PR の実 base branch との差分で検出する
+6. 自動修正で禁止される `.github/workflows/**`、repository policy、secret / env 系 path を
+   PR の実 base branch との差分で検出する。PR body marker は診断用としてのみ読み、禁止変更の
+   bypass には使わない
 7. 現在の head SHA に対する Codex bot review artifact が存在し、blocking finding が残っていないことを
    check として検証する
 8. repository variable `AGENT_PR_AUTO_MERGE=true` が明示された場合のみ、
@@ -85,7 +86,8 @@ conversation resolution が確実に設定される前に、workflow だけで m
 
 **悪い点:**
 
-- `.github/workflows/**` 変更を禁止する check と、この workflow 自体の導入は別扱いにする必要がある
+- `.github/workflows/**` 変更を禁止する check と、この workflow 自体の導入は別扱いにする必要がある。
+  bootstrap 例外は、base branch に該当 workflow がまだ存在しない場合の明示 path に限定する
 - Bot review の blocking 判定は文言ベースを含むため、Codex 側の表現変更に合わせた調整が必要
 - workflow は修正 commit を生成しないため、CI failure の自動修復には Codex / Claude Code の再実行が必要
 - 初回導入 PR は base branch に runner / policy script がまだ存在しないため、人間レビューで
