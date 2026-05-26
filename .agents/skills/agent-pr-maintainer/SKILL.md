@@ -32,7 +32,7 @@ the code-editing session that applies fixes in the existing worktree.
 
 - Continue in the same agent session and same dedicated worktree used to create the PR.
 - For agent PRs, the GitHub Actions watcher in `.github/workflows/agent-pr-maintainer.yml` may normalize
-  draft state, trigger Codex review, persist the hidden PR state marker, and expose gate failures.
+  draft state, persist the hidden PR state marker, and expose gate failures.
 - Do not stop at the draft PR URL when the PR is reviewable. First mark it ready for review, then immediately
   enter the polling workflow.
 - Leave a PR in draft only when the user explicitly asked for draft-only publication, local validation is

@@ -29,8 +29,7 @@ workflow runner は以下を行う。
 
 1. PR branch を checkout する
 2. `gh pr ready "$PR" || true` で Draft PR を ready 化する
-3. `CODEX_BOT_TOKEN` が設定されている場合のみ、
-   `@codex review for security regressions, missing tests, and risky behavior changes.` を投稿する
+3. PR 作成 / 更新で自動実行される Codex review artifact を待つ
 4. PR state / checks / reviews / review comments / issue comments / reactions を `gh` / REST API で取得する
 5. PR body に `agent-pr-maintainer` hidden marker を保存し、確認済み head SHA と状態を永続化する
 6. PR marker が `repairing` の場合、自動修正で禁止される `.github/workflows/**` と
@@ -42,7 +41,7 @@ workflow runner は以下を行う。
 修正 commit の生成は、引き続き Codex / Claude Code の作業セッションが担当する。
 GitHub Actions runner は GitHub コメント駆動の `@codex fix` を起動しない。
 `GITHUB_TOKEN` の投稿者は `github-actions` になり Codex connector と紐付かないため、Codex review
-trigger には使わない。
+trigger コメントも投稿しない。Codex review はPR作成 / 更新時の自動実行に任せる。
 
 ## Rationale
 
