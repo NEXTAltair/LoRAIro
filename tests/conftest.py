@@ -464,6 +464,50 @@ def test_repository(db_session_factory) -> ImageRepository:
 
 
 @pytest.fixture(scope="function")
+def test_annotation_repository(db_session_factory):
+    """Provides an instance of AnnotationRepository using the test session factory.
+
+    ADR 0035 段階 6 (#423): legacy facade 撤廃後、annotation 系メソッド
+    (`update_manual_rating`, `save_annotations`, `_save_*` 等) は本 fixture を使う。
+    """
+    from lorairo.database.repository.annotation_record import AnnotationRepository
+
+    return AnnotationRepository(session_factory=db_session_factory)
+
+
+@pytest.fixture(scope="function")
+def test_project_repository(db_session_factory):
+    """Provides an instance of ProjectRepository using the test session factory."""
+    from lorairo.database.repository.project import ProjectRepository
+
+    return ProjectRepository(session_factory=db_session_factory)
+
+
+@pytest.fixture(scope="function")
+def test_provider_batch_repository(db_session_factory):
+    """Provides an instance of ProviderBatchRepository using the test session factory."""
+    from lorairo.database.repository.provider_batch import ProviderBatchRepository
+
+    return ProviderBatchRepository(session_factory=db_session_factory)
+
+
+@pytest.fixture(scope="function")
+def test_model_repository(db_session_factory):
+    """Provides an instance of ModelRepository using the test session factory."""
+    from lorairo.database.repository.model import ModelRepository
+
+    return ModelRepository(session_factory=db_session_factory)
+
+
+@pytest.fixture(scope="function")
+def test_error_record_repository(db_session_factory):
+    """Provides an instance of ErrorRecordRepository using the test session factory."""
+    from lorairo.database.repository.error_record import ErrorRecordRepository
+
+    return ErrorRecordRepository(session_factory=db_session_factory)
+
+
+@pytest.fixture(scope="function")
 def temp_db_repository(db_session_factory) -> ImageRepository:
     """Provides a temporary ImageRepository for model sync service tests.
 
@@ -491,10 +535,18 @@ def mock_config_service():
 
 
 @pytest.fixture(scope="function")
-def test_db_manager(test_repository, mock_config_service) -> ImageDatabaseManager:
-    """Provides an instance of ImageDatabaseManager using the test repository."""
-    # Inject the test repository and config service into the manager
-    return ImageDatabaseManager(repository=test_repository, config_service=mock_config_service)
+def test_db_manager(test_repository, mock_config_service, db_session_factory) -> ImageDatabaseManager:
+    """Provides an instance of ImageDatabaseManager using the test repository.
+
+    ADR 0035 段階 6 (#423): facade 撤廃後、Manager は session_factory を共有する
+    composition pattern を採る。`test_repository` (新 ImageRepository) を image_repo
+    として注入し、他 Repo は db_session_factory を共有して自動生成。
+    """
+    return ImageDatabaseManager(
+        config_service=mock_config_service,
+        session_factory=db_session_factory,
+        image_repo=test_repository,
+    )
 
 
 # --- Existing Image/Data Fixtures (mostly reusable) ---

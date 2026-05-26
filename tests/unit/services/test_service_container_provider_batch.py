@@ -75,15 +75,24 @@ class TestServiceContainerProviderBatch:
     def test_provider_batch_workflow_service_registers_annotator_library_adapters(self) -> None:
         container = ServiceContainer()
         fake_library = FakeBatchAnnotatorLibrary()
-        repository = Mock()
-        repository.get_images_metadata_batch.return_value = [
+        # ADR 0035 段階 6 (#423): facade 撤廃後、workflow service は manager 経由で
+        # image_repo / provider_batch_repo / annotation_repo を取得する。Manager を
+        # Mock 化し、各 Repo を個別に stub する。
+        image_repo = Mock()
+        image_repo.get_images_metadata_batch.return_value = [
             {"id": 1, "stored_image_path": "/tmp/container-image.webp"}
         ]
-        repository.create_provider_batch_job_with_items.return_value = 123
+        provider_batch_repo = Mock()
+        provider_batch_repo.create_provider_batch_job_with_items.return_value = 123
+        annotation_repo = Mock()
+        manager = Mock()
+        manager.image_repo = image_repo
+        manager.provider_batch_repo = provider_batch_repo
+        manager.annotation_repo = annotation_repo
         config = Mock()
         config.get_api_keys.return_value = {"openai": "sk-test"}
         container._annotator_library = cast(Any, fake_library)
-        container._image_repository = repository
+        container._db_manager = manager
         container._config_service = config
 
         job_id = container.provider_batch_workflow_service.submit_images(

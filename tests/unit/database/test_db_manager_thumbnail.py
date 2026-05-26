@@ -33,11 +33,14 @@ def mock_fsm() -> Mock:
 
 @pytest.fixture
 def db_manager(mock_repository: Mock, mock_config_service: Mock) -> ImageDatabaseManager:
-    """ImageDatabaseManagerのインスタンスを作成"""
+    """ImageDatabaseManagerのインスタンスを作成。
+
+    ADR 0035 段階 6 (#423): facade 撤廃後、image_repo として mock_repository を inject。
+    """
     return ImageDatabaseManager(
-        repository=mock_repository,
         config_service=mock_config_service,
         fsm=None,
+        image_repo=mock_repository,
     )
 
 

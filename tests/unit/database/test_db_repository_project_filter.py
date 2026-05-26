@@ -157,7 +157,7 @@ class TestApplyProjectFilterPhaseC:
         from lorairo.database.schema import Image
 
         base_query = select(Image.id)
-        with patch("lorairo.database.db_repository.logger") as mock_logger:
+        with patch("lorairo.database.repository.image.logger") as mock_logger:
             repository._apply_project_filter(base_query, None, 42)
         mock_logger.warning.assert_not_called()
 
@@ -166,7 +166,7 @@ class TestApplyProjectFilterPhaseC:
         from lorairo.database.schema import Image
 
         base_query = select(Image.id)
-        with patch("lorairo.database.db_repository.logger") as mock_logger:
+        with patch("lorairo.database.repository.image.logger") as mock_logger:
             repository._apply_project_filter(base_query, "foo", None)
         mock_logger.warning.assert_not_called()
 
@@ -181,37 +181,37 @@ class TestEnsureProject:
 
     def test_ensure_project_creates_new(self, memory_session_factory):
         """新規プロジェクトが作成され正の ID が返る。"""
-        from lorairo.database.repository.image import ImageRepository
+        from lorairo.database.repository.project import ProjectRepository
 
-        repo = ImageRepository(session_factory=memory_session_factory)
+        repo = ProjectRepository(session_factory=memory_session_factory)
         project_id = repo.ensure_project("test_project", Path("/tmp/test"))
         assert isinstance(project_id, int)
         assert project_id > 0
 
     def test_ensure_project_returns_same_id_on_duplicate(self, memory_session_factory):
         """同名で2回呼んでも同じ ID が返る（upsert 動作）。"""
-        from lorairo.database.repository.image import ImageRepository
+        from lorairo.database.repository.project import ProjectRepository
 
-        repo = ImageRepository(session_factory=memory_session_factory)
+        repo = ProjectRepository(session_factory=memory_session_factory)
         id1 = repo.ensure_project("test_project", Path("/tmp/test"))
         id2 = repo.ensure_project("test_project", Path("/tmp/test"))
         assert id1 == id2
 
     def test_ensure_project_different_names_get_different_ids(self, memory_session_factory):
         """異なる名前では異なる ID が割り当てられる。"""
-        from lorairo.database.repository.image import ImageRepository
+        from lorairo.database.repository.project import ProjectRepository
 
-        repo = ImageRepository(session_factory=memory_session_factory)
+        repo = ProjectRepository(session_factory=memory_session_factory)
         id_a = repo.ensure_project("project_a", Path("/tmp/a"))
         id_b = repo.ensure_project("project_b", Path("/tmp/b"))
         assert id_a != id_b
 
     def test_ensure_project_updates_path_on_change(self, memory_session_factory):
         """同名でパスが変わった場合、パスが更新される。"""
-        from lorairo.database.repository.image import ImageRepository
+        from lorairo.database.repository.project import ProjectRepository
         from lorairo.database.schema import Project
 
-        repo = ImageRepository(session_factory=memory_session_factory)
+        repo = ProjectRepository(session_factory=memory_session_factory)
         project_id = repo.ensure_project("proj", Path("/tmp/old"))
         repo.ensure_project("proj", Path("/tmp/new"))
 
@@ -231,9 +231,9 @@ class TestGetImageIdsByProject:
     @pytest.fixture
     def repo_with_images(self, memory_session_factory):
         """proj_a に3枚、proj_b に2枚の画像を持つリポジトリ。"""
-        from lorairo.database.repository.image import ImageRepository
+        from lorairo.database.repository.project import ProjectRepository
 
-        repo = ImageRepository(session_factory=memory_session_factory)
+        repo = ProjectRepository(session_factory=memory_session_factory)
         pid_a = repo.ensure_project("proj_a", Path("/tmp/a"))
         pid_b = repo.ensure_project("proj_b", Path("/tmp/b"))
         ids_a = [_make_image(memory_session_factory, project_id=pid_a) for _ in range(3)]
@@ -289,9 +289,9 @@ class TestAssignImagesToProject:
     @pytest.fixture
     def repo_with_unassigned_images(self, memory_session_factory):
         """proj_a を持ち、未割り当て画像3枚を含むリポジトリ。"""
-        from lorairo.database.repository.image import ImageRepository
+        from lorairo.database.repository.project import ProjectRepository
 
-        repo = ImageRepository(session_factory=memory_session_factory)
+        repo = ProjectRepository(session_factory=memory_session_factory)
         pid = repo.ensure_project("proj_a", Path("/tmp/a"))
         image_ids = [_make_image(memory_session_factory, project_id=None) for _ in range(3)]
         return repo, pid, image_ids

@@ -9,7 +9,7 @@ TDD RED フェーズ:
 import pytest
 from sqlalchemy.orm import sessionmaker
 
-from lorairo.database.repository.image import ImageRepository
+from lorairo.database.repository.annotation_record import AnnotationRepository
 from lorairo.database.schema import (
     MANUAL_EDIT_LITELLM_ID,
     Image,
@@ -44,10 +44,13 @@ class TestUpdateManualRatingWritesToRatingTable:
     """update_manual_rating が Rating テーブルに INSERT/DELETE することを確認。"""
 
     def test_set_rating_inserts_rating_record(
-        self, test_repository: ImageRepository, db_session_factory: sessionmaker, image_id: int
+        self,
+        test_annotation_repository: AnnotationRepository,
+        db_session_factory: sessionmaker,
+        image_id: int,
     ) -> None:
         """PG を設定すると Rating テーブルに MANUAL_EDIT レコードが 1 件挿入される。"""
-        result = test_repository.update_manual_rating(image_id, "PG")
+        result = test_annotation_repository.update_manual_rating(image_id, "PG")
 
         assert result is True
         with db_session_factory() as session:
@@ -58,11 +61,14 @@ class TestUpdateManualRatingWritesToRatingTable:
             assert ratings[0].normalized_rating == "PG"
 
     def test_set_rating_none_deletes_rating_records(
-        self, test_repository: ImageRepository, db_session_factory: sessionmaker, image_id: int
+        self,
+        test_annotation_repository: AnnotationRepository,
+        db_session_factory: sessionmaker,
+        image_id: int,
     ) -> None:
         """rating=None で解除すると MANUAL_EDIT Rating が全て削除される。"""
-        test_repository.update_manual_rating(image_id, "PG")
-        result = test_repository.update_manual_rating(image_id, None)
+        test_annotation_repository.update_manual_rating(image_id, "PG")
+        result = test_annotation_repository.update_manual_rating(image_id, None)
 
         assert result is True
         with db_session_factory() as session:
@@ -73,11 +79,14 @@ class TestUpdateManualRatingWritesToRatingTable:
             assert len(ratings) == 0, f"解除後に Rating レコードが残っている: {len(ratings)} 件"
 
     def test_set_rating_twice_keeps_only_latest(
-        self, test_repository: ImageRepository, db_session_factory: sessionmaker, image_id: int
+        self,
+        test_annotation_repository: AnnotationRepository,
+        db_session_factory: sessionmaker,
+        image_id: int,
     ) -> None:
         """PG → R と 2 回設定すると最新の R だけが残る（upsert 動作）。"""
-        test_repository.update_manual_rating(image_id, "PG")
-        test_repository.update_manual_rating(image_id, "R")
+        test_annotation_repository.update_manual_rating(image_id, "PG")
+        test_annotation_repository.update_manual_rating(image_id, "R")
 
         with db_session_factory() as session:
             manual_model = session.query(Model).filter_by(litellm_model_id=MANUAL_EDIT_LITELLM_ID).first()
@@ -86,16 +95,21 @@ class TestUpdateManualRatingWritesToRatingTable:
             assert len(ratings) == 1, f"最新値 1 件のはずが {len(ratings)} 件"
             assert ratings[0].normalized_rating == "R"
 
-    def test_nonexistent_image_id_returns_false(self, test_repository: ImageRepository) -> None:
+    def test_nonexistent_image_id_returns_false(
+        self, test_annotation_repository: AnnotationRepository
+    ) -> None:
         """存在しない image_id では False を返し、例外は発生しない。"""
-        result = test_repository.update_manual_rating(99999, "PG")
+        result = test_annotation_repository.update_manual_rating(99999, "PG")
         assert result is False
 
     def test_does_not_write_to_image_manual_rating_column(
-        self, test_repository: ImageRepository, db_session_factory: sessionmaker, image_id: int
+        self,
+        test_annotation_repository: AnnotationRepository,
+        db_session_factory: sessionmaker,
+        image_id: int,
     ) -> None:
         """Image テーブルの manual_rating カラムは変更されない（カラム削除後は属性なし）。"""
-        test_repository.update_manual_rating(image_id, "PG")
+        test_annotation_repository.update_manual_rating(image_id, "PG")
 
         with db_session_factory() as session:
             image = session.get(Image, image_id)
@@ -145,12 +159,17 @@ class TestApplyManualFiltersWithRatingTable:
 
     def test_filter_returns_only_matching_images(
         self,
-        test_repository: ImageRepository,
+        test_annotation_repository: AnnotationRepository,
+        test_repository,  # ImageRepository (get_images_by_filter)
         two_images: tuple[int, int],
     ) -> None:
-        """manual_rating_filter='PG' で PG 設定済み画像のみが返される。"""
+        """manual_rating_filter='PG' で PG 設定済み画像のみが返される。
+
+        ADR 0035 段階 6 (#423): update_manual_rating は AnnotationRepository、
+        get_images_by_filter は ImageRepository に分離されている。
+        """
         img1_id, _img2_id = two_images
-        test_repository.update_manual_rating(img1_id, "PG")
+        test_annotation_repository.update_manual_rating(img1_id, "PG")
 
         results, count = test_repository.get_images_by_filter(manual_rating_filter="PG")
 
@@ -160,12 +179,13 @@ class TestApplyManualFiltersWithRatingTable:
 
     def test_filter_returns_zero_when_no_match(
         self,
-        test_repository: ImageRepository,
+        test_annotation_repository: AnnotationRepository,
+        test_repository,  # ImageRepository (get_images_by_filter)
         two_images: tuple[int, int],
     ) -> None:
         """存在しない rating 値でフィルタすると 0 件が返される。"""
         img1_id, _img2_id = two_images
-        test_repository.update_manual_rating(img1_id, "PG")
+        test_annotation_repository.update_manual_rating(img1_id, "PG")
 
         results, count = test_repository.get_images_by_filter(manual_rating_filter="X")
 

@@ -134,8 +134,8 @@ class TestGetImagesByFilterAIRating:
 
         # ADR 0035 段階 4: get_images_by_filter は新 ImageRepository (`_image_repo`) に
         # delegate しているため、internal filter helpers はそちらを mock する。
-        with patch.object(repository._image_repo, "_apply_manual_filters") as mock_manual:
-            with patch.object(repository._image_repo, "_apply_ai_rating_filter") as mock_ai:
+        with patch.object(repository, "_apply_manual_filters") as mock_manual:
+            with patch.object(repository, "_apply_ai_rating_filter") as mock_ai:
                 mock_manual.return_value = select(Image.id)
                 mock_ai.return_value = select(Image.id)
 
@@ -153,7 +153,7 @@ class TestGetImagesByFilterAIRating:
 
         # ADR 0035 段階 4: get_images_by_filter は新 ImageRepository (`_image_repo`) に
         # delegate しているため、internal filter helpers はそちらを mock する。
-        with patch.object(repository._image_repo, "_apply_ai_rating_filter") as mock_ai:
+        with patch.object(repository, "_apply_ai_rating_filter") as mock_ai:
             mock_ai.return_value = select(Image.id)
 
             # ai_rating_filter のみを指定

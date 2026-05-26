@@ -771,7 +771,7 @@ class TestApplyRefusalPrefilter:
         # AnnotationSaveService.filter_refused_image_paths をパッチ
         mock_save_service = Mock()
         mock_save_service.filter_refused_image_paths = Mock(return_value=["/path/img1.jpg"])
-        monkeypatch.setattr(aw_mod, "AnnotationSaveService", lambda repo: mock_save_service)
+        monkeypatch.setattr(aw_mod, "AnnotationSaveService", lambda **kwargs: mock_save_service)
 
         worker = self._make_worker(
             mock_annotation_logic,
@@ -799,7 +799,7 @@ class TestApplyRefusalPrefilter:
 
         mock_save_service = Mock()
         mock_save_service.filter_refused_image_paths = Mock()
-        monkeypatch.setattr(aw_mod, "AnnotationSaveService", lambda repo: mock_save_service)
+        monkeypatch.setattr(aw_mod, "AnnotationSaveService", lambda **kwargs: mock_save_service)
 
         worker = self._make_worker(
             mock_annotation_logic,
@@ -826,7 +826,7 @@ class TestApplyRefusalPrefilter:
 
         mock_save_service = Mock()
         mock_save_service.filter_refused_image_paths = Mock()
-        monkeypatch.setattr(aw_mod, "AnnotationSaveService", lambda repo: mock_save_service)
+        monkeypatch.setattr(aw_mod, "AnnotationSaveService", lambda **kwargs: mock_save_service)
 
         worker = self._make_worker(
             mock_annotation_logic,
@@ -851,7 +851,7 @@ class TestApplyRefusalPrefilter:
 
         mock_save_service = Mock()
         mock_save_service.filter_refused_image_paths = Mock(side_effect=RuntimeError("DB error"))
-        monkeypatch.setattr(aw_mod, "AnnotationSaveService", lambda repo: mock_save_service)
+        monkeypatch.setattr(aw_mod, "AnnotationSaveService", lambda **kwargs: mock_save_service)
 
         worker = self._make_worker(
             mock_annotation_logic,
@@ -879,7 +879,7 @@ class TestApplyRefusalPrefilter:
         mock_save_service.filter_refused_image_paths = Mock(
             return_value=["/path/img1.jpg", "/path/img2.jpg"]
         )
-        monkeypatch.setattr(aw_mod, "AnnotationSaveService", lambda repo: mock_save_service)
+        monkeypatch.setattr(aw_mod, "AnnotationSaveService", lambda **kwargs: mock_save_service)
 
         worker = self._make_worker(
             mock_annotation_logic,
@@ -980,7 +980,7 @@ class TestRefusalPrefilterRatingsCapability:
 
         mock_save_service = Mock()
         mock_save_service.filter_refused_image_paths = Mock()
-        monkeypatch.setattr(aw_mod, "AnnotationSaveService", lambda repo: mock_save_service)
+        monkeypatch.setattr(aw_mod, "AnnotationSaveService", lambda **kwargs: mock_save_service)
 
         worker = AnnotationWorker(
             annotation_logic=mock_annotation_logic,

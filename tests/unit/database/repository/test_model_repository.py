@@ -189,32 +189,3 @@ class TestGetOrCreateManualEditModel:
             session.commit()
 
         assert first_id == second_id
-
-
-@pytest.mark.unit
-class TestFacadeDelegation:
-    """`ImageRepository` の delegating facade が `ModelRepository` を正しく呼ぶ。"""
-
-    def test_image_repository_delegates_get_model_by_litellm_id(
-        self, temp_db_repository: ImageRepository
-    ) -> None:
-        """ImageRepository.get_model_by_litellm_id は内部で ModelRepository を経由する。"""
-        # delegating facade 経由でも同じ結果を得る
-        temp_db_repository.insert_model(
-            name="facade-test",
-            provider="openai",
-            model_types=["multimodal"],
-            litellm_model_id="openai/facade-test",
-        )
-        via_facade = temp_db_repository.get_model_by_litellm_id("openai/facade-test")
-        via_direct = temp_db_repository._model_repo.get_model_by_litellm_id("openai/facade-test")
-        assert via_facade is not None
-        assert via_direct is not None
-        assert via_facade.id == via_direct.id
-
-    def test_image_repository_exposes_model_repo_attribute(
-        self, temp_db_repository: ImageRepository
-    ) -> None:
-        """ImageRepository は内部 `_model_repo` を保持する (段階移行中の hook)。"""
-        assert isinstance(temp_db_repository._model_repo, ModelRepository)
-        assert temp_db_repository._model_repo.session_factory is temp_db_repository.session_factory

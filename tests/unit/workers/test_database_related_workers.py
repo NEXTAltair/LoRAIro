@@ -402,7 +402,8 @@ class TestRegisterSingleImage:
 
         # モック設定
         mock_db_manager.detect_duplicate_image.return_value = 42  # 重複画像ID
-        mock_db_manager.repository = Mock()
+        mock_db_manager.image_repo = Mock()
+        mock_db_manager.annotation_repo = Mock()
 
         # ExistingFileReader をモック
         with patch.object(worker, "file_reader") as mock_file_reader:
@@ -1062,7 +1063,7 @@ class TestRegistrationErrorHandling:
             patch.object(real_db_manager, "save_tags"),
             patch.object(real_db_manager, "save_captions"),
             patch.object(
-                real_db_manager.repository,
+                real_db_manager.image_repo,
                 "add_filename_alias",
                 side_effect=SQLAlchemyError("table not found"),
             ),
@@ -1175,7 +1176,8 @@ class TestRegisterSingleImageUnits:
         image_path.write_bytes(b"fake_image")
 
         mock_db_manager.detect_duplicate_image.return_value = 99
-        mock_db_manager.repository = Mock()
+        mock_db_manager.image_repo = Mock()
+        mock_db_manager.annotation_repo = Mock()
 
         with (
             patch.object(worker, "file_reader") as mock_file_reader,

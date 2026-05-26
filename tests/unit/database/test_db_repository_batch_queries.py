@@ -33,9 +33,7 @@ class TestGetImagesMetadataBatch:
         repository.session_factory.return_value.__exit__ = Mock(return_value=False)
 
         expected = [{"id": 1, "filename": "a.jpg"}, {"id": 2, "filename": "b.jpg"}]
-        with patch.object(
-            repository._image_repo, "_fetch_filtered_metadata", return_value=expected
-        ) as mock_fetch:
+        with patch.object(repository, "_fetch_filtered_metadata", return_value=expected) as mock_fetch:
             result = repository.get_images_metadata_batch([1, 2])
 
         mock_fetch.assert_called_once_with(mock_session, [1, 2], resolution=0)
@@ -49,7 +47,7 @@ class TestGetImagesMetadataBatch:
         repository.session_factory.return_value.__exit__ = Mock(return_value=False)
 
         with patch.object(
-            repository._image_repo,
+            repository,
             "_fetch_filtered_metadata",
             side_effect=[
                 [{"id": 1}, {"id": 2}, {"id": 3}],
@@ -69,7 +67,7 @@ class TestGetImagesMetadataBatch:
         repository.session_factory.return_value.__exit__ = Mock(return_value=False)
 
         with patch.object(
-            repository._image_repo,
+            repository,
             "_fetch_filtered_metadata",
             return_value=[{"id": 1}, {"id": 2}, {"id": 3}],
         ) as mock_fetch:
@@ -86,7 +84,7 @@ class TestGetImagesMetadataBatch:
         repository.session_factory.return_value.__exit__ = Mock(return_value=False)
 
         with patch.object(
-            repository._image_repo,
+            repository,
             "_fetch_filtered_metadata",
             side_effect=[
                 [{"id": 1}, {"id": 2}, {"id": 3}],
@@ -109,7 +107,7 @@ class TestGetImagesMetadataBatch:
         repository.session_factory.return_value.__exit__ = Mock(return_value=False)
 
         with patch.object(
-            repository._image_repo,
+            repository,
             "_fetch_filtered_metadata",
             return_value=[{"id": 99}],
         ) as mock_fetch:
@@ -126,7 +124,7 @@ class TestGetImagesMetadataBatch:
         repository.session_factory.return_value.__exit__ = Mock(return_value=False)
 
         with patch.object(
-            repository._image_repo,
+            repository,
             "_fetch_filtered_metadata",
             side_effect=[
                 [{"id": 1}, {"id": 2}],
@@ -145,7 +143,7 @@ class TestGetImagesMetadataBatch:
         repository.session_factory.return_value.__exit__ = Mock(return_value=False)
 
         with patch.object(
-            repository._image_repo,
+            repository,
             "_fetch_filtered_metadata",
             side_effect=SQLAlchemyError("test"),
         ):
@@ -425,13 +423,18 @@ class TestFindImageIdsByPhashes:
 
 
 class TestGetModelsByLitellmIds:
-    """get_models_by_litellm_ids メソッドのテスト (ADR 0023 Phase 1.11 / Issue #238)"""
+    """get_models_by_litellm_ids メソッドのテスト (ADR 0023 Phase 1.11 / Issue #238).
+
+    ADR 0035 段階 6 (#423): facade 撤廃後、本メソッドは ModelRepository 直接呼び出し。
+    """
 
     @pytest.fixture
     def repository(self):
-        """テスト用ImageRepository"""
+        """テスト用 ModelRepository"""
+        from lorairo.database.repository.model import ModelRepository
+
         mock_session_factory = Mock()
-        return ImageRepository(session_factory=mock_session_factory)
+        return ModelRepository(session_factory=mock_session_factory)
 
     def test_empty_set_returns_empty_dict(self, repository):
         """空セットを渡すと空dictが返る"""

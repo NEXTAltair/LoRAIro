@@ -76,6 +76,12 @@ def test_images_register_success(mock_projects_dir: Path, test_images_dir: Path)
         ["images", "register", str(test_images_dir), "--project", "test-project"],
     )
 
+    if result.exit_code != 0:
+        import traceback as _tb
+
+        print(f"--- stdout ---\n{result.stdout}")
+        if result.exception:
+            _tb.print_exception(type(result.exception), result.exception, result.exception.__traceback__)
     assert result.exit_code == 0
     assert "Registration Summary" in result.stdout
 

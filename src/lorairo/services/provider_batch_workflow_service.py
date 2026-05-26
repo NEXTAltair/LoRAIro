@@ -14,7 +14,9 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
+from lorairo.database.repository.annotation_record import AnnotationRepository
 from lorairo.database.repository.image import ImageRepository
+from lorairo.database.repository.provider_batch import ProviderBatchRepository
 from lorairo.services.annotation_save_service import AnnotationSaveResult, AnnotationSaveService
 from lorairo.services.configuration_service import ConfigurationService
 from lorairo.services.provider_batch_library_compat import (
@@ -126,16 +128,22 @@ class ProviderBatchWorkflowService:
 
     def __init__(
         self,
-        repository: ImageRepository,
+        provider_batch_repo: ProviderBatchRepository,
+        image_repo: ImageRepository,
+        annotation_repo: AnnotationRepository,
         config_service: ConfigurationService,
         job_service: ProviderBatchJobService | None = None,
         adapters: Mapping[str, ProviderBatchAdapter] | None = None,
         annotation_save_service: AnnotationSaveService | None = None,
     ) -> None:
-        self._repository = repository
+        # ADR 0035 段階 6 (#423): legacy facade 撤廃後、必要な Aggregate Repo を
+        # 個別に inject する。Image / Annotation / ProviderBatch のクロス参照を要する。
+        self._provider_batch_repo = provider_batch_repo
+        self._image_repo = image_repo
+        self._annotation_repo = annotation_repo
         self._config_service = config_service
-        self._job_service = job_service or ProviderBatchJobService(repository, adapters)
-        self._annotation_save_service = annotation_save_service or AnnotationSaveService(repository)
+        self._job_service = job_service or ProviderBatchJobService(provider_batch_repo, adapters)
+        self._annotation_save_service = annotation_save_service or AnnotationSaveService(annotation_repo)
 
     def register_adapter(self, adapter: ProviderBatchAdapter) -> None:
         """Register a provider adapter with the underlying job service."""
@@ -160,7 +168,7 @@ class ProviderBatchWorkflowService:
             raise ProviderBatchError("Provider batch submit image_ids が空です")
 
         metadata_by_id = {
-            int(row["id"]): row for row in self._repository.get_images_metadata_batch(list(image_ids))
+            int(row["id"]): row for row in self._image_repo.get_images_metadata_batch(list(image_ids))
         }
         missing_image_ids = [image_id for image_id in image_ids if image_id not in metadata_by_id]
         if missing_image_ids:
@@ -332,7 +340,7 @@ class ProviderBatchWorkflowService:
             self._mark_items_imported(job_id, prepared.imported_custom_ids)
         if job_imported:
             ProviderBatchJobService.validate_transition(refreshed_job.status, "imported")
-            self._repository.update_provider_batch_job(
+            self._provider_batch_repo.update_provider_batch_job(
                 job_id,
                 {"status": "imported", "imported_at": datetime.now(UTC)},
             )
@@ -436,7 +444,7 @@ class ProviderBatchWorkflowService:
     def _mark_items_imported(self, job_id: int, custom_ids: Sequence[str]) -> None:
         updates_by_custom_id = {custom_id: {"status": "imported"} for custom_id in custom_ids}
         if updates_by_custom_id:
-            self._repository.update_provider_batch_items_by_custom_id(job_id, updates_by_custom_id)
+            self._provider_batch_repo.update_provider_batch_items_by_custom_id(job_id, updates_by_custom_id)
 
     def apply_result_items(
         self,
@@ -445,7 +453,7 @@ class ProviderBatchWorkflowService:
         items: Sequence[ProviderBatchResultItem | Mapping[str, Any] | Any],
     ) -> ProviderBatchResultApplyResult:
         """Apply normalized provider-neutral item statuses to DB records."""
-        job = self._repository.get_provider_batch_job(job_id)
+        job = self._provider_batch_repo.get_provider_batch_job(job_id)
         if job is None:
             raise ProviderBatchError(f"Provider batch job が見つかりません: job_id={job_id}")
         if job.provider_job_id != provider_job_id:
@@ -471,7 +479,7 @@ class ProviderBatchWorkflowService:
                 "raw_response": self._serialize_payload(item.raw_response),
             }
 
-        updated_custom_ids = self._repository.update_provider_batch_items_by_custom_id(
+        updated_custom_ids = self._provider_batch_repo.update_provider_batch_items_by_custom_id(
             job_id,
             updates_by_custom_id,
         )
@@ -515,10 +523,10 @@ class ProviderBatchWorkflowService:
             "expires_at": fetch_result.expires_at,
         }
         updates.update({key: value for key, value in optional_fields.items() if value is not None})
-        self._repository.update_provider_batch_job(job.id, updates)
+        self._provider_batch_repo.update_provider_batch_job(job.id, updates)
 
     def _require_job(self, job_id: int) -> ProviderBatchJob:
-        job = self._repository.get_provider_batch_job(job_id)
+        job = self._provider_batch_repo.get_provider_batch_job(job_id)
         if job is None:
             raise ProviderBatchError(f"Provider batch job が見つかりません: job_id={job_id}")
         return job

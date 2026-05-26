@@ -13,7 +13,7 @@ from typing import Any, ClassVar, Protocol, TypedDict
 from image_annotator_lib import AnnotatorInfo
 from image_annotator_lib.core.types import TaskCapability
 
-from ..database.repository.image import ImageRepository
+from ..database.repository.model import ModelRepository
 from ..services.configuration_service import ConfigurationService
 from ..utils.log import logger
 
@@ -150,14 +150,14 @@ class ModelSyncService:
 
     def __init__(
         self,
-        db_repository: ImageRepository,
+        db_repository: ModelRepository,
         config_service: ConfigurationService,
         annotator_library: AnnotatorLibraryProtocol | None = None,
     ):
         """ModelSyncService初期化
 
         Args:
-            db_repository: 画像データベースリポジトリ
+            db_repository: モデルリポジトリ (ADR 0035 段階 6: ImageRepository → ModelRepository)
             config_service: 設定サービス
             annotator_library: アノテーターライブラリアダプター（Protocol-based or Mock）
         """

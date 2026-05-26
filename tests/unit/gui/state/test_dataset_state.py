@@ -229,7 +229,7 @@ class TestDatasetStateManager:
 
         mock_db_manager = Mock()
         mock_repository = Mock()
-        mock_db_manager.repository = mock_repository
+        mock_db_manager.image_repo = mock_repository
         mock_repository.get_images_metadata_batch.return_value = [
             {"id": 1, "stored_image_path": "/test/image1_updated.jpg", "width": 2048, "height": 1536},
             {"id": 2, "stored_image_path": "/test/image2_updated.jpg", "width": 1600, "height": 1200},
@@ -249,7 +249,7 @@ class TestDatasetStateManager:
 
         mock_db_manager = Mock()
         mock_repository = Mock()
-        mock_db_manager.repository = mock_repository
+        mock_db_manager.image_repo = mock_repository
         updated_metadata = {"id": 1, "stored_image_path": "/updated.jpg", "width": 2048, "height": 1536}
         mock_repository.get_images_metadata_batch.return_value = [updated_metadata]
         state_manager._db_manager = mock_db_manager

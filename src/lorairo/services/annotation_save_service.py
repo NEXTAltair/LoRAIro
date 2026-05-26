@@ -10,7 +10,10 @@ from collections.abc import Mapping
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
+from lorairo.database.repository.annotation_record import AnnotationRepository
+from lorairo.database.repository.error_record import ErrorRecordRepository
 from lorairo.database.repository.image import ImageRepository
+from lorairo.database.repository.model import ModelRepository
 from lorairo.domain.rating_mapper import map_rating
 from lorairo.utils.log import logger
 
@@ -49,13 +52,31 @@ class AnnotationSaveService:
     Qt依存なし。
     """
 
-    def __init__(self, repository: ImageRepository) -> None:
+    def __init__(
+        self,
+        annotation_repo: AnnotationRepository,
+        image_repo: ImageRepository | None = None,
+        model_repo: ModelRepository | None = None,
+        error_record_repo: ErrorRecordRepository | None = None,
+    ) -> None:
         """AnnotationSaveService初期化。
 
+        ADR 0035 段階 6 (#423): legacy facade 撤廃により、関連 Aggregate Repo を個別に
+        inject する。`annotation_repo` のみ必須で、他は共有 session_factory から
+        自動生成されたものが渡されることを想定。
+
         Args:
-            repository: ImageRepository インスタンス。
+            annotation_repo: AnnotationRepository (save_annotations / tag 登録系)。
+            image_repo: ImageRepository (phash / filepath ベースの画像 ID lookup)。
+            model_repo: ModelRepository (model lookup)。
+            error_record_repo: ErrorRecordRepository (エラー記録 / refused 画像 ID)。
         """
-        self._repository = repository
+        self._annotation_repo = annotation_repo
+        # 補助 Repo: 未指定時は session_factory を流用して生成 (DI contract 維持)。
+        sf = annotation_repo.session_factory
+        self._image_repo = image_repo or ImageRepository(session_factory=sf)
+        self._model_repo = model_repo or ModelRepository(session_factory=sf)
+        self._error_record_repo = error_record_repo or ErrorRecordRepository(session_factory=sf)
 
     @staticmethod
     def _extract_field(result: Any, field_name: str) -> Any:
@@ -303,7 +324,7 @@ class AnnotationSaveService:
                 # 記録 → 送信前 filter で除外。
                 error_message = error.split(":", 1)[1].strip() if ":" in error else ""
                 if image_id is not None:
-                    self._repository.save_error_record(
+                    self._error_record_repo.save_error_record(
                         operation_type="annotation",
                         error_type=refusal_type,
                         error_message=error_message,
@@ -411,7 +432,7 @@ class AnnotationSaveService:
         if not normalized_tags:
             return {}
 
-        return self._repository.batch_resolve_tag_ids(normalized_tags)
+        return self._annotation_repo.batch_resolve_tag_ids(normalized_tags)
 
     def _save_single(
         self,
@@ -444,7 +465,7 @@ class AnnotationSaveService:
             logger.debug(f"画像ID {image_id} に保存するアノテーションがありません")
             return False
 
-        self._repository.save_annotations(
+        self._annotation_repo.save_annotations(
             image_id,
             annotations_dict,
             skip_existence_check=True,
@@ -473,13 +494,13 @@ class AnnotationSaveService:
                 total_count=0,
             )
 
-        phash_to_image_id = self._repository.find_image_ids_by_phashes(set(results.keys()))
+        phash_to_image_id = self._image_repo.find_image_ids_by_phashes(set(results.keys()))
 
         all_model_names, all_raw_tags = self._collect_names_and_tags(results)
         # ADR 0023 Phase 1.11 (Issue #238): registry key (= AnnotatorInfo.name) を
         # litellm_model_id SSoT に直接マップする。Phase 1.10 後は registry key と
         # litellm_model_id が一致するため (WebAPI 完全 ID / ローカル ML bare name)。
-        models_cache = self._repository.get_models_by_litellm_ids(all_model_names)
+        models_cache = self._model_repo.get_models_by_litellm_ids(all_model_names)
         tag_id_cache = self._resolve_tag_ids(all_raw_tags)
 
         success_count = 0
@@ -558,7 +579,7 @@ class AnnotationSaveService:
                     logger.debug(f"画像ID {image_id} に保存するアノテーションがありません")
                     skip_count += 1
                     continue
-                self._repository.save_annotations(
+                self._annotation_repo.save_annotations(
                     image_id,
                     annotations_dict,
                     skip_existence_check=True,
@@ -618,7 +639,7 @@ class AnnotationSaveService:
             return []
 
         refused_image_ids = set(
-            self._repository.get_error_image_ids(
+            self._error_record_repo.get_error_image_ids(
                 operation_type="annotation",
                 resolved=False,
                 error_types=list(self.REFUSAL_ERROR_TYPES),
@@ -630,7 +651,7 @@ class AnnotationSaveService:
         # ADR 0023 Phase 1.5 (Codex P2 r3209342204): N+1 回避のため、path → image_id
         # は 1 クエリでバッチ解決する。`get_image_ids_by_filepaths()` は filename IN
         # 句 + Python 側 resolve 比較で大量パスを sub-second で処理する。
-        path_to_image_id = self._repository.get_image_ids_by_filepaths(image_paths)
+        path_to_image_id = self._image_repo.get_image_ids_by_filepaths(image_paths)
 
         filtered: list[str] = []
         excluded_count = 0

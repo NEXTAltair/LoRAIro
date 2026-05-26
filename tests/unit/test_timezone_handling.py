@@ -23,7 +23,7 @@ class TestTimezoneHandling:
     def test_parse_datetime_str_with_valid_iso_format(self):
         """有効なISO形式の日付文字列のテスト"""
         # ISO 8601形式（Tセパレータ）
-        result = self.image_repo._parse_datetime_str("2024-01-15T10:30:00")
+        result = self.repository._parse_datetime_str("2024-01-15T10:30:00")
 
         # 結果がUTC timezone-aware datetimeであることを確認
         assert result is not None
@@ -38,7 +38,7 @@ class TestTimezoneHandling:
     def test_parse_datetime_str_with_space_separator(self):
         """スペース区切りの日付文字列のテスト"""
         # スペース区切り形式
-        result = self.image_repo._parse_datetime_str("2024-01-15 10:30:00")
+        result = self.repository._parse_datetime_str("2024-01-15 10:30:00")
 
         # 結果がUTC timezone-aware datetimeであることを確認
         assert result is not None
@@ -53,7 +53,7 @@ class TestTimezoneHandling:
     def test_parse_datetime_str_with_microseconds(self):
         """マイクロ秒を含む日付文字列のテスト"""
         # マイクロ秒を含む形式（削除される）
-        result = self.image_repo._parse_datetime_str("2024-01-15T10:30:00.123456")
+        result = self.repository._parse_datetime_str("2024-01-15T10:30:00.123456")
 
         # マイクロ秒は削除されることを確認
         assert result is not None
@@ -63,7 +63,7 @@ class TestTimezoneHandling:
     def test_parse_datetime_str_with_timezone_info(self):
         """タイムゾーン情報を含む日付文字列のテスト"""
         # UTCタイムゾーン情報を含む形式
-        result = self.image_repo._parse_datetime_str("2024-01-15T10:30:00+00:00")
+        result = self.repository._parse_datetime_str("2024-01-15T10:30:00+00:00")
 
         # 元々のタイムゾーン情報が保持されることを確認
         assert result is not None
@@ -72,24 +72,24 @@ class TestTimezoneHandling:
 
     def test_parse_datetime_str_with_empty_string(self):
         """空文字列のテスト"""
-        result = self.image_repo._parse_datetime_str("")
+        result = self.repository._parse_datetime_str("")
         assert result is None
 
     def test_parse_datetime_str_with_none(self):
         """None値のテスト"""
-        result = self.image_repo._parse_datetime_str(None)
+        result = self.repository._parse_datetime_str(None)
         assert result is None
 
     def test_parse_datetime_str_with_invalid_format(self):
         """無効な形式の日付文字列のテスト"""
         # 無効な形式
-        result = self.image_repo._parse_datetime_str("invalid-date")
+        result = self.repository._parse_datetime_str("invalid-date")
         assert result is None
 
     def test_parse_datetime_str_with_date_only(self):
         """日付のみの文字列のテスト"""
         # 日付のみ（時刻なし）
-        result = self.image_repo._parse_datetime_str("2024-01-15")
+        result = self.repository._parse_datetime_str("2024-01-15")
 
         # 時刻は00:00:00になることを確認
         assert result is not None
@@ -104,7 +104,7 @@ class TestTimezoneHandling:
     def test_timezone_consistency_with_db_comparison(self):
         """データベースとの比較時のタイムゾーン一貫性テスト"""
         # パースされた日時がデータベースの TIMESTAMP(timezone=True) と比較可能であることを確認
-        parsed_dt = self.image_repo._parse_datetime_str("2024-01-15T10:30:00")
+        parsed_dt = self.repository._parse_datetime_str("2024-01-15T10:30:00")
 
         # UTCのaware datetimeであることを確認
         assert parsed_dt is not None

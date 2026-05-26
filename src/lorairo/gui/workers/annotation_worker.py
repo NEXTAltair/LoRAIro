@@ -578,7 +578,12 @@ class AnnotationWorker(LoRAIroWorkerBase["AnnotationExecutionResult"]):
             )
             return
 
-        save_service = AnnotationSaveService(self.db_manager.repository)
+        save_service = AnnotationSaveService(
+            annotation_repo=self.db_manager.annotation_repo,
+            image_repo=self.db_manager.image_repo,
+            model_repo=self.db_manager.model_repo,
+            error_record_repo=self.db_manager.error_record_repo,
+        )
         original_count = len(self.image_paths)
         try:
             self.image_paths = save_service.filter_refused_image_paths(self.image_paths)
@@ -607,7 +612,12 @@ class AnnotationWorker(LoRAIroWorkerBase["AnnotationExecutionResult"]):
         Returns:
             (DB保存成功件数, スキップ件数, 画像ごとの結果概要リスト, phash→ファイル名マップ) のタプル。
         """
-        save_result = AnnotationSaveService(self.db_manager.repository).save_annotation_results(results)
+        save_result = AnnotationSaveService(
+            annotation_repo=self.db_manager.annotation_repo,
+            image_repo=self.db_manager.image_repo,
+            model_repo=self.db_manager.model_repo,
+            error_record_repo=self.db_manager.error_record_repo,
+        ).save_annotation_results(results)
 
         # GUIサマリー用: phash→ファイル名マップを構築
         phash_to_image_id = self.db_manager.image_repo.find_image_ids_by_phashes(set(results.keys()))

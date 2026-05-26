@@ -8,6 +8,7 @@ from unittest.mock import MagicMock, Mock, patch
 import pytest
 from sqlalchemy.exc import SQLAlchemyError
 
+from lorairo.database.repository.error_record import ErrorRecordRepository
 from lorairo.database.repository.image import ImageRepository
 from lorairo.database.schema import ErrorRecord, Image
 
@@ -19,7 +20,7 @@ class TestSaveErrorRecord:
     def repository(self):
         """テスト用ImageRepository"""
         mock_session_factory = MagicMock()
-        return ImageRepository(session_factory=mock_session_factory)
+        return ErrorRecordRepository(session_factory=mock_session_factory)
 
     def test_save_error_record_with_all_fields(self, repository):
         """全フィールドを持つエラーレコードの保存"""
@@ -81,7 +82,7 @@ class TestGetErrorCountUnresolved:
     def repository(self):
         """テスト用ImageRepository"""
         mock_session_factory = MagicMock()
-        return ImageRepository(session_factory=mock_session_factory)
+        return ErrorRecordRepository(session_factory=mock_session_factory)
 
     def test_get_error_count_all_operations(self, repository):
         """全操作種別の未解決エラー件数取得"""
@@ -122,7 +123,7 @@ class TestGetErrorImageIds:
     def repository(self):
         """テスト用ImageRepository"""
         mock_session_factory = MagicMock()
-        return ImageRepository(session_factory=mock_session_factory)
+        return ErrorRecordRepository(session_factory=mock_session_factory)
 
     def test_get_error_image_ids_unresolved(self, repository):
         """未解決エラー画像ID取得"""
@@ -173,11 +174,11 @@ class TestGetErrorImageIds:
 
 
 class TestGetImagesByIds:
-    """get_images_by_ids メソッドのテスト"""
+    """get_images_by_ids メソッドのテスト (ImageRepository, ADR 0035 段階 4)。"""
 
     @pytest.fixture
     def repository(self):
-        """テスト用ImageRepository"""
+        """テスト用 ImageRepository (get_images_by_ids 用)。"""
         mock_session_factory = MagicMock()
         return ImageRepository(session_factory=mock_session_factory)
 
@@ -204,7 +205,7 @@ class TestGetImagesByIds:
         ]
         repository.session_factory.return_value.__enter__.return_value = mock_session
 
-        with patch.object(repository._image_repo, "_format_annotations_for_metadata", return_value={}):
+        with patch.object(repository, "_format_annotations_for_metadata", return_value={}):
             images = repository.get_images_by_ids([1])
 
         assert len(images) == 1
@@ -218,7 +219,7 @@ class TestGetErrorRecords:
     def repository(self):
         """テスト用ImageRepository"""
         mock_session_factory = MagicMock()
-        return ImageRepository(session_factory=mock_session_factory)
+        return ErrorRecordRepository(session_factory=mock_session_factory)
 
     def test_get_error_records_all(self, repository):
         """全エラーレコード取得"""
@@ -264,7 +265,7 @@ class TestMarkErrorResolved:
     def repository(self):
         """テスト用ImageRepository"""
         mock_session_factory = MagicMock()
-        return ImageRepository(session_factory=mock_session_factory)
+        return ErrorRecordRepository(session_factory=mock_session_factory)
 
     def test_mark_error_resolved_success(self, repository):
         """エラー解決マークの成功"""
@@ -310,7 +311,7 @@ class TestMarkErrorsResolvedBatch:
     def repository(self):
         """テスト用ImageRepository"""
         mock_session_factory = MagicMock()
-        return ImageRepository(session_factory=mock_session_factory)
+        return ErrorRecordRepository(session_factory=mock_session_factory)
 
     def test_mark_errors_resolved_batch_success(self, repository):
         """複数エラーIDの一括解決済みマーク成功"""
@@ -396,7 +397,7 @@ class TestGetSession:
     def repository(self):
         """テスト用ImageRepository"""
         mock_session_factory = MagicMock()
-        return ImageRepository(session_factory=mock_session_factory)
+        return ErrorRecordRepository(session_factory=mock_session_factory)
 
     def test_get_session_returns_session(self, repository):
         """セッション取得の確認"""

@@ -10,8 +10,10 @@ from lorairo.database.repository.provider_batch import ProviderBatchRepository
 
 @pytest.mark.unit
 class TestProviderBatchRepository:
-    def test_create_get_list_and_update_job(self, test_repository: ProviderBatchRepository) -> None:
-        job_id = test_repository.create_provider_batch_job(
+    def test_create_get_list_and_update_job(
+        self, test_provider_batch_repository: ProviderBatchRepository
+    ) -> None:
+        job_id = test_provider_batch_repository.create_provider_batch_job(
             {
                 "provider": "openai",
                 "provider_job_id": "batch_123",
@@ -23,18 +25,22 @@ class TestProviderBatchRepository:
             }
         )
 
-        job = test_repository.get_provider_batch_job(job_id)
+        job = test_provider_batch_repository.get_provider_batch_job(job_id)
         assert job is not None
         assert job.provider == "openai"
         assert job.provider_job_id == "batch_123"
         assert job.request_count == 3
 
-        by_provider = test_repository.get_provider_batch_job_by_provider_id("openai", "batch_123")
+        by_provider = test_provider_batch_repository.get_provider_batch_job_by_provider_id(
+            "openai", "batch_123"
+        )
         assert by_provider is not None
         assert by_provider.id == job_id
 
-        assert [job.id for job in test_repository.list_provider_batch_jobs(provider="openai")] == [job_id]
-        assert test_repository.update_provider_batch_job(
+        assert [
+            job.id for job in test_provider_batch_repository.list_provider_batch_jobs(provider="openai")
+        ] == [job_id]
+        assert test_provider_batch_repository.update_provider_batch_job(
             job_id,
             {
                 "status": "completed",
@@ -43,23 +49,25 @@ class TestProviderBatchRepository:
             },
         )
 
-        updated = test_repository.get_provider_batch_job(job_id)
+        updated = test_provider_batch_repository.get_provider_batch_job(job_id)
         assert updated is not None
         assert updated.status == "completed"
         assert updated.succeeded_count == 3
 
-    def test_provider_job_id_unique_per_provider(self, test_repository: ProviderBatchRepository) -> None:
+    def test_provider_job_id_unique_per_provider(
+        self, test_provider_batch_repository: ProviderBatchRepository
+    ) -> None:
         data = {
             "provider": "openai",
             "provider_job_id": "batch_dupe",
             "status": "submitted",
         }
-        test_repository.create_provider_batch_job(data)
+        test_provider_batch_repository.create_provider_batch_job(data)
 
         with pytest.raises(IntegrityError):
-            test_repository.create_provider_batch_job(data)
+            test_provider_batch_repository.create_provider_batch_job(data)
 
-        other_provider_id = test_repository.create_provider_batch_job(
+        other_provider_id = test_provider_batch_repository.create_provider_batch_job(
             {
                 "provider": "anthropic",
                 "provider_job_id": "batch_dupe",
@@ -70,22 +78,28 @@ class TestProviderBatchRepository:
 
     def test_job_with_null_provider_job_id_can_be_created_multiple_times(
         self,
-        test_repository: ProviderBatchRepository,
+        test_provider_batch_repository: ProviderBatchRepository,
     ) -> None:
-        first_id = test_repository.create_provider_batch_job({"provider": "openai", "status": "draft"})
-        second_id = test_repository.create_provider_batch_job({"provider": "openai", "status": "draft"})
+        first_id = test_provider_batch_repository.create_provider_batch_job(
+            {"provider": "openai", "status": "draft"}
+        )
+        second_id = test_provider_batch_repository.create_provider_batch_job(
+            {"provider": "openai", "status": "draft"}
+        )
 
         assert first_id != second_id
 
-    def test_items_artifacts_and_delete_job(self, test_repository: ProviderBatchRepository) -> None:
-        job_id = test_repository.create_provider_batch_job(
+    def test_items_artifacts_and_delete_job(
+        self, test_provider_batch_repository: ProviderBatchRepository
+    ) -> None:
+        job_id = test_provider_batch_repository.create_provider_batch_job(
             {
                 "provider": "openai",
                 "provider_job_id": "batch_items",
                 "status": "submitted",
             }
         )
-        item_id = test_repository.create_provider_batch_item(
+        item_id = test_provider_batch_repository.create_provider_batch_item(
             {
                 "job_id": job_id,
                 "custom_id": "img-1-model-1-task-tags-run-abcd",
@@ -94,7 +108,7 @@ class TestProviderBatchRepository:
                 "raw_request": '{"custom_id":"img-1-model-1-task-tags-run-abcd"}',
             }
         )
-        artifact_id = test_repository.create_provider_batch_artifact(
+        artifact_id = test_provider_batch_repository.create_provider_batch_artifact(
             {
                 "job_id": job_id,
                 "artifact_type": "input",
@@ -106,10 +120,10 @@ class TestProviderBatchRepository:
 
         assert item_id > 0
         assert artifact_id > 0
-        assert len(test_repository.list_provider_batch_items(job_id)) == 1
-        assert len(test_repository.list_provider_batch_artifacts(job_id)) == 1
+        assert len(test_provider_batch_repository.list_provider_batch_items(job_id)) == 1
+        assert len(test_provider_batch_repository.list_provider_batch_artifacts(job_id)) == 1
 
-        assert test_repository.update_provider_batch_item_by_custom_id(
+        assert test_provider_batch_repository.update_provider_batch_item_by_custom_id(
             job_id,
             "img-1-model-1-task-tags-run-abcd",
             {
@@ -118,11 +132,11 @@ class TestProviderBatchRepository:
                 "error_message": "bad request",
             },
         )
-        failed_items = test_repository.list_provider_batch_items(job_id, status="failed")
+        failed_items = test_provider_batch_repository.list_provider_batch_items(job_id, status="failed")
         assert len(failed_items) == 1
         assert failed_items[0].error_message == "bad request"
 
-        updated_custom_ids = test_repository.update_provider_batch_items_by_custom_id(
+        updated_custom_ids = test_provider_batch_repository.update_provider_batch_items_by_custom_id(
             job_id,
             {
                 "img-1-model-1-task-tags-run-abcd": {
@@ -136,21 +150,21 @@ class TestProviderBatchRepository:
             },
         )
         assert updated_custom_ids == {"img-1-model-1-task-tags-run-abcd"}
-        imported_items = test_repository.list_provider_batch_items(job_id, status="imported")
+        imported_items = test_provider_batch_repository.list_provider_batch_items(job_id, status="imported")
         assert len(imported_items) == 1
         assert imported_items[0].raw_response == '{"ok":true}'
 
-        assert test_repository.delete_provider_batch_job(job_id)
-        assert test_repository.get_provider_batch_job(job_id) is None
-        assert test_repository.list_provider_batch_items(job_id) == []
-        assert test_repository.list_provider_batch_artifacts(job_id) == []
+        assert test_provider_batch_repository.delete_provider_batch_job(job_id)
+        assert test_provider_batch_repository.get_provider_batch_job(job_id) is None
+        assert test_provider_batch_repository.list_provider_batch_items(job_id) == []
+        assert test_provider_batch_repository.list_provider_batch_artifacts(job_id) == []
 
     def test_create_job_with_items_rolls_back_atomically_on_item_failure(
         self,
-        test_repository: ProviderBatchRepository,
+        test_provider_batch_repository: ProviderBatchRepository,
     ) -> None:
         with pytest.raises(IntegrityError):
-            test_repository.create_provider_batch_job_with_items(
+            test_provider_batch_repository.create_provider_batch_job_with_items(
                 {
                     "provider": "openai",
                     "provider_job_id": "batch_atomic",
@@ -173,19 +187,28 @@ class TestProviderBatchRepository:
                 ],
             )
 
-        assert test_repository.get_provider_batch_job_by_provider_id("openai", "batch_atomic") is None
+        assert (
+            test_provider_batch_repository.get_provider_batch_job_by_provider_id("openai", "batch_atomic")
+            is None
+        )
 
-    def test_update_rejects_unknown_fields(self, test_repository: ProviderBatchRepository) -> None:
-        job_id = test_repository.create_provider_batch_job({"provider": "openai", "status": "draft"})
+    def test_update_rejects_unknown_fields(
+        self, test_provider_batch_repository: ProviderBatchRepository
+    ) -> None:
+        job_id = test_provider_batch_repository.create_provider_batch_job(
+            {"provider": "openai", "status": "draft"}
+        )
 
         with pytest.raises(ValueError):
-            test_repository.update_provider_batch_job(job_id, {"provider": "anthropic"})
+            test_provider_batch_repository.update_provider_batch_job(job_id, {"provider": "anthropic"})
 
         with pytest.raises(ValueError):
-            test_repository.update_provider_batch_item_by_custom_id(job_id, "missing", {"custom_id": "x"})
+            test_provider_batch_repository.update_provider_batch_item_by_custom_id(
+                job_id, "missing", {"custom_id": "x"}
+            )
 
         with pytest.raises(ValueError):
-            test_repository.update_provider_batch_items_by_custom_id(
+            test_provider_batch_repository.update_provider_batch_items_by_custom_id(
                 job_id,
                 {"missing": {"custom_id": "x"}},
             )

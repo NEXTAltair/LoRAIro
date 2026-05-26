@@ -311,52 +311,6 @@ class TestMarkErrorsResolvedBatch:
 
 
 @pytest.mark.unit
-class TestFacadeDelegation:
-    """`ImageRepository` の delegating facade が `ErrorRecordRepository` を正しく呼ぶ。"""
-
-    def test_image_repository_holds_error_record_repo(self, memory_session_factory) -> None:
-        """ImageRepository は内部 `_error_record_repo` を保持する (段階移行中の hook)。"""
-        repo = ImageRepository(session_factory=memory_session_factory)
-        assert isinstance(repo._error_record_repo, ErrorRecordRepository)
-        assert repo._error_record_repo.session_factory is repo.session_factory
-
-    def test_save_error_record_via_facade_matches_direct(self, memory_session_factory) -> None:
-        """facade 経由でも直接呼び出しでも同じ動作。"""
-        repo = ImageRepository(session_factory=memory_session_factory)
-
-        id_via_facade = repo.save_error_record(
-            operation_type="annotation",
-            error_type="APIError",
-            error_message="via_facade",
-        )
-        id_via_direct = repo._error_record_repo.save_error_record(
-            operation_type="annotation",
-            error_type="APIError",
-            error_message="via_direct",
-        )
-
-        assert id_via_facade > 0
-        assert id_via_direct > 0
-        assert id_via_facade != id_via_direct
-
-    def test_mark_errors_resolved_batch_via_facade_matches_direct(self, memory_session_factory) -> None:
-        """mark_errors_resolved_batch も facade 経由で同一結果を返す。"""
-        repo = ImageRepository(session_factory=memory_session_factory)
-        eid1 = repo.save_error_record(
-            operation_type="annotation", error_type="APIError", error_message="m1"
-        )
-        eid2 = repo.save_error_record(
-            operation_type="annotation", error_type="APIError", error_message="m2"
-        )
-
-        result_facade = repo.mark_errors_resolved_batch([eid1])
-        result_direct = repo._error_record_repo.mark_errors_resolved_batch([eid2])
-
-        assert result_facade == (True, 1)
-        assert result_direct == (True, 1)
-
-
-@pytest.mark.unit
 class TestImageDatabaseManagerDIContract:
     """ImageDatabaseManager が injected `error_record_repo` 経由で呼ぶ (DI contract)。
 
@@ -366,13 +320,11 @@ class TestImageDatabaseManagerDIContract:
 
     def test_save_error_record_uses_injected_error_record_repo(self) -> None:
         """`save_error_record` Manager Facade は self.error_record_repo.save_error_record を呼ぶ。"""
-        mock_repository = Mock(spec=ImageRepository)
         mock_config_service = Mock(spec=ConfigurationService)
         mock_error_record_repo = Mock(spec=ErrorRecordRepository)
         mock_error_record_repo.save_error_record.return_value = 42
 
         manager = ImageDatabaseManager(
-            repository=mock_repository,
             config_service=mock_config_service,
             error_record_repo=mock_error_record_repo,
         )
@@ -395,18 +347,14 @@ class TestImageDatabaseManagerDIContract:
             file_path=None,
             model_name=None,
         )
-        # repository (ImageRepository) の save_error_record は呼ばれない
-        mock_repository.save_error_record.assert_not_called()
 
     def test_save_error_record_returns_minus_one_on_exception(self) -> None:
         """二次エラー防止 (PR #476): Repository 例外を Manager で sentinel `-1` に畳む。"""
-        mock_repository = Mock(spec=ImageRepository)
         mock_config_service = Mock(spec=ConfigurationService)
         mock_error_record_repo = Mock(spec=ErrorRecordRepository)
         mock_error_record_repo.save_error_record.side_effect = Exception("DB down")
 
         manager = ImageDatabaseManager(
-            repository=mock_repository,
             config_service=mock_config_service,
             error_record_repo=mock_error_record_repo,
         )
@@ -421,13 +369,11 @@ class TestImageDatabaseManagerDIContract:
 
     def test_mark_errors_resolved_batch_uses_injected_repo(self) -> None:
         """Manager の mark_errors_resolved_batch は self.error_record_repo を呼ぶ。"""
-        mock_repository = Mock(spec=ImageRepository)
         mock_config_service = Mock(spec=ConfigurationService)
         mock_error_record_repo = Mock(spec=ErrorRecordRepository)
         mock_error_record_repo.mark_errors_resolved_batch.return_value = (True, 3)
 
         manager = ImageDatabaseManager(
-            repository=mock_repository,
             config_service=mock_config_service,
             error_record_repo=mock_error_record_repo,
         )
@@ -436,18 +382,17 @@ class TestImageDatabaseManagerDIContract:
 
         assert result == (True, 3)
         mock_error_record_repo.mark_errors_resolved_batch.assert_called_once_with([1, 2, 3])
-        mock_repository.mark_errors_resolved_batch.assert_not_called()
 
-    def test_auto_constructs_error_record_repo_when_omitted(self) -> None:
-        """`error_record_repo` 省略時は repository の session_factory を共有して自動生成される。"""
-        mock_repository = Mock(spec=ImageRepository)
-        mock_repository.session_factory = lambda: None  # 任意の callable
+    def test_auto_constructs_error_record_repo_with_session_factory(self, memory_session_factory) -> None:
+        """`session_factory` 引数で error_record_repo が自動生成される。
+
+        ADR 0035 段階 6 (#423): facade 撤廃後、session_factory を Manager に渡すと
+        全 Repo がそれを共有して構築される。
+        """
         mock_config_service = Mock(spec=ConfigurationService)
-
         manager = ImageDatabaseManager(
-            repository=mock_repository,
             config_service=mock_config_service,
+            session_factory=memory_session_factory,
         )
-
         assert isinstance(manager.error_record_repo, ErrorRecordRepository)
-        assert manager.error_record_repo.session_factory is mock_repository.session_factory
+        assert manager.error_record_repo.session_factory is memory_session_factory
