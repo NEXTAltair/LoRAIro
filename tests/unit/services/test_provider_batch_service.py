@@ -578,6 +578,26 @@ class TestProviderBatchJobService:
         assert job.completed_at.isoformat() == "2026-05-25T02:00:00"
         assert job.output_artifact_path == "/tmp/output.jsonl"
 
+    def test_fetch_results_does_not_complete_mapping_without_provider_status(
+        self,
+        test_repository: ImageRepository,
+    ) -> None:
+        adapter = FakeProviderBatchAdapter()
+        adapter.fetch_result = {
+            "provider_job_id": "batch_123",
+            "artifacts": [{"artifact_type": "output", "local_path": "/tmp/output.jsonl"}],
+        }
+        service = ProviderBatchJobService(test_repository, {"openai": adapter})
+        job_id = service.submit_batch(make_submit_request())
+
+        service.fetch_results(job_id, Path("/tmp"))
+
+        job = test_repository.get_provider_batch_job(job_id)
+        assert job is not None
+        assert job.status == "validating"
+        assert job.provider_status == "validating"
+        assert job.output_artifact_path == "/tmp/output.jsonl"
+
     def test_missing_adapter_raises(self, test_repository: ImageRepository) -> None:
         service = ProviderBatchJobService(test_repository)
 

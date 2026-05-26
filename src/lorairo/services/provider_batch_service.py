@@ -618,9 +618,7 @@ class ProviderBatchJobService:
             )
         if isinstance(result, Mapping):
             provider_job_id = cls._optional_str(result.get("provider_job_id")) or fallback_provider_job_id
-            provider_status = cls._optional_str(result.get("provider_status") or result.get("status"))
-            if provider_status is None:
-                provider_status = "completed"
+            provider_status = cls._optional_str(result.get("provider_status") or result.get("status")) or ""
             return ProviderBatchFetchResult(
                 provider_job_id=provider_job_id,
                 provider_status=provider_status,
@@ -642,11 +640,10 @@ class ProviderBatchJobService:
         provider_job_id = (
             cls._optional_str(getattr(result, "provider_job_id", None)) or fallback_provider_job_id
         )
-        provider_status = cls._optional_str(
-            getattr(result, "provider_status", None) or getattr(result, "status", None)
+        provider_status = (
+            cls._optional_str(getattr(result, "provider_status", None) or getattr(result, "status", None))
+            or ""
         )
-        if provider_status is None:
-            provider_status = "completed"
         return ProviderBatchFetchResult(
             provider_job_id=provider_job_id,
             provider_status=provider_status,

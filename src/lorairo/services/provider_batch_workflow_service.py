@@ -300,10 +300,12 @@ class ProviderBatchWorkflowService:
         job_imported = (
             save_result.success_count > 0 and save_result.error_count == 0 and not unique_missing_custom_ids
         )
+        mark_imported_items = (
+            save_result.success_count == len(imported_custom_ids) and save_result.error_count == 0
+        )
+        if mark_imported_items:
+            self._mark_items_imported(job_id, imported_custom_ids)
         if job_imported:
-            updates_by_custom_id = {custom_id: {"status": "imported"} for custom_id in imported_custom_ids}
-            if updates_by_custom_id:
-                self._repository.update_provider_batch_items_by_custom_id(job_id, updates_by_custom_id)
             self._repository.update_provider_batch_job(
                 job_id,
                 {"status": "imported", "imported_at": datetime.now(UTC)},
@@ -326,6 +328,11 @@ class ProviderBatchWorkflowService:
     ) -> None:
         if results_by_image_id:
             ProviderBatchJobService.validate_transition(job.status, "imported")
+
+    def _mark_items_imported(self, job_id: int, custom_ids: Sequence[str]) -> None:
+        updates_by_custom_id = {custom_id: {"status": "imported"} for custom_id in custom_ids}
+        if updates_by_custom_id:
+            self._repository.update_provider_batch_items_by_custom_id(job_id, updates_by_custom_id)
 
     def apply_result_items(
         self,
@@ -421,9 +428,10 @@ class ProviderBatchWorkflowService:
                 raw_provider_payload=result.raw_provider_payload,
             )
         if isinstance(result, Mapping):
+            provider_status = cls._optional_str(result.get("provider_status") or result.get("status")) or ""
             return ProviderBatchFetchResult(
                 provider_job_id=str(result.get("provider_job_id") or fallback_provider_job_id),
-                provider_status=str(result.get("provider_status") or result.get("status") or "completed"),
+                provider_status=provider_status,
                 status=cls._optional_str(result.get("status")),
                 request_count=cls._optional_int(result.get("request_count")),
                 succeeded_count=cls._optional_int(result.get("succeeded_count")),
@@ -441,9 +449,10 @@ class ProviderBatchWorkflowService:
         return ProviderBatchFetchResult(
             provider_job_id=cls._optional_str(getattr(result, "provider_job_id", None))
             or fallback_provider_job_id,
-            provider_status=str(
-                getattr(result, "provider_status", None) or getattr(result, "status", None) or "completed"
-            ),
+            provider_status=cls._optional_str(
+                getattr(result, "provider_status", None) or getattr(result, "status", None)
+            )
+            or "",
             status=cls._optional_str(getattr(result, "status", None)),
             request_count=cls._optional_int(getattr(result, "request_count", None)),
             succeeded_count=cls._optional_int(getattr(result, "succeeded_count", None)),
