@@ -31,10 +31,15 @@ git worktree add ../fix-issue-123 -b fix/issue-123
 - メインワークスペースの作業状態を汚さない
 
 ### クリーンアップ
-- マージ完了後はワークツリーを削除する
+- マージ完了後は、PR 作業で使ったワークツリーを即削除する
+- 作業中のカレントディレクトリが削除対象の場合は、共有 checkout (`/workspaces/LoRAIro`) に戻ってから削除する
+- 複数の残骸をまとめて掃除する場合は、共有 checkout から `make worktree-cleanup-merged` を実行する
+- `make worktree-cleanup-merged` は `/tmp/worktrees/` 配下に限定し、未コミット変更がなく、merged PR または `origin/main` へ到達済みの worktree だけを削除する
 
 ```bash
 git worktree remove /tmp/worktrees/fix-issue-123
+# または
+make worktree-cleanup-merged
 ```
 
 ## venv（ワークツリー内）
