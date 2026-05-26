@@ -42,10 +42,10 @@
 - Issue resolution, feature work, PR preparation, and any multi-file implementation must start from a dedicated git worktree under `/tmp/worktrees/`.
 - Do not edit, stage, commit, rebase, or push from the shared main checkout at `/workspaces/LoRAIro` for implementation work.
 - Create worktrees from the current remote base, for example: `git fetch origin && git worktree add /tmp/worktrees/issue-123 -b fix/issue-123 origin/main`.
-- For issue resolution or feature implementation, completion means: implement, validate, commit, push, open a draft PR, mark it ready for review when reviewable, run PR maintenance automation through CI/review, and merge when safe, unless the user explicitly asks to stop before publishing or keep the PR as draft.
+- For issue resolution or feature implementation, completion means: implement, validate, commit, push, open a ready-for-review PR, run PR maintenance automation through CI/review, and merge when safe, unless the user explicitly asks to stop before publishing or keep the PR as draft.
 - Do not end issue or multi-file feature work after local implementation only. Report the PR URL and final monitored state as the outcome.
 - If PR creation is blocked by auth, network, failing validation, or unclear scope, report the blocker explicitly instead of silently stopping at local changes.
-- When an agent-created draft PR is reviewable, mark it ready for review in the same session unless the user explicitly asked to keep it draft. When a draft PR is marked ready for review, whether by the agent or manually by the user, immediately start or resume PR maintenance automation: poll CI, watch bot review artifacts/comments, repair actionable findings in the PR worktree, reply in Japanese, merge when safe, and report the final monitored state.
+- Agent-created PRs should normally be created ready for review, not draft. When a draft PR exists because the user explicitly asked to keep it draft, mark it ready for review as soon as the user allows review, then immediately start or resume PR maintenance automation: poll CI, watch bot review artifacts/comments, repair actionable findings in the PR worktree, reply in Japanese, merge when safe, and report the final monitored state.
 - Keep agent-specific rules as references to this file and `.claude/rules/git-workflow.md` rather than duplicating conflicting workflow text.
 
 ## Codex Parallel Agent Workflow

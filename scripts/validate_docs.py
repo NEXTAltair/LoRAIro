@@ -122,7 +122,7 @@ class DocValidator:
         actual_count = len(business_services) + len(gui_services)
 
         # Expected count from actual codebase
-        expected_business_count = 26
+        expected_business_count = 27
         expected_gui_count = 9
         expected_count = expected_business_count + expected_gui_count
 

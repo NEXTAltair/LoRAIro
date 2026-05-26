@@ -15,7 +15,7 @@ LoRAIro の3層ドキュメント構造の維持方針。
 | ファイル | 目的 |
 |---------|------|
 | `docs/architecture.md` | システム設計原則 |
-| `docs/services.md` | 全サービスカタログ (29 services) |
+| `docs/services.md` | 全サービスカタログ (36 services) |
 | `docs/integrations.md` | 外部パッケージ統合パターン |
 | `docs/testing.md` | テスト戦略とベストプラクティス |
 | `docs/technical.md` | 実装仕様 |
