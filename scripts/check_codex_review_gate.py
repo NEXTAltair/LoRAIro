@@ -13,6 +13,10 @@ BLOCKING_BODY_RE = re.compile(
     r"\b(P0|P1|blocking|must\s+fix|changes?\s+requested|security\s+regression|risky\s+behavior)\b",
     re.IGNORECASE,
 )
+UNAVAILABLE_BODY_RE = re.compile(
+    r"(to use codex here|create a codex account|connect to github|unable to run codex|codex.*not.*connected)",
+    re.IGNORECASE,
+)
 APPROVAL_REACTIONS = {"+1", "hooray"}
 
 
@@ -45,6 +49,10 @@ def _has_blocking_text(item: dict[str, Any]) -> bool:
     return bool(BLOCKING_BODY_RE.search(_body_from(item)))
 
 
+def _is_unavailable_response(item: dict[str, Any]) -> bool:
+    return bool(UNAVAILABLE_BODY_RE.search(_body_from(item)))
+
+
 def _review_reasons(reviews: list[dict[str, Any]]) -> tuple[bool, list[str]]:
     bot_artifact_seen = False
     reasons: list[str] = []
@@ -69,6 +77,8 @@ def _comment_reasons(comments: list[dict[str, Any]]) -> tuple[bool, list[str]]:
         bot_artifact_seen = True
         if _has_blocking_text(comment):
             reasons.append(f"bot comment has blocking text: {_login_from(comment)}")
+        if _is_unavailable_response(comment):
+            reasons.append(f"Codex review did not run: {_login_from(comment)}")
     return bot_artifact_seen, reasons
 
 

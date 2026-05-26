@@ -51,3 +51,20 @@ def test_gate_fails_for_blocking_codex_comment() -> None:
 
     assert not ok
     assert reasons == ["bot comment has blocking text: chatgpt-codex-connector[bot]"]
+
+
+def test_gate_fails_when_codex_connector_is_unavailable() -> None:
+    ok, reasons = evaluate(
+        reviews=[],
+        review_comments=[],
+        issue_comments=[
+            {
+                "user": {"login": "chatgpt-codex-connector"},
+                "body": "To use Codex here, create a Codex account and connect to github.",
+            }
+        ],
+        reactions=[],
+    )
+
+    assert not ok
+    assert reasons == ["Codex review did not run: chatgpt-codex-connector"]
