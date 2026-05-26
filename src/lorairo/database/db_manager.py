@@ -23,6 +23,7 @@ from .db_repository import (
 )
 from .filter_criteria import ImageFilterCriteria
 from .repository.error_record import ErrorRecordRepository
+from .repository.image import ImageRepository as _ImageRepositoryNew
 from .repository.model import ModelRepository
 from .repository.project import ProjectRepository
 
@@ -44,6 +45,7 @@ class ImageDatabaseManager:
         model_repo: ModelRepository | None = None,
         project_repo: ProjectRepository | None = None,
         error_record_repo: ErrorRecordRepository | None = None,
+        image_repo: _ImageRepositoryNew | None = None,
     ):
         """ImageDatabaseManagerのコンストラクタ。
 
@@ -60,6 +62,9 @@ class ImageDatabaseManager:
             error_record_repo (ErrorRecordRepository): ErrorRecord 関連の Repository
                 (ADR 0035 段階 3)。None の場合は `repository` の `session_factory` を
                 流用して生成する。テスト時にモック化可能。
+            image_repo (ImageRepository): Image / ProcessedImage / FilenameAlias 関連の
+                新 Repository (ADR 0035 段階 4)。None の場合は `repository` の
+                `session_factory` を流用して生成する。テスト時にモック化可能。
 
         """
         self.repository = repository
@@ -88,6 +93,12 @@ class ImageDatabaseManager:
         if error_record_repo is None:
             error_record_repo = ErrorRecordRepository(session_factory=session_factory)
         self.error_record_repo: ErrorRecordRepository = error_record_repo
+        # ADR 0035 段階 4 (#423): Image / ProcessedImage / FilenameAlias 関連を
+        # 新 ImageRepository (`repository/image.py`) に集約。
+        # session_factory は他 Repository と同様に repository から取得する。
+        if image_repo is None:
+            image_repo = _ImageRepositoryNew(session_factory=session_factory)
+        self.image_repo: _ImageRepositoryNew = image_repo
         self._cached_project_id: int | None = None
         logger.info("ImageDatabaseManager initialized.")
 
