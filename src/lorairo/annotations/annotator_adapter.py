@@ -23,6 +23,14 @@ from PIL import Image
 
 from lorairo.services.configuration_service import ConfigurationService
 from lorairo.services.model_registry_protocol import ModelInfo
+from lorairo.services.provider_batch_library_compat import (
+    to_library_handle,
+    to_library_submit_request,
+    to_provider_batch_fetch_result,
+    to_provider_batch_models,
+    to_provider_batch_status,
+    to_provider_batch_submission,
+)
 from lorairo.utils.log import logger
 
 if TYPE_CHECKING:
@@ -208,24 +216,40 @@ class AnnotatorLibraryAdapter:
 
     def submit_batch(self, request: BatchSubmitRequest) -> ProviderBatchSubmission:
         """Provider Batch API job を image-annotator-lib の公開 API へ委譲する。"""
-        return cast("ProviderBatchSubmission", self._call_batch_api("submit_batch", request))
+        return to_provider_batch_submission(
+            self._call_batch_api("submit_batch", to_library_submit_request(request)),
+            request.provider,
+        )
 
     def retrieve_batch(self, handle: BatchJobHandle) -> ProviderBatchStatus:
         """Provider Batch API job の状態取得を image-annotator-lib の公開 API へ委譲する。"""
-        return cast("ProviderBatchStatus", self._call_batch_api("retrieve_batch", handle))
+        return to_provider_batch_status(
+            self._call_batch_api("retrieve_batch", to_library_handle(handle)),
+            handle.provider,
+        )
 
     def cancel_batch(self, handle: BatchJobHandle) -> ProviderBatchStatus:
         """Provider Batch API job の cancel を image-annotator-lib の公開 API へ委譲する。"""
-        return cast("ProviderBatchStatus", self._call_batch_api("cancel_batch", handle))
+        return to_provider_batch_status(
+            self._call_batch_api("cancel_batch", to_library_handle(handle)),
+            handle.provider,
+        )
 
     def fetch_batch_results(
         self, handle: BatchJobHandle, destination_dir: Path
     ) -> ProviderBatchFetchResult:
         """Provider Batch API job の normalized result 取得を image-annotator-lib の公開 API へ委譲する。"""
-        return cast(
-            "ProviderBatchFetchResult",
-            self._call_batch_api("fetch_batch_results", handle, destination_dir),
+        library_handle = to_library_handle(handle)
+        return to_provider_batch_fetch_result(
+            self._call_fetch_batch_results(library_handle, destination_dir),
+            handle.provider,
+            destination_dir,
+            fallback_provider_job_id=handle.provider_job_id,
         )
+
+    def list_batch_capable_models(self) -> tuple[Any, ...]:
+        """Provider Batch API 対応モデル情報を image-annotator-lib から取得する。"""
+        return to_provider_batch_models(self._call_batch_api("list_batch_capable_models"))
 
     def _call_batch_api(self, method_name: str, *args: Any) -> Any:
         import image_annotator_lib
@@ -236,6 +260,31 @@ class AnnotatorLibraryAdapter:
 
             raise ProviderBatchError(f"image-annotator-lib batch API method is unavailable: {method_name}")
         return method(*args)
+
+    def _call_fetch_batch_results(self, handle: Any, destination_dir: Path) -> Any:
+        import inspect
+
+        import image_annotator_lib
+
+        method = getattr(image_annotator_lib, "fetch_batch_results", None)
+        if not callable(method):
+            from lorairo.services.provider_batch_service import ProviderBatchError
+
+            raise ProviderBatchError(
+                "image-annotator-lib batch API method is unavailable: fetch_batch_results"
+            )
+
+        try:
+            signature = inspect.signature(method)
+            accepts_destination_dir = len(signature.parameters) >= 2
+        except (TypeError, ValueError):
+            try:
+                return method(handle, destination_dir)
+            except TypeError:
+                return method(handle)
+        if accepts_destination_dir:
+            return method(handle, destination_dir)
+        return method(handle)
 
     def _prepare_api_keys(self) -> dict[str, str]:
         """APIキー辞書を準備
