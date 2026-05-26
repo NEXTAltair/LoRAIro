@@ -1,7 +1,7 @@
 # LoRAIro Project Makefile
 # Development task automation
 
-.PHONY: help setup test test-iam-lib test-runtime-local test-runtime-webapi test-genai-tag test-all mypy format install install-dev clean run-gui generate-ui skills-update venv-rebuild _ensure-submodules _ensure-root-venv
+.PHONY: help setup test test-iam-lib test-runtime-local test-runtime-webapi test-genai-tag test-all mypy format install install-dev clean run-gui generate-ui skills-update venv-rebuild worktree-cleanup-merged worktree-cleanup-merged-dry-run _ensure-submodules _ensure-root-venv
 
 # Default target
 help:
@@ -23,6 +23,8 @@ help:
 	@echo "  format       Format code (ruff format)"
 	@echo "  clean        Clean build artifacts"
 	@echo "  venv-rebuild Rebuild .venv from scratch (recovery from corruption)"
+	@echo "  worktree-cleanup-merged Remove clean merged /tmp/worktrees entries"
+	@echo "  worktree-cleanup-merged-dry-run Show clean merged /tmp/worktrees entries"
 	@echo "  skills-update Update community skills in .github/skills/"
 
 # Development targets
@@ -122,6 +124,14 @@ venv-rebuild: _ensure-submodules
 	rm -rf .venv
 	uv sync --dev
 	@echo ".venv rebuilt successfully."
+
+worktree-cleanup-merged:
+	@echo "Removing clean merged worktrees under /tmp/worktrees..."
+	uv run python scripts/cleanup_merged_worktrees.py
+
+worktree-cleanup-merged-dry-run:
+	@echo "Checking clean merged worktrees under /tmp/worktrees..."
+	uv run python scripts/cleanup_merged_worktrees.py --dry-run
 
 clean:
 	@echo "Cleaning build artifacts and caches..."

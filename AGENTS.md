@@ -48,6 +48,7 @@
 - Agent-created PRs should normally be created ready for review, not draft. When a draft PR exists because the user explicitly asked to keep it draft, mark it ready for review as soon as the user allows review, then immediately start or resume PR maintenance automation: poll CI, watch bot review artifacts/comments, repair actionable findings in the PR worktree, reply in Japanese, merge when safe, and report the final monitored state.
 - After creating an agent PR, explicitly verify `gh pr view "$PR" --json isDraft -q .isDraft`. If it is
   `true`, run `gh pr ready "$PR"` and re-check. Do not set up `gh pr merge --auto` while the PR is still draft.
+- After an agent-created PR is merged, immediately remove the clean `/tmp/worktrees/` worktree with `git worktree remove <path>` or run `make worktree-cleanup-merged` from the shared checkout. Do not leave merged worktrees or their `.venv` directories behind.
 - Keep agent-specific rules as references to this file and `.claude/rules/git-workflow.md` rather than duplicating conflicting workflow text.
 
 ## Codex Parallel Agent Workflow

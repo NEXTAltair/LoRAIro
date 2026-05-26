@@ -65,6 +65,8 @@ the code-editing session that applies fixes in the existing worktree.
 - Merge without human intervention only when bot review has completed cleanly and required checks are clean.
 - Treat an empty review/comment set as "review not completed yet", not as clean.
 - Use squash merge.
+- After a PR is merged, immediately clean up the merged `/tmp/worktrees/` checkout so its `.venv` does not
+  remain in `docker_data.vhdx`.
 
 ## Polling Workflow
 
@@ -196,6 +198,16 @@ Then run:
 ```bash
 gh pr merge "$PR" --squash --auto --delete-branch --match-head-commit "$HEAD_SHA"
 ```
+
+After GitHub reports the PR as merged, switch to the shared checkout and remove the merged worktree:
+
+```bash
+cd /workspaces/LoRAIro
+make worktree-cleanup-merged
+```
+
+If only the current PR worktree should be removed, use `git worktree remove "$WORKTREE_PATH"` from outside that
+worktree. Do not leave the merged worktree or its `.venv` behind.
 
 ## State
 
