@@ -11,6 +11,7 @@ from typing import TYPE_CHECKING, Any, Optional
 if TYPE_CHECKING:
     from lorairo.annotations.annotator_adapter import AnnotatorLibraryAdapter
     from lorairo.services.annotation_save_service import AnnotationSaveService
+    from lorairo.services.provider_batch_workflow_service import ProviderBatchWorkflowService
     from lorairo.services.signal_manager_protocol import SignalManagerServiceProtocol
     from lorairo.services.tag_management_service import TagManagementService
 
@@ -94,6 +95,9 @@ class ServiceContainer:
 
         # アノテーション保存サービス
         self._annotation_save_service: AnnotationSaveService | None = None
+
+        # Provider Batch 共通 workflow サービス
+        self._provider_batch_workflow_service: ProviderBatchWorkflowService | None = None
 
     @property
     def config_service(self) -> ConfigurationService:
@@ -280,6 +284,19 @@ class ServiceContainer:
             logger.debug("AnnotationSaveService初期化完了")
         return self._annotation_save_service
 
+    @property
+    def provider_batch_workflow_service(self) -> "ProviderBatchWorkflowService":
+        """Provider Batch 共通 workflow サービス取得（遅延初期化）"""
+        if self._provider_batch_workflow_service is None:
+            from .provider_batch_workflow_service import ProviderBatchWorkflowService
+
+            self._provider_batch_workflow_service = ProviderBatchWorkflowService(
+                self.image_repository,
+                self.config_service,
+            )
+            logger.debug("ProviderBatchWorkflowService初期化完了")
+        return self._provider_batch_workflow_service
+
     def set_active_project(self, project_name: str) -> None:
         """CLI用: アクティブプロジェクトの DB に接続を切り替える。
 
@@ -317,6 +334,7 @@ class ServiceContainer:
         self._image_processing_service = None
         self._model_sync_service = None
         self._annotation_save_service = None
+        self._provider_batch_workflow_service = None
 
         logger.info(f"アクティブプロジェクト切替: {project_name} -> {db_path}")
 
@@ -342,6 +360,7 @@ class ServiceContainer:
                 "signal_manager": self._signal_manager is not None,
                 "project_management_service": self._project_management_service is not None,
                 "image_registration_service": self._image_registration_service is not None,
+                "provider_batch_workflow_service": self._provider_batch_workflow_service is not None,
             },
             "container_initialized": ServiceContainer._initialized,
             "phase": "Phase 4 (Production Integration)"
@@ -373,6 +392,7 @@ class ServiceContainer:
         self._project_management_service = None
         self._image_registration_service = None
         self._annotation_save_service = None
+        self._provider_batch_workflow_service = None
 
         # クラスレベルリセット
         ServiceContainer._instance = None
