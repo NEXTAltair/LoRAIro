@@ -22,6 +22,7 @@ from .db_repository import (
     TagAnnotationData,
 )
 from .filter_criteria import ImageFilterCriteria
+from .repository.annotation_record import AnnotationRepository
 from .repository.error_record import ErrorRecordRepository
 from .repository.image import ImageRepository as _ImageRepositoryNew
 from .repository.model import ModelRepository
@@ -46,6 +47,7 @@ class ImageDatabaseManager:
         project_repo: ProjectRepository | None = None,
         error_record_repo: ErrorRecordRepository | None = None,
         image_repo: _ImageRepositoryNew | None = None,
+        annotation_repo: AnnotationRepository | None = None,
     ):
         """ImageDatabaseManagerのコンストラクタ。
 
@@ -64,6 +66,9 @@ class ImageDatabaseManager:
                 流用して生成する。テスト時にモック化可能。
             image_repo (ImageRepository): Image / ProcessedImage / FilenameAlias 関連の
                 新 Repository (ADR 0035 段階 4)。None の場合は `repository` の
+                `session_factory` を流用して生成する。テスト時にモック化可能。
+            annotation_repo (AnnotationRepository): Annotation 書き込み + 外部 tag_db
+                統合の Repository (ADR 0035 段階 5)。None の場合は `repository` の
                 `session_factory` を流用して生成する。テスト時にモック化可能。
 
         """
@@ -99,6 +104,14 @@ class ImageDatabaseManager:
         if image_repo is None:
             image_repo = _ImageRepositoryNew(session_factory=session_factory)
         self.image_repo: _ImageRepositoryNew = image_repo
+        # ADR 0035 段階 5 (#423): Annotation 書き込み + 外部 tag_db 統合を
+        # AnnotationRepository (`repository/annotation_record.py`) に集約。
+        # session_factory は他 Repository と同様 repository から取得する。
+        # AnnotationRepository は __init__ 内で MergedTagReader / TagRegisterService の
+        # 遅延初期化を試みる (失敗時は warning ログ + None でグレースフルデグラデーション)。
+        if annotation_repo is None:
+            annotation_repo = AnnotationRepository(session_factory=session_factory)
+        self.annotation_repo: AnnotationRepository = annotation_repo
         self._cached_project_id: int | None = None
         logger.info("ImageDatabaseManager initialized.")
 

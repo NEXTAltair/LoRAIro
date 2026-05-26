@@ -49,7 +49,7 @@ class TestTagDatabaseDuplicateHandling:
         )
         mock_result = TagSearchResult(items=[mock_tag_item], total=1)
 
-        with patch("lorairo.database.db_repository.search_tags", return_value=mock_result):
+        with patch("lorairo.database.repository.annotation_record.search_tags", return_value=mock_result):
             # テスト実行
             result = repository._get_or_create_tag_id_external(mock_session, tag_string)
 
@@ -72,7 +72,7 @@ class TestTagDatabaseDuplicateHandling:
         )
         mock_result = TagSearchResult(items=[mock_tag_item], total=1)
 
-        with patch("lorairo.database.db_repository.search_tags", return_value=mock_result):
+        with patch("lorairo.database.repository.annotation_record.search_tags", return_value=mock_result):
             # テスト実行
             result = repository._get_or_create_tag_id_external(mock_session, tag_string)
 
@@ -87,7 +87,7 @@ class TestTagDatabaseDuplicateHandling:
         # モック設定：結果なし
         mock_result = TagSearchResult(items=[], total=0)
 
-        with patch("lorairo.database.db_repository.search_tags", return_value=mock_result):
+        with patch("lorairo.database.repository.annotation_record.search_tags", return_value=mock_result):
             # テスト実行
             result = repository._get_or_create_tag_id_external(mock_session, tag_string)
 
@@ -100,8 +100,13 @@ class TestTagDatabaseDuplicateHandling:
         tag_string = "error tag"
 
         # モック設定：search_tags()がExceptionを発生
-        with patch("lorairo.database.db_repository.search_tags", side_effect=Exception("Database error")):
-            with patch("lorairo.database.db_repository.logger") as mock_logger:
+        # ADR 0035 段階 5: logger は annotation_record.py 側に移動したため、
+        # patch path も合わせる。
+        with patch(
+            "lorairo.database.repository.annotation_record.search_tags",
+            side_effect=Exception("Database error"),
+        ):
+            with patch("lorairo.database.repository.annotation_record.logger") as mock_logger:
                 # テスト実行
                 result = repository._get_or_create_tag_id_external(mock_session, tag_string)
 
@@ -136,7 +141,9 @@ class TestTagDatabaseDuplicateHandling:
             )
             mock_result = TagSearchResult(items=[mock_tag_item], total=1)
 
-            with patch("lorairo.database.db_repository.search_tags", return_value=mock_result):
+            with patch(
+                "lorairo.database.repository.annotation_record.search_tags", return_value=mock_result
+            ):
                 # テスト実行
                 result = repository._get_or_create_tag_id_external(mock_session, tag_string)
 

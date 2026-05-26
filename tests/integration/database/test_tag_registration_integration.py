@@ -149,7 +149,7 @@ class TestTagRegistrationIntegration:
             # 登録時にIntegrityErrorを発生させる
             raise IntegrityError("duplicate", "params", "orig")
 
-        monkeypatch.setattr("lorairo.database.db_repository.search_tags", mock_search_tags)
+        monkeypatch.setattr("lorairo.database.repository.annotation_record.search_tags", mock_search_tags)
         monkeypatch.setattr(
             "genai_tag_db_tools.services.tag_register.TagRegisterService.register_tag",
             mock_register_tag,
@@ -181,7 +181,7 @@ class TestTagRegistrationIntegration:
         def mock_register_tag(self, request):
             raise RuntimeError("Simulated registration error")
 
-        monkeypatch.setattr("lorairo.database.db_repository.search_tags", mock_search_tags)
+        monkeypatch.setattr("lorairo.database.repository.annotation_record.search_tags", mock_search_tags)
         monkeypatch.setattr(
             "genai_tag_db_tools.services.tag_register.TagRegisterService.register_tag",
             mock_register_tag,
@@ -243,7 +243,7 @@ class TestTagRegistrationIntegration:
         def mock_register_tag(self, request):
             raise ValueError("Invalid format_name")
 
-        monkeypatch.setattr("lorairo.database.db_repository.search_tags", mock_search_tags)
+        monkeypatch.setattr("lorairo.database.repository.annotation_record.search_tags", mock_search_tags)
         monkeypatch.setattr(
             "genai_tag_db_tools.services.tag_register.TagRegisterService.register_tag",
             mock_register_tag,

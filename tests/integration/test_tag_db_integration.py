@@ -179,7 +179,7 @@ class TestTagDbIntegration:
         def mock_search_tags(*args, **kwargs):
             raise Exception("Simulated tag_db error")
 
-        monkeypatch.setattr("lorairo.database.db_repository.search_tags", mock_search_tags)
+        monkeypatch.setattr("lorairo.database.repository.annotation_record.search_tags", mock_search_tags)
 
         # エラー発生時の動作確認
         with test_image_repository_with_tag_db.session_factory() as session:
