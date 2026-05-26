@@ -1,7 +1,7 @@
 ---
 name: agent-pr-maintainer
 version: "1.0.0"
-description: "Maintain an agent-created LoRAIro pull request after creation: poll CI and review comments with gh, repair failures in the same worktree/session, reply in Japanese, escalate design loops, and squash merge when safe. Use after creating PRs or when asked to continue PR maintenance automation."
+description: "Maintain an agent-created LoRAIro pull request after creation or after draft-to-ready transition: mark reviewable draft PRs ready, poll CI and review comments with gh, repair failures in the same worktree/session, reply in Japanese, escalate design loops, and squash merge when safe. Use after creating PRs or when asked to continue PR maintenance automation."
 metadata:
   short-description: "PR作成後のCI/レビュー監視、修正、返信、設計エスカレーション、squash mergeを共通運用する。"
 dependencies:
@@ -14,12 +14,16 @@ Follow ADR 0039 when maintaining a PR created by Codex or Claude Code.
 
 ## When to Use
 
-Use this skill after an agent creates a LoRAIro PR, or when asked to continue an agent-created PR through CI,
-review comments, repair commits, and merge.
+Use this skill after an agent creates a LoRAIro PR, including a draft PR, or when asked to continue an
+agent-created PR through CI, review comments, repair commits, and merge.
 
 Also use this skill immediately after an agent-created draft PR becomes ready for review, even when the
 ready-for-review transition was performed manually by the user outside the agent session. Treat that transition
 as the start signal for CI and review-state monitoring.
+
+If the PR was opened as draft only because repository workflow says to create draft PRs, and the implementation
+has already passed the agreed local validation, mark it ready for review in the same session and immediately
+enter the polling workflow. Do not leave a reviewable draft PR idle just because it was created with `--draft`.
 
 This skill is shared by Codex and Claude Code. GitHub I/O goes through `gh`; the agent-specific part is only
 the code-editing session that applies fixes in the existing worktree.
@@ -27,8 +31,11 @@ the code-editing session that applies fixes in the existing worktree.
 ## Core Policy
 
 - Continue in the same agent session and same dedicated worktree used to create the PR.
-- Do not stop at the draft PR URL if the PR is already ready for review, or if the user says they manually
-  changed it from draft to ready; immediately enter the polling workflow.
+- Do not stop at the draft PR URL when the PR is reviewable. First mark it ready for review, then immediately
+  enter the polling workflow.
+- Leave a PR in draft only when the user explicitly asked for draft-only publication, local validation is
+  incomplete or failing, the scope is intentionally not ready for review, or a blocker must be reported.
+- If the user says they manually changed a draft PR to ready, immediately enter the polling workflow.
 - Do not use `@codex fix` or GitHub comment-driven repair commands.
 - Poll for at most 20 minutes, every 3 minutes.
 - Use `gh` / `gh api` for PR state, checks, failed logs, comments, issue creation, labels, replies, and merge.
@@ -44,8 +51,13 @@ the code-editing session that applies fixes in the existing worktree.
 
 ## Polling Workflow
 
-After opening the PR, record the PR number and current head SHA in session memory. Then loop until success,
-repair-needed, escalation, timeout, or merge.
+After opening the PR, record the PR number and current head SHA in session memory. If `isDraft` is true,
+decide whether the PR is reviewable:
+
+- If reviewable, run `gh pr ready "$PR"` before polling.
+- If not reviewable, comment or report why maintenance cannot continue yet, and stop without merging.
+
+Then loop until success, repair-needed, escalation, timeout, or merge.
 
 Commands to gather state:
 
