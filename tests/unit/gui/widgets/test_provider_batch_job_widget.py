@@ -14,6 +14,7 @@ def _job(job_id: int = 1, status: str = "running") -> SimpleNamespace:
     return SimpleNamespace(
         id=job_id,
         provider="openai",
+        provider_status="in_progress",
         model_id=10,
         status=status,
         request_count=2,
@@ -56,6 +57,7 @@ def _container() -> SimpleNamespace:
 
     workflow_service = Mock()
     workflow_service.submit_images.return_value = 42
+    workflow_service.refresh.return_value = _job()
 
     annotator_library = Mock()
     annotator_library.list_batch_capable_models.return_value = [
@@ -87,6 +89,7 @@ def test_populates_job_and_item_tables(qtbot):
     assert widget.itemTableWidget.item(0, 0).text() == "image-1"
     assert widget.itemTableWidget.item(0, 3).text() == "failed"
     assert widget.itemTableWidget.item(0, 5).text() == "try later"
+    assert widget.rawProviderStatusLabel.text() == "Provider status: in_progress"
 
 
 def test_action_buttons_call_workflow_service(qtbot):
@@ -94,6 +97,9 @@ def test_action_buttons_call_workflow_service(qtbot):
     widget = ProviderBatchJobWidget(container)  # type: ignore[arg-type]
     qtbot.addWidget(widget)
     widget.jobTableWidget.selectRow(0)
+
+    widget.refreshButton.click()
+    container.provider_batch_workflow_service.refresh.assert_called_once_with(1)
 
     widget.cancelButton.click()
     container.provider_batch_workflow_service.cancel.assert_called_once_with(1)
@@ -145,3 +151,81 @@ def test_submit_validation_requires_image_ids(qtbot, monkeypatch):
 
     container.provider_batch_workflow_service.submit_images.assert_not_called()
     assert warnings == ["Provider Batch submit requires at least one image ID."]
+
+
+def test_item_status_filter_limits_detail_query(qtbot):
+    container = _container()
+    widget = ProviderBatchJobWidget(container)  # type: ignore[arg-type]
+    qtbot.addWidget(widget)
+    widget.jobTableWidget.selectRow(0)
+    container.db_manager.repository.list_provider_batch_items.reset_mock()
+
+    widget.itemStatusFilterComboBox.setCurrentText("failed")
+
+    container.db_manager.repository.list_provider_batch_items.assert_called_once_with(
+        1,
+        status="failed",
+        limit=1000,
+    )
+
+
+def test_model_candidates_require_local_direct_provider_model(qtbot):
+    container = _container()
+    repository = container.db_manager.repository
+    repository.get_models_by_litellm_ids.return_value = {
+        "gpt-4.1-mini": SimpleNamespace(
+            id=10,
+            name="GPT 4.1 mini",
+            provider="openai",
+            litellm_model_id="gpt-4.1-mini",
+            discontinued_at=None,
+        ),
+        "claude-3-5-haiku": SimpleNamespace(
+            id=11,
+            name="Claude 3.5 Haiku",
+            provider="anthropic",
+            litellm_model_id="claude-3-5-haiku",
+            discontinued_at=None,
+        ),
+        "openrouter/auto": SimpleNamespace(
+            id=12,
+            name="OpenRouter",
+            provider="openrouter",
+            litellm_model_id="openrouter/auto",
+            discontinued_at=None,
+        ),
+        "gpt-old": SimpleNamespace(
+            id=13,
+            name="Old GPT",
+            provider="openai",
+            litellm_model_id="gpt-old",
+            discontinued_at=datetime(2026, 5, 1, tzinfo=UTC),
+        ),
+    }
+    container.annotator_library.list_batch_capable_models.return_value = [
+        {"provider": "openai", "name": "GPT 4.1 mini", "litellm_model_id": "gpt-4.1-mini"},
+        {"provider": "anthropic", "name": "Claude", "litellm_model_id": "claude-3-5-haiku"},
+        {"provider": "openrouter", "name": "OpenRouter", "litellm_model_id": "openrouter/auto"},
+        {"provider": "openai", "name": "Old GPT", "litellm_model_id": "gpt-old"},
+        {"provider": "google", "name": "Gemini", "litellm_model_id": "gemini-2.0-flash"},
+    ]
+
+    widget = ProviderBatchJobWidget(container)  # type: ignore[arg-type]
+    qtbot.addWidget(widget)
+
+    providers = {
+        widget.providerComboBox.itemText(index) for index in range(widget.providerComboBox.count())
+    }
+    assert providers == {"anthropic", "openai"}
+    assert {candidate.model_id for candidate in widget._model_candidates} == {10, 11}
+
+
+def test_model_candidates_skip_library_models_without_local_rows(qtbot):
+    container = _container()
+    container.db_manager.repository.get_models_by_litellm_ids.return_value = {}
+
+    widget = ProviderBatchJobWidget(container)  # type: ignore[arg-type]
+    qtbot.addWidget(widget)
+
+    assert widget.providerComboBox.count() == 0
+    assert widget.submitButton.isEnabled() is False

@@ -82,6 +82,7 @@ class ProviderBatchJobWidget(QWidget):
         self._repository = service_container.db_manager.repository
         self._model_candidates: list[_ModelCandidate] = []
         self._selected_job_id: int | None = None
+        self._selected_job_provider_status = ""
 
         self._setup_ui()
         self._connect_signals()
@@ -143,6 +144,11 @@ class ProviderBatchJobWidget(QWidget):
         toolbar = QHBoxLayout()
         self.refreshButton = QPushButton("Refresh")
         self.refreshButton.setObjectName("providerBatchRefreshButton")
+        self.itemStatusFilterComboBox = QComboBox()
+        self.itemStatusFilterComboBox.setObjectName("providerBatchItemStatusFilterComboBox")
+        self.itemStatusFilterComboBox.addItem("All items", None)
+        for status in ("failed", "expired", "canceled"):
+            self.itemStatusFilterComboBox.addItem(status, status)
         self.cancelButton = QPushButton("Cancel")
         self.cancelButton.setObjectName("providerBatchCancelButton")
         self.fetchButton = QPushButton("Fetch")
@@ -150,6 +156,7 @@ class ProviderBatchJobWidget(QWidget):
         self.importButton = QPushButton("Import")
         self.importButton.setObjectName("providerBatchImportButton")
         toolbar.addWidget(self.refreshButton)
+        toolbar.addWidget(self.itemStatusFilterComboBox)
         toolbar.addStretch(1)
         toolbar.addWidget(self.cancelButton)
         toolbar.addWidget(self.fetchButton)
@@ -180,13 +187,17 @@ class ProviderBatchJobWidget(QWidget):
         self.statusLabel = QLabel()
         self.statusLabel.setObjectName("providerBatchStatusLabel")
         layout.addWidget(self.statusLabel)
+        self.rawProviderStatusLabel = QLabel()
+        self.rawProviderStatusLabel.setObjectName("providerBatchRawProviderStatusLabel")
+        layout.addWidget(self.rawProviderStatusLabel)
         self._set_action_buttons_enabled(False)
 
     def _connect_signals(self) -> None:
         self.refreshModelsButton.clicked.connect(self.refresh_models)
         self.providerComboBox.currentTextChanged.connect(self._populate_model_combo)
         self.submitButton.clicked.connect(self._on_submit_clicked)
-        self.refreshButton.clicked.connect(self.refresh_jobs)
+        self.refreshButton.clicked.connect(self._on_refresh_clicked)
+        self.itemStatusFilterComboBox.currentIndexChanged.connect(self._on_item_status_filter_changed)
         self.cancelButton.clicked.connect(self._on_cancel_clicked)
         self.fetchButton.clicked.connect(self._on_fetch_clicked)
         self.importButton.clicked.connect(self._on_import_clicked)
@@ -229,7 +240,7 @@ class ProviderBatchJobWidget(QWidget):
             local_models = get_models(litellm_ids) or {}
 
         if not local_models:
-            return library_candidates
+            return []
 
         candidates: list[_ModelCandidate] = []
         by_id = {candidate.litellm_model_id: candidate for candidate in library_candidates}
@@ -239,6 +250,9 @@ class ProviderBatchJobWidget(QWidget):
                 continue
             if getattr(model, "discontinued_at", None) is not None:
                 continue
+            model_id = getattr(model, "id", None)
+            if not isinstance(model_id, int):
+                continue
             library_candidate = by_id.get(str(litellm_model_id))
             if library_candidate is None:
                 continue
@@ -247,7 +261,7 @@ class ProviderBatchJobWidget(QWidget):
                     provider=provider,
                     litellm_model_id=library_candidate.litellm_model_id,
                     display_name=str(getattr(model, "name", "") or library_candidate.display_name),
-                    model_id=getattr(model, "id", None),
+                    model_id=model_id,
                 )
             )
         return candidates
@@ -320,10 +334,17 @@ class ProviderBatchJobWidget(QWidget):
                     item = QTableWidgetItem(str(value) if value is not None else "")
                     if column == 0:
                         item.setData(Qt.ItemDataRole.UserRole, getattr(job, "id", None))
+                    if column == 3:
+                        item.setData(
+                            Qt.ItemDataRole.UserRole,
+                            str(getattr(job, "provider_status", "") or ""),
+                        )
                     self.jobTableWidget.setItem(row, column, item)
             self._selected_job_id = None
+            self._selected_job_provider_status = ""
             self.itemTableWidget.setRowCount(0)
             self._set_action_buttons_enabled(False)
+            self._update_raw_provider_status_label()
             self.statusLabel.setText(f"Provider Batch jobs: {len(jobs)}")
             self.jobs_refreshed.emit()
         except Exception as e:
@@ -368,13 +389,20 @@ class ProviderBatchJobWidget(QWidget):
         selected_items = self.jobTableWidget.selectedItems()
         if not selected_items:
             self._selected_job_id = None
+            self._selected_job_provider_status = ""
             self.itemTableWidget.setRowCount(0)
             self._set_action_buttons_enabled(False)
+            self._update_raw_provider_status_label()
             return
         row = selected_items[0].row()
         id_item = self.jobTableWidget.item(row, 0)
         job_id = id_item.data(Qt.ItemDataRole.UserRole) if id_item is not None else None
         self._selected_job_id = int(job_id) if job_id is not None else None
+        status_item = self.jobTableWidget.item(row, 3)
+        self._selected_job_provider_status = (
+            status_item.data(Qt.ItemDataRole.UserRole) if status_item else ""
+        )
+        self._update_raw_provider_status_label()
         self._set_action_buttons_enabled(self._selected_job_id is not None)
         if self._selected_job_id is not None:
             self.job_selected.emit(self._selected_job_id)
@@ -382,7 +410,12 @@ class ProviderBatchJobWidget(QWidget):
 
     def _refresh_items(self, job_id: int) -> None:
         try:
-            items = self._repository.list_provider_batch_items(job_id, limit=1000)
+            status_filter = self.itemStatusFilterComboBox.currentData()
+            items = self._repository.list_provider_batch_items(
+                job_id,
+                status=status_filter if isinstance(status_filter, str) else None,
+                limit=1000,
+            )
             self.itemTableWidget.setRowCount(0)
             for row, item_row in enumerate(items):
                 self.itemTableWidget.insertRow(row)
@@ -403,6 +436,22 @@ class ProviderBatchJobWidget(QWidget):
         except Exception as e:
             logger.error(f"Provider Batch item refresh failed: job_id={job_id}: {e}", exc_info=True)
             self.statusLabel.setText(f"Item refresh failed: {e}")
+
+    @Slot()
+    def _on_refresh_clicked(self) -> None:
+        if self._selected_job_id is None:
+            self.refresh_jobs()
+            return
+        self._run_job_action("refresh", self._workflow_service.refresh)
+
+    @Slot()
+    def _on_item_status_filter_changed(self, _index: int = 0) -> None:
+        if self._selected_job_id is not None:
+            self._refresh_items(self._selected_job_id)
+
+    def _update_raw_provider_status_label(self) -> None:
+        value = self._selected_job_provider_status or "-"
+        self.rawProviderStatusLabel.setText(f"Provider status: {value}")
 
     def _set_action_buttons_enabled(self, enabled: bool) -> None:
         self.cancelButton.setEnabled(enabled)
