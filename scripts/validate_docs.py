@@ -122,7 +122,7 @@ class DocValidator:
         actual_count = len(business_services) + len(gui_services)
 
         # Expected count from actual codebase
-        expected_business_count = 27
+        expected_business_count = 28
         expected_gui_count = 9
         expected_count = expected_business_count + expected_gui_count
 
@@ -153,7 +153,10 @@ class DocValidator:
         print("Validating integration points...")
 
         integration_files = [
-            "src/lorairo/database/db_repository.py",
+            "src/lorairo/database/repository/annotation_record.py",
+            "src/lorairo/database/repository/image.py",
+            "src/lorairo/database/repository/model.py",
+            "src/lorairo/database/repository/provider_batch.py",
             "src/lorairo/services/tag_management_service.py",
             "src/lorairo/annotations/annotator_adapter.py",
             "src/lorairo/annotations/annotation_logic.py",

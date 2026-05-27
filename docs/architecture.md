@@ -83,7 +83,7 @@ The data layer provides persistent storage with:
 
 **Core Components**:
 - DatabaseManager (`src/lorairo/database/db_manager.py`)
-- Repository Pattern (`src/lorairo/database/db_repository.py`)
+- Repository Pattern (`src/lorairo/database/repository/`)
 - SQLAlchemy ORM with Schema Models (`src/lorairo/database/schema.py`)
 - SQLite Database with Alembic migrations
 
