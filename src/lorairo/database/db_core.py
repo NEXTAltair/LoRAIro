@@ -125,8 +125,6 @@ def ensure_default_db_dir() -> Path:
     if configured_dir is not None:
         configured_dir.mkdir(parents=True, exist_ok=True)
         return configured_dir
-    if DB_DIR.exists():
-        return DB_DIR
     return _resolve_auto_project_dir(create=True)
 
 

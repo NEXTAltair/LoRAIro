@@ -180,3 +180,35 @@ class TestDefaultDbDirectoryLazyInit:
         assert db_core.DB_DIR.parent == data_root
         assert db_core.DB_DIR.name.startswith("main_dataset_")
         assert db_core.IMG_DB_PATH == db_core.DB_DIR / db_core.IMG_DB_FILENAME
+
+    def test_default_session_local_recomputes_auto_project_dir_when_preview_exists(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ):
+        """import 時の候補が先に作られていても、明示利用時に次の連番を採番する。"""
+        import lorairo.database.db_core as db_core
+
+        session = object()
+        data_root = tmp_path / "lorairo_data"
+        monkeypatch.setattr(
+            db_core,
+            "dir_config",
+            {
+                "database_dir": "",
+                "database_base_dir": str(data_root),
+                "database_project_name": "main_dataset",
+            },
+        )
+        preview_dir = db_core._resolve_auto_project_dir(create=False)
+        preview_dir.mkdir(parents=True)
+        monkeypatch.setattr(db_core, "DB_DIR", preview_dir)
+        monkeypatch.setattr(db_core, "IMG_DB_PATH", preview_dir / db_core.IMG_DB_FILENAME)
+        monkeypatch.setattr(db_core, "_default_session_factory", None)
+        monkeypatch.setattr(db_core, "_prepare_project_database", lambda db_path: object())
+        monkeypatch.setattr(db_core, "create_session_factory", lambda engine: lambda: session)
+
+        assert db_core.DefaultSessionLocal() is session
+
+        assert db_core.DB_DIR != preview_dir
+        assert db_core.DB_DIR.parent == data_root
+        assert db_core.DB_DIR.name > preview_dir.name
+        assert db_core.IMG_DB_PATH == db_core.DB_DIR / db_core.IMG_DB_FILENAME
