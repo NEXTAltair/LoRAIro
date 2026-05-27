@@ -20,6 +20,17 @@
           }
         ]
       }
+    ],
+    "WorktreeCreate": [
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/workspaces/LoRAIro/.codex/hooks/hook_worktree_create.py"
+          }
+        ]
+      }
     ]
   }
 }

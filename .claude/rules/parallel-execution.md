@@ -4,11 +4,13 @@
 
 ## 核心ルール
 
-**並列で `uv` を走らせる場合は同一 `.venv` を共有しない。** worktree 分離か、`uv run --active` を使わない（`--active` なしの `uv run` は uv-managed venv で並列セーフ）。
+**並列で `uv` を走らせる場合は同一 `.venv` への同期系操作を競合させない。** worktree 内で実行する通常の `uv` コマンドは `UV_PROJECT_ENVIRONMENT=/workspaces/LoRAIro/.venv` を明示して共有 venv を使う。`uv sync` / `uv lock` などの書き換え系は直列化し、`uv run --active` は使わない。
 
 ## Hook で自動ブロックされる操作
 
 `uv run --active` は `.claude/hooks/rules/hook_pre_commands_rules.json` で機械的にブロックされる。Claude が以下のコマンドを発行すると PreToolUse Hook が exit code 2 で停止する:
+
+また、`/tmp/worktrees/` 配下の `uv` 実行は `UV_PROJECT_ENVIRONMENT=/workspaces/LoRAIro/.venv` を含まない場合にブロックされる。例外は venv を作らない `uv` 単体の help/inspection のみ。
 
 ```bash
 # 禁止（Hook で自動ブロック）
@@ -29,13 +31,14 @@ uv run pytest                  # uv-managed venv、並列セーフ
 
 ### 1. 並列で `uv run` を走らせる場合は worktree 分離
 
-並列タスクごとに独立した worktree を切り、それぞれが独自の `.venv` を持つ構成にする。配置先は `/tmp/worktrees/` 配下（[git-workflow.md](git-workflow.md) 参照）。
+並列タスクごとに独立した worktree を切る。配置先は `/tmp/worktrees/` 配下（[git-workflow.md](git-workflow.md) 参照）。ただし通常は worktree ごとの `.venv` を作らず、共有実行環境を明示する。
 
 ```bash
 # 正しい: 並列ジョブごとに worktree
 git worktree add /tmp/worktrees/job-a -b feat/job-a
 git worktree add /tmp/worktrees/job-b -b feat/job-b
-# それぞれの worktree 内で uv sync && uv run pytest を実行
+# それぞれの worktree 内で共有 venv を明示して実行
+UV_PROJECT_ENVIRONMENT=/workspaces/LoRAIro/.venv uv run pytest
 
 # 禁止: 同一 .venv を並列で叩く
 uv run pytest tests/unit/ &

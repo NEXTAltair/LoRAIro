@@ -338,7 +338,7 @@ LoRAIro #288 で判明した制約。`.claude/rules/parallel-execution.md` の w
 
 1. **LoRAIro root `.venv` 共有** (current best practice、ADR 0024 amended #291):
 
-   `make test-iam-lib` は `UV_PROJECT_ENVIRONMENT=$(CURDIR)/.venv uv run --no-sync pytest` 経由で LoRAIro root の named volume `.venv` を共有する。`$(CURDIR)` は make 起動時の repo root に動的解決されるため devcontainer (`/workspaces/LoRAIro/`) でも worktree (`/tmp/worktrees/<wt>/`) でも同一 target が動作する。bind mount I/O 問題は発生しない。
+   `make test-iam-lib` は `UV_PROJECT_ENVIRONMENT=$(CURDIR)/.venv uv run --no-sync pytest` 経由で LoRAIro root の named volume `.venv` を共有する。devcontainer 共有 checkout では `$(CURDIR)` が `/workspaces/LoRAIro/` になる。worktree (`/tmp/worktrees/<wt>/`) から agent が `uv` を直接実行する場合は `UV_PROJECT_ENVIRONMENT=/workspaces/LoRAIro/.venv uv ...` を明示し、worktree 内 `.venv` を作らない。
 
    ```bash
    make test-iam-lib    # LoRAIro .venv (named volume、Python 3.13) で iam-lib pytest を実行
@@ -346,9 +346,15 @@ LoRAIro #288 で判明した制約。`.claude/rules/parallel-execution.md` の w
 
    iam-lib の dev deps (`pytest-clarity` / `pytest-mock` / `pytest-xdist`) は LoRAIro `[dependency-groups] dev` に統合済。`make test-iam-lib` は内部で `_ensure-root-venv` (= `uv sync --dev`) を prerequisite として実行し、fresh checkout / new dev deps pull 直後の install 漏れを防ぐ。
 
-2. **Worktree 内で test 実行** (代替、worktree 専用 venv):
+2. **Worktree 内で test 実行**:
 
-   worktree (`/tmp/worktrees/`) は named volume なので worktree 内で `cd local_packages/image-annotator-lib && uv sync` し、独立 venv を作っても I/O 高速。複数 worktree で異なる iam-lib HEAD を test したい場合に有用。
+   原則として worktree 専用 venv は作らない。直接 `uv` を呼ぶ場合は以下の形にする:
+
+   ```bash
+   UV_PROJECT_ENVIRONMENT=/workspaces/LoRAIro/.venv uv run pytest
+   ```
+
+   複数 worktree で異なる Python 環境や依存解決を検証する必要がある場合だけ、理由を明示して worktree 専用 venv を使う。
 
 #### Hook との関係
 
@@ -356,6 +362,7 @@ LoRAIro #288 で判明した制約。`.claude/rules/parallel-execution.md` の w
 
 並列 `uv sync` (Issue #222 教訓) のガードは引き続き以下で担保:
 
+- `.claude/hooks/hook_pre_commands.py` / `.codex/hooks/hook_pre_commands.py` の worktree uv guard (`UV_PROJECT_ENVIRONMENT=/workspaces/LoRAIro/.venv` 必須、`uv` 単体のみ例外)
 - `.claude/hooks/rules/hook_pre_commands_rules.json` の `uv\s+run.*--active` block
 - `.claude/rules/parallel-execution.md` の worktree 分離 rule
 

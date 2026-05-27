@@ -44,6 +44,9 @@ make worktree-cleanup-merged
 
 ## venv（ワークツリー内）
 
-- ワークツリー内で `uv sync` する場合、venv は `/tmp/worktrees/` のボリューム上に作られるため高速
-- プロジェクトルートの `.venv` とは別管理になる
+- 原則としてワークツリー内に `.venv` を作らない
+- `/tmp/worktrees/` 配下で `uv` を実行する場合は、共有実行環境を明示する:
+  `UV_PROJECT_ENVIRONMENT=/workspaces/LoRAIro/.venv uv ...`
+- `uv` 単体の help/inspection は venv を作らないため例外として許可する
+- ワークツリー固有の `.venv` が必要な特殊事情がある場合は、理由を明示してから実行する
 - 並列で `uv run` を実行する場合の詳細ルールは [parallel-execution.md](parallel-execution.md) を参照
