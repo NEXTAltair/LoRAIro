@@ -123,7 +123,8 @@ def test_batch_submit_calls_workflow_service(mock_get_container: MagicMock) -> N
 @pytest.mark.unit
 @pytest.mark.cli
 @patch("lorairo.cli.commands.batch.get_service_container")
-def test_batch_submit_rejects_openai_annotation(mock_get_container: MagicMock) -> None:
+def test_batch_submit_accepts_openai_annotation(mock_get_container: MagicMock) -> None:
+    """OpenAI annotation Batch (#518) は `/v1/chat/completions` 経路で submit できる。"""
     container = _container()
     mock_get_container.return_value = container
 
@@ -141,9 +142,18 @@ def test_batch_submit_rejects_openai_annotation(mock_get_container: MagicMock) -
         ],
     )
 
-    assert result.exit_code == 1
-    assert "Task type 'annotation' is not supported for provider 'openai'" in result.stdout
-    container.provider_batch_workflow_service.submit_images.assert_not_called()
+    assert result.exit_code == 0
+    container.provider_batch_workflow_service.submit_images.assert_called_once_with(
+        provider="openai",
+        endpoint="/v1/chat/completions",
+        litellm_model_id="openai/gpt-4.1-mini",
+        prompt_profile="default",
+        image_ids=[1],
+        model_id=7,
+        description=None,
+        task_type="annotation",
+    )
+    assert "Provider Batch job submitted" in result.stdout
 
 
 @pytest.mark.unit

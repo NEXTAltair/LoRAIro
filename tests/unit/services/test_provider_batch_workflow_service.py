@@ -254,23 +254,28 @@ class TestProviderBatchWorkflowService:
         assert adapter.submitted_request is not None
         assert adapter.submitted_request.endpoint == "/v1/moderations"
 
-    def test_submit_images_rejects_openai_annotation_submit(
+    def test_submit_images_accepts_openai_annotation_submit(
         self,
         workflow: tuple[ProviderBatchWorkflowService, FakeProviderBatchAdapter],
         db_session_factory: sessionmaker,
     ) -> None:
-        service, _adapter = workflow
+        """OpenAI annotation Batch (#518) は `/v1/chat/completions` で submit できる。"""
+        service, adapter = workflow
         _insert_image(db_session_factory, 1, "/tmp/images/one.webp")
 
-        with pytest.raises(ProviderBatchError, match="task_type=annotation"):
-            service.submit_images(
-                provider="openai",
-                endpoint="/v1/chat/completions",
-                litellm_model_id="openai/gpt-4.1-mini",
-                prompt_profile="default",
-                image_ids=[1],
-                task_type="annotation",
-            )
+        job_id = service.submit_images(
+            provider="openai",
+            endpoint="/v1/chat/completions",
+            litellm_model_id="openai/gpt-4.1-mini",
+            prompt_profile="default",
+            image_ids=[1],
+            task_type="annotation",
+        )
+
+        assert job_id is not None
+        assert adapter.submitted_request is not None
+        assert adapter.submitted_request.endpoint == "/v1/chat/completions"
+        assert all(item.task_type == "annotation" for item in adapter.submitted_request.items)
 
     def test_submit_images_requires_model_id_for_rating_preflight(
         self,

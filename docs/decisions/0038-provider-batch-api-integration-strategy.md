@@ -496,12 +496,33 @@ image_id だけで足りる。model / endpoint / prompt profile は job metadata
 10. **Google investigation spike**: Vertex AI credential / GCS / region 設定 UX と schema 追加要否を検証
 11. **Docs**: Provider Batch API の利用条件、privacy、同期 annotation との違いを記載
 
+## Implementation Status (2026-05-27)
+
+OpenAI MVP は以下の PR で merged 済み:
+
+| 対象 | 経路 | endpoint | 関連 PR |
+|---|---|---|---|
+| Rating preflight (Moderations Batch) | Batch | `/v1/moderations` | LoRAIro #509 / #510 / #515 / iam-lib #121 / #122 / #123 |
+| 通常 annotation (Chat Completions Batch) | Batch | `/v1/chat/completions` | LoRAIro #518 (本実装) / iam-lib #126 |
+| 同期 Moderations | 同期 | `/v1/moderations` | iam-lib #124 / #125 (#517 関連) |
+
+通常 annotation Batch (Issue #518) 実装メモ:
+
+- ADR 草案 §3 では `/v1/responses` を MVP 対象としていたが、実装では **`/v1/chat/completions`** を選択。理由: PydanticAI 同期経路と同 endpoint を共有することで tool schema / response shape が完全一致し、新 API (`/v1/responses`) のサンプル不足リスクを回避。
+- Pydantic `AnnotationSchema` を schema SSoT とし、Batch では `AnnotationSchema.model_json_schema()` で直接 OpenAI function-tool schema を生成 (PydanticAI 抽象を経由しない)。
+- refusal (`finish_reason=content_filter` / `message.refusal` non-null) は `BatchItemError(code="provider_safety_refusal")` に正規化、同期側 `SafetyRefusalError` / `ContentPolicyRefusalError` 階層と等価扱い。
+- LoRAIro 側 `_TASK_TYPE_ENDPOINTS["annotation"]["openai"]` を `/v1/chat/completions` に設定し、CLI / workflow_service の両方で routing 完了。
+
+Phase 2 (Anthropic Message Batches) と Phase 3 (Google Vertex AI Gemini batch) は未着手。
+
 ## Related
 
 - #395: 本 ADR の起票元
 - #471 / ADR 0031 amendment: OpenAI Moderations Batch を既存 rating pipeline に畳み込む preflight 方針
 - #384 / ADR 0033: AnnotationWorker 同期 batch execution contract
 - #396: image-annotator-lib `model_name_list` 一括渡し最適化 (本 ADR とは別)
+- #517: sync annotate route for OpenAI Moderations (同期側、設計境界と整合)
+- #518: OpenAI Batch /v1/chat/completions annotation (Phase 1 MVP 実装)
 - ADR 0023: PydanticAI / LiteLLM WebAPI Inference Boundary
 - ADR 0030: Batch Annotation Model Selection UI
 - ADR 0037: api/ Public Facade Wiring Policy

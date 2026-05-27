@@ -45,6 +45,7 @@ from lorairo.utils.log import logger
 
 _TASK_TYPE_ENDPOINTS = {
     "annotation": {
+        "openai": "/v1/chat/completions",
         "anthropic": "/v1/messages",
     },
     "rating_preflight": {
