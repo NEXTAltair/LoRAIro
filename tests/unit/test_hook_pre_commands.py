@@ -53,7 +53,7 @@ def test_blocks_uv_without_shared_environment_in_worktree() -> None:
 
 def test_allows_uv_with_shared_environment_in_worktree() -> None:
     result = _run_hook(
-        "UV_PROJECT_ENVIRONMENT=/workspaces/LoRAIro/.venv uv run pytest",
+        "UV_PROJECT_ENVIRONMENT=/workspaces/LoRAIro/.venv uv run pytest tests/unit/test_hook_pre_commands.py",
         cwd="/tmp/worktrees/issue-123",
     )
 
