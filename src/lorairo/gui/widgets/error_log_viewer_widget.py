@@ -116,7 +116,7 @@ class ErrorLogViewerWidget(QWidget, Ui_ErrorLogViewerWidget):
             offset = (self.current_page - 1) * self.page_size
 
             # Repository API呼び出し
-            records = self.db_manager.repository.get_error_records(
+            records = self.db_manager.error_record_repo.get_error_records(
                 operation_type=operation_type,
                 resolved=resolved_filter,
                 limit=self.page_size,
@@ -130,13 +130,13 @@ class ErrorLogViewerWidget(QWidget, Ui_ErrorLogViewerWidget):
             self._update_table_display(records)
 
             # ページ情報更新
-            total_count = self.db_manager.repository.get_error_count_unresolved(
+            total_count = self.db_manager.error_record_repo.get_error_count_unresolved(
                 operation_type=operation_type
             )
             if show_resolved:
                 # 解決済みも含む場合は別途カウント取得
                 total_count = len(
-                    self.db_manager.repository.get_error_records(
+                    self.db_manager.error_record_repo.get_error_records(
                         operation_type=operation_type, resolved=None, limit=10000
                     )
                 )

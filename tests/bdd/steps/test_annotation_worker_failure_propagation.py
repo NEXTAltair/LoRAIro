@@ -43,16 +43,16 @@ def _exception_from_name(exc_type: str, message: str) -> Exception:
 def given_worker_initialized() -> dict[str, object]:
     image_paths = [f"/images/image_{i}.jpg" for i in range(1, 4)]
     db_manager = Mock()
-    db_manager.repository.get_phashes_by_filepaths.return_value = {
+    db_manager.image_repo.get_phashes_by_filepaths.return_value = {
         image_path: f"phash{i}" for i, image_path in enumerate(image_paths, start=1)
     }
-    db_manager.repository.find_image_ids_by_phashes.return_value = {f"phash{i}": i for i in range(1, 4)}
-    db_manager.repository.get_models_by_litellm_ids.return_value = {
+    db_manager.image_repo.find_image_ids_by_phashes.return_value = {f"phash{i}": i for i in range(1, 4)}
+    db_manager.model_repo.get_models_by_litellm_ids.return_value = {
         "model-a": Mock(id=1),
         "model-b": Mock(id=2),
     }
-    db_manager.repository.save_annotations = Mock()
-    db_manager.repository.get_image_ids_by_filepaths.return_value = {
+    db_manager.annotation_repo.save_annotations = Mock()
+    db_manager.image_repo.get_image_ids_by_filepaths.return_value = {
         image_path: i for i, image_path in enumerate(image_paths, start=1)
     }
     db_manager.get_image_id_by_filepath.side_effect = lambda path: {

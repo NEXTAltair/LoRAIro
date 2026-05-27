@@ -17,7 +17,10 @@ import pytest
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
-from lorairo.database.db_repository import ImageRepository
+from lorairo.database.repository.annotation_record import AnnotationRepository
+from lorairo.database.repository.error_record import ErrorRecordRepository
+from lorairo.database.repository.image import ImageRepository
+from lorairo.database.repository.model import ModelRepository
 from lorairo.database.schema import Base, Image, Model, ModelType, Score, Tag
 from lorairo.gui.workers.annotation_worker import AnnotationWorker
 from lorairo.services.annotation_save_service import AnnotationSaveService
@@ -55,6 +58,12 @@ def session_factory(engine):
 def repository(session_factory):
     """ImageRepository インスタンス。"""
     return ImageRepository(session_factory)
+
+
+@pytest.fixture(scope="function")
+def annotation_repository(session_factory):
+    """AnnotationRepository インスタンス。"""
+    return AnnotationRepository(session_factory)
 
 
 @pytest.fixture(scope="function")
@@ -118,10 +127,15 @@ class TestAnnotationSaveThreePaths:
     """CLI/Service/Worker の3経路が同一DB状態を生成することを検証する。"""
 
     def test_service_path_saves_tags_to_db(
-        self, repository, session_factory, registered_model_and_image, mock_annotation_results
+        self,
+        repository,
+        annotation_repository,
+        session_factory,
+        registered_model_and_image,
+        mock_annotation_results,
     ) -> None:
         """経路2: AnnotationSaveService直接呼び出しでタグがDBに保存される。"""
-        service = AnnotationSaveService(repository)
+        service = AnnotationSaveService(annotation_repository, image_repo=repository)
         result = service.save_annotation_results(mock_annotation_results)
 
         assert result.success_count == 1
@@ -138,8 +152,12 @@ class TestAnnotationSaveThreePaths:
     ) -> None:
         """経路3: AnnotationWorker経由でタグがDBに保存される。"""
         repository = ImageRepository(session_factory)
+        annotation_repository = AnnotationRepository(session_factory)
         mock_db_manager = Mock()
-        mock_db_manager.repository = repository
+        mock_db_manager.image_repo = repository
+        mock_db_manager.annotation_repo = annotation_repository
+        mock_db_manager.model_repo = ModelRepository(session_factory)
+        mock_db_manager.error_record_repo = ErrorRecordRepository(session_factory)
         mock_db_manager.get_image_id_by_filepath.return_value = None
         mock_db_manager.save_error_record = Mock()
 
@@ -215,7 +233,9 @@ class TestAnnotationSaveThreePaths:
                 s.add(ModelType(name=t))
             s.commit()
         sf_a, image_id_a = setup_db(engine_a)
-        AnnotationSaveService(ImageRepository(sf_a)).save_annotation_results(annotation_results)
+        AnnotationSaveService(
+            AnnotationRepository(sf_a), image_repo=ImageRepository(sf_a)
+        ).save_annotation_results(annotation_results)
         tags_a = _count_tags(sf_a, image_id_a)
         scores_a = _count_scores(sf_a, image_id_a)
 
@@ -228,8 +248,12 @@ class TestAnnotationSaveThreePaths:
             s.commit()
         sf_b, image_id_b = setup_db(engine_b)
         repo_b = ImageRepository(sf_b)
+        annotation_repo_b = AnnotationRepository(sf_b)
         mock_db = Mock()
-        mock_db.repository = repo_b
+        mock_db.image_repo = repo_b
+        mock_db.annotation_repo = annotation_repo_b
+        mock_db.model_repo = ModelRepository(sf_b)
+        mock_db.error_record_repo = ErrorRecordRepository(sf_b)
         mock_db.get_image_id_by_filepath.return_value = None
         mock_db.save_error_record = Mock()
         from lorairo.services.model_registry_protocol import NullModelRegistry
@@ -252,7 +276,9 @@ class TestAnnotationSaveThreePaths:
         assert tags_a == tags_b == 3, f"タグ数不一致: Service={tags_a}, Worker={tags_b}"
         assert scores_a == scores_b == 0, f"スコア数不一致: Service={scores_a}, Worker={scores_b}"
 
-    def test_unknown_phash_is_skipped_consistently(self, repository, session_factory) -> None:
+    def test_unknown_phash_is_skipped_consistently(
+        self, repository, annotation_repository, session_factory
+    ) -> None:
         """DB未登録のphashはService経由で正しくスキップされる。"""
         results = {
             "unknown_phash_xyz": {
@@ -265,7 +291,7 @@ class TestAnnotationSaveThreePaths:
                 }
             }
         }
-        service = AnnotationSaveService(repository)
+        service = AnnotationSaveService(annotation_repository, image_repo=repository)
         result = service.save_annotation_results(results)
 
         assert result.success_count == 0

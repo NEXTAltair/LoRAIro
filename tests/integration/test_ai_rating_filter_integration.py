@@ -10,7 +10,7 @@ from unittest.mock import MagicMock, Mock
 import pytest
 
 from lorairo.database.db_manager import ImageDatabaseManager
-from lorairo.database.db_repository import ImageRepository
+from lorairo.database.repository.image import ImageRepository
 from lorairo.services.search_criteria_processor import SearchCriteriaProcessor
 from lorairo.services.search_models import SearchConditions
 
@@ -163,8 +163,8 @@ class TestManagerLayerParameterForwarding:
 
         config_service = MagicMock(spec=ConfigurationService)
         manager = ImageDatabaseManager(
-            repository=mock_repository,
             config_service=config_service,
+            image_repo=mock_repository,
         )
 
         # 新しいパラメータを含めて呼び出し（レガシー形式）

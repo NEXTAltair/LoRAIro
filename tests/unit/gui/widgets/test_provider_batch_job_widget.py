@@ -70,9 +70,10 @@ def widget(qtbot):
 def dependencies():
     workflow = MagicMock()
     repository = MagicMock()
+    model_repository = MagicMock()
     model_source = MagicMock()
 
-    repository.get_model_by_litellm_id.side_effect = lambda litellm_id: {
+    model_repository.get_model_by_litellm_id.side_effect = lambda litellm_id: {
         "openai/gpt-4.1-mini": _model(),
         "openrouter/openai/gpt-4.1-mini": _model(
             id=8,
@@ -96,7 +97,7 @@ def dependencies():
     workflow.submit_images.return_value = 42
     workflow.fetch_results.return_value = SimpleNamespace(items=(_item(),))
     workflow.import_results.return_value = SimpleNamespace(imported_count=1, total_count=1)
-    return workflow, repository, model_source
+    return workflow, repository, model_source, model_repository
 
 
 @pytest.mark.unit
@@ -111,9 +112,9 @@ def test_initial_ui_created(widget):
 @pytest.mark.unit
 @pytest.mark.gui
 def test_set_dependencies_filters_direct_batch_models(widget, dependencies):
-    workflow, repository, model_source = dependencies
+    workflow, repository, model_source, model_repository = dependencies
 
-    widget.set_dependencies(workflow, repository, model_source)
+    widget.set_dependencies(workflow, repository, model_source, model_repository)
 
     assert widget.comboBoxModel.count() == 2
     labels = [widget.comboBoxModel.itemText(i) for i in range(widget.comboBoxModel.count())]
@@ -128,16 +129,17 @@ def test_set_dependencies_filters_direct_batch_models(widget, dependencies):
 def test_unresolved_batch_capable_models_do_not_fallback_to_all_models(widget):
     workflow = MagicMock()
     repository = MagicMock()
+    model_repository = MagicMock()
     model_source = MagicMock()
     model_source.list_batch_capable_models.return_value = ("openai/missing-from-db",)
-    repository.get_model_by_litellm_id.return_value = None
-    repository.get_model_objects.return_value = [_model()]
+    model_repository.get_model_by_litellm_id.return_value = None
+    model_repository.get_model_objects.return_value = [_model()]
     repository.list_provider_batch_jobs.return_value = []
 
-    widget.set_dependencies(workflow, repository, model_source)
+    widget.set_dependencies(workflow, repository, model_source, model_repository)
 
     assert widget.comboBoxModel.count() == 0
-    repository.get_model_objects.assert_not_called()
+    model_repository.get_model_objects.assert_not_called()
 
 
 @pytest.mark.unit
@@ -156,8 +158,8 @@ def test_use_selected_images_populates_manual_ids(widget):
 @pytest.mark.unit
 @pytest.mark.gui
 def test_submit_job_calls_workflow(widget, dependencies):
-    workflow, repository, model_source = dependencies
-    widget.set_dependencies(workflow, repository, model_source)
+    workflow, repository, model_source, model_repository = dependencies
+    widget.set_dependencies(workflow, repository, model_source, model_repository)
     widget.lineEditImageIds.setText("1, 2")
     widget.lineEditDescription.setText("nightly")
 
@@ -178,8 +180,8 @@ def test_submit_job_calls_workflow(widget, dependencies):
 @pytest.mark.unit
 @pytest.mark.gui
 def test_job_selection_loads_detail_and_failed_items(widget, dependencies):
-    workflow, repository, model_source = dependencies
-    widget.set_dependencies(workflow, repository, model_source)
+    workflow, repository, model_source, model_repository = dependencies
+    widget.set_dependencies(workflow, repository, model_source, model_repository)
     widget.comboBoxItemStatus.setCurrentText("failed")
 
     widget.tableJobs.selectRow(0)
@@ -194,8 +196,8 @@ def test_job_selection_loads_detail_and_failed_items(widget, dependencies):
 @pytest.mark.unit
 @pytest.mark.gui
 def test_refresh_cancel_fetch_import_actions_call_workflow(widget, dependencies):
-    workflow, repository, model_source = dependencies
-    widget.set_dependencies(workflow, repository, model_source)
+    workflow, repository, model_source, model_repository = dependencies
+    widget.set_dependencies(workflow, repository, model_source, model_repository)
     widget.tableJobs.selectRow(0)
 
     widget.refresh_selected_job_status()
@@ -213,8 +215,8 @@ def test_refresh_cancel_fetch_import_actions_call_workflow(widget, dependencies)
 @pytest.mark.unit
 @pytest.mark.gui
 def test_clearing_job_selection_resets_current_job(widget, dependencies):
-    workflow, repository, model_source = dependencies
-    widget.set_dependencies(workflow, repository, model_source)
+    workflow, repository, model_source, model_repository = dependencies
+    widget.set_dependencies(workflow, repository, model_source, model_repository)
     widget.tableJobs.selectRow(0)
 
     widget.tableJobs.clearSelection()
@@ -227,8 +229,8 @@ def test_clearing_job_selection_resets_current_job(widget, dependencies):
 @pytest.mark.unit
 @pytest.mark.gui
 def test_action_handlers_catch_unexpected_errors(widget, dependencies, monkeypatch):
-    workflow, repository, model_source = dependencies
-    widget.set_dependencies(workflow, repository, model_source)
+    workflow, repository, model_source, model_repository = dependencies
+    widget.set_dependencies(workflow, repository, model_source, model_repository)
     widget.tableJobs.selectRow(0)
     workflow.cancel.side_effect = RuntimeError("adapter exploded")
     critical = MagicMock()

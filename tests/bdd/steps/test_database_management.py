@@ -11,15 +11,15 @@ from PIL import Image
 from pytest_bdd import given, parsers, scenarios, then, when
 
 from lorairo.database.db_manager import ImageDatabaseManager
-from lorairo.database.db_repository import (
+from lorairo.database.schema import (
     AnnotationsDict,
     CaptionAnnotationData,
     RatingAnnotationData,
     ScoreAnnotationData,
+    Tag,
     TagAnnotationData,
 )
 from lorairo.database.schema import Image as SchemaImage
-from lorairo.database.schema import Tag
 from lorairo.storage.file_system import FileSystemManager
 
 # Use __file__ based path for pytest-bdd compatibility
@@ -243,7 +243,9 @@ def _apply_manual_edits(db_manager: ImageDatabaseManager, image_id: int, manual_
             target_ann_id = ann_data["scores"][0].get("id")
 
         if target_ann_id is not None:
-            db_manager.repository.update_annotation_manual_edit_flag(f"{edit_type}s", target_ann_id, True)
+            db_manager.annotation_repo.update_annotation_manual_edit_flag(
+                f"{edit_type}s", target_ann_id, True
+            )
         print(f"画像ID {image_id} の {manual_edit_target} (ID: {target_ann_id}) を手動編集済みに設定")
     except Exception as e:
         pytest.fail(f"画像ID {image_id} の手動編集フラグ設定中にエラー: {e}")
@@ -256,7 +258,7 @@ def _apply_manual_rating(
     if not manual_rating:
         return
     try:
-        db_manager.repository.update_manual_rating(image_id, manual_rating)
+        db_manager.annotation_repo.update_manual_rating(image_id, manual_rating)
         print(f"画像ID {image_id} の manual_rating を {manual_rating} に設定")
     except Exception as e:
         pytest.fail(f"画像ID {image_id} の手動レーティング設定中にエラー: {e}")
@@ -270,7 +272,7 @@ def _apply_nsfw_rating(
         return
     try:
         nsfw_rating = "R"
-        db_manager.repository.update_manual_rating(image_id, nsfw_rating)
+        db_manager.annotation_repo.update_manual_rating(image_id, nsfw_rating)
         print(
             f"画像ID {image_id} ({image_filename}) の manual_rating を NSFWテスト用に '{nsfw_rating}' に設定"
         )
@@ -290,7 +292,7 @@ def _apply_date_offset(
             # timedelta に秒単位のずれを追加して境界値問題を回避
             target_time = datetime.now(UTC) - timedelta(days=offset_days, seconds=1)
 
-        with db_manager.repository.session_factory() as session:
+        with db_manager.image_repo.session_factory() as session:
             session.execute(
                 sa.update(SchemaImage)
                 .where(SchemaImage.id == image_id)
@@ -355,7 +357,7 @@ def given_images_with_annotations_registered(
 
         if any(annotations_to_save.values()):
             try:
-                test_db_manager.repository.save_annotations(image_id, annotations_to_save)
+                test_db_manager.annotation_repo.save_annotations(image_id, annotations_to_save)
             except Exception as e:
                 pytest.fail(f"画像ID {image_id} のアノテーション保存中にエラー: {e}")
 
@@ -563,7 +565,7 @@ def when_save_annotations_with_datatable(
         pytest.fail(f"データテーブル処理エラー: {e}")
 
     try:
-        test_db_manager.repository.save_annotations(image_registered, annotations_dict)
+        test_db_manager.annotation_repo.save_annotations(image_registered, annotations_dict)
         print(f"画像ID {image_registered} のアノテーションをDBに保存しました: {annotations_dict}")
     except Exception as save_e:
         print(f"エラー: 画像ID {image_registered} のアノテーション保存中にエラー: {save_e}")
@@ -814,7 +816,7 @@ def then_manual_rating_is_null(
     from lorairo.database.schema import MANUAL_EDIT_LITELLM_ID, Model, Rating
 
     image_id = register_image_result["image_id"]
-    with test_db_manager.repository.session_factory() as session:
+    with test_db_manager.image_repo.session_factory() as session:
         # ADR 0023 Phase 1.11 (Issue #238): MANUAL_EDIT 行は sentinel litellm_model_id で lookup
         manual_model = session.query(Model).filter_by(litellm_model_id=MANUAL_EDIT_LITELLM_ID).first()
         if manual_model is None:

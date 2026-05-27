@@ -22,7 +22,7 @@ from genai_tag_db_tools.models import TagSearchRequest
 from genai_tag_db_tools.utils.cleanup_str import TagCleaner
 from sqlalchemy.exc import IntegrityError
 
-from lorairo.database.db_repository import ImageRepository
+from lorairo.database.repository.image import ImageRepository
 
 
 @pytest.mark.integration
@@ -34,7 +34,7 @@ class TestTagRegistrationIntegration:
     """
 
     def test_new_tag_registration_with_format_and_type(
-        self, test_image_repository_with_tag_db, test_tag_repository
+        self, test_annotation_repository_with_tag_db, test_tag_repository
     ):
         """
         新規タグ登録テスト（format_name/type_name指定）
@@ -46,8 +46,8 @@ class TestTagRegistrationIntegration:
         new_tag = f"test_phase2_tag_{uuid.uuid4().hex[:8]}"
 
         # ImageRepositoryを通じてタグ登録（Phase 2実装）
-        with test_image_repository_with_tag_db.session_factory() as session:
-            tag_id = test_image_repository_with_tag_db._get_or_create_tag_id_external(session, new_tag)
+        with test_annotation_repository_with_tag_db.session_factory() as session:
+            tag_id = test_annotation_repository_with_tag_db._get_or_create_tag_id_external(session, new_tag)
 
         # 検証: tag_idが返却される
         assert tag_id is not None, f"Tag ID should be returned for new tag '{new_tag}'"
@@ -64,7 +64,7 @@ class TestTagRegistrationIntegration:
         assert retrieved_tag.source_tag == new_tag, "Source tag should match original"
 
     def test_existing_tag_lookup_no_duplicate_creation(
-        self, test_image_repository_with_tag_db, test_tag_repository
+        self, test_annotation_repository_with_tag_db, test_tag_repository
     ):
         """
         既存タグ検索テスト（重複作成防止）
@@ -80,8 +80,8 @@ class TestTagRegistrationIntegration:
         tag_id_original = test_tag_repository.create_tag(source_tag=source_tag, tag=normalized_tag)
 
         # ImageRepositoryで同じタグを検索（Phase 2実装: search_tags -> 既存tag_id返却）
-        with test_image_repository_with_tag_db.session_factory() as session:
-            tag_id_retrieved = test_image_repository_with_tag_db._get_or_create_tag_id_external(
+        with test_annotation_repository_with_tag_db.session_factory() as session:
+            tag_id_retrieved = test_annotation_repository_with_tag_db._get_or_create_tag_id_external(
                 session, source_tag
             )
 
@@ -92,31 +92,31 @@ class TestTagRegistrationIntegration:
         all_matching_tags = test_tag_repository.search_tag_ids(normalized_tag, partial=False)
         assert len(all_matching_tags) == 1, "Should not create duplicate tags"
 
-    def test_tag_registration_service_initialization(self, test_image_repository_with_tag_db):
+    def test_tag_registration_service_initialization(self, test_annotation_repository_with_tag_db):
         """
         TagRegisterService遅延初期化テスト
 
         目的: 新規タグ登録時にTagRegisterServiceが正しく初期化されることを確認
         """
         # 初期状態: TagRegisterServiceはNone
-        assert test_image_repository_with_tag_db.tag_register_service is None, (
+        assert test_annotation_repository_with_tag_db.tag_register_service is None, (
             "TagRegisterService should be None initially"
         )
 
         # 新規タグ登録（遅延初期化をトリガー）
         new_tag = f"test_service_init_{uuid.uuid4().hex[:8]}"
-        with test_image_repository_with_tag_db.session_factory() as session:
-            tag_id = test_image_repository_with_tag_db._get_or_create_tag_id_external(session, new_tag)
+        with test_annotation_repository_with_tag_db.session_factory() as session:
+            tag_id = test_annotation_repository_with_tag_db._get_or_create_tag_id_external(session, new_tag)
 
         # 検証: tag_idが返却される
         assert tag_id is not None, "Tag ID should be returned"
 
         # TagRegisterServiceが初期化されたことを確認
-        assert test_image_repository_with_tag_db.tag_register_service is not None, (
+        assert test_annotation_repository_with_tag_db.tag_register_service is not None, (
             "TagRegisterService should be initialized after registration"
         )
 
-    def test_race_condition_retry_logic(self, test_image_repository_with_tag_db, monkeypatch):
+    def test_race_condition_retry_logic(self, test_annotation_repository_with_tag_db, monkeypatch):
         """
         競合検出時のリトライ検索テスト
 
@@ -156,15 +156,17 @@ class TestTagRegistrationIntegration:
         )
 
         # 競合発生時の動作確認
-        with test_image_repository_with_tag_db.session_factory() as session:
-            tag_id = test_image_repository_with_tag_db._get_or_create_tag_id_external(session, test_tag)
+        with test_annotation_repository_with_tag_db.session_factory() as session:
+            tag_id = test_annotation_repository_with_tag_db._get_or_create_tag_id_external(
+                session, test_tag
+            )
 
         # 検証: リトライ検索で取得したtag_idが返される
         assert tag_id == expected_tag_id, "Should return tag_id from retry search"
         assert call_count["search"] == 2, "Should call search_tags twice (initial + retry)"
 
     def test_graceful_degradation_on_registration_error(
-        self, test_image_repository_with_tag_db, monkeypatch
+        self, test_annotation_repository_with_tag_db, monkeypatch
     ):
         """
         登録エラー時のグレースフルデグラデーションテスト
@@ -189,13 +191,15 @@ class TestTagRegistrationIntegration:
 
         # エラー発生時の動作確認
         test_tag = f"test_error_{uuid.uuid4().hex[:8]}"
-        with test_image_repository_with_tag_db.session_factory() as session:
-            tag_id = test_image_repository_with_tag_db._get_or_create_tag_id_external(session, test_tag)
+        with test_annotation_repository_with_tag_db.session_factory() as session:
+            tag_id = test_annotation_repository_with_tag_db._get_or_create_tag_id_external(
+                session, test_tag
+            )
 
         # 検証: クラッシュせずNoneを返す
         assert tag_id is None, "Should return None on registration error without crashing"
 
-    def test_tag_id_consistency_with_multiple_calls(self, test_image_repository_with_tag_db):
+    def test_tag_id_consistency_with_multiple_calls(self, test_annotation_repository_with_tag_db):
         """
         複数回呼び出しでのtag_id一貫性テスト
 
@@ -205,20 +209,20 @@ class TestTagRegistrationIntegration:
         test_tag = f"test_consistency_{uuid.uuid4().hex[:8]}"
 
         # 1回目の呼び出し（新規登録）
-        with test_image_repository_with_tag_db.session_factory() as session:
-            tag_id_first = test_image_repository_with_tag_db._get_or_create_tag_id_external(
+        with test_annotation_repository_with_tag_db.session_factory() as session:
+            tag_id_first = test_annotation_repository_with_tag_db._get_or_create_tag_id_external(
                 session, test_tag
             )
 
         # 2回目の呼び出し（既存タグ検索）
-        with test_image_repository_with_tag_db.session_factory() as session:
-            tag_id_second = test_image_repository_with_tag_db._get_or_create_tag_id_external(
+        with test_annotation_repository_with_tag_db.session_factory() as session:
+            tag_id_second = test_annotation_repository_with_tag_db._get_or_create_tag_id_external(
                 session, test_tag
             )
 
         # 3回目の呼び出し
-        with test_image_repository_with_tag_db.session_factory() as session:
-            tag_id_third = test_image_repository_with_tag_db._get_or_create_tag_id_external(
+        with test_annotation_repository_with_tag_db.session_factory() as session:
+            tag_id_third = test_annotation_repository_with_tag_db._get_or_create_tag_id_external(
                 session, test_tag
             )
 
@@ -227,7 +231,9 @@ class TestTagRegistrationIntegration:
             f"Tag ID should be consistent across calls: {tag_id_first}, {tag_id_second}, {tag_id_third}"
         )
 
-    def test_value_error_handling_on_invalid_format(self, test_image_repository_with_tag_db, monkeypatch):
+    def test_value_error_handling_on_invalid_format(
+        self, test_annotation_repository_with_tag_db, monkeypatch
+    ):
         """
         無効なformat_name/type_name時のエラーハンドリングテスト
 
@@ -251,13 +257,15 @@ class TestTagRegistrationIntegration:
 
         # エラー発生時の動作確認
         test_tag = f"test_value_error_{uuid.uuid4().hex[:8]}"
-        with test_image_repository_with_tag_db.session_factory() as session:
-            tag_id = test_image_repository_with_tag_db._get_or_create_tag_id_external(session, test_tag)
+        with test_annotation_repository_with_tag_db.session_factory() as session:
+            tag_id = test_annotation_repository_with_tag_db._get_or_create_tag_id_external(
+                session, test_tag
+            )
 
         # 検証: Noneを返す
         assert tag_id is None, "Should return None on ValueError without crashing"
 
-    def test_tag_normalization_consistency(self, test_image_repository_with_tag_db):
+    def test_tag_normalization_consistency(self, test_annotation_repository_with_tag_db):
         """
         タグ正規化の一貫性テスト
 
@@ -268,16 +276,18 @@ class TestTagRegistrationIntegration:
         expected_normalized = test_tag.replace("_", " ")
 
         # タグ登録
-        with test_image_repository_with_tag_db.session_factory() as session:
-            tag_id = test_image_repository_with_tag_db._get_or_create_tag_id_external(session, test_tag)
+        with test_annotation_repository_with_tag_db.session_factory() as session:
+            tag_id = test_annotation_repository_with_tag_db._get_or_create_tag_id_external(
+                session, test_tag
+            )
 
         # 検証: tag_idが返却される
         assert tag_id is not None, "Tag ID should be returned"
 
         # 正規化が正しく適用されていることを確認（再検索で同じtag_idが返る）
-        with test_image_repository_with_tag_db.session_factory() as session:
+        with test_annotation_repository_with_tag_db.session_factory() as session:
             # 正規化後の形式で検索
-            tag_id_normalized = test_image_repository_with_tag_db._get_or_create_tag_id_external(
+            tag_id_normalized = test_annotation_repository_with_tag_db._get_or_create_tag_id_external(
                 session, expected_normalized
             )
 

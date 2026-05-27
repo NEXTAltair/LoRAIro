@@ -7,7 +7,7 @@ DBに登録済みの画像とマッチングする。
 from dataclasses import dataclass, field
 from pathlib import PurePosixPath
 
-from lorairo.database.db_repository import ImageRepository
+from lorairo.database.repository.image import ImageRepository
 
 
 @dataclass(frozen=True)

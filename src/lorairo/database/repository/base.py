@@ -39,3 +39,17 @@ class BaseRepository:
 
         """
         self.session_factory = session_factory
+
+    def get_session(self) -> Session:
+        """セッションを取得する（生 SQL を実行する際に使用）。
+
+        Manager 層が ``session_factory()`` 経由で短命なセッションを掴むための
+        ユーティリティ。本メソッドは ``with`` ブロック対象 (``Session``) を返すため、
+        呼び出し側で ``with repo.get_session() as session:`` または手動 ``close()``
+        を実施すること。
+
+        Returns:
+            Session: SQLAlchemy セッション。
+
+        """
+        return self.session_factory()

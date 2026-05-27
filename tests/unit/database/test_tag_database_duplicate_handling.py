@@ -5,7 +5,7 @@ from unittest.mock import MagicMock, Mock, patch
 import pytest
 from genai_tag_db_tools.models import TagRecordPublic, TagSearchRequest, TagSearchResult
 
-from lorairo.database.db_repository import ImageRepository
+from lorairo.database.repository.annotation_record import AnnotationRepository
 
 
 class TestTagDatabaseDuplicateHandling:
@@ -24,7 +24,7 @@ class TestTagDatabaseDuplicateHandling:
     @pytest.fixture
     def repository(self, mock_session_factory, mock_merged_reader):
         """テスト用ImageRepository（merged_readerを差し替え）"""
-        repo = ImageRepository(mock_session_factory)
+        repo = AnnotationRepository(mock_session_factory)
         repo.merged_reader = mock_merged_reader
         return repo
 
@@ -166,7 +166,7 @@ class TestTagDatabaseDuplicateHandling:
     ):
         """MergedTagReaderがNoneの場合のテスト（グレースフルデグラデーション）"""
         # merged_readerがNoneのリポジトリを作成
-        repo = ImageRepository(mock_session_factory)
+        repo = AnnotationRepository(mock_session_factory)
         assert repo.merged_reader is None  # 初期化時にNoneになる
 
         # テスト実行

@@ -8,7 +8,7 @@ from unittest.mock import MagicMock, Mock, patch
 import pytest
 from sqlalchemy.exc import SQLAlchemyError
 
-from lorairo.database.db_repository import ImageRepository
+from lorairo.database.repository.annotation_record import AnnotationRepository
 from lorairo.database.schema import Rating, Score
 
 
@@ -19,7 +19,7 @@ class TestUpdateRatingBatch:
     def repository(self):
         """テスト用ImageRepository"""
         mock_session_factory = Mock()
-        return ImageRepository(session_factory=mock_session_factory)
+        return AnnotationRepository(session_factory=mock_session_factory)
 
     @pytest.fixture
     def mock_session(self):
@@ -152,7 +152,7 @@ class TestUpdateScoreBatch:
     def repository(self):
         """テスト用ImageRepository"""
         mock_session_factory = Mock()
-        return ImageRepository(session_factory=mock_session_factory)
+        return AnnotationRepository(session_factory=mock_session_factory)
 
     @pytest.fixture
     def mock_session(self):

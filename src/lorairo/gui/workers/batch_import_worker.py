@@ -9,7 +9,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import TYPE_CHECKING, ClassVar
 
-from ...database.db_repository import ImageRepository
+from ...database.repository.image import ImageRepository
 from ...services.batch_import_service import BatchImportResult, BatchImportService
 from ...utils.log import logger
 from .base import LoRAIroWorkerBase
@@ -55,7 +55,15 @@ class BatchImportWorker(LoRAIroWorkerBase[BatchImportResult]):
         """
         self._report_progress(5, "JSONLファイルを準備中...")
 
-        service = BatchImportService(self._repository)
+        service = (
+            BatchImportService(
+                self._repository,
+                model_repository=self._db_manager.model_repo,
+                annotation_repository=self._db_manager.annotation_repo,
+            )
+            if self._db_manager is not None
+            else BatchImportService(self._repository)
+        )
         total_files = len(self._jsonl_files)
 
         if total_files == 0:

@@ -15,8 +15,8 @@ from lorairo.api.project import get_project as api_get_project
 from lorairo.api.types import RegistrationResult
 from lorairo.cli._console import make_console
 from lorairo.cli._glyphs import OK
-from lorairo.database.db_repository import ImageRepository
 from lorairo.database.filter_criteria import ImageFilterCriteria
+from lorairo.database.repository.annotation_record import AnnotationRepository
 from lorairo.services.service_container import get_service_container
 
 # サブコマンドアプリ定義
@@ -51,7 +51,7 @@ def _print_registration_summary(result: RegistrationResult, project: str) -> Non
 
 
 def _apply_tags_to_images(
-    repository: ImageRepository,
+    repository: AnnotationRepository,
     image_ids: list[int],
     tag_list: list[str],
 ) -> tuple[int, list[str]]:
@@ -199,7 +199,7 @@ def list_images(
         container = get_service_container()
         container.set_active_project(project)
 
-        repository = container.image_repository
+        repository = container.db_manager.image_repo
         criteria = ImageFilterCriteria(include_nsfw=True)
         image_records, total_count = repository.get_images_by_filter(criteria)
 
@@ -283,17 +283,18 @@ def update(
 
         container = get_service_container()
         container.set_active_project(project)
-        repository = container.image_repository
+        image_repo = container.db_manager.image_repo
+        annotation_repo = container.db_manager.annotation_repo
 
         if image_id is not None:
-            metadata = repository.get_image_metadata(image_id)
+            metadata = image_repo.get_image_metadata(image_id)
             if metadata is None:
                 console.print(f"[red]Error:[/red] No image found with ID: {image_id}")
                 raise typer.Exit(code=1)
             image_ids: list[int] = [image_id]
         else:
             criteria = ImageFilterCriteria(include_nsfw=True)
-            image_records, _total = repository.get_images_by_filter(criteria)
+            image_records, _total = image_repo.get_images_by_filter(criteria)
             if not image_records:
                 console.print(f"[yellow]Warning:[/yellow] No images found in project: {project}")
                 return
@@ -304,7 +305,7 @@ def update(
             console.print("[red]Error:[/red] No valid tags specified.")
             raise typer.Exit(code=2)
 
-        total_added, failed_tags = _apply_tags_to_images(repository, image_ids, tag_list)
+        total_added, failed_tags = _apply_tags_to_images(annotation_repo, image_ids, tag_list)
 
         _print_update_summary(
             project=project,

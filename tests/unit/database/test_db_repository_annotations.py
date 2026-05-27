@@ -7,7 +7,8 @@ from unittest.mock import Mock, patch
 
 import pytest
 
-from lorairo.database.db_repository import ImageRepository
+from lorairo.database.repository.image import ImageRepository
+from lorairo.database.repository.model import ModelRepository
 from lorairo.database.schema import Caption, Image, Rating, Score, Tag
 
 
@@ -308,7 +309,7 @@ class TestFetchFilteredMetadataAnnotations:
         mock_result.scalars.return_value.all.return_value = [mock_image]
         mock_session.execute.return_value = mock_result
 
-        with patch.object(repository._image_repo, "_format_annotations_for_metadata") as mock_format:
+        with patch.object(repository, "_format_annotations_for_metadata") as mock_format:
             mock_format.return_value = {
                 "tags": [{"id": 1, "tag": "test"}],
                 "captions": [],
@@ -369,8 +370,8 @@ class TestFetchFilteredMetadataAnnotations:
         mock_session.execute.side_effect = mock_execute
 
         with (
-            patch.object(repository._image_repo, "_format_annotations_for_metadata") as mock_format,
-            patch.object(repository._image_repo, "_filter_by_resolution") as mock_filter,
+            patch.object(repository, "_format_annotations_for_metadata") as mock_format,
+            patch.object(repository, "_filter_by_resolution") as mock_filter,
         ):
             mock_format.return_value = {
                 "tags": [{"id": 1, "tag": "test"}],
@@ -514,7 +515,7 @@ class TestApplySimpleFieldUpdates:
     def test_no_changes_when_all_none(self):
         """全引数Noneの場合は変更なし。"""
         model = Mock()
-        result = ImageRepository._apply_simple_field_updates(model, None, None, None, None, None)
+        result = ModelRepository._apply_simple_field_updates(model, None, None, None, None, None)
         assert result is False
 
     def test_updates_changed_field(self):
@@ -526,7 +527,7 @@ class TestApplySimpleFieldUpdates:
         model.requires_api_key = None
         model.discontinued_at = None
 
-        result = ImageRepository._apply_simple_field_updates(model, "new_provider", None, None, None, None)
+        result = ModelRepository._apply_simple_field_updates(model, "new_provider", None, None, None, None)
         assert result is True
         assert model.provider == "new_provider"
 
@@ -535,5 +536,5 @@ class TestApplySimpleFieldUpdates:
         model = Mock()
         model.provider = "same_provider"
 
-        result = ImageRepository._apply_simple_field_updates(model, "same_provider", None, None, None, None)
+        result = ModelRepository._apply_simple_field_updates(model, "same_provider", None, None, None, None)
         assert result is False

@@ -319,7 +319,7 @@ class ImageProcessingService:
             upscaler_used (str | None): 使用されたアップスケーラー名
         """
         try:
-            from ..database.db_repository import TagAnnotationData
+            from ..database.schema import TagAnnotationData
 
             # upscaledタグを追加
             upscaled_tag: TagAnnotationData = {

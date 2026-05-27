@@ -25,8 +25,8 @@ from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import sessionmaker
 
 from lorairo.database.db_manager import ImageDatabaseManager
-from lorairo.database.db_repository import ImageRepository
 from lorairo.database.repository.base import BaseRepository
+from lorairo.database.repository.image import ImageRepository
 from lorairo.database.repository.project import ProjectRepository
 from lorairo.database.schema import Image, Project
 from lorairo.services.configuration_service import ConfigurationService
@@ -224,37 +224,6 @@ class TestAssignImagesToProject:
 
 
 @pytest.mark.unit
-class TestFacadeDelegation:
-    """`ImageRepository` の delegating facade が `ProjectRepository` を正しく呼ぶ。"""
-
-    def test_image_repository_holds_project_repo(self, memory_session_factory) -> None:
-        """ImageRepository は内部 `_project_repo` を保持する (段階移行中の hook)。"""
-        repo = ImageRepository(session_factory=memory_session_factory)
-        assert isinstance(repo._project_repo, ProjectRepository)
-        assert repo._project_repo.session_factory is repo.session_factory
-
-    def test_ensure_project_via_facade_matches_direct(self, memory_session_factory) -> None:
-        """facade 経由でも直接呼び出しでも同じ動作。"""
-        repo = ImageRepository(session_factory=memory_session_factory)
-
-        id1 = repo.ensure_project("via_facade", Path("/tmp/x"))
-        id2 = repo._project_repo.ensure_project("via_facade", Path("/tmp/x"))
-
-        assert id1 == id2
-
-    def test_get_image_ids_via_facade_matches_direct(self, memory_session_factory) -> None:
-        """get_image_ids_by_project も facade 経由で同一結果を返す。"""
-        repo = ImageRepository(session_factory=memory_session_factory)
-        pid = repo.ensure_project("facade_test", Path("/tmp/facade"))
-        image_ids = [_make_image(memory_session_factory, project_id=pid) for _ in range(2)]
-
-        via_facade = set(repo.get_image_ids_by_project("facade_test"))
-        via_direct = set(repo._project_repo.get_image_ids_by_project("facade_test"))
-
-        assert via_facade == via_direct == set(image_ids)
-
-
-@pytest.mark.unit
 class TestImageDatabaseManagerDIContract:
     """ImageDatabaseManager が injected `project_repo` 経由で ensure_project を呼ぶ (DI contract)。
 
@@ -264,13 +233,11 @@ class TestImageDatabaseManagerDIContract:
 
     def test_get_current_project_id_uses_injected_project_repo(self) -> None:
         """`_get_current_project_id` は self.project_repo.ensure_project を呼ぶ。"""
-        mock_repository = Mock(spec=ImageRepository)
         mock_config_service = Mock(spec=ConfigurationService)
         mock_project_repo = Mock(spec=ProjectRepository)
         mock_project_repo.ensure_project.return_value = 123
 
         manager = ImageDatabaseManager(
-            repository=mock_repository,
             config_service=mock_config_service,
             project_repo=mock_project_repo,
         )
@@ -282,21 +249,17 @@ class TestImageDatabaseManagerDIContract:
         assert result == 123
         # injected mock 経由で呼ばれることを assert (DI contract)
         mock_project_repo.ensure_project.assert_called_once_with("some_project", fake_root)
-        # repository (ImageRepository) の ensure_project は呼ばれない
-        mock_repository.ensure_project.assert_not_called()
 
-    def test_auto_constructs_project_repo_when_omitted(self) -> None:
-        """`project_repo` 省略時は repository の session_factory を共有して自動生成される。"""
-        from lorairo.database.repository.project import ProjectRepository as PR
+    def test_auto_constructs_project_repo_with_session_factory(self, db_session_factory) -> None:
+        """`session_factory` 引数で project_repo が自動生成される。
 
-        mock_repository = Mock(spec=ImageRepository)
-        mock_repository.session_factory = lambda: None  # 任意の callable
+        ADR 0035 段階 6 (#423): facade 撤廃後、session_factory を Manager に渡すと
+        全 Repo がそれを共有して構築される。
+        """
         mock_config_service = Mock(spec=ConfigurationService)
-
         manager = ImageDatabaseManager(
-            repository=mock_repository,
             config_service=mock_config_service,
+            session_factory=db_session_factory,
         )
-
-        assert isinstance(manager.project_repo, PR)
-        assert manager.project_repo.session_factory is mock_repository.session_factory
+        assert isinstance(manager.project_repo, ProjectRepository)
+        assert manager.project_repo.session_factory is db_session_factory

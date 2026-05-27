@@ -20,7 +20,7 @@ from PySide6.QtCore import QSize
 from lorairo.annotations.annotation_logic import AnnotationLogic
 from lorairo.database.db_core import create_db_engine, create_session_factory
 from lorairo.database.db_manager import ImageDatabaseManager
-from lorairo.database.db_repository import ImageRepository
+from lorairo.database.repository.image import ImageRepository
 from lorairo.gui.workers.base import CancellationError
 from lorairo.gui.workers.registration_worker import DatabaseRegistrationWorker
 from lorairo.gui.workers.search_worker import SearchResult, SearchWorker
@@ -69,9 +69,9 @@ def db_manager(temp_project_dir):
 
     # ImageDatabaseManager作成
     manager = ImageDatabaseManager(
-        repository=repository,
         config_service=mock_config_service,
         fsm=fsm,
+        image_repo=repository,
     )
     return manager
 
@@ -113,11 +113,11 @@ class TestDatabaseRegistrationWorkerErrorRecording:
         assert result.error_count > 0
 
         # error_recordsテーブルにエラーが記録されていることを確認
-        error_count = db_manager.repository.get_error_count_unresolved(operation_type="registration")
+        error_count = db_manager.error_record_repo.get_error_count_unresolved(operation_type="registration")
         assert error_count > 0
 
         # エラーレコードの詳細を確認
-        error_records = db_manager.repository.get_error_records(operation_type="registration")
+        error_records = db_manager.error_record_repo.get_error_records(operation_type="registration")
         assert len(error_records) > 0
         assert error_records[0].error_type == "Exception"
         assert "Database registration error" in error_records[0].error_message
@@ -149,11 +149,11 @@ class TestAnnotationWorkerErrorRecording:
         worker.execute()
 
         # error_recordsテーブルにエラーが記録されていることを確認
-        error_count = db_manager.repository.get_error_count_unresolved(operation_type="annotation")
+        error_count = db_manager.error_record_repo.get_error_count_unresolved(operation_type="annotation")
         assert error_count > 0
 
         # エラーレコードの詳細を確認
-        error_records = db_manager.repository.get_error_records(operation_type="annotation")
+        error_records = db_manager.error_record_repo.get_error_records(operation_type="annotation")
         assert len(error_records) > 0
         assert error_records[0].error_type == "lib_call_exception"
         assert "API Error" in error_records[0].error_message
@@ -181,7 +181,7 @@ class TestAnnotationWorkerErrorRecording:
         worker.execute()
 
         # error_recordsテーブルにエラーが記録されていることを確認
-        error_count = db_manager.repository.get_error_count_unresolved(operation_type="annotation")
+        error_count = db_manager.error_record_repo.get_error_count_unresolved(operation_type="annotation")
         assert error_count > 0
 
 
@@ -279,7 +279,7 @@ class TestThumbnailWorkerErrorRecording:
         assert result.failed_count > 0
 
         # error_recordsテーブルにエラーが記録されていることを確認
-        error_count = db_manager.repository.get_error_count_unresolved(operation_type="thumbnail")
+        error_count = db_manager.error_record_repo.get_error_count_unresolved(operation_type="thumbnail")
         assert error_count > 0
 
 
@@ -303,11 +303,11 @@ class TestSearchWorkerErrorRecording:
                 worker.execute()
 
         # error_recordsテーブルにエラーが記録されていることを確認
-        error_count = db_manager.repository.get_error_count_unresolved(operation_type="search")
+        error_count = db_manager.error_record_repo.get_error_count_unresolved(operation_type="search")
         assert error_count > 0
 
         # エラーレコードの詳細を確認
-        error_records = db_manager.repository.get_error_records(operation_type="search")
+        error_records = db_manager.error_record_repo.get_error_records(operation_type="search")
         assert len(error_records) > 0
         assert error_records[0].error_type == "Exception"
         assert "Database Error" in error_records[0].error_message
@@ -325,7 +325,7 @@ class TestSearchWorkerErrorRecording:
         with pytest.raises(CancellationError, match="処理がキャンセルされました"):
             worker.execute()
 
-        error_count = db_manager.repository.get_error_count_unresolved(operation_type="search")
+        error_count = db_manager.error_record_repo.get_error_count_unresolved(operation_type="search")
         assert error_count == 0
 
 
@@ -342,7 +342,7 @@ class TestBatchImportWorkerErrorRecording:
         jsonl_file.touch()
 
         worker = BatchImportWorker(
-            repository=db_manager.repository,
+            repository=db_manager.image_repo,
             jsonl_files=[jsonl_file],
             db_manager=db_manager,
         )
@@ -353,10 +353,10 @@ class TestBatchImportWorkerErrorRecording:
         ):
             worker.run()
 
-        error_count = db_manager.repository.get_error_count_unresolved(operation_type="batch_import")
+        error_count = db_manager.error_record_repo.get_error_count_unresolved(operation_type="batch_import")
         assert error_count > 0
 
-        error_records = db_manager.repository.get_error_records(operation_type="batch_import")
+        error_records = db_manager.error_record_repo.get_error_records(operation_type="batch_import")
         assert len(error_records) > 0
         assert "JSONL parse error" in error_records[0].error_message
 
@@ -370,7 +370,7 @@ class TestBatchImportWorkerErrorRecording:
         jsonl_file.touch()
 
         worker = BatchImportWorker(
-            repository=db_manager.repository,
+            repository=db_manager.image_repo,
             jsonl_files=[jsonl_file],
             db_manager=db_manager,
         )
@@ -381,7 +381,7 @@ class TestBatchImportWorkerErrorRecording:
         ):
             worker.run()
 
-        error_records = db_manager.repository.get_error_records(operation_type="batch_import")
+        error_records = db_manager.error_record_repo.get_error_records(operation_type="batch_import")
         assert len(error_records) > 0
         assert error_records[0].operation_type == "batch_import"
 
@@ -392,7 +392,7 @@ class TestErrorRecordIntegration:
     def test_error_count_increases_from_zero(self, db_manager):
         """エラーカウントが0から増加することを確認"""
         # 初期状態: エラー件数は0
-        initial_count = db_manager.repository.get_error_count_unresolved()
+        initial_count = db_manager.error_record_repo.get_error_count_unresolved()
         assert initial_count == 0
 
         # エラーレコードを保存
@@ -404,7 +404,7 @@ class TestErrorRecordIntegration:
         assert error_id > 0
 
         # エラー件数が増加していることを確認
-        final_count = db_manager.repository.get_error_count_unresolved()
+        final_count = db_manager.error_record_repo.get_error_count_unresolved()
         assert final_count == 1
 
     def test_multiple_workers_error_recording(self, db_manager):
@@ -427,13 +427,19 @@ class TestErrorRecordIntegration:
         )
 
         # 全体エラー件数を確認
-        total_count = db_manager.repository.get_error_count_unresolved()
+        total_count = db_manager.error_record_repo.get_error_count_unresolved()
         assert total_count == 3
 
         # 操作種別ごとのエラー件数を確認
-        registration_count = db_manager.repository.get_error_count_unresolved(operation_type="registration")
-        annotation_count = db_manager.repository.get_error_count_unresolved(operation_type="annotation")
-        processing_count = db_manager.repository.get_error_count_unresolved(operation_type="processing")
+        registration_count = db_manager.error_record_repo.get_error_count_unresolved(
+            operation_type="registration"
+        )
+        annotation_count = db_manager.error_record_repo.get_error_count_unresolved(
+            operation_type="annotation"
+        )
+        processing_count = db_manager.error_record_repo.get_error_count_unresolved(
+            operation_type="processing"
+        )
 
         assert registration_count == 1
         assert annotation_count == 1

@@ -330,7 +330,7 @@ class MainWindow(QMainWindow, Ui_MainWindow):
         try:
             self.selection_state_service = SelectionStateService(
                 dataset_state_manager=self.dataset_state_manager,
-                db_repository=self.db_manager.repository if self.db_manager else None,
+                db_repository=self.db_manager.image_repo if self.db_manager else None,
             )
             self._verify_state_management_connections()
 
@@ -392,8 +392,9 @@ class MainWindow(QMainWindow, Ui_MainWindow):
             service_container = self.service_container
             widget.set_dependencies(
                 workflow_service=service_container.provider_batch_workflow_service,
-                repository=service_container.image_repository,
+                repository=service_container.db_manager.provider_batch_repo,
                 model_source=service_container.annotator_library,
+                model_repository=service_container.db_manager.model_repo,
             )
             self.provider_batch_job_widget = widget
             self.tabWidgetMainMode.addTab(widget, "Provider Batch")
@@ -871,7 +872,7 @@ class MainWindow(QMainWindow, Ui_MainWindow):
 
         if raw_results and isinstance(raw_results, dict):
             try:
-                phash_to_image_id = self.db_manager.repository.find_image_ids_by_phashes(
+                phash_to_image_id = self.db_manager.image_repo.find_image_ids_by_phashes(
                     set(raw_results.keys())
                 )
                 image_ids = [img_id for img_id in phash_to_image_id.values() if img_id is not None]
@@ -1352,7 +1353,7 @@ class MainWindow(QMainWindow, Ui_MainWindow):
         try:
             # ServiceContainer経由で一貫したサービス取得
             service_container = get_service_container()
-            repo = service_container.image_repository
+            repo = service_container.db_manager.model_repo
             model_selection_service = ModelSelectionService.create(db_repository=repo)
 
             dbm = self.db_manager

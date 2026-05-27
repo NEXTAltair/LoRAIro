@@ -28,7 +28,6 @@ from sqlalchemy import create_engine, select
 from sqlalchemy.orm import sessionmaker
 
 from lorairo.database.db_manager import ImageDatabaseManager
-from lorairo.database.db_repository import ImageRepository as LegacyImageRepository
 from lorairo.database.repository.base import BaseRepository
 from lorairo.database.repository.image import ImageRepository
 from lorairo.database.schema import (
@@ -288,126 +287,41 @@ class TestApplyDateFilter:
 
 
 @pytest.mark.unit
-class TestFacadeDelegation:
-    """ImageRepository delegating facade (db_repository.ImageRepository) の整合性。"""
-
-    def test_facade_holds_new_image_repo_instance(self, memory_session_factory) -> None:
-        """レガシー facade は `_image_repo` 属性に新 ImageRepository を保持する。"""
-        facade = LegacyImageRepository(session_factory=memory_session_factory)
-        assert isinstance(facade._image_repo, ImageRepository)
-
-    def test_facade_add_original_image_delegates(self, memory_session_factory) -> None:
-        """facade.add_original_image() は内部の新 ImageRepository.add_original_image() に委譲する。"""
-        facade = LegacyImageRepository(session_factory=memory_session_factory)
-        info = {
-            "uuid": "delegate-uuid",
-            "phash": "delegate-phash",
-            "original_image_path": "/tmp/d.png",
-            "stored_image_path": "/tmp/d.png",
-            "width": 32,
-            "height": 32,
-            "format": "PNG",
-            "extension": ".png",
-        }
-        # 内部 instance method を mock し、facade 経由でも呼ばれることを確認
-        facade._image_repo.add_original_image = Mock(return_value=42)  # type: ignore[method-assign]
-        result = facade.add_original_image(info)
-        facade._image_repo.add_original_image.assert_called_once_with(info=info)
-        assert result == 42
-
-    def test_facade_static_format_delegates_to_class(self) -> None:
-        """staticmethod (`_format_tag_annotation`) は新クラスの static method を呼ぶ。"""
-        tag = SimpleNamespace(
-            id=1,
-            tag="dog",
-            tag_id=11,
-            model_id=21,
-            existing=False,
-            is_edited_manually=False,
-            confidence_score=0.8,
-            created_at=None,
-            updated_at=None,
-        )
-        # facade.X と新クラス.X が同じ結果を返す (実装が共有されている)
-        from_facade = LegacyImageRepository._format_tag_annotation(tag)
-        from_new = ImageRepository._format_tag_annotation(tag)
-        assert from_facade == from_new
-
-
-@pytest.mark.unit
-class TestFacadeAttributePropagation:
-    """PR #488 Codex review P2/P3: facade の共有属性が内部 delegating repos に伝播する。
-
-    `repository.session_factory = X` / `repository.BATCH_CHUNK_SIZE = N` を
-    init 後に書き戻すケース (テストやランタイム fixture) で内部 `_image_repo` /
-    `_model_repo` / `_project_repo` / `_error_record_repo` が drift しないことを
-    保証する。
-    """
-
-    def test_session_factory_propagates_to_internal_repos(self, memory_session_factory) -> None:
-        """facade.session_factory 書き換えで内部 repos も同期される。"""
-        facade = LegacyImageRepository(session_factory=memory_session_factory)
-        new_factory = MagicMock(name="replacement")
-        facade.session_factory = new_factory
-        assert facade.session_factory is new_factory
-        assert facade._image_repo.session_factory is new_factory
-        assert facade._model_repo.session_factory is new_factory
-        assert facade._project_repo.session_factory is new_factory
-        assert facade._error_record_repo.session_factory is new_factory
-
-    def test_batch_chunk_size_propagates_to_internal_repos(self, memory_session_factory) -> None:
-        """facade.BATCH_CHUNK_SIZE 書き換えで内部 repos の chunking もそれに従う。"""
-        facade = LegacyImageRepository(session_factory=memory_session_factory)
-        facade.BATCH_CHUNK_SIZE = 7
-        assert facade.BATCH_CHUNK_SIZE == 7
-        assert facade._image_repo.BATCH_CHUNK_SIZE == 7
-        assert facade._model_repo.BATCH_CHUNK_SIZE == 7
-        assert facade._project_repo.BATCH_CHUNK_SIZE == 7
-        assert facade._error_record_repo.BATCH_CHUNK_SIZE == 7
-
-    def test_other_attribute_assignment_does_not_propagate(self, memory_session_factory) -> None:
-        """propagation 対象外の属性 (merged_reader 等) は伝播されない。"""
-        facade = LegacyImageRepository(session_factory=memory_session_factory)
-        facade.merged_reader = "sentinel-value"  # type: ignore[assignment]
-        assert facade.merged_reader == "sentinel-value"
-        # 内部 repos に merged_reader 属性が新規追加されないこと
-        assert not hasattr(facade._image_repo, "merged_reader")
-
-
-@pytest.mark.unit
 class TestImageDatabaseManagerDIContract:
     """ImageDatabaseManager が image_repo を inject 経由で保持することを確認。"""
 
     def test_manager_creates_image_repo_when_not_injected(self, memory_session_factory) -> None:
         """image_repo 未指定でも、repository.session_factory から自動生成される。"""
-        repo = LegacyImageRepository(session_factory=memory_session_factory)
+        repo = ImageRepository(session_factory=memory_session_factory)
         cfg = Mock(spec=ConfigurationService)
-        manager = ImageDatabaseManager(repository=repo, config_service=cfg)
+        manager = ImageDatabaseManager(config_service=cfg, image_repo=repo)
         assert isinstance(manager.image_repo, ImageRepository)
         assert manager.image_repo.session_factory is memory_session_factory
+        assert manager.model_repo.session_factory is memory_session_factory
+        assert manager.annotation_repo.session_factory is memory_session_factory
+        assert manager.provider_batch_repo.session_factory is memory_session_factory
 
     def test_manager_uses_injected_image_repo(self, memory_session_factory) -> None:
         """明示注入された image_repo を保持し、Mock 化で外部依存を切り離せる。"""
-        repo = LegacyImageRepository(session_factory=memory_session_factory)
         cfg = Mock(spec=ConfigurationService)
         injected = Mock(spec=ImageRepository)
         manager = ImageDatabaseManager(
-            repository=repo,
             config_service=cfg,
             image_repo=injected,
         )
         assert manager.image_repo is injected
 
-    def test_manager_image_repo_independent_of_legacy_facade_repo(self, memory_session_factory) -> None:
-        """Manager.image_repo はレガシー facade の `_image_repo` とは独立 instance である。
+    def test_manager_creates_image_repo_with_session_factory_when_omitted(
+        self, memory_session_factory
+    ) -> None:
+        """`session_factory` 引数を渡すと、image_repo 未指定でも当該 factory を共有する。
 
-        facade の `_image_repo` は facade 用の delegating 経路、Manager の `image_repo`
-        は Manager 直接呼び出し用 (段階 5 で完全移行) のため、別物。
+        ADR 0035 段階 6 (#423): facade 撤廃後、Manager は session_factory 引数で
+        全 Repo を一括生成する composition pattern を採る。
         """
-        repo = LegacyImageRepository(session_factory=memory_session_factory)
         cfg = Mock(spec=ConfigurationService)
-        manager = ImageDatabaseManager(repository=repo, config_service=cfg)
-        # 別 instance であることを確認 (両方 ImageRepository だが is で異なる)
-        assert manager.image_repo is not repo._image_repo
-        # 両方とも同じ session_factory を共有している (composition pattern)
-        assert manager.image_repo.session_factory is repo._image_repo.session_factory
+        manager = ImageDatabaseManager(config_service=cfg, session_factory=memory_session_factory)
+        assert isinstance(manager.image_repo, ImageRepository)
+        assert manager.image_repo.session_factory is memory_session_factory
+        # 他 Repo も同じ session_factory を共有していることを確認
+        assert manager.annotation_repo.session_factory is memory_session_factory

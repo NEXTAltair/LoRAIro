@@ -459,7 +459,7 @@ class DatasetStateManager(QObject):
 
         try:
             # DB から最新メタデータを取得
-            image_metadata = self._db_manager.repository.get_image_metadata(image_id)
+            image_metadata = self._db_manager.image_repo.get_image_metadata(image_id)
 
             if not image_metadata:
                 logger.warning(f"Failed to fetch metadata from DB for image_id {image_id}")
@@ -510,7 +510,7 @@ class DatasetStateManager(QObject):
 
         try:
             # 一括取得（N+1回避: 1クエリで全画像取得）
-            metadata_list = self._db_manager.repository.get_images_metadata_batch(image_ids)
+            metadata_list = self._db_manager.image_repo.get_images_metadata_batch(image_ids)
 
             # image_id → metadata のマップ作成
             metadata_by_id: dict[int, dict[str, Any]] = {m["id"]: m for m in metadata_list}

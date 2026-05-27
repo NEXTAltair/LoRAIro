@@ -11,7 +11,7 @@ from unittest.mock import Mock
 import pytest
 from sqlalchemy import select
 
-from lorairo.database.db_repository import ImageRepository
+from lorairo.database.repository.image import ImageRepository
 from lorairo.database.schema import Image
 
 

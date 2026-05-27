@@ -60,7 +60,7 @@ def create_mock_service_container() -> MagicMock:
         ],
         3,
     )
-    mock_container.image_repository = mock_image_repository
+    mock_container.db_manager.image_repo = mock_image_repository
 
     # mock export_service - return the output path
     mock_export_service = MagicMock()
@@ -272,7 +272,7 @@ def test_export_create_no_images(
     mock_container = MagicMock()
     mock_image_repository = MagicMock()
     mock_image_repository.get_images_by_filter.return_value = ([], 0)
-    mock_container.image_repository = mock_image_repository
+    mock_container.db_manager.image_repo = mock_image_repository
     mock_container.dataset_export_service = MagicMock()
     mock_get_container.return_value = mock_container
 
@@ -725,7 +725,7 @@ def test_export_create_filter_passed_to_repository(
     )
 
     # get_images_by_filter が ImageFilterCriteria を引数として呼ばれたことを確認
-    call_args = mock_container.image_repository.get_images_by_filter.call_args
+    call_args = mock_container.db_manager.image_repo.get_images_by_filter.call_args
     assert call_args is not None
     criteria_arg = call_args[0][0]
     assert isinstance(criteria_arg, ImageFilterCriteria)
@@ -930,7 +930,7 @@ def test_export_create_tags_with_blanks_and_valid_entries_passes(
     )
 
     assert result.exit_code == 0
-    call_args = mock_container.image_repository.get_images_by_filter.call_args
+    call_args = mock_container.db_manager.image_repo.get_images_by_filter.call_args
     criteria_arg = call_args[0][0]
     assert isinstance(criteria_arg, ImageFilterCriteria)
     assert criteria_arg.tags == ["cat", "dog"]
@@ -1057,7 +1057,7 @@ def test_export_create_whitespace_tags_entry_stripped(
     )
 
     assert result.exit_code == 0
-    call_args = mock_container.image_repository.get_images_by_filter.call_args
+    call_args = mock_container.db_manager.image_repo.get_images_by_filter.call_args
     criteria_arg = call_args[0][0]
     assert isinstance(criteria_arg, ImageFilterCriteria)
     assert criteria_arg.tags == ["cat", "dog"]
@@ -1097,7 +1097,7 @@ def test_export_create_project_name_passed_to_filter_criteria(
         ],
     )
 
-    call_args = mock_container.image_repository.get_images_by_filter.call_args
+    call_args = mock_container.db_manager.image_repo.get_images_by_filter.call_args
     criteria_arg = call_args[0][0]
     assert isinstance(criteria_arg, ImageFilterCriteria)
     assert criteria_arg.project_name == "my-project"

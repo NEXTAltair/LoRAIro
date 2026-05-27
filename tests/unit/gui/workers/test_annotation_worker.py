@@ -95,13 +95,13 @@ class TestAnnotationWorkerExecute:
         models = ["gpt-4o-mini"]
 
         mock_db_manager = Mock()
-        mock_db_manager.repository.find_image_ids_by_phashes.return_value = {"test_phash": 1}
-        mock_db_manager.repository.get_image_ids_by_filepaths.return_value = {
+        mock_db_manager.image_repo.find_image_ids_by_phashes.return_value = {"test_phash": 1}
+        mock_db_manager.image_repo.get_image_ids_by_filepaths.return_value = {
             "/path/to/image1.jpg": 1,
             "/path/to/image2.jpg": 2,
         }
-        mock_db_manager.repository.get_models_by_litellm_ids.return_value = {"gpt-4o-mini": Mock(id=1)}
-        mock_db_manager.repository.save_annotations = Mock()
+        mock_db_manager.model_repo.get_models_by_litellm_ids.return_value = {"gpt-4o-mini": Mock(id=1)}
+        mock_db_manager.annotation_repo.save_annotations = Mock()
 
         worker = AnnotationWorker(
             annotation_logic=mock_annotation_logic,
@@ -133,13 +133,13 @@ class TestAnnotationWorkerExecute:
         models = ["gpt-4o-mini", "claude-3-haiku-20240307"]
 
         mock_db_manager = Mock()
-        mock_db_manager.repository.find_image_ids_by_phashes.return_value = {"phash1": 1}
-        mock_db_manager.repository.get_image_ids_by_filepaths.return_value = {"/path/to/image.jpg": 1}
-        mock_db_manager.repository.get_models_by_litellm_ids.return_value = {
+        mock_db_manager.image_repo.find_image_ids_by_phashes.return_value = {"phash1": 1}
+        mock_db_manager.image_repo.get_image_ids_by_filepaths.return_value = {"/path/to/image.jpg": 1}
+        mock_db_manager.model_repo.get_models_by_litellm_ids.return_value = {
             "gpt-4o-mini": Mock(id=1),
             "claude-3-haiku-20240307": Mock(id=2),
         }
-        mock_db_manager.repository.save_annotations = Mock()
+        mock_db_manager.annotation_repo.save_annotations = Mock()
 
         mock_annotation_logic.execute_annotation.return_value = {
             "phash1": {
@@ -187,7 +187,7 @@ class TestAnnotationWorkerExecute:
         models = ["model-a", "model-b"]
 
         mock_db_manager = Mock()
-        mock_db_manager.repository.get_phashes_by_filepaths.return_value = {}
+        mock_db_manager.image_repo.get_phashes_by_filepaths.return_value = {}
 
         worker = AnnotationWorker(
             annotation_logic=mock_annotation_logic,
@@ -222,10 +222,10 @@ class TestAnnotationWorkerExecute:
         models = ["__legacy_17__", "gpt-4o-mini"]
 
         mock_db_manager = Mock()
-        mock_db_manager.repository.find_image_ids_by_phashes.return_value = {"phash1": 1}
-        mock_db_manager.repository.get_image_ids_by_filepaths.return_value = {"/path/to/image.jpg": 1}
-        mock_db_manager.repository.get_models_by_litellm_ids.return_value = {"gpt-4o-mini": Mock(id=1)}
-        mock_db_manager.repository.save_annotations = Mock()
+        mock_db_manager.image_repo.find_image_ids_by_phashes.return_value = {"phash1": 1}
+        mock_db_manager.image_repo.get_image_ids_by_filepaths.return_value = {"/path/to/image.jpg": 1}
+        mock_db_manager.model_repo.get_models_by_litellm_ids.return_value = {"gpt-4o-mini": Mock(id=1)}
+        mock_db_manager.annotation_repo.save_annotations = Mock()
 
         worker = AnnotationWorker(
             annotation_logic=mock_annotation_logic,
@@ -247,13 +247,13 @@ class TestAnnotationWorkerExecute:
         models = ["gpt-4o-mini", "claude-3-haiku-20240307", "gemini-1.5-flash-latest"]
 
         mock_db_manager = Mock()
-        mock_db_manager.repository.find_image_ids_by_phashes.return_value = {"phash1": 1}
-        mock_db_manager.repository.get_image_ids_by_filepaths.return_value = {"/path/to/image.jpg": 1}
-        mock_db_manager.repository.get_models_by_litellm_ids.return_value = {
+        mock_db_manager.image_repo.find_image_ids_by_phashes.return_value = {"phash1": 1}
+        mock_db_manager.image_repo.get_image_ids_by_filepaths.return_value = {"/path/to/image.jpg": 1}
+        mock_db_manager.model_repo.get_models_by_litellm_ids.return_value = {
             "gpt-4o-mini": Mock(id=1),
             "gemini-1.5-flash-latest": Mock(id=3),
         }
-        mock_db_manager.repository.save_annotations = Mock()
+        mock_db_manager.annotation_repo.save_annotations = Mock()
         mock_db_manager.get_image_id_by_filepath.return_value = 1
 
         mock_annotation_logic.execute_annotation.side_effect = [
@@ -300,10 +300,10 @@ class TestAnnotationWorkerExecute:
         models = ["model-a", "model-b"]
 
         mock_db_manager = Mock()
-        mock_db_manager.repository.find_image_ids_by_phashes.return_value = {"phash1": 1}
-        mock_db_manager.repository.get_models_by_litellm_ids.return_value = {"model-b": Mock(id=2)}
-        mock_db_manager.repository.save_annotations = Mock()
-        mock_db_manager.repository.get_phashes_by_filepaths.return_value = {}
+        mock_db_manager.image_repo.find_image_ids_by_phashes.return_value = {"phash1": 1}
+        mock_db_manager.model_repo.get_models_by_litellm_ids.return_value = {"model-b": Mock(id=2)}
+        mock_db_manager.annotation_repo.save_annotations = Mock()
+        mock_db_manager.image_repo.get_phashes_by_filepaths.return_value = {}
 
         mock_annotation_logic.execute_annotation.return_value = {
             "phash1": {
@@ -337,10 +337,10 @@ class TestAnnotationWorkerExecute:
         models = ["model-a"]
 
         mock_db_manager = Mock()
-        mock_db_manager.repository.find_image_ids_by_phashes.return_value = {}
-        mock_db_manager.repository.get_models_by_litellm_ids.return_value = {}
-        mock_db_manager.repository.save_annotations = Mock()
-        mock_db_manager.repository.get_phashes_by_filepaths.return_value = {"/path/to/image.jpg": "phash1"}
+        mock_db_manager.image_repo.find_image_ids_by_phashes.return_value = {}
+        mock_db_manager.model_repo.get_models_by_litellm_ids.return_value = {}
+        mock_db_manager.annotation_repo.save_annotations = Mock()
+        mock_db_manager.image_repo.get_phashes_by_filepaths.return_value = {"/path/to/image.jpg": "phash1"}
         mock_db_manager.get_image_id_by_filepath.return_value = 1
 
         mock_annotation_logic.execute_annotation.return_value = {
@@ -371,10 +371,10 @@ class TestAnnotationWorkerExecute:
         models = ["model-a"]
 
         mock_db_manager = Mock()
-        mock_db_manager.repository.find_image_ids_by_phashes.return_value = {"phash-a": 1}
-        mock_db_manager.repository.get_models_by_litellm_ids.return_value = {"model-a": Mock(id=1)}
-        mock_db_manager.repository.save_annotations = Mock()
-        mock_db_manager.repository.get_phashes_by_filepaths.return_value = {
+        mock_db_manager.image_repo.find_image_ids_by_phashes.return_value = {"phash-a": 1}
+        mock_db_manager.model_repo.get_models_by_litellm_ids.return_value = {"model-a": Mock(id=1)}
+        mock_db_manager.annotation_repo.save_annotations = Mock()
+        mock_db_manager.image_repo.get_phashes_by_filepaths.return_value = {
             "/path/to/a.jpg": "phash-a",
             "/path/to/b.jpg": "phash-b",
         }
@@ -401,10 +401,10 @@ class TestAnnotationWorkerExecute:
         models = ["gpt-4o-mini", "claude-3-haiku-20240307"]
 
         mock_db_manager = Mock()
-        mock_db_manager.repository.find_image_ids_by_phashes.return_value = {}
-        mock_db_manager.repository.get_image_ids_by_filepaths.return_value = {"/path/to/image.jpg": 1}
-        mock_db_manager.repository.get_models_by_litellm_ids.return_value = {}
-        mock_db_manager.repository.save_annotations = Mock()
+        mock_db_manager.image_repo.find_image_ids_by_phashes.return_value = {}
+        mock_db_manager.image_repo.get_image_ids_by_filepaths.return_value = {"/path/to/image.jpg": 1}
+        mock_db_manager.model_repo.get_models_by_litellm_ids.return_value = {}
+        mock_db_manager.annotation_repo.save_annotations = Mock()
         mock_db_manager.get_image_id_by_filepath.return_value = 1
 
         mock_annotation_logic.execute_annotation.side_effect = [
@@ -437,10 +437,10 @@ class TestAnnotationWorkerExecute:
 
         mock_model = Mock(id=1)
         mock_db_manager = Mock()
-        mock_db_manager.repository.find_image_ids_by_phashes.return_value = {"test_phash": 1}
-        mock_db_manager.repository.get_image_ids_by_filepaths.return_value = {"/path/to/image.jpg": 1}
-        mock_db_manager.repository.get_models_by_litellm_ids.return_value = {"gpt-4o-mini": mock_model}
-        mock_db_manager.repository.save_annotations = Mock()
+        mock_db_manager.image_repo.find_image_ids_by_phashes.return_value = {"test_phash": 1}
+        mock_db_manager.image_repo.get_image_ids_by_filepaths.return_value = {"/path/to/image.jpg": 1}
+        mock_db_manager.model_repo.get_models_by_litellm_ids.return_value = {"gpt-4o-mini": mock_model}
+        mock_db_manager.annotation_repo.save_annotations = Mock()
 
         worker = AnnotationWorker(
             annotation_logic=mock_annotation_logic,
@@ -452,12 +452,12 @@ class TestAnnotationWorkerExecute:
 
         worker.execute()
 
-        assert mock_db_manager.repository.find_image_ids_by_phashes.call_count == 2
-        mock_db_manager.repository.get_models_by_litellm_ids.assert_called_once()
-        mock_db_manager.repository.find_duplicate_image_by_phash.assert_not_called()
+        assert mock_db_manager.image_repo.find_image_ids_by_phashes.call_count == 2
+        mock_db_manager.model_repo.get_models_by_litellm_ids.assert_called_once()
+        mock_db_manager.image_repo.find_duplicate_image_by_phash.assert_not_called()
         # Phase 1.11 (#238) で `get_model_by_name` は `get_model_by_litellm_id` に置換。
         # 旧 API への単体クエリが復活していないことを保証 (batch lookup のみ使う設計)。
-        mock_db_manager.repository.get_model_by_litellm_id.assert_not_called()
+        mock_db_manager.model_repo.get_model_by_litellm_id.assert_not_called()
 
 
 # ==============================================================================
@@ -614,7 +614,7 @@ class TestBuildPhashToFilenameMap:
     def test_uses_batch_path_lookup_once(self, mock_annotation_logic, mock_model_registry):
         """summary filename 解決は path の batch lookup を1回だけ使う。"""
         mock_db = Mock()
-        mock_db.repository.get_image_ids_by_filepaths.return_value = {
+        mock_db.image_repo.get_image_ids_by_filepaths.return_value = {
             "/images/cat.png": 10,
             "/images/dog.png": 20,
         }
@@ -629,7 +629,7 @@ class TestBuildPhashToFilenameMap:
         result = worker._build_phash_to_filename_map({"phash-cat": 10, "phash-dog": 20})
 
         assert result == {"phash-cat": "cat.png", "phash-dog": "dog.png"}
-        mock_db.repository.get_image_ids_by_filepaths.assert_called_once_with(
+        mock_db.image_repo.get_image_ids_by_filepaths.assert_called_once_with(
             ["/images/cat.png", "/images/dog.png"]
         )
         mock_db.get_image_id_by_filepath.assert_not_called()
@@ -637,7 +637,7 @@ class TestBuildPhashToFilenameMap:
     def test_unresolved_phash_uses_short_fallback(self, mock_annotation_logic, mock_model_registry):
         """image_id が input path に対応しない pHash は短縮 fallback 表示にする。"""
         mock_db = Mock()
-        mock_db.repository.get_image_ids_by_filepaths.return_value = {"/images/cat.png": 10}
+        mock_db.image_repo.get_image_ids_by_filepaths.return_value = {"/images/cat.png": 10}
         worker = AnnotationWorker(
             annotation_logic=mock_annotation_logic,
             image_paths=["/images/cat.png"],
@@ -771,7 +771,7 @@ class TestApplyRefusalPrefilter:
         # AnnotationSaveService.filter_refused_image_paths をパッチ
         mock_save_service = Mock()
         mock_save_service.filter_refused_image_paths = Mock(return_value=["/path/img1.jpg"])
-        monkeypatch.setattr(aw_mod, "AnnotationSaveService", lambda repo: mock_save_service)
+        monkeypatch.setattr(aw_mod, "AnnotationSaveService", lambda **kwargs: mock_save_service)
 
         worker = self._make_worker(
             mock_annotation_logic,
@@ -799,7 +799,7 @@ class TestApplyRefusalPrefilter:
 
         mock_save_service = Mock()
         mock_save_service.filter_refused_image_paths = Mock()
-        monkeypatch.setattr(aw_mod, "AnnotationSaveService", lambda repo: mock_save_service)
+        monkeypatch.setattr(aw_mod, "AnnotationSaveService", lambda **kwargs: mock_save_service)
 
         worker = self._make_worker(
             mock_annotation_logic,
@@ -826,7 +826,7 @@ class TestApplyRefusalPrefilter:
 
         mock_save_service = Mock()
         mock_save_service.filter_refused_image_paths = Mock()
-        monkeypatch.setattr(aw_mod, "AnnotationSaveService", lambda repo: mock_save_service)
+        monkeypatch.setattr(aw_mod, "AnnotationSaveService", lambda **kwargs: mock_save_service)
 
         worker = self._make_worker(
             mock_annotation_logic,
@@ -851,7 +851,7 @@ class TestApplyRefusalPrefilter:
 
         mock_save_service = Mock()
         mock_save_service.filter_refused_image_paths = Mock(side_effect=RuntimeError("DB error"))
-        monkeypatch.setattr(aw_mod, "AnnotationSaveService", lambda repo: mock_save_service)
+        monkeypatch.setattr(aw_mod, "AnnotationSaveService", lambda **kwargs: mock_save_service)
 
         worker = self._make_worker(
             mock_annotation_logic,
@@ -879,7 +879,7 @@ class TestApplyRefusalPrefilter:
         mock_save_service.filter_refused_image_paths = Mock(
             return_value=["/path/img1.jpg", "/path/img2.jpg"]
         )
-        monkeypatch.setattr(aw_mod, "AnnotationSaveService", lambda repo: mock_save_service)
+        monkeypatch.setattr(aw_mod, "AnnotationSaveService", lambda **kwargs: mock_save_service)
 
         worker = self._make_worker(
             mock_annotation_logic,
@@ -980,7 +980,7 @@ class TestRefusalPrefilterRatingsCapability:
 
         mock_save_service = Mock()
         mock_save_service.filter_refused_image_paths = Mock()
-        monkeypatch.setattr(aw_mod, "AnnotationSaveService", lambda repo: mock_save_service)
+        monkeypatch.setattr(aw_mod, "AnnotationSaveService", lambda **kwargs: mock_save_service)
 
         worker = AnnotationWorker(
             annotation_logic=mock_annotation_logic,

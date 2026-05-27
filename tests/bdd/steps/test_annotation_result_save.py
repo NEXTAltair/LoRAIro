@@ -15,7 +15,9 @@ from PIL import Image
 from pytest_bdd import given, parsers, scenarios, then, when
 from sqlalchemy.orm import sessionmaker
 
-from lorairo.database.db_repository import ImageRepository
+from lorairo.database.repository.annotation_record import AnnotationRepository
+from lorairo.database.repository.error_record import ErrorRecordRepository
+from lorairo.database.repository.image import ImageRepository
 from lorairo.services.annotation_save_service import (
     AnnotationSaveResult,
     AnnotationSaveService,
@@ -35,6 +37,7 @@ class SaveContext:
     """ステップ間で受け渡す保存処理の状態。"""
 
     repo: ImageRepository | None = None
+    error_repo: ErrorRecordRepository | None = None
     mock_repository: MagicMock | None = None
     save_service: AnnotationSaveService | None = None
     image_id: int | None = None
@@ -54,6 +57,7 @@ class SaveContext:
 def given_registered_image(test_engine_with_schema, tmp_path: Path) -> SaveContext:
     session_local = sessionmaker(autocommit=False, autoflush=False, bind=test_engine_with_schema)
     repo = ImageRepository(session_local)
+    error_repo = ErrorRecordRepository(session_local)
 
     img = Image.new("RGB", (16, 16), color="red")
     file_path = tmp_path / "sample.png"
@@ -75,13 +79,16 @@ def given_registered_image(test_engine_with_schema, tmp_path: Path) -> SaveConte
         "icc_profile": None,
     }
     image_id = repo.add_original_image(info)
-    return SaveContext(repo=repo, image_id=image_id, image_path=str(file_path))
+    return SaveContext(repo=repo, error_repo=error_repo, image_id=image_id, image_path=str(file_path))
 
 
 @given("AnnotationSaveService が初期化されている")
 def given_save_service_initialized(ctx: SaveContext) -> None:
     assert ctx.repo is not None
-    ctx.save_service = AnnotationSaveService(ctx.repo)
+    ctx.save_service = AnnotationSaveService(
+        AnnotationRepository(ctx.repo.session_factory),
+        image_repo=ctx.repo,
+    )
 
 
 @given("AnnotationSaveService がモックリポジトリで初期化されている", target_fixture="ctx")
@@ -90,13 +97,21 @@ def given_save_service_mock_repo() -> SaveContext:
     repo.find_image_ids_by_phashes.return_value = {}
     repo.get_models_by_litellm_ids.return_value = {}
     repo.batch_resolve_tag_ids.return_value = {}
-    return SaveContext(mock_repository=repo, save_service=AnnotationSaveService(repo))
+    return SaveContext(
+        mock_repository=repo,
+        save_service=AnnotationSaveService(
+            repo,
+            image_repo=repo,
+            model_repo=repo,
+            error_record_repo=repo,
+        ),
+    )
 
 
 @given("その画像に未解決の安全性拒否履歴がある")
 def given_unresolved_refusal(ctx: SaveContext) -> None:
-    assert ctx.repo is not None and ctx.image_id is not None
-    ctx.repo.save_error_record(
+    assert ctx.error_repo is not None and ctx.image_id is not None
+    ctx.error_repo.save_error_record(
         operation_type="annotation",
         error_type="SafetyRefusalError",
         error_message="blocked",
@@ -107,8 +122,8 @@ def given_unresolved_refusal(ctx: SaveContext) -> None:
 
 @given("その画像に解決済みの安全性拒否履歴がある")
 def given_resolved_refusal(ctx: SaveContext) -> None:
-    assert ctx.repo is not None and ctx.image_id is not None
-    error_id = ctx.repo.save_error_record(
+    assert ctx.repo is not None and ctx.error_repo is not None and ctx.image_id is not None
+    error_id = ctx.error_repo.save_error_record(
         operation_type="annotation",
         error_type="SafetyRefusalError",
         error_message="blocked",
@@ -189,8 +204,8 @@ def when_save_results(ctx: SaveContext) -> None:
 
 @then(parsers.parse('エラーレコードに 1 件の "{error_type}" が記録される'))
 def then_error_record_recorded(ctx: SaveContext, error_type: str) -> None:
-    assert ctx.repo is not None
-    records = ctx.repo.get_error_records(operation_type="annotation")
+    assert ctx.error_repo is not None
+    records = ctx.error_repo.get_error_records(operation_type="annotation")
     assert len(records) == 1
     record = records[0]
     assert record.error_type == error_type

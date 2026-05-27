@@ -10,7 +10,7 @@ from datetime import UTC
 import pytest
 
 from lorairo.database.db_core import DefaultSessionLocal
-from lorairo.database.db_repository import ImageRepository
+from lorairo.database.repository.image import ImageRepository
 
 
 class TestTimezoneHandling:

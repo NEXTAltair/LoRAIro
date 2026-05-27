@@ -5,7 +5,7 @@ from datetime import UTC, datetime, timedelta
 import pytest
 
 from lorairo.database.db_manager import ImageDatabaseManager
-from lorairo.database.db_repository import ImageRepository
+from lorairo.database.repository.image import ImageRepository
 
 
 @pytest.fixture
@@ -15,7 +15,7 @@ def manager() -> ImageDatabaseManager:
 
     repository = ImageRepository()
     config_service = ConfigurationService()
-    return ImageDatabaseManager(repository, config_service)
+    return ImageDatabaseManager(config_service=config_service, image_repo=repository)
 
 
 class TestParseAnnotationTimestamp:

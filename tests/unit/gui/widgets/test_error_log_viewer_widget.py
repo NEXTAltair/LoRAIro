@@ -87,8 +87,8 @@ class TestErrorLogViewerWidgetDataLoading:
         """エラーレコード読み込み成功テスト"""
         # Mock データ準備
         mock_records = [sample_error_record]
-        mock_db_manager.repository.get_error_records.return_value = mock_records
-        mock_db_manager.repository.get_error_count_unresolved.return_value = 1
+        mock_db_manager.error_record_repo.get_error_records.return_value = mock_records
+        mock_db_manager.error_record_repo.get_error_count_unresolved.return_value = 1
 
         # 実行
         error_log_viewer_widget.load_error_records()
@@ -99,8 +99,8 @@ class TestErrorLogViewerWidgetDataLoading:
         assert error_log_viewer_widget.total_pages == 1
 
         # Repository API呼び出し確認
-        mock_db_manager.repository.get_error_records.assert_called_once()
-        mock_db_manager.repository.get_error_count_unresolved.assert_called_once()
+        mock_db_manager.error_record_repo.get_error_records.assert_called_once()
+        mock_db_manager.error_record_repo.get_error_count_unresolved.assert_called_once()
 
     def test_load_error_records_no_db_manager(self, qtbot):
         """db_manager未設定時のエラーレコード読み込みテスト"""
@@ -122,14 +122,14 @@ class TestErrorLogViewerWidgetDataLoading:
         # 操作種別選択
         error_log_viewer_widget.comboOperationType.setCurrentText("annotation")
 
-        mock_db_manager.repository.get_error_records.return_value = [sample_error_record]
-        mock_db_manager.repository.get_error_count_unresolved.return_value = 1
+        mock_db_manager.error_record_repo.get_error_records.return_value = [sample_error_record]
+        mock_db_manager.error_record_repo.get_error_count_unresolved.return_value = 1
 
         # 実行
         error_log_viewer_widget.load_error_records()
 
         # Repository API呼び出し確認（operation_type="annotation"）
-        call_args = mock_db_manager.repository.get_error_records.call_args
+        call_args = mock_db_manager.error_record_repo.get_error_records.call_args
         assert call_args.kwargs["operation_type"] == "annotation"
 
     def test_load_error_records_with_show_resolved(
@@ -139,13 +139,13 @@ class TestErrorLogViewerWidgetDataLoading:
         # 解決済み表示チェック
         error_log_viewer_widget.checkBoxShowResolved.setChecked(True)
 
-        mock_db_manager.repository.get_error_records.return_value = [sample_error_record]
+        mock_db_manager.error_record_repo.get_error_records.return_value = [sample_error_record]
 
         # 実行
         error_log_viewer_widget.load_error_records()
 
         # Repository API呼び出し確認（resolved=None）
-        call_args = mock_db_manager.repository.get_error_records.call_args
+        call_args = mock_db_manager.error_record_repo.get_error_records.call_args
         assert call_args.kwargs["resolved"] is None
 
 
@@ -162,8 +162,8 @@ class TestErrorLogViewerWidgetPagination:
         error_log_viewer_widget._update_page_info()
 
         # Mock準備
-        mock_db_manager.repository.get_error_records.return_value = [sample_error_record]
-        mock_db_manager.repository.get_error_count_unresolved.return_value = 250
+        mock_db_manager.error_record_repo.get_error_records.return_value = [sample_error_record]
+        mock_db_manager.error_record_repo.get_error_count_unresolved.return_value = 250
 
         # 次ページクリック
         error_log_viewer_widget.buttonNextPage.click()
@@ -179,8 +179,8 @@ class TestErrorLogViewerWidgetPagination:
         error_log_viewer_widget._update_page_info()
 
         # Mock準備
-        mock_db_manager.repository.get_error_records.return_value = [sample_error_record]
-        mock_db_manager.repository.get_error_count_unresolved.return_value = 250
+        mock_db_manager.error_record_repo.get_error_records.return_value = [sample_error_record]
+        mock_db_manager.error_record_repo.get_error_count_unresolved.return_value = 250
 
         # 前ページクリック
         error_log_viewer_widget.buttonPreviousPage.click()
@@ -194,8 +194,8 @@ class TestErrorLogViewerWidgetPagination:
         assert error_log_viewer_widget.page_size == 100
 
         # Mock準備
-        mock_db_manager.repository.get_error_records.return_value = [sample_error_record]
-        mock_db_manager.repository.get_error_count_unresolved.return_value = 50
+        mock_db_manager.error_record_repo.get_error_records.return_value = [sample_error_record]
+        mock_db_manager.error_record_repo.get_error_count_unresolved.return_value = 50
 
         # ページサイズ変更
         error_log_viewer_widget.spinBoxPageSize.setValue(50)
@@ -386,8 +386,8 @@ class TestMarkResolvedMultiSelect:
     def test_reloads_table_after_success(self, widget_with_two_records, mock_db_manager):
         """一括解決成功後に load_error_records が呼ばれてテーブルがリロードされる"""
         mock_db_manager.mark_errors_resolved_batch.return_value = (True, 1)
-        mock_db_manager.repository.get_error_records.return_value = []
-        mock_db_manager.repository.get_error_count_unresolved.return_value = 0
+        mock_db_manager.error_record_repo.get_error_records.return_value = []
+        mock_db_manager.error_record_repo.get_error_count_unresolved.return_value = 0
         table = widget_with_two_records.tableWidgetErrors
         table.selectRow(0)
 
@@ -397,7 +397,7 @@ class TestMarkResolvedMultiSelect:
         ):
             widget_with_two_records._on_mark_resolved_clicked()
 
-        mock_db_manager.repository.get_error_records.assert_called()
+        mock_db_manager.error_record_repo.get_error_records.assert_called()
 
 
 class TestErrorLogViewerWidgetTableDisplay:

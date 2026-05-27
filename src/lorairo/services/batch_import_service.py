@@ -7,13 +7,12 @@ JSONLファイル読み込み → contentパース → custom_id照合 → DB保
 import json
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Any, cast
 
-from lorairo.database.db_repository import (
-    AnnotationsDict,
-    CaptionAnnotationData,
-    ImageRepository,
-    TagAnnotationData,
-)
+from lorairo.database.repository.annotation_record import AnnotationRepository
+from lorairo.database.repository.image import ImageRepository
+from lorairo.database.repository.model import ModelRepository
+from lorairo.database.schema import AnnotationsDict, CaptionAnnotationData, TagAnnotationData
 from lorairo.services.batch_content_parser import BatchContentParser, ParsedAnnotationContent
 from lorairo.services.batch_image_matcher import BatchImageMatcher
 from lorairo.utils.log import logger
@@ -51,10 +50,19 @@ class BatchImportResult:
 class BatchImportService:
     """OpenAI Batch API JSONL結果をDBにインポートするサービス（Qt-free）。"""
 
-    def __init__(self, repository: ImageRepository) -> None:
-        self._repository = repository
+    def __init__(
+        self,
+        image_repository: ImageRepository,
+        *,
+        model_repository: ModelRepository | None = None,
+        annotation_repository: AnnotationRepository | None = None,
+    ) -> None:
+        self._image_repository = image_repository
+        sf = image_repository.session_factory
+        self._model_repository: Any = model_repository or ModelRepository(session_factory=sf)
+        self._annotation_repository: Any = annotation_repository or AnnotationRepository(session_factory=sf)
         self._parser = BatchContentParser()
-        self._matcher = BatchImageMatcher(repository)
+        self._matcher = BatchImageMatcher(image_repository)
 
     def import_from_directory(
         self,
@@ -197,7 +205,7 @@ class BatchImportService:
             for tag in parsed_content.tags:
                 all_tags.add(tag.strip().lower())
 
-        tag_id_cache = self._repository.batch_resolve_tag_ids(all_tags)
+        tag_id_cache = self._annotation_repository.batch_resolve_tag_ids(all_tags)
 
         # 6. DB保存
         saved = 0
@@ -206,7 +214,7 @@ class BatchImportService:
             parsed_content = parsed[custom_id]
             try:
                 annotations = self._build_annotations(parsed_content, model_id)
-                self._repository.save_annotations(
+                self._annotation_repository.save_annotations(
                     image_id,
                     annotations,
                     skip_existence_check=True,
@@ -302,18 +310,21 @@ class BatchImportService:
         litellm_model_id = model_name if "/" in model_name else f"openai/{model_name}"
         display_name = model_name.split("/", 1)[-1] if "/" in model_name else model_name
 
-        existing = self._repository.get_model_by_litellm_id(litellm_model_id)
+        existing = self._model_repository.get_model_by_litellm_id(litellm_model_id)
         if existing:
-            return existing.id
+            return cast("int", existing.id)
 
         # 自動登録
         logger.info(f"モデル '{litellm_model_id}' を自動登録します")
-        return self._repository.insert_model(
-            name=display_name,
-            provider="openai",
-            model_types=["multimodal", "caption", "tags"],
-            litellm_model_id=litellm_model_id,
-            requires_api_key=True,
+        return cast(
+            "int",
+            self._model_repository.insert_model(
+                name=display_name,
+                provider="openai",
+                model_types=["multimodal", "caption", "tags"],
+                litellm_model_id=litellm_model_id,
+                requires_api_key=True,
+            ),
         )
 
     @staticmethod

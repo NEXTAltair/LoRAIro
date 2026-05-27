@@ -458,7 +458,7 @@ class WorkerService(QObject):
         from ..workers.batch_import_worker import BatchImportWorker
 
         container = get_service_container()
-        repository = container.image_repository
+        repository = container.db_manager.image_repo
 
         worker = BatchImportWorker(
             repository,

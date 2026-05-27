@@ -140,7 +140,10 @@ def test_annotate_run_no_images(
     runner.invoke(app, ["project", "create", "empty_project"])
 
     mock_container = MagicMock()
-    mock_container.image_repository.get_images_by_filter.return_value = ([], 0)
+    mock_container.db_manager.image_repo.get_images_by_filter.return_value = ([], 0)
+    mock_container.db_manager.model_repo.get_model_by_litellm_id.return_value = MagicMock(
+        litellm_model_id="gpt-4o-mini", provider="openai"
+    )
     mock_get_container.return_value = mock_container
 
     result = runner.invoke(
@@ -214,7 +217,10 @@ def test_annotate_run_with_single_model(
         {"id": i + 1, "phash": f"phash{i:016d}", "stored_image_path": str(img_path)}
         for i, img_path in enumerate(image_files)
     ]
-    mock_container.image_repository.get_images_by_filter.return_value = (image_records, len(image_records))
+    mock_container.db_manager.image_repo.get_images_by_filter.return_value = (
+        image_records,
+        len(image_records),
+    )
     mock_container.annotator_library = mock_annotator
     mock_container.config_service = mock_config
     mock_get_container.return_value = mock_container
@@ -263,7 +269,10 @@ def test_annotate_run_deprecated_model_shows_warning(
         {"id": i + 1, "phash": f"phash{i:016d}", "stored_image_path": str(img_path)}
         for i, img_path in enumerate(image_files)
     ]
-    mock_container.image_repository.get_images_by_filter.return_value = (image_records, len(image_records))
+    mock_container.db_manager.image_repo.get_images_by_filter.return_value = (
+        image_records,
+        len(image_records),
+    )
     mock_container.annotator_library = mock_annotator
     mock_container.config_service = mock_config
     mock_get_container.return_value = mock_container
@@ -310,7 +319,10 @@ def test_annotate_run_deprecated_check_failure_continues(
         {"id": i + 1, "phash": f"phash{i:016d}", "stored_image_path": str(img_path)}
         for i, img_path in enumerate(image_files)
     ]
-    mock_container.image_repository.get_images_by_filter.return_value = (image_records, len(image_records))
+    mock_container.db_manager.image_repo.get_images_by_filter.return_value = (
+        image_records,
+        len(image_records),
+    )
     mock_container.annotator_library = mock_annotator
     mock_container.config_service = mock_config
     mock_get_container.return_value = mock_container
@@ -361,7 +373,10 @@ def test_annotate_run_with_multiple_models(
         {"id": i + 1, "phash": f"phash{i:016d}", "stored_image_path": str(img_path)}
         for i, img_path in enumerate(image_files)
     ]
-    mock_container.image_repository.get_images_by_filter.return_value = (image_records, len(image_records))
+    mock_container.db_manager.image_repo.get_images_by_filter.return_value = (
+        image_records,
+        len(image_records),
+    )
     mock_container.annotator_library = mock_annotator
     mock_container.config_service = mock_config
     mock_get_container.return_value = mock_container
@@ -414,7 +429,7 @@ def test_annotate_run_no_api_keys(
     # repository.get_model_by_litellm_id() の結果から Model.provider を hint として
     # 引く。MagicMock の default は MagicMock を返すため、Model 互換 fake (str provider)
     # を明示的に渡して validation 経路が安定動作するようにする。
-    mock_container.image_repository.get_model_by_litellm_id.return_value = SimpleNamespace(
+    mock_container.db_manager.model_repo.get_model_by_litellm_id.return_value = SimpleNamespace(
         litellm_model_id="openai/gpt-4o-mini",
         name="gpt-4o-mini",
         provider="openai",
@@ -426,7 +441,10 @@ def test_annotate_run_no_api_keys(
         {"id": i + 1, "phash": f"phash{i:016d}", "stored_image_path": str(img_path)}
         for i, img_path in enumerate(image_files)
     ]
-    mock_container.image_repository.get_images_by_filter.return_value = (image_records, len(image_records))
+    mock_container.db_manager.image_repo.get_images_by_filter.return_value = (
+        image_records,
+        len(image_records),
+    )
     mock_container.annotator_library = mock_annotator
     mock_container.config_service = mock_config
     mock_get_container.return_value = mock_container
@@ -476,7 +494,10 @@ def test_annotate_run_with_output_option(
         {"id": i + 1, "phash": f"phash{i:016d}", "stored_image_path": str(img_path)}
         for i, img_path in enumerate(image_files)
     ]
-    mock_container.image_repository.get_images_by_filter.return_value = (image_records, len(image_records))
+    mock_container.db_manager.image_repo.get_images_by_filter.return_value = (
+        image_records,
+        len(image_records),
+    )
     mock_container.annotator_library = mock_annotator
     mock_container.config_service = mock_config
     mock_get_container.return_value = mock_container
@@ -527,7 +548,10 @@ def test_annotate_run_with_batch_size(
         {"id": i + 1, "phash": f"phash{i:016d}", "stored_image_path": str(img_path)}
         for i, img_path in enumerate(image_files)
     ]
-    mock_container.image_repository.get_images_by_filter.return_value = (image_records, len(image_records))
+    mock_container.db_manager.image_repo.get_images_by_filter.return_value = (
+        image_records,
+        len(image_records),
+    )
     mock_container.annotator_library = mock_annotator
     mock_container.config_service = mock_config
     mock_get_container.return_value = mock_container
@@ -574,7 +598,10 @@ def test_annotate_run_annotation_failure(
         {"id": i + 1, "phash": f"phash{i:016d}", "stored_image_path": str(img_path)}
         for i, img_path in enumerate(image_files)
     ]
-    mock_container.image_repository.get_images_by_filter.return_value = (image_records, len(image_records))
+    mock_container.db_manager.image_repo.get_images_by_filter.return_value = (
+        image_records,
+        len(image_records),
+    )
     mock_container.annotator_library = mock_annotator
     mock_container.config_service = mock_config
     mock_get_container.return_value = mock_container
@@ -621,7 +648,10 @@ def test_annotate_run_summary_display(
         {"id": i + 1, "phash": f"phash{i:016d}", "stored_image_path": str(img_path)}
         for i, img_path in enumerate(image_files)
     ]
-    mock_container.image_repository.get_images_by_filter.return_value = (image_records, len(image_records))
+    mock_container.db_manager.image_repo.get_images_by_filter.return_value = (
+        image_records,
+        len(image_records),
+    )
     mock_container.annotator_library = mock_annotator
     mock_container.config_service = mock_config
     mock_get_container.return_value = mock_container
@@ -687,7 +717,7 @@ def test_annotate_run_with_special_project_name(
     mock_config.get_setting.return_value = "test_key"
     mock_annotator.annotate.return_value = {"hash1": {"tags": ["tag1"]}}
 
-    mock_container.image_repository.get_images_by_filter.return_value = (
+    mock_container.db_manager.image_repo.get_images_by_filter.return_value = (
         [{"id": 1, "phash": "phash0000000000000000", "stored_image_path": str(img_path)}],
         1,
     )
@@ -739,7 +769,10 @@ def test_annotate_run_image_load_failure(
         {"id": i + 1, "phash": f"phash{i:016d}", "stored_image_path": str(img_path)}
         for i, img_path in enumerate(image_files)
     ]
-    mock_container.image_repository.get_images_by_filter.return_value = (image_records, len(image_records))
+    mock_container.db_manager.image_repo.get_images_by_filter.return_value = (
+        image_records,
+        len(image_records),
+    )
     mock_container.annotator_library = mock_annotator
     mock_container.config_service = mock_config
     mock_get_container.return_value = mock_container
@@ -790,7 +823,10 @@ def test_annotate_run_all_models_failed_exits_nonzero(
         {"id": i + 1, "phash": f"phash{i:016d}", "stored_image_path": str(img_path)}
         for i, img_path in enumerate(image_files)
     ]
-    mock_container.image_repository.get_images_by_filter.return_value = (image_records, len(image_records))
+    mock_container.db_manager.image_repo.get_images_by_filter.return_value = (
+        image_records,
+        len(image_records),
+    )
     mock_container.annotator_library = mock_annotator
     mock_container.config_service = mock_config
     mock_get_container.return_value = mock_container
@@ -835,7 +871,10 @@ def test_annotate_run_partial_model_failure_shows_warning(
         {"id": i + 1, "phash": f"phash{i:016d}", "stored_image_path": str(img_path)}
         for i, img_path in enumerate(image_files)
     ]
-    mock_container.image_repository.get_images_by_filter.return_value = (image_records, len(image_records))
+    mock_container.db_manager.image_repo.get_images_by_filter.return_value = (
+        image_records,
+        len(image_records),
+    )
     mock_container.annotator_library = mock_annotator
     mock_container.config_service = mock_config
     mock_get_container.return_value = mock_container
@@ -891,7 +930,10 @@ def test_annotate_run_saves_results_to_db(
     mock_container.annotation_save_service.save_annotation_results.return_value = AnnotationSaveResult(
         success_count=2, skip_count=1, error_count=0, total_count=3
     )
-    mock_container.image_repository.get_images_by_filter.return_value = (image_records, len(image_records))
+    mock_container.db_manager.image_repo.get_images_by_filter.return_value = (
+        image_records,
+        len(image_records),
+    )
     mock_container.annotator_library = mock_annotator
     mock_container.config_service = mock_config
     mock_get_container.return_value = mock_container
@@ -935,7 +977,7 @@ def test_annotate_run_summary_shows_saved_count(
     mock_container.annotation_save_service.save_annotation_results.return_value = AnnotationSaveResult(
         success_count=1, skip_count=0, error_count=0, total_count=1
     )
-    mock_container.image_repository.get_images_by_filter.return_value = (image_records, 1)
+    mock_container.db_manager.image_repo.get_images_by_filter.return_value = (image_records, 1)
     mock_container.annotator_library = mock_annotator
     mock_container.config_service = mock_config
     mock_get_container.return_value = mock_container
@@ -982,7 +1024,7 @@ def test_annotate_run_db_save_error_shows_warning(
         total_count=1,
         error_details=["phash=saveerrh...: DB write error"],
     )
-    mock_container.image_repository.get_images_by_filter.return_value = (image_records, 1)
+    mock_container.db_manager.image_repo.get_images_by_filter.return_value = (image_records, 1)
     mock_container.annotator_library = mock_annotator
     mock_container.config_service = mock_config
     mock_get_container.return_value = mock_container
@@ -1026,7 +1068,7 @@ def test_annotate_run_phash_mismatch_skips_gracefully(
     mock_container.annotation_save_service.save_annotation_results.return_value = AnnotationSaveResult(
         success_count=0, skip_count=1, error_count=0, total_count=1
     )
-    mock_container.image_repository.get_images_by_filter.return_value = (image_records, 1)
+    mock_container.db_manager.image_repo.get_images_by_filter.return_value = (image_records, 1)
     mock_container.annotator_library = mock_annotator
     mock_container.config_service = mock_config
     mock_get_container.return_value = mock_container

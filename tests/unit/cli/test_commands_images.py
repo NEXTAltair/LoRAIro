@@ -76,6 +76,12 @@ def test_images_register_success(mock_projects_dir: Path, test_images_dir: Path)
         ["images", "register", str(test_images_dir), "--project", "test-project"],
     )
 
+    if result.exit_code != 0:
+        import traceback as _tb
+
+        print(f"--- stdout ---\n{result.stdout}")
+        if result.exception:
+            _tb.print_exception(type(result.exception), result.exception, result.exception.__traceback__)
     assert result.exit_code == 0
     assert "Registration Summary" in result.stdout
 
@@ -232,7 +238,7 @@ def test_images_list_displays_tag_count_from_tags_list(mock_projects_dir: Path) 
     ]
     with patch("lorairo.cli.commands.images.get_service_container") as mock_get_container:
         mock_container = MagicMock()
-        mock_container.image_repository.get_images_by_filter.return_value = (fake_records, 1)
+        mock_container.db_manager.image_repo.get_images_by_filter.return_value = (fake_records, 1)
         mock_get_container.return_value = mock_container
 
         result = runner.invoke(app, ["images", "list", "--project", "test-project"])
@@ -262,7 +268,7 @@ def test_images_list_annotated_yes_when_only_captions(mock_projects_dir: Path) -
     ]
     with patch("lorairo.cli.commands.images.get_service_container") as mock_get_container:
         mock_container = MagicMock()
-        mock_container.image_repository.get_images_by_filter.return_value = (fake_records, 1)
+        mock_container.db_manager.image_repo.get_images_by_filter.return_value = (fake_records, 1)
         mock_get_container.return_value = mock_container
 
         result = runner.invoke(app, ["images", "list", "--project", "test-project"])
@@ -289,7 +295,7 @@ def test_images_list_no_annotation_shows_no(mock_projects_dir: Path) -> None:
     ]
     with patch("lorairo.cli.commands.images.get_service_container") as mock_get_container:
         mock_container = MagicMock()
-        mock_container.image_repository.get_images_by_filter.return_value = (fake_records, 1)
+        mock_container.db_manager.image_repo.get_images_by_filter.return_value = (fake_records, 1)
         mock_get_container.return_value = mock_container
 
         result = runner.invoke(app, ["images", "list", "--project", "test-project"])
@@ -344,7 +350,7 @@ def test_images_list_with_limit(mock_projects_dir: Path) -> None:
     ]
     with patch("lorairo.cli.commands.images.get_service_container") as mock_get_container:
         mock_container = MagicMock()
-        mock_container.image_repository.get_images_by_filter.return_value = (fake_records, 3)
+        mock_container.db_manager.image_repo.get_images_by_filter.return_value = (fake_records, 3)
         mock_get_container.return_value = mock_container
 
         result = runner.invoke(app, ["images", "list", "--project", "test-project", "--limit", "1"])
@@ -400,7 +406,7 @@ def test_images_update_no_images_in_project(mock_projects_dir: Path) -> None:
     runner.invoke(app, ["project", "create", "test-project"])
     with patch("lorairo.cli.commands.images.get_service_container") as mock_get_container:
         mock_container = MagicMock()
-        mock_container.image_repository.get_images_by_filter.return_value = ([], 0)
+        mock_container.db_manager.image_repo.get_images_by_filter.return_value = ([], 0)
         mock_get_container.return_value = mock_container
         result = runner.invoke(app, ["images", "update", "--project", "test-project", "--tags", "cat"])
     assert result.exit_code == 0
@@ -425,13 +431,13 @@ def test_images_update_adds_tags_success(mock_projects_dir: Path) -> None:
     ]
     with patch("lorairo.cli.commands.images.get_service_container") as mock_get_container:
         mock_container = MagicMock()
-        mock_container.image_repository.get_images_by_filter.return_value = (fake_records, 3)
-        mock_container.image_repository.add_tag_to_images_batch.return_value = (True, 3)
+        mock_container.db_manager.image_repo.get_images_by_filter.return_value = (fake_records, 3)
+        mock_container.db_manager.annotation_repo.add_tag_to_images_batch.return_value = (True, 3)
         mock_get_container.return_value = mock_container
         result = runner.invoke(app, ["images", "update", "--project", "test-project", "--tags", "cat,dog"])
     assert result.exit_code == 0
     assert "Update Summary" in result.stdout
-    assert mock_container.image_repository.add_tag_to_images_batch.call_count == 2
+    assert mock_container.db_manager.annotation_repo.add_tag_to_images_batch.call_count == 2
 
 
 @pytest.mark.unit
@@ -441,11 +447,11 @@ def test_images_update_with_image_id(mock_projects_dir: Path) -> None:
     runner.invoke(app, ["project", "create", "test-project"])
     with patch("lorairo.cli.commands.images.get_service_container") as mock_get_container:
         mock_container = MagicMock()
-        mock_container.image_repository.get_image_metadata.return_value = {
+        mock_container.db_manager.image_repo.get_image_metadata.return_value = {
             "id": 42,
             "filename": "a.jpg",
         }
-        mock_container.image_repository.add_tag_to_images_batch.return_value = (True, 1)
+        mock_container.db_manager.annotation_repo.add_tag_to_images_batch.return_value = (True, 1)
         mock_get_container.return_value = mock_container
         result = runner.invoke(
             app,
@@ -453,7 +459,9 @@ def test_images_update_with_image_id(mock_projects_dir: Path) -> None:
         )
     assert result.exit_code == 0
     assert "Update Summary" in result.stdout
-    mock_container.image_repository.add_tag_to_images_batch.assert_called_once_with([42], "cat", None)
+    mock_container.db_manager.annotation_repo.add_tag_to_images_batch.assert_called_once_with(
+        [42], "cat", None
+    )
 
 
 @pytest.mark.unit
@@ -463,7 +471,7 @@ def test_images_update_image_id_not_found(mock_projects_dir: Path) -> None:
     runner.invoke(app, ["project", "create", "test-project"])
     with patch("lorairo.cli.commands.images.get_service_container") as mock_get_container:
         mock_container = MagicMock()
-        mock_container.image_repository.get_image_metadata.return_value = None
+        mock_container.db_manager.image_repo.get_image_metadata.return_value = None
         mock_get_container.return_value = mock_container
         result = runner.invoke(
             app,

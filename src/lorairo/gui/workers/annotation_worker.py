@@ -195,7 +195,7 @@ class AnnotationWorker(LoRAIroWorkerBase["AnnotationExecutionResult"]):
     def _refresh_input_phash_cache(self) -> None:
         """現在の `image_paths` に対応する DB 登録済み pHash を一括取得する。"""
         try:
-            path_to_phash = self.db_manager.repository.get_phashes_by_filepaths(self.image_paths)
+            path_to_phash = self.db_manager.image_repo.get_phashes_by_filepaths(self.image_paths)
         except Exception as exc:
             logger.warning(
                 f"pHash 一括取得に失敗しました。lib 側自動計算に委任します: {exc}", exc_info=True
@@ -578,7 +578,12 @@ class AnnotationWorker(LoRAIroWorkerBase["AnnotationExecutionResult"]):
             )
             return
 
-        save_service = AnnotationSaveService(self.db_manager.repository)
+        save_service = AnnotationSaveService(
+            annotation_repo=self.db_manager.annotation_repo,
+            image_repo=self.db_manager.image_repo,
+            model_repo=self.db_manager.model_repo,
+            error_record_repo=self.db_manager.error_record_repo,
+        )
         original_count = len(self.image_paths)
         try:
             self.image_paths = save_service.filter_refused_image_paths(self.image_paths)
@@ -607,10 +612,15 @@ class AnnotationWorker(LoRAIroWorkerBase["AnnotationExecutionResult"]):
         Returns:
             (DB保存成功件数, スキップ件数, 画像ごとの結果概要リスト, phash→ファイル名マップ) のタプル。
         """
-        save_result = AnnotationSaveService(self.db_manager.repository).save_annotation_results(results)
+        save_result = AnnotationSaveService(
+            annotation_repo=self.db_manager.annotation_repo,
+            image_repo=self.db_manager.image_repo,
+            model_repo=self.db_manager.model_repo,
+            error_record_repo=self.db_manager.error_record_repo,
+        ).save_annotation_results(results)
 
         # GUIサマリー用: phash→ファイル名マップを構築
-        phash_to_image_id = self.db_manager.repository.find_image_ids_by_phashes(set(results.keys()))
+        phash_to_image_id = self.db_manager.image_repo.find_image_ids_by_phashes(set(results.keys()))
         phash_to_filename = self._build_phash_to_filename_map(phash_to_image_id)
 
         # 画像ごとの結果概要（DB登録済みのもののみ）
@@ -636,7 +646,7 @@ class AnnotationWorker(LoRAIroWorkerBase["AnnotationExecutionResult"]):
             pHash → ファイル名のマッピング。
         """
         # image_id → file_path マッピングを構築
-        path_to_image_id = self.db_manager.repository.get_image_ids_by_filepaths(self.image_paths)
+        path_to_image_id = self.db_manager.image_repo.get_image_ids_by_filepaths(self.image_paths)
         if not isinstance(path_to_image_id, dict):
             path_to_image_id = {}
         image_id_to_path: dict[int, str] = {

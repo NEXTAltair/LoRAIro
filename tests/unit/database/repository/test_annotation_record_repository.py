@@ -29,7 +29,6 @@ from sqlalchemy import create_engine, select
 from sqlalchemy.orm import sessionmaker
 
 from lorairo.database.db_manager import ImageDatabaseManager
-from lorairo.database.db_repository import ImageRepository as LegacyImageRepository
 from lorairo.database.repository.annotation_record import AnnotationRepository
 from lorairo.database.repository.base import BaseRepository
 from lorairo.database.schema import (
@@ -362,69 +361,28 @@ class TestUpdateBatch:
 
 
 @pytest.mark.unit
-class TestFacadeDelegation:
-    """ImageRepository delegating facade (db_repository.ImageRepository) との整合性。"""
-
-    def test_facade_holds_annotation_repo_instance(self, memory_session_factory) -> None:
-        facade = LegacyImageRepository(session_factory=memory_session_factory)
-        assert isinstance(facade._annotation_repo, AnnotationRepository)
-
-    def test_facade_save_annotations_delegates(self, memory_session_factory) -> None:
-        facade = LegacyImageRepository(session_factory=memory_session_factory)
-        facade._annotation_repo.save_annotations = Mock()  # type: ignore[method-assign]
-        facade.save_annotations(image_id=1, annotations={"tags": []})
-        facade._annotation_repo.save_annotations.assert_called_once()
-
-    def test_facade_merged_reader_property_delegates(self, memory_session_factory) -> None:
-        """`repo.merged_reader = X` が `_annotation_repo.merged_reader` に反映される。"""
-        facade = LegacyImageRepository(session_factory=memory_session_factory)
-        sentinel = object()
-        facade.merged_reader = sentinel  # type: ignore[assignment]
-        assert facade._annotation_repo.merged_reader is sentinel
-        assert facade.merged_reader is sentinel
-
-    def test_facade_tag_register_service_property_delegates(self, memory_session_factory) -> None:
-        """`repo.tag_register_service = X` が `_annotation_repo` 側にも反映される。"""
-        facade = LegacyImageRepository(session_factory=memory_session_factory)
-        sentinel = object()
-        facade.tag_register_service = sentinel  # type: ignore[assignment]
-        assert facade._annotation_repo.tag_register_service is sentinel
-        assert facade.tag_register_service is sentinel
-
-
-@pytest.mark.unit
 class TestImageDatabaseManagerDIContract:
     """ImageDatabaseManager が annotation_repo を inject 経由で保持することを確認。"""
 
-    def test_manager_creates_annotation_repo_when_not_injected(self, memory_session_factory) -> None:
-        """annotation_repo 未指定でも repository.session_factory から自動生成される。"""
-        repo = LegacyImageRepository(session_factory=memory_session_factory)
+    def test_manager_creates_annotation_repo_when_session_factory_provided(
+        self, memory_session_factory
+    ) -> None:
+        """`session_factory` 引数を渡すと annotation_repo が自動生成される。
+
+        ADR 0035 段階 6 (#423): facade 撤廃後、`session_factory` を Manager に
+        渡すと全 Repo がそれを共有して構築される。
+        """
         cfg = Mock(spec=ConfigurationService)
-        manager = ImageDatabaseManager(repository=repo, config_service=cfg)
+        manager = ImageDatabaseManager(config_service=cfg, session_factory=memory_session_factory)
         assert isinstance(manager.annotation_repo, AnnotationRepository)
         assert manager.annotation_repo.session_factory is memory_session_factory
 
-    def test_manager_uses_injected_annotation_repo(self, memory_session_factory) -> None:
+    def test_manager_uses_injected_annotation_repo(self) -> None:
         """明示注入された annotation_repo を保持し、Mock 化で外部依存を切り離せる。"""
-        repo = LegacyImageRepository(session_factory=memory_session_factory)
         cfg = Mock(spec=ConfigurationService)
         injected = Mock(spec=AnnotationRepository)
         manager = ImageDatabaseManager(
-            repository=repo,
             config_service=cfg,
             annotation_repo=injected,
         )
         assert manager.annotation_repo is injected
-
-    def test_manager_annotation_repo_independent_of_facade_internal(self, memory_session_factory) -> None:
-        """Manager.annotation_repo は facade の `_annotation_repo` とは独立 instance。
-
-        facade の `_annotation_repo` は facade 用 delegating 経路、Manager の
-        `annotation_repo` は Manager 直接呼び出し用 (段階 6 で完全移行) のため、別物。
-        両者は同じ session_factory を共有する。
-        """
-        repo = LegacyImageRepository(session_factory=memory_session_factory)
-        cfg = Mock(spec=ConfigurationService)
-        manager = ImageDatabaseManager(repository=repo, config_service=cfg)
-        assert manager.annotation_repo is not repo._annotation_repo
-        assert manager.annotation_repo.session_factory is repo._annotation_repo.session_factory

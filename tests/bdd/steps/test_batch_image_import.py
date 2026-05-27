@@ -100,7 +100,7 @@ def given_image_in_db(
     result = test_db_manager.register_original_image(image_path, fs_manager)
     assert result is not None, f"画像登録に失敗: {image_path}"
     batch_context.registered_image_id = result[0]
-    batch_context.repository = test_db_manager.repository
+    batch_context.repository = test_db_manager.image_repo
 
 
 @given("ファイル名インデックスが空のリポジトリがある")

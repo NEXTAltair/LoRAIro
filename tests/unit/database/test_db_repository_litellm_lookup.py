@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import pytest
 
-from lorairo.database.db_repository import ImageRepository
+from lorairo.database.repository.model import ModelRepository
 from lorairo.database.schema import (
     MANUAL_EDIT_LITELLM_ID,
     MANUAL_EDIT_NAME,
@@ -20,9 +20,9 @@ from lorairo.database.schema import (
 class TestGetModelByLitellmId:
     """`get_model_by_litellm_id` (Phase 1.11) の境界条件検証。"""
 
-    def test_returns_model_when_found(self, temp_db_repository: ImageRepository) -> None:
+    def test_returns_model_when_found(self, test_model_repository: ModelRepository) -> None:
         """登録済み `litellm_model_id` で Model が返る。"""
-        temp_db_repository.insert_model(
+        test_model_repository.insert_model(
             name="gpt-4o",
             provider="openai",
             model_types=["multimodal"],
@@ -30,28 +30,28 @@ class TestGetModelByLitellmId:
             requires_api_key=True,
         )
 
-        model = temp_db_repository.get_model_by_litellm_id("openai/phase111-gpt-4o")
+        model = test_model_repository.get_model_by_litellm_id("openai/phase111-gpt-4o")
 
         assert model is not None
         assert model.name == "gpt-4o"
         assert model.provider == "openai"
         assert model.litellm_model_id == "openai/phase111-gpt-4o"
 
-    def test_returns_none_when_not_found(self, temp_db_repository: ImageRepository) -> None:
+    def test_returns_none_when_not_found(self, test_model_repository: ModelRepository) -> None:
         """未登録 `litellm_model_id` で None が返る。"""
-        result = temp_db_repository.get_model_by_litellm_id("openai/nonexistent")
+        result = test_model_repository.get_model_by_litellm_id("openai/nonexistent")
         assert result is None
 
-    def test_distinguishes_routes_for_same_model(self, temp_db_repository: ImageRepository) -> None:
+    def test_distinguishes_routes_for_same_model(self, test_model_repository: ModelRepository) -> None:
         """同名モデルでも経路 (直接 vs OpenRouter) が異なれば別エントリとして取得できる。"""
-        temp_db_repository.insert_model(
+        test_model_repository.insert_model(
             name="claude-3-5-sonnet-20241022",
             provider="anthropic",
             model_types=["multimodal"],
             litellm_model_id="anthropic/claude-3-5-sonnet-20241022",
             requires_api_key=True,
         )
-        temp_db_repository.insert_model(
+        test_model_repository.insert_model(
             name="anthropic/claude-3-5-sonnet-20241022",
             provider="openrouter",
             model_types=["multimodal"],
@@ -59,8 +59,8 @@ class TestGetModelByLitellmId:
             requires_api_key=True,
         )
 
-        direct = temp_db_repository.get_model_by_litellm_id("anthropic/claude-3-5-sonnet-20241022")
-        openrouter = temp_db_repository.get_model_by_litellm_id(
+        direct = test_model_repository.get_model_by_litellm_id("anthropic/claude-3-5-sonnet-20241022")
+        openrouter = test_model_repository.get_model_by_litellm_id(
             "openrouter/anthropic/claude-3-5-sonnet-20241022"
         )
 
@@ -73,13 +73,13 @@ class TestGetModelByLitellmId:
 class TestGetModelsByLitellmIds:
     """`get_models_by_litellm_ids` (Phase 1.11) の境界条件検証。"""
 
-    def test_empty_set_returns_empty_dict(self, temp_db_repository: ImageRepository) -> None:
+    def test_empty_set_returns_empty_dict(self, test_model_repository: ModelRepository) -> None:
         """空セットは空 dict を返す (DB アクセスなし)。"""
-        assert temp_db_repository.get_models_by_litellm_ids(set()) == {}
+        assert test_model_repository.get_models_by_litellm_ids(set()) == {}
 
-    def test_returns_partial_match(self, temp_db_repository: ImageRepository) -> None:
+    def test_returns_partial_match(self, test_model_repository: ModelRepository) -> None:
         """存在する key だけが結果 dict に含まれる。"""
-        temp_db_repository.insert_model(
+        test_model_repository.insert_model(
             name="gpt-4o",
             provider="openai",
             model_types=["multimodal"],
@@ -87,7 +87,9 @@ class TestGetModelsByLitellmIds:
             requires_api_key=True,
         )
 
-        result = temp_db_repository.get_models_by_litellm_ids({"openai/phase111-gpt-4o", "missing/model"})
+        result = test_model_repository.get_models_by_litellm_ids(
+            {"openai/phase111-gpt-4o", "missing/model"}
+        )
 
         assert "openai/phase111-gpt-4o" in result
         assert "missing/model" not in result
@@ -98,11 +100,11 @@ class TestManualEditModelSentinel:
     """`_get_or_create_manual_edit_model` の sentinel 動作 (Phase 1.11)。"""
 
     def test_creates_with_sentinel_litellm_id(
-        self, temp_db_repository: ImageRepository, db_session_factory
+        self, test_model_repository: ModelRepository, db_session_factory
     ) -> None:
         """初回呼び出しで sentinel `__manual_edit__` の MANUAL_EDIT 行が作成される。"""
         with db_session_factory() as session:
-            model_id = temp_db_repository._get_or_create_manual_edit_model(session)
+            model_id = test_model_repository._get_or_create_manual_edit_model(session)
             session.commit()
 
         with db_session_factory() as session:
@@ -116,23 +118,25 @@ class TestManualEditModelSentinel:
             assert model.litellm_model_id == MANUAL_EDIT_LITELLM_ID
 
     def test_returns_existing_when_already_present(
-        self, temp_db_repository: ImageRepository, db_session_factory
+        self, test_model_repository: ModelRepository, db_session_factory
     ) -> None:
         """2 回目以降は既存の MANUAL_EDIT 行 ID を返す (重複作成しない)。"""
         with db_session_factory() as session:
-            first_id = temp_db_repository._get_or_create_manual_edit_model(session)
+            first_id = test_model_repository._get_or_create_manual_edit_model(session)
             session.commit()
 
         with db_session_factory() as session:
-            second_id = temp_db_repository._get_or_create_manual_edit_model(session)
+            second_id = test_model_repository._get_or_create_manual_edit_model(session)
             session.commit()
 
         assert first_id == second_id
 
-    def test_unique_constraint_holds(self, temp_db_repository: ImageRepository, db_session_factory) -> None:
+    def test_unique_constraint_holds(
+        self, test_model_repository: ModelRepository, db_session_factory
+    ) -> None:
         """sentinel `__manual_edit__` は他の `litellm_model_id` と衝突しない (UNIQUE)。"""
         with db_session_factory() as session:
-            temp_db_repository._get_or_create_manual_edit_model(session)
+            test_model_repository._get_or_create_manual_edit_model(session)
             session.commit()
 
         from lorairo.database.schema import Model

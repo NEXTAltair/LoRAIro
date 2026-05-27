@@ -133,10 +133,12 @@ class TestModelTypeMapping:
     """ModelTypeマッピングロジックテスト (Issue #225 で AnnotatorInfo 引数に変更)"""
 
     @pytest.fixture
-    def service_with_mock(self, temp_db_repository, mock_config_service):
+    def service_with_mock(self, test_model_repository, mock_config_service):
         """マッピングテスト用サービス"""
         return ModelSyncService(
-            db_repository=temp_db_repository, config_service=mock_config_service, annotator_library=Mock()
+            db_repository=test_model_repository,
+            config_service=mock_config_service,
+            annotator_library=Mock(),
         )
 
     def test_vision_maps_to_multimodal(self, service_with_mock):
@@ -199,9 +201,9 @@ class TestModelSyncServiceWithRealDB:
     """ModelSyncService 実DB統合テスト"""
 
     @pytest.fixture
-    def model_sync_service(self, temp_db_repository, mock_config_service):
+    def model_sync_service(self, test_model_repository, mock_config_service):
         """ModelSyncService インスタンス（実DB使用）"""
-        return ModelSyncService(db_repository=temp_db_repository, config_service=mock_config_service)
+        return ModelSyncService(db_repository=test_model_repository, config_service=mock_config_service)
 
     def test_initialization_with_mock(self, model_sync_service):
         """Mock使用時の初期化"""
@@ -232,7 +234,7 @@ class TestModelSyncServiceWithRealDB:
         assert gpt4o_model["class_name"] is None  # Phase 2: AnnotatorInfo に class_name なし
 
     def test_pydanticai_direct_model_provider_falls_back_to_unknown(
-        self, temp_db_repository, mock_config_service
+        self, test_model_repository, mock_config_service
     ):
         """API モデルで config_registry に provider がない場合 'unknown' にフォールバック (Codex P2 修正)
 
@@ -249,7 +251,7 @@ class TestModelSyncServiceWithRealDB:
         ]
 
         service = ModelSyncService(
-            db_repository=temp_db_repository,
+            db_repository=test_model_repository,
             config_service=mock_config_service,
             annotator_library=custom_lib,
         )
@@ -262,7 +264,9 @@ class TestModelSyncServiceWithRealDB:
         # ローカルモデルは None のまま (既存の "provider=None → local" 解釈を維持)
         assert local_meta["provider"] is None
 
-    def test_register_new_models_to_db_success(self, model_sync_service, temp_db_repository):
+    def test_register_new_models_to_db_success(
+        self, model_sync_service, temp_db_repository, test_model_repository
+    ):
         """新規モデルDB登録成功（実DB操作）"""
         test_models: list[ModelMetadata] = [
             {
@@ -293,19 +297,21 @@ class TestModelSyncServiceWithRealDB:
 
         assert count == 2
 
-        registered_model_1 = temp_db_repository.get_model_by_litellm_id("openai/test-model-new-1")
+        registered_model_1 = test_model_repository.get_model_by_litellm_id("openai/test-model-new-1")
         assert registered_model_1 is not None
         assert registered_model_1.provider == "openai"
         assert len(registered_model_1.model_types) == 1
         assert {mt.name for mt in registered_model_1.model_types} == {"multimodal"}
 
-        registered_model_2 = temp_db_repository.get_model_by_litellm_id("test-model-new-2")
+        registered_model_2 = test_model_repository.get_model_by_litellm_id("test-model-new-2")
         assert registered_model_2 is not None
         assert registered_model_2.estimated_size_gb == 1.5
         assert len(registered_model_2.model_types) == 1
         assert registered_model_2.model_types[0].name == "tags"
 
-    def test_register_new_models_to_db_with_discontinued_at(self, model_sync_service, temp_db_repository):
+    def test_register_new_models_to_db_with_discontinued_at(
+        self, model_sync_service, temp_db_repository, test_model_repository
+    ):
         """discontinued_atフィールド付き新規モデル登録（Issue #5対応）"""
         discontinued_date = datetime.datetime(2024, 12, 31, tzinfo=datetime.UTC)
         test_models: list[ModelMetadata] = [
@@ -325,14 +331,16 @@ class TestModelSyncServiceWithRealDB:
         count = model_sync_service.register_new_models_to_db(test_models)
         assert count == 1
 
-        registered_model = temp_db_repository.get_model_by_litellm_id("openai/discontinued-model")
+        registered_model = test_model_repository.get_model_by_litellm_id("openai/discontinued-model")
         assert registered_model is not None
         assert registered_model.discontinued_at is not None
         assert registered_model.discontinued_at == discontinued_date.replace(tzinfo=None)
 
-    def test_register_new_models_existing_models_skip(self, model_sync_service, temp_db_repository):
+    def test_register_new_models_existing_models_skip(
+        self, model_sync_service, temp_db_repository, test_model_repository
+    ):
         """既存モデル存在時のDB登録スキップ"""
-        temp_db_repository.insert_model(
+        test_model_repository.insert_model(
             name="existing-model-test",
             provider="openai",
             model_types=["multimodal"],
@@ -357,9 +365,11 @@ class TestModelSyncServiceWithRealDB:
         count = model_sync_service.register_new_models_to_db(test_models)
         assert count == 0
 
-    def test_update_existing_models_success(self, model_sync_service, temp_db_repository):
+    def test_update_existing_models_success(
+        self, model_sync_service, temp_db_repository, test_model_repository
+    ):
         """既存モデル更新処理（実DB操作）"""
-        temp_db_repository.insert_model(
+        test_model_repository.insert_model(
             name="update-test-model",
             provider="openai",
             model_types=["caption"],
@@ -384,15 +394,17 @@ class TestModelSyncServiceWithRealDB:
         count = model_sync_service.update_existing_models(test_models)
         assert count == 1
 
-        updated_model = temp_db_repository.get_model_by_litellm_id("openai/update-test-model")
+        updated_model = test_model_repository.get_model_by_litellm_id("openai/update-test-model")
         assert updated_model is not None
         assert updated_model.estimated_size_gb == 2.5
         assert len(updated_model.model_types) == 1
         assert {mt.name for mt in updated_model.model_types} == {"multimodal"}
 
-    def test_update_existing_models_no_changes(self, model_sync_service, temp_db_repository):
+    def test_update_existing_models_no_changes(
+        self, model_sync_service, temp_db_repository, test_model_repository
+    ):
         """既存モデル更新処理（変更なし）"""
-        temp_db_repository.insert_model(
+        test_model_repository.insert_model(
             name="no-change-model",
             provider="openai",
             model_types=["multimodal"],
@@ -417,9 +429,11 @@ class TestModelSyncServiceWithRealDB:
         count = model_sync_service.update_existing_models(test_models)
         assert count == 0
 
-    def test_update_existing_models_with_discontinued_at(self, model_sync_service, temp_db_repository):
+    def test_update_existing_models_with_discontinued_at(
+        self, model_sync_service, temp_db_repository, test_model_repository
+    ):
         """既存モデルのdiscontinued_at更新（Issue #5対応）"""
-        temp_db_repository.insert_model(
+        test_model_repository.insert_model(
             name="to-be-discontinued",
             provider="openai",
             model_types=["caption"],
@@ -445,7 +459,7 @@ class TestModelSyncServiceWithRealDB:
         count = model_sync_service.update_existing_models(test_models)
         assert count == 1
 
-        updated_model = temp_db_repository.get_model_by_litellm_id("openai/to-be-discontinued")
+        updated_model = test_model_repository.get_model_by_litellm_id("openai/to-be-discontinued")
         assert updated_model is not None
         assert updated_model.discontinued_at == discontinued_date.replace(tzinfo=None)
 
@@ -459,13 +473,13 @@ class TestModelSyncServiceWithRealDB:
         assert result.new_models_registered >= 0
         assert len(result.errors) == 0
 
-    def test_sync_available_models_with_error(self, temp_db_repository, mock_config_service):
+    def test_sync_available_models_with_error(self, test_model_repository, mock_config_service):
         """モデル同期処理エラー発生 (新 Protocol: list_annotator_info で例外)"""
         error_lib = Mock(spec=AnnotatorLibraryProtocol)
         error_lib.list_annotator_info.side_effect = Exception("Sync error")
 
         service = ModelSyncService(
-            db_repository=temp_db_repository,
+            db_repository=test_model_repository,
             config_service=mock_config_service,
             annotator_library=error_lib,
         )
@@ -505,17 +519,17 @@ class TestModelSyncServiceEdgeCases:
     """ModelSyncService 境界値・エッジケーステスト"""
 
     @pytest.fixture
-    def model_sync_service(self, temp_db_repository, mock_config_service):
+    def model_sync_service(self, test_model_repository, mock_config_service):
         """ModelSyncService インスタンス（実DB使用）"""
-        return ModelSyncService(db_repository=temp_db_repository, config_service=mock_config_service)
+        return ModelSyncService(db_repository=test_model_repository, config_service=mock_config_service)
 
-    def test_empty_model_list_sync(self, temp_db_repository, mock_config_service):
+    def test_empty_model_list_sync(self, test_model_repository, mock_config_service):
         """空のモデルリスト同期 (新 Protocol: list_annotator_info が空リスト)"""
         empty_lib = Mock(spec=AnnotatorLibraryProtocol)
         empty_lib.list_annotator_info.return_value = []
 
         service = ModelSyncService(
-            db_repository=temp_db_repository,
+            db_repository=test_model_repository,
             config_service=mock_config_service,
             annotator_library=empty_lib,
         )

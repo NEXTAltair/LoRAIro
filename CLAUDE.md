@@ -121,7 +121,7 @@ make clean                 # Remove build artifacts and caches
 
 **Data Layer:**
 - Schema: `src/lorairo/database/schema.py`
-- Repository: `src/lorairo/database/db_repository.py`
+- Repositories: `src/lorairo/database/repository/`
 - Manager: `src/lorairo/database/db_manager.py`
 - Core: `src/lorairo/database/db_core.py`
 
@@ -132,7 +132,7 @@ make clean                 # Remove build artifacts and caches
 
 **AI Integration (Local Packages):**
 - **image-annotator-lib**: `src/lorairo/annotations/annotator_adapter.py`, `annotation_logic.py`
-- **genai-tag-db-tools**: `src/lorairo/database/db_repository.py`, Public APIs: `search_tags()`, `register_tag()`
+- **genai-tag-db-tools**: `src/lorairo/database/repository/annotation_record.py`, Public APIs: `search_tags()`, `register_tag()`
 
 **Workers:** `src/lorairo/gui/workers/` (DatabaseRegistration, Annotation, Search, Thumbnail)
 

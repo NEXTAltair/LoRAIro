@@ -68,7 +68,7 @@ class ErrorDetailDialog(QDialog, Ui_ErrorDetailDialog):
             # Repository API呼び出し
             # Note: get_error_records()にID指定フィルタがないため、
             # 全レコード取得してPython側でフィルタ
-            all_records = self.db_manager.repository.get_error_records(limit=10000, offset=0)
+            all_records = self.db_manager.error_record_repo.get_error_records(limit=10000, offset=0)
 
             # error_idでフィルタ
             matching_records = [r for r in all_records if r.id == self.error_id]
@@ -171,7 +171,7 @@ class ErrorDetailDialog(QDialog, Ui_ErrorDetailDialog):
         if reply == QMessageBox.StandardButton.Yes:
             try:
                 # Repository API呼び出し
-                self.db_manager.repository.mark_error_resolved(self.error_id)
+                self.db_manager.error_record_repo.mark_error_resolved(self.error_id)
                 self.was_resolved = True
 
                 QMessageBox.information(self, "成功", "エラーを解決済みにマークしました")

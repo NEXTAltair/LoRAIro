@@ -9,7 +9,7 @@ from unittest.mock import Mock
 import pytest
 from sqlalchemy.orm import sessionmaker
 
-from lorairo.database.db_repository import ImageRepository
+from lorairo.database.repository.provider_batch import ProviderBatchRepository
 from lorairo.database.schema import Image
 from lorairo.services.annotation_save_service import AnnotationSaveResult
 from lorairo.services.provider_batch_service import (
@@ -88,11 +88,20 @@ def batch_config(tmp_path: Path) -> Mock:
 
 @pytest.fixture
 def workflow(
-    test_repository: ImageRepository,
+    test_provider_batch_repository: ProviderBatchRepository,
+    test_repository,
+    test_annotation_repository,
     batch_config: Mock,
 ) -> tuple[ProviderBatchWorkflowService, FakeProviderBatchAdapter]:
+    """ADR 0035 段階 6 (#423): 3 つの Aggregate Repo を inject する新シグネチャ。"""
     adapter = FakeProviderBatchAdapter()
-    service = ProviderBatchWorkflowService(test_repository, batch_config, adapters={"openai": adapter})
+    service = ProviderBatchWorkflowService(
+        provider_batch_repo=test_provider_batch_repository,
+        image_repo=test_repository,
+        annotation_repo=test_annotation_repository,
+        config_service=batch_config,
+        adapters={"openai": adapter},
+    )
     return service, adapter
 
 
@@ -122,7 +131,7 @@ class TestProviderBatchWorkflowService:
     def test_submit_images_builds_request_from_image_ids(
         self,
         workflow: tuple[ProviderBatchWorkflowService, FakeProviderBatchAdapter],
-        test_repository: ImageRepository,
+        test_provider_batch_repository: ProviderBatchRepository,
         db_session_factory: sessionmaker,
     ) -> None:
         service, adapter = workflow
@@ -145,10 +154,12 @@ class TestProviderBatchWorkflowService:
             ("img-1", 1, Path("/tmp/images/one.webp")),
             ("img-2", 2, Path("/tmp/images/two.webp")),
         ]
-        job = test_repository.get_provider_batch_job(job_id)
+        job = test_provider_batch_repository.get_provider_batch_job(job_id)
         assert job is not None
         assert job.provider_job_id == "batch_123"
-        assert [item.custom_id for item in test_repository.list_provider_batch_items(job_id)] == [
+        assert [
+            item.custom_id for item in test_provider_batch_repository.list_provider_batch_items(job_id)
+        ] == [
             "img-1",
             "img-2",
         ]
@@ -216,7 +227,7 @@ class TestProviderBatchWorkflowService:
     def test_fetch_results_applies_normalized_item_state(
         self,
         workflow: tuple[ProviderBatchWorkflowService, FakeProviderBatchAdapter],
-        test_repository: ImageRepository,
+        test_provider_batch_repository: ProviderBatchRepository,
         db_session_factory: sessionmaker,
         batch_config: Mock,
     ) -> None:
@@ -239,7 +250,7 @@ class TestProviderBatchWorkflowService:
 
         assert fetch_result.items[0].annotation == {"tags": ["tag"]}
         assert adapter.fetch_destination == batch_config.get_batch_results_directory.return_value
-        item = test_repository.list_provider_batch_items(job_id)[0]
+        item = test_provider_batch_repository.list_provider_batch_items(job_id)[0]
         assert item.status == "succeeded"
 
     def test_refresh_uses_configured_api_keys(
@@ -293,7 +304,7 @@ class TestProviderBatchWorkflowService:
     def test_apply_result_items_updates_normalized_item_state(
         self,
         workflow: tuple[ProviderBatchWorkflowService, FakeProviderBatchAdapter],
-        test_repository: ImageRepository,
+        test_provider_batch_repository: ProviderBatchRepository,
         db_session_factory: sessionmaker,
     ) -> None:
         service, _adapter = workflow
@@ -320,7 +331,10 @@ class TestProviderBatchWorkflowService:
         assert result.updated_count == 2
         assert result.missing_count == 1
         assert result.missing_custom_ids == ("img-404",)
-        items = {item.custom_id: item for item in test_repository.list_provider_batch_items(job_id)}
+        items = {
+            item.custom_id: item
+            for item in test_provider_batch_repository.list_provider_batch_items(job_id)
+        }
         assert items["img-1"].status == "succeeded"
         assert items["img-1"].raw_response == '{"ok": true}'
         assert items["img-2"].status == "failed"
@@ -351,7 +365,9 @@ class TestProviderBatchWorkflowService:
 
     def test_import_results_uses_custom_id_mapping_and_marks_imported(
         self,
-        test_repository: ImageRepository,
+        test_provider_batch_repository: ProviderBatchRepository,
+        test_repository,
+        test_annotation_repository,
         batch_config: Mock,
         db_session_factory: sessionmaker,
     ) -> None:
@@ -364,8 +380,10 @@ class TestProviderBatchWorkflowService:
             total_count=1,
         )
         service = ProviderBatchWorkflowService(
-            test_repository,
-            batch_config,
+            provider_batch_repo=test_provider_batch_repository,
+            image_repo=test_repository,
+            annotation_repo=test_annotation_repository,
+            config_service=batch_config,
             adapters={"openai": adapter},
             annotation_save_service=annotation_save,
         )
@@ -393,15 +411,17 @@ class TestProviderBatchWorkflowService:
         )
         assert result.imported_count == 1
         assert result.job_imported is True
-        job = test_repository.get_provider_batch_job(job_id)
+        job = test_provider_batch_repository.get_provider_batch_job(job_id)
         assert job is not None
         assert job.status == "imported"
         assert job.imported_at is not None
-        assert test_repository.list_provider_batch_items(job_id)[0].status == "imported"
+        assert test_provider_batch_repository.list_provider_batch_items(job_id)[0].status == "imported"
 
     def test_import_results_does_not_fallback_to_file_stem_for_missing_custom_id(
         self,
-        test_repository: ImageRepository,
+        test_provider_batch_repository: ProviderBatchRepository,
+        test_repository,
+        test_annotation_repository,
         batch_config: Mock,
         db_session_factory: sessionmaker,
     ) -> None:
@@ -414,8 +434,10 @@ class TestProviderBatchWorkflowService:
             total_count=0,
         )
         service = ProviderBatchWorkflowService(
-            test_repository,
-            batch_config,
+            provider_batch_repo=test_provider_batch_repository,
+            image_repo=test_repository,
+            annotation_repo=test_annotation_repository,
+            config_service=batch_config,
             adapters={"openai": adapter},
             annotation_save_service=annotation_save,
         )
@@ -441,14 +463,16 @@ class TestProviderBatchWorkflowService:
         annotation_save.save_provider_batch_results_by_image_id.assert_not_called()
         assert result.missing_custom_ids == ("img-404",)
         assert result.job_imported is False
-        job = test_repository.get_provider_batch_job(job_id)
+        job = test_provider_batch_repository.get_provider_batch_job(job_id)
         assert job is not None
         assert job.status == "completed"
         assert job.imported_at is None
 
     def test_import_results_marks_saved_items_imported_when_job_has_missing_ids(
         self,
-        test_repository: ImageRepository,
+        test_provider_batch_repository: ProviderBatchRepository,
+        test_repository,
+        test_annotation_repository,
         batch_config: Mock,
         db_session_factory: sessionmaker,
     ) -> None:
@@ -461,8 +485,10 @@ class TestProviderBatchWorkflowService:
             total_count=1,
         )
         service = ProviderBatchWorkflowService(
-            test_repository,
-            batch_config,
+            provider_batch_repo=test_provider_batch_repository,
+            image_repo=test_repository,
+            annotation_repo=test_annotation_repository,
+            config_service=batch_config,
             adapters={"openai": adapter},
             annotation_save_service=annotation_save,
         )
@@ -490,21 +516,29 @@ class TestProviderBatchWorkflowService:
 
         assert result.job_imported is False
         assert result.missing_custom_ids == ("img-404",)
-        item = test_repository.list_provider_batch_items(job_id)[0]
+        item = test_provider_batch_repository.list_provider_batch_items(job_id)[0]
         assert item.status == "imported"
-        job = test_repository.get_provider_batch_job(job_id)
+        job = test_provider_batch_repository.get_provider_batch_job(job_id)
         assert job is not None
         assert job.status == "completed"
         assert job.imported_at is None
 
     def test_fetch_results_preserves_imported_item_status(
         self,
-        test_repository: ImageRepository,
+        test_provider_batch_repository: ProviderBatchRepository,
+        test_repository,
+        test_annotation_repository,
         batch_config: Mock,
         db_session_factory: sessionmaker,
     ) -> None:
         adapter = FakeProviderBatchAdapter()
-        service = ProviderBatchWorkflowService(test_repository, batch_config, adapters={"openai": adapter})
+        service = ProviderBatchWorkflowService(
+            provider_batch_repo=test_provider_batch_repository,
+            image_repo=test_repository,
+            annotation_repo=test_annotation_repository,
+            config_service=batch_config,
+            adapters={"openai": adapter},
+        )
         _insert_image(db_session_factory, 1, "/tmp/images/one.webp")
         job_id = service.submit_images(
             provider="openai",
@@ -514,8 +548,10 @@ class TestProviderBatchWorkflowService:
             image_ids=[1],
             model_id=10,
         )
-        test_repository.update_provider_batch_job(job_id, {"status": "completed"})
-        test_repository.update_provider_batch_items_by_custom_id(job_id, {"img-1": {"status": "imported"}})
+        test_provider_batch_repository.update_provider_batch_job(job_id, {"status": "completed"})
+        test_provider_batch_repository.update_provider_batch_items_by_custom_id(
+            job_id, {"img-1": {"status": "imported"}}
+        )
         adapter.fetch_result = ProviderBatchFetchResult(
             provider_job_id="batch_123",
             provider_status="completed",
@@ -524,11 +560,13 @@ class TestProviderBatchWorkflowService:
 
         service.fetch_results(job_id)
 
-        assert test_repository.list_provider_batch_items(job_id)[0].status == "imported"
+        assert test_provider_batch_repository.list_provider_batch_items(job_id)[0].status == "imported"
 
     def test_import_results_preserves_imported_item_status_on_retry_error(
         self,
-        test_repository: ImageRepository,
+        test_provider_batch_repository: ProviderBatchRepository,
+        test_repository,
+        test_annotation_repository,
         batch_config: Mock,
         db_session_factory: sessionmaker,
     ) -> None:
@@ -542,8 +580,10 @@ class TestProviderBatchWorkflowService:
             error_details=["image_id=2: write failed"],
         )
         service = ProviderBatchWorkflowService(
-            test_repository,
-            batch_config,
+            provider_batch_repo=test_provider_batch_repository,
+            image_repo=test_repository,
+            annotation_repo=test_annotation_repository,
+            config_service=batch_config,
             adapters={"openai": adapter},
             annotation_save_service=annotation_save,
         )
@@ -557,7 +597,9 @@ class TestProviderBatchWorkflowService:
             image_ids=[1, 2],
             model_id=10,
         )
-        test_repository.update_provider_batch_items_by_custom_id(job_id, {"img-1": {"status": "imported"}})
+        test_provider_batch_repository.update_provider_batch_items_by_custom_id(
+            job_id, {"img-1": {"status": "imported"}}
+        )
 
         result = service.import_results(
             job_id,
@@ -573,7 +615,10 @@ class TestProviderBatchWorkflowService:
 
         assert result.error_count == 1
         assert result.skipped_count == 1
-        items = {item.custom_id: item for item in test_repository.list_provider_batch_items(job_id)}
+        items = {
+            item.custom_id: item
+            for item in test_provider_batch_repository.list_provider_batch_items(job_id)
+        }
         assert items["img-1"].status == "imported"
         assert items["img-2"].status == "succeeded"
         annotation_save.save_provider_batch_results_by_image_id.assert_called_once_with(
@@ -584,7 +629,10 @@ class TestProviderBatchWorkflowService:
 
     def test_import_results_preserves_per_item_model_ids(
         self,
-        test_repository: ImageRepository,
+        test_provider_batch_repository: ProviderBatchRepository,
+        test_repository,
+        test_annotation_repository,
+        test_model_repository,
         batch_config: Mock,
         db_session_factory: sessionmaker,
     ) -> None:
@@ -597,18 +645,21 @@ class TestProviderBatchWorkflowService:
             total_count=1,
         )
         service = ProviderBatchWorkflowService(
-            test_repository,
-            batch_config,
+            provider_batch_repo=test_provider_batch_repository,
+            image_repo=test_repository,
+            annotation_repo=test_annotation_repository,
+            config_service=batch_config,
             adapters={"openai": adapter},
             annotation_save_service=annotation_save,
         )
-        model_id_1 = test_repository.insert_model(
+        # ADR 0035 段階 6: insert_model は ModelRepository 経由
+        model_id_1 = test_model_repository.insert_model(
             name="gpt-test-a",
             provider="openai",
             model_types=["multimodal"],
             litellm_model_id="openai/gpt-test-a",
         )
-        model_id_2 = test_repository.insert_model(
+        model_id_2 = test_model_repository.insert_model(
             name="gpt-test-b",
             provider="openai",
             model_types=["multimodal"],
@@ -624,7 +675,7 @@ class TestProviderBatchWorkflowService:
             image_ids=[1, 2],
             model_id=model_id_1,
         )
-        test_repository.update_provider_batch_items_by_custom_id(
+        test_provider_batch_repository.update_provider_batch_items_by_custom_id(
             job_id,
             {"img-2": {"model_id": model_id_2}},
         )
@@ -655,7 +706,9 @@ class TestProviderBatchWorkflowService:
 
     def test_import_results_counts_non_importable_items_as_skipped(
         self,
-        test_repository: ImageRepository,
+        test_provider_batch_repository: ProviderBatchRepository,
+        test_repository,
+        test_annotation_repository,
         batch_config: Mock,
         db_session_factory: sessionmaker,
     ) -> None:
@@ -668,8 +721,10 @@ class TestProviderBatchWorkflowService:
             total_count=1,
         )
         service = ProviderBatchWorkflowService(
-            test_repository,
-            batch_config,
+            provider_batch_repo=test_provider_batch_repository,
+            image_repo=test_repository,
+            annotation_repo=test_annotation_repository,
+            config_service=batch_config,
             adapters={"openai": adapter},
             annotation_save_service=annotation_save,
         )
@@ -704,7 +759,9 @@ class TestProviderBatchWorkflowService:
 
     def test_import_results_uses_fallback_job_id_when_object_result_omits_provider_job_id(
         self,
-        test_repository: ImageRepository,
+        test_provider_batch_repository: ProviderBatchRepository,
+        test_repository,
+        test_annotation_repository,
         batch_config: Mock,
         db_session_factory: sessionmaker,
     ) -> None:
@@ -717,8 +774,10 @@ class TestProviderBatchWorkflowService:
             total_count=1,
         )
         service = ProviderBatchWorkflowService(
-            test_repository,
-            batch_config,
+            provider_batch_repo=test_provider_batch_repository,
+            image_repo=test_repository,
+            annotation_repo=test_annotation_repository,
+            config_service=batch_config,
             adapters={"openai": adapter},
             annotation_save_service=annotation_save,
         )
@@ -744,7 +803,9 @@ class TestProviderBatchWorkflowService:
 
     def test_import_results_preserves_mapping_fetch_counts_and_timestamps(
         self,
-        test_repository: ImageRepository,
+        test_provider_batch_repository: ProviderBatchRepository,
+        test_repository,
+        test_annotation_repository,
         batch_config: Mock,
         db_session_factory: sessionmaker,
     ) -> None:
@@ -757,8 +818,10 @@ class TestProviderBatchWorkflowService:
             total_count=1,
         )
         service = ProviderBatchWorkflowService(
-            test_repository,
-            batch_config,
+            provider_batch_repo=test_provider_batch_repository,
+            image_repo=test_repository,
+            annotation_repo=test_annotation_repository,
+            config_service=batch_config,
             adapters={"openai": adapter},
             annotation_save_service=annotation_save,
         )
@@ -791,7 +854,7 @@ class TestProviderBatchWorkflowService:
             },
         )
 
-        job = test_repository.get_provider_batch_job(job_id)
+        job = test_provider_batch_repository.get_provider_batch_job(job_id)
         assert job is not None
         assert job.request_count == 1
         assert job.succeeded_count == 1
@@ -801,7 +864,9 @@ class TestProviderBatchWorkflowService:
 
     def test_import_results_does_not_mark_imported_when_no_annotations_were_saved(
         self,
-        test_repository: ImageRepository,
+        test_provider_batch_repository: ProviderBatchRepository,
+        test_repository,
+        test_annotation_repository,
         batch_config: Mock,
         db_session_factory: sessionmaker,
     ) -> None:
@@ -814,8 +879,10 @@ class TestProviderBatchWorkflowService:
             total_count=0,
         )
         service = ProviderBatchWorkflowService(
-            test_repository,
-            batch_config,
+            provider_batch_repo=test_provider_batch_repository,
+            image_repo=test_repository,
+            annotation_repo=test_annotation_repository,
+            config_service=batch_config,
             adapters={"openai": adapter},
             annotation_save_service=annotation_save,
         )
@@ -840,22 +907,26 @@ class TestProviderBatchWorkflowService:
 
         assert result.imported_count == 0
         assert result.job_imported is False
-        job = test_repository.get_provider_batch_job(job_id)
+        job = test_provider_batch_repository.get_provider_batch_job(job_id)
         assert job is not None
         assert job.status == "completed"
         assert job.imported_at is None
 
     def test_import_results_rejects_importable_items_before_completed(
         self,
-        test_repository: ImageRepository,
+        test_provider_batch_repository: ProviderBatchRepository,
+        test_repository,
+        test_annotation_repository,
         batch_config: Mock,
         db_session_factory: sessionmaker,
     ) -> None:
         adapter = FakeProviderBatchAdapter()
         annotation_save = Mock()
         service = ProviderBatchWorkflowService(
-            test_repository,
-            batch_config,
+            provider_batch_repo=test_provider_batch_repository,
+            image_repo=test_repository,
+            annotation_repo=test_annotation_repository,
+            config_service=batch_config,
             adapters={"openai": adapter},
             annotation_save_service=annotation_save,
         )
@@ -880,22 +951,26 @@ class TestProviderBatchWorkflowService:
             )
 
         annotation_save.save_provider_batch_results_by_image_id.assert_not_called()
-        job = test_repository.get_provider_batch_job(job_id)
+        job = test_provider_batch_repository.get_provider_batch_job(job_id)
         assert job is not None
         assert job.status == "running"
         assert job.imported_at is None
 
     def test_import_results_rejects_importable_mapping_without_provider_status(
         self,
-        test_repository: ImageRepository,
+        test_provider_batch_repository: ProviderBatchRepository,
+        test_repository,
+        test_annotation_repository,
         batch_config: Mock,
         db_session_factory: sessionmaker,
     ) -> None:
         adapter = FakeProviderBatchAdapter()
         annotation_save = Mock()
         service = ProviderBatchWorkflowService(
-            test_repository,
-            batch_config,
+            provider_batch_repo=test_provider_batch_repository,
+            image_repo=test_repository,
+            annotation_repo=test_annotation_repository,
+            config_service=batch_config,
             adapters={"openai": adapter},
             annotation_save_service=annotation_save,
         )
@@ -925,7 +1000,7 @@ class TestProviderBatchWorkflowService:
             )
 
         annotation_save.save_provider_batch_results_by_image_id.assert_not_called()
-        job = test_repository.get_provider_batch_job(job_id)
+        job = test_provider_batch_repository.get_provider_batch_job(job_id)
         assert job is not None
         assert job.status == "validating"
         assert job.imported_at is None
@@ -933,7 +1008,7 @@ class TestProviderBatchWorkflowService:
     def test_import_results_rejects_already_imported_job(
         self,
         workflow: tuple[ProviderBatchWorkflowService, FakeProviderBatchAdapter],
-        test_repository: ImageRepository,
+        test_provider_batch_repository: ProviderBatchRepository,
         db_session_factory: sessionmaker,
     ) -> None:
         service, _adapter = workflow
@@ -945,14 +1020,16 @@ class TestProviderBatchWorkflowService:
             prompt_profile="default",
             image_ids=[1],
         )
-        test_repository.update_provider_batch_job(job_id, {"status": "imported"})
+        test_provider_batch_repository.update_provider_batch_job(job_id, {"status": "imported"})
 
         with pytest.raises(ProviderBatchError, match="import 済み"):
             service.import_results(job_id, ProviderBatchFetchResult("batch_123", "completed"))
 
     def test_import_results_save_errors_leave_job_retryable(
         self,
-        test_repository: ImageRepository,
+        test_provider_batch_repository: ProviderBatchRepository,
+        test_repository,
+        test_annotation_repository,
         batch_config: Mock,
         db_session_factory: sessionmaker,
     ) -> None:
@@ -966,8 +1043,10 @@ class TestProviderBatchWorkflowService:
             error_details=["image_id=1: write failed"],
         )
         service = ProviderBatchWorkflowService(
-            test_repository,
-            batch_config,
+            provider_batch_repo=test_provider_batch_repository,
+            image_repo=test_repository,
+            annotation_repo=test_annotation_repository,
+            config_service=batch_config,
             adapters={"openai": adapter},
             annotation_save_service=annotation_save,
         )
@@ -992,7 +1071,7 @@ class TestProviderBatchWorkflowService:
 
         assert result.error_count == 1
         assert result.job_imported is False
-        job = test_repository.get_provider_batch_job(job_id)
+        job = test_provider_batch_repository.get_provider_batch_job(job_id)
         assert job is not None
         assert job.status == "completed"
         assert job.imported_at is None

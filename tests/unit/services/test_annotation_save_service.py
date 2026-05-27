@@ -15,7 +15,9 @@ def _rating(raw_label: str, source_scheme: str, confidence: float | None) -> Sim
 
 @pytest.fixture
 def mock_repository() -> MagicMock:
-    """モック ImageRepository。"""
+    """モック Repository (ADR 0035 段階 6: 全 Aggregate Repo に分離後、本 mock は
+    annotation_repo / image_repo / model_repo / error_record_repo の共通スタブとして
+    機能する。すべての操作が同じ Mock を経由するため既存テストの assert はそのまま通る)。"""
     repo = MagicMock()
     repo.find_image_ids_by_phashes.return_value = {}
     repo.get_models_by_litellm_ids.return_value = {}
@@ -25,8 +27,17 @@ def mock_repository() -> MagicMock:
 
 @pytest.fixture
 def service(mock_repository: MagicMock) -> AnnotationSaveService:
-    """テスト対象サービス。"""
-    return AnnotationSaveService(mock_repository)
+    """テスト対象サービス。
+
+    ADR 0035 段階 6: facade 撤廃後、4 つの Repo を inject する。全て同じ mock を
+    渡すことで既存テストの assertion (mock_repository.X.assert_called_*) を維持。
+    """
+    return AnnotationSaveService(
+        annotation_repo=mock_repository,
+        image_repo=mock_repository,
+        model_repo=mock_repository,
+        error_record_repo=mock_repository,
+    )
 
 
 def _make_success_result(

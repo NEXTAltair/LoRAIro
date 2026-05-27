@@ -17,7 +17,7 @@ if TYPE_CHECKING:
 
 from ..database.db_core import DefaultSessionLocal, ensure_tag_db_initialized
 from ..database.db_manager import ImageDatabaseManager
-from ..database.db_repository import ImageRepository
+from ..database.repository.image import ImageRepository
 from ..storage.file_system import FileSystemManager
 from ..utils.log import logger
 from .configuration_service import ConfigurationService
@@ -135,10 +135,17 @@ class ServiceContainer:
 
     @property
     def db_manager(self) -> ImageDatabaseManager:
-        """データベースマネージャー取得（遅延初期化）"""
+        """データベースマネージャー取得（遅延初期化）
+
+        ADR 0035 段階 6 (#423): legacy facade 撤廃により Manager は image_repo を
+        composition 経由で保持する。self.image_repository (ImageRepository 直接) を
+        image_repo として注入し、他 Repo は session_factory を共有して自動生成する。
+        """
         if self._db_manager is None:
             self._db_manager = ImageDatabaseManager(
-                self.image_repository, self.config_service, self.file_system_manager
+                self.config_service,
+                self.file_system_manager,
+                image_repo=self.image_repository,
             )
             logger.debug("ImageDatabaseManager初期化完了")
         return self._db_manager
@@ -178,8 +185,10 @@ class ServiceContainer:
             # AnnotatorLibraryAdapterを注入
             from .model_sync_service import ModelSyncService
 
+            # ADR 0035 段階 6 (#423): facade 撤廃後、ModelSyncService は
+            # ModelRepository を直接受け取る。Manager の `model_repo` を使う。
             self._model_sync_service = ModelSyncService(
-                self.image_repository,
+                self.db_manager.model_repo,
                 self.config_service,
                 annotator_library=self.annotator_library,  # Phase 4統合
             )
@@ -276,11 +285,20 @@ class ServiceContainer:
 
     @property
     def annotation_save_service(self) -> "AnnotationSaveService":
-        """アノテーション保存サービス取得（遅延初期化）"""
+        """アノテーション保存サービス取得（遅延初期化）
+
+        ADR 0035 段階 6 (#423): facade 撤廃により、関連 Aggregate Repo を個別に inject。
+        """
         if self._annotation_save_service is None:
             from .annotation_save_service import AnnotationSaveService
 
-            self._annotation_save_service = AnnotationSaveService(self.image_repository)
+            mgr = self.db_manager
+            self._annotation_save_service = AnnotationSaveService(
+                annotation_repo=mgr.annotation_repo,
+                image_repo=mgr.image_repo,
+                model_repo=mgr.model_repo,
+                error_record_repo=mgr.error_record_repo,
+            )
             logger.debug("AnnotationSaveService初期化完了")
         return self._annotation_save_service
 
@@ -299,9 +317,13 @@ class ServiceContainer:
                 for provider in ("openai", "anthropic", "google")
             }
 
+            # ADR 0035 段階 6 (#423): legacy facade 撤廃後、3 つの Aggregate Repo を inject。
+            mgr = self.db_manager
             self._provider_batch_workflow_service = ProviderBatchWorkflowService(
-                self.image_repository,
-                self.config_service,
+                provider_batch_repo=mgr.provider_batch_repo,
+                image_repo=mgr.image_repo,
+                annotation_repo=mgr.annotation_repo,
+                config_service=self.config_service,
                 adapters=adapters,
                 annotation_save_service=self.annotation_save_service,
             )

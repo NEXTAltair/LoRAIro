@@ -11,18 +11,19 @@ from unittest.mock import MagicMock, Mock
 
 import pytest
 
-from lorairo.database.db_repository import ImageRepository
+from lorairo.database.repository.annotation_record import AnnotationRepository
+from lorairo.database.repository.image import ImageRepository
 from lorairo.database.schema import ScoreLabel
 
 
 class TestSaveScoreLabels:
-    """``_save_score_labels`` の Upsert 動作テスト。"""
+    """``_save_score_labels`` の Upsert 動作テスト (AnnotationRepository, ADR 0035 段階 5)。"""
 
     @pytest.fixture
-    def repository(self) -> ImageRepository:
-        """テスト用 ImageRepository。"""
+    def repository(self) -> AnnotationRepository:
+        """テスト用 AnnotationRepository。"""
         mock_session_factory = Mock()
-        return ImageRepository(session_factory=mock_session_factory)
+        return AnnotationRepository(session_factory=mock_session_factory)
 
     @pytest.fixture
     def mock_session(self) -> MagicMock:
@@ -32,7 +33,9 @@ class TestSaveScoreLabels:
         session.__exit__ = Mock(return_value=False)
         return session
 
-    def test_insert_new_score_label(self, repository: ImageRepository, mock_session: MagicMock) -> None:
+    def test_insert_new_score_label(
+        self, repository: AnnotationRepository, mock_session: MagicMock
+    ) -> None:
         """既存レコードがなければ INSERT される。"""
         # 既存 score_label レコードなし
         mock_execute_result = MagicMock()
@@ -52,7 +55,7 @@ class TestSaveScoreLabels:
         assert added.is_edited_manually is False
 
     def test_update_existing_score_label(
-        self, repository: ImageRepository, mock_session: MagicMock
+        self, repository: AnnotationRepository, mock_session: MagicMock
     ) -> None:
         """同一 model_id の既存レコードがあれば UPDATE される。"""
         existing = ScoreLabel(
@@ -76,7 +79,9 @@ class TestSaveScoreLabels:
         assert existing.label == "very aesthetic"
         assert existing.is_edited_manually is False
 
-    def test_mixed_insert_and_update(self, repository: ImageRepository, mock_session: MagicMock) -> None:
+    def test_mixed_insert_and_update(
+        self, repository: AnnotationRepository, mock_session: MagicMock
+    ) -> None:
         """異なる model_id では INSERT + UPDATE が混在する。"""
         # model_id=42 は既存、model_id=43 は新規
         existing = ScoreLabel(
@@ -104,7 +109,7 @@ class TestSaveScoreLabels:
         assert added.label == "aesthetic"
         assert existing.label == "very aesthetic"  # UPDATE 確認
 
-    def test_empty_data_no_op(self, repository: ImageRepository, mock_session: MagicMock) -> None:
+    def test_empty_data_no_op(self, repository: AnnotationRepository, mock_session: MagicMock) -> None:
         """空 list を渡しても session.add は呼ばれない。"""
         mock_execute_result = MagicMock()
         mock_execute_result.scalars.return_value.all.return_value = []
@@ -115,7 +120,7 @@ class TestSaveScoreLabels:
         mock_session.add.assert_not_called()
 
     def test_is_edited_manually_passthrough(
-        self, repository: ImageRepository, mock_session: MagicMock
+        self, repository: AnnotationRepository, mock_session: MagicMock
     ) -> None:
         """is_edited_manually=True が DB に伝播する。"""
         mock_execute_result = MagicMock()

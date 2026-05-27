@@ -12,7 +12,7 @@ from unittest.mock import MagicMock, Mock, patch
 import pytest
 
 from lorairo.database.db_manager import ImageDatabaseManager
-from lorairo.database.db_repository import ImageRepository
+from lorairo.database.repository.image import ImageRepository
 from lorairo.gui.workers.base import CancellationError
 from lorairo.gui.workers.registration_worker import (
     DatabaseRegistrationResult,
@@ -56,7 +56,7 @@ class TestDatabaseRegistrationWorker:
     @pytest.fixture
     def real_db_manager(self, real_repository, real_config_service):
         """実際のImageDatabaseManager（Mockしない）"""
-        return ImageDatabaseManager(real_repository, real_config_service)
+        return ImageDatabaseManager(config_service=real_config_service, image_repo=real_repository)
 
     @pytest.fixture
     def mock_fsm(self, mock_image_files):
@@ -90,7 +90,7 @@ class TestDatabaseRegistrationWorker:
         # 分割済みworkerがインポート可能であることを確認
         # 依存するモジュールがインポート可能であることを確認
         from lorairo.database.db_core import resolve_stored_path  # インポートエラーを検出
-        from lorairo.database.db_repository import CaptionAnnotationData, TagAnnotationData
+        from lorairo.database.schema import CaptionAnnotationData, TagAnnotationData
         from lorairo.gui.workers.registration_worker import DatabaseRegistrationWorker
 
         # クラスが正しく定義されていることを確認
@@ -200,7 +200,7 @@ class TestSearchWorker:
     @pytest.fixture
     def real_db_manager(self, real_repository, real_config_service):
         """実際のImageDatabaseManagerを使用"""
-        return ImageDatabaseManager(real_repository, real_config_service)
+        return ImageDatabaseManager(config_service=real_config_service, image_repo=real_repository)
 
     @pytest.fixture
     def search_conditions(self):
@@ -402,7 +402,8 @@ class TestRegisterSingleImage:
 
         # モック設定
         mock_db_manager.detect_duplicate_image.return_value = 42  # 重複画像ID
-        mock_db_manager.repository = Mock()
+        mock_db_manager.image_repo = Mock()
+        mock_db_manager.annotation_repo = Mock()
 
         # ExistingFileReader をモック
         with patch.object(worker, "file_reader") as mock_file_reader:
@@ -645,7 +646,7 @@ class TestBuildRegistrationResult:
     @pytest.fixture
     def real_db_manager(self, real_repository, real_config_service):
         """実際のImageDatabaseManager"""
-        return ImageDatabaseManager(real_repository, real_config_service)
+        return ImageDatabaseManager(config_service=real_config_service, image_repo=real_repository)
 
     @pytest.fixture
     def mock_fsm(self):
@@ -856,7 +857,7 @@ class TestRegistrationErrorHandling:
     @pytest.fixture
     def real_db_manager(self, real_repository, real_config_service):
         """実際のImageDatabaseManager"""
-        return ImageDatabaseManager(real_repository, real_config_service)
+        return ImageDatabaseManager(config_service=real_config_service, image_repo=real_repository)
 
     @pytest.fixture
     def mock_fsm(self, mock_image_files):
@@ -1062,7 +1063,7 @@ class TestRegistrationErrorHandling:
             patch.object(real_db_manager, "save_tags"),
             patch.object(real_db_manager, "save_captions"),
             patch.object(
-                real_db_manager.repository,
+                real_db_manager.image_repo,
                 "add_filename_alias",
                 side_effect=SQLAlchemyError("table not found"),
             ),
@@ -1175,7 +1176,8 @@ class TestRegisterSingleImageUnits:
         image_path.write_bytes(b"fake_image")
 
         mock_db_manager.detect_duplicate_image.return_value = 99
-        mock_db_manager.repository = Mock()
+        mock_db_manager.image_repo = Mock()
+        mock_db_manager.annotation_repo = Mock()
 
         with (
             patch.object(worker, "file_reader") as mock_file_reader,

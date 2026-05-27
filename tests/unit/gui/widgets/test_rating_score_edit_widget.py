@@ -202,7 +202,7 @@ class TestRatingScoreEditWidgetBatchMode:
 
     def test_populate_from_selection_common_rating(self, widget, mock_db_manager):
         """全画像が同じRatingの場合、共通値が表示される"""
-        mock_db_manager.repository.get_image_metadata.side_effect = [
+        mock_db_manager.image_repo.get_image_metadata.side_effect = [
             {"rating": "R", "score_value": 5.0},
             {"rating": "R", "score_value": 7.0},
         ]
@@ -215,7 +215,7 @@ class TestRatingScoreEditWidgetBatchMode:
 
     def test_populate_from_selection_different_ratings(self, widget, mock_db_manager):
         """異なるRatingの場合、デフォルトが表示される"""
-        mock_db_manager.repository.get_image_metadata.side_effect = [
+        mock_db_manager.image_repo.get_image_metadata.side_effect = [
             {"rating": "PG", "score_value": 5.0},
             {"rating": "X", "score_value": 5.0},
         ]
@@ -228,7 +228,7 @@ class TestRatingScoreEditWidgetBatchMode:
 
     def test_populate_from_selection_common_score(self, widget, mock_db_manager):
         """全画像が同じScoreの場合、共通値が表示される"""
-        mock_db_manager.repository.get_image_metadata.side_effect = [
+        mock_db_manager.image_repo.get_image_metadata.side_effect = [
             {"rating": "PG", "score_value": 8.5},
             {"rating": "R", "score_value": 8.5},
         ]
@@ -240,7 +240,7 @@ class TestRatingScoreEditWidgetBatchMode:
 
     def test_populate_from_selection_different_scores(self, widget, mock_db_manager):
         """異なるScoreの場合、デフォルト値が表示される"""
-        mock_db_manager.repository.get_image_metadata.side_effect = [
+        mock_db_manager.image_repo.get_image_metadata.side_effect = [
             {"rating": "PG", "score_value": 3.0},
             {"rating": "PG", "score_value": 7.0},
         ]
@@ -258,7 +258,7 @@ class TestRatingScoreEditWidgetBatchMode:
 
     def test_batch_save_emits_batch_signals(self, widget, mock_db_manager, qtbot):
         """バッチモードでSave時にバッチシグナルが発行される"""
-        mock_db_manager.repository.get_image_metadata.side_effect = [
+        mock_db_manager.image_repo.get_image_metadata.side_effect = [
             {"rating": "PG-13", "score_value": 5.0},
             {"rating": "PG-13", "score_value": 5.0},
         ]
@@ -276,7 +276,7 @@ class TestRatingScoreEditWidgetBatchMode:
 
     def test_batch_save_placeholder_rating_does_not_emit_rating(self, widget, mock_db_manager, qtbot):
         """mixed Rating選択時の保存ではbatch_rating_changedを発行しない（scoreのみ発行）"""
-        mock_db_manager.repository.get_image_metadata.side_effect = [
+        mock_db_manager.image_repo.get_image_metadata.side_effect = [
             {"rating": "PG", "score_value": 5.0},
             {"rating": "X", "score_value": 5.0},
         ]
