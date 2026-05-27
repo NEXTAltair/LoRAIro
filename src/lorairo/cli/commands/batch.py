@@ -94,14 +94,20 @@ def _model_has_model_type(model: Any, model_type: str) -> bool:
 
 
 def _resolve_submit_endpoint(provider: str, task_type: str, endpoint: str | None) -> str:
+    provider_endpoints = _TASK_TYPE_ENDPOINTS.get(task_type, _TASK_TYPE_ENDPOINTS["annotation"])
+    expected_endpoint = provider_endpoints.get(provider)
+    if expected_endpoint is None:
+        console.print(
+            f"[red]Error:[/red] Task type '{task_type}' is not supported for provider '{provider}'."
+        )
+        raise typer.Exit(code=1)
     if endpoint is None:
-        provider_endpoints = _TASK_TYPE_ENDPOINTS.get(task_type, _TASK_TYPE_ENDPOINTS["annotation"])
-        if provider not in provider_endpoints:
-            console.print(
-                f"[red]Error:[/red] Task type '{task_type}' is not supported for provider '{provider}'."
-            )
+        return expected_endpoint
+    if task_type == "rating_preflight":
+        normalized_endpoint = endpoint if endpoint.startswith("/") else f"/{endpoint}"
+        if normalized_endpoint.rstrip("/") != expected_endpoint:
+            console.print("[red]Error:[/red] rating_preflight submit requires endpoint /v1/moderations.")
             raise typer.Exit(code=1)
-        return provider_endpoints[provider]
     return endpoint
 
 

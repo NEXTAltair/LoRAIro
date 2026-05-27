@@ -345,7 +345,8 @@ job / item / artifact state を保存し、library から返る `BatchFetchResul
 実装ステータス (2026-05-27 時点):
 
 - **Anthropic direct route**: 完全実装 (lib `webapi/batch/adapters/anthropic.py` + LoRAIro CLI/GUI/Service/DB)
-- **OpenAI direct route**: LoRAIro 側 (CLI/GUI/Service/DB) は受付完成、image-annotator-lib adapter が未実装
+- **OpenAI direct route**: `/v1/moderations` の rating preflight batch のみ実装。通常 annotation
+  generation batch は未対応
 - **Google Vertex AI**: ADR 0038 Phase 3、CLI/GUI とも submit を reject
 - **OpenRouter route**: ADR 0038 non-goal、CLI/GUI とも submit を reject
 

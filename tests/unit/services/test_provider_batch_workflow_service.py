@@ -24,6 +24,7 @@ from lorairo.services.provider_batch_service import (
     ProviderBatchSubmission,
 )
 from lorairo.services.provider_batch_workflow_service import (
+    ProviderBatchLibraryAdapter,
     ProviderBatchWorkflowService,
 )
 
@@ -226,6 +227,63 @@ class TestProviderBatchWorkflowService:
                 litellm_model_id="openai/omni-moderation-latest",
                 prompt_profile="moderation",
                 image_ids=[1],
+                task_type="rating_preflight",
+            )
+
+    def test_submit_images_rejects_non_openai_rating_preflight(
+        self,
+        workflow: tuple[ProviderBatchWorkflowService, FakeProviderBatchAdapter],
+        db_session_factory: sessionmaker,
+    ) -> None:
+        service, _adapter = workflow
+        _insert_image(db_session_factory, 1, "/tmp/images/one.webp")
+
+        with pytest.raises(ProviderBatchError, match="openai provider"):
+            service.submit_images(
+                provider="anthropic",
+                endpoint="/v1/messages",
+                litellm_model_id="anthropic/claude-test",
+                prompt_profile="default",
+                image_ids=[1],
+                model_id=10,
+                task_type="rating_preflight",
+            )
+
+    def test_submit_images_rejects_non_moderations_rating_preflight_endpoint(
+        self,
+        workflow: tuple[ProviderBatchWorkflowService, FakeProviderBatchAdapter],
+        db_session_factory: sessionmaker,
+    ) -> None:
+        service, _adapter = workflow
+        _insert_image(db_session_factory, 1, "/tmp/images/one.webp")
+
+        with pytest.raises(ProviderBatchError, match="/v1/moderations"):
+            service.submit_images(
+                provider="openai",
+                endpoint="/v1/chat/completions",
+                litellm_model_id="openai/omni-moderation-latest",
+                prompt_profile="default",
+                image_ids=[1],
+                model_id=10,
+                task_type="rating_preflight",
+            )
+
+    def test_submit_images_rejects_non_openai_rating_preflight_model(
+        self,
+        workflow: tuple[ProviderBatchWorkflowService, FakeProviderBatchAdapter],
+        db_session_factory: sessionmaker,
+    ) -> None:
+        service, _adapter = workflow
+        _insert_image(db_session_factory, 1, "/tmp/images/one.webp")
+
+        with pytest.raises(ProviderBatchError, match="openai direct model"):
+            service.submit_images(
+                provider="openai",
+                endpoint="/v1/moderations",
+                litellm_model_id="openrouter/openai/omni-moderation-latest",
+                prompt_profile="default",
+                image_ids=[1],
+                model_id=10,
                 task_type="rating_preflight",
             )
 
@@ -462,6 +520,69 @@ class TestProviderBatchWorkflowService:
         assert job.imported_at is not None
         assert test_provider_batch_repository.list_provider_batch_items(job_id)[0].status == "imported"
 
+    def test_import_results_routes_rating_preflight_to_annotation_save_service(
+        self,
+        test_provider_batch_repository: ProviderBatchRepository,
+        test_repository,
+        test_annotation_repository,
+        batch_config: Mock,
+        db_session_factory: sessionmaker,
+    ) -> None:
+        adapter = FakeProviderBatchAdapter()
+        annotation_save = Mock()
+        annotation_save.save_provider_batch_results_by_image_id.return_value = AnnotationSaveResult(
+            success_count=1,
+            skip_count=0,
+            error_count=0,
+            total_count=1,
+        )
+        service = ProviderBatchWorkflowService(
+            provider_batch_repo=test_provider_batch_repository,
+            image_repo=test_repository,
+            annotation_repo=test_annotation_repository,
+            config_service=batch_config,
+            adapters={"openai": adapter},
+            annotation_save_service=annotation_save,
+        )
+        _insert_image(db_session_factory, 1, "/tmp/images/one.webp")
+        job_id = service.submit_images(
+            provider="openai",
+            endpoint="/v1/moderations",
+            litellm_model_id="openai/omni-moderation-latest",
+            prompt_profile="default",
+            image_ids=[1],
+            model_id=10,
+            task_type="rating_preflight",
+        )
+
+        result = service.import_results(
+            job_id,
+            ProviderBatchFetchResult(
+                provider_job_id="batch_123",
+                provider_status="completed",
+                items=(
+                    ProviderBatchResultItem(
+                        "img-1",
+                        "succeeded",
+                        annotation={
+                            "ratings": [{"raw_label": "pg13", "source_scheme": "openai_moderation_v1"}]
+                        },
+                    ),
+                ),
+            ),
+        )
+
+        annotation_save.save_provider_batch_results_by_image_id.assert_called_once_with(
+            {1: {"ratings": [{"raw_label": "pg13", "source_scheme": "openai_moderation_v1"}]}},
+            model_id=10,
+            model_name="__provider_batch_model_10__",
+        )
+        assert result.imported_count == 1
+        item = test_provider_batch_repository.list_provider_batch_items(job_id)[0]
+        assert item.task_type == "rating_preflight"
+        assert item.model_id == 10
+        assert item.status == "imported"
+
     def test_import_results_does_not_fallback_to_file_stem_for_missing_custom_id(
         self,
         test_provider_batch_repository: ProviderBatchRepository,
@@ -512,6 +633,54 @@ class TestProviderBatchWorkflowService:
         assert job is not None
         assert job.status == "completed"
         assert job.imported_at is None
+
+
+@pytest.mark.unit
+class TestProviderBatchLibraryAdapter:
+    def test_fetch_batch_results_uses_handle_only_library_signature(self, tmp_path: Path) -> None:
+        class Client:
+            def __init__(self) -> None:
+                self.handles: list[object] = []
+
+            def fetch_batch_results(self, handle: object) -> ProviderBatchFetchResult:
+                self.handles.append(handle)
+                return ProviderBatchFetchResult(
+                    provider_job_id="batch_123",
+                    provider_status="completed",
+                    items=(ProviderBatchResultItem("img-1", "succeeded", annotation={"ratings": []}),),
+                )
+
+        client = Client()
+        adapter = ProviderBatchLibraryAdapter("openai", client)
+
+        result = adapter.fetch_batch_results(
+            BatchJobHandle(provider="openai", provider_job_id="batch_123", api_keys={}),
+            tmp_path,
+        )
+
+        assert result.items[0].custom_id == "img-1"
+        assert len(client.handles) == 1
+
+    def test_fetch_batch_results_passes_destination_when_library_accepts_it(self, tmp_path: Path) -> None:
+        class Client:
+            def __init__(self) -> None:
+                self.destination: Path | None = None
+
+            def fetch_batch_results(
+                self, handle: object, destination_dir: Path
+            ) -> ProviderBatchFetchResult:
+                self.destination = destination_dir
+                return ProviderBatchFetchResult(provider_job_id="batch_123", provider_status="completed")
+
+        client = Client()
+        adapter = ProviderBatchLibraryAdapter("openai", client)
+
+        adapter.fetch_batch_results(
+            BatchJobHandle(provider="openai", provider_job_id="batch_123", api_keys={}),
+            tmp_path,
+        )
+
+        assert client.destination == tmp_path
 
     def test_import_results_marks_saved_items_imported_when_job_has_missing_ids(
         self,

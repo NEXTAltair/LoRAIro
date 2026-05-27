@@ -220,7 +220,7 @@ class ModelSyncService:
     def _ensure_openai_moderation_model(
         models_metadata: list[ModelMetadata],
         *,
-        litellm_model_id: str = "omni-moderation-latest",
+        litellm_model_id: str = "openai/omni-moderation-latest",
         provider: str = "openai",
     ) -> None:
         if any(item["litellm_model_id"] == litellm_model_id for item in models_metadata):

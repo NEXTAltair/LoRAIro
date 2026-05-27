@@ -162,6 +162,43 @@ def test_batch_submit_rating_preflight_calls_workflow_service(mock_get_container
 @pytest.mark.unit
 @pytest.mark.cli
 @patch("lorairo.cli.commands.batch.get_service_container")
+def test_batch_submit_rating_preflight_rejects_non_moderations_endpoint(
+    mock_get_container: MagicMock,
+) -> None:
+    container = _container()
+    container.db_manager.model_repo.get_model_by_litellm_id.return_value = _model(
+        id=11,
+        litellm_model_id="openai/omni-moderation-latest",
+        model_types=(SimpleNamespace(name="ratings"),),
+    )
+    mock_get_container.return_value = container
+
+    result = runner.invoke(
+        app,
+        [
+            "batch",
+            "submit",
+            "--project",
+            "demo",
+            "--model",
+            "openai/omni-moderation-latest",
+            "--task-type",
+            "rating_preflight",
+            "--endpoint",
+            "/v1/chat/completions",
+            "--image-id",
+            "1",
+        ],
+    )
+
+    assert result.exit_code == 1
+    assert "endpoint /v1/moderations" in result.stdout
+    container.provider_batch_workflow_service.submit_images.assert_not_called()
+
+
+@pytest.mark.unit
+@pytest.mark.cli
+@patch("lorairo.cli.commands.batch.get_service_container")
 def test_batch_submit_rejects_google_until_phase3(mock_get_container: MagicMock) -> None:
     container = _container()
     container.db_manager.model_repo.get_model_by_litellm_id.return_value = _model(
