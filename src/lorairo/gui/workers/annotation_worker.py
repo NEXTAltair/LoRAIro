@@ -559,6 +559,7 @@ class AnnotationWorker(LoRAIroWorkerBase["AnnotationExecutionResult"]):
         N+1 クエリを発行しないよう、Worker 内で実行する設計に変更。filter は
         WebAPI モデル選択時のみ適用し、registry lookup 失敗時は filter skip して
         annotation を続行する (graceful degradation)。
+        WebAPI モデル選択時は refusal + rating prefilter を順次適用する。
 
         副作用: `self.image_paths` を filter 結果で in-place 置換する。
         """
@@ -586,7 +587,8 @@ class AnnotationWorker(LoRAIroWorkerBase["AnnotationExecutionResult"]):
         )
         original_count = len(self.image_paths)
         try:
-            self.image_paths = save_service.filter_refused_image_paths(self.image_paths)
+            filtered_image_paths = save_service.filter_refused_image_paths(self.image_paths)
+            self.image_paths = save_service.filter_excluded_by_rating(filtered_image_paths)
         except Exception as exc:
             logger.warning(
                 f"refusal filter 実行失敗; filter skip して annotation 続行: {exc}",
@@ -597,8 +599,8 @@ class AnnotationWorker(LoRAIroWorkerBase["AnnotationExecutionResult"]):
         excluded = original_count - len(self.image_paths)
         if excluded > 0:
             logger.info(
-                f"refusal filter 適用: {original_count}件 → {len(self.image_paths)}件 "
-                f"(refusal 除外: {excluded}件)"
+                f"prefilter 適用: {original_count}件 → {len(self.image_paths)}件 "
+                f"(refusal + rating 除外: {excluded}件)"
             )
 
     def _save_results_to_database(

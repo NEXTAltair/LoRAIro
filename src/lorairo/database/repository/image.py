@@ -2077,6 +2077,47 @@ class ImageRepository(BaseRepository):
                 logger.error(f"バッチ画像 ID 解決エラー: {e}", exc_info=True)
                 return result
 
+    def get_latest_normalized_ratings_by_image_ids(self, image_ids: list[int]) -> dict[int, str | None]:
+        """画像 ID 一覧から最新 `normalized_rating` を 1 件ずつ取得する。
+
+        `ratings` は複数モデル経由で複数行持つ前提を許容し、`created_at` が
+        新しいものを採用する。`UNRATED` / `None` も値として保持し、
+        prefilter 側で「送信可」として扱う。
+
+        Args:
+            image_ids: 対象画像 ID 一覧。
+
+        Returns:
+            `{image_id: normalized_rating}` の辞書。rating 未登録の image_id は辞書に含まれない。
+        """
+        if not image_ids:
+            return {}
+
+        requested_ids = list({image_id for image_id in image_ids if image_id is not None})
+        if not requested_ids:
+            return {}
+
+        with self.session_factory() as session:
+            try:
+                stmt = (
+                    select(Rating.image_id, Rating.normalized_rating)
+                    .where(Rating.image_id.in_(requested_ids))
+                    .order_by(Rating.image_id.asc(), Rating.created_at.desc(), Rating.id.desc())
+                )
+                results = session.execute(stmt).all()
+                latest_ratings: dict[int, str | None] = {}
+                for image_id, normalized_rating in results:
+                    if image_id not in latest_ratings:
+                        latest_ratings[image_id] = normalized_rating.upper() if normalized_rating else None
+
+                logger.debug(
+                    f"最新 rating 取得: 対象 {len(requested_ids)}件 → 解決 {len(latest_ratings)}件"
+                )
+                return latest_ratings
+            except Exception as e:
+                logger.error(f"最新 normalized_rating 取得エラー: {e}", exc_info=True)
+                return {}
+
     def get_phashes_by_filepaths(self, filepaths: list[str]) -> dict[str, str | None]:
         """複数のファイルパスから pHash をバッチ解決する。
 
