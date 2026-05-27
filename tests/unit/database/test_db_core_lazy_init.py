@@ -168,6 +168,7 @@ class TestDefaultDbDirectoryLazyInit:
             f"sqlite:///{(preview_dir / db_core.IMG_DB_FILENAME).resolve()}?check_same_thread=False",
         )
         monkeypatch.setattr(db_core, "_default_session_factory", None)
+        monkeypatch.setattr(db_core, "_default_db_dir_materialized", False)
         monkeypatch.setattr(db_core, "_prepare_project_database", lambda db_path: object())
         monkeypatch.setattr(db_core, "create_session_factory", lambda engine: lambda: session)
 
@@ -203,6 +204,7 @@ class TestDefaultDbDirectoryLazyInit:
         monkeypatch.setattr(db_core, "DB_DIR", preview_dir)
         monkeypatch.setattr(db_core, "IMG_DB_PATH", preview_dir / db_core.IMG_DB_FILENAME)
         monkeypatch.setattr(db_core, "_default_session_factory", None)
+        monkeypatch.setattr(db_core, "_default_db_dir_materialized", False)
         monkeypatch.setattr(db_core, "_prepare_project_database", lambda db_path: object())
         monkeypatch.setattr(db_core, "create_session_factory", lambda engine: lambda: session)
 
@@ -212,3 +214,35 @@ class TestDefaultDbDirectoryLazyInit:
         assert db_core.DB_DIR.parent == data_root
         assert db_core.DB_DIR.name > preview_dir.name
         assert db_core.IMG_DB_PATH == db_core.DB_DIR / db_core.IMG_DB_FILENAME
+
+    def test_default_session_local_reuses_materialized_auto_project_dir(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ):
+        """タグ DB 初期化などで作成済みの自動プロジェクトは default session でも再利用する。"""
+        import lorairo.database.db_core as db_core
+
+        session = object()
+        data_root = tmp_path / "lorairo_data"
+        monkeypatch.setattr(
+            db_core,
+            "dir_config",
+            {
+                "database_dir": "",
+                "database_base_dir": str(data_root),
+                "database_project_name": "main_dataset",
+            },
+        )
+        monkeypatch.setattr(db_core, "_default_db_dir_materialized", False)
+
+        materialized_dir = db_core.ensure_default_db_dir()
+        monkeypatch.setattr(db_core, "DB_DIR", materialized_dir)
+        monkeypatch.setattr(db_core, "IMG_DB_PATH", materialized_dir / db_core.IMG_DB_FILENAME)
+        monkeypatch.setattr(db_core, "_default_session_factory", None)
+        monkeypatch.setattr(db_core, "_prepare_project_database", lambda db_path: object())
+        monkeypatch.setattr(db_core, "create_session_factory", lambda engine: lambda: session)
+
+        assert db_core.DefaultSessionLocal() is session
+
+        assert db_core.DB_DIR == materialized_dir
+        assert db_core.IMG_DB_PATH == materialized_dir / db_core.IMG_DB_FILENAME
+        assert len(list(data_root.glob("main_dataset_*"))) == 1

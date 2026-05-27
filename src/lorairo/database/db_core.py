@@ -119,13 +119,21 @@ def _resolve_auto_project_dir(create: bool) -> Path:
     return _next_project_dir_path(base_dir_name, project_name).resolve()
 
 
+_default_db_dir_materialized: bool = False
+
+
 def ensure_default_db_dir() -> Path:
     """Ensure and return the default DB directory for explicit default DB use."""
+    global _default_db_dir_materialized
     configured_dir = _resolve_configured_db_dir()
     if configured_dir is not None:
         configured_dir.mkdir(parents=True, exist_ok=True)
         return configured_dir
-    return _resolve_auto_project_dir(create=True)
+    if _default_db_dir_materialized:
+        return DB_DIR
+    materialized_dir = _resolve_auto_project_dir(create=True)
+    _default_db_dir_materialized = True
+    return materialized_dir
 
 
 DB_DIR = _resolve_configured_db_dir() or _resolve_auto_project_dir(create=False)
