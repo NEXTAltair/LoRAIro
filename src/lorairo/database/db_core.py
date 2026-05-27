@@ -80,13 +80,63 @@ def sanitize_project_name(name: str) -> str:
 
 
 # Get database directory from config, or create new project directory
-database_dir = dir_config.get("database_dir")
-if database_dir:
-    DB_DIR = Path(database_dir)
-else:
+def _next_project_dir_path(base_dir_name: str, project_name: str) -> Path:
+    """Return the next auto project directory path without creating it."""
+    from datetime import datetime
+
+    base_dir = Path(base_dir_name)
+    today = datetime.now().strftime("%Y%m%d")
+    safe_name = sanitize_project_name(project_name)
+    pattern = f"{safe_name}_{today}_"
+
+    existing: list[str] = []
+    if base_dir.exists():
+        existing = [d.name for d in base_dir.iterdir() if d.is_dir() and d.name.startswith(pattern)]
+
+    numbers = []
+    for name in existing:
+        parts = name.split("_")
+        if len(parts) >= 3 and parts[-1].isdigit():
+            numbers.append(int(parts[-1]))
+    next_num = max(numbers, default=0) + 1
+    return base_dir / f"{safe_name}_{today}_{next_num:03d}"
+
+
+def _resolve_configured_db_dir() -> Path | None:
+    """Return configured database_dir, or None when auto project creation is configured."""
+    database_dir = dir_config.get("database_dir")
+    if database_dir:
+        return Path(database_dir).resolve()
+    return None
+
+
+def _resolve_auto_project_dir(create: bool) -> Path:
+    """Resolve the default auto project directory, creating it only when requested."""
     base_dir_name = dir_config.get("database_base_dir", "lorairo_data")
     project_name = dir_config.get("database_project_name", "main_dataset")
-    DB_DIR = get_project_dir(base_dir_name, project_name)
+    if create:
+        return get_project_dir(base_dir_name, project_name).resolve()
+    return _next_project_dir_path(base_dir_name, project_name).resolve()
+
+
+_default_db_dir_materialized: bool = False
+
+
+def ensure_default_db_dir() -> Path:
+    """Ensure and return the default DB directory for explicit default DB use."""
+    global _default_db_dir_materialized
+    configured_dir = _resolve_configured_db_dir()
+    if configured_dir is not None:
+        configured_dir.mkdir(parents=True, exist_ok=True)
+        return configured_dir
+    if _default_db_dir_materialized:
+        return DB_DIR
+    materialized_dir = _resolve_auto_project_dir(create=True)
+    _default_db_dir_materialized = True
+    return materialized_dir
+
+
+DB_DIR = _resolve_configured_db_dir() or _resolve_auto_project_dir(create=False)
 IMG_DB_FILENAME = db_config.get(
     "image_db_filename", "image_database.db"
 )  # Keep default if not in db_config
@@ -95,9 +145,6 @@ IMG_DB_FILENAME = db_config.get(
 
 # 相対パスを絶対パスに解決（stored_image_path のパス二重結合を防止）
 DB_DIR = DB_DIR.resolve()
-
-# Ensure DB_DIR exists
-DB_DIR.mkdir(parents=True, exist_ok=True)
 
 IMG_DB_FILENAME_VAR: str = IMG_DB_FILENAME  # 一時保存（後で使用）
 
@@ -215,9 +262,12 @@ def ensure_tag_db_initialized() -> None:
     """タグDBを遅延初期化する。初回呼び出し時のみ HF Hub に接続する。"""
     import os
 
-    global _tag_db_initialized, USER_TAG_DB_PATH
+    global _tag_db_initialized, DB_DIR, IMG_DB_PATH, DATABASE_URL, USER_TAG_DB_PATH
     if _tag_db_initialized:
         return
+    DB_DIR = ensure_default_db_dir()
+    IMG_DB_PATH = DB_DIR / IMG_DB_FILENAME
+    DATABASE_URL = f"sqlite:///{IMG_DB_PATH.resolve()}?check_same_thread=False"
     token = os.environ.get("HF_TOKEN") or os.environ.get("HUGGINGFACE_TOKEN")
     try:
         from genai_tag_db_tools import initialize_databases
@@ -244,8 +294,10 @@ def get_user_tag_db_path() -> Path | None:
 DATABASE_URL = f"sqlite:///{IMG_DB_PATH.resolve()}?check_same_thread=False"
 
 
-def create_db_engine(database_url: str = DATABASE_URL) -> Engine:
+def create_db_engine(database_url: str | None = None) -> Engine:
     """指定された URL で SQLAlchemy エンジンを作成し、イベントリスナーを設定します。"""
+    if database_url is None:
+        database_url = DATABASE_URL
     logger.info(f"Creating SQLAlchemy engine for: {database_url}")
     engine = create_engine(
         database_url,
@@ -400,15 +452,19 @@ def create_project_session_factory(project_db_path: Path) -> sessionmaker[Sessio
 
 # --- デフォルトの Engine と Session Factory --- #
 # 通常のアプリケーション実行時に使用される
-default_engine = create_db_engine(DATABASE_URL)
+default_engine: Engine | None = None
 _default_session_factory: sessionmaker[Session] | None = None
 logger.info(f"Default database core initialized. Image DB: {IMG_DB_PATH} (Tag DB managed via public API)")
 
 
 def _get_default_session_factory() -> sessionmaker[Session]:
     """Prepare the default project DB lazily and return its session factory."""
-    global default_engine, _default_session_factory
+    global DB_DIR, IMG_DB_PATH, DATABASE_URL, default_engine, _default_session_factory
     if _default_session_factory is None:
+        if IMG_DB_PATH == DB_DIR / IMG_DB_FILENAME:
+            DB_DIR = ensure_default_db_dir()
+            IMG_DB_PATH = DB_DIR / IMG_DB_FILENAME
+        DATABASE_URL = f"sqlite:///{IMG_DB_PATH.resolve()}?check_same_thread=False"
         default_engine = _prepare_project_database(IMG_DB_PATH)
         _default_session_factory = create_session_factory(default_engine)
     return _default_session_factory
