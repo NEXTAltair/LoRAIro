@@ -97,15 +97,19 @@ class TestServiceContainerProviderBatch:
 
         job_id = container.provider_batch_workflow_service.submit_images(
             provider="openai",
-            endpoint="responses",
-            litellm_model_id="openai/gpt-test",
+            endpoint="/v1/moderations",
+            litellm_model_id="openai/omni-moderation-latest",
             prompt_profile="default",
             image_ids=[1],
+            model_id=10,
+            task_type="rating_preflight",
         )
 
         assert job_id == 123
         assert fake_library.submitted_request is not None
         assert fake_library.submitted_request.provider == "openai"
+        assert fake_library.submitted_request.endpoint == "/v1/moderations"
+        assert fake_library.submitted_request.items[0].task_type == "rating_preflight"
         assert fake_library.submitted_request.items[0].image_path == Path("/tmp/container-image.webp")
 
     def test_provider_batch_adapter_fetch_passes_destination_dir(self, tmp_path: Path) -> None:
