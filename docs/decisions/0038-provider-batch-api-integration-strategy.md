@@ -499,6 +499,7 @@ image_id だけで足りる。model / endpoint / prompt profile は job metadata
 ## Related
 
 - #395: 本 ADR の起票元
+- #471 / ADR 0031 amendment: OpenAI Moderations Batch を既存 rating pipeline に畳み込む preflight 方針
 - #384 / ADR 0033: AnnotationWorker 同期 batch execution contract
 - #396: image-annotator-lib `model_name_list` 一括渡し最適化 (本 ADR とは別)
 - ADR 0023: PydanticAI / LiteLLM WebAPI Inference Boundary

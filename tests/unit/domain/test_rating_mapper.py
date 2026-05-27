@@ -26,6 +26,12 @@ from lorairo.domain.rating_mapper import map_rating
         # 二値 NSFW
         ("sfw", "binary_nsfw", "PG"),
         ("nsfw", "binary_nsfw", "R"),
+        # OpenAI Moderations preflight
+        ("pg", "openai_moderation_v1", "PG"),
+        ("pg13", "openai_moderation_v1", "PG-13"),
+        ("r", "openai_moderation_v1", "R"),
+        ("x", "openai_moderation_v1", "X"),
+        ("xxx", "openai_moderation_v1", "XXX"),
     ],
 )
 def test_map_rating_canonical_pairs(raw_label: str, source_scheme: str, expected: str) -> None:
@@ -86,8 +92,8 @@ def test_map_rating_unknown_label_returns_none() -> None:
 
 
 @pytest.mark.unit
-def test_map_rating_never_produces_xxx() -> None:
-    """mapper は XXX を自動生成しない (ADR 0031)。"""
+def test_map_rating_standard_model_schemes_never_produce_xxx() -> None:
+    """通常の model-native scheme は XXX を自動生成しない (ADR 0031)。"""
     all_outputs = set()
     schemes = ["danbooru4", "e6213", "sankaku3", "binary_nsfw"]
     labels = [
@@ -108,3 +114,9 @@ def test_map_rating_never_produces_xxx() -> None:
                 all_outputs.add(mapped)
     assert "XXX" not in all_outputs
     assert all_outputs <= {"PG", "PG-13", "R", "X"}
+
+
+@pytest.mark.unit
+def test_map_rating_openai_moderation_scheme_can_produce_xxx() -> None:
+    """専用判定 scheme の OpenAI Moderations は XXX を返せる。"""
+    assert map_rating("xxx", "openai_moderation_v1") == "XXX"

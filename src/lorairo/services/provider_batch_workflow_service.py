@@ -158,6 +158,7 @@ class ProviderBatchWorkflowService:
         prompt_profile: str,
         image_ids: Sequence[int],
         model_id: int | None = None,
+        task_type: str = "annotation",
         image_paths: Mapping[int, str | Path] | None = None,
         description: str | None = None,
         request_artifact_path: str | Path | None = None,
@@ -166,6 +167,8 @@ class ProviderBatchWorkflowService:
         """Build an ADR 0038 submit request from LoRAIro image IDs."""
         if not image_ids:
             raise ProviderBatchError("Provider batch submit image_ids が空です")
+        if task_type == "rating_preflight" and model_id is None:
+            raise ProviderBatchError("rating_preflight batch submit には model_id が必要です")
 
         metadata_by_id = {
             int(row["id"]): row for row in self._image_repo.get_images_metadata_batch(list(image_ids))
@@ -191,6 +194,7 @@ class ProviderBatchWorkflowService:
                     custom_id=ProviderBatchJobService.build_custom_id(image_id),
                     image_id=image_id,
                     image_path=Path(image_path),
+                    task_type=task_type,
                     model_id=model_id,
                 )
             )
@@ -219,6 +223,7 @@ class ProviderBatchWorkflowService:
         prompt_profile: str,
         image_ids: Sequence[int],
         model_id: int | None = None,
+        task_type: str = "annotation",
         image_paths: Mapping[int, str | Path] | None = None,
         description: str | None = None,
         request_artifact_path: str | Path | None = None,
@@ -232,6 +237,7 @@ class ProviderBatchWorkflowService:
             prompt_profile=prompt_profile,
             image_ids=image_ids,
             model_id=model_id,
+            task_type=task_type,
             image_paths=image_paths,
             description=description,
             request_artifact_path=request_artifact_path,
