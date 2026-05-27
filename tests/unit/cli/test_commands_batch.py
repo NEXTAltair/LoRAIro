@@ -110,9 +110,53 @@ def test_batch_submit_calls_workflow_service(mock_get_container: MagicMock) -> N
         image_ids=[1, 2],
         model_id=7,
         description="nightly",
+        task_type="annotation",
     )
     assert "Provider Batch job submitted" in result.stdout
     assert "batch_42" in result.stdout
+
+
+@pytest.mark.unit
+@pytest.mark.cli
+@patch("lorairo.cli.commands.batch.get_service_container")
+def test_batch_submit_rating_preflight_calls_workflow_service(mock_get_container: MagicMock) -> None:
+    container = _container()
+    container.db_manager.model_repo.get_model_by_litellm_id.return_value = _model(
+        id=11,
+        litellm_model_id="openai/omni-moderation-latest",
+        model_types=(SimpleNamespace(name="ratings"),),
+    )
+    mock_get_container.return_value = container
+
+    result = runner.invoke(
+        app,
+        [
+            "batch",
+            "submit",
+            "--project",
+            "demo",
+            "--model",
+            "openai/omni-moderation-latest",
+            "--task-type",
+            "rating_preflight",
+            "--image-id",
+            "1",
+        ],
+    )
+
+    assert result.exit_code == 0
+    container.set_active_project.assert_called_once_with("demo")
+    container.provider_batch_workflow_service.submit_images.assert_called_once_with(
+        provider="openai",
+        endpoint="/v1/moderations",
+        litellm_model_id="openai/omni-moderation-latest",
+        prompt_profile="default",
+        image_ids=[1],
+        model_id=11,
+        description=None,
+        task_type="rating_preflight",
+    )
+    assert "Provider Batch job submitted" in result.stdout
 
 
 @pytest.mark.unit

@@ -216,6 +216,30 @@ class ModelSyncService:
 
         return db_model_types
 
+    @staticmethod
+    def _ensure_openai_moderation_model(
+        models_metadata: list[ModelMetadata],
+        *,
+        litellm_model_id: str = "omni-moderation-latest",
+        provider: str = "openai",
+    ) -> None:
+        if any(item["litellm_model_id"] == litellm_model_id for item in models_metadata):
+            return
+
+        models_metadata.append(
+            {
+                "name": litellm_model_id,
+                "provider": provider,
+                "class_name": None,
+                "litellm_model_id": litellm_model_id,
+                "model_type": "rating",
+                "model_types": ["ratings"],
+                "estimated_size_gb": None,
+                "requires_api_key": True,
+                "discontinued_at": None,
+            }
+        )
+
     def sync_available_models(self) -> ModelSyncResult:
         """利用可能モデルの自動同期
 
@@ -290,6 +314,9 @@ class ModelSyncService:
                     "discontinued_at": info.discontinued_at,
                 }
                 models_metadata.append(metadata)
+
+            if models_metadata and any(model.get("provider") == "openai" for model in models_metadata):
+                self._ensure_openai_moderation_model(models_metadata)
 
             logger.debug(
                 f"image-annotator-libから {len(models_metadata)}件のアノテーションモデルを取得しました"

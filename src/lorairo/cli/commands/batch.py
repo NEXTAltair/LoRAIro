@@ -17,9 +17,15 @@ app = typer.Typer(help="Provider Batch API job commands")
 console = make_console()
 
 _SUPPORTED_SUBMIT_PROVIDERS = {"openai", "anthropic"}
-_DEFAULT_ENDPOINTS = {
-    "openai": "/v1/chat/completions",
-    "anthropic": "/v1/messages",
+_SUPPORTED_TASK_TYPES = {"annotation", "rating_preflight"}
+_TASK_TYPE_ENDPOINTS = {
+    "annotation": {
+        "openai": "/v1/chat/completions",
+        "anthropic": "/v1/messages",
+    },
+    "rating_preflight": {
+        "openai": "/v1/moderations",
+    },
 }
 
 
@@ -80,6 +86,23 @@ def _validate_submit_provider(provider: str) -> None:
             "Supported providers: openai, anthropic."
         )
         raise typer.Exit(code=1)
+
+
+def _model_has_model_type(model: Any, model_type: str) -> bool:
+    model_types = getattr(model, "model_types", ())
+    return any(getattr(item, "name", None) == model_type for item in model_types)
+
+
+def _resolve_submit_endpoint(provider: str, task_type: str, endpoint: str | None) -> str:
+    if endpoint is None:
+        provider_endpoints = _TASK_TYPE_ENDPOINTS.get(task_type, _TASK_TYPE_ENDPOINTS["annotation"])
+        if provider not in provider_endpoints:
+            console.print(
+                f"[red]Error:[/red] Task type '{task_type}' is not supported for provider '{provider}'."
+            )
+            raise typer.Exit(code=1)
+        return provider_endpoints[provider]
+    return endpoint
 
 
 def _job_value(job: Any, name: str, default: Any = None) -> Any:
@@ -170,6 +193,9 @@ def submit(
     endpoint: str | None = typer.Option(None, "--endpoint", help="Provider endpoint override"),
     prompt_profile: str = typer.Option("default", "--prompt-profile", help="Prompt profile name"),
     description: str | None = typer.Option(None, "--description", help="Provider job description"),
+    task_type: str = typer.Option(
+        "annotation", "--task-type", help="Task type: annotation or rating_preflight"
+    ),
 ) -> None:
     """Submit registered images to a Provider Batch API job."""
     try:
@@ -179,7 +205,19 @@ def submit(
         db_model = _resolve_model(model_repo, model)
         resolved_provider = _infer_provider(db_model, provider)
         _validate_submit_provider(resolved_provider)
-        resolved_endpoint = endpoint or _DEFAULT_ENDPOINTS[resolved_provider]
+        normalized_task_type = task_type.strip().lower()
+        if normalized_task_type not in _SUPPORTED_TASK_TYPES:
+            console.print(f"[red]Error:[/red] Unsupported task type '{task_type}'.")
+            raise typer.Exit(code=1)
+        if normalized_task_type == "rating_preflight":
+            if resolved_provider != "openai":
+                console.print("[red]Error:[/red] rating_preflight submit is only supported for openai.")
+                raise typer.Exit(code=1)
+            if not _model_has_model_type(db_model, "ratings"):
+                console.print("[red]Error:[/red] rating_preflight submit requires a ratings model.")
+                raise typer.Exit(code=1)
+
+        resolved_endpoint = _resolve_submit_endpoint(resolved_provider, normalized_task_type, endpoint)
 
         job_id = container.provider_batch_workflow_service.submit_images(
             provider=resolved_provider,
@@ -189,6 +227,7 @@ def submit(
             image_ids=image_ids,
             model_id=db_model.id,
             description=description,
+            task_type=normalized_task_type,
         )
         job = provider_batch_repo.get_provider_batch_job(job_id)
         console.print(f"[green]Provider Batch job submitted:[/green] {job_id}")

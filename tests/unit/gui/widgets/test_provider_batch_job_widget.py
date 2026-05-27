@@ -17,6 +17,7 @@ def _model(**overrides):
         "id": 7,
         "provider": "openai",
         "litellm_model_id": "openai/gpt-4.1-mini",
+        "model_types": (),
     }
     values.update(overrides)
     return SimpleNamespace(**values)
@@ -173,8 +174,80 @@ def test_submit_job_calls_workflow(widget, dependencies):
         image_ids=[1, 2],
         model_id=7,
         description="nightly",
+        task_type="annotation",
     )
     assert "Submitted Provider Batch job 42" in widget.labelStatus.text()
+
+
+@pytest.mark.unit
+@pytest.mark.gui
+def test_set_dependencies_filters_for_rating_preflight_task(widget):
+    workflow = MagicMock()
+    repository = MagicMock()
+    model_repository = MagicMock()
+    model_source = MagicMock()
+    model_source.list_batch_capable_models.return_value = (
+        "openai/gpt-4.1-mini",
+        "openai/omni-moderation-latest",
+        "anthropic/claude-3-5-sonnet",
+    )
+    model_repository.get_model_by_litellm_id.side_effect = lambda litellm_id: {
+        "openai/gpt-4.1-mini": _model(),
+        "openai/omni-moderation-latest": _model(
+            id=11,
+            provider="openai",
+            litellm_model_id="openai/omni-moderation-latest",
+            model_types=(SimpleNamespace(name="ratings"),),
+        ),
+        "anthropic/claude-3-5-sonnet": _model(
+            id=9,
+            provider="anthropic",
+            litellm_model_id="anthropic/claude-3-5-sonnet",
+        ),
+    }.get(litellm_id)
+    repository.list_provider_batch_jobs.return_value = []
+
+    widget.set_dependencies(workflow, repository, model_source, model_repository)
+    widget.comboBoxTaskType.setCurrentText("rating_preflight")
+
+    assert widget.comboBoxModel.count() == 1
+    assert widget.comboBoxModel.itemText(0) == "openai: openai/omni-moderation-latest"
+
+
+@pytest.mark.unit
+@pytest.mark.gui
+def test_submit_job_rating_preflight_uses_moderations_endpoint(widget):
+    workflow = MagicMock()
+    repository = MagicMock()
+    model_repository = MagicMock()
+    model_source = MagicMock()
+    workflow.submit_images.return_value = 42
+    model_source.list_batch_capable_models.return_value = ("openai/omni-moderation-latest",)
+    model_repository.get_model_by_litellm_id.return_value = _model(
+        id=11,
+        provider="openai",
+        litellm_model_id="openai/omni-moderation-latest",
+        model_types=(SimpleNamespace(name="ratings"),),
+    )
+    repository.list_provider_batch_jobs.return_value = []
+
+    widget.set_dependencies(workflow, repository, model_source, model_repository)
+    widget.comboBoxTaskType.setCurrentText("rating_preflight")
+    widget.lineEditImageIds.setText("1, 2")
+    widget.lineEditDescription.setText("nightly")
+
+    widget.submit_job()
+
+    workflow.submit_images.assert_called_once_with(
+        provider="openai",
+        endpoint="/v1/moderations",
+        litellm_model_id="openai/omni-moderation-latest",
+        prompt_profile="default",
+        image_ids=[1, 2],
+        model_id=11,
+        description="nightly",
+        task_type="rating_preflight",
+    )
 
 
 @pytest.mark.unit
