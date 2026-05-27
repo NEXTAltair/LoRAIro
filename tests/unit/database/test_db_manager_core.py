@@ -23,8 +23,8 @@ import pytest
 from sqlalchemy.exc import SQLAlchemyError
 
 from lorairo.database.db_manager import ImageDatabaseManager
-from lorairo.database.repository.image import ImageRepository
 from lorairo.database.repository.error_record import ErrorRecordRepository
+from lorairo.database.repository.image import ImageRepository
 from lorairo.database.repository.model import ModelRepository
 from lorairo.database.repository.project import ProjectRepository
 from lorairo.services.configuration_service import ConfigurationService
@@ -37,7 +37,6 @@ from lorairo.services.configuration_service import ConfigurationService
 @pytest.fixture
 def mock_image_repo() -> Mock:
     """モック化された ImageRepository (ADR 0035 段階 4)。"""
-    from lorairo.database.repository.image import ImageRepository
 
     return Mock(spec=ImageRepository)
 
@@ -53,7 +52,6 @@ def mock_annotation_repo() -> Mock:
 @pytest.fixture
 def mock_model_repo() -> Mock:
     """モック化された ModelRepository (ADR 0035 段階 1)。"""
-    from lorairo.database.repository.model import ModelRepository
 
     return Mock(spec=ModelRepository)
 
@@ -64,12 +62,6 @@ def mock_provider_batch_repo() -> Mock:
     from lorairo.database.repository.provider_batch import ProviderBatchRepository
 
     return Mock(spec=ProviderBatchRepository)
-
-
-@pytest.fixture
-def mock_model_repo() -> Mock:
-    """モック化された ModelRepository を返す (ADR 0035 段階 1)。"""
-    return Mock(spec=ModelRepository)
 
 
 @pytest.fixture

@@ -1,6 +1,6 @@
 # tests/unit/services/test_search_criteria_processor.py
 
-from datetime import datetime
+from datetime import UTC, datetime
 from unittest.mock import Mock, patch
 
 import pytest
@@ -505,7 +505,7 @@ class TestSearchCriteriaProcessorErrorPaths:
 
         images = [{"created_at": "2023-06-15T00:00:00Z"}]
         # start_date がタイムゾーン付き
-        start_date_aware = datetime(2023, 1, 1, tzinfo=timezone.utc)
+        start_date_aware = datetime(2023, 1, 1, tzinfo=UTC)
         date_filter = {"start_date": start_date_aware, "end_date": None}
 
         result = processor._filter_by_date_range(images, date_filter)
@@ -519,7 +519,7 @@ class TestSearchCriteriaProcessorErrorPaths:
 
         images = [{"created_at": "2024-06-15T00:00:00Z"}]
         # end_date がタイムゾーン付きで画像の日付より前
-        end_date_aware = datetime(2023, 12, 31, tzinfo=timezone.utc)
+        end_date_aware = datetime(2023, 12, 31, tzinfo=UTC)
         date_filter = {"start_date": None, "end_date": end_date_aware}
 
         result = processor._filter_by_date_range(images, date_filter)

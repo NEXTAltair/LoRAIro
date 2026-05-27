@@ -16,10 +16,10 @@ from lorairo.database.schema import (
     CaptionAnnotationData,
     RatingAnnotationData,
     ScoreAnnotationData,
+    Tag,
     TagAnnotationData,
 )
 from lorairo.database.schema import Image as SchemaImage
-from lorairo.database.schema import Tag
 from lorairo.storage.file_system import FileSystemManager
 
 # Use __file__ based path for pytest-bdd compatibility

@@ -33,7 +33,7 @@ class TestTagDbIntegration:
         """ExistingFileReaderインスタンスを提供"""
         return ExistingFileReader()
 
-    def test_new_tag_creation(self, test_image_repository_with_tag_db, test_tag_repository):
+    def test_new_tag_creation(self, test_annotation_repository_with_tag_db, test_tag_repository):
         """
         新規タグ作成テスト
 
@@ -43,8 +43,8 @@ class TestTagDbIntegration:
         new_tag = f"test_ai_tag_{uuid.uuid4().hex[:8]}"
 
         # ImageRepositoryを通じてタグ作成
-        with test_image_repository_with_tag_db.session_factory() as session:
-            tag_id = test_image_repository_with_tag_db._get_or_create_tag_id_external(session, new_tag)
+        with test_annotation_repository_with_tag_db.session_factory() as session:
+            tag_id = test_annotation_repository_with_tag_db._get_or_create_tag_id_external(session, new_tag)
 
         # 検証: tag_idが返却される
         assert tag_id is not None, f"Tag ID should be returned for new tag '{new_tag}'"
@@ -59,7 +59,7 @@ class TestTagDbIntegration:
         )
         assert retrieved_tag.source_tag == new_tag, "Source tag should match original"
 
-    def test_existing_tag_lookup(self, test_image_repository_with_tag_db, test_tag_repository):
+    def test_existing_tag_lookup(self, test_annotation_repository_with_tag_db, test_tag_repository):
         """
         既存タグ検索テスト
 
@@ -74,8 +74,8 @@ class TestTagDbIntegration:
         tag_id_original = test_tag_repository.create_tag(source_tag=source_tag, tag=normalized_tag)
 
         # ImageRepositoryで同じタグを検索（元の形式で渡す）
-        with test_image_repository_with_tag_db.session_factory() as session:
-            tag_id_retrieved = test_image_repository_with_tag_db._get_or_create_tag_id_external(
+        with test_annotation_repository_with_tag_db.session_factory() as session:
+            tag_id_retrieved = test_annotation_repository_with_tag_db._get_or_create_tag_id_external(
                 session, source_tag
             )
 
@@ -87,7 +87,7 @@ class TestTagDbIntegration:
         assert len(all_matching_tags) == 1, "Should not create duplicate tags"
 
     def test_tag_normalization_consistency(
-        self, test_image_repository_with_tag_db, existing_file_reader, temp_dir
+        self, test_annotation_repository_with_tag_db, existing_file_reader, temp_dir
     ):
         """
         タグ正規化の一貫性テスト
@@ -142,32 +142,32 @@ class TestTagDbIntegration:
                     f"reader='{reader_normalized_str}' vs repo='{repo_normalized}'"
                 )
 
-    def test_empty_tag_handling(self, test_image_repository_with_tag_db):
+    def test_empty_tag_handling(self, test_annotation_repository_with_tag_db):
         """
         空タグ処理テスト
 
         目的: 空文字列や正規化後に空になるタグを正しく処理することを確認
         """
         # 空文字列タグ
-        with test_image_repository_with_tag_db.session_factory() as session:
-            tag_id = test_image_repository_with_tag_db._get_or_create_tag_id_external(session, "")
+        with test_annotation_repository_with_tag_db.session_factory() as session:
+            tag_id = test_annotation_repository_with_tag_db._get_or_create_tag_id_external(session, "")
 
         assert tag_id is None, "Empty tag should return None"
 
         # 空白のみタグ
-        with test_image_repository_with_tag_db.session_factory() as session:
-            tag_id = test_image_repository_with_tag_db._get_or_create_tag_id_external(session, "   ")
+        with test_annotation_repository_with_tag_db.session_factory() as session:
+            tag_id = test_annotation_repository_with_tag_db._get_or_create_tag_id_external(session, "   ")
 
         assert tag_id is None, "Whitespace-only tag should return None"
 
         # 正規化後に空になるタグ（特殊文字のみ）
-        with test_image_repository_with_tag_db.session_factory() as session:
-            tag_id = test_image_repository_with_tag_db._get_or_create_tag_id_external(session, "!!!")
+        with test_annotation_repository_with_tag_db.session_factory() as session:
+            tag_id = test_annotation_repository_with_tag_db._get_or_create_tag_id_external(session, "!!!")
 
         # 正規化で空になる可能性があるため、Noneまたは有効なIDを確認
         assert tag_id is None or isinstance(tag_id, int), "Should handle special character tags"
 
-    def test_graceful_degradation_on_error(self, test_image_repository_with_tag_db, monkeypatch):
+    def test_graceful_degradation_on_error(self, test_annotation_repository_with_tag_db, monkeypatch):
         """
         エラー時の縮退動作テスト
 
@@ -182,15 +182,15 @@ class TestTagDbIntegration:
         monkeypatch.setattr("lorairo.database.repository.annotation_record.search_tags", mock_search_tags)
 
         # エラー発生時の動作確認
-        with test_image_repository_with_tag_db.session_factory() as session:
-            tag_id = test_image_repository_with_tag_db._get_or_create_tag_id_external(
+        with test_annotation_repository_with_tag_db.session_factory() as session:
+            tag_id = test_annotation_repository_with_tag_db._get_or_create_tag_id_external(
                 session, "error_test_tag"
             )
 
         # 検証: クラッシュせずNoneを返す
         assert tag_id is None, "Should return None on error without crashing"
 
-    def test_tag_normalization_with_tag_cleaner(self, test_image_repository_with_tag_db):
+    def test_tag_normalization_with_tag_cleaner(self, test_annotation_repository_with_tag_db):
         """
         TagCleanerによる正規化テスト
 
@@ -205,7 +205,7 @@ class TestTagDbIntegration:
         assert " " in normalized, "Should contain spaces after normalization"
         assert normalized == "test underscore tag", "Should normalize underscores to spaces"
 
-    def test_tag_id_consistency_across_calls(self, test_image_repository_with_tag_db):
+    def test_tag_id_consistency_across_calls(self, test_annotation_repository_with_tag_db):
         """
         複数回呼び出しでのtag_id一貫性テスト
 
@@ -214,20 +214,20 @@ class TestTagDbIntegration:
         test_tag = f"consistency_test_{uuid.uuid4().hex[:8]}"
 
         # 1回目の呼び出し
-        with test_image_repository_with_tag_db.session_factory() as session:
-            tag_id_first = test_image_repository_with_tag_db._get_or_create_tag_id_external(
+        with test_annotation_repository_with_tag_db.session_factory() as session:
+            tag_id_first = test_annotation_repository_with_tag_db._get_or_create_tag_id_external(
                 session, test_tag
             )
 
         # 2回目の呼び出し（既存タグとして検索される）
-        with test_image_repository_with_tag_db.session_factory() as session:
-            tag_id_second = test_image_repository_with_tag_db._get_or_create_tag_id_external(
+        with test_annotation_repository_with_tag_db.session_factory() as session:
+            tag_id_second = test_annotation_repository_with_tag_db._get_or_create_tag_id_external(
                 session, test_tag
             )
 
         # 3回目の呼び出し
-        with test_image_repository_with_tag_db.session_factory() as session:
-            tag_id_third = test_image_repository_with_tag_db._get_or_create_tag_id_external(
+        with test_annotation_repository_with_tag_db.session_factory() as session:
+            tag_id_third = test_annotation_repository_with_tag_db._get_or_create_tag_id_external(
                 session, test_tag
             )
 

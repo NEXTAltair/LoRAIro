@@ -172,11 +172,11 @@ class TestImportBatchAnnotations:
         )
 
     def test_creates_batch_import_service_with_repository(self, tmp_path: Path) -> None:
-        """BatchImportService は image_repository を受け取って生成される。"""
+        """BatchImportService は分割済み repository を受け取って生成される。"""
         expected_result = self._make_result()
         mock_project_service = MagicMock()
         mock_project_service.get_project.return_value = MagicMock()
-        mock_repository = MagicMock()
+        mock_manager = MagicMock()
 
         mock_batch_service = MagicMock()
         mock_batch_service.import_from_directory.return_value = expected_result
@@ -186,12 +186,16 @@ class TestImportBatchAnnotations:
             patch("lorairo.api.batch_import.BatchImportService") as mock_service_cls,
         ):
             mock_container_cls.return_value.project_management_service = mock_project_service
-            mock_container_cls.return_value.image_repository = mock_repository
+            mock_container_cls.return_value.db_manager = mock_manager
             mock_service_cls.return_value = mock_batch_service
 
             import_batch_annotations(tmp_path, "my_project")
 
-        mock_service_cls.assert_called_once_with(mock_repository)
+        mock_service_cls.assert_called_once_with(
+            mock_manager.image_repo,
+            model_repository=mock_manager.model_repo,
+            annotation_repository=mock_manager.annotation_repo,
+        )
 
     def test_batch_import_error_preserves_original_exception(self, tmp_path: Path) -> None:
         """BatchImportError の cause は元の例外。"""

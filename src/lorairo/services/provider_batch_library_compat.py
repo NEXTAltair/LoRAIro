@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import importlib
 from collections.abc import Mapping, Sequence
 from datetime import datetime
 from pathlib import Path
@@ -25,9 +26,10 @@ def to_library_submit_request(request: Any) -> Any:
     if not isinstance(request, BatchSubmitRequest):
         return request
     try:
-        from image_annotator_lib import BatchSubmitItem as LibraryBatchSubmitItem
-        from image_annotator_lib import BatchSubmitRequest as LibraryBatchSubmitRequest
-    except ImportError:
+        image_annotator_lib = importlib.import_module("image_annotator_lib")
+        LibraryBatchSubmitItem = image_annotator_lib.BatchSubmitItem
+        LibraryBatchSubmitRequest = image_annotator_lib.BatchSubmitRequest
+    except (ImportError, AttributeError):
         return request
 
     return LibraryBatchSubmitRequest(
@@ -69,8 +71,9 @@ def to_library_handle(handle: Any) -> Any:
     if not isinstance(handle, BatchJobHandle):
         return handle
     try:
-        from image_annotator_lib import BatchJobHandle as LibraryBatchJobHandle
-    except ImportError:
+        image_annotator_lib = importlib.import_module("image_annotator_lib")
+        LibraryBatchJobHandle = image_annotator_lib.BatchJobHandle
+    except (ImportError, AttributeError):
         return handle
 
     return LibraryBatchJobHandle(

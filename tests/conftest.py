@@ -952,15 +952,17 @@ def test_tag_repository(test_tag_db_path):
 
 
 @pytest.fixture(scope="function")
-def test_image_repository_with_tag_db(db_session_factory, test_tag_repository):
-    """テスト用MergedTagReaderを使用するImageRepositoryを提供
+def test_annotation_repository_with_tag_db(db_session_factory, test_tag_repository):
+    """テスト用MergedTagReaderを使用するAnnotationRepositoryを提供
 
-    ImageRepositoryのmerged_readerをテスト用のものに置き換える。
+    AnnotationRepositoryのmerged_readerをテスト用のものに置き換える。
 
     Returns:
-        ImageRepository: テスト用MergedTagReaderを使用するImageRepository
+        AnnotationRepository: テスト用MergedTagReaderを使用するAnnotationRepository
     """
-    image_repo = ImageRepository(session_factory=db_session_factory)
+    from lorairo.database.repository.annotation_record import AnnotationRepository
+
+    annotation_repo = AnnotationRepository(session_factory=db_session_factory)
     # merged_readerをテスト用のものに差し替え
-    image_repo.merged_reader = test_tag_repository.merged_reader
-    return image_repo
+    annotation_repo.merged_reader = test_tag_repository.merged_reader
+    return annotation_repo

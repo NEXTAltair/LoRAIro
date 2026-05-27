@@ -355,8 +355,9 @@ class TestProjectCrud:
         代わりに _project_exists を OSError を投げるようにモックして
         except Exception -> raise ProjectOperationError パスを通す。
         """
-        from lorairo.api.exceptions import ProjectOperationError
         from unittest.mock import patch
+
+        from lorairo.api.exceptions import ProjectOperationError
 
         with patch.object(service, "_project_exists", side_effect=OSError("permission denied")):
             with pytest.raises(ProjectOperationError) as exc_info:
@@ -386,8 +387,9 @@ class TestProjectCrud:
     ) -> None:
         """delete_project: rmtree が OSError → ProjectOperationError (lines 214-216)。"""
         import shutil
-        from lorairo.api.exceptions import ProjectOperationError
         from unittest.mock import patch
+
+        from lorairo.api.exceptions import ProjectOperationError
 
         service.create_project("to_fail_delete")
 
@@ -409,8 +411,9 @@ class TestProjectCrud:
         Path.write_text は Python 3.13 でインスタンスレベルのパッチ不可。
         代わりに json.dumps をモックして例外を起こす。
         """
-        from lorairo.api.exceptions import ProjectOperationError
         from unittest.mock import patch
+
+        from lorairo.api.exceptions import ProjectOperationError
 
         service.create_project("to_fail_update")
 
