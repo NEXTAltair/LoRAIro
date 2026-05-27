@@ -50,7 +50,9 @@
       "Bash(timeout *)",
       "Bash(npx skills *)",
       "Bash(PYTHONPATH=\"\" VIRTUAL_ENV=\"\" .venv/bin/python *)",
-      "Bash(QT_QPA_PLATFORM=offscreen uv run pytest *)"
+      "Bash(UV_PROJECT_ENVIRONMENT=/workspaces/LoRAIro/.venv uv *)",
+      "Bash(QT_QPA_PLATFORM=offscreen uv run pytest *)",
+      "Bash(QT_QPA_PLATFORM=offscreen UV_PROJECT_ENVIRONMENT=/workspaces/LoRAIro/.venv uv run pytest *)"
     ],
     "additionalDirectories": [
       "/tmp/worktrees/"
