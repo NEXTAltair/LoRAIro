@@ -74,12 +74,18 @@ LoRAIro での setup checklist:
 - [ ] 24h expiration と results availability 期限 (29 日) 内に results を取得する運用になっている
 - [ ] Zero Data Retention が必要な workflow ではない
 
-Provider 制約:
+Provider 制約 (Anthropic 公式):
 
-- 1 batch あたり 500 items / 256 MB body 以下
+- 1 batch あたり最大 **100,000** Message requests または **256 MB** body のいずれか先に到達した方
 - 24 時間以内に処理されなかった item は **expired** として扱う
 - results は 29 日間 provider 側で取得可能、その後は失われる
 - Vision / tool use / system messages / multi-turn / beta features を batch 可能
+
+LoRAIro 経由の追加制約 (image-annotator-lib の Anthropic adapter):
+
+- **1 batch あたり最大 500 items** (lib 側 `_MAX_LIBRARY_ITEMS = 500` で enforce)
+- `Batch contains N items; maximum is 500` で submit 拒否される
+- 大量画像を投入する場合は LoRAIro 側で分割し、複数 job として submit する
 
 ### OpenAI direct route (現時点未対応)
 
@@ -348,7 +354,11 @@ lorairo-cli batch import <job_id> --project <name> [--output-dir <path>]
 
 **動作**:
 
-- 必要なら fetch を内部で実行
+- **常に provider に再リクエストして fetch を実行する** (CLI からは `fetch_result` 引数を渡せないため、
+  `ProviderBatchWorkflowService.import_results` 内の `else self.fetch_results(...)` 分岐が必ず走る)
+- 直前に `batch fetch` を実行していても、再度 provider にアクセスする
+- そのため **provider retention 期限を過ぎた job は import できない**。Anthropic の場合 results 29 日、
+  expiration 後は `batch import` も失敗する。fetch と import は短時間で連続実行する運用にする
 - normalized result item を `custom_id = img-{image_id}` 基準で annotation save path に投入
 - 全 item の保存が成功した場合のみ job status を `imported` に遷移し、`imported_at` を記録
 - 既に `imported` または `imported_at IS NOT NULL` の job は **再 import 不可** (`Error: ... job は import 済みです`)
