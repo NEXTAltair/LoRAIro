@@ -24,6 +24,7 @@ from lorairo.services.provider_batch_service import (
     ProviderBatchSubmission,
 )
 from lorairo.services.provider_batch_workflow_service import (
+    ProviderBatchLibraryAdapter,
     ProviderBatchWorkflowService,
 )
 
@@ -47,7 +48,7 @@ class FakeProviderBatchAdapter:
         )
         self.cancel_status = ProviderBatchStatus(
             provider_job_id="batch_123",
-            provider_status="cancelled",
+            provider_status="canceled",
         )
         self.artifacts = ProviderBatchArtifacts(
             provider_job_id="batch_123",
@@ -100,7 +101,7 @@ def workflow(
         image_repo=test_repository,
         annotation_repo=test_annotation_repository,
         config_service=batch_config,
-        adapters={"openai": adapter},
+        adapters={"anthropic": adapter, "openai": adapter},
     )
     return service, adapter
 
@@ -139,9 +140,9 @@ class TestProviderBatchWorkflowService:
         _insert_image(db_session_factory, 2, "/tmp/images/two.webp")
 
         job_id = service.submit_images(
-            provider="openai",
-            endpoint="responses",
-            litellm_model_id="openai/gpt-test",
+            provider="anthropic",
+            endpoint="/v1/messages",
+            litellm_model_id="anthropic/claude-test",
             prompt_profile="default",
             image_ids=[1, 2],
         )
@@ -174,9 +175,9 @@ class TestProviderBatchWorkflowService:
         _insert_image(db_session_factory, 1, "/tmp/images/original.webp")
 
         service.submit_images(
-            provider="openai",
-            endpoint="responses",
-            litellm_model_id="openai/gpt-test",
+            provider="anthropic",
+            endpoint="/v1/messages",
+            litellm_model_id="anthropic/claude-test",
             prompt_profile="default",
             image_ids=[1],
             image_paths={1: Path("/tmp/resized/one.webp")},
@@ -211,6 +212,66 @@ class TestProviderBatchWorkflowService:
         assert item.task_type == "rating_preflight"
         assert item.model_id == 10
 
+    def test_submit_images_accepts_legacy_bare_openai_moderation_model(
+        self,
+        workflow: tuple[ProviderBatchWorkflowService, FakeProviderBatchAdapter],
+        db_session_factory: sessionmaker,
+    ) -> None:
+        service, adapter = workflow
+        _insert_image(db_session_factory, 1, "/tmp/images/one.webp")
+
+        service.submit_images(
+            provider="openai",
+            endpoint="/v1/moderations",
+            litellm_model_id="omni-moderation-latest",
+            prompt_profile="moderation",
+            image_ids=[1],
+            model_id=10,
+            task_type="rating_preflight",
+        )
+
+        assert adapter.submitted_request is not None
+        assert adapter.submitted_request.litellm_model_id == "omni-moderation-latest"
+
+    def test_submit_images_canonicalizes_rating_preflight_endpoint(
+        self,
+        workflow: tuple[ProviderBatchWorkflowService, FakeProviderBatchAdapter],
+        db_session_factory: sessionmaker,
+    ) -> None:
+        service, adapter = workflow
+        _insert_image(db_session_factory, 1, "/tmp/images/one.webp")
+
+        service.submit_images(
+            provider="openai",
+            endpoint="v1/moderations/",
+            litellm_model_id="openai/omni-moderation-latest",
+            prompt_profile="moderation",
+            image_ids=[1],
+            model_id=10,
+            task_type="rating_preflight",
+        )
+
+        assert adapter.submitted_request is not None
+        assert adapter.submitted_request.endpoint == "/v1/moderations"
+
+    def test_submit_images_rejects_openai_annotation_submit(
+        self,
+        workflow: tuple[ProviderBatchWorkflowService, FakeProviderBatchAdapter],
+        db_session_factory: sessionmaker,
+    ) -> None:
+        service, _adapter = workflow
+        _insert_image(db_session_factory, 1, "/tmp/images/one.webp")
+
+        with pytest.raises(ProviderBatchError, match="task_type=annotation"):
+            service.submit_images(
+                provider="openai",
+                endpoint="/v1/chat/completions",
+                litellm_model_id="openai/gpt-4.1-mini",
+                prompt_profile="default",
+                image_ids=[1],
+                task_type="annotation",
+            )
+
     def test_submit_images_requires_model_id_for_rating_preflight(
         self,
         workflow: tuple[ProviderBatchWorkflowService, FakeProviderBatchAdapter],
@@ -229,6 +290,63 @@ class TestProviderBatchWorkflowService:
                 task_type="rating_preflight",
             )
 
+    def test_submit_images_rejects_non_openai_rating_preflight(
+        self,
+        workflow: tuple[ProviderBatchWorkflowService, FakeProviderBatchAdapter],
+        db_session_factory: sessionmaker,
+    ) -> None:
+        service, _adapter = workflow
+        _insert_image(db_session_factory, 1, "/tmp/images/one.webp")
+
+        with pytest.raises(ProviderBatchError, match="task_type=rating_preflight"):
+            service.submit_images(
+                provider="anthropic",
+                endpoint="/v1/messages",
+                litellm_model_id="anthropic/claude-test",
+                prompt_profile="default",
+                image_ids=[1],
+                model_id=10,
+                task_type="rating_preflight",
+            )
+
+    def test_submit_images_rejects_non_moderations_rating_preflight_endpoint(
+        self,
+        workflow: tuple[ProviderBatchWorkflowService, FakeProviderBatchAdapter],
+        db_session_factory: sessionmaker,
+    ) -> None:
+        service, _adapter = workflow
+        _insert_image(db_session_factory, 1, "/tmp/images/one.webp")
+
+        with pytest.raises(ProviderBatchError, match="/v1/moderations"):
+            service.submit_images(
+                provider="openai",
+                endpoint="/v1/chat/completions",
+                litellm_model_id="openai/omni-moderation-latest",
+                prompt_profile="default",
+                image_ids=[1],
+                model_id=10,
+                task_type="rating_preflight",
+            )
+
+    def test_submit_images_rejects_non_moderation_rating_preflight_model(
+        self,
+        workflow: tuple[ProviderBatchWorkflowService, FakeProviderBatchAdapter],
+        db_session_factory: sessionmaker,
+    ) -> None:
+        service, _adapter = workflow
+        _insert_image(db_session_factory, 1, "/tmp/images/one.webp")
+
+        with pytest.raises(ProviderBatchError, match="openai moderation model"):
+            service.submit_images(
+                provider="openai",
+                endpoint="/v1/moderations",
+                litellm_model_id="openai/gpt-4o",
+                prompt_profile="default",
+                image_ids=[1],
+                model_id=10,
+                task_type="rating_preflight",
+            )
+
     def test_submit_images_rejects_missing_image_id(
         self,
         workflow: tuple[ProviderBatchWorkflowService, FakeProviderBatchAdapter],
@@ -237,9 +355,9 @@ class TestProviderBatchWorkflowService:
 
         with pytest.raises(ProviderBatchError, match="対象画像が見つかりません"):
             service.submit_images(
-                provider="openai",
-                endpoint="responses",
-                litellm_model_id="openai/gpt-test",
+                provider="anthropic",
+                endpoint="/v1/messages",
+                litellm_model_id="anthropic/claude-test",
                 prompt_profile="default",
                 image_ids=[999],
             )
@@ -253,9 +371,9 @@ class TestProviderBatchWorkflowService:
         service, adapter = workflow
         _insert_image(db_session_factory, 1, "/tmp/images/one.webp")
         job_id = service.submit_images(
-            provider="openai",
-            endpoint="responses",
-            litellm_model_id="openai/gpt-test",
+            provider="anthropic",
+            endpoint="/v1/messages",
+            litellm_model_id="anthropic/claude-test",
             prompt_profile="default",
             image_ids=[1],
         )
@@ -264,7 +382,7 @@ class TestProviderBatchWorkflowService:
 
         assert adapter.fetch_destination == batch_config.get_batch_results_directory.return_value
         assert adapter.fetch_handle == BatchJobHandle(
-            provider="openai",
+            provider="anthropic",
             provider_job_id="batch_123",
             api_keys={"openai": "sk-test"},
         )
@@ -279,9 +397,9 @@ class TestProviderBatchWorkflowService:
         service, adapter = workflow
         _insert_image(db_session_factory, 1, "/tmp/images/one.webp")
         job_id = service.submit_images(
-            provider="openai",
-            endpoint="responses",
-            litellm_model_id="openai/gpt-test",
+            provider="anthropic",
+            endpoint="/v1/messages",
+            litellm_model_id="anthropic/claude-test",
             prompt_profile="default",
             image_ids=[1],
         )
@@ -306,9 +424,9 @@ class TestProviderBatchWorkflowService:
         service, adapter = workflow
         _insert_image(db_session_factory, 1, "/tmp/images/one.webp")
         job_id = service.submit_images(
-            provider="openai",
-            endpoint="responses",
-            litellm_model_id="openai/gpt-test",
+            provider="anthropic",
+            endpoint="/v1/messages",
+            litellm_model_id="anthropic/claude-test",
             prompt_profile="default",
             image_ids=[1],
         )
@@ -317,7 +435,7 @@ class TestProviderBatchWorkflowService:
 
         assert refreshed.status == "completed"
         assert adapter.retrieve_handle == BatchJobHandle(
-            provider="openai",
+            provider="anthropic",
             provider_job_id="batch_123",
             api_keys={"openai": "sk-test"},
         )
@@ -330,9 +448,9 @@ class TestProviderBatchWorkflowService:
         service, adapter = workflow
         _insert_image(db_session_factory, 1, "/tmp/images/one.webp")
         job_id = service.submit_images(
-            provider="openai",
-            endpoint="responses",
-            litellm_model_id="openai/gpt-test",
+            provider="anthropic",
+            endpoint="/v1/messages",
+            litellm_model_id="anthropic/claude-test",
             prompt_profile="default",
             image_ids=[1],
         )
@@ -341,7 +459,7 @@ class TestProviderBatchWorkflowService:
 
         assert canceled.status == "canceled"
         assert adapter.cancel_handle == BatchJobHandle(
-            provider="openai",
+            provider="anthropic",
             provider_job_id="batch_123",
             api_keys={"openai": "sk-test"},
         )
@@ -356,9 +474,9 @@ class TestProviderBatchWorkflowService:
         _insert_image(db_session_factory, 1, "/tmp/images/one.webp")
         _insert_image(db_session_factory, 2, "/tmp/images/two.webp")
         job_id = service.submit_images(
-            provider="openai",
-            endpoint="responses",
-            litellm_model_id="openai/gpt-test",
+            provider="anthropic",
+            endpoint="/v1/messages",
+            litellm_model_id="anthropic/claude-test",
             prompt_profile="default",
             image_ids=[1, 2],
         )
@@ -394,9 +512,9 @@ class TestProviderBatchWorkflowService:
         service, _adapter = workflow
         _insert_image(db_session_factory, 1, "/tmp/images/one.webp")
         job_id = service.submit_images(
-            provider="openai",
-            endpoint="responses",
-            litellm_model_id="openai/gpt-test",
+            provider="anthropic",
+            endpoint="/v1/messages",
+            litellm_model_id="anthropic/claude-test",
             prompt_profile="default",
             image_ids=[1],
         )
@@ -429,14 +547,14 @@ class TestProviderBatchWorkflowService:
             image_repo=test_repository,
             annotation_repo=test_annotation_repository,
             config_service=batch_config,
-            adapters={"openai": adapter},
+            adapters={"anthropic": adapter, "openai": adapter},
             annotation_save_service=annotation_save,
         )
         _insert_image(db_session_factory, 1, "/tmp/images/one.webp")
         job_id = service.submit_images(
-            provider="openai",
-            endpoint="responses",
-            litellm_model_id="openai/gpt-test",
+            provider="anthropic",
+            endpoint="/v1/messages",
+            litellm_model_id="anthropic/claude-test",
             prompt_profile="default",
             image_ids=[1],
             model_id=10,
@@ -462,6 +580,69 @@ class TestProviderBatchWorkflowService:
         assert job.imported_at is not None
         assert test_provider_batch_repository.list_provider_batch_items(job_id)[0].status == "imported"
 
+    def test_import_results_routes_rating_preflight_to_annotation_save_service(
+        self,
+        test_provider_batch_repository: ProviderBatchRepository,
+        test_repository,
+        test_annotation_repository,
+        batch_config: Mock,
+        db_session_factory: sessionmaker,
+    ) -> None:
+        adapter = FakeProviderBatchAdapter()
+        annotation_save = Mock()
+        annotation_save.save_provider_batch_results_by_image_id.return_value = AnnotationSaveResult(
+            success_count=1,
+            skip_count=0,
+            error_count=0,
+            total_count=1,
+        )
+        service = ProviderBatchWorkflowService(
+            provider_batch_repo=test_provider_batch_repository,
+            image_repo=test_repository,
+            annotation_repo=test_annotation_repository,
+            config_service=batch_config,
+            adapters={"anthropic": adapter, "openai": adapter},
+            annotation_save_service=annotation_save,
+        )
+        _insert_image(db_session_factory, 1, "/tmp/images/one.webp")
+        job_id = service.submit_images(
+            provider="openai",
+            endpoint="/v1/moderations",
+            litellm_model_id="openai/omni-moderation-latest",
+            prompt_profile="default",
+            image_ids=[1],
+            model_id=10,
+            task_type="rating_preflight",
+        )
+
+        result = service.import_results(
+            job_id,
+            ProviderBatchFetchResult(
+                provider_job_id="batch_123",
+                provider_status="completed",
+                items=(
+                    ProviderBatchResultItem(
+                        "img-1",
+                        "succeeded",
+                        annotation={
+                            "ratings": [{"raw_label": "pg13", "source_scheme": "openai_moderation_v1"}]
+                        },
+                    ),
+                ),
+            ),
+        )
+
+        annotation_save.save_provider_batch_results_by_image_id.assert_called_once_with(
+            {1: {"ratings": [{"raw_label": "pg13", "source_scheme": "openai_moderation_v1"}]}},
+            model_id=10,
+            model_name="__provider_batch_model_10__",
+        )
+        assert result.imported_count == 1
+        item = test_provider_batch_repository.list_provider_batch_items(job_id)[0]
+        assert item.task_type == "rating_preflight"
+        assert item.model_id == 10
+        assert item.status == "imported"
+
     def test_import_results_does_not_fallback_to_file_stem_for_missing_custom_id(
         self,
         test_provider_batch_repository: ProviderBatchRepository,
@@ -483,14 +664,14 @@ class TestProviderBatchWorkflowService:
             image_repo=test_repository,
             annotation_repo=test_annotation_repository,
             config_service=batch_config,
-            adapters={"openai": adapter},
+            adapters={"anthropic": adapter, "openai": adapter},
             annotation_save_service=annotation_save,
         )
         _insert_image(db_session_factory, 1, "/tmp/images/img-404.webp")
         job_id = service.submit_images(
-            provider="openai",
-            endpoint="responses",
-            litellm_model_id="openai/gpt-test",
+            provider="anthropic",
+            endpoint="/v1/messages",
+            litellm_model_id="anthropic/claude-test",
             prompt_profile="default",
             image_ids=[1],
             model_id=10,
@@ -513,6 +694,54 @@ class TestProviderBatchWorkflowService:
         assert job.status == "completed"
         assert job.imported_at is None
 
+
+@pytest.mark.unit
+class TestProviderBatchLibraryAdapter:
+    def test_fetch_batch_results_uses_handle_only_library_signature(self, tmp_path: Path) -> None:
+        class Client:
+            def __init__(self) -> None:
+                self.handles: list[object] = []
+
+            def fetch_batch_results(self, handle: object) -> ProviderBatchFetchResult:
+                self.handles.append(handle)
+                return ProviderBatchFetchResult(
+                    provider_job_id="batch_123",
+                    provider_status="completed",
+                    items=(ProviderBatchResultItem("img-1", "succeeded", annotation={"ratings": []}),),
+                )
+
+        client = Client()
+        adapter = ProviderBatchLibraryAdapter("openai", client)
+
+        result = adapter.fetch_batch_results(
+            BatchJobHandle(provider="openai", provider_job_id="batch_123", api_keys={}),
+            tmp_path,
+        )
+
+        assert result.items[0].custom_id == "img-1"
+        assert len(client.handles) == 1
+
+    def test_fetch_batch_results_passes_destination_when_library_accepts_it(self, tmp_path: Path) -> None:
+        class Client:
+            def __init__(self) -> None:
+                self.destination: Path | None = None
+
+            def fetch_batch_results(
+                self, handle: object, destination_dir: Path
+            ) -> ProviderBatchFetchResult:
+                self.destination = destination_dir
+                return ProviderBatchFetchResult(provider_job_id="batch_123", provider_status="completed")
+
+        client = Client()
+        adapter = ProviderBatchLibraryAdapter("openai", client)
+
+        adapter.fetch_batch_results(
+            BatchJobHandle(provider="openai", provider_job_id="batch_123", api_keys={}),
+            tmp_path,
+        )
+
+        assert client.destination == tmp_path
+
     def test_import_results_marks_saved_items_imported_when_job_has_missing_ids(
         self,
         test_provider_batch_repository: ProviderBatchRepository,
@@ -534,14 +763,14 @@ class TestProviderBatchWorkflowService:
             image_repo=test_repository,
             annotation_repo=test_annotation_repository,
             config_service=batch_config,
-            adapters={"openai": adapter},
+            adapters={"anthropic": adapter, "openai": adapter},
             annotation_save_service=annotation_save,
         )
         _insert_image(db_session_factory, 1, "/tmp/images/one.webp")
         job_id = service.submit_images(
-            provider="openai",
-            endpoint="responses",
-            litellm_model_id="openai/gpt-test",
+            provider="anthropic",
+            endpoint="/v1/messages",
+            litellm_model_id="anthropic/claude-test",
             prompt_profile="default",
             image_ids=[1],
             model_id=10,
@@ -582,13 +811,13 @@ class TestProviderBatchWorkflowService:
             image_repo=test_repository,
             annotation_repo=test_annotation_repository,
             config_service=batch_config,
-            adapters={"openai": adapter},
+            adapters={"anthropic": adapter, "openai": adapter},
         )
         _insert_image(db_session_factory, 1, "/tmp/images/one.webp")
         job_id = service.submit_images(
-            provider="openai",
-            endpoint="responses",
-            litellm_model_id="openai/gpt-test",
+            provider="anthropic",
+            endpoint="/v1/messages",
+            litellm_model_id="anthropic/claude-test",
             prompt_profile="default",
             image_ids=[1],
             model_id=10,
@@ -629,15 +858,15 @@ class TestProviderBatchWorkflowService:
             image_repo=test_repository,
             annotation_repo=test_annotation_repository,
             config_service=batch_config,
-            adapters={"openai": adapter},
+            adapters={"anthropic": adapter, "openai": adapter},
             annotation_save_service=annotation_save,
         )
         _insert_image(db_session_factory, 1, "/tmp/images/one.webp")
         _insert_image(db_session_factory, 2, "/tmp/images/two.webp")
         job_id = service.submit_images(
-            provider="openai",
-            endpoint="responses",
-            litellm_model_id="openai/gpt-test",
+            provider="anthropic",
+            endpoint="/v1/messages",
+            litellm_model_id="anthropic/claude-test",
             prompt_profile="default",
             image_ids=[1, 2],
             model_id=10,
@@ -694,28 +923,28 @@ class TestProviderBatchWorkflowService:
             image_repo=test_repository,
             annotation_repo=test_annotation_repository,
             config_service=batch_config,
-            adapters={"openai": adapter},
+            adapters={"anthropic": adapter, "openai": adapter},
             annotation_save_service=annotation_save,
         )
         # ADR 0035 段階 6: insert_model は ModelRepository 経由
         model_id_1 = test_model_repository.insert_model(
-            name="gpt-test-a",
-            provider="openai",
+            name="claude-test-a",
+            provider="anthropic",
             model_types=["multimodal"],
-            litellm_model_id="openai/gpt-test-a",
+            litellm_model_id="anthropic/claude-test-a",
         )
         model_id_2 = test_model_repository.insert_model(
-            name="gpt-test-b",
-            provider="openai",
+            name="claude-test-b",
+            provider="anthropic",
             model_types=["multimodal"],
-            litellm_model_id="openai/gpt-test-b",
+            litellm_model_id="anthropic/claude-test-b",
         )
         _insert_image(db_session_factory, 1, "/tmp/images/one.webp")
         _insert_image(db_session_factory, 2, "/tmp/images/two.webp")
         job_id = service.submit_images(
-            provider="openai",
-            endpoint="responses",
-            litellm_model_id="openai/gpt-test-a",
+            provider="anthropic",
+            endpoint="/v1/messages",
+            litellm_model_id="anthropic/claude-test-a",
             prompt_profile="default",
             image_ids=[1, 2],
             model_id=model_id_1,
@@ -741,7 +970,7 @@ class TestProviderBatchWorkflowService:
         annotation_save.save_provider_batch_results_by_image_id.assert_any_call(
             {1: {"tags": ["one"]}},
             model_id=model_id_1,
-            model_name="openai/gpt-test-a",
+            model_name="anthropic/claude-test-a",
         )
         annotation_save.save_provider_batch_results_by_image_id.assert_any_call(
             {2: {"tags": ["two"]}},
@@ -770,15 +999,15 @@ class TestProviderBatchWorkflowService:
             image_repo=test_repository,
             annotation_repo=test_annotation_repository,
             config_service=batch_config,
-            adapters={"openai": adapter},
+            adapters={"anthropic": adapter, "openai": adapter},
             annotation_save_service=annotation_save,
         )
         _insert_image(db_session_factory, 1, "/tmp/images/one.webp")
         _insert_image(db_session_factory, 2, "/tmp/images/two.webp")
         job_id = service.submit_images(
-            provider="openai",
-            endpoint="responses",
-            litellm_model_id="openai/gpt-test",
+            provider="anthropic",
+            endpoint="/v1/messages",
+            litellm_model_id="anthropic/claude-test",
             prompt_profile="default",
             image_ids=[1, 2],
             model_id=10,
@@ -823,14 +1052,14 @@ class TestProviderBatchWorkflowService:
             image_repo=test_repository,
             annotation_repo=test_annotation_repository,
             config_service=batch_config,
-            adapters={"openai": adapter},
+            adapters={"anthropic": adapter, "openai": adapter},
             annotation_save_service=annotation_save,
         )
         _insert_image(db_session_factory, 1, "/tmp/images/one.webp")
         job_id = service.submit_images(
-            provider="openai",
-            endpoint="responses",
-            litellm_model_id="openai/gpt-test",
+            provider="anthropic",
+            endpoint="/v1/messages",
+            litellm_model_id="anthropic/claude-test",
             prompt_profile="default",
             image_ids=[1],
             model_id=10,
@@ -867,14 +1096,14 @@ class TestProviderBatchWorkflowService:
             image_repo=test_repository,
             annotation_repo=test_annotation_repository,
             config_service=batch_config,
-            adapters={"openai": adapter},
+            adapters={"anthropic": adapter, "openai": adapter},
             annotation_save_service=annotation_save,
         )
         _insert_image(db_session_factory, 1, "/tmp/images/one.webp")
         job_id = service.submit_images(
-            provider="openai",
-            endpoint="responses",
-            litellm_model_id="openai/gpt-test",
+            provider="anthropic",
+            endpoint="/v1/messages",
+            litellm_model_id="anthropic/claude-test",
             prompt_profile="default",
             image_ids=[1],
             model_id=10,
@@ -928,14 +1157,14 @@ class TestProviderBatchWorkflowService:
             image_repo=test_repository,
             annotation_repo=test_annotation_repository,
             config_service=batch_config,
-            adapters={"openai": adapter},
+            adapters={"anthropic": adapter, "openai": adapter},
             annotation_save_service=annotation_save,
         )
         _insert_image(db_session_factory, 1, "/tmp/images/one.webp")
         job_id = service.submit_images(
-            provider="openai",
-            endpoint="responses",
-            litellm_model_id="openai/gpt-test",
+            provider="anthropic",
+            endpoint="/v1/messages",
+            litellm_model_id="anthropic/claude-test",
             prompt_profile="default",
             image_ids=[1],
             model_id=10,
@@ -972,14 +1201,14 @@ class TestProviderBatchWorkflowService:
             image_repo=test_repository,
             annotation_repo=test_annotation_repository,
             config_service=batch_config,
-            adapters={"openai": adapter},
+            adapters={"anthropic": adapter, "openai": adapter},
             annotation_save_service=annotation_save,
         )
         _insert_image(db_session_factory, 1, "/tmp/images/one.webp")
         job_id = service.submit_images(
-            provider="openai",
-            endpoint="responses",
-            litellm_model_id="openai/gpt-test",
+            provider="anthropic",
+            endpoint="/v1/messages",
+            litellm_model_id="anthropic/claude-test",
             prompt_profile="default",
             image_ids=[1],
             model_id=10,
@@ -1016,14 +1245,14 @@ class TestProviderBatchWorkflowService:
             image_repo=test_repository,
             annotation_repo=test_annotation_repository,
             config_service=batch_config,
-            adapters={"openai": adapter},
+            adapters={"anthropic": adapter, "openai": adapter},
             annotation_save_service=annotation_save,
         )
         _insert_image(db_session_factory, 1, "/tmp/images/one.webp")
         job_id = service.submit_images(
-            provider="openai",
-            endpoint="responses",
-            litellm_model_id="openai/gpt-test",
+            provider="anthropic",
+            endpoint="/v1/messages",
+            litellm_model_id="anthropic/claude-test",
             prompt_profile="default",
             image_ids=[1],
             model_id=10,
@@ -1059,9 +1288,9 @@ class TestProviderBatchWorkflowService:
         service, _adapter = workflow
         _insert_image(db_session_factory, 1, "/tmp/images/one.webp")
         job_id = service.submit_images(
-            provider="openai",
-            endpoint="responses",
-            litellm_model_id="openai/gpt-test",
+            provider="anthropic",
+            endpoint="/v1/messages",
+            litellm_model_id="anthropic/claude-test",
             prompt_profile="default",
             image_ids=[1],
         )
@@ -1092,14 +1321,14 @@ class TestProviderBatchWorkflowService:
             image_repo=test_repository,
             annotation_repo=test_annotation_repository,
             config_service=batch_config,
-            adapters={"openai": adapter},
+            adapters={"anthropic": adapter, "openai": adapter},
             annotation_save_service=annotation_save,
         )
         _insert_image(db_session_factory, 1, "/tmp/images/one.webp")
         job_id = service.submit_images(
-            provider="openai",
-            endpoint="responses",
-            litellm_model_id="openai/gpt-test",
+            provider="anthropic",
+            endpoint="/v1/messages",
+            litellm_model_id="anthropic/claude-test",
             prompt_profile="default",
             image_ids=[1],
             model_id=10,

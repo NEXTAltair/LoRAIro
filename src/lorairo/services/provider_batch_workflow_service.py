@@ -7,6 +7,7 @@ file identifiers, and artifact formats remain behind ProviderBatchAdapter.
 
 from __future__ import annotations
 
+import inspect
 import json
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
@@ -41,6 +42,15 @@ from lorairo.services.provider_batch_service import (
     ProviderBatchResultItem,
 )
 from lorairo.utils.log import logger
+
+_TASK_TYPE_ENDPOINTS = {
+    "annotation": {
+        "anthropic": "/v1/messages",
+    },
+    "rating_preflight": {
+        "openai": "/v1/moderations",
+    },
+}
 
 if TYPE_CHECKING:
     from lorairo.database.schema import ProviderBatchItem, ProviderBatchJob
@@ -105,8 +115,9 @@ class ProviderBatchLibraryAdapter:
         )
 
     def fetch_batch_results(self, handle: BatchJobHandle, destination_dir: Path) -> Any:
+        library_handle = to_library_handle(handle)
         return to_provider_batch_fetch_result(
-            self._call_client("fetch_batch_results", to_library_handle(handle), destination_dir),
+            self._call_fetch_batch_results(library_handle, destination_dir),
             self.provider,
             destination_dir,
             fallback_provider_job_id=handle.provider_job_id,
@@ -121,6 +132,25 @@ class ProviderBatchLibraryAdapter:
         if method is None:
             raise ProviderBatchError(f"image-annotator-lib batch API method is unavailable: {method_name}")
         return method(*args)
+
+    def _call_fetch_batch_results(self, handle: Any, destination_dir: Path) -> Any:
+        method = getattr(self._client, "fetch_batch_results", None)
+        if method is None:
+            raise ProviderBatchError(
+                "image-annotator-lib batch API method is unavailable: fetch_batch_results"
+            )
+
+        try:
+            signature = inspect.signature(method)
+            accepts_destination_dir = len(signature.parameters) >= 2
+        except (TypeError, ValueError):
+            try:
+                return method(handle, destination_dir)
+            except TypeError:
+                return method(handle)
+        if accepts_destination_dir:
+            return method(handle, destination_dir)
+        return method(handle)
 
 
 class ProviderBatchWorkflowService:
@@ -167,8 +197,13 @@ class ProviderBatchWorkflowService:
         """Build an ADR 0038 submit request from LoRAIro image IDs."""
         if not image_ids:
             raise ProviderBatchError("Provider batch submit image_ids が空です")
-        if task_type == "rating_preflight" and model_id is None:
-            raise ProviderBatchError("rating_preflight batch submit には model_id が必要です")
+        endpoint = self._validate_submit_task(
+            provider=provider,
+            endpoint=endpoint,
+            litellm_model_id=litellm_model_id,
+            task_type=task_type,
+            model_id=model_id,
+        )
 
         metadata_by_id = {
             int(row["id"]): row for row in self._image_repo.get_images_metadata_batch(list(image_ids))
@@ -213,6 +248,48 @@ class ProviderBatchWorkflowService:
             else None,
             raw_provider_payload=raw_provider_payload,
         )
+
+    @staticmethod
+    def _validate_submit_task(
+        *,
+        provider: str,
+        endpoint: str,
+        litellm_model_id: str,
+        task_type: str,
+        model_id: int | None,
+    ) -> str:
+        normalized_provider = provider.strip().lower()
+        normalized_endpoint = endpoint.strip()
+        if not normalized_endpoint.startswith("/"):
+            normalized_endpoint = f"/{normalized_endpoint}"
+        canonical_endpoint = normalized_endpoint.rstrip("/")
+
+        provider_endpoints = _TASK_TYPE_ENDPOINTS.get(task_type)
+        expected_endpoint = provider_endpoints.get(normalized_provider) if provider_endpoints else None
+        if expected_endpoint is None:
+            raise ProviderBatchError(
+                f"Provider batch submit は provider={normalized_provider}, task_type={task_type} に未対応です"
+            )
+        if canonical_endpoint != expected_endpoint:
+            raise ProviderBatchError(f"Provider batch submit には endpoint={expected_endpoint} が必要です")
+
+        if task_type != "rating_preflight":
+            return expected_endpoint
+
+        if model_id is None:
+            raise ProviderBatchError("rating_preflight batch submit には model_id が必要です")
+        normalized_model_id = litellm_model_id.strip().lower()
+        bare_model_id = (
+            normalized_model_id.removeprefix("openai/")
+            if normalized_model_id.startswith("openai/")
+            else normalized_model_id
+        )
+        if "/" in bare_model_id or not bare_model_id.startswith("omni-moderation-"):
+            raise ProviderBatchError(
+                "rating_preflight batch submit には openai moderation model が必要です"
+            )
+
+        return expected_endpoint
 
     def submit_images(
         self,

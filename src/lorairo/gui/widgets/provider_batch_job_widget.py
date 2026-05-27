@@ -26,14 +26,9 @@ from lorairo.services.provider_batch_service import ProviderBatchError
 from lorairo.utils.log import logger
 
 _DIRECT_PROVIDERS = {"openai", "anthropic"}
-_DEFAULT_ENDPOINTS = {
-    "openai": "/v1/chat/completions",
-    "anthropic": "/v1/messages",
-}
 _TASK_TYPES = ("annotation", "rating_preflight")
 _TASK_TYPE_ENDPOINTS = {
     "annotation": {
-        "openai": "/v1/chat/completions",
         "anthropic": "/v1/messages",
     },
     "rating_preflight": {
@@ -266,7 +261,7 @@ class ProviderBatchJobWidget(QWidget):
 
     def _model_supports_task_type(self, model: Any, provider: str, task_type: str) -> bool:
         if task_type == "annotation":
-            return True
+            return provider == "anthropic"
         if task_type == "rating_preflight":
             return provider == "openai" and self._model_has_model_type(model, _MODEL_TYPE_RATINGS)
         return False
