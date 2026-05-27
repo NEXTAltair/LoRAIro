@@ -249,7 +249,12 @@ Provider Batch job submitted: 42
 
 - API key 未設定 / 不正: submit 時に `Error: <provider message>` (exit code 1)。事前 gate は無いため、
   失敗してから初めて表示される
-- discontinued model: model 解決時に `Error: Unknown model '<id>'. Run \`lorairo-cli models list\`.`
+- 未知の model: model 解決時に `Error: Unknown model '<id>'. Run \`lorairo-cli models list\`.`
+  (exit code 1)
+- discontinued model (`models.discontinued_at IS NOT NULL`): **事前 gate されない**。`_resolve_model()`
+  は `get_model_by_litellm_id()` を呼ぶだけで `discontinued_at` をチェックしないため、有効な
+  LiteLLM ID であれば DB ヒットして submit 経路に進む。その後 lib / provider 境界で失敗する可能性が
+  ある。ADR 0038 は eligibility gate を要求しているが CLI 側は現状未実装
 - 同名 model が複数: `Error: Ambiguous model '<id>': - <litellm_id> (provider: <p>) ...`
 - Google: `Error: Google Provider Batch submit is disabled until Phase 3.`
 - OpenRouter: `Error: Could not infer a direct Provider Batch provider for ...`
@@ -381,8 +386,13 @@ lorairo-cli batch import <job_id> --project <name> [--output-dir <path>]
 ### Exit code
 
 - `0`: 成功
-- `1`: ビジネスエラー (project not found、model 未解決、provider 不正、`ProviderBatchError`)
-- `2`: 予期しない例外 (`logs/lorairo.log` に stacktrace)
+- `1`: `ProviderBatchError` および model 解決ロジックが直接 raise するビジネスエラー
+  (unknown model、ambiguous model、google submit reject、unsupported provider、infer 失敗)
+- `2`: 上記以外のすべての例外 (`logs/lorairo.log` に stacktrace)。`ProjectNotFoundError`
+  (`--project` で存在しない project を指定) も現在は exit code 2 になる。CLI 側で `except ProviderBatchError`
+  のみを exit 1 に変換し、`except Exception` で残りを exit 2 に流す実装になっているため
+  (`src/lorairo/cli/commands/batch.py:199-205` 等)、スクリプトから business error と
+  unexpected error を厳密に区別するには `ProjectNotFoundError` を別途扱う必要がある
 
 ## GUI 運用
 
@@ -551,7 +561,9 @@ artifact 保存方針だけでは retention を完結できない。
 ### Provider 生 JSON が DB に残ることへの注意
 
 **重要**: 以下 3 つのカラムに provider 生 JSON が保存されるため、SQLite ファイル
-(`lorairo_data/<project>/<project>.db`) をバックアップ / 共有する際は内容を確認する必要がある。
+(`lorairo_data/<project_dir>/image_database.db`) をバックアップ / 共有する際は内容を確認する必要がある。
+project DB のファイル名は `image_database.db` 固定 (`ProjectManagementService.create_project()` および
+`ServiceContainer.set_active_project()` が連携先として使用する)。
 
 | カラム | スコープ | 内容 |
 |---|---|---|
