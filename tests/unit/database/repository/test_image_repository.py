@@ -297,10 +297,12 @@ class TestImageDatabaseManagerDIContract:
         manager = ImageDatabaseManager(config_service=cfg, image_repo=repo)
         assert isinstance(manager.image_repo, ImageRepository)
         assert manager.image_repo.session_factory is memory_session_factory
+        assert manager.model_repo.session_factory is memory_session_factory
+        assert manager.annotation_repo.session_factory is memory_session_factory
+        assert manager.provider_batch_repo.session_factory is memory_session_factory
 
     def test_manager_uses_injected_image_repo(self, memory_session_factory) -> None:
         """明示注入された image_repo を保持し、Mock 化で外部依存を切り離せる。"""
-        repo = ImageRepository(session_factory=memory_session_factory)
         cfg = Mock(spec=ConfigurationService)
         injected = Mock(spec=ImageRepository)
         manager = ImageDatabaseManager(

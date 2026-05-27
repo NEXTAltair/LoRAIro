@@ -21,7 +21,7 @@ from rich.progress import (
 from rich.table import Table
 
 if TYPE_CHECKING:
-    from lorairo.database.repository.image import ImageRepository
+    from lorairo.database.repository.model import ModelRepository
     from lorairo.services.batch_import_service import BatchImportResult
 
 from lorairo.api.batch_import import import_batch_annotations
@@ -164,7 +164,7 @@ def _get_deprecated_models_best_effort(annotator: Any, model_names: list[str]) -
         return []
 
 
-def _resolve_model_identifier(repository: ImageRepository, identifier: str) -> str:
+def _resolve_model_identifier(repository: ModelRepository, identifier: str) -> str:
     """ユーザー入力を canonical `litellm_model_id` に解決する (Issue #245)。
 
     解決順:
@@ -216,7 +216,7 @@ def _resolve_model_identifier(repository: ImageRepository, identifier: str) -> s
 
 
 def _validate_required_api_keys(
-    repository: ImageRepository,
+    repository: ModelRepository,
     config: Any,
     resolved_litellm_ids: list[str],
 ) -> None:
@@ -323,14 +323,15 @@ def run(
         container.set_active_project(project)
 
         # DB からプロジェクトの登録済み画像を取得
-        repository = container.image_repository
+        image_repo = container.db_manager.image_repo
+        model_repo = container.db_manager.model_repo
 
         # Issue #245: --model 入力を canonical litellm_model_id に解決
         # (曖昧マッチは Error で abort、ここで raise した typer.Exit は外側 except で素通り)
-        resolved_litellm_ids = [_resolve_model_identifier(repository, ident) for ident in model]
+        resolved_litellm_ids = [_resolve_model_identifier(model_repo, ident) for ident in model]
 
         criteria = ImageFilterCriteria(include_nsfw=True)
-        image_records, total_in_db = repository.get_images_by_filter(criteria)
+        image_records, total_in_db = image_repo.get_images_by_filter(criteria)
 
         if not image_records:
             console.print(
@@ -361,7 +362,7 @@ def run(
         # 旧実装は「3 種類キー全部無いとき警告」だけで、片方の provider key だけ
         # 設定されていて選択モデルがもう片方を要求する場合に library 内で
         # MissingApiKeyError が出てから初めて失敗していた。
-        _validate_required_api_keys(repository, config, resolved_litellm_ids)
+        _validate_required_api_keys(model_repo, config, resolved_litellm_ids)
 
         # アノテーション実行
         console.print("[cyan]Starting annotation...[/cyan]")

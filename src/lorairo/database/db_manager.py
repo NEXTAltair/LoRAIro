@@ -82,9 +82,21 @@ class ImageDatabaseManager:
         self.config_service = config_service
         self.fsm = fsm
         if session_factory is None:
-            from .db_core import DefaultSessionLocal
+            for repo in (
+                image_repo,
+                model_repo,
+                project_repo,
+                error_record_repo,
+                annotation_repo,
+                provider_batch_repo,
+            ):
+                session_factory = getattr(repo, "session_factory", None)
+                if session_factory is not None:
+                    break
+            else:
+                from .db_core import DefaultSessionLocal
 
-            session_factory = DefaultSessionLocal
+                session_factory = DefaultSessionLocal
         # ADR 0035 段階 1-6: Aggregate 単位 Repository を composition で保持。
         # None の場合は session_factory を共有して生成する。
         self.model_repo: ModelRepository = model_repo or ModelRepository(session_factory=session_factory)

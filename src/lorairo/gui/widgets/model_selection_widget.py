@@ -155,7 +155,7 @@ if not __name__ == "__main__":
         def _create_model_selection_service(self) -> ModelSelectionService:
             """ModelSelectionService 作成"""
             service_container = get_service_container()
-            return ModelSelectionService.create(db_repository=service_container.image_repository)
+            return ModelSelectionService.create(db_repository=service_container.db_manager.model_repo)
 
         def _setup_refresh_controls(self) -> None:
             """モデル一覧手動更新用のUIを追加する。"""

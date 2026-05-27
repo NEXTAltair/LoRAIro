@@ -42,6 +42,7 @@ class ProviderBatchJobWidget(QWidget):
 
         self._workflow_service: Any = None
         self._repository: Any = None
+        self._model_repository: Any = None
         self._model_source: Any = None
         self._dataset_state_manager: Any = None
         self._current_job_id: int | None = None
@@ -49,11 +50,18 @@ class ProviderBatchJobWidget(QWidget):
         self._setup_ui()
         self._connect_signals()
 
-    def set_dependencies(self, workflow_service: Any, repository: Any, model_source: Any = None) -> None:
+    def set_dependencies(
+        self,
+        workflow_service: Any,
+        repository: Any,
+        model_source: Any = None,
+        model_repository: Any = None,
+    ) -> None:
         """Inject services used by the widget."""
         self._workflow_service = workflow_service
         self._repository = repository
         self._model_source = model_source
+        self._model_repository = model_repository
         self.refresh_models()
         self.refresh_jobs()
 
@@ -188,7 +196,7 @@ class ProviderBatchJobWidget(QWidget):
     def refresh_models(self) -> None:
         """Refresh direct provider batch capable models."""
         self.comboBoxModel.clear()
-        if self._repository is None:
+        if self._model_repository is None:
             return
 
         try:
@@ -225,7 +233,7 @@ class ProviderBatchJobWidget(QWidget):
             litellm_id = self._litellm_id_from_batch_model(raw)
             if not litellm_id:
                 continue
-            model = self._repository.get_model_by_litellm_id(litellm_id)
+            model = self._model_repository.get_model_by_litellm_id(litellm_id)
             if model is not None and model.litellm_model_id not in seen:
                 resolved.append(model)
                 seen.add(model.litellm_model_id)

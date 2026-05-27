@@ -38,8 +38,12 @@ def import_batch_annotations(
     if project_info is None:
         raise ProjectNotFoundError(project_name)
 
-    repository = container.image_repository
-    service = BatchImportService(repository)
+    manager = container.db_manager
+    service = BatchImportService(
+        manager.image_repo,
+        model_repository=manager.model_repo,
+        annotation_repository=manager.annotation_repo,
+    )
 
     try:
         return service.import_from_directory(

@@ -296,7 +296,7 @@ class AnnotationWorkflowController:
                 "openrouter": self.config_service.get_setting("api", "openrouter_key", ""),
             }
 
-            repository = get_service_container().image_repository
+            repository = get_service_container().db_manager.model_repo
             provider_hints: dict[str, str] = {}
             for litellm_id in litellm_model_ids:
                 model = repository.get_model_by_litellm_id(litellm_id)

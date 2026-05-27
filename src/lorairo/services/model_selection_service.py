@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from ..database.repository.image import ImageRepository
+from ..database.repository.model import ModelRepository
 from ..database.schema import Model
 from ..utils.log import logger
 from .model_route_service import DisplayModelOption, RoutePreference, build_display_options
@@ -33,7 +33,7 @@ class ModelSelectionService:
     - 選択状態の管理は行わない（UI側で管理）
     """
 
-    def __init__(self, db_repository: ImageRepository):
+    def __init__(self, db_repository: ModelRepository):
         """Initialize ModelSelectionService with DB-centric architecture."""
         self.db_repository = db_repository
         self._all_models: list[Model] = []
@@ -43,7 +43,7 @@ class ModelSelectionService:
     _LEGACY_SENTINEL_SUFFIX = "__"
 
     @classmethod
-    def create(cls, db_repository: ImageRepository) -> ModelSelectionService:
+    def create(cls, db_repository: ModelRepository) -> ModelSelectionService:
         """Create ModelSelectionService with DB-centric architecture."""
         return cls(db_repository=db_repository)
 

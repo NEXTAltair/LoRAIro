@@ -145,7 +145,6 @@ class ServiceContainer:
             self._db_manager = ImageDatabaseManager(
                 self.config_service,
                 self.file_system_manager,
-                session_factory=DefaultSessionLocal,
                 image_repo=self.image_repository,
             )
             logger.debug("ImageDatabaseManager初期化完了")

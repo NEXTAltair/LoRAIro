@@ -174,8 +174,9 @@ def submit(
     """Submit registered images to a Provider Batch API job."""
     try:
         container = _activate_project(project)
-        repository = container.image_repository
-        db_model = _resolve_model(repository, model)
+        model_repo = container.db_manager.model_repo
+        provider_batch_repo = container.db_manager.provider_batch_repo
+        db_model = _resolve_model(model_repo, model)
         resolved_provider = _infer_provider(db_model, provider)
         _validate_submit_provider(resolved_provider)
         resolved_endpoint = endpoint or _DEFAULT_ENDPOINTS[resolved_provider]
@@ -189,7 +190,7 @@ def submit(
             model_id=db_model.id,
             description=description,
         )
-        job = repository.get_provider_batch_job(job_id)
+        job = provider_batch_repo.get_provider_batch_job(job_id)
         console.print(f"[green]Provider Batch job submitted:[/green] {job_id}")
         if job is not None:
             _print_job_detail(job)
@@ -215,7 +216,7 @@ def list_jobs(
     """List persisted Provider Batch jobs."""
     try:
         container = _activate_project(project)
-        jobs = container.image_repository.list_provider_batch_jobs(
+        jobs = container.db_manager.provider_batch_repo.list_provider_batch_jobs(
             provider=provider,
             status=status,
             limit=limit,
@@ -240,7 +241,7 @@ def status(
         job = (
             container.provider_batch_workflow_service.refresh(job_id)
             if refresh
-            else container.image_repository.get_provider_batch_job(job_id)
+            else container.db_manager.provider_batch_repo.get_provider_batch_job(job_id)
         )
         if job is None:
             console.print(f"[red]Error:[/red] Provider Batch job not found: {job_id}")

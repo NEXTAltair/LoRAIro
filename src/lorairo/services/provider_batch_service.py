@@ -14,7 +14,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Protocol
 
-from lorairo.database.repository.image import ImageRepository
+from lorairo.database.repository.provider_batch import ProviderBatchRepository
 from lorairo.database.schema import ProviderBatchJob
 from lorairo.utils.log import logger
 
@@ -279,7 +279,7 @@ class ProviderBatchJobService:
 
     def __init__(
         self,
-        repository: ImageRepository,
+        repository: ProviderBatchRepository,
         adapters: Mapping[str, ProviderBatchAdapter] | None = None,
     ) -> None:
         self._repository = repository
