@@ -15,7 +15,7 @@
 **設定可能なキー:**
 
 *   `level` (文字列): アプリケーション全体のデフォルトログレベル (例: `"INFO"`, `"DEBUG"`)。指定がない場合のデフォルトは `"INFO"`。
-*   `file_path` (文字列, オプション): ログファイルパス (例: `"logs/lorairo.log"`)。指定しない場合、ファイルログは無効。
+*   `file_path` (文字列, 内部デフォルト): ログファイルパス。初回生成される `config/lorairo.toml` には出力せず、`DEFAULT_CONFIG` の内部デフォルトを使用する。
 *   `rotation` (文字列, オプション): ファイルローテーションの条件 (例: `"25 MB"`, `"1 week"`, `"monday at 12:00"`)。指定がない場合のデフォルトは `"25 MB"`。
 *   `levels` (テーブル/辞書, オプション): モジュールプレフィックスごとのログレベルを設定します。キーはモジュール名 (例: `"lorairo.gui"`)、値はログレベル (例: `"DEBUG"`) です。
     ```toml
@@ -49,7 +49,6 @@
 
 [log]
 level = "DEBUG"                # 全体をDEBUGレベルに
-file_path = "logs/app.log"       # ログファイルパスを指定
 rotation = "50 MB"             # ローテーションサイズを50MBに
 
 [log.levels]                   # databaseモジュールはINFO、requestsはWARNINGに

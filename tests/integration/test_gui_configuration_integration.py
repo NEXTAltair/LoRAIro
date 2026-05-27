@@ -30,7 +30,7 @@ target_resolution = 1024
 realesrgan_upscale = true
 """)
 
-        with patch("lorairo.services.configuration_service.get_config") as mock_get_config:
+        with patch("lorairo.services.configuration_service.ensure_config_file") as mock_get_config:
             mock_get_config.return_value = {
                 "directories": {"database_dir": "test_project", "export_dir": "test_export"},
                 "image_processing": {"target_resolution": 1024, "realesrgan_upscale": True},
@@ -65,7 +65,7 @@ claude_key = ""
 target_resolution = 512
 """)
 
-        with patch("lorairo.services.configuration_service.get_config") as mock_get_config:
+        with patch("lorairo.services.configuration_service.ensure_config_file") as mock_get_config:
             mock_get_config.return_value = {
                 "api": {"openai_key": "test_key", "claude_key": ""},
                 "image_processing": {"target_resolution": 512},
@@ -93,7 +93,7 @@ claude_key = "claude-key-abcdefghijklmnop"
 google_key = ""
 """)
 
-        with patch("lorairo.services.configuration_service.get_config") as mock_get_config:
+        with patch("lorairo.services.configuration_service.ensure_config_file") as mock_get_config:
             mock_get_config.return_value = {
                 "api": {
                     "openai_key": "sk-1234567890abcdefghij",
@@ -134,7 +134,7 @@ export_dir = "{export_dir}"
 batch_results_dir = "{tmp_path}/batch_results"
 """)
 
-        with patch("lorairo.services.configuration_service.get_config") as mock_get_config:
+        with patch("lorairo.services.configuration_service.ensure_config_file") as mock_get_config:
             mock_get_config.return_value = {
                 "directories": {
                     "database_dir": str(project_dir),
@@ -162,7 +162,7 @@ claude_key = ""
 target_resolution = 999  # 非標準値
 """)
 
-        with patch("lorairo.services.configuration_service.get_config") as mock_get_config:
+        with patch("lorairo.services.configuration_service.ensure_config_file") as mock_get_config:
             mock_get_config.return_value = {
                 "api": {"openai_key": "invalid_key_format", "claude_key": ""},
                 "image_processing": {"target_resolution": 999},
@@ -184,16 +184,13 @@ target_resolution = 999  # 非標準値
         # 存在しない設定ファイルでのテスト
         missing_config_file = tmp_path / "missing_config.toml"
 
-        with patch("lorairo.services.configuration_service.get_config") as mock_get_config:
+        with patch("lorairo.services.configuration_service.ensure_config_file") as mock_get_config:
             from lorairo.utils.config import DEFAULT_CONFIG
 
             mock_get_config.return_value = DEFAULT_CONFIG
 
             # 存在しないファイルでもエラーなく初期化されること
             config_service = ConfigurationService(missing_config_file)
-
-            # デフォルト値が使用されること（ファイル作成は別途必要）
-            # assert missing_config_file.exists()  # ファイル作成は save_settings() で行われる
 
             # デフォルト値が使用されること
             assert config_service.get_setting("directories", "database_base_dir") == "lorairo_data"
@@ -209,7 +206,7 @@ export_dir = "出力_フォルダ"
 """
         config_file.write_text(unicode_content, encoding="utf-8")
 
-        with patch("lorairo.services.configuration_service.get_config") as mock_get_config:
+        with patch("lorairo.services.configuration_service.ensure_config_file") as mock_get_config:
             mock_get_config.return_value = {
                 "directories": {"database_dir": "データベース_ディレクトリ", "export_dir": "出力_フォルダ"}
             }
@@ -240,7 +237,7 @@ export_dir = "performance_export"
 target_resolution = 1024
 """)
 
-        with patch("lorairo.services.configuration_service.get_config") as mock_get_config:
+        with patch("lorairo.services.configuration_service.ensure_config_file") as mock_get_config:
             mock_get_config.return_value = {
                 "api": {
                     "openai_key": "sk-test123456789",

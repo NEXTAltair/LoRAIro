@@ -6,7 +6,7 @@
 
 ## 2. 責務
 
--   **設定の読み込み:** アプリケーション起動時に設定ファイル (`config/lorairo.toml`) をコア層の関数 (`get_config`) を使用して読み込み、内部に保持する。
+-   **設定の準備と読み込み:** アプリケーション起動時にコア層の関数 (`ensure_config_file`) を使用し、設定ファイル (`config/lorairo.toml`) がなければ生成したうえで読み込み、内部に保持する。
 -   **設定値の提供:** GUI層や他のサービスからの要求に応じて、特定の設定値または全体の設定情報を返す。
     -   `get_setting(section, key, default)`: 指定されたセクションとキーの設定値を取得する。
     -   `get_all_settings()`: 全ての設定情報を辞書として返す。(注意: 内部状態の直接的な公開は避け、必要に応じて読み取り専用のビューを提供するなどの改善を検討)
@@ -19,7 +19,7 @@
 
 ## 3. 依存関係
 
--   `src/lorairo/utils/config.py`: 設定ファイルの読み込み (`get_config`) と書き込み (`write_config_file`) を担当するコア機能。
+-   `src/lorairo/utils/config.py`: 設定ファイルの読み込み (`get_config`)、初回生成 (`ensure_config_file`)、書き込み (`write_config_file`) を担当するコア機能。
 -   `src/lorairo/utils/log.py`: ログ出力用。
 
 ## 4. 注意点

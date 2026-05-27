@@ -38,7 +38,7 @@ class TestDatabasePathIntegration:
 database_dir = "{project_dir}"
 """)
 
-        with patch("lorairo.services.configuration_service.get_config") as mock_get_config:
+        with patch("lorairo.services.configuration_service.ensure_config_file") as mock_get_config:
             mock_get_config.return_value = {"directories": {"database_dir": str(project_dir)}}
 
             config_service = ConfigurationService(config_file)

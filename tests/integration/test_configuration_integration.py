@@ -31,7 +31,7 @@ export_dir = "test_export"
 """)
 
         # 共有設定オブジェクトを使用して複数インスタンスを作成
-        with patch("lorairo.services.configuration_service.get_config") as mock_get_config:
+        with patch("lorairo.services.configuration_service.ensure_config_file") as mock_get_config:
             mock_get_config.return_value = {
                 "api": {"openai_key": "initial_key", "claude_key": ""},
                 "directories": {"database_dir": "test_data", "export_dir": "test_export"},
@@ -95,7 +95,7 @@ database_project_name = "test_project"
 export_dir = ""
 """)
 
-        with patch("lorairo.services.configuration_service.get_config") as mock_get_config:
+        with patch("lorairo.services.configuration_service.ensure_config_file") as mock_get_config:
             mock_get_config.return_value = {
                 "directories": {
                     "database_dir": str(project_dir),
@@ -126,7 +126,7 @@ claude_key = "claude_key_abcdef123456"
 google_key = ""
 """)
 
-        with patch("lorairo.services.configuration_service.get_config") as mock_get_config:
+        with patch("lorairo.services.configuration_service.ensure_config_file") as mock_get_config:
             mock_get_config.return_value = {
                 "api": {
                     "openai_key": "sk-1234567890abcdef",
@@ -153,16 +153,12 @@ google_key = ""
         config_file = tmp_path / "missing_config.toml"
 
         # 存在しない設定ファイルでサービス初期化
-        with patch("lorairo.services.configuration_service.get_config") as mock_get_config:
+        with patch("lorairo.services.configuration_service.ensure_config_file") as mock_get_config:
             from lorairo.utils.config import DEFAULT_CONFIG
 
             mock_get_config.return_value = DEFAULT_CONFIG
 
             service = ConfigurationService(config_file)
-
-            # デフォルト設定ファイルが作成されること（設定保存時に作成される）
-            # 初期化時点では作成されない仕様の場合はコメントアウト
-            # assert config_file.exists()
 
             # デフォルト値が設定されること
             assert service.get_setting("directories", "database_base_dir") == "lorairo_data"
@@ -180,7 +176,7 @@ google_key = ""
 database_dir = "{windows_path}"
 """)
 
-        with patch("lorairo.services.configuration_service.get_config") as mock_get_config:
+        with patch("lorairo.services.configuration_service.ensure_config_file") as mock_get_config:
             mock_get_config.return_value = {"directories": {"database_dir": windows_path}}
 
             service = ConfigurationService(config_file)
