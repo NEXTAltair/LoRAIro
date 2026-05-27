@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -11,10 +12,20 @@ PROJECT_ROOT = Path(__file__).resolve().parents[2]
 HOOK = PROJECT_ROOT / ".claude" / "hooks" / "hook_pre_commands.py"
 
 
-def _run_hook(command: str, *, cwd: str | None = None) -> subprocess.CompletedProcess[str]:
+def _run_hook(
+    command: str,
+    *,
+    cwd: str | None = None,
+    env: dict[str, str] | None = None,
+) -> subprocess.CompletedProcess[str]:
     tool_input = {"command": command}
     if cwd is not None:
         tool_input["cwd"] = cwd
+
+    subprocess_env = os.environ.copy()
+    subprocess_env.pop("UV_PROJECT_ENVIRONMENT", None)
+    if env is not None:
+        subprocess_env.update(env)
 
     return subprocess.run(
         [sys.executable, str(HOOK)],
@@ -22,6 +33,7 @@ def _run_hook(command: str, *, cwd: str | None = None) -> subprocess.CompletedPr
         text=True,
         capture_output=True,
         check=False,
+        env=subprocess_env,
     )
 
 
@@ -55,6 +67,17 @@ def test_allows_uv_with_shared_environment_in_worktree() -> None:
     result = _run_hook(
         "UV_PROJECT_ENVIRONMENT=/workspaces/LoRAIro/.venv uv run pytest tests/unit/test_hook_pre_commands.py",
         cwd="/tmp/worktrees/issue-123",
+    )
+
+    assert result.returncode == 0
+    assert result.stdout == ""
+
+
+def test_allows_uv_with_shared_environment_from_process_env_in_worktree() -> None:
+    result = _run_hook(
+        "uv run pytest tests/unit/test_hook_pre_commands.py",
+        cwd="/tmp/worktrees/issue-123",
+        env={"UV_PROJECT_ENVIRONMENT": "/workspaces/LoRAIro/.venv"},
     )
 
     assert result.returncode == 0

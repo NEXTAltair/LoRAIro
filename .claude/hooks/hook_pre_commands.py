@@ -22,7 +22,9 @@ from typing import Any
 
 LOG_DIR = Path("/workspaces/LoRAIro/.claude/logs")
 WORKTREE_ROOT = Path("/tmp/worktrees")
-SHARED_UV_ENV = "UV_PROJECT_ENVIRONMENT=/workspaces/LoRAIro/.venv"
+SHARED_UV_ENV_NAME = "UV_PROJECT_ENVIRONMENT"
+SHARED_UV_ENV_VALUE = "/workspaces/LoRAIro/.venv"
+SHARED_UV_ENV = f"{SHARED_UV_ENV_NAME}={SHARED_UV_ENV_VALUE}"
 
 
 def log_debug(message: str) -> None:
@@ -117,7 +119,7 @@ def _has_uv_invocation(command: str) -> bool:
 def _has_shared_uv_environment(command: str) -> bool:
     """共有 venv の UV_PROJECT_ENVIRONMENT 指定を検出する。"""
     pattern = rf"(^|[\s;&|])(?:env\s+)?{re.escape(SHARED_UV_ENV)}(?:\s|$)"
-    return bool(re.search(pattern, command))
+    return bool(re.search(pattern, command)) or os.environ.get(SHARED_UV_ENV_NAME) == SHARED_UV_ENV_VALUE
 
 
 def _is_bare_uv_command(command: str) -> bool:
