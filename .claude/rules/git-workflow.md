@@ -45,8 +45,10 @@ make worktree-cleanup-merged
 ## venv（ワークツリー内）
 
 - 原則としてワークツリー内に `.venv` を作らない
-- `/tmp/worktrees/` 配下で `uv` を実行する場合は、共有実行環境を明示する:
-  `UV_PROJECT_ENVIRONMENT=/workspaces/LoRAIro/.venv uv ...`
+- `/tmp/worktrees/` 配下で `uv` を実行する場合は、共有実行環境 `/workspaces/LoRAIro/.venv` を使う。
+- Codex では `.codex/config.toml` の `[shell_environment_policy.set]` に
+  `UV_PROJECT_ENVIRONMENT = "/workspaces/LoRAIro/.venv"` を設定し、`uv run ruff ...` のように env prefix なしで実行する。
+- その環境設定がない shell では `UV_PROJECT_ENVIRONMENT=/workspaces/LoRAIro/.venv uv ...` を明示する。
 - `uv` 単体の help/inspection は venv を作らないため例外として許可する
 - ワークツリー固有の `.venv` が必要な特殊事情がある場合は、理由を明示してから実行する
 - 並列で `uv run` を実行する場合の詳細ルールは [parallel-execution.md](parallel-execution.md) を参照
