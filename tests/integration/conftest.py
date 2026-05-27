@@ -23,6 +23,7 @@ from sqlalchemy.orm import Session, sessionmaker
 from lorairo.database.db_manager import ImageDatabaseManager
 from lorairo.database.repository.image import ImageRepository
 from lorairo.database.schema import Base, ModelType
+from lorairo.services.configuration_service import ConfigurationService
 from lorairo.storage.file_system import FileSystemManager
 
 # ===== Database Fixtures =====
@@ -107,7 +108,7 @@ def test_repository(test_session) -> ImageRepository:
 def test_db_manager(test_engine_with_schema) -> ImageDatabaseManager:
     """ImageDatabaseManager インスタンス"""
     SessionLocal = sessionmaker(bind=test_engine_with_schema)
-    return ImageDatabaseManager(SessionLocal)
+    return ImageDatabaseManager(config_service=ConfigurationService(), session_factory=SessionLocal)
 
 
 # ===== Storage Fixtures =====

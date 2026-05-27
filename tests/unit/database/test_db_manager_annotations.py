@@ -15,7 +15,7 @@ def manager() -> ImageDatabaseManager:
 
     repository = ImageRepository()
     config_service = ConfigurationService()
-    return ImageDatabaseManager(repository, config_service)
+    return ImageDatabaseManager(config_service=config_service, image_repo=repository)
 
 
 class TestParseAnnotationTimestamp:

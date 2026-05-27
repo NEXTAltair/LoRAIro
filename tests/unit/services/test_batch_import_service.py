@@ -32,6 +32,15 @@ def mock_repository() -> MagicMock:
     return repo
 
 
+def _make_service(repository: MagicMock) -> BatchImportService:
+    """Mock repository を split repo roles として明示注入する。"""
+    return BatchImportService(
+        repository,
+        model_repository=repository,
+        annotation_repository=repository,
+    )
+
+
 def _create_jsonl_file(tmp_path: Path, records: list[dict]) -> Path:
     """テスト用JSONLファイルを作成する。"""
     jsonl_path = tmp_path / "test_batch.jsonl"
@@ -81,7 +90,7 @@ class TestBatchImportServiceSingleFile:
             _make_batch_record("0263_1228", "Tags: 1girl, blue hair\n\nCaption: Blue hair."),
         ]
         jsonl_path = _create_jsonl_file(tmp_path, records)
-        service = BatchImportService(mock_repository)
+        service = _make_service(mock_repository)
 
         result = service.import_from_jsonl(jsonl_path)
 
@@ -101,7 +110,7 @@ class TestBatchImportServiceSingleFile:
             _make_batch_record("0262_1227", "Tags: 1girl, solo\n\nCaption: text"),
         ]
         jsonl_path = _create_jsonl_file(tmp_path, records)
-        service = BatchImportService(mock_repository)
+        service = _make_service(mock_repository)
 
         result = service.import_from_jsonl(jsonl_path, dry_run=True)
 
@@ -115,7 +124,7 @@ class TestBatchImportServiceSingleFile:
             _make_batch_record("0262_1227", "Tags: 1girl\n\nCaption: text"),
         ]
         jsonl_path = _create_jsonl_file(tmp_path, records)
-        service = BatchImportService(mock_repository)
+        service = _make_service(mock_repository)
 
         result = service.import_from_jsonl(jsonl_path, model_name_override="custom-model")
 
@@ -129,7 +138,7 @@ class TestBatchImportServiceSingleFile:
             _make_batch_record("0264_1229", "Tags: solo\n\nCaption: also ok"),
         ]
         jsonl_path = _create_jsonl_file(tmp_path, records)
-        service = BatchImportService(mock_repository)
+        service = _make_service(mock_repository)
 
         result = service.import_from_jsonl(jsonl_path)
 
@@ -147,7 +156,7 @@ class TestBatchImportServiceSingleFile:
             _make_batch_record("unknown_999", "Tags: solo\n\nCaption: unmatched"),
         ]
         jsonl_path = _create_jsonl_file(tmp_path, records)
-        service = BatchImportService(mock_repository)
+        service = _make_service(mock_repository)
 
         result = service.import_from_jsonl(jsonl_path)
 
@@ -162,7 +171,7 @@ class TestBatchImportServiceSingleFile:
             _make_batch_record("0263_1228", "Tags: solo", status_code=429),
         ]
         jsonl_path = _create_jsonl_file(tmp_path, records)
-        service = BatchImportService(mock_repository)
+        service = _make_service(mock_repository)
 
         result = service.import_from_jsonl(jsonl_path)
 
@@ -176,7 +185,7 @@ class TestBatchImportServiceSingleFile:
             _make_batch_record("0262_1227", "Tags: 1girl\n\nCaption: text"),
         ]
         jsonl_path = _create_jsonl_file(tmp_path, records)
-        service = BatchImportService(mock_repository)
+        service = _make_service(mock_repository)
 
         result = service.import_from_jsonl(jsonl_path)
 
@@ -195,7 +204,7 @@ class TestBatchImportServiceSingleFile:
             _make_batch_record("0262_1227", "Tags: 1girl\n\nCaption: text"),
         ]
         jsonl_path = _create_jsonl_file(tmp_path, records)
-        service = BatchImportService(mock_repository)
+        service = _make_service(mock_repository)
 
         service.import_from_jsonl(jsonl_path)
 
@@ -219,7 +228,7 @@ class TestBatchImportServiceDirectory:
         (tmp_path / "batch1.jsonl").write_text("\n".join(json.dumps(r) for r in records1), encoding="utf-8")
         (tmp_path / "batch2.jsonl").write_text("\n".join(json.dumps(r) for r in records2), encoding="utf-8")
 
-        service = BatchImportService(mock_repository)
+        service = _make_service(mock_repository)
         result = service.import_from_directory(tmp_path)
 
         assert result.total_records == 2
@@ -227,13 +236,13 @@ class TestBatchImportServiceDirectory:
 
     def test_no_jsonl_files_raises_error(self, tmp_path: Path, mock_repository: MagicMock) -> None:
         """JSONLファイルなしでValueError。"""
-        service = BatchImportService(mock_repository)
+        service = _make_service(mock_repository)
         with pytest.raises(ValueError, match="JSONLファイルが見つかりません"):
             service.import_from_directory(tmp_path)
 
     def test_nonexistent_directory_raises_error(self, mock_repository: MagicMock) -> None:
         """存在しないディレクトリでFileNotFoundError。"""
-        service = BatchImportService(mock_repository)
+        service = _make_service(mock_repository)
         with pytest.raises(FileNotFoundError):
             service.import_from_directory(Path("/nonexistent/path"))
 

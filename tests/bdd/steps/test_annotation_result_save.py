@@ -15,6 +15,7 @@ from PIL import Image
 from pytest_bdd import given, parsers, scenarios, then, when
 from sqlalchemy.orm import sessionmaker
 
+from lorairo.database.repository.annotation_record import AnnotationRepository
 from lorairo.database.repository.image import ImageRepository
 from lorairo.services.annotation_save_service import (
     AnnotationSaveResult,
@@ -81,7 +82,10 @@ def given_registered_image(test_engine_with_schema, tmp_path: Path) -> SaveConte
 @given("AnnotationSaveService が初期化されている")
 def given_save_service_initialized(ctx: SaveContext) -> None:
     assert ctx.repo is not None
-    ctx.save_service = AnnotationSaveService(ctx.repo)
+    ctx.save_service = AnnotationSaveService(
+        AnnotationRepository(ctx.repo.session_factory),
+        image_repo=ctx.repo,
+    )
 
 
 @given("AnnotationSaveService がモックリポジトリで初期化されている", target_fixture="ctx")
@@ -90,7 +94,15 @@ def given_save_service_mock_repo() -> SaveContext:
     repo.find_image_ids_by_phashes.return_value = {}
     repo.get_models_by_litellm_ids.return_value = {}
     repo.batch_resolve_tag_ids.return_value = {}
-    return SaveContext(mock_repository=repo, save_service=AnnotationSaveService(repo))
+    return SaveContext(
+        mock_repository=repo,
+        save_service=AnnotationSaveService(
+            repo,
+            image_repo=repo,
+            model_repo=repo,
+            error_record_repo=repo,
+        ),
+    )
 
 
 @given("その画像に未解決の安全性拒否履歴がある")

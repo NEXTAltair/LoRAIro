@@ -14,6 +14,8 @@ import pytest
 from PIL import Image
 from sqlalchemy.orm import sessionmaker
 
+from lorairo.database.repository.annotation_record import AnnotationRepository
+from lorairo.database.repository.error_record import ErrorRecordRepository
 from lorairo.database.repository.image import ImageRepository
 from lorairo.services.annotation_save_service import AnnotationSaveService
 
@@ -33,7 +35,12 @@ def repo(test_engine_with_schema) -> ImageRepository:
 
 @pytest.fixture
 def save_service(repo: ImageRepository) -> AnnotationSaveService:
-    return AnnotationSaveService(repo)
+    return AnnotationSaveService(AnnotationRepository(repo.session_factory), image_repo=repo)
+
+
+@pytest.fixture
+def error_repo(repo: ImageRepository) -> ErrorRecordRepository:
+    return ErrorRecordRepository(repo.session_factory)
 
 
 @pytest.fixture
@@ -92,7 +99,7 @@ def test_detect_refusal_error_type_non_refusal_returns_none() -> None:
 @pytest.mark.integration
 def test_process_model_result_records_safety_refusal(
     save_service: AnnotationSaveService,
-    repo: ImageRepository,
+    error_repo: ErrorRecordRepository,
     registered_image: tuple[int, str],
 ) -> None:
     """SafetyRefusalError 結果が error_records に記録されることを確認。"""
@@ -109,7 +116,7 @@ def test_process_model_result_records_safety_refusal(
     )
 
     # error_records に記録されたか確認
-    records = repo.get_error_records(operation_type="annotation")
+    records = error_repo.get_error_records(operation_type="annotation")
     assert len(records) == 1
     record = records[0]
     assert record.error_type == "SafetyRefusalError"
@@ -122,7 +129,7 @@ def test_process_model_result_records_safety_refusal(
 @pytest.mark.integration
 def test_process_model_result_records_content_policy_refusal(
     save_service: AnnotationSaveService,
-    repo: ImageRepository,
+    error_repo: ErrorRecordRepository,
     registered_image: tuple[int, str],
 ) -> None:
     """ContentPolicyRefusalError 結果が error_records に記録される。"""
@@ -138,7 +145,7 @@ def test_process_model_result_records_content_policy_refusal(
         image_id=image_id,
     )
 
-    records = repo.get_error_records(operation_type="annotation")
+    records = error_repo.get_error_records(operation_type="annotation")
     assert len(records) == 1
     assert records[0].error_type == "ContentPolicyRefusalError"
 
@@ -146,7 +153,7 @@ def test_process_model_result_records_content_policy_refusal(
 @pytest.mark.integration
 def test_process_model_result_skips_record_when_image_id_missing(
     save_service: AnnotationSaveService,
-    repo: ImageRepository,
+    error_repo: ErrorRecordRepository,
 ) -> None:
     """image_id=None の場合は error_records 記録せず warning のみ (regression check)。"""
     unified_result = {"error": "SafetyRefusalError: blocked"}
@@ -158,14 +165,14 @@ def test_process_model_result_skips_record_when_image_id_missing(
         result=result_dict,
         image_id=None,
     )
-    records = repo.get_error_records(operation_type="annotation")
+    records = error_repo.get_error_records(operation_type="annotation")
     assert len(records) == 0
 
 
 @pytest.mark.integration
 def test_process_model_result_non_refusal_error_still_skipped(
     save_service: AnnotationSaveService,
-    repo: ImageRepository,
+    error_repo: ErrorRecordRepository,
     registered_image: tuple[int, str],
 ) -> None:
     """非 refusal error は従来通り skip され error_records には記録しない。"""
@@ -179,7 +186,7 @@ def test_process_model_result_non_refusal_error_still_skipped(
         result=result_dict,
         image_id=image_id,
     )
-    records = repo.get_error_records(operation_type="annotation")
+    records = error_repo.get_error_records(operation_type="annotation")
     # 本テストは「refusal でない error は records に書かない」を保証する。
     # 既存 _save_error_records 経路で記録される場合もあるが、それは別パス
     # (Worker レベルの try/except)。_process_model_result 単独では記録しない。
@@ -190,12 +197,12 @@ def test_process_model_result_non_refusal_error_still_skipped(
 @pytest.mark.integration
 def test_filter_refused_image_paths_excludes_unresolved_refusal(
     save_service: AnnotationSaveService,
-    repo: ImageRepository,
+    error_repo: ErrorRecordRepository,
     registered_image: tuple[int, str],
 ) -> None:
     """unresolved refusal を持つ画像は filter で除外される。"""
     image_id, file_path = registered_image
-    repo.save_error_record(
+    error_repo.save_error_record(
         operation_type="annotation",
         error_type="SafetyRefusalError",
         error_message="blocked",
@@ -211,13 +218,14 @@ def test_filter_refused_image_paths_excludes_unresolved_refusal(
 def test_filter_refused_image_paths_keeps_resolved_refusal(
     save_service: AnnotationSaveService,
     repo: ImageRepository,
+    error_repo: ErrorRecordRepository,
     registered_image: tuple[int, str],
 ) -> None:
     """resolved refusal は filter 対象外 (再送信可能)。"""
     import datetime
 
     image_id, file_path = registered_image
-    error_id = repo.save_error_record(
+    error_id = error_repo.save_error_record(
         operation_type="annotation",
         error_type="SafetyRefusalError",
         error_message="blocked",
@@ -239,12 +247,12 @@ def test_filter_refused_image_paths_keeps_resolved_refusal(
 @pytest.mark.integration
 def test_filter_refused_image_paths_other_error_types_not_excluded(
     save_service: AnnotationSaveService,
-    repo: ImageRepository,
+    error_repo: ErrorRecordRepository,
     registered_image: tuple[int, str],
 ) -> None:
     """SafetyRefusal / ContentPolicy 以外の error_type は除外されない。"""
     image_id, file_path = registered_image
-    repo.save_error_record(
+    error_repo.save_error_record(
         operation_type="annotation",
         error_type="ApiTimeoutError",
         error_message="timeout",
@@ -277,6 +285,7 @@ def test_filter_refused_image_paths_empty_input(
 def test_filter_uses_batch_resolve_for_path_to_image_id(
     save_service: AnnotationSaveService,
     repo: ImageRepository,
+    error_repo: ErrorRecordRepository,
     registered_image: tuple[int, str],
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -284,7 +293,7 @@ def test_filter_uses_batch_resolve_for_path_to_image_id(
     バッチ解決 (`get_image_ids_by_filepaths`) を使う回帰防止。
     """
     image_id, file_path = registered_image
-    repo.save_error_record(
+    error_repo.save_error_record(
         operation_type="annotation",
         error_type="SafetyRefusalError",
         error_message="blocked",
@@ -422,14 +431,14 @@ def test_safe_resolve_stored_path_returns_none_on_oserror(
 
 @pytest.mark.integration
 def test_get_error_image_ids_with_error_types_filter(
-    repo: ImageRepository,
+    error_repo: ErrorRecordRepository,
     registered_image: tuple[int, str],
 ) -> None:
     """get_error_image_ids が error_types filter を正しく適用する。"""
     image_id, _ = registered_image
 
     # 2 種類の error_type を追加
-    repo.save_error_record(
+    error_repo.save_error_record(
         operation_type="annotation",
         error_type="SafetyRefusalError",
         error_message="safety",
@@ -437,7 +446,7 @@ def test_get_error_image_ids_with_error_types_filter(
         model_name="openai/gpt-4o",
     )
 
-    refused = repo.get_error_image_ids(
+    refused = error_repo.get_error_image_ids(
         operation_type="annotation",
         resolved=False,
         error_types=["SafetyRefusalError", "ContentPolicyRefusalError"],
@@ -445,7 +454,7 @@ def test_get_error_image_ids_with_error_types_filter(
     assert image_id in refused
 
     # 別の error_type だけ filter すると引っかからない
-    refused_other = repo.get_error_image_ids(
+    refused_other = error_repo.get_error_image_ids(
         operation_type="annotation",
         resolved=False,
         error_types=["ApiTimeoutError"],

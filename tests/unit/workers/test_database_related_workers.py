@@ -56,7 +56,7 @@ class TestDatabaseRegistrationWorker:
     @pytest.fixture
     def real_db_manager(self, real_repository, real_config_service):
         """実際のImageDatabaseManager（Mockしない）"""
-        return ImageDatabaseManager(real_repository, real_config_service)
+        return ImageDatabaseManager(config_service=real_config_service, image_repo=real_repository)
 
     @pytest.fixture
     def mock_fsm(self, mock_image_files):
@@ -200,7 +200,7 @@ class TestSearchWorker:
     @pytest.fixture
     def real_db_manager(self, real_repository, real_config_service):
         """実際のImageDatabaseManagerを使用"""
-        return ImageDatabaseManager(real_repository, real_config_service)
+        return ImageDatabaseManager(config_service=real_config_service, image_repo=real_repository)
 
     @pytest.fixture
     def search_conditions(self):
@@ -646,7 +646,7 @@ class TestBuildRegistrationResult:
     @pytest.fixture
     def real_db_manager(self, real_repository, real_config_service):
         """実際のImageDatabaseManager"""
-        return ImageDatabaseManager(real_repository, real_config_service)
+        return ImageDatabaseManager(config_service=real_config_service, image_repo=real_repository)
 
     @pytest.fixture
     def mock_fsm(self):
@@ -857,7 +857,7 @@ class TestRegistrationErrorHandling:
     @pytest.fixture
     def real_db_manager(self, real_repository, real_config_service):
         """実際のImageDatabaseManager"""
-        return ImageDatabaseManager(real_repository, real_config_service)
+        return ImageDatabaseManager(config_service=real_config_service, image_repo=real_repository)
 
     @pytest.fixture
     def mock_fsm(self, mock_image_files):

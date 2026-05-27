@@ -54,7 +54,7 @@ def image_db_manager(image_repository):
     from lorairo.services.configuration_service import ConfigurationService
 
     config_service = ConfigurationService()
-    return ImageDatabaseManager(image_repository, config_service)
+    return ImageDatabaseManager(config_service=config_service, image_repo=image_repository)
 
 
 @pytest.fixture

@@ -69,9 +69,9 @@ def db_manager(temp_project_dir):
 
     # ImageDatabaseManager作成
     manager = ImageDatabaseManager(
-        repository=repository,
         config_service=mock_config_service,
         fsm=fsm,
+        image_repo=repository,
     )
     return manager
 
@@ -342,7 +342,7 @@ class TestBatchImportWorkerErrorRecording:
         jsonl_file.touch()
 
         worker = BatchImportWorker(
-            repository=db_manager.repository,
+            repository=db_manager.image_repo,
             jsonl_files=[jsonl_file],
             db_manager=db_manager,
         )
@@ -370,7 +370,7 @@ class TestBatchImportWorkerErrorRecording:
         jsonl_file.touch()
 
         worker = BatchImportWorker(
-            repository=db_manager.repository,
+            repository=db_manager.image_repo,
             jsonl_files=[jsonl_file],
             db_manager=db_manager,
         )

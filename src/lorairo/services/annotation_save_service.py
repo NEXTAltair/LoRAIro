@@ -71,6 +71,8 @@ class AnnotationSaveService:
             model_repo: ModelRepository (model lookup)。
             error_record_repo: ErrorRecordRepository (エラー記録 / refused 画像 ID)。
         """
+        if isinstance(annotation_repo, ImageRepository):
+            raise TypeError("annotation_repo must be AnnotationRepository, not ImageRepository")
         self._annotation_repo = annotation_repo
         # 補助 Repo: 未指定時は session_factory を流用して生成 (DI contract 維持)。
         sf = annotation_repo.session_factory

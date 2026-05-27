@@ -58,8 +58,9 @@ class BatchImportService:
         annotation_repository: AnnotationRepository | None = None,
     ) -> None:
         self._image_repository = image_repository
-        self._model_repository: Any = model_repository or image_repository
-        self._annotation_repository: Any = annotation_repository or image_repository
+        sf = image_repository.session_factory
+        self._model_repository: Any = model_repository or ModelRepository(session_factory=sf)
+        self._annotation_repository: Any = annotation_repository or AnnotationRepository(session_factory=sf)
         self._parser = BatchContentParser()
         self._matcher = BatchImageMatcher(image_repository)
 
