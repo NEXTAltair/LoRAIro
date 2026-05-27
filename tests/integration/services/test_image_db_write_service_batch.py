@@ -27,7 +27,7 @@ class TestImageDBWriteServiceBatchRatingScore:
     def mock_db_manager(self, mock_repository):
         """モックImageDatabaseManager"""
         manager = Mock(spec=ImageDatabaseManager)
-        manager.repository = mock_repository
+        manager.annotation_repo = mock_repository
         manager.get_manual_edit_model_id.return_value = 999
         return manager
 
