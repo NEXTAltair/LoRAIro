@@ -84,6 +84,42 @@ openai_key = "sk-existing"
 
         assert result["api"]["openai_key"] == ""
 
+    def test_deep_update_keeps_defaults_for_legacy_blank_placeholders(self):
+        """旧テンプレート由来の空文字placeholderは既定値を維持する"""
+        base = {
+            "directories": {
+                "database_base_dir": "lorairo_data",
+                "database_project_name": "main_dataset",
+                "export_dir": "export",
+                "batch_results_dir": "batch_results",
+                "database_dir": "",
+            },
+            "database": {"image_db_filename": "image_database.db"},
+            "log": {"file_path": "/tmp/lorairo.log", "level": "INFO"},
+        }
+        override = {
+            "directories": {
+                "database_base_dir": "",
+                "database_project_name": "",
+                "export_dir": "",
+                "batch_results_dir": "",
+                "database_dir": "",
+            },
+            "database": {"image_db_filename": ""},
+            "log": {"file_path": "", "level": ""},
+        }
+
+        result = deep_update(base, override)
+
+        assert result["directories"]["database_base_dir"] == "lorairo_data"
+        assert result["directories"]["database_project_name"] == "main_dataset"
+        assert result["directories"]["export_dir"] == "export"
+        assert result["directories"]["batch_results_dir"] == "batch_results"
+        assert result["directories"]["database_dir"] == ""
+        assert result["database"]["image_db_filename"] == "image_database.db"
+        assert result["log"]["file_path"] == "/tmp/lorairo.log"
+        assert result["log"]["level"] == ""
+
     def test_write_config_file_raises_on_write_failure(self, tmp_path):
         """write_config_fileは保存失敗を呼び出し側へ伝える"""
         config_path = tmp_path / "missing_parent" / "config.toml"

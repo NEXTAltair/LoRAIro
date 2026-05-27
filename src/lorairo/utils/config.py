@@ -117,6 +117,15 @@ DEFAULT_CONFIG = {
     },
 }
 
+LEGACY_BLANK_AS_DEFAULT_KEYS = {
+    ("directories", "database_base_dir"),
+    ("directories", "database_project_name"),
+    ("directories", "export_dir"),
+    ("directories", "batch_results_dir"),
+    ("database", "image_db_filename"),
+    ("log", "file_path"),
+}
+
 
 def create_user_config_defaults() -> dict[str, Any]:
     """Return the user-facing defaults written to a new config file.
@@ -129,6 +138,11 @@ def create_user_config_defaults() -> dict[str, Any]:
     if isinstance(log_config, dict):
         log_config.pop("file_path", None)
     return user_config
+
+
+def _should_keep_default_for_blank(path: tuple[str, ...], value: Any) -> bool:
+    """Return whether a legacy blank placeholder should keep DEFAULT_CONFIG."""
+    return value == "" and path in LEGACY_BLANK_AS_DEFAULT_KEYS
 
 
 def load_config(config_file: Path = DEFAULT_CONFIG_PATH) -> dict[str, Any]:
@@ -150,10 +164,13 @@ def load_config(config_file: Path = DEFAULT_CONFIG_PATH) -> dict[str, Any]:
         raise ValueError(f"設定ファイルの解析エラー: {e!s}") from e
 
 
-def deep_update(d: dict[str, Any], u: dict[str, Any]) -> dict[str, Any]:
+def deep_update(d: dict[str, Any], u: dict[str, Any], path: tuple[str, ...] = ()) -> dict[str, Any]:
     for k, v in u.items():
+        current_path = (*path, k)
         if isinstance(v, dict):
-            d[k] = deep_update(d.get(k, {}), v)
+            d[k] = deep_update(d.get(k, {}), v, current_path)
+        elif _should_keep_default_for_blank(current_path, v):
+            continue
         else:
             d[k] = v
     return d
