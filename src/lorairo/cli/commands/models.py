@@ -42,6 +42,7 @@ class ModelCategoryFilter(StrEnum):
     scorer = "scorer"
     captioner = "captioner"
     vision = "vision"
+    rating = "rating"
 
 
 class RouteFilter(StrEnum):
@@ -105,7 +106,7 @@ def list_models(
         ModelCategoryFilter.all,
         "--category",
         case_sensitive=False,
-        help="Filter by model category (all / tagger / scorer / captioner / vision)",
+        help="Filter by model category (all / tagger / scorer / captioner / vision / rating)",
     ),
     route: RouteFilter | None = typer.Option(
         None,
