@@ -238,6 +238,14 @@ class TestModelSyncServiceWithRealDB:
         assert gpt4o_model["provider"] == "openai"
         assert gpt4o_model["class_name"] is None  # Phase 2: AnnotatorInfo に class_name なし
 
+        moderation_model = next(
+            (m for m in metadata_list if m["litellm_model_id"] == "omni-moderation-latest"), None
+        )
+        assert moderation_model is not None
+        assert moderation_model["model_type"] == "rating"
+        assert moderation_model["model_types"] == ["ratings"]
+        assert moderation_model["provider"] == "openai"
+
     def test_pydanticai_direct_model_provider_falls_back_to_unknown(
         self, test_model_repository, mock_config_service
     ):

@@ -264,10 +264,17 @@ def _raw_provider_payload_or_none(result: Any) -> Any:
 
 
 def _supported_kwargs(cls: Any, values: Mapping[str, Any]) -> dict[str, Any]:
-    try:
-        field_names = set(getattr(cls, "__dataclass_fields__", {}))
-    except TypeError:
-        field_names = set()
+    field_names: set[str] = set()
+    dataclass_fields = getattr(cls, "__dataclass_fields__", {})
+    if dataclass_fields:
+        field_names.update(dataclass_fields.keys())
+
+    model_fields = getattr(cls, "model_fields", None)
+    if isinstance(model_fields, dict):
+        field_names.update(model_fields.keys())
+    elif model_fields is not None:
+        field_names.update(str(field_name) for field_name in model_fields.keys())
+
     if not field_names:
         return dict(values)
     return {key: value for key, value in values.items() if key in field_names}

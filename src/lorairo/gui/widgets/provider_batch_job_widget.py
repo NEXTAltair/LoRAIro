@@ -30,6 +30,17 @@ _DEFAULT_ENDPOINTS = {
     "openai": "/v1/chat/completions",
     "anthropic": "/v1/messages",
 }
+_TASK_TYPES = ("annotation", "rating_preflight")
+_TASK_TYPE_ENDPOINTS = {
+    "annotation": {
+        "openai": "/v1/chat/completions",
+        "anthropic": "/v1/messages",
+    },
+    "rating_preflight": {
+        "openai": "/v1/moderations",
+    },
+}
+_MODEL_TYPE_RATINGS = "ratings"
 _ITEM_STATUSES = ("all", "failed", "expired", "canceled")
 
 
@@ -86,6 +97,12 @@ class ProviderBatchJobWidget(QWidget):
         self.comboBoxModel.setObjectName("comboBoxProviderBatchModel")
         self.comboBoxModel.setMinimumWidth(320)
         submit_layout.addRow("Model", self.comboBoxModel)
+
+        self.comboBoxTaskType = QComboBox()
+        self.comboBoxTaskType.setObjectName("comboBoxProviderBatchTaskType")
+        self.comboBoxTaskType.addItems(_TASK_TYPES)
+        self.comboBoxTaskType.setCurrentText("annotation")
+        submit_layout.addRow("Task", self.comboBoxTaskType)
 
         self.lineEditImageIds = QLineEdit()
         self.lineEditImageIds.setObjectName("lineEditProviderBatchImageIds")
@@ -184,6 +201,7 @@ class ProviderBatchJobWidget(QWidget):
         self.buttonUseSelected.clicked.connect(self.use_selected_images)
         self.buttonRefreshModels.clicked.connect(self.refresh_models)
         self.buttonSubmit.clicked.connect(self.submit_job)
+        self.comboBoxTaskType.currentTextChanged.connect(self.refresh_models)
         self.buttonRefreshJobs.clicked.connect(self.refresh_jobs)
         self.buttonRefreshStatus.clicked.connect(self.refresh_selected_job_status)
         self.buttonCancel.clicked.connect(self.cancel_selected_job)
@@ -199,6 +217,7 @@ class ProviderBatchJobWidget(QWidget):
         if self._model_repository is None:
             return
 
+        task_type = self._selected_task_type()
         try:
             models = self._load_batch_capable_models()
         except Exception as e:
@@ -209,6 +228,9 @@ class ProviderBatchJobWidget(QWidget):
             provider = self._direct_provider_for_model(model)
             if provider is None:
                 continue
+            if not self._model_supports_task_type(model, provider, task_type):
+                continue
+            endpoint = self._endpoint_for_task(provider, task_type)
             label = f"{provider}: {model.litellm_model_id}"
             self.comboBoxModel.addItem(
                 label,
@@ -216,10 +238,38 @@ class ProviderBatchJobWidget(QWidget):
                     "model_id": model.id,
                     "provider": provider,
                     "litellm_model_id": model.litellm_model_id,
-                    "endpoint": _DEFAULT_ENDPOINTS[provider],
+                    "endpoint": endpoint,
+                    "task_type": task_type,
                 },
             )
         self.labelStatus.setText(f"{self.comboBoxModel.count()} batch-capable model(s)")
+
+    def _selected_task_type(self) -> str:
+        task_type = self.comboBoxTaskType.currentText()
+        if task_type in _TASK_TYPES:
+            return task_type
+        return "annotation"
+
+    def _endpoint_for_task(self, provider: str, task_type: str) -> str:
+        provider_tasks = _TASK_TYPE_ENDPOINTS.get(task_type)
+        if provider_tasks is None:
+            provider_tasks = _TASK_TYPE_ENDPOINTS["annotation"]
+        endpoint = provider_tasks.get(provider)
+        if endpoint is None:
+            raise ValueError(f"Provider '{provider}' は task_type '{task_type}' をサポートしていません。")
+        return endpoint
+
+    @staticmethod
+    def _model_has_model_type(model: Any, model_type: str) -> bool:
+        model_types = getattr(model, "model_types", ())
+        return any(getattr(item, "name", None) == model_type for item in model_types)
+
+    def _model_supports_task_type(self, model: Any, provider: str, task_type: str) -> bool:
+        if task_type == "annotation":
+            return True
+        if task_type == "rating_preflight":
+            return provider == "openai" and self._model_has_model_type(model, _MODEL_TYPE_RATINGS)
+        return False
 
     def _load_batch_capable_models(self) -> list[Any]:
         source = self._model_source
@@ -299,6 +349,7 @@ class ProviderBatchJobWidget(QWidget):
             image_ids = self._parse_image_ids()
             if not image_ids:
                 raise ValueError("image IDs are required")
+            task_type = self._selected_task_type()
             job_id = self._workflow_service.submit_images(
                 provider=model_data["provider"],
                 endpoint=model_data["endpoint"],
@@ -307,6 +358,7 @@ class ProviderBatchJobWidget(QWidget):
                 image_ids=image_ids,
                 model_id=model_data["model_id"],
                 description=self.lineEditDescription.text().strip() or None,
+                task_type=task_type,
             )
             self.refresh_jobs()
             self.select_job(job_id)
