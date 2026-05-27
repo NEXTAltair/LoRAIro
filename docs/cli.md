@@ -551,11 +551,24 @@ Results         150
 #### Provider Batch API job 管理
 
 大量画像を OpenAI / Anthropic direct route の Provider Batch API に投入する場合は、同期
-`annotate run` とは別の Provider Batch job 管理 workflow を使う設計です。2026-05-25 時点の
-`main` では user-facing CLI はまだ実装途中で、現時点で実行可能なのは legacy/manual OpenAI JSONL
-import の `lorairo-cli annotate import-batch` だけです。
+`annotate run` とは別の **top-level `batch` group** を使います。永続化された job queue として
+submit / list / status / cancel / fetch / import を操作できます。
 
-利用条件、OpenAI / Anthropic の注意点、legacy/manual OpenAI JSONL import との違いは
+```bash
+# 一覧表示の例
+uv run lorairo-cli batch list --project my_dataset
+
+# Anthropic direct route に submit
+uv run lorairo-cli batch submit --project my_dataset \
+  --model anthropic/claude-3-5-sonnet-20240620 \
+  --image-id 101 --image-id 102 --prompt-profile default
+
+# 完了後の取得 + import
+uv run lorairo-cli batch import 42 --project my_dataset
+```
+
+実装ステータス、各 subcommand のフル仕様、Anthropic / OpenAI 利用条件、legacy/manual OpenAI JSONL
+import (`annotate import-batch`) との違いは
 [Provider Batch API 利用条件と運用ガイド](provider-batch-api.md) を参照してください。
 
 ---

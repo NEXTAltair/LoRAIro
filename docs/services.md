@@ -157,13 +157,16 @@ Qt依存のないビジネスロジックサービス群。CLI、GUI、API全て
 #### ProviderBatchJobService
 - **Path**: `src/lorairo/services/provider_batch_service.py`
 - **Purpose**: Provider Batch API job lifecycle の共通 service boundary
-- **Operations**: submit / refresh / cancel / download_results
+- **Operations**: submit_batch / submit (legacy) / refresh / cancel / fetch_results / download_results
+- **Status normalization**: `normalize_status()` / `validate_transition()` で 10 種共通 status を管理
+- **Custom ID SSoT**: `build_custom_id(image_id)` → `img-{image_id}`
 - **User Guide**: [docs/provider-batch-api.md](provider-batch-api.md)
 
 #### ProviderBatchWorkflowService
 - **Path**: `src/lorairo/services/provider_batch_workflow_service.py`
 - **Purpose**: GUI / API / CLI から再利用する Provider Batch API workflow facade
-- **Operations**: image ID からの submit request 構築、設定由来 API key / artifact directory 適用、normalized item state 反映
+- **Operations**: build_submit_request / submit_images / refresh / cancel / fetch_results / **import_results** / apply_result_items
+- **Re-import gate**: `import_results()` は `job.status == "imported"` または `imported_at IS NOT NULL` で reject
 - **Adapter wiring**: `ServiceContainer.provider_batch_workflow_service` は image-annotator-lib 境界へ委譲する `ProviderBatchLibraryAdapter` を主要 provider 用に登録する
 
 #### BatchImportService

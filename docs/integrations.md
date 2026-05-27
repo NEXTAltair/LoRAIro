@@ -336,14 +336,20 @@ results = adapter.annotate_batch(
 
 Provider Batch API は同期 `annotate_batch()` とは別の非同期 job lifecycle です。OpenAI / Anthropic
 direct route の provider-specific payload 作成、submit、retrieve、cancel、result fetch、parse、
-normalized result 生成は `image-annotator-lib` が担当する設計です。2026-05-25 時点の `main` では
-`ProviderBatchAdapter` protocol と `ProviderBatchJobService` が存在しますが、OpenAI / Anthropic adapter
-wiring と user-facing CLI / GUI はまだ実装途中です。
+normalized result 生成は `image-annotator-lib` が担当します。
 
-LoRAIro は job / item / artifact state を DB に保存し、library から返る normalized result を既存
-annotation save path へ import する方針です。
+LoRAIro は `provider_batch_jobs` / `provider_batch_items` / `provider_batch_artifacts` の 3 テーブルに
+job / item / artifact state を保存し、library から返る `BatchFetchResult` を既存 annotation save path
+へ import します。`custom_id = img-{image_id}` を結果照合の SSoT とします。
 
-ユーザー向けの利用条件と運用手順は
+実装ステータス (2026-05-27 時点):
+
+- **Anthropic direct route**: 完全実装 (lib `webapi/batch/adapters/anthropic.py` + LoRAIro CLI/GUI/Service/DB)
+- **OpenAI direct route**: LoRAIro 側 (CLI/GUI/Service/DB) は受付完成、image-annotator-lib adapter が未実装
+- **Google Vertex AI**: ADR 0038 Phase 3、CLI/GUI とも submit を reject
+- **OpenRouter route**: ADR 0038 non-goal、CLI/GUI とも submit を reject
+
+ユーザー向けの利用条件、CLI / GUI 運用手順、Status mapping、Privacy 警告、ADR と実装の差分は
 [Provider Batch API 利用条件と運用ガイド](provider-batch-api.md) を参照してください。
 
 ### データ型
