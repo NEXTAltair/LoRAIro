@@ -12,13 +12,17 @@ LoRAIroプロジェクト用コマンド制御・変換システム。
 """
 
 import json
+import os
 import re
+import shlex
 import sys
 from datetime import datetime
 from pathlib import Path
 from typing import Any
 
 LOG_DIR = Path("/workspaces/LoRAIro/.claude/logs")
+WORKTREE_ROOT = Path("/tmp/worktrees")
+SHARED_UV_ENV = "UV_PROJECT_ENVIRONMENT=/workspaces/LoRAIro/.venv"
 
 
 def log_debug(message: str) -> None:
@@ -71,6 +75,89 @@ def check_blocked(command: str, rules: dict[str, Any]) -> str | None:
             suggestion = rule.get("suggestion", "")
             return f"🚫 {reason}\n→ {suggestion}"
     return None
+
+
+def _is_under_worktree(path: str | Path) -> bool:
+    """パスが /tmp/worktrees 配下かどうかを判定する。"""
+    try:
+        return Path(path).expanduser().resolve().is_relative_to(WORKTREE_ROOT)
+    except (OSError, RuntimeError):
+        return str(path).startswith(f"{WORKTREE_ROOT}/")
+
+
+def _command_cd_worktree(command: str) -> bool:
+    """command 内の `cd /tmp/worktrees/...` を検出する。"""
+    try:
+        parts = shlex.split(command)
+    except ValueError:
+        return bool(re.search(r"\bcd\s+/tmp/worktrees(?:/|\b)", command))
+
+    for index, part in enumerate(parts[:-1]):
+        if part == "cd" and _is_under_worktree(parts[index + 1]):
+            return True
+    return False
+
+
+def _runs_in_worktree(command: str, input_data: dict[str, Any]) -> bool:
+    """Bash 実行コンテキストが worktree 配下かどうかを推定する。"""
+    tool_input = input_data.get("tool_input", {})
+    for key in ("cwd", "workdir", "working_dir"):
+        value = tool_input.get(key) or input_data.get(key)
+        if value and _is_under_worktree(value):
+            return True
+
+    return _command_cd_worktree(command) or _is_under_worktree(os.getcwd())
+
+
+def _has_uv_invocation(command: str) -> bool:
+    """uv 実行を検出する。env prefix や cd 後の実行も対象にする。"""
+    return bool(re.search(r"(^|[\s;&|])(?:env\s+)?(?:[A-Za-z_][A-Za-z0-9_]*=\S+\s+)*uv(?:\s|$)", command))
+
+
+def _has_shared_uv_environment(command: str) -> bool:
+    """共有 venv の UV_PROJECT_ENVIRONMENT 指定を検出する。"""
+    pattern = rf"(^|[\s;&|])(?:env\s+)?{re.escape(SHARED_UV_ENV)}(?:\s|$)"
+    return bool(re.search(pattern, command))
+
+
+def _is_bare_uv_command(command: str) -> bool:
+    """`uv` 単体は help 表示のみで venv を作らないため許可する。"""
+    stripped = command.strip()
+    if stripped == "uv":
+        return True
+
+    try:
+        parts = shlex.split(stripped)
+    except ValueError:
+        return False
+
+    if parts == ["uv"]:
+        return True
+
+    for separator in ("&&", ";"):
+        if separator in parts:
+            uv_index = parts.index(separator) + 1
+            return parts[uv_index:] == ["uv"]
+    return False
+
+
+def check_worktree_uv_environment(command: str, input_data: dict[str, Any]) -> str | None:
+    """worktree 内の uv は共有 .venv を明示させ、worktree .venv 作成を防ぐ。"""
+    if not _has_uv_invocation(command):
+        return None
+    if not _runs_in_worktree(command, input_data):
+        return None
+    if _has_shared_uv_environment(command):
+        return None
+    if _is_bare_uv_command(command):
+        return None
+
+    log_debug(f"BLOCKING: uv without shared env in worktree: {command}")
+    return (
+        "🚫 worktree 内で uv を実行する場合は共有 venv を明示してください。\n"
+        f"→ `{SHARED_UV_ENV} uv ...` を使用してください。\n"
+        "→ venv を作らない確認目的だけなら `uv` 単体は許可されています。"
+    )
 
 
 def check_draft_pr_create(command: str) -> str | None:
@@ -140,6 +227,12 @@ def main() -> None:
         draft_pr_msg = check_draft_pr_create(command)
         if draft_pr_msg:
             print(json.dumps({"decision": "block", "reason": draft_pr_msg}, ensure_ascii=False))
+            sys.exit(2)
+
+        # worktree 内 uv 実行制御
+        worktree_uv_msg = check_worktree_uv_environment(command, input_data)
+        if worktree_uv_msg:
+            print(json.dumps({"decision": "block", "reason": worktree_uv_msg}, ensure_ascii=False))
             sys.exit(2)
 
         # grep系コマンド制御

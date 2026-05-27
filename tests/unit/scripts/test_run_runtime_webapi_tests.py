@@ -71,6 +71,16 @@ def test_build_child_env_removes_existing_api_env_when_config_missing() -> None:
     assert env["PATH"] == "/usr/bin"
 
 
+def test_build_child_env_uses_shared_venv_for_worktree() -> None:
+    env = runner_script.build_child_env(
+        {"openai": "", "anthropic": "", "google": "", "openrouter": ""},
+        base_env={"PATH": "/usr/bin"},
+        repo_root=Path("/tmp/worktrees/issue-123"),
+    )
+
+    assert env["UV_PROJECT_ENVIRONMENT"] == "/workspaces/LoRAIro/.venv"
+
+
 def test_run_runtime_webapi_tests_invokes_iam_lib_pytest_without_printing_keys(capsys) -> None:
     calls = []
     config = FakeConfigService(
