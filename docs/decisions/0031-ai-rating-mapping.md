@@ -115,6 +115,8 @@ LoRAIro#471 では、OpenAI Moderations Batch を annotation API 送信前の ra
    | `violence/graphic` | `>= 0.50` | `r` | `R` | gore / 出血 / バトル漫画を送信対象に残す |
    | `violence` | `>= 0.60` | `pg13` | `PG-13` | annotation API に送る |
    | `self-harm` | `>= 0.70` | `r` | `R` | annotation API に送る |
+   | `self-harm/intent` | `>= 0.70` | `r` | `R` | annotation API に送る |
+   | `self-harm/instructions` | `>= 0.70` | `r` | `R` | annotation API に送る |
 
    どの条件にも一致しない場合は `raw_label="pg"` とする。
 
@@ -126,6 +128,8 @@ LoRAIro#471 では、OpenAI Moderations Batch を annotation API 送信前の ra
    - `violence`
    - `violence/graphic`
    - `self-harm`
+   - `self-harm/intent`
+   - `self-harm/instructions`
 
    初期実装では無視する:
 
@@ -136,13 +140,11 @@ LoRAIro#471 では、OpenAI Moderations Batch を annotation API 送信前の ra
    - `illicit`
    - `illicit/violent`
    - `sexual/minors`
-   - `self-harm/intent`
-   - `self-harm/instructions`
 
    `harassment`, `hate`, `illicit` 系は画像単体 rating / annotation preflight ではなく text moderation
    の領域である。`sexual/minors` は OpenAI docs 上 text-only category であり、LoRAIro の画像 rating
-   には使わない。`self-harm/intent` / `self-harm/instructions` は text intent / instruction の意味が
-   強く、画像 rating の初期判定では `self-harm` に集約する。
+   には使わない。`self-harm/intent` / `self-harm/instructions` は image input でも score が返るため、
+   親カテゴリ `self-harm` と同じ `R` 判定に畳む。
 
 5. **annotation API 送信可否は canonical rating だけで判断する。**
 
@@ -158,6 +160,8 @@ LoRAIro#471 では、OpenAI Moderations Batch を annotation API 送信前の ra
 
    - `provider_batch_jobs.endpoint = "/v1/moderations"`
    - `provider_batch_items.task_type = "rating_preflight"`
+   - `provider_batch_jobs.model_id` / `provider_batch_items.model_id` には
+     `omni-moderation-latest` 等の moderation model ledger entry を設定する
    - `provider_batch_items.image_id` で対象画像と対応付ける
    - `provider_batch_items.raw_response` は OpenAI moderation response の保存に使ってよい
    - canonical rating は既存 `ratings` table に保存する

@@ -149,10 +149,11 @@ class TestProviderBatchWorkflowService:
         assert adapter.submitted_request is not None
         assert adapter.submitted_request.api_keys == {"openai": "sk-test"}
         assert [
-            (item.custom_id, item.image_id, item.image_path) for item in adapter.submitted_request.items
+            (item.custom_id, item.image_id, item.image_path, item.task_type)
+            for item in adapter.submitted_request.items
         ] == [
-            ("img-1", 1, Path("/tmp/images/one.webp")),
-            ("img-2", 2, Path("/tmp/images/two.webp")),
+            ("img-1", 1, Path("/tmp/images/one.webp"), "annotation"),
+            ("img-2", 2, Path("/tmp/images/two.webp"), "annotation"),
         ]
         job = test_provider_batch_repository.get_provider_batch_job(job_id)
         assert job is not None
@@ -183,6 +184,50 @@ class TestProviderBatchWorkflowService:
 
         assert adapter.submitted_request is not None
         assert adapter.submitted_request.items[0].image_path == Path("/tmp/resized/one.webp")
+
+    def test_submit_images_preserves_rating_preflight_task_type(
+        self,
+        workflow: tuple[ProviderBatchWorkflowService, FakeProviderBatchAdapter],
+        test_provider_batch_repository: ProviderBatchRepository,
+        db_session_factory: sessionmaker,
+    ) -> None:
+        service, adapter = workflow
+        _insert_image(db_session_factory, 1, "/tmp/images/one.webp")
+
+        job_id = service.submit_images(
+            provider="openai",
+            endpoint="/v1/moderations",
+            litellm_model_id="openai/omni-moderation-latest",
+            prompt_profile="moderation",
+            image_ids=[1],
+            model_id=10,
+            task_type="rating_preflight",
+        )
+
+        assert adapter.submitted_request is not None
+        assert adapter.submitted_request.items[0].task_type == "rating_preflight"
+        assert adapter.submitted_request.items[0].model_id == 10
+        item = test_provider_batch_repository.list_provider_batch_items(job_id)[0]
+        assert item.task_type == "rating_preflight"
+        assert item.model_id == 10
+
+    def test_submit_images_requires_model_id_for_rating_preflight(
+        self,
+        workflow: tuple[ProviderBatchWorkflowService, FakeProviderBatchAdapter],
+        db_session_factory: sessionmaker,
+    ) -> None:
+        service, _adapter = workflow
+        _insert_image(db_session_factory, 1, "/tmp/images/one.webp")
+
+        with pytest.raises(ProviderBatchError, match="model_id"):
+            service.submit_images(
+                provider="openai",
+                endpoint="/v1/moderations",
+                litellm_model_id="openai/omni-moderation-latest",
+                prompt_profile="moderation",
+                image_ids=[1],
+                task_type="rating_preflight",
+            )
 
     def test_submit_images_rejects_missing_image_id(
         self,

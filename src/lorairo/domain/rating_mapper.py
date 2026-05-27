@@ -2,7 +2,7 @@
 
 image-annotator-lib は rating を model-native な ``RatingPrediction``
 (``raw_label`` / ``confidence_score`` / ``source_scheme``) で返す。LoRAIro 側の
-``PG / PG-13 / R / X`` への変換は LoRAIro の責務 (ADR 0031)。
+``PG / PG-13 / R / X / XXX`` への変換は LoRAIro の責務 (ADR 0031)。
 
 このモジュールは ``(source_scheme, raw_label)`` を canonical rating に変換する純粋関数を
 提供する。``raw annotation`` は変更せず、保存時の derived 値として計算する。
@@ -14,7 +14,8 @@ image-annotator-lib は rating を model-native な ``RatingPrediction``
 
 設計方針:
 
-- mapper の出力は ``PG / PG-13 / R / X`` のみ。``XXX`` は別基準なしに自動生成しない。
+- mapper の出力は通常 ``PG / PG-13 / R / X`` まで。``XXX`` は
+  ``openai_moderation_v1`` のような専用判定 scheme でのみ自動生成する。
 - 未知 scheme / 未知 label は ``None`` を返す (呼び出し側で skip)。
 """
 
@@ -58,6 +59,14 @@ _LABEL_MAP: dict[str, dict[str, str]] = {
         "sfw": "PG",
         "nsfw": "R",
     },
+    # OpenAI Moderations 由来の LoRAIro rating preflight (ADR 0031 amendment / Issue #471)
+    "openai_moderation_v1": {
+        "pg": "PG",
+        "pg13": "PG-13",
+        "r": "R",
+        "x": "X",
+        "xxx": "XXX",
+    },
 }
 
 
@@ -80,7 +89,8 @@ def map_rating(raw_label: str, source_scheme: str) -> str | None:
         source_scheme: rating ラベルの分類スキーム (例: "danbooru4", "e6213")。
 
     Returns:
-        canonical rating ("PG" / "PG-13" / "R" / "X")。未知の scheme / label の場合は None。
+        canonical rating ("PG" / "PG-13" / "R" / "X" / "XXX")。
+        未知の scheme / label の場合は None。
     """
     scheme = _normalize_scheme(source_scheme)
     label = _normalize_label(raw_label)
