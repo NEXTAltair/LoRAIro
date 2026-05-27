@@ -282,7 +282,7 @@ def create(
         # ServiceContainer を取得してプロジェクト DB に切り替え
         container = get_service_container()
         container.set_active_project(project)
-        repository = container.image_repository
+        repository = container.db_manager.image_repo
         export_service = container.dataset_export_service
 
         console.print(f"[cyan]Loading project database: {project}[/cyan]")

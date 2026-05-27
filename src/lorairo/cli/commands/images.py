@@ -199,7 +199,7 @@ def list_images(
         container = get_service_container()
         container.set_active_project(project)
 
-        repository = container.image_repository
+        repository = container.db_manager.image_repo
         criteria = ImageFilterCriteria(include_nsfw=True)
         image_records, total_count = repository.get_images_by_filter(criteria)
 

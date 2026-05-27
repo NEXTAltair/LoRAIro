@@ -57,9 +57,9 @@ def _model(**overrides):
 
 def _container() -> MagicMock:
     container = MagicMock()
-    container.image_repository.get_model_by_litellm_id.return_value = _model()
-    container.image_repository.get_models_by_name.return_value = []
-    container.image_repository.get_provider_batch_job.return_value = _job()
+    container.db_manager.model_repo.get_model_by_litellm_id.return_value = _model()
+    container.db_manager.model_repo.get_models_by_name.return_value = []
+    container.db_manager.provider_batch_repo.get_provider_batch_job.return_value = _job()
     container.provider_batch_workflow_service.submit_images.return_value = 42
     return container
 
@@ -120,7 +120,7 @@ def test_batch_submit_calls_workflow_service(mock_get_container: MagicMock) -> N
 @patch("lorairo.cli.commands.batch.get_service_container")
 def test_batch_submit_rejects_google_until_phase3(mock_get_container: MagicMock) -> None:
     container = _container()
-    container.image_repository.get_model_by_litellm_id.return_value = _model(
+    container.db_manager.model_repo.get_model_by_litellm_id.return_value = _model(
         provider="google",
         litellm_model_id="google/gemini-2.5-pro",
     )
@@ -150,7 +150,7 @@ def test_batch_submit_rejects_google_until_phase3(mock_get_container: MagicMock)
 @patch("lorairo.cli.commands.batch.get_service_container")
 def test_batch_list_shows_persisted_jobs(mock_get_container: MagicMock) -> None:
     container = _container()
-    container.image_repository.list_provider_batch_jobs.return_value = [
+    container.db_manager.provider_batch_repo.list_provider_batch_jobs.return_value = [
         _job(id=1, provider="openai"),
         _job(id=2, provider="anthropic", provider_status="in_progress"),
     ]
@@ -159,7 +159,7 @@ def test_batch_list_shows_persisted_jobs(mock_get_container: MagicMock) -> None:
     result = runner.invoke(app, ["batch", "list", "--project", "demo", "--status", "submitted"])
 
     assert result.exit_code == 0
-    container.image_repository.list_provider_batch_jobs.assert_called_once_with(
+    container.db_manager.provider_batch_repo.list_provider_batch_jobs.assert_called_once_with(
         provider=None,
         status="submitted",
         limit=100,

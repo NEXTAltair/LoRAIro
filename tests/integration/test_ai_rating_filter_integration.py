@@ -163,8 +163,8 @@ class TestManagerLayerParameterForwarding:
 
         config_service = MagicMock(spec=ConfigurationService)
         manager = ImageDatabaseManager(
-            repository=mock_repository,
             config_service=config_service,
+            image_repo=mock_repository,
         )
 
         # 新しいパラメータを含めて呼び出し（レガシー形式）
