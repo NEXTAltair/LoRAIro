@@ -20,6 +20,7 @@ _SUPPORTED_SUBMIT_PROVIDERS = {"openai", "anthropic"}
 _SUPPORTED_TASK_TYPES = {"annotation", "rating_preflight"}
 _TASK_TYPE_ENDPOINTS = {
     "annotation": {
+        "openai": "/v1/chat/completions",
         "anthropic": "/v1/messages",
     },
     "rating_preflight": {
