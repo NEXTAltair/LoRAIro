@@ -3,7 +3,7 @@
 from pathlib import Path
 from typing import Any
 
-from ..utils.config import DEFAULT_CONFIG, DEFAULT_CONFIG_PATH, get_config, write_config_file
+from ..utils.config import DEFAULT_CONFIG_PATH, ensure_config_file, write_config_file
 from ..utils.log import logger
 
 
@@ -27,18 +27,12 @@ class ConfigurationService:
             self._config = shared_config
             logger.debug("共有設定オブジェクトを使用してConfigurationServiceを初期化しました")
         else:
-            self._config = {}  # Initialize _config here
             try:
-                self._config = get_config(self._config_path)
+                self._config = ensure_config_file(self._config_path)
                 logger.info("設定ファイルを読み込みました: {}", self._config_path)
-            except FileNotFoundError:
-                logger.warning(
-                    "設定ファイルが見つかりません。デフォルト設定で新規作成します: {}", self._config_path
-                )
-                self._config = self._create_default_config_file()
             except Exception:
                 logger.error("設定ファイルの読み込み中に予期せぬエラーが発生しました。", exc_info=True)
-                self._config = {}
+                raise
 
     def get_setting(self, section: str, key: str, default: Any | None = None) -> Any:
         """指定されたセクションとキーの設定値を取得します。
@@ -240,28 +234,6 @@ class ConfigurationService:
             return False
         api_key = self.get_setting("api", key_name)
         return bool(api_key and api_key.strip())
-
-    def _create_default_config_file(self) -> dict[str, Any]:
-        """デフォルト設定ファイルを作成し、設定辞書を返します。"""
-        try:
-            # デフォルト設定のコピーを作成
-            from copy import deepcopy
-
-            default_config = deepcopy(DEFAULT_CONFIG)
-
-            # デフォルト設定ファイルを作成
-            self._config_path.parent.mkdir(parents=True, exist_ok=True)
-            write_config_file(default_config, self._config_path)
-
-            logger.info("デフォルト設定ファイルを作成しました: {}", self._config_path)
-            return default_config
-
-        except Exception as e:
-            logger.error("デフォルト設定ファイルの作成に失敗しました: {}", e, exc_info=True)
-            # 作成に失敗した場合はメモリ上のみでデフォルト設定を使用
-            from copy import deepcopy
-
-            return deepcopy(DEFAULT_CONFIG)
 
     def get_shared_config(self) -> dict[str, Any]:
         """共有設定オブジェクトを取得します。DI用途で使用。"""

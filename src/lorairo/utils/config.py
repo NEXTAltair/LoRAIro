@@ -29,7 +29,9 @@ DEFAULT_CONFIG_PATH = PROJECT_ROOT / "config" / "lorairo.toml"
 DEFAULT_LOG_PATH = PROJECT_ROOT / "logs" / "lorairo.log"
 DEFAULT_CLI_LOG_PATH = PROJECT_ROOT / "logs" / "lorairo-cli.log"
 
-# デフォルト設定
+# Runtime defaults used after merging user configuration.
+# Keep this as the single source of truth for default configuration values.
+# The first-run config file is generated from a user-facing subset of this dict.
 DEFAULT_CONFIG = {
     "api": {
         "openai_key": "",
@@ -115,6 +117,33 @@ DEFAULT_CONFIG = {
     },
 }
 
+LEGACY_BLANK_AS_DEFAULT_KEYS = {
+    ("directories", "database_base_dir"),
+    ("directories", "database_project_name"),
+    ("directories", "export_dir"),
+    ("directories", "batch_results_dir"),
+    ("database", "image_db_filename"),
+    ("log", "file_path"),
+}
+
+
+def create_user_config_defaults() -> dict[str, Any]:
+    """Return the user-facing defaults written to a new config file.
+
+    Runtime-only defaults stay in DEFAULT_CONFIG and are applied by get_config().
+    """
+    user_config = deepcopy(DEFAULT_CONFIG)
+    user_config.pop("qt", None)
+    log_config = user_config.get("log")
+    if isinstance(log_config, dict):
+        log_config.pop("file_path", None)
+    return user_config
+
+
+def _should_keep_default_for_blank(path: tuple[str, ...], value: Any) -> bool:
+    """Return whether a legacy blank placeholder should keep DEFAULT_CONFIG."""
+    return value == "" and path in LEGACY_BLANK_AS_DEFAULT_KEYS
+
 
 def load_config(config_file: Path = DEFAULT_CONFIG_PATH) -> dict[str, Any]:
     try:
@@ -135,11 +164,14 @@ def load_config(config_file: Path = DEFAULT_CONFIG_PATH) -> dict[str, Any]:
         raise ValueError(f"設定ファイルの解析エラー: {e!s}") from e
 
 
-def deep_update(d: dict[str, Any], u: dict[str, Any]) -> dict[str, Any]:
+def deep_update(d: dict[str, Any], u: dict[str, Any], path: tuple[str, ...] = ()) -> dict[str, Any]:
     for k, v in u.items():
+        current_path = (*path, k)
         if isinstance(v, dict):
-            d[k] = deep_update(d.get(k, {}), v)
-        elif v != "":
+            d[k] = deep_update(d.get(k, {}), v, current_path)
+        elif _should_keep_default_for_blank(current_path, v):
+            continue
+        else:
             d[k] = v
     return d
 
@@ -150,20 +182,23 @@ def get_config(config_file: Path = DEFAULT_CONFIG_PATH) -> dict[str, Any]:
         loaded_config = load_config(config_file)
         final_config = deep_update(final_config, loaded_config)
     except FileNotFoundError:
-        # ファイルがない場合はデフォルト設定のみ返す（自動作成される）
+        # Missing files are handled without side effects; creation is explicit.
         pass
     return final_config
 
 
 def write_config_file(config_data: dict[str, Any], file_path: Path = DEFAULT_CONFIG_PATH) -> None:
     """設定をファイルに保存します。"""
-    try:
-        with open(file_path, "w", encoding="utf-8") as f:
-            toml.dump(config_data, f)
-    except Exception as e:
-        from ..utils.log import logger
+    with open(file_path, "w", encoding="utf-8") as f:
+        toml.dump(config_data, f)
 
-        logger.error(f"設定ファイルの保存に失敗しました: {e}", exc_info=True)
+
+def ensure_config_file(config_file: Path = DEFAULT_CONFIG_PATH) -> dict[str, Any]:
+    """Create a user-facing config file if needed and return effective config."""
+    if not config_file.exists():
+        config_file.parent.mkdir(parents=True, exist_ok=True)
+        write_config_file(create_user_config_defaults(), config_file)
+    return get_config(config_file)
 
 
 if __name__ == "__main__":

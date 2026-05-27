@@ -12,8 +12,120 @@ from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
+import toml
 
 from lorairo.services.configuration_service import ConfigurationService
+from lorairo.utils.config import (
+    DEFAULT_CONFIG,
+    create_user_config_defaults,
+    deep_update,
+    ensure_config_file,
+    get_config,
+    write_config_file,
+)
+
+
+class TestConfigUtils:
+    """config.py の初回生成とマージ挙動のテスト"""
+
+    def test_get_config_missing_file_has_no_creation_side_effect(self, tmp_path):
+        """get_configはmissing file時にファイルを作成しない"""
+        config_path = tmp_path / "missing.toml"
+
+        config = get_config(config_path)
+
+        assert not config_path.exists()
+        assert config["api"]["openai_key"] == DEFAULT_CONFIG["api"]["openai_key"]
+
+    def test_ensure_config_file_creates_user_facing_file(self, tmp_path):
+        """ensure_config_fileはuser-facing subsetを生成して有効設定を返す"""
+        config_path = tmp_path / "config" / "lorairo.toml"
+
+        config = ensure_config_file(config_path)
+
+        assert config_path.exists()
+        generated_config = toml.load(config_path)
+        assert "qt" not in generated_config
+        assert "file_path" not in generated_config["log"]
+        assert config["log"]["file_path"] == DEFAULT_CONFIG["log"]["file_path"]
+
+    def test_ensure_config_file_does_not_overwrite_existing_file(self, tmp_path):
+        """既存configは上書きしない"""
+        config_path = tmp_path / "lorairo.toml"
+        original_content = """
+[directories]
+database_dir = "custom_db"
+
+[api]
+openai_key = "sk-existing"
+"""
+        config_path.write_text(original_content, encoding="utf-8")
+
+        config = ensure_config_file(config_path)
+
+        assert config_path.read_text(encoding="utf-8") == original_content
+        assert config["directories"]["database_dir"] == "custom_db"
+        assert config["api"]["openai_key"] == "sk-existing"
+
+    def test_create_user_config_defaults_excludes_runtime_only_values(self):
+        """初回生成用設定は内部専用値を含めない"""
+        user_config = create_user_config_defaults()
+
+        assert "qt" not in user_config
+        assert "file_path" not in user_config["log"]
+        assert DEFAULT_CONFIG["log"]["file_path"]
+
+    def test_deep_update_treats_empty_string_as_explicit_value(self):
+        """空文字は未指定ではなく明示値としてmergeする"""
+        base = {"api": {"openai_key": "sk-default"}}
+        override = {"api": {"openai_key": ""}}
+
+        result = deep_update(base, override)
+
+        assert result["api"]["openai_key"] == ""
+
+    def test_deep_update_keeps_defaults_for_legacy_blank_placeholders(self):
+        """旧テンプレート由来の空文字placeholderは既定値を維持する"""
+        base = {
+            "directories": {
+                "database_base_dir": "lorairo_data",
+                "database_project_name": "main_dataset",
+                "export_dir": "export",
+                "batch_results_dir": "batch_results",
+                "database_dir": "",
+            },
+            "database": {"image_db_filename": "image_database.db"},
+            "log": {"file_path": "/tmp/lorairo.log", "level": "INFO"},
+        }
+        override = {
+            "directories": {
+                "database_base_dir": "",
+                "database_project_name": "",
+                "export_dir": "",
+                "batch_results_dir": "",
+                "database_dir": "",
+            },
+            "database": {"image_db_filename": ""},
+            "log": {"file_path": "", "level": ""},
+        }
+
+        result = deep_update(base, override)
+
+        assert result["directories"]["database_base_dir"] == "lorairo_data"
+        assert result["directories"]["database_project_name"] == "main_dataset"
+        assert result["directories"]["export_dir"] == "export"
+        assert result["directories"]["batch_results_dir"] == "batch_results"
+        assert result["directories"]["database_dir"] == ""
+        assert result["database"]["image_db_filename"] == "image_database.db"
+        assert result["log"]["file_path"] == "/tmp/lorairo.log"
+        assert result["log"]["level"] == ""
+
+    def test_write_config_file_raises_on_write_failure(self, tmp_path):
+        """write_config_fileは保存失敗を呼び出し側へ伝える"""
+        config_path = tmp_path / "missing_parent" / "config.toml"
+
+        with pytest.raises(FileNotFoundError):
+            write_config_file({}, config_path)
 
 
 class TestConfigurationService:
@@ -28,12 +140,15 @@ class TestConfigurationService:
             # When: ConfigurationServiceを初期化
             config_service = ConfigurationService(config_path=config_path)
 
-            # Then: デフォルト設定が読み込まれる（ファイルは作成されない）
-            assert not config_path.exists()  # ファイルは作成されない
+            # Then: デフォルト設定が読み込まれ、user-facing設定ファイルが作成される
+            assert config_path.exists()
             assert config_service.get_setting("api", "openai_key", None) == ""
             assert (
                 config_service.get_setting("directories", "database_dir", None) == ""
             )  # 新しいデフォルト値
+            generated_config = toml.load(config_path)
+            assert "qt" not in generated_config
+            assert "file_path" not in generated_config["log"]
 
     def test_shared_config_initialization(self):
         """共有設定オブジェクトでの初期化テスト"""
@@ -337,33 +452,30 @@ class TestConfigurationService:
 class TestConfigurationServiceInitBranches:
     """__init__ の例外分岐テスト"""
 
-    @patch("lorairo.services.configuration_service.get_config")
-    @patch("lorairo.services.configuration_service.write_config_file")
-    def test_init_file_not_found_creates_default(self, mock_write, mock_get_config, tmp_path):
-        """FileNotFoundError発生時に_create_default_config_fileが呼ばれる"""
-        mock_get_config.side_effect = FileNotFoundError("File not found")
+    @patch("lorairo.services.configuration_service.ensure_config_file")
+    def test_init_uses_ensure_config_file(self, mock_ensure, tmp_path):
+        """通常初期化ではensure_config_fileを使用する"""
+        mock_ensure.return_value = DEFAULT_CONFIG
         config_path = tmp_path / "config.toml"
         service = ConfigurationService(config_path=config_path)
-        mock_write.assert_called_once()
+        mock_ensure.assert_called_once_with(config_path)
         assert service.get_setting("api", "openai_key") == ""
 
-    @patch("lorairo.services.configuration_service.get_config")
-    @patch("lorairo.services.configuration_service.write_config_file")
-    def test_init_file_not_found_write_failure_fallback(self, mock_write, mock_get_config, tmp_path):
-        """デフォルト設定ファイル作成失敗時にメモリ上のデフォルト設定を使用する"""
-        mock_get_config.side_effect = FileNotFoundError("File not found")
-        mock_write.side_effect = PermissionError("Permission denied")
+    @patch("lorairo.services.configuration_service.ensure_config_file")
+    def test_init_ensure_config_file_failure_raises(self, mock_ensure, tmp_path):
+        """設定ファイル準備失敗時は起動失敗として例外を送出する"""
+        mock_ensure.side_effect = PermissionError("Permission denied")
         config_path = tmp_path / "config.toml"
-        service = ConfigurationService(config_path=config_path)
-        assert service.get_setting("api", "openai_key") == ""
+        with pytest.raises(PermissionError):
+            ConfigurationService(config_path=config_path)
 
-    @patch("lorairo.services.configuration_service.get_config")
-    def test_init_unexpected_exception_returns_empty(self, mock_get_config, tmp_path):
-        """予期せぬエラー発生時に空の設定を使用する"""
-        mock_get_config.side_effect = ValueError("Unexpected parse error")
+    @patch("lorairo.services.configuration_service.ensure_config_file")
+    def test_init_unexpected_exception_raises(self, mock_ensure, tmp_path):
+        """予期せぬエラー発生時も例外を送出する"""
+        mock_ensure.side_effect = ValueError("Unexpected parse error")
         config_path = tmp_path / "config.toml"
-        service = ConfigurationService(config_path=config_path)
-        assert service._config == {}
+        with pytest.raises(ValueError):
+            ConfigurationService(config_path=config_path)
 
 
 class TestConfigurationServiceMiscMethods:
