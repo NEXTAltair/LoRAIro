@@ -43,6 +43,15 @@ from lorairo.services.provider_batch_service import (
 )
 from lorairo.utils.log import logger
 
+_TASK_TYPE_ENDPOINTS = {
+    "annotation": {
+        "anthropic": "/v1/messages",
+    },
+    "rating_preflight": {
+        "openai": "/v1/moderations",
+    },
+}
+
 if TYPE_CHECKING:
     from lorairo.database.schema import ProviderBatchItem, ProviderBatchJob
 
@@ -188,7 +197,7 @@ class ProviderBatchWorkflowService:
         """Build an ADR 0038 submit request from LoRAIro image IDs."""
         if not image_ids:
             raise ProviderBatchError("Provider batch submit image_ids が空です")
-        self._validate_submit_task(
+        endpoint = self._validate_submit_task(
             provider=provider,
             endpoint=endpoint,
             litellm_model_id=litellm_model_id,
@@ -248,29 +257,39 @@ class ProviderBatchWorkflowService:
         litellm_model_id: str,
         task_type: str,
         model_id: int | None,
-    ) -> None:
-        if task_type != "rating_preflight":
-            return
-
-        if model_id is None:
-            raise ProviderBatchError("rating_preflight batch submit には model_id が必要です")
+    ) -> str:
         normalized_provider = provider.strip().lower()
-        if normalized_provider != "openai":
-            raise ProviderBatchError("rating_preflight batch submit は openai provider のみ対応です")
         normalized_endpoint = endpoint.strip()
         if not normalized_endpoint.startswith("/"):
             normalized_endpoint = f"/{normalized_endpoint}"
-        if normalized_endpoint.rstrip("/") != "/v1/moderations":
+        canonical_endpoint = normalized_endpoint.rstrip("/")
+
+        provider_endpoints = _TASK_TYPE_ENDPOINTS.get(task_type)
+        expected_endpoint = provider_endpoints.get(normalized_provider) if provider_endpoints else None
+        if expected_endpoint is None:
             raise ProviderBatchError(
-                "rating_preflight batch submit には endpoint=/v1/moderations が必要です"
+                f"Provider batch submit は provider={normalized_provider}, task_type={task_type} に未対応です"
             )
+        if canonical_endpoint != expected_endpoint:
+            raise ProviderBatchError(f"Provider batch submit には endpoint={expected_endpoint} が必要です")
+
+        if task_type != "rating_preflight":
+            return expected_endpoint
+
+        if model_id is None:
+            raise ProviderBatchError("rating_preflight batch submit には model_id が必要です")
         normalized_model_id = litellm_model_id.strip().lower()
-        is_openai_direct_model = normalized_model_id.startswith("openai/")
-        is_legacy_openai_moderation_model = (
-            "/" not in normalized_model_id and normalized_model_id.startswith("omni-moderation-")
+        bare_model_id = (
+            normalized_model_id.removeprefix("openai/")
+            if normalized_model_id.startswith("openai/")
+            else normalized_model_id
         )
-        if not is_openai_direct_model and not is_legacy_openai_moderation_model:
-            raise ProviderBatchError("rating_preflight batch submit には openai direct model が必要です")
+        if "/" in bare_model_id or not bare_model_id.startswith("omni-moderation-"):
+            raise ProviderBatchError(
+                "rating_preflight batch submit には openai moderation model が必要です"
+            )
+
+        return expected_endpoint
 
     def submit_images(
         self,

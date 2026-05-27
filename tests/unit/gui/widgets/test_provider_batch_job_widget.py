@@ -117,10 +117,10 @@ def test_set_dependencies_filters_direct_batch_models(widget, dependencies):
 
     widget.set_dependencies(workflow, repository, model_source, model_repository)
 
-    assert widget.comboBoxModel.count() == 2
+    assert widget.comboBoxModel.count() == 1
     labels = [widget.comboBoxModel.itemText(i) for i in range(widget.comboBoxModel.count())]
-    assert "openai: openai/gpt-4.1-mini" in labels
     assert "anthropic: anthropic/claude-3-5-sonnet" in labels
+    assert all("openai/gpt-4.1-mini" not in label for label in labels)
     assert all("openrouter" not in label for label in labels)
     assert widget.tableJobs.rowCount() == 1
 
@@ -167,12 +167,12 @@ def test_submit_job_calls_workflow(widget, dependencies):
     widget.submit_job()
 
     workflow.submit_images.assert_called_once_with(
-        provider="openai",
-        endpoint="/v1/chat/completions",
-        litellm_model_id="openai/gpt-4.1-mini",
+        provider="anthropic",
+        endpoint="/v1/messages",
+        litellm_model_id="anthropic/claude-3-5-sonnet",
         prompt_profile="default",
         image_ids=[1, 2],
-        model_id=7,
+        model_id=9,
         description="nightly",
         task_type="annotation",
     )
