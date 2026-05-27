@@ -771,6 +771,7 @@ class TestApplyRefusalPrefilter:
         # AnnotationSaveService.filter_refused_image_paths をパッチ
         mock_save_service = Mock()
         mock_save_service.filter_refused_image_paths = Mock(return_value=["/path/img1.jpg"])
+        mock_save_service.filter_excluded_by_rating = Mock(return_value=["/path/img1.jpg"])
         monkeypatch.setattr(aw_mod, "AnnotationSaveService", lambda **kwargs: mock_save_service)
 
         worker = self._make_worker(
@@ -786,7 +787,40 @@ class TestApplyRefusalPrefilter:
         mock_save_service.filter_refused_image_paths.assert_called_once_with(
             ["/path/img1.jpg", "/path/img2.jpg"]
         )
+        mock_save_service.filter_excluded_by_rating.assert_called_once_with(["/path/img1.jpg"])
         # image_paths が filter 結果で置換された
+        assert worker.image_paths == ["/path/img1.jpg"]
+
+    def test_filter_applied_for_webapi_then_rating_filter(self, mock_annotation_logic, monkeypatch):
+        """WebAPI 選択時は refusal / rating の両 filter が順次適用される。"""
+        from lorairo.gui.workers import annotation_worker as aw_mod
+
+        registry = self._registry_with_models([("openai/gpt-4o", True)])
+        mock_db = Mock()
+        mock_db.repository = Mock()
+
+        mock_save_service = Mock()
+        mock_save_service.filter_refused_image_paths = Mock(
+            return_value=["/path/img1.jpg", "/path/img2.jpg"]
+        )
+        mock_save_service.filter_excluded_by_rating = Mock(return_value=["/path/img1.jpg"])
+        monkeypatch.setattr(aw_mod, "AnnotationSaveService", lambda **kwargs: mock_save_service)
+
+        worker = self._make_worker(
+            mock_annotation_logic,
+            ["/path/img1.jpg", "/path/img2.jpg", "/path/img3.jpg"],
+            ["openai/gpt-4o"],
+            mock_db,
+            registry,
+        )
+        worker._apply_refusal_prefilter()
+
+        mock_save_service.filter_refused_image_paths.assert_called_once_with(
+            ["/path/img1.jpg", "/path/img2.jpg", "/path/img3.jpg"]
+        )
+        mock_save_service.filter_excluded_by_rating.assert_called_once_with(
+            ["/path/img1.jpg", "/path/img2.jpg"]
+        )
         assert worker.image_paths == ["/path/img1.jpg"]
 
     def test_filter_skipped_for_local_only_selection(self, mock_annotation_logic, monkeypatch):
@@ -799,6 +833,7 @@ class TestApplyRefusalPrefilter:
 
         mock_save_service = Mock()
         mock_save_service.filter_refused_image_paths = Mock()
+        mock_save_service.filter_excluded_by_rating = Mock()
         monkeypatch.setattr(aw_mod, "AnnotationSaveService", lambda **kwargs: mock_save_service)
 
         worker = self._make_worker(
@@ -812,6 +847,7 @@ class TestApplyRefusalPrefilter:
 
         # filter は呼ばれない (skipped)
         mock_save_service.filter_refused_image_paths.assert_not_called()
+        mock_save_service.filter_excluded_by_rating.assert_not_called()
         # image_paths は変更されない
         assert worker.image_paths == ["/path/img1.jpg", "/path/img2.jpg"]
 
@@ -877,6 +913,9 @@ class TestApplyRefusalPrefilter:
         # filter が image_paths をそのまま返す (refusal 0 件)
         mock_save_service = Mock()
         mock_save_service.filter_refused_image_paths = Mock(
+            return_value=["/path/img1.jpg", "/path/img2.jpg"]
+        )
+        mock_save_service.filter_excluded_by_rating = Mock(
             return_value=["/path/img1.jpg", "/path/img2.jpg"]
         )
         monkeypatch.setattr(aw_mod, "AnnotationSaveService", lambda **kwargs: mock_save_service)

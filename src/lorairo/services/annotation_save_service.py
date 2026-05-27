@@ -611,6 +611,7 @@ class AnnotationSaveService:
         "SafetyRefusalError",
         "ContentPolicyRefusalError",
     )
+    _RATING_EXCLUSION_VALUES: frozenset[str] = frozenset({"X", "XXX"})
 
     def filter_refused_image_paths(self, image_paths: list[str]) -> list[str]:
         """過去に safety/content refusal を返した画像 path を除外する。
@@ -669,4 +670,57 @@ class AnnotationSaveService:
                 f"WebAPI annotation 送信前 filter: 対象 {len(filtered)}件 "
                 f"(refusal 除外: {excluded_count}件)"
             )
+        return filtered
+
+    def filter_excluded_by_rating(self, image_paths: list[str]) -> list[str]:
+        """`ratings.normalized_rating` が X / XXX の画像を除外する prefilter を行う。
+
+        本 method は rating 事前フィルタの SSoT として、`ratings.normalized_rating`
+        を唯一の判定源として扱う。
+        - X / XXX: 送信除外
+        - PG / PG-13 / R / UNRATED / None: 送信許可
+        - 未登録 path: filter 対象外として通過
+
+        Args:
+            image_paths: アノテーション対象候補の画像 path リスト。
+
+        Returns:
+            X / XXX 除外後の image_path リスト (順序維持)。
+        """
+        if not image_paths:
+            return []
+
+        path_to_image_id = self._image_repo.get_image_ids_by_filepaths(image_paths)
+        image_ids = [image_id for image_id in set(path_to_image_id.values()) if image_id is not None]
+        if not image_ids:
+            logger.debug("rating prefilter: 画像ID未解決のため除外なし")
+            return list(image_paths)
+
+        try:
+            latest_rating_map = self._image_repo.get_latest_normalized_ratings_by_image_ids(image_ids)
+        except Exception as e:
+            logger.warning(f"rating prefilter 取得失敗: {e}", exc_info=True)
+            return list(image_paths)
+
+        excluded_image_ids = {
+            image_id
+            for image_id, normalized in latest_rating_map.items()
+            if normalized in self._RATING_EXCLUSION_VALUES
+        }
+        if not excluded_image_ids:
+            logger.debug(f"rating prefilter: 除外対象なし (対象件数={len(image_paths)}件)")
+            return list(image_paths)
+
+        filtered = []
+        excluded_count = 0
+        for path in image_paths:
+            image_id = path_to_image_id.get(path)
+            if image_id is not None and image_id in excluded_image_ids:
+                excluded_count += 1
+                continue
+            filtered.append(path)
+
+        if excluded_count > 0:
+            logger.info(f"rating prefilter: 対象 {len(filtered)}件 (rating 除外: {excluded_count}件)")
+
         return filtered

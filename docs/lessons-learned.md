@@ -28,6 +28,7 @@ LoRAIro 開発で得られた教訓。バグパターン・設計ミス・解決
 - **セッション管理の落とし穴**: バッチ処理中のセッションをWorker間で共有するとデッドロックが発生する。Worker毎に独立したセッションを使用する。
 - **バッチタグ追加のアトミック性**: タグ追加をループで個別コミットすると、エラー時に中間状態が残る。`Session.add_all()` + 一括コミットでアトミック性を保証する（ADR 0012参照）。
 - **書き込み・読み込みの対称性**: カラムと子テーブルに同一意味のデータを並存させる二重管理は禁止。書き込み API と読み込み API が同一テーブルを参照することを PR レビューで必ず確認する。Issue #118 (NSFW 判定) と Issue #119 (manual_rating フィルタ) は同パターンで発生した（ADR 0015参照）。
+- **`ratings.normalized_rating` は送信判定の唯一参照値**: `ratings.raw_rating_value` は保存元トレース用の補助情報で、`X` / `XXX` フィルタは `normalized_rating` のみで行う。`PG`/`PG-13`/`R`/`UNRATED`/`None` は rating eligibility 通過。
 - **User DB 初期化順序**: Base DBが存在しない環境でもUser DBは単独で動作する必要がある。`init_user_db()` は Base DB の有無に依存しない設計にする。
 - **プロジェクト概念のスキーマ正規化** (ADR 0017): ファイル名から推論する暗黙構造は破綻する。`lorairo_data/<name>_<timestamp>/` ディレクトリ構造だけでプロジェクトを識別していたため、Issue #166 で `repository.get_images_by_filter()` 引数なし全件取得 (21k 件) バグが発生。`projects` テーブル + `Image.project_id` FK 化で `WHERE project_id = ?` インデックス検索に置換し根本解決。DB を第一級エンティティとして設計することで、LIKE 句マッチや全件スキャンを構造的に排除できる。
 
