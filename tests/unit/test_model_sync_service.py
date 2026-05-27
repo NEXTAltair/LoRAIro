@@ -105,7 +105,7 @@ class TestMockAnnotatorLibrary:
         assert "wd-v1-4-swinv2-tagger" in names
 
     def test_mock_model_types_use_post_issue_19_literals(self):
-        """モックモデルの model_type は Issue #19 の Literal 値 (vision/scorer/tagger/captioner)"""
+        """モックモデルの model_type は Issue #19 以降の Literal 値を使う。"""
         mock_lib = MockAnnotatorLibrary()
         infos = mock_lib.list_annotator_info()
 
@@ -182,6 +182,11 @@ class TestModelTypeMapping:
             capabilities={TaskCapability.TAGS, TaskCapability.RATINGS},
         )
         assert service_with_mock._map_library_model_type_to_db(info) == ["tags", "ratings"]
+
+    def test_rating_maps_to_ratings_only(self, service_with_mock):
+        """rating 専用モデルは scores/tags を付けず ratings のみに分類される。"""
+        info = _info("anime-rating", "rating", is_api=False, capabilities={TaskCapability.RATINGS})
+        assert service_with_mock._map_library_model_type_to_db(info) == ["ratings"]
 
     def test_unknown_type_falls_back_to_caption(self, service_with_mock):
         """未知のタイプは ['caption'] にフォールバック (警告ログ付き、Issue #243)。"""
@@ -509,6 +514,7 @@ class TestModelSyncServiceWithRealDB:
         assert model_sync_service.validate_annotation_model_type("scorer") is True
         assert model_sync_service.validate_annotation_model_type("tagger") is True
         assert model_sync_service.validate_annotation_model_type("captioner") is True
+        assert model_sync_service.validate_annotation_model_type("rating") is True
         # 旧値 "score" は invalid (Issue #19 で "scorer" に統一)
         assert model_sync_service.validate_annotation_model_type("score") is False
         assert model_sync_service.validate_annotation_model_type("upscaler") is False

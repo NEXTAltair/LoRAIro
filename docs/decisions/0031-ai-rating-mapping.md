@@ -162,6 +162,8 @@ LoRAIro#471 では、OpenAI Moderations Batch を annotation API 送信前の ra
    - `provider_batch_items.task_type = "rating_preflight"`
    - `provider_batch_jobs.model_id` / `provider_batch_items.model_id` には
      `omni-moderation-latest` 等の moderation model ledger entry を設定する
+   - moderation model ledger entry は `model_type="rating"` / DB `model_types=["ratings"]`
+     として登録し、`scores` / `tags` には分類しない
    - `provider_batch_items.image_id` で対象画像と対応付ける
    - `provider_batch_items.raw_response` は OpenAI moderation response の保存に使ってよい
    - canonical rating は既存 `ratings` table に保存する
@@ -174,6 +176,16 @@ LoRAIro#471 では、OpenAI Moderations Batch を annotation API 送信前の ra
    OpenAI Batch output/error JSONL の取得・parse、Moderations response の category score 抽出、
    `RatingPrediction` への畳み込みは image-annotator-lib の責務である。LoRAIro 側で
    OpenAI-specific artifact parser を追加しない。
+
+8. **rating 専用モデルには `model_type="rating"` を使う。**
+
+   `TaskCapability.RATINGS` は出力 capability、`model_type="rating"` は主用途分類である。
+   `AnimeRatingAnnotator` や OpenAI Moderations preflight のように rating だけを返すモデルは
+   `model_type="scorer"` に寄せず、LoRAIro DB では `model_types=["ratings"]` に写像する。
+   一方で WDTagger / CamieTagger のように tags と rating を両方返すモデルは、従来どおり
+   `model_type="tagger"` + `capabilities=["tags", "ratings"]` とし、DB では
+   `["tags", "ratings"]` に分類する。スコアも返す rating-capable scorer も同様に
+   `["scores", "ratings"]` を維持する。
 
 参考:
 

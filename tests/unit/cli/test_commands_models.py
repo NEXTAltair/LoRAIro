@@ -235,6 +235,39 @@ def test_models_list_filter_category_tagger(mock_get_container) -> None:
 @pytest.mark.unit
 @pytest.mark.cli
 @patch("lorairo.cli.commands.models.get_service_container")
+def test_models_list_filter_category_rating(mock_get_container) -> None:
+    """--category rating は rating 専用モデルのみ表示する。"""
+    mock_container = MagicMock()
+    mock_container.annotator_library.list_annotator_info.return_value = [
+        _FakeAnnotatorInfo(
+            name="anime_rating_mobilenetv3_sce_dist",
+            model_type="rating",
+            is_local=True,
+            is_api=False,
+            device="cuda",
+        ),
+        _FakeAnnotatorInfo(
+            name="wd-v1-4-tagger",
+            model_type="tagger",
+            is_local=True,
+            is_api=False,
+            device="cuda",
+        ),
+    ]
+    mock_container.annotator_library.is_model_deprecated.return_value = False
+    mock_get_container.return_value = mock_container
+
+    result = runner.invoke(app, ["models", "list", "--category", "rating"])
+
+    assert result.exit_code == 0
+    assert "anime_rating_mobilenetv3_sce_dist" in result.stdout
+    assert "wd-v1-4-tagger" not in result.stdout
+    assert "1 model(s)" in result.stdout
+
+
+@pytest.mark.unit
+@pytest.mark.cli
+@patch("lorairo.cli.commands.models.get_service_container")
 def test_models_list_filter_combines_type_and_category(mock_get_container) -> None:
     """--type local --category scorer はローカル scorer のみ表示する。"""
     mock_container = MagicMock()

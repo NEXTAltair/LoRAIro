@@ -30,7 +30,7 @@ class ModelMetadata(TypedDict):
     provider: str | None
     class_name: str | None
     litellm_model_id: str  # registry key SSoT (NOT NULL)
-    model_type: str  # AnnotatorInfo.model_type ("tagger"/"scorer"/"captioner"/"vision")
+    model_type: str  # AnnotatorInfo.model_type ("tagger"/"scorer"/"captioner"/"vision"/"rating")
     model_types: list[str]  # LoRAIro DB の model_types (マッピング後)
     estimated_size_gb: float | None
     requires_api_key: bool
@@ -145,7 +145,7 @@ class ModelSyncService:
     """ライブラリとLoRAIro DB間のモデル同期サービス
 
     image-annotator-lib が管理するアノテーション専用モデル (vision/scorer/tagger/
-    captioner) を LoRAIro DB に同期する。upscaler 等の LoRAIro 独自機能は対象外。
+    captioner/rating) を LoRAIro DB に同期する。upscaler 等の LoRAIro 独自機能は対象外。
     """
 
     def __init__(
@@ -190,6 +190,7 @@ class ModelSyncService:
             - "captioner" → ["caption"]
             - "scorer" → ["scores"]
             - "tagger" → ["tags"]
+            - "rating" → ["ratings"]
             - TaskCapability.RATINGS を持つモデルは上記に加えて "ratings" を付与
             - その他 → ["caption"] (警告ログ付き)
         """
@@ -204,6 +205,8 @@ class ModelSyncService:
             db_model_types = ["scores"]
         elif model_type == "tagger":
             db_model_types = ["tags"]
+        elif model_type == "rating":
+            db_model_types = ["ratings"]
         else:
             logger.warning(f"Unknown library model_type: {model_type}, defaulting to ['caption']")
             db_model_types = ["caption"]
@@ -438,5 +441,5 @@ class ModelSyncService:
         Returns:
             bool: image-annotator-lib の `AnnotatorInfo.model_type` Literal 値かどうか
         """
-        valid_types = {"vision", "scorer", "tagger", "captioner"}
+        valid_types = {"vision", "scorer", "tagger", "captioner", "rating"}
         return model_type in valid_types
