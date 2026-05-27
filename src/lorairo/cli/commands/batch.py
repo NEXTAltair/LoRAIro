@@ -20,7 +20,6 @@ _SUPPORTED_SUBMIT_PROVIDERS = {"openai", "anthropic"}
 _SUPPORTED_TASK_TYPES = {"annotation", "rating_preflight"}
 _TASK_TYPE_ENDPOINTS = {
     "annotation": {
-        "openai": "/v1/chat/completions",
         "anthropic": "/v1/messages",
     },
     "rating_preflight": {
@@ -108,6 +107,7 @@ def _resolve_submit_endpoint(provider: str, task_type: str, endpoint: str | None
         if normalized_endpoint.rstrip("/") != expected_endpoint:
             console.print("[red]Error:[/red] rating_preflight submit requires endpoint /v1/moderations.")
             raise typer.Exit(code=1)
+        return expected_endpoint
     return endpoint
 
 

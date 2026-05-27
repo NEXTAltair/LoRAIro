@@ -264,7 +264,12 @@ class ProviderBatchWorkflowService:
             raise ProviderBatchError(
                 "rating_preflight batch submit には endpoint=/v1/moderations が必要です"
             )
-        if litellm_model_id.strip().lower().split("/", 1)[0] != "openai":
+        normalized_model_id = litellm_model_id.strip().lower()
+        is_openai_direct_model = normalized_model_id.startswith("openai/")
+        is_legacy_openai_moderation_model = (
+            "/" not in normalized_model_id and normalized_model_id.startswith("omni-moderation-")
+        )
+        if not is_openai_direct_model and not is_legacy_openai_moderation_model:
             raise ProviderBatchError("rating_preflight batch submit には openai direct model が必要です")
 
     def submit_images(

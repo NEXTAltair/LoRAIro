@@ -212,6 +212,27 @@ class TestProviderBatchWorkflowService:
         assert item.task_type == "rating_preflight"
         assert item.model_id == 10
 
+    def test_submit_images_accepts_legacy_bare_openai_moderation_model(
+        self,
+        workflow: tuple[ProviderBatchWorkflowService, FakeProviderBatchAdapter],
+        db_session_factory: sessionmaker,
+    ) -> None:
+        service, adapter = workflow
+        _insert_image(db_session_factory, 1, "/tmp/images/one.webp")
+
+        service.submit_images(
+            provider="openai",
+            endpoint="/v1/moderations",
+            litellm_model_id="omni-moderation-latest",
+            prompt_profile="moderation",
+            image_ids=[1],
+            model_id=10,
+            task_type="rating_preflight",
+        )
+
+        assert adapter.submitted_request is not None
+        assert adapter.submitted_request.litellm_model_id == "omni-moderation-latest"
+
     def test_submit_images_requires_model_id_for_rating_preflight(
         self,
         workflow: tuple[ProviderBatchWorkflowService, FakeProviderBatchAdapter],

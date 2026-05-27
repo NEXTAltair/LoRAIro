@@ -80,6 +80,51 @@ def test_batch_help_registered() -> None:
 @patch("lorairo.cli.commands.batch.get_service_container")
 def test_batch_submit_calls_workflow_service(mock_get_container: MagicMock) -> None:
     container = _container()
+    container.db_manager.model_repo.get_model_by_litellm_id.return_value = _model(
+        provider="anthropic",
+        litellm_model_id="anthropic/claude-3-5-haiku-latest",
+    )
+    mock_get_container.return_value = container
+
+    result = runner.invoke(
+        app,
+        [
+            "batch",
+            "submit",
+            "--project",
+            "demo",
+            "--model",
+            "anthropic/claude-3-5-haiku-latest",
+            "--image-id",
+            "1",
+            "--image-id",
+            "2",
+            "--description",
+            "nightly",
+        ],
+    )
+
+    assert result.exit_code == 0
+    container.set_active_project.assert_called_once_with("demo")
+    container.provider_batch_workflow_service.submit_images.assert_called_once_with(
+        provider="anthropic",
+        endpoint="/v1/messages",
+        litellm_model_id="anthropic/claude-3-5-haiku-latest",
+        prompt_profile="default",
+        image_ids=[1, 2],
+        model_id=7,
+        description="nightly",
+        task_type="annotation",
+    )
+    assert "Provider Batch job submitted" in result.stdout
+    assert "batch_42" in result.stdout
+
+
+@pytest.mark.unit
+@pytest.mark.cli
+@patch("lorairo.cli.commands.batch.get_service_container")
+def test_batch_submit_rejects_openai_annotation(mock_get_container: MagicMock) -> None:
+    container = _container()
     mock_get_container.return_value = container
 
     result = runner.invoke(
@@ -93,27 +138,12 @@ def test_batch_submit_calls_workflow_service(mock_get_container: MagicMock) -> N
             "openai/gpt-4.1-mini",
             "--image-id",
             "1",
-            "--image-id",
-            "2",
-            "--description",
-            "nightly",
         ],
     )
 
-    assert result.exit_code == 0
-    container.set_active_project.assert_called_once_with("demo")
-    container.provider_batch_workflow_service.submit_images.assert_called_once_with(
-        provider="openai",
-        endpoint="/v1/chat/completions",
-        litellm_model_id="openai/gpt-4.1-mini",
-        prompt_profile="default",
-        image_ids=[1, 2],
-        model_id=7,
-        description="nightly",
-        task_type="annotation",
-    )
-    assert "Provider Batch job submitted" in result.stdout
-    assert "batch_42" in result.stdout
+    assert result.exit_code == 1
+    assert "Task type 'annotation' is not supported for provider 'openai'" in result.stdout
+    container.provider_batch_workflow_service.submit_images.assert_not_called()
 
 
 @pytest.mark.unit
@@ -157,6 +187,45 @@ def test_batch_submit_rating_preflight_calls_workflow_service(mock_get_container
         task_type="rating_preflight",
     )
     assert "Provider Batch job submitted" in result.stdout
+
+
+@pytest.mark.unit
+@pytest.mark.cli
+@patch("lorairo.cli.commands.batch.get_service_container")
+def test_batch_submit_rating_preflight_normalizes_endpoint_override(
+    mock_get_container: MagicMock,
+) -> None:
+    container = _container()
+    container.db_manager.model_repo.get_model_by_litellm_id.return_value = _model(
+        id=11,
+        litellm_model_id="openai/omni-moderation-latest",
+        model_types=(SimpleNamespace(name="ratings"),),
+    )
+    mock_get_container.return_value = container
+
+    result = runner.invoke(
+        app,
+        [
+            "batch",
+            "submit",
+            "--project",
+            "demo",
+            "--model",
+            "openai/omni-moderation-latest",
+            "--task-type",
+            "rating_preflight",
+            "--endpoint",
+            "v1/moderations/",
+            "--image-id",
+            "1",
+        ],
+    )
+
+    assert result.exit_code == 0
+    assert (
+        container.provider_batch_workflow_service.submit_images.call_args.kwargs["endpoint"]
+        == "/v1/moderations"
+    )
 
 
 @pytest.mark.unit
