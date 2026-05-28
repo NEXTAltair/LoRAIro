@@ -126,8 +126,9 @@ def _make_moderation_annotation(raw_label: str, confidence: float) -> dict[str, 
     }
 
 
-def _insert_image(session_factory: sessionmaker, image_id: int, stored_path: Path) -> None:
+def _insert_image(session_factory: sessionmaker, image_id: int, stored_path: str | Path) -> None:
     """Register a minimal Image row matching schema requirements."""
+    stored_path_obj = Path(stored_path)
     with session_factory() as session:
         session.add(
             Image(
@@ -141,8 +142,8 @@ def _insert_image(session_factory: sessionmaker, image_id: int, stored_path: Pat
                 format="PNG",
                 mode="RGB",
                 has_alpha=False,
-                filename=stored_path.name,
-                extension=stored_path.suffix,
+                filename=stored_path_obj.name,
+                extension=stored_path_obj.suffix,
             )
         )
         session.commit()
@@ -174,16 +175,28 @@ def batch_config_mock(tmp_path: Path) -> Mock:
 def workflow_setup(
     db_session_factory: sessionmaker,
     batch_config_mock: Mock,
+    monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> dict[str, Any]:
     """Construct repositories, fake adapter, and workflow service for the E2E scenario.
 
     DB / image / model 登録までを行い、3 image_id と 1 model_id を返す。
     """
-    image_paths = [tmp_path / f"image_{i}.png" for i in range(1, 4)]
-    for image_id, image_path in enumerate(image_paths, start=1):
+    project_root = tmp_path / "main_dataset"
+    image_paths: list[Path] = []
+    stored_paths = [
+        Path("image_dataset/original_images/2026/05/28") / f"image_{i}.png" for i in range(1, 4)
+    ]
+    for image_id, stored_path in enumerate(stored_paths, start=1):
+        image_path = project_root / stored_path
+        image_path.parent.mkdir(parents=True, exist_ok=True)
         image_path.touch()
-        _insert_image(db_session_factory, image_id, image_path)
+        image_paths.append(image_path)
+        _insert_image(db_session_factory, image_id, stored_path)
+    monkeypatch.setattr(
+        "lorairo.database.db_core.get_current_project_root",
+        lambda: project_root,
+    )
 
     model_id = _insert_moderation_model(db_session_factory)
 
@@ -258,6 +271,9 @@ def test_rating_preflight_e2e_marks_xxx_image_as_excluded(workflow_setup: dict[s
     assert adapter.submitted_request.endpoint == "/v1/moderations"
     assert adapter.submitted_request.litellm_model_id == _MODEL_LITELLM_ID
     assert all(item.task_type == "rating_preflight" for item in adapter.submitted_request.items)
+    submitted_paths = [item.image_path for item in adapter.submitted_request.items]
+    assert submitted_paths == image_paths
+    assert all(path.is_absolute() and path.exists() for path in submitted_paths)
 
     job = provider_batch_repo.get_provider_batch_job(job_id)
     assert job is not None

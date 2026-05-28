@@ -15,6 +15,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
+from lorairo.database.db_core import resolve_stored_path
 from lorairo.database.repository.annotation_record import AnnotationRepository
 from lorairo.database.repository.image import ImageRepository
 from lorairo.database.repository.provider_batch import ProviderBatchRepository
@@ -223,7 +224,7 @@ class ProviderBatchWorkflowService:
                     raise ProviderBatchError(
                         f"Provider batch submit 対象画像に stored_image_path がありません: image_id={image_id}"
                     )
-                image_path = stored_path
+                image_path = resolve_stored_path(str(stored_path))
 
             items.append(
                 BatchSubmitItem(
