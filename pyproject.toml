@@ -61,6 +61,15 @@ dependencies = [
     # 使わない (実装コードに該当プロバイダー参照ゼロ) ため機能影響なし。
     "pydantic-ai>=1.94.0",
     "litellm>=1.84.0",
+    # 2026-05-28: pydantic-ai (1.100 / 1.103 いずれも) の `pydantic_ai/_griffe.py` が
+    # `from griffe import Docstring` 等の旧 griffe 1.x top-level API を期待するが、
+    # universal lock では `griffelib 2.0.2` (top-level export を `_internal` に移動)
+    # が transitive に resolve されるのみで `griffe` 本体が install されず、
+    # LoRAIro CLI 起動時に ImportError になる (Issue #525)。
+    # upstream pydantic-ai が griffelib API に追従するまでの workaround として
+    # griffe 1.x の direct dep を明示する。pydantic-ai bump 時に解除可否を確認すること。
+    # 参照: https://github.com/pydantic/pydantic-ai/blob/main/pydantic_ai_slim/pydantic_ai/_griffe.py
+    "griffe>=1.15.0,<2.0",
 ]
 
 
