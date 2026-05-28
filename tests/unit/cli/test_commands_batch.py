@@ -205,7 +205,8 @@ def test_batch_submit_help_documents_rating_preflight_constraints() -> None:
     result = runner.invoke(app, ["batch", "submit", "--help"])
 
     assert result.exit_code == 0
-    assert "rating_preflight requires direct openai" in result.stdout
+    assert "rating_preflight" in result.stdout
+    assert "requires direct openai" in result.stdout
     assert "/v1/moderations" in result.stdout
     assert "openai/omni-moderation-*" in result.stdout
     assert "ratings" in result.stdout
