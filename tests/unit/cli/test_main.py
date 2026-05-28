@@ -19,6 +19,10 @@ def test_cli_help() -> None:
     assert result.exit_code == 0
     assert "LoRAIro" in result.stdout
     assert "AI-powered" in result.stdout
+    assert "models refresh --project" in result.stdout
+    assert "openai/omni-moderation-latest" in result.stdout
+    assert "images list --project" in result.stdout
+    assert "--unrated" in result.stdout
 
 
 @pytest.mark.unit

@@ -14,6 +14,9 @@ lorairo-cli --version
 
 ## 基本的な使い方
 
+OpenAI Moderation で未評価画像に rating を付与する CLI 手順は
+[CLI Rating Preflight Workflow](cli-rating-preflight.md) を参照してください。
+
 ### ヘルプ表示
 
 ```bash

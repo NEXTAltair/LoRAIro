@@ -36,9 +36,16 @@ app = typer.Typer(
         "Typical workflow:\n\n"
         "  1. lorairo-cli project create <name>\n\n"
         "  2. lorairo-cli images register <dir> --project <name>\n\n"
-        "  3. lorairo-cli models list  (confirm model names)\n\n"
-        "  4. lorairo-cli annotate run --project <name> --model <model>\n\n"
-        "  5. lorairo-cli export create --project <name> --tags <tag> --output <dir>"
+        "  3. lorairo-cli models refresh --project <name>\n\n"
+        "  4. lorairo-cli models list  (confirm model names)\n\n"
+        "  5. lorairo-cli annotate run --project <name> --model <model>\n\n"
+        "  6. lorairo-cli export create --project <name> --tags <tag> --output <dir>\n\n"
+        "Rating workflow with OpenAI moderation:\n\n"
+        "  Small sets: lorairo-cli annotate run --project <name> "
+        "--model openai/omni-moderation-latest\n\n"
+        "  Large sets: lorairo-cli images list --project <name> --unrated\n"
+        "              lorairo-cli batch submit --project <name> --task-type rating_preflight "
+        "--model openai/omni-moderation-latest --image-id <id>"
     ),
     add_completion=True,
     no_args_is_help=True,

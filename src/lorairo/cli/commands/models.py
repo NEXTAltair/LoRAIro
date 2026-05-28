@@ -187,6 +187,8 @@ def list_models(
             include_deprecated=include_deprecated,
         )
         console.print(table)
+        if category is ModelCategoryFilter.all:
+            _print_rating_models_section(display_rows)
         # Issue #249: preference の取得元と unavailable 件数も表示
         unavailable_count = sum(1 for r in display_rows if not r.get("available", True))
         unavailable_suffix = f", unavailable={unavailable_count}" if unavailable_count > 0 else ""
@@ -260,6 +262,21 @@ def _build_available_models_table(
         table.add_row(*table_row)
 
     return table
+
+
+def _print_rating_models_section(display_rows: list[dict[str, str | bool]]) -> None:
+    """`models list` default output で rating model を見つけやすくする."""
+    rating_rows = [row for row in display_rows if row.get("category") == "rating"]
+    if not rating_rows:
+        return
+
+    table = Table(title="Rating Models")
+    table.add_column("Provider", style="bright_magenta", min_width=8, no_wrap=True)
+    table.add_column("Route", style="bright_blue", min_width=8, no_wrap=True)
+    table.add_column("Model ID", style="bright_cyan", overflow="fold", min_width=32, ratio=1)
+    for row in rating_rows:
+        table.add_row(str(row["provider"]), str(row["route"]), str(row["litellm_id"]))
+    console.print(table)
 
 
 def _format_availability(row: dict[str, str | bool]) -> str:

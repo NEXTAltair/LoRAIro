@@ -362,6 +362,36 @@ def test_images_list_with_limit(mock_projects_dir: Path) -> None:
 
 @pytest.mark.unit
 @pytest.mark.cli
+def test_images_list_unrated_passes_only_unrated_criteria(mock_projects_dir: Path) -> None:
+    """Test: images list --unrated は rating 未保存画像のみに絞る criteria を渡す。"""
+    runner.invoke(app, ["project", "create", "test-project"])
+
+    fake_records = [
+        {
+            "id": 1,
+            "stored_image_path": "/path/image1.jpg",
+            "tags": [],
+            "captions": [],
+            "scores": [],
+            "ratings": [],
+        }
+    ]
+    with patch("lorairo.cli.commands.images.get_service_container") as mock_get_container:
+        mock_container = MagicMock()
+        mock_container.db_manager.image_repo.get_images_by_filter.return_value = (fake_records, 1)
+        mock_get_container.return_value = mock_container
+
+        result = runner.invoke(app, ["images", "list", "--project", "test-project", "--unrated"])
+
+    assert result.exit_code == 0
+    criteria = mock_container.db_manager.image_repo.get_images_by_filter.call_args.args[0]
+    assert criteria.include_nsfw is True
+    assert criteria.only_unrated is True
+    assert "unrated only" in result.stdout
+
+
+@pytest.mark.unit
+@pytest.mark.cli
 def test_images_list_nonexistent_project(mock_projects_dir: Path) -> None:
     """Test: images list - 存在しないプロジェクトはエラー。"""
     result = runner.invoke(app, ["images", "list", "--project", "nonexistent"])

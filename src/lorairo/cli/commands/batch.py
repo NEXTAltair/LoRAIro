@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 
@@ -119,7 +121,26 @@ def _job_value(job: Any, name: str, default: Any = None) -> Any:
 
 
 def _format_dt(value: Any) -> str:
+    if isinstance(value, datetime):
+        return value.isoformat()
     return "" if value is None else str(value)
+
+
+def _result_item_status(item: Any) -> str:
+    if isinstance(item, Mapping):
+        return str(item.get("status", ""))
+    return str(getattr(item, "status", ""))
+
+
+def _summarize_fetch_counts(result: Any) -> tuple[int, int]:
+    items = list(getattr(result, "items", ()) or ())
+    succeeded_count = getattr(result, "succeeded_count", None)
+    failed_count = getattr(result, "failed_count", None)
+    if succeeded_count is None:
+        succeeded_count = sum(1 for item in items if _result_item_status(item).lower() == "succeeded")
+    if failed_count is None:
+        failed_count = sum(1 for item in items if _result_item_status(item).lower() == "failed")
+    return int(succeeded_count or 0), int(failed_count or 0)
 
 
 def _print_jobs_table(jobs: list[Any]) -> None:
@@ -201,7 +222,12 @@ def submit(
     prompt_profile: str = typer.Option("default", "--prompt-profile", help="Prompt profile name"),
     description: str | None = typer.Option(None, "--description", help="Provider job description"),
     task_type: str = typer.Option(
-        "annotation", "--task-type", help="Task type: annotation or rating_preflight"
+        "annotation",
+        "--task-type",
+        help=(
+            "Task type: annotation or rating_preflight. rating_preflight requires direct openai, "
+            "endpoint /v1/moderations, an openai/omni-moderation-* model, and ratings model_type."
+        ),
     ),
 ) -> None:
     """Submit registered images to a Provider Batch API job."""
@@ -218,10 +244,16 @@ def submit(
             raise typer.Exit(code=1)
         if normalized_task_type == "rating_preflight":
             if resolved_provider != "openai":
-                console.print("[red]Error:[/red] rating_preflight submit is only supported for openai.")
+                console.print(
+                    "[red]Error:[/red] rating_preflight submit is only supported for direct openai "
+                    "models such as openai/omni-moderation-latest."
+                )
                 raise typer.Exit(code=1)
             if not _model_has_model_type(db_model, "ratings"):
-                console.print("[red]Error:[/red] rating_preflight submit requires a ratings model.")
+                console.print(
+                    "[red]Error:[/red] rating_preflight submit requires a ratings model_type "
+                    "using openai/omni-moderation-*."
+                )
                 raise typer.Exit(code=1)
 
         resolved_endpoint = _resolve_submit_endpoint(resolved_provider, normalized_task_type, endpoint)
@@ -334,10 +366,11 @@ def fetch(
     try:
         container = _activate_project(project)
         result = container.provider_batch_workflow_service.fetch_results(job_id, output_dir)
+        succeeded_count, failed_count = _summarize_fetch_counts(result)
         console.print(f"[green]Provider Batch results fetched:[/green] {job_id}")
         console.print(
             f"[dim]provider_status={result.provider_status}, items={len(result.items)}, "
-            f"succeeded={result.succeeded_count or 0}, failed={result.failed_count or 0}[/dim]"
+            f"succeeded={succeeded_count}, failed={failed_count}[/dim]"
         )
         _print_artifacts(result)
     except ProviderBatchError as e:

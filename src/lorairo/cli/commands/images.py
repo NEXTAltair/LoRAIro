@@ -184,6 +184,11 @@ def list_images(
         min=1,
         help="Maximum number of images to display (>= 1)",
     ),
+    unrated: bool = typer.Option(
+        False,
+        "--unrated",
+        help="Show only images without any saved rating rows.",
+    ),
 ) -> None:
     """List images in a project.
 
@@ -200,16 +205,18 @@ def list_images(
         container.set_active_project(project)
 
         repository = container.db_manager.image_repo
-        criteria = ImageFilterCriteria(include_nsfw=True)
+        criteria = ImageFilterCriteria(include_nsfw=True, only_unrated=unrated)
         image_records, total_count = repository.get_images_by_filter(criteria)
 
         if not image_records:
-            console.print(f"No images found in project: {project}")
+            suffix = " without ratings" if unrated else ""
+            console.print(f"No images{suffix} found in project: {project}")
             return
 
         display_records = image_records[:limit] if limit else image_records
 
-        console.print(f"Images in project: {project}")
+        heading_suffix = " (unrated only)" if unrated else ""
+        console.print(f"Images in project: {project}{heading_suffix}")
         table = Table()
         table.add_column("ID", style="cyan")
         table.add_column("Filename")

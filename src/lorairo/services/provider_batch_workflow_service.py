@@ -287,7 +287,8 @@ class ProviderBatchWorkflowService:
         )
         if "/" in bare_model_id or not bare_model_id.startswith("omni-moderation-"):
             raise ProviderBatchError(
-                "rating_preflight batch submit には openai moderation model が必要です"
+                "rating_preflight batch submit には openai moderation model "
+                "(openai/omni-moderation-*) が必要です"
             )
 
         return expected_endpoint

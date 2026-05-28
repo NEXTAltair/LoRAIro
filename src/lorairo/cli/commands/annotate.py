@@ -308,6 +308,7 @@ def run(
 
     Examples:
         lorairo-cli annotate run --project myproject --model openai/gpt-4o
+        lorairo-cli annotate run --project myproject --model openai/omni-moderation-latest
         lorairo-cli annotate run --project myproject \\
             --model openrouter/openai/gpt-4o --model openrouter/anthropic/claude-3-5-sonnet
     """
