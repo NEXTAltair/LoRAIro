@@ -118,6 +118,57 @@ def test_saved_ai_rating_excluded_from_unrated_and_matched_by_value(
 
 
 @pytest.mark.integration
+def test_only_unrated_filter_returns_images_without_any_rating(
+    rating_repository: ImageRepository,
+    seeded_ids: dict[str, int],
+    db_session_factory,
+) -> None:
+    """only_unrated=True は Rating 行が無い画像のみを返す。"""
+    with db_session_factory() as session:
+        rated_image_id = seeded_ids["image_id"]
+        unrated_image = Image(
+            uuid="rating-test-uuid-002",
+            phash="phash_rating_test_002",
+            original_image_path="/tmp/rating_test_2.png",
+            stored_image_path="/tmp/rating_test_2.png",
+            width=256,
+            height=256,
+            format="PNG",
+            extension=".png",
+        )
+        session.add(unrated_image)
+        session.flush()
+        session.add(
+            Rating(
+                image_id=rated_image_id,
+                model_id=seeded_ids["model_id"],
+                raw_rating_value="general",
+                normalized_rating="PG",
+                confidence_score=0.9,
+            )
+        )
+        session.commit()
+        unrated_image_id = unrated_image.id
+
+    unrated_images, unrated_count = rating_repository.get_images_by_filter(
+        ImageFilterCriteria(include_nsfw=True, only_unrated=True)
+    )
+    rated_images, rated_count = rating_repository.get_images_by_filter(
+        ImageFilterCriteria(include_nsfw=True, include_unrated=False)
+    )
+    precedence_images, precedence_count = rating_repository.get_images_by_filter(
+        ImageFilterCriteria(include_nsfw=True, include_unrated=False, only_unrated=True)
+    )
+
+    assert unrated_count == 1
+    assert unrated_images[0]["id"] == unrated_image_id
+    assert rated_count == 1
+    assert rated_images[0]["id"] == rated_image_id
+    assert precedence_count == 1
+    assert precedence_images[0]["id"] == unrated_image_id
+
+
+@pytest.mark.integration
 def test_unmappable_scheme_is_skipped(
     rating_repository: ImageRepository,
     annotation_repository: AnnotationRepository,

@@ -1187,24 +1187,36 @@ class ImageRepository(BaseRepository):
         logger.debug("AI rating filter applied with majority vote logic")
         return query
 
-    def _apply_unrated_filter(self, query: Select[Any], include_unrated: bool) -> Select[Any]:
+    def _apply_unrated_filter(
+        self,
+        query: Select[Any],
+        include_unrated: bool,
+        only_unrated: bool = False,
+    ) -> Select[Any]:
         """クエリに未評価画像フィルタを適用します (Either-based ロジック)。
 
+        only_unrated=True の場合、Rating テーブルに行が無い画像のみを返します。
         include_unrated=False の場合、手動評価またはAI評価のいずれか1つ以上を持つ画像のみを返します。
         include_unrated=True の場合、フィルタリングを行いません。
 
         Args:
             query (Select): 適用対象のクエリ
             include_unrated (bool): 未評価画像を含めるかどうか
+            only_unrated (bool): 未評価画像のみに絞るかどうか
 
         Returns:
             Select: 未評価フィルタが適用されたクエリ
 
         """
+        has_any_rating = exists().where(Rating.image_id == Image.id).correlate(Image)
+        if only_unrated:
+            query = query.where(~has_any_rating)
+            logger.debug("Unrated filter applied: images must have no ratings")
+            return query
+
         if not include_unrated:
             # MANUAL_EDIT も含む Rating テーブルに行が存在する画像のみを返す
             # (manual rating も Rating テーブルに統一されたため OR は不要)
-            has_any_rating = exists().where(Rating.image_id == Image.id).correlate(Image)
             query = query.where(has_any_rating)
             logger.debug("Unrated filter applied: images must have at least one rating")
 
@@ -1657,6 +1669,7 @@ class ImageRepository(BaseRepository):
         include_untagged: bool,
         include_nsfw: bool,
         include_unrated: bool,
+        only_unrated: bool,
         manual_rating_filter: str | None,
         ai_rating_filter: str | None,
         manual_edit_filter: bool | None,
@@ -1678,6 +1691,7 @@ class ImageRepository(BaseRepository):
             include_untagged: タグなし画像のみ対象とするか。
             include_nsfw: NSFWコンテンツを含むか。
             include_unrated: 未評価画像を含むか。
+            only_unrated: 未評価画像のみを対象とするか。
             manual_rating_filter: 手動レーティングフィルタ。
             ai_rating_filter: AI評価フィルタ。
             manual_edit_filter: 手動編集フラグフィルタ。
@@ -1714,7 +1728,7 @@ class ImageRepository(BaseRepository):
             query = self._apply_manual_filters(query, None, manual_edit_filter, session)
 
         # Unrated Filter
-        query = self._apply_unrated_filter(query, include_unrated)
+        query = self._apply_unrated_filter(query, include_unrated, only_unrated)
 
         # NSFW Filter
         nsfw_values_to_exclude = {"r", "x", "xxx"}
@@ -1777,6 +1791,7 @@ class ImageRepository(BaseRepository):
                     include_untagged=filter_criteria.include_untagged,
                     include_nsfw=filter_criteria.include_nsfw,
                     include_unrated=filter_criteria.include_unrated,
+                    only_unrated=filter_criteria.only_unrated,
                     manual_rating_filter=filter_criteria.manual_rating_filter,
                     ai_rating_filter=filter_criteria.ai_rating_filter,
                     manual_edit_filter=filter_criteria.manual_edit_filter,
@@ -1839,6 +1854,7 @@ class ImageRepository(BaseRepository):
                     include_untagged=filter_criteria.include_untagged,
                     include_nsfw=filter_criteria.include_nsfw,
                     include_unrated=filter_criteria.include_unrated,
+                    only_unrated=filter_criteria.only_unrated,
                     manual_rating_filter=filter_criteria.manual_rating_filter,
                     ai_rating_filter=filter_criteria.ai_rating_filter,
                     manual_edit_filter=filter_criteria.manual_edit_filter,

@@ -106,6 +106,7 @@ def test_annotate_run_help() -> None:
 
     assert result.exit_code == 0
     assert "Run annotation on project images" in result.stdout
+    assert "openai/omni-moderation-latest" in result.stdout
 
 
 @pytest.mark.unit

@@ -201,6 +201,20 @@ def test_batch_submit_rating_preflight_calls_workflow_service(mock_get_container
 
 @pytest.mark.unit
 @pytest.mark.cli
+def test_batch_submit_help_documents_rating_preflight_constraints() -> None:
+    result = runner.invoke(app, ["batch", "submit", "--help"])
+
+    assert result.exit_code == 0
+    assert "rating_preflight" in result.stdout
+    assert "requires direct openai" in result.stdout
+    assert "/v1/moderations" in result.stdout
+    assert "openai/omni-moderation-*" in result.stdout
+    assert "ratings" in result.stdout
+    assert "model_type" in result.stdout
+
+
+@pytest.mark.unit
+@pytest.mark.cli
 @patch("lorairo.cli.commands.batch.get_service_container")
 def test_batch_submit_rating_preflight_normalizes_endpoint_override(
     mock_get_container: MagicMock,
@@ -387,6 +401,34 @@ def test_batch_fetch_shows_artifacts(mock_get_container: MagicMock, tmp_path: Pa
     container.provider_batch_workflow_service.fetch_results.assert_called_once_with(42, tmp_path)
     assert "Provider Batch results fetched" in result.stdout
     assert "batch.jsonl" in result.stdout
+
+
+@pytest.mark.unit
+@pytest.mark.cli
+@patch("lorairo.cli.commands.batch.get_service_container")
+def test_batch_fetch_derives_counts_from_items_when_provider_counts_missing(
+    mock_get_container: MagicMock,
+    tmp_path: Path,
+) -> None:
+    container = _container()
+    container.provider_batch_workflow_service.fetch_results.return_value = SimpleNamespace(
+        provider_status="completed",
+        items=(
+            SimpleNamespace(custom_id="img-1", status="succeeded"),
+            SimpleNamespace(custom_id="img-2", status="failed"),
+        ),
+        succeeded_count=None,
+        failed_count=None,
+        artifacts=(),
+    )
+    mock_get_container.return_value = container
+
+    result = runner.invoke(app, ["batch", "fetch", "42", "--project", "demo", "-o", str(tmp_path)])
+
+    assert result.exit_code == 0
+    assert "items=2" in result.stdout
+    assert "succeeded=1" in result.stdout
+    assert "failed=1" in result.stdout
 
 
 @pytest.mark.unit

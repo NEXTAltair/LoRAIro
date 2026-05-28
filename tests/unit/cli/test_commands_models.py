@@ -135,6 +135,36 @@ def test_models_list_shows_local_and_webapi_with_type_column(mock_get_container)
 @pytest.mark.unit
 @pytest.mark.cli
 @patch("lorairo.cli.commands.models.get_service_container")
+def test_models_list_shows_rating_models_section(mock_get_container) -> None:
+    """models list default 出力では rating model を dedicated section でも表示する。"""
+    mock_container = MagicMock()
+    mock_container.annotator_library.list_annotator_info.return_value = [
+        _FakeAnnotatorInfo(
+            name="omni-moderation-latest",
+            model_type="rating",
+            is_local=False,
+            is_api=True,
+            provider="openai",
+            litellm_model_id="openai/omni-moderation-latest",
+        )
+    ]
+    mock_container.annotator_library.is_model_deprecated.return_value = False
+    mock_container.config_service.get_setting.side_effect = lambda section, key, default="": (
+        "sk-test" if key == "openai_key" else default
+    )
+    mock_get_container.return_value = mock_container
+
+    result = runner.invoke(app, ["models", "list"])
+
+    assert result.exit_code == 0
+    assert "Available Models" in result.stdout
+    assert "Rating Models" in result.stdout
+    assert "openai/omni-moderation-latest" in result.stdout
+
+
+@pytest.mark.unit
+@pytest.mark.cli
+@patch("lorairo.cli.commands.models.get_service_container")
 def test_models_list_filter_type_local_only(mock_get_container) -> None:
     """--type local はローカルモデルのみ表示する。"""
     mock_container = MagicMock()
