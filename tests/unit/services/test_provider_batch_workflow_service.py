@@ -186,6 +186,39 @@ class TestProviderBatchWorkflowService:
         assert adapter.submitted_request is not None
         assert adapter.submitted_request.items[0].image_path == Path("/tmp/resized/one.webp")
 
+    def test_submit_images_resolves_relative_stored_image_paths(
+        self,
+        workflow: tuple[ProviderBatchWorkflowService, FakeProviderBatchAdapter],
+        db_session_factory: sessionmaker,
+        monkeypatch: pytest.MonkeyPatch,
+        tmp_path: Path,
+    ) -> None:
+        service, adapter = workflow
+        project_root = tmp_path / "main_dataset"
+        stored_path = Path("image_dataset/original_images/2026/05/28/one.webp")
+        resolved_path = project_root / stored_path
+        resolved_path.parent.mkdir(parents=True)
+        resolved_path.touch()
+        _insert_image(db_session_factory, 1, str(stored_path))
+        monkeypatch.setattr(
+            "lorairo.database.db_core.get_current_project_root",
+            lambda: project_root,
+        )
+
+        service.submit_images(
+            provider="anthropic",
+            endpoint="/v1/messages",
+            litellm_model_id="anthropic/claude-test",
+            prompt_profile="default",
+            image_ids=[1],
+        )
+
+        assert adapter.submitted_request is not None
+        item_path = adapter.submitted_request.items[0].image_path
+        assert item_path == resolved_path
+        assert item_path.is_absolute()
+        assert item_path.exists()
+
     def test_submit_images_preserves_rating_preflight_task_type(
         self,
         workflow: tuple[ProviderBatchWorkflowService, FakeProviderBatchAdapter],
