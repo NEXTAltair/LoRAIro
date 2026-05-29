@@ -914,6 +914,29 @@ class TestSingleSelectionMode:
         assert len(w.get_selected_models()) == 1
         assert w.get_selected_models()[0] == "openai/gpt-4.1-mini"
 
+    def test_set_selected_models_enforces_single_in_single_mode(
+        self, widget_with_two_models: ModelSelectionWidget
+    ) -> None:
+        """単一モードでは set_selected_models() に複数渡しても1件だけ選択される (ADR 0041)。"""
+        w = widget_with_two_models
+        w.set_single_selection_mode(True)
+
+        # programmatic 復元経路で複数指定 (signal を bypass する)
+        w.set_selected_models(["openai/gpt-4.1-mini", "anthropic/claude-3-5-sonnet"])
+
+        selected = w.get_selected_models()
+        assert len(selected) == 1
+        assert selected[0] == "openai/gpt-4.1-mini"
+
+    def test_set_selected_models_multi_mode_unaffected(
+        self, widget_with_two_models: ModelSelectionWidget
+    ) -> None:
+        """通常モードでは set_selected_models() の複数選択挙動は不変。"""
+        w = widget_with_two_models
+        w.set_selected_models(["openai/gpt-4.1-mini", "anthropic/claude-3-5-sonnet"])
+
+        assert len(w.get_selected_models()) == 2
+
 
 # ===========================================================================
 # ADR 0041: batch-capable フィルタ

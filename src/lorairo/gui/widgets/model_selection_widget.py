@@ -671,9 +671,19 @@ if not __name__ == "__main__":
                         widget.set_selected(True)
 
         def set_selected_models(self, litellm_model_ids: list[str]) -> None:
-            """指定された `litellm_model_id` のモデルを選択状態に設定 (Issue #245)。"""
+            """指定された `litellm_model_id` のモデルを選択状態に設定 (Issue #245)。
+
+            ADR 0041: 単一選択モードでは set_selected() が signal を抑制し
+            _on_model_selection_changed() の排他制御を通らないため、この programmatic
+            setter 自身でも 1 submit = 1 model 不変条件を強制する (復元/設定経路対策)。
+            """
+            target_ids = litellm_model_ids
+            if self._single_selection_mode:
+                # 存在するモデルのうち最初の1件だけ選択する
+                present = [mid for mid in litellm_model_ids if mid in self.model_checkbox_widgets]
+                target_ids = present[:1]
             for litellm_model_id, widget in self.model_checkbox_widgets.items():
-                widget.set_selected(litellm_model_id in litellm_model_ids)
+                widget.set_selected(litellm_model_id in target_ids)
 
         # -------------------------------------------------------------------
         # ADR 0041: Provider Batch 単一選択 / batch-capable フィルタ API
