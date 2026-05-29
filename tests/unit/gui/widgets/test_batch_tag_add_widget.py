@@ -39,9 +39,12 @@ class TestBatchTagAddWidgetInitialization:
         qtbot.addWidget(widget)
 
         assert hasattr(widget.ui, "lineEditTag")
-        assert hasattr(widget.ui, "pushButtonClearStaging")
         assert hasattr(widget.ui, "pushButtonAddTag")
-        assert hasattr(widget.ui, "labelStagingCount")
+        # stagingWidget はプロモーションで BatchTagAddWidget.ui 内に存在
+        assert hasattr(widget.ui, "stagingWidget")
+        # ステージング用ラベルと clear ボタンは StagingWidget 内に委譲
+        assert hasattr(widget.ui.stagingWidget.ui, "labelStagingCount")
+        assert hasattr(widget.ui.stagingWidget.ui, "pushButtonClearStaging")
 
     def test_initial_staging_count_label(self, qtbot):
         """Test initial staging count label shows 0"""
@@ -49,7 +52,7 @@ class TestBatchTagAddWidgetInitialization:
         qtbot.addWidget(widget)
 
         expected_text = f"0 / {widget.MAX_STAGING_IMAGES} 枚"
-        assert widget.ui.labelStagingCount.text() == expected_text
+        assert widget.ui.stagingWidget.ui.labelStagingCount.text() == expected_text
 
 
 class TestDatasetStateManagerIntegration:
@@ -128,8 +131,8 @@ class TestStagingListManagement:
         assert 1 in widget._staged_images
         assert 2 in widget._staged_images
 
-        # Verify UI update
-        assert widget.ui.labelStagingCount.text() == f"2 / {widget.MAX_STAGING_IMAGES} 枚"
+        # Verify UI update (labelStagingCount は StagingWidget 内に委譲)
+        assert widget.ui.stagingWidget.ui.labelStagingCount.text() == f"2 / {widget.MAX_STAGING_IMAGES} 枚"
 
     def test_add_visible_image_ids_to_staging(self, qtbot, widget_with_state):
         """可視範囲のID指定追加APIをテスト"""
@@ -193,8 +196,8 @@ class TestStagingListManagement:
         # Verify internal state cleared
         assert len(widget._staged_images) == 0
 
-        # Verify UI updated
-        assert widget.ui.labelStagingCount.text() == f"0 / {widget.MAX_STAGING_IMAGES} 枚"
+        # Verify UI updated (labelStagingCount は StagingWidget 内に委譲)
+        assert widget.ui.stagingWidget.ui.labelStagingCount.text() == f"0 / {widget.MAX_STAGING_IMAGES} 枚"
 
 
 class TestTagNormalization:
@@ -333,14 +336,14 @@ class TestStagingCountLabel:
 
         widget.set_dataset_state_manager(state_manager)
 
-        # Initial state
-        assert widget.ui.labelStagingCount.text() == f"0 / {widget.MAX_STAGING_IMAGES} 枚"
+        # Initial state (labelStagingCount は StagingWidget 内に委譲)
+        assert widget.ui.stagingWidget.ui.labelStagingCount.text() == f"0 / {widget.MAX_STAGING_IMAGES} 枚"
 
         # Add image
         widget._on_add_selected_clicked()
 
         # Count updated
-        assert widget.ui.labelStagingCount.text() == f"1 / {widget.MAX_STAGING_IMAGES} 枚"
+        assert widget.ui.stagingWidget.ui.labelStagingCount.text() == f"1 / {widget.MAX_STAGING_IMAGES} 枚"
 
     def test_staging_count_updates_on_clear(self, qtbot):
         """Test staging count label updates when clearing"""
@@ -356,13 +359,13 @@ class TestStagingCountLabel:
 
         # Add image
         widget._on_add_selected_clicked()
-        assert widget.ui.labelStagingCount.text() == f"1 / {widget.MAX_STAGING_IMAGES} 枚"
+        assert widget.ui.stagingWidget.ui.labelStagingCount.text() == f"1 / {widget.MAX_STAGING_IMAGES} 枚"
 
         # Clear staging
         widget._on_clear_staging_clicked()
 
         # Count reset
-        assert widget.ui.labelStagingCount.text() == f"0 / {widget.MAX_STAGING_IMAGES} 枚"
+        assert widget.ui.stagingWidget.ui.labelStagingCount.text() == f"0 / {widget.MAX_STAGING_IMAGES} 枚"
 
 
 class TestEdgeCases:

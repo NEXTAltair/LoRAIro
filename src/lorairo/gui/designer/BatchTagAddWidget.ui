@@ -37,92 +37,13 @@
      <property name="childrenCollapsible">
       <bool>false</bool>
      </property>
-     <widget class="QGroupBox" name="groupBoxStagingList">
-      <property name="title">
-       <string>ステージング一覧</string>
+     <widget class="StagingWidget" name="stagingWidget" native="true">
+      <property name="sizePolicy">
+       <sizepolicy hsizetype="Expanding" vsizetype="Expanding">
+        <horstretch>1</horstretch>
+        <verstretch>0</verstretch>
+       </sizepolicy>
       </property>
-      <layout class="QVBoxLayout" name="verticalLayoutStaging">
-       <item>
-        <widget class="QLabel" name="labelStagingCount">
-         <property name="text">
-          <string>0 / 500 枚</string>
-         </property>
-         <property name="sizePolicy">
-          <sizepolicy hsizetype="Preferred" vsizetype="Fixed">
-           <horstretch>0</horstretch>
-           <verstretch>0</verstretch>
-          </sizepolicy>
-         </property>
-        </widget>
-       </item>
-       <item>
-        <widget class="QListWidget" name="listWidgetStaging">
-         <property name="sizePolicy">
-          <sizepolicy hsizetype="Expanding" vsizetype="Expanding">
-           <horstretch>0</horstretch>
-           <verstretch>1</verstretch>
-          </sizepolicy>
-         </property>
-         <property name="minimumHeight">
-          <number>150</number>
-         </property>
-         <property name="viewMode">
-          <enum>QListView::ViewMode::IconMode</enum>
-         </property>
-         <property name="movement">
-          <enum>QListView::Movement::Static</enum>
-         </property>
-         <property name="resizeMode">
-          <enum>QListView::ResizeMode::Adjust</enum>
-         </property>
-         <property name="spacing">
-          <number>6</number>
-         </property>
-         <property name="iconSize">
-          <size>
-           <width>96</width>
-           <height>96</height>
-          </size>
-         </property>
-         <property name="wordWrap">
-          <bool>true</bool>
-         </property>
-        </widget>
-       </item>
-       <item>
-        <layout class="QHBoxLayout" name="horizontalLayoutStagingButtons">
-         <item>
-          <spacer name="horizontalSpacerStagingButtons">
-           <property name="orientation">
-            <enum>Qt::Orientation::Horizontal</enum>
-           </property>
-           <property name="sizeHint" stdset="0">
-            <size>
-             <width>40</width>
-             <height>20</height>
-            </size>
-           </property>
-          </spacer>
-         </item>
-         <item>
-          <widget class="QPushButton" name="pushButtonClearStaging">
-           <property name="text">
-            <string>クリア</string>
-           </property>
-           <property name="minimumWidth">
-            <number>60</number>
-           </property>
-           <property name="sizePolicy">
-            <sizepolicy hsizetype="Fixed" vsizetype="Fixed">
-             <horstretch>0</horstretch>
-             <verstretch>0</verstretch>
-            </sizepolicy>
-           </property>
-          </widget>
-         </item>
-        </layout>
-       </item>
-      </layout>
      </widget>
      <widget class="QGroupBox" name="groupBoxTagInput">
       <property name="title">
@@ -194,24 +115,16 @@
    </item>
   </layout>
  </widget>
+ <customwidgets>
+  <customwidget>
+   <class>StagingWidget</class>
+   <extends>QWidget</extends>
+   <header>lorairo/gui/widgets/staging_widget.h</header>
+   <container>0</container>
+  </customwidget>
+ </customwidgets>
  <resources />
  <connections>
-  <connection>
-   <sender>pushButtonClearStaging</sender>
-   <signal>clicked()</signal>
-   <receiver>BatchTagAddWidget</receiver>
-   <slot>_on_clear_staging_clicked()</slot>
-   <hints>
-    <hint type="sourcelabel">
-     <x>220</x>
-     <y>200</y>
-    </hint>
-    <hint type="destinationlabel">
-     <x>125</x>
-     <y>250</y>
-    </hint>
-   </hints>
-  </connection>
   <connection>
    <sender>pushButtonAddTag</sender>
    <signal>clicked()</signal>
@@ -231,7 +144,6 @@
  </connections>
  <slots>
   <slot>_on_add_selected_clicked()</slot>
-  <slot>_on_clear_staging_clicked()</slot>
   <slot>_on_add_tag_clicked()</slot>
  </slots>
 </ui>

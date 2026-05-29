@@ -2,18 +2,19 @@
 Batch Tag Add Widget - バッチタグ追加ウィジェット
 
 複数画像に対して1つのタグを一括追加するための専用ウィジェット。
-MainWindow右パネルのタブとして配置され、バッチ操作を担当。
+MainWindow 右パネルのタブとして配置され、バッチ操作を担当。
 
 主要機能:
-- ステージングリストへの画像追加（最大500枚）
+- StagingWidget によるステージングリスト管理（最大500枚）
 - タグの正規化とバリデーション
 - バッチタグ追加操作
 
 アーキテクチャ:
 - QTabWidget のタブ3（バッチタグ追加）に配置
-- DatasetStateManager から選択画像IDを取得
+- DatasetStateManager から選択画像 ID を取得
 - 保存時に tag_add_requested シグナルを発行
 - MainWindow が ImageDBWriteService 経由で一括保存処理を実行
+- ステージング責務は StagingWidget に委譲（ADR 0041）
 """
 
 from collections import OrderedDict
@@ -21,16 +22,15 @@ from collections.abc import Callable
 from typing import TYPE_CHECKING, cast
 
 from genai_tag_db_tools.utils.cleanup_str import TagCleaner
-from PySide6.QtCore import QSize, Qt, Signal, Slot
-from PySide6.QtGui import QPixmap
-from PySide6.QtWidgets import QFrame, QGraphicsView, QMessageBox, QVBoxLayout, QWidget
+from PySide6.QtCore import Signal, Slot
+from PySide6.QtWidgets import QMessageBox, QVBoxLayout, QWidget
 
 from ...gui.designer.BatchTagAddWidget_ui import Ui_BatchTagAddWidget
 from ...utils.log import logger
+from .staging_widget import StagingWidget
 
 if TYPE_CHECKING:
     from ..state.dataset_state import DatasetStateManager
-    from .thumbnail import ThumbnailSelectorWidget
 
 
 def normalize_tag(tag: str) -> str:
@@ -53,124 +53,151 @@ class BatchTagAddWidget(QWidget):
     バッチタグ追加ウィジェット
 
     複数画像に対して1つのタグを一括追加。
-    ステージングリスト管理とタグ正規化を担当。
+    ステージング管理は内部 StagingWidget に委譲し、タグ正規化を担当。
 
     データフロー:
-    1. "選択中の画像を追加" -> DatasetStateManager.selected_image_ids を取得
+    1. "選択中の画像を追加" -> StagingWidget.add_selected_images() 経由でステージングに追加
     2. ステージングリストに追加（最大500枚、重複なし）
     3. タグ入力 -> 正規化（lower + strip）
     4. "追加" -> tag_add_requested シグナル発行
     5. MainWindow が ImageDBWriteService.add_tag_batch() で DB 更新
 
-    UI構成:
-    - stagingThumbnailWidget: ステージング画像サムネイル（ThumbnailSelectorWidget）
+    後方互換性:
+    - _staged_images プロパティ: StagingWidget.get_staged_items() へ委譲
+      main_window._get_staged_image_paths_for_annotation() が
+      `._staged_images.items()` で参照するため、互換プロパティで維持する（Wave 2 で移行）
+    - _on_clear_staging_clicked(): main_window._handle_batch_tag_add() が直接呼び出す
+    - _refresh_staging_list_ui(): main_window が hasattr 確認後呼び出す
+    - add_selected_images_to_staging(): main_window から呼ばれる公開 API
+    - add_image_ids_to_staging(): main_window から呼ばれる公開 API
+    - set_dataset_state_manager(): main_window から呼ばれる公開 API
+
+    UI 構成:
+    - stagingWidget: ステージング（StagingWidget プロモーション）
     - lineEditTag: タグ入力フィールド
-    - pushButtonClearStaging: ステージングリストをクリア
     - pushButtonAddTag: タグを追加
 
     ステージングリスト仕様:
     - 最大500枚まで
-    - 重複なし（set管理）
+    - 重複なし（set 管理）
     - 追加順を保持（OrderedDict）
-    - 個別削除: Delete キー
     """
 
     # シグナル
-    staged_images_changed = Signal(list)  # List[int] - ステージング画像IDリスト
+    staged_images_changed = Signal(list)  # list[int] - ステージング画像IDリスト（StagingWidget から再公開）
     tag_add_requested = Signal(list, str)  # (image_ids, tag) - タグ追加要求
-    staging_cleared = Signal()  # ステージングリストクリア
+    staging_cleared = Signal()  # ステージングリストクリア（StagingWidget から再公開）
 
-    # 定数
-    MAX_STAGING_IMAGES = 500
+    # 定数（StagingWidget と同値を公開, main_window / テストが参照する）
+    MAX_STAGING_IMAGES = StagingWidget.MAX_STAGING_IMAGES
 
     def __init__(self, parent: QWidget | None = None):
         """
         BatchTagAddWidget 初期化
 
-        UIコンポーネントの初期化、内部状態の設定、シグナル接続を実行。
+        UIコンポーネントの初期化、内部 StagingWidget との接続、シグナル再公開を実行。
 
         Args:
             parent: 親ウィジェット
-
-        初期状態:
-            - _staged_images: 空の OrderedDict
-            - _dataset_state_manager: None
-            - UI: 空表示状態
         """
         super().__init__(parent)
         logger.debug("BatchTagAddWidget.__init__() called")
 
-        # 内部状態: ステージング画像管理（OrderedDict で順序保持 + 重複排除）
-        # {image_id: (filename, stored_path)}
-        self._staged_images: OrderedDict[int, tuple[str, str]] = OrderedDict()
-
-        # サムネイルキャッシュ（表示用の縮小Pixmap）
-        self._thumbnail_cache: dict[int, QPixmap] = {}
-
-        # DatasetStateManagerへの参照（後でset_dataset_state_managerで設定）
+        # DatasetStateManager への参照（後で set_dataset_state_manager() で設定）
         self._dataset_state_manager: DatasetStateManager | None = None
 
-        # UI設定
+        # UI 設定
         self.ui = Ui_BatchTagAddWidget()
         setup_ui = cast(Callable[[QWidget], None], self.ui.setupUi)
         setup_ui(self)
 
-        self._staging_thumbnail_widget: ThumbnailSelectorWidget | None = None
-        self._setup_staging_thumbnail_widget()
+        # StagingWidget は BatchTagAddWidget_ui.py のプロモーションで生成済み
+        # self.ui.stagingWidget が StagingWidget インスタンス
+        self._staging_widget: StagingWidget = self.ui.stagingWidget
 
-        # 初期状態更新
-        self._update_staging_count_label()
+        # StagingWidget シグナルを BatchTagAddWidget シグナルとして再公開
+        self._staging_widget.staged_images_changed.connect(self.staged_images_changed)
+        self._staging_widget.staging_cleared.connect(self.staging_cleared)
 
         logger.info("BatchTagAddWidget initialized")
 
+    # ------------------------------------------------------------------
+    # 公開 API（main_window / 外部から呼ばれる）
+    # ------------------------------------------------------------------
+
     def set_dataset_state_manager(self, dataset_state_manager: "DatasetStateManager") -> None:
-        """
-        DatasetStateManagerへの参照を設定
+        """DatasetStateManager への参照を設定する。
 
         Args:
             dataset_state_manager: DatasetStateManager インスタンス
         """
         self._dataset_state_manager = dataset_state_manager
+        self._staging_widget.set_dataset_state_manager(dataset_state_manager)
         logger.debug("DatasetStateManager reference set in BatchTagAddWidget")
 
-    def _setup_staging_thumbnail_widget(self) -> None:
-        """ステージング一覧をThumbnailSelectorWidgetで表示する。"""
-        from .thumbnail import ThumbnailSelectorWidget
+    def add_selected_images_to_staging(self) -> None:
+        """外部から選択画像をステージングに追加するための公開 API。"""
+        self._staging_widget.add_selected_images()
 
-        layout = self.ui.verticalLayoutStaging
-        list_widget = self.ui.listWidgetStaging
+    def add_image_ids_to_staging(self, image_ids: list[int]) -> None:
+        """外部から指定画像 ID をステージングに追加する公開 API。
 
-        widget = ThumbnailSelectorWidget(parent=self.ui.groupBoxStagingList, dataset_state=None)
-        widget.setObjectName("stagingThumbnailWidget")
-        widget.thumbnail_size = QSize(96, 96)
-        widget.sliderThumbnailSize.setValue(96)
-        widget.sliderThumbnailSize.hide()
-        widget.frameThumbnailHeader.hide()
-        widget.graphics_view.setDragMode(QGraphicsView.DragMode.NoDrag)
-        widget.graphics_view.setContextMenuPolicy(Qt.ContextMenuPolicy.NoContextMenu)
-        widget.scrollAreaThumbnails.setFrameShape(QFrame.Shape.NoFrame)
-        widget.setMinimumHeight(150)
-
-        insert_index = layout.indexOf(list_widget)
-        if insert_index != -1:
-            layout.insertWidget(insert_index, widget)
-        else:
-            layout.addWidget(widget)
-
-        layout.removeWidget(list_widget)
-        list_widget.setParent(self)
-        list_widget.hide()
-
-        self._staging_thumbnail_widget = widget
-
-    def _update_staging_count_label(self) -> None:
+        Args:
+            image_ids: 追加する画像 ID リスト
         """
-        ステージング数ラベルを更新
+        if not image_ids:
+            logger.info("No visible image ids provided for staging")
+            return
+        self._staging_widget.add_image_ids(image_ids)
 
-        現在のステージング画像数 / 最大数 を表示。
+    # ------------------------------------------------------------------
+    # 後方互換プロパティ（Wave 2 で main_window.py 移行後に削除予定）
+    # ------------------------------------------------------------------
+
+    @property
+    def _staged_images(self) -> "OrderedDict[int, tuple[str, str]]":
+        """ステージング画像メタデータへの後方互換アクセサ。
+
+        main_window._get_staged_image_paths_for_annotation() が
+        `batch_widget._staged_images.items()` / `if not batch_widget._staged_images` で
+        参照するため、StagingWidget.get_staged_items() へ委譲して互換性を維持する。
+
+        Wave 2（#550 D）で main_window.py を get_staged_items() 経由に移行後、削除予定。
         """
-        count = len(self._staged_images)
-        self.ui.labelStagingCount.setText(f"{count} / {self.MAX_STAGING_IMAGES} 枚")
+        return self._staging_widget.get_staged_items()
+
+    # ------------------------------------------------------------------
+    # 内部スロット（main_window から直接呼ばれるものを含む）
+    # ------------------------------------------------------------------
+
+    @Slot()
+    def _on_add_selected_clicked(self) -> None:
+        """「選択中の画像を追加」ボタンクリックハンドラ。
+
+        DatasetStateManager.selected_image_ids から ID を取得しステージングに追加。
+        main_window が hasattr 確認後直接呼び出すことがある。
+        """
+        self._staging_widget.add_selected_images()
+
+    @Slot()
+    def _on_clear_staging_clicked(self) -> None:
+        """「クリア」ボタンクリックハンドラ。
+
+        ステージングリストを全削除。
+        main_window._handle_batch_tag_add() が成功時に直接呼び出す。
+        """
+        self._staging_widget.clear()
+
+    def _refresh_staging_list_ui(self) -> None:
+        """ステージングリスト UI を再描画する。
+
+        main_window が hasattr 確認後呼び出す。StagingWidget へ委譲。
+        """
+        self._staging_widget._refresh_staging_list_ui()
+
+    # ------------------------------------------------------------------
+    # タグ操作
+    # ------------------------------------------------------------------
 
     def _normalize_tag(self, tag: str) -> str:
         """タグを正規化する（モジュールレベル normalize_tag() に委譲）。
@@ -184,119 +211,19 @@ class BatchTagAddWidget(QWidget):
         return normalize_tag(tag)
 
     @Slot()
-    def _on_add_selected_clicked(self) -> None:
-        """
-        "選択中の画像を追加" ボタンクリックハンドラ
-
-        DatasetStateManager.selected_image_ids からIDを取得し、
-        ステージングリストに追加（最大500枚まで）。
-        """
-        if self._dataset_state_manager is None:
-            logger.warning("DatasetStateManager not set")
-            return
-
-        selected_ids = self._dataset_state_manager.selected_image_ids
-        if not selected_ids:
-            logger.info("No images selected")
-            return
-
-        self._add_image_ids_to_staging(selected_ids)
-
-    def _add_image_ids_to_staging(self, image_ids: list[int]) -> None:
-        """指定した画像IDリストをステージングに追加する。"""
-        if self._dataset_state_manager is None:
-            logger.warning("DatasetStateManager not set")
-            return
-
-        added_count = 0
-        for image_id in image_ids:
-            # 上限チェック
-            if len(self._staged_images) >= self.MAX_STAGING_IMAGES:
-                logger.warning(f"Staging limit reached ({self.MAX_STAGING_IMAGES}), cannot add more images")
-                break
-
-            # 重複チェック（OrderedDict のキー存在確認）
-            if image_id in self._staged_images:
-                continue
-
-            # 画像情報取得
-            image_metadata = self._dataset_state_manager.get_image_by_id(image_id)
-            if image_metadata:
-                # stored_image_path からファイル名を抽出、またはIDをフォールバック
-                from pathlib import Path
-
-                stored_path = image_metadata.get("stored_image_path", "") if image_metadata else ""
-                filename = Path(stored_path).name if stored_path else f"ID:{image_id}"
-                self._staged_images[image_id] = (filename, stored_path)
-                added_count += 1
-
-        # UI 更新
-        self._refresh_staging_list_ui()
-        logger.info(f"Added {added_count} images to staging (total: {len(self._staged_images)})")
-
-        # シグナル発行
-        self.staged_images_changed.emit(list(self._staged_images.keys()))
-
-    def add_selected_images_to_staging(self) -> None:
-        """外部から選択画像をステージングに追加するための公開API"""
-        self._on_add_selected_clicked()
-
-    def add_image_ids_to_staging(self, image_ids: list[int]) -> None:
-        """外部から指定画像IDをステージングに追加する公開API。"""
-        if not image_ids:
-            logger.info("No visible image ids provided for staging")
-            return
-        self._add_image_ids_to_staging(image_ids)
-
-    def attach_tag_input_to(self, container: QWidget) -> None:
-        """タグ入力UIを外部コンテナへ移動してステージング一覧と分離する。"""
-        tag_input = self.ui.groupBoxTagInput
-        if tag_input.parent() is not container:
-            tag_input.setParent(container)
-            if container.layout() is None:
-                layout = QVBoxLayout(container)
-                layout.setContentsMargins(0, 0, 0, 0)
-            container_layout = container.layout()
-            assert container_layout is not None
-            container_layout.addWidget(tag_input)
-
-        splitter = getattr(self.ui, "splitterBatchTagStaging", None)
-        if splitter:
-            idx = splitter.indexOf(tag_input)
-            if idx != -1:
-                splitter.widget(idx).hide()
-            splitter.setStretchFactor(0, 1)
-            splitter.setStretchFactor(1, 0)
-
-    @Slot()
-    def _on_clear_staging_clicked(self) -> None:
-        """
-        "クリア" ボタンクリックハンドラ
-
-        ステージングリストを全削除。
-        """
-        self._staged_images.clear()
-        self._thumbnail_cache.clear()
-        self._refresh_staging_list_ui()
-        logger.info("Staging list cleared")
-
-        # シグナル発行
-        self.staging_cleared.emit()
-        self.staged_images_changed.emit([])
-
-    @Slot()
     def _on_add_tag_clicked(self) -> None:
-        """
-        "追加" ボタンクリックハンドラ
+        """「追加」ボタンクリックハンドラ。
 
         タグを正規化し、tag_add_requested シグナルを発行。
 
         バリデーション:
-        - 空タグチェック
         - ステージング画像数チェック
+        - 空タグチェック
+        - 正規化後の空文字チェック
         """
         # ステージング画像チェック
-        if not self._staged_images:
+        staged = self._staging_widget.get_staged_items()
+        if not staged:
             logger.warning("No images in staging list")
             QMessageBox.warning(
                 self,
@@ -327,38 +254,33 @@ class BatchTagAddWidget(QWidget):
             return
 
         # シグナル発行
-        image_ids = list(self._staged_images.keys())
+        image_ids = list(staged.keys())
         logger.info(f"Tag add requested: {normalized_tag} for {len(image_ids)} images")
         self.tag_add_requested.emit(image_ids, normalized_tag)
 
         # 成功後: タグ入力フィールドをクリア
         self.ui.lineEditTag.clear()
 
-    def _refresh_staging_list_ui(self) -> None:
+    def attach_tag_input_to(self, container: QWidget) -> None:
+        """タグ入力 UI を外部コンテナへ移動してステージング一覧と分離する。
+
+        Args:
+            container: タグ入力 UI の移動先コンテナ
         """
-        ステージングリストUIを再描画
+        tag_input = self.ui.groupBoxTagInput
+        if tag_input.parent() is not container:
+            tag_input.setParent(container)
+            if container.layout() is None:
+                layout = QVBoxLayout(container)
+                layout.setContentsMargins(0, 0, 0, 0)
+            container_layout = container.layout()
+            assert container_layout is not None
+            container_layout.addWidget(tag_input)
 
-        OrderedDict の内容をリストウィジェットに反映。
-        stored_image_path は相対パスの場合があるため、resolve_stored_path で解決する。
-        """
-        from lorairo.database.db_core import resolve_stored_path
-
-        staging_paths: list[tuple[str, int]] = []
-
-        for image_id, (_, stored_path) in self._staged_images.items():
-            path = stored_path
-            if not path and self._dataset_state_manager:
-                metadata = self._dataset_state_manager.get_image_by_id(image_id)
-                if metadata:
-                    path = metadata.get("stored_image_path", "") or ""
-
-            # 相対パスを絶対パスに解決
-            if path:
-                path = str(resolve_stored_path(path))
-
-            staging_paths.append((path, image_id))
-
-        if self._staging_thumbnail_widget:
-            self._staging_thumbnail_widget.load_thumbnails_from_paths(staging_paths)
-
-        self._update_staging_count_label()
+        splitter = getattr(self.ui, "splitterBatchTagStaging", None)
+        if splitter:
+            idx = splitter.indexOf(tag_input)
+            if idx != -1:
+                splitter.widget(idx).hide()
+            splitter.setStretchFactor(0, 1)
+            splitter.setStretchFactor(1, 0)

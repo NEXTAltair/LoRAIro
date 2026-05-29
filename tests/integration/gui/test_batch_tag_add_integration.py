@@ -171,9 +171,9 @@ class TestBatchTagAddIntegration:
 
         batch_tag_widget.staging_cleared.connect(on_staging_cleared)
 
-        # 5. "クリア" ボタンをクリック
+        # 5. "クリア" ボタンをクリック（pushButtonClearStaging は StagingWidget 内に委譲）
         with qtbot.waitSignal(batch_tag_widget.staging_cleared, timeout=1000):
-            batch_tag_widget.ui.pushButtonClearStaging.click()
+            batch_tag_widget.ui.stagingWidget.ui.pushButtonClearStaging.click()
 
         # 6. ステージングリストがクリアされたことを確認
         assert len(batch_tag_widget._staged_images) == 0
