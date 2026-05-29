@@ -11,7 +11,7 @@ from PySide6.QtWidgets import QApplication
 
 from .gui.window.main_window import MainWindow
 from .utils.config import get_config
-from .utils.log import initialize_logging, logger
+from .utils.log import build_gui_log_config, initialize_logging, logger
 
 
 def _set_font_dir_from_candidates(font_dirs: list[Path]) -> None:
@@ -213,7 +213,7 @@ def main() -> int:
         config["log"]["level"] = "DEBUG"
 
     # ログ初期化
-    initialize_logging(config["log"])
+    initialize_logging(build_gui_log_config(config))
 
     logger.info("=" * 60)
     logger.info("LoRAIro ワークスペースGUI 起動")

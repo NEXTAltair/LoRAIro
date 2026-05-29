@@ -17,6 +17,8 @@ from typing import TYPE_CHECKING, Any
 
 from loguru import logger as _logger
 
+from lorairo.utils.config import DEFAULT_LOG_PATH
+
 logger = _logger  # Explicitly re-export for mypy
 
 # TYPE_CHECKING ブロックを追加して Record を条件付きでインポート
@@ -172,6 +174,16 @@ def initialize_logging(log_config: dict[str, Any]) -> None:
             logger.error("File logging disabled.")
 
     logger.success("Logger initialized.")
+
+
+def build_gui_log_config(config: dict[str, Any]) -> dict[str, Any]:
+    """GUI 用ログ設定を返す。
+
+    GUI は常にアプリ本体ログへ出力し、CLI 専用ログとは分離する。
+    """
+    log_config = dict(config.get("log", {}))
+    log_config["file_path"] = str(DEFAULT_LOG_PATH)
+    return log_config
 
 
 # --- 使用方法 ---

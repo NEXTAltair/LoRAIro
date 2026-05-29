@@ -22,7 +22,7 @@ from PySide6.QtWidgets import (
 
 from ...services.configuration_service import ConfigurationService
 from ...services.model_route_service import parse_route_preference
-from ...utils.log import initialize_logging, logger
+from ...utils.log import build_gui_log_config, initialize_logging, logger
 from ..widgets.directory_picker import DirectoryPickerWidget
 
 # ログレベル選択肢
@@ -298,8 +298,7 @@ class ConfigurationWindow(QDialog):
 
         if self._config_service.save_settings():
             # ログレベル変更を即座に反映するためLoguruハンドラを再初期化
-            log_config = self._config_service.get_all_settings().get("log", {})
-            initialize_logging(log_config)
+            initialize_logging(build_gui_log_config(self._config_service.get_all_settings()))
             logger.info("設定を保存しました")
             self.accept()
         else:
