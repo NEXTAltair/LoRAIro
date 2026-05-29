@@ -44,6 +44,7 @@ LoRAIro の重要な設計判断を記録するドキュメント群。
 | [0038](0038-provider-batch-api-integration-strategy.md) | Provider Batch API Integration Strategy | 2026-05-25 | Accepted |
 | [0039](0039-agent-pr-maintenance-automation.md) | Agent PR Maintenance Automation | 2026-05-25 | Accepted |
 | [0040](0040-local-ml-model-config-ownership.md) | Local ML Model Config Ownership | 2026-05-24 | Accepted |
+| [0041](0041-provider-batch-execution-ui-unification.md) | Provider Batch 実行 UI の個別実行フロー統一 | 2026-05-29 | Accepted |
 
 ## ADR テンプレート
 
