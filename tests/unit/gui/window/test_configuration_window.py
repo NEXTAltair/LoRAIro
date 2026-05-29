@@ -11,6 +11,7 @@ from PySide6.QtWidgets import QComboBox, QLineEdit, QMessageBox, QTabWidget
 
 from lorairo.gui.window.configuration_window import ConfigurationWindow
 from lorairo.services.configuration_service import ConfigurationService
+from lorairo.utils.config import DEFAULT_CLI_LOG_PATH, DEFAULT_LOG_PATH
 
 
 def _make_mock_config_service() -> MagicMock:
@@ -135,7 +136,21 @@ class TestConfigurationWindow:
             qtbot.waitSignal(dialog.accepted, timeout=3000),
         ):
             dialog._on_accepted()
-        mock_init_log.assert_called_once_with({"level": "WARNING"})
+        mock_init_log.assert_called_once_with({"level": "WARNING", "file_path": str(DEFAULT_LOG_PATH)})
+
+    def test_ok_reinitializes_logging_with_gui_log_file_when_config_has_cli_path(
+        self, dialog: ConfigurationWindow, config_service: MagicMock, qtbot
+    ) -> None:
+        """Issue #546: 設定保存後も GUI ログを CLI 専用ログへ戻さない。"""
+        config_service.get_all_settings.return_value["log"]["file_path"] = str(DEFAULT_CLI_LOG_PATH)
+
+        with (
+            patch("lorairo.gui.window.configuration_window.initialize_logging") as mock_init_log,
+            qtbot.waitSignal(dialog.accepted, timeout=3000),
+        ):
+            dialog._on_accepted()
+
+        mock_init_log.assert_called_once_with({"level": "WARNING", "file_path": str(DEFAULT_LOG_PATH)})
 
     def test_save_failure_shows_error(
         self,

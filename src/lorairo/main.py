@@ -10,8 +10,8 @@ from PySide6.QtGui import QFont, QFontDatabase
 from PySide6.QtWidgets import QApplication
 
 from .gui.window.main_window import MainWindow
-from .utils.config import DEFAULT_LOG_PATH, get_config
-from .utils.log import initialize_logging, logger
+from .utils.config import get_config
+from .utils.log import build_gui_log_config, initialize_logging, logger
 
 
 def _set_font_dir_from_candidates(font_dirs: list[Path]) -> None:
@@ -197,16 +197,6 @@ def parse_arguments() -> argparse.Namespace:
     return _build_parser().parse_args()
 
 
-def _build_gui_log_config(config: dict[str, Any]) -> dict[str, Any]:
-    """GUI 起動用のログ設定を返す。
-
-    GUI launcher は常にアプリ本体ログへ出力し、CLI 専用ログとは分離する。
-    """
-    log_config = dict(config.get("log", {}))
-    log_config["file_path"] = str(DEFAULT_LOG_PATH)
-    return log_config
-
-
 def main() -> int:
     """メイン実行関数"""
     # コマンドライン引数解析
@@ -223,7 +213,7 @@ def main() -> int:
         config["log"]["level"] = "DEBUG"
 
     # ログ初期化
-    initialize_logging(_build_gui_log_config(config))
+    initialize_logging(build_gui_log_config(config))
 
     logger.info("=" * 60)
     logger.info("LoRAIro ワークスペースGUI 起動")
