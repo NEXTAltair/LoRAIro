@@ -6,6 +6,10 @@ API層（lorairo.api）を経由してService層を利用する。
 
 from __future__ import annotations
 
+import errno
+from collections.abc import Iterator
+from dataclasses import dataclass, field
+from enum import Enum
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -45,16 +49,82 @@ app = typer.Typer(help="Annotation commands")
 console = make_console()
 
 
-def _load_images_from_db(
-    image_records: list[dict[str, Any]],
-) -> tuple[list[Image.Image], int, int]:
-    """DB の画像レコードから PIL 画像をロード。
+class LoadFailureAction(Enum):
+    """画像ロード失敗時の対応方針 (Issue #537)。"""
+
+    SKIP = "skip"  # 破損/欠損ファイル → warning して継続
+    FATAL = "fatal"  # MemoryError / ENOMEM → 致命
+
+
+class ImageLoadMemoryError(RuntimeError):
+    """メモリ/リソース枯渇による致命的ロード失敗 (Issue #537)。"""
+
+
+def _classify_load_failure(exc: BaseException) -> LoadFailureAction:
+    """画像ロード時の例外を SKIP / FATAL に分類する (Issue #537)。
+
+    メモリ・リソース枯渇 (``MemoryError`` / ``errno.ENOMEM`` 相当の ``OSError``) は
+    継続不能な致命的失敗として ``FATAL`` に、破損ファイルや読み込み失敗などの
+    個別エラーは ``SKIP`` に分類する。
 
     Args:
-        image_records: ImageRepository.get_images_by_filter() が返すレコードリスト
+        exc: ロード処理で捕捉した例外。
 
     Returns:
-        tuple: (PIL画像リスト, ロード成功数, ロード失敗数)
+        LoadFailureAction: ``FATAL`` (致命) または ``SKIP`` (継続可能)。
+    """
+    if isinstance(exc, MemoryError):
+        return LoadFailureAction.FATAL
+    if isinstance(exc, OSError) and getattr(exc, "errno", None) == errno.ENOMEM:
+        return LoadFailureAction.FATAL
+    return LoadFailureAction.SKIP
+
+
+def _iter_record_batches(records: list[dict[str, Any]], batch_size: int) -> Iterator[list[dict[str, Any]]]:
+    """画像レコードを ``batch_size`` 単位の chunk に分割する (Issue #536)。
+
+    ``batch_size <= 0`` の場合は全件を 1 チャンクとして扱う。空入力は何も
+    yield しない。
+
+    Args:
+        records: 処理対象の画像レコードリスト。
+        batch_size: 1 チャンクあたりのレコード数。0 以下なら全件 1 チャンク。
+
+    Yields:
+        list[dict[str, Any]]: ``batch_size`` 件以下のレコード chunk。
+    """
+    if not records:
+        return
+    if batch_size <= 0:
+        yield records
+        return
+    for start in range(0, len(records), batch_size):
+        yield records[start : start + batch_size]
+
+
+def _load_batch_images(
+    records_chunk: list[dict[str, Any]],
+) -> tuple[list[Image.Image], int, int]:
+    """1 チャンク分の画像のみ open/load する (Issue #536 / #537)。
+
+    各レコードについて ``stored_image_path`` を解決し ``Image.open`` →
+    ``img.load()`` で実体をメモリに展開する。例外は ``_classify_load_failure``
+    で分岐する:
+
+    - ``FATAL`` (メモリ/リソース枯渇): 既にロード済みの画像を close してから
+      ``ImageLoadMemoryError`` を raise し、呼び出し元で致命扱いさせる。
+    - ``SKIP`` (破損/欠損など): warning を表示し ``failed_count`` を加算して継続。
+
+    ``stored_image_path`` が無いレコードは ``failed_count`` を加算して skip する。
+
+    Args:
+        records_chunk: ``_iter_record_batches`` が返す 1 チャンク分のレコード。
+
+    Returns:
+        tuple: (ロード済み PIL 画像リスト, ロード成功数, ロード失敗数)。
+
+    Raises:
+        ImageLoadMemoryError: メモリ/リソース枯渇による致命的ロード失敗時。
     """
     from lorairo.database.db_core import resolve_stored_path
 
@@ -62,37 +132,86 @@ def _load_images_from_db(
     loaded_count = 0
     failed_count = 0
 
-    with Progress(
-        SpinnerColumn(),
-        TextColumn("[progress.description]{task.description}"),
-        BarColumn(),
-        TextColumn("[progress.percentage]{task.percentage:>3.1f}%"),
-        TimeRemainingColumn(),
-        console=console,
-    ) as progress:
-        task = progress.add_task("Loading images...", total=len(image_records))
+    for record in records_chunk:
+        stored_path_str: str | None = record.get("stored_image_path")
 
-        for record in image_records:
-            stored_path_str: str | None = record.get("stored_image_path")
+        if not stored_path_str:
+            failed_count += 1
+            continue
 
-            if not stored_path_str:
-                failed_count += 1
-                progress.advance(task)
-                continue
+        image_path = resolve_stored_path(stored_path_str)
 
-            image_path = resolve_stored_path(stored_path_str)
+        try:
+            img = Image.open(image_path)
+            img.load()
+        except Exception as exc:
+            # per-image 例外は分類のため広く捕捉し、FATAL は再 raise、SKIP は継続する。
+            action = _classify_load_failure(exc)
+            if action is LoadFailureAction.FATAL:
+                for opened in pil_images:
+                    opened.close()
+                logger.error(f"Fatal image load failure on {image_path.name}: {exc}", exc_info=True)
+                raise ImageLoadMemoryError(str(exc)) from exc
+            console.print(f"[yellow]Warning:[/yellow] Failed to load {image_path.name}: {exc}")
+            failed_count += 1
+            continue
 
-            try:
-                img = Image.open(image_path)
-                img.load()
-                pil_images.append(img)
-                loaded_count += 1
-            except Exception as e:
-                console.print(f"[yellow]Warning:[/yellow] Failed to load {image_path.name}: {e}")
-                failed_count += 1
-            progress.advance(task)
+        pil_images.append(img)
+        loaded_count += 1
 
     return pil_images, loaded_count, failed_count
+
+
+def _select_image_records(
+    image_records: list[dict[str, Any]],
+    *,
+    limit: int | None,
+    offset: int,
+    image_ids: list[int] | None,
+) -> list[dict[str, Any]]:
+    """フィルタ済み画像レコードに image-id 選択 → offset → limit を順に適用する。
+
+    適用順序は image-id フィルタ → id 昇順ソート → offset → limit で固定。
+    offset/limit による sharding を決定的にするため、slice 前に必ず id 昇順で
+    安定ソートする（DB クエリは ORDER BY を持たず行順が不安定なため）。
+
+    Args:
+        image_records: get_images_by_filter() が返すレコードリスト。各 record は
+            "id" キー (int) を持つ。
+        limit: 返す最大件数。None なら無制限。
+        offset: 先頭から skip する件数（id 昇順での skip 件数）。
+        image_ids: 指定時、その ID を持つレコードのみ対象。要求 ID のうち未存在の
+            ものは warning を表示。空/None なら全件対象。
+
+    Returns:
+        選択後のレコードリスト（空になり得る。空時の Exit 判定は呼び出し側 run() が行う）。
+    """
+    records = image_records
+
+    if image_ids:
+        wanted = set(image_ids)
+        records = [record for record in records if record.get("id") in wanted]
+
+        # 要求 ID の重複除去・順序保持 (dict.fromkeys) のうち未存在のものを列挙警告
+        found_ids = {record.get("id") for record in records}
+        missing_ids = [image_id for image_id in dict.fromkeys(image_ids) if image_id not in found_ids]
+        if missing_ids:
+            missing_str = ", ".join(str(image_id) for image_id in missing_ids)
+            console.print(f"[yellow]Warning:[/yellow] Image ID(s) not found in project: {missing_str}")
+
+    # sharding 決定性: get_images_by_filter() の SQL は ORDER BY を持たず
+    # (ImageRepository._build_image_filter_query は distinct() のみ)、行順は
+    # クエリプラン依存で不安定。offset/limit を安定させるため id 昇順で並べてから
+    # slice する (Codex review #542: shards can overlap/skip without stable order)。
+    records = sorted(records, key=lambda record: record.get("id") or 0)
+
+    # offset が 0 や範囲外でも安全に slice
+    records = records[offset:]
+
+    if limit is not None:
+        records = records[:limit]
+
+    return records
 
 
 def _check_annotation_errors(
@@ -119,31 +238,188 @@ def _check_annotation_errors(
     return success_detected, error_detected_models
 
 
-def _handle_annotation_results(results: Any) -> None:
-    """アノテーション結果を検証し、全モデルが失敗した場合は typer.Exit(code=1) を発生させる。
+@dataclass
+class _StreamAnnotateSummary:
+    """ストリーミングアノテーションの全チャンク通算結果 (Issue #536)。"""
+
+    total_loaded: int = 0
+    total_failed: int = 0
+    total_results: int = 0
+    saved: int = 0
+    skipped: int = 0
+    save_errors: int = 0
+    any_success: bool = False
+    error_models: set[str] = field(default_factory=set)
+
+
+def _stream_annotate(
+    *,
+    records_to_process: list[dict[str, Any]],
+    batch_size: int,
+    annotator: Any,
+    save_service: Any,
+    resolved_litellm_ids: list[str],
+) -> _StreamAnnotateSummary:
+    """レコードを chunk 単位でロード→アノテーション→DB 保存する (Issue #536 / #537)。
+
+    各チャンクで ``_load_batch_images`` により画像を open/load し、``annotator.annotate``
+    を実行、結果を ``save_service.save_annotation_results`` で保存する。チャンク処理後
+    は PIL 画像を必ず close してメモリを解放する。全チャンクの結果は通算カウンタに
+    集約して返す。
 
     Args:
-        results: PHashAnnotationResults ({phash: {model_name: UnifiedAnnotationResult}})
+        records_to_process: 処理対象の画像レコードリスト (選択済み)。
+        batch_size: 1 チャンクあたりのレコード数。
+        annotator: ``annotate(images, litellm_model_ids=...)`` を持つアノテータ。
+        save_service: ``save_annotation_results(results)`` を持つ保存サービス。
+        resolved_litellm_ids: 解決済みの litellm_model_id リスト。
+
+    Returns:
+        _StreamAnnotateSummary: 全チャンク通算の集計結果。
 
     Raises:
-        typer.Exit: 結果が空またはすべてのモデルが失敗した場合 (code=1)。
+        ImageLoadMemoryError: メモリ/リソース枯渇による致命的ロード失敗時。
+        typer.Exit: ``annotator.annotate`` が例外を投げた場合 (code=1)。
     """
+    summary = _StreamAnnotateSummary()
+
+    with Progress(
+        SpinnerColumn(),
+        TextColumn("[progress.description]{task.description}"),
+        BarColumn(),
+        TextColumn("[progress.percentage]{task.percentage:>3.1f}%"),
+        TimeRemainingColumn(),
+        console=console,
+    ) as progress:
+        task = progress.add_task("Running annotation...", total=len(records_to_process))
+
+        for chunk in _iter_record_batches(records_to_process, batch_size):
+            # Issue #537: FATAL (メモリ枯渇) は ImageLoadMemoryError で送出される。
+            images, loaded, failed = _load_batch_images(chunk)
+            summary.total_loaded += loaded
+            summary.total_failed += failed
+
+            if not images:
+                progress.advance(task, advance=len(chunk))
+                continue
+
+            try:
+                _annotate_and_save_chunk(
+                    images=images,
+                    annotator=annotator,
+                    save_service=save_service,
+                    resolved_litellm_ids=resolved_litellm_ids,
+                    summary=summary,
+                )
+            finally:
+                for img in images:
+                    img.close()
+
+            progress.advance(task, advance=len(chunk))
+
+    return summary
+
+
+def _annotate_and_save_chunk(
+    *,
+    images: list[Image.Image],
+    annotator: Any,
+    save_service: Any,
+    resolved_litellm_ids: list[str],
+    summary: _StreamAnnotateSummary,
+) -> None:
+    """1 チャンク分の画像をアノテーション → DB 保存し ``summary`` を更新する。
+
+    Args:
+        images: ロード済み PIL 画像 (非空)。
+        annotator: アノテータ。
+        save_service: 保存サービス。
+        resolved_litellm_ids: 解決済み litellm_model_id リスト。
+        summary: 更新対象の通算集計オブジェクト。
+
+    Raises:
+        typer.Exit: ``annotator.annotate`` が例外を投げた場合 (code=1)。
+    """
+    try:
+        # Issue #245: AnnotatorLibraryAdapter.annotate は kwarg `litellm_model_ids` を受け取る。
+        results = annotator.annotate(images, litellm_model_ids=resolved_litellm_ids)
+    except Exception as e:
+        console.print(f"[red]Error:[/red] Annotation failed: {e}")
+        logger.error(f"Annotation error: {e}", exc_info=True)
+        raise typer.Exit(code=1) from e
+
     if not results:
+        return
+
+    summary.total_results += len(results)
+    chunk_success, chunk_error_models = _check_annotation_errors(results)
+    summary.any_success = summary.any_success or chunk_success
+    summary.error_models |= chunk_error_models
+
+    save_result = save_service.save_annotation_results(results)
+    summary.saved += save_result.success_count
+    summary.skipped += save_result.skip_count
+    summary.save_errors += save_result.error_count
+
+
+def _finalize_annotation_run(summary: _StreamAnnotateSummary, resolved_litellm_ids: list[str]) -> None:
+    """ストリーミング結果を検証し、サマリーを表示する (Issue #536)。
+
+    全チャンク通算の集計に基づき、ロード不可・結果ゼロ・全モデル失敗を致命扱い
+    (``typer.Exit(code=1)``) とし、部分失敗は warning を表示する。最後に Rich Table
+    で結果サマリーを出力する。
+
+    Args:
+        summary: ``_stream_annotate`` が返した通算集計。
+        resolved_litellm_ids: 解決済み litellm_model_id リスト (サマリー表示用)。
+
+    Raises:
+        typer.Exit: ロード不可・結果ゼロ・全モデル失敗の場合 (code=1)。
+    """
+    console.print(f"[green]Loaded {summary.total_loaded} image(s) ({summary.total_failed} failed)[/green]")
+
+    if summary.total_loaded == 0:
+        console.print("[red]Error:[/red] No images could be loaded for annotation")
+        raise typer.Exit(code=1)
+
+    # 全失敗判定の通算化 (Issue #536): 全チャンク通算で 1 件も成功結果が無く、
+    # かつエラーモデルがある場合は致命扱い (旧 _handle_annotation_results 相当)。
+    if summary.total_results == 0:
         console.print("[red]Error:[/red] Annotation produced no results")
         raise typer.Exit(code=1)
 
-    success_detected, error_detected_models = _check_annotation_errors(results)
-
-    if not success_detected and error_detected_models:
+    if not summary.any_success and summary.error_models:
         console.print(
-            f"[red]Error:[/red] All annotation models failed: {', '.join(sorted(error_detected_models))}"
+            f"[red]Error:[/red] All annotation models failed: {', '.join(sorted(summary.error_models))}"
         )
         raise typer.Exit(code=1)
-    elif error_detected_models:
+    if summary.error_models:
         console.print(
             f"[yellow]Warning:[/yellow] Some models encountered errors: "
-            f"{', '.join(sorted(error_detected_models))}"
+            f"{', '.join(sorted(summary.error_models))}"
         )
+
+    if summary.save_errors:
+        console.print(
+            f"[yellow]Warning:[/yellow] DB save partially failed: {summary.save_errors} item(s)\n"
+            f"DB保存に一部失敗: {summary.save_errors}件"
+        )
+
+    console.print("\n[bold cyan]Annotation Summary[/bold cyan]")
+
+    summary_table = Table()
+    summary_table.add_column("Metric", style="cyan")
+    summary_table.add_column("Value", style="green")
+
+    summary_table.add_row("Total Images", str(summary.total_loaded))
+    summary_table.add_row("Models Used", ", ".join(resolved_litellm_ids))
+    summary_table.add_row("Results", str(summary.total_results))
+    summary_table.add_row("Saved to DB", str(summary.saved))
+    summary_table.add_row("Skipped", str(summary.skipped))
+
+    console.print(summary_table)
+
+    console.print(f"\n[green]Annotation completed successfully! ({summary.saved} saved to DB)[/green]")
 
 
 def _get_deprecated_models_best_effort(annotator: Any, model_names: list[str]) -> list[str]:
@@ -343,7 +619,26 @@ def run(
         10,
         "--batch-size",
         "-b",
-        help="Batch size for processing",
+        min=1,
+        help="Batch size for processing (>=1; bounds memory per chunk)",
+    ),
+    limit: int | None = typer.Option(
+        None,
+        "--limit",
+        min=1,
+        help="Max number of images to annotate (>=1)",
+    ),
+    offset: int = typer.Option(
+        0,
+        "--offset",
+        min=0,
+        help="Skip the first N eligible images (for sharding)",
+    ),
+    image_id: list[int] = typer.Option(
+        [],
+        "--image-id",
+        "-i",
+        help="Target specific image ID(s); repeatable",
     ),
     unrated: bool = typer.Option(
         False,
@@ -403,20 +698,28 @@ def run(
                 filters_applied=unrated or missing_model_litellm_id is not None,
             )
 
-        # DB レコードから PIL 画像をロード
-        pil_images, loaded_count, failed_count = _load_images_from_db(image_records)
+        # Issue #538 (Track B): limit/offset/image-id によるレコード選択。
+        # placeholder は全件返すが、本実装後もここで絞り込んだ集合を処理する。
+        records_to_process = _select_image_records(
+            image_records,
+            limit=limit,
+            offset=offset,
+            image_ids=image_id or None,
+        )
 
-        if not pil_images:
-            console.print("[red]Error:[/red] No images could be loaded for annotation")
+        if not records_to_process:
+            console.print("[red]Error:[/red] No images selected for annotation")
             raise typer.Exit(code=1)
 
         console.print(f"[cyan]Found {total_in_db} image(s) in DB[/cyan]")
         console.print(f"[cyan]Using model(s): {', '.join(resolved_litellm_ids)}[/cyan]")
+        # #543 の DB レベルフィルタ (--unrated / --missing-model) のサマリー。
+        # eager な "Loaded N" 行は streaming では _finalize_annotation_run が
+        # summary.total_loaded から出力するため、ここでは出さない (Issue #536)。
         _print_annotation_filter_summary(
             unrated=unrated,
             missing_model_litellm_id=missing_model_litellm_id,
         )
-        console.print(f"[green]Loaded {loaded_count} image(s) ({failed_count} failed)[/green]")
 
         annotator = container.annotator_library
         config = container.config_service
@@ -431,59 +734,23 @@ def run(
         # MissingApiKeyError が出てから初めて失敗していた。
         _validate_required_api_keys(model_repo, config, resolved_litellm_ids)
 
-        # アノテーション実行
+        # アノテーション実行 (Issue #536: チャンクストリーミング)
         console.print("[cyan]Starting annotation...[/cyan]")
 
         try:
-            with Progress(
-                SpinnerColumn(),
-                TextColumn("[progress.description]{task.description}"),
-                BarColumn(),
-                TextColumn("[progress.percentage]{task.percentage:>3.1f}%"),
-                TimeRemainingColumn(),
-                console=console,
-            ) as progress:
-                task = progress.add_task("Running annotation...", total=len(pil_images))
-
-                # Issue #245: AnnotatorLibraryAdapter.annotate は kwarg `litellm_model_ids` を受け取る
-                results = annotator.annotate(pil_images, litellm_model_ids=resolved_litellm_ids)
-
-                progress.update(task, completed=len(pil_images))
-
-        except Exception as e:
-            console.print(f"[red]Error:[/red] Annotation failed: {e}")
-            logger.error(f"Annotation error: {e}", exc_info=True)
+            summary = _stream_annotate(
+                records_to_process=records_to_process,
+                batch_size=batch_size,
+                annotator=annotator,
+                save_service=container.annotation_save_service,
+                resolved_litellm_ids=resolved_litellm_ids,
+            )
+        except ImageLoadMemoryError as e:
+            console.print(f"[red]Error:[/red] Memory/resource exhaustion during image load: {e}")
+            logger.error(f"Fatal image load failure: {e}", exc_info=True)
             raise typer.Exit(code=1) from e
 
-        # モデルエラーを検出（全失敗時は Exit(code=1)、部分失敗時は Warning 表示）
-        _handle_annotation_results(results)
-
-        # DB保存
-        save_result = container.annotation_save_service.save_annotation_results(results)
-        if save_result.error_count:
-            console.print(
-                f"[yellow]Warning:[/yellow] DB save partially failed: {save_result.error_count} item(s)\n"
-                f"DB保存に一部失敗: {save_result.error_count}件"
-            )
-
-        # 結果サマリー表示
-        console.print("\n[bold cyan]Annotation Summary[/bold cyan]")
-
-        summary_table = Table()
-        summary_table.add_column("Metric", style="cyan")
-        summary_table.add_column("Value", style="green")
-
-        summary_table.add_row("Total Images", str(len(pil_images)))
-        summary_table.add_row("Models Used", ", ".join(resolved_litellm_ids))
-        summary_table.add_row("Results", str(len(results)))
-        summary_table.add_row("Saved to DB", str(save_result.success_count))
-        summary_table.add_row("Skipped", str(save_result.skip_count))
-
-        console.print(summary_table)
-
-        console.print(
-            f"\n[green]Annotation completed successfully! ({save_result.success_count} saved to DB)[/green]"
-        )
+        _finalize_annotation_run(summary, resolved_litellm_ids)
 
     except typer.Exit:
         raise
