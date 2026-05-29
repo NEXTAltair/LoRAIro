@@ -12,7 +12,7 @@ from sqlalchemy import select
 from lorairo.database.filter_criteria import ImageFilterCriteria
 from lorairo.database.repository.annotation_record import AnnotationRepository
 from lorairo.database.repository.image import ImageRepository
-from lorairo.database.schema import Caption, Image, Model, Rating, Score, Tag
+from lorairo.database.schema import Caption, Image, Model, Rating, Score, ScoreLabel, Tag
 from lorairo.services.annotation_save_service import AnnotationSaveService
 
 _PHASH = "phash_rating_test_001"
@@ -177,7 +177,7 @@ def test_missing_model_filter_excludes_any_annotation_type_for_model(
     """missing_model_litellm_id は指定モデルの全annotation種別を処理済み扱いにする。"""
     with db_session_factory() as session:
         images: list[Image] = []
-        for index in range(5):
+        for index in range(6):
             image = Image(
                 uuid=f"missing-model-test-uuid-{index}",
                 phash=f"phash_missing_model_{index:03d}",
@@ -198,8 +198,9 @@ def test_missing_model_filter_excludes_any_annotation_type_for_model(
                 Tag(image_id=images[0].id, model_id=model_id, tag="tagged"),
                 Caption(image_id=images[1].id, model_id=model_id, caption="captioned"),
                 Score(image_id=images[2].id, model_id=model_id, score=0.8),
+                ScoreLabel(image_id=images[3].id, model_id=model_id, label="aesthetic"),
                 Rating(
-                    image_id=images[3].id,
+                    image_id=images[4].id,
                     model_id=model_id,
                     raw_rating_value="general",
                     normalized_rating="PG",
@@ -208,7 +209,7 @@ def test_missing_model_filter_excludes_any_annotation_type_for_model(
             ]
         )
         session.commit()
-        missing_image_id = images[4].id
+        missing_image_id = images[5].id
 
     missing_images, missing_count = rating_repository.get_images_by_filter(
         ImageFilterCriteria(include_nsfw=True, missing_model_litellm_id=_LITELLM_ID)

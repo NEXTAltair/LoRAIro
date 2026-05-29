@@ -1251,6 +1251,14 @@ class ImageRepository(BaseRepository):
             )
             .correlate(Image)
         )
+        has_score_label = (
+            exists()
+            .where(
+                ScoreLabel.image_id == Image.id,
+                ScoreLabel.model_id.in_(model_id_subquery),
+            )
+            .correlate(Image)
+        )
         has_rating = (
             exists()
             .where(
@@ -1260,7 +1268,7 @@ class ImageRepository(BaseRepository):
             .correlate(Image)
         )
 
-        query = query.where(not_(or_(has_tag, has_caption, has_score, has_rating)))
+        query = query.where(not_(or_(has_tag, has_caption, has_score, has_score_label, has_rating)))
         logger.debug(f"Missing model filter applied: litellm_model_id={missing_model_litellm_id}")
         return query
 
