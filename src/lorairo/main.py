@@ -162,8 +162,15 @@ def setup_application_fonts(app: QApplication, config: dict[str, Any] | None = N
         logger.warning(f"フォント設定でエラーが発生しました: {e}")
 
 
-def parse_arguments() -> argparse.Namespace:
-    """コマンドライン引数を解析"""
+def _build_parser() -> argparse.ArgumentParser:
+    """GUI ランチャー用の argparse パーサーを構築する。
+
+    バッチ処理・アノテーション・データセット管理などの操作は GUI ランチャーの
+    対象外であり、epilog で ``lorairo-cli --help`` を案内する。
+
+    Returns:
+        構築済みの ArgumentParser。
+    """
     parser = argparse.ArgumentParser(
         description="LoRAIro - LoRA/Finetune用画像データセット管理ツール",
         formatter_class=argparse.RawDescriptionHelpFormatter,
@@ -172,6 +179,9 @@ def parse_arguments() -> argparse.Namespace:
   lorairo                    # ワークスペースGUIで起動
   lorairo --debug           # デバッグモードで起動
   lorairo --version         # バージョン表示
+
+バッチ処理・アノテーション・データセット管理などの CLI 操作:
+  lorairo-cli --help        # CLI コマンド一覧を表示
         """,
     )
 
@@ -179,7 +189,12 @@ def parse_arguments() -> argparse.Namespace:
 
     parser.add_argument("--debug", action="store_true", help="デバッグモードで起動")
 
-    return parser.parse_args()
+    return parser
+
+
+def parse_arguments() -> argparse.Namespace:
+    """コマンドライン引数を解析"""
+    return _build_parser().parse_args()
 
 
 def main() -> int:
