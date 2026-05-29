@@ -864,7 +864,10 @@ def test_models_list_diagnostic_log_includes_config_and_key_status(mock_get_cont
     buffer = StringIO()
     handler_id = loguru_logger.add(buffer, format="{message}", level="DEBUG")
     try:
-        result = runner.invoke(app, ["models", "list", "--show-unavailable"])
+        # Issue #539: callback の initialize_logging が loguru sink を remove するため、
+        # 診断ログ捕捉専用にここでは no-op 化し、test 用 sink を維持する。
+        with patch("lorairo.cli.main.initialize_logging"):
+            result = runner.invoke(app, ["models", "list", "--show-unavailable"])
     finally:
         loguru_logger.remove(handler_id)
 
