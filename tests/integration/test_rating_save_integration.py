@@ -12,7 +12,7 @@ from sqlalchemy import select
 from lorairo.database.filter_criteria import ImageFilterCriteria
 from lorairo.database.repository.annotation_record import AnnotationRepository
 from lorairo.database.repository.image import ImageRepository
-from lorairo.database.schema import Image, Model, Rating
+from lorairo.database.schema import Caption, Image, Model, Rating, Score, Tag
 from lorairo.services.annotation_save_service import AnnotationSaveService
 
 _PHASH = "phash_rating_test_001"
@@ -166,6 +166,118 @@ def test_only_unrated_filter_returns_images_without_any_rating(
     assert rated_images[0]["id"] == rated_image_id
     assert precedence_count == 1
     assert precedence_images[0]["id"] == unrated_image_id
+
+
+@pytest.mark.integration
+def test_missing_model_filter_excludes_any_annotation_type_for_model(
+    rating_repository: ImageRepository,
+    seeded_ids: dict[str, int],
+    db_session_factory,
+) -> None:
+    """missing_model_litellm_id は指定モデルの全annotation種別を処理済み扱いにする。"""
+    with db_session_factory() as session:
+        images: list[Image] = []
+        for index in range(5):
+            image = Image(
+                uuid=f"missing-model-test-uuid-{index}",
+                phash=f"phash_missing_model_{index:03d}",
+                original_image_path=f"/tmp/missing_model_{index}.png",
+                stored_image_path=f"/tmp/missing_model_{index}.png",
+                width=256,
+                height=256,
+                format="PNG",
+                extension=".png",
+            )
+            session.add(image)
+            images.append(image)
+        session.flush()
+
+        model_id = seeded_ids["model_id"]
+        session.add_all(
+            [
+                Tag(image_id=images[0].id, model_id=model_id, tag="tagged"),
+                Caption(image_id=images[1].id, model_id=model_id, caption="captioned"),
+                Score(image_id=images[2].id, model_id=model_id, score=0.8),
+                Rating(
+                    image_id=images[3].id,
+                    model_id=model_id,
+                    raw_rating_value="general",
+                    normalized_rating="PG",
+                    confidence_score=0.9,
+                ),
+            ]
+        )
+        session.commit()
+        missing_image_id = images[4].id
+
+    missing_images, missing_count = rating_repository.get_images_by_filter(
+        ImageFilterCriteria(include_nsfw=True, missing_model_litellm_id=_LITELLM_ID)
+    )
+
+    assert missing_count == 2
+    assert {image["id"] for image in missing_images} == {seeded_ids["image_id"], missing_image_id}
+
+
+@pytest.mark.integration
+def test_missing_model_filter_combines_with_only_unrated(
+    rating_repository: ImageRepository,
+    seeded_ids: dict[str, int],
+    db_session_factory,
+) -> None:
+    """missing_model_litellm_id と only_unrated=True は AND 条件で絞り込む。"""
+    with db_session_factory() as session:
+        rated_without_target_model = Image(
+            uuid="missing-model-rated-uuid",
+            phash="phash_missing_model_rated",
+            original_image_path="/tmp/missing_model_rated.png",
+            stored_image_path="/tmp/missing_model_rated.png",
+            width=256,
+            height=256,
+            format="PNG",
+            extension=".png",
+        )
+        unrated_without_target_model = Image(
+            uuid="missing-model-unrated-uuid",
+            phash="phash_missing_model_unrated",
+            original_image_path="/tmp/missing_model_unrated.png",
+            stored_image_path="/tmp/missing_model_unrated.png",
+            width=256,
+            height=256,
+            format="PNG",
+            extension=".png",
+        )
+        other_model = Model(
+            name="openai/gpt-4o-mini",
+            provider="openai",
+            litellm_model_id="openai/gpt-4o-mini",
+        )
+        session.add_all([rated_without_target_model, unrated_without_target_model, other_model])
+        session.flush()
+        session.add(
+            Rating(
+                image_id=rated_without_target_model.id,
+                model_id=other_model.id,
+                raw_rating_value="general",
+                normalized_rating="PG",
+                confidence_score=0.9,
+            )
+        )
+        session.commit()
+        unrated_without_target_model_id = unrated_without_target_model.id
+
+    missing_unrated_images, missing_unrated_count = rating_repository.get_images_by_filter(
+        ImageFilterCriteria(
+            include_nsfw=True,
+            only_unrated=True,
+            missing_model_litellm_id=_LITELLM_ID,
+        )
+    )
+
+    assert missing_unrated_count == 2
+    assert {image["id"] for image in missing_unrated_images} == {
+        seeded_ids["image_id"],
+        unrated_without_target_model_id,
+    }
 
 
 @pytest.mark.integration

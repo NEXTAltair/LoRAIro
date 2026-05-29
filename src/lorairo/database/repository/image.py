@@ -1222,6 +1222,48 @@ class ImageRepository(BaseRepository):
 
         return query
 
+    def _apply_missing_model_filter(
+        self,
+        query: Select[Any],
+        missing_model_litellm_id: str | None,
+    ) -> Select[Any]:
+        """指定モデルの annotation が無い画像のみを返すフィルタを適用する。"""
+        if not missing_model_litellm_id:
+            return query
+
+        model_id_subquery = select(Model.id).where(Model.litellm_model_id == missing_model_litellm_id)
+        has_tag = (
+            exists().where(Tag.image_id == Image.id, Tag.model_id.in_(model_id_subquery)).correlate(Image)
+        )
+        has_caption = (
+            exists()
+            .where(
+                Caption.image_id == Image.id,
+                Caption.model_id.in_(model_id_subquery),
+            )
+            .correlate(Image)
+        )
+        has_score = (
+            exists()
+            .where(
+                Score.image_id == Image.id,
+                Score.model_id.in_(model_id_subquery),
+            )
+            .correlate(Image)
+        )
+        has_rating = (
+            exists()
+            .where(
+                Rating.image_id == Image.id,
+                Rating.model_id.in_(model_id_subquery),
+            )
+            .correlate(Image)
+        )
+
+        query = query.where(not_(or_(has_tag, has_caption, has_score, has_rating)))
+        logger.debug(f"Missing model filter applied: litellm_model_id={missing_model_litellm_id}")
+        return query
+
     def _apply_nsfw_filter(self, query: Select[Any], include_nsfw: bool, session: Session) -> Select[Any]:
         """クエリにNSFWフィルタを適用します。"""
         if not include_nsfw:
@@ -1670,6 +1712,7 @@ class ImageRepository(BaseRepository):
         include_nsfw: bool,
         include_unrated: bool,
         only_unrated: bool,
+        missing_model_litellm_id: str | None,
         manual_rating_filter: str | None,
         ai_rating_filter: str | None,
         manual_edit_filter: bool | None,
@@ -1692,6 +1735,7 @@ class ImageRepository(BaseRepository):
             include_nsfw: NSFWコンテンツを含むか。
             include_unrated: 未評価画像を含むか。
             only_unrated: 未評価画像のみを対象とするか。
+            missing_model_litellm_id: 指定モデルの annotation が無い画像のみを対象とするか。
             manual_rating_filter: 手動レーティングフィルタ。
             ai_rating_filter: AI評価フィルタ。
             manual_edit_filter: 手動編集フラグフィルタ。
@@ -1729,6 +1773,9 @@ class ImageRepository(BaseRepository):
 
         # Unrated Filter
         query = self._apply_unrated_filter(query, include_unrated, only_unrated)
+
+        # Missing Model Filter
+        query = self._apply_missing_model_filter(query, missing_model_litellm_id)
 
         # NSFW Filter
         nsfw_values_to_exclude = {"r", "x", "xxx"}
@@ -1792,6 +1839,7 @@ class ImageRepository(BaseRepository):
                     include_nsfw=filter_criteria.include_nsfw,
                     include_unrated=filter_criteria.include_unrated,
                     only_unrated=filter_criteria.only_unrated,
+                    missing_model_litellm_id=filter_criteria.missing_model_litellm_id,
                     manual_rating_filter=filter_criteria.manual_rating_filter,
                     ai_rating_filter=filter_criteria.ai_rating_filter,
                     manual_edit_filter=filter_criteria.manual_edit_filter,
@@ -1855,6 +1903,7 @@ class ImageRepository(BaseRepository):
                     include_nsfw=filter_criteria.include_nsfw,
                     include_unrated=filter_criteria.include_unrated,
                     only_unrated=filter_criteria.only_unrated,
+                    missing_model_litellm_id=filter_criteria.missing_model_litellm_id,
                     manual_rating_filter=filter_criteria.manual_rating_filter,
                     ai_rating_filter=filter_criteria.ai_rating_filter,
                     manual_edit_filter=filter_criteria.manual_edit_filter,

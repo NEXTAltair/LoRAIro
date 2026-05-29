@@ -29,6 +29,7 @@ class ImageFilterCriteria:
         include_nsfw: NSFWコンテンツを含む画像を除外しないか
         include_unrated: 未評価画像を含めるか (False: 手動またはAI評価のいずれか1つ以上を持つ画像のみ)
         only_unrated: rating が無い画像のみを対象とするか
+        missing_model_litellm_id: 指定モデルのannotation行が無い画像のみを対象とするか
         manual_rating_filter: 指定した手動レーティングを持つ画像のみを対象とするか
         ai_rating_filter: 指定したAI評価レーティングを持つ画像のみを対象とするか (多数決ロジック)
         manual_edit_filter: アノテーションが手動編集されたかでフィルタするか
@@ -49,6 +50,7 @@ class ImageFilterCriteria:
     include_nsfw: bool = False
     include_unrated: bool = True
     only_unrated: bool = False
+    missing_model_litellm_id: str | None = None
     manual_rating_filter: str | None = None
     ai_rating_filter: str | None = None
     manual_edit_filter: bool | None = None
@@ -104,6 +106,7 @@ class ImageFilterCriteria:
             "include_nsfw": self.include_nsfw,
             "include_unrated": self.include_unrated,
             "only_unrated": self.only_unrated,
+            "missing_model_litellm_id": self.missing_model_litellm_id,
             "manual_rating_filter": self.manual_rating_filter,
             "ai_rating_filter": self.ai_rating_filter,
             "manual_edit_filter": self.manual_edit_filter,
