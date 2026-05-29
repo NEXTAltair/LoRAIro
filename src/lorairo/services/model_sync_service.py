@@ -8,14 +8,16 @@ from __future__ import annotations
 
 import datetime
 from dataclasses import dataclass
-from typing import Any, ClassVar, Protocol, TypedDict
-
-from image_annotator_lib import AnnotatorInfo
-from image_annotator_lib.core.types import TaskCapability
+from typing import TYPE_CHECKING, Any, Protocol, TypedDict
 
 from ..database.repository.model import ModelRepository
 from ..services.configuration_service import ConfigurationService
 from ..utils.log import logger
+
+if TYPE_CHECKING:
+    # Issue #540: image-annotator-lib の import は registry 初期化 (~9s) を引き起こすため
+    # module-level import を避け、TYPE_CHECKING + 関数内 import で遅延ロードする。
+    from image_annotator_lib import AnnotatorInfo
 
 
 class ModelMetadata(TypedDict):
@@ -79,66 +81,77 @@ class MockAnnotatorLibrary:
     `AnnotatorLibraryProtocol` を満たし、5モデル分の固定データを返す。
     """
 
-    _MODELS: ClassVar[tuple[AnnotatorInfo, ...]] = (
-        AnnotatorInfo(
-            name="gpt-4o",
-            model_type="vision",
-            capabilities=frozenset({TaskCapability.TAGS, TaskCapability.CAPTIONS}),
-            is_local=False,
-            is_api=True,
-            device=None,
-            provider="openai",
-            litellm_model_id="gpt-4o",
-            max_output_tokens=1800,
-        ),
-        AnnotatorInfo(
-            name="claude-3-5-sonnet",
-            model_type="vision",
-            capabilities=frozenset({TaskCapability.TAGS, TaskCapability.CAPTIONS}),
-            is_local=False,
-            is_api=True,
-            device=None,
-            provider="anthropic",
-            litellm_model_id="claude-3-5-sonnet-20241022",
-            max_output_tokens=1800,
-        ),
-        AnnotatorInfo(
-            name="gemini-1.5-pro",
-            model_type="vision",
-            capabilities=frozenset({TaskCapability.TAGS, TaskCapability.CAPTIONS}),
-            is_local=False,
-            is_api=True,
-            device=None,
-            provider="google",
-            litellm_model_id="gemini-1.5-pro",
-            max_output_tokens=1800,
-        ),
-        AnnotatorInfo(
-            name="wd-v1-4-swinv2-tagger",
-            model_type="tagger",
-            capabilities=frozenset({TaskCapability.TAGS}),
-            is_local=True,
-            is_api=False,
-            device="cuda",
-            provider="local",
-            estimated_size_gb=1.2,
-        ),
-        AnnotatorInfo(
-            name="aesthetic-predictor",
-            model_type="scorer",
-            capabilities=frozenset({TaskCapability.SCORES}),
-            is_local=True,
-            is_api=False,
-            device="cuda",
-            provider="local",
-            estimated_size_gb=0.8,
-        ),
-    )
+    @staticmethod
+    def _build_models() -> list[AnnotatorInfo]:
+        """固定モックモデル一覧を構築する。
+
+        Issue #540: ``AnnotatorInfo`` / ``TaskCapability`` の import は
+        image-annotator-lib registry 初期化を引き起こすため、ClassVar での
+        eager 評価を避け、呼び出し時に遅延 import + 構築する。
+        """
+        from image_annotator_lib import AnnotatorInfo
+        from image_annotator_lib.core.types import TaskCapability
+
+        return [
+            AnnotatorInfo(
+                name="gpt-4o",
+                model_type="vision",
+                capabilities=frozenset({TaskCapability.TAGS, TaskCapability.CAPTIONS}),
+                is_local=False,
+                is_api=True,
+                device=None,
+                provider="openai",
+                litellm_model_id="gpt-4o",
+                max_output_tokens=1800,
+            ),
+            AnnotatorInfo(
+                name="claude-3-5-sonnet",
+                model_type="vision",
+                capabilities=frozenset({TaskCapability.TAGS, TaskCapability.CAPTIONS}),
+                is_local=False,
+                is_api=True,
+                device=None,
+                provider="anthropic",
+                litellm_model_id="claude-3-5-sonnet-20241022",
+                max_output_tokens=1800,
+            ),
+            AnnotatorInfo(
+                name="gemini-1.5-pro",
+                model_type="vision",
+                capabilities=frozenset({TaskCapability.TAGS, TaskCapability.CAPTIONS}),
+                is_local=False,
+                is_api=True,
+                device=None,
+                provider="google",
+                litellm_model_id="gemini-1.5-pro",
+                max_output_tokens=1800,
+            ),
+            AnnotatorInfo(
+                name="wd-v1-4-swinv2-tagger",
+                model_type="tagger",
+                capabilities=frozenset({TaskCapability.TAGS}),
+                is_local=True,
+                is_api=False,
+                device="cuda",
+                provider="local",
+                estimated_size_gb=1.2,
+            ),
+            AnnotatorInfo(
+                name="aesthetic-predictor",
+                model_type="scorer",
+                capabilities=frozenset({TaskCapability.SCORES}),
+                is_local=True,
+                is_api=False,
+                device="cuda",
+                provider="local",
+                estimated_size_gb=0.8,
+            ),
+        ]
 
     def list_annotator_info(self) -> list[AnnotatorInfo]:
         """モックの AnnotatorInfo 一覧"""
         logger.debug("モックライブラリから AnnotatorInfo 一覧を取得")
-        return list(self._MODELS)
+        return self._build_models()
 
 
 class ModelSyncService:
@@ -210,6 +223,8 @@ class ModelSyncService:
         else:
             logger.warning(f"Unknown library model_type: {model_type}, defaulting to ['caption']")
             db_model_types = ["caption"]
+
+        from image_annotator_lib.core.types import TaskCapability
 
         if TaskCapability.RATINGS in info.capabilities and "ratings" not in db_model_types:
             db_model_types.append("ratings")

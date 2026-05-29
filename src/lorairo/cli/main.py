@@ -13,6 +13,7 @@ from lorairo.cli._early_init import early_init
 
 early_init()
 
+from enum import StrEnum
 from typing import TYPE_CHECKING, Any
 
 import typer
@@ -27,6 +28,17 @@ from lorairo.utils.log import initialize_logging
 
 if TYPE_CHECKING:
     from lorairo.services.service_container import ServiceContainer
+
+
+class LogLevel(StrEnum):
+    """`--log-level` で指定可能なログレベル。"""
+
+    DEBUG = "DEBUG"
+    INFO = "INFO"
+    WARNING = "WARNING"
+    ERROR = "ERROR"
+    CRITICAL = "CRITICAL"
+
 
 # Typer app 定義
 app = typer.Typer(
@@ -61,6 +73,35 @@ app.add_typer(annotate.app, name="annotate", help="Annotation commands")
 app.add_typer(export.app, name="export", help="Dataset export commands")
 app.add_typer(models.app, name="models", help="Model registry commands")
 app.add_typer(batch.app, name="batch", help="Provider Batch API job commands")
+
+
+@app.callback()
+def _configure(
+    log_level: LogLevel = typer.Option(
+        LogLevel.INFO,
+        "--log-level",
+        help="Logging verbosity (DEBUG/INFO/WARNING/ERROR/CRITICAL).",
+        case_sensitive=False,
+    ),
+) -> None:
+    """全サブコマンド共通の初期化フック。
+
+    Issue #539: ログレベルを ``--log-level`` で設定可能にする (既定 INFO)。
+    Issue #540: ``@app.callback()`` は ``--help`` 時には実行されないため、ここで
+    ログ初期化を行うことで help 表示時の不要な副作用を避ける。callback は各
+    サブコマンド実行時に必ず一度走る。
+    """
+    import os
+
+    os.environ.setdefault("LORAIRO_CLI_MODE", "true")
+    initialize_logging(
+        {
+            "level": log_level.value,
+            "file_path": str(DEFAULT_CLI_LOG_PATH),
+            "rotation": "25 MB",
+            "levels": {},
+        }
+    )
 
 
 # ===== トップレベルコマンド =====
@@ -134,21 +175,11 @@ def status() -> None:
 def main() -> None:
     """CLIメインエントリポイント。
 
-    ServiceContainer が NoOpSignalManager を自動選択するよう
-    LORAIRO_CLI_MODE を設定してから app を起動する。
+    ``LORAIRO_CLI_MODE`` 設定とログ初期化は ``@app.callback()`` (``_configure``)
+    でサブコマンド実行時に行う (Issue #539 / #540)。``--help`` のみの呼び出しでは
+    callback が走らないため、不要なログ初期化・副作用を避けられる。
     stdio 初期化は module top-level の ``early_init()`` で完了済。
     """
-    import os
-
-    os.environ.setdefault("LORAIRO_CLI_MODE", "true")
-    initialize_logging(
-        {
-            "level": "WARNING",  # CLI モード: DEBUG/INFO を抑制
-            "file_path": str(DEFAULT_CLI_LOG_PATH),
-            "rotation": "25 MB",
-            "levels": {},
-        }
-    )
     app()
 
 

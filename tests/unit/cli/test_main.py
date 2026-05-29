@@ -163,18 +163,21 @@ def test_project_help() -> None:
 
 @pytest.mark.unit
 @pytest.mark.cli
-def test_main_configures_logging_warning_level() -> None:
-    """Test: main() が CLI モードで専用ログファイルを WARNING レベルに設定する。"""
-    with patch("lorairo.cli.main.initialize_logging") as mock_init_log, patch("lorairo.cli.main.app"):
-        from lorairo.cli.main import main
+def test_callback_configures_logging_default_info(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Test: @app.callback が CLI モードで専用ログファイルを既定 INFO レベルに設定する (#539)。"""
+    spy = MagicMock()
+    monkeypatch.setattr("lorairo.cli.main.initialize_logging", spy)
 
-        main()
-    mock_init_log.assert_called_once()
-    config_arg = mock_init_log.call_args[0][0]
-    assert config_arg["level"] == "WARNING"
+    result = runner.invoke(app, ["version"])
+
+    assert result.exit_code == 0
+    spy.assert_called_once()
+    config_arg = spy.call_args[0][0]
+    assert config_arg["level"] == "INFO"
     log_path = Path(config_arg["file_path"])
     assert log_path.name == "lorairo-cli.log"
     assert log_path.parent.name == "logs"
+    assert config_arg["rotation"] == "25 MB"
 
 
 # Issue #254: stdio init / Windows console code page / loguru sink クリア の test は
