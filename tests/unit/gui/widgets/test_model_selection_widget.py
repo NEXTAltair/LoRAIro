@@ -777,3 +777,388 @@ class TestApplyBasicFilters:
 
         # _is_annotation_eligible_model が呼ばれている
         widget_advanced.model_selection_service._is_annotation_eligible_model.assert_called()
+
+
+# ===========================================================================
+# ADR 0041: 単一選択モード
+# ===========================================================================
+
+
+class TestSingleSelectionMode:
+    """set_single_selection_mode / get_selected_model のテスト。"""
+
+    @pytest.fixture
+    def widget_with_two_models(self, qtbot, mock_model_service) -> ModelSelectionWidget:
+        """ModelCheckboxWidget が2件ある state の widget を作成する。"""
+        from lorairo.gui.widgets.model_checkbox_widget import ModelCheckboxWidget, ModelInfo
+
+        w = ModelSelectionWidget(model_selection_service=mock_model_service)
+        qtbot.addWidget(w)
+
+        for litellm_id, provider in [
+            ("openai/gpt-4.1-mini", "openai"),
+            ("anthropic/claude-3-5-sonnet", "anthropic"),
+        ]:
+            info = ModelInfo(
+                name=litellm_id,
+                provider=provider,
+                capabilities=["caption"],
+                litellm_model_id=litellm_id,
+                is_local=False,
+                requires_api_key=True,
+            )
+            cb = ModelCheckboxWidget(info)
+            qtbot.addWidget(cb)
+            w.model_checkbox_widgets[litellm_id] = cb
+            cb.selection_changed.connect(w._on_model_selection_changed)
+
+        return w
+
+    def test_set_single_selection_mode_hides_bulk_buttons(
+        self, widget_with_two_models: ModelSelectionWidget
+    ) -> None:
+        """単一選択モード有効化で btnSelectAll / btnSelectRecommended が非表示になる。"""
+        w = widget_with_two_models
+        w.set_single_selection_mode(True)
+
+        assert w.btnSelectAll.isHidden()
+        assert w.btnSelectRecommended.isHidden()
+
+    def test_set_single_selection_mode_false_restores_buttons(
+        self, widget_with_two_models: ModelSelectionWidget
+    ) -> None:
+        """単一選択モード解除で bulk ボタンが再表示される (isHidden=False で確認)。"""
+        w = widget_with_two_models
+        w.set_single_selection_mode(True)
+        w.set_single_selection_mode(False)
+
+        assert not w.btnSelectAll.isHidden()
+        assert not w.btnSelectRecommended.isHidden()
+
+    def test_selecting_one_model_deselects_others_in_single_mode(
+        self, widget_with_two_models: ModelSelectionWidget
+    ) -> None:
+        """単一選択モードで1つ選択すると他が deselect される。"""
+        w = widget_with_two_models
+        w.set_single_selection_mode(True)
+
+        # 両方選択状態にしてから単一選択を試みる
+        w.model_checkbox_widgets["openai/gpt-4.1-mini"].set_selected(True)
+        # 2つ目を選択
+        w._on_model_selection_changed("anthropic/claude-3-5-sonnet", True)
+        w.model_checkbox_widgets["anthropic/claude-3-5-sonnet"].set_selected(True)
+
+        # 最後に選択したモデルのみ選択されている
+        selected = w.get_selected_models()
+        assert len(selected) <= 1
+
+    def test_select_all_models_is_noop_in_single_mode(
+        self, widget_with_two_models: ModelSelectionWidget
+    ) -> None:
+        """単一選択モードでは select_all_models() が no-op。"""
+        w = widget_with_two_models
+        w.set_single_selection_mode(True)
+
+        w.select_all_models()
+
+        # 全選択されていない (no-op)
+        assert w.get_selected_models() == []
+
+    def test_select_recommended_models_is_noop_in_single_mode(
+        self, widget_with_two_models: ModelSelectionWidget, mock_model_service
+    ) -> None:
+        """単一選択モードでは select_recommended_models() が no-op。"""
+        w = widget_with_two_models
+        w.set_single_selection_mode(True)
+
+        # 初期化時の呼び出しをリセットしてから確認
+        mock_model_service.get_recommended_models.reset_mock()
+
+        w.select_recommended_models()
+
+        # 単一選択モードでは get_recommended_models は呼ばれない
+        mock_model_service.get_recommended_models.assert_not_called()
+        assert w.get_selected_models() == []
+
+    def test_get_selected_model_returns_none_when_none_selected(
+        self, widget_with_two_models: ModelSelectionWidget
+    ) -> None:
+        """get_selected_model() は未選択なら None を返す。"""
+        w = widget_with_two_models
+        assert w.get_selected_model() is None
+
+    def test_get_selected_model_returns_first_selected(
+        self, widget_with_two_models: ModelSelectionWidget
+    ) -> None:
+        """get_selected_model() は選択中の最初の litellm_model_id を返す。"""
+        w = widget_with_two_models
+        w.set_single_selection_mode(True)
+        w.model_checkbox_widgets["openai/gpt-4.1-mini"].set_selected(True)
+
+        result = w.get_selected_model()
+        assert result == "openai/gpt-4.1-mini"
+
+    def test_enabling_single_mode_collapses_existing_multi_selection(
+        self, widget_with_two_models: ModelSelectionWidget
+    ) -> None:
+        """複数選択済み状態で単一モードへ移行すると1件に畳み込まれる (ADR 0041)。"""
+        w = widget_with_two_models
+        # 単一モード OFF のまま両方選択 (復元状態などを模す)
+        w.model_checkbox_widgets["openai/gpt-4.1-mini"].set_selected(True)
+        w.model_checkbox_widgets["anthropic/claude-3-5-sonnet"].set_selected(True)
+        assert len(w.get_selected_models()) == 2
+
+        w.set_single_selection_mode(True)
+
+        # 1 submit = 1 model 契約を満たすため1件だけ残る
+        assert len(w.get_selected_models()) == 1
+        assert w.get_selected_models()[0] == "openai/gpt-4.1-mini"
+
+    def test_set_selected_models_enforces_single_in_single_mode(
+        self, widget_with_two_models: ModelSelectionWidget
+    ) -> None:
+        """単一モードでは set_selected_models() に複数渡しても1件だけ選択される (ADR 0041)。"""
+        w = widget_with_two_models
+        w.set_single_selection_mode(True)
+
+        # programmatic 復元経路で複数指定 (signal を bypass する)
+        w.set_selected_models(["openai/gpt-4.1-mini", "anthropic/claude-3-5-sonnet"])
+
+        selected = w.get_selected_models()
+        assert len(selected) == 1
+        assert selected[0] == "openai/gpt-4.1-mini"
+
+    def test_set_selected_models_multi_mode_unaffected(
+        self, widget_with_two_models: ModelSelectionWidget
+    ) -> None:
+        """通常モードでは set_selected_models() の複数選択挙動は不変。"""
+        w = widget_with_two_models
+        w.set_selected_models(["openai/gpt-4.1-mini", "anthropic/claude-3-5-sonnet"])
+
+        assert len(w.get_selected_models()) == 2
+
+
+# ===========================================================================
+# ADR 0041: batch-capable フィルタ
+# ===========================================================================
+
+
+class TestBatchCapableFiltering:
+    """set_batch_capable_filtering / _update_batch_capable_display のテスト。"""
+
+    @pytest.fixture
+    def mock_model_source(self):
+        """list_batch_capable_models を持つ mock model_source。"""
+        from unittest.mock import Mock
+
+        source = Mock()
+        source.list_batch_capable_models.return_value = (
+            "openai/gpt-4.1-mini",
+            "anthropic/claude-3-5-sonnet",
+            "openrouter/openai/gpt-4.1-mini",  # OpenRouter は除外されるべき
+        )
+        return source
+
+    @pytest.fixture
+    def mock_container_for_batch(self, monkeypatch):
+        """service_container と model_repository をモックする。"""
+        from types import SimpleNamespace
+        from unittest.mock import Mock
+
+        def _make_db_model(provider, litellm_id):
+            return SimpleNamespace(
+                provider=provider,
+                litellm_model_id=litellm_id,
+                name=litellm_id,
+                requires_api_key=True,
+                capabilities=["caption"],
+                model_types=(),
+            )
+
+        mock_repo = Mock()
+        mock_repo.get_model_by_litellm_id.side_effect = lambda lid: {
+            "openai/gpt-4.1-mini": _make_db_model("openai", "openai/gpt-4.1-mini"),
+            "anthropic/claude-3-5-sonnet": _make_db_model("anthropic", "anthropic/claude-3-5-sonnet"),
+            "openrouter/openai/gpt-4.1-mini": _make_db_model(
+                "openrouter", "openrouter/openai/gpt-4.1-mini"
+            ),
+            "openai/omni-moderation-latest": _make_db_model("openai", "openai/omni-moderation-latest"),
+        }.get(lid)
+
+        mock_db_manager = Mock()
+        mock_db_manager.model_repo = mock_repo
+
+        mock_container = Mock()
+        mock_container.db_manager = mock_db_manager
+
+        monkeypatch.setattr(
+            "lorairo.gui.widgets.model_selection_widget.get_service_container",
+            lambda: mock_container,
+        )
+        return mock_container, mock_repo
+
+    def test_annotation_filter_shows_openai_and_anthropic(
+        self, qtbot, mock_model_service, mock_model_source, mock_container_for_batch
+    ) -> None:
+        """annotation フィルタでは openai / anthropic 両方が表示される (ADR 0041 修正)。"""
+        w = ModelSelectionWidget(model_selection_service=mock_model_service)
+        qtbot.addWidget(w)
+
+        w.set_batch_capable_filtering(True, "annotation", mock_model_source)
+
+        assert "openai/gpt-4.1-mini" in w.model_checkbox_widgets
+        assert "anthropic/claude-3-5-sonnet" in w.model_checkbox_widgets
+
+    def test_openrouter_route_excluded_in_batch_filter(
+        self, qtbot, mock_model_service, mock_model_source, mock_container_for_batch
+    ) -> None:
+        """batch-capable フィルタでは OpenRouter route が除外される (direct route 強制)。"""
+        w = ModelSelectionWidget(model_selection_service=mock_model_service)
+        qtbot.addWidget(w)
+
+        w.set_batch_capable_filtering(True, "annotation", mock_model_source)
+
+        assert "openrouter/openai/gpt-4.1-mini" not in w.model_checkbox_widgets
+
+    def test_rating_preflight_filter_shows_only_omni_moderation(
+        self, qtbot, mock_model_service, mock_container_for_batch
+    ) -> None:
+        """rating_preflight フィルタでは omni-moderation-* のみが表示される。"""
+        from unittest.mock import Mock
+
+        model_source = Mock()
+        model_source.list_batch_capable_models.return_value = (
+            "openai/gpt-4.1-mini",
+            "anthropic/claude-3-5-sonnet",
+            "openai/omni-moderation-latest",
+        )
+
+        w = ModelSelectionWidget(model_selection_service=mock_model_service)
+        qtbot.addWidget(w)
+
+        w.set_batch_capable_filtering(True, "rating_preflight", model_source)
+
+        assert "openai/omni-moderation-latest" in w.model_checkbox_widgets
+        assert "openai/gpt-4.1-mini" not in w.model_checkbox_widgets
+        assert "anthropic/claude-3-5-sonnet" not in w.model_checkbox_widgets
+
+    def test_batch_filter_disabling_restores_normal_display(
+        self, qtbot, mock_model_service, mock_model_source, mock_container_for_batch
+    ) -> None:
+        """batch-capable フィルタを無効化すると通常の display に戻る。"""
+        w = ModelSelectionWidget(model_selection_service=mock_model_service)
+        qtbot.addWidget(w)
+
+        w.set_batch_capable_filtering(True, "annotation", mock_model_source)
+        # 無効化
+        w.set_batch_capable_filtering(False)
+
+        # 通常モードでは _batch_capable_filtering が False
+        assert w._batch_capable_filtering is False
+
+    def test_batch_filter_with_no_model_source_shows_placeholder(
+        self, qtbot, mock_model_service, mock_container_for_batch
+    ) -> None:
+        """model_source が None の場合はプレースホルダーを表示する。"""
+        w = ModelSelectionWidget(model_selection_service=mock_model_service)
+        qtbot.addWidget(w)
+
+        w.set_batch_capable_filtering(True, "annotation", None)
+
+        assert not w.placeholderLabel.isHidden()
+        assert w.model_checkbox_widgets == {}
+
+    def test_annotation_only_filter_not_affected_by_batch_filter(
+        self, qtbot, mock_model_service, mock_container_for_batch
+    ) -> None:
+        """既存 annotation_only フィルタは batch-capable フィルタ OFF 時に不変。"""
+        from unittest.mock import Mock
+
+        mock_model_service.load_grouped_models.return_value = []
+        w = ModelSelectionWidget(model_selection_service=mock_model_service, mode="advanced")
+        qtbot.addWidget(w)
+
+        # annotation_only フィルタを適用 (batch-capable OFF)
+        w.apply_filters(execution_env="APIモデルのみ", annotation_only=True)
+
+        assert w._batch_capable_filtering is False
+        assert w.annotation_only_filtering is True
+
+    def test_annotation_filter_excludes_omni_moderation(
+        self, qtbot, mock_model_service, mock_container_for_batch
+    ) -> None:
+        """annotation フィルタは moderation 専用モデルを除外する (ADR 0038)。"""
+        from unittest.mock import Mock
+
+        model_source = Mock()
+        model_source.list_batch_capable_models.return_value = (
+            "openai/gpt-4.1-mini",
+            "openai/omni-moderation-latest",
+        )
+        w = ModelSelectionWidget(model_selection_service=mock_model_service)
+        qtbot.addWidget(w)
+
+        w.set_batch_capable_filtering(True, "annotation", model_source)
+
+        assert "openai/gpt-4.1-mini" in w.model_checkbox_widgets
+        assert "openai/omni-moderation-latest" not in w.model_checkbox_widgets
+
+    def test_batch_filter_skips_discontinued_models(self, qtbot, mock_model_service, monkeypatch) -> None:
+        """discontinued (available=False) モデルは batch-capable フィルタで除外される (ADR 0038)。"""
+        from types import SimpleNamespace
+        from unittest.mock import Mock
+
+        def _db_model(litellm_id, available):
+            return SimpleNamespace(
+                provider="openai",
+                litellm_model_id=litellm_id,
+                name=litellm_id,
+                requires_api_key=True,
+                capabilities=["caption"],
+                model_types=(),
+                available=available,
+            )
+
+        mock_repo = Mock()
+        mock_repo.get_model_by_litellm_id.side_effect = lambda lid: {
+            "openai/gpt-4.1-mini": _db_model("openai/gpt-4.1-mini", True),
+            "openai/gpt-4-retired": _db_model("openai/gpt-4-retired", False),
+        }.get(lid)
+        mock_db_manager = Mock()
+        mock_db_manager.model_repo = mock_repo
+        mock_container = Mock()
+        mock_container.db_manager = mock_db_manager
+        monkeypatch.setattr(
+            "lorairo.gui.widgets.model_selection_widget.get_service_container",
+            lambda: mock_container,
+        )
+
+        model_source = Mock()
+        model_source.list_batch_capable_models.return_value = (
+            "openai/gpt-4.1-mini",
+            "openai/gpt-4-retired",
+        )
+        w = ModelSelectionWidget(model_selection_service=mock_model_service)
+        qtbot.addWidget(w)
+
+        w.set_batch_capable_filtering(True, "annotation", model_source)
+
+        assert "openai/gpt-4.1-mini" in w.model_checkbox_widgets
+        assert "openai/gpt-4-retired" not in w.model_checkbox_widgets
+
+    def test_batch_filter_discovery_failure_shows_placeholder(
+        self, qtbot, mock_model_service, mock_container_for_batch
+    ) -> None:
+        """list_batch_capable_models() が例外を投げても UI を壊さず placeholder を表示する。"""
+        from unittest.mock import Mock
+
+        model_source = Mock()
+        model_source.list_batch_capable_models.side_effect = RuntimeError("discovery failed")
+        w = ModelSelectionWidget(model_selection_service=mock_model_service)
+        qtbot.addWidget(w)
+
+        # 例外が escape せず placeholder に倒れる
+        w.set_batch_capable_filtering(True, "annotation", model_source)
+
+        assert not w.placeholderLabel.isHidden()
+        assert w.model_checkbox_widgets == {}

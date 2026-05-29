@@ -35,6 +35,12 @@ else:
         parse_route_preference,
     )
     from ...services.model_selection_service import ModelSelectionCriteria, ModelSelectionService
+    from ...services.provider_batch_capability import (
+        direct_provider_for_model,
+        endpoint_for_task,
+        litellm_id_from_batch_model,
+        model_supports_task_type,
+    )
     from ...utils.log import logger
     from .model_checkbox_widget import ModelCheckboxWidget, ModelInfo
 
@@ -138,6 +144,15 @@ if not __name__ == "__main__":
             self.current_execution_env: str | None = None  # "すべて", "APIモデルのみ", "ローカルモデルのみ"
             self.annotation_only_filtering: bool = False
             self._default_placeholder_text = self.placeholderLabel.text()
+
+            # ADR 0041: batch-capable フィルタ状態
+            self._batch_capable_filtering: bool = False
+            self._batch_task_type: str = "annotation"
+            self._batch_model_source: Any = None
+
+            # ADR 0041: 単一選択モード状態
+            self._single_selection_mode: bool = False
+            self._single_selection_guard: bool = False  # 再帰シグナル防止フラグ
 
             # executionEnvCombo シグナル接続
             if hasattr(self, "executionEnvCombo"):
@@ -314,7 +329,13 @@ if not __name__ == "__main__":
 
             Issue #249: ``route_preference`` を config から読み込み、永続化された
             ユーザー設定を反映する (旧実装は ``"auto"`` ハードコード)。
+            ADR 0041: batch-capable フィルタが有効な場合は専用ブランチへ分岐する。
             """
+            # ADR 0041: batch-capable モードでは専用ブランチへ分岐
+            if self._batch_capable_filtering:
+                self._update_batch_capable_display()
+                return
+
             # 現在の表示をクリア
             self._clear_model_display()
 
@@ -561,7 +582,21 @@ if not __name__ == "__main__":
 
         @Slot(str, bool)
         def _on_model_selection_changed(self, litellm_model_id: str, is_selected: bool) -> None:
-            """モデル選択変更時の処理 (Issue #245: 引数は litellm_model_id)"""
+            """モデル選択変更時の処理 (Issue #245: 引数は litellm_model_id)。
+
+            ADR 0041: 単一選択モードが有効かつ選択された場合、他の全チェックボックスを
+            deselect する。再帰シグナルを _single_selection_guard で防止する。
+            """
+            # ADR 0041: 単一選択モード排他制御
+            if self._single_selection_mode and is_selected and not self._single_selection_guard:
+                self._single_selection_guard = True
+                try:
+                    for other_id, widget in self.model_checkbox_widgets.items():
+                        if other_id != litellm_model_id:
+                            widget.set_selected(False)
+                finally:
+                    self._single_selection_guard = False
+
             selected_litellm_model_ids = self.get_selected_models()
             self._update_selection_count()
             self.model_selection_changed.emit(selected_litellm_model_ids)
@@ -594,7 +629,9 @@ if not __name__ == "__main__":
 
         @Slot()
         def select_all_models(self) -> None:
-            """全モデル選択"""
+            """全モデル選択。ADR 0041: 単一選択モードでは no-op。"""
+            if self._single_selection_mode:
+                return
             for widget in self.model_checkbox_widgets.values():
                 widget.set_selected(True)
 
@@ -606,7 +643,12 @@ if not __name__ == "__main__":
 
         @Slot()
         def select_recommended_models(self) -> None:
-            """推奨モデル選択 (Issue #245: litellm_model_id ベースで一致判定)"""
+            """推奨モデル選択 (Issue #245: litellm_model_id ベースで一致判定)。
+
+            ADR 0041: 単一選択モードでは no-op。
+            """
+            if self._single_selection_mode:
+                return
             try:
                 recommended_models = self.model_selection_service.get_recommended_models()
                 recommended_keys = {model.litellm_model_id for model in recommended_models}
@@ -629,9 +671,220 @@ if not __name__ == "__main__":
                         widget.set_selected(True)
 
         def set_selected_models(self, litellm_model_ids: list[str]) -> None:
-            """指定された `litellm_model_id` のモデルを選択状態に設定 (Issue #245)。"""
+            """指定された `litellm_model_id` のモデルを選択状態に設定 (Issue #245)。
+
+            ADR 0041: 単一選択モードでは set_selected() が signal を抑制し
+            _on_model_selection_changed() の排他制御を通らないため、この programmatic
+            setter 自身でも 1 submit = 1 model 不変条件を強制する (復元/設定経路対策)。
+            """
+            target_ids = litellm_model_ids
+            if self._single_selection_mode:
+                # 存在するモデルのうち最初の1件だけ選択する
+                present = [mid for mid in litellm_model_ids if mid in self.model_checkbox_widgets]
+                target_ids = present[:1]
             for litellm_model_id, widget in self.model_checkbox_widgets.items():
-                widget.set_selected(litellm_model_id in litellm_model_ids)
+                widget.set_selected(litellm_model_id in target_ids)
+
+        # -------------------------------------------------------------------
+        # ADR 0041: Provider Batch 単一選択 / batch-capable フィルタ API
+        # -------------------------------------------------------------------
+
+        def set_single_selection_mode(self, enabled: bool) -> None:
+            """単一選択モード (排他的チェックボックス) を切り替える。
+
+            有効にすると:
+            - チェックボックス選択時に他を自動 deselect する。
+            - select_all_models() / select_recommended_models() が no-op になる。
+            - 対応 UI ボタン (btnSelectAll / btnSelectRecommended) を hide/disable する。
+
+            ADR 0041: Provider Batch の 1 submit = 1 model 制約に対応。
+
+            Args:
+                enabled: True で単一選択モードを有効化、False で通常の複数選択に戻す。
+            """
+            self._single_selection_mode = enabled
+            # bulk 選択ボタンを hide して「複数選択できない」を UI で明示する
+            if hasattr(self, "btnSelectAll"):
+                self.btnSelectAll.setVisible(not enabled)
+            if hasattr(self, "btnSelectRecommended"):
+                self.btnSelectRecommended.setVisible(not enabled)
+            # ADR 0041: 既に複数選択された状態で単一モードへ移行した場合、
+            # 1 submit = 1 model 契約を満たすため最初の1件だけ残して畳み込む
+            # (プログラム的な復元状態でも不変条件を強制する)。
+            if enabled:
+                selected = self.get_selected_models()
+                if len(selected) > 1:
+                    keep = selected[0]
+                    self._single_selection_guard = True
+                    try:
+                        for litellm_model_id, widget in self.model_checkbox_widgets.items():
+                            if litellm_model_id != keep and widget.is_selected():
+                                widget.set_selected(False)
+                    finally:
+                        self._single_selection_guard = False
+                    self._update_selection_count()
+                    self.model_selection_changed.emit(self.get_selected_models())
+            logger.debug(f"ModelSelectionWidget: single_selection_mode={enabled}")
+
+        def set_batch_capable_filtering(
+            self, enabled: bool, task_type: str = "annotation", model_source: Any = None
+        ) -> None:
+            """batch-capable フィルタを切り替える。
+
+            有効にすると update_model_display() が _update_batch_capable_display()
+            ブランチに分岐し、model_source.list_batch_capable_models() から
+            task_type でフィルタした direct provider モデルのみを表示する。
+            task_type 変更時はこのメソッドを再呼び出しすることで再評価される。
+
+            ADR 0041: batch-capable フィルタは direct route (openai/... / anthropic/...)
+            を強制し、OpenRouter route は表示から除外する。
+
+            Args:
+                enabled: True で batch-capable フィルタを有効化。
+                task_type: "annotation" または "rating_preflight"。
+                model_source: list_batch_capable_models() を持つオブジェクト (DB の SSoT)。
+            """
+            self._batch_capable_filtering = enabled
+            self._batch_task_type = task_type
+            self._batch_model_source = model_source
+            self.update_model_display()
+            logger.debug(f"ModelSelectionWidget: batch_capable_filtering={enabled}, task_type={task_type}")
+
+        def get_selected_model(self) -> str | None:
+            """単一選択モード用: 選択中の litellm_model_id を返す。
+
+            複数選択されている場合は最初の1件を返す。未選択なら None。
+
+            Returns:
+                選択中のモデルの litellm_model_id、または None。
+            """
+            selected = self.get_selected_models()
+            return selected[0] if selected else None
+
+        def _resolve_batch_capable_options(
+            self, raw_models: tuple[Any, ...], model_repository: Any
+        ) -> list[tuple[str, str, ModelInfo]]:
+            """batch-capable raw モデルリストを (provider, direct_id, ModelInfo) に変換する。
+
+            ADR 0041: direct route を強制し OpenRouter route を除外する。
+            task_type フィルタと重複除去も適用する。
+
+            Args:
+                raw_models: list_batch_capable_models() の生エントリ列。
+                model_repository: get_model_by_litellm_id() を持つ DB リポジトリ。
+
+            Returns:
+                (provider, direct litellm_model_id, ModelInfo) のリスト。
+            """
+            seen: set[str] = set()
+            batch_options: list[tuple[str, str, ModelInfo]] = []
+
+            for raw in raw_models:
+                litellm_id = litellm_id_from_batch_model(raw)
+                if not litellm_id:
+                    continue
+                model = model_repository.get_model_by_litellm_id(litellm_id)
+                if model is None:
+                    continue
+                # ADR 0038: discontinued_at IS NOT NULL の廃止モデルは表示しない
+                # (Model.available = discontinued_at is None)。submit 時失敗を防ぐ。
+                if not getattr(model, "available", True):
+                    continue
+                provider = direct_provider_for_model(model)
+                if provider is None:
+                    continue
+                if not model_supports_task_type(model, provider, self._batch_task_type):
+                    continue
+                direct_id = model.litellm_model_id
+                if direct_id in seen:
+                    continue
+                seen.add(direct_id)
+                model_info = ModelInfo(
+                    name=model.name or direct_id,
+                    provider=provider,
+                    capabilities=list(getattr(model, "capabilities", [])),
+                    litellm_model_id=direct_id,
+                    is_local=not getattr(model, "requires_api_key", True),
+                    requires_api_key=getattr(model, "requires_api_key", True),
+                    route="direct",
+                )
+                batch_options.append((provider, direct_id, model_info))
+
+            return batch_options
+
+        def _update_batch_capable_display(self) -> None:
+            """batch-capable フィルタ有効時のモデル表示更新。
+
+            ADR 0041:
+            - model_source.list_batch_capable_models() からモデルを解決する。
+            - task_type フィルタ + direct provider 解決を適用する。
+            - direct route を強制し OpenRouter route は除外する。
+            - model_checkbox_widgets の key は direct litellm_model_id。
+            """
+            self._clear_model_display()
+
+            if self._batch_model_source is None:
+                self.placeholderLabel.setVisible(True)
+                self._update_selection_count()
+                return
+
+            raw_models: tuple[Any, ...] = ()
+            if hasattr(self._batch_model_source, "list_batch_capable_models"):
+                try:
+                    raw_models = tuple(self._batch_model_source.list_batch_capable_models())
+                except Exception as e:
+                    # ADR 0041: image-annotator-lib の batch 探索失敗は非致命扱い。
+                    # ProviderBatchJobWidget と同様、空一覧 (placeholder) に倒して UI を壊さない。
+                    logger.warning(f"batch-capable モデル探索に失敗 (空一覧で継続): {e}")
+                    self.placeholderLabel.setVisible(True)
+                    self._update_selection_count()
+                    return
+
+            try:
+                container = get_service_container()
+                model_repository = container.db_manager.model_repo
+            except Exception as e:
+                logger.warning(f"service_container 取得失敗 (batch-capable filter): {e}")
+                self.placeholderLabel.setVisible(True)
+                self._update_selection_count()
+                return
+
+            batch_options = self._resolve_batch_capable_options(raw_models, model_repository)
+
+            if not batch_options:
+                self.placeholderLabel.setVisible(True)
+                self._update_selection_count()
+                return
+
+            self.placeholderLabel.setVisible(False)
+            self._render_batch_capable_options(batch_options)
+
+        def _render_batch_capable_options(self, batch_options: list[tuple[str, str, ModelInfo]]) -> None:
+            """batch-capable オプションをプロバイダー別グループで UI に描画する。
+
+            Args:
+                batch_options: (provider, direct_litellm_id, ModelInfo) のリスト。
+            """
+            provider_icons = {"openai": "🤖", "anthropic": "🧠"}
+            current_provider: str | None = None
+            for provider, direct_id, model_info in batch_options:
+                if provider != current_provider:
+                    current_provider = provider
+                    icon = provider_icons.get(provider, "🔧")
+                    group_label = QLabel(f"{icon} {provider.title()} Models")
+                    group_label.setProperty("class", "provider-group-label")
+                    self.dynamicContentLayout.addWidget(group_label)
+
+                checkbox_widget = ModelCheckboxWidget(model_info)
+                checkbox_widget.selection_changed.connect(self._on_model_selection_changed)
+                self.model_checkbox_widgets[direct_id] = checkbox_widget
+                self.dynamicContentLayout.addWidget(checkbox_widget)
+
+            self.filtered_models = [
+                type("_M", (), {"litellm_model_id": did})() for _, did, _ in batch_options
+            ]
+            self.dynamicContentLayout.invalidate()
+            self._update_selection_count()
 
         def get_selection_info(self) -> dict[str, int]:
             """選択情報を取得"""

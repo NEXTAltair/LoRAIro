@@ -54,6 +54,10 @@ _TASK_TYPE_ENDPOINTS = {
     },
 }
 
+# ADR 0041: Qt-free helper が import できるよう module-level で公開する SSoT。
+# GUI/CLI 側が独自に再定義しない (annotation の anthropic 欠落バグを防ぐ)。
+TASK_TYPE_ENDPOINTS: dict[str, dict[str, str]] = _TASK_TYPE_ENDPOINTS
+
 if TYPE_CHECKING:
     from lorairo.database.schema import ProviderBatchItem, ProviderBatchJob
 
