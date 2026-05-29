@@ -231,3 +231,29 @@ def test_streaming_single_batch_when_batch_size_ge_dataset(
     assert mock_container.annotator_library.annotate.call_count == 1
     assert "Found 3 image(s)" in result.stdout
     assert "Loaded 3 image(s)" in result.stdout
+
+
+@pytest.mark.unit
+@pytest.mark.cli
+@pytest.mark.parametrize("bad_value", ["0", "-1"])
+def test_non_positive_batch_size_is_rejected(bad_value: str) -> None:
+    """Codex review #542: --batch-size 0/負値 は OOM ガードを無効化する。
+
+    Typer の min=1 制約が parse 時に usage error で弾き、非ゼロ終了する。
+    run() 本体には到達しないため container mock は不要。
+    """
+    result = runner.invoke(
+        app,
+        [
+            "annotate",
+            "run",
+            "--project",
+            "stream_dataset",
+            "--model",
+            "gpt-4o-mini",
+            "--batch-size",
+            bad_value,
+        ],
+    )
+
+    assert result.exit_code != 0

@@ -127,3 +127,32 @@ def test_offset_beyond_range_returns_empty() -> None:
     result = _select_image_records(records, limit=None, offset=10, image_ids=None)
 
     assert result == []
+
+
+@pytest.mark.unit
+def test_unordered_input_is_sorted_by_id_for_stable_sharding() -> None:
+    """Codex review #542: get_images_by_filter() は ORDER BY を持たず行順が不安定。
+
+    入力順がどうであれ offset/limit が決定的になるよう id 昇順で安定化する。
+    シャード境界が重複/欠落しないことを保証する。
+    """
+    # DB が返す行順がシャッフルされている状況を模す
+    shuffled = [
+        {"id": 5, "stored_image_path": "5.jpg"},
+        {"id": 1, "stored_image_path": "1.jpg"},
+        {"id": 4, "stored_image_path": "4.jpg"},
+        {"id": 2, "stored_image_path": "2.jpg"},
+        {"id": 3, "stored_image_path": "3.jpg"},
+    ]
+
+    shard0 = _select_image_records(shuffled, limit=2, offset=0, image_ids=None)
+    shard1 = _select_image_records(shuffled, limit=2, offset=2, image_ids=None)
+    shard2 = _select_image_records(shuffled, limit=2, offset=4, image_ids=None)
+
+    assert [r["id"] for r in shard0] == [1, 2]
+    assert [r["id"] for r in shard1] == [3, 4]
+    assert [r["id"] for r in shard2] == [5]
+    # 全シャードの和が元集合と一致（重複・欠落なし）
+    combined = [r["id"] for r in (*shard0, *shard1, *shard2)]
+    assert sorted(combined) == [1, 2, 3, 4, 5]
+    assert len(combined) == len(set(combined))

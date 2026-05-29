@@ -171,16 +171,17 @@ def _select_image_records(
 ) -> list[dict[str, Any]]:
     """フィルタ済み画像レコードに image-id 選択 → offset → limit を順に適用する。
 
-    適用順序は image-id フィルタ → offset → limit で固定（sharding の決定性のため
-    DB レコード順を保つ）。
+    適用順序は image-id フィルタ → id 昇順ソート → offset → limit で固定。
+    offset/limit による sharding を決定的にするため、slice 前に必ず id 昇順で
+    安定ソートする（DB クエリは ORDER BY を持たず行順が不安定なため）。
 
     Args:
         image_records: get_images_by_filter() が返すレコードリスト。各 record は
             "id" キー (int) を持つ。
         limit: 返す最大件数。None なら無制限。
-        offset: 先頭から skip する件数。
-        image_ids: 指定時、その ID を持つレコードのみ対象（DB レコード順を保持）。
-            要求 ID のうち未存在のものは warning を表示。空/None なら全件対象。
+        offset: 先頭から skip する件数（id 昇順での skip 件数）。
+        image_ids: 指定時、その ID を持つレコードのみ対象。要求 ID のうち未存在の
+            ものは warning を表示。空/None なら全件対象。
 
     Returns:
         選択後のレコードリスト（空になり得る。空時の Exit 判定は呼び出し側 run() が行う）。
@@ -197,6 +198,12 @@ def _select_image_records(
         if missing_ids:
             missing_str = ", ".join(str(image_id) for image_id in missing_ids)
             console.print(f"[yellow]Warning:[/yellow] Image ID(s) not found in project: {missing_str}")
+
+    # sharding 決定性: get_images_by_filter() の SQL は ORDER BY を持たず
+    # (ImageRepository._build_image_filter_query は distinct() のみ)、行順は
+    # クエリプラン依存で不安定。offset/limit を安定させるため id 昇順で並べてから
+    # slice する (Codex review #542: shards can overlap/skip without stable order)。
+    records = sorted(records, key=lambda record: record.get("id") or 0)
 
     # offset が 0 や範囲外でも安全に slice
     records = records[offset:]
@@ -563,16 +570,19 @@ def run(
         10,
         "--batch-size",
         "-b",
-        help="Batch size for processing",
+        min=1,
+        help="Batch size for processing (>=1; bounds memory per chunk)",
     ),
     limit: int | None = typer.Option(
         None,
         "--limit",
-        help="Max number of images to annotate",
+        min=1,
+        help="Max number of images to annotate (>=1)",
     ),
     offset: int = typer.Option(
         0,
         "--offset",
+        min=0,
         help="Skip the first N eligible images (for sharding)",
     ),
     image_id: list[int] = typer.Option(
