@@ -266,6 +266,55 @@ def _validate_required_api_keys(
     raise typer.Exit(code=1)
 
 
+def _build_annotation_filter_criteria(
+    model_repo: ModelRepository,
+    *,
+    unrated: bool,
+    missing_model: str | None,
+) -> tuple[ImageFilterCriteria, str | None]:
+    """annotate run のCLIオプションからDB検索条件を組み立てる。"""
+    missing_model_litellm_id = (
+        _resolve_model_identifier(model_repo, missing_model) if missing_model is not None else None
+    )
+    return (
+        ImageFilterCriteria(
+            include_nsfw=True,
+            only_unrated=unrated,
+            missing_model_litellm_id=missing_model_litellm_id,
+        ),
+        missing_model_litellm_id,
+    )
+
+
+def _handle_no_image_records(
+    project: str,
+    *,
+    filters_applied: bool,
+) -> None:
+    """DB検索結果0件時のCLIエラーを表示して終了する。"""
+    if filters_applied:
+        console.print(f"[red]Error:[/red] No images matched annotation filters for project '{project}'.")
+        raise typer.Exit(code=1)
+
+    console.print(
+        f"[red]Error:[/red] No registered images found in project '{project}'. "
+        "Run 'lorairo-cli images register' first."
+    )
+    raise typer.Exit(code=1)
+
+
+def _print_annotation_filter_summary(
+    *,
+    unrated: bool,
+    missing_model_litellm_id: str | None,
+) -> None:
+    """適用中のannotate runフィルタを表示する。"""
+    if unrated:
+        console.print("[cyan]Filter: unrated images only[/cyan]")
+    if missing_model_litellm_id is not None:
+        console.print(f"[cyan]Filter: missing model {missing_model_litellm_id}[/cyan]")
+
+
 @app.command("run")
 def run(
     project: str = typer.Option(
@@ -295,6 +344,16 @@ def run(
         "--batch-size",
         "-b",
         help="Batch size for processing",
+    ),
+    unrated: bool = typer.Option(
+        False,
+        "--unrated",
+        help="Annotate only images without any saved rating rows.",
+    ),
+    missing_model: str | None = typer.Option(
+        None,
+        "--missing-model",
+        help="Annotate only images without saved annotations from the given LiteLLM model ID.",
     ),
 ) -> None:
     """Run annotation on project images.
@@ -330,16 +389,19 @@ def run(
         # Issue #245: --model 入力を canonical litellm_model_id に解決
         # (曖昧マッチは Error で abort、ここで raise した typer.Exit は外側 except で素通り)
         resolved_litellm_ids = [_resolve_model_identifier(model_repo, ident) for ident in model]
+        criteria, missing_model_litellm_id = _build_annotation_filter_criteria(
+            model_repo,
+            unrated=unrated,
+            missing_model=missing_model,
+        )
 
-        criteria = ImageFilterCriteria(include_nsfw=True)
         image_records, total_in_db = image_repo.get_images_by_filter(criteria)
 
         if not image_records:
-            console.print(
-                f"[red]Error:[/red] No registered images found in project '{project}'. "
-                "Run 'lorairo-cli images register' first."
+            _handle_no_image_records(
+                project,
+                filters_applied=unrated or missing_model_litellm_id is not None,
             )
-            raise typer.Exit(code=1)
 
         # DB レコードから PIL 画像をロード
         pil_images, loaded_count, failed_count = _load_images_from_db(image_records)
@@ -350,6 +412,10 @@ def run(
 
         console.print(f"[cyan]Found {total_in_db} image(s) in DB[/cyan]")
         console.print(f"[cyan]Using model(s): {', '.join(resolved_litellm_ids)}[/cyan]")
+        _print_annotation_filter_summary(
+            unrated=unrated,
+            missing_model_litellm_id=missing_model_litellm_id,
+        )
         console.print(f"[green]Loaded {loaded_count} image(s) ({failed_count} failed)[/green]")
 
         annotator = container.annotator_library

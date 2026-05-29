@@ -578,6 +578,125 @@ def test_annotate_run_with_batch_size(
 @pytest.mark.unit
 @pytest.mark.cli
 @patch("lorairo.cli.commands.annotate.get_service_container")
+def test_annotate_run_unrated_passes_only_unrated_criteria(
+    mock_get_container,
+    test_project_with_images: tuple[Path, list[Path]],
+) -> None:
+    """Test: annotate run --unrated は rating 未保存画像のみに絞る criteria を渡す。"""
+    _project_dir, image_files = test_project_with_images
+
+    mock_container = MagicMock()
+    mock_annotator = MagicMock()
+    mock_config = MagicMock()
+
+    mock_config.get_setting.return_value = "test_key"
+    mock_annotator.annotate.return_value = {"hash1": {"tags": ["tag1"]}}
+
+    image_records = [{"id": 1, "phash": "phash0000000000000000", "stored_image_path": str(image_files[0])}]
+    mock_container.db_manager.image_repo.get_images_by_filter.return_value = (image_records, 1)
+    mock_container.annotator_library = mock_annotator
+    mock_container.config_service = mock_config
+    mock_get_container.return_value = mock_container
+
+    result = runner.invoke(
+        app,
+        [
+            "annotate",
+            "run",
+            "--project",
+            "test_dataset",
+            "--model",
+            "gpt-4o-mini",
+            "--unrated",
+        ],
+    )
+
+    assert result.exit_code == 0
+    criteria = mock_container.db_manager.image_repo.get_images_by_filter.call_args.args[0]
+    assert criteria.include_nsfw is True
+    assert criteria.only_unrated is True
+    assert criteria.missing_model_litellm_id is None
+    assert "Filter: unrated images only" in result.stdout
+
+
+@pytest.mark.unit
+@pytest.mark.cli
+@patch("lorairo.cli.commands.annotate.get_service_container")
+def test_annotate_run_missing_model_passes_missing_model_criteria(
+    mock_get_container,
+    test_project_with_images: tuple[Path, list[Path]],
+) -> None:
+    """Test: annotate run --missing-model は指定モデル未処理画像のみに絞る criteria を渡す。"""
+    _project_dir, image_files = test_project_with_images
+
+    mock_container = MagicMock()
+    mock_annotator = MagicMock()
+    mock_config = MagicMock()
+
+    mock_config.get_setting.return_value = "test_key"
+    mock_annotator.annotate.return_value = {"hash1": {"tags": ["tag1"]}}
+
+    image_records = [{"id": 1, "phash": "phash0000000000000000", "stored_image_path": str(image_files[0])}]
+    mock_container.db_manager.image_repo.get_images_by_filter.return_value = (image_records, 1)
+    mock_container.annotator_library = mock_annotator
+    mock_container.config_service = mock_config
+    mock_get_container.return_value = mock_container
+
+    result = runner.invoke(
+        app,
+        [
+            "annotate",
+            "run",
+            "--project",
+            "test_dataset",
+            "--model",
+            "gpt-4o-mini",
+            "--missing-model",
+            "openai/omni-moderation-latest",
+        ],
+    )
+
+    assert result.exit_code == 0
+    criteria = mock_container.db_manager.image_repo.get_images_by_filter.call_args.args[0]
+    assert criteria.include_nsfw is True
+    assert criteria.only_unrated is False
+    assert criteria.missing_model_litellm_id == "openai/omni-moderation-latest"
+    assert "Filter: missing model openai/omni-moderation-latest" in result.stdout
+
+
+@pytest.mark.unit
+@pytest.mark.cli
+@patch("lorairo.cli.commands.annotate.get_service_container")
+def test_annotate_run_filter_matches_no_images_exits_before_loading(
+    mock_get_container,
+    test_project_with_images: tuple[Path, list[Path]],
+) -> None:
+    """Test: annotate run のフィルタ結果が0件なら画像ロード前に exit 1。"""
+    mock_container = MagicMock()
+    mock_container.db_manager.image_repo.get_images_by_filter.return_value = ([], 0)
+    mock_get_container.return_value = mock_container
+
+    result = runner.invoke(
+        app,
+        [
+            "annotate",
+            "run",
+            "--project",
+            "test_dataset",
+            "--model",
+            "gpt-4o-mini",
+            "--unrated",
+        ],
+    )
+
+    assert result.exit_code == 1
+    assert "No images matched annotation filters" in result.stdout
+    mock_container.annotator_library.annotate.assert_not_called()
+
+
+@pytest.mark.unit
+@pytest.mark.cli
+@patch("lorairo.cli.commands.annotate.get_service_container")
 def test_annotate_run_annotation_failure(
     mock_get_container,
     test_project_with_images: tuple[Path, list[Path]],
