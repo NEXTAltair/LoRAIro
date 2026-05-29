@@ -150,6 +150,17 @@ class BatchTagAddWidget(QWidget):
             return
         self._staging_widget.add_image_ids(image_ids)
 
+    def get_staged_items(self) -> "OrderedDict[int, tuple[str, str]]":
+        """ステージング中の画像メタデータを返す公開 API。
+
+        ADR 0041 (#550 D): main_window はこの公開アクセサ経由でステージング画像の
+        path を構築する (旧来の _staged_images private 参照から移行)。
+
+        Returns:
+            {image_id: (filename, stored_path)} の OrderedDict（追加順）。
+        """
+        return self._staging_widget.get_staged_items()
+
     # ------------------------------------------------------------------
     # 後方互換プロパティ（Wave 2 で main_window.py 移行後に削除予定）
     # ------------------------------------------------------------------
@@ -158,11 +169,9 @@ class BatchTagAddWidget(QWidget):
     def _staged_images(self) -> "OrderedDict[int, tuple[str, str]]":
         """ステージング画像メタデータへの後方互換アクセサ。
 
-        main_window._get_staged_image_paths_for_annotation() が
-        `batch_widget._staged_images.items()` / `if not batch_widget._staged_images` で
-        参照するため、StagingWidget.get_staged_items() へ委譲して互換性を維持する。
-
-        Wave 2（#550 D）で main_window.py を get_staged_items() 経由に移行後、削除予定。
+        ADR 0041 (#550 D) で main_window は公開 get_staged_items() 経由へ移行済み。
+        本プロパティは BatchTagAddWidget の既存テスト (`widget._staged_images`) が
+        参照するため StagingWidget.get_staged_items() へ委譲して維持する。
         """
         return self._staging_widget.get_staged_items()
 

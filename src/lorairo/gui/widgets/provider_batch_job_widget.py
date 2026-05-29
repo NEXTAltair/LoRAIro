@@ -1,49 +1,44 @@
-"""Provider Batch job management widget."""
+"""Provider Batch job management widget.
+
+ADR 0041: 個別実行フロー (BatchTagAddWidget) と同形の
+「ステージング → モデル選択 → 実行」統一フローに改修した Provider Batch タブ。
+
+- 左: StagingWidget (サムネイルステージング、個別実行と共通)
+- 右上: 実行設定 (task_type フィルタ → 単一選択 batch-capable ModelSelectionWidget → Submit)
+- 右下: batch 固有の job 状態表示 (Jobs / Detail / Items)
+
+batch-capable 判定ロジックは Qt-free helper (provider_batch_capability) と
+ModelSelectionWidget に集約済みで、本 widget では submit 時のパラメータ解決にのみ helper を再利用する。
+"""
 
 from __future__ import annotations
 
-import re
-from typing import Any
+from collections.abc import Callable
+from typing import Any, cast
 
 from PySide6.QtCore import Qt, Slot
-from PySide6.QtWidgets import (
-    QComboBox,
-    QFormLayout,
-    QGroupBox,
-    QHBoxLayout,
-    QLabel,
-    QLineEdit,
-    QMessageBox,
-    QPushButton,
-    QTableWidget,
-    QTableWidgetItem,
-    QTextEdit,
-    QVBoxLayout,
-    QWidget,
-)
+from PySide6.QtWidgets import QMessageBox, QTableWidget, QTableWidgetItem, QWidget
 
+from lorairo.gui.designer.ProviderBatchJobWidget_ui import Ui_ProviderBatchJobWidget
+from lorairo.gui.widgets.model_selection_widget import ModelSelectionWidget
+from lorairo.services.provider_batch_capability import (
+    direct_provider_for_model,
+    endpoint_for_task,
+)
 from lorairo.services.provider_batch_service import ProviderBatchError
 from lorairo.utils.log import logger
 
-_DIRECT_PROVIDERS = {"openai", "anthropic"}
 _TASK_TYPES = ("annotation", "rating_preflight")
-_TASK_TYPE_ENDPOINTS = {
-    "annotation": {
-        "anthropic": "/v1/messages",
-    },
-    "rating_preflight": {
-        "openai": "/v1/moderations",
-    },
-}
-_MODEL_TYPE_RATINGS = "ratings"
 _ITEM_STATUSES = ("all", "failed", "expired", "canceled")
 
 
-class ProviderBatchJobWidget(QWidget):
-    """Provider Batch job submit/list/detail widget."""
+class ProviderBatchJobWidget(QWidget, Ui_ProviderBatchJobWidget):
+    """Provider Batch job submit/list/detail widget (統一フロー)."""
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
+        setup_ui = cast(Callable[[QWidget], None], self.setupUi)
+        setup_ui(self)
         self.setObjectName("providerBatchJobWidget")
 
         self._workflow_service: Any = None
@@ -53,8 +48,54 @@ class ProviderBatchJobWidget(QWidget):
         self._dataset_state_manager: Any = None
         self._current_job_id: int | None = None
 
-        self._setup_ui()
+        # ADR 0041: placeholder を単一選択 batch-capable ModelSelectionWidget に差替
+        self._staging_widget = self.stagingWidget
+        self._model_selection_widget = self._inject_model_selection_widget()
+        self._model_selection_widget.set_single_selection_mode(True)
+
+        self._setup_combos_and_tables()
         self._connect_signals()
+        self._update_target_label()
+
+    def _inject_model_selection_widget(self) -> ModelSelectionWidget:
+        """modelSelectionPlaceholder を ModelSelectionWidget に差替える。
+
+        widget_setup_service の placeholder 差替パターンに準拠する。
+
+        Returns:
+            実行設定グループに組み込んだ ModelSelectionWidget。
+        """
+        placeholder = self.modelSelectionPlaceholder
+        layout = self.executionLayout
+        index = layout.indexOf(placeholder)
+        layout.removeWidget(placeholder)
+        placeholder.setParent(None)
+        placeholder.deleteLater()
+
+        widget = ModelSelectionWidget(mode="advanced")
+        widget.setObjectName("providerBatchModelSelection")
+        widget.setParent(self.groupBoxExecution)
+        layout.insertWidget(index, widget)
+        return widget
+
+    def _setup_combos_and_tables(self) -> None:
+        """combo / table の項目・ヘッダを設定する。"""
+        self.comboBoxTaskType.addItems(_TASK_TYPES)
+        self.comboBoxTaskType.setCurrentText("annotation")
+        self.comboBoxItemStatus.addItems(_ITEM_STATUSES)
+
+        self.tableJobs.setColumnCount(5)
+        self.tableJobs.setHorizontalHeaderLabels(
+            ["ID", "Provider", "Status", "Provider Status", "Requests"]
+        )
+        self.tableJobs.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
+        self.tableJobs.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
+
+        self.tableItems.setColumnCount(5)
+        self.tableItems.setHorizontalHeaderLabels(
+            ["Custom ID", "Image ID", "Status", "Error Type", "Error Message"]
+        )
+        self.tableItems.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
 
     def set_dependencies(
         self,
@@ -68,135 +109,21 @@ class ProviderBatchJobWidget(QWidget):
         self._repository = repository
         self._model_source = model_source
         self._model_repository = model_repository
-        self.refresh_models()
+        self._model_selection_widget.set_batch_capable_filtering(
+            True, self._selected_task_type(), model_source
+        )
         self.refresh_jobs()
 
     def set_dataset_state_manager(self, dataset_state_manager: Any) -> None:
-        """Set shared dataset state for selected image ID import."""
+        """Set shared dataset state for staging import."""
         self._dataset_state_manager = dataset_state_manager
-
-    def _setup_ui(self) -> None:
-        root = QHBoxLayout(self)
-        root.setContentsMargins(8, 8, 8, 8)
-        root.setSpacing(8)
-
-        left = QVBoxLayout()
-        right = QVBoxLayout()
-        root.addLayout(left, 1)
-        root.addLayout(right, 2)
-
-        self.groupBoxSubmit = QGroupBox("Submit")
-        submit_layout = QFormLayout(self.groupBoxSubmit)
-
-        self.comboBoxModel = QComboBox()
-        self.comboBoxModel.setObjectName("comboBoxProviderBatchModel")
-        self.comboBoxModel.setMinimumWidth(320)
-        submit_layout.addRow("Model", self.comboBoxModel)
-
-        self.comboBoxTaskType = QComboBox()
-        self.comboBoxTaskType.setObjectName("comboBoxProviderBatchTaskType")
-        self.comboBoxTaskType.addItems(_TASK_TYPES)
-        self.comboBoxTaskType.setCurrentText("annotation")
-        submit_layout.addRow("Task", self.comboBoxTaskType)
-
-        self.lineEditImageIds = QLineEdit()
-        self.lineEditImageIds.setObjectName("lineEditProviderBatchImageIds")
-        self.lineEditImageIds.setPlaceholderText("1, 2, 3")
-        submit_layout.addRow("Image IDs", self.lineEditImageIds)
-
-        self.lineEditPromptProfile = QLineEdit("default")
-        self.lineEditPromptProfile.setObjectName("lineEditProviderBatchPromptProfile")
-        submit_layout.addRow("Prompt", self.lineEditPromptProfile)
-
-        self.lineEditDescription = QLineEdit()
-        self.lineEditDescription.setObjectName("lineEditProviderBatchDescription")
-        submit_layout.addRow("Description", self.lineEditDescription)
-
-        submit_buttons = QHBoxLayout()
-        self.buttonUseSelected = QPushButton("Use Selected")
-        self.buttonUseSelected.setObjectName("buttonProviderBatchUseSelected")
-        self.buttonRefreshModels = QPushButton("Refresh Models")
-        self.buttonRefreshModels.setObjectName("buttonProviderBatchRefreshModels")
-        self.buttonSubmit = QPushButton("Submit")
-        self.buttonSubmit.setObjectName("buttonProviderBatchSubmit")
-        submit_buttons.addWidget(self.buttonUseSelected)
-        submit_buttons.addWidget(self.buttonRefreshModels)
-        submit_buttons.addWidget(self.buttonSubmit)
-        submit_layout.addRow(submit_buttons)
-        left.addWidget(self.groupBoxSubmit)
-
-        self.groupBoxJobs = QGroupBox("Jobs")
-        jobs_layout = QVBoxLayout(self.groupBoxJobs)
-        job_buttons = QHBoxLayout()
-        self.buttonRefreshJobs = QPushButton("Refresh")
-        self.buttonRefreshJobs.setObjectName("buttonProviderBatchRefreshJobs")
-        self.buttonRefreshStatus = QPushButton("Refresh Status")
-        self.buttonRefreshStatus.setObjectName("buttonProviderBatchRefreshStatus")
-        self.buttonCancel = QPushButton("Cancel")
-        self.buttonCancel.setObjectName("buttonProviderBatchCancel")
-        self.buttonFetch = QPushButton("Fetch")
-        self.buttonFetch.setObjectName("buttonProviderBatchFetch")
-        self.buttonImport = QPushButton("Import")
-        self.buttonImport.setObjectName("buttonProviderBatchImport")
-        for button in (
-            self.buttonRefreshJobs,
-            self.buttonRefreshStatus,
-            self.buttonCancel,
-            self.buttonFetch,
-            self.buttonImport,
-        ):
-            job_buttons.addWidget(button)
-        jobs_layout.addLayout(job_buttons)
-
-        self.tableJobs = QTableWidget(0, 5)
-        self.tableJobs.setObjectName("tableProviderBatchJobs")
-        self.tableJobs.setHorizontalHeaderLabels(
-            ["ID", "Provider", "Status", "Provider Status", "Requests"]
-        )
-        self.tableJobs.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
-        self.tableJobs.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
-        jobs_layout.addWidget(self.tableJobs)
-        right.addWidget(self.groupBoxJobs, 1)
-
-        detail_row = QHBoxLayout()
-        self.groupBoxDetail = QGroupBox("Detail")
-        detail_layout = QVBoxLayout(self.groupBoxDetail)
-        self.textEditJobDetail = QTextEdit()
-        self.textEditJobDetail.setObjectName("textEditProviderBatchJobDetail")
-        self.textEditJobDetail.setReadOnly(True)
-        detail_layout.addWidget(self.textEditJobDetail)
-        detail_row.addWidget(self.groupBoxDetail, 1)
-
-        self.groupBoxItems = QGroupBox("Items")
-        items_layout = QVBoxLayout(self.groupBoxItems)
-        filter_layout = QHBoxLayout()
-        filter_layout.addWidget(QLabel("Status"))
-        self.comboBoxItemStatus = QComboBox()
-        self.comboBoxItemStatus.setObjectName("comboBoxProviderBatchItemStatus")
-        self.comboBoxItemStatus.addItems(_ITEM_STATUSES)
-        filter_layout.addWidget(self.comboBoxItemStatus)
-        filter_layout.addStretch()
-        items_layout.addLayout(filter_layout)
-        self.tableItems = QTableWidget(0, 5)
-        self.tableItems.setObjectName("tableProviderBatchItems")
-        self.tableItems.setHorizontalHeaderLabels(
-            ["Custom ID", "Image ID", "Status", "Error Type", "Error Message"]
-        )
-        self.tableItems.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
-        items_layout.addWidget(self.tableItems)
-        detail_row.addWidget(self.groupBoxItems, 1)
-        right.addLayout(detail_row, 1)
-
-        self.labelStatus = QLabel("Ready")
-        self.labelStatus.setObjectName("labelProviderBatchStatus")
-        left.addWidget(self.labelStatus)
-        left.addStretch()
+        self._staging_widget.set_dataset_state_manager(dataset_state_manager)
 
     def _connect_signals(self) -> None:
-        self.buttonUseSelected.clicked.connect(self.use_selected_images)
-        self.buttonRefreshModels.clicked.connect(self.refresh_models)
+        self.buttonAddSelected.clicked.connect(self._staging_widget.add_selected_images)
         self.buttonSubmit.clicked.connect(self.submit_job)
-        self.comboBoxTaskType.currentTextChanged.connect(self.refresh_models)
+        self.comboBoxTaskType.currentTextChanged.connect(self._on_task_type_changed)
+        self._staging_widget.staged_images_changed.connect(self._update_target_label)
         self.buttonRefreshJobs.clicked.connect(self.refresh_jobs)
         self.buttonRefreshStatus.clicked.connect(self.refresh_selected_job_status)
         self.buttonCancel.clicked.connect(self.cancel_selected_job)
@@ -205,153 +132,59 @@ class ProviderBatchJobWidget(QWidget):
         self.tableJobs.itemSelectionChanged.connect(self._on_job_selection_changed)
         self.comboBoxItemStatus.currentTextChanged.connect(self.refresh_items)
 
-    @Slot()
-    def refresh_models(self) -> None:
-        """Refresh direct provider batch capable models."""
-        self.comboBoxModel.clear()
-        if self._model_repository is None:
-            return
-
-        task_type = self._selected_task_type()
-        try:
-            models = self._load_batch_capable_models()
-        except Exception as e:
-            logger.warning(f"Provider Batch model discovery failed: {e}")
-            models = []
-
-        for model in models:
-            provider = self._direct_provider_for_model(model)
-            if provider is None:
-                continue
-            if not self._model_supports_task_type(model, provider, task_type):
-                continue
-            endpoint = self._endpoint_for_task(provider, task_type)
-            label = f"{provider}: {model.litellm_model_id}"
-            self.comboBoxModel.addItem(
-                label,
-                {
-                    "model_id": model.id,
-                    "provider": provider,
-                    "litellm_model_id": model.litellm_model_id,
-                    "endpoint": endpoint,
-                    "task_type": task_type,
-                },
-            )
-        self.labelStatus.setText(f"{self.comboBoxModel.count()} batch-capable model(s)")
-
     def _selected_task_type(self) -> str:
         task_type = self.comboBoxTaskType.currentText()
         if task_type in _TASK_TYPES:
             return task_type
         return "annotation"
 
-    def _endpoint_for_task(self, provider: str, task_type: str) -> str:
-        provider_tasks = _TASK_TYPE_ENDPOINTS.get(task_type)
-        if provider_tasks is None:
-            provider_tasks = _TASK_TYPE_ENDPOINTS["annotation"]
-        endpoint = provider_tasks.get(provider)
-        if endpoint is None:
-            raise ValueError(f"Provider '{provider}' は task_type '{task_type}' をサポートしていません。")
-        return endpoint
-
-    @staticmethod
-    def _model_has_model_type(model: Any, model_type: str) -> bool:
-        model_types = getattr(model, "model_types", ())
-        return any(getattr(item, "name", None) == model_type for item in model_types)
-
-    def _model_supports_task_type(self, model: Any, provider: str, task_type: str) -> bool:
-        if task_type == "annotation":
-            return provider == "anthropic"
-        if task_type == "rating_preflight":
-            return provider == "openai" and self._model_has_model_type(model, _MODEL_TYPE_RATINGS)
-        return False
-
-    def _load_batch_capable_models(self) -> list[Any]:
-        source = self._model_source
-        raw_models: tuple[Any, ...] = ()
-        if source is not None and hasattr(source, "list_batch_capable_models"):
-            raw_models = tuple(source.list_batch_capable_models())
-
-        resolved: list[Any] = []
-        seen: set[str] = set()
-        for raw in raw_models:
-            litellm_id = self._litellm_id_from_batch_model(raw)
-            if not litellm_id:
-                continue
-            model = self._model_repository.get_model_by_litellm_id(litellm_id)
-            if model is not None and model.litellm_model_id not in seen:
-                resolved.append(model)
-                seen.add(model.litellm_model_id)
-
-        if resolved:
-            return resolved
-        return []
-
-    @staticmethod
-    def _litellm_id_from_batch_model(raw: Any) -> str | None:
-        if isinstance(raw, str):
-            return raw
-        value = (
-            getattr(raw, "litellm_model_id", None)
-            or getattr(raw, "model_id", None)
-            or getattr(raw, "name", None)
+    @Slot(str)
+    def _on_task_type_changed(self, _task_type: str) -> None:
+        """task_type 変更時に batch-capable フィルタを再評価する。"""
+        if self._model_source is None:
+            return
+        self._model_selection_widget.set_batch_capable_filtering(
+            True, self._selected_task_type(), self._model_source
         )
-        return str(value) if value else None
-
-    @staticmethod
-    def _direct_provider_for_model(model: Any) -> str | None:
-        provider = str(getattr(model, "provider", "") or "").lower()
-        litellm_id = str(getattr(model, "litellm_model_id", "") or "")
-        route_prefix = litellm_id.split("/", 1)[0].lower() if "/" in litellm_id else ""
-        direct = provider if provider in _DIRECT_PROVIDERS else route_prefix
-        if direct in _DIRECT_PROVIDERS:
-            return direct
-        return None
 
     @Slot()
-    def use_selected_images(self) -> None:
-        if self._dataset_state_manager is None:
-            self.labelStatus.setText("Dataset state is not available")
-            return
-        image_ids = self._dataset_state_manager.selected_image_ids
-        self.lineEditImageIds.setText(", ".join(str(image_id) for image_id in image_ids))
-        self.labelStatus.setText(f"Loaded {len(image_ids)} selected image ID(s)")
-
-    def _parse_image_ids(self) -> list[int]:
-        raw = self.lineEditImageIds.text().strip()
-        if not raw:
-            return []
-        image_ids: list[int] = []
-        for token in re.split(r"[\s,]+", raw):
-            if not token:
-                continue
-            image_id = int(token)
-            if image_id <= 0:
-                raise ValueError("image ID must be positive")
-            image_ids.append(image_id)
-        return image_ids
+    def _update_target_label(self, _image_ids: list[int] | None = None) -> None:
+        """ステージング枚数ラベルを更新する。"""
+        count = self._staging_widget.count()
+        self.labelTarget.setText(f"◎ ステージング: {count} 枚")
 
     @Slot()
     def submit_job(self) -> None:
         if self._workflow_service is None:
             self.labelStatus.setText("Provider Batch service is not available")
             return
-        model_data = self.comboBoxModel.currentData()
-        if not model_data:
-            QMessageBox.warning(self, "Provider Batch", "No batch-capable model is selected.")
+        litellm_model_id = self._model_selection_widget.get_selected_model()
+        if not litellm_model_id:
+            QMessageBox.warning(self, "Provider Batch", "バッチ対応モデルを選択してください。")
             return
         try:
-            image_ids = self._parse_image_ids()
+            image_ids = self._staging_widget.get_image_ids()
             if not image_ids:
-                raise ValueError("image IDs are required")
+                raise ValueError("ステージングに画像を追加してください。")
             task_type = self._selected_task_type()
+            model = (
+                self._model_repository.get_model_by_litellm_id(litellm_model_id)
+                if self._model_repository is not None
+                else None
+            )
+            if model is None:
+                raise ValueError(f"モデル情報が見つかりません: {litellm_model_id}")
+            provider = direct_provider_for_model(model)
+            if provider is None:
+                raise ValueError(f"direct provider を解決できません: {litellm_model_id}")
+            endpoint = endpoint_for_task(provider, task_type)
             job_id = self._workflow_service.submit_images(
-                provider=model_data["provider"],
-                endpoint=model_data["endpoint"],
-                litellm_model_id=model_data["litellm_model_id"],
+                provider=provider,
+                endpoint=endpoint,
+                litellm_model_id=litellm_model_id,
                 prompt_profile=self.lineEditPromptProfile.text().strip() or "default",
                 image_ids=image_ids,
-                model_id=model_data["model_id"],
+                model_id=model.id,
                 description=self.lineEditDescription.text().strip() or None,
                 task_type=task_type,
             )

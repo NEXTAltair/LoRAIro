@@ -1530,8 +1530,8 @@ class MainWindow(QMainWindow, Ui_MainWindow):
     def _get_staged_image_paths_for_annotation(self) -> list[str]:
         """バッチタグタブのステージング画像パスを取得
 
-        BatchTagAddWidget._staged_imagesから画像IDを取得し、
-        DatasetStateManagerから実際のファイルパスに変換する。
+        BatchTagAddWidget.get_staged_items() で画像 ID とメタデータを取得し、
+        DatasetStateManager 由来の stored_path を実際のファイルパスに解決する。
 
         Returns:
             list[str]: 画像ファイルパスリスト。エラー時は空リスト。
@@ -1539,7 +1539,8 @@ class MainWindow(QMainWindow, Ui_MainWindow):
         from lorairo.database.db_core import resolve_stored_path
 
         batch_widget = getattr(self, "batchTagAddWidget", None)
-        if not batch_widget or not batch_widget._staged_images:
+        staged_items = batch_widget.get_staged_items() if batch_widget else None
+        if not staged_items:
             return []
 
         if not self.dataset_state_manager:
@@ -1547,7 +1548,7 @@ class MainWindow(QMainWindow, Ui_MainWindow):
             return []
 
         paths: list[str] = []
-        for image_id, (_, stored_path) in batch_widget._staged_images.items():
+        for image_id, (_, stored_path) in staged_items.items():
             if stored_path:
                 resolved = resolve_stored_path(stored_path)
                 if resolved and resolved.exists():
@@ -1654,8 +1655,8 @@ class MainWindow(QMainWindow, Ui_MainWindow):
         バッチタグタブのステージングリスト更新
 
         Note:
-            BatchTagAddWidget._staged_imagesはprivate属性なので直接アクセスしない。
-            代わりに_refresh_staging_list_ui()を呼び出してUI更新を委譲する。
+            ステージング状態へは直接アクセスせず、_refresh_staging_list_ui() を
+            呼び出して BatchTagAddWidget / StagingWidget に UI 更新を委譲する。
         """
         # BatchTagAddWidgetを取得（Ui_MainWindowを多重継承しているため、selfの直接の属性）
         batch_tag_widget = getattr(self, "batchTagAddWidget", None)
