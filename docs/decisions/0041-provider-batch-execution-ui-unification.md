@@ -69,9 +69,21 @@ Provider Batch タブ ─ splitterMain (水平)
 ### 2. 実行制約
 
 - **1 submit = 1 batch job / 1 provider / 1 model**（複数同時実行はしない）
-- モデル選択は **単一選択**（排他的に1つ）
-- task_type が provider を一意決定する（`annotation`→anthropic / `rating_preflight`→openai かつ
-  model_type に `ratings`）。単一モデル選択により provider も自ずと1つに固定される。
+- モデル選択は **単一選択**（排他的に1つ）。単一モデル選択により provider も1つに固定される。
+- task_type と provider/endpoint の対応（service 層 / CLI と同一 — `provider_batch_workflow_service.py`,
+  `cli/commands/batch.py` の `_TASK_TYPE_ENDPOINTS` を SSoT とする）:
+
+  | task_type | provider | endpoint | 追加条件 |
+  |---|---|---|---|
+  | `annotation` | openai | `/v1/chat/completions` | — |
+  | `annotation` | anthropic | `/v1/messages` | — |
+  | `rating_preflight` | openai | `/v1/moderations` | model_type に `ratings` |
+
+  > **注意**: `annotation` は openai / anthropic の両方が有効なため、task_type だけでは provider は
+  > 一意に決まらない（provider は選択モデルが決める）。現 `ProviderBatchJobWidget` は annotation を
+  > anthropic 限定にしているが、これは GUI 側のみの未対応であり、service+CLI は openai annotation
+  > (`/v1/chat/completions`) を既にサポートしている（ADR 0038）。統一 GUI ではこの既存サポート経路を
+  > 回帰させず、`annotation → openai` も batch-capable フィルタに含める。
 
 ### 3. ステージング共通化: 専用 `StagingWidget` を抽出
 
@@ -124,7 +136,14 @@ def get_selected_model(self) -> str | None: ...
 - batch-capable 判定ロジック（現 `ProviderBatchJobWidget._direct_provider_for_model` /
   `_model_supports_task_type` / `_load_batch_capable_models` / `_litellm_id_from_batch_model`）を
   `ModelSelectionWidget`（または共有ヘルパ）へ移設し、D 側に重複実装させない。
-- 既存 `annotation_only` フィルタの挙動は変えない。
+  - `_model_supports_task_type` は上記 task_type ↔ provider/endpoint 表に従い、
+    `annotation` で **openai / anthropic 両方**を許可する（anthropic 限定にしない）。
+- **単一選択モードでは bulk 選択コントロールを単一モード対応にする**。`select_all_models()` /
+  `select_recommended_models()` は内部で `ModelCheckboxWidget.set_selected(True)` を呼び checkbox
+  signal を bypass するため、単一選択モードのまま放置すると「0 or 1」保証が破れる。対応:
+  単一選択モードでは対応 UI ボタン（select all / recommended 相当）を **hide / disable** し、
+  メソッド側も単一モードでは no-op もしくは「最後の1つだけ選択」に倒す。
+- 既存 `annotation_only` フィルタ・複数選択モードの挙動は変えない（単一選択は opt-in）。
 
 ### C: 新規 `StagingWidget` の公開 API（所有ファイル: 新規 `staging_widget.py` + テスト）
 
