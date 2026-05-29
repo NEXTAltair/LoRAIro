@@ -77,7 +77,13 @@ Provider Batch タブ ─ splitterMain (水平)
   |---|---|---|---|
   | `annotation` | openai | `/v1/chat/completions` | — |
   | `annotation` | anthropic | `/v1/messages` | — |
-  | `rating_preflight` | openai | `/v1/moderations` | model_type に `ratings` |
+  | `rating_preflight` | openai | `/v1/moderations` | litellm_model_id が `openai/omni-moderation-*` |
+
+  > **rating_preflight の制約は `openai/omni-moderation-*` で固定**する（`model_type=ratings` だけ
+  > では緩い）。submit 側 `ProviderBatchWorkflowService._validate_submit_task()` は
+  > rating_preflight の litellm_model_id が `openai/omni-moderation-*` でない場合に reject する。
+  > batch-capable フィルタを `model_type=ratings` で緩く出すと、UI フィルタは通過するのに submit で
+  > 失敗するモデルを露出してしまうため、フィルタ条件も `openai/omni-moderation-*` に揃える。
 
   > **注意**: `annotation` は openai / anthropic の両方が有効なため、task_type だけでは provider は
   > 一意に決まらない（provider は選択モデルが決める）。現 `ProviderBatchJobWidget` は annotation を
@@ -138,6 +144,14 @@ def get_selected_model(self) -> str | None: ...
   `ModelSelectionWidget`（または共有ヘルパ）へ移設し、D 側に重複実装させない。
   - `_model_supports_task_type` は上記 task_type ↔ provider/endpoint 表に従い、
     `annotation` で **openai / anthropic 両方**を許可する（anthropic 限定にしない）。
+    `rating_preflight` は `openai/omni-moderation-*` のみ許可する。
+- **batch-capable フィルタは direct provider route を強制する**。`ModelSelectionWidget` は通常
+  `route_preference`(Issue #249) と API key 有無で direct/OpenRouter 行を `preferred` に折り畳むため、
+  `route_preference=openrouter` や OpenRouter キーのみの構成では `get_selected_models()` が
+  `openrouter/...` を返し得る。Provider Batch submit は direct `openai`/`anthropic` endpoint しか
+  持たないため、batch-capable モードでは **route 折り畳みを無視して direct route 候補
+  (`openai/...` / `anthropic/...`) を選び、direct の litellm_model_id を返す**。OpenRouter route は
+  表示・選択対象から除外する（現 `ProviderBatchJobWidget` の direct-only 挙動を維持）。
 - **単一選択モードでは bulk 選択コントロールを単一モード対応にする**。`select_all_models()` /
   `select_recommended_models()` は内部で `ModelCheckboxWidget.set_selected(True)` を呼び checkbox
   signal を bypass するため、単一選択モードのまま放置すると「0 or 1」保証が破れる。対応:
@@ -159,9 +173,17 @@ class StagingWidget(QWidget):
     def clear(self) -> None: ...
     def get_image_ids(self) -> list[int]: ...
     def count(self) -> int: ...
+    # staged 画像の metadata/path アクセサ（id だけでなく filename / stored_path も返す）
+    def get_staged_items(self) -> "OrderedDict[int, tuple[str, str]]": ...  # {id: (filename, stored_path)}
 ```
 
 - 最大枚数・重複排除・カウント表示・サムネイル描画を `BatchTagAddWidget` と共通化する。
+- **個別実行フローの path 取得経路を Wave 1 内で壊さない**。`MainWindow._get_staged_image_paths_for_annotation()`
+  は現在 `batchTagAddWidget._staged_images`（`{id: (filename, stored_path)}`）から画像パスを構築している。
+  `StagingWidget` 抽出時は (a) `get_staged_items()` で metadata/path を公開し、かつ
+  (b) `BatchTagAddWidget._staged_images` 互換アクセサを内部 `StagingWidget` へ委譲して維持する。
+  これにより `main_window.py` を触らずに（= Wave 2/D を待たずに）個別実行の execute フローが動き続ける。
+  Wave 2 で `main_window.py` を `get_staged_items()` 経由に移行する。
 
 ## ファイル所有権 / Wave プラン（Agent Teams）
 
