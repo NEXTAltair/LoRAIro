@@ -169,8 +169,42 @@ def _select_image_records(
     offset: int,
     image_ids: list[int] | None,
 ) -> list[dict[str, Any]]:
-    """PLACEHOLDER: Track B (#538) が本実装で置換する。signature は凍結。"""
-    return image_records
+    """フィルタ済み画像レコードに image-id 選択 → offset → limit を順に適用する。
+
+    適用順序は image-id フィルタ → offset → limit で固定（sharding の決定性のため
+    DB レコード順を保つ）。
+
+    Args:
+        image_records: get_images_by_filter() が返すレコードリスト。各 record は
+            "id" キー (int) を持つ。
+        limit: 返す最大件数。None なら無制限。
+        offset: 先頭から skip する件数。
+        image_ids: 指定時、その ID を持つレコードのみ対象（DB レコード順を保持）。
+            要求 ID のうち未存在のものは warning を表示。空/None なら全件対象。
+
+    Returns:
+        選択後のレコードリスト（空になり得る。空時の Exit 判定は呼び出し側 run() が行う）。
+    """
+    records = image_records
+
+    if image_ids:
+        wanted = set(image_ids)
+        records = [record for record in records if record.get("id") in wanted]
+
+        # 要求 ID の重複除去・順序保持 (dict.fromkeys) のうち未存在のものを列挙警告
+        found_ids = {record.get("id") for record in records}
+        missing_ids = [image_id for image_id in dict.fromkeys(image_ids) if image_id not in found_ids]
+        if missing_ids:
+            missing_str = ", ".join(str(image_id) for image_id in missing_ids)
+            console.print(f"[yellow]Warning:[/yellow] Image ID(s) not found in project: {missing_str}")
+
+    # offset が 0 や範囲外でも安全に slice
+    records = records[offset:]
+
+    if limit is not None:
+        records = records[:limit]
+
+    return records
 
 
 def _check_annotation_errors(
