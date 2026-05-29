@@ -698,6 +698,22 @@ if not __name__ == "__main__":
                 self.btnSelectAll.setVisible(not enabled)
             if hasattr(self, "btnSelectRecommended"):
                 self.btnSelectRecommended.setVisible(not enabled)
+            # ADR 0041: 既に複数選択された状態で単一モードへ移行した場合、
+            # 1 submit = 1 model 契約を満たすため最初の1件だけ残して畳み込む
+            # (プログラム的な復元状態でも不変条件を強制する)。
+            if enabled:
+                selected = self.get_selected_models()
+                if len(selected) > 1:
+                    keep = selected[0]
+                    self._single_selection_guard = True
+                    try:
+                        for litellm_model_id, widget in self.model_checkbox_widgets.items():
+                            if litellm_model_id != keep and widget.is_selected():
+                                widget.set_selected(False)
+                    finally:
+                        self._single_selection_guard = False
+                    self._update_selection_count()
+                    self.model_selection_changed.emit(self.get_selected_models())
             logger.debug(f"ModelSelectionWidget: single_selection_mode={enabled}")
 
         def set_batch_capable_filtering(
@@ -760,6 +776,10 @@ if not __name__ == "__main__":
                 model = model_repository.get_model_by_litellm_id(litellm_id)
                 if model is None:
                     continue
+                # ADR 0038: discontinued_at IS NOT NULL の廃止モデルは表示しない
+                # (Model.available = discontinued_at is None)。submit 時失敗を防ぐ。
+                if not getattr(model, "available", True):
+                    continue
                 provider = direct_provider_for_model(model)
                 if provider is None:
                     continue
@@ -800,7 +820,15 @@ if not __name__ == "__main__":
 
             raw_models: tuple[Any, ...] = ()
             if hasattr(self._batch_model_source, "list_batch_capable_models"):
-                raw_models = tuple(self._batch_model_source.list_batch_capable_models())
+                try:
+                    raw_models = tuple(self._batch_model_source.list_batch_capable_models())
+                except Exception as e:
+                    # ADR 0041: image-annotator-lib の batch 探索失敗は非致命扱い。
+                    # ProviderBatchJobWidget と同様、空一覧 (placeholder) に倒して UI を壊さない。
+                    logger.warning(f"batch-capable モデル探索に失敗 (空一覧で継続): {e}")
+                    self.placeholderLabel.setVisible(True)
+                    self._update_selection_count()
+                    return
 
             try:
                 container = get_service_container()

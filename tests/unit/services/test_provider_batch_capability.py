@@ -147,6 +147,11 @@ class TestModelSupportsTaskType:
         model = _model(provider="google", litellm_model_id="google/gemini-pro")
         assert model_supports_task_type(model, "google", "annotation") is False
 
+    def test_annotation_omni_moderation_excluded(self) -> None:
+        """ADR 0038: moderation 専用モデルは annotation (/v1/chat/completions) では不可。"""
+        model = _model(provider="openai", litellm_model_id="openai/omni-moderation-latest")
+        assert model_supports_task_type(model, "openai", "annotation") is False
+
     # rating_preflight: openai かつ omni-moderation-* のみ
     def test_rating_preflight_omni_moderation_latest_allowed(self) -> None:
         model = _model(

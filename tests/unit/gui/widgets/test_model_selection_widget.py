@@ -898,6 +898,22 @@ class TestSingleSelectionMode:
         result = w.get_selected_model()
         assert result == "openai/gpt-4.1-mini"
 
+    def test_enabling_single_mode_collapses_existing_multi_selection(
+        self, widget_with_two_models: ModelSelectionWidget
+    ) -> None:
+        """複数選択済み状態で単一モードへ移行すると1件に畳み込まれる (ADR 0041)。"""
+        w = widget_with_two_models
+        # 単一モード OFF のまま両方選択 (復元状態などを模す)
+        w.model_checkbox_widgets["openai/gpt-4.1-mini"].set_selected(True)
+        w.model_checkbox_widgets["anthropic/claude-3-5-sonnet"].set_selected(True)
+        assert len(w.get_selected_models()) == 2
+
+        w.set_single_selection_mode(True)
+
+        # 1 submit = 1 model 契約を満たすため1件だけ残る
+        assert len(w.get_selected_models()) == 1
+        assert w.get_selected_models()[0] == "openai/gpt-4.1-mini"
+
 
 # ===========================================================================
 # ADR 0041: batch-capable フィルタ
@@ -1044,3 +1060,82 @@ class TestBatchCapableFiltering:
 
         assert w._batch_capable_filtering is False
         assert w.annotation_only_filtering is True
+
+    def test_annotation_filter_excludes_omni_moderation(
+        self, qtbot, mock_model_service, mock_container_for_batch
+    ) -> None:
+        """annotation フィルタは moderation 専用モデルを除外する (ADR 0038)。"""
+        from unittest.mock import Mock
+
+        model_source = Mock()
+        model_source.list_batch_capable_models.return_value = (
+            "openai/gpt-4.1-mini",
+            "openai/omni-moderation-latest",
+        )
+        w = ModelSelectionWidget(model_selection_service=mock_model_service)
+        qtbot.addWidget(w)
+
+        w.set_batch_capable_filtering(True, "annotation", model_source)
+
+        assert "openai/gpt-4.1-mini" in w.model_checkbox_widgets
+        assert "openai/omni-moderation-latest" not in w.model_checkbox_widgets
+
+    def test_batch_filter_skips_discontinued_models(self, qtbot, mock_model_service, monkeypatch) -> None:
+        """discontinued (available=False) モデルは batch-capable フィルタで除外される (ADR 0038)。"""
+        from types import SimpleNamespace
+        from unittest.mock import Mock
+
+        def _db_model(litellm_id, available):
+            return SimpleNamespace(
+                provider="openai",
+                litellm_model_id=litellm_id,
+                name=litellm_id,
+                requires_api_key=True,
+                capabilities=["caption"],
+                model_types=(),
+                available=available,
+            )
+
+        mock_repo = Mock()
+        mock_repo.get_model_by_litellm_id.side_effect = lambda lid: {
+            "openai/gpt-4.1-mini": _db_model("openai/gpt-4.1-mini", True),
+            "openai/gpt-4-retired": _db_model("openai/gpt-4-retired", False),
+        }.get(lid)
+        mock_db_manager = Mock()
+        mock_db_manager.model_repo = mock_repo
+        mock_container = Mock()
+        mock_container.db_manager = mock_db_manager
+        monkeypatch.setattr(
+            "lorairo.gui.widgets.model_selection_widget.get_service_container",
+            lambda: mock_container,
+        )
+
+        model_source = Mock()
+        model_source.list_batch_capable_models.return_value = (
+            "openai/gpt-4.1-mini",
+            "openai/gpt-4-retired",
+        )
+        w = ModelSelectionWidget(model_selection_service=mock_model_service)
+        qtbot.addWidget(w)
+
+        w.set_batch_capable_filtering(True, "annotation", model_source)
+
+        assert "openai/gpt-4.1-mini" in w.model_checkbox_widgets
+        assert "openai/gpt-4-retired" not in w.model_checkbox_widgets
+
+    def test_batch_filter_discovery_failure_shows_placeholder(
+        self, qtbot, mock_model_service, mock_container_for_batch
+    ) -> None:
+        """list_batch_capable_models() が例外を投げても UI を壊さず placeholder を表示する。"""
+        from unittest.mock import Mock
+
+        model_source = Mock()
+        model_source.list_batch_capable_models.side_effect = RuntimeError("discovery failed")
+        w = ModelSelectionWidget(model_selection_service=mock_model_service)
+        qtbot.addWidget(w)
+
+        # 例外が escape せず placeholder に倒れる
+        w.set_batch_capable_filtering(True, "annotation", model_source)
+
+        assert not w.placeholderLabel.isHidden()
+        assert w.model_checkbox_widgets == {}

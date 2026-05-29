@@ -99,6 +99,11 @@ def model_supports_task_type(model: Any, provider: str, task_type: str) -> bool:
     (旧 GUI は anthropic 限定だったが、service+CLI は openai annotation を既サポート)。
     rating_preflight は openai かつ litellm_model_id が openai/omni-moderation-* のみ。
 
+    annotation submit は /v1/chat/completions を使うため、moderation 専用の
+    openai/omni-moderation-* は annotation 候補から除外する (ADR 0038)。
+    batch-capable source は task 非依存で moderation モデルも含むため、
+    UI 側で弾かないと submit 時に失敗するモデルを露出してしまう。
+
     Args:
         model: litellm_model_id と model_types 属性を持つモデルオブジェクト。
         provider: "openai" または "anthropic"。
@@ -108,12 +113,27 @@ def model_supports_task_type(model: Any, provider: str, task_type: str) -> bool:
         task_type / provider の組み合わせが有効なら True。
     """
     if task_type == "annotation":
-        return provider in _DIRECT_PROVIDERS
+        if provider not in _DIRECT_PROVIDERS:
+            return False
+        # moderation 専用モデルは annotation (/v1/chat/completions) では使えない
+        return not _is_omni_moderation_model(model)
     if task_type == "rating_preflight":
         if provider != "openai":
             return False
-        litellm_id = str(getattr(model, "litellm_model_id", "") or "").lower()
-        # openai/ プレフィックスを除去して bare モデル名を確認
-        bare = litellm_id.removeprefix("openai/")
-        return bare.startswith(_OMNI_MODERATION_PREFIX) and "/" not in bare
+        return _is_omni_moderation_model(model)
     return False
+
+
+def _is_omni_moderation_model(model: Any) -> bool:
+    """モデルが openai/omni-moderation-* (moderation 専用) か判定する。
+
+    Args:
+        model: litellm_model_id 属性を持つモデルオブジェクト。
+
+    Returns:
+        bare モデル名が omni-moderation- で始まる単一セグメントなら True。
+    """
+    litellm_id = str(getattr(model, "litellm_model_id", "") or "").lower()
+    # openai/ プレフィックスを除去して bare モデル名を確認
+    bare = litellm_id.removeprefix("openai/")
+    return bare.startswith(_OMNI_MODERATION_PREFIX) and "/" not in bare
