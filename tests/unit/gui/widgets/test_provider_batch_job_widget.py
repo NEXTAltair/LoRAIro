@@ -1,4 +1,10 @@
-"""ProviderBatchJobWidget tests."""
+"""ProviderBatchJobWidget tests (ADR 0041 統一フロー).
+
+ModelSelectionWidget は service container を要求するため、本 widget の単体テストでは
+軽量 fake クラスに差し替えて単一選択 / batch-capable フィルタ / submit 配線を検証する。
+batch-capable 判定ロジック自体は ModelSelectionWidget / provider_batch_capability の
+個別テストでカバーされる。
+"""
 
 from __future__ import annotations
 
@@ -7,7 +13,9 @@ from types import SimpleNamespace
 from unittest.mock import MagicMock
 
 import pytest
+from PySide6.QtWidgets import QWidget
 
+import lorairo.gui.widgets.provider_batch_job_widget as widget_module
 from lorairo.gui.state.dataset_state import DatasetStateManager
 from lorairo.gui.widgets.provider_batch_job_widget import ProviderBatchJobWidget
 
@@ -60,6 +68,31 @@ def _item(**overrides):
     return SimpleNamespace(**values)
 
 
+class _FakeModelSelectionWidget(QWidget):
+    """ModelSelectionWidget の軽量スタブ (service container 非依存)。"""
+
+    def __init__(self, *args, **kwargs) -> None:
+        super().__init__()
+        self.single_selection_mode: bool | None = None
+        self.batch_filter_calls: list[tuple[bool, str, object]] = []
+        self._selected_model: str | None = None
+
+    def set_single_selection_mode(self, enabled: bool) -> None:
+        self.single_selection_mode = enabled
+
+    def set_batch_capable_filtering(self, enabled: bool, task_type: str, model_source: object) -> None:
+        self.batch_filter_calls.append((enabled, task_type, model_source))
+
+    def get_selected_model(self) -> str | None:
+        return self._selected_model
+
+
+@pytest.fixture(autouse=True)
+def _stub_model_selection(monkeypatch):
+    """ProviderBatchJobWidget が生成する ModelSelectionWidget を fake に差替える。"""
+    monkeypatch.setattr(widget_module, "ModelSelectionWidget", _FakeModelSelectionWidget)
+
+
 @pytest.fixture
 def widget(qtbot):
     provider_widget = ProviderBatchJobWidget()
@@ -76,25 +109,21 @@ def dependencies():
 
     model_repository.get_model_by_litellm_id.side_effect = lambda litellm_id: {
         "openai/gpt-4.1-mini": _model(),
-        "openrouter/openai/gpt-4.1-mini": _model(
-            id=8,
-            provider="openrouter",
-            litellm_model_id="openrouter/openai/gpt-4.1-mini",
-        ),
         "anthropic/claude-3-5-sonnet": _model(
             id=9,
             provider="anthropic",
             litellm_model_id="anthropic/claude-3-5-sonnet",
         ),
+        "openai/omni-moderation-latest": _model(
+            id=11,
+            provider="openai",
+            litellm_model_id="openai/omni-moderation-latest",
+            model_types=(SimpleNamespace(name="ratings"),),
+        ),
     }.get(litellm_id)
     repository.list_provider_batch_jobs.return_value = [_job()]
     repository.get_provider_batch_job.return_value = _job()
     repository.list_provider_batch_items.return_value = [_item()]
-    model_source.list_batch_capable_models.return_value = (
-        "openai/gpt-4.1-mini",
-        "openrouter/openai/gpt-4.1-mini",
-        "anthropic/claude-3-5-sonnet",
-    )
     workflow.submit_images.return_value = 42
     workflow.fetch_results.return_value = SimpleNamespace(items=(_item(),))
     workflow.import_results.return_value = SimpleNamespace(imported_count=1, total_count=1)
@@ -104,64 +133,62 @@ def dependencies():
 @pytest.mark.unit
 @pytest.mark.gui
 def test_initial_ui_created(widget):
-    assert widget.comboBoxModel is not None
-    assert widget.lineEditImageIds is not None
     assert widget.tableJobs.columnCount() == 5
+    assert widget.tableItems.columnCount() == 5
     assert widget.comboBoxItemStatus.count() == 4
+    assert widget.comboBoxTaskType.currentText() == "annotation"
+    assert "0 枚" in widget.labelTarget.text()
 
 
 @pytest.mark.unit
 @pytest.mark.gui
-def test_set_dependencies_filters_direct_batch_models(widget, dependencies):
+def test_model_selection_starts_in_single_mode(widget):
+    assert widget._model_selection_widget.single_selection_mode is True
+
+
+@pytest.mark.unit
+@pytest.mark.gui
+def test_set_dependencies_enables_batch_filtering_and_lists_jobs(widget, dependencies):
     workflow, repository, model_source, model_repository = dependencies
 
     widget.set_dependencies(workflow, repository, model_source, model_repository)
 
-    assert widget.comboBoxModel.count() == 1
-    labels = [widget.comboBoxModel.itemText(i) for i in range(widget.comboBoxModel.count())]
-    assert "anthropic: anthropic/claude-3-5-sonnet" in labels
-    assert all("openai/gpt-4.1-mini" not in label for label in labels)
-    assert all("openrouter" not in label for label in labels)
+    assert widget._model_selection_widget.batch_filter_calls == [(True, "annotation", model_source)]
     assert widget.tableJobs.rowCount() == 1
 
 
 @pytest.mark.unit
 @pytest.mark.gui
-def test_unresolved_batch_capable_models_do_not_fallback_to_all_models(widget):
-    workflow = MagicMock()
-    repository = MagicMock()
-    model_repository = MagicMock()
-    model_source = MagicMock()
-    model_source.list_batch_capable_models.return_value = ("openai/missing-from-db",)
-    model_repository.get_model_by_litellm_id.return_value = None
-    model_repository.get_model_objects.return_value = [_model()]
-    repository.list_provider_batch_jobs.return_value = []
-
-    widget.set_dependencies(workflow, repository, model_source, model_repository)
-
-    assert widget.comboBoxModel.count() == 0
-    model_repository.get_model_objects.assert_not_called()
-
-
-@pytest.mark.unit
-@pytest.mark.gui
-def test_use_selected_images_populates_manual_ids(widget):
-    state = DatasetStateManager()
-    state._selected_image_ids = [3, 5]
-    widget.set_dataset_state_manager(state)
-
-    widget.use_selected_images()
-
-    assert widget.lineEditImageIds.text() == "3, 5"
-    assert "2 selected" in widget.labelStatus.text()
-
-
-@pytest.mark.unit
-@pytest.mark.gui
-def test_submit_job_calls_workflow(widget, dependencies):
+def test_task_type_change_reevaluates_batch_filter(widget, dependencies):
     workflow, repository, model_source, model_repository = dependencies
     widget.set_dependencies(workflow, repository, model_source, model_repository)
-    widget.lineEditImageIds.setText("1, 2")
+
+    widget.comboBoxTaskType.setCurrentText("rating_preflight")
+
+    assert widget._model_selection_widget.batch_filter_calls[-1] == (
+        True,
+        "rating_preflight",
+        model_source,
+    )
+
+
+@pytest.mark.unit
+@pytest.mark.gui
+def test_target_label_updates_on_staged_images_changed(widget, monkeypatch):
+    monkeypatch.setattr(widget._staging_widget, "count", lambda: 3)
+
+    widget._staging_widget.staged_images_changed.emit([1, 2, 3])
+
+    assert "3 枚" in widget.labelTarget.text()
+
+
+@pytest.mark.unit
+@pytest.mark.gui
+def test_submit_job_resolves_annotation_params(widget, dependencies, monkeypatch):
+    workflow, repository, model_source, model_repository = dependencies
+    widget.set_dependencies(workflow, repository, model_source, model_repository)
+    widget._model_selection_widget._selected_model = "anthropic/claude-3-5-sonnet"
+    monkeypatch.setattr(widget._staging_widget, "get_image_ids", lambda: [1, 2])
     widget.lineEditDescription.setText("nightly")
 
     widget.submit_job()
@@ -181,60 +208,12 @@ def test_submit_job_calls_workflow(widget, dependencies):
 
 @pytest.mark.unit
 @pytest.mark.gui
-def test_set_dependencies_filters_for_rating_preflight_task(widget):
-    workflow = MagicMock()
-    repository = MagicMock()
-    model_repository = MagicMock()
-    model_source = MagicMock()
-    model_source.list_batch_capable_models.return_value = (
-        "openai/gpt-4.1-mini",
-        "openai/omni-moderation-latest",
-        "anthropic/claude-3-5-sonnet",
-    )
-    model_repository.get_model_by_litellm_id.side_effect = lambda litellm_id: {
-        "openai/gpt-4.1-mini": _model(),
-        "openai/omni-moderation-latest": _model(
-            id=11,
-            provider="openai",
-            litellm_model_id="openai/omni-moderation-latest",
-            model_types=(SimpleNamespace(name="ratings"),),
-        ),
-        "anthropic/claude-3-5-sonnet": _model(
-            id=9,
-            provider="anthropic",
-            litellm_model_id="anthropic/claude-3-5-sonnet",
-        ),
-    }.get(litellm_id)
-    repository.list_provider_batch_jobs.return_value = []
-
+def test_submit_job_rating_preflight_uses_moderations_endpoint(widget, dependencies, monkeypatch):
+    workflow, repository, model_source, model_repository = dependencies
     widget.set_dependencies(workflow, repository, model_source, model_repository)
     widget.comboBoxTaskType.setCurrentText("rating_preflight")
-
-    assert widget.comboBoxModel.count() == 1
-    assert widget.comboBoxModel.itemText(0) == "openai: openai/omni-moderation-latest"
-
-
-@pytest.mark.unit
-@pytest.mark.gui
-def test_submit_job_rating_preflight_uses_moderations_endpoint(widget):
-    workflow = MagicMock()
-    repository = MagicMock()
-    model_repository = MagicMock()
-    model_source = MagicMock()
-    workflow.submit_images.return_value = 42
-    model_source.list_batch_capable_models.return_value = ("openai/omni-moderation-latest",)
-    model_repository.get_model_by_litellm_id.return_value = _model(
-        id=11,
-        provider="openai",
-        litellm_model_id="openai/omni-moderation-latest",
-        model_types=(SimpleNamespace(name="ratings"),),
-    )
-    repository.list_provider_batch_jobs.return_value = []
-
-    widget.set_dependencies(workflow, repository, model_source, model_repository)
-    widget.comboBoxTaskType.setCurrentText("rating_preflight")
-    widget.lineEditImageIds.setText("1, 2")
-    widget.lineEditDescription.setText("nightly")
+    widget._model_selection_widget._selected_model = "openai/omni-moderation-latest"
+    monkeypatch.setattr(widget._staging_widget, "get_image_ids", lambda: [1, 2])
 
     widget.submit_job()
 
@@ -245,9 +224,52 @@ def test_submit_job_rating_preflight_uses_moderations_endpoint(widget):
         prompt_profile="default",
         image_ids=[1, 2],
         model_id=11,
-        description="nightly",
+        description=None,
         task_type="rating_preflight",
     )
+
+
+@pytest.mark.unit
+@pytest.mark.gui
+def test_submit_job_without_model_warns(widget, dependencies, monkeypatch):
+    workflow, repository, model_source, model_repository = dependencies
+    widget.set_dependencies(workflow, repository, model_source, model_repository)
+    widget._model_selection_widget._selected_model = None
+    warning = MagicMock()
+    monkeypatch.setattr(widget_module.QMessageBox, "warning", warning)
+
+    widget.submit_job()
+
+    warning.assert_called_once()
+    workflow.submit_images.assert_not_called()
+
+
+@pytest.mark.unit
+@pytest.mark.gui
+def test_submit_job_without_staged_images_warns(widget, dependencies, monkeypatch):
+    workflow, repository, model_source, model_repository = dependencies
+    widget.set_dependencies(workflow, repository, model_source, model_repository)
+    widget._model_selection_widget._selected_model = "anthropic/claude-3-5-sonnet"
+    monkeypatch.setattr(widget._staging_widget, "get_image_ids", lambda: [])
+    warning = MagicMock()
+    monkeypatch.setattr(widget_module.QMessageBox, "warning", warning)
+
+    widget.submit_job()
+
+    warning.assert_called_once()
+    workflow.submit_images.assert_not_called()
+
+
+@pytest.mark.unit
+@pytest.mark.gui
+def test_set_dataset_state_manager_forwards_to_staging(widget, monkeypatch):
+    state = DatasetStateManager()
+    forwarded = MagicMock()
+    monkeypatch.setattr(widget._staging_widget, "set_dataset_state_manager", forwarded)
+
+    widget.set_dataset_state_manager(state)
+
+    forwarded.assert_called_once_with(state)
 
 
 @pytest.mark.unit
@@ -307,7 +329,7 @@ def test_action_handlers_catch_unexpected_errors(widget, dependencies, monkeypat
     widget.tableJobs.selectRow(0)
     workflow.cancel.side_effect = RuntimeError("adapter exploded")
     critical = MagicMock()
-    monkeypatch.setattr("lorairo.gui.widgets.provider_batch_job_widget.QMessageBox.critical", critical)
+    monkeypatch.setattr(widget_module.QMessageBox, "critical", critical)
 
     widget.cancel_selected_job()
 
