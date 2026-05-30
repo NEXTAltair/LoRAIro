@@ -1139,13 +1139,17 @@ class ImageRepository(BaseRepository):
         # MANUAL_EDIT は AI フィルタから除外（AI 判定行のみを対象とする）
         ai_only = Rating.model_id.in_(select(Model.id).where(Model.name != "MANUAL_EDIT"))
 
-        # UNRATED: AI レーティングが存在しない画像をフィルタ
-        if ai_rating_filter == "UNRATED":
+        # UNRATED / RATED: AI レーティングの有無でフィルタ
+        if ai_rating_filter in ("UNRATED", "RATED"):
             has_any_ai_rating = exists(
                 select(Rating.id).where(Rating.image_id == Image.id, ai_only)
             ).correlate(Image)
-            query = query.where(not_(has_any_ai_rating))
-            logger.debug("AI rating filter applied: UNRATED (no AI ratings)")
+            if ai_rating_filter == "UNRATED":
+                query = query.where(not_(has_any_ai_rating))
+                logger.debug("AI rating filter applied: UNRATED (no AI ratings)")
+            else:
+                query = query.where(has_any_ai_rating)
+                logger.debug("AI rating filter applied: RATED (has any AI rating)")
             return query
 
         # 多数決ロジック: 画像ごとに総AI評価数とマッチング数を計算
@@ -1367,12 +1371,15 @@ class ImageRepository(BaseRepository):
             # ADR 0035 段階 4: MANUAL_EDIT model lookup は ModelRepository static helper を直接呼ぶ。
             manual_edit_model_id = ModelRepository._get_or_create_manual_edit_model(session)
 
-            if manual_rating_filter == "UNRATED":
-                # 手動レーティングが設定されていない画像をフィルタ
+            if manual_rating_filter in ("UNRATED", "RATED"):
+                # 手動レーティングの有無でフィルタ
                 has_manual_rating_subq = (
                     select(Rating.image_id).where(Rating.model_id == manual_edit_model_id).distinct()
                 )
-                query = query.where(Image.id.notin_(has_manual_rating_subq))
+                if manual_rating_filter == "UNRATED":
+                    query = query.where(Image.id.notin_(has_manual_rating_subq))
+                else:
+                    query = query.where(Image.id.in_(has_manual_rating_subq))
             else:
                 # 特定の手動レーティングを持つ画像をフィルタ
                 manual_rating_subq = (

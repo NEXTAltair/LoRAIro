@@ -186,6 +186,87 @@ class TestSubComponentDirectConnectionForbidden:
         assert panel._favorite_filter._conditions_applier == panel.apply_conditions
 
 
+class TestRatingFilterOptions:
+    """Issue #561: レーティングコンボの ---- / レーティング済み / 未設定のみ マッピング。"""
+
+    @pytest.fixture()
+    def panel_with_service(self, panel):
+        """create_search_conditions が sentinel を返す mock service を注入した panel。"""
+        sentinel = object()
+        mock_service = MagicMock()
+        mock_service.parse_search_input.return_value = ([], [])
+        mock_service.create_search_conditions.return_value = sentinel
+        panel.search_filter_service = mock_service
+        panel._sentinel = sentinel
+        return panel
+
+    @pytest.mark.parametrize(
+        ("combo_text", "expected"),
+        [
+            ("----", None),
+            ("レーティング済み", "RATED"),
+            ("未設定のみ", "UNRATED"),
+            ("PG (全年齢)", "PG"),
+            ("XXX (過激な表現)", "XXX"),
+        ],
+    )
+    def test_manual_rating_value_mapping(self, panel, combo_text, expected):
+        """comboRating のテキストが内部フィルタ値に正しく変換される。"""
+        panel.ui.comboRating.setCurrentText(combo_text)
+        assert panel._get_rating_filter_value() == expected
+
+    @pytest.mark.parametrize(
+        ("combo_text", "expected"),
+        [
+            ("----", None),
+            ("レーティング済み", "RATED"),
+            ("未設定のみ", "UNRATED"),
+            ("R (中程度)", "R"),
+        ],
+    )
+    def test_ai_rating_value_mapping(self, panel, combo_text, expected):
+        """comboAIRating のテキストが内部フィルタ値に正しく変換される。"""
+        panel.ui.comboAIRating.setCurrentText(combo_text)
+        assert panel._get_ai_rating_filter_value() == expected
+
+    def test_default_is_no_filter_label(self, panel):
+        """両コンボの既定値は ---- (絞り込みなし)。"""
+        assert panel.ui.comboRating.currentText() == "----"
+        assert panel.ui.comboAIRating.currentText() == "----"
+
+    def test_ai_rated_only_builds_conditions_without_keyword(self, panel_with_service):
+        """AIレーティング=レーティング済み のみ(キーワード無し)で検索条件を返す。"""
+        panel = panel_with_service
+        panel.ui.comboAIRating.setCurrentText("レーティング済み")
+        assert panel._build_search_conditions_from_ui() is panel._sentinel
+        _, kwargs = panel.search_filter_service.create_search_conditions.call_args
+        assert kwargs["ai_rating_filter"] == "RATED"
+        # 「レーティング済み」は NSFW も含む (Issue #561)
+        assert kwargs["include_nsfw"] is True
+
+    def test_rated_includes_nsfw(self, panel):
+        """レーティング済み(RATED)は include_nsfw=True を解決する。"""
+        assert panel._resolve_include_nsfw("RATED", None) is True
+        assert panel._resolve_include_nsfw(None, "RATED") is True
+        # 既存挙動: ---- (None) のみなら NSFW 除外
+        assert panel._resolve_include_nsfw(None, None) is False
+
+    def test_manual_rated_only_builds_conditions_without_keyword(self, panel_with_service):
+        """手動レーティング=レーティング済み のみ(キーワード無し)で検索条件を返す (対称ケース)。"""
+        panel = panel_with_service
+        panel.ui.comboRating.setCurrentText("レーティング済み")
+        assert panel._build_search_conditions_from_ui() is panel._sentinel
+        _, kwargs = panel.search_filter_service.create_search_conditions.call_args
+        assert kwargs["rating_filter"] == "RATED"
+
+    def test_all_default_still_blocked(self, panel_with_service):
+        """---- のみ(他条件・キーワード無し)は従来どおり検索をブロックする。"""
+        panel = panel_with_service
+        # 全コンボ既定 (----/全て), キーワード無し
+        assert panel._build_search_conditions_from_ui() is None
+        panel.search_filter_service.create_search_conditions.assert_not_called()
+
+
 class TestPublicAPICompat:
     """既存 public API の互換維持を確認する。"""
 

@@ -331,7 +331,12 @@
           <widget class="QComboBox" name="comboRating">
            <item>
             <property name="text">
-             <string>全て</string>
+             <string>----</string>
+            </property>
+           </item>
+           <item>
+            <property name="text">
+             <string>レーティング済み</string>
             </property>
            </item>
            <item>
@@ -394,7 +399,12 @@
           <widget class="QComboBox" name="comboAIRating">
            <item>
             <property name="text">
-             <string>全て</string>
+             <string>----</string>
+            </property>
+           </item>
+           <item>
+            <property name="text">
+             <string>レーティング済み</string>
             </property>
            </item>
            <item>
