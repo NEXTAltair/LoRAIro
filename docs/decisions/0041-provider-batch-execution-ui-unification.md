@@ -246,3 +246,8 @@ Wave 2 (1人・単独所有): #550 D
 **フォローアップ**
 - task_type の配置は UI 表示確認後に再評価しうる。
 - 複数モデル一括が将来必要になった場合は本 ADR を Superseded として再検討する。
+- #545 の残作業として、Provider Batch の batch-capable モデル一覧が空になる原因だった
+  `image-annotator-lib.list_batch_capable_models()` の None metadata guard を含む
+  image-annotator-lib #129 merge commit を submodule pin に取り込む。LoRAIro 側の
+  batch eligibility 判定は ADR 0038 どおり image-annotator-lib を SSoT とし、LoRAIro DB へ
+  永続化しない。
