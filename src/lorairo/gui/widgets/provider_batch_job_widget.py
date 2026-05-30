@@ -16,8 +16,9 @@ from __future__ import annotations
 from collections.abc import Callable
 from typing import Any, cast
 
-from PySide6.QtCore import Qt, Signal, Slot
-from PySide6.QtWidgets import QMessageBox, QTableWidget, QTableWidgetItem, QWidget
+from PySide6.QtCore import QPoint, Qt, Signal, Slot
+from PySide6.QtGui import QAction
+from PySide6.QtWidgets import QMenu, QMessageBox, QTableWidget, QTableWidgetItem, QWidget
 
 from lorairo.gui.designer.ProviderBatchJobWidget_ui import Ui_ProviderBatchJobWidget
 from lorairo.gui.widgets.model_selection_widget import ModelSelectionWidget
@@ -31,6 +32,9 @@ from lorairo.utils.log import logger
 
 _TASK_TYPES = ("annotation", "rating_preflight")
 _ITEM_STATUSES = ("all", "failed", "expired", "canceled")
+_CANCELABLE_STATUSES = {"submitted", "validating", "running", "canceling"}
+_COMPLETED_STATUS = "completed"
+_IMPORTED_STATUS = "imported"
 
 
 class ProviderBatchJobWidget(QWidget, Ui_ProviderBatchJobWidget):
@@ -60,8 +64,10 @@ class ProviderBatchJobWidget(QWidget, Ui_ProviderBatchJobWidget):
         self._model_selection_widget.set_single_selection_mode(True)
 
         self._setup_combos_and_tables()
+        self._setup_job_context_menu()
         self._connect_signals()
         self._update_target_label()
+        self._update_job_action_state()
 
     def _inject_model_selection_widget(self) -> ModelSelectionWidget:
         """modelSelectionPlaceholder を ModelSelectionWidget に差替える。
@@ -103,6 +109,15 @@ class ProviderBatchJobWidget(QWidget, Ui_ProviderBatchJobWidget):
         )
         self.tableItems.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
 
+    def _setup_job_context_menu(self) -> None:
+        """Set up recovery actions that stay out of the normal job flow."""
+        self._action_fetch_results = QAction("結果を取得", self)
+        self._action_import_results = QAction("結果を取り込み", self)
+        self._action_fetch_results.triggered.connect(self.fetch_selected_job)
+        self._action_import_results.triggered.connect(self.import_selected_job)
+        self.tableJobs.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        self.tableJobs.customContextMenuRequested.connect(self._show_job_context_menu)
+
     def set_dependencies(
         self,
         workflow_service: Any,
@@ -143,11 +158,8 @@ class ProviderBatchJobWidget(QWidget, Ui_ProviderBatchJobWidget):
         self.buttonSubmit.clicked.connect(self.submit_job)
         self.comboBoxTaskType.currentTextChanged.connect(self._on_task_type_changed)
         self._staging_widget.staged_images_changed.connect(self._update_target_label)
-        self.buttonRefreshJobs.clicked.connect(self.refresh_jobs)
         self.buttonRefreshStatus.clicked.connect(self.refresh_selected_job_status)
         self.buttonCancel.clicked.connect(self.cancel_selected_job)
-        self.buttonFetch.clicked.connect(self.fetch_selected_job)
-        self.buttonImport.clicked.connect(self.import_selected_job)
         self.tableJobs.itemSelectionChanged.connect(self._on_job_selection_changed)
         self.comboBoxItemStatus.currentTextChanged.connect(self.refresh_items)
 
@@ -219,7 +231,7 @@ class ProviderBatchJobWidget(QWidget, Ui_ProviderBatchJobWidget):
             self.labelStatus.setText("送信に失敗しました")
 
     @Slot()
-    def refresh_jobs(self) -> None:
+    def refresh_jobs(self, update_label: bool = True) -> None:
         if self._repository is None:
             return
         try:
@@ -245,7 +257,9 @@ class ProviderBatchJobWidget(QWidget, Ui_ProviderBatchJobWidget):
                 item = QTableWidgetItem(value)
                 item.setData(Qt.ItemDataRole.UserRole, job_id)
                 self.tableJobs.setItem(row, column, item)
-        self.labelStatus.setText(f"バッチAPIジョブ {len(jobs)} 件を読み込みました")
+        if update_label:
+            self.labelStatus.setText(f"バッチAPIジョブ {len(jobs)} 件を読み込みました")
+        self._update_job_action_state()
 
     def select_job(self, job_id: int) -> None:
         for row in range(self.tableJobs.rowCount()):
@@ -261,11 +275,13 @@ class ProviderBatchJobWidget(QWidget, Ui_ProviderBatchJobWidget):
             self._current_job_id = None
             self.textEditJobDetail.clear()
             self.tableItems.setRowCount(0)
+            self._update_job_action_state()
             return
         job_id = selected[0].data(Qt.ItemDataRole.UserRole)
         self._current_job_id = int(job_id)
         self.refresh_detail()
         self.refresh_items()
+        self._update_job_action_state()
 
     @Slot()
     def refresh_detail(self) -> None:
@@ -330,16 +346,88 @@ class ProviderBatchJobWidget(QWidget, Ui_ProviderBatchJobWidget):
         QMessageBox.critical(self, "バッチAPI", str(error))
         self.labelStatus.setText(f"{action} に失敗しました")
 
+    def _current_job(self) -> Any | None:
+        if self._repository is None or self._current_job_id is None:
+            return None
+        return self._repository.get_provider_batch_job(self._current_job_id)
+
+    @staticmethod
+    def _job_status(job: Any) -> str:
+        return str(getattr(job, "status", "") or "")
+
+    @staticmethod
+    def _job_imported(job: Any) -> bool:
+        return ProviderBatchJobWidget._job_status(job) == _IMPORTED_STATUS or (
+            getattr(job, "imported_at", None) is not None
+        )
+
+    @staticmethod
+    def _job_cancelable(job: Any | None) -> bool:
+        return job is not None and ProviderBatchJobWidget._job_status(job) in _CANCELABLE_STATUSES
+
+    def _update_job_action_state(self) -> None:
+        job = self._current_job()
+        has_job = job is not None
+        self.buttonRefreshStatus.setEnabled(has_job)
+        self.buttonCancel.setEnabled(self._job_cancelable(job))
+        self._action_fetch_results.setEnabled(has_job)
+        self._action_import_results.setEnabled(has_job and not self._job_imported(job))
+
+    @Slot(QPoint)
+    def _show_job_context_menu(self, position: QPoint) -> None:
+        if self._current_job_id is None:
+            return
+        menu = QMenu(self)
+        menu.addAction(self._action_fetch_results)
+        menu.addAction(self._action_import_results)
+        menu.exec(self.tableJobs.viewport().mapToGlobal(position))
+
+    def _status_message_for_job(self, job_id: int, job: Any) -> str:
+        status = self._job_status(job)
+        provider_status = str(getattr(job, "provider_status", "") or status)
+        if status in {"submitted", "validating"}:
+            return f"バッチAPIジョブ {job_id} は検証中です ({provider_status})"
+        if status in {"running", "canceling"}:
+            return f"バッチAPIジョブ {job_id} は処理中です ({provider_status})"
+        if status == "failed":
+            return f"バッチAPIジョブ {job_id} は失敗しました ({provider_status})"
+        if status == "expired":
+            return f"バッチAPIジョブ {job_id} は期限切れです ({provider_status})"
+        if status == "canceled":
+            return f"バッチAPIジョブ {job_id} はキャンセル済みです ({provider_status})"
+        return f"バッチAPIジョブ {job_id} の状態を確認しました ({provider_status})"
+
+    @staticmethod
+    def _import_result_message(job_id: int, result: Any) -> str:
+        imported_count = int(getattr(result, "imported_count", 0))
+        skipped_count = int(getattr(result, "skipped_count", 0))
+        error_count = int(getattr(result, "error_count", 0))
+        total_count = int(getattr(result, "total_count", 0))
+        if skipped_count or error_count:
+            return (
+                f"バッチAPIジョブ {job_id} の処理完了を確認し、DB保存を実行しました: "
+                f"保存 {imported_count}/{total_count} 件, スキップ {skipped_count} 件, エラー {error_count} 件"
+            )
+        return f"バッチAPIジョブ {job_id} の処理完了を確認し、DB保存が完了しました: {imported_count}/{total_count} 件"
+
     @Slot()
     def refresh_selected_job_status(self) -> None:
         job_id = self._require_current_job_id()
         if job_id is None or self._workflow_service is None:
             return
         try:
-            self._workflow_service.refresh(job_id)
-            self.labelStatus.setText(f"バッチAPIジョブ {job_id} を更新しました")
-            self.refresh_jobs()
+            job = self._workflow_service.refresh(job_id)
+            if self._job_imported(job):
+                message = f"バッチAPIジョブ {job_id} は保存済みです"
+            elif self._job_status(job) == _COMPLETED_STATUS:
+                fetch_result = self._workflow_service.fetch_results(job_id)
+                import_result = self._workflow_service.import_results(job_id, fetch_result)
+                message = self._import_result_message(job_id, import_result)
+            else:
+                message = self._status_message_for_job(job_id, job)
+            self.refresh_jobs(update_label=False)
             self.select_job(job_id)
+            self.labelStatus.setText(message)
         except ProviderBatchError as e:
             QMessageBox.warning(self, "バッチAPI", str(e))
             self.labelStatus.setText(str(e))
@@ -353,9 +441,9 @@ class ProviderBatchJobWidget(QWidget, Ui_ProviderBatchJobWidget):
             return
         try:
             self._workflow_service.cancel(job_id)
-            self.labelStatus.setText(f"バッチAPIジョブ {job_id} のキャンセルを要求しました")
-            self.refresh_jobs()
+            self.refresh_jobs(update_label=False)
             self.select_job(job_id)
+            self.labelStatus.setText(f"バッチAPIジョブ {job_id} のキャンセルを要求しました")
         except ProviderBatchError as e:
             QMessageBox.warning(self, "バッチAPI", str(e))
             self.labelStatus.setText(str(e))
@@ -374,6 +462,7 @@ class ProviderBatchJobWidget(QWidget, Ui_ProviderBatchJobWidget):
             )
             self.refresh_detail()
             self.refresh_items()
+            self._update_job_action_state()
         except ProviderBatchError as e:
             QMessageBox.warning(self, "バッチAPI", str(e))
             self.labelStatus.setText(str(e))
@@ -388,10 +477,11 @@ class ProviderBatchJobWidget(QWidget, Ui_ProviderBatchJobWidget):
         try:
             result = self._workflow_service.import_results(job_id)
             self.labelStatus.setText(
-                f"バッチAPI結果 {result.imported_count}/{result.total_count} 件を取り込みました"
+                f"バッチAPI結果 {result.imported_count}/{result.total_count} 件をDB保存しました"
             )
             self.refresh_detail()
             self.refresh_items()
+            self._update_job_action_state()
         except ProviderBatchError as e:
             QMessageBox.warning(self, "バッチAPI", str(e))
             self.labelStatus.setText(str(e))

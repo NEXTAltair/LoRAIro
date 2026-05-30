@@ -164,11 +164,6 @@ class Ui_ProviderBatchJobWidget(object):
         self.statusLayout.setObjectName(u"statusLayout")
         self.jobButtonsLayout = QHBoxLayout()
         self.jobButtonsLayout.setObjectName(u"jobButtonsLayout")
-        self.buttonRefreshJobs = QPushButton(self.groupBoxStatus)
-        self.buttonRefreshJobs.setObjectName(u"buttonRefreshJobs")
-
-        self.jobButtonsLayout.addWidget(self.buttonRefreshJobs)
-
         self.buttonRefreshStatus = QPushButton(self.groupBoxStatus)
         self.buttonRefreshStatus.setObjectName(u"buttonRefreshStatus")
 
@@ -178,16 +173,6 @@ class Ui_ProviderBatchJobWidget(object):
         self.buttonCancel.setObjectName(u"buttonCancel")
 
         self.jobButtonsLayout.addWidget(self.buttonCancel)
-
-        self.buttonFetch = QPushButton(self.groupBoxStatus)
-        self.buttonFetch.setObjectName(u"buttonFetch")
-
-        self.jobButtonsLayout.addWidget(self.buttonFetch)
-
-        self.buttonImport = QPushButton(self.groupBoxStatus)
-        self.buttonImport.setObjectName(u"buttonImport")
-
-        self.jobButtonsLayout.addWidget(self.buttonImport)
 
         self.horizontalSpacerJobButtons = QSpacerItem(40, 20, QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Minimum)
 
@@ -279,16 +264,10 @@ class Ui_ProviderBatchJobWidget(object):
         self.buttonSubmit.setText(QCoreApplication.translate("ProviderBatchJobWidget", u"\u9001\u4fe1", None))
         self.buttonSubmit.setObjectName(QCoreApplication.translate("ProviderBatchJobWidget", u"buttonProviderBatchSubmit", None))
         self.groupBoxStatus.setTitle(QCoreApplication.translate("ProviderBatchJobWidget", u"\u30d0\u30c3\u30c1\u30b8\u30e7\u30d6\u72b6\u614b", None))
-        self.buttonRefreshJobs.setText(QCoreApplication.translate("ProviderBatchJobWidget", u"\u66f4\u65b0", None))
-        self.buttonRefreshJobs.setObjectName(QCoreApplication.translate("ProviderBatchJobWidget", u"buttonProviderBatchRefreshJobs", None))
-        self.buttonRefreshStatus.setText(QCoreApplication.translate("ProviderBatchJobWidget", u"\u72b6\u614b\u66f4\u65b0", None))
+        self.buttonRefreshStatus.setText(QCoreApplication.translate("ProviderBatchJobWidget", u"\u72b6\u614b\u3092\u78ba\u8a8d", None))
         self.buttonRefreshStatus.setObjectName(QCoreApplication.translate("ProviderBatchJobWidget", u"buttonProviderBatchRefreshStatus", None))
         self.buttonCancel.setText(QCoreApplication.translate("ProviderBatchJobWidget", u"\u30ad\u30e3\u30f3\u30bb\u30eb", None))
         self.buttonCancel.setObjectName(QCoreApplication.translate("ProviderBatchJobWidget", u"buttonProviderBatchCancel", None))
-        self.buttonFetch.setText(QCoreApplication.translate("ProviderBatchJobWidget", u"\u53d6\u5f97", None))
-        self.buttonFetch.setObjectName(QCoreApplication.translate("ProviderBatchJobWidget", u"buttonProviderBatchFetch", None))
-        self.buttonImport.setText(QCoreApplication.translate("ProviderBatchJobWidget", u"\u53d6\u308a\u8fbc\u307f", None))
-        self.buttonImport.setObjectName(QCoreApplication.translate("ProviderBatchJobWidget", u"buttonProviderBatchImport", None))
         self.tableJobs.setObjectName(QCoreApplication.translate("ProviderBatchJobWidget", u"tableProviderBatchJobs", None))
         self.groupBoxDetail.setTitle(QCoreApplication.translate("ProviderBatchJobWidget", u"\u8a73\u7d30", None))
         self.textEditJobDetail.setObjectName(QCoreApplication.translate("ProviderBatchJobWidget", u"textEditProviderBatchJobDetail", None))
