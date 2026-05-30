@@ -161,6 +161,14 @@ class BatchTagAddWidget(QWidget):
         """
         return self._staging_widget.get_staged_items()
 
+    def get_staging_widget(self) -> StagingWidget:
+        """内部 StagingWidget を返す。
+
+        Provider Batch タブと通常アノテーションタブが同じステージング状態を
+        共有するための公開アクセサ。
+        """
+        return self._staging_widget
+
     # ------------------------------------------------------------------
     # 後方互換プロパティ（Wave 2 で main_window.py 移行後に削除予定）
     # ------------------------------------------------------------------

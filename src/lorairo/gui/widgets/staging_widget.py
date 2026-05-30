@@ -112,6 +112,28 @@ class StagingWidget(QWidget):
         self._dataset_state_manager = dataset_state_manager
         logger.debug("DatasetStateManager reference set in StagingWidget")
 
+    def connect_shared_staging(self, source: "StagingWidget") -> None:
+        """別 StagingWidget と同じステージング状態を共有する。
+
+        Provider Batch タブは通常アノテーションと同じ対象集合を扱うため、
+        class だけでなく OrderedDict 実体も共有する。
+        """
+        if source is self:
+            return
+        self._staged_images = source.get_staged_items()
+        self._thumbnail_cache = source._thumbnail_cache
+        source.staged_images_changed.connect(self._sync_from_shared_staging)
+        source.staging_cleared.connect(self._sync_from_shared_staging)
+        self.staged_images_changed.connect(source._sync_from_shared_staging)
+        self.staging_cleared.connect(source._sync_from_shared_staging)
+        self._refresh_staging_list_ui()
+
+    @Slot()
+    @Slot(list)
+    def _sync_from_shared_staging(self, _image_ids: list[int] | None = None) -> None:
+        """共有ステージングの変更を自分の表示へ反映する。"""
+        self._refresh_staging_list_ui()
+
     def _setup_staging_thumbnail_widget(self) -> None:
         """ステージング一覧を ThumbnailSelectorWidget で表示するセットアップ。"""
         from .thumbnail import ThumbnailSelectorWidget

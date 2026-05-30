@@ -16,11 +16,12 @@ from __future__ import annotations
 from collections.abc import Callable
 from typing import Any, cast
 
-from PySide6.QtCore import Qt, Slot
+from PySide6.QtCore import Qt, Signal, Slot
 from PySide6.QtWidgets import QMessageBox, QTableWidget, QTableWidgetItem, QWidget
 
 from lorairo.gui.designer.ProviderBatchJobWidget_ui import Ui_ProviderBatchJobWidget
 from lorairo.gui.widgets.model_selection_widget import ModelSelectionWidget
+from lorairo.gui.widgets.staging_widget import StagingWidget
 from lorairo.services.provider_batch_capability import (
     direct_provider_for_model,
     endpoint_for_task,
@@ -34,6 +35,9 @@ _ITEM_STATUSES = ("all", "failed", "expired", "canceled")
 
 class ProviderBatchJobWidget(QWidget, Ui_ProviderBatchJobWidget):
     """Provider Batch job submit/list/detail widget (統一フロー)."""
+
+    staged_images_changed = Signal(list)
+    staging_cleared = Signal()
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -50,6 +54,8 @@ class ProviderBatchJobWidget(QWidget, Ui_ProviderBatchJobWidget):
 
         # ADR 0041: placeholder を単一選択 batch-capable ModelSelectionWidget に差替
         self._staging_widget = self.stagingWidget
+        self._staging_widget.staged_images_changed.connect(self.staged_images_changed)
+        self._staging_widget.staging_cleared.connect(self.staging_cleared)
         self._model_selection_widget = self._inject_model_selection_widget()
         self._model_selection_widget.set_single_selection_mode(True)
 
@@ -119,6 +125,19 @@ class ProviderBatchJobWidget(QWidget, Ui_ProviderBatchJobWidget):
         self._dataset_state_manager = dataset_state_manager
         self._staging_widget.set_dataset_state_manager(dataset_state_manager)
 
+    def connect_shared_staging(self, source: StagingWidget) -> None:
+        """通常アノテーションと同じステージング状態を共有する。"""
+        self._staging_widget.connect_shared_staging(source)
+        self._update_target_label()
+
+    def get_staging_widget(self) -> StagingWidget:
+        """内部 StagingWidget を返す。"""
+        return self._staging_widget
+
+    def get_model_selection_widget(self) -> ModelSelectionWidget:
+        """差し込み済み ModelSelectionWidget を返す。"""
+        return self._model_selection_widget
+
     def _connect_signals(self) -> None:
         self.buttonAddSelected.clicked.connect(self._staging_widget.add_selected_images)
         self.buttonSubmit.clicked.connect(self.submit_job)
@@ -156,11 +175,11 @@ class ProviderBatchJobWidget(QWidget, Ui_ProviderBatchJobWidget):
     @Slot()
     def submit_job(self) -> None:
         if self._workflow_service is None:
-            self.labelStatus.setText("Provider Batch service is not available")
+            self.labelStatus.setText("バッチAPIサービスを利用できません")
             return
         litellm_model_id = self._model_selection_widget.get_selected_model()
         if not litellm_model_id:
-            QMessageBox.warning(self, "Provider Batch", "バッチ対応モデルを選択してください。")
+            QMessageBox.warning(self, "バッチAPI", "バッチ対応モデルを選択してください。")
             return
         try:
             image_ids = self._staging_widget.get_image_ids()
@@ -190,14 +209,14 @@ class ProviderBatchJobWidget(QWidget, Ui_ProviderBatchJobWidget):
             )
             self.refresh_jobs()
             self.select_job(job_id)
-            self.labelStatus.setText(f"Submitted Provider Batch job {job_id}")
+            self.labelStatus.setText(f"バッチAPIジョブ {job_id} を送信しました")
         except (ProviderBatchError, ValueError) as e:
-            QMessageBox.warning(self, "Provider Batch", str(e))
+            QMessageBox.warning(self, "バッチAPI", str(e))
             self.labelStatus.setText(str(e))
         except Exception as e:
-            logger.error(f"Provider Batch submit failed: {e}", exc_info=True)
-            QMessageBox.critical(self, "Provider Batch", str(e))
-            self.labelStatus.setText("Submit failed")
+            logger.error(f"バッチAPI submit failed: {e}", exc_info=True)
+            QMessageBox.critical(self, "バッチAPI", str(e))
+            self.labelStatus.setText("送信に失敗しました")
 
     @Slot()
     def refresh_jobs(self) -> None:
@@ -206,9 +225,9 @@ class ProviderBatchJobWidget(QWidget, Ui_ProviderBatchJobWidget):
         try:
             jobs = self._repository.list_provider_batch_jobs(limit=100, offset=0)
         except Exception as e:
-            logger.warning(f"Provider Batch job list failed: {e}")
+            logger.warning(f"バッチAPI job list failed: {e}")
             self.tableJobs.setRowCount(0)
-            self.labelStatus.setText("Provider Batch jobs unavailable")
+            self.labelStatus.setText("バッチAPIジョブを取得できません")
             return
         self.tableJobs.setRowCount(0)
         for job in jobs:
@@ -226,7 +245,7 @@ class ProviderBatchJobWidget(QWidget, Ui_ProviderBatchJobWidget):
                 item = QTableWidgetItem(value)
                 item.setData(Qt.ItemDataRole.UserRole, job_id)
                 self.tableJobs.setItem(row, column, item)
-        self.labelStatus.setText(f"Loaded {len(jobs)} Provider Batch job(s)")
+        self.labelStatus.setText(f"バッチAPIジョブ {len(jobs)} 件を読み込みました")
 
     def select_job(self, job_id: int) -> None:
         for row in range(self.tableJobs.rowCount()):
@@ -302,14 +321,14 @@ class ProviderBatchJobWidget(QWidget, Ui_ProviderBatchJobWidget):
 
     def _require_current_job_id(self) -> int | None:
         if self._current_job_id is None:
-            QMessageBox.information(self, "Provider Batch", "Select a Provider Batch job first.")
+            QMessageBox.information(self, "バッチAPI", "先にバッチAPIジョブを選択してください。")
             return None
         return self._current_job_id
 
     def _handle_action_error(self, action: str, error: Exception) -> None:
-        logger.error(f"Provider Batch {action} failed: {error}", exc_info=True)
-        QMessageBox.critical(self, "Provider Batch", str(error))
-        self.labelStatus.setText(f"{action.capitalize()} failed")
+        logger.error(f"バッチAPI {action} failed: {error}", exc_info=True)
+        QMessageBox.critical(self, "バッチAPI", str(error))
+        self.labelStatus.setText(f"{action} に失敗しました")
 
     @Slot()
     def refresh_selected_job_status(self) -> None:
@@ -318,11 +337,11 @@ class ProviderBatchJobWidget(QWidget, Ui_ProviderBatchJobWidget):
             return
         try:
             self._workflow_service.refresh(job_id)
-            self.labelStatus.setText(f"Refreshed Provider Batch job {job_id}")
+            self.labelStatus.setText(f"バッチAPIジョブ {job_id} を更新しました")
             self.refresh_jobs()
             self.select_job(job_id)
         except ProviderBatchError as e:
-            QMessageBox.warning(self, "Provider Batch", str(e))
+            QMessageBox.warning(self, "バッチAPI", str(e))
             self.labelStatus.setText(str(e))
         except Exception as e:
             self._handle_action_error("refresh", e)
@@ -334,11 +353,11 @@ class ProviderBatchJobWidget(QWidget, Ui_ProviderBatchJobWidget):
             return
         try:
             self._workflow_service.cancel(job_id)
-            self.labelStatus.setText(f"Cancel requested for Provider Batch job {job_id}")
+            self.labelStatus.setText(f"バッチAPIジョブ {job_id} のキャンセルを要求しました")
             self.refresh_jobs()
             self.select_job(job_id)
         except ProviderBatchError as e:
-            QMessageBox.warning(self, "Provider Batch", str(e))
+            QMessageBox.warning(self, "バッチAPI", str(e))
             self.labelStatus.setText(str(e))
         except Exception as e:
             self._handle_action_error("cancel", e)
@@ -351,12 +370,12 @@ class ProviderBatchJobWidget(QWidget, Ui_ProviderBatchJobWidget):
         try:
             result = self._workflow_service.fetch_results(job_id)
             self.labelStatus.setText(
-                f"Fetched Provider Batch job {job_id}: {len(getattr(result, 'items', ()) or ())} item(s)"
+                f"バッチAPIジョブ {job_id} の結果 {len(getattr(result, 'items', ()) or ())} 件を取得しました"
             )
             self.refresh_detail()
             self.refresh_items()
         except ProviderBatchError as e:
-            QMessageBox.warning(self, "Provider Batch", str(e))
+            QMessageBox.warning(self, "バッチAPI", str(e))
             self.labelStatus.setText(str(e))
         except Exception as e:
             self._handle_action_error("fetch", e)
@@ -369,12 +388,12 @@ class ProviderBatchJobWidget(QWidget, Ui_ProviderBatchJobWidget):
         try:
             result = self._workflow_service.import_results(job_id)
             self.labelStatus.setText(
-                f"Imported {result.imported_count}/{result.total_count} Provider Batch result(s)"
+                f"バッチAPI結果 {result.imported_count}/{result.total_count} 件を取り込みました"
             )
             self.refresh_detail()
             self.refresh_items()
         except ProviderBatchError as e:
-            QMessageBox.warning(self, "Provider Batch", str(e))
+            QMessageBox.warning(self, "バッチAPI", str(e))
             self.labelStatus.setText(str(e))
         except Exception as e:
             self._handle_action_error("import", e)

@@ -380,9 +380,9 @@ class MainWindow(QMainWindow, Ui_MainWindow):
         self._setup_provider_batch_tab()
 
     def _setup_provider_batch_tab(self) -> None:
-        """Provider Batch job management tab を追加する。"""
+        """バッチAPI job management tab を追加する。"""
         if not hasattr(self, "tabWidgetMainMode") or not self.tabWidgetMainMode:
-            logger.warning("tabWidgetMainMode not found - Provider Batch tab skipped")
+            logger.warning("tabWidgetMainMode not found - バッチAPI tab skipped")
             self.provider_batch_job_widget = None
             return
 
@@ -396,12 +396,17 @@ class MainWindow(QMainWindow, Ui_MainWindow):
                 model_source=service_container.annotator_library,
                 model_repository=service_container.db_manager.model_repo,
             )
+            batch_tag_widget = getattr(self, "batchTagAddWidget", None)
+            if batch_tag_widget is not None and hasattr(batch_tag_widget, "get_staging_widget"):
+                widget.connect_shared_staging(batch_tag_widget.get_staging_widget())
+                widget.staging_cleared.connect(self._handle_staging_cleared)
+                widget.staged_images_changed.connect(self._on_staged_images_changed)
             self.provider_batch_job_widget = widget
-            self.tabWidgetMainMode.addTab(widget, "Provider Batch")
-            logger.info("✅ Provider Batch tab initialized")
+            self.tabWidgetMainMode.addTab(widget, "バッチAPI")
+            logger.info("✅ バッチAPI tab initialized")
         except Exception as e:
             self.provider_batch_job_widget = None
-            logger.error(f"❌ Provider Batch tab initialization failed: {e}", exc_info=True)
+            logger.error(f"❌ バッチAPI tab initialization failed: {e}", exc_info=True)
 
     def _verify_state_management_connections(self) -> None:
         """状態管理接続の検証（SelectionStateServiceに委譲）"""
@@ -1642,8 +1647,8 @@ class MainWindow(QMainWindow, Ui_MainWindow):
         elif index == 1:  # バッチタグ
             logger.info("Switched to Batch Tag tab")
             self._refresh_batch_tag_staging()
-        elif index == 2:  # Provider Batch
-            logger.info("Switched to Provider Batch tab")
+        elif index == 2:  # バッチAPI
+            logger.info("Switched to バッチAPI tab")
             widget = getattr(self, "provider_batch_job_widget", None)
             if widget is not None:
                 widget.refresh_jobs()
