@@ -62,6 +62,48 @@ def _create_legacy_schema(db_path: Path) -> None:
                 """
             )
         )
+        # ratings は 879cc87e4125 で作成済みのはず（c4d5e6f7a8b9 より前）
+        conn.execute(
+            text(
+                """
+                CREATE TABLE images (
+                    id INTEGER NOT NULL PRIMARY KEY,
+                    uuid VARCHAR NOT NULL,
+                    phash VARCHAR NOT NULL,
+                    original_image_path VARCHAR NOT NULL,
+                    stored_image_path VARCHAR NOT NULL,
+                    width INTEGER NOT NULL,
+                    height INTEGER NOT NULL,
+                    format VARCHAR NOT NULL,
+                    mode VARCHAR NOT NULL,
+                    has_alpha BOOLEAN NOT NULL,
+                    filename VARCHAR NOT NULL,
+                    extension VARCHAR NOT NULL,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP NOT NULL,
+                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP NOT NULL
+                )
+                """
+            )
+        )
+        conn.execute(
+            text(
+                """
+                CREATE TABLE ratings (
+                    id INTEGER NOT NULL PRIMARY KEY,
+                    image_id INTEGER NOT NULL,
+                    model_id INTEGER NOT NULL,
+                    raw_rating_value VARCHAR NOT NULL,
+                    normalized_rating VARCHAR NOT NULL,
+                    confidence_score FLOAT,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP NOT NULL,
+                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP NOT NULL,
+                    FOREIGN KEY(image_id) REFERENCES images (id) ON DELETE CASCADE,
+                    FOREIGN KEY(model_id) REFERENCES models (id) ON DELETE CASCADE
+                )
+                """
+            )
+        )
+        conn.execute(text("CREATE INDEX ix_ratings_image_id ON ratings (image_id)"))
         # Alembic version table を直前 head に固定
         conn.execute(text("CREATE TABLE alembic_version (version_num VARCHAR(32) PRIMARY KEY)"))
         conn.execute(text("INSERT INTO alembic_version (version_num) VALUES ('c4d5e6f7a8b9')"))
