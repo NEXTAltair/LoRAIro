@@ -406,3 +406,76 @@ class TestUnratedPreviewDisplay:
         # プレビューに「未設定のみ」が含まれることを確認
         assert "AIレーティング" in preview
         assert "未設定のみ" in preview
+
+
+class TestRatedFilter:
+    """RATEDフィルター（レーティング設定済み画像のみ）のテスト (Issue #561)"""
+
+    @pytest.fixture
+    def repository(self):
+        """テスト用ImageRepository"""
+        mock_session_factory = Mock()
+        return ImageRepository(session_factory=mock_session_factory)
+
+    def test_apply_ai_rating_filter_rated(self, repository):
+        """AIレーティングフィルタでRATED指定が正しく動作することを確認"""
+        base_query = select(Image.id)
+
+        result_query = repository._apply_ai_rating_filter(base_query, "RATED")
+
+        # クエリが変更されたことを確認 (has_any_ai_rating 適用)
+        assert result_query is not None
+        assert result_query != base_query
+
+    def test_apply_manual_filters_rated(self, repository):
+        """手動レーティングフィルタでRATED指定が正しく動作することを確認"""
+        base_query = select(Image.id)
+        mock_session = Mock(spec=Session)
+
+        with patch(
+            "lorairo.database.repository.image.ModelRepository._get_or_create_manual_edit_model",
+            return_value=1,
+        ):
+            result_query = repository._apply_manual_filters(base_query, "RATED", None, mock_session)
+
+        assert result_query is not None
+        assert result_query != base_query
+
+
+class TestRatedPreviewDisplay:
+    """RATEDフィルターのプレビュー表示テスト (Issue #561)"""
+
+    def _make_service(self):
+        from lorairo.gui.services.search_filter_service import SearchFilterService
+
+        return SearchFilterService(db_manager=Mock(), model_selection_service=Mock())
+
+    def test_create_search_preview_shows_rated_manual_rating(self):
+        """手動レーティングRATEDを「レーティング済み」と表示することを確認"""
+        from lorairo.services.search_models import SearchConditions
+
+        service = self._make_service()
+        conditions = SearchConditions(
+            search_type="tags", keywords=[], tag_logic="and", rating_filter="RATED"
+        )
+
+        preview = service.create_search_preview(conditions)
+
+        assert "手動レーティング" in preview
+        assert "レーティング済み" in preview
+
+    def test_create_search_preview_shows_rated_ai_rating(self):
+        """AIレーティングRATEDを「レーティング済み」と表示し多数決注記を付けないことを確認"""
+        from lorairo.services.search_models import SearchConditions
+
+        service = self._make_service()
+        conditions = SearchConditions(
+            search_type="tags", keywords=[], tag_logic="and", ai_rating_filter="RATED"
+        )
+
+        preview = service.create_search_preview(conditions)
+
+        assert "AIレーティング" in preview
+        assert "レーティング済み" in preview
+        # 「レーティングあり」判定に多数決は適用されない
+        assert "多数決" not in preview

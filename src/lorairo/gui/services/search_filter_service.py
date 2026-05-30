@@ -195,19 +195,28 @@ class SearchFilterService:
             parts.append("重複除外")
         return parts
 
+    @staticmethod
+    def _rating_display_label(rating_filter: str) -> str:
+        """レーティングフィルタ値を表示用ラベルに変換する。"""
+        if rating_filter == "UNRATED":
+            return "未設定のみ"
+        if rating_filter == "RATED":
+            return "レーティング済み"
+        return rating_filter
+
     def _format_rating_parts(self, conditions: SearchConditions) -> list[str]:
         """レーティング・NSFW 関連のプレビューパーツを返す。"""
         parts: list[str] = []
         if conditions.rating_filter:
-            rating_display = (
-                "未設定のみ" if conditions.rating_filter == "UNRATED" else conditions.rating_filter
-            )
+            rating_display = self._rating_display_label(conditions.rating_filter)
             parts.append(f"手動レーティング: {rating_display}")
         if conditions.ai_rating_filter:
-            ai_rating_display = (
-                "未設定のみ" if conditions.ai_rating_filter == "UNRATED" else conditions.ai_rating_filter
-            )
-            ai_rating_text = f"AIレーティング: {ai_rating_display} (多数決)"
+            ai_rating_display = self._rating_display_label(conditions.ai_rating_filter)
+            # 多数決ロジックは特定レーティング値の判定にのみ適用される
+            is_specific = conditions.ai_rating_filter not in ("UNRATED", "RATED")
+            ai_rating_text = f"AIレーティング: {ai_rating_display}"
+            if is_specific:
+                ai_rating_text += " (多数決)"
             if conditions.rating_filter:
                 ai_rating_text += " ※手動レーティング優先"
             parts.append(ai_rating_text)

@@ -169,6 +169,75 @@ def test_only_unrated_filter_returns_images_without_any_rating(
 
 
 @pytest.mark.integration
+def test_rated_filter_returns_only_rated_including_nsfw(
+    rating_repository: ImageRepository,
+    seeded_ids: dict[str, int],
+    db_session_factory,
+) -> None:
+    """ai_rating_filter='RATED' はレーティング済み画像のみを返し、NSFW も含む (Issue #561)。"""
+    with db_session_factory() as session:
+        model_id = seeded_ids["model_id"]
+        nsfw_rated_image_id = seeded_ids["image_id"]
+        # 既存 seeded 画像に NSFW (R) AI レーティングを付与
+        session.add(
+            Rating(
+                image_id=nsfw_rated_image_id,
+                model_id=model_id,
+                raw_rating_value="explicit",
+                normalized_rating="X",
+                confidence_score=0.95,
+            )
+        )
+        # 非NSFW (PG) レーティング画像
+        sfw_image = Image(
+            uuid="rated-test-uuid-sfw",
+            phash="phash_rated_sfw",
+            original_image_path="/tmp/rated_sfw.png",
+            stored_image_path="/tmp/rated_sfw.png",
+            width=256,
+            height=256,
+            format="PNG",
+            extension=".png",
+        )
+        # 未評価画像
+        unrated_image = Image(
+            uuid="rated-test-uuid-unrated",
+            phash="phash_rated_unrated",
+            original_image_path="/tmp/rated_unrated.png",
+            stored_image_path="/tmp/rated_unrated.png",
+            width=256,
+            height=256,
+            format="PNG",
+            extension=".png",
+        )
+        session.add_all([sfw_image, unrated_image])
+        session.flush()
+        sfw_image_id = sfw_image.id
+        unrated_image_id = unrated_image.id
+        session.add(
+            Rating(
+                image_id=sfw_image_id,
+                model_id=model_id,
+                raw_rating_value="general",
+                normalized_rating="PG",
+                confidence_score=0.9,
+            )
+        )
+        session.commit()
+
+    # include_nsfw=True (panel が RATED 選択時に解決する値) で検索
+    rated_images, rated_count = rating_repository.get_images_by_filter(
+        ImageFilterCriteria(ai_rating_filter="RATED", include_nsfw=True)
+    )
+
+    returned_ids = {image["id"] for image in rated_images}
+    # レーティング済み 2 件 (NSFW含む) のみが返り、未評価は除外される
+    assert rated_count == 2
+    assert returned_ids == {nsfw_rated_image_id, sfw_image_id}
+    assert unrated_image_id not in returned_ids
+
+
+@pytest.mark.integration
 def test_missing_model_filter_excludes_any_annotation_type_for_model(
     rating_repository: ImageRepository,
     seeded_ids: dict[str, int],

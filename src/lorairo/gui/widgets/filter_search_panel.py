@@ -618,8 +618,10 @@ class FilterSearchPanel(QScrollArea):
     def _get_rating_filter_value(self) -> str | None:
         """Rating コンボボックスから選択された値を取得。"""
         text = self.ui.comboRating.currentText()
-        if text == "全て":
+        if text == "----":
             return None
+        if text == "レーティング済み":
+            return "RATED"
         if text == "未設定のみ":
             return "UNRATED"
         rating_value = text.split()[0] if text else None
@@ -629,8 +631,10 @@ class FilterSearchPanel(QScrollArea):
     def _get_ai_rating_filter_value(self) -> str | None:
         """AI レーティングコンボボックスから選択された値を取得。"""
         text = self.ui.comboAIRating.currentText()
-        if text == "全て":
+        if text == "----":
             return None
+        if text == "レーティング済み":
+            return "RATED"
         if text == "未設定のみ":
             return "UNRATED"
         ai_rating_value = text.split()[0] if text else None
@@ -650,8 +654,17 @@ class FilterSearchPanel(QScrollArea):
         return rating_value in {"R", "X", "XXX"}
 
     def _resolve_include_nsfw(self, rating_filter: str | None, ai_rating_filter: str | None) -> bool:
-        """レーティング選択から NSFW 含有フラグを決定する。"""
-        include_nsfw = self._is_nsfw_rating(rating_filter) or self._is_nsfw_rating(ai_rating_filter)
+        """レーティング選択から NSFW 含有フラグを決定する。
+
+        「レーティング済み」(RATED) は「レーティングがある画像すべて」を意味するため、
+        NSFW レーティング画像も含める (Issue #561)。
+        """
+        include_nsfw = (
+            self._is_nsfw_rating(rating_filter)
+            or self._is_nsfw_rating(ai_rating_filter)
+            or rating_filter == "RATED"
+            or ai_rating_filter == "RATED"
+        )
         logger.debug(
             f"NSFW include resolved from ratings: manual={rating_filter}, "
             f"ai={ai_rating_filter}, include_nsfw={include_nsfw}",
@@ -716,8 +729,8 @@ class FilterSearchPanel(QScrollArea):
                 self.ui.checkboxDateFilter.isChecked(),
                 self.ui.comboResolution.currentText() != "全て",
                 self.ui.comboAspectRatio.currentText() != "全て",
-                self.ui.comboRating.currentText() != "全て",
-                self.ui.comboAIRating.currentText() != "全て",
+                self.ui.comboRating.currentText() != "----",
+                self.ui.comboAIRating.currentText() != "----",
                 has_score_filter,
             ],
         ):

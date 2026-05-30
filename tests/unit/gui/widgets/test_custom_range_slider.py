@@ -323,8 +323,8 @@ class TestFilterSearchPanel:
         panel.ui.checkboxIncludeUnrated = panel.checkboxIncludeUnrated
         # textEditPreview は削除
 
-        panel.comboRating.currentText.return_value = "全て"
-        panel.comboAIRating.currentText.return_value = "全て"
+        panel.comboRating.currentText.return_value = "----"
+        panel.comboAIRating.currentText.return_value = "----"
         panel.checkboxIncludeUnrated.isChecked.return_value = True
 
         # SearchFilterService モック
@@ -602,8 +602,8 @@ class TestFilterSearchPanel:
         filter_panel.ui.checkboxIncludeUnrated = filter_panel.checkboxIncludeUnrated
         filter_panel.ui.lineEditWidth = filter_panel.lineEditWidth
         filter_panel.ui.lineEditHeight = filter_panel.lineEditHeight
-        filter_panel.ui.comboRating.currentText.return_value = "全て"
-        filter_panel.ui.comboAIRating.currentText.return_value = "全て"
+        filter_panel.ui.comboRating.currentText.return_value = "----"
+        filter_panel.ui.comboAIRating.currentText.return_value = "----"
         filter_panel.ui.checkboxIncludeUnrated.isChecked.return_value = True
         # textEditPreview は削除されたため除外
 
