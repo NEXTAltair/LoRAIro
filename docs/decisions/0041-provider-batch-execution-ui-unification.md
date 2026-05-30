@@ -57,7 +57,7 @@ Provider Batch タブ ─ splitterMain (水平)
      │    Prompt:[default]  Description:[____]
      │    [Submit]                          ← btnAnnotationExecute に対応
      └─ batch 固有: 状態表示                ← annotationDisplayPlaceholder に対応
-          Jobs table [Refresh / Refresh Status / Cancel / Fetch / Import]
+          Jobs table [状態を確認] (+ running job のみ [キャンセル])
           Detail | Items
 ```
 
@@ -115,6 +115,29 @@ widget クラスは多重継承パターン `class ProviderBatchJobWidget(QWidge
 
 右上の filter 枠（model selection の直上）に配置する。変更時に B の batch-capable フィルタを
 再評価する。UI 表示確認後に問題があれば配置を調整する（暫定確定）。
+
+### 7. ジョブ状態操作: 主操作は「状態を確認」に絞る
+
+Provider Batch の状態表示は、service lifecycle (`refresh` / `cancel` / `fetch` / `import`) を
+そのまま主ボタンとして露出しない。通常ユーザーの主操作は **選択ジョブの状態を provider に
+問い合わせる「状態を確認」だけ**に絞る。
+
+- `更新` と `状態更新` を別々の主ボタンとして並べない。
+  - `更新`: ローカル DB の job 一覧再読込にすぎず、provider への状態問い合わせではない。
+  - `状態更新`: provider に問い合わせて job status を DB に反映する。
+  - この 2 つは名称だけでは区別しづらく、通常フローでは「状態を確認」に統合する。
+- `状態を確認` 実行後、job が完了していれば **結果取得 (`fetch`) と DB 保存 (`import`) まで
+  自動で行う**。ユーザーに `取得` → `取り込み` の段階操作を要求しない。
+- job が未完了なら、状態だけを更新して「処理中」「検証中」などを表示する。
+- `キャンセル` は実行中/検証中など cancel 可能な状態でのみ副次操作として表示または有効化する。
+- `詳細` は主ボタンにせず、行選択、詳細ペイン、または二次操作として提供する。
+- `取得` / `取り込み` は通常フローの主ボタンから外す。必要な場合は、デバッグ・事故復旧・再取り込み用の
+  二次操作として残す。
+
+この決定は「ジョブ完了確認は手動でよいが、完了後の provider 結果取得と LoRAIro DB 保存を
+手動ステップとして露出しすぎない」ことを目的とする。バッチ API は非同期ジョブだが、ユーザー視点の
+通常フローは「送信 → 後で状態を確認 → 完了していれば保存済み」であるべきで、内部 lifecycle の
+各段階を個別ボタンとして学習させない。
 
 ## コンポーネント interface 契約
 
