@@ -262,6 +262,31 @@ class TestSaveAnnotations:
             rows = session.execute(select(Tag).where(Tag.image_id == image_id)).scalars().all()
             assert rows == []
 
+    def test_save_annotations_batch_flushes_duplicate_image_id_within_chunk(
+        self,
+        annotation_repository: AnnotationRepository,
+        image_id: int,
+        memory_session_factory,
+    ) -> None:
+        """同一chunk内の同じ image_id は先行itemを参照して upsert する。"""
+        annotation_repository.save_annotations_batch(
+            [
+                AnnotationSaveItem(
+                    image_id=image_id,
+                    annotations={"tags": [{"tag": "cat", "model_id": None, "tag_id": None}]},
+                ),
+                AnnotationSaveItem(
+                    image_id=image_id,
+                    annotations={"tags": [{"tag": "cat", "model_id": None, "tag_id": None}]},
+                ),
+            ]
+        )
+
+        with memory_session_factory() as session:
+            rows = session.execute(select(Tag).where(Tag.image_id == image_id)).scalars().all()
+            assert len(rows) == 1
+            assert rows[0].tag == "cat"
+
 
 @pytest.mark.unit
 class TestSaveTagsAndCaptions:

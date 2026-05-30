@@ -234,6 +234,9 @@ class AnnotationRepository(BaseRepository):
                 try:
                     for item in chunk:
                         self._save_annotations_in_session(session, item)
+                        # autoflush=False のため、同一 chunk 内で同じ image_id が再登場した場合も
+                        # 後続 item の upsert query が先行 item の行を参照できるよう明示 flush する。
+                        session.flush()
                     session.commit()
                     saved_count += len(chunk)
                     logger.debug(
