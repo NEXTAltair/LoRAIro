@@ -28,7 +28,6 @@ if TYPE_CHECKING:
     from lorairo.database.repository.model import ModelRepository
     from lorairo.services.batch_import_service import BatchImportResult
 
-from lorairo.annotations.annotation_logic import AnnotationLogic
 from lorairo.api.batch_import import import_batch_annotations
 from lorairo.api.exceptions import (
     AnnotationFailedError,
@@ -800,6 +799,8 @@ def run(
 
         moderation_preflight_service = None
         if should_preflight:
+            from lorairo.annotations.annotation_logic import AnnotationLogic
+
             moderation_logic = AnnotationLogic(annotator)
             moderation_preflight_service = ModerationPreflightService(
                 image_repo=container.db_manager.image_repo,
