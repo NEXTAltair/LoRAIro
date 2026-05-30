@@ -257,9 +257,9 @@ class WorkerService(QObject):
         Raises:
             RuntimeError: ワーカー開始失敗の場合
         """
-        # 既存の検索をキャンセル
+        # 既存の検索を破棄(新検索による置換。ユーザーキャンセルではない)
         if self.current_search_worker_id:
-            logger.info(f"既存の検索をキャンセル: {self.current_search_worker_id}")
+            logger.debug(f"前回検索を破棄(新検索で置換): {self.current_search_worker_id}")
             self.worker_manager.cancel_worker(
                 self.current_search_worker_id,
                 reason=CancelReason.SEARCH_REPLACED,

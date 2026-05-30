@@ -72,7 +72,7 @@ class SearchWorker(LoRAIroWorkerBase[SearchResult]):
             return result
 
         except CancellationError:
-            logger.info("検索処理がキャンセルされました")
+            logger.debug("検索処理がキャンセルされました")
             raise
 
         except Exception as e:

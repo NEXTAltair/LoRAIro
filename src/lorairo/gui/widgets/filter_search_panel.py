@@ -783,10 +783,10 @@ class FilterSearchPanel(QScrollArea):
             self._execute_synchronous_search()
             return
 
-        # 既存の検索をキャンセル
+        # 既存検索の置換は start_search 側が SEARCH_REPLACED で破棄する。
+        # ここで cancel_search を呼ぶと USER_REQUESTED 扱いになり誤キャンセルログ +
+        # 二重キャンセルの WARNING が出るため、pipeline 状態のリセットのみ行う。
         if self._current_search_worker_id:
-            logger.info(f"既存の検索をキャンセル: {self._current_search_worker_id}")
-            self.worker_service.cancel_search(self._current_search_worker_id)
             self._pipeline.transition_to(PipelineState.IDLE)
 
         try:

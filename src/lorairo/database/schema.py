@@ -428,7 +428,11 @@ class Rating(Base):
     image: Mapped[Image] = relationship("Image", back_populates="ratings")
     model: Mapped[Model] = relationship("Model", back_populates="ratings")
 
-    __table_args__ = (Index("ix_ratings_image_id", "image_id"),)
+    __table_args__ = (
+        Index("ix_ratings_image_id", "image_id"),
+        # AI レーティングフィルタ (model_id IN (...) + GROUP BY image_id) を index seek 化する
+        Index("ix_ratings_model_id_image_id", "model_id", "image_id"),
+    )
 
     def __repr__(self) -> str:
         return f"<Rating(id={self.id}, image_id={self.image_id}, rating='{self.normalized_rating}')>"

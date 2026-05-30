@@ -3,6 +3,7 @@
 from unittest.mock import Mock
 
 import pytest
+from loguru import logger as loguru_logger
 
 from lorairo.gui.workers.manager import WorkerManager
 from lorairo.gui.workers.terminal import CancelReason, WorkerOutcome
@@ -11,6 +12,15 @@ from lorairo.gui.workers.terminal import CancelReason, WorkerOutcome
 @pytest.fixture
 def manager(qapp):
     return WorkerManager()
+
+
+@pytest.fixture
+def loguru_records():
+    """loguru の出力 record を捕捉する (caplog は loguru を確実に拾わないため専用 sink)。"""
+    records: list = []
+    sink_id = loguru_logger.add(lambda msg: records.append(msg.record), level="DEBUG")
+    yield records
+    loguru_logger.remove(sink_id)
 
 
 class TestWorkerManagerInit:
@@ -282,3 +292,52 @@ class TestWorkerManagerCancellation:
         assert terminal_mock.call_args.args[0].outcome is WorkerOutcome.CANCELED
         count_mock.assert_called_once_with(0)
         all_finished_mock.assert_called_once()
+
+
+class TestCancelLogReason:
+    """Issue #558: 内部置換キャンセルが「キャンセル」として INFO に出ないことを検証する。"""
+
+    def _setup_worker(self, manager, reason: CancelReason) -> None:
+        manager.active_workers["worker-1"] = {
+            "worker": Mock(),
+            "thread": Mock(),
+            "auto_cleanup": True,
+            "cancel_reason": reason,
+        }
+
+    def test_user_requested_cancel_logs_info(self, manager, loguru_records):
+        self._setup_worker(manager, CancelReason.USER_REQUESTED)
+
+        manager._on_worker_canceled("worker-1")
+
+        info_msgs = [r["message"] for r in loguru_records if r["level"].name == "INFO"]
+        assert any("ユーザー操作でワーカーをキャンセル" in m for m in info_msgs)
+
+    def test_search_replaced_cancel_does_not_log_info(self, manager, loguru_records):
+        self._setup_worker(manager, CancelReason.SEARCH_REPLACED)
+
+        manager._on_worker_canceled("worker-1")
+
+        info_msgs = [r["message"] for r in loguru_records if r["level"].name == "INFO"]
+        # 内部置換は INFO に「キャンセル」を出さない (誤キャンセルログ防止)
+        assert not any("キャンセル" in m for m in info_msgs)
+        # DEBUG には reason 付きで残る
+        debug_msgs = [r["message"] for r in loguru_records if r["level"].name == "DEBUG"]
+        assert any("search_replaced" in m for m in debug_msgs)
+
+    def test_cancel_worker_logs_reason_at_debug(self, manager, loguru_records):
+        worker = Mock()
+        thread = Mock()
+        thread.isRunning.return_value = False
+        manager.active_workers["worker-1"] = {
+            "worker": worker,
+            "thread": thread,
+            "auto_cleanup": True,
+        }
+
+        manager.cancel_worker("worker-1", reason=CancelReason.SEARCH_REPLACED)
+
+        info_msgs = [r["message"] for r in loguru_records if r["level"].name == "INFO"]
+        assert not any(m.startswith("ワーカーキャンセル: worker-1") for m in info_msgs)
+        debug_msgs = [r["message"] for r in loguru_records if r["level"].name == "DEBUG"]
+        assert any("search_replaced" in m for m in debug_msgs)

@@ -159,10 +159,10 @@ class LoRAIroWorkerBase[T](QObject):
             else:
                 self._set_status(WorkerStatus.CANCELED)
                 self.canceled.emit()
-                logger.info(f"ワーカー実行キャンセル: {self.__class__.__name__}")
+                logger.debug(f"ワーカー実行キャンセル: {self.__class__.__name__}")
 
         except CancellationError as e:
-            logger.info(f"ワーカー実行キャンセル: {self.__class__.__name__}: {e}")
+            logger.debug(f"ワーカー実行キャンセル: {self.__class__.__name__}: {e}")
             self._set_status(WorkerStatus.CANCELED)
             self.canceled.emit()
 
@@ -198,7 +198,7 @@ class LoRAIroWorkerBase[T](QObject):
         """ワーカーキャンセル要求"""
         self._set_status(WorkerStatus.CANCELING)
         self.cancellation.cancel()
-        logger.info(f"ワーカーキャンセル要求: {self.__class__.__name__}")
+        logger.debug(f"ワーカーキャンセル要求: {self.__class__.__name__}")
 
     def _set_status(self, status: WorkerStatus) -> None:
         """ステータス更新"""
