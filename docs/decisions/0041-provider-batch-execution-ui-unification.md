@@ -251,3 +251,7 @@ Wave 2 (1人・単独所有): #550 D
   image-annotator-lib #129 merge commit を submodule pin に取り込む。LoRAIro 側の
   batch eligibility 判定は ADR 0038 どおり image-annotator-lib を SSoT とし、LoRAIro DB へ
   永続化しない。
+- #545 の再確認で、`StagingWidget` の class は共有されていたが通常アノテーションとバッチAPIで
+  state 実体が別々だったこと、およびバッチAPI側モデル選択の placeholder 置換を統合テストで
+  保証していなかったことが判明した。Provider Batch タブは `BatchTagAddWidget` 側の
+  `StagingWidget` と同じ staged items を共有し、UI 表示名は日本語の「バッチAPI」に統一する。

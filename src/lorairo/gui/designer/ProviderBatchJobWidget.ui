@@ -11,7 +11,7 @@
    </rect>
   </property>
   <property name="windowTitle">
-   <string>Provider Batch</string>
+   <string>バッチAPI</string>
   </property>
   <layout class="QHBoxLayout" name="rootLayout">
    <property name="spacing">
@@ -130,7 +130,7 @@
           <item>
            <widget class="QLabel" name="labelTaskType">
             <property name="text">
-             <string>Task</string>
+             <string>タスク</string>
             </property>
            </widget>
           </item>
@@ -171,7 +171,7 @@
           <item row="0" column="0">
            <widget class="QLabel" name="labelPromptProfile">
             <property name="text">
-             <string>Prompt</string>
+             <string>プロンプト</string>
             </property>
            </widget>
           </item>
@@ -188,7 +188,7 @@
           <item row="1" column="0">
            <widget class="QLabel" name="labelDescription">
             <property name="text">
-             <string>Description</string>
+             <string>説明</string>
             </property>
            </widget>
           </item>
@@ -219,7 +219,7 @@
           <item>
            <widget class="QPushButton" name="buttonSubmit">
             <property name="text">
-             <string>Submit</string>
+             <string>送信</string>
             </property>
             <property name="objectName">
              <string>buttonProviderBatchSubmit</string>
@@ -240,7 +240,7 @@
           <item>
            <widget class="QPushButton" name="buttonRefreshJobs">
             <property name="text">
-             <string>Refresh</string>
+             <string>更新</string>
             </property>
             <property name="objectName">
              <string>buttonProviderBatchRefreshJobs</string>
@@ -250,7 +250,7 @@
           <item>
            <widget class="QPushButton" name="buttonRefreshStatus">
             <property name="text">
-             <string>Refresh Status</string>
+             <string>状態更新</string>
             </property>
             <property name="objectName">
              <string>buttonProviderBatchRefreshStatus</string>
@@ -260,7 +260,7 @@
           <item>
            <widget class="QPushButton" name="buttonCancel">
             <property name="text">
-             <string>Cancel</string>
+             <string>キャンセル</string>
             </property>
             <property name="objectName">
              <string>buttonProviderBatchCancel</string>
@@ -270,7 +270,7 @@
           <item>
            <widget class="QPushButton" name="buttonFetch">
             <property name="text">
-             <string>Fetch</string>
+             <string>取得</string>
             </property>
             <property name="objectName">
              <string>buttonProviderBatchFetch</string>
@@ -280,7 +280,7 @@
           <item>
            <widget class="QPushButton" name="buttonImport">
             <property name="text">
-             <string>Import</string>
+             <string>取り込み</string>
             </property>
             <property name="objectName">
              <string>buttonProviderBatchImport</string>
@@ -314,7 +314,7 @@
           <item>
            <widget class="QGroupBox" name="groupBoxDetail">
             <property name="title">
-             <string>Detail</string>
+             <string>詳細</string>
             </property>
             <layout class="QVBoxLayout" name="detailLayout">
              <item>
@@ -333,7 +333,7 @@
           <item>
            <widget class="QGroupBox" name="groupBoxItems">
             <property name="title">
-             <string>Items</string>
+             <string>項目</string>
             </property>
             <layout class="QVBoxLayout" name="itemsLayout">
              <item>
@@ -341,7 +341,7 @@
                <item>
                 <widget class="QLabel" name="labelItemStatus">
                  <property name="text">
-                  <string>Status</string>
+                  <string>状態</string>
                  </property>
                 </widget>
                </item>

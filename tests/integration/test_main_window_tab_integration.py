@@ -32,12 +32,12 @@ class TestMainWindowTabInitialization:
         assert isinstance(main_window_with_tabs.tabWidgetMainMode, QTabWidget)
 
     def test_three_tabs_created(self, main_window_with_tabs):
-        """3つのタブ（ワークスペース、バッチタグ、Provider Batch）が作成される"""
+        """3つのタブ（ワークスペース、バッチタグ、バッチAPI）が作成される"""
         tab_widget = main_window_with_tabs.tabWidgetMainMode
         assert tab_widget.count() == 3
         assert tab_widget.tabText(0) == "ワークスペース"
         assert tab_widget.tabText(1) == "バッチタグ"
-        assert tab_widget.tabText(2) == "Provider Batch"
+        assert tab_widget.tabText(2) == "バッチAPI"
 
     def test_workspace_tab_contains_splitter(self, main_window_with_tabs):
         """ワークスペースタブにsplitterMainWorkAreaが含まれる"""
@@ -69,7 +69,7 @@ class TestMainWindowTabInitialization:
         assert operations_group is not None
 
     def test_provider_batch_tab_structure(self, main_window_with_tabs):
-        """Provider Batchタブが適切な構造を持つ"""
+        """バッチAPIタブが適切な構造を持つ"""
         provider_batch_tab = main_window_with_tabs.tabWidgetMainMode.widget(2)
         assert provider_batch_tab is not None
         assert provider_batch_tab.objectName() == "providerBatchJobWidget"
@@ -111,13 +111,29 @@ class TestTabSwitching:
         assert tab_widget.currentIndex() == 0
 
     def test_can_switch_to_provider_batch_tab(self, main_window_with_tabs, qtbot):
-        """Provider Batchタブに切り替えられる"""
+        """バッチAPIタブに切り替えられる"""
         tab_widget = main_window_with_tabs.tabWidgetMainMode
 
         tab_widget.setCurrentIndex(2)
         qtbot.wait(10)
 
         assert tab_widget.currentIndex() == 2
+
+    def test_provider_batch_shares_batch_tag_staging(self, main_window_with_tabs):
+        """通常アノテーションとバッチAPIは同じステージング状態を共有する。"""
+        batch_staging = main_window_with_tabs.batchTagAddWidget.get_staging_widget()
+        provider_staging = main_window_with_tabs.provider_batch_job_widget.get_staging_widget()
+
+        assert provider_staging.get_staged_items() is batch_staging.get_staged_items()
+
+    def test_provider_batch_model_selection_widget_is_injected(self, main_window_with_tabs):
+        """バッチAPIのモデル選択 placeholder は実 widget に置換されている。"""
+        provider_widget = main_window_with_tabs.provider_batch_job_widget
+        model_selection = provider_widget.get_model_selection_widget()
+
+        assert model_selection.objectName() == "providerBatchModelSelection"
+        assert provider_widget.modelSelectionPlaceholder.parent() is None
+        assert provider_widget.executionLayout.indexOf(model_selection) != -1
 
 
 class TestBatchTagWidgetIntegration:

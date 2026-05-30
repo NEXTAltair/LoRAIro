@@ -148,6 +148,25 @@ def test_model_selection_starts_in_single_mode(widget):
 
 @pytest.mark.unit
 @pytest.mark.gui
+def test_model_selection_placeholder_is_replaced(widget):
+    assert widget.get_model_selection_widget().objectName() == "providerBatchModelSelection"
+    assert widget.modelSelectionPlaceholder.parent() is None
+    assert widget.executionLayout.indexOf(widget.get_model_selection_widget()) != -1
+
+
+@pytest.mark.unit
+@pytest.mark.gui
+def test_connect_shared_staging_uses_same_staged_items(widget, qtbot):
+    source = widget.get_staging_widget().__class__()
+    qtbot.addWidget(source)
+
+    widget.connect_shared_staging(source)
+
+    assert widget.get_staging_widget().get_staged_items() is source.get_staged_items()
+
+
+@pytest.mark.unit
+@pytest.mark.gui
 def test_set_dependencies_enables_batch_filtering_and_lists_jobs(widget, dependencies):
     workflow, repository, model_source, model_repository = dependencies
 
@@ -203,7 +222,7 @@ def test_submit_job_resolves_annotation_params(widget, dependencies, monkeypatch
         description="nightly",
         task_type="annotation",
     )
-    assert "Submitted Provider Batch job 42" in widget.labelStatus.text()
+    assert "バッチAPIジョブ 42 を送信しました" in widget.labelStatus.text()
 
 
 @pytest.mark.unit
@@ -304,7 +323,7 @@ def test_refresh_cancel_fetch_import_actions_call_workflow(widget, dependencies)
     workflow.cancel.assert_called_once_with(42)
     workflow.fetch_results.assert_called_once_with(42)
     workflow.import_results.assert_called_once_with(42)
-    assert "Imported 1/1" in widget.labelStatus.text()
+    assert "バッチAPI結果 1/1 件を取り込みました" in widget.labelStatus.text()
 
 
 @pytest.mark.unit
@@ -334,4 +353,4 @@ def test_action_handlers_catch_unexpected_errors(widget, dependencies, monkeypat
     widget.cancel_selected_job()
 
     critical.assert_called_once()
-    assert widget.labelStatus.text() == "Cancel failed"
+    assert widget.labelStatus.text() == "cancel に失敗しました"
