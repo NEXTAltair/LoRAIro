@@ -426,7 +426,7 @@ def _finalize_annotation_run(summary: _StreamAnnotateSummary, resolved_litellm_i
         console.print(f"[yellow]Moderation preflight skipped {summary.preflight_skipped} image(s)[/yellow]")
 
     if summary.total_loaded == 0:
-        if summary.preflight_skipped > 0:
+        if summary.preflight_skipped > 0 and summary.total_failed == 0:
             console.print(
                 "[green]Annotation completed: all selected images were skipped by preflight[/green]"
             )

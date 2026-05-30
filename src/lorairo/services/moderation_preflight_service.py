@@ -224,21 +224,14 @@ class ModerationPreflightService:
             )
             save_result = self._annotation_save_service.save_annotation_results(results)
         except Exception as exc:
-            message = f"moderation preflight failed: {exc}"
-            logger.warning(message, exc_info=True)
-            skipped = [
-                self._record_skip(
-                    image_path=path,
-                    image_id=path_to_image_id.get(path),
-                    reason=MODERATION_ERROR_TYPE_FAILED,
-                    message=message,
-                )
-                for path in image_paths
-            ]
-            return ModerationPreflightResult(
-                allowed_paths=[],
-                skipped=skipped,
-                failure_count=len(skipped),
+            logger.warning(
+                f"moderation preflight batch failed; retrying per image: {exc}",
+                exc_info=True,
+            )
+            return self._moderate_unrated_paths_individually(
+                image_paths=image_paths,
+                path_to_image_id=path_to_image_id,
+                phash_list=phash_list,
             )
 
         logger.debug(
@@ -249,6 +242,55 @@ class ModerationPreflightService:
             image_paths=image_paths,
             path_to_image_id=path_to_image_id,
             save_result=save_result,
+        )
+
+    def _moderate_unrated_paths_individually(
+        self,
+        *,
+        image_paths: list[str],
+        path_to_image_id: Mapping[str, int | None],
+        phash_list: list[str],
+    ) -> ModerationPreflightResult:
+        allowed_paths: list[str] = []
+        skipped: list[ModerationPreflightSkip] = []
+        failure_count = 0
+
+        for image_path, phash in zip(image_paths, phash_list, strict=True):
+            try:
+                results = self._moderation_runner(
+                    image_paths=[image_path],
+                    litellm_model_ids=[MODERATION_LITELLM_MODEL_ID],
+                    phash_list=[phash],
+                )
+                save_result = self._annotation_save_service.save_annotation_results(results)
+                decision = self._decide_after_moderation(
+                    image_paths=[image_path],
+                    path_to_image_id=path_to_image_id,
+                    save_result=save_result,
+                )
+            except Exception as exc:
+                message = f"moderation preflight failed: {exc}"
+                logger.warning(message, exc_info=True)
+                skipped.append(
+                    self._record_skip(
+                        image_path=image_path,
+                        image_id=path_to_image_id.get(image_path),
+                        reason=MODERATION_ERROR_TYPE_FAILED,
+                        message=message,
+                    )
+                )
+                failure_count += 1
+                continue
+
+            allowed_paths.extend(decision.allowed_paths)
+            skipped.extend(decision.skipped)
+            failure_count += decision.failure_count
+
+        return ModerationPreflightResult(
+            allowed_paths=allowed_paths,
+            skipped=skipped,
+            moderated_count=len(image_paths),
+            failure_count=failure_count,
         )
 
     def _missing_openai_key(self) -> str | None:

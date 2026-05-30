@@ -161,3 +161,31 @@ def test_moderation_without_saved_rating_fails_closed(deps: dict[str, Mock]) -> 
     assert result.allowed_paths == []
     assert [skip.reason for skip in result.skipped] == [MODERATION_ERROR_TYPE_NO_RATING]
     assert result.failure_count == 1
+
+
+@pytest.mark.unit
+def test_batch_moderation_failure_retries_per_image(deps: dict[str, Mock]) -> None:
+    deps["image_repo"].get_image_ids_by_filepaths.return_value = {
+        "/img/bad.png": 1,
+        "/img/good.png": 2,
+    }
+    deps["image_repo"].get_latest_normalized_ratings_by_image_ids.side_effect = [
+        {},
+        {2: "PG"},
+    ]
+    deps["image_repo"].get_phashes_by_filepaths.return_value = {
+        "/img/bad.png": "phash-1",
+        "/img/good.png": "phash-2",
+    }
+    deps["runner"].side_effect = [
+        RuntimeError("batch load failed"),
+        RuntimeError("bad file"),
+        {"phash-2": {MODERATION_LITELLM_MODEL_ID: {"ratings": []}}},
+    ]
+
+    result = _service(deps).apply(["/img/bad.png", "/img/good.png"])
+
+    assert result.allowed_paths == ["/img/good.png"]
+    assert [skip.reason for skip in result.skipped] == [MODERATION_ERROR_TYPE_FAILED]
+    assert result.failure_count == 1
+    assert deps["runner"].call_count == 3

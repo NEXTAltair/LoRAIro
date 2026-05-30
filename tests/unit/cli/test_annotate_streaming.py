@@ -11,6 +11,7 @@ from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
+import typer
 from PIL import Image
 from typer.testing import CliRunner
 
@@ -293,3 +294,12 @@ def test_finalize_annotation_run_all_preflight_skipped_is_success() -> None:
     summary = _StreamAnnotateSummary(preflight_skipped=2)
 
     _finalize_annotation_run(summary, ["openai/gpt-4o-mini"])
+
+
+@pytest.mark.unit
+@pytest.mark.cli
+def test_finalize_annotation_run_preflight_skip_plus_load_failure_is_error() -> None:
+    summary = _StreamAnnotateSummary(total_failed=1, preflight_skipped=1)
+
+    with pytest.raises(typer.Exit):
+        _finalize_annotation_run(summary, ["openai/gpt-4o-mini"])
