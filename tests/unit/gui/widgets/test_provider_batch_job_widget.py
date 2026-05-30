@@ -125,8 +125,14 @@ def dependencies():
     repository.get_provider_batch_job.return_value = _job()
     repository.list_provider_batch_items.return_value = [_item()]
     workflow.submit_images.return_value = 42
+    workflow.refresh.return_value = _job()
     workflow.fetch_results.return_value = SimpleNamespace(items=(_item(),))
-    workflow.import_results.return_value = SimpleNamespace(imported_count=1, total_count=1)
+    workflow.import_results.return_value = SimpleNamespace(
+        imported_count=1,
+        skipped_count=0,
+        error_count=0,
+        total_count=1,
+    )
     return workflow, repository, model_source, model_repository
 
 
@@ -137,6 +143,9 @@ def test_initial_ui_created(widget):
     assert widget.tableItems.columnCount() == 5
     assert widget.comboBoxItemStatus.count() == 4
     assert widget.comboBoxTaskType.currentText() == "annotation"
+    assert widget.buttonRefreshStatus.text() == "状態を確認"
+    assert not hasattr(widget, "buttonFetch")
+    assert not hasattr(widget, "buttonImport")
     assert "0 枚" in widget.labelTarget.text()
 
 
@@ -309,21 +318,189 @@ def test_job_selection_loads_detail_and_failed_items(widget, dependencies):
 
 @pytest.mark.unit
 @pytest.mark.gui
-def test_refresh_cancel_fetch_import_actions_call_workflow(widget, dependencies):
+def test_check_status_for_incomplete_job_only_refreshes_status(widget, dependencies):
     workflow, repository, model_source, model_repository = dependencies
     widget.set_dependencies(workflow, repository, model_source, model_repository)
     widget.tableJobs.selectRow(0)
 
     widget.refresh_selected_job_status()
+
+    workflow.refresh.assert_called_once_with(42)
+    workflow.fetch_results.assert_not_called()
+    workflow.import_results.assert_not_called()
+    assert "検証中" in widget.labelStatus.text()
+
+
+@pytest.mark.unit
+@pytest.mark.gui
+def test_check_status_for_completed_job_fetches_and_imports(widget, dependencies):
+    workflow, repository, model_source, model_repository = dependencies
+    workflow.refresh.return_value = _job(status="completed", provider_status="completed")
+    fetch_result = SimpleNamespace(items=(_item(),))
+    import_result = SimpleNamespace(imported_count=1, skipped_count=0, error_count=0, total_count=1)
+    workflow.fetch_results.return_value = fetch_result
+    workflow.import_results.return_value = import_result
+    widget.set_dependencies(workflow, repository, model_source, model_repository)
+    widget.tableJobs.selectRow(0)
+
+    widget.refresh_selected_job_status()
+
+    workflow.refresh.assert_called_once_with(42)
+    workflow.fetch_results.assert_called_once_with(42)
+    workflow.import_results.assert_called_once_with(42, fetch_result)
+    assert "処理完了" in widget.labelStatus.text()
+    assert "DB保存が完了" in widget.labelStatus.text()
+
+
+@pytest.mark.unit
+@pytest.mark.gui
+def test_check_status_for_imported_job_does_not_save_again(widget, dependencies):
+    workflow, repository, model_source, model_repository = dependencies
+    repository.get_provider_batch_job.return_value = _job(
+        status="imported", imported_at=datetime(2026, 1, 2, tzinfo=UTC)
+    )
+    widget.set_dependencies(workflow, repository, model_source, model_repository)
+    widget.tableJobs.selectRow(0)
+
+    widget.refresh_selected_job_status()
+
+    workflow.refresh.assert_not_called()
+    workflow.fetch_results.assert_not_called()
+    workflow.import_results.assert_not_called()
+    assert "保存済み" in widget.labelStatus.text()
+
+
+@pytest.mark.unit
+@pytest.mark.gui
+def test_check_status_for_partial_import_shows_summary(widget, dependencies):
+    workflow, repository, model_source, model_repository = dependencies
+    workflow.refresh.return_value = _job(status="completed", provider_status="completed")
+    workflow.import_results.return_value = SimpleNamespace(
+        imported_count=1,
+        skipped_count=1,
+        error_count=1,
+        total_count=3,
+    )
+    widget.set_dependencies(workflow, repository, model_source, model_repository)
+    widget.tableJobs.selectRow(0)
+
+    widget.refresh_selected_job_status()
+
+    assert "保存 1/3 件" in widget.labelStatus.text()
+    assert "スキップ 1 件" in widget.labelStatus.text()
+    assert "エラー 1 件" in widget.labelStatus.text()
+
+
+@pytest.mark.unit
+@pytest.mark.gui
+@pytest.mark.parametrize(
+    ("status", "expected"),
+    [
+        ("failed", "失敗"),
+        ("expired", "期限切れ"),
+        ("canceled", "キャンセル済み"),
+    ],
+)
+def test_check_status_for_terminal_non_importable_jobs_shows_distinct_status(
+    widget, dependencies, status, expected
+):
+    workflow, repository, model_source, model_repository = dependencies
+    workflow.refresh.return_value = _job(status=status, provider_status=status)
+    widget.set_dependencies(workflow, repository, model_source, model_repository)
+    widget.tableJobs.selectRow(0)
+
+    widget.refresh_selected_job_status()
+
+    workflow.fetch_results.assert_not_called()
+    workflow.import_results.assert_not_called()
+    assert expected in widget.labelStatus.text()
+
+
+@pytest.mark.unit
+@pytest.mark.gui
+def test_cancel_fetch_import_recovery_actions_call_workflow(widget, dependencies):
+    workflow, repository, model_source, model_repository = dependencies
+    widget.set_dependencies(workflow, repository, model_source, model_repository)
+    widget.tableJobs.selectRow(0)
+
     widget.cancel_selected_job()
     widget.fetch_selected_job()
     widget.import_selected_job()
 
-    workflow.refresh.assert_called_once_with(42)
     workflow.cancel.assert_called_once_with(42)
     workflow.fetch_results.assert_called_once_with(42)
     workflow.import_results.assert_called_once_with(42)
-    assert "バッチAPI結果 1/1 件を取り込みました" in widget.labelStatus.text()
+    assert "バッチAPI結果 1/1 件をDB保存しました" in widget.labelStatus.text()
+
+
+@pytest.mark.unit
+@pytest.mark.gui
+@pytest.mark.parametrize(
+    ("status", "cancel_enabled"),
+    [
+        ("submitted", True),
+        ("validating", True),
+        ("running", True),
+        ("canceling", True),
+        ("completed", False),
+        ("imported", False),
+        ("failed", False),
+        ("expired", False),
+        ("canceled", False),
+    ],
+)
+def test_cancel_button_is_enabled_only_for_cancelable_jobs(widget, dependencies, status, cancel_enabled):
+    workflow, repository, model_source, model_repository = dependencies
+    repository.get_provider_batch_job.return_value = _job(status=status)
+    widget.set_dependencies(workflow, repository, model_source, model_repository)
+    widget.tableJobs.selectRow(0)
+
+    assert widget.buttonCancel.isEnabled() is cancel_enabled
+
+
+@pytest.mark.unit
+@pytest.mark.gui
+def test_recovery_actions_live_in_job_context_menu(widget, dependencies):
+    workflow, repository, model_source, model_repository = dependencies
+    widget.set_dependencies(workflow, repository, model_source, model_repository)
+    widget.tableJobs.selectRow(0)
+
+    assert widget._action_fetch_results.text() == "結果を取得"
+    assert widget._action_import_results.text() == "結果を取り込み"
+    assert widget._action_fetch_results.isEnabled()
+    assert widget._action_import_results.isEnabled()
+
+
+@pytest.mark.unit
+@pytest.mark.gui
+def test_context_menu_selects_row_under_cursor(widget, dependencies, monkeypatch):
+    workflow, repository, model_source, model_repository = dependencies
+    jobs = [_job(id=42), _job(id=43, provider_job_id="batch_43", status="completed")]
+    repository.list_provider_batch_jobs.return_value = jobs
+    repository.get_provider_batch_job.side_effect = lambda job_id: next(
+        job for job in jobs if job.id == job_id
+    )
+
+    class _FakeMenu:
+        def __init__(self, parent=None) -> None:
+            self.parent = parent
+            self.actions = []
+
+        def addAction(self, action) -> None:
+            self.actions.append(action)
+
+        def exec(self, _position) -> None:
+            return None
+
+    monkeypatch.setattr(widget_module, "QMenu", _FakeMenu)
+    widget.set_dependencies(workflow, repository, model_source, model_repository)
+    widget.tableJobs.selectRow(0)
+
+    second_row_position = widget.tableJobs.visualItemRect(widget.tableJobs.item(1, 0)).center()
+    widget._show_job_context_menu(second_row_position)
+
+    assert widget._current_job_id == 43
+    assert widget.tableJobs.currentRow() == 1
 
 
 @pytest.mark.unit

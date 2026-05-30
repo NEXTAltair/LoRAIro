@@ -237,20 +237,10 @@
        <layout class="QVBoxLayout" name="statusLayout">
         <item>
          <layout class="QHBoxLayout" name="jobButtonsLayout">
-          <item>
-           <widget class="QPushButton" name="buttonRefreshJobs">
-            <property name="text">
-             <string>更新</string>
-            </property>
-            <property name="objectName">
-             <string>buttonProviderBatchRefreshJobs</string>
-            </property>
-           </widget>
-          </item>
-          <item>
+         <item>
            <widget class="QPushButton" name="buttonRefreshStatus">
             <property name="text">
-             <string>状態更新</string>
+             <string>状態を確認</string>
             </property>
             <property name="objectName">
              <string>buttonProviderBatchRefreshStatus</string>
@@ -264,26 +254,6 @@
             </property>
             <property name="objectName">
              <string>buttonProviderBatchCancel</string>
-            </property>
-           </widget>
-          </item>
-          <item>
-           <widget class="QPushButton" name="buttonFetch">
-            <property name="text">
-             <string>取得</string>
-            </property>
-            <property name="objectName">
-             <string>buttonProviderBatchFetch</string>
-            </property>
-           </widget>
-          </item>
-          <item>
-           <widget class="QPushButton" name="buttonImport">
-            <property name="text">
-             <string>取り込み</string>
-            </property>
-            <property name="objectName">
-             <string>buttonProviderBatchImport</string>
             </property>
            </widget>
           </item>
