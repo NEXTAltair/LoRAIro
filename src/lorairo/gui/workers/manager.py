@@ -153,7 +153,7 @@ class WorkerManager(QObject):
         else:
             self._finalize_canceled_if_no_terminal_signal(worker_id)
 
-        logger.info(f"ワーカーキャンセル: {worker_id}")
+        logger.debug(f"ワーカーキャンセル: {worker_id} (理由: {reason.value})")
         return True
 
     def cancel_all_workers(self, reason: CancelReason = CancelReason.SHUTDOWN) -> None:
@@ -253,7 +253,13 @@ class WorkerManager(QObject):
             WorkerOutcome.CANCELED,
             cancel_reason=cancel_reason,
         ):
-            logger.info(f"ワーカーキャンセル完了: {worker_id}")
+            # ユーザーが明示的にキャンセルした場合のみ INFO。内部的な置換
+            # (SEARCH_REPLACED 等) は運用ログを汚さないよう DEBUG に留める。
+            if cancel_reason == CancelReason.USER_REQUESTED:
+                logger.info(f"ユーザー操作でワーカーをキャンセル: {worker_id}")
+            else:
+                reason_label = cancel_reason.value if cancel_reason else "unknown"
+                logger.debug(f"ワーカーキャンセル完了: {worker_id} (理由: {reason_label})")
 
     def _finalize_canceled_if_no_terminal_signal(
         self,
