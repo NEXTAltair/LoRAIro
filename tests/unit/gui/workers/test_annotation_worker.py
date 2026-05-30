@@ -760,6 +760,13 @@ class TestApplyRefusalPrefilter:
         registry.get_available_models.return_value = infos
         return registry
 
+    @staticmethod
+    def _patch_preflight(monkeypatch, aw_mod, allowed_paths):
+        preflight = Mock()
+        preflight.apply.return_value = SimpleNamespace(allowed_paths=allowed_paths, skipped=[])
+        monkeypatch.setattr(aw_mod, "ModerationPreflightService", lambda **kwargs: preflight)
+        return preflight
+
     def test_filter_applied_when_webapi_model_selected(self, mock_annotation_logic, monkeypatch):
         """WebAPI モデル選択時は filter が適用され image_paths が更新される。"""
         from lorairo.gui.workers import annotation_worker as aw_mod
@@ -773,6 +780,7 @@ class TestApplyRefusalPrefilter:
         mock_save_service.filter_refused_image_paths = Mock(return_value=["/path/img1.jpg"])
         mock_save_service.filter_excluded_by_rating = Mock(return_value=["/path/img1.jpg"])
         monkeypatch.setattr(aw_mod, "AnnotationSaveService", lambda **kwargs: mock_save_service)
+        self._patch_preflight(monkeypatch, aw_mod, ["/path/img1.jpg"])
 
         worker = self._make_worker(
             mock_annotation_logic,
@@ -805,6 +813,7 @@ class TestApplyRefusalPrefilter:
         )
         mock_save_service.filter_excluded_by_rating = Mock(return_value=["/path/img1.jpg"])
         monkeypatch.setattr(aw_mod, "AnnotationSaveService", lambda **kwargs: mock_save_service)
+        self._patch_preflight(monkeypatch, aw_mod, ["/path/img1.jpg"])
 
         worker = self._make_worker(
             mock_annotation_logic,
@@ -919,6 +928,7 @@ class TestApplyRefusalPrefilter:
             return_value=["/path/img1.jpg", "/path/img2.jpg"]
         )
         monkeypatch.setattr(aw_mod, "AnnotationSaveService", lambda **kwargs: mock_save_service)
+        self._patch_preflight(monkeypatch, aw_mod, ["/path/img1.jpg", "/path/img2.jpg"])
 
         worker = self._make_worker(
             mock_annotation_logic,

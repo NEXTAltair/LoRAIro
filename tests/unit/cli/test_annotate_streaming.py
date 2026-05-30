@@ -11,9 +11,15 @@ from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
+import typer
 from PIL import Image
 from typer.testing import CliRunner
 
+from lorairo.cli.commands.annotate import (
+    _apply_moderation_preflight_to_records,
+    _finalize_annotation_run,
+    _StreamAnnotateSummary,
+)
 from lorairo.cli.main import app
 from lorairo.services.annotation_save_service import AnnotationSaveResult
 from lorairo.services.project_management_service import ProjectManagementService
@@ -257,3 +263,43 @@ def test_non_positive_batch_size_is_rejected(bad_value: str) -> None:
     )
 
     assert result.exit_code != 0
+
+
+@pytest.mark.unit
+@pytest.mark.cli
+def test_apply_moderation_preflight_filters_records(tmp_path: Path) -> None:
+    """CLI chunk preflight drops skipped image records before image loading."""
+    keep = tmp_path / "keep.jpg"
+    skip = tmp_path / "skip.jpg"
+    Image.new("RGB", (8, 8)).save(keep)
+    Image.new("RGB", (8, 8)).save(skip)
+    records = [
+        {"id": 1, "stored_image_path": str(keep)},
+        {"id": 2, "stored_image_path": str(skip)},
+    ]
+    service = MagicMock()
+    service.apply.return_value = MagicMock(allowed_paths=[str(keep)], skipped_count=1)
+
+    filtered, skipped_count = _apply_moderation_preflight_to_records(records, service)
+
+    assert filtered == [records[0]]
+    assert skipped_count == 1
+    service.apply.assert_called_once_with([str(keep), str(skip)])
+
+
+@pytest.mark.unit
+@pytest.mark.cli
+def test_finalize_annotation_run_all_preflight_skipped_is_success() -> None:
+    """A batch with only moderation-preflight skips is not a fatal annotation failure."""
+    summary = _StreamAnnotateSummary(preflight_skipped=2)
+
+    _finalize_annotation_run(summary, ["openai/gpt-4o-mini"])
+
+
+@pytest.mark.unit
+@pytest.mark.cli
+def test_finalize_annotation_run_preflight_skip_plus_load_failure_is_error() -> None:
+    summary = _StreamAnnotateSummary(total_failed=1, preflight_skipped=1)
+
+    with pytest.raises(typer.Exit):
+        _finalize_annotation_run(summary, ["openai/gpt-4o-mini"])

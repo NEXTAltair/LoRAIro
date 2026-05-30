@@ -19,6 +19,11 @@ from lorairo.services.model_registry_protocol import (
     ModelRegistryServiceProtocol,
     selection_includes_webapi_model,
 )
+from lorairo.services.moderation_preflight_service import (
+    MODERATION_LITELLM_MODEL_ID,
+    ModerationPreflightService,
+    build_annotation_logic_runner,
+)
 from lorairo.utils.log import logger
 
 from .base import CancellationError, LoRAIroWorkerBase
@@ -489,7 +494,7 @@ class AnnotationWorker(LoRAIroWorkerBase["AnnotationExecutionResult"]):
                 total_count=len(self.image_paths),
             )
             self._check_cancellation()
-            self._apply_refusal_prefilter()
+            preflight_errors = self._apply_refusal_prefilter()
 
             self._refresh_input_phash_cache()
 
@@ -498,6 +503,7 @@ class AnnotationWorker(LoRAIroWorkerBase["AnnotationExecutionResult"]):
             self._check_cancellation()
 
             merged_results, model_errors = self._run_annotation()
+            model_errors = preflight_errors + model_errors
 
             # Phase 2: DB保存(90-95%)
             self._report_progress(
@@ -552,7 +558,7 @@ class AnnotationWorker(LoRAIroWorkerBase["AnnotationExecutionResult"]):
             self._error_already_recorded = True
             raise
 
-    def _apply_refusal_prefilter(self) -> None:
+    def _apply_refusal_prefilter(self) -> list[ModelErrorDetail]:
         """refusal を持つ画像を `self.image_paths` から除外する (Worker 内実行版)。
 
         ADR 0023 Phase 1.5 (Issue #42, Codex P2 r3209342204): GUI スレッド上で
@@ -577,7 +583,7 @@ class AnnotationWorker(LoRAIroWorkerBase["AnnotationExecutionResult"]):
                 "refusal filter スキップ (WebAPI 不在 or registry lookup 失敗): "
                 f"litellm_model_ids={self.litellm_model_ids}"
             )
-            return
+            return []
 
         save_service = AnnotationSaveService(
             annotation_repo=self.db_manager.annotation_repo,
@@ -588,13 +594,23 @@ class AnnotationWorker(LoRAIroWorkerBase["AnnotationExecutionResult"]):
         original_count = len(self.image_paths)
         try:
             filtered_image_paths = save_service.filter_refused_image_paths(self.image_paths)
-            self.image_paths = save_service.filter_excluded_by_rating(filtered_image_paths)
+            rating_filtered_paths = save_service.filter_excluded_by_rating(filtered_image_paths)
+            preflight_service = ModerationPreflightService(
+                image_repo=self.db_manager.image_repo,
+                model_repo=self.db_manager.model_repo,
+                error_record_repo=self.db_manager.error_record_repo,
+                annotation_save_service=save_service,
+                config_service=self.db_manager.config_service,
+                moderation_runner=build_annotation_logic_runner(self.annotation_logic.execute_annotation),
+            )
+            preflight_result = preflight_service.apply(rating_filtered_paths)
+            self.image_paths = preflight_result.allowed_paths
         except Exception as exc:
             logger.warning(
                 f"refusal filter 実行失敗; filter skip して annotation 続行: {exc}",
                 exc_info=True,
             )
-            return
+            return []
 
         excluded = original_count - len(self.image_paths)
         if excluded > 0:
@@ -602,6 +618,15 @@ class AnnotationWorker(LoRAIroWorkerBase["AnnotationExecutionResult"]):
                 f"prefilter 適用: {original_count}件 → {len(self.image_paths)}件 "
                 f"(refusal + rating 除外: {excluded}件)"
             )
+        return [
+            ModelErrorDetail(
+                model_name=MODERATION_LITELLM_MODEL_ID,
+                image_path=Path(skip.image_path).name,
+                error_message=skip.message,
+                error_type=skip.reason,
+            )
+            for skip in preflight_result.skipped
+        ]
 
     def _save_results_to_database(
         self, results: PHashAnnotationResults
