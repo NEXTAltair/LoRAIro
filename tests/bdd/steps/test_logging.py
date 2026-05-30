@@ -129,6 +129,7 @@ def then_console_not_contains_message(console_capture: io.StringIO, level: str, 
 def then_logfile_contains_message(log_config: dict, level: str, message: str) -> None:
     log_path = Path(log_config["file_path"])
     assert log_path.exists(), f"ログファイルが存在しません: {log_path}"
+    logger.complete()
     content = log_path.read_text(encoding="utf-8")
     assert message in content, (
         f"メッセージ '{message}' がログファイルに見つかりません。\nファイル内容:\n{content}"
@@ -141,6 +142,7 @@ def then_logfile_not_contains_message(log_config: dict, level: str, message: str
     if not log_path.exists():
         # ファイルが存在しなければ当然含まれない
         return
+    logger.complete()
     content = log_path.read_text(encoding="utf-8")
     assert message not in content, (
         f"メッセージ '{message}' がログファイルに存在すべきではありません。\nファイル内容:\n{content}"
@@ -221,6 +223,7 @@ def then_console_contains_traceback(console_capture: io.StringIO, exception_type
 def then_logfile_contains_error(log_config: dict, message: str) -> None:
     log_path = Path(log_config["file_path"])
     assert log_path.exists(), f"ログファイルが存在しません: {log_path}"
+    logger.complete()
     content = log_path.read_text(encoding="utf-8")
     assert message in content, (
         f"エラーメッセージ '{message}' がログファイルに見つかりません。\nファイル内容:\n{content}"
@@ -231,6 +234,7 @@ def then_logfile_contains_error(log_config: dict, message: str) -> None:
 def then_logfile_contains_traceback(log_config: dict, exception_type: str) -> None:
     log_path = Path(log_config["file_path"])
     assert log_path.exists(), f"ログファイルが存在しません: {log_path}"
+    logger.complete()
     content = log_path.read_text(encoding="utf-8")
     assert exception_type in content, (
         f"'{exception_type}' のトレースバックがログファイルに見つかりません。\nファイル内容:\n{content}"
