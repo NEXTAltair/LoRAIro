@@ -356,13 +356,15 @@ def test_check_status_for_completed_job_fetches_and_imports(widget, dependencies
 @pytest.mark.gui
 def test_check_status_for_imported_job_does_not_save_again(widget, dependencies):
     workflow, repository, model_source, model_repository = dependencies
-    workflow.refresh.return_value = _job(status="imported", imported_at=datetime(2026, 1, 2, tzinfo=UTC))
+    repository.get_provider_batch_job.return_value = _job(
+        status="imported", imported_at=datetime(2026, 1, 2, tzinfo=UTC)
+    )
     widget.set_dependencies(workflow, repository, model_source, model_repository)
     widget.tableJobs.selectRow(0)
 
     widget.refresh_selected_job_status()
 
-    workflow.refresh.assert_called_once_with(42)
+    workflow.refresh.assert_not_called()
     workflow.fetch_results.assert_not_called()
     workflow.import_results.assert_not_called()
     assert "保存済み" in widget.labelStatus.text()
@@ -467,6 +469,38 @@ def test_recovery_actions_live_in_job_context_menu(widget, dependencies):
     assert widget._action_import_results.text() == "結果を取り込み"
     assert widget._action_fetch_results.isEnabled()
     assert widget._action_import_results.isEnabled()
+
+
+@pytest.mark.unit
+@pytest.mark.gui
+def test_context_menu_selects_row_under_cursor(widget, dependencies, monkeypatch):
+    workflow, repository, model_source, model_repository = dependencies
+    jobs = [_job(id=42), _job(id=43, provider_job_id="batch_43", status="completed")]
+    repository.list_provider_batch_jobs.return_value = jobs
+    repository.get_provider_batch_job.side_effect = lambda job_id: next(
+        job for job in jobs if job.id == job_id
+    )
+
+    class _FakeMenu:
+        def __init__(self, parent=None) -> None:
+            self.parent = parent
+            self.actions = []
+
+        def addAction(self, action) -> None:
+            self.actions.append(action)
+
+        def exec(self, _position) -> None:
+            return None
+
+    monkeypatch.setattr(widget_module, "QMenu", _FakeMenu)
+    widget.set_dependencies(workflow, repository, model_source, model_repository)
+    widget.tableJobs.selectRow(0)
+
+    second_row_position = widget.tableJobs.visualItemRect(widget.tableJobs.item(1, 0)).center()
+    widget._show_job_context_menu(second_row_position)
+
+    assert widget._current_job_id == 43
+    assert widget.tableJobs.currentRow() == 1
 
 
 @pytest.mark.unit

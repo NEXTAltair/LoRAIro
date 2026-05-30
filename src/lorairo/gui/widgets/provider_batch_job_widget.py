@@ -375,8 +375,13 @@ class ProviderBatchJobWidget(QWidget, Ui_ProviderBatchJobWidget):
 
     @Slot(QPoint)
     def _show_job_context_menu(self, position: QPoint) -> None:
+        index = self.tableJobs.indexAt(position)
+        if not index.isValid():
+            return
+        self.tableJobs.selectRow(index.row())
         if self._current_job_id is None:
             return
+        self._update_job_action_state()
         menu = QMenu(self)
         menu.addAction(self._action_fetch_results)
         menu.addAction(self._action_import_results)
@@ -416,6 +421,11 @@ class ProviderBatchJobWidget(QWidget, Ui_ProviderBatchJobWidget):
         if job_id is None or self._workflow_service is None:
             return
         try:
+            current_job = self._current_job()
+            if current_job is not None and self._job_imported(current_job):
+                self.labelStatus.setText(f"バッチAPIジョブ {job_id} は保存済みです")
+                self._update_job_action_state()
+                return
             job = self._workflow_service.refresh(job_id)
             if self._job_imported(job):
                 message = f"バッチAPIジョブ {job_id} は保存済みです"
