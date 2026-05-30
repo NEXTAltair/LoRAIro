@@ -102,7 +102,9 @@ class TestBatchImportServiceSingleFile:
         assert result.saved == 2
         assert result.save_errors == 0
         assert result.model_name == "gpt-4-turbo-2024-04-09"
-        assert mock_repository.save_annotations.call_count == 2
+        mock_repository.save_annotations_batch.assert_called_once()
+        assert len(mock_repository.save_annotations_batch.call_args[0][0]) == 2
+        mock_repository.save_annotations.assert_not_called()
 
     def test_dry_run_no_save(self, tmp_path: Path, mock_repository: MagicMock) -> None:
         """dry-runモードではsave_annotationsが呼ばれない。"""
@@ -180,6 +182,7 @@ class TestBatchImportServiceSingleFile:
 
     def test_save_error_counted(self, tmp_path: Path, mock_repository: MagicMock) -> None:
         """save_annotationsのエラーがカウントされる。"""
+        mock_repository.save_annotations_batch.side_effect = Exception("batch DB error")
         mock_repository.save_annotations.side_effect = Exception("DB error")
         records = [
             _make_batch_record("0262_1227", "Tags: 1girl\n\nCaption: text"),

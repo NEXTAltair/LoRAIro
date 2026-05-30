@@ -61,6 +61,11 @@ def _make_success_result(
     return result
 
 
+def _first_batch_save_args(mock_repository: MagicMock) -> tuple[int, dict]:
+    item = mock_repository.save_annotations_batch.call_args[0][0][0]
+    return item.image_id, item.annotations
+
+
 @pytest.mark.unit
 def test_save_annotation_results_with_empty_results_returns_zeros(
     service: AnnotationSaveService,
@@ -99,7 +104,9 @@ def test_save_annotation_results_with_known_phashes_saves_all(
     assert result.skip_count == 0
     assert result.error_count == 0
     assert result.total_count == 2
-    assert mock_repository.save_annotations.call_count == 2
+    mock_repository.save_annotations_batch.assert_called_once()
+    assert len(mock_repository.save_annotations_batch.call_args[0][0]) == 2
+    mock_repository.save_annotations.assert_not_called()
 
 
 @pytest.mark.unit
@@ -121,10 +128,10 @@ def test_save_provider_batch_results_by_image_id_saves_without_phash_lookup(
     assert result.error_count == 0
     mock_repository.find_image_ids_by_phashes.assert_not_called()
     mock_repository.get_models_by_litellm_ids.assert_not_called()
-    mock_repository.save_annotations.assert_called_once()
-    image_id_arg = mock_repository.save_annotations.call_args[0][0]
-    annotations_arg = mock_repository.save_annotations.call_args[0][1]
-    assert image_id_arg == 7
+    mock_repository.save_annotations_batch.assert_called_once()
+    item = mock_repository.save_annotations_batch.call_args[0][0][0]
+    annotations_arg = item.annotations
+    assert item.image_id == 7
     assert annotations_arg["tags"][0]["model_id"] == 10
     assert annotations_arg["tags"][0]["tag"] == "tag1"
     assert annotations_arg["captions"][0]["caption"] == "caption"
@@ -211,8 +218,9 @@ def test_save_annotation_results_excludes_legacy_sentinel_from_lookup(
     assert result.error_count == 0
     assert result.total_count == 1
     mock_repository.get_models_by_litellm_ids.assert_called_once_with({"wdtagger"})
-    mock_repository.save_annotations.assert_called_once()
-    annotations_dict = mock_repository.save_annotations.call_args[0][1]
+    mock_repository.save_annotations_batch.assert_called_once()
+    image_id_arg, annotations_dict = _first_batch_save_args(mock_repository)
+    assert image_id_arg == 1
     assert annotations_dict["tags"] == [
         {
             "model_id": 10,
@@ -257,6 +265,7 @@ def test_save_annotation_results_handles_partial_save_failure(
     mock_model.id = 1
     mock_repository.find_image_ids_by_phashes.return_value = {"phash001": 1}
     mock_repository.get_models_by_litellm_ids.return_value = {"wdtagger": mock_model}
+    mock_repository.save_annotations_batch.side_effect = RuntimeError("batch DB write error")
     mock_repository.save_annotations.side_effect = RuntimeError("DB write error")
 
     results = {
@@ -352,10 +361,9 @@ def test_save_canonical_scorer_persists_score_labels(
 
     service.save_annotation_results(results)
 
-    # save_annotations 呼び出し時の annotations dict に score_labels が積まれている
-    assert mock_repository.save_annotations.called
-    image_id_arg = mock_repository.save_annotations.call_args[0][0]
-    annotations_arg = mock_repository.save_annotations.call_args[0][1]
+    # save_annotations_batch 呼び出し時の annotations dict に score_labels が積まれている
+    assert mock_repository.save_annotations_batch.called
+    image_id_arg, annotations_arg = _first_batch_save_args(mock_repository)
     assert image_id_arg == 1
     assert annotations_arg["score_labels"] == [
         {"model_id": 42, "label": "very aesthetic", "is_edited_manually": False}
@@ -389,7 +397,7 @@ def test_save_regression_scorer_no_score_labels(
 
     service.save_annotation_results(results)
 
-    annotations_arg = mock_repository.save_annotations.call_args[0][1]
+    _image_id_arg, annotations_arg = _first_batch_save_args(mock_repository)
     assert annotations_arg["score_labels"] == []
     assert annotations_arg["scores"] == [{"model_id": 7, "score": 7.5, "is_edited_manually": False}]
 
@@ -416,7 +424,7 @@ def test_save_multiple_labels_per_model(
 
     service.save_annotation_results(results)
 
-    annotations_arg = mock_repository.save_annotations.call_args[0][1]
+    _image_id_arg, annotations_arg = _first_batch_save_args(mock_repository)
     assert annotations_arg["score_labels"] == [
         {"model_id": 99, "label": "aesthetic", "is_edited_manually": False},
         {"model_id": 99, "label": "high_quality", "is_edited_manually": False},
@@ -561,7 +569,7 @@ def test_save_annotation_results_persists_mapped_rating(
 
     service.save_annotation_results(results)
 
-    annotations_arg = mock_repository.save_annotations.call_args[0][1]
+    _image_id_arg, annotations_arg = _first_batch_save_args(mock_repository)
     assert annotations_arg["ratings"] == [
         {
             "model_id": 42,

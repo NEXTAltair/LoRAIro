@@ -29,7 +29,7 @@ from sqlalchemy import create_engine, select
 from sqlalchemy.orm import sessionmaker
 
 from lorairo.database.db_manager import ImageDatabaseManager
-from lorairo.database.repository.annotation_record import AnnotationRepository
+from lorairo.database.repository.annotation_record import AnnotationRepository, AnnotationSaveItem
 from lorairo.database.repository.base import BaseRepository
 from lorairo.database.schema import (
     MANUAL_EDIT_LITELLM_ID,
@@ -178,6 +178,89 @@ class TestSaveAnnotations:
             rows = session.execute(select(Tag).where(Tag.image_id == image_id)).scalars().all()
             assert len(rows) == 1
             assert rows[0].tag == "cat"
+
+    def test_save_annotations_batch_commits_once_for_multiple_images(
+        self,
+        memory_session_factory,
+    ) -> None:
+        """複数画像の annotation を1 transactionで保存する。"""
+        image_ids: list[int] = []
+        with memory_session_factory() as session:
+            for index in range(2):
+                image = Image(
+                    uuid=f"batch-anno-test-uuid-{index}",
+                    phash=f"batch-anno-test-phash-{index}",
+                    original_image_path=f"/tmp/batch-anno-{index}.png",
+                    stored_image_path=f"/tmp/batch-anno-{index}.png",
+                    width=64,
+                    height=64,
+                    format="PNG",
+                    extension=".png",
+                    filename=f"batch-anno-{index}.png",
+                )
+                session.add(image)
+                session.flush()
+                image_ids.append(image.id)
+            session.commit()
+
+        commit_count = 0
+
+        def counting_session_factory():
+            nonlocal commit_count
+            session = memory_session_factory()
+            original_commit = session.commit
+
+            def commit() -> None:
+                nonlocal commit_count
+                commit_count += 1
+                original_commit()
+
+            session.commit = commit  # type: ignore[method-assign]
+            return session
+
+        repository = AnnotationRepository(session_factory=counting_session_factory)
+        saved = repository.save_annotations_batch(
+            [
+                AnnotationSaveItem(
+                    image_id=image_ids[0],
+                    annotations={"tags": [{"tag": "cat", "model_id": None, "tag_id": None}]},
+                ),
+                AnnotationSaveItem(
+                    image_id=image_ids[1],
+                    annotations={"tags": [{"tag": "dog", "model_id": None, "tag_id": None}]},
+                ),
+            ]
+        )
+
+        assert saved == 2
+        assert commit_count == 1
+        with memory_session_factory() as session:
+            rows = session.execute(select(Tag).where(Tag.image_id.in_(image_ids))).scalars().all()
+            assert {row.tag for row in rows} == {"cat", "dog"}
+
+    def test_save_annotations_batch_rolls_back_chunk_on_failure(
+        self,
+        annotation_repository: AnnotationRepository,
+        image_id: int,
+        memory_session_factory,
+    ) -> None:
+        """chunk内の失敗時は同じ transaction の書き込みを rollback する。"""
+        with pytest.raises(ValueError, match="指定された画像ID 99999 は存在しません"):
+            annotation_repository.save_annotations_batch(
+                [
+                    AnnotationSaveItem(
+                        image_id=image_id,
+                        annotations={"tags": [{"tag": "cat", "model_id": None, "tag_id": None}]},
+                    ),
+                    AnnotationSaveItem(
+                        image_id=99999,
+                        annotations={"tags": [{"tag": "dog", "model_id": None, "tag_id": None}]},
+                    ),
+                ]
+            )
+        with memory_session_factory() as session:
+            rows = session.execute(select(Tag).where(Tag.image_id == image_id)).scalars().all()
+            assert rows == []
 
 
 @pytest.mark.unit

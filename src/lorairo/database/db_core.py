@@ -310,14 +310,22 @@ def create_db_engine(database_url: str | None = None) -> Engine:
     # リスナー関数をエンジン作成時に動的に定義・登録する
 
     @event.listens_for(engine, "connect")
-    def enable_foreign_keys_listener(dbapi_connection: Any, connection_record: Any) -> None:
-        """SQLite の外部キー制約を有効にします。"""
+    def configure_sqlite_listener(dbapi_connection: Any, connection_record: Any) -> None:
+        """SQLite の外部キー制約と低 I/O 向け PRAGMA を設定します。"""
+        if engine.url.get_backend_name() != "sqlite":
+            return
+
         cursor = dbapi_connection.cursor()
         try:
             cursor.execute("PRAGMA foreign_keys=ON")
             logger.debug("PRAGMA foreign_keys=ON executed.")
+            cursor.execute("PRAGMA journal_mode=WAL")
+            journal_mode = cursor.fetchone()
+            logger.debug(f"PRAGMA journal_mode=WAL executed: {journal_mode}")
+            cursor.execute("PRAGMA synchronous=NORMAL")
+            logger.debug("PRAGMA synchronous=NORMAL executed.")
         except Exception:
-            logger.error("Failed to enable foreign keys", exc_info=True)
+            logger.warning("Failed to configure SQLite PRAGMA settings", exc_info=True)
         finally:
             cursor.close()
 

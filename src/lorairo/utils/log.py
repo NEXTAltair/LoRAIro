@@ -164,6 +164,7 @@ def initialize_logging(log_config: dict[str, Any]) -> None:
                 rotation=rotation,  # ログローテーション設定
                 retention=5,  # 保持するローテーション済みログファイルの数
                 encoding="utf-8",
+                enqueue=True,  # ファイルI/Oを呼び出しスレッドから分離する
                 backtrace=True,  # 例外発生時のトレースバックを強化
                 diagnose=True,  # 例外発生時に変数情報を表示
             )

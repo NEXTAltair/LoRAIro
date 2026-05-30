@@ -39,6 +39,8 @@ genai-tag-db-tools (外部 tag_db) 統合を本 Repository に集約する。
 
 from __future__ import annotations
 
+from collections.abc import Sequence
+from dataclasses import dataclass
 from typing import Any, cast
 
 from genai_tag_db_tools import search_tags
@@ -69,6 +71,16 @@ from ..schema import (
 )
 from .base import BaseRepository
 from .model import ModelRepository
+
+
+@dataclass(frozen=True, slots=True)
+class AnnotationSaveItem:
+    """1画像分の annotation 保存入力。"""
+
+    image_id: int
+    annotations: AnnotationsDict
+    skip_existence_check: bool = False
+    tag_id_cache: dict[str, int | None] | None = None
 
 
 class AnnotationRepository(BaseRepository):
@@ -177,30 +189,15 @@ class AnnotationRepository(BaseRepository):
             SQLAlchemyError: データベース操作でエラーが発生した場合。
 
         """
+        item = AnnotationSaveItem(
+            image_id=image_id,
+            annotations=annotations,
+            skip_existence_check=skip_existence_check,
+            tag_id_cache=tag_id_cache,
+        )
         with self.session_factory() as session:
             try:
-                # ADR 0035 段階 5: cross-repo 呼び出しを避けるため、Image 存在チェックを
-                # 同一 session 内で inline 実行する (本 Repository は Annotation 担当だが、
-                # 親 Image の存在は前提条件のため query は必要)。
-                if not skip_existence_check:
-                    exists = session.execute(
-                        select(Image.id).where(Image.id == image_id)
-                    ).scalar_one_or_none()
-                    if exists is None:
-                        raise ValueError(f"指定された画像ID {image_id} は存在しません。")
-
-                # 各アノテーションタイプを処理
-                if annotations.get("tags"):
-                    self._save_tags(session, image_id, annotations["tags"], tag_id_cache=tag_id_cache)
-                if annotations.get("captions"):
-                    self._save_captions(session, image_id, annotations["captions"])
-                if annotations.get("scores"):
-                    self._save_scores(session, image_id, annotations["scores"])
-                if annotations.get("score_labels"):
-                    self._save_score_labels(session, image_id, annotations["score_labels"])
-                if annotations.get("ratings"):
-                    self._save_ratings(session, image_id, annotations["ratings"])
-
+                self._save_annotations_in_session(session, item)
                 session.commit()
                 logger.debug(f"画像ID {image_id} のアノテーションを保存・更新しました。")
 
@@ -211,6 +208,72 @@ class AnnotationRepository(BaseRepository):
                     exc_info=True,
                 )
                 raise
+
+    def save_annotations_batch(
+        self,
+        items: Sequence[AnnotationSaveItem],
+        *,
+        chunk_size: int | None = None,
+    ) -> int:
+        """複数画像の annotation をチャンク単位の単一トランザクションで保存する。
+
+        チャンク内は all-or-nothing。呼び出し側は例外時にチャンクを per-image
+        fallback することで、従来の部分成功カウントを維持できる。
+        """
+        if not items:
+            return 0
+
+        effective_chunk_size = chunk_size or self.BATCH_CHUNK_SIZE
+        if effective_chunk_size <= 0:
+            effective_chunk_size = len(items)
+
+        saved_count = 0
+        for start in range(0, len(items), effective_chunk_size):
+            chunk = items[start : start + effective_chunk_size]
+            with self.session_factory() as session:
+                try:
+                    for item in chunk:
+                        self._save_annotations_in_session(session, item)
+                    session.commit()
+                    saved_count += len(chunk)
+                    logger.debug(
+                        f"アノテーションをバッチ保存しました: "
+                        f"chunk={start // effective_chunk_size + 1}, saved={len(chunk)}"
+                    )
+                except Exception as e:
+                    session.rollback()
+                    logger.error(
+                        f"アノテーションのバッチ保存に失敗しました: chunk_start={start}, "
+                        f"chunk_size={len(chunk)}, error={e}",
+                        exc_info=True,
+                    )
+                    raise
+
+        return saved_count
+
+    def _save_annotations_in_session(self, session: Session, item: AnnotationSaveItem) -> None:
+        """既存 session 内で1画像分の annotation を保存する（commitしない）。"""
+        image_id = item.image_id
+        annotations = item.annotations
+        # ADR 0035 段階 5: cross-repo 呼び出しを避けるため、Image 存在チェックを
+        # 同一 session 内で inline 実行する (本 Repository は Annotation 担当だが、
+        # 親 Image の存在は前提条件のため query は必要)。
+        if not item.skip_existence_check:
+            exists = session.execute(select(Image.id).where(Image.id == image_id)).scalar_one_or_none()
+            if exists is None:
+                raise ValueError(f"指定された画像ID {image_id} は存在しません。")
+
+        # 各アノテーションタイプを処理
+        if annotations.get("tags"):
+            self._save_tags(session, image_id, annotations["tags"], tag_id_cache=item.tag_id_cache)
+        if annotations.get("captions"):
+            self._save_captions(session, image_id, annotations["captions"])
+        if annotations.get("scores"):
+            self._save_scores(session, image_id, annotations["scores"])
+        if annotations.get("score_labels"):
+            self._save_score_labels(session, image_id, annotations["score_labels"])
+        if annotations.get("ratings"):
+            self._save_ratings(session, image_id, annotations["ratings"])
 
     @staticmethod
     def _build_existing_tags_map(session: Session, image_ids: list[int]) -> dict[int, set[str]]:

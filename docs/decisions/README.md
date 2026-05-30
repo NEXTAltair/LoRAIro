@@ -45,6 +45,7 @@ LoRAIro の重要な設計判断を記録するドキュメント群。
 | [0039](0039-agent-pr-maintenance-automation.md) | Agent PR Maintenance Automation | 2026-05-25 | Accepted |
 | [0040](0040-local-ml-model-config-ownership.md) | Local ML Model Config Ownership | 2026-05-24 | Accepted |
 | [0041](0041-provider-batch-execution-ui-unification.md) | Provider Batch 実行 UI の個別実行フロー統一 | 2026-05-29 | Accepted |
+| [0042](0042-batch-annotation-db-save-io.md) | Batch Annotation DB Save I/O | 2026-05-30 | Accepted |
 
 ## ADR テンプレート
 

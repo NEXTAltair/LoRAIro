@@ -6,11 +6,11 @@ CLI・GUI・API の3経路で共有する Qt-free サービス。
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Callable, Iterator, Mapping, Sequence
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
-from lorairo.database.repository.annotation_record import AnnotationRepository
+from lorairo.database.repository.annotation_record import AnnotationRepository, AnnotationSaveItem
 from lorairo.database.repository.error_record import ErrorRecordRepository
 from lorairo.database.repository.image import ImageRepository
 from lorairo.database.repository.model import ModelRepository
@@ -43,6 +43,13 @@ class AnnotationSaveResult:
 @dataclass(frozen=True)
 class _ModelRef:
     id: int
+
+
+@dataclass(frozen=True)
+class _PreparedAnnotationSave:
+    source_key: str
+    image_id: int
+    annotations: AnnotationsDict
 
 
 class AnnotationSaveService:
@@ -476,6 +483,71 @@ class AnnotationSaveService:
         logger.debug(f"画像ID {image_id} のアノテーション保存成功")
         return True
 
+    def _annotation_save_chunk_size(self) -> int:
+        chunk_size = getattr(self._annotation_repo, "BATCH_CHUNK_SIZE", 15000)
+        return chunk_size if isinstance(chunk_size, int) and chunk_size > 0 else 15000
+
+    @staticmethod
+    def _iter_chunks(
+        items: Sequence[_PreparedAnnotationSave], chunk_size: int
+    ) -> Iterator[Sequence[_PreparedAnnotationSave]]:
+        for start in range(0, len(items), chunk_size):
+            yield items[start : start + chunk_size]
+
+    def _save_prepared_batch(
+        self,
+        prepared_items: Sequence[_PreparedAnnotationSave],
+        *,
+        tag_id_cache: dict[str, int | None],
+        error_message: Callable[[_PreparedAnnotationSave, Exception], str],
+        log_message: Callable[[_PreparedAnnotationSave, Exception], str],
+    ) -> tuple[int, int, list[str]]:
+        """準備済み annotation を chunked batch 保存し、失敗 chunk は per-image retry する。"""
+        if not prepared_items:
+            return (0, 0, [])
+
+        success_count = 0
+        error_count = 0
+        error_details: list[str] = []
+        chunk_size = self._annotation_save_chunk_size()
+
+        for chunk in self._iter_chunks(prepared_items, chunk_size):
+            repo_items = [
+                AnnotationSaveItem(
+                    image_id=item.image_id,
+                    annotations=item.annotations,
+                    skip_existence_check=True,
+                    tag_id_cache=tag_id_cache if tag_id_cache else None,
+                )
+                for item in chunk
+            ]
+            try:
+                self._annotation_repo.save_annotations_batch(repo_items, chunk_size=len(repo_items))
+                success_count += len(repo_items)
+                continue
+            except Exception as e:
+                logger.warning(
+                    f"バッチDB保存に失敗しました。per-image fallbackへ切り替えます: "
+                    f"chunk_size={len(repo_items)}, error={e}"
+                )
+
+            for item in chunk:
+                try:
+                    self._annotation_repo.save_annotations(
+                        item.image_id,
+                        item.annotations,
+                        skip_existence_check=True,
+                        tag_id_cache=tag_id_cache if tag_id_cache else None,
+                    )
+                    success_count += 1
+                except Exception as e:
+                    error_msg = error_message(item, e)
+                    error_details.append(error_msg)
+                    error_count += 1
+                    logger.error(log_message(item, e), exc_info=True)
+
+        return (success_count, error_count, error_details)
+
     def save_annotation_results(self, results: Any) -> AnnotationSaveResult:
         """アノテーション結果をDBに保存する。
 
@@ -505,24 +577,49 @@ class AnnotationSaveService:
         models_cache = self._model_repo.get_models_by_litellm_ids(all_model_names)
         tag_id_cache = self._resolve_tag_ids(all_raw_tags)
 
-        success_count = 0
         skip_count = 0
         error_count = 0
         error_details: list[str] = []
+        prepared_items: list[_PreparedAnnotationSave] = []
 
         for phash, phash_annotations in results.items():
             try:
-                if self._save_single(
-                    phash, phash_annotations, phash_to_image_id, models_cache, tag_id_cache
-                ):
-                    success_count += 1
-                else:
+                image_id = phash_to_image_id.get(phash)
+                if image_id is None:
+                    logger.warning(
+                        f"pHash {phash[:8]}... に対応する画像がDBに見つかりません。スキップします。"
+                    )
                     skip_count += 1
+                    continue
+
+                annotations_dict = self._build_annotations_dict(
+                    phash_annotations, models_cache, image_id=image_id
+                )
+
+                if not annotations_dict or not any(annotations_dict.values()):
+                    logger.debug(f"画像ID {image_id} に保存するアノテーションがありません")
+                    skip_count += 1
+                    continue
+
+                prepared_items.append(
+                    _PreparedAnnotationSave(
+                        source_key=str(phash), image_id=image_id, annotations=annotations_dict
+                    )
+                )
             except Exception as e:
                 error_msg = f"phash={phash[:8]}...: {e}"
                 error_details.append(error_msg)
                 error_count += 1
                 logger.error(f"保存失敗 phash={phash[:8]}...: {e}", exc_info=True)
+
+        success_count, batch_error_count, batch_error_details = self._save_prepared_batch(
+            prepared_items,
+            tag_id_cache=tag_id_cache,
+            error_message=lambda item, e: f"phash={item.source_key[:8]}...: {e}",
+            log_message=lambda item, e: f"保存失敗 phash={item.source_key[:8]}...: {e}",
+        )
+        error_count += batch_error_count
+        error_details.extend(batch_error_details)
 
         total_count = len(results)
         logger.info(f"DB保存完了: {success_count}/{total_count}件成功")
@@ -565,10 +662,10 @@ class AnnotationSaveService:
         models_cache: dict[str, Any] = {model_name: _ModelRef(model_id)}
         tag_id_cache = self._resolve_tag_ids(all_raw_tags)
 
-        success_count = 0
         skip_count = 0
         error_count = 0
         error_details: list[str] = []
+        prepared_items: list[_PreparedAnnotationSave] = []
 
         for image_id, image_annotations in wrapped_results.items():
             try:
@@ -581,18 +678,25 @@ class AnnotationSaveService:
                     logger.debug(f"画像ID {image_id} に保存するアノテーションがありません")
                     skip_count += 1
                     continue
-                self._annotation_repo.save_annotations(
-                    image_id,
-                    annotations_dict,
-                    skip_existence_check=True,
-                    tag_id_cache=tag_id_cache if tag_id_cache else None,
+                prepared_items.append(
+                    _PreparedAnnotationSave(
+                        source_key=str(image_id), image_id=image_id, annotations=annotations_dict
+                    )
                 )
-                success_count += 1
             except Exception as e:
                 error_msg = f"image_id={image_id}: {e}"
                 error_details.append(error_msg)
                 error_count += 1
                 logger.error(f"Provider Batch result 保存失敗 image_id={image_id}: {e}", exc_info=True)
+
+        success_count, batch_error_count, batch_error_details = self._save_prepared_batch(
+            prepared_items,
+            tag_id_cache=tag_id_cache,
+            error_message=lambda item, e: f"image_id={item.image_id}: {e}",
+            log_message=lambda item, e: f"Provider Batch result 保存失敗 image_id={item.image_id}: {e}",
+        )
+        error_count += batch_error_count
+        error_details.extend(batch_error_details)
 
         total_count = len(wrapped_results)
         logger.info(f"Provider Batch result DB保存完了: {success_count}/{total_count}件成功")

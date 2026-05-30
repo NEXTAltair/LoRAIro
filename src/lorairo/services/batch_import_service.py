@@ -9,7 +9,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, cast
 
-from lorairo.database.repository.annotation_record import AnnotationRepository
+from lorairo.database.repository.annotation_record import AnnotationRepository, AnnotationSaveItem
 from lorairo.database.repository.image import ImageRepository
 from lorairo.database.repository.model import ModelRepository
 from lorairo.database.schema import AnnotationsDict, CaptionAnnotationData, TagAnnotationData
@@ -45,6 +45,13 @@ class BatchImportResult:
     model_name: str = ""
     unmatched_ids: list[str] = field(default_factory=list)
     error_details: list[str] = field(default_factory=list)
+
+
+@dataclass(frozen=True)
+class _PreparedBatchImportSave:
+    custom_id: str
+    image_id: int
+    annotations: AnnotationsDict
 
 
 class BatchImportService:
@@ -208,23 +215,31 @@ class BatchImportService:
         tag_id_cache = self._annotation_repository.batch_resolve_tag_ids(all_tags)
 
         # 6. DB保存
-        saved = 0
+        prepared_saves: list[_PreparedBatchImportSave] = []
         save_errors = 0
         for custom_id, image_id in match_result.matched.items():
             parsed_content = parsed[custom_id]
             try:
                 annotations = self._build_annotations(parsed_content, model_id)
-                self._annotation_repository.save_annotations(
-                    image_id,
-                    annotations,
-                    skip_existence_check=True,
-                    tag_id_cache=tag_id_cache,
-                )
-                saved += 1
             except Exception as e:
                 save_errors += 1
                 error_details.append(f"保存エラー [{custom_id}] image_id={image_id}: {e}")
                 logger.debug(f"保存エラー [{custom_id}]: {e}")
+                continue
+            prepared_saves.append(
+                _PreparedBatchImportSave(
+                    custom_id=custom_id,
+                    image_id=image_id,
+                    annotations=annotations,
+                )
+            )
+
+        saved, batch_save_errors, save_error_details = self._save_prepared_annotations(
+            prepared_saves,
+            tag_id_cache=tag_id_cache,
+        )
+        save_errors += batch_save_errors
+        error_details.extend(save_error_details)
 
         logger.info(
             f"JSONL処理完了: {jsonl_path.name} - "
@@ -244,6 +259,64 @@ class BatchImportService:
             unmatched_ids=match_result.unmatched,
             error_details=error_details,
         )
+
+    def _annotation_save_chunk_size(self) -> int:
+        chunk_size = getattr(self._annotation_repository, "BATCH_CHUNK_SIZE", 15000)
+        return chunk_size if isinstance(chunk_size, int) and chunk_size > 0 else 15000
+
+    def _save_prepared_annotations(
+        self,
+        prepared_saves: list[_PreparedBatchImportSave],
+        *,
+        tag_id_cache: dict[str, int | None],
+    ) -> tuple[int, int, list[str]]:
+        if not prepared_saves:
+            return (0, 0, [])
+
+        saved = 0
+        save_errors = 0
+        error_details: list[str] = []
+        chunk_size = self._annotation_save_chunk_size()
+
+        for start in range(0, len(prepared_saves), chunk_size):
+            chunk = prepared_saves[start : start + chunk_size]
+            repo_items = [
+                AnnotationSaveItem(
+                    image_id=item.image_id,
+                    annotations=item.annotations,
+                    skip_existence_check=True,
+                    tag_id_cache=tag_id_cache,
+                )
+                for item in chunk
+            ]
+            try:
+                self._annotation_repository.save_annotations_batch(
+                    repo_items,
+                    chunk_size=len(repo_items),
+                )
+                saved += len(repo_items)
+                continue
+            except Exception as e:
+                logger.warning(
+                    f"バッチインポートDB保存に失敗しました。per-image fallbackへ切り替えます: "
+                    f"chunk_size={len(repo_items)}, error={e}"
+                )
+
+            for item in chunk:
+                try:
+                    self._annotation_repository.save_annotations(
+                        item.image_id,
+                        item.annotations,
+                        skip_existence_check=True,
+                        tag_id_cache=tag_id_cache,
+                    )
+                    saved += 1
+                except Exception as e:
+                    save_errors += 1
+                    error_details.append(f"保存エラー [{item.custom_id}] image_id={item.image_id}: {e}")
+                    logger.debug(f"保存エラー [{item.custom_id}]: {e}")
+
+        return (saved, save_errors, error_details)
 
     def _parse_jsonl_file(self, jsonl_path: Path) -> tuple[dict[str, str], str | None]:
         """JSONLファイルを読み込み、{custom_id: content} とモデル名を返す。
