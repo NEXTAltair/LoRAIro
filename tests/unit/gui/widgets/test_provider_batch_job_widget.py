@@ -236,6 +236,71 @@ def test_submit_job_resolves_annotation_params(widget, dependencies, monkeypatch
 
 @pytest.mark.unit
 @pytest.mark.gui
+def test_submit_button_shows_busy_state_only_while_submitting(widget, dependencies, monkeypatch):
+    workflow, repository, model_source, model_repository = dependencies
+    widget.set_dependencies(workflow, repository, model_source, model_repository)
+    widget._model_selection_widget._selected_model = "anthropic/claude-3-5-sonnet"
+    monkeypatch.setattr(widget._staging_widget, "get_image_ids", lambda: [1, 2])
+    default_style = widget.buttonSubmit.styleSheet()
+
+    def submit_side_effect(**_kwargs):
+        assert widget.buttonSubmit.text() == "送信中..."
+        assert widget.buttonSubmit.isEnabled() is False
+        assert "background-color" in widget.buttonSubmit.styleSheet()
+        return 42
+
+    workflow.submit_images.side_effect = submit_side_effect
+
+    widget.submit_job()
+
+    assert widget.buttonSubmit.text() == "送信"
+    assert widget.buttonSubmit.isEnabled() is True
+    assert widget.buttonSubmit.styleSheet() == default_style
+    assert "バッチAPIジョブ 42 を送信しました" in widget.labelStatus.text()
+
+
+@pytest.mark.unit
+@pytest.mark.gui
+def test_submit_button_recovers_after_provider_error(widget, dependencies, monkeypatch):
+    workflow, repository, model_source, model_repository = dependencies
+    widget.set_dependencies(workflow, repository, model_source, model_repository)
+    widget._model_selection_widget._selected_model = "anthropic/claude-3-5-sonnet"
+    monkeypatch.setattr(widget._staging_widget, "get_image_ids", lambda: [1, 2])
+    warning = MagicMock()
+    monkeypatch.setattr(widget_module.QMessageBox, "warning", warning)
+    workflow.submit_images.side_effect = widget_module.ProviderBatchError("provider rejected")
+
+    widget.submit_job()
+
+    warning.assert_called_once()
+    assert widget.buttonSubmit.text() == "送信"
+    assert widget.buttonSubmit.isEnabled() is True
+    assert widget.buttonSubmit.styleSheet() == ""
+    assert widget.labelStatus.text() == "provider rejected"
+
+
+@pytest.mark.unit
+@pytest.mark.gui
+def test_submit_button_recovers_after_unexpected_submit_error(widget, dependencies, monkeypatch):
+    workflow, repository, model_source, model_repository = dependencies
+    widget.set_dependencies(workflow, repository, model_source, model_repository)
+    widget._model_selection_widget._selected_model = "anthropic/claude-3-5-sonnet"
+    monkeypatch.setattr(widget._staging_widget, "get_image_ids", lambda: [1, 2])
+    critical = MagicMock()
+    monkeypatch.setattr(widget_module.QMessageBox, "critical", critical)
+    workflow.submit_images.side_effect = RuntimeError("adapter exploded")
+
+    widget.submit_job()
+
+    critical.assert_called_once()
+    assert widget.buttonSubmit.text() == "送信"
+    assert widget.buttonSubmit.isEnabled() is True
+    assert widget.buttonSubmit.styleSheet() == ""
+    assert widget.labelStatus.text() == "送信に失敗しました"
+
+
+@pytest.mark.unit
+@pytest.mark.gui
 def test_submit_job_rating_preflight_uses_moderations_endpoint(widget, dependencies, monkeypatch):
     workflow, repository, model_source, model_repository = dependencies
     widget.set_dependencies(workflow, repository, model_source, model_repository)

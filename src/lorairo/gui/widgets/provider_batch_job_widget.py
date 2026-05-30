@@ -18,7 +18,7 @@ from typing import Any, cast
 
 from PySide6.QtCore import QPoint, Qt, Signal, Slot
 from PySide6.QtGui import QAction
-from PySide6.QtWidgets import QMenu, QMessageBox, QTableWidget, QTableWidgetItem, QWidget
+from PySide6.QtWidgets import QApplication, QMenu, QMessageBox, QTableWidget, QTableWidgetItem, QWidget
 
 from lorairo.gui.designer.ProviderBatchJobWidget_ui import Ui_ProviderBatchJobWidget
 from lorairo.gui.widgets.model_selection_widget import ModelSelectionWidget
@@ -55,6 +55,8 @@ class ProviderBatchJobWidget(QWidget, Ui_ProviderBatchJobWidget):
         self._model_source: Any = None
         self._dataset_state_manager: Any = None
         self._current_job_id: int | None = None
+        self._submit_button_default_text = self.buttonSubmit.text()
+        self._submit_button_default_style = self.buttonSubmit.styleSheet()
 
         # ADR 0041: placeholder を単一選択 batch-capable ModelSelectionWidget に差替
         self._staging_widget = self.stagingWidget
@@ -184,6 +186,19 @@ class ProviderBatchJobWidget(QWidget, Ui_ProviderBatchJobWidget):
         count = self._staging_widget.count()
         self.labelTarget.setText(f"◎ ステージング: {count} 枚")
 
+    def _set_submit_button_busy(self, busy: bool) -> None:
+        """Reflect only the synchronous provider submit call state on the submit button."""
+        self.buttonSubmit.setEnabled(not busy)
+        if busy:
+            self.buttonSubmit.setText("送信中...")
+            self.buttonSubmit.setStyleSheet(
+                "QPushButton { background-color: #2f7de1; color: white; font-weight: bold; }"
+            )
+            QApplication.processEvents()
+            return
+        self.buttonSubmit.setText(self._submit_button_default_text)
+        self.buttonSubmit.setStyleSheet(self._submit_button_default_style)
+
     @Slot()
     def submit_job(self) -> None:
         if self._workflow_service is None:
@@ -209,16 +224,20 @@ class ProviderBatchJobWidget(QWidget, Ui_ProviderBatchJobWidget):
             if provider is None:
                 raise ValueError(f"direct provider を解決できません: {litellm_model_id}")
             endpoint = endpoint_for_task(provider, task_type)
-            job_id = self._workflow_service.submit_images(
-                provider=provider,
-                endpoint=endpoint,
-                litellm_model_id=litellm_model_id,
-                prompt_profile=self.lineEditPromptProfile.text().strip() or "default",
-                image_ids=image_ids,
-                model_id=model.id,
-                description=self.lineEditDescription.text().strip() or None,
-                task_type=task_type,
-            )
+            self._set_submit_button_busy(True)
+            try:
+                job_id = self._workflow_service.submit_images(
+                    provider=provider,
+                    endpoint=endpoint,
+                    litellm_model_id=litellm_model_id,
+                    prompt_profile=self.lineEditPromptProfile.text().strip() or "default",
+                    image_ids=image_ids,
+                    model_id=model.id,
+                    description=self.lineEditDescription.text().strip() or None,
+                    task_type=task_type,
+                )
+            finally:
+                self._set_submit_button_busy(False)
             self.refresh_jobs()
             self.select_job(job_id)
             self.labelStatus.setText(f"バッチAPIジョブ {job_id} を送信しました")
