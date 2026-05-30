@@ -28,6 +28,7 @@ if TYPE_CHECKING:
     from lorairo.database.repository.model import ModelRepository
     from lorairo.services.batch_import_service import BatchImportResult
 
+from lorairo.annotations.annotation_logic import AnnotationLogic
 from lorairo.api.batch_import import import_batch_annotations
 from lorairo.api.exceptions import (
     AnnotationFailedError,
@@ -37,8 +38,14 @@ from lorairo.api.exceptions import (
 )
 from lorairo.api.project import get_project as api_get_project
 from lorairo.cli._console import make_console
+from lorairo.database.db_core import resolve_stored_path
 from lorairo.database.filter_criteria import ImageFilterCriteria
+from lorairo.services.model_registry_protocol import selection_includes_webapi_model
 from lorairo.services.model_route_service import validate_api_keys_for_models
+from lorairo.services.moderation_preflight_service import (
+    ModerationPreflightService,
+    build_annotation_logic_runner,
+)
 from lorairo.services.service_container import get_service_container
 from lorairo.utils.log import logger
 
@@ -247,6 +254,7 @@ class _StreamAnnotateSummary:
     total_results: int = 0
     saved: int = 0
     skipped: int = 0
+    preflight_skipped: int = 0
     save_errors: int = 0
     any_success: bool = False
     error_models: set[str] = field(default_factory=set)
@@ -259,6 +267,7 @@ def _stream_annotate(
     annotator: Any,
     save_service: Any,
     resolved_litellm_ids: list[str],
+    moderation_preflight_service: ModerationPreflightService | None = None,
 ) -> _StreamAnnotateSummary:
     """レコードを chunk 単位でロード→アノテーション→DB 保存する (Issue #536 / #537)。
 
@@ -294,13 +303,24 @@ def _stream_annotate(
         task = progress.add_task("Running annotation...", total=len(records_to_process))
 
         for chunk in _iter_record_batches(records_to_process, batch_size):
+            original_chunk_size = len(chunk)
+            if moderation_preflight_service is not None:
+                chunk, skipped_count = _apply_moderation_preflight_to_records(
+                    chunk,
+                    moderation_preflight_service,
+                )
+                summary.preflight_skipped += skipped_count
+                if not chunk:
+                    progress.advance(task, advance=original_chunk_size)
+                    continue
+
             # Issue #537: FATAL (メモリ枯渇) は ImageLoadMemoryError で送出される。
             images, loaded, failed = _load_batch_images(chunk)
             summary.total_loaded += loaded
             summary.total_failed += failed
 
             if not images:
-                progress.advance(task, advance=len(chunk))
+                progress.advance(task, advance=original_chunk_size)
                 continue
 
             try:
@@ -315,9 +335,35 @@ def _stream_annotate(
                 for img in images:
                     img.close()
 
-            progress.advance(task, advance=len(chunk))
+            progress.advance(task, advance=original_chunk_size)
 
     return summary
+
+
+def _apply_moderation_preflight_to_records(
+    records_chunk: list[dict[str, Any]],
+    moderation_preflight_service: ModerationPreflightService,
+) -> tuple[list[dict[str, Any]], int]:
+    """Filter a CLI annotation chunk through OpenAI moderation preflight."""
+    path_to_record: dict[str, dict[str, Any]] = {}
+    passthrough_records: list[dict[str, Any]] = []
+
+    for record in records_chunk:
+        stored_path = record.get("stored_image_path")
+        if not stored_path:
+            passthrough_records.append(record)
+            continue
+        path_to_record[str(resolve_stored_path(str(stored_path)))] = record
+
+    if not path_to_record:
+        return records_chunk, 0
+
+    result = moderation_preflight_service.apply(list(path_to_record))
+    allowed = [path_to_record[path] for path in result.allowed_paths if path in path_to_record]
+    skipped_count = result.skipped_count
+    if skipped_count:
+        console.print(f"[yellow]Moderation preflight skipped {skipped_count} image(s)[/yellow]")
+    return passthrough_records + allowed, skipped_count
 
 
 def _annotate_and_save_chunk(
@@ -377,8 +423,15 @@ def _finalize_annotation_run(summary: _StreamAnnotateSummary, resolved_litellm_i
         typer.Exit: ロード不可・結果ゼロ・全モデル失敗の場合 (code=1)。
     """
     console.print(f"[green]Loaded {summary.total_loaded} image(s) ({summary.total_failed} failed)[/green]")
+    if summary.preflight_skipped:
+        console.print(f"[yellow]Moderation preflight skipped {summary.preflight_skipped} image(s)[/yellow]")
 
     if summary.total_loaded == 0:
+        if summary.preflight_skipped > 0:
+            console.print(
+                "[green]Annotation completed: all selected images were skipped by preflight[/green]"
+            )
+            return
         console.print("[red]Error:[/red] No images could be loaded for annotation")
         raise typer.Exit(code=1)
 
@@ -416,6 +469,7 @@ def _finalize_annotation_run(summary: _StreamAnnotateSummary, resolved_litellm_i
     summary_table.add_row("Results", str(summary.total_results))
     summary_table.add_row("Saved to DB", str(summary.saved))
     summary_table.add_row("Skipped", str(summary.skipped))
+    summary_table.add_row("Preflight Skipped", str(summary.preflight_skipped))
 
     console.print(summary_table)
 
@@ -736,6 +790,25 @@ def run(
 
         # アノテーション実行 (Issue #536: チャンクストリーミング)
         console.print("[cyan]Starting annotation...[/cyan]")
+        try:
+            should_preflight = selection_includes_webapi_model(resolved_litellm_ids, annotator)
+        except Exception as e:
+            logger.warning(
+                f"WebAPI model detection failed; moderation preflight skipped: {e}", exc_info=True
+            )
+            should_preflight = False
+
+        moderation_preflight_service = None
+        if should_preflight:
+            moderation_logic = AnnotationLogic(annotator)
+            moderation_preflight_service = ModerationPreflightService(
+                image_repo=container.db_manager.image_repo,
+                model_repo=container.db_manager.model_repo,
+                error_record_repo=container.db_manager.error_record_repo,
+                annotation_save_service=container.annotation_save_service,
+                config_service=config,
+                moderation_runner=build_annotation_logic_runner(moderation_logic.execute_annotation),
+            )
 
         try:
             summary = _stream_annotate(
@@ -744,6 +817,7 @@ def run(
                 annotator=annotator,
                 save_service=container.annotation_save_service,
                 resolved_litellm_ids=resolved_litellm_ids,
+                moderation_preflight_service=moderation_preflight_service,
             )
         except ImageLoadMemoryError as e:
             console.print(f"[red]Error:[/red] Memory/resource exhaustion during image load: {e}")
