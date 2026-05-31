@@ -440,8 +440,8 @@ def build_display_options(
         for alt in alternatives:
             if tuple(alt.model.capabilities) != preferred_caps:
                 logger.warning(
-                    "capabilities mismatch between routes: canonical_key=%s, "
-                    "preferred=%s caps=%s, alternative=%s caps=%s",
+                    "capabilities mismatch between routes: canonical_key={}, "
+                    "preferred={} caps={}, alternative={} caps={}",
                     ckey,
                     preferred.litellm_model_id,
                     preferred_caps,
@@ -497,7 +497,7 @@ def parse_route_preference(raw: str | None) -> RoutePreference:
     if normalized in _VALID_ROUTE_PREFERENCES:
         return cast(RoutePreference, normalized)
     logger.warning(
-        "Invalid route_preference value %r, falling back to 'auto'. Valid values: %s",
+        "Invalid route_preference value {!r}, falling back to 'auto'. Valid values: {}",
         raw,
         sorted(_VALID_ROUTE_PREFERENCES),
     )

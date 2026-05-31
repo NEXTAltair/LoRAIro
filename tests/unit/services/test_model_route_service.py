@@ -6,6 +6,7 @@ route 判定、canonical key、grouping、preference 選択、API key validation
 
 from __future__ import annotations
 
+from io import StringIO
 from types import SimpleNamespace
 
 import pytest
@@ -592,6 +593,24 @@ class TestParseRoutePreference:
     def test_invalid_value_falls_back_to_auto(self) -> None:
         """不正値は 'auto' に fallback (warning log 経路)"""
         assert parse_route_preference("bogus") == "auto"
+
+    def test_invalid_value_warning_renders_value_and_valid_values(self) -> None:
+        """Loguru warning は stdlib `%r/%s` ではなく実値を展開して出力する。"""
+        from lorairo.utils.log import logger
+
+        sink = StringIO()
+        sink_id = logger.add(sink, format="{message}", level="WARNING")
+        try:
+            assert parse_route_preference("bogus") == "auto"
+        finally:
+            logger.remove(sink_id)
+
+        log_output = sink.getvalue()
+        assert "Invalid route_preference value 'bogus'" in log_output
+        assert "%r" not in log_output
+        assert "%s" not in log_output
+        assert "openrouter" in log_output
+        assert "direct" in log_output
 
     def test_uppercase_normalized(self) -> None:
         """大文字 / strip も正規化される"""

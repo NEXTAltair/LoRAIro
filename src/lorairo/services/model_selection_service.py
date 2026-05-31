@@ -259,7 +259,7 @@ class ModelSelectionService:
         filtered = self.filter_models(criteria)
         options = build_display_options(filtered, available_providers, route_preference)
         logger.debug(
-            "load_grouped_models: filtered=%d, options=%d, preference=%s, available=%s",
+            "load_grouped_models: filtered={}, options={}, preference={}, available={}",
             len(filtered),
             len(options),
             route_preference,
