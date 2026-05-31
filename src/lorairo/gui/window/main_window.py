@@ -1574,7 +1574,7 @@ class MainWindow(QMainWindow, Ui_MainWindow):
                 self, "エラー", "ExportControllerが初期化されていないため、エクスポートを開始できません。"
             )
 
-    def send_selected_to_batch_tag(self, selected_ids: list[int] | None = None) -> None:
+    def send_selected_to_batch_tag(self, selected_ids: list[int] | bool | None = None) -> None:
         """ワークスペースの選択画像をバッチタグのステージングに追加"""
         if not self.dataset_state_manager:
             logger.warning("DatasetStateManager not available")
@@ -1587,10 +1587,23 @@ class MainWindow(QMainWindow, Ui_MainWindow):
             QMessageBox.warning(self, "エラー", "バッチタグ機能が初期化されていません。")
             return
 
-        target_ids = (
-            selected_ids if selected_ids is not None else self.dataset_state_manager.selected_image_ids
-        )
+        has_explicit_ids = isinstance(selected_ids, list)
+        target_ids = selected_ids if has_explicit_ids else self.dataset_state_manager.selected_image_ids
+        if not has_explicit_ids and not target_ids:
+            thumbnail_selector = getattr(self, "thumbnail_selector", None)
+            if thumbnail_selector is not None and hasattr(
+                thumbnail_selector, "get_visible_selected_image_ids"
+            ):
+                target_ids = thumbnail_selector.get_visible_selected_image_ids()
+
         if not target_ids:
+            dataset_selected_count = len(self.dataset_state_manager.selected_image_ids)
+            thumbnail_selector_available = bool(getattr(self, "thumbnail_selector", None))
+            logger.debug(
+                "No image ids resolved for batch tag staging: "
+                f"dataset_selected={dataset_selected_count}, "
+                f"thumbnail_selector_available={thumbnail_selector_available}"
+            )
             QMessageBox.information(self, "選択なし", "バッチタグに追加する画像が選択されていません。")
             return
 

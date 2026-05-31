@@ -4,6 +4,8 @@ Phase 2.5で導入されたトップレベルタブ機能の統合テスト。
 MainWindow初期化、タブ切り替え、ウィジェット統合を検証。
 """
 
+from unittest.mock import Mock
+
 import pytest
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QTabWidget
@@ -143,6 +145,30 @@ class TestBatchTagWidgetIntegration:
         """BatchTagAddWidgetが存在する"""
         assert hasattr(main_window_with_tabs, "batchTagAddWidget")
         assert main_window_with_tabs.batchTagAddWidget is not None
+
+    def test_stage_toolbar_button_uses_thumbnail_selection_fallback(
+        self, main_window_with_tabs, monkeypatch, qtbot
+    ):
+        """ツールバーボタンは DatasetStateManager が空でも表示中選択をステージングへ送る。"""
+        main_window_with_tabs.dataset_state_manager.set_selected_images([])
+        monkeypatch.setattr(
+            main_window_with_tabs.thumbnail_selector,
+            "get_visible_selected_image_ids",
+            lambda: [101, 102],
+        )
+        add_to_staging = Mock()
+        monkeypatch.setattr(
+            main_window_with_tabs.batchTagAddWidget, "add_image_ids_to_staging", add_to_staging
+        )
+        information = Mock()
+        monkeypatch.setattr("lorairo.gui.window.main_window.QMessageBox.information", information)
+
+        main_window_with_tabs.pushButtonStageToBatchTag.click()
+        qtbot.wait(10)
+
+        add_to_staging.assert_called_once_with([101, 102])
+        information.assert_not_called()
+        assert main_window_with_tabs.tabWidgetMainMode.currentIndex() == 1
 
     def test_batchtagaddwidget_in_batch_tag_tab(self, main_window_with_tabs):
         """BatchTagAddWidgetがバッチタグタブ内に配置されている"""

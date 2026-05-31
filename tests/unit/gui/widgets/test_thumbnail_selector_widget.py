@@ -270,6 +270,7 @@ class TestThumbnailSelectorWidgetResponsibilitySeparation:
             "load_thumbnails_from_paths",
             "clear_thumbnails",
             "get_selected_images",
+            "get_visible_selected_image_ids",
         ]
 
         for method in display_methods:
@@ -296,6 +297,34 @@ class TestThumbnailSelectorWidgetSelection:
         """選択なしの場合の取得テスト"""
         selected = widget.get_selected_images()
         assert selected == []
+
+    def test_get_visible_selected_image_ids_from_dataset_state(self, widget):
+        """DatasetStateManager の選択から表示中の画像 ID を取得する"""
+        from lorairo.gui.widgets.thumbnail import ThumbnailItem
+
+        state = DatasetStateManager()
+        widget.dataset_state = state
+        item1 = Mock(spec=ThumbnailItem)
+        item1.image_id = 1
+        item2 = Mock(spec=ThumbnailItem)
+        item2.image_id = 2
+        widget.thumbnail_items = [item1, item2]
+        state.set_selected_images([1, 3])
+
+        assert widget.get_visible_selected_image_ids() == [1]
+
+    def test_get_visible_selected_image_ids_falls_back_to_scene_selection(self, widget):
+        """状態が未同期の場合は QGraphicsScene の選択を fallback として使う"""
+        from lorairo.gui.widgets.thumbnail import ThumbnailItem
+
+        item1 = Mock(spec=ThumbnailItem)
+        item1.image_id = 1
+        item2 = Mock(spec=ThumbnailItem)
+        item2.image_id = 2
+        widget.thumbnail_items = [item1, item2]
+        widget.scene.selectedItems = Mock(return_value=[item2])
+
+        assert widget.get_visible_selected_image_ids() == [2]
 
     def test_deprecated_current_image_data_api_removed(self, widget):
         """ThumbnailSelectorWidget の deprecated な get_current_image_data は削除済み"""
