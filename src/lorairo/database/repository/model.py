@@ -485,29 +485,32 @@ class ModelRepository(BaseRepository):
             logger.error(f"DB Modelオブジェクトの取得中にエラーが発生しました: {e}", exc_info=True)
             raise
 
-    def discontinue_api_models_absent_from(
+    def reconcile_api_model_availability(
         self,
         active_litellm_model_ids: set[str],
         discontinued_at: datetime.datetime | None = None,
-    ) -> list[str]:
-        """ライブラリ discovery から消えた WebAPI モデルを discontinued にする (Issue #589)。
+    ) -> tuple[list[str], list[str]]:
+        """WebAPI モデルの availability を lib discovery と双方向に reconcile する (Issue #589)。
 
         `ModelSyncService` の sync は register/update のみで de-list を行わないため、
         提供されなくなった WebAPI モデルが `discontinued_at=NULL` のまま `available=True`
-        で UI に残存する。本メソッドは `active_litellm_model_ids` に含まれない WebAPI
-        モデルを soft-delete (discontinued_at 設定) する。
+        で UI に残存する。本メソッドは現在の discovery (`active_litellm_model_ids`) に対し:
 
-        対象は `requires_api_key=True` の WebAPI モデルのみ。ローカル ML モデル
-        (`requires_api_key=False`) と MANUAL_EDIT sentinel は対象外。既に discontinued な
-        行は再書き込みしない (元の timestamp を保持し、冪等)。再出現時の reactivation は
-        `update_model` 経路 (`discontinued_at=None`) が担う。
+        - **de-list**: active set に**無い** WebAPI モデルを soft-delete (discontinued_at 設定)。
+        - **reactivate**: active set に**有る**が現在 discontinued な WebAPI モデルを復活
+          (discontinued_at=None)。`update_model` 経路は `_apply_simple_field_updates` が
+          `None` を無視するため reactivate できない (PR #590 review P1)。本メソッドが担う。
+
+        対象は `requires_api_key=True` の WebAPI モデルのみ。ローカル ML モデルと
+        MANUAL_EDIT sentinel は対象外。既に意図した状態の行は書き換えない (冪等)。
 
         Args:
-            active_litellm_model_ids: 現在 lib discovery に存在する litellm_model_id 集合。
-            discontinued_at: 設定する終了時刻。None なら現在 UTC 時刻。
+            active_litellm_model_ids: 現在 lib discovery で active な WebAPI モデルの
+                litellm_model_id 集合 (discontinued でないもの)。
+            discontinued_at: de-list 時に設定する終了時刻。None なら現在 UTC 時刻。
 
         Returns:
-            新たに de-list した litellm_model_id のリスト。
+            (de-list した litellm_model_id リスト, reactivate した litellm_model_id リスト)。
         """
         now = discontinued_at or datetime.datetime.now(datetime.UTC)
         with self.session_factory() as session:
@@ -515,22 +518,28 @@ class ModelRepository(BaseRepository):
                 stmt = select(Model).where(
                     Model.requires_api_key.is_(True),
                     Model.litellm_model_id.is_not(None),
-                    Model.discontinued_at.is_(None),
                 )
                 delisted: list[str] = []
+                reactivated: list[str] = []
                 for model in session.execute(stmt).scalars().all():
-                    if model.litellm_model_id in active_litellm_model_ids:
-                        continue
                     if model.litellm_model_id == MANUAL_EDIT_LITELLM_ID:
                         continue
-                    model.discontinued_at = now
-                    delisted.append(model.litellm_model_id)
-                if delisted:
+                    in_active = model.litellm_model_id in active_litellm_model_ids
+                    if model.discontinued_at is None and not in_active:
+                        model.discontinued_at = now
+                        delisted.append(model.litellm_model_id)
+                    elif model.discontinued_at is not None and in_active:
+                        model.discontinued_at = None
+                        reactivated.append(model.litellm_model_id)
+                if delisted or reactivated:
                     session.commit()
-                    logger.info(f"提供終了 WebAPI モデルを de-list: {len(delisted)}件")
-                return delisted
+                    logger.info(
+                        f"WebAPI モデル availability reconcile: "
+                        f"de-list {len(delisted)}件, reactivate {len(reactivated)}件"
+                    )
+                return delisted, reactivated
             except SQLAlchemyError as e:
-                logger.error(f"WebAPI モデルの de-list 中にエラーが発生しました: {e}", exc_info=True)
+                logger.error(f"WebAPI モデルの availability reconcile 中にエラー: {e}", exc_info=True)
                 raise
 
     def get_models_by_type(self, model_type_name: str) -> list[dict[str, Any]]:

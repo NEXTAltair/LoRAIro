@@ -69,24 +69,28 @@ class TestModelSyncResult:
         assert result.new_models_registered == 5
         assert result.existing_models_updated == 3
         assert result.delisted_count == 0  # Issue #589: default 0
+        assert result.reactivated_count == 0  # PR #590 review P1: default 0
         assert len(result.errors) == 0
 
         expected_summary = (
-            "同期完了: ライブラリモデル 10件, 新規登録 5件, 更新 3件, 提供終了 0件, エラー 0件"
+            "同期完了: ライブラリモデル 10件, 新規登録 5件, 更新 3件, 提供終了 0件, 復活 0件, エラー 0件"
         )
         assert result.summary == expected_summary
 
-    def test_sync_result_with_delisted_count(self):
-        """Issue #589: de-list 件数が summary に反映される。"""
+    def test_sync_result_with_delisted_and_reactivated_counts(self):
+        """Issue #589 / PR #590: de-list / reactivate 件数が summary に反映される。"""
         result = ModelSyncResult(
             total_library_models=10,
             new_models_registered=0,
             existing_models_updated=0,
             errors=[],
             delisted_count=2,
+            reactivated_count=1,
         )
         assert result.delisted_count == 2
+        assert result.reactivated_count == 1
         assert "提供終了 2件" in result.summary
+        assert "復活 1件" in result.summary
 
     def test_failed_sync_result(self):
         """エラー発生時の同期結果"""
@@ -591,8 +595,8 @@ class TestModelSyncServiceEdgeCases:
 
 
 @pytest.mark.unit
-class TestDelistRemovedModels:
-    """Issue #589: lib discovery から消えた WebAPI モデルの de-list 検証。"""
+class TestReconcileModelAvailability:
+    """Issue #589 / PR #590: WebAPI モデル availability reconcile (de-list + reactivate + 空ガード)。"""
 
     @pytest.fixture
     def model_sync_service(self, test_model_repository, mock_config_service):
@@ -612,20 +616,63 @@ class TestDelistRemovedModels:
             "discontinued_at": None,
         }
 
-    def test_delist_removed_models_marks_absent_api_model(self, model_sync_service, test_model_repository):
+    def test_reconcile_marks_absent_api_model(self, model_sync_service, test_model_repository):
         """active set に無い WebAPI モデルが de-list され件数が返る。"""
-        # 旧 sync で登録済の stale な WebAPI モデル
         model_sync_service.register_new_models_to_db(
             [self._stale_metadata("openai/o4-mini-deep-research-2025-06-26")]
         )
-        # 現 discovery には gpt-4o のみ残っている想定
         library_models = [self._stale_metadata("openai/gpt-4o")]
 
-        count = model_sync_service.delist_removed_models(library_models)
+        delisted, reactivated = model_sync_service.reconcile_model_availability(library_models)
 
-        assert count == 1
+        assert delisted == 1
+        assert reactivated == 0
         removed = test_model_repository.get_model_by_litellm_id("openai/o4-mini-deep-research-2025-06-26")
         assert removed is not None and removed.available is False
+
+    def test_reconcile_reactivates_returning_model(self, model_sync_service, test_model_repository):
+        """一度 de-list したモデルが discovery に戻ると reactivate される (review P1)。"""
+        model_sync_service.register_new_models_to_db([self._stale_metadata("openai/comeback")])
+        # 1 回目: discovery から外れ de-list
+        model_sync_service.reconcile_model_availability([self._stale_metadata("openai/gpt-4o")])
+        assert test_model_repository.get_model_by_litellm_id("openai/comeback").available is False
+
+        # 2 回目: discovery に再出現 → reactivate
+        delisted, reactivated = model_sync_service.reconcile_model_availability(
+            [self._stale_metadata("openai/comeback")]
+        )
+
+        assert reactivated == 1
+        revived = test_model_repository.get_model_by_litellm_id("openai/comeback")
+        assert revived is not None and revived.available is True
+
+    def test_empty_api_discovery_skips_reconcile(self, model_sync_service, test_model_repository):
+        """discovery に WebAPI モデルが 0 件なら destructive reconcile をスキップ (review P2)。
+
+        transient discovery 障害 / local-only 結果で全 API モデルを誤って de-list しない。
+        """
+        model_sync_service.register_new_models_to_db([self._stale_metadata("openai/gpt-4o")])
+        # API モデルを含まない discovery (ローカルモデルのみ)
+        local_only: list[ModelMetadata] = [
+            {
+                "name": "wd-tagger",
+                "provider": None,
+                "class_name": None,
+                "litellm_model_id": "wd-tagger",
+                "model_type": "tagger",
+                "model_types": ["tags"],
+                "estimated_size_gb": 1.0,
+                "requires_api_key": False,
+                "discontinued_at": None,
+            }
+        ]
+
+        delisted, reactivated = model_sync_service.reconcile_model_availability(local_only)
+
+        assert delisted == 0 and reactivated == 0
+        # 既存 API モデルは de-list されない
+        gpt4o = test_model_repository.get_model_by_litellm_id("openai/gpt-4o")
+        assert gpt4o is not None and gpt4o.available is True
 
     def test_sync_available_models_delists_stale_api_model(self, model_sync_service, test_model_repository):
         """sync_available_models が stale な WebAPI モデルを de-list し result に反映する。"""

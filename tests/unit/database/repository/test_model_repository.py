@@ -192,8 +192,8 @@ class TestGetOrCreateManualEditModel:
 
 
 @pytest.mark.unit
-class TestDiscontinueApiModelsAbsentFrom:
-    """`discontinue_api_models_absent_from` の de-list 動作 (Issue #589)。"""
+class TestReconcileApiModelAvailability:
+    """`reconcile_api_model_availability` の双方向 reconcile (Issue #589, PR #590 review P1)。"""
 
     def _insert(self, repo: ModelRepository, litellm_id: str, *, requires_api_key: bool) -> int:
         return repo.insert_model(
@@ -209,21 +209,37 @@ class TestDiscontinueApiModelsAbsentFrom:
         self._insert(model_repository, "openai/keep", requires_api_key=True)
         self._insert(model_repository, "openai/o4-mini-deep-research-2025-06-26", requires_api_key=True)
 
-        delisted = model_repository.discontinue_api_models_absent_from({"openai/keep"})
+        delisted, reactivated = model_repository.reconcile_api_model_availability({"openai/keep"})
 
         assert delisted == ["openai/o4-mini-deep-research-2025-06-26"]
+        assert reactivated == []
         kept = model_repository.get_model_by_litellm_id("openai/keep")
         removed = model_repository.get_model_by_litellm_id("openai/o4-mini-deep-research-2025-06-26")
         assert kept is not None and kept.available is True
         assert removed is not None and removed.available is False
 
+    def test_reactivates_api_model_present_again(self, model_repository: ModelRepository) -> None:
+        """以前 de-list したモデルが active set に戻ると reactivate される (P1)。"""
+        self._insert(model_repository, "openai/comeback", requires_api_key=True)
+        # 1 回目: active set 外 → de-list
+        model_repository.reconcile_api_model_availability(set())
+        assert model_repository.get_model_by_litellm_id("openai/comeback").available is False
+
+        # 2 回目: lib に再出現 → reactivate
+        delisted, reactivated = model_repository.reconcile_api_model_availability({"openai/comeback"})
+
+        assert reactivated == ["openai/comeback"]
+        assert delisted == []
+        revived = model_repository.get_model_by_litellm_id("openai/comeback")
+        assert revived is not None and revived.available is True
+
     def test_local_ml_models_are_never_delisted(self, model_repository: ModelRepository) -> None:
         """requires_api_key=False のローカル ML モデルは active set 外でも対象外。"""
         self._insert(model_repository, "wd-vit-tagger-v3", requires_api_key=False)
 
-        delisted = model_repository.discontinue_api_models_absent_from(set())
+        delisted, reactivated = model_repository.reconcile_api_model_availability(set())
 
-        assert delisted == []
+        assert delisted == [] and reactivated == []
         local = model_repository.get_model_by_litellm_id("wd-vit-tagger-v3")
         assert local is not None and local.available is True
 
@@ -233,7 +249,7 @@ class TestDiscontinueApiModelsAbsentFrom:
             ModelRepository._get_or_create_manual_edit_model(session)
             session.commit()
 
-        delisted = model_repository.discontinue_api_models_absent_from(set())
+        delisted, _ = model_repository.reconcile_api_model_availability(set())
 
         assert MANUAL_EDIT_LITELLM_ID not in delisted
         sentinel = model_repository.get_model_by_litellm_id(MANUAL_EDIT_LITELLM_ID)
@@ -242,8 +258,8 @@ class TestDiscontinueApiModelsAbsentFrom:
     def test_already_discontinued_is_not_rewritten(self, model_repository: ModelRepository) -> None:
         """既に discontinued な行は再 de-list しない (idempotent)。"""
         self._insert(model_repository, "openai/gone", requires_api_key=True)
-        first = model_repository.discontinue_api_models_absent_from(set())
-        assert first == ["openai/gone"]
+        first_delisted, _ = model_repository.reconcile_api_model_availability(set())
+        assert first_delisted == ["openai/gone"]
 
-        second = model_repository.discontinue_api_models_absent_from(set())
-        assert second == []
+        second_delisted, second_reactivated = model_repository.reconcile_api_model_availability(set())
+        assert second_delisted == [] and second_reactivated == []
