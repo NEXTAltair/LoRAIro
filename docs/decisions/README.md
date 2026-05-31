@@ -49,7 +49,8 @@ LoRAIro の重要な設計判断を記録するドキュメント群。
 | [0043](0043-db-core-logging-loguru-unification.md) | db_core Logging Loguru Unification | 2026-05-31 | Accepted |
 | [0044](0044-provider-batch-submit-threading.md) | Provider Batch Submit Threading | 2026-05-31 | Accepted |
 | [0045](0045-large-search-result-log-level.md) | Large Search Result Log Level | 2026-05-31 | Accepted |
-| [0046](0046-trace-level-for-per-item-diagnostics.md) | TRACE Level for Per-Item Diagnostics | 2026-05-31 | Accepted |
+| [0046](0046-loguru-placeholder-format.md) | Loguru Placeholder Format | 2026-05-31 | Accepted |
+| [0047](0047-trace-level-for-per-item-diagnostics.md) | TRACE Level for Per-Item Diagnostics | 2026-05-31 | Accepted |
 
 ## ADR テンプレート
 

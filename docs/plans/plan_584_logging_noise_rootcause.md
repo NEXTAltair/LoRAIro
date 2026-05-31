@@ -92,7 +92,7 @@
 3. **Part D1**（rebuild skip）→ GUI テスト
 4. **Part D2**（index）→ unit テスト
 5. **Part D3**（path cache）→ unit テスト（最高リスク、最後）
-6. ADR 0046 記述 + logging.md 更新（Part A と並行可）
+6. ADR 0047 記述 + logging.md 更新（Part A と並行可）
 7. CI-equivalent filter 全 pass 確認 → PR
 
 ## 8. 影響範囲
@@ -105,4 +105,4 @@
 ## 9. implement への引き継ぎ
 - ブランチ: `fix/issue-584`（git-workflow.md 準拠、worktree は `/tmp/worktrees/`）
 - TDD（superpowers:test-driven-development）で Part D は test 先行
-- 完了時 ADR 0046 + logging.md 更新を忘れない
+- 完了時 ADR 0047 + logging.md 更新を忘れない

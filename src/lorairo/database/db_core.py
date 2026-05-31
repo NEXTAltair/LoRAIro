@@ -209,7 +209,7 @@ def resolve_stored_path(stored_path: str) -> Path:
         remainder_parts = path.parts[idx + 1 :]
         if remainder_parts:
             resolved = project_root.joinpath(*remainder_parts)
-            # per-item firehose のため TRACE (通常デバッグでは抑制、ADR 0046)
+            # per-item firehose のため TRACE (通常デバッグでは抑制、ADR 0047)
             logger.trace(f"パス解決（プレフィックス正規化）: {stored_path} -> {resolved}")
             _resolve_cache[stored_path] = resolved
             return resolved

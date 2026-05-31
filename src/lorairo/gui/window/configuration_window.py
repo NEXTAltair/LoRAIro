@@ -243,7 +243,7 @@ class ConfigurationWindow(QDialog):
             self._combo_box_route_preference.setCurrentIndex(idx)
         else:
             logger.warning(
-                "route_preference=%r は GUI 設定では選択できないため auto にフォールバック表示します "
+                "route_preference={!r} は GUI 設定では選択できないため auto にフォールバック表示します "
                 "(OK 押下時に auto で上書き保存)。CLI でのみ利用する場合は GUI で変更しないでください。",
                 normalized_preference,
             )

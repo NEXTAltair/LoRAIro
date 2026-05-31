@@ -62,7 +62,7 @@ class ModelSelectionService:
             self._cached_models = db_models
             logger.info(f"Loaded {len(db_models)} models directly from DB")
 
-            # モデル詳細は per-item firehose のため TRACE (通常デバッグでは抑制、ADR 0046)
+            # モデル詳細は per-item firehose のため TRACE (通常デバッグでは抑制、ADR 0047)
             for model in db_models:
                 logger.trace(
                     f"  モデル読込: name={model.name}, provider={model.provider}, "
@@ -259,7 +259,7 @@ class ModelSelectionService:
         filtered = self.filter_models(criteria)
         options = build_display_options(filtered, available_providers, route_preference)
         logger.debug(
-            "load_grouped_models: filtered=%d, options=%d, preference=%s, available=%s",
+            "load_grouped_models: filtered={}, options={}, preference={}, available={}",
             len(filtered),
             len(options),
             route_preference,

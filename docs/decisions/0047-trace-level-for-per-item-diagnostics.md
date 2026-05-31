@@ -1,4 +1,4 @@
-# ADR 0046: TRACE Level for Per-Item Diagnostics
+# ADR 0047: TRACE Level for Per-Item Diagnostics
 
 - **日付**: 2026-05-31
 - **ステータス**: Accepted
