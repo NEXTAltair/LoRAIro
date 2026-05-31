@@ -358,7 +358,7 @@ def _ensure_model_types_seeded(engine: Engine) -> None:
             return
         session.add_all(missing)
         session.commit()
-        logger.info("Seeded model_types rows: %s", ", ".join(model.name for model in missing))
+        logger.info(f"Seeded model_types rows: {', '.join(model.name for model in missing)}")
 
 
 def _make_alembic_config(project_db_path: Path) -> Any:
@@ -421,17 +421,16 @@ def _prepare_project_database(project_db_path: Path) -> Engine:
         Base.metadata.create_all(engine)
         _ensure_model_types_seeded(engine)
         _stamp_alembic_head(project_db_path)
-        logger.info("Initialized new project DB schema and stamped Alembic head: %s", project_db_path)
+        logger.info(f"Initialized new project DB schema and stamped Alembic head: {project_db_path}")
         return engine
 
     if _has_alembic_version_table(engine):
         _upgrade_alembic_head(project_db_path)
-        logger.info("Applied pending Alembic migrations for project DB: %s", project_db_path)
+        logger.info(f"Applied pending Alembic migrations for project DB: {project_db_path}")
     else:
         logger.warning(
             "Project DB has existing tables but no alembic_version table; "
-            "leaving migration state unchanged: %s",
-            project_db_path,
+            f"leaving migration state unchanged: {project_db_path}"
         )
 
     Base.metadata.create_all(engine)

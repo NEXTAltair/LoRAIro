@@ -97,3 +97,24 @@ def test_default_session_factory_logs_init_to_loguru(
     logger.complete()
 
     assert "データベースコアが初期化されました" in loguru_sink.getvalue()
+
+
+def test_ensure_model_types_seeded_logs_resolved_names(loguru_sink: io.StringIO) -> None:
+    """seeding ログが ``%s`` リテラルではなく実際の model 名を出力する (#572 PR レビュー)。
+
+    loguru は ``%s`` スタイルの引数展開を行わないため、f-string でないと model 名が
+    落ちて ``%s`` がそのまま残る。
+    """
+    from lorairo.database.db_core import _ensure_model_types_seeded
+    from lorairo.database.schema import Base
+
+    engine = create_db_engine("sqlite:///:memory:")
+    Base.metadata.create_all(engine)
+
+    _ensure_model_types_seeded(engine)
+    logger.complete()
+
+    output = loguru_sink.getvalue()
+    assert "Seeded model_types rows:" in output
+    assert "%s" not in output
+    assert "tags" in output
