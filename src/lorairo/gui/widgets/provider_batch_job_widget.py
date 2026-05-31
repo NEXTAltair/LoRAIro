@@ -55,6 +55,8 @@ class ProviderBatchJobWidget(QWidget, Ui_ProviderBatchJobWidget):
         self._model_source: Any = None
         self._dataset_state_manager: Any = None
         self._current_job_id: int | None = None
+        # Issue #571: 同期 submit 中の processEvents 経由再入による二重送信を防ぐ再入ガード。
+        self._submit_in_progress = False
         self._submit_button_default_text = self.buttonSubmit.text()
         self._submit_button_default_style = self.buttonSubmit.styleSheet()
 
@@ -204,10 +206,14 @@ class ProviderBatchJobWidget(QWidget, Ui_ProviderBatchJobWidget):
         if self._workflow_service is None:
             self.labelStatus.setText("バッチAPIサービスを利用できません")
             return
+        # Issue #571: submit 中に再配信されたクリックを無視し、同一対象の二重ジョブ作成を防ぐ。
+        if self._submit_in_progress:
+            return
         litellm_model_id = self._model_selection_widget.get_selected_model()
         if not litellm_model_id:
             QMessageBox.warning(self, "バッチAPI", "バッチ対応モデルを選択してください。")
             return
+        self._submit_in_progress = True
         try:
             image_ids = self._staging_widget.get_image_ids()
             if not image_ids:
@@ -238,8 +244,17 @@ class ProviderBatchJobWidget(QWidget, Ui_ProviderBatchJobWidget):
                 )
             finally:
                 self._set_submit_button_busy(False)
-            self.refresh_jobs()
-            self.select_job(job_id)
+            # Issue #571: submit_images 成功 = provider job 作成済み。後続の表示更新が
+            # 失敗しても送信成功を覆さないよう、送信済み対象の除外を先に確定する。
+            # image_ids は submit 直前の snapshot なので、送信中に追加された画像は残す。
+            self._staging_widget.remove_image_ids(image_ids)
+            try:
+                self.refresh_jobs(update_label=False)
+                self.select_job(job_id)
+            except Exception as e:
+                logger.warning(f"バッチAPI 送信後の一覧更新に失敗しました: {e}")
+            # refresh_jobs は list 失敗時に labelStatus を上書きする (例外は内部で握る) ため、
+            # 送信成功表示は表示更新の後に最後に確定する。
             self.labelStatus.setText(f"バッチAPIジョブ {job_id} を送信しました")
         except (ProviderBatchError, ValueError) as e:
             QMessageBox.warning(self, "バッチAPI", str(e))
@@ -248,6 +263,8 @@ class ProviderBatchJobWidget(QWidget, Ui_ProviderBatchJobWidget):
             logger.error(f"バッチAPI submit failed: {e}", exc_info=True)
             QMessageBox.critical(self, "バッチAPI", str(e))
             self.labelStatus.setText("送信に失敗しました")
+        finally:
+            self._submit_in_progress = False
 
     @Slot()
     def refresh_jobs(self, update_label: bool = True) -> None:

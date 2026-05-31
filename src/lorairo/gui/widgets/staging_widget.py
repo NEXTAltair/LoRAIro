@@ -243,6 +243,27 @@ class StagingWidget(QWidget):
         self.staging_cleared.emit()
         self.staged_images_changed.emit([])
 
+    def remove_image_ids(self, image_ids: list[int]) -> None:
+        """指定した画像 ID のみをステージングから除外する。
+
+        送信スナップショット後に追加された画像を保持したまま、送信済み対象だけを
+        ステージングから外すために使う (Issue #571)。変更があった場合のみ
+        staged_images_changed を発行する。
+
+        Args:
+            image_ids: 除外する画像 ID リスト。
+        """
+        removed = False
+        for image_id in image_ids:
+            if image_id in self._staged_images:
+                del self._staged_images[image_id]
+                self._thumbnail_cache.pop(image_id, None)
+                removed = True
+        if not removed:
+            return
+        self._refresh_staging_list_ui()
+        self.staged_images_changed.emit(self.get_image_ids())
+
     def get_image_ids(self) -> list[int]:
         """ステージング中の画像 ID リストを返す。
 
