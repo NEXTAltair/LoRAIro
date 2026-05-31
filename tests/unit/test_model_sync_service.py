@@ -68,10 +68,25 @@ class TestModelSyncResult:
         assert result.total_library_models == 10
         assert result.new_models_registered == 5
         assert result.existing_models_updated == 3
+        assert result.delisted_count == 0  # Issue #589: default 0
         assert len(result.errors) == 0
 
-        expected_summary = "同期完了: ライブラリモデル 10件, 新規登録 5件, 更新 3件, エラー 0件"
+        expected_summary = (
+            "同期完了: ライブラリモデル 10件, 新規登録 5件, 更新 3件, 提供終了 0件, エラー 0件"
+        )
         assert result.summary == expected_summary
+
+    def test_sync_result_with_delisted_count(self):
+        """Issue #589: de-list 件数が summary に反映される。"""
+        result = ModelSyncResult(
+            total_library_models=10,
+            new_models_registered=0,
+            existing_models_updated=0,
+            errors=[],
+            delisted_count=2,
+        )
+        assert result.delisted_count == 2
+        assert "提供終了 2件" in result.summary
 
     def test_failed_sync_result(self):
         """エラー発生時の同期結果"""
@@ -573,3 +588,57 @@ class TestModelSyncServiceEdgeCases:
         # 例外が発生せずに処理されることを確認
         count = model_sync_service.register_new_models_to_db(invalid_models)
         assert count >= 0
+
+
+@pytest.mark.unit
+class TestDelistRemovedModels:
+    """Issue #589: lib discovery から消えた WebAPI モデルの de-list 検証。"""
+
+    @pytest.fixture
+    def model_sync_service(self, test_model_repository, mock_config_service):
+        """ModelSyncService インスタンス（実DB + MockAnnotatorLibrary）。"""
+        return ModelSyncService(db_repository=test_model_repository, config_service=mock_config_service)
+
+    def _stale_metadata(self, litellm_id: str) -> ModelMetadata:
+        return {
+            "name": litellm_id,
+            "provider": "openai",
+            "class_name": None,
+            "litellm_model_id": litellm_id,
+            "model_type": "vision",
+            "model_types": ["multimodal"],
+            "estimated_size_gb": None,
+            "requires_api_key": True,
+            "discontinued_at": None,
+        }
+
+    def test_delist_removed_models_marks_absent_api_model(self, model_sync_service, test_model_repository):
+        """active set に無い WebAPI モデルが de-list され件数が返る。"""
+        # 旧 sync で登録済の stale な WebAPI モデル
+        model_sync_service.register_new_models_to_db(
+            [self._stale_metadata("openai/o4-mini-deep-research-2025-06-26")]
+        )
+        # 現 discovery には gpt-4o のみ残っている想定
+        library_models = [self._stale_metadata("openai/gpt-4o")]
+
+        count = model_sync_service.delist_removed_models(library_models)
+
+        assert count == 1
+        removed = test_model_repository.get_model_by_litellm_id("openai/o4-mini-deep-research-2025-06-26")
+        assert removed is not None and removed.available is False
+
+    def test_sync_available_models_delists_stale_api_model(self, model_sync_service, test_model_repository):
+        """sync_available_models が stale な WebAPI モデルを de-list し result に反映する。"""
+        model_sync_service.register_new_models_to_db(
+            [self._stale_metadata("openai/o4-mini-deep-research-2025-06-26")]
+        )
+
+        result = model_sync_service.sync_available_models()
+
+        assert result.success is True
+        assert result.delisted_count >= 1
+        stale = test_model_repository.get_model_by_litellm_id("openai/o4-mini-deep-research-2025-06-26")
+        assert stale is not None and stale.available is False
+        # MockAnnotatorLibrary に含まれる gpt-4o は active のまま
+        gpt4o = test_model_repository.get_model_by_litellm_id("gpt-4o")
+        assert gpt4o is not None and gpt4o.available is True

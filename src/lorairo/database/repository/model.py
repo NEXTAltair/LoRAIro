@@ -485,6 +485,54 @@ class ModelRepository(BaseRepository):
             logger.error(f"DB Modelオブジェクトの取得中にエラーが発生しました: {e}", exc_info=True)
             raise
 
+    def discontinue_api_models_absent_from(
+        self,
+        active_litellm_model_ids: set[str],
+        discontinued_at: datetime.datetime | None = None,
+    ) -> list[str]:
+        """ライブラリ discovery から消えた WebAPI モデルを discontinued にする (Issue #589)。
+
+        `ModelSyncService` の sync は register/update のみで de-list を行わないため、
+        提供されなくなった WebAPI モデルが `discontinued_at=NULL` のまま `available=True`
+        で UI に残存する。本メソッドは `active_litellm_model_ids` に含まれない WebAPI
+        モデルを soft-delete (discontinued_at 設定) する。
+
+        対象は `requires_api_key=True` の WebAPI モデルのみ。ローカル ML モデル
+        (`requires_api_key=False`) と MANUAL_EDIT sentinel は対象外。既に discontinued な
+        行は再書き込みしない (元の timestamp を保持し、冪等)。再出現時の reactivation は
+        `update_model` 経路 (`discontinued_at=None`) が担う。
+
+        Args:
+            active_litellm_model_ids: 現在 lib discovery に存在する litellm_model_id 集合。
+            discontinued_at: 設定する終了時刻。None なら現在 UTC 時刻。
+
+        Returns:
+            新たに de-list した litellm_model_id のリスト。
+        """
+        now = discontinued_at or datetime.datetime.now(datetime.UTC)
+        with self.session_factory() as session:
+            try:
+                stmt = select(Model).where(
+                    Model.requires_api_key.is_(True),
+                    Model.litellm_model_id.is_not(None),
+                    Model.discontinued_at.is_(None),
+                )
+                delisted: list[str] = []
+                for model in session.execute(stmt).scalars().all():
+                    if model.litellm_model_id in active_litellm_model_ids:
+                        continue
+                    if model.litellm_model_id == MANUAL_EDIT_LITELLM_ID:
+                        continue
+                    model.discontinued_at = now
+                    delisted.append(model.litellm_model_id)
+                if delisted:
+                    session.commit()
+                    logger.info(f"提供終了 WebAPI モデルを de-list: {len(delisted)}件")
+                return delisted
+            except SQLAlchemyError as e:
+                logger.error(f"WebAPI モデルの de-list 中にエラーが発生しました: {e}", exc_info=True)
+                raise
+
     def get_models_by_type(self, model_type_name: str) -> list[dict[str, Any]]:
         """指定されたタイプ名を持つモデルの情報を取得します。
 

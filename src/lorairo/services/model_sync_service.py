@@ -47,6 +47,7 @@ class ModelSyncResult:
     new_models_registered: int
     existing_models_updated: int
     errors: list[str]
+    delisted_count: int = 0  # Issue #589: lib discovery から消えて de-list した WebAPI モデル数
 
     @property
     def success(self) -> bool:
@@ -60,6 +61,7 @@ class ModelSyncResult:
             f"同期完了: ライブラリモデル {self.total_library_models}件, "
             f"新規登録 {self.new_models_registered}件, "
             f"更新 {self.existing_models_updated}件, "
+            f"提供終了 {self.delisted_count}件, "
             f"エラー {len(self.errors)}件"
         )
 
@@ -273,11 +275,15 @@ class ModelSyncService:
             # 3. 既存モデル更新
             update_count = self.update_existing_models(library_models)
 
+            # 4. de-list: lib discovery から消えた WebAPI モデルを discontinued にする (#589)
+            delisted_count = self.delist_removed_models(library_models)
+
             result = ModelSyncResult(
                 total_library_models=len(library_models),
                 new_models_registered=new_count,
                 existing_models_updated=update_count,
                 errors=[],
+                delisted_count=delisted_count,
             )
 
             logger.info(f"アノテーションモデル同期完了: {result.summary}")
@@ -435,6 +441,26 @@ class ModelSyncService:
 
         logger.info(f"既存アノテーションモデル更新完了: {update_count}件")
         return update_count
+
+    def delist_removed_models(self, library_models: list[ModelMetadata]) -> int:
+        """lib discovery から消えた WebAPI モデルを DB 上で discontinued にする (Issue #589)。
+
+        sync は register/update のみで de-list を行わないため、提供されなくなった WebAPI
+        モデルが `discontinued_at=NULL` のまま UI に残存する。現在の lib discovery に
+        存在しない WebAPI モデルを soft-delete する。ローカル ML モデルと MANUAL_EDIT
+        sentinel は repository 側で対象外。
+
+        Args:
+            library_models: 現在 lib discovery から取得した ModelMetadata リスト。
+
+        Returns:
+            de-list した WebAPI モデル数。
+        """
+        active_litellm_model_ids = {model["litellm_model_id"] for model in library_models}
+        delisted = self.db_repository.discontinue_api_models_absent_from(active_litellm_model_ids)
+        if delisted:
+            logger.info(f"提供終了 WebAPI モデルを de-list: {len(delisted)}件 ({delisted})")
+        return len(delisted)
 
     def get_library_models_summary(self) -> dict[str, Any]:
         """ライブラリモデルのサマリー情報取得

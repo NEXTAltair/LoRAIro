@@ -189,3 +189,61 @@ class TestGetOrCreateManualEditModel:
             session.commit()
 
         assert first_id == second_id
+
+
+@pytest.mark.unit
+class TestDiscontinueApiModelsAbsentFrom:
+    """`discontinue_api_models_absent_from` の de-list 動作 (Issue #589)。"""
+
+    def _insert(self, repo: ModelRepository, litellm_id: str, *, requires_api_key: bool) -> int:
+        return repo.insert_model(
+            name=litellm_id,
+            provider="openai" if requires_api_key else None,
+            model_types=["multimodal"] if requires_api_key else ["tags"],
+            litellm_model_id=litellm_id,
+            requires_api_key=requires_api_key,
+        )
+
+    def test_delists_api_model_absent_from_active_set(self, model_repository: ModelRepository) -> None:
+        """active set に無い WebAPI モデルは discontinued になる。"""
+        self._insert(model_repository, "openai/keep", requires_api_key=True)
+        self._insert(model_repository, "openai/o4-mini-deep-research-2025-06-26", requires_api_key=True)
+
+        delisted = model_repository.discontinue_api_models_absent_from({"openai/keep"})
+
+        assert delisted == ["openai/o4-mini-deep-research-2025-06-26"]
+        kept = model_repository.get_model_by_litellm_id("openai/keep")
+        removed = model_repository.get_model_by_litellm_id("openai/o4-mini-deep-research-2025-06-26")
+        assert kept is not None and kept.available is True
+        assert removed is not None and removed.available is False
+
+    def test_local_ml_models_are_never_delisted(self, model_repository: ModelRepository) -> None:
+        """requires_api_key=False のローカル ML モデルは active set 外でも対象外。"""
+        self._insert(model_repository, "wd-vit-tagger-v3", requires_api_key=False)
+
+        delisted = model_repository.discontinue_api_models_absent_from(set())
+
+        assert delisted == []
+        local = model_repository.get_model_by_litellm_id("wd-vit-tagger-v3")
+        assert local is not None and local.available is True
+
+    def test_manual_edit_sentinel_is_never_delisted(self, model_repository: ModelRepository) -> None:
+        """MANUAL_EDIT sentinel は active set 外でも de-list しない。"""
+        with model_repository.session_factory() as session:
+            ModelRepository._get_or_create_manual_edit_model(session)
+            session.commit()
+
+        delisted = model_repository.discontinue_api_models_absent_from(set())
+
+        assert MANUAL_EDIT_LITELLM_ID not in delisted
+        sentinel = model_repository.get_model_by_litellm_id(MANUAL_EDIT_LITELLM_ID)
+        assert sentinel is not None and sentinel.available is True
+
+    def test_already_discontinued_is_not_rewritten(self, model_repository: ModelRepository) -> None:
+        """既に discontinued な行は再 de-list しない (idempotent)。"""
+        self._insert(model_repository, "openai/gone", requires_api_key=True)
+        first = model_repository.discontinue_api_models_absent_from(set())
+        assert first == ["openai/gone"]
+
+        second = model_repository.discontinue_api_models_absent_from(set())
+        assert second == []
