@@ -245,15 +245,17 @@ class ProviderBatchJobWidget(QWidget, Ui_ProviderBatchJobWidget):
             finally:
                 self._set_submit_button_busy(False)
             # Issue #571: submit_images 成功 = provider job 作成済み。後続の表示更新が
-            # 失敗しても送信成功を覆さないよう、送信済み対象の除外と成功表示を先に確定する。
+            # 失敗しても送信成功を覆さないよう、送信済み対象の除外を先に確定する。
             # image_ids は submit 直前の snapshot なので、送信中に追加された画像は残す。
             self._staging_widget.remove_image_ids(image_ids)
-            self.labelStatus.setText(f"バッチAPIジョブ {job_id} を送信しました")
             try:
                 self.refresh_jobs(update_label=False)
                 self.select_job(job_id)
             except Exception as e:
                 logger.warning(f"バッチAPI 送信後の一覧更新に失敗しました: {e}")
+            # refresh_jobs は list 失敗時に labelStatus を上書きする (例外は内部で握る) ため、
+            # 送信成功表示は表示更新の後に最後に確定する。
+            self.labelStatus.setText(f"バッチAPIジョブ {job_id} を送信しました")
         except (ProviderBatchError, ValueError) as e:
             QMessageBox.warning(self, "バッチAPI", str(e))
             self.labelStatus.setText(str(e))

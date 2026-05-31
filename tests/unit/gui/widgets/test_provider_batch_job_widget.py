@@ -336,6 +336,23 @@ def test_submit_success_keeps_status_when_post_refresh_fails(widget, dependencie
 
 @pytest.mark.unit
 @pytest.mark.gui
+def test_submit_success_status_survives_refresh_jobs_failure(widget, dependencies, monkeypatch):
+    # Issue #571 review: refresh_jobs が list 失敗を内部で握って labelStatus を上書きしても
+    # 送信成功表示が残ること。
+    workflow, repository, model_source, model_repository = dependencies
+    widget.set_dependencies(workflow, repository, model_source, model_repository)
+    widget._model_selection_widget._selected_model = "anthropic/claude-3-5-sonnet"
+    monkeypatch.setattr(widget._staging_widget, "get_image_ids", lambda: [1, 2])
+    monkeypatch.setattr(widget._staging_widget, "remove_image_ids", MagicMock())
+    repository.list_provider_batch_jobs.side_effect = RuntimeError("job list boom")
+
+    widget.submit_job()
+
+    assert widget.labelStatus.text() == "バッチAPIジョブ 42 を送信しました"
+
+
+@pytest.mark.unit
+@pytest.mark.gui
 def test_submit_error_keeps_staging(widget, dependencies, monkeypatch):
     # Issue #571: 失敗時はステージングを残し、ユーザーが再試行できるようにする。
     workflow, repository, model_source, model_repository = dependencies
