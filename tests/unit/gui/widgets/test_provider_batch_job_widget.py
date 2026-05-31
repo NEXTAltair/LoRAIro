@@ -301,6 +301,62 @@ def test_submit_button_recovers_after_unexpected_submit_error(widget, dependenci
 
 @pytest.mark.unit
 @pytest.mark.gui
+def test_submit_success_clears_staging(widget, dependencies, monkeypatch):
+    # Issue #571: 送信成功で共有ステージングを空にし、同一対象の再送信を構造的に防ぐ。
+    workflow, repository, model_source, model_repository = dependencies
+    widget.set_dependencies(workflow, repository, model_source, model_repository)
+    widget._model_selection_widget._selected_model = "anthropic/claude-3-5-sonnet"
+    monkeypatch.setattr(widget._staging_widget, "get_image_ids", lambda: [1, 2])
+    clear = MagicMock()
+    monkeypatch.setattr(widget._staging_widget, "clear", clear)
+
+    widget.submit_job()
+
+    clear.assert_called_once_with()
+    assert "バッチAPIジョブ 42 を送信しました" in widget.labelStatus.text()
+
+
+@pytest.mark.unit
+@pytest.mark.gui
+def test_submit_error_keeps_staging(widget, dependencies, monkeypatch):
+    # Issue #571: 失敗時はステージングを残し、ユーザーが再試行できるようにする。
+    workflow, repository, model_source, model_repository = dependencies
+    widget.set_dependencies(workflow, repository, model_source, model_repository)
+    widget._model_selection_widget._selected_model = "anthropic/claude-3-5-sonnet"
+    monkeypatch.setattr(widget._staging_widget, "get_image_ids", lambda: [1, 2])
+    monkeypatch.setattr(widget_module.QMessageBox, "warning", MagicMock())
+    clear = MagicMock()
+    monkeypatch.setattr(widget._staging_widget, "clear", clear)
+    workflow.submit_images.side_effect = widget_module.ProviderBatchError("provider rejected")
+
+    widget.submit_job()
+
+    clear.assert_not_called()
+
+
+@pytest.mark.unit
+@pytest.mark.gui
+def test_submit_job_reentrancy_guard_submits_once(widget, dependencies, monkeypatch):
+    # Issue #571: 同期 submit 中の processEvents 経由再入で二重送信されないこと。
+    workflow, repository, model_source, model_repository = dependencies
+    widget.set_dependencies(workflow, repository, model_source, model_repository)
+    widget._model_selection_widget._selected_model = "anthropic/claude-3-5-sonnet"
+    monkeypatch.setattr(widget._staging_widget, "get_image_ids", lambda: [1, 2])
+
+    def reentrant_submit(**_kwargs):
+        # 1 回目の submit 処理中にキュー済みクリックが再配信された状況を模す。
+        widget.submit_job()
+        return 42
+
+    workflow.submit_images.side_effect = reentrant_submit
+
+    widget.submit_job()
+
+    assert workflow.submit_images.call_count == 1
+
+
+@pytest.mark.unit
+@pytest.mark.gui
 def test_submit_job_rating_preflight_uses_moderations_endpoint(widget, dependencies, monkeypatch):
     workflow, repository, model_source, model_repository = dependencies
     widget.set_dependencies(workflow, repository, model_source, model_repository)

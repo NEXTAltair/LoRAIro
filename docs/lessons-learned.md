@@ -22,6 +22,7 @@ LoRAIro 開発で得られた教訓。バグパターン・設計ミス・解決
 
 - **UIファイル生成を忘れると連鎖エラー**: `.ui` ファイル変更後に `uv run python scripts/generate_ui.py` を実行しないと、`MainWindow_ui.py` が古いままで `filterSearchPanel` 等のウィジェットが見つからず起動失敗する。
 - **Signalの二重発火**: Worker完了Signalを複数箇所で接続すると同一イベントが重複処理される。接続は1箇所に統一し、Worker生成時に接続する。
+- **同期処理ボタンの再入と送信後の状態クリア** (Issue #571): `_set_submit_button_busy()` 内の `QApplication.processEvents()` はキュー済みクリックを再配信するため、送信ボタン無効化だけでは同期 submit 中の再入を防げない。`submit_job()` 冒頭の `_submit_in_progress` 再入フラグで塞ぐ。加えて Provider Batch タブは `connect_shared_staging()` で通常アノテーションタブと `OrderedDict` 実体を共有するため、送信成功時の `staging.clear()` は両タブの staging を同時に空にする（実体共有による意図的挙動。送信済み対象の再送信を構造的に防ぐ）。
 
 ## Database / SQLAlchemy
 
