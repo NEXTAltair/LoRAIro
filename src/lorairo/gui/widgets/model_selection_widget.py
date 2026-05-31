@@ -92,9 +92,8 @@ if not __name__ == "__main__":
         # シグナル定義 (Issue #245: selected_litellm_model_ids を emit)
         model_selection_changed = Signal(list)  # selected_litellm_model_ids
         selection_count_changed = Signal(int, int)  # selected_count, total_count
-        WEB_API_BATCH_PLACEHOLDER = (
-            "Web APIモデルはローカルモデル絞り込みの対象外です。"
-            "開始時のモデル選択ダイアログで使用モデルを選択します。"
+        WEB_API_UNAVAILABLE_PLACEHOLDER = (
+            "利用可能なWeb APIモデルがありません。APIキー設定とモデルregistry同期状態を確認してください。"
         )
 
         # UI elements type hints (from Ui_ModelSelectionWidget via multi-inheritance)
@@ -343,30 +342,27 @@ if not __name__ == "__main__":
                 self._update_batch_capable_display()
                 return
 
-            # Issue #584: 描画対象 (placeholder 種別 + options) を _clear より前に計算し、
-            # 前回と同一なら全消し全再生成をスキップする (起動時の冗長 rebuild を吸収)。
-            show_web_api_placeholder = self._should_show_web_api_batch_placeholder()
-            if show_web_api_placeholder:
-                options: list[DisplayModelOption] = []
+            # Issue #584: 描画対象を _clear より前に計算し、前回と同一なら
+            # 全消し全再生成をスキップする (起動時の冗長 rebuild を吸収)。
+            available_providers = self._build_available_providers()
+            route_preference = self._get_route_preference()
+            # フィルタリング実行 -> DisplayModelOption 群を構築
+            if self.mode == "simple":
+                try:
+                    recommended_models = self.model_selection_service.get_recommended_models()
+                except Exception as e:
+                    logger.error(f"Failed to get recommended models: {e}")
+                    recommended_models = [m for m in self.all_models if m.is_recommended]
+                options = build_display_options(
+                    recommended_models,
+                    available_providers=available_providers,
+                    preference=route_preference,
+                )
             else:
-                available_providers = self._build_available_providers()
-                route_preference = self._get_route_preference()
-                # フィルタリング実行 -> DisplayModelOption 群を構築
-                if self.mode == "simple":
-                    try:
-                        recommended_models = self.model_selection_service.get_recommended_models()
-                    except Exception as e:
-                        logger.error(f"Failed to get recommended models: {e}")
-                        recommended_models = [m for m in self.all_models if m.is_recommended]
-                    options = build_display_options(
-                        recommended_models,
-                        available_providers=available_providers,
-                        preference=route_preference,
-                    )
-                else:
-                    options = self._apply_advanced_filters(available_providers, route_preference)
+                options = self._apply_advanced_filters(available_providers, route_preference)
 
-            signature = self._compute_render_signature(options, show_web_api_placeholder)
+            options = self._filter_unavailable_web_api_options(options)
+            signature = self._compute_render_signature(options, False)
             if signature == self._last_render_signature and self.model_checkbox_widgets:
                 # 同一フィルタ結果。既存ウィジェット (選択状態含む) をそのまま温存する
                 logger.trace("モデル表示は前回と同一のため再構築をスキップ")
@@ -377,17 +373,12 @@ if not __name__ == "__main__":
             self.filtered_options = options
             self.filtered_models = [opt.preferred.model for opt in options]
 
-            if show_web_api_placeholder:
-                self.placeholderLabel.setText(self.WEB_API_BATCH_PLACEHOLDER)
-                self.placeholderLabel.setVisible(True)
-                self._update_selection_count()
-                self._last_render_signature = signature
-                return
-
             self.placeholderLabel.setText(self._default_placeholder_text)
 
             # フィルタされたモデルがない場合
             if not options:
+                if self.current_execution_env == "APIモデルのみ":
+                    self.placeholderLabel.setText(self.WEB_API_UNAVAILABLE_PLACEHOLDER)
                 self.placeholderLabel.setVisible(True)
                 self._update_selection_count()
                 self._last_render_signature = signature
@@ -518,9 +509,13 @@ if not __name__ == "__main__":
 
             return filtered
 
-        def _should_show_web_api_batch_placeholder(self) -> bool:
-            """Batch annotation の Web API only ではローカルモデル一覧を表示しない。"""
-            return self.annotation_only_filtering and self.current_execution_env == "APIモデルのみ"
+        def _filter_unavailable_web_api_options(
+            self, options: list[DisplayModelOption]
+        ) -> list[DisplayModelOption]:
+            """Web API only 表示では API key 未設定などで実行不能な候補を除外する。"""
+            if self.current_execution_env != "APIモデルのみ":
+                return options
+            return [option for option in options if option.available]
 
         def _group_options_by_provider(
             self, options: list[DisplayModelOption]
