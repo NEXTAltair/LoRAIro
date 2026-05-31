@@ -9,6 +9,7 @@ batch-capable 判定ロジック自体は ModelSelectionWidget / provider_batch_
 from __future__ import annotations
 
 from datetime import UTC, datetime
+from threading import Event
 from types import SimpleNamespace
 from unittest.mock import MagicMock
 
@@ -136,6 +137,11 @@ def dependencies():
     return workflow, repository, model_source, model_repository
 
 
+def _submit_and_wait(widget, qtbot) -> None:
+    with qtbot.waitSignal(widget.submit_completed, timeout=3000):
+        widget.submit_job()
+
+
 @pytest.mark.unit
 @pytest.mark.gui
 def test_initial_ui_created(widget):
@@ -212,14 +218,14 @@ def test_target_label_updates_on_staged_images_changed(widget, monkeypatch):
 
 @pytest.mark.unit
 @pytest.mark.gui
-def test_submit_job_resolves_annotation_params(widget, dependencies, monkeypatch):
+def test_submit_job_resolves_annotation_params(widget, dependencies, monkeypatch, qtbot):
     workflow, repository, model_source, model_repository = dependencies
     widget.set_dependencies(workflow, repository, model_source, model_repository)
     widget._model_selection_widget._selected_model = "anthropic/claude-3-5-sonnet"
     monkeypatch.setattr(widget._staging_widget, "get_image_ids", lambda: [1, 2])
     widget.lineEditDescription.setText("nightly")
 
-    widget.submit_job()
+    _submit_and_wait(widget, qtbot)
 
     workflow.submit_images.assert_called_once_with(
         provider="anthropic",
@@ -236,23 +242,31 @@ def test_submit_job_resolves_annotation_params(widget, dependencies, monkeypatch
 
 @pytest.mark.unit
 @pytest.mark.gui
-def test_submit_button_shows_busy_state_only_while_submitting(widget, dependencies, monkeypatch):
+def test_submit_button_shows_busy_state_only_while_submitting(widget, dependencies, monkeypatch, qtbot):
     workflow, repository, model_source, model_repository = dependencies
     widget.set_dependencies(workflow, repository, model_source, model_repository)
     widget._model_selection_widget._selected_model = "anthropic/claude-3-5-sonnet"
     monkeypatch.setattr(widget._staging_widget, "get_image_ids", lambda: [1, 2])
     default_style = widget.buttonSubmit.styleSheet()
+    entered = Event()
+    release = Event()
 
     def submit_side_effect(**_kwargs):
-        assert widget.buttonSubmit.text() == "送信中..."
-        assert widget.buttonSubmit.isEnabled() is False
-        assert "background-color" in widget.buttonSubmit.styleSheet()
+        entered.set()
+        release.wait(timeout=2)
         return 42
 
     workflow.submit_images.side_effect = submit_side_effect
 
     widget.submit_job()
+    qtbot.waitUntil(entered.is_set, timeout=1000)
 
+    assert widget._submit_in_progress is True
+    assert widget.buttonSubmit.text() == "送信中..."
+    assert widget.buttonSubmit.isEnabled() is False
+    assert "background-color" in widget.buttonSubmit.styleSheet()
+    with qtbot.waitSignal(widget.submit_completed, timeout=3000):
+        release.set()
     assert widget.buttonSubmit.text() == "送信"
     assert widget.buttonSubmit.isEnabled() is True
     assert widget.buttonSubmit.styleSheet() == default_style
@@ -261,7 +275,7 @@ def test_submit_button_shows_busy_state_only_while_submitting(widget, dependenci
 
 @pytest.mark.unit
 @pytest.mark.gui
-def test_submit_button_recovers_after_provider_error(widget, dependencies, monkeypatch):
+def test_submit_button_recovers_after_provider_error(widget, dependencies, monkeypatch, qtbot):
     workflow, repository, model_source, model_repository = dependencies
     widget.set_dependencies(workflow, repository, model_source, model_repository)
     widget._model_selection_widget._selected_model = "anthropic/claude-3-5-sonnet"
@@ -270,7 +284,7 @@ def test_submit_button_recovers_after_provider_error(widget, dependencies, monke
     monkeypatch.setattr(widget_module.QMessageBox, "warning", warning)
     workflow.submit_images.side_effect = widget_module.ProviderBatchError("provider rejected")
 
-    widget.submit_job()
+    _submit_and_wait(widget, qtbot)
 
     warning.assert_called_once()
     assert widget.buttonSubmit.text() == "送信"
@@ -281,7 +295,7 @@ def test_submit_button_recovers_after_provider_error(widget, dependencies, monke
 
 @pytest.mark.unit
 @pytest.mark.gui
-def test_submit_button_recovers_after_unexpected_submit_error(widget, dependencies, monkeypatch):
+def test_submit_button_recovers_after_unexpected_submit_error(widget, dependencies, monkeypatch, qtbot):
     workflow, repository, model_source, model_repository = dependencies
     widget.set_dependencies(workflow, repository, model_source, model_repository)
     widget._model_selection_widget._selected_model = "anthropic/claude-3-5-sonnet"
@@ -290,7 +304,7 @@ def test_submit_button_recovers_after_unexpected_submit_error(widget, dependenci
     monkeypatch.setattr(widget_module.QMessageBox, "critical", critical)
     workflow.submit_images.side_effect = RuntimeError("adapter exploded")
 
-    widget.submit_job()
+    _submit_and_wait(widget, qtbot)
 
     critical.assert_called_once()
     assert widget.buttonSubmit.text() == "送信"
@@ -301,7 +315,7 @@ def test_submit_button_recovers_after_unexpected_submit_error(widget, dependenci
 
 @pytest.mark.unit
 @pytest.mark.gui
-def test_submit_success_removes_submitted_images_from_staging(widget, dependencies, monkeypatch):
+def test_submit_success_removes_submitted_images_from_staging(widget, dependencies, monkeypatch, qtbot):
     # Issue #571: 送信成功で送信済み対象のみをステージングから除外し、再送信を構造的に防ぐ。
     workflow, repository, model_source, model_repository = dependencies
     widget.set_dependencies(workflow, repository, model_source, model_repository)
@@ -310,7 +324,7 @@ def test_submit_success_removes_submitted_images_from_staging(widget, dependenci
     remove = MagicMock()
     monkeypatch.setattr(widget._staging_widget, "remove_image_ids", remove)
 
-    widget.submit_job()
+    _submit_and_wait(widget, qtbot)
 
     remove.assert_called_once_with([1, 2])
     assert "バッチAPIジョブ 42 を送信しました" in widget.labelStatus.text()
@@ -318,7 +332,7 @@ def test_submit_success_removes_submitted_images_from_staging(widget, dependenci
 
 @pytest.mark.unit
 @pytest.mark.gui
-def test_submit_success_keeps_status_when_post_refresh_fails(widget, dependencies, monkeypatch):
+def test_submit_success_keeps_status_when_post_refresh_fails(widget, dependencies, monkeypatch, qtbot):
     # Issue #571 review: submit 成功後の一覧更新が失敗しても送信成功を覆さず除外を確定する。
     workflow, repository, model_source, model_repository = dependencies
     widget.set_dependencies(workflow, repository, model_source, model_repository)
@@ -328,7 +342,7 @@ def test_submit_success_keeps_status_when_post_refresh_fails(widget, dependencie
     monkeypatch.setattr(widget._staging_widget, "remove_image_ids", remove)
     monkeypatch.setattr(widget, "select_job", MagicMock(side_effect=RuntimeError("detail boom")))
 
-    widget.submit_job()
+    _submit_and_wait(widget, qtbot)
 
     remove.assert_called_once_with([1, 2])
     assert "バッチAPIジョブ 42 を送信しました" in widget.labelStatus.text()
@@ -336,7 +350,7 @@ def test_submit_success_keeps_status_when_post_refresh_fails(widget, dependencie
 
 @pytest.mark.unit
 @pytest.mark.gui
-def test_submit_success_status_survives_refresh_jobs_failure(widget, dependencies, monkeypatch):
+def test_submit_success_status_survives_refresh_jobs_failure(widget, dependencies, monkeypatch, qtbot):
     # Issue #571 review: refresh_jobs が list 失敗を内部で握って labelStatus を上書きしても
     # 送信成功表示が残ること。
     workflow, repository, model_source, model_repository = dependencies
@@ -346,14 +360,14 @@ def test_submit_success_status_survives_refresh_jobs_failure(widget, dependencie
     monkeypatch.setattr(widget._staging_widget, "remove_image_ids", MagicMock())
     repository.list_provider_batch_jobs.side_effect = RuntimeError("job list boom")
 
-    widget.submit_job()
+    _submit_and_wait(widget, qtbot)
 
     assert widget.labelStatus.text() == "バッチAPIジョブ 42 を送信しました"
 
 
 @pytest.mark.unit
 @pytest.mark.gui
-def test_submit_error_keeps_staging(widget, dependencies, monkeypatch):
+def test_submit_error_keeps_staging(widget, dependencies, monkeypatch, qtbot):
     # Issue #571: 失敗時はステージングを残し、ユーザーが再試行できるようにする。
     workflow, repository, model_source, model_repository = dependencies
     widget.set_dependencies(workflow, repository, model_source, model_repository)
@@ -364,42 +378,48 @@ def test_submit_error_keeps_staging(widget, dependencies, monkeypatch):
     monkeypatch.setattr(widget._staging_widget, "remove_image_ids", remove)
     workflow.submit_images.side_effect = widget_module.ProviderBatchError("provider rejected")
 
-    widget.submit_job()
+    _submit_and_wait(widget, qtbot)
 
     remove.assert_not_called()
 
 
 @pytest.mark.unit
 @pytest.mark.gui
-def test_submit_job_reentrancy_guard_submits_once(widget, dependencies, monkeypatch):
-    # Issue #571: 同期 submit 中の processEvents 経由再入で二重送信されないこと。
+def test_submit_job_reentrancy_guard_submits_once(widget, dependencies, monkeypatch, qtbot):
+    # Issue #571: submit 中の再入で二重送信されないこと。
     workflow, repository, model_source, model_repository = dependencies
     widget.set_dependencies(workflow, repository, model_source, model_repository)
     widget._model_selection_widget._selected_model = "anthropic/claude-3-5-sonnet"
     monkeypatch.setattr(widget._staging_widget, "get_image_ids", lambda: [1, 2])
+    entered = Event()
+    release = Event()
 
-    def reentrant_submit(**_kwargs):
-        # 1 回目の submit 処理中にキュー済みクリックが再配信された状況を模す。
-        widget.submit_job()
+    def submit_side_effect(**_kwargs):
+        entered.set()
+        release.wait(timeout=2)
         return 42
 
-    workflow.submit_images.side_effect = reentrant_submit
+    workflow.submit_images.side_effect = submit_side_effect
 
     widget.submit_job()
+    qtbot.waitUntil(entered.is_set, timeout=1000)
+    widget.submit_job()
+    with qtbot.waitSignal(widget.submit_completed, timeout=3000):
+        release.set()
 
     assert workflow.submit_images.call_count == 1
 
 
 @pytest.mark.unit
 @pytest.mark.gui
-def test_submit_job_rating_preflight_uses_moderations_endpoint(widget, dependencies, monkeypatch):
+def test_submit_job_rating_preflight_uses_moderations_endpoint(widget, dependencies, monkeypatch, qtbot):
     workflow, repository, model_source, model_repository = dependencies
     widget.set_dependencies(workflow, repository, model_source, model_repository)
     widget.comboBoxTaskType.setCurrentText("rating_preflight")
     widget._model_selection_widget._selected_model = "openai/omni-moderation-latest"
     monkeypatch.setattr(widget._staging_widget, "get_image_ids", lambda: [1, 2])
 
-    widget.submit_job()
+    _submit_and_wait(widget, qtbot)
 
     workflow.submit_images.assert_called_once_with(
         provider="openai",
