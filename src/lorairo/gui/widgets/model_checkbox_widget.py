@@ -117,8 +117,6 @@ class ModelCheckboxWidget(QWidget, Ui_ModelCheckboxWidget):
         self._setup_model_display()
         self._setup_connections()
 
-        logger.debug(f"ModelCheckboxWidget initialized for model: {model_info.name}")
-
     def _setup_model_display(self) -> None:
         """モデル情報をUIに表示
 
@@ -156,8 +154,6 @@ class ModelCheckboxWidget(QWidget, Ui_ModelCheckboxWidget):
                 capabilities_text += "..."
             self.labelCapabilities.setText(capabilities_text)
 
-            logger.debug(f"Model display setup completed for {self.model_info.name}")
-
         except Exception as e:
             logger.error(f"Error setting up model display for {self.model_info.name}: {e}", exc_info=True)
 
@@ -183,8 +179,6 @@ class ModelCheckboxWidget(QWidget, Ui_ModelCheckboxWidget):
             # スタイルシート適用
             self.labelProvider.setStyleSheet(style)
 
-            logger.debug(f"Applied style for provider: {provider_key}")
-
         except Exception as e:
             logger.error(f"Error applying provider styling: {e}", exc_info=True)
 
@@ -192,7 +186,6 @@ class ModelCheckboxWidget(QWidget, Ui_ModelCheckboxWidget):
         """シグナル・スロット接続設定"""
         # チェックボックス状態変更時の処理
         self.checkboxModel.stateChanged.connect(self._on_checkbox_changed)
-        logger.debug("Signal connections established")
 
     @Slot(int)
     def _on_checkbox_changed(self, state: int) -> None:
@@ -202,7 +195,7 @@ class ModelCheckboxWidget(QWidget, Ui_ModelCheckboxWidget):
             is_selected = state == Qt.CheckState.Checked.value
             self.selection_changed.emit(self.model_info.litellm_model_id, is_selected)
 
-            logger.debug(f"Model selection changed: {self.model_info.litellm_model_id} = {is_selected}")
+            logger.trace(f"Model selection changed: {self.model_info.litellm_model_id} = {is_selected}")
 
         except Exception as e:
             logger.error(f"Error handling checkbox change for {self.model_info.litellm_model_id}: {e}")
@@ -215,7 +208,7 @@ class ModelCheckboxWidget(QWidget, Ui_ModelCheckboxWidget):
             self.checkboxModel.setChecked(selected)
             self.checkboxModel.blockSignals(False)
 
-            logger.debug(f"Set {self.model_info.name} selection to: {selected}")
+            logger.trace(f"Set {self.model_info.name} selection to: {selected}")
 
         except Exception as e:
             logger.error(f"Error setting selection for {self.model_info.name}: {e}")

@@ -5,20 +5,37 @@ LoRAIroプロジェクトのログレベル指針。INFOレベルのログは「
 ## 核心ルール
 
 **INFOレベルでは1件ごとのログを出さない。** バッチ処理のサマリーのみINFOで出力する。
+**DEBUGは「デバッグ時に読める量」を保つ。** 1操作で数百件以上出る per-item の大量詳細はTRACEへ回す (ADR 0047)。
 
 ## ログレベル定義
 
-### DEBUG - 開発者向け診断情報
-- 個別アイテムの処理詳細（1件ごとのDB操作、ファイル保存、重複検出）
-- ループ内の変数値、条件分岐の判定結果
-- 関数の入出力の詳細
+### TRACE - per-item firehose (既定では抑制)
+loguru の TRACE (level.no=5、DEBUG より下位)。`config/lorairo.toml` の `[log] level = "TRACE"`
+または `[log.levels]` でモジュール別に明示有効化したときのみ出力される。1操作で数百〜数千件
+出るような per-item 詳細を置く。通常のデバッグ (`level = "DEBUG"`) では埋もれないよう抑制される。
 
 ```python
-# 正しい: 個別アイテムはDEBUG
+# 正しい: 1操作で大量に出る per-item 詳細は TRACE
+logger.trace(f"パス解決: {stored_path} -> {resolved}")          # 画像ごと
+logger.trace(f"Formatted annotations: tags={n}, ...")          # 画像ごと
+logger.trace(f"  モデル読込: name={model.name}, ...")           # モデルごと (211件)
+logger.trace(f"Model selection changed: {model_id} = {state}")  # チェックボックスごと
+```
+
+### DEBUG - 開発者向け診断情報 (操作・コンポーネント単位)
+- 操作単位の処理詳細・分岐結果・関数の入出力 (1操作で高々十数件に収まるもの)
+- 1選択イベント / 1ページ描画など、ユーザー操作単位の診断
+- **1操作で数百件以上に膨らむ per-item ログは DEBUG ではなく TRACE に置く**
+
+```python
+# 正しい: 操作単位は DEBUG
 logger.debug(f"画像をDBに追加: ID={image_id}")
-logger.debug(f"処理済み画像を保存: {output_path}")
 logger.debug(f"重複検出: pHash一致 ID={existing_id}")
-logger.debug(f"タグを追加: {filename} - {count}個")
+
+# 禁止: オブジェクト生成のたびに出る初期化ログを DEBUG で出さない (削除する)
+logger.debug(f"ModelCheckboxWidget initialized for model: {name}")  # widget 生成ごと → 削除
+# 禁止: 正常系を毎回確認するログ (異常系のみ残す)
+logger.debug(f"画像ID {id} を発見（正常な状態）")  # → 削除、見つからない時だけ残す
 ```
 
 ### INFO - 運用者向け操作記録

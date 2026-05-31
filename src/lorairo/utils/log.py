@@ -29,6 +29,8 @@ if TYPE_CHECKING:
 LOG_FORMAT = "{time:YYYY-MM-DD HH:mm:ss.SSS} | {level: <8} | {name}:{function} - {message}"
 
 # 標準ログレベル名から数値へのマッピング
+# TRACE は標準 logging に存在しないが loguru は level.no=5 で提供する per-item firehose 用レベル。
+# config の [log] level / [log.levels] で "TRACE" を指定可能にするため明示登録する (ADR 0047)。
 LEVEL_NAME_TO_NO: dict[str, int] = {
     "CRITICAL": logging.CRITICAL,
     "FATAL": logging.FATAL,  # FATAL は CRITICAL のエイリアス
@@ -37,6 +39,7 @@ LEVEL_NAME_TO_NO: dict[str, int] = {
     "WARNING": logging.WARNING,
     "INFO": logging.INFO,
     "DEBUG": logging.DEBUG,
+    "TRACE": 5,  # loguru TRACE level (per-item 大量詳細)。DEBUG(10) より下位
     "NOTSET": logging.NOTSET,
 }
 

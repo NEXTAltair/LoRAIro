@@ -10,6 +10,18 @@ from unittest.mock import patch
 import pytest
 
 
+@pytest.fixture(autouse=True)
+def reset_resolve_cache():
+    """各テスト前後で resolve_stored_path のモジュールキャッシュをリセットする（Issue #584 / D3）。"""
+    import lorairo.database.db_core as db_core
+
+    db_core._resolve_cache.clear()
+    db_core._resolve_cache_root = None
+    yield
+    db_core._resolve_cache.clear()
+    db_core._resolve_cache_root = None
+
+
 @pytest.fixture
 def mock_project_root(tmp_path: Path):
     """テスト用のプロジェクトルートを作成する。"""
@@ -100,6 +112,43 @@ class TestResolveStoredPath:
 
         expected = mock_project_root / "image_dataset" / "512" / "test_512.png"
         assert result == expected
+
+    def test_cache_hit_returns_same_result(self, mock_project_root: Path) -> None:
+        """同一 (project_root, stored_path) の2回目はキャッシュから返る（Issue #584 / D3）。"""
+        import lorairo.database.db_core as db_core
+
+        stored = "image_dataset/original_images/2025/07/22/2745.png"
+        with patch("lorairo.database.db_core.get_current_project_root", return_value=mock_project_root):
+            first = db_core.resolve_stored_path(stored)
+            # 1回目でキャッシュに登録される
+            assert stored in db_core._resolve_cache
+            second = db_core.resolve_stored_path(stored)
+
+        assert first == second
+        assert (
+            second
+            == mock_project_root / "image_dataset" / "original_images" / "2025" / "07" / "22" / "2745.png"
+        )
+
+    def test_cache_invalidated_on_project_root_change(self, tmp_path: Path) -> None:
+        """project root が変わったらキャッシュは破棄され stale パスを返さない（Issue #584 / D3）。"""
+        import lorairo.database.db_core as db_core
+
+        root_a = tmp_path / "lorairo_data" / "project_a"
+        root_b = tmp_path / "lorairo_data" / "project_b"
+        root_a.mkdir(parents=True)
+        root_b.mkdir(parents=True)
+        stored = "image_dataset/original_images/shared.png"
+
+        with patch("lorairo.database.db_core.get_current_project_root", return_value=root_a):
+            result_a = db_core.resolve_stored_path(stored)
+        with patch("lorairo.database.db_core.get_current_project_root", return_value=root_b):
+            result_b = db_core.resolve_stored_path(stored)
+
+        assert result_a == root_a / "image_dataset" / "original_images" / "shared.png"
+        # 同一 stored_path でも root が変われば新しい root 基準の結果になる（stale-free）
+        assert result_b == root_b / "image_dataset" / "original_images" / "shared.png"
+        assert result_a != result_b
 
 
 class TestDbDirIsAbsolute:

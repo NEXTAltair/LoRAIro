@@ -44,6 +44,9 @@ class DatasetStateManager(QObject):
         self._dataset_path: Path | None = None
         self._all_images: list[dict[str, Any]] = []
         self._filtered_images: list[dict[str, Any]] = []
+        # _all_images の id→metadata 遅延インデックス (get_image_by_id を O(1) 化)。
+        # _all_images の内容が変わる箇所で _invalidate_image_index() により無効化する。
+        self._id_index: dict[int, dict[str, Any]] | None = None
         self._selected_image_ids: list[int] = []
         self._current_image_id: int | None = None
         self._filter_conditions: dict[str, Any] = {}
@@ -117,6 +120,7 @@ class DatasetStateManager(QObject):
         """データセットの全画像リストを設定"""
         self._all_images = images.copy()
         self._filtered_images = images.copy()  # 初期状態はフィルターなし
+        self._invalidate_image_index()
 
         logger.info(f"データセット画像読み込み: {len(images)}件")
         self.images_loaded.emit(self._all_images)
@@ -132,6 +136,7 @@ class DatasetStateManager(QObject):
         self._all_images = []
         self._filtered_images = []
         self._filter_conditions = {}
+        self._invalidate_image_index()
 
         self.clear_selection()
         self._current_image_id = None
@@ -225,6 +230,7 @@ class DatasetStateManager(QObject):
         # 完全データ置換（Single Source of Truth）
         self._all_images = search_results.copy()
         self._filtered_images = search_results.copy()
+        self._invalidate_image_index()
 
         # フィルター条件はクリア（検索結果が新しい基準）
         self._filter_conditions = {}
@@ -353,6 +359,26 @@ class DatasetStateManager(QObject):
 
     # === Utility Methods ===
 
+    def _get_all_images_index(self) -> dict[int, dict[str, Any]]:
+        """_all_images の id→metadata インデックスを返す（遅延構築・O(1) 検索用）。
+
+        _all_images の内容が変わる箇所で ``_invalidate_image_index()`` を呼ぶことで、
+        次回アクセス時に再構築される。サムネイル描画 (``_display_page``) が
+        ページ内全件に対して ``get_image_by_id`` を呼ぶ経路を O(n^2)→O(n) にする。
+        """
+        if self._id_index is None:
+            index: dict[int, dict[str, Any]] = {}
+            for img in self._all_images:
+                img_id = img.get("id")
+                if img_id is not None:
+                    index[img_id] = img
+            self._id_index = index
+        return self._id_index
+
+    def _invalidate_image_index(self) -> None:
+        """_all_images の内容変更時にインデックスを無効化する。"""
+        self._id_index = None
+
     def get_image_by_id(self, image_id: int) -> dict[str, Any] | None:
         """
         IDで画像メタデータを取得（統一データソース：all_images優先、filtered_imagesフォールバック）
@@ -363,21 +389,19 @@ class DatasetStateManager(QObject):
         Returns:
             画像メタデータ辞書、見つからない場合はNone
         """
-        # 1. all_images から検索（メインデータソース）
-        for img in self._all_images:
-            if img.get("id") == image_id:
-                logger.debug(
-                    f"画像ID {image_id} をall_imagesで発見（正常な状態）- path: {img.get('stored_image_path', 'N/A')}"
-                )
-                return img
+        # 1. all_images インデックスから O(1) 検索（メインデータソース）
+        img = self._get_all_images_index().get(image_id)
+        if img is not None:
+            return img
 
-        # 2. filtered_images からフォールバック検索
-        for img in self._filtered_images:
-            if img.get("id") == image_id:
+        # 2. filtered_images からフォールバック検索（all_images との同期問題の兆候）
+        for fimg in self._filtered_images:
+            if fimg.get("id") == image_id:
                 logger.warning(
-                    f"画像ID {image_id} をfiltered_imagesで発見（all_imagesとの同期問題あり）- path: {img.get('stored_image_path', 'N/A')}"
+                    f"画像ID {image_id} をfiltered_imagesで発見（all_imagesとの同期問題あり）"
+                    f"- path: {fimg.get('stored_image_path', 'N/A')}"
                 )
-                return img
+                return fimg
 
         # デバッグ情報の詳細ログ
         logger.debug(
@@ -415,7 +439,10 @@ class DatasetStateManager(QObject):
                 logger.debug(f"_all_images更新: image_id={image_id}")
                 break
 
-        if not found_in_all:
+        if found_in_all:
+            # 要素を差し替えたためインデックスの該当エントリが stale になる
+            self._invalidate_image_index()
+        else:
             logger.warning(f"画像ID {image_id} が_all_imagesに見つかりません")
 
         # _filtered_imagesを更新

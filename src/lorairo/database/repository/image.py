@@ -1556,7 +1556,8 @@ class ImageRepository(BaseRepository):
             annotations.get("score_labels", []), annotations.get("scores", [])
         )
 
-        logger.debug(
+        # per-image 整形詳細は firehose のため TRACE (通常デバッグでは抑制、ADR 0047)
+        logger.trace(
             f"Formatted annotations: tags={len(annotations.get('tags', []))}, "
             f"captions={len(annotations.get('captions', []))}, "
             f"scores={len(annotations.get('scores', []))}, "

@@ -267,3 +267,62 @@ class TestDatasetStateManager:
 
         state_manager.refresh_images([])
         mock_db_manager.image_repo.get_images_metadata_batch.assert_not_called()
+
+    # === get_image_by_id インデックス (Issue #584 / D2) ===
+
+    def test_get_image_by_id_returns_none_when_not_found(self, state_manager, sample_image_metadata):
+        """未登録IDでは None を返す"""
+        state_manager.set_dataset_images(sample_image_metadata)
+        assert state_manager.get_image_by_id(999) is None
+
+    def test_get_image_by_id_index_invalidated_on_search_results(
+        self, state_manager, sample_image_metadata
+    ):
+        """update_from_search_results 後、旧IDは消え新IDが引けること（インデックス無効化）"""
+        state_manager.set_dataset_images(sample_image_metadata)
+        assert state_manager.get_image_by_id(1) is not None  # 初回でインデックス構築
+
+        # 完全置換（id=1,2,3 → id=10,11）
+        state_manager.update_from_search_results(
+            [
+                {"id": 10, "stored_image_path": "/test/new10.jpg", "width": 100, "height": 100},
+                {"id": 11, "stored_image_path": "/test/new11.jpg", "width": 100, "height": 100},
+            ]
+        )
+
+        assert state_manager.get_image_by_id(1) is None  # 旧IDは stale 参照されない
+        assert state_manager.get_image_by_id(10)["stored_image_path"] == "/test/new10.jpg"
+
+    def test_get_image_by_id_index_invalidated_on_metadata_update(
+        self, state_manager, sample_image_metadata
+    ):
+        """update_image_metadata 後、インデックス経由で最新値が引けること"""
+        state_manager.set_dataset_images(sample_image_metadata)
+        assert state_manager.get_image_by_id(1)["width"] == 1024  # 初回でインデックス構築
+
+        state_manager.update_image_metadata(
+            1, {"id": 1, "stored_image_path": "/test/image1.jpg", "width": 4096, "height": 2160}
+        )
+
+        assert state_manager.get_image_by_id(1)["width"] == 4096
+
+    def test_get_image_by_id_index_invalidated_on_clear(self, state_manager, sample_image_metadata):
+        """clear_dataset 後はインデックスが空になり None を返すこと"""
+        state_manager.set_dataset_images(sample_image_metadata)
+        assert state_manager.get_image_by_id(1) is not None
+
+        state_manager.clear_dataset()
+        assert state_manager.get_image_by_id(1) is None
+
+    def test_get_image_by_id_fallback_to_filtered(self, state_manager):
+        """all_images に無く filtered_images にあるIDはフォールバックで取得（同期問題の兆候）"""
+        # 同期不整合を直接構成: all_images は空、filtered_images にのみ存在
+        state_manager._all_images = []
+        state_manager._filtered_images = [
+            {"id": 7, "stored_image_path": "/test/only_filtered.jpg", "width": 50, "height": 50}
+        ]
+        state_manager._invalidate_image_index()
+
+        result = state_manager.get_image_by_id(7)
+        assert result is not None
+        assert result["id"] == 7
