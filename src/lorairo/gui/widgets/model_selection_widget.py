@@ -134,6 +134,8 @@ if not __name__ == "__main__":
             # Issue #241: 表示用 view model (route 畳み込み済み)
             self.filtered_options: list[DisplayModelOption] = []
             self.model_checkbox_widgets: dict[str, ModelCheckboxWidget] = {}
+            # Issue #584: 直近の描画シグネチャ。同一フィルタ結果での冗長な全消し全再生成を抑制する
+            self._last_render_signature: tuple[str, bool, tuple[tuple[str, str, str], ...]] | None = None
             self._refresh_thread: QThread | None = None
             self._refresh_worker: _ModelRefreshWorker | None = None
 
@@ -228,6 +230,8 @@ if not __name__ == "__main__":
 
         def load_models(self) -> None:
             """モデル情報をModelSelectionServiceから取得"""
+            # 権威あるデータ再読込なので signature をリセットし必ず再描画させる (Issue #584)
+            self._last_render_signature = None
             try:
                 self.all_models = self.model_selection_service.load_models()
                 logger.info(f"Loaded {len(self.all_models)} models via ModelSelectionService")
@@ -333,47 +337,60 @@ if not __name__ == "__main__":
             """
             # ADR 0041: batch-capable モードでは専用ブランチへ分岐
             if self._batch_capable_filtering:
+                # batch 表示は別ウィジェット群を描画するため、normal パスの signature を無効化し
+                # batch→normal 復帰時の誤スキップを防ぐ (Issue #584)
+                self._last_render_signature = None
                 self._update_batch_capable_display()
                 return
 
-            # 現在の表示をクリア
-            self._clear_model_display()
+            # Issue #584: 描画対象 (placeholder 種別 + options) を _clear より前に計算し、
+            # 前回と同一なら全消し全再生成をスキップする (起動時の冗長 rebuild を吸収)。
+            show_web_api_placeholder = self._should_show_web_api_batch_placeholder()
+            if show_web_api_placeholder:
+                options: list[DisplayModelOption] = []
+            else:
+                available_providers = self._build_available_providers()
+                route_preference = self._get_route_preference()
+                # フィルタリング実行 -> DisplayModelOption 群を構築
+                if self.mode == "simple":
+                    try:
+                        recommended_models = self.model_selection_service.get_recommended_models()
+                    except Exception as e:
+                        logger.error(f"Failed to get recommended models: {e}")
+                        recommended_models = [m for m in self.all_models if m.is_recommended]
+                    options = build_display_options(
+                        recommended_models,
+                        available_providers=available_providers,
+                        preference=route_preference,
+                    )
+                else:
+                    options = self._apply_advanced_filters(available_providers, route_preference)
 
-            if self._should_show_web_api_batch_placeholder():
-                self.filtered_options = []
-                self.filtered_models = []
+            signature = self._compute_render_signature(options, show_web_api_placeholder)
+            if signature == self._last_render_signature and self.model_checkbox_widgets:
+                # 同一フィルタ結果。既存ウィジェット (選択状態含む) をそのまま温存する
+                logger.trace("モデル表示は前回と同一のため再構築をスキップ")
+                return
+
+            # 現在の表示をクリアして再構築
+            self._clear_model_display()
+            self.filtered_options = options
+            self.filtered_models = [opt.preferred.model for opt in options]
+
+            if show_web_api_placeholder:
                 self.placeholderLabel.setText(self.WEB_API_BATCH_PLACEHOLDER)
                 self.placeholderLabel.setVisible(True)
                 self._update_selection_count()
+                self._last_render_signature = signature
                 return
 
             self.placeholderLabel.setText(self._default_placeholder_text)
-
-            available_providers = self._build_available_providers()
-            route_preference = self._get_route_preference()
-
-            # フィルタリング実行 -> DisplayModelOption 群を構築
-            if self.mode == "simple":
-                try:
-                    recommended_models = self.model_selection_service.get_recommended_models()
-                except Exception as e:
-                    logger.error(f"Failed to get recommended models: {e}")
-                    recommended_models = [m for m in self.all_models if m.is_recommended]
-                options = build_display_options(
-                    recommended_models,
-                    available_providers=available_providers,
-                    preference=route_preference,
-                )
-            else:
-                options = self._apply_advanced_filters(available_providers, route_preference)
-
-            self.filtered_options = options
-            self.filtered_models = [opt.preferred.model for opt in options]
 
             # フィルタされたモデルがない場合
             if not options:
                 self.placeholderLabel.setVisible(True)
                 self._update_selection_count()
+                self._last_render_signature = signature
                 return
 
             # プレースホルダーを非表示
@@ -387,6 +404,24 @@ if not __name__ == "__main__":
                     self._add_provider_group(provider, group_options)
 
             self._update_selection_count()
+            self._last_render_signature = signature
+
+        def _compute_render_signature(
+            self, options: list[DisplayModelOption], web_api_placeholder: bool
+        ) -> tuple[str, bool, tuple[tuple[str, str, str], ...]]:
+            """描画結果の同一性判定用シグネチャ (Issue #584)。
+
+            mode・placeholder 種別・各 option の (litellm_model_id, route, display_name) を
+            含め、フィルタ結果が視覚的に同一かを判定する。
+            """
+            return (
+                self.mode,
+                web_api_placeholder,
+                tuple(
+                    (opt.preferred.litellm_model_id, opt.preferred.route, opt.display_name)
+                    for opt in options
+                ),
+            )
 
         def _build_available_providers(self) -> set[str]:
             """config から API key 設定済み provider 集合を構築 (Issue #241)。"""

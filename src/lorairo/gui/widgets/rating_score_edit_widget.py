@@ -70,7 +70,6 @@ class RatingScoreEditWidget(QWidget):
             - UI: 空表示状態
         """
         super().__init__(parent)
-        logger.debug("RatingScoreEditWidget.__init__() called")
 
         # 内部状態
         self._current_image_id: int | None = None
@@ -175,7 +174,7 @@ class RatingScoreEditWidget(QWidget):
             2. DB値（0.0-10.0）→ UI値（0-1000）の変換
             3. UI フィールドへの値設定
         """
-        logger.debug(f"populate_from_image_data called with image_id={image_data.get('id')}")
+        logger.trace(f"populate_from_image_data called with image_id={image_data.get('id')}")
 
         # image_id を保存
         self._current_image_id = image_data.get("id")
@@ -213,7 +212,7 @@ class RatingScoreEditWidget(QWidget):
         self._is_batch_mode = False
         self._selected_image_ids = []
 
-        logger.debug(
+        logger.trace(
             f"Form populated for image_id={self._current_image_id}: "
             f"DB score={score_db:.2f}, UI score={score_ui}"
         )

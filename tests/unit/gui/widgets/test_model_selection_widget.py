@@ -1162,3 +1162,73 @@ class TestBatchCapableFiltering:
 
         assert not w.placeholderLabel.isHidden()
         assert w.model_checkbox_widgets == {}
+
+
+class TestModelSelectionWidgetRebuildSkip:
+    """Issue #584 / D1: 同一フィルタ結果での冗長な全消し全再生成を抑制する。"""
+
+    def test_unchanged_filter_skips_rebuild(self, qtbot, mock_model_service) -> None:
+        """フィルタ結果が同一なら update_model_display で widget が再生成されない。"""
+        model = _fake_db_model(
+            name="gpt-4.1-mini",
+            provider="openai",
+            litellm_model_id="openai/gpt-4.1-mini",
+            is_recommended=True,
+        )
+        mock_model_service.load_models.return_value = [model]
+        mock_model_service.get_recommended_models.return_value = [model]
+
+        w = ModelSelectionWidget(model_selection_service=mock_model_service, mode="simple")
+        qtbot.addWidget(w)
+
+        # 初回描画で生成された widget インスタンスを記録
+        first_widget = w.model_checkbox_widgets["openai/gpt-4.1-mini"]
+
+        # 同一条件で再度 update → skip され同一インスタンスが温存される
+        w.update_model_display()
+        assert w.model_checkbox_widgets["openai/gpt-4.1-mini"] is first_widget
+
+    def test_unchanged_filter_preserves_selection(self, qtbot, mock_model_service) -> None:
+        """skip 時は既存ウィジェットの選択状態が保持される。"""
+        model = _fake_db_model(
+            name="gpt-4.1-mini",
+            provider="openai",
+            litellm_model_id="openai/gpt-4.1-mini",
+            is_recommended=True,
+        )
+        mock_model_service.load_models.return_value = [model]
+        mock_model_service.get_recommended_models.return_value = [model]
+
+        w = ModelSelectionWidget(model_selection_service=mock_model_service, mode="simple")
+        qtbot.addWidget(w)
+        w.model_checkbox_widgets["openai/gpt-4.1-mini"].set_selected(True)
+
+        w.update_model_display()  # 同一条件 → skip
+        assert w.get_selected_models() == ["openai/gpt-4.1-mini"]
+
+    def test_changed_filter_rebuilds(self, qtbot, mock_model_service) -> None:
+        """フィルタ結果が変われば再構築される（新モデルが反映される）。"""
+        model_a = _fake_db_model(
+            name="gpt-4.1-mini",
+            provider="openai",
+            litellm_model_id="openai/gpt-4.1-mini",
+            is_recommended=True,
+        )
+        model_b = _fake_db_model(
+            name="claude-3-5-sonnet",
+            provider="anthropic",
+            litellm_model_id="anthropic/claude-3-5-sonnet",
+            is_recommended=True,
+        )
+        mock_model_service.load_models.return_value = [model_a]
+        mock_model_service.get_recommended_models.return_value = [model_a]
+
+        w = ModelSelectionWidget(model_selection_service=mock_model_service, mode="simple")
+        qtbot.addWidget(w)
+        assert set(w.model_checkbox_widgets) == {"openai/gpt-4.1-mini"}
+
+        # 推奨結果を変更して再描画 → 別モデルで再構築される
+        mock_model_service.get_recommended_models.return_value = [model_a, model_b]
+        w.update_model_display()
+
+        assert "anthropic/claude-3-5-sonnet" in w.model_checkbox_widgets

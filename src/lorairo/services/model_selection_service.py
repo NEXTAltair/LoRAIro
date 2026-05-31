@@ -62,9 +62,9 @@ class ModelSelectionService:
             self._cached_models = db_models
             logger.info(f"Loaded {len(db_models)} models directly from DB")
 
-            # モデル詳細をデバッグ出力
+            # モデル詳細は per-item firehose のため TRACE (通常デバッグでは抑制、ADR 0046)
             for model in db_models:
-                logger.debug(
+                logger.trace(
                     f"  モデル読込: name={model.name}, provider={model.provider}, "
                     f"available={model.available}, recommended={model.is_recommended}"
                 )

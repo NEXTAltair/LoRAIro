@@ -161,6 +161,14 @@ def get_current_project_root() -> Path:
     return IMG_DB_PATH.parent
 
 
+# resolve_stored_path のキャッシュ (Issue #584 / D3)。
+# 同一 stored_path はサムネイル/プレビュー/ファイルサイズ/パスリストなど複数経路から
+# 繰り返し解決されるため結果を再利用する。project root は init_db_core で実行時に
+# 変わりうるので、root 変更を検知したら clear する (別プロジェクトの stale パス返却を防ぐ)。
+_resolve_cache: dict[str, Path] = {}
+_resolve_cache_root: Path | None = None
+
+
 def resolve_stored_path(stored_path: str) -> Path:
     """DB内の stored_image_path を実際のファイルパスに解決する。
 
@@ -174,12 +182,22 @@ def resolve_stored_path(stored_path: str) -> Path:
     normalized = stored_path.replace("\\", "/")
     path = Path(normalized)
 
-    # 既に絶対パスの場合はそのまま返す
+    # 既に絶対パスの場合はそのまま返す（キャッシュ不要）
     if path.is_absolute():
         return path
 
     # 相対パスの場合、現在のプロジェクトルートと結合
     project_root = get_current_project_root()
+
+    # project root が変わったらキャッシュを破棄（stale-free）
+    global _resolve_cache_root
+    if _resolve_cache_root != project_root:
+        _resolve_cache.clear()
+        _resolve_cache_root = project_root
+
+    cached = _resolve_cache.get(stored_path)
+    if cached is not None:
+        return cached
 
     # 二重結合防止: stored_path にプロジェクトディレクトリ名が含まれている場合、
     # それ以降の部分のみをプロジェクトルートからの相対パスとして使用
@@ -191,13 +209,16 @@ def resolve_stored_path(stored_path: str) -> Path:
         remainder_parts = path.parts[idx + 1 :]
         if remainder_parts:
             resolved = project_root.joinpath(*remainder_parts)
-            logger.debug(f"パス解決（プレフィックス正規化）: {stored_path} -> {resolved}")
+            # per-item firehose のため TRACE (通常デバッグでは抑制、ADR 0046)
+            logger.trace(f"パス解決（プレフィックス正規化）: {stored_path} -> {resolved}")
+            _resolve_cache[stored_path] = resolved
             return resolved
     except ValueError:
         pass
 
     resolved = project_root / stored_path
-    logger.debug(f"パス解決: {stored_path} -> {resolved}")
+    logger.trace(f"パス解決: {stored_path} -> {resolved}")
+    _resolve_cache[stored_path] = resolved
     return resolved
 
 
