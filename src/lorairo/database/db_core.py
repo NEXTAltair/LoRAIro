@@ -5,7 +5,6 @@
 `config/lorairo.toml` から読み込まれます。
 """
 
-import logging
 from collections.abc import Callable, Generator
 from contextlib import contextmanager
 from pathlib import Path
@@ -17,9 +16,7 @@ from sqlalchemy.engine import Engine
 from sqlalchemy.orm import Session, sessionmaker
 
 from ..utils.config import get_config
-
-# Configure logging
-logger = logging.getLogger(__name__)
+from ..utils.log import logger
 
 # --- Configuration --- #
 
@@ -282,7 +279,7 @@ def ensure_tag_db_initialized() -> None:
         _tag_db_initialized = True
         logger.info(f"Tag databases initialized: {len(results)} base DB(s) + user DB at {USER_TAG_DB_PATH}")
     except Exception as e:
-        logger.error(f"Failed to initialize tag databases: {e}.", exc_info=True)
+        logger.opt(exception=True).error(f"Failed to initialize tag databases: {e}.")
         raise RuntimeError("Tag database initialization failed") from e
 
 
@@ -325,7 +322,7 @@ def create_db_engine(database_url: str | None = None) -> Engine:
             cursor.execute("PRAGMA synchronous=NORMAL")
             logger.debug("PRAGMA synchronous=NORMAL executed.")
         except Exception:
-            logger.warning("Failed to configure SQLite PRAGMA settings", exc_info=True)
+            logger.opt(exception=True).warning("Failed to configure SQLite PRAGMA settings")
         finally:
             cursor.close()
 
@@ -361,7 +358,7 @@ def _ensure_model_types_seeded(engine: Engine) -> None:
             return
         session.add_all(missing)
         session.commit()
-        logger.info("Seeded model_types rows: %s", ", ".join(model.name for model in missing))
+        logger.info(f"Seeded model_types rows: {', '.join(model.name for model in missing)}")
 
 
 def _make_alembic_config(project_db_path: Path) -> Any:
@@ -424,17 +421,16 @@ def _prepare_project_database(project_db_path: Path) -> Engine:
         Base.metadata.create_all(engine)
         _ensure_model_types_seeded(engine)
         _stamp_alembic_head(project_db_path)
-        logger.info("Initialized new project DB schema and stamped Alembic head: %s", project_db_path)
+        logger.info(f"Initialized new project DB schema and stamped Alembic head: {project_db_path}")
         return engine
 
     if _has_alembic_version_table(engine):
         _upgrade_alembic_head(project_db_path)
-        logger.info("Applied pending Alembic migrations for project DB: %s", project_db_path)
+        logger.info(f"Applied pending Alembic migrations for project DB: {project_db_path}")
     else:
         logger.warning(
             "Project DB has existing tables but no alembic_version table; "
-            "leaving migration state unchanged: %s",
-            project_db_path,
+            f"leaving migration state unchanged: {project_db_path}"
         )
 
     Base.metadata.create_all(engine)
@@ -462,7 +458,6 @@ def create_project_session_factory(project_db_path: Path) -> sessionmaker[Sessio
 # 通常のアプリケーション実行時に使用される
 default_engine: Engine | None = None
 _default_session_factory: sessionmaker[Session] | None = None
-logger.info(f"Default database core initialized. Image DB: {IMG_DB_PATH} (Tag DB managed via public API)")
 
 
 def _get_default_session_factory() -> sessionmaker[Session]:
@@ -475,6 +470,11 @@ def _get_default_session_factory() -> sessionmaker[Session]:
         DATABASE_URL = f"sqlite:///{IMG_DB_PATH.resolve()}?check_same_thread=False"
         default_engine = _prepare_project_database(IMG_DB_PATH)
         _default_session_factory = create_session_factory(default_engine)
+        # 初期化ログは import 時 (= initialize_logging 前) ではなく、実際に default DB を
+        # 準備したこのタイミングで出力する。これにより loguru file sink に確実に乗る (#572)。
+        logger.info(
+            f"データベースコアが初期化されました。画像DB: {IMG_DB_PATH} (タグDBは公開API経由で管理)"
+        )
     return _default_session_factory
 
 
@@ -505,14 +505,9 @@ def get_db_session(
         # logger.debug(f"Committing DB session {id(db)}.")
         db.commit()
     except Exception:
-        logger.error(f"Transaction failed in DB session {id(db)}. Rolling back.", exc_info=True)
+        logger.opt(exception=True).error(f"Transaction failed in DB session {id(db)}. Rolling back.")
         db.rollback()
         raise  # 例外を再発生させて上位に伝播
     finally:
         # logger.debug(f"Closing DB session {id(db)}.")
         db.close()
-
-
-# --- 初期化ログ ---
-
-logger.info(f"データベースコアが初期化されました。画像DB: {IMG_DB_PATH} (タグDBは公開API経由で管理)")
