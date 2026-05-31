@@ -51,6 +51,7 @@ LoRAIro の重要な設計判断を記録するドキュメント群。
 | [0045](0045-large-search-result-log-level.md) | Large Search Result Log Level | 2026-05-31 | Accepted |
 | [0046](0046-loguru-placeholder-format.md) | Loguru Placeholder Format | 2026-05-31 | Accepted |
 | [0047](0047-trace-level-for-per-item-diagnostics.md) | TRACE Level for Per-Item Diagnostics | 2026-05-31 | Accepted |
+| [0048](0048-webapi-annotation-candidate-filtering.md) | WebAPI Annotation Candidate Filtering (Endpoint / Capability / Suitability) | 2026-05-31 | Accepted |
 
 ## ADR テンプレート
 
