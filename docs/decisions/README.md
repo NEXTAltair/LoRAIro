@@ -47,6 +47,7 @@ LoRAIro の重要な設計判断を記録するドキュメント群。
 | [0041](0041-provider-batch-execution-ui-unification.md) | Provider Batch 実行 UI の個別実行フロー統一 | 2026-05-29 | Accepted |
 | [0042](0042-batch-annotation-db-save-io.md) | Batch Annotation DB Save I/O | 2026-05-30 | Accepted |
 | [0043](0043-db-core-logging-loguru-unification.md) | db_core Logging Loguru Unification | 2026-05-31 | Accepted |
+| [0044](0044-provider-batch-submit-threading.md) | Provider Batch Submit Threading | 2026-05-31 | Accepted |
 
 ## ADR テンプレート
 
