@@ -942,33 +942,13 @@ class TestSendSelectedToBatchTag:
             MainWindow.send_selected_to_batch_tag(mock_window, None)
             mock_qmb.information.assert_called_once()
 
-    def test_send_selected_falls_back_to_thumbnail_visible_selection(self):
-        from lorairo.gui.window.main_window import MainWindow
-
-        mock_window = Mock()
-        mock_window.dataset_state_manager = Mock()
-        mock_window.dataset_state_manager.selected_image_ids = []
-        mock_window.batchTagAddWidget = Mock()
-        mock_window.thumbnail_selector = Mock()
-        mock_window.thumbnail_selector.get_visible_selected_image_ids.return_value = [4, 5]
-        mock_window.tabWidgetMainMode = Mock()
-        mock_window.tabWidgetBatchTagWorkflow = Mock()
-
-        with patch("lorairo.gui.window.main_window.QMessageBox") as mock_qmb:
-            MainWindow.send_selected_to_batch_tag(mock_window, None)
-
-        mock_qmb.information.assert_not_called()
-        mock_window.batchTagAddWidget.add_image_ids_to_staging.assert_called_once_with([4, 5])
-
     def test_send_selected_treats_qt_clicked_bool_as_button_invocation(self):
         from lorairo.gui.window.main_window import MainWindow
 
         mock_window = Mock()
         mock_window.dataset_state_manager = Mock()
-        mock_window.dataset_state_manager.selected_image_ids = []
+        mock_window.dataset_state_manager.selected_image_ids = [7]
         mock_window.batchTagAddWidget = Mock()
-        mock_window.thumbnail_selector = Mock()
-        mock_window.thumbnail_selector.get_visible_selected_image_ids.return_value = [7]
         mock_window.tabWidgetMainMode = Mock()
         mock_window.tabWidgetBatchTagWorkflow = Mock()
 
@@ -983,13 +963,10 @@ class TestSendSelectedToBatchTag:
         mock_window.dataset_state_manager = Mock()
         mock_window.dataset_state_manager.selected_image_ids = [1]
         mock_window.batchTagAddWidget = Mock()
-        mock_window.thumbnail_selector = Mock()
-        mock_window.thumbnail_selector.get_visible_selected_image_ids.return_value = [1]
 
         with patch("lorairo.gui.window.main_window.QMessageBox") as mock_qmb:
             MainWindow.send_selected_to_batch_tag(mock_window, [])
 
-        mock_window.thumbnail_selector.get_visible_selected_image_ids.assert_not_called()
         mock_window.batchTagAddWidget.add_image_ids_to_staging.assert_not_called()
         mock_qmb.information.assert_called_once()
 

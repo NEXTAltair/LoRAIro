@@ -146,16 +146,11 @@ class TestBatchTagWidgetIntegration:
         assert hasattr(main_window_with_tabs, "batchTagAddWidget")
         assert main_window_with_tabs.batchTagAddWidget is not None
 
-    def test_stage_toolbar_button_uses_thumbnail_selection_fallback(
+    def test_stage_toolbar_button_treats_clicked_bool_as_selection_request(
         self, main_window_with_tabs, monkeypatch, qtbot
     ):
-        """ツールバーボタンは DatasetStateManager が空でも表示中選択をステージングへ送る。"""
-        main_window_with_tabs.dataset_state_manager.set_selected_images([])
-        monkeypatch.setattr(
-            main_window_with_tabs.thumbnail_selector,
-            "get_visible_selected_image_ids",
-            lambda: [101, 102],
-        )
+        """ツールバーボタンは clicked(bool) を通常選択要求としてステージングへ送る。"""
+        main_window_with_tabs.dataset_state_manager.set_selected_images([101, 102])
         add_to_staging = Mock()
         monkeypatch.setattr(
             main_window_with_tabs.batchTagAddWidget, "add_image_ids_to_staging", add_to_staging

@@ -11,22 +11,21 @@ explicitly.
 ## Decision
 
 Keep `DatasetStateManager` as the primary selection source. Treat a `bool` slot payload as a
-button invocation rather than explicit selected IDs. Add a read-only
-`ThumbnailSelectorWidget.get_visible_selected_image_ids()` helper and let
-`MainWindow.send_selected_to_batch_tag()` use it only when the caller did not provide an explicit
-ID list and the dataset selection is empty.
+button invocation rather than explicit selected IDs. Only a `list[int]` argument is considered an
+explicit ID payload, so toolbar clicks continue to read `DatasetStateManager.selected_image_ids`
+while context-menu calls can still pass IDs directly.
 
 ## Rationale
 
 This preserves existing right-click and explicit-ID behavior while keeping `DatasetStateManager` as
-the only authoritative selection source. Raw `QGraphicsScene.selectedItems()` was rejected because
-Qt scene selection can become stale after application-level deselect actions, while painting is
-driven by `DatasetStateManager`. Updating the toolbar slot to require image IDs was rejected because
-the Qt Designer connection is a plain button click and should remain compatible with Qt's optional
-checked-state payload.
+the only authoritative selection source. Raw `QGraphicsScene.selectedItems()` and visible-selection
+fallback helpers were rejected because Qt scene selection can become stale after application-level
+deselect actions, while painting is driven by `DatasetStateManager`. Updating the toolbar slot to
+require image IDs was rejected because the Qt Designer connection is a plain button click and should
+remain compatible with Qt's optional checked-state payload.
 
 ## Consequences
 
-Tests must cover both selection sources and the no-selection warning path. Future workspace staging
-entry points should either pass explicit IDs or use the same visible-selection fallback instead of
-adding another selection-resolution path.
+Tests must cover explicit-ID calls, toolbar `clicked(bool)` calls, and the no-selection warning
+path. Future workspace staging entry points should either pass explicit IDs or let the main window
+read `DatasetStateManager`; they should not add another selection-resolution path.

@@ -1589,13 +1589,6 @@ class MainWindow(QMainWindow, Ui_MainWindow):
 
         has_explicit_ids = isinstance(selected_ids, list)
         target_ids = selected_ids if has_explicit_ids else self.dataset_state_manager.selected_image_ids
-        if not has_explicit_ids and not target_ids:
-            thumbnail_selector = getattr(self, "thumbnail_selector", None)
-            if thumbnail_selector is not None and hasattr(
-                thumbnail_selector, "get_visible_selected_image_ids"
-            ):
-                target_ids = thumbnail_selector.get_visible_selected_image_ids()
-
         if not target_ids:
             dataset_selected_count = len(self.dataset_state_manager.selected_image_ids)
             thumbnail_selector_available = bool(getattr(self, "thumbnail_selector", None))

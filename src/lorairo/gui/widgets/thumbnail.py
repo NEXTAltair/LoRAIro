@@ -1276,24 +1276,6 @@ class ThumbnailSelectorWidget(QWidget, Ui_ThumbnailSelectorWidget):
         selected_ids = set(self.dataset_state.selected_image_ids)
         return [item.image_path for item in self.thumbnail_items if item.image_id in selected_ids]
 
-    def get_visible_selected_image_ids(self) -> list[int]:
-        """
-        現在表示中のサムネイルから選択中の画像 ID を取得する。
-
-        ワークスペースのツールバーボタンなど、サムネイル一覧の表示状態を起点に
-        選択画像 ID を解決したい呼び出し元向けの読み取り専用 API。
-        DatasetStateManager の選択状態を表示中サムネイルに絞り込む。
-
-        Returns:
-            list[int]: 表示中かつ選択中の画像 ID リスト。
-        """
-        visible_ids = {item.image_id for item in self.thumbnail_items}
-
-        if not self.dataset_state:
-            return []
-
-        return [image_id for image_id in self.dataset_state.selected_image_ids if image_id in visible_ids]
-
 
 if __name__ == "__main__":
     import sys
