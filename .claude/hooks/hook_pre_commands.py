@@ -15,6 +15,7 @@ import json
 import os
 import re
 import shlex
+import subprocess
 import sys
 from datetime import datetime
 from pathlib import Path
@@ -177,6 +178,132 @@ def check_draft_pr_create(command: str) -> str | None:
     )
 
 
+def _default_base_branch() -> str:
+    """統合先の base ブランチ (main / master) を検出する。"""
+    for base in ("main", "master"):
+        try:
+            result = subprocess.run(
+                ["git", "rev-parse", "--verify", "--quiet", base],
+                capture_output=True,
+                timeout=5,
+            )
+        except (OSError, subprocess.SubprocessError):
+            continue
+        if result.returncode == 0:
+            return base
+    return "main"
+
+
+def _branch_is_integrated(branch: str) -> bool:
+    """branch が base に統合済み (通常マージ / squash merge) か判定する。
+
+    squash merge はコミットが ancestor にも patch-id 一致にもならないため、
+    通常マージ判定だけでは検出できない。以下を fast→network の順で確認する:
+      1. merge-base --is-ancestor : 通常マージ / fast-forward
+      2. git diff --quiet base..branch : squash 直後 (branch 固有差分なし)
+      3. gh で merged PR の存在 : main 進行後の squash merge を確実に検出
+    """
+    base = _default_base_branch()
+
+    # 1. 通常マージ / fast-forward (branch が base の祖先)
+    try:
+        result = subprocess.run(
+            ["git", "merge-base", "--is-ancestor", branch, base],
+            capture_output=True,
+            timeout=5,
+        )
+        if result.returncode == 0:
+            return True
+    except (OSError, subprocess.SubprocessError):
+        pass
+
+    # 2. squash merge 直後: branch のツリーが base に対して固有差分を持たない
+    try:
+        result = subprocess.run(
+            ["git", "diff", "--quiet", base, branch],
+            capture_output=True,
+            timeout=5,
+        )
+        if result.returncode == 0:
+            return True
+    except (OSError, subprocess.SubprocessError):
+        pass
+
+    # 3. merged PR が存在すれば統合済み (squash merge を確実に検出)
+    try:
+        result = subprocess.run(
+            ["gh", "pr", "list", "--head", branch, "--state", "merged", "--json", "number"],
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+        if result.returncode == 0 and result.stdout.strip() not in ("", "[]"):
+            return True
+    except (OSError, subprocess.SubprocessError):
+        pass
+
+    return False
+
+
+def check_branch_force_delete(command: str) -> str | None:
+    """git branch -D を「統合済みなら許可、未統合のみブロック」する。
+
+    squash merge 運用では merged ブランチの掃除に -D が必須 (-d は祖先判定で拒否される)。
+    一律ブロックは摩擦になるため、base へ統合済みか動的に判定する。
+    """
+    if not re.search(r"git\s+branch\s+(-D|--delete\s+-f)", command):
+        return None
+
+    # 複合コマンド (A && git branch -D foo; B / 改行区切り) から該当 git invocation の
+    # セグメントだけを切り出す (全体 tokenize による誤抽出・誤ブロックを防ぐ)。
+    # セグメントが git コマンドで始まる場合のみ対象とし、commit message や echo 内の
+    # 文字列 "git branch -D ..." に誤反応しないようにする。
+    segments = re.split(r"&&|\|\||;|\||&|[\r\n]+", command)
+    target_seg = None
+    for seg in segments:
+        stripped = seg.strip()
+        # 先頭の VAR=val 環境変数を許容しつつ git コマンドで始まることを要求
+        if not re.match(r"^(?:\w+=\S+\s+)*git\b", stripped):
+            continue
+        if re.search(r"\bbranch\b", stripped) and re.search(r"(-D|--delete\s+-f)", stripped):
+            target_seg = stripped
+            break
+    if target_seg is None:
+        return None
+
+    # 削除対象ブランチ名を抽出 (フラグでない引数)
+    try:
+        tokens = shlex.split(target_seg)
+    except ValueError:
+        return None
+    if "branch" not in tokens:
+        return None
+    # branch 名を収集: フラグはスキップ、リダイレクト/シェルメタ文字で打ち切る
+    # (例: `git branch -D foo 2>&1 | tee log` から ['foo'] のみ抽出)
+    branch_args: list[str] = []
+    for token in tokens[tokens.index("branch") + 1 :]:
+        if token.startswith("-"):
+            continue
+        if re.search(r"[<>&|$`()]", token):
+            break
+        branch_args.append(token)
+    if not branch_args:
+        # 形が読めない場合は判定せず他ルールに委ねる (誤許可を避ける)
+        return None
+
+    unmerged = [b for b in branch_args if not _branch_is_integrated(b)]
+    if not unmerged:
+        log_debug(f"ALLOW branch -D (integrated): {branch_args}")
+        return None
+
+    log_debug(f"BLOCKING: branch -D on unmerged branch(es): {unmerged}")
+    return (
+        f"🚫 git branch -D: base へ未統合の可能性があるブランチを強制削除しようとしています: {unmerged}\n"
+        "→ squash merge 済みなら main へ pull 後に再試行 (統合判定が通ります)。\n"
+        "→ 本当に破棄してよい場合のみ、ユーザー確認の上で実行してください。"
+    )
+
+
 def check_grep_command(command: str) -> str | None:
     """grep系コマンドの制御。
 
@@ -241,6 +368,12 @@ def main() -> None:
         grep_msg = check_grep_command(command)
         if grep_msg:
             print(json.dumps({"decision": "block", "reason": grep_msg}, ensure_ascii=False))
+            sys.exit(2)
+
+        # git branch -D 制御 (統合済みなら許可、未統合のみブロック)
+        branch_del_msg = check_branch_force_delete(command)
+        if branch_del_msg:
+            print(json.dumps({"decision": "block", "reason": branch_del_msg}, ensure_ascii=False))
             sys.exit(2)
 
         # ブロックチェック

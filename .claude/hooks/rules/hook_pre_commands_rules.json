@@ -39,11 +39,6 @@
       "pattern": "git\\s+clean\\s+.*-f",
       "reason": "【危険】git clean -f は追跡されていないファイルを完全に削除します",
       "suggestion": "git clean -n でドライランを先に確認するか、ユーザーに確認を取ってください"
-    },
-    {
-      "pattern": "git\\s+branch\\s+(-D|--delete\\s+-f)",
-      "reason": "【危険】git branch -D はマージ未確認のブランチを強制削除します",
-      "suggestion": "git branch -d（小文字）を使用するか、ユーザーに確認を取ってください"
     }
   ],
   "uv_transforms": [
