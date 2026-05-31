@@ -231,6 +231,33 @@ class TestStagingListManagement:
 
         assert widget.count() == 0
 
+    @pytest.mark.gui
+    def test_remove_image_ids_removes_only_specified(self, qtbot, widget_with_state):
+        """remove_image_ids が指定 ID のみ除外し、他を保持すること (Issue #571)"""
+        widget, _ = widget_with_state
+        widget.add_image_ids([1, 2, 3])
+        assert widget.count() == 3
+
+        with qtbot.waitSignal(widget.staged_images_changed, timeout=1000) as blocker:
+            widget.remove_image_ids([1, 3])
+
+        assert blocker.args == [[2]]
+        assert widget.get_image_ids() == [2]
+
+    @pytest.mark.gui
+    def test_remove_image_ids_ignores_unknown_ids(self, qtbot, widget_with_state):
+        """remove_image_ids が未登録 ID では何も変更せずシグナルも出さないこと"""
+        widget, _ = widget_with_state
+        widget.add_image_ids([1, 2])
+
+        # 未登録 ID のみ指定したときは staged_images_changed を発行しない
+        received: list[list[int]] = []
+        widget.staged_images_changed.connect(received.append)
+        widget.remove_image_ids([99])
+
+        assert received == []
+        assert widget.get_image_ids() == [1, 2]
+
 
 class TestAccessors:
     """アクセサメソッドテスト"""

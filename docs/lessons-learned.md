@@ -22,7 +22,7 @@ LoRAIro 開発で得られた教訓。バグパターン・設計ミス・解決
 
 - **UIファイル生成を忘れると連鎖エラー**: `.ui` ファイル変更後に `uv run python scripts/generate_ui.py` を実行しないと、`MainWindow_ui.py` が古いままで `filterSearchPanel` 等のウィジェットが見つからず起動失敗する。
 - **Signalの二重発火**: Worker完了Signalを複数箇所で接続すると同一イベントが重複処理される。接続は1箇所に統一し、Worker生成時に接続する。
-- **同期処理ボタンの再入と送信後の状態クリア** (Issue #571): `_set_submit_button_busy()` 内の `QApplication.processEvents()` はキュー済みクリックを再配信するため、送信ボタン無効化だけでは同期 submit 中の再入を防げない。`submit_job()` 冒頭の `_submit_in_progress` 再入フラグで塞ぐ。加えて Provider Batch タブは `connect_shared_staging()` で通常アノテーションタブと `OrderedDict` 実体を共有するため、送信成功時の `staging.clear()` は両タブの staging を同時に空にする（実体共有による意図的挙動。送信済み対象の再送信を構造的に防ぐ）。
+- **同期処理ボタンの再入と送信後の状態クリア** (Issue #571): `_set_submit_button_busy()` 内の `QApplication.processEvents()` はキュー済みクリックを再配信するため、送信ボタン無効化だけでは同期 submit 中の再入を防げない。`submit_job()` 冒頭の `_submit_in_progress` 再入フラグで塞ぐ。送信成功時は送信済み対象を共有ステージングから除外して再送信を構造的に防ぐが、注意点が2つある: (1) `image_ids` は submit 直前の snapshot なので `clear()` で全消去すると processEvents 中に追加された未送信画像まで失う → `remove_image_ids(送信済みID)` で送信分のみ除外する。(2) `submit_images` 成功 = provider job 作成済みで不可逆なので、後続の表示更新 (`select_job`→`refresh_detail`) が repository 例外を投げても送信成功を覆してはならない → ステージング除外と成功表示を先に確定し、表示更新は局所 try で隔離する。
 
 ## Database / SQLAlchemy
 
