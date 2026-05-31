@@ -261,12 +261,17 @@ def test_submit_button_shows_busy_state_only_while_submitting(widget, dependenci
     widget.submit_job()
     qtbot.waitUntil(entered.is_set, timeout=1000)
 
+    submit_thread = widget._submit_thread
+    assert submit_thread is not None
+    assert submit_thread.parent() is None
+    assert submit_thread in widget_module._ACTIVE_SUBMIT_THREADS
     assert widget._submit_in_progress is True
     assert widget.buttonSubmit.text() == "送信中..."
     assert widget.buttonSubmit.isEnabled() is False
     assert "background-color" in widget.buttonSubmit.styleSheet()
     with qtbot.waitSignal(widget.submit_completed, timeout=3000):
         release.set()
+    assert submit_thread not in widget_module._ACTIVE_SUBMIT_THREADS
     assert widget.buttonSubmit.text() == "送信"
     assert widget.buttonSubmit.isEnabled() is True
     assert widget.buttonSubmit.styleSheet() == default_style

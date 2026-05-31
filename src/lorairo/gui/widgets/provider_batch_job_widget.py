@@ -36,6 +36,7 @@ _ITEM_STATUSES = ("all", "failed", "expired", "canceled")
 _CANCELABLE_STATUSES = {"submitted", "validating", "running", "canceling"}
 _COMPLETED_STATUS = "completed"
 _IMPORTED_STATUS = "imported"
+_ACTIVE_SUBMIT_THREADS: set[QThread] = set()
 
 
 @dataclass(frozen=True)
@@ -251,9 +252,10 @@ class ProviderBatchJobWidget(QWidget, Ui_ProviderBatchJobWidget):
 
     def _start_submit_worker(self, params: _ProviderBatchSubmitParams) -> None:
         """Start provider batch submission in a dedicated QThread."""
-        thread = QThread(self)
+        thread = QThread()
         worker = _ProviderBatchSubmitWorker(self._workflow_service, params)
         worker.moveToThread(thread)
+        _ACTIVE_SUBMIT_THREADS.add(thread)
 
         thread.started.connect(worker.run)
         worker.succeeded.connect(self._on_submit_succeeded)
@@ -261,6 +263,7 @@ class ProviderBatchJobWidget(QWidget, Ui_ProviderBatchJobWidget):
         worker.finished.connect(thread.quit)
         worker.finished.connect(worker.deleteLater)
         thread.finished.connect(self._on_submit_thread_finished)
+        thread.finished.connect(lambda: _ACTIVE_SUBMIT_THREADS.discard(thread))
         thread.finished.connect(thread.deleteLater)
 
         self._submit_thread = thread
