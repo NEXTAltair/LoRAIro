@@ -12,16 +12,18 @@ explicitly.
 
 Keep `DatasetStateManager` as the primary selection source. Treat a `bool` slot payload as a
 button invocation rather than explicit selected IDs. Add a read-only
-`ThumbnailSelectorWidget.get_visible_selected_image_ids()` fallback and let
+`ThumbnailSelectorWidget.get_visible_selected_image_ids()` helper and let
 `MainWindow.send_selected_to_batch_tag()` use it only when the caller did not provide an explicit
 ID list and the dataset selection is empty.
 
 ## Rationale
 
-This preserves existing right-click and explicit-ID behavior while making the toolbar path resilient
-to a temporarily unsynchronized thumbnail selection. Updating the toolbar slot to require image IDs
-was rejected because the Qt Designer connection is a plain button click and should remain
-compatible with Qt's optional checked-state payload.
+This preserves existing right-click and explicit-ID behavior while keeping `DatasetStateManager` as
+the only authoritative selection source. Raw `QGraphicsScene.selectedItems()` was rejected because
+Qt scene selection can become stale after application-level deselect actions, while painting is
+driven by `DatasetStateManager`. Updating the toolbar slot to require image IDs was rejected because
+the Qt Designer connection is a plain button click and should remain compatible with Qt's optional
+checked-state payload.
 
 ## Consequences
 

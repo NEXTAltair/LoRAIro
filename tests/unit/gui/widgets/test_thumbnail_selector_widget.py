@@ -313,8 +313,8 @@ class TestThumbnailSelectorWidgetSelection:
 
         assert widget.get_visible_selected_image_ids() == [1]
 
-    def test_get_visible_selected_image_ids_falls_back_to_scene_selection(self, widget):
-        """状態が未同期の場合は QGraphicsScene の選択を fallback として使う"""
+    def test_get_visible_selected_image_ids_ignores_scene_selection(self, widget):
+        """古い QGraphicsScene 選択をステージング対象にしない"""
         from lorairo.gui.widgets.thumbnail import ThumbnailItem
 
         item1 = Mock(spec=ThumbnailItem)
@@ -324,7 +324,7 @@ class TestThumbnailSelectorWidgetSelection:
         widget.thumbnail_items = [item1, item2]
         widget.scene.selectedItems = Mock(return_value=[item2])
 
-        assert widget.get_visible_selected_image_ids() == [2]
+        assert widget.get_visible_selected_image_ids() == []
 
     def test_deprecated_current_image_data_api_removed(self, widget):
         """ThumbnailSelectorWidget の deprecated な get_current_image_data は削除済み"""
