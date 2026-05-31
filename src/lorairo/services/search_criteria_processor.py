@@ -70,7 +70,7 @@ class SearchCriteriaProcessor:
             # DB検索のみの場合はDB総件数を返す。フロントエンドフィルター適用時は件数が変わるためlen(images)を返す。
             reported_count = len(images) if applied_frontend_filters else total_count
             logger.info(
-                "検索実行完了: 結果件数=%s, 総件数=%s, frontend_filter=%s",
+                "検索実行完了: 結果件数={}, 総件数={}, frontend_filter={}",
                 len(images),
                 total_count,
                 applied_frontend_filters,

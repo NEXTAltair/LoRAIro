@@ -195,7 +195,7 @@ class ImageProcessor:
             else:
                 # サポートされていないモード
                 logger.warning(
-                    "ImageProcessor.normalize_color_profile サポートされていないモード: %s", mode
+                    "ImageProcessor.normalize_color_profile サポートされていないモード: {}", mode
                 )
                 return img.convert("RGBA") if has_alpha else img.convert("RGB")
 

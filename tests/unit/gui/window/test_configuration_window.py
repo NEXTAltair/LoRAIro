@@ -4,6 +4,7 @@
 ConfigurationServiceをモックで差し替え、ウィジェットの生成・値反映・収集を検証する。
 """
 
+from io import StringIO
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -263,6 +264,30 @@ class TestConfigurationWindowRoutePreference:
         assert combo is not None
         # GUI 上は auto として表示 (CLI 専用値のため)
         assert combo.currentText() == "auto"
+
+    def test_route_preference_all_warning_renders_value(self, qtbot, config_service: MagicMock) -> None:
+        """GUI 専用 fallback warning は route_preference の実値をログへ出す。"""
+        from lorairo.utils.log import logger
+
+        config_service.get_all_settings.return_value = {
+            "api": {},
+            "directories": {},
+            "log": {"level": "INFO"},
+            "image_processing": {"upscaler": "RealESRGAN_x4plus"},
+            "prompts": {"additional": ""},
+            "model_selection": {"route_preference": "all"},
+        }
+        sink = StringIO()
+        sink_id = logger.add(sink, format="{message}", level="WARNING")
+        try:
+            dlg = ConfigurationWindow(config_service=config_service)
+            qtbot.addWidget(dlg)
+        finally:
+            logger.remove(sink_id)
+
+        log_output = sink.getvalue()
+        assert "route_preference='all'" in log_output
+        assert "%r" not in log_output
 
     def test_collect_settings_includes_model_selection(self, dialog: ConfigurationWindow) -> None:
         """_collect_settings に model_selection.route_preference が含まれる。"""
