@@ -12,6 +12,7 @@ FilterSearchPanel が以下を満たすかを検証する:
 from unittest.mock import MagicMock
 
 import pytest
+from loguru import logger as loguru_logger
 
 from lorairo.gui.widgets.filter_search import (
     CountEstimateWidget,
@@ -100,6 +101,36 @@ class TestPipelineStateMediation:
         assert panel.is_pipeline_active() is True
         panel._pipeline.transition_to(PipelineState.IDLE)
         assert panel.is_pipeline_active() is False
+
+
+class TestSearchPreviewLogging:
+    """Issue #579: 通常の大量検索結果は WARNING にしない。"""
+
+    @pytest.fixture()
+    def loguru_records(self):
+        records: list = []
+        sink_id = loguru_logger.add(lambda msg: records.append(msg.record), level="DEBUG")
+        yield records
+        loguru_logger.remove(sink_id)
+
+    def test_large_result_logs_info_not_warning(self, panel, loguru_records):
+        """10000 件超の通常プレビュー更新は INFO として記録する。"""
+        panel.update_search_preview(10001)
+
+        large_result_records = [
+            record
+            for record in loguru_records
+            if record["message"] == "Large search result warning displayed: 10001 items"
+        ]
+        assert [record["level"].name for record in large_result_records] == ["INFO"]
+
+    def test_threshold_result_does_not_log_large_result_notice(self, panel, loguru_records):
+        """閾値ちょうどは大量結果通知を出さない。"""
+        panel.update_search_preview(10000)
+
+        assert all(
+            "Large search result warning displayed" not in record["message"] for record in loguru_records
+        )
 
 
 class TestServiceInjectionMediation:

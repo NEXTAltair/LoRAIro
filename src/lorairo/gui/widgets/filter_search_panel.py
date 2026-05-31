@@ -937,7 +937,7 @@ class FilterSearchPanel(QScrollArea):
         LARGE_RESULT_WARNING_THRESHOLD = 10000
 
         if result_count > LARGE_RESULT_WARNING_THRESHOLD:
-            logger.warning(f"Large search result warning displayed: {result_count} items")
+            logger.info(f"Large search result warning displayed: {result_count} items")
         del preview_text  # 現在は使われていないが API 互換のため残す
         logger.debug(f"検索結果プレビュー更新: {result_count}件")
 

@@ -48,6 +48,7 @@ LoRAIro の重要な設計判断を記録するドキュメント群。
 | [0042](0042-batch-annotation-db-save-io.md) | Batch Annotation DB Save I/O | 2026-05-30 | Accepted |
 | [0043](0043-db-core-logging-loguru-unification.md) | db_core Logging Loguru Unification | 2026-05-31 | Accepted |
 | [0044](0044-provider-batch-submit-threading.md) | Provider Batch Submit Threading | 2026-05-31 | Accepted |
+| [0045](0045-large-search-result-log-level.md) | Large Search Result Log Level | 2026-05-31 | Accepted |
 
 ## ADR テンプレート
 
