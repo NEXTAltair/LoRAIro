@@ -966,3 +966,48 @@ def test_annotation_repository_with_tag_db(db_session_factory, test_tag_reposito
     # merged_readerをテスト用のものに差し替え
     annotation_repo.merged_reader = test_tag_repository.merged_reader
     return annotation_repo
+
+
+# =============================================================================
+# Issue #578: loguru file sink を実 logs/lorairo.log から隔離する
+# =============================================================================
+# loguru の logger はプロセスグローバルな singleton。ある test が
+# initialize_logging(build_gui_log_config(...)) 経由で実 logs/lorairo.log 宛の
+# file sink を追加すると、その sink は session 終了まで残り、後続の全 test の
+# loguru ログがアプリ本体ログへ追記される (期待エラー/警告の混入)。全 file sink の
+# 唯一の chokepoint である loguru.logger.add をラップし、実 DEFAULT_LOG_PATH 宛の
+# sink だけを session tmp へ転送して隔離する。build_gui_log_config が返す dict
+# (file_path=実 DEFAULT_LOG_PATH) は変更しないため、"file_path == str(DEFAULT_LOG_PATH)"
+# を検証する既存 test を壊さない。
+
+from collections.abc import Iterator
+from pathlib import Path
+
+
+@pytest.fixture(scope="session", autouse=True)
+def _redirect_real_log_sink(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Path]:
+    """実 logs/lorairo.log 宛の loguru file sink を session tmp へ転送する (Issue #578)。
+
+    Yields:
+        転送先の session tmp ログパス。
+    """
+    from loguru import logger
+
+    from lorairo.utils import config as lorairo_config
+
+    tmp_log = tmp_path_factory.mktemp("loguru") / "lorairo-test.log"
+    real_norm = str(lorairo_config.DEFAULT_LOG_PATH).replace("\\", "/")
+    original_add = logger.add
+
+    def guarded_add(sink: object, *args: object, **kwargs: object) -> int:
+        # 実アプリ本体ログ宛の file sink だけを tmp へ差し替える
+        if isinstance(sink, str | Path) and str(sink).replace("\\", "/") == real_norm:
+            sink = str(tmp_log)
+        return original_add(sink, *args, **kwargs)
+
+    mp = pytest.MonkeyPatch()
+    mp.setattr(logger, "add", guarded_add)
+    try:
+        yield tmp_log
+    finally:
+        mp.undo()
