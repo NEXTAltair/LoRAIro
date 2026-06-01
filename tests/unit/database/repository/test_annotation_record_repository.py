@@ -123,10 +123,10 @@ class TestExternalTagDbInitialization:
     """外部 tag_db (`MergedTagReader` / `TagRegisterService`) 初期化動作。"""
 
     def test_merged_reader_initialization_graceful_fail(self, memory_session_factory) -> None:
-        """外部 tag_db 未設定環境では `merged_reader` が None になる (warning のみ)。"""
+        """外部 tag_db reader は必要になるまで初期化されない。"""
         repo = AnnotationRepository(session_factory=memory_session_factory)
-        # in-memory SQLite には base DB が無いので None になる
         assert repo.merged_reader is None
+        assert repo._merged_reader_initialized is False
         # tag_register_service は遅延初期化なので None
         assert repo.tag_register_service is None
 
@@ -135,8 +135,30 @@ class TestExternalTagDbInitialization:
     ) -> None:
         """`merged_reader` が None なら `_initialize_tag_register_service` も None を返す。"""
         annotation_repository.merged_reader = None
+        annotation_repository._merged_reader_initialized = True
         result = annotation_repository._initialize_tag_register_service()
         assert result is None
+
+    def test_tag_resolution_initializes_external_tag_db_lazily(
+        self, annotation_repository: AnnotationRepository, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """tag_id 解決が必要になった時点で外部 tag DB reader を初期化する。"""
+        ensure_spy = Mock()
+        merged_reader = Mock()
+        merged_reader.search_tags_bulk.return_value = {"new tag": {"tag_id": 123, "deprecated": False}}
+        monkeypatch.setattr(
+            "lorairo.database.repository.annotation_record.ensure_tag_db_initialized", ensure_spy
+        )
+        monkeypatch.setattr(
+            "lorairo.database.repository.annotation_record.get_default_reader",
+            Mock(return_value=merged_reader),
+        )
+
+        result = annotation_repository.batch_resolve_tag_ids({"new tag"})
+
+        ensure_spy.assert_called_once()
+        merged_reader.search_tags_bulk.assert_called_once()
+        assert result == {"new tag": 123}
 
 
 @pytest.mark.unit

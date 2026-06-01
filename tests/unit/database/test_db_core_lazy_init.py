@@ -109,6 +109,27 @@ class TestEnsureTagDbInitialized:
             assert isinstance(path, Path)
             assert path.name == "user_tags.sqlite"
 
+    def test_ensure_preserves_current_image_database_path(self):
+        """tag DB 初期化は選択中プロジェクトの image DB パスを変更しない。"""
+        mock_result = [MagicMock()]
+        with patch("genai_tag_db_tools.initialize_databases", return_value=mock_result):
+            import lorairo.database.db_core as db_core
+
+            original_img_path = db_core.IMG_DB_PATH
+            original_database_url = db_core.DATABASE_URL
+            active_project_path = Path("/tmp/active-project/image_database.db")
+            db_core.IMG_DB_PATH = active_project_path
+            db_core.DATABASE_URL = f"sqlite:///{active_project_path}?check_same_thread=False"
+
+            try:
+                db_core.ensure_tag_db_initialized()
+
+                assert db_core.IMG_DB_PATH == active_project_path
+                assert db_core.DATABASE_URL == f"sqlite:///{active_project_path}?check_same_thread=False"
+            finally:
+                db_core.IMG_DB_PATH = original_img_path
+                db_core.DATABASE_URL = original_database_url
+
 
 class TestDefaultDbDirectoryLazyInit:
     """デフォルト DB ディレクトリの遅延作成を検証する。"""

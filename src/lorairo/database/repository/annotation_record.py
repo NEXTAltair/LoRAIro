@@ -55,6 +55,7 @@ from sqlalchemy.future import select
 from sqlalchemy.orm import Session
 
 from ...utils.log import logger
+from ..db_core import ensure_tag_db_initialized
 from ..schema import (
     AnnotationsDict,
     Caption,
@@ -106,9 +107,10 @@ class AnnotationRepository(BaseRepository):
         else:
             super().__init__(session_factory)
 
-        # 外部 tag_db 統合 (公開 API 経由、グレースフルデグラデーション対応)。
+        # 外部 tag_db 統合は実際に tag_id 解決が必要になるまで遅延する。
         # TagCleaner.clean_format() は静的メソッドなのでインスタンス化不要。
-        self.merged_reader: MergedTagReader | None = self._initialize_merged_reader()
+        self.merged_reader: MergedTagReader | None = None
+        self._merged_reader_initialized = False
         # TagRegisterService は遅延初期化 (登録時のみ必要)。
         self.tag_register_service: TagRegisterService | None = None
 
@@ -128,6 +130,7 @@ class AnnotationRepository(BaseRepository):
 
         """
         try:
+            ensure_tag_db_initialized()
             return get_default_reader()
         except Exception as e:
             logger.warning(
@@ -135,6 +138,16 @@ class AnnotationRepository(BaseRepository):
                 "Tag operations will continue without external tag_id.",
             )
             return None
+
+    def _get_merged_reader(self) -> MergedTagReader | None:
+        """外部タグDBリーダーを必要時に初期化して返す。"""
+        if self.merged_reader is not None:
+            self._merged_reader_initialized = True
+            return self.merged_reader
+        if not self._merged_reader_initialized:
+            self.merged_reader = self._initialize_merged_reader()
+            self._merged_reader_initialized = True
+        return self.merged_reader
 
     def _initialize_tag_register_service(self) -> TagRegisterService | None:
         """タグ登録サービスを初期化（遅延初期化、Qt非依存）。
@@ -149,12 +162,13 @@ class AnnotationRepository(BaseRepository):
             - 初期化失敗時はグレースフルデグラデーション（警告ログのみ、システム継続）
 
         """
-        if self.merged_reader is None:
+        merged_reader = self._get_merged_reader()
+        if merged_reader is None:
             logger.warning("MergedTagReader unavailable, cannot initialize TagRegisterService")
             return None
 
         try:
-            return TagRegisterService(reader=self.merged_reader)
+            return TagRegisterService(reader=merged_reader)
         except Exception as e:
             logger.warning(f"Failed to initialize TagRegisterService: {e}", exc_info=True)
             return None  # エラー時はNoneで継続
@@ -401,7 +415,8 @@ class AnnotationRepository(BaseRepository):
             return None
 
         # 2. MergedTagReaderが利用可能か確認
-        if self.merged_reader is None:
+        merged_reader = self._get_merged_reader()
+        if merged_reader is None:
             logger.debug(
                 f"MergedTagReader unavailable, skipping external tag search for '{normalized_tag}'",
             )
@@ -418,7 +433,7 @@ class AnnotationRepository(BaseRepository):
                 include_aliases=True,
                 include_deprecated=False,
             )
-            result = search_tags(self.merged_reader, request)
+            result = search_tags(merged_reader, request)
 
             if result.items and len(result.items) > 0:
                 tag_id: int = result.items[0].tag_id
@@ -480,7 +495,10 @@ class AnnotationRepository(BaseRepository):
             # 競合検出（他のプロセスが同時に登録）→ リトライ
             logger.warning("Race condition detected during tag registration, retrying search...")
             try:
-                retry_result = search_tags(self.merged_reader, search_request)
+                merged_reader = self._get_merged_reader()
+                if merged_reader is None:
+                    return None
+                retry_result = search_tags(merged_reader, search_request)
                 if retry_result.items and len(retry_result.items) > 0:
                     tag_id = retry_result.items[0].tag_id
                     logger.debug(f"Found tag_id {tag_id} on retry for '{normalized_tag}'")
@@ -509,13 +527,14 @@ class AnnotationRepository(BaseRepository):
             return {}
 
         # MergedTagReaderが利用不可の場合は全てNone
-        if self.merged_reader is None:
+        merged_reader = self._get_merged_reader()
+        if merged_reader is None:
             logger.debug("MergedTagReader unavailable, skipping batch tag resolution")
             return dict.fromkeys(normalized_tags)
 
         # 一括検索
         try:
-            bulk_results = self.merged_reader.search_tags_bulk(
+            bulk_results = merged_reader.search_tags_bulk(
                 list(normalized_tags),
                 format_name=None,
                 resolve_preferred=False,
@@ -617,7 +636,10 @@ class AnnotationRepository(BaseRepository):
                 include_aliases=True,
                 include_deprecated=False,
             )
-            retry_result = search_tags(self.merged_reader, retry_request)
+            merged_reader = self._get_merged_reader()
+            if merged_reader is None:
+                return None
+            retry_result = search_tags(merged_reader, retry_request)
             if retry_result.items:
                 tag_id: int = retry_result.items[0].tag_id
                 return tag_id

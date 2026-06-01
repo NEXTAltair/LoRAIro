@@ -280,12 +280,10 @@ def ensure_tag_db_initialized() -> None:
     """タグDBを遅延初期化する。初回呼び出し時のみ HF Hub に接続する。"""
     import os
 
-    global _tag_db_initialized, DB_DIR, IMG_DB_PATH, DATABASE_URL, USER_TAG_DB_PATH
+    global _tag_db_initialized, DB_DIR, USER_TAG_DB_PATH
     if _tag_db_initialized:
         return
     DB_DIR = ensure_default_db_dir()
-    IMG_DB_PATH = DB_DIR / IMG_DB_FILENAME
-    DATABASE_URL = f"sqlite:///{IMG_DB_PATH.resolve()}?check_same_thread=False"
     token = os.environ.get("HF_TOKEN") or os.environ.get("HUGGINGFACE_TOKEN")
     try:
         from genai_tag_db_tools import initialize_databases
