@@ -1865,21 +1865,28 @@ class ImageRepository(BaseRepository):
                     project_id=filter_criteria.project_id,
                 )
 
-                filtered_image_ids: list[int] = list(session.execute(query).scalars().all())
-
-                if not filtered_image_ids:
+                count_query = select(func.count()).select_from(query.subquery())
+                total_count = session.execute(count_query).scalar_one()
+                if total_count == 0:
                     logger.info("指定された条件に一致する画像が見つかりませんでした。")
                     return [], 0
 
+                paged_query = query.order_by(Image.id)
+                if filter_criteria.offset:
+                    paged_query = paged_query.offset(filter_criteria.offset)
+                if filter_criteria.limit is not None:
+                    paged_query = paged_query.limit(filter_criteria.limit)
+
+                filtered_image_ids: list[int] = list(session.execute(paged_query).scalars().all())
                 logger.debug(f"フィルタリングで {len(filtered_image_ids)} 件の候補画像IDを取得しました。")
 
                 final_metadata_list = self._fetch_filtered_metadata(
                     session, filtered_image_ids, filter_criteria.resolution
                 )
                 list_count = len(final_metadata_list)
-                logger.info(f"最終的な検索結果: {list_count} 件")
+                logger.info(f"最終的な検索結果: {list_count} 件 / 総件数: {total_count} 件")
 
-                return final_metadata_list, list_count
+                return final_metadata_list, total_count
 
             except SQLAlchemyError as e:
                 logger.error(f"画像フィルタリング検索中にエラーが発生しました: {e}", exc_info=True)

@@ -350,12 +350,14 @@ def test_images_list_with_limit(mock_projects_dir: Path) -> None:
     ]
     with patch("lorairo.cli.commands.images.get_service_container") as mock_get_container:
         mock_container = MagicMock()
-        mock_container.db_manager.image_repo.get_images_by_filter.return_value = (fake_records, 3)
+        mock_container.db_manager.image_repo.get_images_by_filter.return_value = (fake_records[:1], 3)
         mock_get_container.return_value = mock_container
 
         result = runner.invoke(app, ["images", "list", "--project", "test-project", "--limit", "1"])
 
     assert result.exit_code == 0
+    criteria = mock_container.db_manager.image_repo.get_images_by_filter.call_args.args[0]
+    assert criteria.limit == 1
     assert "Images in project: test-project" in result.stdout
     assert "Showing 1 of 3" in result.stdout
 

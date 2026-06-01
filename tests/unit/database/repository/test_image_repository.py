@@ -28,6 +28,7 @@ from sqlalchemy import create_engine, select
 from sqlalchemy.orm import sessionmaker
 
 from lorairo.database.db_manager import ImageDatabaseManager
+from lorairo.database.filter_criteria import ImageFilterCriteria
 from lorairo.database.repository.base import BaseRepository
 from lorairo.database.repository.image import ImageRepository
 from lorairo.database.schema import (
@@ -94,6 +95,26 @@ class TestImageRepositoryStructure:
     def test_inherits_batch_chunk_size(self) -> None:
         """`BATCH_CHUNK_SIZE` を BaseRepository から継承する。"""
         assert ImageRepository.BATCH_CHUNK_SIZE == BaseRepository.BATCH_CHUNK_SIZE
+
+
+@pytest.mark.unit
+class TestGetImagesByFilterPaging:
+    """`get_images_by_filter` の DB 側ページング。"""
+
+    def test_limit_restricts_metadata_fetch_but_preserves_total_count(
+        self, image_repository: ImageRepository
+    ) -> None:
+        """limit 指定時も総件数を返し、メタデータ取得対象は limit 件に絞る。"""
+        first = _insert_image(image_repository, uuid="u-limit-1", phash="p-limit-1")
+        _insert_image(image_repository, uuid="u-limit-2", phash="p-limit-2")
+        _insert_image(image_repository, uuid="u-limit-3", phash="p-limit-3")
+
+        results, total_count = image_repository.get_images_by_filter(
+            ImageFilterCriteria(include_nsfw=True, limit=1)
+        )
+
+        assert total_count == 3
+        assert [record["id"] for record in results] == [first]
 
 
 @pytest.mark.unit
