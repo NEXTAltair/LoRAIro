@@ -15,12 +15,15 @@ import typer
 from lorairo.cli.commands.annotate import _resolve_model_identifier
 
 
-def _fake_model(litellm_model_id: str, name: str, provider: str | None = None) -> SimpleNamespace:
+def _fake_model(
+    litellm_model_id: str, name: str, provider: str | None = None, *, available: bool = True
+) -> SimpleNamespace:
     """`Model` 互換の軽量 fake。"""
     return SimpleNamespace(
         litellm_model_id=litellm_model_id,
         name=name,
         provider=provider,
+        available=available,
     )
 
 
@@ -100,3 +103,37 @@ class TestResolveModelIdentifier:
         _resolve_model_identifier(repository, "openai/gpt-4o")
 
         repository.get_models_by_name.assert_not_called()
+
+    def test_discontinued_litellm_match_aborts(
+        self, repository: Mock, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """de-list 済 (available=False) モデルは litellm_model_id 一致でも abort する (PR #590 review P2)。"""
+        target = _fake_model(
+            "openai/o4-mini-deep-research-2025-06-26",
+            "openai/o4-mini-deep-research-2025-06-26",
+            "openai",
+            available=False,
+        )
+        repository.get_model_by_litellm_id.return_value = target
+
+        with pytest.raises(typer.Exit) as excinfo:
+            _resolve_model_identifier(repository, "openai/o4-mini-deep-research-2025-06-26")
+
+        assert excinfo.value.exit_code == 1
+        out = capsys.readouterr().out
+        assert "openai/o4-mini-deep-research-2025-06-26" in out
+        assert "discontinued" in out
+
+    def test_discontinued_name_match_aborts(
+        self, repository: Mock, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """name 一致でも de-list 済モデルは abort する (PR #590 review P2)。"""
+        repository.get_model_by_litellm_id.return_value = None
+        repository.get_models_by_name.return_value = [
+            _fake_model("openai/removed", "removed", "openai", available=False),
+        ]
+
+        with pytest.raises(typer.Exit) as excinfo:
+            _resolve_model_identifier(repository, "removed")
+
+        assert excinfo.value.exit_code == 1

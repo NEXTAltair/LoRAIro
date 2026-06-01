@@ -493,6 +493,25 @@ def _get_deprecated_models_best_effort(annotator: Any, model_names: list[str]) -
         return []
 
 
+def _abort_if_discontinued(model: Any) -> None:
+    """de-list 済 (available=False) モデルは fail-fast で abort する (Issue #589 / PR #590 review P2)。
+
+    GUI は `Model.available` でフィルタするが CLI resolver は exact ID で素通りしていたため、
+    de-list / 提供終了モデルを `annotate run --model <id>` で実行でき runtime 失敗 (404 等) を
+    招いていた。GUI と同じく discontinued なモデルを候補から除外する。
+
+    Raises:
+        typer.Exit: モデルが discontinued (`available=False`) の場合 (code=1)。
+    """
+    if not getattr(model, "available", True):
+        console.print(
+            f"[red]Error:[/red] Model '{model.litellm_model_id}' is discontinued / no longer "
+            "provided by the annotation library and cannot be used. "
+            "Run `lorairo-cli models list` to see available IDs."
+        )
+        raise typer.Exit(code=1)
+
+
 def _resolve_model_identifier(repository: ModelRepository, identifier: str) -> str:
     """ユーザー入力を canonical `litellm_model_id` に解決する (Issue #245)。
 
@@ -518,10 +537,12 @@ def _resolve_model_identifier(repository: ModelRepository, identifier: str) -> s
     """
     by_litellm = repository.get_model_by_litellm_id(identifier)
     if by_litellm is not None:
+        _abort_if_discontinued(by_litellm)
         return by_litellm.litellm_model_id
 
     by_name = repository.get_models_by_name(identifier)
     if len(by_name) == 1:
+        _abort_if_discontinued(by_name[0])
         resolved = by_name[0].litellm_model_id
         logger.debug(f"--model '{identifier}' を name 経由で {resolved} に解決")
         return resolved

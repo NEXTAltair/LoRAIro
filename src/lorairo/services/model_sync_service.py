@@ -47,6 +47,8 @@ class ModelSyncResult:
     new_models_registered: int
     existing_models_updated: int
     errors: list[str]
+    delisted_count: int = 0  # Issue #589: lib discovery から消えて de-list した WebAPI モデル数
+    reactivated_count: int = 0  # PR #590 review P1: lib に再出現して reactivate した WebAPI モデル数
 
     @property
     def success(self) -> bool:
@@ -60,6 +62,8 @@ class ModelSyncResult:
             f"同期完了: ライブラリモデル {self.total_library_models}件, "
             f"新規登録 {self.new_models_registered}件, "
             f"更新 {self.existing_models_updated}件, "
+            f"提供終了 {self.delisted_count}件, "
+            f"復活 {self.reactivated_count}件, "
             f"エラー {len(self.errors)}件"
         )
 
@@ -273,11 +277,16 @@ class ModelSyncService:
             # 3. 既存モデル更新
             update_count = self.update_existing_models(library_models)
 
+            # 4. availability reconcile: lib discovery と DB の availability を双方向同期 (#589)
+            delisted_count, reactivated_count = self.reconcile_model_availability(library_models)
+
             result = ModelSyncResult(
                 total_library_models=len(library_models),
                 new_models_registered=new_count,
                 existing_models_updated=update_count,
                 errors=[],
+                delisted_count=delisted_count,
+                reactivated_count=reactivated_count,
             )
 
             logger.info(f"アノテーションモデル同期完了: {result.summary}")
@@ -435,6 +444,45 @@ class ModelSyncService:
 
         logger.info(f"既存アノテーションモデル更新完了: {update_count}件")
         return update_count
+
+    def reconcile_model_availability(self, library_models: list[ModelMetadata]) -> tuple[int, int]:
+        """WebAPI モデルの availability を lib discovery と双方向 reconcile する (Issue #589)。
+
+        sync は register/update のみで de-list / reactivate を行わないため、提供されなく
+        なった WebAPI モデルが UI に残存し、再提供されたモデルは復活しない。現在の
+        discovery に存在しない WebAPI モデルを de-list し、再出現したモデルを reactivate する。
+
+        PR #590 review P2: discovery に WebAPI モデルが 0 件の場合は、transient な discovery
+        障害 / local-only 結果で全 API モデルを誤って de-list するのを防ぐため reconcile を
+        スキップする。
+
+        Args:
+            library_models: 現在 lib discovery から取得した ModelMetadata リスト。
+
+        Returns:
+            (de-list 件数, reactivate 件数)。
+        """
+        # active = lib discovery 上で active (discontinued でない) な WebAPI モデル
+        active_api_model_ids = {
+            model["litellm_model_id"]
+            for model in library_models
+            if model.get("requires_api_key") and model.get("discontinued_at") is None
+        }
+        has_any_api_model = any(model.get("requires_api_key") for model in library_models)
+        if not has_any_api_model:
+            logger.warning(
+                "discovery に WebAPI モデルが 0 件。availability reconcile をスキップ "
+                "(transient な discovery 障害 / local-only 結果の可能性)。"
+            )
+            return 0, 0
+
+        delisted, reactivated = self.db_repository.reconcile_api_model_availability(active_api_model_ids)
+        if delisted or reactivated:
+            logger.info(
+                f"WebAPI モデル availability reconcile: de-list {len(delisted)}件 ({delisted}), "
+                f"reactivate {len(reactivated)}件 ({reactivated})"
+            )
+        return len(delisted), len(reactivated)
 
     def get_library_models_summary(self) -> dict[str, Any]:
         """ライブラリモデルのサマリー情報取得
