@@ -79,6 +79,28 @@ def _insert_image(
     return repo.add_original_image(info)
 
 
+def _insert_processed_image(
+    repo: ImageRepository,
+    *,
+    image_id: int,
+    filename: str = "processed.png",
+    width: int = 512,
+    height: int = 512,
+) -> int:
+    """テスト用処理済み画像を 1 件作成して id を返す。"""
+    info = {
+        "image_id": image_id,
+        "stored_image_path": f"/tmp/{filename}",
+        "width": width,
+        "height": height,
+        "has_alpha": False,
+        "filename": filename,
+    }
+    processed_id = repo.add_processed_image(info)
+    assert processed_id is not None
+    return processed_id
+
+
 @pytest.mark.unit
 class TestImageRepositoryStructure:
     """ADR 0035 段階 4 で確立した抽出構造の sanity check。"""
@@ -115,6 +137,21 @@ class TestGetImagesByFilterPaging:
 
         assert total_count == 3
         assert [record["id"] for record in results] == [first]
+
+    def test_resolution_filter_restricts_count_before_limit(
+        self, image_repository: ImageRepository
+    ) -> None:
+        """resolution 指定時は処理済み画像が合う ID だけを count/page 対象にする。"""
+        _insert_image(image_repository, uuid="u-res-missing", phash="p-res-missing")
+        matching = _insert_image(image_repository, uuid="u-res-match", phash="p-res-match")
+        _insert_processed_image(image_repository, image_id=matching, filename="res-match.png")
+
+        criteria = ImageFilterCriteria(include_nsfw=True, resolution=512, limit=1)
+        results, total_count = image_repository.get_images_by_filter(criteria)
+
+        assert total_count == 1
+        assert [record["id"] for record in results] == [matching]
+        assert image_repository.get_images_count_only(criteria) == 1
 
 
 @pytest.mark.unit
