@@ -98,6 +98,7 @@ class TestGetImagesByFilterScoreIntegration:
 
         # Mock execute to return empty result
         mock_execute_result = Mock()
+        mock_execute_result.scalar_one.return_value = 0
         mock_execute_result.scalars = Mock(return_value=Mock(all=Mock(return_value=[])))
         mock_session.execute = Mock(return_value=mock_execute_result)
 

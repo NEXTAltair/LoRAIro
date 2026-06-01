@@ -638,7 +638,7 @@ class TestReconcileModelAvailability:
         assert test_model_repository.get_model_by_litellm_id("openai/comeback").available is False
 
         # 2 回目: discovery に再出現 → reactivate
-        delisted, reactivated = model_sync_service.reconcile_model_availability(
+        _delisted, reactivated = model_sync_service.reconcile_model_availability(
             [self._stale_metadata("openai/comeback")]
         )
 

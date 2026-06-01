@@ -37,6 +37,8 @@ class ImageFilterCriteria:
         score_max: 最大スコア値（0.0-10.0）
         project_name: フィルタ対象プロジェクト名（Phase C完了後に有効化）
         project_id: フィルタ対象プロジェクトID（Phase C完了後に高速路）
+        limit: 取得件数上限。None の場合は無制限
+        offset: 取得開始位置
     """
 
     tags: list[str] | None = None
@@ -59,6 +61,8 @@ class ImageFilterCriteria:
     # Phase C (projects テーブル追加) 完了後に DB フィルタを有効化
     project_name: str | None = None
     project_id: int | None = None
+    limit: int | None = None
+    offset: int = 0
 
     @classmethod
     def from_kwargs(cls, **kwargs: Any) -> ImageFilterCriteria:
@@ -114,4 +118,6 @@ class ImageFilterCriteria:
             "score_max": self.score_max,
             "project_name": self.project_name,
             "project_id": self.project_id,
+            "limit": self.limit,
+            "offset": self.offset,
         }

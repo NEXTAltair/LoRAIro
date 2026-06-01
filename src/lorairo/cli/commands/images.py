@@ -205,15 +205,13 @@ def list_images(
         container.set_active_project(project)
 
         repository = container.db_manager.image_repo
-        criteria = ImageFilterCriteria(include_nsfw=True, only_unrated=unrated)
+        criteria = ImageFilterCriteria(include_nsfw=True, only_unrated=unrated, limit=limit)
         image_records, total_count = repository.get_images_by_filter(criteria)
 
         if not image_records:
             suffix = " without ratings" if unrated else ""
             console.print(f"No images{suffix} found in project: {project}")
             return
-
-        display_records = image_records[:limit] if limit else image_records
 
         heading_suffix = " (unrated only)" if unrated else ""
         console.print(f"Images in project: {project}{heading_suffix}")
@@ -223,7 +221,7 @@ def list_images(
         table.add_column("Tags", style="green")
         table.add_column("Annotated", style="yellow")
 
-        for record in display_records:
+        for record in image_records:
             image_id = str(record.get("id", ""))
             filename = Path(record.get("stored_image_path", "")).name or str(record.get("filename", ""))
             tag_count = len(record.get("tags") or [])

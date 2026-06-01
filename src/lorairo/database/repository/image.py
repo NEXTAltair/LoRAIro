@@ -1688,6 +1688,31 @@ class ImageRepository(BaseRepository):
             return self._fetch_original_image_metadata(session, image_ids)
         return self._fetch_processed_image_metadata(session, image_ids, resolution)
 
+    def _apply_processed_resolution_filter(
+        self,
+        query: Select[Any],
+        resolution: int,
+    ) -> Select[Any]:
+        """処理済み画像の解像度候補が存在する画像だけに絞り込む。"""
+        if resolution == 0:
+            return query
+
+        target_area = resolution * resolution
+        exact_long_side = or_(
+            and_(ProcessedImage.width >= ProcessedImage.height, ProcessedImage.width == resolution),
+            and_(ProcessedImage.height > ProcessedImage.width, ProcessedImage.height == resolution),
+        )
+        within_area_tolerance = (
+            func.abs(target_area - (ProcessedImage.width * ProcessedImage.height)) <= target_area * 0.2
+        )
+
+        return query.where(
+            exists().where(
+                ProcessedImage.image_id == Image.id,
+                or_(exact_long_side, within_area_tolerance),
+            )
+        )
+
     def _apply_project_filter(
         self,
         query: Select[Any],
@@ -1864,22 +1889,30 @@ class ImageRepository(BaseRepository):
                     project_name=filter_criteria.project_name,
                     project_id=filter_criteria.project_id,
                 )
+                query = self._apply_processed_resolution_filter(query, filter_criteria.resolution)
 
-                filtered_image_ids: list[int] = list(session.execute(query).scalars().all())
-
-                if not filtered_image_ids:
+                count_query = select(func.count()).select_from(query.subquery())
+                total_count = session.execute(count_query).scalar_one()
+                if total_count == 0:
                     logger.info("指定された条件に一致する画像が見つかりませんでした。")
                     return [], 0
 
+                paged_query = query.order_by(Image.id)
+                if filter_criteria.offset:
+                    paged_query = paged_query.offset(filter_criteria.offset)
+                if filter_criteria.limit is not None:
+                    paged_query = paged_query.limit(filter_criteria.limit)
+
+                filtered_image_ids: list[int] = list(session.execute(paged_query).scalars().all())
                 logger.debug(f"フィルタリングで {len(filtered_image_ids)} 件の候補画像IDを取得しました。")
 
                 final_metadata_list = self._fetch_filtered_metadata(
                     session, filtered_image_ids, filter_criteria.resolution
                 )
                 list_count = len(final_metadata_list)
-                logger.info(f"最終的な検索結果: {list_count} 件")
+                logger.info(f"最終的な検索結果: {list_count} 件 / 総件数: {total_count} 件")
 
-                return final_metadata_list, list_count
+                return final_metadata_list, total_count
 
             except SQLAlchemyError as e:
                 logger.error(f"画像フィルタリング検索中にエラーが発生しました: {e}", exc_info=True)
@@ -1927,6 +1960,9 @@ class ImageRepository(BaseRepository):
                     score_max=filter_criteria.score_max,
                     project_name=filter_criteria.project_name,
                     project_id=filter_criteria.project_id,
+                )
+                filtered_query = self._apply_processed_resolution_filter(
+                    filtered_query, filter_criteria.resolution
                 )
 
                 count_query = select(func.count()).select_from(filtered_query.subquery())
