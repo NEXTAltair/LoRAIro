@@ -3,6 +3,7 @@
 ModelSelectionService をモックして get_service_container() の呼び出しを回避。
 """
 
+import weakref
 from types import SimpleNamespace
 from unittest.mock import Mock
 
@@ -421,6 +422,91 @@ class TestModelSelectionWidgetLoadModelsException:
 class TestModelSelectionWidgetRefreshRegistry:
     """refresh_model_registry() 関連テスト（line 229-281）"""
 
+    def test_initial_auto_refresh_is_scheduled_once_for_container_backed_widget(
+        self, qtbot, mock_model_service, monkeypatch
+    ) -> None:
+        """container-backed widget の初回生成時だけ自動 refresh を予約する。"""
+        scheduled_callbacks = []
+        monkeypatch.setattr(ModelSelectionWidget, "_auto_refresh_started", False)
+        monkeypatch.setattr(
+            ModelSelectionWidget,
+            "_create_model_selection_service",
+            Mock(return_value=mock_model_service),
+        )
+        monkeypatch.setattr(
+            "lorairo.gui.widgets.model_selection_widget.QTimer.singleShot",
+            lambda delay, callback: scheduled_callbacks.append((delay, callback)),
+        )
+
+        first = ModelSelectionWidget()
+        second = ModelSelectionWidget()
+        qtbot.addWidget(first)
+        qtbot.addWidget(second)
+
+        assert len(scheduled_callbacks) == 1
+        assert scheduled_callbacks[0][0] == 0
+        assert scheduled_callbacks[0][1] == first._refresh_model_registry_automatically
+
+    def test_automatic_refresh_reload_all_live_container_backed_widgets(self, qtbot, monkeypatch) -> None:
+        """複数 widget が起動時に作られても、auto sync 成功後は全 widget を再読込する。"""
+        first_service = Mock()
+        first_service.load_models.return_value = []
+        first_service.get_recommended_models.return_value = []
+        second_service = Mock()
+        second_service.load_models.return_value = []
+        second_service.get_recommended_models.return_value = []
+
+        monkeypatch.setattr(ModelSelectionWidget, "_auto_refresh_started", False)
+        monkeypatch.setattr(ModelSelectionWidget, "_live_auto_refresh_widgets", weakref.WeakSet())
+        monkeypatch.setattr(
+            ModelSelectionWidget,
+            "_create_model_selection_service",
+            Mock(side_effect=[first_service, second_service]),
+        )
+        monkeypatch.setattr("lorairo.gui.widgets.model_selection_widget.QTimer.singleShot", Mock())
+
+        first = ModelSelectionWidget()
+        second = ModelSelectionWidget()
+        qtbot.addWidget(first)
+        qtbot.addWidget(second)
+        first_service.reset_mock()
+        second_service.reset_mock()
+        first._refresh_is_automatic = True
+
+        first._on_model_refresh_succeeded(5, "summary text")
+
+        first_service.refresh_models.assert_called_once_with()
+        first_service.load_models.assert_called_once_with()
+        second_service.refresh_models.assert_called_once_with()
+        second_service.load_models.assert_called_once_with()
+
+    def test_initial_auto_refresh_is_not_scheduled_for_injected_service(
+        self, qtbot, mock_model_service, monkeypatch
+    ) -> None:
+        """単体テスト用など明示注入された service では自動 refresh を起動しない。"""
+        scheduled_callbacks = []
+        monkeypatch.setattr(ModelSelectionWidget, "_auto_refresh_started", False)
+        monkeypatch.setattr(
+            "lorairo.gui.widgets.model_selection_widget.QTimer.singleShot",
+            lambda delay, callback: scheduled_callbacks.append((delay, callback)),
+        )
+
+        w = ModelSelectionWidget(model_selection_service=mock_model_service)
+        qtbot.addWidget(w)
+
+        assert scheduled_callbacks == []
+
+    def test_refresh_model_registry_automatically_starts_automatic_refresh(
+        self, widget, monkeypatch
+    ) -> None:
+        """自動 refresh callback は automatic=True で registry 更新を開始する。"""
+        refresh = Mock()
+        monkeypatch.setattr(widget, "refresh_model_registry", refresh)
+
+        widget._refresh_model_registry_automatically()
+
+        refresh.assert_called_once_with(automatic=True)
+
     def test_refresh_model_registry_disables_button_and_shows_progress(self, widget, monkeypatch) -> None:
         """refresh_model_registry() でボタン無効化 + プログレスバー表示（line 229-250）"""
         # QThread と _ModelRefreshWorker をモックしてスレッドが実際には起動しないようにする
@@ -469,6 +555,22 @@ class TestModelSelectionWidgetRefreshRegistry:
         # load_models が呼ばれた（model_selection_service.load_models 呼び出し確認）
         widget.model_selection_service.load_models.assert_called()
 
+    def test_on_model_refresh_succeeded_suppresses_dialog_for_automatic_refresh(
+        self, widget, monkeypatch
+    ) -> None:
+        """自動 refresh 成功時は再読込だけ行い、情報ダイアログは出さない。"""
+        info_called = []
+        monkeypatch.setattr(
+            "lorairo.gui.widgets.model_selection_widget.QMessageBox.information",
+            lambda *a: info_called.append(True),
+        )
+        widget._refresh_is_automatic = True
+
+        widget._on_model_refresh_succeeded(5, "summary text")
+
+        assert info_called == []
+        widget.model_selection_service.load_models.assert_called()
+
     def test_on_model_refresh_failed(self, widget, monkeypatch) -> None:
         """失敗時に警告ダイアログが表示される（line 265-272）"""
         warning_called = []
@@ -481,12 +583,28 @@ class TestModelSelectionWidgetRefreshRegistry:
 
         assert warning_called
 
+    def test_on_model_refresh_failed_suppresses_dialog_for_automatic_refresh(
+        self, widget, monkeypatch
+    ) -> None:
+        """自動 refresh 失敗時は warning ログのみでモーダルを出さない。"""
+        warning_called = []
+        monkeypatch.setattr(
+            "lorairo.gui.widgets.model_selection_widget.QMessageBox.warning",
+            lambda *a: warning_called.append(True),
+        )
+        widget._refresh_is_automatic = True
+
+        widget._on_model_refresh_failed("connection error")
+
+        assert warning_called == []
+
     def test_on_model_refresh_finished_restores_ui(self, widget) -> None:
         """完了時に UI が復帰する（line 275-281）"""
         widget.btnRefreshModels.setEnabled(False)
         widget.refreshProgressBar.setVisible(True)
         widget._refresh_thread = Mock()
         widget._refresh_worker = Mock()
+        widget._refresh_is_automatic = True
 
         widget._on_model_refresh_finished()
 
@@ -494,6 +612,7 @@ class TestModelSelectionWidgetRefreshRegistry:
         assert widget.refreshProgressBar.isVisible() is False
         assert widget._refresh_thread is None
         assert widget._refresh_worker is None
+        assert widget._refresh_is_automatic is False
 
 
 class TestModelSelectionWidgetSimpleMode:
