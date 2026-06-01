@@ -15,7 +15,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
-from PySide6.QtCore import QObject, Qt, QThread, Signal, Slot
+from PySide6.QtCore import QObject, Qt, QThread, QTimer, Signal, Slot
 from PySide6.QtGui import QCloseEvent
 from PySide6.QtWidgets import QLabel, QMessageBox, QProgressBar, QPushButton, QWidget
 
@@ -95,6 +95,7 @@ if not __name__ == "__main__":
         WEB_API_UNAVAILABLE_PLACEHOLDER = (
             "利用可能なWeb APIモデルがありません。APIキー設定とモデルregistry同期状態を確認してください。"
         )
+        _auto_refresh_started = False
 
         # UI elements type hints (from Ui_ModelSelectionWidget via multi-inheritance)
         if TYPE_CHECKING:
@@ -137,6 +138,8 @@ if not __name__ == "__main__":
             self._last_render_signature: tuple[str, bool, tuple[tuple[str, str, str], ...]] | None = None
             self._refresh_thread: QThread | None = None
             self._refresh_worker: _ModelRefreshWorker | None = None
+            self._refresh_is_automatic = False
+            self._auto_refresh_enabled = model_selection_service is None
 
             # フィルタ状態
             self.current_provider_filter: str | None = None
@@ -167,6 +170,7 @@ if not __name__ == "__main__":
             logger.debug(
                 f"ModelSelectionWidget initialized in {mode} mode with Qt Designer multi-inheritance"
             )
+            self._schedule_initial_model_registry_refresh()
 
         def _create_model_selection_service(self) -> ModelSelectionService:
             """ModelSelectionService 作成"""
@@ -197,6 +201,23 @@ if not __name__ == "__main__":
 
             self.controlLayout.insertWidget(3, self.btnRefreshModels)
             self.controlLayout.insertWidget(4, self.refreshProgressBar)
+
+        def _schedule_initial_model_registry_refresh(self) -> None:
+            """初回 container-backed widget 生成時にモデル registry sync を予約する。"""
+            if not self._auto_refresh_enabled:
+                return
+            if type(self)._auto_refresh_started:
+                return
+
+            type(self)._auto_refresh_started = True
+            logger.debug("初回 ModelSelectionWidget 表示に伴うモデル一覧自動更新を予約します")
+            QTimer.singleShot(0, self._refresh_model_registry_automatically)
+
+        @Slot()
+        def _refresh_model_registry_automatically(self) -> None:
+            """起動時 reconcile 用の非モーダル自動更新を開始する。"""
+            logger.info("モデル一覧の初回自動更新を開始します")
+            self.refresh_model_registry(automatic=True)
 
         def closeEvent(self, event: QCloseEvent) -> None:
             """Widget終了時に実行中の更新Threadを安全に停止する。"""
@@ -242,14 +263,18 @@ if not __name__ == "__main__":
                 self.update_model_display()
 
         @Slot()
-        def refresh_model_registry(self) -> None:
-            """image-annotator-libのモデル一覧を手動更新し、DB表示を再読込する。"""
+        def refresh_model_registry(self, automatic: bool = False) -> None:
+            """image-annotator-libのモデル一覧を更新し、DB表示を再読込する。"""
             if self._refresh_thread is not None:
                 return
 
+            self._refresh_is_automatic = automatic
             self.btnRefreshModels.setEnabled(False)
             self.refreshProgressBar.setVisible(True)
-            self.statusLabel.setText("モデル一覧を更新中...")
+            if automatic:
+                self.statusLabel.setText("モデル一覧を同期中...")
+            else:
+                self.statusLabel.setText("モデル一覧を更新中...")
 
             self._refresh_thread = QThread(self)
             self._refresh_worker = _ModelRefreshWorker()
@@ -273,6 +298,8 @@ if not __name__ == "__main__":
             self.model_selection_service.refresh_models()
             self.load_models()
             logger.info(f"モデル一覧更新完了: {model_count}件, {summary}")
+            if self._refresh_is_automatic:
+                return
             QMessageBox.information(
                 self,
                 "モデル一覧更新",
@@ -283,6 +310,8 @@ if not __name__ == "__main__":
         def _on_model_refresh_failed(self, error_message: str) -> None:
             """モデル一覧更新失敗時の処理。"""
             logger.warning(f"モデル一覧更新失敗: {error_message}")
+            if self._refresh_is_automatic:
+                return
             QMessageBox.warning(
                 self,
                 "モデル一覧更新エラー",
@@ -296,6 +325,7 @@ if not __name__ == "__main__":
             self.refreshProgressBar.setVisible(False)
             self._refresh_thread = None
             self._refresh_worker = None
+            self._refresh_is_automatic = False
             self._update_selection_count()
 
         def apply_filters(
