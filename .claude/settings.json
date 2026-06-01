@@ -69,11 +69,11 @@
         "hooks": [
           {
             "type": "command",
-            "command": "/workspaces/LoRAIro/.claude/hooks/hook_pre_commands.py"
+            "command": "/usr/bin/timeout 5s /workspaces/LoRAIro/.claude/hooks/hook_pre_commands.py"
           },
           {
             "type": "command",
-            "command": "/workspaces/LoRAIro/.claude/hooks/hook_pre_pr_submodule_check.py"
+            "command": "/usr/bin/timeout 15s /workspaces/LoRAIro/.claude/hooks/hook_pre_pr_submodule_check.py"
           }
         ]
       }
@@ -84,7 +84,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "/workspaces/LoRAIro/.claude/hooks/hook_response_monitor.py"
+            "command": "/usr/bin/timeout 5s /workspaces/LoRAIro/.claude/hooks/hook_response_monitor.py"
           }
         ]
       }
@@ -95,7 +95,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "cd /workspaces/LoRAIro && uv run python scripts/generate_ui.py 2>&1 | tail -5"
+            "command": "/usr/bin/timeout 120s bash -lc 'cd /workspaces/LoRAIro && uv run python scripts/generate_ui.py 2>&1 | tail -5'"
           }
         ]
       }
@@ -106,7 +106,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "/workspaces/LoRAIro/.claude/hooks/hook_worktree_create.py"
+            "command": "/usr/bin/timeout 120s /workspaces/LoRAIro/.claude/hooks/hook_worktree_create.py"
           }
         ]
       }
@@ -116,7 +116,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "/workspaces/LoRAIro/.claude/hooks/hook_teammate_monitor.py"
+            "command": "/usr/bin/timeout 90s /workspaces/LoRAIro/.claude/hooks/hook_teammate_monitor.py"
           }
         ]
       }
@@ -126,7 +126,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "/workspaces/LoRAIro/.claude/hooks/hook_teammate_monitor.py"
+            "command": "/usr/bin/timeout 10s /workspaces/LoRAIro/.claude/hooks/hook_teammate_monitor.py"
           }
         ]
       }
@@ -136,7 +136,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "/workspaces/LoRAIro/.claude/hooks/hook_teammate_monitor.py"
+            "command": "/usr/bin/timeout 90s /workspaces/LoRAIro/.claude/hooks/hook_teammate_monitor.py"
           }
         ]
       }

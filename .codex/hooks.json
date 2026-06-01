@@ -6,7 +6,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "/workspaces/LoRAIro/.codex/hooks/hook_pre_commands.py"
+            "command": "/usr/bin/timeout 5s /workspaces/LoRAIro/.codex/hooks/hook_pre_commands.py"
           }
         ]
       }
@@ -16,7 +16,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "/workspaces/LoRAIro/.codex/hooks/hook_response_monitor.py"
+            "command": "/usr/bin/timeout 5s /workspaces/LoRAIro/.codex/hooks/hook_response_monitor.py"
           }
         ]
       }
@@ -27,7 +27,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "/workspaces/LoRAIro/.codex/hooks/hook_worktree_create.py"
+            "command": "/usr/bin/timeout 120s /workspaces/LoRAIro/.codex/hooks/hook_worktree_create.py"
           }
         ]
       }
