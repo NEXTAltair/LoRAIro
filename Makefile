@@ -99,7 +99,9 @@ test-runtime-webapi: _ensure-root-venv
 
 test-genai-tag: _ensure-submodules
 	@echo "Running genai-tag-db-tools tests (creates local_packages/genai-tag-db-tools/.venv)..."
-	cd local_packages/genai-tag-db-tools && uv run pytest
+	cd local_packages/genai-tag-db-tools && \
+		UV_PROJECT_ENVIRONMENT=$(CURDIR)/local_packages/genai-tag-db-tools/.venv \
+		uv run pytest
 
 test-all: _ensure-submodules
 	@echo "Running all package test sessions sequentially (ADR 0024)..."

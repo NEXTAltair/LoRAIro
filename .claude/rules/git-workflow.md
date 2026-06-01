@@ -56,6 +56,7 @@ make worktree-cleanup-merged
 - read-only 検証で対象 checkout を固定したい場合は、`uv run --no-sync` と `PYTHONPATH` 明示を併用する。
 - `uv` 単体の help/inspection は venv を作らないため例外として許可する
 - ワークツリー固有の `.venv` が必要な特殊事情がある場合は、理由を明示してから実行する
+- **注意**: この常設 `UV_PROJECT_ENVIRONMENT` は全 Bash コマンドに継承される。package 隔離した別 uv プロジェクト（`local_packages/genai-tag-db-tools` 等）を実行する recipe は、共有 `.venv` を誤って使わないよう自前の `UV_PROJECT_ENVIRONMENT` を明示する（`make test-genai-tag` 参照）。
 - 並列で `uv run` を実行する場合の詳細ルールは [parallel-execution.md](parallel-execution.md) を参照
 
 ### Codex / Claude Code 設定差分
