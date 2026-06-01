@@ -3,6 +3,7 @@
 ModelSelectionService をモックして get_service_container() の呼び出しを回避。
 """
 
+import weakref
 from types import SimpleNamespace
 from unittest.mock import Mock
 
@@ -445,6 +446,39 @@ class TestModelSelectionWidgetRefreshRegistry:
         assert len(scheduled_callbacks) == 1
         assert scheduled_callbacks[0][0] == 0
         assert scheduled_callbacks[0][1] == first._refresh_model_registry_automatically
+
+    def test_automatic_refresh_reload_all_live_container_backed_widgets(self, qtbot, monkeypatch) -> None:
+        """複数 widget が起動時に作られても、auto sync 成功後は全 widget を再読込する。"""
+        first_service = Mock()
+        first_service.load_models.return_value = []
+        first_service.get_recommended_models.return_value = []
+        second_service = Mock()
+        second_service.load_models.return_value = []
+        second_service.get_recommended_models.return_value = []
+
+        monkeypatch.setattr(ModelSelectionWidget, "_auto_refresh_started", False)
+        monkeypatch.setattr(ModelSelectionWidget, "_live_auto_refresh_widgets", weakref.WeakSet())
+        monkeypatch.setattr(
+            ModelSelectionWidget,
+            "_create_model_selection_service",
+            Mock(side_effect=[first_service, second_service]),
+        )
+        monkeypatch.setattr("lorairo.gui.widgets.model_selection_widget.QTimer.singleShot", Mock())
+
+        first = ModelSelectionWidget()
+        second = ModelSelectionWidget()
+        qtbot.addWidget(first)
+        qtbot.addWidget(second)
+        first_service.reset_mock()
+        second_service.reset_mock()
+        first._refresh_is_automatic = True
+
+        first._on_model_refresh_succeeded(5, "summary text")
+
+        first_service.refresh_models.assert_called_once_with()
+        first_service.load_models.assert_called_once_with()
+        second_service.refresh_models.assert_called_once_with()
+        second_service.load_models.assert_called_once_with()
 
     def test_initial_auto_refresh_is_not_scheduled_for_injected_service(
         self, qtbot, mock_model_service, monkeypatch

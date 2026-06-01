@@ -13,6 +13,7 @@ Model Selection Widget
 
 from __future__ import annotations
 
+import weakref
 from typing import TYPE_CHECKING, Any
 
 from PySide6.QtCore import QObject, Qt, QThread, QTimer, Signal, Slot
@@ -96,6 +97,7 @@ if not __name__ == "__main__":
             "利用可能なWeb APIモデルがありません。APIキー設定とモデルregistry同期状態を確認してください。"
         )
         _auto_refresh_started = False
+        _live_auto_refresh_widgets: weakref.WeakSet[ModelSelectionWidget] = weakref.WeakSet()
 
         # UI elements type hints (from Ui_ModelSelectionWidget via multi-inheritance)
         if TYPE_CHECKING:
@@ -170,6 +172,8 @@ if not __name__ == "__main__":
             logger.debug(
                 f"ModelSelectionWidget initialized in {mode} mode with Qt Designer multi-inheritance"
             )
+            if self._auto_refresh_enabled:
+                type(self)._live_auto_refresh_widgets.add(self)
             self._schedule_initial_model_registry_refresh()
 
         def _create_model_selection_service(self) -> ModelSelectionService:
@@ -218,6 +222,13 @@ if not __name__ == "__main__":
             """起動時 reconcile 用の非モーダル自動更新を開始する。"""
             logger.info("モデル一覧の初回自動更新を開始します")
             self.refresh_model_registry(automatic=True)
+
+        @classmethod
+        def _refresh_live_auto_refresh_widgets(cls) -> None:
+            """起動時 sync 後に全 container-backed widget のDB表示を再読込する。"""
+            for widget in list(cls._live_auto_refresh_widgets):
+                widget.model_selection_service.refresh_models()
+                widget.load_models()
 
         def closeEvent(self, event: QCloseEvent) -> None:
             """Widget終了時に実行中の更新Threadを安全に停止する。"""
@@ -295,11 +306,12 @@ if not __name__ == "__main__":
         @Slot(int, str)
         def _on_model_refresh_succeeded(self, model_count: int, summary: str) -> None:
             """モデル一覧更新成功時の処理。"""
-            self.model_selection_service.refresh_models()
-            self.load_models()
             logger.info(f"モデル一覧更新完了: {model_count}件, {summary}")
             if self._refresh_is_automatic:
+                type(self)._refresh_live_auto_refresh_widgets()
                 return
+            self.model_selection_service.refresh_models()
+            self.load_models()
             QMessageBox.information(
                 self,
                 "モデル一覧更新",
