@@ -21,13 +21,10 @@ class TestImageRepositoryTagRegistration:
     @pytest.fixture
     def repository(self):
         """AnnotationRepository インスタンス（MergedTagReader モック付き）"""
-        with patch(
-            "lorairo.database.repository.annotation_record.get_default_reader"
-        ) as mock_reader_factory:
-            mock_reader = Mock()
-            mock_reader_factory.return_value = mock_reader
-            repo = AnnotationRepository()
-            return repo
+        mock_reader = Mock()
+        repo = AnnotationRepository()
+        repo.merged_reader = mock_reader
+        return repo
 
     def test_tag_registration_success(self, repository, mock_session):
         """新規タグ登録成功"""

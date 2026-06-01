@@ -56,7 +56,6 @@ class ServiceContainer:
             return
 
         logger.info("ServiceContainer初期化開始")
-        ensure_tag_db_initialized()
 
         # コアサービス初期化
         self._config_service: ConfigurationService | None = None
@@ -226,6 +225,7 @@ class ServiceContainer:
         if self._tag_management_service is None:
             from .tag_management_service import TagManagementService
 
+            ensure_tag_db_initialized()
             self._tag_management_service = TagManagementService()
             logger.info("TagManagementService初期化完了")
         return self._tag_management_service
