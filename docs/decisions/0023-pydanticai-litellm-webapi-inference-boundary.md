@@ -3,14 +3,16 @@
 - **日付**: 2026-05-07
 - **ステータス**: Accepted
 - **Supersedes**: ADR 0021 (partial — `available_api_models.toml` キャッシュ運用と WebAPI 用 user TOML override 部分)
-- **関連 ADR**: [0021 LiteLLM-Driven WebAPI Model Registry](0021-litellm-driven-model-registry.md)
+- **関連 ADR**: [0021 LiteLLM-Driven WebAPI Model Registry](0021-litellm-driven-model-registry.md),
+  image-annotator-lib ADR 0007 (WebAPI Dual-Endpoint Runtime — Chat + Responses; runtime 構築の具体 contract)
 - **関連 ISSUE**:
   [image-annotator-lib#37](https://github.com/NEXTAltair/image-annotator-lib/issues/37),
   [#36](https://github.com/NEXTAltair/image-annotator-lib/issues/36),
   [#35](https://github.com/NEXTAltair/image-annotator-lib/issues/35),
   [#45](https://github.com/NEXTAltair/image-annotator-lib/issues/45),
   [#47](https://github.com/NEXTAltair/image-annotator-lib/issues/47),
-  [#46](https://github.com/NEXTAltair/image-annotator-lib/issues/46)
+  [#46](https://github.com/NEXTAltair/image-annotator-lib/issues/46),
+  [#131](https://github.com/NEXTAltair/image-annotator-lib/issues/131)
 
 ## Context
 
@@ -420,7 +422,9 @@ fail-fast を維持する判断とした。
 2. 推論直前に vision + function/tool calling capability を fail-fast
 3. `resolve_model_ref(litellm_model_id, config)` で `PydanticAIModelRef` を生成
 4. API key を provider object に明示注入し、PydanticAI 実行用 model object / model string を構築
-   (env mutate なし)
+   (env mutate なし)。OpenAI provider の endpoint は当初 Chat Completions 経路で固定していたが、
+   (#131 Amendment で litellm `mode` 由来の dual-endpoint に拡張。下記
+   `Amendment (2026-06-01, iam-lib #131)` 参照)
 5. `Agent(model=model, output_type=AnnotationSchema, system_prompt=BASE_PROMPT, ...)` を毎回新規作成
 6. async core では `result = await agent.run([prompt_text, binary_content])` (sequence で渡す)
 7. sync wrapper は `run_inference_with_model_async()` を event loop 非稼働 thread でだけ実行する
@@ -1354,6 +1358,56 @@ info = litellm.get_model_info(model_id, custom_llm_provider=provider)
 |---|---|---|
 | `api_model_discovery.py` — LiteLLM 同梱 DB の runtime query | `litellm.get_model_info(model_id)` で provider は LiteLLM に推論させる | `litellm.model_cost[model_id]["litellm_provider"]` を SSoT として取得し、`litellm.get_model_info(model_id, custom_llm_provider=provider)` を明示渡しする |
 
+## Amendment (2026-06-01, iam-lib #131): Chat + Responses Dual-Endpoint
+
+当初の本 ADR は WebAPI 同期推論経路の OpenAI endpoint を Chat Completions
+(`OpenAIChatModel` / `/v1/chat/completions`) で固定していた。iam-lib #131 で、これを
+**litellm `mode` 由来の per-model endpoint 選択** に拡張する。runtime 構築の具体 contract は
+image-annotator-lib ADR 0007 (WebAPI Dual-Endpoint Runtime) に記録し、本 Amendment は
+上位方針 (SSoT) を記述する。
+
+### 背景
+
+OpenAI は Responses API を主軸化し、pro ティア (`gpt-5-pro`, `o3-pro`, `o1-pro`,
+`gpt-5.x-pro` 系) は `mode=responses` 専用で Chat Completions には載っていない。
+OpenAI を無条件に Chat 経路で構築していたため、これら responses 専用モデルは実行時
+404 になっていた。iam-lib #130 (PR #132) で暫定的に discovery gate を `mode=chat` のみに
+絞って responses 系を除外していたが、#131 で gate を反転して `OpenAIResponsesModel`
+経路を実装し pro ティアを実行可能にする。
+
+### 拡張内容
+
+- **endpoint 選択は per-model**: litellm registry metadata の `mode` を source とし、
+  `annotator → provider_manager → resolve_model_ref(mode=...) → PydanticAIModelRef.endpoint
+  → build_pydantic_model` の分岐に配線する。openai かつ `mode=responses` のときのみ
+  `OpenAIResponsesModel`、それ以外の openai は `OpenAIChatModel`。anthropic / google /
+  openrouter は常に Chat 系 (OpenRouter 経由の openai モデルも Chat)。
+- **軸A (endpoint 互換性) と軸B (annotation 適性) をコード上分離**: #131 は軸A gate のみ
+  反転 (chat + responses 許可)、軸B denylist は維持・拡張する。
+- **codex は一律除外**: openai-direct responses codex に加え、現在 chat で有効だった
+  `openrouter/openai/gpt-5.1-codex-max` も denylist substring `codex` で除外する
+  (plan_130 の「openrouter codex は残す」判断を #131 で上書き。codex はコーディング特化で
+  画像 annotation 不適のため provider / endpoint 問わず一律除外)。
+- **deep-research は除外維持**: data-source tool 前提のため gate 反転後も denylist で除外。
+- **batch は chat 専用のまま (ADR 0038 不変)**: #131 は同期 runtime のみ。ADR 0038 の
+  OpenAI batch 経路 `/v1/chat/completions` 選択は変更しない。理由は LoRAIro Issue #518 の
+  lesson (batch を chat に固定し sync と endpoint / tool schema / response shape を一致させ
+  fixture / refusal を再利用) と整合する。responses 専用 pro ティアは sync runtime 限定で
+  実行可能になる。
+- **refusal 契約は不変**: Phase 1.5 の refusal 分類契約 (exception body 再帰 walk +
+  type 名 + regex で provider 横断) は Responses 経路でもそのまま機能する想定。コード変更
+  なし、実 API smoke で確認 ([ADR 0026](0026-on-demand-runtime-validation-strategy.md))。
+- **plan_525 との整合**: plan_525 は PydanticAI 2.0 beta の「Responses 強制全切替」を
+  不採用とした。#131 は全切替ではなく litellm `mode` 由来の per-model endpoint 選択なので
+  矛盾しない。
+
+### litellm 同梱 DB 実測 (2026-06-01)
+
+- gate 反転で復活する openai pro ティア: 11 件 (`gpt-5-pro` + dated, `gpt-5.2/5.4/5.5-pro`
+  + dated, `o1-pro` + dated, `o3-pro` + dated。全て vision + function_calling = True)。
+- 除外維持: deep-research 4 件。
+- 新規除外: codex (openai-direct 8 件 + `openrouter/openai/gpt-5.1-codex-max`)。
+
 ## References
 
 - [PydanticAI Output](https://pydantic.dev/docs/ai/core-concepts/output/)
@@ -1375,3 +1429,6 @@ info = litellm.get_model_info(model_id, custom_llm_provider=provider)
 - [LoRAIro Issue #238 — Phase 1.11 `schema.Model.litellm_model_id` を UNIQUE NOT NULL 化、`name` を表示名に降格](https://github.com/NEXTAltair/LoRAIro/issues/238)
 - [LoRAIro Issue #241 — モデル route 表示の畳み込みと実行時 route 確定 (Phase 1.12)](https://github.com/NEXTAltair/LoRAIro/issues/241)
 - [LoRAIro Issue #265 — discovery で `litellm_provider` を SSoT にして provider 推論廃止 (Phase 1.13)](https://github.com/NEXTAltair/LoRAIro/issues/265)
+- [image-annotator-lib Issue #131 — WebAPI Chat + Responses dual-endpoint runtime (Amendment 2026-06-01)](https://github.com/NEXTAltair/image-annotator-lib/issues/131)
+- [image-annotator-lib Issue #130 — 暫定 chat-only discovery gate (PR #132)](https://github.com/NEXTAltair/image-annotator-lib/issues/130)
+- image-annotator-lib ADR 0007 — WebAPI Dual-Endpoint Runtime (Chat + Responses; runtime 構築の具体 contract)
