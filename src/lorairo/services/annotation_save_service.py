@@ -246,13 +246,13 @@ class AnnotationSaveService:
             "confidence_score": confidence,
         }
 
-    # ADR 0023 Phase 1.5 (Issue #42): image-annotator-lib 側で refusal を検出した
-    # 場合、UnifiedAnnotationResult.error は f"{type(refusal_exc).__name__}: {msg}"
-    # 形式の文字列で乗ってくる。LoRAIro 側はこの prefix を string match で decode
-    # して error_records に記録する (型 import せず文字列 prefix のみで疎結合に保つ)。
-    _REFUSAL_ERROR_PREFIXES: tuple[str, ...] = (
-        "SafetyRefusalError:",
-        "ContentPolicyRefusalError:",
+    # ADR 0023 Phase 1.5 amendment (Issue #599): iam-lib は refusal / empty annotation
+    # を library error ではなく structured outcome として返す。LoRAIro ではこれらを
+    # annotation 対象から除外すべき outcome として error_records に記録する。
+    _ANNOTATION_OUTCOME_RECORD_ERROR_CODES: tuple[str, ...] = (
+        "SAFETY_REFUSAL",
+        "CONTENT_POLICY_REFUSAL",
+        "EMPTY_ANNOTATION",
     )
 
     # legacy migration 行の fallback sentinel: __legacy_<id>__.
@@ -276,26 +276,21 @@ class AnnotationSaveService:
         return model_id.isdecimal()
 
     @classmethod
-    def _detect_refusal_error_type(cls, error: Any) -> str | None:
-        """`UnifiedAnnotationResult.error` から refusal exception type 名を抽出する。
-
-        ADR 0023 Phase 1.5: image-annotator-lib 側 `_classify_refusal()` が
-        `f"{type(refusal_exc).__name__}: {refusal_exc}"` 形式で error 文字列を
-        構築するため、prefix を startswith で判定して error_type を切り出す。
+    def _detect_annotation_outcome_error_type(cls, error_code: Any) -> str | None:
+        """`UnifiedAnnotationResult.error_code` から LoRAIro 記録対象 code を抽出する。
 
         Args:
-            error: `UnifiedAnnotationResult.error` の値 (str | None | 他)。
+            error_code: `UnifiedAnnotationResult.error_code` の値 (str | StrEnum | None | 他)。
 
         Returns:
-            "SafetyRefusalError" / "ContentPolicyRefusalError"、または非 refusal なら None。
+            `error_records.error_type` に保存する code 文字列、または記録対象外なら None。
         """
-        if not isinstance(error, str):
+        if error_code is None:
             return None
-        for prefix in cls._REFUSAL_ERROR_PREFIXES:
-            if error.startswith(prefix):
-                # prefix は ":" を含むため strip して error_type 名のみ返す
-                return prefix.rstrip(":")
-        return None
+        code = getattr(error_code, "value", error_code)
+        if not isinstance(code, str):
+            return None
+        return code if code in cls._ANNOTATION_OUTCOME_RECORD_ERROR_CODES else None
 
     def _process_model_result(
         self,
@@ -307,17 +302,17 @@ class AnnotationSaveService:
     ) -> None:
         """1モデル分のアノテーション結果をAnnotationsDictに追記する。
 
-        ADR 0023 Phase 1.5 (Issue #42): error が SafetyRefusalError /
-        ContentPolicyRefusalError の prefix を持つ場合、`error_records` に記録
-        してから skip する。`image_id is None` の場合は記録できないため warning
-        のみ出して skip する。
+        ADR 0023 Phase 1.5 amendment (Issue #599): error_code が
+        SAFETY_REFUSAL / CONTENT_POLICY_REFUSAL / EMPTY_ANNOTATION の場合、
+        `error_records` に記録してから skip する。`image_id is None` の場合は
+        記録できないため warning のみ出して skip する。
 
         Args:
             model_name: アノテーションを行ったモデル名。
             unified_result: image-annotator-lib から返された UnifiedAnnotationResult。
             models_cache: model_name → Model の事前取得キャッシュ。
             result: 追記先の AnnotationsDict。
-            image_id: 対象画像 ID。refusal を error_records に記録する際に必要。
+            image_id: 対象画像 ID。outcome を error_records に記録する際に必要。
         """
         if self._is_legacy_sentinel_model_id(model_name):
             logger.warning(
@@ -325,32 +320,37 @@ class AnnotationSaveService:
             )
             return
 
+        error_code = self._extract_field(unified_result, "error_code")
         error = self._extract_field(unified_result, "error")
-        if error:
-            refusal_type = self._detect_refusal_error_type(error)
-            if refusal_type is not None:
-                # ADR 0023 line 347-372: refusal は retry せず error_records に
-                # 記録 → 送信前 filter で除外。
-                error_message = error.split(":", 1)[1].strip() if ":" in error else ""
-                if image_id is not None:
-                    self._error_record_repo.save_error_record(
-                        operation_type="annotation",
-                        error_type=refusal_type,
-                        error_message=error_message,
-                        image_id=image_id,
-                        model_name=model_name,
-                    )
-                    logger.warning(
-                        f"Refusal recorded to error_records: model={model_name}, "
-                        f"image_id={image_id}, type={refusal_type}"
-                    )
-                else:
-                    logger.warning(
-                        f"Refusal detected but image_id missing, cannot persist: "
-                        f"model={model_name}, type={refusal_type}"
-                    )
-                return
-            logger.warning(f"モデル {model_name} エラーをスキップ")
+        retryable = self._extract_field(unified_result, "retryable")
+        outcome_error_type = self._detect_annotation_outcome_error_type(error_code)
+        if outcome_error_type is not None:
+            # LoRAIro では retry せず error_records に記録 → 送信前 filter で除外。
+            error_message = str(error or "")
+            if image_id is not None:
+                self._error_record_repo.save_error_record(
+                    operation_type="annotation",
+                    error_type=outcome_error_type,
+                    error_message=error_message,
+                    image_id=image_id,
+                    model_name=model_name,
+                )
+                logger.warning(
+                    f"Annotation outcome recorded to error_records: model={model_name}, "
+                    f"image_id={image_id}, type={outcome_error_type}"
+                )
+            else:
+                logger.warning(
+                    f"Annotation outcome detected but image_id missing, cannot persist: "
+                    f"model={model_name}, type={outcome_error_type}"
+                )
+            return
+
+        if error or error_code:
+            if retryable:
+                logger.warning(f"モデル {model_name} retryable annotation outcome をスキップ")
+            else:
+                logger.warning(f"モデル {model_name} エラーをスキップ")
             return
 
         model = models_cache.get(model_name)
@@ -410,7 +410,9 @@ class AnnotationSaveService:
             for model_name, unified_result in phash_annotations.items():
                 if self._is_legacy_sentinel_model_id(model_name):
                     continue
-                if self._extract_field(unified_result, "error"):
+                if self._extract_field(unified_result, "error") or self._extract_field(
+                    unified_result, "error_code"
+                ):
                     continue
                 all_model_names.add(model_name)
                 tags = self._extract_field(unified_result, "tags")
@@ -708,17 +710,17 @@ class AnnotationSaveService:
             error_details=error_details,
         )
 
-    # ADR 0023 Phase 1.5 (Issue #42): WebAPI annotation 対象から、過去に refusal
-    # を返した画像を除外するための送信前 filter。AnnotationWorker 等の caller が
-    # image_paths を構築した直後に呼ぶことで、無駄な API 課金 + refusal ループを防ぐ。
+    # ADR 0023 Phase 1.5 amendment (Issue #599): WebAPI annotation 対象から、過去に
+    # refusal / empty annotation outcome を返した画像を除外するための送信前 filter。
     REFUSAL_ERROR_TYPES: tuple[str, ...] = (
-        "SafetyRefusalError",
-        "ContentPolicyRefusalError",
+        "SAFETY_REFUSAL",
+        "CONTENT_POLICY_REFUSAL",
+        "EMPTY_ANNOTATION",
     )
     _RATING_EXCLUSION_VALUES: frozenset[str] = frozenset({"X", "XXX"})
 
     def filter_refused_image_paths(self, image_paths: list[str]) -> list[str]:
-        """過去に safety/content refusal を返した画像 path を除外する。
+        """過去に safety/content refusal または empty annotation を返した画像 path を除外する。
 
         **本 method は WebAPI 推論経路向けの filter** — SafetyRefusal /
         ContentPolicyRefusal は cloud provider の content policy 拒否概念で、
@@ -727,9 +729,9 @@ class AnnotationSaveService:
         WebAPI モデルが選択モデルに含まれているかの判定は呼び出し側 (`worker_service`)
         で行う (`selection_includes_webapi_model()` 参照)。
 
-        ADR 0023 line 363-369 の送信前 filter:
+        ADR 0023 Phase 1.5 amendment の送信前 filter:
             operation_type = "annotation"
-            error_type in {"SafetyRefusalError", "ContentPolicyRefusalError"}
+            error_type in {"SAFETY_REFUSAL", "CONTENT_POLICY_REFUSAL", "EMPTY_ANNOTATION"}
             resolved_at IS NULL
 
         を満たす image_id 集合を取得し、対応する image_path を除外する。
@@ -772,7 +774,7 @@ class AnnotationSaveService:
         if excluded_count > 0:
             logger.info(
                 f"WebAPI annotation 送信前 filter: 対象 {len(filtered)}件 "
-                f"(refusal 除外: {excluded_count}件)"
+                f"(outcome 除外: {excluded_count}件)"
             )
         return filtered
 

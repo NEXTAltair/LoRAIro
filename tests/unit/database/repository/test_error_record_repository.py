@@ -196,10 +196,10 @@ class TestGetErrorImageIds:
 
     def test_filters_by_error_types(self, error_record_repository: ErrorRecordRepository) -> None:
         """error_types フィルタで特定の error_type のみを抽出する。"""
-        _insert_error(error_record_repository, image_id=1, error_type="SafetyRefusalError")
+        _insert_error(error_record_repository, image_id=1, error_type="SAFETY_REFUSAL")
         _insert_error(error_record_repository, image_id=2, error_type="APIError")
 
-        ids = error_record_repository.get_error_image_ids(error_types=["SafetyRefusalError"])
+        ids = error_record_repository.get_error_image_ids(error_types=["SAFETY_REFUSAL"])
         assert ids == [1]
 
     def test_resolved_filter(self, error_record_repository: ErrorRecordRepository) -> None:

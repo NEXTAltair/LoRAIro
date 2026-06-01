@@ -1,15 +1,15 @@
 # language: ja
-機能: アノテーション結果の保存と安全性拒否ハンドリング
+機能: アノテーション結果の保存と outcome ハンドリング
   AnnotationSaveService は CLI/GUI/API の 3 経路で共有される Qt-free サービスで、
   推論結果を DB に保存し成功・スキップ・エラーを集計する。ADR 0023 Phase 1.5 では
-  安全性拒否 (SafetyRefusal / ContentPolicyRefusal) を error_records に記録し、
-  次回 WebAPI 送信前に対象画像を除外することで API 課金と refusal ループを防ぐ。
+  安全性拒否や空アノテーション outcome を error_records に記録し、次回 WebAPI
+  送信前に対象画像を除外することで API 課金と refusal / empty ループを防ぐ。
 
   シナリオ: 安全性拒否を受けた結果はエラーレコードに記録されスキップされる
     前提 DB に登録済みの画像が 1 件ある
     かつ AnnotationSaveService が初期化されている
-    もし その画像に対し "SafetyRefusalError: blocked due to safety policy" の結果を処理する
-    ならば エラーレコードに 1 件の "SafetyRefusalError" が記録される
+    もし その画像に対し "SAFETY_REFUSAL: blocked due to safety policy" の結果を処理する
+    ならば エラーレコードに 1 件の "SAFETY_REFUSAL" が記録される
     かつ アノテーションは保存されない
 
   シナリオ: 過去に拒否された画像は WebAPI 送信対象から除外される

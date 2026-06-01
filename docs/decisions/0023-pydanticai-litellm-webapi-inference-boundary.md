@@ -669,6 +669,50 @@ image_id 集合を WebAPI annotation 対象から除外する。`get_error_image
 
 将来の refusal reason taxonomy (専用カラム / 専用テーブル) は別 ADR で検討。
 
+## Phase 1.5 amendment (Issue #599 — error_code routing)
+
+iam-lib #134 の Annotation Outcome Contract 構造化に合わせ、LoRAIro 消費側は
+`UnifiedAnnotationResult.error` prefix decode から `UnifiedAnnotationResult.error_code`
+ベースの routing へ移行する。
+
+### 意味論の境界
+
+`SAFETY_REFUSAL` / `CONTENT_POLICY_REFUSAL` / `EMPTY_ANNOTATION` は iam-lib にとって
+library error ではない。推論は完了しており、使える annotation output が無い outcome である。
+一方 LoRAIro では、同じ outcome を annotation 対象から除外すべき状態として扱い、
+`error_records` に記録して以後の WebAPI annotation 送信から除外する。これは無駄な
+API 課金と refusal / empty annotation ループを防ぐための LoRAIro 側 policy である。
+
+### 連携契約 (lib ↔ LoRAIro)
+
+iam-lib は sync WebAPI annotation の degenerate outcome を
+`UnifiedAnnotationResult(error_code=<code>, retryable=<bool>, error=<message>)`
+として返す。LoRAIro は exception class 名や error message prefix を runtime 判定に使わず、
+`error_code` のみで routing する。
+
+```text
+lib側  UnifiedAnnotationResult.error_code = "EMPTY_ANNOTATION"
+                ↓
+LoRAIro側  error_records.error_type = "EMPTY_ANNOTATION"
+                ↓
+LoRAIro側  filter_refused_image_paths() で次回送信時に除外
+```
+
+記録対象 code は以下に限定する。
+
+- `SAFETY_REFUSAL`
+- `CONTENT_POLICY_REFUSAL`
+- `EMPTY_ANNOTATION`
+
+`PROVIDER_ERROR` など retryable / transport 系 outcome は従来通り warning skip とし、
+`error_records` に記録しない。Worker レベルの fatal exception 記録経路とは分けて扱う。
+
+### 既存データ
+
+既存 DB に残る `SafetyRefusalError` / `ContentPolicyRefusalError` の `error_type` は、
+Alembic data migration で `SAFETY_REFUSAL` / `CONTENT_POLICY_REFUSAL` に正規化する。
+runtime filter は legacy exception 名を許容せず、code 文字列のみを SSoT とする。
+
 ## Phase 2 完了 (Issue #41 — `api_model_id` field 廃止)
 
 ADR 0023 line 73「``available_api_models.toml`` 由来の旧 ``api_model_id`` は本 ADR

@@ -113,7 +113,7 @@ def given_unresolved_refusal(ctx: SaveContext) -> None:
     assert ctx.error_repo is not None and ctx.image_id is not None
     ctx.error_repo.save_error_record(
         operation_type="annotation",
-        error_type="SafetyRefusalError",
+        error_type="SAFETY_REFUSAL",
         error_message="blocked",
         image_id=ctx.image_id,
         model_name="openai/gpt-4o",
@@ -125,7 +125,7 @@ def given_resolved_refusal(ctx: SaveContext) -> None:
     assert ctx.repo is not None and ctx.error_repo is not None and ctx.image_id is not None
     error_id = ctx.error_repo.save_error_record(
         operation_type="annotation",
-        error_type="SafetyRefusalError",
+        error_type="SAFETY_REFUSAL",
         error_message="blocked",
         image_id=ctx.image_id,
         model_name="openai/gpt-4o",
@@ -159,6 +159,8 @@ def _make_success_result(tags: list[str]) -> MagicMock:
     """正常系 UnifiedAnnotationResult モックを生成する。"""
     result = MagicMock()
     result.error = None
+    result.error_code = None
+    result.retryable = False
     result.tags = tags
     result.captions = []
     result.scores = None
@@ -176,9 +178,10 @@ def _make_success_result(tags: list[str]) -> MagicMock:
 def when_process_refusal_result(ctx: SaveContext, error_string: str) -> None:
     assert ctx.save_service is not None and ctx.image_id is not None
     ctx.annotations_dict = {"scores": [], "tags": [], "captions": [], "ratings": []}
+    error_code, _, error_message = error_string.partition(":")
     ctx.save_service._process_model_result(
         model_name="openai/gpt-4o",
-        unified_result={"error": error_string},
+        unified_result={"error_code": error_code, "error": error_message.strip()},
         models_cache={},
         result=ctx.annotations_dict,
         image_id=ctx.image_id,

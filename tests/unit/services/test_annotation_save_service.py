@@ -53,6 +53,8 @@ def _make_success_result(
     """
     result = MagicMock()
     result.error = None
+    result.error_code = None
+    result.retryable = False
     result.tags = tags or []
     result.captions = captions or []
     result.scores = scores
@@ -144,7 +146,9 @@ def test_save_provider_batch_results_by_image_id_records_refusal(
 ) -> None:
     """Provider Batch 経由の refusal も image_id 付き error_records に残す。"""
     refusal_result = MagicMock()
-    refusal_result.error = "SafetyRefusalError: policy refused"
+    refusal_result.error = "policy refused"
+    refusal_result.error_code = "SAFETY_REFUSAL"
+    refusal_result.retryable = False
     refusal_result.tags = []
     refusal_result.captions = []
     refusal_result.scores = None
@@ -162,7 +166,7 @@ def test_save_provider_batch_results_by_image_id_records_refusal(
     assert result.error_count == 0
     mock_repository.save_error_record.assert_called_once_with(
         operation_type="annotation",
-        error_type="SafetyRefusalError",
+        error_type="SAFETY_REFUSAL",
         error_message="policy refused",
         image_id=7,
         model_name="openai/gpt-test",
