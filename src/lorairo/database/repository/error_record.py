@@ -127,7 +127,7 @@ class ErrorRecordRepository(BaseRepository):
             resolved: True = 解決済み (resolved_at IS NOT NULL)、
                 False = 未解決 (resolved_at IS NULL)。
             error_types: 特定 error_type のみに絞る (例:
-                ["SafetyRefusalError", "ContentPolicyRefusalError"])。
+                ["SAFETY_REFUSAL", "CONTENT_POLICY_REFUSAL"])。
                 None = 全 type。ADR 0023 Phase 1.5 の送信前 filter で使用。
 
         Returns:
