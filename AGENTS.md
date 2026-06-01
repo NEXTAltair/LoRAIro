@@ -48,7 +48,13 @@
 - When running `uv` from a `/tmp/worktrees/` checkout, use the shared execution environment `/workspaces/LoRAIro/.venv`.
   Codex sessions should set this once in `.codex/config.toml` under `[shell_environment_policy.set]` as
   `UV_PROJECT_ENVIRONMENT = "/workspaces/LoRAIro/.venv"` and then run normal commands like `uv run ruff ...`.
-  In shells where that environment is not configured, use `UV_PROJECT_ENVIRONMENT=/workspaces/LoRAIro/.venv uv ...` explicitly. Do not create a worktree-local `.venv` unless there is a specific technical reason. If the shared environment cannot be used, only a bare `uv` help/inspection command is allowed without `UV_PROJECT_ENVIRONMENT`.
+  This path is the canonical devcontainer path; if it does not exist in a different environment, stop and configure that environment's actual shared LoRAIro `.venv` instead of letting `uv` create a new one at the wrong path.
+  Do not prefix every Codex command with `UV_PROJECT_ENVIRONMENT=...`; it creates unnecessary command-approval friction and hides the normal command shape.
+  In shells where that environment is not configured, use `UV_PROJECT_ENVIRONMENT=/workspaces/LoRAIro/.venv uv ...` explicitly as a fallback.
+  Do not create a worktree-local `.venv` unless there is a specific technical reason. If the shared environment cannot be used, only a bare `uv` help/inspection command is allowed without `UV_PROJECT_ENVIRONMENT`.
+  A worktree-local `.venv` symlink to `/workspaces/LoRAIro/.venv` is only a fallback when the agent environment cannot set `UV_PROJECT_ENVIRONMENT`; treat it as shared mutable state, not as an isolated venv.
+  Run verification commands from the target worktree. For CLI smoke tests, read-only checks, or parallel worker verification, use `uv run --no-sync` plus an explicit `PYTHONPATH` pointing at the target worktree `src` and local package `src` directories when editable-install ambiguity matters.
+  Treat default-sync `uv run`, `uv sync`, dependency updates, and other environment-mutating `uv` operations as shared `.venv` writes; do not run them concurrently across workers, and sequence them deliberately.
 - Agent-created PRs should normally be created ready for review, not draft. When a draft PR exists because the user explicitly asked to keep it draft, mark it ready for review as soon as the user allows review, then immediately start or resume PR maintenance automation: poll CI, watch bot review artifacts/comments, repair actionable findings in the PR worktree, reply in Japanese, merge when safe, and report the final monitored state.
 - After creating an agent PR, explicitly verify `gh pr view "$PR" --json isDraft -q .isDraft`. If it is
   `true`, run `gh pr ready "$PR"` and re-check. Do not set up `gh pr merge --auto` while the PR is still draft.
