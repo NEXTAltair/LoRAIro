@@ -156,7 +156,7 @@ class WidgetSetupService:
         from ...services import get_service_container
 
         service_container = get_service_container()
-        widget.set_merged_reader(service_container.db_manager.annotation_repo.merged_reader)
+        widget.set_merged_reader(service_container.db_manager.annotation_repo.get_merged_reader())
         logger.info("✅ MergedTagReader注入完了")
 
         logger.info("✅ SelectedImageDetailsWidget設定完了")
