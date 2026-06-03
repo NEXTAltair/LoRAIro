@@ -217,8 +217,7 @@ class SearchFilterService:
             ai_rating_text = f"AIレーティング: {ai_rating_display}"
             if is_specific:
                 ai_rating_text += " (多数決)"
-            if conditions.rating_filter:
-                ai_rating_text += " ※手動レーティング優先"
+            # Issue #604: manual / AI は AND 結合 (優先関係なし)。優先注記は付けない。
             parts.append(ai_rating_text)
         if not conditions.include_nsfw:
             parts.append("NSFW除外")
