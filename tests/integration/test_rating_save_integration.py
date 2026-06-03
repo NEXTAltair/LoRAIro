@@ -405,3 +405,50 @@ def test_manual_rating_isolated_from_ai_rating(
         ImageFilterCriteria(manual_rating_filter="PG-13")
     )
     assert manual_count == 1
+
+
+def test_manual_and_ai_rating_filters_combine_with_and(
+    rating_repository: ImageRepository,
+    annotation_repository: AnnotationRepository,
+    seeded_ids: dict[str, int],
+) -> None:
+    """manual / AI レーティングを同時指定したとき AND 結合される (Issue #604)。
+
+    対象画像は AI rating = "PG"、manual rating = "PG-13"。
+    旧実装は manual 優先で AI を無視していたため、manual=RATED + ai=PG-13 が
+    誤って 1 件ヒットしていた。AND 結合では 0 件になる。
+    非 NSFW 値 (PG / PG-13) のみ使い NSFW 除外フィルタの影響を避ける。
+    """
+    service = AnnotationSaveService(annotation_repository, image_repo=rating_repository)
+    service.save_annotation_results(
+        {_PHASH: {_LITELLM_ID: _result_with_rating("general", "danbooru4", 0.7)}}
+    )
+    annotation_repository.update_manual_rating(seeded_ids["image_id"], "PG-13")
+
+    image_id = seeded_ids["image_id"]
+
+    # manual=RATED かつ AI=PG -> 両条件成立で 1 件
+    both_pg, both_pg_count = rating_repository.get_images_by_filter(
+        ImageFilterCriteria(manual_rating_filter="RATED", ai_rating_filter="PG")
+    )
+    assert both_pg_count == 1
+    assert both_pg[0]["id"] == image_id
+
+    # manual=RATED かつ AI=PG-13 -> AI 行に PG-13 は無いので 0 件
+    # (旧バグでは manual=RATED が優先され AI が無視されて 1 件返っていた)
+    _, ratbug_count = rating_repository.get_images_by_filter(
+        ImageFilterCriteria(manual_rating_filter="RATED", ai_rating_filter="PG-13")
+    )
+    assert ratbug_count == 0
+
+    # manual=PG-13 かつ AI=PG -> 両条件成立で 1 件
+    _, specific_and_count = rating_repository.get_images_by_filter(
+        ImageFilterCriteria(manual_rating_filter="PG-13", ai_rating_filter="PG")
+    )
+    assert specific_and_count == 1
+
+    # manual=PG (実際は PG-13) かつ AI=PG -> manual 条件不成立で 0 件
+    _, mismatch_count = rating_repository.get_images_by_filter(
+        ImageFilterCriteria(manual_rating_filter="PG", ai_rating_filter="PG")
+    )
+    assert mismatch_count == 0

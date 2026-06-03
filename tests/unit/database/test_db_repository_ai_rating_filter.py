@@ -129,8 +129,8 @@ class TestGetImagesByFilterAIRating:
         assert results == []
         assert count == 0
 
-    def test_priority_based_manual_over_ai(self, mock_session_and_repository):
-        """manual_rating_filter が ai_rating_filter より優先されることを確認"""
+    def test_manual_and_ai_filters_both_applied(self, mock_session_and_repository):
+        """manual / AI 両方指定時、両フィルタが AND 適用されることを確認 (Issue #604)"""
         repository, _mock_session = mock_session_and_repository
 
         # ADR 0035 段階 4: get_images_by_filter は新 ImageRepository (`_image_repo`) に
@@ -143,10 +143,9 @@ class TestGetImagesByFilterAIRating:
                 # 両方のフィルタを指定
                 repository.get_images_by_filter(manual_rating_filter="PG", ai_rating_filter="R")
 
-                # manual_rating_filter が適用され、ai_rating_filter は無視される
+                # manual / AI は排他ではなく両方適用される (Issue #604: 旧実装は AI を無視していた)
                 mock_manual.assert_called()
-                # AI filter should not be called when manual filter is specified
-                mock_ai.assert_not_called()
+                mock_ai.assert_called_once()
 
     def test_ai_rating_filter_only(self, mock_session_and_repository):
         """ai_rating_filter のみが指定された場合、適用されることを確認"""
@@ -284,8 +283,12 @@ class TestSearchFilterServiceIntegration:
         assert "PG" in preview
         assert "多数決" in preview
 
-    def test_create_search_preview_shows_priority_note(self):
-        """create_search_preview() が優先順位の注記を表示することを確認"""
+    def test_create_search_preview_shows_both_rating_filters(self):
+        """manual / AI 同時指定時、両方のレーティング条件を AND として表示する (Issue #604)。
+
+        旧実装は「※手動レーティング優先」注記を表示していたが、manual と AI は
+        独立に AND 結合されるようになったため優先関係はなく、注記も付けない。
+        """
         from unittest.mock import Mock
 
         from lorairo.gui.services.search_filter_service import SearchFilterService
@@ -304,13 +307,16 @@ class TestSearchFilterServiceIntegration:
             keywords=["test"],
             tag_logic="and",
             rating_filter="PG",  # manual
-            ai_rating_filter="R",  # AI (should show priority note)
+            ai_rating_filter="R",  # AI
         )
 
         preview = service.create_search_preview(conditions)
 
-        # プレビューに優先順位の注記が含まれることを確認
-        assert "手動レーティング優先" in preview or "※手動レーティング優先" in preview
+        # 手動・AI 両方の条件が表示される (AND)
+        assert "手動レーティング: PG" in preview
+        assert "AIレーティング: R" in preview
+        # 優先関係はなくなったため優先注記は表示しない
+        assert "手動レーティング優先" not in preview
 
 
 class TestUnratedFilter:

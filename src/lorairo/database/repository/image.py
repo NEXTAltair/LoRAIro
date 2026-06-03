@@ -1801,16 +1801,14 @@ class ImageRepository(BaseRepository):
         query = self._apply_tag_filter(query, tags, excluded_tags, use_and, include_untagged)
         query = self._apply_caption_filter(query, caption)
 
-        # Rating Filters (Priority-based: manual > AI)
-        if manual_rating_filter:
-            logger.debug("Applying manual rating filter (priority over AI rating filter)")
-            query = self._apply_manual_filters(query, manual_rating_filter, manual_edit_filter, session)
-        elif ai_rating_filter:
-            logger.debug("Applying AI rating filter (no manual rating filter specified)")
+        # Rating Filters: manual / AI を独立に AND 適用する (Issue #604)
+        # 旧実装は manual と AI を排他 (if/elif) にしており、両方指定時に AI フィルタが
+        # 無視されていた。manual_rating_filter=None のとき _apply_manual_filters は
+        # manual_edit_filter のみ適用するため、無条件呼び出しで全組み合わせを網羅できる。
+        query = self._apply_manual_filters(query, manual_rating_filter, manual_edit_filter, session)
+        if ai_rating_filter:
+            logger.debug("Applying AI rating filter")
             query = self._apply_ai_rating_filter(query, ai_rating_filter)
-            query = self._apply_manual_filters(query, None, manual_edit_filter, session)
-        else:
-            query = self._apply_manual_filters(query, None, manual_edit_filter, session)
 
         # Unrated Filter
         query = self._apply_unrated_filter(query, include_unrated, only_unrated)
