@@ -956,7 +956,7 @@ class FilterSearchPanel(QScrollArea):
     def update_pipeline_progress(self, message: str, current_progress: float, end_progress: float) -> None:
         """Pipeline 進捗表示の更新 (ModernProgressManager に移行済みのため無効化)。"""
         del end_progress
-        logger.debug(
+        logger.trace(
             f"Progress update delegated to ModernProgressManager: {message} ({current_progress * 100:.1f}%)",
         )
 

@@ -89,7 +89,7 @@ class ModernProgressManager(QObject):
         """
         dialog = self._progress_dialogs.get(worker_id)
         if not dialog:
-            logger.debug(f"プログレスダイアログが見つかりません: {worker_id}")
+            logger.trace(f"プログレスダイアログが見つかりません: {worker_id}")
             return
 
         # プログレス値更新
@@ -106,7 +106,7 @@ class ModernProgressManager(QObject):
 
         dialog.setLabelText(message)
 
-        logger.debug(f"プログレス更新: {worker_id} - {progress.percentage}% - {message}")
+        logger.trace(f"プログレス更新: {worker_id} - {progress.percentage}% - {message}")
 
     def update_batch_progress(self, worker_id: str, current: int, total: int, filename: str) -> None:
         """

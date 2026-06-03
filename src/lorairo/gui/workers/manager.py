@@ -96,7 +96,7 @@ class WorkerManager(QObject):
         self.worker_started.emit(worker_id)
         self.active_worker_count_changed.emit(len(self.active_workers))
 
-        logger.info(f"ワーカー開始: {worker_id} ({worker.__class__.__name__})")
+        logger.debug(f"ワーカー開始: {worker_id} ({worker.__class__.__name__})")
         return True
 
     def cancel_worker(
@@ -226,7 +226,7 @@ class WorkerManager(QObject):
     def _on_worker_finished(self, worker_id: str, result: Any) -> None:
         """ワーカー完了イベントハンドラー"""
         if self._finalize_terminal(worker_id, WorkerOutcome.SUCCEEDED, result=result):
-            logger.info(f"ワーカー完了: {worker_id}")
+            logger.debug(f"ワーカー完了: {worker_id}")
 
     def _cleanup_thread(self, worker_id: str, thread: QThread) -> None:
         """スレッドのクリーンアップ処理"""
