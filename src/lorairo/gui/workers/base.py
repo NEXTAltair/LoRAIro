@@ -148,14 +148,14 @@ class LoRAIroWorkerBase[T](QObject):
         """
         try:
             self._set_status(WorkerStatus.RUNNING)
-            logger.info(f"ワーカー実行開始: {self.__class__.__name__}")
+            logger.debug(f"ワーカー実行開始: {self.__class__.__name__}")
 
             result = self.execute()
 
             if not self.cancellation.is_canceled():
                 self._set_status(WorkerStatus.COMPLETED)
                 self.finished.emit(result)
-                logger.info(f"ワーカー実行完了: {self.__class__.__name__}")
+                logger.debug(f"ワーカー実行完了: {self.__class__.__name__}")
             else:
                 self._set_status(WorkerStatus.CANCELED)
                 self.canceled.emit()

@@ -89,7 +89,7 @@ class ThumbnailWorker(LoRAIroWorkerBase[ThumbnailLoadResult]):
             )
 
         if self.page_num is not None:
-            logger.info(
+            logger.debug(
                 f"サムネイル読み込み開始: page={self.page_num}, 件数={total_count}, request_id={self.request_id}"
             )
         else:
@@ -161,7 +161,7 @@ class ThumbnailWorker(LoRAIroWorkerBase[ThumbnailLoadResult]):
             ],
         )
 
-        logger.info(
+        logger.debug(
             f"サムネイル読み込み完了: page={self.page_num}, 成功={len(loaded_thumbnails)}, "
             f"失敗={failed_count}, 処理時間={processing_time:.3f}秒"
         )

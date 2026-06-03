@@ -123,10 +123,10 @@ class ProgressStateService:
                 status_message = f"処理中... {current}/{total} ({percentage}%)"
                 self.status_bar.showMessage(status_message)
 
-                logger.debug(f"ワーカー進捗更新: {worker_id} - {current}/{total} ({percentage}%)")
+                logger.trace(f"ワーカー進捗更新: {worker_id} - {current}/{total} ({percentage}%)")
 
             else:
-                logger.debug(f"ワーカー進捗更新: {worker_id} - {progress}")
+                logger.trace(f"ワーカー進捗更新: {worker_id} - {progress}")
 
         except Exception as e:
             logger.warning(f"進捗更新処理エラー: {e}")

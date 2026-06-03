@@ -140,10 +140,10 @@ class PipelineControlService:
         try:
             if hasattr(self.thumbnail_selector, "handle_thumbnail_page_result"):
                 self.thumbnail_selector.handle_thumbnail_page_result(thumbnail_result)
-                logger.info("ThumbnailSelectorWidget handled paged thumbnail result")
+                logger.debug("ThumbnailSelectorWidget handled paged thumbnail result")
             elif hasattr(self.thumbnail_selector, "load_thumbnails_from_result"):
                 self.thumbnail_selector.load_thumbnails_from_result(thumbnail_result)
-                logger.info("ThumbnailSelectorWidget updated with legacy thumbnail result")
+                logger.debug("ThumbnailSelectorWidget updated with legacy thumbnail result")
             else:
                 logger.warning("ThumbnailSelectorWidget result handler method not found")
 

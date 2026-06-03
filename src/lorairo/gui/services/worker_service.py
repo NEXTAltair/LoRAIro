@@ -427,7 +427,7 @@ class WorkerService(QObject):
         )
 
         if self.worker_manager.start_worker(worker_id, worker):
-            logger.info(
+            logger.debug(
                 f"ページサムネイル読み込み開始: page={page_num}, count={len(image_ids)}, "
                 f"request_id={request_id}, cancel_previous={cancel_previous} (ID: {worker_id})"
             )
@@ -563,7 +563,13 @@ class WorkerService(QObject):
             )
 
         self._emit_operation_started(worker_id)
-        logger.info(f"ワーカー開始: {operation_name} (ID: {worker_id})")
+        # ライフサイクルINFOはこの1層に集約。search/thumbnailは高頻度なのでDEBUGに落とす。
+        log_lifecycle = (
+            logger.info
+            if self._resolve_worker_type(worker_id) in ("batch_reg", "batch_import", "annotation")
+            else logger.debug
+        )
+        log_lifecycle(f"ワーカー開始: {operation_name} (ID: {worker_id})")
 
     def _resolve_worker_type(self, worker_id: str) -> str:
         """worker_idプレフィックスからワーカー種別を返すヘルパー。"""
@@ -588,7 +594,11 @@ class WorkerService(QObject):
             if attr and getattr(self, attr) == worker_id:
                 setattr(self, attr, None)
 
-        logger.info(f"ワーカー完了: {worker_id}")
+        # ライフサイクルINFOはこの1層に集約。search/thumbnailは高頻度なのでDEBUGに落とす。
+        log_lifecycle = (
+            logger.info if worker_type in ("batch_reg", "batch_import", "annotation") else logger.debug
+        )
+        log_lifecycle(f"ワーカー完了: {worker_id}")
 
     def _on_worker_error(self, worker_id: str, error: str) -> None:
         """ワーカーエラーハンドラ - 互換エラーシグナルとcurrent idの更新のみ行う"""
