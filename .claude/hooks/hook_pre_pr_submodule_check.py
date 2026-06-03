@@ -133,6 +133,13 @@ def build_reminder(affected: set[str], packages: dict[str, Any], bypass_marker: 
     return "\n".join(lines)
 
 
+def emit_block(reason: str) -> None:
+    """Block the tool call and emit a reason for clients that read stderr."""
+    print(json.dumps({"decision": "block", "reason": reason}, ensure_ascii=False))
+    print(reason, file=sys.stderr)
+    sys.exit(2)
+
+
 def main() -> None:
     log_debug("=== Pre-PR Submodule Check Hook ===")
 
@@ -164,8 +171,7 @@ def main() -> None:
 
         reminder = build_reminder(affected, packages, bypass_marker)
         log_debug(f"BLOCKING: affected packages={sorted(affected)}")
-        print(json.dumps({"decision": "block", "reason": reminder}, ensure_ascii=False))
-        sys.exit(2)
+        emit_block(reminder)
 
     except Exception as e:
         log_debug(f"Error: {e}")

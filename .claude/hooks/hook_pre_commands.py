@@ -337,6 +337,13 @@ def check_grep_command(command: str) -> str | None:
     return None
 
 
+def emit_block(reason: str) -> None:
+    """Block the tool call and emit a reason for clients that read stderr."""
+    print(json.dumps({"decision": "block", "reason": reason}, ensure_ascii=False))
+    print(reason, file=sys.stderr)
+    sys.exit(2)
+
+
 def main() -> None:
     """メイン処理"""
     log_debug("=== Pre-Commands Hook ===")
@@ -355,43 +362,32 @@ def main() -> None:
         # PR draft作成制御
         draft_pr_msg = check_draft_pr_create(command)
         if draft_pr_msg:
-            print(json.dumps({"decision": "block", "reason": draft_pr_msg}, ensure_ascii=False))
-            sys.exit(2)
+            emit_block(draft_pr_msg)
 
         # worktree 内 uv 実行制御
         worktree_uv_msg = check_worktree_uv_environment(command, input_data)
         if worktree_uv_msg:
-            print(json.dumps({"decision": "block", "reason": worktree_uv_msg}, ensure_ascii=False))
-            sys.exit(2)
+            emit_block(worktree_uv_msg)
 
         # grep系コマンド制御
         grep_msg = check_grep_command(command)
         if grep_msg:
-            print(json.dumps({"decision": "block", "reason": grep_msg}, ensure_ascii=False))
-            sys.exit(2)
+            emit_block(grep_msg)
 
         # git branch -D 制御 (統合済みなら許可、未統合のみブロック)
         branch_del_msg = check_branch_force_delete(command)
         if branch_del_msg:
-            print(json.dumps({"decision": "block", "reason": branch_del_msg}, ensure_ascii=False))
-            sys.exit(2)
+            emit_block(branch_del_msg)
 
         # ブロックチェック
         block_msg = check_blocked(command, rules)
         if block_msg:
-            print(json.dumps({"decision": "block", "reason": block_msg}, ensure_ascii=False))
-            sys.exit(2)
+            emit_block(block_msg)
 
         # uv run変換
         uv_cmd = apply_uv_transform(command, rules)
         if uv_cmd:
-            print(
-                json.dumps(
-                    {"decision": "block", "reason": f"🔄 uv run変換: {uv_cmd}\n元: {command}"},
-                    ensure_ascii=False,
-                )
-            )
-            sys.exit(2)
+            emit_block(f"🔄 uv run変換: {uv_cmd}\n元: {command}")
 
         sys.exit(0)
 

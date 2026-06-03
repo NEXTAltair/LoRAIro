@@ -45,6 +45,7 @@ def test_blocks_draft_pr_create_command() -> None:
     assert payload["decision"] == "block"
     assert "draft" in payload["reason"]
     assert "agent-pr-maintainer" in payload["reason"]
+    assert "draft" in result.stderr
 
 
 def test_allows_ready_pr_create_command() -> None:
@@ -61,6 +62,7 @@ def test_blocks_uv_without_shared_environment_in_worktree() -> None:
     payload = json.loads(result.stdout)
     assert payload["decision"] == "block"
     assert "UV_PROJECT_ENVIRONMENT=/workspaces/LoRAIro/.venv" in payload["reason"]
+    assert "UV_PROJECT_ENVIRONMENT=/workspaces/LoRAIro/.venv" in result.stderr
 
 
 def test_allows_uv_with_shared_environment_in_worktree() -> None:
