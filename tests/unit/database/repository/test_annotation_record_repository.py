@@ -160,6 +160,27 @@ class TestExternalTagDbInitialization:
         merged_reader.search_tags_bulk.assert_called_once()
         assert result == {"new tag": 123}
 
+    def test_public_get_merged_reader_initializes_external_tag_db_lazily(
+        self, annotation_repository: AnnotationRepository, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """GUI 統合用の公開 accessor が外部 tag DB reader を初期化する。"""
+        ensure_spy = Mock()
+        merged_reader = Mock()
+        monkeypatch.setattr(
+            "lorairo.database.repository.annotation_record.ensure_tag_db_initialized", ensure_spy
+        )
+        monkeypatch.setattr(
+            "lorairo.database.repository.annotation_record.get_default_reader",
+            Mock(return_value=merged_reader),
+        )
+
+        result = annotation_repository.get_merged_reader()
+
+        ensure_spy.assert_called_once()
+        assert result is merged_reader
+        assert annotation_repository.merged_reader is merged_reader
+        assert annotation_repository._merged_reader_initialized is True
+
 
 @pytest.mark.unit
 class TestSaveAnnotations:

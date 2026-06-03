@@ -149,6 +149,13 @@ class AnnotationRepository(BaseRepository):
             self._merged_reader_initialized = True
         return self.merged_reader
 
+    def get_merged_reader(self) -> MergedTagReader | None:
+        """外部タグDBリーダーを明示的に初期化して返す。
+
+        GUI など外部タグDB翻訳を表示面で必要とする呼び出し元向けの公開 accessor。
+        """
+        return self._get_merged_reader()
+
     def _initialize_tag_register_service(self) -> TagRegisterService | None:
         """タグ登録サービスを初期化（遅延初期化、Qt非依存）。
 
