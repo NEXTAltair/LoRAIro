@@ -1859,48 +1859,38 @@ class ImageRepository(BaseRepository):
         Raises:
             SQLAlchemyError: データベース操作でエラーが発生した場合。
         """
-        requested = list({i for i in image_ids if i is not None})
+        # 呼び出し元の順序 (ステージング順など) を保持して dedup する (Codex #623)
+        requested = list(dict.fromkeys(i for i in image_ids if i is not None))
         if not requested:
             return [], 0
         with self.session_factory() as session:
             try:
                 # SQLite の bind 変数上限を避けるため BATCH_CHUNK_SIZE で分割 (Codex #623)
-                existing_ids: list[int] = []
+                existing: set[int] = set()
                 for i in range(0, len(requested), self.BATCH_CHUNK_SIZE):
                     chunk = requested[i : i + self.BATCH_CHUNK_SIZE]
-                    existing_ids.extend(
+                    existing.update(
                         session.execute(select(Image.id).where(Image.id.in_(chunk))).scalars().all()
                     )
-                existing_ids.sort()
+                # 入力順を保持したまま存在する ID に絞る
+                existing_ids = [i for i in requested if i in existing]
 
-                if resolution != 0:
-                    # 解像度フィルタはページングより前に適用する。_fetch_filtered_metadata は
-                    # 指定解像度の処理済み版を持たない ID を落とすため、先に metadata を取得して
-                    # 解像度で絞ってからページングしないと総件数/ページが狂う (Codex #623)。
-                    resolved = sorted(
-                        self._fetch_filtered_metadata(session, existing_ids, resolution),
-                        key=lambda m: m["id"],
-                    )
-                    total_count = len(resolved)
-                    paged = resolved[offset:]
-                    if limit is not None:
-                        paged = paged[:limit]
-                    logger.info(
-                        f"image_ids exact-set: 指定 {len(requested)}件 → 存在 {len(existing_ids)}件 "
-                        f"→ 解像度{resolution}該当 {total_count}件 → 取得 {len(paged)}件 (ADR 0055)"
-                    )
-                    return paged, total_count
-
-                total_count = len(existing_ids)
-                paged_ids = existing_ids[offset:]
+                # 解像度フィルタはページングより前に適用する。_fetch_filtered_metadata は
+                # 指定解像度の処理済み版を持たない ID を落とすため、先に metadata を取得して
+                # 解像度で絞り、入力順で並べ直してからページングする (Codex #623)。
+                meta_by_id = {
+                    m["id"]: m for m in self._fetch_filtered_metadata(session, existing_ids, resolution)
+                }
+                ordered = [meta_by_id[i] for i in existing_ids if i in meta_by_id]
+                total_count = len(ordered)
+                paged = ordered[offset:]
                 if limit is not None:
-                    paged_ids = paged_ids[:limit]
-                metadata = self._fetch_filtered_metadata(session, paged_ids, 0)
+                    paged = paged[:limit]
                 logger.info(
-                    f"image_ids exact-set: 指定 {len(requested)}件 → 存在 {total_count}件 "
-                    f"→ 取得 {len(metadata)}件 (フィルタ bypass, ADR 0055)"
+                    f"image_ids exact-set: 指定 {len(requested)}件 → 存在 {len(existing_ids)}件 "
+                    f"→ 解像度{resolution}該当 {total_count}件 → 取得 {len(paged)}件 (ADR 0055)"
                 )
-                return metadata, total_count
+                return paged, total_count
             except SQLAlchemyError as e:
                 logger.error(f"image_ids exact-set 取得エラー: {e}", exc_info=True)
                 raise
@@ -2015,26 +2005,14 @@ class ImageRepository(BaseRepository):
         """
         filter_criteria = criteria if criteria else ImageFilterCriteria.from_kwargs(**kwargs)
 
-        # ADR 0055: image_ids 指定時は exact-set として他フィルタを bypass する (Codex #623)。
+        # ADR 0055: image_ids 指定時は exact-set として他フィルタを bypass する。
+        # get_images_by_filter と総件数を一致させるため同一 helper の総件数を返す
+        # (resolution 指定時は解像度該当のみ数える, Codex #623)。
         if filter_criteria.image_ids is not None:
-            requested = list({i for i in filter_criteria.image_ids if i is not None})
-            if not requested:
-                return 0
-            with self.session_factory() as session:
-                try:
-                    # bind 変数上限を避けるため BATCH_CHUNK_SIZE で分割集計 (Codex #623)
-                    total = 0
-                    for i in range(0, len(requested), self.BATCH_CHUNK_SIZE):
-                        chunk = requested[i : i + self.BATCH_CHUNK_SIZE]
-                        total += int(
-                            session.execute(
-                                select(func.count()).select_from(Image).where(Image.id.in_(chunk))
-                            ).scalar_one()
-                        )
-                    return total
-                except SQLAlchemyError as e:
-                    logger.error(f"image_ids exact-set 件数取得エラー: {e}", exc_info=True)
-                    raise
+            _, total_count = self._fetch_images_by_exact_ids(
+                filter_criteria.image_ids, filter_criteria.resolution
+            )
+            return total_count
 
         with self.session_factory() as session:
             try:

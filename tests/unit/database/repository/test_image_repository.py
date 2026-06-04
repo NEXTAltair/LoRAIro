@@ -596,3 +596,26 @@ class TestImageFilterCriteriaExactSet:
         )
         assert total == 1  # 解像度該当は has のみ
         assert [m["id"] for m in rows] == [img_has]
+
+    def test_image_ids_preserve_caller_order(self, image_repository: ImageRepository) -> None:
+        """呼び出し元の明示順 (ステージング順) を保持する (Codex #623)。"""
+        first = _insert_image(image_repository, uuid="u-o1", phash="p-o1", filename="o1.png")
+        second = _insert_image(image_repository, uuid="u-o2", phash="p-o2", filename="o2.png")
+        third = _insert_image(image_repository, uuid="u-o3", phash="p-o3", filename="o3.png")
+        # DB id 昇順ではなく caller の順 [third, first, second] を維持する
+        rows, _ = image_repository.get_images_by_filter(
+            ImageFilterCriteria(image_ids=[third, first, second])
+        )
+        assert [m["id"] for m in rows] == [third, first, second]
+
+    def test_count_only_matches_filter_total_with_resolution(
+        self, image_repository: ImageRepository
+    ) -> None:
+        """count_only も resolution 該当のみを数え、get_images_by_filter と一致する (Codex #623)。"""
+        img_missing = _insert_image(image_repository, uuid="u-cm", phash="p-cm", filename="cm.png")
+        img_has = _insert_image(image_repository, uuid="u-ch", phash="p-ch", filename="ch.png")
+        _insert_processed_image(image_repository, image_id=img_has, filename="ch-512.png")
+
+        criteria = ImageFilterCriteria(image_ids=[img_missing, img_has], resolution=512)
+        _, total = image_repository.get_images_by_filter(criteria)
+        assert image_repository.get_images_count_only(criteria) == total == 1

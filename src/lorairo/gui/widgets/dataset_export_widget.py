@@ -65,7 +65,9 @@ class DatasetExportWorker(QObject):
 
             # ADR 0055: 明示 ID は exact-set selector の criteria 経由で渡す
             # (非推奨の image_ids 直渡しを排除。他フィルタを bypass し NSFW 等も落とさない)。
-            criteria = ImageFilterCriteria(image_ids=self.image_ids)
+            # resolution を criteria に載せ、対象解決を「選択解像度の処理済み版を持つ画像」に
+            # 揃える (対象数と実エクスポート件数を一致させる, #612)。
+            criteria = ImageFilterCriteria(image_ids=self.image_ids, resolution=self.resolution)
             if self.export_format == "json":
                 result_path = self.export_service.export_with_criteria(
                     output_path=self.output_path,
