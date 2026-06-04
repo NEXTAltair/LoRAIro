@@ -387,13 +387,12 @@ class DatasetExportWidget(QDialog):
 
     def _get_output_directory(self) -> Path | None:
         """Get output directory from user selection."""
-        # Check if DirectoryPickerWidget has a path set
-        if hasattr(self.ui.exportDirectoryPicker, "get_directory"):
-            directory = self.ui.exportDirectoryPicker.get_directory()
-            if directory:
-                return Path(directory)
+        # インラインの DirectoryPickerWidget が選択済みパスを持っていればそれを使う
+        directory = self.ui.exportDirectoryPicker.get_selected_path()
+        if directory:
+            return Path(directory)
 
-        # Fallback to file dialog
+        # 未選択時のみファイルダイアログにフォールバック
         directory = QFileDialog.getExistingDirectory(
             self, "エクスポート先ディレクトリを選択", str(Path.home())
         )
