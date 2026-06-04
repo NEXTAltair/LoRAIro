@@ -32,7 +32,6 @@ class DatasetExportWorker(QObject):
         resolution: int,
         export_format: str,
         merge_caption: bool = False,
-        latest_only: bool = False,
     ) -> None:
         """Initialize export worker.
 
@@ -43,7 +42,6 @@ class DatasetExportWorker(QObject):
             resolution: Image resolution (512, 768, 1024, 1536)
             export_format: Export format ("txt_separate", "txt_merged", "json")
             merge_caption: Whether to merge captions with tags
-            latest_only: Whether to use only latest annotations
         """
         super().__init__()
         self.export_service = export_service
@@ -52,7 +50,6 @@ class DatasetExportWorker(QObject):
         self.resolution = resolution
         self.export_format = export_format
         self.merge_caption = merge_caption
-        self.latest_only = latest_only
 
     def run(self) -> None:
         """Execute export processing with progress reporting."""
@@ -157,6 +154,33 @@ class DatasetExportWidget(QDialog):
         self.setWindowTitle("データセットエクスポート")
         self.resize(1200, 800)
 
+        # 互いに素な seam (Foundation #610): S5=解像度UI / S4=changed-since UI が各自実装する
+        self._setup_resolution_ui()
+        self._setup_changed_since_ui()
+
+    def _setup_resolution_ui(self) -> None:
+        """解像度関連 UI の初期化 seam（S5 #615 が実装）。
+
+        Foundation では no-op。S5 が解像度の意味明確化（resolutionHelpLabel の
+        補助文言/ツールチップ）と、選択時の対象/対象外件数の即時表示を実装する。
+        """
+
+    def _setup_changed_since_ui(self) -> None:
+        """changed-since フィルタ UI の初期化 seam（S4 #614 が実装）。
+
+        Foundation では no-op（changedSinceDateTimeEdit は .ui で無効状態）。
+        S4 が日時の既定値設定と、指定日時以降に変更があった画像への絞り込みを実装する。
+        """
+
+    def _on_changed_since_toggled(self, checked: bool) -> None:
+        """changed-since トグル: 日時入力の有効/無効を切り替え、検証結果を無効化する。
+
+        S4 #614 が日時を使った対象絞り込み（AI実行 created_at / 手動編集 updated_at）を
+        追加する seam。Foundation では旧 latestOnlyCheckBox 相当の「変更で再検証」挙動のみ。
+        """
+        self.ui.changedSinceDateTimeEdit.setEnabled(checked)
+        self._on_settings_changed()
+
     def _connect_signals(self) -> None:
         """Connect UI signals to appropriate slots."""
         # Button connections
@@ -168,7 +192,7 @@ class DatasetExportWidget(QDialog):
         # UI state change connections
         self.ui.comboBoxResolution.currentTextChanged.connect(self._on_settings_changed)
         self.format_button_group.idClicked.connect(self._on_settings_changed)
-        self.ui.latestOnlyCheckBox.toggled.connect(self._on_settings_changed)
+        self.ui.changedSinceCheckBox.toggled.connect(self._on_changed_since_toggled)
 
     def _update_initial_state(self) -> None:
         """Update UI to reflect initial state."""
@@ -263,7 +287,6 @@ class DatasetExportWidget(QDialog):
             resolution = self._get_selected_resolution()
             export_format = self._get_selected_format()
             merge_caption = export_format == "txt_merged"
-            latest_only = self.ui.latestOnlyCheckBox.isChecked()
 
             # Start async export
             self._start_export_worker(
@@ -271,7 +294,6 @@ class DatasetExportWidget(QDialog):
                 resolution=resolution,
                 export_format=export_format,
                 merge_caption=merge_caption,
-                latest_only=latest_only,
             )
 
         except Exception as e:
@@ -283,7 +305,6 @@ class DatasetExportWidget(QDialog):
         resolution: int,
         export_format: str,
         merge_caption: bool,
-        latest_only: bool,
     ) -> None:
         """Start async export worker."""
         # Update UI state
@@ -301,7 +322,6 @@ class DatasetExportWidget(QDialog):
             resolution=resolution,
             export_format=export_format,
             merge_caption=merge_caption,
-            latest_only=latest_only,
         )
 
         self.export_thread = QThread()

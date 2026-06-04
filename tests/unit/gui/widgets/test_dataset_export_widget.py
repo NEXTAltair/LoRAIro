@@ -256,3 +256,31 @@ class TestDatasetExportWidgetFormats:
         """JSON ラジオボタン選択時"""
         widget_with_images.ui.radioJson.setChecked(True)
         assert widget_with_images._get_selected_format() == "json"
+
+
+class TestDatasetExportWidgetFoundation:
+    """Foundation (#610) で整地した seam の検証。S4/S5 はこの枠を埋める。"""
+
+    def test_latest_only_checkbox_removed(self, widget_with_images):
+        """死にコントロール latestOnlyCheckBox は撤去済み"""
+        assert not hasattr(widget_with_images.ui, "latestOnlyCheckBox")
+
+    def test_changed_since_widgets_exist(self, widget_with_images):
+        """changed-since フィルタ枠 (S4 #614) が .ui に存在する"""
+        assert hasattr(widget_with_images.ui, "changedSinceCheckBox")
+        assert hasattr(widget_with_images.ui, "changedSinceDateTimeEdit")
+
+    def test_resolution_help_label_exists(self, widget_with_images):
+        """解像度補助ラベル枠 (S5 #615) が .ui に存在する"""
+        assert hasattr(widget_with_images.ui, "resolutionHelpLabel")
+
+    def test_changed_since_datetime_disabled_by_default(self, widget_with_images):
+        """changed-since 日時入力は既定で無効"""
+        assert not widget_with_images.ui.changedSinceDateTimeEdit.isEnabled()
+
+    def test_changed_since_toggle_enables_datetime(self, widget_with_images):
+        """トグル ON で日時入力が有効化される (Foundation seam の挙動)"""
+        widget_with_images.ui.changedSinceCheckBox.setChecked(True)
+        assert widget_with_images.ui.changedSinceDateTimeEdit.isEnabled()
+        widget_with_images.ui.changedSinceCheckBox.setChecked(False)
+        assert not widget_with_images.ui.changedSinceDateTimeEdit.isEnabled()
