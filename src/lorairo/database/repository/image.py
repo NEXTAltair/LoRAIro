@@ -2233,6 +2233,57 @@ class ImageRepository(BaseRepository):
                 logger.error(f"最新 normalized_rating 取得エラー: {e}", exc_info=True)
                 return {}
 
+    def filter_image_ids_with_tag_changes_since(
+        self, image_ids: list[int], since: datetime.datetime
+    ) -> list[int]:
+        """指定日時以降にタグ変更があった image_id に絞り込む (#614)。
+
+        「変更」は以下のいずれか:
+        - AI 実行: `model_id` 付きのタグ行で `created_at > since`
+        - 手動編集: `is_edited_manually = True` のタグ行で `updated_at > since`
+
+        元ファイル由来 (`existing = True`) のタグは AI でも手動編集でもないため
+        自然に除外される。対象はタグのみ (caption/rating/score は対象外)。
+
+        Args:
+            image_ids: 絞り込み元の image_id 一覧。
+            since: この日時より後の変更を「変更あり」とみなす閾値。
+
+        Returns:
+            since 以降にタグ変更があった image_id の一覧 (requested_ids の順序を保持)。
+
+        Raises:
+            SQLAlchemyError: データベース操作でエラーが発生した場合。
+        """
+        if not image_ids:
+            return []
+        requested_ids = list({image_id for image_id in image_ids if image_id is not None})
+        if not requested_ids:
+            return []
+
+        with self.session_factory() as session:
+            try:
+                stmt = (
+                    select(Tag.image_id)
+                    .where(
+                        Tag.image_id.in_(requested_ids),
+                        or_(
+                            and_(Tag.model_id.is_not(None), Tag.created_at > since),
+                            and_(Tag.is_edited_manually.is_(True), Tag.updated_at > since),
+                        ),
+                    )
+                    .distinct()
+                )
+                changed_ids = {row[0] for row in session.execute(stmt).all()}
+                logger.debug(
+                    f"changed-since 絞り込み: 対象 {len(requested_ids)}件 → "
+                    f"{len(changed_ids)}件 (since={since})"
+                )
+                return [image_id for image_id in requested_ids if image_id in changed_ids]
+            except SQLAlchemyError as e:
+                logger.error(f"changed-since 絞り込みエラー: {e}", exc_info=True)
+                raise
+
     def get_phashes_by_filepaths(self, filepaths: list[str]) -> dict[str, str | None]:
         """複数のファイルパスから pHash をバッチ解決する。
 

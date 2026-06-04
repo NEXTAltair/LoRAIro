@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import Any
 
 from loguru import logger
-from PySide6.QtCore import QObject, QThread, Signal
+from PySide6.QtCore import QDateTime, QObject, QThread, Signal
 from PySide6.QtGui import QCloseEvent
 from PySide6.QtWidgets import QButtonGroup, QDialog, QFileDialog, QMessageBox, QWidget
 
@@ -128,6 +128,8 @@ class DatasetExportWidget(QDialog):
         # Data
         self.image_ids = initial_image_ids or []
         self.validation_results: dict[str, Any] | None = None
+        # changed-since (#614) で絞り込んだ実エクスポート対象。検証時に確定する。
+        self._effective_image_ids: list[int] = list(self.image_ids)
         self.export_worker: DatasetExportWorker | None = None
         self.export_thread: QThread | None = None
 
@@ -166,20 +168,35 @@ class DatasetExportWidget(QDialog):
         """
 
     def _setup_changed_since_ui(self) -> None:
-        """changed-since フィルタ UI の初期化 seam（S4 #614 が実装）。
+        """changed-since フィルタ UI を初期化する (#614)。
 
-        Foundation では no-op（changedSinceDateTimeEdit は .ui で無効状態）。
-        S4 が日時の既定値設定と、指定日時以降に変更があった画像への絞り込みを実装する。
+        Foundation で実装まで無効化していた changedSinceCheckBox を有効化し、
+        日時入力の既定値を現在時刻に設定する。トグル ON 時は検証/エクスポート対象を
+        「指定日時以降にタグ変更があった画像」に絞り込む。
         """
+        self.ui.changedSinceCheckBox.setEnabled(True)
+        self.ui.changedSinceDateTimeEdit.setDateTime(QDateTime.currentDateTime())
 
     def _on_changed_since_toggled(self, checked: bool) -> None:
         """changed-since トグル: 日時入力の有効/無効を切り替え、検証結果を無効化する。
 
-        S4 #614 が日時を使った対象絞り込み（AI実行 created_at / 手動編集 updated_at）を
-        追加する seam。Foundation では旧 latestOnlyCheckBox 相当の「変更で再検証」挙動のみ。
+        絞り込みは検証時に `_get_effective_image_ids()` 経由で適用する。設定変更時と
+        同様に検証をクリアして再検証を促す (#614)。
         """
         self.ui.changedSinceDateTimeEdit.setEnabled(checked)
         self._on_settings_changed()
+
+    def _get_effective_image_ids(self) -> list[int]:
+        """検証/エクスポート対象の image_id を返す (#614)。
+
+        changed-since トグルが ON のときは「指定日時以降にタグ変更があった画像」
+        (AI 実行 created_at / 手動編集 updated_at) に絞り込む。OFF のときは
+        self.image_ids をそのまま返す。
+        """
+        if not self.ui.changedSinceCheckBox.isChecked():
+            return self.image_ids
+        since = self.ui.changedSinceDateTimeEdit.dateTime().toPython()
+        return self.export_service.filter_changed_since(self.image_ids, since)
 
     def _connect_signals(self) -> None:
         """Connect UI signals to appropriate slots."""
@@ -223,9 +240,10 @@ class DatasetExportWidget(QDialog):
             # Get current settings
             resolution = self._get_selected_resolution()
 
-            # Perform validation
+            # Perform validation (changed-since 絞り込み済みの実対象で検証する #614)
+            self._effective_image_ids = self._get_effective_image_ids()
             self.validation_results = self.export_service.validate_export_requirements(
-                image_ids=self.image_ids, resolution=resolution
+                image_ids=self._effective_image_ids, resolution=resolution
             )
 
             # Update validation display
@@ -314,10 +332,10 @@ class DatasetExportWidget(QDialog):
         self.ui.exportProgressBar.setValue(0)
         self.ui.statusLabel.setText("エクスポート処理中...")
 
-        # Create worker and thread
+        # Create worker and thread (検証で確定した changed-since 絞り込み済み対象を使う #614)
         self.export_worker = DatasetExportWorker(
             export_service=self.export_service,
-            image_ids=self.image_ids,
+            image_ids=self._effective_image_ids,
             output_path=output_path,
             resolution=resolution,
             export_format=export_format,
@@ -456,6 +474,7 @@ class DatasetExportWidget(QDialog):
     def set_image_ids(self, image_ids: list[int]) -> None:
         """Update image IDs and refresh UI state."""
         self.image_ids = image_ids
+        self._effective_image_ids = list(image_ids)
         self.validation_results = None
         self._update_initial_state()
         self.ui.exportButton.setEnabled(False)

@@ -274,17 +274,33 @@ class TestDatasetExportWidgetFoundation:
         """解像度補助ラベル枠 (S5 #615) が .ui に存在する"""
         assert hasattr(widget_with_images.ui, "resolutionHelpLabel")
 
-    def test_changed_since_checkbox_disabled_until_s4(self, widget_with_images):
-        """changed-since チェックボックスは S4 #614 実装まで無効（見えるが操作不可）"""
-        assert not widget_with_images.ui.changedSinceCheckBox.isEnabled()
+    def test_changed_since_checkbox_enabled(self, widget_with_images):
+        """S4 #614: changed-since チェックボックスは有効化されている"""
+        assert widget_with_images.ui.changedSinceCheckBox.isEnabled()
 
     def test_changed_since_datetime_disabled_by_default(self, widget_with_images):
-        """changed-since 日時入力は既定で無効"""
+        """changed-since 日時入力は既定で無効（トグル ON で有効化）"""
         assert not widget_with_images.ui.changedSinceDateTimeEdit.isEnabled()
 
     def test_changed_since_toggle_enables_datetime(self, widget_with_images):
-        """トグル ON で日時入力が有効化される (Foundation seam の挙動)"""
+        """トグル ON で日時入力が有効化される"""
         widget_with_images.ui.changedSinceCheckBox.setChecked(True)
         assert widget_with_images.ui.changedSinceDateTimeEdit.isEnabled()
         widget_with_images.ui.changedSinceCheckBox.setChecked(False)
         assert not widget_with_images.ui.changedSinceDateTimeEdit.isEnabled()
+
+    def test_effective_image_ids_unfiltered_when_toggle_off(self, widget_with_images):
+        """トグル OFF 時は self.image_ids がそのまま実対象になる (#614)"""
+        widget_with_images.ui.changedSinceCheckBox.setChecked(False)
+        assert widget_with_images._get_effective_image_ids() == widget_with_images.image_ids
+
+    def test_effective_image_ids_filtered_when_toggle_on(self, widget_with_images, monkeypatch):
+        """トグル ON 時は service.filter_changed_since の結果が実対象になる (#614)"""
+        monkeypatch.setattr(
+            widget_with_images.export_service,
+            "filter_changed_since",
+            lambda image_ids, since: list(image_ids)[:1],
+        )
+        widget_with_images.ui.changedSinceCheckBox.setChecked(True)
+        effective = widget_with_images._get_effective_image_ids()
+        assert effective == list(widget_with_images.image_ids)[:1]

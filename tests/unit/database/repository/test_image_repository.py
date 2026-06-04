@@ -20,6 +20,7 @@ ImageRepository を直接 instantiate して以下を最小限カバーする:
 
 from __future__ import annotations
 
+import datetime
 from types import SimpleNamespace
 from unittest.mock import MagicMock, Mock
 
@@ -35,6 +36,7 @@ from lorairo.database.schema import (
     Image,
     ImageFilenameAlias,
     ProcessedImage,
+    Tag,
 )
 from lorairo.services.configuration_service import ConfigurationService
 
@@ -383,3 +385,96 @@ class TestImageDatabaseManagerDIContract:
         assert manager.image_repo.session_factory is memory_session_factory
         # 他 Repo も同じ session_factory を共有していることを確認
         assert manager.annotation_repo.session_factory is memory_session_factory
+
+
+def _insert_tag(
+    session_factory,
+    *,
+    image_id: int,
+    tag: str,
+    created_at: datetime.datetime,
+    updated_at: datetime.datetime,
+    model_id: int | None = None,
+    is_edited_manually: bool | None = None,
+    existing: bool = False,
+) -> None:
+    """タイムスタンプを明示したタグ行を 1 件挿入する。"""
+    with session_factory() as session:
+        session.add(
+            Tag(
+                image_id=image_id,
+                tag=tag,
+                model_id=model_id,
+                is_edited_manually=is_edited_manually,
+                existing=existing,
+                created_at=created_at,
+                updated_at=updated_at,
+            )
+        )
+        session.commit()
+
+
+@pytest.mark.unit
+class TestFilterImageIdsWithTagChangesSince:
+    """#614: changed-since 絞り込み（AI 実行 created_at / 手動編集 updated_at）。"""
+
+    def test_filters_ai_and_manual_changes_after_threshold(
+        self, image_repository: ImageRepository, memory_session_factory
+    ) -> None:
+        import datetime
+
+        threshold = datetime.datetime(2026, 6, 1, 0, 0, 0)
+        before = datetime.datetime(2026, 5, 1, 0, 0, 0)
+        after = datetime.datetime(2026, 6, 2, 0, 0, 0)
+
+        img_ai = _insert_image(image_repository, uuid="u-ai", phash="p-ai", filename="ai.png")
+        img_manual = _insert_image(image_repository, uuid="u-man", phash="p-man", filename="man.png")
+        img_existing = _insert_image(image_repository, uuid="u-ex", phash="p-ex", filename="ex.png")
+        img_ai_old = _insert_image(image_repository, uuid="u-old", phash="p-old", filename="old.png")
+
+        # AI 実行が threshold 以降
+        _insert_tag(
+            memory_session_factory,
+            image_id=img_ai,
+            tag="cat",
+            model_id=1,
+            created_at=after,
+            updated_at=after,
+        )
+        # 手動編集が threshold 以降（created_at は古いが updated_at が新しい）
+        _insert_tag(
+            memory_session_factory,
+            image_id=img_manual,
+            tag="dog",
+            is_edited_manually=True,
+            created_at=before,
+            updated_at=after,
+        )
+        # 元ファイル由来（AI でも手動でもない）→ 除外
+        _insert_tag(
+            memory_session_factory,
+            image_id=img_existing,
+            tag="bird",
+            existing=True,
+            created_at=before,
+            updated_at=before,
+        )
+        # AI 実行だが threshold より前 → 除外
+        _insert_tag(
+            memory_session_factory,
+            image_id=img_ai_old,
+            tag="fish",
+            model_id=1,
+            created_at=before,
+            updated_at=before,
+        )
+
+        all_ids = [img_ai, img_manual, img_existing, img_ai_old]
+        result = image_repository.filter_image_ids_with_tag_changes_since(all_ids, threshold)
+
+        assert set(result) == {img_ai, img_manual}
+
+    def test_empty_input_returns_empty(self, image_repository: ImageRepository) -> None:
+        import datetime
+
+        assert image_repository.filter_image_ids_with_tag_changes_since([], datetime.datetime.now()) == []
