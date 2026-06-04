@@ -1835,6 +1835,46 @@ class ImageRepository(BaseRepository):
 
         return query.distinct()
 
+    def _fetch_images_by_exact_ids(
+        self, image_ids: list[int], resolution: int
+    ) -> tuple[list[dict[str, Any]], int]:
+        """明示的な image_id リストをそのまま取得する exact-set selector (ADR 0055)。
+
+        他のフィルタ次元 (tags / caption / include_nsfw / rating / score 等) を一切
+        適用せず、DB に存在する指定 ID の metadata を返す。GUI がステージング集合を
+        criteria 経由でエクスポートする際に、明示選択した NSFW 画像等がフィルタで
+        黙って落ちるのを防ぐ。
+
+        Args:
+            image_ids: 取得対象の画像 ID リスト。
+            resolution: metadata 取得時の解像度 (0 はオリジナル)。
+
+        Returns:
+            (metadata リスト, 件数)。DB に存在しない ID は除外される。
+
+        Raises:
+            SQLAlchemyError: データベース操作でエラーが発生した場合。
+        """
+        requested = list({i for i in image_ids if i is not None})
+        if not requested:
+            return [], 0
+        with self.session_factory() as session:
+            try:
+                existing_ids = list(
+                    session.execute(select(Image.id).where(Image.id.in_(requested)).order_by(Image.id))
+                    .scalars()
+                    .all()
+                )
+                metadata = self._fetch_filtered_metadata(session, existing_ids, resolution)
+                logger.info(
+                    f"image_ids exact-set: 指定 {len(requested)}件 → 取得 {len(metadata)}件 "
+                    f"(フィルタ bypass, ADR 0055)"
+                )
+                return metadata, len(metadata)
+            except SQLAlchemyError as e:
+                logger.error(f"image_ids exact-set 取得エラー: {e}", exc_info=True)
+                raise
+
     def get_images_by_filter(
         self,
         criteria: ImageFilterCriteria | None = None,
@@ -1863,6 +1903,10 @@ class ImageRepository(BaseRepository):
             except ValueError:
                 logger.error(f"解像度パラメータの変換に失敗しました: '{filter_criteria.resolution}'")
                 return [], 0
+
+        # ADR 0055: image_ids 指定時は exact-set selector として他フィルタを bypass する。
+        if filter_criteria.image_ids is not None:
+            return self._fetch_images_by_exact_ids(filter_criteria.image_ids, filter_criteria.resolution)
 
         with self.session_factory() as session:
             try:

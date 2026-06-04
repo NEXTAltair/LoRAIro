@@ -36,6 +36,7 @@ from lorairo.database.schema import (
     Image,
     ImageFilenameAlias,
     ProcessedImage,
+    Rating,
     Tag,
 )
 from lorairo.services.configuration_service import ConfigurationService
@@ -488,3 +489,64 @@ class TestFilterImageIdsWithTagChangesSince:
         import datetime
 
         assert image_repository.filter_image_ids_with_tag_changes_since([], datetime.datetime.now()) == []
+
+
+@pytest.mark.unit
+class TestImageFilterCriteriaExactSet:
+    """ADR 0055: image_ids 指定時は他フィルタを bypass する exact-set selector。"""
+
+    def test_image_ids_bypass_tag_filter_and_drop_missing(
+        self, image_repository: ImageRepository, memory_session_factory
+    ) -> None:
+        img_cat = _insert_image(image_repository, uuid="u-c", phash="p-c", filename="c.png")
+        img_plain = _insert_image(image_repository, uuid="u-p", phash="p-p", filename="p.png")
+        _insert_tag(
+            memory_session_factory,
+            image_id=img_cat,
+            tag="cat",
+            model_id=1,
+            created_at=datetime.datetime(2026, 1, 1),
+            updated_at=datetime.datetime(2026, 1, 1),
+        )
+
+        # 通常フィルタ (tags=["cat"]) は cat タグ画像のみ
+        normal, _ = image_repository.get_images_by_filter(ImageFilterCriteria(tags=["cat"]))
+        assert {m["id"] for m in normal} == {img_cat}
+
+        # image_ids 指定時は tags フィルタを bypass し両方返す。存在しない ID は除外。
+        exact, count = image_repository.get_images_by_filter(
+            ImageFilterCriteria(image_ids=[img_cat, img_plain, 999999], tags=["cat"])
+        )
+        ids = {m["id"] for m in exact}
+        assert ids == {img_cat, img_plain}
+        assert count == 2
+
+    def test_image_ids_bypass_nsfw_exclusion(
+        self, image_repository: ImageRepository, memory_session_factory
+    ) -> None:
+        """明示ステージングした NSFW 画像が include_nsfw=False でも落ちない (Codex/ADR 0055)。"""
+        img_nsfw = _insert_image(image_repository, uuid="u-n", phash="p-n", filename="n.png")
+        with memory_session_factory() as session:
+            session.add(
+                Rating(
+                    image_id=img_nsfw,
+                    model_id=1,
+                    raw_rating_value="X",
+                    normalized_rating="X",
+                )
+            )
+            session.commit()
+
+        # 通常フィルタ (include_nsfw=False) は NSFW 画像を除外する (control)
+        normal, _ = image_repository.get_images_by_filter(ImageFilterCriteria(include_nsfw=False))
+        assert img_nsfw not in {m["id"] for m in normal}
+
+        # image_ids exact-set は include_nsfw=False でも NSFW 画像を返す
+        exact, count = image_repository.get_images_by_filter(
+            ImageFilterCriteria(image_ids=[img_nsfw], include_nsfw=False)
+        )
+        assert {m["id"] for m in exact} == {img_nsfw}
+        assert count == 1
+
+    def test_image_ids_in_to_dict(self) -> None:
+        assert ImageFilterCriteria(image_ids=[1, 2]).to_dict()["image_ids"] == [1, 2]

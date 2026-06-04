@@ -39,6 +39,10 @@ class ImageFilterCriteria:
         project_id: フィルタ対象プロジェクトID（Phase C完了後に高速路）
         limit: 取得件数上限。None の場合は無制限
         offset: 取得開始位置
+        image_ids: 明示的な画像IDリスト。指定時は exact-set selector として扱い、
+            他のフィルタ次元（tags / caption / include_nsfw / rating / score 等）を
+            すべてバイパスして指定IDをそのまま対象にする（ADR 0055）。GUI が
+            ステージング集合を criteria 経由でエクスポートする際に使用する。
     """
 
     tags: list[str] | None = None
@@ -63,6 +67,8 @@ class ImageFilterCriteria:
     project_id: int | None = None
     limit: int | None = None
     offset: int = 0
+    # ADR 0055: 指定時は他フィルタを bypass する exact-set selector
+    image_ids: list[int] | None = None
 
     @classmethod
     def from_kwargs(cls, **kwargs: Any) -> ImageFilterCriteria:
@@ -120,4 +126,5 @@ class ImageFilterCriteria:
             "project_id": self.project_id,
             "limit": self.limit,
             "offset": self.offset,
+            "image_ids": self.image_ids,
         }

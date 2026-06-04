@@ -13,6 +13,7 @@ from PySide6.QtCore import QDateTime, QObject, QThread, QTime, Signal
 from PySide6.QtGui import QCloseEvent
 from PySide6.QtWidgets import QButtonGroup, QDialog, QFileDialog, QMessageBox, QWidget
 
+from ...database.filter_criteria import ImageFilterCriteria
 from ...services.service_container import ServiceContainer
 from ..designer.DatasetExportWidget_ui import Ui_DatasetExportWidget
 
@@ -62,13 +63,15 @@ class DatasetExportWorker(QObject):
 
             self.progress.emit(10, "エクスポート処理を開始しています...")
 
-            # export_with_criteria 経由で統一エントリポイントを使用（image_ids は deprecated パス）
+            # ADR 0055: 明示 ID は exact-set selector の criteria 経由で渡す
+            # (非推奨の image_ids 直渡しを排除。他フィルタを bypass し NSFW 等も落とさない)。
+            criteria = ImageFilterCriteria(image_ids=self.image_ids)
             if self.export_format == "json":
                 result_path = self.export_service.export_with_criteria(
                     output_path=self.output_path,
                     format_type="json",
                     resolution=self.resolution,
-                    image_ids=self.image_ids,
+                    criteria=criteria,
                 )
                 self.progress.emit(90, "JSON形式でエクスポート中...")
             else:
@@ -77,7 +80,7 @@ class DatasetExportWorker(QObject):
                     output_path=self.output_path,
                     format_type="txt",
                     resolution=self.resolution,
-                    image_ids=self.image_ids,
+                    criteria=criteria,
                     merge_caption=merge_option,
                 )
                 self.progress.emit(90, "TXT形式でエクスポート中...")
