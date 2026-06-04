@@ -1835,6 +1835,66 @@ class ImageRepository(BaseRepository):
 
         return query.distinct()
 
+    def _fetch_images_by_exact_ids(
+        self, image_ids: list[int], resolution: int, offset: int = 0, limit: int | None = None
+    ) -> tuple[list[dict[str, Any]], int]:
+        """明示的な image_id リストをそのまま取得する exact-set selector (ADR 0055)。
+
+        他のフィルタ次元 (tags / caption / include_nsfw / rating / score 等) を一切
+        適用せず、DB に存在する指定 ID の metadata を返す。GUI がステージング集合を
+        criteria 経由でエクスポートする際に、明示選択した NSFW 画像等がフィルタで
+        黙って落ちるのを防ぐ。`offset` / `limit` は通常パスと同じくページングに用いる
+        (総件数はページング前の存在件数を返す, Codex #623)。
+
+        Args:
+            image_ids: 取得対象の画像 ID リスト。
+            resolution: metadata 取得時の解像度 (0 はオリジナル)。
+            offset: ページング開始位置。
+            limit: 取得件数上限。None は無制限。
+
+        Returns:
+            (metadata リスト, 総件数)。総件数は DB に存在する指定 ID 数 (ページング前)。
+            DB に存在しない ID は除外される。
+
+        Raises:
+            SQLAlchemyError: データベース操作でエラーが発生した場合。
+        """
+        # 呼び出し元の順序 (ステージング順など) を保持して dedup する (Codex #623)
+        requested = list(dict.fromkeys(i for i in image_ids if i is not None))
+        if not requested:
+            return [], 0
+        with self.session_factory() as session:
+            try:
+                # SQLite の bind 変数上限を避けるため BATCH_CHUNK_SIZE で分割 (Codex #623)
+                existing: set[int] = set()
+                for i in range(0, len(requested), self.BATCH_CHUNK_SIZE):
+                    chunk = requested[i : i + self.BATCH_CHUNK_SIZE]
+                    existing.update(
+                        session.execute(select(Image.id).where(Image.id.in_(chunk))).scalars().all()
+                    )
+                # 入力順を保持したまま存在する ID に絞る
+                existing_ids = [i for i in requested if i in existing]
+
+                # 解像度フィルタはページングより前に適用する。_fetch_filtered_metadata は
+                # 指定解像度の処理済み版を持たない ID を落とすため、先に metadata を取得して
+                # 解像度で絞り、入力順で並べ直してからページングする (Codex #623)。
+                meta_by_id = {
+                    m["id"]: m for m in self._fetch_filtered_metadata(session, existing_ids, resolution)
+                }
+                ordered = [meta_by_id[i] for i in existing_ids if i in meta_by_id]
+                total_count = len(ordered)
+                paged = ordered[offset:]
+                if limit is not None:
+                    paged = paged[:limit]
+                logger.info(
+                    f"image_ids exact-set: 指定 {len(requested)}件 → 存在 {len(existing_ids)}件 "
+                    f"→ 解像度{resolution}該当 {total_count}件 → 取得 {len(paged)}件 (ADR 0055)"
+                )
+                return paged, total_count
+            except SQLAlchemyError as e:
+                logger.error(f"image_ids exact-set 取得エラー: {e}", exc_info=True)
+                raise
+
     def get_images_by_filter(
         self,
         criteria: ImageFilterCriteria | None = None,
@@ -1863,6 +1923,15 @@ class ImageRepository(BaseRepository):
             except ValueError:
                 logger.error(f"解像度パラメータの変換に失敗しました: '{filter_criteria.resolution}'")
                 return [], 0
+
+        # ADR 0055: image_ids 指定時は exact-set selector として他フィルタを bypass する。
+        if filter_criteria.image_ids is not None:
+            return self._fetch_images_by_exact_ids(
+                filter_criteria.image_ids,
+                filter_criteria.resolution,
+                offset=filter_criteria.offset,
+                limit=filter_criteria.limit,
+            )
 
         with self.session_factory() as session:
             try:
@@ -1935,6 +2004,15 @@ class ImageRepository(BaseRepository):
 
         """
         filter_criteria = criteria if criteria else ImageFilterCriteria.from_kwargs(**kwargs)
+
+        # ADR 0055: image_ids 指定時は exact-set として他フィルタを bypass する。
+        # get_images_by_filter と総件数を一致させるため同一 helper の総件数を返す
+        # (resolution 指定時は解像度該当のみ数える, Codex #623)。
+        if filter_criteria.image_ids is not None:
+            _, total_count = self._fetch_images_by_exact_ids(
+                filter_criteria.image_ids, filter_criteria.resolution
+            )
+            return total_count
 
         with self.session_factory() as session:
             try:

@@ -36,6 +36,7 @@ from lorairo.database.schema import (
     Image,
     ImageFilenameAlias,
     ProcessedImage,
+    Rating,
     Tag,
 )
 from lorairo.services.configuration_service import ConfigurationService
@@ -488,3 +489,133 @@ class TestFilterImageIdsWithTagChangesSince:
         import datetime
 
         assert image_repository.filter_image_ids_with_tag_changes_since([], datetime.datetime.now()) == []
+
+
+@pytest.mark.unit
+class TestImageFilterCriteriaExactSet:
+    """ADR 0055: image_ids 指定時は他フィルタを bypass する exact-set selector。"""
+
+    def test_image_ids_bypass_tag_filter_and_drop_missing(
+        self, image_repository: ImageRepository, memory_session_factory
+    ) -> None:
+        img_cat = _insert_image(image_repository, uuid="u-c", phash="p-c", filename="c.png")
+        img_plain = _insert_image(image_repository, uuid="u-p", phash="p-p", filename="p.png")
+        _insert_tag(
+            memory_session_factory,
+            image_id=img_cat,
+            tag="cat",
+            model_id=1,
+            created_at=datetime.datetime(2026, 1, 1),
+            updated_at=datetime.datetime(2026, 1, 1),
+        )
+
+        # 通常フィルタ (tags=["cat"]) は cat タグ画像のみ
+        normal, _ = image_repository.get_images_by_filter(ImageFilterCriteria(tags=["cat"]))
+        assert {m["id"] for m in normal} == {img_cat}
+
+        # image_ids 指定時は tags フィルタを bypass し両方返す。存在しない ID は除外。
+        exact, count = image_repository.get_images_by_filter(
+            ImageFilterCriteria(image_ids=[img_cat, img_plain, 999999], tags=["cat"])
+        )
+        ids = {m["id"] for m in exact}
+        assert ids == {img_cat, img_plain}
+        assert count == 2
+
+    def test_image_ids_bypass_nsfw_exclusion(
+        self, image_repository: ImageRepository, memory_session_factory
+    ) -> None:
+        """明示ステージングした NSFW 画像が include_nsfw=False でも落ちない (Codex/ADR 0055)。"""
+        img_nsfw = _insert_image(image_repository, uuid="u-n", phash="p-n", filename="n.png")
+        with memory_session_factory() as session:
+            session.add(
+                Rating(
+                    image_id=img_nsfw,
+                    model_id=1,
+                    raw_rating_value="X",
+                    normalized_rating="X",
+                )
+            )
+            session.commit()
+
+        # 通常フィルタ (include_nsfw=False) は NSFW 画像を除外する (control)
+        normal, _ = image_repository.get_images_by_filter(ImageFilterCriteria(include_nsfw=False))
+        assert img_nsfw not in {m["id"] for m in normal}
+
+        # image_ids exact-set は include_nsfw=False でも NSFW 画像を返す
+        exact, count = image_repository.get_images_by_filter(
+            ImageFilterCriteria(image_ids=[img_nsfw], include_nsfw=False)
+        )
+        assert {m["id"] for m in exact} == {img_nsfw}
+        assert count == 1
+
+    def test_image_ids_in_to_dict(self) -> None:
+        assert ImageFilterCriteria(image_ids=[1, 2]).to_dict()["image_ids"] == [1, 2]
+
+    def test_count_only_honors_image_ids(
+        self, image_repository: ImageRepository, memory_session_factory
+    ) -> None:
+        """get_images_count_only も image_ids exact-set を尊重する (Codex #623)。"""
+        img_cat = _insert_image(image_repository, uuid="u-c2", phash="p-c2", filename="c2.png")
+        img_plain = _insert_image(image_repository, uuid="u-p2", phash="p-p2", filename="p2.png")
+        _insert_tag(
+            memory_session_factory,
+            image_id=img_cat,
+            tag="cat",
+            model_id=1,
+            created_at=datetime.datetime(2026, 1, 1),
+            updated_at=datetime.datetime(2026, 1, 1),
+        )
+        # tags フィルタは無視され、指定した存在 ID の件数を返す
+        count = image_repository.get_images_count_only(
+            ImageFilterCriteria(image_ids=[img_cat, img_plain, 999999], tags=["cat"])
+        )
+        assert count == 2
+
+    def test_image_ids_respect_limit_and_offset(self, image_repository: ImageRepository) -> None:
+        """exact-set でも limit / offset のページングが効く (Codex #623)。"""
+        ids = [
+            _insert_image(image_repository, uuid=f"u-{n}", phash=f"p-{n}", filename=f"{n}.png")
+            for n in range(5)
+        ]
+        rows, total = image_repository.get_images_by_filter(
+            ImageFilterCriteria(image_ids=ids, limit=2, offset=1)
+        )
+        assert total == 5  # 総件数はページング前
+        assert len(rows) == 2  # limit 適用
+        assert [m["id"] for m in rows] == ids[1:3]  # offset=1 から 2 件
+
+    def test_image_ids_apply_resolution_before_paging(self, image_repository: ImageRepository) -> None:
+        """resolution 指定時は解像度フィルタをページングより前に適用する (Codex #623)。"""
+        img_missing = _insert_image(image_repository, uuid="u-rm", phash="p-rm", filename="rm.png")
+        img_has = _insert_image(image_repository, uuid="u-rh", phash="p-rh", filename="rh.png")
+        _insert_processed_image(image_repository, image_id=img_has, filename="rh-512.png")
+
+        # img_missing は 512px の処理済み版なし。limit=1 でも空ページにならず has を返す。
+        rows, total = image_repository.get_images_by_filter(
+            ImageFilterCriteria(image_ids=[img_missing, img_has], resolution=512, limit=1)
+        )
+        assert total == 1  # 解像度該当は has のみ
+        assert [m["id"] for m in rows] == [img_has]
+
+    def test_image_ids_preserve_caller_order(self, image_repository: ImageRepository) -> None:
+        """呼び出し元の明示順 (ステージング順) を保持する (Codex #623)。"""
+        first = _insert_image(image_repository, uuid="u-o1", phash="p-o1", filename="o1.png")
+        second = _insert_image(image_repository, uuid="u-o2", phash="p-o2", filename="o2.png")
+        third = _insert_image(image_repository, uuid="u-o3", phash="p-o3", filename="o3.png")
+        # DB id 昇順ではなく caller の順 [third, first, second] を維持する
+        rows, _ = image_repository.get_images_by_filter(
+            ImageFilterCriteria(image_ids=[third, first, second])
+        )
+        assert [m["id"] for m in rows] == [third, first, second]
+
+    def test_count_only_matches_filter_total_with_resolution(
+        self, image_repository: ImageRepository
+    ) -> None:
+        """count_only も resolution 該当のみを数え、get_images_by_filter と一致する (Codex #623)。"""
+        img_missing = _insert_image(image_repository, uuid="u-cm", phash="p-cm", filename="cm.png")
+        img_has = _insert_image(image_repository, uuid="u-ch", phash="p-ch", filename="ch.png")
+        _insert_processed_image(image_repository, image_id=img_has, filename="ch-512.png")
+
+        criteria = ImageFilterCriteria(image_ids=[img_missing, img_has], resolution=512)
+        _, total = image_repository.get_images_by_filter(criteria)
+        assert image_repository.get_images_count_only(criteria) == total == 1
