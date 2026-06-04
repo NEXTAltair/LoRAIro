@@ -1864,16 +1864,38 @@ class ImageRepository(BaseRepository):
             return [], 0
         with self.session_factory() as session:
             try:
-                existing_ids = list(
-                    session.execute(select(Image.id).where(Image.id.in_(requested)).order_by(Image.id))
-                    .scalars()
-                    .all()
-                )
+                # SQLite の bind 変数上限を避けるため BATCH_CHUNK_SIZE で分割 (Codex #623)
+                existing_ids: list[int] = []
+                for i in range(0, len(requested), self.BATCH_CHUNK_SIZE):
+                    chunk = requested[i : i + self.BATCH_CHUNK_SIZE]
+                    existing_ids.extend(
+                        session.execute(select(Image.id).where(Image.id.in_(chunk))).scalars().all()
+                    )
+                existing_ids.sort()
+
+                if resolution != 0:
+                    # 解像度フィルタはページングより前に適用する。_fetch_filtered_metadata は
+                    # 指定解像度の処理済み版を持たない ID を落とすため、先に metadata を取得して
+                    # 解像度で絞ってからページングしないと総件数/ページが狂う (Codex #623)。
+                    resolved = sorted(
+                        self._fetch_filtered_metadata(session, existing_ids, resolution),
+                        key=lambda m: m["id"],
+                    )
+                    total_count = len(resolved)
+                    paged = resolved[offset:]
+                    if limit is not None:
+                        paged = paged[:limit]
+                    logger.info(
+                        f"image_ids exact-set: 指定 {len(requested)}件 → 存在 {len(existing_ids)}件 "
+                        f"→ 解像度{resolution}該当 {total_count}件 → 取得 {len(paged)}件 (ADR 0055)"
+                    )
+                    return paged, total_count
+
                 total_count = len(existing_ids)
                 paged_ids = existing_ids[offset:]
                 if limit is not None:
                     paged_ids = paged_ids[:limit]
-                metadata = self._fetch_filtered_metadata(session, paged_ids, resolution)
+                metadata = self._fetch_filtered_metadata(session, paged_ids, 0)
                 logger.info(
                     f"image_ids exact-set: 指定 {len(requested)}件 → 存在 {total_count}件 "
                     f"→ 取得 {len(metadata)}件 (フィルタ bypass, ADR 0055)"
@@ -2000,11 +2022,16 @@ class ImageRepository(BaseRepository):
                 return 0
             with self.session_factory() as session:
                 try:
-                    return int(
-                        session.execute(
-                            select(func.count()).select_from(Image).where(Image.id.in_(requested))
-                        ).scalar_one()
-                    )
+                    # bind 変数上限を避けるため BATCH_CHUNK_SIZE で分割集計 (Codex #623)
+                    total = 0
+                    for i in range(0, len(requested), self.BATCH_CHUNK_SIZE):
+                        chunk = requested[i : i + self.BATCH_CHUNK_SIZE]
+                        total += int(
+                            session.execute(
+                                select(func.count()).select_from(Image).where(Image.id.in_(chunk))
+                            ).scalar_one()
+                        )
+                    return total
                 except SQLAlchemyError as e:
                     logger.error(f"image_ids exact-set 件数取得エラー: {e}", exc_info=True)
                     raise

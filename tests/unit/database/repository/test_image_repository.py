@@ -583,3 +583,16 @@ class TestImageFilterCriteriaExactSet:
         assert total == 5  # 総件数はページング前
         assert len(rows) == 2  # limit 適用
         assert [m["id"] for m in rows] == ids[1:3]  # offset=1 から 2 件
+
+    def test_image_ids_apply_resolution_before_paging(self, image_repository: ImageRepository) -> None:
+        """resolution 指定時は解像度フィルタをページングより前に適用する (Codex #623)。"""
+        img_missing = _insert_image(image_repository, uuid="u-rm", phash="p-rm", filename="rm.png")
+        img_has = _insert_image(image_repository, uuid="u-rh", phash="p-rh", filename="rh.png")
+        _insert_processed_image(image_repository, image_id=img_has, filename="rh-512.png")
+
+        # img_missing は 512px の処理済み版なし。limit=1 でも空ページにならず has を返す。
+        rows, total = image_repository.get_images_by_filter(
+            ImageFilterCriteria(image_ids=[img_missing, img_has], resolution=512, limit=1)
+        )
+        assert total == 1  # 解像度該当は has のみ
+        assert [m["id"] for m in rows] == [img_has]
