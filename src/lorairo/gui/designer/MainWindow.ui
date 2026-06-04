@@ -296,6 +296,43 @@
               </property>
              </widget>
             </item>
+            <item>
+             <layout class="QHBoxLayout" name="horizontalLayout_exportBottomBar">
+              <item>
+               <widget class="QLabel" name="labelExportTarget">
+                <property name="toolTip">
+                 <string>エクスポート対象はステージング集合（明示的に投入した画像）です</string>
+                </property>
+                <property name="text">
+                 <string>エクスポート対象: 0 枚</string>
+                </property>
+               </widget>
+              </item>
+              <item>
+               <spacer name="horizontalSpacer_exportBottomBar">
+                <property name="orientation">
+                 <enum>Qt::Orientation::Horizontal</enum>
+                </property>
+                <property name="sizeHint" stdset="0">
+                 <size>
+                  <width>40</width>
+                  <height>20</height>
+                 </size>
+                </property>
+               </spacer>
+              </item>
+              <item>
+               <widget class="QPushButton" name="btnExportData">
+                <property name="toolTip">
+                 <string>ステージング集合をエクスポート</string>
+                </property>
+                <property name="text">
+                 <string>エクスポート</string>
+                </property>
+               </widget>
+              </item>
+             </layout>
+            </item>
            </layout>
           </widget>
           <widget class="QFrame" name="framePreviewDetailPanel">
@@ -691,6 +728,22 @@
    <addaction name="menuView"/>
    <addaction name="menuTools"/>
    <addaction name="menuHelp"/>
+  </widget>
+  <widget class="QToolBar" name="mainToolBar">
+   <property name="windowTitle">
+    <string>メインツールバー</string>
+   </property>
+   <attribute name="toolBarArea">
+    <enum>TopToolBarArea</enum>
+   </attribute>
+   <attribute name="toolBarBreak">
+    <bool>false</bool>
+   </attribute>
+   <addaction name="actionAnnotation"/>
+   <addaction name="actionExport"/>
+   <addaction name="separator"/>
+   <addaction name="actionSettings"/>
+   <addaction name="actionErrorLog"/>
   </widget>
   <widget class="QStatusBar" name="statusbar"/>
   <action name="actionOpenDataset">

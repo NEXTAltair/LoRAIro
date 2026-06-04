@@ -19,8 +19,8 @@ from PySide6.QtGui import (QAction, QBrush, QColor, QConicalGradient,
 from PySide6.QtWidgets import (QApplication, QFrame, QGroupBox, QHBoxLayout,
     QLabel, QLineEdit, QMainWindow, QMenu,
     QMenuBar, QPushButton, QSizePolicy, QSpacerItem,
-    QSplitter, QStatusBar, QTabWidget, QVBoxLayout,
-    QWidget)
+    QSplitter, QStatusBar, QTabWidget, QToolBar,
+    QVBoxLayout, QWidget)
 
 from ..widgets.filter_search_panel import FilterSearchPanel
 from ..widgets.image_preview import ImagePreviewWidget
@@ -202,6 +202,25 @@ class Ui_MainWindow(object):
         self.thumbnailSelectorWidget.setSizePolicy(sizePolicy5)
 
         self.verticalLayout_thumbnailGrid.addWidget(self.thumbnailSelectorWidget)
+
+        self.horizontalLayout_exportBottomBar = QHBoxLayout()
+        self.horizontalLayout_exportBottomBar.setObjectName(u"horizontalLayout_exportBottomBar")
+        self.labelExportTarget = QLabel(self.frameThumbnailGrid)
+        self.labelExportTarget.setObjectName(u"labelExportTarget")
+
+        self.horizontalLayout_exportBottomBar.addWidget(self.labelExportTarget)
+
+        self.horizontalSpacer_exportBottomBar = QSpacerItem(40, 20, QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Minimum)
+
+        self.horizontalLayout_exportBottomBar.addItem(self.horizontalSpacer_exportBottomBar)
+
+        self.btnExportData = QPushButton(self.frameThumbnailGrid)
+        self.btnExportData.setObjectName(u"btnExportData")
+
+        self.horizontalLayout_exportBottomBar.addWidget(self.btnExportData)
+
+
+        self.verticalLayout_thumbnailGrid.addLayout(self.horizontalLayout_exportBottomBar)
 
         self.splitterMainWorkArea.addWidget(self.frameThumbnailGrid)
         self.framePreviewDetailPanel = QFrame(self.splitterMainWorkArea)
@@ -403,6 +422,9 @@ class Ui_MainWindow(object):
         self.menuHelp = QMenu(self.menubar)
         self.menuHelp.setObjectName(u"menuHelp")
         MainWindow.setMenuBar(self.menubar)
+        self.mainToolBar = QToolBar(MainWindow)
+        self.mainToolBar.setObjectName(u"mainToolBar")
+        MainWindow.addToolBar(Qt.ToolBarArea.TopToolBarArea, self.mainToolBar)
         self.statusbar = QStatusBar(MainWindow)
         self.statusbar.setObjectName(u"statusbar")
         MainWindow.setStatusBar(self.statusbar)
@@ -426,6 +448,11 @@ class Ui_MainWindow(object):
         self.menuTools.addSeparator()
         self.menuTools.addAction(self.actionSettings)
         self.menuHelp.addAction(self.actionAbout)
+        self.mainToolBar.addAction(self.actionAnnotation)
+        self.mainToolBar.addAction(self.actionExport)
+        self.mainToolBar.addSeparator()
+        self.mainToolBar.addAction(self.actionSettings)
+        self.mainToolBar.addAction(self.actionErrorLog)
 
         self.retranslateUi(MainWindow)
         self.pushButtonSelectDataset.clicked.connect(MainWindow.select_and_process_dataset)
@@ -496,6 +523,14 @@ class Ui_MainWindow(object):
         self.labelDbInfo.setText(QCoreApplication.translate("MainWindow", u"\u30c7\u30fc\u30bf\u30d9\u30fc\u30b9: \u672a\u63a5\u7d9a", None))
         self.labelFilterSearch.setStyleSheet(QCoreApplication.translate("MainWindow", u"font-weight: bold;", None))
         self.labelFilterSearch.setText(QCoreApplication.translate("MainWindow", u"\u691c\u7d22\u30fb\u30d5\u30a3\u30eb\u30bf\u30fc", None))
+#if QT_CONFIG(tooltip)
+        self.labelExportTarget.setToolTip(QCoreApplication.translate("MainWindow", u"\u30a8\u30af\u30b9\u30dd\u30fc\u30c8\u5bfe\u8c61\u306f\u30b9\u30c6\u30fc\u30b8\u30f3\u30b0\u96c6\u5408\uff08\u660e\u793a\u7684\u306b\u6295\u5165\u3057\u305f\u753b\u50cf\uff09\u3067\u3059", None))
+#endif // QT_CONFIG(tooltip)
+        self.labelExportTarget.setText(QCoreApplication.translate("MainWindow", u"\u30a8\u30af\u30b9\u30dd\u30fc\u30c8\u5bfe\u8c61: 0 \u679a", None))
+#if QT_CONFIG(tooltip)
+        self.btnExportData.setToolTip(QCoreApplication.translate("MainWindow", u"\u30b9\u30c6\u30fc\u30b8\u30f3\u30b0\u96c6\u5408\u3092\u30a8\u30af\u30b9\u30dd\u30fc\u30c8", None))
+#endif // QT_CONFIG(tooltip)
+        self.btnExportData.setText(QCoreApplication.translate("MainWindow", u"\u30a8\u30af\u30b9\u30dd\u30fc\u30c8", None))
         self.labelPreviewDetail.setStyleSheet(QCoreApplication.translate("MainWindow", u"font-weight: bold;", None))
         self.labelPreviewDetail.setText(QCoreApplication.translate("MainWindow", u"\u30d7\u30ec\u30d3\u30e5\u30fc\u30fb\u8a73\u7d30", None))
         self.tabWidgetRightPanel.setTabText(self.tabWidgetRightPanel.indexOf(self.tabImageDetails), QCoreApplication.translate("MainWindow", u"\u753b\u50cf\u8a73\u7d30", None))
@@ -517,5 +552,6 @@ class Ui_MainWindow(object):
         self.menuView.setTitle(QCoreApplication.translate("MainWindow", u"\u8868\u793a", None))
         self.menuTools.setTitle(QCoreApplication.translate("MainWindow", u"\u30c4\u30fc\u30eb", None))
         self.menuHelp.setTitle(QCoreApplication.translate("MainWindow", u"\u30d8\u30eb\u30d7", None))
+        self.mainToolBar.setWindowTitle(QCoreApplication.translate("MainWindow", u"\u30e1\u30a4\u30f3\u30c4\u30fc\u30eb\u30d0\u30fc", None))
     # retranslateUi
 

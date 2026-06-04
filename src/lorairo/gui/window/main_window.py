@@ -358,6 +358,7 @@ class MainWindow(QMainWindow, Ui_MainWindow):
                 selection_state_service=self.selection_state_service,
                 service_container=self.service_container,
                 parent=self,
+                staged_ids_provider=self._get_staged_export_ids,
             )
 
             logger.info("✅ Service/Controller層初期化完了")
@@ -603,6 +604,7 @@ class MainWindow(QMainWindow, Ui_MainWindow):
             self._connect_dataset_state_signals()
             self._connect_batch_tag_signals()
             self._connect_settings_signals()
+            self._connect_export_entry_signals()
             self._connect_panel_toggle_actions()
             logger.info("  ✅ イベント接続完了")
         except Exception as e:
@@ -1244,6 +1246,7 @@ class MainWindow(QMainWindow, Ui_MainWindow):
         """
         count = len(image_ids) if image_ids else 0
         self._update_annotation_target_ui(count)
+        self._update_export_target_ui(count)
 
     def _update_annotation_target_ui(self, staging_count: int) -> None:
         """アノテーション対象UIを更新
@@ -1263,6 +1266,20 @@ class MainWindow(QMainWindow, Ui_MainWindow):
         # ボタン有効/無効
         if hasattr(self, "btnAnnotationExecute"):
             self.btnAnnotationExecute.setEnabled(staging_count > 0)
+
+    def _update_export_target_ui(self, staging_count: int) -> None:
+        """エクスポート下部バーの対象件数ラベルを更新する。
+
+        ADR 0055: ワークスペースのエクスポート入口の対象＝ステージング集合。
+        件数は ``StagingWidget.staged_images_changed``（= ステージング件数）を反映し、
+        サムネ選択数ではない。ステージング後にサムネ選択を変更・クリアしても件数は
+        ズレない。
+
+        Args:
+            staging_count: 現在のステージング画像数。
+        """
+        if hasattr(self, "labelExportTarget"):
+            self.labelExportTarget.setText(f"エクスポート対象: {staging_count} 枚")
 
     def _show_quick_tag_dialog(self, image_ids: list[int]) -> None:
         """クイックタグダイアログを表示する。
@@ -1563,6 +1580,70 @@ class MainWindow(QMainWindow, Ui_MainWindow):
 
         logger.debug(f"ステージング画像パスを取得: {len(paths)}件")
         return paths
+
+    def _connect_export_entry_signals(self) -> None:
+        """エクスポート/アノテーション入口（ツールバー・下部バー）の Signal 接続を行う。
+
+        ADR 0055: ワークスペースに常設のエクスポート入口（ツールバー action と
+        サムネグリッド下部バーのボタン）を追加する。対象解決ロジックは変更せず、
+        既存の ``export_data()`` / ``ExportController`` に委譲する（新しい選択解決パスを
+        足さない）。
+        """
+        try:
+            # ツールバー/メニューの action（triggered の bool ペイロードは無視する）
+            if hasattr(self, "actionExport"):
+                self.actionExport.triggered.connect(self._on_export_entry_triggered)
+            if hasattr(self, "actionAnnotation"):
+                self.actionAnnotation.triggered.connect(self._on_annotation_entry_triggered)
+            # サムネグリッド下部バーのエクスポートボタン
+            if hasattr(self, "btnExportData"):
+                self.btnExportData.clicked.connect(self._on_export_entry_triggered)
+            # 下部バーの件数表示を初期化（起動直後のステージング件数 0）
+            self._update_export_target_ui(0)
+            logger.info("    ✅ エクスポート入口 Signal 接続完了")
+        except Exception as e:
+            logger.error(f"    ❌ エクスポート入口 Signal 接続失敗: {e}")
+
+    def _on_export_entry_triggered(self, _checked: bool = False) -> None:
+        """エクスポート入口（ツールバー action / 下部バーボタン）のハンドラ。
+
+        ``QAction.triggered`` / ``QPushButton.clicked`` が渡す bool ペイロードは
+        画像 ID ではないため無視する（ADR 0043 / Issue #570）。対象解決は
+        ``export_data()`` → ``ExportController`` に委譲し、新しい選択解決パスを足さない。
+
+        Args:
+            _checked: シグナルが渡す checked 状態。意図的に無視する。
+        """
+        self.export_data()
+
+    def _on_annotation_entry_triggered(self, _checked: bool = False) -> None:
+        """アノテーション入口（ツールバー action）のハンドラ。
+
+        ``QAction.triggered`` が渡す bool ペイロードは無視する（ADR 0043）。
+
+        Args:
+            _checked: シグナルが渡す checked 状態。意図的に無視する。
+        """
+        self.start_annotation()
+
+    def _get_staged_export_ids(self) -> list[int]:
+        """エクスポート対象のステージング画像 ID を返す（ExportController の provider）。
+
+        ADR 0055: エクスポート対象＝ステージング集合。ワークスペース下部バーの件数表示
+        （``staged_images_changed``）と同一の ``StagingWidget`` を読むことで、表示件数と
+        実エクスポート対象を一致させる。ステージングが未構築の場合は空リストを返す。
+
+        Returns:
+            ステージング中の画像 ID リスト（追加順）。未構築時は空リスト。
+        """
+        batch_tag_widget = getattr(self, "batchTagAddWidget", None)
+        if batch_tag_widget is None or not hasattr(batch_tag_widget, "get_staging_widget"):
+            return []
+        staging_widget = batch_tag_widget.get_staging_widget()
+        if staging_widget is None:
+            return []
+        staged_ids: list[int] = staging_widget.get_image_ids()
+        return staged_ids
 
     def export_data(self) -> None:
         """データセットエクスポート機能を開く（ExportControllerに委譲）"""
