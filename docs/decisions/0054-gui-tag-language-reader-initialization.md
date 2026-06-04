@@ -1,8 +1,9 @@
-# 0054. GUI tag language reader initialization
+# ADR 0054: GUI tag language reader initialization
 
-## Status
-
-Accepted
+- **Date**: 2026-06-03
+- **Status**: Accepted
+- **Related Issue**: #603
+- **Related PR**: #609
 
 ## Context
 
@@ -40,3 +41,8 @@ runtime paths are allowed to pay that cost.
   be populated when tag languages exist.
 - Tests must cover the setup integration path, not only widget behavior after a reader has already
   been injected.
+
+## Related
+
+- ADR 0050 (CLI Tag DB Lazy Initialization) - establishes lazy external tag DB initialization.
+- PR #609 - implements `AnnotationRepository.get_merged_reader()` and GUI setup wiring.
