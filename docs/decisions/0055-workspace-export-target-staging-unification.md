@@ -28,9 +28,11 @@ GUI の画像エクスポート導線が「悪い」と報告された (#610)。
 - **ADR 0019 (Export Filter Required Design)**: LoRA 学習データ作成では「全件エクスポート」が
   正常ケースとして存在しない。GUI は「明示選択＝暗黙フィルタ」を維持し、フィルタ結果や全件の
   直エクスポートは大量誤エクスポート（21k 件事故, Issue #166）防止のため**意図的に避ける**。
-- **ADR 0043 (Workspace stage button selection source)**: `DatasetStateManager` が唯一の選択
-  ソース。新しいワークスペース入口は別の選択解決パスを足さない。`QPushButton.clicked(bool)`
-  ペイロードを ID と誤認しない（Issue #570 のバグ元）。
+- **ADR 0043 (`0043-workspace-stage-selection-source.md`, Workspace stage button selection source)**:
+  `DatasetStateManager` が唯一の選択ソース。新しいワークスペース入口は別の選択解決パスを足さない。
+  `QPushButton.clicked(bool)` ペイロードを ID と誤認しない（Issue #570 のバグ元）。
+  ※ ADR 番号 0043 は `0043-db-core-logging-loguru-unification.md` と重複している。本 ADR が指すのは
+  **workspace-stage-selection-source** の方であり、ファイル名で参照する。
 - **lesson #178**: `DatasetExportService.export_with_criteria()` を GUI/CLI/API 3 経路の ID 解決
   SSoT として集約済み。各経路で個別実装すると二重クエリ・整合性ズレが起きる。
 
@@ -49,17 +51,29 @@ GUI の画像エクスポート導線が「悪い」と報告された (#610)。
 - フィルタ結果はサムネで確認 → **明示的に「ステージングへ投入」** してから対象化する。
   raw `filtered_images` への暗黙フォールバックは **行わない**（ADR 0019 整合＝大量誤エクスポート防止）。
 
-### 2. 選択ソースの単一性維持 (S1 / #611, ADR 0043 継承)
+### 2. 入口の対象は常にステージング集合 (S1 / #611)
 
-- 新規入口（ツールバー常設・サムネグリッド下部バー）は **別の選択解決パスを足さない**。
-- 下部バーのエクスポートボタン slot は `clicked(bool)` ペイロードを破棄し、
-  `SelectionStateService` 経由で `DatasetStateManager` を読む。
-- 件数表示は既存 `DatasetStateManager.selection_changed` シグナルを再利用する（新ソース禁止）。
+- 新規入口（ツールバー常設・サムネグリッド下部バー）のエクスポートボタンは、section 1 の対象＝
+  **`StagingWidget.get_image_ids()` を読む**（サムネ選択ではない）。ステージング後にサムネ選択を
+  変更・クリアしても対象がズレない（Codex review #617 の指摘=「選択を読むと対象が再び曖昧化する」を回避）。
+- 下部バーの件数表示は `StagingWidget.staged_images_changed` を購読し**ステージング件数**を出す。
+- サムネ選択をエクスポート対象に入れたい場合は、まず明示の「選択をステージングへ」アクションを経由する。
+  このアクション**のみ** `DatasetStateManager` を読み、ADR 0043
+  (`0043-workspace-stage-selection-source.md`) の `clicked(bool)` 規約に従う。
+  新規入口は別の選択解決パスを足さない（ADR 0043 継承）。
 
 ### 3. `ImageFilterCriteria` への明示 ID 統合
 
 - `ImageFilterCriteria` に `image_ids: list[int] | None = None` を追加し、
   `get_images_by_filter` で `WHERE id IN (...)` として解決する。
+- `image_ids` 指定時は **正確な集合を選ぶ exact-set selector** として扱い、他のフィルタ次元
+  （`include_nsfw` / `manual_rating_filter` / `ai_rating_filter` / `tags` / score 等）を
+  **バイパス**する。`get_images_by_filter` は `image_ids` 指定時に NSFW 除外等を適用せず、
+  明示された ID をそのまま返す。
+  - 理由: 現行の明示 ID エクスポート経路は「与えた ID をそのまま出す」契約。`include_nsfw` は
+    既定 `False` で criteria 検索は NSFW を除外するため、素朴に `ImageFilterCriteria(image_ids=...)`
+    へ移すと**明示的にステージングした NSFW 画像が黙って落ちる回帰**になる（Codex review #617 指摘）。
+    exact-set bypass によりステージング集合とエクスポート結果の一致を保証する。
 - GUI は `export_with_criteria(criteria=ImageFilterCriteria(image_ids=staged_ids))` を呼ぶ。
   これにより `image_ids` 直接渡し（非推奨・`DeprecationWarning`）を GUI から排除し、
   `export_with_criteria` を唯一の SSoT として維持する（lesson #178 整合）。
@@ -112,7 +126,8 @@ A を採用した理由:
 ## Related
 
 - ADR 0019: Export Filter Required Design（GUI 選択＝暗黙フィルタ、誤エクスポート防止）
-- ADR 0043: Workspace stage button selection source（単一選択ソース、clicked(bool) 注意）
+- ADR 0043 (`0043-workspace-stage-selection-source.md`): Workspace stage button selection source
+  （単一選択ソース、clicked(bool) 注意）。※番号 0043 は `0043-db-core-logging-loguru-unification.md` と重複、本 ADR が指すのは前者。
 - ADR 0001 / 0009: Two-Tier Service Architecture / Qt Decoupling（Qt-free な対象解決ロジック）
 - lesson #178: `export_with_criteria` を 3 経路の ID 解決 SSoT に集約
 - Issue #610 (epic), #611, #612, #614
