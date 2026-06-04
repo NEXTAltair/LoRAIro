@@ -1,0 +1,172 @@
+"""MainWindow エクスポート入口（ツールバー・下部バー）のテスト。
+
+Issue #611 (S1: エクスポート入口追加) / ADR 0055 (対象=ステージング集合) /
+ADR 0043 (単一選択ソース・clicked(bool) 注意) 準拠。
+
+検証内容:
+- ツールバー起動（既存 action の再掲）
+- サムネグリッド下部バー起動（対象件数ラベル + エクスポートボタン）
+- 件数表示がステージング件数（staged_images_changed）に追従する
+- clicked(bool) / triggered(bool) ペイロードを画像 ID と誤認しない回帰
+"""
+
+import types
+from unittest.mock import Mock
+
+import pytest
+from PySide6.QtCore import Qt
+from PySide6.QtWidgets import QMainWindow
+
+from lorairo.gui.designer.MainWindow_ui import Ui_MainWindow
+from lorairo.gui.window.main_window import MainWindow
+
+
+class _BareMainWindow(QMainWindow, Ui_MainWindow):
+    """サービス層を初期化しない素の MainWindow。
+
+    本番 MainWindow と同じく Ui_MainWindow を多重継承し setupUi を適用するが、
+    DB / Worker 等のサービス初期化は行わない。エクスポート入口 UI の存在と
+    実ウィジェットへの件数反映を軽量に検証するための土台。
+    """
+
+    def __init__(self) -> None:
+        super().__init__()
+        setup_ui = self.setupUi  # type: ignore[attr-defined]
+        setup_ui(self)
+
+    # MainWindow.ui の auto-connection が参照するスロットのスタブ
+    # （本テストでは入口ハンドラのみ検証するため空実装で十分）
+    def select_and_process_dataset(self) -> None:
+        pass
+
+    def open_settings(self) -> None:
+        pass
+
+    def start_annotation(self) -> None:
+        pass
+
+    def send_selected_to_batch_tag(self) -> None:
+        pass
+
+
+@pytest.fixture
+def bare_window(qtbot):
+    win = _BareMainWindow()
+    qtbot.addWidget(win)
+    return win
+
+
+class TestExportEntryUiStructure:
+    """ツールバー・下部バーの存在検証（起動）。"""
+
+    def test_toolbar_exists_with_reused_actions(self, bare_window):
+        """ツールバーが既存 action を再掲して起動する。"""
+        assert hasattr(bare_window, "mainToolBar")
+        action_names = {a.objectName() for a in bare_window.mainToolBar.actions() if a.objectName()}
+        assert {
+            "actionAnnotation",
+            "actionExport",
+            "actionSettings",
+            "actionErrorLog",
+        } <= action_names
+
+    def test_export_bottom_bar_widgets_exist(self, bare_window):
+        """サムネグリッド下部バーの件数ラベルとエクスポートボタンが起動する。"""
+        assert hasattr(bare_window, "labelExportTarget")
+        assert hasattr(bare_window, "btnExportData")
+        assert bare_window.btnExportData.text() == "エクスポート"
+        # 初期ラベルは 0 枚
+        assert "0 枚" in bare_window.labelExportTarget.text()
+
+
+class TestExportTargetFollowsStaging:
+    """件数表示がステージング件数に追従する（ADR 0055）。"""
+
+    def test_update_export_target_ui_sets_real_label(self, bare_window):
+        MainWindow._update_export_target_ui(bare_window, 7)
+        assert bare_window.labelExportTarget.text() == "エクスポート対象: 7 枚"
+
+    def test_staged_images_changed_follows_staging_count(self, bare_window):
+        """staged_images_changed 経路で下部バー件数がステージング件数に追従する。
+
+        サムネ選択数ではなくステージング集合のサイズを反映することを、
+        実ウィジェット（labelExportTarget / labelAnnotationTarget）で検証する。
+        """
+        bare_window._update_annotation_target_ui = types.MethodType(
+            MainWindow._update_annotation_target_ui, bare_window
+        )
+        bare_window._update_export_target_ui = types.MethodType(
+            MainWindow._update_export_target_ui, bare_window
+        )
+
+        MainWindow._on_staged_images_changed(bare_window, [10, 20, 30, 40])
+
+        assert bare_window.labelExportTarget.text() == "エクスポート対象: 4 枚"
+        assert "4 枚" in bare_window.labelAnnotationTarget.text()
+
+    def test_staged_images_changed_empty_resets_to_zero(self, bare_window):
+        bare_window._update_annotation_target_ui = types.MethodType(
+            MainWindow._update_annotation_target_ui, bare_window
+        )
+        bare_window._update_export_target_ui = types.MethodType(
+            MainWindow._update_export_target_ui, bare_window
+        )
+
+        MainWindow._on_staged_images_changed(bare_window, [])
+
+        assert bare_window.labelExportTarget.text() == "エクスポート対象: 0 枚"
+
+
+class TestExportEntryHandlers:
+    """入口ハンドラが bool ペイロードを画像 ID と誤認しない（ADR 0043 / #570）。"""
+
+    def test_on_export_entry_triggered_ignores_clicked_bool(self):
+        mock_window = Mock()
+        # QPushButton.clicked / QAction.triggered は checked(bool) を渡す
+        MainWindow._on_export_entry_triggered(mock_window, True)
+        # export_data は引数なしで呼ばれる（bool が ID として漏れない）
+        mock_window.export_data.assert_called_once_with()
+
+    def test_on_export_entry_triggered_default_arg(self):
+        mock_window = Mock()
+        MainWindow._on_export_entry_triggered(mock_window)
+        mock_window.export_data.assert_called_once_with()
+
+    def test_on_annotation_entry_triggered_ignores_bool(self):
+        mock_window = Mock()
+        MainWindow._on_annotation_entry_triggered(mock_window, False)
+        mock_window.start_annotation.assert_called_once_with()
+
+
+class TestExportEntryWiring:
+    """_connect_export_entry_signals の結線を実ウィジェットで検証。"""
+
+    def test_connect_wires_bottom_bar_and_toolbar(self, bare_window, qtbot):
+        bare_window.export_data = Mock()
+        bare_window.start_annotation = Mock()
+        bare_window._update_export_target_ui = types.MethodType(
+            MainWindow._update_export_target_ui, bare_window
+        )
+        bare_window._on_export_entry_triggered = types.MethodType(
+            MainWindow._on_export_entry_triggered, bare_window
+        )
+        bare_window._on_annotation_entry_triggered = types.MethodType(
+            MainWindow._on_annotation_entry_triggered, bare_window
+        )
+
+        MainWindow._connect_export_entry_signals(bare_window)
+
+        # 結線時に件数ラベルが初期化される
+        assert bare_window.labelExportTarget.text() == "エクスポート対象: 0 枚"
+
+        # 下部バーボタンの clicked(bool) → export_data（引数なし、bool を ID 化しない）
+        qtbot.mouseClick(bare_window.btnExportData, Qt.MouseButton.LeftButton)
+        bare_window.export_data.assert_called_once_with()
+
+        # ツールバーのエクスポート action → export_data
+        bare_window.actionExport.trigger()
+        assert bare_window.export_data.call_count == 2
+
+        # ツールバーのアノテーション action → start_annotation
+        bare_window.actionAnnotation.trigger()
+        bare_window.start_annotation.assert_called_once_with()
