@@ -550,3 +550,36 @@ class TestImageFilterCriteriaExactSet:
 
     def test_image_ids_in_to_dict(self) -> None:
         assert ImageFilterCriteria(image_ids=[1, 2]).to_dict()["image_ids"] == [1, 2]
+
+    def test_count_only_honors_image_ids(
+        self, image_repository: ImageRepository, memory_session_factory
+    ) -> None:
+        """get_images_count_only も image_ids exact-set を尊重する (Codex #623)。"""
+        img_cat = _insert_image(image_repository, uuid="u-c2", phash="p-c2", filename="c2.png")
+        img_plain = _insert_image(image_repository, uuid="u-p2", phash="p-p2", filename="p2.png")
+        _insert_tag(
+            memory_session_factory,
+            image_id=img_cat,
+            tag="cat",
+            model_id=1,
+            created_at=datetime.datetime(2026, 1, 1),
+            updated_at=datetime.datetime(2026, 1, 1),
+        )
+        # tags フィルタは無視され、指定した存在 ID の件数を返す
+        count = image_repository.get_images_count_only(
+            ImageFilterCriteria(image_ids=[img_cat, img_plain, 999999], tags=["cat"])
+        )
+        assert count == 2
+
+    def test_image_ids_respect_limit_and_offset(self, image_repository: ImageRepository) -> None:
+        """exact-set でも limit / offset のページングが効く (Codex #623)。"""
+        ids = [
+            _insert_image(image_repository, uuid=f"u-{n}", phash=f"p-{n}", filename=f"{n}.png")
+            for n in range(5)
+        ]
+        rows, total = image_repository.get_images_by_filter(
+            ImageFilterCriteria(image_ids=ids, limit=2, offset=1)
+        )
+        assert total == 5  # 総件数はページング前
+        assert len(rows) == 2  # limit 適用
+        assert [m["id"] for m in rows] == ids[1:3]  # offset=1 から 2 件

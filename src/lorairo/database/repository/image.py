@@ -1836,21 +1836,25 @@ class ImageRepository(BaseRepository):
         return query.distinct()
 
     def _fetch_images_by_exact_ids(
-        self, image_ids: list[int], resolution: int
+        self, image_ids: list[int], resolution: int, offset: int = 0, limit: int | None = None
     ) -> tuple[list[dict[str, Any]], int]:
         """明示的な image_id リストをそのまま取得する exact-set selector (ADR 0055)。
 
         他のフィルタ次元 (tags / caption / include_nsfw / rating / score 等) を一切
         適用せず、DB に存在する指定 ID の metadata を返す。GUI がステージング集合を
         criteria 経由でエクスポートする際に、明示選択した NSFW 画像等がフィルタで
-        黙って落ちるのを防ぐ。
+        黙って落ちるのを防ぐ。`offset` / `limit` は通常パスと同じくページングに用いる
+        (総件数はページング前の存在件数を返す, Codex #623)。
 
         Args:
             image_ids: 取得対象の画像 ID リスト。
             resolution: metadata 取得時の解像度 (0 はオリジナル)。
+            offset: ページング開始位置。
+            limit: 取得件数上限。None は無制限。
 
         Returns:
-            (metadata リスト, 件数)。DB に存在しない ID は除外される。
+            (metadata リスト, 総件数)。総件数は DB に存在する指定 ID 数 (ページング前)。
+            DB に存在しない ID は除外される。
 
         Raises:
             SQLAlchemyError: データベース操作でエラーが発生した場合。
@@ -1865,12 +1869,16 @@ class ImageRepository(BaseRepository):
                     .scalars()
                     .all()
                 )
-                metadata = self._fetch_filtered_metadata(session, existing_ids, resolution)
+                total_count = len(existing_ids)
+                paged_ids = existing_ids[offset:]
+                if limit is not None:
+                    paged_ids = paged_ids[:limit]
+                metadata = self._fetch_filtered_metadata(session, paged_ids, resolution)
                 logger.info(
-                    f"image_ids exact-set: 指定 {len(requested)}件 → 取得 {len(metadata)}件 "
-                    f"(フィルタ bypass, ADR 0055)"
+                    f"image_ids exact-set: 指定 {len(requested)}件 → 存在 {total_count}件 "
+                    f"→ 取得 {len(metadata)}件 (フィルタ bypass, ADR 0055)"
                 )
-                return metadata, len(metadata)
+                return metadata, total_count
             except SQLAlchemyError as e:
                 logger.error(f"image_ids exact-set 取得エラー: {e}", exc_info=True)
                 raise
@@ -1906,7 +1914,12 @@ class ImageRepository(BaseRepository):
 
         # ADR 0055: image_ids 指定時は exact-set selector として他フィルタを bypass する。
         if filter_criteria.image_ids is not None:
-            return self._fetch_images_by_exact_ids(filter_criteria.image_ids, filter_criteria.resolution)
+            return self._fetch_images_by_exact_ids(
+                filter_criteria.image_ids,
+                filter_criteria.resolution,
+                offset=filter_criteria.offset,
+                limit=filter_criteria.limit,
+            )
 
         with self.session_factory() as session:
             try:
@@ -1979,6 +1992,22 @@ class ImageRepository(BaseRepository):
 
         """
         filter_criteria = criteria if criteria else ImageFilterCriteria.from_kwargs(**kwargs)
+
+        # ADR 0055: image_ids 指定時は exact-set として他フィルタを bypass する (Codex #623)。
+        if filter_criteria.image_ids is not None:
+            requested = list({i for i in filter_criteria.image_ids if i is not None})
+            if not requested:
+                return 0
+            with self.session_factory() as session:
+                try:
+                    return int(
+                        session.execute(
+                            select(func.count()).select_from(Image).where(Image.id.in_(requested))
+                        ).scalar_one()
+                    )
+                except SQLAlchemyError as e:
+                    logger.error(f"image_ids exact-set 件数取得エラー: {e}", exc_info=True)
+                    raise
 
         with self.session_factory() as session:
             try:
