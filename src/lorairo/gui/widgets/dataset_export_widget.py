@@ -9,7 +9,7 @@ from pathlib import Path
 from typing import Any, cast
 
 from loguru import logger
-from PySide6.QtCore import QDateTime, QObject, QThread, Signal
+from PySide6.QtCore import QDateTime, QObject, QThread, QTime, Signal
 from PySide6.QtGui import QCloseEvent
 from PySide6.QtWidgets import QButtonGroup, QDialog, QFileDialog, QMessageBox, QWidget
 
@@ -176,7 +176,11 @@ class DatasetExportWidget(QDialog):
         「指定日時以降にタグ変更があった画像」に絞り込む。
         """
         self.ui.changedSinceCheckBox.setEnabled(True)
-        self.ui.changedSinceDateTimeEdit.setDateTime(QDateTime.currentDateTime())
+        # 既定値は表示精度 (yyyy-MM-dd HH:mm) に合わせ秒/ミリ秒をゼロ化する。
+        # 表示されない秒が cutoff に紛れ込み「分単位の見た目」と挙動がズレるのを防ぐ (Codex #621)。
+        default_cutoff = QDateTime.currentDateTime()
+        default_cutoff.setTime(QTime(default_cutoff.time().hour(), default_cutoff.time().minute()))
+        self.ui.changedSinceDateTimeEdit.setDateTime(default_cutoff)
         # 日時変更でも検証を無効化し、stale な絞り込み結果でのエクスポートを防ぐ (Codex #621)
         self.ui.changedSinceDateTimeEdit.dateTimeChanged.connect(self._on_settings_changed)
 
