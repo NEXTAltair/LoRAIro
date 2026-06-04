@@ -274,6 +274,10 @@ class TestDatasetExportWidgetFoundation:
         """解像度補助ラベル枠 (S5 #615) が .ui に存在する"""
         assert hasattr(widget_with_images.ui, "resolutionHelpLabel")
 
+    def test_changed_since_checkbox_disabled_until_s4(self, widget_with_images):
+        """changed-since チェックボックスは S4 #614 実装まで無効（見えるが操作不可）"""
+        assert not widget_with_images.ui.changedSinceCheckBox.isEnabled()
+
     def test_changed_since_datetime_disabled_by_default(self, widget_with_images):
         """changed-since 日時入力は既定で無効"""
         assert not widget_with_images.ui.changedSinceDateTimeEdit.isEnabled()

@@ -139,6 +139,7 @@ class Ui_DatasetExportWidget(object):
 
         self.changedSinceCheckBox = QCheckBox(self.exportGroupBox)
         self.changedSinceCheckBox.setObjectName(u"changedSinceCheckBox")
+        self.changedSinceCheckBox.setEnabled(False)
 
         self.exportLayout.addWidget(self.changedSinceCheckBox)
 
@@ -276,6 +277,9 @@ class Ui_DatasetExportWidget(object):
         self.radioTxtMerged.setText(QCoreApplication.translate("DatasetExportWidget", u"TXT\u5f62\u5f0f\uff08\u30ad\u30e3\u30d7\u30b7\u30e7\u30f3\u7d71\u5408\uff09", None))
         self.radioJson.setText(QCoreApplication.translate("DatasetExportWidget", u"JSON\u5f62\u5f0f\uff08metadata.json\uff09", None))
         self.changedSinceCheckBox.setText(QCoreApplication.translate("DatasetExportWidget", u"\u6307\u5b9a\u65e5\u6642\u4ee5\u964d\u306b\u5909\u66f4\u304c\u3042\u3063\u305f\u753b\u50cf\u306e\u307f", None))
+#if QT_CONFIG(tooltip)
+        self.changedSinceCheckBox.setToolTip(QCoreApplication.translate("DatasetExportWidget", u"\uff08#614 \u3067\u5b9f\u88c5\u4e88\u5b9a\uff09\u6307\u5b9a\u65e5\u6642\u4ee5\u964d\u306b AI \u5b9f\u884c\u307e\u305f\u306f\u624b\u52d5\u7de8\u96c6\u304c\u3042\u3063\u305f\u753b\u50cf\u306e\u307f\u3092\u5bfe\u8c61\u306b\u3057\u307e\u3059\u3002", None))
+#endif // QT_CONFIG(tooltip)
         self.changedSinceDateTimeEdit.setDisplayFormat(QCoreApplication.translate("DatasetExportWidget", u"yyyy-MM-dd HH:mm", None))
         self.validationResultsLabel.setText(QCoreApplication.translate("DatasetExportWidget", u"\u691c\u8a3c\u7d50\u679c:", None))
         self.totalImagesLabel.setText(QCoreApplication.translate("DatasetExportWidget", u"\u5bfe\u8c61\u753b\u50cf\u6570: --", None))

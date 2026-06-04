@@ -166,8 +166,14 @@
           </item>
           <item>
            <widget class="QCheckBox" name="changedSinceCheckBox">
+            <property name="enabled">
+             <bool>false</bool>
+            </property>
             <property name="text">
              <string>指定日時以降に変更があった画像のみ</string>
+            </property>
+            <property name="toolTip">
+             <string>（#614 で実装予定）指定日時以降に AI 実行または手動編集があった画像のみを対象にします。</string>
             </property>
            </widget>
           </item>
