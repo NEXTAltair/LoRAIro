@@ -171,9 +171,25 @@ class TestDatasetExportWidgetExport:
         # エラー処理後は cancel ボタン無効
         assert not widget_with_images.ui.cancelButton.isEnabled()
 
-    def test_get_output_directory_fallback_when_no_picker(self, widget_with_images, monkeypatch):
-        """exportDirectoryPicker に get_directory がない場合は QFileDialog に fallback（空返却）"""
-        # auto_mock_qfiledialog で getExistingDirectory は "" を返す
+    def test_get_output_directory_uses_picker_selected_path(
+        self, widget_with_images, monkeypatch, tmp_path
+    ):
+        """インラインピッカーで選択済みのパスがそのまま使われ、QFileDialog にフォールバックしない (#613)"""
+        monkeypatch.setattr(
+            widget_with_images.ui.exportDirectoryPicker,
+            "get_selected_path",
+            lambda: str(tmp_path),
+        )
+        result = widget_with_images._get_output_directory()
+        assert result == tmp_path
+
+    def test_get_output_directory_fallback_when_picker_empty(self, widget_with_images, monkeypatch):
+        """ピッカー未選択 (空文字) のときのみ QFileDialog にフォールバックする (auto_mock で "" → None)"""
+        monkeypatch.setattr(
+            widget_with_images.ui.exportDirectoryPicker,
+            "get_selected_path",
+            lambda: "",
+        )
         result = widget_with_images._get_output_directory()
         assert result is None
 
