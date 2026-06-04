@@ -304,3 +304,31 @@ class TestDatasetExportWidgetFoundation:
         widget_with_images.ui.changedSinceCheckBox.setChecked(True)
         effective = widget_with_images._get_effective_image_ids()
         assert effective == list(widget_with_images.image_ids)[:1]
+
+
+class TestDatasetExportWidgetResolution:
+    """S5 #615: 解像度の意味明確化と対象/対象外件数の表示。"""
+
+    def test_resolution_tooltip_clarifies_filter_semantics(self, widget_with_images):
+        """解像度コンボ/補助ラベルに「変換でなく前処理済み版の有無」のツールチップが付く"""
+        combo_tip = widget_with_images.ui.comboBoxResolution.toolTip()
+        label_tip = widget_with_images.ui.resolutionHelpLabel.toolTip()
+        assert "変換するのではなく" in combo_tip
+        assert "前処理済み版" in combo_tip
+        assert combo_tip == label_tip
+
+    def test_validation_details_show_resolution_in_out_counts(self, widget_with_images):
+        """検証結果に解像度別の対象/対象外件数が表示される"""
+        widget_with_images.ui.comboBoxResolution.setCurrentText("768px")
+        results = {
+            "total_images": 5,
+            "valid_images": 3,
+            "missing_processed": 2,
+            "missing_metadata": 0,
+            "issues": [],
+        }
+        widget_with_images._display_validation_results(results)
+        text = widget_with_images.ui.validationDetailsText.toPlainText()
+        assert "768px" in text
+        assert "対象 3件" in text
+        assert "対象外（この解像度の前処理済み版なし）2件" in text

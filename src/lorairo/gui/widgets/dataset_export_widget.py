@@ -162,11 +162,18 @@ class DatasetExportWidget(QDialog):
         self._setup_changed_since_ui()
 
     def _setup_resolution_ui(self) -> None:
-        """解像度関連 UI の初期化 seam（S5 #615 が実装）。
+        """解像度 UI の意味を明確化する (#615)。
 
-        Foundation では no-op。S5 が解像度の意味明確化（resolutionHelpLabel の
-        補助文言/ツールチップ）と、選択時の対象/対象外件数の即時表示を実装する。
+        「処理済み画像解像度」は画像を変換するのではなく、その解像度の前処理済み
+        バリアントを持つ画像だけをエクスポート対象に絞るフィルタである。誤解を避ける
+        ためツールチップで明示する。対象/対象外の件数は検証結果に表示する。
         """
+        resolution_hint = (
+            "画像を変換するのではなく、選択した解像度の前処理済み版を持つ画像のみが\n"
+            "エクスポート対象になります。その解像度版が無い画像は「対象外」になります。"
+        )
+        self.ui.comboBoxResolution.setToolTip(resolution_hint)
+        self.ui.resolutionHelpLabel.setToolTip(resolution_hint)
 
     def _setup_changed_since_ui(self) -> None:
         """changed-since フィルタ UI を初期化する (#614)。
@@ -283,6 +290,13 @@ class DatasetExportWidget(QDialog):
 
         # Update detailed results
         details = []
+        # 解像度フィルタの効果（対象/対象外）を明示する (#615)
+        resolution = self._get_selected_resolution()
+        missing_processed = results.get("missing_processed", 0)
+        details.append(
+            f"📐 解像度 {resolution}px: 対象 {valid}件 / "
+            f"対象外（この解像度の前処理済み版なし）{missing_processed}件"
+        )
         if valid > 0:
             details.append(f"✅ {valid}件の画像がエクスポート可能です。")
 
