@@ -1180,6 +1180,21 @@ class ImageDatabaseManager:
         """
         return self.image_repo.get_batch_available_resolutions(image_ids)
 
+    def filter_image_ids_with_tag_changes_since(self, image_ids: list[int], since: datetime) -> list[int]:
+        """指定日時以降にタグ変更があった image_id に絞り込む (#614)。
+
+        AI 実行 (model_id 付きタグの created_at) または手動編集
+        (is_edited_manually のタグの updated_at) が since より後のものを残す。
+
+        Args:
+            image_ids: 絞り込み元の画像IDリスト。
+            since: 変更ありとみなす閾値日時。
+
+        Returns:
+            since 以降にタグ変更があった image_id の一覧。
+        """
+        return self.image_repo.filter_image_ids_with_tag_changes_since(image_ids, since)
+
     def _parse_annotation_timestamp(self, update_time: datetime | str) -> datetime | None:
         """アノテーションのタイムスタンプをパースする。
 

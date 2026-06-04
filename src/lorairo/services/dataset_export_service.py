@@ -6,6 +6,7 @@ compatible with kohya-ss/sd-scripts requirements.
 
 import json
 import warnings
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 
@@ -404,6 +405,22 @@ class DatasetExportService:
             Dictionary mapping image_id -> list of available resolutions
         """
         return self.db_manager.get_batch_available_resolutions(image_ids)
+
+    def filter_changed_since(self, image_ids: list[int], since: datetime) -> list[int]:
+        """指定日時以降にタグ変更があった image_id に絞り込む (#614)。
+
+        AI 実行 (model_id 付きタグの created_at) または手動編集
+        (is_edited_manually のタグの updated_at) が since より後のものを残す。
+        元ファイル由来 (existing) は自然に除外される。対象はタグのみ。
+
+        Args:
+            image_ids: 絞り込み元の画像IDリスト。
+            since: 変更ありとみなす閾値日時。
+
+        Returns:
+            since 以降にタグ変更があった image_id の一覧。
+        """
+        return self.db_manager.filter_image_ids_with_tag_changes_since(image_ids, since)
 
     def validate_export_requirements(self, image_ids: list[int], resolution: int) -> dict[str, Any]:
         """Validate that export requirements can be met.
