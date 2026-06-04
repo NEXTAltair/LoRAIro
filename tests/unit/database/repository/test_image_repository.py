@@ -431,6 +431,7 @@ class TestFilterImageIdsWithTagChangesSince:
         img_manual = _insert_image(image_repository, uuid="u-man", phash="p-man", filename="man.png")
         img_existing = _insert_image(image_repository, uuid="u-ex", phash="p-ex", filename="ex.png")
         img_ai_old = _insert_image(image_repository, uuid="u-old", phash="p-old", filename="old.png")
+        img_ai_rerun = _insert_image(image_repository, uuid="u-re", phash="p-re", filename="re.png")
 
         # AI 実行が threshold 以降
         _insert_tag(
@@ -468,11 +469,20 @@ class TestFilterImageIdsWithTagChangesSince:
             created_at=before,
             updated_at=before,
         )
+        # AI 再実行: 既存行を update（created_at は古いが updated_at が新しい）→ 含む (Codex #621)
+        _insert_tag(
+            memory_session_factory,
+            image_id=img_ai_rerun,
+            tag="cat",
+            model_id=1,
+            created_at=before,
+            updated_at=after,
+        )
 
-        all_ids = [img_ai, img_manual, img_existing, img_ai_old]
+        all_ids = [img_ai, img_manual, img_existing, img_ai_old, img_ai_rerun]
         result = image_repository.filter_image_ids_with_tag_changes_since(all_ids, threshold)
 
-        assert set(result) == {img_ai, img_manual}
+        assert set(result) == {img_ai, img_manual, img_ai_rerun}
 
     def test_empty_input_returns_empty(self, image_repository: ImageRepository) -> None:
         import datetime

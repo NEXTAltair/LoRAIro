@@ -2239,9 +2239,11 @@ class ImageRepository(BaseRepository):
         """指定日時以降にタグ変更があった image_id に絞り込む (#614)。
 
         「変更」は以下のいずれか:
-        - AI 実行: `model_id` 付きのタグ行で `created_at > since`
+        - AI 実行: `model_id` 付きのタグ行で `updated_at > since`
         - 手動編集: `is_edited_manually = True` のタグ行で `updated_at > since`
 
+        AI 再実行は既存タグ行を update する (created_at は据え置き・updated_at が更新される)
+        ため、AI 側も `updated_at` を見ることで再実行を取りこぼさない (Codex #621)。
         元ファイル由来 (`existing = True`) のタグは AI でも手動編集でもないため
         自然に除外される。対象はタグのみ (caption/rating/score は対象外)。
 
@@ -2268,7 +2270,7 @@ class ImageRepository(BaseRepository):
                     .where(
                         Tag.image_id.in_(requested_ids),
                         or_(
-                            and_(Tag.model_id.is_not(None), Tag.created_at > since),
+                            and_(Tag.model_id.is_not(None), Tag.updated_at > since),
                             and_(Tag.is_edited_manually.is_(True), Tag.updated_at > since),
                         ),
                     )

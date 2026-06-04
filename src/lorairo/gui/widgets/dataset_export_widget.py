@@ -4,8 +4,9 @@ Provides GUI interface for exporting filtered datasets using DatasetExportServic
 with validation, progress tracking, and async processing capabilities.
 """
 
+from datetime import datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 from loguru import logger
 from PySide6.QtCore import QDateTime, QObject, QThread, Signal
@@ -176,6 +177,8 @@ class DatasetExportWidget(QDialog):
         """
         self.ui.changedSinceCheckBox.setEnabled(True)
         self.ui.changedSinceDateTimeEdit.setDateTime(QDateTime.currentDateTime())
+        # 日時変更でも検証を無効化し、stale な絞り込み結果でのエクスポートを防ぐ (Codex #621)
+        self.ui.changedSinceDateTimeEdit.dateTimeChanged.connect(self._on_settings_changed)
 
     def _on_changed_since_toggled(self, checked: bool) -> None:
         """changed-since トグル: 日時入力の有効/無効を切り替え、検証結果を無効化する。
@@ -195,7 +198,7 @@ class DatasetExportWidget(QDialog):
         """
         if not self.ui.changedSinceCheckBox.isChecked():
             return self.image_ids
-        since = self.ui.changedSinceDateTimeEdit.dateTime().toPython()
+        since = cast(datetime, self.ui.changedSinceDateTimeEdit.dateTime().toPython())
         return self.export_service.filter_changed_since(self.image_ids, since)
 
     def _connect_signals(self) -> None:
