@@ -14,6 +14,8 @@ from PySide6.QtWidgets import QMessageBox, QWidget
 from ...utils.log import logger
 
 if TYPE_CHECKING:
+    from collections.abc import Callable
+
     from ...services.selection_state_service import SelectionStateService
     from ...services.service_container import ServiceContainer
 
@@ -21,10 +23,18 @@ if TYPE_CHECKING:
 class ExportController:
     """データセットエクスポート制御Controller
 
+    ADR 0055: エクスポート対象＝ステージング集合（明示的・有界・可視の名前付き集合）。
+    ``staged_ids_provider`` を注入すると対象解決をステージング集合に切り替え、
+    ワークスペース下部バーの件数表示（``StagingWidget.staged_images_changed``）と
+    実エクスポート対象を一致させる。未注入時は従来の選択ベース解決にフォールバック
+    する（後方互換）。
+
     Args:
         selection_state_service: 画像選択状態管理サービス
         service_container: サービスコンテナ
         parent: 親ウィジェット（MainWindow）
+        staged_ids_provider: ステージング画像 ID を返す callable。注入時は対象解決を
+            ステージング集合に切り替える（ADR 0055）。``None`` の場合は従来の選択ベース。
     """
 
     def __init__(
@@ -32,10 +42,12 @@ class ExportController:
         selection_state_service: SelectionStateService | None,
         service_container: ServiceContainer,
         parent: QWidget | None = None,
+        staged_ids_provider: Callable[[], list[int]] | None = None,
     ):
         self.selection_state_service = selection_state_service
         self.service_container = service_container
         self.parent = parent
+        self.staged_ids_provider = staged_ids_provider
 
     def _validate_services(self) -> bool:
         """必須サービスの検証
@@ -62,13 +74,19 @@ class ExportController:
             current_image_ids = self._get_current_selected_images()
 
             if not current_image_ids:
-                QMessageBox.warning(
-                    self.parent,
-                    "エクスポート",
-                    "エクスポートする画像が選択されていません。\n"
-                    "フィルタリング条件を設定して画像を表示するか、\n"
-                    "サムネイル表示で画像を選択してください。",
-                )
+                if self.staged_ids_provider is not None:
+                    # ADR 0055: 対象＝ステージング集合。空ならステージングへの投入を促す。
+                    message = (
+                        "エクスポートする画像がステージングにありません。\n"
+                        "サムネイルで画像を選択して『選択をステージングへ』で追加してください。"
+                    )
+                else:
+                    message = (
+                        "エクスポートする画像が選択されていません。\n"
+                        "フィルタリング条件を設定して画像を表示するか、\n"
+                        "サムネイル表示で画像を選択してください。"
+                    )
+                QMessageBox.warning(self.parent, "エクスポート", message)
                 return
 
             logger.info(f"データセットエクスポート開始: {len(current_image_ids)}画像")
@@ -97,12 +115,21 @@ class ExportController:
                 )
 
     def _get_current_selected_images(self) -> list[int]:
-        """現在選択中の画像IDリスト取得
+        """エクスポート対象の画像IDリストを取得する。
+
+        ADR 0055: ``staged_ids_provider`` 注入時はステージング集合を対象とする
+        （ワークスペース下部バーの件数表示と同一ソース）。未注入時は従来どおり
+        ``SelectionStateService`` の選択ベースで解決する（後方互換）。
 
         Returns:
             list[int]: 画像IDリスト
         """
-        # Step 1: サービス検証
+        # ADR 0055: ステージング集合を優先（注入時）
+        if self.staged_ids_provider is not None:
+            staged_ids = self.staged_ids_provider() or []
+            return list(staged_ids)
+
+        # 後方互換: provider 未注入時は選択ベース
         if not self._validate_services():
             return []
 

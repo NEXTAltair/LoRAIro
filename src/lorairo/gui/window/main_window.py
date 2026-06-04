@@ -358,6 +358,7 @@ class MainWindow(QMainWindow, Ui_MainWindow):
                 selection_state_service=self.selection_state_service,
                 service_container=self.service_container,
                 parent=self,
+                staged_ids_provider=self._get_staged_export_ids,
             )
 
             logger.info("✅ Service/Controller層初期化完了")
@@ -1624,6 +1625,25 @@ class MainWindow(QMainWindow, Ui_MainWindow):
             _checked: シグナルが渡す checked 状態。意図的に無視する。
         """
         self.start_annotation()
+
+    def _get_staged_export_ids(self) -> list[int]:
+        """エクスポート対象のステージング画像 ID を返す（ExportController の provider）。
+
+        ADR 0055: エクスポート対象＝ステージング集合。ワークスペース下部バーの件数表示
+        （``staged_images_changed``）と同一の ``StagingWidget`` を読むことで、表示件数と
+        実エクスポート対象を一致させる。ステージングが未構築の場合は空リストを返す。
+
+        Returns:
+            ステージング中の画像 ID リスト（追加順）。未構築時は空リスト。
+        """
+        batch_tag_widget = getattr(self, "batchTagAddWidget", None)
+        if batch_tag_widget is None or not hasattr(batch_tag_widget, "get_staging_widget"):
+            return []
+        staging_widget = batch_tag_widget.get_staging_widget()
+        if staging_widget is None:
+            return []
+        staged_ids: list[int] = staging_widget.get_image_ids()
+        return staged_ids
 
     def export_data(self) -> None:
         """データセットエクスポート機能を開く（ExportControllerに委譲）"""

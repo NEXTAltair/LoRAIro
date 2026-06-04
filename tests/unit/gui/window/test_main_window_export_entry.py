@@ -170,3 +170,32 @@ class TestExportEntryWiring:
         # ツールバーのアノテーション action → start_annotation
         bare_window.actionAnnotation.trigger()
         bare_window.start_annotation.assert_called_once_with()
+
+
+class TestStagedExportIdsProvider:
+    """_get_staged_export_ids（ExportController 用 provider）の検証（ADR 0055 / #620 案A）。"""
+
+    def test_returns_staging_image_ids(self):
+        mock_window = Mock()
+        staging_widget = Mock()
+        staging_widget.get_image_ids.return_value = [3, 1, 2]
+        mock_window.batchTagAddWidget = Mock()
+        mock_window.batchTagAddWidget.get_staging_widget.return_value = staging_widget
+
+        result = MainWindow._get_staged_export_ids(mock_window)
+        assert result == [3, 1, 2]
+
+    def test_returns_empty_when_no_batch_widget(self):
+        mock_window = Mock(spec=[])
+        assert MainWindow._get_staged_export_ids(mock_window) == []
+
+    def test_returns_empty_when_no_get_staging_widget(self):
+        mock_window = Mock()
+        mock_window.batchTagAddWidget = Mock(spec=[])
+        assert MainWindow._get_staged_export_ids(mock_window) == []
+
+    def test_returns_empty_when_staging_widget_none(self):
+        mock_window = Mock()
+        mock_window.batchTagAddWidget = Mock()
+        mock_window.batchTagAddWidget.get_staging_widget.return_value = None
+        assert MainWindow._get_staged_export_ids(mock_window) == []
