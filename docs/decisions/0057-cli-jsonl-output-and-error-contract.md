@@ -1,7 +1,7 @@
 # ADR 0057: CLI Machine-Readable (JSONL) Output and Error Contract
 
 - **日付**: 2026-06-05
-- **ステータス**: Proposed
+- **ステータス**: Accepted
 - **関連 Issue**: #634 (epic) / #636 / #637
 
 ## Context
