@@ -391,6 +391,35 @@ class TestGrayscaleLikeDetection:
         assert info["is_grayscale_like"] is False
         assert info["colorfulness_score"] > 16.0
 
+    def test_thin_color_lines_survive_downscale(self, tmp_path: Path) -> None:
+        """細い色の罫線が縮小で消えずカラー扱いされる (#645 review3, BILINEAR)。
+
+        2000px 級の画像に細い色罫線を入れ、256px 縮小後も色被覆が残ることを確認する。
+        NEAREST 単純間引きだと罫線が脱落し得るため BILINEAR を使う。
+        """
+        gray = np.full((2000, 2000, 3), 100, dtype=np.uint8)
+        # 16px 間隔で 4px 幅の純カラー (赤) 罫線を引く (総面積は 1% を超える)。
+        for y in range(0, 2000, 16):
+            gray[y : y + 4, :] = (255, 0, 0)
+        img = Image.fromarray(gray, mode="RGB")
+        path = self._save(img, tmp_path, "PNG", ".png")
+        info = FileSystemManager.get_image_info(path)
+        assert info["is_grayscale_like"] is False
+        assert info["colorfulness_score"] > 16.0
+
+    def test_large_transparent_colored_image_stays_grayscale(self, tmp_path: Path) -> None:
+        """大きめ RGBA でも透過カラー画素は縮小後も可視グレーに混ざらない (#645)。"""
+        rgb = np.full((1000, 1000, 3), 130, dtype=np.uint8)
+        rgb[:500, :] = (255, 0, 255)  # 上半分はマゼンタだが透過
+        alpha = np.full((1000, 1000), 255, dtype=np.uint8)
+        alpha[:500, :] = 0
+        rgba = np.dstack([rgb, alpha])
+        img = Image.fromarray(rgba, mode="RGBA")
+        path = self._save(img, tmp_path, "PNG", ".png")
+        info = FileSystemManager.get_image_info(path)
+        assert info["has_alpha"] is True
+        assert info["is_grayscale_like"] is True
+
     def test_large_image_is_handled(self, tmp_path: Path) -> None:
         """大きめ画像でもサンプリングで有界に判定し正しく分類する。"""
         img = Image.new("RGB", (2000, 1500), color=(200, 200, 200))
