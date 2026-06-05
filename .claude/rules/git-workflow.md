@@ -2,6 +2,39 @@
 
 Issue解決・機能開発時のブランチ戦略とワークツリー運用ルール。
 
+## 実装作業は worktree から開始（必須）
+
+Issue解決・機能開発・PR準備・複数ファイル実装は、**必ず `/tmp/worktrees/` 配下の専用 worktree から開始する**。共有 checkout `/workspaces/LoRAIro` で実装作業の edit / stage / commit / push / rebase をしない。
+
+### worktree + PR を要さない例外（共有 checkout / main 直 push 可）
+
+以下は worktree も PR も介さず、共有 checkout で作業し main へ直接 push してよい（**新規作成・更新の両方**）:
+
+- **ドキュメント系のみ**: ADR (`docs/decisions/`)、`docs/` 配下、README 等の作成・更新（コード変更を伴わないもの）
+- **開発ツール周りの chore**: SKILL (`.agents/skills/`, `.claude/skills/`)、プロンプト/コマンド (`.claude/commands/`)、Agent 定義、`.claude/` / `.codex/` の設定・hook・rules、`.gitignore` 等の作成・更新
+- read-only 調査、ツール検証、worktree 掃除
+
+判断基準: **アプリのソース（`src/`, `tests/`, `local_packages/*/src`）や schema/migration を触るか**。触るなら worktree + PR、触らない docs/tooling chore なら共有 checkout で直接でよい（[[feedback_chore_main_direct_push]] と整合）。
+
+```bash
+# 実装着手時の標準手順
+git fetch origin
+git worktree add /tmp/worktrees/issue-123 -b fix/issue-123 origin/main
+# 以降の編集・コミット・push はこの worktree 内で行う
+```
+
+完了の定義（ユーザーが明示的に「publish 前で止めて」「draft のまま」と言わない限り）:
+1. worktree で実装
+2. CI-equivalent filter で検証（[testing.md](testing.md)）
+3. commit & push
+4. ready-for-review な PR を起票
+5. PR 保守自走（CI / bot レビュー）を回し、safe なら squash merge
+6. merge 後 worktree を `git worktree remove` で即削除
+
+ローカル実装だけで作業を終えない。PR URL と最終監視状態を成果として報告する。auth / network / 検証失敗 / スコープ不明で PR 起票がブロックされた場合は、黙ってローカル変更で止めず blocker を明示する。
+
+> 注: Agent tool の `isolation: "worktree"` はこのリポジトリで壊れている。手動 `git worktree add` + 共有 `.venv` で運用する。
+
 ## ブランチ運用
 
 ### mainブランチでの直接作業禁止
@@ -27,7 +60,8 @@ git worktree add ../fix-issue-123 -b fix/issue-123
 ```
 
 ### Agent呼び出し時
-- 実装タスクの Agent 呼び出しでは `isolation: "worktree"` を活用する
+- 実装タスクの Agent には、リード側で `git worktree add` した専用 worktree のパスを渡す（`isolation: "worktree"` はこのリポジトリで壊れているため使わない）
+- 並列実装では worker ごとに別 worktree を割り当て、書き込みスコープ（担当ファイル/モジュール）を分離する
 - メインワークスペースの作業状態を汚さない
 
 ### クリーンアップ
