@@ -1,8 +1,13 @@
 # ADR 0053: CLI Streaming Annotation Memory-Bounded Execution Contract
 
 - **日付**: 2026-05-29
-- **ステータス**: Accepted
+- **ステータス**: Accepted (1 回の呼び出しの処理総数上限は ADR 0057 で 500 に改定)
 - **関連 Issue**: #531 (epic) / #536 / #537 / #538
+
+> **改定 (2026-06-05, ADR 0057)**: 本 ADR は「1 回の呼び出しで総数無制限に annotate を実行できる」ことを
+> 前提としていたが、ADR 0057 が全バッチ操作に 1 回 500 枚の総数上限を課したため、annotate も 500/回に
+> 制限される。`batch_size` streaming (§1) と `--limit`/`--offset`/`--image-id` sharding (§4) の機構は維持され、
+> 後者は 500 を跨いで反復処理する手段として活きる。
 
 ## Context
 

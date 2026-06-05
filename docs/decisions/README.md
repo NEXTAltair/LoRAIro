@@ -56,7 +56,7 @@ LoRAIro の重要な設計判断を記録するドキュメント群。
 | [0050](0050-cli-tag-db-lazy-initialization.md) | CLI Tag DB Lazy Initialization | 2026-06-01 | Accepted |
 | [0051](0051-codex-worktree-shared-uv-environment.md) | Codex Worktree Shared uv Environment | 2026-06-01 | Accepted |
 | [0052](0052-model-selection-auto-reconcile.md) | ModelSelectionWidget 初回表示時の model reconcile | 2026-06-01 | Accepted |
-| [0053](0053-cli-streaming-annotation-memory-bounded-contract.md) | CLI Streaming Annotation Memory-Bounded Execution Contract | 2026-05-29 | Accepted |
+| [0053](0053-cli-streaming-annotation-memory-bounded-contract.md) | CLI Streaming Annotation Memory-Bounded Execution Contract | 2026-05-29 | Accepted (amended by 0057) |
 | [0054](0054-gui-tag-language-reader-initialization.md) | GUI tag language reader initialization | 2026-06-03 | Accepted |
 | [0055](0055-workspace-export-target-staging-unification.md) | Workspace Export Target = Staging Set / Selection-Source Unification | 2026-06-04 | Accepted |
 | [0056](0056-exact-set-selector-id-count-guard.md) | exact-set selector の大量ID集合ガード / count-only 軽量化方針 | 2026-06-05 | Accepted |
