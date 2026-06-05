@@ -15,6 +15,7 @@ from lorairo.database.repository.error_record import ErrorRecordRepository
 from lorairo.database.repository.image import ImageRepository
 from lorairo.database.repository.model import ModelRepository
 from lorairo.domain.rating_mapper import map_rating
+from lorairo.domain.score_scaler import is_ai_scored_model, positive_key_for
 from lorairo.utils.log import logger
 
 if TYPE_CHECKING:
@@ -103,18 +104,21 @@ class AnnotationSaveService:
         captions: list[str] | None,
         ratings: Any,
         result: AnnotationsDict,
+        model_name: str,
     ) -> None:
         """モデルの1件分アノテーション結果をAnnotationsDictに追加する。
 
         ADR 0027 / iam-lib ADR 0002: ``score_labels`` は canonical scorer の
         categorical label (例: "very aesthetic", "aesthetic")。``tags`` フィールドとは
         独立に保持する (content tag との混入を避ける)。
+
+        Issue #626: AI scorer は ``higher_is_better=True`` の positive key 1 個だけを
+        生値で保存する (complement の lq / not_aesthetic は保存しない)。同一 model で
+        cafe/shadow が 2 行保存され DB で positive 判別不能になる問題を防ぐ。変換
+        (0-10 表示尺度) は読み取り時に行う。
         """
         if scores:
-            for _name, value in scores.items():
-                result["scores"].append(
-                    {"model_id": model_id, "score": float(value), "is_edited_manually": False}
-                )
+            self._append_scores(model_id, scores, model_name, result)
         if score_labels:
             for label in score_labels:
                 result["score_labels"].append(
@@ -144,6 +148,48 @@ class AnnotationSaveService:
                 )
         if ratings:
             self._append_rating_row(model_id, ratings, result)
+
+    def _append_scores(
+        self,
+        model_id: int,
+        scores: dict[str, float],
+        model_name: str,
+        result: AnnotationsDict,
+    ) -> None:
+        """scores を Score 行として AnnotationsDict に追加する (Issue #626)。
+
+        既知の AI scorer は positive key (``higher_is_better=True``) 1 個だけを保存する。
+        positive key が ``scores`` に無い場合は warning を出してスキップする。未知 scorer
+        (テーブル未登録) は後方互換のため従来どおり全 key を保存する。
+
+        Args:
+            model_id: scorer の DB model ID。
+            scores: scorer が出力した ``{key: raw_value}`` 辞書。
+            model_name: scorer model 名 (positive key 判定に使う registry key)。
+            result: 追記先の AnnotationsDict。
+        """
+        if is_ai_scored_model(model_name):
+            positive_key = positive_key_for(model_name)
+            if positive_key is None or positive_key not in scores:
+                logger.warning(
+                    f"scorer '{model_name}' の positive key={positive_key!r} が scores に無いため"
+                    f"スコア保存をスキップ: keys={list(scores.keys())}"
+                )
+                return
+            result["scores"].append(
+                {
+                    "model_id": model_id,
+                    "score": float(scores[positive_key]),
+                    "is_edited_manually": False,
+                }
+            )
+            return
+
+        # 未知 scorer: 後方互換で全 key を保存する。
+        for _name, value in scores.items():
+            result["scores"].append(
+                {"model_id": model_id, "score": float(value), "is_edited_manually": False}
+            )
 
     def _append_rating_row(self, model_id: int, ratings: Any, result: AnnotationsDict) -> None:
         """rating を canonical 値に変換して result["ratings"] へ追加する (変換不能なら無視)。"""
@@ -366,6 +412,7 @@ class AnnotationSaveService:
             self._extract_field(unified_result, "captions"),
             self._extract_field(unified_result, "ratings"),
             result,
+            model_name,
         )
 
     def _build_annotations_dict(

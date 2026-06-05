@@ -43,6 +43,7 @@ from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from sqlalchemy.orm import Session, joinedload, selectinload
 
 from ...domain.quality_tier import compute_quality_summary
+from ...domain.score_scaler import calibrate_to_display
 from ...utils.log import logger
 from ..filter_criteria import ImageFilterCriteria
 from ..schema import (
@@ -1498,11 +1499,58 @@ class ImageRepository(BaseRepository):
                 }
                 for score in image.scores
             ]
-            latest_score = max(image.scores, key=lambda s: s.created_at)
-            annotations["score_value"] = latest_score.score
+            annotations["score_value"] = self._derive_display_score(image)
         else:
             annotations["scores"] = []
             annotations["score_value"] = 0.0
+
+    @staticmethod
+    def _derive_display_score(image: Image) -> float:
+        """Score 行から 0.0-10.0 の表示スコア (``score_value``) を導出する (Issue #626)。
+
+        導出規約:
+
+        - 手動行 (``is_edited_manually=True``) があれば、その最新の生値 (既に 0-10) を
+          最優先で採用する。
+        - 手動行が無ければ AI Score 行を model 単位で 1 値にまとめ、各 model の生値を
+          ``calibrate_to_display`` で 0-10 化した平均を採用する。
+        - Score 行が空 (呼び出し側で別途処理) の場合の保険として 0.0 を返す。
+
+        新データは scorer 1 行/model だが、旧データ (Issue #626 以前) では同一 model に
+        positive/complement 2 行が残り得る。その場合は best-effort で最新行を採用する。
+        legacy 2 行データは近似値となり得るため、正確化には再アノテーションが必要。
+
+        Args:
+            image: scores リレーションを load 済みの Image。
+
+        Returns:
+            0.0-10.0 の表示スコア。
+        """
+        manual_scores = [s for s in image.scores if s.is_edited_manually]
+        if manual_scores:
+            latest_manual = max(manual_scores, key=lambda s: s.created_at)
+            return float(latest_manual.score)
+
+        ai_scores = [s for s in image.scores if not s.is_edited_manually]
+        if not ai_scores:
+            return 0.0
+
+        # model 単位で最新行を 1 つに絞る (legacy 複数行データは近似)。
+        # model_id は SET NULL で None になり得る (model 削除済み orphan 行)。
+        latest_by_model: dict[int | None, Score] = {}
+        for score_row in ai_scores:
+            existing = latest_by_model.get(score_row.model_id)
+            if existing is None or score_row.created_at > existing.created_at:
+                latest_by_model[score_row.model_id] = score_row
+
+        display_values: list[float] = []
+        for score_row in latest_by_model.values():
+            model_name = score_row.model.name if score_row.model else ""
+            display_values.append(calibrate_to_display(model_name, float(score_row.score)))
+
+        if not display_values:
+            return 0.0
+        return sum(display_values) / len(display_values)
 
     def _format_score_labels(self, image: Image, annotations: dict[str, Any]) -> None:
         """スコアラベル (canonical scorer の categorical 分類) をフォーマットする。
