@@ -619,3 +619,22 @@ class TestImageFilterCriteriaExactSet:
         criteria = ImageFilterCriteria(image_ids=[img_missing, img_has], resolution=512)
         _, total = image_repository.get_images_by_filter(criteria)
         assert image_repository.get_images_count_only(criteria) == total == 1
+
+    def test_image_ids_over_limit_raises(self, image_repository: ImageRepository) -> None:
+        """EXACT_SET_MAX_IDS 超過は曖昧な SQLite 例外でなく ValueError で弾く (ADR 0056)。"""
+        too_many = list(range(1, image_repository.EXACT_SET_MAX_IDS + 2))  # 501 unique
+        with pytest.raises(ValueError, match="exact-set"):
+            image_repository.get_images_by_filter(ImageFilterCriteria(image_ids=too_many))
+
+    def test_image_ids_at_limit_does_not_raise(self, image_repository: ImageRepository) -> None:
+        """境界: ちょうど上限の件数は raise しない (存在しないので空集合, ADR 0056)。"""
+        at_limit = list(range(1, image_repository.EXACT_SET_MAX_IDS + 1))  # 500 unique
+        rows, total = image_repository.get_images_by_filter(ImageFilterCriteria(image_ids=at_limit))
+        assert rows == []
+        assert total == 0
+
+    def test_count_only_inherits_exact_set_guard(self, image_repository: ImageRepository) -> None:
+        """count_only も共有 helper 経由で同じガードを継承する (ADR 0056)。"""
+        too_many = list(range(1, image_repository.EXACT_SET_MAX_IDS + 2))
+        with pytest.raises(ValueError, match="exact-set"):
+            image_repository.get_images_count_only(ImageFilterCriteria(image_ids=too_many))

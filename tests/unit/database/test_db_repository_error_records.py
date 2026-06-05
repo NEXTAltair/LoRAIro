@@ -211,6 +211,12 @@ class TestGetImagesByIds:
         assert len(images) == 1
         assert mock_session.execute.called
 
+    def test_get_images_by_ids_over_bind_limit_raises(self, repository):
+        """BATCH_CHUNK_SIZE 超は bind 上限保護で ValueError を送出する (ADR 0056)。"""
+        too_many = list(range(1, repository.BATCH_CHUNK_SIZE + 2))  # 15001 unique
+        with pytest.raises(ValueError, match="get_images_by_ids"):
+            repository.get_images_by_ids(too_many)
+
 
 class TestGetErrorRecords:
     """get_error_records メソッドのテスト"""

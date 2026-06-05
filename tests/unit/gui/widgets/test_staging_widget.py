@@ -65,6 +65,17 @@ class TestStagingWidgetInitialization:
 
         assert widget.MAX_STAGING_IMAGES == 500
 
+    def test_exact_set_max_matches_staging_limit(self):
+        """repo の exact-set 上限が GUI のステージング上限と一致すること (drift 防止, ADR 0056)。
+
+        ImageRepository は Qt-free (ADR 0001) のため GUI 定数を import せず独自に
+        EXACT_SET_MAX_IDS を持つ。両者の値が乖離すると exact-set エクスポートが
+        ステージング上限と食い違うため、本 test で同値を保証する。
+        """
+        from lorairo.database.repository.image import ImageRepository
+
+        assert ImageRepository.EXACT_SET_MAX_IDS == StagingWidget.MAX_STAGING_IMAGES
+
 
 class TestDatasetStateManagerIntegration:
     """DatasetStateManager 統合テスト"""
