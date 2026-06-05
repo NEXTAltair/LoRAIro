@@ -290,11 +290,69 @@ class TestProviderBatchWorkflowService:
         # provider item 件数 (=1) と一致しなくても、custom_id 単位で完了判定し
         # job / item を imported にする。
         assert result.job_imported is True
+        # Codex #646 round3: サマリは image 単位で一貫 (2 image 保存 → 2/2)。
+        assert result.total_count == 2
+        assert result.skipped_count == 0
         item = test_provider_batch_repository.list_provider_batch_items(job_id)[0]
         assert item.status == "imported"
         job = test_provider_batch_repository.get_provider_batch_job(job_id)
         assert job is not None
         assert job.status == "imported"
+
+    def test_import_results_counts_deduped_non_importable_per_image(
+        self,
+        test_provider_batch_repository: ProviderBatchRepository,
+        test_repository,
+        test_annotation_repository,
+        batch_config: Mock,
+        db_session_factory: sessionmaker,
+    ) -> None:
+        """Codex #646 round3: dedupe された失敗 item は fan-out 込みの image 数で skip 集計する。"""
+        adapter = FakeProviderBatchAdapter()
+        annotation_save = Mock()
+        annotation_save.save_provider_batch_results_by_image_id.return_value = AnnotationSaveResult(
+            success_count=0, skip_count=0, error_count=0, total_count=0
+        )
+        service = ProviderBatchWorkflowService(
+            provider_batch_repo=test_provider_batch_repository,
+            image_repo=test_repository,
+            annotation_repo=test_annotation_repository,
+            config_service=batch_config,
+            adapters={"anthropic": adapter, "openai": adapter},
+            annotation_save_service=annotation_save,
+        )
+        # 同一素材 (image 1, 2) が 1 custom_id に dedupe される。
+        _insert_image(
+            db_session_factory, 1, "/tmp/images/a.webp", phash="dupdupdupdupdup0", width=1024, height=768
+        )
+        _insert_image(
+            db_session_factory, 2, "/tmp/images/b.webp", phash="dupdupdupdupdup0", width=1024, height=768
+        )
+        job_id = service.submit_images(
+            provider="anthropic",
+            endpoint="/v1/messages",
+            litellm_model_id="anthropic/claude-test",
+            prompt_profile="default",
+            image_ids=[1, 2],
+            model_id=10,
+        )
+
+        result = service.import_results(
+            job_id,
+            ProviderBatchFetchResult(
+                provider_job_id="batch_123",
+                provider_status="completed",
+                # provider が失敗を返す (non-importable)。dedupe で 2 image が未注釈のまま。
+                items=(ProviderBatchResultItem("ph:dupdupdupdupdup0:le:1024", "failed", annotation=None),),
+            ),
+        )
+
+        annotation_save.save_provider_batch_results_by_image_id.assert_not_called()
+        # 1 provider item の失敗だが、fan-out 込みで 2 image が skip / total に算入される。
+        assert result.imported_count == 0
+        assert result.skipped_count == 2
+        assert result.total_count == 2
+        assert result.job_imported is False
 
     def test_submit_images_uses_path_overrides(
         self,

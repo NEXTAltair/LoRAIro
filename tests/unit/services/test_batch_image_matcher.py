@@ -119,11 +119,11 @@ class TestBatchImageMatcherPhash:
     @pytest.fixture()
     def mock_repository(self) -> MagicMock:
         repo = MagicMock()
-        # (pHash, 長辺) 複合キー。同一 pHash aaaa が 1024 と 512 の 2 解像度で共存する。
+        # (pHash, 長辺) 複合キー → image_id 群。同一 pHash aaaa が 1024 と 512 の 2 解像度で共存。
         repo.find_image_ids_by_phash_long_edge.return_value = {
-            ("aaaaaaaaaaaaaaaa", 1024): 10,
-            ("aaaaaaaaaaaaaaaa", 512): 11,
-            ("bbbbbbbbbbbbbbbb", 768): 20,
+            ("aaaaaaaaaaaaaaaa", 1024): [10],
+            ("aaaaaaaaaaaaaaaa", 512): [11],
+            ("bbbbbbbbbbbbbbbb", 768): [20],
         }
         repo.get_all_image_filename_index.return_value = {"0262_1227": 1}
         return repo
@@ -173,6 +173,21 @@ class TestBatchImageMatcherPhash:
 
         assert result.matched == {}
         assert result.unmatched == ["ph:cccccccccccccccc:le:512"]
+
+    def test_phash_custom_id_records_duplicate_materials_as_ambiguous(
+        self, mock_repository: MagicMock
+    ) -> None:
+        """Codex #646 round3: 同一素材の重複登録は代表を matched、全件を ambiguous に残す。"""
+        mock_repository.find_image_ids_by_phash_long_edge.return_value = {
+            ("aaaaaaaaaaaaaaaa", 1024): [10, 30, 42],
+        }
+        matcher = BatchImageMatcher(mock_repository)
+        result = matcher.match_all(["ph:aaaaaaaaaaaaaaaa:le:1024"])
+
+        # 代表は昇順先頭。重複登録は ambiguous に保持され取りこぼさない。
+        assert result.matched == {"ph:aaaaaaaaaaaaaaaa:le:1024": 10}
+        assert result.ambiguous == {"ph:aaaaaaaaaaaaaaaa:le:1024": [10, 30, 42]}
+        assert result.unmatched == []
 
     def test_mixed_phash_and_stem_custom_ids(self, mock_repository: MagicMock) -> None:
         """pHash 形式と stem 形式が混在しても各方式で照合する。"""

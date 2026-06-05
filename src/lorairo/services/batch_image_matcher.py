@@ -62,16 +62,22 @@ class BatchImageMatcher:
 
         matched: dict[str, int] = {}
         unmatched: list[str] = []
+        ambiguous: dict[str, list[int]] = {}
 
         # ADR 0062: (pHash, 長辺解像度) の複合キーで突合する。同一 pHash で長辺の異なる
         # レコードが DB に共存しても、custom_id の長辺に一致する行へ正しくマッチする。
         if phash_le_by_custom_id:
             phashes = {phash for phash, _ in phash_le_by_custom_id.values()}
-            phash_le_to_id = self._repository.find_image_ids_by_phash_long_edge(phashes)
+            phash_le_to_ids = self._repository.find_image_ids_by_phash_long_edge(phashes)
             for custom_id, key in phash_le_by_custom_id.items():
-                image_id = phash_le_to_id.get(key)
-                if image_id is not None:
-                    matched[custom_id] = image_id
+                image_ids = phash_le_to_ids.get(key)
+                if image_ids:
+                    # 代表 (昇順先頭) を matched に、同一素材の重複登録は ambiguous に残す
+                    # (legacy JSONL import は代表のみ保存。submit/import 経路は raw_request の
+                    # 対応表で全 image へ fan-out する)。
+                    matched[custom_id] = image_ids[0]
+                    if len(image_ids) > 1:
+                        ambiguous[custom_id] = list(image_ids)
                 else:
                     unmatched.append(custom_id)
 
@@ -86,7 +92,7 @@ class BatchImageMatcher:
                 else:
                     unmatched.append(custom_id)
 
-        return ImageMatchResult(matched=matched, unmatched=unmatched)
+        return ImageMatchResult(matched=matched, unmatched=unmatched, ambiguous=ambiguous)
 
     @staticmethod
     def extract_stem(custom_id: str) -> str:

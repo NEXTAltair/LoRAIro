@@ -434,22 +434,24 @@ class TestFindImageIdsByPhashLongEdge:
         assert repository.find_image_ids_by_phash_long_edge(set()) == {}
 
     def test_returns_phash_long_edge_to_id_mapping(self, repository):
-        """(pHash, 長辺) 複合キーで image_id を返す。長辺は max(width, height)。"""
+        """(pHash, 長辺) 複合キーで image_id 群を返す。長辺は max(width, height)。"""
         mock_session = MagicMock()
         repository.session_factory.return_value.__enter__ = Mock(return_value=mock_session)
         repository.session_factory.return_value.__exit__ = Mock(return_value=False)
 
-        row1 = Mock(phash="aaa", width=1024, height=768, id=1)
-        row2 = Mock(phash="aaa", width=512, height=512, id=2)
-        row3 = Mock(phash="bbb", width=600, height=900, id=3)
-        mock_session.execute.return_value.all.return_value = [row1, row2, row3]
+        # 同一 (aaa, 1024) が 2 レコード (image 1, 5) で重複登録されているケース。
+        row1 = Mock(phash="aaa", width=1024, height=768, id=5)
+        row2 = Mock(phash="aaa", width=1024, height=768, id=1)
+        row3 = Mock(phash="aaa", width=512, height=512, id=2)
+        row4 = Mock(phash="bbb", width=600, height=900, id=3)
+        mock_session.execute.return_value.all.return_value = [row1, row2, row3, row4]
 
         result = repository.find_image_ids_by_phash_long_edge({"aaa", "bbb"})
-        # 同一 pHash でも長辺が異なれば別キー。長辺は max(w, h)。
+        # 同一 pHash でも長辺が異なれば別キー。長辺は max(w, h)。重複は昇順リストで取りこぼさない。
         assert result == {
-            ("aaa", 1024): 1,
-            ("aaa", 512): 2,
-            ("bbb", 900): 3,
+            ("aaa", 1024): [1, 5],
+            ("aaa", 512): [2],
+            ("bbb", 900): [3],
         }
 
     def test_propagates_sqlalchemy_error(self, repository):

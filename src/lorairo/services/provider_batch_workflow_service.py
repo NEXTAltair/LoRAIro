@@ -104,7 +104,10 @@ class _PreparedProviderBatchImport:
     non_importable_count: int
     # ADR 0062: dedupe で 1 provider item が複数 image_id に fan-out されるため、
     # save 件数 (image 単位) と provider item / custom_id 単位の完了判定を区別する。
+    # 各分類の image 単位件数 (fan-out 込み) を集計し、サマリを image 単位で一貫させる。
     imported_image_count: int
+    already_imported_image_count: int
+    non_importable_image_count: int
 
 
 class ProviderBatchLibraryAdapter:
@@ -518,25 +521,25 @@ class ProviderBatchWorkflowService:
                 {"status": "imported", "imported_at": datetime.now(UTC)},
             )
 
-        # ADR 0062 / Codex #646: imported_count / skipped_count / error_count は image 単位
-        # (save_result 由来) で一貫させ、total_count も image 単位に揃える。dedupe fan-out で
-        # 1 provider result が複数 image に保存されても imported_count <= total_count が常に
-        # 成立し、CLI/widget の "X/Y 件" が "2/1" のように矛盾しない。non-importable / missing /
-        # already-imported は image を保存しない (item 単位) ため、そのまま image 集計へ加算する。
-        image_total_count = (
-            save_result.total_count
-            + prepared.non_importable_count
-            + len(unique_missing_custom_ids)
-            + prepared.already_imported_count
+        # ADR 0062 / Codex #646: imported_count / skipped_count / error_count / total_count を
+        # すべて image 単位で一貫させる。dedupe fan-out で 1 provider result が複数 image に
+        # 紐づくため、non-importable / already-imported も fan-out 込みの image 件数で数える
+        # (2-image deduped 失敗を "1 skipped / 1 total" と過小報告しない)。missing は DB item が
+        # 無く fan-out 数が不明なため 1 件として数える。
+        # save 対象外の image (item 単位 → fan-out 込み image 単位へ展開) を加算する。
+        not_saved_image_count = (
+            len(unique_missing_custom_ids)
+            + prepared.non_importable_image_count
+            + prepared.already_imported_image_count
         )
+        skipped_image_count = save_result.skip_count + not_saved_image_count
+        # total = save 対象 image (success+skip+error) + save 対象外 image。
+        image_total_count = save_result.total_count + not_saved_image_count
         return ProviderBatchImportResult(
             save_result=save_result,
             apply_result=apply_result,
             imported_count=save_result.success_count,
-            skipped_count=save_result.skip_count
-            + len(unique_missing_custom_ids)
-            + prepared.non_importable_count
-            + prepared.already_imported_count,
+            skipped_count=skipped_image_count,
             error_count=save_result.error_count,
             total_count=image_total_count,
             missing_custom_ids=unique_missing_custom_ids,
@@ -561,6 +564,8 @@ class ProviderBatchWorkflowService:
         already_imported_count = 0
         non_importable_count = 0
         imported_image_count = 0
+        already_imported_image_count = 0
+        non_importable_image_count = 0
 
         for raw_item in fetch_result.items:
             item = self._coerce_result_item(raw_item)
@@ -568,11 +573,16 @@ class ProviderBatchWorkflowService:
             if db_item is None or db_item.image_id is None:
                 missing_custom_ids.append(item.custom_id)
                 continue
+            # ADR 0062 / Codex #646: dedupe で 1 provider item が複数 image に fan-out される
+            # ため、skip / already-imported / non-importable も image 単位件数で集計する。
+            fanned_out_image_count = len(self._image_ids_for_db_item(db_item))
             if db_item.status == "imported":
                 already_imported_count += 1
+                already_imported_image_count += fanned_out_image_count
                 continue
             if item.status not in {"succeeded", "completed", "imported"} or item.annotation is None:
                 non_importable_count += 1
+                non_importable_image_count += fanned_out_image_count
                 continue
             model_id = self._model_id_for_item(job, db_item)
             if model_id is None:
@@ -593,6 +603,8 @@ class ProviderBatchWorkflowService:
             already_imported_count=already_imported_count,
             non_importable_count=non_importable_count,
             imported_image_count=imported_image_count,
+            already_imported_image_count=already_imported_image_count,
+            non_importable_image_count=non_importable_image_count,
         )
 
     def _save_results_by_model(
