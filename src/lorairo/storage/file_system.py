@@ -9,12 +9,32 @@ from itertools import islice
 from pathlib import Path
 from typing import Any, ClassVar, Literal, cast
 
+import numpy as np
 import toml
 from PIL import Image, ImageCms
 
 from ..utils.log import logger
 
 Image.MAX_IMAGE_PIXELS = 1000000000  # 大きな画像に対応(ローカルアプリ前提)
+
+# グレースケール相当判定のパラメータ (Issue #631 / ADR 0061)
+#
+# colorfulness_score は RGB 各ピクセルのチャンネル間最大差分
+#   max(|R-G|, |G-B|, |R-B|)  (0-255 スケール)
+# の 95 パーセンタイルとして算出する。平均ではなく 95 パーセンタイルを採用するのは、
+# 画像のごく一部にのみ色が乗るケース (ロゴ・透かし等) を「カラー」として残すため。
+#
+# 閾値 GRAYSCALE_LIKE_CHANNEL_DIFF_THRESHOLD = 16:
+#   真のグレー画像を JPEG 圧縮すると YCbCr 変換 + 量子化のラウンドトリップで
+#   R==G==B が崩れ、チャンネル差分が数 LSB 程度ノイズとして残る。実測では概ね
+#   差分 10 前後に収まるため、ノイズを吸収しつつ淡い色 (セピア等) を取りこぼさない
+#   保守的な境界として 16 (≈ 6% of 255) を採用する。完全一致 (R==G==B) だけを
+#   グレー扱いにすると JPEG グレー画像が大量に「カラー」へ誤分類されるため避ける。
+GRAYSCALE_LIKE_CHANNEL_DIFF_THRESHOLD = 16.0
+
+# サンプリング用サムネイルの最大辺 (px)。大画像でも一定コストで判定するため縮小する。
+# 縮小は平均化フィルタとして働き、孤立ノイズの影響を弱める副次効果もある。
+GRAYSCALE_SAMPLE_MAX_EDGE = 256
 
 
 class FileSystemManager:
@@ -164,6 +184,40 @@ class FileSystemManager:
         return image_files
 
     @staticmethod
+    def _compute_grayscale_likeness(img: Image.Image) -> tuple[bool, float]:
+        """画像の内容からグレースケール相当かどうかを判定する。
+
+        画像を RGB へ変換しサムネイル化してサンプリングし、各ピクセルの
+        チャンネル間最大差分 ``max(|R-G|, |G-B|, |R-B|)`` を算出する。その
+        95 パーセンタイル値を彩度スコア (``colorfulness_score``) とし、
+        :data:`GRAYSCALE_LIKE_CHANNEL_DIFF_THRESHOLD` 以下であればグレースケール
+        相当とみなす。完全一致 (``R==G==B``) のみを条件にすると JPEG ノイズで
+        崩れたグレー画像を取りこぼすため、閾値ベースで判定する。
+
+        Args:
+            img: 判定対象の Pillow 画像。元画像は変更しない。
+
+        Returns:
+            ``(is_grayscale_like, colorfulness_score)`` のタプル。
+            ``colorfulness_score`` はチャンネル間最大差分の 95 パーセンタイル
+            (0.0-255.0)。
+        """
+        # サムネイル化は元画像を破壊するためコピーしてから縮小する。
+        sample = img.convert("RGB")
+        sample.thumbnail(
+            (GRAYSCALE_SAMPLE_MAX_EDGE, GRAYSCALE_SAMPLE_MAX_EDGE),
+            Image.Resampling.BILINEAR,
+        )
+        arr = np.asarray(sample, dtype=np.int16)
+        r = arr[:, :, 0]
+        g = arr[:, :, 1]
+        b = arr[:, :, 2]
+        channel_diff = np.maximum(np.maximum(np.abs(r - g), np.abs(g - b)), np.abs(r - b))
+        colorfulness_score = float(np.percentile(channel_diff, 95))
+        is_grayscale_like = colorfulness_score <= GRAYSCALE_LIKE_CHANNEL_DIFF_THRESHOLD
+        return is_grayscale_like, colorfulness_score
+
+    @staticmethod
     def get_image_info(image_path: Path) -> dict[str, Any]:
         """
         画像ファイルから基本的な情報を取得する 不足している情報は登録時に設定
@@ -186,6 +240,8 @@ class FileSystemManager:
                 # アルファチャンネル画像情報 BOOL
                 has_alpha = img.mode in ("RGBA", "LA") or (img.mode == "P" and "transparency" in img.info)
                 icc_profile = img.info.get("icc_profile")
+                # グレースケール相当判定 (Issue #631 / ADR 0061)。画像が開いている間に算出する。
+                is_grayscale_like, colorfulness_score = FileSystemManager._compute_grayscale_likeness(img)
 
             # 色域情報の詳細な取得
             color_space = mode
@@ -204,6 +260,8 @@ class FileSystemManager:
                 "extension": image_path.suffix,
                 "color_space": color_space,
                 "icc_profile": "Present" if icc_profile else "Not present",
+                "is_grayscale_like": is_grayscale_like,
+                "colorfulness_score": colorfulness_score,
             }
         except Exception as e:
             message = f"画像情報の取得失敗: {image_path}. FileSystemManager.get_image_info: {e!s}"

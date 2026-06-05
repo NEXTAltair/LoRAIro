@@ -10,6 +10,7 @@ import json
 from pathlib import Path
 from unittest.mock import patch
 
+import numpy as np
 import pytest
 from PIL import Image
 
@@ -276,6 +277,77 @@ class TestGetImageInfo:
     def test_returns_color_space(self, rgb_image_path: Path) -> None:
         info = FileSystemManager.get_image_info(rgb_image_path)
         assert "color_space" in info
+
+
+class TestGrayscaleLikeDetection:
+    """get_image_info のグレースケール相当判定 (Issue #631 / ADR 0061) のテスト"""
+
+    def _save(self, img: Image.Image, tmp_path: Path, fmt: str, suffix: str) -> Path:
+        path = tmp_path / f"sample{suffix}"
+        img.save(path, fmt)
+        return path
+
+    def test_color_image_is_not_grayscale_like(self, tmp_path: Path) -> None:
+        """純カラー画像は is_grayscale_like=False、彩度スコアは閾値超。"""
+        img = Image.new("RGB", (120, 120), color=(255, 0, 0))
+        path = self._save(img, tmp_path, "PNG", ".png")
+        info = FileSystemManager.get_image_info(path)
+        assert info["is_grayscale_like"] is False
+        assert info["colorfulness_score"] > 16.0
+
+    def test_mode_l_grayscale_is_grayscale_like(self, tmp_path: Path) -> None:
+        """mode='L' のグレー画像は is_grayscale_like=True、既存 mode 挙動は不変。"""
+        img = Image.new("L", (120, 120), color=128)
+        path = self._save(img, tmp_path, "PNG", ".png")
+        info = FileSystemManager.get_image_info(path)
+        assert info["mode"] == "L"
+        assert info["is_grayscale_like"] is True
+        assert info["colorfulness_score"] == pytest.approx(0.0, abs=1.0)
+
+    def test_rgb_pseudo_grayscale_is_grayscale_like(self, tmp_path: Path) -> None:
+        """R==G==B の擬似グレー (RGB mode) も is_grayscale_like=True。"""
+        rng = np.random.default_rng(0)
+        gray = rng.integers(0, 256, (120, 120), dtype=np.uint8)
+        channel = Image.fromarray(gray)
+        img = Image.merge("RGB", [channel, channel, channel])
+        path = self._save(img, tmp_path, "PNG", ".png")
+        info = FileSystemManager.get_image_info(path)
+        assert info["mode"] == "RGB"
+        assert info["is_grayscale_like"] is True
+
+    def test_jpeg_noisy_grayscale_is_grayscale_like(self, tmp_path: Path) -> None:
+        """JPEG 圧縮ノイズで R==G==B が崩れたグレー画像も閾値で吸収して True。"""
+        rng = np.random.default_rng(1)
+        gray = rng.integers(0, 256, (200, 200), dtype=np.uint8)
+        channel = Image.fromarray(gray)
+        img = Image.merge("RGB", [channel, channel, channel])
+        path = tmp_path / "noisy.jpg"
+        img.save(path, "JPEG", quality=80)
+        info = FileSystemManager.get_image_info(path)
+        assert info["is_grayscale_like"] is True
+        assert info["colorfulness_score"] <= 16.0
+
+    def test_faint_color_is_not_grayscale_like(self, tmp_path: Path) -> None:
+        """淡い色 (セピア相当) は完全一致ではないが彩度を持つため False。"""
+        rng = np.random.default_rng(2)
+        base = rng.integers(0, 256, (120, 120), dtype=np.uint8)
+        sepia = np.stack(
+            [base, (base * 0.95).astype(np.uint8), (base * 0.8).astype(np.uint8)],
+            axis=2,
+        )
+        img = Image.fromarray(sepia, mode="RGB")
+        path = self._save(img, tmp_path, "PNG", ".png")
+        info = FileSystemManager.get_image_info(path)
+        assert info["is_grayscale_like"] is False
+        assert info["colorfulness_score"] > 16.0
+
+    def test_score_is_float(self, tmp_path: Path) -> None:
+        """colorfulness_score は float で返る (診断・閾値調整用)。"""
+        img = Image.new("RGB", (64, 64), color=(10, 200, 50))
+        path = self._save(img, tmp_path, "PNG", ".png")
+        info = FileSystemManager.get_image_info(path)
+        assert isinstance(info["colorfulness_score"], float)
+        assert isinstance(info["is_grayscale_like"], bool)
 
 
 class TestScanNextSequenceNumber:
