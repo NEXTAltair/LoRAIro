@@ -66,6 +66,9 @@ def _insert_image(
     filename: str = "sample.png",
     width: int = 64,
     height: int = 64,
+    has_alpha: bool = False,
+    is_grayscale_like: bool = False,
+    allow_phash_duplicate: bool = False,
 ) -> int:
     """テスト用画像を 1 件作成して id を返す。"""
     info = {
@@ -78,8 +81,10 @@ def _insert_image(
         "format": "PNG",
         "extension": ".png",
         "filename": filename,
+        "has_alpha": has_alpha,
+        "is_grayscale_like": is_grayscale_like,
     }
-    return repo.add_original_image(info)
+    return repo.add_original_image(info, allow_phash_duplicate=allow_phash_duplicate)
 
 
 def _insert_processed_image(
@@ -212,6 +217,133 @@ class TestFindDuplicateImageByPhash:
     def test_returns_none_for_empty_phash(self, image_repository: ImageRepository) -> None:
         """空文字列入力で early-return None。"""
         assert image_repository.find_duplicate_image_by_phash("") is None
+
+
+@pytest.mark.unit
+class TestPhashCandidateClassification:
+    """`find_phash_candidates` + `classify_phash_candidate` の重複/別版/新規分類 (ADR 0061)。"""
+
+    def test_find_candidates_returns_attrs(self, image_repository: ImageRepository) -> None:
+        """同一 pHash の候補を分類用属性付きで返す。"""
+        image_id = _insert_image(
+            image_repository, uuid="u-c1", phash="p-cand", width=800, height=600, has_alpha=True
+        )
+        candidates = image_repository.find_phash_candidates("p-cand")
+        assert len(candidates) == 1
+        assert candidates[0]["id"] == image_id
+        assert candidates[0]["width"] == 800
+        assert candidates[0]["height"] == 600
+        assert candidates[0]["has_alpha"] is True
+
+    def test_find_candidates_returns_all_rows_for_same_phash(
+        self, image_repository: ImageRepository
+    ) -> None:
+        """同一 pHash の別版が複数あれば全件返す (limit(1) しない)。"""
+        first = _insert_image(image_repository, uuid="u-m1", phash="p-multi", is_grayscale_like=False)
+        second = _insert_image(
+            image_repository,
+            uuid="u-m2",
+            phash="p-multi",
+            is_grayscale_like=True,
+            allow_phash_duplicate=True,
+        )
+        candidates = image_repository.find_phash_candidates("p-multi")
+        assert {c["id"] for c in candidates} == {first, second}
+
+    def test_find_candidates_empty_for_missing(self, image_repository: ImageRepository) -> None:
+        assert image_repository.find_phash_candidates("p-none") == []
+
+    def test_find_candidates_empty_for_blank_phash(self, image_repository: ImageRepository) -> None:
+        assert image_repository.find_phash_candidates("") == []
+
+    def test_classify_new_when_no_candidates(self) -> None:
+        """候補が無ければ NEW。"""
+        from lorairo.database.repository.image import PhashClassification
+
+        result = ImageRepository.classify_phash_candidate({"width": 1, "height": 1}, [])
+        assert result == (PhashClassification.NEW, None)
+
+    def test_classify_duplicate_when_all_attrs_match(self) -> None:
+        """全分類属性が一致する候補があれば DUPLICATE + 既存 ID。"""
+        from lorairo.database.repository.image import PhashClassification
+
+        new_attrs = {"width": 800, "height": 600, "has_alpha": False, "is_grayscale_like": False}
+        candidates = [{"id": 42, **new_attrs}]
+        assert ImageRepository.classify_phash_candidate(new_attrs, candidates) == (
+            PhashClassification.DUPLICATE,
+            42,
+        )
+
+    def test_classify_variant_when_grayscale_differs(self) -> None:
+        """is_grayscale_like だけ異なる候補のみなら VARIANT。"""
+        from lorairo.database.repository.image import PhashClassification
+
+        new_attrs = {"width": 800, "height": 600, "has_alpha": False, "is_grayscale_like": False}
+        candidates = [
+            {"id": 42, "width": 800, "height": 600, "has_alpha": False, "is_grayscale_like": True}
+        ]
+        assert ImageRepository.classify_phash_candidate(new_attrs, candidates) == (
+            PhashClassification.VARIANT,
+            None,
+        )
+
+    def test_classify_variant_when_size_differs(self) -> None:
+        """解像度違いは VARIANT。"""
+        from lorairo.database.repository.image import PhashClassification
+
+        new_attrs = {"width": 1024, "height": 768, "has_alpha": False, "is_grayscale_like": False}
+        candidates = [
+            {"id": 7, "width": 800, "height": 600, "has_alpha": False, "is_grayscale_like": False}
+        ]
+        assert ImageRepository.classify_phash_candidate(new_attrs, candidates) == (
+            PhashClassification.VARIANT,
+            None,
+        )
+
+    def test_classify_variant_when_alpha_differs(self) -> None:
+        """アルファ有無の違いは VARIANT。"""
+        from lorairo.database.repository.image import PhashClassification
+
+        new_attrs = {"width": 800, "height": 600, "has_alpha": True, "is_grayscale_like": False}
+        candidates = [
+            {"id": 9, "width": 800, "height": 600, "has_alpha": False, "is_grayscale_like": False}
+        ]
+        assert ImageRepository.classify_phash_candidate(new_attrs, candidates) == (
+            PhashClassification.VARIANT,
+            None,
+        )
+
+    def test_classify_duplicate_when_one_of_many_matches(self) -> None:
+        """複数候補のうち 1 件でも全属性一致すれば DUPLICATE。"""
+        from lorairo.database.repository.image import PhashClassification
+
+        new_attrs = {"width": 800, "height": 600, "has_alpha": False, "is_grayscale_like": False}
+        candidates = [
+            {"id": 1, "width": 800, "height": 600, "has_alpha": False, "is_grayscale_like": True},
+            {"id": 2, **new_attrs},
+        ]
+        assert ImageRepository.classify_phash_candidate(new_attrs, candidates) == (
+            PhashClassification.DUPLICATE,
+            2,
+        )
+
+
+@pytest.mark.unit
+class TestAddOriginalImageVariant:
+    """`add_original_image(allow_phash_duplicate=True)` の別版登録 (ADR 0061)。"""
+
+    def test_inserts_new_row_for_same_phash_when_allowed(self, image_repository: ImageRepository) -> None:
+        """allow_phash_duplicate=True なら同一 pHash でも新規行を作る。"""
+        first = _insert_image(image_repository, uuid="u-v1", phash="p-var", is_grayscale_like=False)
+        second = _insert_image(
+            image_repository,
+            uuid="u-v2",
+            phash="p-var",
+            is_grayscale_like=True,
+            allow_phash_duplicate=True,
+        )
+        assert second != first
+        assert len(image_repository.find_phash_candidates("p-var")) == 2
 
 
 @pytest.mark.unit

@@ -27,6 +27,7 @@
 from __future__ import annotations
 
 import datetime
+from enum import StrEnum
 from pathlib import Path
 from typing import Any, ClassVar
 
@@ -62,6 +63,19 @@ from ..schema import (
 )
 from .base import BaseRepository
 from .model import ModelRepository
+
+
+class PhashClassification(StrEnum):
+    """pHash 完全一致候補の分類結果 (ADR 0061)。
+
+    pHash 完全一致は「重複確定」ではなく候補にすぎない。追加属性比較を経て、
+    既存画像と完全に同一なら ``DUPLICATE``、属性差が重要な別版なら ``VARIANT``、
+    候補が一つも無ければ ``NEW`` に分類する。
+    """
+
+    DUPLICATE = "duplicate"
+    VARIANT = "variant"
+    NEW = "new"
 
 
 class ImageRepository(BaseRepository):
@@ -188,6 +202,96 @@ class ImageRepository(BaseRepository):
                 logger.error(f"pHashによる重複画像の検索中にエラーが発生しました: {e}", exc_info=True)
                 raise
 
+    # 分類に用いる属性キー (ADR 0061 §2)。width / height / has_alpha /
+    # is_grayscale_like が全て一致する候補のみを「重複確定」とみなす。
+    # colorfulness_score は閾値調整・診断用の連続値で直接条件には用いない。
+    CLASSIFICATION_ATTRS: ClassVar[tuple[str, ...]] = (
+        "width",
+        "height",
+        "has_alpha",
+        "is_grayscale_like",
+    )
+
+    def find_phash_candidates(self, phash: str) -> list[dict[str, Any]]:
+        """指定 pHash に完全一致する候補画像の分類用属性を取得する (ADR 0061)。
+
+        pHash 完全一致を「重複確定」とせず候補として扱うための検索。
+        複数行が同一 pHash を共有し得る (別版が複数登録されている) ため、
+        ``limit(1)`` せず全候補を返す。
+
+        Args:
+            phash: 検索する pHash。空文字列の場合は候補なし扱い。
+
+        Returns:
+            候補ごとの ``id`` と分類用属性 (``width`` / ``height`` /
+            ``has_alpha`` / ``is_grayscale_like``) を含む辞書のリスト。
+            一致が無い場合は空リスト。
+
+        Raises:
+            SQLAlchemyError: データベース操作でエラーが発生した場合。
+
+        """
+        if not phash:
+            return []
+        with self.session_factory() as session:
+            try:
+                stmt = select(
+                    Image.id,
+                    Image.width,
+                    Image.height,
+                    Image.has_alpha,
+                    Image.is_grayscale_like,
+                ).where(Image.phash == phash)
+                rows = session.execute(stmt).all()
+                candidates = [
+                    {
+                        "id": row.id,
+                        "width": row.width,
+                        "height": row.height,
+                        "has_alpha": row.has_alpha,
+                        "is_grayscale_like": row.is_grayscale_like,
+                    }
+                    for row in rows
+                ]
+                logger.debug(f"pHash 候補検索: {len(candidates)}件 (pHash={phash})")
+                return candidates
+            except SQLAlchemyError as e:
+                logger.error(f"pHash 候補検索中にエラーが発生しました: {e}", exc_info=True)
+                raise
+
+    @classmethod
+    def classify_phash_candidate(
+        cls,
+        new_attrs: dict[str, Any],
+        candidates: list[dict[str, Any]],
+    ) -> tuple[PhashClassification, int | None]:
+        """pHash 完全一致候補を属性比較で重複/別版/新規に分類する (ADR 0061 §2)。
+
+        ``CLASSIFICATION_ATTRS`` (width / height / has_alpha / is_grayscale_like)
+        が全て一致する候補が 1 件でもあれば「重複確定」とし、その既存 ID を返す。
+        候補は存在するが属性が一致しない場合は「別版」、候補が無い場合は「新規」。
+
+        ハミング距離による近似重複は導入せず、pHash 完全一致候補のみを起点とする。
+
+        Args:
+            new_attrs: 登録対象画像の属性辞書 (``width`` / ``height`` /
+                ``has_alpha`` / ``is_grayscale_like`` を含む)。
+            candidates: ``find_phash_candidates`` が返す候補リスト。
+
+        Returns:
+            ``(分類結果, 既存ID)`` のタプル。重複時のみ既存 ID を返し、
+            別版 / 新規時は None。
+
+        """
+        if not candidates:
+            return PhashClassification.NEW, None
+
+        for candidate in candidates:
+            if all(new_attrs.get(attr) == candidate.get(attr) for attr in cls.CLASSIFICATION_ATTRS):
+                return PhashClassification.DUPLICATE, candidate["id"]
+
+        return PhashClassification.VARIANT, None
+
     def find_image_ids_by_phashes(self, phashes: set[str]) -> dict[str, int]:
         """複数pHashに対応する画像IDを一括取得する。
 
@@ -271,10 +375,14 @@ class ImageRepository(BaseRepository):
                 )
                 raise
 
-    def add_original_image(self, info: dict[str, Any]) -> int:
+    def add_original_image(self, info: dict[str, Any], *, allow_phash_duplicate: bool = False) -> int:
         """オリジナル画像のメタデータを images テーブルに追加します。
-        pHashによる重複チェックを行い、重複がある場合は既存IDを返します。
         pHash計算失敗時は例外を送出します。
+
+        既定では pHash 完全一致を「重複確定」とみなし、既存 ID を返す後方互換
+        挙動を維持します。ADR 0061 の別版分類で「別版 (variant)」と判定された
+        画像を登録する場合は ``allow_phash_duplicate=True`` を指定し、同一 pHash の
+        新規行として挿入します (分類は呼び出し元 Manager が済ませている前提)。
 
         Args:
             info (dict[str, Any]): 画像情報を含む辞書。
@@ -282,9 +390,12 @@ class ImageRepository(BaseRepository):
                                    以下のキーが必須: uuid, phash, original_image_path,
                                    stored_image_path, width, height, format, extension。
                                    その他は Optional。
+            allow_phash_duplicate: True の場合、pHash 完全一致の内部重複ガードを
+                スキップして新規行を挿入する (ADR 0061 別版登録経路)。
 
         Returns:
-            int: 挿入された画像のID、または重複していた既存画像のID。
+            int: 挿入された画像のID、または (allow_phash_duplicate=False で)
+                重複していた既存画像のID。
 
         Raises:
             ValueError: 必須情報が不足している場合、またはpHash計算済みでない場合。
@@ -307,11 +418,12 @@ class ImageRepository(BaseRepository):
 
         phash = info["phash"]
 
-        # pHashで重複チェック
-        existing_id = self.find_duplicate_image_by_phash(phash)
-        if existing_id is not None:
-            logger.warning(f"pHashが一致する画像が既に存在します: ID {existing_id} (pHash: {phash})")
-            return existing_id
+        # pHashで重複チェック (別版登録時はスキップ: ADR 0061)
+        if not allow_phash_duplicate:
+            existing_id = self.find_duplicate_image_by_phash(phash)
+            if existing_id is not None:
+                logger.warning(f"pHashが一致する画像が既に存在します: ID {existing_id} (pHash: {phash})")
+                return existing_id
 
         # 新しい Image オブジェクトを作成
         new_image = Image(

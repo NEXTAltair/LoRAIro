@@ -28,6 +28,7 @@ from lorairo.database.repository.image import ImageRepository
 from lorairo.database.repository.model import ModelRepository
 from lorairo.database.repository.project import ProjectRepository
 from lorairo.services.configuration_service import ConfigurationService
+from lorairo.storage.file_system import FileSystemManager
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -413,24 +414,48 @@ class TestDetectDuplicateImage:
         self, manager: ImageDatabaseManager, mock_image_repo: Mock
     ) -> None:
         """重複がない場合は None を返す。"""
-        with patch("lorairo.database.db_manager.calculate_phash", return_value="aabbccdd"):
-            mock_image_repo.find_duplicate_image_by_phash.return_value = None
+        attrs = {"width": 800, "height": 600, "has_alpha": False, "is_grayscale_like": False}
+        with (
+            patch("lorairo.database.db_manager.calculate_phash", return_value="aabbccdd"),
+            patch.object(FileSystemManager, "get_image_info", return_value=attrs),
+        ):
+            mock_image_repo.find_phash_candidates.return_value = []
             result = manager.detect_duplicate_image(Path("/data/img.jpg"))
         assert result is None
 
-    def test_returns_image_id_when_duplicate_found(
+    def test_returns_image_id_when_duplicate_confirmed(
         self, manager: ImageDatabaseManager, mock_image_repo: Mock
     ) -> None:
-        """重複が見つかった場合は既存の image_id を返す。"""
-        with patch("lorairo.database.db_manager.calculate_phash", return_value="aabbccdd"):
-            mock_image_repo.find_duplicate_image_by_phash.return_value = 5
+        """pHash 一致かつ属性一致 (重複確定) の場合は既存の image_id を返す (ADR 0061)。"""
+        attrs = {"width": 800, "height": 600, "has_alpha": False, "is_grayscale_like": False}
+        with (
+            patch("lorairo.database.db_manager.calculate_phash", return_value="aabbccdd"),
+            patch.object(FileSystemManager, "get_image_info", return_value=attrs),
+        ):
+            mock_image_repo.find_phash_candidates.return_value = [{"id": 5, **attrs}]
             result = manager.detect_duplicate_image(Path("/data/img.jpg"))
         assert result == 5
 
+    def test_returns_none_when_variant(self, manager: ImageDatabaseManager, mock_image_repo: Mock) -> None:
+        """pHash 一致だが属性差がある別版は重複とみなさず None を返す (ADR 0061)。"""
+        attrs = {"width": 800, "height": 600, "has_alpha": False, "is_grayscale_like": False}
+        candidate = {"id": 5, "width": 800, "height": 600, "has_alpha": False, "is_grayscale_like": True}
+        with (
+            patch("lorairo.database.db_manager.calculate_phash", return_value="aabbccdd"),
+            patch.object(FileSystemManager, "get_image_info", return_value=attrs),
+        ):
+            mock_image_repo.find_phash_candidates.return_value = [candidate]
+            result = manager.detect_duplicate_image(Path("/data/img.jpg"))
+        assert result is None
+
     def test_raises_on_sqlalchemy_error(self, manager: ImageDatabaseManager, mock_image_repo: Mock) -> None:
         """リポジトリの SQLAlchemyError は呼び出し元に伝播 (silent return しない)。"""
-        with patch("lorairo.database.db_manager.calculate_phash", return_value="aabbccdd"):
-            mock_image_repo.find_duplicate_image_by_phash.side_effect = SQLAlchemyError("db error")
+        attrs = {"width": 800, "height": 600, "has_alpha": False, "is_grayscale_like": False}
+        with (
+            patch("lorairo.database.db_manager.calculate_phash", return_value="aabbccdd"),
+            patch.object(FileSystemManager, "get_image_info", return_value=attrs),
+        ):
+            mock_image_repo.find_phash_candidates.side_effect = SQLAlchemyError("db error")
             with pytest.raises(SQLAlchemyError):
                 manager.detect_duplicate_image(Path("/data/img.jpg"))
 
@@ -447,7 +472,7 @@ class TestDetectDuplicateImage:
         ):
             result = manager.detect_duplicate_image(Path("/data/img.jpg"))
         assert result is None
-        mock_image_repo.find_duplicate_image_by_phash.assert_not_called()
+        mock_image_repo.find_phash_candidates.assert_not_called()
 
 
 # ---------------------------------------------------------------------------
@@ -684,7 +709,7 @@ class TestRegisterOriginalImage:
         mock_fsm.save_original_image.return_value = None
 
         with patch("lorairo.database.db_manager.calculate_phash", return_value="aabb"):
-            mock_image_repo.find_duplicate_image_by_phash.return_value = None
+            mock_image_repo.find_phash_candidates.return_value = []
             result = manager.register_original_image(Path("/data/img.jpg"), mock_fsm)
         assert result is None
 
@@ -703,7 +728,7 @@ class TestRegisterOriginalImage:
         result = manager.register_original_image(Path("/data/img.jpg"), mock_fsm)
 
         assert result is None
-        mock_image_repo.find_duplicate_image_by_phash.assert_not_called()
+        mock_image_repo.find_phash_candidates.assert_not_called()
         mock_image_repo.add_original_image.assert_not_called()
 
 
