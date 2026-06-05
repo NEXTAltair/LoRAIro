@@ -209,21 +209,28 @@ class FileSystemManager:
         取りこぼすため、閾値ベースで判定する。また、完全透過画素は不可視ながら任意の
         RGB を持ち得るため彩度算出から除外する (含めると見えない色で誤分類する)。
 
+        サンプリングは ``NEAREST`` 縮小で行う。``BILINEAR`` 等の補間は不可視画素の
+        RGB を隣接する可視画素へにじませてしまうため使わない。縮小は元画像を
+        フル解像度で 4ch 展開する前に行い、大画像でもメモリ・時間コストを有界に保つ。
+
         Args:
             img: 判定対象の Pillow 画像。元画像は変更しない。
 
         Returns:
             ``(is_grayscale_like, colorfulness_score)`` のタプル。
-            ``colorfulness_score`` は不透明画素のチャンネル間最大差分の高
+            ``colorfulness_score`` は可視画素のチャンネル間最大差分の高
             パーセンタイル値 (0.0-255.0)。可視画素が存在しない (全透過) 場合は
             ``(True, 0.0)`` を返す。
         """
-        # 不透明判定にアルファを使うため RGBA へ変換する。元画像は破壊しない。
-        sample = img.convert("RGBA")
+        # 先に元のモードのまま NEAREST 縮小してから RGBA へ変換する。フル解像度の
+        # 4ch バッファ生成を避けて大画像でもコストを有界に保ち、かつ NEAREST により
+        # 不可視画素の色が可視画素へにじむのを防ぐ。
+        sample = img.copy()
         sample.thumbnail(
             (GRAYSCALE_SAMPLE_MAX_EDGE, GRAYSCALE_SAMPLE_MAX_EDGE),
-            Image.Resampling.BILINEAR,
+            Image.Resampling.NEAREST,
         )
+        sample = sample.convert("RGBA")
         arr = np.asarray(sample, dtype=np.int16)
         r = arr[:, :, 0]
         g = arr[:, :, 1]
@@ -231,13 +238,18 @@ class FileSystemManager:
         alpha = arr[:, :, 3]
         channel_diff = np.maximum(np.maximum(np.abs(r - g), np.abs(g - b)), np.abs(r - b))
 
-        # 不可視画素 (実質透明) は任意の RGB を持ち得るため除外する。
+        # 不可視画素 (実質透明) は任意の RGB を持ち得るため除外する。NEAREST 縮小なので
+        # 不可視色が可視画素へにじむことはない。
         visible = channel_diff[alpha >= GRAYSCALE_ALPHA_VISIBLE_THRESHOLD]
         if visible.size == 0:
             # 可視画素が無い (全透過) 画像は色情報を持たないためグレー扱いにする。
             return True, 0.0
 
-        colorfulness_score = float(np.percentile(visible, GRAYSCALE_COLORFULNESS_PERCENTILE))
+        # method="higher" で実在画素の差分値を採る。線形補間 (既定) だと境界 (色領域が
+        # ちょうど約 1%) でグレー画素と色画素の中間値に薄まり閾値を割り込むため使わない。
+        colorfulness_score = float(
+            np.percentile(visible, GRAYSCALE_COLORFULNESS_PERCENTILE, method="higher")
+        )
         is_grayscale_like = colorfulness_score <= GRAYSCALE_LIKE_CHANNEL_DIFF_THRESHOLD
         return is_grayscale_like, colorfulness_score
 

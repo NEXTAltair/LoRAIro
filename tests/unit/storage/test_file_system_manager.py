@@ -375,6 +375,29 @@ class TestGrayscaleLikeDetection:
         assert info["has_alpha"] is True
         assert info["is_grayscale_like"] is True
 
+    def test_one_percent_color_boundary_is_not_grayscale_like(self, tmp_path: Path) -> None:
+        """色領域がちょうど約1%でもカラー扱い (#645 P3, method='higher')。
+
+        method='higher' により 99 パーセンタイルが実在の色画素値を採るため、
+        線形補間で中間値に薄まって閾値を割り込む境界事故を防ぐ。
+        """
+        gray = np.full((100, 100, 3), 100, dtype=np.uint8)
+        # 100x100=10000 画素のうち 1% (100 画素) を純カラー (赤) にする。
+        flat = gray.reshape(-1, 3)
+        flat[:100] = (255, 0, 0)
+        img = Image.fromarray(flat.reshape(100, 100, 3), mode="RGB")
+        path = self._save(img, tmp_path, "PNG", ".png")
+        info = FileSystemManager.get_image_info(path)
+        assert info["is_grayscale_like"] is False
+        assert info["colorfulness_score"] > 16.0
+
+    def test_large_image_is_handled(self, tmp_path: Path) -> None:
+        """大きめ画像でもサンプリングで有界に判定し正しく分類する。"""
+        img = Image.new("RGB", (2000, 1500), color=(200, 200, 200))
+        path = self._save(img, tmp_path, "PNG", ".png")
+        info = FileSystemManager.get_image_info(path)
+        assert info["is_grayscale_like"] is True
+
     def test_fully_transparent_image_is_grayscale_like(self, tmp_path: Path) -> None:
         """全透過画像は可視画素が無いためグレー扱い (例外を出さない)。"""
         rgba = np.zeros((40, 40, 4), dtype=np.uint8)
