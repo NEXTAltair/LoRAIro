@@ -327,6 +327,34 @@ class TestPhashCandidateClassification:
             2,
         )
 
+    def test_classify_duplicate_when_candidate_grayscale_is_null(self) -> None:
+        """候補の is_grayscale_like が NULL (未判定) なら一致扱いで DUPLICATE (ADR 0061 §6)。
+
+        #631 以前に登録された行は is_grayscale_like=NULL のまま残る。完全な再
+        インポートを別版に誤分類して重複スキップを失わせないため、NULL は不明として
+        一致扱いにする。
+        """
+        from lorairo.database.repository.image import PhashClassification
+
+        new_attrs = {"width": 800, "height": 600, "has_alpha": False, "is_grayscale_like": False}
+        # 既存行は grayscale 判定が未実施 (NULL)
+        candidates = [{"id": 3, "width": 800, "height": 600, "has_alpha": False, "is_grayscale_like": None}]
+        assert ImageRepository.classify_phash_candidate(new_attrs, candidates) == (
+            PhashClassification.DUPLICATE,
+            3,
+        )
+
+    def test_classify_variant_even_if_grayscale_null_when_size_differs(self) -> None:
+        """NULL は grayscale 軸のみ寛容にし、サイズ等の明確な差は別版のまま。"""
+        from lorairo.database.repository.image import PhashClassification
+
+        new_attrs = {"width": 1024, "height": 768, "has_alpha": False, "is_grayscale_like": False}
+        candidates = [{"id": 4, "width": 800, "height": 600, "has_alpha": False, "is_grayscale_like": None}]
+        assert ImageRepository.classify_phash_candidate(new_attrs, candidates) == (
+            PhashClassification.VARIANT,
+            None,
+        )
+
 
 @pytest.mark.unit
 class TestAddOriginalImageVariant:
@@ -344,6 +372,27 @@ class TestAddOriginalImageVariant:
         )
         assert second != first
         assert len(image_repository.find_phash_candidates("p-var")) == 2
+
+    def test_internal_guard_inserts_variant_on_race(self, image_repository: ImageRepository) -> None:
+        """allow_phash_duplicate=False でも属性差があれば内部ガードは別版を挿入する。
+
+        並行登録レースで loser が phash 一致だけで winner の ID に寄せられ、別版が
+        黙って捨てられるのを防ぐ (classification-aware guard)。
+        """
+        first = _insert_image(image_repository, uuid="u-r1", phash="p-race", is_grayscale_like=False)
+        # allow_phash_duplicate=False のまま属性が異なる画像を挿入 → 別版として新規行
+        second = _insert_image(image_repository, uuid="u-r2", phash="p-race", is_grayscale_like=True)
+        assert second != first
+        assert len(image_repository.find_phash_candidates("p-race")) == 2
+
+    def test_internal_guard_returns_existing_on_true_duplicate(
+        self, image_repository: ImageRepository
+    ) -> None:
+        """全属性一致なら内部ガードは既存 ID を返す (重複確定)。"""
+        first = _insert_image(image_repository, uuid="u-d1", phash="p-dupe", is_grayscale_like=False)
+        second = _insert_image(image_repository, uuid="u-d2", phash="p-dupe", is_grayscale_like=False)
+        assert second == first
+        assert len(image_repository.find_phash_candidates("p-dupe")) == 1
 
 
 @pytest.mark.unit

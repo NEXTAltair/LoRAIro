@@ -325,6 +325,26 @@ class TestRegisterOriginalImageExtended:
 
         assert result is None
 
+    def test_returns_none_when_save_raises_oserror(
+        self, manager: ImageDatabaseManager, mock_image_repo: Mock
+    ) -> None:
+        """save_original_image が OSError 等を投げても per-file tolerance で None を返す。
+
+        分類後の保存を try の外に出したことで save 例外が escape する回帰を防ぐ
+        (PR #647 Codex review P2)。
+        """
+        mock_fsm = Mock()
+        mock_fsm.get_image_info.return_value = {"width": 800, "height": 600, "has_alpha": False}
+        mock_fsm.save_original_image.side_effect = OSError("source disappeared")
+        mock_image_repo.find_phash_candidates.return_value = []
+
+        with patch("lorairo.database.db_manager.calculate_phash", return_value="abc123"):
+            result = manager.register_original_image(Path("/data/img.jpg"), mock_fsm)
+
+        assert result is None
+        # DB 挿入には到達しない
+        mock_image_repo.add_original_image.assert_not_called()
+
     def test_thumbnail_generation_failure_does_not_prevent_registration(
         self, manager: ImageDatabaseManager, mock_image_repo: Mock
     ) -> None:

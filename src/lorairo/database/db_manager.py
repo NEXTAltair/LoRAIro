@@ -277,7 +277,16 @@ class ImageDatabaseManager:
             return self._handle_duplicate_image(existing_id, image_path, fsm)
 
         # 4. 新規 / 別版: ここで初めてストレージに保存する (ADR 0061 §3)
-        db_stored_original_path = fsm.save_original_image(image_path)
+        # save_original_image は copy/storage 初期化失敗で OSError / FileNotFoundError /
+        # RuntimeError 等を投げ得る。メタデータ読み取りと copy の間にソースが消える等の
+        # 入力起因の失敗は per-file tolerance (None 返し) を維持する。
+        try:
+            db_stored_original_path = fsm.save_original_image(image_path)
+        except (OSError, FileNotFoundError, ValueError, RuntimeError) as e:
+            logger.warning(
+                f"オリジナル画像のストレージ保存に失敗したためスキップ: {image_path}, Error: {e}"
+            )
+            return None
         if not db_stored_original_path:
             logger.error(f"オリジナル画像のストレージ保存に失敗: {image_path}")
             return None

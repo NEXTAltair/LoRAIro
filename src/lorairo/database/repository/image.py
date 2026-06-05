@@ -260,6 +260,27 @@ class ImageRepository(BaseRepository):
                 raise
 
     @classmethod
+    def _candidate_attr_matches(cls, new_value: Any, candidate_value: Any) -> bool:
+        """1 属性について登録対象と候補が「一致」とみなせるか判定する。
+
+        ADR 0061 §6 (遅延 backfill): 既存 DB の行は `is_grayscale_like` 等が NULL
+        (未判定) のまま残る。NULL を「不明」として扱い、候補側が NULL の属性は
+        差分とみなさない (一致扱い)。NULL を不一致にすると、#631 以前に登録した行の
+        完全な再インポートが別版に誤分類され、重複スキップされず行/ファイルが増える。
+
+        Args:
+            new_value: 登録対象画像の属性値。
+            candidate_value: 候補 (既存行) の属性値。
+
+        Returns:
+            候補側が NULL (未判定) なら常に True、それ以外は厳密一致のとき True。
+
+        """
+        if candidate_value is None:
+            return True
+        return bool(new_value == candidate_value)
+
+    @classmethod
     def classify_phash_candidate(
         cls,
         new_attrs: dict[str, Any],
@@ -270,6 +291,7 @@ class ImageRepository(BaseRepository):
         ``CLASSIFICATION_ATTRS`` (width / height / has_alpha / is_grayscale_like)
         が全て一致する候補が 1 件でもあれば「重複確定」とし、その既存 ID を返す。
         候補は存在するが属性が一致しない場合は「別版」、候補が無い場合は「新規」。
+        候補側が NULL の属性は「未判定」として一致扱いにする (ADR 0061 §6 遅延 backfill)。
 
         ハミング距離による近似重複は導入せず、pHash 完全一致候補のみを起点とする。
 
@@ -287,7 +309,10 @@ class ImageRepository(BaseRepository):
             return PhashClassification.NEW, None
 
         for candidate in candidates:
-            if all(new_attrs.get(attr) == candidate.get(attr) for attr in cls.CLASSIFICATION_ATTRS):
+            if all(
+                cls._candidate_attr_matches(new_attrs.get(attr), candidate.get(attr))
+                for attr in cls.CLASSIFICATION_ATTRS
+            ):
                 return PhashClassification.DUPLICATE, candidate["id"]
 
         return PhashClassification.VARIANT, None
@@ -419,11 +444,20 @@ class ImageRepository(BaseRepository):
         phash = info["phash"]
 
         # pHashで重複チェック (別版登録時はスキップ: ADR 0061)
+        # 内部ガードは classification-aware にする。並行登録で 2 件の同一 pHash が
+        # どちらも NEW 分類された後に loser がここへ来た場合、属性が異なれば別版として
+        # 挿入し続行する (phash 一致だけで winner の ID に寄せて variant を黙って捨て、
+        # 保存済みファイルを孤児化するのを防ぐ)。
         if not allow_phash_duplicate:
-            existing_id = self.find_duplicate_image_by_phash(phash)
-            if existing_id is not None:
+            candidates = self.find_phash_candidates(phash)
+            classification, existing_id = self.classify_phash_candidate(info, candidates)
+            if classification is PhashClassification.DUPLICATE and existing_id is not None:
                 logger.warning(f"pHashが一致する画像が既に存在します: ID {existing_id} (pHash: {phash})")
                 return existing_id
+            if classification is PhashClassification.VARIANT:
+                logger.debug(
+                    f"並行登録レースで別版を検出: 同一pHashの新規行として挿入します (pHash: {phash})"
+                )
 
         # 新しい Image オブジェクトを作成
         new_image = Image(
