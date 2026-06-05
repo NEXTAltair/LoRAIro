@@ -37,13 +37,15 @@ git worktree add /tmp/worktrees/issue-123 -b fix/issue-123 origin/main
 
 ## ブランチ運用
 
-### mainブランチでの直接作業禁止
-- Issue解決・機能開発は必ず専用ブランチで行う
+このセクションは**アプリのソース（`src/`, `tests/`, `local_packages/*/src`）・schema/migration を触る実装作業**に適用する。docs/tooling chore は上の「worktree + PR を要さない例外」が優先され、専用ブランチを切らず main 直 push してよい。
+
+### mainブランチでの直接作業禁止（アプリコード作業）
+- アプリコードの Issue解決・機能開発は必ず専用ブランチ（かつ worktree）で行う
 - ブランチ命名: `fix/issue-{番号}`, `feat/issue-{番号}`, `refactor/issue-{番号}`
 
 ### ブランチ作成タイミング
 - Issueやタスクの実装開始時に作成
-- 単純なtypo修正や1行変更でも原則ブランチを切る
+- アプリコードに触れる変更は、単純なtypo修正や1行変更でも原則ブランチを切る（docs/tooling chore は例外節に従い不要）
 
 ## ワークツリー運用
 
