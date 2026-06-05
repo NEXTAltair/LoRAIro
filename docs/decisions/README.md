@@ -60,6 +60,7 @@ LoRAIro の重要な設計判断を記録するドキュメント群。
 | [0054](0054-gui-tag-language-reader-initialization.md) | GUI tag language reader initialization | 2026-06-03 | Accepted |
 | [0055](0055-workspace-export-target-staging-unification.md) | Workspace Export Target = Staging Set / Selection-Source Unification | 2026-06-04 | Accepted |
 | [0056](0056-exact-set-selector-id-count-guard.md) | exact-set selector の大量ID集合ガード / count-only 軽量化方針 | 2026-06-05 | Accepted |
+| [0057](0057-cli-jsonl-output-and-error-contract.md) | CLI Machine-Readable (JSONL) Output and Error Contract | 2026-06-05 | Proposed |
 
 ## ADR テンプレート
 
