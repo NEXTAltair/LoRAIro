@@ -10,11 +10,15 @@ Issue解決・機能開発・PR準備・複数ファイル実装は、**必ず `
 
 以下は worktree も PR も介さず、共有 checkout で作業し main へ直接 push してよい（**新規作成・更新の両方**）:
 
-- **ドキュメント系のみ**: ADR (`docs/decisions/`)、`docs/` 配下、README 等の作成・更新（コード変更を伴わないもの）
+- **ドキュメント系（ADR を除く）**: `docs/` 配下、README 等の作成・更新（コード変更を伴わないもの）
+- **確定済み ADR のみ**: `docs/decisions/` の ADR は **Status=Accepted/Implemented に確定したものに限り** main 直 push 可。
+  **作成中 / Status=Proposed の ADR は worktree+ブランチで隔離し、確定するまで main に push しない**。
+  理由: ADR は"規約そのもの"なので、未確定の draft が main に乗ると、以降に origin/main から派生する
+  全 worktree がそれを引き継ぎ、別セッションが Status を区別せず「確定済み規約」として従ってしまう（誤誘導事故）。
 - **開発ツール周りの chore**: SKILL (`.agents/skills/`, `.claude/skills/`)、プロンプト/コマンド (`.claude/commands/`)、Agent 定義、`.claude/` / `.codex/` の設定・hook・rules、`.gitignore` 等の作成・更新
 - read-only 調査、ツール検証、worktree 掃除
 
-判断基準: **アプリのソース（`src/`, `tests/`, `local_packages/*/src`）や schema/migration を触るか**。触るなら worktree + PR、触らない docs/tooling chore なら共有 checkout で直接でよい（[[feedback_chore_main_direct_push]] と整合）。
+判断基準: **アプリのソース（`src/`, `tests/`, `local_packages/*/src`）や schema/migration を触るか**。触るなら worktree + PR、触らない docs/tooling chore なら共有 checkout で直接でよい（[[feedback_chore_main_direct_push]] と整合）。**ただし ADR は確定（Accepted/Implemented）まで worktree で隔離する**（上記参照）。
 
 ```bash
 # 実装着手時の標準手順
