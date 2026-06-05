@@ -43,6 +43,8 @@ class ImageFilterCriteria:
             他のフィルタ次元（tags / caption / include_nsfw / rating / score 等）を
             すべてバイパスして指定IDをそのまま対象にする（ADR 0055）。GUI が
             ステージング集合を criteria 経由でエクスポートする際に使用する。
+            最大 ImageRepository.EXACT_SET_MAX_IDS 件（= ステージング上限 500）。
+            超過時は ValueError（ADR 0056）。
     """
 
     tags: list[str] | None = None

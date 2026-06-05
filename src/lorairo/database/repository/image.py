@@ -28,7 +28,7 @@ from __future__ import annotations
 
 import datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, ClassVar
 
 from sqlalchemy import (
     Select,
@@ -71,6 +71,12 @@ class ImageRepository(BaseRepository):
       - `ProcessedImage` (CRUD・解像度別 lookup)
       - `ImageFilenameAlias` (filename alias)
     """
+
+    # exact-set selector (`image_ids`) の最大 ID 数 (ADR 0056)。
+    # = StagingWidget.MAX_STAGING_IMAGES。エクスポート集合 (ステージング由来) の有界性を
+    # リポジトリ層の契約として持たせる。Qt-free (ADR 0001) のため GUI 定数を import せず、
+    # 値の drift は test で assert する。バインド安全 (BATCH_CHUNK_SIZE) は副次的に満たす。
+    EXACT_SET_MAX_IDS: ClassVar[int] = 500
 
     # --- Filename Alias ---
 
@@ -1863,15 +1869,19 @@ class ImageRepository(BaseRepository):
         requested = list(dict.fromkeys(i for i in image_ids if i is not None))
         if not requested:
             return [], 0
+        # exact-set はエクスポート集合 (ステージング由来) であり EXACT_SET_MAX_IDS で有界。
+        # 上限超は曖昧な SQLite 例外ではなく契約違反として早期に弾く (ADR 0056)。
+        if len(requested) > self.EXACT_SET_MAX_IDS:
+            raise ValueError(
+                f"image_ids exact-set は {self.EXACT_SET_MAX_IDS}件まで "
+                f"(指定 {len(requested)}件)。ステージング上限と同値 (ADR 0056)。"
+            )
         with self.session_factory() as session:
             try:
-                # SQLite の bind 変数上限を避けるため BATCH_CHUNK_SIZE で分割 (Codex #623)
-                existing: set[int] = set()
-                for i in range(0, len(requested), self.BATCH_CHUNK_SIZE):
-                    chunk = requested[i : i + self.BATCH_CHUNK_SIZE]
-                    existing.update(
-                        session.execute(select(Image.id).where(Image.id.in_(chunk))).scalars().all()
-                    )
+                # EXACT_SET_MAX_IDS (< BATCH_CHUNK_SIZE) で有界なため単一 IN で bind 安全 (ADR 0056)
+                existing: set[int] = set(
+                    session.execute(select(Image.id).where(Image.id.in_(requested))).scalars().all()
+                )
                 # 入力順を保持したまま存在する ID に絞る
                 existing_ids = [i for i in requested if i in existing]
 
@@ -2083,26 +2093,31 @@ class ImageRepository(BaseRepository):
 
         with self.session_factory() as session:
             try:
-                # アノテーション情報を含めて取得
-                stmt = (
-                    select(Image)
-                    .where(Image.id.in_(image_ids))
-                    .options(
-                        joinedload(Image.tags).joinedload(Tag.model),
-                        joinedload(Image.captions).joinedload(Caption.model),
-                        joinedload(Image.scores).joinedload(Score.model),
-                        joinedload(Image.ratings).joinedload(Rating.model),
-                    )
-                )
-                images = session.execute(stmt).unique().scalars().all()
-
-                # 既存の get_images_by_filter と同じフォーマットで返す
+                # error workflow の未解決エラー全件など大量 ID で呼ばれ得る。exact-set (有界 500)
+                # と異なり error 復旧集合は非有界なので、reject せず BATCH_CHUNK_SIZE で分割して
+                # bind 上限超を回避する (ADR 0056 改訂 / Codex #625)。
                 metadata_list = []
-                for img in images:
-                    metadata = {c.name: getattr(img, c.name) for c in img.__table__.columns}
-                    # アノテーション情報を追加
-                    metadata.update(self._format_annotations_for_metadata(img))
-                    metadata_list.append(metadata)
+                for i in range(0, len(image_ids), self.BATCH_CHUNK_SIZE):
+                    chunk = image_ids[i : i + self.BATCH_CHUNK_SIZE]
+                    # アノテーション情報を含めて取得
+                    stmt = (
+                        select(Image)
+                        .where(Image.id.in_(chunk))
+                        .options(
+                            joinedload(Image.tags).joinedload(Tag.model),
+                            joinedload(Image.captions).joinedload(Caption.model),
+                            joinedload(Image.scores).joinedload(Score.model),
+                            joinedload(Image.ratings).joinedload(Rating.model),
+                        )
+                    )
+                    images = session.execute(stmt).unique().scalars().all()
+
+                    # 既存の get_images_by_filter と同じフォーマットで返す
+                    for img in images:
+                        metadata = {c.name: getattr(img, c.name) for c in img.__table__.columns}
+                        # アノテーション情報を追加
+                        metadata.update(self._format_annotations_for_metadata(img))
+                        metadata_list.append(metadata)
 
                 logger.debug(f"画像メタデータを取得: {len(metadata_list)}件")
                 return metadata_list

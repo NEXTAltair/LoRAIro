@@ -619,3 +619,40 @@ class TestImageFilterCriteriaExactSet:
         criteria = ImageFilterCriteria(image_ids=[img_missing, img_has], resolution=512)
         _, total = image_repository.get_images_by_filter(criteria)
         assert image_repository.get_images_count_only(criteria) == total == 1
+
+    def test_image_ids_over_limit_raises(self, image_repository: ImageRepository) -> None:
+        """EXACT_SET_MAX_IDS 超過は曖昧な SQLite 例外でなく ValueError で弾く (ADR 0056)。"""
+        too_many = list(range(1, image_repository.EXACT_SET_MAX_IDS + 2))  # 501 unique
+        with pytest.raises(ValueError, match="exact-set"):
+            image_repository.get_images_by_filter(ImageFilterCriteria(image_ids=too_many))
+
+    def test_image_ids_at_limit_does_not_raise(self, image_repository: ImageRepository) -> None:
+        """境界: ちょうど上限の件数は raise しない (存在しないので空集合, ADR 0056)。"""
+        at_limit = list(range(1, image_repository.EXACT_SET_MAX_IDS + 1))  # 500 unique
+        rows, total = image_repository.get_images_by_filter(ImageFilterCriteria(image_ids=at_limit))
+        assert rows == []
+        assert total == 0
+
+    def test_count_only_inherits_exact_set_guard(self, image_repository: ImageRepository) -> None:
+        """count_only も共有 helper 経由で同じガードを継承する (ADR 0056)。"""
+        too_many = list(range(1, image_repository.EXACT_SET_MAX_IDS + 2))
+        with pytest.raises(ValueError, match="exact-set"):
+            image_repository.get_images_count_only(ImageFilterCriteria(image_ids=too_many))
+
+
+class TestGetImagesByIdsChunking:
+    """get_images_by_ids は非有界な error 復旧集合を chunk 分割する (ADR 0056改訂 / Codex #625)。"""
+
+    def test_chunks_over_bind_limit_returns_all(
+        self, image_repository: ImageRepository, monkeypatch
+    ) -> None:
+        """BATCH_CHUNK_SIZE をまたぐ id list を reject せず全件返す。"""
+        ids = [
+            _insert_image(image_repository, uuid=f"u-bi{n}", phash=f"p-bi{n}", filename=f"bi{n}.png")
+            for n in range(5)
+        ]
+        # chunk 境界を小さくして分割経路を踏ませる (5 ids → 3 chunks)。
+        # instance 属性で ClassVar を shadow するため他テストに影響しない。
+        monkeypatch.setattr(image_repository, "BATCH_CHUNK_SIZE", 2)
+        rows = image_repository.get_images_by_ids(ids)
+        assert {m["id"] for m in rows} == set(ids)
