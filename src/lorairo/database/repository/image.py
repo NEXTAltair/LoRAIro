@@ -222,6 +222,43 @@ class ImageRepository(BaseRepository):
                 logger.error(f"pHash一括検索中にエラー: {e}", exc_info=True)
                 raise
 
+    def find_image_ids_by_phash_long_edge(self, phashes: set[str]) -> dict[tuple[str, int], int]:
+        """複数pHashについて (pHash, 長辺解像度) → image_id の対応を一括取得する。
+
+        ADR 0062: Provider Batch の custom_id (``ph:{phash}:le:{long_edge}``) 突合用。
+        同一 pHash でも長辺解像度が異なるレコードを区別する必要があるため、pHash 単独ではなく
+        (pHash, 長辺) を複合キーにする。同一 (pHash, 長辺) が複数ある場合は最新 ID を優先する。
+
+        Args:
+            phashes: 検索するpHashのセット。
+
+        Returns:
+            ``(phash, long_edge)`` → image_id のマッピング。見つからない組は含まれない。
+
+        Raises:
+            SQLAlchemyError: データベース操作でエラーが発生した場合。
+        """
+        if not phashes:
+            return {}
+
+        phash_list = list(phashes)
+        with self.session_factory() as session:
+            try:
+                result: dict[tuple[str, int], int] = {}
+                for i in range(0, len(phash_list), self.BATCH_CHUNK_SIZE):
+                    chunk = phash_list[i : i + self.BATCH_CHUNK_SIZE]
+                    stmt = select(Image.phash, Image.width, Image.height, Image.id).where(
+                        Image.phash.in_(chunk)
+                    )
+                    for row in session.execute(stmt).all():
+                        long_edge = max(int(row.width), int(row.height))
+                        result[(row.phash, long_edge)] = row.id
+                logger.debug(f"pHash+長辺一括検索: {len(result)}件 (対象pHash {len(phashes)}件)")
+                return result
+            except SQLAlchemyError as e:
+                logger.error(f"pHash+長辺一括検索中にエラー: {e}", exc_info=True)
+                raise
+
     def get_annotated_image_ids(self, image_ids: list[int]) -> set[int]:
         """指定IDリストからアノテーション済み画像IDを一括取得する。
 

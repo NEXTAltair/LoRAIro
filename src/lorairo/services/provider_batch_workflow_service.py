@@ -518,6 +518,17 @@ class ProviderBatchWorkflowService:
                 {"status": "imported", "imported_at": datetime.now(UTC)},
             )
 
+        # ADR 0062 / Codex #646: imported_count / skipped_count / error_count は image 単位
+        # (save_result 由来) で一貫させ、total_count も image 単位に揃える。dedupe fan-out で
+        # 1 provider result が複数 image に保存されても imported_count <= total_count が常に
+        # 成立し、CLI/widget の "X/Y 件" が "2/1" のように矛盾しない。non-importable / missing /
+        # already-imported は image を保存しない (item 単位) ため、そのまま image 集計へ加算する。
+        image_total_count = (
+            save_result.total_count
+            + prepared.non_importable_count
+            + len(unique_missing_custom_ids)
+            + prepared.already_imported_count
+        )
         return ProviderBatchImportResult(
             save_result=save_result,
             apply_result=apply_result,
@@ -527,7 +538,7 @@ class ProviderBatchWorkflowService:
             + prepared.non_importable_count
             + prepared.already_imported_count,
             error_count=save_result.error_count,
-            total_count=len(normalized_fetch.items),
+            total_count=image_total_count,
             missing_custom_ids=unique_missing_custom_ids,
             job_imported=job_imported,
         )

@@ -119,14 +119,12 @@ class TestBatchImageMatcherPhash:
     @pytest.fixture()
     def mock_repository(self) -> MagicMock:
         repo = MagicMock()
-        repo.find_image_ids_by_phashes.return_value = {
-            "aaaaaaaaaaaaaaaa": 10,
-            "bbbbbbbbbbbbbbbb": 20,
+        # (pHash, 長辺) 複合キー。同一 pHash aaaa が 1024 と 512 の 2 解像度で共存する。
+        repo.find_image_ids_by_phash_long_edge.return_value = {
+            ("aaaaaaaaaaaaaaaa", 1024): 10,
+            ("aaaaaaaaaaaaaaaa", 512): 11,
+            ("bbbbbbbbbbbbbbbb", 768): 20,
         }
-        repo.get_images_metadata_batch.return_value = [
-            {"id": 10, "width": 1024, "height": 768},
-            {"id": 20, "width": 512, "height": 768},
-        ]
         repo.get_all_image_filename_index.return_value = {"0262_1227": 1}
         return repo
 
@@ -140,19 +138,33 @@ class TestBatchImageMatcherPhash:
             "ph:bbbbbbbbbbbbbbbb:le:768": 20,
         }
         assert result.unmatched == []
-        mock_repository.find_image_ids_by_phashes.assert_called_once_with(
+        mock_repository.find_image_ids_by_phash_long_edge.assert_called_once_with(
             {"aaaaaaaaaaaaaaaa", "bbbbbbbbbbbbbbbb"}
         )
         mock_repository.get_all_image_filename_index.assert_not_called()
 
-    def test_phash_custom_id_unmatched_when_long_edge_differs(self, mock_repository: MagicMock) -> None:
-        """Codex #646 P2: pHash 一致でも長辺解像度が異なれば誤マッチさせず unmatched。"""
+    def test_phash_custom_id_disambiguates_same_phash_by_long_edge(
+        self, mock_repository: MagicMock
+    ) -> None:
+        """Codex #646 P2: 同一 pHash・別解像度が DB に共存しても長辺で正しく解決する。"""
         matcher = BatchImageMatcher(mock_repository)
-        # image_id=10 の長辺は 1024 だが custom_id は le:512 を要求 → 別解像度なので不一致。
-        result = matcher.match_all(["ph:aaaaaaaaaaaaaaaa:le:512"])
+        result = matcher.match_all(["ph:aaaaaaaaaaaaaaaa:le:512", "ph:aaaaaaaaaaaaaaaa:le:1024"])
+
+        # le:512 -> image_id 11、le:1024 -> image_id 10 と区別される。
+        assert result.matched == {
+            "ph:aaaaaaaaaaaaaaaa:le:512": 11,
+            "ph:aaaaaaaaaaaaaaaa:le:1024": 10,
+        }
+        assert result.unmatched == []
+
+    def test_phash_custom_id_unmatched_when_long_edge_absent(self, mock_repository: MagicMock) -> None:
+        """pHash は一致するが長辺が DB に無い場合は誤マッチさせず unmatched。"""
+        matcher = BatchImageMatcher(mock_repository)
+        # aaaa は 1024/512 のみ存在。le:256 は無い。
+        result = matcher.match_all(["ph:aaaaaaaaaaaaaaaa:le:256"])
 
         assert result.matched == {}
-        assert result.unmatched == ["ph:aaaaaaaaaaaaaaaa:le:512"]
+        assert result.unmatched == ["ph:aaaaaaaaaaaaaaaa:le:256"]
 
     def test_phash_custom_id_unmatched_when_phash_absent(self, mock_repository: MagicMock) -> None:
         """DB に無い pHash は unmatched になる。"""

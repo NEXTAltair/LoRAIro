@@ -63,16 +63,14 @@ class BatchImageMatcher:
         matched: dict[str, int] = {}
         unmatched: list[str] = []
 
-        # ADR 0062: pHash 完全一致で候補を引き、長辺解像度も突合する
-        # (同一 pHash・別解像度を誤って同一視しないため、custom_id の long_edge を検証する)。
+        # ADR 0062: (pHash, 長辺解像度) の複合キーで突合する。同一 pHash で長辺の異なる
+        # レコードが DB に共存しても、custom_id の長辺に一致する行へ正しくマッチする。
         if phash_le_by_custom_id:
             phashes = {phash for phash, _ in phash_le_by_custom_id.values()}
-            phash_to_id = self._repository.find_image_ids_by_phashes(phashes)
-            candidate_ids = sorted(set(phash_to_id.values()))
-            long_edge_by_image_id = self._long_edge_by_image_id(candidate_ids)
-            for custom_id, (phash, long_edge) in phash_le_by_custom_id.items():
-                image_id = phash_to_id.get(phash)
-                if image_id is not None and long_edge_by_image_id.get(image_id) == long_edge:
+            phash_le_to_id = self._repository.find_image_ids_by_phash_long_edge(phashes)
+            for custom_id, key in phash_le_by_custom_id.items():
+                image_id = phash_le_to_id.get(key)
+                if image_id is not None:
                     matched[custom_id] = image_id
                 else:
                     unmatched.append(custom_id)
@@ -89,27 +87,6 @@ class BatchImageMatcher:
                     unmatched.append(custom_id)
 
         return ImageMatchResult(matched=matched, unmatched=unmatched)
-
-    def _long_edge_by_image_id(self, image_ids: list[int]) -> dict[int, int]:
-        """画像 ID ごとの長辺解像度 (max(width, height)) を取得する。
-
-        Args:
-            image_ids: 長辺を取得する画像 ID のリスト。
-
-        Returns:
-            image_id -> 長辺解像度 の辞書。width/height が欠落するレコードは含めない。
-        """
-        if not image_ids:
-            return {}
-        result: dict[int, int] = {}
-        for metadata in self._repository.get_images_metadata_batch(image_ids):
-            image_id = metadata.get("id")
-            width = metadata.get("width")
-            height = metadata.get("height")
-            if image_id is None or not width or not height:
-                continue
-            result[int(image_id)] = max(int(width), int(height))
-        return result
 
     @staticmethod
     def extract_stem(custom_id: str) -> str:

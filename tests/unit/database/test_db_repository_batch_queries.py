@@ -422,6 +422,46 @@ class TestFindImageIdsByPhashes:
             repository.find_image_ids_by_phashes({"abc"})
 
 
+class TestFindImageIdsByPhashLongEdge:
+    """find_image_ids_by_phash_long_edge メソッドのテスト (ADR 0062)。"""
+
+    @pytest.fixture
+    def repository(self):
+        mock_session_factory = Mock()
+        return ImageRepository(session_factory=mock_session_factory)
+
+    def test_empty_set_returns_empty_dict(self, repository):
+        assert repository.find_image_ids_by_phash_long_edge(set()) == {}
+
+    def test_returns_phash_long_edge_to_id_mapping(self, repository):
+        """(pHash, 長辺) 複合キーで image_id を返す。長辺は max(width, height)。"""
+        mock_session = MagicMock()
+        repository.session_factory.return_value.__enter__ = Mock(return_value=mock_session)
+        repository.session_factory.return_value.__exit__ = Mock(return_value=False)
+
+        row1 = Mock(phash="aaa", width=1024, height=768, id=1)
+        row2 = Mock(phash="aaa", width=512, height=512, id=2)
+        row3 = Mock(phash="bbb", width=600, height=900, id=3)
+        mock_session.execute.return_value.all.return_value = [row1, row2, row3]
+
+        result = repository.find_image_ids_by_phash_long_edge({"aaa", "bbb"})
+        # 同一 pHash でも長辺が異なれば別キー。長辺は max(w, h)。
+        assert result == {
+            ("aaa", 1024): 1,
+            ("aaa", 512): 2,
+            ("bbb", 900): 3,
+        }
+
+    def test_propagates_sqlalchemy_error(self, repository):
+        mock_session = MagicMock()
+        repository.session_factory.return_value.__enter__ = Mock(return_value=mock_session)
+        repository.session_factory.return_value.__exit__ = Mock(return_value=False)
+        mock_session.execute.side_effect = SQLAlchemyError("test")
+
+        with pytest.raises(SQLAlchemyError):
+            repository.find_image_ids_by_phash_long_edge({"aaa"})
+
+
 class TestGetModelsByLitellmIds:
     """get_models_by_litellm_ids メソッドのテスト (ADR 0023 Phase 1.11 / Issue #238).
 
