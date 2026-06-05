@@ -79,8 +79,11 @@ stdout には機械可読 JSONL のみを出力する。1 行 = 1 つの valid J
 この上限は **§2 の `batch_size` (モデル処理 chunk = 同時に decode する枚数) とは別概念**で、「1 コマンドが
 処理する総数」を制限する。**500 超のときの recourse は操作で分かれる**:
 
-- `annotate run`: 500 超は弾くが、ADR 0053 の `--limit` / `--offset` / `--image-id` sharding で 500 ずつ
-  反復実行できる。annotation 結果は画像ごとに DB へ蓄積されるため shard を跨いだ反復は安全。
+- `annotate run`: 500 超は弾くが、ADR 0053 の sharding で 500 ずつ反復実行できる。ただし **`--unrated` /
+  `--missing-model` のような mutating フィルタ** (処理すると対象集合が縮む) では **`--offset` を増やしては
+  いけない** — shard 0 を処理すると集合が縮み、`--offset 500` が未処理レコードを飛ばす。これらは
+  **`--limit 500 --offset 0` を集合が空になるまで繰り返す** (縮む集合の先頭 500 を毎回取る) か、stable な
+  **`--image-id` / ID 範囲**で shard する。固定 ID 集合に対する反復のみ `--offset` 加算が安全。
 - `export create`: recourse なし。export の json 成果物は `metadata.json` を上書き方式で生成し、分割再実行
   による pagination/merge が成果物を壊すため分割手段を提供しない。500 超はフィルタ絞り込みで対応する。
 
