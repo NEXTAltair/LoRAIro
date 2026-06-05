@@ -22,13 +22,24 @@ sibling package の `genai-tag-db-tools` (tag-db) は agent-friendly CLI 契約 
 help/version 挙動) は **ADR 0058** で定義する (出力モード = 明示 `--json` フラグ、entry は 2 本分離維持)。
 本 ADR はそれらの決定を前提に、契約の中身を確定する。
 
+## Scope / Non-Goals
+
+本 ADR は CLI 機械可読出力の **決定とコントラクト** (stdout/stderr 分離、3 kind、不変条件、500 キャップ、
+14 エラーコード集合とフラグ、exit code、中央境界の責務) を固定する。**具体的な実装メカニズムは網羅しない**:
+Click/Typer の起動・パースの細部、per-SDK / per-library の例外形状 (例: `google-genai` の
+`google.genai.errors.APIError` の status code) の完全な分類、各コマンドの projection フィールド定義などは、
+実装 Issue (#640 / #641) と生成される `docs/cli.md` (wire スキーマの SSoT) で確定する。本 ADR 中の
+`classify_exception` 等の例示は代表例であり、exhaustive な実装仕様ではない。
+
 ## Decision
 
 ### 1. stdout = JSONL 専用 / stderr = ログ・進捗・装飾
 
 stdout には機械可読 JSONL のみを出力する。1 行 = 1 つの valid JSON object。シリアライズは単一の
-`_emit` ヘルパーを経由し `json.dumps(line, ensure_ascii=False, default=str)` で行う
-(`ensure_ascii=False` で日本語タグを保持、`default=str` は `Path` / `datetime` 等の非自明な値のフォールバック)。
+`_emit` ヘルパーを経由し `json.dumps(line, ensure_ascii=False, allow_nan=False, default=str)` で行う
+(`ensure_ascii=False` で日本語タグを保持、`default=str` は `Path` / `datetime` 等の非自明な値のフォールバック、
+`allow_nan=False` で非有限 float を弾く)。非有限な score / metric (`NaN` / `Infinity`) は標準 JSON で不正な
+ため、`_emit` は emit 前に `None` へ正規化する (混入しても stdout 行の JSON 妥当性を壊さない)。
 
 **`kind` とエラー `code` は安定した wire 値を持たねばならない**。これらは `StrEnum` (または素の `str`) で
 定義し、`"INVALID_INPUT"` のような契約値にシリアライズされることを保証する。通常の `Enum` を `default=str`
@@ -86,6 +97,9 @@ stdout には機械可読 JSONL のみを出力する。1 行 = 1 つの valid J
   **`--image-id` / ID 範囲**で shard する。固定 ID 集合に対する反復のみ `--offset` 加算が安全。
 - `export create`: recourse なし。export の json 成果物は `metadata.json` を上書き方式で生成し、分割再実行
   による pagination/merge が成果物を壊すため分割手段を提供しない。500 超はフィルタ絞り込みで対応する。
+- `images update` (タグ一括): 500 超は弾く。recourse は `annotate run` と同様 (DB 変更が画像ごとに冪等に
+  蓄積されるため、mutating フィルタでは `--limit 500 --offset 0` 反復、固定集合では `--image-id` / ID 範囲で
+  shard)。具体的な flag 提供は #640 で確定する。
 
 この 500 キャップは ADR 0053 の「1 回の呼び出しで総数無制限に annotate を実行できる」前提を**改定**する。
 ADR 0053 の `batch_size` streaming と sharding 機構自体は維持し、前者はキャップ内のメモリ境界、後者は
