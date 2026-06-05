@@ -201,17 +201,14 @@ class FileSystemManager:
 
         手順:
 
-        1. 元画像を ``GRAYSCALE_SAMPLE_MAX_EDGE`` まで縮小する。縮小は ``img`` を
-           直接 (コピーせず) 行い、大画像でも余分なフル解像度バッファを作らない
-           (メタデータは縮小前に取得済みのため ``img`` の破壊的縮小で問題ない)。
-           リサンプリングは ``BILINEAR`` で、細い色領域 (罫線・透かし等) を取りこぼさず
-           面積に比例して残す。
-        2. RGBA へ変換し、不透明画素についてのみ各画素のチャンネル間最大差分
-           ``max(|R-G|, |G-B|, |R-B|)`` を算出する。完全透過画素は不可視ながら任意の
-           RGB を持ち得るため、彩度算出から除外する。
-        3. 補間で不可視色が可視画素へにじむのを防ぐため、可視判定は「縮小後アルファが
-           十分高い」ことに加え、縮小前の元アルファマップを最近傍参照して「元画素が
-           不透明だった位置」だけを採用する二重ガードを掛ける。
+        1. 透過画像は縮小前に元アルファチャンネルを抽出しておく。
+        2. RGB へ変換してから ``GRAYSCALE_SAMPLE_MAX_EDGE`` まで ``BILINEAR`` 縮小する。
+           パレットモード (``P`` / ``1``) は Pillow が縮小時に ``BILINEAR`` を無視して
+           ``NEAREST`` 化するため、縮小前に RGB へ変換して細い色領域 (罫線・透かし) を
+           面積比例で残す。
+        3. 各画素のチャンネル間最大差分 ``max(|R-G|, |G-B|, |R-B|)`` を算出する。透過
+           画像は、縮小前の元アルファを最近傍参照して「元が不透明だった位置」の画素のみ
+           採用する。完全透過画素は不可視ながら任意の RGB を持ち得るため除外する。
 
         差分の高パーセンタイル値 (:data:`GRAYSCALE_COLORFULNESS_PERCENTILE`) を彩度
         スコア (``colorfulness_score``) とし、
@@ -219,8 +216,10 @@ class FileSystemManager:
         みなす。完全一致 (``R==G==B``) のみを条件にすると JPEG ノイズで崩れたグレー
         画像を取りこぼすため、閾値ベースで判定する。
 
+        動画像 (アニメ GIF / WebP) は 1 フレーム目のみを評価する (#631 スコープ)。
+
         Args:
-            img: 判定対象の Pillow 画像。本メソッドは ``img`` を破壊的に縮小する。
+            img: 判定対象の Pillow 画像。本メソッドは ``img`` を変更しない。
 
         Returns:
             ``(is_grayscale_like, colorfulness_score)`` のタプル。
@@ -228,9 +227,12 @@ class FileSystemManager:
             パーセンタイル値 (0.0-255.0)。可視画素が存在しない (全透過) 場合は
             ``(True, 0.0)`` を返す。
         """
+        # 注: 動画像 (アニメ GIF / WebP) は Image.open がロードする 1 フレーム目のみを
+        # 評価する。pHash 計算・保存も同フレーム基準のため整合する。フレーム横断の
+        # 集約は #631 のスコープ外 (必要になれば別版分類 #630 側で扱う)。
+
         # 透過画素の RGB が補間で可視画素へにじむのを防ぐため、縮小前にアルファを
-        # 抽出しておき、縮小後に最近傍で「元が不透明だった位置」を参照する。
-        # アルファを持つ画像のみ対象 (不透明画像は全画素可視)。
+        # 抽出しておく。アルファを持つ画像のみ対象 (不透明画像は全画素可視)。
         has_alpha = img.mode in ("RGBA", "LA") or (img.mode == "P" and "transparency" in img.info)
         source_alpha: Image.Image | None = None
         if has_alpha:
@@ -238,16 +240,17 @@ class FileSystemManager:
                 # RGBA / LA はアルファバンドを直接取り出す (フル RGBA 変換を避ける)。
                 source_alpha = img.getchannel("A")
             else:
-                # P + transparency 等はアルファ抽出のため一度 RGBA へ変換する。
+                # P + transparency 等は RGBA へ変換してアルファを取り出す。
                 source_alpha = img.convert("RGBA").getchannel("A")
 
-        # img を直接 BILINEAR 縮小する (コピーせずフル解像度バッファ増を避ける)。
-        # 細い色領域を面積比例で残すため NEAREST ではなく BILINEAR を使う。
-        img.thumbnail(
+        # 先に RGB へ変換してから BILINEAR 縮小する。P / 1 等のパレットモードは
+        # Pillow が縮小時に BILINEAR 指定を無視して NEAREST 化するため、縮小前に
+        # 連続色モードへ変換し、細い色領域を面積比例で残せるようにする。
+        sample = img.convert("RGB")
+        sample.thumbnail(
             (GRAYSCALE_SAMPLE_MAX_EDGE, GRAYSCALE_SAMPLE_MAX_EDGE),
             Image.Resampling.BILINEAR,
         )
-        sample = img.convert("RGB")
         arr = np.asarray(sample, dtype=np.int16)
         r = arr[:, :, 0]
         g = arr[:, :, 1]

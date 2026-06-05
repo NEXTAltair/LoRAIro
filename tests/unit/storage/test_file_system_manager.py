@@ -420,6 +420,48 @@ class TestGrayscaleLikeDetection:
         assert info["has_alpha"] is True
         assert info["is_grayscale_like"] is True
 
+    def test_paletted_color_image_is_not_grayscale_like(self, tmp_path: Path) -> None:
+        """パレットモード (GIF/P) のカラー画像もカラー扱い (#645 review4)。
+
+        P モードは縮小時に BILINEAR が NEAREST へ強制されるため、縮小前に RGB 変換して
+        細い色領域を残す。GIF カラーグラデーションがカラー判定されることを確認する。
+        """
+        grad = np.zeros((120, 120, 3), dtype=np.uint8)
+        grad[:, :, 0] = np.tile(np.linspace(0, 255, 120).astype(np.uint8), (120, 1))
+        grad[:, :, 2] = 255 - grad[:, :, 0]
+        # ADAPTIVE パレットで意図した色を保持 (既定 web パレットの量子化歪みを避ける)。
+        img = Image.fromarray(grad, mode="RGB").convert("P", palette=Image.Palette.ADAPTIVE)
+        path = self._save(img, tmp_path, "GIF", ".gif")
+        info = FileSystemManager.get_image_info(path)
+        assert info["mode"] == "P"
+        assert info["is_grayscale_like"] is False
+
+    def test_paletted_grayscale_image_is_grayscale_like(self, tmp_path: Path) -> None:
+        """パレットモードのグレー画像はグレー扱い (ADAPTIVE で色歪みを排除)。"""
+        gray = np.full((120, 120, 3), 90, dtype=np.uint8)
+        img = Image.fromarray(gray, mode="RGB").convert("P", palette=Image.Palette.ADAPTIVE)
+        path = self._save(img, tmp_path, "GIF", ".gif")
+        info = FileSystemManager.get_image_info(path)
+        assert info["mode"] == "P"
+        assert info["is_grayscale_like"] is True
+
+    def test_paletted_alpha_transparent_color_is_ignored(self, tmp_path: Path) -> None:
+        """P + transparency の透過カラー画素も彩度算出から除外する (#645 review4)。
+
+        パレット index 0 をマゼンタかつ透過に割り当て、可視部分はグレーにする。
+        透過カラーが除外され可視グレーのみで判定されること (誤って色判定しない) を確認。
+        """
+        # index 0 = マゼンタ(透過), index 1 = グレー の 2 色パレット P 画像を構築する。
+        indices = np.full((100, 100), 1, dtype=np.uint8)
+        indices[:40, :] = 0  # 上部をマゼンタ(透過)インデックスに
+        img = Image.fromarray(indices, mode="P")
+        img.putpalette([255, 0, 255, 110, 110, 110] + [0] * (256 * 3 - 6))
+        path = tmp_path / "palpha.png"
+        img.save(path, "PNG", transparency=0)
+        info = FileSystemManager.get_image_info(path)
+        assert info["has_alpha"] is True
+        assert info["is_grayscale_like"] is True
+
     def test_large_image_is_handled(self, tmp_path: Path) -> None:
         """大きめ画像でもサンプリングで有界に判定し正しく分類する。"""
         img = Image.new("RGB", (2000, 1500), color=(200, 200, 200))
