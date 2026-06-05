@@ -102,13 +102,13 @@ class TestDatabaseRegistrationWorker:
         実際のオブジェクトを使用したワーカー実行テスト
         - Mock以外の実際の連携をテスト
         """
-        # 重複検出とDB登録をMock化（データベース書き込みを避けるため）
-        with (
-            patch.object(real_db_manager, "detect_duplicate_image") as mock_detect,
-            patch.object(real_db_manager, "register_original_image") as mock_register,
-        ):
-            mock_detect.return_value = None  # 重複なし
-            mock_register.return_value = (1, {"id": 1, "path": "test"})  # 成功
+        # #633: 統一登録エントリ経由になったため register_image_with_side_effects を Mock 化
+        from lorairo.database.db_manager import RegistrationOutcome, RegistrationSideEffectResult
+
+        with patch.object(real_db_manager, "register_image_with_side_effects") as mock_register:
+            mock_register.return_value = RegistrationSideEffectResult(
+                RegistrationOutcome.REGISTERED, 1, {"id": 1, "path": "test"}
+            )
 
             worker = DatabaseRegistrationWorker(temp_dir, real_db_manager, mock_fsm)
             result = worker.execute()
@@ -116,11 +116,11 @@ class TestDatabaseRegistrationWorker:
             # 結果の検証
             assert isinstance(result, DatabaseRegistrationResult)
             assert result.registered_count == 3  # 3つのファイル
+            assert result.variant_count == 0
             assert result.skipped_count == 0
             assert result.error_count == 0
 
-            # 実際のAPIが呼ばれたことを確認
-            assert mock_detect.call_count == 3
+            # 統一エントリが各画像で呼ばれたことを確認
             assert mock_register.call_count == 3
 
     def test_associated_files_processing_integration(self, temp_dir, real_db_manager, mock_fsm):
@@ -369,259 +369,134 @@ class TestRegisterSingleImage:
 
         return worker, mock_db_manager, mock_fsm
 
-    def test_register_single_image_normal_registration(self, temp_dir, worker_setup):
-        """新規画像を登録（重複なし、関連ファイルなし）"""
-        worker, mock_db_manager, _mock_fsm = worker_setup
+    @staticmethod
+    def _side_effect_result(outcome, image_id=1):
+        """RegistrationSideEffectResult を生成するヘルパー (#633)。"""
+        from lorairo.database.db_manager import RegistrationSideEffectResult
 
+        metadata = {"id": image_id} if image_id is not None else None
+        return RegistrationSideEffectResult(outcome, image_id, metadata)
+
+    def test_register_single_image_new_returns_registered_outcome(self, temp_dir, worker_setup):
+        """新規画像 → REGISTERED outcome を返し、統一エントリへ委譲する (#633)。"""
+        from lorairo.database.db_manager import RegistrationOutcome
+
+        worker, mock_db_manager, _mock_fsm = worker_setup
         image_path = temp_dir / "test.jpg"
         image_path.write_bytes(b"fake_image")
+        mock_db_manager.register_image_with_side_effects.return_value = self._side_effect_result(
+            RegistrationOutcome.REGISTERED, 1
+        )
 
-        # モック設定
-        mock_db_manager.detect_duplicate_image.return_value = None  # 重複なし
-        mock_db_manager.register_original_image.return_value = (1, {"id": 1})
+        outcome, image_id = worker._register_single_image(image_path, 0, 1)
 
-        # ExistingFileReader をモック
-        with patch.object(worker, "file_reader") as mock_file_reader:
-            mock_file_reader.get_existing_annotations.return_value = None
+        assert outcome is RegistrationOutcome.REGISTERED
+        assert image_id == 1
+        mock_db_manager.register_image_with_side_effects.assert_called_once()
+        worker._report_batch_progress_throttled.assert_called_once()
+        worker._report_progress_throttled.assert_called_once()
 
-            result_type, image_id = worker._register_single_image(image_path, 0, 1)
+    def test_register_single_image_duplicate_returns_duplicate_outcome(self, temp_dir, worker_setup):
+        """重複 → DUPLICATE outcome を返す (#633: 統一エントリ内で skip 扱い)。"""
+        from lorairo.database.db_manager import RegistrationOutcome
 
-            assert result_type == "registered"
-            assert image_id == 1
-            mock_db_manager.detect_duplicate_image.assert_called_once_with(image_path)
-            mock_db_manager.register_original_image.assert_called_once()
-            worker._report_batch_progress_throttled.assert_called_once()
-            worker._report_progress_throttled.assert_called_once()
-
-    def test_register_single_image_duplicate_detection(self, temp_dir, worker_setup):
-        """pHash一致で重複検出 → スキップ"""
         worker, mock_db_manager, _mock_fsm = worker_setup
-
         image_path = temp_dir / "test.jpg"
         image_path.write_bytes(b"fake_image")
+        mock_db_manager.register_image_with_side_effects.return_value = self._side_effect_result(
+            RegistrationOutcome.DUPLICATE, 42
+        )
 
-        # モック設定
-        mock_db_manager.detect_duplicate_image.return_value = 42  # 重複画像ID
-        mock_db_manager.image_repo = Mock()
-        mock_db_manager.annotation_repo = Mock()
+        outcome, image_id = worker._register_single_image(image_path, 0, 1)
 
-        # ExistingFileReader をモック
-        with patch.object(worker, "file_reader") as mock_file_reader:
-            mock_file_reader.get_existing_annotations.return_value = None
+        assert outcome is RegistrationOutcome.DUPLICATE
+        assert image_id == 42
 
-            result_type, image_id = worker._register_single_image(image_path, 0, 1)
+    def test_register_single_image_variant_returns_variant_outcome(self, temp_dir, worker_setup):
+        """別版 → VARIANT outcome を返す (#633)。"""
+        from lorairo.database.db_manager import RegistrationOutcome
 
-            assert result_type == "skipped"
-            assert image_id == 42
-            mock_db_manager.detect_duplicate_image.assert_called_once_with(image_path)
-            mock_db_manager.register_original_image.assert_not_called()
-            worker._report_batch_progress_throttled.assert_called_once()
-            worker._report_progress_throttled.assert_called_once()
-
-    def test_register_single_image_with_tags_only(self, temp_dir, worker_setup):
-        """ ".txt 存在、.caption 不在"""
         worker, mock_db_manager, _mock_fsm = worker_setup
-
         image_path = temp_dir / "test.jpg"
         image_path.write_bytes(b"fake_image")
+        mock_db_manager.register_image_with_side_effects.return_value = self._side_effect_result(
+            RegistrationOutcome.VARIANT, 7
+        )
 
-        # モック設定
-        mock_db_manager.detect_duplicate_image.return_value = None
-        mock_db_manager.register_original_image.return_value = (1, {"id": 1})
+        outcome, image_id = worker._register_single_image(image_path, 0, 1)
 
-        # ExistingFileReader をモック - タグのみ返す
-        with patch.object(worker, "file_reader") as mock_file_reader:
-            mock_file_reader.get_existing_annotations.return_value = {
-                "tags": ["tag1", "tag2"],
-                "captions": [],
-            }
+        assert outcome is RegistrationOutcome.VARIANT
+        assert image_id == 7
 
-            result_type, image_id = worker._register_single_image(image_path, 0, 1)
+    def test_register_single_image_failed_returns_failed_outcome(self, temp_dir, worker_setup):
+        """登録失敗 → FAILED outcome、image_id=-1 (#633)。"""
+        from lorairo.database.db_manager import RegistrationOutcome
 
-            assert result_type == "registered"
-            assert image_id == 1
-            mock_db_manager.save_tags.assert_called_once()
-            mock_db_manager.save_captions.assert_not_called()
-
-    def test_register_single_image_with_caption_only(self, temp_dir, worker_setup):
-        """.caption 存在、.txt 不在"""
         worker, mock_db_manager, _mock_fsm = worker_setup
-
         image_path = temp_dir / "test.jpg"
         image_path.write_bytes(b"fake_image")
+        mock_db_manager.register_image_with_side_effects.return_value = self._side_effect_result(
+            RegistrationOutcome.FAILED, None
+        )
 
-        # モック設定
-        mock_db_manager.detect_duplicate_image.return_value = None
-        mock_db_manager.register_original_image.return_value = (1, {"id": 1})
+        outcome, image_id = worker._register_single_image(image_path, 0, 1)
 
-        # ExistingFileReader をモック - キャプションのみ返す
-        with patch.object(worker, "file_reader") as mock_file_reader:
-            mock_file_reader.get_existing_annotations.return_value = {
-                "tags": [],
-                "captions": ["test caption"],
-            }
+        assert outcome is RegistrationOutcome.FAILED
+        assert image_id == -1
 
-            result_type, image_id = worker._register_single_image(image_path, 0, 1)
+    def test_register_single_image_forwards_annotations_and_cache(self, temp_dir, worker_setup):
+        """事前読み込み annotations / tag_id_cache を統一エントリへ素通しする (#633)。"""
+        from lorairo.database.db_manager import RegistrationOutcome
 
-            assert result_type == "registered"
-            assert image_id == 1
-            mock_db_manager.save_tags.assert_not_called()
-            mock_db_manager.save_captions.assert_called_once()
-
-    def test_register_single_image_with_both_files(self, temp_dir, worker_setup):
-        """.txt と .caption の両方存在"""
         worker, mock_db_manager, _mock_fsm = worker_setup
-
         image_path = temp_dir / "test.jpg"
         image_path.write_bytes(b"fake_image")
+        mock_db_manager.register_image_with_side_effects.return_value = self._side_effect_result(
+            RegistrationOutcome.REGISTERED, 1
+        )
+        annotations = {"tags": ["t1"], "captions": []}
+        tag_id_cache = {"t1": 100}
 
-        # モック設定
-        mock_db_manager.detect_duplicate_image.return_value = None
-        mock_db_manager.register_original_image.return_value = (1, {"id": 1})
+        worker._register_single_image(image_path, 0, 1, annotations=annotations, tag_id_cache=tag_id_cache)
 
-        # ExistingFileReader をモック - 両方返す
-        with patch.object(worker, "file_reader") as mock_file_reader:
-            mock_file_reader.get_existing_annotations.return_value = {
-                "tags": ["tag1", "tag2"],
-                "captions": ["test caption"],
-            }
-
-            result_type, image_id = worker._register_single_image(image_path, 0, 1)
-
-            assert result_type == "registered"
-            assert image_id == 1
-            mock_db_manager.save_tags.assert_called_once()
-            mock_db_manager.save_captions.assert_called_once()
-
-    def test_register_single_image_without_associated_files(self, temp_dir, worker_setup):
-        """.txt/.caption 不在"""
-        worker, mock_db_manager, _mock_fsm = worker_setup
-
-        image_path = temp_dir / "test.jpg"
-        image_path.write_bytes(b"fake_image")
-
-        # モック設定
-        mock_db_manager.detect_duplicate_image.return_value = None
-        mock_db_manager.register_original_image.return_value = (1, {"id": 1})
-
-        # ExistingFileReader をモック - 何も返さない
-        with patch.object(worker, "file_reader") as mock_file_reader:
-            mock_file_reader.get_existing_annotations.return_value = None
-
-            result_type, image_id = worker._register_single_image(image_path, 0, 1)
-
-            assert result_type == "registered"
-            assert image_id == 1
-            mock_db_manager.save_tags.assert_not_called()
-            mock_db_manager.save_captions.assert_not_called()
-
-    def test_register_single_image_db_registration_returns_none(self, temp_dir, worker_setup):
-        """register_original_image() が None を返す（失敗）"""
-        worker, mock_db_manager, _mock_fsm = worker_setup
-
-        image_path = temp_dir / "test.jpg"
-        image_path.write_bytes(b"fake_image")
-
-        # モック設定
-        mock_db_manager.detect_duplicate_image.return_value = None
-        mock_db_manager.register_original_image.return_value = None  # 失敗
-
-        # ExistingFileReader をモック
-        with patch.object(worker, "file_reader") as mock_file_reader:
-            mock_file_reader.get_existing_annotations.return_value = None
-
-            result_type, image_id = worker._register_single_image(image_path, 0, 1)
-
-            assert result_type == "error"
-            assert image_id == -1
-            mock_db_manager.save_tags.assert_not_called()
-            mock_db_manager.save_captions.assert_not_called()
+        call = mock_db_manager.register_image_with_side_effects.call_args
+        assert call.kwargs["associated_annotations"] is annotations
+        assert call.kwargs["tag_id_cache"] is tag_id_cache
 
     def test_register_single_image_progress_reporting(self, temp_dir, worker_setup):
         """スロットリング付き進捗報告が呼ばれる"""
+        from lorairo.database.db_manager import RegistrationOutcome
+
         worker, mock_db_manager, _mock_fsm = worker_setup
 
         image_path = temp_dir / "test.jpg"
         image_path.write_bytes(b"fake_image")
+        mock_db_manager.register_image_with_side_effects.return_value = self._side_effect_result(
+            RegistrationOutcome.REGISTERED, 1
+        )
 
-        # モック設定
-        mock_db_manager.detect_duplicate_image.return_value = None
-        mock_db_manager.register_original_image.return_value = (1, {"id": 1})
+        _outcome, _image_id = worker._register_single_image(image_path, 5, 100)
 
-        # ExistingFileReader をモック
-        with patch.object(worker, "file_reader") as mock_file_reader:
-            mock_file_reader.get_existing_annotations.return_value = None
+        # バッチ進捗報告の呼び出しを確認
+        worker._report_batch_progress_throttled.assert_called_once_with(
+            6, 100, image_path.name, force_emit=False
+        )
 
-            _result_type, _image_id = worker._register_single_image(image_path, 5, 100)
+        # 通常進捗報告の呼び出しを確認
+        worker._report_progress_throttled.assert_called_once()
+        call_args = worker._report_progress_throttled.call_args
+        assert call_args[0][0] > 10  # percentage >= 10
 
-            # バッチ進捗報告の呼び出しを確認
-            worker._report_batch_progress_throttled.assert_called_once_with(
-                6, 100, image_path.name, force_emit=False
-            )
-
-            # 通常進捗報告の呼び出しを確認
-            worker._report_progress_throttled.assert_called_once()
-            call_args = worker._report_progress_throttled.call_args
-            assert call_args[0][0] > 10  # percentage >= 10
-
-    def test_register_single_image_associated_file_processing_error(self, temp_dir, worker_setup):
-        """save_tags() で例外発生 - エラーが適切にハンドルされる"""
+    def test_register_single_image_propagates_save_error(self, temp_dir, worker_setup):
+        """統一エントリ内の save 例外は呼び出し元へ伝播する (#633)。"""
         worker, mock_db_manager, _mock_fsm = worker_setup
 
         image_path = temp_dir / "test.jpg"
         image_path.write_bytes(b"fake_image")
+        mock_db_manager.register_image_with_side_effects.side_effect = Exception("Tag save failed")
 
-        # モック設定
-        mock_db_manager.detect_duplicate_image.return_value = None
-        mock_db_manager.register_original_image.return_value = (1, {"id": 1})
-        mock_db_manager.save_tags.side_effect = Exception("Tag save failed")
-
-        # ExistingFileReader をモック
-        with patch.object(worker, "file_reader") as mock_file_reader:
-            mock_file_reader.get_existing_annotations.return_value = {
-                "tags": ["tag1"],
-                "captions": [],
-            }
-
-            # execute() が呼ぶ外側の try-except でキャッチされる想定
-            # _register_single_image は例外を伝播させる
-            with pytest.raises(Exception, match="Tag save failed"):
-                worker._register_single_image(image_path, 0, 1)
-
-    def test_register_single_image_multiple_tags_parsing(self, temp_dir, worker_setup):
-        """複数タグのパース - TagAnnotationData を複数個作成"""
-        worker, mock_db_manager, _mock_fsm = worker_setup
-
-        image_path = temp_dir / "test.jpg"
-        image_path.write_bytes(b"fake_image")
-
-        # モック設定
-        mock_db_manager.detect_duplicate_image.return_value = None
-        mock_db_manager.register_original_image.return_value = (1, {"id": 1})
-
-        # ExistingFileReader をモック
-        with patch.object(worker, "file_reader") as mock_file_reader:
-            mock_file_reader.get_existing_annotations.return_value = {
-                "tags": ["tag1", "tag2", "tag3"],
-                "captions": [],
-            }
-
-            result_type, _image_id = worker._register_single_image(image_path, 0, 1)
-
-            assert result_type == "registered"
-
-            # save_tags の呼び出しを確認
-            mock_db_manager.save_tags.assert_called_once()
-            call_args = mock_db_manager.save_tags.call_args
-            tags_data = call_args[0][1]  # tags_data 引数
-
-            # 3つのタグが作成されたことを確認
-            assert len(tags_data) == 3
-            assert tags_data[0]["tag"] == "tag1"
-            assert tags_data[1]["tag"] == "tag2"
-            assert tags_data[2]["tag"] == "tag3"
-            assert all(t["existing"] is True for t in tags_data)
-            assert all(t["is_edited_manually"] is False for t in tags_data)
+        with pytest.raises(Exception, match="Tag save failed"):
+            worker._register_single_image(image_path, 0, 1)
 
 
 class TestBuildRegistrationResult:
@@ -660,7 +535,7 @@ class TestBuildRegistrationResult:
 
     def test_build_registration_result_normal_case(self, worker):
         """通常ケース: 登録3、スキップ2、エラー1"""
-        stats = {"registered": 3, "skipped": 2, "errors": 1}
+        stats = {"registered": 3, "variant": 0, "skipped": 2, "errors": 1}
         processed_paths = [Path("img1.jpg"), Path("img2.jpg"), Path("img3.jpg")]
         start_time = 0.0
 
@@ -676,7 +551,7 @@ class TestBuildRegistrationResult:
 
     def test_build_registration_result_all_registered(self, worker):
         """すべてが登録された場合"""
-        stats = {"registered": 10, "skipped": 0, "errors": 0}
+        stats = {"registered": 10, "variant": 0, "skipped": 0, "errors": 0}
         processed_paths = [Path(f"img{i}.jpg") for i in range(10)]
         start_time = 0.0
 
@@ -691,7 +566,7 @@ class TestBuildRegistrationResult:
 
     def test_build_registration_result_all_skipped(self, worker):
         """すべてがスキップされた場合"""
-        stats = {"registered": 0, "skipped": 10, "errors": 0}
+        stats = {"registered": 0, "variant": 0, "skipped": 10, "errors": 0}
         processed_paths = []
         start_time = 0.0
 
@@ -705,7 +580,7 @@ class TestBuildRegistrationResult:
 
     def test_build_registration_result_all_errors(self, worker):
         """すべてがエラーになった場合"""
-        stats = {"registered": 0, "skipped": 0, "errors": 10}
+        stats = {"registered": 0, "variant": 0, "skipped": 0, "errors": 10}
         processed_paths = []
         start_time = 0.0
 
@@ -720,7 +595,7 @@ class TestBuildRegistrationResult:
 
     def test_build_registration_result_processing_time_recorded(self, worker):
         """処理時間が正確に記録されるか"""
-        stats = {"registered": 5, "skipped": 3, "errors": 2}
+        stats = {"registered": 5, "variant": 0, "skipped": 3, "errors": 2}
         processed_paths = [Path(f"img{i}.jpg") for i in range(5)]
         start_time = 10.0
 
@@ -733,7 +608,7 @@ class TestBuildRegistrationResult:
     def test_build_registration_result_processed_paths_included(self, worker):
         """processed_paths が正確に含まれるか"""
         processed_paths = [Path("img1.jpg"), Path("img2.jpg"), Path("img3.jpg")]
-        stats = {"registered": 3, "skipped": 0, "errors": 0}
+        stats = {"registered": 3, "variant": 0, "skipped": 0, "errors": 0}
         start_time = 0.0
 
         with patch("time.time", return_value=1.0):
@@ -745,7 +620,7 @@ class TestBuildRegistrationResult:
 
     def test_build_registration_result_info_log_output(self, worker):
         """INFO ログが出力されるか"""
-        stats = {"registered": 5, "skipped": 2, "errors": 1}
+        stats = {"registered": 5, "variant": 0, "skipped": 2, "errors": 1}
         processed_paths = [Path(f"img{i}.jpg") for i in range(5)]
         start_time = 0.0
 
@@ -767,7 +642,7 @@ class TestBuildRegistrationResult:
 
     def test_build_registration_result_info_log_only(self, worker):
         """INFO ログのみが出力されるか（DEBUG ログは出力されないか）"""
-        stats = {"registered": 3, "skipped": 1, "errors": 1}
+        stats = {"registered": 3, "variant": 0, "skipped": 1, "errors": 1}
         processed_paths = [Path(f"img{i}.jpg") for i in range(3)]
         start_time = 0.0
 
@@ -785,7 +660,7 @@ class TestBuildRegistrationResult:
 
     def test_build_registration_result_empty_result(self, worker):
         """空の結果を処理"""
-        stats = {"registered": 0, "skipped": 0, "errors": 0}
+        stats = {"registered": 0, "variant": 0, "skipped": 0, "errors": 0}
         processed_paths = []
         start_time = 0.0
 
@@ -800,7 +675,7 @@ class TestBuildRegistrationResult:
 
     def test_build_registration_result_type_validation(self, worker):
         """返却値が DatabaseRegistrationResult 型で、すべてのフィールドが存在するか"""
-        stats = {"registered": 2, "skipped": 1, "errors": 1}
+        stats = {"registered": 2, "variant": 0, "skipped": 1, "errors": 1}
         processed_paths = [Path("img1.jpg"), Path("img2.jpg")]
         start_time = 0.0
 
@@ -810,8 +685,9 @@ class TestBuildRegistrationResult:
         # 型チェック
         assert isinstance(result, DatabaseRegistrationResult)
 
-        # すべてのフィールドが存在するか
+        # すべてのフィールドが存在するか (#633: variant_count を追加)
         assert hasattr(result, "registered_count")
+        assert hasattr(result, "variant_count")
         assert hasattr(result, "skipped_count")
         assert hasattr(result, "error_count")
         assert hasattr(result, "processed_paths")
@@ -819,10 +695,24 @@ class TestBuildRegistrationResult:
 
         # フィールドの型チェック
         assert isinstance(result.registered_count, int)
+        assert isinstance(result.variant_count, int)
         assert isinstance(result.skipped_count, int)
         assert isinstance(result.error_count, int)
         assert isinstance(result.processed_paths, list)
         assert isinstance(result.total_processing_time, float)
+
+    def test_build_registration_result_counts_variants(self, worker):
+        """#633: variant 統計が variant_count に反映される。"""
+        stats = {"registered": 4, "variant": 3, "skipped": 1, "errors": 0}
+        processed_paths = [Path(f"img{i}.jpg") for i in range(7)]
+        start_time = 0.0
+
+        with patch("time.time", return_value=1.0):
+            result = worker._build_registration_result(stats, processed_paths, start_time)
+
+        assert result.registered_count == 4
+        assert result.variant_count == 3
+        assert result.skipped_count == 1
 
 
 class TestRegistrationErrorHandling:
@@ -1030,21 +920,28 @@ class TestRegistrationErrorHandling:
 
         mock_fsm.get_image_files.return_value = [image_file]
 
+        # #633: 重複時の関連ファイル取り込みは統一エントリ register_image_with_side_effects
+        # 内の _import_associated_files が担う。register_original_image を重複扱いにして
+        # 実 entry を通すことで、save_tags/save_captions が既存 ID へ呼ばれることを確認する。
         with (
-            patch.object(real_db_manager, "detect_duplicate_image") as mock_detect,
+            patch.object(real_db_manager, "register_original_image") as mock_register,
             patch.object(real_db_manager, "save_tags") as mock_save_tags,
             patch.object(real_db_manager, "save_captions") as mock_save_captions,
+            patch.object(real_db_manager.image_repo, "add_filename_alias") as mock_alias,
         ):
-            # 重複画像を返す（image_id = 999）
-            mock_detect.return_value = 999
+            # 重複画像を返す（既存 image_id = 999, classification=duplicate）
+            mock_register.return_value = (999, {"phash_classification": "duplicate"})
 
             worker = DatabaseRegistrationWorker(temp_dir, real_db_manager, mock_fsm)
             result = worker.execute()
 
-            # 重複時でも _process_associated_files() が呼ばれることを確認
-            # （タグとキャプションが処理される）
+            # 重複時でも関連ファイルが既存 ID(999) へ取り込まれることを確認
             mock_save_tags.assert_called_once()
+            assert mock_save_tags.call_args[0][0] == 999
             mock_save_captions.assert_called_once()
+            assert mock_save_captions.call_args[0][0] == 999
+            # 重複時は filename alias が登録される
+            mock_alias.assert_called_once()
             # スキップ数が増加することを確認
             assert result.skipped_count == 1
 
@@ -1059,7 +956,7 @@ class TestRegistrationErrorHandling:
         mock_fsm.get_image_files.return_value = [image_file]
 
         with (
-            patch.object(real_db_manager, "detect_duplicate_image") as mock_detect,
+            patch.object(real_db_manager, "register_original_image") as mock_register,
             patch.object(real_db_manager, "save_tags"),
             patch.object(real_db_manager, "save_captions"),
             patch.object(
@@ -1068,7 +965,9 @@ class TestRegistrationErrorHandling:
                 side_effect=SQLAlchemyError("table not found"),
             ),
         ):
-            mock_detect.return_value = 999
+            # 重複扱い（既存 ID=999）。alias 登録は SQLAlchemyError で失敗するが
+            # _register_filename_alias が握り潰すため skipped 集計は継続する (#633)。
+            mock_register.return_value = (999, {"phash_classification": "duplicate"})
 
             worker = DatabaseRegistrationWorker(temp_dir, real_db_manager, mock_fsm)
             result = worker.execute()
@@ -1127,235 +1026,161 @@ class TestRegistrationErrorHandling:
             assert mock_batch.call_count == 3
 
 
-class TestRegisterSingleImageUnits:
-    """_register_single_image() の詳細単体テスト（10個のテストケース）"""
+class TestRegisterImageWithSideEffects:
+    """register_image_with_side_effects() の副作用統一テスト (ADR 0061 §4, #633)。
+
+    旧 TestRegisterSingleImageUnits の関連ファイル取り込み詳細は、責務が
+    db_manager の統一エントリへ移ったため本クラスへ移設した。
+    """
 
     @pytest.fixture
     def temp_dir(self):
-        """一時ディレクトリ"""
         with tempfile.TemporaryDirectory() as tmp_dir:
             yield Path(tmp_dir)
 
     @pytest.fixture
-    def worker_setup(self, temp_dir):
-        """worker と mock オブジェクトのセットアップ"""
-        mock_db_manager = Mock(spec=ImageDatabaseManager)
+    def manager_setup(self):
+        """register_original_image をモックした ImageDatabaseManager。"""
+        mock_image_repo = Mock()
+        manager = ImageDatabaseManager(config_service=ConfigurationService(), image_repo=mock_image_repo)
+        manager.save_tags = Mock()
+        manager.save_captions = Mock()
         mock_fsm = Mock(spec=FileSystemManager)
+        return manager, mock_image_repo, mock_fsm
 
-        worker = DatabaseRegistrationWorker(temp_dir, mock_db_manager, mock_fsm)
+    def _patch_register(self, manager, return_value):
+        return patch.object(manager, "register_original_image", return_value=return_value)
 
-        # ループ内のスロットリング付き進捗報告をモック
-        worker._report_batch_progress_throttled = Mock()
-        worker._report_progress_throttled = Mock()
+    def test_new_image_imports_into_new_id_no_alias(self, temp_dir, manager_setup):
+        """新規画像 → REGISTERED、関連ファイルを新規 ID へ取り込み、alias は登録しない。"""
+        from lorairo.database.db_manager import RegistrationOutcome
 
-        return worker, mock_db_manager, mock_fsm
+        manager, mock_image_repo, mock_fsm = manager_setup
+        image_path = temp_dir / "new.jpg"
+        image_path.write_bytes(b"fake")
+        (temp_dir / "new.txt").write_text("tag1, tag2", encoding="utf-8")
 
-    def test_new_image_registration(self, temp_dir, worker_setup):
-        """1. 新規画像（重複なし）を登録し、image_id > 0、processed_paths に追加"""
-        worker, mock_db_manager, _ = worker_setup
-        image_path = temp_dir / "test.jpg"
-        image_path.write_bytes(b"fake_image")
+        with self._patch_register(manager, (5, {"phash_classification": "new"})):
+            result = manager.register_image_with_side_effects(image_path, mock_fsm)
 
-        mock_db_manager.detect_duplicate_image.return_value = None
-        mock_db_manager.register_original_image.return_value = (42, {"id": 42})
+        assert result.outcome is RegistrationOutcome.REGISTERED
+        assert result.image_id == 5
+        manager.save_tags.assert_called_once()
+        assert manager.save_tags.call_args[0][0] == 5
+        mock_image_repo.add_filename_alias.assert_not_called()
 
-        with patch.object(worker, "file_reader") as mock_file_reader:
-            mock_file_reader.get_existing_annotations.return_value = None
+    def test_variant_imports_into_variant_id_no_alias(self, temp_dir, manager_setup):
+        """別版 → VARIANT、関連ファイルを別版(新規)ID へ取り込み、alias は登録しない。"""
+        from lorairo.database.db_manager import RegistrationOutcome
 
-            result_type, image_id = worker._register_single_image(image_path, 0, 10)
+        manager, mock_image_repo, mock_fsm = manager_setup
+        image_path = temp_dir / "variant.jpg"
+        image_path.write_bytes(b"fake")
+        (temp_dir / "variant.caption").write_text("a caption", encoding="utf-8")
 
-            assert result_type == "registered"
-            assert image_id == 42
-            assert image_id > 0
-            mock_db_manager.register_original_image.assert_called_once()
+        with self._patch_register(manager, (8, {"phash_classification": "variant"})):
+            result = manager.register_image_with_side_effects(image_path, mock_fsm)
 
-    def test_duplicate_detection_skips(self, temp_dir, worker_setup):
-        """2. 重複検出 → skipped、関連ファイル処理が呼ばれる"""
-        worker, mock_db_manager, _ = worker_setup
-        image_path = temp_dir / "duplicate.jpg"
-        image_path.write_bytes(b"fake_image")
+        assert result.outcome is RegistrationOutcome.VARIANT
+        assert result.image_id == 8
+        manager.save_captions.assert_called_once()
+        assert manager.save_captions.call_args[0][0] == 8
+        mock_image_repo.add_filename_alias.assert_not_called()
 
-        mock_db_manager.detect_duplicate_image.return_value = 99
-        mock_db_manager.image_repo = Mock()
-        mock_db_manager.annotation_repo = Mock()
+    def test_duplicate_imports_into_existing_id_with_alias(self, temp_dir, manager_setup):
+        """重複 → DUPLICATE、関連ファイルを既存 ID へ取り込み、alias を登録する。"""
+        from lorairo.database.db_manager import RegistrationOutcome
 
-        with (
-            patch.object(worker, "file_reader") as mock_file_reader,
-            patch.object(worker, "_process_associated_files") as mock_process,
-        ):
-            mock_file_reader.get_existing_annotations.return_value = None
+        manager, mock_image_repo, mock_fsm = manager_setup
+        image_path = temp_dir / "dup.jpg"
+        image_path.write_bytes(b"fake")
+        (temp_dir / "dup.txt").write_text("t1", encoding="utf-8")
 
-            result_type, image_id = worker._register_single_image(image_path, 0, 10)
+        with self._patch_register(manager, (99, {"phash_classification": "duplicate"})):
+            result = manager.register_image_with_side_effects(image_path, mock_fsm)
 
-            assert result_type == "skipped"
-            assert image_id == 99
-            mock_process.assert_called_once_with(image_path, 99, annotations=None, tag_id_cache=None)
-            mock_db_manager.register_original_image.assert_not_called()
+        assert result.outcome is RegistrationOutcome.DUPLICATE
+        assert result.image_id == 99
+        manager.save_tags.assert_called_once()
+        assert manager.save_tags.call_args[0][0] == 99
+        mock_image_repo.add_filename_alias.assert_called_once_with(99, "dup")
 
-    def test_no_associated_files(self, temp_dir, worker_setup):
-        """3. .txt/.caption 不在 → DB登録、_process_associated_files called で早期 return"""
-        worker, mock_db_manager, _ = worker_setup
-        image_path = temp_dir / "no_files.jpg"
-        image_path.write_bytes(b"fake_image")
+    def test_failed_registration_returns_failed_no_side_effects(self, temp_dir, manager_setup):
+        """register_original_image が None → FAILED、副作用なし。"""
+        from lorairo.database.db_manager import RegistrationOutcome
 
-        mock_db_manager.detect_duplicate_image.return_value = None
-        mock_db_manager.register_original_image.return_value = (1, {"id": 1})
-
-        with (
-            patch.object(worker, "file_reader") as mock_file_reader,
-            patch.object(worker, "_process_associated_files") as mock_process,
-        ):
-            mock_file_reader.get_existing_annotations.return_value = None
-
-            result_type, _image_id = worker._register_single_image(image_path, 0, 10)
-
-            assert result_type == "registered"
-            # _process_associated_files は呼ばれるが、内部で None チェックして早期return
-            mock_process.assert_called_once_with(image_path, 1, annotations=None, tag_id_cache=None)
-
-    def test_tags_file_only(self, temp_dir, worker_setup):
-        """4. .txt のみ存在 → タグ処理、キャプション処理なし"""
-        worker, mock_db_manager, _ = worker_setup
-        image_path = temp_dir / "tags_only.jpg"
-        image_path.write_bytes(b"fake_image")
-
-        mock_db_manager.detect_duplicate_image.return_value = None
-        mock_db_manager.register_original_image.return_value = (1, {"id": 1})
-
-        with patch.object(worker, "file_reader") as mock_file_reader:
-            mock_file_reader.get_existing_annotations.return_value = {
-                "tags": ["tag1", "tag2"],
-                "captions": [],
-            }
-
-            result_type, _image_id = worker._register_single_image(image_path, 0, 10)
-
-            assert result_type == "registered"
-            mock_db_manager.save_tags.assert_called_once()
-            mock_db_manager.save_captions.assert_not_called()
-
-    def test_captions_file_only(self, temp_dir, worker_setup):
-        """5. .caption のみ存在 → キャプション処理、タグ処理なし"""
-        worker, mock_db_manager, _ = worker_setup
-        image_path = temp_dir / "captions_only.jpg"
-        image_path.write_bytes(b"fake_image")
-
-        mock_db_manager.detect_duplicate_image.return_value = None
-        mock_db_manager.register_original_image.return_value = (1, {"id": 1})
-
-        with patch.object(worker, "file_reader") as mock_file_reader:
-            mock_file_reader.get_existing_annotations.return_value = {
-                "tags": [],
-                "captions": ["test caption"],
-            }
-
-            result_type, _image_id = worker._register_single_image(image_path, 0, 10)
-
-            assert result_type == "registered"
-            mock_db_manager.save_tags.assert_not_called()
-            mock_db_manager.save_captions.assert_called_once()
-
-    def test_db_registration_returns_none(self, temp_dir, worker_setup):
-        """6. register_original_image() が None → error、image_id = -1"""
-        worker, mock_db_manager, _ = worker_setup
+        manager, mock_image_repo, mock_fsm = manager_setup
         image_path = temp_dir / "fail.jpg"
-        image_path.write_bytes(b"fake_image")
+        image_path.write_bytes(b"fake")
+        (temp_dir / "fail.txt").write_text("t1", encoding="utf-8")
 
-        mock_db_manager.detect_duplicate_image.return_value = None
-        mock_db_manager.register_original_image.return_value = None
+        with self._patch_register(manager, None):
+            result = manager.register_image_with_side_effects(image_path, mock_fsm)
 
-        with patch.object(worker, "file_reader") as mock_file_reader:
-            mock_file_reader.get_existing_annotations.return_value = None
+        assert result.outcome is RegistrationOutcome.FAILED
+        assert result.image_id is None
+        manager.save_tags.assert_not_called()
+        mock_image_repo.add_filename_alias.assert_not_called()
 
-            result_type, image_id = worker._register_single_image(image_path, 0, 10)
+    def test_no_associated_files_skips_imports(self, temp_dir, manager_setup):
+        """関連ファイル不在 → REGISTERED だが save は呼ばれない。"""
+        from lorairo.database.db_manager import RegistrationOutcome
 
-            assert result_type == "error"
-            assert image_id == -1
+        manager, _mock_image_repo, mock_fsm = manager_setup
+        image_path = temp_dir / "lonely.jpg"
+        image_path.write_bytes(b"fake")
 
-    def test_progress_helper_call(self, temp_dir, worker_setup):
-        """7. ProgressHelper.calculate_percentage() が 10-85% 範囲で呼ばれる"""
-        worker, mock_db_manager, _ = worker_setup
-        image_path = temp_dir / "progress.jpg"
-        image_path.write_bytes(b"fake_image")
+        with self._patch_register(manager, (1, {"phash_classification": "new"})):
+            result = manager.register_image_with_side_effects(image_path, mock_fsm)
 
-        mock_db_manager.detect_duplicate_image.return_value = None
-        mock_db_manager.register_original_image.return_value = (1, {"id": 1})
+        assert result.outcome is RegistrationOutcome.REGISTERED
+        manager.save_tags.assert_not_called()
+        manager.save_captions.assert_not_called()
 
-        with (
-            patch.object(worker, "file_reader") as mock_file_reader,
-            patch(
-                "lorairo.gui.workers.registration_worker.ProgressHelper.calculate_percentage"
-            ) as mock_calc,
-        ):
-            mock_file_reader.get_existing_annotations.return_value = None
-            mock_calc.return_value = 45
+    def test_multiple_tags_parsed_into_tag_data(self, temp_dir, manager_setup):
+        """複数タグが TagAnnotationData として save_tags に渡る。"""
+        manager, _mock_image_repo, mock_fsm = manager_setup
+        image_path = temp_dir / "multi.jpg"
+        image_path.write_bytes(b"fake")
+        (temp_dir / "multi.txt").write_text("tag1, tag2, tag3", encoding="utf-8")
 
-            _result_type, _image_id = worker._register_single_image(image_path, 5, 100)
+        with self._patch_register(manager, (1, {"phash_classification": "new"})):
+            manager.register_image_with_side_effects(image_path, mock_fsm)
 
-            mock_calc.assert_called_once_with(6, 100, 10, 85)
+        manager.save_tags.assert_called_once()
+        tags_data = manager.save_tags.call_args[0][1]
+        assert [t["tag"] for t in tags_data] == ["tag1", "tag2", "tag3"]
+        assert all(t["existing"] is True for t in tags_data)
+        assert all(t["is_edited_manually"] is False for t in tags_data)
 
-    def test_batch_progress_reporting(self, temp_dir, worker_setup):
-        """8. _report_batch_progress_throttled() が (i+1, total_count, image_path.name) で呼ばれる"""
-        worker, mock_db_manager, _ = worker_setup
-        image_path = temp_dir / "batch_report.jpg"
-        image_path.write_bytes(b"fake_image")
+    def test_preloaded_annotations_used_without_file_read(self, temp_dir, manager_setup):
+        """事前読み込み annotations が渡された場合はそれを使う (ファイル不在でも保存)。"""
+        manager, _mock_image_repo, mock_fsm = manager_setup
+        image_path = temp_dir / "preloaded.jpg"
+        image_path.write_bytes(b"fake")  # .txt は作らない
 
-        mock_db_manager.detect_duplicate_image.return_value = None
-        mock_db_manager.register_original_image.return_value = (1, {"id": 1})
-
-        with patch.object(worker, "file_reader") as mock_file_reader:
-            mock_file_reader.get_existing_annotations.return_value = None
-
-            worker._register_single_image(image_path, 7, 50)
-
-            worker._report_batch_progress_throttled.assert_called_once_with(
-                8, 50, "batch_report.jpg", force_emit=False
+        annotations = {"tags": ["pre1"], "captions": ["precap"]}
+        with self._patch_register(manager, (3, {"phash_classification": "new"})):
+            manager.register_image_with_side_effects(
+                image_path, mock_fsm, associated_annotations=annotations
             )
 
-    def test_associated_files_error_handling(self, temp_dir, worker_setup):
-        """9. save_tags() で例外 → エラーログ出力、処理継続"""
-        worker, mock_db_manager, _ = worker_setup
-        image_path = temp_dir / "error.jpg"
-        image_path.write_bytes(b"fake_image")
+        manager.save_tags.assert_called_once()
+        manager.save_captions.assert_called_once()
 
-        mock_db_manager.detect_duplicate_image.return_value = None
-        mock_db_manager.register_original_image.return_value = (1, {"id": 1})
-        mock_db_manager.save_tags.side_effect = ValueError("Tag save failed")
+    def test_alias_failure_does_not_break_outcome(self, temp_dir, manager_setup):
+        """alias 登録の SQLAlchemyError は握り潰され outcome は DUPLICATE のまま。"""
+        from sqlalchemy.exc import SQLAlchemyError
 
-        with patch.object(worker, "file_reader") as mock_file_reader:
-            mock_file_reader.get_existing_annotations.return_value = {
-                "tags": ["tag1"],
-                "captions": [],
-            }
+        from lorairo.database.db_manager import RegistrationOutcome
 
-            with pytest.raises(ValueError, match="Tag save failed"):
-                worker._register_single_image(image_path, 0, 10)
+        manager, mock_image_repo, mock_fsm = manager_setup
+        mock_image_repo.add_filename_alias.side_effect = SQLAlchemyError("no table")
+        image_path = temp_dir / "dup2.jpg"
+        image_path.write_bytes(b"fake")
 
-    def test_multiple_tags_parsing(self, temp_dir, worker_setup):
-        """10. "tag1, tag2, tag3" → 3個の TagAnnotationData が save_tags に渡される"""
-        worker, mock_db_manager, _ = worker_setup
-        image_path = temp_dir / "multi_tags.jpg"
-        image_path.write_bytes(b"fake_image")
+        with self._patch_register(manager, (7, {"phash_classification": "duplicate"})):
+            result = manager.register_image_with_side_effects(image_path, mock_fsm)
 
-        mock_db_manager.detect_duplicate_image.return_value = None
-        mock_db_manager.register_original_image.return_value = (1, {"id": 1})
-
-        with patch.object(worker, "file_reader") as mock_file_reader:
-            mock_file_reader.get_existing_annotations.return_value = {
-                "tags": ["tag1", "tag2", "tag3"],
-                "captions": [],
-            }
-
-            result_type, _image_id = worker._register_single_image(image_path, 0, 10)
-
-            assert result_type == "registered"
-            mock_db_manager.save_tags.assert_called_once()
-            call_args = mock_db_manager.save_tags.call_args
-            tags_data = call_args[0][1]
-
-            assert len(tags_data) == 3
-            assert tags_data[0]["tag"] == "tag1"
-            assert tags_data[1]["tag"] == "tag2"
-            assert tags_data[2]["tag"] == "tag3"
-            assert all(t["existing"] is True for t in tags_data)
-            assert all(t["is_edited_manually"] is False for t in tags_data)
+        assert result.outcome is RegistrationOutcome.DUPLICATE
+        assert result.image_id == 7

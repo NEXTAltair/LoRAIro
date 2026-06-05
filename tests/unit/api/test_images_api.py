@@ -140,6 +140,46 @@ class TestRegisterImages:
 
 
 @pytest.mark.unit
+class TestRegisterIntoDb:
+    """_register_into_db の outcome→統計マッピング (#633, codex P2: include-duplicates)。"""
+
+    def _db_with_outcomes(self, outcomes):
+        from unittest.mock import Mock
+
+        from lorairo.database.db_manager import RegistrationOutcome, RegistrationSideEffectResult
+
+        db = Mock()
+        db.register_image_with_side_effects.side_effect = [
+            RegistrationSideEffectResult(o, None if o is RegistrationOutcome.FAILED else 1, None)
+            for o in outcomes
+        ]
+        return db
+
+    def test_skip_duplicates_true_counts_duplicate_as_skipped(self) -> None:
+        from unittest.mock import Mock
+
+        from lorairo.api.images import _register_into_db
+        from lorairo.database.db_manager import RegistrationOutcome
+
+        db = self._db_with_outcomes([RegistrationOutcome.REGISTERED, RegistrationOutcome.DUPLICATE])
+        result = _register_into_db(db, Mock(), [Path("a.jpg"), Path("b.jpg")], skip_duplicates=True)
+        assert result.successful == 1
+        assert result.skipped == 1
+
+    def test_skip_duplicates_false_counts_duplicate_as_successful(self) -> None:
+        """#633 (codex P2): --include-duplicates では重複を既存参照の成功として数える。"""
+        from unittest.mock import Mock
+
+        from lorairo.api.images import _register_into_db
+        from lorairo.database.db_manager import RegistrationOutcome
+
+        db = self._db_with_outcomes([RegistrationOutcome.REGISTERED, RegistrationOutcome.DUPLICATE])
+        result = _register_into_db(db, Mock(), [Path("a.jpg"), Path("b.jpg")], skip_duplicates=False)
+        assert result.successful == 2
+        assert result.skipped == 0
+
+
+@pytest.mark.unit
 @pytest.mark.usefixtures("_reset_service_container")
 class TestDetectDuplicateImages:
     """detect_duplicate_images API テスト。"""

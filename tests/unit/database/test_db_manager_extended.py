@@ -452,10 +452,10 @@ class TestHandleDuplicateImage:
 
         assert result[0] == 3
 
-    def test_returns_empty_metadata_when_not_found(
+    def test_returns_classification_only_metadata_when_not_found(
         self, manager: ImageDatabaseManager, mock_image_repo: Mock
     ) -> None:
-        """既存メタデータが取得できない場合、空辞書で返す。"""
+        """既存メタデータが取得できない場合でも、phash_classification は付加される (#633)。"""
         mock_fsm = Mock()
         mock_image_repo.get_processed_image.return_value = None
         # 最初の get_image_metadata (512px 生成用): None
@@ -465,7 +465,8 @@ class TestHandleDuplicateImage:
         result = manager._handle_duplicate_image(3, Path("/data/img.jpg"), mock_fsm)
 
         assert result[0] == 3
-        assert result[1] == {}
+        # 重複時は phash_classification="duplicate" が付加される (副作用の分類結果駆動)
+        assert result[1] == {"phash_classification": "duplicate"}
 
 
 # ---------------------------------------------------------------------------
@@ -1192,7 +1193,12 @@ class TestHandleDuplicateImageCheckException:
             result = manager._handle_duplicate_image(3, Path("/data/img.jpg"), mock_fsm)
 
         assert result[0] == 3
-        assert result[1] == {"id": 3, "stored_image_path": "/s/o.jpg"}
+        # #633: 重複時は phash_classification="duplicate" が付加される
+        assert result[1] == {
+            "id": 3,
+            "stored_image_path": "/s/o.jpg",
+            "phash_classification": "duplicate",
+        }
 
 
 # ---------------------------------------------------------------------------

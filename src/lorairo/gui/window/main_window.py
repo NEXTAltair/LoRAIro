@@ -879,10 +879,13 @@ class MainWindow(QMainWindow, Ui_MainWindow):
 
         if raw_results and isinstance(raw_results, dict):
             try:
-                phash_to_image_id = self.db_manager.image_repo.find_image_ids_by_phashes(
+                # #633: 同一 pHash に別版 (複数 image_id) が紐づき得るため、全 image_id を更新する。
+                phash_to_image_ids = self.db_manager.image_repo.find_image_ids_by_phashes_multi(
                     set(raw_results.keys())
                 )
-                image_ids = [img_id for img_id in phash_to_image_id.values() if img_id is not None]
+                image_ids = [
+                    img_id for ids in phash_to_image_ids.values() for img_id in ids if img_id is not None
+                ]
 
                 if image_ids:
                     self.dataset_state_manager.refresh_images(image_ids)

@@ -1,7 +1,9 @@
 """DBマネージャー (高レベルインターフェース)"""
 
 import uuid
+from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
+from enum import StrEnum
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -30,6 +32,41 @@ from .schema import (
 
 if TYPE_CHECKING:
     from ..services.configuration_service import ConfigurationService
+
+
+class RegistrationOutcome(StrEnum):
+    """画像登録の最終 outcome 分類 (ADR 0061 §4, #633)。
+
+    pHash 分類結果 (`PhashClassification`) を全登録経路で同じ意味の統計値に
+    マッピングするための outcome。GUI worker / API / direct のいずれも本 enum を
+    起点に `registered` / `variant` / `skipped` / `failed` を集計する。
+
+    - ``REGISTERED``: 新規画像 (候補なし) を新規行として登録した。
+    - ``VARIANT``: 同一 pHash だが属性差のある別版を新規行として登録した。
+    - ``DUPLICATE``: 既存画像と同一と判定し、既存行へ寄せた (新規行を作らない)。
+    - ``FAILED``: 入力起因のスキップ (デコード失敗 / 保存失敗等) で登録できなかった。
+    """
+
+    REGISTERED = "registered"
+    VARIANT = "variant"
+    DUPLICATE = "duplicate"
+    FAILED = "failed"
+
+
+@dataclass(frozen=True)
+class RegistrationSideEffectResult:
+    """統一登録エントリの結果 (ADR 0061 §4, #633)。
+
+    Attributes:
+        outcome: 登録 outcome 分類。
+        image_id: 関連付けられた画像 ID。失敗時は ``None``。
+            duplicate は既存 ID、variant / registered は新規 ID。
+        metadata: 画像メタデータ。失敗時は ``None``。
+    """
+
+    outcome: RegistrationOutcome
+    image_id: int | None
+    metadata: dict[str, Any] | None
 
 
 class ImageDatabaseManager:
@@ -279,6 +316,169 @@ class ImageDatabaseManager:
         # 4. 新規 / 別版: 保存 + 挿入 + サムネイル生成を委譲する (ADR 0061 §3)
         return self._persist_new_or_variant(image_path, fsm, original_metadata, phash, classification)
 
+    def register_image_with_side_effects(
+        self,
+        image_path: Path,
+        fsm: FileSystemManager,
+        *,
+        associated_annotations: dict[str, Any] | None = None,
+        tag_id_cache: dict[str, int | None] | None = None,
+    ) -> RegistrationSideEffectResult:
+        """画像を登録し、分類結果駆動の副作用を全経路統一ルールで適用する (ADR 0061 §4, #633)。
+
+        重複 / 別版 / 新規それぞれの副作用 (関連 ``.txt`` / ``.caption`` の取り込み先・
+        filename alias 登録・512px 生成) を本メソッド 1 箇所で定義する。GUI worker /
+        API / direct のいずれの登録経路もこのエントリへ寄せることで、同一入力に対し
+        同一の副作用と統計値が得られる。
+
+        副作用ルール:
+        - **新規 (registered)**: 新規行を作り、関連ファイルを新規 ID へ取り込む。
+          512px はオリジナル登録時に生成済み。alias は登録しない。
+        - **別版 (variant)**: 同一 pHash でも新規行を作り、関連ファイルは
+          *別版レコード* (新規 ID) へ取り込む。alias は登録しない。
+        - **重複 (duplicate)**: 既存行へ寄せ、関連ファイルは *既存レコード* へ
+          取り込む。バッチインポート照合用に filename alias を登録する。
+        - **失敗 (failed)**: 何も取り込まず outcome=FAILED を返す。
+
+        Args:
+            image_path: 登録対象の画像パス。
+            fsm: ファイルシステム操作用マネージャー。
+            associated_annotations: 事前読み込み済みの関連アノテーション
+                (``ExistingFileReader.get_existing_annotations`` の戻り値)。
+                None の場合は本メソッド内で読み込む。
+            tag_id_cache: 正規化済みタグ → tag_id のキャッシュ (N+1 回避用)。
+
+        Returns:
+            RegistrationSideEffectResult: outcome / image_id / metadata。
+
+        Raises:
+            SQLAlchemyError: DB 操作に失敗した場合は呼び出し元 (Worker boundary) に
+                伝播させる。
+
+        """
+        result = self.register_original_image(image_path, fsm)
+        if result is None:
+            logger.error(f"画像登録失敗: {image_path}")
+            return RegistrationSideEffectResult(RegistrationOutcome.FAILED, None, None)
+
+        image_id, metadata = result
+        classification = metadata.get("phash_classification")
+        outcome = self._classification_to_outcome(classification)
+
+        # 関連 .txt / .caption を分類結果に従った image_id へ取り込む。
+        # variant は新規 ID、duplicate は既存 ID。いずれも result の image_id がターゲット。
+        self._import_associated_files(
+            image_path,
+            image_id,
+            annotations=associated_annotations,
+            tag_id_cache=tag_id_cache,
+        )
+
+        # filename alias は重複時のみ登録する (バッチインポートの custom_id 照合用)。
+        # 別版 / 新規は自身の filename を持つため alias 不要。
+        if outcome is RegistrationOutcome.DUPLICATE:
+            self._register_filename_alias(image_id, image_path.stem)
+
+        return RegistrationSideEffectResult(outcome, image_id, metadata)
+
+    @staticmethod
+    def _classification_to_outcome(classification: object) -> RegistrationOutcome:
+        """pHash 分類結果文字列を登録 outcome へマッピングする (#633)。
+
+        Args:
+            classification: ``metadata["phash_classification"]`` の値
+                (``"duplicate"`` / ``"variant"`` / ``"new"`` または欠落)。
+
+        Returns:
+            対応する RegistrationOutcome。未知 / 欠落は REGISTERED 扱い。
+
+        """
+        if classification == PhashClassification.DUPLICATE.value:
+            return RegistrationOutcome.DUPLICATE
+        if classification == PhashClassification.VARIANT.value:
+            return RegistrationOutcome.VARIANT
+        return RegistrationOutcome.REGISTERED
+
+    def _register_filename_alias(self, image_id: int, stem: str) -> None:
+        """filename alias を登録する。DB 未初期化等の失敗は握り潰す (#633)。
+
+        重複スキップ画像の filename をバッチインポートの custom_id 照合に使えるよう
+        登録する。失敗しても登録 outcome は変わらないため warning に落として続行する。
+
+        Args:
+            image_id: alias を紐付ける画像 ID。
+            stem: 登録するファイル名 stem。
+
+        """
+        try:
+            self.image_repo.add_filename_alias(image_id, stem)
+        except SQLAlchemyError as e:
+            logger.warning(f"エイリアス登録失敗 (登録 outcome は継続): {stem}, {e}")
+
+    def _import_associated_files(
+        self,
+        image_path: Path,
+        image_id: int,
+        *,
+        annotations: dict[str, Any] | None = None,
+        tag_id_cache: dict[str, int | None] | None = None,
+    ) -> None:
+        """画像に関連する .txt / .caption を読み込み、指定 image_id へ保存する (#633)。
+
+        分類結果駆動の副作用統一 (ADR 0061 §4) の取り込み実体。GUI worker /
+        API / direct のいずれの経路もこの 1 箇所を通すことで取り込み先 (image_id) と
+        挙動を揃える。
+
+        Args:
+            image_path: 関連ファイル探索の起点となる画像パス。
+            image_id: 取り込み先の画像 ID (分類結果に従い caller が解決済み)。
+            annotations: 事前読み込み済みアノテーション。None なら本メソッドで読む。
+            tag_id_cache: 正規化済みタグ → tag_id のキャッシュ。
+
+        """
+        from ..annotations.existing_file_reader import ExistingFileReader
+
+        if annotations is None:
+            annotations = ExistingFileReader().get_existing_annotations(image_path)
+        if not annotations:
+            return
+
+        from genai_tag_db_tools.utils.cleanup_str import TagCleaner
+
+        raw_tags = annotations.get("tags", [])
+        tags = [tag for tag in raw_tags if isinstance(tag, str)] if isinstance(raw_tags, list) else []
+        if tags:
+            tags_data: list[TagAnnotationData] = [
+                {
+                    "tag_id": (
+                        tag_id_cache.get(TagCleaner.clean_format(tag).strip()) if tag_id_cache else None
+                    ),
+                    "model_id": None,
+                    "tag": tag,
+                    "confidence_score": None,
+                    "existing": True,
+                    "is_edited_manually": False,
+                }
+                for tag in tags
+            ]
+            self.save_tags(image_id, tags_data)
+            logger.debug(f"関連タグを取り込み: {image_path.name} - {len(tags)}件 (ID={image_id})")
+
+        raw_captions = annotations.get("captions", [])
+        captions = [c for c in raw_captions if isinstance(c, str)] if isinstance(raw_captions, list) else []
+        if captions:
+            captions_data: list[CaptionAnnotationData] = [
+                {
+                    "model_id": None,
+                    "caption": caption,
+                    "existing": False,
+                    "is_edited_manually": False,
+                }
+                for caption in captions
+            ]
+            self.save_captions(image_id, captions_data)
+            logger.debug(f"関連キャプションを取り込み: {image_path.name} (ID={image_id})")
+
     def _persist_new_or_variant(
         self,
         image_path: Path,
@@ -420,6 +620,10 @@ class ImageDatabaseManager:
         if existing_metadata is None:
             logger.warning(f"既存画像のメタデータが取得できませんでした: ID={existing_id}")
             existing_metadata = {}
+
+        # 重複時も分類結果を metadata に付加する (#633: 副作用の分類結果駆動)。
+        # 全経路の呼び出し元が phash_classification キーで outcome を判定できるようにする。
+        existing_metadata["phash_classification"] = PhashClassification.DUPLICATE.value
 
         logger.debug(f"重複画像のメタデータを返します: ID={existing_id}")
         return existing_id, existing_metadata

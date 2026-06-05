@@ -54,6 +54,8 @@ class ResultHandlerService:
             # Extract results from DatabaseRegistrationResult
             if hasattr(result, "registered_count"):
                 registered = result.registered_count
+                # #633: variant (別版登録) を統計に追加。旧 result との後方互換で getattr。
+                variant = getattr(result, "variant_count", 0)
                 skipped = result.skipped_count
                 errors = result.error_count
                 processing_time = result.total_processing_time
@@ -63,10 +65,16 @@ class ResultHandlerService:
                     completion_signal.emit(registered)
 
                 # 非ブロッキング通知でUIクラッシュを防止
-                status_msg = f"バッチ登録完了: 登録={registered}件, スキップ={skipped}件, エラー={errors}件, 処理時間={processing_time:.1f}秒"
+                status_msg = (
+                    f"バッチ登録完了: 登録={registered}件, 別版={variant}件, "
+                    f"スキップ={skipped}件, エラー={errors}件, 処理時間={processing_time:.1f}秒"
+                )
                 if status_bar:
                     status_bar.showMessage(status_msg, 8000)  # 8秒表示
-                logger.info(f"バッチ登録統計: 登録={registered}, スキップ={skipped}, エラー={errors}")
+                logger.info(
+                    f"バッチ登録統計: 登録={registered}, 別版={variant}, "
+                    f"スキップ={skipped}, エラー={errors}"
+                )
 
             else:
                 # Fallback for unexpected result format

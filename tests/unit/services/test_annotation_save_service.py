@@ -20,6 +20,7 @@ def mock_repository() -> MagicMock:
     機能する。すべての操作が同じ Mock を経由するため既存テストの assert はそのまま通る)。"""
     repo = MagicMock()
     repo.find_image_ids_by_phashes.return_value = {}
+    repo.find_image_ids_by_phashes_multi.return_value = {}
     repo.get_models_by_litellm_ids.return_value = {}
     repo.batch_resolve_tag_ids.return_value = {}
     return repo
@@ -91,7 +92,7 @@ def test_save_annotation_results_with_known_phashes_saves_all(
     mock_model = MagicMock()
     mock_model.id = 10
 
-    mock_repository.find_image_ids_by_phashes.return_value = {"phash001": 1, "phash002": 2}
+    mock_repository.find_image_ids_by_phashes_multi.return_value = {"phash001": [1], "phash002": [2]}
     mock_repository.get_models_by_litellm_ids.return_value = {"wdtagger": mock_model}
     mock_repository.batch_resolve_tag_ids.return_value = {}
 
@@ -112,6 +113,77 @@ def test_save_annotation_results_with_known_phashes_saves_all(
 
 
 @pytest.mark.unit
+def test_save_annotation_results_fanout_scoped_to_allowed_image_ids(
+    service: AnnotationSaveService,
+    mock_repository: MagicMock,
+) -> None:
+    """#633 (codex P1): allowed_image_ids 指定時はバッチ内 image_id のみへ fan-out する。
+
+    同一 pHash に別版 (image_id 1 と 2) が紐づくが、バッチで選択したのは 1 のみ。
+    未選択の別版 2 へは書き込まない (汚染防止)。
+    """
+    mock_model = MagicMock()
+    mock_model.id = 10
+    mock_repository.find_image_ids_by_phashes_multi.return_value = {"phash001": [1, 2]}
+    mock_repository.get_models_by_litellm_ids.return_value = {"wdtagger": mock_model}
+    mock_repository.batch_resolve_tag_ids.return_value = {}
+
+    results = {"phash001": {"wdtagger": _make_success_result(tags=["tag1"])}}
+
+    result = service.save_annotation_results(results, allowed_image_ids={1})
+
+    assert result.success_count == 1
+    saved_items = mock_repository.save_annotations_batch.call_args[0][0]
+    assert [item.image_id for item in saved_items] == [1]
+
+
+@pytest.mark.unit
+def test_save_annotation_results_fanout_covers_all_batch_variants(
+    service: AnnotationSaveService,
+    mock_repository: MagicMock,
+) -> None:
+    """#633: バッチに別版が両方含まれる場合は両 image_id へ保存する (取りこぼし防止)。"""
+    mock_model = MagicMock()
+    mock_model.id = 10
+    mock_repository.find_image_ids_by_phashes_multi.return_value = {"phash001": [1, 2]}
+    mock_repository.get_models_by_litellm_ids.return_value = {"wdtagger": mock_model}
+    mock_repository.batch_resolve_tag_ids.return_value = {}
+
+    results = {"phash001": {"wdtagger": _make_success_result(tags=["tag1"])}}
+
+    result = service.save_annotation_results(results, allowed_image_ids={1, 2})
+
+    assert result.success_count == 2
+    saved_items = mock_repository.save_annotations_batch.call_args[0][0]
+    assert sorted(item.image_id for item in saved_items) == [1, 2]
+
+
+@pytest.mark.unit
+def test_save_annotation_results_without_scope_saves_first_match_only(
+    service: AnnotationSaveService,
+    mock_repository: MagicMock,
+) -> None:
+    """#633 (codex P1): allowed_image_ids 未指定時は pHash ごと先頭 1 件のみ保存する。
+
+    バッチ集合が不明な経路 (CLI 等) で複数別版へ無条件 fan-out すると未選択別版を
+    汚染するため、pre-#633 の単一 image_id 挙動に縮退する。
+    """
+    mock_model = MagicMock()
+    mock_model.id = 10
+    mock_repository.find_image_ids_by_phashes_multi.return_value = {"phash001": [1, 2]}
+    mock_repository.get_models_by_litellm_ids.return_value = {"wdtagger": mock_model}
+    mock_repository.batch_resolve_tag_ids.return_value = {}
+
+    results = {"phash001": {"wdtagger": _make_success_result(tags=["tag1"])}}
+
+    result = service.save_annotation_results(results)
+
+    assert result.success_count == 1
+    saved_items = mock_repository.save_annotations_batch.call_args[0][0]
+    assert [item.image_id for item in saved_items] == [1]
+
+
+@pytest.mark.unit
 def test_save_provider_batch_results_by_image_id_saves_without_phash_lookup(
     service: AnnotationSaveService,
     mock_repository: MagicMock,
@@ -128,7 +200,7 @@ def test_save_provider_batch_results_by_image_id_saves_without_phash_lookup(
     assert result.success_count == 1
     assert result.skip_count == 0
     assert result.error_count == 0
-    mock_repository.find_image_ids_by_phashes.assert_not_called()
+    mock_repository.find_image_ids_by_phashes_multi.assert_not_called()
     mock_repository.get_models_by_litellm_ids.assert_not_called()
     mock_repository.save_annotations_batch.assert_called_once()
     item = mock_repository.save_annotations_batch.call_args[0][0][0]
@@ -180,7 +252,7 @@ def test_save_annotation_results_with_unknown_phash_skips_silently(
     mock_repository: MagicMock,
 ) -> None:
     """DBに存在しないphashはスキップして処理を継続する。"""
-    mock_repository.find_image_ids_by_phashes.return_value = {}
+    mock_repository.find_image_ids_by_phashes_multi.return_value = {}
 
     results = {
         "unknown_phash": {"wdtagger": _make_success_result(tags=["tag1"])},
@@ -204,7 +276,7 @@ def test_save_annotation_results_excludes_legacy_sentinel_from_lookup(
     mock_model = MagicMock()
     mock_model.id = 10
 
-    mock_repository.find_image_ids_by_phashes.return_value = {"phash001": 1}
+    mock_repository.find_image_ids_by_phashes_multi.return_value = {"phash001": [1]}
     mock_repository.get_models_by_litellm_ids.return_value = {"wdtagger": mock_model}
     mock_repository.batch_resolve_tag_ids.return_value = {}
 
@@ -243,7 +315,7 @@ def test_save_annotation_results_legacy_sentinel_only_is_skipped(
     mock_repository: MagicMock,
 ) -> None:
     """legacy sentinel のみなら保存対象がなく、スキップ件数に集計される。"""
-    mock_repository.find_image_ids_by_phashes.return_value = {"phash001": 1}
+    mock_repository.find_image_ids_by_phashes_multi.return_value = {"phash001": [1]}
     mock_repository.get_models_by_litellm_ids.return_value = {}
     mock_repository.batch_resolve_tag_ids.return_value = {}
 
@@ -267,7 +339,7 @@ def test_save_annotation_results_handles_partial_save_failure(
     """save_annotations 例外発生時はエラー件数に集計して処理を継続する。"""
     mock_model = MagicMock()
     mock_model.id = 1
-    mock_repository.find_image_ids_by_phashes.return_value = {"phash001": 1}
+    mock_repository.find_image_ids_by_phashes_multi.return_value = {"phash001": [1]}
     mock_repository.get_models_by_litellm_ids.return_value = {"wdtagger": mock_model}
     mock_repository.save_annotations_batch.side_effect = RuntimeError("batch DB write error")
     mock_repository.save_annotations.side_effect = RuntimeError("DB write error")
@@ -320,10 +392,10 @@ def test_save_annotation_results_uses_batch_resolution(
     """N+1を避けるため、find_image_ids_by_phashesとget_models_by_litellm_idsを各1回のみ呼ぶ。"""
     mock_model = MagicMock()
     mock_model.id = 1
-    mock_repository.find_image_ids_by_phashes.return_value = {
-        "phash001": 1,
-        "phash002": 2,
-        "phash003": 3,
+    mock_repository.find_image_ids_by_phashes_multi.return_value = {
+        "phash001": [1],
+        "phash002": [2],
+        "phash003": [3],
     }
     mock_repository.get_models_by_litellm_ids.return_value = {"wdtagger": mock_model}
     mock_repository.batch_resolve_tag_ids.return_value = {}
@@ -336,7 +408,7 @@ def test_save_annotation_results_uses_batch_resolution(
 
     service.save_annotation_results(results)
 
-    mock_repository.find_image_ids_by_phashes.assert_called_once()
+    mock_repository.find_image_ids_by_phashes_multi.assert_called_once()
     mock_repository.get_models_by_litellm_ids.assert_called_once()
 
 
@@ -351,7 +423,7 @@ def test_save_canonical_scorer_persists_score_labels(
     """canonical scorer (aesthetic_shadow 等) の score_labels が save_annotations に渡される。"""
     mock_model = MagicMock()
     mock_model.id = 42
-    mock_repository.find_image_ids_by_phashes.return_value = {"phash001": 1}
+    mock_repository.find_image_ids_by_phashes_multi.return_value = {"phash001": [1]}
     mock_repository.get_models_by_litellm_ids.return_value = {"aesthetic_shadow_v2": mock_model}
 
     results = {
@@ -387,7 +459,7 @@ def test_save_regression_scorer_no_score_labels(
     """regression scorer (ImprovedAesthetic 等) は score_labels=None で empty list が渡る。"""
     mock_model = MagicMock()
     mock_model.id = 7
-    mock_repository.find_image_ids_by_phashes.return_value = {"phash001": 1}
+    mock_repository.find_image_ids_by_phashes_multi.return_value = {"phash001": [1]}
     mock_repository.get_models_by_litellm_ids.return_value = {"ImprovedAesthetic": mock_model}
 
     results = {
@@ -417,7 +489,7 @@ def test_save_cafe_scorer_persists_only_positive_key(
     """cafe_aesthetic は positive key (aesthetic) 1 行のみ保存し not_aesthetic は捨てる。"""
     mock_model = MagicMock()
     mock_model.id = 11
-    mock_repository.find_image_ids_by_phashes.return_value = {"phash001": 1}
+    mock_repository.find_image_ids_by_phashes_multi.return_value = {"phash001": [1]}
     mock_repository.get_models_by_litellm_ids.return_value = {"cafe_aesthetic": mock_model}
 
     results = {
@@ -445,7 +517,7 @@ def test_save_shadow_scorer_persists_only_hq(
     """aesthetic_shadow は hq 1 行のみ保存し lq は捨てる。"""
     mock_model = MagicMock()
     mock_model.id = 21
-    mock_repository.find_image_ids_by_phashes.return_value = {"phash001": 1}
+    mock_repository.find_image_ids_by_phashes_multi.return_value = {"phash001": [1]}
     mock_repository.get_models_by_litellm_ids.return_value = {"aesthetic_shadow_v1": mock_model}
 
     results = {
@@ -473,7 +545,7 @@ def test_save_ai_scorer_missing_positive_key_skips_score(
     """positive key が scores に無い場合はスコア保存をスキップする (score_labels は維持)。"""
     mock_model = MagicMock()
     mock_model.id = 31
-    mock_repository.find_image_ids_by_phashes.return_value = {"phash001": 1}
+    mock_repository.find_image_ids_by_phashes_multi.return_value = {"phash001": [1]}
     mock_repository.get_models_by_litellm_ids.return_value = {"aesthetic_shadow_v1": mock_model}
 
     results = {
@@ -502,7 +574,7 @@ def test_save_multiple_labels_per_model(
     """score_labels=['a', 'b'] で 2 row が積まれる (将来拡張対応)。"""
     mock_model = MagicMock()
     mock_model.id = 99
-    mock_repository.find_image_ids_by_phashes.return_value = {"phash001": 1}
+    mock_repository.find_image_ids_by_phashes_multi.return_value = {"phash001": [1]}
     mock_repository.get_models_by_litellm_ids.return_value = {"future_scorer": mock_model}
 
     results = {
@@ -531,7 +603,7 @@ def test_save_score_labels_skipped_when_error_present(
     """error ありの result は score_labels も含めて save_annotations が呼ばれない。"""
     mock_model = MagicMock()
     mock_model.id = 1
-    mock_repository.find_image_ids_by_phashes.return_value = {"phash001": 1}
+    mock_repository.find_image_ids_by_phashes_multi.return_value = {"phash001": [1]}
     mock_repository.get_models_by_litellm_ids.return_value = {"aesthetic_shadow_v2": mock_model}
 
     error_result = MagicMock()
@@ -651,7 +723,7 @@ def test_save_annotation_results_persists_mapped_rating(
     """structured ratings が save_annotations に canonical 値で渡る (end-to-end)。"""
     mock_model = MagicMock()
     mock_model.id = 42
-    mock_repository.find_image_ids_by_phashes.return_value = {"phash001": 1}
+    mock_repository.find_image_ids_by_phashes_multi.return_value = {"phash001": [1]}
     mock_repository.get_models_by_litellm_ids.return_value = {"wd-vit-tagger-v3": mock_model}
 
     rating_result = _make_success_result()

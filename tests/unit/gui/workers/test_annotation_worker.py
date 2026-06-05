@@ -95,7 +95,7 @@ class TestAnnotationWorkerExecute:
         models = ["gpt-4o-mini"]
 
         mock_db_manager = Mock()
-        mock_db_manager.image_repo.find_image_ids_by_phashes.return_value = {"test_phash": 1}
+        mock_db_manager.image_repo.find_image_ids_by_phashes_multi.return_value = {"test_phash": [1]}
         mock_db_manager.image_repo.get_image_ids_by_filepaths.return_value = {
             "/path/to/image1.jpg": 1,
             "/path/to/image2.jpg": 2,
@@ -133,7 +133,7 @@ class TestAnnotationWorkerExecute:
         models = ["gpt-4o-mini", "claude-3-haiku-20240307"]
 
         mock_db_manager = Mock()
-        mock_db_manager.image_repo.find_image_ids_by_phashes.return_value = {"phash1": 1}
+        mock_db_manager.image_repo.find_image_ids_by_phashes_multi.return_value = {"phash1": [1]}
         mock_db_manager.image_repo.get_image_ids_by_filepaths.return_value = {"/path/to/image.jpg": 1}
         mock_db_manager.model_repo.get_models_by_litellm_ids.return_value = {
             "gpt-4o-mini": Mock(id=1),
@@ -222,7 +222,7 @@ class TestAnnotationWorkerExecute:
         models = ["__legacy_17__", "gpt-4o-mini"]
 
         mock_db_manager = Mock()
-        mock_db_manager.image_repo.find_image_ids_by_phashes.return_value = {"phash1": 1}
+        mock_db_manager.image_repo.find_image_ids_by_phashes_multi.return_value = {"phash1": [1]}
         mock_db_manager.image_repo.get_image_ids_by_filepaths.return_value = {"/path/to/image.jpg": 1}
         mock_db_manager.model_repo.get_models_by_litellm_ids.return_value = {"gpt-4o-mini": Mock(id=1)}
         mock_db_manager.annotation_repo.save_annotations = Mock()
@@ -247,7 +247,7 @@ class TestAnnotationWorkerExecute:
         models = ["gpt-4o-mini", "claude-3-haiku-20240307", "gemini-1.5-flash-latest"]
 
         mock_db_manager = Mock()
-        mock_db_manager.image_repo.find_image_ids_by_phashes.return_value = {"phash1": 1}
+        mock_db_manager.image_repo.find_image_ids_by_phashes_multi.return_value = {"phash1": [1]}
         mock_db_manager.image_repo.get_image_ids_by_filepaths.return_value = {"/path/to/image.jpg": 1}
         mock_db_manager.model_repo.get_models_by_litellm_ids.return_value = {
             "gpt-4o-mini": Mock(id=1),
@@ -300,7 +300,7 @@ class TestAnnotationWorkerExecute:
         models = ["model-a", "model-b"]
 
         mock_db_manager = Mock()
-        mock_db_manager.image_repo.find_image_ids_by_phashes.return_value = {"phash1": 1}
+        mock_db_manager.image_repo.find_image_ids_by_phashes_multi.return_value = {"phash1": [1]}
         mock_db_manager.model_repo.get_models_by_litellm_ids.return_value = {"model-b": Mock(id=2)}
         mock_db_manager.annotation_repo.save_annotations = Mock()
         mock_db_manager.image_repo.get_phashes_by_filepaths.return_value = {}
@@ -337,7 +337,7 @@ class TestAnnotationWorkerExecute:
         models = ["model-a"]
 
         mock_db_manager = Mock()
-        mock_db_manager.image_repo.find_image_ids_by_phashes.return_value = {}
+        mock_db_manager.image_repo.find_image_ids_by_phashes_multi.return_value = {}
         mock_db_manager.model_repo.get_models_by_litellm_ids.return_value = {}
         mock_db_manager.annotation_repo.save_annotations = Mock()
         mock_db_manager.image_repo.get_phashes_by_filepaths.return_value = {"/path/to/image.jpg": "phash1"}
@@ -371,7 +371,7 @@ class TestAnnotationWorkerExecute:
         models = ["model-a"]
 
         mock_db_manager = Mock()
-        mock_db_manager.image_repo.find_image_ids_by_phashes.return_value = {"phash-a": 1}
+        mock_db_manager.image_repo.find_image_ids_by_phashes_multi.return_value = {"phash-a": [1]}
         mock_db_manager.model_repo.get_models_by_litellm_ids.return_value = {"model-a": Mock(id=1)}
         mock_db_manager.annotation_repo.save_annotations = Mock()
         mock_db_manager.image_repo.get_phashes_by_filepaths.return_value = {
@@ -401,7 +401,7 @@ class TestAnnotationWorkerExecute:
         models = ["gpt-4o-mini", "claude-3-haiku-20240307"]
 
         mock_db_manager = Mock()
-        mock_db_manager.image_repo.find_image_ids_by_phashes.return_value = {}
+        mock_db_manager.image_repo.find_image_ids_by_phashes_multi.return_value = {}
         mock_db_manager.image_repo.get_image_ids_by_filepaths.return_value = {"/path/to/image.jpg": 1}
         mock_db_manager.model_repo.get_models_by_litellm_ids.return_value = {}
         mock_db_manager.annotation_repo.save_annotations = Mock()
@@ -437,7 +437,7 @@ class TestAnnotationWorkerExecute:
 
         mock_model = Mock(id=1)
         mock_db_manager = Mock()
-        mock_db_manager.image_repo.find_image_ids_by_phashes.return_value = {"test_phash": 1}
+        mock_db_manager.image_repo.find_image_ids_by_phashes_multi.return_value = {"test_phash": [1]}
         mock_db_manager.image_repo.get_image_ids_by_filepaths.return_value = {"/path/to/image.jpg": 1}
         mock_db_manager.model_repo.get_models_by_litellm_ids.return_value = {"gpt-4o-mini": mock_model}
         mock_db_manager.annotation_repo.save_annotations = Mock()
@@ -452,7 +452,7 @@ class TestAnnotationWorkerExecute:
 
         worker.execute()
 
-        assert mock_db_manager.image_repo.find_image_ids_by_phashes.call_count == 2
+        assert mock_db_manager.image_repo.find_image_ids_by_phashes_multi.call_count == 2
         mock_db_manager.model_repo.get_models_by_litellm_ids.assert_called_once()
         mock_db_manager.image_repo.find_duplicate_image_by_phash.assert_not_called()
         # Phase 1.11 (#238) で `get_model_by_name` は `get_model_by_litellm_id` に置換。
@@ -626,7 +626,7 @@ class TestBuildPhashToFilenameMap:
             model_registry=mock_model_registry,
         )
 
-        result = worker._build_phash_to_filename_map({"phash-cat": 10, "phash-dog": 20})
+        result = worker._build_phash_to_filename_map({"phash-cat": [10], "phash-dog": [20]})
 
         assert result == {"phash-cat": "cat.png", "phash-dog": "dog.png"}
         mock_db.image_repo.get_image_ids_by_filepaths.assert_called_once_with(
@@ -646,7 +646,7 @@ class TestBuildPhashToFilenameMap:
             model_registry=mock_model_registry,
         )
 
-        result = worker._build_phash_to_filename_map({"abcdefghijklmnop": 999})
+        result = worker._build_phash_to_filename_map({"abcdefghijklmnop": [999]})
 
         assert result == {"abcdefghijklmnop": "abcdefghijkl..."}
 

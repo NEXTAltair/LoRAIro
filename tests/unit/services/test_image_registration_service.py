@@ -159,6 +159,51 @@ class TestRegisterImagesDuplicates:
         assert result.failed == 0
 
 
+# ==================== _build_dedup_signature: 属性取得失敗 ====================
+
+
+@pytest.mark.unit
+class TestBuildDedupSignature:
+    """_build_dedup_signature の属性取得失敗フォールバック (#633, codex P2)。"""
+
+    def test_get_image_info_broad_error_falls_back_to_none(
+        self, service: ImageRegistrationService, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """get_image_info が OSError/ValueError 以外 (ImageCms 等) を投げても None で畳む。"""
+        from lorairo.storage.file_system import FileSystemManager
+
+        image_path = tmp_path / "broken_icc.jpg"
+        image_path.write_bytes(b"fake")
+
+        def _raise_imagecms(_path: Path) -> dict:
+            # ImageCms 由来の独自例外を模す (OSError/ValueError ではない)
+            raise RuntimeError("PyCMSError: cannot build transform")
+
+        monkeypatch.setattr(FileSystemManager, "get_image_info", staticmethod(_raise_imagecms))
+
+        # broad に捕捉され None を返す (reject せず dedup 見送り)
+        assert service._build_dedup_signature(image_path, "deadbeef") is None
+
+    def test_broken_metadata_counted_not_as_failed(
+        self, service: ImageRegistrationService, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """属性取得が broad 例外でも、ハッシュ可能な画像は failed にならず登録される。"""
+        from lorairo.storage.file_system import FileSystemManager
+
+        _make_unique_images(tmp_path, 1)
+        monkeypatch.setattr(service, "_calculate_phash", lambda p: "deadbeef")
+        monkeypatch.setattr(
+            FileSystemManager,
+            "get_image_info",
+            staticmethod(lambda _p: (_ for _ in ()).throw(RuntimeError("ICC error"))),
+        )
+
+        result = service.register_images(tmp_path, skip_duplicates=True)
+
+        assert result.failed == 0
+        assert result.successful == 1
+
+
 # ==================== register_images: エラー系 ====================
 
 

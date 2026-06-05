@@ -338,9 +338,16 @@ class SearchCriteriaProcessor:
 
     def _filter_by_duplicate_exclusion(self, images: list[dict[str, Any]]) -> list[dict[str, Any]]:
         """
-        phashによる重複画像除外
+        重複画像除外 (属性ベース分類、ADR 0061 §4 / #633)
 
-        同一phashを持つ画像グループから最初に遭遇した画像のみを保持します。
+        pHash 単独ではなく分類属性 (width / height / has_alpha / is_grayscale_like) 込みで
+        重複を判定する。#630 以降は同一 pHash でも属性差のある「別版」が別レコードとして
+        登録され得るため、pHash 一致だけで除外すると別版を誤って取りこぼす。
+
+        判定には登録側と同じ ``ImageRepository.classify_phash_candidate`` を再利用する。
+        これにより遅延 backfill 未済の NULL 属性は「不明 = 一致扱い」(NULL-as-wildcard) となり、
+        登録分類と挙動が一致する。NULL を厳密不一致にすると、旧 DB の真の重複が別版に誤判定され
+        重複除外フィルタが pHash-only 時代より退行してしまう問題を避ける。
 
         Args:
             images: 画像データリスト
@@ -348,8 +355,11 @@ class SearchCriteriaProcessor:
         Returns:
             list: フィルター済み画像リスト
         """
+        from lorairo.database.repository.image import ImageRepository, PhashClassification
+
         try:
-            seen_phashes: dict[str, dict[str, Any]] = {}
+            # pHash → 保持済み画像の分類属性リスト (NULL-as-wildcard 比較の候補)
+            kept_candidates_by_phash: dict[str, list[dict[str, Any]]] = {}
             filtered_images: list[dict[str, Any]] = []
 
             for image in images:
@@ -360,10 +370,21 @@ class SearchCriteriaProcessor:
                     filtered_images.append(image)
                     continue
 
-                if phash not in seen_phashes:
-                    seen_phashes[phash] = image
-                    filtered_images.append(image)
-                # else: 重複のためスキップ（暗黙的）
+                candidates = kept_candidates_by_phash.setdefault(phash, [])
+                # 既に保持済みの同 pHash 画像と分類比較。DUPLICATE なら真の重複として除外。
+                classification, _ = ImageRepository.classify_phash_candidate(image, candidates)
+                if classification is PhashClassification.DUPLICATE:
+                    continue  # 属性まで一致する真の重複 (NULL は一致扱い) → スキップ
+
+                # 新規 / 別版は保持し、以降の比較候補に加える。
+                # classify_phash_candidate は DUPLICATE 時 candidate["id"] を参照するため
+                # id も候補に含める (本フィルタでは戻り値の id は使わない)。
+                filtered_images.append(image)
+                candidate_attrs: dict[str, Any] = {
+                    attr: image.get(attr) for attr in ImageRepository.CLASSIFICATION_ATTRS
+                }
+                candidate_attrs["id"] = image.get("id")
+                candidates.append(candidate_attrs)
 
             logger.debug(
                 f"重複除外完了: {len(images)} -> {len(filtered_images)}件 "

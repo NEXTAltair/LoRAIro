@@ -245,10 +245,10 @@ class TestMainWindowAnnotationCompletion:
             "xyz789ghi012": {"model1": Mock()},
         }
 
-        # find_image_ids_by_phashes のモック
-        mock_window_with_annotation.db_manager.image_repo.find_image_ids_by_phashes.return_value = {
-            "abc123def456": 101,
-            "xyz789ghi012": 102,
+        # find_image_ids_by_phashes_multi のモック (#633: 別版で複数 image_id になり得る)
+        mock_window_with_annotation.db_manager.image_repo.find_image_ids_by_phashes_multi.return_value = {
+            "abc123def456": [101],
+            "xyz789ghi012": [102],
         }
 
         # _delegate_to_result_handlerをモック化
@@ -259,8 +259,8 @@ class TestMainWindowAnnotationCompletion:
         # ResultHandlerServiceに委譲される
         mock_window_with_annotation._delegate_to_result_handler.assert_called_once()
 
-        # pHashから画像IDを検索
-        mock_window_with_annotation.db_manager.image_repo.find_image_ids_by_phashes.assert_called_once()
+        # pHashから画像IDを検索 (multi)
+        mock_window_with_annotation.db_manager.image_repo.find_image_ids_by_phashes_multi.assert_called_once()
 
         # キャッシュが更新される
         mock_window_with_annotation.dataset_state_manager.refresh_images.assert_called_once_with([101, 102])
@@ -288,16 +288,16 @@ class TestMainWindowAnnotationCompletion:
 
         MainWindow._on_annotation_finished(mock_window, result)
 
-        # find_image_ids_by_phashesは呼ばれない
-        assert not mock_window.db_manager.image_repo.find_image_ids_by_phashes.called
+        # find_image_ids_by_phashes_multi は呼ばれない
+        assert not mock_window.db_manager.image_repo.find_image_ids_by_phashes_multi.called
 
     def test_on_annotation_finished_handles_phash_lookup_failure(self, mock_window_with_annotation):
         """pHash検索失敗時にエラーログを出力する"""
         from lorairo.gui.window.main_window import MainWindow
 
         result = {"abc123": {"model1": Mock()}}
-        mock_window_with_annotation.db_manager.image_repo.find_image_ids_by_phashes.side_effect = Exception(
-            "DB error"
+        mock_window_with_annotation.db_manager.image_repo.find_image_ids_by_phashes_multi.side_effect = (
+            Exception("DB error")
         )
         mock_window_with_annotation._delegate_to_result_handler = Mock()
 

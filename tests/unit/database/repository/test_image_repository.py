@@ -424,6 +424,31 @@ class TestFindImageIdsByPhashes:
 
 
 @pytest.mark.unit
+class TestFindImageIdsByPhashesMulti:
+    """`find_image_ids_by_phashes_multi` の fan-out バッチ検索 (#633)。"""
+
+    def test_returns_all_image_ids_for_shared_phash(self, image_repository: ImageRepository) -> None:
+        """同一 pHash の別版 (複数行) を全て取りこぼさず返す。"""
+        # 同一 pHash・属性差で別版を 2 行作る (#630 が別版行を許容)
+        v1 = _insert_image(image_repository, uuid="u-v1", phash="p-shared", filename="v1.png", width=64)
+        v2 = _insert_image(image_repository, uuid="u-v2", phash="p-shared", filename="v2.png", width=128)
+        single = _insert_image(image_repository, uuid="u-s", phash="p-single", filename="s.png")
+
+        result = image_repository.find_image_ids_by_phashes_multi({"p-shared", "p-single"})
+
+        assert result["p-shared"] == sorted([v1, v2])
+        assert result["p-single"] == [single]
+
+    def test_omits_missing_phashes(self, image_repository: ImageRepository) -> None:
+        a = _insert_image(image_repository, uuid="u-m", phash="p-present", filename="m.png")
+        result = image_repository.find_image_ids_by_phashes_multi({"p-present", "p-absent"})
+        assert result == {"p-present": [a]}
+
+    def test_returns_empty_dict_for_empty_input(self, image_repository: ImageRepository) -> None:
+        assert image_repository.find_image_ids_by_phashes_multi(set()) == {}
+
+
+@pytest.mark.unit
 class TestGetAnnotatedImageIds:
     """`get_annotated_image_ids` の存在判定。"""
 

@@ -565,6 +565,96 @@ class TestSearchCriteriaProcessorErrorPaths:
 
         assert len(result) == 2
 
+    def test_filter_by_duplicate_exclusion_keeps_variants(self, processor) -> None:
+        """#633: 同一 pHash でも属性差のある別版は重複除外せず残す。"""
+        images = [
+            {
+                "id": 1,
+                "phash": "p",
+                "width": 64,
+                "height": 64,
+                "has_alpha": False,
+                "is_grayscale_like": False,
+            },
+            # 別版: 解像度違い → 残る
+            {
+                "id": 2,
+                "phash": "p",
+                "width": 128,
+                "height": 128,
+                "has_alpha": False,
+                "is_grayscale_like": False,
+            },
+            # 別版: グレースケール相当 → 残る
+            {
+                "id": 3,
+                "phash": "p",
+                "width": 64,
+                "height": 64,
+                "has_alpha": False,
+                "is_grayscale_like": True,
+            },
+        ]
+        result = processor._filter_by_duplicate_exclusion(images)
+
+        assert [img["id"] for img in result] == [1, 2, 3]
+
+    def test_filter_by_duplicate_exclusion_removes_true_duplicates(self, processor) -> None:
+        """#633: pHash も属性も完全一致する真の重複は除外する。"""
+        images = [
+            {
+                "id": 1,
+                "phash": "p",
+                "width": 64,
+                "height": 64,
+                "has_alpha": False,
+                "is_grayscale_like": False,
+            },
+            # 属性まで完全一致 → 除外
+            {
+                "id": 2,
+                "phash": "p",
+                "width": 64,
+                "height": 64,
+                "has_alpha": False,
+                "is_grayscale_like": False,
+            },
+        ]
+        result = processor._filter_by_duplicate_exclusion(images)
+
+        assert [img["id"] for img in result] == [1]
+
+    def test_filter_by_duplicate_exclusion_null_is_wildcard(self, processor) -> None:
+        """#633 (codex P2): 遅延 backfill 未済の NULL 属性は登録分類と同じく一致扱い。
+
+        旧 DB の NULL 属性行と、同一 pHash・同一可視属性だが is_grayscale_like=False の
+        新行は、登録側 classify_phash_candidate では DUPLICATE。除外フィルタも NULL を
+        wildcard として一致させ、真の重複として 1 件に畳む (pHash-only 時代から退行しない)。
+        """
+        images = [
+            # 遅延 backfill 未済 (has_alpha / is_grayscale_like = None)
+            {
+                "id": 1,
+                "phash": "p",
+                "width": 64,
+                "height": 64,
+                "has_alpha": None,
+                "is_grayscale_like": None,
+            },
+            # backfill 済みの真の重複 (None は wildcard で一致)
+            {
+                "id": 2,
+                "phash": "p",
+                "width": 64,
+                "height": 64,
+                "has_alpha": False,
+                "is_grayscale_like": False,
+            },
+        ]
+        result = processor._filter_by_duplicate_exclusion(images)
+
+        assert [img["id"] for img in result] == [1]
+
     @patch("lorairo.services.search_criteria_processor.logger")
     def test_filter_by_duplicate_exclusion_exception_returns_original_images(
         self, mock_logger, processor
