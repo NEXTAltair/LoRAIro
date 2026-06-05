@@ -28,6 +28,15 @@ from lorairo.services.provider_batch_workflow_service import (
     ProviderBatchWorkflowService,
 )
 
+# ADR 0062: _insert_image が設定する phash / width / height (=100) から導かれる
+# custom_id 規約。submit と result 突合の両方でこの規約に揃える。
+_INSERT_IMAGE_LONG_EDGE = 100
+
+
+def _expected_custom_id(image_id: int) -> str:
+    """``_insert_image`` で登録した画像の ADR 0062 custom_id を返す。"""
+    return f"ph:providerbatch{image_id:04d}:le:{_INSERT_IMAGE_LONG_EDGE}"
+
 
 class FakeProviderBatchAdapter:
     provider = "openai"
@@ -106,17 +115,25 @@ def workflow(
     return service, adapter
 
 
-def _insert_image(session_factory: sessionmaker, image_id: int, stored_path: str) -> None:
+def _insert_image(
+    session_factory: sessionmaker,
+    image_id: int,
+    stored_path: str,
+    *,
+    phash: str | None = None,
+    width: int = 100,
+    height: int = 100,
+) -> None:
     with session_factory() as session:
         session.add(
             Image(
                 id=image_id,
                 uuid=f"test-provider-batch-{image_id}",
-                phash=f"providerbatch{image_id:04d}",
+                phash=phash if phash is not None else f"providerbatch{image_id:04d}",
                 original_image_path=stored_path,
                 stored_image_path=stored_path,
-                width=100,
-                height=100,
+                width=width,
+                height=height,
                 format="WEBP",
                 mode="RGB",
                 has_alpha=False,
@@ -153,8 +170,8 @@ class TestProviderBatchWorkflowService:
             (item.custom_id, item.image_id, item.image_path, item.task_type)
             for item in adapter.submitted_request.items
         ] == [
-            ("img-1", 1, Path("/tmp/images/one.webp"), "annotation"),
-            ("img-2", 2, Path("/tmp/images/two.webp"), "annotation"),
+            (_expected_custom_id(1), 1, Path("/tmp/images/one.webp"), "annotation"),
+            (_expected_custom_id(2), 2, Path("/tmp/images/two.webp"), "annotation"),
         ]
         job = test_provider_batch_repository.get_provider_batch_job(job_id)
         assert job is not None
@@ -162,9 +179,113 @@ class TestProviderBatchWorkflowService:
         assert [
             item.custom_id for item in test_provider_batch_repository.list_provider_batch_items(job_id)
         ] == [
-            "img-1",
-            "img-2",
+            _expected_custom_id(1),
+            _expected_custom_id(2),
         ]
+
+    def test_submit_images_dedupes_same_phash_and_long_edge(
+        self,
+        workflow: tuple[ProviderBatchWorkflowService, FakeProviderBatchAdapter],
+        test_provider_batch_repository: ProviderBatchRepository,
+        db_session_factory: sessionmaker,
+    ) -> None:
+        """ADR 0062: 同一 pHash+長辺の重複素材は 1 リクエストに dedupe する。"""
+        service, adapter = workflow
+        # 画像 1 と 2 は同一 pHash・同一長辺 (同一素材)、画像 3 は別素材。
+        _insert_image(
+            db_session_factory, 1, "/tmp/images/a.webp", phash="dupdupdupdupdup0", width=1024, height=768
+        )
+        _insert_image(
+            db_session_factory, 2, "/tmp/images/b.webp", phash="dupdupdupdupdup0", width=1024, height=768
+        )
+        _insert_image(
+            db_session_factory, 3, "/tmp/images/c.webp", phash="otherotherother0", width=512, height=512
+        )
+
+        job_id = service.submit_images(
+            provider="anthropic",
+            endpoint="/v1/messages",
+            litellm_model_id="anthropic/claude-test",
+            prompt_profile="default",
+            image_ids=[1, 2, 3],
+        )
+
+        assert adapter.submitted_request is not None
+        submitted = [(item.custom_id, item.image_id) for item in adapter.submitted_request.items]
+        # 重複素材は代表 image_id=1 の 1 件に統合され、別素材は別 custom_id で残る。
+        assert submitted == [
+            ("ph:dupdupdupdupdup0:le:1024", 1),
+            ("ph:otherotherother0:le:512", 3),
+        ]
+        items = test_provider_batch_repository.list_provider_batch_items(job_id)
+        assert {item.custom_id for item in items} == {
+            "ph:dupdupdupdupdup0:le:1024",
+            "ph:otherotherother0:le:512",
+        }
+        # 対応表 (custom_id -> image_id[]) は raw_request に保持される。
+        dup_item = next(item for item in items if item.custom_id == "ph:dupdupdupdupdup0:le:1024")
+        assert dup_item.raw_request == '{"lorairo_image_ids": [1, 2]}'
+
+    def test_import_results_fans_out_to_deduped_image_ids(
+        self,
+        test_provider_batch_repository: ProviderBatchRepository,
+        test_repository,
+        test_annotation_repository,
+        batch_config: Mock,
+        db_session_factory: sessionmaker,
+    ) -> None:
+        """ADR 0062: dedupe で統合した全 image_id へ annotation を反映する。"""
+        adapter = FakeProviderBatchAdapter()
+        annotation_save = Mock()
+        annotation_save.save_provider_batch_results_by_image_id.return_value = AnnotationSaveResult(
+            success_count=2,
+            skip_count=0,
+            error_count=0,
+            total_count=2,
+        )
+        service = ProviderBatchWorkflowService(
+            provider_batch_repo=test_provider_batch_repository,
+            image_repo=test_repository,
+            annotation_repo=test_annotation_repository,
+            config_service=batch_config,
+            adapters={"anthropic": adapter, "openai": adapter},
+            annotation_save_service=annotation_save,
+        )
+        _insert_image(
+            db_session_factory, 1, "/tmp/images/a.webp", phash="dupdupdupdupdup0", width=1024, height=768
+        )
+        _insert_image(
+            db_session_factory, 2, "/tmp/images/b.webp", phash="dupdupdupdupdup0", width=1024, height=768
+        )
+        job_id = service.submit_images(
+            provider="anthropic",
+            endpoint="/v1/messages",
+            litellm_model_id="anthropic/claude-test",
+            prompt_profile="default",
+            image_ids=[1, 2],
+            model_id=10,
+        )
+
+        result = service.import_results(
+            job_id,
+            ProviderBatchFetchResult(
+                provider_job_id="batch_123",
+                provider_status="completed",
+                items=(
+                    ProviderBatchResultItem(
+                        "ph:dupdupdupdupdup0:le:1024", "succeeded", annotation={"tags": ["tag"]}
+                    ),
+                ),
+            ),
+        )
+
+        # 単一 result が重複統合した image_id 1 と 2 の両方へ反映される。
+        annotation_save.save_provider_batch_results_by_image_id.assert_called_once_with(
+            {1: {"tags": ["tag"]}, 2: {"tags": ["tag"]}},
+            model_id=10,
+            model_name="__provider_batch_model_10__",
+        )
+        assert result.imported_count == 2
 
     def test_submit_images_uses_path_overrides(
         self,
@@ -444,7 +565,9 @@ class TestProviderBatchWorkflowService:
         adapter.fetch_result = ProviderBatchFetchResult(
             provider_job_id="batch_123",
             provider_status="completed",
-            items=(ProviderBatchResultItem("img-1", "succeeded", annotation={"tags": ["tag"]}),),
+            items=(
+                ProviderBatchResultItem(_expected_custom_id(1), "succeeded", annotation={"tags": ["tag"]}),
+            ),
         )
 
         fetch_result = service.fetch_results(job_id)
@@ -523,24 +646,29 @@ class TestProviderBatchWorkflowService:
             job_id,
             "batch_123",
             [
-                ProviderBatchResultItem("img-1", "succeeded", raw_response={"ok": True}),
-                {"custom_id": "img-2", "status": "failed", "error_type": "PARSE", "error_message": "bad"},
-                SimpleNamespace(custom_id="img-404", status="failed", error_message="missing"),
+                ProviderBatchResultItem(_expected_custom_id(1), "succeeded", raw_response={"ok": True}),
+                {
+                    "custom_id": _expected_custom_id(2),
+                    "status": "failed",
+                    "error_type": "PARSE",
+                    "error_message": "bad",
+                },
+                SimpleNamespace(custom_id="ph:missing404:le:100", status="failed", error_message="missing"),
             ],
         )
 
         assert result.updated_count == 2
         assert result.missing_count == 1
-        assert result.missing_custom_ids == ("img-404",)
+        assert result.missing_custom_ids == ("ph:missing404:le:100",)
         items = {
             item.custom_id: item
             for item in test_provider_batch_repository.list_provider_batch_items(job_id)
         }
-        assert items["img-1"].status == "succeeded"
-        assert items["img-1"].raw_response == '{"ok": true}'
-        assert items["img-2"].status == "failed"
-        assert items["img-2"].error_type == "PARSE"
-        assert items["img-2"].error_message == "bad"
+        assert items[_expected_custom_id(1)].status == "succeeded"
+        assert items[_expected_custom_id(1)].raw_response == '{"ok": true}'
+        assert items[_expected_custom_id(2)].status == "failed"
+        assert items[_expected_custom_id(2)].error_type == "PARSE"
+        assert items[_expected_custom_id(2)].error_message == "bad"
 
     def test_apply_result_items_rejects_provider_job_id_mismatch(
         self,
@@ -561,7 +689,7 @@ class TestProviderBatchWorkflowService:
             service.apply_result_items(
                 job_id,
                 "batch_other",
-                [ProviderBatchResultItem("img-1", "succeeded")],
+                [ProviderBatchResultItem(_expected_custom_id(1), "succeeded")],
             )
 
     def test_import_results_uses_custom_id_mapping_and_marks_imported(
@@ -600,7 +728,9 @@ class TestProviderBatchWorkflowService:
         fetch_result = ProviderBatchFetchResult(
             provider_job_id="batch_123",
             provider_status="completed",
-            items=(ProviderBatchResultItem("img-1", "succeeded", annotation={"tags": ["tag"]}),),
+            items=(
+                ProviderBatchResultItem(_expected_custom_id(1), "succeeded", annotation={"tags": ["tag"]}),
+            ),
         )
 
         result = service.import_results(job_id, fetch_result)
@@ -660,7 +790,7 @@ class TestProviderBatchWorkflowService:
                 provider_status="completed",
                 items=(
                     ProviderBatchResultItem(
-                        "img-1",
+                        _expected_custom_id(1),
                         "succeeded",
                         annotation={
                             "ratings": [{"raw_label": "pg13", "source_scheme": "openai_moderation_v1"}]
@@ -820,7 +950,9 @@ class TestProviderBatchLibraryAdapter:
                 provider_job_id="batch_123",
                 provider_status="completed",
                 items=(
-                    ProviderBatchResultItem("img-1", "succeeded", annotation={"tags": ["tag"]}),
+                    ProviderBatchResultItem(
+                        _expected_custom_id(1), "succeeded", annotation={"tags": ["tag"]}
+                    ),
                     ProviderBatchResultItem("img-404", "succeeded", annotation={"tags": ["missing"]}),
                 ),
             ),
@@ -862,12 +994,14 @@ class TestProviderBatchLibraryAdapter:
         )
         test_provider_batch_repository.update_provider_batch_job(job_id, {"status": "completed"})
         test_provider_batch_repository.update_provider_batch_items_by_custom_id(
-            job_id, {"img-1": {"status": "imported"}}
+            job_id, {_expected_custom_id(1): {"status": "imported"}}
         )
         adapter.fetch_result = ProviderBatchFetchResult(
             provider_job_id="batch_123",
             provider_status="completed",
-            items=(ProviderBatchResultItem("img-1", "succeeded", annotation={"tags": ["tag"]}),),
+            items=(
+                ProviderBatchResultItem(_expected_custom_id(1), "succeeded", annotation={"tags": ["tag"]}),
+            ),
         )
 
         service.fetch_results(job_id)
@@ -910,7 +1044,7 @@ class TestProviderBatchLibraryAdapter:
             model_id=10,
         )
         test_provider_batch_repository.update_provider_batch_items_by_custom_id(
-            job_id, {"img-1": {"status": "imported"}}
+            job_id, {_expected_custom_id(1): {"status": "imported"}}
         )
 
         result = service.import_results(
@@ -919,8 +1053,12 @@ class TestProviderBatchLibraryAdapter:
                 provider_job_id="batch_123",
                 provider_status="completed",
                 items=(
-                    ProviderBatchResultItem("img-1", "succeeded", annotation={"tags": ["old"]}),
-                    ProviderBatchResultItem("img-2", "succeeded", annotation={"tags": ["new"]}),
+                    ProviderBatchResultItem(
+                        _expected_custom_id(1), "succeeded", annotation={"tags": ["old"]}
+                    ),
+                    ProviderBatchResultItem(
+                        _expected_custom_id(2), "succeeded", annotation={"tags": ["new"]}
+                    ),
                 ),
             ),
         )
@@ -931,8 +1069,8 @@ class TestProviderBatchLibraryAdapter:
             item.custom_id: item
             for item in test_provider_batch_repository.list_provider_batch_items(job_id)
         }
-        assert items["img-1"].status == "imported"
-        assert items["img-2"].status == "succeeded"
+        assert items[_expected_custom_id(1)].status == "imported"
+        assert items[_expected_custom_id(2)].status == "succeeded"
         annotation_save.save_provider_batch_results_by_image_id.assert_called_once_with(
             {2: {"tags": ["new"]}},
             model_id=10,
@@ -989,7 +1127,7 @@ class TestProviderBatchLibraryAdapter:
         )
         test_provider_batch_repository.update_provider_batch_items_by_custom_id(
             job_id,
-            {"img-2": {"model_id": model_id_2}},
+            {_expected_custom_id(2): {"model_id": model_id_2}},
         )
 
         result = service.import_results(
@@ -998,8 +1136,12 @@ class TestProviderBatchLibraryAdapter:
                 provider_job_id="batch_123",
                 provider_status="completed",
                 items=(
-                    ProviderBatchResultItem("img-1", "succeeded", annotation={"tags": ["one"]}),
-                    ProviderBatchResultItem("img-2", "succeeded", annotation={"tags": ["two"]}),
+                    ProviderBatchResultItem(
+                        _expected_custom_id(1), "succeeded", annotation={"tags": ["one"]}
+                    ),
+                    ProviderBatchResultItem(
+                        _expected_custom_id(2), "succeeded", annotation={"tags": ["two"]}
+                    ),
                 ),
             ),
         )
@@ -1057,8 +1199,10 @@ class TestProviderBatchLibraryAdapter:
                 provider_job_id="batch_123",
                 provider_status="completed",
                 items=(
-                    ProviderBatchResultItem("img-1", "failed", annotation=None),
-                    ProviderBatchResultItem("img-2", "succeeded", annotation={"tags": ["tag"]}),
+                    ProviderBatchResultItem(_expected_custom_id(1), "failed", annotation=None),
+                    ProviderBatchResultItem(
+                        _expected_custom_id(2), "succeeded", annotation={"tags": ["tag"]}
+                    ),
                 ),
             ),
         )
@@ -1105,7 +1249,9 @@ class TestProviderBatchLibraryAdapter:
         object_result = SimpleNamespace(
             provider_job_id=None,
             provider_status="completed",
-            items=(ProviderBatchResultItem("img-1", "succeeded", annotation={"tags": ["tag"]}),),
+            items=(
+                ProviderBatchResultItem(_expected_custom_id(1), "succeeded", annotation={"tags": ["tag"]}),
+            ),
         )
 
         result = service.import_results(job_id, object_result)
@@ -1158,7 +1304,7 @@ class TestProviderBatchLibraryAdapter:
                 "completed_at": "2026-05-25T02:00:00+00:00",
                 "items": [
                     {
-                        "custom_id": "img-1",
+                        "custom_id": _expected_custom_id(1),
                         "status": "succeeded",
                         "annotation": {"tags": ["tag"]},
                     }
@@ -1213,7 +1359,11 @@ class TestProviderBatchLibraryAdapter:
             ProviderBatchFetchResult(
                 provider_job_id="batch_123",
                 provider_status="completed",
-                items=(ProviderBatchResultItem("img-1", "failed", error_message="provider failed"),),
+                items=(
+                    ProviderBatchResultItem(
+                        _expected_custom_id(1), "failed", error_message="provider failed"
+                    ),
+                ),
             ),
         )
 
@@ -1258,7 +1408,11 @@ class TestProviderBatchLibraryAdapter:
                 ProviderBatchFetchResult(
                     provider_job_id="batch_123",
                     provider_status="running",
-                    items=(ProviderBatchResultItem("img-1", "succeeded", annotation={"tags": ["tag"]}),),
+                    items=(
+                        ProviderBatchResultItem(
+                            _expected_custom_id(1), "succeeded", annotation={"tags": ["tag"]}
+                        ),
+                    ),
                 ),
             )
 
@@ -1303,7 +1457,7 @@ class TestProviderBatchLibraryAdapter:
                     "provider_job_id": "batch_123",
                     "items": [
                         {
-                            "custom_id": "img-1",
+                            "custom_id": _expected_custom_id(1),
                             "status": "succeeded",
                             "annotation": {"tags": ["tag"]},
                         }
@@ -1377,7 +1531,11 @@ class TestProviderBatchLibraryAdapter:
             ProviderBatchFetchResult(
                 provider_job_id="batch_123",
                 provider_status="completed",
-                items=(ProviderBatchResultItem("img-1", "succeeded", annotation={"tags": ["tag"]}),),
+                items=(
+                    ProviderBatchResultItem(
+                        _expected_custom_id(1), "succeeded", annotation={"tags": ["tag"]}
+                    ),
+                ),
             ),
         )
 

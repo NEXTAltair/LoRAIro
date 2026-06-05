@@ -111,3 +111,49 @@ class TestBatchImageMatcher:
         result = ImageMatchResult(matched={"a": 1}, unmatched=["b"])
         with pytest.raises(AttributeError):
             result.matched = {}  # type: ignore[misc]
+
+
+class TestBatchImageMatcherPhash:
+    """ADR 0062: ``ph:{phash}:le:{long_edge}`` 形式 custom_id の pHash 照合テスト。"""
+
+    @pytest.fixture()
+    def mock_repository(self) -> MagicMock:
+        repo = MagicMock()
+        repo.find_image_ids_by_phashes.return_value = {
+            "aaaaaaaaaaaaaaaa": 10,
+            "bbbbbbbbbbbbbbbb": 20,
+        }
+        repo.get_all_image_filename_index.return_value = {"0262_1227": 1}
+        return repo
+
+    def test_phash_custom_ids_matched_by_phash(self, mock_repository: MagicMock) -> None:
+        """pHash 形式 custom_id は pHash 完全一致で image_id に解決される。"""
+        matcher = BatchImageMatcher(mock_repository)
+        result = matcher.match_all(["ph:aaaaaaaaaaaaaaaa:le:1024", "ph:bbbbbbbbbbbbbbbb:le:768"])
+
+        assert result.matched == {
+            "ph:aaaaaaaaaaaaaaaa:le:1024": 10,
+            "ph:bbbbbbbbbbbbbbbb:le:768": 20,
+        }
+        assert result.unmatched == []
+        # 長辺解像度はキーの一意化用なので、照合は pHash のみで行う。
+        mock_repository.find_image_ids_by_phashes.assert_called_once_with(
+            {"aaaaaaaaaaaaaaaa", "bbbbbbbbbbbbbbbb"}
+        )
+        mock_repository.get_all_image_filename_index.assert_not_called()
+
+    def test_phash_custom_id_unmatched_when_phash_absent(self, mock_repository: MagicMock) -> None:
+        """DB に無い pHash は unmatched になる。"""
+        matcher = BatchImageMatcher(mock_repository)
+        result = matcher.match_all(["ph:cccccccccccccccc:le:512"])
+
+        assert result.matched == {}
+        assert result.unmatched == ["ph:cccccccccccccccc:le:512"]
+
+    def test_mixed_phash_and_stem_custom_ids(self, mock_repository: MagicMock) -> None:
+        """pHash 形式と stem 形式が混在しても各方式で照合する。"""
+        matcher = BatchImageMatcher(mock_repository)
+        result = matcher.match_all(["ph:aaaaaaaaaaaaaaaa:le:1024", "0262_1227", "unknown"])
+
+        assert result.matched == {"ph:aaaaaaaaaaaaaaaa:le:1024": 10, "0262_1227": 1}
+        assert result.unmatched == ["unknown"]

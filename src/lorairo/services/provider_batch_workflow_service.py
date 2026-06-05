@@ -86,6 +86,15 @@ class ProviderBatchImportResult:
     job_imported: bool = False
 
 
+@dataclass
+class _CustomIdGroup:
+    """submit 時の custom_id ごとの素材グループ (ADR 0062 dedupe 単位)。"""
+
+    representative_image_id: int
+    representative_image_path: Path
+    image_ids: list[int]
+
+
 @dataclass(frozen=True)
 class _PreparedProviderBatchImport:
     results_by_model_id: Mapping[int, Mapping[int, Any]]
@@ -218,25 +227,58 @@ class ProviderBatchWorkflowService:
         if missing_image_ids:
             raise ProviderBatchError(f"Provider batch submit 対象画像が見つかりません: {missing_image_ids}")
 
+        # ADR 0062: pHash + 長辺解像度由来の custom_id で素材実体に寄せた突合キーを作る。
+        # 同一 custom_id (= 同一素材) は batch 内で 1 リクエストに dedupe し、代表 image_id を
+        # DB item に保存する。結果取り込み時に全 image_id へ反映できるよう custom_id ->
+        # image_id[] 対応表を BatchSubmitItem.raw_request (LoRAIro local; library へは渡さない)
+        # に埋め込む。
         path_overrides = image_paths or {}
-        items: list[BatchSubmitItem] = []
+        grouped: dict[str, _CustomIdGroup] = {}
+        custom_id_order: list[str] = []
         for image_id in image_ids:
+            metadata = metadata_by_id[image_id]
+            custom_id = self._build_custom_id_for_image(image_id, metadata)
+
             image_path = path_overrides.get(image_id)
             if image_path is None:
-                stored_path = metadata_by_id[image_id].get("stored_image_path")
+                stored_path = metadata.get("stored_image_path")
                 if not stored_path:
                     raise ProviderBatchError(
                         f"Provider batch submit 対象画像に stored_image_path がありません: image_id={image_id}"
                     )
                 image_path = resolve_stored_path(str(stored_path))
 
+            group = grouped.get(custom_id)
+            if group is None:
+                grouped[custom_id] = _CustomIdGroup(
+                    representative_image_id=image_id,
+                    representative_image_path=Path(image_path),
+                    image_ids=[image_id],
+                )
+                custom_id_order.append(custom_id)
+            else:
+                # 同一素材の重複投入はまとめる。代表は最初に出現した image_id を維持する。
+                if image_id not in group.image_ids:
+                    group.image_ids.append(image_id)
+
+        deduped_count = len(image_ids) - len(custom_id_order)
+        if deduped_count > 0:
+            logger.info(
+                f"Provider batch submit dedupe: {len(image_ids)}件 -> {len(custom_id_order)}件 "
+                f"(同一 pHash+長辺の重複 {deduped_count}件を統合)"
+            )
+
+        items: list[BatchSubmitItem] = []
+        for custom_id in custom_id_order:
+            group = grouped[custom_id]
             items.append(
                 BatchSubmitItem(
-                    custom_id=ProviderBatchJobService.build_custom_id(image_id),
-                    image_id=image_id,
-                    image_path=Path(image_path),
+                    custom_id=custom_id,
+                    image_id=group.representative_image_id,
+                    image_path=group.representative_image_path,
                     task_type=task_type,
                     model_id=model_id,
+                    raw_request={"lorairo_image_ids": list(group.image_ids)},
                 )
             )
 
@@ -254,6 +296,38 @@ class ProviderBatchWorkflowService:
             else None,
             raw_provider_payload=raw_provider_payload,
         )
+
+    @staticmethod
+    def _build_custom_id_for_image(image_id: int, metadata: Mapping[str, Any]) -> str:
+        """画像メタデータから ADR 0062 の custom_id を生成する。
+
+        pHash は DB の ``Image.phash`` (NOT NULL)、長辺解像度は ``width`` / ``height``
+        の大きい方を採用する。アノテーション対象素材としては original 画像の解像度を
+        用いる (``get_images_metadata_batch`` は resolution=0 で original を返す)。
+
+        Args:
+            image_id: 対象画像 ID (エラーメッセージ用)。
+            metadata: ``get_images_metadata_batch`` が返す画像メタデータ。
+
+        Returns:
+            ``ph:{phash}:le:{long_edge}`` 形式の custom_id。
+
+        Raises:
+            ProviderBatchError: pHash または width/height が欠落している場合。
+        """
+        phash = metadata.get("phash")
+        if not phash:
+            raise ProviderBatchError(
+                f"Provider batch submit 対象画像に pHash がありません: image_id={image_id}"
+            )
+        width = metadata.get("width")
+        height = metadata.get("height")
+        if not width or not height:
+            raise ProviderBatchError(
+                f"Provider batch submit 対象画像に width/height がありません: image_id={image_id}"
+            )
+        long_edge = max(int(width), int(height))
+        return ProviderBatchJobService.build_custom_id(str(phash), long_edge)
 
     @staticmethod
     def _validate_submit_task(
@@ -482,7 +556,12 @@ class ProviderBatchWorkflowService:
             model_id = self._model_id_for_item(job, db_item)
             if model_id is None:
                 raise ProviderBatchError(f"Provider batch import に model_id が必要です: job_id={job.id}")
-            results_by_model_id.setdefault(model_id, {})[db_item.image_id] = item.annotation
+            # ADR 0062: custom_id は素材実体キーなので、dedupe で統合された
+            # 重複 image_id 群すべてに同じ annotation を反映する。
+            target_image_ids = self._image_ids_for_db_item(db_item)
+            model_results = results_by_model_id.setdefault(model_id, {})
+            for target_image_id in target_image_ids:
+                model_results[target_image_id] = item.annotation
             imported_custom_ids.append(item.custom_id)
 
         return _PreparedProviderBatchImport(
@@ -530,6 +609,51 @@ class ProviderBatchWorkflowService:
     @staticmethod
     def _model_id_for_item(job: ProviderBatchJob, item: ProviderBatchItem) -> int | None:
         return item.model_id if item.model_id is not None else job.model_id
+
+    @staticmethod
+    def _image_ids_for_db_item(item: ProviderBatchItem) -> list[int]:
+        """DB item から annotation 反映対象の image_id 群を取り出す。
+
+        ADR 0062: dedupe で統合した重複 image_id 群を ``raw_request`` の
+        ``lorairo_image_ids`` (LoRAIro local) に保存している。これを読み戻して
+        custom_id -> image_id[] の対応として使う。欠落時は代表 ``image_id`` のみを返す
+        (旧フォーマット job との後方互換)。
+
+        Args:
+            item: 対象の ``ProviderBatchItem``。``image_id`` は非 None である前提。
+
+        Returns:
+            annotation を反映する image_id のリスト。重複は除き、代表 image_id を必ず含む。
+        """
+        representative = item.image_id
+        if representative is None:
+            return []
+        mapped = ProviderBatchWorkflowService._parse_mapped_image_ids(item.raw_request)
+        if not mapped:
+            return [representative]
+        ordered = list(dict.fromkeys([representative, *mapped]))
+        return ordered
+
+    @staticmethod
+    def _parse_mapped_image_ids(raw_request: str | None) -> list[int]:
+        if not raw_request:
+            return []
+        try:
+            payload = json.loads(raw_request)
+        except (json.JSONDecodeError, TypeError):
+            return []
+        if not isinstance(payload, Mapping):
+            return []
+        mapped = payload.get("lorairo_image_ids")
+        if not isinstance(mapped, list):
+            return []
+        result: list[int] = []
+        for value in mapped:
+            if isinstance(value, bool):
+                continue
+            if isinstance(value, int):
+                result.append(value)
+        return result
 
     def _mark_items_imported(self, job_id: int, custom_ids: Sequence[str]) -> None:
         updates_by_custom_id = {custom_id: {"status": "imported"} for custom_id in custom_ids}

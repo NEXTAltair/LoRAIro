@@ -1,13 +1,20 @@
 """JSONL custom_id → DB image_id の一括照合サービス。
 
-OpenAI Batch APIのcustom_idフィールドからファイル名stemを抽出し、
+OpenAI Batch APIのcustom_idフィールドからマッチングキーを抽出し、
 DBに登録済みの画像とマッチングする。
+
+custom_id には 2 系統がある:
+
+- ADR 0062 形式 ``ph:{phash}:le:{long_edge}`` (LoRAIro が生成する Provider Batch 投入)。
+  pHash で照合する (長辺解像度はキーの一意化用で、照合は完全一致 pHash ベース)。
+- ファイル名 stem 形式 (外部生成 JSONL 等の旧来フォーマット)。
 """
 
 from dataclasses import dataclass, field
 from pathlib import PurePosixPath
 
 from lorairo.database.repository.image import ImageRepository
+from lorairo.services.provider_batch_service import ProviderBatchJobService
 
 
 @dataclass(frozen=True)
@@ -34,25 +41,48 @@ class BatchImageMatcher:
     def match_all(self, custom_ids: list[str]) -> ImageMatchResult:
         """全custom_idを一括照合する。
 
+        ADR 0062 形式 (``ph:{phash}:le:{long_edge}``) は pHash で、それ以外は
+        ファイル名 stem で照合する。
+
         Args:
             custom_ids: OpenAI Batch APIのcustom_idリスト。
 
         Returns:
             マッチング結果。
         """
-        # DB全画像の filename stem → image_id インデックスを1クエリで構築
-        filename_index = self._repository.get_all_image_filename_index()
+        # custom_id を pHash 形式と stem 形式に振り分ける
+        phash_by_custom_id: dict[str, str] = {}
+        stem_custom_ids: list[str] = []
+        for custom_id in custom_ids:
+            parsed = ProviderBatchJobService.parse_custom_id(custom_id)
+            if parsed is not None:
+                phash_by_custom_id[custom_id] = parsed[0]
+            else:
+                stem_custom_ids.append(custom_id)
 
         matched: dict[str, int] = {}
         unmatched: list[str] = []
 
-        for custom_id in custom_ids:
-            stem = self.extract_stem(custom_id)
-            image_id = filename_index.get(stem)
-            if image_id is not None:
-                matched[custom_id] = image_id
-            else:
-                unmatched.append(custom_id)
+        # ADR 0062: pHash 完全一致で照合 (長辺解像度はキーの一意化用)。
+        if phash_by_custom_id:
+            phash_to_id = self._repository.find_image_ids_by_phashes(set(phash_by_custom_id.values()))
+            for custom_id, phash in phash_by_custom_id.items():
+                image_id = phash_to_id.get(phash)
+                if image_id is not None:
+                    matched[custom_id] = image_id
+                else:
+                    unmatched.append(custom_id)
+
+        # 旧来フォーマット: ファイル名 stem で照合
+        if stem_custom_ids:
+            filename_index = self._repository.get_all_image_filename_index()
+            for custom_id in stem_custom_ids:
+                stem = self.extract_stem(custom_id)
+                image_id = filename_index.get(stem)
+                if image_id is not None:
+                    matched[custom_id] = image_id
+                else:
+                    unmatched.append(custom_id)
 
         return ImageMatchResult(matched=matched, unmatched=unmatched)
 

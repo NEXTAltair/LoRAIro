@@ -121,19 +121,46 @@ def make_submit_request(
         if items is not None
         else (
             BatchSubmitItem(
-                custom_id="img-1",
+                custom_id="ph:aaaaaaaaaaaaaaaa:le:1024",
                 image_id=1,
                 image_path=Path("/tmp/images/1.webp"),
-                raw_request={"custom_id": "img-1"},
+                raw_request={"lorairo_image_ids": [1]},
             ),
             BatchSubmitItem(
-                custom_id="img-2",
+                custom_id="ph:bbbbbbbbbbbbbbbb:le:768",
                 image_id=2,
                 image_path=Path("/tmp/images/2.webp"),
                 model_id=11,
             ),
         ),
     )
+
+
+@pytest.mark.unit
+class TestProviderBatchCustomId:
+    """ADR 0062: pHash + 長辺解像度由来の custom_id 生成 / 解析。"""
+
+    def test_build_custom_id_combines_phash_and_long_edge(self) -> None:
+        assert (
+            ProviderBatchJobService.build_custom_id("abc123def4567890", 1024)
+            == "ph:abc123def4567890:le:1024"
+        )
+
+    def test_build_custom_id_rejects_empty_phash(self) -> None:
+        with pytest.raises(InvalidProviderBatchRequest, match="pHash"):
+            ProviderBatchJobService.build_custom_id("  ", 1024)
+
+    def test_build_custom_id_rejects_non_positive_long_edge(self) -> None:
+        with pytest.raises(InvalidProviderBatchRequest, match="長辺"):
+            ProviderBatchJobService.build_custom_id("abc123def4567890", 0)
+
+    def test_parse_custom_id_round_trip(self) -> None:
+        custom_id = ProviderBatchJobService.build_custom_id("abc123def4567890", 768)
+        assert ProviderBatchJobService.parse_custom_id(custom_id) == ("abc123def4567890", 768)
+
+    def test_parse_custom_id_rejects_non_phash_format(self) -> None:
+        assert ProviderBatchJobService.parse_custom_id("img-1") is None
+        assert ProviderBatchJobService.parse_custom_id("ph:abc:le:notanumber") is None
 
 
 @pytest.mark.unit
@@ -198,10 +225,10 @@ class TestProviderBatchJobService:
         assert job.raw_provider_payload == '{"id": "batch_123", "status": "validating"}'
         items = test_provider_batch_repository.list_provider_batch_items(job_id)
         assert [(item.custom_id, item.image_id, item.model_id, item.status) for item in items] == [
-            ("img-1", 1, 10, "validating"),
-            ("img-2", 2, 11, "validating"),
+            ("ph:aaaaaaaaaaaaaaaa:le:1024", 1, 10, "validating"),
+            ("ph:bbbbbbbbbbbbbbbb:le:768", 2, 11, "validating"),
         ]
-        assert items[0].raw_request == '{"custom_id": "img-1"}'
+        assert items[0].raw_request == '{"lorairo_image_ids": [1]}'
 
     def test_submit_batch_validates_custom_id_contract(
         self,
@@ -230,12 +257,12 @@ class TestProviderBatchJobService:
         adapter = FakeProviderBatchAdapter()
         service = ProviderBatchJobService(test_provider_batch_repository, {"openai": adapter})
 
-        with pytest.raises(InvalidProviderBatchRequest, match="重複"):
+        with pytest.raises(InvalidProviderBatchRequest, match="重複投入"):
             service.submit_batch(
                 make_submit_request(
                     items=(
-                        BatchSubmitItem("img-1", 1, Path("/tmp/1.webp")),
-                        BatchSubmitItem("img-1", 1, Path("/tmp/1-copy.webp")),
+                        BatchSubmitItem("ph:1111111111111111:le:512", 1, Path("/tmp/1.webp")),
+                        BatchSubmitItem("ph:1111111111111111:le:512", 2, Path("/tmp/1-copy.webp")),
                     )
                 )
             )

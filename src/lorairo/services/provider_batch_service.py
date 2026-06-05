@@ -19,7 +19,13 @@ from lorairo.database.schema import ProviderBatchJob
 from lorairo.utils.log import logger
 
 ProviderBatchRawPayload = Mapping[str, Any] | str | None
-_CUSTOM_ID_PATTERN = re.compile(r"^[A-Za-z0-9_-]{1,64}$")
+# ADR 0062: custom_id は ``ph:{phash_hex}:le:{long_edge_px}``。区切りの ``:`` を許可する。
+# OpenAI Batch custom_id の許容長 (<=64) と ASCII 制約を満たす範囲で hex / 数字 / ``:_-`` を許可。
+_CUSTOM_ID_PATTERN = re.compile(r"^[A-Za-z0-9_:-]{1,64}$")
+# ADR 0062: pHash と長辺解像度 (px) を埋め込む正規 custom_id フォーマット。
+# pHash は通常 imagehash の 16 桁 hex だが、DB の ``Image.phash`` 値をそのまま使えるよう
+# hex 限定にはせず ``:`` 以外の custom_id 許容文字を受け付ける。
+_PHASH_CUSTOM_ID_PATTERN = re.compile(r"^ph:(?P<phash>[A-Za-z0-9_-]+):le:(?P<long_edge>[0-9]+)$")
 
 
 class ProviderBatchError(RuntimeError):
@@ -292,9 +298,48 @@ class ProviderBatchJobService:
         self._adapters[self._normalize_provider_name(adapter.provider)] = adapter
 
     @staticmethod
-    def build_custom_id(image_id: int) -> str:
-        """ADR 0038 の custom_id を生成する。"""
-        return f"img-{image_id}"
+    def build_custom_id(phash: str, long_edge: int) -> str:
+        """ADR 0062 の custom_id を生成する。
+
+        画像レコード ID ではなく、知覚ハッシュ (pHash) とアノテーション対象素材の
+        長辺解像度を組み合わせて素材実体に寄せた突合キーを作る。同一 pHash かつ
+        同一長辺の素材は同じ custom_id になり、batch 内 dedupe の単位になる。
+
+        Args:
+            phash: 画像の pHash (``imagehash.phash`` の hex 文字列表現)。
+            long_edge: アノテーション対象素材の長辺解像度 (ピクセル)。
+
+        Returns:
+            ``ph:{phash}:le:{long_edge}`` 形式の custom_id。
+
+        Raises:
+            InvalidProviderBatchRequest: pHash が空、長辺が非正、または生成結果が
+                custom_id 制約 (ASCII / 長さ <=64) を満たさない場合。
+        """
+        normalized_phash = phash.strip()
+        if not normalized_phash:
+            raise InvalidProviderBatchRequest("custom_id 生成には pHash が必要です")
+        if long_edge <= 0:
+            raise InvalidProviderBatchRequest(f"custom_id 生成には正の長辺解像度が必要です: {long_edge!r}")
+        custom_id = f"ph:{normalized_phash}:le:{long_edge}"
+        if _CUSTOM_ID_PATTERN.fullmatch(custom_id) is None:
+            raise InvalidProviderBatchRequest(f"生成した custom_id が不正です: {custom_id!r}")
+        return custom_id
+
+    @staticmethod
+    def parse_custom_id(custom_id: str) -> tuple[str, int] | None:
+        """ADR 0062 の custom_id から pHash と長辺解像度を取り出す。
+
+        Args:
+            custom_id: ``ph:{phash}:le:{long_edge}`` 形式の custom_id。
+
+        Returns:
+            ``(phash, long_edge)`` のタプル。フォーマットに合致しない場合は ``None``。
+        """
+        match = _PHASH_CUSTOM_ID_PATTERN.fullmatch(custom_id.strip())
+        if match is None:
+            return None
+        return match.group("phash"), int(match.group("long_edge"))
 
     def submit_batch(self, request: BatchSubmitRequest) -> int:
         """Provider batch job を投入し、job/items を DB に保存する。"""
@@ -742,19 +787,23 @@ class ProviderBatchJobService:
 
     @classmethod
     def _validate_submit_request(cls, request: BatchSubmitRequest) -> None:
+        # ADR 0062: custom_id は pHash + 長辺解像度由来 (image_id 直結ではない)。
+        # ここでは frozen フォーマット適合と batch 内一意性 (= 同一素材の重複投入禁止)
+        # を検証する。custom_id -> image_id[] の対応は呼び出し側 (workflow) が保持する。
         if not request.items:
             raise InvalidProviderBatchRequest("batch submit item が空です")
         custom_ids: set[str] = set()
         for item in request.items:
-            expected_custom_id = cls.build_custom_id(item.image_id)
-            if item.custom_id != expected_custom_id:
-                raise InvalidProviderBatchRequest(
-                    f"custom_id は {expected_custom_id!r} である必要があります: {item.custom_id!r}"
-                )
             if _CUSTOM_ID_PATTERN.fullmatch(item.custom_id) is None:
                 raise InvalidProviderBatchRequest(f"不正な custom_id です: {item.custom_id!r}")
+            if cls.parse_custom_id(item.custom_id) is None:
+                raise InvalidProviderBatchRequest(
+                    f"custom_id は ph:{{phash}}:le:{{long_edge}} 形式である必要があります: {item.custom_id!r}"
+                )
             if item.custom_id in custom_ids:
-                raise InvalidProviderBatchRequest(f"custom_id が重複しています: {item.custom_id!r}")
+                raise InvalidProviderBatchRequest(
+                    f"同一素材 (custom_id) が重複投入されています: {item.custom_id!r}"
+                )
             custom_ids.add(item.custom_id)
 
     @staticmethod
