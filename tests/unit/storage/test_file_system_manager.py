@@ -341,6 +341,50 @@ class TestGrayscaleLikeDetection:
         assert info["is_grayscale_like"] is False
         assert info["colorfulness_score"] > 16.0
 
+    def test_small_color_region_is_not_grayscale_like(self, tmp_path: Path) -> None:
+        """グレー地に小さなカラー領域 (ロゴ相当) があればカラー扱い (#645 Codex)。
+
+        99 パーセンタイルを採ることで、サンプル画素の約 1% 以上に色が乗れば
+        is_grayscale_like=False になる。別版分類でカラー版を残すための挙動。
+        """
+        rng = np.random.default_rng(3)
+        gray = rng.integers(0, 256, (200, 200), dtype=np.uint8)
+        arr = np.stack([gray, gray, gray], axis=2)
+        # 全体の約 4% (40x40) に純カラー (赤) のロゴを置く。
+        arr[:40, :40] = (255, 0, 0)
+        img = Image.fromarray(arr, mode="RGB")
+        path = self._save(img, tmp_path, "PNG", ".png")
+        info = FileSystemManager.get_image_info(path)
+        assert info["is_grayscale_like"] is False
+        assert info["colorfulness_score"] > 16.0
+
+    def test_transparent_colored_pixels_are_ignored(self, tmp_path: Path) -> None:
+        """完全透過のカラー画素は彩度算出から除外する (#645 Codex)。
+
+        可視部分がグレーなら、不可視のカラー背景があっても is_grayscale_like=True。
+        """
+        # 可視部分はグレー、透過部分は任意のカラー (シアン) を持たせる。
+        rgb = np.full((100, 100, 3), 120, dtype=np.uint8)
+        rgb[:50, :] = (0, 255, 255)  # 上半分はシアンだが透過させる
+        alpha = np.full((100, 100), 255, dtype=np.uint8)
+        alpha[:50, :] = 0  # 上半分を完全透過
+        rgba = np.dstack([rgb, alpha])
+        img = Image.fromarray(rgba, mode="RGBA")
+        path = self._save(img, tmp_path, "PNG", ".png")
+        info = FileSystemManager.get_image_info(path)
+        assert info["has_alpha"] is True
+        assert info["is_grayscale_like"] is True
+
+    def test_fully_transparent_image_is_grayscale_like(self, tmp_path: Path) -> None:
+        """全透過画像は可視画素が無いためグレー扱い (例外を出さない)。"""
+        rgba = np.zeros((40, 40, 4), dtype=np.uint8)
+        rgba[:, :, :3] = (255, 0, 255)  # 不可視のカラー
+        img = Image.fromarray(rgba, mode="RGBA")
+        path = self._save(img, tmp_path, "PNG", ".png")
+        info = FileSystemManager.get_image_info(path)
+        assert info["is_grayscale_like"] is True
+        assert info["colorfulness_score"] == pytest.approx(0.0, abs=1.0)
+
     def test_score_is_float(self, tmp_path: Path) -> None:
         """colorfulness_score は float で返る (診断・閾値調整用)。"""
         img = Image.new("RGB", (64, 64), color=(10, 200, 50))
