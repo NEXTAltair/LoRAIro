@@ -191,22 +191,27 @@ class TestGetCurrentProjectIdMetadata:
 class TestPrepareImageMetadata:
     """_prepare_image_metadata の成功パスのテスト"""
 
-    def test_returns_metadata_phash_and_path_on_success(self, manager: ImageDatabaseManager) -> None:
-        """全ステップ成功時に (metadata, phash, stored_path) タプルを返す。"""
+    def test_returns_metadata_and_phash_on_success(self, manager: ImageDatabaseManager) -> None:
+        """全ステップ成功時に (metadata, phash) タプルを返す。
+
+        ADR 0061 §3: 保存は分類後に行うため、本メソッドでは save_original_image を
+        呼ばず stored_image_path も含まれない。
+        """
         mock_fsm = Mock()
         mock_fsm.get_image_info.return_value = {"width": 800, "height": 600, "has_alpha": False}
-        mock_fsm.save_original_image.return_value = Path("/storage/original.jpg")
 
         with patch("lorairo.database.db_manager.calculate_phash", return_value="abc123"):
             result = manager._prepare_image_metadata(Path("/data/img.jpg"), mock_fsm)
 
         assert result is not None
-        metadata, phash, stored_path = result
+        metadata, phash = result
         assert phash == "abc123"
-        assert stored_path == Path("/storage/original.jpg")
         assert metadata["phash"] == "abc123"
         assert "uuid" in metadata
         assert metadata["original_image_path"] == str(Path("/data/img.jpg"))
+        # 保存は分類後なので stored_image_path はまだ無く、save も呼ばれない
+        assert "stored_image_path" not in metadata
+        mock_fsm.save_original_image.assert_not_called()
 
 
 # ---------------------------------------------------------------------------
@@ -225,8 +230,8 @@ class TestRegisterOriginalImageExtended:
         mock_fsm = Mock()
         mock_fsm.get_image_info.return_value = {"width": 800, "height": 600, "has_alpha": False}
         mock_fsm.save_original_image.return_value = Path("/storage/img.jpg")
-        mock_image_repo.find_duplicate_image_by_phash.return_value = None
-        mock_image_repo.add_original_image.return_value = 100
+        mock_image_repo.find_phash_candidates.return_value = []
+        mock_image_repo.add_original_image.return_value = (100, True)
 
         with patch("lorairo.database.db_manager.calculate_phash", return_value="abc123"):
             with patch.object(manager, "_get_current_project_id", return_value=None):
@@ -240,11 +245,13 @@ class TestRegisterOriginalImageExtended:
     def test_returns_existing_id_when_duplicate(
         self, manager: ImageDatabaseManager, mock_image_repo: Mock
     ) -> None:
-        """pHash で重複が見つかった場合、既存 ID とメタデータを返す。"""
+        """pHash 一致かつ属性一致 (重複確定) の場合、既存 ID とメタデータを返す (ADR 0061)。"""
         mock_fsm = Mock()
-        mock_fsm.get_image_info.return_value = {"width": 800, "height": 600, "has_alpha": False}
+        attrs = {"width": 800, "height": 600, "has_alpha": False, "is_grayscale_like": False}
+        mock_fsm.get_image_info.return_value = dict(attrs)
         mock_fsm.save_original_image.return_value = Path("/storage/img.jpg")
-        mock_image_repo.find_duplicate_image_by_phash.return_value = 5
+        # 全属性が一致する候補 → 重複確定
+        mock_image_repo.find_phash_candidates.return_value = [{"id": 5, **attrs}]
         # check_processed_image_exists から既存512px有りを返す
         existing_meta = {"id": 5, "stored_image_path": "/storage/existing.jpg"}
         mock_image_repo.get_processed_image.return_value = existing_meta
@@ -256,19 +263,87 @@ class TestRegisterOriginalImageExtended:
         assert result is not None
         existing_id, _metadata = result
         assert existing_id == 5
+        # 重複確定時は保存しない (#632)
+        mock_fsm.save_original_image.assert_not_called()
 
-    def test_raises_on_sqlalchemy_error(self, manager: ImageDatabaseManager, mock_image_repo: Mock) -> None:
-        """SQLAlchemyError は Worker boundary に伝播 (silent return しない)。"""
+    def test_registers_variant_as_new_when_attrs_differ(
+        self, manager: ImageDatabaseManager, mock_image_repo: Mock
+    ) -> None:
+        """pHash 一致でも属性差がある別版は新規行として登録する (ADR 0061)。"""
+        mock_fsm = Mock()
+        new_attrs = {"width": 800, "height": 600, "has_alpha": False, "is_grayscale_like": False}
+        mock_fsm.get_image_info.return_value = dict(new_attrs)
+        mock_fsm.save_original_image.return_value = Path("/storage/variant.jpg")
+        # is_grayscale_like が異なる候補のみ → 別版
+        candidate = {"id": 5, "width": 800, "height": 600, "has_alpha": False, "is_grayscale_like": True}
+        mock_image_repo.find_phash_candidates.return_value = [candidate]
+        mock_image_repo.add_original_image.return_value = (77, True)
+
+        with patch("lorairo.database.db_manager.calculate_phash", return_value="abc123"):
+            with patch.object(manager, "_get_current_project_id", return_value=None):
+                with patch.object(manager, "_generate_thumbnail_512px"):
+                    result = manager.register_original_image(Path("/data/img.jpg"), mock_fsm)
+
+        assert result is not None
+        image_id, metadata = result
+        assert image_id == 77
+        # 別版は保存され、同一 pHash の新規行として挿入される
+        mock_fsm.save_original_image.assert_called_once()
+        mock_image_repo.add_original_image.assert_called_once()
+        assert metadata["phash_classification"] == "variant"
+
+    def test_cleans_up_saved_copy_when_race_dedup(
+        self, manager: ImageDatabaseManager, mock_image_repo: Mock, tmp_path: Path
+    ) -> None:
+        """並行レースで挿入直前に重複確定 (was_inserted=False) なら保存済みコピーを削除し既存を返す。
+
+        PR #647 Codex review P2: 分類時は NEW でも挿入直前ガードで重複が見つかると
+        add_original_image が (existing_id, False) を返す。保存した第 2 コピーを孤児化
+        しないよう cleanup し、重複扱い (既存メタデータ) に切り替える。
+        """
+        saved_copy = tmp_path / "img_1.jpg"
+        saved_copy.write_bytes(b"dummy")
+
         mock_fsm = Mock()
         mock_fsm.get_image_info.return_value = {"width": 800, "height": 600, "has_alpha": False}
-        mock_fsm.save_original_image.return_value = Path("/storage/img.jpg")
-        mock_image_repo.find_duplicate_image_by_phash.return_value = None
+        mock_fsm.save_original_image.return_value = saved_copy
+        # 分類時点では候補なし (NEW) だが、挿入直前ガードで重複が見つかった想定
+        mock_image_repo.find_phash_candidates.return_value = []
+        mock_image_repo.add_original_image.return_value = (9, False)
+        mock_image_repo.get_processed_image.return_value = {"id": 1}
+        mock_image_repo.get_image_metadata.return_value = {"id": 9, "stored_image_path": "/s/e.jpg"}
+
+        with patch("lorairo.database.db_manager.calculate_phash", return_value="abc123"):
+            with patch.object(manager, "_get_current_project_id", return_value=None):
+                result = manager.register_original_image(Path("/data/img.jpg"), mock_fsm)
+
+        assert result is not None
+        image_id, _ = result
+        assert image_id == 9
+        # レースで保存したコピーは削除される
+        assert not saved_copy.exists()
+
+    def test_raises_and_cleans_up_orphan_on_sqlalchemy_error(
+        self, manager: ImageDatabaseManager, mock_image_repo: Mock, tmp_path: Path
+    ) -> None:
+        """SQLAlchemyError は Worker boundary に伝播し、保存済み孤児ファイルを削除する (ADR 0061 §3)。"""
+        # 実ファイルを保存先として用意し cleanup で消えることを検証
+        orphan = tmp_path / "img.jpg"
+        orphan.write_bytes(b"dummy")
+
+        mock_fsm = Mock()
+        mock_fsm.get_image_info.return_value = {"width": 800, "height": 600, "has_alpha": False}
+        mock_fsm.save_original_image.return_value = orphan
+        mock_image_repo.find_phash_candidates.return_value = []
         mock_image_repo.add_original_image.side_effect = SQLAlchemyError("DB crashed")
 
         with patch("lorairo.database.db_manager.calculate_phash", return_value="abc123"):
             with patch.object(manager, "_get_current_project_id", return_value=None):
                 with pytest.raises(SQLAlchemyError):
                     manager.register_original_image(Path("/data/img.jpg"), mock_fsm)
+
+        # DB 挿入失敗が確定したので保存済みファイルは残らない
+        assert not orphan.exists()
 
     def test_returns_none_on_input_value_error(self, manager: ImageDatabaseManager) -> None:
         """入力起因の ValueError は正常系扱いで None を返す。"""
@@ -280,6 +355,26 @@ class TestRegisterOriginalImageExtended:
 
         assert result is None
 
+    def test_returns_none_when_save_raises_oserror(
+        self, manager: ImageDatabaseManager, mock_image_repo: Mock
+    ) -> None:
+        """save_original_image が OSError 等を投げても per-file tolerance で None を返す。
+
+        分類後の保存を try の外に出したことで save 例外が escape する回帰を防ぐ
+        (PR #647 Codex review P2)。
+        """
+        mock_fsm = Mock()
+        mock_fsm.get_image_info.return_value = {"width": 800, "height": 600, "has_alpha": False}
+        mock_fsm.save_original_image.side_effect = OSError("source disappeared")
+        mock_image_repo.find_phash_candidates.return_value = []
+
+        with patch("lorairo.database.db_manager.calculate_phash", return_value="abc123"):
+            result = manager.register_original_image(Path("/data/img.jpg"), mock_fsm)
+
+        assert result is None
+        # DB 挿入には到達しない
+        mock_image_repo.add_original_image.assert_not_called()
+
     def test_thumbnail_generation_failure_does_not_prevent_registration(
         self, manager: ImageDatabaseManager, mock_image_repo: Mock
     ) -> None:
@@ -287,8 +382,8 @@ class TestRegisterOriginalImageExtended:
         mock_fsm = Mock()
         mock_fsm.get_image_info.return_value = {"width": 800, "height": 600, "has_alpha": False}
         mock_fsm.save_original_image.return_value = Path("/storage/img.jpg")
-        mock_image_repo.find_duplicate_image_by_phash.return_value = None
-        mock_image_repo.add_original_image.return_value = 42
+        mock_image_repo.find_phash_candidates.return_value = []
+        mock_image_repo.add_original_image.return_value = (42, True)
 
         with patch("lorairo.database.db_manager.calculate_phash", return_value="abc123"):
             with patch.object(manager, "_get_current_project_id", return_value=None):
@@ -727,12 +822,14 @@ class TestGetImageIdsFromDirectory:
 
         mock_temp_fsm = Mock(spec=FileSystemManager)
         mock_temp_fsm.get_image_files.return_value = [Path("/data/a.jpg")]
-        mock_image_repo.find_duplicate_image_by_phash.side_effect = SQLAlchemyError("DB error")
+        mock_image_repo.find_phash_candidates.side_effect = SQLAlchemyError("DB error")
+        attrs = {"width": 800, "height": 600, "has_alpha": False, "is_grayscale_like": False}
 
         with patch("lorairo.storage.file_system.FileSystemManager", return_value=mock_temp_fsm):
             with patch("lorairo.database.db_manager.calculate_phash", return_value="abc"):
-                with pytest.raises(SQLAlchemyError):
-                    manager.get_image_ids_from_directory(Path("/data"))
+                with patch.object(FileSystemManager, "get_image_info", return_value=attrs):
+                    with pytest.raises(SQLAlchemyError):
+                        manager.get_image_ids_from_directory(Path("/data"))
 
 
 # ---------------------------------------------------------------------------
@@ -1057,8 +1154,8 @@ class TestRegisterOriginalImageProjectId:
         mock_fsm = Mock()
         mock_fsm.get_image_info.return_value = {"width": 800, "height": 600, "has_alpha": False}
         mock_fsm.save_original_image.return_value = Path("/storage/img.jpg")
-        mock_image_repo.find_duplicate_image_by_phash.return_value = None
-        mock_image_repo.add_original_image.return_value = 101
+        mock_image_repo.find_phash_candidates.return_value = []
+        mock_image_repo.add_original_image.return_value = (101, True)
 
         with patch("lorairo.database.db_manager.calculate_phash", return_value="abc123"):
             with patch.object(manager, "_get_current_project_id", return_value=5):

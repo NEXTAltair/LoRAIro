@@ -173,6 +173,48 @@ def then_image_count_unchanged(test_db_manager: ImageDatabaseManager):
     assert total == 1, f"重複登録で画像件数が増加しました。期待: 1, 実際: {total}"
 
 
+# pHash 別版 (ADR 0061): 同一 pHash だがグレースケール属性が異なる版を登録する
+@when("同じpHashのグレースケール版を登録する", target_fixture="variant_result")
+def when_register_grayscale_variant(
+    test_db_manager: ImageDatabaseManager,
+    fs_manager: FileSystemManager,
+    image_registered: int,
+    test_image_path: Path,
+    tmp_path: Path,
+):
+    """登録済みカラー画像のグレースケール版 (同一 pHash) を登録し結果を返す。
+
+    pHash は輝度ベースなのでグレースケール変換しても一致するが、
+    is_grayscale_like 属性が異なるため ADR 0061 では別版として新規登録される。
+    """
+    gray_path = tmp_path / "file01_gray.webp"
+    Image.open(test_image_path).convert("L").save(gray_path)
+    result = test_db_manager.register_original_image(gray_path, fs_manager)
+    assert result is not None, f"別版登録に失敗: {gray_path}"
+    return {
+        "image_id": result[0],
+        "first_image_id": image_registered,
+        "metadata": result[1],
+    }
+
+
+@then("別版登録結果の画像IDは最初の登録と異なる")
+def then_variant_id_differs(variant_result: dict[str, Any]):
+    """別版は新規 image_id が発行されることを確認する (ADR 0061)。"""
+    assert variant_result["image_id"] != variant_result["first_image_id"], (
+        f"別版登録で既存IDに吸収されました。"
+        f"最初: {variant_result['first_image_id']}, 別版: {variant_result['image_id']}"
+    )
+    assert variant_result["metadata"].get("phash_classification") == "variant"
+
+
+@then("データベースの画像件数は2件になる")
+def then_image_count_two(test_db_manager: ImageDatabaseManager):
+    """別版登録で画像件数が 2 件に増えることを確認する。"""
+    total = test_db_manager.get_total_image_count()
+    assert total == 2, f"別版登録で画像件数が想定外です。期待: 2, 実際: {total}"
+
+
 def _prepare_annotations_from_row(
     row_data: dict[str, Any], dummy_model_id_map: dict[str, int]
 ) -> tuple[AnnotationsDict, dict[str, Any]]:

@@ -16,7 +16,7 @@ from ..utils.tools import calculate_phash
 from .filter_criteria import ImageFilterCriteria
 from .repository.annotation_record import AnnotationRepository
 from .repository.error_record import ErrorRecordRepository
-from .repository.image import ImageRepository
+from .repository.image import ImageRepository, PhashClassification
 from .repository.model import ModelRepository
 from .repository.project import ProjectRepository
 from .repository.provider_batch import ProviderBatchRepository
@@ -178,15 +178,20 @@ class ImageDatabaseManager:
         self,
         image_path: Path,
         fsm: FileSystemManager,
-    ) -> tuple[dict[str, Any], str, Path] | None:
-        """画像メタデータの準備（メタデータ取得 + pHash計算 + ストレージ保存 + 情報追加）。
+    ) -> tuple[dict[str, Any], str] | None:
+        """画像メタデータの準備（メタデータ取得 + pHash計算 + 情報追加）。
+
+        ADR 0061 §3: 保存 (`save_original_image`) は重複/別版分類後に行うため、
+        本メソッドではストレージ保存を行わない。`stored_image_path` は分類後に
+        `register_original_image` 側で追加する。
 
         Args:
             image_path: オリジナル画像のパス。
-            fsm: ファイルシステム操作用マネージャー。
+            fsm: ファイルシステム操作用マネージャー (画像情報取得に使用)。
 
         Returns:
-            成功時は (prepared_metadata, phash, stored_path)、失敗時は None。
+            成功時は (prepared_metadata, phash)、失敗時は None。
+            `prepared_metadata` には `stored_image_path` はまだ含まれない。
 
         Raises:
             ValueError: 画像情報が取得できない場合。
@@ -206,24 +211,17 @@ class ImageDatabaseManager:
             logger.warning(f"画像をスキップ: {e}")
             raise
 
-        # 3. 画像をストレージに保存
-        db_stored_original_path = fsm.save_original_image(image_path)
-        if not db_stored_original_path:
-            logger.error(f"オリジナル画像のストレージ保存に失敗: {image_path}")
-            raise ValueError(f"ストレージ保存に失敗: {image_path}")
-
-        # 4. メタデータに情報を追加
+        # 3. メタデータに情報を追加 (保存は分類後: ADR 0061)
         image_uuid = str(uuid.uuid4())
         original_metadata.update(
             {
                 "uuid": image_uuid,
                 "phash": phash,
                 "original_image_path": str(image_path),
-                "stored_image_path": str(db_stored_original_path),
             },
         )
 
-        return original_metadata, phash, db_stored_original_path
+        return original_metadata, phash
 
     def register_original_image(
         self,
@@ -232,16 +230,22 @@ class ImageDatabaseManager:
     ) -> tuple[int, dict[str, Any]] | None:
         """オリジナル画像をDBに登録する（オーケストレータ）。
 
-        重複チェック (pHash) を行い、重複があれば既存IDを返す。
+        ADR 0061: pHash 完全一致を候補とし、追加属性 (width / height / has_alpha /
+        is_grayscale_like) の比較で「重複 (duplicate)」「別版 (variant)」「新規 (new)」に
+        分類する。保存 (`save_original_image`) は分類結果が別版/新規のときだけ行い、
+        重複時はファイルコピーを残さない (#632)。
 
         Args:
             image_path: オリジナル画像のパス。
             fsm: ファイルシステム操作用マネージャー。
 
         Returns:
-            登録成功時は (image_id, original_metadata)、
+            登録成功時 (新規 / 別版) は (image_id, original_metadata)、
             重複時は (existing_image_id, existing_metadata)、
             入力起因の失敗 (ValueError / FileNotFoundError / OSError) 時は None。
+            戻り値の公開契約 (image_id, metadata) は後方互換に保つ。分類結果は
+            metadata 内の `phash_classification` キーで付加情報として伝える
+            (副作用の全経路統一は #633 のスコープ)。
             OSError には PIL の UnidentifiedImageError や PermissionError 等の
             ファイル読み取り / デコード失敗が含まれる (1 ファイル不正で worker 全体を
             止めないための per-file tolerance)。
@@ -252,28 +256,101 @@ class ImageDatabaseManager:
 
         """
         try:
-            # 1. メタデータを準備
+            # 1. メタデータを準備 (この時点では保存しない: ADR 0061 §3)
             prepare_result = self._prepare_image_metadata(image_path, fsm)
             if prepare_result is None:
                 return None
-            original_metadata, phash, db_stored_original_path = prepare_result
+            original_metadata, phash = prepare_result
         except (ValueError, FileNotFoundError, OSError):
             # 入力起因のスキップは正常系扱い (既にログ出力済み)
             return None
 
-        # 2. 重複チェック (pHash)
-        existing_id = self.image_repo.find_duplicate_image_by_phash(phash)
-        if existing_id is not None:
+        # 2. pHash 候補を取得し、属性比較で重複/別版/新規に分類 (ADR 0061 §1-2)
+        # 分類は DB アクセスを伴わない純粋ロジック (classmethod) なのでクラス経由で呼ぶ。
+        candidates = self.image_repo.find_phash_candidates(phash)
+        classification, existing_id = ImageRepository.classify_phash_candidate(
+            original_metadata, candidates
+        )
+
+        # 3. 重複確定: 保存せず既存メタデータを返す (#632: ファイルコピーを残さない)
+        if classification is PhashClassification.DUPLICATE and existing_id is not None:
             return self._handle_duplicate_image(existing_id, image_path, fsm)
 
-        # 3. データベースに挿入（project_id を付与して project-scoped filter を有効化）
+        # 4. 新規 / 別版: 保存 + 挿入 + サムネイル生成を委譲する (ADR 0061 §3)
+        return self._persist_new_or_variant(image_path, fsm, original_metadata, phash, classification)
+
+    def _persist_new_or_variant(
+        self,
+        image_path: Path,
+        fsm: FileSystemManager,
+        original_metadata: dict[str, Any],
+        phash: str,
+        classification: PhashClassification,
+    ) -> tuple[int, dict[str, Any]] | None:
+        """新規 / 別版分類された画像を保存・挿入し、サムネイルを生成する (ADR 0061 §3)。
+
+        保存 → DB 挿入 (classification-aware 重複ガード込み) → 512px 生成の順で実行する。
+        並行レースで挿入直前に重複が確定した場合は保存済みコピーを cleanup し、重複扱い
+        (既存メタデータ返却) に切り替える。
+
+        Args:
+            image_path: 登録対象の画像パス。
+            fsm: ファイルシステム操作用マネージャー。
+            original_metadata: `_prepare_image_metadata` が組んだメタデータ (保存前)。
+            phash: 計算済み pHash (ログ用)。
+            classification: 事前分類結果 (NEW または VARIANT)。
+
+        Returns:
+            登録成功時は (image_id, metadata)、保存失敗時は None。
+            レースで重複確定したときは既存 (existing_id, existing_metadata)。
+
+        """
+        # save_original_image は copy/storage 初期化失敗で OSError / FileNotFoundError /
+        # RuntimeError 等を投げ得る。メタデータ読み取りと copy の間にソースが消える等の
+        # 入力起因の失敗は per-file tolerance (None 返し) を維持する。
+        try:
+            db_stored_original_path = fsm.save_original_image(image_path)
+        except (OSError, FileNotFoundError, ValueError, RuntimeError) as e:
+            logger.warning(
+                f"オリジナル画像のストレージ保存に失敗したためスキップ: {image_path}, Error: {e}"
+            )
+            return None
+        if not db_stored_original_path:
+            logger.error(f"オリジナル画像のストレージ保存に失敗: {image_path}")
+            return None
+        original_metadata["stored_image_path"] = str(db_stored_original_path)
+        original_metadata["phash_classification"] = classification.value
+
+        # project_id を付与して project-scoped filter を有効化
         project_id = self._get_current_project_id()
         if project_id is not None:
             original_metadata["project_id"] = project_id
-        image_id = self.image_repo.add_original_image(original_metadata)
-        logger.debug(f"オリジナル画像を登録しました: ID={image_id}, Path={image_path}")
 
-        # 4. 512px サムネイル画像の自動生成 (best-effort: 生成失敗で登録自体は失敗させない)
+        # add_original_image が挿入直前に classification-aware 重複ガードを実行する。
+        # 並行登録レースで分類後・挿入前に同一の重複が割り込むと was_inserted=False で
+        # 既存 ID が返る。その場合は保存済みファイルを孤児化しないよう cleanup し、
+        # 重複扱い (既存メタデータ返却) に切り替える (ADR 0061 §3, PR #647 review)。
+        try:
+            image_id, was_inserted = self.image_repo.add_original_image(original_metadata)
+        except SQLAlchemyError:
+            # DB 挿入失敗が確定したら保存済みファイルを削除し孤児を残さない (ADR 0061 §3 cleanup 規約)
+            self._cleanup_orphan_original(db_stored_original_path)
+            raise
+
+        if not was_inserted:
+            # レースで重複確定: 保存した第 2 コピーを削除して既存メタデータを返す。
+            logger.debug(f"並行登録レースで重複確定: 保存済みコピーを削除し既存IDを返します: ID={image_id}")
+            self._cleanup_orphan_original(db_stored_original_path)
+            return self._handle_duplicate_image(image_id, image_path, fsm)
+
+        if classification is PhashClassification.VARIANT:
+            logger.info(
+                f"別版画像を新規登録しました (同一pHash): ID={image_id}, Path={image_path}, pHash={phash}"
+            )
+        else:
+            logger.debug(f"オリジナル画像を登録しました: ID={image_id}, Path={image_path}")
+
+        # 512px サムネイル画像の自動生成 (best-effort: 生成失敗で登録自体は失敗させない)
         try:
             self._generate_thumbnail_512px(image_id, db_stored_original_path, original_metadata, fsm)
         except (SQLAlchemyError, OSError, ValueError, RuntimeError) as e:
@@ -282,6 +359,24 @@ class ImageDatabaseManager:
             )
 
         return image_id, original_metadata
+
+    @staticmethod
+    def _cleanup_orphan_original(stored_path: Path) -> None:
+        """DB 未登録が確定した保存済みオリジナル画像を削除する (ADR 0061 §3)。
+
+        保存は成功したが DB 挿入に失敗した場合、ストレージ上に孤児ファイルが
+        残らないよう削除する。削除自体の失敗 (OSError) は best-effort で握り潰す
+        (主たる例外を上書きしないため)。
+
+        Args:
+            stored_path: 削除対象の保存済みオリジナル画像パス。
+
+        """
+        try:
+            stored_path.unlink(missing_ok=True)
+            logger.debug(f"DB 登録失敗のため保存済みオリジナルを削除しました: {stored_path}")
+        except OSError as e:
+            logger.warning(f"孤児オリジナルファイルの削除に失敗 (処理続行): {stored_path}, Error: {e}")
 
     def _handle_duplicate_image(
         self,
@@ -872,17 +967,22 @@ class ImageDatabaseManager:
             raise
 
     def detect_duplicate_image(self, image_path: Path) -> int | None:
-        """画像の重複を検出し、重複する場合はその画像のIDを返す。
-        pHashベースの視覚的重複検出を使用します。
+        """画像の重複を検出し、重複が確定する場合はその画像のIDを返す。
+
+        ADR 0061: pHash 完全一致を起点に、追加属性 (width / height / has_alpha /
+        is_grayscale_like) の比較で「重複確定」のときだけ既存 ID を返す。同一 pHash でも
+        属性差が重要な「別版」は重複とみなさず None を返し、呼び出し元が新規登録経路へ
+        進めるようにする。
 
         Args:
             image_path (Path): 検査する画像ファイルのパス
 
         Returns:
-            int | None: 重複する画像が見つかった場合はそのimage_id、見つからない場合はNone。
-                pHash 計算に失敗した場合 (`ValueError` / `FileNotFoundError` / `OSError`)
-                も None。OSError には PermissionError や PIL の UnidentifiedImageError 等が
-                含まれる (1 ファイル不正で directory scan 全体を止めないための per-file tolerance)。
+            int | None: 重複が確定した場合はそのimage_id、それ以外 (別版 / 新規 /
+                pHash 計算失敗) は None。pHash 計算失敗は `ValueError` /
+                `FileNotFoundError` / `OSError` を None に畳む。OSError には
+                PermissionError や PIL の UnidentifiedImageError 等が含まれる
+                (1 ファイル不正で directory scan 全体を止めないための per-file tolerance)。
 
         Raises:
             SQLAlchemyError: DB 操作に失敗した場合は呼び出し元に伝播させる。
@@ -897,13 +997,25 @@ class ImageDatabaseManager:
             logger.warning(f"画像をスキップ: {e}")
             return None
 
+        # 分類には属性が要るため画像情報も取得する (取得失敗は重複なし扱い)
+        # get_image_info は staticmethod のため fsm 未注入でも呼べる。
+        try:
+            image_info = FileSystemManager.get_image_info(image_path)
+        except (OSError, ValueError) as e:
+            logger.warning(f"画像情報取得に失敗したため重複なし扱い: {image_path}, Error: {e}")
+            return None
+
         # DB 失敗は呼び出し元へ伝播させる
-        image_id = self.image_repo.find_duplicate_image_by_phash(phash)
-        if image_id is not None:
-            logger.debug(f"重複検出: pHash 一致 ID={image_id}, Name={image_name}, pHash={phash}")
+        candidates = self.image_repo.find_phash_candidates(phash)
+        classification, existing_id = ImageRepository.classify_phash_candidate(image_info, candidates)
+        if classification is PhashClassification.DUPLICATE and existing_id is not None:
+            logger.debug(f"重複確定: pHash+属性一致 ID={existing_id}, Name={image_name}, pHash={phash}")
+            return existing_id
+        if classification is PhashClassification.VARIANT:
+            logger.debug(f"別版検出 (重複ではない): Name={image_name}, pHash={phash}")
         else:
             logger.debug(f"重複なし: Name={image_name}, pHash={phash}")
-        return image_id
+        return None
 
     def get_images_count_only(
         self,

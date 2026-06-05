@@ -78,7 +78,7 @@ def given_registered_image(test_engine_with_schema, tmp_path: Path) -> SaveConte
         "color_space": "RGB",
         "icc_profile": None,
     }
-    image_id = repo.add_original_image(info)
+    image_id, _ = repo.add_original_image(info)
     return SaveContext(repo=repo, error_repo=error_repo, image_id=image_id, image_path=str(file_path))
 
 

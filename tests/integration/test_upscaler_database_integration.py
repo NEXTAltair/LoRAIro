@@ -100,7 +100,7 @@ class TestUpscalerDatabaseIntegration:
             "extension": ".jpg",
         }
 
-        image_id = image_db_manager.image_repo.add_original_image(original_metadata)
+        image_id, _ = image_db_manager.image_repo.add_original_image(original_metadata)
         assert image_id is not None
 
         # アップスケーラー情報付きでProcessedImageを登録
@@ -145,7 +145,7 @@ class TestUpscalerDatabaseIntegration:
             "extension": ".jpg",
         }
 
-        image_id = image_db_manager.image_repo.add_original_image(original_metadata)
+        image_id, _ = image_db_manager.image_repo.add_original_image(original_metadata)
         assert image_id is not None
 
         # アップスケーラー情報なしでProcessedImageを登録
@@ -190,7 +190,7 @@ class TestUpscalerDatabaseIntegration:
             "extension": ".jpg",
         }
 
-        image_id = image_db_manager.image_repo.add_original_image(original_metadata)
+        image_id, _ = image_db_manager.image_repo.add_original_image(original_metadata)
         assert image_id is not None
 
         # ConfigurationServiceとFileSystemManagerをモック
@@ -236,7 +236,7 @@ class TestUpscalerDatabaseIntegration:
             "extension": ".jpg",
         }
 
-        image_id = image_db_manager.image_repo.add_original_image(original_metadata)
+        image_id, _ = image_db_manager.image_repo.add_original_image(original_metadata)
         assert image_id is not None
 
         # アップスケールで生成された512px画像のメタデータを直接DBに登録
@@ -284,7 +284,7 @@ class TestUpscalerDatabaseIntegration:
             "extension": ".jpg",
         }
 
-        image_id = image_db_manager.image_repo.add_original_image(original_metadata)
+        image_id, _ = image_db_manager.image_repo.add_original_image(original_metadata)
 
         # RealESRGAN_x4plusで処理された画像
         processed_metadata_1 = {
