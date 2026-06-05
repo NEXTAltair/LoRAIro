@@ -88,8 +88,10 @@ stdout には機械可読 JSONL のみを出力する。1 行 = 1 つの valid J
 ADR 0053 の `batch_size` streaming と sharding 機構自体は維持し、前者はキャップ内のメモリ境界、後者は
 キャップを跨ぐ反復手段として活きる。
 
-read / list 系コマンド (`images list` 等) はこのキャップの対象外であり、自前の `--limit` / `--offset`
-ページング (ADR 0049) を持つ。「変更操作は 500 上限・閲覧はページング」と性質で分ける。
+read / list 系コマンド (`images list` 等) はこのキャップの対象外であり、別途 bounded pagination 契約
+(`--limit` + offset/cursor) に従う。その完全な契約 (offset/page flag の有無を含む) は ADR 0049 および
+pagination ADR (#639) で定義する。本 ADR は「変更操作は 500 上限・閲覧はページング」という性質の分離だけを
+固定し、paging の具体 flag は #639 に委ねる (現状 `images list` は `--limit` のみで `--offset` は未実装)。
 
 ### 4. エラーコードセット = 14 種
 
@@ -110,9 +112,15 @@ tag-db と共有する安定コア 11 種に、AI 推論ドメイン固有の 3 
 | `DB_ERROR` | 共有 | false | false | DB 操作失敗 |
 | `TIMEOUT` | 共有 | true | false | タイムアウト → 再試行 |
 | `INTERNAL_ERROR` | 共有 | false | false | 想定外内部エラー |
-| `RESOURCE_EXHAUSTED` | 拡張 | true | false | OOM → batch_size を下げて再試行 |
+| `RESOURCE_EXHAUSTED` | 拡張 | true | true | OOM → `batch_size` を下げてから再試行 (identical retry は再失敗) |
 | `AUTH_ERROR` | 拡張 | false | true | API キー未設定/無効 → キーを設定 |
 | `RATE_LIMITED` | 拡張 | true | false | provider 429 → backoff して再試行 (`details.retry_after`) |
+
+`retryable=true` かつ `user_action_required=true` の組は「再試行は可能だが、入力/設定を変えてから
+(例: `RESOURCE_EXHAUSTED` は `batch_size` を下げてから; これをせず identical に再実行すると再失敗する)」
+を意味する。**identical な再実行で成功し得るのは `user_action_required=false` の retryable コード
+(`NETWORK_ERROR` / `TIMEOUT` / `RATE_LIMITED`、後者は backoff 後) のみ**。エージェントはこの 2 フラグの
+組で「そのまま再試行」と「調整してから再試行」を区別する。
 
 ### 5. `classify_exception`: 例外 → コード分類
 
