@@ -2085,43 +2085,39 @@ class ImageRepository(BaseRepository):
             list[dict]: 画像メタデータリスト（既存フォーマット互換）
 
         Raises:
-            ValueError: image_ids が BATCH_CHUNK_SIZE を超える場合 (bind 上限保護, ADR 0056)。
             SQLAlchemyError: データベース操作でエラーが発生した場合
 
         """
         if not image_ids:
             return []
 
-        # error workflow の未解決エラー全件など大量 ID で呼ばれ得るため bind 上限を保護する。
-        # exact-set (=500) ではなく bind 安全の BATCH_CHUNK_SIZE を閾値にする (ADR 0056)。
-        if len(image_ids) > self.BATCH_CHUNK_SIZE:
-            raise ValueError(
-                f"get_images_by_ids は {self.BATCH_CHUNK_SIZE}件まで "
-                f"(指定 {len(image_ids)}件)。呼び出し側で分割すること (ADR 0056)。"
-            )
-
         with self.session_factory() as session:
             try:
-                # アノテーション情報を含めて取得
-                stmt = (
-                    select(Image)
-                    .where(Image.id.in_(image_ids))
-                    .options(
-                        joinedload(Image.tags).joinedload(Tag.model),
-                        joinedload(Image.captions).joinedload(Caption.model),
-                        joinedload(Image.scores).joinedload(Score.model),
-                        joinedload(Image.ratings).joinedload(Rating.model),
-                    )
-                )
-                images = session.execute(stmt).unique().scalars().all()
-
-                # 既存の get_images_by_filter と同じフォーマットで返す
+                # error workflow の未解決エラー全件など大量 ID で呼ばれ得る。exact-set (有界 500)
+                # と異なり error 復旧集合は非有界なので、reject せず BATCH_CHUNK_SIZE で分割して
+                # bind 上限超を回避する (ADR 0056 改訂 / Codex #625)。
                 metadata_list = []
-                for img in images:
-                    metadata = {c.name: getattr(img, c.name) for c in img.__table__.columns}
-                    # アノテーション情報を追加
-                    metadata.update(self._format_annotations_for_metadata(img))
-                    metadata_list.append(metadata)
+                for i in range(0, len(image_ids), self.BATCH_CHUNK_SIZE):
+                    chunk = image_ids[i : i + self.BATCH_CHUNK_SIZE]
+                    # アノテーション情報を含めて取得
+                    stmt = (
+                        select(Image)
+                        .where(Image.id.in_(chunk))
+                        .options(
+                            joinedload(Image.tags).joinedload(Tag.model),
+                            joinedload(Image.captions).joinedload(Caption.model),
+                            joinedload(Image.scores).joinedload(Score.model),
+                            joinedload(Image.ratings).joinedload(Rating.model),
+                        )
+                    )
+                    images = session.execute(stmt).unique().scalars().all()
+
+                    # 既存の get_images_by_filter と同じフォーマットで返す
+                    for img in images:
+                        metadata = {c.name: getattr(img, c.name) for c in img.__table__.columns}
+                        # アノテーション情報を追加
+                        metadata.update(self._format_annotations_for_metadata(img))
+                        metadata_list.append(metadata)
 
                 logger.debug(f"画像メタデータを取得: {len(metadata_list)}件")
                 return metadata_list
