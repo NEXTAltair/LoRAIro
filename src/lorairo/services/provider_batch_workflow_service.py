@@ -86,6 +86,15 @@ class ProviderBatchImportResult:
     job_imported: bool = False
 
 
+@dataclass
+class _CustomIdGroup:
+    """submit 時の custom_id ごとの素材グループ (ADR 0062 dedupe 単位)。"""
+
+    representative_image_id: int
+    representative_image_path: Path
+    image_ids: list[int]
+
+
 @dataclass(frozen=True)
 class _PreparedProviderBatchImport:
     results_by_model_id: Mapping[int, Mapping[int, Any]]
@@ -93,6 +102,12 @@ class _PreparedProviderBatchImport:
     missing_custom_ids: tuple[str, ...]
     already_imported_count: int
     non_importable_count: int
+    # ADR 0062: dedupe で 1 provider item が複数 image_id に fan-out されるため、
+    # save 件数 (image 単位) と provider item / custom_id 単位の完了判定を区別する。
+    # 各分類の image 単位件数 (fan-out 込み) を集計し、サマリを image 単位で一貫させる。
+    imported_image_count: int
+    already_imported_image_count: int
+    non_importable_image_count: int
 
 
 class ProviderBatchLibraryAdapter:
@@ -218,25 +233,58 @@ class ProviderBatchWorkflowService:
         if missing_image_ids:
             raise ProviderBatchError(f"Provider batch submit 対象画像が見つかりません: {missing_image_ids}")
 
+        # ADR 0062: pHash + 長辺解像度由来の custom_id で素材実体に寄せた突合キーを作る。
+        # 同一 custom_id (= 同一素材) は batch 内で 1 リクエストに dedupe し、代表 image_id を
+        # DB item に保存する。結果取り込み時に全 image_id へ反映できるよう custom_id ->
+        # image_id[] 対応表を BatchSubmitItem.raw_request (LoRAIro local; library へは渡さない)
+        # に埋め込む。
         path_overrides = image_paths or {}
-        items: list[BatchSubmitItem] = []
+        grouped: dict[str, _CustomIdGroup] = {}
+        custom_id_order: list[str] = []
         for image_id in image_ids:
+            metadata = metadata_by_id[image_id]
+            custom_id = self._build_custom_id_for_image(image_id, metadata)
+
             image_path = path_overrides.get(image_id)
             if image_path is None:
-                stored_path = metadata_by_id[image_id].get("stored_image_path")
+                stored_path = metadata.get("stored_image_path")
                 if not stored_path:
                     raise ProviderBatchError(
                         f"Provider batch submit 対象画像に stored_image_path がありません: image_id={image_id}"
                     )
                 image_path = resolve_stored_path(str(stored_path))
 
+            group = grouped.get(custom_id)
+            if group is None:
+                grouped[custom_id] = _CustomIdGroup(
+                    representative_image_id=image_id,
+                    representative_image_path=Path(image_path),
+                    image_ids=[image_id],
+                )
+                custom_id_order.append(custom_id)
+            else:
+                # 同一素材の重複投入はまとめる。代表は最初に出現した image_id を維持する。
+                if image_id not in group.image_ids:
+                    group.image_ids.append(image_id)
+
+        deduped_count = len(image_ids) - len(custom_id_order)
+        if deduped_count > 0:
+            logger.info(
+                f"Provider batch submit dedupe: {len(image_ids)}件 -> {len(custom_id_order)}件 "
+                f"(同一 pHash+長辺の重複 {deduped_count}件を統合)"
+            )
+
+        items: list[BatchSubmitItem] = []
+        for custom_id in custom_id_order:
+            group = grouped[custom_id]
             items.append(
                 BatchSubmitItem(
-                    custom_id=ProviderBatchJobService.build_custom_id(image_id),
-                    image_id=image_id,
-                    image_path=Path(image_path),
+                    custom_id=custom_id,
+                    image_id=group.representative_image_id,
+                    image_path=group.representative_image_path,
                     task_type=task_type,
                     model_id=model_id,
+                    raw_request={"lorairo_image_ids": list(group.image_ids)},
                 )
             )
 
@@ -254,6 +302,38 @@ class ProviderBatchWorkflowService:
             else None,
             raw_provider_payload=raw_provider_payload,
         )
+
+    @staticmethod
+    def _build_custom_id_for_image(image_id: int, metadata: Mapping[str, Any]) -> str:
+        """画像メタデータから ADR 0062 の custom_id を生成する。
+
+        pHash は DB の ``Image.phash`` (NOT NULL)、長辺解像度は ``width`` / ``height``
+        の大きい方を採用する。アノテーション対象素材としては original 画像の解像度を
+        用いる (``get_images_metadata_batch`` は resolution=0 で original を返す)。
+
+        Args:
+            image_id: 対象画像 ID (エラーメッセージ用)。
+            metadata: ``get_images_metadata_batch`` が返す画像メタデータ。
+
+        Returns:
+            ``ph:{phash}:le:{long_edge}`` 形式の custom_id。
+
+        Raises:
+            ProviderBatchError: pHash または width/height が欠落している場合。
+        """
+        phash = metadata.get("phash")
+        if not phash:
+            raise ProviderBatchError(
+                f"Provider batch submit 対象画像に pHash がありません: image_id={image_id}"
+            )
+        width = metadata.get("width")
+        height = metadata.get("height")
+        if not width or not height:
+            raise ProviderBatchError(
+                f"Provider batch submit 対象画像に width/height がありません: image_id={image_id}"
+            )
+        long_edge = max(int(width), int(height))
+        return ProviderBatchJobService.build_custom_id(str(phash), long_edge)
 
     @staticmethod
     def _validate_submit_task(
@@ -411,18 +491,24 @@ class ProviderBatchWorkflowService:
         save_result = self._save_results_by_model(refreshed_job, prepared.results_by_model_id)
 
         unique_missing_custom_ids = tuple(sorted(set(prepared.missing_custom_ids)))
-        settled_count = save_result.success_count + prepared.already_imported_count
         import_clean = (
             save_result.error_count == 0
             and save_result.skip_count == 0
             and not unique_missing_custom_ids
             and prepared.non_importable_count == 0
         )
+        # ADR 0062: 完了判定は provider item (custom_id) 単位で行う。dedupe で 1 item が
+        # 複数 image に fan-out されるため、save 件数 (image 単位) ではなく custom_id 単位で
+        # normalized_fetch.items との突合を取る。
+        settled_custom_id_count = len(prepared.imported_custom_ids) + prepared.already_imported_count
         job_imported = (
-            bool(normalized_fetch.items) and settled_count == len(normalized_fetch.items) and import_clean
+            bool(normalized_fetch.items)
+            and settled_custom_id_count == len(normalized_fetch.items)
+            and import_clean
         )
+        # mark は image 単位の save 成功数と fan-out 込みの想定 image 数を突合する。
         mark_imported_items = (
-            save_result.success_count == len(prepared.imported_custom_ids)
+            save_result.success_count == prepared.imported_image_count
             and save_result.error_count == 0
             and save_result.skip_count == 0
         )
@@ -435,16 +521,27 @@ class ProviderBatchWorkflowService:
                 {"status": "imported", "imported_at": datetime.now(UTC)},
             )
 
+        # ADR 0062 / Codex #646: imported_count / skipped_count / error_count / total_count を
+        # すべて image 単位で一貫させる。dedupe fan-out で 1 provider result が複数 image に
+        # 紐づくため、non-importable / already-imported も fan-out 込みの image 件数で数える
+        # (2-image deduped 失敗を "1 skipped / 1 total" と過小報告しない)。missing は DB item が
+        # 無く fan-out 数が不明なため 1 件として数える。
+        # save 対象外の image (item 単位 → fan-out 込み image 単位へ展開) を加算する。
+        not_saved_image_count = (
+            len(unique_missing_custom_ids)
+            + prepared.non_importable_image_count
+            + prepared.already_imported_image_count
+        )
+        skipped_image_count = save_result.skip_count + not_saved_image_count
+        # total = save 対象 image (success+skip+error) + save 対象外 image。
+        image_total_count = save_result.total_count + not_saved_image_count
         return ProviderBatchImportResult(
             save_result=save_result,
             apply_result=apply_result,
             imported_count=save_result.success_count,
-            skipped_count=save_result.skip_count
-            + len(unique_missing_custom_ids)
-            + prepared.non_importable_count
-            + prepared.already_imported_count,
+            skipped_count=skipped_image_count,
             error_count=save_result.error_count,
-            total_count=len(normalized_fetch.items),
+            total_count=image_total_count,
             missing_custom_ids=unique_missing_custom_ids,
             job_imported=job_imported,
         )
@@ -466,6 +563,9 @@ class ProviderBatchWorkflowService:
         missing_custom_ids: list[str] = list(apply_result.missing_custom_ids)
         already_imported_count = 0
         non_importable_count = 0
+        imported_image_count = 0
+        already_imported_image_count = 0
+        non_importable_image_count = 0
 
         for raw_item in fetch_result.items:
             item = self._coerce_result_item(raw_item)
@@ -473,17 +573,28 @@ class ProviderBatchWorkflowService:
             if db_item is None or db_item.image_id is None:
                 missing_custom_ids.append(item.custom_id)
                 continue
+            # ADR 0062 / Codex #646: dedupe で 1 provider item が複数 image に fan-out される
+            # ため、skip / already-imported / non-importable も image 単位件数で集計する。
+            fanned_out_image_count = len(self._image_ids_for_db_item(db_item))
             if db_item.status == "imported":
                 already_imported_count += 1
+                already_imported_image_count += fanned_out_image_count
                 continue
             if item.status not in {"succeeded", "completed", "imported"} or item.annotation is None:
                 non_importable_count += 1
+                non_importable_image_count += fanned_out_image_count
                 continue
             model_id = self._model_id_for_item(job, db_item)
             if model_id is None:
                 raise ProviderBatchError(f"Provider batch import に model_id が必要です: job_id={job.id}")
-            results_by_model_id.setdefault(model_id, {})[db_item.image_id] = item.annotation
+            # ADR 0062: custom_id は素材実体キーなので、dedupe で統合された
+            # 重複 image_id 群すべてに同じ annotation を反映する。
+            target_image_ids = self._image_ids_for_db_item(db_item)
+            model_results = results_by_model_id.setdefault(model_id, {})
+            for target_image_id in target_image_ids:
+                model_results[target_image_id] = item.annotation
             imported_custom_ids.append(item.custom_id)
+            imported_image_count += len(target_image_ids)
 
         return _PreparedProviderBatchImport(
             results_by_model_id=results_by_model_id,
@@ -491,6 +602,9 @@ class ProviderBatchWorkflowService:
             missing_custom_ids=tuple(missing_custom_ids),
             already_imported_count=already_imported_count,
             non_importable_count=non_importable_count,
+            imported_image_count=imported_image_count,
+            already_imported_image_count=already_imported_image_count,
+            non_importable_image_count=non_importable_image_count,
         )
 
     def _save_results_by_model(
@@ -530,6 +644,51 @@ class ProviderBatchWorkflowService:
     @staticmethod
     def _model_id_for_item(job: ProviderBatchJob, item: ProviderBatchItem) -> int | None:
         return item.model_id if item.model_id is not None else job.model_id
+
+    @staticmethod
+    def _image_ids_for_db_item(item: ProviderBatchItem) -> list[int]:
+        """DB item から annotation 反映対象の image_id 群を取り出す。
+
+        ADR 0062: dedupe で統合した重複 image_id 群を ``raw_request`` の
+        ``lorairo_image_ids`` (LoRAIro local) に保存している。これを読み戻して
+        custom_id -> image_id[] の対応として使う。欠落時は代表 ``image_id`` のみを返す
+        (旧フォーマット job との後方互換)。
+
+        Args:
+            item: 対象の ``ProviderBatchItem``。``image_id`` は非 None である前提。
+
+        Returns:
+            annotation を反映する image_id のリスト。重複は除き、代表 image_id を必ず含む。
+        """
+        representative = item.image_id
+        if representative is None:
+            return []
+        mapped = ProviderBatchWorkflowService._parse_mapped_image_ids(item.raw_request)
+        if not mapped:
+            return [representative]
+        ordered = list(dict.fromkeys([representative, *mapped]))
+        return ordered
+
+    @staticmethod
+    def _parse_mapped_image_ids(raw_request: str | None) -> list[int]:
+        if not raw_request:
+            return []
+        try:
+            payload = json.loads(raw_request)
+        except (json.JSONDecodeError, TypeError):
+            return []
+        if not isinstance(payload, Mapping):
+            return []
+        mapped = payload.get("lorairo_image_ids")
+        if not isinstance(mapped, list):
+            return []
+        result: list[int] = []
+        for value in mapped:
+            if isinstance(value, bool):
+                continue
+            if isinstance(value, int):
+                result.append(value)
+        return result
 
     def _mark_items_imported(self, job_id: int, custom_ids: Sequence[str]) -> None:
         updates_by_custom_id = {custom_id: {"status": "imported"} for custom_id in custom_ids}

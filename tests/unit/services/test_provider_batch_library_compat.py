@@ -248,6 +248,73 @@ def test_submit_conversion_preserves_metadata_when_library_dto_supports_it(
 
 
 @pytest.mark.unit
+def test_submit_conversion_strips_lorairo_private_raw_request_keys(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """Codex #646 P2: ``lorairo_*`` private キーは provider payload へ転送しない。"""
+
+    @dataclass(frozen=True)
+    class LibraryBatchSubmitItem:
+        custom_id: str
+        image_id: int
+        image_path: Path
+        task_type: str
+        model_id: int | None
+        raw_request: Any
+
+    @dataclass(frozen=True)
+    class LibraryBatchSubmitRequest:
+        provider: str
+        endpoint: str
+        litellm_model_id: str
+        prompt_profile: str
+        description: str | None
+        api_keys: dict[str, str]
+        items: list[LibraryBatchSubmitItem]
+        model_id: int | None
+        request_artifact_path: Path | None
+        raw_provider_payload: Any
+
+    monkeypatch.setattr(image_annotator_lib, "BatchSubmitItem", LibraryBatchSubmitItem, raising=False)
+    monkeypatch.setattr(image_annotator_lib, "BatchSubmitRequest", LibraryBatchSubmitRequest, raising=False)
+
+    request = BatchSubmitRequest(
+        provider="anthropic",
+        endpoint="messages",
+        litellm_model_id="anthropic/claude-test",
+        prompt_profile="default",
+        api_keys={"anthropic": "test"},
+        items=(
+            BatchSubmitItem(
+                custom_id="ph:abc:le:1024",
+                image_id=1,
+                image_path=tmp_path / "image.webp",
+                task_type="annotation",
+                model_id=10,
+                raw_request={"lorairo_image_ids": [1, 2], "temperature": 0.1},
+            ),
+            BatchSubmitItem(
+                custom_id="ph:def:le:768",
+                image_id=3,
+                image_path=tmp_path / "image2.webp",
+                task_type="annotation",
+                model_id=10,
+                raw_request={"lorairo_image_ids": [3]},
+            ),
+        ),
+        model_id=10,
+    )
+
+    converted = to_library_submit_request(request)
+
+    # lorairo_* は除去、それ以外のキーは保持。
+    assert converted.items[0].raw_request == {"temperature": 0.1}
+    # 残りが lorairo_* のみなら None に畳む (空 payload を provider へ渡さない)。
+    assert converted.items[1].raw_request is None
+
+
+@pytest.mark.unit
 def test_library_conversion_is_idempotent_for_already_converted_dtos() -> None:
     submit_request = SimpleNamespace(provider="anthropic", items=[])
     handle = SimpleNamespace(provider="anthropic", provider_job_id="batch_123")

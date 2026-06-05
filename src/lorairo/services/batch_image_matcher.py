@@ -1,13 +1,20 @@
 """JSONL custom_id → DB image_id の一括照合サービス。
 
-OpenAI Batch APIのcustom_idフィールドからファイル名stemを抽出し、
+OpenAI Batch APIのcustom_idフィールドからマッチングキーを抽出し、
 DBに登録済みの画像とマッチングする。
+
+custom_id には 2 系統がある:
+
+- ADR 0062 形式 ``ph:{phash}:le:{long_edge}`` (LoRAIro が生成する Provider Batch 投入)。
+  pHash で照合する (長辺解像度はキーの一意化用で、照合は完全一致 pHash ベース)。
+- ファイル名 stem 形式 (外部生成 JSONL 等の旧来フォーマット)。
 """
 
 from dataclasses import dataclass, field
 from pathlib import PurePosixPath
 
 from lorairo.database.repository.image import ImageRepository
+from lorairo.services.provider_batch_service import ProviderBatchJobService
 
 
 @dataclass(frozen=True)
@@ -34,27 +41,58 @@ class BatchImageMatcher:
     def match_all(self, custom_ids: list[str]) -> ImageMatchResult:
         """全custom_idを一括照合する。
 
+        ADR 0062 形式 (``ph:{phash}:le:{long_edge}``) は pHash で、それ以外は
+        ファイル名 stem で照合する。
+
         Args:
             custom_ids: OpenAI Batch APIのcustom_idリスト。
 
         Returns:
             マッチング結果。
         """
-        # DB全画像の filename stem → image_id インデックスを1クエリで構築
-        filename_index = self._repository.get_all_image_filename_index()
+        # custom_id を pHash 形式と stem 形式に振り分ける
+        phash_le_by_custom_id: dict[str, tuple[str, int]] = {}
+        stem_custom_ids: list[str] = []
+        for custom_id in custom_ids:
+            parsed = ProviderBatchJobService.parse_custom_id(custom_id)
+            if parsed is not None:
+                phash_le_by_custom_id[custom_id] = parsed
+            else:
+                stem_custom_ids.append(custom_id)
 
         matched: dict[str, int] = {}
         unmatched: list[str] = []
+        ambiguous: dict[str, list[int]] = {}
 
-        for custom_id in custom_ids:
-            stem = self.extract_stem(custom_id)
-            image_id = filename_index.get(stem)
-            if image_id is not None:
-                matched[custom_id] = image_id
-            else:
-                unmatched.append(custom_id)
+        # ADR 0062: (pHash, 長辺解像度) の複合キーで突合する。同一 pHash で長辺の異なる
+        # レコードが DB に共存しても、custom_id の長辺に一致する行へ正しくマッチする。
+        if phash_le_by_custom_id:
+            phashes = {phash for phash, _ in phash_le_by_custom_id.values()}
+            phash_le_to_ids = self._repository.find_image_ids_by_phash_long_edge(phashes)
+            for custom_id, key in phash_le_by_custom_id.items():
+                image_ids = phash_le_to_ids.get(key)
+                if image_ids:
+                    # 代表 (昇順先頭) を matched に、同一素材の重複登録は ambiguous に残す
+                    # (legacy JSONL import は代表のみ保存。submit/import 経路は raw_request の
+                    # 対応表で全 image へ fan-out する)。
+                    matched[custom_id] = image_ids[0]
+                    if len(image_ids) > 1:
+                        ambiguous[custom_id] = list(image_ids)
+                else:
+                    unmatched.append(custom_id)
 
-        return ImageMatchResult(matched=matched, unmatched=unmatched)
+        # 旧来フォーマット: ファイル名 stem で照合
+        if stem_custom_ids:
+            filename_index = self._repository.get_all_image_filename_index()
+            for custom_id in stem_custom_ids:
+                stem = self.extract_stem(custom_id)
+                image_id = filename_index.get(stem)
+                if image_id is not None:
+                    matched[custom_id] = image_id
+                else:
+                    unmatched.append(custom_id)
+
+        return ImageMatchResult(matched=matched, unmatched=unmatched, ambiguous=ambiguous)
 
     @staticmethod
     def extract_stem(custom_id: str) -> str:

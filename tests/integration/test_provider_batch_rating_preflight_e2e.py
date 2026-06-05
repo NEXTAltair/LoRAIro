@@ -126,6 +126,11 @@ def _make_moderation_annotation(raw_label: str, confidence: float) -> dict[str, 
     }
 
 
+def _expected_custom_id(image_id: int) -> str:
+    """ADR 0062: ``_insert_image`` が設定する phash / 長辺 (64) から導く custom_id。"""
+    return f"ph:e2eratingpref{image_id:04d}:le:64"
+
+
 def _insert_image(session_factory: sessionmaker, image_id: int, stored_path: str | Path) -> None:
     """Register a minimal Image row matching schema requirements."""
     stored_path_obj = Path(stored_path)
@@ -209,9 +214,9 @@ def workflow_setup(
     )
 
     items_by_custom_id = {
-        "img-1": _make_moderation_annotation("pg", confidence=0.10),
-        "img-2": _make_moderation_annotation("r", confidence=0.65),
-        "img-3": _make_moderation_annotation("xxx", confidence=0.99),
+        _expected_custom_id(1): _make_moderation_annotation("pg", confidence=0.10),
+        _expected_custom_id(2): _make_moderation_annotation("r", confidence=0.65),
+        _expected_custom_id(3): _make_moderation_annotation("xxx", confidence=0.99),
     }
     adapter = _FakeRatingPreflightAdapter(items_by_custom_id)
 
@@ -280,7 +285,11 @@ def test_rating_preflight_e2e_marks_xxx_image_as_excluded(workflow_setup: dict[s
     assert job.model_id == model_id
     assert job.provider_job_id == "batch_rating_preflight_001"
     db_items = provider_batch_repo.list_provider_batch_items(job_id)
-    assert {item.custom_id for item in db_items} == {"img-1", "img-2", "img-3"}
+    assert {item.custom_id for item in db_items} == {
+        _expected_custom_id(1),
+        _expected_custom_id(2),
+        _expected_custom_id(3),
+    }
     assert {item.task_type for item in db_items} == {"rating_preflight"}
     assert {item.model_id for item in db_items} == {model_id}
 

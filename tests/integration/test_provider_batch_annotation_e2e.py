@@ -127,6 +127,11 @@ def _make_refusal_item(custom_id: str) -> ProviderBatchResultItem:
     )
 
 
+def _expected_custom_id(image_id: int) -> str:
+    """ADR 0062: ``_insert_image`` が設定する phash / 長辺 (64) から導く custom_id。"""
+    return f"ph:e2eannotation{image_id:04d}:le:64"
+
+
 def _insert_image(session_factory: sessionmaker, image_id: int, stored_path: Path) -> None:
     with session_factory() as session:
         session.add(
@@ -192,18 +197,18 @@ def workflow_setup(
 
     items = [
         _make_succeeded_item(
-            "img-1",
+            _expected_custom_id(1),
             tags=["1girl", "blue_eyes", "school_uniform"],
             captions=["A girl with blue eyes wearing a school uniform."],
             score=7.5,
         ),
         _make_succeeded_item(
-            "img-2",
+            _expected_custom_id(2),
             tags=["sunset", "landscape"],
             captions=["A sunset over a mountain landscape."],
             score=8.2,
         ),
-        _make_refusal_item("img-3"),
+        _make_refusal_item(_expected_custom_id(3)),
     ]
     adapter = _FakeAnnotationBatchAdapter(items)
 
@@ -267,9 +272,9 @@ def test_annotation_batch_e2e_persists_success_and_skips_refusal(
     # provider_batch_items の状態を確認
     db_items = provider_batch_repo.list_provider_batch_items(job_id)
     items_by_custom_id = {item.custom_id: item for item in db_items}
-    assert items_by_custom_id["img-1"].status == "imported"
-    assert items_by_custom_id["img-2"].status == "imported"
-    refusal_item = items_by_custom_id["img-3"]
+    assert items_by_custom_id[_expected_custom_id(1)].status == "imported"
+    assert items_by_custom_id[_expected_custom_id(2)].status == "imported"
+    refusal_item = items_by_custom_id[_expected_custom_id(3)]
     assert refusal_item.status == "failed"
     assert refusal_item.error_type == "provider_safety_refusal"
 

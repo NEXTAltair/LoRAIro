@@ -80,7 +80,13 @@ class TestServiceContainerProviderBatch:
         # Mock 化し、各 Repo を個別に stub する。
         image_repo = Mock()
         image_repo.get_images_metadata_batch.return_value = [
-            {"id": 1, "stored_image_path": "/tmp/container-image.webp"}
+            {
+                "id": 1,
+                "stored_image_path": "/tmp/container-image.webp",
+                "phash": "containerimage01",
+                "width": 1024,
+                "height": 768,
+            }
         ]
         provider_batch_repo = Mock()
         provider_batch_repo.create_provider_batch_job_with_items.return_value = 123
