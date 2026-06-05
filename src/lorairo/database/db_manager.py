@@ -276,7 +276,35 @@ class ImageDatabaseManager:
         if classification is PhashClassification.DUPLICATE and existing_id is not None:
             return self._handle_duplicate_image(existing_id, image_path, fsm)
 
-        # 4. 新規 / 別版: ここで初めてストレージに保存する (ADR 0061 §3)
+        # 4. 新規 / 別版: 保存 + 挿入 + サムネイル生成を委譲する (ADR 0061 §3)
+        return self._persist_new_or_variant(image_path, fsm, original_metadata, phash, classification)
+
+    def _persist_new_or_variant(
+        self,
+        image_path: Path,
+        fsm: FileSystemManager,
+        original_metadata: dict[str, Any],
+        phash: str,
+        classification: PhashClassification,
+    ) -> tuple[int, dict[str, Any]] | None:
+        """新規 / 別版分類された画像を保存・挿入し、サムネイルを生成する (ADR 0061 §3)。
+
+        保存 → DB 挿入 (classification-aware 重複ガード込み) → 512px 生成の順で実行する。
+        並行レースで挿入直前に重複が確定した場合は保存済みコピーを cleanup し、重複扱い
+        (既存メタデータ返却) に切り替える。
+
+        Args:
+            image_path: 登録対象の画像パス。
+            fsm: ファイルシステム操作用マネージャー。
+            original_metadata: `_prepare_image_metadata` が組んだメタデータ (保存前)。
+            phash: 計算済み pHash (ログ用)。
+            classification: 事前分類結果 (NEW または VARIANT)。
+
+        Returns:
+            登録成功時は (image_id, metadata)、保存失敗時は None。
+            レースで重複確定したときは既存 (existing_id, existing_metadata)。
+
+        """
         # save_original_image は copy/storage 初期化失敗で OSError / FileNotFoundError /
         # RuntimeError 等を投げ得る。メタデータ読み取りと copy の間にソースが消える等の
         # 入力起因の失敗は per-file tolerance (None 返し) を維持する。
@@ -293,21 +321,28 @@ class ImageDatabaseManager:
         original_metadata["stored_image_path"] = str(db_stored_original_path)
         original_metadata["phash_classification"] = classification.value
 
-        # 5. データベースに挿入（project_id を付与して project-scoped filter を有効化）
+        # project_id を付与して project-scoped filter を有効化
         project_id = self._get_current_project_id()
         if project_id is not None:
             original_metadata["project_id"] = project_id
 
-        # 別版は同一 pHash の新規行として挿入するため内部重複ガードをスキップ
-        allow_phash_duplicate = classification is PhashClassification.VARIANT
+        # add_original_image が挿入直前に classification-aware 重複ガードを実行する。
+        # 並行登録レースで分類後・挿入前に同一の重複が割り込むと was_inserted=False で
+        # 既存 ID が返る。その場合は保存済みファイルを孤児化しないよう cleanup し、
+        # 重複扱い (既存メタデータ返却) に切り替える (ADR 0061 §3, PR #647 review)。
         try:
-            image_id = self.image_repo.add_original_image(
-                original_metadata, allow_phash_duplicate=allow_phash_duplicate
-            )
+            image_id, was_inserted = self.image_repo.add_original_image(original_metadata)
         except SQLAlchemyError:
             # DB 挿入失敗が確定したら保存済みファイルを削除し孤児を残さない (ADR 0061 §3 cleanup 規約)
             self._cleanup_orphan_original(db_stored_original_path)
             raise
+
+        if not was_inserted:
+            # レースで重複確定: 保存した第 2 コピーを削除して既存メタデータを返す。
+            logger.debug(f"並行登録レースで重複確定: 保存済みコピーを削除し既存IDを返します: ID={image_id}")
+            self._cleanup_orphan_original(db_stored_original_path)
+            return self._handle_duplicate_image(image_id, image_path, fsm)
+
         if classification is PhashClassification.VARIANT:
             logger.info(
                 f"別版画像を新規登録しました (同一pHash): ID={image_id}, Path={image_path}, pHash={phash}"
@@ -315,7 +350,7 @@ class ImageDatabaseManager:
         else:
             logger.debug(f"オリジナル画像を登録しました: ID={image_id}, Path={image_path}")
 
-        # 6. 512px サムネイル画像の自動生成 (best-effort: 生成失敗で登録自体は失敗させない)
+        # 512px サムネイル画像の自動生成 (best-effort: 生成失敗で登録自体は失敗させない)
         try:
             self._generate_thumbnail_512px(image_id, db_stored_original_path, original_metadata, fsm)
         except (SQLAlchemyError, OSError, ValueError, RuntimeError) as e:

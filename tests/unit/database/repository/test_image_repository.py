@@ -68,9 +68,8 @@ def _insert_image(
     height: int = 64,
     has_alpha: bool = False,
     is_grayscale_like: bool = False,
-    allow_phash_duplicate: bool = False,
 ) -> int:
-    """テスト用画像を 1 件作成して id を返す。"""
+    """テスト用画像を 1 件作成して id を返す (was_inserted は捨てる)。"""
     info = {
         "uuid": uuid,
         "phash": phash,
@@ -84,7 +83,8 @@ def _insert_image(
         "has_alpha": has_alpha,
         "is_grayscale_like": is_grayscale_like,
     }
-    return repo.add_original_image(info, allow_phash_duplicate=allow_phash_duplicate)
+    image_id, _was_inserted = repo.add_original_image(info)
+    return image_id
 
 
 def _insert_processed_image(
@@ -240,13 +240,8 @@ class TestPhashCandidateClassification:
     ) -> None:
         """同一 pHash の別版が複数あれば全件返す (limit(1) しない)。"""
         first = _insert_image(image_repository, uuid="u-m1", phash="p-multi", is_grayscale_like=False)
-        second = _insert_image(
-            image_repository,
-            uuid="u-m2",
-            phash="p-multi",
-            is_grayscale_like=True,
-            allow_phash_duplicate=True,
-        )
+        # 属性が異なれば別版として新規行になる (classification-aware guard)
+        second = _insert_image(image_repository, uuid="u-m2", phash="p-multi", is_grayscale_like=True)
         candidates = image_repository.find_phash_candidates("p-multi")
         assert {c["id"] for c in candidates} == {first, second}
 
@@ -358,32 +353,51 @@ class TestPhashCandidateClassification:
 
 @pytest.mark.unit
 class TestAddOriginalImageVariant:
-    """`add_original_image(allow_phash_duplicate=True)` の別版登録 (ADR 0061)。"""
+    """`add_original_image` の classification-aware 別版登録 / dedup (ADR 0061)。"""
 
-    def test_inserts_new_row_for_same_phash_when_allowed(self, image_repository: ImageRepository) -> None:
-        """allow_phash_duplicate=True なら同一 pHash でも新規行を作る。"""
+    def test_inserts_new_row_for_same_phash_variant(self, image_repository: ImageRepository) -> None:
+        """同一 pHash でも属性差があれば別版として新規行を作る。"""
         first = _insert_image(image_repository, uuid="u-v1", phash="p-var", is_grayscale_like=False)
-        second = _insert_image(
-            image_repository,
-            uuid="u-v2",
-            phash="p-var",
-            is_grayscale_like=True,
-            allow_phash_duplicate=True,
-        )
+        second = _insert_image(image_repository, uuid="u-v2", phash="p-var", is_grayscale_like=True)
         assert second != first
         assert len(image_repository.find_phash_candidates("p-var")) == 2
 
-    def test_internal_guard_inserts_variant_on_race(self, image_repository: ImageRepository) -> None:
-        """allow_phash_duplicate=False でも属性差があれば内部ガードは別版を挿入する。
+    def test_returns_was_inserted_flag(self, image_repository: ImageRepository) -> None:
+        """新規挿入時 was_inserted=True、重複確定時 was_inserted=False を返す。"""
+        info_a = {
+            "uuid": "u-w1",
+            "phash": "p-wi",
+            "original_image_path": "/tmp/a.png",
+            "stored_image_path": "/tmp/a.png",
+            "width": 64,
+            "height": 64,
+            "format": "PNG",
+            "extension": ".png",
+            "has_alpha": False,
+            "is_grayscale_like": False,
+        }
+        first_id, was_inserted_a = image_repository.add_original_image(info_a)
+        assert was_inserted_a is True
+        # 全属性一致の再登録 → 重複確定、挿入されない
+        info_b = {**info_a, "uuid": "u-w2"}
+        second_id, was_inserted_b = image_repository.add_original_image(info_b)
+        assert was_inserted_b is False
+        assert second_id == first_id
 
-        並行登録レースで loser が phash 一致だけで winner の ID に寄せられ、別版が
-        黙って捨てられるのを防ぐ (classification-aware guard)。
+    def test_dedup_identical_variants_in_sequence(self, image_repository: ImageRepository) -> None:
+        """同一属性の別版を 2 連続登録すると 2 回目は重複確定で既存 ID を返す。
+
+        並行レースで両者が VARIANT 分類されても、挿入直前ガードが先行行を候補として
+        拾い直すため、同一属性は 1 行に収束する (PR #647 review P2)。
         """
-        first = _insert_image(image_repository, uuid="u-r1", phash="p-race", is_grayscale_like=False)
-        # allow_phash_duplicate=False のまま属性が異なる画像を挿入 → 別版として新規行
-        second = _insert_image(image_repository, uuid="u-r2", phash="p-race", is_grayscale_like=True)
-        assert second != first
-        assert len(image_repository.find_phash_candidates("p-race")) == 2
+        # 先行のカラー版
+        _insert_image(image_repository, uuid="u-i0", phash="p-id", is_grayscale_like=False)
+        # グレー別版を 2 回登録
+        gray1 = _insert_image(image_repository, uuid="u-i1", phash="p-id", is_grayscale_like=True)
+        gray2 = _insert_image(image_repository, uuid="u-i2", phash="p-id", is_grayscale_like=True)
+        assert gray2 == gray1
+        # カラー 1 + グレー 1 = 2 行
+        assert len(image_repository.find_phash_candidates("p-id")) == 2
 
     def test_internal_guard_returns_existing_on_true_duplicate(
         self, image_repository: ImageRepository

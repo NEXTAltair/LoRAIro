@@ -231,7 +231,7 @@ class TestRegisterOriginalImageExtended:
         mock_fsm.get_image_info.return_value = {"width": 800, "height": 600, "has_alpha": False}
         mock_fsm.save_original_image.return_value = Path("/storage/img.jpg")
         mock_image_repo.find_phash_candidates.return_value = []
-        mock_image_repo.add_original_image.return_value = 100
+        mock_image_repo.add_original_image.return_value = (100, True)
 
         with patch("lorairo.database.db_manager.calculate_phash", return_value="abc123"):
             with patch.object(manager, "_get_current_project_id", return_value=None):
@@ -277,7 +277,7 @@ class TestRegisterOriginalImageExtended:
         # is_grayscale_like が異なる候補のみ → 別版
         candidate = {"id": 5, "width": 800, "height": 600, "has_alpha": False, "is_grayscale_like": True}
         mock_image_repo.find_phash_candidates.return_value = [candidate]
-        mock_image_repo.add_original_image.return_value = 77
+        mock_image_repo.add_original_image.return_value = (77, True)
 
         with patch("lorairo.database.db_manager.calculate_phash", return_value="abc123"):
             with patch.object(manager, "_get_current_project_id", return_value=None):
@@ -287,11 +287,41 @@ class TestRegisterOriginalImageExtended:
         assert result is not None
         image_id, metadata = result
         assert image_id == 77
-        # 別版は保存される & allow_phash_duplicate=True で挿入される
+        # 別版は保存され、同一 pHash の新規行として挿入される
         mock_fsm.save_original_image.assert_called_once()
-        _, kwargs = mock_image_repo.add_original_image.call_args
-        assert kwargs["allow_phash_duplicate"] is True
+        mock_image_repo.add_original_image.assert_called_once()
         assert metadata["phash_classification"] == "variant"
+
+    def test_cleans_up_saved_copy_when_race_dedup(
+        self, manager: ImageDatabaseManager, mock_image_repo: Mock, tmp_path: Path
+    ) -> None:
+        """並行レースで挿入直前に重複確定 (was_inserted=False) なら保存済みコピーを削除し既存を返す。
+
+        PR #647 Codex review P2: 分類時は NEW でも挿入直前ガードで重複が見つかると
+        add_original_image が (existing_id, False) を返す。保存した第 2 コピーを孤児化
+        しないよう cleanup し、重複扱い (既存メタデータ) に切り替える。
+        """
+        saved_copy = tmp_path / "img_1.jpg"
+        saved_copy.write_bytes(b"dummy")
+
+        mock_fsm = Mock()
+        mock_fsm.get_image_info.return_value = {"width": 800, "height": 600, "has_alpha": False}
+        mock_fsm.save_original_image.return_value = saved_copy
+        # 分類時点では候補なし (NEW) だが、挿入直前ガードで重複が見つかった想定
+        mock_image_repo.find_phash_candidates.return_value = []
+        mock_image_repo.add_original_image.return_value = (9, False)
+        mock_image_repo.get_processed_image.return_value = {"id": 1}
+        mock_image_repo.get_image_metadata.return_value = {"id": 9, "stored_image_path": "/s/e.jpg"}
+
+        with patch("lorairo.database.db_manager.calculate_phash", return_value="abc123"):
+            with patch.object(manager, "_get_current_project_id", return_value=None):
+                result = manager.register_original_image(Path("/data/img.jpg"), mock_fsm)
+
+        assert result is not None
+        image_id, _ = result
+        assert image_id == 9
+        # レースで保存したコピーは削除される
+        assert not saved_copy.exists()
 
     def test_raises_and_cleans_up_orphan_on_sqlalchemy_error(
         self, manager: ImageDatabaseManager, mock_image_repo: Mock, tmp_path: Path
@@ -353,7 +383,7 @@ class TestRegisterOriginalImageExtended:
         mock_fsm.get_image_info.return_value = {"width": 800, "height": 600, "has_alpha": False}
         mock_fsm.save_original_image.return_value = Path("/storage/img.jpg")
         mock_image_repo.find_phash_candidates.return_value = []
-        mock_image_repo.add_original_image.return_value = 42
+        mock_image_repo.add_original_image.return_value = (42, True)
 
         with patch("lorairo.database.db_manager.calculate_phash", return_value="abc123"):
             with patch.object(manager, "_get_current_project_id", return_value=None):
@@ -1125,7 +1155,7 @@ class TestRegisterOriginalImageProjectId:
         mock_fsm.get_image_info.return_value = {"width": 800, "height": 600, "has_alpha": False}
         mock_fsm.save_original_image.return_value = Path("/storage/img.jpg")
         mock_image_repo.find_phash_candidates.return_value = []
-        mock_image_repo.add_original_image.return_value = 101
+        mock_image_repo.add_original_image.return_value = (101, True)
 
         with patch("lorairo.database.db_manager.calculate_phash", return_value="abc123"):
             with patch.object(manager, "_get_current_project_id", return_value=5):

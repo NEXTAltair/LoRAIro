@@ -377,7 +377,7 @@ class TestAddOriginalImageProjectId:
         from lorairo.database.schema import Image
 
         info = {**self._base_info(), "project_id": project_id}
-        image_id = repository.add_original_image(info)
+        image_id, _ = repository.add_original_image(info)
 
         with memory_session_factory() as session:
             img = session.execute(select(Image).where(Image.id == image_id)).scalar_one()
@@ -390,7 +390,7 @@ class TestAddOriginalImageProjectId:
         from lorairo.database.schema import Image
 
         info = self._base_info()
-        image_id = repository.add_original_image(info)
+        image_id, _ = repository.add_original_image(info)
 
         with memory_session_factory() as session:
             img = session.execute(select(Image).where(Image.id == image_id)).scalar_one()

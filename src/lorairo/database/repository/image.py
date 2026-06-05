@@ -276,7 +276,10 @@ class ImageRepository(BaseRepository):
             候補側が NULL (未判定) なら常に True、それ以外は厳密一致のとき True。
 
         """
-        if candidate_value is None:
+        if candidate_value is None or new_value is None:
+            # 候補側 (既存行) の NULL は遅延 backfill 未済、登録側の欠落は
+            # caller が分類属性を省略したケース。どちらも「不明」として一致扱いにし、
+            # 旧 pHash ガードの「完全一致 pHash は既存 ID に寄せる」挙動を保つ。
             return True
         return bool(new_value == candidate_value)
 
@@ -400,27 +403,28 @@ class ImageRepository(BaseRepository):
                 )
                 raise
 
-    def add_original_image(self, info: dict[str, Any], *, allow_phash_duplicate: bool = False) -> int:
+    def add_original_image(self, info: dict[str, Any]) -> tuple[int, bool]:
         """オリジナル画像のメタデータを images テーブルに追加します。
         pHash計算失敗時は例外を送出します。
 
-        既定では pHash 完全一致を「重複確定」とみなし、既存 ID を返す後方互換
-        挙動を維持します。ADR 0061 の別版分類で「別版 (variant)」と判定された
-        画像を登録する場合は ``allow_phash_duplicate=True`` を指定し、同一 pHash の
-        新規行として挿入します (分類は呼び出し元 Manager が済ませている前提)。
+        ADR 0061: 挿入の直前に classification-aware な内部ガードを常に実行する。
+        pHash 完全一致候補を属性比較し、「重複確定」なら既存 ID を返して挿入しない。
+        「別版 (variant)」または「新規」なら同一 pHash でも新規行を挿入する。これにより
+        並行登録レースで分類後・コミット前の隙間に同一の重複/別版が割り込んでも、
+        最終的な dedup 判断はこの単一地点で行われ、重複行や孤児行の生成を防ぐ。
 
         Args:
             info (dict[str, Any]): 画像情報を含む辞書。
                                    `calculate_phash` が成功した前提で `phash` キーも含まれる想定。
                                    以下のキーが必須: uuid, phash, original_image_path,
                                    stored_image_path, width, height, format, extension。
-                                   その他は Optional。
-            allow_phash_duplicate: True の場合、pHash 完全一致の内部重複ガードを
-                スキップして新規行を挿入する (ADR 0061 別版登録経路)。
+                                   その他は Optional (分類属性 has_alpha / is_grayscale_like を
+                                   省略した場合は「不明」として既存候補と一致扱いになる)。
 
         Returns:
-            int: 挿入された画像のID、または (allow_phash_duplicate=False で)
-                重複していた既存画像のID。
+            tuple[int, bool]: ``(image_id, was_inserted)``。新規行を挿入したときは
+                ``was_inserted=True``、重複確定で既存 ID を返したときは ``False``。
+                呼び出し元は ``False`` のとき保存済みファイルの cleanup を行う。
 
         Raises:
             ValueError: 必須情報が不足している場合、またはpHash計算済みでない場合。
@@ -443,21 +447,16 @@ class ImageRepository(BaseRepository):
 
         phash = info["phash"]
 
-        # pHashで重複チェック (別版登録時はスキップ: ADR 0061)
-        # 内部ガードは classification-aware にする。並行登録で 2 件の同一 pHash が
-        # どちらも NEW 分類された後に loser がここへ来た場合、属性が異なれば別版として
-        # 挿入し続行する (phash 一致だけで winner の ID に寄せて variant を黙って捨て、
-        # 保存済みファイルを孤児化するのを防ぐ)。
-        if not allow_phash_duplicate:
-            candidates = self.find_phash_candidates(phash)
-            classification, existing_id = self.classify_phash_candidate(info, candidates)
-            if classification is PhashClassification.DUPLICATE and existing_id is not None:
-                logger.warning(f"pHashが一致する画像が既に存在します: ID {existing_id} (pHash: {phash})")
-                return existing_id
-            if classification is PhashClassification.VARIANT:
-                logger.debug(
-                    f"並行登録レースで別版を検出: 同一pHashの新規行として挿入します (pHash: {phash})"
-                )
+        # 挿入直前の classification-aware 重複ガード (ADR 0061)。
+        # 重複確定なら既存 ID を返して挿入しない。別版/新規なら同一 pHash でも挿入する。
+        # 並行登録レースで同一の重複/別版が割り込んでも、最終 dedup 判断はこの 1 地点に集約。
+        candidates = self.find_phash_candidates(phash)
+        classification, existing_id = self.classify_phash_candidate(info, candidates)
+        if classification is PhashClassification.DUPLICATE and existing_id is not None:
+            logger.warning(f"pHashが一致する画像が既に存在します: ID {existing_id} (pHash: {phash})")
+            return existing_id, False
+        if classification is PhashClassification.VARIANT:
+            logger.debug(f"別版を検出: 同一pHashの新規行として挿入します (pHash: {phash})")
 
         # 新しい Image オブジェクトを作成
         new_image = Image(
@@ -487,7 +486,7 @@ class ImageRepository(BaseRepository):
                 image_id = new_image.id
                 session.commit()  # コミットは flush 後でもOK
                 logger.debug(f"オリジナル画像をDBに追加しました: ID={image_id}, UUID={new_image.uuid}")
-                return image_id
+                return image_id, True
             except IntegrityError as e:
                 # uuid の UNIQUE 制約違反など
                 session.rollback()

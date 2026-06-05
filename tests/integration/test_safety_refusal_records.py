@@ -70,7 +70,7 @@ def registered_image(repo: ImageRepository, tmp_path: Path) -> tuple[int, str]:
         "color_space": "RGB",
         "icc_profile": None,
     }
-    image_id = repo.add_original_image(info)
+    image_id, _ = repo.add_original_image(info)
     return image_id, str(file_path)
 
 

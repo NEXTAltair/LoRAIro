@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta, timezone
 from pathlib import Path
 from uuid import uuid4
 
@@ -26,7 +26,7 @@ def annotation_service(db_session_factory) -> AnnotationSaveService:
 def sample_image(tmp_path: Path, db_session_factory) -> tuple[ImageRepository, int, str]:
     """テスト用画像 1 件を登録して返す。"""
     repository = ImageRepository(db_session_factory)
-    image_id = repository.add_original_image(
+    image_id, _ = repository.add_original_image(
         {
             "uuid": str(uuid4()),
             "phash": "rating-preflight-phash-001",
@@ -80,7 +80,7 @@ def test_filter_excluded_by_rating_uses_latest_rating_row(
 ) -> None:
     """複数履歴がある場合は最新 created_at の rating を採用して判定する。"""
     repository, image_id, image_path = sample_image
-    now = datetime(2026, 5, 27, 12, 0, 0, tzinfo=timezone.utc)
+    now = datetime(2026, 5, 27, 12, 0, 0, tzinfo=UTC)
     _insert_model_and_ratings(
         repository.session_factory,
         image_id,
@@ -100,7 +100,7 @@ def test_filter_excluded_by_rating_allows_safe_rating_values(
 ) -> None:
     """PG / PG-13 / R / UNRATED / None は送信可である。"""
     repository, image_id, image_path = sample_image
-    now = datetime(2026, 5, 27, 12, 0, 0, tzinfo=timezone.utc)
+    now = datetime(2026, 5, 27, 12, 0, 0, tzinfo=UTC)
     _insert_model_and_ratings(
         repository.session_factory,
         image_id,
