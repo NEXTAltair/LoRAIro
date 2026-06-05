@@ -19,7 +19,8 @@ sibling package の `genai-tag-db-tools` (tag-db) は agent-friendly CLI 契約 
 
 本 ADR は **「機械可読出力が選択された経路」の出力契約とエラー契約**を固定する。どの条件で機械可読出力と
 人間向け rich 出力を切り替えるか (トリガ) およびエントリポイント方針 (`lorairo` / `lorairo-cli` の二分、
-help/version 挙動) は sibling ADR で別途定義する。本 ADR はそれらの決定に依存し、契約の中身を確定する。
+help/version 挙動) は **ADR 0058** で定義する (出力モード = 明示 `--json` フラグ、entry は 2 本分離維持)。
+本 ADR はそれらの決定を前提に、契約の中身を確定する。
 
 ## Decision
 
@@ -205,5 +206,6 @@ exit code はエラーコードから機械的に導出する。Click の usage 
 - ADR 0049 (Apply CLI Image List Limit in the Repository Query) — read/list 系のページング (500 キャップ対象外)
 - ADR 0053 (CLI Streaming Annotation Memory-Bounded Contract) — 本 ADR が「1 回の呼び出しで総数無制限」
   前提を 500 キャップで改定 (streaming/sharding 機構は維持)。`RESOURCE_EXHAUSTED` / streaming とも整合
+- ADR 0058 (CLI Output Mode Trigger and Entry-Point Policy) — 出力モードのトリガ (`--json`) とエントリ方針を供給 (本 ADR の前提)
 - tag-db ADR 0003 (CLI JSONL Output & Error Contract) — 移植元の参照契約
 - tag-db ADR 0005 (CLI Command Introspection) — 後続の introspection 契約 (別 ADR)
