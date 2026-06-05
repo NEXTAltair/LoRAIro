@@ -200,31 +200,59 @@ def test_continuous_no_large_jumps(model: str) -> None:
         assert abs(cur - prev) < 1.0
 
 
-# ===== drift-guard (iam-lib#144 pin 反映後に有効化) =====
+# ===== drift-guard: LoRAIro _AI_SCORE_SPEC ⇄ lib score_scales (iam-lib#144) =====
 
 
 @pytest.mark.unit
-@pytest.mark.skip(reason="pending iam-lib#144 pin / Phase 2")
 def test_spec_matches_lib_score_scales() -> None:
-    """LoRAIro `_AI_SCORE_SPEC` の range/positive_key が lib の score_scales と一致するか検証する。
+    """LoRAIro ``_AI_SCORE_SPEC`` の range / positive_key が lib の SSoT と一致するか検証する。
 
-    iam-lib#144 で各 scorer の ScoreScale (range / higher_is_better) が安定 API として
-    pin される予定。pin 反映後に本テストを有効化し、LoRAIro 自前テーブルと lib の SSoT が
-    drift していないことを検証する。
+    iam-lib#144 で各 scorer は ``SCORE_SCALE`` (range / higher_is_better) を宣言する。LoRAIro は
+    自前テーブルで derived-view 変換するため、両者が drift すると尺度がずれる
+    (WaifuAesthetic の値域 1-10↔0-1 取り違えが典型例)。
+
+    ``tests/conftest.py`` が ``image_annotator_lib.model_class`` を torch ロード回避のため
+    MagicMock 化するので、本テストは別プロセスで実 scorer クラスの ``SCORE_SCALE`` を JSON
+    出力させて照合する。実 lib を import できない環境 (submodule 未取得等) では graceful skip する。
     """
-    from image_annotator_lib.model_class.pipeline_scorers import AestheticShadow, CafePredictor
-    from image_annotator_lib.model_class.scorer_clip import ImprovedAesthetic, WaifuAesthetic
+    import json
+    import subprocess
+    import sys
 
-    # lib の ScoreScale から positive key (higher_is_better=True) と range を抽出して照合する。
-    lib_specs = {
-        "aesthetic_shadow_v1": AestheticShadow.SCORE_SCALE,
-        "aesthetic_shadow_v2": AestheticShadow.SCORE_SCALE,
-        "cafe_aesthetic": CafePredictor.SCORE_SCALE,
-        "WaifuAesthetic": WaifuAesthetic.SCORE_SCALE,
-        "ImprovedAesthetic": ImprovedAesthetic.SCORE_SCALE,
-    }
+    probe = (
+        "import json\n"
+        "from image_annotator_lib.model_class.pipeline_scorers import AestheticShadow, CafePredictor\n"
+        "from image_annotator_lib.model_class.scorer_clip import ImprovedAesthetic, WaifuAesthetic\n"
+        "classes = {\n"
+        "    'aesthetic_shadow_v1': AestheticShadow,\n"
+        "    'aesthetic_shadow_v2': AestheticShadow,\n"
+        "    'cafe_aesthetic': CafePredictor,\n"
+        "    'WaifuAesthetic': WaifuAesthetic,\n"
+        "    'ImprovedAesthetic': ImprovedAesthetic,\n"
+        "}\n"
+        "out = {\n"
+        "    name: {k: [list(s.range), s.higher_is_better] for k, s in cls.SCORE_SCALE.items()}\n"
+        "    for name, cls in classes.items()\n"
+        "}\n"
+        "print('SCORE_SCALES_JSON=' + json.dumps(out))\n"
+    )
+    result = subprocess.run([sys.executable, "-c", probe], capture_output=True, text=True, timeout=180)
+    if result.returncode != 0:
+        pytest.skip(f"real image_annotator_lib unavailable: {result.stderr[-300:]}")
+
+    marker = "SCORE_SCALES_JSON="
+    payload = next(
+        (line[len(marker) :] for line in result.stdout.splitlines() if line.startswith(marker)),
+        None,
+    )
+    assert payload is not None, f"probe output missing JSON marker: {result.stdout[-300:]}"
+    lib_specs = json.loads(payload)
+
     for model, scale_map in lib_specs.items():
-        positive = [k for k, scale in scale_map.items() if scale.higher_is_better]
-        assert positive_key_for(model) in positive
-        lib_range = scale_map[positive_key_for(model)].range  # type: ignore[index]
-        assert score_scaler.value_range_for(model) == lib_range
+        positive_keys = [key for key, (_range, higher) in scale_map.items() if higher]
+        key = positive_key_for(model)
+        assert key in positive_keys, f"{model}: positive key {key!r} not in lib {positive_keys}"
+        lib_range = tuple(scale_map[key][0])
+        assert score_scaler.value_range_for(model) == lib_range, (
+            f"{model}: LoRAIro range {score_scaler.value_range_for(model)} != lib {lib_range}"
+        )

@@ -1536,7 +1536,8 @@ class ImageRepository(BaseRepository):
             return 0.0
 
         # model 単位で最新行を 1 つに絞る (legacy 複数行データは近似)。
-        latest_by_model: dict[int, Score] = {}
+        # model_id は SET NULL で None になり得る (model 削除済み orphan 行)。
+        latest_by_model: dict[int | None, Score] = {}
         for score_row in ai_scores:
             existing = latest_by_model.get(score_row.model_id)
             if existing is None or score_row.created_at > existing.created_at:
