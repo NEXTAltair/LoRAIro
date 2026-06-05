@@ -76,6 +76,15 @@
             "command": "/usr/bin/timeout 15s /workspaces/LoRAIro/.claude/hooks/hook_pre_pr_submodule_check.py"
           }
         ]
+      },
+      {
+        "matcher": "Edit|Write|MultiEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/usr/bin/timeout 5s /workspaces/LoRAIro/.claude/hooks/hook_pre_edit_worktree.py"
+          }
+        ]
       }
     ],
     "Stop": [
