@@ -481,9 +481,9 @@ class AnnotationDataDisplayWidget(QWidget, Ui_AnnotationDataDisplayWidget):
             # スコアタイプラベル更新
             self.labelScoreType.setText(f"{score_type}:")
 
-            # Aestheticスコア表示
+            # Aestheticスコア表示 (Issue #626: 0-10 表示尺度、小数1桁)
             if aesthetic_score is not None:
-                self.labelScoreTypeValue.setText(f"{aesthetic_score:.3f}")
+                self.labelScoreTypeValue.setText(f"{aesthetic_score:.1f}")
             else:
                 self.labelScoreTypeValue.setText("-")
 

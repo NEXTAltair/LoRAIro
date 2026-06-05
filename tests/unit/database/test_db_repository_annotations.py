@@ -59,11 +59,13 @@ class TestFormatAnnotationsForMetadata:
         caption1.created_at = datetime(2025, 9, 27, 10, 0, 0)
         caption1.updated_at = datetime(2025, 9, 27, 10, 0, 0)
 
-        # Mock scores
+        # Mock scores (Issue #626: model 名で表示尺度変換するため model.name を実値にする)
         score1 = Mock(spec=Score)
         score1.id = 1
         score1.score = 0.85
         score1.model_id = "test_model"
+        score1.model = Mock()
+        score1.model.name = "cafe_aesthetic"
         score1.is_edited_manually = False
         score1.created_at = datetime(2025, 9, 27, 10, 0, 0)
         score1.updated_at = datetime(2025, 9, 27, 10, 0, 0)
@@ -150,7 +152,9 @@ class TestFormatAnnotationsForMetadata:
         assert result["scores"][0]["is_edited_manually"] is False
         assert isinstance(result["scores"][0]["created_at"], datetime)
         assert isinstance(result["scores"][0]["updated_at"], datetime)
-        assert result["score_value"] == 0.85
+        # Issue #626: cafe_aesthetic raw 0.85 を区分線形で 0-10 化 (knots (0.5,6.0)-(1.0,8.0))
+        # → ratio=(0.85-0.5)/0.5=0.7, 6.0 + 0.7 * 2.0 = 7.4
+        assert result["score_value"] == pytest.approx(7.4)
 
         # Ratings検証
         assert len(result["ratings"]) == 1
@@ -538,3 +542,87 @@ class TestApplySimpleFieldUpdates:
 
         result = ModelRepository._apply_simple_field_updates(model, "same_provider", None, None, None, None)
         assert result is False
+
+
+def _score_row(
+    score: float,
+    model_name: str,
+    is_manual: bool,
+    created_at: datetime,
+    model_id: int = 1,
+) -> Mock:
+    """_derive_display_score 用の Score 行モックを作る。"""
+    row = Mock(spec=Score)
+    row.score = score
+    row.is_edited_manually = is_manual
+    row.created_at = created_at
+    row.model_id = model_id
+    row.model = Mock()
+    row.model.name = model_name
+    return row
+
+
+class TestDeriveDisplayScore:
+    """ImageRepository._derive_display_score のテスト (Issue #626)。"""
+
+    @pytest.mark.unit
+    def test_no_scores_returns_zero(self):
+        image = Mock(spec=Image)
+        image.scores = []
+        assert ImageRepository._derive_display_score(image) == 0.0
+
+    @pytest.mark.unit
+    def test_manual_score_takes_priority(self):
+        """手動行があれば、AI 行を無視して手動の生値 (0-10) を返す。"""
+        image = Mock(spec=Image)
+        image.scores = [
+            _score_row(0.9, "aesthetic_shadow_v1", is_manual=False, created_at=datetime(2025, 1, 1)),
+            _score_row(7.0, "manual", is_manual=True, created_at=datetime(2025, 1, 2)),
+        ]
+        assert ImageRepository._derive_display_score(image) == pytest.approx(7.0)
+
+    @pytest.mark.unit
+    def test_latest_manual_wins(self):
+        image = Mock(spec=Image)
+        image.scores = [
+            _score_row(3.0, "manual", is_manual=True, created_at=datetime(2025, 1, 1)),
+            _score_row(8.0, "manual", is_manual=True, created_at=datetime(2025, 1, 3)),
+        ]
+        assert ImageRepository._derive_display_score(image) == pytest.approx(8.0)
+
+    @pytest.mark.unit
+    def test_single_ai_score_calibrated(self):
+        """AI 行が 1 つなら calibrate された値を返す (cafe 0.5 → 6.0)。"""
+        image = Mock(spec=Image)
+        image.scores = [
+            _score_row(0.5, "cafe_aesthetic", is_manual=False, created_at=datetime(2025, 1, 1)),
+        ]
+        assert ImageRepository._derive_display_score(image) == pytest.approx(6.0)
+
+    @pytest.mark.unit
+    def test_multiple_ai_models_averaged(self):
+        """複数 model の calibrate 値を平均する。"""
+        image = Mock(spec=Image)
+        image.scores = [
+            # cafe 0.5 → 6.0
+            _score_row(0.5, "cafe_aesthetic", is_manual=False, created_at=datetime(2025, 1, 1), model_id=1),
+            # shadow hq 0.45 → 8.0
+            _score_row(
+                0.45, "aesthetic_shadow_v1", is_manual=False, created_at=datetime(2025, 1, 1), model_id=2
+            ),
+        ]
+        # (6.0 + 8.0) / 2 = 7.0
+        assert ImageRepository._derive_display_score(image) == pytest.approx(7.0)
+
+    @pytest.mark.unit
+    def test_legacy_two_rows_same_model_uses_latest(self):
+        """legacy で同一 model に 2 行ある場合は最新行を採用する (best-effort 近似)。"""
+        image = Mock(spec=Image)
+        image.scores = [
+            # 古い lq 行 (legacy で残った complement)
+            _score_row(0.2, "cafe_aesthetic", is_manual=False, created_at=datetime(2025, 1, 1), model_id=5),
+            # 新しい positive 行
+            _score_row(0.5, "cafe_aesthetic", is_manual=False, created_at=datetime(2025, 1, 2), model_id=5),
+        ]
+        # 最新行 0.5 のみを採用 → cafe 0.5 → 6.0
+        assert ImageRepository._derive_display_score(image) == pytest.approx(6.0)

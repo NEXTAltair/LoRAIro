@@ -372,10 +372,10 @@ def test_save_canonical_scorer_persists_score_labels(
     assert annotations_arg["score_labels"] == [
         {"model_id": 42, "label": "very aesthetic", "is_edited_manually": False}
     ]
-    # ADR 0002 / 0027: canonical scorer は tags=None / scores は dict のまま流す
+    # Issue #626: AI scorer は positive key (hq) 1 行だけ生値で保存し、complement
+    # (lq) は保存しない。これにより DB で positive 判別が一意になる。
     assert annotations_arg["scores"] == [
         {"model_id": 42, "score": 0.85, "is_edited_manually": False},
-        {"model_id": 42, "score": 0.15, "is_edited_manually": False},
     ]
 
 
@@ -404,6 +404,94 @@ def test_save_regression_scorer_no_score_labels(
     _image_id_arg, annotations_arg = _first_batch_save_args(mock_repository)
     assert annotations_arg["score_labels"] == []
     assert annotations_arg["scores"] == [{"model_id": 7, "score": 7.5, "is_edited_manually": False}]
+
+
+# ===== Issue #626: AI scorer は positive key 1 行のみ保存 =====
+
+
+@pytest.mark.unit
+def test_save_cafe_scorer_persists_only_positive_key(
+    service: AnnotationSaveService,
+    mock_repository: MagicMock,
+) -> None:
+    """cafe_aesthetic は positive key (aesthetic) 1 行のみ保存し not_aesthetic は捨てる。"""
+    mock_model = MagicMock()
+    mock_model.id = 11
+    mock_repository.find_image_ids_by_phashes.return_value = {"phash001": 1}
+    mock_repository.get_models_by_litellm_ids.return_value = {"cafe_aesthetic": mock_model}
+
+    results = {
+        "phash001": {
+            "cafe_aesthetic": _make_success_result(
+                scores={"aesthetic": 0.67, "not_aesthetic": 0.33},
+                score_labels=["aesthetic"],
+            )
+        },
+    }
+
+    service.save_annotation_results(results)
+
+    _image_id_arg, annotations_arg = _first_batch_save_args(mock_repository)
+    assert annotations_arg["scores"] == [
+        {"model_id": 11, "score": 0.67, "is_edited_manually": False},
+    ]
+
+
+@pytest.mark.unit
+def test_save_shadow_scorer_persists_only_hq(
+    service: AnnotationSaveService,
+    mock_repository: MagicMock,
+) -> None:
+    """aesthetic_shadow は hq 1 行のみ保存し lq は捨てる。"""
+    mock_model = MagicMock()
+    mock_model.id = 21
+    mock_repository.find_image_ids_by_phashes.return_value = {"phash001": 1}
+    mock_repository.get_models_by_litellm_ids.return_value = {"aesthetic_shadow_v1": mock_model}
+
+    results = {
+        "phash001": {
+            "aesthetic_shadow_v1": _make_success_result(
+                scores={"hq": 0.9, "lq": 0.1},
+                score_labels=["very aesthetic"],
+            )
+        },
+    }
+
+    service.save_annotation_results(results)
+
+    _image_id_arg, annotations_arg = _first_batch_save_args(mock_repository)
+    assert annotations_arg["scores"] == [
+        {"model_id": 21, "score": 0.9, "is_edited_manually": False},
+    ]
+
+
+@pytest.mark.unit
+def test_save_ai_scorer_missing_positive_key_skips_score(
+    service: AnnotationSaveService,
+    mock_repository: MagicMock,
+) -> None:
+    """positive key が scores に無い場合はスコア保存をスキップする (score_labels は維持)。"""
+    mock_model = MagicMock()
+    mock_model.id = 31
+    mock_repository.find_image_ids_by_phashes.return_value = {"phash001": 1}
+    mock_repository.get_models_by_litellm_ids.return_value = {"aesthetic_shadow_v1": mock_model}
+
+    results = {
+        "phash001": {
+            "aesthetic_shadow_v1": _make_success_result(
+                scores={"lq": 0.1},
+                score_labels=["very displeasing"],
+            )
+        },
+    }
+
+    service.save_annotation_results(results)
+
+    _image_id_arg, annotations_arg = _first_batch_save_args(mock_repository)
+    assert annotations_arg["scores"] == []
+    assert annotations_arg["score_labels"] == [
+        {"model_id": 31, "label": "very displeasing", "is_edited_manually": False},
+    ]
 
 
 @pytest.mark.unit
