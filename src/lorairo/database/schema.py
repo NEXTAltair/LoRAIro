@@ -193,6 +193,10 @@ class Image(Base):
     extension: Mapped[str] = mapped_column(String, nullable=False)
     color_space: Mapped[str | None] = mapped_column(String)
     icc_profile: Mapped[str | None] = mapped_column(String)
+    # グレースケール相当判定 (Issue #631 / ADR 0061): 内容ベースでカラー画像とグレー画像を
+    # 区別する。既存 DB の行は NULL のまま (遅延 backfill 方針)。
+    is_grayscale_like: Mapped[bool | None] = mapped_column(Boolean)
+    colorfulness_score: Mapped[float | None] = mapped_column(Float)
     project_id: Mapped[int | None] = mapped_column(
         ForeignKey("projects.id", ondelete="SET NULL"),
         nullable=True,

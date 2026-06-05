@@ -9,12 +9,44 @@ from itertools import islice
 from pathlib import Path
 from typing import Any, ClassVar, Literal, cast
 
+import numpy as np
 import toml
 from PIL import Image, ImageCms
 
 from ..utils.log import logger
 
 Image.MAX_IMAGE_PIXELS = 1000000000  # 大きな画像に対応(ローカルアプリ前提)
+
+# グレースケール相当判定のパラメータ (Issue #631 / ADR 0061)
+#
+# colorfulness_score は RGB 各ピクセルのチャンネル間最大差分
+#   max(|R-G|, |G-B|, |R-B|)  (0-255 スケール)
+# の高パーセンタイル値として算出する。
+#
+# パーセンタイル GRAYSCALE_COLORFULNESS_PERCENTILE = 99:
+#   平均を使うと、画像の一部にのみ色が乗るケース (ロゴ・透かし・小さなカラー領域) が
+#   グレー画素に薄められて「グレー扱い」へ誤分類される。これは別版分類 (#630) で
+#   カラー版とグレー版を分けたい目的に反する。一方で 100 パーセンタイル (= max) は
+#   単一の外れ値画素に過敏なため、99 パーセンタイルを採る。これによりサンプル画素の
+#   概ね 1% 以上に色が乗っていれば「カラー」として検出できる。
+#
+# 閾値 GRAYSCALE_LIKE_CHANNEL_DIFF_THRESHOLD = 16:
+#   真のグレー画像を JPEG 圧縮すると YCbCr 変換 + 量子化のラウンドトリップで
+#   R==G==B が崩れ、チャンネル差分が数 LSB 程度ノイズとして残る。実測では概ね
+#   差分 10 前後に収まるため、ノイズを吸収しつつ淡い色 (セピア等) を取りこぼさない
+#   保守的な境界として 16 (≈ 6% of 255) を採用する。完全一致 (R==G==B) だけを
+#   グレー扱いにすると JPEG グレー画像が大量に「カラー」へ誤分類されるため避ける。
+GRAYSCALE_LIKE_CHANNEL_DIFF_THRESHOLD = 16.0
+GRAYSCALE_COLORFULNESS_PERCENTILE = 99
+
+# 不透明とみなすアルファ閾値。これ未満の画素は「ユーザーに見えない」とみなし彩度算出
+# から除外する。完全透過画素は任意の RGB を持ち得るため、含めると不可視の色で
+# 誤分類する (Codex review #645)。
+GRAYSCALE_ALPHA_VISIBLE_THRESHOLD = 8
+
+# サンプリング用サムネイルの最大辺 (px)。大画像でも一定コストで判定するため縮小する。
+# 縮小は平均化フィルタとして働き、孤立ノイズの影響を弱める副次効果もある。
+GRAYSCALE_SAMPLE_MAX_EDGE = 256
 
 
 class FileSystemManager:
@@ -164,6 +196,88 @@ class FileSystemManager:
         return image_files
 
     @staticmethod
+    def _compute_grayscale_likeness(img: Image.Image) -> tuple[bool, float]:
+        """画像の内容からグレースケール相当かどうかを判定する。
+
+        手順:
+
+        1. 透過画像は縮小前に元アルファチャンネルを抽出しておく。
+        2. RGB へ変換してから ``GRAYSCALE_SAMPLE_MAX_EDGE`` まで ``BILINEAR`` 縮小する。
+           パレットモード (``P`` / ``1``) は Pillow が縮小時に ``BILINEAR`` を無視して
+           ``NEAREST`` 化するため、縮小前に RGB へ変換して細い色領域 (罫線・透かし) を
+           面積比例で残す。
+        3. 各画素のチャンネル間最大差分 ``max(|R-G|, |G-B|, |R-B|)`` を算出する。透過
+           画像は、縮小前の元アルファを最近傍参照して「元が不透明だった位置」の画素のみ
+           採用する。完全透過画素は不可視ながら任意の RGB を持ち得るため除外する。
+
+        差分の高パーセンタイル値 (:data:`GRAYSCALE_COLORFULNESS_PERCENTILE`) を彩度
+        スコア (``colorfulness_score``) とし、
+        :data:`GRAYSCALE_LIKE_CHANNEL_DIFF_THRESHOLD` 以下であればグレースケール相当と
+        みなす。完全一致 (``R==G==B``) のみを条件にすると JPEG ノイズで崩れたグレー
+        画像を取りこぼすため、閾値ベースで判定する。
+
+        動画像 (アニメ GIF / WebP) は 1 フレーム目のみを評価する (#631 スコープ)。
+
+        Args:
+            img: 判定対象の Pillow 画像。本メソッドは ``img`` を変更しない。
+
+        Returns:
+            ``(is_grayscale_like, colorfulness_score)`` のタプル。
+            ``colorfulness_score`` は可視画素のチャンネル間最大差分の高
+            パーセンタイル値 (0.0-255.0)。可視画素が存在しない (全透過) 場合は
+            ``(True, 0.0)`` を返す。
+        """
+        # 注: 動画像 (アニメ GIF / WebP) は Image.open がロードする 1 フレーム目のみを
+        # 評価する。pHash 計算・保存も同フレーム基準のため整合する。フレーム横断の
+        # 集約は #631 のスコープ外 (必要になれば別版分類 #630 側で扱う)。
+
+        # 透過画素の RGB が補間で可視画素へにじむのを防ぐため、縮小前にアルファを
+        # 抽出しておく。アルファを持つ画像のみ対象 (不透明画像は全画素可視)。
+        has_alpha = img.mode in ("RGBA", "LA") or (img.mode == "P" and "transparency" in img.info)
+        source_alpha: Image.Image | None = None
+        if has_alpha:
+            if "A" in img.getbands():
+                # RGBA / LA はアルファバンドを直接取り出す (フル RGBA 変換を避ける)。
+                source_alpha = img.getchannel("A")
+            else:
+                # P + transparency 等は RGBA へ変換してアルファを取り出す。
+                source_alpha = img.convert("RGBA").getchannel("A")
+
+        # 先に RGB へ変換してから BILINEAR 縮小する。P / 1 等のパレットモードは
+        # Pillow が縮小時に BILINEAR 指定を無視して NEAREST 化するため、縮小前に
+        # 連続色モードへ変換し、細い色領域を面積比例で残せるようにする。
+        sample = img.convert("RGB")
+        sample.thumbnail(
+            (GRAYSCALE_SAMPLE_MAX_EDGE, GRAYSCALE_SAMPLE_MAX_EDGE),
+            Image.Resampling.BILINEAR,
+        )
+        arr = np.asarray(sample, dtype=np.int16)
+        r = arr[:, :, 0]
+        g = arr[:, :, 1]
+        b = arr[:, :, 2]
+        channel_diff = np.maximum(np.maximum(np.abs(r - g), np.abs(g - b)), np.abs(r - b))
+
+        if source_alpha is not None:
+            # 元アルファを縮小後サイズに最近傍リサイズし、補間で混ざる前の不透明性を判定。
+            resized_alpha = source_alpha.resize(sample.size, Image.Resampling.NEAREST)
+            visible_mask = np.asarray(resized_alpha, dtype=np.int16) >= GRAYSCALE_ALPHA_VISIBLE_THRESHOLD
+            visible = channel_diff[visible_mask]
+        else:
+            visible = channel_diff.reshape(-1)
+
+        if visible.size == 0:
+            # 可視画素が無い (全透過) 画像は色情報を持たないためグレー扱いにする。
+            return True, 0.0
+
+        # method="higher" で実在画素の差分値を採る。線形補間 (既定) だと境界 (色領域が
+        # ちょうど約 1%) でグレー画素と色画素の中間値に薄まり閾値を割り込むため使わない。
+        colorfulness_score = float(
+            np.percentile(visible, GRAYSCALE_COLORFULNESS_PERCENTILE, method="higher")
+        )
+        is_grayscale_like = colorfulness_score <= GRAYSCALE_LIKE_CHANNEL_DIFF_THRESHOLD
+        return is_grayscale_like, colorfulness_score
+
+    @staticmethod
     def get_image_info(image_path: Path) -> dict[str, Any]:
         """
         画像ファイルから基本的な情報を取得する 不足している情報は登録時に設定
@@ -186,6 +300,8 @@ class FileSystemManager:
                 # アルファチャンネル画像情報 BOOL
                 has_alpha = img.mode in ("RGBA", "LA") or (img.mode == "P" and "transparency" in img.info)
                 icc_profile = img.info.get("icc_profile")
+                # グレースケール相当判定 (Issue #631 / ADR 0061)。画像が開いている間に算出する。
+                is_grayscale_like, colorfulness_score = FileSystemManager._compute_grayscale_likeness(img)
 
             # 色域情報の詳細な取得
             color_space = mode
@@ -204,6 +320,8 @@ class FileSystemManager:
                 "extension": image_path.suffix,
                 "color_space": color_space,
                 "icc_profile": "Present" if icc_profile else "Not present",
+                "is_grayscale_like": is_grayscale_like,
+                "colorfulness_score": colorfulness_score,
             }
         except Exception as e:
             message = f"画像情報の取得失敗: {image_path}. FileSystemManager.get_image_info: {e!s}"

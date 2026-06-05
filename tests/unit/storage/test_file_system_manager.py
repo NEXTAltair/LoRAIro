@@ -10,6 +10,7 @@ import json
 from pathlib import Path
 from unittest.mock import patch
 
+import numpy as np
 import pytest
 from PIL import Image
 
@@ -276,6 +277,215 @@ class TestGetImageInfo:
     def test_returns_color_space(self, rgb_image_path: Path) -> None:
         info = FileSystemManager.get_image_info(rgb_image_path)
         assert "color_space" in info
+
+
+class TestGrayscaleLikeDetection:
+    """get_image_info のグレースケール相当判定 (Issue #631 / ADR 0061) のテスト"""
+
+    def _save(self, img: Image.Image, tmp_path: Path, fmt: str, suffix: str) -> Path:
+        path = tmp_path / f"sample{suffix}"
+        img.save(path, fmt)
+        return path
+
+    def test_color_image_is_not_grayscale_like(self, tmp_path: Path) -> None:
+        """純カラー画像は is_grayscale_like=False、彩度スコアは閾値超。"""
+        img = Image.new("RGB", (120, 120), color=(255, 0, 0))
+        path = self._save(img, tmp_path, "PNG", ".png")
+        info = FileSystemManager.get_image_info(path)
+        assert info["is_grayscale_like"] is False
+        assert info["colorfulness_score"] > 16.0
+
+    def test_mode_l_grayscale_is_grayscale_like(self, tmp_path: Path) -> None:
+        """mode='L' のグレー画像は is_grayscale_like=True、既存 mode 挙動は不変。"""
+        img = Image.new("L", (120, 120), color=128)
+        path = self._save(img, tmp_path, "PNG", ".png")
+        info = FileSystemManager.get_image_info(path)
+        assert info["mode"] == "L"
+        assert info["is_grayscale_like"] is True
+        assert info["colorfulness_score"] == pytest.approx(0.0, abs=1.0)
+
+    def test_rgb_pseudo_grayscale_is_grayscale_like(self, tmp_path: Path) -> None:
+        """R==G==B の擬似グレー (RGB mode) も is_grayscale_like=True。"""
+        rng = np.random.default_rng(0)
+        gray = rng.integers(0, 256, (120, 120), dtype=np.uint8)
+        channel = Image.fromarray(gray)
+        img = Image.merge("RGB", [channel, channel, channel])
+        path = self._save(img, tmp_path, "PNG", ".png")
+        info = FileSystemManager.get_image_info(path)
+        assert info["mode"] == "RGB"
+        assert info["is_grayscale_like"] is True
+
+    def test_jpeg_noisy_grayscale_is_grayscale_like(self, tmp_path: Path) -> None:
+        """JPEG 圧縮ノイズで R==G==B が崩れたグレー画像も閾値で吸収して True。"""
+        rng = np.random.default_rng(1)
+        gray = rng.integers(0, 256, (200, 200), dtype=np.uint8)
+        channel = Image.fromarray(gray)
+        img = Image.merge("RGB", [channel, channel, channel])
+        path = tmp_path / "noisy.jpg"
+        img.save(path, "JPEG", quality=80)
+        info = FileSystemManager.get_image_info(path)
+        assert info["is_grayscale_like"] is True
+        assert info["colorfulness_score"] <= 16.0
+
+    def test_faint_color_is_not_grayscale_like(self, tmp_path: Path) -> None:
+        """淡い色 (セピア相当) は完全一致ではないが彩度を持つため False。"""
+        rng = np.random.default_rng(2)
+        base = rng.integers(0, 256, (120, 120), dtype=np.uint8)
+        sepia = np.stack(
+            [base, (base * 0.95).astype(np.uint8), (base * 0.8).astype(np.uint8)],
+            axis=2,
+        )
+        img = Image.fromarray(sepia, mode="RGB")
+        path = self._save(img, tmp_path, "PNG", ".png")
+        info = FileSystemManager.get_image_info(path)
+        assert info["is_grayscale_like"] is False
+        assert info["colorfulness_score"] > 16.0
+
+    def test_small_color_region_is_not_grayscale_like(self, tmp_path: Path) -> None:
+        """グレー地に小さなカラー領域 (ロゴ相当) があればカラー扱い (#645 Codex)。
+
+        99 パーセンタイルを採ることで、サンプル画素の約 1% 以上に色が乗れば
+        is_grayscale_like=False になる。別版分類でカラー版を残すための挙動。
+        """
+        rng = np.random.default_rng(3)
+        gray = rng.integers(0, 256, (200, 200), dtype=np.uint8)
+        arr = np.stack([gray, gray, gray], axis=2)
+        # 全体の約 4% (40x40) に純カラー (赤) のロゴを置く。
+        arr[:40, :40] = (255, 0, 0)
+        img = Image.fromarray(arr, mode="RGB")
+        path = self._save(img, tmp_path, "PNG", ".png")
+        info = FileSystemManager.get_image_info(path)
+        assert info["is_grayscale_like"] is False
+        assert info["colorfulness_score"] > 16.0
+
+    def test_transparent_colored_pixels_are_ignored(self, tmp_path: Path) -> None:
+        """完全透過のカラー画素は彩度算出から除外する (#645 Codex)。
+
+        可視部分がグレーなら、不可視のカラー背景があっても is_grayscale_like=True。
+        """
+        # 可視部分はグレー、透過部分は任意のカラー (シアン) を持たせる。
+        rgb = np.full((100, 100, 3), 120, dtype=np.uint8)
+        rgb[:50, :] = (0, 255, 255)  # 上半分はシアンだが透過させる
+        alpha = np.full((100, 100), 255, dtype=np.uint8)
+        alpha[:50, :] = 0  # 上半分を完全透過
+        rgba = np.dstack([rgb, alpha])
+        img = Image.fromarray(rgba, mode="RGBA")
+        path = self._save(img, tmp_path, "PNG", ".png")
+        info = FileSystemManager.get_image_info(path)
+        assert info["has_alpha"] is True
+        assert info["is_grayscale_like"] is True
+
+    def test_one_percent_color_boundary_is_not_grayscale_like(self, tmp_path: Path) -> None:
+        """色領域がちょうど約1%でもカラー扱い (#645 P3, method='higher')。
+
+        method='higher' により 99 パーセンタイルが実在の色画素値を採るため、
+        線形補間で中間値に薄まって閾値を割り込む境界事故を防ぐ。
+        """
+        gray = np.full((100, 100, 3), 100, dtype=np.uint8)
+        # 100x100=10000 画素のうち 1% (100 画素) を純カラー (赤) にする。
+        flat = gray.reshape(-1, 3)
+        flat[:100] = (255, 0, 0)
+        img = Image.fromarray(flat.reshape(100, 100, 3), mode="RGB")
+        path = self._save(img, tmp_path, "PNG", ".png")
+        info = FileSystemManager.get_image_info(path)
+        assert info["is_grayscale_like"] is False
+        assert info["colorfulness_score"] > 16.0
+
+    def test_thin_color_lines_survive_downscale(self, tmp_path: Path) -> None:
+        """細い色の罫線が縮小で消えずカラー扱いされる (#645 review3, BILINEAR)。
+
+        2000px 級の画像に細い色罫線を入れ、256px 縮小後も色被覆が残ることを確認する。
+        NEAREST 単純間引きだと罫線が脱落し得るため BILINEAR を使う。
+        """
+        gray = np.full((2000, 2000, 3), 100, dtype=np.uint8)
+        # 16px 間隔で 4px 幅の純カラー (赤) 罫線を引く (総面積は 1% を超える)。
+        for y in range(0, 2000, 16):
+            gray[y : y + 4, :] = (255, 0, 0)
+        img = Image.fromarray(gray, mode="RGB")
+        path = self._save(img, tmp_path, "PNG", ".png")
+        info = FileSystemManager.get_image_info(path)
+        assert info["is_grayscale_like"] is False
+        assert info["colorfulness_score"] > 16.0
+
+    def test_large_transparent_colored_image_stays_grayscale(self, tmp_path: Path) -> None:
+        """大きめ RGBA でも透過カラー画素は縮小後も可視グレーに混ざらない (#645)。"""
+        rgb = np.full((1000, 1000, 3), 130, dtype=np.uint8)
+        rgb[:500, :] = (255, 0, 255)  # 上半分はマゼンタだが透過
+        alpha = np.full((1000, 1000), 255, dtype=np.uint8)
+        alpha[:500, :] = 0
+        rgba = np.dstack([rgb, alpha])
+        img = Image.fromarray(rgba, mode="RGBA")
+        path = self._save(img, tmp_path, "PNG", ".png")
+        info = FileSystemManager.get_image_info(path)
+        assert info["has_alpha"] is True
+        assert info["is_grayscale_like"] is True
+
+    def test_paletted_color_image_is_not_grayscale_like(self, tmp_path: Path) -> None:
+        """パレットモード (GIF/P) のカラー画像もカラー扱い (#645 review4)。
+
+        P モードは縮小時に BILINEAR が NEAREST へ強制されるため、縮小前に RGB 変換して
+        細い色領域を残す。GIF カラーグラデーションがカラー判定されることを確認する。
+        """
+        grad = np.zeros((120, 120, 3), dtype=np.uint8)
+        grad[:, :, 0] = np.tile(np.linspace(0, 255, 120).astype(np.uint8), (120, 1))
+        grad[:, :, 2] = 255 - grad[:, :, 0]
+        # ADAPTIVE パレットで意図した色を保持 (既定 web パレットの量子化歪みを避ける)。
+        img = Image.fromarray(grad, mode="RGB").convert("P", palette=Image.Palette.ADAPTIVE)
+        path = self._save(img, tmp_path, "GIF", ".gif")
+        info = FileSystemManager.get_image_info(path)
+        assert info["mode"] == "P"
+        assert info["is_grayscale_like"] is False
+
+    def test_paletted_grayscale_image_is_grayscale_like(self, tmp_path: Path) -> None:
+        """パレットモードのグレー画像はグレー扱い (ADAPTIVE で色歪みを排除)。"""
+        gray = np.full((120, 120, 3), 90, dtype=np.uint8)
+        img = Image.fromarray(gray, mode="RGB").convert("P", palette=Image.Palette.ADAPTIVE)
+        path = self._save(img, tmp_path, "GIF", ".gif")
+        info = FileSystemManager.get_image_info(path)
+        assert info["mode"] == "P"
+        assert info["is_grayscale_like"] is True
+
+    def test_paletted_alpha_transparent_color_is_ignored(self, tmp_path: Path) -> None:
+        """P + transparency の透過カラー画素も彩度算出から除外する (#645 review4)。
+
+        パレット index 0 をマゼンタかつ透過に割り当て、可視部分はグレーにする。
+        透過カラーが除外され可視グレーのみで判定されること (誤って色判定しない) を確認。
+        """
+        # index 0 = マゼンタ(透過), index 1 = グレー の 2 色パレット P 画像を構築する。
+        indices = np.full((100, 100), 1, dtype=np.uint8)
+        indices[:40, :] = 0  # 上部をマゼンタ(透過)インデックスに
+        img = Image.fromarray(indices, mode="P")
+        img.putpalette([255, 0, 255, 110, 110, 110] + [0] * (256 * 3 - 6))
+        path = tmp_path / "palpha.png"
+        img.save(path, "PNG", transparency=0)
+        info = FileSystemManager.get_image_info(path)
+        assert info["has_alpha"] is True
+        assert info["is_grayscale_like"] is True
+
+    def test_large_image_is_handled(self, tmp_path: Path) -> None:
+        """大きめ画像でもサンプリングで有界に判定し正しく分類する。"""
+        img = Image.new("RGB", (2000, 1500), color=(200, 200, 200))
+        path = self._save(img, tmp_path, "PNG", ".png")
+        info = FileSystemManager.get_image_info(path)
+        assert info["is_grayscale_like"] is True
+
+    def test_fully_transparent_image_is_grayscale_like(self, tmp_path: Path) -> None:
+        """全透過画像は可視画素が無いためグレー扱い (例外を出さない)。"""
+        rgba = np.zeros((40, 40, 4), dtype=np.uint8)
+        rgba[:, :, :3] = (255, 0, 255)  # 不可視のカラー
+        img = Image.fromarray(rgba, mode="RGBA")
+        path = self._save(img, tmp_path, "PNG", ".png")
+        info = FileSystemManager.get_image_info(path)
+        assert info["is_grayscale_like"] is True
+        assert info["colorfulness_score"] == pytest.approx(0.0, abs=1.0)
+
+    def test_score_is_float(self, tmp_path: Path) -> None:
+        """colorfulness_score は float で返る (診断・閾値調整用)。"""
+        img = Image.new("RGB", (64, 64), color=(10, 200, 50))
+        path = self._save(img, tmp_path, "PNG", ".png")
+        info = FileSystemManager.get_image_info(path)
+        assert isinstance(info["colorfulness_score"], float)
+        assert isinstance(info["is_grayscale_like"], bool)
 
 
 class TestScanNextSequenceNumber:
