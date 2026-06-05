@@ -639,12 +639,16 @@ class AnnotationWorker(LoRAIroWorkerBase["AnnotationExecutionResult"]):
         Returns:
             (DB保存成功件数, スキップ件数, 画像ごとの結果概要リスト, phash→ファイル名マップ) のタプル。
         """
+        # #633: 保存対象をこのバッチで実際に処理した image_id 集合に限定する
+        # (同一 pHash の未選択別版へ結果を書き込み汚染しないため)。
+        allowed_image_ids = self._resolve_batch_image_ids()
+
         save_result = AnnotationSaveService(
             annotation_repo=self.db_manager.annotation_repo,
             image_repo=self.db_manager.image_repo,
             model_repo=self.db_manager.model_repo,
             error_record_repo=self.db_manager.error_record_repo,
-        ).save_annotation_results(results)
+        ).save_annotation_results(results, allowed_image_ids=allowed_image_ids)
 
         # GUIサマリー用: phash→ファイル名マップを構築 (#633: 別版で複数 image_id になり得る)
         phash_to_image_ids = self.db_manager.image_repo.find_image_ids_by_phashes_multi(set(results.keys()))
@@ -660,6 +664,25 @@ class AnnotationWorker(LoRAIroWorkerBase["AnnotationExecutionResult"]):
 
         logger.info(f"DB保存完了: {save_result.success_count}/{save_result.total_count}件成功")
         return save_result.success_count, save_result.skip_count, image_summaries, phash_to_filename
+
+    def _resolve_batch_image_ids(self) -> set[int] | None:
+        """このバッチの image_paths を DB 上の image_id 集合に解決する (#633)。
+
+        annotation 保存の fan-out をバッチ内画像へ限定するために使う。解決に失敗した
+        場合は None を返し、save 側は pHash ごと先頭 1 件のみ保存する安全側挙動になる。
+
+        Returns:
+            バッチに対応する image_id 集合。解決不能時は None。
+        """
+        try:
+            path_to_image_id = self.db_manager.image_repo.get_image_ids_by_filepaths(self.image_paths)
+        except Exception as exc:
+            logger.warning(f"バッチ image_id 解決に失敗、fan-out を先頭 1 件に縮退: {exc}")
+            return None
+        if not isinstance(path_to_image_id, dict):
+            return None
+        image_ids = {image_id for image_id in path_to_image_id.values() if image_id is not None}
+        return image_ids or None
 
     def _build_phash_to_filename_map(self, phash_to_image_ids: dict[str, list[int]]) -> dict[str, str]:
         """pHashからファイル名へのマッピングを構築する。

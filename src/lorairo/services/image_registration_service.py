@@ -197,9 +197,13 @@ class ImageRegistrationService:
         from lorairo.database.repository.image import ImageRepository
         from lorairo.storage.file_system import FileSystemManager
 
+        # get_image_info は OSError / ValueError に限らず、壊れた埋め込み ICC profile の
+        # ImageCms エラー等 (broad re-raise) も投げ得る。本 helper の契約は「属性取得失敗は
+        # 画像を reject せず dedup を見送る」なので broad に捕捉して None を返す (codex review
+        # #648 P2)。捕捉できないと外側ループが当該画像を failed に誤計上する。
         try:
             info = FileSystemManager.get_image_info(image_path)
-        except (OSError, ValueError) as e:
+        except Exception as e:
             logger.warning(f"画像情報取得に失敗、pHash単独dedupを見送り: {image_path.name}, {e}")
             return None
         attrs = tuple(info.get(attr) for attr in ImageRepository.CLASSIFICATION_ATTRS)

@@ -113,6 +113,77 @@ def test_save_annotation_results_with_known_phashes_saves_all(
 
 
 @pytest.mark.unit
+def test_save_annotation_results_fanout_scoped_to_allowed_image_ids(
+    service: AnnotationSaveService,
+    mock_repository: MagicMock,
+) -> None:
+    """#633 (codex P1): allowed_image_ids 指定時はバッチ内 image_id のみへ fan-out する。
+
+    同一 pHash に別版 (image_id 1 と 2) が紐づくが、バッチで選択したのは 1 のみ。
+    未選択の別版 2 へは書き込まない (汚染防止)。
+    """
+    mock_model = MagicMock()
+    mock_model.id = 10
+    mock_repository.find_image_ids_by_phashes_multi.return_value = {"phash001": [1, 2]}
+    mock_repository.get_models_by_litellm_ids.return_value = {"wdtagger": mock_model}
+    mock_repository.batch_resolve_tag_ids.return_value = {}
+
+    results = {"phash001": {"wdtagger": _make_success_result(tags=["tag1"])}}
+
+    result = service.save_annotation_results(results, allowed_image_ids={1})
+
+    assert result.success_count == 1
+    saved_items = mock_repository.save_annotations_batch.call_args[0][0]
+    assert [item.image_id for item in saved_items] == [1]
+
+
+@pytest.mark.unit
+def test_save_annotation_results_fanout_covers_all_batch_variants(
+    service: AnnotationSaveService,
+    mock_repository: MagicMock,
+) -> None:
+    """#633: バッチに別版が両方含まれる場合は両 image_id へ保存する (取りこぼし防止)。"""
+    mock_model = MagicMock()
+    mock_model.id = 10
+    mock_repository.find_image_ids_by_phashes_multi.return_value = {"phash001": [1, 2]}
+    mock_repository.get_models_by_litellm_ids.return_value = {"wdtagger": mock_model}
+    mock_repository.batch_resolve_tag_ids.return_value = {}
+
+    results = {"phash001": {"wdtagger": _make_success_result(tags=["tag1"])}}
+
+    result = service.save_annotation_results(results, allowed_image_ids={1, 2})
+
+    assert result.success_count == 2
+    saved_items = mock_repository.save_annotations_batch.call_args[0][0]
+    assert sorted(item.image_id for item in saved_items) == [1, 2]
+
+
+@pytest.mark.unit
+def test_save_annotation_results_without_scope_saves_first_match_only(
+    service: AnnotationSaveService,
+    mock_repository: MagicMock,
+) -> None:
+    """#633 (codex P1): allowed_image_ids 未指定時は pHash ごと先頭 1 件のみ保存する。
+
+    バッチ集合が不明な経路 (CLI 等) で複数別版へ無条件 fan-out すると未選択別版を
+    汚染するため、pre-#633 の単一 image_id 挙動に縮退する。
+    """
+    mock_model = MagicMock()
+    mock_model.id = 10
+    mock_repository.find_image_ids_by_phashes_multi.return_value = {"phash001": [1, 2]}
+    mock_repository.get_models_by_litellm_ids.return_value = {"wdtagger": mock_model}
+    mock_repository.batch_resolve_tag_ids.return_value = {}
+
+    results = {"phash001": {"wdtagger": _make_success_result(tags=["tag1"])}}
+
+    result = service.save_annotation_results(results)
+
+    assert result.success_count == 1
+    saved_items = mock_repository.save_annotations_batch.call_args[0][0]
+    assert [item.image_id for item in saved_items] == [1]
+
+
+@pytest.mark.unit
 def test_save_provider_batch_results_by_image_id_saves_without_phash_lookup(
     service: AnnotationSaveService,
     mock_repository: MagicMock,
