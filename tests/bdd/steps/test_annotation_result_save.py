@@ -95,6 +95,7 @@ def given_save_service_initialized(ctx: SaveContext) -> None:
 def given_save_service_mock_repo() -> SaveContext:
     repo = MagicMock()
     repo.find_image_ids_by_phashes.return_value = {}
+    repo.find_image_ids_by_phashes_multi.return_value = {}
     repo.get_models_by_litellm_ids.return_value = {}
     repo.batch_resolve_tag_ids.return_value = {}
     return SaveContext(
@@ -143,9 +144,9 @@ def given_mixed_phashes(ctx: SaveContext) -> None:
     assert ctx.mock_repository is not None
     mock_model = MagicMock()
     mock_model.id = 10
-    ctx.mock_repository.find_image_ids_by_phashes.return_value = {
-        "phash_known_1": 1,
-        "phash_known_2": 2,
+    ctx.mock_repository.find_image_ids_by_phashes_multi.return_value = {
+        "phash_known_1": [1],
+        "phash_known_2": [2],
     }
     ctx.mock_repository.get_models_by_litellm_ids.return_value = {"wdtagger": mock_model}
     ctx.inference_results = {

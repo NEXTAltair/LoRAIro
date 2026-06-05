@@ -5,14 +5,32 @@ Qt 依存なし。
 """
 
 import shutil
+from dataclasses import dataclass, field
 from pathlib import Path
-from typing import ClassVar
+from typing import Any, ClassVar
 
 from loguru import logger
 from PIL import Image
 
 from lorairo.api.exceptions import ImageRegistrationError
 from lorairo.api.types import RegistrationResult
+
+
+@dataclass
+class _DirectRegistrationTally:
+    """direct 登録経路の集計カウンタ (#633)。
+
+    project 未指定 / ファイルコピーのみの direct 経路で、重複/別版/新規を
+    分類属性込み署名で区別して集計するための作業用カウンタ。
+    """
+
+    registered: int = 0
+    variant: int = 0
+    skipped: int = 0
+    failed: int = 0
+    errors: list[str] = field(default_factory=list)
+    signatures_seen: set[tuple[str, tuple[Any, ...]]] = field(default_factory=set)
+    phashs_seen: set[str] = field(default_factory=set)
 
 
 class ImageRegistrationService:
@@ -76,57 +94,116 @@ class ImageRegistrationService:
 
         logger.info(f"スキャン完了: {len(image_files)}個の画像ファイル")
 
-        # 登録処理
-        registered = 0
-        skipped = 0
-        failed = 0
-        errors: list[str] = []
-        phashs_seen: set[str] = set()
-
+        # 登録処理 (ADR 0061 §4 / #633: 分類属性込み署名で別版を区別して dedup)
+        tally = _DirectRegistrationTally()
         for image_file in image_files:
             try:
-                # pHashを計算
-                phash = self._calculate_phash(image_file)
-
-                if not phash:
-                    failed += 1
-                    errors.append(f"{image_file.name}: pHash計算失敗")
-                    continue
-
-                # 重複チェック
-                if skip_duplicates and phash in phashs_seen:
-                    skipped += 1
-                    logger.debug(f"重複スキップ: {image_file.name} (pHash={phash})")
-                    continue
-
-                # プロジェクトディレクトリにコピー
-                if dest_dir:
-                    dest_file = dest_dir / image_file.name
-                    if not dest_file.exists():
-                        shutil.copy2(image_file, dest_file)
-
-                # 登録成功カウント
-                registered += 1
-                phashs_seen.add(phash)
-                logger.debug(f"登録: {image_file.name} (pHash={phash})")
-
+                self._register_one_direct(image_file, skip_duplicates, dest_dir, tally)
             except Exception as e:
-                failed += 1
+                tally.failed += 1
                 error_msg = f"{image_file.name}: {e!s}"
-                errors.append(error_msg)
+                tally.errors.append(error_msg)
                 logger.warning(f"登録エラー: {error_msg}")
 
         result = RegistrationResult(
             total=len(image_files),
-            successful=registered,
-            failed=failed,
-            skipped=skipped,
-            error_details=errors if errors else None,
+            successful=tally.registered,
+            failed=tally.failed,
+            skipped=tally.skipped,
+            variant=tally.variant,
+            error_details=tally.errors if tally.errors else None,
         )
 
-        logger.info(f"登録完了: 成功={result.successful}, スキップ={result.skipped}, 失敗={result.failed}")
+        logger.info(
+            f"登録完了: 成功={result.successful}, 別版={result.variant}, "
+            f"スキップ={result.skipped}, 失敗={result.failed}"
+        )
 
         return result
+
+    def _register_one_direct(
+        self,
+        image_file: Path,
+        skip_duplicates: bool,
+        dest_dir: Path | None,
+        tally: "_DirectRegistrationTally",
+    ) -> None:
+        """direct 経路で 1 ファイルを分類・コピーし、tally を in-place 更新する (#633)。
+
+        pHash + 分類属性込みの署名で重複/別版/新規を判定する。重複は skip、別版は
+        variant、新規は registered に集計し、project 指定時はファイルをコピーする。
+
+        Args:
+            image_file: 処理対象の画像ファイル。
+            skip_duplicates: 重複をスキップするか。
+            dest_dir: コピー先ディレクトリ (None ならコピーしない)。
+            tally: 集計カウンタ (in-place 更新)。
+        """
+        phash = self._calculate_phash(image_file)
+        if not phash:
+            tally.failed += 1
+            tally.errors.append(f"{image_file.name}: pHash計算失敗")
+            return
+
+        # 分類属性込みの dedup 署名を構築 (取得失敗時は pHash 単独へフォールバック)
+        signature = self._build_dedup_signature(image_file, phash)
+
+        # 重複チェック (属性込み署名で別版を区別)
+        if skip_duplicates and signature is not None and signature in tally.signatures_seen:
+            tally.skipped += 1
+            logger.debug(f"重複スキップ: {image_file.name} (pHash={phash})")
+            return
+
+        # プロジェクトディレクトリにコピー
+        if dest_dir:
+            dest_file = dest_dir / image_file.name
+            if not dest_file.exists():
+                shutil.copy2(image_file, dest_file)
+
+        # 別版判定: 同一 pHash 既出 かつ 属性署名が未出 → variant 集計 (#633)。
+        # 同一署名 (真の重複) を skip_duplicates=False で登録する場合は variant にせず
+        # registered に集計する (属性まで同一なら別版ではない)。
+        is_variant = (
+            phash in tally.phashs_seen and signature is not None and signature not in tally.signatures_seen
+        )
+        if is_variant:
+            tally.variant += 1
+            logger.debug(f"別版登録 (同一pHash): {image_file.name} (pHash={phash})")
+        else:
+            tally.registered += 1
+            logger.debug(f"登録: {image_file.name} (pHash={phash})")
+
+        tally.phashs_seen.add(phash)
+        if signature is not None:
+            tally.signatures_seen.add(signature)
+
+    def _build_dedup_signature(self, image_path: Path, phash: str) -> tuple[str, tuple[Any, ...]] | None:
+        """pHash + 分類属性から dedup 署名を構築する (ADR 0061 §4, #633)。
+
+        DB を持たない direct 登録経路で「同一 pHash でも属性差があれば別版」を判定する
+        ため、``ImageRepository.classify_phash_candidate`` と同じ分類属性
+        (width / height / has_alpha / is_grayscale_like) を署名に含める。
+
+        属性取得に失敗した場合は None を返し、呼び出し元は pHash 単独 dedup を諦めて
+        その画像を常に新規扱いにする (誤って別画像を skip しないための保守的挙動)。
+
+        Args:
+            image_path: 署名を構築する画像パス。
+            phash: 計算済み pHash。
+
+        Returns:
+            ``(phash, (属性値, ...))`` の署名。属性取得失敗時は None。
+        """
+        from lorairo.database.repository.image import ImageRepository
+        from lorairo.storage.file_system import FileSystemManager
+
+        try:
+            info = FileSystemManager.get_image_info(image_path)
+        except (OSError, ValueError) as e:
+            logger.warning(f"画像情報取得に失敗、pHash単独dedupを見送り: {image_path.name}, {e}")
+            return None
+        attrs = tuple(info.get(attr) for attr in ImageRepository.CLASSIFICATION_ATTRS)
+        return (phash, attrs)
 
     def detect_duplicate_images(self, directory: Path) -> dict[str, list[str]]:
         """ディレクトリ内の重複画像を検出。

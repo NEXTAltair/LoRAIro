@@ -3,11 +3,10 @@
 import traceback
 from dataclasses import dataclass
 from pathlib import Path
-from typing import TYPE_CHECKING
-
-from sqlalchemy.exc import SQLAlchemyError
+from typing import TYPE_CHECKING, ClassVar
 
 from ...annotations.existing_file_reader import ExistingFileReader
+from ...database.db_manager import RegistrationOutcome
 from ...utils.log import logger
 from .base import LoRAIroWorkerBase
 from .progress_helper import ProgressHelper
@@ -19,19 +18,32 @@ if TYPE_CHECKING:
 
 @dataclass
 class DatabaseRegistrationResult:
-    """データベース登録結果"""
+    """データベース登録結果。
+
+    ADR 0061 §4 (#633): pHash 分類結果を全経路統一の統計値に対応させる。
+    ``variant_count`` は同一 pHash でも属性差で別版として新規登録された件数。
+    """
 
     registered_count: int
     skipped_count: int
     error_count: int
     processed_paths: list[Path]
     total_processing_time: float
+    variant_count: int = 0
 
 
 class DatabaseRegistrationWorker(LoRAIroWorkerBase[DatabaseRegistrationResult]):
     """データベース登録専用ワーカー"""
 
     _OPERATION_TYPE = "registration"
+
+    # #633: 登録 outcome → 統計キーの対応。重複は skipped、別版は variant に集計する。
+    _OUTCOME_TO_STAT_KEY: ClassVar[dict[RegistrationOutcome, str]] = {
+        RegistrationOutcome.REGISTERED: "registered",
+        RegistrationOutcome.VARIANT: "variant",
+        RegistrationOutcome.DUPLICATE: "skipped",
+        RegistrationOutcome.FAILED: "errors",
+    }
 
     def __init__(
         self, directory: Path, db_manager: "ImageDatabaseManager", fsm: "FileSystemManager"
@@ -65,7 +77,7 @@ class DatabaseRegistrationWorker(LoRAIroWorkerBase[DatabaseRegistrationResult]):
 
         if total_count == 0:
             logger.warning(f"画像ファイルが見つかりません: {self.directory}")
-            return DatabaseRegistrationResult(0, 0, 0, [], 0.0)
+            return DatabaseRegistrationResult(0, 0, 0, [], 0.0, variant_count=0)
 
         logger.info(f"登録対象画像: {total_count}件")
 
@@ -74,8 +86,8 @@ class DatabaseRegistrationWorker(LoRAIroWorkerBase[DatabaseRegistrationResult]):
         annotations_by_path = self._preload_associated_annotations(image_files)
         tag_id_cache = self._build_tag_id_cache(annotations_by_path)
 
-        # 統計情報初期化
-        stats = {"registered": 0, "skipped": 0, "errors": 0}
+        # 統計情報初期化 (#633: variant を追加し全経路統一)
+        stats = {"registered": 0, "variant": 0, "skipped": 0, "errors": 0}
         processed_paths: list[Path] = []
 
         # バッチ処理開始
@@ -123,14 +135,16 @@ class DatabaseRegistrationWorker(LoRAIroWorkerBase[DatabaseRegistrationResult]):
             tag_id_cache: 正規化済みタグ→tag_idのキャッシュ。
         """
         try:
-            # 単一画像の登録処理
-            result_type, _ = self._register_single_image(
+            # 単一画像の登録処理 (統一エントリ経由で副作用は db_manager 側で適用)
+            outcome, _ = self._register_single_image(
                 image_path, i, total_count, annotations=annotations, tag_id_cache=tag_id_cache
             )
 
-            # 統計情報更新
-            stats[result_type] += 1
-            if result_type == "registered":
+            # 統計情報更新 (#633: outcome → 統計キーの対応を全経路で揃える)
+            stat_key = self._OUTCOME_TO_STAT_KEY[outcome]
+            stats[stat_key] += 1
+            # 新規 / 別版はどちらも新規行を作るので processed として記録する
+            if outcome in (RegistrationOutcome.REGISTERED, RegistrationOutcome.VARIANT):
                 processed_paths.append(image_path)
 
         except Exception as e:
@@ -159,11 +173,12 @@ class DatabaseRegistrationWorker(LoRAIroWorkerBase[DatabaseRegistrationResult]):
         *,
         annotations: dict[str, object] | None = None,
         tag_id_cache: dict[str, int | None] | None = None,
-    ) -> tuple[str, int]:
-        """単一画像の登録処理を実行
+    ) -> tuple[RegistrationOutcome, int]:
+        """単一画像を統一登録エントリ経由で登録する (ADR 0061 §4, #633)。
 
-        重複検出を行い、重複していない場合はデータベースに登録する。
-        重複している場合でも関連ファイル（.txt/.caption）は処理される。
+        分類 (重複 / 別版 / 新規)・保存・関連ファイル取り込み・filename alias 登録は
+        ``db_manager.register_image_with_side_effects`` が分類結果駆動で一元的に行う。
+        ワーカーは進捗報告と outcome の返却のみを担当する。
 
         Args:
             image_path: 登録対象の画像ファイルパス
@@ -173,9 +188,8 @@ class DatabaseRegistrationWorker(LoRAIroWorkerBase[DatabaseRegistrationResult]):
             tag_id_cache: 正規化済みタグ→tag_idのキャッシュ。
 
         Returns:
-            tuple[str, int]: (result_type, image_id)
-                - result_type: "registered"|"skipped"|"error"
-                - image_id: 登録されたID、失敗時は-1
+            tuple[RegistrationOutcome, int]: (outcome, image_id)。
+                失敗時の image_id は -1。
         """
         force_progress_emit = i == 0 or i + 1 == total_count
 
@@ -184,37 +198,16 @@ class DatabaseRegistrationWorker(LoRAIroWorkerBase[DatabaseRegistrationResult]):
             i + 1, total_count, image_path.name, force_emit=force_progress_emit
         )
 
-        # 重複チェック
-        duplicate_image_id = self.db_manager.detect_duplicate_image(image_path)
-        if duplicate_image_id:
-            # 重複画像でも関連ファイル（.txt/.caption）を処理
-            self._process_associated_files(
-                image_path, duplicate_image_id, annotations=annotations, tag_id_cache=tag_id_cache
-            )
-            # ファイル名エイリアスを登録（バッチインポート時のマッチング用）
-            # DBが未初期化の場合でも重複扱い（skipped）は変わらないため例外を握り潰す
-            try:
-                self.db_manager.image_repo.add_filename_alias(duplicate_image_id, image_path.stem)
-            except SQLAlchemyError as e:
-                logger.warning(f"エイリアス登録失敗（スキップ扱いは継続）: {image_path.stem}, {e}")
-            logger.debug(f"スキップ (重複): {image_path} - 関連ファイルは処理")
-            result_type = "skipped"
-            image_id = duplicate_image_id
-        else:
-            # データベース登録
-            result = self.db_manager.register_original_image(image_path, self.fsm)
-            if result:
-                image_id, _ = result
-                # 関連ファイル（.txt/.caption）の処理
-                self._process_associated_files(
-                    image_path, image_id, annotations=annotations, tag_id_cache=tag_id_cache
-                )
-                logger.debug(f"登録完了: {image_path}")
-                result_type = "registered"
-            else:
-                logger.error(f"画像登録失敗: {image_path}")
-                result_type = "error"
-                image_id = -1
+        # 統一登録エントリ: 分類・保存・関連ファイル・alias を一元適用
+        side_effect_result = self.db_manager.register_image_with_side_effects(
+            image_path,
+            self.fsm,
+            associated_annotations=annotations,
+            tag_id_cache=tag_id_cache,
+        )
+        outcome = side_effect_result.outcome
+        image_id = side_effect_result.image_id if side_effect_result.image_id is not None else -1
+        logger.debug(f"登録 outcome={outcome.value}: {image_path}")
 
         # 進捗報告（ProgressHelper使用）
         percentage = ProgressHelper.calculate_percentage(i + 1, total_count, 10, 85)  # 10-95%
@@ -227,7 +220,7 @@ class DatabaseRegistrationWorker(LoRAIroWorkerBase[DatabaseRegistrationResult]):
             force_emit=force_progress_emit,
         )
 
-        return result_type, image_id
+        return outcome, image_id
 
     def _build_registration_result(
         self, stats: dict[str, int], processed_paths: list[Path], start_time: float
@@ -255,12 +248,13 @@ class DatabaseRegistrationWorker(LoRAIroWorkerBase[DatabaseRegistrationResult]):
             error_count=stats["errors"],
             processed_paths=processed_paths,
             total_processing_time=processing_time,
+            variant_count=stats["variant"],
         )
 
         # バッチサマリーログ（INFOレベル）
         logger.info(
-            f"データベース登録完了: 登録={stats['registered']}, スキップ={stats['skipped']}, "
-            f"エラー={stats['errors']}, 処理時間={processing_time:.2f}秒"
+            f"データベース登録完了: 登録={stats['registered']}, 別版={stats['variant']}, "
+            f"スキップ={stats['skipped']}, エラー={stats['errors']}, 処理時間={processing_time:.2f}秒"
         )
 
         return registration_result
@@ -320,64 +314,3 @@ class DatabaseRegistrationWorker(LoRAIroWorkerBase[DatabaseRegistrationResult]):
         except Exception as e:
             logger.warning(f"タグID一括解決に失敗、個別解決へフォールバック: {e}")
             return {}
-
-    def _process_associated_files(
-        self,
-        image_path: Path,
-        image_id: int,
-        *,
-        annotations: dict[str, object] | None = None,
-        tag_id_cache: dict[str, int | None] | None = None,
-    ) -> None:
-        """画像ファイルに関連する.txtと.captionファイルを処理し、データベースに登録する。
-
-        Args:
-            image_path: 画像ファイルのパス。
-            image_id: データベースの画像ID。
-            annotations: 事前読み込み済みのアノテーション。Noneの場合はその場で読み込む。
-            tag_id_cache: 正規化済みタグ→tag_idのキャッシュ。
-        """
-        if annotations is None:
-            annotations = self.file_reader.get_existing_annotations(image_path)
-        if not annotations:
-            return
-
-        raw_tags = annotations.get("tags", [])
-        tags = [tag for tag in raw_tags if isinstance(tag, str)] if isinstance(raw_tags, list) else []
-        if tags:
-            from genai_tag_db_tools.utils.cleanup_str import TagCleaner
-
-            from ...database.schema import TagAnnotationData
-
-            tags_data: list[TagAnnotationData] = [
-                {
-                    "tag_id": (
-                        tag_id_cache.get(TagCleaner.clean_format(tag).strip()) if tag_id_cache else None
-                    ),
-                    "model_id": None,
-                    "tag": tag,
-                    "confidence_score": None,
-                    "existing": True,
-                    "is_edited_manually": False,
-                }
-                for tag in tags
-            ]
-            self.db_manager.save_tags(image_id, tags_data)
-            logger.debug(f"タグを追加: {image_path.name} - {len(tags)}個のタグ")
-
-        raw_captions = annotations.get("captions", [])
-        captions = [c for c in raw_captions if isinstance(c, str)] if isinstance(raw_captions, list) else []
-        if captions:
-            from ...database.schema import CaptionAnnotationData
-
-            captions_data: list[CaptionAnnotationData] = [
-                {
-                    "model_id": None,
-                    "caption": caption,
-                    "existing": False,
-                    "is_edited_manually": False,
-                }
-                for caption in captions
-            ]
-            self.db_manager.save_captions(image_id, captions_data)
-            logger.debug(f"キャプションを追加: {image_path.name}")

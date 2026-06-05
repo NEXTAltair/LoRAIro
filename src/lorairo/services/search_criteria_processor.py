@@ -338,9 +338,12 @@ class SearchCriteriaProcessor:
 
     def _filter_by_duplicate_exclusion(self, images: list[dict[str, Any]]) -> list[dict[str, Any]]:
         """
-        phashによる重複画像除外
+        重複画像除外 (属性ベース分類、ADR 0061 §4 / #633)
 
-        同一phashを持つ画像グループから最初に遭遇した画像のみを保持します。
+        pHash 単独ではなく分類属性 (width / height / has_alpha / is_grayscale_like) 込みの
+        署名で重複を判定する。#630 以降は同一 pHash でも属性差のある「別版」が別レコードと
+        して登録され得るため、pHash 一致だけで除外すると別版を誤って取りこぼす。属性込み署名が
+        完全一致する真の重複のみを除外し、別版は別物として残す。
 
         Args:
             images: 画像データリスト
@@ -348,8 +351,10 @@ class SearchCriteriaProcessor:
         Returns:
             list: フィルター済み画像リスト
         """
+        from lorairo.database.repository.image import ImageRepository
+
         try:
-            seen_phashes: dict[str, dict[str, Any]] = {}
+            seen_signatures: set[tuple[Any, ...]] = set()
             filtered_images: list[dict[str, Any]] = []
 
             for image in images:
@@ -360,10 +365,12 @@ class SearchCriteriaProcessor:
                     filtered_images.append(image)
                     continue
 
-                if phash not in seen_phashes:
-                    seen_phashes[phash] = image
+                # pHash + 分類属性で署名を作り、別版 (属性差) を区別する
+                signature = (phash, *(image.get(attr) for attr in ImageRepository.CLASSIFICATION_ATTRS))
+                if signature not in seen_signatures:
+                    seen_signatures.add(signature)
                     filtered_images.append(image)
-                # else: 重複のためスキップ（暗黙的）
+                # else: 属性まで一致する真の重複のためスキップ（暗黙的）
 
             logger.debug(
                 f"重複除外完了: {len(images)} -> {len(filtered_images)}件 "

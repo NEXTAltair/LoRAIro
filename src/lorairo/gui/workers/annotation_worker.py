@@ -646,28 +646,30 @@ class AnnotationWorker(LoRAIroWorkerBase["AnnotationExecutionResult"]):
             error_record_repo=self.db_manager.error_record_repo,
         ).save_annotation_results(results)
 
-        # GUIサマリー用: phash→ファイル名マップを構築
-        phash_to_image_id = self.db_manager.image_repo.find_image_ids_by_phashes(set(results.keys()))
-        phash_to_filename = self._build_phash_to_filename_map(phash_to_image_id)
+        # GUIサマリー用: phash→ファイル名マップを構築 (#633: 別版で複数 image_id になり得る)
+        phash_to_image_ids = self.db_manager.image_repo.find_image_ids_by_phashes_multi(set(results.keys()))
+        phash_to_filename = self._build_phash_to_filename_map(phash_to_image_ids)
 
-        # 画像ごとの結果概要（DB登録済みのもののみ）
+        # 画像ごとの結果概要（DB登録済みのもののみ）。サマリーは pHash 単位 1 行のため、
+        # 別版で複数 image_id があっても代表ファイル名 1 件を表示する。
         image_summaries: list[ImageResultSummary] = [
             self._build_image_summary(phash, phash_to_filename, annotations)
             for phash, annotations in results.items()
-            if phash_to_image_id.get(phash) is not None
+            if phash_to_image_ids.get(phash)
         ]
 
         logger.info(f"DB保存完了: {save_result.success_count}/{save_result.total_count}件成功")
         return save_result.success_count, save_result.skip_count, image_summaries, phash_to_filename
 
-    def _build_phash_to_filename_map(self, phash_to_image_id: dict[str, int]) -> dict[str, str]:
+    def _build_phash_to_filename_map(self, phash_to_image_ids: dict[str, list[int]]) -> dict[str, str]:
         """pHashからファイル名へのマッピングを構築する。
 
         image_pathsリストとDB上のimage_idマッピングから、
-        phash → ファイル名の逆引きマップを作る。
+        phash → ファイル名の逆引きマップを作る。サマリーは pHash 単位 1 行のため、
+        別版で複数 image_id がある場合は最初に一致した image_id のファイル名を代表に採る (#633)。
 
         Args:
-            phash_to_image_id: pHash → image_id のマッピング。
+            phash_to_image_ids: pHash → image_id 昇順リスト のマッピング。
 
         Returns:
             pHash → ファイル名のマッピング。
@@ -684,11 +686,14 @@ class AnnotationWorker(LoRAIroWorkerBase["AnnotationExecutionResult"]):
 
         # phash → filename マッピング
         result: dict[str, str] = {}
-        for phash, image_id in phash_to_image_id.items():
-            if image_id is not None and image_id in image_id_to_path:
-                result[phash] = Path(image_id_to_path[image_id]).name
-            else:
-                result[phash] = phash[:12] + "..."
+        for phash, image_ids in phash_to_image_ids.items():
+            # この pHash に紐づく image_id のうち、対象 image_paths に含まれる代表を採用
+            matched_name: str | None = None
+            for image_id in image_ids:
+                if image_id in image_id_to_path:
+                    matched_name = Path(image_id_to_path[image_id]).name
+                    break
+            result[phash] = matched_name if matched_name is not None else phash[:12] + "..."
         return result
 
     @staticmethod

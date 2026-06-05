@@ -617,7 +617,9 @@ class AnnotationSaveService:
                 total_count=0,
             )
 
-        phash_to_image_id = self._image_repo.find_image_ids_by_phashes(set(results.keys()))
+        # #633: 同一 pHash に別版 (複数 image_id) が紐づき得るため、全 image_id へ fan-out 保存する。
+        # pHash 単独 → 単一 image_id の旧キー化では別版が突合から漏れていた。
+        phash_to_image_ids = self._image_repo.find_image_ids_by_phashes_multi(set(results.keys()))
 
         all_model_names, all_raw_tags = self._collect_names_and_tags(results)
         # ADR 0023 Phase 1.11 (Issue #238): registry key (= AnnotatorInfo.name) を
@@ -633,28 +635,33 @@ class AnnotationSaveService:
 
         for phash, phash_annotations in results.items():
             try:
-                image_id = phash_to_image_id.get(phash)
-                if image_id is None:
+                image_ids = phash_to_image_ids.get(phash) or []
+                if not image_ids:
                     logger.warning(
                         f"pHash {phash[:8]}... に対応する画像がDBに見つかりません。スキップします。"
                     )
                     skip_count += 1
                     continue
 
-                annotations_dict = self._build_annotations_dict(
-                    phash_annotations, models_cache, image_id=image_id
-                )
-
-                if not annotations_dict or not any(annotations_dict.values()):
-                    logger.debug(f"画像ID {image_id} に保存するアノテーションがありません")
-                    skip_count += 1
-                    continue
-
-                prepared_items.append(
-                    _PreparedAnnotationSave(
-                        source_key=str(phash), image_id=image_id, annotations=annotations_dict
+                # 別版を含む全 image_id へアノテーションを保存する (#633)
+                appended = False
+                for image_id in image_ids:
+                    annotations_dict = self._build_annotations_dict(
+                        phash_annotations, models_cache, image_id=image_id
                     )
-                )
+                    if not annotations_dict or not any(annotations_dict.values()):
+                        logger.debug(f"画像ID {image_id} に保存するアノテーションがありません")
+                        continue
+                    prepared_items.append(
+                        _PreparedAnnotationSave(
+                            source_key=str(phash), image_id=image_id, annotations=annotations_dict
+                        )
+                    )
+                    appended = True
+
+                # この pHash でどの image_id にも保存対象が無ければスキップ集計
+                if not appended:
+                    skip_count += 1
             except Exception as e:
                 error_msg = f"phash={phash[:8]}...: {e}"
                 error_details.append(error_msg)

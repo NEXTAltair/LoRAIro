@@ -83,11 +83,15 @@ class ImageMetadata(BaseModel):
 class RegistrationResult(BaseModel):
     """画像登録結果。
 
+    ADR 0061 §4 (#633): pHash 分類結果駆動の統計を全登録経路で揃える。
+    ``variant`` は同一 pHash でも属性差で別版として新規登録された枚数。
+
     Attributes:
         total: 処理対象の全画像枚数。
-        successful: 登録成功枚数。
+        successful: 登録成功枚数（新規）。
         failed: 登録失敗枚数。
         skipped: スキップされた（重複など）枚数。
+        variant: 別版として新規登録された枚数。
         error_details: エラー詳細情報のリスト（任意）。
     """
 
@@ -95,14 +99,18 @@ class RegistrationResult(BaseModel):
     successful: int
     failed: int
     skipped: int
+    variant: int = 0
     error_details: list[str] | None = None
 
     @property
     def success_rate(self) -> float:
-        """成功率を計算（0.0-1.0）。"""
+        """成功率を計算（0.0-1.0）。
+
+        別版登録 (``variant``) も成功とみなして分子に含める。
+        """
         if self.total == 0:
             return 0.0
-        return self.successful / self.total
+        return (self.successful + self.variant) / self.total
 
 
 class DuplicateInfo(BaseModel):

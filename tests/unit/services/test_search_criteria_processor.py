@@ -565,6 +565,65 @@ class TestSearchCriteriaProcessorErrorPaths:
 
         assert len(result) == 2
 
+    def test_filter_by_duplicate_exclusion_keeps_variants(self, processor) -> None:
+        """#633: 同一 pHash でも属性差のある別版は重複除外せず残す。"""
+        images = [
+            {
+                "id": 1,
+                "phash": "p",
+                "width": 64,
+                "height": 64,
+                "has_alpha": False,
+                "is_grayscale_like": False,
+            },
+            # 別版: 解像度違い → 残る
+            {
+                "id": 2,
+                "phash": "p",
+                "width": 128,
+                "height": 128,
+                "has_alpha": False,
+                "is_grayscale_like": False,
+            },
+            # 別版: グレースケール相当 → 残る
+            {
+                "id": 3,
+                "phash": "p",
+                "width": 64,
+                "height": 64,
+                "has_alpha": False,
+                "is_grayscale_like": True,
+            },
+        ]
+        result = processor._filter_by_duplicate_exclusion(images)
+
+        assert [img["id"] for img in result] == [1, 2, 3]
+
+    def test_filter_by_duplicate_exclusion_removes_true_duplicates(self, processor) -> None:
+        """#633: pHash も属性も完全一致する真の重複は除外する。"""
+        images = [
+            {
+                "id": 1,
+                "phash": "p",
+                "width": 64,
+                "height": 64,
+                "has_alpha": False,
+                "is_grayscale_like": False,
+            },
+            # 属性まで完全一致 → 除外
+            {
+                "id": 2,
+                "phash": "p",
+                "width": 64,
+                "height": 64,
+                "has_alpha": False,
+                "is_grayscale_like": False,
+            },
+        ]
+        result = processor._filter_by_duplicate_exclusion(images)
+
+        assert [img["id"] for img in result] == [1]
+
     @patch("lorairo.services.search_criteria_processor.logger")
     def test_filter_by_duplicate_exclusion_exception_returns_original_images(
         self, mock_logger, processor

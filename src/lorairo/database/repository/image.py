@@ -354,6 +354,47 @@ class ImageRepository(BaseRepository):
                 logger.error(f"pHash一括検索中にエラー: {e}", exc_info=True)
                 raise
 
+    def find_image_ids_by_phashes_multi(self, phashes: set[str]) -> dict[str, list[int]]:
+        """複数 pHash に対応する全 image_id を pHash 単位の昇順リストで一括取得する (#633)。
+
+        ``find_image_ids_by_phashes`` は pHash → 単一 image_id を返すため、#630 以降に
+        同一 pHash の別版が複数行登録された状況で取りこぼす。本メソッドは同一 pHash に
+        紐づく全 image_id を漏れなく返し、別版が複数 image_id になり得る突合
+        (アノテーション保存 / キャッシュ更新) で全レコードを対象にできるようにする。
+
+        Args:
+            phashes: 検索する pHash のセット。
+
+        Returns:
+            pHash → image_id 昇順リスト のマッピング。見つからない pHash は含まれない。
+
+        Raises:
+            SQLAlchemyError: データベース操作でエラーが発生した場合。
+
+        """
+        if not phashes:
+            return {}
+
+        phash_list = list(phashes)
+        with self.session_factory() as session:
+            try:
+                phash_to_ids: dict[str, list[int]] = {}
+                for i in range(0, len(phash_list), self.BATCH_CHUNK_SIZE):
+                    chunk = phash_list[i : i + self.BATCH_CHUNK_SIZE]
+                    stmt = select(Image.phash, Image.id).where(Image.phash.in_(chunk))
+                    for row in session.execute(stmt).all():
+                        phash_to_ids.setdefault(row.phash, []).append(row.id)
+                for ids in phash_to_ids.values():
+                    ids.sort()
+                logger.debug(
+                    f"pHash一括検索 (multi): {sum(len(v) for v in phash_to_ids.values())}件 "
+                    f"(対象pHash {len(phashes)}件)"
+                )
+                return phash_to_ids
+            except SQLAlchemyError as e:
+                logger.error(f"pHash一括検索 (multi) 中にエラー: {e}", exc_info=True)
+                raise
+
     def find_image_ids_by_phash_long_edge(self, phashes: set[str]) -> dict[tuple[str, int], list[int]]:
         """複数pHashについて (pHash, 長辺解像度) → image_id 群の対応を一括取得する。
 
