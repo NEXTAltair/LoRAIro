@@ -286,6 +286,15 @@ class TestProviderBatchWorkflowService:
             model_name="__provider_batch_model_10__",
         )
         assert result.imported_count == 2
+        # Codex #646 P1 リグレッション: fan-out で save 件数 (image=2) が
+        # provider item 件数 (=1) と一致しなくても、custom_id 単位で完了判定し
+        # job / item を imported にする。
+        assert result.job_imported is True
+        item = test_provider_batch_repository.list_provider_batch_items(job_id)[0]
+        assert item.status == "imported"
+        job = test_provider_batch_repository.get_provider_batch_job(job_id)
+        assert job is not None
+        assert job.status == "imported"
 
     def test_submit_images_uses_path_overrides(
         self,

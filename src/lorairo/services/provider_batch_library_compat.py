@@ -52,7 +52,7 @@ def to_library_submit_request(request: Any) -> Any:
                                 "image_path": item.image_path,
                                 "task_type": item.task_type,
                                 "model_id": item.model_id,
-                                "raw_request": item.raw_request,
+                                "raw_request": _strip_lorairo_private_keys(item.raw_request),
                             },
                         )
                     )
@@ -261,6 +261,28 @@ def _datetime_or_none(value: Any, field_name: str) -> datetime | None:
 
 def _raw_provider_payload_or_none(result: Any) -> Any:
     return _value(result, "raw_provider_payload")
+
+
+# ADR 0062: BatchSubmitItem.raw_request は LoRAIro local 用途も兼ねる
+# (custom_id -> image_id[] 対応を持つ)。``lorairo_`` prefix のキーは LoRAIro 専用で、
+# provider payload へ転送してはならない (DB image ID 漏洩 / provider request 検証破壊を防ぐ)。
+_LORAIRO_PRIVATE_RAW_REQUEST_PREFIX = "lorairo_"
+
+
+def _strip_lorairo_private_keys(raw_request: Any) -> Any:
+    """``raw_request`` から LoRAIro 専用キー (``lorairo_*``) を除いて library へ渡す。
+
+    Mapping の場合のみフィルタする。str / None / その他はそのまま返す。除去後に空 Mapping に
+    なる場合は ``None`` を返す (provider に空 payload を渡さない)。
+    """
+    if not isinstance(raw_request, Mapping):
+        return raw_request
+    filtered = {
+        key: value
+        for key, value in raw_request.items()
+        if not (isinstance(key, str) and key.startswith(_LORAIRO_PRIVATE_RAW_REQUEST_PREFIX))
+    }
+    return filtered or None
 
 
 def _supported_kwargs(cls: Any, values: Mapping[str, Any]) -> dict[str, Any]:

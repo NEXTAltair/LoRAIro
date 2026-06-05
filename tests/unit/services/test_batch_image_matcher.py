@@ -123,11 +123,15 @@ class TestBatchImageMatcherPhash:
             "aaaaaaaaaaaaaaaa": 10,
             "bbbbbbbbbbbbbbbb": 20,
         }
+        repo.get_images_metadata_batch.return_value = [
+            {"id": 10, "width": 1024, "height": 768},
+            {"id": 20, "width": 512, "height": 768},
+        ]
         repo.get_all_image_filename_index.return_value = {"0262_1227": 1}
         return repo
 
-    def test_phash_custom_ids_matched_by_phash(self, mock_repository: MagicMock) -> None:
-        """pHash 形式 custom_id は pHash 完全一致で image_id に解決される。"""
+    def test_phash_custom_ids_matched_by_phash_and_long_edge(self, mock_repository: MagicMock) -> None:
+        """pHash 完全一致かつ長辺解像度一致で image_id に解決される。"""
         matcher = BatchImageMatcher(mock_repository)
         result = matcher.match_all(["ph:aaaaaaaaaaaaaaaa:le:1024", "ph:bbbbbbbbbbbbbbbb:le:768"])
 
@@ -136,11 +140,19 @@ class TestBatchImageMatcherPhash:
             "ph:bbbbbbbbbbbbbbbb:le:768": 20,
         }
         assert result.unmatched == []
-        # 長辺解像度はキーの一意化用なので、照合は pHash のみで行う。
         mock_repository.find_image_ids_by_phashes.assert_called_once_with(
             {"aaaaaaaaaaaaaaaa", "bbbbbbbbbbbbbbbb"}
         )
         mock_repository.get_all_image_filename_index.assert_not_called()
+
+    def test_phash_custom_id_unmatched_when_long_edge_differs(self, mock_repository: MagicMock) -> None:
+        """Codex #646 P2: pHash 一致でも長辺解像度が異なれば誤マッチさせず unmatched。"""
+        matcher = BatchImageMatcher(mock_repository)
+        # image_id=10 の長辺は 1024 だが custom_id は le:512 を要求 → 別解像度なので不一致。
+        result = matcher.match_all(["ph:aaaaaaaaaaaaaaaa:le:512"])
+
+        assert result.matched == {}
+        assert result.unmatched == ["ph:aaaaaaaaaaaaaaaa:le:512"]
 
     def test_phash_custom_id_unmatched_when_phash_absent(self, mock_repository: MagicMock) -> None:
         """DB に無い pHash は unmatched になる。"""

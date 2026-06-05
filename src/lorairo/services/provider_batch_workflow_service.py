@@ -102,6 +102,9 @@ class _PreparedProviderBatchImport:
     missing_custom_ids: tuple[str, ...]
     already_imported_count: int
     non_importable_count: int
+    # ADR 0062: dedupe で 1 provider item が複数 image_id に fan-out されるため、
+    # save 件数 (image 単位) と provider item / custom_id 単位の完了判定を区別する。
+    imported_image_count: int
 
 
 class ProviderBatchLibraryAdapter:
@@ -485,18 +488,24 @@ class ProviderBatchWorkflowService:
         save_result = self._save_results_by_model(refreshed_job, prepared.results_by_model_id)
 
         unique_missing_custom_ids = tuple(sorted(set(prepared.missing_custom_ids)))
-        settled_count = save_result.success_count + prepared.already_imported_count
         import_clean = (
             save_result.error_count == 0
             and save_result.skip_count == 0
             and not unique_missing_custom_ids
             and prepared.non_importable_count == 0
         )
+        # ADR 0062: 完了判定は provider item (custom_id) 単位で行う。dedupe で 1 item が
+        # 複数 image に fan-out されるため、save 件数 (image 単位) ではなく custom_id 単位で
+        # normalized_fetch.items との突合を取る。
+        settled_custom_id_count = len(prepared.imported_custom_ids) + prepared.already_imported_count
         job_imported = (
-            bool(normalized_fetch.items) and settled_count == len(normalized_fetch.items) and import_clean
+            bool(normalized_fetch.items)
+            and settled_custom_id_count == len(normalized_fetch.items)
+            and import_clean
         )
+        # mark は image 単位の save 成功数と fan-out 込みの想定 image 数を突合する。
         mark_imported_items = (
-            save_result.success_count == len(prepared.imported_custom_ids)
+            save_result.success_count == prepared.imported_image_count
             and save_result.error_count == 0
             and save_result.skip_count == 0
         )
@@ -540,6 +549,7 @@ class ProviderBatchWorkflowService:
         missing_custom_ids: list[str] = list(apply_result.missing_custom_ids)
         already_imported_count = 0
         non_importable_count = 0
+        imported_image_count = 0
 
         for raw_item in fetch_result.items:
             item = self._coerce_result_item(raw_item)
@@ -563,6 +573,7 @@ class ProviderBatchWorkflowService:
             for target_image_id in target_image_ids:
                 model_results[target_image_id] = item.annotation
             imported_custom_ids.append(item.custom_id)
+            imported_image_count += len(target_image_ids)
 
         return _PreparedProviderBatchImport(
             results_by_model_id=results_by_model_id,
@@ -570,6 +581,7 @@ class ProviderBatchWorkflowService:
             missing_custom_ids=tuple(missing_custom_ids),
             already_imported_count=already_imported_count,
             non_importable_count=non_importable_count,
+            imported_image_count=imported_image_count,
         )
 
     def _save_results_by_model(
