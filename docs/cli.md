@@ -66,6 +66,18 @@ lorairo-cli --json describe "annotate import-batch"
 - `dry_run`: `bool` (optional, default `False`)
 - `model_name`: `str?` (optional)
 
+**Output `AnnotateImportBatchResult`**
+
+- `total_records`: `int` (optional)
+- `parsed_ok`: `int` (optional)
+- `parse_errors`: `int` (optional)
+- `matched`: `int` (optional)
+- `unmatched`: `int` (optional)
+- `saved`: `int` (optional)
+- `save_errors`: `int` (optional)
+- `model_name`: `str?` (optional)
+- `dry_run`: `bool` (optional)
+
 **Error `CliErrorResponse`**
 
 Structured error payload emitted as kind=error by the CLI boundary.
@@ -104,6 +116,23 @@ lorairo-cli --json describe "annotate run"
 - `batch_size`: `int>=1` (optional, default `10`)
 - `unrated`: `bool` (optional, default `False`)
 - `missing_model`: `str?` (optional)
+
+**Output `AnnotateRunItem`**
+
+- `type`: `annotation` (optional)
+- `image_id`: `int?` (optional)
+- `phash`: `str` (optional)
+- `file_path`: `str?` (optional)
+- `models`: `list[AnnotateRunModelResult]` (optional)
+
+**Output `AnnotateRunResult`**
+
+- `annotated`: `int` (optional)
+- `skipped`: `int` (optional)
+- `errors`: `int` (optional)
+- `loaded`: `int` (optional)
+- `results`: `int` (optional)
+- `models`: `list[str]` (optional)
 
 **Error `CliErrorResponse`**
 
@@ -222,6 +251,7 @@ lorairo-cli --json describe "batch import"
 
 **Output `BatchImportResult`**
 
+- `job_id`: `int?` (optional)
 - `imported`: `int` (optional)
 - `skipped`: `int` (optional)
 - `errors`: `int` (optional)

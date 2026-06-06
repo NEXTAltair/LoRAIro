@@ -208,7 +208,23 @@ class ExportCreateInputSchema(BaseModel):
     score_min: float | None = Field(default=None, ge=0.0, le=10.0)
     score_max: float | None = Field(default=None, ge=0.0, le=10.0)
 
-    model_config = ConfigDict(title="ExportCreateInput")
+    # export create は最低 1 つの有効フィルタ (tags/excluded_tags/caption/manual_rating/
+    # ai_rating/score_min/score_max) を要求し、無指定は UsageError で弾く
+    # (_criteria_has_effective_filter)。include_nsfw は修飾子でフィルタとは扱わない。
+    model_config = ConfigDict(
+        title="ExportCreateInput",
+        json_schema_extra={
+            "anyOf": [
+                {"required": ["tags"]},
+                {"required": ["excluded_tags"]},
+                {"required": ["caption"]},
+                {"required": ["manual_rating"]},
+                {"required": ["ai_rating"]},
+                {"required": ["score_min"]},
+                {"required": ["score_max"]},
+            ]
+        },
+    )
 
 
 class ExportCreateResult(BaseModel):
@@ -276,6 +292,7 @@ class BatchImportResult(BaseModel):
     kind: Literal["result"] = "result"
     ok: Literal[True] = True
     message: str
+    job_id: int | None = None
     imported: int
     skipped: int
     errors: int
@@ -323,6 +340,64 @@ class BatchStatusResult(BaseModel):
     job: ProviderBatchJob | None = None
 
     model_config = ConfigDict(title="BatchStatusResult")
+
+
+class AnnotateRunModelResult(BaseModel):
+    """Per-model annotation entry inside an ``annotate run`` item row."""
+
+    model: str
+    tags: list[str]
+    score: float | int | None = None
+    error: str | None = None
+
+    model_config = ConfigDict(title="AnnotateRunModelResult")
+
+
+class AnnotateRunItem(BaseModel):
+    """JSONL item payload emitted per annotated image by ``annotate run --json``."""
+
+    type: Literal["annotation"] = "annotation"
+    image_id: int | None = None
+    phash: str
+    file_path: str | None = None
+    models: list[AnnotateRunModelResult]
+
+    model_config = ConfigDict(title="AnnotateRunItem")
+
+
+class AnnotateRunResult(BaseModel):
+    """JSONL terminal result payload emitted by ``annotate run --json``."""
+
+    kind: Literal["result"] = "result"
+    ok: Literal[True] = True
+    message: str
+    annotated: int
+    skipped: int
+    errors: int
+    loaded: int
+    results: int
+    models: list[str]
+
+    model_config = ConfigDict(title="AnnotateRunResult")
+
+
+class AnnotateImportBatchResult(BaseModel):
+    """JSONL result payload emitted by ``annotate import-batch --json``."""
+
+    kind: Literal["result"] = "result"
+    ok: Literal[True] = True
+    message: str
+    total_records: int
+    parsed_ok: int
+    parse_errors: int
+    matched: int
+    unmatched: int
+    saved: int
+    save_errors: int
+    model_name: str | None = None
+    dry_run: bool
+
+    model_config = ConfigDict(title="AnnotateImportBatchResult")
 
 
 @dataclass(frozen=True)
@@ -632,7 +707,31 @@ TOOL_SPECS: dict[str, ToolSpec] = {
                 ),
             ),
         ),
-        outputs=(),
+        outputs=(
+            _output(
+                "AnnotateRunItem",
+                (
+                    _f("type", "annotation"),
+                    _f("image_id", "int?"),
+                    _f("phash", "str"),
+                    _f("file_path", "str?"),
+                    _f("models", "list[AnnotateRunModelResult]"),
+                ),
+                schema=AnnotateRunItem,
+            ),
+            _output(
+                "AnnotateRunResult",
+                (
+                    _f("annotated", "int"),
+                    _f("skipped", "int"),
+                    _f("errors", "int"),
+                    _f("loaded", "int"),
+                    _f("results", "int"),
+                    _f("models", "list[str]"),
+                ),
+                schema=AnnotateRunResult,
+            ),
+        ),
         errors=(ERROR_MODEL,),
     ),
     "annotate import-batch": ToolSpec(
@@ -652,7 +751,23 @@ TOOL_SPECS: dict[str, ToolSpec] = {
                 ),
             ),
         ),
-        outputs=(),
+        outputs=(
+            _output(
+                "AnnotateImportBatchResult",
+                (
+                    _f("total_records", "int"),
+                    _f("parsed_ok", "int"),
+                    _f("parse_errors", "int"),
+                    _f("matched", "int"),
+                    _f("unmatched", "int"),
+                    _f("saved", "int"),
+                    _f("save_errors", "int"),
+                    _f("model_name", "str?"),
+                    _f("dry_run", "bool"),
+                ),
+                schema=AnnotateImportBatchResult,
+            ),
+        ),
         errors=(ERROR_MODEL,),
     ),
     "export create": ToolSpec(
@@ -912,6 +1027,7 @@ TOOL_SPECS: dict[str, ToolSpec] = {
             _output(
                 "BatchImportResult",
                 (
+                    _f("job_id", "int?"),
                     _f("imported", "int"),
                     _f("skipped", "int"),
                     _f("errors", "int"),

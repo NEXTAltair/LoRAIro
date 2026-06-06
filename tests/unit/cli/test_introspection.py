@@ -126,7 +126,11 @@ def test_import_batch_describes_actual_argument_names() -> None:
     assert fields["project"]["required"] is True
     assert fields["jsonl_dir"]["required"] is True
     assert fields["dry_run"]["default"] is False
-    assert not any(row.get("role") == "output" for row in rows)
+    # #656 merge: import-batch --json emits a JSONL result row, so it must advertise its output.
+    output_row = next(
+        row for row in rows if row.get("role") == "output" and row["name"] == "AnnotateImportBatchResult"
+    )
+    assert {"total_records", "matched", "saved", "dry_run"} <= {f["name"] for f in output_row["fields"]}
 
 
 def test_cli_specific_output_json_schemas_match_item_rows() -> None:
