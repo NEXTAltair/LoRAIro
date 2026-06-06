@@ -49,7 +49,8 @@ def test_describe_compact_emits_tool_model_items_and_result() -> None:
 
     model_rows = [row for row in rows if row.get("type") == "model"]
     assert {row["role"] for row in model_rows} >= {"input", "output", "error"}
-    assert any(row["name"] == "ImageFilterCriteria" for row in model_rows)
+    assert any(row["name"] == "ExportCreateInput" for row in model_rows)
+    assert all(row["name"] != "ImageFilterCriteria" for row in model_rows)
 
 
 def test_images_update_describes_only_supported_input_fields() -> None:
@@ -62,7 +63,7 @@ def test_images_update_describes_only_supported_input_fields() -> None:
     assert {field["name"] for field in input_rows[0]["fields"]} == {"project", "tags", "image_id"}
 
 
-def test_describe_json_schema_wraps_public_schema_in_item_payload() -> None:
+def test_describe_json_schema_wraps_cli_input_schema_in_item_payload() -> None:
     result = runner.invoke(app, ["--json", "describe", "export create", "--schema", "json_schema"])
 
     assert result.exit_code == 0
@@ -72,10 +73,14 @@ def test_describe_json_schema_wraps_public_schema_in_item_payload() -> None:
     assert schema_rows
     assert all(row["kind"] == "item" for row in schema_rows)
 
-    filter_schema = next(row for row in schema_rows if row["name"] == "ImageFilterCriteria")
-    assert "properties" in filter_schema["schema"]
-    assert "image_ids" in filter_schema["schema"]["properties"]
-    assert "sql" not in json.dumps(filter_schema["schema"]).lower()
+    input_schema = next(row for row in schema_rows if row["name"] == "ExportCreateInput")
+    assert "properties" in input_schema["schema"]
+    assert {"project", "output", "tags", "score_min", "score_max"} <= set(
+        input_schema["schema"]["properties"]
+    )
+    assert "image_ids" not in input_schema["schema"]["properties"]
+    assert "missing_model_litellm_id" not in input_schema["schema"]["properties"]
+    assert "sql" not in json.dumps(input_schema["schema"]).lower()
 
 
 def test_annotate_run_describes_only_supported_flags() -> None:
@@ -178,18 +183,60 @@ def test_cli_specific_output_json_schemas_match_item_rows() -> None:
     }
     assert "requires_api_key" not in model_schema["schema"]["properties"]
     assert project_schema["name"] == "ProjectListItem"
-    assert set(project_schema["schema"]["properties"]) == {"name", "created", "path"}
+    assert {"name", "created", "path"} <= set(project_schema["schema"]["properties"])
     assert project_schema["schema"]["properties"]["created"]["type"] == "string"
     assert update_schema["name"] == "ImagesUpdateResult"
-    assert set(update_schema["schema"]["properties"]) == {
+    assert {
         "project",
         "target_images",
         "tags",
         "added",
         "failed_tags",
-    }
+    } <= set(update_schema["schema"]["properties"])
     assert export_schema["name"] == "ExportCreateResult"
-    assert set(export_schema["schema"]["properties"]) == {"output_path"}
+    assert {"output_path"} <= set(export_schema["schema"]["properties"])
+
+
+def test_remaining_cli_result_schemas_do_not_reuse_api_dtos() -> None:
+    commands = {
+        "project create": ("input", "ProjectCreateInput", {"name", "description"}, {"created"}),
+        "project create result": ("output", "ProjectCreateResult", {"name", "path"}, {"created"}),
+        "project delete": ("output", "ProjectDeleteResult", {"name", "cancelled"}, {"success", "data"}),
+        "images register": (
+            "output",
+            "ImagesRegisterResult",
+            {"total", "registered", "skipped", "errors", "error_details"},
+            {"successful", "failed", "variant"},
+        ),
+        "models refresh": ("output", "ModelsRefreshResult", {"discovered", "summary"}, {"success", "data"}),
+        "batch submit": ("output", "BatchJobResult", {"job_id", "job"}, {"success", "data"}),
+        "batch cancel": ("output", "BatchJobResult", {"job_id", "job"}, {"success", "data"}),
+        "batch fetch": (
+            "output",
+            "BatchFetchResult",
+            {"job_id", "provider_status", "items", "succeeded", "failed", "artifacts"},
+            {"success", "data"},
+        ),
+        "batch import": (
+            "output",
+            "BatchImportResult",
+            {"imported", "skipped", "errors", "total", "job_imported"},
+            {"success", "data"},
+        ),
+    }
+
+    for command, (role, schema_name, required, forbidden) in commands.items():
+        described = command.removesuffix(" result")
+        result = runner.invoke(app, ["--json", "describe", described, "--schema", "json_schema"])
+        assert result.exit_code == 0
+        schema = next(
+            row
+            for row in _jsonl(result.stdout)
+            if row.get("type") == "schema" and row["role"] == role and row["name"] == schema_name
+        )
+        properties = set(schema["schema"]["properties"])
+        assert required <= properties
+        assert forbidden.isdisjoint(properties)
 
 
 def test_error_json_schema_matches_cli_boundary_contract() -> None:

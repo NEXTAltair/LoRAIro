@@ -138,7 +138,7 @@ lorairo-cli --json describe "batch cancel"
 - `job_id`: `int` (required)
 - `project`: `str` (required)
 
-**Output `StatusResponse`**
+**Output `BatchJobResult`**
 
 - `job_id`: `int` (optional)
 - `job`: `dict?` (optional)
@@ -177,9 +177,10 @@ lorairo-cli --json describe "batch fetch"
 - `project`: `str` (required)
 - `output_dir`: `path?` (optional)
 
-**Output `StatusResponse`**
+**Output `BatchFetchResult`**
 
 - `job_id`: `int` (optional)
+- `provider_status`: `str?` (optional)
 - `items`: `int` (optional)
 - `succeeded`: `int` (optional)
 - `failed`: `int` (optional)
@@ -219,12 +220,13 @@ lorairo-cli --json describe "batch import"
 - `project`: `str` (required)
 - `output_dir`: `path?` (optional)
 
-**Output `StatusResponse`**
+**Output `BatchImportResult`**
 
 - `imported`: `int` (optional)
 - `skipped`: `int` (optional)
 - `errors`: `int` (optional)
 - `total`: `int` (optional)
+- `job_imported`: `bool` (optional)
 
 **Error `CliErrorResponse`**
 
@@ -346,7 +348,7 @@ lorairo-cli --json describe "batch submit"
 - `description`: `str?` (optional)
 - `task_type`: `annotation|rating_preflight` (optional, default `annotation`)
 
-**Output `StatusResponse`**
+**Output `BatchJobResult`**
 
 - `job_id`: `int` (optional)
 - `job`: `dict?` (optional)
@@ -394,17 +396,6 @@ lorairo-cli --json describe "export create"
 - `score_min`: `float[0,10]?` (optional)
 - `score_max`: `float[0,10]?` (optional)
 
-**Input `ImageFilterCriteria`**
-
-Public search filter contract shared by search-driven commands.
-
-- `tags`: `list[str]?` (optional)
-- `caption`: `str?` (optional)
-- `excluded_tags`: `list[str]?` (optional)
-- `ratings`: `manual_rating_filter | ai_rating_filter` (optional)
-- `scores`: `score_min/score_max` (optional)
-- `image_ids`: `list[int]?<=500` (optional)
-
 **Output `ExportCreateResult`**
 
 - `output_path`: `path` (optional)
@@ -421,14 +412,6 @@ Structured error payload emitted as kind=error by the CLI boundary.
 - `user_action_required`: `bool` (required)
 - `hint`: `str?` (optional)
 - `details`: `dict?` (optional)
-
-#### JSON Schema
-
-This search-driven command exposes the public `ImageFilterCriteria` schema:
-
-```bash
-lorairo-cli --json describe "export create" --schema json_schema
-```
 
 ### `images list`
 
@@ -492,7 +475,7 @@ lorairo-cli --json describe "images register"
 - `project`: `str` (required)
 - `skip_duplicates`: `bool` (optional, default `True`)
 
-**Output `RegistrationResult`**
+**Output `ImagesRegisterResult`**
 
 - `total`: `int` (optional)
 - `registered`: `int` (optional)
@@ -619,7 +602,7 @@ lorairo-cli --json describe "models refresh"
 
 - `project`: `str?` (optional)
 
-**Output `StatusResponse`**
+**Output `ModelsRefreshResult`**
 
 - `discovered`: `int` (optional)
 - `summary`: `str` (optional)
@@ -657,7 +640,7 @@ lorairo-cli --json describe "project create"
 - `name`: `str` (required)
 - `description`: `str?` (optional)
 
-**Output `ProjectInfo`**
+**Output `ProjectCreateResult`**
 
 - `name`: `str` (optional)
 - `path`: `path` (optional)
@@ -695,7 +678,7 @@ lorairo-cli --json describe "project delete"
 - `name`: `str` (required)
 - `force`: `bool` (optional, default `False`)
 
-**Output `StatusResponse`**
+**Output `ProjectDeleteResult`**
 
 - `name`: `str` (optional)
 

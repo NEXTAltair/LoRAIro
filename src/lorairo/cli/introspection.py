@@ -11,12 +11,7 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from lorairo.api.types import (
-    ProjectCreateRequest,
-    ProjectInfo,
-    RegistrationResult,
-    StatusResponse,
-)
+from lorairo.api.types import ProjectCreateRequest
 from lorairo.cli._emit import emit_item, emit_result
 
 SideEffect = Literal["db_read", "db_write", "file_read", "file_write", "network"]
@@ -117,6 +112,45 @@ class ProjectListItem(BaseModel):
     model_config = ConfigDict(title="ProjectListItem")
 
 
+class ProjectCreateResult(BaseModel):
+    """JSONL result payload emitted by ``project create --json``."""
+
+    kind: Literal["result"] = "result"
+    ok: Literal[True] = True
+    message: str
+    name: str
+    path: str
+
+    model_config = ConfigDict(title="ProjectCreateResult")
+
+
+class ProjectDeleteResult(BaseModel):
+    """JSONL result payload emitted by ``project delete --json``."""
+
+    kind: Literal["result"] = "result"
+    ok: Literal[True] = True
+    message: str
+    name: str | None = None
+    cancelled: bool | None = None
+
+    model_config = ConfigDict(title="ProjectDeleteResult")
+
+
+class ImagesRegisterResult(BaseModel):
+    """JSONL result payload emitted by ``images register --json``."""
+
+    kind: Literal["result"] = "result"
+    ok: Literal[True] = True
+    message: str
+    total: int
+    registered: int
+    skipped: int
+    errors: int
+    error_details: list[str] = Field(default_factory=list)
+
+    model_config = ConfigDict(title="ImagesRegisterResult")
+
+
 class ImagesUpdateResult(BaseModel):
     """JSONL result payload emitted by ``images update --json``."""
 
@@ -129,12 +163,86 @@ class ImagesUpdateResult(BaseModel):
     model_config = ConfigDict(title="ImagesUpdateResult")
 
 
+class ExportCreateInputSchema(BaseModel):
+    """Implemented filter/options surface accepted by ``export create``."""
+
+    project: str
+    output: str
+    format: Literal["txt", "json"] = "txt"
+    resolution: int = 512
+    tags: str | None = None
+    excluded_tags: str | None = None
+    caption: str | None = None
+    manual_rating: str | None = None
+    ai_rating: str | None = None
+    include_nsfw: bool = False
+    score_min: float | None = Field(default=None, ge=0.0, le=10.0)
+    score_max: float | None = Field(default=None, ge=0.0, le=10.0)
+
+    model_config = ConfigDict(title="ExportCreateInput")
+
+
 class ExportCreateResult(BaseModel):
     """JSONL result payload emitted by ``export create --json``."""
 
     output_path: str
 
     model_config = ConfigDict(title="ExportCreateResult")
+
+
+class ModelsRefreshResult(BaseModel):
+    """JSONL result payload emitted by ``models refresh --json``."""
+
+    kind: Literal["result"] = "result"
+    ok: Literal[True] = True
+    message: str
+    discovered: int
+    summary: str
+
+    model_config = ConfigDict(title="ModelsRefreshResult")
+
+
+class BatchJobResult(BaseModel):
+    """JSONL result payload for batch commands returning a job."""
+
+    kind: Literal["result"] = "result"
+    ok: Literal[True] = True
+    message: str
+    job_id: int | None = None
+    job: dict[str, Any] | None = None
+
+    model_config = ConfigDict(title="BatchJobResult")
+
+
+class BatchFetchResult(BaseModel):
+    """JSONL result payload emitted by ``batch fetch --json``."""
+
+    kind: Literal["result"] = "result"
+    ok: Literal[True] = True
+    message: str
+    job_id: int
+    provider_status: str | None = None
+    items: int
+    succeeded: int
+    failed: int
+    artifacts: list[dict[str, Any]]
+
+    model_config = ConfigDict(title="BatchFetchResult")
+
+
+class BatchImportResult(BaseModel):
+    """JSONL result payload emitted by ``batch import --json``."""
+
+    kind: Literal["result"] = "result"
+    ok: Literal[True] = True
+    message: str
+    imported: int
+    skipped: int
+    errors: int
+    total: int
+    job_imported: bool
+
+    model_config = ConfigDict(title="BatchImportResult")
 
 
 @dataclass(frozen=True)
@@ -240,8 +348,13 @@ ERROR_MODEL = ModelSpec(
 )
 
 
-def _input(name: str, fields: tuple[FieldSpec, ...], description: str = "") -> ModelSpec:
-    return ModelSpec(name=name, role="input", fields=fields, description=description)
+def _input(
+    name: str,
+    fields: tuple[FieldSpec, ...],
+    description: str = "",
+    schema: type[BaseModel] | None = None,
+) -> ModelSpec:
+    return ModelSpec(name=name, role="input", fields=fields, description=description, schema_model=schema)
 
 
 def _output(
@@ -278,9 +391,19 @@ TOOL_SPECS: dict[str, ToolSpec] = {
         read_only=False,
         side_effects=("file_write", "db_write"),
         inputs=(
-            _input("ProjectCreateInput", (_f("name", "str", required=True), _f("description", "str?"))),
+            _input(
+                "ProjectCreateInput",
+                (_f("name", "str", required=True), _f("description", "str?")),
+                schema=ProjectCreateRequest,
+            ),
         ),
-        outputs=(_output("ProjectInfo", (_f("name", "str"), _f("path", "path")), schema=ProjectInfo),),
+        outputs=(
+            _output(
+                "ProjectCreateResult",
+                (_f("name", "str"), _f("path", "path")),
+                schema=ProjectCreateResult,
+            ),
+        ),
         errors=(ERROR_MODEL,),
     ),
     "project list": ToolSpec(
@@ -310,7 +433,7 @@ TOOL_SPECS: dict[str, ToolSpec] = {
                 "ProjectDeleteInput", (_f("name", "str", required=True), _f("force", "bool", default=False))
             ),
         ),
-        outputs=(_output("StatusResponse", (_f("name", "str"),), schema=StatusResponse),),
+        outputs=(_output("ProjectDeleteResult", (_f("name", "str"),), schema=ProjectDeleteResult),),
         errors=(ERROR_MODEL,),
     ),
     "images register": ToolSpec(
@@ -331,9 +454,9 @@ TOOL_SPECS: dict[str, ToolSpec] = {
         ),
         outputs=(
             _output(
-                "RegistrationResult",
+                "ImagesRegisterResult",
                 (_f("total", "int"), _f("registered", "int"), _f("skipped", "int"), _f("errors", "int")),
-                schema=RegistrationResult,
+                schema=ImagesRegisterResult,
             ),
         ),
         errors=(ERROR_MODEL,),
@@ -444,21 +567,24 @@ TOOL_SPECS: dict[str, ToolSpec] = {
         summary="Export a filtered dataset from a project.",
         read_only=False,
         side_effects=("db_read", "file_read", "file_write"),
-        inputs=_search_input(
-            "ExportCreateInput",
-            (
-                _f("project", "str", required=True),
-                _f("output", "path", required=True),
-                _f("format", "txt|json", default="txt"),
-                _f("resolution", "int", default=512),
-                _f("tags", "csv[str]?"),
-                _f("excluded_tags", "csv[str]?"),
-                _f("caption", "str?"),
-                _f("manual_rating", "rating?"),
-                _f("ai_rating", "rating?"),
-                _f("include_nsfw", "bool", default=False),
-                _f("score_min", "float[0,10]?"),
-                _f("score_max", "float[0,10]?"),
+        inputs=(
+            _input(
+                "ExportCreateInput",
+                (
+                    _f("project", "str", required=True),
+                    _f("output", "path", required=True),
+                    _f("format", "txt|json", default="txt"),
+                    _f("resolution", "int", default=512),
+                    _f("tags", "csv[str]?"),
+                    _f("excluded_tags", "csv[str]?"),
+                    _f("caption", "str?"),
+                    _f("manual_rating", "rating?"),
+                    _f("ai_rating", "rating?"),
+                    _f("include_nsfw", "bool", default=False),
+                    _f("score_min", "float[0,10]?"),
+                    _f("score_max", "float[0,10]?"),
+                ),
+                schema=ExportCreateInputSchema,
             ),
         ),
         outputs=(
@@ -469,7 +595,6 @@ TOOL_SPECS: dict[str, ToolSpec] = {
             ),
         ),
         errors=(ERROR_MODEL,),
-        search_schema=ImageFilterCriteriaSchema,
     ),
     "models refresh": ToolSpec(
         name="models refresh",
@@ -480,7 +605,9 @@ TOOL_SPECS: dict[str, ToolSpec] = {
         inputs=(_input("ModelsRefreshInput", (_f("project", "str?"),)),),
         outputs=(
             _output(
-                "StatusResponse", (_f("discovered", "int"), _f("summary", "str")), schema=StatusResponse
+                "ModelsRefreshResult",
+                (_f("discovered", "int"), _f("summary", "str")),
+                schema=ModelsRefreshResult,
             ),
         ),
         errors=(ERROR_MODEL,),
@@ -542,7 +669,7 @@ TOOL_SPECS: dict[str, ToolSpec] = {
             ),
         ),
         outputs=(
-            _output("StatusResponse", (_f("job_id", "int"), _f("job", "dict?")), schema=StatusResponse),
+            _output("BatchJobResult", (_f("job_id", "int"), _f("job", "dict?")), schema=BatchJobResult),
         ),
         errors=(ERROR_MODEL,),
     ),
@@ -604,7 +731,7 @@ TOOL_SPECS: dict[str, ToolSpec] = {
             ),
         ),
         outputs=(
-            _output("StatusResponse", (_f("job_id", "int"), _f("job", "dict?")), schema=StatusResponse),
+            _output("BatchJobResult", (_f("job_id", "int"), _f("job", "dict?")), schema=BatchJobResult),
         ),
         errors=(ERROR_MODEL,),
     ),
@@ -626,15 +753,16 @@ TOOL_SPECS: dict[str, ToolSpec] = {
         ),
         outputs=(
             _output(
-                "StatusResponse",
+                "BatchFetchResult",
                 (
                     _f("job_id", "int"),
+                    _f("provider_status", "str?"),
                     _f("items", "int"),
                     _f("succeeded", "int"),
                     _f("failed", "int"),
                     _f("artifacts", "list[dict]"),
                 ),
-                schema=StatusResponse,
+                schema=BatchFetchResult,
             ),
         ),
         errors=(ERROR_MODEL,),
@@ -657,9 +785,15 @@ TOOL_SPECS: dict[str, ToolSpec] = {
         ),
         outputs=(
             _output(
-                "StatusResponse",
-                (_f("imported", "int"), _f("skipped", "int"), _f("errors", "int"), _f("total", "int")),
-                schema=StatusResponse,
+                "BatchImportResult",
+                (
+                    _f("imported", "int"),
+                    _f("skipped", "int"),
+                    _f("errors", "int"),
+                    _f("total", "int"),
+                    _f("job_imported", "bool"),
+                ),
+                schema=BatchImportResult,
             ),
         ),
         errors=(ERROR_MODEL,),
