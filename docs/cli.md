@@ -66,12 +66,6 @@ lorairo-cli --json describe "annotate import-batch"
 - `dry_run`: `bool` (optional, default `False`)
 - `model_name`: `str?` (optional)
 
-**Output `BatchImportResultResponse`**
-
-- `total_records`: `int` (optional)
-- `saved`: `int` (optional)
-- `save_errors`: `int` (optional)
-
 **Error `CliErrorResponse`**
 
 Structured error payload emitted as kind=error by the CLI boundary.
@@ -111,17 +105,6 @@ lorairo-cli --json describe "annotate run"
 - `unrated`: `bool` (optional, default `False`)
 - `missing_model`: `str?` (optional)
 
-**Input `ImageFilterCriteria`**
-
-Public search filter contract shared by search-driven commands.
-
-- `tags`: `list[str]?` (optional)
-- `caption`: `str?` (optional)
-- `excluded_tags`: `list[str]?` (optional)
-- `ratings`: `manual_rating_filter | ai_rating_filter` (optional)
-- `scores`: `score_min/score_max` (optional)
-- `image_ids`: `list[int]?<=500` (optional)
-
 **Error `CliErrorResponse`**
 
 Structured error payload emitted as kind=error by the CLI boundary.
@@ -134,14 +117,6 @@ Structured error payload emitted as kind=error by the CLI boundary.
 - `user_action_required`: `bool` (required)
 - `hint`: `str?` (optional)
 - `details`: `dict?` (optional)
-
-#### JSON Schema
-
-This search-driven command exposes the public `ImageFilterCriteria` schema:
-
-```bash
-lorairo-cli --json describe "annotate run" --schema json_schema
-```
 
 ### `batch cancel`
 
@@ -430,12 +405,9 @@ Public search filter contract shared by search-driven commands.
 - `scores`: `score_min/score_max` (optional)
 - `image_ids`: `list[int]?<=500` (optional)
 
-**Output `ExportResult`**
+**Output `ExportCreateResult`**
 
 - `output_path`: `path` (optional)
-- `total_images`: `int` (optional)
-- `format`: `str` (optional)
-- `resolution`: `int` (optional)
 
 **Error `CliErrorResponse`**
 
@@ -561,12 +533,13 @@ lorairo-cli --json describe "images update"
 - `tags`: `csv[str]` (required)
 - `image_id`: `int?` (optional)
 
-**Output `StatusResponse`**
+**Output `ImagesUpdateResult`**
 
 - `project`: `str` (optional)
 - `target_images`: `int` (optional)
 - `tags`: `list[str]` (optional)
 - `added`: `int` (optional)
+- `failed_tags`: `list[str]` (optional)
 
 **Error `CliErrorResponse`**
 
@@ -758,10 +731,10 @@ lorairo-cli --json describe "project list"
 
 - `format`: `table|json` (optional, default `table`)
 
-**Output `ProjectInfo`**
+**Output `ProjectListItem`**
 
 - `name`: `str` (optional)
-- `created`: `datetime` (optional)
+- `created`: `str` (optional)
 - `path`: `path` (optional)
 
 **Error `CliErrorResponse`**

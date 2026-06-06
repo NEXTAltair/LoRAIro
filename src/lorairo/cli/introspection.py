@@ -12,8 +12,6 @@ from typing import Any, Literal
 from pydantic import BaseModel, ConfigDict, Field
 
 from lorairo.api.types import (
-    BatchImportResultResponse,
-    ExportResult,
     ProjectCreateRequest,
     ProjectInfo,
     RegistrationResult,
@@ -107,6 +105,36 @@ class ModelsListItem(BaseModel):
     deprecated: bool
 
     model_config = ConfigDict(title="ModelsListItem")
+
+
+class ProjectListItem(BaseModel):
+    """JSONL item payload emitted by ``project list --json``."""
+
+    name: str
+    created: str
+    path: str
+
+    model_config = ConfigDict(title="ProjectListItem")
+
+
+class ImagesUpdateResult(BaseModel):
+    """JSONL result payload emitted by ``images update --json``."""
+
+    project: str
+    target_images: int
+    tags: list[str]
+    added: int
+    failed_tags: list[str]
+
+    model_config = ConfigDict(title="ImagesUpdateResult")
+
+
+class ExportCreateResult(BaseModel):
+    """JSONL result payload emitted by ``export create --json``."""
+
+    output_path: str
+
+    model_config = ConfigDict(title="ExportCreateResult")
 
 
 @dataclass(frozen=True)
@@ -264,9 +292,9 @@ TOOL_SPECS: dict[str, ToolSpec] = {
         inputs=(_input("ProjectListInput", (_f("format", "table|json", default="table"),)),),
         outputs=(
             _output(
-                "ProjectInfo",
-                (_f("name", "str"), _f("created", "datetime"), _f("path", "path")),
-                schema=ProjectInfo,
+                "ProjectListItem",
+                (_f("name", "str"), _f("created", "str"), _f("path", "path")),
+                schema=ProjectListItem,
             ),
         ),
         errors=(ERROR_MODEL,),
@@ -353,14 +381,15 @@ TOOL_SPECS: dict[str, ToolSpec] = {
         ),
         outputs=(
             _output(
-                "StatusResponse",
+                "ImagesUpdateResult",
                 (
                     _f("project", "str"),
                     _f("target_images", "int"),
                     _f("tags", "list[str]"),
                     _f("added", "int"),
+                    _f("failed_tags", "list[str]"),
                 ),
-                schema=StatusResponse,
+                schema=ImagesUpdateResult,
             ),
         ),
         errors=(ERROR_MODEL,),
@@ -371,22 +400,23 @@ TOOL_SPECS: dict[str, ToolSpec] = {
         summary="Run annotation for selected project images.",
         read_only=False,
         side_effects=("db_read", "db_write", "file_read", "network"),
-        inputs=_search_input(
-            "AnnotateRunInput",
-            (
-                _f("project", "str", required=True),
-                _f("model", "list[str]", required=True),
-                _f("limit", "int>=1?"),
-                _f("offset", "int>=0", default=0),
-                _f("image_id", "list[int]?"),
-                _f("batch_size", "int>=1", default=10),
-                _f("unrated", "bool", default=False),
-                _f("missing_model", "str?"),
+        inputs=(
+            _input(
+                "AnnotateRunInput",
+                (
+                    _f("project", "str", required=True),
+                    _f("model", "list[str]", required=True),
+                    _f("limit", "int>=1?"),
+                    _f("offset", "int>=0", default=0),
+                    _f("image_id", "list[int]?"),
+                    _f("batch_size", "int>=1", default=10),
+                    _f("unrated", "bool", default=False),
+                    _f("missing_model", "str?"),
+                ),
             ),
         ),
         outputs=(),
         errors=(ERROR_MODEL,),
-        search_schema=ImageFilterCriteriaSchema,
     ),
     "annotate import-batch": ToolSpec(
         name="annotate import-batch",
@@ -405,13 +435,7 @@ TOOL_SPECS: dict[str, ToolSpec] = {
                 ),
             ),
         ),
-        outputs=(
-            _output(
-                "BatchImportResultResponse",
-                (_f("total_records", "int"), _f("saved", "int"), _f("save_errors", "int")),
-                schema=BatchImportResultResponse,
-            ),
-        ),
+        outputs=(),
         errors=(ERROR_MODEL,),
     ),
     "export create": ToolSpec(
@@ -439,14 +463,9 @@ TOOL_SPECS: dict[str, ToolSpec] = {
         ),
         outputs=(
             _output(
-                "ExportResult",
-                (
-                    _f("output_path", "path"),
-                    _f("total_images", "int"),
-                    _f("format", "str"),
-                    _f("resolution", "int"),
-                ),
-                schema=ExportResult,
+                "ExportCreateResult",
+                (_f("output_path", "path"),),
+                schema=ExportCreateResult,
             ),
         ),
         errors=(ERROR_MODEL,),

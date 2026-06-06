@@ -63,7 +63,7 @@ def test_images_update_describes_only_supported_input_fields() -> None:
 
 
 def test_describe_json_schema_wraps_public_schema_in_item_payload() -> None:
-    result = runner.invoke(app, ["--json", "describe", "annotate run", "--schema", "json_schema"])
+    result = runner.invoke(app, ["--json", "describe", "export create", "--schema", "json_schema"])
 
     assert result.exit_code == 0
     rows = _jsonl(result.stdout)
@@ -100,6 +100,14 @@ def test_annotate_run_describes_only_supported_flags() -> None:
     assert "tags" not in field_names
 
 
+def test_annotate_run_does_not_expose_public_search_schema() -> None:
+    result = runner.invoke(app, ["--json", "describe", "annotate run", "--schema", "json_schema"])
+
+    assert result.exit_code == 0
+    rows = _jsonl(result.stdout)
+    assert all(row.get("name") != "ImageFilterCriteria" for row in rows)
+
+
 def test_import_batch_describes_actual_argument_names() -> None:
     result = runner.invoke(app, ["--json", "describe", "annotate import-batch"])
 
@@ -113,14 +121,23 @@ def test_import_batch_describes_actual_argument_names() -> None:
     assert fields["project"]["required"] is True
     assert fields["jsonl_dir"]["required"] is True
     assert fields["dry_run"]["default"] is False
+    assert not any(row.get("role") == "output" for row in rows)
 
 
 def test_cli_specific_output_json_schemas_match_item_rows() -> None:
     images_result = runner.invoke(app, ["--json", "describe", "images list", "--schema", "json_schema"])
     models_result = runner.invoke(app, ["--json", "describe", "models list", "--schema", "json_schema"])
+    projects_result = runner.invoke(app, ["--json", "describe", "project list", "--schema", "json_schema"])
+    images_update_result = runner.invoke(
+        app, ["--json", "describe", "images update", "--schema", "json_schema"]
+    )
+    export_result = runner.invoke(app, ["--json", "describe", "export create", "--schema", "json_schema"])
 
     assert images_result.exit_code == 0
     assert models_result.exit_code == 0
+    assert projects_result.exit_code == 0
+    assert images_update_result.exit_code == 0
+    assert export_result.exit_code == 0
     image_schema = next(
         row
         for row in _jsonl(images_result.stdout)
@@ -129,6 +146,21 @@ def test_cli_specific_output_json_schemas_match_item_rows() -> None:
     model_schema = next(
         row
         for row in _jsonl(models_result.stdout)
+        if row.get("type") == "schema" and row["role"] == "output"
+    )
+    project_schema = next(
+        row
+        for row in _jsonl(projects_result.stdout)
+        if row.get("type") == "schema" and row["role"] == "output"
+    )
+    update_schema = next(
+        row
+        for row in _jsonl(images_update_result.stdout)
+        if row.get("type") == "schema" and row["role"] == "output"
+    )
+    export_schema = next(
+        row
+        for row in _jsonl(export_result.stdout)
         if row.get("type") == "schema" and row["role"] == "output"
     )
     assert image_schema["name"] == "ImagesListItem"
@@ -145,6 +177,19 @@ def test_cli_specific_output_json_schemas_match_item_rows() -> None:
         "deprecated",
     }
     assert "requires_api_key" not in model_schema["schema"]["properties"]
+    assert project_schema["name"] == "ProjectListItem"
+    assert set(project_schema["schema"]["properties"]) == {"name", "created", "path"}
+    assert project_schema["schema"]["properties"]["created"]["type"] == "string"
+    assert update_schema["name"] == "ImagesUpdateResult"
+    assert set(update_schema["schema"]["properties"]) == {
+        "project",
+        "target_images",
+        "tags",
+        "added",
+        "failed_tags",
+    }
+    assert export_schema["name"] == "ExportCreateResult"
+    assert set(export_schema["schema"]["properties"]) == {"output_path"}
 
 
 def test_error_json_schema_matches_cli_boundary_contract() -> None:
