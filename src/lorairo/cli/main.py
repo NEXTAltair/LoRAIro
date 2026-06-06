@@ -26,7 +26,7 @@ from lorairo.cli._console import make_console
 from lorairo.cli._emit import emit_error
 from lorairo.cli._errors import ErrorCode, ErrorInfo, classify_exception, hint_for
 from lorairo.cli._glyphs import FAIL, OK
-from lorairo.cli._output_mode import resolve_output_mode, set_json_mode
+from lorairo.cli._output_mode import resolve_output_mode, set_json_mode, strip_mode_flags
 from lorairo.cli.commands import annotate, batch, export, images, models, project
 from lorairo.services.service_container import get_service_container
 from lorairo.utils.config import DEFAULT_CLI_LOG_PATH, DEFAULT_CONFIG_PATH
@@ -91,6 +91,11 @@ def _configure(
         help="Logging verbosity (DEBUG/INFO/WARNING/ERROR/CRITICAL).",
         case_sensitive=False,
     ),
+    json_output: bool | None = typer.Option(
+        None,
+        "--json/--no-json",
+        help="Emit machine-readable JSONL on stdout (--json) or human-readable rich output (--no-json).",
+    ),
 ) -> None:
     """全サブコマンド共通の初期化フック。
 
@@ -98,8 +103,19 @@ def _configure(
     Issue #540: ``@app.callback()`` は ``--help`` 時には実行されないため、ここで
     ログ初期化を行うことで help 表示時の不要な副作用を避ける。callback は各
     サブコマンド実行時に必ず一度走る。
+
+    ADR 0058 §1: ``--json`` / ``--no-json`` で出力モードを切り替える。``main`` 経由では
+    prescan が先に解決済みだが、CliRunner 等 ``main`` をすり抜ける経路でも本 callback が
+    モードを確定できるよう、明示フラグが与えられたら反映する (未指定なら env を見る)。
     """
     import os
+
+    from lorairo.cli._output_mode import resolve_output_mode, set_json_mode
+
+    if json_output is not None:
+        set_json_mode(json_output)
+    else:
+        set_json_mode(resolve_output_mode([]))
 
     os.environ.setdefault("LORAIRO_CLI_MODE", "true")
     initialize_logging(
@@ -249,12 +265,16 @@ def main(argv: list[str] | None = None) -> None:
     Args:
         argv: 引数列 (省略時は ``sys.argv[1:]`` を Click が解決)。テスト用に注入可能。
     """
-    json_mode = resolve_output_mode(argv)
+    raw_argv = list(sys.argv[1:] if argv is None else argv)
+    json_mode = resolve_output_mode(raw_argv)
     set_json_mode(json_mode)
+    # モードフラグは prescan 済みなので Click パース前に除去する (サブコマンド後位置でも
+    # "no such option" にせず受理する、ADR 0058 §1)。
+    cli_argv = strip_mode_flags(raw_argv)
     try:
         # standalone_mode=False: ctx.exit() / --help は exit code を返し、
         # ClickException / Abort / 一般例外は伝播する。
-        result = app(args=argv, standalone_mode=False)
+        result = app(args=cli_argv, standalone_mode=False)
     except click.exceptions.Abort:
         raise SystemExit(130) from None
     except click.ClickException as exc:

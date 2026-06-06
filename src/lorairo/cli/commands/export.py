@@ -8,17 +8,15 @@ from pathlib import Path
 
 import click
 import typer
-from rich.progress import BarColumn, Progress, SpinnerColumn, TextColumn, TimeRemainingColumn
 from rich.table import Table
 
-from lorairo.api.exceptions import (
-    ProjectNotFoundError,
-)
 from lorairo.api.project import get_project as api_get_project
+from lorairo.cli._boundary import command_boundary
 from lorairo.cli._console import make_console
+from lorairo.cli._emit import emit_result
+from lorairo.cli._output_mode import is_json_mode
 from lorairo.database.filter_criteria import ImageFilterCriteria
 from lorairo.services.service_container import get_service_container
-from lorairo.utils.log import logger
 
 # サブコマンドアプリ定義
 app = typer.Typer(help="Dataset export commands")
@@ -244,15 +242,11 @@ def create(
         lorairo-cli export create --project myproject --tags "cat,dog" --manual-rating PG --output /tmp/out
         lorairo-cli export create --project myproject --score-min 6.0 --output /tmp/out --format json
     """
-    try:
-        # API層経由でプロジェクト確認
-        try:
-            api_get_project(project)
-        except ProjectNotFoundError as e:
-            console.print(f"[red]Error:[/red] Project not found: {project}")
-            raise typer.Exit(code=1) from e
+    with command_boundary():
+        # API層経由でプロジェクト確認 (未存在は ProjectNotFoundError → NOT_FOUND で伝播)
+        api_get_project(project)
 
-        # スコア範囲・順序検証（_apply_score_filter に渡す前に拒否）
+        # スコア範囲・順序検証 (click.UsageError → 境界が INVALID_INPUT exit 2)
         _validate_score_bounds(score_min, score_max)
 
         # フィルタ条件を構築（CSV分割・空白除去・空要素除外を含む正規化はここで完結）
@@ -271,13 +265,11 @@ def create(
         # 正規化後のフィルタ条件で判定する（--tags "," や "   " が repository に
         # 到達する時点では空リスト/空値となるため、検証もこの段階で行う必要がある）
         if not _criteria_has_effective_filter(criteria):
-            console.print(
-                "[red]Error:[/red] At least one filter condition is required for export.\n"
-                "エクスポートには最低1つのフィルタ条件が必要です"
+            raise click.UsageError(
+                "At least one filter condition is required for export "
+                "(--tags / --caption / --manual-rating / --ai-rating / --score-min / --score-max).\n"
+                "エクスポートには最低1つのフィルタ条件が必要です。"
             )
-            console.print("Example: lorairo-cli export create --project foo --tags cat --output /tmp/out")
-            console.print("詳細: lorairo-cli export create --help")
-            raise typer.Exit(code=2)
 
         # ServiceContainer を取得してプロジェクト DB に切り替え
         container = get_service_container()
@@ -285,91 +277,59 @@ def create(
         repository = container.db_manager.image_repo
         export_service = container.dataset_export_service
 
-        console.print(f"[cyan]Loading project database: {project}[/cyan]")
+        rich = not is_json_mode()
+        if rich:
+            console.print(f"[cyan]Loading project database: {project}[/cyan]")
 
         # フィルタ条件を適用して画像を取得
-        with Progress(
-            SpinnerColumn(),
-            TextColumn("[progress.description]{task.description}"),
-            BarColumn(),
-            TextColumn("[progress.percentage]{task.percentage:>3.1f}%"),
-            TimeRemainingColumn(),
-            console=console,
-        ) as progress:
-            task = progress.add_task("Fetching images...", total=None)
-
-            all_images, _ = repository.get_images_by_filter(criteria)
-            image_ids = [img["id"] for img in all_images] if all_images else []
-
-            progress.update(task, completed=1)
+        all_images, _ = repository.get_images_by_filter(criteria)
+        image_ids = [img["id"] for img in all_images] if all_images else []
 
         if not image_ids:
-            console.print(f"[yellow]Warning:[/yellow] No images found in project: {project}")
-            raise typer.Exit(code=0)
+            # 該当なしは成功扱い (exit 0)
+            if is_json_mode():
+                emit_result(f"No images found in project: {project}", count=0)
+            else:
+                console.print(f"[yellow]Warning:[/yellow] No images found in project: {project}")
+            return
 
-        console.print(f"[cyan]Found {len(image_ids)} image(s)[/cyan]")
-        console.print(f"[cyan]Export format: {format}[/cyan]")
-        console.print(f"[cyan]Target resolution: {resolution}px[/cyan]")
+        if rich:
+            console.print(f"[cyan]Found {len(image_ids)} image(s)[/cyan]")
+            console.print(f"[cyan]Export format: {format}[/cyan]")
+            console.print(f"[cyan]Target resolution: {resolution}px[/cyan]")
 
         # 出力ディレクトリの作成
         output_path = Path(output)
         output_path.mkdir(parents=True, exist_ok=True)
 
-        # データセット エクスポート実行
-        console.print("[cyan]Starting export...[/cyan]")
+        if rich:
+            console.print("[cyan]Starting export...[/cyan]")
 
-        try:
-            with Progress(
-                SpinnerColumn(),
-                TextColumn("[progress.description]{task.description}"),
-                BarColumn(),
-                TextColumn("[progress.percentage]{task.percentage:>3.1f}%"),
-                TimeRemainingColumn(),
-                console=console,
-            ) as progress:
-                task = progress.add_task("Exporting...", total=len(image_ids))
+        # image_ids は上で解決済みのため、export_filtered_dataset に直接渡して
+        # 二重 DB クエリを回避する。不正フォーマット等は ValueError として境界へ伝播する。
+        result_path = export_service.export_filtered_dataset(
+            image_ids=image_ids,
+            output_path=output_path,
+            format_type=format.lower(),
+            resolution=resolution,
+        )
 
-                # image_ids は上の repository.get_images_by_filter で既に解決済みのため、
-                # export_with_criteria に criteria を渡すと同じ DB クエリを 2 回実行してしまう。
-                # 解決済みの image_ids を直接渡して二重クエリを回避する。
-                result_path = export_service.export_filtered_dataset(
-                    image_ids=image_ids,
-                    output_path=output_path,
-                    format_type=format.lower(),
-                    resolution=resolution,
-                )
-
-                # 完了時に進捗を100%に
-                progress.update(task, completed=len(image_ids))
-
-        except ValueError as e:
-            console.print(f"[red]Error:[/red] Invalid export format: {e}")
-            logger.error(f"Export format error: {e}", exc_info=True)
-            raise typer.Exit(code=1) from e
-        except Exception as e:
-            console.print(f"[red]Error:[/red] Export failed: {e}")
-            logger.error(f"Export error: {e}", exc_info=True)
-            raise typer.Exit(code=1) from e
-
-        # 結果サマリー表示
-        console.print("\n[bold cyan]Export Summary[/bold cyan]")
-
-        summary_table = Table()
-        summary_table.add_column("Metric", style="cyan")
-        summary_table.add_column("Value", style="green")
-
-        summary_table.add_row("Total Images", str(len(image_ids)))
-        summary_table.add_row("Export Format", format)
-        summary_table.add_row("Resolution", f"{resolution}px")
-        summary_table.add_row("Output Path", str(result_path))
-
-        console.print(summary_table)
-
-        console.print("\n[green]Export completed successfully![/green]")
-
-    except typer.Exit:
-        raise
-    except Exception as e:
-        console.print(f"[red]Error:[/red] {e}")
-        logger.error(f"Command error: {e}", exc_info=True)
-        raise typer.Exit(code=2) from e
+        if is_json_mode():
+            emit_result(
+                "Export completed successfully.",
+                output_path=str(result_path),
+                total_images=len(image_ids),
+                format=format,
+                resolution=resolution,
+            )
+        else:
+            console.print("\n[bold cyan]Export Summary[/bold cyan]")
+            summary_table = Table()
+            summary_table.add_column("Metric", style="cyan")
+            summary_table.add_column("Value", style="green")
+            summary_table.add_row("Total Images", str(len(image_ids)))
+            summary_table.add_row("Export Format", format)
+            summary_table.add_row("Resolution", f"{resolution}px")
+            summary_table.add_row("Output Path", str(result_path))
+            console.print(summary_table)
+            console.print("\n[green]Export completed successfully![/green]")

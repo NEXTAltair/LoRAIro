@@ -1,4 +1,9 @@
-"""Provider Batch commands."""
+"""Provider Batch commands.
+
+出力は ADR 0057/0058 に従う: ``--json`` 時は stdout に JSONL (item/result)、
+それ以外は rich 人間向け。エラー整形は :func:`lorairo.cli._boundary.command_boundary`
+に集約し、検証エラーは ``click.UsageError`` (INVALID_INPUT / exit 2) で送出する。
+"""
 
 from __future__ import annotations
 
@@ -7,13 +12,15 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
+import click
 import typer
 from rich.table import Table
 
+from lorairo.cli._boundary import command_boundary
 from lorairo.cli._console import make_console
-from lorairo.services.provider_batch_service import ProviderBatchError
+from lorairo.cli._emit import emit_item, emit_result
+from lorairo.cli._output_mode import is_json_mode
 from lorairo.services.service_container import get_service_container
-from lorairo.utils.log import logger
 
 app = typer.Typer(help="Provider Batch API job commands")
 console = make_console()
@@ -29,6 +36,27 @@ _TASK_TYPE_ENDPOINTS = {
         "openai": "/v1/moderations",
     },
 }
+
+# _print_job_detail / json 出力共通の job フィールド。
+_JOB_DETAIL_FIELDS = (
+    "id",
+    "provider",
+    "provider_job_id",
+    "status",
+    "provider_status",
+    "endpoint",
+    "model_id",
+    "request_count",
+    "succeeded_count",
+    "failed_count",
+    "canceled_count",
+    "expired_count",
+    "submitted_at",
+    "completed_at",
+    "canceled_at",
+    "expires_at",
+    "imported_at",
+)
 
 
 def _activate_project(project: str) -> Any:
@@ -49,14 +77,11 @@ def _resolve_model(repository: Any, identifier: str) -> Any:
         candidates = "\n".join(
             f"  - {model.litellm_model_id} (provider: {model.provider or 'unknown'})" for model in by_name
         )
-        console.print(
-            f"[red]Error:[/red] Ambiguous model '{identifier}':\n"
-            f"{candidates}\nUse the full LiteLLM model ID."
+        raise click.UsageError(
+            f"Ambiguous model '{identifier}':\n{candidates}\nUse the full LiteLLM model ID."
         )
-        raise typer.Exit(code=1)
 
-    console.print(f"[red]Error:[/red] Unknown model '{identifier}'. Run `lorairo-cli models list`.")
-    raise typer.Exit(code=1)
+    raise click.UsageError(f"Unknown model '{identifier}'. Run `lorairo-cli models list`.")
 
 
 def _infer_provider(model: Any, explicit_provider: str | None) -> str:
@@ -71,23 +96,19 @@ def _infer_provider(model: Any, explicit_provider: str | None) -> str:
     if provider in {"openai", "anthropic", "google"}:
         return provider
 
-    console.print(
-        f"[red]Error:[/red] Could not infer a direct Provider Batch provider for "
-        f"{litellm_model_id!r}. Use a direct openai/... or anthropic/... model."
+    raise click.UsageError(
+        f"Could not infer a direct Provider Batch provider for {litellm_model_id!r}. "
+        "Use a direct openai/... or anthropic/... model."
     )
-    raise typer.Exit(code=1)
 
 
 def _validate_submit_provider(provider: str) -> None:
     if provider == "google":
-        console.print("[red]Error:[/red] Google Provider Batch submit is disabled until Phase 3.")
-        raise typer.Exit(code=1)
+        raise click.UsageError("Google Provider Batch submit is disabled until Phase 3.")
     if provider not in _SUPPORTED_SUBMIT_PROVIDERS:
-        console.print(
-            f"[red]Error:[/red] Unsupported Provider Batch provider '{provider}'. "
-            "Supported providers: openai, anthropic."
+        raise click.UsageError(
+            f"Unsupported Provider Batch provider '{provider}'. Supported providers: openai, anthropic."
         )
-        raise typer.Exit(code=1)
 
 
 def _model_has_model_type(model: Any, model_type: str) -> bool:
@@ -99,17 +120,13 @@ def _resolve_submit_endpoint(provider: str, task_type: str, endpoint: str | None
     provider_endpoints = _TASK_TYPE_ENDPOINTS.get(task_type, _TASK_TYPE_ENDPOINTS["annotation"])
     expected_endpoint = provider_endpoints.get(provider)
     if expected_endpoint is None:
-        console.print(
-            f"[red]Error:[/red] Task type '{task_type}' is not supported for provider '{provider}'."
-        )
-        raise typer.Exit(code=1)
+        raise click.UsageError(f"Task type '{task_type}' is not supported for provider '{provider}'.")
     if endpoint is None:
         return expected_endpoint
     if task_type == "rating_preflight":
         normalized_endpoint = endpoint if endpoint.startswith("/") else f"/{endpoint}"
         if normalized_endpoint.rstrip("/") != expected_endpoint:
-            console.print("[red]Error:[/red] rating_preflight submit requires endpoint /v1/moderations.")
-            raise typer.Exit(code=1)
+            raise click.UsageError("rating_preflight submit requires endpoint /v1/moderations.")
         return expected_endpoint
     return endpoint
 
@@ -124,6 +141,11 @@ def _format_dt(value: Any) -> str:
     if isinstance(value, datetime):
         return value.isoformat()
     return "" if value is None else str(value)
+
+
+def _job_dict(job: Any) -> dict[str, Any]:
+    """job を JSONL item/result 用の dict に変換する (datetime は emit が文字列化)。"""
+    return {field: _job_value(job, field) for field in _JOB_DETAIL_FIELDS}
 
 
 def _result_item_status(item: Any) -> str:
@@ -170,25 +192,7 @@ def _print_job_detail(job: Any) -> None:
     table.add_column("Field", style="cyan")
     table.add_column("Value", style="green")
 
-    for field in (
-        "id",
-        "provider",
-        "provider_job_id",
-        "status",
-        "provider_status",
-        "endpoint",
-        "model_id",
-        "request_count",
-        "succeeded_count",
-        "failed_count",
-        "canceled_count",
-        "expired_count",
-        "submitted_at",
-        "completed_at",
-        "canceled_at",
-        "expires_at",
-        "imported_at",
-    ):
+    for field in _JOB_DETAIL_FIELDS:
         table.add_row(field, _format_dt(_job_value(job, field)))
     console.print(table)
 
@@ -212,6 +216,19 @@ def _print_artifacts(fetch_result: Any) -> None:
     console.print(table)
 
 
+def _artifact_dicts(fetch_result: Any) -> list[dict[str, Any]]:
+    """artifacts を JSONL result 用の dict リストに変換する。"""
+    artifacts = list(getattr(fetch_result, "artifacts", ()) or ())
+    return [
+        {
+            "artifact_type": str(getattr(artifact, "artifact_type", "")),
+            "local_path": str(getattr(artifact, "local_path", "")),
+            "provider_file_id": getattr(artifact, "provider_file_id", None),
+        }
+        for artifact in artifacts
+    ]
+
+
 @app.command("submit")
 def submit(
     project: str = typer.Option(..., "--project", "-p", help="Project name"),
@@ -231,7 +248,7 @@ def submit(
     ),
 ) -> None:
     """Submit registered images to a Provider Batch API job."""
-    try:
+    with command_boundary():
         container = _activate_project(project)
         model_repo = container.db_manager.model_repo
         provider_batch_repo = container.db_manager.provider_batch_repo
@@ -240,21 +257,17 @@ def submit(
         _validate_submit_provider(resolved_provider)
         normalized_task_type = task_type.strip().lower()
         if normalized_task_type not in _SUPPORTED_TASK_TYPES:
-            console.print(f"[red]Error:[/red] Unsupported task type '{task_type}'.")
-            raise typer.Exit(code=1)
+            raise click.UsageError(f"Unsupported task type '{task_type}'.")
         if normalized_task_type == "rating_preflight":
             if resolved_provider != "openai":
-                console.print(
-                    "[red]Error:[/red] rating_preflight submit is only supported for direct openai "
-                    "models such as openai/omni-moderation-latest."
+                raise click.UsageError(
+                    "rating_preflight submit is only supported for direct openai models "
+                    "such as openai/omni-moderation-latest."
                 )
-                raise typer.Exit(code=1)
             if not _model_has_model_type(db_model, "ratings"):
-                console.print(
-                    "[red]Error:[/red] rating_preflight submit requires a ratings model_type "
-                    "using openai/omni-moderation-*."
+                raise click.UsageError(
+                    "rating_preflight submit requires a ratings model_type using openai/omni-moderation-*."
                 )
-                raise typer.Exit(code=1)
 
         resolved_endpoint = _resolve_submit_endpoint(resolved_provider, normalized_task_type, endpoint)
 
@@ -269,18 +282,16 @@ def submit(
             task_type=normalized_task_type,
         )
         job = provider_batch_repo.get_provider_batch_job(job_id)
-        console.print(f"[green]Provider Batch job submitted:[/green] {job_id}")
-        if job is not None:
-            _print_job_detail(job)
-    except typer.Exit:
-        raise
-    except ProviderBatchError as e:
-        console.print(f"[red]Error:[/red] {e}")
-        raise typer.Exit(code=1) from e
-    except Exception as e:
-        console.print(f"[red]Error:[/red] {e}")
-        logger.error(f"Provider Batch submit failed: {e}", exc_info=True)
-        raise typer.Exit(code=2) from e
+        if is_json_mode():
+            emit_result(
+                f"Provider Batch job submitted: {job_id}",
+                job_id=job_id,
+                job=_job_dict(job) if job is not None else None,
+            )
+        else:
+            console.print(f"[green]Provider Batch job submitted:[/green] {job_id}")
+            if job is not None:
+                _print_job_detail(job)
 
 
 @app.command("list")
@@ -292,7 +303,7 @@ def list_jobs(
     offset: int = typer.Option(0, "--offset", min=0, help="Rows to skip"),
 ) -> None:
     """List persisted Provider Batch jobs."""
-    try:
+    with command_boundary():
         container = _activate_project(project)
         jobs = container.db_manager.provider_batch_repo.list_provider_batch_jobs(
             provider=provider,
@@ -300,11 +311,12 @@ def list_jobs(
             limit=limit,
             offset=offset,
         )
-        _print_jobs_table(jobs)
-    except Exception as e:
-        console.print(f"[red]Error:[/red] {e}")
-        logger.error(f"Provider Batch list failed: {e}", exc_info=True)
-        raise typer.Exit(code=2) from e
+        if is_json_mode():
+            for job in jobs:
+                emit_item(_job_dict(job))
+            emit_result(f"{len(jobs)} job(s)", count=len(jobs))
+        else:
+            _print_jobs_table(jobs)
 
 
 @app.command("status")
@@ -314,7 +326,7 @@ def status(
     refresh: bool = typer.Option(True, "--refresh/--no-refresh", help="Refresh provider status first"),
 ) -> None:
     """Show Provider Batch job status."""
-    try:
+    with command_boundary():
         container = _activate_project(project)
         job = (
             container.provider_batch_workflow_service.refresh(job_id)
@@ -322,18 +334,11 @@ def status(
             else container.db_manager.provider_batch_repo.get_provider_batch_job(job_id)
         )
         if job is None:
-            console.print(f"[red]Error:[/red] Provider Batch job not found: {job_id}")
-            raise typer.Exit(code=1)
-        _print_job_detail(job)
-    except typer.Exit:
-        raise
-    except ProviderBatchError as e:
-        console.print(f"[red]Error:[/red] {e}")
-        raise typer.Exit(code=1) from e
-    except Exception as e:
-        console.print(f"[red]Error:[/red] {e}")
-        logger.error(f"Provider Batch status failed: {e}", exc_info=True)
-        raise typer.Exit(code=2) from e
+            raise click.UsageError(f"Provider Batch job not found: {job_id}")
+        if is_json_mode():
+            emit_result(f"Provider Batch job {job_id}", job=_job_dict(job))
+        else:
+            _print_job_detail(job)
 
 
 @app.command("cancel")
@@ -342,18 +347,18 @@ def cancel(
     project: str = typer.Option(..., "--project", "-p", help="Project name"),
 ) -> None:
     """Cancel a Provider Batch job."""
-    try:
+    with command_boundary():
         container = _activate_project(project)
         job = container.provider_batch_workflow_service.cancel(job_id)
-        console.print(f"[green]Provider Batch job cancel requested:[/green] {job_id}")
-        _print_job_detail(job)
-    except ProviderBatchError as e:
-        console.print(f"[red]Error:[/red] {e}")
-        raise typer.Exit(code=1) from e
-    except Exception as e:
-        console.print(f"[red]Error:[/red] {e}")
-        logger.error(f"Provider Batch cancel failed: {e}", exc_info=True)
-        raise typer.Exit(code=2) from e
+        if is_json_mode():
+            emit_result(
+                f"Provider Batch job cancel requested: {job_id}",
+                job_id=job_id,
+                job=_job_dict(job) if job is not None else None,
+            )
+        else:
+            console.print(f"[green]Provider Batch job cancel requested:[/green] {job_id}")
+            _print_job_detail(job)
 
 
 @app.command("fetch")
@@ -363,23 +368,27 @@ def fetch(
     output_dir: Path | None = typer.Option(None, "--output-dir", "-o", help="Artifact output directory"),
 ) -> None:
     """Fetch normalized Provider Batch results and artifacts."""
-    try:
+    with command_boundary():
         container = _activate_project(project)
         result = container.provider_batch_workflow_service.fetch_results(job_id, output_dir)
         succeeded_count, failed_count = _summarize_fetch_counts(result)
-        console.print(f"[green]Provider Batch results fetched:[/green] {job_id}")
-        console.print(
-            f"[dim]provider_status={result.provider_status}, items={len(result.items)}, "
-            f"succeeded={succeeded_count}, failed={failed_count}[/dim]"
-        )
-        _print_artifacts(result)
-    except ProviderBatchError as e:
-        console.print(f"[red]Error:[/red] {e}")
-        raise typer.Exit(code=1) from e
-    except Exception as e:
-        console.print(f"[red]Error:[/red] {e}")
-        logger.error(f"Provider Batch fetch failed: {e}", exc_info=True)
-        raise typer.Exit(code=2) from e
+        if is_json_mode():
+            emit_result(
+                f"Provider Batch results fetched: {job_id}",
+                job_id=job_id,
+                provider_status=result.provider_status,
+                items=len(result.items),
+                succeeded=succeeded_count,
+                failed=failed_count,
+                artifacts=_artifact_dicts(result),
+            )
+        else:
+            console.print(f"[green]Provider Batch results fetched:[/green] {job_id}")
+            console.print(
+                f"[dim]provider_status={result.provider_status}, items={len(result.items)}, "
+                f"succeeded={succeeded_count}, failed={failed_count}[/dim]"
+            )
+            _print_artifacts(result)
 
 
 @app.command("import")
@@ -389,24 +398,28 @@ def import_results(
     output_dir: Path | None = typer.Option(None, "--output-dir", "-o", help="Artifact output directory"),
 ) -> None:
     """Fetch and import Provider Batch results into annotations."""
-    try:
+    with command_boundary():
         container = _activate_project(project)
         result = container.provider_batch_workflow_service.import_results(
             job_id, destination_dir=output_dir
         )
-        table = Table(title="Provider Batch Import Summary")
-        table.add_column("Metric", style="cyan")
-        table.add_column("Value", style="green")
-        table.add_row("Imported", str(result.imported_count))
-        table.add_row("Skipped", str(result.skipped_count))
-        table.add_row("Errors", str(result.error_count))
-        table.add_row("Total", str(result.total_count))
-        table.add_row("Job Imported", "yes" if result.job_imported else "no")
-        console.print(table)
-    except ProviderBatchError as e:
-        console.print(f"[red]Error:[/red] {e}")
-        raise typer.Exit(code=1) from e
-    except Exception as e:
-        console.print(f"[red]Error:[/red] {e}")
-        logger.error(f"Provider Batch import failed: {e}", exc_info=True)
-        raise typer.Exit(code=2) from e
+        if is_json_mode():
+            emit_result(
+                f"Provider Batch results imported: {job_id}",
+                job_id=job_id,
+                imported=result.imported_count,
+                skipped=result.skipped_count,
+                errors=result.error_count,
+                total=result.total_count,
+                job_imported=result.job_imported,
+            )
+        else:
+            table = Table(title="Provider Batch Import Summary")
+            table.add_column("Metric", style="cyan")
+            table.add_column("Value", style="green")
+            table.add_row("Imported", str(result.imported_count))
+            table.add_row("Skipped", str(result.skipped_count))
+            table.add_row("Errors", str(result.error_count))
+            table.add_row("Total", str(result.total_count))
+            table.add_row("Job Imported", "yes" if result.job_imported else "no")
+            console.print(table)

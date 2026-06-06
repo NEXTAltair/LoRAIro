@@ -255,8 +255,9 @@ def test_export_create_nonexistent_project(
         ],
     )
 
+    # ADR 0057 §7: NOT_FOUND は exit 1、エラーは中央境界が stderr に出す (例外 str)。
     assert result.exit_code == 1
-    assert "Project not found" in result.stdout
+    assert "見つかりません" in result.output
 
 
 @pytest.mark.unit
@@ -335,8 +336,9 @@ def test_export_create_invalid_format(
         ],
     )
 
-    assert result.exit_code == 1
-    assert "Invalid export format" in result.stdout or "Error" in result.stdout
+    # ValueError → INVALID_INPUT → exit 2 (入力系、ADR 0057 §6)。エラーは stderr。
+    assert result.exit_code == 2
+    assert "Error" in result.output
 
 
 @pytest.mark.unit
@@ -468,7 +470,7 @@ def test_export_create_no_filter_exits_code_2(
     )
 
     assert result.exit_code == 2
-    assert "At least one filter condition is required for export" in result.stdout
+    assert "At least one filter condition is required for export" in result.output
 
 
 @pytest.mark.unit
@@ -500,7 +502,7 @@ def test_export_create_include_nsfw_alone_exits_code_2(
     )
 
     assert result.exit_code == 2
-    assert "At least one filter condition is required for export" in result.stdout
+    assert "At least one filter condition is required for export" in result.output
 
 
 @pytest.mark.unit
@@ -763,7 +765,7 @@ def test_export_create_empty_tags_string_exits_code_2(
     )
 
     assert result.exit_code == 2
-    assert "At least one filter condition is required for export" in result.stdout
+    assert "At least one filter condition is required for export" in result.output
 
 
 @pytest.mark.unit
@@ -796,7 +798,7 @@ def test_export_create_empty_caption_string_exits_code_2(
     )
 
     assert result.exit_code == 2
-    assert "At least one filter condition is required for export" in result.stdout
+    assert "At least one filter condition is required for export" in result.output
 
 
 @pytest.mark.unit
@@ -829,7 +831,7 @@ def test_export_create_comma_only_tags_exits_code_2(
     )
 
     assert result.exit_code == 2
-    assert "At least one filter condition is required for export" in result.stdout
+    assert "At least one filter condition is required for export" in result.output
 
 
 @pytest.mark.unit
@@ -862,7 +864,7 @@ def test_export_create_multiple_commas_tags_exits_code_2(
     )
 
     assert result.exit_code == 2
-    assert "At least one filter condition is required for export" in result.stdout
+    assert "At least one filter condition is required for export" in result.output
 
 
 @pytest.mark.unit
@@ -895,7 +897,7 @@ def test_export_create_whitespace_excluded_tags_exits_code_2(
     )
 
     assert result.exit_code == 2
-    assert "At least one filter condition is required for export" in result.stdout
+    assert "At least one filter condition is required for export" in result.output
 
 
 @pytest.mark.unit

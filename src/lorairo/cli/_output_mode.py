@@ -75,6 +75,33 @@ def resolve_output_mode(argv: Sequence[str] | None = None, env: Mapping[str, str
     return _env_enables_json(environ)
 
 
+def strip_mode_flags(argv: Sequence[str]) -> list[str]:
+    """argv から ``--json`` / ``--no-json`` を除去する (``--`` 以降は保持)。
+
+    モードは :func:`resolve_output_mode` が prescan 済みのため、Click パース前に
+    これらを取り除くことでサブコマンド後位置 (例: ``images list --json``) でも
+    "no such option" にならず受理できる (ADR 0058 §1 の位置非依存を実現)。
+
+    Args:
+        argv: プログラム名を除いた引数列。
+
+    Returns:
+        モードフラグを除いた引数列。
+    """
+    stripped: list[str] = []
+    passthrough = False
+    for token in argv:
+        if passthrough:
+            stripped.append(token)
+            continue
+        if token == "--":
+            passthrough = True
+            stripped.append(token)
+        elif token not in (_JSON_FLAG, _NO_JSON_FLAG):
+            stripped.append(token)
+    return stripped
+
+
 def set_json_mode(value: bool) -> None:
     """解決済みの出力モードを保存する (中央境界が呼ぶ)。"""
     global _json_mode
