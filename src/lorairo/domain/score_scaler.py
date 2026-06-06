@@ -32,7 +32,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from itertools import pairwise
 
-MAPPING_VERSION: str = "score-scaler-v1"
+MAPPING_VERSION: str = "score-scaler-v2"
 """calibration table の version 識別子。マッピングを変更する際に bump する。"""
 
 DISPLAY_MIN: float = 0.0
@@ -40,6 +40,10 @@ DISPLAY_MIN: float = 0.0
 
 DISPLAY_MAX: float = 10.0
 """表示尺度の上限。手動スライダーと揃える。"""
+
+WEBAPI_VISION_SCORE_WEIGHT: float = 0.5
+"""WebAPI Vision LLM スコアの表示平均重み。
+aesthetic scorer (重み 1.0) より信頼度が低いため割り引く。"""
 
 
 @dataclass(frozen=True)
@@ -103,18 +107,33 @@ _AI_SCORE_SPEC: dict[str, _AIScoreSpec] = {
 }
 
 
+def _is_webapi_vision_scorer(model: str) -> bool:
+    """LiteLLM ``provider/model`` 形式 (slash あり) を WebAPI Vision scorer と判定する。
+
+    Phase 1.10 以降に登録されたモデルは常に slash を持つ。旧形式名
+    (``claude-3-5-sonnet-20240620`` 等、slash なし) は識別対象外で
+    未知モデル fallback になる — これは許容された制限。
+    """
+    return "/" in model
+
+
 def is_ai_scored_model(model: str) -> bool:
     """``model`` が AI 数値スコア (表示尺度変換対象) を出すモデルか判定する。"""
-    return model in _AI_SCORE_SPEC
+    return model in _AI_SCORE_SPEC or _is_webapi_vision_scorer(model)
 
 
 def positive_key_for(model: str) -> str | None:
     """``model`` の positive key (``higher_is_better=True`` の scores key) を返す。
 
-    未知 model は ``None``。
+    WebAPI Vision LLM は常に ``"overall"`` キーで単一スコアを返す。
+    未知モデル (旧形式 slash なし等) は ``None``。
     """
     spec = _AI_SCORE_SPEC.get(model)
-    return spec.positive_key if spec is not None else None
+    if spec is not None:
+        return spec.positive_key
+    if _is_webapi_vision_scorer(model):
+        return "overall"
+    return None
 
 
 def select_positive_score(model: str, scores: dict[str, float]) -> float | None:
@@ -166,8 +185,10 @@ def calibrate_to_display(model: str, raw: float) -> float:
     """scorer の生値 ``raw`` を 0.0-10.0 の連続表示スコアへ変換する。
 
     変換は連続・単調・区分線形。各モデルの knot は ``_AI_SCORE_SPEC`` を参照
-    (根拠は module / テーブル docstring に記載)。未知 model は ``value_range`` 不明の
-    ため 0-1 を仮定した線形マッピングをフォールバックとして行う。
+    (根拠は module / テーブル docstring に記載)。``_AI_SCORE_SPEC`` に未登録の
+    model は fallback を行う:LiteLLM ``provider/model`` 形式 (slash あり) は
+    0-10 スケール直接 identity + clamp、slash なし完全未知モデルは 0-1 を仮定した
+    線形 0-10 マッピング。
 
     Args:
         model: scorer model 名 (iam-lib registry key)。
@@ -178,7 +199,10 @@ def calibrate_to_display(model: str, raw: float) -> float:
     """
     spec = _AI_SCORE_SPEC.get(model)
     if spec is None:
-        # 未知 model: range 不明のため 0-1 を仮定した線形 0-10 マッピング。
+        if _is_webapi_vision_scorer(model):
+            # WebAPI Vision LLM は BASE_PROMPT で 0-10 スケールを返す → identity + clamp
+            return _clamp_display(raw)
+        # 完全未知モデル: range 不明のため 0-1 を仮定した線形 0-10 マッピング。
         return _clamp_display(raw * DISPLAY_MAX)
 
     if spec.knots is not None:
@@ -190,6 +214,18 @@ def calibrate_to_display(model: str, raw: float) -> float:
         return DISPLAY_MIN
     ratio = (raw - low) / (high - low)
     return _clamp_display(ratio * DISPLAY_MAX)
+
+
+def display_weight_for(model: str) -> float:
+    """``model`` の表示スコア平均における重みを返す。
+
+    WebAPI Vision LLM は aesthetic scorer より判定信頼度が低いため
+    ``WEBAPI_VISION_SCORE_WEIGHT`` (< 1.0) で割り引く。
+    ``_AI_SCORE_SPEC`` に登録済みの aesthetic scorer は重み 1.0。slash なし完全未知モデルも重み 1.0 (fallback)。
+    """
+    if _is_webapi_vision_scorer(model):
+        return WEBAPI_VISION_SCORE_WEIGHT
+    return 1.0
 
 
 def value_range_for(model: str) -> tuple[float, float] | None:

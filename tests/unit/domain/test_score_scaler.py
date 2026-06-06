@@ -9,7 +9,9 @@ from lorairo.domain.score_scaler import (
     DISPLAY_MAX,
     DISPLAY_MIN,
     MAPPING_VERSION,
+    WEBAPI_VISION_SCORE_WEIGHT,
     calibrate_to_display,
+    display_weight_for,
     is_ai_scored_model,
     positive_key_for,
     select_positive_score,
@@ -256,3 +258,61 @@ def test_spec_matches_lib_score_scales() -> None:
         assert score_scaler.value_range_for(model) == lib_range, (
             f"{model}: LoRAIro range {score_scaler.value_range_for(model)} != lib {lib_range}"
         )
+
+
+# ===== WebAPI / Vision LLM scorer =====
+
+
+@pytest.mark.unit
+def test_webapi_slash_model_identity() -> None:
+    """WebAPI モデル (slash 形式) は 0-10 を identity で返す。"""
+    assert calibrate_to_display("openai/o1", 7.5) == pytest.approx(7.5)
+    assert calibrate_to_display("anthropic/claude-3-5-sonnet-20241022", 8.0) == pytest.approx(8.0)
+    assert calibrate_to_display("openai/gpt-4o", 0.0) == pytest.approx(0.0)
+    assert calibrate_to_display("openai/gpt-4o", 10.0) == pytest.approx(10.0)
+
+
+@pytest.mark.unit
+def test_webapi_slash_model_clamps() -> None:
+    """WebAPI モデルが 0-10 範囲外を返した場合はクランプする。"""
+    assert calibrate_to_display("openai/o1", -1.0) == pytest.approx(0.0)
+    assert calibrate_to_display("openai/o1", 11.0) == pytest.approx(10.0)
+
+
+@pytest.mark.unit
+def test_non_slash_unknown_model_still_uses_linear_fallback() -> None:
+    """スラッシュなし未知モデルは従来どおり 0-1 仮定の線形 fallback。"""
+    assert calibrate_to_display("some_local_model", 0.5) == pytest.approx(5.0)
+    assert calibrate_to_display("some_local_model", 1.0) == pytest.approx(10.0)
+
+
+@pytest.mark.unit
+def test_is_ai_scored_model_webapi() -> None:
+    """slash 形式の WebAPI モデルは is_ai_scored_model が True。"""
+    assert is_ai_scored_model("openai/o1") is True
+    assert is_ai_scored_model("anthropic/claude-3-haiku-20240307") is True
+    assert is_ai_scored_model("openai/gpt-5-nano") is True
+
+
+@pytest.mark.unit
+def test_positive_key_for_webapi_is_overall() -> None:
+    """WebAPI モデルの positive key は 'overall'。"""
+    assert positive_key_for("openai/o1") == "overall"
+    assert positive_key_for("anthropic/claude-3-5-sonnet-20241022") == "overall"
+
+
+@pytest.mark.unit
+def test_display_weight_for_webapi() -> None:
+    """WebAPI モデルの表示重みは WEBAPI_VISION_SCORE_WEIGHT (< 1.0)。"""
+    assert display_weight_for("openai/o1") == pytest.approx(WEBAPI_VISION_SCORE_WEIGHT)
+    assert display_weight_for("anthropic/claude-3-5-sonnet-20241022") == pytest.approx(
+        WEBAPI_VISION_SCORE_WEIGHT
+    )
+
+
+@pytest.mark.unit
+def test_display_weight_for_local_scorer_is_one() -> None:
+    """ローカル ML scorer (aesthetic 系) の重みは 1.0。"""
+    assert display_weight_for("aesthetic_shadow_v1") == pytest.approx(1.0)
+    assert display_weight_for("cafe_aesthetic") == pytest.approx(1.0)
+    assert display_weight_for("WaifuAesthetic") == pytest.approx(1.0)

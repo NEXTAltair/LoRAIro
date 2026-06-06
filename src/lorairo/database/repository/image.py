@@ -44,7 +44,7 @@ from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from sqlalchemy.orm import Session, joinedload, selectinload
 
 from ...domain.quality_tier import compute_quality_summary
-from ...domain.score_scaler import calibrate_to_display
+from ...domain.score_scaler import calibrate_to_display, display_weight_for
 from ...utils.log import logger
 from ..filter_criteria import ImageFilterCriteria
 from ..schema import (
@@ -1771,14 +1771,18 @@ class ImageRepository(BaseRepository):
             if existing is None or score_row.created_at > existing.created_at:
                 latest_by_model[score_row.model_id] = score_row
 
-        display_values: list[float] = []
+        weighted_sum: float = 0.0
+        total_weight: float = 0.0
         for score_row in latest_by_model.values():
             model_name = score_row.model.name if score_row.model else ""
-            display_values.append(calibrate_to_display(model_name, float(score_row.score)))
+            value = calibrate_to_display(model_name, float(score_row.score))
+            weight = display_weight_for(model_name)
+            weighted_sum += value * weight
+            total_weight += weight
 
-        if not display_values:
+        if total_weight == 0.0:
             return 0.0
-        return sum(display_values) / len(display_values)
+        return weighted_sum / total_weight
 
     def _format_score_labels(self, image: Image, annotations: dict[str, Any]) -> None:
         """スコアラベル (canonical scorer の categorical 分類) をフォーマットする。

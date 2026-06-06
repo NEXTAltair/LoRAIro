@@ -742,3 +742,37 @@ def test_save_annotation_results_persists_mapped_rating(
             "confidence_score": 0.81,
         }
     ]
+
+
+# ===== Issue #644: WebAPI モデル (slash 形式) の _append_scores 経路 =====
+
+
+class TestAppendScoresWebApi:
+    """WebAPI モデル (slash 形式) の _append_scores 経路テスト。"""
+
+    @pytest.mark.unit
+    def test_webapi_saves_only_overall_key(self, service: AnnotationSaveService) -> None:
+        """WebAPI モデルは is_ai_scored_model=True 経路で 'overall' key のみ保存する。"""
+        result: dict = {"scores": [], "score_labels": [], "tags": [], "captions": [], "ratings": []}
+        service._append_scores(
+            model_id=99,
+            scores={"overall": 8.0},
+            model_name="openai/o1",
+            result=result,
+        )
+        assert len(result["scores"]) == 1
+        assert result["scores"][0]["score"] == pytest.approx(8.0)
+        assert result["scores"][0]["model_id"] == 99
+        assert result["scores"][0]["is_edited_manually"] is False
+
+    @pytest.mark.unit
+    def test_webapi_missing_overall_key_skips(self, service: AnnotationSaveService) -> None:
+        """WebAPI モデルで 'overall' key が scores に無い場合はスキップする。"""
+        result: dict = {"scores": [], "score_labels": [], "tags": [], "captions": [], "ratings": []}
+        service._append_scores(
+            model_id=99,
+            scores={"some_other_key": 5.0},
+            model_name="openai/o1",
+            result=result,
+        )
+        assert len(result["scores"]) == 0
