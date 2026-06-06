@@ -202,8 +202,9 @@ class ExportCreateInputSchema(BaseModel):
     tags: str | None = None
     excluded_tags: str | None = None
     caption: str | None = None
-    manual_rating: str | None = None
-    ai_rating: str | None = None
+    # export create の _validate_rating が受理する正規化済み値 (VALID_RATINGS)。
+    manual_rating: Literal["PG", "PG-13", "R", "X", "XXX", "UNRATED"] | None = None
+    ai_rating: Literal["PG", "PG-13", "R", "X", "XXX", "UNRATED"] | None = None
     include_nsfw: bool = False
     score_min: float | None = Field(default=None, ge=0.0, le=10.0)
     score_max: float | None = Field(default=None, ge=0.0, le=10.0)
