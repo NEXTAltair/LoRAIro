@@ -13,14 +13,20 @@ from lorairo.cli._early_init import early_init
 
 early_init()
 
+import sys
+import traceback
 from enum import StrEnum
 from typing import TYPE_CHECKING, Any
 
+import click
 import typer
 from rich.table import Table
 
 from lorairo.cli._console import make_console
+from lorairo.cli._emit import emit_error
+from lorairo.cli._errors import ErrorCode, ErrorInfo, classify_exception, hint_for
 from lorairo.cli._glyphs import FAIL, OK
+from lorairo.cli._output_mode import resolve_output_mode, set_json_mode
 from lorairo.cli.commands import annotate, batch, export, images, models, project
 from lorairo.services.service_container import get_service_container
 from lorairo.utils.config import DEFAULT_CLI_LOG_PATH, DEFAULT_CONFIG_PATH
@@ -65,6 +71,8 @@ app = typer.Typer(
 
 # Rich console (Issue #254: Windows では safe_box=True で ASCII 罫線)
 console = make_console()
+# エラー/人間向け装飾は stderr へ (stdout は機械可読 JSONL 専用、ADR 0057 §1)
+console_err = make_console(stderr=True)
 
 # ===== サブコマンドグループ登録 =====
 app.add_typer(project.app, name="project", help="Project management commands")
@@ -172,15 +180,92 @@ def status() -> None:
         raise typer.Exit(code=1) from e
 
 
-def main() -> None:
-    """CLIメインエントリポイント。
+def _report_error(message: str, info: ErrorInfo, *, json_mode: bool) -> None:
+    """エラーを出力モードに応じて出す (JSONL or rich)。
+
+    Args:
+        message: 人間可読のエラー文。
+        info: 分類済みの :class:`ErrorInfo`。
+        json_mode: JSONL モードなら ``True``。
+    """
+    if json_mode:
+        emit_error(
+            info.code,
+            message,
+            retryable=info.retryable,
+            user_action_required=info.user_action_required,
+            hint=hint_for(info.code),
+        )
+    else:
+        console_err.print(f"[red]Error:[/red] {message}")
+
+
+def _handle_click_exception(exc: click.ClickException, *, json_mode: bool) -> int:
+    """Click の usage / parse error を ``INVALID_INPUT`` で処理する (ADR 0057 §7)。
+
+    Args:
+        exc: ``UsageError`` / ``BadParameter`` / ``NoSuchOption`` 等。
+        json_mode: JSONL モードなら ``True``。
+
+    Returns:
+        process exit code (2)。
+    """
+    message = exc.format_message() if hasattr(exc, "format_message") else str(exc)
+    info = ErrorInfo(ErrorCode.INVALID_INPUT, retryable=False, user_action_required=True)
+    _report_error(message, info, json_mode=json_mode)
+    return info.exit_code
+
+
+def _handle_cli_exception(exc: Exception, *, json_mode: bool) -> int:
+    """コマンドが伝播した例外を分類して構造化エラーに写す (ADR 0057 §5/§6/§7)。
+
+    Args:
+        exc: コマンド本体から伝播した例外。
+        json_mode: JSONL モードなら ``True``。
+
+    Returns:
+        分類コードから導出した process exit code。
+    """
+    info = classify_exception(exc)
+    message = str(exc) or type(exc).__name__
+    _report_error(message, info, json_mode=json_mode)
+    # stdout の JSONL 純度を保つため、traceback は INTERNAL_ERROR のときだけ stderr へ
+    if info.code == ErrorCode.INTERNAL_ERROR:
+        traceback.print_exc(file=sys.stderr)
+    return info.exit_code
+
+
+def main(argv: list[str] | None = None) -> None:
+    """CLIメインエントリポイント兼中央エラー境界 (ADR 0057 §7 / ADR 0058 §1)。
+
+    出力モード (``--json`` / ``--no-json`` / env) を Click のパース前に解決し、
+    ``standalone_mode=False`` で Typer/Click の自動 exit をバイパスして、
+    usage error も含む全失敗を 1 箇所で構造化エラー + exit code に写す。
 
     ``LORAIRO_CLI_MODE`` 設定とログ初期化は ``@app.callback()`` (``_configure``)
-    でサブコマンド実行時に行う (Issue #539 / #540)。``--help`` のみの呼び出しでは
-    callback が走らないため、不要なログ初期化・副作用を避けられる。
-    stdio 初期化は module top-level の ``early_init()`` で完了済。
+    でサブコマンド実行時に行う (Issue #539 / #540)。stdio 初期化は module top-level の
+    ``early_init()`` で完了済。
+
+    Args:
+        argv: 引数列 (省略時は ``sys.argv[1:]`` を Click が解決)。テスト用に注入可能。
     """
-    app()
+    json_mode = resolve_output_mode(argv)
+    set_json_mode(json_mode)
+    try:
+        # standalone_mode=False: ctx.exit() / --help は exit code を返し、
+        # ClickException / Abort / 一般例外は伝播する。
+        result = app(args=argv, standalone_mode=False)
+    except click.exceptions.Abort:
+        raise SystemExit(130) from None
+    except click.ClickException as exc:
+        raise SystemExit(_handle_click_exception(exc, json_mode=json_mode)) from exc
+    except SystemExit:
+        raise
+    except Exception as exc:  # CLI 最上位エラー境界 (ADR 0057 §7)
+        raise SystemExit(_handle_cli_exception(exc, json_mode=json_mode)) from exc
+    # ctx.exit(code) / --help は標準終了の exit code を int で返す。
+    if isinstance(result, int) and result != 0:
+        raise SystemExit(result)
 
 
 if __name__ == "__main__":
