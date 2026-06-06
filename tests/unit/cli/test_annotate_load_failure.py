@@ -193,7 +193,7 @@ def test_run_memory_error_exits_nonzero(
     )
 
     assert result.exit_code == 1, result.stdout
-    assert "Memory/resource exhaustion" in result.stdout
+    assert "Memory/resource exhaustion" in result.stderr
     # 致命扱いなので annotate は呼ばれない。
     assert mock_container.annotator_library.annotate.call_count == 0
 
@@ -224,7 +224,7 @@ def test_run_enomem_oserror_exits_nonzero(
     )
 
     assert result.exit_code == 1, result.stdout
-    assert "Memory/resource exhaustion" in result.stdout
+    assert "Memory/resource exhaustion" in result.stderr
 
 
 @pytest.mark.unit

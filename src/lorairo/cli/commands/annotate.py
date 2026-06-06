@@ -171,7 +171,9 @@ def _load_batch_images(
                 for opened in pil_images:
                     opened.close()
                 logger.error(f"Fatal image load failure on {image_path.name}: {exc}", exc_info=True)
-                raise ImageLoadMemoryError(str(exc)) from exc
+                raise ImageLoadMemoryError(
+                    f"Memory/resource exhaustion while loading {image_path.name}: {exc}"
+                ) from exc
             _status_console().print(f"[yellow]Warning:[/yellow] Failed to load {image_path.name}: {exc}")
             failed_count += 1
             continue
