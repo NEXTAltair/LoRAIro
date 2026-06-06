@@ -12,9 +12,7 @@ from typing import Any, Literal
 from pydantic import BaseModel, ConfigDict, Field
 
 from lorairo.api.types import (
-    AnnotationResult,
     BatchImportResultResponse,
-    ErrorResponse,
     ExportResult,
     ImageMetadata,
     ModelInfo,
@@ -71,6 +69,21 @@ class ImageFilterCriteriaSchema(BaseModel):
     )
 
     model_config = ConfigDict(title="ImageFilterCriteria")
+
+
+class CliErrorResponse(BaseModel):
+    """Public JSONL error contract emitted by the CLI boundary."""
+
+    kind: Literal["error"] = "error"
+    ok: Literal[False] = False
+    code: str
+    message: str
+    retryable: bool
+    user_action_required: bool
+    hint: str | None = None
+    details: dict[str, Any] | None = None
+
+    model_config = ConfigDict(title="CliErrorResponse")
 
 
 @dataclass(frozen=True)
@@ -159,10 +172,12 @@ def _f(
 
 
 ERROR_MODEL = ModelSpec(
-    name="ErrorResponse",
+    name="CliErrorResponse",
     role="error",
     description="Structured error payload emitted as kind=error by the CLI boundary.",
     fields=(
+        _f("kind", "error", required=True),
+        _f("ok", "false", required=True),
         _f("code", "str", required=True),
         _f("message", "str", required=True),
         _f("retryable", "bool", required=True),
@@ -170,7 +185,7 @@ ERROR_MODEL = ModelSpec(
         _f("hint", "str?"),
         _f("details", "dict?"),
     ),
-    schema_model=ErrorResponse,
+    schema_model=CliErrorResponse,
 )
 
 
@@ -303,12 +318,14 @@ TOOL_SPECS: dict[str, ToolSpec] = {
         summary="Add tags to images in a project.",
         read_only=False,
         side_effects=("db_read", "db_write"),
-        inputs=_search_input(
-            "ImagesUpdateInput",
-            (
-                _f("project", "str", required=True),
-                _f("tags", "csv[str]", required=True),
-                _f("image_id", "int?"),
+        inputs=(
+            _input(
+                "ImagesUpdateInput",
+                (
+                    _f("project", "str", required=True),
+                    _f("tags", "csv[str]", required=True),
+                    _f("image_id", "int?"),
+                ),
             ),
         ),
         outputs=(
@@ -324,7 +341,6 @@ TOOL_SPECS: dict[str, ToolSpec] = {
             ),
         ),
         errors=(ERROR_MODEL,),
-        search_schema=ImageFilterCriteriaSchema,
     ),
     "annotate run": ToolSpec(
         name="annotate run",
@@ -344,19 +360,7 @@ TOOL_SPECS: dict[str, ToolSpec] = {
                 _f("batch_size", "int>=1", default=10),
             ),
         ),
-        outputs=(
-            _output(
-                "AnnotationResult",
-                (
-                    _f("loaded", "int"),
-                    _f("results", "int"),
-                    _f("saved", "int"),
-                    _f("skipped", "int"),
-                    _f("errors", "int"),
-                ),
-                schema=AnnotationResult,
-            ),
-        ),
+        outputs=(),
         errors=(ERROR_MODEL,),
         search_schema=ImageFilterCriteriaSchema,
     ),

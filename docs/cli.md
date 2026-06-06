@@ -71,10 +71,12 @@ lorairo-cli --json describe "annotate import-batch"
 - `saved`: `int` (optional)
 - `save_errors`: `int` (optional)
 
-**Error `ErrorResponse`**
+**Error `CliErrorResponse`**
 
 Structured error payload emitted as kind=error by the CLI boundary.
 
+- `kind`: `error` (required)
+- `ok`: `false` (required)
 - `code`: `str` (required)
 - `message`: `str` (required)
 - `retryable`: `bool` (required)
@@ -118,18 +120,12 @@ Public search filter contract shared by search-driven commands.
 - `scores`: `score_min/score_max` (optional)
 - `image_ids`: `list[int]?<=500` (optional)
 
-**Output `AnnotationResult`**
-
-- `loaded`: `int` (optional)
-- `results`: `int` (optional)
-- `saved`: `int` (optional)
-- `skipped`: `int` (optional)
-- `errors`: `int` (optional)
-
-**Error `ErrorResponse`**
+**Error `CliErrorResponse`**
 
 Structured error payload emitted as kind=error by the CLI boundary.
 
+- `kind`: `error` (required)
+- `ok`: `false` (required)
 - `code`: `str` (required)
 - `message`: `str` (required)
 - `retryable`: `bool` (required)
@@ -170,10 +166,12 @@ lorairo-cli --json describe "batch cancel"
 - `job_id`: `int` (optional)
 - `job`: `dict?` (optional)
 
-**Error `ErrorResponse`**
+**Error `CliErrorResponse`**
 
 Structured error payload emitted as kind=error by the CLI boundary.
 
+- `kind`: `error` (required)
+- `ok`: `false` (required)
 - `code`: `str` (required)
 - `message`: `str` (required)
 - `retryable`: `bool` (required)
@@ -210,10 +208,12 @@ lorairo-cli --json describe "batch fetch"
 - `failed`: `int` (optional)
 - `artifacts`: `list[dict]` (optional)
 
-**Error `ErrorResponse`**
+**Error `CliErrorResponse`**
 
 Structured error payload emitted as kind=error by the CLI boundary.
 
+- `kind`: `error` (required)
+- `ok`: `false` (required)
 - `code`: `str` (required)
 - `message`: `str` (required)
 - `retryable`: `bool` (required)
@@ -249,10 +249,12 @@ lorairo-cli --json describe "batch import"
 - `errors`: `int` (optional)
 - `total`: `int` (optional)
 
-**Error `ErrorResponse`**
+**Error `CliErrorResponse`**
 
 Structured error payload emitted as kind=error by the CLI boundary.
 
+- `kind`: `error` (required)
+- `ok`: `false` (required)
 - `code`: `str` (required)
 - `message`: `str` (required)
 - `retryable`: `bool` (required)
@@ -290,10 +292,12 @@ lorairo-cli --json describe "batch list"
 - `status`: `str` (optional)
 - `request_count`: `int` (optional)
 
-**Error `ErrorResponse`**
+**Error `CliErrorResponse`**
 
 Structured error payload emitted as kind=error by the CLI boundary.
 
+- `kind`: `error` (required)
+- `ok`: `false` (required)
 - `code`: `str` (required)
 - `message`: `str` (required)
 - `retryable`: `bool` (required)
@@ -326,10 +330,12 @@ lorairo-cli --json describe "batch status"
 
 - `job`: `dict` (optional)
 
-**Error `ErrorResponse`**
+**Error `CliErrorResponse`**
 
 Structured error payload emitted as kind=error by the CLI boundary.
 
+- `kind`: `error` (required)
+- `ok`: `false` (required)
 - `code`: `str` (required)
 - `message`: `str` (required)
 - `retryable`: `bool` (required)
@@ -368,10 +374,12 @@ lorairo-cli --json describe "batch submit"
 - `job_id`: `int` (optional)
 - `job`: `dict?` (optional)
 
-**Error `ErrorResponse`**
+**Error `CliErrorResponse`**
 
 Structured error payload emitted as kind=error by the CLI boundary.
 
+- `kind`: `error` (required)
+- `ok`: `false` (required)
 - `code`: `str` (required)
 - `message`: `str` (required)
 - `retryable`: `bool` (required)
@@ -427,10 +435,12 @@ Public search filter contract shared by search-driven commands.
 - `format`: `str` (optional)
 - `resolution`: `int` (optional)
 
-**Error `ErrorResponse`**
+**Error `CliErrorResponse`**
 
 Structured error payload emitted as kind=error by the CLI boundary.
 
+- `kind`: `error` (required)
+- `ok`: `false` (required)
 - `code`: `str` (required)
 - `message`: `str` (required)
 - `retryable`: `bool` (required)
@@ -474,10 +484,12 @@ lorairo-cli --json describe "images list"
 - `tags`: `int` (optional)
 - `annotated`: `bool` (optional)
 
-**Error `ErrorResponse`**
+**Error `CliErrorResponse`**
 
 Structured error payload emitted as kind=error by the CLI boundary.
 
+- `kind`: `error` (required)
+- `ok`: `false` (required)
 - `code`: `str` (required)
 - `message`: `str` (required)
 - `retryable`: `bool` (required)
@@ -513,10 +525,12 @@ lorairo-cli --json describe "images register"
 - `skipped`: `int` (optional)
 - `errors`: `int` (optional)
 
-**Error `ErrorResponse`**
+**Error `CliErrorResponse`**
 
 Structured error payload emitted as kind=error by the CLI boundary.
 
+- `kind`: `error` (required)
+- `ok`: `false` (required)
 - `code`: `str` (required)
 - `message`: `str` (required)
 - `retryable`: `bool` (required)
@@ -545,17 +559,6 @@ lorairo-cli --json describe "images update"
 - `tags`: `csv[str]` (required)
 - `image_id`: `int?` (optional)
 
-**Input `ImageFilterCriteria`**
-
-Public search filter contract shared by search-driven commands.
-
-- `tags`: `list[str]?` (optional)
-- `caption`: `str?` (optional)
-- `excluded_tags`: `list[str]?` (optional)
-- `ratings`: `manual_rating_filter | ai_rating_filter` (optional)
-- `scores`: `score_min/score_max` (optional)
-- `image_ids`: `list[int]?<=500` (optional)
-
 **Output `StatusResponse`**
 
 - `project`: `str` (optional)
@@ -563,24 +566,18 @@ Public search filter contract shared by search-driven commands.
 - `tags`: `list[str]` (optional)
 - `added`: `int` (optional)
 
-**Error `ErrorResponse`**
+**Error `CliErrorResponse`**
 
 Structured error payload emitted as kind=error by the CLI boundary.
 
+- `kind`: `error` (required)
+- `ok`: `false` (required)
 - `code`: `str` (required)
 - `message`: `str` (required)
 - `retryable`: `bool` (required)
 - `user_action_required`: `bool` (required)
 - `hint`: `str?` (optional)
 - `details`: `dict?` (optional)
-
-#### JSON Schema
-
-This search-driven command exposes the public `ImageFilterCriteria` schema:
-
-```bash
-lorairo-cli --json describe "images update" --schema json_schema
-```
 
 ### `models list`
 
@@ -612,10 +609,12 @@ lorairo-cli --json describe "models list"
 - `litellm_id`: `str` (optional)
 - `available`: `bool` (optional)
 
-**Error `ErrorResponse`**
+**Error `CliErrorResponse`**
 
 Structured error payload emitted as kind=error by the CLI boundary.
 
+- `kind`: `error` (required)
+- `ok`: `false` (required)
 - `code`: `str` (required)
 - `message`: `str` (required)
 - `retryable`: `bool` (required)
@@ -647,10 +646,12 @@ lorairo-cli --json describe "models refresh"
 - `discovered`: `int` (optional)
 - `summary`: `str` (optional)
 
-**Error `ErrorResponse`**
+**Error `CliErrorResponse`**
 
 Structured error payload emitted as kind=error by the CLI boundary.
 
+- `kind`: `error` (required)
+- `ok`: `false` (required)
 - `code`: `str` (required)
 - `message`: `str` (required)
 - `retryable`: `bool` (required)
@@ -683,10 +684,12 @@ lorairo-cli --json describe "project create"
 - `name`: `str` (optional)
 - `path`: `path` (optional)
 
-**Error `ErrorResponse`**
+**Error `CliErrorResponse`**
 
 Structured error payload emitted as kind=error by the CLI boundary.
 
+- `kind`: `error` (required)
+- `ok`: `false` (required)
 - `code`: `str` (required)
 - `message`: `str` (required)
 - `retryable`: `bool` (required)
@@ -718,10 +721,12 @@ lorairo-cli --json describe "project delete"
 
 - `name`: `str` (optional)
 
-**Error `ErrorResponse`**
+**Error `CliErrorResponse`**
 
 Structured error payload emitted as kind=error by the CLI boundary.
 
+- `kind`: `error` (required)
+- `ok`: `false` (required)
 - `code`: `str` (required)
 - `message`: `str` (required)
 - `retryable`: `bool` (required)
@@ -754,10 +759,12 @@ lorairo-cli --json describe "project list"
 - `created`: `datetime` (optional)
 - `path`: `path` (optional)
 
-**Error `ErrorResponse`**
+**Error `CliErrorResponse`**
 
 Structured error payload emitted as kind=error by the CLI boundary.
 
+- `kind`: `error` (required)
+- `ok`: `false` (required)
 - `code`: `str` (required)
 - `message`: `str` (required)
 - `retryable`: `bool` (required)

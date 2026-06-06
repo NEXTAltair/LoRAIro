@@ -37,19 +37,29 @@ def test_list_commands_emits_tool_items_and_result() -> None:
 
 
 def test_describe_compact_emits_tool_model_items_and_result() -> None:
-    result = runner.invoke(app, ["--json", "describe", "images update"])
+    result = runner.invoke(app, ["--json", "describe", "export create"])
 
     assert result.exit_code == 0
     rows = _jsonl(result.stdout)
     assert {row["kind"] for row in rows} <= {"item", "result"}
     assert rows[0]["type"] == "tool"
-    assert rows[0]["path"] == "images update"
+    assert rows[0]["path"] == "export create"
     assert rows[-1]["kind"] == "result"
     assert rows[-1]["schema"] == "compact"
 
     model_rows = [row for row in rows if row.get("type") == "model"]
     assert {row["role"] for row in model_rows} >= {"input", "output", "error"}
     assert any(row["name"] == "ImageFilterCriteria" for row in model_rows)
+
+
+def test_images_update_describes_only_supported_input_fields() -> None:
+    result = runner.invoke(app, ["--json", "describe", "images update"])
+
+    assert result.exit_code == 0
+    rows = _jsonl(result.stdout)
+    input_rows = [row for row in rows if row.get("type") == "model" and row["role"] == "input"]
+    assert [row["name"] for row in input_rows] == ["ImagesUpdateInput"]
+    assert {field["name"] for field in input_rows[0]["fields"]} == {"project", "tags", "image_id"}
 
 
 def test_describe_json_schema_wraps_public_schema_in_item_payload() -> None:
@@ -66,6 +76,19 @@ def test_describe_json_schema_wraps_public_schema_in_item_payload() -> None:
     assert "properties" in filter_schema["schema"]
     assert "image_ids" in filter_schema["schema"]["properties"]
     assert "sql" not in json.dumps(filter_schema["schema"]).lower()
+
+
+def test_error_json_schema_matches_cli_boundary_contract() -> None:
+    result = runner.invoke(app, ["--json", "describe", "project list", "--schema", "json_schema"])
+
+    assert result.exit_code == 0
+    rows = _jsonl(result.stdout)
+    error_schema = next(row for row in rows if row.get("type") == "schema" and row["role"] == "error")
+    properties = error_schema["schema"]["properties"]
+    assert error_schema["name"] == "CliErrorResponse"
+    assert {"kind", "ok", "code", "message", "retryable", "user_action_required"} <= set(properties)
+    assert "error_code" not in properties
+    assert "error_message" not in properties
 
 
 def test_describe_unknown_command_uses_existing_error_kind() -> None:
