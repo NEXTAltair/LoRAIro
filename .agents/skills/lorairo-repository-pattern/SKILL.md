@@ -210,7 +210,7 @@ SQLite Database
 
 ### Before Implementation
 1. **Search past patterns (OpenClaw LTM):**
-   - `python3 .github/skills/lorairo-mem/scripts/ltm_search.py <<< '{"filters":{"tags":["repository-pattern","sqlalchemy"]}}'` → Past repository implementations
+   - `python3 .agents/skills/lorairo-mem/scripts/ltm_search.py <<< '{"filters":{"tags":["repository-pattern","sqlalchemy"]}}'` → Past repository implementations
 2. **Check project status (Serena):**
    3. **Explore existing repositories (Serena):**
    

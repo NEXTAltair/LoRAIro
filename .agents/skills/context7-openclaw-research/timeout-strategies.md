@@ -21,14 +21,14 @@ This document covers timeouts when using WebSearch and OpenClaw LTM.
 
 **Bad: Broad query**
 ```bash
-python3 .github/skills/lorairo-mem/scripts/ltm_search.py <<'JSON'
+python3 .agents/skills/lorairo-mem/scripts/ltm_search.py <<'JSON'
 {"limit": 100, "filters": {}}
 JSON
 ```
 
 **Good: Specific query**
 ```bash
-python3 .github/skills/lorairo-mem/scripts/ltm_search.py <<'JSON'
+python3 .agents/skills/lorairo-mem/scripts/ltm_search.py <<'JSON'
 {"limit": 10, "filters": {"type": ["decision"], "tags": ["repository-pattern"]}}
 JSON
 ```

@@ -18,7 +18,7 @@ from lorairo.services.configuration_service import ConfigurationService
 REPO_ROOT = Path(__file__).resolve().parents[1]
 IAM_LIB_DIR = REPO_ROOT / "local_packages" / "image-annotator-lib"
 RUNTIME_TEST_PATH = "tests/runtime_validation/test_real_webapi_runtime.py"
-WORKTREE_ROOT = Path("/tmp/worktrees")
+WORKTREE_ROOT = Path("/workspaces/LoRAIro/.agents/worktree")
 SHARED_UV_PROJECT_ENVIRONMENT = Path("/workspaces/LoRAIro/.venv")
 
 PROVIDER_CONFIG_KEYS = {
@@ -53,7 +53,7 @@ def load_api_keys(config_service: ConfigurationService | None = None) -> dict[st
 
 
 def resolve_uv_project_environment(repo_root: Path) -> Path:
-    """Use the shared LoRAIro venv for /tmp/worktrees checkouts."""
+    """Use the shared LoRAIro venv for /workspaces/LoRAIro/.agents/worktree checkouts."""
     try:
         if repo_root.resolve().is_relative_to(WORKTREE_ROOT):
             return SHARED_UV_PROJECT_ENVIRONMENT

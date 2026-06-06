@@ -219,20 +219,38 @@ tests/
         └── test_main_window.py
 ```
 
+## Test Sync (diff-driven, 旧 /test sync)
+
+コード変更後に、テストの**追加・修正・削除**を差分から判定して同期する。新規実装直後だけでなく、
+リファクタやシグネチャ変更の後にも使う。
+
+### 手順
+
+1. **変更検出**: 変更されたソースを特定し、種別を分類する。
+   ```bash
+   git diff --name-status HEAD~1..HEAD -- 'src/**/*.py'
+   ```
+   - `A` (Added) → 対応テストを**追加**
+   - `M` (Modified) → シグネチャ/振る舞い変更ならテストを**修正**（内部実装のみなら実行で確認、変更不要のことが多い）
+   - `D` (Deleted) → 対応テストを**削除**（削除前にユーザー確認）
+2. **影響範囲の特定**: `investigation` agent または `Grep` で変更シンボルの参照元を追い、波及するテストを洗う。
+3. **テストファイル対応表**:
+   - `src/lorairo/services/foo.py` → `tests/unit/services/test_foo.py`
+   - `src/lorairo/gui/widgets/bar.py` → `tests/unit/gui/widgets/test_bar.py`
+4. **同期アクション実行**: 追加は本 skill の Core Patterns に従い生成。修正は変更 API に合わせ更新。削除は確認後に実施。
+5. **検証**: 新規/修正テストと回帰テストを `uv run pytest` で確認（CI-equivalent filter は `.claude/rules/testing.md`）。
+
+クイック品質チェック（Ruff/mypy/pytest）は `make format` / `make mypy` / `uv run pytest` で直接実行する（専用コマンドは不要）。
+エラー診断は superpowers `systematic-debugging` + `build-error-resolver` agent に委ねる。
+
 ## Memory Integration
 
 **Before writing tests:**
-```
-1. Grep("current-project-status")
-2. Check for similar test patterns
-3. Review existing test fixtures
-```
+1. 類似のテストパターン・既存 fixture を確認する（`tests/conftest.py`、近接する `test_*.py`）。
+2. 長期記憶に該当知見があれば [[lorairo-mem]] の `ltm_search.py` で参照する。
 
 **After writing tests:**
-```
-1. Grep - Record test patterns
-2. OpenClaw LTM - Store testing strategies (POST /hooks/lorairo-memory)
-```
+- 再利用価値のあるテスト戦略・モック方針は [[lorairo-mem]] に `type: howto` で保存する。
 
 ## Examples
 

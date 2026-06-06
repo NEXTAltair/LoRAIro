@@ -1,10 +1,10 @@
 # Planning Memory Rules
 
-計画策定時の過去知識活用ルール。Plan Mode・`/planning` コマンドの両方に適用。
+計画策定時の過去知識活用ルール。ネイティブ Plan Mode（`/plan`）と superpowers `brainstorming` / `writing-plans` に適用。
 
 ## 必須: 計画策定前の知識確認
 
-Plan Mode または `/planning` コマンドで計画を策定する際、コード調査の**前に**以下を確認すること:
+Plan Mode で計画を策定する際、コード調査の**前に**以下を確認すること:
 
 ### 1. 過去の設計判断確認（ADR）
 
@@ -36,8 +36,8 @@ ls -la docs/plans/
 
 ## 適用条件
 
-- Plan Mode（ネイティブ）での計画策定時
-- `/planning` コマンド実行時
+- ネイティブ Plan Mode（`/plan`）での計画策定時
+- superpowers `brainstorming` / `writing-plans` での設計時
 - 新機能追加、アーキテクチャ変更、設計判断を伴うタスク
 
 ## スキップ可能な条件
@@ -63,7 +63,7 @@ docs/lessons-learned.md の該当ドメインセクションに追記
 
 **OpenClaw LTM（長期・クロスプロジェクト）:**
 ```bash
-python3 .github/skills/lorairo-mem/scripts/ltm_write.py <<'JSON'
+python3 .agents/skills/lorairo-mem/scripts/ltm_write.py <<'JSON'
 {
   "title": "LoRAIro [機能名] 設計判断",
   "summary": "設計アプローチの概要",

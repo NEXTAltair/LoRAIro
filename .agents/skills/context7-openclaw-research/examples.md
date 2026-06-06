@@ -10,7 +10,7 @@ WebSearch: "PySide6 Signal Slot QThread official docs"
 
 ```bash
 # OpenClaw LTM検索でQt Workerパターンの過去実装を確認
-python3 .github/skills/lorairo-mem/scripts/ltm_search.py "Qt Worker pattern QThreadPool"
+python3 .agents/skills/lorairo-mem/scripts/ltm_search.py "Qt Worker pattern QThreadPool"
 ```
 
 ## Example 3: 設計決定の長期記憶化

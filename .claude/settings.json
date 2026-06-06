@@ -53,9 +53,7 @@
       "Bash(UV_PROJECT_ENVIRONMENT=/workspaces/LoRAIro/.venv uv *)",
       "Bash(QT_QPA_PLATFORM=offscreen uv run pytest *)"
     ],
-    "additionalDirectories": [
-      "/tmp/worktrees/"
-    ]
+    "additionalDirectories": []
   },
   "env": {
     "CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS": "1",

@@ -55,7 +55,7 @@ Always start research with existing knowledge before new investigation:
 
 ```bash
 # LTM検索（ライブラリ研究履歴）
-python3 .github/skills/lorairo-mem/scripts/ltm_search.py "PySide6 Qt library evaluation"
+python3 .agents/skills/lorairo-mem/scripts/ltm_search.py "PySide6 Qt library evaluation"
 ```
 
 ### 🔄 Web検索 (主要手法)
@@ -97,7 +97,7 @@ Use direct tools for focused, rapid access:
 1. **既存研究確認**: OpenClaw LTM で類似ライブラリの過去調査を検索
 2. **制約確認**: `Read docs/decisions/` or `Read docs/lessons-learned.md````bash
 # LTM検索例
-python3 .github/skills/lorairo-mem/scripts/ltm_search.py "Qt widget pattern Signal Slot"
+python3 .agents/skills/lorairo-mem/scripts/ltm_search.py "Qt widget pattern Signal Slot"
 ```
 
 #### ステップ2: 要件分析とローカル調査

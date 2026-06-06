@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Remove clean, merged agent worktrees under /tmp/worktrees."""
+"""Remove clean, merged agent worktrees under /workspaces/LoRAIro/.agents/worktree."""
 
 from __future__ import annotations
 
@@ -10,7 +10,7 @@ import sys
 from dataclasses import dataclass
 from pathlib import Path
 
-WORKTREE_ROOT = Path("/tmp/worktrees")
+WORKTREE_ROOT = Path("/workspaces/LoRAIro/.agents/worktree")
 DEFAULT_BASE = "origin/main"
 
 
@@ -171,7 +171,7 @@ def main() -> int:
             )
 
     if matched == 0:
-        print("no clean merged worktrees found under /tmp/worktrees")
+        print("no clean merged worktrees found under /workspaces/LoRAIro/.agents/worktree")
         return 0
     elif args.dry_run:
         print(f"found {matched} removable worktree(s)")

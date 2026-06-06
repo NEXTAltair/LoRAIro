@@ -72,7 +72,7 @@ Always start solution generation with existing solution knowledge:
 
 ```bash
 # LTM検索（過去の解決策）
-python3 .github/skills/lorairo-mem/scripts/ltm_search.py "Qt Signal threading pattern solution"
+python3 .agents/skills/lorairo-mem/scripts/ltm_search.py "Qt Signal threading pattern solution"
 ```
 
 ### 🔄 統合分析 (主要手法)
@@ -117,7 +117,7 @@ Use direct tools for focused, detailed analysis:
 1. **既存解決策確認**: OpenClaw LTM で類似問題の過去解決例を検索
 2. **制約確認**: `Read docs/decisions/` or `Read docs/lessons-learned.md````bash
 # LTM検索例
-python3 .github/skills/lorairo-mem/scripts/ltm_search.py "database migration strategy SQLAlchemy"
+python3 .agents/skills/lorairo-mem/scripts/ltm_search.py "database migration strategy SQLAlchemy"
 ```
 
 #### ステップ2: コンテキスト分析と要件定義

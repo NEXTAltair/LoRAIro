@@ -17,7 +17,7 @@ This skill documents the **LoRAIro long-term memory pipeline**:
 
 ## Authentication
 
-Scripts automatically load tokens from `.github/skills/lorairo-mem/.env` on import.
+Scripts automatically load tokens from `.agents/skills/lorairo-mem/.env` on import.
 Environment variables already set in the shell take precedence over `.env` values.
 
 Setup:
@@ -210,6 +210,47 @@ JSON
 2) When asked a question, use `ltm_search.py` / `ltm_latest.py` to fetch **5–15 candidates**.
 3) Only inspect the **Body** of the top candidates.
 4) Summarize and cite the Notion URLs.
+
+## Session save workflow (旧 /save-session)
+
+セッション終了前に、その回の成果から**再利用可能な設計知識・問題解決パターン**を抽出して LTM に永続化する。
+個別の実装詳細やテスト数値ではなく「次回も効く知識」だけを残す。
+
+### 手順
+
+1. **変更の把握**: `git diff --stat` / `git log --oneline -N` で今セッションの変更・コミットを確認。
+2. **設計意図の抽出**: 以下を 1 件 = 1 メモリで構成する。
+   - なぜこのアプローチを選んだか / 検討した代替案と却下理由 / アーキテクチャ上の決定
+   - 非自明な問題の解決方法・ワークアラウンド・注意点
+3. **保存先の振り分け**:
+   - **ADR 級の設計判断** → `docs/decisions/` に ADR、`docs/decisions/README.md` を更新（リポジトリ内 SSoT）
+   - **バグパターン・教訓** → `docs/lessons-learned.md` の該当ドメインに追記
+   - **横断・長期の知識** → 本 skill の `ltm_write.py` で Notion LTM に保存（下記）
+4. **書き込み**: `scripts/ltm_write.py`（Payload spec は上記参照）。
+
+```bash
+python3 {baseDir}/scripts/ltm_write.py <<'JSON'
+{
+  "title": "SearchFilterService: 遅延初期化パターン採用",
+  "summary": "Qt依存サービスの初期化順序問題を Composition パターンで解決",
+  "body": "## 設計意図\n...\n## 代替案と却下理由\n...\n## 教訓\n...",
+  "type": "decision",
+  "status": "curated",
+  "importance": "High",
+  "source": "Container",
+  "environment": ["Container"],
+  "tags": ["pyside6", "service-layer", "initialization"]
+}
+JSON
+```
+
+### LTM に保存する / しない
+
+- **保存する**: アーキテクチャ決定とその理由、再利用できるパターン/アンチパターン、非自明な問題の解決法、外部ライブラリの注意点、性能最適化の知見。
+- **保存しない**: 具体的なファイルパス/行番号、テストの数値（カバレッジ%等）、一時的なワークアラウンド、自明なバグ修正。
+
+設計知識の保存は LoRAIro のファイルベース memory（`docs/decisions/`・`docs/lessons-learned.md`）と本 LTM の二段構え。
+リポジトリ固有はファイル、横断・長期は LTM、と振り分ける。
 
 ## Free-text query (sync via gateway)
 

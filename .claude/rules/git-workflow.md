@@ -4,7 +4,7 @@ Issue解決・機能開発時のブランチ戦略とワークツリー運用ル
 
 ## 実装作業は worktree から開始（必須）
 
-Issue解決・機能開発・PR準備・複数ファイル実装は、**必ず `/tmp/worktrees/` 配下の専用 worktree から開始する**。共有 checkout `/workspaces/LoRAIro` で実装作業の edit / stage / commit / push / rebase をしない。
+Issue解決・機能開発・PR準備・複数ファイル実装は、**必ず `.agents/worktree/` 配下の専用 worktree から開始する**。共有 checkout `/workspaces/LoRAIro` で実装作業の edit / stage / commit / push / rebase をしない。
 
 ### worktree + PR を要さない例外（共有 checkout / main 直 push 可）
 
@@ -23,7 +23,7 @@ Issue解決・機能開発・PR準備・複数ファイル実装は、**必ず `
 ```bash
 # 実装着手時の標準手順
 git fetch origin
-git worktree add /tmp/worktrees/issue-123 -b fix/issue-123 origin/main
+git worktree add .agents/worktree/issue-123 -b fix/issue-123 origin/main
 # 以降の編集・コミット・push はこの worktree 内で行う
 ```
 
@@ -54,14 +54,16 @@ git worktree add /tmp/worktrees/issue-123 -b fix/issue-123 origin/main
 ## ワークツリー運用
 
 ### 配置先
-- **必ず `/tmp/worktrees/` 配下に作成する**（named volume、Linux内で高速I/O）
-- `/workspaces/LoRAIro/` 配下には作成しない（bind mountでI/Oオーバーヘッドが発生する）
+- **必ず `.agents/worktree/` 配下に作成する**（プロジェクトツリー内に見えるので把握しやすい）
+- プロジェクトルートより上流（`../LoRAIro-xxx` 等）には作成しない（エクスプローラに出ず見づらい）
+- `.agents/worktree/` は 9p bind mount 上だが、重い `.venv` は named volume を共有する（worktree 内に作らない）ため、
+  source のみの worktree の I/O は実用範囲。`.gitignore` で追跡対象外。
 
 ```bash
 # 正しい
-git worktree add /tmp/worktrees/fix-issue-123 -b fix/issue-123
+git worktree add .agents/worktree/fix-issue-123 -b fix/issue-123
 
-# 禁止: bind mount上に作成
+# 禁止: プロジェクト外（上流）に作成
 git worktree add ../fix-issue-123 -b fix/issue-123
 ```
 
@@ -74,10 +76,10 @@ git worktree add ../fix-issue-123 -b fix/issue-123
 - マージ完了後は、PR 作業で使ったワークツリーを即削除する
 - 作業中のカレントディレクトリが削除対象の場合は、共有 checkout (`/workspaces/LoRAIro`) に戻ってから削除する
 - 複数の残骸をまとめて掃除する場合は、共有 checkout から `make worktree-cleanup-merged` を実行する
-- `make worktree-cleanup-merged` は `/tmp/worktrees/` 配下に限定し、未コミット変更がなく、merged PR または `origin/main` へ到達済みの worktree だけを削除する
+- `make worktree-cleanup-merged` は `.agents/worktree/` 配下に限定し、未コミット変更がなく、merged PR または `origin/main` へ到達済みの worktree だけを削除する
 
 ```bash
-git worktree remove /tmp/worktrees/fix-issue-123
+git worktree remove .agents/worktree/fix-issue-123
 # または
 make worktree-cleanup-merged
 ```
@@ -85,7 +87,7 @@ make worktree-cleanup-merged
 ## venv（ワークツリー内）
 
 - 原則としてワークツリー内に `.venv` を作らない（共有 `/workspaces/LoRAIro/.venv` を使う、named volume で高速）
-- `/tmp/worktrees/` 配下で `uv` を実行する場合は、共有実行環境 `/workspaces/LoRAIro/.venv` を使う。
+- `.agents/worktree/` 配下で `uv` を実行する場合は、共有実行環境 `/workspaces/LoRAIro/.venv` を使う。
 - **共有 `.venv` の指定はツール側の環境設定で常設し、コマンドには毎回 env prefix を付けない**のが標準運用。
   - **Claude Code**: `.claude/settings.json` の `env` に `UV_PROJECT_ENVIRONMENT = "/workspaces/LoRAIro/.venv"` を設定済み。
     worktree からでも素の `uv run ...` で共有 `.venv` を使える（許可は `Bash(uv *)` で済み、env prefix の個別 allowlist は不要）。

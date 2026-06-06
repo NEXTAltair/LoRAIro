@@ -42,14 +42,14 @@ Use this skill when:
 - Searches design decisions, implementation patterns, lessons learned
 - Usage:
 ```bash
-python3 .github/skills/lorairo-mem/scripts/ltm_search.py <<'JSON'
+python3 .agents/skills/lorairo-mem/scripts/ltm_search.py <<'JSON'
 {"limit": 10, "filters": {"type": ["decision", "howto"], "tags": ["repository-pattern"]}}
 JSON
 ```
 
 **ltm_latest.py** - Recent entries
 ```bash
-python3 .github/skills/lorairo-mem/scripts/ltm_latest.py <<'JSON'
+python3 .agents/skills/lorairo-mem/scripts/ltm_latest.py <<'JSON'
 {"limit": 5}
 JSON
 ```
@@ -150,17 +150,17 @@ WebSearch: "PySide6 Signal Slot QThread official docs"
 ### Query Examples (OpenClaw LTM)
 ```bash
 # Widget patterns
-python3 .github/skills/lorairo-mem/scripts/ltm_search.py <<'JSON'
+python3 .agents/skills/lorairo-mem/scripts/ltm_search.py <<'JSON'
 {"limit": 5, "filters": {"tags": ["widget", "signal-slot", "direct-communication"]}}
 JSON
 
 # Repository patterns
-python3 .github/skills/lorairo-mem/scripts/ltm_search.py <<'JSON'
+python3 .agents/skills/lorairo-mem/scripts/ltm_search.py <<'JSON'
 {"limit": 5, "filters": {"tags": ["repository-pattern", "sqlalchemy"]}}
 JSON
 
 # Testing patterns
-python3 .github/skills/lorairo-mem/scripts/ltm_search.py <<'JSON'
+python3 .agents/skills/lorairo-mem/scripts/ltm_search.py <<'JSON'
 {"limit": 5, "filters": {"tags": ["pytest", "testing"]}}
 JSON
 ```

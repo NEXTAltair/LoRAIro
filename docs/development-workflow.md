@@ -5,36 +5,40 @@ LoRAIro の開発プロセスと標準的な作業パターン。
 ## Standard Workflow
 
 ```
-/check-existing → Plan Mode → /implement → /test → /save-session
+check-existing skill → Plan Mode/brainstorming → 実装(TDD) → 検証 → 記録
 ```
 
-1. **Analysis**: `/check-existing` — 既存機能・実装パターンの調査
-2. **Planning**: Plan Mode (Claude Code ネイティブ) — 実装方針の策定
-3. **Implementation**: `/implement` — コード開発
-4. **Validation**: `/test` — 品質保証・テスト実行
-5. **Session Save**: `/save-session` — 設計意図を OpenClaw LTM に保存
+1. **Analysis**: `check-existing` skill — 要件ヒアリング + 既存ライブラリ/local_packages 調査
+2. **Planning**: ネイティブ Plan Mode (`/plan`) または superpowers `brainstorming` → `writing-plans`
+3. **Implementation**: superpowers `executing-plans` / `test-driven-development` + `lorairo-*` skill
+4. **Validation**: superpowers `test-driven-development` + `lorairo-test-generator` skill。クイックチェックは `make format` / `make mypy` / `uv run pytest`
+5. **Review**: 組み込み `/code-review` + `code-reviewer` / `security-reviewer` agent
+6. **Record**: `lorairo-mem` skill（session 保存）+ `docs/decisions/` ADR + `docs/lessons-learned.md`
+
+> 旧 `/planning` `/implement` `/test` `/build-fix` `/code-review` `/save-session` コマンドは廃止。
+> ネイティブ機能・superpowers・LoRAIro skill に統合済み。
 
 **Process Rules:**
 - 関連コードを必ず読んでから変更する
 - LoRAIro の確立されたアーキテクチャパターンに従う
 - コード変更時は関連 docs を更新する
 
-## Plan Mode vs /planning Command
+## Plan Mode vs brainstorming
 
-**Plan Mode** (Quick Task Planning):
+**Plan Mode** (`/plan`, 軽量タスク):
 - **用途**: 単一機能の実装、即座の実行タスク
-- **所要時間**: 5-10分
 - **出力**: `.claude/plans/` → `docs/plans/` に自動コピー
 
-**/planning Command** (Comprehensive Design):
-- **用途**: 複雑なアーキテクチャ決定、複数フェーズ機能
-- **所要時間**: 20-40分
-- **出力**: Notion LTM（設計/意図）+ `docs/plans/`
+**superpowers `brainstorming` → `writing-plans`** (包括設計):
+- **用途**: 複雑なアーキテクチャ決定、複数フェーズ機能、要件が曖昧なとき
+- **出力**: `docs/superpowers/specs/` の spec + 実装計画
+
+`rules/planning-memory.md` がどちらの経路でも ADR/教訓の事前確認を強制する。
 
 **選択ガイドライン**:
 - シンプルな機能追加 → **Plan Mode**
-- アーキテクチャ変更を伴う実装 → **/planning**
-- 過去に似た実装がある → まず `/check-existing`、その後 Plan Mode
+- アーキテクチャ変更・要件が曖昧 → **brainstorming**
+- 過去に似た実装がある → まず `check-existing` skill、その後 Plan Mode
 
 ## Git Worktree for Parallel Development
 
@@ -68,13 +72,15 @@ uv run python scripts/generate_ui.py  # .ui ファイル変更後は必須
 
 ## Claude Skills
 
-`.github/skills/` に LoRAIro 開発パターンが定義されています。
+`.agents/skills/` に LoRAIro 開発パターンが定義されています（`npx skills` 管理、`.claude/skills/<name>` は symlink）。
 
 **LoRAIro Development Skills:**
+- `check-existing` — 実装前の要件ヒアリング + 既存解調査
 - `lorairo-repository-pattern` — SQLAlchemy リポジトリパターン実装ガイド
 - `interface-design` — UI デザイン原則（技術実装前のデザイン決定）
 - `lorairo-qt-widget` — PySide6 ウィジェット技術実装（Signal/Slot、Qt Designer）
-- `lorairo-test-generator` — pytest+pytest-qt テスト生成（75%+ カバレッジ）
+- `lorairo-test-generator` — pytest+pytest-qt テスト生成（75%+ カバレッジ、test-sync 含む）
+- `lorairo-mem` — 長期記憶 + session 保存ワークフロー
 
 **Design Workflow**: `interface-design`（デザイン意図）→ `lorairo-qt-widget`（技術実装）の順で使用。
 

@@ -29,6 +29,9 @@ venv/
 env/
 ENV/
 
+# Agent worktree チェックアウト (.agents/worktree/<branch>。git worktree の実体、追跡しない)
+.agents/worktree/
+
 # テスト関連
 .pytest_cache/
 .coverage

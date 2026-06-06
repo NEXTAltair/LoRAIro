@@ -17,7 +17,7 @@ WebSearch: "PySide6 Signal Slot QThread official docs"
 #### LTM検索
 
 ```bash
-python3 .github/skills/lorairo-mem/scripts/ltm_search.py "検索クエリ"
+python3 .agents/skills/lorairo-mem/scripts/ltm_search.py "検索クエリ"
 ```
 
 **応答時間**: 2-5秒

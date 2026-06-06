@@ -67,7 +67,7 @@ Use traditional tools for targeted operations:
 #### ステップ1: 記憶ベース事前調査
 1. **既存知識確認**: `ltm_search.py` で過去の調査結果を検索
    ```bash
-   python3 .github/skills/lorairo-mem/scripts/ltm_search.py <<'JSON'
+   python3 .agents/skills/lorairo-mem/scripts/ltm_search.py <<'JSON'
    {"limit": 5, "filters": {"tags": ["investigation-topic"]}}
    JSON
    ```

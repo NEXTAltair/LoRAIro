@@ -16,7 +16,7 @@ LoRAIro 本体のアプリコード (`src/`, `tests/`) を共有 checkout
 - /workspaces/LoRAIro/tests/**
 
 ブロックしない (意図的に共有 checkout で作業してよいもの):
-- /tmp/worktrees/** (worktree 内なら何でも可)
+- /workspaces/LoRAIro/.agents/worktree/** (worktree 内なら何でも可)
 - local_packages/** (submodule は editable install のため in-place 運用が正。
   worktree だと editable 解決が壊れる。memory: project_iam_lib_inplace_not_worktree)
 - docs/ / .claude/ / .codex/ / .agents/ / config/ / README / .gitignore 等の
@@ -32,7 +32,7 @@ import sys
 from pathlib import Path
 
 REPO_ROOT = Path("/workspaces/LoRAIro")
-WORKTREE_ROOT = Path("/tmp/worktrees")
+WORKTREE_ROOT = Path("/workspaces/LoRAIro/.agents/worktree")
 # 共有 checkout 上でブロックする LoRAIro 本体アプリコードのトップレベル dir
 BLOCKED_TOPLEVEL = ("src", "tests")
 
@@ -78,7 +78,7 @@ def _build_message(file_path: str) -> str:
         "→ ISSUE 解決・機能開発は worktree から開始してください "
         "(.claude/rules/git-workflow.md)。\n"
         "   git fetch origin\n"
-        "   git worktree add /tmp/worktrees/<branch> -b <type>/issue-<n> origin/main\n"
+        "   git worktree add /workspaces/LoRAIro/.agents/worktree/<branch> -b <type>/issue-<n> origin/main\n"
         "   # 以降の Edit/commit/push はこの worktree 内で行う\n"
         "→ docs/.claude 等の chore は対象外。緊急で main 直編集が必要な場合のみ "
         "LORAIRO_ALLOW_MAIN_EDIT=1 を設定。"

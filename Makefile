@@ -3,7 +3,7 @@
 
 .PHONY: help setup test test-iam-lib test-runtime-local test-runtime-webapi test-genai-tag test-all mypy format install install-dev clean run-gui generate-ui skills-update venv-rebuild worktree-cleanup-merged worktree-cleanup-merged-dry-run _ensure-submodules _ensure-root-venv
 
-WORKTREE_ROOT := /tmp/worktrees
+WORKTREE_ROOT := /workspaces/LoRAIro/.agents/worktree
 ifeq ($(filter $(WORKTREE_ROOT)/%,$(CURDIR)),)
 LORAIRO_UV_PROJECT_ENVIRONMENT := $(CURDIR)/.venv
 else
@@ -31,8 +31,8 @@ help:
 	@echo "  format       Format code (ruff format)"
 	@echo "  clean        Clean build artifacts"
 	@echo "  venv-rebuild Rebuild .venv from scratch (recovery from corruption)"
-	@echo "  worktree-cleanup-merged Remove clean merged /tmp/worktrees entries"
-	@echo "  worktree-cleanup-merged-dry-run Show clean merged /tmp/worktrees entries"
+	@echo "  worktree-cleanup-merged Remove clean merged /workspaces/LoRAIro/.agents/worktree entries"
+	@echo "  worktree-cleanup-merged-dry-run Show clean merged /workspaces/LoRAIro/.agents/worktree entries"
 	@echo "  skills-update Update community skills in .github/skills/"
 
 # Development targets
@@ -64,7 +64,7 @@ test: _ensure-submodules
 
 # NOTE (ADR 0024 amended #291): `cd <pkg> && UV_PROJECT_ENVIRONMENT=$(LORAIRO_UV_PROJECT_ENVIRONMENT) uv run --no-sync pytest`
 # で LoRAIro root `.venv` を共有 (bind mount I/O 制約回避、ADR 0024 amendment 参照)。
-# worktree (`/tmp/worktrees/<wt>`) では `/workspaces/LoRAIro/.venv` を強制し、worktree 内 `.venv` を作らない。
+# worktree (`/workspaces/LoRAIro/.agents/worktree/<wt>`) では `/workspaces/LoRAIro/.venv` を強制し、worktree 内 `.venv` を作らない。
 # `_ensure-root-venv` prerequisite で dev deps の install を保証 (fresh checkout / new dev deps pull 直後でも fail しない)。
 # `--no-sync` は LoRAIro `.venv` が iam-lib pyproject に合わせて re-sync されるのを防ぐ。
 # iam-lib dev deps (pytest-clarity / pytest-mock / pytest-xdist) は LoRAIro [dependency-groups] dev に統合済。
@@ -136,11 +136,11 @@ venv-rebuild: _ensure-submodules
 	@echo ".venv rebuilt successfully."
 
 worktree-cleanup-merged:
-	@echo "Removing clean merged worktrees under /tmp/worktrees..."
+	@echo "Removing clean merged worktrees under /workspaces/LoRAIro/.agents/worktree..."
 	uv run python scripts/cleanup_merged_worktrees.py
 
 worktree-cleanup-merged-dry-run:
-	@echo "Checking clean merged worktrees under /tmp/worktrees..."
+	@echo "Checking clean merged worktrees under /workspaces/LoRAIro/.agents/worktree..."
 	uv run python scripts/cleanup_merged_worktrees.py --dry-run
 
 clean:

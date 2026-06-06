@@ -330,7 +330,7 @@ LoRAIro #288 で判明した制約。`.claude/rules/parallel-execution.md` の w
 
 - `/workspaces/LoRAIro/` 全体: Windows 9p **bind mount** (低速 I/O)
 - `/workspaces/LoRAIro/.venv`: **named volume** `lorairo-venv` (高速 I/O)
-- `/tmp/worktrees/`: **named volume** `lorairo-worktrees` (高速 I/O)
+- `/workspaces/LoRAIro/.agents/worktree/`: worktree チェックアウト先。9p **bind mount** 上（プロジェクトツリー内で可視優先）。重い `.venv` は上の named volume を共有するため、source のみの worktree の I/O は実用範囲
 
 `/workspaces/LoRAIro/local_packages/<pkg>/.venv` を `cd <pkg> && uv sync` 等で作ると bind mount 上に作成され、test 実行が極端に遅くなる (実用不能)。
 
@@ -338,7 +338,7 @@ LoRAIro #288 で判明した制約。`.claude/rules/parallel-execution.md` の w
 
 1. **LoRAIro root `.venv` 共有** (current best practice、ADR 0024 amended #291):
 
-   `make test-iam-lib` は `UV_PROJECT_ENVIRONMENT=$(CURDIR)/.venv uv run --no-sync pytest` 経由で LoRAIro root の named volume `.venv` を共有する。devcontainer 共有 checkout では `$(CURDIR)` が `/workspaces/LoRAIro/` になる。worktree (`/tmp/worktrees/<wt>/`) から agent が `uv` を直接実行する場合は `UV_PROJECT_ENVIRONMENT=/workspaces/LoRAIro/.venv uv ...` を明示し、worktree 内 `.venv` を作らない。
+   `make test-iam-lib` は `UV_PROJECT_ENVIRONMENT=$(CURDIR)/.venv uv run --no-sync pytest` 経由で LoRAIro root の named volume `.venv` を共有する。devcontainer 共有 checkout では `$(CURDIR)` が `/workspaces/LoRAIro/` になる。worktree (`.agents/worktree/<wt>/`) から agent が `uv` を直接実行する場合は `UV_PROJECT_ENVIRONMENT=/workspaces/LoRAIro/.venv uv ...` を明示し、worktree 内 `.venv` を作らない。
 
    ```bash
    make test-iam-lib    # LoRAIro .venv (named volume、Python 3.13) で iam-lib pytest を実行

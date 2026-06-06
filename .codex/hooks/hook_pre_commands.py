@@ -20,7 +20,7 @@ from pathlib import Path
 from typing import Any
 
 LOG_DIR = Path("/workspaces/LoRAIro/.codex/logs")
-WORKTREE_ROOT = Path("/tmp/worktrees")
+WORKTREE_ROOT = Path("/workspaces/LoRAIro/.agents/worktree")
 SHARED_UV_ENV_NAME = "UV_PROJECT_ENVIRONMENT"
 SHARED_UV_ENV_VALUE = "/workspaces/LoRAIro/.venv"
 SHARED_UV_ENV = f"{SHARED_UV_ENV_NAME}={SHARED_UV_ENV_VALUE}"
@@ -79,7 +79,7 @@ def check_blocked(command: str, rules: dict[str, Any]) -> str | None:
 
 
 def _is_under_worktree(path: str | Path) -> bool:
-    """パスが /tmp/worktrees 配下かどうかを判定する。"""
+    """パスが /workspaces/LoRAIro/.agents/worktree 配下かどうかを判定する。"""
     try:
         return Path(path).expanduser().resolve().is_relative_to(WORKTREE_ROOT)
     except (OSError, RuntimeError):
@@ -87,11 +87,11 @@ def _is_under_worktree(path: str | Path) -> bool:
 
 
 def _command_cd_worktree(command: str) -> bool:
-    """command 内の `cd /tmp/worktrees/...` を検出する。"""
+    """command 内の `cd /workspaces/LoRAIro/.agents/worktree/...` を検出する。"""
     try:
         parts = shlex.split(command)
     except ValueError:
-        return bool(re.search(r"\bcd\s+/tmp/worktrees(?:/|\b)", command))
+        return bool(re.search(r"\bcd\s+/workspaces/LoRAIro/\.agents/worktree(?:/|\b)", command))
 
     for index, part in enumerate(parts[:-1]):
         if part == "cd" and _is_under_worktree(parts[index + 1]):
