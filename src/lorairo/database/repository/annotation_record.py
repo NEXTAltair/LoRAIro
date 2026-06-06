@@ -790,6 +790,7 @@ class AnnotationRepository(BaseRepository):
         for score_info in scores_data:
             model_id = score_info["model_id"]
             score_value = score_info["score"]
+            display_score = score_info.get("display_score")
             is_edited = score_info.get("is_edited_manually", False)
 
             existing_record = existing_scores_map.get(model_id)
@@ -798,6 +799,7 @@ class AnnotationRepository(BaseRepository):
                 # 更新
                 logger.debug(f"Updating existing score: id={existing_record.id}")
                 existing_record.score = score_value
+                existing_record.display_score = display_score
                 existing_record.is_edited_manually = is_edited or False  # None → False
             else:
                 # 新規作成
@@ -806,6 +808,7 @@ class AnnotationRepository(BaseRepository):
                     image_id=image_id,
                     model_id=model_id,
                     score=score_value,
+                    display_score=display_score,
                     is_edited_manually=is_edited,  # 渡された値を使用
                 )
                 session.add(new_score)

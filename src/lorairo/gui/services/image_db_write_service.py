@@ -200,6 +200,7 @@ class ImageDBWriteService:
             score_data: ScoreAnnotationData = {
                 "model_id": self.db_manager.get_manual_edit_model_id(),
                 "score": db_score,
+                "display_score": db_score,  # 手動編集値は既に 0-10 スケール
                 "is_edited_manually": True,  # 手動編集フラグ
             }
 

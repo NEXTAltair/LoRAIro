@@ -352,6 +352,7 @@ class Score(Base):
     image_id: Mapped[int | None] = mapped_column(ForeignKey("images.id", ondelete="CASCADE"))
     model_id: Mapped[int | None] = mapped_column(ForeignKey("models.id", ondelete="SET NULL"))
     score: Mapped[float] = mapped_column(Float, nullable=False)
+    display_score: Mapped[float | None] = mapped_column(Float, nullable=True)
     is_edited_manually: Mapped[bool] = mapped_column(Boolean, default=False, nullable=True)
     created_at: Mapped[datetime.datetime] = mapped_column(
         TIMESTAMP(timezone=True), server_default=func.now()
@@ -712,6 +713,7 @@ class ScoreAnnotationData(TypedDict):
     image_id: NotRequired[int | None]  # Set by save_annotations
     model_id: int | None
     score: float
+    display_score: NotRequired[float | None]
     # is_edited_manually: bool # Default False, NOT NULL in schema (check migration)
     is_edited_manually: bool | None  # nullable=True に合わせた
     created_at: NotRequired[datetime.datetime]
