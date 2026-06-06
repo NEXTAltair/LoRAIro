@@ -104,3 +104,13 @@ def test_classify_batch_import_error_as_validation_error() -> None:
 
     assert info.code == ErrorCode.VALIDATION_FAILED
     assert info.user_action_required is True
+
+
+@pytest.mark.unit
+@pytest.mark.cli
+def test_classify_annotation_failed_as_user_action_error() -> None:
+    """Annotator-raised failures are surfaced as run/precondition errors."""
+    info = classify_exception(app_exc.AnnotationFailedError("model", 1, "bad response"))
+
+    assert info.code == ErrorCode.PRECONDITION_FAILED
+    assert info.user_action_required is True

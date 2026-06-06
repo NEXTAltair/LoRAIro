@@ -194,6 +194,8 @@ def _classify_lorairo_exception(exc: BaseException) -> ErrorInfo | None:
         return ErrorInfo(ErrorCode.RESULT_SET_TOO_LARGE, retryable=False, user_action_required=True)
     if isinstance(exc, app_exc.BatchImportError):
         return ErrorInfo(ErrorCode.VALIDATION_FAILED, retryable=False, user_action_required=True)
+    if isinstance(exc, app_exc.AnnotationFailedError):
+        return ErrorInfo(ErrorCode.PRECONDITION_FAILED, retryable=False, user_action_required=True)
     if isinstance(exc, app_exc.InvalidFormatError):
         return ErrorInfo(ErrorCode.INVALID_INPUT, retryable=False, user_action_required=True)
     if isinstance(exc, app_exc.ValidationError):
