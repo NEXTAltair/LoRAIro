@@ -318,10 +318,10 @@ def _emit_annotation_items(results: Any, records_chunk: list[dict[str, Any]]) ->
         record = records_by_phash.get(str(phash), {})
         models: list[dict[str, Any]] = []
         if isinstance(model_results, dict):
-            iterable = model_results.items()
+            model_items = list(model_results.items())
         else:
-            iterable = []
-        for model_name, model_result in iterable:
+            model_items = []
+        for model_name, model_result in model_items:
             error = _annotation_value(model_result, "error")
             models.append(
                 {

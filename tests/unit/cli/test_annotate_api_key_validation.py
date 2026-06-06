@@ -1,7 +1,7 @@
 """Issue #241: CLI annotate run の API key validation 単体テスト。
 
-`_validate_required_api_keys()` が provider 別の不足検出と Rich console 出力 +
-``typer.Exit(1)`` を正しく実行することを検証する。
+`_validate_required_api_keys()` が provider 別の不足検出を click.UsageError として
+送出することを検証する。
 """
 
 from __future__ import annotations
@@ -9,8 +9,8 @@ from __future__ import annotations
 from types import SimpleNamespace
 from unittest.mock import Mock
 
+import click
 import pytest
-import typer
 
 from lorairo.cli.commands.annotate import _validate_required_api_keys
 
@@ -45,20 +45,19 @@ class TestValidateRequiredApiKeys:
         _validate_required_api_keys(repository, config, ["openai/gpt-4o"])
         # 例外が出なければ OK
 
-    def test_missing_openrouter_exits_with_message(self, capsys: pytest.CaptureFixture[str]) -> None:
-        """Issue #241 主要シナリオ: openai key のみ環境で openrouter モデル選択 -> exit 1"""
+    def test_missing_openrouter_raises_usage_error_with_message(self) -> None:
+        """Issue #241 主要シナリオ: openai key のみ環境で openrouter モデル選択 -> input error"""
         repository = Mock()
         repository.get_model_by_litellm_id.return_value = _fake_model("openrouter")
         config = _fake_config({"openai_key": "sk-a"})
 
-        with pytest.raises(typer.Exit) as excinfo:
+        with pytest.raises(click.UsageError) as excinfo:
             _validate_required_api_keys(repository, config, ["openrouter/openai/gpt-4o"])
 
-        assert excinfo.value.exit_code == 1
-        out = capsys.readouterr().out
-        assert "Missing API keys" in out
-        assert "openrouter: required for openrouter/openai/gpt-4o" in out
-        assert "[api] section" in out
+        message = excinfo.value.message
+        assert "Missing API keys" in message
+        assert "openrouter: required for openrouter/openai/gpt-4o" in message
+        assert "[api] section" in message
 
     def test_local_model_passes(self) -> None:
         """ローカル ML モデルは API key 要求しない"""
@@ -85,7 +84,7 @@ class TestValidateRequiredApiKeys:
         _validate_required_api_keys(repository, config, ["openrouter/openai/gpt-4o"])
 
     def test_multiple_models_with_multiple_missing_providers(
-        self, capsys: pytest.CaptureFixture[str]
+        self,
     ) -> None:
         """複数モデルで複数 provider 不足のケースは全件列挙"""
         repository = Mock()
@@ -97,13 +96,12 @@ class TestValidateRequiredApiKeys:
         repository.get_model_by_litellm_id.side_effect = lambda lid: provider_map.get(lid)
         config = _fake_config({})  # 全 key 空
 
-        with pytest.raises(typer.Exit) as excinfo:
+        with pytest.raises(click.UsageError) as excinfo:
             _validate_required_api_keys(repository, config, ["openai/gpt-4o", "anthropic/claude-3-5"])
 
-        assert excinfo.value.exit_code == 1
-        out = capsys.readouterr().out
-        assert "openai: required for openai/gpt-4o" in out
-        assert "anthropic: required for anthropic/claude-3-5" in out
+        message = excinfo.value.message
+        assert "openai: required for openai/gpt-4o" in message
+        assert "anthropic: required for anthropic/claude-3-5" in message
 
     def test_handles_model_not_found_in_db(self) -> None:
         """DB に未登録の litellm_id でも prefix から required_provider を判定できる"""
