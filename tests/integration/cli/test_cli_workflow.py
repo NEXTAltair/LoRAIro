@@ -201,6 +201,6 @@ def test_cli_unknown_model_exits_before_annotation(
         ["annotate", "run", "--project", project_name, "--model", "missing-model"],
     )
 
-    assert result.exit_code == 1
-    assert "Unknown model 'missing-model'" in result.stdout
+    assert result.exit_code == 2
+    assert "Unknown model 'missing-model'" in result.stderr
     assert getattr(fake, "annotate_calls", 0) == calls_before

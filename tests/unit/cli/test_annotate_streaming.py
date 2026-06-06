@@ -11,11 +11,11 @@ from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
-import typer
 from PIL import Image
 from typer.testing import CliRunner
 
 from lorairo.cli.commands.annotate import (
+    AnnotationRunFailedError,
     _apply_moderation_preflight_to_records,
     _finalize_annotation_run,
     _StreamAnnotateSummary,
@@ -104,8 +104,8 @@ def _build_container(image_files: list[Path]) -> MagicMock:
     )
     mock_container.annotator_library = mock_annotator
     mock_container.config_service = mock_config
-    mock_container.annotation_save_service.save_annotation_results.side_effect = lambda results: (
-        AnnotationSaveResult(
+    mock_container.annotation_save_service.save_annotation_results.side_effect = (
+        lambda results, *, allowed_image_ids=None: AnnotationSaveResult(
             success_count=len(results),
             skip_count=0,
             error_count=0,
@@ -301,5 +301,5 @@ def test_finalize_annotation_run_all_preflight_skipped_is_success() -> None:
 def test_finalize_annotation_run_preflight_skip_plus_load_failure_is_error() -> None:
     summary = _StreamAnnotateSummary(total_failed=1, preflight_skipped=1)
 
-    with pytest.raises(typer.Exit):
+    with pytest.raises(AnnotationRunFailedError):
         _finalize_annotation_run(summary, ["openai/gpt-4o-mini"])

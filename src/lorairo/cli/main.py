@@ -26,7 +26,12 @@ from lorairo.cli._console import make_console
 from lorairo.cli._emit import emit_error
 from lorairo.cli._errors import ErrorCode, ErrorInfo, classify_exception, hint_for
 from lorairo.cli._glyphs import FAIL, OK
-from lorairo.cli._output_mode import resolve_output_mode, set_json_mode, strip_mode_flags
+from lorairo.cli._output_mode import (
+    has_prescanned_mode,
+    resolve_output_mode,
+    set_json_mode,
+    strip_mode_flags,
+)
 from lorairo.cli.commands import annotate, batch, export, images, models, project
 from lorairo.services.service_container import get_service_container
 from lorairo.utils.config import DEFAULT_CLI_LOG_PATH, DEFAULT_CONFIG_PATH
@@ -110,11 +115,9 @@ def _configure(
     """
     import os
 
-    from lorairo.cli._output_mode import resolve_output_mode, set_json_mode
-
     if json_output is not None:
         set_json_mode(json_output)
-    else:
+    elif not has_prescanned_mode():
         set_json_mode(resolve_output_mode([]))
 
     os.environ.setdefault("LORAIRO_CLI_MODE", "true")
@@ -267,7 +270,7 @@ def main(argv: list[str] | None = None) -> None:
     """
     raw_argv = list(sys.argv[1:] if argv is None else argv)
     json_mode = resolve_output_mode(raw_argv)
-    set_json_mode(json_mode)
+    set_json_mode(json_mode, prescanned=True)
     # モードフラグは prescan 済みなので Click パース前に除去する (サブコマンド後位置でも
     # "no such option" にせず受理する、ADR 0058 §1)。
     cli_argv = strip_mode_flags(raw_argv)

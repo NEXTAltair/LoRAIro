@@ -24,6 +24,7 @@ _FALSEY_ENV = frozenset({"", "0", "false", "no", "off"})
 
 # 中央境界が解決したモードを保持する (コマンド本体が参照する)。
 _json_mode: bool = False
+_prescanned_mode: bool = False
 
 
 def _scan_explicit_flag(argv: Sequence[str]) -> bool | None:
@@ -102,12 +103,18 @@ def strip_mode_flags(argv: Sequence[str]) -> list[str]:
     return stripped
 
 
-def set_json_mode(value: bool) -> None:
+def set_json_mode(value: bool, *, prescanned: bool = False) -> None:
     """解決済みの出力モードを保存する (中央境界が呼ぶ)。"""
-    global _json_mode
+    global _json_mode, _prescanned_mode
     _json_mode = value
+    _prescanned_mode = prescanned
 
 
 def is_json_mode() -> bool:
     """現在の出力モードが JSONL かを返す (コマンド本体が参照する)。"""
     return _json_mode
+
+
+def has_prescanned_mode() -> bool:
+    """``main()`` が Click parse 前に出力モードを確定済みなら ``True``。"""
+    return _prescanned_mode

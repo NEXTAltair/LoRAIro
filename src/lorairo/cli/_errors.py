@@ -192,6 +192,10 @@ def _classify_lorairo_exception(exc: BaseException) -> ErrorInfo | None:
         return ErrorInfo(ErrorCode.ALREADY_EXISTS, retryable=False, user_action_required=True)
     if isinstance(exc, app_exc.ResultSetTooLargeError):
         return ErrorInfo(ErrorCode.RESULT_SET_TOO_LARGE, retryable=False, user_action_required=True)
+    if isinstance(exc, app_exc.BatchImportError):
+        return ErrorInfo(ErrorCode.VALIDATION_FAILED, retryable=False, user_action_required=True)
+    if isinstance(exc, app_exc.AnnotationFailedError):
+        return ErrorInfo(ErrorCode.PRECONDITION_FAILED, retryable=False, user_action_required=True)
     if isinstance(exc, app_exc.InvalidFormatError):
         return ErrorInfo(ErrorCode.INVALID_INPUT, retryable=False, user_action_required=True)
     if isinstance(exc, app_exc.ValidationError):
@@ -227,6 +231,10 @@ def _classify_standard_exception(exc: BaseException) -> ErrorInfo:
         return ErrorInfo(ErrorCode.TIMEOUT, retryable=True, user_action_required=False)
     if isinstance(exc, FileNotFoundError):
         return ErrorInfo(ErrorCode.IO_ERROR, retryable=False, user_action_required=True)
+    if _name_in_mro(exc, frozenset({"AnnotationSelectionError"})):
+        return ErrorInfo(ErrorCode.PRECONDITION_FAILED, retryable=False, user_action_required=True)
+    if _name_in_mro(exc, frozenset({"AnnotationRunFailedError"})):
+        return ErrorInfo(ErrorCode.PRECONDITION_FAILED, retryable=False, user_action_required=True)
     if isinstance(exc, ValueError):
         return ErrorInfo(ErrorCode.INVALID_INPUT, retryable=False, user_action_required=True)
     if isinstance(exc, OSError):
