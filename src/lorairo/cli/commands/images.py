@@ -2,19 +2,27 @@
 
 画像の登録、メタデータ更新などの画像管理コマンド。
 API層（lorairo.api）を経由してService層を利用する。
+
+出力は ADR 0057/0058 に従う: ``--json`` 時は stdout に JSONL (item/result)、
+それ以外は rich 人間向け。エラー整形は :func:`lorairo.cli._boundary.command_boundary`
+に集約する。
 """
 
 from pathlib import Path
 
+import click
 import typer
 from rich.table import Table
 
-from lorairo.api.exceptions import ImageRegistrationError, ProjectNotFoundError
+from lorairo.api.exceptions import ImageNotFoundError
 from lorairo.api.images import register_images as api_register_images
 from lorairo.api.project import get_project as api_get_project
 from lorairo.api.types import RegistrationResult
+from lorairo.cli._boundary import command_boundary
 from lorairo.cli._console import make_console
+from lorairo.cli._emit import emit_item, emit_result
 from lorairo.cli._glyphs import OK
+from lorairo.cli._output_mode import is_json_mode
 from lorairo.database.filter_criteria import ImageFilterCriteria
 from lorairo.database.repository.annotation_record import AnnotationRepository
 from lorairo.services.service_container import get_service_container
@@ -129,44 +137,46 @@ def register(
     画像ファイルまたはディレクトリからプロジェクトへ画像を登録します。
     pHashを計算して重複検出を行います。
     """
-    try:
+    with command_boundary():
         input_path = Path(path).resolve()
 
-        # パス存在確認
+        # パス存在確認 (FileNotFoundError → IO_ERROR exit 1)
         if not input_path.exists():
-            console.print(f"[red]Error:[/red] Path not found: {path}")
-            raise typer.Exit(code=1)
-
+            raise FileNotFoundError(f"Path not found: {path}")
         if not input_path.is_file() and not input_path.is_dir():
-            console.print(f"[red]Error:[/red] Not a file or directory: {path}")
-            raise typer.Exit(code=1)
+            raise FileNotFoundError(f"Not a file or directory: {path}")
 
-        # プロジェクト存在確認 & DB 接続切り替え
-        try:
-            api_get_project(project)
-        except ProjectNotFoundError as e:
-            console.print(f"[red]Error:[/red] Project not found: {project}")
-            raise typer.Exit(code=1) from e
-
+        # プロジェクト存在確認 (未存在は ProjectNotFoundError → NOT_FOUND で伝播)
+        api_get_project(project)
         get_service_container().set_active_project(project)
 
         # API層経由で画像登録（プロジェクトコンテキスト付き）
         result = api_register_images(input_path, skip_duplicates, project_name=project)
 
         if result.total == 0:
-            console.print(f"[yellow]Warning:[/yellow] No image files found in {path}")
-            raise typer.Exit(code=0)
+            if is_json_mode():
+                emit_result(
+                    f"No image files found in {path}",
+                    total=0,
+                    registered=0,
+                    skipped=0,
+                    errors=0,
+                )
+            else:
+                console.print(f"[yellow]Warning:[/yellow] No image files found in {path}")
+            return
 
-        _print_registration_summary(result, project)
-
-    except ImageRegistrationError as e:
-        console.print(f"[red]Error:[/red] {e}")
-        raise typer.Exit(code=1) from e
-    except typer.Exit:
-        raise
-    except Exception as e:
-        console.print(f"[red]Error:[/red] {e}")
-        raise typer.Exit(code=1) from e
+        if is_json_mode():
+            emit_result(
+                f"Registered {result.successful} image(s) to project: {project}",
+                total=result.total,
+                registered=result.successful,
+                skipped=result.skipped,
+                errors=result.failed,
+                error_details=list(result.error_details) if result.error_details else [],
+            )
+        else:
+            _print_registration_summary(result, project)
 
 
 @app.command("list")
@@ -192,14 +202,10 @@ def list_images(
 ) -> None:
     """List images in a project.
 
-    プロジェクトに登録されている画像の一覧をテーブル形式で表示します。
+    プロジェクトに登録されている画像の一覧を表示します (``--json`` で JSONL)。
     """
-    try:
-        try:
-            api_get_project(project)
-        except ProjectNotFoundError as e:
-            console.print(f"[red]Error:[/red] Project not found: {project}")
-            raise typer.Exit(code=1) from e
+    with command_boundary():
+        api_get_project(project)
 
         container = get_service_container()
         container.set_active_project(project)
@@ -207,6 +213,30 @@ def list_images(
         repository = container.db_manager.image_repo
         criteria = ImageFilterCriteria(include_nsfw=True, only_unrated=unrated, limit=limit)
         image_records, total_count = repository.get_images_by_filter(criteria)
+
+        if is_json_mode():
+            for record in image_records:
+                filename = Path(record.get("stored_image_path", "")).name or str(record.get("filename", ""))
+                has_any_annotation = bool(
+                    record.get("tags")
+                    or record.get("captions")
+                    or record.get("scores")
+                    or record.get("ratings")
+                )
+                emit_item(
+                    {
+                        "id": record.get("id"),
+                        "filename": filename,
+                        "tags": len(record.get("tags") or []),
+                        "annotated": has_any_annotation,
+                    }
+                )
+            emit_result(
+                f"{len(image_records)} image(s)",
+                count=len(image_records),
+                total=total_count,
+            )
+            return
 
         if not image_records:
             suffix = " without ratings" if unrated else ""
@@ -239,12 +269,6 @@ def list_images(
         if limit and total_count > limit:
             console.print(f"Showing {limit} of {total_count} images.")
 
-    except typer.Exit:
-        raise
-    except Exception as e:
-        console.print(f"[red]Error:[/red] {e}")
-        raise typer.Exit(code=1) from e
-
 
 @app.command("update")
 def update(
@@ -274,17 +298,11 @@ def update(
     Example:
         lorairo-cli images update --project myproject --tags "cat,dog"
     """
-    if not tags:
-        console.print("[red]Error:[/red] At least one update operation is required.")
-        console.print('Example: --tags "tag1,tag2"')
-        raise typer.Exit(code=2)
+    with command_boundary():
+        if not tags:
+            raise click.UsageError('At least one update operation is required. Example: --tags "tag1,tag2"')
 
-    try:
-        try:
-            api_get_project(project)
-        except ProjectNotFoundError as e:
-            console.print(f"[red]Error:[/red] Project not found: {project}")
-            raise typer.Exit(code=1) from e
+        api_get_project(project)
 
         container = get_service_container()
         container.set_active_project(project)
@@ -294,37 +312,43 @@ def update(
         if image_id is not None:
             metadata = image_repo.get_image_metadata(image_id)
             if metadata is None:
-                console.print(f"[red]Error:[/red] No image found with ID: {image_id}")
-                raise typer.Exit(code=1)
+                raise ImageNotFoundError(image_id)
             image_ids: list[int] = [image_id]
         else:
             criteria = ImageFilterCriteria(include_nsfw=True)
             image_records, _total = image_repo.get_images_by_filter(criteria)
             if not image_records:
-                console.print(f"[yellow]Warning:[/yellow] No images found in project: {project}")
+                if is_json_mode():
+                    emit_result(f"No images found in project: {project}", count=0)
+                else:
+                    console.print(f"[yellow]Warning:[/yellow] No images found in project: {project}")
                 return
             image_ids = [int(r["id"]) for r in image_records]
 
         tag_list = [t.strip() for t in tags.split(",") if t.strip()]
         if not tag_list:
-            console.print("[red]Error:[/red] No valid tags specified.")
-            raise typer.Exit(code=2)
+            raise click.UsageError("No valid tags specified.")
 
         total_added, failed_tags = _apply_tags_to_images(annotation_repo, image_ids, tag_list)
 
-        _print_update_summary(
-            project=project,
-            target_count=len(image_ids),
-            tag_list=tag_list,
-            total_added=total_added,
-            failed_tags=failed_tags,
-        )
+        if is_json_mode():
+            emit_result(
+                f"Updated {len(image_ids)} image(s) in project: {project}",
+                project=project,
+                target_images=len(image_ids),
+                tags=tag_list,
+                added=total_added,
+                failed_tags=failed_tags,
+            )
+        else:
+            _print_update_summary(
+                project=project,
+                target_count=len(image_ids),
+                tag_list=tag_list,
+                total_added=total_added,
+                failed_tags=failed_tags,
+            )
 
+        # 一部タグが失敗した場合は exit 1 (部分失敗を exit code で示す)。
         if failed_tags:
             raise typer.Exit(code=1)
-
-    except typer.Exit:
-        raise
-    except Exception as e:
-        console.print(f"[red]Error:[/red] {e}")
-        raise typer.Exit(code=1) from e

@@ -100,7 +100,7 @@ def test_images_register_nonexistent_directory(mock_projects_dir: Path) -> None:
     )
 
     assert result.exit_code == 1
-    assert "not found" in result.stdout or "Directory not found" in result.stdout
+    assert "not found" in result.output
 
 
 @pytest.mark.unit
@@ -113,7 +113,7 @@ def test_images_register_nonexistent_project(mock_projects_dir: Path, test_image
     )
 
     assert result.exit_code == 1
-    assert "Project not found" in result.stdout
+    assert "見つかりません" in result.output
 
 
 @pytest.mark.unit
@@ -399,7 +399,7 @@ def test_images_list_nonexistent_project(mock_projects_dir: Path) -> None:
     result = runner.invoke(app, ["images", "list", "--project", "nonexistent"])
 
     assert result.exit_code == 1
-    assert "Project not found" in result.stdout
+    assert "見つかりません" in result.output
 
 
 @pytest.mark.unit
@@ -419,7 +419,7 @@ def test_images_update_no_tags_exits_code2(mock_projects_dir: Path) -> None:
     runner.invoke(app, ["project", "create", "test-project"])
     result = runner.invoke(app, ["images", "update", "--project", "test-project"])
     assert result.exit_code == 2
-    assert "At least one update operation" in result.stdout
+    assert "At least one update operation" in result.output
 
 
 @pytest.mark.unit
@@ -428,7 +428,7 @@ def test_images_update_nonexistent_project(mock_projects_dir: Path) -> None:
     """Test: images update - 存在しないプロジェクトはエラー。"""
     result = runner.invoke(app, ["images", "update", "--project", "nonexistent", "--tags", "cat"])
     assert result.exit_code == 1
-    assert "Project not found" in result.stdout
+    assert "見つかりません" in result.output
 
 
 @pytest.mark.unit
@@ -518,8 +518,9 @@ def test_images_update_image_id_not_found(mock_projects_dir: Path) -> None:
                 "9999",
             ],
         )
+    # ImageNotFoundError → NOT_FOUND exit 1。メッセージは例外 str (stderr)。
     assert result.exit_code == 1
-    assert "No image found with ID: 9999" in result.stdout
+    assert "9999" in result.output
 
 
 @pytest.mark.unit
