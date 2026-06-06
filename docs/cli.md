@@ -62,8 +62,9 @@ lorairo-cli --json describe "annotate import-batch"
 **Input `AnnotateImportBatchInput`**
 
 - `project`: `str` (required)
-- `jsonl_path`: `path` (required)
-- `model`: `str` (required)
+- `jsonl_dir`: `path` (required)
+- `dry_run`: `bool` (optional, default `False`)
+- `model_name`: `str?` (optional)
 
 **Output `BatchImportResultResponse`**
 
@@ -103,11 +104,12 @@ lorairo-cli --json describe "annotate run"
 
 - `project`: `str` (required)
 - `model`: `list[str]` (required)
-- `tags`: `csv[str]?` (optional)
 - `limit`: `int>=1?` (optional)
 - `offset`: `int>=0` (optional, default `0`)
 - `image_id`: `list[int]?` (optional)
 - `batch_size`: `int>=1` (optional, default `10`)
+- `unrated`: `bool` (optional, default `False`)
+- `missing_model`: `str?` (optional)
 
 **Input `ImageFilterCriteria`**
 
@@ -477,7 +479,7 @@ lorairo-cli --json describe "images list"
 - `limit`: `int>=1?` (optional)
 - `unrated`: `bool` (optional, default `False`)
 
-**Output `ImageMetadata`**
+**Output `ImagesListItem`**
 
 - `id`: `int` (optional)
 - `filename`: `str` (optional)
@@ -602,12 +604,15 @@ lorairo-cli --json describe "models list"
 - `route`: `auto|direct|openrouter|all?` (optional)
 - `show_unavailable`: `bool` (optional, default `False`)
 
-**Output `ModelInfo`**
+**Output `ModelsListItem`**
 
 - `provider`: `str` (optional)
 - `route`: `str` (optional)
 - `litellm_id`: `str` (optional)
+- `type`: `webapi|local` (optional)
+- `category`: `str` (optional)
 - `available`: `bool` (optional)
+- `deprecated`: `bool` (optional)
 
 **Error `CliErrorResponse`**
 

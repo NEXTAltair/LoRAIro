@@ -14,8 +14,6 @@ from pydantic import BaseModel, ConfigDict, Field
 from lorairo.api.types import (
     BatchImportResultResponse,
     ExportResult,
-    ImageMetadata,
-    ModelInfo,
     ProjectCreateRequest,
     ProjectInfo,
     RegistrationResult,
@@ -84,6 +82,31 @@ class CliErrorResponse(BaseModel):
     details: dict[str, Any] | None = None
 
     model_config = ConfigDict(title="CliErrorResponse")
+
+
+class ImagesListItem(BaseModel):
+    """JSONL item payload emitted by ``images list --json``."""
+
+    id: int | None = None
+    filename: str
+    tags: int
+    annotated: bool
+
+    model_config = ConfigDict(title="ImagesListItem")
+
+
+class ModelsListItem(BaseModel):
+    """JSONL item payload emitted by ``models list --json``."""
+
+    provider: str
+    route: str
+    litellm_id: str
+    type: Literal["webapi", "local"]
+    category: str
+    available: bool
+    deprecated: bool
+
+    model_config = ConfigDict(title="ModelsListItem")
 
 
 @dataclass(frozen=True)
@@ -305,9 +328,9 @@ TOOL_SPECS: dict[str, ToolSpec] = {
         ),
         outputs=(
             _output(
-                "ImageMetadata",
+                "ImagesListItem",
                 (_f("id", "int"), _f("filename", "str"), _f("tags", "int"), _f("annotated", "bool")),
-                schema=ImageMetadata,
+                schema=ImagesListItem,
             ),
         ),
         errors=(ERROR_MODEL,),
@@ -353,11 +376,12 @@ TOOL_SPECS: dict[str, ToolSpec] = {
             (
                 _f("project", "str", required=True),
                 _f("model", "list[str]", required=True),
-                _f("tags", "csv[str]?"),
                 _f("limit", "int>=1?"),
                 _f("offset", "int>=0", default=0),
                 _f("image_id", "list[int]?"),
                 _f("batch_size", "int>=1", default=10),
+                _f("unrated", "bool", default=False),
+                _f("missing_model", "str?"),
             ),
         ),
         outputs=(),
@@ -375,8 +399,9 @@ TOOL_SPECS: dict[str, ToolSpec] = {
                 "AnnotateImportBatchInput",
                 (
                     _f("project", "str", required=True),
-                    _f("jsonl_path", "path", required=True),
-                    _f("model", "str", required=True),
+                    _f("jsonl_dir", "path", required=True),
+                    _f("dry_run", "bool", default=False),
+                    _f("model_name", "str?"),
                 ),
             ),
         ),
@@ -461,14 +486,17 @@ TOOL_SPECS: dict[str, ToolSpec] = {
         ),
         outputs=(
             _output(
-                "ModelInfo",
+                "ModelsListItem",
                 (
                     _f("provider", "str"),
                     _f("route", "str"),
                     _f("litellm_id", "str"),
+                    _f("type", "webapi|local"),
+                    _f("category", "str"),
                     _f("available", "bool"),
+                    _f("deprecated", "bool"),
                 ),
-                schema=ModelInfo,
+                schema=ModelsListItem,
             ),
         ),
         errors=(ERROR_MODEL,),

@@ -78,6 +78,75 @@ def test_describe_json_schema_wraps_public_schema_in_item_payload() -> None:
     assert "sql" not in json.dumps(filter_schema["schema"]).lower()
 
 
+def test_annotate_run_describes_only_supported_flags() -> None:
+    result = runner.invoke(app, ["--json", "describe", "annotate run"])
+
+    assert result.exit_code == 0
+    rows = _jsonl(result.stdout)
+    input_row = next(
+        row for row in rows if row.get("type") == "model" and row["name"] == "AnnotateRunInput"
+    )
+    field_names = {field["name"] for field in input_row["fields"]}
+    assert field_names == {
+        "project",
+        "model",
+        "limit",
+        "offset",
+        "image_id",
+        "batch_size",
+        "unrated",
+        "missing_model",
+    }
+    assert "tags" not in field_names
+
+
+def test_import_batch_describes_actual_argument_names() -> None:
+    result = runner.invoke(app, ["--json", "describe", "annotate import-batch"])
+
+    assert result.exit_code == 0
+    rows = _jsonl(result.stdout)
+    input_row = next(
+        row for row in rows if row.get("type") == "model" and row["name"] == "AnnotateImportBatchInput"
+    )
+    fields = {field["name"]: field for field in input_row["fields"]}
+    assert set(fields) == {"project", "jsonl_dir", "dry_run", "model_name"}
+    assert fields["project"]["required"] is True
+    assert fields["jsonl_dir"]["required"] is True
+    assert fields["dry_run"]["default"] is False
+
+
+def test_cli_specific_output_json_schemas_match_item_rows() -> None:
+    images_result = runner.invoke(app, ["--json", "describe", "images list", "--schema", "json_schema"])
+    models_result = runner.invoke(app, ["--json", "describe", "models list", "--schema", "json_schema"])
+
+    assert images_result.exit_code == 0
+    assert models_result.exit_code == 0
+    image_schema = next(
+        row
+        for row in _jsonl(images_result.stdout)
+        if row.get("type") == "schema" and row["role"] == "output"
+    )
+    model_schema = next(
+        row
+        for row in _jsonl(models_result.stdout)
+        if row.get("type") == "schema" and row["role"] == "output"
+    )
+    assert image_schema["name"] == "ImagesListItem"
+    assert set(image_schema["schema"]["properties"]) == {"id", "filename", "tags", "annotated"}
+    assert "file_path" not in image_schema["schema"]["properties"]
+    assert model_schema["name"] == "ModelsListItem"
+    assert set(model_schema["schema"]["properties"]) == {
+        "provider",
+        "route",
+        "litellm_id",
+        "type",
+        "category",
+        "available",
+        "deprecated",
+    }
+    assert "requires_api_key" not in model_schema["schema"]["properties"]
+
+
 def test_error_json_schema_matches_cli_boundary_contract() -> None:
     result = runner.invoke(app, ["--json", "describe", "project list", "--schema", "json_schema"])
 
