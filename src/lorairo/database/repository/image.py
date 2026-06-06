@@ -1572,24 +1572,25 @@ class ImageRepository(BaseRepository):
         if score_min is None and score_max is None:
             return query
 
-        # DB値（0.0-10.0）で直接比較
+        # 0.0-10.0 表示スコアで比較 (Issue #626: display_score 使用)
         db_min = score_min if score_min is not None else 0.0
         db_max = score_max if score_max is not None else 10.0
 
-        # 指定範囲内のスコアを持つ画像のみを含める
+        # display_score が存在する行のみ対象にし、表示スコアで範囲フィルタ
         score_condition = (
             exists()
             .where(
                 Score.image_id == Image.id,
-                Score.score >= db_min,
-                Score.score <= db_max,
+                Score.display_score.isnot(None),
+                Score.display_score >= db_min,
+                Score.display_score <= db_max,
             )
             .correlate(Image)
         )
 
         query = query.where(score_condition)
         logger.debug(
-            f"Score filter applied: {db_min:.2f} - {db_max:.2f}",
+            f"Score filter applied (display_score): {db_min:.2f} - {db_max:.2f}",
         )
 
         return query
