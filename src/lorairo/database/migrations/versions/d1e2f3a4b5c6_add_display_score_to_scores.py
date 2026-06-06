@@ -22,7 +22,7 @@ from __future__ import annotations
 
 from alembic import op
 import sqlalchemy as sa
-from sqlalchemy import text
+from sqlalchemy import inspect as _sa_inspect, text
 
 # revision identifiers, used by Alembic.
 revision: str = "d1e2f3a4b5c6"
@@ -92,9 +92,13 @@ def _calibrate(model_name: str | None, raw: float, is_manually_edited: bool) -> 
 
 
 def upgrade() -> None:
-    op.add_column("scores", sa.Column("display_score", sa.Float(), nullable=True))
-
     conn = op.get_bind()
+
+    # scores テーブルが存在しない最小スキーマ (一部マイグレーションテストの stale DB) は no-op
+    if "scores" not in _sa_inspect(conn).get_table_names():
+        return
+
+    op.add_column("scores", sa.Column("display_score", sa.Float(), nullable=True))
 
     # 既存行を取得してバックフィル
     rows = conn.execute(
@@ -114,4 +118,7 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
+    conn = op.get_bind()
+    if "scores" not in _sa_inspect(conn).get_table_names():
+        return
     op.drop_column("scores", "display_score")
