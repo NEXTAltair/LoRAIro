@@ -9,7 +9,11 @@ from typing import TYPE_CHECKING, Any
 import typer
 from rich.table import Table
 
+from lorairo.cli._boundary import command_boundary
 from lorairo.cli._console import make_console
+from lorairo.cli._emit import emit_error, emit_item, emit_result
+from lorairo.cli._errors import ErrorCode
+from lorairo.cli._output_mode import is_json_mode
 
 if TYPE_CHECKING:
     from rich.console import Console
@@ -64,29 +68,42 @@ def refresh(
     ),
 ) -> None:
     """Refresh available WebAPI models."""
-    try:
+    with command_boundary():
         container = get_service_container()
         if project is not None:
             container.set_active_project(project)
-        console.print("[cyan]Refreshing model registry...[/cyan]")
+        if not is_json_mode():
+            console.print("[cyan]Refreshing model registry...[/cyan]")
         models = container.annotator_library.refresh_available_models()
         sync_result = container.model_sync_service.sync_available_models()
 
         if sync_result.errors:
-            console.print("[red]Error:[/red] Model registry refreshed but DB sync failed.")
-            console.print(sync_result.summary)
-            for error in sync_result.errors:
-                console.print(f"[red]Sync error:[/red] {error}")
+            # DB sync の部分失敗。json は構造化 error、rich は従来表示で exit 1。
+            message = "Model registry refreshed but DB sync failed."
+            if is_json_mode():
+                emit_error(
+                    ErrorCode.DB_ERROR,
+                    message,
+                    retryable=False,
+                    user_action_required=False,
+                    details={"summary": sync_result.summary, "errors": list(sync_result.errors)},
+                )
+            else:
+                console.print(f"[red]Error:[/red] {message}")
+                console.print(sync_result.summary)
+                for error in sync_result.errors:
+                    console.print(f"[red]Sync error:[/red] {error}")
             raise typer.Exit(code=1)
 
-        console.print(f"[green]Model registry refreshed.[/green] {len(models)} model(s) discovered.")
-        console.print(sync_result.summary)
-    except typer.Exit:
-        raise
-    except Exception as e:
-        console.print(f"[red]Error:[/red] Failed to refresh models: {e}")
-        logger.error(f"Model refresh command failed: {e}", exc_info=True)
-        raise typer.Exit(code=1) from e
+        if is_json_mode():
+            emit_result(
+                f"Model registry refreshed. {len(models)} model(s) discovered.",
+                discovered=len(models),
+                summary=sync_result.summary,
+            )
+        else:
+            console.print(f"[green]Model registry refreshed.[/green] {len(models)} model(s) discovered.")
+            console.print(sync_result.summary)
 
 
 @app.command("list")
@@ -139,7 +156,7 @@ def list_models(
     Issue #249: ``--route`` 未指定時は config の ``[model_selection].route_preference``
     を default として読み込み、``--show-unavailable`` で API key 未設定の行も表示する。
     """
-    try:
+    with command_boundary():
         container = get_service_container()
         annotator = container.annotator_library
         infos = annotator.list_annotator_info()
@@ -179,26 +196,10 @@ def list_models(
         else:
             display_rows = display_rows_pre_unavailable
 
-        table = _build_available_models_table(
-            display_rows=display_rows,
-            type_filter=type_filter,
-            category=category,
-            show_unavailable=show_unavailable,
-            include_deprecated=include_deprecated,
-        )
-        console.print(table)
-        if category is ModelCategoryFilter.all:
-            _print_rating_models_section(display_rows)
-        # Issue #249: preference の取得元と unavailable 件数も表示
+        # Issue #249: preference の取得元と unavailable 件数。
         unavailable_count = sum(1 for r in display_rows if not r.get("available", True))
-        unavailable_suffix = f", unavailable={unavailable_count}" if unavailable_count > 0 else ""
-        console.print(
-            f"[dim]{len(display_rows)} model(s) "
-            f"(preference={route.value} from {preference_source}{unavailable_suffix})[/dim]"
-        )
 
-        # Issue #253: silent 0 件問題の切り分けのため DEBUG 診断を出し、
-        # 0 件のときは原因に応じた hint を画面に表示する。
+        # Issue #253: silent 0 件問題の切り分けのため DEBUG 診断 (stderr、両モード共通)。
         _log_models_list_diagnostic(
             container=container,
             api_keys=api_keys,
@@ -210,16 +211,51 @@ def list_models(
             route=route,
             preference_source=preference_source,
         )
+
+        if is_json_mode():
+            for row in display_rows:
+                emit_item(
+                    {
+                        "provider": row["provider"],
+                        "route": row["route"],
+                        "litellm_id": row["litellm_id"],
+                        "type": row["type_label"],
+                        "category": row["category"],
+                        "available": row.get("available", True),
+                        "deprecated": row["deprecated"],
+                    }
+                )
+            emit_result(
+                f"{len(display_rows)} model(s)",
+                count=len(display_rows),
+                preference=route.value,
+                preference_source=preference_source,
+                unavailable=unavailable_count,
+            )
+            return
+
+        table = _build_available_models_table(
+            display_rows=display_rows,
+            type_filter=type_filter,
+            category=category,
+            show_unavailable=show_unavailable,
+            include_deprecated=include_deprecated,
+        )
+        console.print(table)
+        if category is ModelCategoryFilter.all:
+            _print_rating_models_section(display_rows)
+        unavailable_suffix = f", unavailable={unavailable_count}" if unavailable_count > 0 else ""
+        console.print(
+            f"[dim]{len(display_rows)} model(s) "
+            f"(preference={route.value} from {preference_source}{unavailable_suffix})[/dim]"
+        )
+        # Issue #253: 0 件のときは原因に応じた hint を表示する。
         if not display_rows:
             _emit_zero_count_hint(
                 console=console,
                 api_keys_configured=bool(available_providers),
                 show_unavailable=show_unavailable,
             )
-    except Exception as e:
-        console.print(f"[red]Error:[/red] Failed to list models: {e}")
-        logger.error(f"Model list command failed: {e}", exc_info=True)
-        raise typer.Exit(code=1) from e
 
 
 def _build_available_models_table(
