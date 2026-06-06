@@ -24,14 +24,25 @@ import typer
 
 from lorairo.cli._console import make_console
 from lorairo.cli._emit import emit_error
-from lorairo.cli._errors import ErrorCode, ErrorInfo, classify_exception, hint_for
+from lorairo.cli._errors import (
+    ErrorCode,
+    ErrorInfo,
+    classify_exception,
+    hint_for,
+)
 from lorairo.cli._output_mode import is_json_mode
 
 # エラー/装飾は stderr へ (stdout は機械可読 JSONL 専用、ADR 0057 §1)。
 _console_err = make_console(stderr=True)
 
 
-def _report(message: str, info: ErrorInfo) -> None:
+def _error_details(exc: BaseException | None) -> dict[str, int] | None:
+    """Return structured error details for known CLI exceptions."""
+    details = getattr(exc, "details", None)
+    return details if isinstance(details, dict) else None
+
+
+def _report(message: str, info: ErrorInfo, exc: BaseException | None = None) -> None:
     """分類結果を出力モードに応じて出す (JSONL or rich/stderr)。"""
     if is_json_mode():
         emit_error(
@@ -40,6 +51,7 @@ def _report(message: str, info: ErrorInfo) -> None:
             retryable=info.retryable,
             user_action_required=info.user_action_required,
             hint=hint_for(info.code),
+            details=_error_details(exc),
         )
     else:
         _console_err.print(f"[red]Error:[/red] {message}")
@@ -68,10 +80,10 @@ def command_boundary() -> Iterator[None]:
         # 入力エラーとして INVALID_INPUT + exit 2 に統一する (ADR 0057 §6/§7)。
         info = ErrorInfo(ErrorCode.INVALID_INPUT, retryable=False, user_action_required=True)
         message = exc.format_message() if hasattr(exc, "format_message") else str(exc)
-        _report(message, info)
+        _report(message, info, exc)
         raise typer.Exit(code=info.exit_code) from exc
     except Exception as exc:
         info = classify_exception(exc)
         message = str(exc) or type(exc).__name__
-        _report(message, info)
+        _report(message, info, exc)
         raise typer.Exit(code=info.exit_code) from exc

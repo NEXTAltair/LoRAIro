@@ -275,3 +275,15 @@ class InvalidPathError(ValidationError):
     def __init__(self, path: str, reason: str) -> None:
         self.path = path
         super().__init__(f"パス '{path}' は無効です: {reason}")
+
+
+class ResultSetTooLargeError(ValidationError):
+    """検索結果または処理対象集合が CLI の 500 件上限を超えた場合に発生。"""
+
+    def __init__(self, matched: int, limit: int) -> None:
+        self.matched = matched
+        self.limit = limit
+        self.details = {"limit": limit, "matched": matched}
+        super().__init__(
+            f"{matched:,} 件が一致しました。検索条件を追加して {limit} 件以下に絞ってください。"
+        )

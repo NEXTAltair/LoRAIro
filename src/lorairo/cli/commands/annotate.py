@@ -13,6 +13,7 @@ from enum import Enum
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
+import click
 import typer
 from PIL import Image
 from rich.progress import (
@@ -31,12 +32,14 @@ if TYPE_CHECKING:
 from lorairo.api.batch_import import import_batch_annotations
 from lorairo.api.exceptions import (
     AnnotationFailedError,
-    APIKeyNotConfiguredError,
     BatchImportError,
-    ProjectNotFoundError,
+    ResultSetTooLargeError,
 )
 from lorairo.api.project import get_project as api_get_project
+from lorairo.cli._boundary import command_boundary
 from lorairo.cli._console import make_console
+from lorairo.cli._emit import emit_item, emit_result
+from lorairo.cli._output_mode import is_json_mode
 from lorairo.database.db_core import resolve_stored_path
 from lorairo.database.filter_criteria import ImageFilterCriteria
 from lorairo.services.model_registry_protocol import selection_includes_webapi_model
@@ -53,6 +56,9 @@ app = typer.Typer(help="Annotation commands")
 
 # Rich console (Issue #254: Windows では safe_box=True で ASCII 罫線)
 console = make_console()
+console_err = make_console(stderr=True)
+
+MAX_ANNOTATE_IMAGES = 500
 
 
 class LoadFailureAction(Enum):
@@ -64,6 +70,14 @@ class LoadFailureAction(Enum):
 
 class ImageLoadMemoryError(RuntimeError):
     """メモリ/リソース枯渇による致命的ロード失敗 (Issue #537)。"""
+
+
+class AnnotationSelectionError(RuntimeError):
+    """No images can be selected for annotation."""
+
+
+class AnnotationRunFailedError(RuntimeError):
+    """Annotation run finished without usable results."""
 
 
 def _classify_load_failure(exc: BaseException) -> LoadFailureAction:
@@ -158,7 +172,7 @@ def _load_batch_images(
                     opened.close()
                 logger.error(f"Fatal image load failure on {image_path.name}: {exc}", exc_info=True)
                 raise ImageLoadMemoryError(str(exc)) from exc
-            console.print(f"[yellow]Warning:[/yellow] Failed to load {image_path.name}: {exc}")
+            _status_console().print(f"[yellow]Warning:[/yellow] Failed to load {image_path.name}: {exc}")
             failed_count += 1
             continue
 
@@ -244,6 +258,11 @@ def _check_annotation_errors(
     return success_detected, error_detected_models
 
 
+def _status_console() -> Any:
+    """Return stderr console in JSON mode so stdout stays JSONL-only."""
+    return console_err if is_json_mode() else console
+
+
 @dataclass
 class _StreamAnnotateSummary:
     """ストリーミングアノテーションの全チャンク通算結果 (Issue #536)。"""
@@ -257,6 +276,71 @@ class _StreamAnnotateSummary:
     save_errors: int = 0
     any_success: bool = False
     error_models: set[str] = field(default_factory=set)
+
+
+def _annotation_value(value: Any, key: str, default: Any = None) -> Any:
+    """Return annotation payload value from dict-like or object-like results."""
+    if isinstance(value, dict):
+        return value.get(key, default)
+    return getattr(value, key, default)
+
+
+def _annotation_tags(result: Any) -> list[str]:
+    """Extract a compact tags list from an annotation result."""
+    raw_tags = _annotation_value(result, "tags")
+    if raw_tags is None:
+        raw_tags = _annotation_value(result, "keywords")
+    if raw_tags is None:
+        return []
+    if isinstance(raw_tags, dict):
+        return [str(tag) for tag in raw_tags]
+    if isinstance(raw_tags, (list, tuple, set)):
+        return [str(tag) for tag in raw_tags]
+    return [str(raw_tags)]
+
+
+def _annotation_score(result: Any) -> float | int | None:
+    """Extract a compact score/rating value from an annotation result."""
+    for key in ("score", "rating_score", "aesthetic_score"):
+        value = _annotation_value(result, key)
+        if isinstance(value, (int, float)):
+            return value
+    return None
+
+
+def _emit_annotation_items(results: Any, records_chunk: list[dict[str, Any]]) -> None:
+    """Emit one curated JSONL item per annotated image in the chunk."""
+    if not is_json_mode() or not results:
+        return
+
+    records_by_phash = {str(record.get("phash")): record for record in records_chunk}
+    for phash, model_results in results.items():
+        record = records_by_phash.get(str(phash), {})
+        models: list[dict[str, Any]] = []
+        if isinstance(model_results, dict):
+            iterable = model_results.items()
+        else:
+            iterable = []
+        for model_name, model_result in iterable:
+            error = _annotation_value(model_result, "error")
+            models.append(
+                {
+                    "model": str(model_name),
+                    "tags": _annotation_tags(model_result),
+                    "score": _annotation_score(model_result),
+                    "error": str(error) if error is not None else None,
+                }
+            )
+
+        emit_item(
+            {
+                "type": "annotation",
+                "image_id": record.get("id"),
+                "phash": str(phash),
+                "file_path": record.get("stored_image_path"),
+                "models": models,
+            }
+        )
 
 
 def _stream_annotate(
@@ -291,15 +375,21 @@ def _stream_annotate(
     """
     summary = _StreamAnnotateSummary()
 
-    with Progress(
-        SpinnerColumn(),
-        TextColumn("[progress.description]{task.description}"),
-        BarColumn(),
-        TextColumn("[progress.percentage]{task.percentage:>3.1f}%"),
-        TimeRemainingColumn(),
-        console=console,
-    ) as progress:
-        task = progress.add_task("Running annotation...", total=len(records_to_process))
+    progress_context: Any
+    if is_json_mode():
+        progress_context = _NullProgress()
+    else:
+        progress_context = Progress(
+            SpinnerColumn(),
+            TextColumn("[progress.description]{task.description}"),
+            BarColumn(),
+            TextColumn("[progress.percentage]{task.percentage:>3.1f}%"),
+            TimeRemainingColumn(),
+            console=console,
+        )
+
+    with progress_context as active_progress:
+        task = active_progress.add_task("Running annotation...", total=len(records_to_process))
 
         for chunk in _iter_record_batches(records_to_process, batch_size):
             original_chunk_size = len(chunk)
@@ -310,7 +400,7 @@ def _stream_annotate(
                 )
                 summary.preflight_skipped += skipped_count
                 if not chunk:
-                    progress.advance(task, advance=original_chunk_size)
+                    active_progress.advance(task, advance=original_chunk_size)
                     continue
 
             # Issue #537: FATAL (メモリ枯渇) は ImageLoadMemoryError で送出される。
@@ -319,11 +409,12 @@ def _stream_annotate(
             summary.total_failed += failed
 
             if not images:
-                progress.advance(task, advance=original_chunk_size)
+                active_progress.advance(task, advance=original_chunk_size)
                 continue
 
             try:
                 _annotate_and_save_chunk(
+                    records_chunk=chunk,
                     images=images,
                     annotator=annotator,
                     save_service=save_service,
@@ -334,9 +425,25 @@ def _stream_annotate(
                 for img in images:
                     img.close()
 
-            progress.advance(task, advance=original_chunk_size)
+            active_progress.advance(task, advance=original_chunk_size)
 
     return summary
+
+
+class _NullProgress:
+    """No-op context manager used to keep JSON mode stdout free of Rich progress."""
+
+    def __enter__(self) -> _NullProgress:
+        return self
+
+    def __exit__(self, *_args: object) -> None:
+        return None
+
+    def add_task(self, *_args: object, **_kwargs: object) -> None:
+        return None
+
+    def advance(self, *_args: object, **_kwargs: object) -> None:
+        return None
 
 
 def _apply_moderation_preflight_to_records(
@@ -361,12 +468,13 @@ def _apply_moderation_preflight_to_records(
     allowed = [path_to_record[path] for path in result.allowed_paths if path in path_to_record]
     skipped_count = result.skipped_count
     if skipped_count:
-        console.print(f"[yellow]Moderation preflight skipped {skipped_count} image(s)[/yellow]")
+        _status_console().print(f"[yellow]Moderation preflight skipped {skipped_count} image(s)[/yellow]")
     return passthrough_records + allowed, skipped_count
 
 
 def _annotate_and_save_chunk(
     *,
+    records_chunk: list[dict[str, Any]],
     images: list[Image.Image],
     annotator: Any,
     save_service: Any,
@@ -389,9 +497,8 @@ def _annotate_and_save_chunk(
         # Issue #245: AnnotatorLibraryAdapter.annotate は kwarg `litellm_model_ids` を受け取る。
         results = annotator.annotate(images, litellm_model_ids=resolved_litellm_ids)
     except Exception as e:
-        console.print(f"[red]Error:[/red] Annotation failed: {e}")
         logger.error(f"Annotation error: {e}", exc_info=True)
-        raise typer.Exit(code=1) from e
+        raise AnnotationFailedError(", ".join(resolved_litellm_ids), len(images), str(e)) from e
 
     if not results:
         return
@@ -405,13 +512,14 @@ def _annotate_and_save_chunk(
     summary.saved += save_result.success_count
     summary.skipped += save_result.skip_count
     summary.save_errors += save_result.error_count
+    _emit_annotation_items(results, records_chunk)
 
 
 def _finalize_annotation_run(summary: _StreamAnnotateSummary, resolved_litellm_ids: list[str]) -> None:
     """ストリーミング結果を検証し、サマリーを表示する (Issue #536)。
 
     全チャンク通算の集計に基づき、ロード不可・結果ゼロ・全モデル失敗を致命扱い
-    (``typer.Exit(code=1)``) とし、部分失敗は warning を表示する。最後に Rich Table
+    とし、部分失敗は warning を表示する。最後に Rich Table
     で結果サマリーを出力する。
 
     Args:
@@ -419,32 +527,20 @@ def _finalize_annotation_run(summary: _StreamAnnotateSummary, resolved_litellm_i
         resolved_litellm_ids: 解決済み litellm_model_id リスト (サマリー表示用)。
 
     Raises:
-        typer.Exit: ロード不可・結果ゼロ・全モデル失敗の場合 (code=1)。
+        AnnotationRunFailedError: ロード不可・結果ゼロ・全モデル失敗の場合。
     """
+    _validate_annotation_summary(summary)
+    if is_json_mode():
+        _emit_annotation_result(summary, resolved_litellm_ids)
+        return
+
     console.print(f"[green]Loaded {summary.total_loaded} image(s) ({summary.total_failed} failed)[/green]")
     if summary.preflight_skipped:
         console.print(f"[yellow]Moderation preflight skipped {summary.preflight_skipped} image(s)[/yellow]")
 
-    if summary.total_loaded == 0:
-        if summary.preflight_skipped > 0 and summary.total_failed == 0:
-            console.print(
-                "[green]Annotation completed: all selected images were skipped by preflight[/green]"
-            )
-            return
-        console.print("[red]Error:[/red] No images could be loaded for annotation")
-        raise typer.Exit(code=1)
-
-    # 全失敗判定の通算化 (Issue #536): 全チャンク通算で 1 件も成功結果が無く、
-    # かつエラーモデルがある場合は致命扱い (旧 _handle_annotation_results 相当)。
-    if summary.total_results == 0:
-        console.print("[red]Error:[/red] Annotation produced no results")
-        raise typer.Exit(code=1)
-
-    if not summary.any_success and summary.error_models:
-        console.print(
-            f"[red]Error:[/red] All annotation models failed: {', '.join(sorted(summary.error_models))}"
-        )
-        raise typer.Exit(code=1)
+    if summary.total_loaded == 0 and summary.preflight_skipped > 0 and summary.total_failed == 0:
+        console.print("[green]Annotation completed: all selected images were skipped by preflight[/green]")
+        return
     if summary.error_models:
         console.print(
             f"[yellow]Warning:[/yellow] Some models encountered errors: "
@@ -475,6 +571,33 @@ def _finalize_annotation_run(summary: _StreamAnnotateSummary, resolved_litellm_i
     console.print(f"\n[green]Annotation completed successfully! ({summary.saved} saved to DB)[/green]")
 
 
+def _validate_annotation_summary(summary: _StreamAnnotateSummary) -> None:
+    """Raise if the completed annotation stream has no usable result."""
+    if summary.total_loaded == 0:
+        if summary.preflight_skipped > 0 and summary.total_failed == 0:
+            return
+        raise AnnotationRunFailedError("No images could be loaded for annotation")
+    if summary.total_results == 0:
+        raise AnnotationRunFailedError("Annotation produced no results")
+    if not summary.any_success and summary.error_models:
+        raise AnnotationRunFailedError(
+            f"All annotation models failed: {', '.join(sorted(summary.error_models))}"
+        )
+
+
+def _emit_annotation_result(summary: _StreamAnnotateSummary, resolved_litellm_ids: list[str]) -> None:
+    """Emit the terminal JSONL result for annotate run."""
+    emit_result(
+        f"Annotated {summary.saved} image(s)",
+        annotated=summary.saved,
+        skipped=summary.skipped + summary.preflight_skipped + summary.total_failed,
+        errors=summary.save_errors + len(summary.error_models),
+        loaded=summary.total_loaded,
+        results=summary.total_results,
+        models=resolved_litellm_ids,
+    )
+
+
 def _get_deprecated_models_best_effort(annotator: Any, model_names: list[str]) -> list[str]:
     """廃止モデル一覧をbest-effortで取得する。
 
@@ -487,7 +610,7 @@ def _get_deprecated_models_best_effort(annotator: Any, model_names: list[str]) -
         ]
     except Exception as e:
         logger.warning(f"Deprecated model check skipped: {e}")
-        console.print(
+        _status_console().print(
             "[yellow]Warning:[/yellow] Deprecated model metadata is unavailable; continuing annotation."
         )
         return []
@@ -504,12 +627,11 @@ def _abort_if_discontinued(model: Any) -> None:
         typer.Exit: モデルが discontinued (`available=False`) の場合 (code=1)。
     """
     if not getattr(model, "available", True):
-        console.print(
-            f"[red]Error:[/red] Model '{model.litellm_model_id}' is discontinued / no longer "
+        raise click.UsageError(
+            f"Model '{model.litellm_model_id}' is discontinued / no longer "
             "provided by the annotation library and cannot be used. "
             "Run `lorairo-cli models list` to see available IDs."
         )
-        raise typer.Exit(code=1)
 
 
 def _resolve_model_identifier(repository: ModelRepository, identifier: str) -> str:
@@ -551,18 +673,15 @@ def _resolve_model_identifier(repository: ModelRepository, identifier: str) -> s
         candidate_lines = "\n".join(
             f"  - {m.litellm_model_id} (provider: {m.provider or 'unknown'})" for m in by_name
         )
-        console.print(
-            f"[red]Error:[/red] Ambiguous model '{identifier}':\n"
+        raise click.UsageError(
+            f"Ambiguous model '{identifier}':\n"
             f"{candidate_lines}\n"
             "Use the full LiteLLM model ID. Run `lorairo-cli models list` to see available IDs."
         )
-        raise typer.Exit(code=1)
 
-    console.print(
-        f"[red]Error:[/red] Unknown model '{identifier}'. "
-        "Run `lorairo-cli models list` to see available IDs."
+    raise click.UsageError(
+        f"Unknown model '{identifier}'. Run `lorairo-cli models list` to see available IDs."
     )
-    raise typer.Exit(code=1)
 
 
 def _validate_required_api_keys(
@@ -604,16 +723,16 @@ def _validate_required_api_keys(
     if not missing:
         return
 
-    console.print("[red]Error:[/red] Missing API keys for selected models:")
-    for litellm_id, missing_provider in missing:
-        console.print(f"  - {missing_provider}: required for {litellm_id}")
-    # Rich console は `[api]` のような bracket を tag として解釈するので、開く側のみ `\[` で escape する。
-    console.print(
-        "\nConfigure the missing keys in config/lorairo.toml \\[api] section, "
+    missing_lines = "\n".join(
+        f"  - {provider}: required for {litellm_id}" for litellm_id, provider in missing
+    )
+    raise click.UsageError(
+        "Missing API keys for selected models:\n"
+        f"{missing_lines}\n\n"
+        "Configure the missing keys in config/lorairo.toml [api] section, "
         "or pick a different route (e.g. `--model openai/...` instead of "
         "`--model openrouter/openai/...`)."
     )
-    raise typer.Exit(code=1)
 
 
 def _build_annotation_filter_criteria(
@@ -643,14 +762,11 @@ def _handle_no_image_records(
 ) -> None:
     """DB検索結果0件時のCLIエラーを表示して終了する。"""
     if filters_applied:
-        console.print(f"[red]Error:[/red] No images matched annotation filters for project '{project}'.")
-        raise typer.Exit(code=1)
+        raise AnnotationSelectionError(f"No images matched annotation filters for project '{project}'.")
 
-    console.print(
-        f"[red]Error:[/red] No registered images found in project '{project}'. "
-        "Run 'lorairo-cli images register' first."
+    raise AnnotationSelectionError(
+        f"No registered images found in project '{project}'. Run 'lorairo-cli images register' first."
     )
-    raise typer.Exit(code=1)
 
 
 def _print_annotation_filter_summary(
@@ -660,9 +776,9 @@ def _print_annotation_filter_summary(
 ) -> None:
     """適用中のannotate runフィルタを表示する。"""
     if unrated:
-        console.print("[cyan]Filter: unrated images only[/cyan]")
+        _status_console().print("[cyan]Filter: unrated images only[/cyan]")
     if missing_model_litellm_id is not None:
-        console.print(f"[cyan]Filter: missing model {missing_model_litellm_id}[/cyan]")
+        _status_console().print(f"[cyan]Filter: missing model {missing_model_litellm_id}[/cyan]")
 
 
 @app.command("run")
@@ -740,13 +856,9 @@ def run(
         lorairo-cli annotate run --project myproject \\
             --model openrouter/openai/gpt-4o --model openrouter/anthropic/claude-3-5-sonnet
     """
-    try:
+    with command_boundary():
         # API層経由でプロジェクト確認 & DB 接続切り替え
-        try:
-            api_get_project(project)
-        except ProjectNotFoundError as e:
-            console.print(f"[red]Error:[/red] Project not found: {project}")
-            raise typer.Exit(code=1) from e
+        api_get_project(project)
 
         container = get_service_container()
         container.set_active_project(project)
@@ -782,11 +894,14 @@ def run(
         )
 
         if not records_to_process:
-            console.print("[red]Error:[/red] No images selected for annotation")
-            raise typer.Exit(code=1)
+            raise AnnotationSelectionError("No images selected for annotation")
 
-        console.print(f"[cyan]Found {total_in_db} image(s) in DB[/cyan]")
-        console.print(f"[cyan]Using model(s): {', '.join(resolved_litellm_ids)}[/cyan]")
+        if len(records_to_process) > MAX_ANNOTATE_IMAGES:
+            raise ResultSetTooLargeError(len(records_to_process), MAX_ANNOTATE_IMAGES)
+
+        target_console = _status_console()
+        target_console.print(f"[cyan]Found {total_in_db} image(s) in DB[/cyan]")
+        target_console.print(f"[cyan]Using model(s): {', '.join(resolved_litellm_ids)}[/cyan]")
         # #543 の DB レベルフィルタ (--unrated / --missing-model) のサマリー。
         # eager な "Loaded N" 行は streaming では _finalize_annotation_run が
         # summary.total_loaded から出力するため、ここでは出さない (Issue #536)。
@@ -800,7 +915,7 @@ def run(
 
         deprecated_models = _get_deprecated_models_best_effort(annotator, resolved_litellm_ids)
         for deprecated_model in deprecated_models:
-            console.print(f"[yellow]Warning: Model '{deprecated_model}' is deprecated[/yellow]")
+            target_console.print(f"[yellow]Warning: Model '{deprecated_model}' is deprecated[/yellow]")
 
         # Issue #241: 実行直前に LoRAIro 側で API key 不足を事前検出する。
         # 旧実装は「3 種類キー全部無いとき警告」だけで、片方の provider key だけ
@@ -809,7 +924,7 @@ def run(
         _validate_required_api_keys(model_repo, config, resolved_litellm_ids)
 
         # アノテーション実行 (Issue #536: チャンクストリーミング)
-        console.print("[cyan]Starting annotation...[/cyan]")
+        target_console.print("[cyan]Starting annotation...[/cyan]")
         try:
             should_preflight = selection_includes_webapi_model(resolved_litellm_ids, annotator)
         except Exception as e:
@@ -832,28 +947,16 @@ def run(
                 moderation_runner=build_annotation_logic_runner(moderation_logic.execute_annotation),
             )
 
-        try:
-            summary = _stream_annotate(
-                records_to_process=records_to_process,
-                batch_size=batch_size,
-                annotator=annotator,
-                save_service=container.annotation_save_service,
-                resolved_litellm_ids=resolved_litellm_ids,
-                moderation_preflight_service=moderation_preflight_service,
-            )
-        except ImageLoadMemoryError as e:
-            console.print(f"[red]Error:[/red] Memory/resource exhaustion during image load: {e}")
-            logger.error(f"Fatal image load failure: {e}", exc_info=True)
-            raise typer.Exit(code=1) from e
+        summary = _stream_annotate(
+            records_to_process=records_to_process,
+            batch_size=batch_size,
+            annotator=annotator,
+            save_service=container.annotation_save_service,
+            resolved_litellm_ids=resolved_litellm_ids,
+            moderation_preflight_service=moderation_preflight_service,
+        )
 
         _finalize_annotation_run(summary, resolved_litellm_ids)
-
-    except typer.Exit:
-        raise
-    except Exception as e:
-        console.print(f"[red]Error:[/red] {e}")
-        logger.error(f"Command error: {e}", exc_info=True)
-        raise typer.Exit(code=2) from e
 
 
 def _display_batch_import_result(result: BatchImportResult, *, dry_run: bool) -> None:
@@ -949,7 +1052,7 @@ def import_batch(
         lorairo-cli annotate import-batch jsonl/ -p main_dataset_20250707_001
         lorairo-cli annotate import-batch jsonl/ -p my_project --dry-run
     """
-    try:
+    with command_boundary():
         get_service_container().set_active_project(project)
         result = import_batch_annotations(
             jsonl_dir,
@@ -957,17 +1060,19 @@ def import_batch(
             dry_run=dry_run,
             model_name_override=model_name,
         )
-        _display_batch_import_result(result, dry_run=dry_run)
+        if is_json_mode():
+            emit_result(
+                f"Imported {result.saved} batch annotation(s)",
+                total_records=result.total_records,
+                parsed_ok=result.parsed_ok,
+                parse_errors=result.parse_errors,
+                matched=result.matched,
+                unmatched=result.unmatched,
+                saved=result.saved,
+                save_errors=result.save_errors,
+                model_name=result.model_name,
+                dry_run=dry_run,
+            )
+            return
 
-    except ProjectNotFoundError as e:
-        console.print(f"[red]Error:[/red] {e}")
-        raise typer.Exit(code=1) from e
-    except BatchImportError as e:
-        console.print(f"[red]Error:[/red] {e}")
-        raise typer.Exit(code=1) from e
-    except typer.Exit:
-        raise
-    except Exception as e:
-        console.print(f"[red]Error:[/red] {e}")
-        logger.error(f"Batch import error: {e}", exc_info=True)
-        raise typer.Exit(code=2) from e
+        _display_batch_import_result(result, dry_run=dry_run)
