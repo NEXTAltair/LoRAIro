@@ -278,7 +278,12 @@ class InvalidPathError(ValidationError):
 
 
 class ResultSetTooLargeError(ValidationError):
-    """検索結果または処理対象集合が CLI の 500 件上限を超えた場合に発生。"""
+    """検索結果が bounded pagination の取得上限を超えた場合に発生。
+
+    Args:
+        matched: フィルタ条件に一致した総件数。
+        limit: 取得可能な最大件数。
+    """
 
     def __init__(self, matched: int, limit: int) -> None:
         self.matched = matched
