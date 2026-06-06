@@ -1572,24 +1572,25 @@ class ImageRepository(BaseRepository):
         if score_min is None and score_max is None:
             return query
 
-        # DB値（0.0-10.0）で直接比較
+        # 0.0-10.0 表示スコアで比較 (Issue #626: display_score 使用)
         db_min = score_min if score_min is not None else 0.0
         db_max = score_max if score_max is not None else 10.0
 
-        # 指定範囲内のスコアを持つ画像のみを含める
+        # display_score が存在する行のみ対象にし、表示スコアで範囲フィルタ
         score_condition = (
             exists()
             .where(
                 Score.image_id == Image.id,
-                Score.score >= db_min,
-                Score.score <= db_max,
+                Score.display_score.isnot(None),
+                Score.display_score >= db_min,
+                Score.display_score <= db_max,
             )
             .correlate(Image)
         )
 
         query = query.where(score_condition)
         logger.debug(
-            f"Score filter applied: {db_min:.2f} - {db_max:.2f}",
+            f"Score filter applied (display_score): {db_min:.2f} - {db_max:.2f}",
         )
 
         return query
@@ -2338,6 +2339,86 @@ class ImageRepository(BaseRepository):
 
             except SQLAlchemyError as e:
                 logger.error(f"画像件数取得中にエラーが発生しました: {e}", exc_info=True)
+                raise
+
+    def get_image_list_page(
+        self,
+        criteria: ImageFilterCriteria | None = None,
+        **kwargs: Any,
+    ) -> tuple[list[dict[str, Any]], int]:
+        """画像一覧用の軽量 projection と総件数を取得する。
+
+        ``images list --fetch`` 用に ``image_id`` と ``file_path`` だけを返す。
+        フィルタ、stable ``Image.id`` 昇順、``limit``/``offset`` は DB クエリへ
+        pushdown し、タグ・キャプション等の重い annotation metadata は読み込まない。
+
+        Args:
+            criteria: ImageFilterCriteria形式のフィルター条件（推奨）
+            **kwargs: レガシー形式のキーワード引数（後方互換性用）
+
+        Returns:
+            (一覧行, フィルタ総件数)。一覧行は ``image_id`` / ``file_path`` のみ。
+        """
+        filter_criteria = criteria if criteria else ImageFilterCriteria.from_kwargs(**kwargs)
+
+        with self.session_factory() as session:
+            try:
+                filtered_query = self._build_image_filter_query(
+                    session=session,
+                    tags=filter_criteria.tags,
+                    excluded_tags=filter_criteria.excluded_tags,
+                    caption=filter_criteria.caption,
+                    use_and=filter_criteria.use_and,
+                    start_date=filter_criteria.start_date,
+                    end_date=filter_criteria.end_date,
+                    include_untagged=filter_criteria.include_untagged,
+                    include_nsfw=filter_criteria.include_nsfw,
+                    include_unrated=filter_criteria.include_unrated,
+                    only_unrated=filter_criteria.only_unrated,
+                    missing_model_litellm_id=filter_criteria.missing_model_litellm_id,
+                    manual_rating_filter=filter_criteria.manual_rating_filter,
+                    ai_rating_filter=filter_criteria.ai_rating_filter,
+                    manual_edit_filter=filter_criteria.manual_edit_filter,
+                    score_min=filter_criteria.score_min,
+                    score_max=filter_criteria.score_max,
+                    project_name=filter_criteria.project_name,
+                    project_id=filter_criteria.project_id,
+                )
+                filtered_query = self._apply_processed_resolution_filter(
+                    filtered_query, filter_criteria.resolution
+                )
+
+                count_query = select(func.count()).select_from(filtered_query.subquery())
+                total_count = session.execute(count_query).scalar_one()
+                if total_count == 0:
+                    return [], 0
+
+                ids_subquery = filtered_query.order_by(Image.id)
+                if filter_criteria.offset:
+                    ids_subquery = ids_subquery.offset(filter_criteria.offset)
+                if filter_criteria.limit is not None:
+                    ids_subquery = ids_subquery.limit(filter_criteria.limit)
+
+                image_ids = list(session.execute(ids_subquery).scalars().all())
+                if not image_ids:
+                    return [], total_count
+
+                rows = session.execute(
+                    select(Image.id, Image.stored_image_path, Image.filename)
+                    .where(Image.id.in_(image_ids))
+                    .order_by(Image.id)
+                ).all()
+                page = [
+                    {
+                        "image_id": row.id,
+                        "file_path": str(row.stored_image_path or row.filename or ""),
+                    }
+                    for row in rows
+                ]
+                return page, total_count
+
+            except SQLAlchemyError as e:
+                logger.error(f"画像一覧ページ取得中にエラーが発生しました: {e}", exc_info=True)
                 raise
 
     # --- Count ---

@@ -1,5 +1,6 @@
 """Image management commands テスト。"""
 
+import json
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
@@ -203,111 +204,101 @@ def test_images_list_help() -> None:
 @pytest.mark.unit
 @pytest.mark.cli
 def test_images_list_shows_registered_images(mock_projects_dir: Path, test_images_dir: Path) -> None:
-    """Test: images list - 登録済み画像をテーブル表示する。"""
+    """Test: images list - デフォルトは件数のみを表示する。"""
     runner.invoke(app, ["project", "create", "test-project"])
     runner.invoke(app, ["images", "register", str(test_images_dir), "--project", "test-project"])
 
     result = runner.invoke(app, ["images", "list", "--project", "test-project"])
 
     assert result.exit_code == 0
-    assert "Images in project: test-project" in result.stdout
-    assert "ID" in result.stdout
-    assert "Filename" in result.stdout
-    assert "Tags" in result.stdout
-    assert "Annotated" in result.stdout
+    assert "image(s) found in project: test-project" in result.stdout
+    assert "ID" not in result.stdout
+    assert "Filename" not in result.stdout
 
 
 @pytest.mark.unit
 @pytest.mark.cli
-def test_images_list_displays_tag_count_from_tags_list(mock_projects_dir: Path) -> None:
-    """Test: images list - tags リストの長さがそのまま Tag 列に出る。"""
+def test_images_list_fetch_outputs_plain_id_path_rows(mock_projects_dir: Path) -> None:
+    """Test: images list --fetch - human output は image_id<TAB>file_path の plain 行。"""
     runner.invoke(app, ["project", "create", "test-project"])
 
     fake_records = [
         {
-            "id": 1,
-            "stored_image_path": "/path/img.jpg",
-            "tags": [
-                {"id": 1, "tag": "cat"},
-                {"id": 2, "tag": "dog"},
-            ],
-            "captions": [],
-            "scores": [],
-            "ratings": [],
+            "image_id": 1,
+            "file_path": "/path/img.jpg",
         },
     ]
     with patch("lorairo.cli.commands.images.get_service_container") as mock_get_container:
         mock_container = MagicMock()
-        mock_container.db_manager.image_repo.get_images_by_filter.return_value = (fake_records, 1)
+        mock_container.db_manager.image_repo.get_images_count_only.return_value = 1
+        mock_container.db_manager.image_repo.get_image_list_page.return_value = (fake_records, 1)
         mock_get_container.return_value = mock_container
 
-        result = runner.invoke(app, ["images", "list", "--project", "test-project"])
+        result = runner.invoke(app, ["images", "list", "--project", "test-project", "--fetch"])
 
     assert result.exit_code == 0
-    assert "img.jpg" in result.stdout
-    # タグ件数 2 と Annotated=Yes が両方表示されることを検証
-    assert "2" in result.stdout
-    assert "Yes" in result.stdout
+    assert result.stdout == "1\t/path/img.jpg\n"
 
 
 @pytest.mark.unit
 @pytest.mark.cli
-def test_images_list_annotated_yes_when_only_captions(mock_projects_dir: Path) -> None:
-    """Test: images list - tags 空でも captions があれば Annotated=Yes。"""
+def test_images_list_fetch_json_outputs_items_and_result_meta(mock_projects_dir: Path) -> None:
+    """Test: images list --fetch --json - item 行と件数メタを出力する。"""
     runner.invoke(app, ["project", "create", "test-project"])
 
     fake_records = [
         {
-            "id": 1,
-            "stored_image_path": "/path/img.jpg",
-            "tags": [],
-            "captions": [{"id": 1, "caption": "a cat"}],
-            "scores": [],
-            "ratings": [],
+            "image_id": 1,
+            "file_path": "/path/img.jpg",
         },
     ]
     with patch("lorairo.cli.commands.images.get_service_container") as mock_get_container:
         mock_container = MagicMock()
-        mock_container.db_manager.image_repo.get_images_by_filter.return_value = (fake_records, 1)
+        mock_container.db_manager.image_repo.get_images_count_only.return_value = 1
+        mock_container.db_manager.image_repo.get_image_list_page.return_value = (fake_records, 1)
         mock_get_container.return_value = mock_container
 
-        result = runner.invoke(app, ["images", "list", "--project", "test-project"])
+        result = runner.invoke(
+            app, ["--json", "images", "list", "--project", "test-project", "--fetch", "--limit", "1"]
+        )
 
     assert result.exit_code == 0
-    assert "Yes" in result.stdout
+    lines = [json.loads(line) for line in result.stdout.splitlines()]
+    assert lines[0] == {"kind": "item", "image_id": 1, "file_path": "/path/img.jpg"}
+    assert lines[1]["kind"] == "result"
+    assert lines[1]["count"] == 1
+    assert lines[1]["total"] == 1
+    assert lines[1]["limit"] == 1
+    assert lines[1]["offset"] == 0
+    assert lines[1]["has_more"] is False
 
 
 @pytest.mark.unit
 @pytest.mark.cli
-def test_images_list_no_annotation_shows_no(mock_projects_dir: Path) -> None:
-    """Test: images list - 何のアノテーションも無いとき Annotated=No。"""
+def test_images_list_fetch_total_over_cap_errors_before_items(mock_projects_dir: Path) -> None:
+    """Test: images list --fetch - total 500 超は RESULT_SET_TOO_LARGE で item を出さない。"""
     runner.invoke(app, ["project", "create", "test-project"])
 
-    fake_records = [
-        {
-            "id": 1,
-            "stored_image_path": "/path/img.jpg",
-            "tags": [],
-            "captions": [],
-            "scores": [],
-            "ratings": [],
-        },
-    ]
     with patch("lorairo.cli.commands.images.get_service_container") as mock_get_container:
         mock_container = MagicMock()
-        mock_container.db_manager.image_repo.get_images_by_filter.return_value = (fake_records, 1)
+        mock_container.db_manager.image_repo.get_images_count_only.return_value = 501
         mock_get_container.return_value = mock_container
 
-        result = runner.invoke(app, ["images", "list", "--project", "test-project"])
+        result = runner.invoke(app, ["--json", "images", "list", "--project", "test-project", "--fetch"])
 
-    assert result.exit_code == 0
-    assert "No" in result.stdout
+    assert result.exit_code == 2
+    lines = [json.loads(line) for line in result.stdout.splitlines()]
+    assert len(lines) == 1
+    assert lines[0]["kind"] == "error"
+    assert lines[0]["code"] == "RESULT_SET_TOO_LARGE"
+    assert lines[0]["details"] == {"limit": 500, "matched": 501}
+    mock_container.db_manager.image_repo.get_image_list_page.assert_not_called()
 
 
 @pytest.mark.unit
 @pytest.mark.cli
 def test_images_list_reflects_update_tags(mock_projects_dir: Path, test_images_dir: Path) -> None:
-    """Test: images update でタグを追加した後、images list が件数を反映する。"""
+    """Test: images update 後も images list の count が取得できる。"""
     runner.invoke(app, ["project", "create", "test-project"])
     runner.invoke(app, ["images", "register", str(test_images_dir), "--project", "test-project"])
     runner.invoke(app, ["images", "update", "--project", "test-project", "--tags", "cat,dog"])
@@ -315,8 +306,7 @@ def test_images_list_reflects_update_tags(mock_projects_dir: Path, test_images_d
     result = runner.invoke(app, ["images", "list", "--project", "test-project"])
 
     assert result.exit_code == 0
-    # 直前に 2 タグを追加したので Annotated=Yes になっているはず
-    assert "Yes" in result.stdout
+    assert "image(s) found in project: test-project" in result.stdout
 
 
 @pytest.mark.unit
@@ -328,38 +318,37 @@ def test_images_list_no_images_shows_message(mock_projects_dir: Path) -> None:
     result = runner.invoke(app, ["images", "list", "--project", "test-project"])
 
     assert result.exit_code == 0
-    assert "No images found" in result.stdout
+    assert "0 image(s) found" in result.stdout
 
 
 @pytest.mark.unit
 @pytest.mark.cli
-def test_images_list_with_limit(mock_projects_dir: Path) -> None:
-    """Test: images list --limit - 件数を制限して表示する。"""
+def test_images_list_fetch_with_limit_and_offset(mock_projects_dir: Path) -> None:
+    """Test: images list --fetch --limit/--offset - criteria に pushdown する。"""
     runner.invoke(app, ["project", "create", "test-project"])
 
     fake_records = [
         {
-            "id": i,
-            "stored_image_path": f"/path/image{i}.jpg",
-            "tags": [],
-            "captions": [],
-            "scores": [],
-            "ratings": [],
+            "image_id": 2,
+            "file_path": "/path/image2.jpg",
         }
-        for i in range(1, 4)
     ]
     with patch("lorairo.cli.commands.images.get_service_container") as mock_get_container:
         mock_container = MagicMock()
-        mock_container.db_manager.image_repo.get_images_by_filter.return_value = (fake_records[:1], 3)
+        mock_container.db_manager.image_repo.get_images_count_only.return_value = 3
+        mock_container.db_manager.image_repo.get_image_list_page.return_value = (fake_records, 3)
         mock_get_container.return_value = mock_container
 
-        result = runner.invoke(app, ["images", "list", "--project", "test-project", "--limit", "1"])
+        result = runner.invoke(
+            app,
+            ["images", "list", "--project", "test-project", "--fetch", "--limit", "1", "--offset", "1"],
+        )
 
     assert result.exit_code == 0
-    criteria = mock_container.db_manager.image_repo.get_images_by_filter.call_args.args[0]
+    criteria = mock_container.db_manager.image_repo.get_image_list_page.call_args.args[0]
     assert criteria.limit == 1
-    assert "Images in project: test-project" in result.stdout
-    assert "Showing 1 of 3" in result.stdout
+    assert criteria.offset == 1
+    assert result.stdout == "2\t/path/image2.jpg\n"
 
 
 @pytest.mark.unit
@@ -368,28 +357,18 @@ def test_images_list_unrated_passes_only_unrated_criteria(mock_projects_dir: Pat
     """Test: images list --unrated は rating 未保存画像のみに絞る criteria を渡す。"""
     runner.invoke(app, ["project", "create", "test-project"])
 
-    fake_records = [
-        {
-            "id": 1,
-            "stored_image_path": "/path/image1.jpg",
-            "tags": [],
-            "captions": [],
-            "scores": [],
-            "ratings": [],
-        }
-    ]
     with patch("lorairo.cli.commands.images.get_service_container") as mock_get_container:
         mock_container = MagicMock()
-        mock_container.db_manager.image_repo.get_images_by_filter.return_value = (fake_records, 1)
+        mock_container.db_manager.image_repo.get_images_count_only.return_value = 1
         mock_get_container.return_value = mock_container
 
         result = runner.invoke(app, ["images", "list", "--project", "test-project", "--unrated"])
 
     assert result.exit_code == 0
-    criteria = mock_container.db_manager.image_repo.get_images_by_filter.call_args.args[0]
+    criteria = mock_container.db_manager.image_repo.get_images_count_only.call_args.args[0]
     assert criteria.include_nsfw is True
     assert criteria.only_unrated is True
-    assert "unrated only" in result.stdout
+    assert "without ratings" in result.stdout
 
 
 @pytest.mark.unit

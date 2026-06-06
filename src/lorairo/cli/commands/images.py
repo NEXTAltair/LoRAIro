@@ -14,7 +14,7 @@ import click
 import typer
 from rich.table import Table
 
-from lorairo.api.exceptions import ImageNotFoundError
+from lorairo.api.exceptions import ImageNotFoundError, ResultSetTooLargeError
 from lorairo.api.images import register_images as api_register_images
 from lorairo.api.project import get_project as api_get_project
 from lorairo.api.types import RegistrationResult
@@ -32,6 +32,8 @@ app = typer.Typer(help="Image management commands")
 
 # Rich console (Issue #254: Windows では safe_box=True で ASCII 罫線)
 console = make_console()
+
+MAX_IMAGE_LIST_FETCH = 500
 
 
 def _print_registration_summary(result: RegistrationResult, project: str) -> None:
@@ -187,12 +189,24 @@ def list_images(
         "-p",
         help="Project name",
     ),
-    limit: int | None = typer.Option(
-        None,
+    fetch: bool = typer.Option(
+        False,
+        "--fetch",
+        help="Fetch image_id and file_path rows. Without this flag only the matching count is shown.",
+    ),
+    limit: int = typer.Option(
+        MAX_IMAGE_LIST_FETCH,
         "--limit",
         "-l",
+        max=MAX_IMAGE_LIST_FETCH,
         min=1,
-        help="Maximum number of images to display (>= 1)",
+        help=f"Maximum number of image rows to fetch (1-{MAX_IMAGE_LIST_FETCH})",
+    ),
+    offset: int = typer.Option(
+        0,
+        "--offset",
+        min=0,
+        help="Number of matching images to skip before fetching rows.",
     ),
     unrated: bool = typer.Option(
         False,
@@ -211,63 +225,51 @@ def list_images(
         container.set_active_project(project)
 
         repository = container.db_manager.image_repo
-        criteria = ImageFilterCriteria(include_nsfw=True, only_unrated=unrated, limit=limit)
-        image_records, total_count = repository.get_images_by_filter(criteria)
+        count_criteria = ImageFilterCriteria(include_nsfw=True, only_unrated=unrated)
+        total_count = repository.get_images_count_only(count_criteria)
+
+        if not fetch:
+            suffix = " without ratings" if unrated else ""
+            message = f"{total_count} image(s){suffix} found in project: {project}"
+            if is_json_mode():
+                emit_result(message, count=total_count)
+            else:
+                console.print(message)
+            return
+
+        if total_count > MAX_IMAGE_LIST_FETCH:
+            raise ResultSetTooLargeError(matched=total_count, limit=MAX_IMAGE_LIST_FETCH)
+
+        fetch_criteria = ImageFilterCriteria(
+            include_nsfw=True,
+            only_unrated=unrated,
+            limit=limit,
+            offset=offset,
+        )
+        image_records, total_count = repository.get_image_list_page(fetch_criteria)
+        count = len(image_records)
+        has_more = offset + count < total_count
 
         if is_json_mode():
             for record in image_records:
-                filename = Path(record.get("stored_image_path", "")).name or str(record.get("filename", ""))
-                has_any_annotation = bool(
-                    record.get("tags")
-                    or record.get("captions")
-                    or record.get("scores")
-                    or record.get("ratings")
-                )
                 emit_item(
                     {
-                        "id": record.get("id"),
-                        "filename": filename,
-                        "tags": len(record.get("tags") or []),
-                        "annotated": has_any_annotation,
+                        "image_id": record.get("image_id"),
+                        "file_path": record.get("file_path"),
                     }
                 )
             emit_result(
-                f"{len(image_records)} image(s)",
-                count=len(image_records),
+                f"{count} image(s)",
+                count=count,
                 total=total_count,
+                limit=limit,
+                offset=offset,
+                has_more=has_more,
             )
             return
-
-        if not image_records:
-            suffix = " without ratings" if unrated else ""
-            console.print(f"No images{suffix} found in project: {project}")
-            return
-
-        heading_suffix = " (unrated only)" if unrated else ""
-        console.print(f"Images in project: {project}{heading_suffix}")
-        table = Table()
-        table.add_column("ID", style="cyan")
-        table.add_column("Filename")
-        table.add_column("Tags", style="green")
-        table.add_column("Annotated", style="yellow")
 
         for record in image_records:
-            image_id = str(record.get("id", ""))
-            filename = Path(record.get("stored_image_path", "")).name or str(record.get("filename", ""))
-            tag_count = len(record.get("tags") or [])
-            has_any_annotation = bool(
-                record.get("tags")
-                or record.get("captions")
-                or record.get("scores")
-                or record.get("ratings")
-            )
-            annotated = "Yes" if has_any_annotation else "No"
-            table.add_row(image_id, filename, str(tag_count), annotated)
-
-        console.print(table)
-
-        if limit and total_count > limit:
-            console.print(f"Showing {limit} of {total_count} images.")
+            print(f"{record.get('image_id')}\t{record.get('file_path')}")
 
 
 @app.command("update")

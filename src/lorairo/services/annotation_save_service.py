@@ -15,7 +15,7 @@ from lorairo.database.repository.error_record import ErrorRecordRepository
 from lorairo.database.repository.image import ImageRepository
 from lorairo.database.repository.model import ModelRepository
 from lorairo.domain.rating_mapper import map_rating
-from lorairo.domain.score_scaler import is_ai_scored_model, positive_key_for
+from lorairo.domain.score_scaler import calibrate_to_display, is_ai_scored_model, positive_key_for
 from lorairo.utils.log import logger
 
 if TYPE_CHECKING:
@@ -176,10 +176,12 @@ class AnnotationSaveService:
                     f"スコア保存をスキップ: keys={list(scores.keys())}"
                 )
                 return
+            raw = float(scores[positive_key])
             result["scores"].append(
                 {
                     "model_id": model_id,
-                    "score": float(scores[positive_key]),
+                    "score": raw,
+                    "display_score": calibrate_to_display(model_name, raw),
                     "is_edited_manually": False,
                 }
             )
@@ -187,8 +189,14 @@ class AnnotationSaveService:
 
         # 未知 scorer: 後方互換で全 key を保存する。
         for _name, value in scores.items():
+            raw = float(value)
             result["scores"].append(
-                {"model_id": model_id, "score": float(value), "is_edited_manually": False}
+                {
+                    "model_id": model_id,
+                    "score": raw,
+                    "display_score": calibrate_to_display(model_name, raw),
+                    "is_edited_manually": False,
+                }
             )
 
     def _append_rating_row(self, model_id: int, ratings: Any, result: AnnotationsDict) -> None:
