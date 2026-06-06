@@ -162,7 +162,8 @@ flowchart TD
 - 検索 / list 系コマンドは既定で count を返すよう改修する (`images list` は ADR 0049 で records 既定だが、
   本 ADR で count 既定 + `--fetch` 明示に変更する)。flag 名・projection 最終確定は #640 / #641。
 - `RESULT_SET_TOO_LARGE` を ADR 0057 の error code セットに追加し (14 → 15 種)、処理系 500 cap の弾き
-  コードを `INVALID_INPUT` から本コードへ統一する (本 ADR の Amendment、0057 を改定)。
+  コードを `INVALID_INPUT` から本コードへ統一する (本 ADR の Amendment 節参照)。**この 0057 本体への適用は
+  本 ADR が Accepted になった時点で行い、それまで 0057 は無編集のまま (確定済み契約に未承認の変更を混ぜない)**。
 - count は軽量 COUNT(*) で実装し、fetch とは別経路にする (ADR 0056 count-only 方針の延長)。
 - `--fetch` の `image_id` 出力は ADR 0055 のステージング集合として annotate / export / images update の
   `--image-id` にパイプできる。#638 で別 Issue に切り出した「検索 → ID 集合 → 各処理」の二段構えが、本 ADR の
@@ -172,17 +173,25 @@ flowchart TD
   プレーン行へ変更する (#641)。
 - ADR 0057 / 0058 / 0059 と本 ADR で epic #634 の契約系 ADR が出揃い、残りは実装 Issue (#640 / #641)。
 
-## ADR 0057 への Amendment
+## ADR 0057 への Amendment (本 ADR が Accepted になった時点で 0057 に適用)
 
-ADR 0057 §3 / §4 を本 ADR が以下のとおり改定する (0057 側にも Amendment 注記を付す):
+本 ADR が Accepted になった時点で、ADR 0057 §3 / §4 / §6 を以下のとおり改定する。**本 ADR が Proposed の
+間は 0057 を一切編集しない** — 確定済み (Accepted) の 0057 契約に未承認の変更を物理的に混ぜると、0057 の
+Decision 節だけを読んだ実装者が未確定の 15 コード契約を実装してしまうため。改定内容の SSoT は本 ADR とし、
+0057 本体・README への反映は本 ADR の Accept 昇格 (= 本 PR の merge) と同時に行う:
 
 1. **§4 エラーコード**: `RESULT_SET_TOO_LARGE` (区分: 拡張、`retryable=false` / `user_action_required=true`、
-   主因: 結果が 500 上限超 → 検索条件を絞る) を追加し全 15 種とする。
+   主因: 結果が 500 上限超 → 検索条件を絞る) を追加し全 15 種とする。本文の「全 14 種」も 15 種に更新する。
 2. **§3 500 cap**: 処理系バッチ (annotate / export / images update) の 500 超過の弾きコードを
    `INVALID_INPUT` から `RESULT_SET_TOO_LARGE` に変更する。recourse (sharding 等) の記述は変更しない。
-3. **§3 read/list の扱い**: 「read/list はキャップ対象外、pagination は #639」という委譲を、本 ADR が
+3. **§6 exit code**: `RESULT_SET_TOO_LARGE` を exit 2 (入力・検証) に割り当てる (従来 `INVALID_INPUT` が
+   担っていた cap 違反の exit を維持し、runtime exit 1 に落とさない)。
+4. **§3 read/list の扱い**: 「read/list はキャップ対象外、pagination は #639」という委譲を、本 ADR が
    「read/list も基本 500 で bound するが、count 既定 + fetch 明示という別形式で実現する (処理系の
    処理前ハード弾きとは UX が異なる)」と具体化する。
+
+> 実務上の運用: 本 PR は Proposed の間 merge しない (ADR 0057/0058/0059 と同じ merge-hold)。Accept 昇格時に
+> 上記 1〜4 を 0057 本体へ適用し、README の 0057 ステータスを「Accepted (amended by 0060)」に更新する。
 
 ## 関連
 
