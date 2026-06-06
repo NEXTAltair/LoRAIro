@@ -32,7 +32,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from itertools import pairwise
 
-MAPPING_VERSION: str = "score-scaler-v1"
+MAPPING_VERSION: str = "score-scaler-v2"
 """calibration table の version 識別子。マッピングを変更する際に bump する。"""
 
 DISPLAY_MIN: float = 0.0
