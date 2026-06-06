@@ -104,8 +104,8 @@ def _build_container(image_files: list[Path]) -> MagicMock:
     )
     mock_container.annotator_library = mock_annotator
     mock_container.config_service = mock_config
-    mock_container.annotation_save_service.save_annotation_results.side_effect = lambda results: (
-        AnnotationSaveResult(
+    mock_container.annotation_save_service.save_annotation_results.side_effect = (
+        lambda results, *, allowed_image_ids=None: AnnotationSaveResult(
             success_count=len(results),
             skip_count=0,
             error_count=0,
