@@ -62,7 +62,7 @@ LoRAIro の重要な設計判断を記録するドキュメント群。
 | [0056](0056-exact-set-selector-id-count-guard.md) | exact-set selector の大量ID集合ガード / count-only 軽量化方針 | 2026-06-05 | Accepted |
 | [0057](0057-cli-jsonl-output-and-error-contract.md) | CLI Machine-Readable (JSONL) Output and Error Contract | 2026-06-05 | Accepted |
 | [0058](0058-cli-output-mode-trigger-and-entrypoint-policy.md) | CLI Output Mode Trigger and Entry-Point Policy | 2026-06-05 | Accepted |
-| [0059](0059-cli-command-introspection.md) | CLI Command Introspection Contract | 2026-06-06 | Proposed |
+| [0059](0059-cli-command-introspection.md) | CLI Command Introspection Contract | 2026-06-06 | Accepted |
 | [0061](0061-phash-duplicate-variant-classification.md) | 登録パイプライン再設計 — pHash 候補の重複/別版分類 | 2026-06-05 | Accepted |
 | [0062](0062-batch-custom-id-phash-long-edge.md) | Provider Batch custom_id を pHash + 長辺解像度基準へ統一 | 2026-06-05 | Accepted |
 
