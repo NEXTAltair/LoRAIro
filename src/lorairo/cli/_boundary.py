@@ -19,15 +19,30 @@ from __future__ import annotations
 from collections.abc import Iterator
 from contextlib import contextmanager
 
+import click
 import typer
 
 from lorairo.cli._console import make_console
 from lorairo.cli._emit import emit_error
-from lorairo.cli._errors import classify_exception, hint_for
+from lorairo.cli._errors import ErrorCode, ErrorInfo, classify_exception, hint_for
 from lorairo.cli._output_mode import is_json_mode
 
 # エラー/装飾は stderr へ (stdout は機械可読 JSONL 専用、ADR 0057 §1)。
 _console_err = make_console(stderr=True)
+
+
+def _report(message: str, info: ErrorInfo) -> None:
+    """分類結果を出力モードに応じて出す (JSONL or rich/stderr)。"""
+    if is_json_mode():
+        emit_error(
+            info.code,
+            message,
+            retryable=info.retryable,
+            user_action_required=info.user_action_required,
+            hint=hint_for(info.code),
+        )
+    else:
+        _console_err.print(f"[red]Error:[/red] {message}")
 
 
 @contextmanager
@@ -48,17 +63,15 @@ def command_boundary() -> Iterator[None]:
         yield
     except (typer.Exit, typer.Abort):
         raise
+    except click.ClickException as exc:
+        # コマンド本体内で送出された usage / parameter エラー (例: click.UsageError) は
+        # 入力エラーとして INVALID_INPUT + exit 2 に統一する (ADR 0057 §6/§7)。
+        info = ErrorInfo(ErrorCode.INVALID_INPUT, retryable=False, user_action_required=True)
+        message = exc.format_message() if hasattr(exc, "format_message") else str(exc)
+        _report(message, info)
+        raise typer.Exit(code=info.exit_code) from exc
     except Exception as exc:
         info = classify_exception(exc)
         message = str(exc) or type(exc).__name__
-        if is_json_mode():
-            emit_error(
-                info.code,
-                message,
-                retryable=info.retryable,
-                user_action_required=info.user_action_required,
-                hint=hint_for(info.code),
-            )
-        else:
-            _console_err.print(f"[red]Error:[/red] {message}")
+        _report(message, info)
         raise typer.Exit(code=info.exit_code) from exc
