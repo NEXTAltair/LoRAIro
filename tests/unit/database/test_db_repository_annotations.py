@@ -626,3 +626,40 @@ class TestDeriveDisplayScore:
         ]
         # 最新行 0.5 のみを採用 → cafe 0.5 → 6.0
         assert ImageRepository._derive_display_score(image) == pytest.approx(6.0)
+
+    @pytest.mark.unit
+    def test_webapi_score_identity_and_weighted(self):
+        """WebAPI モデル (slash 形式) のスコアは identity 変換かつ重み 0.5 で組み込まれる。"""
+        image = Mock(spec=Image)
+        image.scores = [
+            # WebAPI モデル: 生値 7.5 → calibrate → 7.5 (identity), weight=0.5
+            _score_row(7.5, "openai/o1", is_manual=False, created_at=datetime(2025, 1, 1), model_id=10),
+        ]
+        assert ImageRepository._derive_display_score(image) == pytest.approx(7.5)
+
+    @pytest.mark.unit
+    def test_webapi_mixed_with_aesthetic_weighted_average(self):
+        """aesthetic scorer と WebAPI スコアが混在する場合は weighted average になる。
+
+        cafe_aesthetic: 0.5 → calibrate → 6.0, weight=1.0
+        openai/o1: 8.0 → calibrate → 8.0, weight=0.5
+        weighted avg = (6.0 * 1.0 + 8.0 * 0.5) / (1.0 + 0.5) = (6.0 + 4.0) / 1.5 = 10.0 / 1.5 ≈ 6.667
+        """
+        image = Mock(spec=Image)
+        image.scores = [
+            _score_row(0.5, "cafe_aesthetic", is_manual=False, created_at=datetime(2025, 1, 1), model_id=1),
+            _score_row(8.0, "openai/o1", is_manual=False, created_at=datetime(2025, 1, 1), model_id=10),
+        ]
+        expected = (6.0 * 1.0 + 8.0 * 0.5) / (1.0 + 0.5)
+        assert ImageRepository._derive_display_score(image) == pytest.approx(expected)
+
+    @pytest.mark.unit
+    def test_webapi_score_clamps_to_display_range(self):
+        """WebAPI スコアが 10 超でも clamp される。"""
+        image = Mock(spec=Image)
+        image.scores = [
+            _score_row(
+                12.0, "openai/gpt-4o", is_manual=False, created_at=datetime(2025, 1, 1), model_id=10
+            ),
+        ]
+        assert ImageRepository._derive_display_score(image) == pytest.approx(10.0)
