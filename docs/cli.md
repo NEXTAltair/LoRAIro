@@ -268,8 +268,21 @@ lorairo-cli --json describe "batch list"
 
 - `id`: `int` (optional)
 - `provider`: `str` (optional)
+- `provider_job_id`: `str?` (optional)
 - `status`: `str` (optional)
+- `provider_status`: `str?` (optional)
+- `endpoint`: `str?` (optional)
+- `model_id`: `int?` (optional)
 - `request_count`: `int` (optional)
+- `succeeded_count`: `int` (optional)
+- `failed_count`: `int` (optional)
+- `canceled_count`: `int` (optional)
+- `expired_count`: `int` (optional)
+- `submitted_at`: `str?` (optional)
+- `completed_at`: `str?` (optional)
+- `canceled_at`: `str?` (optional)
+- `expires_at`: `str?` (optional)
+- `imported_at`: `str?` (optional)
 
 **Error `CliErrorResponse`**
 
@@ -305,9 +318,9 @@ lorairo-cli --json describe "batch status"
 - `project`: `str` (required)
 - `refresh`: `bool` (optional, default `True`)
 
-**Output `ProviderBatchJob`**
+**Output `BatchStatusResult`**
 
-- `job`: `dict` (optional)
+- `job`: `ProviderBatchJob` (optional)
 
 **Error `CliErrorResponse`**
 
@@ -398,7 +411,11 @@ lorairo-cli --json describe "export create"
 
 **Output `ExportCreateResult`**
 
-- `output_path`: `path` (optional)
+- `output_path`: `path?` (optional)
+- `total_images`: `int?` (optional)
+- `format`: `str?` (optional)
+- `resolution`: `int?` (optional)
+- `count`: `int?` (optional) - Set to 0 on the no-match success path.
 
 **Error `CliErrorResponse`**
 
@@ -431,15 +448,23 @@ lorairo-cli --json describe "images list"
 **Input `ImagesListInput`**
 
 - `project`: `str` (required)
-- `limit`: `int>=1?` (optional)
+- `fetch`: `bool` (optional, default `False`)
+- `limit`: `int[1,500]` (optional, default `500`)
+- `offset`: `int>=0` (optional, default `0`)
 - `unrated`: `bool` (optional, default `False`)
 
 **Output `ImagesListItem`**
 
-- `id`: `int` (optional)
-- `filename`: `str` (optional)
-- `tags`: `int` (optional)
-- `annotated`: `bool` (optional)
+- `image_id`: `int?` (optional)
+- `file_path`: `str?` (optional)
+
+**Output `ImagesListResult`**
+
+- `count`: `int` (optional)
+- `total`: `int?` (optional)
+- `limit`: `int?` (optional)
+- `offset`: `int?` (optional)
+- `has_more`: `bool?` (optional)
 
 **Error `CliErrorResponse`**
 
@@ -518,11 +543,12 @@ lorairo-cli --json describe "images update"
 
 **Output `ImagesUpdateResult`**
 
-- `project`: `str` (optional)
-- `target_images`: `int` (optional)
-- `tags`: `list[str]` (optional)
-- `added`: `int` (optional)
-- `failed_tags`: `list[str]` (optional)
+- `project`: `str?` (optional)
+- `target_images`: `int?` (optional)
+- `tags`: `list[str]?` (optional)
+- `added`: `int?` (optional)
+- `failed_tags`: `list[str]?` (optional)
+- `count`: `int?` (optional) - Set to 0 on the no-image (no-target) success path.
 
 **Error `CliErrorResponse`**
 

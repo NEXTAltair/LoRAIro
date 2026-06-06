@@ -169,8 +169,16 @@ def test_cli_specific_output_json_schemas_match_item_rows() -> None:
         if row.get("type") == "schema" and row["role"] == "output"
     )
     assert image_schema["name"] == "ImagesListItem"
-    assert set(image_schema["schema"]["properties"]) == {"id", "filename", "tags", "annotated"}
-    assert "file_path" not in image_schema["schema"]["properties"]
+    # #655 count-first / --fetch: item rows carry image_id/file_path, not id/filename/tags/annotated.
+    assert set(image_schema["schema"]["properties"]) == {"image_id", "file_path"}
+    assert "filename" not in image_schema["schema"]["properties"]
+    # The count-first default path emits an ImagesListResult summary row instead of items.
+    image_result_schema = next(
+        row
+        for row in _jsonl(images_result.stdout)
+        if row.get("type") == "schema" and row["role"] == "output" and row["name"] == "ImagesListResult"
+    )
+    assert {"count", "total", "offset", "has_more"} <= set(image_result_schema["schema"]["properties"])
     assert model_schema["name"] == "ModelsListItem"
     assert set(model_schema["schema"]["properties"]) == {
         "provider",

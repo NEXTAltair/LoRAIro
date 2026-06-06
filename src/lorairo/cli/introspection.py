@@ -78,14 +78,35 @@ class CliErrorResponse(BaseModel):
 
 
 class ImagesListItem(BaseModel):
-    """JSONL item payload emitted by ``images list --json``."""
+    """JSONL item payload emitted by ``images list --json --fetch``.
 
-    id: int | None = None
-    filename: str
-    tags: int
-    annotated: bool
+    Rows are only emitted when ``--fetch`` is set. The default count-first path
+    (#655 bounded pagination) emits no items, only an ``ImagesListResult`` row.
+    """
+
+    image_id: int | None = None
+    file_path: str | None = None
 
     model_config = ConfigDict(title="ImagesListItem")
+
+
+class ImagesListResult(BaseModel):
+    """JSONL result payload emitted by ``images list --json``.
+
+    Without ``--fetch`` only ``count`` is populated (count-first default, #655).
+    With ``--fetch`` the fetched-page metadata fields are also present.
+    """
+
+    kind: Literal["result"] = "result"
+    ok: Literal[True] = True
+    message: str
+    count: int
+    total: int | None = None
+    limit: int | None = None
+    offset: int | None = None
+    has_more: bool | None = None
+
+    model_config = ConfigDict(title="ImagesListResult")
 
 
 class ModelsListItem(BaseModel):
@@ -152,13 +173,21 @@ class ImagesRegisterResult(BaseModel):
 
 
 class ImagesUpdateResult(BaseModel):
-    """JSONL result payload emitted by ``images update --json``."""
+    """JSONL result payload emitted by ``images update --json``.
 
-    project: str
-    target_images: int
-    tags: list[str]
-    added: int
-    failed_tags: list[str]
+    A project with no images returns a success row containing only ``count=0``
+    (no-target path); a normal update populates the remaining fields instead.
+    """
+
+    kind: Literal["result"] = "result"
+    ok: Literal[True] = True
+    message: str
+    project: str | None = None
+    target_images: int | None = None
+    tags: list[str] | None = None
+    added: int | None = None
+    failed_tags: list[str] | None = None
+    count: int | None = None
 
     model_config = ConfigDict(title="ImagesUpdateResult")
 
@@ -183,9 +212,20 @@ class ExportCreateInputSchema(BaseModel):
 
 
 class ExportCreateResult(BaseModel):
-    """JSONL result payload emitted by ``export create --json``."""
+    """JSONL result payload emitted by ``export create --json``.
 
-    output_path: str
+    A no-match export returns a success row containing only ``count=0``;
+    a completed export returns ``output_path`` plus the export metadata.
+    """
+
+    kind: Literal["result"] = "result"
+    ok: Literal[True] = True
+    message: str
+    output_path: str | None = None
+    total_images: int | None = None
+    format: str | None = None
+    resolution: int | None = None
+    count: int | None = None
 
     model_config = ConfigDict(title="ExportCreateResult")
 
@@ -243,6 +283,46 @@ class BatchImportResult(BaseModel):
     job_imported: bool
 
     model_config = ConfigDict(title="BatchImportResult")
+
+
+class ProviderBatchJob(BaseModel):
+    """JSONL payload describing a persisted provider batch job (``_job_dict``).
+
+    Emitted as an item row by ``batch list --json`` and embedded as the ``job``
+    field of the ``batch status`` result. Timestamp fields are ISO-8601 strings
+    (the CLI emitter serializes ``datetime`` via ``default=str``).
+    """
+
+    id: int
+    provider: str
+    provider_job_id: str | None = None
+    status: str
+    provider_status: str | None = None
+    endpoint: str | None = None
+    model_id: int | None = None
+    request_count: int
+    succeeded_count: int
+    failed_count: int
+    canceled_count: int
+    expired_count: int
+    submitted_at: str | None = None
+    completed_at: str | None = None
+    canceled_at: str | None = None
+    expires_at: str | None = None
+    imported_at: str | None = None
+
+    model_config = ConfigDict(title="ProviderBatchJob")
+
+
+class BatchStatusResult(BaseModel):
+    """JSONL result payload emitted by ``batch status --json``."""
+
+    kind: Literal["result"] = "result"
+    ok: Literal[True] = True
+    message: str
+    job: ProviderBatchJob | None = None
+
+    model_config = ConfigDict(title="BatchStatusResult")
 
 
 @dataclass(frozen=True)
@@ -472,7 +552,9 @@ TOOL_SPECS: dict[str, ToolSpec] = {
                 "ImagesListInput",
                 (
                     _f("project", "str", required=True),
-                    _f("limit", "int>=1?"),
+                    _f("fetch", "bool", default=False),
+                    _f("limit", "int[1,500]", default=500),
+                    _f("offset", "int>=0", default=0),
                     _f("unrated", "bool", default=False),
                 ),
             ),
@@ -480,8 +562,19 @@ TOOL_SPECS: dict[str, ToolSpec] = {
         outputs=(
             _output(
                 "ImagesListItem",
-                (_f("id", "int"), _f("filename", "str"), _f("tags", "int"), _f("annotated", "bool")),
+                (_f("image_id", "int?"), _f("file_path", "str?")),
                 schema=ImagesListItem,
+            ),
+            _output(
+                "ImagesListResult",
+                (
+                    _f("count", "int"),
+                    _f("total", "int?"),
+                    _f("limit", "int?"),
+                    _f("offset", "int?"),
+                    _f("has_more", "bool?"),
+                ),
+                schema=ImagesListResult,
             ),
         ),
         errors=(ERROR_MODEL,),
@@ -506,11 +599,12 @@ TOOL_SPECS: dict[str, ToolSpec] = {
             _output(
                 "ImagesUpdateResult",
                 (
-                    _f("project", "str"),
-                    _f("target_images", "int"),
-                    _f("tags", "list[str]"),
-                    _f("added", "int"),
-                    _f("failed_tags", "list[str]"),
+                    _f("project", "str?"),
+                    _f("target_images", "int?"),
+                    _f("tags", "list[str]?"),
+                    _f("added", "int?"),
+                    _f("failed_tags", "list[str]?"),
+                    _f("count", "int?", description="Set to 0 on the no-image (no-target) success path."),
                 ),
                 schema=ImagesUpdateResult,
             ),
@@ -590,7 +684,13 @@ TOOL_SPECS: dict[str, ToolSpec] = {
         outputs=(
             _output(
                 "ExportCreateResult",
-                (_f("output_path", "path"),),
+                (
+                    _f("output_path", "path?"),
+                    _f("total_images", "int?"),
+                    _f("format", "str?"),
+                    _f("resolution", "int?"),
+                    _f("count", "int?", description="Set to 0 on the no-match success path."),
+                ),
                 schema=ExportCreateResult,
             ),
         ),
@@ -694,7 +794,26 @@ TOOL_SPECS: dict[str, ToolSpec] = {
         outputs=(
             _output(
                 "ProviderBatchJob",
-                (_f("id", "int"), _f("provider", "str"), _f("status", "str"), _f("request_count", "int")),
+                (
+                    _f("id", "int"),
+                    _f("provider", "str"),
+                    _f("provider_job_id", "str?"),
+                    _f("status", "str"),
+                    _f("provider_status", "str?"),
+                    _f("endpoint", "str?"),
+                    _f("model_id", "int?"),
+                    _f("request_count", "int"),
+                    _f("succeeded_count", "int"),
+                    _f("failed_count", "int"),
+                    _f("canceled_count", "int"),
+                    _f("expired_count", "int"),
+                    _f("submitted_at", "str?"),
+                    _f("completed_at", "str?"),
+                    _f("canceled_at", "str?"),
+                    _f("expires_at", "str?"),
+                    _f("imported_at", "str?"),
+                ),
+                schema=ProviderBatchJob,
             ),
         ),
         errors=(ERROR_MODEL,),
@@ -715,7 +834,13 @@ TOOL_SPECS: dict[str, ToolSpec] = {
                 ),
             ),
         ),
-        outputs=(_output("ProviderBatchJob", (_f("job", "dict"),)),),
+        outputs=(
+            _output(
+                "BatchStatusResult",
+                (_f("job", "ProviderBatchJob"),),
+                schema=BatchStatusResult,
+            ),
+        ),
         errors=(ERROR_MODEL,),
     ),
     "batch cancel": ToolSpec(
