@@ -1,7 +1,7 @@
 # ADR 0057: CLI Machine-Readable (JSONL) Output and Error Contract
 
 - **日付**: 2026-06-05
-- **ステータス**: Accepted
+- **ステータス**: Accepted (§2/§3/§4/§6 を ADR 0060 で amend)
 - **関連 Issue**: #634 (epic) / #636 / #637
 
 ## Context
@@ -68,19 +68,20 @@ stdout には機械可読 JSONL のみを出力する。1 行 = 1 つの valid J
   ような per-record 出力を持たないバッチ操作は `item` を出さず最終 `result` のみ。
 - **進捗を表す `event` kind は採用しない**。`item` を流すコマンドは item 数が進捗を表し、`item` を持たない
   バッチ操作は最終 `result` で足りる。進捗は §1 のとおり stderr の人間向け Progress バーに限定する。
-- **不変条件**: コマンド実行は必ず 1 行の `result` または `error` で終わる。list 系は `item` を N 行
-  流した後に件数サマリの `result` を 1 行出す。
+- **不変条件**: コマンド実行は必ず 1 行の `result` または `error` で終わる。list 系は **`--fetch` 指定時に**
+  `item` を N 行流した後に件数サマリの `result` を 1 行出す。**既定 (フラグ無し) は `item` を出さず
+  `result` (count) のみ**を出す (ADR 0060: count 既定 / `--fetch` 明示)。
 
 ### 3. バッチ操作は 1 回 500 枚ハードキャップ (GUI staging と整合)
 
 変更を伴うバッチ操作 (`annotate run` / `export create` / `images update` のタグ一括) は、1 回の呼び出しで
 処理対象を **最大 500 枚** に制限する。GUI の StagingWidget が最大 500 枚キャップである挙動に合わせる。
 
-選択結果が 500 枚を超える場合、**画像 decode / 処理を一切行う前に** `INVALID_INPUT` の `error` で弾く。
-`details` に超過情報を載せ、利用者に絞り込みを促す。
+選択結果が 500 枚を超える場合、**画像 decode / 処理を一切行う前に** `RESULT_SET_TOO_LARGE` の `error` で弾く
+(ADR 0060 で `INVALID_INPUT` から統一)。`details` に超過情報を載せ、利用者に絞り込みを促す。
 
 ```jsonc
-{"kind": "error", "ok": false, "code": "INVALID_INPUT",
+{"kind": "error", "ok": false, "code": "RESULT_SET_TOO_LARGE",
  "message": "Selection exceeds per-run limit of 500 images (requested 720).",
  "retryable": false, "user_action_required": true,
  "hint": "Narrow the selection to 500 or fewer.",
@@ -105,14 +106,15 @@ stdout には機械可読 JSONL のみを出力する。1 行 = 1 つの valid J
 ADR 0053 の `batch_size` streaming と sharding 機構自体は維持し、前者はキャップ内のメモリ境界、後者は
 キャップを跨ぐ反復手段として活きる。
 
-read / list 系コマンド (`images list` 等) はこのキャップの対象外であり、別途 bounded pagination 契約
-(`--limit` + offset/cursor) に従う。その完全な契約 (offset/page flag の有無を含む) は ADR 0049 および
-pagination ADR (#639) で定義する。本 ADR は「変更操作は 500 上限・閲覧はページング」という性質の分離だけを
-固定し、paging の具体 flag は #639 に委ねる (現状 `images list` は `--limit` のみで `--offset` は未実装)。
+read / list 系コマンド (`images list` 等) も基本 500 で bound するが、**count 既定 + `--fetch` 明示**という
+別形式で実現する (ADR 0060)。処理系の「処理前ハード弾き」とは異なり、read/list は既定で件数のみを返し、
+fetch 時に total が 500 を超えたら `RESULT_SET_TOO_LARGE` で弾いて絞り込みを促す。完全な pagination 契約
+(count 既定 / fetch / limit/offset / stable 順 / pushdown) は ADR 0049 および ADR 0060 (#639) で定義する。
 
-### 4. エラーコードセット = 14 種
+### 4. エラーコードセット = 15 種
 
-tag-db と共有する安定コア 11 種に、AI 推論ドメイン固有の 3 種を加えた **全 14 種**。各コードに `retryable` /
+tag-db と共有する安定コア 11 種に、AI 推論ドメイン固有の 3 種、pagination ドメインの 1 種 (ADR 0060) を
+加えた **全 15 種**。各コードに `retryable` /
 `user_action_required` フラグを定義し、エージェントは message 文字列をパースせずこのフラグで分岐する。
 共有コア 11 種のフラグ意味は tag-db ADR 0003 の mapping を authoritative とし、本表で全コードを明示する。
 
@@ -132,6 +134,7 @@ tag-db と共有する安定コア 11 種に、AI 推論ドメイン固有の 3 
 | `RESOURCE_EXHAUSTED` | 拡張 | true | true | OOM → `batch_size` を下げてから再試行 (identical retry は再失敗) |
 | `AUTH_ERROR` | 拡張 | false | true | API キー未設定/無効 → キーを設定 |
 | `RATE_LIMITED` | 拡張 | true | false | provider 429 → backoff して再試行 (`details.retry_after`) |
+| `RESULT_SET_TOO_LARGE` | 拡張 (ADR 0060) | false | true | 結果が 500 上限超 → 検索条件を足して絞る |
 
 `retryable=true` かつ `user_action_required=true` の組は「再試行は可能だが、入力/設定を変えてから
 (例: `RESOURCE_EXHAUSTED` は `batch_size` を下げてから; これをせず identical に再実行すると再失敗する)」
@@ -163,10 +166,12 @@ LoRAIro はプロバイダ SDK に到達する前に自前で `APIKeyNotConfigur
 | exit | 意味 | コード |
 |---|---|---|
 | 0 | 成功 | — |
-| 2 | 入力・検証 | `INVALID_INPUT`, `VALIDATION_FAILED` |
+| 2 | 入力・検証 | `INVALID_INPUT`, `VALIDATION_FAILED`, `RESULT_SET_TOO_LARGE` (ADR 0060) |
 | 1 | 実行時 | 上記以外すべて |
 
 exit code はエラーコードから機械的に導出する。Click の usage error 既定が exit 2 であることと整合する。
+`RESULT_SET_TOO_LARGE` は入力 (選択/検索が広すぎる) を直す user-actionable なエラーのため exit 2
+(従来 `INVALID_INPUT` が担っていた cap 違反の exit を維持する、ADR 0060)。
 
 ### 7. 中央集権エラー境界
 
@@ -224,11 +229,26 @@ exit code はエラーコードから機械的に導出する。Click の usage 
 - annotate の 1 回処理総数が 500 に制限され、ADR 0053 の無制限実行前提が改定される。500 超の annotate は
   `--limit`/`--offset`/`--image-id` で shard して反復する運用になる。
 
+## Amendment (2026-06-06, ADR 0060 / #639)
+
+ADR 0060 (CLI Bounded Pagination and Count-First Contract) が本 ADR を以下のとおり改定した (適用済み):
+
+- **§2 list 系の item 契約**: 「list 系は item を N 行 + 終端 result」を「既定 (フラグ無し) は item を出さず
+  result (count) のみ、`--fetch` 時に item を N 行 + 終端 result」へ具体化。
+- **§3 cap コード**: 処理系バッチ (annotate / export / images update) の 500 超過の弾きコードを
+  `INVALID_INPUT` から `RESULT_SET_TOO_LARGE` に統一。recourse (sharding 等) は不変。
+- **§3 read/list の扱い**: read/list も基本 500 で bound するが count 既定 + fetch 明示で実現する旨を具体化。
+- **§4 エラーコード**: `RESULT_SET_TOO_LARGE` (拡張、`retryable=false` / `user_action_required=true`) を
+  追加し全 15 種。
+- **§6 exit code**: `RESULT_SET_TOO_LARGE` を exit 2 (入力・検証) に割り当て。
+
 ## 関連
 
 - ADR 0020 (CLI Message Language Policy) — JSONL モードの message 言語方針と整合
 - ADR 0037 (api Facade Wiring Policy) — 契約 SSoT は `api.*` Pydantic、CLI は薄いラッパー
-- ADR 0049 (Apply CLI Image List Limit in the Repository Query) — read/list 系のページング (500 キャップ対象外)
+- ADR 0049 (Apply CLI Image List Limit in the Repository Query) — read/list 系のページング機構
+- ADR 0060 (CLI Bounded Pagination and Count-First Contract) — read/list の bounded pagination 契約を確定し、
+  本 ADR §2/§3/§4/§6 を amend (`RESULT_SET_TOO_LARGE` 追加・cap コード統一・count 既定)
 - ADR 0053 (CLI Streaming Annotation Memory-Bounded Contract) — 本 ADR が「1 回の呼び出しで総数無制限」
   前提を 500 キャップで改定 (streaming/sharding 機構は維持)。`RESOURCE_EXHAUSTED` / streaming とも整合
 - ADR 0058 (CLI Output Mode Trigger and Entry-Point Policy) — 出力モードのトリガ (`--json`) とエントリ方針を供給 (本 ADR の前提)
