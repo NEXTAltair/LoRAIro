@@ -5,6 +5,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
+from lorairo.domain.score_scaler import calibrate_to_display
 from lorairo.services.annotation_save_service import AnnotationSaveResult, AnnotationSaveService
 
 
@@ -447,7 +448,12 @@ def test_save_canonical_scorer_persists_score_labels(
     # Issue #626: AI scorer は positive key (hq) 1 行だけ生値で保存し、complement
     # (lq) は保存しない。これにより DB で positive 判別が一意になる。
     assert annotations_arg["scores"] == [
-        {"model_id": 42, "score": 0.85, "is_edited_manually": False},
+        {
+            "model_id": 42,
+            "score": 0.85,
+            "display_score": calibrate_to_display("aesthetic_shadow_v2", 0.85),
+            "is_edited_manually": False,
+        },
     ]
 
 
@@ -475,7 +481,14 @@ def test_save_regression_scorer_no_score_labels(
 
     _image_id_arg, annotations_arg = _first_batch_save_args(mock_repository)
     assert annotations_arg["score_labels"] == []
-    assert annotations_arg["scores"] == [{"model_id": 7, "score": 7.5, "is_edited_manually": False}]
+    assert annotations_arg["scores"] == [
+        {
+            "model_id": 7,
+            "score": 7.5,
+            "display_score": calibrate_to_display("ImprovedAesthetic", 7.5),
+            "is_edited_manually": False,
+        }
+    ]
 
 
 # ===== Issue #626: AI scorer は positive key 1 行のみ保存 =====
@@ -505,7 +518,12 @@ def test_save_cafe_scorer_persists_only_positive_key(
 
     _image_id_arg, annotations_arg = _first_batch_save_args(mock_repository)
     assert annotations_arg["scores"] == [
-        {"model_id": 11, "score": 0.67, "is_edited_manually": False},
+        {
+            "model_id": 11,
+            "score": 0.67,
+            "display_score": calibrate_to_display("cafe_aesthetic", 0.67),
+            "is_edited_manually": False,
+        },
     ]
 
 
@@ -533,7 +551,12 @@ def test_save_shadow_scorer_persists_only_hq(
 
     _image_id_arg, annotations_arg = _first_batch_save_args(mock_repository)
     assert annotations_arg["scores"] == [
-        {"model_id": 21, "score": 0.9, "is_edited_manually": False},
+        {
+            "model_id": 21,
+            "score": 0.9,
+            "display_score": calibrate_to_display("aesthetic_shadow_v1", 0.9),
+            "is_edited_manually": False,
+        },
     ]
 
 
