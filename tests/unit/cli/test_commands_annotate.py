@@ -8,12 +8,77 @@ import pytest
 from PIL import Image
 from typer.testing import CliRunner
 
+from lorairo.cli._output_mode import set_json_mode
+from lorairo.cli.commands.annotate import _annotation_score, _emit_annotation_items
 from lorairo.cli.main import app
 from lorairo.services.annotation_save_service import AnnotationSaveResult
 from lorairo.services.project_management_service import ProjectManagementService
 from lorairo.services.service_container import ServiceContainer
 
 runner = CliRunner()
+
+
+def _jsonl(stdout: str) -> list[dict]:
+    return [json.loads(line) for line in stdout.splitlines() if line.strip()]
+
+
+@pytest.fixture(autouse=True)
+def _reset_json_mode() -> None:
+    set_json_mode(False)
+    yield
+    set_json_mode(False)
+
+
+@pytest.mark.unit
+@pytest.mark.cli
+def test_annotation_score_reads_scores_payload() -> None:
+    """Scorer-only annotation results expose the first numeric scores value."""
+    result = MagicMock(score=None, rating_score=None, aesthetic_score=None)
+    result.scores = {"aesthetic": 7.5}
+
+    assert _annotation_score(result) == 7.5
+
+
+@pytest.mark.unit
+@pytest.mark.cli
+def test_emit_annotation_items_emits_duplicate_phash_records(capsys: pytest.CaptureFixture[str]) -> None:
+    """Duplicate pHash selections emit one JSONL item per selected record."""
+    set_json_mode(True)
+    records = [
+        {"id": 1, "phash": "same", "stored_image_path": "/tmp/a.jpg"},
+        {"id": 2, "phash": "same", "stored_image_path": "/tmp/b.jpg"},
+    ]
+    results = {"same": {"scorer": {"scores": {"aesthetic": 8.0}, "tags": []}}}
+
+    _emit_annotation_items(results, records)
+
+    rows = _jsonl(capsys.readouterr().out)
+    assert [row["image_id"] for row in rows] == [1, 2]
+    assert [row["file_path"] for row in rows] == ["/tmp/a.jpg", "/tmp/b.jpg"]
+    assert all(row["models"][0]["score"] == 8.0 for row in rows)
+
+
+@pytest.mark.unit
+@pytest.mark.cli
+def test_select_image_records_missing_warning_uses_stderr_in_json(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """Missing image-id warning does not pollute JSON stdout."""
+    from lorairo.cli.commands.annotate import _select_image_records
+
+    set_json_mode(True)
+
+    selected = _select_image_records(
+        [{"id": 1, "phash": "p", "stored_image_path": "/tmp/a.jpg"}],
+        limit=None,
+        offset=0,
+        image_ids=[1, 99],
+    )
+
+    captured = capsys.readouterr()
+    assert [record["id"] for record in selected] == [1]
+    assert captured.out == ""
+    assert "Image ID(s) not found" in captured.err
 
 
 @pytest.fixture(autouse=True)

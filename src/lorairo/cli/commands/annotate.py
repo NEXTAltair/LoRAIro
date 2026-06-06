@@ -219,7 +219,9 @@ def _select_image_records(
         missing_ids = [image_id for image_id in dict.fromkeys(image_ids) if image_id not in found_ids]
         if missing_ids:
             missing_str = ", ".join(str(image_id) for image_id in missing_ids)
-            console.print(f"[yellow]Warning:[/yellow] Image ID(s) not found in project: {missing_str}")
+            _status_console().print(
+                f"[yellow]Warning:[/yellow] Image ID(s) not found in project: {missing_str}"
+            )
 
     # sharding 決定性: get_images_by_filter() の SQL は ORDER BY を持たず
     # (ImageRepository._build_image_filter_query は distinct() のみ)、行順は
@@ -307,6 +309,15 @@ def _annotation_score(result: Any) -> float | int | None:
         value = _annotation_value(result, key)
         if isinstance(value, (int, float)):
             return value
+    scores = _annotation_value(result, "scores")
+    if isinstance(scores, dict):
+        for value in scores.values():
+            if isinstance(value, (int, float)):
+                return value
+    if isinstance(scores, (list, tuple)):
+        for value in scores:
+            if isinstance(value, (int, float)):
+                return value
     return None
 
 
@@ -315,9 +326,10 @@ def _emit_annotation_items(results: Any, records_chunk: list[dict[str, Any]]) ->
     if not is_json_mode() or not results:
         return
 
-    records_by_phash = {str(record.get("phash")): record for record in records_chunk}
+    records_by_phash: dict[str, list[dict[str, Any]]] = {}
+    for record in records_chunk:
+        records_by_phash.setdefault(str(record.get("phash")), []).append(record)
     for phash, model_results in results.items():
-        record = records_by_phash.get(str(phash), {})
         models: list[dict[str, Any]] = []
         if isinstance(model_results, dict):
             model_items = list(model_results.items())
@@ -334,15 +346,16 @@ def _emit_annotation_items(results: Any, records_chunk: list[dict[str, Any]]) ->
                 }
             )
 
-        emit_item(
-            {
-                "type": "annotation",
-                "image_id": record.get("id"),
-                "phash": str(phash),
-                "file_path": record.get("stored_image_path"),
-                "models": models,
-            }
-        )
+        for record in records_by_phash.get(str(phash), [{}]):
+            emit_item(
+                {
+                    "type": "annotation",
+                    "image_id": record.get("id"),
+                    "phash": str(phash),
+                    "file_path": record.get("stored_image_path"),
+                    "models": models,
+                }
+            )
 
 
 def _stream_annotate(

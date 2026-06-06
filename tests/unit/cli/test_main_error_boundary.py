@@ -8,6 +8,8 @@ import click
 import pytest
 
 from lorairo.api import exceptions as app_exc
+from lorairo.cli._errors import ErrorCode, classify_exception
+from lorairo.cli.commands.annotate import AnnotationRunFailedError, AnnotationSelectionError
 from lorairo.cli.main import _handle_cli_exception, _handle_click_exception
 
 
@@ -72,3 +74,33 @@ def test_handle_cli_exception_rich_mode_keeps_stdout_clean(capsys: pytest.Captur
     assert exit_code == 2
     assert captured.out.strip() == ""
     assert "Error" in captured.err
+
+
+@pytest.mark.unit
+@pytest.mark.cli
+def test_classify_annotation_selection_as_user_action_error() -> None:
+    """Annotation selection failures are user-action/precondition errors."""
+    info = classify_exception(AnnotationSelectionError("No images selected"))
+
+    assert info.code == ErrorCode.PRECONDITION_FAILED
+    assert info.user_action_required is True
+
+
+@pytest.mark.unit
+@pytest.mark.cli
+def test_classify_annotation_run_failure_as_user_action_error() -> None:
+    """Annotation terminal run failures are not internal crashes."""
+    info = classify_exception(AnnotationRunFailedError("Annotation produced no results"))
+
+    assert info.code == ErrorCode.PRECONDITION_FAILED
+    assert info.user_action_required is True
+
+
+@pytest.mark.unit
+@pytest.mark.cli
+def test_classify_batch_import_error_as_validation_error() -> None:
+    """Malformed batch import input is classified as user-fixable validation."""
+    info = classify_exception(app_exc.BatchImportError("bad JSONL"))
+
+    assert info.code == ErrorCode.VALIDATION_FAILED
+    assert info.user_action_required is True
