@@ -51,14 +51,16 @@
       "Bash(npx skills *)",
       "Bash(PYTHONPATH=\"\" VIRTUAL_ENV=\"\" .venv/bin/python *)",
       "Bash(UV_PROJECT_ENVIRONMENT=/workspaces/LoRAIro/.venv uv *)",
-      "Bash(QT_QPA_PLATFORM=offscreen uv run pytest *)"
+      "Bash(QT_QPA_PLATFORM=offscreen uv run pytest *)",
+      "Bash(QT_QPA_PLATFORM=offscreen UV_PROJECT_ENVIRONMENT=/workspaces/LoRAIro/.venv uv run pytest *)"
     ],
-    "additionalDirectories": []
+    "additionalDirectories": [
+      "/tmp/worktrees/"
+    ]
   },
   "env": {
     "CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS": "1",
-    "BASH_DEFAULT_TIMEOUT_MS": "5000000",
-    "UV_PROJECT_ENVIRONMENT": "/workspaces/LoRAIro/.venv"
+    "BASH_DEFAULT_TIMEOUT_MS": "5000000"
   },
   "hooks": {
     "PreToolUse": [
@@ -72,15 +74,6 @@
           {
             "type": "command",
             "command": "/usr/bin/timeout 15s /workspaces/LoRAIro/.claude/hooks/hook_pre_pr_submodule_check.py"
-          }
-        ]
-      },
-      {
-        "matcher": "Edit|Write|MultiEdit",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "/usr/bin/timeout 5s /workspaces/LoRAIro/.claude/hooks/hook_pre_edit_worktree.py"
           }
         ]
       }

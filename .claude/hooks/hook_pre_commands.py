@@ -8,7 +8,6 @@ LoRAIroプロジェクト用コマンド制御・変換システム。
 - uv run変換（python → uv run python など）
 - ブロックコマンド検出（git安全系、pip等）
 - PR draft作成ブロック（agent PR は ready for review で作成）
-- grep系コマンド制御（Grepツール推奨、git grepはコンテキストフラグ必須）
 """
 
 import json
@@ -304,38 +303,6 @@ def check_branch_force_delete(command: str) -> str | None:
     )
 
 
-def check_grep_command(command: str) -> str | None:
-    """grep系コマンドの制御。
-
-    - rg/grep → Grepツール使用を推奨してブロック
-    - git grep（コンテキストフラグなし） → --function-context 追加を推奨してブロック
-    - git grep（コンテキストフラグあり） → 許可
-
-    Returns:
-        ブロックする場合はエラーメッセージ、許可する場合はNone
-    """
-    # rg (ripgrep) コマンド → Grepツール推奨
-    if re.match(r"^rg\s", command):
-        log_debug(f"BLOCKING: rg command detected: {command}")
-        return "🔍 rg の代わりに Claude Code の Grep ツールを使用してください。\nGrep ツールはripgrepベースで高速かつ権限管理されています。"
-
-    # bare grep コマンド → Grepツール推奨
-    if re.match(r"^grep\s", command):
-        log_debug(f"BLOCKING: grep command detected: {command}")
-        return "🔍 grep の代わりに Claude Code の Grep ツールを使用してください。\nGrep ツールはripgrepベースで高速かつ権限管理されています。"
-
-    # git grep（コンテキストフラグなし） → --function-context 推奨
-    if re.match(r"^git\s+grep\s", command):
-        has_context = bool(re.search(r"(--function-context|--show-function|-W|-p)", command))
-        if not has_context:
-            log_debug(f"BLOCKING: git grep without context flags: {command}")
-            return (
-                "🔍 git grep では --function-context または --show-function フラグを使用してください。\n"
-                "→ git grep --function-context <pattern> [path]"
-            )
-
-    return None
-
 
 def emit_block(reason: str) -> None:
     """Block the tool call and emit a reason for clients that read stderr."""
@@ -368,11 +335,6 @@ def main() -> None:
         worktree_uv_msg = check_worktree_uv_environment(command, input_data)
         if worktree_uv_msg:
             emit_block(worktree_uv_msg)
-
-        # grep系コマンド制御
-        grep_msg = check_grep_command(command)
-        if grep_msg:
-            emit_block(grep_msg)
 
         # git branch -D 制御 (統合済みなら許可、未統合のみブロック)
         branch_del_msg = check_branch_force_delete(command)
