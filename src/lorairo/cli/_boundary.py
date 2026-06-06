@@ -31,7 +31,7 @@ from lorairo.cli._output_mode import is_json_mode
 _console_err = make_console(stderr=True)
 
 
-def _report(message: str, info: ErrorInfo) -> None:
+def _report(message: str, info: ErrorInfo, details: dict[str, object] | None = None) -> None:
     """分類結果を出力モードに応じて出す (JSONL or rich/stderr)。"""
     if is_json_mode():
         emit_error(
@@ -40,6 +40,7 @@ def _report(message: str, info: ErrorInfo) -> None:
             retryable=info.retryable,
             user_action_required=info.user_action_required,
             hint=hint_for(info.code),
+            details=details,
         )
     else:
         _console_err.print(f"[red]Error:[/red] {message}")
@@ -73,5 +74,5 @@ def command_boundary() -> Iterator[None]:
     except Exception as exc:
         info = classify_exception(exc)
         message = str(exc) or type(exc).__name__
-        _report(message, info)
+        _report(message, info, details=getattr(exc, "details", None))
         raise typer.Exit(code=info.exit_code) from exc

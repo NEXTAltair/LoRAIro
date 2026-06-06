@@ -190,6 +190,8 @@ def _classify_lorairo_exception(exc: BaseException) -> ErrorInfo | None:
         return ErrorInfo(ErrorCode.NOT_FOUND, retryable=False, user_action_required=True)
     if isinstance(exc, (app_exc.ProjectAlreadyExistsError, app_exc.DuplicateImageError)):
         return ErrorInfo(ErrorCode.ALREADY_EXISTS, retryable=False, user_action_required=True)
+    if isinstance(exc, app_exc.ResultSetTooLargeError):
+        return ErrorInfo(ErrorCode.RESULT_SET_TOO_LARGE, retryable=False, user_action_required=True)
     if isinstance(exc, app_exc.InvalidFormatError):
         return ErrorInfo(ErrorCode.INVALID_INPUT, retryable=False, user_action_required=True)
     if isinstance(exc, app_exc.ValidationError):
