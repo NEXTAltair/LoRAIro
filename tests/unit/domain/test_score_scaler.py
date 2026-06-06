@@ -9,7 +9,9 @@ from lorairo.domain.score_scaler import (
     DISPLAY_MAX,
     DISPLAY_MIN,
     MAPPING_VERSION,
+    WEBAPI_VISION_SCORE_WEIGHT,
     calibrate_to_display,
+    display_weight_for,
     is_ai_scored_model,
     positive_key_for,
     select_positive_score,
@@ -302,8 +304,6 @@ def test_positive_key_for_webapi_is_overall() -> None:
 @pytest.mark.unit
 def test_display_weight_for_webapi() -> None:
     """WebAPI モデルの表示重みは WEBAPI_VISION_SCORE_WEIGHT (< 1.0)。"""
-    from lorairo.domain.score_scaler import WEBAPI_VISION_SCORE_WEIGHT, display_weight_for
-
     assert display_weight_for("openai/o1") == pytest.approx(WEBAPI_VISION_SCORE_WEIGHT)
     assert display_weight_for("anthropic/claude-3-5-sonnet-20241022") == pytest.approx(
         WEBAPI_VISION_SCORE_WEIGHT
@@ -313,8 +313,6 @@ def test_display_weight_for_webapi() -> None:
 @pytest.mark.unit
 def test_display_weight_for_local_scorer_is_one() -> None:
     """ローカル ML scorer (aesthetic 系) の重みは 1.0。"""
-    from lorairo.domain.score_scaler import display_weight_for
-
     assert display_weight_for("aesthetic_shadow_v1") == pytest.approx(1.0)
     assert display_weight_for("cafe_aesthetic") == pytest.approx(1.0)
     assert display_weight_for("WaifuAesthetic") == pytest.approx(1.0)

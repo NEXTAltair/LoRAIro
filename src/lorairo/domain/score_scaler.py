@@ -185,8 +185,10 @@ def calibrate_to_display(model: str, raw: float) -> float:
     """scorer の生値 ``raw`` を 0.0-10.0 の連続表示スコアへ変換する。
 
     変換は連続・単調・区分線形。各モデルの knot は ``_AI_SCORE_SPEC`` を参照
-    (根拠は module / テーブル docstring に記載)。未知 model は ``value_range`` 不明の
-    ため 0-1 を仮定した線形マッピングをフォールバックとして行う。
+    (根拠は module / テーブル docstring に記載)。``_AI_SCORE_SPEC`` に未登録の
+    model は fallback を行う:LiteLLM ``provider/model`` 形式 (slash あり) は
+    0-10 スケール直接 identity + clamp、slash なし完全未知モデルは 0-1 を仮定した
+    線形 0-10 マッピング。
 
     Args:
         model: scorer model 名 (iam-lib registry key)。
@@ -219,7 +221,7 @@ def display_weight_for(model: str) -> float:
 
     WebAPI Vision LLM は aesthetic scorer より判定信頼度が低いため
     ``WEBAPI_VISION_SCORE_WEIGHT`` (< 1.0) で割り引く。
-    既知の aesthetic scorer および未知モデルは重み 1.0。
+    ``_AI_SCORE_SPEC`` に登録済みの aesthetic scorer は重み 1.0。slash なし完全未知モデルも重み 1.0 (fallback)。
     """
     if _is_webapi_vision_scorer(model):
         return WEBAPI_VISION_SCORE_WEIGHT
