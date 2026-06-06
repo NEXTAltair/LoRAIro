@@ -148,8 +148,10 @@ def test_project_delete_nonexistent(mock_projects_dir: Path) -> None:
         ["project", "delete", "nonexistent", "--force"],
     )
 
+    # ADR 0057 §7: エラーは中央境界が stderr に整形出力する (stdout は機械可読専用)。
+    # NOT_FOUND は実行時系のため exit 1。
     assert result.exit_code == 1
-    assert "Project not found" in result.stdout
+    assert "見つかりません" in result.output
 
 
 @pytest.mark.unit
@@ -222,8 +224,9 @@ def test_project_create_too_long_name(mock_projects_dir: Path) -> None:
         ["project", "create", long_name],
     )
 
-    assert result.exit_code == 1
-    assert "Error" in result.stdout
+    # Pydantic ValidationError → VALIDATION_FAILED → exit 2 (入力系、ADR 0057 §6)。
+    assert result.exit_code == 2
+    assert "Error" in result.output
 
 
 @pytest.mark.unit
@@ -235,8 +238,9 @@ def test_project_create_invalid_name(mock_projects_dir: Path) -> None:
         ["project", "create", "test project!"],
     )
 
-    assert result.exit_code == 1
-    assert "Error" in result.stdout
+    # Pydantic ValidationError → VALIDATION_FAILED → exit 2 (入力系、ADR 0057 §6)。
+    assert result.exit_code == 2
+    assert "Error" in result.output
 
 
 @pytest.mark.unit
@@ -353,3 +357,53 @@ def test_project_list_format_invalid(mock_projects_dir: Path) -> None:
 
     # Invalid format は table または json のみ
     assert result.exit_code == 0 or result.exit_code == 2
+
+
+# ===== 機械可読 (--json) モード (ADR 0057/0058) =====
+
+
+def _json_lines(stdout: str) -> list[dict]:
+    """stdout の各行を JSON object として読む。"""
+    return [json.loads(line) for line in stdout.splitlines() if line.strip()]
+
+
+@pytest.mark.unit
+@pytest.mark.cli
+def test_project_create_json_mode(mock_projects_dir: Path) -> None:
+    """Test: --json project create - 終端 result を JSONL で返す。"""
+    result = runner.invoke(app, ["--json", "project", "create", "json-mode"])
+
+    assert result.exit_code == 0
+    last = _json_lines(result.stdout)[-1]
+    assert last["kind"] == "result"
+    assert last["ok"] is True
+    assert last["name"] == "json-mode"
+
+
+@pytest.mark.unit
+@pytest.mark.cli
+def test_project_list_json_mode(mock_projects_dir: Path) -> None:
+    """Test: --json project list - item 行 + 件数 result を JSONL で返す。"""
+    runner.invoke(app, ["project", "create", "jm1"])
+
+    result = runner.invoke(app, ["--json", "project", "list"])
+
+    assert result.exit_code == 0
+    lines = _json_lines(result.stdout)
+    items = [line for line in lines if line.get("kind") == "item"]
+    result_line = next(line for line in reversed(lines) if line.get("kind") == "result")
+    assert any(item["name"] == "jm1" for item in items)
+    assert result_line["count"] == len(items)
+
+
+@pytest.mark.unit
+@pytest.mark.cli
+def test_project_delete_nonexistent_json_mode(mock_projects_dir: Path) -> None:
+    """Test: --json project delete - 失敗時は構造化 error 行 (code=NOT_FOUND)。"""
+    result = runner.invoke(app, ["--json", "project", "delete", "nonexistent", "--force"])
+
+    assert result.exit_code == 1
+    last = _json_lines(result.stdout)[-1]
+    assert last["kind"] == "error"
+    assert last["code"] == "NOT_FOUND"
+    assert last["ok"] is False
