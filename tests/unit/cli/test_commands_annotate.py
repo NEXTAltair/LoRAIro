@@ -1,5 +1,6 @@
 """Annotation commands テスト。"""
 
+import json
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
@@ -7,12 +8,77 @@ import pytest
 from PIL import Image
 from typer.testing import CliRunner
 
+from lorairo.cli._output_mode import set_json_mode
+from lorairo.cli.commands.annotate import _annotation_score, _emit_annotation_items
 from lorairo.cli.main import app
 from lorairo.services.annotation_save_service import AnnotationSaveResult
 from lorairo.services.project_management_service import ProjectManagementService
 from lorairo.services.service_container import ServiceContainer
 
 runner = CliRunner()
+
+
+def _jsonl(stdout: str) -> list[dict]:
+    return [json.loads(line) for line in stdout.splitlines() if line.strip()]
+
+
+@pytest.fixture(autouse=True)
+def _reset_json_mode() -> None:
+    set_json_mode(False)
+    yield
+    set_json_mode(False)
+
+
+@pytest.mark.unit
+@pytest.mark.cli
+def test_annotation_score_reads_scores_payload() -> None:
+    """Scorer-only annotation results expose the first numeric scores value."""
+    result = MagicMock(score=None, rating_score=None, aesthetic_score=None)
+    result.scores = {"aesthetic": 7.5}
+
+    assert _annotation_score(result) == 7.5
+
+
+@pytest.mark.unit
+@pytest.mark.cli
+def test_emit_annotation_items_emits_duplicate_phash_records(capsys: pytest.CaptureFixture[str]) -> None:
+    """Duplicate pHash selections emit one JSONL item per selected record."""
+    set_json_mode(True)
+    records = [
+        {"id": 1, "phash": "same", "stored_image_path": "/tmp/a.jpg"},
+        {"id": 2, "phash": "same", "stored_image_path": "/tmp/b.jpg"},
+    ]
+    results = {"same": {"scorer": {"scores": {"aesthetic": 8.0}, "tags": []}}}
+
+    _emit_annotation_items(results, records)
+
+    rows = _jsonl(capsys.readouterr().out)
+    assert [row["image_id"] for row in rows] == [1, 2]
+    assert [row["file_path"] for row in rows] == ["/tmp/a.jpg", "/tmp/b.jpg"]
+    assert all(row["models"][0]["score"] == 8.0 for row in rows)
+
+
+@pytest.mark.unit
+@pytest.mark.cli
+def test_select_image_records_missing_warning_uses_stderr_in_json(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """Missing image-id warning does not pollute JSON stdout."""
+    from lorairo.cli.commands.annotate import _select_image_records
+
+    set_json_mode(True)
+
+    selected = _select_image_records(
+        [{"id": 1, "phash": "p", "stored_image_path": "/tmp/a.jpg"}],
+        limit=None,
+        offset=0,
+        image_ids=[1, 99],
+    )
+
+    captured = capsys.readouterr()
+    assert [record["id"] for record in selected] == [1]
+    assert captured.out == ""
+    assert "Image ID(s) not found" in captured.err
 
 
 @pytest.fixture(autouse=True)
@@ -126,7 +192,7 @@ def test_annotate_run_nonexistent_project(mock_projects_dir: Path) -> None:
     )
 
     assert result.exit_code == 1
-    assert "Project not found" in result.stdout
+    assert "nonexistent" in result.stderr
 
 
 @pytest.mark.unit
@@ -160,7 +226,7 @@ def test_annotate_run_no_images(
     )
 
     assert result.exit_code == 1
-    assert "No registered images found" in result.stdout
+    assert "No registered images found" in result.stderr
 
 
 @pytest.mark.unit
@@ -242,6 +308,97 @@ def test_annotate_run_with_single_model(
     assert "Found 3 image(s)" in result.stdout
     assert "gpt-4o-mini" in result.stdout
     assert "Loaded 3 image(s)" in result.stdout or "annotation completed successfully" in result.stdout
+
+
+@pytest.mark.unit
+@pytest.mark.cli
+@patch("lorairo.cli.commands.annotate.get_service_container")
+def test_annotate_run_json_emits_items_and_result_only(
+    mock_get_container,
+    test_project_with_images: tuple[Path, list[Path]],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """--json は画像ごとの item と終端 result だけを stdout JSONL に出す。"""
+    monkeypatch.setenv("LORAIRO_CLI_JSON", "1")
+    _project_dir, image_files = test_project_with_images
+
+    mock_container = MagicMock()
+    mock_annotator = MagicMock()
+    mock_config = MagicMock()
+    mock_config.get_setting.return_value = "test_key"
+    mock_annotator.annotate.return_value = {
+        "phash0000000000000000": {"gpt-4o-mini": {"tags": ["cat"], "score": 0.8, "error": None}},
+        "phash0000000000000001": {"gpt-4o-mini": {"tags": ["dog"], "score": 0.7, "error": None}},
+    }
+
+    image_records = [
+        {"id": i + 1, "phash": f"phash{i:016d}", "stored_image_path": str(img_path)}
+        for i, img_path in enumerate(image_files[:2])
+    ]
+    mock_container.db_manager.image_repo.get_images_by_filter.return_value = (
+        image_records,
+        len(image_records),
+    )
+    mock_container.annotator_library = mock_annotator
+    mock_container.config_service = mock_config
+    mock_container.annotation_save_service.save_annotation_results.return_value = AnnotationSaveResult(
+        success_count=2,
+        skip_count=0,
+        error_count=0,
+        total_count=2,
+    )
+    mock_get_container.return_value = mock_container
+
+    result = runner.invoke(
+        app,
+        ["annotate", "run", "--project", "test_dataset", "--model", "gpt-4o-mini"],
+    )
+
+    assert result.exit_code == 0, result.output
+    lines = [json.loads(line) for line in result.stdout.splitlines()]
+    assert [line["kind"] for line in lines] == ["item", "item", "result"]
+    assert lines[0]["type"] == "annotation"
+    assert lines[0]["image_id"] == 1
+    assert lines[0]["models"][0]["tags"] == ["cat"]
+    assert lines[-1]["annotated"] == 2
+    assert lines[-1]["skipped"] == 0
+
+
+@pytest.mark.unit
+@pytest.mark.cli
+@patch("lorairo.cli.commands.annotate.get_service_container")
+def test_annotate_run_json_rejects_more_than_500_before_items(
+    mock_get_container,
+    test_project_with_images: tuple[Path, list[Path]],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """annotate run の処理集合500超は item を出す前に RESULT_SET_TOO_LARGE。"""
+    monkeypatch.setenv("LORAIRO_CLI_JSON", "1")
+    _project_dir, image_files = test_project_with_images
+
+    mock_container = MagicMock()
+    mock_config = MagicMock()
+    mock_config.get_setting.return_value = "test_key"
+    records = [
+        {"id": i + 1, "phash": f"phash{i:016d}", "stored_image_path": str(image_files[0])}
+        for i in range(501)
+    ]
+    mock_container.db_manager.image_repo.get_images_by_filter.return_value = (records, len(records))
+    mock_container.config_service = mock_config
+    mock_get_container.return_value = mock_container
+
+    result = runner.invoke(
+        app,
+        ["annotate", "run", "--project", "test_dataset", "--model", "gpt-4o-mini"],
+    )
+
+    assert result.exit_code == 2
+    lines = [json.loads(line) for line in result.stdout.splitlines()]
+    assert len(lines) == 1
+    assert lines[0]["kind"] == "error"
+    assert lines[0]["code"] == "RESULT_SET_TOO_LARGE"
+    assert lines[0]["details"] == {"limit": 500, "matched": 501}
+    mock_container.annotator_library.annotate.assert_not_called()
 
 
 @pytest.mark.unit
@@ -462,10 +619,10 @@ def test_annotate_run_no_api_keys(
         ],
     )
 
-    # Issue #241: 不足検出で exit 1 + Missing API keys メッセージ
-    assert result.exit_code == 1
-    assert "Missing API keys" in result.stdout
-    assert "openai" in result.stdout
+    # Issue #241 / ADR 0057: 不足検出は INVALID_INPUT + exit 2。
+    assert result.exit_code == 2
+    assert "Missing API keys" in result.stderr
+    assert "openai" in result.stderr
 
 
 @pytest.mark.unit
@@ -690,7 +847,7 @@ def test_annotate_run_filter_matches_no_images_exits_before_loading(
     )
 
     assert result.exit_code == 1
-    assert "No images matched annotation filters" in result.stdout
+    assert "No images matched annotation filters" in result.stderr
     mock_container.annotator_library.annotate.assert_not_called()
 
 
@@ -739,7 +896,7 @@ def test_annotate_run_annotation_failure(
     )
 
     assert result.exit_code == 1
-    assert "Annotation failed" in result.stdout or "Error" in result.stdout
+    assert "Annotation failed" in result.stderr or "Error" in result.stderr
 
 
 @pytest.mark.unit
@@ -957,8 +1114,8 @@ def test_annotate_run_all_models_failed_exits_nonzero(
     )
 
     assert result.exit_code == 1
-    assert "Error" in result.stdout
-    assert "gpt-4o-mini" in result.stdout
+    assert "Error" in result.stderr
+    assert "gpt-4o-mini" in result.stderr
 
 
 @pytest.mark.unit
@@ -1065,7 +1222,10 @@ def test_annotate_run_saves_results_to_db(
 
     assert result.exit_code == 0
     # annotation_save_service.save_annotation_results が呼ばれたことを確認
-    assert mock_container.annotation_save_service.save_annotation_results.call_count == 1
+    mock_container.annotation_save_service.save_annotation_results.assert_called_once()
+    assert mock_container.annotation_save_service.save_annotation_results.call_args.kwargs[
+        "allowed_image_ids"
+    ] == {1, 2, 3}
     # サマリーに保存件数が表示される
     assert "Saved to DB" in result.stdout
     assert "2" in result.stdout

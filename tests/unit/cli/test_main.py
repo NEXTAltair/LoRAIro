@@ -1,12 +1,13 @@
 """CLI メインモジュール テスト。"""
 
+import json
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
 from typer.testing import CliRunner
 
-from lorairo.cli.main import app
+from lorairo.cli.main import app, main
 
 runner = CliRunner()
 
@@ -178,6 +179,28 @@ def test_callback_configures_logging_default_info(monkeypatch: pytest.MonkeyPatc
     assert log_path.name == "lorairo-cli.log"
     assert log_path.parent.name == "logs"
     assert config_arg["rotation"] == "25 MB"
+
+
+@pytest.mark.unit
+@pytest.mark.cli
+def test_main_preserves_post_command_json_flag(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """main() の prescan 後も callback が明示 --json を env で上書きしない。"""
+    monkeypatch.delenv("LORAIRO_CLI_JSON", raising=False)
+    monkeypatch.setattr("lorairo.cli.main.initialize_logging", MagicMock())
+    monkeypatch.setattr("lorairo.cli.commands.project.api_list_projects", MagicMock(return_value=[]))
+
+    main(["project", "list", "--json"])
+
+    captured = capsys.readouterr()
+    assert json.loads(captured.out) == {
+        "kind": "result",
+        "ok": True,
+        "message": "0 project(s) found",
+        "count": 0,
+    }
 
 
 # Issue #254: stdio init / Windows console code page / loguru sink クリア の test は

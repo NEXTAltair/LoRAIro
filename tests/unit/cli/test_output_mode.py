@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from lorairo.cli._output_mode import is_json_mode, resolve_output_mode, set_json_mode
+from lorairo.cli._output_mode import has_prescanned_mode, is_json_mode, resolve_output_mode, set_json_mode
 
 
 @pytest.mark.unit
@@ -45,5 +45,19 @@ def test_set_and_is_json_mode_roundtrip() -> None:
     """解決済みモードの保存/参照が往復する。"""
     set_json_mode(True)
     assert is_json_mode() is True
+    assert has_prescanned_mode() is False
     set_json_mode(False)
     assert is_json_mode() is False
+
+
+@pytest.mark.unit
+@pytest.mark.cli
+def test_set_json_mode_records_prescanned_state() -> None:
+    """main() prescan 済みモードを callback が識別できる。"""
+    set_json_mode(True, prescanned=True)
+
+    assert is_json_mode() is True
+    assert has_prescanned_mode() is True
+
+    set_json_mode(False)
+    assert has_prescanned_mode() is False
