@@ -106,7 +106,7 @@ def _make_succeeded_item(
         "capabilities": ["tags", "captions", "scores"],
         "tags": tags,
         "captions": captions,
-        "scores": {"score": score},
+        "scores": {"overall": score},
         "score_labels": [],
         "ratings": [],
     }
