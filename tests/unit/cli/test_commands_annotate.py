@@ -1222,7 +1222,10 @@ def test_annotate_run_saves_results_to_db(
 
     assert result.exit_code == 0
     # annotation_save_service.save_annotation_results が呼ばれたことを確認
-    assert mock_container.annotation_save_service.save_annotation_results.call_count == 1
+    mock_container.annotation_save_service.save_annotation_results.assert_called_once()
+    assert mock_container.annotation_save_service.save_annotation_results.call_args.kwargs[
+        "allowed_image_ids"
+    ] == {1, 2, 3}
     # サマリーに保存件数が表示される
     assert "Saved to DB" in result.stdout
     assert "2" in result.stdout

@@ -523,7 +523,11 @@ def _annotate_and_save_chunk(
     summary.any_success = summary.any_success or chunk_success
     summary.error_models |= chunk_error_models
 
-    save_result = save_service.save_annotation_results(results)
+    selected_image_ids = {int(record["id"]) for record in records_chunk if record.get("id") is not None}
+    save_result = save_service.save_annotation_results(
+        results,
+        allowed_image_ids=selected_image_ids if selected_image_ids else None,
+    )
     summary.saved += save_result.success_count
     summary.skipped += save_result.skip_count
     summary.save_errors += save_result.error_count
