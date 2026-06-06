@@ -22,6 +22,7 @@ import click
 import typer
 from rich.table import Table
 
+from lorairo.cli._boundary import command_boundary
 from lorairo.cli._console import make_console
 from lorairo.cli._emit import emit_error
 from lorairo.cli._errors import ErrorCode, ErrorInfo, classify_exception, hint_for
@@ -33,6 +34,7 @@ from lorairo.cli._output_mode import (
     strip_mode_flags,
 )
 from lorairo.cli.commands import annotate, batch, export, images, models, project
+from lorairo.cli.introspection import emit_describe, emit_list_commands
 from lorairo.services.service_container import get_service_container
 from lorairo.utils.config import DEFAULT_CLI_LOG_PATH, DEFAULT_CONFIG_PATH
 from lorairo.utils.log import initialize_logging
@@ -137,6 +139,28 @@ def version() -> None:
     """Show version information."""
     console.print("[bold cyan]LoRAIro CLI[/bold cyan] v0.0.8")
     console.print("[dim]AI-powered image annotation and dataset management[/dim]")
+
+
+@app.command("list-commands")
+def list_commands() -> None:
+    """List machine-readable command metadata."""
+    with command_boundary():
+        emit_list_commands()
+
+
+@app.command("describe")
+def describe(
+    command: str = typer.Argument(..., help="Space-separated command path, e.g. 'images update'."),
+    schema: str = typer.Option(
+        "compact",
+        "--schema",
+        click_type=click.Choice(["compact", "json_schema"]),
+        help="Schema representation: compact or json_schema.",
+    ),
+) -> None:
+    """Describe a command for agents and CI."""
+    with command_boundary():
+        emit_describe(command, schema=schema)  # type: ignore[arg-type]
 
 
 def _show_cli_status(container: ServiceContainer) -> None:

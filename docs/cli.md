@@ -1,15 +1,13 @@
 # LoRAIro CLI ドキュメント
 
-LoRAIro のコマンドラインインターフェース（CLI）。GUI なし環境でのデータセット管理、バッチ処理、プログラマティックアクセスを提供します。
+LoRAIro のコマンドラインインターフェース（CLI）。GUI なし環境でのデータセット管理、
+バッチ処理、プログラマティックアクセスを提供します。
 
 ## インストール
 
 ```bash
-# LoRAIro をインストール
 uv sync
-
-# CLI が利用可能か確認
-lorairo-cli --version
+lorairo-cli --help
 ```
 
 ## 基本的な使い方
@@ -17,696 +15,776 @@ lorairo-cli --version
 OpenAI Moderation で未評価画像に rating を付与する CLI 手順は
 [CLI Rating Preflight Workflow](cli-rating-preflight.md) を参照してください。
 
-### ヘルプ表示
-
 ```bash
-# 全体的なヘルプ
 lorairo-cli --help
-
-# 特定のコマンドのヘルプ
 lorairo-cli project --help
-lorairo-cli project create --help
-```
-
-### バージョン確認
-
-```bash
 lorairo-cli version
-# Output: LoRAIro CLI v0.0.8
-```
-
-### システムステータス確認
-
-```bash
 lorairo-cli status
-# Output: Service Status テーブル表示
 ```
 
----
+## Machine-Readable Introspection
 
-## コマンド一覧
-
-### images - 画像管理
-
-LoRAIro プロジェクトに画像を登録・管理します。pHash（知覚ハッシュ）で重複検出を行います。
-
-#### images register - 画像登録
-
-**構文**:
-```bash
-lorairo-cli images register <directory> --project <name> [--skip-duplicates|--include-duplicates]
-```
-
-**引数**:
-- `directory`: 登録する画像が含まれるディレクトリ（必須）
-
-**オプション**:
-- `--project <name>` / `-p <name>`: 対象プロジェクト（必須）
-- `--skip-duplicates`: 重複画像をスキップ（デフォルト）
-- `--include-duplicates`: 重複画像も登録
-
-**例**:
-```bash
-# 基本的な使い方
-lorairo-cli images register /path/to/images --project my_dataset
-
-# 重複を含めて登録
-lorairo-cli images register /path/to/images --project my_dataset --include-duplicates
-```
-
-**出力例**:
-```
-Found 150 image(s)
-画像登録中... ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 100%
-
-Registration Summary
-Registered     125
-Skipped (duplicates) 25
-Errors         0
-
-✓ Images registered to project: my_dataset
-```
-
-**内部動作**:
-1. ディレクトリ内の全画像ファイル（JPG, PNG, GIF など）を検索
-2. 各画像のpHashを計算（知覚ハッシュ）
-3. 重複検出（既存pHash と比較）
-4. プロジェクトへ登録
-5. Rich Progress バーで進捗表示
-
-**対応形式**: JPG, JPEG, PNG, GIF, BMP, WebP
-
----
-
-#### images list - 画像一覧
-
-**構文**:
-```bash
-lorairo-cli images list --project <name> [--limit <count>]
-```
-
-**オプション**:
-- `--project <name>` / `-p <name>`: 対象プロジェクト（必須）
-- `--limit <count>` / `-l <count>`: 表示最大件数（オプション）
-
-**注記**: 現在開発中。今後実装予定です。
-
----
-
-#### images update - メタデータ更新
-
-**構文**:
-```bash
-lorairo-cli images update --project <name> --tags <tags>
-```
-
-**オプション**:
-- `--project <name>` / `-p <name>`: 対象プロジェクト（必須）
-- `--tags <tags>`: 追加するタグ（カンマ区切り）
-
-**例**:
-```bash
-lorairo-cli images update --project my_dataset --tags "landscape,outdoor"
-```
-
-**注記**: 現在開発中。今後実装予定です。
-
----
-
-### project - プロジェクト管理
-
-LoRAIro データセットプロジェクトの作成、一覧表示、削除を行います。
-
-#### project create - プロジェクト作成
-
-**構文**:
-```bash
-lorairo-cli project create <name> [--description <description>]
-```
-
-**引数**:
-- `name`: プロジェクト名（必須）
-  - Unicode 対応（日本語など）
-  - 特殊文字可（ハイフン、アンダースコア）
-  - 例: `my_dataset`, `テスト プロジェクト`
-
-**オプション**:
-- `--description <text>` / `-d <text>`: プロジェクトの説明（任意）
-
-**例**:
-```bash
-# シンプルなプロジェクト作成
-lorairo-cli project create "my_dataset"
-
-# 説明付き
-lorairo-cli project create "dataset_v1" --description "Training dataset version 1"
-
-# Unicode 名対応
-lorairo-cli project create "テスト画像データ" -d "テスト用の画像セット"
-```
-
-**出力**:
-```
-✓ Project created: my_dataset
-Location: /home/user/.lorairo/projects/my_dataset_20260216_063000
-```
-
-**内部動作**:
-1. `~/.lorairo/projects/` ディレクトリを作成（存在しない場合）
-2. `project_name_YYYYMMDDhhmmss` という名前でプロジェクトディレクトリを作成
-3. `.lorairo-project` メタデータファイルを生成
-4. `image_dataset/original_images/` ディレクトリ構造を初期化
-
----
-
-#### project list - プロジェクト一覧表示
-
-**構文**:
-```bash
-lorairo-cli project list [--format <format>]
-```
-
-**オプション**:
-- `--format <format>` / `-f <format>`: 出力フォーマット
-  - `table`: リッチテーブル表示（デフォルト）
-  - `json`: JSON 形式（CI/CD 対応）
-
-**例**:
-```bash
-# テーブル形式（デフォルト）
-lorairo-cli project list
-
-# JSON 形式
-lorairo-cli project list --format json
-
-# CI/CD パイプラインでの使用
-lorairo-cli project list --format json | jq '.[] | .name'
-```
-
-**出力例**:
-
-テーブル形式:
-```
-Projects
-Name             Created         Path
-─────────────────────────────────────────────────────
-my_dataset       20260216_063000 ~/.lorairo/projects/my_dataset_20260216_063000
-test_project     20260215_120000 ~/.lorairo/projects/test_project_20260215_120000
-```
-
-JSON 形式:
-```json
-[
-  {
-    "name": "my_dataset",
-    "created": "20260216_063000",
-    "path": "/home/user/.lorairo/projects/my_dataset_20260216_063000"
-  },
-  {
-    "name": "test_project",
-    "created": "20260215_120000",
-    "path": "/home/user/.lorairo/projects/test_project_20260215_120000"
-  }
-]
-```
-
----
-
-#### project delete - プロジェクト削除
-
-**構文**:
-```bash
-lorairo-cli project delete <name> [--force]
-```
-
-**引数**:
-- `name`: 削除するプロジェクト名（必須）
-
-**オプション**:
-- `--force` / `-f`: 確認プロンプトをスキップして即座に削除
-
-**例**:
-```bash
-# 確認プロンプト付き（推奨）
-lorairo-cli project delete "old_dataset"
-# Output: Delete project 'old_dataset' at ~/.../old_dataset_xxx? This cannot be undone. [y/N]:
-
-# 確認をスキップして削除
-lorairo-cli project delete "old_dataset" --force
-```
-
-**出力**:
-```
-✓ Project deleted: old_dataset
-```
-
----
-
-## 出力フォーマット
-
-### リッチテーブル出力
-
-デフォルトの出力形式。カラー表示、整形されたテーブルで視覚的にわかりやすい表示。
+ADR 0059 に従い、introspection は既存 JSONL kind の `item` / `result` / `error`
+だけを使います。`tool` / `model` / `schema` は `item` payload の `type` フィールドです。
 
 ```bash
-lorairo-cli project list
+lorairo-cli --json list-commands
+lorairo-cli --json describe "images update"
+lorairo-cli --json describe "annotate run" --schema json_schema
 ```
 
-**特徴**:
-- カラー表示（見やすい）
-- テーブル形式（整列）
-- インタラクティブ環境向け
+`list-commands` は各コマンドを `kind:"item", type:"tool"` として出力し、
+`read_only` と `side_effects` を含めます。`describe` の既定 `compact` は
+`type:"model"` 行で入力・出力・エラーの簡易フィールドを返します。
+`--schema json_schema` は Pydantic 由来の公開スキーマを `type:"schema"` の
+`item` 行に包みます。検索駆動コマンドは公開フィルタ契約
+`ImageFilterCriteria` を晒しますが、生 SQL や DB スキーマは晒しません。
 
-### JSON 出力
+## Command Reference
 
-CI/CD パイプライン、プログラマティックアクセス向け。
+> Generated by `scripts/generate_cli_docs.py`. Edit introspection specs, then regenerate.
+
+### `annotate import-batch`
+
+Import provider batch annotation JSONL results.
+
+- Read only: `false`
+- Side effects: `file_read`, `db_read`, `db_write`
+
+#### Compact Introspection
 
 ```bash
-lorairo-cli project list --format json
+lorairo-cli --json describe "annotate import-batch"
 ```
 
-**特徴**:
-- 機械可読形式
-- `jq` などでパース可能
-- スクリプト処理に最適
+#### Models
 
-**例**: JSON からプロジェクト名のみ抽出
-```bash
-lorairo-cli project list --format json | jq -r '.[].name'
-```
+**Input `AnnotateImportBatchInput`**
 
----
+- `project`: `str` (required)
+- `jsonl_dir`: `path` (required)
+- `dry_run`: `bool` (optional, default `False`)
+- `model_name`: `str?` (optional)
 
-## よくある使用パターン
+**Output `AnnotateImportBatchResult`**
 
-### 1. 新しいデータセットの初期化から学習データ作成まで
+- `total_records`: `int` (optional)
+- `parsed_ok`: `int` (optional)
+- `parse_errors`: `int` (optional)
+- `matched`: `int` (optional)
+- `unmatched`: `int` (optional)
+- `saved`: `int` (optional)
+- `save_errors`: `int` (optional)
+- `model_name`: `str?` (optional)
+- `dry_run`: `bool` (optional)
 
-```bash
-# 1. プロジェクト作成
-lorairo-cli project create "my_training_dataset" \
-  --description "Training data for LoRA model"
+**Error `CliErrorResponse`**
 
-# 2. プロジェクト確認
-lorairo-cli project list | grep my_training_dataset
+Structured error payload emitted as kind=error by the CLI boundary.
 
-# 3. 画像登録
-lorairo-cli images register /path/to/images --project my_training_dataset
+- `kind`: `error` (required)
+- `ok`: `false` (required)
+- `code`: `str` (required)
+- `message`: `str` (required)
+- `retryable`: `bool` (required)
+- `user_action_required`: `bool` (required)
+- `hint`: `str?` (optional)
+- `details`: `dict?` (optional)
 
-# 4. AIアノテーション実行
-lorairo-cli annotate run --project my_training_dataset --model gpt-4o-mini
+### `annotate run`
 
-# 5. 学習用データセットをエクスポート
-lorairo-cli export create \
-  --project my_training_dataset \
-  --output ./training_data/ \
-  --format txt \
-  --resolution 512
-```
+Run annotation for selected project images.
 
-### 2. CI/CD パイプラインでの利用
+- Read only: `false`
+- Side effects: `db_read`, `db_write`, `file_read`, `network`
 
-```bash
-# GitHub Actions での例
-- name: Create dataset project
-  run: |
-    lorairo-cli project create "${{ env.DATASET_NAME }}" \
-      --description "Automated dataset creation"
-
-- name: List projects in JSON
-  run: |
-    lorairo-cli project list --format json > projects.json
-```
-
-### 3. スクリプトでの自動化
+#### Compact Introspection
 
 ```bash
-#!/bin/bash
-
-# 複数プロジェクト一括作成
-for i in {1..5}; do
-  lorairo-cli project create "dataset_v$i" \
-    --description "Version $i of training dataset"
-done
-
-# 一覧確認
-lorairo-cli project list --format json | jq '.[] | .name'
+lorairo-cli --json describe "annotate run"
 ```
 
-### 4. プロジェクトのバックアップ
+#### Models
+
+**Input `AnnotateRunInput`**
+
+- `project`: `str` (required)
+- `model`: `list[str]` (required)
+- `limit`: `int>=1?` (optional)
+- `offset`: `int>=0` (optional, default `0`)
+- `image_id`: `list[int]?` (optional)
+- `batch_size`: `int>=1` (optional, default `10`)
+- `unrated`: `bool` (optional, default `False`)
+- `missing_model`: `str?` (optional)
+
+**Output `AnnotateRunItem`**
+
+- `type`: `annotation` (optional)
+- `image_id`: `int?` (optional)
+- `phash`: `str` (optional)
+- `file_path`: `str?` (optional)
+- `models`: `list[AnnotateRunModelResult]` (optional)
+
+**Output `AnnotateRunResult`**
+
+- `annotated`: `int` (optional)
+- `skipped`: `int` (optional)
+- `errors`: `int` (optional)
+- `loaded`: `int` (optional)
+- `results`: `int` (optional)
+- `models`: `list[str]` (optional)
+
+**Error `CliErrorResponse`**
+
+Structured error payload emitted as kind=error by the CLI boundary.
+
+- `kind`: `error` (required)
+- `ok`: `false` (required)
+- `code`: `str` (required)
+- `message`: `str` (required)
+- `retryable`: `bool` (required)
+- `user_action_required`: `bool` (required)
+- `hint`: `str?` (optional)
+- `details`: `dict?` (optional)
+
+### `batch cancel`
+
+Cancel a provider batch job.
+
+- Read only: `false`
+- Side effects: `db_read`, `db_write`, `network`
+
+#### Compact Introspection
 
 ```bash
-# プロジェクト情報を JSON で保存
-lorairo-cli project list --format json > backup_projects.json
-
-# 後で復元
-jq -r '.[] | .name' backup_projects.json | while read name; do
-  echo "Project: $name"
-done
+lorairo-cli --json describe "batch cancel"
 ```
 
-### 5. 複数モデルでのアノテーション比較
+#### Models
+
+**Input `BatchCancelInput`**
+
+- `job_id`: `int` (required)
+- `project`: `str` (required)
+
+**Output `BatchJobResult`**
+
+- `job_id`: `int` (optional)
+- `job`: `dict?` (optional)
+
+**Error `CliErrorResponse`**
+
+Structured error payload emitted as kind=error by the CLI boundary.
+
+- `kind`: `error` (required)
+- `ok`: `false` (required)
+- `code`: `str` (required)
+- `message`: `str` (required)
+- `retryable`: `bool` (required)
+- `user_action_required`: `bool` (required)
+- `hint`: `str?` (optional)
+- `details`: `dict?` (optional)
+
+### `batch fetch`
+
+Fetch normalized provider batch results and artifacts.
+
+- Read only: `false`
+- Side effects: `db_read`, `db_write`, `file_write`, `network`
+
+#### Compact Introspection
 
 ```bash
-# プロジェクト作成
-lorairo-cli project create "annotation_test" -d "Testing different annotation models"
-
-# 画像登録
-lorairo-cli images register /path/to/test/images --project annotation_test
-
-# 複数モデルで同時アノテーション
-lorairo-cli annotate run \
-  --project annotation_test \
-  --model gpt-4o-mini \
-  --model claude-3-5-sonnet \
-  --model gemini-2.0-flash-thinking-exp
-
-# 結果をエクスポートして比較
-lorairo-cli export create \
-  --project annotation_test \
-  --output ./comparison/ \
-  --format json
+lorairo-cli --json describe "batch fetch"
 ```
 
-### 6. バッチ処理での大規模データセット作成
+#### Models
+
+**Input `BatchFetchInput`**
+
+- `job_id`: `int` (required)
+- `project`: `str` (required)
+- `output_dir`: `path?` (optional)
+
+**Output `BatchFetchResult`**
+
+- `job_id`: `int` (optional)
+- `provider_status`: `str?` (optional)
+- `items`: `int` (optional)
+- `succeeded`: `int` (optional)
+- `failed`: `int` (optional)
+- `artifacts`: `list[dict]` (optional)
+
+**Error `CliErrorResponse`**
+
+Structured error payload emitted as kind=error by the CLI boundary.
+
+- `kind`: `error` (required)
+- `ok`: `false` (required)
+- `code`: `str` (required)
+- `message`: `str` (required)
+- `retryable`: `bool` (required)
+- `user_action_required`: `bool` (required)
+- `hint`: `str?` (optional)
+- `details`: `dict?` (optional)
+
+### `batch import`
+
+Fetch and import provider batch results into annotations.
+
+- Read only: `false`
+- Side effects: `db_read`, `db_write`, `file_write`, `network`
+
+#### Compact Introspection
 
 ```bash
-#!/bin/bash
-
-# 大量の画像を処理
-PROJECT_NAME="large_dataset"
-
-# プロジェクト作成
-lorairo-cli project create "$PROJECT_NAME"
-
-# 画像を複数回に分けて登録（ディレクトリごと）
-for dir in /data/images/*; do
-  lorairo-cli images register "$dir" --project "$PROJECT_NAME"
-done
-
-# バッチサイズを大きくしてアノテーション実行
-lorairo-cli annotate run \
-  --project "$PROJECT_NAME" \
-  --model gpt-4o-mini \
-  --batch-size 50
-
-# 高解像度でエクスポート
-lorairo-cli export create \
-  --project "$PROJECT_NAME" \
-  --output ./training_1024/ \
-  --resolution 1024
+lorairo-cli --json describe "batch import"
 ```
 
----
+#### Models
 
-## トラブルシューティング
+**Input `BatchImportInput`**
 
-### プロジェクトが見つからない
+- `job_id`: `int` (required)
+- `project`: `str` (required)
+- `output_dir`: `path?` (optional)
 
-**症状**: `lorairo-cli project list` で何も表示されない
+**Output `BatchImportResult`**
 
-**原因**: プロジェクトディレクトリがまだ作成されていない
+- `job_id`: `int?` (optional)
+- `imported`: `int` (optional)
+- `skipped`: `int` (optional)
+- `errors`: `int` (optional)
+- `total`: `int` (optional)
+- `job_imported`: `bool` (optional)
 
-**解決**:
-```bash
-# プロジェクトを作成
-lorairo-cli project create "first_project"
+**Error `CliErrorResponse`**
 
-# 確認
-lorairo-cli project list
-```
+Structured error payload emitted as kind=error by the CLI boundary.
 
-### 削除操作をキャンセルしたい
+- `kind`: `error` (required)
+- `ok`: `false` (required)
+- `code`: `str` (required)
+- `message`: `str` (required)
+- `retryable`: `bool` (required)
+- `user_action_required`: `bool` (required)
+- `hint`: `str?` (optional)
+- `details`: `dict?` (optional)
 
-**症状**: `project delete` 実行後、確認プロンプトが表示されている
+### `batch list`
 
-**解決**: `n` を入力して Enter キーを押す
-```bash
-Delete project 'dataset'? This cannot be undone. [y/N]: n
-```
+List persisted provider batch jobs.
 
-### JSON 出力をパースしたい
+- Read only: `true`
+- Side effects: `db_read`
 
-**症状**: JSON が複数行に分割されて表示される
-
-**解決**: `jq` コマンドを使用
-```bash
-# プロジェクト数をカウント
-lorairo-cli project list --format json | jq 'length'
-
-# プロジェクト名のみを抽出
-lorairo-cli project list --format json | jq -r '.[].name'
-```
-
----
-
-## ストレージの場所
-
-プロジェクトはユーザーのホームディレクトリに保存されます：
-
-```
-~/.lorairo/projects/
-├── project1_20260216_120000/
-│   ├── .lorairo-project       # メタデータ（JSON）
-│   ├── image_dataset/
-│   │   ├── original_images/   # 元画像
-│   │   └── [将来用: resolutions]/
-│   └── [将来用: image_database.db]
-├── project2_20260215_080000/
-└── ...
-```
-
----
-
-## 環境変数
-
-### LORAIRO_CLI_MODE
-
-CLI モードを有効にするための環境変数（内部用）。
+#### Compact Introspection
 
 ```bash
-# 既に src/lorairo/cli/__init__.py で自動設定されます
-export LORAIRO_CLI_MODE=true
+lorairo-cli --json describe "batch list"
 ```
 
----
+#### Models
 
-### annotate - AI アノテーション
+**Input `BatchListInput`**
 
-プロジェクトの画像に対してAIモデルを使用してアノテーション（タグ付け）を実行します。
+- `project`: `str` (required)
+- `provider`: `str?` (optional)
+- `status`: `str?` (optional)
+- `limit`: `int[1,1000]` (optional, default `100`)
+- `offset`: `int>=0` (optional, default `0`)
 
-#### annotate run - アノテーション実行
+**Output `ProviderBatchJob`**
 
-**構文**:
-```bash
-lorairo-cli annotate run --project <name> --model <model_name> [--output <dir>] [--batch-size <size>]
-```
+- `id`: `int` (optional)
+- `provider`: `str` (optional)
+- `provider_job_id`: `str?` (optional)
+- `status`: `str` (optional)
+- `provider_status`: `str?` (optional)
+- `endpoint`: `str?` (optional)
+- `model_id`: `int?` (optional)
+- `request_count`: `int` (optional)
+- `succeeded_count`: `int` (optional)
+- `failed_count`: `int` (optional)
+- `canceled_count`: `int` (optional)
+- `expired_count`: `int` (optional)
+- `submitted_at`: `str?` (optional)
+- `completed_at`: `str?` (optional)
+- `canceled_at`: `str?` (optional)
+- `expires_at`: `str?` (optional)
+- `imported_at`: `str?` (optional)
 
-**オプション**:
-- `--project <name>` / `-p <name>`: 対象プロジェクト（必須）
-- `--model <model_name>` / `-m <model_name>`: 使用するモデル名（必須、複数指定可能）
-  - 対応モデル: `gpt-4o`, `gpt-4o-mini`, `claude-3-5-sonnet`, `gemini-2.0-flash-thinking-exp`など
-- `--output <dir>` / `-o <dir>`: アノテーション結果の出力先ディレクトリ（オプション）
-- `--batch-size <size>` / `-b <size>`: バッチ処理サイズ（デフォルト: 10）
+**Error `CliErrorResponse`**
 
-**例**:
-```bash
-# 単一モデルでアノテーション実行
-lorairo-cli annotate run --project my_dataset --model gpt-4o-mini
+Structured error payload emitted as kind=error by the CLI boundary.
 
-# 複数モデルで実行
-lorairo-cli annotate run -p my_dataset -m gpt-4o -m claude-3-5-sonnet
+- `kind`: `error` (required)
+- `ok`: `false` (required)
+- `code`: `str` (required)
+- `message`: `str` (required)
+- `retryable`: `bool` (required)
+- `user_action_required`: `bool` (required)
+- `hint`: `str?` (optional)
+- `details`: `dict?` (optional)
 
-# バッチサイズ指定
-lorairo-cli annotate run -p my_dataset -m gpt-4o-mini --batch-size 20
+### `batch status`
 
-# 出力先指定
-lorairo-cli annotate run -p my_dataset -m gpt-4o-mini --output ./annotations/
-```
+Show provider batch job status.
 
-**出力例**:
-```
-Found 150 image(s)
-Using model(s): gpt-4o-mini
-画像ロード中... ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 100%
-Loaded 150 image(s) (0 failed)
-Starting annotation...
-アノテーション実行中... ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 100%
+- Read only: `false`
+- Side effects: `db_read`, `db_write`, `network`
 
-Annotation Summary
-Total Images    150
-Models Used     gpt-4o-mini
-Results         150
-
-✓ Annotation completed successfully!
-```
-
-**内部動作**:
-1. プロジェクトの`image_dataset/original_images/`から画像を読み込み
-2. 指定されたモデルを使用してアノテーション実行
-3. 結果をデータベースに保存
-4. Rich Progress バーで進捗表示
-
-**注意**:
-- APIキーが`config/lorairo.toml`で設定されている必要があります
-- 大量の画像をアノテーションする場合、API利用料金が発生します
-- アノテーション中にエラーが発生した場合は、ログファイルを確認してください
-
-#### Provider Batch API job 管理
-
-大量画像を OpenAI / Anthropic direct route の Provider Batch API に投入する場合は、同期
-`annotate run` とは別の **top-level `batch` group** を使います。永続化された job queue として
-submit / list / status / cancel / fetch / import を操作できます。
+#### Compact Introspection
 
 ```bash
-# 一覧表示の例
-uv run lorairo-cli batch list --project my_dataset
-
-# Anthropic direct route に submit
-uv run lorairo-cli batch submit --project my_dataset \
-  --model anthropic/claude-3-5-sonnet-20240620 \
-  --image-id 101 --image-id 102 --prompt-profile default
-
-# 完了後の取得 + import
-uv run lorairo-cli batch import 42 --project my_dataset
+lorairo-cli --json describe "batch status"
 ```
 
-実装ステータス、各 subcommand のフル仕様、Anthropic / OpenAI 利用条件、legacy/manual OpenAI JSONL
-import (`annotate import-batch`) との違いは
-[Provider Batch API 利用条件と運用ガイド](provider-batch-api.md) を参照してください。
+#### Models
 
----
+**Input `BatchStatusInput`**
 
-### export - データセットエクスポート
+- `job_id`: `int` (required)
+- `project`: `str` (required)
+- `refresh`: `bool` (optional, default `True`)
 
-プロジェクトからトレーニング用データセットをエクスポートします。
+**Output `BatchStatusResult`**
 
-#### export create - データセットエクスポート
+- `job`: `ProviderBatchJob` (optional)
 
-**構文**:
+**Error `CliErrorResponse`**
+
+Structured error payload emitted as kind=error by the CLI boundary.
+
+- `kind`: `error` (required)
+- `ok`: `false` (required)
+- `code`: `str` (required)
+- `message`: `str` (required)
+- `retryable`: `bool` (required)
+- `user_action_required`: `bool` (required)
+- `hint`: `str?` (optional)
+- `details`: `dict?` (optional)
+
+### `batch submit`
+
+Submit registered images to a provider batch job.
+
+- Read only: `false`
+- Side effects: `db_read`, `db_write`, `network`
+
+#### Compact Introspection
+
 ```bash
-lorairo-cli export create --project <name> --output <dir> [OPTIONS]
+lorairo-cli --json describe "batch submit"
 ```
 
-**オプション**:
-- `--project <name>` / `-p <name>`: 対象プロジェクト（必須）
-- `--output <dir>` / `-o <dir>`: エクスポート先ディレクトリ（必須）
-- `--format <format>` / `-f <format>`: エクスポート形式（デフォルト: txt）
-  - `txt`: テキストファイル形式（各画像に対応する.txtファイル）
-  - `json`: JSON形式（メタデータを含む）
-- `--resolution <size>` / `-r <size>`: ターゲット解像度（デフォルト: 512）
-  - 512, 768, 1024など
-- `--tags <tags>`: カンマ区切りタグフィルタ（例: `cat,dog`）
-- `--excluded-tags <tags>`: 除外タグ（カンマ区切り）
-- `--caption <text>`: キャプションテキストフィルタ
-- `--manual-rating <rating>`: 手動レーティングフィルタ（`PG` / `PG-13` / `R` / `X` / `XXX` / `UNRATED`）
-- `--ai-rating <rating>`: AI レーティングフィルタ（`PG` / `PG-13` / `R` / `X` / `XXX` / `UNRATED`）
-- `--include-nsfw`: NSFW コンテンツを含める（フラグ、デフォルト: False）
-- `--score-min <float>`: 最小スコア（0.0-10.0）
-- `--score-max <float>`: 最大スコア（0.0-10.0）
+#### Models
 
-> **注意:** `--project` と `--output` 以外のフィルタ条件が最低 1 つ必要です。
-> フィルタ条件なしで実行すると `exit_code=2` を返します。
->
-> ```
-> Error: エクスポートには最低1つのフィルタ条件が必要です。
-> 例: lorairo-cli export create --project foo --tags cat --output /tmp/out
-> 詳細: lorairo-cli export create --help
-> ```
+**Input `BatchSubmitInput`**
 
-**例**:
+- `project`: `str` (required)
+- `model`: `str` (required)
+- `image_id`: `list[int]` (required)
+- `provider`: `openai|anthropic?` (optional)
+- `endpoint`: `str?` (optional)
+- `prompt_profile`: `str` (optional, default `default`)
+- `description`: `str?` (optional)
+- `task_type`: `annotation|rating_preflight` (optional, default `annotation`)
+
+**Output `BatchJobResult`**
+
+- `job_id`: `int` (optional)
+- `job`: `dict?` (optional)
+
+**Error `CliErrorResponse`**
+
+Structured error payload emitted as kind=error by the CLI boundary.
+
+- `kind`: `error` (required)
+- `ok`: `false` (required)
+- `code`: `str` (required)
+- `message`: `str` (required)
+- `retryable`: `bool` (required)
+- `user_action_required`: `bool` (required)
+- `hint`: `str?` (optional)
+- `details`: `dict?` (optional)
+
+### `export create`
+
+Export a filtered dataset from a project.
+
+- Read only: `false`
+- Side effects: `db_read`, `file_read`, `file_write`
+
+#### Compact Introspection
+
 ```bash
-# タグフィルタ付きエクスポート
-lorairo-cli export create --project my_dataset --tags cat,dog --output ./export/
-
-# スコアとレーティングでフィルタ
-lorairo-cli export create -p my_dataset --score-min 7.0 --manual-rating PG --output ./export/
-
-# JSON形式でエクスポート
-lorairo-cli export create -p my_dataset --tags cat -o ./export/ --format json
-
-# 解像度指定
-lorairo-cli export create -p my_dataset --tags cat -o ./export/ --resolution 1024
-
-# 全オプション指定
-lorairo-cli export create \
-  --project my_dataset \
-  --tags cat,dog \
-  --score-min 6.0 \
-  --manual-rating PG \
-  --output ./training_data/ \
-  --format txt \
-  --resolution 768
-
-# フィルタなし (エラー例)
-lorairo-cli export create --project my_dataset --output ./export/
-# Error: エクスポートには最低1つのフィルタ条件が必要です
+lorairo-cli --json describe "export create"
 ```
 
-**出力例**:
+#### Models
+
+**Input `ExportCreateInput`**
+
+- `project`: `str` (required)
+- `output`: `path` (required)
+- `format`: `txt|json` (optional, default `txt`)
+- `resolution`: `int` (optional, default `512`)
+- `tags`: `csv[str]?` (optional)
+- `excluded_tags`: `csv[str]?` (optional)
+- `caption`: `str?` (optional)
+- `manual_rating`: `rating?` (optional)
+- `ai_rating`: `rating?` (optional)
+- `include_nsfw`: `bool` (optional, default `False`)
+- `score_min`: `float[0,10]?` (optional)
+- `score_max`: `float[0,10]?` (optional)
+
+**Output `ExportCreateResult`**
+
+- `output_path`: `path?` (optional)
+- `total_images`: `int?` (optional)
+- `format`: `str?` (optional)
+- `resolution`: `int?` (optional)
+- `count`: `int?` (optional) - Set to 0 on the no-match success path.
+
+**Error `CliErrorResponse`**
+
+Structured error payload emitted as kind=error by the CLI boundary.
+
+- `kind`: `error` (required)
+- `ok`: `false` (required)
+- `code`: `str` (required)
+- `message`: `str` (required)
+- `retryable`: `bool` (required)
+- `user_action_required`: `bool` (required)
+- `hint`: `str?` (optional)
+- `details`: `dict?` (optional)
+
+### `images list`
+
+List images in a project.
+
+- Read only: `true`
+- Side effects: `db_read`, `file_read`
+
+#### Compact Introspection
+
+```bash
+lorairo-cli --json describe "images list"
 ```
-Loading project database: my_dataset
-Note: Working with currently configured database. Ensure config/lorairo.toml points to the correct project.
-画像情報取得中... ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 100%
-Found 150 image(s)
-Export format: txt
-Target resolution: 512px
-Starting export...
-エクスポート中... ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 100%
 
-Export Summary
-Total Images    150
-Export Format   txt
-Resolution      512px
-Output Path     ./export/
+#### Models
 
-✓ Export completed successfully!
+**Input `ImagesListInput`**
+
+- `project`: `str` (required)
+- `fetch`: `bool` (optional, default `False`)
+- `limit`: `int[1,500]` (optional, default `500`)
+- `offset`: `int>=0` (optional, default `0`)
+- `unrated`: `bool` (optional, default `False`)
+
+**Output `ImagesListItem`**
+
+- `image_id`: `int?` (optional)
+- `file_path`: `str?` (optional)
+
+**Output `ImagesListResult`**
+
+- `count`: `int` (optional)
+- `total`: `int?` (optional)
+- `limit`: `int?` (optional)
+- `offset`: `int?` (optional)
+- `has_more`: `bool?` (optional)
+
+**Error `CliErrorResponse`**
+
+Structured error payload emitted as kind=error by the CLI boundary.
+
+- `kind`: `error` (required)
+- `ok`: `false` (required)
+- `code`: `str` (required)
+- `message`: `str` (required)
+- `retryable`: `bool` (required)
+- `user_action_required`: `bool` (required)
+- `hint`: `str?` (optional)
+- `details`: `dict?` (optional)
+
+### `images register`
+
+Register images from a file or directory into a project.
+
+- Read only: `false`
+- Side effects: `file_read`, `file_write`, `db_read`, `db_write`
+
+#### Compact Introspection
+
+```bash
+lorairo-cli --json describe "images register"
 ```
 
-**出力ディレクトリ構造**:
+#### Models
+
+**Input `ImagesRegisterInput`**
+
+- `path`: `path` (required)
+- `project`: `str` (required)
+- `skip_duplicates`: `bool` (optional, default `True`)
+
+**Output `ImagesRegisterResult`**
+
+- `total`: `int` (optional)
+- `registered`: `int` (optional)
+- `skipped`: `int` (optional)
+- `errors`: `int` (optional)
+
+**Error `CliErrorResponse`**
+
+Structured error payload emitted as kind=error by the CLI boundary.
+
+- `kind`: `error` (required)
+- `ok`: `false` (required)
+- `code`: `str` (required)
+- `message`: `str` (required)
+- `retryable`: `bool` (required)
+- `user_action_required`: `bool` (required)
+- `hint`: `str?` (optional)
+- `details`: `dict?` (optional)
+
+### `images update`
+
+Add tags to images in a project.
+
+- Read only: `false`
+- Side effects: `db_read`, `db_write`
+
+#### Compact Introspection
+
+```bash
+lorairo-cli --json describe "images update"
 ```
-export/
-├── image_001.png
-├── image_001.txt    # タグ・キャプション
-├── image_002.png
-├── image_002.txt
-└── ...
+
+#### Models
+
+**Input `ImagesUpdateInput`**
+
+- `project`: `str` (required)
+- `tags`: `csv[str]` (required)
+- `image_id`: `int?` (optional)
+
+**Output `ImagesUpdateResult`**
+
+- `project`: `str?` (optional)
+- `target_images`: `int?` (optional)
+- `tags`: `list[str]?` (optional)
+- `added`: `int?` (optional)
+- `failed_tags`: `list[str]?` (optional)
+- `count`: `int?` (optional) - Set to 0 on the no-image (no-target) success path.
+
+**Error `CliErrorResponse`**
+
+Structured error payload emitted as kind=error by the CLI boundary.
+
+- `kind`: `error` (required)
+- `ok`: `false` (required)
+- `code`: `str` (required)
+- `message`: `str` (required)
+- `retryable`: `bool` (required)
+- `user_action_required`: `bool` (required)
+- `hint`: `str?` (optional)
+- `details`: `dict?` (optional)
+
+### `models list`
+
+List available annotator models.
+
+- Read only: `true`
+- Side effects: `db_read`, `file_read`
+
+#### Compact Introspection
+
+```bash
+lorairo-cli --json describe "models list"
 ```
 
-**TXT形式の例**:
-```txt
-1girl, solo, long_hair, blue_eyes, smile, outdoor, landscape
+#### Models
+
+**Input `ModelsListInput`**
+
+- `include_deprecated`: `bool` (optional, default `False`)
+- `type`: `all|webapi|local` (optional, default `all`)
+- `category`: `all|tagger|scorer|captioner|vision|rating` (optional, default `all`)
+- `route`: `auto|direct|openrouter|all?` (optional)
+- `show_unavailable`: `bool` (optional, default `False`)
+
+**Output `ModelsListItem`**
+
+- `provider`: `str` (optional)
+- `route`: `str` (optional)
+- `litellm_id`: `str` (optional)
+- `type`: `webapi|local` (optional)
+- `category`: `str` (optional)
+- `available`: `bool` (optional)
+- `deprecated`: `bool` (optional)
+
+**Error `CliErrorResponse`**
+
+Structured error payload emitted as kind=error by the CLI boundary.
+
+- `kind`: `error` (required)
+- `ok`: `false` (required)
+- `code`: `str` (required)
+- `message`: `str` (required)
+- `retryable`: `bool` (required)
+- `user_action_required`: `bool` (required)
+- `hint`: `str?` (optional)
+- `details`: `dict?` (optional)
+
+### `models refresh`
+
+Refresh available WebAPI model metadata and sync it into the DB.
+
+- Read only: `false`
+- Side effects: `network`, `db_write`, `db_read`
+
+#### Compact Introspection
+
+```bash
+lorairo-cli --json describe "models refresh"
 ```
 
-**JSON形式の例**:
-```json
-{
-  "image_001.png": {
-    "tags": ["1girl", "solo", "long_hair"],
-    "captions": ["A girl with long hair standing in a field"],
-    "metadata": {
-      "width": 512,
-      "height": 512,
-      "source_id": 123
-    }
-  }
-}
+#### Models
+
+**Input `ModelsRefreshInput`**
+
+- `project`: `str?` (optional)
+
+**Output `ModelsRefreshResult`**
+
+- `discovered`: `int` (optional)
+- `summary`: `str` (optional)
+
+**Error `CliErrorResponse`**
+
+Structured error payload emitted as kind=error by the CLI boundary.
+
+- `kind`: `error` (required)
+- `ok`: `false` (required)
+- `code`: `str` (required)
+- `message`: `str` (required)
+- `retryable`: `bool` (required)
+- `user_action_required`: `bool` (required)
+- `hint`: `str?` (optional)
+- `details`: `dict?` (optional)
+
+### `project create`
+
+Create a project.
+
+- Read only: `false`
+- Side effects: `file_write`, `db_write`
+
+#### Compact Introspection
+
+```bash
+lorairo-cli --json describe "project create"
 ```
 
-**注意**:
-- プロジェクト保存場所は `config/lorairo.toml` の `[directories] database_base_dir` で設定します（デフォルト: `lorairo_data/`）
-- エクスポート先ディレクトリが存在しない場合、自動的に作成されます
+#### Models
 
-> **Breaking Change:** `lorairo-cli export create` はフィルタ条件を必須化しました。
-> フィルタ条件なしの呼び出しは `exit_code=2` を返します。
-> 既存スクリプトへの `--project <name>` または `--tags <tag>` の追加が必要な場合があります。
-> 詳細: [CHANGELOG.md](../CHANGELOG.md)
+**Input `ProjectCreateInput`**
 
----
+- `name`: `str` (required)
+- `description`: `str?` (optional)
 
-## 参考リソース
+**Output `ProjectCreateResult`**
 
-- [LoRAIro メインドキュメント](../README.md)
-- [アーキテクチャ](./architecture.md)
-- [開発ガイド](../CLAUDE.md)
-- [Typer 公式ドキュメント](https://typer.tiangolo.com/)
-- [Rich 公式ドキュメント](https://rich.readthedocs.io/)
+- `name`: `str` (optional)
+- `path`: `path` (optional)
+
+**Error `CliErrorResponse`**
+
+Structured error payload emitted as kind=error by the CLI boundary.
+
+- `kind`: `error` (required)
+- `ok`: `false` (required)
+- `code`: `str` (required)
+- `message`: `str` (required)
+- `retryable`: `bool` (required)
+- `user_action_required`: `bool` (required)
+- `hint`: `str?` (optional)
+- `details`: `dict?` (optional)
+
+### `project delete`
+
+Delete a project.
+
+- Read only: `false`
+- Side effects: `file_write`, `db_write`
+
+#### Compact Introspection
+
+```bash
+lorairo-cli --json describe "project delete"
+```
+
+#### Models
+
+**Input `ProjectDeleteInput`**
+
+- `name`: `str` (required)
+- `force`: `bool` (optional, default `False`)
+
+**Output `ProjectDeleteResult`**
+
+- `name`: `str` (optional)
+
+**Error `CliErrorResponse`**
+
+Structured error payload emitted as kind=error by the CLI boundary.
+
+- `kind`: `error` (required)
+- `ok`: `false` (required)
+- `code`: `str` (required)
+- `message`: `str` (required)
+- `retryable`: `bool` (required)
+- `user_action_required`: `bool` (required)
+- `hint`: `str?` (optional)
+- `details`: `dict?` (optional)
+
+### `project list`
+
+List projects.
+
+- Read only: `true`
+- Side effects: `file_read`, `db_read`
+
+#### Compact Introspection
+
+```bash
+lorairo-cli --json describe "project list"
+```
+
+#### Models
+
+**Input `ProjectListInput`**
+
+- `format`: `table|json` (optional, default `table`)
+
+**Output `ProjectListItem`**
+
+- `name`: `str` (optional)
+- `created`: `str` (optional)
+- `path`: `path` (optional)
+
+**Error `CliErrorResponse`**
+
+Structured error payload emitted as kind=error by the CLI boundary.
+
+- `kind`: `error` (required)
+- `ok`: `false` (required)
+- `code`: `str` (required)
+- `message`: `str` (required)
+- `retryable`: `bool` (required)
+- `user_action_required`: `bool` (required)
+- `hint`: `str?` (optional)
+- `details`: `dict?` (optional)
