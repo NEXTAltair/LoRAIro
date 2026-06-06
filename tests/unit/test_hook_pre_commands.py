@@ -56,7 +56,7 @@ def test_allows_ready_pr_create_command() -> None:
 
 
 def test_blocks_uv_without_shared_environment_in_worktree() -> None:
-    result = _run_hook("uv run pytest", cwd="/tmp/worktrees/issue-123")
+    result = _run_hook("uv run pytest", cwd="/workspaces/LoRAIro/.agents/worktree/issue-123")
 
     assert result.returncode == 2
     payload = json.loads(result.stdout)
@@ -68,7 +68,7 @@ def test_blocks_uv_without_shared_environment_in_worktree() -> None:
 def test_allows_uv_with_shared_environment_in_worktree() -> None:
     result = _run_hook(
         "UV_PROJECT_ENVIRONMENT=/workspaces/LoRAIro/.venv uv run pytest tests/unit/test_hook_pre_commands.py",
-        cwd="/tmp/worktrees/issue-123",
+        cwd="/workspaces/LoRAIro/.agents/worktree/issue-123",
     )
 
     assert result.returncode == 0
@@ -78,7 +78,7 @@ def test_allows_uv_with_shared_environment_in_worktree() -> None:
 def test_allows_uv_with_shared_environment_from_process_env_in_worktree() -> None:
     result = _run_hook(
         "uv run pytest tests/unit/test_hook_pre_commands.py",
-        cwd="/tmp/worktrees/issue-123",
+        cwd="/workspaces/LoRAIro/.agents/worktree/issue-123",
         env={"UV_PROJECT_ENVIRONMENT": "/workspaces/LoRAIro/.venv"},
     )
 
@@ -89,21 +89,21 @@ def test_allows_uv_with_shared_environment_from_process_env_in_worktree() -> Non
 def test_blocks_similar_but_different_uv_environment_in_worktree() -> None:
     result = _run_hook(
         "UV_PROJECT_ENVIRONMENT=/workspaces/LoRAIro/.venv2 uv run pytest",
-        cwd="/tmp/worktrees/issue-123",
+        cwd="/workspaces/LoRAIro/.agents/worktree/issue-123",
     )
 
     assert result.returncode == 2
 
 
 def test_allows_bare_uv_in_worktree() -> None:
-    result = _run_hook("uv", cwd="/tmp/worktrees/issue-123")
+    result = _run_hook("uv", cwd="/workspaces/LoRAIro/.agents/worktree/issue-123")
 
     assert result.returncode == 0
     assert result.stdout == ""
 
 
 def test_blocks_cd_worktree_uv_without_shared_environment() -> None:
-    result = _run_hook("cd /tmp/worktrees/issue-123 && uv sync --dev")
+    result = _run_hook("cd /workspaces/LoRAIro/.agents/worktree/issue-123 && uv sync --dev")
 
     assert result.returncode == 2
     payload = json.loads(result.stdout)
