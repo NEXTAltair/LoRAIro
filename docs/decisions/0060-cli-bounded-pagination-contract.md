@@ -90,8 +90,12 @@ images update の `--image-id` に渡せる (検索 → ID 集合 → 各処理)
 
 ### 4. 500 超過 = `RESULT_SET_TOO_LARGE` で弾く。count は常に返る
 
-`--fetch` の結果が 500 を超える場合、**`RESULT_SET_TOO_LARGE` の `error` で弾く** (item は返さない)。
-利用者には検索条件の追加を促す。
+`--fetch` 時、**フィルタ全件 (total matches) が 500 を超える場合**、item を 1 行も emit する前に
+**`RESULT_SET_TOO_LARGE` の `error` で弾く** (item は返さない)。利用者には検索条件の追加を促す。
+
+**ガードは page 件数でなく total で判定する**。既定 limit=500 では返す page は常に ≤500 のため、page 件数で
+判定するとバックストップが発火せず「先頭 500 件 + `has_more=true`」を出してしまう。COUNT(*) で得た total が
+500 を超えたら、page を取得する前に弾く (これは §1 の count 既定が見せる件数と同一の判定軸)。
 
 ```jsonc
 {"kind": "error", "ok": false, "code": "RESULT_SET_TOO_LARGE",

@@ -1,7 +1,7 @@
 # ADR 0057: CLI Machine-Readable (JSONL) Output and Error Contract
 
 - **日付**: 2026-06-05
-- **ステータス**: Accepted (§3 cap コード / §4 コード表を ADR 0060 で amend)
+- **ステータス**: Accepted (§3 cap コード / §4 コード表の amend は ADR 0060 で提案中 — **0060 が Accepted になるまで未発効**)
 - **関連 Issue**: #634 (epic) / #636 / #637
 
 ## Context
@@ -112,7 +112,8 @@ pagination ADR (#639) で定義する。本 ADR は「変更操作は 500 上限
 
 ### 4. エラーコードセット = 14 種 (ADR 0060 で `RESULT_SET_TOO_LARGE` を追加し 15 種)
 
-tag-db と共有する安定コア 11 種に、AI 推論ドメイン固有の 3 種を加えた **全 14 種**。各コードに `retryable` /
+tag-db と共有する安定コア 11 種に、AI 推論ドメイン固有の 3 種を加えた **全 14 種** (ADR 0060 で
+`RESULT_SET_TOO_LARGE` を追加し **計 15 種**、下表に反映済み)。各コードに `retryable` /
 `user_action_required` フラグを定義し、エージェントは message 文字列をパースせずこのフラグで分岐する。
 共有コア 11 種のフラグ意味は tag-db ADR 0003 の mapping を authoritative とし、本表で全コードを明示する。
 
@@ -164,10 +165,12 @@ LoRAIro はプロバイダ SDK に到達する前に自前で `APIKeyNotConfigur
 | exit | 意味 | コード |
 |---|---|---|
 | 0 | 成功 | — |
-| 2 | 入力・検証 | `INVALID_INPUT`, `VALIDATION_FAILED` |
+| 2 | 入力・検証 | `INVALID_INPUT`, `VALIDATION_FAILED`, `RESULT_SET_TOO_LARGE` (ADR 0060) |
 | 1 | 実行時 | 上記以外すべて |
 
 exit code はエラーコードから機械的に導出する。Click の usage error 既定が exit 2 であることと整合する。
+`RESULT_SET_TOO_LARGE` は入力 (選択/検索が広すぎる) を直す user-actionable なエラーのため exit 2
+(従来 `INVALID_INPUT` が担っていた cap 違反の exit を維持する、ADR 0060)。
 
 ### 7. 中央集権エラー境界
 
@@ -225,9 +228,13 @@ exit code はエラーコードから機械的に導出する。Click の usage 
 - annotate の 1 回処理総数が 500 に制限され、ADR 0053 の無制限実行前提が改定される。500 超の annotate は
   `--limit`/`--offset`/`--image-id` で shard して反復する運用になる。
 
-## Amendment (2026-06-06, ADR 0060 / #639)
+## Amendment (2026-06-06, ADR 0060 / #639) — 0060 Accepted で発効
 
-ADR 0060 (CLI Bounded Pagination and Count-First Contract) が本 ADR を以下のとおり改定する:
+> ⚠️ この amendment は **ADR 0060 が Accepted になって初めて発効**する (0060 は提案中)。それまで本 ADR の
+> 機械可読契約 (error code セット / cap の弾きコード) を実装する場合は **amend 前 (`INVALID_INPUT` / 14 種)**
+> を正とする。下表の `RESULT_SET_TOO_LARGE` 行・cap コード変更は 0060 確定で有効になる。
+
+ADR 0060 (CLI Bounded Pagination and Count-First Contract) が本 ADR を以下のとおり改定する (0060 Accepted で発効):
 
 - **§4**: エラーコードに `RESULT_SET_TOO_LARGE` (拡張、`retryable=false` / `user_action_required=true`) を
   追加し全 15 種とする。
