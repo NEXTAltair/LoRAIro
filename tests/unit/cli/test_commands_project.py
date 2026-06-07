@@ -407,3 +407,25 @@ def test_project_delete_nonexistent_json_mode(mock_projects_dir: Path) -> None:
     assert last["kind"] == "error"
     assert last["code"] == "NOT_FOUND"
     assert last["ok"] is False
+
+
+@pytest.mark.unit
+@pytest.mark.cli
+def test_project_delete_json_mode_requires_force(mock_projects_dir: Path) -> None:
+    """Test: --json project delete - --force 省略は構造化 error (Issue #659)。
+
+    JSON mode は対話 confirm を stdout に書けない (JSONL 純度を破る) ため --force 必須。
+    未指定は INVALID_INPUT (exit 2) で弾き、stdout は error 行のみ (削除は実行しない)。
+    """
+    runner.invoke(app, ["project", "create", "json-force-test"])
+
+    result = runner.invoke(app, ["--json", "project", "delete", "json-force-test"])
+
+    assert result.exit_code == 2
+    last = _json_lines(result.stdout)[-1]
+    assert last["kind"] == "error"
+    assert last["code"] == "INVALID_INPUT"
+    assert last["ok"] is False
+    # 削除は実行されず、プロジェクトは残る
+    projects = [d.name for d in mock_projects_dir.iterdir() if d.name.startswith("json-force-test_")]
+    assert len(projects) > 0
