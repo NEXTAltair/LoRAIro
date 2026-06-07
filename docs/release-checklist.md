@@ -56,12 +56,22 @@ LoRAIro のテスト設計 4 段階構成の最終層。自動化が困難な領
 
 ## E. CLI 主要コマンド
 
-- [ ] `lorairo-cli status` exit 0 / 表示崩れなし
+- [ ] `lorairo-cli status` exit 0 / 表示崩れなし (成功は常に exit 0 / ADR 0057)
 - [ ] `lorairo-cli project create <name>` / `lorairo-cli project list`
 - [ ] `lorairo-cli images register <dir> --project <name>`
 - [ ] `lorairo-cli models list` / `lorairo-cli models list --type webapi`
 - [ ] `lorairo-cli annotate run --project <name> --model <m>`
 - [ ] `lorairo-cli export create --project <name> --output <dir> --tags <tag>` (export はフィルタ必須 / ADR 0019)
+- [ ] 異常系 exit code: 不正な引数で入力・検証エラー → exit 2、その他の失敗 → exit 1 (ADR 0057)
+
+## E2. CLI JSON モード・introspection (エージェント駆動)
+
+- [ ] `lorairo-cli --json status` で stdout が純 JSONL (kind は `item` / `result` / `error`) になり、
+      ログ・進捗・装飾は stderr に分離される (ADR 0057 / 0058)
+- [ ] 環境変数 `LORAIRO_CLI_JSON=1` でも同じ JSONL モードに切り替わる
+- [ ] `lorairo-cli --json list-commands` が副作用なしで全コマンドを列挙する (ADR 0059)
+- [ ] `lorairo-cli --json describe "annotate run"` (compact) / `--schema json_schema` が
+      入力・出力・エラーのスキーマを返す (ADR 0059)
 
 ## F. プラットフォーム別動作
 

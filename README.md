@@ -90,7 +90,22 @@ uv run lorairo-cli images register ./images --project "my-project"
 uv run lorairo-cli export create -p "my-project" -o ./dataset --tags cat
 ```
 
-詳細は [docs/cli.md](docs/cli.md) を参照してください。
+#### エージェント / 機械可読モード
+
+既定は rich な人間向け出力です。グローバル `--json` フラグまたは環境変数 `LORAIRO_CLI_JSON=1` を指定すると、機械可読な JSONL モードに切り替わります（解決順序は「明示フラグ > 環境変数 > 既定 rich」）。
+
+`--json` 時は stdout が JSONL（1 行 1 JSON object）のみになり、ログ・進捗・装飾は stderr に出ます。各コマンドは終端で必ず 1 行の `result` または `error` を返します。
+
+```bash
+# 利用可能なコマンド一覧と入出力スキーマを introspection（副作用なし）
+uv run lorairo-cli --json list-commands
+uv run lorairo-cli --json describe "images update"
+
+# コマンドを JSONL モードで実行
+uv run lorairo-cli --json project list
+```
+
+exit code はエラーコードから機械的に導出されます（0=成功 / 2=入力・検証 / 1=その他）。詳細は [docs/cli.md](docs/cli.md) を参照してください。
 
 ### 旧バージョンからの移行
 

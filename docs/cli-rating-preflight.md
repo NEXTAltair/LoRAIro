@@ -34,10 +34,28 @@ The normal annotation save path stores moderation ratings in the `ratings` table
 
 Use this for larger sets where asynchronous processing is preferable.
 
-First list images that do not have ratings yet:
+First list images that do not have ratings yet. Read/list commands are
+count-first (ADR 0060): by default they return only the count. Pass `--fetch`
+to retrieve the curated projection (`image_id` + `file_path`):
 
 ```bash
+# 件数のみ (count-first の既定)
 lorairo-cli images list --project main_dataset --unrated --limit 50
+
+# 実データ (image_id + file_path) を取得
+lorairo-cli images list --project main_dataset --unrated --fetch --limit 50
+```
+
+`--limit` の上限は 500 (作業集合上限)。これを超える選択は `RESULT_SET_TOO_LARGE`
+で弾かれるので、絞り込み条件を足してください。
+
+エージェント駆動でこのワークフローを回す場合は、グローバル `--json` フラグ
+(または環境変数 `LORAIRO_CLI_JSON=1`) で機械可読 JSONL モードに切り替えると、
+stdout が JSONL のみ (kind は `item` / `result` / `error`) になり parse しやすくなります
+(ADR 0057):
+
+```bash
+lorairo-cli --json images list --project main_dataset --unrated --fetch --limit 50
 ```
 
 Submit selected image IDs to OpenAI Moderations:
