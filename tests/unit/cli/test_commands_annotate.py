@@ -148,7 +148,7 @@ def test_project_with_images(mock_projects_dir: Path) -> tuple[Path, list[Path]]
     project_dir = next(d for d in project_dirs if d.name.startswith("test_dataset_"))
 
     # 画像ファイルを作成
-    image_dataset_dir = project_dir / "image_dataset" / "original_images"
+    image_dataset_dir = project_dir / "image_dataset" / "processed_images"
     image_dataset_dir.mkdir(parents=True, exist_ok=True)
 
     image_files = []
@@ -399,6 +399,48 @@ def test_annotate_run_json_rejects_more_than_500_before_items(
     assert lines[0]["kind"] == "error"
     assert lines[0]["code"] == "RESULT_SET_TOO_LARGE"
     assert lines[0]["details"] == {"limit": 500, "matched": 501}
+    mock_container.annotator_library.annotate.assert_not_called()
+
+
+@pytest.mark.unit
+@pytest.mark.cli
+@patch("lorairo.cli.commands.annotate.get_service_container")
+def test_annotate_run_rejects_original_image_records(
+    mock_get_container,
+    mock_projects_dir: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("LORAIRO_CLI_JSON", "1")
+    runner.invoke(app, ["project", "create", "original_guard_dataset"])
+
+    mock_container = MagicMock()
+    mock_config = MagicMock()
+    mock_config.get_setting.return_value = "test_key"
+    mock_container.db_manager.image_repo.get_images_by_filter.return_value = (
+        [
+            {
+                "id": 12,
+                "phash": "phash0000000000012",
+                "stored_image_path": "image_dataset/original_images/2026/06/original.jpg",
+            }
+        ],
+        1,
+    )
+    mock_container.config_service = mock_config
+    mock_get_container.return_value = mock_container
+
+    result = runner.invoke(
+        app,
+        ["annotate", "run", "--project", "original_guard_dataset", "--model", "gpt-4o-mini"],
+    )
+
+    assert result.exit_code == 2
+    rows = [json.loads(line) for line in result.stdout.splitlines()]
+    assert len(rows) == 1
+    assert rows[0]["kind"] == "error"
+    assert rows[0]["code"] == "INVALID_INPUT"
+    assert "cannot operate directly on original images" in rows[0]["message"]
+    assert "12:image_dataset/original_images/2026/06/original.jpg" in rows[0]["message"]
     mock_container.annotator_library.annotate.assert_not_called()
 
 
@@ -1025,7 +1067,7 @@ def test_annotate_run_with_special_project_name(
     project_dir = next(d for d in project_dirs if "special-project" in d.name)
 
     # 画像ファイルを作成
-    image_dataset_dir = project_dir / "image_dataset" / "original_images"
+    image_dataset_dir = project_dir / "image_dataset" / "processed_images"
     image_dataset_dir.mkdir(parents=True, exist_ok=True)
 
     img = Image.new("RGB", (100, 100), color=(50, 50, 50))

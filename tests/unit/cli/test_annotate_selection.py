@@ -6,8 +6,10 @@ CLI 起動を介さず `_select_image_records` を直接呼ぶ。レコードは
 
 from typing import Any
 
+import click
 import pytest
 
+from lorairo.cli._image_guard import is_original_image_stored_path, reject_original_image_records
 from lorairo.cli.commands import annotate
 from lorairo.cli.commands.annotate import _select_image_records
 
@@ -156,3 +158,27 @@ def test_unordered_input_is_sorted_by_id_for_stable_sharding() -> None:
     combined = [r["id"] for r in (*shard0, *shard1, *shard2)]
     assert sorted(combined) == [1, 2, 3, 4, 5]
     assert len(combined) == len(set(combined))
+
+
+@pytest.mark.unit
+def test_original_image_path_detection_matches_project_relative_and_absolute_paths() -> None:
+    assert is_original_image_stored_path("image_dataset/original_images/2026/06/a.jpg")
+    assert is_original_image_stored_path(
+        "/workspaces/LoRAIro/lorairo_data/demo/image_dataset/original_images/2026/06/a.jpg"
+    )
+    assert not is_original_image_stored_path("image_dataset/processed_images/2026/06/a.jpg")
+    assert not is_original_image_stored_path("image_dataset/original_images_backup/a.jpg")
+
+
+@pytest.mark.unit
+def test_reject_original_image_records_fails_mixed_selection_without_dropping() -> None:
+    records = [
+        {"id": 1, "stored_image_path": "image_dataset/processed_images/1.jpg"},
+        {"id": 2, "stored_image_path": "image_dataset/original_images/2.jpg"},
+    ]
+
+    with pytest.raises(click.UsageError) as exc_info:
+        reject_original_image_records(records, command_name="annotate run")
+
+    assert "annotate run cannot operate directly on original images" in str(exc_info.value)
+    assert "2:image_dataset/original_images/2.jpg" in str(exc_info.value)
