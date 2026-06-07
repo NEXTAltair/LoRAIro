@@ -18,8 +18,10 @@ from lorairo.api.exceptions import (
     ProjectAlreadyExistsError,
     ProjectNotFoundError,
     ProjectOperationError,
+    ResultSetTooLargeError,
     TagNotFoundError,
     TagRegistrationError,
+    ValidationError,
 )
 
 
@@ -147,3 +149,17 @@ class TestValidationExceptions:
         err = InvalidPathError("/bad/path", "存在しません")
         assert err.path == "/bad/path"
         assert "存在しません" in str(err)
+
+    def test_result_set_too_large_error_attributes(self):
+        err = ResultSetTooLargeError(501, 500)
+        assert err.matched == 501
+        assert err.limit == 500
+
+    def test_result_set_too_large_error_details(self):
+        err = ResultSetTooLargeError(501, 500)
+        assert err.details == {"limit": 500, "matched": 501}
+
+    def test_result_set_too_large_error_inherits_validation_error(self):
+        err = ResultSetTooLargeError(501, 500)
+        assert isinstance(err, ValidationError)
+        assert isinstance(err, LoRAIroException)

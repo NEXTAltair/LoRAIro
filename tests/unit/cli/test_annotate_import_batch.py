@@ -7,6 +7,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 from typer.testing import CliRunner
 
+from lorairo.cli._output_mode import set_json_mode
 from lorairo.cli.main import app
 from lorairo.services.batch_import_service import BatchImportResult
 
@@ -146,3 +147,60 @@ class TestImportBatchCommand:
         assert result.exit_code == 0
         assert "Unmatched" in result.output
         assert "id_a" in result.output
+
+    @patch("lorairo.cli.commands.annotate.import_batch_annotations")
+    def test_json_mode_emits_result_with_all_fields(self, mock_import: MagicMock, tmp_path: Path) -> None:
+        """--json フラグで emit_result が全フィールドを含む JSONL を出力する。"""
+        jsonl_dir = tmp_path / "jsonl"
+        jsonl_dir.mkdir()
+        (jsonl_dir / "test.jsonl").write_text("{}", encoding="utf-8")
+
+        mock_import.return_value = _make_batch_result()
+
+        result = runner.invoke(
+            app,
+            ["--json", "annotate", "import-batch", str(jsonl_dir), "-p", "test_project"],
+        )
+
+        assert result.exit_code == 0
+        parsed = []
+        for line in result.output.splitlines():
+            line = line.strip()
+            if line.startswith("{"):
+                parsed.append(json.loads(line))
+        result_rows = [row for row in parsed if row.get("kind") == "result"]
+        assert len(result_rows) == 1
+        row = result_rows[0]
+        assert row["total_records"] == 100
+        assert row["parsed_ok"] == 98
+        assert row["parse_errors"] == 2
+        assert row["matched"] == 90
+        assert row["unmatched"] == 8
+        assert row["saved"] == 90
+        assert row["save_errors"] == 0
+        assert row["model_name"] == "gpt-4-turbo-2024-04-09"
+        assert row["dry_run"] is False
+
+    @patch("lorairo.cli.commands.annotate.import_batch_annotations")
+    def test_json_mode_dry_run_field_is_true(self, mock_import: MagicMock, tmp_path: Path) -> None:
+        """--json --dry-run では dry_run フィールドが true になる。"""
+        jsonl_dir = tmp_path / "jsonl"
+        jsonl_dir.mkdir()
+        (jsonl_dir / "test.jsonl").write_text("{}", encoding="utf-8")
+
+        mock_import.return_value = _make_batch_result(saved=0)
+
+        result = runner.invoke(
+            app,
+            ["--json", "annotate", "import-batch", str(jsonl_dir), "-p", "test_project", "--dry-run"],
+        )
+
+        assert result.exit_code == 0
+        parsed = []
+        for line in result.output.splitlines():
+            line = line.strip()
+            if line.startswith("{"):
+                parsed.append(json.loads(line))
+        result_rows = [row for row in parsed if row.get("kind") == "result"]
+        assert len(result_rows) == 1
+        assert result_rows[0]["dry_run"] is True
