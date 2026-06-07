@@ -66,10 +66,10 @@ LoRAIro のテスト設計 4 段階構成の最終層。自動化が困難な領
 
 ## E2. CLI JSON モード・introspection (エージェント駆動)
 
-- [ ] `lorairo-cli --json status` で stdout が純 JSONL (kind は `item` / `result` / `error`) になり、
-      ログ・進捗・装飾は stderr に分離される (ADR 0057 / 0058)
+- [ ] `lorairo-cli --json status` / `--json version` で stdout が純 JSONL の単一 `result` 行になり、
+      ログ・進捗・装飾は stderr に分離される (ADR 0057 / 0058 / Issue #662)
 - [ ] 環境変数 `LORAIRO_CLI_JSON=1` でも同じ JSONL モードに切り替わる
-- [ ] `lorairo-cli --json list-commands` が副作用なしで全コマンドを列挙する (ADR 0059)
+- [ ] `lorairo-cli --json list-commands` が副作用なしで全コマンド (version / status 含む) を列挙する (ADR 0059)
 - [ ] `lorairo-cli --json describe "annotate run"` (compact) / `--schema json_schema` が
       入力・出力・エラーのスキーマを返す (ADR 0059)
 

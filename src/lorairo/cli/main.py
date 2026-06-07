@@ -24,11 +24,12 @@ from rich.table import Table
 
 from lorairo.cli._boundary import command_boundary
 from lorairo.cli._console import make_console
-from lorairo.cli._emit import emit_error
+from lorairo.cli._emit import emit_error, emit_result
 from lorairo.cli._errors import ErrorCode, ErrorInfo, classify_exception, hint_for
 from lorairo.cli._glyphs import FAIL, OK
 from lorairo.cli._output_mode import (
     has_prescanned_mode,
+    is_json_mode,
     resolve_output_mode,
     set_json_mode,
     strip_mode_flags,
@@ -133,12 +134,27 @@ def _configure(
     )
 
 
+# CLI のバージョン文字列 (pyproject.toml の version と一致させる)。
+_CLI_VERSION = "0.0.8"
+_CLI_DESCRIPTION = "AI-powered image annotation and dataset management"
+
+
 # ===== トップレベルコマンド =====
 @app.command()
 def version() -> None:
     """Show version information."""
-    console.print("[bold cyan]LoRAIro CLI[/bold cyan] v0.0.8")
-    console.print("[dim]AI-powered image annotation and dataset management[/dim]")
+    with command_boundary():
+        if is_json_mode():
+            # ADR 0057/0058: --json 時は stdout に JSONL の result 行のみを出す (Issue #662)。
+            emit_result(
+                f"LoRAIro CLI v{_CLI_VERSION}",
+                name="lorairo-cli",
+                version=_CLI_VERSION,
+                description=_CLI_DESCRIPTION,
+            )
+        else:
+            console.print(f"[bold cyan]LoRAIro CLI[/bold cyan] v{_CLI_VERSION}")
+            console.print(f"[dim]{_CLI_DESCRIPTION}[/dim]")
 
 
 @app.command("list-commands")
@@ -202,25 +218,51 @@ def _show_gui_status(summary: dict[str, Any]) -> None:
     console.print(table)
 
 
+def _collect_api_key_status(container: ServiceContainer) -> dict[str, bool]:
+    """設定済み API キーの有無を provider 別に返す (rich / JSONL 共通の収集ロジック)。"""
+    config = container.config_service
+    api_providers = {
+        "openai": config.get_setting("api", "openai_key", ""),
+        "anthropic": config.get_setting("api", "claude_key", ""),
+        "google": config.get_setting("api", "google_key", ""),
+    }
+    return {provider: bool(key and key.strip()) for provider, key in api_providers.items()}
+
+
+def _emit_status_json(
+    container: ServiceContainer, summary: dict[str, Any], environment: str, phase: str
+) -> None:
+    """status を単一の ``result`` 行で機械可読出力する (ADR 0057/0058、Issue #662)。"""
+    config_found = DEFAULT_CONFIG_PATH.exists()
+    output: dict[str, Any] = {"environment": environment, "phase": phase, "config_found": config_found}
+    if environment == "CLI":
+        # CLI 経路は設定ファイルと API キー設定状況を返す。
+        output["api_keys"] = _collect_api_key_status(container) if config_found else {}
+    else:
+        # GUI 経路はサービス初期化状況を返す。
+        output["initialized_services"] = summary.get("initialized_services", {})
+    emit_result("status ok", **output)
+
+
 @app.command()
 def status() -> None:
     """Show system status."""
-    try:
+    with command_boundary():
         container = get_service_container()
         summary = container.get_service_summary()
         environment = summary.get("environment", "Unknown")
+        phase = summary.get("phase", "Unknown")
+
+        if is_json_mode():
+            _emit_status_json(container, summary, environment, phase)
+            return
 
         console.print(f"[dim]Environment:[/dim] {environment}")
-        console.print(f"[dim]Phase:[/dim] {summary.get('phase', 'Unknown')}\n")
-
+        console.print(f"[dim]Phase:[/dim] {phase}\n")
         if environment == "CLI":
             _show_cli_status(container)
         else:
             _show_gui_status(summary)
-
-    except Exception as e:
-        console.print(f"[red]Error:[/red] {e}")
-        raise typer.Exit(code=1) from e
 
 
 def _report_error(message: str, info: ErrorInfo, *, json_mode: bool) -> None:

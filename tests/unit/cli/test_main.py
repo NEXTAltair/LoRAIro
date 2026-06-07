@@ -152,6 +152,91 @@ def test_cli_status_config_not_found(
 
 @pytest.mark.unit
 @pytest.mark.cli
+def test_version_json_emits_single_result_line() -> None:
+    """Test: version --json は stdout に result 行を1つだけ出す (Issue #662)。"""
+    result = runner.invoke(app, ["--json", "version"])
+
+    assert result.exit_code == 0
+    lines = [line for line in result.stdout.splitlines() if line.strip()]
+    assert len(lines) == 1
+    payload = json.loads(lines[0])
+    assert payload["kind"] == "result"
+    assert payload["ok"] is True
+    assert payload["name"] == "lorairo-cli"
+    assert payload["version"] == "0.0.8"
+    # rich 装飾 (cyan マークアップ) が stdout に混入しないこと。
+    assert "[bold cyan]" not in result.stdout
+
+
+@pytest.mark.unit
+@pytest.mark.cli
+@patch("lorairo.cli.main.DEFAULT_CONFIG_PATH")
+@patch("lorairo.cli.main.get_service_container")
+def test_status_json_emits_pure_jsonl_result(
+    mock_get_container: MagicMock,
+    mock_config_path: MagicMock,
+) -> None:
+    """Test: status --json は stdout が純 JSONL の単一 result になる (Issue #662)。"""
+    mock_config_path.exists.return_value = True
+
+    mock_container = MagicMock()
+    mock_container.get_service_summary.return_value = {
+        "environment": "CLI",
+        "phase": "Phase 4 (Production Integration)",
+        "initialized_services": {},
+    }
+    mock_config = MagicMock()
+    mock_config.get_setting.side_effect = lambda section, key, default="": (
+        "sk-test-key" if key == "openai_key" else ""
+    )
+    mock_container.config_service = mock_config
+    mock_get_container.return_value = mock_container
+
+    result = runner.invoke(app, ["--json", "status"])
+
+    assert result.exit_code == 0
+    lines = [line for line in result.stdout.splitlines() if line.strip()]
+    assert len(lines) == 1
+    payload = json.loads(lines[0])
+    assert payload["kind"] == "result"
+    assert payload["ok"] is True
+    assert payload["environment"] == "CLI"
+    assert payload["config_found"] is True
+    assert payload["api_keys"] == {"openai": True, "anthropic": False, "google": False}
+    # rich テーブルの装飾が stdout に混入していないこと。
+    assert "LoRAIro CLI Status" not in result.stdout
+    assert "┏" not in result.stdout  # テーブル罫線 (┏)
+
+
+@pytest.mark.unit
+@pytest.mark.cli
+@patch("lorairo.cli.main.DEFAULT_CONFIG_PATH")
+@patch("lorairo.cli.main.get_service_container")
+def test_status_json_omits_api_keys_when_config_missing(
+    mock_get_container: MagicMock,
+    mock_config_path: MagicMock,
+) -> None:
+    """Test: 設定ファイルが無い場合 status --json は api_keys を空にする (Issue #662)。"""
+    mock_config_path.exists.return_value = False
+
+    mock_container = MagicMock()
+    mock_container.get_service_summary.return_value = {
+        "environment": "CLI",
+        "phase": "Phase 4 (Production Integration)",
+        "initialized_services": {},
+    }
+    mock_get_container.return_value = mock_container
+
+    result = runner.invoke(app, ["--json", "status"])
+
+    assert result.exit_code == 0
+    payload = json.loads(result.stdout.strip())
+    assert payload["config_found"] is False
+    assert payload["api_keys"] == {}
+
+
+@pytest.mark.unit
+@pytest.mark.cli
 def test_project_help() -> None:
     """Test: project subcommand help."""
     result = runner.invoke(app, ["project", "--help"])

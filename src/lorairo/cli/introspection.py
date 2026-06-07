@@ -160,6 +160,38 @@ class ProjectDeleteResult(BaseModel):
     model_config = ConfigDict(title="ProjectDeleteResult")
 
 
+class VersionResult(BaseModel):
+    """JSONL result payload emitted by ``version --json`` (Issue #662)."""
+
+    kind: Literal["result"] = "result"
+    ok: Literal[True] = True
+    message: str
+    name: str
+    version: str
+    description: str
+
+    model_config = ConfigDict(title="VersionResult")
+
+
+class StatusResult(BaseModel):
+    """JSONL result payload emitted by ``status --json`` (Issue #662).
+
+    CLI 経路は ``api_keys``、GUI 経路は ``initialized_services`` を伴う
+    (実行環境によりどちらか一方のみが存在する)。
+    """
+
+    kind: Literal["result"] = "result"
+    ok: Literal[True] = True
+    message: str
+    environment: str
+    phase: str
+    config_found: bool
+    api_keys: dict[str, bool] | None = None
+    initialized_services: dict[str, bool] | None = None
+
+    model_config = ConfigDict(title="StatusResult")
+
+
 class ImagesRegisterResult(BaseModel):
     """JSONL result payload emitted by ``images register --json``."""
 
@@ -565,6 +597,44 @@ def _search_input(name: str, fields: tuple[FieldSpec, ...], description: str = "
 
 
 TOOL_SPECS: dict[str, ToolSpec] = {
+    "version": ToolSpec(
+        name="version",
+        path="version",
+        summary="Show version information.",
+        read_only=True,
+        side_effects=(),
+        inputs=(),
+        outputs=(
+            _output(
+                "VersionResult",
+                (_f("name", "str"), _f("version", "str"), _f("description", "str")),
+                schema=VersionResult,
+            ),
+        ),
+        errors=(ERROR_MODEL,),
+    ),
+    "status": ToolSpec(
+        name="status",
+        path="status",
+        summary="Show system status (config file and API key availability).",
+        read_only=True,
+        side_effects=("file_read",),
+        inputs=(),
+        outputs=(
+            _output(
+                "StatusResult",
+                (
+                    _f("environment", "str"),
+                    _f("phase", "str"),
+                    _f("config_found", "bool"),
+                    _f("api_keys", "dict[str,bool]?"),
+                    _f("initialized_services", "dict[str,bool]?"),
+                ),
+                schema=StatusResult,
+            ),
+        ),
+        errors=(ERROR_MODEL,),
+    ),
     "project create": ToolSpec(
         name="project create",
         path="project create",
