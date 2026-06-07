@@ -732,7 +732,7 @@ lorairo-cli --json describe "project delete"
 **Input `ProjectDeleteInput`**
 
 - `name`: `str` (required)
-- `force`: `bool` (optional, default `False`)
+- `force`: `bool` (optional, default `False`) - Required in JSON mode (--json): omitting it yields INVALID_INPUT since interactive confirmation cannot be driven over stdout.
 
 **Output `ProjectDeleteResult`**
 

@@ -83,6 +83,38 @@ def test_describe_json_schema_wraps_cli_input_schema_in_item_payload() -> None:
     assert "sql" not in json.dumps(input_schema["schema"]).lower()
 
 
+def test_export_create_anyof_requires_non_null_non_empty_filter() -> None:
+    """export create の anyOf は「キー存在」だけでなく非null/非空も要求する (Issue #659)。
+
+    CLI 実体は ``_criteria_has_effective_filter`` で正規化後に truthy 判定するため、
+    ``{tags: null}`` や ``--tags ""`` は UsageError で弾かれる。schema 側も string
+    フィルタは minLength=1、score フィルタは number 型でこの契約に揃える。
+    """
+    result = runner.invoke(app, ["--json", "describe", "export create", "--schema", "json_schema"])
+    assert result.exit_code == 0
+    rows = _jsonl(result.stdout)
+    input_schema = next(
+        row for row in rows if row.get("type") == "schema" and row["name"] == "ExportCreateInput"
+    )
+    branches = {
+        tuple(branch["required"]): branch.get("properties", {})
+        for branch in input_schema["schema"]["anyOf"]
+    }
+    # string フィルタ: 非空 (minLength=1) かつ正規化後に有効 (pattern) を要求
+    for key in ("tags", "excluded_tags", "caption"):
+        constraint = branches[(key,)][key]
+        assert constraint["type"] == "string"
+        assert constraint["minLength"] == 1
+    # CSV フィルタは区切り(,)・空白以外の文字を要求し "," や "  " を弾く
+    for key in ("tags", "excluded_tags"):
+        assert branches[(key,)][key]["pattern"] == "[^\\s,]"
+    # text フィルタは非空白文字を要求し "   " を弾く (caption はカンマ可)
+    assert branches[("caption",)]["caption"]["pattern"] == "\\S"
+    # score フィルタ: number 型で null を除外
+    for key in ("score_min", "score_max"):
+        assert branches[(key,)][key]["type"] == "number"
+
+
 def test_annotate_run_describes_only_supported_flags() -> None:
     result = runner.invoke(app, ["--json", "describe", "annotate run"])
 
@@ -209,11 +241,29 @@ def test_cli_specific_output_json_schemas_match_item_rows() -> None:
     assert {"output_path"} <= set(export_schema["schema"]["properties"])
 
 
+def test_project_delete_input_advertises_json_mode_force_requirement() -> None:
+    """describe project delete の force フィールドは JSON mode 必須要件を明示する (Issue #659)。
+
+    JSON mode で --force 必須を強制 (INVALID_INPUT) する一方、introspection 契約で
+    force を optional/default のまま放置すると agent が {name} 単独を valid と誤認する。
+    field description で必須要件を contract として明示する。
+    """
+    result = runner.invoke(app, ["--json", "describe", "project delete"])
+    assert result.exit_code == 0
+    rows = _jsonl(result.stdout)
+    input_row = next(
+        row for row in rows if row.get("type") == "model" and row["name"] == "ProjectDeleteInput"
+    )
+    force_field = next(field for field in input_row["fields"] if field["name"] == "force")
+    assert "JSON mode" in force_field["description"]
+    assert "INVALID_INPUT" in force_field["description"]
+
+
 def test_remaining_cli_result_schemas_do_not_reuse_api_dtos() -> None:
     commands = {
         "project create": ("input", "ProjectCreateInput", {"name", "description"}, {"created"}),
         "project create result": ("output", "ProjectCreateResult", {"name", "path"}, {"created"}),
-        "project delete": ("output", "ProjectDeleteResult", {"name", "cancelled"}, {"success", "data"}),
+        "project delete": ("output", "ProjectDeleteResult", {"name"}, {"success", "data", "cancelled"}),
         "images register": (
             "output",
             "ImagesRegisterResult",

@@ -10,6 +10,7 @@ API層（lorairo.api）を経由してService層を利用する。
 
 import json
 
+import click
 import typer
 from rich.table import Table
 
@@ -118,12 +119,14 @@ def delete(
     """Delete a project."""
     with command_boundary():
         if not force:
+            # JSON mode は対話 confirm のプロンプトを stdout に書けない (JSONL 純度を
+            # 破る、ADR 0057 §1)。stdin で応答できない agent driving 前提なので、JSON mode
+            # では --force を契約上必須とし、未指定は INVALID_INPUT で弾く (Issue #659)。
+            if is_json_mode():
+                raise click.UsageError("project delete requires --force in JSON mode")
             confirm = typer.confirm(f"Delete project '{name}'? This cannot be undone.")
             if not confirm:
-                if is_json_mode():
-                    emit_result("Cancelled", cancelled=True)
-                else:
-                    console.print("[yellow]Cancelled[/yellow]")
+                console.print("[yellow]Cancelled[/yellow]")
                 return
 
         api_delete_project(name)
