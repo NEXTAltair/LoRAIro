@@ -36,6 +36,35 @@ def test_list_commands_emits_tool_items_and_result() -> None:
     assert "db_write" in images_update["side_effects"]
 
 
+def test_list_commands_includes_version_and_status() -> None:
+    """version / status も introspection に載る (Issue #662)。"""
+    result = runner.invoke(app, ["--json", "list-commands"])
+
+    assert result.exit_code == 0
+    items = [row for row in _jsonl(result.stdout) if row["kind"] == "item"]
+    by_path = {row["path"]: row for row in items}
+
+    assert "version" in by_path
+    assert by_path["version"]["read_only"] is True
+    assert by_path["version"]["side_effects"] == []
+
+    assert "status" in by_path
+    assert by_path["status"]["read_only"] is True
+    assert "file_read" in by_path["status"]["side_effects"]
+
+
+def test_describe_status_exposes_status_result_schema() -> None:
+    """describe status が StatusResult 出力スキーマを返す (Issue #662)。"""
+    result = runner.invoke(app, ["--json", "describe", "status", "--schema", "json_schema"])
+
+    assert result.exit_code == 0
+    rows = _jsonl(result.stdout)
+    schema_rows = [row for row in rows if row.get("type") == "schema"]
+    status_schema = next(row for row in schema_rows if row["name"] == "StatusResult")
+    properties = set(status_schema["schema"]["properties"])
+    assert {"environment", "phase", "config_found", "api_keys"} <= properties
+
+
 def test_describe_compact_emits_tool_model_items_and_result() -> None:
     result = runner.invoke(app, ["--json", "describe", "export create"])
 

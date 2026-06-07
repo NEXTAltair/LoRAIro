@@ -788,3 +788,73 @@ Structured error payload emitted as kind=error by the CLI boundary.
 - `user_action_required`: `bool` (required)
 - `hint`: `str?` (optional)
 - `details`: `dict?` (optional)
+
+### `status`
+
+Show system status (config file and API key availability).
+
+- Read only: `true`
+- Side effects: `file_read`
+
+#### Compact Introspection
+
+```bash
+lorairo-cli --json describe "status"
+```
+
+#### Models
+
+**Output `StatusResult`**
+
+- `environment`: `str` (optional)
+- `phase`: `str` (optional)
+- `config_found`: `bool` (optional)
+- `api_keys`: `dict[str,bool]?` (optional)
+- `initialized_services`: `dict[str,bool]?` (optional)
+
+**Error `CliErrorResponse`**
+
+Structured error payload emitted as kind=error by the CLI boundary.
+
+- `kind`: `error` (required)
+- `ok`: `false` (required)
+- `code`: `str` (required)
+- `message`: `str` (required)
+- `retryable`: `bool` (required)
+- `user_action_required`: `bool` (required)
+- `hint`: `str?` (optional)
+- `details`: `dict?` (optional)
+
+### `version`
+
+Show version information.
+
+- Read only: `true`
+- Side effects: 
+
+#### Compact Introspection
+
+```bash
+lorairo-cli --json describe "version"
+```
+
+#### Models
+
+**Output `VersionResult`**
+
+- `name`: `str` (optional)
+- `version`: `str` (optional)
+- `description`: `str` (optional)
+
+**Error `CliErrorResponse`**
+
+Structured error payload emitted as kind=error by the CLI boundary.
+
+- `kind`: `error` (required)
+- `ok`: `false` (required)
+- `code`: `str` (required)
+- `message`: `str` (required)
+- `retryable`: `bool` (required)
+- `user_action_required`: `bool` (required)
+- `hint`: `str?` (optional)
+- `details`: `dict?` (optional)
