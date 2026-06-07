@@ -118,7 +118,7 @@ class ImageDBWriteService:
 
             # スコア情報取得（最新のもの）
             scores_data = annotations.get("scores", [])
-            aesthetic_score = scores_data[0].get("value") if scores_data else None
+            aesthetic_score = scores_data[0].get("score") if scores_data else None
 
             result = AnnotationData(
                 tags=tags,
