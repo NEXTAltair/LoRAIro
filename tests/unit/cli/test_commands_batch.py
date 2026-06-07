@@ -60,6 +60,10 @@ def _container() -> MagicMock:
     container = MagicMock()
     container.db_manager.model_repo.get_model_by_litellm_id.return_value = _model()
     container.db_manager.model_repo.get_models_by_name.return_value = []
+    container.db_manager.image_repo.get_images_by_ids.return_value = [
+        {"id": 1, "stored_image_path": "image_dataset/processed_images/1.jpg"},
+        {"id": 2, "stored_image_path": "image_dataset/processed_images/2.jpg"},
+    ]
     container.db_manager.provider_batch_repo.get_provider_batch_job.return_value = _job()
     container.provider_batch_workflow_service.submit_images.return_value = 42
     return container
@@ -363,6 +367,39 @@ def test_batch_submit_rejects_invalid_image_ids_csv(mock_get_container: MagicMoc
     assert "--image-ids must be a comma-separated list" in result.output
     assert "invalid token(s): x" in result.output
     assert "empty item(s)" in result.output
+    container.provider_batch_workflow_service.submit_images.assert_not_called()
+
+
+@pytest.mark.unit
+@pytest.mark.cli
+@patch("lorairo.cli.commands.batch.get_service_container")
+def test_batch_submit_rejects_original_image_records(mock_get_container: MagicMock) -> None:
+    container = _container()
+    container.db_manager.image_repo.get_images_by_ids.return_value = [
+        {
+            "id": 1,
+            "stored_image_path": "image_dataset/original_images/2026/06/sample.jpg",
+        }
+    ]
+    mock_get_container.return_value = container
+
+    result = runner.invoke(
+        app,
+        [
+            "batch",
+            "submit",
+            "--project",
+            "demo",
+            "--model",
+            "openai/gpt-4.1-mini",
+            "--image-ids",
+            "1",
+        ],
+    )
+
+    assert result.exit_code == 2
+    assert "cannot operate directly on original images" in result.output
+    assert "1:image_dataset/original_images/2026/06/sample.jpg" in result.output
     container.provider_batch_workflow_service.submit_images.assert_not_called()
 
 

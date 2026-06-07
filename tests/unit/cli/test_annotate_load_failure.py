@@ -66,7 +66,7 @@ def project_with_images(mock_projects_dir: Path) -> list[Path]:
     project_dirs = list(mock_projects_dir.iterdir())
     project_dir = next(d for d in project_dirs if d.name.startswith("fail_dataset_"))
 
-    image_dataset_dir = project_dir / "image_dataset" / "original_images"
+    image_dataset_dir = project_dir / "image_dataset" / "processed_images"
     image_dataset_dir.mkdir(parents=True, exist_ok=True)
 
     image_files: list[Path] = []

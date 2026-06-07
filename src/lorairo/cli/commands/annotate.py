@@ -39,6 +39,7 @@ from lorairo.api.project import get_project as api_get_project
 from lorairo.cli._boundary import command_boundary
 from lorairo.cli._console import make_console
 from lorairo.cli._emit import emit_item, emit_result
+from lorairo.cli._image_guard import reject_original_image_records
 from lorairo.cli._output_mode import is_json_mode
 from lorairo.database.db_core import resolve_stored_path
 from lorairo.database.filter_criteria import ImageFilterCriteria
@@ -914,6 +915,8 @@ def run(
 
         if not records_to_process:
             raise AnnotationSelectionError("No images selected for annotation")
+
+        reject_original_image_records(records_to_process, command_name="annotate run")
 
         if len(records_to_process) > MAX_ANNOTATE_IMAGES:
             raise ResultSetTooLargeError(len(records_to_process), MAX_ANNOTATE_IMAGES)

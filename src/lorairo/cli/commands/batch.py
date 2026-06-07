@@ -19,6 +19,7 @@ from rich.table import Table
 from lorairo.cli._boundary import command_boundary
 from lorairo.cli._console import make_console
 from lorairo.cli._emit import emit_item, emit_result
+from lorairo.cli._image_guard import reject_original_image_records
 from lorairo.cli._output_mode import is_json_mode
 from lorairo.services.service_container import get_service_container
 
@@ -359,6 +360,11 @@ def submit(
                 )
 
         resolved_endpoint = _resolve_submit_endpoint(resolved_provider, normalized_task_type, endpoint)
+        image_repo = container.db_manager.image_repo
+        reject_original_image_records(
+            image_repo.get_images_by_ids(image_ids),
+            command_name="batch submit",
+        )
 
         job_id = container.provider_batch_workflow_service.submit_images(
             provider=resolved_provider,
