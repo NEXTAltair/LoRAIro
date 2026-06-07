@@ -10,7 +10,9 @@ allow_nan=False, default=str)`` で行う:
 - ``ensure_ascii=False``: 日本語タグ等を UTF-8 のまま保持する。
 - ``allow_nan=False``: 非有限 float (``NaN`` / ``Infinity``) は標準 JSON で不正なため弾く。
   混入しても stdout 行を壊さないよう :func:`_emit` が emit 前に ``None`` へ正規化する。
-- ``default=str``: ``Path`` / ``datetime`` 等の非自明値のフォールバック。
+- ``default=_json_default``: 非自明値のフォールバック。``datetime`` / ``date`` は ISO 8601
+  (``isoformat()``) で安定化し (#669)、``Path`` 等はそれ以外は ``str()`` に委ねる。``default=str``
+  だけだと ``datetime`` が ``str(datetime)`` (空白区切り・非 ISO) に劣化するため使わない。
 
 ``kind`` と エラー ``code`` は :class:`enum.StrEnum` で定義する。``StrEnum`` は ``str``
 派生のため ``json.dumps`` が ``"item"`` のような安定 wire 値へ直接シリアライズする
@@ -22,6 +24,7 @@ from __future__ import annotations
 
 import json
 import math
+from datetime import date, datetime
 from enum import StrEnum
 from typing import Any
 
@@ -57,6 +60,24 @@ def _normalize_non_finite(value: Any) -> Any:
     return value
 
 
+def _json_default(value: Any) -> str:
+    """``json.dumps`` の非自明値フォールバック (ADR 0057 §1、#669)。
+
+    ``datetime`` / ``date`` は ISO 8601 (``isoformat()``) へ正規化し、機械可読 JSONL の
+    日時を ``str(datetime)`` (空白区切り・タイムゾーンなし) へ劣化させない。それ以外
+    (``Path`` 等) は ``str()`` に委ねる。
+
+    Args:
+        value: ``json.dumps`` が直接シリアライズできなかった値。
+
+    Returns:
+        JSON 文字列としてそのまま埋め込めるシリアライズ結果。
+    """
+    if isinstance(value, (datetime, date)):
+        return value.isoformat()
+    return str(value)
+
+
 def _emit(line: dict[str, Any]) -> None:
     """1 行 = 1 つの valid JSON object を stdout へ出力する (JSONL)。
 
@@ -64,7 +85,7 @@ def _emit(line: dict[str, Any]) -> None:
         line: stdout に 1 行で出力する JSON object。
     """
     safe = _normalize_non_finite(line)
-    print(json.dumps(safe, ensure_ascii=False, allow_nan=False, default=str))
+    print(json.dumps(safe, ensure_ascii=False, allow_nan=False, default=_json_default))
 
 
 def _to_payload(record: object) -> Any:

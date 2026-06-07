@@ -144,7 +144,11 @@ def _format_dt(value: Any) -> str:
 
 
 def _job_dict(job: Any) -> dict[str, Any]:
-    """job を JSONL item/result 用の dict に変換する (datetime は emit が文字列化)。"""
+    """job を JSONL item/result 用の dict に変換する。
+
+    datetime は raw のまま載せ、``_emit`` の ``_json_default`` が ISO 8601 (isoformat) へ
+    正規化する (#669)。rich 表示の ``_format_dt`` とは別経路だが双方 isoformat で一致する。
+    """
     return {field: _job_value(job, field) for field in _JOB_DETAIL_FIELDS}
 
 

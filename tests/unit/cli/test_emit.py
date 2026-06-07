@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import math
+from datetime import date, datetime
 
 import pytest
 
@@ -32,6 +33,29 @@ def test_emit_item_expands_dict(capsys: pytest.CaptureFixture[str]) -> None:
     emit_item({"image_id": 7, "file_path": "/a/b.png"})
     line = _last_json_line(capsys.readouterr().out)
     assert line == {"kind": "item", "image_id": 7, "file_path": "/a/b.png"}
+
+
+@pytest.mark.unit
+@pytest.mark.cli
+def test_emit_serializes_datetime_as_iso8601(capsys: pytest.CaptureFixture[str]) -> None:
+    """raw datetime は ISO 8601 (T 区切り) で emit される (#669)。
+
+    ``str(datetime)`` の空白区切りへ劣化させない。``batch *`` の datetime フィールドが
+    ``_emit`` の ``default`` 経由で出力される経路を守る。
+    """
+    emit_item({"image_id": 1, "imported_at": datetime(2026, 6, 3, 12, 44, 24, 797734)})
+    line = _last_json_line(capsys.readouterr().out)
+    assert line["imported_at"] == "2026-06-03T12:44:24.797734"
+    assert " " not in line["imported_at"]  # 空白区切りの str(datetime) でないこと
+
+
+@pytest.mark.unit
+@pytest.mark.cli
+def test_emit_serializes_date_as_iso8601(capsys: pytest.CaptureFixture[str]) -> None:
+    """raw date も ISO 8601 で emit される (#669)。"""
+    emit_result("ok", created=date(2026, 6, 3))
+    line = _last_json_line(capsys.readouterr().out)
+    assert line["created"] == "2026-06-03"
 
 
 @pytest.mark.unit
