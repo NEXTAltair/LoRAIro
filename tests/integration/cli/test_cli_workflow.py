@@ -6,13 +6,13 @@ fixtures can isolate project storage and inject a deterministic annotator.
 
 from __future__ import annotations
 
+import shutil
+import sqlite3
 from pathlib import Path
 from types import SimpleNamespace
 
 import imagehash
 import pytest
-from image_annotator_lib import AnnotatorInfo
-from image_annotator_lib.core.types import TaskCapability
 from PIL import Image
 from typer.testing import CliRunner
 
@@ -31,18 +31,19 @@ class FakeAnnotatorLibrary:
     def __init__(self) -> None:
         self.annotate_calls = 0
 
-    def list_annotator_info(self) -> list[AnnotatorInfo]:
+    def list_annotator_info(self) -> list[SimpleNamespace]:
         return [
-            AnnotatorInfo(
+            SimpleNamespace(
                 name=FAKE_MODEL_ID,
                 model_type="tagger",
-                capabilities=frozenset({TaskCapability.TAGS, TaskCapability.CAPTIONS}),
+                capabilities=frozenset(),
                 is_local=True,
                 is_api=False,
                 device=None,
                 provider="local",
                 litellm_model_id=FAKE_MODEL_ID,
                 estimated_size_gb=0.0,
+                discontinued_at=None,
             )
         ]
 
@@ -114,6 +115,25 @@ def _install_fake_annotator() -> None:
     container._model_sync_service = None
 
 
+def _switch_registered_images_to_processed_paths(project_dir: Path) -> None:
+    """Simulate the GUI-safe processed image path before CLI annotation."""
+    db_path = project_dir / "image_database.db"
+    processed_dir = project_dir / "image_dataset" / "processed_images"
+    processed_dir.mkdir(parents=True, exist_ok=True)
+
+    with sqlite3.connect(db_path) as conn:
+        rows = conn.execute("SELECT id, stored_image_path FROM images").fetchall()
+        for image_id, stored_image_path in rows:
+            source_path = project_dir / stored_image_path
+            processed_relative = Path("image_dataset") / "processed_images" / source_path.name
+            shutil.copy2(source_path, project_dir / processed_relative)
+            conn.execute(
+                "UPDATE images SET stored_image_path = ? WHERE id = ?",
+                (processed_relative.as_posix(), image_id),
+            )
+        conn.commit()
+
+
 @pytest.mark.integration
 @pytest.mark.cli
 @pytest.mark.e2e
@@ -142,12 +162,16 @@ def test_cli_full_workflow_with_fake_annotator(
     )
     assert register_result.exit_code == 0, register_result.stdout
     assert "Registered" in register_result.stdout
+    project_dir = next(
+        path for path in isolated_projects_dir.iterdir() if path.name.startswith(project_name)
+    )
+    _switch_registered_images_to_processed_paths(project_dir)
 
     annotate_result = cli_runner.invoke(
         app,
         ["annotate", "run", "--project", project_name, "--model", FAKE_MODEL_ID],
     )
-    assert annotate_result.exit_code == 0, annotate_result.stdout
+    assert annotate_result.exit_code == 0, annotate_result.stdout + annotate_result.stderr
     assert "Annotation completed successfully" in annotate_result.stdout
 
     export_dir = tmp_path / "export"
