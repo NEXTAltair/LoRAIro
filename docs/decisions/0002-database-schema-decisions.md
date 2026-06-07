@@ -34,3 +34,20 @@ src/lorairo/database/
 ├── db_core.py
 └── migrations/
 ```
+
+## Supplement: rating の upsert 方針 (2026-06-07, Issue #673)
+
+本 ADR は「`tags`, `captions`, `scores`, `ratings` テーブルで UNIQUE 制約を設けない」と定めているが、
+これは「DB スキーマが履歴保持を許容する」という宣言であり、Repository 実装が常に履歴を保持するという
+意味ではない。
+
+**rating は別レイヤーの判断として `(image_id, model_id)` キーの現在値 (latest win) で upsert する。**
+
+- `AnnotationRepository._save_ratings()` は、同一 `image_id + model_id` の既存 row を UPDATE、
+  なければ INSERT する。複数 row が積み重なる tags/captions とは異なり、rating は canonical な
+  現在値が SSoT として意味を持つ (ADR 0031 §6、Amendment 2026-06-07 §4)。
+- この方針は UNIQUE 制約なしのスキーマと矛盾しない。UNIQUE 制約がなければ重複 row も許容できるが、
+  Repository が応用として「最新値のみ保持」する設計を選んでいる。
+- tags/captions は引き続き履歴保持 (複数 row) が基本方針。rating だけの例外的 upsert 運用。
+
+重複 submit 時の挙動については ADR 0031 Amendment 2026-06-07 を参照。

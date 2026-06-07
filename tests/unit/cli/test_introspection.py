@@ -386,3 +386,49 @@ def test_describe_unknown_command_uses_existing_error_kind() -> None:
     rows = _jsonl(result.stdout)
     assert rows[-1]["kind"] == "error"
     assert rows[-1]["code"] == "INVALID_INPUT"
+
+
+def test_batch_status_describes_items_option_and_outputs() -> None:
+    """batch status が --items / --limit / --offset / --item-status を describe する (Issue #673)。"""
+    result = runner.invoke(app, ["--json", "describe", "batch status"])
+
+    assert result.exit_code == 0
+    rows = _jsonl(result.stdout)
+    input_row = next(
+        row for row in rows if row.get("type") == "model" and row["name"] == "BatchStatusInput"
+    )
+    field_names = {f["name"] for f in input_row["fields"]}
+    assert {"job_id", "project", "refresh", "items", "limit", "offset", "item_status"} <= field_names
+
+    output_names = {
+        row["name"] for row in rows if row.get("type") == "model" and row.get("role") == "output"
+    }
+    assert "ProviderBatchItemRecord" in output_names
+    assert "BatchStatusResult" in output_names
+
+
+def test_batch_status_result_schema_includes_items_pagination_fields() -> None:
+    """BatchStatusResult / ProviderBatchItemRecord スキーマが items フィールドを持つ (Issue #673)。"""
+    result = runner.invoke(app, ["--json", "describe", "batch status", "--schema", "json_schema"])
+
+    assert result.exit_code == 0
+    rows = _jsonl(result.stdout)
+    result_schema = next(
+        row for row in rows if row.get("type") == "schema" and row.get("name") == "BatchStatusResult"
+    )
+    props = set(result_schema["schema"]["properties"])
+    assert {"items_count", "items_limit", "items_offset", "items_has_more"} <= props
+
+    item_schema = next(
+        row for row in rows if row.get("type") == "schema" and row.get("name") == "ProviderBatchItemRecord"
+    )
+    assert {
+        "id",
+        "job_id",
+        "custom_id",
+        "image_id",
+        "model_id",
+        "task_type",
+        "status",
+        "error_type",
+    } <= set(item_schema["schema"]["properties"])

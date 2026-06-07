@@ -79,6 +79,56 @@ lorairo-cli batch import 1 --project main_dataset
 `rating_preflight` requires direct OpenAI, endpoint `/v1/moderations`, an
 `openai/omni-moderation-*` model, and a model registered with `ratings` model type.
 
+## Duplicate Submit and Rating Upsert Behavior
+
+### Why duplicate submission can occur
+
+`images list --unrated` returns images that have no `ratings` row yet. If a batch job has been
+submitted but not imported yet, the same images still appear as "unrated" and can be submitted
+again in a new job. There is no hard error for this — re-submission is allowed (e.g., after a
+failed job).
+
+As a result, the same `image_id` may appear in multiple provider batch jobs.
+
+### How to detect duplicate submissions
+
+Use `batch status --items` to inspect per-image items of a job:
+
+```bash
+lorairo-cli batch status <job_id> --project <project> --items
+```
+
+In JSON mode each item is emitted as a `ProviderBatchItemRecord` row before the result row:
+
+```bash
+lorairo-cli --json batch status <job_id> --project <project> --items
+```
+
+Fields: `id`, `job_id`, `custom_id`, `image_id`, `model_id`, `task_type`, `status`,
+`error_type`. Compare items across jobs to identify images submitted more than once.
+
+Use `--item-status` to filter by status, and `--limit` / `--offset` for pagination:
+
+```bash
+lorairo-cli batch status <job_id> --project <project> --items --item-status failed
+```
+
+### Rating upsert semantics on import
+
+When `batch import` runs, ratings are stored in the `ratings` table using an upsert keyed on
+`(image_id, model_id)`:
+
+- If a rating row already exists for that image and model, it is **updated** (overwritten).
+- If no row exists, it is **inserted**.
+
+Importing a second job for the same image overwrites the rating from the first import.
+The **last-imported result wins** as the canonical current value.
+
+The raw moderation response for each job is preserved in `provider_batch_items.raw_response`
+for audit and debugging. The `batch import` summary (`imported` / `skipped` / `errors` /
+`total`) counts images, not insert/update operations individually. See ADR 0031 Amendment
+2026-06-07 for the design rationale.
+
 ## Known Limitation
 
 Batch submit image path resolution is tracked separately in issue #528. If that bug is present in
