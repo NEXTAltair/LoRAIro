@@ -258,6 +258,37 @@ def _print_job_detail(job: Any) -> None:
     console.print(table)
 
 
+def _print_job_status_hint(job: Any, project: str) -> None:
+    """job ステータスに応じて次のアクション hint を人間向けに表示する。
+
+    Args:
+        job: Provider Batch job オブジェクト。
+        project: プロジェクト名 (next コマンドの hint 表示に使用)。
+    """
+    job_id = _job_value(job, "id")
+    job_status = str(_job_value(job, "status", "") or "").lower()
+    provider_status = str(_job_value(job, "provider_status", "") or "").lower()
+    request_count = _job_value(job, "request_count", 0) or 0
+    succeeded_count = _job_value(job, "succeeded_count", 0) or 0
+    imported_at = _job_value(job, "imported_at")
+
+    # job=completed かつ provider=completed だが未 fetch/import → fetch 待ち
+    if job_status == "completed" and provider_status == "completed" and imported_at is None:
+        console.print(
+            "[yellow]Provider job is completed. LoRAIro items are still running because"
+            " results have not been fetched/imported yet.[/yellow]"
+        )
+        if request_count and succeeded_count == request_count:
+            console.print(f"[green]Next:[/green] lorairo-cli batch fetch {job_id} --project {project}")
+    # fetch 済みだが未 import
+    elif job_status == "fetched" and imported_at is None:
+        console.print("[yellow]Results are fetched. Run import to save annotations.[/yellow]")
+        console.print(f"[green]Next:[/green] lorairo-cli batch import {job_id} --project {project}")
+    # 完全に import 済み
+    elif job_status == "imported":
+        console.print("[green]Job is fully imported.[/green]")
+
+
 def _print_items_table(items: list[Any], job_id: int) -> None:
     table = Table(title=f"Provider Batch Items (job {job_id})")
     table.add_column("ID", style="cyan", no_wrap=True)
@@ -265,7 +296,8 @@ def _print_items_table(items: list[Any], job_id: int) -> None:
     table.add_column("image_id", justify="right")
     table.add_column("model_id", justify="right")
     table.add_column("task_type", style="magenta")
-    table.add_column("status", style="green")
+    # status は LoRAIro 側の取り込み状態（fetch/import 前は running のまま）
+    table.add_column("status (LoRAIro)", style="green")
     table.add_column("error_type", style="red")
 
     for item in items:
@@ -472,6 +504,7 @@ def status(
             )
         else:
             _print_job_detail(job)
+            _print_job_status_hint(job, project)
             if show_items:
                 _print_items_table(fetched_items, job_id)
 

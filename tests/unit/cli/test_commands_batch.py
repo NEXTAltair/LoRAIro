@@ -712,3 +712,140 @@ def test_batch_status_has_more_false_when_items_below_limit(mock_get_container: 
     assert result_row["items_has_more"] is False
     assert result_row["items_count"] == 1
     assert result_row["items_limit"] == 10
+
+
+# --- _print_job_status_hint のテスト ---
+
+
+@pytest.mark.unit
+@pytest.mark.cli
+@patch("lorairo.cli.commands.batch.get_service_container")
+def test_batch_status_hint_fetch_waiting_shows_hint_and_next_command(
+    mock_get_container: MagicMock,
+) -> None:
+    """job=completed/provider=completed/items=running の場合、fetch 待ち hint と Next コマンドを表示する。"""
+    container = _container()
+    container.provider_batch_workflow_service.refresh.return_value = _job(
+        status="completed",
+        provider_status="completed",
+        request_count=300,
+        succeeded_count=300,
+        imported_at=None,
+    )
+    mock_get_container.return_value = container
+
+    result = runner.invoke(app, ["batch", "status", "42", "--project", "demo"])
+
+    assert result.exit_code == 0
+    assert "Provider job is completed" in result.stdout
+    assert "results have not been fetched/imported yet" in result.stdout
+    assert "lorairo-cli batch fetch 42 --project demo" in result.stdout
+
+
+@pytest.mark.unit
+@pytest.mark.cli
+@patch("lorairo.cli.commands.batch.get_service_container")
+def test_batch_status_hint_fetch_waiting_no_next_when_counts_mismatch(
+    mock_get_container: MagicMock,
+) -> None:
+    """succeeded_count != request_count の場合、fetch hint は表示されるが Next コマンドは表示しない。"""
+    container = _container()
+    container.provider_batch_workflow_service.refresh.return_value = _job(
+        status="completed",
+        provider_status="completed",
+        request_count=300,
+        succeeded_count=200,  # 一部失敗または処理中
+        imported_at=None,
+    )
+    mock_get_container.return_value = container
+
+    result = runner.invoke(app, ["batch", "status", "42", "--project", "demo"])
+
+    assert result.exit_code == 0
+    assert "Provider job is completed" in result.stdout
+    assert "results have not been fetched/imported yet" in result.stdout
+    # 件数が一致しないため Next コマンドは表示しない
+    assert "lorairo-cli batch fetch" not in result.stdout
+
+
+@pytest.mark.unit
+@pytest.mark.cli
+@patch("lorairo.cli.commands.batch.get_service_container")
+def test_batch_status_hint_fetched_shows_import_hint(mock_get_container: MagicMock) -> None:
+    """job=fetched/imported_at=None の場合、import hint と Next コマンドを表示する。"""
+    container = _container()
+    container.provider_batch_workflow_service.refresh.return_value = _job(
+        status="fetched",
+        provider_status="completed",
+        imported_at=None,
+    )
+    mock_get_container.return_value = container
+
+    result = runner.invoke(app, ["batch", "status", "42", "--project", "demo"])
+
+    assert result.exit_code == 0
+    assert "Results are fetched" in result.stdout
+    assert "lorairo-cli batch import 42 --project demo" in result.stdout
+
+
+@pytest.mark.unit
+@pytest.mark.cli
+@patch("lorairo.cli.commands.batch.get_service_container")
+def test_batch_status_hint_imported_shows_fully_imported(mock_get_container: MagicMock) -> None:
+    """job=imported の場合、"fully imported" を表示する。"""
+    container = _container()
+    container.provider_batch_workflow_service.refresh.return_value = _job(
+        status="imported",
+        provider_status="completed",
+        imported_at=datetime(2026, 1, 2, tzinfo=UTC),
+    )
+    mock_get_container.return_value = container
+
+    result = runner.invoke(app, ["batch", "status", "42", "--project", "demo"])
+
+    assert result.exit_code == 0
+    assert "fully imported" in result.stdout
+
+
+@pytest.mark.unit
+@pytest.mark.cli
+@patch("lorairo.cli.commands.batch.get_service_container")
+def test_batch_status_hint_no_hint_in_json_mode(mock_get_container: MagicMock) -> None:
+    """--json モードでは hint を表示しない（JSON 出力に含まない）。"""
+    container = _container()
+    container.provider_batch_workflow_service.refresh.return_value = _job(
+        status="completed",
+        provider_status="completed",
+        request_count=300,
+        succeeded_count=300,
+        imported_at=None,
+    )
+    mock_get_container.return_value = container
+
+    result = runner.invoke(app, ["--json", "batch", "status", "42", "--project", "demo"])
+
+    assert result.exit_code == 0
+    rows = [json.loads(line) for line in result.stdout.splitlines() if line.strip()]
+    # JSON 出力は result 行のみ (hint テキストは含まない)
+    assert all(row["kind"] in {"item", "result"} for row in rows)
+    assert "Provider job is completed" not in result.stdout
+    assert "lorairo-cli batch fetch" not in result.stdout
+
+
+@pytest.mark.unit
+@pytest.mark.cli
+@patch("lorairo.cli.commands.batch.get_service_container")
+def test_batch_status_items_table_header_shows_lorairo_status(mock_get_container: MagicMock) -> None:
+    """--items の items テーブルに LoRAIro 側ステータスであることを示すヘッダーが表示される。"""
+    container = _container()
+    container.provider_batch_workflow_service.refresh.return_value = _job()
+    container.db_manager.provider_batch_repo.list_provider_batch_items.return_value = [
+        _batch_item(id=1, status="running"),
+    ]
+    mock_get_container.return_value = container
+
+    result = runner.invoke(app, ["batch", "status", "42", "--project", "demo", "--items"])
+
+    assert result.exit_code == 0
+    # LoRAIro 側ステータスであることをヘッダーで示す
+    assert "LoRAIro" in result.stdout
