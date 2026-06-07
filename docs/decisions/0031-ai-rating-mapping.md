@@ -272,13 +272,53 @@ OpenAI Moderations preflight (Amendment 2026-05-27) は以下の PR で merged:
 LoRAIro 側 boundary 配線は `tests/integration/test_provider_batch_rating_preflight_e2e.py`
 で deterministic に CI 監視する。
 
+### Amendment 2026-06-07: 重複 submit 許容と rating upsert 方針の明記 (Issue #673)
+
+`rating_preflight` では、`images list --unrated` で取得した未 rating 画像を submit しても、
+import 前の同一画像を別 job で重複 submit してしまうことがある (submit 時点では rating が存在
+しないため、重複を事前に防ぐ手段がない)。この挙動と対処方法を以下に明記する。
+
+#### 重複 submit の許容
+
+1. **DB スキーマ上は重複 submit を許容する。** `UNIQUE(job_id, custom_id)` のため同一 job 内の
+   重複は防がれるが、別 job からの同一 `image_id` の submit は止めない。DB unique 制約も追加しない。
+   理由: `submit` 時点では provider から結果が返っておらず、重複を hard error にすると正常な
+   再試行 (job 失敗後の resubmit) も阻害する。
+
+2. **raw moderation 結果は `provider_batch_items.raw_response` に job ごとに保持される。**
+   重複 job ごとに別 row が作られるため、provider 側の raw response は全件監査可能。
+
+3. **重複 submit の確認は `batch status --items` で行う。**
+   ```bash
+   lorairo-cli batch status <job_id> --project <project> --items
+   ```
+   出力には `image_id`, `custom_id`, `model_id`, `task_type`, `status`, `error_type` が
+   含まれる。複数 job の items を横断確認することで重複 submit の有無を検出できる。
+
+#### rating upsert 方針
+
+4. **`ratings` テーブルの canonical rating は `(image_id, model_id)` キーの現在値 (latest win)
+   として upsert される。** `batch import` 時の `_save_ratings()` は、同一 `image_id + model_id`
+   の既存 row を UPDATE (上書き)、なければ INSERT する。
+
+5. **重複 import の結果は「最後に import した job の result が canonical rating になる」。**
+   ブレの履歴を保持したい場合は `provider_batch_items.raw_response` が監査/debug 用として残る。
+
+6. **`batch import --json` の summary (`imported` / `skipped` / `errors` / `total`) は
+   image 単位の集計であり、INSERT / UPDATE の内訳 (ratings_inserted / ratings_updated) は
+   現時点では出力しない。** 理由: `_save_ratings()` 内部の update / insert 区別カウンタを
+   返すには複数レイヤーの変更が必要なため、docs/CLI help でのセマンティクス明記を先行する。
+   将来の改善が必要な場合は別 Issue で対応する。
+
 ## 関連
 
 - Issue: NEXTAltair/LoRAIro#333
 - Issue: NEXTAltair/LoRAIro#471
+- Issue: NEXTAltair/LoRAIro#673
 - Issue (umbrella): NEXTAltair/LoRAIro#507
 - Upstream: NEXTAltair/image-annotator-lib#79 (parent) / #80 (rating 出力実装) /
   #81 (新規 rating model 候補) / #119 / #120
+- ADR 0002 (Database Schema Decisions) — UNIQUE なしの方針と rating upsert の層別判断
 - ADR 0015 (Manual Rating Storage Unification) — manual / AI rating の Rating テーブル統一
 - ADR 0026 (On-Demand Runtime Validation Strategy) — 実 OpenAI Moderations Batch 検証境界
 - ADR 0038 (Provider Batch API Integration Strategy) — OpenAI `/v1/moderations` Batch lifecycle

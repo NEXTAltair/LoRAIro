@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from datetime import UTC, datetime
 from pathlib import Path
 from types import SimpleNamespace
@@ -62,6 +63,22 @@ def _container() -> MagicMock:
     container.db_manager.provider_batch_repo.get_provider_batch_job.return_value = _job()
     container.provider_batch_workflow_service.submit_images.return_value = 42
     return container
+
+
+def _batch_item(**overrides: object) -> SimpleNamespace:
+    values: dict[str, object] = {
+        "id": 1,
+        "job_id": 42,
+        "custom_id": "img-1-mod-7",
+        "image_id": 1,
+        "model_id": 7,
+        "task_type": "rating_preflight",
+        "status": "succeeded",
+        "error_type": None,
+        "error_message": None,
+    }
+    values.update(overrides)
+    return SimpleNamespace(**values)
 
 
 @pytest.mark.unit
@@ -486,3 +503,162 @@ def test_batch_import_shows_summary(mock_get_container: MagicMock, tmp_path: Pat
     assert "Summary" in result.stdout
     assert "Imported" in result.stdout
     assert "yes" in result.stdout
+
+
+@pytest.mark.unit
+@pytest.mark.cli
+@patch("lorairo.cli.commands.batch.get_service_container")
+def test_batch_status_with_items_shows_items_table(mock_get_container: MagicMock) -> None:
+    """--items で items テーブルが人間向けモードに表示される。"""
+    container = _container()
+    container.provider_batch_workflow_service.refresh.return_value = _job()
+    container.db_manager.provider_batch_repo.list_provider_batch_items.return_value = [
+        _batch_item(id=1, status="succeeded"),
+        _batch_item(id=2, custom_id="img-2-mod-7", image_id=2, status="failed", error_type="server_error"),
+    ]
+    mock_get_container.return_value = container
+
+    result = runner.invoke(app, ["batch", "status", "42", "--project", "demo", "--items"])
+
+    assert result.exit_code == 0
+    container.db_manager.provider_batch_repo.list_provider_batch_items.assert_called_once_with(
+        42, status=None, limit=500, offset=0
+    )
+    assert "Provider Batch Items" in result.stdout
+    assert "img-1-mod-7" in result.stdout
+    assert "succeeded" in result.stdout
+    assert "server_error" in result.stdout
+    assert "2 item(s)" in result.stdout
+
+
+@pytest.mark.unit
+@pytest.mark.cli
+@patch("lorairo.cli.commands.batch.get_service_container")
+def test_batch_status_with_items_json_emits_item_rows_then_result(mock_get_container: MagicMock) -> None:
+    """--items --json で ProviderBatchItemRecord item 行の後に BatchStatusResult が来る。"""
+    container = _container()
+    container.provider_batch_workflow_service.refresh.return_value = _job()
+    container.db_manager.provider_batch_repo.list_provider_batch_items.return_value = [
+        _batch_item(id=1),
+        _batch_item(id=2, custom_id="img-2-mod-7", image_id=2),
+    ]
+    mock_get_container.return_value = container
+
+    result = runner.invoke(app, ["--json", "batch", "status", "42", "--project", "demo", "--items"])
+
+    assert result.exit_code == 0
+    rows = [json.loads(line) for line in result.stdout.splitlines() if line.strip()]
+    item_rows = [row for row in rows if row["kind"] == "item"]
+    result_row = next(row for row in rows if row["kind"] == "result")
+
+    assert len(item_rows) == 2
+    assert item_rows[0]["custom_id"] == "img-1-mod-7"
+    assert item_rows[0]["status"] == "succeeded"
+    assert item_rows[1]["custom_id"] == "img-2-mod-7"
+    assert result_row["ok"] is True
+    assert result_row["items_count"] == 2
+    assert result_row["items_limit"] == 500
+    assert result_row["items_offset"] == 0
+    assert result_row["items_has_more"] is False
+
+
+@pytest.mark.unit
+@pytest.mark.cli
+@patch("lorairo.cli.commands.batch.get_service_container")
+def test_batch_status_without_items_does_not_call_list_items(mock_get_container: MagicMock) -> None:
+    """--no-items（デフォルト）では list_provider_batch_items が呼ばれない。"""
+    container = _container()
+    container.provider_batch_workflow_service.refresh.return_value = _job()
+    mock_get_container.return_value = container
+
+    result = runner.invoke(app, ["batch", "status", "42", "--project", "demo"])
+
+    assert result.exit_code == 0
+    container.db_manager.provider_batch_repo.list_provider_batch_items.assert_not_called()
+    assert "Provider Batch Items" not in result.stdout
+
+
+@pytest.mark.unit
+@pytest.mark.cli
+@patch("lorairo.cli.commands.batch.get_service_container")
+def test_batch_status_items_passes_filter_options_to_repo(mock_get_container: MagicMock) -> None:
+    """--item-status / --limit / --offset が list_provider_batch_items に正しく渡る。"""
+    container = _container()
+    container.provider_batch_workflow_service.refresh.return_value = _job()
+    container.db_manager.provider_batch_repo.list_provider_batch_items.return_value = [
+        _batch_item(status="failed", error_type="server_error"),
+    ]
+    mock_get_container.return_value = container
+
+    result = runner.invoke(
+        app,
+        [
+            "batch",
+            "status",
+            "42",
+            "--project",
+            "demo",
+            "--items",
+            "--item-status",
+            "failed",
+            "--limit",
+            "10",
+            "--offset",
+            "5",
+        ],
+    )
+
+    assert result.exit_code == 0
+    container.db_manager.provider_batch_repo.list_provider_batch_items.assert_called_once_with(
+        42, status="failed", limit=10, offset=5
+    )
+
+
+@pytest.mark.unit
+@pytest.mark.cli
+@patch("lorairo.cli.commands.batch.get_service_container")
+def test_batch_status_has_more_when_items_fill_limit(mock_get_container: MagicMock) -> None:
+    """items 数が limit に達したとき items_has_more=True になる（JSON mode）。"""
+    container = _container()
+    container.provider_batch_workflow_service.refresh.return_value = _job()
+    container.db_manager.provider_batch_repo.list_provider_batch_items.return_value = [
+        _batch_item(id=i, custom_id=f"img-{i}-mod-7", image_id=i) for i in range(1, 4)
+    ]
+    mock_get_container.return_value = container
+
+    result = runner.invoke(
+        app,
+        ["--json", "batch", "status", "42", "--project", "demo", "--items", "--limit", "3"],
+    )
+
+    assert result.exit_code == 0
+    rows = [json.loads(line) for line in result.stdout.splitlines() if line.strip()]
+    result_row = next(row for row in rows if row["kind"] == "result")
+    assert result_row["items_has_more"] is True
+    assert result_row["items_count"] == 3
+    assert result_row["items_limit"] == 3
+
+
+@pytest.mark.unit
+@pytest.mark.cli
+@patch("lorairo.cli.commands.batch.get_service_container")
+def test_batch_status_has_more_false_when_items_below_limit(mock_get_container: MagicMock) -> None:
+    """items 数が limit 未満のとき items_has_more=False になる（JSON mode）。"""
+    container = _container()
+    container.provider_batch_workflow_service.refresh.return_value = _job()
+    container.db_manager.provider_batch_repo.list_provider_batch_items.return_value = [
+        _batch_item(id=1),
+    ]
+    mock_get_container.return_value = container
+
+    result = runner.invoke(
+        app,
+        ["--json", "batch", "status", "42", "--project", "demo", "--items", "--limit", "10"],
+    )
+
+    assert result.exit_code == 0
+    rows = [json.loads(line) for line in result.stdout.splitlines() if line.strip()]
+    result_row = next(row for row in rows if row["kind"] == "result")
+    assert result_row["items_has_more"] is False
+    assert result_row["items_count"] == 1
+    assert result_row["items_limit"] == 10

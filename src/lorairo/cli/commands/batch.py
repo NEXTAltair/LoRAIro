@@ -58,6 +58,19 @@ _JOB_DETAIL_FIELDS = (
     "imported_at",
 )
 
+# _print_items_table / json 出力共通の item フィールド。
+_ITEM_DETAIL_FIELDS = (
+    "id",
+    "job_id",
+    "custom_id",
+    "image_id",
+    "model_id",
+    "task_type",
+    "status",
+    "error_type",
+    "error_message",
+)
+
 
 def _activate_project(project: str) -> Any:
     container = get_service_container()
@@ -137,6 +150,12 @@ def _job_value(job: Any, name: str, default: Any = None) -> Any:
     return getattr(job, name, default)
 
 
+def _item_value(item: Any, name: str, default: Any = None) -> Any:
+    if isinstance(item, dict):
+        return item.get(name, default)
+    return getattr(item, name, default)
+
+
 def _format_dt(value: Any) -> str:
     if isinstance(value, datetime):
         return value.isoformat()
@@ -150,6 +169,11 @@ def _job_dict(job: Any) -> dict[str, Any]:
     正規化する (#669)。rich 表示の ``_format_dt`` とは別経路だが双方 isoformat で一致する。
     """
     return {field: _job_value(job, field) for field in _JOB_DETAIL_FIELDS}
+
+
+def _item_dict(item: Any) -> dict[str, Any]:
+    """provider batch item を JSONL item 用の dict に変換する。"""
+    return {field: _item_value(item, field) for field in _ITEM_DETAIL_FIELDS}
 
 
 def _result_item_status(item: Any) -> str:
@@ -231,6 +255,30 @@ def _print_job_detail(job: Any) -> None:
     for field in _JOB_DETAIL_FIELDS:
         table.add_row(field, _format_dt(_job_value(job, field)))
     console.print(table)
+
+
+def _print_items_table(items: list[Any], job_id: int) -> None:
+    table = Table(title=f"Provider Batch Items (job {job_id})")
+    table.add_column("ID", style="cyan", no_wrap=True)
+    table.add_column("custom_id", style="dim")
+    table.add_column("image_id", justify="right")
+    table.add_column("model_id", justify="right")
+    table.add_column("task_type", style="magenta")
+    table.add_column("status", style="green")
+    table.add_column("error_type", style="red")
+
+    for item in items:
+        table.add_row(
+            str(_item_value(item, "id", "")),
+            str(_item_value(item, "custom_id", "")),
+            str(_item_value(item, "image_id", "") or ""),
+            str(_item_value(item, "model_id", "") or ""),
+            str(_item_value(item, "task_type", "") or ""),
+            str(_item_value(item, "status", "")),
+            str(_item_value(item, "error_type", "") or ""),
+        )
+    console.print(table)
+    console.print(f"[dim]{len(items)} item(s)[/dim]")
 
 
 def _print_artifacts(fetch_result: Any) -> None:
@@ -365,8 +413,25 @@ def status(
     job_id: int = typer.Argument(..., help="Provider Batch job ID"),
     project: str = typer.Option(..., "--project", "-p", help="Project name"),
     refresh: bool = typer.Option(True, "--refresh/--no-refresh", help="Refresh provider status first"),
+    show_items: bool = typer.Option(
+        False,
+        "--items/--no-items",
+        help=(
+            "Show provider batch items (custom_id, image_id, model_id, task_type, status, error_type). "
+            "rating_preflight の重複 submit 確認に使用できる。"
+        ),
+    ),
+    items_limit: int = typer.Option(500, "--limit", min=1, max=500, help="Item page size (--items 時)"),
+    items_offset: int = typer.Option(0, "--offset", min=0, help="Item rows to skip (--items 時)"),
+    item_status: str | None = typer.Option(
+        None, "--item-status", help="Filter items by status (--items 時)"
+    ),
 ) -> None:
-    """Show Provider Batch job status."""
+    """Show Provider Batch job status.
+
+    --items を付けると provider batch items (job 配下の per-image item) を表示する。
+    rating_preflight で同一 image_id が別 job に重複投入されていないかの確認にも使える。
+    """
     with command_boundary():
         container = _activate_project(project)
         job = (
@@ -376,10 +441,33 @@ def status(
         )
         if job is None:
             raise click.UsageError(f"Provider Batch job not found: {job_id}")
+
+        fetched_items: list[Any] = []
+        if show_items:
+            fetched_items = container.db_manager.provider_batch_repo.list_provider_batch_items(
+                job_id,
+                status=item_status,
+                limit=items_limit,
+                offset=items_offset,
+            )
+
         if is_json_mode():
-            emit_result(f"Provider Batch job {job_id}", job=_job_dict(job))
+            if show_items:
+                for item in fetched_items:
+                    emit_item(_item_dict(item))
+            has_more = len(fetched_items) >= items_limit if show_items else None
+            emit_result(
+                f"Provider Batch job {job_id}",
+                job=_job_dict(job),
+                items_count=len(fetched_items) if show_items else None,
+                items_limit=items_limit if show_items else None,
+                items_offset=items_offset if show_items else None,
+                items_has_more=has_more,
+            )
         else:
             _print_job_detail(job)
+            if show_items:
+                _print_items_table(fetched_items, job_id)
 
 
 @app.command("cancel")

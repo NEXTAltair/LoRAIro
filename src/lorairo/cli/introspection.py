@@ -391,13 +391,48 @@ class ProviderBatchJob(BaseModel):
     model_config = ConfigDict(title="ProviderBatchJob")
 
 
+class ProviderBatchItemRecord(BaseModel):
+    """JSONL item payload for a provider batch item (``batch status --items --json``).
+
+    ``--items`` を付けた ``batch status --json`` で、job 配下の per-image item ごとに
+    1 行ずつ emit される。rating_preflight の重複 submit 確認・audit に使用できる。
+    """
+
+    id: int
+    job_id: int
+    custom_id: str
+    image_id: int | None = None
+    model_id: int | None = None
+    task_type: str | None = None
+    status: str
+    error_type: str | None = None
+    error_message: str | None = None
+
+    model_config = ConfigDict(title="ProviderBatchItemRecord")
+
+
 class BatchStatusResult(BaseModel):
-    """JSONL result payload emitted by ``batch status --json``."""
+    """JSONL result payload emitted by ``batch status --json``.
+
+    ``--items`` が指定された場合、result 行の前に ``ProviderBatchItemRecord`` item 行が
+    emit される。``items_count`` / ``items_limit`` / ``items_offset`` / ``items_has_more``
+    はいずれも ``--items`` 指定時のみ非 null になる。
+    """
 
     kind: Literal["result"] = "result"
     ok: Literal[True] = True
     message: str
     job: ProviderBatchJob | None = None
+    items_count: int | None = Field(
+        default=None,
+        description="Number of item rows emitted (only when --items is set).",
+    )
+    items_limit: int | None = Field(default=None, description="Page size used for items query.")
+    items_offset: int | None = Field(default=None, description="Rows skipped in items query.")
+    items_has_more: bool | None = Field(
+        default=None,
+        description="True when len(items) >= limit, indicating further pages may exist.",
+    )
 
     model_config = ConfigDict(title="BatchStatusResult")
 
@@ -1078,7 +1113,11 @@ TOOL_SPECS: dict[str, ToolSpec] = {
     "batch status": ToolSpec(
         name="batch status",
         path="batch status",
-        summary="Show provider batch job status.",
+        summary=(
+            "Show provider batch job status. Pass --items to list per-image items "
+            "(custom_id, image_id, model_id, task_type, status, error_type); "
+            "useful for auditing duplicate rating_preflight submissions."
+        ),
         read_only=False,
         side_effects=("db_read", "db_write", "network"),
         inputs=(
@@ -1088,13 +1127,65 @@ TOOL_SPECS: dict[str, ToolSpec] = {
                     _f("job_id", "int", required=True),
                     _f("project", "str", required=True),
                     _f("refresh", "bool", default=True),
+                    _f(
+                        "items",
+                        "bool",
+                        default=False,
+                        description=(
+                            "Emit ProviderBatchItemRecord item rows before the result. "
+                            "Use to inspect per-image item state or detect duplicate submissions."
+                        ),
+                    ),
+                    _f(
+                        "limit",
+                        "int[1,500]",
+                        default=500,
+                        description="Page size for items query (only when --items is set).",
+                    ),
+                    _f(
+                        "offset",
+                        "int>=0",
+                        default=0,
+                        description="Rows to skip in items query (only when --items is set).",
+                    ),
+                    _f(
+                        "item_status",
+                        "str?",
+                        description="Filter items by status when --items is set (e.g. succeeded, failed).",
+                    ),
                 ),
             ),
         ),
         outputs=(
             _output(
+                "ProviderBatchItemRecord",
+                (
+                    _f("id", "int"),
+                    _f("job_id", "int"),
+                    _f("custom_id", "str"),
+                    _f("image_id", "int?"),
+                    _f("model_id", "int?"),
+                    _f("task_type", "str?"),
+                    _f("status", "str"),
+                    _f("error_type", "str?"),
+                    _f("error_message", "str?"),
+                ),
+                description="Emitted per item when --items is set. Precedes the BatchStatusResult row.",
+                schema=ProviderBatchItemRecord,
+            ),
+            _output(
                 "BatchStatusResult",
-                (_f("job", "ProviderBatchJob"),),
+                (
+                    _f("job", "ProviderBatchJob"),
+                    _f(
+                        "items_count",
+                        "int?",
+                        description="Number of item rows emitted (null when --items is not set).",
+                    ),
+                    _f("items_limit", "int?"),
+                    _f("items_offset", "int?"),
+                    _f("items_has_more", "bool?"),
+                ),
                 schema=BatchStatusResult,
             ),
         ),
