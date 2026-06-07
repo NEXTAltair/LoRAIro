@@ -65,9 +65,7 @@ lorairo-cli batch submit \
   --project main_dataset \
   --task-type rating_preflight \
   --model openai/omni-moderation-latest \
-  --image-id 2 \
-  --image-id 7 \
-  --image-id 11
+  --image-ids 2,7,11
 ```
 
 Check status, fetch normalized results if needed, then import:

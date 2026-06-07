@@ -214,6 +214,22 @@ def test_import_batch_describes_actual_argument_names() -> None:
     assert {"total_records", "matched", "saved", "dry_run"} <= {f["name"] for f in output_row["fields"]}
 
 
+def test_batch_submit_describes_csv_image_ids() -> None:
+    result = runner.invoke(app, ["--json", "describe", "batch submit"])
+
+    assert result.exit_code == 0
+    rows = _jsonl(result.stdout)
+    input_row = next(
+        row for row in rows if row.get("type") == "model" and row["name"] == "BatchSubmitInput"
+    )
+    fields = {field["name"]: field for field in input_row["fields"]}
+
+    assert "image_id" not in fields
+    assert fields["image_ids"]["type"] == "csv[int]"
+    assert fields["image_ids"]["required"] is True
+    assert "Comma-separated" in fields["image_ids"]["description"]
+
+
 def test_cli_specific_output_json_schemas_match_item_rows() -> None:
     images_result = runner.invoke(app, ["--json", "describe", "images list", "--schema", "json_schema"])
     models_result = runner.invoke(app, ["--json", "describe", "models list", "--schema", "json_schema"])

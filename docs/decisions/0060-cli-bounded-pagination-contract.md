@@ -80,13 +80,14 @@ ADR 0058 の出力モードに従い表現を分ける:
 - **人間 (rich 既定)**: **枠付き Table を使わず、1 行 1 件のプレーン出力 `image_id<TAB>file_path`**
   (id と path の 2 カラム)。500 行でも `ls -i` / `find` 感覚で読め、コピー / grep できる。装飾 (枠線 / 色) は
   ADR 0058 のとおり presentation として扱い、本質的にプレーン行であることを契約とする (大量行に枠付き Table は
-  不向き)。**`image_id` は必ず含める** (path のみにしない) — 後段で `--image-id` にパイプ/コピーする
+  不向き)。**`image_id` は必ず含める** (path のみにしない) — 後段のコマンドへパイプ/コピーする
   ステージング ID 集合がここで欠落しないため。
 - **エージェント (`--json`)**: `kind:"item"` の JSONL (`image_id` + `file_path`) を N 行 + 終端
   `kind:"result"` (件数メタ)。
 
-`--fetch` が返す `image_id` 集合は ADR 0055 のステージング集合に相当し、そのまま annotate / export /
-images update の `--image-id` に渡せる (検索 → ID 集合 → 各処理)。
+`--fetch` が返す `image_id` 集合は ADR 0055 のステージング集合に相当し、後段コマンドの
+ID selector (`batch submit --image-ids` や各処理の image ID option) に渡せる
+(検索 → ID 集合 → 各処理)。
 
 ### 3. 基本リミット = 500 (読み取り・処理 共通)。stable 順 / pushdown
 
@@ -176,9 +177,9 @@ flowchart TD
   コードを `INVALID_INPUT` から本コードへ統一する (本 ADR の Amendment 節参照)。**この 0057 本体への適用は
   本 ADR が Accepted になった時点で行い、それまで 0057 は無編集のまま (確定済み契約に未承認の変更を混ぜない)**。
 - count は軽量 COUNT(*) で実装し、fetch とは別経路にする (ADR 0056 count-only 方針の延長)。
-- `--fetch` の `image_id` 出力は ADR 0055 のステージング集合として annotate / export / images update の
-  `--image-id` にパイプできる。#638 で別 Issue に切り出した「検索 → ID 集合 → 各処理」の二段構えが、本 ADR の
-  count-first / fetch 出力で素直に成立する。
+- `--fetch` の `image_id` 出力は ADR 0055 のステージング集合として後段コマンドの ID selector に渡せる。
+  #638 で別 Issue に切り出した「検索 → ID 集合 → 各処理」の二段構えが、本 ADR の count-first / fetch
+  出力で素直に成立する。
 - 小さい固定 enumeration (`models list`) は count 既定の対象外とし、直接列挙を維持する。
 - 人間向け fetch 出力は枠付き Table でなくプレーン行とするため、既存の rich Table 表示 (該当箇所) を
   プレーン行へ変更する (#641)。

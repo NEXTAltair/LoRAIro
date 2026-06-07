@@ -66,6 +66,7 @@ LoRAIro の重要な設計判断を記録するドキュメント群。
 | [0060](0060-cli-bounded-pagination-contract.md) | CLI Bounded Pagination and Count-First Contract | 2026-06-06 | Accepted |
 | [0061](0061-phash-duplicate-variant-classification.md) | 登録パイプライン再設計 — pHash 候補の重複/別版分類 | 2026-06-05 | Accepted |
 | [0062](0062-batch-custom-id-phash-long-edge.md) | Provider Batch custom_id を pHash + 長辺解像度基準へ統一 | 2026-06-05 | Accepted |
+| [0063](0063-cli-batch-submit-image-ids-csv.md) | CLI Batch Submit Image IDs CSV Contract | 2026-06-07 | Accepted |
 
 ## ADR テンプレート
 
