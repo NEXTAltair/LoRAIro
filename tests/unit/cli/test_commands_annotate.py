@@ -8,6 +8,7 @@ import pytest
 from PIL import Image
 from typer.testing import CliRunner
 
+from lorairo.api.exceptions import AnnotationFailedError
 from lorairo.cli._output_mode import set_json_mode
 from lorairo.cli.commands.annotate import _annotation_score, _emit_annotation_items
 from lorairo.cli.main import app
@@ -897,6 +898,51 @@ def test_annotate_run_annotation_failure(
 
     assert result.exit_code == 1
     assert "Annotation failed" in result.stderr or "Error" in result.stderr
+
+
+@pytest.mark.unit
+@pytest.mark.cli
+@patch("lorairo.cli.commands.annotate.get_service_container")
+def test_annotate_run_annotation_failed_error_exit_code(
+    mock_get_container,
+    test_project_with_images: tuple[Path, list[Path]],
+) -> None:
+    """Test: annotate run - AnnotationFailedError は exit_code=1 (PRECONDITION_FAILED)。"""
+    _project_dir, image_files = test_project_with_images
+
+    mock_container = MagicMock()
+    mock_annotator = MagicMock()
+    mock_config = MagicMock()
+
+    mock_config.get_setting.return_value = "test_key"
+    # AnnotationFailedError を直接 side_effect に設定して PRECONDITION_FAILED 経路を明示
+    mock_annotator.annotate.side_effect = AnnotationFailedError("gpt-4o-mini", 3, "upstream API error")
+
+    image_records = [
+        {"id": i + 1, "phash": f"phash{i:016d}", "stored_image_path": str(img_path)}
+        for i, img_path in enumerate(image_files)
+    ]
+    mock_container.db_manager.image_repo.get_images_by_filter.return_value = (
+        image_records,
+        len(image_records),
+    )
+    mock_container.annotator_library = mock_annotator
+    mock_container.config_service = mock_config
+    mock_get_container.return_value = mock_container
+
+    result = runner.invoke(
+        app,
+        [
+            "annotate",
+            "run",
+            "--project",
+            "test_dataset",
+            "--model",
+            "gpt-4o-mini",
+        ],
+    )
+
+    assert result.exit_code == 1
 
 
 @pytest.mark.unit

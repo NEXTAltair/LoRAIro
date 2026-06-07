@@ -321,6 +321,27 @@ def test_images_list_fetch_total_over_cap_errors_before_items(mock_projects_dir:
 
 @pytest.mark.unit
 @pytest.mark.cli
+def test_images_list_fetch_total_over_cap_errors_non_json(mock_projects_dir: Path) -> None:
+    """Test: images list --fetch (non-JSON) - total 500 超は exit_code 2 でエラーを表示する。"""
+    runner.invoke(app, ["project", "create", "test-project"])
+
+    with patch("lorairo.cli.commands.images.get_service_container") as mock_get_container:
+        mock_container = MagicMock()
+        mock_container.db_manager.image_repo.get_images_count_only.return_value = 501
+        mock_get_container.return_value = mock_container
+
+        result = runner.invoke(app, ["images", "list", "--project", "test-project", "--fetch"])
+
+    assert result.exit_code == 2
+    # non-JSON モードではエラーメッセージが日本語で stderr に出る
+    combined = result.stdout + result.stderr
+    assert "501" in combined
+    assert "500" in combined
+    mock_container.db_manager.image_repo.get_image_list_page.assert_not_called()
+
+
+@pytest.mark.unit
+@pytest.mark.cli
 def test_images_list_reflects_update_tags(mock_projects_dir: Path, test_images_dir: Path) -> None:
     """Test: images update 後も images list の count が取得できる。"""
     runner.invoke(app, ["project", "create", "test-project"])

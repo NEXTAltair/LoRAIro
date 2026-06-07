@@ -67,6 +67,7 @@ def test_classify_standard_exceptions(exc: BaseException, expected: ErrorCode) -
         (app_exc.InvalidInputError("name", "empty"), ErrorCode.VALIDATION_FAILED),
         (app_exc.InvalidFormatError("xyz", ["txt", "json"]), ErrorCode.INVALID_INPUT),
         (app_exc.DatabaseConnectionError("p", "locked"), ErrorCode.DB_ERROR),
+        (app_exc.ResultSetTooLargeError(501, 500), ErrorCode.RESULT_SET_TOO_LARGE),
     ],
 )
 def test_classify_lorairo_exceptions(exc: BaseException, expected: ErrorCode) -> None:

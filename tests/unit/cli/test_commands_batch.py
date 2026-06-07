@@ -560,6 +560,19 @@ def test_batch_status_with_items_json_emits_item_rows_then_result(mock_get_conta
     assert result_row["items_limit"] == 500
     assert result_row["items_offset"] == 0
     assert result_row["items_has_more"] is False
+    # _ITEM_DETAIL_FIELDS の全フィールドが item 行に含まれることを確認する。
+    for field in (
+        "id",
+        "job_id",
+        "custom_id",
+        "image_id",
+        "model_id",
+        "task_type",
+        "status",
+        "error_type",
+        "error_message",
+    ):
+        assert field in item_rows[0], f"item row is missing field: {field}"
 
 
 @pytest.mark.unit
