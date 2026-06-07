@@ -384,7 +384,7 @@ lorairo-cli --json describe "batch submit"
 
 - `project`: `str` (required)
 - `model`: `str` (required)
-- `image_id`: `list[int]` (required)
+- `image_ids`: `csv[int]` (required) - Comma-separated image IDs, e.g. 2,7,11.
 - `provider`: `openai|anthropic?` (optional)
 - `endpoint`: `str?` (optional)
 - `prompt_profile`: `str` (optional, default `default`)

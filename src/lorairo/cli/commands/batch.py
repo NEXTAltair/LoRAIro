@@ -169,6 +169,38 @@ def _summarize_fetch_counts(result: Any) -> tuple[int, int]:
     return int(succeeded_count or 0), int(failed_count or 0)
 
 
+def _parse_image_ids_csv(value: str) -> list[int]:
+    """Parse the canonical ``--image-ids`` CSV option into integer IDs."""
+    image_ids: list[int] = []
+    invalid_tokens: list[str] = []
+    empty_tokens = 0
+
+    for token in value.split(","):
+        normalized = token.strip()
+        if not normalized:
+            empty_tokens += 1
+            continue
+        try:
+            image_ids.append(int(normalized))
+        except ValueError:
+            invalid_tokens.append(normalized)
+
+    if invalid_tokens or empty_tokens or not image_ids:
+        details: list[str] = []
+        if invalid_tokens:
+            details.append(f"invalid token(s): {', '.join(invalid_tokens)}")
+        if empty_tokens:
+            details.append("empty item(s)")
+        if not image_ids:
+            details.append("no image IDs")
+        raise click.UsageError(
+            "--image-ids must be a comma-separated list of integer image IDs "
+            f"(example: --image-ids 2,7,11): {'; '.join(details)}"
+        )
+
+    return image_ids
+
+
 def _print_jobs_table(jobs: list[Any]) -> None:
     table = Table(title="Provider Batch Jobs")
     table.add_column("ID", style="cyan", no_wrap=True)
@@ -237,7 +269,11 @@ def _artifact_dicts(fetch_result: Any) -> list[dict[str, Any]]:
 def submit(
     project: str = typer.Option(..., "--project", "-p", help="Project name"),
     model: str = typer.Option(..., "--model", "-m", help="LiteLLM model ID or unique display name"),
-    image_ids: list[int] = typer.Option(..., "--image-id", help="Image ID to submit; repeatable"),
+    image_ids_csv: str = typer.Option(
+        ...,
+        "--image-ids",
+        help="Comma-separated image IDs to submit (example: 2,7,11)",
+    ),
     provider: str | None = typer.Option(None, "--provider", help="Provider override: openai/anthropic"),
     endpoint: str | None = typer.Option(None, "--endpoint", help="Provider endpoint override"),
     prompt_profile: str = typer.Option("default", "--prompt-profile", help="Prompt profile name"),
@@ -253,6 +289,7 @@ def submit(
 ) -> None:
     """Submit registered images to a Provider Batch API job."""
     with command_boundary():
+        image_ids = _parse_image_ids_csv(image_ids_csv)
         container = _activate_project(project)
         model_repo = container.db_manager.model_repo
         provider_batch_repo = container.db_manager.provider_batch_repo

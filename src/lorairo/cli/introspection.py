@@ -1011,7 +1011,12 @@ TOOL_SPECS: dict[str, ToolSpec] = {
                 (
                     _f("project", "str", required=True),
                     _f("model", "str", required=True),
-                    _f("image_id", "list[int]", required=True),
+                    _f(
+                        "image_ids",
+                        "csv[int]",
+                        required=True,
+                        description="Comma-separated image IDs, e.g. 2,7,11.",
+                    ),
                     _f("provider", "openai|anthropic?"),
                     _f("endpoint", "str?"),
                     _f("prompt_profile", "str", default="default"),

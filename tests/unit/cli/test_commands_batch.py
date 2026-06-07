@@ -95,10 +95,8 @@ def test_batch_submit_calls_workflow_service(mock_get_container: MagicMock) -> N
             "demo",
             "--model",
             "anthropic/claude-3-5-haiku-latest",
-            "--image-id",
-            "1",
-            "--image-id",
-            "2",
+            "--image-ids",
+            "1,2",
             "--description",
             "nightly",
         ],
@@ -137,7 +135,7 @@ def test_batch_submit_accepts_openai_annotation(mock_get_container: MagicMock) -
             "demo",
             "--model",
             "openai/gpt-4.1-mini",
-            "--image-id",
+            "--image-ids",
             "1",
         ],
     )
@@ -179,7 +177,7 @@ def test_batch_submit_rating_preflight_calls_workflow_service(mock_get_container
             "openai/omni-moderation-latest",
             "--task-type",
             "rating_preflight",
-            "--image-id",
+            "--image-ids",
             "1",
         ],
     )
@@ -206,6 +204,8 @@ def test_batch_submit_help_documents_rating_preflight_constraints() -> None:
 
     assert result.exit_code == 0
     assert "rating_preflight" in result.stdout
+    assert "--image-ids" in result.stdout
+    assert "repeatable" not in result.stdout
     assert "requires direct openai" in result.stdout
     assert "/v1/moderations" in result.stdout
     assert "openai/omni-moderation-*" in result.stdout
@@ -240,7 +240,7 @@ def test_batch_submit_rating_preflight_normalizes_endpoint_override(
             "rating_preflight",
             "--endpoint",
             "v1/moderations/",
-            "--image-id",
+            "--image-ids",
             "1",
         ],
     )
@@ -279,7 +279,7 @@ def test_batch_submit_rating_preflight_rejects_non_moderations_endpoint(
             "rating_preflight",
             "--endpoint",
             "/v1/chat/completions",
-            "--image-id",
+            "--image-ids",
             "1",
         ],
     )
@@ -310,7 +310,7 @@ def test_batch_submit_rejects_google_until_phase3(mock_get_container: MagicMock)
             "demo",
             "--model",
             "google/gemini-2.5-pro",
-            "--image-id",
+            "--image-ids",
             "1",
         ],
     )
@@ -318,6 +318,34 @@ def test_batch_submit_rejects_google_until_phase3(mock_get_container: MagicMock)
     # click.UsageError → INVALID_INPUT → exit 2 (入力検証、ADR 0057 §6)。
     assert result.exit_code == 2
     assert "Google Provider Batch submit is disabled" in result.output
+    container.provider_batch_workflow_service.submit_images.assert_not_called()
+
+
+@pytest.mark.unit
+@pytest.mark.cli
+@patch("lorairo.cli.commands.batch.get_service_container")
+def test_batch_submit_rejects_invalid_image_ids_csv(mock_get_container: MagicMock) -> None:
+    container = _container()
+    mock_get_container.return_value = container
+
+    result = runner.invoke(
+        app,
+        [
+            "batch",
+            "submit",
+            "--project",
+            "demo",
+            "--model",
+            "openai/gpt-4.1-mini",
+            "--image-ids",
+            "1,,x",
+        ],
+    )
+
+    assert result.exit_code == 2
+    assert "--image-ids must be a comma-separated list" in result.output
+    assert "invalid token(s): x" in result.output
+    assert "empty item(s)" in result.output
     container.provider_batch_workflow_service.submit_images.assert_not_called()
 
 

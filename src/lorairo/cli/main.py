@@ -71,7 +71,7 @@ app = typer.Typer(
         "--model openai/omni-moderation-latest\n\n"
         "  Large sets: lorairo-cli images list --project <name> --unrated\n"
         "              lorairo-cli batch submit --project <name> --task-type rating_preflight "
-        "--model openai/omni-moderation-latest --image-id <id>"
+        "--model openai/omni-moderation-latest --image-ids <id,id,...>"
     ),
     add_completion=True,
     no_args_is_help=True,
