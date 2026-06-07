@@ -93,15 +93,17 @@ class ImagesListItem(BaseModel):
 class ImagesListResult(BaseModel):
     """JSONL result payload emitted by ``images list --json``.
 
-    Without ``--fetch`` only ``count`` is populated (count-first default, #655).
-    With ``--fetch`` the fetched-page metadata fields are also present.
+    ``count`` / ``total`` の語義は両モードで一貫する (#664): ``count`` は **この応答で
+    出力した item 行数**、``total`` は **総ヒット数**。count-first 既定は item を
+    出さないため ``count=0`` + ``total=N``。``--fetch`` は ``count=len(page)`` +
+    ``total=N`` + ページングメタ (``limit`` / ``offset`` / ``has_more``)。
     """
 
     kind: Literal["result"] = "result"
     ok: Literal[True] = True
     message: str
-    count: int
-    total: int | None = None
+    count: int = Field(description="Number of item rows emitted in this response (0 in count-first mode).")
+    total: int | None = Field(default=None, description="Total number of matching images.")
     limit: int | None = None
     offset: int | None = None
     has_more: bool | None = None
@@ -773,8 +775,13 @@ TOOL_SPECS: dict[str, ToolSpec] = {
             _output(
                 "ImagesListResult",
                 (
-                    _f("count", "int"),
-                    _f("total", "int?"),
+                    _f(
+                        "count",
+                        "int",
+                        description="Item rows emitted in this response (0 in count-first mode). "
+                        "Use total for the match count.",
+                    ),
+                    _f("total", "int?", description="Total number of matching images."),
                     _f("limit", "int?"),
                     _f("offset", "int?"),
                     _f("has_more", "bool?"),

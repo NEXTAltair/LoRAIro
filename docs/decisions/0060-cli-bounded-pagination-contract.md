@@ -56,7 +56,9 @@ flag 名 (`--fetch` 等) や projection の最終フィールド確定、Reposit
 ```jsonc
 // 既定 (フラグ無し) = 件数だけ。軽量 COUNT(*)、item 行なし。
 // 下は --json (エージェント) 時の JSONL 形。
-{"kind": "result", "ok": true, "count": 1234, "message": "1,234 件が一致します。"}
+// count = この応答の item 行数 (count-first は item を出さないので 0)、
+// total = 総ヒット数。両モードで count/total の語義を一貫させる (#664 で統一)。
+{"kind": "result", "ok": true, "count": 0, "total": 1234, "message": "1,234 件が一致します。"}
 ```
 
 上記 JSONL は **`--json` (エージェント) 時の形**。**rich (人間既定) では JSONL を出さず、人間向けの 1 行**
@@ -129,8 +131,10 @@ images update の `--image-id` に渡せる (検索 → ID 集合 → 各処理)
  "limit": 500, "offset": 0, "has_more": false}
 ```
 
-- `count`: このページの件数、`total`: フィルタ全件 (ADR 0049 が subquery COUNT で安価に取得済み)、
-  `offset`/`limit`: echo、`has_more`: `offset + count < total`。
+- `count`: この応答で出した item 行数 (= このページの件数)、`total`: フィルタ全件 (ADR 0049 が
+  subquery COUNT で安価に取得済み)、`offset`/`limit`: echo、`has_more`: `offset + count < total`。
+  **count-first 既定 (§1) と語義が一貫する**: count は常に「この応答の item 行数」、total は常に総ヒット数
+  (count-first は item を出さないので count=0 + total=N、#664)。
 - 500 以下なら limit/offset で自由にページングできる (既定 limit=500 なので通常 1 回で全部取れる)。
 
 ### count-first フロー
@@ -202,6 +206,20 @@ flowchart TD
 
 上記 1〜5 (§2/§3/§4/§6) は本 ADR の Accept と同一コミットで 0057 本体へ適用済み。README の 0057 ステータスも
 「Accepted (amended by 0060)」に更新済み。
+
+## Post-Accept Revision (#664)
+
+Accept 後、§1 の count-first 例が `count` を総ヒット数として示しており (`count=1234`)、§5 の `--fetch` 例の
+`count` (このページの件数) と語義が二重化していた。CLI 改装は未だ実運用に入っておらず wire 形に依存する
+consumer がいないため、後方互換を考慮せず語義を一本化した:
+
+- **`count` = この応答で出した item 行数**、**`total` = 総ヒット数**。両モードで一貫させる。
+- count-first 既定は item を出さないため `count=0` + `total=N`。`--fetch` は `count=len(page)` + `total=N`。
+- §1 の例を `{"count": 0, "total": 1234}` に修正、§5 に語義一貫の明記を追記。`project list` / `models list`
+  (item を出すコマンドは元々 count=item 行数) と語義が揃う。
+
+実装: `images list` count-first の emit を `count=total_count` から `count=0, total=total_count` に変更
+(`introspection.py` の `ImagesListResult` も description で語義を明示)。
 
 ## 関連
 
