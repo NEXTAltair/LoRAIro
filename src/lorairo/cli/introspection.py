@@ -727,7 +727,10 @@ TOOL_SPECS: dict[str, ToolSpec] = {
     "images list": ToolSpec(
         name="images list",
         path="images list",
-        summary="List images in a project.",
+        summary=(
+            "List images in a project. Count-first (ADR 0060): default returns only the matching "
+            "count; --fetch returns id+path rows but only when the total is <= 500."
+        ),
         read_only=True,
         side_effects=("db_read", "file_read"),
         inputs=(
@@ -735,9 +738,28 @@ TOOL_SPECS: dict[str, ToolSpec] = {
                 "ImagesListInput",
                 (
                     _f("project", "str", required=True),
-                    _f("fetch", "bool", default=False),
-                    _f("limit", "int[1,500]", default=500),
-                    _f("offset", "int>=0", default=0),
+                    _f(
+                        "fetch",
+                        "bool",
+                        default=False,
+                        description="Fetch id+path rows instead of only the count. Succeeds only when "
+                        "total matches are <= 500; a larger result yields RESULT_SET_TOO_LARGE "
+                        "(narrow the filter). Omitted (default) returns the count only.",
+                    ),
+                    _f(
+                        "limit",
+                        "int[1,500]",
+                        default=500,
+                        description="Page size within a <= 500 match set (ADR 0060). Does NOT bypass the "
+                        "count-first gate: a total over 500 is rejected regardless of limit.",
+                    ),
+                    _f(
+                        "offset",
+                        "int>=0",
+                        default=0,
+                        description="Rows to skip within a <= 500 match set. Pagination is bounded to the "
+                        "working set; it is not a way to page through a result larger than 500.",
+                    ),
                     _f("unrated", "bool", default=False),
                 ),
             ),

@@ -462,7 +462,7 @@ Structured error payload emitted as kind=error by the CLI boundary.
 
 ### `images list`
 
-List images in a project.
+List images in a project. Count-first (ADR 0060): default returns only the matching count; --fetch returns id+path rows but only when the total is <= 500.
 
 - Read only: `true`
 - Side effects: `db_read`, `file_read`
@@ -478,9 +478,9 @@ lorairo-cli --json describe "images list"
 **Input `ImagesListInput`**
 
 - `project`: `str` (required)
-- `fetch`: `bool` (optional, default `False`)
-- `limit`: `int[1,500]` (optional, default `500`)
-- `offset`: `int>=0` (optional, default `0`)
+- `fetch`: `bool` (optional, default `False`) - Fetch id+path rows instead of only the count. Succeeds only when total matches are <= 500; a larger result yields RESULT_SET_TOO_LARGE (narrow the filter). Omitted (default) returns the count only.
+- `limit`: `int[1,500]` (optional, default `500`) - Page size within a <= 500 match set (ADR 0060). Does NOT bypass the count-first gate: a total over 500 is rejected regardless of limit.
+- `offset`: `int>=0` (optional, default `0`) - Rows to skip within a <= 500 match set. Pagination is bounded to the working set; it is not a way to page through a result larger than 500.
 - `unrated`: `bool` (optional, default `False`)
 
 **Output `ImagesListItem`**

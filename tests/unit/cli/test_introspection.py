@@ -92,6 +92,26 @@ def test_images_update_describes_only_supported_input_fields() -> None:
     assert {field["name"] for field in input_rows[0]["fields"]} == {"project", "tags", "image_id"}
 
 
+def test_describe_images_list_documents_count_first_gate() -> None:
+    """images list の fetch/limit/offset が count-first gate を説明する (Issue #663)。"""
+    result = runner.invoke(app, ["--json", "describe", "images list"])
+
+    assert result.exit_code == 0
+    rows = _jsonl(result.stdout)
+    input_model = next(
+        row for row in rows if row.get("type") == "model" and row["name"] == "ImagesListInput"
+    )
+    fields = {field["name"]: field.get("description", "") for field in input_model["fields"]}
+
+    # fetch は総数 <= 500 のときだけ成功し、超過時は RESULT_SET_TOO_LARGE になる旨を明示。
+    assert "RESULT_SET_TOO_LARGE" in fields["fetch"]
+    assert "500" in fields["fetch"]
+    # limit/offset は count-first gate を回避しないことを明示。
+    assert "500" in fields["limit"]
+    assert "bypass" in fields["limit"].lower()
+    assert "500" in fields["offset"]
+
+
 def test_describe_json_schema_wraps_cli_input_schema_in_item_payload() -> None:
     result = runner.invoke(app, ["--json", "describe", "export create", "--schema", "json_schema"])
 
