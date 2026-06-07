@@ -787,6 +787,7 @@ class TestAppendScoresWebApi:
         assert result["scores"][0]["score"] == pytest.approx(8.0)
         assert result["scores"][0]["model_id"] == 99
         assert result["scores"][0]["is_edited_manually"] is False
+        assert "display_score" in result["scores"][0]
 
     @pytest.mark.unit
     def test_webapi_missing_overall_key_skips(self, service: AnnotationSaveService) -> None:
