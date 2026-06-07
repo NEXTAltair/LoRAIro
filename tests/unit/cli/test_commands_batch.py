@@ -134,6 +134,7 @@ def test_batch_submit_calls_workflow_service(mock_get_container: MagicMock) -> N
         model_id=7,
         description="nightly",
         task_type="annotation",
+        image_paths=None,
     )
     assert "Provider Batch job submitted" in result.stdout
     assert "batch_42" in result.stdout
@@ -171,6 +172,7 @@ def test_batch_submit_accepts_openai_annotation(mock_get_container: MagicMock) -
         model_id=7,
         description=None,
         task_type="annotation",
+        image_paths=None,
     )
     assert "Provider Batch job submitted" in result.stdout
 
@@ -214,6 +216,7 @@ def test_batch_submit_rating_preflight_calls_workflow_service(mock_get_container
         model_id=11,
         description=None,
         task_type="rating_preflight",
+        image_paths=None,
     )
     assert "Provider Batch job submitted" in result.stdout
 
@@ -711,6 +714,129 @@ def test_batch_status_has_more_false_when_items_below_limit(mock_get_container: 
     result_row = next(row for row in rows if row["kind"] == "result")
     assert result_row["items_has_more"] is False
     assert result_row["items_count"] == 1
+
+
+@pytest.mark.unit
+@pytest.mark.cli
+@patch("lorairo.cli.commands.batch.get_service_container")
+def test_submit_with_resolution_resolves_processed_paths(mock_get_container: MagicMock) -> None:
+    """--resolution 512 指定時に processed image path が解決されて submit_images に渡される。"""
+    container = _container()
+    container.db_manager.image_repo.get_processed_image.side_effect = lambda image_id, resolution: {
+        1: {"id": 10, "stored_image_path": "image_dataset/processed_images/512/1.jpg"},
+        2: {"id": 11, "stored_image_path": "image_dataset/processed_images/512/2.jpg"},
+    }.get(image_id)
+    mock_get_container.return_value = container
+
+    result = runner.invoke(
+        app,
+        [
+            "batch",
+            "submit",
+            "--project",
+            "demo",
+            "--model",
+            "openai/gpt-4.1-mini",
+            "--image-ids",
+            "1,2",
+            "--resolution",
+            "512",
+        ],
+    )
+
+    assert result.exit_code == 0, result.stdout
+    container.provider_batch_workflow_service.submit_images.assert_called_once_with(
+        provider="openai",
+        endpoint="/v1/chat/completions",
+        litellm_model_id="openai/gpt-4.1-mini",
+        prompt_profile="default",
+        image_ids=[1, 2],
+        model_id=7,
+        description=None,
+        task_type="annotation",
+        image_paths={
+            1: "image_dataset/processed_images/512/1.jpg",
+            2: "image_dataset/processed_images/512/2.jpg",
+        },
+    )
+    # --resolution 指定時は original image guard をスキップ
+    container.db_manager.image_repo.get_images_by_ids.assert_not_called()
+    assert "512px" in result.stdout
+    assert "Provider Batch job submitted" in result.stdout
+
+
+@pytest.mark.unit
+@pytest.mark.cli
+@patch("lorairo.cli.commands.batch.get_service_container")
+def test_submit_with_resolution_missing_processed_image_errors(mock_get_container: MagicMock) -> None:
+    """指定解像度の processed image が存在しない image_id はエラーを返す。"""
+    container = _container()
+    # image_id=1 は見つかるが image_id=2 は None
+    container.db_manager.image_repo.get_processed_image.side_effect = lambda image_id, resolution: (
+        {"id": 10, "stored_image_path": "image_dataset/processed_images/512/1.jpg"}
+        if image_id == 1
+        else None
+    )
+    mock_get_container.return_value = container
+
+    result = runner.invoke(
+        app,
+        [
+            "batch",
+            "submit",
+            "--project",
+            "demo",
+            "--model",
+            "openai/gpt-4.1-mini",
+            "--image-ids",
+            "1,2",
+            "--resolution",
+            "512",
+        ],
+    )
+
+    assert result.exit_code != 0
+    assert "2" in result.stdout or "2" in str(result.exception)
+    container.provider_batch_workflow_service.submit_images.assert_not_called()
+
+
+@pytest.mark.unit
+@pytest.mark.cli
+@patch("lorairo.cli.commands.batch.get_service_container")
+def test_submit_without_resolution_uses_stored_path(mock_get_container: MagicMock) -> None:
+    """--resolution なしの場合は従来通り image_paths=None で submit し、original guard を実行する。"""
+    container = _container()
+    mock_get_container.return_value = container
+
+    result = runner.invoke(
+        app,
+        [
+            "batch",
+            "submit",
+            "--project",
+            "demo",
+            "--model",
+            "openai/gpt-4.1-mini",
+            "--image-ids",
+            "1,2",
+        ],
+    )
+
+    assert result.exit_code == 0, result.stdout
+    container.provider_batch_workflow_service.submit_images.assert_called_once_with(
+        provider="openai",
+        endpoint="/v1/chat/completions",
+        litellm_model_id="openai/gpt-4.1-mini",
+        prompt_profile="default",
+        image_ids=[1, 2],
+        model_id=7,
+        description=None,
+        task_type="annotation",
+        image_paths=None,
+    )
+    # original image guard が呼ばれること
+    container.db_manager.image_repo.get_images_by_ids.assert_called_once_with([1, 2])
+    assert "get_processed_image" not in str(container.db_manager.image_repo.mock_calls)
     assert result_row["items_limit"] == 10
 
 
