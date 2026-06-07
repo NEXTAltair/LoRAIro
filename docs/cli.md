@@ -490,8 +490,8 @@ lorairo-cli --json describe "images list"
 
 **Output `ImagesListResult`**
 
-- `count`: `int` (optional)
-- `total`: `int?` (optional)
+- `count`: `int` (optional) - Item rows emitted in this response (0 in count-first mode). Use total for the match count.
+- `total`: `int?` (optional) - Total number of matching images.
 - `limit`: `int?` (optional)
 - `offset`: `int?` (optional)
 - `has_more`: `bool?` (optional)

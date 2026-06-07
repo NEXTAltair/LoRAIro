@@ -275,6 +275,30 @@ def test_images_list_fetch_json_outputs_items_and_result_meta(mock_projects_dir:
 
 @pytest.mark.unit
 @pytest.mark.cli
+def test_images_list_count_first_json_uses_total_not_count(mock_projects_dir: Path) -> None:
+    """Test: count-first --json は count=0 + total=N に語義を統一する (#664)。"""
+    runner.invoke(app, ["project", "create", "test-project"])
+
+    with patch("lorairo.cli.commands.images.get_service_container") as mock_get_container:
+        mock_container = MagicMock()
+        mock_container.db_manager.image_repo.get_images_count_only.return_value = 42
+        mock_get_container.return_value = mock_container
+
+        result = runner.invoke(app, ["--json", "images", "list", "--project", "test-project"])
+
+    assert result.exit_code == 0
+    lines = [json.loads(line) for line in result.stdout.splitlines()]
+    assert len(lines) == 1
+    assert lines[0]["kind"] == "result"
+    # count はこの応答の item 行数 (0)、総ヒット数は total に載る。
+    assert lines[0]["count"] == 0
+    assert lines[0]["total"] == 42
+    # count-first は item を一切出さない。
+    mock_container.db_manager.image_repo.get_image_list_page.assert_not_called()
+
+
+@pytest.mark.unit
+@pytest.mark.cli
 def test_images_list_fetch_total_over_cap_errors_before_items(mock_projects_dir: Path) -> None:
     """Test: images list --fetch - total 500 超は RESULT_SET_TOO_LARGE で item を出さない。"""
     runner.invoke(app, ["project", "create", "test-project"])

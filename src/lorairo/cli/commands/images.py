@@ -232,7 +232,9 @@ def list_images(
             suffix = " without ratings" if unrated else ""
             message = f"{total_count} image(s){suffix} found in project: {project}"
             if is_json_mode():
-                emit_result(message, count=total_count)
+                # count = この応答の item 行数、total = 総ヒット数 に語義を統一する (#664)。
+                # count-first は item を出さないため count=0、件数は total に載せる。
+                emit_result(message, count=0, total=total_count)
             else:
                 console.print(message)
             return
