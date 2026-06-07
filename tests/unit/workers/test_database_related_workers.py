@@ -68,18 +68,16 @@ class TestDatabaseRegistrationWorker:
     def test_api_method_names_are_correct(self, temp_dir, real_db_manager, mock_fsm):
         """
         APIメソッド名が正しいことをテスト
-        - このテストは実際のregister_image → register_original_imageエラーを検出できる
+        - このテストは実際のregister_image → register_image_with_side_effectsエラーを検出できる
         """
         DatabaseRegistrationWorker(temp_dir, real_db_manager, mock_fsm)
 
-        # 実際のDatabaseManagerのメソッドが存在することを確認
-        assert hasattr(real_db_manager, "detect_duplicate_image")
-        assert hasattr(real_db_manager, "register_original_image")  # register_imageではない！
+        # 実際のDatabaseManagerのメソッドが存在することを確認 (#633: 統一エントリへ移行)
+        assert hasattr(real_db_manager, "register_image_with_side_effects")
         assert hasattr(real_db_manager, "get_image_metadata")  # get_image_by_idではない！
 
         # メソッドが呼び出し可能であることを確認
-        assert callable(real_db_manager.detect_duplicate_image)
-        assert callable(real_db_manager.register_original_image)
+        assert callable(real_db_manager.register_image_with_side_effects)
         assert callable(real_db_manager.get_image_metadata)
 
     def test_import_paths_are_correct(self):
@@ -139,14 +137,12 @@ class TestDatabaseRegistrationWorker:
 
         mock_fsm.get_image_files.return_value = [image_file]
 
-        # DB操作をMock化
+        # DB操作をMock化 (#633: detect_duplicate_image は統一エントリ内で処理されるため除去)
         with (
-            patch.object(real_db_manager, "detect_duplicate_image") as mock_detect,
             patch.object(real_db_manager, "register_original_image") as mock_register,
             patch.object(real_db_manager, "save_tags") as mock_save_tags,
             patch.object(real_db_manager, "save_captions") as mock_save_captions,
         ):
-            mock_detect.return_value = None
             mock_register.return_value = (1, {"id": 1})
 
             worker = DatabaseRegistrationWorker(temp_dir, real_db_manager, mock_fsm)
@@ -637,6 +633,7 @@ class TestBuildRegistrationResult:
             log_message = mock_logger.info.call_args[0][0]
             assert "データベース登録完了" in log_message
             assert "登録=5" in log_message
+            assert "別版=0" in log_message
             assert "スキップ=2" in log_message
             assert "エラー=1" in log_message
 
@@ -782,13 +779,11 @@ class TestRegistrationErrorHandling:
 
         worker = DatabaseRegistrationWorker(temp_dir, real_db_manager, mock_fsm)
 
-        # register_original_imageをMock化
+        # register_original_imageをMock化 (#633: detect_duplicate_image は統一エントリ内で処理されるため除去)
         with (
-            patch.object(real_db_manager, "detect_duplicate_image") as mock_detect,
             patch.object(real_db_manager, "register_original_image") as mock_register,
             patch.object(worker, "_check_cancellation") as mock_cancel,
         ):
-            mock_detect.return_value = None
             mock_register.return_value = (1, {})
 
             # 2回目のチェック時にキャンセル
@@ -802,13 +797,11 @@ class TestRegistrationErrorHandling:
                 worker.execute()
 
     def test_exception_in_db_registration(self, temp_dir, real_db_manager, mock_fsm):
-        """register_original_imageが例外を発生した場合の処理確認"""
+        """register_original_imageが例外を発生した場合の処理確認 (#633: 統一エントリ経由)"""
         with (
-            patch.object(real_db_manager, "detect_duplicate_image") as mock_detect,
             patch.object(real_db_manager, "register_original_image") as mock_register,
             patch.object(real_db_manager, "save_error_record") as mock_save_error,
         ):
-            mock_detect.return_value = None
             mock_register.side_effect = ValueError("登録エラー")
 
             worker = DatabaseRegistrationWorker(temp_dir, real_db_manager, mock_fsm)
@@ -820,14 +813,12 @@ class TestRegistrationErrorHandling:
             assert result.error_count == 3
 
     def test_secondary_error_in_save_error_record(self, temp_dir, real_db_manager, mock_fsm):
-        """save_error_record自体が例外を発生した場合の処理確認"""
+        """save_error_record自体が例外を発生した場合の処理確認 (#633: 統一エントリ経由)"""
         with (
-            patch.object(real_db_manager, "detect_duplicate_image") as mock_detect,
             patch.object(real_db_manager, "register_original_image") as mock_register,
             patch.object(real_db_manager, "save_error_record") as mock_save_error,
             patch("lorairo.gui.workers.registration_worker.logger") as mock_logger,
         ):
-            mock_detect.return_value = None
             mock_register.side_effect = ValueError("登録エラー")
             mock_save_error.side_effect = Exception("エラー保存失敗")
 
@@ -848,13 +839,11 @@ class TestRegistrationErrorHandling:
         worker = DatabaseRegistrationWorker(temp_dir, real_db_manager, mock_fsm)
 
         with (
-            patch.object(real_db_manager, "detect_duplicate_image") as mock_detect,
             patch.object(real_db_manager, "register_original_image") as mock_register,
             patch.object(worker, "_report_progress") as mock_progress,
             patch.object(worker, "_report_progress_throttled") as mock_progress_throttled,
             patch.object(worker, "_report_batch_progress_throttled") as mock_batch,
         ):
-            mock_detect.return_value = None
             mock_register.return_value = (1, {})
 
             worker.execute()
@@ -887,12 +876,10 @@ class TestRegistrationErrorHandling:
         assert len(result.processed_paths) == 0
 
     def test_integration_with_split_methods(self, temp_dir, real_db_manager, mock_fsm):
-        """分割メソッド（_register_single_image, _build_registration_result）の協調確認"""
+        """分割メソッド（_register_single_image, _build_registration_result）の協調確認 (#633: 統一エントリ経由)"""
         with (
-            patch.object(real_db_manager, "detect_duplicate_image") as mock_detect,
             patch.object(real_db_manager, "register_original_image") as mock_register,
         ):
-            mock_detect.return_value = None
             mock_register.return_value = (1, {"id": 1})
 
             worker = DatabaseRegistrationWorker(temp_dir, real_db_manager, mock_fsm)
@@ -988,10 +975,8 @@ class TestRegistrationErrorHandling:
         mock_fsm.get_image_files.return_value = image_files
 
         with (
-            patch.object(real_db_manager, "detect_duplicate_image") as mock_detect,
             patch.object(real_db_manager, "register_original_image") as mock_register,
         ):
-            mock_detect.return_value = None
             mock_register.return_value = (1, {})
 
             worker = DatabaseRegistrationWorker(temp_dir, real_db_manager, mock_fsm)
@@ -1007,13 +992,11 @@ class TestRegistrationErrorHandling:
         worker = DatabaseRegistrationWorker(temp_dir, real_db_manager, mock_fsm)
 
         with (
-            patch.object(real_db_manager, "detect_duplicate_image") as mock_detect,
             patch.object(real_db_manager, "register_original_image") as mock_register,
             patch.object(worker, "_report_progress") as mock_progress,
             patch.object(worker, "_report_progress_throttled") as mock_progress_throttled,
             patch.object(worker, "_report_batch_progress_throttled") as mock_batch,
         ):
-            mock_detect.return_value = None
             mock_register.return_value = (1, {})
 
             worker.execute()

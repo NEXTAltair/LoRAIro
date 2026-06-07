@@ -48,7 +48,7 @@ class TestImageDBWriteService:
         mock_annotation_data = {
             "tags": [{"content": "1girl"}, {"content": "long hair"}],
             "captions": [{"content": "A beautiful anime girl"}],
-            "scores": [{"value": 0.85}],
+            "scores": [{"score": 0.85, "id": 1, "model_id": 1, "is_edited_manually": False}],
             "score_labels": [{"model": "aesthetic_shadow_v1", "label": "aesthetic"}],
             "ratings": [
                 {
@@ -124,7 +124,7 @@ class TestImageDBWriteService:
         mock_annotations = {
             "tags": [{"content": "landscape"}, {"content": "nature"}],
             "captions": [{"content": "Beautiful mountain landscape"}],
-            "scores": [{"value": 0.92}],
+            "scores": [{"score": 0.92, "id": 2, "model_id": 1, "is_edited_manually": False}],
         }
 
         mock_db_manager.image_repo.get_image_annotations.return_value = mock_annotations
@@ -167,14 +167,23 @@ class TestImageDBWriteService:
         assert result is True
 
     def test_update_score_success(self, service, mock_db_manager):
-        """Score更新機能正常動作（プレースホルダー実装）"""
+        """Score更新機能正常動作"""
         image_id = 200
         score = 750  # 0-1000範囲
 
         result = service.update_score(image_id, score)
 
-        # プレースホルダー実装では常にTrueを返す
         assert result is True
+
+        # save_annotations が display_score を含む ScoreAnnotationData で呼ばれることを確認
+        mock_db_manager.annotation_repo.save_annotations.assert_called_once()
+        call_kwargs = mock_db_manager.annotation_repo.save_annotations.call_args
+        annotations = (
+            call_kwargs.kwargs["annotations"] if call_kwargs.kwargs else call_kwargs[1]["annotations"]
+        )
+        score_data = annotations["scores"][0]
+        assert "display_score" in score_data
+        assert score_data["score"] == 7.5  # 750 / 100.0
 
     def test_update_rating_invalid_image_id(self, service, mock_db_manager):
         """不正なimage_id指定時の適切な処理（プレースホルダー実装）"""
@@ -322,12 +331,12 @@ class TestImageDBWriteServiceIntegration:
                 1: {
                     "tags": [{"content": "photography"}, {"content": "landscape"}, {"content": "sunset"}],
                     "captions": [{"content": "A breathtaking sunset over the mountains"}],
-                    "scores": [{"value": 0.91}],
+                    "scores": [{"score": 0.91, "id": 3, "model_id": 1, "is_edited_manually": False}],
                 },
                 2: {
                     "tags": [{"content": "digital art"}, {"content": "anime"}, {"content": "character"}],
                     "captions": [{"content": "Anime character illustration"}],
-                    "scores": [{"value": 0.78}],
+                    "scores": [{"score": 0.78, "id": 4, "model_id": 1, "is_edited_manually": False}],
                 },
             }
             return annotations_map.get(image_id, {})

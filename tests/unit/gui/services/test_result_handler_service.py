@@ -61,6 +61,7 @@ class TestHandleBatchRegistrationFinished:
         result.skipped_count = 10
         result.error_count = 5
         result.total_processing_time = 12.5
+        result.variant_count = 0
 
         completion_signal = Mock()
         completion_signal.emit = Mock()
@@ -74,6 +75,7 @@ class TestHandleBatchRegistrationFinished:
         mock_status_bar.clearMessage.assert_called_once()
         mock_status_bar.showMessage.assert_called_once()
         assert "登録=100" in mock_status_bar.showMessage.call_args[0][0]
+        assert "別版=0" in mock_status_bar.showMessage.call_args[0][0]
         assert "スキップ=10" in mock_status_bar.showMessage.call_args[0][0]
         completion_signal.emit.assert_called_once_with(100)
 
