@@ -1134,6 +1134,8 @@ class AnnotationRepository(BaseRepository):
                         # 既存レコードを UPDATE
                         existing_score = existing_score_map[image_id]
                         existing_score.score = score
+                        # 手動編集スコアは DB 値 (0-10) をそのまま表示スコアとして使う。
+                        existing_score.display_score = score
                         existing_score.model_id = model_id
                         existing_score.is_edited_manually = True
                         existing_score.updated_at = func.now()
@@ -1144,6 +1146,8 @@ class AnnotationRepository(BaseRepository):
                             image_id=image_id,
                             model_id=model_id,
                             score=score,
+                            # 手動編集スコアは DB 値 (0-10) をそのまま表示スコアとして使う。
+                            display_score=score,
                             is_edited_manually=True,
                         )
                         session.add(new_score)

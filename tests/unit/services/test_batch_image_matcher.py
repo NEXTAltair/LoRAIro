@@ -64,6 +64,7 @@ class TestBatchImageMatcher:
         assert result.matched["0263_1228"] == 2
         assert result.matched["0264_1229"] == 3
         assert result.unmatched == []
+        assert result.ambiguous == {}
 
     def test_all_unmatched(self, mock_repository: MagicMock) -> None:
         """全件アンマッチ。"""
@@ -74,6 +75,7 @@ class TestBatchImageMatcher:
         assert len(result.unmatched) == 2
         assert "unknown_001" in result.unmatched
         assert "unknown_002" in result.unmatched
+        assert result.ambiguous == {}
 
     def test_partial_match(self, mock_repository: MagicMock) -> None:
         """部分マッチ。"""
@@ -84,6 +86,7 @@ class TestBatchImageMatcher:
         assert result.matched["0262_1227"] == 1
         assert result.matched["0264_1229"] == 3
         assert result.unmatched == ["unknown_001"]
+        assert result.ambiguous == {}
 
     def test_windows_path_custom_ids(self, mock_repository: MagicMock) -> None:
         """Windowsパス形式のcustom_idが正しくマッチする。"""
@@ -97,6 +100,7 @@ class TestBatchImageMatcher:
 
         assert len(result.matched) == 2
         assert result.matched["H:\\lora\\images\\0262_1227"] == 1
+        assert result.ambiguous == {}
 
     def test_empty_custom_ids(self, mock_repository: MagicMock) -> None:
         """空リスト。"""
@@ -105,6 +109,7 @@ class TestBatchImageMatcher:
 
         assert result.matched == {}
         assert result.unmatched == []
+        assert result.ambiguous == {}
 
     def test_image_match_result_frozen(self) -> None:
         """ImageMatchResultはfrozen。"""

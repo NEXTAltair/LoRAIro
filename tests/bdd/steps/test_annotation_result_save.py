@@ -94,7 +94,6 @@ def given_save_service_initialized(ctx: SaveContext) -> None:
 @given("AnnotationSaveService がモックリポジトリで初期化されている", target_fixture="ctx")
 def given_save_service_mock_repo() -> SaveContext:
     repo = MagicMock()
-    repo.find_image_ids_by_phashes.return_value = {}
     repo.find_image_ids_by_phashes_multi.return_value = {}
     repo.get_models_by_litellm_ids.return_value = {}
     repo.batch_resolve_tag_ids.return_value = {}
