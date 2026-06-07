@@ -216,20 +216,34 @@ class ExportCreateInputSchema(BaseModel):
     # ai_rating/score_min/score_max) を要求し、無指定は UsageError で弾く
     # (_criteria_has_effective_filter)。include_nsfw は修飾子でフィルタとは扱わない。
     #
-    # 各 anyOf ブランチは「キーの存在」だけでなく「非null・非空」も表現する (Issue #659):
-    # CLI 実体は正規化後に truthy 判定するため、{tags: null} や --tags "" は schema 上も
-    # invalid とする。string フィルタは minLength=1、score フィルタは number 型を明示し
-    # null を除外する (rating は Literal enum なので非null要求だけで有効値が保証される)。
+    # 各 anyOf ブランチは「キーの存在」だけでなく「正規化後に有効」も表現する (Issue #659):
+    # CLI 実体は正規化後に truthy 判定するため、schema 側もこれに揃える。
+    #   - CSV フィルタ (tags/excluded_tags): _normalize_csv がカンマ区切り→strip→非空
+    #     トークン抽出。"," や "  " は空集合になり無効なので、区切り(,)・空白以外の文字を
+    #     1つ以上含むことを pattern "[^\\s,]" で要求する。
+    #   - text フィルタ (caption): _normalize_text が strip→非空判定。"   " は無効なので
+    #     非空白文字を1つ以上含むことを pattern "\\S" で要求する (caption はカンマ可)。
+    #   - score フィルタ (score_min/score_max): number 型を明示し null を除外する。
+    #   - rating (manual_rating/ai_rating): Literal enum なので非null要求だけで有効値が保証。
+    # minLength=1 も併記し「非空」を明示する (pattern が正規化後の有効性を補強する)。
     model_config = ConfigDict(
         title="ExportCreateInput",
         json_schema_extra={
             "anyOf": [
-                {"required": ["tags"], "properties": {"tags": {"type": "string", "minLength": 1}}},
+                {
+                    "required": ["tags"],
+                    "properties": {"tags": {"type": "string", "minLength": 1, "pattern": "[^\\s,]"}},
+                },
                 {
                     "required": ["excluded_tags"],
-                    "properties": {"excluded_tags": {"type": "string", "minLength": 1}},
+                    "properties": {
+                        "excluded_tags": {"type": "string", "minLength": 1, "pattern": "[^\\s,]"}
+                    },
                 },
-                {"required": ["caption"], "properties": {"caption": {"type": "string", "minLength": 1}}},
+                {
+                    "required": ["caption"],
+                    "properties": {"caption": {"type": "string", "minLength": 1, "pattern": "\\S"}},
+                },
                 {"required": ["manual_rating"], "properties": {"manual_rating": {"type": "string"}}},
                 {"required": ["ai_rating"], "properties": {"ai_rating": {"type": "string"}}},
                 {"required": ["score_min"], "properties": {"score_min": {"type": "number"}}},
@@ -597,7 +611,19 @@ TOOL_SPECS: dict[str, ToolSpec] = {
         side_effects=("file_write", "db_write"),
         inputs=(
             _input(
-                "ProjectDeleteInput", (_f("name", "str", required=True), _f("force", "bool", default=False))
+                "ProjectDeleteInput",
+                (
+                    _f("name", "str", required=True),
+                    # JSON mode は対話 confirm を stdout に書けないため --force 必須
+                    # (Issue #659)。introspection 契約上も agent に必須要件を明示する。
+                    _f(
+                        "force",
+                        "bool",
+                        default=False,
+                        description="Required in JSON mode (--json): omitting it yields INVALID_INPUT "
+                        "since interactive confirmation cannot be driven over stdout.",
+                    ),
+                ),
             ),
         ),
         outputs=(_output("ProjectDeleteResult", (_f("name", "str"),), schema=ProjectDeleteResult),),
