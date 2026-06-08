@@ -798,6 +798,36 @@ def _handle_no_image_records(
     )
 
 
+def _apply_resolution_filter(
+    records: list[dict[str, Any]],
+    image_repo: Any,
+    resolution: int,
+) -> tuple[list[dict[str, Any]], int]:
+    """処理済み画像パスで records を差し替え、該当なしをスキップカウントする (Issue #706)。
+
+    Args:
+        records: 処理対象レコード。
+        image_repo: ImageRepository インスタンス。
+        resolution: 目標解像度 (長辺ピクセル数)。
+
+    Returns:
+        (更新済みレコードリスト, スキップ件数)
+    """
+    record_ids = [r["id"] for r in records if r.get("id") is not None]
+    proc_paths = image_repo.get_processed_image_paths_by_resolution(record_ids, resolution)
+    filtered: list[dict[str, Any]] = []
+    skipped = 0
+    for record in records:
+        image_id = record.get("id")
+        if image_id in proc_paths:
+            updated = dict(record)
+            updated["stored_image_path"] = proc_paths[image_id]
+            filtered.append(updated)
+        else:
+            skipped += 1
+    return filtered, skipped
+
+
 def _print_annotation_filter_summary(
     *,
     unrated: bool,
@@ -936,19 +966,9 @@ def run(
 
         resolution_skipped_count = 0
         if resolution is not None:
-            # 処理済み画像パスを一括取得してレコードに置換 (Issue #706)
-            record_ids = [r["id"] for r in records_to_process if r.get("id") is not None]
-            proc_paths = image_repo.get_processed_image_paths_by_resolution(record_ids, resolution)
-            filtered_records = []
-            for record in records_to_process:
-                image_id = record.get("id")
-                if image_id in proc_paths:
-                    updated = dict(record)
-                    updated["stored_image_path"] = proc_paths[image_id]
-                    filtered_records.append(updated)
-                else:
-                    resolution_skipped_count += 1
-            records_to_process = filtered_records
+            records_to_process, resolution_skipped_count = _apply_resolution_filter(
+                records_to_process, image_repo, resolution
+            )
             if not records_to_process:
                 raise AnnotationSelectionError(
                     f"No processed images found at resolution {resolution}; "
