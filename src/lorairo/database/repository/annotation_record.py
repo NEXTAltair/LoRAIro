@@ -101,6 +101,7 @@ class AnnotationRepository(BaseRepository):
         Note:
             外部 tag_db (`MergedTagReader` / `TagRegisterService`) は初期化失敗時に
             `None` に縮退する。LoRAIro は外部 tag_db 無しでも動作可能。
+
         """
         if session_factory is None:
             super().__init__()
@@ -262,7 +263,7 @@ class AnnotationRepository(BaseRepository):
                     saved_count += len(chunk)
                     logger.debug(
                         f"アノテーションをバッチ保存しました: "
-                        f"chunk={start // effective_chunk_size + 1}, saved={len(chunk)}"
+                        f"chunk={start // effective_chunk_size + 1}, saved={len(chunk)}",
                     )
                 except Exception as e:
                     session.rollback()
@@ -436,6 +437,7 @@ class AnnotationRepository(BaseRepository):
             try:
                 existing_tags_by_image = self._build_existing_tags_map(session, image_ids)
 
+                # per_item リストを先に構築
                 for image_id in image_ids:
                     existing_tags = existing_tags_by_image.get(image_id, set())
                     if normalized_tag not in existing_tags:
@@ -443,15 +445,18 @@ class AnnotationRepository(BaseRepository):
                             f"Tag '{normalized_tag}' not found for image_id {image_id}, skipping",
                         )
                         per_item.append((image_id, "skipped"))
-                        continue
+                    else:
+                        per_item.append((image_id, "changed"))
 
+                # bulk DELETE (1回のみ)
+                images_to_delete = [iid for iid, s in per_item if s == "changed"]
+                if images_to_delete:
                     session.execute(
                         delete(Tag).where(
-                            Tag.image_id == image_id,
+                            Tag.image_id.in_(images_to_delete),
                             Tag.tag == normalized_tag,
                         )
                     )
-                    per_item.append((image_id, "changed"))
 
                 session.commit()
                 changed = sum(1 for _, s in per_item if s == "changed")
@@ -885,7 +890,7 @@ class AnnotationRepository(BaseRepository):
         image_id: int,
         score_labels_data: list[ScoreLabelAnnotationData],
     ) -> None:
-        """canonical scorer の score_label を保存・更新 (Upsert by model_id).
+        """Canonical scorer の score_label を保存・更新 (Upsert by model_id).
 
         ADR 0027 / iam-lib ADR 0002: aesthetic_shadow / cafe_aesthetic 等の
         canonical scorer は ``(image, model)`` 単位で単一 label を返す契約のため、
@@ -998,7 +1003,7 @@ class AnnotationRepository(BaseRepository):
                     delete(Rating).where(
                         Rating.image_id == image_id,
                         Rating.model_id == manual_edit_model_id,
-                    )
+                    ),
                 )
                 if rating is not None:
                     session.add(
@@ -1008,7 +1013,7 @@ class AnnotationRepository(BaseRepository):
                             raw_rating_value=rating,
                             normalized_rating=rating,
                             confidence_score=None,
-                        )
+                        ),
                     )
 
                 session.commit()
@@ -1096,6 +1101,7 @@ class AnnotationRepository(BaseRepository):
 
         Raises:
             SQLAlchemyError: データベースエラー時（ロールバック後に再送出）
+
         """
         if not image_ids:
             logger.warning("Empty image_ids list for batch rating update")
@@ -1201,6 +1207,7 @@ class AnnotationRepository(BaseRepository):
 
         Raises:
             SQLAlchemyError: データベースエラー時（ロールバック後に再送出）
+
         """
         if not image_ids:
             logger.warning("Empty image_ids list for batch score update")

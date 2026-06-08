@@ -53,3 +53,11 @@ class TestRemoveTagFromImagesBatch:
         ok, results = repo.remove_tag_from_images_batch([123], "")
         assert ok is False
         assert results == []
+
+    def test_db_error_rolls_back_and_reraises(self, repo, mock_session):
+        from sqlalchemy.exc import SQLAlchemyError
+
+        repo._build_existing_tags_map = MagicMock(side_effect=SQLAlchemyError("db error"))
+        with pytest.raises(SQLAlchemyError):
+            repo.remove_tag_from_images_batch([123], "bad_tag")
+        mock_session.rollback.assert_called_once()
