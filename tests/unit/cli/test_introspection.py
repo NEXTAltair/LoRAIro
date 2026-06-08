@@ -436,20 +436,29 @@ def test_batch_status_result_schema_includes_items_pagination_fields() -> None:
 
 
 def test_describe_images_search_exposes_query_schema() -> None:
-    """describe images search が ImagesSearchInput と ImageSearchQuery スキーマを返す (Issue #702)。"""
+    """describe images search が ImageSearchQuery ボディスキーマを返す (Issue #702)。
+
+    ImagesSearchInput は schema_model を持たないため json_schema モードでは出力されない。
+    ImageSearchQuery (--query / --query-file で渡す JSON ボディ) は json_schema モードで出力される。
+    """
     result = runner.invoke(app, ["--json", "describe", "images search", "--schema", "json_schema"])
 
     assert result.exit_code == 0
     rows = _jsonl(result.stdout)
     schema_rows = [row for row in rows if row.get("type") == "schema"]
     names = {row["name"] for row in schema_rows}
-    assert "ImagesSearchInput" in names
     assert "ImageSearchQuery" in names
 
     query_schema = next(row for row in schema_rows if row["name"] == "ImageSearchQuery")
     props = set(query_schema["schema"]["properties"])
     assert {"tags", "excluded_tags", "limit", "offset"} <= props
     assert "image_ids" in props
+
+    # compact モードでは ImagesSearchInput が出力される
+    compact_result = runner.invoke(app, ["--json", "describe", "images search"])
+    assert compact_result.exit_code == 0
+    compact_rows = _jsonl(compact_result.stdout)
+    assert any(r.get("name") == "ImagesSearchInput" for r in compact_rows)
 
 
 def test_describe_tags_add_exposes_required_fields() -> None:
