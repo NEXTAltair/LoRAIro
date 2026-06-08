@@ -8,10 +8,14 @@ API層（lorairo.api）を経由してService層を利用する。
 に集約する。
 """
 
+import json
+import sys
 from pathlib import Path
+from typing import Literal
 
 import click
 import typer
+from pydantic import BaseModel, Field, ValidationError
 from rich.table import Table
 
 from lorairo.api.exceptions import ImageNotFoundError, ResultSetTooLargeError
@@ -34,6 +38,32 @@ app = typer.Typer(help="Image management commands")
 console = make_console()
 
 MAX_IMAGE_LIST_FETCH = 500
+
+
+class _SortSpec(BaseModel):
+    """images search JSON スキーマのソート指定。"""
+
+    field: Literal["image_id", "file_path"] = "image_id"
+    direction: Literal["asc", "desc"] = "asc"
+
+
+class ImageSearchQuery(BaseModel):
+    """images search コマンドが受け付ける JSON 検索スキーマ。"""
+
+    image_ids: list[int] | None = None
+    tags: list[str] | None = None
+    excluded_tags: list[str] | None = None
+    caption: str | None = None
+    manual_rating: str | None = None
+    ai_rating: str | None = None
+    score_min: float | None = None
+    score_max: float | None = None
+    only_unrated: bool = False
+    missing_model: str | None = None
+    include_nsfw: bool = False
+    limit: int = Field(default=500, ge=1, le=500)
+    offset: int = Field(default=0, ge=0)
+    sort: list[_SortSpec] = Field(default_factory=lambda: [_SortSpec()])
 
 
 def _print_registration_summary(result: RegistrationResult, project: str) -> None:
@@ -356,3 +386,91 @@ def update(
         # 一部タグが失敗した場合は exit 1 (部分失敗を exit code で示す)。
         if failed_tags:
             raise typer.Exit(code=1)
+
+
+@app.command("search")
+def search_images(
+    project: str = typer.Option(..., "--project", "-p", help="Project name"),
+    query_file: str | None = typer.Option(None, "--query-file", help="Path to JSON search schema file"),
+    query: str | None = typer.Option(None, "--query", help="JSON search schema string or '-' for stdin"),
+) -> None:
+    """Search images using a JSON search schema (read-only).
+
+    JSON 検索スキーマを受け取り、条件に合う画像を返します（副作用なし）。
+
+    Examples:
+
+        lorairo-cli images search --project proj --query-file search.json --json
+
+        echo '{"tags":["cat"]}' | lorairo-cli images search --project proj --query - --json
+    """
+    with command_boundary():
+        if query_file is None and query is None:
+            raise click.UsageError("--query-file または --query - のいずれかを指定してください。")
+        if query_file is not None and query is not None:
+            raise click.UsageError("--query-file と --query は同時に指定できません。")
+
+        try:
+            if query_file is not None:
+                raw = Path(query_file).read_text(encoding="utf-8")
+            else:
+                raw = sys.stdin.read() if query == "-" else (query or "")
+            parsed = json.loads(raw)
+        except (OSError, json.JSONDecodeError) as e:
+            raise click.UsageError(f"JSON 読み込みエラー: {e}") from e
+
+        try:
+            q = ImageSearchQuery.model_validate(parsed)
+        except ValidationError as e:
+            raise click.UsageError(f"検索スキーマが無効です: {e}") from e
+
+        api_get_project(project)
+        container = get_service_container()
+        container.set_active_project(project)
+
+        sort_spec = q.sort[0] if q.sort else _SortSpec()
+        criteria = ImageFilterCriteria(
+            image_ids=q.image_ids,
+            tags=q.tags,
+            excluded_tags=q.excluded_tags,
+            caption=q.caption,
+            manual_rating_filter=q.manual_rating,
+            ai_rating_filter=q.ai_rating,
+            score_min=q.score_min,
+            score_max=q.score_max,
+            only_unrated=q.only_unrated,
+            missing_model_litellm_id=q.missing_model,
+            include_nsfw=q.include_nsfw,
+            limit=q.limit,
+            offset=q.offset,
+            sort_field=sort_spec.field,
+            sort_direction=sort_spec.direction,
+        )
+
+        total_count = container.db_manager.image_repo.get_images_count_only(criteria)
+        if total_count > MAX_IMAGE_LIST_FETCH and criteria.image_ids is None:
+            raise ResultSetTooLargeError(matched=total_count, limit=MAX_IMAGE_LIST_FETCH)
+
+        records, total = container.db_manager.image_repo.get_images_by_filter(criteria)
+        count = len(records)
+        has_more = q.offset + count < total
+
+        if is_json_mode():
+            for record in records:
+                emit_item(
+                    {
+                        "image_id": record.get("id") or record.get("image_id"),
+                        "file_path": record.get("file_path"),
+                    }
+                )
+            emit_result(
+                f"{count} image(s)",
+                count=count,
+                total=total,
+                limit=q.limit,
+                offset=q.offset,
+                has_more=has_more,
+            )
+        else:
+            for record in records:
+                print(f"{record.get('id') or record.get('image_id')}\t{record.get('file_path')}")
