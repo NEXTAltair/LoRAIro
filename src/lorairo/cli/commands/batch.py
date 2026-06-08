@@ -346,6 +346,50 @@ def _artifact_dicts(fetch_result: Any) -> list[dict[str, Any]]:
     ]
 
 
+def _resolve_processed_image_paths(
+    container: Any,
+    image_ids: list[int],
+    resolution: int,
+) -> dict[int, str]:
+    """指定解像度の processed image path を image_id ごとに解決する。
+
+    Args:
+        container: サービスコンテナ。
+        image_ids: 対象画像 ID リスト。
+        resolution: 長辺ピクセル数 (long-edge)。
+
+    Returns:
+        image_id -> stored_image_path の辞書。全 ID が解決された場合のみ返る。
+
+    Raises:
+        click.UsageError: 指定解像度の processed image が存在しない image_id がある場合。
+
+    """
+    image_repo = container.db_manager.image_repo
+    missing: list[int] = []
+    paths: dict[int, str] = {}
+
+    for image_id in image_ids:
+        processed = image_repo.get_processed_image(image_id, resolution=resolution)
+        if processed is None:
+            missing.append(image_id)
+            continue
+        stored_path = processed.get("stored_image_path") if isinstance(processed, dict) else None
+        if not stored_path:
+            missing.append(image_id)
+            continue
+        paths[image_id] = str(stored_path)
+
+    if missing:
+        sample = ", ".join(str(i) for i in missing[:5])
+        suffix = " ..." if len(missing) > 5 else ""
+        raise click.UsageError(
+            f"No processed image at resolution {resolution} for image_id(s): {sample}{suffix}"
+        )
+
+    return paths
+
+
 @app.command("submit")
 def submit(
     project: str = typer.Option(..., "--project", "-p", help="Project name"),
@@ -365,6 +409,15 @@ def submit(
         help=(
             "Task type: annotation or rating_preflight. rating_preflight requires direct openai, "
             "endpoint /v1/moderations, an openai/omni-moderation-* model, and ratings model_type."
+        ),
+    ),
+    resolution: int | None = typer.Option(
+        None,
+        "--resolution",
+        help=(
+            "Processed image long-edge resolution to use (e.g. 512). "
+            "Omit to use stored_image_path. "
+            "When specified, the original image guard is bypassed and processed images are submitted."
         ),
     ),
 ) -> None:
@@ -393,10 +446,19 @@ def submit(
 
         resolved_endpoint = _resolve_submit_endpoint(resolved_provider, normalized_task_type, endpoint)
         image_repo = container.db_manager.image_repo
-        reject_original_image_records(
-            image_repo.get_images_by_ids(image_ids),
-            command_name="batch submit",
-        )
+
+        # --resolution 指定時は processed image を使うため、original image guard をスキップする。
+        # ADR 0064 が禁止するのはオリジナル画像の直接投入であり、
+        # processed path を override して送信する場合は image_id がオリジナルでも正当。
+        if resolution is None:
+            reject_original_image_records(
+                image_repo.get_images_by_ids(image_ids),
+                command_name="batch submit",
+            )
+
+        image_paths: dict[int, str] | None = None
+        if resolution is not None:
+            image_paths = _resolve_processed_image_paths(container, image_ids, resolution)
 
         job_id = container.provider_batch_workflow_service.submit_images(
             provider=resolved_provider,
@@ -407,6 +469,7 @@ def submit(
             model_id=db_model.id,
             description=description,
             task_type=normalized_task_type,
+            image_paths=image_paths,
         )
         job = provider_batch_repo.get_provider_batch_job(job_id)
         if is_json_mode():
@@ -416,6 +479,8 @@ def submit(
                 job=_job_dict(job) if job is not None else None,
             )
         else:
+            if resolution is not None:
+                console.print(f"[dim]Using processed images at resolution {resolution}px[/dim]")
             console.print(f"[green]Provider Batch job submitted:[/green] {job_id}")
             if job is not None:
                 _print_job_detail(job)
