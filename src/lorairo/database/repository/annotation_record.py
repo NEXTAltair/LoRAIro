@@ -471,6 +471,97 @@ class AnnotationRepository(BaseRepository):
                 logger.error(f"Atomic batch tag remove failed, rolled back: {e}", exc_info=True)
                 raise
 
+    def replace_tag_for_images_batch(
+        self,
+        image_ids: list[int],
+        from_tag: str,
+        to_tag: str,
+    ) -> tuple[bool, list[tuple[int, str]]]:
+        """複数画像のタグを原子的に置換する。
+
+        変換元タグが存在する画像のみ処理。変換先タグが既に存在する場合は
+        変換元を削除のみ行い（重複させない）、ステータスは changed 扱い。
+
+        Args:
+            image_ids: 対象画像のIDリスト
+            from_tag: 置換元タグ
+            to_tag: 置換先タグ
+
+        Returns:
+            (成功フラグ, [(image_id, "changed"|"skipped"), ...])
+            per-item リストにより呼び出し元が再クエリ不要で結果を判別できる。
+
+        Raises:
+            SQLAlchemyError: データベースエラー時(ロールバック後に再送出)
+
+        """
+        if not image_ids:
+            logger.warning("Empty image_ids list for batch tag replace")
+            return (False, [])
+
+        if not from_tag.strip() or not to_tag.strip():
+            logger.warning("Empty from_tag or to_tag for batch replace")
+            return (False, [])
+
+        normalized_from = from_tag.strip().lower()
+        normalized_to = to_tag.strip().lower()
+        per_item: list[tuple[int, str]] = []
+
+        with self.session_factory() as session:
+            try:
+                existing_tags_by_image = self._build_existing_tags_map(session, image_ids)
+
+                # per-item 分類
+                for image_id in image_ids:
+                    existing_tags = existing_tags_by_image.get(image_id, set())
+                    if normalized_from not in existing_tags:
+                        per_item.append((image_id, "skipped"))
+                    else:
+                        per_item.append((image_id, "changed"))
+
+                # bulk DELETE: 変換元タグを持つ画像から一括削除
+                images_to_change = [iid for iid, s in per_item if s == "changed"]
+                if images_to_change:
+                    session.execute(
+                        delete(Tag).where(
+                            Tag.image_id.in_(images_to_change),
+                            Tag.tag == normalized_from,
+                        )
+                    )
+
+                    # 変換先タグを追加（各画像で既存チェックして重複回避）
+                    to_tag_external_id: int | None = None
+                    for image_id in images_to_change:
+                        existing_tags = existing_tags_by_image.get(image_id, set())
+                        if normalized_to not in existing_tags:
+                            if to_tag_external_id is None:
+                                to_tag_external_id = self._get_or_create_tag_id_external(
+                                    session, normalized_to
+                                )
+                            new_tag = Tag(
+                                image_id=image_id,
+                                model_id=None,
+                                tag=normalized_to,
+                                tag_id=to_tag_external_id,
+                                confidence_score=None,
+                                existing=False,
+                                is_edited_manually=True,
+                            )
+                            session.add(new_tag)
+
+                session.commit()
+                changed = len(images_to_change)
+                logger.info(
+                    f"Atomic batch tag replace completed: '{normalized_from}' -> '{normalized_to}', "
+                    f"processed={len(image_ids)}, changed={changed}",
+                )
+                return (True, per_item)
+
+            except SQLAlchemyError as e:
+                session.rollback()
+                logger.error(f"Atomic batch tag replace failed, rolled back: {e}", exc_info=True)
+                raise
+
     # --- External tag_db: resolve / register ---
 
     def _get_or_create_tag_id_external(self, session: Session, tag_string: str) -> int | None:
