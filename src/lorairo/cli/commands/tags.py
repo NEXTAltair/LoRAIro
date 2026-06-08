@@ -19,7 +19,7 @@ from lorairo.cli._emit import emit_item, emit_result
 from lorairo.cli._glyphs import OK
 from lorairo.cli._output_mode import is_json_mode
 from lorairo.database.filter_criteria import ImageFilterCriteria
-from lorairo.services.service_container import get_service_container
+from lorairo.services.service_container import ServiceContainer, get_service_container
 
 app = typer.Typer(help="Tag editing commands (agent-friendly)")
 console = make_console()
@@ -45,7 +45,7 @@ def _parse_image_ids(image_ids_csv: str) -> list[int]:
         raise click.UsageError(f"--image-ids には整数のみ指定可: {e}") from e
 
 
-def _validate_image_ids_exist(container, image_ids: list[int]) -> None:
+def _validate_image_ids_exist(container: ServiceContainer, image_ids: list[int]) -> None:
     """全 image_id が DB に存在するか確認。存在しなければ ImageNotFoundError。
 
     Args:
