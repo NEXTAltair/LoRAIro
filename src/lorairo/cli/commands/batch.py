@@ -559,6 +559,43 @@ def fetch(
             _print_artifacts(result)
 
 
+def _get_rating_breakdown(container: Any, job_id: int) -> dict[str, int]:
+    """rating_preflight job の image_id セットに対する normalized_rating 別件数を返す。
+
+    job の items を最大 500 件取得し、task_type が rating_preflight の image_id を抽出する。
+    500 件超の job では最初の 500 件で近似する（CLI 上限 = 500）。
+    """
+    items = container.db_manager.provider_batch_repo.list_provider_batch_items(job_id, limit=500)
+    task_types = {_item_value(item, "task_type") for item in items}
+    if "rating_preflight" not in task_types:
+        return {}
+
+    image_ids = [
+        _item_value(item, "image_id") for item in items if _item_value(item, "image_id") is not None
+    ]
+    if not image_ids:
+        return {}
+
+    return dict(container.db_manager.annotation_repo.get_rating_breakdown_for_images(image_ids))
+
+
+def _print_rating_breakdown(breakdown: dict[str, int], total: int) -> None:
+    table = Table(title="Rating Breakdown")
+    table.add_column("Rating", style="cyan")
+    table.add_column("Count", justify="right", style="green")
+    rating_order = ["PG", "PG-13", "R", "X", "XXX"]
+    shown: set[str] = set()
+    for rating in rating_order:
+        if rating in breakdown:
+            table.add_row(rating, str(breakdown[rating]))
+            shown.add(rating)
+    for rating in sorted(breakdown):
+        if rating not in shown:
+            table.add_row(rating, str(breakdown[rating]))
+    console.print(table)
+    console.print(f"[dim]Ratings saved: {total}[/dim]")
+
+
 @app.command("import")
 def import_results(
     job_id: int = typer.Argument(..., help="Provider Batch job ID"),
@@ -571,6 +608,9 @@ def import_results(
         result = container.provider_batch_workflow_service.import_results(
             job_id, destination_dir=output_dir
         )
+        rating_breakdown = _get_rating_breakdown(container, job_id)
+        ratings_saved = sum(rating_breakdown.values())
+
         if is_json_mode():
             emit_result(
                 f"Provider Batch results imported: {job_id}",
@@ -580,6 +620,8 @@ def import_results(
                 errors=result.error_count,
                 total=result.total_count,
                 job_imported=result.job_imported,
+                ratings_saved=ratings_saved if rating_breakdown else None,
+                rating_breakdown=rating_breakdown if rating_breakdown else None,
             )
         else:
             table = Table(title="Provider Batch Import Summary")
@@ -591,3 +633,5 @@ def import_results(
             table.add_row("Total", str(result.total_count))
             table.add_row("Job Imported", "yes" if result.job_imported else "no")
             console.print(table)
+            if rating_breakdown:
+                _print_rating_breakdown(rating_breakdown, ratings_saved)

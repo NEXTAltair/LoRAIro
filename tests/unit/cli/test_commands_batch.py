@@ -545,6 +545,104 @@ def test_batch_import_shows_summary(mock_get_container: MagicMock, tmp_path: Pat
 @pytest.mark.unit
 @pytest.mark.cli
 @patch("lorairo.cli.commands.batch.get_service_container")
+def test_batch_import_shows_rating_breakdown_for_rating_preflight(
+    mock_get_container: MagicMock,
+) -> None:
+    """rating_preflight job の import 後に rating breakdown が表示される。"""
+    container = _container()
+    container.provider_batch_workflow_service.import_results.return_value = SimpleNamespace(
+        imported_count=300,
+        skipped_count=0,
+        error_count=0,
+        total_count=300,
+        job_imported=True,
+    )
+    container.db_manager.provider_batch_repo.list_provider_batch_items.return_value = [
+        _batch_item(id=i, image_id=i, task_type="rating_preflight") for i in range(1, 4)
+    ]
+    container.db_manager.annotation_repo.get_rating_breakdown_for_images.return_value = {
+        "PG": 122,
+        "PG-13": 19,
+        "R": 21,
+        "X": 85,
+        "XXX": 53,
+    }
+    mock_get_container.return_value = container
+
+    result = runner.invoke(app, ["batch", "import", "42", "--project", "demo"])
+
+    assert result.exit_code == 0
+    assert "Rating Breakdown" in result.stdout
+    assert "PG" in result.stdout
+    assert "122" in result.stdout
+    assert "Ratings saved: 300" in result.stdout
+    container.db_manager.provider_batch_repo.list_provider_batch_items.assert_called_once_with(
+        42, limit=500
+    )
+    container.db_manager.annotation_repo.get_rating_breakdown_for_images.assert_called_once()
+
+
+@pytest.mark.unit
+@pytest.mark.cli
+@patch("lorairo.cli.commands.batch.get_service_container")
+def test_batch_import_json_includes_ratings_saved(mock_get_container: MagicMock) -> None:
+    """--json モードで ratings_saved と rating_breakdown が含まれる。"""
+    container = _container()
+    container.provider_batch_workflow_service.import_results.return_value = SimpleNamespace(
+        imported_count=5,
+        skipped_count=0,
+        error_count=0,
+        total_count=5,
+        job_imported=True,
+    )
+    container.db_manager.provider_batch_repo.list_provider_batch_items.return_value = [
+        _batch_item(id=1, image_id=1, task_type="rating_preflight"),
+        _batch_item(id=2, image_id=2, task_type="rating_preflight"),
+    ]
+    container.db_manager.annotation_repo.get_rating_breakdown_for_images.return_value = {
+        "PG": 3,
+        "R": 2,
+    }
+    mock_get_container.return_value = container
+
+    result = runner.invoke(app, ["--json", "batch", "import", "42", "--project", "demo"])
+
+    assert result.exit_code == 0
+    rows = [json.loads(line) for line in result.stdout.splitlines() if line.strip()]
+    result_row = next(row for row in rows if row["kind"] == "result")
+    assert result_row["ratings_saved"] == 5
+    assert result_row["rating_breakdown"] == {"PG": 3, "R": 2}
+
+
+@pytest.mark.unit
+@pytest.mark.cli
+@patch("lorairo.cli.commands.batch.get_service_container")
+def test_batch_import_no_rating_breakdown_for_annotation(mock_get_container: MagicMock) -> None:
+    """annotation task_type では rating breakdown が表示されない。"""
+    container = _container()
+    container.provider_batch_workflow_service.import_results.return_value = SimpleNamespace(
+        imported_count=10,
+        skipped_count=0,
+        error_count=0,
+        total_count=10,
+        job_imported=True,
+    )
+    container.db_manager.provider_batch_repo.list_provider_batch_items.return_value = [
+        _batch_item(id=i, image_id=i, task_type="annotation") for i in range(1, 4)
+    ]
+    mock_get_container.return_value = container
+
+    result = runner.invoke(app, ["batch", "import", "42", "--project", "demo"])
+
+    assert result.exit_code == 0
+    assert "Rating Breakdown" not in result.stdout
+    assert "Ratings saved" not in result.stdout
+    container.db_manager.annotation_repo.get_rating_breakdown_for_images.assert_not_called()
+
+
+@pytest.mark.unit
+@pytest.mark.cli
+@patch("lorairo.cli.commands.batch.get_service_container")
 def test_batch_status_with_items_shows_items_table(mock_get_container: MagicMock) -> None:
     """--items で items テーブルが人間向けモードに表示される。"""
     container = _container()

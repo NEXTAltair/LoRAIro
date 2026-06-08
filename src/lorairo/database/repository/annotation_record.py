@@ -1091,6 +1091,31 @@ class AnnotationRepository(BaseRepository):
                 )
                 raise
 
+    def get_rating_breakdown_for_images(self, image_ids: list[int]) -> dict[str, int]:
+        """指定画像IDセットの normalized_rating 別件数を返す。
+
+        Args:
+            image_ids: 対象画像IDのリスト。
+
+        Returns:
+            normalized_rating → 件数のdict (例: {"PG": 122, "PG-13": 19})。
+
+        Raises:
+            SQLAlchemyError: データベース操作でエラーが発生した場合。
+
+        """
+        if not image_ids:
+            return {}
+
+        with self.session_factory() as session:
+            stmt = (
+                select(Rating.normalized_rating, func.count(Rating.id))
+                .where(Rating.image_id.in_(image_ids))
+                .group_by(Rating.normalized_rating)
+            )
+            rows = session.execute(stmt).all()
+            return {row[0]: row[1] for row in rows if row[0] is not None}
+
     def update_score_batch(
         self,
         image_ids: list[int],
