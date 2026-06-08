@@ -329,7 +329,7 @@ Structured error payload emitted as kind=error by the CLI boundary.
 
 ### `batch status`
 
-Show provider batch job status.
+Show provider batch job status. Pass --items to list per-image items (custom_id, image_id, model_id, task_type, status, error_type); useful for auditing duplicate rating_preflight submissions.
 
 - Read only: `false`
 - Side effects: `db_read`, `db_write`, `network`
@@ -347,10 +347,32 @@ lorairo-cli --json describe "batch status"
 - `job_id`: `int` (required)
 - `project`: `str` (required)
 - `refresh`: `bool` (optional, default `True`)
+- `items`: `bool` (optional, default `False`) - Emit ProviderBatchItemRecord item rows before the result. Use to inspect per-image item state or detect duplicate submissions.
+- `limit`: `int[1,500]` (optional, default `500`) - Page size for items query (only when --items is set).
+- `offset`: `int>=0` (optional, default `0`) - Rows to skip in items query (only when --items is set).
+- `item_status`: `str?` (optional) - Filter items by status when --items is set (e.g. succeeded, failed).
+
+**Output `ProviderBatchItemRecord`**
+
+Emitted per item when --items is set. Precedes the BatchStatusResult row.
+
+- `id`: `int` (optional)
+- `job_id`: `int` (optional)
+- `custom_id`: `str` (optional)
+- `image_id`: `int?` (optional)
+- `model_id`: `int?` (optional)
+- `task_type`: `str?` (optional)
+- `status`: `str` (optional)
+- `error_type`: `str?` (optional)
+- `error_message`: `str?` (optional)
 
 **Output `BatchStatusResult`**
 
 - `job`: `ProviderBatchJob` (optional)
+- `items_count`: `int?` (optional) - Number of item rows emitted (null when --items is not set).
+- `items_limit`: `int?` (optional)
+- `items_offset`: `int?` (optional)
+- `items_has_more`: `bool?` (optional)
 
 **Error `CliErrorResponse`**
 
@@ -411,7 +433,7 @@ Structured error payload emitted as kind=error by the CLI boundary.
 
 ### `export create`
 
-Export a filtered dataset from a project.
+Export a dataset from a list of image IDs. Use 'images search' to resolve IDs first.
 
 - Read only: `false`
 - Side effects: `db_read`, `file_read`, `file_write`
@@ -427,25 +449,16 @@ lorairo-cli --json describe "export create"
 **Input `ExportCreateInput`**
 
 - `project`: `str` (required)
+- `image_ids`: `csv[int]` (required) - Comma-separated image IDs, e.g. '1,2,3'. Use images search to resolve IDs.
 - `output`: `path` (required)
-- `format`: `txt|json` (optional, default `txt`)
 - `resolution`: `int` (optional, default `512`)
-- `tags`: `csv[str]?` (optional)
-- `excluded_tags`: `csv[str]?` (optional)
-- `caption`: `str?` (optional)
-- `manual_rating`: `rating?` (optional)
-- `ai_rating`: `rating?` (optional)
-- `include_nsfw`: `bool` (optional, default `False`)
-- `score_min`: `float[0,10]?` (optional)
-- `score_max`: `float[0,10]?` (optional)
 
 **Output `ExportCreateResult`**
 
 - `output_path`: `path?` (optional)
 - `total_images`: `int?` (optional)
-- `format`: `str?` (optional)
 - `resolution`: `int?` (optional)
-- `count`: `int?` (optional) - Set to 0 on the no-match success path.
+- `count`: `int?` (optional)
 
 **Error `CliErrorResponse`**
 
@@ -536,6 +549,73 @@ lorairo-cli --json describe "images register"
 - `registered`: `int` (optional)
 - `skipped`: `int` (optional)
 - `errors`: `int` (optional)
+
+**Error `CliErrorResponse`**
+
+Structured error payload emitted as kind=error by the CLI boundary.
+
+- `kind`: `error` (required)
+- `ok`: `false` (required)
+- `code`: `str` (required)
+- `message`: `str` (required)
+- `retryable`: `bool` (required)
+- `user_action_required`: `bool` (required)
+- `hint`: `str?` (optional)
+- `details`: `dict?` (optional)
+
+### `images search`
+
+Search images by JSON query. Returns image_ids for use with export create or tags commands.
+
+- Read only: `true`
+- Side effects: `db_read`
+
+#### Compact Introspection
+
+```bash
+lorairo-cli --json describe "images search"
+```
+
+#### Models
+
+**Input `ImagesSearchInput`**
+
+Pass exactly one of --query or --query-file.
+
+- `project`: `str` (required)
+- `query`: `json|'-'` (optional) - JSON search schema string, or '-' to read from stdin.
+- `query_file`: `path?` (optional) - Path to a JSON file containing the search schema.
+
+**Input `ImageSearchQuery`**
+
+JSON body schema passed via --query or --query-file.
+
+- `image_ids`: `list[int]?` (optional)
+- `tags`: `list[str]?` (optional)
+- `excluded_tags`: `list[str]?` (optional)
+- `caption`: `str?` (optional)
+- `manual_rating`: `str?` (optional)
+- `ai_rating`: `str?` (optional)
+- `score_min`: `float?` (optional)
+- `score_max`: `float?` (optional)
+- `only_unrated`: `bool` (optional, default `False`)
+- `missing_model`: `str?` (optional)
+- `include_nsfw`: `bool` (optional, default `False`)
+- `limit`: `int[1,500]` (optional, default `500`)
+- `offset`: `int>=0` (optional, default `0`)
+
+**Output `ImagesListItem`**
+
+- `image_id`: `int?` (optional)
+- `file_path`: `str?` (optional)
+
+**Output `ImagesListResult`**
+
+- `count`: `int` (optional)
+- `total`: `int?` (optional)
+- `limit`: `int?` (optional)
+- `offset`: `int?` (optional)
+- `has_more`: `bool?` (optional)
 
 **Error `CliErrorResponse`**
 
@@ -811,6 +891,156 @@ lorairo-cli --json describe "status"
 - `config_found`: `bool` (optional)
 - `api_keys`: `dict[str,bool]?` (optional)
 - `initialized_services`: `dict[str,bool]?` (optional)
+
+**Error `CliErrorResponse`**
+
+Structured error payload emitted as kind=error by the CLI boundary.
+
+- `kind`: `error` (required)
+- `ok`: `false` (required)
+- `code`: `str` (required)
+- `message`: `str` (required)
+- `retryable`: `bool` (required)
+- `user_action_required`: `bool` (required)
+- `hint`: `str?` (optional)
+- `details`: `dict?` (optional)
+
+### `tags add`
+
+Add tags to images. Default dry-run; use --apply to write.
+
+- Read only: `false`
+- Side effects: `db_read`, `db_write`
+
+#### Compact Introspection
+
+```bash
+lorairo-cli --json describe "tags add"
+```
+
+#### Models
+
+**Input `TagsAddInput`**
+
+- `project`: `str` (required)
+- `image_ids`: `csv[int]` (required) - Comma-separated image IDs, max 500.
+- `tags`: `csv[str]` (required) - Comma-separated tags to add.
+- `apply`: `bool` (optional, default `False`) - Write to DB. Default is dry-run.
+
+**Output `TagsEditItem`**
+
+- `image_id`: `int` (optional)
+- `action`: `add` (optional)
+- `tags`: `list[str]` (optional)
+- `status`: `str` (optional)
+
+**Output `TagsAddResult`**
+
+- `target_images`: `int` (optional)
+- `tags`: `list[str]` (optional)
+- `added`: `int` (optional)
+- `dry_run`: `bool` (optional)
+
+**Error `CliErrorResponse`**
+
+Structured error payload emitted as kind=error by the CLI boundary.
+
+- `kind`: `error` (required)
+- `ok`: `false` (required)
+- `code`: `str` (required)
+- `message`: `str` (required)
+- `retryable`: `bool` (required)
+- `user_action_required`: `bool` (required)
+- `hint`: `str?` (optional)
+- `details`: `dict?` (optional)
+
+### `tags remove`
+
+Remove tags from images. Default dry-run; use --apply to write.
+
+- Read only: `false`
+- Side effects: `db_read`, `db_write`
+
+#### Compact Introspection
+
+```bash
+lorairo-cli --json describe "tags remove"
+```
+
+#### Models
+
+**Input `TagsRemoveInput`**
+
+- `project`: `str` (required)
+- `image_ids`: `csv[int]` (required) - Comma-separated image IDs, max 500.
+- `tags`: `csv[str]` (required) - Comma-separated tags to remove.
+- `apply`: `bool` (optional, default `False`) - Write to DB. Default is dry-run.
+
+**Output `TagsEditItem`**
+
+- `image_id`: `int` (optional)
+- `action`: `remove` (optional)
+- `tags`: `list[str]` (optional)
+- `status`: `str` (optional)
+
+**Output `TagsRemoveResult`**
+
+- `target_images`: `int` (optional)
+- `tags`: `list[str]` (optional)
+- `removed`: `int` (optional)
+- `dry_run`: `bool` (optional)
+
+**Error `CliErrorResponse`**
+
+Structured error payload emitted as kind=error by the CLI boundary.
+
+- `kind`: `error` (required)
+- `ok`: `false` (required)
+- `code`: `str` (required)
+- `message`: `str` (required)
+- `retryable`: `bool` (required)
+- `user_action_required`: `bool` (required)
+- `hint`: `str?` (optional)
+- `details`: `dict?` (optional)
+
+### `tags replace`
+
+Replace a tag with another across images. Default dry-run; use --apply to write.
+
+- Read only: `false`
+- Side effects: `db_read`, `db_write`
+
+#### Compact Introspection
+
+```bash
+lorairo-cli --json describe "tags replace"
+```
+
+#### Models
+
+**Input `TagsReplaceInput`**
+
+- `project`: `str` (required)
+- `image_ids`: `csv[int]` (required) - Comma-separated image IDs, max 500.
+- `from_tag`: `str` (required) - Tag to replace.
+- `to_tag`: `str` (required) - Replacement tag.
+- `apply`: `bool` (optional, default `False`) - Write to DB. Default is dry-run.
+
+**Output `TagsEditItem`**
+
+- `image_id`: `int` (optional)
+- `action`: `replace` (optional)
+- `from`: `str` (optional)
+- `to`: `str` (optional)
+- `status`: `str` (optional)
+
+**Output `TagsReplaceResult`**
+
+- `target_images`: `int` (optional)
+- `changed`: `int` (optional)
+- `skipped`: `int` (optional)
+- `errors`: `int` (optional)
+- `dry_run`: `bool` (optional)
 
 **Error `CliErrorResponse`**
 

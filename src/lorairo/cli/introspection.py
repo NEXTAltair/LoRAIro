@@ -13,6 +13,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from lorairo.api.types import ProjectCreateRequest
 from lorairo.cli._emit import emit_item, emit_result
+from lorairo.cli.commands.images import ImageSearchQuery
 
 SideEffect = Literal["db_read", "db_write", "file_read", "file_write", "network"]
 SchemaMode = Literal["compact", "json_schema"]
@@ -230,80 +231,97 @@ class ImagesUpdateResult(BaseModel):
 
 
 class ExportCreateInputSchema(BaseModel):
-    """Implemented filter/options surface accepted by ``export create``."""
+    """Implemented options surface accepted by ``export create``.
+
+    export create requires --image-ids (comma-separated IDs).
+    Use ``images search`` to resolve IDs, then pass them here.
+    """
 
     project: str
+    image_ids: str = Field(description="Comma-separated image IDs to export, e.g. '1,2,3'.")
     output: str
-    format: Literal["txt", "json"] = "txt"
     resolution: int = 512
-    tags: str | None = None
-    excluded_tags: str | None = None
-    caption: str | None = None
-    # export create の _validate_rating が受理する正規化済み値 (VALID_RATINGS)。
-    manual_rating: Literal["PG", "PG-13", "R", "X", "XXX", "UNRATED"] | None = None
-    ai_rating: Literal["PG", "PG-13", "R", "X", "XXX", "UNRATED"] | None = None
-    include_nsfw: bool = False
-    score_min: float | None = Field(default=None, ge=0.0, le=10.0)
-    score_max: float | None = Field(default=None, ge=0.0, le=10.0)
 
-    # export create は最低 1 つの有効フィルタ (tags/excluded_tags/caption/manual_rating/
-    # ai_rating/score_min/score_max) を要求し、無指定は UsageError で弾く
-    # (_criteria_has_effective_filter)。include_nsfw は修飾子でフィルタとは扱わない。
-    #
-    # 各 anyOf ブランチは「キーの存在」だけでなく「正規化後に有効」も表現する (Issue #659):
-    # CLI 実体は正規化後に truthy 判定するため、schema 側もこれに揃える。
-    #   - CSV フィルタ (tags/excluded_tags): _normalize_csv がカンマ区切り→strip→非空
-    #     トークン抽出。"," や "  " は空集合になり無効なので、区切り(,)・空白以外の文字を
-    #     1つ以上含むことを pattern "[^\\s,]" で要求する。
-    #   - text フィルタ (caption): _normalize_text が strip→非空判定。"   " は無効なので
-    #     非空白文字を1つ以上含むことを pattern "\\S" で要求する (caption はカンマ可)。
-    #   - score フィルタ (score_min/score_max): number 型を明示し null を除外する。
-    #   - rating (manual_rating/ai_rating): Literal enum なので非null要求だけで有効値が保証。
-    # minLength=1 も併記し「非空」を明示する (pattern が正規化後の有効性を補強する)。
-    model_config = ConfigDict(
-        title="ExportCreateInput",
-        json_schema_extra={
-            "anyOf": [
-                {
-                    "required": ["tags"],
-                    "properties": {"tags": {"type": "string", "minLength": 1, "pattern": "[^\\s,]"}},
-                },
-                {
-                    "required": ["excluded_tags"],
-                    "properties": {
-                        "excluded_tags": {"type": "string", "minLength": 1, "pattern": "[^\\s,]"}
-                    },
-                },
-                {
-                    "required": ["caption"],
-                    "properties": {"caption": {"type": "string", "minLength": 1, "pattern": "\\S"}},
-                },
-                {"required": ["manual_rating"], "properties": {"manual_rating": {"type": "string"}}},
-                {"required": ["ai_rating"], "properties": {"ai_rating": {"type": "string"}}},
-                {"required": ["score_min"], "properties": {"score_min": {"type": "number"}}},
-                {"required": ["score_max"], "properties": {"score_max": {"type": "number"}}},
-            ]
-        },
-    )
+    model_config = ConfigDict(title="ExportCreateInput")
 
 
 class ExportCreateResult(BaseModel):
-    """JSONL result payload emitted by ``export create --json``.
-
-    A no-match export returns a success row containing only ``count=0``;
-    a completed export returns ``output_path`` plus the export metadata.
-    """
+    """JSONL result payload emitted by ``export create --json``."""
 
     kind: Literal["result"] = "result"
     ok: Literal[True] = True
     message: str
     output_path: str | None = None
     total_images: int | None = None
-    format: str | None = None
     resolution: int | None = None
     count: int | None = None
 
     model_config = ConfigDict(title="ExportCreateResult")
+
+
+class TagsEditItem(BaseModel):
+    """JSONL item payload emitted per image by ``tags add/remove/replace --json``."""
+
+    image_id: int
+    action: Literal["add", "remove", "replace"]
+    tags: list[str] | None = Field(default=None, description="Tags operated on (add/remove commands).")
+    from_tag: str | None = Field(
+        default=None,
+        alias="from",
+        description="Source tag (replace command only). Wire key is 'from'.",
+    )
+    to_tag: str | None = Field(
+        default=None,
+        alias="to",
+        description="Destination tag (replace command only). Wire key is 'to'.",
+    )
+    status: str
+    reason: str | None = None
+
+    model_config = ConfigDict(title="TagsEditItem", populate_by_name=True)
+
+
+class TagsAddResult(BaseModel):
+    """JSONL result payload emitted by ``tags add --json``."""
+
+    kind: Literal["result"] = "result"
+    ok: Literal[True] = True
+    message: str
+    target_images: int
+    tags: list[str]
+    added: int
+    dry_run: bool
+
+    model_config = ConfigDict(title="TagsAddResult")
+
+
+class TagsRemoveResult(BaseModel):
+    """JSONL result payload emitted by ``tags remove --json``."""
+
+    kind: Literal["result"] = "result"
+    ok: Literal[True] = True
+    message: str
+    target_images: int
+    tags: list[str]
+    removed: int
+    dry_run: bool
+
+    model_config = ConfigDict(title="TagsRemoveResult")
+
+
+class TagsReplaceResult(BaseModel):
+    """JSONL result payload emitted by ``tags replace --json``."""
+
+    kind: Literal["result"] = "result"
+    ok: Literal[True] = True
+    message: str
+    target_images: int
+    changed: int
+    skipped: int
+    errors: int
+    dry_run: bool
+
+    model_config = ConfigDict(title="TagsReplaceResult")
 
 
 class ModelsRefreshResult(BaseModel):
@@ -945,7 +963,7 @@ TOOL_SPECS: dict[str, ToolSpec] = {
     "export create": ToolSpec(
         name="export create",
         path="export create",
-        summary="Export a filtered dataset from a project.",
+        summary="Export a dataset from a list of image IDs. Use 'images search' to resolve IDs first.",
         read_only=False,
         side_effects=("db_read", "file_read", "file_write"),
         inputs=(
@@ -953,17 +971,14 @@ TOOL_SPECS: dict[str, ToolSpec] = {
                 "ExportCreateInput",
                 (
                     _f("project", "str", required=True),
+                    _f(
+                        "image_ids",
+                        "csv[int]",
+                        required=True,
+                        description="Comma-separated image IDs, e.g. '1,2,3'. Use images search to resolve IDs.",
+                    ),
                     _f("output", "path", required=True),
-                    _f("format", "txt|json", default="txt"),
                     _f("resolution", "int", default=512),
-                    _f("tags", "csv[str]?"),
-                    _f("excluded_tags", "csv[str]?"),
-                    _f("caption", "str?"),
-                    _f("manual_rating", "rating?"),
-                    _f("ai_rating", "rating?"),
-                    _f("include_nsfw", "bool", default=False),
-                    _f("score_min", "float[0,10]?"),
-                    _f("score_max", "float[0,10]?"),
                 ),
                 schema=ExportCreateInputSchema,
             ),
@@ -974,11 +989,217 @@ TOOL_SPECS: dict[str, ToolSpec] = {
                 (
                     _f("output_path", "path?"),
                     _f("total_images", "int?"),
-                    _f("format", "str?"),
                     _f("resolution", "int?"),
-                    _f("count", "int?", description="Set to 0 on the no-match success path."),
+                    _f("count", "int?"),
                 ),
                 schema=ExportCreateResult,
+            ),
+        ),
+        errors=(ERROR_MODEL,),
+    ),
+    "images search": ToolSpec(
+        name="images search",
+        path="images search",
+        summary="Search images by JSON query. Returns image_ids for use with export create or tags commands.",
+        read_only=True,
+        side_effects=("db_read",),
+        inputs=(
+            _input(
+                "ImagesSearchInput",
+                (
+                    _f("project", "str", required=True),
+                    _f(
+                        "query",
+                        "json|'-'",
+                        description="JSON search schema string, or '-' to read from stdin.",
+                    ),
+                    _f(
+                        "query_file",
+                        "path?",
+                        description="Path to a JSON file containing the search schema.",
+                    ),
+                ),
+                description="Pass exactly one of --query or --query-file.",
+            ),
+            ModelSpec(
+                name="ImageSearchQuery",
+                role="input",
+                description="JSON body schema passed via --query or --query-file.",
+                fields=(
+                    _f("image_ids", "list[int]?"),
+                    _f("tags", "list[str]?"),
+                    _f("excluded_tags", "list[str]?"),
+                    _f("caption", "str?"),
+                    _f("manual_rating", "str?"),
+                    _f("ai_rating", "str?"),
+                    _f("score_min", "float?"),
+                    _f("score_max", "float?"),
+                    _f("only_unrated", "bool", default=False),
+                    _f("missing_model", "str?"),
+                    _f("include_nsfw", "bool", default=False),
+                    _f("limit", "int[1,500]", default=500),
+                    _f("offset", "int>=0", default=0),
+                ),
+                schema_model=ImageSearchQuery,
+            ),
+        ),
+        outputs=(
+            _output(
+                "ImagesListItem",
+                (_f("image_id", "int?"), _f("file_path", "str?")),
+                schema=ImagesListItem,
+            ),
+            _output(
+                "ImagesListResult",
+                (
+                    _f("count", "int"),
+                    _f("total", "int?"),
+                    _f("limit", "int?"),
+                    _f("offset", "int?"),
+                    _f("has_more", "bool?"),
+                ),
+                schema=ImagesListResult,
+            ),
+        ),
+        errors=(ERROR_MODEL,),
+    ),
+    "tags add": ToolSpec(
+        name="tags add",
+        path="tags add",
+        summary="Add tags to images. Default dry-run; use --apply to write.",
+        read_only=False,
+        side_effects=("db_read", "db_write"),
+        inputs=(
+            _input(
+                "TagsAddInput",
+                (
+                    _f("project", "str", required=True),
+                    _f(
+                        "image_ids",
+                        "csv[int]",
+                        required=True,
+                        description="Comma-separated image IDs, max 500.",
+                    ),
+                    _f("tags", "csv[str]", required=True, description="Comma-separated tags to add."),
+                    _f("apply", "bool", default=False, description="Write to DB. Default is dry-run."),
+                ),
+            ),
+        ),
+        outputs=(
+            _output(
+                "TagsEditItem",
+                (
+                    _f("image_id", "int"),
+                    _f("action", "add"),
+                    _f("tags", "list[str]"),
+                    _f("status", "str"),
+                ),
+                schema=TagsEditItem,
+            ),
+            _output(
+                "TagsAddResult",
+                (
+                    _f("target_images", "int"),
+                    _f("tags", "list[str]"),
+                    _f("added", "int"),
+                    _f("dry_run", "bool"),
+                ),
+                schema=TagsAddResult,
+            ),
+        ),
+        errors=(ERROR_MODEL,),
+    ),
+    "tags remove": ToolSpec(
+        name="tags remove",
+        path="tags remove",
+        summary="Remove tags from images. Default dry-run; use --apply to write.",
+        read_only=False,
+        side_effects=("db_read", "db_write"),
+        inputs=(
+            _input(
+                "TagsRemoveInput",
+                (
+                    _f("project", "str", required=True),
+                    _f(
+                        "image_ids",
+                        "csv[int]",
+                        required=True,
+                        description="Comma-separated image IDs, max 500.",
+                    ),
+                    _f("tags", "csv[str]", required=True, description="Comma-separated tags to remove."),
+                    _f("apply", "bool", default=False, description="Write to DB. Default is dry-run."),
+                ),
+            ),
+        ),
+        outputs=(
+            _output(
+                "TagsEditItem",
+                (
+                    _f("image_id", "int"),
+                    _f("action", "remove"),
+                    _f("tags", "list[str]"),
+                    _f("status", "str"),
+                ),
+                schema=TagsEditItem,
+            ),
+            _output(
+                "TagsRemoveResult",
+                (
+                    _f("target_images", "int"),
+                    _f("tags", "list[str]"),
+                    _f("removed", "int"),
+                    _f("dry_run", "bool"),
+                ),
+                schema=TagsRemoveResult,
+            ),
+        ),
+        errors=(ERROR_MODEL,),
+    ),
+    "tags replace": ToolSpec(
+        name="tags replace",
+        path="tags replace",
+        summary="Replace a tag with another across images. Default dry-run; use --apply to write.",
+        read_only=False,
+        side_effects=("db_read", "db_write"),
+        inputs=(
+            _input(
+                "TagsReplaceInput",
+                (
+                    _f("project", "str", required=True),
+                    _f(
+                        "image_ids",
+                        "csv[int]",
+                        required=True,
+                        description="Comma-separated image IDs, max 500.",
+                    ),
+                    _f("from_tag", "str", required=True, description="Tag to replace."),
+                    _f("to_tag", "str", required=True, description="Replacement tag."),
+                    _f("apply", "bool", default=False, description="Write to DB. Default is dry-run."),
+                ),
+            ),
+        ),
+        outputs=(
+            _output(
+                "TagsEditItem",
+                (
+                    _f("image_id", "int"),
+                    _f("action", "replace"),
+                    _f("from", "str"),
+                    _f("to", "str"),
+                    _f("status", "str"),
+                ),
+                schema=TagsEditItem,
+            ),
+            _output(
+                "TagsReplaceResult",
+                (
+                    _f("target_images", "int"),
+                    _f("changed", "int"),
+                    _f("skipped", "int"),
+                    _f("errors", "int"),
+                    _f("dry_run", "bool"),
+                ),
+                schema=TagsReplaceResult,
             ),
         ),
         errors=(ERROR_MODEL,),
