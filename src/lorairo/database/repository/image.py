@@ -543,8 +543,8 @@ class ImageRepository(BaseRepository):
         new_image = Image(
             uuid=info["uuid"],
             phash=phash,
-            original_image_path=str(info["original_image_path"]),  # Pathオブジェクトを文字列に
-            stored_image_path=str(info["stored_image_path"]),  # Pathオブジェクトを文字列に
+            original_image_path=str(info["original_image_path"]).replace("\\", "/"),
+            stored_image_path=str(info["stored_image_path"]).replace("\\", "/"),
             width=info["width"],
             height=info["height"],
             format=info["format"],
@@ -656,7 +656,7 @@ class ImageRepository(BaseRepository):
         # 新しい ProcessedImage オブジェクトを作成
         new_processed_image = ProcessedImage(
             image_id=image_id,
-            stored_image_path=str(info["stored_image_path"]),  # Pathオブジェクトを文字列に
+            stored_image_path=str(info["stored_image_path"]).replace("\\", "/"),
             width=width,
             height=height,
             mode=info.get("mode"),
@@ -911,6 +911,39 @@ class ImageRepository(BaseRepository):
                     exc_info=True,
                 )
                 raise
+
+    def get_processed_image_paths_by_resolution(
+        self, image_ids: list[int], resolution: int
+    ) -> dict[int, str]:
+        """指定解像度に最も近い処理済み画像パスを image_id ごとに一括取得する (Issue #706)。
+
+        Args:
+            image_ids: 対象画像 ID リスト。
+            resolution: 目標解像度 (長辺ピクセル数)。
+
+        Returns:
+            {image_id: stored_image_path} マッピング。該当解像度がない画像は含まない。
+
+        Raises:
+            SQLAlchemyError: データベース操作でエラーが発生した場合。
+        """
+        if not image_ids:
+            return {}
+        with self.session_factory() as session:
+            stmt = select(ProcessedImage).where(ProcessedImage.image_id.in_(image_ids))
+            all_proc = list(session.execute(stmt).scalars().all())
+
+        by_image: dict[int, list[dict[str, Any]]] = {}
+        for img in all_proc:
+            entry = {c.name: getattr(img, c.name) for c in img.__table__.columns}
+            by_image.setdefault(img.image_id, []).append(entry)
+
+        result: dict[int, str] = {}
+        for image_id, metadata_list in by_image.items():
+            selected = self._filter_by_resolution(metadata_list, resolution)
+            if selected:
+                result[image_id] = selected["stored_image_path"]
+        return result
 
     def _filter_by_resolution(
         self,
@@ -1700,7 +1733,7 @@ class ImageRepository(BaseRepository):
 
             latest_caption = max(
                 image.captions,
-                key=lambda c: c.created_at if c.created_at else datetime.min,
+                key=lambda c: c.created_at or datetime.min,
             )
             annotations["caption_text"] = latest_caption.caption
         else:
@@ -2201,7 +2234,7 @@ class ImageRepository(BaseRepository):
             条件にマッチした画像メタデータのリストとその総数。
         """
         # criteriaが指定されていればそれを使用、なければkwargsから生成
-        filter_criteria = criteria if criteria else ImageFilterCriteria.from_kwargs(**kwargs)
+        filter_criteria = criteria or ImageFilterCriteria.from_kwargs(**kwargs)
 
         # 型安全性チェック: resolution が文字列の場合は int に変換
         if isinstance(filter_criteria.resolution, str):
@@ -2299,7 +2332,7 @@ class ImageRepository(BaseRepository):
             条件に一致した画像件数。
 
         """
-        filter_criteria = criteria if criteria else ImageFilterCriteria.from_kwargs(**kwargs)
+        filter_criteria = criteria or ImageFilterCriteria.from_kwargs(**kwargs)
 
         # ADR 0055: image_ids 指定時は exact-set として他フィルタを bypass する。
         # get_images_by_filter と総件数を一致させるため同一 helper の総件数を返す
@@ -2364,7 +2397,7 @@ class ImageRepository(BaseRepository):
         Returns:
             (一覧行, フィルタ総件数)。一覧行は ``image_id`` / ``file_path`` のみ。
         """
-        filter_criteria = criteria if criteria else ImageFilterCriteria.from_kwargs(**kwargs)
+        filter_criteria = criteria or ImageFilterCriteria.from_kwargs(**kwargs)
 
         with self.session_factory() as session:
             try:
