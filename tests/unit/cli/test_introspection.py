@@ -35,6 +35,12 @@ def test_list_commands_emits_tool_items_and_result() -> None:
     assert images_update["read_only"] is False
     assert "db_write" in images_update["side_effects"]
 
+    paths = {row["path"] for row in items}
+    assert "images search" in paths
+    assert "tags add" in paths
+    assert "tags remove" in paths
+    assert "tags replace" in paths
+
 
 def test_list_commands_includes_version_and_status() -> None:
     """version / status も introspection に載る (Issue #662)。"""
@@ -81,6 +87,11 @@ def test_describe_compact_emits_tool_model_items_and_result() -> None:
     assert any(row["name"] == "ExportCreateInput" for row in model_rows)
     assert all(row["name"] != "ImageFilterCriteria" for row in model_rows)
 
+    input_row = next(row for row in model_rows if row["name"] == "ExportCreateInput")
+    field_names = {f["name"] for f in input_row["fields"]}
+    assert "image_ids" in field_names
+    assert "tags" not in field_names
+
 
 def test_images_update_describes_only_supported_input_fields() -> None:
     result = runner.invoke(app, ["--json", "describe", "images update"])
@@ -124,20 +135,18 @@ def test_describe_json_schema_wraps_cli_input_schema_in_item_payload() -> None:
 
     input_schema = next(row for row in schema_rows if row["name"] == "ExportCreateInput")
     assert "properties" in input_schema["schema"]
-    assert {"project", "output", "tags", "score_min", "score_max"} <= set(
-        input_schema["schema"]["properties"]
-    )
-    assert "image_ids" not in input_schema["schema"]["properties"]
+    assert {"project", "output", "image_ids", "resolution"} <= set(input_schema["schema"]["properties"])
+    # 旧フィルタ API は削除済み
+    for old_field in ("tags", "excluded_tags", "caption", "score_min", "score_max"):
+        assert old_field not in input_schema["schema"]["properties"]
     assert "missing_model_litellm_id" not in input_schema["schema"]["properties"]
     assert "sql" not in json.dumps(input_schema["schema"]).lower()
 
 
-def test_export_create_anyof_requires_non_null_non_empty_filter() -> None:
-    """export create の anyOf は「キー存在」だけでなく非null/非空も要求する (Issue #659)。
+def test_export_create_image_ids_is_required_and_no_filter_anyof() -> None:
+    """export create は --image-ids 必須、旧フィルタ anyOf は削除済み (Issue #702)。
 
-    CLI 実体は ``_criteria_has_effective_filter`` で正規化後に truthy 判定するため、
-    ``{tags: null}`` や ``--tags ""`` は UsageError で弾かれる。schema 側も string
-    フィルタは minLength=1、score フィルタは number 型でこの契約に揃える。
+    新 API は image_ids (CSV) を必須とし、tags/score/caption フィルタを受け付けない。
     """
     result = runner.invoke(app, ["--json", "describe", "export create", "--schema", "json_schema"])
     assert result.exit_code == 0
@@ -145,23 +154,15 @@ def test_export_create_anyof_requires_non_null_non_empty_filter() -> None:
     input_schema = next(
         row for row in rows if row.get("type") == "schema" and row["name"] == "ExportCreateInput"
     )
-    branches = {
-        tuple(branch["required"]): branch.get("properties", {})
-        for branch in input_schema["schema"]["anyOf"]
-    }
-    # string フィルタ: 非空 (minLength=1) かつ正規化後に有効 (pattern) を要求
-    for key in ("tags", "excluded_tags", "caption"):
-        constraint = branches[(key,)][key]
-        assert constraint["type"] == "string"
-        assert constraint["minLength"] == 1
-    # CSV フィルタは区切り(,)・空白以外の文字を要求し "," や "  " を弾く
-    for key in ("tags", "excluded_tags"):
-        assert branches[(key,)][key]["pattern"] == "[^\\s,]"
-    # text フィルタは非空白文字を要求し "   " を弾く (caption はカンマ可)
-    assert branches[("caption",)]["caption"]["pattern"] == "\\S"
-    # score フィルタ: number 型で null を除外
-    for key in ("score_min", "score_max"):
-        assert branches[(key,)][key]["type"] == "number"
+    schema = input_schema["schema"]
+    # image_ids は required に含まれる
+    assert "image_ids" in schema.get("required", [])
+    # 旧フィルタ anyOf は削除済み
+    assert "anyOf" not in schema
+    # 旧フィルタフィールドは存在しない
+    properties = schema.get("properties", {})
+    for old_field in ("tags", "excluded_tags", "caption", "score_min", "score_max"):
+        assert old_field not in properties
 
 
 def test_annotate_run_describes_only_supported_flags() -> None:
@@ -432,3 +433,91 @@ def test_batch_status_result_schema_includes_items_pagination_fields() -> None:
         "status",
         "error_type",
     } <= set(item_schema["schema"]["properties"])
+
+
+def test_describe_images_search_exposes_query_schema() -> None:
+    """describe images search が ImageSearchQuery ボディスキーマを返す (Issue #702)。
+
+    ImagesSearchInput は schema_model を持たないため json_schema モードでは出力されない。
+    ImageSearchQuery (--query / --query-file で渡す JSON ボディ) は json_schema モードで出力される。
+    """
+    result = runner.invoke(app, ["--json", "describe", "images search", "--schema", "json_schema"])
+
+    assert result.exit_code == 0
+    rows = _jsonl(result.stdout)
+    schema_rows = [row for row in rows if row.get("type") == "schema"]
+    names = {row["name"] for row in schema_rows}
+    assert "ImageSearchQuery" in names
+
+    query_schema = next(row for row in schema_rows if row["name"] == "ImageSearchQuery")
+    props = set(query_schema["schema"]["properties"])
+    assert {"tags", "excluded_tags", "limit", "offset"} <= props
+    assert "image_ids" in props
+
+    # compact モードでは ImagesSearchInput が出力される
+    compact_result = runner.invoke(app, ["--json", "describe", "images search"])
+    assert compact_result.exit_code == 0
+    compact_rows = _jsonl(compact_result.stdout)
+    assert any(r.get("name") == "ImagesSearchInput" for r in compact_rows)
+
+
+def test_describe_tags_add_exposes_required_fields() -> None:
+    """describe tags add が image_ids / tags 必須フィールドを返す (Issue #702)。"""
+    result = runner.invoke(app, ["--json", "describe", "tags add"])
+
+    assert result.exit_code == 0
+    rows = _jsonl(result.stdout)
+    assert rows[0]["path"] == "tags add"
+
+    input_row = next(row for row in rows if row.get("type") == "model" and row["name"] == "TagsAddInput")
+    fields = {f["name"]: f for f in input_row["fields"]}
+    assert fields["project"]["required"] is True
+    assert fields["image_ids"]["required"] is True
+    assert fields["tags"]["required"] is True
+    assert fields["apply"]["default"] is False
+
+
+def test_describe_tags_remove_exposes_required_fields() -> None:
+    """describe tags remove が image_ids / tags 必須フィールドを返す (Issue #702)。"""
+    result = runner.invoke(app, ["--json", "describe", "tags remove"])
+
+    assert result.exit_code == 0
+    rows = _jsonl(result.stdout)
+    assert rows[0]["path"] == "tags remove"
+
+    input_row = next(row for row in rows if row.get("type") == "model" and row["name"] == "TagsRemoveInput")
+    fields = {f["name"]: f for f in input_row["fields"]}
+    assert fields["image_ids"]["required"] is True
+    assert fields["tags"]["required"] is True
+
+
+def test_describe_tags_replace_exposes_from_to_fields() -> None:
+    """describe tags replace が from_tag / to_tag 必須フィールドを返す (Issue #702)。"""
+    result = runner.invoke(app, ["--json", "describe", "tags replace"])
+
+    assert result.exit_code == 0
+    rows = _jsonl(result.stdout)
+    assert rows[0]["path"] == "tags replace"
+
+    input_row = next(
+        row for row in rows if row.get("type") == "model" and row["name"] == "TagsReplaceInput"
+    )
+    fields = {f["name"]: f for f in input_row["fields"]}
+    assert fields["from_tag"]["required"] is True
+    assert fields["to_tag"]["required"] is True
+    assert fields["apply"]["default"] is False
+
+
+def test_describe_tags_add_json_schema_includes_edit_item_and_result() -> None:
+    """tags add --schema json_schema が TagsEditItem / TagsAddResult スキーマを返す (Issue #702)。"""
+    result = runner.invoke(app, ["--json", "describe", "tags add", "--schema", "json_schema"])
+
+    assert result.exit_code == 0
+    rows = _jsonl(result.stdout)
+    schema_names = {row["name"] for row in rows if row.get("type") == "schema"}
+    assert "TagsEditItem" in schema_names
+    assert "TagsAddResult" in schema_names
+
+    result_schema = next(row for row in rows if row.get("name") == "TagsAddResult")
+    props = set(result_schema["schema"]["properties"])
+    assert {"target_images", "tags", "added", "dry_run"} <= props
