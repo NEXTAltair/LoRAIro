@@ -45,6 +45,8 @@ class ImageFilterCriteria:
             ステージング集合を criteria 経由でエクスポートする際に使用する。
             最大 ImageRepository.EXACT_SET_MAX_IDS 件（= ステージング上限 500）。
             超過時は ValueError（ADR 0056）。
+        sort_field: ソートキー。"image_id"（デフォルト）または "file_path"。
+        sort_direction: ソート方向。"asc"（デフォルト）または "desc"。
     """
 
     tags: list[str] | None = None
@@ -71,6 +73,9 @@ class ImageFilterCriteria:
     offset: int = 0
     # ADR 0055: 指定時は他フィルタを bypass する exact-set selector
     image_ids: list[int] | None = None
+    # Issue #697: images search で使用するソート条件
+    sort_field: str = "image_id"  # "image_id" または "file_path"
+    sort_direction: str = "asc"  # "asc" または "desc"
 
     @classmethod
     def from_kwargs(cls, **kwargs: Any) -> ImageFilterCriteria:
@@ -129,4 +134,6 @@ class ImageFilterCriteria:
             "limit": self.limit,
             "offset": self.offset,
             "image_ids": self.image_ids,
+            "sort_field": self.sort_field,
+            "sort_direction": self.sort_direction,
         }
