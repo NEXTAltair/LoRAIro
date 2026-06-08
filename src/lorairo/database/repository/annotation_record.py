@@ -101,6 +101,7 @@ class AnnotationRepository(BaseRepository):
         Note:
             外部 tag_db (`MergedTagReader` / `TagRegisterService`) は初期化失敗時に
             `None` に縮退する。LoRAIro は外部 tag_db 無しでも動作可能。
+
         """
         if session_factory is None:
             super().__init__()
@@ -262,7 +263,7 @@ class AnnotationRepository(BaseRepository):
                     saved_count += len(chunk)
                     logger.debug(
                         f"アノテーションをバッチ保存しました: "
-                        f"chunk={start // effective_chunk_size + 1}, saved={len(chunk)}"
+                        f"chunk={start // effective_chunk_size + 1}, saved={len(chunk)}",
                     )
                 except Exception as e:
                     session.rollback()
@@ -399,6 +400,166 @@ class AnnotationRepository(BaseRepository):
             except SQLAlchemyError as e:
                 session.rollback()
                 logger.error(f"Atomic batch tag add failed, rolled back: {e}", exc_info=True)
+                raise
+
+    def remove_tag_from_images_batch(
+        self,
+        image_ids: list[int],
+        tag: str,
+    ) -> tuple[bool, list[tuple[int, str]]]:
+        """複数画像から1つのタグを原子的に削除する。
+
+        単一トランザクションで全画像を処理。全件成功 or 全件ロールバック。
+
+        Args:
+            image_ids: 対象画像のIDリスト
+            tag: 削除するタグ
+
+        Returns:
+            (成功フラグ, [(image_id, "changed"|"skipped"), ...])
+
+        Raises:
+            SQLAlchemyError: データベースエラー時(ロールバック後に再送出)
+
+        """
+        if not image_ids:
+            logger.warning("Empty image_ids list for batch tag remove")
+            return (False, [])
+
+        if not tag.strip():
+            logger.warning("Empty tag for batch remove")
+            return (False, [])
+
+        normalized_tag = tag.strip().lower()
+        per_item: list[tuple[int, str]] = []
+
+        with self.session_factory() as session:
+            try:
+                existing_tags_by_image = self._build_existing_tags_map(session, image_ids)
+
+                # per_item リストを先に構築
+                for image_id in image_ids:
+                    existing_tags = existing_tags_by_image.get(image_id, set())
+                    if normalized_tag not in existing_tags:
+                        logger.debug(
+                            f"Tag '{normalized_tag}' not found for image_id {image_id}, skipping",
+                        )
+                        per_item.append((image_id, "skipped"))
+                    else:
+                        per_item.append((image_id, "changed"))
+
+                # bulk DELETE (1回のみ)
+                images_to_delete = [iid for iid, s in per_item if s == "changed"]
+                if images_to_delete:
+                    session.execute(
+                        delete(Tag).where(
+                            Tag.image_id.in_(images_to_delete),
+                            Tag.tag == normalized_tag,
+                        )
+                    )
+
+                session.commit()
+                changed = sum(1 for _, s in per_item if s == "changed")
+                logger.info(
+                    f"Atomic batch tag remove completed: tag='{normalized_tag}', "
+                    f"processed={len(image_ids)}, removed={changed}",
+                )
+                return (True, per_item)
+
+            except SQLAlchemyError as e:
+                session.rollback()
+                logger.error(f"Atomic batch tag remove failed, rolled back: {e}", exc_info=True)
+                raise
+
+    def replace_tag_for_images_batch(
+        self,
+        image_ids: list[int],
+        from_tag: str,
+        to_tag: str,
+    ) -> tuple[bool, list[tuple[int, str]]]:
+        """複数画像のタグを原子的に置換する。
+
+        変換元タグが存在する画像のみ処理。変換先タグが既に存在する場合は
+        変換元を削除のみ行い（重複させない）、ステータスは changed 扱い。
+
+        Args:
+            image_ids: 対象画像のIDリスト
+            from_tag: 置換元タグ
+            to_tag: 置換先タグ
+
+        Returns:
+            (成功フラグ, [(image_id, "changed"|"skipped"), ...])
+            per-item リストにより呼び出し元が再クエリ不要で結果を判別できる。
+
+        Raises:
+            SQLAlchemyError: データベースエラー時(ロールバック後に再送出)
+
+        """
+        if not image_ids:
+            logger.warning("Empty image_ids list for batch tag replace")
+            return (False, [])
+
+        if not from_tag.strip() or not to_tag.strip():
+            logger.warning("Empty from_tag or to_tag for batch replace")
+            return (False, [])
+
+        normalized_from = from_tag.strip().lower()
+        normalized_to = to_tag.strip().lower()
+        per_item: list[tuple[int, str]] = []
+
+        with self.session_factory() as session:
+            try:
+                existing_tags_by_image = self._build_existing_tags_map(session, image_ids)
+
+                # per-item 分類
+                for image_id in image_ids:
+                    existing_tags = existing_tags_by_image.get(image_id, set())
+                    if normalized_from not in existing_tags:
+                        per_item.append((image_id, "skipped"))
+                    else:
+                        per_item.append((image_id, "changed"))
+
+                # bulk DELETE: 変換元タグを持つ画像から一括削除
+                images_to_change = [iid for iid, s in per_item if s == "changed"]
+                if images_to_change:
+                    session.execute(
+                        delete(Tag).where(
+                            Tag.image_id.in_(images_to_change),
+                            Tag.tag == normalized_from,
+                        )
+                    )
+
+                    # 変換先タグを追加（各画像で既存チェックして重複回避）
+                    to_tag_external_id: int | None = None
+                    for image_id in images_to_change:
+                        existing_tags = existing_tags_by_image.get(image_id, set())
+                        if normalized_to not in existing_tags:
+                            if to_tag_external_id is None:
+                                to_tag_external_id = self._get_or_create_tag_id_external(
+                                    session, normalized_to
+                                )
+                            new_tag = Tag(
+                                image_id=image_id,
+                                model_id=None,
+                                tag=normalized_to,
+                                tag_id=to_tag_external_id,
+                                confidence_score=None,
+                                existing=False,
+                                is_edited_manually=True,
+                            )
+                            session.add(new_tag)
+
+                session.commit()
+                changed = len(images_to_change)
+                logger.info(
+                    f"Atomic batch tag replace completed: '{normalized_from}' -> '{normalized_to}', "
+                    f"processed={len(image_ids)}, changed={changed}",
+                )
+                return (True, per_item)
+
+            except SQLAlchemyError as e:
+                session.rollback()
+                logger.error(f"Atomic batch tag replace failed, rolled back: {e}", exc_info=True)
                 raise
 
     # --- External tag_db: resolve / register ---
@@ -820,7 +981,7 @@ class AnnotationRepository(BaseRepository):
         image_id: int,
         score_labels_data: list[ScoreLabelAnnotationData],
     ) -> None:
-        """canonical scorer の score_label を保存・更新 (Upsert by model_id).
+        """Canonical scorer の score_label を保存・更新 (Upsert by model_id).
 
         ADR 0027 / iam-lib ADR 0002: aesthetic_shadow / cafe_aesthetic 等の
         canonical scorer は ``(image, model)`` 単位で単一 label を返す契約のため、
@@ -933,7 +1094,7 @@ class AnnotationRepository(BaseRepository):
                     delete(Rating).where(
                         Rating.image_id == image_id,
                         Rating.model_id == manual_edit_model_id,
-                    )
+                    ),
                 )
                 if rating is not None:
                     session.add(
@@ -943,7 +1104,7 @@ class AnnotationRepository(BaseRepository):
                             raw_rating_value=rating,
                             normalized_rating=rating,
                             confidence_score=None,
-                        )
+                        ),
                     )
 
                 session.commit()
@@ -1031,6 +1192,7 @@ class AnnotationRepository(BaseRepository):
 
         Raises:
             SQLAlchemyError: データベースエラー時（ロールバック後に再送出）
+
         """
         if not image_ids:
             logger.warning("Empty image_ids list for batch rating update")
@@ -1136,6 +1298,7 @@ class AnnotationRepository(BaseRepository):
 
         Raises:
             SQLAlchemyError: データベースエラー時（ロールバック後に再送出）
+
         """
         if not image_ids:
             logger.warning("Empty image_ids list for batch score update")
