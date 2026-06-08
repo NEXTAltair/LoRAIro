@@ -2255,7 +2255,12 @@ class ImageRepository(BaseRepository):
                     logger.info("指定された条件に一致する画像が見つかりませんでした。")
                     return [], 0
 
-                paged_query = query.order_by(Image.id)
+                # sort_field / sort_direction に従って ORDER BY を動的に決定
+                _sort_col = Image.filename if filter_criteria.sort_field == "file_path" else Image.id
+                if filter_criteria.sort_direction == "desc":
+                    paged_query = query.order_by(_sort_col.desc())
+                else:
+                    paged_query = query.order_by(_sort_col.asc())
                 if filter_criteria.offset:
                     paged_query = paged_query.offset(filter_criteria.offset)
                 if filter_criteria.limit is not None:
