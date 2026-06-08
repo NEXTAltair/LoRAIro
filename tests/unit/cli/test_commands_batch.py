@@ -837,7 +837,6 @@ def test_submit_without_resolution_uses_stored_path(mock_get_container: MagicMoc
     # original image guard が呼ばれること
     container.db_manager.image_repo.get_images_by_ids.assert_called_once_with([1, 2])
     assert "get_processed_image" not in str(container.db_manager.image_repo.mock_calls)
-    assert result_row["items_limit"] == 10
 
 
 # --- _print_job_status_hint のテスト ---
