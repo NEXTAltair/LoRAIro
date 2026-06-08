@@ -13,7 +13,6 @@ import pytest
 from sqlalchemy import create_engine, event
 from sqlalchemy.orm import sessionmaker
 
-from lorairo.cli.commands.export import _criteria_has_effective_filter
 from lorairo.database.filter_criteria import ImageFilterCriteria
 from lorairo.database.repository.image import ImageRepository
 from lorairo.database.schema import Base, ModelType
@@ -449,28 +448,3 @@ class TestExportFullScanGuard:
         # 空 DB なので 0 件が返る
         assert result_images == []
         assert count == 0
-
-    def test_empty_criteria_no_effective_filter(self):
-        """空の criteria では _criteria_has_effective_filter が False を返す。
-
-        _criteria_has_effective_filter は CLI の export.py に定義された関数であり、
-        有効なフィルタ条件が 1 つ以上あるかを判定する。空の criteria は有効フィルタなし。
-        """
-        # すべてデフォルト値の空 criteria
-        empty_criteria = ImageFilterCriteria()
-        assert _criteria_has_effective_filter(empty_criteria) is False
-
-    def test_criteria_with_tags_has_effective_filter(self):
-        """tags を指定した criteria では _criteria_has_effective_filter が True を返す。"""
-        criteria = ImageFilterCriteria(tags=["anime", "girl"])
-        assert _criteria_has_effective_filter(criteria) is True
-
-    def test_criteria_with_rating_has_effective_filter(self):
-        """manual_rating_filter を指定した criteria では _criteria_has_effective_filter が True を返す。"""
-        criteria = ImageFilterCriteria(manual_rating_filter="g")
-        assert _criteria_has_effective_filter(criteria) is True
-
-    def test_criteria_with_score_range_has_effective_filter(self):
-        """score_min を指定した criteria では _criteria_has_effective_filter が True を返す。"""
-        criteria = ImageFilterCriteria(score_min=5.0)
-        assert _criteria_has_effective_filter(criteria) is True

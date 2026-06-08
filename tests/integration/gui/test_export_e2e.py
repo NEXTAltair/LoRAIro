@@ -1,6 +1,6 @@
 """Export E2E 統合テスト
 
-CLI / Service直接 / GUI の3経路が同一フィルタ条件から同一ファイルセットを
+Service直接 / GUI の2経路が同一フィルタ条件から同一ファイルセットを
 エクスポートすることを検証する。
 """
 
@@ -10,7 +10,6 @@ from unittest.mock import Mock, patch
 
 import pytest
 
-from lorairo.cli.commands.export import _build_filter_criteria
 from lorairo.database.filter_criteria import ImageFilterCriteria
 from lorairo.services.dataset_export_service import DatasetExportService
 from lorairo.storage.file_system import FileSystemManager
@@ -18,7 +17,7 @@ from lorairo.storage.file_system import FileSystemManager
 
 @pytest.mark.integration
 class TestExportE2E:
-    """GUI/CLI/Service 3経路の出力一致を検証するE2Eテスト"""
+    """Service直接/GUI 2経路の出力一致を検証するE2Eテスト"""
 
     @pytest.fixture
     def temp_project_dir(self):
@@ -131,41 +130,20 @@ class TestExportE2E:
             )
             yield service
 
-    def test_three_paths_produce_same_files(self, export_service, mock_db_manager):
-        """CLI/Service直接/GUI の3経路が同一ファイルセットを出力する。"""
+    def test_service_and_gui_paths_produce_same_files(self, export_service, mock_db_manager):
+        """Service直接/GUI の2経路が同一ファイルセットを出力する。"""
         criteria = ImageFilterCriteria(project_name="proj", tags=["cat"])
 
         with tempfile.TemporaryDirectory() as out_root:
             out1 = Path(out_root) / "path1"
-            out2 = Path(out_root) / "path2"
             out3 = Path(out_root) / "path3"
             out1.mkdir()
-            out2.mkdir()
             out3.mkdir()
 
             # Path 1: Service 直接
             export_service.export_with_criteria(
                 criteria=criteria,
                 output_path=out1,
-                format_type="txt",
-                resolution=512,
-            )
-
-            # Path 2: CLI _build_filter_criteria 経由
-            cli_criteria = _build_filter_criteria(
-                project_name="proj",
-                tags="cat",
-                excluded_tags=None,
-                caption=None,
-                manual_rating=None,
-                ai_rating=None,
-                include_nsfw=False,
-                score_min=None,
-                score_max=None,
-            )
-            export_service.export_with_criteria(
-                criteria=cli_criteria,
-                output_path=out2,
                 format_type="txt",
                 resolution=512,
             )
@@ -180,9 +158,8 @@ class TestExportE2E:
                 resolution=512,
             )
 
-            # 3経路の出力ファイル名セットが一致する
+            # 2経路の出力ファイル名セットが一致する
             files1 = {f.name for f in out1.iterdir()}
-            files2 = {f.name for f in out2.iterdir()}
             files3 = {f.name for f in out3.iterdir()}
-            assert files1 == files2 == files3
+            assert files1 == files3
             assert len(files1) > 0  # 少なくとも何かファイルが出力されている

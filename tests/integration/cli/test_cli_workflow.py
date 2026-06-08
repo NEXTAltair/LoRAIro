@@ -174,6 +174,10 @@ def test_cli_full_workflow_with_fake_annotator(
     assert annotate_result.exit_code == 0, annotate_result.stdout + annotate_result.stderr
     assert "Annotation completed successfully" in annotate_result.stdout
 
+    # 登録済み画像IDをDBから取得して --image-ids に渡す
+    with sqlite3.connect(project_dir / "image_database.db") as conn:
+        image_ids_csv = ",".join(str(row[0]) for row in conn.execute("SELECT id FROM images").fetchall())
+
     export_dir = tmp_path / "export"
     export_result = cli_runner.invoke(
         app,
@@ -182,8 +186,8 @@ def test_cli_full_workflow_with_fake_annotator(
             "create",
             "--project",
             project_name,
-            "--tags",
-            FAKE_TAG,
+            "--image-ids",
+            image_ids_csv,
             "--output",
             str(export_dir),
         ],
