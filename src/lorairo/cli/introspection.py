@@ -324,6 +324,40 @@ class TagsReplaceResult(BaseModel):
     model_config = ConfigDict(title="TagsReplaceResult")
 
 
+class TagsAddInputSchema(BaseModel):
+    """Implemented options surface accepted by ``tags add``."""
+
+    project: str
+    image_ids: str = Field(description="Comma-separated image IDs, max 500.")
+    tags: str = Field(description="Comma-separated tags to add.")
+    apply: bool = False
+
+    model_config = ConfigDict(title="TagsAddInput")
+
+
+class TagsRemoveInputSchema(BaseModel):
+    """Implemented options surface accepted by ``tags remove``."""
+
+    project: str
+    image_ids: str = Field(description="Comma-separated image IDs, max 500.")
+    tags: str = Field(description="Comma-separated tags to remove.")
+    apply: bool = False
+
+    model_config = ConfigDict(title="TagsRemoveInput")
+
+
+class TagsReplaceInputSchema(BaseModel):
+    """Implemented options surface accepted by ``tags replace``."""
+
+    project: str
+    image_ids: str = Field(description="Comma-separated image IDs, max 500.")
+    from_tag: str = Field(description="Tag to replace.")
+    to_tag: str = Field(description="Replacement tag.")
+    apply: bool = False
+
+    model_config = ConfigDict(title="TagsReplaceInput")
+
+
 class ModelsRefreshResult(BaseModel):
     """JSONL result payload emitted by ``models refresh --json``."""
 
@@ -1083,6 +1117,7 @@ TOOL_SPECS: dict[str, ToolSpec] = {
                     _f("tags", "csv[str]", required=True, description="Comma-separated tags to add."),
                     _f("apply", "bool", default=False, description="Write to DB. Default is dry-run."),
                 ),
+                schema=TagsAddInputSchema,
             ),
         ),
         outputs=(
@@ -1129,6 +1164,7 @@ TOOL_SPECS: dict[str, ToolSpec] = {
                     _f("tags", "csv[str]", required=True, description="Comma-separated tags to remove."),
                     _f("apply", "bool", default=False, description="Write to DB. Default is dry-run."),
                 ),
+                schema=TagsRemoveInputSchema,
             ),
         ),
         outputs=(
@@ -1176,6 +1212,7 @@ TOOL_SPECS: dict[str, ToolSpec] = {
                     _f("to_tag", "str", required=True, description="Replacement tag."),
                     _f("apply", "bool", default=False, description="Write to DB. Default is dry-run."),
                 ),
+                schema=TagsReplaceInputSchema,
             ),
         ),
         outputs=(

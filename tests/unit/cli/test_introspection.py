@@ -509,15 +509,52 @@ def test_describe_tags_replace_exposes_from_to_fields() -> None:
 
 
 def test_describe_tags_add_json_schema_includes_edit_item_and_result() -> None:
-    """tags add --schema json_schema が TagsEditItem / TagsAddResult スキーマを返す (Issue #702)。"""
+    """tags add --schema json_schema が TagsAddInput / TagsEditItem / TagsAddResult スキーマを返す (Issue #702)。"""
     result = runner.invoke(app, ["--json", "describe", "tags add", "--schema", "json_schema"])
 
     assert result.exit_code == 0
     rows = _jsonl(result.stdout)
     schema_names = {row["name"] for row in rows if row.get("type") == "schema"}
+    assert "TagsAddInput" in schema_names
     assert "TagsEditItem" in schema_names
     assert "TagsAddResult" in schema_names
+
+    input_schema = next(row for row in rows if row.get("name") == "TagsAddInput")
+    input_props = set(input_schema["schema"]["properties"])
+    assert {"project", "image_ids", "tags", "apply"} <= input_props
 
     result_schema = next(row for row in rows if row.get("name") == "TagsAddResult")
     props = set(result_schema["schema"]["properties"])
     assert {"target_images", "tags", "added", "dry_run"} <= props
+
+
+def test_describe_tags_remove_json_schema_includes_input_and_result() -> None:
+    """tags remove --schema json_schema が TagsRemoveInput / TagsEditItem / TagsRemoveResult スキーマを返す (Issue #702b)。"""
+    result = runner.invoke(app, ["--json", "describe", "tags remove", "--schema", "json_schema"])
+
+    assert result.exit_code == 0
+    rows = _jsonl(result.stdout)
+    schema_names = {row["name"] for row in rows if row.get("type") == "schema"}
+    assert "TagsRemoveInput" in schema_names
+    assert "TagsEditItem" in schema_names
+    assert "TagsRemoveResult" in schema_names
+
+    input_schema = next(row for row in rows if row.get("name") == "TagsRemoveInput")
+    input_props = set(input_schema["schema"]["properties"])
+    assert {"project", "image_ids", "tags", "apply"} <= input_props
+
+
+def test_describe_tags_replace_json_schema_includes_input_and_result() -> None:
+    """tags replace --schema json_schema が TagsReplaceInput / TagsEditItem / TagsReplaceResult スキーマを返す (Issue #702b)。"""
+    result = runner.invoke(app, ["--json", "describe", "tags replace", "--schema", "json_schema"])
+
+    assert result.exit_code == 0
+    rows = _jsonl(result.stdout)
+    schema_names = {row["name"] for row in rows if row.get("type") == "schema"}
+    assert "TagsReplaceInput" in schema_names
+    assert "TagsEditItem" in schema_names
+    assert "TagsReplaceResult" in schema_names
+
+    input_schema = next(row for row in rows if row.get("name") == "TagsReplaceInput")
+    input_props = set(input_schema["schema"]["properties"])
+    assert {"project", "image_ids", "from_tag", "to_tag", "apply"} <= input_props
