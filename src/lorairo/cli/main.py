@@ -34,7 +34,7 @@ from lorairo.cli._output_mode import (
     set_json_mode,
     strip_mode_flags,
 )
-from lorairo.cli.commands import annotate, batch, export, images, models, project
+from lorairo.cli.commands import annotate, batch, export, images, models, project, tags
 from lorairo.cli.introspection import emit_describe, emit_list_commands
 from lorairo.services.service_container import get_service_container
 from lorairo.utils.config import DEFAULT_CLI_LOG_PATH, DEFAULT_CONFIG_PATH
@@ -89,6 +89,7 @@ app.add_typer(annotate.app, name="annotate", help="Annotation commands")
 app.add_typer(export.app, name="export", help="Dataset export commands")
 app.add_typer(models.app, name="models", help="Model registry commands")
 app.add_typer(batch.app, name="batch", help="Provider Batch API job commands")
+app.add_typer(tags.app, name="tags", help="Tag editing commands (agent-friendly)")
 
 
 @app.callback()
