@@ -543,7 +543,7 @@ def _get_rating_breakdown(container: Any, job_id: int) -> dict[str, int]:
     if not image_ids:
         return {}
 
-    return container.db_manager.annotation_repo.get_rating_breakdown_for_images(image_ids)
+    return dict(container.db_manager.annotation_repo.get_rating_breakdown_for_images(image_ids))
 
 
 def _print_rating_breakdown(breakdown: dict[str, int], total: int) -> None:
