@@ -32,7 +32,6 @@ if TYPE_CHECKING:
 from lorairo.api.batch_import import import_batch_annotations
 from lorairo.api.exceptions import (
     AnnotationFailedError,
-    BatchImportError,
     ResultSetTooLargeError,
 )
 from lorairo.api.project import get_project as api_get_project
@@ -278,6 +277,7 @@ class _StreamAnnotateSummary:
     saved: int = 0
     skipped: int = 0
     preflight_skipped: int = 0
+    resolution_skipped: int = 0
     save_errors: int = 0
     any_success: bool = False
     error_models: set[str] = field(default_factory=set)
@@ -367,6 +367,7 @@ def _stream_annotate(
     save_service: Any,
     resolved_litellm_ids: list[str],
     moderation_preflight_service: ModerationPreflightService | None = None,
+    resolution_skipped: int = 0,
 ) -> _StreamAnnotateSummary:
     """レコードを chunk 単位でロード→アノテーション→DB 保存する (Issue #536 / #537)。
 
@@ -389,7 +390,7 @@ def _stream_annotate(
         ImageLoadMemoryError: メモリ/リソース枯渇による致命的ロード失敗時。
         typer.Exit: ``annotator.annotate`` が例外を投げた場合 (code=1)。
     """
-    summary = _StreamAnnotateSummary()
+    summary = _StreamAnnotateSummary(resolution_skipped=resolution_skipped)
 
     progress_context: Any
     if is_json_mode():
@@ -527,7 +528,7 @@ def _annotate_and_save_chunk(
     selected_image_ids = {int(record["id"]) for record in records_chunk if record.get("id") is not None}
     save_result = save_service.save_annotation_results(
         results,
-        allowed_image_ids=selected_image_ids if selected_image_ids else None,
+        allowed_image_ids=selected_image_ids or None,
     )
     summary.saved += save_result.success_count
     summary.skipped += save_result.skip_count
@@ -555,6 +556,11 @@ def _finalize_annotation_run(summary: _StreamAnnotateSummary, resolved_litellm_i
         return
 
     console.print(f"[green]Loaded {summary.total_loaded} image(s) ({summary.total_failed} failed)[/green]")
+    if summary.resolution_skipped:
+        console.print(
+            f"[yellow]Resolution filter skipped {summary.resolution_skipped} image(s)"
+            f" (no processed image at requested resolution)[/yellow]"
+        )
     if summary.preflight_skipped:
         console.print(f"[yellow]Moderation preflight skipped {summary.preflight_skipped} image(s)[/yellow]")
 
@@ -585,6 +591,8 @@ def _finalize_annotation_run(summary: _StreamAnnotateSummary, resolved_litellm_i
     summary_table.add_row("Saved to DB", str(summary.saved))
     summary_table.add_row("Skipped", str(summary.skipped))
     summary_table.add_row("Preflight Skipped", str(summary.preflight_skipped))
+    if summary.resolution_skipped:
+        summary_table.add_row("Resolution Skipped", str(summary.resolution_skipped))
 
     console.print(summary_table)
 
@@ -611,6 +619,7 @@ def _emit_annotation_result(summary: _StreamAnnotateSummary, resolved_litellm_id
         f"Annotated {summary.saved} image(s)",
         annotated=summary.saved,
         skipped=summary.skipped + summary.preflight_skipped + summary.total_failed,
+        resolution_skipped=summary.resolution_skipped,
         errors=summary.save_errors + len(summary.error_models),
         loaded=summary.total_loaded,
         results=summary.total_results,
@@ -860,6 +869,15 @@ def run(
         "--missing-model",
         help="Annotate only images without saved annotations from the given LiteLLM model ID.",
     ),
+    resolution: int | None = typer.Option(
+        None,
+        "--resolution",
+        min=1,
+        help=(
+            "Use processed images at this resolution (long side in pixels). "
+            "Images without a matching processed image are skipped."
+        ),
+    ),
 ) -> None:
     """Run annotation on project images.
 
@@ -916,7 +934,28 @@ def run(
         if not records_to_process:
             raise AnnotationSelectionError("No images selected for annotation")
 
-        reject_original_image_records(records_to_process, command_name="annotate run")
+        resolution_skipped_count = 0
+        if resolution is not None:
+            # 処理済み画像パスを一括取得してレコードに置換 (Issue #706)
+            record_ids = [r["id"] for r in records_to_process if r.get("id") is not None]
+            proc_paths = image_repo.get_processed_image_paths_by_resolution(record_ids, resolution)
+            filtered_records = []
+            for record in records_to_process:
+                image_id = record.get("id")
+                if image_id in proc_paths:
+                    updated = dict(record)
+                    updated["stored_image_path"] = proc_paths[image_id]
+                    filtered_records.append(updated)
+                else:
+                    resolution_skipped_count += 1
+            records_to_process = filtered_records
+            if not records_to_process:
+                raise AnnotationSelectionError(
+                    f"No processed images found at resolution {resolution}; "
+                    f"{resolution_skipped_count} image(s) skipped"
+                )
+        else:
+            reject_original_image_records(records_to_process, command_name="annotate run")
 
         if len(records_to_process) > MAX_ANNOTATE_IMAGES:
             raise ResultSetTooLargeError(len(records_to_process), MAX_ANNOTATE_IMAGES)
@@ -976,6 +1015,7 @@ def run(
             save_service=container.annotation_save_service,
             resolved_litellm_ids=resolved_litellm_ids,
             moderation_preflight_service=moderation_preflight_service,
+            resolution_skipped=resolution_skipped_count,
         )
 
         _finalize_annotation_run(summary, resolved_litellm_ids)
