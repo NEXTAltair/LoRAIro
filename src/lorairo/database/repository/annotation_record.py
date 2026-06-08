@@ -401,6 +401,71 @@ class AnnotationRepository(BaseRepository):
                 logger.error(f"Atomic batch tag add failed, rolled back: {e}", exc_info=True)
                 raise
 
+    def remove_tag_from_images_batch(
+        self,
+        image_ids: list[int],
+        tag: str,
+    ) -> tuple[bool, list[tuple[int, str]]]:
+        """複数画像から1つのタグを原子的に削除する。
+
+        単一トランザクションで全画像を処理。全件成功 or 全件ロールバック。
+
+        Args:
+            image_ids: 対象画像のIDリスト
+            tag: 削除するタグ
+
+        Returns:
+            (成功フラグ, [(image_id, "changed"|"skipped"), ...])
+
+        Raises:
+            SQLAlchemyError: データベースエラー時(ロールバック後に再送出)
+
+        """
+        if not image_ids:
+            logger.warning("Empty image_ids list for batch tag remove")
+            return (False, [])
+
+        if not tag.strip():
+            logger.warning("Empty tag for batch remove")
+            return (False, [])
+
+        normalized_tag = tag.strip().lower()
+        per_item: list[tuple[int, str]] = []
+
+        with self.session_factory() as session:
+            try:
+                existing_tags_by_image = self._build_existing_tags_map(session, image_ids)
+
+                for image_id in image_ids:
+                    existing_tags = existing_tags_by_image.get(image_id, set())
+                    if normalized_tag not in existing_tags:
+                        logger.debug(
+                            f"Tag '{normalized_tag}' not found for image_id {image_id}, skipping",
+                        )
+                        per_item.append((image_id, "skipped"))
+                        continue
+
+                    session.execute(
+                        delete(Tag).where(
+                            Tag.image_id == image_id,
+                            Tag.tag == normalized_tag,
+                        )
+                    )
+                    per_item.append((image_id, "changed"))
+
+                session.commit()
+                changed = sum(1 for _, s in per_item if s == "changed")
+                logger.info(
+                    f"Atomic batch tag remove completed: tag='{normalized_tag}', "
+                    f"processed={len(image_ids)}, removed={changed}",
+                )
+                return (True, per_item)
+
+            except SQLAlchemyError as e:
+                session.rollback()
+                logger.error(f"Atomic batch tag remove failed, rolled back: {e}", exc_info=True)
+                raise
+
     # --- External tag_db: resolve / register ---
 
     def _get_or_create_tag_id_external(self, session: Session, tag_string: str) -> int | None:
