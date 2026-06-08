@@ -49,7 +49,7 @@ def mock_search_context(tmp_path: pytest.FixtureDef, monkeypatch: pytest.MonkeyP
 @pytest.mark.unit
 class TestImagesSearch:
     def test_search_query_file(self, mock_search_context: tuple, tmp_path: pytest.FixtureDef) -> None:
-        container, _ = mock_search_context
+        _container, _ = mock_search_context
         query_file = tmp_path / "search.json"
         query_file.write_text('{"tags": ["cat"], "limit": 10}')
 
