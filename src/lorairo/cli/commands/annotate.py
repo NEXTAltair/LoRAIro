@@ -512,7 +512,14 @@ def _annotate_and_save_chunk(
     """
     try:
         # Issue #245: AnnotatorLibraryAdapter.annotate は kwarg `litellm_model_ids` を受け取る。
-        results = annotator.annotate(images, litellm_model_ids=resolved_litellm_ids)
+        # Issue #706: --resolution 時は処理済み画像を読むが pHash は元画像の値を使う必要がある。
+        # records には DB 上の phash が入っているため、常に phash_list を渡して再計算を抑制する。
+        phash_list = [str(r["phash"]) for r in records_chunk if r.get("phash") is not None]
+        results = annotator.annotate(
+            images,
+            litellm_model_ids=resolved_litellm_ids,
+            phash_list=phash_list if phash_list else None,
+        )
     except Exception as e:
         logger.error(f"Annotation error: {e}", exc_info=True)
         raise AnnotationFailedError(", ".join(resolved_litellm_ids), len(images), str(e)) from e

@@ -216,7 +216,7 @@ def resolve_stored_path(stored_path: str) -> Path:
     except ValueError:
         pass
 
-    resolved = project_root / stored_path
+    resolved = project_root / path  # バックスラッシュ正規化済みの path を使う (Issue #707)
     logger.trace(f"パス解決: {stored_path} -> {resolved}")
     _resolve_cache[stored_path] = resolved
     return resolved
