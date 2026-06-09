@@ -85,7 +85,7 @@ def _build_container(image_files: list[Path]) -> MagicMock:
     mock_config = MagicMock()
     mock_config.get_setting.return_value = "test_key"
 
-    def _annotate(images, litellm_model_ids):
+    def _annotate(images, litellm_model_ids, **_kwargs):
         return {f"hash_{idx}": {"gpt-4o-mini": MagicMock(error=None)} for idx in range(len(images))}
 
     mock_annotator.annotate.side_effect = _annotate
