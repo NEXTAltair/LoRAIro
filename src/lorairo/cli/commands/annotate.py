@@ -124,7 +124,7 @@ def _iter_record_batches(records: list[dict[str, Any]], batch_size: int) -> Iter
 
 def _load_batch_images(
     records_chunk: list[dict[str, Any]],
-) -> tuple[list[Image.Image], int, int]:
+) -> tuple[list[Image.Image], list[dict[str, Any]], int, int]:
     """1 チャンク分の画像のみ open/load する (Issue #536 / #537)。
 
     各レコードについて ``stored_image_path`` を解決し ``Image.open`` →
@@ -141,7 +141,8 @@ def _load_batch_images(
         records_chunk: ``_iter_record_batches`` が返す 1 チャンク分のレコード。
 
     Returns:
-        tuple: (ロード済み PIL 画像リスト, ロード成功数, ロード失敗数)。
+        tuple: (ロード済み PIL 画像リスト, ロード成功レコードリスト, ロード成功数, ロード失敗数)。
+            images[i] と loaded_records[i] は同じ画像を指す (phash_list 構築用)。
 
     Raises:
         ImageLoadMemoryError: メモリ/リソース枯渇による致命的ロード失敗時。
@@ -149,6 +150,7 @@ def _load_batch_images(
     from lorairo.database.db_core import resolve_stored_path
 
     pil_images: list[Image.Image] = []
+    loaded_records: list[dict[str, Any]] = []
     loaded_count = 0
     failed_count = 0
 
@@ -179,9 +181,10 @@ def _load_batch_images(
             continue
 
         pil_images.append(img)
+        loaded_records.append(record)
         loaded_count += 1
 
-    return pil_images, loaded_count, failed_count
+    return pil_images, loaded_records, loaded_count, failed_count
 
 
 def _select_image_records(
@@ -421,7 +424,8 @@ def _stream_annotate(
                     continue
 
             # Issue #537: FATAL (メモリ枯渇) は ImageLoadMemoryError で送出される。
-            images, loaded, failed = _load_batch_images(chunk)
+            # loaded_records は images と 1:1 対応。失敗分は除外済み (phash_list 用)。
+            images, loaded_records, loaded, failed = _load_batch_images(chunk)
             summary.total_loaded += loaded
             summary.total_failed += failed
 
@@ -432,6 +436,7 @@ def _stream_annotate(
             try:
                 _annotate_and_save_chunk(
                     records_chunk=chunk,
+                    loaded_records=loaded_records,
                     images=images,
                     annotator=annotator,
                     save_service=save_service,
@@ -492,6 +497,7 @@ def _apply_moderation_preflight_to_records(
 def _annotate_and_save_chunk(
     *,
     records_chunk: list[dict[str, Any]],
+    loaded_records: list[dict[str, Any]],
     images: list[Image.Image],
     annotator: Any,
     save_service: Any,
@@ -501,6 +507,8 @@ def _annotate_and_save_chunk(
     """1 チャンク分の画像をアノテーション → DB 保存し ``summary`` を更新する。
 
     Args:
+        records_chunk: チャンク全レコード (保存スコープ・JSON emit 用)。
+        loaded_records: ロード成功レコード。images[i] と 1:1 対応 (phash_list 構築用)。
         images: ロード済み PIL 画像 (非空)。
         annotator: アノテータ。
         save_service: 保存サービス。
@@ -512,7 +520,15 @@ def _annotate_and_save_chunk(
     """
     try:
         # Issue #245: AnnotatorLibraryAdapter.annotate は kwarg `litellm_model_ids` を受け取る。
-        results = annotator.annotate(images, litellm_model_ids=resolved_litellm_ids)
+        # Issue #706: --resolution 時は処理済み画像から pHash を再計算すると元画像の pHash と
+        # 不一致になり DB 保存が 0 件になる。loaded_records は images と 1:1 対応しているため
+        # phash_list を渡して再計算を抑制し DB 上の元 pHash をキーとして使わせる。
+        phash_list = [str(r["phash"]) for r in loaded_records if r.get("phash") is not None]
+        results = annotator.annotate(
+            images,
+            litellm_model_ids=resolved_litellm_ids,
+            phash_list=phash_list if phash_list else None,
+        )
     except Exception as e:
         logger.error(f"Annotation error: {e}", exc_info=True)
         raise AnnotationFailedError(", ".join(resolved_litellm_ids), len(images), str(e)) from e
