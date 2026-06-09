@@ -15,6 +15,7 @@ jobs:
   lint:
     name: Lint (Ruff)
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     steps:
       - uses: actions/checkout@v4
         with:
@@ -41,6 +42,7 @@ jobs:
   typecheck:
     name: Type Check (mypy)
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
         with:
@@ -67,6 +69,7 @@ jobs:
   test-unit:
     name: Unit Tests
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
         with:
@@ -130,6 +133,7 @@ jobs:
   test-integration:
     name: Integration Tests
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
         with:
@@ -314,6 +318,7 @@ jobs:
     # local_packages の coverage は別 job artifact として保持し、ここでは combine しない。
     needs: [test-unit, test-integration]
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     steps:
       - uses: actions/checkout@v4
         with:
