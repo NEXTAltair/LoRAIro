@@ -124,7 +124,7 @@ def _iter_record_batches(records: list[dict[str, Any]], batch_size: int) -> Iter
 
 def _load_batch_images(
     records_chunk: list[dict[str, Any]],
-) -> tuple[list[Image.Image], int, int]:
+) -> tuple[list[Image.Image], list[dict[str, Any]], int, int]:
     """1 チャンク分の画像のみ open/load する (Issue #536 / #537)。
 
     各レコードについて ``stored_image_path`` を解決し ``Image.open`` →
