@@ -12,6 +12,7 @@ from PySide6.QtWidgets import (
     QDialogButtonBox,
     QFormLayout,
     QGroupBox,
+    QLabel,
     QLineEdit,
     QMessageBox,
     QPlainTextEdit,
@@ -184,12 +185,23 @@ class ConfigurationWindow(QDialog):
         tab_layout.addWidget(model_group)
 
         # プロンプト設定
-        prompt_group = QGroupBox("プロンプト")
+        prompt_group = QGroupBox("WebAPI 追加プロンプト")
         prompt_layout = QVBoxLayout(prompt_group)
+
+        prompt_label = QLabel(
+            "WebAPI アノテーション時にベースプロンプトの末尾に追記するテキスト。\n"
+            "ポーズ・照明・構図・スタイル以外に注目させたい指示を入力してください。\n"
+            "空欄の場合はデフォルトのベースプロンプトのみ使用されます。"
+        )
+        prompt_label.setWordWrap(True)
+        prompt_layout.addWidget(prompt_label)
 
         self._text_edit_prompt = QPlainTextEdit()
         self._text_edit_prompt.setObjectName("textEditPrompt")
         self._text_edit_prompt.setMaximumHeight(120)
+        self._text_edit_prompt.setPlaceholderText(
+            "例: Focus on any text or logos visible in the image. Note the language and font style."
+        )
         prompt_layout.addWidget(self._text_edit_prompt)
 
         tab_layout.addWidget(prompt_group)
