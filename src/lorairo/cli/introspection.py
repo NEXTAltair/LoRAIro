@@ -556,7 +556,6 @@ class ErrorRecordItem(BaseModel):
     error_type: str
     error_message: str
     model_name: str | None = None
-    retry_count: int
     resolved_at: str | None = None
     created_at: str | None = None
 
@@ -1602,7 +1601,6 @@ TOOL_SPECS: dict[str, ToolSpec] = {
                     _f("error_type", "str"),
                     _f("error_message", "str"),
                     _f("model_name", "str?"),
-                    _f("retry_count", "int"),
                     _f("resolved_at", "str?"),
                     _f("created_at", "str?"),
                 ),

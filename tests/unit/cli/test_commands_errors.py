@@ -22,7 +22,6 @@ def _make_error_record(
     et: str = "RuntimeError",
     msg: str = "処理がキャンセルされました",
     model_name: str | None = None,
-    retry_count: int = 0,
     resolved_at: datetime | None = None,
     created_at: datetime = _NOW,
 ) -> MagicMock:
@@ -32,7 +31,6 @@ def _make_error_record(
     r.error_type = et
     r.error_message = msg
     r.model_name = model_name
-    r.retry_count = retry_count
     r.resolved_at = resolved_at
     r.created_at = created_at
     return r

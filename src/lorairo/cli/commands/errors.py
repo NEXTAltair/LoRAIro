@@ -95,7 +95,6 @@ def list_errors(
                         "error_type": r.error_type,
                         "error_message": r.error_message,
                         "model_name": r.model_name,
-                        "retry_count": r.retry_count,
                         "resolved_at": r.resolved_at.isoformat() if r.resolved_at else None,
                         "created_at": r.created_at.isoformat() if r.created_at else None,
                     }
