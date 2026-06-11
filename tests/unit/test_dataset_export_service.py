@@ -9,6 +9,7 @@
 
 import json
 import tempfile
+from datetime import UTC, datetime
 from pathlib import Path
 from unittest.mock import MagicMock, Mock, patch
 
@@ -134,10 +135,7 @@ class TestDatasetExportService:
                 # キャプションファイルの内容確認
                 with open(caption_file, encoding="utf-8") as f:
                     caption_content = f.read()
-                assert (
-                    "A young anime girl in school uniform, Beautiful anime character artwork"
-                    == caption_content
-                )
+                assert "A young anime girl in school uniform" == caption_content
 
                 # ファイルコピーが呼び出されたことを確認
                 mock_file_system_manager.copy_file.assert_called_once()
@@ -173,7 +171,7 @@ class TestDatasetExportService:
                 with open(txt_file, encoding="utf-8") as f:
                     content = f.read()
 
-                expected = "anime, girl, school_uniform, A young anime girl in school uniform, Beautiful anime character artwork"
+                expected = "anime, girl, school_uniform, A young anime girl in school uniform"
                 assert content == expected
 
     def test_export_dataset_json_format_success(
@@ -218,10 +216,85 @@ class TestDatasetExportService:
 
                 image_metadata = metadata[expected_image_path]
                 assert image_metadata["tags"] == "anime, girl, school_uniform"
-                assert (
-                    image_metadata["caption"]
-                    == "A young anime girl in school uniform, Beautiful anime character artwork"
-                )
+                assert image_metadata["caption"] == "A young anime girl in school uniform"
+
+    def test_export_dataset_txt_format_deduplicates_tags_and_excludes_rejected(
+        self, dataset_export_service, mock_file_system_manager
+    ):
+        """TXT export は rejected を除外し、同じタグ文字列を1回だけ出力する。"""
+        image_data = {
+            "metadata": {"id": 1},
+            "tags": [
+                {"tag": "1girl", "model_id": 1, "is_edited_manually": False, "rejected_at": None},
+                {"tag": "1girl", "model_id": 2, "is_edited_manually": True, "rejected_at": None},
+                {"tag": "blue_hair", "model_id": 1, "rejected_at": datetime(2026, 6, 11, tzinfo=UTC)},
+                {"tag": "black_hair", "model_id": 1, "rejected_at": None},
+            ],
+            "captions": [],
+        }
+        with tempfile.TemporaryDirectory() as temp_dir:
+            output_path = Path(temp_dir) / "export"
+            output_path.mkdir()
+            processed_image_path = Path("/mock/processed/test_project_00001.webp")
+
+            with (
+                patch.object(
+                    dataset_export_service,
+                    "_resolve_processed_image_path",
+                    return_value=processed_image_path,
+                ),
+                patch.object(dataset_export_service, "_get_image_export_data", return_value=image_data),
+            ):
+                dataset_export_service.export_dataset_txt_format([1], output_path)
+
+            with open(output_path / "test_project_00001.txt", encoding="utf-8") as f:
+                assert f.read() == "1girl, black_hair"
+
+    def test_export_dataset_txt_format_uses_single_manual_caption(
+        self, dataset_export_service, mock_file_system_manager
+    ):
+        """複数 caption は rejected 除外後、手動編集を優先して1本だけ出力する。"""
+        image_data = {
+            "metadata": {"id": 1},
+            "tags": [],
+            "captions": [
+                {
+                    "caption": "ai caption",
+                    "is_edited_manually": False,
+                    "updated_at": datetime(2026, 6, 10, tzinfo=UTC),
+                    "rejected_at": None,
+                },
+                {
+                    "caption": "manual caption",
+                    "is_edited_manually": True,
+                    "updated_at": datetime(2026, 6, 9, tzinfo=UTC),
+                    "rejected_at": None,
+                },
+                {
+                    "caption": "rejected caption",
+                    "is_edited_manually": True,
+                    "updated_at": datetime(2026, 6, 11, tzinfo=UTC),
+                    "rejected_at": datetime(2026, 6, 11, tzinfo=UTC),
+                },
+            ],
+        }
+        with tempfile.TemporaryDirectory() as temp_dir:
+            output_path = Path(temp_dir) / "export"
+            output_path.mkdir()
+            processed_image_path = Path("/mock/processed/test_project_00001.webp")
+
+            with (
+                patch.object(
+                    dataset_export_service,
+                    "_resolve_processed_image_path",
+                    return_value=processed_image_path,
+                ),
+                patch.object(dataset_export_service, "_get_image_export_data", return_value=image_data),
+            ):
+                dataset_export_service.export_dataset_txt_format([1], output_path)
+
+            with open(output_path / "test_project_00001.caption", encoding="utf-8") as f:
+                assert f.read() == "manual caption"
 
     def test_export_dataset_txt_format_empty_image_list(self, dataset_export_service):
         """空の画像リストでのエクスポートエラーテスト"""

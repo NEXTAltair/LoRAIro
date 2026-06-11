@@ -1035,15 +1035,24 @@ class ImageDatabaseManager:
             logger.error(f"処理済み画像メタデータ取得中にエラーが発生しました: {e}", exc_info=True)
             raise
 
-    def get_image_annotations(self, image_id: int) -> dict[str, list[dict[str, Any]]]:
+    def get_image_annotations(
+        self,
+        image_id: int,
+        *,
+        include_rejected: bool = False,
+    ) -> dict[str, list[dict[str, Any]]]:
         """指定された画像のアノテーション(タグ、キャプション、スコア、レーティング)を取得します。
+
+        Args:
+            image_id: 対象画像 ID。
+            include_rejected: True の場合、soft-rejected Tag/Caption も返す。
 
         Raises:
             SQLAlchemyError: DB 操作に失敗した場合は呼び出し元 (Worker boundary) に伝播させる。
 
         """
         try:
-            return self.image_repo.get_image_annotations(image_id)
+            return self.image_repo.get_image_annotations(image_id, include_rejected=include_rejected)
         except SQLAlchemyError as e:
             logger.error(f"画像ID {image_id} のアノテーション取得中にエラー: {e}", exc_info=True)
             raise

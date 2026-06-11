@@ -465,8 +465,14 @@ class ImageRepository(BaseRepository):
                         .where(Image.id.in_(chunk))
                         .where(
                             or_(
-                                exists().where(Tag.image_id == Image.id),
-                                exists().where(Caption.image_id == Image.id),
+                                exists().where(
+                                    Tag.image_id == Image.id,
+                                    Tag.rejected_at.is_(None),
+                                ),
+                                exists().where(
+                                    Caption.image_id == Image.id,
+                                    Caption.rejected_at.is_(None),
+                                ),
                             ),
                         )
                     )
@@ -1035,6 +1041,7 @@ class ImageRepository(BaseRepository):
             "existing": tag.existing,
             "is_edited_manually": tag.is_edited_manually,
             "confidence_score": tag.confidence_score,
+            "rejected_at": tag.rejected_at,
             "created_at": tag.created_at,
             "updated_at": tag.updated_at,
         }
@@ -1056,6 +1063,7 @@ class ImageRepository(BaseRepository):
             "model_id": caption.model_id,
             "existing": caption.existing,
             "is_edited_manually": caption.is_edited_manually,
+            "rejected_at": caption.rejected_at,
             "created_at": caption.created_at,
             "updated_at": caption.updated_at,
         }
@@ -1131,13 +1139,14 @@ class ImageRepository(BaseRepository):
             "updated_at": sl.updated_at,
         }
 
-    def get_image_annotations(self, image_id: int) -> dict[str, Any]:
+    def get_image_annotations(self, image_id: int, *, include_rejected: bool = False) -> dict[str, Any]:
         """指定された画像IDのアノテーション(タグ、キャプション、スコア、スコアラベル、レーティング)を取得する。
 
         Eager Loadingを使用して関連データを効率的に取得する。
 
         Args:
             image_id: アノテーションを取得する画像のID。
+            include_rejected: True の場合、soft-rejected Tag/Caption も返す。
 
         Returns:
             アノテーションデータを含む辞書。
@@ -1182,9 +1191,17 @@ class ImageRepository(BaseRepository):
                     return annotations
 
                 if image.tags:
-                    annotations["tags"] = [self._format_tag_annotation(t) for t in image.tags]
+                    tags = (
+                        image.tags if include_rejected else [t for t in image.tags if t.rejected_at is None]
+                    )
+                    annotations["tags"] = [self._format_tag_annotation(t) for t in tags]
                 if image.captions:
-                    annotations["captions"] = [self._format_caption_annotation(c) for c in image.captions]
+                    captions = (
+                        image.captions
+                        if include_rejected
+                        else [c for c in image.captions if c.rejected_at is None]
+                    )
+                    annotations["captions"] = [self._format_caption_annotation(c) for c in captions]
                 if image.scores:
                     annotations["scores"] = [self._format_score_annotation(s) for s in image.scores]
                 if image.score_labels:
@@ -1313,7 +1330,10 @@ class ImageRepository(BaseRepository):
         if include_untagged:
             # タグが存在しない画像 (outerjoinしてTag.idがNULL)
             # 注: この条件は他のタグ/キャプション条件と併用されない前提 (Manager側で制御想定)
-            query = query.outerjoin(Tag, Image.id == Tag.image_id).where(Tag.id.is_(None))
+            query = query.outerjoin(
+                Tag,
+                and_(Image.id == Tag.image_id, Tag.rejected_at.is_(None)),
+            ).where(Tag.id.is_(None))
         elif tags:
             # use_and (AND検索) の場合、タグごとにJOIN条件を追加する
             if use_and:
@@ -1327,6 +1347,7 @@ class ImageRepository(BaseRepository):
                         select(Tag.id)  # SELECT句は何でもよい (通常は 1 や PK)
                         .where(
                             Tag.image_id == Image.id,  # WHERE句に明示的な相関条件は残す
+                            Tag.rejected_at.is_(None),
                             subquery_condition,
                         )
                         .correlate(Image)  # 明示的に相関させる
@@ -1345,7 +1366,10 @@ class ImageRepository(BaseRepository):
                     else:
                         tag_criteria.append(Tag.tag.like(pattern))
                 if tag_criteria:
-                    query = query.join(Tag, Image.id == Tag.image_id).where(or_(*tag_criteria))
+                    query = query.join(Tag, Image.id == Tag.image_id).where(
+                        Tag.rejected_at.is_(None),
+                        or_(*tag_criteria),
+                    )
                     # logger.debug(f"Query after OR tag join: {query}") # クエリ確認用
 
         if excluded_tags and not include_untagged:
@@ -1357,6 +1381,7 @@ class ImageRepository(BaseRepository):
                     select(Tag.id)
                     .where(
                         Tag.image_id == Image.id,
+                        Tag.rejected_at.is_(None),
                         excluded_condition,
                     )
                     .correlate(Image)
@@ -1379,6 +1404,7 @@ class ImageRepository(BaseRepository):
                 select(Caption.id)
                 .where(
                     Caption.image_id == Image.id,  # メインクエリの Image と相関させる
+                    Caption.rejected_at.is_(None),
                     caption_filter,
                 )
                 .correlate(Image)  # 明示的に相関させる
@@ -1505,13 +1531,20 @@ class ImageRepository(BaseRepository):
 
         model_id_subquery = select(Model.id).where(Model.litellm_model_id == missing_model_litellm_id)
         has_tag = (
-            exists().where(Tag.image_id == Image.id, Tag.model_id.in_(model_id_subquery)).correlate(Image)
+            exists()
+            .where(
+                Tag.image_id == Image.id,
+                Tag.model_id.in_(model_id_subquery),
+                Tag.rejected_at.is_(None),
+            )
+            .correlate(Image)
         )
         has_caption = (
             exists()
             .where(
                 Caption.image_id == Image.id,
                 Caption.model_id.in_(model_id_subquery),
+                Caption.rejected_at.is_(None),
             )
             .correlate(Image)
         )
@@ -1576,7 +1609,11 @@ class ImageRepository(BaseRepository):
             # タグベースのNSFW判定（"nsfw" / "explicit" タグが付いている画像を除外）
             tag_nsfw_condition = (
                 exists()
-                .where(Tag.image_id == Image.id, func.lower(Tag.tag).in_(["nsfw", "explicit"]))
+                .where(
+                    Tag.image_id == Image.id,
+                    Tag.rejected_at.is_(None),
+                    func.lower(Tag.tag).in_(["nsfw", "explicit"]),
+                )
                 .correlate(Image)
             )
 
@@ -1661,9 +1698,19 @@ class ImageRepository(BaseRepository):
 
         if manual_edit_filter is not None:
             has_manual_edit = or_(
-                exists().where(Tag.image_id == Image.id, Tag.is_edited_manually.is_(True)).correlate(Image),
                 exists()
-                .where(Caption.image_id == Image.id, Caption.is_edited_manually.is_(True))
+                .where(
+                    Tag.image_id == Image.id,
+                    Tag.rejected_at.is_(None),
+                    Tag.is_edited_manually.is_(True),
+                )
+                .correlate(Image),
+                exists()
+                .where(
+                    Caption.image_id == Image.id,
+                    Caption.rejected_at.is_(None),
+                    Caption.is_edited_manually.is_(True),
+                )
                 .correlate(Image),
                 exists().where(Score.image_id == Image.id, Score.is_edited_manually).correlate(Image),
             )
@@ -1685,7 +1732,8 @@ class ImageRepository(BaseRepository):
             annotations: フォーマット結果を格納する辞書（直接更新される）。
 
         """
-        if image.tags:
+        adopted_tags = [tag for tag in image.tags if tag.rejected_at is None] if image.tags else []
+        if adopted_tags:
             annotations["tags"] = [
                 {
                     "id": tag.id,
@@ -1700,9 +1748,9 @@ class ImageRepository(BaseRepository):
                     "created_at": tag.created_at,
                     "updated_at": tag.updated_at,
                 }
-                for tag in image.tags
+                for tag in adopted_tags
             ]
-            annotations["tags_text"] = ", ".join([tag.tag for tag in image.tags])
+            annotations["tags_text"] = ", ".join([tag.tag for tag in adopted_tags])
         else:
             annotations["tags"] = []
             annotations["tags_text"] = ""
@@ -1715,7 +1763,10 @@ class ImageRepository(BaseRepository):
             annotations: フォーマット結果を格納する辞書（直接更新される）。
 
         """
-        if image.captions:
+        adopted_captions = (
+            [caption for caption in image.captions if caption.rejected_at is None] if image.captions else []
+        )
+        if adopted_captions:
             annotations["captions"] = [
                 {
                     "id": caption.id,
@@ -1727,12 +1778,12 @@ class ImageRepository(BaseRepository):
                     "created_at": caption.created_at,
                     "updated_at": caption.updated_at,
                 }
-                for caption in image.captions
+                for caption in adopted_captions
             ]
             from datetime import datetime
 
             latest_caption = max(
-                image.captions,
+                adopted_captions,
                 key=lambda c: c.created_at or datetime.min,
             )
             annotations["caption_text"] = latest_caption.caption

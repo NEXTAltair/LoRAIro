@@ -22,6 +22,7 @@
 
 from __future__ import annotations
 
+import datetime
 from unittest.mock import MagicMock, Mock
 
 import pytest
@@ -353,6 +354,64 @@ class TestSaveTagsAndCaptions:
             assert len(rows) == 1
             assert "cat" in rows[0].caption
 
+    def test_save_tags_does_not_revive_rejected_row(
+        self,
+        annotation_repository: AnnotationRepository,
+        image_id: int,
+        memory_session_factory,
+    ) -> None:
+        rejected_at = datetime.datetime(2026, 6, 11, tzinfo=datetime.UTC)
+        with memory_session_factory() as session:
+            session.add(
+                Tag(
+                    image_id=image_id,
+                    model_id=None,
+                    tag="blue_hair",
+                    rejected_at=rejected_at,
+                    existing=False,
+                )
+            )
+            session.commit()
+
+        annotation_repository.save_annotations(
+            image_id=image_id,
+            annotations={"tags": [{"tag": "blue_hair", "model_id": None, "tag_id": None}]},
+        )
+
+        with memory_session_factory() as session:
+            rows = session.execute(select(Tag).where(Tag.image_id == image_id)).scalars().all()
+            assert len(rows) == 1
+            assert rows[0].rejected_at is not None
+
+    def test_save_captions_does_not_revive_rejected_row(
+        self,
+        annotation_repository: AnnotationRepository,
+        image_id: int,
+        memory_session_factory,
+    ) -> None:
+        rejected_at = datetime.datetime(2026, 6, 11, tzinfo=datetime.UTC)
+        with memory_session_factory() as session:
+            session.add(
+                Caption(
+                    image_id=image_id,
+                    model_id=None,
+                    caption="wrong caption",
+                    rejected_at=rejected_at,
+                    existing=False,
+                )
+            )
+            session.commit()
+
+        annotation_repository.save_annotations(
+            image_id=image_id,
+            annotations={"captions": [{"caption": "wrong caption", "model_id": None}]},
+        )
+
+        with memory_session_factory() as session:
+            rows = session.execute(select(Caption).where(Caption.image_id == image_id)).scalars().all()
+            assert len(rows) == 1
+            assert rows[0].rejected_at is not None
+
 
 @pytest.mark.unit
 class TestAddTagToImagesBatch:
@@ -382,6 +441,24 @@ class TestAddTagToImagesBatch:
         with memory_session_factory() as session:
             rows = session.execute(select(Tag).where(Tag.image_id == image_id)).scalars().all()
             assert any(t.tag == "blue_sky" for t in rows)
+
+    def test_remove_tag_soft_rejects_without_physical_delete(
+        self,
+        annotation_repository: AnnotationRepository,
+        image_id: int,
+        memory_session_factory,
+    ) -> None:
+        annotation_repository.add_tag_to_images_batch([image_id], "blue_sky", model_id=None)
+
+        ok, results = annotation_repository.remove_tag_from_images_batch([image_id], "blue_sky")
+
+        assert ok is True
+        assert results == [(image_id, "changed")]
+        with memory_session_factory() as session:
+            rows = session.execute(select(Tag).where(Tag.image_id == image_id)).scalars().all()
+            assert len(rows) == 1
+            assert rows[0].tag == "blue_sky"
+            assert rows[0].rejected_at is not None
 
 
 @pytest.mark.unit

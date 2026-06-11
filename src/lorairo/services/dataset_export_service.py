@@ -111,21 +111,19 @@ class DatasetExportService:
                 self.file_system_manager.copy_file(processed_image_path, output_image_path)
 
                 # Write tag file
-                tags = ", ".join([tag_data["tag"] for tag_data in image_data["tags"]])
-                if merge_caption and image_data["captions"]:
-                    captions = ", ".join(
-                        [caption_data["caption"] for caption_data in image_data["captions"]]
-                    )
+                export_tags = self._resolve_export_tags(image_data["tags"])
+                export_caption = self._resolve_export_caption(image_data["captions"])
+                tags = ", ".join([tag_data["tag"] for tag_data in export_tags])
+                if merge_caption and export_caption:
+                    captions = export_caption["caption"]
                     tags = f"{tags}, {captions}" if tags else captions
 
                 with open(txt_file, "w", encoding="utf-8") as f:
                     f.write(tags)
 
                 # Write caption file
-                if image_data["captions"]:
-                    captions = ", ".join(
-                        [caption_data["caption"] for caption_data in image_data["captions"]]
-                    )
+                if export_caption:
+                    captions = export_caption["caption"]
                     with open(caption_file, "w", encoding="utf-8") as f:
                         f.write(captions)
 
@@ -198,12 +196,10 @@ class DatasetExportService:
                 self.file_system_manager.copy_file(processed_image_path, output_image_path)
 
                 # Build metadata entry
-                tags = ", ".join([tag_data["tag"] for tag_data in image_data["tags"]])
-                captions = (
-                    ", ".join([caption_data["caption"] for caption_data in image_data["captions"]])
-                    if image_data["captions"]
-                    else ""
-                )
+                export_tags = self._resolve_export_tags(image_data["tags"])
+                export_caption = self._resolve_export_caption(image_data["captions"])
+                tags = ", ".join([tag_data["tag"] for tag_data in export_tags])
+                captions = export_caption["caption"] if export_caption else ""
                 # ADR 0028: score_labels は {model, label} を主とする JSON-safe な形で埋め込む
                 score_labels = [
                     {
@@ -405,6 +401,46 @@ class DatasetExportService:
             Dictionary mapping image_id -> list of available resolutions
         """
         return self.db_manager.get_batch_available_resolutions(image_ids)
+
+    @staticmethod
+    def _resolve_export_tags(tags: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        """Resolve adopted tags to a stable string union for export.
+
+        `rejected_at` is target-independent correctness state. Export target
+        vocabulary conversion belongs to export profiles, not this resolver.
+        """
+        resolved_by_tag: dict[str, dict[str, Any]] = {}
+        for tag_data in tags:
+            if tag_data.get("rejected_at") is not None:
+                continue
+            tag = tag_data.get("tag")
+            if not isinstance(tag, str) or not tag:
+                continue
+            current = resolved_by_tag.get(tag)
+            if current is None or (
+                bool(tag_data.get("is_edited_manually")) and not bool(current.get("is_edited_manually"))
+            ):
+                resolved_by_tag[tag] = tag_data
+        return list(resolved_by_tag.values())
+
+    @staticmethod
+    def _resolve_export_caption(captions: list[dict[str, Any]]) -> dict[str, Any] | None:
+        """Resolve adopted captions to the single row used by training export."""
+        adopted = [
+            caption_data
+            for caption_data in captions
+            if caption_data.get("rejected_at") is None and caption_data.get("caption")
+        ]
+        if not adopted:
+            return None
+
+        def sort_key(indexed_caption: tuple[int, dict[str, Any]]) -> tuple[bool, float, int]:
+            index, caption_data = indexed_caption
+            timestamp = caption_data.get("updated_at") or caption_data.get("created_at")
+            timestamp_value = timestamp.timestamp() if isinstance(timestamp, datetime) else 0.0
+            return (bool(caption_data.get("is_edited_manually")), timestamp_value, -index)
+
+        return max(enumerate(adopted), key=sort_key)[1]
 
     def filter_changed_since(self, image_ids: list[int], since: datetime) -> list[int]:
         """指定日時以降にタグ変更があった image_id に絞り込む (#614)。
