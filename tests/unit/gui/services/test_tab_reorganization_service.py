@@ -20,7 +20,10 @@ class TestRequiredConstants:
 
         assert "tabWidgetMainMode" in required
         assert "tabWorkspace" in required
+        assert "tabMap" in required
         assert "tabBatchTag" in required
+        assert "tabResults" in required
+        assert "tabErrors" in required
         assert "splitterBatchTagMain" in required
         assert "groupBoxBatchOperations" in required
         assert "groupBoxAnnotation" in required
@@ -138,15 +141,30 @@ class TestIntegrationWithRealWidgets:
         tab_widget = QTabWidget(parent)
         tab_widget.setObjectName("tabWidgetMainMode")
 
-        # ワークスペースタブ
+        # 検索タブ
         workspace_tab = QWidget()
         workspace_tab.setObjectName("tabWorkspace")
-        tab_widget.addTab(workspace_tab, "ワークスペース")
+        tab_widget.addTab(workspace_tab, "検索")
 
-        # バッチタグタブ
+        # マップタブ（スタブ）
+        map_tab = QWidget()
+        map_tab.setObjectName("tabMap")
+        tab_widget.addTab(map_tab, "マップ")
+
+        # アノテーションタブ
         batch_tag_tab = QWidget()
         batch_tag_tab.setObjectName("tabBatchTag")
-        tab_widget.addTab(batch_tag_tab, "バッチタグ")
+        tab_widget.addTab(batch_tag_tab, "アノテーション")
+
+        # 結果タブ（スタブ）
+        results_tab = QWidget()
+        results_tab.setObjectName("tabResults")
+        tab_widget.addTab(results_tab, "結果")
+
+        # エラータブ
+        errors_tab = QWidget()
+        errors_tab.setObjectName("tabErrors")
+        tab_widget.addTab(errors_tab, "エラー")
 
         # UIファイルのタブ構造に合わせて splitterBatchTagMain を追加
         splitter = QSplitter(batch_tag_tab)
