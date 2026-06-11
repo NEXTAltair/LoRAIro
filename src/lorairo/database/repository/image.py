@@ -1724,6 +1724,11 @@ class ImageRepository(BaseRepository):
 
     # --- Annotation Format for Metadata (batch read helpers) ---
 
+    @staticmethod
+    def _is_annotation_adopted(annotation: Any) -> bool:
+        """Return False only for concrete soft-rejected Tag/Caption rows."""
+        return not isinstance(getattr(annotation, "rejected_at", None), datetime.datetime)
+
     def _format_tags(self, image: Image, annotations: dict[str, Any]) -> None:
         """タグアノテーション情報をフォーマットする。
 
@@ -1732,7 +1737,7 @@ class ImageRepository(BaseRepository):
             annotations: フォーマット結果を格納する辞書（直接更新される）。
 
         """
-        adopted_tags = [tag for tag in image.tags if tag.rejected_at is None] if image.tags else []
+        adopted_tags = [tag for tag in image.tags if self._is_annotation_adopted(tag)] if image.tags else []
         if adopted_tags:
             annotations["tags"] = [
                 {
@@ -1764,7 +1769,9 @@ class ImageRepository(BaseRepository):
 
         """
         adopted_captions = (
-            [caption for caption in image.captions if caption.rejected_at is None] if image.captions else []
+            [caption for caption in image.captions if self._is_annotation_adopted(caption)]
+            if image.captions
+            else []
         )
         if adopted_captions:
             annotations["captions"] = [
