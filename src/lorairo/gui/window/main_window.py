@@ -1,11 +1,12 @@
 # src/lorairo/gui/window/main_window.py
 
 from collections.abc import Callable
+from functools import partial
 from pathlib import Path
 from typing import Any, cast
 
-from PySide6.QtCore import QEasingCurve, QPropertyAnimation, QSettings, QTimer, Signal
-from PySide6.QtGui import QCloseEvent, QResizeEvent
+from PySide6.QtCore import QEasingCurve, QPropertyAnimation, QSettings, Qt, QTimer, Signal
+from PySide6.QtGui import QCloseEvent, QKeySequence, QResizeEvent, QShortcut
 from PySide6.QtWidgets import (
     QFileDialog,
     QGraphicsOpacityEffect,
@@ -38,7 +39,7 @@ from ..services.tab_reorganization_service import TabReorganizationService
 from ..services.widget_setup_service import WidgetSetupService
 from ..services.worker_service import WorkerService
 from ..state.dataset_state import DatasetStateManager
-from ..widgets.error_log_viewer_dialog import ErrorLogViewerDialog
+from ..widgets.error_log_viewer_widget import ErrorLogViewerWidget
 from ..widgets.error_notification_widget import ErrorNotificationWidget
 from ..widgets.filter_search_panel import FilterSearchPanel
 from ..widgets.image_preview import ImagePreviewWidget
@@ -56,7 +57,8 @@ class MainWindow(QMainWindow, Ui_MainWindow):
     """
 
     # QSettings バージョン（UI構造変更時にインクリメント）
-    SETTINGS_VERSION = 1
+    # 2: Wireframes v11 · 6 タブ化（検索/マップ/アノテーション/ジョブ/結果/エラー）
+    SETTINGS_VERSION = 2
 
     # シグナル
     dataset_loaded = Signal(str)  # dataset_path
@@ -96,7 +98,7 @@ class MainWindow(QMainWindow, Ui_MainWindow):
 
     # Error handling UI components
     error_notification_widget: ErrorNotificationWidget | None
-    error_log_dialog: ErrorLogViewerDialog | None
+    error_log_viewer_widget: ErrorLogViewerWidget | None
 
     # Tag management UI components
     tag_management_dialog: TagManagementDialog | None
@@ -117,7 +119,7 @@ class MainWindow(QMainWindow, Ui_MainWindow):
 
             # エラーログメニューアクション接続（UI生成後に接続）
             if hasattr(self, "actionErrorLog"):
-                self.actionErrorLog.triggered.connect(self._show_error_log_dialog)
+                self.actionErrorLog.triggered.connect(self._on_error_notification_clicked)
                 logger.debug("Error log menu action connected")
 
             # タグ管理メニューアクション追加（プログラム的に追加）
@@ -379,11 +381,17 @@ class MainWindow(QMainWindow, Ui_MainWindow):
         # QTabWidget初期化（タブ切り替え用）
         self._setup_tab_widget()
         self._setup_provider_batch_tab()
+        self._setup_errors_tab()
+        self._setup_tab_shortcuts()
 
     def _setup_provider_batch_tab(self) -> None:
-        """バッチAPI job management tab を追加する。"""
+        """ジョブタブ (Provider Batch job management) を追加する。
+
+        Wireframes v11 ナビ順（検索 / マップ / アノテーション / ジョブ / 結果 / エラー）
+        に従い、結果タブ (tabResults) の直前へ挿入する。
+        """
         if not hasattr(self, "tabWidgetMainMode") or not self.tabWidgetMainMode:
-            logger.warning("tabWidgetMainMode not found - バッチAPI tab skipped")
+            logger.warning("tabWidgetMainMode not found - ジョブタブ skipped")
             self.provider_batch_job_widget = None
             return
 
@@ -403,11 +411,12 @@ class MainWindow(QMainWindow, Ui_MainWindow):
                 widget.staging_cleared.connect(self._handle_staging_cleared)
                 widget.staged_images_changed.connect(self._on_staged_images_changed)
             self.provider_batch_job_widget = widget
-            self.tabWidgetMainMode.addTab(widget, "バッチAPI")
-            logger.info("✅ バッチAPI tab initialized")
+            insert_index = self.tabWidgetMainMode.indexOf(self.tabResults)
+            self.tabWidgetMainMode.insertTab(insert_index, widget, "ジョブ")
+            logger.info("✅ ジョブタブ (Provider Batch) initialized")
         except Exception as e:
             self.provider_batch_job_widget = None
-            logger.error(f"❌ バッチAPI tab initialization failed: {e}", exc_info=True)
+            logger.error(f"❌ ジョブタブ initialization failed: {e}", exc_info=True)
 
     def _verify_state_management_connections(self) -> None:
         """状態管理接続の検証（SelectionStateServiceに委譲）"""
@@ -436,11 +445,10 @@ class MainWindow(QMainWindow, Ui_MainWindow):
             # StatusBarに追加（permanent widget = 右端固定）
             self.statusBar().addPermanentWidget(self.error_notification_widget)
 
-            # クリックでダイアログ表示
-            self.error_notification_widget.clicked.connect(self._show_error_log_dialog)
+            # クリックでエラータブへ遷移
+            self.error_notification_widget.clicked.connect(self._on_error_notification_clicked)
 
             # Dialog初期化（遅延生成）
-            self.error_log_dialog = None
             self.tag_management_dialog = None
 
         except Exception as e:
@@ -460,35 +468,43 @@ class MainWindow(QMainWindow, Ui_MainWindow):
         self.tab_widget_right_panel.setCurrentIndex(0)
         logger.info("tabWidgetRightPanel initialized with 1 tab: 画像詳細")
 
-    def _show_error_log_dialog(self) -> None:
-        """エラーログダイアログを表示（オンデマンド）"""
-        try:
-            # Lazy initialization (singleton pattern)
-            if self.error_log_dialog is None:
-                if not self.db_manager:
-                    logger.error("ImageDatabaseManager not available")
-                    QMessageBox.warning(self, "エラー", "データベース接続が確立されていません")
-                    return
+    def _setup_tab_shortcuts(self) -> None:
+        """Ctrl+1〜N でメインタブを切り替えるショートカットを登録する。
 
-                self.error_log_dialog = ErrorLogViewerDialog(
-                    db_manager=self.db_manager,
-                    parent=self,
-                    auto_load=True,
-                )
+        Wireframes v11 のナビショートカット (⌘1–⌘8) に対応する。
+        """
+        if not hasattr(self, "tabWidgetMainMode") or not self.tabWidgetMainMode:
+            logger.warning("tabWidgetMainMode not found - tab shortcuts skipped")
+            return
+        for i in range(self.tabWidgetMainMode.count()):
+            shortcut = QShortcut(QKeySequence(f"Ctrl+{i + 1}"), self)
+            shortcut.setContext(Qt.ShortcutContext.ApplicationShortcut)
+            shortcut.activated.connect(partial(self.tabWidgetMainMode.setCurrentIndex, i))
+        logger.debug(f"Tab shortcuts registered: Ctrl+1..Ctrl+{self.tabWidgetMainMode.count()}")
 
-                # Signal接続（error_resolvedで通知Widget更新）
-                self.error_log_dialog.error_resolved.connect(self._on_error_resolved)
+    def _setup_errors_tab(self) -> None:
+        """エラータブに ErrorLogViewerWidget を埋め込む。
 
-                logger.info("ErrorLogViewerDialog created (lazy initialization)")
+        Wireframes v11 · エラータブ常設化。従来の ErrorLogViewerDialog
+        （ポップアップ）を廃し、常設 widget としてタブに配置する。
+        """
+        container = getattr(self, "tabErrors", None)
+        if container is None:
+            logger.warning("tabErrors not found - errors tab skipped")
+            self.error_log_viewer_widget = None
+            return
 
-            # Dialog表示
-            self.error_log_dialog.show()
-            self.error_log_dialog.raise_()  # 前面表示
-            self.error_log_dialog.activateWindow()  # アクティブ化
+        widget = ErrorLogViewerWidget(parent=container)
+        if self.db_manager:
+            widget.set_db_manager(self.db_manager)
+        widget.error_resolved.connect(self._on_error_resolved)
+        container.layout().addWidget(widget)
+        self.error_log_viewer_widget = widget
+        logger.info("✅ エラータブ (ErrorLogViewerWidget) initialized")
 
-        except Exception as e:
-            logger.error(f"Failed to show error log dialog: {e}", exc_info=True)
-            QMessageBox.critical(self, "エラー", f"エラーログの表示に失敗しました:\n{e}")
+    def _on_error_notification_clicked(self) -> None:
+        """エラー通知 / メニュー操作でエラータブへ遷移する。"""
+        self.tabWidgetMainMode.setCurrentWidget(self.tabErrors)
 
     def _on_error_resolved(self, error_id: int) -> None:
         """エラー解決時の処理（通知Widget更新）"""
@@ -1508,9 +1524,9 @@ class MainWindow(QMainWindow, Ui_MainWindow):
                 f"batchModelSelectionから選択されたモデル (litellm_model_ids): {selected_litellm_model_ids}"
             )
 
-        # バッチタグタブの場合はステージング画像を使用
+        # アノテーションタブの場合はステージング画像を使用
         override_image_paths: list[str] | None = None
-        if self.tabWidgetMainMode.currentIndex() == 1:  # tabBatchTag
+        if self.tabWidgetMainMode.currentWidget() is self.tabBatchTag:
             override_image_paths = self._get_staged_image_paths_for_annotation()
             if not override_image_paths:
                 QMessageBox.information(
@@ -1684,9 +1700,9 @@ class MainWindow(QMainWindow, Ui_MainWindow):
             QMessageBox.information(self, "選択なし", "バッチタグに追加する画像が選択されていません。")
             return
 
-        # バッチタグタブへ移動してステージングタブを表示
+        # アノテーションタブへ移動してステージングタブを表示
         if hasattr(self, "tabWidgetMainMode") and self.tabWidgetMainMode:
-            self.tabWidgetMainMode.setCurrentIndex(1)
+            self.tabWidgetMainMode.setCurrentWidget(self.tabBatchTag)
         if hasattr(self, "tabWidgetBatchTagWorkflow") and self.tabWidgetBatchTagWorkflow:
             self.tabWidgetBatchTagWorkflow.setCurrentIndex(0)
 
@@ -1725,25 +1741,25 @@ class MainWindow(QMainWindow, Ui_MainWindow):
         logger.info("Main tab connections setup completed")
 
     def _on_main_tab_changed(self, index: int) -> None:
-        """
-        メインタブ切り替えハンドラ
+        """メインタブ切り替えハンドラ。
+
+        タブ構成変更（Wireframes v11 · 6 タブ化）に耐えるよう、index の
+        マジックナンバーではなく widget 同一性で分岐する。
 
         Args:
-            index: 切り替え先のタブインデックス（0=ワークスペース、1=バッチタグ）
+            index: 切り替え先のタブインデックス。
         """
-        if index == 0:  # ワークスペース
-            logger.info("Switched to Workspace tab")
-            # ワークスペースタブに切り替え時の処理（必要に応じて実装）
-        elif index == 1:  # バッチタグ
-            logger.info("Switched to Batch Tag tab")
+        current = self.tabWidgetMainMode.widget(index)
+        if current is getattr(self, "tabBatchTag", None):
+            logger.info("Switched to Annotate tab")
             self._refresh_batch_tag_staging()
-        elif index == 2:  # バッチAPI
-            logger.info("Switched to バッチAPI tab")
-            widget = getattr(self, "provider_batch_job_widget", None)
-            if widget is not None:
-                widget.refresh_jobs()
-        else:
-            logger.warning(f"Unknown tab index: {index}")
+        elif self.provider_batch_job_widget is not None and current is self.provider_batch_job_widget:
+            logger.info("Switched to Jobs tab")
+            self.provider_batch_job_widget.refresh_jobs()
+        elif current is getattr(self, "tabErrors", None):
+            logger.info("Switched to Errors tab")
+            if self.error_log_viewer_widget is not None and self.db_manager:
+                self.error_log_viewer_widget.load_error_records()
 
     def _refresh_batch_tag_staging(self) -> None:
         """

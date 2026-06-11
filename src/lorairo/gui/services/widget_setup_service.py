@@ -220,10 +220,10 @@ class WidgetSetupService:
             logger.error("❌ tabWidgetMainMode が存在しません")
             return
 
-        # バッチタグタブ取得（タブインデックス1）
-        batch_tag_tab = main_window.tabWidgetMainMode.widget(1)
+        # アノテーションタブ取得（tabBatchTag、index 非依存）
+        batch_tag_tab = getattr(main_window, "tabBatchTag", None)
         if not batch_tag_tab:
-            logger.error("❌ バッチタグタブ（インデックス1）が存在しません")
+            logger.error("❌ アノテーションタブ（tabBatchTag）が存在しません")
             return
 
         # バッチタグタブのメインスプリッター取得（左右2カラム）
