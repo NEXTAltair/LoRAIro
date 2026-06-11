@@ -1821,6 +1821,28 @@ class ImageDatabaseManager:
             logger.error(f"ファイルパスからの画像ID取得エラー: {e}", exc_info=True)
             raise
 
+    def get_created_at_histogram(self, bins: int = 20) -> list[tuple[datetime, datetime, int]]:
+        """Image.created_at 分布ヒストグラムを取得する。
+
+        Args:
+            bins: ビン数（デフォルト 20）。
+
+        Returns:
+            list of (bin_start, bin_end, count)。空データの場合は空リスト。
+        """
+        return self.image_repo.get_created_at_histogram(bins=bins)
+
+    def get_recently_used_model_ids(self, limit: int = 10) -> list[str]:
+        """アノテーション実績があるモデルの litellm_model_id を返す。
+
+        Args:
+            limit: 最大件数（デフォルト 10）。
+
+        Returns:
+            litellm_model_id のリスト。
+        """
+        return self.image_repo.get_recently_used_model_ids(limit=limit)
+
 
 # --- 初期化チェック ---
 # try:
