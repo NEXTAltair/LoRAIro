@@ -786,31 +786,48 @@ class TestOpenDialogs:
 
 
 class TestTabChangedHandler:
-    """メインタブ切り替えハンドラのテスト"""
+    """メインタブ切り替えハンドラのテスト（widget 同一性ベース）"""
 
-    def test_on_main_tab_changed_workspace_tab_logs_info(self):
+    def test_on_main_tab_changed_annotate_tab_refreshes(self):
         from lorairo.gui.window.main_window import MainWindow
 
         mock_window = Mock()
-        with patch("lorairo.gui.window.main_window.logger") as mock_logger:
-            MainWindow._on_main_tab_changed(mock_window, 0)
-            mock_logger.info.assert_called_once_with("Switched to Workspace tab")
-
-    def test_on_main_tab_changed_batch_tag_tab_refreshes(self):
-        from lorairo.gui.window.main_window import MainWindow
-
-        mock_window = Mock()
-        MainWindow._on_main_tab_changed(mock_window, 1)
+        annotate_tab = Mock()
+        mock_window.tabBatchTag = annotate_tab
+        mock_window.tabWidgetMainMode.widget.return_value = annotate_tab
+        MainWindow._on_main_tab_changed(mock_window, 2)
         mock_window._refresh_batch_tag_staging.assert_called_once()
 
-    def test_on_main_tab_changed_unknown_tab_logs_warning(self):
+    def test_on_main_tab_changed_jobs_tab_refreshes_jobs(self):
         from lorairo.gui.window.main_window import MainWindow
 
         mock_window = Mock()
-        with patch("lorairo.gui.window.main_window.logger") as mock_logger:
-            MainWindow._on_main_tab_changed(mock_window, 99)
-            mock_logger.warning.assert_called_once()
-            assert "99" in mock_logger.warning.call_args[0][0]
+        jobs_widget = Mock()
+        mock_window.provider_batch_job_widget = jobs_widget
+        mock_window.tabWidgetMainMode.widget.return_value = jobs_widget
+        MainWindow._on_main_tab_changed(mock_window, 3)
+        jobs_widget.refresh_jobs.assert_called_once()
+
+    def test_on_main_tab_changed_errors_tab_loads_records(self):
+        from lorairo.gui.window.main_window import MainWindow
+
+        mock_window = Mock()
+        errors_tab = Mock()
+        viewer = Mock()
+        mock_window.tabErrors = errors_tab
+        mock_window.error_log_viewer_widget = viewer
+        mock_window.tabWidgetMainMode.widget.return_value = errors_tab
+        MainWindow._on_main_tab_changed(mock_window, 5)
+        viewer.load_error_records.assert_called_once()
+
+    def test_on_main_tab_changed_search_tab_is_silent(self):
+        from lorairo.gui.window.main_window import MainWindow
+
+        mock_window = Mock()
+        # どの既知 widget にも一致しないタブ（検索 / マップ / 結果）は無処理
+        mock_window.tabWidgetMainMode.widget.return_value = Mock()
+        MainWindow._on_main_tab_changed(mock_window, 0)
+        mock_window._refresh_batch_tag_staging.assert_not_called()
 
 
 class TestRefreshBatchTagStaging:

@@ -38,7 +38,7 @@ from ..services.tab_reorganization_service import TabReorganizationService
 from ..services.widget_setup_service import WidgetSetupService
 from ..services.worker_service import WorkerService
 from ..state.dataset_state import DatasetStateManager
-from ..widgets.error_log_viewer_dialog import ErrorLogViewerDialog
+from ..widgets.error_log_viewer_widget import ErrorLogViewerWidget
 from ..widgets.error_notification_widget import ErrorNotificationWidget
 from ..widgets.filter_search_panel import FilterSearchPanel
 from ..widgets.image_preview import ImagePreviewWidget
@@ -97,7 +97,7 @@ class MainWindow(QMainWindow, Ui_MainWindow):
 
     # Error handling UI components
     error_notification_widget: ErrorNotificationWidget | None
-    error_log_dialog: ErrorLogViewerDialog | None
+    error_log_viewer_widget: ErrorLogViewerWidget | None
 
     # Tag management UI components
     tag_management_dialog: TagManagementDialog | None
@@ -118,7 +118,7 @@ class MainWindow(QMainWindow, Ui_MainWindow):
 
             # エラーログメニューアクション接続（UI生成後に接続）
             if hasattr(self, "actionErrorLog"):
-                self.actionErrorLog.triggered.connect(self._show_error_log_dialog)
+                self.actionErrorLog.triggered.connect(self._on_error_notification_clicked)
                 logger.debug("Error log menu action connected")
 
             # タグ管理メニューアクション追加（プログラム的に追加）
@@ -380,6 +380,7 @@ class MainWindow(QMainWindow, Ui_MainWindow):
         # QTabWidget初期化（タブ切り替え用）
         self._setup_tab_widget()
         self._setup_provider_batch_tab()
+        self._setup_errors_tab()
 
     def _setup_provider_batch_tab(self) -> None:
         """ジョブタブ (Provider Batch job management) を追加する。
@@ -442,11 +443,10 @@ class MainWindow(QMainWindow, Ui_MainWindow):
             # StatusBarに追加（permanent widget = 右端固定）
             self.statusBar().addPermanentWidget(self.error_notification_widget)
 
-            # クリックでダイアログ表示
-            self.error_notification_widget.clicked.connect(self._show_error_log_dialog)
+            # クリックでエラータブへ遷移
+            self.error_notification_widget.clicked.connect(self._on_error_notification_clicked)
 
             # Dialog初期化（遅延生成）
-            self.error_log_dialog = None
             self.tag_management_dialog = None
 
         except Exception as e:
@@ -466,35 +466,29 @@ class MainWindow(QMainWindow, Ui_MainWindow):
         self.tab_widget_right_panel.setCurrentIndex(0)
         logger.info("tabWidgetRightPanel initialized with 1 tab: 画像詳細")
 
-    def _show_error_log_dialog(self) -> None:
-        """エラーログダイアログを表示（オンデマンド）"""
-        try:
-            # Lazy initialization (singleton pattern)
-            if self.error_log_dialog is None:
-                if not self.db_manager:
-                    logger.error("ImageDatabaseManager not available")
-                    QMessageBox.warning(self, "エラー", "データベース接続が確立されていません")
-                    return
+    def _setup_errors_tab(self) -> None:
+        """エラータブに ErrorLogViewerWidget を埋め込む。
 
-                self.error_log_dialog = ErrorLogViewerDialog(
-                    db_manager=self.db_manager,
-                    parent=self,
-                    auto_load=True,
-                )
+        Wireframes v11 · エラータブ常設化。従来の ErrorLogViewerDialog
+        （ポップアップ）を廃し、常設 widget としてタブに配置する。
+        """
+        container = getattr(self, "tabErrors", None)
+        if container is None:
+            logger.warning("tabErrors not found - errors tab skipped")
+            self.error_log_viewer_widget = None
+            return
 
-                # Signal接続（error_resolvedで通知Widget更新）
-                self.error_log_dialog.error_resolved.connect(self._on_error_resolved)
+        widget = ErrorLogViewerWidget(parent=container)
+        if self.db_manager:
+            widget.set_db_manager(self.db_manager)
+        widget.error_resolved.connect(self._on_error_resolved)
+        container.layout().addWidget(widget)
+        self.error_log_viewer_widget = widget
+        logger.info("✅ エラータブ (ErrorLogViewerWidget) initialized")
 
-                logger.info("ErrorLogViewerDialog created (lazy initialization)")
-
-            # Dialog表示
-            self.error_log_dialog.show()
-            self.error_log_dialog.raise_()  # 前面表示
-            self.error_log_dialog.activateWindow()  # アクティブ化
-
-        except Exception as e:
-            logger.error(f"Failed to show error log dialog: {e}", exc_info=True)
-            QMessageBox.critical(self, "エラー", f"エラーログの表示に失敗しました:\n{e}")
+    def _on_error_notification_clicked(self) -> None:
+        """エラー通知 / メニュー操作でエラータブへ遷移する。"""
+        self.tabWidgetMainMode.setCurrentWidget(self.tabErrors)
 
     def _on_error_resolved(self, error_id: int) -> None:
         """エラー解決時の処理（通知Widget更新）"""
@@ -1749,6 +1743,10 @@ class MainWindow(QMainWindow, Ui_MainWindow):
         ):
             logger.info("Switched to Jobs tab")
             self.provider_batch_job_widget.refresh_jobs()
+        elif current is getattr(self, "tabErrors", None):
+            logger.info("Switched to Errors tab")
+            if self.error_log_viewer_widget is not None and self.db_manager:
+                self.error_log_viewer_widget.load_error_records()
 
     def _refresh_batch_tag_staging(self) -> None:
         """

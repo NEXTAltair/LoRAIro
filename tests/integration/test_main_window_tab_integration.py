@@ -10,6 +10,7 @@ import pytest
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QTabWidget
 
+from lorairo.gui.widgets.error_log_viewer_widget import ErrorLogViewerWidget
 from lorairo.gui.window.main_window import MainWindow
 
 
@@ -60,6 +61,20 @@ class TestMainWindowTabInitialization:
         assert tab_widget.widget(2) is window.tabBatchTag
         assert tab_widget.widget(3) is window.provider_batch_job_widget
         assert tab_widget.widget(5).objectName() == "tabErrors"
+
+    def test_errors_tab_embeds_error_log_viewer(self, main_window_with_tabs):
+        """エラータブに ErrorLogViewerWidget が常設される"""
+        errors_tab = main_window_with_tabs.tabWidgetMainMode.widget(5)
+        assert errors_tab.objectName() == "tabErrors"
+        viewer = errors_tab.findChild(ErrorLogViewerWidget)
+        assert viewer is not None
+        assert main_window_with_tabs.error_log_viewer_widget is viewer
+
+    def test_error_notification_click_navigates_to_errors_tab(self, main_window_with_tabs):
+        """エラー通知クリックでエラータブへ遷移する"""
+        window = main_window_with_tabs
+        window._on_error_notification_clicked()
+        assert window.tabWidgetMainMode.currentWidget() is window.tabErrors
 
     def test_workspace_tab_contains_splitter(self, main_window_with_tabs):
         """ワークスペースタブにsplitterMainWorkAreaが含まれる"""
