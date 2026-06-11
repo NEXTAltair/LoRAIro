@@ -1,11 +1,12 @@
 # src/lorairo/gui/window/main_window.py
 
 from collections.abc import Callable
+from functools import partial
 from pathlib import Path
 from typing import Any, cast
 
-from PySide6.QtCore import QEasingCurve, QPropertyAnimation, QSettings, QTimer, Signal
-from PySide6.QtGui import QCloseEvent, QResizeEvent
+from PySide6.QtCore import QEasingCurve, QPropertyAnimation, QSettings, Qt, QTimer, Signal
+from PySide6.QtGui import QCloseEvent, QKeySequence, QResizeEvent, QShortcut
 from PySide6.QtWidgets import (
     QFileDialog,
     QGraphicsOpacityEffect,
@@ -381,6 +382,7 @@ class MainWindow(QMainWindow, Ui_MainWindow):
         self._setup_tab_widget()
         self._setup_provider_batch_tab()
         self._setup_errors_tab()
+        self._setup_tab_shortcuts()
 
     def _setup_provider_batch_tab(self) -> None:
         """ジョブタブ (Provider Batch job management) を追加する。
@@ -465,6 +467,17 @@ class MainWindow(QMainWindow, Ui_MainWindow):
         # 初期表示は画像詳細タブ（インデックス0）
         self.tab_widget_right_panel.setCurrentIndex(0)
         logger.info("tabWidgetRightPanel initialized with 1 tab: 画像詳細")
+
+    def _setup_tab_shortcuts(self) -> None:
+        """Ctrl+1〜N でメインタブを切り替えるショートカットを登録する。
+
+        Wireframes v11 のナビショートカット (⌘1–⌘8) に対応する。
+        """
+        for i in range(self.tabWidgetMainMode.count()):
+            shortcut = QShortcut(QKeySequence(f"Ctrl+{i + 1}"), self)
+            shortcut.setContext(Qt.ShortcutContext.ApplicationShortcut)
+            shortcut.activated.connect(partial(self.tabWidgetMainMode.setCurrentIndex, i))
+        logger.debug(f"Tab shortcuts registered: Ctrl+1..Ctrl+{self.tabWidgetMainMode.count()}")
 
     def _setup_errors_tab(self) -> None:
         """エラータブに ErrorLogViewerWidget を埋め込む。

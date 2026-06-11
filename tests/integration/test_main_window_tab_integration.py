@@ -7,7 +7,7 @@ MainWindow初期化、タブ切り替え、ウィジェット統合を検証。
 from unittest.mock import Mock
 
 import pytest
-from PySide6.QtCore import Qt
+from PySide6.QtGui import QShortcut
 from PySide6.QtWidgets import QTabWidget
 
 from lorairo.gui.widgets.error_log_viewer_widget import ErrorLogViewerWidget
@@ -175,6 +175,24 @@ class TestTabSwitching:
         assert model_selection.objectName() == "providerBatchModelSelection"
         assert provider_widget.modelSelectionPlaceholder.parent() is None
         assert provider_widget.executionLayout.indexOf(model_selection) != -1
+
+    def test_tab_shortcuts_registered_for_all_tabs(self, main_window_with_tabs):
+        """Ctrl+1〜N のショートカットがタブ数分登録される"""
+        window = main_window_with_tabs
+        sequences = {sc.key().toString() for sc in window.findChildren(QShortcut)}
+        expected = {f"Ctrl+{i + 1}" for i in range(window.tabWidgetMainMode.count())}
+        assert expected.issubset(sequences)
+
+    def test_tab_shortcut_activation_switches_tab(self, main_window_with_tabs):
+        """ショートカット発火でメインタブが切り替わる"""
+        window = main_window_with_tabs
+        shortcut_by_seq = {sc.key().toString(): sc for sc in window.findChildren(QShortcut)}
+
+        shortcut_by_seq["Ctrl+4"].activated.emit()
+        assert window.tabWidgetMainMode.currentIndex() == 3
+
+        shortcut_by_seq["Ctrl+1"].activated.emit()
+        assert window.tabWidgetMainMode.currentIndex() == 0
 
 
 class TestBatchTagWidgetIntegration:
