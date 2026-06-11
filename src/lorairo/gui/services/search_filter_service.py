@@ -434,3 +434,18 @@ class SearchFilterService:
         except SQLAlchemyError as e:
             logger.error(f"最近使用モデル取得エラー: {e}", exc_info=True)
             return []
+
+    def get_created_at_histogram(self, bins: int = 20) -> list[tuple[datetime, datetime, int]]:
+        """Image.created_at 分布ヒストグラムを取得する。
+
+        Args:
+            bins: ヒストグラムのビン数（デフォルト 20）。
+
+        Returns:
+            (bin_start, bin_end, count) のリスト。エラー時は空リスト。
+        """
+        try:
+            return self.db_manager.get_created_at_histogram(bins=bins)
+        except SQLAlchemyError as e:
+            logger.error(f"ヒストグラム取得エラー: {e}", exc_info=True)
+            return []

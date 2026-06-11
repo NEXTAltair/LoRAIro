@@ -22,7 +22,7 @@ import 互換性: `PipelineState` Enum は本モジュールから引き続き e
 """
 
 from datetime import datetime
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 from PySide6.QtCore import Signal
 from PySide6.QtGui import QCloseEvent
@@ -39,6 +39,7 @@ from .filter_search import (
     PipelineStateMachine,
     TagSuggestionWidget,
 )
+from .search_facets_sidebar import SearchFacetsSidebar
 
 # 後方互換性: 旧 import path から PipelineState を export する
 __all__ = ["FilterSearchPanel", "PipelineState"]
@@ -82,6 +83,8 @@ class FilterSearchPanel(QScrollArea):
         self._tag_suggestion = TagSuggestionWidget(self)
         self._count_estimate = CountEstimateWidget(self)
         self._favorite_filter = FavoriteFilterPanel(self)
+        self._search_facets_sidebar = SearchFacetsSidebar(self)
+        self._facet_values: dict[str, object] = {}
 
         # 現在の SearchWorker の ID
         self._current_search_worker_id: str | None = None
@@ -235,10 +238,12 @@ class FilterSearchPanel(QScrollArea):
         self.ui.checkboxIncludeNSFW.setVisible(False)
 
         # お気に入りフィルター UI をメインレイアウトに追加
+        # Phase 4: Search サイドバー（フィルター UI の最後に追加）
         contents_layout = self.ui.scrollAreaWidgetContents.layout()
         if isinstance(contents_layout, QBoxLayout):
             insert_index = contents_layout.count() - 1
             contents_layout.insertWidget(insert_index, self._favorite_filter)
+            contents_layout.addWidget(self._search_facets_sidebar)
 
     def _setup_sub_components(self) -> None:
         """Sub-component の依存と連携を設定する。"""
@@ -294,6 +299,9 @@ class FilterSearchPanel(QScrollArea):
         self.date_range_slider.valueChanged.connect(self._on_filter_value_changed)
         self.score_range_slider.valueChanged.connect(self._on_filter_value_changed)
 
+        # Phase 4: facets サイドバー
+        self._search_facets_sidebar.facets_changed.connect(self._on_facets_changed)
+
     # ============================================================
     # ===  依存注入 setter (外部 API)
     # ============================================================
@@ -337,6 +345,14 @@ class FilterSearchPanel(QScrollArea):
             logger.warning(f"SearchFilterService missing methods: {missing}")
         else:
             logger.debug("SearchFilterService method validation: OK")
+
+        # Phase 4: 初期化時にモデルリストとヒストグラムを更新
+        if hasattr(service, "get_recently_used_model_ids"):
+            model_ids = service.get_recently_used_model_ids()
+            self._search_facets_sidebar.update_models(model_ids)
+        if hasattr(service, "get_created_at_histogram"):
+            histogram_bins = service.get_created_at_histogram()
+            self._search_facets_sidebar.update_histogram(histogram_bins)
 
     def set_tag_suggestion_service(self, service: "TagSuggestionService | None") -> None:
         """TagSuggestionService を設定する (旧 API 互換)。"""
@@ -721,6 +737,7 @@ class FilterSearchPanel(QScrollArea):
 
         score_min_internal, score_max_internal = self.score_range_slider.get_range()
         has_score_filter = score_min_internal != 0 or score_max_internal != 1000
+        has_facet_filter = any(v is not None for v in self._facet_values.values())
 
         if not keywords and not any(
             [
@@ -732,6 +749,7 @@ class FilterSearchPanel(QScrollArea):
                 self.ui.comboRating.currentText() != "----",
                 self.ui.comboAIRating.currentText() != "----",
                 has_score_filter,
+                has_facet_filter,
             ],
         ):
             logger.debug("検索条件が未指定のため検索をスキップ")
@@ -770,7 +788,16 @@ class FilterSearchPanel(QScrollArea):
             include_unrated=self.ui.checkboxIncludeUnrated.isChecked(),
             score_min=score_min,
             score_max=score_max,
+            manual_edit_filter=cast(bool | None, self._facet_values.get("manual_edit_filter")),
+            reviewed_at_filter=cast(str | None, self._facet_values.get("reviewed_at_filter")),
+            error_state_filter=cast(str | None, self._facet_values.get("error_state_filter")),
+            model_filter=cast(list[str] | None, self._facet_values.get("model_filter")),
         )
+
+    def _on_facets_changed(self, facets: dict[str, object]) -> None:
+        """Phase 4 facet 変化ハンドラ: facet 値を保存して検索を再実行する。"""
+        self._facet_values = facets
+        self._on_search_requested()
 
     def _on_search_requested(self) -> None:
         """検索要求処理: WorkerService 経由で非同期実行 (フォールバック: 同期)。"""
