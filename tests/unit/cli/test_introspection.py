@@ -558,3 +558,29 @@ def test_describe_tags_replace_json_schema_includes_input_and_result() -> None:
     input_schema = next(row for row in rows if row.get("name") == "TagsReplaceInput")
     input_props = set(input_schema["schema"]["properties"])
     assert {"project", "image_ids", "from_tag", "to_tag", "apply"} <= input_props
+
+
+def test_errors_commands_in_list_commands() -> None:
+    """errors list / errors resolve が list-commands に現れる (Issue #714)。"""
+    result = runner.invoke(app, ["--json", "list-commands"])
+    assert result.exit_code == 0
+    rows = _jsonl(result.stdout)
+    paths = {r.get("path") for r in rows if r.get("kind") == "item"}
+    assert "errors list" in paths
+    assert "errors resolve" in paths
+
+
+def test_describe_errors_list_exposes_required_fields() -> None:
+    """describe errors list が project 必須フィールドを返す (Issue #714)。"""
+    result = runner.invoke(app, ["--json", "describe", "errors list"])
+    assert result.exit_code == 0
+    rows = _jsonl(result.stdout)
+    assert rows[0]["path"] == "errors list"
+
+
+def test_describe_errors_resolve_exposes_required_fields() -> None:
+    """describe errors resolve が project 必須フィールドを返す (Issue #714)。"""
+    result = runner.invoke(app, ["--json", "describe", "errors resolve"])
+    assert result.exit_code == 0
+    rows = _jsonl(result.stdout)
+    assert rows[0]["path"] == "errors resolve"

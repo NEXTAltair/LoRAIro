@@ -547,6 +547,45 @@ class AnnotateImportBatchResult(BaseModel):
     model_config = ConfigDict(title="AnnotateImportBatchResult")
 
 
+class ErrorRecordItem(BaseModel):
+    """JSONL item payload emitted by ``errors list --json``."""
+
+    kind: Literal["item"] = "item"
+    id: int
+    operation_type: str
+    error_type: str
+    error_message: str
+    model_name: str | None = None
+    retry_count: int
+    resolved_at: str | None = None
+    created_at: str | None = None
+
+    model_config = ConfigDict(title="ErrorRecordItem")
+
+
+class ErrorListResult(BaseModel):
+    """JSONL result payload emitted by ``errors list --json``."""
+
+    kind: Literal["result"] = "result"
+    ok: Literal[True] = True
+    message: str
+    count: int
+
+    model_config = ConfigDict(title="ErrorListResult")
+
+
+class ErrorsResolveResult(BaseModel):
+    """JSONL result payload emitted by ``errors resolve --json``."""
+
+    kind: Literal["result"] = "result"
+    ok: bool
+    message: str
+    resolved: int
+    dry_run: bool
+
+    model_config = ConfigDict(title="ErrorsResolveResult")
+
+
 @dataclass(frozen=True)
 class FieldSpec:
     name: str
@@ -1526,6 +1565,89 @@ TOOL_SPECS: dict[str, ToolSpec] = {
                     _f("job_imported", "bool"),
                 ),
                 schema=BatchImportResult,
+            ),
+        ),
+        errors=(ERROR_MODEL,),
+    ),
+    "errors list": ToolSpec(
+        name="errors list",
+        path="errors list",
+        summary="List error records. Default: unresolved only.",
+        read_only=True,
+        side_effects=("db_read",),
+        inputs=(
+            _input(
+                "ErrorsListInput",
+                (
+                    _f("project", "str", required=True),
+                    _f(
+                        "operation",
+                        "str?",
+                        description="Filter by operation_type (search/registration/annotation)",
+                    ),
+                    _f("error_type", "str?", description="Filter by error_type"),
+                    _f("message_contains", "str?", description="Partial match on error_message"),
+                    _f("all", "bool", default=False, description="Include resolved records"),
+                    _f("limit", "int", default=50, description="Max records (max 500)"),
+                    _f("offset", "int", default=0),
+                ),
+            ),
+        ),
+        outputs=(
+            _output(
+                "ErrorRecordItem",
+                (
+                    _f("id", "int"),
+                    _f("operation_type", "str"),
+                    _f("error_type", "str"),
+                    _f("error_message", "str"),
+                    _f("model_name", "str?"),
+                    _f("retry_count", "int"),
+                    _f("resolved_at", "str?"),
+                    _f("created_at", "str?"),
+                ),
+                schema=ErrorRecordItem,
+            ),
+            _output(
+                "ErrorListResult",
+                (_f("count", "int"),),
+                schema=ErrorListResult,
+            ),
+        ),
+        errors=(ERROR_MODEL,),
+    ),
+    "errors resolve": ToolSpec(
+        name="errors resolve",
+        path="errors resolve",
+        summary="Mark error records as resolved. Use --dry-run to preview.",
+        read_only=False,
+        side_effects=("db_read", "db_write"),
+        inputs=(
+            _input(
+                "ErrorsResolveInput",
+                (
+                    _f("project", "str", required=True),
+                    _f("ids", "csv[int]?", description="Comma-separated error record IDs"),
+                    _f("operation", "str?", description="Bulk-resolve by operation_type"),
+                    _f("error_type", "str?", description="Bulk-resolve by error_type"),
+                    _f(
+                        "message_contains",
+                        "str?",
+                        description="Bulk-resolve by partial message match",
+                    ),
+                    _f("dry_run", "bool", default=False, description="Preview count without writing"),
+                ),
+            ),
+        ),
+        outputs=(
+            _output(
+                "ErrorsResolveResult",
+                (
+                    _f("ok", "bool"),
+                    _f("resolved", "int"),
+                    _f("dry_run", "bool"),
+                ),
+                schema=ErrorsResolveResult,
             ),
         ),
         errors=(ERROR_MODEL,),
