@@ -122,7 +122,7 @@ v10 の核心。Frame 2 (Annotate) のモデル実行 UX を再設計した。
 - 目的: 画像素材ではなく **アノテーションの品質チェック**（明確化済）
 - バッチは少数（〜10枚程度）想定
 - 構成方針:
-  1. **品質問題を最上段に集約** — 低信頼度・短すぎる caption・モデル間 rating コンフリクト・空タグなどを自動検出して issue カードとして掲示
+  1. **品質問題を最上段に集約** — issue カードは**構造的（閾値不要・客観的事実）のみ**: 空タグ / no-score / unknown tier / rating 不一致 / scorer 不一致。**低信頼度タグ(conf<0.40)・caption 短すぎ(<8語)は issue 化しない**（2026-06-11 確定・inline comment）— conf値・語数は行に表示済みで目で足りるし、恕意的な線は説明不能。config閾値・スコープ・状態管理を丸ごと削減できる
   2. **画像単位の要約リスト** — サムネ + アノテーション一式の要約。`▸ レビュー` で Annotate に直行
   3. **アクション** — 1件ずつ accept/edit/reject + bulk 「問題なければ承認」
 - CSS は既に追加済（`.res-summary` `.issues-band` `.issue-card` `.res-row` `.res-foot`）→ あとは HTML 本体を Frame 4 の後ろに追加するだけ
