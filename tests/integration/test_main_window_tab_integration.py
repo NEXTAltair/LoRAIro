@@ -82,6 +82,14 @@ class TestMainWindowTabInitialization:
         assert widget is not None
         assert main_window_with_tabs.export_widget is widget
 
+    def test_pipeline_panel_embedded_in_annotation_group(self, main_window_with_tabs):
+        """アノテーショングループにパイプライン構成ビューが常設される (Phase 6a)"""
+        window = main_window_with_tabs
+        assert window.pipeline_stage_table is not None
+        assert window.inference_ledger_widget is not None
+        assert window.pipeline_stage_table.parent() is window.groupBoxAnnotation
+        assert window.inference_ledger_widget.parent() is window.groupBoxAnnotation
+
     def test_errors_resolve_marks_resolved(self, main_window_with_tabs):
         """resolve_requested シグナルで mark_errors_resolved_batch が呼ばれる"""
         from unittest.mock import Mock
