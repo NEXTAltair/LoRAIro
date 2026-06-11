@@ -64,7 +64,7 @@ class DatabaseRegistrationWorker(LoRAIroWorkerBase[DatabaseRegistrationResult]):
             DatabaseRegistrationResult: 登録結果（成功数、スキップ数、エラー数、処理時間）
 
         Raises:
-            RuntimeError: 処理がキャンセルされた場合
+            CancellationError: 処理がキャンセルされた場合
         """
         import time
 

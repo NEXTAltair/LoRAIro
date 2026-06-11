@@ -408,3 +408,99 @@ class TestGetSession:
 
         assert session == mock_session
         assert repository.session_factory.called
+
+
+class TestGetErrorRecordsFilters:
+    """get_error_records の error_type / message_contains フィルターのテスト"""
+
+    @pytest.fixture
+    def repo(self):
+        return ErrorRecordRepository(session_factory=MagicMock())
+
+    def test_filter_by_error_type(self, repo):
+        mock_session = Mock()
+        repo.session_factory.return_value.__enter__.return_value = mock_session
+        mock_session.execute.return_value.scalars.return_value.all.return_value = []
+        repo.get_error_records(error_type="RuntimeError")
+        assert mock_session.execute.called
+
+    def test_filter_by_message_contains(self, repo):
+        mock_session = Mock()
+        repo.session_factory.return_value.__enter__.return_value = mock_session
+        mock_session.execute.return_value.scalars.return_value.all.return_value = []
+        repo.get_error_records(message_contains="キャンセル")
+        assert mock_session.execute.called
+
+    def test_filter_combined(self, repo):
+        mock_session = Mock()
+        repo.session_factory.return_value.__enter__.return_value = mock_session
+        mock_session.execute.return_value.scalars.return_value.all.return_value = []
+        repo.get_error_records(
+            operation_type="search",
+            error_type="RuntimeError",
+            message_contains="キャンセル",
+            resolved=False,
+        )
+        assert mock_session.execute.called
+
+
+class TestCountErrorRecords:
+    """count_error_records のテスト"""
+
+    @pytest.fixture
+    def repo(self):
+        return ErrorRecordRepository(session_factory=MagicMock())
+
+    def test_count_unresolved(self, repo):
+        mock_session = Mock()
+        repo.session_factory.return_value.__enter__.return_value = mock_session
+        mock_session.execute.return_value.scalar.return_value = 42
+        result = repo.count_error_records(resolved=False)
+        assert result == 42
+
+    def test_count_with_filters(self, repo):
+        mock_session = Mock()
+        repo.session_factory.return_value.__enter__.return_value = mock_session
+        mock_session.execute.return_value.scalar.return_value = 10
+        result = repo.count_error_records(
+            operation_type="search",
+            error_type="RuntimeError",
+            message_contains="キャンセル",
+        )
+        assert result == 10
+
+    def test_count_returns_zero_on_none(self, repo):
+        mock_session = Mock()
+        repo.session_factory.return_value.__enter__.return_value = mock_session
+        mock_session.execute.return_value.scalar.return_value = None
+        result = repo.count_error_records()
+        assert result == 0
+
+
+class TestGetErrorIdsByFilter:
+    """get_error_ids_by_filter のテスト"""
+
+    @pytest.fixture
+    def repo(self):
+        return ErrorRecordRepository(session_factory=MagicMock())
+
+    def test_returns_id_list(self, repo):
+        mock_session = Mock()
+        repo.session_factory.return_value.__enter__.return_value = mock_session
+        mock_session.execute.return_value.scalars.return_value.all.return_value = [1, 2, 3]
+        result = repo.get_error_ids_by_filter(operation_type="search", error_type="RuntimeError")
+        assert result == [1, 2, 3]
+
+    def test_returns_empty_list_when_no_match(self, repo):
+        mock_session = Mock()
+        repo.session_factory.return_value.__enter__.return_value = mock_session
+        mock_session.execute.return_value.scalars.return_value.all.return_value = []
+        result = repo.get_error_ids_by_filter()
+        assert result == []
+
+    def test_filter_with_message_contains(self, repo):
+        mock_session = Mock()
+        repo.session_factory.return_value.__enter__.return_value = mock_session
+        mock_session.execute.return_value.scalars.return_value.all.return_value = [5, 6]
+        result = repo.get_error_ids_by_filter(message_contains="キャンセル")
+        assert result == [5, 6]

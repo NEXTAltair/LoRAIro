@@ -163,6 +163,8 @@ class ErrorRecordRepository(BaseRepository):
     def get_error_records(
         self,
         operation_type: str | None = None,
+        error_type: str | None = None,
+        message_contains: str | None = None,
         resolved: bool | None = None,
         limit: int = 100,
         offset: int = 0,
@@ -171,6 +173,8 @@ class ErrorRecordRepository(BaseRepository):
 
         Args:
             operation_type: 操作種別フィルタ (None = 全操作)。
+            error_type: エラー種別フィルタ (None = 全種別)。
+            message_contains: error_message 部分一致フィルタ (None = 全メッセージ)。
             resolved: None = 全て、True = 解決済み、False = 未解決。
             limit: 取得件数上限。
             offset: オフセット。
@@ -186,6 +190,10 @@ class ErrorRecordRepository(BaseRepository):
                 query = select(ErrorRecord).order_by(ErrorRecord.created_at.desc())
                 if operation_type:
                     query = query.where(ErrorRecord.operation_type == operation_type)
+                if error_type:
+                    query = query.where(ErrorRecord.error_type == error_type)
+                if message_contains:
+                    query = query.where(ErrorRecord.error_message.contains(message_contains))
                 if resolved is not None:
                     if resolved:
                         query = query.where(ErrorRecord.resolved_at.is_not(None))
@@ -196,6 +204,8 @@ class ErrorRecordRepository(BaseRepository):
                 logger.debug(
                     f"エラーレコードを取得: {len(records)}件 "
                     f"(operation_type={operation_type or 'all'}, "
+                    f"error_type={error_type or 'all'}, "
+                    f"message_contains={message_contains!r}, "
                     f"resolved={resolved}, limit={limit}, offset={offset})",
                 )
                 return records
@@ -266,4 +276,83 @@ class ErrorRecordRepository(BaseRepository):
             except SQLAlchemyError as e:
                 session.rollback()
                 logger.error(f"エラーレコード一括解決失敗: {e}", exc_info=True)
+                raise
+
+    def count_error_records(
+        self,
+        operation_type: str | None = None,
+        error_type: str | None = None,
+        message_contains: str | None = None,
+        resolved: bool | None = None,
+    ) -> int:
+        """条件に一致するエラーレコード件数を返す (dry-run 用)。
+
+        Args:
+            operation_type: 操作種別フィルタ。
+            error_type: エラー種別フィルタ。
+            message_contains: error_message 部分一致フィルタ。
+            resolved: None = 全て、True = 解決済み、False = 未解決。
+
+        Returns:
+            int: 一致件数。
+
+        Raises:
+            SQLAlchemyError: データベース操作でエラーが発生した場合。
+        """
+        with self.session_factory() as session:
+            try:
+                query = select(func.count(ErrorRecord.id))
+                if operation_type:
+                    query = query.where(ErrorRecord.operation_type == operation_type)
+                if error_type:
+                    query = query.where(ErrorRecord.error_type == error_type)
+                if message_contains:
+                    query = query.where(ErrorRecord.error_message.contains(message_contains))
+                if resolved is not None:
+                    if resolved:
+                        query = query.where(ErrorRecord.resolved_at.is_not(None))
+                    else:
+                        query = query.where(ErrorRecord.resolved_at.is_(None))
+                count = session.execute(query).scalar() or 0
+                logger.debug(f"エラーレコード件数を集計: {count}件")
+                return count
+            except SQLAlchemyError as e:
+                logger.error(f"エラーレコード件数集計中にエラーが発生しました: {e}", exc_info=True)
+                raise
+
+    def get_error_ids_by_filter(
+        self,
+        operation_type: str | None = None,
+        error_type: str | None = None,
+        message_contains: str | None = None,
+    ) -> list[int]:
+        """未解決エラーレコードの ID リストをフィルター条件で取得する (一括 resolve 用)。
+
+        Args:
+            operation_type: 操作種別フィルタ。
+            error_type: エラー種別フィルタ。
+            message_contains: error_message 部分一致フィルタ。
+
+        Returns:
+            list[int]: 未解決エラーレコード ID リスト。
+
+        Raises:
+            SQLAlchemyError: データベース操作でエラーが発生した場合。
+        """
+        with self.session_factory() as session:
+            try:
+                query = (
+                    select(ErrorRecord.id).where(ErrorRecord.resolved_at.is_(None)).order_by(ErrorRecord.id)
+                )
+                if operation_type:
+                    query = query.where(ErrorRecord.operation_type == operation_type)
+                if error_type:
+                    query = query.where(ErrorRecord.error_type == error_type)
+                if message_contains:
+                    query = query.where(ErrorRecord.error_message.contains(message_contains))
+                ids = list(session.execute(query).scalars().all())
+                logger.debug(f"一括 resolve 対象 ID: {len(ids)}件")
+                return ids
+            except SQLAlchemyError as e:
+                logger.error(f"エラーレコード ID 取得中にエラーが発生しました: {e}", exc_info=True)
                 raise

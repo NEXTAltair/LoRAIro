@@ -496,3 +496,31 @@ class TestLoRAIroWorkerBaseAlias:
         worker = ConcreteWorker()
         assert isinstance(worker, LoRAIroWorkerBase)
         assert isinstance(worker, LoRAIroWorkerBase)
+
+
+class TestSearchWorkerCancellation:
+    """SearchWorker のキャンセルが error_records に記録されないことを検証する (Issue #715)。"""
+
+    def test_search_worker_cancellation_not_recorded(self):
+        """SearchWorker キャンセルが save_error_record を呼ばない回帰テスト。"""
+        from unittest.mock import MagicMock, Mock
+
+        from lorairo.gui.workers.search_worker import SearchWorker
+
+        mock_db = Mock()
+        mock_conditions = MagicMock()
+
+        worker = SearchWorker(db_manager=mock_db, search_conditions=mock_conditions)
+        # execute() の _check_cancellation() で CancellationError が raise されるよう cancellation フラグをセット
+        worker.cancellation.cancel()
+
+        canceled_mock = Mock()
+        error_mock = Mock()
+        worker.canceled.connect(canceled_mock)
+        worker.error_occurred.connect(error_mock)
+
+        worker.run()
+
+        error_mock.assert_not_called()
+        canceled_mock.assert_called_once()
+        mock_db.save_error_record.assert_not_called()
