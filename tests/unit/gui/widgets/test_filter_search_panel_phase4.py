@@ -134,7 +134,7 @@ class TestSetSearchFilterServicePhase4:
 
     def test_models_populated_in_sidebar(self, panel_with_service):
         """サービス設定後にサイドバーのモデルリストが更新される。"""
-        panel, service = panel_with_service
+        panel, _service = panel_with_service
         # get_recently_used_model_ids で返した 2 件がサイドバーに反映される
         model_list = panel._search_facets_sidebar._model_list
         assert model_list.count() == 2
