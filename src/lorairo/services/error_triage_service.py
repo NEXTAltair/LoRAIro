@@ -9,7 +9,7 @@ ignore は resolve に統合 (``resolved_at`` のみで状態管理)。
 """
 
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import UTC, datetime, timedelta
 from enum import Enum
 
 
@@ -84,7 +84,25 @@ class ErrorTriageService:
         Returns:
             条件 (AND) に一致する行のリスト。
         """
-        raise NotImplementedError
+        result: list[ErrorRow] = []
+        for row in rows:
+            # status フィルタ
+            if error_filter.status is ErrorStatusFilter.UNRESOLVED and row.resolved:
+                continue
+            if error_filter.status is ErrorStatusFilter.RESOLVED and not row.resolved:
+                continue
+            # operation_type / error_type / model_name フィルタ (None はスキップ)
+            if (
+                error_filter.operation_type is not None
+                and row.operation_type != error_filter.operation_type
+            ):
+                continue
+            if error_filter.error_type is not None and row.error_type != error_filter.error_type:
+                continue
+            if error_filter.model_name is not None and row.model_name != error_filter.model_name:
+                continue
+            result.append(row)
+        return result
 
     def group_errors(self, rows: list[ErrorRow]) -> list[ErrorGroup]:
         """行を (operation_type, error_type, model_name) で集約する。
@@ -95,7 +113,39 @@ class ErrorTriageService:
         Returns:
             ``unresolved_count`` 降順 → ``count`` 降順で並んだグループのリスト。
         """
-        raise NotImplementedError
+        # キーごとに出現順を保つため dict を使う (Python 3.7+ は挿入順保証)
+        buckets: dict[tuple[str, str, str | None], list[ErrorRow]] = {}
+        for row in rows:
+            key = (row.operation_type, row.error_type, row.model_name)
+            buckets.setdefault(key, []).append(row)
+
+        groups: list[ErrorGroup] = []
+        for (operation_type, error_type, model_name), bucket in buckets.items():
+            unresolved_rows = [r for r in bucket if not r.resolved]
+            # image_ids: None 除外・重複排除 (出現順)
+            image_ids: list[int] = []
+            seen: set[int] = set()
+            for r in bucket:
+                if r.image_id is not None and r.image_id not in seen:
+                    seen.add(r.image_id)
+                    image_ids.append(r.image_id)
+            groups.append(
+                ErrorGroup(
+                    operation_type=operation_type,
+                    error_type=error_type,
+                    model_name=model_name,
+                    count=len(bucket),
+                    unresolved_count=len(unresolved_rows),
+                    sample_message=bucket[0].error_message,
+                    image_ids=image_ids,
+                    error_ids=[r.error_id for r in bucket],
+                    unresolved_error_ids=[r.error_id for r in unresolved_rows],
+                )
+            )
+
+        # unresolved_count 降順 → count 降順
+        groups.sort(key=lambda g: (g.unresolved_count, g.count), reverse=True)
+        return groups
 
     def summarize(self, rows: list[ErrorRow]) -> ErrorTriageSummary:
         """全行 (フィルタ前) からサマリを算出する。
@@ -106,4 +156,24 @@ class ErrorTriageService:
         Returns:
             total / unresolved / resolved / last_24h / by_error_type を含むサマリ。
         """
-        raise NotImplementedError
+        total = len(rows)
+        unresolved_rows = [r for r in rows if not r.resolved]
+        unresolved = len(unresolved_rows)
+        resolved = total - unresolved
+
+        # last_24h: created_at >= now(UTC)-24h (created_at None は除外)
+        threshold = datetime.now(UTC) - timedelta(hours=24)
+        last_24h = sum(1 for r in rows if r.created_at is not None and r.created_at >= threshold)
+
+        # by_error_type: 未解決行の error_type ごと件数
+        by_error_type: dict[str, int] = {}
+        for r in unresolved_rows:
+            by_error_type[r.error_type] = by_error_type.get(r.error_type, 0) + 1
+
+        return ErrorTriageSummary(
+            total=total,
+            unresolved=unresolved,
+            resolved=resolved,
+            last_24h=last_24h,
+            by_error_type=by_error_type,
+        )
