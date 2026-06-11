@@ -1753,10 +1753,7 @@ class MainWindow(QMainWindow, Ui_MainWindow):
         if current is getattr(self, "tabBatchTag", None):
             logger.info("Switched to Annotate tab")
             self._refresh_batch_tag_staging()
-        elif (
-            getattr(self, "provider_batch_job_widget", None) is not None
-            and current is self.provider_batch_job_widget
-        ):
+        elif self.provider_batch_job_widget is not None and current is self.provider_batch_job_widget:
             logger.info("Switched to Jobs tab")
             self.provider_batch_job_widget.refresh_jobs()
         elif current is getattr(self, "tabErrors", None):
