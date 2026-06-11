@@ -39,6 +39,7 @@ genai-tag-db-tools (外部 tag_db) 統合を本 Repository に集約する。
 
 from __future__ import annotations
 
+import datetime
 from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import Any, cast
@@ -312,7 +313,10 @@ class AnnotationRepository(BaseRepository):
             image_id -> タグ名(小文字)のセットのマッピング。
 
         """
-        existing_tags_stmt = select(Tag).where(Tag.image_id.in_(image_ids))
+        existing_tags_stmt = select(Tag).where(
+            Tag.image_id.in_(image_ids),
+            Tag.rejected_at.is_(None),
+        )
         all_existing_tags = session.execute(existing_tags_stmt).scalars().all()
 
         existing_tags_by_image: dict[int, set[str]] = {}
@@ -448,13 +452,19 @@ class AnnotationRepository(BaseRepository):
                     else:
                         per_item.append((image_id, "changed"))
 
-                # bulk DELETE (1回のみ)
-                images_to_delete = [iid for iid, s in per_item if s == "changed"]
-                if images_to_delete:
+                # bulk soft-reject (1回のみ)
+                images_to_reject = [iid for iid, s in per_item if s == "changed"]
+                if images_to_reject:
                     session.execute(
-                        delete(Tag).where(
-                            Tag.image_id.in_(images_to_delete),
+                        update(Tag)
+                        .where(
+                            Tag.image_id.in_(images_to_reject),
                             Tag.tag == normalized_tag,
+                            Tag.rejected_at.is_(None),
+                        )
+                        .values(
+                            rejected_at=datetime.datetime.now(datetime.UTC),
+                            updated_at=datetime.datetime.now(datetime.UTC),
                         )
                     )
 
@@ -462,7 +472,7 @@ class AnnotationRepository(BaseRepository):
                 changed = sum(1 for _, s in per_item if s == "changed")
                 logger.info(
                     f"Atomic batch tag remove completed: tag='{normalized_tag}', "
-                    f"processed={len(image_ids)}, removed={changed}",
+                    f"processed={len(image_ids)}, rejected={changed}",
                 )
                 return (True, per_item)
 
@@ -519,13 +529,19 @@ class AnnotationRepository(BaseRepository):
                     else:
                         per_item.append((image_id, "changed"))
 
-                # bulk DELETE: 変換元タグを持つ画像から一括削除
+                # bulk soft-reject: 変換元タグを持つ画像から一括除外
                 images_to_change = [iid for iid, s in per_item if s == "changed"]
                 if images_to_change:
                     session.execute(
-                        delete(Tag).where(
+                        update(Tag)
+                        .where(
                             Tag.image_id.in_(images_to_change),
                             Tag.tag == normalized_from,
+                            Tag.rejected_at.is_(None),
+                        )
+                        .values(
+                            rejected_at=datetime.datetime.now(datetime.UTC),
+                            updated_at=datetime.datetime.now(datetime.UTC),
                         )
                     )
 

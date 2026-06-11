@@ -33,6 +33,7 @@ from lorairo.database.filter_criteria import ImageFilterCriteria
 from lorairo.database.repository.base import BaseRepository
 from lorairo.database.repository.image import ImageRepository
 from lorairo.database.schema import (
+    Caption,
     Image,
     ImageFilenameAlias,
     ProcessedImage,
@@ -532,6 +533,7 @@ class TestFormatAnnotationStatics:
             existing=False,
             is_edited_manually=False,
             confidence_score=0.9,
+            rejected_at=None,
             created_at=None,
             updated_at=None,
         )
@@ -606,6 +608,87 @@ class TestImageDatabaseManagerDIContract:
         assert manager.image_repo.session_factory is memory_session_factory
         # 他 Repo も同じ session_factory を共有していることを確認
         assert manager.annotation_repo.session_factory is memory_session_factory
+
+
+@pytest.mark.unit
+class TestGetImageAnnotationsSoftReject:
+    """Tag/Caption soft-reject の採用ビューを検証する。"""
+
+    def test_excludes_rejected_tags_and_captions_by_default(
+        self, image_repository: ImageRepository, memory_session_factory
+    ) -> None:
+        image_id = _insert_image(
+            image_repository,
+            uuid="soft-reject-default",
+            phash="soft-reject-default",
+            filename="soft-reject-default.png",
+        )
+        rejected_at = datetime.datetime(2026, 6, 11, tzinfo=datetime.UTC)
+        with memory_session_factory() as session:
+            session.add_all(
+                [
+                    Tag(image_id=image_id, tag="black_hair", rejected_at=None),
+                    Tag(image_id=image_id, tag="blue_hair", rejected_at=rejected_at),
+                    Caption(image_id=image_id, caption="adopted caption", rejected_at=None),
+                    Caption(image_id=image_id, caption="rejected caption", rejected_at=rejected_at),
+                ]
+            )
+            session.commit()
+
+        annotations = image_repository.get_image_annotations(image_id)
+
+        assert [tag["tag"] for tag in annotations["tags"]] == ["black_hair"]
+        assert [caption["caption"] for caption in annotations["captions"]] == ["adopted caption"]
+
+    def test_can_include_rejected_tags_and_captions_explicitly(
+        self, image_repository: ImageRepository, memory_session_factory
+    ) -> None:
+        image_id = _insert_image(
+            image_repository,
+            uuid="soft-reject-history",
+            phash="soft-reject-history",
+            filename="soft-reject-history.png",
+        )
+        rejected_at = datetime.datetime(2026, 6, 11, tzinfo=datetime.UTC)
+        with memory_session_factory() as session:
+            session.add_all(
+                [
+                    Tag(image_id=image_id, tag="black_hair", rejected_at=None),
+                    Tag(image_id=image_id, tag="blue_hair", rejected_at=rejected_at),
+                    Caption(image_id=image_id, caption="adopted caption", rejected_at=None),
+                    Caption(image_id=image_id, caption="rejected caption", rejected_at=rejected_at),
+                ]
+            )
+            session.commit()
+
+        annotations = image_repository.get_image_annotations(image_id, include_rejected=True)
+
+        assert {tag["tag"] for tag in annotations["tags"]} == {"black_hair", "blue_hair"}
+        assert {caption["caption"] for caption in annotations["captions"]} == {
+            "adopted caption",
+            "rejected caption",
+        }
+
+    def test_get_annotated_image_ids_ignores_rejected_only_annotations(
+        self, image_repository: ImageRepository, memory_session_factory
+    ) -> None:
+        image_id = _insert_image(
+            image_repository,
+            uuid="soft-reject-annotated",
+            phash="soft-reject-annotated",
+            filename="soft-reject-annotated.png",
+        )
+        with memory_session_factory() as session:
+            session.add(
+                Tag(
+                    image_id=image_id,
+                    tag="blue_hair",
+                    rejected_at=datetime.datetime(2026, 6, 11, tzinfo=datetime.UTC),
+                )
+            )
+            session.commit()
+
+        assert image_repository.get_annotated_image_ids([image_id]) == set()
 
 
 def _insert_tag(
@@ -740,6 +823,29 @@ class TestImageFilterCriteriaExactSet:
         ids = {m["id"] for m in exact}
         assert ids == {img_cat, img_plain}
         assert count == 2
+
+    def test_tag_filter_ignores_rejected_tags(
+        self, image_repository: ImageRepository, memory_session_factory
+    ) -> None:
+        img_adopted = _insert_image(image_repository, uuid="u-adopt", phash="p-adopt", filename="a.png")
+        img_rejected = _insert_image(image_repository, uuid="u-reject", phash="p-reject", filename="r.png")
+        with memory_session_factory() as session:
+            session.add_all(
+                [
+                    Tag(image_id=img_adopted, tag="cat", rejected_at=None),
+                    Tag(
+                        image_id=img_rejected,
+                        tag="cat",
+                        rejected_at=datetime.datetime(2026, 6, 11, tzinfo=datetime.UTC),
+                    ),
+                ]
+            )
+            session.commit()
+
+        rows, count = image_repository.get_images_by_filter(ImageFilterCriteria(tags=["cat"]))
+
+        assert {row["id"] for row in rows} == {img_adopted}
+        assert count == 1
 
     def test_image_ids_bypass_nsfw_exclusion(
         self, image_repository: ImageRepository, memory_session_factory

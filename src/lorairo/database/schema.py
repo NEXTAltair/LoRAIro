@@ -294,6 +294,7 @@ class Tag(Base):
     existing: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     is_edited_manually: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
     confidence_score: Mapped[float | None] = mapped_column(Float)
+    rejected_at: Mapped[datetime.datetime | None] = mapped_column(TIMESTAMP(timezone=True))
     created_at: Mapped[datetime.datetime] = mapped_column(
         TIMESTAMP(timezone=True), server_default=func.now()
     )
@@ -308,6 +309,7 @@ class Tag(Base):
     __table_args__ = (
         Index("ix_tags_image_id", "image_id"),
         Index("ix_tags_tag", "tag"),
+        Index("ix_tags_rejected_at", "rejected_at"),
     )
 
     def __repr__(self) -> str:
@@ -326,6 +328,7 @@ class Caption(Base):
     # existing: 元ファイル由来のキャプションかどうかを示すフラグ
     existing: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     is_edited_manually: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
+    rejected_at: Mapped[datetime.datetime | None] = mapped_column(TIMESTAMP(timezone=True))
     created_at: Mapped[datetime.datetime] = mapped_column(
         TIMESTAMP(timezone=True), server_default=func.now()
     )
@@ -337,7 +340,10 @@ class Caption(Base):
     image: Mapped[Image] = relationship("Image", back_populates="captions")
     model: Mapped[Model] = relationship("Model", back_populates="captions")
 
-    __table_args__ = (Index("ix_captions_image_id", "image_id"),)
+    __table_args__ = (
+        Index("ix_captions_image_id", "image_id"),
+        Index("ix_captions_rejected_at", "rejected_at"),
+    )
 
     def __repr__(self) -> str:
         return f"<Caption(id={self.id}, image_id={self.image_id}, caption='{self.caption[:20]}...')>"

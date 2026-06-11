@@ -871,11 +871,14 @@ class TestGetAnnotationStatusCounts:
         mock_image_repo.get_session.return_value = mock_session
 
         result = manager.get_annotation_status_counts()
+        executed_query = str(mock_session.execute.call_args.args[0])
 
         assert result["total"] == 10
         assert result["completed"] == 7
         assert result["error"] == 2
         assert result["completion_rate"] == 70.0
+        assert "t.rejected_at IS NULL" in executed_query
+        assert "c.rejected_at IS NULL" in executed_query
 
     def test_raises_on_sqlalchemy_error(self, manager: ImageDatabaseManager, mock_image_repo: Mock) -> None:
         """SQLAlchemyError は呼び出し元に伝播 (silent return しない)。"""
@@ -911,9 +914,12 @@ class TestFilterByAnnotationStatusExtended:
         mock_image_repo.get_session.return_value = mock_session
 
         result = manager.filter_by_annotation_status(completed=True)
+        executed_query = str(mock_session.execute.call_args.args[0])
 
         assert len(result) == 1
         assert result[0]["id"] == 1
+        assert "t.rejected_at IS NULL" in executed_query
+        assert "c.rejected_at IS NULL" in executed_query
 
     def test_returns_all_images_when_no_filter(
         self, manager: ImageDatabaseManager, mock_image_repo: Mock
