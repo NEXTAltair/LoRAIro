@@ -25,6 +25,7 @@ from ...services.configuration_service import ConfigurationService
 from ...services.model_selection_service import ModelSelectionService
 from ...services.error_triage_service import ErrorFilter, ErrorRow, ErrorTriageService
 from ...services.quality_issue_detection_service import QualityIssueDetectionService
+from ...services.pipeline_composition import PipelineCompositionService, StageModelInfo
 from ...services.selection_state_service import SelectionStateService
 from ...services.service_container import ServiceContainer
 from ...storage.file_system import FileSystemManager
@@ -46,6 +47,8 @@ from ..widgets.errors_triage_widget import ErrorsTriageWidget
 from ..widgets.error_notification_widget import ErrorNotificationWidget
 from ..widgets.filter_search_panel import FilterSearchPanel
 from ..widgets.image_preview import ImagePreviewWidget
+from ..widgets.inference_ledger_widget import InferenceLedgerWidget
+from ..widgets.pipeline_stage_table_widget import PipelineStageTableWidget
 from ..widgets.provider_batch_job_widget import ProviderBatchJobWidget
 from ..widgets.quick_tag_dialog import QuickTagDialog
 from ..widgets.results_widget import ResultsWidget
@@ -82,6 +85,8 @@ class MainWindow(QMainWindow, Ui_MainWindow):
     annotation_workflow_controller: AnnotationWorkflowController | None
     settings_controller: SettingsController | None
     export_widget: DatasetExportWidget | None
+    pipeline_stage_table: PipelineStageTableWidget | None
+    inference_ledger_widget: InferenceLedgerWidget | None
     result_handler_service: ResultHandlerService | None
     pipeline_control_service: PipelineControlService | None
     progress_state_service: ProgressStateService | None
@@ -379,6 +384,9 @@ class MainWindow(QMainWindow, Ui_MainWindow):
         # BatchTagAddWidget再配置（Phase 2.5統合、Day 2）
         WidgetSetupService.setup_batch_tag_tab_widgets(self)
 
+        # パイプライン構成ビュー（Phase 6a、batchModelSelection 構築後に配置）
+        self._setup_pipeline_composition_panel()
+
         # QTabWidget初期化（タブ切り替え用）
         self._setup_tab_widget()
         self._setup_provider_batch_tab()
@@ -618,6 +626,96 @@ class MainWindow(QMainWindow, Ui_MainWindow):
         container.layout().addWidget(widget)
         self.export_widget = widget
         logger.info("✅ エクスポートタブ (DatasetExportWidget) initialized")
+
+    def _setup_pipeline_composition_panel(self) -> None:
+        """アノテーショングループにパイプライン構成ビューを常設する。
+
+        Wireframes v11 Frame 2A · Phase 6a (表示専用)。ModelSelectionWidget の選択を
+        購読して TAGS/CAPTION/SCORE/RATING への自動仕分け・multimodal 派生チップ・
+        推論台帳 (INFERENCE LEDGER) をリアルタイム表示する。per-stage 明示割当は
+        Phase 6b で追加する。
+        """
+        self.pipeline_composition_service = PipelineCompositionService()
+        self._pipeline_staged_count = 0
+
+        annotation_group = getattr(self, "groupBoxAnnotation", None)
+        model_widget = getattr(self, "batchModelSelection", None)
+        if annotation_group is None or model_widget is None:
+            logger.warning("groupBoxAnnotation/batchModelSelection 未構築 - パイプライン構成ビュー skipped")
+            self.pipeline_stage_table = None
+            self.inference_ledger_widget = None
+            return
+
+        self.pipeline_stage_table = PipelineStageTableWidget(parent=annotation_group)
+        self.inference_ledger_widget = InferenceLedgerWidget(parent=annotation_group)
+        layout = annotation_group.layout()
+        layout.addWidget(self.pipeline_stage_table)
+        layout.addWidget(self.inference_ledger_widget)
+
+        model_widget.model_selection_changed.connect(self._on_pipeline_models_changed)
+        self._refresh_pipeline_panel([])
+        logger.info("✅ パイプライン構成ビュー (Frame 2A) initialized")
+
+    def _on_pipeline_models_changed(self, selected_litellm_model_ids: list[str]) -> None:
+        """モデル選択変化でパイプライン構成ビューを再計算する (Phase 6a)。"""
+        self._refresh_pipeline_panel(list(selected_litellm_model_ids))
+
+    def _refresh_pipeline_panel(self, selected_ids: list[str] | None = None) -> None:
+        """ステージテーブルと推論台帳を現在の選択・ステージング件数で再描画する。
+
+        Args:
+            selected_ids: 選択中の litellm_model_id。None なら ModelSelectionWidget
+                から現在値を取得する（ステージング件数変化時の再計算用）。
+        """
+        stage_table = getattr(self, "pipeline_stage_table", None)
+        ledger_widget = getattr(self, "inference_ledger_widget", None)
+        if stage_table is None or ledger_widget is None:
+            return
+
+        if selected_ids is None:
+            model_widget = getattr(self, "batchModelSelection", None)
+            selected_ids = model_widget.get_selected_models() if model_widget is not None else []
+
+        infos = self._build_stage_model_infos(selected_ids)
+        self.pipeline_composition_service.compose_from_models(infos)
+        stage_table.display(self.pipeline_composition_service.stage_rows())
+        ledger_widget.display(self.pipeline_composition_service.ledger(self._pipeline_staged_count))
+
+    def _build_stage_model_infos(self, selected_ids: list[str]) -> list[StageModelInfo]:
+        """選択 litellm_model_id を StageModelInfo へ変換する。
+
+        capabilities は DB Model の model_types 由来。provider が空または "local" の
+        モデルはローカル ML として扱う（ModelSelectionService._provider_key と同じ規約）。
+
+        Args:
+            selected_ids: ModelSelectionWidget で選択中の litellm_model_id リスト。
+
+        Returns:
+            変換済み StageModelInfo リスト。DB に見つからない ID はスキップする。
+        """
+        model_widget = getattr(self, "batchModelSelection", None)
+        service = getattr(model_widget, "model_selection_service", None)
+        all_models = service.load_models() if service is not None else []
+        models_by_id = {m.litellm_model_id: m for m in all_models}
+
+        infos: list[StageModelInfo] = []
+        for litellm_id in selected_ids:
+            model = models_by_id.get(litellm_id)
+            if model is None:
+                logger.debug(f"選択モデルが DB モデル一覧に見つかりません: {litellm_id}")
+                continue
+            provider = model.provider
+            is_api = bool(provider) and provider.lower() != "local"
+            infos.append(
+                StageModelInfo(
+                    litellm_model_id=litellm_id,
+                    display_name=model.name,
+                    provider=provider,
+                    is_api=is_api,
+                    capabilities=frozenset(str(c) for c in model.capabilities),
+                )
+            )
+        return infos
 
     def _refresh_errors_tab(self) -> None:
         """エラータブ表示時 / フィルタ変更時にトリアージを再計算して描画する。"""
@@ -1441,6 +1539,9 @@ class MainWindow(QMainWindow, Ui_MainWindow):
         export_widget = getattr(self, "export_widget", None)
         if export_widget is not None:
             export_widget.set_image_ids(list(image_ids) if image_ids else [])
+        # Phase 6a: 推論台帳の枚数もステージング件数と同期する
+        self._pipeline_staged_count = count
+        self._refresh_pipeline_panel()
 
     def _update_annotation_target_ui(self, staging_count: int) -> None:
         """アノテーション対象UIを更新

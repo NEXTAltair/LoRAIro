@@ -48,6 +48,11 @@ class _BareMainWindow(QMainWindow, Ui_MainWindow):
     def send_selected_to_batch_tag(self) -> None:
         pass
 
+    # Phase 6a: _on_staged_images_changed がパイプライン構成ビューを再描画するため、
+    # サービス未初期化の素ウィンドウでは no-op スタブで受ける
+    def _refresh_pipeline_panel(self, selected_ids: list[str] | None = None) -> None:
+        pass
+
 
 @pytest.fixture
 def bare_window(qtbot):
