@@ -133,27 +133,98 @@ class PipelineCompositionService:
     # --- 入力 (Track A 実装) -------------------------------------------------
 
     def compose_from_models(self, models: list[StageModelInfo]) -> None:
-        """選択モデル集合をステージへ自動仕分けする (Phase 6a の入力経路)。"""
-        raise NotImplementedError
+        """選択モデル集合をステージへ自動仕分けする (Phase 6a の入力経路)。
+
+        - multimodal モデルは CAPTION に明示割当 (v11: 1 推論の主目的を caption とみなす)
+        - 非 multimodal は capability が対応する各ステージに明示割当
+        - 同一 litellm_model_id の重複入力は 1 つに dedupe
+        - 呼ぶたびに既存の割当をクリアして作り直す
+        """
+        self._assignments = {stage: [] for stage in PipelineStage}
+        seen_ids: set[str] = set()
+        for model in models:
+            if model.litellm_model_id in seen_ids:
+                continue
+            seen_ids.add(model.litellm_model_id)
+            if model.is_multimodal:
+                self.assign(PipelineStage.CAPTION, model)
+                continue
+            target_stages = model.fill_stages()
+            for stage in PipelineStage:
+                if stage in target_stages:
+                    self.assign(stage, model)
 
     def assign(self, stage: PipelineStage, model: StageModelInfo) -> None:
-        """モデルをステージに明示割当する (Phase 6b)。"""
-        raise NotImplementedError
+        """モデルをステージに明示割当する (Phase 6b)。同一モデルの重複割当は無視。"""
+        assigned = self._assignments[stage]
+        if any(m.litellm_model_id == model.litellm_model_id for m in assigned):
+            return
+        assigned.append(model)
 
     def remove(self, stage: PipelineStage, litellm_model_id: str) -> None:
-        """ステージから明示割当を外す (Phase 6b)。派生チップは外せない。"""
-        raise NotImplementedError
+        """ステージから明示割当を外す (Phase 6b)。派生チップは外せない。該当なしは no-op。"""
+        self._assignments[stage] = [
+            m for m in self._assignments[stage] if m.litellm_model_id != litellm_model_id
+        ]
 
     # --- 出力 (Track A 実装) -------------------------------------------------
 
     def stage_rows(self) -> list[StageRow]:
-        """4 ステージ分の表示行 (明示チップ + 派生チップ) を返す。"""
-        raise NotImplementedError
+        """4 ステージ分の表示行 (明示チップ + 派生チップ) を返す。
+
+        派生チップは明示割当済み multimodal モデルの fill_stages のうち、
+        そのモデルが明示割当されていないステージに出す。RATING は
+        MULTIMODAL_FILL_STAGES に含まれないため派生が届くことはない。
+        """
+        origins = self._multimodal_origins()
+        rows: list[StageRow] = []
+        for stage in PipelineStage:
+            primary = tuple(self._assignments[stage])
+            primary_ids = {m.litellm_model_id for m in primary}
+            chips: list[DerivedChip] = []
+            for model_id, (model, origin_stage) in origins.items():
+                if stage not in model.fill_stages() or model_id in primary_ids:
+                    continue
+                chips.append(DerivedChip(model=model, origin_stage=origin_stage))
+            rows.append(StageRow(stage=stage, primary_models=primary, derived_chips=tuple(chips)))
+        return rows
 
     def ledger(self, staged_count: int) -> InferenceLedger:
         """推論台帳を返す。multimodal の多段出現は dedupe する。"""
-        raise NotImplementedError
+        unique_models: dict[str, StageModelInfo] = {}
+        explicit_stages: dict[str, set[PipelineStage]] = {}
+        for stage in PipelineStage:
+            for model in self._assignments[stage]:
+                unique_models.setdefault(model.litellm_model_id, model)
+                explicit_stages.setdefault(model.litellm_model_id, set()).add(stage)
+        entries: list[LedgerEntry] = []
+        for model_id, model in unique_models.items():
+            delivered = set(explicit_stages[model_id])
+            if model.is_multimodal:
+                delivered |= model.fill_stages()
+            entries.append(LedgerEntry(model=model, stage_count=len(delivered)))
+        return InferenceLedger(entries=tuple(entries), staged_count=staged_count)
 
     def unique_model_ids(self) -> list[str]:
         """実行に渡すユニーク litellm_model_id リストを返す (割当順)。"""
-        raise NotImplementedError
+        ordered_ids: list[str] = []
+        for stage in PipelineStage:
+            for model in self._assignments[stage]:
+                if model.litellm_model_id not in ordered_ids:
+                    ordered_ids.append(model.litellm_model_id)
+        return ordered_ids
+
+    # --- private -------------------------------------------------------------
+
+    def _multimodal_origins(self) -> dict[str, tuple[StageModelInfo, PipelineStage]]:
+        """明示割当済み multimodal モデル → (モデル, 最初の明示割当ステージ)。
+
+        ステージは PipelineStage 定義順に走査し、同一モデルが複数ステージに
+        明示割当されている場合は最初に見つかったステージを origin とする。
+        """
+        origins: dict[str, tuple[StageModelInfo, PipelineStage]] = {}
+        for stage in PipelineStage:
+            for model in self._assignments[stage]:
+                if model.is_multimodal and model.litellm_model_id not in origins:
+                    origins[model.litellm_model_id] = (model, stage)
+        return origins
