@@ -808,17 +808,15 @@ class TestTabChangedHandler:
         MainWindow._on_main_tab_changed(mock_window, 3)
         jobs_widget.refresh_jobs.assert_called_once()
 
-    def test_on_main_tab_changed_errors_tab_loads_records(self):
+    def test_on_main_tab_changed_errors_tab_refreshes(self):
         from lorairo.gui.window.main_window import MainWindow
 
         mock_window = Mock()
         errors_tab = Mock()
-        viewer = Mock()
         mock_window.tabErrors = errors_tab
-        mock_window.error_log_viewer_widget = viewer
         mock_window.tabWidgetMainMode.widget.return_value = errors_tab
         MainWindow._on_main_tab_changed(mock_window, 5)
-        viewer.load_error_records.assert_called_once()
+        mock_window._refresh_errors_tab.assert_called_once()
 
     def test_on_main_tab_changed_search_tab_is_silent(self):
         from lorairo.gui.window.main_window import MainWindow
@@ -1002,20 +1000,26 @@ class TestSendSelectedToBatchTag:
 class TestErrorHandlers:
     """エラーハンドラのテスト"""
 
-    def test_on_error_resolved_updates_notification_widget(self):
+    def test_on_error_resolve_marks_and_updates_notification(self):
         from lorairo.gui.window.main_window import MainWindow
 
         mock_window = Mock()
+        mock_window.db_manager.mark_errors_resolved_batch.return_value = (True, 1)
         mock_window.error_notification_widget = Mock()
-        MainWindow._on_error_resolved(mock_window, 42)
+        MainWindow._on_error_resolve(mock_window, 42)
+        mock_window.db_manager.mark_errors_resolved_batch.assert_called_once_with([42])
         mock_window.error_notification_widget.update_error_count.assert_called_once()
+        mock_window._refresh_errors_tab.assert_called_once()
 
-    def test_on_error_resolved_no_notification_widget_no_error(self):
+    def test_on_errors_resolve_group_marks_all(self):
         from lorairo.gui.window.main_window import MainWindow
 
         mock_window = Mock()
-        mock_window.error_notification_widget = None
-        MainWindow._on_error_resolved(mock_window, 42)
+        mock_window.db_manager.mark_errors_resolved_batch.return_value = (True, 3)
+        mock_window.error_notification_widget = Mock()
+        MainWindow._on_errors_resolve_group(mock_window, [1, 2, 3])
+        mock_window.db_manager.mark_errors_resolved_batch.assert_called_once_with([1, 2, 3])
+        mock_window._refresh_errors_tab.assert_called_once()
 
     def test_on_batch_import_error_shows_critical_and_updates_widget(self):
         from lorairo.gui.window.main_window import MainWindow

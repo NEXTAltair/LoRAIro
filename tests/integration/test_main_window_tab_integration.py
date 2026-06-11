@@ -10,7 +10,7 @@ import pytest
 from PySide6.QtGui import QShortcut
 from PySide6.QtWidgets import QTabWidget
 
-from lorairo.gui.widgets.error_log_viewer_widget import ErrorLogViewerWidget
+from lorairo.gui.widgets.errors_triage_widget import ErrorsTriageWidget
 from lorairo.gui.widgets.results_widget import ResultsWidget
 from lorairo.gui.window.main_window import MainWindow
 
@@ -63,13 +63,33 @@ class TestMainWindowTabInitialization:
         assert tab_widget.widget(3) is window.provider_batch_job_widget
         assert tab_widget.widget(5).objectName() == "tabErrors"
 
-    def test_errors_tab_embeds_error_log_viewer(self, main_window_with_tabs):
-        """エラータブに ErrorLogViewerWidget が常設される"""
+    def test_errors_tab_embeds_triage_widget(self, main_window_with_tabs):
+        """エラータブに ErrorsTriageWidget が常設される"""
         errors_tab = main_window_with_tabs.tabWidgetMainMode.widget(5)
         assert errors_tab.objectName() == "tabErrors"
-        viewer = errors_tab.findChild(ErrorLogViewerWidget)
+        viewer = errors_tab.findChild(ErrorsTriageWidget)
         assert viewer is not None
-        assert main_window_with_tabs.error_log_viewer_widget is viewer
+        assert main_window_with_tabs.errors_triage_widget is viewer
+
+    def test_errors_resolve_marks_resolved(self, main_window_with_tabs):
+        """resolve_requested シグナルで mark_errors_resolved_batch が呼ばれる"""
+        from unittest.mock import Mock
+
+        window = main_window_with_tabs
+        mark = Mock(return_value=(True, 1))
+        window.db_manager.mark_errors_resolved_batch = mark
+        window.errors_triage_widget.resolve_requested.emit(7)
+        mark.assert_called_once_with([7])
+
+    def test_errors_resolve_group_marks_all(self, main_window_with_tabs):
+        """resolve_group_requested シグナルで複数 error_id が一括解決される"""
+        from unittest.mock import Mock
+
+        window = main_window_with_tabs
+        mark = Mock(return_value=(True, 3))
+        window.db_manager.mark_errors_resolved_batch = mark
+        window.errors_triage_widget.resolve_group_requested.emit([1, 2, 3])
+        mark.assert_called_once_with([1, 2, 3])
 
     def test_error_notification_click_navigates_to_errors_tab(self, main_window_with_tabs):
         """エラー通知クリックでエラータブへ遷移する"""
