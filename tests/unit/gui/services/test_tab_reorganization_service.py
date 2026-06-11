@@ -24,6 +24,7 @@ class TestRequiredConstants:
         assert "tabBatchTag" in required
         assert "tabResults" in required
         assert "tabErrors" in required
+        assert "tabExport" in required
         assert "splitterBatchTagMain" in required
         assert "groupBoxBatchOperations" in required
         assert "groupBoxAnnotation" in required
@@ -165,6 +166,11 @@ class TestIntegrationWithRealWidgets:
         errors_tab = QWidget()
         errors_tab.setObjectName("tabErrors")
         tab_widget.addTab(errors_tab, "エラー")
+
+        # エクスポートタブ（Phase 5）
+        export_tab = QWidget()
+        export_tab.setObjectName("tabExport")
+        tab_widget.addTab(export_tab, "エクスポート")
 
         # UIファイルのタブ構造に合わせて splitterBatchTagMain を追加
         splitter = QSplitter(batch_tag_tab)

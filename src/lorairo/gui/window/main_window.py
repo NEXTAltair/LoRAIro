@@ -31,7 +31,6 @@ from ...storage.file_system import FileSystemManager
 from ...utils.log import logger
 from ..controllers.annotation_workflow_controller import AnnotationWorkflowController
 from ..controllers.dataset_controller import DatasetController
-from ..controllers.export_controller import ExportController
 from ..controllers.settings_controller import SettingsController
 from ..services.image_db_write_service import ImageDBWriteService
 from ..services.pipeline_control_service import PipelineControlService
@@ -42,6 +41,7 @@ from ..services.tab_reorganization_service import TabReorganizationService
 from ..services.widget_setup_service import WidgetSetupService
 from ..services.worker_service import WorkerService
 from ..state.dataset_state import DatasetStateManager
+from ..widgets.dataset_export_widget import DatasetExportWidget
 from ..widgets.errors_triage_widget import ErrorsTriageWidget
 from ..widgets.error_notification_widget import ErrorNotificationWidget
 from ..widgets.filter_search_panel import FilterSearchPanel
@@ -62,7 +62,8 @@ class MainWindow(QMainWindow, Ui_MainWindow):
 
     # QSettings バージョン（UI構造変更時にインクリメント）
     # 2: Wireframes v11 · 6 タブ化（検索/マップ/アノテーション/ジョブ/結果/エラー）
-    SETTINGS_VERSION = 2
+    # 3: Wireframes v11 Phase 5 · エクスポートタブ追加（7 タブ化）
+    SETTINGS_VERSION = 3
 
     # シグナル
     dataset_loaded = Signal(str)  # dataset_path
@@ -80,7 +81,7 @@ class MainWindow(QMainWindow, Ui_MainWindow):
     dataset_controller: DatasetController | None
     annotation_workflow_controller: AnnotationWorkflowController | None
     settings_controller: SettingsController | None
-    export_controller: ExportController | None
+    export_widget: DatasetExportWidget | None
     result_handler_service: ResultHandlerService | None
     pipeline_control_service: PipelineControlService | None
     progress_state_service: ProgressStateService | None
@@ -363,12 +364,6 @@ class MainWindow(QMainWindow, Ui_MainWindow):
             )
 
             self.settings_controller = SettingsController(config_service=self.config_service, parent=self)
-            self.export_controller = ExportController(
-                selection_state_service=self.selection_state_service,
-                service_container=self.service_container,
-                parent=self,
-                staged_ids_provider=self._get_staged_export_ids,
-            )
 
             logger.info("✅ Service/Controller層初期化完了")
         except Exception as e:
@@ -377,7 +372,6 @@ class MainWindow(QMainWindow, Ui_MainWindow):
             self.dataset_controller = None
             self.annotation_workflow_controller = None
             self.settings_controller = None
-            self.export_controller = None
 
         # ErrorNotificationWidget初期化（Phase 4.5）
         self._setup_error_notification()
@@ -390,6 +384,7 @@ class MainWindow(QMainWindow, Ui_MainWindow):
         self._setup_provider_batch_tab()
         self._setup_results_tab()
         self._setup_errors_tab()
+        self._setup_export_tab()
         self._setup_tab_shortcuts()
 
     def _setup_provider_batch_tab(self) -> None:
@@ -601,6 +596,28 @@ class MainWindow(QMainWindow, Ui_MainWindow):
         container.layout().addWidget(widget)
         self.errors_triage_widget = widget
         logger.info("✅ エラータブ (ErrorsTriageWidget) initialized")
+
+    def _setup_export_tab(self) -> None:
+        """エクスポートタブに DatasetExportWidget を常設する。
+
+        Wireframes v11 Frame 7 · Export (Phase 5)。対象 = ステージング集合
+        (ADR 0055/0019)。初期対象は現在のステージングから読み、以降は
+        ``staged_images_changed`` → ``set_image_ids`` でライブ更新する。
+        """
+        container = getattr(self, "tabExport", None)
+        if container is None:
+            logger.warning("tabExport not found - export tab skipped")
+            self.export_widget = None
+            return
+
+        widget = DatasetExportWidget(
+            service_container=self.service_container,
+            initial_image_ids=self._get_staged_export_ids(),
+            parent=container,
+        )
+        container.layout().addWidget(widget)
+        self.export_widget = widget
+        logger.info("✅ エクスポートタブ (DatasetExportWidget) initialized")
 
     def _refresh_errors_tab(self) -> None:
         """エラータブ表示時 / フィルタ変更時にトリアージを再計算して描画する。"""
@@ -1420,6 +1437,10 @@ class MainWindow(QMainWindow, Ui_MainWindow):
         count = len(image_ids) if image_ids else 0
         self._update_annotation_target_ui(count)
         self._update_export_target_ui(count)
+        # Phase 5: エクスポートタブの対象もステージング集合とライブ同期する (ADR 0055)
+        export_widget = getattr(self, "export_widget", None)
+        if export_widget is not None:
+            export_widget.set_image_ids(list(image_ids) if image_ids else [])
 
     def _update_annotation_target_ui(self, staging_count: int) -> None:
         """アノテーション対象UIを更新
@@ -1759,8 +1780,8 @@ class MainWindow(QMainWindow, Ui_MainWindow):
 
         ADR 0055: ワークスペースに常設のエクスポート入口（ツールバー action と
         サムネグリッド下部バーのボタン）を追加する。対象解決ロジックは変更せず、
-        既存の ``export_data()`` / ``ExportController`` に委譲する（新しい選択解決パスを
-        足さない）。
+        既存の ``export_data()``（エクスポートタブ遷移）に委譲する（新しい選択解決
+        パスを足さない）。
         """
         try:
             # ツールバー/メニューの action（triggered の bool ペイロードは無視する）
@@ -1782,7 +1803,7 @@ class MainWindow(QMainWindow, Ui_MainWindow):
 
         ``QAction.triggered`` / ``QPushButton.clicked`` が渡す bool ペイロードは
         画像 ID ではないため無視する（ADR 0043 / Issue #570）。対象解決は
-        ``export_data()`` → ``ExportController`` に委譲し、新しい選択解決パスを足さない。
+        ``export_data()``（エクスポートタブ遷移）に委譲し、新しい選択解決パスを足さない。
 
         Args:
             _checked: シグナルが渡す checked 状態。意図的に無視する。
@@ -1800,7 +1821,7 @@ class MainWindow(QMainWindow, Ui_MainWindow):
         self.start_annotation()
 
     def _get_staged_export_ids(self) -> list[int]:
-        """エクスポート対象のステージング画像 ID を返す（ExportController の provider）。
+        """エクスポート対象のステージング画像 ID を返す（エクスポートタブの対象ソース）。
 
         ADR 0055: エクスポート対象＝ステージング集合。ワークスペース下部バーの件数表示
         （``staged_images_changed``）と同一の ``StagingWidget`` を読むことで、表示件数と
@@ -1819,14 +1840,22 @@ class MainWindow(QMainWindow, Ui_MainWindow):
         return staged_ids
 
     def export_data(self) -> None:
-        """データセットエクスポート機能を開く（ExportControllerに委譲）"""
-        if self.export_controller:
-            self.export_controller.open_export_dialog()
-        else:
-            logger.error("ExportControllerが初期化されていません")
+        """エクスポートタブへ遷移する。
+
+        Phase 5 (Wireframes v11 Frame 7): モーダルダイアログからタブ常設に変更。
+        遷移前にステージング集合を再読込し、シグナル取りこぼしがあっても
+        タブ表示時点の対象件数を正とする。
+        """
+        export_widget = getattr(self, "export_widget", None)
+        if export_widget is None or not hasattr(self, "tabExport"):
+            logger.error("エクスポートタブが初期化されていません")
             QMessageBox.warning(
-                self, "エラー", "ExportControllerが初期化されていないため、エクスポートを開始できません。"
+                self, "エラー", "エクスポートタブが初期化されていないため、エクスポートを開けません。"
             )
+            return
+
+        export_widget.set_image_ids(self._get_staged_export_ids())
+        self.tabWidgetMainMode.setCurrentWidget(self.tabExport)
 
     def send_selected_to_batch_tag(self, selected_ids: list[int] | bool | None = None) -> None:
         """ワークスペースの選択画像をバッチタグのステージングに追加"""
@@ -1916,6 +1945,12 @@ class MainWindow(QMainWindow, Ui_MainWindow):
         elif current is getattr(self, "tabErrors", None):
             logger.info("Switched to Errors tab")
             self._refresh_errors_tab()
+        elif current is getattr(self, "tabExport", None):
+            logger.info("Switched to Export tab")
+            # ステージング集合を再読込（シグナル取りこぼしの安全網、ADR 0055）
+            export_widget = getattr(self, "export_widget", None)
+            if export_widget is not None:
+                export_widget.set_image_ids(self._get_staged_export_ids())
 
     def _refresh_batch_tag_staging(self) -> None:
         """

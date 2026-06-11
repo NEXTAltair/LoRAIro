@@ -58,6 +58,7 @@ class TabReorganizationService:
         "tabBatchTag",
         "tabResults",
         "tabErrors",
+        "tabExport",
         "splitterBatchTagMain",
         "groupBoxBatchOperations",
         "groupBoxAnnotation",
