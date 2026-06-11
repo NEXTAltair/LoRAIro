@@ -56,7 +56,8 @@ class MainWindow(QMainWindow, Ui_MainWindow):
     """
 
     # QSettings バージョン（UI構造変更時にインクリメント）
-    SETTINGS_VERSION = 1
+    # 2: Wireframes v11 · 6 タブ化（検索/マップ/アノテーション/ジョブ/結果/エラー）
+    SETTINGS_VERSION = 2
 
     # シグナル
     dataset_loaded = Signal(str)  # dataset_path
@@ -381,9 +382,13 @@ class MainWindow(QMainWindow, Ui_MainWindow):
         self._setup_provider_batch_tab()
 
     def _setup_provider_batch_tab(self) -> None:
-        """バッチAPI job management tab を追加する。"""
+        """ジョブタブ (Provider Batch job management) を追加する。
+
+        Wireframes v11 ナビ順（検索 / マップ / アノテーション / ジョブ / 結果 / エラー）
+        に従い、結果タブ (tabResults) の直前へ挿入する。
+        """
         if not hasattr(self, "tabWidgetMainMode") or not self.tabWidgetMainMode:
-            logger.warning("tabWidgetMainMode not found - バッチAPI tab skipped")
+            logger.warning("tabWidgetMainMode not found - ジョブタブ skipped")
             self.provider_batch_job_widget = None
             return
 
@@ -403,11 +408,12 @@ class MainWindow(QMainWindow, Ui_MainWindow):
                 widget.staging_cleared.connect(self._handle_staging_cleared)
                 widget.staged_images_changed.connect(self._on_staged_images_changed)
             self.provider_batch_job_widget = widget
-            self.tabWidgetMainMode.addTab(widget, "バッチAPI")
-            logger.info("✅ バッチAPI tab initialized")
+            insert_index = self.tabWidgetMainMode.indexOf(self.tabResults)
+            self.tabWidgetMainMode.insertTab(insert_index, widget, "ジョブ")
+            logger.info("✅ ジョブタブ (Provider Batch) initialized")
         except Exception as e:
             self.provider_batch_job_widget = None
-            logger.error(f"❌ バッチAPI tab initialization failed: {e}", exc_info=True)
+            logger.error(f"❌ ジョブタブ initialization failed: {e}", exc_info=True)
 
     def _verify_state_management_connections(self) -> None:
         """状態管理接続の検証（SelectionStateServiceに委譲）"""
@@ -1508,9 +1514,9 @@ class MainWindow(QMainWindow, Ui_MainWindow):
                 f"batchModelSelectionから選択されたモデル (litellm_model_ids): {selected_litellm_model_ids}"
             )
 
-        # バッチタグタブの場合はステージング画像を使用
+        # アノテーションタブの場合はステージング画像を使用
         override_image_paths: list[str] | None = None
-        if self.tabWidgetMainMode.currentIndex() == 1:  # tabBatchTag
+        if self.tabWidgetMainMode.currentWidget() is self.tabBatchTag:
             override_image_paths = self._get_staged_image_paths_for_annotation()
             if not override_image_paths:
                 QMessageBox.information(
@@ -1684,9 +1690,9 @@ class MainWindow(QMainWindow, Ui_MainWindow):
             QMessageBox.information(self, "選択なし", "バッチタグに追加する画像が選択されていません。")
             return
 
-        # バッチタグタブへ移動してステージングタブを表示
+        # アノテーションタブへ移動してステージングタブを表示
         if hasattr(self, "tabWidgetMainMode") and self.tabWidgetMainMode:
-            self.tabWidgetMainMode.setCurrentIndex(1)
+            self.tabWidgetMainMode.setCurrentWidget(self.tabBatchTag)
         if hasattr(self, "tabWidgetBatchTagWorkflow") and self.tabWidgetBatchTagWorkflow:
             self.tabWidgetBatchTagWorkflow.setCurrentIndex(0)
 
@@ -1725,25 +1731,24 @@ class MainWindow(QMainWindow, Ui_MainWindow):
         logger.info("Main tab connections setup completed")
 
     def _on_main_tab_changed(self, index: int) -> None:
-        """
-        メインタブ切り替えハンドラ
+        """メインタブ切り替えハンドラ。
+
+        タブ構成変更（Wireframes v11 · 6 タブ化）に耐えるよう、index の
+        マジックナンバーではなく widget 同一性で分岐する。
 
         Args:
-            index: 切り替え先のタブインデックス（0=ワークスペース、1=バッチタグ）
+            index: 切り替え先のタブインデックス。
         """
-        if index == 0:  # ワークスペース
-            logger.info("Switched to Workspace tab")
-            # ワークスペースタブに切り替え時の処理（必要に応じて実装）
-        elif index == 1:  # バッチタグ
-            logger.info("Switched to Batch Tag tab")
+        current = self.tabWidgetMainMode.widget(index)
+        if current is getattr(self, "tabBatchTag", None):
+            logger.info("Switched to Annotate tab")
             self._refresh_batch_tag_staging()
-        elif index == 2:  # バッチAPI
-            logger.info("Switched to バッチAPI tab")
-            widget = getattr(self, "provider_batch_job_widget", None)
-            if widget is not None:
-                widget.refresh_jobs()
-        else:
-            logger.warning(f"Unknown tab index: {index}")
+        elif (
+            getattr(self, "provider_batch_job_widget", None) is not None
+            and current is self.provider_batch_job_widget
+        ):
+            logger.info("Switched to Jobs tab")
+            self.provider_batch_job_widget.refresh_jobs()
 
     def _refresh_batch_tag_staging(self) -> None:
         """
