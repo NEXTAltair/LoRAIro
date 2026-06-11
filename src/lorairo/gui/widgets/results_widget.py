@@ -41,7 +41,10 @@ _DIM_CONFIDENCE: float = 0.5
 class ResultsWidget(QWidget):
     """Frame 5 · Results 読み取り専用トリアージ表示。objectName = "resultsWidget"。"""
 
-    review_requested = Signal(int)  # image_id (Annotate へ遷移要求。Phase 2b で接続)
+    review_requested = Signal(int)  # image_id (Annotate へ遷移要求。Phase 6 で接続)
+    accept_requested = Signal(int)  # image_id (この画像を accept = reviewed_at 設定)
+    unaccept_requested = Signal(int)  # image_id (accept を取り消す = reviewed_at 解除)
+    accept_clean_requested = Signal(list)  # list[int] (問題なし画像を一括 accept)
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -88,6 +91,31 @@ class ResultsWidget(QWidget):
         scroll.setWidget(rows_container)
         self._root.addWidget(scroll, stretch=1)
 
+        footer = self._build_bulk_footer(ordered)
+        if footer is not None:
+            self._root.addWidget(footer)
+
+    def _build_bulk_footer(self, results: list[ImageTriageResult]) -> QWidget | None:
+        """「問題なしを一括 accept」フッタを構築する (対象が無ければ None)。"""
+        # 問題なし かつ 未 accept の画像を一括 accept 対象にする。
+        clean_unaccepted = [r.image_id for r in results if not r.issues and not r.reviewed]
+        if not clean_unaccepted:
+            return None
+
+        footer = QFrame()
+        footer.setObjectName("resultsBulkFooter")
+        layout = QHBoxLayout(footer)
+        layout.addWidget(QLabel(f"問題なし {len(clean_unaccepted)} 件"))
+        layout.addStretch(1)
+
+        button = QPushButton(f"✓ 問題なしを一括 accept ({len(clean_unaccepted)})")
+        button.setObjectName("resultsAcceptCleanButton")
+        button.clicked.connect(
+            lambda _checked=False, ids=clean_unaccepted: self.accept_clean_requested.emit(ids)
+        )
+        layout.addWidget(button)
+        return footer
+
     def clear(self) -> None:
         """空状態 (ステージング 0 件) を表示する。"""
         self._reset()
@@ -133,6 +161,7 @@ class ResultsWidget(QWidget):
             f"バッチ: {summary.batch_size} 件",
             f"要レビュー: {summary.needs_review_count}",
             f"clean: {summary.clean_count}",
+            f"accepted: {summary.accepted_count}/{summary.batch_size}",
             f"tier: {tier_text}",
             f"issue 総数: {issue_total}",
         ]
@@ -193,6 +222,8 @@ class ResultsWidget(QWidget):
         row.setFrameShape(QFrame.Shape.StyledPanel)
         if result.needs_review:
             row.setProperty("needsReview", True)
+        if result.reviewed:
+            row.setProperty("accepted", True)
         layout = QVBoxLayout(row)
 
         layout.addWidget(self._build_row_header(result))
@@ -224,6 +255,22 @@ class ResultsWidget(QWidget):
             lambda _checked=False, image_id=result.image_id: self.review_requested.emit(image_id)
         )
         layout.addWidget(button)
+
+        # accept 済みなら undo、未 accept なら accept ボタンを出す。
+        if result.reviewed:
+            undo = QPushButton("↩ 取消")
+            undo.setObjectName(f"resultsUnacceptButton_{result.image_id}")
+            undo.clicked.connect(
+                lambda _checked=False, image_id=result.image_id: self.unaccept_requested.emit(image_id)
+            )
+            layout.addWidget(undo)
+        else:
+            accept = QPushButton("✓ accept")
+            accept.setObjectName(f"resultsAcceptButton_{result.image_id}")
+            accept.clicked.connect(
+                lambda _checked=False, image_id=result.image_id: self.accept_requested.emit(image_id)
+            )
+            layout.addWidget(accept)
         return header
 
     def _format_dimensions(self, width: int | None, height: int | None) -> str:

@@ -509,9 +509,32 @@ class MainWindow(QMainWindow, Ui_MainWindow):
             stub.deleteLater()
 
         widget = ResultsWidget(parent=container)
+        widget.accept_requested.connect(self._on_results_accept)
+        widget.unaccept_requested.connect(self._on_results_unaccept)
+        widget.accept_clean_requested.connect(self._on_results_accept_clean)
         container.layout().addWidget(widget)
         self.results_widget = widget
         logger.info("✅ 結果タブ (ResultsWidget) initialized")
+
+    def _on_results_accept(self, image_id: int) -> None:
+        """Results 行の accept: reviewed_at を設定して再描画する。"""
+        if self.db_manager:
+            self.db_manager.mark_image_reviewed(image_id, reviewed=True)
+        self._refresh_results_tab()
+
+    def _on_results_unaccept(self, image_id: int) -> None:
+        """Results 行の accept 取消: reviewed_at を解除して再描画する。"""
+        if self.db_manager:
+            self.db_manager.mark_image_reviewed(image_id, reviewed=False)
+        self._refresh_results_tab()
+
+    def _on_results_accept_clean(self, image_ids: list[int]) -> None:
+        """問題なし画像を一括 accept して再描画する。"""
+        if self.db_manager:
+            for image_id in image_ids:
+                self.db_manager.mark_image_reviewed(image_id, reviewed=True)
+            logger.info(f"一括 accept 完了: {len(image_ids)} 件")
+        self._refresh_results_tab()
 
     def _refresh_results_tab(self) -> None:
         """結果タブ表示時に、ステージング集合のトリアージを再計算して描画する。"""
@@ -541,6 +564,7 @@ class MainWindow(QMainWindow, Ui_MainWindow):
                 "uuid": metadata.get("uuid"),
                 "width": metadata.get("width"),
                 "height": metadata.get("height"),
+                "reviewed_at": metadata.get("reviewed_at"),
             }
             results.append(
                 self.quality_issue_detection_service.detect_image(image_id, image_meta, annotations)

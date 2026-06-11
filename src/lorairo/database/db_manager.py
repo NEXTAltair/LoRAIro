@@ -1006,6 +1006,27 @@ class ImageDatabaseManager:
             logger.error(f"画像メタデータ取得中にエラーが発生しました: {e}", exc_info=True)
             raise  # Repositoryでエラーが発生したら上に伝える
 
+    def mark_image_reviewed(self, image_id: int, *, reviewed: bool = True) -> bool:
+        """画像のレビュー完了状態 (reviewed_at) を設定/解除する。
+
+        Wireframes v11 Frame 5 · Results の accept 永続化。
+
+        Args:
+            image_id: 対象画像 ID。
+            reviewed: True なら accept (reviewed_at=now)、False なら undo (NULL)。
+
+        Returns:
+            更新できた場合 True、対象が未登録なら False。
+
+        Raises:
+            SQLAlchemyError: DB 操作に失敗した場合は呼び出し元に伝播させる。
+        """
+        try:
+            return self.image_repo.set_image_reviewed(image_id, reviewed=reviewed)
+        except SQLAlchemyError as e:
+            logger.error(f"画像レビュー状態の更新中にエラー (ID: {image_id}): {e}", exc_info=True)
+            raise
+
     def get_processed_metadata(self, image_id: int) -> list[dict[str, Any]] | None:
         """指定された元画像IDに関連する全ての処理済み画像のメタデータを取得します。
 

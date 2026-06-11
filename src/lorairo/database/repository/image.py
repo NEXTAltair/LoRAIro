@@ -763,6 +763,36 @@ class ImageRepository(BaseRepository):
                 )
                 raise
 
+    def set_image_reviewed(self, image_id: int, *, reviewed: bool) -> bool:
+        """画像のレビュー完了状態 (reviewed_at) を設定/解除する。
+
+        Wireframes v11 Frame 5 · Results の accept (採用) 永続化。
+        accept で ``reviewed_at`` に現在時刻を、undo で NULL を設定する。
+
+        Args:
+            image_id: 対象画像 ID。
+            reviewed: True なら accept (reviewed_at=now)、False なら undo (NULL)。
+
+        Returns:
+            対象画像が存在し更新できた場合 True、未登録なら False。
+
+        Raises:
+            SQLAlchemyError: DB 操作に失敗した場合は呼び出し元に伝播させる。
+        """
+        with self.session_factory() as session:
+            try:
+                image: Image | None = session.get(Image, image_id)
+                if image is None:
+                    logger.warning(f"レビュー状態設定対象が見つかりません: image_id={image_id}")
+                    return False
+                image.reviewed_at = datetime.datetime.now(datetime.UTC) if reviewed else None
+                session.commit()
+                return True
+            except SQLAlchemyError as e:
+                session.rollback()
+                logger.error(f"レビュー状態の設定に失敗しました (ID: {image_id}): {e}", exc_info=True)
+                raise
+
     def get_images_metadata_batch(self, image_ids: list[int]) -> list[dict[str, Any]]:
         """指定された複数IDのオリジナル画像メタデータを一括取得する。
 

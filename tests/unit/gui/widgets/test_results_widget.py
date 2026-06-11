@@ -91,3 +91,69 @@ def test_display_after_display_clears_previous_rows(qapp):
     assert widget.findChild(object, "resultsRow_10") is None
     assert widget.findChild(object, "resultsRow_11") is None
     assert widget.findChild(object, "resultsRow_20") is not None
+
+
+def _reviewed_result(image_id: int, issues: list[IssueType], reviewed: bool) -> ImageTriageResult:
+    return ImageTriageResult(
+        image_id=image_id,
+        uuid="abcd1234",
+        width=1024,
+        height=1024,
+        tags=[TagView(tag="dog", confidence_score=0.9, model_id=1)],
+        caption="a dog on grass",
+        caption_word_count=4,
+        canonical_rating="PG",
+        ratings=[RatingView(model="wd-rater", normalized_rating="PG", confidence_score=0.9)],
+        canonical_tier=QualityTier.GOOD_QUALITY,
+        scorers=[ScorerView(model="aesthetic_shadow_v2", label="aesthetic", tier=QualityTier.BEST_QUALITY)],
+        issues=issues,
+        reviewed=reviewed,
+    )
+
+
+def test_accept_button_emitted_for_unreviewed(qapp, qtbot):
+    widget = ResultsWidget()
+    widget.display(_summary(), [_reviewed_result(10, [IssueType.EMPTY_TAGS], reviewed=False)])
+    button = widget.findChild(object, "resultsAcceptButton_10")
+    assert button is not None
+    with qtbot.waitSignal(widget.accept_requested, timeout=1000) as blocker:
+        button.click()
+    assert blocker.args == [10]
+
+
+def test_reviewed_row_shows_undo_not_accept(qapp):
+    widget = ResultsWidget()
+    widget.display(_summary(), [_reviewed_result(10, [IssueType.EMPTY_TAGS], reviewed=True)])
+    assert widget.findChild(object, "resultsUnacceptButton_10") is not None
+    assert widget.findChild(object, "resultsAcceptButton_10") is None
+
+
+def test_unaccept_button_emits_signal(qapp, qtbot):
+    widget = ResultsWidget()
+    widget.display(_summary(), [_reviewed_result(10, [IssueType.EMPTY_TAGS], reviewed=True)])
+    button = widget.findChild(object, "resultsUnacceptButton_10")
+    with qtbot.waitSignal(widget.unaccept_requested, timeout=1000) as blocker:
+        button.click()
+    assert blocker.args == [10]
+
+
+def test_bulk_accept_clean_emits_clean_ids(qapp, qtbot):
+    widget = ResultsWidget()
+    # clean かつ未 reviewed の #11 のみ一括対象、#10 は issue 有で対象外。
+    results = [
+        _reviewed_result(10, [IssueType.EMPTY_TAGS], reviewed=False),
+        _reviewed_result(11, [], reviewed=False),
+    ]
+    widget.display(_summary(), results)
+    button = widget.findChild(object, "resultsAcceptCleanButton")
+    assert button is not None
+    with qtbot.waitSignal(widget.accept_clean_requested, timeout=1000) as blocker:
+        button.click()
+    assert blocker.args == [[11]]
+
+
+def test_no_bulk_footer_when_no_clean_unreviewed(qapp):
+    widget = ResultsWidget()
+    # 全て issue 有 → 一括対象なし → フッタ無し。
+    widget.display(_summary(), [_reviewed_result(10, [IssueType.EMPTY_TAGS], reviewed=False)])
+    assert widget.findChild(object, "resultsAcceptCleanButton") is None

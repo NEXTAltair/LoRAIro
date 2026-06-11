@@ -79,11 +79,12 @@ class ImageTriageResult:
     canonical_tier: QualityTier | None  # scorer tier の median 相当
     scorers: list[ScorerView]
     issues: list[IssueType]  # 検出された構造的問題 (空なら clean)
+    reviewed: bool = False  # accept 済み (Image.reviewed_at が値あり) なら True
 
     @property
     def needs_review(self) -> bool:
-        """構造的問題が 1 件以上あれば要レビュー。"""
-        return len(self.issues) > 0
+        """構造的問題が 1 件以上あり、まだ accept されていなければ要レビュー。"""
+        return len(self.issues) > 0 and not self.reviewed
 
 
 @dataclass(frozen=True)
@@ -96,6 +97,7 @@ class BatchTriageSummary:
     issue_counts: dict[IssueType, int]  # issue 種別ごとの件数
     tier_distribution: dict[QualityTier, int]
     no_tier_count: int  # tier 算出不能 (no-score / unknown) の件数
+    accepted_count: int = 0  # accept 済み (reviewed) 画像の件数
 
 
 class QualityIssueDetectionService:
@@ -108,7 +110,8 @@ class QualityIssueDetectionService:
 
         Args:
             image_id: 画像 ID。
-            image_meta: ``{"uuid": str|None, "width": int|None, "height": int|None}``。
+            image_meta: ``{"uuid", "width", "height", "reviewed_at"}`` を含む dict。
+                ``reviewed_at`` が非 None なら accept 済みと判定する。
             annotations: ``db_manager.get_image_annotations`` の戻り値
                 (tags / captions / scores / score_labels / ratings)。
 
@@ -158,6 +161,7 @@ class QualityIssueDetectionService:
             canonical_tier=canonical_tier,
             scorers=scorer_views,
             issues=issues,
+            reviewed=image_meta.get("reviewed_at") is not None,
         )
 
     def summarize(self, results: list[ImageTriageResult]) -> BatchTriageSummary:
@@ -169,8 +173,10 @@ class QualityIssueDetectionService:
         Returns:
             バッチ全体のサマリ。
         """
+        # needs_review = issue 有 かつ 未 accept。clean = issue 無し。accepted = reviewed。
         needs_review_count = sum(1 for r in results if r.needs_review)
-        clean_count = len(results) - needs_review_count
+        clean_count = sum(1 for r in results if not r.issues)
+        accepted_count = sum(1 for r in results if r.reviewed)
 
         issue_counts: dict[IssueType, int] = dict.fromkeys(IssueType, 0)
         tier_distribution: dict[QualityTier, int] = {}
@@ -192,6 +198,7 @@ class QualityIssueDetectionService:
             issue_counts=issue_counts,
             tier_distribution=tier_distribution,
             no_tier_count=no_tier_count,
+            accepted_count=accepted_count,
         )
 
     @staticmethod
