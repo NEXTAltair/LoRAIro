@@ -473,6 +473,9 @@ class MainWindow(QMainWindow, Ui_MainWindow):
 
         Wireframes v11 のナビショートカット (⌘1–⌘8) に対応する。
         """
+        if not hasattr(self, "tabWidgetMainMode") or not self.tabWidgetMainMode:
+            logger.warning("tabWidgetMainMode not found - tab shortcuts skipped")
+            return
         for i in range(self.tabWidgetMainMode.count()):
             shortcut = QShortcut(QKeySequence(f"Ctrl+{i + 1}"), self)
             shortcut.setContext(Qt.ShortcutContext.ApplicationShortcut)
