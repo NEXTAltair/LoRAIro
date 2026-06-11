@@ -194,6 +194,9 @@ class AnnotatorLibraryAdapter:
             api_keys = self._prepare_api_keys()
             logger.debug(f"利用可能プロバイダー: {list(api_keys.keys()) if api_keys else '（なし）'}")
 
+            # additional_prompt: 空文字列は None に統一（追記しない）
+            additional_prompt = self.config_service.get_setting("prompts", "additional", "") or None
+
             # image-annotator-lib API呼び出し
             from image_annotator_lib import annotate
 
@@ -204,6 +207,7 @@ class AnnotatorLibraryAdapter:
                 model_name_list=litellm_model_ids,
                 phash_list=phash_list,
                 api_keys=api_keys,  # 明示的に引数として渡す
+                additional_prompt=additional_prompt,
             )
 
             logger.info(f"アノテーション実行完了: {len(results)}件の結果")

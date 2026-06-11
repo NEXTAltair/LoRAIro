@@ -390,6 +390,7 @@ def test_annotate_calls_library_annotate_with_correct_args() -> None:
         model_name_list=["openai/gpt-4o", "google/gemini-1.5-flash"],
         phash_list=["hash001"],
         api_keys={},
+        additional_prompt=None,
     )
 
 
