@@ -173,7 +173,7 @@ class TestExportEntryWiring:
 
 
 class TestStagedExportIdsProvider:
-    """_get_staged_export_ids（ExportController 用 provider）の検証（ADR 0055 / #620 案A）。"""
+    """_get_staged_export_ids（エクスポートタブの対象ソース）の検証（ADR 0055 / #620 案A）。"""
 
     def test_returns_staging_image_ids(self):
         mock_window = Mock()

@@ -732,6 +732,24 @@ class TestAnnotationTargetUI:
         MainWindow._on_staged_images_changed(mock_window, [1, 2, 3])
         mock_window._update_annotation_target_ui.assert_called_once_with(3)
 
+    def test_on_staged_images_changed_syncs_export_widget(self):
+        """Phase 5: ステージング変更はエクスポートタブの対象にもライブ反映される (ADR 0055)。"""
+        from lorairo.gui.window.main_window import MainWindow
+
+        mock_window = Mock()
+        MainWindow._on_staged_images_changed(mock_window, [1, 2, 3])
+        mock_window.export_widget.set_image_ids.assert_called_once_with([1, 2, 3])
+
+    def test_on_staged_images_changed_skips_export_sync_when_widget_missing(self):
+        """Phase 5: エクスポートタブ未初期化時は同期をスキップする。"""
+        from lorairo.gui.window.main_window import MainWindow
+
+        mock_window = Mock()
+        mock_window.export_widget = None
+        # export_widget が None でも例外なく処理が完了する
+        MainWindow._on_staged_images_changed(mock_window, [1, 2])
+        mock_window._update_annotation_target_ui.assert_called_once_with(2)
+
     def test_on_staged_images_changed_empty_list(self):
         from lorairo.gui.window.main_window import MainWindow
 
@@ -767,22 +785,26 @@ class TestOpenDialogs:
             MainWindow.open_settings(mock_window)
             mock_qmb.warning.assert_called_once()
 
-    def test_export_data_with_controller(self):
+    def test_export_data_switches_to_export_tab(self):
+        """Phase 5: export_data はステージング集合を再読込してエクスポートタブへ遷移する。"""
         from lorairo.gui.window.main_window import MainWindow
 
         mock_window = Mock()
-        mock_window.export_controller = Mock()
+        mock_window._get_staged_export_ids.return_value = [1, 2]
         MainWindow.export_data(mock_window)
-        mock_window.export_controller.open_export_dialog.assert_called_once()
+        mock_window.export_widget.set_image_ids.assert_called_once_with([1, 2])
+        mock_window.tabWidgetMainMode.setCurrentWidget.assert_called_once_with(mock_window.tabExport)
 
-    def test_export_data_without_controller_shows_warning(self):
+    def test_export_data_without_export_widget_shows_warning(self):
+        """Phase 5: エクスポートタブ未初期化時は警告を表示して遷移しない。"""
         from lorairo.gui.window.main_window import MainWindow
 
         mock_window = Mock()
-        mock_window.export_controller = None
+        mock_window.export_widget = None
         with patch("lorairo.gui.window.main_window.QMessageBox") as mock_qmb:
             MainWindow.export_data(mock_window)
             mock_qmb.warning.assert_called_once()
+        mock_window.tabWidgetMainMode.setCurrentWidget.assert_not_called()
 
 
 class TestTabChangedHandler:
@@ -817,6 +839,18 @@ class TestTabChangedHandler:
         mock_window.tabWidgetMainMode.widget.return_value = errors_tab
         MainWindow._on_main_tab_changed(mock_window, 5)
         mock_window._refresh_errors_tab.assert_called_once()
+
+    def test_on_main_tab_changed_export_tab_syncs_staging(self):
+        """Phase 5: エクスポートタブ表示時はステージング集合を再読込する。"""
+        from lorairo.gui.window.main_window import MainWindow
+
+        mock_window = Mock()
+        export_tab = Mock()
+        mock_window.tabExport = export_tab
+        mock_window.tabWidgetMainMode.widget.return_value = export_tab
+        mock_window._get_staged_export_ids.return_value = [7, 8]
+        MainWindow._on_main_tab_changed(mock_window, 6)
+        mock_window.export_widget.set_image_ids.assert_called_once_with([7, 8])
 
     def test_on_main_tab_changed_search_tab_is_silent(self):
         from lorairo.gui.window.main_window import MainWindow

@@ -433,6 +433,11 @@ class Ui_MainWindow(object):
         self.verticalLayout_errors = QVBoxLayout(self.tabErrors)
         self.verticalLayout_errors.setObjectName(u"verticalLayout_errors")
         self.tabWidgetMainMode.addTab(self.tabErrors, "")
+        self.tabExport = QWidget()
+        self.tabExport.setObjectName(u"tabExport")
+        self.verticalLayout_export = QVBoxLayout(self.tabExport)
+        self.verticalLayout_export.setObjectName(u"verticalLayout_export")
+        self.tabWidgetMainMode.addTab(self.tabExport, "")
 
         self.verticalLayout_main.addWidget(self.tabWidgetMainMode)
 
@@ -583,6 +588,7 @@ class Ui_MainWindow(object):
 "\u30a2\u30ce\u30c6\u30fc\u30b7\u30e7\u30f3\u54c1\u8cea\u30c8\u30ea\u30a2\u30fc\u30b8\uff08issue \u96c6\u7d04 + accept/edit/reject\uff09\u3092\u4e88\u5b9a\uff08Wireframes v11 \u00b7 Frame 5 / \u5b9f\u88c5\u30ed\u30fc\u30c9\u30de\u30c3\u30d7 Phase 2\uff09\u3002", None))
         self.tabWidgetMainMode.setTabText(self.tabWidgetMainMode.indexOf(self.tabResults), QCoreApplication.translate("MainWindow", u"\u7d50\u679c", None))
         self.tabWidgetMainMode.setTabText(self.tabWidgetMainMode.indexOf(self.tabErrors), QCoreApplication.translate("MainWindow", u"\u30a8\u30e9\u30fc", None))
+        self.tabWidgetMainMode.setTabText(self.tabWidgetMainMode.indexOf(self.tabExport), QCoreApplication.translate("MainWindow", u"\u30a8\u30af\u30b9\u30dd\u30fc\u30c8", None))
         self.menuFile.setTitle(QCoreApplication.translate("MainWindow", u"\u30d5\u30a1\u30a4\u30eb", None))
         self.menuEdit.setTitle(QCoreApplication.translate("MainWindow", u"\u7de8\u96c6", None))
         self.menuView.setTitle(QCoreApplication.translate("MainWindow", u"\u8868\u793a", None))
