@@ -35,10 +35,10 @@ class TestMainWindowTabInitialization:
         assert main_window_with_tabs.tabWidgetMainMode is not None
         assert isinstance(main_window_with_tabs.tabWidgetMainMode, QTabWidget)
 
-    def test_six_tabs_created(self, main_window_with_tabs):
-        """6つのタブ（検索/マップ/アノテーション/ジョブ/結果/エラー）が作成される"""
+    def test_seven_tabs_created(self, main_window_with_tabs):
+        """7つのタブ（検索/マップ/アノテーション/ジョブ/結果/エラー/エクスポート）が作成される"""
         tab_widget = main_window_with_tabs.tabWidgetMainMode
-        assert tab_widget.count() == 6
+        assert tab_widget.count() == 7
         assert [tab_widget.tabText(i) for i in range(tab_widget.count())] == [
             "検索",
             "マップ",
@@ -46,6 +46,7 @@ class TestMainWindowTabInitialization:
             "ジョブ",
             "結果",
             "エラー",
+            "エクスポート",
         ]
 
     def test_stub_pages_exist(self, main_window_with_tabs):
@@ -70,6 +71,16 @@ class TestMainWindowTabInitialization:
         viewer = errors_tab.findChild(ErrorsTriageWidget)
         assert viewer is not None
         assert main_window_with_tabs.errors_triage_widget is viewer
+
+    def test_export_tab_embeds_export_widget(self, main_window_with_tabs):
+        """エクスポートタブに DatasetExportWidget が常設される (Phase 5)"""
+        from lorairo.gui.widgets.dataset_export_widget import DatasetExportWidget
+
+        export_tab = main_window_with_tabs.tabWidgetMainMode.widget(6)
+        assert export_tab.objectName() == "tabExport"
+        widget = export_tab.findChild(DatasetExportWidget)
+        assert widget is not None
+        assert main_window_with_tabs.export_widget is widget
 
     def test_errors_resolve_marks_resolved(self, main_window_with_tabs):
         """resolve_requested シグナルで mark_errors_resolved_batch が呼ばれる"""
