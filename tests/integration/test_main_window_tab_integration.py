@@ -11,6 +11,7 @@ from PySide6.QtGui import QShortcut
 from PySide6.QtWidgets import QTabWidget
 
 from lorairo.gui.widgets.error_log_viewer_widget import ErrorLogViewerWidget
+from lorairo.gui.widgets.results_widget import ResultsWidget
 from lorairo.gui.window.main_window import MainWindow
 
 
@@ -75,6 +76,20 @@ class TestMainWindowTabInitialization:
         window = main_window_with_tabs
         window._on_error_notification_clicked()
         assert window.tabWidgetMainMode.currentWidget() is window.tabErrors
+
+    def test_results_tab_embeds_results_widget(self, main_window_with_tabs):
+        """結果タブに ResultsWidget が常設される"""
+        results_tab = main_window_with_tabs.tabResults
+        viewer = results_tab.findChild(ResultsWidget)
+        assert viewer is not None
+        assert main_window_with_tabs.results_widget is viewer
+
+    def test_results_tab_has_no_stub_label(self, main_window_with_tabs):
+        """スタブラベルが除去されている"""
+        from PySide6.QtWidgets import QLabel
+
+        stub = main_window_with_tabs.tabResults.findChild(QLabel, "labelResultsStub")
+        assert stub is None
 
     def test_workspace_tab_contains_splitter(self, main_window_with_tabs):
         """ワークスペースタブにsplitterMainWorkAreaが含まれる"""

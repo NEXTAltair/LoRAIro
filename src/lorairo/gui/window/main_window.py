@@ -22,6 +22,7 @@ from ...gui.designer.MainWindow_ui import Ui_MainWindow
 from ...services import get_service_container
 from ...services.configuration_service import ConfigurationService
 from ...services.model_selection_service import ModelSelectionService
+from ...services.quality_issue_detection_service import QualityIssueDetectionService
 from ...services.selection_state_service import SelectionStateService
 from ...services.service_container import ServiceContainer
 from ...storage.file_system import FileSystemManager
@@ -45,6 +46,7 @@ from ..widgets.filter_search_panel import FilterSearchPanel
 from ..widgets.image_preview import ImagePreviewWidget
 from ..widgets.provider_batch_job_widget import ProviderBatchJobWidget
 from ..widgets.quick_tag_dialog import QuickTagDialog
+from ..widgets.results_widget import ResultsWidget
 from ..widgets.selected_image_details_widget import SelectedImageDetailsWidget
 from ..widgets.tag_management_dialog import TagManagementDialog
 from ..widgets.thumbnail import ThumbnailSelectorWidget
@@ -99,6 +101,8 @@ class MainWindow(QMainWindow, Ui_MainWindow):
     # Error handling UI components
     error_notification_widget: ErrorNotificationWidget | None
     error_log_viewer_widget: ErrorLogViewerWidget | None
+    results_widget: ResultsWidget | None
+    quality_issue_detection_service: QualityIssueDetectionService
 
     # Tag management UI components
     tag_management_dialog: TagManagementDialog | None
@@ -381,6 +385,7 @@ class MainWindow(QMainWindow, Ui_MainWindow):
         # QTabWidget初期化（タブ切り替え用）
         self._setup_tab_widget()
         self._setup_provider_batch_tab()
+        self._setup_results_tab()
         self._setup_errors_tab()
         self._setup_tab_shortcuts()
 
@@ -481,6 +486,72 @@ class MainWindow(QMainWindow, Ui_MainWindow):
             shortcut.setContext(Qt.ShortcutContext.ApplicationShortcut)
             shortcut.activated.connect(partial(self.tabWidgetMainMode.setCurrentIndex, i))
         logger.debug(f"Tab shortcuts registered: Ctrl+1..Ctrl+{self.tabWidgetMainMode.count()}")
+
+    def _setup_results_tab(self) -> None:
+        """結果タブに ResultsWidget を埋め込む。
+
+        Wireframes v11 Frame 5 · Results。Phase 1 のスタブラベルを除去し、
+        読み取り専用トリアージ表示ウィジェットを常設する。
+        """
+        self.quality_issue_detection_service = QualityIssueDetectionService()
+
+        container = getattr(self, "tabResults", None)
+        if container is None:
+            logger.warning("tabResults not found - results tab skipped")
+            self.results_widget = None
+            return
+
+        # Phase 1 スタブラベルを除去（setParent(None) で即座に tabResults から切り離す）
+        stub = getattr(self, "labelResultsStub", None)
+        if stub is not None:
+            container.layout().removeWidget(stub)
+            stub.setParent(None)
+            stub.deleteLater()
+
+        widget = ResultsWidget(parent=container)
+        container.layout().addWidget(widget)
+        self.results_widget = widget
+        logger.info("✅ 結果タブ (ResultsWidget) initialized")
+
+    def _refresh_results_tab(self) -> None:
+        """結果タブ表示時に、ステージング集合のトリアージを再計算して描画する。"""
+        if self.results_widget is None:
+            return
+        if not self.db_manager:
+            self.results_widget.clear()
+            return
+
+        batch_widget = getattr(self, "batchTagAddWidget", None)
+        if batch_widget is None or not hasattr(batch_widget, "get_staged_items"):
+            self.results_widget.clear()
+            return
+
+        image_ids = list(batch_widget.get_staged_items().keys())
+        if not image_ids:
+            self.results_widget.clear()
+            return
+
+        results = []
+        for image_id in image_ids:
+            metadata = self.db_manager.get_image_metadata(image_id)
+            if metadata is None:
+                continue
+            annotations = self.db_manager.get_image_annotations(image_id)
+            image_meta = {
+                "uuid": metadata.get("uuid"),
+                "width": metadata.get("width"),
+                "height": metadata.get("height"),
+            }
+            results.append(
+                self.quality_issue_detection_service.detect_image(image_id, image_meta, annotations)
+            )
+
+        if not results:
+            self.results_widget.clear()
+            return
+
+        summary = self.quality_issue_detection_service.summarize(results)
+        self.results_widget.display(summary, results)
 
     def _setup_errors_tab(self) -> None:
         """エラータブに ErrorLogViewerWidget を埋め込む。
@@ -1756,6 +1827,9 @@ class MainWindow(QMainWindow, Ui_MainWindow):
         elif self.provider_batch_job_widget is not None and current is self.provider_batch_job_widget:
             logger.info("Switched to Jobs tab")
             self.provider_batch_job_widget.refresh_jobs()
+        elif current is getattr(self, "tabResults", None):
+            logger.info("Switched to Results tab")
+            self._refresh_results_tab()
         elif current is getattr(self, "tabErrors", None):
             logger.info("Switched to Errors tab")
             if self.error_log_viewer_widget is not None and self.db_manager:
