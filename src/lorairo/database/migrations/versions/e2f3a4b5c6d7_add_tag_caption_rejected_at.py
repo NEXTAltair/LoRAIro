@@ -17,14 +17,42 @@ depends_on: str | Sequence[str] | None = None
 
 
 def upgrade() -> None:
-    op.add_column("tags", sa.Column("rejected_at", sa.TIMESTAMP(timezone=True), nullable=True))
-    op.add_column("captions", sa.Column("rejected_at", sa.TIMESTAMP(timezone=True), nullable=True))
-    op.create_index("ix_tags_rejected_at", "tags", ["rejected_at"])
-    op.create_index("ix_captions_rejected_at", "captions", ["rejected_at"])
+    inspector = sa.inspect(op.get_bind())
+    table_names = set(inspector.get_table_names())
+
+    if "tags" in table_names:
+        tag_columns = {column["name"] for column in inspector.get_columns("tags")}
+        tag_indexes = {index["name"] for index in inspector.get_indexes("tags")}
+        if "rejected_at" not in tag_columns:
+            op.add_column("tags", sa.Column("rejected_at", sa.TIMESTAMP(timezone=True), nullable=True))
+        if "ix_tags_rejected_at" not in tag_indexes:
+            op.create_index("ix_tags_rejected_at", "tags", ["rejected_at"])
+
+    if "captions" in table_names:
+        caption_columns = {column["name"] for column in inspector.get_columns("captions")}
+        caption_indexes = {index["name"] for index in inspector.get_indexes("captions")}
+        if "rejected_at" not in caption_columns:
+            op.add_column("captions", sa.Column("rejected_at", sa.TIMESTAMP(timezone=True), nullable=True))
+        if "ix_captions_rejected_at" not in caption_indexes:
+            op.create_index("ix_captions_rejected_at", "captions", ["rejected_at"])
 
 
 def downgrade() -> None:
-    op.drop_index("ix_captions_rejected_at", table_name="captions")
-    op.drop_index("ix_tags_rejected_at", table_name="tags")
-    op.drop_column("captions", "rejected_at")
-    op.drop_column("tags", "rejected_at")
+    inspector = sa.inspect(op.get_bind())
+    table_names = set(inspector.get_table_names())
+
+    if "captions" in table_names:
+        caption_columns = {column["name"] for column in inspector.get_columns("captions")}
+        caption_indexes = {index["name"] for index in inspector.get_indexes("captions")}
+        if "ix_captions_rejected_at" in caption_indexes:
+            op.drop_index("ix_captions_rejected_at", table_name="captions")
+        if "rejected_at" in caption_columns:
+            op.drop_column("captions", "rejected_at")
+
+    if "tags" in table_names:
+        tag_columns = {column["name"] for column in inspector.get_columns("tags")}
+        tag_indexes = {index["name"] for index in inspector.get_indexes("tags")}
+        if "ix_tags_rejected_at" in tag_indexes:
+            op.drop_index("ix_tags_rejected_at", table_name="tags")
+        if "rejected_at" in tag_columns:
+            op.drop_column("tags", "rejected_at")
