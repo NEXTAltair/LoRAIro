@@ -91,6 +91,26 @@ class TestMainWindowTabInitialization:
         stub = main_window_with_tabs.tabResults.findChild(QLabel, "labelResultsStub")
         assert stub is None
 
+    def test_results_accept_marks_image_reviewed(self, main_window_with_tabs):
+        """ResultsWidget の accept シグナルで db_manager.mark_image_reviewed が呼ばれる"""
+        from unittest.mock import Mock
+
+        window = main_window_with_tabs
+        mark = Mock(return_value=True)
+        window.db_manager.mark_image_reviewed = mark
+        window.results_widget.accept_requested.emit(42)
+        mark.assert_called_once_with(42, reviewed=True)
+
+    def test_results_accept_clean_marks_all(self, main_window_with_tabs):
+        """accept_clean シグナルで複数画像が reviewed=True にマークされる"""
+        from unittest.mock import Mock
+
+        window = main_window_with_tabs
+        mark = Mock(return_value=True)
+        window.db_manager.mark_image_reviewed = mark
+        window.results_widget.accept_clean_requested.emit([1, 2, 3])
+        assert mark.call_count == 3
+
     def test_workspace_tab_contains_splitter(self, main_window_with_tabs):
         """ワークスペースタブにsplitterMainWorkAreaが含まれる"""
         workspace_tab = main_window_with_tabs.tabWidgetMainMode.widget(0)

@@ -208,3 +208,36 @@ def test_canonical_rating_orders_xxx_strictest(service):
     )
     assert result.canonical_rating == "XXX"
     assert IssueType.RATING_DISAGREEMENT in result.issues
+
+
+def test_reviewed_image_is_not_needs_review(service):
+    """reviewed_at が値ありなら issue があっても needs_review にならない。"""
+    meta = {**META, "reviewed_at": "2026-06-11T00:00:00Z"}
+    result = service.detect_image(1, meta, _ann())  # 空 = EMPTY_TAGS + NO_SCORE
+    assert result.reviewed is True
+    assert result.issues  # issue 自体は検出される
+    assert result.needs_review is False
+
+
+def test_unreviewed_image_with_issue_needs_review(service):
+    """reviewed_at が None なら issue 有で needs_review。"""
+    meta = {**META, "reviewed_at": None}
+    result = service.detect_image(1, meta, _ann())
+    assert result.reviewed is False
+    assert result.needs_review is True
+
+
+def test_summarize_counts_accepted(service):
+    """summarize が accepted_count を集計する。"""
+    accepted = service.detect_image(
+        1,
+        {**META, "reviewed_at": "2026-06-11T00:00:00Z"},
+        _ann(
+            tags=[{"tag": "a", "confidence_score": 0.9, "model_id": 1, "rejected_at": None}],
+            score_labels=[{"model": "aesthetic_shadow_v2", "label": "aesthetic"}],
+            ratings=[{"model": "wd-rater", "normalized_rating": "PG", "confidence_score": 0.9}],
+        ),
+    )
+    unreviewed = service.detect_image(2, {**META, "reviewed_at": None}, _ann())
+    summary = service.summarize([accepted, unreviewed])
+    assert summary.accepted_count == 1
