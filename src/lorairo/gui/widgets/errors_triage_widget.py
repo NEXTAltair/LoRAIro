@@ -230,6 +230,8 @@ class ErrorsTriageWidget(QWidget):
         keep = {self._empty_state}
         for i in reversed(range(self._content_layout.count())):
             item = self._content_layout.itemAt(i)
+            if item is None:
+                continue
             child = item.widget()
             if child is not None and child not in keep:
                 self._content_layout.takeAt(i)
