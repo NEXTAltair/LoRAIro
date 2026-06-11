@@ -1343,8 +1343,8 @@ class ImageDatabaseManager:
             with session:
                 completed_query = text("""
                     SELECT COUNT(DISTINCT i.id) FROM images i
-                    LEFT JOIN tags t ON i.id = t.image_id
-                    LEFT JOIN captions c ON i.id = c.image_id
+                    LEFT JOIN tags t ON i.id = t.image_id AND t.rejected_at IS NULL
+                    LEFT JOIN captions c ON i.id = c.image_id AND c.rejected_at IS NULL
                     WHERE t.id IS NOT NULL OR c.id IS NOT NULL
                 """)
                 result: Result[Any] = session.execute(completed_query)
@@ -1395,8 +1395,8 @@ class ImageDatabaseManager:
                     # 完了画像（タグまたはキャプション有り）
                     query = text("""
                         SELECT DISTINCT i.* FROM images i
-                        LEFT JOIN tags t ON i.id = t.image_id
-                        LEFT JOIN captions c ON i.id = c.image_id
+                        LEFT JOIN tags t ON i.id = t.image_id AND t.rejected_at IS NULL
+                        LEFT JOIN captions c ON i.id = c.image_id AND c.rejected_at IS NULL
                         WHERE t.id IS NOT NULL OR c.id IS NOT NULL
                     """)
                 elif error:
