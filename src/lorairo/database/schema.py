@@ -202,6 +202,11 @@ class Image(Base):
         nullable=True,
         index=True,
     )
+    # アノテーション品質レビュー完了タイムスタンプ (Wireframes v11 Frame 5 · Results)。
+    # NULL = 未レビュー、値あり = accept 済み (確認完了)。rejected_at (タグ単位) と対称。
+    reviewed_at: Mapped[datetime.datetime | None] = mapped_column(
+        TIMESTAMP(timezone=True), nullable=True, index=True
+    )
     created_at: Mapped[datetime.datetime] = mapped_column(
         TIMESTAMP(timezone=True), server_default=func.now()
     )

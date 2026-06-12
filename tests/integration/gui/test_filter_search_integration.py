@@ -60,6 +60,8 @@ class TestFilterSearchIntegration:
 
         mock_db_manager.get_images_by_filter.return_value = (mock_images, 2)
         mock_db_manager.check_image_has_annotation.return_value = True
+        mock_db_manager.get_recently_used_model_ids.return_value = []
+        mock_db_manager.get_created_at_histogram.return_value = []
 
         return {
             "db_manager": mock_db_manager,
@@ -485,6 +487,8 @@ class TestEndToEndIntegration:
         ]
         mock_db_manager.get_images_by_filter.return_value = (sample_images, 1)
         mock_db_manager.check_image_has_annotation.return_value = True
+        mock_db_manager.get_recently_used_model_ids.return_value = []
+        mock_db_manager.get_created_at_histogram.return_value = []
 
         # サービス層構築
         criteria_processor = SearchCriteriaProcessor(mock_db_manager)
@@ -613,8 +617,11 @@ class TestScoreFilterValues:
     @pytest.fixture
     def mock_dependencies(self):
         """統合テスト用モック"""
+        db_manager = Mock()
+        db_manager.get_recently_used_model_ids.return_value = []
+        db_manager.get_created_at_histogram.return_value = []
         return {
-            "db_manager": Mock(),
+            "db_manager": db_manager,
             "model_selection_service": Mock(),
         }
 

@@ -48,6 +48,11 @@ class _BareMainWindow(QMainWindow, Ui_MainWindow):
     def send_selected_to_batch_tag(self) -> None:
         pass
 
+    # Phase 6a: _on_staged_images_changed がパイプライン構成ビューを再描画するため、
+    # サービス未初期化の素ウィンドウでは no-op スタブで受ける
+    def _refresh_pipeline_panel(self, selected_ids: list[str] | None = None) -> None:
+        pass
+
 
 @pytest.fixture
 def bare_window(qtbot):
@@ -173,7 +178,7 @@ class TestExportEntryWiring:
 
 
 class TestStagedExportIdsProvider:
-    """_get_staged_export_ids（ExportController 用 provider）の検証（ADR 0055 / #620 案A）。"""
+    """_get_staged_export_ids（エクスポートタブの対象ソース）の検証（ADR 0055 / #620 案A）。"""
 
     def test_returns_staging_image_ids(self):
         mock_window = Mock()

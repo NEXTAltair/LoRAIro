@@ -48,6 +48,12 @@ class SearchConditions:
     score_min: float | None = None  # 最小スコア値（0.0-10.0）
     score_max: float | None = None  # 最大スコア値（0.0-10.0）
 
+    # Phase 4: Search サイドバー強化 facet fields
+    manual_edit_filter: bool | None = None  # 手動編集あり/なし/全て
+    reviewed_at_filter: str | None = None  # "unreviewed" | "reviewed" | None=全て
+    error_state_filter: str | None = None  # "has_error" | "no_error" | None=全て
+    model_filter: list[str] | None = None  # litellm_id リスト。None=全モデル
+
     def to_filter_criteria(self) -> ImageFilterCriteria:
         """DB層のImageFilterCriteriaオブジェクトに変換
 
@@ -71,6 +77,10 @@ class SearchConditions:
             ai_rating_filter=self.ai_rating_filter,
             score_min=self.score_min,
             score_max=self.score_max,
+            manual_edit_filter=self.manual_edit_filter,
+            reviewed_at_filter=self.reviewed_at_filter,
+            error_state_filter=self.error_state_filter,
+            model_filter=self.model_filter,
         )
 
     def to_db_filter_args(self) -> dict[str, Any]:

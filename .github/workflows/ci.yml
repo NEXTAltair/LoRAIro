@@ -2,9 +2,9 @@ name: CI
 
 on:
   push:
-    branches: [main]
+    branches: [main, "epic/**"]
   pull_request:
-    branches: [main]
+    branches: [main, "epic/**"]
 
 env:
   QT_QPA_PLATFORM: offscreen

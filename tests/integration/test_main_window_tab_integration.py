@@ -7,9 +7,11 @@ MainWindow初期化、タブ切り替え、ウィジェット統合を検証。
 from unittest.mock import Mock
 
 import pytest
-from PySide6.QtCore import Qt
+from PySide6.QtGui import QShortcut
 from PySide6.QtWidgets import QTabWidget
 
+from lorairo.gui.widgets.errors_triage_widget import ErrorsTriageWidget
+from lorairo.gui.widgets.results_widget import ResultsWidget
 from lorairo.gui.window.main_window import MainWindow
 
 
@@ -33,13 +35,120 @@ class TestMainWindowTabInitialization:
         assert main_window_with_tabs.tabWidgetMainMode is not None
         assert isinstance(main_window_with_tabs.tabWidgetMainMode, QTabWidget)
 
-    def test_three_tabs_created(self, main_window_with_tabs):
-        """3つのタブ（ワークスペース、バッチタグ、バッチAPI）が作成される"""
+    def test_seven_tabs_created(self, main_window_with_tabs):
+        """7つのタブ（検索/マップ/アノテーション/ジョブ/結果/エラー/エクスポート）が作成される"""
         tab_widget = main_window_with_tabs.tabWidgetMainMode
-        assert tab_widget.count() == 3
-        assert tab_widget.tabText(0) == "ワークスペース"
-        assert tab_widget.tabText(1) == "バッチタグ"
-        assert tab_widget.tabText(2) == "バッチAPI"
+        assert tab_widget.count() == 7
+        assert [tab_widget.tabText(i) for i in range(tab_widget.count())] == [
+            "検索",
+            "マップ",
+            "アノテーション",
+            "ジョブ",
+            "結果",
+            "エラー",
+            "エクスポート",
+        ]
+
+    def test_stub_pages_exist(self, main_window_with_tabs):
+        """マップ/結果タブはスタブページとして存在する"""
+        tab_widget = main_window_with_tabs.tabWidgetMainMode
+        assert tab_widget.widget(1).objectName() == "tabMap"
+        assert tab_widget.widget(4).objectName() == "tabResults"
+
+    def test_tab_order_matches_wireframe_nav(self, main_window_with_tabs):
+        """タブ順序が Wireframes v11 のナビ順に一致する"""
+        window = main_window_with_tabs
+        tab_widget = window.tabWidgetMainMode
+        assert tab_widget.widget(0) is window.tabWorkspace
+        assert tab_widget.widget(2) is window.tabBatchTag
+        assert tab_widget.widget(3) is window.provider_batch_job_widget
+        assert tab_widget.widget(5).objectName() == "tabErrors"
+
+    def test_errors_tab_embeds_triage_widget(self, main_window_with_tabs):
+        """エラータブに ErrorsTriageWidget が常設される"""
+        errors_tab = main_window_with_tabs.tabWidgetMainMode.widget(5)
+        assert errors_tab.objectName() == "tabErrors"
+        viewer = errors_tab.findChild(ErrorsTriageWidget)
+        assert viewer is not None
+        assert main_window_with_tabs.errors_triage_widget is viewer
+
+    def test_export_tab_embeds_export_widget(self, main_window_with_tabs):
+        """エクスポートタブに DatasetExportWidget が常設される (Phase 5)"""
+        from lorairo.gui.widgets.dataset_export_widget import DatasetExportWidget
+
+        export_tab = main_window_with_tabs.tabWidgetMainMode.widget(6)
+        assert export_tab.objectName() == "tabExport"
+        widget = export_tab.findChild(DatasetExportWidget)
+        assert widget is not None
+        assert main_window_with_tabs.export_widget is widget
+
+    def test_pipeline_panel_embedded_in_annotation_group(self, main_window_with_tabs):
+        """アノテーショングループにパイプライン構成ビューが常設される (Phase 6a)"""
+        window = main_window_with_tabs
+        assert window.pipeline_stage_table is not None
+        assert window.inference_ledger_widget is not None
+        assert window.pipeline_stage_table.parent() is window.groupBoxAnnotation
+        assert window.inference_ledger_widget.parent() is window.groupBoxAnnotation
+
+    def test_errors_resolve_marks_resolved(self, main_window_with_tabs):
+        """resolve_requested シグナルで mark_errors_resolved_batch が呼ばれる"""
+        from unittest.mock import Mock
+
+        window = main_window_with_tabs
+        mark = Mock(return_value=(True, 1))
+        window.db_manager.mark_errors_resolved_batch = mark
+        window.errors_triage_widget.resolve_requested.emit(7)
+        mark.assert_called_once_with([7])
+
+    def test_errors_resolve_group_marks_all(self, main_window_with_tabs):
+        """resolve_group_requested シグナルで複数 error_id が一括解決される"""
+        from unittest.mock import Mock
+
+        window = main_window_with_tabs
+        mark = Mock(return_value=(True, 3))
+        window.db_manager.mark_errors_resolved_batch = mark
+        window.errors_triage_widget.resolve_group_requested.emit([1, 2, 3])
+        mark.assert_called_once_with([1, 2, 3])
+
+    def test_error_notification_click_navigates_to_errors_tab(self, main_window_with_tabs):
+        """エラー通知クリックでエラータブへ遷移する"""
+        window = main_window_with_tabs
+        window._on_error_notification_clicked()
+        assert window.tabWidgetMainMode.currentWidget() is window.tabErrors
+
+    def test_results_tab_embeds_results_widget(self, main_window_with_tabs):
+        """結果タブに ResultsWidget が常設される"""
+        results_tab = main_window_with_tabs.tabResults
+        viewer = results_tab.findChild(ResultsWidget)
+        assert viewer is not None
+        assert main_window_with_tabs.results_widget is viewer
+
+    def test_results_tab_has_no_stub_label(self, main_window_with_tabs):
+        """スタブラベルが除去されている"""
+        from PySide6.QtWidgets import QLabel
+
+        stub = main_window_with_tabs.tabResults.findChild(QLabel, "labelResultsStub")
+        assert stub is None
+
+    def test_results_accept_marks_image_reviewed(self, main_window_with_tabs):
+        """ResultsWidget の accept シグナルで db_manager.mark_image_reviewed が呼ばれる"""
+        from unittest.mock import Mock
+
+        window = main_window_with_tabs
+        mark = Mock(return_value=True)
+        window.db_manager.mark_image_reviewed = mark
+        window.results_widget.accept_requested.emit(42)
+        mark.assert_called_once_with(42, reviewed=True)
+
+    def test_results_accept_clean_marks_all(self, main_window_with_tabs):
+        """accept_clean シグナルで複数画像が reviewed=True にマークされる"""
+        from unittest.mock import Mock
+
+        window = main_window_with_tabs
+        mark = Mock(return_value=True)
+        window.db_manager.mark_image_reviewed = mark
+        window.results_widget.accept_clean_requested.emit([1, 2, 3])
+        assert mark.call_count == 3
 
     def test_workspace_tab_contains_splitter(self, main_window_with_tabs):
         """ワークスペースタブにsplitterMainWorkAreaが含まれる"""
@@ -61,8 +170,8 @@ class TestMainWindowTabInitialization:
         assert found, "splitterMainWorkArea should be a descendant of workspace tab"
 
     def test_batch_tag_tab_structure(self, main_window_with_tabs):
-        """バッチタグタブが適切な構造を持つ"""
-        batch_tag_tab = main_window_with_tabs.tabWidgetMainMode.widget(1)
+        """アノテーションタブが適切な構造を持つ"""
+        batch_tag_tab = main_window_with_tabs.tabBatchTag
         assert batch_tag_tab is not None
         assert batch_tag_tab.objectName() == "tabBatchTag"
 
@@ -71,11 +180,12 @@ class TestMainWindowTabInitialization:
         assert operations_group is not None
 
     def test_provider_batch_tab_structure(self, main_window_with_tabs):
-        """バッチAPIタブが適切な構造を持つ"""
-        provider_batch_tab = main_window_with_tabs.tabWidgetMainMode.widget(2)
+        """ジョブタブ（Provider Batch）が適切な構造を持つ"""
+        provider_batch_tab = main_window_with_tabs.provider_batch_job_widget
         assert provider_batch_tab is not None
         assert provider_batch_tab.objectName() == "providerBatchJobWidget"
-        assert main_window_with_tabs.provider_batch_job_widget is provider_batch_tab
+        tab_widget = main_window_with_tabs.tabWidgetMainMode
+        assert tab_widget.widget(tab_widget.indexOf(provider_batch_tab)) is provider_batch_tab
 
 
 class TestTabSwitching:
@@ -87,39 +197,42 @@ class TestTabSwitching:
         assert tab_widget.currentIndex() == 0
 
     def test_can_switch_to_batch_tag_tab(self, main_window_with_tabs, qtbot):
-        """バッチタグタブに切り替えられる"""
-        tab_widget = main_window_with_tabs.tabWidgetMainMode
+        """アノテーションタブに切り替えられる"""
+        window = main_window_with_tabs
+        tab_widget = window.tabWidgetMainMode
 
-        # バッチタグタブに切り替え
-        tab_widget.setCurrentIndex(1)
+        # アノテーションタブに切り替え
+        tab_widget.setCurrentWidget(window.tabBatchTag)
 
         # イベント処理を待つ
         qtbot.wait(10)
 
-        assert tab_widget.currentIndex() == 1
+        assert tab_widget.currentWidget() is window.tabBatchTag
 
     def test_can_switch_back_to_workspace(self, main_window_with_tabs, qtbot):
-        """ワークスペースタブに戻せる"""
-        tab_widget = main_window_with_tabs.tabWidgetMainMode
+        """検索（ワークスペース）タブに戻せる"""
+        window = main_window_with_tabs
+        tab_widget = window.tabWidgetMainMode
 
-        # バッチタグタブに切り替え
-        tab_widget.setCurrentIndex(1)
+        # アノテーションタブに切り替え
+        tab_widget.setCurrentWidget(window.tabBatchTag)
         qtbot.wait(10)
 
-        # ワークスペースタブに戻す
-        tab_widget.setCurrentIndex(0)
+        # 検索タブに戻す
+        tab_widget.setCurrentWidget(window.tabWorkspace)
         qtbot.wait(10)
 
-        assert tab_widget.currentIndex() == 0
+        assert tab_widget.currentWidget() is window.tabWorkspace
 
     def test_can_switch_to_provider_batch_tab(self, main_window_with_tabs, qtbot):
-        """バッチAPIタブに切り替えられる"""
-        tab_widget = main_window_with_tabs.tabWidgetMainMode
+        """ジョブタブ（Provider Batch）に切り替えられる"""
+        window = main_window_with_tabs
+        tab_widget = window.tabWidgetMainMode
 
-        tab_widget.setCurrentIndex(2)
+        tab_widget.setCurrentWidget(window.provider_batch_job_widget)
         qtbot.wait(10)
 
-        assert tab_widget.currentIndex() == 2
+        assert tab_widget.currentWidget() is window.provider_batch_job_widget
 
     def test_provider_batch_shares_batch_tag_staging(self, main_window_with_tabs):
         """通常アノテーションとバッチAPIは同じステージング状態を共有する。"""
@@ -136,6 +249,24 @@ class TestTabSwitching:
         assert model_selection.objectName() == "providerBatchModelSelection"
         assert provider_widget.modelSelectionPlaceholder.parent() is None
         assert provider_widget.executionLayout.indexOf(model_selection) != -1
+
+    def test_tab_shortcuts_registered_for_all_tabs(self, main_window_with_tabs):
+        """Ctrl+1〜N のショートカットがタブ数分登録される"""
+        window = main_window_with_tabs
+        sequences = {sc.key().toString() for sc in window.findChildren(QShortcut)}
+        expected = {f"Ctrl+{i + 1}" for i in range(window.tabWidgetMainMode.count())}
+        assert expected.issubset(sequences)
+
+    def test_tab_shortcut_activation_switches_tab(self, main_window_with_tabs):
+        """ショートカット発火でメインタブが切り替わる"""
+        window = main_window_with_tabs
+        shortcut_by_seq = {sc.key().toString(): sc for sc in window.findChildren(QShortcut)}
+
+        shortcut_by_seq["Ctrl+4"].activated.emit()
+        assert window.tabWidgetMainMode.currentIndex() == 3
+
+        shortcut_by_seq["Ctrl+1"].activated.emit()
+        assert window.tabWidgetMainMode.currentIndex() == 0
 
 
 class TestBatchTagWidgetIntegration:
@@ -163,11 +294,11 @@ class TestBatchTagWidgetIntegration:
 
         add_to_staging.assert_called_once_with([101, 102])
         information.assert_not_called()
-        assert main_window_with_tabs.tabWidgetMainMode.currentIndex() == 1
+        assert main_window_with_tabs.tabWidgetMainMode.currentWidget() is main_window_with_tabs.tabBatchTag
 
     def test_batchtagaddwidget_in_batch_tag_tab(self, main_window_with_tabs):
-        """BatchTagAddWidgetがバッチタグタブ内に配置されている"""
-        batch_tag_tab = main_window_with_tabs.tabWidgetMainMode.widget(1)
+        """BatchTagAddWidgetがアノテーションタブ内に配置されている"""
+        batch_tag_tab = main_window_with_tabs.tabBatchTag
         batch_tag_widget = main_window_with_tabs.batchTagAddWidget
 
         # BatchTagAddWidgetの親を辿ってbatch_tag_tabに到達できる
@@ -189,7 +320,7 @@ class TestBatchTagWidgetIntegration:
         assert batch_tag_widget.objectName() == "batchTagAddWidget"
 
         # BatchTagAddWidgetがスプリッター内に正しく配置されている
-        batch_tag_tab = main_window_with_tabs.tabWidgetMainMode.widget(1)
+        batch_tag_tab = main_window_with_tabs.tabBatchTag
         splitter = batch_tag_tab.findChild(object, "splitterBatchTagMain")
         if splitter:
             # スプリッター内にBatchTagAddWidgetが含まれている
@@ -225,10 +356,10 @@ class TestStatePreservation:
         # ワークスペースタブのDatasetStateManager
         workspace_state = main_window_with_tabs.dataset_state_manager
 
-        # バッチタグタブに切り替え
-        tab_widget.setCurrentIndex(1)
+        # アノテーションタブに切り替え
+        tab_widget.setCurrentWidget(main_window_with_tabs.tabBatchTag)
 
-        # バッチタグタブでもDatasetStateManagerが同じインスタンス
+        # アノテーションタブでもDatasetStateManagerが同じインスタンス
         batch_tag_state = main_window_with_tabs.dataset_state_manager
 
         assert workspace_state is dataset_state
@@ -253,8 +384,8 @@ class TestAnnotationDataDisplayWidget:
         assert main_window_with_tabs.batchTagAnnotationDisplay is not None
 
     def test_annotation_display_in_batch_tag_tab(self, main_window_with_tabs):
-        """AnnotationDataDisplayWidgetがバッチタグタブ内に配置されている"""
-        batch_tag_tab = main_window_with_tabs.tabWidgetMainMode.widget(1)
+        """AnnotationDataDisplayWidgetがアノテーションタブ内に配置されている"""
+        batch_tag_tab = main_window_with_tabs.tabBatchTag
         annotation_display = main_window_with_tabs.batchTagAnnotationDisplay
 
         # AnnotationDataDisplayWidgetの親を辿ってbatch_tag_tabに到達できる

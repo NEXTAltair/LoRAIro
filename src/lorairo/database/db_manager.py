@@ -1006,6 +1006,27 @@ class ImageDatabaseManager:
             logger.error(f"画像メタデータ取得中にエラーが発生しました: {e}", exc_info=True)
             raise  # Repositoryでエラーが発生したら上に伝える
 
+    def mark_image_reviewed(self, image_id: int, *, reviewed: bool = True) -> bool:
+        """画像のレビュー完了状態 (reviewed_at) を設定/解除する。
+
+        Wireframes v11 Frame 5 · Results の accept 永続化。
+
+        Args:
+            image_id: 対象画像 ID。
+            reviewed: True なら accept (reviewed_at=now)、False なら undo (NULL)。
+
+        Returns:
+            更新できた場合 True、対象が未登録なら False。
+
+        Raises:
+            SQLAlchemyError: DB 操作に失敗した場合は呼び出し元に伝播させる。
+        """
+        try:
+            return self.image_repo.set_image_reviewed(image_id, reviewed=reviewed)
+        except SQLAlchemyError as e:
+            logger.error(f"画像レビュー状態の更新中にエラー (ID: {image_id}): {e}", exc_info=True)
+            raise
+
     def get_processed_metadata(self, image_id: int) -> list[dict[str, Any]] | None:
         """指定された元画像IDに関連する全ての処理済み画像のメタデータを取得します。
 
@@ -1799,6 +1820,28 @@ class ImageDatabaseManager:
         except SQLAlchemyError as e:
             logger.error(f"ファイルパスからの画像ID取得エラー: {e}", exc_info=True)
             raise
+
+    def get_created_at_histogram(self, bins: int = 20) -> list[tuple[datetime, datetime, int]]:
+        """Image.created_at 分布ヒストグラムを取得する。
+
+        Args:
+            bins: ビン数（デフォルト 20）。
+
+        Returns:
+            list of (bin_start, bin_end, count)。空データの場合は空リスト。
+        """
+        return self.image_repo.get_created_at_histogram(bins=bins)
+
+    def get_recently_used_model_ids(self, limit: int = 10) -> list[str]:
+        """アノテーション実績があるモデルの litellm_model_id を返す。
+
+        Args:
+            limit: 最大件数（デフォルト 10）。
+
+        Returns:
+            litellm_model_id のリスト。
+        """
+        return self.image_repo.get_recently_used_model_ids(limit=limit)
 
 
 # --- 初期化チェック ---

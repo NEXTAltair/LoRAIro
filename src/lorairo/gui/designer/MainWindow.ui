@@ -11,7 +11,7 @@
    </rect>
   </property>
   <property name="windowTitle">
-   <string>LoRAIro - ワークスペース</string>
+   <string>LoRAIro</string>
   </property>
   <property name="windowIcon">
    <iconset>
@@ -41,7 +41,7 @@
       </property>
       <widget class="QWidget" name="tabWorkspace">
        <attribute name="title">
-        <string>ワークスペース</string>
+        <string>検索</string>
        </attribute>
        <layout class="QVBoxLayout" name="verticalLayout_workspace">
         <property name="spacing">
@@ -545,9 +545,30 @@
         </item>
        </layout>
       </widget>
+      <widget class="QWidget" name="tabMap">
+       <attribute name="title">
+        <string>マップ</string>
+       </attribute>
+       <layout class="QVBoxLayout" name="verticalLayout_map">
+        <item>
+         <widget class="QLabel" name="labelMapStub">
+          <property name="text">
+           <string>マップビューは未実装です。
+embedding 散布図によるデータセット俯瞰を予定（Wireframes v11 · Map / 実装ロードマップ Phase 8）。</string>
+          </property>
+          <property name="alignment">
+           <set>Qt::AlignmentFlag::AlignCenter</set>
+          </property>
+          <property name="wordWrap">
+           <bool>true</bool>
+          </property>
+         </widget>
+        </item>
+       </layout>
+      </widget>
       <widget class="QWidget" name="tabBatchTag">
        <attribute name="title">
-        <string>バッチタグ</string>
+        <string>アノテーション</string>
        </attribute>
        <layout class="QVBoxLayout" name="verticalLayout_batchTag">
         <property name="spacing">
@@ -670,6 +691,39 @@
          </widget>
         </item>
        </layout>
+      </widget>
+      <widget class="QWidget" name="tabResults">
+       <attribute name="title">
+        <string>結果</string>
+       </attribute>
+       <layout class="QVBoxLayout" name="verticalLayout_results">
+        <item>
+         <widget class="QLabel" name="labelResultsStub">
+          <property name="text">
+           <string>結果ビューは未実装です。
+アノテーション品質トリアージ（issue 集約 + accept/edit/reject）を予定（Wireframes v11 · Frame 5 / 実装ロードマップ Phase 2）。</string>
+          </property>
+          <property name="alignment">
+           <set>Qt::AlignmentFlag::AlignCenter</set>
+          </property>
+          <property name="wordWrap">
+           <bool>true</bool>
+          </property>
+         </widget>
+        </item>
+       </layout>
+      </widget>
+      <widget class="QWidget" name="tabErrors">
+       <attribute name="title">
+        <string>エラー</string>
+       </attribute>
+       <layout class="QVBoxLayout" name="verticalLayout_errors"/>
+      </widget>
+      <widget class="QWidget" name="tabExport">
+       <attribute name="title">
+        <string>エクスポート</string>
+       </attribute>
+       <layout class="QVBoxLayout" name="verticalLayout_export"/>
       </widget>
      </widget>
     </item>

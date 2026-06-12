@@ -325,6 +325,18 @@ class Ui_MainWindow(object):
         self.verticalLayout_workspace.addWidget(self.frameActionToolbar)
 
         self.tabWidgetMainMode.addTab(self.tabWorkspace, "")
+        self.tabMap = QWidget()
+        self.tabMap.setObjectName(u"tabMap")
+        self.verticalLayout_map = QVBoxLayout(self.tabMap)
+        self.verticalLayout_map.setObjectName(u"verticalLayout_map")
+        self.labelMapStub = QLabel(self.tabMap)
+        self.labelMapStub.setObjectName(u"labelMapStub")
+        self.labelMapStub.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.labelMapStub.setWordWrap(True)
+
+        self.verticalLayout_map.addWidget(self.labelMapStub)
+
+        self.tabWidgetMainMode.addTab(self.tabMap, "")
         self.tabBatchTag = QWidget()
         self.tabBatchTag.setObjectName(u"tabBatchTag")
         self.verticalLayout_batchTag = QVBoxLayout(self.tabBatchTag)
@@ -404,6 +416,28 @@ class Ui_MainWindow(object):
         self.verticalLayout_batchTag.addWidget(self.splitterBatchTagMain)
 
         self.tabWidgetMainMode.addTab(self.tabBatchTag, "")
+        self.tabResults = QWidget()
+        self.tabResults.setObjectName(u"tabResults")
+        self.verticalLayout_results = QVBoxLayout(self.tabResults)
+        self.verticalLayout_results.setObjectName(u"verticalLayout_results")
+        self.labelResultsStub = QLabel(self.tabResults)
+        self.labelResultsStub.setObjectName(u"labelResultsStub")
+        self.labelResultsStub.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.labelResultsStub.setWordWrap(True)
+
+        self.verticalLayout_results.addWidget(self.labelResultsStub)
+
+        self.tabWidgetMainMode.addTab(self.tabResults, "")
+        self.tabErrors = QWidget()
+        self.tabErrors.setObjectName(u"tabErrors")
+        self.verticalLayout_errors = QVBoxLayout(self.tabErrors)
+        self.verticalLayout_errors.setObjectName(u"verticalLayout_errors")
+        self.tabWidgetMainMode.addTab(self.tabErrors, "")
+        self.tabExport = QWidget()
+        self.tabExport.setObjectName(u"tabExport")
+        self.verticalLayout_export = QVBoxLayout(self.tabExport)
+        self.verticalLayout_export.setObjectName(u"verticalLayout_export")
+        self.tabWidgetMainMode.addTab(self.tabExport, "")
 
         self.verticalLayout_main.addWidget(self.tabWidgetMainMode)
 
@@ -469,7 +503,7 @@ class Ui_MainWindow(object):
     # setupUi
 
     def retranslateUi(self, MainWindow: QWidget) -> None:
-        MainWindow.setWindowTitle(QCoreApplication.translate("MainWindow", u"LoRAIro - \u30ef\u30fc\u30af\u30b9\u30da\u30fc\u30b9", None))
+        MainWindow.setWindowTitle(QCoreApplication.translate("MainWindow", u"LoRAIro", None))
         self.actionOpenDataset.setText(QCoreApplication.translate("MainWindow", u"\u30c7\u30fc\u30bf\u30bb\u30c3\u30c8\u3092\u958b\u304f", None))
 #if QT_CONFIG(shortcut)
         self.actionOpenDataset.setShortcut(QCoreApplication.translate("MainWindow", u"Ctrl+O", None))
@@ -539,14 +573,22 @@ class Ui_MainWindow(object):
 #endif // QT_CONFIG(tooltip)
         self.pushButtonStageToBatchTag.setText(QCoreApplication.translate("MainWindow", u"\u9078\u629e\u3092\u30b9\u30c6\u30fc\u30b8\u30f3\u30b0\u3078", None))
         self.labelStatus.setText(QCoreApplication.translate("MainWindow", u"\u6e96\u5099\u5b8c\u4e86", None))
-        self.tabWidgetMainMode.setTabText(self.tabWidgetMainMode.indexOf(self.tabWorkspace), QCoreApplication.translate("MainWindow", u"\u30ef\u30fc\u30af\u30b9\u30da\u30fc\u30b9", None))
+        self.tabWidgetMainMode.setTabText(self.tabWidgetMainMode.indexOf(self.tabWorkspace), QCoreApplication.translate("MainWindow", u"\u691c\u7d22", None))
+        self.labelMapStub.setText(QCoreApplication.translate("MainWindow", u"\u30de\u30c3\u30d7\u30d3\u30e5\u30fc\u306f\u672a\u5b9f\u88c5\u3067\u3059\u3002\n"
+"embedding \u6563\u5e03\u56f3\u306b\u3088\u308b\u30c7\u30fc\u30bf\u30bb\u30c3\u30c8\u4fef\u77b0\u3092\u4e88\u5b9a\uff08Wireframes v11 \u00b7 Map / \u5b9f\u88c5\u30ed\u30fc\u30c9\u30de\u30c3\u30d7 Phase 8\uff09\u3002", None))
+        self.tabWidgetMainMode.setTabText(self.tabWidgetMainMode.indexOf(self.tabMap), QCoreApplication.translate("MainWindow", u"\u30de\u30c3\u30d7", None))
         self.groupBoxBatchOperations.setTitle(QCoreApplication.translate("MainWindow", u"\u64cd\u4f5c", None))
         self.tabWidgetBatchTagWorkflow.setTabText(self.tabWidgetBatchTagWorkflow.indexOf(self.tabBatchTagTagAdd), QCoreApplication.translate("MainWindow", u"\u30bf\u30b0\u8ffd\u52a0", None))
         self.groupBoxAnnotation.setTitle(QCoreApplication.translate("MainWindow", u"\u30a2\u30ce\u30c6\u30fc\u30b7\u30e7\u30f3", None))
         self.labelAnnotationTarget.setText(QCoreApplication.translate("MainWindow", u"\u5bfe\u8c61: \u30b9\u30c6\u30fc\u30b8\u30f3\u30b0\u6e08\u307f\u753b\u50cf", None))
         self.btnAnnotationExecute.setText(QCoreApplication.translate("MainWindow", u"\u30a2\u30ce\u30c6\u30fc\u30b7\u30e7\u30f3\u5b9f\u884c", None))
         self.tabWidgetBatchTagWorkflow.setTabText(self.tabWidgetBatchTagWorkflow.indexOf(self.tabBatchTagAnnotation), QCoreApplication.translate("MainWindow", u"\u30a2\u30ce\u30c6\u30fc\u30b7\u30e7\u30f3\u8a2d\u5b9a", None))
-        self.tabWidgetMainMode.setTabText(self.tabWidgetMainMode.indexOf(self.tabBatchTag), QCoreApplication.translate("MainWindow", u"\u30d0\u30c3\u30c1\u30bf\u30b0", None))
+        self.tabWidgetMainMode.setTabText(self.tabWidgetMainMode.indexOf(self.tabBatchTag), QCoreApplication.translate("MainWindow", u"\u30a2\u30ce\u30c6\u30fc\u30b7\u30e7\u30f3", None))
+        self.labelResultsStub.setText(QCoreApplication.translate("MainWindow", u"\u7d50\u679c\u30d3\u30e5\u30fc\u306f\u672a\u5b9f\u88c5\u3067\u3059\u3002\n"
+"\u30a2\u30ce\u30c6\u30fc\u30b7\u30e7\u30f3\u54c1\u8cea\u30c8\u30ea\u30a2\u30fc\u30b8\uff08issue \u96c6\u7d04 + accept/edit/reject\uff09\u3092\u4e88\u5b9a\uff08Wireframes v11 \u00b7 Frame 5 / \u5b9f\u88c5\u30ed\u30fc\u30c9\u30de\u30c3\u30d7 Phase 2\uff09\u3002", None))
+        self.tabWidgetMainMode.setTabText(self.tabWidgetMainMode.indexOf(self.tabResults), QCoreApplication.translate("MainWindow", u"\u7d50\u679c", None))
+        self.tabWidgetMainMode.setTabText(self.tabWidgetMainMode.indexOf(self.tabErrors), QCoreApplication.translate("MainWindow", u"\u30a8\u30e9\u30fc", None))
+        self.tabWidgetMainMode.setTabText(self.tabWidgetMainMode.indexOf(self.tabExport), QCoreApplication.translate("MainWindow", u"\u30a8\u30af\u30b9\u30dd\u30fc\u30c8", None))
         self.menuFile.setTitle(QCoreApplication.translate("MainWindow", u"\u30d5\u30a1\u30a4\u30eb", None))
         self.menuEdit.setTitle(QCoreApplication.translate("MainWindow", u"\u7de8\u96c6", None))
         self.menuView.setTitle(QCoreApplication.translate("MainWindow", u"\u8868\u793a", None))
