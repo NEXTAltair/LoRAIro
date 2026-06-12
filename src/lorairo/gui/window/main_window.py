@@ -8,6 +8,7 @@ from typing import Any, cast
 from PySide6.QtCore import QEasingCurve, QPropertyAnimation, QSettings, Qt, QTimer, Signal
 from PySide6.QtGui import QCloseEvent, QKeySequence, QResizeEvent, QShortcut
 from PySide6.QtWidgets import (
+    QDialog,
     QFileDialog,
     QGraphicsOpacityEffect,
     QMainWindow,
@@ -22,10 +23,10 @@ from ...database.schema import ErrorRecord
 from ...gui.designer.MainWindow_ui import Ui_MainWindow
 from ...services import get_service_container
 from ...services.configuration_service import ConfigurationService
-from ...services.model_selection_service import ModelSelectionService
 from ...services.error_triage_service import ErrorFilter, ErrorRow, ErrorTriageService
+from ...services.model_selection_service import ModelSelectionService
+from ...services.pipeline_composition import PipelineCompositionService, PipelineStage, StageModelInfo
 from ...services.quality_issue_detection_service import QualityIssueDetectionService
-from ...services.pipeline_composition import PipelineCompositionService, StageModelInfo
 from ...services.selection_state_service import SelectionStateService
 from ...services.service_container import ServiceContainer
 from ...storage.file_system import FileSystemManager
@@ -43,8 +44,8 @@ from ..services.widget_setup_service import WidgetSetupService
 from ..services.worker_service import WorkerService
 from ..state.dataset_state import DatasetStateManager
 from ..widgets.dataset_export_widget import DatasetExportWidget
-from ..widgets.errors_triage_widget import ErrorsTriageWidget
 from ..widgets.error_notification_widget import ErrorNotificationWidget
+from ..widgets.errors_triage_widget import ErrorsTriageWidget
 from ..widgets.filter_search_panel import FilterSearchPanel
 from ..widgets.image_preview import ImagePreviewWidget
 from ..widgets.inference_ledger_widget import InferenceLedgerWidget
@@ -53,6 +54,7 @@ from ..widgets.provider_batch_job_widget import ProviderBatchJobWidget
 from ..widgets.quick_tag_dialog import QuickTagDialog
 from ..widgets.results_widget import ResultsWidget
 from ..widgets.selected_image_details_widget import SelectedImageDetailsWidget
+from ..widgets.stage_model_picker_dialog import StageModelPickerDialog
 from ..widgets.tag_management_dialog import TagManagementDialog
 from ..widgets.thumbnail import ThumbnailSelectorWidget
 
@@ -630,10 +632,11 @@ class MainWindow(QMainWindow, Ui_MainWindow):
     def _setup_pipeline_composition_panel(self) -> None:
         """アノテーショングループにパイプライン構成ビューを常設する。
 
-        Wireframes v11 Frame 2A · Phase 6a (表示専用)。ModelSelectionWidget の選択を
-        購読して TAGS/CAPTION/SCORE/RATING への自動仕分け・multimodal 派生チップ・
-        推論台帳 (INFERENCE LEDGER) をリアルタイム表示する。per-stage 明示割当は
-        Phase 6b で追加する。
+        Wireframes v11 Frame 2A/2B。ModelSelectionWidget の選択を購読して
+        TAGS/CAPTION/SCORE/RATING への自動仕分け・multimodal 派生チップ・
+        推論台帳 (INFERENCE LEDGER) をリアルタイム表示する (Phase 6a)。
+        各ステージ行の「+ 追加」/ primary チップの × はチェック状態の ON/OFF に
+        変換する (Phase 6b、SSoT は選択モデル集合)。
         """
         self.pipeline_composition_service = PipelineCompositionService()
         self._pipeline_staged_count = 0
@@ -653,6 +656,8 @@ class MainWindow(QMainWindow, Ui_MainWindow):
         layout.addWidget(self.inference_ledger_widget)
 
         model_widget.model_selection_changed.connect(self._on_pipeline_models_changed)
+        self.pipeline_stage_table.add_model_requested.connect(self._on_pipeline_add_model_requested)
+        self.pipeline_stage_table.remove_model_requested.connect(self._on_pipeline_remove_model_requested)
         self._refresh_pipeline_panel([])
         logger.info("✅ パイプライン構成ビュー (Frame 2A) initialized")
 
@@ -716,6 +721,61 @@ class MainWindow(QMainWindow, Ui_MainWindow):
                 )
             )
         return infos
+
+    def _on_pipeline_add_model_requested(self, stage_value: str) -> None:
+        """ステージ行の「+ 追加」でピッカーを開き、選択モデル集合へ追加する (Phase 6b)。
+
+        SSoT は ModelSelectionWidget のチェック状態。ピッカーで選んだモデルは
+        チェック ON で集合へ追加し、ステージ仕分けは compose_from_models に任せる。
+        set_selected() は checkbox シグナルを抑制するため、最後に明示再描画する。
+
+        Args:
+            stage_value: 追加先ステージの PipelineStage value。
+        """
+        model_widget = getattr(self, "batchModelSelection", None)
+        if model_widget is None:
+            return
+        stage = PipelineStage(stage_value)
+
+        service = getattr(model_widget, "model_selection_service", None)
+        all_models = service.load_models() if service is not None else []
+        all_ids = [model.litellm_model_id for model in all_models]
+        selected_ids = set(model_widget.get_selected_models())
+        candidates = [
+            info
+            for info in self._build_stage_model_infos(all_ids)
+            if stage in info.fill_stages() and info.litellm_model_id not in selected_ids
+        ]
+
+        dialog = StageModelPickerDialog(stage, candidates, parent=self)
+        if dialog.exec() != QDialog.DialogCode.Accepted:
+            return
+        for litellm_model_id in dialog.selected_model_ids():
+            checkbox_widget = model_widget.model_checkbox_widgets.get(litellm_model_id)
+            if checkbox_widget is None:
+                logger.warning(f"チェックボックス未表示のため追加をスキップ: {litellm_model_id}")
+                continue
+            checkbox_widget.set_selected(True)
+        self._refresh_pipeline_panel()
+
+    def _on_pipeline_remove_model_requested(self, stage_value: str, litellm_model_id: str) -> None:
+        """Primary チップの × でモデルを選択集合から外す (Phase 6b)。
+
+        実行粒度はモデル単位のため、チェック OFF = 全ステージから外れる。
+
+        Args:
+            stage_value: × が押されたステージの value (シグナル形状の都合で受けるが未使用)。
+            litellm_model_id: 集合から外すモデルの litellm_model_id。
+        """
+        model_widget = getattr(self, "batchModelSelection", None)
+        if model_widget is None:
+            return
+        checkbox_widget = model_widget.model_checkbox_widgets.get(litellm_model_id)
+        if checkbox_widget is None:
+            logger.warning(f"チェックボックス未表示のため除外をスキップ: {litellm_model_id}")
+            return
+        checkbox_widget.set_selected(False)
+        self._refresh_pipeline_panel()
 
     def _refresh_errors_tab(self) -> None:
         """エラータブ表示時 / フィルタ変更時にトリアージを再計算して描画する。"""

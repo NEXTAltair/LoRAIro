@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import pytest
-from PySide6.QtWidgets import QLabel, QWidget
+from PySide6.QtWidgets import QLabel, QToolButton, QWidget
 
 from lorairo.gui.widgets.pipeline_stage_table_widget import PipelineStageTableWidget
 from lorairo.services.pipeline_composition import (
@@ -128,6 +128,56 @@ class TestPipelineStageTableWidgetRatingNote:
         widget.display(_sample_rows())
         derived = widget.findChildren(QLabel, "derivedChip")
         assert all("Results" in chip.toolTip() for chip in derived)
+
+
+class TestPipelineStageTableWidgetOperations:
+    """Phase 6b: 「+ 追加」/ primary × の操作 Signal を検証する。"""
+
+    def test_add_button_click_emits_stage_value(self, widget, qtbot):
+        widget.display(_sample_rows())
+        tags_row = widget.findChildren(QWidget, "stageRow_TAGS")[0]
+        add_buttons = tags_row.findChildren(QToolButton, "stageAddModelButton")
+        assert len(add_buttons) == 1
+        with qtbot.waitSignal(widget.add_model_requested, timeout=1000) as blocker:
+            add_buttons[0].click()
+        assert blocker.args == ["tags"]
+
+    def test_every_stage_row_has_add_button(self, widget):
+        widget.display(_sample_rows())
+        for stage in ("TAGS", "CAPTION", "SCORE", "RATING"):
+            row = widget.findChildren(QWidget, f"stageRow_{stage}")[0]
+            assert len(row.findChildren(QToolButton, "stageAddModelButton")) == 1
+
+    def test_primary_chip_remove_click_emits_stage_and_model_id(self, widget, qtbot):
+        widget.display(_sample_rows())
+        tags_row = widget.findChildren(QWidget, "stageRow_TAGS")[0]
+        remove_buttons = tags_row.findChildren(QToolButton, "primaryChipRemoveButton")
+        assert len(remove_buttons) == 1
+        with qtbot.waitSignal(widget.remove_model_requested, timeout=1000) as blocker:
+            remove_buttons[0].click()
+        assert blocker.args == ["tags", "wd-v1-4-tagger"]
+
+    def test_remove_button_tooltip_warns_all_stages_removal(self, widget):
+        widget.display(_sample_rows())
+        remove_buttons = widget.findChildren(QToolButton, "primaryChipRemoveButton")
+        assert remove_buttons != []
+        assert all("全ステージ" in button.toolTip() for button in remove_buttons)
+
+    def test_derived_chip_has_no_remove_button(self, widget):
+        widget.display(_sample_rows())
+        # SCORE 行は派生チップのみ → remove ボタンは存在しない
+        score_row = widget.findChildren(QWidget, "stageRow_SCORE")[0]
+        assert score_row.findChildren(QToolButton, "primaryChipRemoveButton") == []
+        # remove ボタン総数 = primary チップ数 (派生には付かない)
+        all_removes = widget.findChildren(QToolButton, "primaryChipRemoveButton")
+        all_primaries = widget.findChildren(QLabel, "primaryChip")
+        assert len(all_removes) == len(all_primaries) == 2
+
+    def test_derived_chip_keeps_readonly_tooltip(self, widget):
+        widget.display(_sample_rows())
+        derived = widget.findChildren(QLabel, "derivedChip")
+        assert derived != []
+        assert all("外せません" in chip.toolTip() for chip in derived)
 
 
 class TestPipelineStageTableWidgetRedisplay:

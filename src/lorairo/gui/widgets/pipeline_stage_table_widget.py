@@ -1,13 +1,16 @@
-"""Wireframes v11 Frame 2A のステージ中心パイプラインテーブル (Phase 6a: 表示専用)。
+"""Wireframes v11 Frame 2A/2B のステージ中心パイプラインテーブル。
 
 TAGS/CAPTION/SCORE/RATING の 4 ステージ行に、明示割当 (primary) チップと
-multimodal 派生 (derived) チップを描画する。Phase 6a では remove 等の操作は
-提供しない (Phase 6b で追加)。
+multimodal 派生 (derived) チップを描画する (Phase 6a)。Phase 6b で各行の
+「+ 追加」ボタンと primary チップの × ボタンを追加し、操作要求を Signal で
+通知する (SSoT は ModelSelectionWidget のチェック状態のため、本 widget は
+要求を emit するだけで状態を持たない)。
 """
 
 from __future__ import annotations
 
-from PySide6.QtWidgets import QHBoxLayout, QLabel, QVBoxLayout, QWidget
+from PySide6.QtCore import Signal
+from PySide6.QtWidgets import QHBoxLayout, QLabel, QToolButton, QVBoxLayout, QWidget
 
 from lorairo.services.pipeline_composition import DerivedChip, PipelineStage, StageModelInfo, StageRow
 
@@ -34,6 +37,9 @@ _RATING_NOTE_TOOLTIP = (
     "rating は rating 対応モデルか送信前プリフライト (OpenAI Moderations) 由来です"
 )
 
+_REMOVE_BUTTON_TOOLTIP = "選択から外す（このモデルは全ステージから外れます）"
+_ADD_BUTTON_TEXT = "+ 追加"
+
 _PRIMARY_CHIP_STYLE = (
     "QLabel { border: 1px solid #5b8def; border-radius: 8px;"
     " padding: 2px 8px; background-color: #eef4ff; color: #1a3b6e; }"
@@ -49,7 +55,12 @@ _DERIVED_CHIP_STYLE = (
 
 
 class PipelineStageTableWidget(QWidget):
-    """Wireframes v11 Frame 2A のステージテーブル (Phase 6a: 表示専用)。"""
+    """Wireframes v11 Frame 2A/2B のステージテーブル (表示 + ステージ単位の操作要求)。"""
+
+    # ステージ行の「+ 追加」が押された (引数: PipelineStage の value)
+    add_model_requested = Signal(str)
+    # primary チップの × が押された (引数: stage value, litellm_model_id)
+    remove_model_requested = Signal(str, str)
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -130,11 +141,24 @@ class PipelineStageTableWidget(QWidget):
             note.setToolTip(_RATING_NOTE_TOOLTIP)
             row_layout.addWidget(note)
 
+        add_button = QToolButton(container)
+        add_button.setObjectName("stageAddModelButton")
+        add_button.setText(_ADD_BUTTON_TEXT)
+        add_button.setToolTip(f"{stage.name} に出力を届けられるモデルを選択して追加します")
+        add_button.clicked.connect(
+            lambda _checked=False, value=stage.value: self.add_model_requested.emit(value)
+        )
+        row_layout.addWidget(add_button)
+
         row_layout.addStretch(1)
         return container
 
-    def _build_primary_chip(self, model: StageModelInfo, stage: PipelineStage, parent: QWidget) -> QLabel:
-        """明示割当チップ (multimodal は MULTI バッジ + 派生ファンアウト注記付き)。"""
+    def _build_primary_chip(self, model: StageModelInfo, stage: PipelineStage, parent: QWidget) -> QWidget:
+        """明示割当チップ (multimodal は MULTI バッジ + 派生ファンアウト注記付き)。
+
+        Phase 6b: チップ label と × ボタンを HBox で一体化した container を返す。
+        × は「選択集合から外す」操作で、押すと全ステージから消える (モデル単位実行)。
+        """
         if model.is_multimodal:
             fanout_stages = [s for s in _STAGE_ORDER if s in model.fill_stages() and s is not stage]
             text = f"MULTI {model.display_name}"
@@ -148,7 +172,26 @@ class PipelineStageTableWidget(QWidget):
             chip = QLabel(model.display_name, parent)
             chip.setStyleSheet(_PRIMARY_CHIP_STYLE)
         chip.setObjectName("primaryChip")
-        return chip
+
+        container = QWidget(parent)
+        container.setObjectName("primaryChipContainer")
+        chip_layout = QHBoxLayout(container)
+        chip_layout.setContentsMargins(0, 0, 0, 0)
+        chip_layout.setSpacing(2)
+        chip_layout.addWidget(chip)
+
+        remove_button = QToolButton(container)
+        remove_button.setObjectName("primaryChipRemoveButton")
+        remove_button.setText("×")
+        remove_button.setAutoRaise(True)
+        remove_button.setToolTip(_REMOVE_BUTTON_TOOLTIP)
+        remove_button.clicked.connect(
+            lambda _checked=False, value=stage.value, model_id=model.litellm_model_id: (
+                self.remove_model_requested.emit(value, model_id)
+            )
+        )
+        chip_layout.addWidget(remove_button)
+        return container
 
     def _build_derived_chip(self, derived: DerivedChip, parent: QWidget) -> QLabel:
         """派生チップ (↝、斜体グレー、操作不可)。"""
