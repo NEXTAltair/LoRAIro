@@ -56,6 +56,7 @@ from ..widgets.results_widget import ResultsWidget
 from ..widgets.selected_image_details_widget import SelectedImageDetailsWidget
 from ..widgets.stage_model_picker_dialog import StageModelPickerDialog
 from ..widgets.tag_management_dialog import TagManagementDialog
+from ..widgets.tag_map_widget import TagMapWidget
 from ..widgets.thumbnail import ThumbnailSelectorWidget
 
 
@@ -114,6 +115,9 @@ class MainWindow(QMainWindow, Ui_MainWindow):
     error_triage_service: ErrorTriageService
     results_widget: ResultsWidget | None
     quality_issue_detection_service: QualityIssueDetectionService
+
+    # Map tab
+    map_widget: TagMapWidget | None
 
     # Tag management UI components
     tag_management_dialog: TagManagementDialog | None
@@ -391,11 +395,51 @@ class MainWindow(QMainWindow, Ui_MainWindow):
 
         # QTabWidget初期化（タブ切り替え用）
         self._setup_tab_widget()
+        self._setup_map_tab()
         self._setup_provider_batch_tab()
         self._setup_results_tab()
         self._setup_errors_tab()
         self._setup_export_tab()
         self._setup_tab_shortcuts()
+
+    def _setup_map_tab(self) -> None:
+        """マップタブ (TagMapWidget) を初期化する。"""
+        container = getattr(self, "tabMap", None)
+        if container is None:
+            logger.warning("tabMap not found - マップタブ skipped")
+            self.map_widget = None
+            return
+        if self.db_manager is None:
+            logger.warning("db_manager 未初期化 - マップタブ skipped")
+            self.map_widget = None
+            return
+        try:
+            layout = container.layout()
+            if layout is not None:
+                while layout.count():
+                    item = layout.takeAt(0)
+                    w = item.widget() if item else None
+                    if w is not None:
+                        w.deleteLater()
+            else:
+                from PySide6.QtWidgets import QVBoxLayout
+
+                layout = QVBoxLayout(container)
+            widget = TagMapWidget(db_manager=self.db_manager, parent=container)
+            widget.images_staged.connect(self._on_map_images_staged)
+            layout.addWidget(widget)
+            self.map_widget = widget
+            logger.info("マップタブ (TagMapWidget) initialized")
+        except Exception as e:
+            self.map_widget = None
+            logger.error(f"マップタブ initialization failed: {e}", exc_info=True)
+
+    def _on_map_images_staged(self, image_ids: list[int]) -> None:
+        """マップタブからのステージング要求を処理する。"""
+        logger.debug(f"マップタブから {len(image_ids)} 件のステージング要求")
+        batch_widget = getattr(self, "batchTagAddWidget", None)
+        if batch_widget is not None:
+            batch_widget.add_image_ids_to_staging(image_ids)
 
     def _setup_provider_batch_tab(self) -> None:
         """ジョブタブ (Provider Batch job management) を追加する。
