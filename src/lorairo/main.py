@@ -9,6 +9,7 @@ from typing import Any
 from PySide6.QtGui import QFont, QFontDatabase
 from PySide6.QtWidgets import QApplication
 
+from .gui import theme
 from .gui.window.main_window import MainWindow
 from .utils.config import get_config
 from .utils.log import build_gui_log_config, initialize_logging, logger
@@ -121,18 +122,17 @@ def setup_application_fonts(app: QApplication, config: dict[str, Any] | None = N
         if qt_config.get("default_font"):
             preferred_fonts.append(qt_config["default_font"])
 
-        # デフォルトフォントの優先順位（日本語対応含む）
+        # デフォルトフォントの優先順位 (Theme v1 チェーン優先、日本語対応含む)
+        preferred_fonts.extend(theme.FONT_SANS_FAMILIES)
         preferred_fonts.extend(
             [
                 "Arial",
                 "Helvetica",
-                "Segoe UI",
                 "DejaVu Sans",
                 "Liberation Sans",
                 "Noto Sans",
                 "MS Gothic",
                 "Yu Gothic",
-                "Hiragino Sans",
             ]
         )
 
@@ -228,6 +228,9 @@ def main() -> int:
 
     # アプリケーションフォント設定
     setup_application_fonts(app, config)
+
+    # Theme v1 グローバル QSS 適用 (Issue #760)
+    theme.apply_theme(app)
 
     # デバッグモード時のQt環境情報表示
     if args.debug or config.get("qt", {}).get("enable_debug", False):
