@@ -43,6 +43,7 @@ from ..services.tab_reorganization_service import TabReorganizationService
 from ..services.widget_setup_service import WidgetSetupService
 from ..services.worker_service import WorkerService
 from ..state.dataset_state import DatasetStateManager
+from ..widgets.cli_reference_widget import CliReferenceWidget
 from ..widgets.dataset_export_widget import DatasetExportWidget
 from ..widgets.error_notification_widget import ErrorNotificationWidget
 from ..widgets.errors_triage_widget import ErrorsTriageWidget
@@ -400,6 +401,7 @@ class MainWindow(QMainWindow, Ui_MainWindow):
         self._setup_results_tab()
         self._setup_errors_tab()
         self._setup_export_tab()
+        self._setup_cli_tab()
         self._setup_tab_shortcuts()
 
     def _setup_map_tab(self) -> None:
@@ -693,6 +695,23 @@ class MainWindow(QMainWindow, Ui_MainWindow):
         container.layout().addWidget(widget)
         self.export_widget = widget
         logger.info("✅ エクスポートタブ (DatasetExportWidget) initialized")
+
+    def _setup_cli_tab(self) -> None:
+        """CLI タブ (CliReferenceWidget) をナビ末尾に追加する。
+
+        Wireframes v11 Frame 8。agent-friendly CLI 契約 (ADR 0057-0060) を
+        読み物として図解する読み取り専用リファレンス。DB 接続不要のため
+        依存注入はなく、コンテンツは初回表示時に遅延生成される。
+        """
+        if not hasattr(self, "tabWidgetMainMode") or not self.tabWidgetMainMode:
+            logger.warning("tabWidgetMainMode not found - CLIタブ skipped")
+            self.cli_reference_widget = None
+            return
+
+        widget = CliReferenceWidget(parent=self.tabWidgetMainMode)
+        self.tabWidgetMainMode.addTab(widget, "CLI")
+        self.cli_reference_widget = widget
+        logger.info("✅ CLIタブ (CliReferenceWidget) initialized")
 
     def _setup_pipeline_composition_panel(self) -> None:
         """アノテーショングループにパイプライン構成ビューを常設する。
