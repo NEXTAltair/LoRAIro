@@ -417,19 +417,28 @@ class MainWindow(QMainWindow, Ui_MainWindow):
             self.map_widget = None
             return
 
-        # スタブラベルを除去
-        layout = container.layout()
-        if layout is not None:
-            while layout.count():
-                item = layout.takeAt(0)
-                if item and item.widget():
-                    item.widget().deleteLater()
+        try:
+            # スタブラベルを除去
+            layout = container.layout()
+            if layout is not None:
+                while layout.count():
+                    item = layout.takeAt(0)
+                    w = item.widget() if item else None
+                    if w is not None:
+                        w.deleteLater()
+            else:
+                from PySide6.QtWidgets import QVBoxLayout
 
-        widget = TagMapWidget(db_manager=self.db_manager, parent=container)
-        widget.images_staged.connect(self._on_map_images_staged)
-        layout.addWidget(widget)
-        self.map_widget = widget
-        logger.info("✅ マップタブ (TagMapWidget) initialized")
+                layout = QVBoxLayout(container)
+
+            widget = TagMapWidget(db_manager=self.db_manager, parent=container)
+            widget.images_staged.connect(self._on_map_images_staged)
+            layout.addWidget(widget)
+            self.map_widget = widget
+            logger.info("✅ マップタブ (TagMapWidget) initialized")
+        except Exception as e:
+            self.map_widget = None
+            logger.error(f"❌ マップタブ initialization failed: {e}", exc_info=True)
 
     def _on_map_images_staged(self, image_ids: list[int]) -> None:
         """Map タブで選択された画像をアノテーションステージングへ追加する。"""

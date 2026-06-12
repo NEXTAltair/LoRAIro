@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import math
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
 
 import numpy as np
 from loguru import logger
@@ -152,7 +152,8 @@ class TagClusterService:
 
         result: dict[int, list[str]] = {}
         try:
-            with self._db.session_scope() as session:
+            session = self._db.image_repo.get_session()
+            with session:
                 # 全画像IDを取得
                 image_ids = [row[0] for row in session.execute(select(Image.id)).all()]
                 for iid in image_ids:
@@ -212,7 +213,7 @@ class TagClusterService:
         except np.linalg.LinAlgError:
             rng = np.random.default_rng(42)
             coords = rng.random((len(X), 2)).astype(np.float32)
-        return coords.astype(np.float32)
+        return cast(np.ndarray, coords.astype(np.float32))
 
     def _kmeans(self, coords: np.ndarray, k: int, max_iter: int = 50) -> np.ndarray:
         """簡易 k-means（scipy.cluster.vq を使用）。"""
@@ -223,7 +224,7 @@ class TagClusterService:
         except Exception as exc:
             logger.warning(f"k-means 失敗、均等分割にフォールバック: {exc}")
             labels = np.arange(len(coords)) % k
-        return labels.astype(np.int32)
+        return cast(np.ndarray, labels.astype(np.int32))
 
     def _normalize_coords(self, coords: np.ndarray) -> np.ndarray:
         """座標を [0.05, 0.95] に正規化する（端に余白）。"""
@@ -232,7 +233,7 @@ class TagClusterService:
         rng = mx - mn
         rng[rng == 0] = 1.0
         normalized = (coords - mn) / rng * 0.90 + 0.05
-        return normalized.astype(np.float32)
+        return cast(np.ndarray, normalized.astype(np.float32))
 
     def _build_cluster_infos(
         self,

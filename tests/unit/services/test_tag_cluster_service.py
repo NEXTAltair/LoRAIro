@@ -97,7 +97,7 @@ class TestBuildVectors:
         svc = _make_service({})
         image_tags = {1: ["a", "b"], 2: ["b", "c"]}
         tagged_ids = [1, 2]
-        X, ids, vocab = svc._build_vectors(image_tags, tagged_ids)
+        X, _ids, vocab = svc._build_vectors(image_tags, tagged_ids)
         assert X.shape == (2, len(vocab))
         assert X.dtype == np.float32
         # 各行の値は 0 か 1
@@ -109,7 +109,7 @@ class TestBuildVectors:
         many_tags = [f"tag_{i}" for i in range(600)]
         image_tags = {1: many_tags}
         tagged_ids = [1]
-        X, _, vocab = svc._build_vectors(image_tags, tagged_ids)
+        _X, _, vocab = svc._build_vectors(image_tags, tagged_ids)
         assert len(vocab) <= 300  # _VOCAB_SIZE
 
 

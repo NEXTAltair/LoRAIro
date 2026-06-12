@@ -304,15 +304,15 @@ class _ScatterPlot(QWidget):
         if len(pts) <= 2:
             return [QPointF(x, y) for x, y in pts]
 
-        def cross(o: tuple, a: tuple, b: tuple) -> float:
-            return (a[0] - o[0]) * (b[1] - o[1]) - (a[1] - o[1]) * (b[0] - o[0])
+        def cross(o: tuple[float, float], a: tuple[float, float], b: tuple[float, float]) -> float:
+            return float((a[0] - o[0]) * (b[1] - o[1]) - (a[1] - o[1]) * (b[0] - o[0]))
 
-        lower: list[tuple] = []
+        lower: list[tuple[float, float]] = []
         for p in pts:
             while len(lower) >= 2 and cross(lower[-2], lower[-1], p) <= 0:
                 lower.pop()
             lower.append(p)
-        upper: list[tuple] = []
+        upper: list[tuple[float, float]] = []
         for p in reversed(pts):
             while len(upper) >= 2 and cross(upper[-2], upper[-1], p) <= 0:
                 upper.pop()
@@ -395,12 +395,14 @@ class TagMapWidget(QWidget):
         root.setContentsMargins(0, 0, 0, 0)
         root.setSpacing(0)
 
+        # 散布図はサイドバーのボタン接続より先に生成する
+        self._plot = _ScatterPlot()
+
         # 左サイドバー
         sidebar = self._build_sidebar()
         root.addWidget(sidebar, 0)
 
         # 右: 散布図
-        self._plot = _ScatterPlot()
         self._plot.selection_changed.connect(self._on_selection_changed)
         root.addWidget(self._plot, 1)
 
@@ -527,8 +529,10 @@ class TagMapWidget(QWidget):
         # 既存ウィジェットを削除
         while self._cluster_list_layout.count() > 1:
             item = self._cluster_list_layout.takeAt(0)
-            if item and item.widget():
-                item.widget().deleteLater()
+            if item:
+                w = item.widget()
+                if w is not None:
+                    w.deleteLater()
 
         for cl in result.clusters:
             row = _SidebarClusterRow(cl)
