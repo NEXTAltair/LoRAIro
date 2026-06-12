@@ -56,6 +56,7 @@ from ..widgets.results_widget import ResultsWidget
 from ..widgets.selected_image_details_widget import SelectedImageDetailsWidget
 from ..widgets.stage_model_picker_dialog import StageModelPickerDialog
 from ..widgets.tag_management_dialog import TagManagementDialog
+from ..widgets.tag_map_widget import TagMapWidget
 from ..widgets.thumbnail import ThumbnailSelectorWidget
 
 
@@ -87,6 +88,7 @@ class MainWindow(QMainWindow, Ui_MainWindow):
     annotation_workflow_controller: AnnotationWorkflowController | None
     settings_controller: SettingsController | None
     export_widget: DatasetExportWidget | None
+    map_widget: TagMapWidget | None
     pipeline_stage_table: PipelineStageTableWidget | None
     inference_ledger_widget: InferenceLedgerWidget | None
     result_handler_service: ResultHandlerService | None
@@ -392,10 +394,55 @@ class MainWindow(QMainWindow, Ui_MainWindow):
         # QTabWidget初期化（タブ切り替え用）
         self._setup_tab_widget()
         self._setup_provider_batch_tab()
+        self._setup_map_tab()
         self._setup_results_tab()
         self._setup_errors_tab()
         self._setup_export_tab()
         self._setup_tab_shortcuts()
+
+    def _setup_map_tab(self) -> None:
+        """マップタブに TagMapWidget を埋め込む（Wireframes v11 · Map / Phase 8）。
+
+        タグ共起ベースの2Dクラスタ散布図を tabMap に挿入する。
+        スタブラベルを除去して TagMapWidget で置き換える。
+        """
+        container = getattr(self, "tabMap", None)
+        if container is None:
+            logger.warning("tabMap not found - マップタブ skipped")
+            self.map_widget = None
+            return
+
+        if self.db_manager is None:
+            logger.warning("db_manager 未初期化 - マップタブ skipped")
+            self.map_widget = None
+            return
+
+        # スタブラベルを除去
+        layout = container.layout()
+        if layout is not None:
+            while layout.count():
+                item = layout.takeAt(0)
+                if item and item.widget():
+                    item.widget().deleteLater()
+
+        widget = TagMapWidget(db_manager=self.db_manager, parent=container)
+        widget.images_staged.connect(self._on_map_images_staged)
+        layout.addWidget(widget)
+        self.map_widget = widget
+        logger.info("✅ マップタブ (TagMapWidget) initialized")
+
+    def _on_map_images_staged(self, image_ids: list[int]) -> None:
+        """Map タブで選択された画像をアノテーションステージングへ追加する。"""
+        batch_tag_widget = getattr(self, "batchTagAddWidget", None)
+        if batch_tag_widget is None or not hasattr(batch_tag_widget, "stage_image_ids"):
+            logger.warning("batchTagAddWidget 未初期化 - Map ステージング skipped")
+            return
+        batch_tag_widget.stage_image_ids(image_ids)
+        if hasattr(self, "tabWidgetMainMode") and self.tabWidgetMainMode:
+            batch_tag_tab = getattr(self, "tabBatchTag", None)
+            if batch_tag_tab is not None:
+                self.tabWidgetMainMode.setCurrentWidget(batch_tag_tab)
+        logger.debug(f"Map から {len(image_ids)}枚をステージングへ追加")
 
     def _setup_provider_batch_tab(self) -> None:
         """ジョブタブ (Provider Batch job management) を追加する。
