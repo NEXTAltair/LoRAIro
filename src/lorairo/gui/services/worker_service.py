@@ -1,6 +1,7 @@
 # src/lorairo/services/worker_service.py
 
 import uuid
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
@@ -12,6 +13,7 @@ from ...annotations.annotator_adapter import AnnotatorLibraryAdapter
 from ...database.db_manager import ImageDatabaseManager
 from ...services.configuration_service import ConfigurationService
 from ...services.job_ledger_service import JobLedgerService, JobStatus
+from ...services.model_registry_protocol import selection_includes_local_ml_model
 from ...services.search_models import SearchConditions
 from ...services.service_container import get_service_container
 from ...storage.file_system import FileSystemManager
@@ -31,6 +33,14 @@ _JOB_LEDGER_TITLES: dict[OperationType, str] = {
     OperationType.BATCH_IMPORT: "バッチインポート",
     OperationType.ANNOTATION: "アノテーション処理",
 }
+
+
+@dataclass(frozen=True)
+class _QueuedGpuAnnotationJob:
+    """GPU 直列キューで起動待機中のアノテーションジョブ (ADR 0066 §6)。"""
+
+    worker_id: str
+    worker: AnnotationWorker
 
 
 class WorkerService(QObject):
@@ -100,6 +110,10 @@ class WorkerService(QObject):
         self._operation_sequence = 0
         self._search_generation = 0
         self._thumbnail_generation = 0
+
+        # ADR 0066 §6: ローカル GPU 推論ジョブの直列キュー (VRAM 競合防止、同時 1 件)
+        self._gpu_active_worker_id: str | None = None
+        self._gpu_queue: list[_QueuedGpuAnnotationJob] = []
 
         # ワーカーマネージャーのシグナル接続
         self.worker_manager.worker_started.connect(self._on_worker_started)
@@ -197,6 +211,11 @@ class WorkerService(QObject):
         Issue #245 / ADR 0023 Phase 1.11: モデル指定は `Model.litellm_model_id`
         (registry key SSoT) で受け取る。
 
+        ADR 0066 §6: 選択モデルにローカル ML (provider 空/"local") が含まれる
+        ジョブは GPU 直列キューで同時 1 件に制御する。先行 GPU ジョブの実行中は
+        queued 状態で台帳に載せ、前ジョブの終端で自動起動する。API 系のみの
+        ジョブは従来通り並列実行する。
+
         Args:
             image_paths: 画像パスリスト
             litellm_model_ids: 使用モデルの `litellm_model_id` リスト
@@ -213,12 +232,13 @@ class WorkerService(QObject):
             f"バッチアノテーション準備: litellm_model_ids={litellm_model_ids}, 画像数={len(image_paths)}"
         )
 
+        model_registry = get_service_container().model_registry
         worker = AnnotationWorker(
             annotation_logic=self.annotation_logic,
             image_paths=image_paths,
             litellm_model_ids=litellm_model_ids,
             db_manager=self.db_manager,
-            model_registry=get_service_container().model_registry,
+            model_registry=model_registry,
         )
         worker_id = f"annotation_{uuid.uuid4().hex[:8]}"
         self._register_operation(worker_id, OperationType.ANNOTATION)
@@ -228,21 +248,38 @@ class WorkerService(QObject):
             lambda progress: self.worker_progress_updated.emit(worker_id, progress)
         )
 
+        # ADR 0066 §6: GPU ジョブ判定とキュー投入
+        requires_gpu = selection_includes_local_ml_model(litellm_model_ids, model_registry)
+        if requires_gpu and self._gpu_active_worker_id is not None:
+            self._enqueue_gpu_annotation(worker_id, worker, len(image_paths), len(litellm_model_ids))
+            return worker_id
+
+        if requires_gpu:
+            # start_worker 中に即終端しても terminal handler が解放できるよう先に確定する
+            self._gpu_active_worker_id = worker_id
+
         if self.worker_manager.start_worker(worker_id, worker):
             self.current_annotation_worker_id = worker_id
             logger.info(
                 f"バッチアノテーション開始: {len(image_paths)}画像 (filter 前), "
-                f"{len(litellm_model_ids)}モデル (ID: {worker_id})"
+                f"{len(litellm_model_ids)}モデル (ID: {worker_id}, GPU直列={requires_gpu})"
             )
             logger.debug("  refusal filter は Worker 内で実行 (Codex P2 対応)")
             logger.debug(f"  ワーカーID={worker_id}, litellm_model_ids=[{', '.join(litellm_model_ids)}]")
             return worker_id
         else:
             self._worker_operations.pop(worker_id, None)
+            if self._gpu_active_worker_id == worker_id:
+                self._gpu_active_worker_id = None
             raise RuntimeError(f"アノテーションワーカー開始失敗: {worker_id}")
 
     def cancel_annotation(self, worker_id: str) -> bool:
-        """アノテーションキャンセル"""
+        """アノテーションキャンセル
+
+        queued (GPU 直列キュー待機中) のジョブは実行前に即時取り消す (ADR 0066 §6)。
+        """
+        if self._cancel_queued_gpu_annotation(worker_id):
+            return True
         return self.worker_manager.cancel_worker(worker_id)
 
     # === Search ===
@@ -502,7 +539,10 @@ class WorkerService(QObject):
     # === 全般管理 ===
 
     def cancel_all_workers(self) -> None:
-        """全ワーカーキャンセル"""
+        """全ワーカーキャンセル (GPU 直列キューの待機ジョブも含めて取り消す)"""
+        # 実行中ジョブの終端で次の待機ジョブが自動起動しないよう、先にキューを空にする
+        for queued_job in list(self._gpu_queue):
+            self._cancel_queued_gpu_annotation(queued_job.worker_id, reason=CancelReason.SHUTDOWN)
         self.worker_manager.cancel_all_workers(reason=CancelReason.SHUTDOWN)
 
     def get_active_worker_count(self) -> int:
@@ -519,7 +559,8 @@ class WorkerService(QObject):
         """Jobs タブの行アクションからのジョブキャンセル (ADR 0066 §4)。
 
         進捗ポップアップ廃止に伴い、同期ジョブのキャンセル操作は
-        Jobs タブの行ボタンへ移設された。
+        Jobs タブの行ボタンへ移設された。queued (GPU 直列キュー待機中) の
+        ジョブは実行前に即時 canceled として終端する (ADR 0066 §6)。
 
         Args:
             worker_id: キャンセル対象のワーカーID (= 台帳 job_id)。
@@ -527,6 +568,8 @@ class WorkerService(QObject):
         Returns:
             キャンセル要求を発行できたかどうか。
         """
+        if self._cancel_queued_gpu_annotation(worker_id):
+            return True
         return self.worker_manager.cancel_worker(worker_id)
 
     # === プライベートメソッド ===
@@ -630,12 +673,16 @@ class WorkerService(QObject):
         elif event.outcome is WorkerOutcome.FAILED:
             if self._is_replacement_terminal(event):
                 self._clear_current_worker_id(event.worker_id)
+                self._release_gpu_slot_if_active(event)
                 return
             self._on_worker_error(event.worker_id, event.error or "")
         elif event.outcome is WorkerOutcome.CANCELED:
             self._on_worker_canceled_event(event)
         else:
             self._on_worker_abnormal_terminal(event)
+
+        # ADR 0066 §6: アクティブな GPU ジョブの終端で次の待機ジョブを自動起動
+        self._release_gpu_slot_if_active(event)
 
     def _on_worker_canceled_event(self, event: WorkerTerminalEvent) -> None:
         """ワーカーキャンセルハンドラ - エラー扱いせずプログレスを終了"""
@@ -764,8 +811,114 @@ class WorkerService(QObject):
         title = _JOB_LEDGER_TITLES.get(context.operation_type)
         if title is None:
             return
-        self.job_ledger.register(context.worker_id, context.operation_type.value, title)
+        entry = self.job_ledger.register(context.worker_id, context.operation_type.value, title)
+        if entry.status is JobStatus.QUEUED:
+            # ADR 0066 §6: GPU 直列キューからの起動 (queued -> running)
+            self.job_ledger.update(context.worker_id, status=JobStatus.RUNNING)
         self.job_ledger_changed.emit()
+
+    # === GPU 直列キュー (ADR 0066 §6) ===
+
+    def _enqueue_gpu_annotation(
+        self,
+        worker_id: str,
+        worker: AnnotationWorker,
+        image_count: int,
+        model_count: int,
+    ) -> None:
+        """先行 GPU ジョブの実行中に投入されたジョブを queued で台帳に載せて待機させる。
+
+        Args:
+            worker_id: 待機させるワーカーID。
+            worker: 構築済みの AnnotationWorker (起動は前ジョブ終端まで保留)。
+            image_count: 対象画像数 (ログ用)。
+            model_count: 選択モデル数 (ログ用)。
+        """
+        self._gpu_queue.append(_QueuedGpuAnnotationJob(worker_id=worker_id, worker=worker))
+        self.job_ledger.register(
+            worker_id,
+            OperationType.ANNOTATION.value,
+            _JOB_LEDGER_TITLES[OperationType.ANNOTATION],
+            status=JobStatus.QUEUED,
+        )
+        self.job_ledger_changed.emit()
+        logger.info(
+            f"GPU直列キューで待機: {image_count}画像, {model_count}モデル (ID: {worker_id}, "
+            f"実行中: {self._gpu_active_worker_id}, 待機数: {len(self._gpu_queue)})"
+        )
+
+    def _release_gpu_slot_if_active(self, event: WorkerTerminalEvent) -> None:
+        """アクティブな GPU ジョブの終端で slot を解放し、次の待機ジョブを起動する。
+
+        UNRESPONSIVE は worker が停止確認できていない状態のため slot を保持する
+        (VRAM が解放された保証がない以上、次ジョブを起動すると競合し得る)。
+        """
+        if event.worker_id != self._gpu_active_worker_id:
+            return
+        if event.outcome is WorkerOutcome.UNRESPONSIVE:
+            logger.warning(
+                f"GPUジョブが応答不能のため直列キューを保留: {event.worker_id} "
+                f"(待機数: {len(self._gpu_queue)})"
+            )
+            return
+        self._gpu_active_worker_id = None
+        self._start_next_queued_gpu_job()
+
+    def _start_next_queued_gpu_job(self) -> None:
+        """GPU 直列キューの先頭ジョブを起動する。起動失敗時は次の待機ジョブを試す。"""
+        while self._gpu_queue:
+            queued_job = self._gpu_queue.pop(0)
+            self._gpu_active_worker_id = queued_job.worker_id
+            if self.worker_manager.start_worker(queued_job.worker_id, queued_job.worker):
+                self.current_annotation_worker_id = queued_job.worker_id
+                logger.info(
+                    f"GPU直列キューからジョブ起動: {queued_job.worker_id} "
+                    f"(残り待機数: {len(self._gpu_queue)})"
+                )
+                return
+            # 起動失敗: 台帳と operation を失敗で確定し、次の待機ジョブへ進む
+            logger.error(f"GPU直列キューのジョブ起動失敗: {queued_job.worker_id}")
+            if self._gpu_active_worker_id == queued_job.worker_id:
+                self._gpu_active_worker_id = None
+            self._worker_operations.pop(queued_job.worker_id, None)
+            if (
+                self.job_ledger.finish(queued_job.worker_id, JobStatus.FAILED, "ワーカー開始失敗")
+                is not None
+            ):
+                self.job_ledger_changed.emit()
+            self.enhanced_annotation_error.emit(f"アノテーションワーカー開始失敗: {queued_job.worker_id}")
+
+    def _cancel_queued_gpu_annotation(
+        self,
+        worker_id: str,
+        reason: CancelReason = CancelReason.USER_REQUESTED,
+    ) -> bool:
+        """queued (起動前) の GPU ジョブを即時 canceled として終端する (ADR 0066 §6)。
+
+        Args:
+            worker_id: 取り消す待機中ジョブのワーカーID。
+            reason: キャンセル理由。
+
+        Returns:
+            キューから取り消せた場合 True。待機中でなければ False。
+        """
+        for index, queued_job in enumerate(self._gpu_queue):
+            if queued_job.worker_id != worker_id:
+                continue
+            self._gpu_queue.pop(index)
+            queued_job.worker.deleteLater()
+            logger.info(f"GPU直列キューの待機ジョブを取り消し: {worker_id} (理由: {reason.value})")
+            # 起動前のため manager を介さず synthetic terminal で終端を確定する
+            self._on_worker_terminal(
+                WorkerTerminalEvent(
+                    worker_id=worker_id,
+                    worker_type="annotation",
+                    outcome=WorkerOutcome.CANCELED,
+                    cancel_reason=reason,
+                )
+            )
+            return True
+        return False
 
     def _record_job_ledger_terminal(
         self,

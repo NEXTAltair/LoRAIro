@@ -14,7 +14,34 @@ from lorairo.gui.services.worker_service import WorkerService
 from lorairo.gui.workers.search_worker import SearchResult
 from lorairo.gui.workers.terminal import CancelReason, WorkerOutcome, WorkerTerminalEvent
 from lorairo.services.job_ledger_service import JobStatus
+from lorairo.services.model_registry_protocol import ModelInfo
 from lorairo.services.search_models import SearchConditions
+
+# GPU 直列キューテスト用の registry モデル (ADR 0066 §6)
+_LOCAL_MODEL_ID = "wd-v1-4-tagger"
+_API_MODEL_ID = "openai/gpt-4o"
+
+
+def _registry_model_infos() -> list[ModelInfo]:
+    """ローカル ML / WebAPI 混在の ModelInfo リストを返すテストヘルパー。"""
+    return [
+        ModelInfo(
+            name=_LOCAL_MODEL_ID,
+            provider="local",
+            capabilities=["tags"],
+            litellm_model_id=None,
+            requires_api_key=False,
+            estimated_size_gb=1.2,
+        ),
+        ModelInfo(
+            name=_API_MODEL_ID,
+            provider="openai",
+            capabilities=["caption", "tags"],
+            litellm_model_id=_API_MODEL_ID,
+            requires_api_key=True,
+            estimated_size_gb=None,
+        ),
+    ]
 
 
 class TestWorkerService:
@@ -949,12 +976,14 @@ class TestWorkerService:
         assert worker_service.current_thumbnail_worker_id is None
         assert worker_service.current_batch_import_worker_id is None
 
+    @patch("lorairo.gui.services.worker_service.get_service_container")
     @patch("lorairo.gui.services.worker_service.AnnotationWorker")
     @patch.object(WorkerService, "annotation_logic", create=True)
     def test_start_enhanced_batch_annotation_success(
-        self, mock_annotation_logic, mock_worker_class, worker_service
+        self, mock_annotation_logic, mock_worker_class, mock_container, worker_service
     ):
         """バッチアノテーション開始成功テスト（新API）"""
+        mock_container.return_value.model_registry.get_available_models.return_value = []
         mock_worker = Mock()
         mock_worker_class.return_value = mock_worker
         worker_service.worker_manager.start_worker.return_value = True
@@ -988,12 +1017,14 @@ class TestWorkerService:
         mock_worker.progress_updated.connect.assert_called()
         assert worker_service.current_annotation_worker_id == worker_id
 
+    @patch("lorairo.gui.services.worker_service.get_service_container")
     @patch("lorairo.gui.services.worker_service.AnnotationWorker")
     @patch.object(WorkerService, "annotation_logic", create=True)
     def test_start_enhanced_batch_annotation_failure_keeps_current_worker_id(
-        self, mock_annotation_logic, mock_worker_class, worker_service
+        self, mock_annotation_logic, mock_worker_class, mock_container, worker_service
     ):
         """アノテーション開始失敗時に current_annotation_worker_id を上書きしない"""
+        mock_container.return_value.model_registry.get_available_models.return_value = []
         mock_worker_class.return_value = Mock()
         worker_service.worker_manager.start_worker.return_value = False
         worker_service.current_annotation_worker_id = "annotation_existing"
@@ -1137,3 +1168,284 @@ class TestWorkerService:
             terminal_mock.assert_called_once_with(worker_id)
 
         assert getattr(worker_service, current_attr) is None
+
+
+@patch("lorairo.gui.services.worker_service.get_service_container")
+@patch("lorairo.gui.services.worker_service.AnnotationWorker")
+@patch.object(WorkerService, "annotation_logic", create=True)
+class TestGpuSerialQueue:
+    """ローカル GPU 推論ジョブの直列キュー (ADR 0066 §6) のユニットテスト。
+
+    ローカル ML (provider 空/"local") を含むアノテーションジョブは同時 1 件。
+    実行中に投入されたジョブは queued で台帳に載り、前ジョブの終端で自動起動する。
+    """
+
+    @pytest.fixture
+    @patch("lorairo.gui.services.worker_service.WorkerManager")
+    def worker_service(self, mock_worker_manager_class):
+        """テスト用WorkerService (WorkerManagerはモック)"""
+        mock_worker_manager_class.return_value = Mock()
+        service = WorkerService(Mock(), Mock())
+        service.worker_manager = mock_worker_manager_class.return_value
+        return service
+
+    @staticmethod
+    def _setup(mock_container, mock_worker_class, worker_service):
+        """registry / worker / manager を直列キュー検証用に構成するヘルパー。
+
+        start_worker は実 WorkerManager と同様に同期で worker_started 通知
+        (= `_on_worker_started`) を発行し、起動順を `started_ids` に記録する。
+        """
+        registry = mock_container.return_value.model_registry
+        registry.get_available_models.return_value = _registry_model_infos()
+        mock_worker_class.side_effect = lambda **kwargs: Mock()
+
+        started_ids: list[str] = []
+
+        def start_and_notify(worker_id, _worker):
+            started_ids.append(worker_id)
+            worker_service._on_worker_started(worker_id)
+            return True
+
+        worker_service.worker_manager.start_worker.side_effect = start_and_notify
+        return started_ids
+
+    @staticmethod
+    def _terminal_event(worker_id: str, outcome: WorkerOutcome, **kwargs) -> WorkerTerminalEvent:
+        return WorkerTerminalEvent(
+            worker_id=worker_id,
+            worker_type="annotation",
+            outcome=outcome,
+            **kwargs,
+        )
+
+    def test_local_model_job_starts_immediately_when_gpu_idle(
+        self, mock_annotation_logic, mock_worker_class, mock_container, worker_service
+    ):
+        """GPU アイドル時のローカル ML ジョブは即起動し GPU slot を占有する"""
+        started_ids = self._setup(mock_container, mock_worker_class, worker_service)
+
+        worker_id = worker_service.start_enhanced_batch_annotation(
+            image_paths=["/img/a.jpg"], litellm_model_ids=[_LOCAL_MODEL_ID]
+        )
+
+        assert started_ids == [worker_id]
+        assert worker_service._gpu_active_worker_id == worker_id
+        assert worker_service.job_ledger.get(worker_id).status is JobStatus.RUNNING
+
+    def test_second_local_job_queued_while_gpu_active(
+        self, mock_annotation_logic, mock_worker_class, mock_container, worker_service
+    ):
+        """GPU ジョブ実行中の追加ローカル ML ジョブは queued で待機する"""
+        started_ids = self._setup(mock_container, mock_worker_class, worker_service)
+        ledger_changed_mock = Mock()
+
+        first_id = worker_service.start_enhanced_batch_annotation(
+            image_paths=["/img/a.jpg"], litellm_model_ids=[_LOCAL_MODEL_ID]
+        )
+        worker_service.job_ledger_changed.connect(ledger_changed_mock)
+        second_id = worker_service.start_enhanced_batch_annotation(
+            image_paths=["/img/b.jpg"], litellm_model_ids=[_LOCAL_MODEL_ID]
+        )
+
+        assert started_ids == [first_id]
+        assert second_id.startswith("annotation_")
+        entry = worker_service.job_ledger.get(second_id)
+        assert entry is not None
+        assert entry.status is JobStatus.QUEUED
+        ledger_changed_mock.assert_called_once()
+        assert [job.worker_id for job in worker_service._gpu_queue] == [second_id]
+
+    def test_api_only_job_runs_parallel_while_gpu_active(
+        self, mock_annotation_logic, mock_worker_class, mock_container, worker_service
+    ):
+        """API 系のみのジョブは GPU ジョブ実行中でも並列起動する (ADR 0066 §6)"""
+        started_ids = self._setup(mock_container, mock_worker_class, worker_service)
+
+        first_id = worker_service.start_enhanced_batch_annotation(
+            image_paths=["/img/a.jpg"], litellm_model_ids=[_LOCAL_MODEL_ID]
+        )
+        second_id = worker_service.start_enhanced_batch_annotation(
+            image_paths=["/img/b.jpg"], litellm_model_ids=[_API_MODEL_ID]
+        )
+
+        assert started_ids == [first_id, second_id]
+        assert worker_service._gpu_queue == []
+        assert worker_service._gpu_active_worker_id == first_id
+        assert worker_service.job_ledger.get(second_id).status is JobStatus.RUNNING
+
+    @pytest.mark.parametrize(
+        ("outcome", "cancel_reason"),
+        [
+            (WorkerOutcome.SUCCEEDED, None),
+            (WorkerOutcome.FAILED, None),
+            (WorkerOutcome.CANCELED, CancelReason.USER_REQUESTED),
+        ],
+    )
+    def test_queued_job_autostarts_after_active_terminal(
+        self,
+        mock_annotation_logic,
+        mock_worker_class,
+        mock_container,
+        worker_service,
+        outcome,
+        cancel_reason,
+    ):
+        """前 GPU ジョブの終端 (成功/失敗/キャンセル) で待機ジョブが自動起動する"""
+        started_ids = self._setup(mock_container, mock_worker_class, worker_service)
+        first_id = worker_service.start_enhanced_batch_annotation(
+            image_paths=["/img/a.jpg"], litellm_model_ids=[_LOCAL_MODEL_ID]
+        )
+        second_id = worker_service.start_enhanced_batch_annotation(
+            image_paths=["/img/b.jpg"], litellm_model_ids=[_LOCAL_MODEL_ID]
+        )
+
+        worker_service._on_worker_terminal(
+            self._terminal_event(
+                first_id,
+                outcome,
+                error="boom" if outcome is WorkerOutcome.FAILED else None,
+                cancel_reason=cancel_reason,
+            )
+        )
+
+        assert started_ids == [first_id, second_id]
+        assert worker_service._gpu_active_worker_id == second_id
+        assert worker_service.current_annotation_worker_id == second_id
+        assert worker_service._gpu_queue == []
+        assert worker_service.job_ledger.get(second_id).status is JobStatus.RUNNING
+        assert worker_service.job_ledger.get(first_id).status.is_terminal
+
+    def test_cancel_queued_job_is_immediately_canceled(
+        self, mock_annotation_logic, mock_worker_class, mock_container, worker_service
+    ):
+        """queued ジョブのキャンセルは実行前に即時 canceled で終端する"""
+        started_ids = self._setup(mock_container, mock_worker_class, worker_service)
+        canceled_mock = Mock()
+        worker_service.enhanced_annotation_canceled.connect(canceled_mock)
+        first_id = worker_service.start_enhanced_batch_annotation(
+            image_paths=["/img/a.jpg"], litellm_model_ids=[_LOCAL_MODEL_ID]
+        )
+        second_id = worker_service.start_enhanced_batch_annotation(
+            image_paths=["/img/b.jpg"], litellm_model_ids=[_LOCAL_MODEL_ID]
+        )
+
+        assert worker_service.cancel_annotation(second_id) is True
+
+        worker_service.worker_manager.cancel_worker.assert_not_called()
+        canceled_mock.assert_called_once_with(second_id)
+        entry = worker_service.job_ledger.get(second_id)
+        assert entry.status is JobStatus.CANCELED
+        assert entry.finished_at is not None
+        assert worker_service._gpu_queue == []
+
+        # 前ジョブ終端後もキャンセル済みジョブは起動しない
+        worker_service._on_worker_terminal(self._terminal_event(first_id, WorkerOutcome.SUCCEEDED))
+        assert started_ids == [first_id]
+        assert worker_service._gpu_active_worker_id is None
+
+    def test_cancel_job_cancels_queued_entry(
+        self, mock_annotation_logic, mock_worker_class, mock_container, worker_service
+    ):
+        """Jobs タブ行アクションの cancel_job でも queued ジョブを即時取り消せる"""
+        self._setup(mock_container, mock_worker_class, worker_service)
+        worker_service.start_enhanced_batch_annotation(
+            image_paths=["/img/a.jpg"], litellm_model_ids=[_LOCAL_MODEL_ID]
+        )
+        second_id = worker_service.start_enhanced_batch_annotation(
+            image_paths=["/img/b.jpg"], litellm_model_ids=[_LOCAL_MODEL_ID]
+        )
+
+        assert worker_service.cancel_job(second_id) is True
+        assert worker_service.job_ledger.get(second_id).status is JobStatus.CANCELED
+        worker_service.worker_manager.cancel_worker.assert_not_called()
+
+    def test_cancel_all_workers_flushes_gpu_queue(
+        self, mock_annotation_logic, mock_worker_class, mock_container, worker_service
+    ):
+        """cancel_all_workers は待機ジョブも SHUTDOWN 理由で取り消す"""
+        self._setup(mock_container, mock_worker_class, worker_service)
+        worker_service.start_enhanced_batch_annotation(
+            image_paths=["/img/a.jpg"], litellm_model_ids=[_LOCAL_MODEL_ID]
+        )
+        second_id = worker_service.start_enhanced_batch_annotation(
+            image_paths=["/img/b.jpg"], litellm_model_ids=[_LOCAL_MODEL_ID]
+        )
+
+        worker_service.cancel_all_workers()
+
+        assert worker_service._gpu_queue == []
+        assert worker_service.job_ledger.get(second_id).status is JobStatus.CANCELED
+        worker_service.worker_manager.cancel_all_workers.assert_called_once_with(
+            reason=CancelReason.SHUTDOWN
+        )
+
+    def test_gpu_slot_cleared_when_start_fails(
+        self, mock_annotation_logic, mock_worker_class, mock_container, worker_service
+    ):
+        """GPU ジョブの起動失敗時は slot を解放して例外を伝播する"""
+        self._setup(mock_container, mock_worker_class, worker_service)
+        worker_service.worker_manager.start_worker.side_effect = None
+        worker_service.worker_manager.start_worker.return_value = False
+
+        with pytest.raises(RuntimeError, match="アノテーションワーカー開始失敗"):
+            worker_service.start_enhanced_batch_annotation(
+                image_paths=["/img/a.jpg"], litellm_model_ids=[_LOCAL_MODEL_ID]
+            )
+
+        assert worker_service._gpu_active_worker_id is None
+
+    def test_queued_job_start_failure_marks_failed_and_starts_next(
+        self, mock_annotation_logic, mock_worker_class, mock_container, worker_service
+    ):
+        """待機ジョブの起動失敗は台帳 failed で確定し、次の待機ジョブを起動する"""
+        started_ids = self._setup(mock_container, mock_worker_class, worker_service)
+        error_mock = Mock()
+        worker_service.enhanced_annotation_error.connect(error_mock)
+        first_id = worker_service.start_enhanced_batch_annotation(
+            image_paths=["/img/a.jpg"], litellm_model_ids=[_LOCAL_MODEL_ID]
+        )
+        second_id = worker_service.start_enhanced_batch_annotation(
+            image_paths=["/img/b.jpg"], litellm_model_ids=[_LOCAL_MODEL_ID]
+        )
+        third_id = worker_service.start_enhanced_batch_annotation(
+            image_paths=["/img/c.jpg"], litellm_model_ids=[_LOCAL_MODEL_ID]
+        )
+
+        def start_second_fails(worker_id, _worker):
+            if worker_id == second_id:
+                return False
+            started_ids.append(worker_id)
+            worker_service._on_worker_started(worker_id)
+            return True
+
+        worker_service.worker_manager.start_worker.side_effect = start_second_fails
+        worker_service._on_worker_terminal(self._terminal_event(first_id, WorkerOutcome.SUCCEEDED))
+
+        assert started_ids == [first_id, third_id]
+        second_entry = worker_service.job_ledger.get(second_id)
+        assert second_entry.status is JobStatus.FAILED
+        assert second_entry.summary == "ワーカー開始失敗"
+        error_mock.assert_called_once()
+        assert worker_service._gpu_active_worker_id == third_id
+        assert worker_service.job_ledger.get(third_id).status is JobStatus.RUNNING
+
+    def test_unresponsive_terminal_keeps_gpu_slot(
+        self, mock_annotation_logic, mock_worker_class, mock_container, worker_service
+    ):
+        """UNRESPONSIVE 終端では VRAM 解放が未確認のため次ジョブを起動しない"""
+        started_ids = self._setup(mock_container, mock_worker_class, worker_service)
+        first_id = worker_service.start_enhanced_batch_annotation(
+            image_paths=["/img/a.jpg"], litellm_model_ids=[_LOCAL_MODEL_ID]
+        )
+        second_id = worker_service.start_enhanced_batch_annotation(
+            image_paths=["/img/b.jpg"], litellm_model_ids=[_LOCAL_MODEL_ID]
+        )
+
+        worker_service._on_worker_terminal(
+            self._terminal_event(first_id, WorkerOutcome.UNRESPONSIVE, error="unresponsive")
+        )
+
+        assert started_ids == [first_id]
+        assert worker_service._gpu_active_worker_id == first_id
+        assert [job.worker_id for job in worker_service._gpu_queue] == [second_id]
