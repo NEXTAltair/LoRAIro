@@ -44,10 +44,13 @@ def _make_stub_dialog(
     captured: dict[str, object] = {}
 
     class _StubPickerDialog:
-        def __init__(self, stage, candidates, parent=None):
+        def __init__(self, stage, candidates, available_providers=None, parent=None):
             captured["stage"] = stage
             captured["candidates"] = candidates
+            captured["available_providers"] = available_providers
             captured["parent"] = parent
+            # Issue #755: MainWindow が connect する設定導線シグナルの差し替え
+            self.configure_key_requested = Mock()
 
         def exec(self) -> QDialog.DialogCode:
             return exec_result
@@ -272,6 +275,130 @@ class TestPipelineAddModelHandler:
 
         checkbox.set_selected.assert_called_once_with(True)
         mock_window._refresh_pipeline_panel.assert_called_once_with()
+
+
+@pytest.mark.unit
+class TestPickerConfigureKeyRoundTrip:
+    """Issue #755: needs key チップ → 設定 → ● API ready 解消の往復導線。"""
+
+    def test_picker_receives_available_providers(self, monkeypatch):
+        from lorairo.gui.window import main_window as main_window_module
+        from lorairo.gui.window.main_window import MainWindow
+
+        mock_window = Mock()
+        mock_window.batchModelSelection.model_checkbox_widgets = {}
+        mock_window.batchModelSelection.get_selected_models.return_value = []
+        mock_window.batchModelSelection.model_selection_service.load_models.return_value = []
+        mock_window._build_stage_model_infos = lambda ids: [GPT4O_INFO]
+        mock_window._available_api_providers.return_value = {"openai"}
+        stub_cls, captured = _make_stub_dialog(QDialog.DialogCode.Rejected, [])
+        monkeypatch.setattr(main_window_module, "StageModelPickerDialog", stub_cls)
+
+        MainWindow._on_pipeline_add_model_requested(mock_window, "tags")
+
+        assert captured["available_providers"] == {"openai"}
+
+    def test_configure_key_applied_refreshes_widget_and_dialog(self):
+        from lorairo.gui.window.main_window import MainWindow
+
+        mock_window = Mock()
+        mock_window.settings_controller.open_settings_dialog.return_value = True
+        mock_window._available_api_providers.return_value = {"anthropic"}
+        dialog = Mock()
+
+        MainWindow._on_picker_configure_key_requested(mock_window, "anthropic", dialog)
+
+        mock_window.settings_controller.open_settings_dialog.assert_called_once_with(
+            highlight_provider="anthropic"
+        )
+        mock_window._reload_model_widget_after_settings.assert_called_once_with()
+        dialog.refresh_key_status.assert_called_once_with({"anthropic"})
+
+    def test_configure_key_cancelled_does_not_refresh(self):
+        from lorairo.gui.window.main_window import MainWindow
+
+        mock_window = Mock()
+        mock_window.settings_controller.open_settings_dialog.return_value = False
+        dialog = Mock()
+
+        MainWindow._on_picker_configure_key_requested(mock_window, "anthropic", dialog)
+
+        mock_window._reload_model_widget_after_settings.assert_not_called()
+        dialog.refresh_key_status.assert_not_called()
+
+    def test_configure_key_without_settings_controller_is_noop(self):
+        from lorairo.gui.window.main_window import MainWindow
+
+        mock_window = Mock()
+        mock_window.settings_controller = None
+        dialog = Mock()
+
+        MainWindow._on_picker_configure_key_requested(mock_window, "anthropic", dialog)
+
+        dialog.refresh_key_status.assert_not_called()
+
+    def test_reload_after_settings_resets_container_config_service(self, monkeypatch):
+        """Codex review (PR #757): container 側 config_service を破棄して保存値を再読込させる。
+
+        MainWindow.config_service と ServiceContainer.config_service は別インスタンス
+        のため、保存後に container 側を破棄しないと widget が stale なキー状況を見る。
+        """
+        from lorairo.gui.window import main_window as main_window_module
+        from lorairo.gui.window.main_window import MainWindow
+
+        class _StubContainer:
+            def __init__(self) -> None:
+                self.config_deleted = False
+
+            @property
+            def config_service(self) -> Mock:
+                return Mock()
+
+            @config_service.deleter
+            def config_service(self) -> None:
+                self.config_deleted = True
+
+        container = _StubContainer()
+        monkeypatch.setattr(main_window_module, "get_service_container", lambda: container)
+        mock_window = Mock()
+
+        MainWindow._reload_model_widget_after_settings(mock_window)
+
+        assert container.config_deleted is True
+        mock_window.batchModelSelection.update_model_display.assert_called_once_with()
+
+
+@pytest.mark.unit
+class TestAvailableApiProviders:
+    """Issue #755: config からの API キー設定済み provider 集合の導出。"""
+
+    def _make_window_with_keys(self, keys: dict[tuple[str, str], str]) -> Mock:
+        mock_window = Mock()
+        mock_window.config_service.get_setting.side_effect = lambda section, key, default="": keys.get(
+            (section, key), default
+        )
+        return mock_window
+
+    def test_only_providers_with_nonempty_keys(self):
+        from lorairo.gui.window.main_window import MainWindow
+
+        mock_window = self._make_window_with_keys(
+            {
+                ("api", "openai_key"): "sk-test",
+                ("api", "claude_key"): "   ",
+                ("api", "google_key"): "",
+                ("api", "openrouter_key"): "or-key",
+            }
+        )
+        providers = MainWindow._available_api_providers(mock_window)
+        assert providers == {"openai", "openrouter"}
+
+    def test_missing_config_service_returns_empty(self):
+        from lorairo.gui.window.main_window import MainWindow
+
+        mock_window = Mock()
+        mock_window.config_service = None
+        assert MainWindow._available_api_providers(mock_window) == set()
 
 
 @pytest.mark.unit

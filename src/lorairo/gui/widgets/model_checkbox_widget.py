@@ -14,7 +14,7 @@ ModelSelectionWidgetから分離された機能を提供
 from dataclasses import dataclass, field
 
 from PySide6.QtCore import Qt, Signal, Slot
-from PySide6.QtWidgets import QWidget
+from PySide6.QtWidgets import QLabel, QWidget
 
 from ...gui.designer.ModelCheckboxWidget_ui import Ui_ModelCheckboxWidget
 from ...utils.log import logger
@@ -34,6 +34,10 @@ class ModelInfo:
     の経路 ("direct" / "openrouter")、``alternatives`` は同一 canonical key の
     代替 route の litellm_model_id 群。OpenRouter は実行経路なので primary label
     には出さず、tooltip に raw ID と route 情報を載せる。
+
+    Issue #755: ``available`` は API キー設定状況による実行可否
+    (``DisplayModelOption.available`` 由来)。False の WebAPI モデルは
+    ``○ needs key`` ステータスで可視化する (非表示にしない)。
     """
 
     name: str
@@ -44,6 +48,7 @@ class ModelInfo:
     requires_api_key: bool = True
     route: str = "direct"
     alternatives: tuple[str, ...] = field(default_factory=tuple)
+    available: bool = True
 
 
 # プロバイダー別スタイル定義（PySide6パレット機能でダークモード自動対応）
@@ -91,6 +96,14 @@ PROVIDER_STYLES = {
     }""",
 }
 
+# Issue #755: Wireframes v11 のモデルステータス表現 (● installed / ● API ready / ○ needs key)
+STATUS_INSTALLED = "● installed"
+STATUS_API_READY = "● API ready"
+STATUS_NEEDS_KEY = "○ needs key"
+_STATUS_READY_STYLE = "QLabel { color: #2E7D32; }"
+_STATUS_NEEDS_KEY_STYLE = "QLabel { color: #E65100; }"
+_NEEDS_KEY_TOOLTIP = "API キー未設定のため実行できません。⚙ 設定の該当プロバイダ欄でキーを保存すると ● API ready になります。"
+
 
 class ModelCheckboxWidget(QWidget, Ui_ModelCheckboxWidget):
     """
@@ -112,6 +125,11 @@ class ModelCheckboxWidget(QWidget, Ui_ModelCheckboxWidget):
 
         # モデル情報保存
         self.model_info = model_info
+
+        # Issue #755: ステータスラベル (.ui には無いためプログラム的に追加)
+        self.labelStatus = QLabel(self)
+        self.labelStatus.setObjectName("labelStatus")
+        self.mainLayout.addWidget(self.labelStatus)
 
         # UI初期化
         self._setup_model_display()
@@ -154,8 +172,35 @@ class ModelCheckboxWidget(QWidget, Ui_ModelCheckboxWidget):
                 capabilities_text += "..."
             self.labelCapabilities.setText(capabilities_text)
 
+            # Issue #755: ステータス表示 (● installed / ● API ready / ○ needs key)
+            self._update_status_display()
+
         except Exception as e:
             logger.error(f"Error setting up model display for {self.model_info.name}: {e}", exc_info=True)
+
+    def _update_status_display(self) -> None:
+        """API キー設定状況に応じたモデルステータスを表示する (Issue #755)。
+
+        Wireframes v11: キー未設定の WebAPI モデルは非表示にせず ``○ needs key``
+        で可視化し、⚙ 設定での解消を tooltip で案内する。
+        """
+        if self.model_info.is_local:
+            self.labelStatus.setText(STATUS_INSTALLED)
+            self.labelStatus.setStyleSheet(_STATUS_READY_STYLE)
+            self.labelStatus.setToolTip("")
+            self.checkboxModel.setEnabled(True)
+        elif self.model_info.available:
+            self.labelStatus.setText(STATUS_API_READY)
+            self.labelStatus.setStyleSheet(_STATUS_READY_STYLE)
+            self.labelStatus.setToolTip("")
+            self.checkboxModel.setEnabled(True)
+        else:
+            self.labelStatus.setText(STATUS_NEEDS_KEY)
+            self.labelStatus.setStyleSheet(_STATUS_NEEDS_KEY_STYLE)
+            self.labelStatus.setToolTip(_NEEDS_KEY_TOOLTIP)
+            # Codex review (PR #757): 実行不能モデルの選択を入口で防ぐ
+            # (選択後の _validate_api_keys_for_models での実行時失敗より UX が良い)
+            self.checkboxModel.setEnabled(False)
 
     @staticmethod
     def _format_route_tooltip(route: str) -> str:
@@ -216,6 +261,10 @@ class ModelCheckboxWidget(QWidget, Ui_ModelCheckboxWidget):
     def is_selected(self) -> bool:
         """チェックボックスの選択状態を取得"""
         return self.checkboxModel.isChecked()
+
+    def is_selectable(self) -> bool:
+        """ユーザーが選択可能か (Issue #755: needs key 行は選択不可)。"""
+        return self.model_info.is_local or self.model_info.available
 
     def get_model_name(self) -> str:
         """モデルの表示名を取得 (Issue #245: 内部キーは get_model_litellm_id() を使用)"""

@@ -137,7 +137,10 @@ if not __name__ == "__main__":
             self.filtered_options: list[DisplayModelOption] = []
             self.model_checkbox_widgets: dict[str, ModelCheckboxWidget] = {}
             # Issue #584: 直近の描画シグネチャ。同一フィルタ結果での冗長な全消し全再生成を抑制する
-            self._last_render_signature: tuple[str, bool, tuple[tuple[str, str, str], ...]] | None = None
+            # (Issue #755: available を含む。型は _compute_render_signature の戻り値と同期)
+            self._last_render_signature: tuple[str, bool, tuple[tuple[str, str, str, bool], ...]] | None = (
+                None
+            )
             self._refresh_thread: QThread | None = None
             self._refresh_worker: _ModelRefreshWorker | None = None
             self._refresh_is_automatic = False
@@ -403,12 +406,18 @@ if not __name__ == "__main__":
             else:
                 options = self._apply_advanced_filters(available_providers, route_preference)
 
-            options = self._filter_unavailable_web_api_options(options)
+            # Issue #755: API key 未設定の WebAPI モデルも除外しない (可視 + その場で解消)。
+            # 旧実装は「APIモデルのみ」表示で available=False を非表示にしていたが、
+            # Wireframes v11 では ○ needs key ステータスで表示する設計に統一。
             signature = self._compute_render_signature(options, False)
             if signature == self._last_render_signature and self.model_checkbox_widgets:
                 # 同一フィルタ結果。既存ウィジェット (選択状態含む) をそのまま温存する
                 logger.trace("モデル表示は前回と同一のため再構築をスキップ")
                 return
+
+            # Issue #755 (Codex review): 再構築前の選択状態を保持し、API キー保存等による
+            # availability 変化の rebuild でチェック済みモデルが silent に消えるのを防ぐ
+            previously_selected = self.get_selected_models()
 
             # 現在の表示をクリアして再構築
             self._clear_model_display()
@@ -436,22 +445,36 @@ if not __name__ == "__main__":
                 if group_options:
                     self._add_provider_group(provider, group_options)
 
+            # 再構築後も表示中のモデルはチェック状態を復元する (単一選択モードの
+            # 不変条件は set_selected_models 側で強制される)。needs key 化した行は
+            # 選択不可のため復元対象から外す。
+            restorable = [
+                litellm_model_id
+                for litellm_model_id in previously_selected
+                if (widget := self.model_checkbox_widgets.get(litellm_model_id)) is not None
+                and widget.is_selectable()
+            ]
+            if restorable:
+                self.set_selected_models(restorable)
+
             self._update_selection_count()
             self._last_render_signature = signature
 
         def _compute_render_signature(
             self, options: list[DisplayModelOption], web_api_placeholder: bool
-        ) -> tuple[str, bool, tuple[tuple[str, str, str], ...]]:
+        ) -> tuple[str, bool, tuple[tuple[str, str, str, bool], ...]]:
             """描画結果の同一性判定用シグネチャ (Issue #584)。
 
-            mode・placeholder 種別・各 option の (litellm_model_id, route, display_name) を
-            含め、フィルタ結果が視覚的に同一かを判定する。
+            mode・placeholder 種別・各 option の (litellm_model_id, route, display_name,
+            available) を含め、フィルタ結果が視覚的に同一かを判定する。available は
+            Issue #755 のステータス表示 (● API ready / ○ needs key) に影響するため、
+            API キー保存直後の再描画がスキップされないようシグネチャへ含める。
             """
             return (
                 self.mode,
                 web_api_placeholder,
                 tuple(
-                    (opt.preferred.litellm_model_id, opt.preferred.route, opt.display_name)
+                    (opt.preferred.litellm_model_id, opt.preferred.route, opt.display_name, opt.available)
                     for opt in options
                 ),
             )
@@ -551,14 +574,6 @@ if not __name__ == "__main__":
 
             return filtered
 
-        def _filter_unavailable_web_api_options(
-            self, options: list[DisplayModelOption]
-        ) -> list[DisplayModelOption]:
-            """Web API only 表示では API key 未設定などで実行不能な候補を除外する。"""
-            if self.current_execution_env != "APIモデルのみ":
-                return options
-            return [option for option in options if option.available]
-
         def _group_options_by_provider(
             self, options: list[DisplayModelOption]
         ) -> dict[str, list[DisplayModelOption]]:
@@ -619,6 +634,7 @@ if not __name__ == "__main__":
                 requires_api_key=model.requires_api_key,
                 route=option.preferred.route,
                 alternatives=tuple(c.litellm_model_id for c in option.alternatives),
+                available=option.available,
             )
 
         def _clear_model_display(self) -> None:
@@ -850,6 +866,9 @@ if not __name__ == "__main__":
             """
             seen: set[str] = set()
             batch_options: list[tuple[str, str, ModelInfo]] = []
+            # Issue #755 (Codex review): batch 行にも API key 設定状況を反映し、
+            # キー未設定 provider のモデルが ● API ready と誤表示されるのを防ぐ
+            available_providers = self._build_available_providers()
 
             for raw in raw_models:
                 litellm_id = litellm_id_from_batch_model(raw)
@@ -879,6 +898,7 @@ if not __name__ == "__main__":
                     is_local=not getattr(model, "requires_api_key", True),
                     requires_api_key=getattr(model, "requires_api_key", True),
                     route="direct",
+                    available=provider in available_providers,
                 )
                 batch_options.append((provider, direct_id, model_info))
 

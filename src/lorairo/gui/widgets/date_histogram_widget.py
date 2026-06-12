@@ -3,7 +3,7 @@ from __future__ import annotations
 import datetime
 
 from PySide6.QtCore import QSize, Signal
-from PySide6.QtGui import QColor, QMouseEvent, QPaintEvent, QPainter
+from PySide6.QtGui import QColor, QMouseEvent, QPainter, QPaintEvent
 from PySide6.QtWidgets import QWidget
 
 

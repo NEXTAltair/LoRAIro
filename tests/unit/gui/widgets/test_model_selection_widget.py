@@ -125,10 +125,10 @@ class TestModelSelectionWidgetFilters:
         assert w.placeholderLabel.isHidden()
         assert list(w.model_checkbox_widgets) == ["openai/gpt-4o"]
 
-    def test_batch_web_api_only_hides_unavailable_options_and_shows_placeholder(
+    def test_batch_web_api_only_shows_unavailable_options_with_needs_key_status(
         self, qtbot, mock_model_service
     ):
-        """Web API only で API key 未設定などにより実行不能な候補だけなら placeholder を表示する"""
+        """Issue #755: API key 未設定の候補も非表示にせず ○ needs key で可視化する。"""
         model = _fake_db_model(
             name="gpt-4o",
             provider="openai",
@@ -142,9 +142,102 @@ class TestModelSelectionWidgetFilters:
 
         w.apply_filters(execution_env="APIモデルのみ", annotation_only=True)
 
-        assert not w.placeholderLabel.isHidden()
-        assert w.placeholderLabel.text() == ModelSelectionWidget.WEB_API_UNAVAILABLE_PLACEHOLDER
-        assert w.model_checkbox_widgets == {}
+        assert w.placeholderLabel.isHidden()
+        assert list(w.model_checkbox_widgets) == ["openai/gpt-4o"]
+        checkbox_widget = w.model_checkbox_widgets["openai/gpt-4o"]
+        assert checkbox_widget.model_info.available is False
+        assert checkbox_widget.labelStatus.text() == "○ needs key"
+        # Codex review (PR #757): needs key 行は選択不可 (実行時失敗を入口で防ぐ)
+        assert not checkbox_widget.checkboxModel.isEnabled()
+        assert checkbox_widget.is_selectable() is False
+
+    def test_rebuild_preserves_selection_when_availability_changes(self, qtbot, mock_model_service):
+        """Codex review (PR #757): キー保存による rebuild で選択済みモデルを維持する。"""
+        model_a = _fake_db_model(
+            name="gpt-4o",
+            provider="openai",
+            litellm_model_id="openai/gpt-4o",
+            requires_api_key=True,
+            capabilities=["caption"],
+        )
+        model_b = _fake_db_model(
+            name="claude-x",
+            provider="anthropic",
+            litellm_model_id="anthropic/claude-x",
+            requires_api_key=True,
+            capabilities=["caption"],
+        )
+        mock_model_service.load_grouped_models.return_value = build_display_options(
+            [model_a, model_b], {"openai"}, "auto"
+        )
+        w = ModelSelectionWidget(model_selection_service=mock_model_service, mode="advanced")
+        qtbot.addWidget(w)
+        w.apply_filters(execution_env="APIモデルのみ")
+        w.model_checkbox_widgets["openai/gpt-4o"].set_selected(True)
+        assert w.get_selected_models() == ["openai/gpt-4o"]
+
+        # anthropic キー保存 → availability 変化で signature が変わり rebuild される
+        mock_model_service.load_grouped_models.return_value = build_display_options(
+            [model_a, model_b], {"openai", "anthropic"}, "auto"
+        )
+        w.update_model_display()
+
+        assert w.get_selected_models() == ["openai/gpt-4o"]
+        assert w.model_checkbox_widgets["anthropic/claude-x"].labelStatus.text() == "● API ready"
+
+    def test_batch_capable_rows_reflect_api_key_availability(self, qtbot, mock_model_service, monkeypatch):
+        """Codex review (PR #757): batch-capable 行もキー未設定なら ○ needs key になる。"""
+        from types import SimpleNamespace
+
+        db_model = SimpleNamespace(
+            provider="openai",
+            litellm_model_id="openai/gpt-4.1-mini",
+            name="gpt-4.1-mini",
+            requires_api_key=True,
+            capabilities=["caption"],
+            model_types=(),
+            available=True,
+        )
+        mock_repo = Mock()
+        mock_repo.get_model_by_litellm_id.return_value = db_model
+        mock_container = Mock()
+        mock_container.db_manager.model_repo = mock_repo
+        # 全 provider のキー未設定
+        mock_container.config_service.get_setting.side_effect = lambda section, key, default="": ""
+        monkeypatch.setattr(
+            "lorairo.gui.widgets.model_selection_widget.get_service_container",
+            lambda: mock_container,
+        )
+
+        model_source = Mock()
+        model_source.list_batch_capable_models.return_value = ("openai/gpt-4.1-mini",)
+        w = ModelSelectionWidget(model_selection_service=mock_model_service)
+        qtbot.addWidget(w)
+
+        w.set_batch_capable_filtering(True, "annotation", model_source)
+
+        checkbox_widget = w.model_checkbox_widgets["openai/gpt-4.1-mini"]
+        assert checkbox_widget.model_info.available is False
+        assert checkbox_widget.labelStatus.text() == "○ needs key"
+
+    def test_render_signature_includes_availability(self, qtbot, mock_model_service):
+        """Issue #755: キー保存で available だけ変わっても再描画される (signature に含む)。"""
+        model = _fake_db_model(
+            name="gpt-4o",
+            provider="openai",
+            litellm_model_id="openai/gpt-4o",
+            requires_api_key=True,
+            capabilities=["caption"],
+        )
+        needs_key_options = build_display_options([model], set(), "auto")
+        ready_options = build_display_options([model], {"openai"}, "auto")
+        sig_needs_key = ModelSelectionWidget._compute_render_signature(
+            Mock(mode="advanced"), needs_key_options, False
+        )
+        sig_ready = ModelSelectionWidget._compute_render_signature(
+            Mock(mode="advanced"), ready_options, False
+        )
+        assert sig_needs_key != sig_ready
 
     def test_non_batch_web_api_only_uses_normal_filtering(self, qtbot, mock_model_service):
         """通常利用時の Web API only は batch placeholder 分岐に入らない"""
