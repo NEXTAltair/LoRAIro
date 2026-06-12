@@ -712,3 +712,76 @@ def test_action_handlers_catch_unexpected_errors(widget, dependencies, monkeypat
 
     critical.assert_called_once()
     assert widget.labelStatus.text() == "cancel に失敗しました"
+
+
+# === ADR 0066: 統一 Jobs lifecycle ビュー (同期ジョブ台帳セクション) ===
+
+
+@pytest.mark.unit
+@pytest.mark.gui
+def test_sync_jobs_section_inserted_at_top_of_right_splitter(widget):
+    """同期ジョブ台帳セクションが右ペイン先頭に拡張方式で追加される"""
+    sync_widget = widget.get_sync_jobs_widget()
+    assert widget.splitterRight.indexOf(sync_widget) == 0
+    # 既存の Provider Batch セクションは置換されず残る (拡張方式)
+    assert widget.splitterRight.indexOf(widget.groupBoxExecution) == 1
+    assert widget.splitterRight.indexOf(widget.groupBoxStatus) == 2
+
+
+@pytest.mark.unit
+@pytest.mark.gui
+def test_sync_jobs_empty_state_keeps_table_frame(widget):
+    """台帳未注入でも空テーブル枠を表示する (ADR 0066 §1)"""
+    table = widget.get_sync_jobs_widget().tableSyncJobs
+    assert table.columnCount() == 7
+    assert table.rowCount() == 0
+
+
+@pytest.mark.unit
+@pytest.mark.gui
+def test_set_job_ledger_renders_entries(widget):
+    from lorairo.services.job_ledger_service import JobLedgerService
+
+    ledger = JobLedgerService()
+    ledger.register("annotation_1", "annotation", "アノテーション処理")
+
+    widget.set_job_ledger(ledger)
+
+    table = widget.get_sync_jobs_widget().tableSyncJobs
+    assert table.rowCount() == 1
+    assert table.item(0, 1).text() == "アノテーション処理"
+
+
+@pytest.mark.unit
+@pytest.mark.gui
+def test_refresh_sync_jobs_reflects_ledger_changes(widget):
+    from lorairo.services.job_ledger_service import JobLedgerService, JobStatus
+
+    ledger = JobLedgerService()
+    widget.set_job_ledger(ledger)
+    assert widget.get_sync_jobs_widget().tableSyncJobs.rowCount() == 0
+
+    ledger.register("annotation_1", "annotation", "アノテーション処理")
+    ledger.finish("annotation_1", JobStatus.FINISHED, "完了")
+    widget.refresh_sync_jobs()
+
+    table = widget.get_sync_jobs_widget().tableSyncJobs
+    assert table.rowCount() == 1
+    assert table.item(0, 2).text() == "完了"
+
+
+@pytest.mark.unit
+@pytest.mark.gui
+def test_sync_job_cancel_button_emits_widget_signal(widget, qtbot):
+    """行のキャンセルボタンが sync_job_cancel_requested として再発行される"""
+    from lorairo.services.job_ledger_service import JobLedgerService
+
+    ledger = JobLedgerService()
+    ledger.register("annotation_busy", "annotation", "アノテーション処理")
+    widget.set_job_ledger(ledger)
+
+    button = widget.get_sync_jobs_widget().tableSyncJobs.cellWidget(0, 6)
+    with qtbot.waitSignal(widget.sync_job_cancel_requested, timeout=1000) as blocker:
+        button.click()
+
+    assert blocker.args == ["annotation_busy"]

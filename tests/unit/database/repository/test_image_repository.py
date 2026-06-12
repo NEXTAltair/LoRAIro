@@ -982,3 +982,29 @@ class TestGetImagesByIdsChunking:
         monkeypatch.setattr(image_repository, "BATCH_CHUNK_SIZE", 2)
         rows = image_repository.get_images_by_ids(ids)
         assert {m["id"] for m in rows} == set(ids)
+
+
+@pytest.mark.unit
+class TestSetImageReviewed:
+    """set_image_reviewed (Wireframes v11 Frame 5 accept 永続化) のテスト。"""
+
+    def test_accept_sets_reviewed_at(self, image_repository: ImageRepository) -> None:
+        """accept で reviewed_at に値が入り、metadata に反映される。"""
+        image_id = _insert_image(image_repository, uuid="rev-1", phash="rev-ph-1")
+        assert image_repository.set_image_reviewed(image_id, reviewed=True) is True
+        metadata = image_repository.get_image_metadata(image_id)
+        assert metadata is not None
+        assert metadata["reviewed_at"] is not None
+
+    def test_undo_clears_reviewed_at(self, image_repository: ImageRepository) -> None:
+        """undo で reviewed_at が NULL に戻る。"""
+        image_id = _insert_image(image_repository, uuid="rev-2", phash="rev-ph-2")
+        image_repository.set_image_reviewed(image_id, reviewed=True)
+        assert image_repository.set_image_reviewed(image_id, reviewed=False) is True
+        metadata = image_repository.get_image_metadata(image_id)
+        assert metadata is not None
+        assert metadata["reviewed_at"] is None
+
+    def test_missing_image_returns_false(self, image_repository: ImageRepository) -> None:
+        """未登録 image_id では False を返す。"""
+        assert image_repository.set_image_reviewed(99999, reviewed=True) is False

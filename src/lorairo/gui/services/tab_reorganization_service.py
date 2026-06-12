@@ -54,7 +54,11 @@ class TabReorganizationService:
     REQUIRED_WIDGETS: ClassVar[list[str]] = [
         "tabWidgetMainMode",
         "tabWorkspace",
+        "tabMap",
         "tabBatchTag",
+        "tabResults",
+        "tabErrors",
+        "tabExport",
         "splitterBatchTagMain",
         "groupBoxBatchOperations",
         "groupBoxAnnotation",

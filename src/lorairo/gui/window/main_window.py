@@ -1,12 +1,14 @@
 # src/lorairo/gui/window/main_window.py
 
 from collections.abc import Callable
+from functools import partial
 from pathlib import Path
 from typing import Any, cast
 
-from PySide6.QtCore import QEasingCurve, QPropertyAnimation, QSettings, QTimer, Signal
-from PySide6.QtGui import QCloseEvent, QResizeEvent
+from PySide6.QtCore import QEasingCurve, QPropertyAnimation, QSettings, Qt, QTimer, Signal
+from PySide6.QtGui import QCloseEvent, QKeySequence, QResizeEvent, QShortcut
 from PySide6.QtWidgets import (
+    QDialog,
     QFileDialog,
     QGraphicsOpacityEffect,
     QMainWindow,
@@ -17,17 +19,20 @@ from PySide6.QtWidgets import (
 
 from ...database.db_core import IMG_DB_PATH, get_current_project_root, get_user_tag_db_path
 from ...database.db_manager import ImageDatabaseManager
+from ...database.schema import ErrorRecord
 from ...gui.designer.MainWindow_ui import Ui_MainWindow
 from ...services import get_service_container
 from ...services.configuration_service import ConfigurationService
+from ...services.error_triage_service import ErrorFilter, ErrorRow, ErrorTriageService
 from ...services.model_selection_service import ModelSelectionService
+from ...services.pipeline_composition import PipelineCompositionService, PipelineStage, StageModelInfo
+from ...services.quality_issue_detection_service import QualityIssueDetectionService
 from ...services.selection_state_service import SelectionStateService
 from ...services.service_container import ServiceContainer
 from ...storage.file_system import FileSystemManager
 from ...utils.log import logger
 from ..controllers.annotation_workflow_controller import AnnotationWorkflowController
 from ..controllers.dataset_controller import DatasetController
-from ..controllers.export_controller import ExportController
 from ..controllers.settings_controller import SettingsController
 from ..services.image_db_write_service import ImageDBWriteService
 from ..services.pipeline_control_service import PipelineControlService
@@ -38,14 +43,20 @@ from ..services.tab_reorganization_service import TabReorganizationService
 from ..services.widget_setup_service import WidgetSetupService
 from ..services.worker_service import WorkerService
 from ..state.dataset_state import DatasetStateManager
-from ..widgets.error_log_viewer_dialog import ErrorLogViewerDialog
+from ..widgets.dataset_export_widget import DatasetExportWidget
 from ..widgets.error_notification_widget import ErrorNotificationWidget
+from ..widgets.errors_triage_widget import ErrorsTriageWidget
 from ..widgets.filter_search_panel import FilterSearchPanel
 from ..widgets.image_preview import ImagePreviewWidget
+from ..widgets.inference_ledger_widget import InferenceLedgerWidget
+from ..widgets.pipeline_stage_table_widget import PipelineStageTableWidget
 from ..widgets.provider_batch_job_widget import ProviderBatchJobWidget
 from ..widgets.quick_tag_dialog import QuickTagDialog
+from ..widgets.results_widget import ResultsWidget
 from ..widgets.selected_image_details_widget import SelectedImageDetailsWidget
+from ..widgets.stage_model_picker_dialog import StageModelPickerDialog
 from ..widgets.tag_management_dialog import TagManagementDialog
+from ..widgets.tag_map_widget import TagMapWidget
 from ..widgets.thumbnail import ThumbnailSelectorWidget
 
 
@@ -56,7 +67,9 @@ class MainWindow(QMainWindow, Ui_MainWindow):
     """
 
     # QSettings バージョン（UI構造変更時にインクリメント）
-    SETTINGS_VERSION = 1
+    # 2: Wireframes v11 · 6 タブ化（検索/マップ/アノテーション/ジョブ/結果/エラー）
+    # 3: Wireframes v11 Phase 5 · エクスポートタブ追加（7 タブ化）
+    SETTINGS_VERSION = 3
 
     # シグナル
     dataset_loaded = Signal(str)  # dataset_path
@@ -74,7 +87,10 @@ class MainWindow(QMainWindow, Ui_MainWindow):
     dataset_controller: DatasetController | None
     annotation_workflow_controller: AnnotationWorkflowController | None
     settings_controller: SettingsController | None
-    export_controller: ExportController | None
+    export_widget: DatasetExportWidget | None
+    map_widget: TagMapWidget | None
+    pipeline_stage_table: PipelineStageTableWidget | None
+    inference_ledger_widget: InferenceLedgerWidget | None
     result_handler_service: ResultHandlerService | None
     pipeline_control_service: PipelineControlService | None
     progress_state_service: ProgressStateService | None
@@ -96,7 +112,10 @@ class MainWindow(QMainWindow, Ui_MainWindow):
 
     # Error handling UI components
     error_notification_widget: ErrorNotificationWidget | None
-    error_log_dialog: ErrorLogViewerDialog | None
+    errors_triage_widget: ErrorsTriageWidget | None
+    error_triage_service: ErrorTriageService
+    results_widget: ResultsWidget | None
+    quality_issue_detection_service: QualityIssueDetectionService
 
     # Tag management UI components
     tag_management_dialog: TagManagementDialog | None
@@ -117,7 +136,7 @@ class MainWindow(QMainWindow, Ui_MainWindow):
 
             # エラーログメニューアクション接続（UI生成後に接続）
             if hasattr(self, "actionErrorLog"):
-                self.actionErrorLog.triggered.connect(self._show_error_log_dialog)
+                self.actionErrorLog.triggered.connect(self._on_error_notification_clicked)
                 logger.debug("Error log menu action connected")
 
             # タグ管理メニューアクション追加（プログラム的に追加）
@@ -354,12 +373,6 @@ class MainWindow(QMainWindow, Ui_MainWindow):
             )
 
             self.settings_controller = SettingsController(config_service=self.config_service, parent=self)
-            self.export_controller = ExportController(
-                selection_state_service=self.selection_state_service,
-                service_container=self.service_container,
-                parent=self,
-                staged_ids_provider=self._get_staged_export_ids,
-            )
 
             logger.info("✅ Service/Controller層初期化完了")
         except Exception as e:
@@ -368,7 +381,6 @@ class MainWindow(QMainWindow, Ui_MainWindow):
             self.dataset_controller = None
             self.annotation_workflow_controller = None
             self.settings_controller = None
-            self.export_controller = None
 
         # ErrorNotificationWidget初期化（Phase 4.5）
         self._setup_error_notification()
@@ -376,14 +388,79 @@ class MainWindow(QMainWindow, Ui_MainWindow):
         # BatchTagAddWidget再配置（Phase 2.5統合、Day 2）
         WidgetSetupService.setup_batch_tag_tab_widgets(self)
 
+        # パイプライン構成ビュー（Phase 6a、batchModelSelection 構築後に配置）
+        self._setup_pipeline_composition_panel()
+
         # QTabWidget初期化（タブ切り替え用）
         self._setup_tab_widget()
         self._setup_provider_batch_tab()
+        self._setup_map_tab()
+        self._setup_results_tab()
+        self._setup_errors_tab()
+        self._setup_export_tab()
+        self._setup_tab_shortcuts()
+
+    def _setup_map_tab(self) -> None:
+        """マップタブに TagMapWidget を埋め込む（Wireframes v11 · Map / Phase 8）。
+
+        タグ共起ベースの2Dクラスタ散布図を tabMap に挿入する。
+        スタブラベルを除去して TagMapWidget で置き換える。
+        """
+        container = getattr(self, "tabMap", None)
+        if container is None:
+            logger.warning("tabMap not found - マップタブ skipped")
+            self.map_widget = None
+            return
+
+        if self.db_manager is None:
+            logger.warning("db_manager 未初期化 - マップタブ skipped")
+            self.map_widget = None
+            return
+
+        try:
+            # スタブラベルを除去
+            layout = container.layout()
+            if layout is not None:
+                while layout.count():
+                    item = layout.takeAt(0)
+                    w = item.widget() if item else None
+                    if w is not None:
+                        w.deleteLater()
+            else:
+                from PySide6.QtWidgets import QVBoxLayout
+
+                layout = QVBoxLayout(container)
+
+            widget = TagMapWidget(db_manager=self.db_manager, parent=container)
+            widget.images_staged.connect(self._on_map_images_staged)
+            layout.addWidget(widget)
+            self.map_widget = widget
+            logger.info("✅ マップタブ (TagMapWidget) initialized")
+        except Exception as e:
+            self.map_widget = None
+            logger.error(f"❌ マップタブ initialization failed: {e}", exc_info=True)
+
+    def _on_map_images_staged(self, image_ids: list[int]) -> None:
+        """Map タブで選択された画像をアノテーションステージングへ追加する。"""
+        batch_tag_widget = getattr(self, "batchTagAddWidget", None)
+        if batch_tag_widget is None or not hasattr(batch_tag_widget, "stage_image_ids"):
+            logger.warning("batchTagAddWidget 未初期化 - Map ステージング skipped")
+            return
+        batch_tag_widget.stage_image_ids(image_ids)
+        if hasattr(self, "tabWidgetMainMode") and self.tabWidgetMainMode:
+            batch_tag_tab = getattr(self, "tabBatchTag", None)
+            if batch_tag_tab is not None:
+                self.tabWidgetMainMode.setCurrentWidget(batch_tag_tab)
+        logger.debug(f"Map から {len(image_ids)}枚をステージングへ追加")
 
     def _setup_provider_batch_tab(self) -> None:
-        """バッチAPI job management tab を追加する。"""
+        """ジョブタブ (Provider Batch job management) を追加する。
+
+        Wireframes v11 ナビ順（検索 / マップ / アノテーション / ジョブ / 結果 / エラー）
+        に従い、結果タブ (tabResults) の直前へ挿入する。
+        """
         if not hasattr(self, "tabWidgetMainMode") or not self.tabWidgetMainMode:
-            logger.warning("tabWidgetMainMode not found - バッチAPI tab skipped")
+            logger.warning("tabWidgetMainMode not found - ジョブタブ skipped")
             self.provider_batch_job_widget = None
             return
 
@@ -402,12 +479,34 @@ class MainWindow(QMainWindow, Ui_MainWindow):
                 widget.connect_shared_staging(batch_tag_widget.get_staging_widget())
                 widget.staging_cleared.connect(self._handle_staging_cleared)
                 widget.staged_images_changed.connect(self._on_staged_images_changed)
+            # ADR 0066: 同期ジョブ台帳 (実行中/履歴) を Jobs タブへ接続
+            if self.worker_service:
+                widget.set_job_ledger(self.worker_service.job_ledger)
+                self.worker_service.job_ledger_changed.connect(widget.refresh_sync_jobs)
+                widget.sync_job_cancel_requested.connect(self._on_sync_job_cancel_requested)
             self.provider_batch_job_widget = widget
-            self.tabWidgetMainMode.addTab(widget, "バッチAPI")
-            logger.info("✅ バッチAPI tab initialized")
+            insert_index = self.tabWidgetMainMode.indexOf(self.tabResults)
+            self.tabWidgetMainMode.insertTab(insert_index, widget, "ジョブ")
+            logger.info("✅ ジョブタブ (Provider Batch) initialized")
         except Exception as e:
             self.provider_batch_job_widget = None
-            logger.error(f"❌ バッチAPI tab initialization failed: {e}", exc_info=True)
+            logger.error(f"❌ ジョブタブ initialization failed: {e}", exc_info=True)
+
+    def _on_sync_job_cancel_requested(self, job_id: str) -> None:
+        """Jobs タブの同期ジョブ行からのキャンセル要求 (ADR 0066 §4)。
+
+        進捗ポップアップ廃止に伴い、キャンセル操作は Jobs 行のボタンへ移設された。
+
+        Args:
+            job_id: 台帳の job_id (= worker_id)。
+        """
+        if not self.worker_service:
+            logger.warning("WorkerService未初期化 - ジョブキャンセルをスキップ")
+            return
+        if self.worker_service.cancel_job(job_id):
+            self.statusBar().showMessage(f"ジョブをキャンセルしています: {job_id}", 5000)
+        else:
+            logger.warning(f"ジョブキャンセル要求に失敗: {job_id}")
 
     def _verify_state_management_connections(self) -> None:
         """状態管理接続の検証（SelectionStateServiceに委譲）"""
@@ -436,11 +535,10 @@ class MainWindow(QMainWindow, Ui_MainWindow):
             # StatusBarに追加（permanent widget = 右端固定）
             self.statusBar().addPermanentWidget(self.error_notification_widget)
 
-            # クリックでダイアログ表示
-            self.error_notification_widget.clicked.connect(self._show_error_log_dialog)
+            # クリックでエラータブへ遷移
+            self.error_notification_widget.clicked.connect(self._on_error_notification_clicked)
 
             # Dialog初期化（遅延生成）
-            self.error_log_dialog = None
             self.tag_management_dialog = None
 
         except Exception as e:
@@ -460,41 +558,365 @@ class MainWindow(QMainWindow, Ui_MainWindow):
         self.tab_widget_right_panel.setCurrentIndex(0)
         logger.info("tabWidgetRightPanel initialized with 1 tab: 画像詳細")
 
-    def _show_error_log_dialog(self) -> None:
-        """エラーログダイアログを表示（オンデマンド）"""
-        try:
-            # Lazy initialization (singleton pattern)
-            if self.error_log_dialog is None:
-                if not self.db_manager:
-                    logger.error("ImageDatabaseManager not available")
-                    QMessageBox.warning(self, "エラー", "データベース接続が確立されていません")
-                    return
+    def _setup_tab_shortcuts(self) -> None:
+        """Ctrl+1〜N でメインタブを切り替えるショートカットを登録する。
 
-                self.error_log_dialog = ErrorLogViewerDialog(
-                    db_manager=self.db_manager,
-                    parent=self,
-                    auto_load=True,
+        Wireframes v11 のナビショートカット (⌘1–⌘8) に対応する。
+        """
+        if not hasattr(self, "tabWidgetMainMode") or not self.tabWidgetMainMode:
+            logger.warning("tabWidgetMainMode not found - tab shortcuts skipped")
+            return
+        for i in range(self.tabWidgetMainMode.count()):
+            shortcut = QShortcut(QKeySequence(f"Ctrl+{i + 1}"), self)
+            shortcut.setContext(Qt.ShortcutContext.ApplicationShortcut)
+            shortcut.activated.connect(partial(self.tabWidgetMainMode.setCurrentIndex, i))
+        logger.debug(f"Tab shortcuts registered: Ctrl+1..Ctrl+{self.tabWidgetMainMode.count()}")
+
+    def _setup_results_tab(self) -> None:
+        """結果タブに ResultsWidget を埋め込む。
+
+        Wireframes v11 Frame 5 · Results。Phase 1 のスタブラベルを除去し、
+        読み取り専用トリアージ表示ウィジェットを常設する。
+        """
+        self.quality_issue_detection_service = QualityIssueDetectionService()
+
+        container = getattr(self, "tabResults", None)
+        if container is None:
+            logger.warning("tabResults not found - results tab skipped")
+            self.results_widget = None
+            return
+
+        # Phase 1 スタブラベルを除去（setParent(None) で即座に tabResults から切り離す）
+        stub = getattr(self, "labelResultsStub", None)
+        if stub is not None:
+            container.layout().removeWidget(stub)
+            stub.setParent(None)
+            stub.deleteLater()
+
+        widget = ResultsWidget(parent=container)
+        widget.accept_requested.connect(self._on_results_accept)
+        widget.unaccept_requested.connect(self._on_results_unaccept)
+        widget.accept_clean_requested.connect(self._on_results_accept_clean)
+        container.layout().addWidget(widget)
+        self.results_widget = widget
+        logger.info("✅ 結果タブ (ResultsWidget) initialized")
+
+    def _on_results_accept(self, image_id: int) -> None:
+        """Results 行の accept: reviewed_at を設定して再描画する。"""
+        if self.db_manager:
+            self.db_manager.mark_image_reviewed(image_id, reviewed=True)
+        self._refresh_results_tab()
+
+    def _on_results_unaccept(self, image_id: int) -> None:
+        """Results 行の accept 取消: reviewed_at を解除して再描画する。"""
+        if self.db_manager:
+            self.db_manager.mark_image_reviewed(image_id, reviewed=False)
+        self._refresh_results_tab()
+
+    def _on_results_accept_clean(self, image_ids: list[int]) -> None:
+        """問題なし画像を一括 accept して再描画する。"""
+        if self.db_manager:
+            for image_id in image_ids:
+                self.db_manager.mark_image_reviewed(image_id, reviewed=True)
+            logger.info(f"一括 accept 完了: {len(image_ids)} 件")
+        self._refresh_results_tab()
+
+    def _refresh_results_tab(self) -> None:
+        """結果タブ表示時に、ステージング集合のトリアージを再計算して描画する。"""
+        if self.results_widget is None:
+            return
+        if not self.db_manager:
+            self.results_widget.clear()
+            return
+
+        batch_widget = getattr(self, "batchTagAddWidget", None)
+        if batch_widget is None or not hasattr(batch_widget, "get_staged_items"):
+            self.results_widget.clear()
+            return
+
+        image_ids = list(batch_widget.get_staged_items().keys())
+        if not image_ids:
+            self.results_widget.clear()
+            return
+
+        results = []
+        for image_id in image_ids:
+            metadata = self.db_manager.get_image_metadata(image_id)
+            if metadata is None:
+                continue
+            annotations = self.db_manager.get_image_annotations(image_id)
+            image_meta = {
+                "uuid": metadata.get("uuid"),
+                "width": metadata.get("width"),
+                "height": metadata.get("height"),
+                "reviewed_at": metadata.get("reviewed_at"),
+            }
+            results.append(
+                self.quality_issue_detection_service.detect_image(image_id, image_meta, annotations)
+            )
+
+        if not results:
+            self.results_widget.clear()
+            return
+
+        summary = self.quality_issue_detection_service.summarize(results)
+        self.results_widget.display(summary, results)
+
+    def _setup_errors_tab(self) -> None:
+        """エラータブに ErrorsTriageWidget を埋め込む。
+
+        Wireframes v11 Frame 4 · Errors。同一原因グルーピング + クロスフィルタ +
+        resolve アクションを持つトリアージ widget を常設する。
+        """
+        self.error_triage_service = ErrorTriageService()
+
+        container = getattr(self, "tabErrors", None)
+        if container is None:
+            logger.warning("tabErrors not found - errors tab skipped")
+            self.errors_triage_widget = None
+            return
+
+        widget = ErrorsTriageWidget(parent=container)
+        widget.resolve_requested.connect(self._on_error_resolve)
+        widget.resolve_group_requested.connect(self._on_errors_resolve_group)
+        widget.filter_changed.connect(self._refresh_errors_tab)
+        container.layout().addWidget(widget)
+        self.errors_triage_widget = widget
+        logger.info("✅ エラータブ (ErrorsTriageWidget) initialized")
+
+    def _setup_export_tab(self) -> None:
+        """エクスポートタブに DatasetExportWidget を常設する。
+
+        Wireframes v11 Frame 7 · Export (Phase 5)。対象 = ステージング集合
+        (ADR 0055/0019)。初期対象は現在のステージングから読み、以降は
+        ``staged_images_changed`` → ``set_image_ids`` でライブ更新する。
+        """
+        container = getattr(self, "tabExport", None)
+        if container is None:
+            logger.warning("tabExport not found - export tab skipped")
+            self.export_widget = None
+            return
+
+        widget = DatasetExportWidget(
+            service_container=self.service_container,
+            initial_image_ids=self._get_staged_export_ids(),
+            parent=container,
+        )
+        container.layout().addWidget(widget)
+        self.export_widget = widget
+        logger.info("✅ エクスポートタブ (DatasetExportWidget) initialized")
+
+    def _setup_pipeline_composition_panel(self) -> None:
+        """アノテーショングループにパイプライン構成ビューを常設する。
+
+        Wireframes v11 Frame 2A/2B。ModelSelectionWidget の選択を購読して
+        TAGS/CAPTION/SCORE/RATING への自動仕分け・multimodal 派生チップ・
+        推論台帳 (INFERENCE LEDGER) をリアルタイム表示する (Phase 6a)。
+        各ステージ行の「+ 追加」/ primary チップの × はチェック状態の ON/OFF に
+        変換する (Phase 6b、SSoT は選択モデル集合)。
+        """
+        self.pipeline_composition_service = PipelineCompositionService()
+        self._pipeline_staged_count = 0
+
+        annotation_group = getattr(self, "groupBoxAnnotation", None)
+        model_widget = getattr(self, "batchModelSelection", None)
+        if annotation_group is None or model_widget is None:
+            logger.warning("groupBoxAnnotation/batchModelSelection 未構築 - パイプライン構成ビュー skipped")
+            self.pipeline_stage_table = None
+            self.inference_ledger_widget = None
+            return
+
+        self.pipeline_stage_table = PipelineStageTableWidget(parent=annotation_group)
+        self.inference_ledger_widget = InferenceLedgerWidget(parent=annotation_group)
+        layout = annotation_group.layout()
+        layout.addWidget(self.pipeline_stage_table)
+        layout.addWidget(self.inference_ledger_widget)
+
+        model_widget.model_selection_changed.connect(self._on_pipeline_models_changed)
+        self.pipeline_stage_table.add_model_requested.connect(self._on_pipeline_add_model_requested)
+        self.pipeline_stage_table.remove_model_requested.connect(self._on_pipeline_remove_model_requested)
+        self._refresh_pipeline_panel([])
+        logger.info("✅ パイプライン構成ビュー (Frame 2A) initialized")
+
+    def _on_pipeline_models_changed(self, selected_litellm_model_ids: list[str]) -> None:
+        """モデル選択変化でパイプライン構成ビューを再計算する (Phase 6a)。"""
+        self._refresh_pipeline_panel(list(selected_litellm_model_ids))
+
+    def _refresh_pipeline_panel(self, selected_ids: list[str] | None = None) -> None:
+        """ステージテーブルと推論台帳を現在の選択・ステージング件数で再描画する。
+
+        Args:
+            selected_ids: 選択中の litellm_model_id。None なら ModelSelectionWidget
+                から現在値を取得する（ステージング件数変化時の再計算用）。
+        """
+        stage_table = getattr(self, "pipeline_stage_table", None)
+        ledger_widget = getattr(self, "inference_ledger_widget", None)
+        if stage_table is None or ledger_widget is None:
+            return
+
+        if selected_ids is None:
+            model_widget = getattr(self, "batchModelSelection", None)
+            selected_ids = model_widget.get_selected_models() if model_widget is not None else []
+
+        infos = self._build_stage_model_infos(selected_ids)
+        self.pipeline_composition_service.compose_from_models(infos)
+        stage_table.display(self.pipeline_composition_service.stage_rows())
+        ledger_widget.display(self.pipeline_composition_service.ledger(self._pipeline_staged_count))
+
+    def _build_stage_model_infos(self, selected_ids: list[str]) -> list[StageModelInfo]:
+        """選択 litellm_model_id を StageModelInfo へ変換する。
+
+        capabilities は DB Model の model_types 由来。provider が空または "local" の
+        モデルはローカル ML として扱う（ModelSelectionService._provider_key と同じ規約）。
+
+        Args:
+            selected_ids: ModelSelectionWidget で選択中の litellm_model_id リスト。
+
+        Returns:
+            変換済み StageModelInfo リスト。DB に見つからない ID はスキップする。
+        """
+        model_widget = getattr(self, "batchModelSelection", None)
+        service = getattr(model_widget, "model_selection_service", None)
+        all_models = service.load_models() if service is not None else []
+        models_by_id = {m.litellm_model_id: m for m in all_models}
+
+        infos: list[StageModelInfo] = []
+        for litellm_id in selected_ids:
+            model = models_by_id.get(litellm_id)
+            if model is None:
+                logger.debug(f"選択モデルが DB モデル一覧に見つかりません: {litellm_id}")
+                continue
+            provider = model.provider
+            is_api = bool(provider) and provider.lower() != "local"
+            infos.append(
+                StageModelInfo(
+                    litellm_model_id=litellm_id,
+                    display_name=model.name,
+                    provider=provider,
+                    is_api=is_api,
+                    capabilities=frozenset(str(c) for c in model.capabilities),
                 )
+            )
+        return infos
 
-                # Signal接続（error_resolvedで通知Widget更新）
-                self.error_log_dialog.error_resolved.connect(self._on_error_resolved)
+    def _on_pipeline_add_model_requested(self, stage_value: str) -> None:
+        """ステージ行の「+ 追加」でピッカーを開き、選択モデル集合へ追加する (Phase 6b)。
 
-                logger.info("ErrorLogViewerDialog created (lazy initialization)")
+        SSoT は ModelSelectionWidget のチェック状態。ピッカーで選んだモデルは
+        チェック ON で集合へ追加し、ステージ仕分けは compose_from_models に任せる。
+        set_selected() は checkbox シグナルを抑制するため、最後に明示再描画する。
 
-            # Dialog表示
-            self.error_log_dialog.show()
-            self.error_log_dialog.raise_()  # 前面表示
-            self.error_log_dialog.activateWindow()  # アクティブ化
+        Args:
+            stage_value: 追加先ステージの PipelineStage value。
+        """
+        model_widget = getattr(self, "batchModelSelection", None)
+        if model_widget is None:
+            return
+        stage = PipelineStage(stage_value)
 
-        except Exception as e:
-            logger.error(f"Failed to show error log dialog: {e}", exc_info=True)
-            QMessageBox.critical(self, "エラー", f"エラーログの表示に失敗しました:\n{e}")
+        service = getattr(model_widget, "model_selection_service", None)
+        all_models = service.load_models() if service is not None else []
+        all_ids = [model.litellm_model_id for model in all_models]
+        selected_ids = set(model_widget.get_selected_models())
+        candidates = [
+            info
+            for info in self._build_stage_model_infos(all_ids)
+            if stage in info.fill_stages() and info.litellm_model_id not in selected_ids
+        ]
 
-    def _on_error_resolved(self, error_id: int) -> None:
-        """エラー解決時の処理（通知Widget更新）"""
-        logger.info(f"Error resolved: error_id={error_id}")
-        if self.error_notification_widget:
-            self.error_notification_widget.update_error_count()
+        dialog = StageModelPickerDialog(stage, candidates, parent=self)
+        if dialog.exec() != QDialog.DialogCode.Accepted:
+            return
+        for litellm_model_id in dialog.selected_model_ids():
+            checkbox_widget = model_widget.model_checkbox_widgets.get(litellm_model_id)
+            if checkbox_widget is None:
+                logger.warning(f"チェックボックス未表示のため追加をスキップ: {litellm_model_id}")
+                continue
+            checkbox_widget.set_selected(True)
+        self._refresh_pipeline_panel()
+
+    def _on_pipeline_remove_model_requested(self, stage_value: str, litellm_model_id: str) -> None:
+        """Primary チップの × でモデルを選択集合から外す (Phase 6b)。
+
+        実行粒度はモデル単位のため、チェック OFF = 全ステージから外れる。
+
+        Args:
+            stage_value: × が押されたステージの value (シグナル形状の都合で受けるが未使用)。
+            litellm_model_id: 集合から外すモデルの litellm_model_id。
+        """
+        model_widget = getattr(self, "batchModelSelection", None)
+        if model_widget is None:
+            return
+        checkbox_widget = model_widget.model_checkbox_widgets.get(litellm_model_id)
+        if checkbox_widget is None:
+            logger.warning(f"チェックボックス未表示のため除外をスキップ: {litellm_model_id}")
+            return
+        checkbox_widget.set_selected(False)
+        self._refresh_pipeline_panel()
+
+    def _refresh_errors_tab(self) -> None:
+        """エラータブ表示時 / フィルタ変更時にトリアージを再計算して描画する。"""
+        if self.errors_triage_widget is None:
+            return
+        if not self.db_manager:
+            self.errors_triage_widget.display(
+                self.error_triage_service.summarize([]),
+                [],
+                [],
+            )
+            return
+
+        # 全エラー (resolved/unresolved 両方) を取得して ErrorRow へ変換する。
+        # status/operation/error_type は DB クエリ、model は in-memory で絞り込む。
+        records = self.db_manager.error_record_repo.get_error_records(resolved=None, limit=500)
+        all_rows = [self._error_record_to_row(record) for record in records]
+
+        # フィルタ combo の選択肢を distinct 値で更新する。
+        operation_types = sorted({r.operation_type for r in all_rows})
+        error_types = sorted({r.error_type for r in all_rows})
+        model_names = sorted({r.model_name for r in all_rows if r.model_name})
+        self.errors_triage_widget.set_filter_options(operation_types, error_types, model_names)
+
+        summary = self.error_triage_service.summarize(all_rows)
+        error_filter = self.errors_triage_widget.get_filter()
+        filtered = self.error_triage_service.apply_filter(all_rows, error_filter)
+        groups = self.error_triage_service.group_errors(filtered)
+        self.errors_triage_widget.display(summary, groups, filtered)
+
+    @staticmethod
+    def _error_record_to_row(record: ErrorRecord) -> ErrorRow:
+        """ErrorRecord ORM を ORM 非依存の ErrorRow に変換する。"""
+        return ErrorRow(
+            error_id=record.id,
+            image_id=record.image_id,
+            operation_type=record.operation_type,
+            error_type=record.error_type,
+            error_message=record.error_message,
+            model_name=record.model_name,
+            resolved=record.resolved_at is not None,
+            created_at=record.created_at,
+        )
+
+    def _on_error_resolve(self, error_id: int) -> None:
+        """単一エラーを resolve して再描画する。"""
+        if self.db_manager:
+            self.db_manager.mark_errors_resolved_batch([error_id])
+            if self.error_notification_widget:
+                self.error_notification_widget.update_error_count()
+        self._refresh_errors_tab()
+
+    def _on_errors_resolve_group(self, error_ids: list[int]) -> None:
+        """グループ / 一括の error_id 群を resolve して再描画する。"""
+        if self.db_manager and error_ids:
+            _, resolved = self.db_manager.mark_errors_resolved_batch(error_ids)
+            logger.info(f"一括 resolve 完了: {resolved} 件")
+            if self.error_notification_widget:
+                self.error_notification_widget.update_error_count()
+        self._refresh_errors_tab()
+
+    def _on_error_notification_clicked(self) -> None:
+        """エラー通知 / メニュー操作でエラータブへ遷移する。"""
+        self.tabWidgetMainMode.setCurrentWidget(self.tabErrors)
 
     def _show_tag_management_dialog(self) -> None:
         """タグ管理ダイアログを表示（オンデマンド）"""
@@ -720,6 +1142,10 @@ class MainWindow(QMainWindow, Ui_MainWindow):
         self.worker_service.enhanced_annotation_error.connect(self._on_annotation_error)
         self.worker_service.enhanced_annotation_canceled.connect(self._on_annotation_canceled)
 
+        # ADR 0066 §4: 進捗ポップアップ廃止 — 開始通知は statusbar のみ (自動タブ遷移はしない)
+        self.worker_service.enhanced_annotation_started.connect(self._on_sync_job_started_notify)
+        self.worker_service.batch_import_started.connect(self._on_sync_job_started_notify)
+
         # Progress feedback connections
         self.worker_service.worker_progress_updated.connect(self._on_worker_progress_updated)
         self.worker_service.worker_batch_progress.connect(self._on_worker_batch_progress)
@@ -823,6 +1249,15 @@ class MainWindow(QMainWindow, Ui_MainWindow):
     def _on_batch_registration_canceled(self, worker_id: str) -> None:
         """Batch registration canceled signal handler（エラー通知は出さない）"""
         self._delegate_to_progress_state("on_batch_registration_canceled", worker_id)
+
+    def _on_sync_job_started_notify(self, worker_id: str) -> None:
+        """同期ジョブ開始の statusbar 通知 (ADR 0066 §4: ポップアップ代替)。
+
+        Args:
+            worker_id: 開始したワーカーID。進捗・キャンセルはジョブタブで扱う。
+        """
+        self.statusBar().showMessage("処理を開始しました（進捗はジョブタブで確認できます）", 8000)
+        logger.debug(f"同期ジョブ開始通知: {worker_id}")
 
     def _on_worker_progress_updated(self, worker_id: str, progress: Any) -> None:
         self._delegate_to_progress_state("on_worker_progress_updated", worker_id, progress)
@@ -1250,6 +1685,13 @@ class MainWindow(QMainWindow, Ui_MainWindow):
         count = len(image_ids) if image_ids else 0
         self._update_annotation_target_ui(count)
         self._update_export_target_ui(count)
+        # Phase 5: エクスポートタブの対象もステージング集合とライブ同期する (ADR 0055)
+        export_widget = getattr(self, "export_widget", None)
+        if export_widget is not None:
+            export_widget.set_image_ids(list(image_ids) if image_ids else [])
+        # Phase 6a: 推論台帳の枚数もステージング件数と同期する
+        self._pipeline_staged_count = count
+        self._refresh_pipeline_panel()
 
     def _update_annotation_target_ui(self, staging_count: int) -> None:
         """アノテーション対象UIを更新
@@ -1508,9 +1950,9 @@ class MainWindow(QMainWindow, Ui_MainWindow):
                 f"batchModelSelectionから選択されたモデル (litellm_model_ids): {selected_litellm_model_ids}"
             )
 
-        # バッチタグタブの場合はステージング画像を使用
+        # アノテーションタブの場合はステージング画像を使用
         override_image_paths: list[str] | None = None
-        if self.tabWidgetMainMode.currentIndex() == 1:  # tabBatchTag
+        if self.tabWidgetMainMode.currentWidget() is self.tabBatchTag:
             override_image_paths = self._get_staged_image_paths_for_annotation()
             if not override_image_paths:
                 QMessageBox.information(
@@ -1589,8 +2031,8 @@ class MainWindow(QMainWindow, Ui_MainWindow):
 
         ADR 0055: ワークスペースに常設のエクスポート入口（ツールバー action と
         サムネグリッド下部バーのボタン）を追加する。対象解決ロジックは変更せず、
-        既存の ``export_data()`` / ``ExportController`` に委譲する（新しい選択解決パスを
-        足さない）。
+        既存の ``export_data()``（エクスポートタブ遷移）に委譲する（新しい選択解決
+        パスを足さない）。
         """
         try:
             # ツールバー/メニューの action（triggered の bool ペイロードは無視する）
@@ -1612,7 +2054,7 @@ class MainWindow(QMainWindow, Ui_MainWindow):
 
         ``QAction.triggered`` / ``QPushButton.clicked`` が渡す bool ペイロードは
         画像 ID ではないため無視する（ADR 0043 / Issue #570）。対象解決は
-        ``export_data()`` → ``ExportController`` に委譲し、新しい選択解決パスを足さない。
+        ``export_data()``（エクスポートタブ遷移）に委譲し、新しい選択解決パスを足さない。
 
         Args:
             _checked: シグナルが渡す checked 状態。意図的に無視する。
@@ -1630,7 +2072,7 @@ class MainWindow(QMainWindow, Ui_MainWindow):
         self.start_annotation()
 
     def _get_staged_export_ids(self) -> list[int]:
-        """エクスポート対象のステージング画像 ID を返す（ExportController の provider）。
+        """エクスポート対象のステージング画像 ID を返す（エクスポートタブの対象ソース）。
 
         ADR 0055: エクスポート対象＝ステージング集合。ワークスペース下部バーの件数表示
         （``staged_images_changed``）と同一の ``StagingWidget`` を読むことで、表示件数と
@@ -1649,14 +2091,22 @@ class MainWindow(QMainWindow, Ui_MainWindow):
         return staged_ids
 
     def export_data(self) -> None:
-        """データセットエクスポート機能を開く（ExportControllerに委譲）"""
-        if self.export_controller:
-            self.export_controller.open_export_dialog()
-        else:
-            logger.error("ExportControllerが初期化されていません")
+        """エクスポートタブへ遷移する。
+
+        Phase 5 (Wireframes v11 Frame 7): モーダルダイアログからタブ常設に変更。
+        遷移前にステージング集合を再読込し、シグナル取りこぼしがあっても
+        タブ表示時点の対象件数を正とする。
+        """
+        export_widget = getattr(self, "export_widget", None)
+        if export_widget is None or not hasattr(self, "tabExport"):
+            logger.error("エクスポートタブが初期化されていません")
             QMessageBox.warning(
-                self, "エラー", "ExportControllerが初期化されていないため、エクスポートを開始できません。"
+                self, "エラー", "エクスポートタブが初期化されていないため、エクスポートを開けません。"
             )
+            return
+
+        export_widget.set_image_ids(self._get_staged_export_ids())
+        self.tabWidgetMainMode.setCurrentWidget(self.tabExport)
 
     def send_selected_to_batch_tag(self, selected_ids: list[int] | bool | None = None) -> None:
         """ワークスペースの選択画像をバッチタグのステージングに追加"""
@@ -1684,9 +2134,9 @@ class MainWindow(QMainWindow, Ui_MainWindow):
             QMessageBox.information(self, "選択なし", "バッチタグに追加する画像が選択されていません。")
             return
 
-        # バッチタグタブへ移動してステージングタブを表示
+        # アノテーションタブへ移動してステージングタブを表示
         if hasattr(self, "tabWidgetMainMode") and self.tabWidgetMainMode:
-            self.tabWidgetMainMode.setCurrentIndex(1)
+            self.tabWidgetMainMode.setCurrentWidget(self.tabBatchTag)
         if hasattr(self, "tabWidgetBatchTagWorkflow") and self.tabWidgetBatchTagWorkflow:
             self.tabWidgetBatchTagWorkflow.setCurrentIndex(0)
 
@@ -1725,25 +2175,33 @@ class MainWindow(QMainWindow, Ui_MainWindow):
         logger.info("Main tab connections setup completed")
 
     def _on_main_tab_changed(self, index: int) -> None:
-        """
-        メインタブ切り替えハンドラ
+        """メインタブ切り替えハンドラ。
+
+        タブ構成変更（Wireframes v11 · 6 タブ化）に耐えるよう、index の
+        マジックナンバーではなく widget 同一性で分岐する。
 
         Args:
-            index: 切り替え先のタブインデックス（0=ワークスペース、1=バッチタグ）
+            index: 切り替え先のタブインデックス。
         """
-        if index == 0:  # ワークスペース
-            logger.info("Switched to Workspace tab")
-            # ワークスペースタブに切り替え時の処理（必要に応じて実装）
-        elif index == 1:  # バッチタグ
-            logger.info("Switched to Batch Tag tab")
+        current = self.tabWidgetMainMode.widget(index)
+        if current is getattr(self, "tabBatchTag", None):
+            logger.info("Switched to Annotate tab")
             self._refresh_batch_tag_staging()
-        elif index == 2:  # バッチAPI
-            logger.info("Switched to バッチAPI tab")
-            widget = getattr(self, "provider_batch_job_widget", None)
-            if widget is not None:
-                widget.refresh_jobs()
-        else:
-            logger.warning(f"Unknown tab index: {index}")
+        elif self.provider_batch_job_widget is not None and current is self.provider_batch_job_widget:
+            logger.info("Switched to Jobs tab")
+            self.provider_batch_job_widget.refresh_jobs()
+        elif current is getattr(self, "tabResults", None):
+            logger.info("Switched to Results tab")
+            self._refresh_results_tab()
+        elif current is getattr(self, "tabErrors", None):
+            logger.info("Switched to Errors tab")
+            self._refresh_errors_tab()
+        elif current is getattr(self, "tabExport", None):
+            logger.info("Switched to Export tab")
+            # ステージング集合を再読込（シグナル取りこぼしの安全網、ADR 0055）
+            export_widget = getattr(self, "export_widget", None)
+            if export_widget is not None:
+                export_widget.set_image_ids(self._get_staged_export_ids())
 
     def _refresh_batch_tag_staging(self) -> None:
         """

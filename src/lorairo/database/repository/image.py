@@ -51,6 +51,7 @@ from ..schema import (
     MANUAL_EDIT_LITELLM_ID,
     MANUAL_EDIT_NAME,
     Caption,
+    ErrorRecord,
     Image,
     ImageFilenameAlias,
     Model,
@@ -761,6 +762,36 @@ class ImageRepository(BaseRepository):
                     f"画像メタデータの取得中にエラーが発生しました (ID: {image_id}): {e}",
                     exc_info=True,
                 )
+                raise
+
+    def set_image_reviewed(self, image_id: int, *, reviewed: bool) -> bool:
+        """画像のレビュー完了状態 (reviewed_at) を設定/解除する。
+
+        Wireframes v11 Frame 5 · Results の accept (採用) 永続化。
+        accept で ``reviewed_at`` に現在時刻を、undo で NULL を設定する。
+
+        Args:
+            image_id: 対象画像 ID。
+            reviewed: True なら accept (reviewed_at=now)、False なら undo (NULL)。
+
+        Returns:
+            対象画像が存在し更新できた場合 True、未登録なら False。
+
+        Raises:
+            SQLAlchemyError: DB 操作に失敗した場合は呼び出し元に伝播させる。
+        """
+        with self.session_factory() as session:
+            try:
+                image: Image | None = session.get(Image, image_id)
+                if image is None:
+                    logger.warning(f"レビュー状態設定対象が見つかりません: image_id={image_id}")
+                    return False
+                image.reviewed_at = datetime.datetime.now(datetime.UTC) if reviewed else None
+                session.commit()
+                return True
+            except SQLAlchemyError as e:
+                session.rollback()
+                logger.error(f"レビュー状態の設定に失敗しました (ID: {image_id}): {e}", exc_info=True)
                 raise
 
     def get_images_metadata_batch(self, image_ids: list[int]) -> list[dict[str, Any]]:
@@ -1722,6 +1753,65 @@ class ImageRepository(BaseRepository):
 
         return query
 
+    def _apply_reviewed_at_filter(self, query: Select[Any], reviewed_at_filter: str | None) -> Select[Any]:
+        """クエリにレビュー状態フィルタを適用する。
+
+        Args:
+            query: 元のSelectクエリ。
+            reviewed_at_filter: フィルタ値。"unreviewed" | "reviewed" | None=全て。
+
+        Returns:
+            フィルタ適用後のクエリ。
+        """
+        if reviewed_at_filter == "unreviewed":
+            query = query.where(Image.reviewed_at.is_(None))
+        elif reviewed_at_filter == "reviewed":
+            query = query.where(Image.reviewed_at.is_not(None))
+        return query
+
+    def _apply_error_state_filter(self, query: Select[Any], error_state_filter: str | None) -> Select[Any]:
+        """クエリにエラー状態フィルタを適用する。未解決エラー（resolved_at IS NULL）を基準にする。
+
+        Args:
+            query: 元のSelectクエリ。
+            error_state_filter: フィルタ値。"has_error" | "no_error" | None=全て。
+
+        Returns:
+            フィルタ適用後のクエリ。
+        """
+        if error_state_filter not in ("has_error", "no_error"):
+            return query
+        has_unresolved = (
+            exists()
+            .where(ErrorRecord.image_id == Image.id, ErrorRecord.resolved_at.is_(None))
+            .correlate(Image)
+        )
+        if error_state_filter == "has_error":
+            return query.where(has_unresolved)
+        return query.where(~has_unresolved)
+
+    def _apply_model_filter(self, query: Select[Any], model_filter: list[str] | None) -> Select[Any]:
+        """クエリにモデルフィルタを適用する。指定 litellm_model_id のアノテーションを持つ画像のみ。
+
+        Args:
+            query: 元のSelectクエリ。
+            model_filter: litellm_model_id のリスト。None または空リストの場合はフィルタなし。
+
+        Returns:
+            フィルタ適用後のクエリ。
+        """
+        if not model_filter:
+            return query
+        model_id_subq = select(Model.id).where(Model.litellm_model_id.in_(model_filter)).scalar_subquery()
+        has_annotation = or_(
+            exists().where(Tag.image_id == Image.id, Tag.model_id.in_(model_id_subq)).correlate(Image),
+            exists()
+            .where(Caption.image_id == Image.id, Caption.model_id.in_(model_id_subq))
+            .correlate(Image),
+            exists().where(Score.image_id == Image.id, Score.model_id.in_(model_id_subq)).correlate(Image),
+        )
+        return query.where(has_annotation)
+
     # --- Annotation Format for Metadata (batch read helpers) ---
 
     @staticmethod
@@ -2139,6 +2229,9 @@ class ImageRepository(BaseRepository):
         score_max: float | None = None,
         project_name: str | None = None,
         project_id: int | None = None,
+        reviewed_at_filter: str | None = None,
+        error_state_filter: str | None = None,
+        model_filter: list[str] | None = None,
     ) -> Select[Any]:
         """画像フィルタ条件を適用したクエリを構築する。
 
@@ -2162,6 +2255,9 @@ class ImageRepository(BaseRepository):
             score_max: 最大スコア値（0.0-10.0）。
             project_name: プロジェクト名フィルタ（Phase C完了後に有効化）。
             project_id: プロジェクトIDフィルタ（Phase C完了後に有効化）。
+            reviewed_at_filter: レビュー状態フィルタ。"unreviewed" | "reviewed" | None=全て。
+            error_state_filter: エラー状態フィルタ。"has_error" | "no_error" | None=全て。
+            model_filter: モデルフィルタ。litellm_model_id のリスト。None=全モデル。
 
         Returns:
             フィルタ適用済みのSelectクエリ。
@@ -2210,6 +2306,11 @@ class ImageRepository(BaseRepository):
 
         # Project Filter (Phase C完了後に有効化)
         query = self._apply_project_filter(query, project_name, project_id)
+
+        # Phase 4: Search サイドバー強化 facets
+        query = self._apply_reviewed_at_filter(query, reviewed_at_filter)
+        query = self._apply_error_state_filter(query, error_state_filter)
+        query = self._apply_model_filter(query, model_filter)
 
         return query.distinct()
 
@@ -2337,6 +2438,9 @@ class ImageRepository(BaseRepository):
                     score_max=filter_criteria.score_max,
                     project_name=filter_criteria.project_name,
                     project_id=filter_criteria.project_id,
+                    reviewed_at_filter=filter_criteria.reviewed_at_filter,
+                    error_state_filter=filter_criteria.error_state_filter,
+                    model_filter=filter_criteria.model_filter,
                 )
                 query = self._apply_processed_resolution_filter(query, filter_criteria.resolution)
 
@@ -2423,6 +2527,9 @@ class ImageRepository(BaseRepository):
                     score_max=filter_criteria.score_max,
                     project_name=filter_criteria.project_name,
                     project_id=filter_criteria.project_id,
+                    reviewed_at_filter=filter_criteria.reviewed_at_filter,
+                    error_state_filter=filter_criteria.error_state_filter,
+                    model_filter=filter_criteria.model_filter,
                 )
                 filtered_query = self._apply_processed_resolution_filter(
                     filtered_query, filter_criteria.resolution
@@ -2479,6 +2586,9 @@ class ImageRepository(BaseRepository):
                     score_max=filter_criteria.score_max,
                     project_name=filter_criteria.project_name,
                     project_id=filter_criteria.project_id,
+                    reviewed_at_filter=filter_criteria.reviewed_at_filter,
+                    error_state_filter=filter_criteria.error_state_filter,
+                    model_filter=filter_criteria.model_filter,
                 )
                 filtered_query = self._apply_processed_resolution_filter(
                     filtered_query, filter_criteria.resolution
@@ -2873,3 +2983,72 @@ class ImageRepository(BaseRepository):
             except Exception as e:
                 logger.error(f"バッチ pHash 解決エラー: {e}", exc_info=True)
                 return result
+
+    def get_created_at_histogram(
+        self, bins: int = 20
+    ) -> list[tuple[datetime.datetime, datetime.datetime, int]]:
+        """Image.created_at の分布ヒストグラムを返す。
+
+        Args:
+            bins: ビン数（デフォルト 20）。
+
+        Returns:
+            list of (bin_start, bin_end, count)。空データの場合は空リスト。
+        """
+        with self.session_factory() as session:
+            result = session.execute(select(func.min(Image.created_at), func.max(Image.created_at))).one()
+            min_dt, max_dt = result[0], result[1]
+            if min_dt is None or max_dt is None:
+                return []
+            if min_dt == max_dt:
+                count = session.execute(select(func.count(Image.id))).scalar_one()
+                return [(min_dt, max_dt, count)]
+
+            all_dates: list[datetime.datetime] = list(
+                session.execute(select(Image.created_at).where(Image.created_at.is_not(None)))
+                .scalars()
+                .all()
+            )
+
+            total_seconds = (max_dt - min_dt).total_seconds()
+            bin_width_sec = total_seconds / bins
+            counts = [0] * bins
+            for dt in all_dates:
+                idx = min(int((dt - min_dt).total_seconds() / bin_width_sec), bins - 1)
+                counts[idx] += 1
+
+            return [
+                (
+                    min_dt + datetime.timedelta(seconds=i * bin_width_sec),
+                    min_dt + datetime.timedelta(seconds=(i + 1) * bin_width_sec),
+                    counts[i],
+                )
+                for i in range(bins)
+            ]
+
+    def get_recently_used_model_ids(self, limit: int = 10) -> list[str]:
+        """アノテーション実績があるモデルの litellm_model_id を返す。
+
+        Tag / Caption / Score のいずれかにアノテーション実績があるモデルを
+        model.id 降順（最近登録順）で返す。
+
+        Args:
+            limit: 最大件数（デフォルト 10）。
+
+        Returns:
+            litellm_model_id のリスト。
+        """
+        with self.session_factory() as session:
+            annotated_model_ids = (
+                select(Model.litellm_model_id)
+                .where(
+                    or_(
+                        Model.id.in_(select(Tag.model_id).distinct()),
+                        Model.id.in_(select(Caption.model_id).distinct()),
+                        Model.id.in_(select(Score.model_id).distinct()),
+                    )
+                )
+                .order_by(Model.id.desc())
+                .limit(limit)
+            )
+            return list(session.execute(annotated_model_ids).scalars().all())

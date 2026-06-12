@@ -2,28 +2,35 @@
 
 import uuid
 from pathlib import Path
-from typing import Any, cast
+from typing import Any
 
 from PIL.Image import Image
 from PySide6.QtCore import QObject, QSize, Signal
-from PySide6.QtWidgets import QWidget
 
 from ...annotations.annotation_logic import AnnotationLogic
 from ...annotations.annotator_adapter import AnnotatorLibraryAdapter
 from ...database.db_manager import ImageDatabaseManager
 from ...services.configuration_service import ConfigurationService
+from ...services.job_ledger_service import JobLedgerService, JobStatus
 from ...services.search_models import SearchConditions
 from ...services.service_container import get_service_container
 from ...storage.file_system import FileSystemManager
 from ...utils.log import logger
 from ..workers.annotation_worker import AnnotationWorker
 from ..workers.manager import WorkerManager
-from ..workers.modern_progress_manager import ModernProgressManager, create_worker_id
 from ..workers.registration_worker import DatabaseRegistrationWorker
 from ..workers.search_worker import SearchResult, SearchWorker
 from ..workers.terminal import CancelReason, WorkerOutcome, WorkerTerminalEvent
 from ..workers.thumbnail_worker import ThumbnailWorker
 from .operation_events import OperationContext, OperationOutcome, OperationType, WorkerOperationEvent
+
+# ADR 0066 §3: Jobs 台帳に載せる operation (Pipeline/Operation レベル) とその表示タイトル。
+# 検索/サムネイル等の UI 応答系 worker は載せない (firehose 化を防ぐ)。
+_JOB_LEDGER_TITLES: dict[OperationType, str] = {
+    OperationType.BATCH_REGISTRATION: "データベース登録",
+    OperationType.BATCH_IMPORT: "バッチインポート",
+    OperationType.ANNOTATION: "アノテーション処理",
+}
 
 
 class WorkerService(QObject):
@@ -63,6 +70,7 @@ class WorkerService(QObject):
     worker_batch_progress = Signal(str, int, int, str)  # worker_id, current, total, filename
     worker_terminal = Signal(object)  # WorkerTerminalEvent
     operation_event = Signal(object)  # WorkerOperationEvent
+    job_ledger_changed = Signal()  # ADR 0066: 同期ジョブ台帳の変更通知
 
     # === 全体管理シグナル ===
     active_worker_count_changed = Signal(int)
@@ -79,9 +87,8 @@ class WorkerService(QObject):
         self.fsm = fsm
         self.worker_manager = WorkerManager(self)
 
-        # モダンプログレス管理
-        self.progress_manager = ModernProgressManager(cast("QWidget | None", parent))
-        self.progress_manager.cancellation_requested.connect(self._on_progress_cancellation_requested)
+        # ADR 0066: 同期ジョブの in-memory 台帳 (進捗ポップアップ廃止後の lifecycle ビュー)
+        self.job_ledger = JobLedgerService()
 
         # シングルトンワーカー管理
         self.current_search_worker_id: str | None = None
@@ -99,10 +106,6 @@ class WorkerService(QObject):
         self.worker_manager.worker_terminal.connect(self._on_worker_terminal)
         self.worker_manager.active_worker_count_changed.connect(self.active_worker_count_changed)
         self.worker_manager.all_workers_finished.connect(self.all_workers_finished)
-
-        # プログレス更新シグナル接続
-        self.worker_progress_updated.connect(self._on_progress_updated)
-        self.worker_batch_progress.connect(self._on_batch_progress_updated)
 
         # AnnotationLogic 遅延初期化（依存関係: AnnotatorAdapter, ConfigService, DBManager）
         self._annotation_logic: AnnotationLogic | None = None
@@ -512,29 +515,24 @@ class WorkerService(QObject):
             return "active"
         return None
 
-    def _on_progress_updated(self, worker_id: str, progress: Any) -> None:
-        """プログレス更新処理 - ModernProgressManagerに転送"""
-        self.progress_manager.update_worker_progress(worker_id, progress)
+    def cancel_job(self, worker_id: str) -> bool:
+        """Jobs タブの行アクションからのジョブキャンセル (ADR 0066 §4)。
 
-    def _on_batch_progress_updated(self, worker_id: str, current: int, total: int, filename: str) -> None:
-        """バッチプログレス更新処理 - ModernProgressManagerに転送"""
-        self.progress_manager.update_batch_progress(worker_id, current, total, filename)
+        進捗ポップアップ廃止に伴い、同期ジョブのキャンセル操作は
+        Jobs タブの行ボタンへ移設された。
 
-    def _on_progress_cancellation_requested(self, worker_id: str) -> None:
-        """プログレスダイアログからのキャンセル要求処理"""
-        logger.info(f"プログレスダイアログからキャンセル要求: {worker_id}")
+        Args:
+            worker_id: キャンセル対象のワーカーID (= 台帳 job_id)。
 
-        # 該当ワーカーをキャンセル
-        success = self.worker_manager.cancel_worker(worker_id, reason=CancelReason.PROGRESS_DIALOG)
-        if success:
-            logger.info(f"ワーカーキャンセル実行: {worker_id}")
-        else:
-            logger.warning(f"ワーカーキャンセル失敗: {worker_id}")
+        Returns:
+            キャンセル要求を発行できたかどうか。
+        """
+        return self.worker_manager.cancel_worker(worker_id)
 
     # === プライベートメソッド ===
 
     def _on_worker_started(self, worker_id: str) -> None:
-        """ワーカー開始ハンドラ - プログレスダイアログ自動開始"""
+        """ワーカー開始ハンドラ - 互換 started シグナルと operation/台帳イベント発行"""
         operation_name = "不明な操作"
 
         if worker_id.startswith("batch_reg_"):
@@ -552,15 +550,6 @@ class WorkerService(QObject):
         elif worker_id.startswith("thumbnail_"):
             operation_name = "サムネイル読み込み"
             self.thumbnail_started.emit(worker_id)
-
-        # Thumbnail/page/prefetch workers never start modal progress; terminal close mirrors this policy.
-        if self._worker_uses_modal_progress(worker_id):
-            self.progress_manager.start_worker_progress(
-                worker_id,
-                operation_name,
-                f"{operation_name}を開始しています...",
-                parent=cast("QWidget | None", self.parent()),
-            )
 
         self._emit_operation_started(worker_id)
         # ライフサイクルINFOはこの1層に集約。search/thumbnailは高頻度なのでDEBUGに落とす。
@@ -634,7 +623,6 @@ class WorkerService(QObject):
     def _on_worker_terminal(self, event: WorkerTerminalEvent) -> None:
         """Unified worker terminal event dispatcher."""
         self.worker_terminal.emit(event)
-        self._finish_worker_terminal_progress(event)
         self._emit_operation_terminal(event)
 
         if event.outcome is WorkerOutcome.SUCCEEDED:
@@ -685,18 +673,6 @@ class WorkerService(QObject):
 
         self._on_worker_error(event.worker_id, message)
 
-    def _finish_worker_terminal_progress(self, event: WorkerTerminalEvent) -> None:
-        """Close modal progress exactly once from the canonical terminal fact."""
-        if self._worker_uses_modal_progress(event.worker_id):
-            self.progress_manager.finish_worker_progress(
-                event.worker_id,
-                success=event.outcome is WorkerOutcome.SUCCEEDED,
-            )
-
-    def _worker_uses_modal_progress(self, worker_id: str) -> bool:
-        """Return whether WorkerService starts modal progress for this worker."""
-        return self._resolve_worker_type(worker_id) != "thumbnail"
-
     def _should_emit_compat_canceled(self, event: WorkerTerminalEvent) -> bool:
         """Suppress normal UI cancellation signals for replacement-only cancellation."""
         return event.cancel_reason not in {
@@ -746,6 +722,7 @@ class WorkerService(QObject):
 
     def _emit_operation_started(self, worker_id: str) -> None:
         context = self._operation_context_for_worker(worker_id)
+        self._record_job_ledger_started(context)
         self.operation_event.emit(
             WorkerOperationEvent(
                 operation_id=context.operation_id,
@@ -761,6 +738,7 @@ class WorkerService(QObject):
     def _emit_operation_terminal(self, event: WorkerTerminalEvent) -> None:
         context = self._operation_context_for_worker(event.worker_id)
         outcome = self._operation_outcome_for_terminal(event)
+        self._record_job_ledger_terminal(context, outcome, event)
         is_current = (
             False if outcome is OperationOutcome.SUPERSEDED else self._is_current_operation(context)
         )
@@ -780,6 +758,40 @@ class WorkerService(QObject):
             )
         )
         self._worker_operations.pop(event.worker_id, None)
+
+    def _record_job_ledger_started(self, context: OperationContext) -> None:
+        """Pipeline/Operation レベルのジョブを台帳に記録する (ADR 0066 §3)。"""
+        title = _JOB_LEDGER_TITLES.get(context.operation_type)
+        if title is None:
+            return
+        self.job_ledger.register(context.worker_id, context.operation_type.value, title)
+        self.job_ledger_changed.emit()
+
+    def _record_job_ledger_terminal(
+        self,
+        context: OperationContext,
+        outcome: OperationOutcome,
+        event: WorkerTerminalEvent,
+    ) -> None:
+        """ジョブの終端結果を台帳に確定する (ADR 0066 §3)。"""
+        if context.operation_type not in _JOB_LEDGER_TITLES:
+            return
+        status, summary = self._ledger_status_for_outcome(outcome, event)
+        if self.job_ledger.finish(event.worker_id, status, summary) is not None:
+            self.job_ledger_changed.emit()
+
+    @staticmethod
+    def _ledger_status_for_outcome(
+        outcome: OperationOutcome,
+        event: WorkerTerminalEvent,
+    ) -> tuple[JobStatus, str]:
+        """Operation outcome を台帳の終端状態とサマリーへ変換する。"""
+        if outcome is OperationOutcome.SUCCEEDED:
+            return JobStatus.FINISHED, ""
+        if outcome in {OperationOutcome.CANCELED, OperationOutcome.SUPERSEDED}:
+            reason = event.cancel_reason.value if event.cancel_reason else "unknown"
+            return JobStatus.CANCELED, f"キャンセル ({reason})"
+        return JobStatus.FAILED, event.error or f"異常終了: {outcome.value}"
 
     def _operation_context_for_worker(self, worker_id: str) -> OperationContext:
         context = self._worker_operations.get(worker_id)

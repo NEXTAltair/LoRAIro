@@ -4,6 +4,8 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import Any
 
+from sqlalchemy.exc import SQLAlchemyError
+
 from ...database.db_manager import ImageDatabaseManager
 from ...services.model_registry_protocol import (
     ModelRegistryServiceProtocol,
@@ -119,6 +121,10 @@ class SearchFilterService:
         include_unrated: bool = True,
         score_min: float | None = None,
         score_max: float | None = None,
+        manual_edit_filter: bool | None = None,
+        reviewed_at_filter: str | None = None,
+        error_state_filter: str | None = None,
+        model_filter: list[str] | None = None,
     ) -> SearchConditions:
         """UIフォームデータからSearchConditionsオブジェクトを作成
 
@@ -151,6 +157,10 @@ class SearchFilterService:
             include_unrated=include_unrated,
             score_min=score_min,
             score_max=score_max,
+            manual_edit_filter=manual_edit_filter,
+            reviewed_at_filter=reviewed_at_filter,
+            error_state_filter=error_state_filter,
+            model_filter=model_filter,
         )
 
         self.current_conditions = conditions
@@ -231,6 +241,24 @@ class SearchFilterService:
             return ["高度なモデルフィルター有効"]
         return []
 
+    def _format_phase4_parts(self, conditions: SearchConditions) -> list[str]:
+        """Phase 4 facet の検索プレビューパーツを返す。"""
+        parts: list[str] = []
+        if conditions.manual_edit_filter is not None:
+            label = "手動編集あり" if conditions.manual_edit_filter else "手動編集なし"
+            parts.append(label)
+        if conditions.reviewed_at_filter == "unreviewed":
+            parts.append("未レビュー")
+        elif conditions.reviewed_at_filter == "reviewed":
+            parts.append("レビュー済み")
+        if conditions.error_state_filter == "has_error":
+            parts.append("エラーあり")
+        elif conditions.error_state_filter == "no_error":
+            parts.append("エラーなし")
+        if conditions.model_filter:
+            parts.append(f"モデル: {', '.join(conditions.model_filter)}")
+        return parts
+
     def create_search_preview(self, conditions: SearchConditions) -> str:
         """人間が読みやすい検索条件プレビューの生成
 
@@ -247,6 +275,7 @@ class SearchFilterService:
         preview_parts.extend(self._format_flag_parts(conditions))
         preview_parts.extend(self._format_rating_parts(conditions))
         preview_parts.extend(self._format_model_parts(conditions))
+        preview_parts.extend(self._format_phase4_parts(conditions))
 
         if not preview_parts:
             return "すべての画像"
@@ -390,3 +419,33 @@ class SearchFilterService:
         except Exception as e:
             logger.error(f"状態カウント取得エラー: {e}", exc_info=True)
             return AnnotationStatusCounts()  # デフォルト値（全て0）
+
+    def get_recently_used_model_ids(self, limit: int = 10) -> list[str]:
+        """アノテーション実績があるモデルの litellm_model_id を返す。
+
+        Args:
+            limit: 最大件数（デフォルト 10）。
+
+        Returns:
+            litellm_model_id のリスト。エラー時は空リスト。
+        """
+        try:
+            return self.db_manager.get_recently_used_model_ids(limit=limit)
+        except SQLAlchemyError as e:
+            logger.error(f"最近使用モデル取得エラー: {e}", exc_info=True)
+            return []
+
+    def get_created_at_histogram(self, bins: int = 20) -> list[tuple[datetime, datetime, int]]:
+        """Image.created_at 分布ヒストグラムを取得する。
+
+        Args:
+            bins: ヒストグラムのビン数（デフォルト 20）。
+
+        Returns:
+            (bin_start, bin_end, count) のリスト。エラー時は空リスト。
+        """
+        try:
+            return self.db_manager.get_created_at_histogram(bins=bins)
+        except SQLAlchemyError as e:
+            logger.error(f"ヒストグラム取得エラー: {e}", exc_info=True)
+            return []

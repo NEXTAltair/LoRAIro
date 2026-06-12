@@ -3,7 +3,8 @@
 GUI統合型ワーカーシステム
 
 PySide6標準機能を活用したシンプルなワーカー実装。
-QObject + QThread + QProgressDialog による効率的な非同期処理を提供。
+QObject + QThread による効率的な非同期処理を提供。
+進捗はステータスバー通知 + Jobs タブ台帳 (ADR 0066) で表示する。
 """
 
 from .base import (
@@ -13,17 +14,11 @@ from .base import (
     WorkerProgress,
     WorkerStatus,
 )
-from .modern_progress_manager import (
-    ModernProgressManager,
-    create_worker_id,
-)
 
 __all__ = [
     "CancellationController",
     "LoRAIroWorkerBase",
-    "ModernProgressManager",
     "ProgressReporter",
     "WorkerProgress",
     "WorkerStatus",
-    "create_worker_id",
 ]

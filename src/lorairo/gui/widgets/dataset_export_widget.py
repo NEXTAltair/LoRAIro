@@ -11,7 +11,7 @@ from typing import Any, cast
 from loguru import logger
 from PySide6.QtCore import QDateTime, QObject, QThread, QTime, Signal
 from PySide6.QtGui import QCloseEvent
-from PySide6.QtWidgets import QButtonGroup, QDialog, QFileDialog, QMessageBox, QWidget
+from PySide6.QtWidgets import QButtonGroup, QFileDialog, QMessageBox, QWidget
 
 from ...database.filter_criteria import ImageFilterCriteria
 from ...services.service_container import ServiceContainer
@@ -97,11 +97,15 @@ class DatasetExportWorker(QObject):
             self.error.emit(error_msg)
 
 
-class DatasetExportWidget(QDialog):
+class DatasetExportWidget(QWidget):
     """Widget for dataset export functionality.
 
     Provides UI for selecting export options, validating requirements,
     and executing dataset export operations with progress tracking.
+
+    Phase 5 (Wireframes v11 Frame 7): QDialog からタブ常設の QWidget に変更。
+    エクスポート対象はステージング集合（ADR 0055/0019）で、`set_image_ids()` 経由で
+    ライブ更新される。
     """
 
     # Signals
@@ -157,10 +161,20 @@ class DatasetExportWidget(QDialog):
         # Set default resolution
         self.ui.comboBoxResolution.setCurrentText("512px")
 
-        # Configure dialog properties
-        self.setModal(True)
-        self.setWindowTitle("データセットエクスポート")
-        self.resize(1200, 800)
+        # タブ常設のため閉じるボタンは不要（タブ切替で離れる）
+        self.ui.closeButton.setVisible(False)
+
+        # exact-set bypass の可視化 (ADR 0055 / Wireframes v11 Frame 7):
+        # 明示的にステージした画像は NSFW 等の暗黙フィルタを適用せずそのまま出力される
+        bypass_note = (
+            "対象 = ステージング集合（明示・有界・可視）\n"
+            "明示ステージ分はそのまま出力 — NSFW 等の暗黙フィルタ非適用（exact-set bypass）"
+        )
+        self.ui.imageCountLabel.setText(bypass_note)
+        self.ui.totalImagesLabel.setToolTip(
+            "image_ids 指定のエクスポートは NSFW 除外等を適用せず、\n"
+            "ステージングした集合をそのまま出力します（exact-set bypass）。"
+        )
 
         # 互いに素な seam (Foundation #610): S5=解像度UI / S4=changed-since UI が各自実装する
         self._setup_resolution_ui()
@@ -232,16 +246,16 @@ class DatasetExportWidget(QDialog):
 
     def _update_initial_state(self) -> None:
         """Update UI to reflect initial state."""
-        # Update image count
+        # Update image count（対象 = ステージング集合、ADR 0055）
         image_count = len(self.image_ids)
-        self.ui.totalImagesLabel.setText(f"対象画像数: {image_count}")
+        self.ui.totalImagesLabel.setText(f"対象画像数: {image_count}（ステージング集合）")
 
         if image_count == 0:
             self.ui.validateButton.setEnabled(False)
-            self.ui.statusLabel.setText("対象画像が選択されていません")
+            self.ui.statusLabel.setText("ステージングが空です")
             self.ui.validationDetailsText.setPlainText(
-                "エクスポートする画像が選択されていません。\n"
-                "フィルタリング条件を設定して画像を表示してください。"
+                "エクスポート対象がステージングにありません。\n"
+                "検索タブで絞り込み、サムネイルから『選択をステージングへ』で追加してください。"
             )
         else:
             self.ui.statusLabel.setText("検証実行の準備完了")

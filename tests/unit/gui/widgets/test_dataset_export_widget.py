@@ -53,11 +53,19 @@ class TestDatasetExportWidgetInit:
     def test_initialization_with_images(self, widget_with_images):
         assert widget_with_images.image_ids == [1, 2, 3]
 
-    def test_is_modal_dialog(self, widget_with_images):
-        assert widget_with_images.isModal()
+    def test_is_plain_widget_not_dialog(self, widget_with_images):
+        """Phase 5: タブ常設のため QDialog ではなく QWidget であること。"""
+        from PySide6.QtWidgets import QDialog
 
-    def test_window_title(self, widget_with_images):
-        assert widget_with_images.windowTitle() == "データセットエクスポート"
+        assert not isinstance(widget_with_images, QDialog)
+
+    def test_close_button_hidden_in_tab_mode(self, widget_with_images):
+        """Phase 5: タブ常設では閉じるボタンを表示しない。"""
+        assert widget_with_images.ui.closeButton.isHidden()
+
+    def test_exact_set_bypass_note_visible(self, widget_with_images):
+        """Phase 5: exact-set bypass の可視化ラベルが設定されていること (ADR 0055)。"""
+        assert "exact-set bypass" in widget_with_images.ui.imageCountLabel.text()
 
     def test_has_export_signals(self, widget_with_images):
         assert hasattr(widget_with_images, "export_started")

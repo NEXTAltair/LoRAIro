@@ -66,6 +66,10 @@ class ImageFilterCriteria:
     manual_edit_filter: bool | None = None
     score_min: float | None = None
     score_max: float | None = None
+    # Phase 4: Search サイドバー強化 facets
+    reviewed_at_filter: str | None = None  # "unreviewed" | "reviewed" | None=全て
+    error_state_filter: str | None = None  # "has_error" | "no_error" | None=全て
+    model_filter: list[str] | None = None  # litellm_id リスト。None=全モデル
     # Phase C (projects テーブル追加) 完了後に DB フィルタを有効化
     project_name: str | None = None
     project_id: int | None = None
@@ -129,6 +133,9 @@ class ImageFilterCriteria:
             "manual_edit_filter": self.manual_edit_filter,
             "score_min": self.score_min,
             "score_max": self.score_max,
+            "reviewed_at_filter": self.reviewed_at_filter,
+            "error_state_filter": self.error_state_filter,
+            "model_filter": self.model_filter,
             "project_name": self.project_name,
             "project_id": self.project_id,
             "limit": self.limit,
