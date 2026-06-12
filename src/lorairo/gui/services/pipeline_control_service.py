@@ -210,7 +210,6 @@ class PipelineControlService:
             None,
             CancelReason.USER_REQUESTED,
             CancelReason.PIPELINE_CANCEL,
-            CancelReason.PROGRESS_DIALOG,
             CancelReason.SHUTDOWN,
         }
 

@@ -96,6 +96,20 @@ class TestWorkerProgressUpdated:
         service_with_statusbar.on_worker_progress_updated("w1", progress)
         # current/total 属性がない場合はデバッグログのみ
 
+    def test_worker_progress_format_with_counts(self, service_with_statusbar, mock_statusbar):
+        """WorkerProgress 形式 (ADR 0066: ポップアップ廃止後の statusbar 集約) は件数付きで表示する"""
+        progress = SimpleNamespace(
+            percentage=42, status_message="処理中", processed_count=4, total_count=10
+        )
+        service_with_statusbar.on_worker_progress_updated("w1", progress)
+        mock_statusbar.showMessage.assert_called_once_with("処理中 (4/10) - 42%")
+
+    def test_worker_progress_format_without_total(self, service_with_statusbar, mock_statusbar):
+        """total_count が 0 の WorkerProgress は件数なしで表示する"""
+        progress = SimpleNamespace(percentage=10, status_message="開始", processed_count=0, total_count=0)
+        service_with_statusbar.on_worker_progress_updated("w1", progress)
+        mock_statusbar.showMessage.assert_called_once_with("開始 - 10%")
+
     def test_with_statusbar_zero_total(self, service_with_statusbar, mock_statusbar):
         progress = SimpleNamespace(current=0, total=0)
         service_with_statusbar.on_worker_progress_updated("w1", progress)

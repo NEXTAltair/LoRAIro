@@ -13,6 +13,7 @@ from lorairo.gui.services.operation_events import OperationOutcome, OperationTyp
 from lorairo.gui.services.worker_service import WorkerService
 from lorairo.gui.workers.search_worker import SearchResult
 from lorairo.gui.workers.terminal import CancelReason, WorkerOutcome, WorkerTerminalEvent
+from lorairo.services.job_ledger_service import JobStatus
 from lorairo.services.search_models import SearchConditions
 
 
@@ -504,10 +505,8 @@ class TestWorkerService:
             cancel_reason=CancelReason.USER_REQUESTED,
         )
 
-        with patch.object(worker_service.progress_manager, "finish_worker_progress") as mock_finish:
-            worker_service._on_worker_terminal(event)
+        worker_service._on_worker_terminal(event)
 
-        mock_finish.assert_called_once_with(worker_id, success=False)
         assert worker_service.current_search_worker_id is None
         error_mock.assert_not_called()
         canceled_mock.assert_called_once_with(worker_id)
@@ -526,8 +525,7 @@ class TestWorkerService:
             cancel_reason=CancelReason.PIPELINE_CANCEL,
         )
 
-        with patch.object(worker_service.progress_manager, "finish_worker_progress"):
-            worker_service._on_worker_terminal(event)
+        worker_service._on_worker_terminal(event)
 
         terminal_mock.assert_called_once_with(event)
         canceled_mock.assert_called_once_with(worker_id)
@@ -547,8 +545,7 @@ class TestWorkerService:
             result={"ok": True},
         )
 
-        with patch.object(worker_service.progress_manager, "finish_worker_progress"):
-            worker_service._on_worker_terminal(event)
+        worker_service._on_worker_terminal(event)
 
         operation_mock.assert_called_once()
         operation_event = operation_mock.call_args.args[0]
@@ -569,8 +566,7 @@ class TestWorkerService:
             cancel_reason=CancelReason.SEARCH_REPLACED,
         )
 
-        with patch.object(worker_service.progress_manager, "finish_worker_progress"):
-            worker_service._on_worker_terminal(event)
+        worker_service._on_worker_terminal(event)
 
         canceled_mock.assert_not_called()
         assert worker_service.current_search_worker_id is None
@@ -589,8 +585,7 @@ class TestWorkerService:
             cancel_reason=CancelReason.SEARCH_REPLACED,
         )
 
-        with patch.object(worker_service.progress_manager, "finish_worker_progress"):
-            worker_service._on_worker_terminal(event)
+        worker_service._on_worker_terminal(event)
 
         operation_event = operation_mock.call_args.args[0]
         assert operation_event.outcome is OperationOutcome.SUPERSEDED
@@ -649,10 +644,8 @@ class TestWorkerService:
             cancel_reason=CancelReason.SEARCH_REPLACED,
         )
 
-        with patch.object(worker_service.progress_manager, "finish_worker_progress") as mock_finish:
-            worker_service._on_worker_terminal(event)
+        worker_service._on_worker_terminal(event)
 
-        mock_finish.assert_called_once_with(old_worker_id, success=False)
         error_mock.assert_not_called()
         assert worker_service.current_search_worker_id is None
 
@@ -671,8 +664,7 @@ class TestWorkerService:
             cancel_reason=CancelReason.SEARCH_REPLACED,
         )
 
-        with patch.object(worker_service.progress_manager, "finish_worker_progress"):
-            worker_service._on_worker_terminal(event)
+        worker_service._on_worker_terminal(event)
 
         operation_event = operation_mock.call_args.args[0]
         assert operation_event.outcome is OperationOutcome.SUPERSEDED
@@ -692,10 +684,8 @@ class TestWorkerService:
             cancel_reason=CancelReason.SEARCH_REPLACED,
         )
 
-        with patch.object(worker_service.progress_manager, "finish_worker_progress") as mock_finish:
-            worker_service._on_worker_terminal(event)
+        worker_service._on_worker_terminal(event)
 
-        mock_finish.assert_called_once_with(old_worker_id, success=False)
         error_mock.assert_not_called()
         assert worker_service.current_search_worker_id is None
 
@@ -719,15 +709,13 @@ class TestWorkerService:
             cancel_reason=CancelReason.SEARCH_REPLACED,
         )
 
-        with patch.object(worker_service.progress_manager, "finish_worker_progress") as mock_finish:
-            worker_service._on_worker_terminal(event)
+        worker_service._on_worker_terminal(event)
 
         operation_event = operation_mock.call_args.args[0]
         assert operation_event.worker_id == old_worker_id
         assert operation_event.outcome is OperationOutcome.SUPERSEDED
         assert operation_event.is_current is False
         error_mock.assert_not_called()
-        mock_finish.assert_called_once_with(old_worker_id, success=False)
         assert worker_service.current_search_worker_id == current_worker_id
 
     def test_stale_prefetch_replacement_failure_preserves_current_thumbnail_operation(self, worker_service):
@@ -760,8 +748,7 @@ class TestWorkerService:
             cancel_reason=CancelReason.PREFETCH_REPLACED,
         )
 
-        with patch.object(worker_service.progress_manager, "finish_worker_progress") as mock_finish:
-            worker_service._on_worker_terminal(event)
+        worker_service._on_worker_terminal(event)
 
         operation_event = operation_mock.call_args.args[0]
         assert operation_event.worker_id == old_worker_id
@@ -769,11 +756,10 @@ class TestWorkerService:
         assert operation_event.outcome is OperationOutcome.SUPERSEDED
         assert operation_event.is_current is False
         error_mock.assert_not_called()
-        mock_finish.assert_not_called()
         assert worker_service.current_thumbnail_worker_id == current_worker_id
 
-    def test_non_replacement_search_failure_closes_progress_and_dispatches_error_once(self, worker_service):
-        """通常 failure は terminal でprogress closeし、compat errorを一度だけdispatchする"""
+    def test_non_replacement_search_failure_dispatches_error_once(self, worker_service):
+        """通常 failure は compat error を一度だけ dispatch する"""
         worker_id = "search_failed"
         worker_service.current_search_worker_id = worker_id
         error_mock = Mock()
@@ -787,73 +773,107 @@ class TestWorkerService:
             error="search failed",
         )
 
-        with patch.object(worker_service.progress_manager, "finish_worker_progress") as mock_finish:
-            worker_service._on_worker_terminal(event)
+        worker_service._on_worker_terminal(event)
 
-        mock_finish.assert_called_once_with(worker_id, success=False)
         error_mock.assert_called_once_with("search failed")
         canceled_mock.assert_not_called()
         assert worker_service.current_search_worker_id is None
 
+    # === Job Ledger (ADR 0066) ===
+
+    def test_annotation_start_registers_job_ledger_entry(self, worker_service):
+        """アノテーション開始で台帳に running 行が登録され変更通知が出る"""
+        ledger_changed_mock = Mock()
+        worker_service.job_ledger_changed.connect(ledger_changed_mock)
+
+        worker_service._on_worker_started("annotation_abc12345")
+
+        entry = worker_service.job_ledger.get("annotation_abc12345")
+        assert entry is not None
+        assert entry.job_type == "annotation"
+        assert entry.title == "アノテーション処理"
+        assert entry.status is JobStatus.RUNNING
+        assert entry.finished_at is None
+        ledger_changed_mock.assert_called_once()
+
     @pytest.mark.parametrize(
-        ("outcome", "cancel_reason", "expected_success"),
+        ("outcome", "cancel_reason", "expected_status"),
         [
-            (WorkerOutcome.SUCCEEDED, None, True),
-            (WorkerOutcome.FAILED, None, False),
-            (WorkerOutcome.CANCELED, CancelReason.USER_REQUESTED, False),
-            (WorkerOutcome.TERMINATED, None, False),
-            (WorkerOutcome.UNRESPONSIVE, None, False),
-            (WorkerOutcome.CANCELED, CancelReason.SEARCH_REPLACED, False),
-            (WorkerOutcome.FAILED, CancelReason.SEARCH_REPLACED, False),
+            (WorkerOutcome.SUCCEEDED, None, JobStatus.FINISHED),
+            (WorkerOutcome.FAILED, None, JobStatus.FAILED),
+            (WorkerOutcome.TERMINATED, None, JobStatus.FAILED),
+            (WorkerOutcome.UNRESPONSIVE, None, JobStatus.FAILED),
+            (WorkerOutcome.CANCELED, CancelReason.USER_REQUESTED, JobStatus.CANCELED),
         ],
     )
-    def test_worker_terminal_progress_closes_once_for_terminal_outcomes(
-        self, worker_service, outcome, cancel_reason, expected_success
+    def test_annotation_terminal_finishes_job_ledger_entry(
+        self, worker_service, outcome, cancel_reason, expected_status
     ):
-        """terminal outcome がcompat分岐に入ってもprogress closeはWorkerService terminalで1回だけ行う"""
-        worker_id = "search_terminal"
-        worker_service.current_search_worker_id = worker_id
+        """terminal outcome が台帳の終端状態へマップされ finished_at が確定する"""
+        worker_id = "annotation_abc12345"
+        worker_service._on_worker_started(worker_id)
         event = WorkerTerminalEvent(
             worker_id=worker_id,
-            worker_type="search",
+            worker_type="annotation",
             outcome=outcome,
             result={"ok": True} if outcome is WorkerOutcome.SUCCEEDED else None,
             error="boom" if outcome is not WorkerOutcome.SUCCEEDED else None,
             cancel_reason=cancel_reason,
         )
 
-        with patch.object(worker_service.progress_manager, "finish_worker_progress") as mock_finish:
-            worker_service._on_worker_terminal(event)
+        worker_service._on_worker_terminal(event)
 
-        mock_finish.assert_called_once_with(worker_id, success=expected_success)
+        entry = worker_service.job_ledger.get(worker_id)
+        assert entry is not None
+        assert entry.status is expected_status
+        assert entry.finished_at is not None
+        if expected_status is JobStatus.FAILED:
+            assert entry.summary == "boom"
 
-    @pytest.mark.parametrize(
-        "outcome",
-        [
-            WorkerOutcome.SUCCEEDED,
-            WorkerOutcome.FAILED,
-            WorkerOutcome.CANCELED,
-            WorkerOutcome.TERMINATED,
-            WorkerOutcome.UNRESPONSIVE,
-        ],
-    )
-    def test_thumbnail_terminal_never_closes_modal_progress(self, worker_service, outcome):
-        """thumbnail/page/prefetch workers never start modal progress, so terminal close skips them."""
-        worker_id = "thumbnail_terminal"
-        worker_service.current_thumbnail_worker_id = worker_id
+    @pytest.mark.parametrize("worker_id", ["search_abc12345", "thumbnail_abc12345"])
+    def test_job_ledger_excludes_search_and_thumbnail(self, worker_service, worker_id):
+        """検索/サムネイル等のUI応答系workerは台帳に載せない (ADR 0066 §3)"""
+        ledger_changed_mock = Mock()
+        worker_service.job_ledger_changed.connect(ledger_changed_mock)
+
+        worker_service._on_worker_started(worker_id)
         event = WorkerTerminalEvent(
             worker_id=worker_id,
-            worker_type="thumbnail",
-            outcome=outcome,
-            result={"ok": True} if outcome is WorkerOutcome.SUCCEEDED else None,
-            error="boom" if outcome is not WorkerOutcome.SUCCEEDED else None,
-            cancel_reason=CancelReason.PREFETCH_REPLACED if outcome is WorkerOutcome.CANCELED else None,
+            worker_type=worker_id.split("_")[0],
+            outcome=WorkerOutcome.SUCCEEDED,
+            result={"ok": True},
+        )
+        worker_service._on_worker_terminal(event)
+
+        assert worker_service.job_ledger.get(worker_id) is None
+        assert worker_service.job_ledger.list_entries() == []
+        ledger_changed_mock.assert_not_called()
+
+    def test_batch_registration_lifecycle_recorded_in_ledger(self, worker_service):
+        """バッチ登録の開始→完了が台帳の running→finished に反映される"""
+        worker_id = "batch_reg_abc12345"
+        worker_service._on_worker_started(worker_id)
+        assert worker_service.job_ledger.get(worker_id).status is JobStatus.RUNNING
+
+        worker_service._on_worker_terminal(
+            WorkerTerminalEvent(
+                worker_id=worker_id,
+                worker_type="batch_reg",
+                outcome=WorkerOutcome.SUCCEEDED,
+                result={"ok": True},
+            )
         )
 
-        with patch.object(worker_service.progress_manager, "finish_worker_progress") as mock_finish:
-            worker_service._on_worker_terminal(event)
+        entry = worker_service.job_ledger.get(worker_id)
+        assert entry.status is JobStatus.FINISHED
+        assert entry.finished_at is not None
 
-        mock_finish.assert_not_called()
+    def test_cancel_job_delegates_to_worker_manager(self, worker_service):
+        """Jobs 行のキャンセルは worker_manager.cancel_worker へ委譲される"""
+        worker_service.worker_manager.cancel_worker.return_value = True
+
+        assert worker_service.cancel_job("annotation_abc12345") is True
+        worker_service.worker_manager.cancel_worker.assert_called_once_with("annotation_abc12345")
 
     def test_worker_id_uniqueness(self, worker_service):
         """ワーカーID一意性テスト"""
@@ -1106,57 +1126,14 @@ class TestWorkerService:
         terminal_mock = Mock()
         getattr(worker_service, signal_name).connect(terminal_mock)
 
-        with patch.object(worker_service.progress_manager, "finish_worker_progress") as mock_finish:
-            if terminal == "finished":
-                worker_service._on_worker_finished(worker_id, payload)
-                terminal_mock.assert_called_once_with(payload)
-            elif terminal == "error":
-                worker_service._on_worker_error(worker_id, payload)
-                terminal_mock.assert_called_once_with(payload)
-            else:
-                worker_service._on_worker_canceled(worker_id)
-                terminal_mock.assert_called_once_with(worker_id)
+        if terminal == "finished":
+            worker_service._on_worker_finished(worker_id, payload)
+            terminal_mock.assert_called_once_with(payload)
+        elif terminal == "error":
+            worker_service._on_worker_error(worker_id, payload)
+            terminal_mock.assert_called_once_with(payload)
+        else:
+            worker_service._on_worker_canceled(worker_id)
+            terminal_mock.assert_called_once_with(worker_id)
 
         assert getattr(worker_service, current_attr) is None
-        mock_finish.assert_not_called()
-
-    def test_modern_progress_manager_integration(self, worker_service):
-        """ModernProgressManager統合検証
-
-        WorkerServiceがModernProgressManagerと正しく連携し、
-        進捗更新・バッチ進捗更新・キャンセル要求が正しく処理されることを検証
-        """
-        from lorairo.gui.workers.base import WorkerProgress
-
-        # 1. _on_progress_updated() の転送処理検証
-        mock_progress = WorkerProgress(
-            percentage=50, status_message="処理中...", processed_count=5, total_count=10
-        )
-
-        # ModernProgressManagerのupdate_worker_progressがモック化されていることを確認
-        with patch.object(worker_service.progress_manager, "update_worker_progress") as mock_update:
-            worker_service._on_progress_updated("test_worker_001", mock_progress)
-
-            # ModernProgressManagerに転送されたことを確認
-            mock_update.assert_called_once_with("test_worker_001", mock_progress)
-
-        # 2. _on_batch_progress_updated() の転送処理検証
-        with patch.object(worker_service.progress_manager, "update_batch_progress") as mock_batch_update:
-            worker_service._on_batch_progress_updated(
-                "test_worker_002", current=7, total=20, filename="test_image.jpg"
-            )
-
-            # ModernProgressManagerに転送されたことを確認
-            mock_batch_update.assert_called_once_with("test_worker_002", 7, 20, "test_image.jpg")
-
-        # 3. _on_progress_cancellation_requested() のキャンセル処理検証
-        # WorkerManagerのcancel_workerをモック化
-        worker_service.worker_manager.cancel_worker.return_value = True
-
-        worker_service._on_progress_cancellation_requested("test_worker_003")
-
-        # WorkerManagerにキャンセルが要求されたことを確認
-        worker_service.worker_manager.cancel_worker.assert_called_with(
-            "test_worker_003",
-            reason=CancelReason.PROGRESS_DIALOG,
-        )
