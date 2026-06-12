@@ -12,6 +12,7 @@ from PySide6.QtWidgets import (
     QDialogButtonBox,
     QFormLayout,
     QGroupBox,
+    QHBoxLayout,
     QLabel,
     QLineEdit,
     QMessageBox,
@@ -34,6 +35,21 @@ _LOG_LEVELS = ["DEBUG", "INFO", "WARNING", "ERROR"]
 # CLI 経路 (--route all) と config 手動編集 ("all") の値は parse_route_preference で
 # 受理し続けるが、GUI から保存できる値は auto / direct / openrouter のみ。
 _ROUTE_PREFERENCES = ["auto", "direct", "openrouter"]
+
+# Issue #755: API キー欄の定義。provider 名 (model_route_service の
+# required_provider_for が返す canonical key) → (表示ラベル, config キー, objectName)。
+_API_KEY_ROWS: tuple[tuple[str, str, str, str], ...] = (
+    ("openai", "OpenAI API Key:", "openai_key", "lineEditOpenAiKey"),
+    ("google", "Google API Key:", "google_key", "lineEditGoogleKey"),
+    ("anthropic", "Claude API Key:", "claude_key", "lineEditClaudeKey"),
+    ("openrouter", "OpenRouter API Key:", "openrouter_key", "lineEditOpenRouterKey"),
+)
+_API_KEY_SAVED_TEXT = "保存済"
+_API_KEY_UNSET_TEXT = "未設定"
+_API_KEY_SAVED_PLACEHOLDER = "保存済（変更する場合のみ入力）"
+_API_KEY_HIGHLIGHT_STYLE = "QLineEdit { border: 2px solid #FF9800; }"
+_API_KEY_SAVED_STATUS_STYLE = "QLabel { color: #2E7D32; font-weight: 600; }"
+_API_KEY_UNSET_STATUS_STYLE = "QLabel { color: palette(mid); }"
 
 
 class ConfigurationWindow(QDialog):
@@ -90,24 +106,33 @@ class ConfigurationWindow(QDialog):
         tab = QWidget()
         tab_layout = QVBoxLayout(tab)
 
-        # API設定
+        # API設定 (Issue #755: マスク入力 + 保存済/未設定ステータスのみ表示。
+        # 保存済キーは UI に echo back しない。クリアは config/lorairo.toml 直接編集で行う)
         api_group = QGroupBox("API設定")
         api_layout = QFormLayout(api_group)
 
-        self._line_edit_openai_key = QLineEdit()
-        self._line_edit_openai_key.setObjectName("lineEditOpenAiKey")
-        self._line_edit_openai_key.setEchoMode(QLineEdit.EchoMode.Password)
-        api_layout.addRow("OpenAI API Key:", self._line_edit_openai_key)
+        self._api_key_edits: dict[str, QLineEdit] = {}
+        self._api_key_status_labels: dict[str, QLabel] = {}
+        self._saved_api_keys: dict[str, str] = {}
 
-        self._line_edit_google_key = QLineEdit()
-        self._line_edit_google_key.setObjectName("lineEditGoogleKey")
-        self._line_edit_google_key.setEchoMode(QLineEdit.EchoMode.Password)
-        api_layout.addRow("Google API Key:", self._line_edit_google_key)
+        for provider, label_text, _config_key, object_name in _API_KEY_ROWS:
+            key_edit = QLineEdit()
+            key_edit.setObjectName(object_name)
+            key_edit.setEchoMode(QLineEdit.EchoMode.Password)
 
-        self._line_edit_claude_key = QLineEdit()
-        self._line_edit_claude_key.setObjectName("lineEditClaudeKey")
-        self._line_edit_claude_key.setEchoMode(QLineEdit.EchoMode.Password)
-        api_layout.addRow("Claude API Key:", self._line_edit_claude_key)
+            status_label = QLabel(_API_KEY_UNSET_TEXT)
+            status_label.setObjectName(f"{object_name}Status")
+            status_label.setStyleSheet(_API_KEY_UNSET_STATUS_STYLE)
+
+            row_widget = QWidget()
+            row_layout = QHBoxLayout(row_widget)
+            row_layout.setContentsMargins(0, 0, 0, 0)
+            row_layout.addWidget(key_edit, stretch=1)
+            row_layout.addWidget(status_label)
+            api_layout.addRow(label_text, row_widget)
+
+            self._api_key_edits[provider] = key_edit
+            self._api_key_status_labels[provider] = status_label
 
         tab_layout.addWidget(api_group)
 
@@ -213,11 +238,22 @@ class ConfigurationWindow(QDialog):
         """ConfigurationService から現在の設定値を読み込み、UIに反映する。"""
         config = self._config_service.get_all_settings()
 
-        # API設定
+        # API設定 (Issue #755: 保存済キーは欄に echo back せず「保存済かだけ分かる」表示)
         api = config.get("api", {})
-        self._line_edit_openai_key.setText(api.get("openai_key", ""))
-        self._line_edit_google_key.setText(api.get("google_key", ""))
-        self._line_edit_claude_key.setText(api.get("claude_key", ""))
+        for provider, _label_text, config_key, _object_name in _API_KEY_ROWS:
+            saved_key = str(api.get(config_key, "") or "")
+            self._saved_api_keys[provider] = saved_key
+            key_edit = self._api_key_edits[provider]
+            status_label = self._api_key_status_labels[provider]
+            key_edit.clear()
+            if saved_key.strip():
+                key_edit.setPlaceholderText(_API_KEY_SAVED_PLACEHOLDER)
+                status_label.setText(_API_KEY_SAVED_TEXT)
+                status_label.setStyleSheet(_API_KEY_SAVED_STATUS_STYLE)
+            else:
+                key_edit.setPlaceholderText(_API_KEY_UNSET_TEXT)
+                status_label.setText(_API_KEY_UNSET_TEXT)
+                status_label.setStyleSheet(_API_KEY_UNSET_STATUS_STYLE)
 
         # ディレクトリ設定
         dirs = config.get("directories", {})
@@ -267,18 +303,42 @@ class ConfigurationWindow(QDialog):
         prompts = config.get("prompts", {})
         self._text_edit_prompt.setPlainText(prompts.get("additional", ""))
 
+    def focus_api_key_field(self, provider: str) -> bool:
+        """指定 provider の API キー欄をハイライトしてフォーカスする (Issue #755)。
+
+        モデルピッカーの ``○ needs key`` チップからの往復導線で使う。
+        基本設定タブへ切り替え、該当欄に強調枠を付けて入力を促す。
+
+        Args:
+            provider: provider 名 (``"openai"`` / ``"anthropic"`` / ``"google"`` /
+                ``"openrouter"``)。大文字小文字は区別しない。
+
+        Returns:
+            該当プロバイダ欄が存在しハイライトした場合 True、未知の provider は False。
+        """
+        key_edit = self._api_key_edits.get(provider.strip().lower())
+        if key_edit is None:
+            logger.warning(f"API キー欄が見つからない provider 指定: {provider}")
+            return False
+        self._tab_widget.setCurrentIndex(0)
+        key_edit.setStyleSheet(_API_KEY_HIGHLIGHT_STYLE)
+        key_edit.setFocus()
+        return True
+
     def _collect_settings(self) -> dict[str, dict[str, Any]]:
         """全ウィジェットから設定値を収集する。
 
         Returns:
             セクション名をキーとした設定辞書。
         """
+        # Issue #755: API キー欄が空のままなら保存済の値を維持する
+        # (欄に echo back しない UI のため、空欄 = 「変更なし」と解釈する)。
+        api_settings = {
+            config_key: (self._api_key_edits[provider].text().strip() or self._saved_api_keys[provider])
+            for provider, _label_text, config_key, _object_name in _API_KEY_ROWS
+        }
         return {
-            "api": {
-                "openai_key": self._line_edit_openai_key.text().strip(),
-                "google_key": self._line_edit_google_key.text().strip(),
-                "claude_key": self._line_edit_claude_key.text().strip(),
-            },
+            "api": api_settings,
             "directories": {
                 "database_base_dir": self._dir_picker_database_dir.get_selected_path() or "",
                 "database_project_name": self._line_edit_project_name.text().strip(),

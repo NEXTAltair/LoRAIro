@@ -138,6 +138,45 @@ class TestSettingsControllerDialog:
 
         assert result is False
 
+    def test_open_settings_dialog_highlights_provider_field(self, qtbot):
+        """Issue #755: highlight_provider 指定で該当 API キー欄をフォーカスする。"""
+        parent = QWidget()
+        qtbot.addWidget(parent)
+
+        mock_config = Mock()
+        controller = SettingsController(config_service=mock_config, parent=parent)
+
+        mock_dialog = Mock()
+        mock_dialog.exec.return_value = QDialog.DialogCode.Accepted
+
+        with patch(
+            "lorairo.gui.window.configuration_window.ConfigurationWindow",
+            return_value=mock_dialog,
+        ):
+            result = controller.open_settings_dialog(highlight_provider="anthropic")
+
+        assert result is True
+        mock_dialog.focus_api_key_field.assert_called_once_with("anthropic")
+
+    def test_open_settings_dialog_without_highlight_skips_focus(self, qtbot):
+        """highlight_provider 未指定では focus_api_key_field を呼ばない。"""
+        parent = QWidget()
+        qtbot.addWidget(parent)
+
+        mock_config = Mock()
+        controller = SettingsController(config_service=mock_config, parent=parent)
+
+        mock_dialog = Mock()
+        mock_dialog.exec.return_value = QDialog.DialogCode.Rejected
+
+        with patch(
+            "lorairo.gui.window.configuration_window.ConfigurationWindow",
+            return_value=mock_dialog,
+        ):
+            controller.open_settings_dialog()
+
+        mock_dialog.focus_api_key_field.assert_not_called()
+
     def test_open_settings_dialog_import_error_uses_fallback(self, qtbot, monkeypatch):
         """ConfigurationWindow の ImportError 時はフォールバックダイアログを表示して False を返す。
 

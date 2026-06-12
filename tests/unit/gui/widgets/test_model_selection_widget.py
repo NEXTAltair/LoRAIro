@@ -125,10 +125,10 @@ class TestModelSelectionWidgetFilters:
         assert w.placeholderLabel.isHidden()
         assert list(w.model_checkbox_widgets) == ["openai/gpt-4o"]
 
-    def test_batch_web_api_only_hides_unavailable_options_and_shows_placeholder(
+    def test_batch_web_api_only_shows_unavailable_options_with_needs_key_status(
         self, qtbot, mock_model_service
     ):
-        """Web API only で API key 未設定などにより実行不能な候補だけなら placeholder を表示する"""
+        """Issue #755: API key 未設定の候補も非表示にせず ○ needs key で可視化する。"""
         model = _fake_db_model(
             name="gpt-4o",
             provider="openai",
@@ -142,9 +142,30 @@ class TestModelSelectionWidgetFilters:
 
         w.apply_filters(execution_env="APIモデルのみ", annotation_only=True)
 
-        assert not w.placeholderLabel.isHidden()
-        assert w.placeholderLabel.text() == ModelSelectionWidget.WEB_API_UNAVAILABLE_PLACEHOLDER
-        assert w.model_checkbox_widgets == {}
+        assert w.placeholderLabel.isHidden()
+        assert list(w.model_checkbox_widgets) == ["openai/gpt-4o"]
+        checkbox_widget = w.model_checkbox_widgets["openai/gpt-4o"]
+        assert checkbox_widget.model_info.available is False
+        assert checkbox_widget.labelStatus.text() == "○ needs key"
+
+    def test_render_signature_includes_availability(self, qtbot, mock_model_service):
+        """Issue #755: キー保存で available だけ変わっても再描画される (signature に含む)。"""
+        model = _fake_db_model(
+            name="gpt-4o",
+            provider="openai",
+            litellm_model_id="openai/gpt-4o",
+            requires_api_key=True,
+            capabilities=["caption"],
+        )
+        needs_key_options = build_display_options([model], set(), "auto")
+        ready_options = build_display_options([model], {"openai"}, "auto")
+        sig_needs_key = ModelSelectionWidget._compute_render_signature(
+            Mock(mode="advanced"), needs_key_options, False
+        )
+        sig_ready = ModelSelectionWidget._compute_render_signature(
+            Mock(mode="advanced"), ready_options, False
+        )
+        assert sig_needs_key != sig_ready
 
     def test_non_batch_web_api_only_uses_normal_filtering(self, qtbot, mock_model_service):
         """通常利用時の Web API only は batch placeholder 分岐に入らない"""

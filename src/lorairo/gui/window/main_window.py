@@ -24,6 +24,7 @@ from ...gui.designer.MainWindow_ui import Ui_MainWindow
 from ...services import get_service_container
 from ...services.configuration_service import ConfigurationService
 from ...services.error_triage_service import ErrorFilter, ErrorRow, ErrorTriageService
+from ...services.model_route_service import build_available_providers
 from ...services.model_selection_service import ModelSelectionService
 from ...services.pipeline_composition import PipelineCompositionService, PipelineStage, StageModelInfo
 from ...services.quality_issue_detection_service import QualityIssueDetectionService
@@ -818,12 +819,37 @@ class MainWindow(QMainWindow, Ui_MainWindow):
             return {}
         return cost_map
 
+    def _available_api_providers(self) -> set[str]:
+        """config の API キー設定状況から実行可能な WebAPI provider 集合を返す (Issue #755)。
+
+        Returns:
+            非空キーが保存されている provider 名集合。config 未初期化・取得失敗時は
+            空集合 (= 全 WebAPI モデルが needs key 扱い)。
+        """
+        config_service = getattr(self, "config_service", None)
+        if config_service is None:
+            return set()
+        try:
+            api_keys = {
+                "openai": config_service.get_setting("api", "openai_key", ""),
+                "anthropic": config_service.get_setting("api", "claude_key", ""),
+                "google": config_service.get_setting("api", "google_key", ""),
+                "openrouter": config_service.get_setting("api", "openrouter_key", ""),
+            }
+        except (AttributeError, KeyError, TypeError):
+            logger.warning("API キー設定の取得に失敗 (全 provider を needs key 扱い)", exc_info=True)
+            return set()
+        return build_available_providers(api_keys)
+
     def _on_pipeline_add_model_requested(self, stage_value: str) -> None:
         """ステージ行の「+ 追加」でピッカーを開き、選択モデル集合へ追加する (Phase 6b)。
 
         SSoT は ModelSelectionWidget のチェック状態。ピッカーで選んだモデルは
         チェック ON で集合へ追加し、ステージ仕分けは compose_from_models に任せる。
         set_selected() は checkbox シグナルを抑制するため、最後に明示再描画する。
+
+        Issue #755: キー未設定 WebAPI モデルも候補に含め ``○ needs key`` で可視化。
+        チップクリック → 設定 → キー保存 → ``● API ready`` の往復導線を配線する。
 
         Args:
             stage_value: 追加先ステージの PipelineStage value。
@@ -843,7 +869,15 @@ class MainWindow(QMainWindow, Ui_MainWindow):
             if stage in info.fill_stages() and info.litellm_model_id not in selected_ids
         ]
 
-        dialog = StageModelPickerDialog(stage, candidates, parent=self)
+        dialog = StageModelPickerDialog(
+            stage,
+            candidates,
+            available_providers=self._available_api_providers(),
+            parent=self,
+        )
+        dialog.configure_key_requested.connect(
+            lambda provider, dialog=dialog: self._on_picker_configure_key_requested(provider, dialog)
+        )
         if dialog.exec() != QDialog.DialogCode.Accepted:
             return
         for litellm_model_id in dialog.selected_model_ids():
@@ -872,6 +906,25 @@ class MainWindow(QMainWindow, Ui_MainWindow):
             return
         checkbox_widget.set_selected(False)
         self._refresh_pipeline_panel()
+
+    def _on_picker_configure_key_requested(self, provider: str, dialog: StageModelPickerDialog) -> None:
+        """ピッカーの ``○ needs key`` チップから設定の該当プロバイダ欄へ誘導する (Issue #755)。
+
+        キー保存 (OK) 後はモデル一覧と開いたままのピッカーを再評価し、
+        アプリ再起動なしで ``● API ready`` に解消する。
+
+        Args:
+            provider: API キーが必要な provider 名 (例 ``"anthropic"``)。
+            dialog: シグナル発火元のピッカーダイアログ (開いたまま更新する)。
+        """
+        if not self.settings_controller:
+            logger.warning("SettingsController 未初期化のため API キー設定導線をスキップします")
+            return
+        settings_applied = self.settings_controller.open_settings_dialog(highlight_provider=provider)
+        if not settings_applied:
+            return
+        self._reload_model_widget_after_settings()
+        dialog.refresh_key_status(self._available_api_providers())
 
     def _refresh_errors_tab(self) -> None:
         """エラータブ表示時 / フィルタ変更時にトリアージを再計算して描画する。"""
@@ -1932,19 +1985,27 @@ class MainWindow(QMainWindow, Ui_MainWindow):
             self.pipeline_control_service = None
             self.progress_state_service = None
 
+    def _reload_model_widget_after_settings(self) -> None:
+        """設定保存後にモデル選択ウィジェットへ最新のキー状況を反映する。
+
+        Issue #249: route_preference 等の保存値を即時反映。
+        Issue #755: API キー保存による ● API ready / ○ needs key の更新もここで行う。
+        """
+        batch_widget = getattr(self, "batchModelSelection", None)
+        if batch_widget is None:
+            return
+        try:
+            batch_widget.update_model_display()
+            logger.debug("設定変更を反映してモデル選択ウィジェットを更新しました")
+        except Exception as e:
+            logger.warning(f"モデル選択ウィジェットの更新に失敗 (継続可): {e}")
+
     def open_settings(self) -> None:
         """設定ウィンドウを開く（SettingsControllerに委譲）"""
         if self.settings_controller:
             settings_applied = self.settings_controller.open_settings_dialog()
-            # Issue #249: route_preference 等の保存値を ModelSelectionWidget に即時反映
             if settings_applied:
-                batch_widget = getattr(self, "batchModelSelection", None)
-                if batch_widget is not None:
-                    try:
-                        batch_widget.update_model_display()
-                        logger.debug("設定変更を反映してモデル選択ウィジェットを更新しました")
-                    except Exception as e:
-                        logger.warning(f"モデル選択ウィジェットの更新に失敗 (継続可): {e}")
+                self._reload_model_widget_after_settings()
         else:
             logger.error("SettingsControllerが初期化されていません")
             QMessageBox.warning(

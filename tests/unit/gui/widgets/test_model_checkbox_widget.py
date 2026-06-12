@@ -78,6 +78,31 @@ class TestModelCheckboxWidget:
         assert hasattr(widget_openai, "labelModelName")
         assert hasattr(widget_openai, "labelProvider")
         assert hasattr(widget_openai, "labelCapabilities")
+        assert hasattr(widget_openai, "labelStatus")
+
+    def test_api_model_available_shows_api_ready_status(self, widget_openai):
+        """Issue #755: available な API モデルは ● API ready を表示する。"""
+        assert widget_openai.labelStatus.text() == "● API ready"
+
+    def test_local_model_shows_installed_status(self, widget_local):
+        """Issue #755: ローカルモデルは ● installed を表示する。"""
+        assert widget_local.labelStatus.text() == "● installed"
+
+    def test_api_model_unavailable_shows_needs_key_status(self, qtbot):
+        """Issue #755: API key 未設定の API モデルは ○ needs key を表示する。"""
+        info = ModelInfo(
+            name="claude-3-sonnet",
+            provider="anthropic",
+            capabilities=["caption"],
+            litellm_model_id="anthropic/claude-3-sonnet",
+            is_local=False,
+            requires_api_key=True,
+            available=False,
+        )
+        widget = ModelCheckboxWidget(info)
+        qtbot.addWidget(widget)
+        assert widget.labelStatus.text() == "○ needs key"
+        assert "API キー未設定" in widget.labelStatus.toolTip()
 
     def test_model_name_display(self, widget_openai):
         """モデル名表示テスト (Issue #245: ラベルは "{name} ({provider})" 形式)"""

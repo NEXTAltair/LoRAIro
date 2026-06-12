@@ -130,3 +130,95 @@ class TestStageModelPickerDialogEmptyCandidates:
         assert ok_button is not None
         assert not ok_button.isEnabled()
         assert dialog.selected_model_ids() == []
+
+
+class TestStageModelPickerDialogKeyStatus:
+    """Issue #755: ● installed / ● API ready / ○ needs key ステータス表示。"""
+
+    def _texts(self, dialog: StageModelPickerDialog) -> list[str]:
+        candidate_list = _candidate_list(dialog)
+        return [candidate_list.item(i).text() for i in range(candidate_list.count())]
+
+    def test_local_model_shows_installed_status(self, qtbot):
+        dialog = StageModelPickerDialog(PipelineStage.TAGS, [WD_TAGGER], available_providers=set())
+        qtbot.addWidget(dialog)
+        texts = self._texts(dialog)
+        assert any("wd-v1-4-tagger" in t and "● installed" in t for t in texts)
+
+    def test_api_model_with_key_shows_api_ready(self, qtbot):
+        dialog = StageModelPickerDialog(PipelineStage.TAGS, [GPT4O], available_providers={"openai"})
+        qtbot.addWidget(dialog)
+        texts = self._texts(dialog)
+        assert any("gpt-4o" in t and "● API ready" in t for t in texts)
+
+    def test_api_model_without_key_shows_needs_key_and_not_checkable(self, qtbot):
+        dialog = StageModelPickerDialog(
+            PipelineStage.TAGS, [GPT4O, NO_PRICE_API], available_providers={"openai"}
+        )
+        qtbot.addWidget(dialog)
+        candidate_list = _candidate_list(dialog)
+        texts = self._texts(dialog)
+        assert any("claude-x" in t and "○ needs key" in t for t in texts)
+        # needs key 行 (anthropic) はチェック不可、API ready 行 (openai) はチェック可
+        for i in range(candidate_list.count()):
+            item = candidate_list.item(i)
+            if "claude-x" in item.text():
+                assert not (item.flags() & Qt.ItemFlag.ItemIsUserCheckable)
+            else:
+                assert item.flags() & Qt.ItemFlag.ItemIsUserCheckable
+
+    def test_default_none_available_providers_treats_all_api_ready(self, qtbot):
+        """後方互換: available_providers 未指定では needs key を出さない。"""
+        dialog = StageModelPickerDialog(PipelineStage.TAGS, [GPT4O, NO_PRICE_API])
+        qtbot.addWidget(dialog)
+        texts = self._texts(dialog)
+        assert all("○ needs key" not in t for t in texts)
+
+    def test_needs_key_item_click_emits_configure_key_requested(self, qtbot):
+        dialog = StageModelPickerDialog(PipelineStage.TAGS, [NO_PRICE_API], available_providers=set())
+        qtbot.addWidget(dialog)
+        candidate_list = _candidate_list(dialog)
+        item = candidate_list.item(0)
+        with qtbot.waitSignal(dialog.configure_key_requested, timeout=1000) as blocker:
+            candidate_list.itemClicked.emit(item)
+        assert blocker.args == ["anthropic"]
+
+    def test_ready_item_click_does_not_emit_signal(self, qtbot):
+        dialog = StageModelPickerDialog(PipelineStage.TAGS, [GPT4O], available_providers={"openai"})
+        qtbot.addWidget(dialog)
+        candidate_list = _candidate_list(dialog)
+        emitted: list[str] = []
+        dialog.configure_key_requested.connect(emitted.append)
+        candidate_list.itemClicked.emit(candidate_list.item(0))
+        assert emitted == []
+
+    def test_refresh_key_status_resolves_needs_key_to_api_ready(self, qtbot):
+        """キー保存後の refresh で ○ needs key → ● API ready に解消され、選択可能になる。"""
+        dialog = StageModelPickerDialog(PipelineStage.TAGS, [NO_PRICE_API], available_providers=set())
+        qtbot.addWidget(dialog)
+        candidate_list = _candidate_list(dialog)
+        item = candidate_list.item(0)
+        assert "○ needs key" in item.text()
+
+        dialog.refresh_key_status({"anthropic"})
+
+        assert "● API ready" in item.text()
+        assert "○ needs key" not in item.text()
+        assert item.flags() & Qt.ItemFlag.ItemIsUserCheckable
+        item.setCheckState(Qt.CheckState.Checked)
+        assert dialog.selected_model_ids() == ["anthropic/claude-x"]
+
+    def test_refresh_key_status_preserves_checked_state(self, qtbot):
+        """refresh はチェック済み行の選択状態を維持する。"""
+        dialog = StageModelPickerDialog(
+            PipelineStage.TAGS, [GPT4O, NO_PRICE_API], available_providers={"openai"}
+        )
+        qtbot.addWidget(dialog)
+        candidate_list = _candidate_list(dialog)
+        for i in range(candidate_list.count()):
+            if "gpt-4o" in candidate_list.item(i).text():
+                candidate_list.item(i).setCheckState(Qt.CheckState.Checked)
+
+        dialog.refresh_key_status({"openai", "anthropic"})
+
+        assert dialog.selected_model_ids() == ["openai/gpt-4o"]

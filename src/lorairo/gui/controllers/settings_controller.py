@@ -53,10 +53,15 @@ class SettingsController:
 
         return True
 
-    def open_settings_dialog(self) -> bool:
+    def open_settings_dialog(self, highlight_provider: str | None = None) -> bool:
         """設定ダイアログを開く
 
         ConfigurationServiceを使用して設定ダイアログを表示します。
+
+        Args:
+            highlight_provider: 指定すると該当 provider の API キー欄を
+                ハイライト・フォーカスした状態で開く (Issue #755: モデルピッカーの
+                ``○ needs key`` チップからの往復導線)。
 
         Returns:
             bool: ユーザーが OK で確定し設定が保存された場合 True、
@@ -77,6 +82,8 @@ class SettingsController:
             assert self.config_service is not None  # _validate_services()で検証済み
             dialog = ConfigurationWindow(config_service=self.config_service, parent=self.parent)
             dialog.setModal(True)
+            if highlight_provider:
+                dialog.focus_api_key_field(highlight_provider)
             result = dialog.exec()
 
             if result == QDialog.DialogCode.Accepted:

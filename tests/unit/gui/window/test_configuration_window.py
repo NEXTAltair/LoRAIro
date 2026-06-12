@@ -8,7 +8,7 @@ from io import StringIO
 from unittest.mock import MagicMock, patch
 
 import pytest
-from PySide6.QtWidgets import QComboBox, QLineEdit, QMessageBox, QTabWidget
+from PySide6.QtWidgets import QComboBox, QLabel, QLineEdit, QMessageBox, QTabWidget
 
 from lorairo.gui.window.configuration_window import ConfigurationWindow
 from lorairo.services.configuration_service import ConfigurationService
@@ -74,17 +74,38 @@ class TestConfigurationWindow:
         assert tab_widget.tabText(0) == "基本設定"
         assert tab_widget.tabText(1) == "詳細設定"
 
-    def test_populate_sets_api_keys(self, dialog: ConfigurationWindow) -> None:
-        """APIキーがUIに反映される。"""
-        openai = dialog.findChild(QLineEdit, "lineEditOpenAiKey")
-        google = dialog.findChild(QLineEdit, "lineEditGoogleKey")
-        claude = dialog.findChild(QLineEdit, "lineEditClaudeKey")
-        assert openai is not None
-        assert openai.text() == "sk-test-openai"
-        assert google is not None
-        assert google.text() == "google-test-key"
-        assert claude is not None
-        assert claude.text() == "claude-test-key"
+    def test_populate_does_not_echo_saved_api_keys(self, dialog: ConfigurationWindow) -> None:
+        """Issue #755: 保存済キーは欄に echo back せず「保存済」ステータスのみ表示する。"""
+        for object_name in ("lineEditOpenAiKey", "lineEditGoogleKey", "lineEditClaudeKey"):
+            key_edit = dialog.findChild(QLineEdit, object_name)
+            assert key_edit is not None
+            assert key_edit.text() == ""
+            assert key_edit.placeholderText() == "保存済（変更する場合のみ入力）"
+            status = dialog.findChild(QLabel, f"{object_name}Status")
+            assert status is not None
+            assert status.text() == "保存済"
+
+    def test_unset_api_key_shows_unset_status(self, dialog: ConfigurationWindow) -> None:
+        """Issue #755: 未設定キー (openrouter) は「未設定」ステータスを表示する。"""
+        key_edit = dialog.findChild(QLineEdit, "lineEditOpenRouterKey")
+        assert key_edit is not None
+        assert key_edit.text() == ""
+        assert key_edit.placeholderText() == "未設定"
+        status = dialog.findChild(QLabel, "lineEditOpenRouterKeyStatus")
+        assert status is not None
+        assert status.text() == "未設定"
+
+    def test_api_keys_masked_with_password_echo(self, dialog: ConfigurationWindow) -> None:
+        """Issue #755: 全 API キー欄はマスク入力 (表示切替なし)。"""
+        for object_name in (
+            "lineEditOpenAiKey",
+            "lineEditGoogleKey",
+            "lineEditClaudeKey",
+            "lineEditOpenRouterKey",
+        ):
+            key_edit = dialog.findChild(QLineEdit, object_name)
+            assert key_edit is not None
+            assert key_edit.echoMode() == QLineEdit.EchoMode.Password
 
     def test_populate_sets_log_level(self, dialog: ConfigurationWindow) -> None:
         """ログレベルが選択される。"""
@@ -112,13 +133,41 @@ class TestConfigurationWindow:
         assert set(settings.keys()) == expected_sections
 
     def test_populate_and_collect_roundtrip(self, dialog: ConfigurationWindow) -> None:
-        """populate→collectで値が保持される。"""
+        """populate→collectで値が保持される (Issue #755: 空欄 = 保存済キー維持)。"""
         settings = dialog._collect_settings()
         assert settings["api"]["openai_key"] == "sk-test-openai"
         assert settings["api"]["google_key"] == "google-test-key"
         assert settings["api"]["claude_key"] == "claude-test-key"
         assert settings["log"]["level"] == "WARNING"
         assert settings["prompts"]["additional"] == "test prompt text"
+
+    def test_collect_uses_typed_api_key_when_entered(self, dialog: ConfigurationWindow) -> None:
+        """Issue #755: 入力した新キーは保存済の値を上書きする。"""
+        key_edit = dialog.findChild(QLineEdit, "lineEditClaudeKey")
+        assert key_edit is not None
+        key_edit.setText("  sk-new-claude-key  ")
+        settings = dialog._collect_settings()
+        assert settings["api"]["claude_key"] == "sk-new-claude-key"
+        # 触っていない欄は保存済の値を維持
+        assert settings["api"]["openai_key"] == "sk-test-openai"
+
+    def test_focus_api_key_field_highlights_provider_row(self, dialog: ConfigurationWindow) -> None:
+        """Issue #755: needs key 導線で該当プロバイダ欄をハイライトする。"""
+        # 詳細設定タブへ移しておき、基本設定タブへ戻ることを検証
+        tab_widget = dialog.findChild(QTabWidget)
+        assert tab_widget is not None
+        tab_widget.setCurrentIndex(1)
+
+        assert dialog.focus_api_key_field("anthropic") is True
+
+        assert tab_widget.currentIndex() == 0
+        key_edit = dialog.findChild(QLineEdit, "lineEditClaudeKey")
+        assert key_edit is not None
+        assert "#FF9800" in key_edit.styleSheet()
+
+    def test_focus_api_key_field_unknown_provider_returns_false(self, dialog: ConfigurationWindow) -> None:
+        """未知 provider は False を返し例外を出さない。"""
+        assert dialog.focus_api_key_field("xai") is False
 
     def test_ok_saves_and_accepts(
         self, dialog: ConfigurationWindow, config_service: MagicMock, qtbot
