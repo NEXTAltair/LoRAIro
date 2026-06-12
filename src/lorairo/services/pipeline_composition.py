@@ -54,6 +54,10 @@ class StageModelInfo:
         is_api: WebAPI モデルなら True、ローカル ML なら False。
         capabilities: model_types 由来の capability 名集合
             ({"tags", "caption", "scores", "ratings", "multimodal"} の部分集合)。
+        input_cost_per_token: LiteLLM 由来の input トークン単価 (USD/token)。
+            ローカル ML / pricing 未取得の API モデルは None (Issue #747)。
+        output_cost_per_token: LiteLLM 由来の output トークン単価 (USD/token)。
+            ローカル ML / pricing 未取得の API モデルは None (Issue #747)。
     """
 
     litellm_model_id: str
@@ -61,6 +65,8 @@ class StageModelInfo:
     provider: str | None
     is_api: bool
     capabilities: frozenset[str]
+    input_cost_per_token: float | None = None
+    output_cost_per_token: float | None = None
 
     @property
     def is_multimodal(self) -> bool:

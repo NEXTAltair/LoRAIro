@@ -723,6 +723,7 @@ class MainWindow(QMainWindow, Ui_MainWindow):
         service = getattr(model_widget, "model_selection_service", None)
         all_models = service.load_models() if service is not None else []
         models_by_id = {m.litellm_model_id: m for m in all_models}
+        cost_by_id = self._build_cost_map()
 
         infos: list[StageModelInfo] = []
         for litellm_id in selected_ids:
@@ -732,6 +733,7 @@ class MainWindow(QMainWindow, Ui_MainWindow):
                 continue
             provider = model.provider
             is_api = bool(provider) and provider.lower() != "local"
+            input_cost, output_cost = cost_by_id.get(litellm_id, (None, None))
             infos.append(
                 StageModelInfo(
                     litellm_model_id=litellm_id,
@@ -739,9 +741,38 @@ class MainWindow(QMainWindow, Ui_MainWindow):
                     provider=provider,
                     is_api=is_api,
                     capabilities=frozenset(str(c) for c in model.capabilities),
+                    input_cost_per_token=input_cost,
+                    output_cost_per_token=output_cost,
                 )
             )
         return infos
+
+    def _build_cost_map(self) -> dict[str, tuple[float | None, float | None]]:
+        """litellm_model_id → (input単価, output単価) のコストマップを構築する。
+
+        image-annotator-lib の ``list_annotator_info()`` から実行時に pricing を取得する
+        (Issue #747: litellm pricing は DB 保存せず on-demand)。取得失敗時は空マップを
+        返してコスト表示なしで続行する (best-effort、アノテーション機能はブロックしない)。
+
+        Returns:
+            litellm_model_id をキーとした (input_cost_per_token, output_cost_per_token)。
+        """
+        adapter = getattr(self.service_container, "annotator_library", None)
+        if adapter is None:
+            return {}
+        cost_map: dict[str, tuple[float | None, float | None]] = {}
+        try:
+            for info in adapter.list_annotator_info():
+                if info.litellm_model_id is None:
+                    continue
+                cost_map[info.litellm_model_id] = (
+                    info.input_cost_per_token,
+                    info.output_cost_per_token,
+                )
+        except (TypeError, AttributeError, RuntimeError):
+            logger.warning("コスト概算用の AnnotatorInfo 取得に失敗。コスト表示なしで続行", exc_info=True)
+            return {}
+        return cost_map
 
     def _on_pipeline_add_model_requested(self, stage_value: str) -> None:
         """ステージ行の「+ 追加」でピッカーを開き、選択モデル集合へ追加する (Phase 6b)。

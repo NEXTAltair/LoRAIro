@@ -17,6 +17,15 @@ GPT4O = StageModelInfo(
     provider="openai",
     is_api=True,
     capabilities=frozenset({"multimodal", "caption", "tags", "scores"}),
+    input_cost_per_token=2.5e-06,
+    output_cost_per_token=1.0e-05,
+)
+NO_PRICE_API = StageModelInfo(
+    litellm_model_id="anthropic/claude-x",
+    display_name="claude-x",
+    provider="anthropic",
+    is_api=True,
+    capabilities=frozenset({"tags"}),
 )
 WD_TAGGER = StageModelInfo(
     litellm_model_id="wd-v1-4-tagger",
@@ -65,6 +74,18 @@ class TestStageModelPickerDialogRendering:
         assert "preflight" in multimodal_texts[0]
         local_texts = [text for text in texts if "wd-v1-4-tagger" in text]
         assert "1推論で" not in local_texts[0]
+
+    def test_candidate_cards_show_per_image_cost(self, qtbot):
+        dialog = StageModelPickerDialog(PipelineStage.TAGS, [GPT4O, WD_TAGGER, NO_PRICE_API])
+        qtbot.addWidget(dialog)
+        candidate_list = _candidate_list(dialog)
+        texts = [candidate_list.item(i).text() for i in range(candidate_list.count())]
+        # GPT4O per-image = 1500*2.5e-6 + 400*1e-5 = 0.00775 → $0.0077/img (.4f 丸め)
+        assert any("gpt-4o" in t and "$0.0077/img" in t for t in texts)
+        # ローカルは無料表記
+        assert any("wd-v1-4-tagger" in t and "ローカル（無料）" in t for t in texts)
+        # pricing 未取得の API モデルは "—"
+        assert any("claude-x" in t and "—" in t for t in texts)
 
     def test_items_are_user_checkable_and_initially_unchecked(self, qtbot):
         dialog = StageModelPickerDialog(PipelineStage.TAGS, [GPT4O, WD_TAGGER])

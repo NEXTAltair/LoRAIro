@@ -19,10 +19,16 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from lorairo.services.cost_estimation_service import (
+    CostEstimationService,
+    format_per_image_cost,
+)
 from lorairo.services.pipeline_composition import PipelineStage, StageModelInfo
 
 _EMPTY_CANDIDATES_TEXT = "このステージに追加できる未選択モデルがありません"
 _MULTIMODAL_NOTE = "· 1推論で T C S（R は preflight 由来）"
+
+_cost_service = CostEstimationService()
 
 
 class StageModelPickerDialog(QDialog):
@@ -76,9 +82,10 @@ class StageModelPickerDialog(QDialog):
 
     @staticmethod
     def _candidate_text(info: StageModelInfo) -> str:
-        """候補 1 件分の表示テキストを返す。"""
+        """候補 1 件分の表示テキストを返す (Issue #747: コストをカード直載せ)。"""
         origin = f"API: {info.provider}" if info.is_api else "ローカル"
-        text = f"{info.display_name}（{origin}）"
+        cost = format_per_image_cost(_cost_service.per_image_usd(info), info.is_api)
+        text = f"{info.display_name}（{origin}）· {cost}"
         if info.is_multimodal:
             text += f" {_MULTIMODAL_NOTE}"
         return text
