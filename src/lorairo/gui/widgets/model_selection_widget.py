@@ -415,6 +415,10 @@ if not __name__ == "__main__":
                 logger.trace("モデル表示は前回と同一のため再構築をスキップ")
                 return
 
+            # Issue #755 (Codex review): 再構築前の選択状態を保持し、API キー保存等による
+            # availability 変化の rebuild でチェック済みモデルが silent に消えるのを防ぐ
+            previously_selected = self.get_selected_models()
+
             # 現在の表示をクリアして再構築
             self._clear_model_display()
             self.filtered_options = options
@@ -440,6 +444,18 @@ if not __name__ == "__main__":
             for provider, group_options in provider_groups.items():
                 if group_options:
                     self._add_provider_group(provider, group_options)
+
+            # 再構築後も表示中のモデルはチェック状態を復元する (単一選択モードの
+            # 不変条件は set_selected_models 側で強制される)。needs key 化した行は
+            # 選択不可のため復元対象から外す。
+            restorable = [
+                litellm_model_id
+                for litellm_model_id in previously_selected
+                if (widget := self.model_checkbox_widgets.get(litellm_model_id)) is not None
+                and widget.is_selectable()
+            ]
+            if restorable:
+                self.set_selected_models(restorable)
 
             self._update_selection_count()
             self._last_render_signature = signature
@@ -850,6 +866,9 @@ if not __name__ == "__main__":
             """
             seen: set[str] = set()
             batch_options: list[tuple[str, str, ModelInfo]] = []
+            # Issue #755 (Codex review): batch 行にも API key 設定状況を反映し、
+            # キー未設定 provider のモデルが ● API ready と誤表示されるのを防ぐ
+            available_providers = self._build_available_providers()
 
             for raw in raw_models:
                 litellm_id = litellm_id_from_batch_model(raw)
@@ -879,6 +898,7 @@ if not __name__ == "__main__":
                     is_local=not getattr(model, "requires_api_key", True),
                     requires_api_key=getattr(model, "requires_api_key", True),
                     route="direct",
+                    available=provider in available_providers,
                 )
                 batch_options.append((provider, direct_id, model_info))
 

@@ -1990,7 +1990,16 @@ class MainWindow(QMainWindow, Ui_MainWindow):
 
         Issue #249: route_preference 等の保存値を即時反映。
         Issue #755: API キー保存による ● API ready / ○ needs key の更新もここで行う。
+        MainWindow.config_service と ServiceContainer.config_service は別インスタンス
+        (Codex review PR #757) のため、container 側を破棄して保存済みファイルから
+        再読込させてから widget を更新する (widget は container 側を参照する)。
         """
+        try:
+            container = get_service_container()
+            del container.config_service
+        except (RuntimeError, AttributeError) as e:
+            logger.warning(f"ServiceContainer の config_service 再読込に失敗 (継続可): {e}")
+
         batch_widget = getattr(self, "batchModelSelection", None)
         if batch_widget is None:
             return

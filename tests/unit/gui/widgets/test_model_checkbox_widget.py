@@ -83,13 +83,17 @@ class TestModelCheckboxWidget:
     def test_api_model_available_shows_api_ready_status(self, widget_openai):
         """Issue #755: available な API モデルは ● API ready を表示する。"""
         assert widget_openai.labelStatus.text() == "● API ready"
+        assert widget_openai.checkboxModel.isEnabled()
+        assert widget_openai.is_selectable() is True
 
     def test_local_model_shows_installed_status(self, widget_local):
         """Issue #755: ローカルモデルは ● installed を表示する。"""
         assert widget_local.labelStatus.text() == "● installed"
+        assert widget_local.checkboxModel.isEnabled()
+        assert widget_local.is_selectable() is True
 
     def test_api_model_unavailable_shows_needs_key_status(self, qtbot):
-        """Issue #755: API key 未設定の API モデルは ○ needs key を表示する。"""
+        """Issue #755: API key 未設定の API モデルは ○ needs key を表示し選択不可。"""
         info = ModelInfo(
             name="claude-3-sonnet",
             provider="anthropic",
@@ -103,6 +107,9 @@ class TestModelCheckboxWidget:
         qtbot.addWidget(widget)
         assert widget.labelStatus.text() == "○ needs key"
         assert "API キー未設定" in widget.labelStatus.toolTip()
+        # Codex review (PR #757): 実行不能モデルはチェック不可
+        assert not widget.checkboxModel.isEnabled()
+        assert widget.is_selectable() is False
 
     def test_model_name_display(self, widget_openai):
         """モデル名表示テスト (Issue #245: ラベルは "{name} ({provider})" 形式)"""

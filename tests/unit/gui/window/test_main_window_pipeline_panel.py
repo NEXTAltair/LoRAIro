@@ -337,6 +337,36 @@ class TestPickerConfigureKeyRoundTrip:
 
         dialog.refresh_key_status.assert_not_called()
 
+    def test_reload_after_settings_resets_container_config_service(self, monkeypatch):
+        """Codex review (PR #757): container 側 config_service を破棄して保存値を再読込させる。
+
+        MainWindow.config_service と ServiceContainer.config_service は別インスタンス
+        のため、保存後に container 側を破棄しないと widget が stale なキー状況を見る。
+        """
+        from lorairo.gui.window import main_window as main_window_module
+        from lorairo.gui.window.main_window import MainWindow
+
+        class _StubContainer:
+            def __init__(self) -> None:
+                self.config_deleted = False
+
+            @property
+            def config_service(self) -> Mock:
+                return Mock()
+
+            @config_service.deleter
+            def config_service(self) -> None:
+                self.config_deleted = True
+
+        container = _StubContainer()
+        monkeypatch.setattr(main_window_module, "get_service_container", lambda: container)
+        mock_window = Mock()
+
+        MainWindow._reload_model_widget_after_settings(mock_window)
+
+        assert container.config_deleted is True
+        mock_window.batchModelSelection.update_model_display.assert_called_once_with()
+
 
 @pytest.mark.unit
 class TestAvailableApiProviders:

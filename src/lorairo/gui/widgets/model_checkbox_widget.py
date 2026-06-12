@@ -188,14 +188,19 @@ class ModelCheckboxWidget(QWidget, Ui_ModelCheckboxWidget):
             self.labelStatus.setText(STATUS_INSTALLED)
             self.labelStatus.setStyleSheet(_STATUS_READY_STYLE)
             self.labelStatus.setToolTip("")
+            self.checkboxModel.setEnabled(True)
         elif self.model_info.available:
             self.labelStatus.setText(STATUS_API_READY)
             self.labelStatus.setStyleSheet(_STATUS_READY_STYLE)
             self.labelStatus.setToolTip("")
+            self.checkboxModel.setEnabled(True)
         else:
             self.labelStatus.setText(STATUS_NEEDS_KEY)
             self.labelStatus.setStyleSheet(_STATUS_NEEDS_KEY_STYLE)
             self.labelStatus.setToolTip(_NEEDS_KEY_TOOLTIP)
+            # Codex review (PR #757): 実行不能モデルの選択を入口で防ぐ
+            # (選択後の _validate_api_keys_for_models での実行時失敗より UX が良い)
+            self.checkboxModel.setEnabled(False)
 
     @staticmethod
     def _format_route_tooltip(route: str) -> str:
@@ -256,6 +261,10 @@ class ModelCheckboxWidget(QWidget, Ui_ModelCheckboxWidget):
     def is_selected(self) -> bool:
         """チェックボックスの選択状態を取得"""
         return self.checkboxModel.isChecked()
+
+    def is_selectable(self) -> bool:
+        """ユーザーが選択可能か (Issue #755: needs key 行は選択不可)。"""
+        return self.model_info.is_local or self.model_info.available
 
     def get_model_name(self) -> str:
         """モデルの表示名を取得 (Issue #245: 内部キーは get_model_litellm_id() を使用)"""
