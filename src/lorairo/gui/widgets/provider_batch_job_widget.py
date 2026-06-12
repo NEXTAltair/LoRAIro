@@ -18,9 +18,10 @@ from dataclasses import dataclass
 from typing import Any, cast
 
 from PySide6.QtCore import QObject, QPoint, Qt, QThread, Signal, Slot
-from PySide6.QtGui import QAction
+from PySide6.QtGui import QAction, QColor
 from PySide6.QtWidgets import QMenu, QMessageBox, QTableWidget, QTableWidgetItem, QWidget
 
+from lorairo.gui import theme
 from lorairo.gui.designer.ProviderBatchJobWidget_ui import Ui_ProviderBatchJobWidget
 from lorairo.gui.widgets.model_selection_widget import ModelSelectionWidget
 from lorairo.gui.widgets.staging_widget import StagingWidget
@@ -273,7 +274,7 @@ class ProviderBatchJobWidget(QWidget, Ui_ProviderBatchJobWidget):
         if busy:
             self.buttonSubmit.setText("送信中...")
             self.buttonSubmit.setStyleSheet(
-                "QPushButton { background-color: #2f7de1; color: white; font-weight: bold; }"
+                f"QPushButton {{ background-color: {theme.INFO}; color: white; font-weight: bold; }}"
             )
             return
         self.buttonSubmit.setText(self._submit_button_default_text)
@@ -411,9 +412,13 @@ class ProviderBatchJobWidget(QWidget, Ui_ProviderBatchJobWidget):
                 str(getattr(job, "provider_status", "") or ""),
                 str(getattr(job, "request_count", 0)),
             ]
+            status_color = QColor(theme.job_status_color(values[2]))
             for column, value in enumerate(values):
                 item = QTableWidgetItem(value)
                 item.setData(Qt.ItemDataRole.UserRole, job_id)
+                # Theme v1 (Issue #760): 状態列をトークン色で表示 (実行中=info/完了=ok/失敗=err)
+                if column in (2, 3):
+                    item.setForeground(status_color)
                 self.tableJobs.setItem(row, column, item)
         if update_label:
             self.labelStatus.setText(f"バッチAPIジョブ {len(jobs)} 件を読み込みました")

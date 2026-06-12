@@ -31,6 +31,7 @@ from PySide6.QtWidgets import QScrollArea, QWidget
 from ...gui.designer.FilterSearchPanel_ui import Ui_FilterSearchPanel
 from ...gui.services.operation_events import OperationOutcome, OperationType, WorkerOperationEvent
 from ...utils.log import logger
+from .. import theme
 from .custom_range_slider import CustomRangeSlider
 from .filter_search import (
     CountEstimateWidget,
@@ -216,7 +217,7 @@ class FilterSearchPanel(QScrollArea):
 
         # ステータスラベル
         self._status_label = QLabel()
-        self._status_label.setStyleSheet("color: #e74c3c; font-size: 11px;")
+        self._status_label.setStyleSheet(f"color: {theme.ERR}; font-size: 11px;")
         self._status_label.setVisible(False)
 
         # 進捗表示レイアウト

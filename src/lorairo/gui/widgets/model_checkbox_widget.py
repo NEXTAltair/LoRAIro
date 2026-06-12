@@ -16,6 +16,7 @@ from dataclasses import dataclass, field
 from PySide6.QtCore import Qt, Signal, Slot
 from PySide6.QtWidgets import QLabel, QWidget
 
+from ...gui import theme
 from ...gui.designer.ModelCheckboxWidget_ui import Ui_ModelCheckboxWidget
 from ...utils.log import logger
 
@@ -51,57 +52,22 @@ class ModelInfo:
     available: bool = True
 
 
-# プロバイダー別スタイル定義（PySide6パレット機能でダークモード自動対応）
-# palette()関数で背景色・文字色はシステム自動調整、ボーダーで視覚的区別
+# プロバイダー別スタイル定義 (Theme v1: mock .badge-type の中立バッジに統一。
+# キー構成は従来 API 互換のため維持し、dynamic property "provider" で将来の差別化に備える)
 PROVIDER_STYLES = {
-    "local": """QLabel {
-        background-color: palette(button);
-        color: palette(button-text);
-        border: 2px solid #4CAF50;
-        border-radius: 9px;
-        padding: 1px 4px;
-        font-weight: 500;
-    }""",
-    "openai": """QLabel {
-        background-color: palette(button);
-        color: palette(button-text);
-        border: 2px solid #2196F3;
-        border-radius: 9px;
-        padding: 1px 4px;
-        font-weight: 500;
-    }""",
-    "anthropic": """QLabel {
-        background-color: palette(button);
-        color: palette(button-text);
-        border: 2px solid #FF9800;
-        border-radius: 9px;
-        padding: 1px 4px;
-        font-weight: 500;
-    }""",
-    "google": """QLabel {
-        background-color: palette(button);
-        color: palette(button-text);
-        border: 2px solid #9C27B0;
-        border-radius: 9px;
-        padding: 1px 4px;
-        font-weight: 500;
-    }""",
-    "default": """QLabel {
-        background-color: palette(button);
-        color: palette(button-text);
-        border: 2px solid palette(mid);
-        border-radius: 9px;
-        padding: 1px 4px;
-        font-weight: 500;
-    }""",
+    "local": theme.badge_qss(),
+    "openai": theme.badge_qss(),
+    "anthropic": theme.badge_qss(),
+    "google": theme.badge_qss(),
+    "default": theme.badge_qss(),
 }
 
 # Issue #755: Wireframes v11 のモデルステータス表現 (● installed / ● API ready / ○ needs key)
 STATUS_INSTALLED = "● installed"
 STATUS_API_READY = "● API ready"
 STATUS_NEEDS_KEY = "○ needs key"
-_STATUS_READY_STYLE = "QLabel { color: #2E7D32; }"
-_STATUS_NEEDS_KEY_STYLE = "QLabel { color: #E65100; }"
+_STATUS_READY_STYLE = theme.chip_qss("ok")
+_STATUS_NEEDS_KEY_STYLE = theme.chip_qss("warn")
 _NEEDS_KEY_TOOLTIP = "API キー未設定のため実行できません。⚙ 設定の該当プロバイダ欄でキーを保存すると ● API ready になります。"
 
 

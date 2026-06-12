@@ -23,6 +23,7 @@ from PySide6.QtWidgets import (
 
 from ...gui.designer.ThumbnailSelectorWidget_ui import Ui_ThumbnailSelectorWidget
 from ...utils.log import logger
+from .. import theme
 from ..cache.thumbnail_page_cache import ThumbnailPageCache
 from ..state.dataset_state import DatasetStateManager
 from ..state.pagination_state import PaginationStateManager
@@ -288,9 +289,7 @@ class ThumbnailSelectorWidget(QWidget, Ui_ThumbnailSelectorWidget):
         # ページロード中オーバーレイ（新ページ確定まで旧ページ表示維持）
         self.loading_overlay = QLabel("読み込み中...", self.graphics_view.viewport())
         self.loading_overlay.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.loading_overlay.setStyleSheet(
-            "background-color: rgba(0, 0, 0, 120); color: white; font-weight: bold;"
-        )
+        self.loading_overlay.setStyleSheet(theme.LOADING_OVERLAY_QSS)
         self.loading_overlay.hide()
 
         # リサイズ用のタイマーを初期化
