@@ -13,6 +13,24 @@ from datetime import UTC, datetime, timedelta
 from enum import Enum
 
 
+def _to_aware_utc(dt: datetime) -> datetime:
+    """naive datetime を UTC とみなして aware に揃える。
+
+    SQLite は TIMESTAMP の timezone を保持しないため、DB から読み戻した
+    datetime は naive で返る。aware な閾値との比較で TypeError になるのを防ぐ。
+    既に aware の場合はそのまま返す。
+
+    Args:
+        dt: 正規化対象の datetime (naive または aware)。
+
+    Returns:
+        UTC tzinfo を持つ aware datetime。
+    """
+    if dt.tzinfo is None:
+        return dt.replace(tzinfo=UTC)
+    return dt
+
+
 class ErrorStatusFilter(Enum):
     """status クロスフィルタの 3 値。"""
 
@@ -162,8 +180,12 @@ class ErrorTriageService:
         resolved = total - unresolved
 
         # last_24h: created_at >= now(UTC)-24h (created_at None は除外)
+        # SQLite は TIMESTAMP の tz を保持しないため DB 由来の created_at は naive で返る。
+        # func.now() (= CURRENT_TIMESTAMP) は UTC なので naive を UTC とみなして aware に揃える。
         threshold = datetime.now(UTC) - timedelta(hours=24)
-        last_24h = sum(1 for r in rows if r.created_at is not None and r.created_at >= threshold)
+        last_24h = sum(
+            1 for r in rows if r.created_at is not None and _to_aware_utc(r.created_at) >= threshold
+        )
 
         # by_error_type: 未解決行の error_type ごと件数
         by_error_type: dict[str, int] = {}

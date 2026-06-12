@@ -236,6 +236,33 @@ class TestSummarize:
         summary = service.summarize(rows)
         assert summary.last_24h == 2
 
+    def test_last_24h_with_naive_created_at(self, service: ErrorTriageService) -> None:
+        """naive な created_at (SQLite 由来) でも TypeError にならず正しく集計する。
+
+        リグレッション (Issue #748): SQLite は TIMESTAMP の tz を保持しないため
+        DB から読み戻した created_at は naive。aware な閾値との比較で
+        ``can't compare offset-naive and offset-aware datetimes`` が出ていた。
+        """
+        now_naive = datetime.now(UTC).replace(tzinfo=None)
+        rows = [
+            _row(1, created_at=now_naive),  # 含む (naive)
+            _row(2, created_at=now_naive - timedelta(hours=23)),  # 含む (naive)
+            _row(3, created_at=now_naive - timedelta(hours=25)),  # 除外 (naive)
+        ]
+        summary = service.summarize(rows)
+        assert summary.last_24h == 2
+
+    def test_last_24h_mixed_naive_and_aware(self, service: ErrorTriageService) -> None:
+        """naive と aware が混在しても比較できる。"""
+        now = datetime.now(UTC)
+        rows = [
+            _row(1, created_at=now),  # aware, 含む
+            _row(2, created_at=now.replace(tzinfo=None) - timedelta(hours=1)),  # naive, 含む
+            _row(3, created_at=now.replace(tzinfo=None) - timedelta(hours=30)),  # naive, 除外
+        ]
+        summary = service.summarize(rows)
+        assert summary.last_24h == 2
+
     def test_empty_input(self, service: ErrorTriageService) -> None:
         summary = service.summarize([])
         assert summary.total == 0
