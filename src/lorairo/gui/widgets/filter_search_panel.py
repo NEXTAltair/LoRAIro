@@ -544,7 +544,7 @@ class FilterSearchPanel(QScrollArea):
 
     def hide_progress_after_completion(self) -> None:
         """パイプライン完全完了後にプログレスバーを非表示にする。"""
-        logger.debug("Progress hiding delegated to ModernProgressManager (pipeline completion)")
+        logger.debug("Progress hiding (pipeline completion; statusbar 通知に集約済み)")
         if hasattr(self, "progress_bar") and self.progress_bar:
             self.progress_bar.setVisible(False)
 
@@ -981,15 +981,15 @@ class FilterSearchPanel(QScrollArea):
         self._on_clear_requested()
 
     def update_pipeline_progress(self, message: str, current_progress: float, end_progress: float) -> None:
-        """Pipeline 進捗表示の更新 (ModernProgressManager に移行済みのため無効化)。"""
+        """Pipeline 進捗表示の更新 (statusbar 通知へ移行済みのため無効化)。"""
         del end_progress
         logger.trace(
-            f"Progress update delegated to ModernProgressManager: {message} ({current_progress * 100:.1f}%)",
+            f"Progress update delegated to statusbar: {message} ({current_progress * 100:.1f}%)",
         )
 
         if hasattr(self, "progress_bar") and self.progress_bar and self.progress_bar.isVisible():
             self.progress_bar.setVisible(False)
-            logger.debug("Inline progress bar hidden - using popup progress display")
+            logger.debug("Inline progress bar hidden - statusbar 通知を使用")
 
     def handle_pipeline_error(self, phase: str, error_info: dict[str, Any]) -> None:
         """Pipeline エラー処理。"""

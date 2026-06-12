@@ -188,6 +188,44 @@ class TestMainWindowTabInitialization:
         assert tab_widget.widget(tab_widget.indexOf(provider_batch_tab)) is provider_batch_tab
 
 
+class TestJobsTabSyncLedgerWiring:
+    """ADR 0066: Jobs タブと WorkerService 同期ジョブ台帳の配線テスト"""
+
+    def test_job_ledger_changed_refreshes_sync_jobs_table(self, main_window_with_tabs):
+        """job_ledger_changed シグナルで Jobs タブの同期ジョブテーブルが更新される"""
+        window = main_window_with_tabs
+        table = window.provider_batch_job_widget.get_sync_jobs_widget().tableSyncJobs
+        assert table.rowCount() == 0
+
+        window.worker_service.job_ledger.register("annotation_wiring", "annotation", "アノテーション処理")
+        window.worker_service.job_ledger_changed.emit()
+
+        assert table.rowCount() == 1
+        assert table.item(0, 1).text() == "アノテーション処理"
+        assert table.item(0, 2).text() == "実行中"
+
+    def test_sync_job_cancel_routes_to_worker_service(self, main_window_with_tabs):
+        """Jobs 行のキャンセル要求が WorkerService.cancel_job へ委譲される (ADR 0066 §4)"""
+        window = main_window_with_tabs
+        cancel_mock = Mock(return_value=True)
+        window.worker_service.cancel_job = cancel_mock
+
+        window.provider_batch_job_widget.sync_job_cancel_requested.emit("annotation_busy")
+
+        cancel_mock.assert_called_once_with("annotation_busy")
+        assert "annotation_busy" in window.statusBar().currentMessage()
+
+    def test_sync_job_started_shows_statusbar_notification(self, main_window_with_tabs):
+        """同期ジョブ開始時は statusbar 通知のみ (自動タブ遷移はしない、ADR 0066 §4)"""
+        window = main_window_with_tabs
+        current_index = window.tabWidgetMainMode.currentIndex()
+
+        window.worker_service.enhanced_annotation_started.emit("annotation_started")
+
+        assert "ジョブタブ" in window.statusBar().currentMessage()
+        assert window.tabWidgetMainMode.currentIndex() == current_index
+
+
 class TestTabSwitching:
     """タブ切り替えテスト"""
 

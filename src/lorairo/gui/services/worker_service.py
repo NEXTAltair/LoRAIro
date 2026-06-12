@@ -1,29 +1,46 @@
 # src/lorairo/services/worker_service.py
 
 import uuid
+from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, cast
+from typing import Any
 
 from PIL.Image import Image
 from PySide6.QtCore import QObject, QSize, Signal
-from PySide6.QtWidgets import QWidget
 
 from ...annotations.annotation_logic import AnnotationLogic
 from ...annotations.annotator_adapter import AnnotatorLibraryAdapter
 from ...database.db_manager import ImageDatabaseManager
 from ...services.configuration_service import ConfigurationService
+from ...services.job_ledger_service import JobLedgerService, JobStatus
+from ...services.model_registry_protocol import selection_includes_local_ml_model
 from ...services.search_models import SearchConditions
 from ...services.service_container import get_service_container
 from ...storage.file_system import FileSystemManager
 from ...utils.log import logger
 from ..workers.annotation_worker import AnnotationWorker
 from ..workers.manager import WorkerManager
-from ..workers.modern_progress_manager import ModernProgressManager, create_worker_id
 from ..workers.registration_worker import DatabaseRegistrationWorker
 from ..workers.search_worker import SearchResult, SearchWorker
 from ..workers.terminal import CancelReason, WorkerOutcome, WorkerTerminalEvent
 from ..workers.thumbnail_worker import ThumbnailWorker
 from .operation_events import OperationContext, OperationOutcome, OperationType, WorkerOperationEvent
+
+# ADR 0066 §3: Jobs 台帳に載せる operation (Pipeline/Operation レベル) とその表示タイトル。
+# 検索/サムネイル等の UI 応答系 worker は載せない (firehose 化を防ぐ)。
+_JOB_LEDGER_TITLES: dict[OperationType, str] = {
+    OperationType.BATCH_REGISTRATION: "データベース登録",
+    OperationType.BATCH_IMPORT: "バッチインポート",
+    OperationType.ANNOTATION: "アノテーション処理",
+}
+
+
+@dataclass(frozen=True)
+class _QueuedGpuAnnotationJob:
+    """GPU 直列キューで起動待機中のアノテーションジョブ (ADR 0066 §6)。"""
+
+    worker_id: str
+    worker: AnnotationWorker
 
 
 class WorkerService(QObject):
@@ -63,6 +80,7 @@ class WorkerService(QObject):
     worker_batch_progress = Signal(str, int, int, str)  # worker_id, current, total, filename
     worker_terminal = Signal(object)  # WorkerTerminalEvent
     operation_event = Signal(object)  # WorkerOperationEvent
+    job_ledger_changed = Signal()  # ADR 0066: 同期ジョブ台帳の変更通知
 
     # === 全体管理シグナル ===
     active_worker_count_changed = Signal(int)
@@ -79,9 +97,8 @@ class WorkerService(QObject):
         self.fsm = fsm
         self.worker_manager = WorkerManager(self)
 
-        # モダンプログレス管理
-        self.progress_manager = ModernProgressManager(cast("QWidget | None", parent))
-        self.progress_manager.cancellation_requested.connect(self._on_progress_cancellation_requested)
+        # ADR 0066: 同期ジョブの in-memory 台帳 (進捗ポップアップ廃止後の lifecycle ビュー)
+        self.job_ledger = JobLedgerService()
 
         # シングルトンワーカー管理
         self.current_search_worker_id: str | None = None
@@ -94,15 +111,15 @@ class WorkerService(QObject):
         self._search_generation = 0
         self._thumbnail_generation = 0
 
+        # ADR 0066 §6: ローカル GPU 推論ジョブの直列キュー (VRAM 競合防止、同時 1 件)
+        self._gpu_active_worker_id: str | None = None
+        self._gpu_queue: list[_QueuedGpuAnnotationJob] = []
+
         # ワーカーマネージャーのシグナル接続
         self.worker_manager.worker_started.connect(self._on_worker_started)
         self.worker_manager.worker_terminal.connect(self._on_worker_terminal)
         self.worker_manager.active_worker_count_changed.connect(self.active_worker_count_changed)
         self.worker_manager.all_workers_finished.connect(self.all_workers_finished)
-
-        # プログレス更新シグナル接続
-        self.worker_progress_updated.connect(self._on_progress_updated)
-        self.worker_batch_progress.connect(self._on_batch_progress_updated)
 
         # AnnotationLogic 遅延初期化（依存関係: AnnotatorAdapter, ConfigService, DBManager）
         self._annotation_logic: AnnotationLogic | None = None
@@ -194,6 +211,11 @@ class WorkerService(QObject):
         Issue #245 / ADR 0023 Phase 1.11: モデル指定は `Model.litellm_model_id`
         (registry key SSoT) で受け取る。
 
+        ADR 0066 §6: 選択モデルにローカル ML (provider 空/"local") が含まれる
+        ジョブは GPU 直列キューで同時 1 件に制御する。先行 GPU ジョブの実行中は
+        queued 状態で台帳に載せ、前ジョブの終端で自動起動する。API 系のみの
+        ジョブは従来通り並列実行する。
+
         Args:
             image_paths: 画像パスリスト
             litellm_model_ids: 使用モデルの `litellm_model_id` リスト
@@ -210,12 +232,13 @@ class WorkerService(QObject):
             f"バッチアノテーション準備: litellm_model_ids={litellm_model_ids}, 画像数={len(image_paths)}"
         )
 
+        model_registry = get_service_container().model_registry
         worker = AnnotationWorker(
             annotation_logic=self.annotation_logic,
             image_paths=image_paths,
             litellm_model_ids=litellm_model_ids,
             db_manager=self.db_manager,
-            model_registry=get_service_container().model_registry,
+            model_registry=model_registry,
         )
         worker_id = f"annotation_{uuid.uuid4().hex[:8]}"
         self._register_operation(worker_id, OperationType.ANNOTATION)
@@ -225,21 +248,38 @@ class WorkerService(QObject):
             lambda progress: self.worker_progress_updated.emit(worker_id, progress)
         )
 
+        # ADR 0066 §6: GPU ジョブ判定とキュー投入
+        requires_gpu = selection_includes_local_ml_model(litellm_model_ids, model_registry)
+        if requires_gpu and self._gpu_active_worker_id is not None:
+            self._enqueue_gpu_annotation(worker_id, worker, len(image_paths), len(litellm_model_ids))
+            return worker_id
+
+        if requires_gpu:
+            # start_worker 中に即終端しても terminal handler が解放できるよう先に確定する
+            self._gpu_active_worker_id = worker_id
+
         if self.worker_manager.start_worker(worker_id, worker):
             self.current_annotation_worker_id = worker_id
             logger.info(
                 f"バッチアノテーション開始: {len(image_paths)}画像 (filter 前), "
-                f"{len(litellm_model_ids)}モデル (ID: {worker_id})"
+                f"{len(litellm_model_ids)}モデル (ID: {worker_id}, GPU直列={requires_gpu})"
             )
             logger.debug("  refusal filter は Worker 内で実行 (Codex P2 対応)")
             logger.debug(f"  ワーカーID={worker_id}, litellm_model_ids=[{', '.join(litellm_model_ids)}]")
             return worker_id
         else:
             self._worker_operations.pop(worker_id, None)
+            if self._gpu_active_worker_id == worker_id:
+                self._gpu_active_worker_id = None
             raise RuntimeError(f"アノテーションワーカー開始失敗: {worker_id}")
 
     def cancel_annotation(self, worker_id: str) -> bool:
-        """アノテーションキャンセル"""
+        """アノテーションキャンセル
+
+        queued (GPU 直列キュー待機中) のジョブは実行前に即時取り消す (ADR 0066 §6)。
+        """
+        if self._cancel_queued_gpu_annotation(worker_id):
+            return True
         return self.worker_manager.cancel_worker(worker_id)
 
     # === Search ===
@@ -499,7 +539,10 @@ class WorkerService(QObject):
     # === 全般管理 ===
 
     def cancel_all_workers(self) -> None:
-        """全ワーカーキャンセル"""
+        """全ワーカーキャンセル (GPU 直列キューの待機ジョブも含めて取り消す)"""
+        # 実行中ジョブの終端で次の待機ジョブが自動起動しないよう、先にキューを空にする
+        for queued_job in list(self._gpu_queue):
+            self._cancel_queued_gpu_annotation(queued_job.worker_id, reason=CancelReason.SHUTDOWN)
         self.worker_manager.cancel_all_workers(reason=CancelReason.SHUTDOWN)
 
     def get_active_worker_count(self) -> int:
@@ -512,29 +555,27 @@ class WorkerService(QObject):
             return "active"
         return None
 
-    def _on_progress_updated(self, worker_id: str, progress: Any) -> None:
-        """プログレス更新処理 - ModernProgressManagerに転送"""
-        self.progress_manager.update_worker_progress(worker_id, progress)
+    def cancel_job(self, worker_id: str) -> bool:
+        """Jobs タブの行アクションからのジョブキャンセル (ADR 0066 §4)。
 
-    def _on_batch_progress_updated(self, worker_id: str, current: int, total: int, filename: str) -> None:
-        """バッチプログレス更新処理 - ModernProgressManagerに転送"""
-        self.progress_manager.update_batch_progress(worker_id, current, total, filename)
+        進捗ポップアップ廃止に伴い、同期ジョブのキャンセル操作は
+        Jobs タブの行ボタンへ移設された。queued (GPU 直列キュー待機中) の
+        ジョブは実行前に即時 canceled として終端する (ADR 0066 §6)。
 
-    def _on_progress_cancellation_requested(self, worker_id: str) -> None:
-        """プログレスダイアログからのキャンセル要求処理"""
-        logger.info(f"プログレスダイアログからキャンセル要求: {worker_id}")
+        Args:
+            worker_id: キャンセル対象のワーカーID (= 台帳 job_id)。
 
-        # 該当ワーカーをキャンセル
-        success = self.worker_manager.cancel_worker(worker_id, reason=CancelReason.PROGRESS_DIALOG)
-        if success:
-            logger.info(f"ワーカーキャンセル実行: {worker_id}")
-        else:
-            logger.warning(f"ワーカーキャンセル失敗: {worker_id}")
+        Returns:
+            キャンセル要求を発行できたかどうか。
+        """
+        if self._cancel_queued_gpu_annotation(worker_id):
+            return True
+        return self.worker_manager.cancel_worker(worker_id)
 
     # === プライベートメソッド ===
 
     def _on_worker_started(self, worker_id: str) -> None:
-        """ワーカー開始ハンドラ - プログレスダイアログ自動開始"""
+        """ワーカー開始ハンドラ - 互換 started シグナルと operation/台帳イベント発行"""
         operation_name = "不明な操作"
 
         if worker_id.startswith("batch_reg_"):
@@ -552,15 +593,6 @@ class WorkerService(QObject):
         elif worker_id.startswith("thumbnail_"):
             operation_name = "サムネイル読み込み"
             self.thumbnail_started.emit(worker_id)
-
-        # Thumbnail/page/prefetch workers never start modal progress; terminal close mirrors this policy.
-        if self._worker_uses_modal_progress(worker_id):
-            self.progress_manager.start_worker_progress(
-                worker_id,
-                operation_name,
-                f"{operation_name}を開始しています...",
-                parent=cast("QWidget | None", self.parent()),
-            )
 
         self._emit_operation_started(worker_id)
         # ライフサイクルINFOはこの1層に集約。search/thumbnailは高頻度なのでDEBUGに落とす。
@@ -634,7 +666,6 @@ class WorkerService(QObject):
     def _on_worker_terminal(self, event: WorkerTerminalEvent) -> None:
         """Unified worker terminal event dispatcher."""
         self.worker_terminal.emit(event)
-        self._finish_worker_terminal_progress(event)
         self._emit_operation_terminal(event)
 
         if event.outcome is WorkerOutcome.SUCCEEDED:
@@ -642,12 +673,16 @@ class WorkerService(QObject):
         elif event.outcome is WorkerOutcome.FAILED:
             if self._is_replacement_terminal(event):
                 self._clear_current_worker_id(event.worker_id)
+                self._release_gpu_slot_if_active(event)
                 return
             self._on_worker_error(event.worker_id, event.error or "")
         elif event.outcome is WorkerOutcome.CANCELED:
             self._on_worker_canceled_event(event)
         else:
             self._on_worker_abnormal_terminal(event)
+
+        # ADR 0066 §6: アクティブな GPU ジョブの終端で次の待機ジョブを自動起動
+        self._release_gpu_slot_if_active(event)
 
     def _on_worker_canceled_event(self, event: WorkerTerminalEvent) -> None:
         """ワーカーキャンセルハンドラ - エラー扱いせずプログレスを終了"""
@@ -684,18 +719,6 @@ class WorkerService(QObject):
             return
 
         self._on_worker_error(event.worker_id, message)
-
-    def _finish_worker_terminal_progress(self, event: WorkerTerminalEvent) -> None:
-        """Close modal progress exactly once from the canonical terminal fact."""
-        if self._worker_uses_modal_progress(event.worker_id):
-            self.progress_manager.finish_worker_progress(
-                event.worker_id,
-                success=event.outcome is WorkerOutcome.SUCCEEDED,
-            )
-
-    def _worker_uses_modal_progress(self, worker_id: str) -> bool:
-        """Return whether WorkerService starts modal progress for this worker."""
-        return self._resolve_worker_type(worker_id) != "thumbnail"
 
     def _should_emit_compat_canceled(self, event: WorkerTerminalEvent) -> bool:
         """Suppress normal UI cancellation signals for replacement-only cancellation."""
@@ -746,6 +769,7 @@ class WorkerService(QObject):
 
     def _emit_operation_started(self, worker_id: str) -> None:
         context = self._operation_context_for_worker(worker_id)
+        self._record_job_ledger_started(context)
         self.operation_event.emit(
             WorkerOperationEvent(
                 operation_id=context.operation_id,
@@ -761,6 +785,7 @@ class WorkerService(QObject):
     def _emit_operation_terminal(self, event: WorkerTerminalEvent) -> None:
         context = self._operation_context_for_worker(event.worker_id)
         outcome = self._operation_outcome_for_terminal(event)
+        self._record_job_ledger_terminal(context, outcome, event)
         is_current = (
             False if outcome is OperationOutcome.SUPERSEDED else self._is_current_operation(context)
         )
@@ -780,6 +805,146 @@ class WorkerService(QObject):
             )
         )
         self._worker_operations.pop(event.worker_id, None)
+
+    def _record_job_ledger_started(self, context: OperationContext) -> None:
+        """Pipeline/Operation レベルのジョブを台帳に記録する (ADR 0066 §3)。"""
+        title = _JOB_LEDGER_TITLES.get(context.operation_type)
+        if title is None:
+            return
+        entry = self.job_ledger.register(context.worker_id, context.operation_type.value, title)
+        if entry.status is JobStatus.QUEUED:
+            # ADR 0066 §6: GPU 直列キューからの起動 (queued -> running)
+            self.job_ledger.update(context.worker_id, status=JobStatus.RUNNING)
+        self.job_ledger_changed.emit()
+
+    # === GPU 直列キュー (ADR 0066 §6) ===
+
+    def _enqueue_gpu_annotation(
+        self,
+        worker_id: str,
+        worker: AnnotationWorker,
+        image_count: int,
+        model_count: int,
+    ) -> None:
+        """先行 GPU ジョブの実行中に投入されたジョブを queued で台帳に載せて待機させる。
+
+        Args:
+            worker_id: 待機させるワーカーID。
+            worker: 構築済みの AnnotationWorker (起動は前ジョブ終端まで保留)。
+            image_count: 対象画像数 (ログ用)。
+            model_count: 選択モデル数 (ログ用)。
+        """
+        self._gpu_queue.append(_QueuedGpuAnnotationJob(worker_id=worker_id, worker=worker))
+        self.job_ledger.register(
+            worker_id,
+            OperationType.ANNOTATION.value,
+            _JOB_LEDGER_TITLES[OperationType.ANNOTATION],
+            status=JobStatus.QUEUED,
+        )
+        self.job_ledger_changed.emit()
+        logger.info(
+            f"GPU直列キューで待機: {image_count}画像, {model_count}モデル (ID: {worker_id}, "
+            f"実行中: {self._gpu_active_worker_id}, 待機数: {len(self._gpu_queue)})"
+        )
+
+    def _release_gpu_slot_if_active(self, event: WorkerTerminalEvent) -> None:
+        """アクティブな GPU ジョブの終端で slot を解放し、次の待機ジョブを起動する。
+
+        UNRESPONSIVE は worker が停止確認できていない状態のため slot を保持する
+        (VRAM が解放された保証がない以上、次ジョブを起動すると競合し得る)。
+        """
+        if event.worker_id != self._gpu_active_worker_id:
+            return
+        if event.outcome is WorkerOutcome.UNRESPONSIVE:
+            logger.warning(
+                f"GPUジョブが応答不能のため直列キューを保留: {event.worker_id} "
+                f"(待機数: {len(self._gpu_queue)})"
+            )
+            return
+        self._gpu_active_worker_id = None
+        self._start_next_queued_gpu_job()
+
+    def _start_next_queued_gpu_job(self) -> None:
+        """GPU 直列キューの先頭ジョブを起動する。起動失敗時は次の待機ジョブを試す。"""
+        while self._gpu_queue:
+            queued_job = self._gpu_queue.pop(0)
+            self._gpu_active_worker_id = queued_job.worker_id
+            if self.worker_manager.start_worker(queued_job.worker_id, queued_job.worker):
+                self.current_annotation_worker_id = queued_job.worker_id
+                logger.info(
+                    f"GPU直列キューからジョブ起動: {queued_job.worker_id} "
+                    f"(残り待機数: {len(self._gpu_queue)})"
+                )
+                return
+            # 起動失敗: 台帳と operation を失敗で確定し、次の待機ジョブへ進む
+            logger.error(f"GPU直列キューのジョブ起動失敗: {queued_job.worker_id}")
+            if self._gpu_active_worker_id == queued_job.worker_id:
+                self._gpu_active_worker_id = None
+            self._worker_operations.pop(queued_job.worker_id, None)
+            if (
+                self.job_ledger.finish(queued_job.worker_id, JobStatus.FAILED, "ワーカー開始失敗")
+                is not None
+            ):
+                self.job_ledger_changed.emit()
+            self.enhanced_annotation_error.emit(f"アノテーションワーカー開始失敗: {queued_job.worker_id}")
+
+    def _cancel_queued_gpu_annotation(
+        self,
+        worker_id: str,
+        reason: CancelReason = CancelReason.USER_REQUESTED,
+    ) -> bool:
+        """queued (起動前) の GPU ジョブを即時 canceled として終端する (ADR 0066 §6)。
+
+        Args:
+            worker_id: 取り消す待機中ジョブのワーカーID。
+            reason: キャンセル理由。
+
+        Returns:
+            キューから取り消せた場合 True。待機中でなければ False。
+        """
+        for index, queued_job in enumerate(self._gpu_queue):
+            if queued_job.worker_id != worker_id:
+                continue
+            self._gpu_queue.pop(index)
+            queued_job.worker.deleteLater()
+            logger.info(f"GPU直列キューの待機ジョブを取り消し: {worker_id} (理由: {reason.value})")
+            # 起動前のため manager を介さず synthetic terminal で終端を確定する
+            self._on_worker_terminal(
+                WorkerTerminalEvent(
+                    worker_id=worker_id,
+                    worker_type="annotation",
+                    outcome=WorkerOutcome.CANCELED,
+                    cancel_reason=reason,
+                )
+            )
+            return True
+        return False
+
+    def _record_job_ledger_terminal(
+        self,
+        context: OperationContext,
+        outcome: OperationOutcome,
+        event: WorkerTerminalEvent,
+    ) -> None:
+        """ジョブの終端結果を台帳に確定する (ADR 0066 §3)。"""
+        if context.operation_type not in _JOB_LEDGER_TITLES:
+            return
+        status, summary = self._ledger_status_for_outcome(outcome, event)
+        if self.job_ledger.finish(event.worker_id, status, summary) is not None:
+            self.job_ledger_changed.emit()
+
+    @staticmethod
+    def _ledger_status_for_outcome(
+        outcome: OperationOutcome,
+        event: WorkerTerminalEvent,
+    ) -> tuple[JobStatus, str]:
+        """Operation outcome を台帳の終端状態とサマリーへ変換する。"""
+        if outcome is OperationOutcome.SUCCEEDED:
+            return JobStatus.FINISHED, ""
+        if outcome in {OperationOutcome.CANCELED, OperationOutcome.SUPERSEDED}:
+            reason = event.cancel_reason.value if event.cancel_reason else "unknown"
+            return JobStatus.CANCELED, f"キャンセル ({reason})"
+        return JobStatus.FAILED, event.error or f"異常終了: {outcome.value}"
 
     def _operation_context_for_worker(self, worker_id: str) -> OperationContext:
         context = self._worker_operations.get(worker_id)

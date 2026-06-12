@@ -12,6 +12,7 @@ import pytest
 
 from lorairo.services.model_registry_protocol import (
     NullModelRegistry,
+    selection_includes_local_ml_model,
     selection_includes_webapi_model,
 )
 
@@ -159,3 +160,78 @@ class TestSelectionIncludesWebApiModel:
         # (= info が available に居る) ことを registry mock call で間接確認
         assert selection_includes_webapi_model(["wd-v1-4-tagger"], registry) is False
         registry.get_available_models.assert_called_once()
+
+
+class TestSelectionIncludesLocalMlModel:
+    """`selection_includes_local_ml_model()` の単体テスト (ADR 0066 §6)。
+
+    ローカル GPU 推論ジョブの直列キュー判定に使う pure helper。
+    provider が空文字または "local" のモデルをローカル ML として検出する。
+    """
+
+    @staticmethod
+    def _model_info(name: str, provider: str, litellm_model_id: str | None = None):
+        """`ModelInfo` 互換 Mock (lookup キーは litellm_model_id with name fallback)。"""
+        info = Mock()
+        info.name = name
+        info.provider = provider
+        info.litellm_model_id = litellm_model_id
+        return info
+
+    def _registry(self, models):
+        registry = Mock()
+        registry.get_available_models.return_value = list(models)
+        return registry
+
+    def test_returns_true_for_local_provider(self) -> None:
+        """provider="local" のモデル選択時は True (GPU 直列化対象)。"""
+        registry = self._registry([self._model_info("wd-v1-4-tagger", provider="local")])
+        assert selection_includes_local_ml_model(["wd-v1-4-tagger"], registry) is True
+
+    def test_returns_true_for_empty_provider(self) -> None:
+        """provider が空文字のモデルもローカル ML として扱う (ADR 0066 §6)。"""
+        registry = self._registry([self._model_info("aesthetic-predictor", provider="")])
+        assert selection_includes_local_ml_model(["aesthetic-predictor"], registry) is True
+
+    def test_returns_false_for_api_only_selection(self) -> None:
+        """API 系のみの選択は False (並列許容)。"""
+        registry = self._registry(
+            [
+                self._model_info("openai/gpt-4o", provider="openai", litellm_model_id="openai/gpt-4o"),
+                self._model_info("wd-v1-4-tagger", provider="local"),
+            ]
+        )
+        assert selection_includes_local_ml_model(["openai/gpt-4o"], registry) is False
+
+    def test_returns_true_with_mixed_selection(self) -> None:
+        """ローカル + API の混在選択は True (1 つでもローカルなら直列化)。"""
+        registry = self._registry(
+            [
+                self._model_info("openai/gpt-4o", provider="openai", litellm_model_id="openai/gpt-4o"),
+                self._model_info("wd-v1-4-tagger", provider="local"),
+            ]
+        )
+        assert selection_includes_local_ml_model(["openai/gpt-4o", "wd-v1-4-tagger"], registry) is True
+
+    def test_returns_false_for_unknown_model_name(self) -> None:
+        """registry 未登録のモデルはローカル扱いしない (実行経路に乗らないため)。"""
+        registry = self._registry([self._model_info("wd-v1-4-tagger", provider="local")])
+        assert selection_includes_local_ml_model(["unknown-model"], registry) is False
+
+    def test_returns_false_for_empty_selection(self) -> None:
+        """空リストは False (early return、registry を引かない)。"""
+        registry = self._registry([self._model_info("wd-v1-4-tagger", provider="local")])
+        assert selection_includes_local_ml_model([], registry) is False
+        registry.get_available_models.assert_not_called()
+
+    def test_returns_false_for_unknown_provider(self) -> None:
+        """provider="unknown" はローカル ML ではない (API フォールバック表記)。"""
+        registry = self._registry([self._model_info("mystery-model", provider="unknown")])
+        assert selection_includes_local_ml_model(["mystery-model"], registry) is False
+
+    def test_lookup_falls_back_to_name_when_litellm_id_is_none(self) -> None:
+        """ローカル ML の `litellm_model_id is None` は bare 名 fallback で hit する。"""
+        registry = self._registry(
+            [self._model_info("wd-v1-4-tagger", provider="local", litellm_model_id=None)]
+        )
+        assert selection_includes_local_ml_model(["wd-v1-4-tagger"], registry) is True
