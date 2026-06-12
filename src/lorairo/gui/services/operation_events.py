@@ -13,6 +13,7 @@ class OperationType(Enum):
     BATCH_REGISTRATION = "batch_registration"
     BATCH_IMPORT = "batch_import"
     ANNOTATION = "annotation"
+    MODEL_INSTALL = "model_install"  # Issue #754: JOB_TYPE_MODEL_INSTALL (ADR 0066 §5)
     SEARCH = "search"
     THUMBNAIL = "thumbnail"
     UNKNOWN = "unknown"

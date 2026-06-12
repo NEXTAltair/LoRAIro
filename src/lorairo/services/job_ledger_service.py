@@ -14,7 +14,9 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum
 
-# ADR 0066 §5: model installer 用 job_type の予約枠 (DL の job 化実装は別 Phase)
+# ADR 0066 §5 / Issue #754: model installer 用 job_type。
+# OperationType.MODEL_INSTALL (gui/services/operation_events.py) と同値で、
+# 未インストールモデルの明示ダウンロードジョブが本台帳に載る。
 JOB_TYPE_MODEL_INSTALL = "model_install"
 
 
