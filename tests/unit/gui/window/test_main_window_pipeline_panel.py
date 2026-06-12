@@ -65,6 +65,8 @@ class TestBuildStageModelInfos:
     def _make_window(self, models: list[SimpleNamespace]) -> Mock:
         mock_window = Mock()
         mock_window.batchModelSelection.model_selection_service.load_models.return_value = models
+        # Issue #747: コストマップ取得は real dict を返させ、Mock のアンパック失敗を避ける
+        mock_window._build_cost_map.return_value = {}
         return mock_window
 
     def test_converts_api_model_with_capabilities(self):

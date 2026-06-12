@@ -8,6 +8,10 @@ from __future__ import annotations
 
 from PySide6.QtWidgets import QHBoxLayout, QLabel, QVBoxLayout, QWidget
 
+from lorairo.services.cost_estimation_service import (
+    CostEstimationService,
+    format_duration,
+)
 from lorairo.services.pipeline_composition import InferenceLedger, LedgerEntry
 
 _TITLE_TEXT = "INFERENCE LEDGER — 推論回数 = ユニークモデル × ステージング枚数"
@@ -29,6 +33,8 @@ class InferenceLedgerWidget(QWidget):
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
 
+        self._cost_service = CostEstimationService()
+
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
 
@@ -46,6 +52,10 @@ class InferenceLedgerWidget(QWidget):
         self._formula_label = QLabel("", self)
         self._formula_label.setObjectName("ledgerFormulaLabel")
         layout.addWidget(self._formula_label)
+
+        self._cost_label = QLabel("", self)
+        self._cost_label.setObjectName("ledgerCostLabel")
+        layout.addWidget(self._cost_label)
 
         self._placeholder_label = QLabel(_PLACEHOLDER_TEXT, self)
         self._placeholder_label.setObjectName("ledgerPlaceholderLabel")
@@ -77,6 +87,17 @@ class InferenceLedgerWidget(QWidget):
         self._formula_label.setText(formula)
         self._formula_label.setVisible(True)
 
+        # Issue #747: コスト・推定時間の概算行 (has_unknown 時は不明含む旨を併記)
+        estimate = self._cost_service.estimate_batch(ledger)
+        amount = f"${estimate.total_usd:.2f}"
+        if estimate.has_unknown:
+            amount += "+"
+        cost_text = f"推定 {amount} · {format_duration(estimate.est_seconds)}"
+        if estimate.has_unknown:
+            cost_text += "（一部モデルは料金不明）"
+        self._cost_label.setText(cost_text)
+        self._cost_label.setVisible(True)
+
     def clear(self) -> None:
         """空表示にする。"""
         self._clear_entries()
@@ -86,6 +107,8 @@ class InferenceLedgerWidget(QWidget):
         """「モデル未選択」プレースホルダ状態に切り替える。"""
         self._formula_label.setText("")
         self._formula_label.setVisible(False)
+        self._cost_label.setText("")
+        self._cost_label.setVisible(False)
         self._placeholder_label.setText(_PLACEHOLDER_TEXT)
         self._placeholder_label.setVisible(True)
 

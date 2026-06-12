@@ -20,6 +20,8 @@ GPT4O = StageModelInfo(
     provider="openai",
     is_api=True,
     capabilities=frozenset({"multimodal", "caption", "tags", "scores"}),
+    input_cost_per_token=2.5e-06,
+    output_cost_per_token=1.0e-05,
 )
 
 
@@ -90,6 +92,41 @@ class TestInferenceLedgerWidgetChips:
         assert len(widget.findChildren(QLabel, "ledgerMultiBadge")) == 1
 
 
+class TestInferenceLedgerWidgetCost:
+    def test_cost_line_shows_estimate_and_duration(self, widget):
+        widget.display(_sample_ledger())
+        cost_text = widget._cost_label.text()
+        # GPT4O per-image = 1500*2.5e-6 + 400*1e-5 = 0.00775、×9枚 ≈ $0.07
+        assert "推定 $0.07" in cost_text
+        # 54 ジョブ × 3.0s = 162s = 2m42s
+        assert "2m42s" in cost_text
+        assert not widget._cost_label.isHidden()
+
+    def test_cost_line_flags_unknown_when_pricing_missing(self, widget):
+        no_price_api = StageModelInfo(
+            litellm_model_id="anthropic/claude-x",
+            display_name="claude-x",
+            provider="anthropic",
+            is_api=True,
+            capabilities=frozenset({"tags"}),
+        )
+        ledger = InferenceLedger(entries=(LedgerEntry(model=no_price_api, stage_count=1),), staged_count=4)
+        widget.display(ledger)
+        cost_text = widget._cost_label.text()
+        assert "$0.00+" in cost_text
+        assert "料金不明" in cost_text
+
+    def test_local_only_ledger_shows_zero_cost(self, widget):
+        ledger = InferenceLedger(
+            entries=(LedgerEntry(model=_local_model("wd-tagger", "tags"), stage_count=1),),
+            staged_count=5,
+        )
+        widget.display(ledger)
+        cost_text = widget._cost_label.text()
+        assert "推定 $0.00 ·" in cost_text
+        assert "料金不明" not in cost_text
+
+
 class TestInferenceLedgerWidgetPlaceholder:
     def test_empty_entries_shows_placeholder(self, widget):
         widget.display(InferenceLedger(entries=(), staged_count=9))
@@ -108,5 +145,6 @@ class TestInferenceLedgerWidgetPlaceholder:
         widget.clear()
         assert widget._placeholder_label.text() == "モデル未選択"
         assert widget._formula_label.text() == ""
+        assert widget._cost_label.text() == ""
         assert widget.findChildren(QLabel, "ledgerChip") == []
         assert widget.findChildren(QLabel, "ledgerMultiBadge") == []
