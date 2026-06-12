@@ -1198,6 +1198,9 @@ class TestGpuSerialQueue:
         """
         registry = mock_container.return_value.model_registry
         registry.get_available_models.return_value = _registry_model_infos()
+        # Issue #754: 既定はインストール済み (install ジョブの連結なし) として扱う
+        adapter = mock_container.return_value.annotator_library
+        adapter.get_missing_local_models.return_value = []
         mock_worker_class.side_effect = lambda **kwargs: Mock()
 
         started_ids: list[str] = []
@@ -1449,3 +1452,288 @@ class TestGpuSerialQueue:
         assert started_ids == [first_id]
         assert worker_service._gpu_active_worker_id == first_id
         assert [job.worker_id for job in worker_service._gpu_queue] == [second_id]
+
+
+@patch("lorairo.gui.services.worker_service.get_service_container")
+@patch("lorairo.gui.services.worker_service.ModelInstallWorker")
+@patch("lorairo.gui.services.worker_service.AnnotationWorker")
+@patch.object(WorkerService, "annotation_logic", create=True)
+class TestModelInstallChain:
+    """model_install ジョブの前段連結 (Issue #754, ADR 0066 §5) のユニットテスト。
+
+    未インストールのローカル ML モデルを含むアノテーション開始時、install ジョブが
+    GPU 直列スロットで先行実行され、アノテーションは queued で待機する。
+    install 成功 → アノテーション自動起動、失敗/キャンセル → アノテーション取り消し。
+    """
+
+    @pytest.fixture
+    @patch("lorairo.gui.services.worker_service.WorkerManager")
+    def worker_service(self, mock_worker_manager_class):
+        """テスト用WorkerService (WorkerManagerはモック)"""
+        mock_worker_manager_class.return_value = Mock()
+        service = WorkerService(Mock(), Mock())
+        service.worker_manager = mock_worker_manager_class.return_value
+        return service
+
+    @staticmethod
+    def _setup(mock_container, mock_annotation_worker_class, mock_install_worker_class, worker_service):
+        """未インストールモデルあり (install 連結発動) の構成ヘルパー。"""
+        registry = mock_container.return_value.model_registry
+        registry.get_available_models.return_value = _registry_model_infos()
+        adapter = mock_container.return_value.annotator_library
+        adapter.get_missing_local_models.return_value = [_LOCAL_MODEL_ID]
+        mock_annotation_worker_class.side_effect = lambda **kwargs: Mock()
+        mock_install_worker_class.side_effect = lambda *args, **kwargs: Mock()
+
+        started_ids: list[str] = []
+
+        def start_and_notify(worker_id, _worker):
+            started_ids.append(worker_id)
+            worker_service._on_worker_started(worker_id)
+            return True
+
+        worker_service.worker_manager.start_worker.side_effect = start_and_notify
+        return started_ids
+
+    @staticmethod
+    def _terminal_event(worker_id: str, outcome: WorkerOutcome, **kwargs) -> WorkerTerminalEvent:
+        return WorkerTerminalEvent(
+            worker_id=worker_id,
+            worker_type="model_install",
+            outcome=outcome,
+            **kwargs,
+        )
+
+    def test_missing_model_starts_install_first_and_queues_annotation(
+        self,
+        mock_annotation_logic,
+        mock_annotation_worker_class,
+        mock_install_worker_class,
+        mock_container,
+        worker_service,
+    ):
+        """未インストールモデル検出時は install が先行起動しアノテーションは queued"""
+        started_ids = self._setup(
+            mock_container, mock_annotation_worker_class, mock_install_worker_class, worker_service
+        )
+
+        annotation_id = worker_service.start_enhanced_batch_annotation(
+            image_paths=["/img/a.jpg"], litellm_model_ids=[_LOCAL_MODEL_ID]
+        )
+
+        assert len(started_ids) == 1
+        install_id = started_ids[0]
+        assert install_id.startswith("model_install_")
+        assert worker_service._gpu_active_worker_id == install_id
+        assert worker_service._install_chained_annotation == {install_id: annotation_id}
+        # install ワーカーには未インストールモデルのリストが渡される
+        args = mock_install_worker_class.call_args.args
+        assert args[1] == [_LOCAL_MODEL_ID]
+        # 台帳: install=RUNNING (job_type=model_install)、annotation=QUEUED
+        install_entry = worker_service.job_ledger.get(install_id)
+        assert install_entry.status is JobStatus.RUNNING
+        assert install_entry.job_type == "model_install"
+        assert install_entry.title == "モデルインストール"
+        assert worker_service.job_ledger.get(annotation_id).status is JobStatus.QUEUED
+
+    def test_installed_models_skip_install_job(
+        self,
+        mock_annotation_logic,
+        mock_annotation_worker_class,
+        mock_install_worker_class,
+        mock_container,
+        worker_service,
+    ):
+        """全モデルインストール済みなら install ジョブは作られず従来どおり即起動"""
+        started_ids = self._setup(
+            mock_container, mock_annotation_worker_class, mock_install_worker_class, worker_service
+        )
+        mock_container.return_value.annotator_library.get_missing_local_models.return_value = []
+
+        annotation_id = worker_service.start_enhanced_batch_annotation(
+            image_paths=["/img/a.jpg"], litellm_model_ids=[_LOCAL_MODEL_ID]
+        )
+
+        assert started_ids == [annotation_id]
+        mock_install_worker_class.assert_not_called()
+        assert worker_service._install_chained_annotation == {}
+
+    def test_api_only_selection_does_not_query_installer(
+        self,
+        mock_annotation_logic,
+        mock_annotation_worker_class,
+        mock_install_worker_class,
+        mock_container,
+        worker_service,
+    ):
+        """API モデルのみの選択では installer への問い合わせ自体を行わない"""
+        self._setup(mock_container, mock_annotation_worker_class, mock_install_worker_class, worker_service)
+
+        worker_service.start_enhanced_batch_annotation(
+            image_paths=["/img/a.jpg"], litellm_model_ids=[_API_MODEL_ID]
+        )
+
+        mock_container.return_value.annotator_library.get_missing_local_models.assert_not_called()
+        mock_install_worker_class.assert_not_called()
+
+    def test_install_success_autostarts_chained_annotation(
+        self,
+        mock_annotation_logic,
+        mock_annotation_worker_class,
+        mock_install_worker_class,
+        mock_container,
+        worker_service,
+    ):
+        """install 成功終端で待機中のアノテーションが自動起動する"""
+        started_ids = self._setup(
+            mock_container, mock_annotation_worker_class, mock_install_worker_class, worker_service
+        )
+        annotation_id = worker_service.start_enhanced_batch_annotation(
+            image_paths=["/img/a.jpg"], litellm_model_ids=[_LOCAL_MODEL_ID]
+        )
+        install_id = started_ids[0]
+
+        worker_service._on_worker_terminal(self._terminal_event(install_id, WorkerOutcome.SUCCEEDED))
+
+        assert started_ids == [install_id, annotation_id]
+        assert worker_service._gpu_active_worker_id == annotation_id
+        assert worker_service._install_chained_annotation == {}
+        assert worker_service.job_ledger.get(install_id).status is JobStatus.FINISHED
+        assert worker_service.job_ledger.get(annotation_id).status is JobStatus.RUNNING
+
+    @pytest.mark.parametrize(
+        ("outcome", "cancel_reason"),
+        [
+            (WorkerOutcome.FAILED, None),
+            (WorkerOutcome.CANCELED, CancelReason.USER_REQUESTED),
+        ],
+    )
+    def test_install_failure_or_cancel_cancels_chained_annotation(
+        self,
+        mock_annotation_logic,
+        mock_annotation_worker_class,
+        mock_install_worker_class,
+        mock_container,
+        worker_service,
+        outcome,
+        cancel_reason,
+    ):
+        """install の失敗/キャンセルで連結アノテーションも取り消される"""
+        started_ids = self._setup(
+            mock_container, mock_annotation_worker_class, mock_install_worker_class, worker_service
+        )
+        annotation_id = worker_service.start_enhanced_batch_annotation(
+            image_paths=["/img/a.jpg"], litellm_model_ids=[_LOCAL_MODEL_ID]
+        )
+        install_id = started_ids[0]
+
+        worker_service._on_worker_terminal(
+            self._terminal_event(
+                install_id,
+                outcome,
+                error="boom" if outcome is WorkerOutcome.FAILED else None,
+                cancel_reason=cancel_reason,
+            )
+        )
+
+        # アノテーションは起動されず canceled で終端
+        assert started_ids == [install_id]
+        assert worker_service.job_ledger.get(annotation_id).status is JobStatus.CANCELED
+        assert worker_service.job_ledger.get(install_id).status.is_terminal
+        assert worker_service._install_chained_annotation == {}
+        assert worker_service._gpu_queue == []
+        assert worker_service._gpu_active_worker_id is None
+
+    def test_install_queued_behind_running_gpu_job(
+        self,
+        mock_annotation_logic,
+        mock_annotation_worker_class,
+        mock_install_worker_class,
+        mock_container,
+        worker_service,
+    ):
+        """GPU ジョブ実行中の install は queued で待機し、順に起動する"""
+        started_ids = self._setup(
+            mock_container, mock_annotation_worker_class, mock_install_worker_class, worker_service
+        )
+        # 先行: インストール済みモデルのアノテーションが GPU slot を占有
+        mock_container.return_value.annotator_library.get_missing_local_models.return_value = []
+        first_id = worker_service.start_enhanced_batch_annotation(
+            image_paths=["/img/a.jpg"], litellm_model_ids=[_LOCAL_MODEL_ID]
+        )
+        # 後発: 未インストールモデルの選択 → install + annotation が queued
+        mock_container.return_value.annotator_library.get_missing_local_models.return_value = [
+            _LOCAL_MODEL_ID
+        ]
+        second_id = worker_service.start_enhanced_batch_annotation(
+            image_paths=["/img/b.jpg"], litellm_model_ids=[_LOCAL_MODEL_ID]
+        )
+
+        queued_ids = [job.worker_id for job in worker_service._gpu_queue]
+        assert len(queued_ids) == 2
+        install_id = queued_ids[0]
+        assert install_id.startswith("model_install_")
+        assert queued_ids[1] == second_id
+        assert worker_service.job_ledger.get(install_id).status is JobStatus.QUEUED
+
+        # 先行ジョブ終端 → install が起動
+        worker_service._on_worker_terminal(
+            WorkerTerminalEvent(
+                worker_id=first_id, worker_type="annotation", outcome=WorkerOutcome.SUCCEEDED
+            )
+        )
+        assert started_ids == [first_id, install_id]
+        assert worker_service.job_ledger.get(install_id).status is JobStatus.RUNNING
+
+        # install 終端 → annotation が起動
+        worker_service._on_worker_terminal(self._terminal_event(install_id, WorkerOutcome.SUCCEEDED))
+        assert started_ids == [first_id, install_id, second_id]
+
+    def test_install_progress_updates_ledger_summary(
+        self,
+        mock_annotation_logic,
+        mock_annotation_worker_class,
+        mock_install_worker_class,
+        mock_container,
+        worker_service,
+    ):
+        """install ワーカーの進捗が台帳サマリーへ反映される (Issue #754)"""
+        self._setup(mock_container, mock_annotation_worker_class, mock_install_worker_class, worker_service)
+        worker_service.start_enhanced_batch_annotation(
+            image_paths=["/img/a.jpg"], litellm_model_ids=[_LOCAL_MODEL_ID]
+        )
+        install_id = worker_service._gpu_active_worker_id
+        ledger_changed_mock = Mock()
+        worker_service.job_ledger_changed.connect(ledger_changed_mock)
+
+        from lorairo.gui.workers.base import WorkerProgress
+
+        worker_service._on_model_install_progress(
+            install_id,
+            WorkerProgress(percentage=45, status_message="wd をダウンロード中 45% (350.0/780.0 MB)"),
+        )
+
+        entry = worker_service.job_ledger.get(install_id)
+        assert entry.summary == "wd をダウンロード中 45% (350.0/780.0 MB)"
+        ledger_changed_mock.assert_called_once()
+
+    def test_user_cancel_of_running_install_via_cancel_job(
+        self,
+        mock_annotation_logic,
+        mock_annotation_worker_class,
+        mock_install_worker_class,
+        mock_container,
+        worker_service,
+    ):
+        """Jobs 行のキャンセルは実行中 install を manager 経由で取り消す"""
+        started_ids = self._setup(
+            mock_container, mock_annotation_worker_class, mock_install_worker_class, worker_service
+        )
+        worker_service.start_enhanced_batch_annotation(
+            image_paths=["/img/a.jpg"], litellm_model_ids=[_LOCAL_MODEL_ID]
+        )
+        install_id = started_ids[0]
+        worker_service.worker_manager.cancel_worker.return_value = True
+
+        assert worker_service.cancel_job(install_id) is True
+        worker_service.worker_manager.cancel_worker.assert_called_once_with(install_id)

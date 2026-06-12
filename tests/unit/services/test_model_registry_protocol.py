@@ -12,6 +12,7 @@ import pytest
 
 from lorairo.services.model_registry_protocol import (
     NullModelRegistry,
+    local_ml_model_names,
     selection_includes_local_ml_model,
     selection_includes_webapi_model,
 )
@@ -235,3 +236,52 @@ class TestSelectionIncludesLocalMlModel:
             [self._model_info("wd-v1-4-tagger", provider="local", litellm_model_id=None)]
         )
         assert selection_includes_local_ml_model(["wd-v1-4-tagger"], registry) is True
+
+
+class TestLocalMlModelNames:
+    """`local_ml_model_names()` の単体テスト (Issue #754)。
+
+    model_install ジョブ対象の検出に使う pure helper。選択順を保持し、
+    ローカル ML モデルの `ModelInfo.name` (= iam-lib モデル名) を返す。
+    """
+
+    @staticmethod
+    def _model_info(name: str, provider: str, litellm_model_id: str | None = None):
+        info = Mock()
+        info.name = name
+        info.provider = provider
+        info.litellm_model_id = litellm_model_id
+        return info
+
+    def _registry(self, models):
+        registry = Mock()
+        registry.get_available_models.return_value = list(models)
+        return registry
+
+    def test_returns_local_models_in_selection_order(self) -> None:
+        """選択順を保持してローカル ML モデル名のみを返す。"""
+        registry = self._registry(
+            [
+                self._model_info("wd-v1-4-tagger", provider="local"),
+                self._model_info("aesthetic-predictor", provider=""),
+                self._model_info("openai/gpt-4o", provider="openai", litellm_model_id="openai/gpt-4o"),
+            ]
+        )
+        names = local_ml_model_names(["openai/gpt-4o", "aesthetic-predictor", "wd-v1-4-tagger"], registry)
+        assert names == ["aesthetic-predictor", "wd-v1-4-tagger"]
+
+    def test_deduplicates_names(self) -> None:
+        """重複選択でもモデル名は一意に返す。"""
+        registry = self._registry([self._model_info("wd-v1-4-tagger", provider="local")])
+        assert local_ml_model_names(["wd-v1-4-tagger", "wd-v1-4-tagger"], registry) == ["wd-v1-4-tagger"]
+
+    def test_unknown_ids_are_not_local(self) -> None:
+        """registry 未登録のモデルはローカル扱いしない。"""
+        registry = self._registry([self._model_info("wd-v1-4-tagger", provider="local")])
+        assert local_ml_model_names(["unknown-model"], registry) == []
+
+    def test_empty_selection_returns_empty_without_registry_call(self) -> None:
+        """空リストは early return で registry を引かない。"""
+        registry = self._registry([self._model_info("wd-v1-4-tagger", provider="local")])
+        assert local_ml_model_names([], registry) == []
+        registry.get_available_models.assert_not_called()

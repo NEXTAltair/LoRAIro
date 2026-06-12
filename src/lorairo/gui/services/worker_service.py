@@ -13,13 +13,15 @@ from ...annotations.annotator_adapter import AnnotatorLibraryAdapter
 from ...database.db_manager import ImageDatabaseManager
 from ...services.configuration_service import ConfigurationService
 from ...services.job_ledger_service import JobLedgerService, JobStatus
-from ...services.model_registry_protocol import selection_includes_local_ml_model
+from ...services.model_registry_protocol import local_ml_model_names
 from ...services.search_models import SearchConditions
 from ...services.service_container import get_service_container
 from ...storage.file_system import FileSystemManager
 from ...utils.log import logger
 from ..workers.annotation_worker import AnnotationWorker
+from ..workers.base import LoRAIroWorkerBase, WorkerProgress
 from ..workers.manager import WorkerManager
+from ..workers.model_install_worker import ModelInstallWorker
 from ..workers.registration_worker import DatabaseRegistrationWorker
 from ..workers.search_worker import SearchResult, SearchWorker
 from ..workers.terminal import CancelReason, WorkerOutcome, WorkerTerminalEvent
@@ -32,15 +34,20 @@ _JOB_LEDGER_TITLES: dict[OperationType, str] = {
     OperationType.BATCH_REGISTRATION: "データベース登録",
     OperationType.BATCH_IMPORT: "バッチインポート",
     OperationType.ANNOTATION: "アノテーション処理",
+    OperationType.MODEL_INSTALL: "モデルインストール",  # Issue #754 (ADR 0066 §5)
 }
 
 
 @dataclass(frozen=True)
-class _QueuedGpuAnnotationJob:
-    """GPU 直列キューで起動待機中のアノテーションジョブ (ADR 0066 §6)。"""
+class _QueuedGpuJob:
+    """GPU 直列キューで起動待機中のジョブ (ADR 0066 §6)。
+
+    Issue #754: アノテーションに加えて model_install ジョブも GPU 直列スロットを
+    使う (インストール完了 → 推論実行の順序を構造的に保証するため)。
+    """
 
     worker_id: str
-    worker: AnnotationWorker
+    worker: LoRAIroWorkerBase[Any]  # Any使用: ジョブ種別ごとに Worker の結果型が異なる
 
 
 class WorkerService(QObject):
@@ -74,6 +81,11 @@ class WorkerService(QObject):
     batch_import_finished = Signal(object)  # BatchImportResult
     batch_import_error = Signal(str)  # error_message
     batch_import_canceled = Signal(str)  # worker_id
+
+    model_install_started = Signal(str)  # worker_id (Issue #754)
+    model_install_finished = Signal(object)  # ModelInstallResult
+    model_install_error = Signal(str)  # error_message
+    model_install_canceled = Signal(str)  # worker_id
 
     # === 進捗シグナル ===
     worker_progress_updated = Signal(str, object)  # worker_id, WorkerProgress
@@ -113,7 +125,10 @@ class WorkerService(QObject):
 
         # ADR 0066 §6: ローカル GPU 推論ジョブの直列キュー (VRAM 競合防止、同時 1 件)
         self._gpu_active_worker_id: str | None = None
-        self._gpu_queue: list[_QueuedGpuAnnotationJob] = []
+        self._gpu_queue: list[_QueuedGpuJob] = []
+        # Issue #754: install ジョブ -> 後続アノテーションジョブの連結
+        # (install 失敗/キャンセル時に後続を取り消すための対応表)
+        self._install_chained_annotation: dict[str, str] = {}
 
         # ワーカーマネージャーのシグナル接続
         self.worker_manager.worker_started.connect(self._on_worker_started)
@@ -249,7 +264,19 @@ class WorkerService(QObject):
         )
 
         # ADR 0066 §6: GPU ジョブ判定とキュー投入
-        requires_gpu = selection_includes_local_ml_model(litellm_model_ids, model_registry)
+        local_models = local_ml_model_names(litellm_model_ids, model_registry)
+        requires_gpu = bool(local_models)
+
+        # Issue #754: 未インストールのローカル ML モデルがあれば model_install ジョブを
+        # 前段に連結する (install 実行中/待機中、後続アノテーションは queued で待機)
+        missing_models = self._detect_missing_local_models(local_models)
+        if missing_models:
+            install_worker_id = self._start_model_install(missing_models)
+            if install_worker_id is not None:
+                self._install_chained_annotation[install_worker_id] = worker_id
+                self._enqueue_gpu_annotation(worker_id, worker, len(image_paths), len(litellm_model_ids))
+                return worker_id
+
         if requires_gpu and self._gpu_active_worker_id is not None:
             self._enqueue_gpu_annotation(worker_id, worker, len(image_paths), len(litellm_model_ids))
             return worker_id
@@ -278,9 +305,98 @@ class WorkerService(QObject):
 
         queued (GPU 直列キュー待機中) のジョブは実行前に即時取り消す (ADR 0066 §6)。
         """
-        if self._cancel_queued_gpu_annotation(worker_id):
+        if self._cancel_queued_gpu_job(worker_id):
             return True
         return self.worker_manager.cancel_worker(worker_id)
+
+    # === Model Install (Issue #754, ADR 0066 §5) ===
+
+    def _detect_missing_local_models(self, local_model_names: list[str]) -> list[str]:
+        """選択中のローカル ML モデルから未インストールのものを検出する。
+
+        Args:
+            local_model_names: 選択されたローカル ML モデル名リスト。
+
+        Returns:
+            未インストールのモデル名リスト (空ならインストール不要)。
+        """
+        if not local_model_names:
+            return []
+        adapter = get_service_container().annotator_library
+        missing = adapter.get_missing_local_models(local_model_names)
+        if missing:
+            logger.info(f"未インストールのローカルMLモデルを検出: {missing}")
+        return missing
+
+    def _start_model_install(self, model_names: list[str]) -> str | None:
+        """model_install ワーカーを GPU 直列スロットで起動 (または待機投入) する。
+
+        インストールと GPU 推論を同一直列スロットで扱うことで
+        「install 完了 → 推論実行」の順序を構造的に保証する (Issue #754)。
+
+        Args:
+            model_names: インストール対象のモデル名リスト。
+
+        Returns:
+            起動/投入した install ワーカーID。起動失敗時は None
+            (呼び出し元は install なしの従来フロー = 暗黙ダウンロードに縮退)。
+        """
+        adapter = get_service_container().annotator_library
+        worker = ModelInstallWorker(adapter, model_names, db_manager=self.db_manager)
+        worker_id = f"model_install_{uuid.uuid4().hex[:8]}"
+        self._register_operation(worker_id, OperationType.MODEL_INSTALL)
+
+        worker.progress_updated.connect(
+            lambda progress: self._on_model_install_progress(worker_id, progress)
+        )
+
+        if self._gpu_active_worker_id is not None:
+            self._enqueue_gpu_job(worker_id, worker, OperationType.MODEL_INSTALL)
+            logger.info(
+                f"モデルインストールをGPU直列キューに投入: {model_names} (ID: {worker_id}, "
+                f"実行中: {self._gpu_active_worker_id})"
+            )
+            return worker_id
+
+        self._gpu_active_worker_id = worker_id
+        if self.worker_manager.start_worker(worker_id, worker):
+            logger.info(f"モデルインストール開始: {len(model_names)}件 {model_names} (ID: {worker_id})")
+            return worker_id
+
+        # 起動失敗: install なしの従来フロー (推論中の暗黙ダウンロード) に縮退する
+        logger.error(f"モデルインストールワーカー開始失敗: {worker_id} — 暗黙ダウンロードに縮退")
+        self._worker_operations.pop(worker_id, None)
+        if self._gpu_active_worker_id == worker_id:
+            self._gpu_active_worker_id = None
+        return None
+
+    def _on_model_install_progress(self, worker_id: str, progress: WorkerProgress) -> None:
+        """install ワーカーの DL 進捗を Jobs 台帳のサマリー列へ反映する (Issue #754)。"""
+        self.worker_progress_updated.emit(worker_id, progress)
+        if self.job_ledger.update(worker_id, summary=progress.status_message) is not None:
+            self.job_ledger_changed.emit()
+
+    def _handle_install_chain_terminal(self, event: WorkerTerminalEvent) -> None:
+        """install ジョブの終端時に連結アノテーションの扱いを確定する (Issue #754)。
+
+        install が成功すれば連結を解除して GPU キューの自動起動に任せる。
+        失敗/キャンセル時は後続アノテーションを取り消す (未インストールのまま
+        推論に入って暗黙ダウンロードでフリーズする状況を防ぐ)。
+        """
+        if not event.worker_id.startswith("model_install_"):
+            return
+        if event.outcome is WorkerOutcome.SUCCEEDED:
+            self._install_chained_annotation.pop(event.worker_id, None)
+            return
+        self._cancel_chained_annotation(event.worker_id)
+
+    def _cancel_chained_annotation(self, install_worker_id: str) -> None:
+        """install 未完了時に連結された後続アノテーションを取り消す。"""
+        chained_id = self._install_chained_annotation.pop(install_worker_id, None)
+        if chained_id is None:
+            return
+        if self._cancel_queued_gpu_job(chained_id, reason=CancelReason.PIPELINE_CANCEL):
+            logger.info(f"モデルインストール未完了のため後続アノテーションを取り消し: {chained_id}")
 
     # === Search ===
 
@@ -542,7 +658,7 @@ class WorkerService(QObject):
         """全ワーカーキャンセル (GPU 直列キューの待機ジョブも含めて取り消す)"""
         # 実行中ジョブの終端で次の待機ジョブが自動起動しないよう、先にキューを空にする
         for queued_job in list(self._gpu_queue):
-            self._cancel_queued_gpu_annotation(queued_job.worker_id, reason=CancelReason.SHUTDOWN)
+            self._cancel_queued_gpu_job(queued_job.worker_id, reason=CancelReason.SHUTDOWN)
         self.worker_manager.cancel_all_workers(reason=CancelReason.SHUTDOWN)
 
     def get_active_worker_count(self) -> int:
@@ -568,7 +684,7 @@ class WorkerService(QObject):
         Returns:
             キャンセル要求を発行できたかどうか。
         """
-        if self._cancel_queued_gpu_annotation(worker_id):
+        if self._cancel_queued_gpu_job(worker_id):
             return True
         return self.worker_manager.cancel_worker(worker_id)
 
@@ -587,6 +703,9 @@ class WorkerService(QObject):
         elif worker_id.startswith("annotation_"):
             operation_name = "アノテーション処理"
             self.enhanced_annotation_started.emit(worker_id)
+        elif worker_id.startswith("model_install_"):
+            operation_name = "モデルインストール"
+            self.model_install_started.emit(worker_id)
         elif worker_id.startswith("search_"):
             operation_name = "検索処理"
             self.search_started.emit(worker_id)
@@ -598,14 +717,22 @@ class WorkerService(QObject):
         # ライフサイクルINFOはこの1層に集約。search/thumbnailは高頻度なのでDEBUGに落とす。
         log_lifecycle = (
             logger.info
-            if self._resolve_worker_type(worker_id) in ("batch_reg", "batch_import", "annotation")
+            if self._resolve_worker_type(worker_id)
+            in ("batch_reg", "batch_import", "annotation", "model_install")
             else logger.debug
         )
         log_lifecycle(f"ワーカー開始: {operation_name} (ID: {worker_id})")
 
     def _resolve_worker_type(self, worker_id: str) -> str:
         """worker_idプレフィックスからワーカー種別を返すヘルパー。"""
-        for prefix in ("batch_reg_", "batch_import_", "annotation_", "search_", "thumbnail_"):
+        for prefix in (
+            "batch_reg_",
+            "batch_import_",
+            "annotation_",
+            "model_install_",
+            "search_",
+            "thumbnail_",
+        ):
             if worker_id.startswith(prefix):
                 return prefix.rstrip("_")
         return "unknown"
@@ -617,6 +744,7 @@ class WorkerService(QObject):
             "batch_reg": (self.batch_registration_finished, "current_registration_worker_id"),
             "batch_import": (self.batch_import_finished, "current_batch_import_worker_id"),
             "annotation": (self.enhanced_annotation_finished, "current_annotation_worker_id"),
+            "model_install": (self.model_install_finished, None),
             "search": (self.search_finished, "current_search_worker_id"),
             "thumbnail": (self.thumbnail_finished, "current_thumbnail_worker_id"),
         }
@@ -641,6 +769,7 @@ class WorkerService(QObject):
             "batch_reg": (self.batch_registration_error, "current_registration_worker_id"),
             "batch_import": (self.batch_import_error, "current_batch_import_worker_id"),
             "annotation": (self.enhanced_annotation_error, "current_annotation_worker_id"),
+            "model_install": (self.model_install_error, None),
             "search": (self.search_error, "current_search_worker_id"),
             "thumbnail": (self.thumbnail_error, "current_thumbnail_worker_id"),
         }
@@ -681,6 +810,9 @@ class WorkerService(QObject):
         else:
             self._on_worker_abnormal_terminal(event)
 
+        # Issue #754: install ジョブの非成功終端で連結アノテーションを先に取り消す
+        # (slot 解放より前に行い、取り消し対象が自動起動しないようにする)
+        self._handle_install_chain_terminal(event)
         # ADR 0066 §6: アクティブな GPU ジョブの終端で次の待機ジョブを自動起動
         self._release_gpu_slot_if_active(event)
 
@@ -697,6 +829,7 @@ class WorkerService(QObject):
             "batch_reg": (self.batch_registration_canceled, "current_registration_worker_id"),
             "batch_import": (self.batch_import_canceled, "current_batch_import_worker_id"),
             "annotation": (self.enhanced_annotation_canceled, "current_annotation_worker_id"),
+            "model_install": (self.model_install_canceled, None),
             "search": (self.search_canceled, "current_search_worker_id"),
             "thumbnail": (self.thumbnail_canceled, "current_thumbnail_worker_id"),
         }
@@ -819,6 +952,28 @@ class WorkerService(QObject):
 
     # === GPU 直列キュー (ADR 0066 §6) ===
 
+    def _enqueue_gpu_job(
+        self,
+        worker_id: str,
+        worker: LoRAIroWorkerBase[Any],  # Any使用: ジョブ種別ごとに Worker の結果型が異なる
+        operation_type: OperationType,
+    ) -> None:
+        """GPU 直列キューにジョブを queued で投入し台帳に載せる (ADR 0066 §6)。
+
+        Args:
+            worker_id: 待機させるワーカーID。
+            worker: 構築済みの Worker (起動は前ジョブ終端まで保留)。
+            operation_type: 台帳表示に使う operation 種別。
+        """
+        self._gpu_queue.append(_QueuedGpuJob(worker_id=worker_id, worker=worker))
+        self.job_ledger.register(
+            worker_id,
+            operation_type.value,
+            _JOB_LEDGER_TITLES[operation_type],
+            status=JobStatus.QUEUED,
+        )
+        self.job_ledger_changed.emit()
+
     def _enqueue_gpu_annotation(
         self,
         worker_id: str,
@@ -826,7 +981,7 @@ class WorkerService(QObject):
         image_count: int,
         model_count: int,
     ) -> None:
-        """先行 GPU ジョブの実行中に投入されたジョブを queued で台帳に載せて待機させる。
+        """先行 GPU ジョブの実行中に投入されたアノテーションを queued で待機させる。
 
         Args:
             worker_id: 待機させるワーカーID。
@@ -834,14 +989,7 @@ class WorkerService(QObject):
             image_count: 対象画像数 (ログ用)。
             model_count: 選択モデル数 (ログ用)。
         """
-        self._gpu_queue.append(_QueuedGpuAnnotationJob(worker_id=worker_id, worker=worker))
-        self.job_ledger.register(
-            worker_id,
-            OperationType.ANNOTATION.value,
-            _JOB_LEDGER_TITLES[OperationType.ANNOTATION],
-            status=JobStatus.QUEUED,
-        )
-        self.job_ledger_changed.emit()
+        self._enqueue_gpu_job(worker_id, worker, OperationType.ANNOTATION)
         logger.info(
             f"GPU直列キューで待機: {image_count}画像, {model_count}モデル (ID: {worker_id}, "
             f"実行中: {self._gpu_active_worker_id}, 待機数: {len(self._gpu_queue)})"
@@ -868,9 +1016,11 @@ class WorkerService(QObject):
         """GPU 直列キューの先頭ジョブを起動する。起動失敗時は次の待機ジョブを試す。"""
         while self._gpu_queue:
             queued_job = self._gpu_queue.pop(0)
+            worker_type = self._resolve_worker_type(queued_job.worker_id)
             self._gpu_active_worker_id = queued_job.worker_id
             if self.worker_manager.start_worker(queued_job.worker_id, queued_job.worker):
-                self.current_annotation_worker_id = queued_job.worker_id
+                if worker_type == "annotation":
+                    self.current_annotation_worker_id = queued_job.worker_id
                 logger.info(
                     f"GPU直列キューからジョブ起動: {queued_job.worker_id} "
                     f"(残り待機数: {len(self._gpu_queue)})"
@@ -886,9 +1036,16 @@ class WorkerService(QObject):
                 is not None
             ):
                 self.job_ledger_changed.emit()
-            self.enhanced_annotation_error.emit(f"アノテーションワーカー開始失敗: {queued_job.worker_id}")
+            if worker_type == "model_install":
+                # Issue #754: install を起動できなかった場合は連結アノテーションも取り消す
+                self._cancel_chained_annotation(queued_job.worker_id)
+                self.model_install_error.emit(f"モデルインストールワーカー開始失敗: {queued_job.worker_id}")
+            else:
+                self.enhanced_annotation_error.emit(
+                    f"アノテーションワーカー開始失敗: {queued_job.worker_id}"
+                )
 
-    def _cancel_queued_gpu_annotation(
+    def _cancel_queued_gpu_job(
         self,
         worker_id: str,
         reason: CancelReason = CancelReason.USER_REQUESTED,
@@ -912,7 +1069,7 @@ class WorkerService(QObject):
             self._on_worker_terminal(
                 WorkerTerminalEvent(
                     worker_id=worker_id,
-                    worker_type="annotation",
+                    worker_type=self._resolve_worker_type(worker_id),
                     outcome=WorkerOutcome.CANCELED,
                     cancel_reason=reason,
                 )
@@ -995,6 +1152,7 @@ class WorkerService(QObject):
             "batch_reg": OperationType.BATCH_REGISTRATION,
             "batch_import": OperationType.BATCH_IMPORT,
             "annotation": OperationType.ANNOTATION,
+            "model_install": OperationType.MODEL_INSTALL,
             "search": OperationType.SEARCH,
             "thumbnail": OperationType.THUMBNAIL,
         }.get(worker_type, OperationType.UNKNOWN)

@@ -113,6 +113,38 @@ def selection_includes_webapi_model(
     )
 
 
+def local_ml_model_names(
+    litellm_model_ids: list[str],
+    model_registry: ModelRegistryServiceProtocol,
+) -> list[str]:
+    """選択モデルのうちローカル ML モデル (provider 空 / "local") の `name` を返す。
+
+    Issue #754: model_install ジョブの対象モデル検出に使う Qt-free な pure
+    helper。lookup キーは `selection_includes_webapi_model` と同じ registry key
+    SSoT (`litellm_model_id` with bare-name fallback)。戻り値の `ModelInfo.name`
+    は iam-lib のモデル名 (annotator_config.toml セクション名) と一致する。
+
+    Args:
+        litellm_model_ids: 選択されたモデルの `litellm_model_id` リスト。
+        model_registry: モデル情報を引ける Protocol 実装。
+
+    Returns:
+        list[str]: ローカル ML モデルの name リスト (選択順、重複除去)。
+            registry に未登録の litellm_model_id はローカルではないと扱う。
+    """
+    if not litellm_model_ids:
+        return []
+    available = {
+        (info.litellm_model_id or info.name): info for info in model_registry.get_available_models()
+    }
+    names: list[str] = []
+    for key in litellm_model_ids:
+        info = available.get(key)
+        if info is not None and info.provider.strip().lower() in {"", "local"} and info.name not in names:
+            names.append(info.name)
+    return names
+
+
 def selection_includes_local_ml_model(
     litellm_model_ids: list[str],
     model_registry: ModelRegistryServiceProtocol,
@@ -136,12 +168,4 @@ def selection_includes_local_ml_model(
     Raises:
         例外は呼び出し元で吸収しない (start 失敗として伝播させる契約)。
     """
-    if not litellm_model_ids:
-        return False
-    available = {
-        (info.litellm_model_id or info.name): info for info in model_registry.get_available_models()
-    }
-    return any(
-        (info := available.get(key)) is not None and info.provider.strip().lower() in {"", "local"}
-        for key in litellm_model_ids
-    )
+    return bool(local_ml_model_names(litellm_model_ids, model_registry))
