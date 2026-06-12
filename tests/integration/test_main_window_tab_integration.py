@@ -35,10 +35,10 @@ class TestMainWindowTabInitialization:
         assert main_window_with_tabs.tabWidgetMainMode is not None
         assert isinstance(main_window_with_tabs.tabWidgetMainMode, QTabWidget)
 
-    def test_seven_tabs_created(self, main_window_with_tabs):
-        """7つのタブ（検索/マップ/アノテーション/ジョブ/結果/エラー/エクスポート）が作成される"""
+    def test_eight_tabs_created(self, main_window_with_tabs):
+        """8つのタブ（検索/マップ/アノテーション/ジョブ/結果/エラー/エクスポート/CLI）が作成される"""
         tab_widget = main_window_with_tabs.tabWidgetMainMode
-        assert tab_widget.count() == 7
+        assert tab_widget.count() == 8
         assert [tab_widget.tabText(i) for i in range(tab_widget.count())] == [
             "検索",
             "マップ",
@@ -47,6 +47,7 @@ class TestMainWindowTabInitialization:
             "結果",
             "エラー",
             "エクスポート",
+            "CLI",
         ]
 
     def test_stub_pages_exist(self, main_window_with_tabs):
@@ -81,6 +82,18 @@ class TestMainWindowTabInitialization:
         widget = export_tab.findChild(DatasetExportWidget)
         assert widget is not None
         assert main_window_with_tabs.export_widget is widget
+
+    def test_cli_tab_embeds_reference_widget(self, main_window_with_tabs):
+        """CLI タブに CliReferenceWidget が常設される (Frame 8)"""
+        from lorairo.gui.widgets.cli_reference_widget import CliReferenceWidget
+
+        window = main_window_with_tabs
+        tab_widget = window.tabWidgetMainMode
+        cli_tab = tab_widget.widget(7)
+        assert isinstance(cli_tab, CliReferenceWidget)
+        assert window.cli_reference_widget is cli_tab
+        # コンテンツは初回表示まで遅延生成される
+        assert cli_tab.content_loaded is False
 
     def test_pipeline_panel_embedded_in_annotation_group(self, main_window_with_tabs):
         """アノテーショングループにパイプライン構成ビューが常設される (Phase 6a)"""
