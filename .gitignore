@@ -59,6 +59,8 @@ coverage.xml
 _build/
 *.html
 *.rst
+# デザイン成果物 (mock/wireframe) は追跡する
+!docs/design/**/*.html
 
 # Qt Designer/UI 関連
 *_ui.py
