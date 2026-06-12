@@ -111,3 +111,37 @@ def selection_includes_webapi_model(
     return any(
         (info := available.get(key)) is not None and info.requires_api_key for key in litellm_model_ids
     )
+
+
+def selection_includes_local_ml_model(
+    litellm_model_ids: list[str],
+    model_registry: ModelRegistryServiceProtocol,
+) -> bool:
+    """選択されたモデルにローカル ML モデル (provider 空 / "local") が含まれるか判定。
+
+    ADR 0066 §6: ローカル GPU 推論を含むアノテーションジョブは同時 1 件に
+    直列化する (VRAM 競合を構造的に防ぐ)。本関数はその GPU ジョブ判定に使う
+    Qt-free な pure helper で、`selection_includes_webapi_model` と同じく
+    registry key SSoT (`litellm_model_id` with bare-name fallback) で引く。
+
+    Args:
+        litellm_model_ids: 選択されたモデルの `litellm_model_id` リスト。
+        model_registry: モデル情報を引ける Protocol 実装。
+
+    Returns:
+        bool: 1 つでも provider が空文字または "local" のモデルがあれば True。
+            registry に未登録の litellm_model_id はローカルではないと扱う
+            (未登録モデルは実行経路に乗らないため GPU 直列化の対象外)。
+
+    Raises:
+        例外は呼び出し元で吸収しない (start 失敗として伝播させる契約)。
+    """
+    if not litellm_model_ids:
+        return False
+    available = {
+        (info.litellm_model_id or info.name): info for info in model_registry.get_available_models()
+    }
+    return any(
+        (info := available.get(key)) is not None and info.provider.strip().lower() in {"", "local"}
+        for key in litellm_model_ids
+    )
