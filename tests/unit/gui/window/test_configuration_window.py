@@ -10,6 +10,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 from PySide6.QtWidgets import QComboBox, QLabel, QLineEdit, QMessageBox, QTabWidget
 
+from lorairo.gui import theme
 from lorairo.gui.window.configuration_window import ConfigurationWindow
 from lorairo.services.configuration_service import ConfigurationService
 from lorairo.utils.config import DEFAULT_CLI_LOG_PATH, DEFAULT_LOG_PATH
@@ -163,7 +164,7 @@ class TestConfigurationWindow:
         assert tab_widget.currentIndex() == 0
         key_edit = dialog.findChild(QLineEdit, "lineEditClaudeKey")
         assert key_edit is not None
-        assert "#FF9800" in key_edit.styleSheet()
+        assert theme.WARN in key_edit.styleSheet()
 
     def test_focus_api_key_field_unknown_provider_returns_false(self, dialog: ConfigurationWindow) -> None:
         """未知 provider は False を返し例外を出さない。"""

@@ -14,6 +14,7 @@ from PySide6.QtCore import QObject, QRunnable, QThreadPool, QTimer, Signal
 from PySide6.QtWidgets import QLabel, QSizePolicy, QVBoxLayout, QWidget
 
 from ....utils.log import logger
+from ... import theme
 
 if TYPE_CHECKING:
     from ....services.search_models import SearchConditions
@@ -74,7 +75,7 @@ class CountEstimateWidget(QWidget):
 
         # UI: ラベル 1 個
         self._estimated_count_label = QLabel("該当件数: -")
-        self._estimated_count_label.setStyleSheet("color: #3498db; font-size: 11px;")
+        self._estimated_count_label.setStyleSheet(f"color: {theme.INFO}; font-size: 11px;")
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.addWidget(self._estimated_count_label)

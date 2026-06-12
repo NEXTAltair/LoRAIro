@@ -25,6 +25,7 @@ from PySide6.QtWidgets import (
 from ...services.configuration_service import ConfigurationService
 from ...services.model_route_service import parse_route_preference
 from ...utils.log import build_gui_log_config, initialize_logging, logger
+from .. import theme
 from ..widgets.directory_picker import DirectoryPickerWidget
 
 # ログレベル選択肢
@@ -47,9 +48,9 @@ _API_KEY_ROWS: tuple[tuple[str, str, str, str], ...] = (
 _API_KEY_SAVED_TEXT = "保存済"
 _API_KEY_UNSET_TEXT = "未設定"
 _API_KEY_SAVED_PLACEHOLDER = "保存済（変更する場合のみ入力）"
-_API_KEY_HIGHLIGHT_STYLE = "QLineEdit { border: 2px solid #FF9800; }"
-_API_KEY_SAVED_STATUS_STYLE = "QLabel { color: #2E7D32; font-weight: 600; }"
-_API_KEY_UNSET_STATUS_STYLE = "QLabel { color: palette(mid); }"
+_API_KEY_HIGHLIGHT_STYLE = f"QLineEdit {{ border: 2px solid {theme.WARN}; }}"
+_API_KEY_SAVED_STATUS_STYLE = f"QLabel {{ color: {theme.OK}; font-weight: 600; }}"
+_API_KEY_UNSET_STATUS_STYLE = f"QLabel {{ color: {theme.INK_FAINT}; }}"
 
 
 class ConfigurationWindow(QDialog):

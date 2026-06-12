@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from PySide6.QtWidgets import QHBoxLayout, QLabel, QVBoxLayout, QWidget
 
+from lorairo.gui import theme
 from lorairo.services.cost_estimation_service import (
     CostEstimationService,
     format_duration,
@@ -17,14 +18,9 @@ from lorairo.services.pipeline_composition import InferenceLedger, LedgerEntry
 _TITLE_TEXT = "INFERENCE LEDGER — 推論回数 = ユニークモデル × ステージング枚数"
 _PLACEHOLDER_TEXT = "モデル未選択"
 
-_ENTRY_CHIP_STYLE = (
-    "QLabel { border: 1px solid #5b8def; border-radius: 8px;"
-    " padding: 2px 8px; background-color: #eef4ff; color: #1a3b6e; }"
-)
-_MULTI_BADGE_STYLE = (
-    "QLabel { border: 1px solid #7b4fd8; border-radius: 8px;"
-    " padding: 2px 6px; background-color: #f3edff; color: #3d2376; }"
-)
+# Theme v1 (Issue #760): エントリ = info、multimodal 集約バッジ = accent
+_ENTRY_CHIP_STYLE = theme.chip_qss("info")
+_MULTI_BADGE_STYLE = theme.chip_qss("accent")
 
 
 class InferenceLedgerWidget(QWidget):

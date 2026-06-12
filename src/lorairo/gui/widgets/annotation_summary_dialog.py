@@ -24,6 +24,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from lorairo.gui import theme
 from lorairo.gui.workers.annotation_worker import AnnotationExecutionResult, ModelErrorDetail
 
 # テーブルの最大表示行数
@@ -123,13 +124,13 @@ class AnnotationSummaryDialog(QDialog):
         """
         if not self._result.model_errors:
             text = "処理完了"
-            color = "#4CAF50"
+            color = theme.OK
         elif self._result.db_save_success > 0:
             text = "一部エラーあり"
-            color = "#FF9800"
+            color = theme.WARN
         else:
             text = "処理失敗"
-            color = "#F44336"
+            color = theme.ERR
 
         label = QLabel(text)
         label.setStyleSheet(f"font-size: 16px; font-weight: bold; color: {color}; padding: 8px 0;")
@@ -155,18 +156,18 @@ class AnnotationSummaryDialog(QDialog):
         db_save_fail = len(self._result.results) - self._result.db_save_success - self._result.db_save_skip
         if db_save_fail > 0:
             fail_label = QLabel(f"{db_save_fail}件")
-            fail_label.setStyleSheet("color: #F44336; font-weight: bold;")
+            fail_label.setStyleSheet(f"color: {theme.ERR}; font-weight: bold;")
             form.addRow("DB保存失敗:", fail_label)
 
         if self._result.model_errors:
             if self._regular_model_errors:
                 unique_model_errors = len({e.model_name for e in self._regular_model_errors})
                 error_label = QLabel(f"{unique_model_errors}モデルでエラー発生")
-                error_label.setStyleSheet("color: #FF9800;")
+                error_label.setStyleSheet(f"color: {theme.WARN};")
                 form.addRow("モデルエラー:", error_label)
             if self._integrity_violations:
                 integrity_label = QLabel(f"{len(self._integrity_violations)}件")
-                integrity_label.setStyleSheet("color: #F44336; font-weight: bold;")
+                integrity_label.setStyleSheet(f"color: {theme.ERR}; font-weight: bold;")
                 form.addRow("整合性違反:", integrity_label)
 
         return group
@@ -254,7 +255,7 @@ class AnnotationSummaryDialog(QDialog):
 
         if total > _MAX_TABLE_ROWS:
             overflow_label = QLabel(f"他 {total - _MAX_TABLE_ROWS}件")
-            overflow_label.setStyleSheet("color: #999; font-style: italic;")
+            overflow_label.setStyleSheet(f"color: {theme.INK_FAINT}; font-style: italic;")
             layout.addWidget(overflow_label)
 
         return group
@@ -293,7 +294,7 @@ class AnnotationSummaryDialog(QDialog):
 
         if total_errors > _MAX_TABLE_ROWS:
             overflow_label = QLabel(f"他 {total_errors - _MAX_TABLE_ROWS}件のエラー")
-            overflow_label.setStyleSheet("color: #999; font-style: italic;")
+            overflow_label.setStyleSheet(f"color: {theme.INK_FAINT}; font-style: italic;")
             layout.addWidget(overflow_label)
 
         return group
@@ -327,7 +328,7 @@ class AnnotationSummaryDialog(QDialog):
 
         if total_errors > _MAX_TABLE_ROWS:
             overflow_label = QLabel(f"他 {total_errors - _MAX_TABLE_ROWS}件")
-            overflow_label.setStyleSheet("color: #999; font-style: italic;")
+            overflow_label.setStyleSheet(f"color: {theme.INK_FAINT}; font-style: italic;")
             layout.addWidget(overflow_label)
 
         return group

@@ -9,6 +9,7 @@ from PySide6.QtGui import QMouseEvent
 from PySide6.QtWidgets import QFrame, QLabel, QWidget
 
 from ...database.db_manager import ImageDatabaseManager
+from .. import theme
 
 
 class ErrorNotificationWidget(QLabel):
@@ -67,20 +68,20 @@ class ErrorNotificationWidget(QLabel):
             # 表示とスタイル更新
             if count == 0:
                 self.setText("エラー: 0 件")
-                self.setStyleSheet("QLabel { color: green; }")
+                self.setStyleSheet(f"QLabel {{ color: {theme.OK}; }}")
             elif count < 10:
                 self.setText(f"⚠️ エラー: {count} 件")
-                self.setStyleSheet("QLabel { color: orange; font-weight: bold; }")
+                self.setStyleSheet(f"QLabel {{ color: {theme.WARN}; font-weight: bold; }}")
             else:
                 self.setText(f"❌ エラー: {count} 件")
-                self.setStyleSheet("QLabel { color: red; font-weight: bold; }")
+                self.setStyleSheet(f"QLabel {{ color: {theme.ERR}; font-weight: bold; }}")
 
             logger.debug(f"Error notification updated: {count} unresolved errors")
 
         except Exception as e:
             logger.error(f"Failed to update error count: {e}", exc_info=True)
             self.setText("エラー: 取得失敗")
-            self.setStyleSheet("QLabel { color: gray; }")
+            self.setStyleSheet(f"QLabel {{ color: {theme.INK_FAINT}; }}")
 
     def mousePressEvent(self, event: QMouseEvent) -> None:
         """マウスクリックイベント"""

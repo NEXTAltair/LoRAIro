@@ -6,6 +6,8 @@ from PySide6.QtCore import QSize, Signal
 from PySide6.QtGui import QColor, QMouseEvent, QPainter, QPaintEvent
 from PySide6.QtWidgets import QWidget
 
+from lorairo.gui import theme
+
 
 class DateHistogramWidget(QWidget):
     """Image.created_at 分布ヒストグラム表示ウィジェット。
@@ -55,7 +57,8 @@ class DateHistogramWidget(QWidget):
         for i, (_, _, count) in enumerate(self._bins):
             bar_h = max(2, int(count / max_count * h * 0.85))
             x = int(i * bar_w)
-            color = QColor("#cc5555") if i == self._selected_idx else QColor("#5588cc")
+            # Theme v1 (Issue #760): 選択バー = accent、非選択バー = info
+            color = QColor(theme.ACCENT) if i == self._selected_idx else QColor(theme.INFO)
             painter.fillRect(x + 1, h - bar_h, int(bar_w) - 2, bar_h, color)
         painter.end()
 

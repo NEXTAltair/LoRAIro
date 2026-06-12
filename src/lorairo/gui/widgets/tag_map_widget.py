@@ -31,6 +31,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from lorairo.gui import theme
 from lorairo.services.tag_cluster_service import (
     OUTLIER_CLUSTER_ID,
     ClusterInfo,
@@ -44,8 +45,8 @@ if TYPE_CHECKING:
 
 _DOT_RADIUS = 5
 _HOVER_RADIUS = 8
-_LASSO_COLOR = QColor("#c44a2f")
-_SELECTION_COLOR = QColor("#c44a2f")
+_LASSO_COLOR = QColor(theme.ACCENT)
+_SELECTION_COLOR = QColor(theme.ACCENT)
 _GRID_COLOR = QColor(0, 0, 0, 13)
 
 
@@ -160,7 +161,7 @@ class _ScatterPlot(QWidget):
         w, h = self.width(), self.height()
 
         # 背景
-        painter.fillRect(0, 0, w, h, QColor("#f9f7f2"))
+        painter.fillRect(0, 0, w, h, QColor(theme.PAPER))
         self._draw_grid(painter, w, h)
 
         if not self._dots:
@@ -210,7 +211,7 @@ class _ScatterPlot(QWidget):
             painter.drawLine(0, y, w, y)
 
     def _draw_empty(self, painter: QPainter, w: int, h: int) -> None:
-        painter.setPen(QColor("#aaaaaa"))
+        painter.setPen(QColor(theme.INK_FAINT))
         painter.setFont(QFont("monospace", 11))
         painter.drawText(
             QRectF(0, 0, w, h), Qt.AlignmentFlag.AlignCenter, "タグなし画像のみ\nクラスタ計算不可"
@@ -222,7 +223,7 @@ class _ScatterPlot(QWidget):
     def _dot_color(self, dot: DotInfo) -> QColor:
         cl = self._clusters.get(dot.cluster_id)
         if cl is None:
-            return QColor("#aaaaaa")
+            return QColor(theme.INK_FAINT)
         return QColor(cl.color)
 
     def _draw_dot(self, painter: QPainter, dot: DotInfo, w: int, h: int) -> None:
@@ -353,7 +354,7 @@ class _SidebarClusterRow(QWidget):
         text = f"{cluster.label} ({len(cluster.image_ids)})"
         name_label = QLabel(text)
         name_label.setFont(QFont("monospace", 9))
-        name_label.setStyleSheet("color:#333333;")
+        name_label.setStyleSheet(f"color:{theme.INK};")
         name_label.setWordWrap(False)
         layout.addWidget(name_label, stretch=1)
 
@@ -409,7 +410,7 @@ class TagMapWidget(QWidget):
     def _build_sidebar(self) -> QWidget:
         panel = QWidget()
         panel.setFixedWidth(260)
-        panel.setStyleSheet("background:#f0ede6;border-right:1px solid #d0ccc4;")
+        panel.setStyleSheet(f"background:{theme.PAPER_SHADE};border-right:1px solid {theme.LINE};")
         layout = QVBoxLayout(panel)
         layout.setContentsMargins(10, 10, 10, 10)
         layout.setSpacing(8)
@@ -417,20 +418,20 @@ class TagMapWidget(QWidget):
         # ヘッダー
         title = QLabel("MAP · タグクラスタ")
         title.setFont(QFont("monospace", 10, QFont.Weight.Bold))
-        title.setStyleSheet("color:#333;letter-spacing:1px;")
+        title.setStyleSheet(f"color:{theme.INK};letter-spacing:1px;")
         layout.addWidget(title)
 
         # 状態ラベル
         self._status_label = QLabel("クラスタ計算中...")
         self._status_label.setFont(QFont("monospace", 9))
-        self._status_label.setStyleSheet("color:#888;")
+        self._status_label.setStyleSheet(f"color:{theme.INK_FAINT};")
         layout.addWidget(self._status_label)
 
         # クラスタリスト (スクロール可)
         cluster_section_label = QLabel("クラスタ")
         cluster_section_label.setFont(QFont("monospace", 8))
         cluster_section_label.setStyleSheet(
-            "color:#888;text-transform:uppercase;letter-spacing:2px;margin-top:6px;"
+            f"color:{theme.INK_FAINT};text-transform:uppercase;letter-spacing:2px;margin-top:6px;"
         )
         layout.addWidget(cluster_section_label)
 
@@ -451,20 +452,23 @@ class TagMapWidget(QWidget):
         # 選択情報
         sel_label = QLabel("選択")
         sel_label.setFont(QFont("monospace", 8))
-        sel_label.setStyleSheet("color:#888;text-transform:uppercase;letter-spacing:2px;margin-top:6px;")
+        sel_label.setStyleSheet(
+            f"color:{theme.INK_FAINT};text-transform:uppercase;letter-spacing:2px;margin-top:6px;"
+        )
         layout.addWidget(sel_label)
 
         self._sel_count_label = QLabel("0 枚選択中")
         self._sel_count_label.setFont(QFont("monospace", 10))
-        self._sel_count_label.setStyleSheet("color:#333;font-weight:bold;")
+        self._sel_count_label.setStyleSheet(f"color:{theme.INK};font-weight:bold;")
         layout.addWidget(self._sel_count_label)
 
         # 選択クリアボタン
         clear_btn = QPushButton("選択解除")
         clear_btn.setFont(QFont("monospace", 9))
         clear_btn.setStyleSheet(
-            "QPushButton{background:#e8e4dc;border:1px solid #c0bbb2;border-radius:3px;padding:3px 8px;}"
-            "QPushButton:hover{background:#d8d4cc;}"
+            f"QPushButton{{background:{theme.PAPER_SHADE};border:1px solid {theme.LINE_STRONG};"
+            f"border-radius:3px;padding:3px 8px;}}"
+            f"QPushButton:hover{{background:{theme.LINE};}}"
         )
         clear_btn.clicked.connect(self._plot.clear_selection)
         layout.addWidget(clear_btn)
@@ -474,9 +478,10 @@ class TagMapWidget(QWidget):
         self._stage_btn.setFont(QFont("monospace", 10, QFont.Weight.Bold))
         self._stage_btn.setEnabled(False)
         self._stage_btn.setStyleSheet(
-            "QPushButton{background:#c44a2f;color:white;border:none;border-radius:3px;padding:5px 10px;}"
-            "QPushButton:hover{background:#a83a20;}"
-            "QPushButton:disabled{background:#d0ccc4;color:#aaa;}"
+            f"QPushButton{{background:{theme.ACCENT};color:white;border:none;"
+            f"border-radius:3px;padding:5px 10px;}}"
+            f"QPushButton:hover{{background:{theme.ACCENT_HOVER};}}"
+            f"QPushButton:disabled{{background:{theme.LINE};color:{theme.INK_FAINT};}}"
         )
         self._stage_btn.clicked.connect(self._on_stage_clicked)
         layout.addWidget(self._stage_btn)
@@ -485,8 +490,9 @@ class TagMapWidget(QWidget):
         reload_btn = QPushButton("↺ 再計算")
         reload_btn.setFont(QFont("monospace", 9))
         reload_btn.setStyleSheet(
-            "QPushButton{background:#e8e4dc;border:1px solid #c0bbb2;border-radius:3px;padding:3px 8px;}"
-            "QPushButton:hover{background:#d8d4cc;}"
+            f"QPushButton{{background:{theme.PAPER_SHADE};border:1px solid {theme.LINE_STRONG};"
+            f"border-radius:3px;padding:3px 8px;}}"
+            f"QPushButton:hover{{background:{theme.LINE};}}"
         )
         reload_btn.clicked.connect(self._load_clusters)
         layout.addWidget(reload_btn)

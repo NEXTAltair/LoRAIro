@@ -12,6 +12,7 @@ from __future__ import annotations
 from PySide6.QtCore import Signal
 from PySide6.QtWidgets import QHBoxLayout, QLabel, QToolButton, QVBoxLayout, QWidget
 
+from lorairo.gui import theme
 from lorairo.services.pipeline_composition import DerivedChip, PipelineStage, StageModelInfo, StageRow
 
 # 表示順 (Wireframes v11 Frame 2A の行順)
@@ -40,17 +41,12 @@ _RATING_NOTE_TOOLTIP = (
 _REMOVE_BUTTON_TOOLTIP = "選択から外す（このモデルは全ステージから外れます）"
 _ADD_BUTTON_TEXT = "+ 追加"
 
-_PRIMARY_CHIP_STYLE = (
-    "QLabel { border: 1px solid #5b8def; border-radius: 8px;"
-    " padding: 2px 8px; background-color: #eef4ff; color: #1a3b6e; }"
-)
-_MULTI_CHIP_STYLE = (
-    "QLabel { border: 2px solid #7b4fd8; border-radius: 8px;"
-    " padding: 2px 8px; background-color: #f3edff; color: #3d2376; }"
-)
+# Theme v1 (Issue #760): 主割当 = info、multi-stage 強調 = accent、派生 = 点線 muted
+_PRIMARY_CHIP_STYLE = theme.chip_qss("info")
+_MULTI_CHIP_STYLE = theme.chip_qss("accent")
 _DERIVED_CHIP_STYLE = (
-    "QLabel { border: 1px dashed #9aa0a6; border-radius: 8px;"
-    " padding: 2px 8px; color: #6b7075; font-style: italic; }"
+    f"QLabel {{ border: 1px dashed {theme.LINE_STRONG}; border-radius: {theme.RADIUS_CHIP}px;"
+    f" padding: 1px 9px; color: {theme.INK_FAINT}; font-style: italic; }}"
 )
 
 

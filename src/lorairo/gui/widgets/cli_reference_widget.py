@@ -20,22 +20,23 @@ from PySide6.QtGui import QShowEvent
 from PySide6.QtWidgets import QTextBrowser, QVBoxLayout, QWidget
 
 from ...utils.log import logger
+from .. import theme
 
 # ---------------------------------------------------------------------------
-# 配色 (HANDOFF.md Frame 8 スタイルメモのダークペイン風、QTextBrowser 対応の範囲)
+# 配色 (Theme v1 terminal トークン、QTextBrowser 対応の範囲。Issue #760)
 # ---------------------------------------------------------------------------
-_PANE_BG = "#23211d"
-_PANE_FG = "#d6d3cd"
-_COLOR_KEY = "#9ecbff"
-_COLOR_STR = "#a5d6a7"
-_COLOR_NUM = "#ffcc80"
-_COLOR_BOOL = "#f48fb1"
-_COLOR_MUTED = "#8a877f"
+_PANE_BG = theme.TERMINAL
+_PANE_FG = theme.TERMINAL_FG
+_COLOR_KEY = theme.TERMINAL_KEY
+_COLOR_STR = theme.TERMINAL_STR
+_COLOR_NUM = theme.TERMINAL_NUM
+_COLOR_BOOL = theme.TERMINAL_BOOL
+_COLOR_MUTED = theme.TERMINAL_MUTED
 
-_BADGE_READ_ONLY = "#2e7d32"
-_BADGE_SIDE_EFFECT = "#b26a00"
-_CHIP_BG = "#eceae6"
-_CHIP_FG = "#4a4742"
+_BADGE_READ_ONLY = theme.OK
+_BADGE_SIDE_EFFECT = theme.WARN
+_CHIP_BG = theme.PAPER_SHADE
+_CHIP_FG = theme.INK_SOFT
 
 # JSONL 1 行を着色するための簡易トークナイザ。
 # "key": / "string" / true|false|null / 数値 の 4 種を判別する。

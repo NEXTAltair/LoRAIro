@@ -20,6 +20,8 @@ from PySide6.QtCore import QObject, Qt, QThread, QTimer, Signal, Slot
 from PySide6.QtGui import QCloseEvent
 from PySide6.QtWidgets import QLabel, QMessageBox, QProgressBar, QPushButton, QWidget
 
+from lorairo.gui import theme
+
 # Database imports moved to conditional section for standalone compatibility
 if __name__ == "__main__":
     # テスト実行時は絶対インポート使用（後でインポート）
@@ -191,10 +193,11 @@ if not __name__ == "__main__":
             self.btnRefreshModels.setToolTip("モデル一覧を更新")
             self.btnRefreshModels.setMaximumSize(48, 24)
             self.btnRefreshModels.setStyleSheet(
-                "QPushButton { font-size: 10px; padding: 3px 6px; border: 1px solid #607D8B; "
-                "border-radius: 3px; background-color: #f6f8f9; color: #455A64; }"
-                "QPushButton:hover { background-color: #ECEFF1; }"
-                "QPushButton:pressed { background-color: #607D8B; color: white; }"
+                f"QPushButton {{ font-size: 10px; padding: 3px 6px;"
+                f" border: 1px solid {theme.LINE_STRONG}; border-radius: 3px;"
+                f" background-color: {theme.CARD}; color: {theme.INK_SOFT}; }}"
+                f"QPushButton:hover {{ background-color: {theme.PAPER_SHADE}; }}"
+                f"QPushButton:pressed {{ background-color: {theme.ACCENT_SOFT}; }}"
             )
             self.btnRefreshModels.clicked.connect(self.refresh_model_registry)
 
