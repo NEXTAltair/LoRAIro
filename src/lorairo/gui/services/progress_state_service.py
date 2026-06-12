@@ -113,8 +113,19 @@ class ProgressStateService:
             return
 
         try:
-            # Extract progress information
-            if hasattr(progress, "current") and hasattr(progress, "total"):
+            # WorkerProgress (gui.workers.base) 形式: percentage / status_message / processed_count
+            if hasattr(progress, "percentage") and hasattr(progress, "status_message"):
+                detail = ""
+                total_count = getattr(progress, "total_count", 0)
+                if total_count > 0:
+                    detail = f" ({progress.processed_count}/{total_count})"
+                status_message = f"{progress.status_message}{detail} - {progress.percentage}%"
+                self.status_bar.showMessage(status_message)
+
+                logger.trace(f"ワーカー進捗更新: {worker_id} - {status_message}")
+
+            # 汎用 current/total 形式
+            elif hasattr(progress, "current") and hasattr(progress, "total"):
                 current = progress.current
                 total = progress.total
                 percentage = int((current / total) * 100) if total > 0 else 0

@@ -423,6 +423,11 @@ class MainWindow(QMainWindow, Ui_MainWindow):
                 widget.connect_shared_staging(batch_tag_widget.get_staging_widget())
                 widget.staging_cleared.connect(self._handle_staging_cleared)
                 widget.staged_images_changed.connect(self._on_staged_images_changed)
+            # ADR 0066: 同期ジョブ台帳 (実行中/履歴) を Jobs タブへ接続
+            if self.worker_service:
+                widget.set_job_ledger(self.worker_service.job_ledger)
+                self.worker_service.job_ledger_changed.connect(widget.refresh_sync_jobs)
+                widget.sync_job_cancel_requested.connect(self._on_sync_job_cancel_requested)
             self.provider_batch_job_widget = widget
             insert_index = self.tabWidgetMainMode.indexOf(self.tabResults)
             self.tabWidgetMainMode.insertTab(insert_index, widget, "ジョブ")
@@ -430,6 +435,22 @@ class MainWindow(QMainWindow, Ui_MainWindow):
         except Exception as e:
             self.provider_batch_job_widget = None
             logger.error(f"❌ ジョブタブ initialization failed: {e}", exc_info=True)
+
+    def _on_sync_job_cancel_requested(self, job_id: str) -> None:
+        """Jobs タブの同期ジョブ行からのキャンセル要求 (ADR 0066 §4)。
+
+        進捗ポップアップ廃止に伴い、キャンセル操作は Jobs 行のボタンへ移設された。
+
+        Args:
+            job_id: 台帳の job_id (= worker_id)。
+        """
+        if not self.worker_service:
+            logger.warning("WorkerService未初期化 - ジョブキャンセルをスキップ")
+            return
+        if self.worker_service.cancel_job(job_id):
+            self.statusBar().showMessage(f"ジョブをキャンセルしています: {job_id}", 5000)
+        else:
+            logger.warning(f"ジョブキャンセル要求に失敗: {job_id}")
 
     def _verify_state_management_connections(self) -> None:
         """状態管理接続の検証（SelectionStateServiceに委譲）"""
@@ -1065,6 +1086,10 @@ class MainWindow(QMainWindow, Ui_MainWindow):
         self.worker_service.enhanced_annotation_error.connect(self._on_annotation_error)
         self.worker_service.enhanced_annotation_canceled.connect(self._on_annotation_canceled)
 
+        # ADR 0066 §4: 進捗ポップアップ廃止 — 開始通知は statusbar のみ (自動タブ遷移はしない)
+        self.worker_service.enhanced_annotation_started.connect(self._on_sync_job_started_notify)
+        self.worker_service.batch_import_started.connect(self._on_sync_job_started_notify)
+
         # Progress feedback connections
         self.worker_service.worker_progress_updated.connect(self._on_worker_progress_updated)
         self.worker_service.worker_batch_progress.connect(self._on_worker_batch_progress)
@@ -1168,6 +1193,15 @@ class MainWindow(QMainWindow, Ui_MainWindow):
     def _on_batch_registration_canceled(self, worker_id: str) -> None:
         """Batch registration canceled signal handler（エラー通知は出さない）"""
         self._delegate_to_progress_state("on_batch_registration_canceled", worker_id)
+
+    def _on_sync_job_started_notify(self, worker_id: str) -> None:
+        """同期ジョブ開始の statusbar 通知 (ADR 0066 §4: ポップアップ代替)。
+
+        Args:
+            worker_id: 開始したワーカーID。進捗・キャンセルはジョブタブで扱う。
+        """
+        self.statusBar().showMessage("処理を開始しました（進捗はジョブタブで確認できます）", 8000)
+        logger.debug(f"同期ジョブ開始通知: {worker_id}")
 
     def _on_worker_progress_updated(self, worker_id: str, progress: Any) -> None:
         self._delegate_to_progress_state("on_worker_progress_updated", worker_id, progress)

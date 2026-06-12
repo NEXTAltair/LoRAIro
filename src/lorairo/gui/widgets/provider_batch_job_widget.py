@@ -24,6 +24,8 @@ from PySide6.QtWidgets import QMenu, QMessageBox, QTableWidget, QTableWidgetItem
 from lorairo.gui.designer.ProviderBatchJobWidget_ui import Ui_ProviderBatchJobWidget
 from lorairo.gui.widgets.model_selection_widget import ModelSelectionWidget
 from lorairo.gui.widgets.staging_widget import StagingWidget
+from lorairo.gui.widgets.sync_job_ledger_widget import SyncJobLedgerWidget
+from lorairo.services.job_ledger_service import JobLedgerService
 from lorairo.services.provider_batch_capability import (
     direct_provider_for_model,
     endpoint_for_task,
@@ -89,6 +91,7 @@ class ProviderBatchJobWidget(QWidget, Ui_ProviderBatchJobWidget):
     staged_images_changed = Signal(list)
     staging_cleared = Signal()
     submit_completed = Signal()
+    sync_job_cancel_requested = Signal(str)  # ADR 0066 §4: 同期ジョブ行のキャンセル (job_id)
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -116,6 +119,12 @@ class ProviderBatchJobWidget(QWidget, Ui_ProviderBatchJobWidget):
         self._staging_widget.staging_cleared.connect(self.staging_cleared)
         self._model_selection_widget = self._inject_model_selection_widget()
         self._model_selection_widget.set_single_selection_mode(True)
+
+        # ADR 0066: 統一 Jobs lifecycle ビュー — 同期ジョブ台帳セクション (拡張方式)
+        self._job_ledger: JobLedgerService | None = None
+        self._sync_jobs_widget = SyncJobLedgerWidget(parent=self.splitterRight)
+        self.splitterRight.insertWidget(0, self._sync_jobs_widget)
+        self._sync_jobs_widget.cancel_requested.connect(self.sync_job_cancel_requested)
 
         self._setup_combos_and_tables()
         self._setup_job_context_menu()
@@ -206,6 +215,26 @@ class ProviderBatchJobWidget(QWidget, Ui_ProviderBatchJobWidget):
     def get_model_selection_widget(self) -> ModelSelectionWidget:
         """差し込み済み ModelSelectionWidget を返す。"""
         return self._model_selection_widget
+
+    def get_sync_jobs_widget(self) -> SyncJobLedgerWidget:
+        """同期ジョブ台帳セクション widget を返す。"""
+        return self._sync_jobs_widget
+
+    def set_job_ledger(self, job_ledger: JobLedgerService) -> None:
+        """同期ジョブ台帳 (ADR 0066) を注入し、初期表示を行う。
+
+        Args:
+            job_ledger: WorkerService が所有する in-memory 台帳。
+        """
+        self._job_ledger = job_ledger
+        self.refresh_sync_jobs()
+
+    @Slot()
+    def refresh_sync_jobs(self) -> None:
+        """同期ジョブ台帳セクションを再描画する。"""
+        if self._job_ledger is None:
+            return
+        self._sync_jobs_widget.set_entries(self._job_ledger.list_entries())
 
     def _connect_signals(self) -> None:
         self.buttonAddSelected.clicked.connect(self._staging_widget.add_selected_images)
