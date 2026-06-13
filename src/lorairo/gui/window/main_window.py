@@ -6,12 +6,13 @@ from pathlib import Path
 from typing import Any, cast
 
 from PySide6.QtCore import QEasingCurve, QPropertyAnimation, QSettings, Qt, QTimer, Signal
-from PySide6.QtGui import QCloseEvent, QKeySequence, QResizeEvent, QShortcut
+from PySide6.QtGui import QAction, QCloseEvent, QKeySequence, QResizeEvent
 from PySide6.QtWidgets import (
     QDialog,
     QFileDialog,
     QGraphicsOpacityEffect,
     QMainWindow,
+    QMenu,
     QMessageBox,
     QTabWidget,
     QWidget,
@@ -142,15 +143,8 @@ class MainWindow(QMainWindow, Ui_MainWindow):
             setup_ui(self)
             logger.info("UI設定完了")
 
-            # エラーログメニューアクション接続（UI生成後に接続）
-            if hasattr(self, "actionErrorLog"):
-                self.actionErrorLog.triggered.connect(self._on_error_notification_clicked)
-                logger.debug("Error log menu action connected")
-
             # タグ管理メニューアクション追加（ツールメニューへ）
             if hasattr(self, "menuTools"):
-                from PySide6.QtGui import QAction
-
                 self.actionTagManagement = QAction("未分類タグの整理", self)
                 self.actionTagManagement.setShortcut("Ctrl+Shift+T")
                 self.actionTagManagement.triggered.connect(self._show_tag_management_dialog)
@@ -159,8 +153,6 @@ class MainWindow(QMainWindow, Ui_MainWindow):
 
             # Batch APIインポートメニューアクション追加
             if hasattr(self, "menuFile"):
-                from PySide6.QtGui import QAction
-
                 self.actionBatchImport = QAction("Batch API結果インポート...", self)
                 self.actionBatchImport.setShortcut("Ctrl+Shift+I")
                 self.actionBatchImport.triggered.connect(self._start_batch_import)
@@ -589,18 +581,30 @@ class MainWindow(QMainWindow, Ui_MainWindow):
         logger.info("tabWidgetRightPanel initialized with 1 tab: 画像詳細")
 
     def _setup_tab_shortcuts(self) -> None:
-        """Ctrl+1〜N でメインタブを切り替えるショートカットを登録する。
+        """「移動」メニューと Ctrl+1〜N のタブ切替を登録する。
 
-        Wireframes v11 のナビショートカット (⌘1–⌘8) に対応する。
+        Wireframes v11 のナビショートカット (⌘1–⌘8) に対応する。8 タブを
+        メニューからも到達できるようにし、旧ツールメニューにあったタブ重複導線
+        （アノテーション / エクスポート / エラーログ）を置き換える。各アクションが
+        Ctrl+N ショートカットを保持するため、別途 QShortcut は登録しない。
         """
         if not hasattr(self, "tabWidgetMainMode") or not self.tabWidgetMainMode:
-            logger.warning("tabWidgetMainMode not found - tab shortcuts skipped")
+            logger.warning("tabWidgetMainMode not found - 移動メニュー skipped")
             return
+        navigate_menu = QMenu("移動", self)
         for i in range(self.tabWidgetMainMode.count()):
-            shortcut = QShortcut(QKeySequence(f"Ctrl+{i + 1}"), self)
-            shortcut.setContext(Qt.ShortcutContext.ApplicationShortcut)
-            shortcut.activated.connect(partial(self.tabWidgetMainMode.setCurrentIndex, i))
-        logger.debug(f"Tab shortcuts registered: Ctrl+1..Ctrl+{self.tabWidgetMainMode.count()}")
+            action = QAction(self.tabWidgetMainMode.tabText(i), self)
+            action.setShortcut(QKeySequence(f"Ctrl+{i + 1}"))
+            action.triggered.connect(partial(self.tabWidgetMainMode.setCurrentIndex, i))
+            navigate_menu.addAction(action)
+        # 「表示」と「ツール」の間（ツールメニューの直前）へ挿入する
+        tools_action = self.menuTools.menuAction() if hasattr(self, "menuTools") else None
+        if tools_action is not None:
+            self.menuBar().insertMenu(tools_action, navigate_menu)
+        else:
+            self.menuBar().addMenu(navigate_menu)
+        self.menuNavigate = navigate_menu
+        logger.debug(f"移動メニュー登録: Ctrl+1..Ctrl+{self.tabWidgetMainMode.count()}")
 
     def _setup_results_tab(self) -> None:
         """結果タブに ResultsWidget を埋め込む。
@@ -1089,7 +1093,12 @@ class MainWindow(QMainWindow, Ui_MainWindow):
             logger.error(f"    ❌ サムネイル→プレビュー接続失敗: {e}")
 
     def _connect_menu_actions(self) -> None:
-        """編集メニューの全選択・選択解除アクション Signal 接続を行う。"""
+        """ファイル/編集/ヘルプメニューのアクション Signal 接続を行う。"""
+        # ファイル: 終了 / ヘルプ: about（thumbnail_selector 非依存なので先に接続）
+        if hasattr(self, "actionExit"):
+            self.actionExit.triggered.connect(self.close)
+        if hasattr(self, "actionAbout"):
+            self.actionAbout.triggered.connect(self._show_about_dialog)
         if not self.thumbnail_selector:
             return
         try:
@@ -1100,6 +1109,14 @@ class MainWindow(QMainWindow, Ui_MainWindow):
             logger.info("    ✅ 編集メニュー（全選択/選択解除）接続完了")
         except Exception as e:
             logger.error(f"    ❌ 編集メニュー接続失敗: {e}")
+
+    def _show_about_dialog(self) -> None:
+        """「LoRAIroについて」ダイアログを表示する。"""
+        QMessageBox.about(
+            self,
+            "LoRAIroについて",
+            "LoRAIro — LoRA 学習用データセット管理ツール",
+        )
 
     def _connect_details_widget_signals(self) -> None:
         """SelectedImageDetailsWidget の Rating/Score シグナル接続を行う。"""
@@ -2185,12 +2202,7 @@ class MainWindow(QMainWindow, Ui_MainWindow):
         パスを足さない）。
         """
         try:
-            # ツールバー/メニューの action（triggered の bool ペイロードは無視する）
-            if hasattr(self, "actionExport"):
-                self.actionExport.triggered.connect(self._on_export_entry_triggered)
-            if hasattr(self, "actionAnnotation"):
-                self.actionAnnotation.triggered.connect(self._on_annotation_entry_triggered)
-            # サムネグリッド下部バーのエクスポートボタン
+            # サムネグリッド下部バーのエクスポートボタン（triggered の bool ペイロードは無視する）
             if hasattr(self, "btnExportData"):
                 self.btnExportData.clicked.connect(self._on_export_entry_triggered)
             # 下部バーの件数表示を初期化（起動直後のステージング件数 0）
@@ -2210,16 +2222,6 @@ class MainWindow(QMainWindow, Ui_MainWindow):
             _checked: シグナルが渡す checked 状態。意図的に無視する。
         """
         self.export_data()
-
-    def _on_annotation_entry_triggered(self, _checked: bool = False) -> None:
-        """アノテーション入口（ツールバー action）のハンドラ。
-
-        ``QAction.triggered`` が渡す bool ペイロードは無視する（ADR 0043）。
-
-        Args:
-            _checked: シグナルが渡す checked 状態。意図的に無視する。
-        """
-        self.start_annotation()
 
     def _get_staged_export_ids(self) -> list[int]:
         """エクスポート対象のステージング画像 ID を返す（エクスポートタブの対象ソース）。
