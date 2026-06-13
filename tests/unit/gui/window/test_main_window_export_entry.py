@@ -69,12 +69,28 @@ class TestExportEntryUiStructure:
         """8タブナビ移行後、mainToolBar は削除されている。"""
         assert not hasattr(bare_window, "mainToolBar")
 
-    def test_menu_actions_still_accessible(self, bare_window):
-        """ツールバー削除後もメニュー経由でアクションが利用可能。"""
-        assert hasattr(bare_window, "actionAnnotation")
-        assert hasattr(bare_window, "actionExport")
+    def test_old_design_menu_actions_removed(self, bare_window):
+        """8タブナビ移行に伴い、タブ重複/dead だった旧メニューアクションは除去済み。"""
+        # タブ重複（Annotate⌘3 / Export⌘7 / Errors⌘6 へ集約） → 「移動」メニューが担う
+        assert not hasattr(bare_window, "actionAnnotation")
+        assert not hasattr(bare_window, "actionExport")
+        assert not hasattr(bare_window, "actionErrorLog")
+        # dead（何も起きなかった）アクション
+        assert not hasattr(bare_window, "actionOpenDataset")
+        assert not hasattr(bare_window, "actionEditImage")
+        # 残すアクション（設定 / 終了 / About）
         assert hasattr(bare_window, "actionSettings")
-        assert hasattr(bare_window, "actionErrorLog")
+        assert hasattr(bare_window, "actionExit")
+        assert hasattr(bare_window, "actionAbout")
+
+    def test_navigate_menu_built_from_tabs(self, bare_window):
+        """「移動」メニューがタブ数ぶんのアクション（Ctrl+N ショートカット付き）を持つ。"""
+        MainWindow._setup_tab_shortcuts(bare_window)
+
+        assert hasattr(bare_window, "menuNavigate")
+        actions = bare_window.menuNavigate.actions()
+        assert len(actions) == bare_window.tabWidgetMainMode.count()
+        assert actions[0].shortcut().toString() == "Ctrl+1"
 
     def test_export_bottom_bar_widgets_exist(self, bare_window):
         """サムネグリッド下部バーの件数ラベルとエクスポートボタンが起動する。"""
@@ -138,26 +154,17 @@ class TestExportEntryHandlers:
         MainWindow._on_export_entry_triggered(mock_window)
         mock_window.export_data.assert_called_once_with()
 
-    def test_on_annotation_entry_triggered_ignores_bool(self):
-        mock_window = Mock()
-        MainWindow._on_annotation_entry_triggered(mock_window, False)
-        mock_window.start_annotation.assert_called_once_with()
-
 
 class TestExportEntryWiring:
     """_connect_export_entry_signals の結線を実ウィジェットで検証。"""
 
-    def test_connect_wires_bottom_bar_and_menu_actions(self, bare_window, qtbot):
+    def test_connect_wires_bottom_bar_export_button(self, bare_window, qtbot):
         bare_window.export_data = Mock()
-        bare_window.start_annotation = Mock()
         bare_window._update_export_target_ui = types.MethodType(
             MainWindow._update_export_target_ui, bare_window
         )
         bare_window._on_export_entry_triggered = types.MethodType(
             MainWindow._on_export_entry_triggered, bare_window
-        )
-        bare_window._on_annotation_entry_triggered = types.MethodType(
-            MainWindow._on_annotation_entry_triggered, bare_window
         )
 
         MainWindow._connect_export_entry_signals(bare_window)
@@ -168,14 +175,6 @@ class TestExportEntryWiring:
         # 下部バーボタンの clicked(bool) → export_data（引数なし、bool を ID 化しない）
         qtbot.mouseClick(bare_window.btnExportData, Qt.MouseButton.LeftButton)
         bare_window.export_data.assert_called_once_with()
-
-        # メニュー actionExport.trigger() → export_data
-        bare_window.actionExport.trigger()
-        assert bare_window.export_data.call_count == 2
-
-        # メニュー actionAnnotation.trigger() → start_annotation
-        bare_window.actionAnnotation.trigger()
-        bare_window.start_annotation.assert_called_once_with()
 
 
 class TestStagedExportIdsProvider:

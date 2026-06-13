@@ -7,7 +7,6 @@ MainWindow初期化、タブ切り替え、ウィジェット統合を検証。
 from unittest.mock import Mock
 
 import pytest
-from PySide6.QtGui import QShortcut
 from PySide6.QtWidgets import QTabWidget
 
 from lorairo.gui.widgets.errors_triage_widget import ErrorsTriageWidget
@@ -301,22 +300,22 @@ class TestTabSwitching:
         assert provider_widget.modelSelectionPlaceholder.parent() is None
         assert provider_widget.executionLayout.indexOf(model_selection) != -1
 
-    def test_tab_shortcuts_registered_for_all_tabs(self, main_window_with_tabs):
-        """Ctrl+1〜N のショートカットがタブ数分登録される"""
+    def test_navigate_menu_actions_for_all_tabs(self, main_window_with_tabs):
+        """「移動」メニューに Ctrl+1〜N 付きアクションがタブ数分登録される"""
         window = main_window_with_tabs
-        sequences = {sc.key().toString() for sc in window.findChildren(QShortcut)}
+        sequences = {a.shortcut().toString() for a in window.menuNavigate.actions()}
         expected = {f"Ctrl+{i + 1}" for i in range(window.tabWidgetMainMode.count())}
         assert expected.issubset(sequences)
 
-    def test_tab_shortcut_activation_switches_tab(self, main_window_with_tabs):
-        """ショートカット発火でメインタブが切り替わる"""
+    def test_navigate_menu_action_switches_tab(self, main_window_with_tabs):
+        """移動メニューのアクション発火でメインタブが切り替わる"""
         window = main_window_with_tabs
-        shortcut_by_seq = {sc.key().toString(): sc for sc in window.findChildren(QShortcut)}
+        action_by_seq = {a.shortcut().toString(): a for a in window.menuNavigate.actions()}
 
-        shortcut_by_seq["Ctrl+4"].activated.emit()
+        action_by_seq["Ctrl+4"].trigger()
         assert window.tabWidgetMainMode.currentIndex() == 3
 
-        shortcut_by_seq["Ctrl+1"].activated.emit()
+        action_by_seq["Ctrl+1"].trigger()
         assert window.tabWidgetMainMode.currentIndex() == 0
 
 
