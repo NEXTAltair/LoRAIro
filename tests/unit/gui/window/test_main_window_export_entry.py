@@ -1,10 +1,11 @@
-"""MainWindow エクスポート入口（ツールバー・下部バー）のテスト。
+"""MainWindow エクスポート入口（下部バー）のテスト。
 
 Issue #611 (S1: エクスポート入口追加) / ADR 0055 (対象=ステージング集合) /
 ADR 0043 (単一選択ソース・clicked(bool) 注意) 準拠。
 
 検証内容:
-- ツールバー起動（既存 action の再掲）
+- ツールバーは 8タブナビへの移行で削除済み（アノテーション/エクスポート等は tabs で到達）
+- menuTools 経由でアクションが引き続き利用可能
 - サムネグリッド下部バー起動（対象件数ラベル + エクスポートボタン）
 - 件数表示がステージング件数（staged_images_changed）に追従する
 - clicked(bool) / triggered(bool) ペイロードを画像 ID と誤認しない回帰
@@ -62,18 +63,18 @@ def bare_window(qtbot):
 
 
 class TestExportEntryUiStructure:
-    """ツールバー・下部バーの存在検証（起動）。"""
+    """下部バーの存在検証（起動）。"""
 
-    def test_toolbar_exists_with_reused_actions(self, bare_window):
-        """ツールバーが既存 action を再掲して起動する。"""
-        assert hasattr(bare_window, "mainToolBar")
-        action_names = {a.objectName() for a in bare_window.mainToolBar.actions() if a.objectName()}
-        assert {
-            "actionAnnotation",
-            "actionExport",
-            "actionSettings",
-            "actionErrorLog",
-        } <= action_names
+    def test_no_standalone_toolbar(self, bare_window):
+        """8タブナビ移行後、mainToolBar は削除されている。"""
+        assert not hasattr(bare_window, "mainToolBar")
+
+    def test_menu_actions_still_accessible(self, bare_window):
+        """ツールバー削除後もメニュー経由でアクションが利用可能。"""
+        assert hasattr(bare_window, "actionAnnotation")
+        assert hasattr(bare_window, "actionExport")
+        assert hasattr(bare_window, "actionSettings")
+        assert hasattr(bare_window, "actionErrorLog")
 
     def test_export_bottom_bar_widgets_exist(self, bare_window):
         """サムネグリッド下部バーの件数ラベルとエクスポートボタンが起動する。"""
@@ -146,7 +147,7 @@ class TestExportEntryHandlers:
 class TestExportEntryWiring:
     """_connect_export_entry_signals の結線を実ウィジェットで検証。"""
 
-    def test_connect_wires_bottom_bar_and_toolbar(self, bare_window, qtbot):
+    def test_connect_wires_bottom_bar_and_menu_actions(self, bare_window, qtbot):
         bare_window.export_data = Mock()
         bare_window.start_annotation = Mock()
         bare_window._update_export_target_ui = types.MethodType(
@@ -168,11 +169,11 @@ class TestExportEntryWiring:
         qtbot.mouseClick(bare_window.btnExportData, Qt.MouseButton.LeftButton)
         bare_window.export_data.assert_called_once_with()
 
-        # ツールバーのエクスポート action → export_data
+        # メニュー actionExport.trigger() → export_data
         bare_window.actionExport.trigger()
         assert bare_window.export_data.call_count == 2
 
-        # ツールバーのアノテーション action → start_annotation
+        # メニュー actionAnnotation.trigger() → start_annotation
         bare_window.actionAnnotation.trigger()
         bare_window.start_annotation.assert_called_once_with()
 

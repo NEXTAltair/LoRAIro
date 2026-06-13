@@ -19,8 +19,8 @@ from PySide6.QtGui import (QAction, QBrush, QColor, QConicalGradient,
 from PySide6.QtWidgets import (QApplication, QFrame, QGroupBox, QHBoxLayout,
     QLabel, QLineEdit, QMainWindow, QMenu,
     QMenuBar, QPushButton, QSizePolicy, QSpacerItem,
-    QSplitter, QStatusBar, QTabWidget, QToolBar,
-    QVBoxLayout, QWidget)
+    QSplitter, QStatusBar, QTabWidget, QVBoxLayout,
+    QWidget)
 
 from ..widgets.filter_search_panel import FilterSearchPanel
 from ..widgets.image_preview import ImagePreviewWidget
@@ -456,9 +456,6 @@ class Ui_MainWindow(object):
         self.menuHelp = QMenu(self.menubar)
         self.menuHelp.setObjectName(u"menuHelp")
         MainWindow.setMenuBar(self.menubar)
-        self.mainToolBar = QToolBar(MainWindow)
-        self.mainToolBar.setObjectName(u"mainToolBar")
-        MainWindow.addToolBar(Qt.ToolBarArea.TopToolBarArea, self.mainToolBar)
         self.statusbar = QStatusBar(MainWindow)
         self.statusbar.setObjectName(u"statusbar")
         MainWindow.setStatusBar(self.statusbar)
@@ -482,11 +479,6 @@ class Ui_MainWindow(object):
         self.menuTools.addSeparator()
         self.menuTools.addAction(self.actionSettings)
         self.menuHelp.addAction(self.actionAbout)
-        self.mainToolBar.addAction(self.actionAnnotation)
-        self.mainToolBar.addAction(self.actionExport)
-        self.mainToolBar.addSeparator()
-        self.mainToolBar.addAction(self.actionSettings)
-        self.mainToolBar.addAction(self.actionErrorLog)
 
         self.retranslateUi(MainWindow)
         self.pushButtonSelectDataset.clicked.connect(MainWindow.select_and_process_dataset)
@@ -594,6 +586,5 @@ class Ui_MainWindow(object):
         self.menuView.setTitle(QCoreApplication.translate("MainWindow", u"\u8868\u793a", None))
         self.menuTools.setTitle(QCoreApplication.translate("MainWindow", u"\u30c4\u30fc\u30eb", None))
         self.menuHelp.setTitle(QCoreApplication.translate("MainWindow", u"\u30d8\u30eb\u30d7", None))
-        self.mainToolBar.setWindowTitle(QCoreApplication.translate("MainWindow", u"\u30e1\u30a4\u30f3\u30c4\u30fc\u30eb\u30d0\u30fc", None))
     # retranslateUi
 
