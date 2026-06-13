@@ -117,6 +117,27 @@ class TestDatasetStateManager:
         assert state_manager.current_image_id is None
         current_cleared_mock.assert_called_once()
 
+    def test_set_current_image_falls_back_to_db_when_uncached(self, state_manager):
+        """キャッシュ未登録の画像でも DB から取得して空辞書でなく実データを emit する。
+
+        登録完了サマリの「#N を表示」リンク等、現在の検索結果に含まれない画像を
+        選択したときに preview/details が空にならないようにする (PR #762 Codex P2)。
+        """
+        data_changed_mock = Mock()
+        state_manager.current_image_data_changed.connect(data_changed_mock)
+
+        mock_db_manager = Mock()
+        mock_repository = Mock()
+        mock_db_manager.image_repo = mock_repository
+        fetched = {"id": 4412, "stored_image_path": "/data/4412.webp", "width": 1024, "height": 1536}
+        mock_repository.get_image_metadata.return_value = fetched
+        state_manager._db_manager = mock_db_manager
+
+        state_manager.set_current_image(4412)
+
+        mock_repository.get_image_metadata.assert_called_once_with(4412)
+        data_changed_mock.assert_called_once_with(fetched)
+
     def test_filter_management(self, state_manager, sample_image_metadata):
         """フィルター管理テスト"""
         state_manager.set_dataset_images(sample_image_metadata)

@@ -42,6 +42,10 @@ class RegistrationSummaryWidget(QWidget):
 
     view_image_requested = Signal(int)
 
+    # 一度に描画する内訳行の上限。非スクロールのパネルに数千行を積んで GUI を
+    # 固めないため、超過分は「他 N件」の overflow ラベルへ畳む。
+    MAX_DETAIL_ROWS = 50
+
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self.setObjectName("registrationSummaryWidget")
@@ -118,10 +122,17 @@ class RegistrationSummaryWidget(QWidget):
             if widget is not None:
                 widget.deleteLater()
 
-        for entry in detail:
-            if entry.outcome not in _DETAIL_OUTCOMES or entry.image_id is None:
-                continue
+        eligible = [
+            entry for entry in detail if entry.outcome in _DETAIL_OUTCOMES and entry.image_id is not None
+        ]
+        for entry in eligible[: self.MAX_DETAIL_ROWS]:
             self._detail_layout.addWidget(self._build_detail_row(entry))
+
+        overflow = len(eligible) - self.MAX_DETAIL_ROWS
+        if overflow > 0:
+            label = QLabel(f"… 他 {overflow}件の重複 / 別版", self._detail_container)
+            label.setObjectName("registrationSummaryOverflow")
+            self._detail_layout.addWidget(label)
 
     def _build_detail_row(self, entry: RegistrationDetailItem) -> QFrame:
         """内訳1行を構築する。"""

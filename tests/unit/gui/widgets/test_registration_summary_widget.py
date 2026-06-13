@@ -112,3 +112,40 @@ def test_toggle_shows_and_hides_detail(qtbot, result):
     assert not container.isHidden()
     toggle.click()
     assert container.isHidden()
+
+
+def test_detail_rows_capped_with_overflow_label(qtbot):
+    """大量の重複/別版でも行数を上限で打ち切り、残数を「他 N件」で示す。
+
+    非スクロールのパネルに数百〜数千行を一度に積んで GUI を固めないため
+    (PR #762 Codex P2)。
+    """
+    detail = [
+        RegistrationDetailItem(f"dup_{i}.jpg", RegistrationOutcome.DUPLICATE, 1000 + i)
+        for i in range(RegistrationSummaryWidget.MAX_DETAIL_ROWS + 7)
+    ]
+    result = DatabaseRegistrationResult(
+        registered_count=0,
+        skipped_count=len(detail),
+        error_count=0,
+        processed_paths=[],
+        total_processing_time=5.0,
+        variant_count=0,
+        directory=Path("/data/big_batch"),
+        detail=detail,
+    )
+
+    widget = RegistrationSummaryWidget()
+    qtbot.addWidget(widget)
+    widget.show_result(result)
+
+    links = [
+        b
+        for b in widget.findChildren(QPushButton)
+        if b.objectName().startswith("registrationSummaryImageLink_")
+    ]
+    assert len(links) == RegistrationSummaryWidget.MAX_DETAIL_ROWS
+
+    overflow = widget.findChild(QLabel, "registrationSummaryOverflow")
+    assert overflow is not None
+    assert "7" in overflow.text()  # 残り7件
