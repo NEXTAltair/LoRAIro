@@ -33,6 +33,7 @@ class ResultHandlerService:
         result: Any,
         status_bar: Any | None = None,
         completion_signal: SignalInstance | None = None,
+        summary_widget: Any | None = None,
     ) -> None:
         """バッチ登録完了処理
 
@@ -40,6 +41,9 @@ class ResultHandlerService:
             result: バッチ登録結果（DatabaseRegistrationResult）
             status_bar: ステータスバー（showMessage()メソッドを持つ）
             completion_signal: 完了シグナル（emit()で通知）
+            summary_widget: 登録完了サマリパネル（show_result() を持つ）。
+                指定時はパネルへ委譲し、statusBar の 5 秒フラッシュは出さない
+                (Wireframes v11 Frame 1: パネルが statusBar 表示を置換)。
         """
         logger.info(f"バッチ登録完了: result={type(result)}")
 
@@ -58,19 +62,23 @@ class ResultHandlerService:
                 variant = getattr(result, "variant_count", 0)
                 skipped = result.skipped_count
                 errors = result.error_count
-                processing_time = result.total_processing_time
 
                 # Emit completion signal for other components
                 if completion_signal:
                     completion_signal.emit(registered)
 
-                # 非ブロッキング通知でUIクラッシュを防止
-                status_msg = (
-                    f"バッチ登録完了: 登録={registered}件, 別版={variant}件, "
-                    f"スキップ={skipped}件, エラー={errors}件, 処理時間={processing_time:.1f}秒"
-                )
-                if status_bar:
-                    status_bar.showMessage(status_msg, 8000)  # 8秒表示
+                # 登録完了サマリパネルがあればそちらへ委譲（statusBar フラッシュは出さない）
+                if summary_widget is not None:
+                    summary_widget.show_result(result)
+                else:
+                    processing_time = result.total_processing_time
+                    # 非ブロッキング通知でUIクラッシュを防止
+                    status_msg = (
+                        f"バッチ登録完了: 登録={registered}件, 別版={variant}件, "
+                        f"スキップ={skipped}件, エラー={errors}件, 処理時間={processing_time:.1f}秒"
+                    )
+                    if status_bar:
+                        status_bar.showMessage(status_msg, 8000)  # 8秒表示
                 logger.info(
                     f"バッチ登録統計: 登録={registered}, 別版={variant}, "
                     f"スキップ={skipped}, エラー={errors}"
