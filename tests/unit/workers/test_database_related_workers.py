@@ -121,6 +121,33 @@ class TestDatabaseRegistrationWorker:
             # 統一エントリが各画像で呼ばれたことを確認
             assert mock_register.call_count == 3
 
+    def test_execute_collects_per_file_detail(self, temp_dir, real_db_manager, mock_fsm):
+        """登録結果に per-file 詳細 (filename / outcome / image_id) と directory を含む。
+
+        Wireframes v11 Frame 1「登録完了サマリ」の詳細行・「既存#N を表示」リンク用。
+        DUPLICATE は既存 ID、VARIANT / REGISTERED は新規 ID が image_id に入る。
+        """
+        from lorairo.database.db_manager import RegistrationOutcome, RegistrationSideEffectResult
+        from lorairo.gui.workers.registration_worker import RegistrationDetailItem
+
+        # mock_image_files は test_image_0.jpg / _1 / _2 の3件。順に異なる outcome を返す。
+        with patch.object(real_db_manager, "register_image_with_side_effects") as mock_register:
+            mock_register.side_effect = [
+                RegistrationSideEffectResult(RegistrationOutcome.REGISTERED, 10, {"id": 10}),
+                RegistrationSideEffectResult(RegistrationOutcome.VARIANT, 11, {"id": 11}),
+                RegistrationSideEffectResult(RegistrationOutcome.DUPLICATE, 4412, {"id": 4412}),
+            ]
+
+            worker = DatabaseRegistrationWorker(temp_dir, real_db_manager, mock_fsm)
+            result = worker.execute()
+
+        assert result.directory == temp_dir
+        assert result.detail == [
+            RegistrationDetailItem("test_image_0.jpg", RegistrationOutcome.REGISTERED, 10),
+            RegistrationDetailItem("test_image_1.jpg", RegistrationOutcome.VARIANT, 11),
+            RegistrationDetailItem("test_image_2.jpg", RegistrationOutcome.DUPLICATE, 4412),
+        ]
+
     def test_associated_files_processing_integration(self, temp_dir, real_db_manager, mock_fsm):
         """
         関連ファイル処理の統合テスト
@@ -536,7 +563,7 @@ class TestBuildRegistrationResult:
         start_time = 0.0
 
         with patch("time.time", return_value=1.5):
-            result = worker._build_registration_result(stats, processed_paths, start_time)
+            result = worker._build_registration_result(stats, processed_paths, [], start_time)
 
         assert isinstance(result, DatabaseRegistrationResult)
         assert result.registered_count == 3
@@ -552,7 +579,7 @@ class TestBuildRegistrationResult:
         start_time = 0.0
 
         with patch("time.time", return_value=2.0):
-            result = worker._build_registration_result(stats, processed_paths, start_time)
+            result = worker._build_registration_result(stats, processed_paths, [], start_time)
 
         assert result.registered_count == 10
         assert result.skipped_count == 0
@@ -567,7 +594,7 @@ class TestBuildRegistrationResult:
         start_time = 0.0
 
         with patch("time.time", return_value=1.0):
-            result = worker._build_registration_result(stats, processed_paths, start_time)
+            result = worker._build_registration_result(stats, processed_paths, [], start_time)
 
         assert result.registered_count == 0
         assert result.skipped_count == 10
@@ -581,7 +608,7 @@ class TestBuildRegistrationResult:
         start_time = 0.0
 
         with patch("time.time", return_value=3.5):
-            result = worker._build_registration_result(stats, processed_paths, start_time)
+            result = worker._build_registration_result(stats, processed_paths, [], start_time)
 
         assert result.registered_count == 0
         assert result.skipped_count == 0
@@ -596,7 +623,7 @@ class TestBuildRegistrationResult:
         start_time = 10.0
 
         with patch("time.time", return_value=15.5):
-            result = worker._build_registration_result(stats, processed_paths, start_time)
+            result = worker._build_registration_result(stats, processed_paths, [], start_time)
 
         assert result.total_processing_time == 5.5
         assert result.total_processing_time > 0
@@ -608,7 +635,7 @@ class TestBuildRegistrationResult:
         start_time = 0.0
 
         with patch("time.time", return_value=1.0):
-            result = worker._build_registration_result(stats, processed_paths, start_time)
+            result = worker._build_registration_result(stats, processed_paths, [], start_time)
 
         assert result.processed_paths == processed_paths
         assert len(result.processed_paths) == 3
@@ -624,7 +651,7 @@ class TestBuildRegistrationResult:
             patch("time.time", return_value=2.0),
             patch("lorairo.gui.workers.registration_worker.logger") as mock_logger,
         ):
-            worker._build_registration_result(stats, processed_paths, start_time)
+            worker._build_registration_result(stats, processed_paths, [], start_time)
 
             # INFO ログが呼ばれたことを確認
             mock_logger.info.assert_called_once()
@@ -647,7 +674,7 @@ class TestBuildRegistrationResult:
             patch("time.time", return_value=1.5),
             patch("lorairo.gui.workers.registration_worker.logger") as mock_logger,
         ):
-            worker._build_registration_result(stats, processed_paths, start_time)
+            worker._build_registration_result(stats, processed_paths, [], start_time)
 
             # DEBUG ログが呼ばれていないことを確認
             mock_logger.debug.assert_not_called()
@@ -662,7 +689,7 @@ class TestBuildRegistrationResult:
         start_time = 0.0
 
         with patch("time.time", return_value=0.1):
-            result = worker._build_registration_result(stats, processed_paths, start_time)
+            result = worker._build_registration_result(stats, processed_paths, [], start_time)
 
         assert result.registered_count == 0
         assert result.skipped_count == 0
@@ -677,7 +704,7 @@ class TestBuildRegistrationResult:
         start_time = 0.0
 
         with patch("time.time", return_value=2.5):
-            result = worker._build_registration_result(stats, processed_paths, start_time)
+            result = worker._build_registration_result(stats, processed_paths, [], start_time)
 
         # 型チェック
         assert isinstance(result, DatabaseRegistrationResult)
@@ -705,7 +732,7 @@ class TestBuildRegistrationResult:
         start_time = 0.0
 
         with patch("time.time", return_value=1.0):
-            result = worker._build_registration_result(stats, processed_paths, start_time)
+            result = worker._build_registration_result(stats, processed_paths, [], start_time)
 
         assert result.registered_count == 4
         assert result.variant_count == 3

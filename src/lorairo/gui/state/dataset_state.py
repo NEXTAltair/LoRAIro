@@ -324,8 +324,14 @@ class DatasetStateManager(QObject):
                     logger.debug(f"フィルター済み画像で発見: ID {image_id} - データを送信")
                     self.current_image_data_changed.emit(filtered_image_data)
                 else:
-                    # 空のデータでもシグナルを送信して一貫性を保つ
-                    self.current_image_data_changed.emit({})
+                    # キャッシュ未登録 (登録直後 / 検索結果外) は DB から取得して空表示を防ぐ
+                    db_image_data = self._get_image_from_db(image_id)
+                    if db_image_data:
+                        logger.debug(f"DB から画像取得: ID {image_id} - データを送信")
+                        self.current_image_data_changed.emit(db_image_data)
+                    else:
+                        # 取得できない場合のみ空データでシグナルの一貫性を保つ
+                        self.current_image_data_changed.emit({})
 
     def clear_current_image(self) -> None:
         """現在の画像選択をクリア"""
@@ -563,6 +569,21 @@ class DatasetStateManager(QObject):
             if img.get("id") == image_id:
                 return img
         return None
+
+    def _get_image_from_db(self, image_id: int) -> dict[str, Any] | None:
+        """DB から単一画像メタデータを取得する（キャッシュ未登録画像の選択用）。
+
+        登録直後や現在の検索結果に含まれない画像を選択したときに、preview /
+        details が空にならないよう DB を直接引く。
+        """
+        if not self._db_manager:
+            return None
+        try:
+            metadata: dict[str, Any] | None = self._db_manager.image_repo.get_image_metadata(image_id)
+            return metadata
+        except Exception as e:
+            logger.error(f"DB からの画像取得失敗: ID {image_id}: {e}", exc_info=True)
+            return None
 
     def get_current_image_data(self) -> dict[str, Any] | None:
         """現在選択中の画像データを取得"""

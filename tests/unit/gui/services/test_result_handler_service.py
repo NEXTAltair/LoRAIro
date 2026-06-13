@@ -79,6 +79,34 @@ class TestHandleBatchRegistrationFinished:
         assert "スキップ=10" in mock_status_bar.showMessage.call_args[0][0]
         completion_signal.emit.assert_called_once_with(100)
 
+    def test_handle_registration_shows_summary_widget(self, service, mock_status_bar):
+        """summary_widget があれば show_result に委譲し、statusBar フラッシュは出さない。
+
+        Wireframes v11 Frame 1: 登録完了サマリパネルが 5 秒 statusBar 表示を置換する。
+        """
+        result = Mock()
+        result.registered_count = 9
+        result.skipped_count = 12
+        result.error_count = 0
+        result.total_processing_time = 18.2
+        result.variant_count = 3
+
+        summary_widget = Mock()
+        summary_widget.show_result = Mock()
+        completion_signal = Mock()
+        completion_signal.emit = Mock()
+
+        service.handle_batch_registration_finished(
+            result,
+            status_bar=mock_status_bar,
+            completion_signal=completion_signal,
+            summary_widget=summary_widget,
+        )
+
+        summary_widget.show_result.assert_called_once_with(result)
+        mock_status_bar.showMessage.assert_not_called()
+        completion_signal.emit.assert_called_once_with(9)
+
     def test_handle_registration_without_status_bar(self, service):
         """ステータスバー無し"""
         result = Mock()

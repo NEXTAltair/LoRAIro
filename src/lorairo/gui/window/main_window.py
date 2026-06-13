@@ -54,6 +54,7 @@ from ..widgets.inference_ledger_widget import InferenceLedgerWidget
 from ..widgets.pipeline_stage_table_widget import PipelineStageTableWidget
 from ..widgets.provider_batch_job_widget import ProviderBatchJobWidget
 from ..widgets.quick_tag_dialog import QuickTagDialog
+from ..widgets.registration_summary_widget import RegistrationSummaryWidget
 from ..widgets.results_widget import ResultsWidget
 from ..widgets.selected_image_details_widget import SelectedImageDetailsWidget
 from ..widgets.stage_model_picker_dialog import StageModelPickerDialog
@@ -120,6 +121,9 @@ class MainWindow(QMainWindow, Ui_MainWindow):
 
     # Map tab
     map_widget: TagMapWidget | None
+
+    # 登録完了サマリパネル (Wireframes v11 Frame 1)
+    registration_summary_widget: RegistrationSummaryWidget | None
 
     # Tag management UI components
     tag_management_dialog: TagManagementDialog | None
@@ -404,6 +408,7 @@ class MainWindow(QMainWindow, Ui_MainWindow):
         self._setup_export_tab()
         self._setup_cli_tab()
         self._setup_tab_shortcuts()
+        self._setup_registration_summary_panel()
 
     def _setup_map_tab(self) -> None:
         """マップタブ (TagMapWidget) を初期化する。"""
@@ -443,6 +448,40 @@ class MainWindow(QMainWindow, Ui_MainWindow):
         batch_widget = getattr(self, "batchTagAddWidget", None)
         if batch_widget is not None:
             batch_widget.add_image_ids_to_staging(image_ids)
+
+    def _setup_registration_summary_panel(self) -> None:
+        """登録完了サマリパネルを Search タブ上部 (qbar の上) へ常設する。
+
+        Wireframes v11 Frame 1。statusBar の 5 秒表示を置換し、registered /
+        variant / skipped / errors と重複 / 別版の内訳を ✕ で閉じるまで表示する。
+        """
+        container = getattr(self, "tabWorkspace", None)
+        layout = container.layout() if container is not None else None
+        if layout is None:
+            logger.warning("tabWorkspace layout not found - 登録完了サマリパネル skipped")
+            self.registration_summary_widget = None
+            return
+        widget = RegistrationSummaryWidget(parent=container)
+        widget.view_image_requested.connect(self._on_registration_view_image_requested)
+        # work area splitter (qbar を含む) の直前へ挿入する = qbar の上
+        insert_index = layout.count()
+        splitter = getattr(self, "splitterMainWorkArea", None)
+        if splitter is not None:
+            idx = layout.indexOf(splitter)
+            if idx != -1:
+                insert_index = idx
+        layout.insertWidget(insert_index, widget)
+        self.registration_summary_widget = widget
+        logger.info("✅ 登録完了サマリパネル (RegistrationSummaryWidget) initialized")
+
+    def _on_registration_view_image_requested(self, image_id: int) -> None:
+        """登録完了サマリの「#N を表示」リンク → 該当画像を詳細表示する。"""
+        tab_widget = getattr(self, "tabWidgetMainMode", None)
+        workspace = getattr(self, "tabWorkspace", None)
+        if tab_widget is not None and workspace is not None:
+            tab_widget.setCurrentWidget(workspace)
+        if self.dataset_state_manager is not None:
+            self.dataset_state_manager.set_current_image(image_id)
 
     def _setup_provider_batch_tab(self) -> None:
         """ジョブタブ (Provider Batch job management) を追加する。
@@ -1316,7 +1355,10 @@ class MainWindow(QMainWindow, Ui_MainWindow):
         """Batch registration finished signal handler（ResultHandlerService委譲）"""
         if self.result_handler_service:
             self.result_handler_service.handle_batch_registration_finished(
-                result, status_bar=self.statusBar(), completion_signal=self.database_registration_completed
+                result,
+                status_bar=self.statusBar(),
+                completion_signal=self.database_registration_completed,
+                summary_widget=getattr(self, "registration_summary_widget", None),
             )
         else:
             # Fallback: Service未初期化時は簡易通知のみ

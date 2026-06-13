@@ -1,7 +1,7 @@
 """データベース登録専用ワーカー"""
 
 import traceback
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING, ClassVar
 
@@ -16,12 +16,31 @@ if TYPE_CHECKING:
     from ...storage.file_system import FileSystemManager
 
 
+@dataclass(frozen=True)
+class RegistrationDetailItem:
+    """登録結果の1ファイル分の内訳。
+
+    Wireframes v11 Frame 1「登録完了サマリ」の詳細行・「既存#N を表示」リンク用。
+
+    Attributes:
+        filename: 登録対象ファイル名 (``Path.name``)。
+        outcome: pHash 分類結果 (新規 / 別版 / 重複 / 失敗)。
+        image_id: 関連付けられた画像 ID。DUPLICATE は既存 ID、VARIANT / REGISTERED は
+            新規 ID。失敗時は ``None``。
+    """
+
+    filename: str
+    outcome: RegistrationOutcome
+    image_id: int | None
+
+
 @dataclass
 class DatabaseRegistrationResult:
     """データベース登録結果。
 
     ADR 0061 §4 (#633): pHash 分類結果を全経路統一の統計値に対応させる。
     ``variant_count`` は同一 pHash でも属性差で別版として新規登録された件数。
+    ``directory`` / ``detail`` は Wireframes v11 Frame 1「登録完了サマリ」用。
     """
 
     registered_count: int
@@ -30,6 +49,8 @@ class DatabaseRegistrationResult:
     processed_paths: list[Path]
     total_processing_time: float
     variant_count: int = 0
+    directory: Path | None = None
+    detail: list[RegistrationDetailItem] = field(default_factory=list)
 
 
 class DatabaseRegistrationWorker(LoRAIroWorkerBase[DatabaseRegistrationResult]):
@@ -77,7 +98,9 @@ class DatabaseRegistrationWorker(LoRAIroWorkerBase[DatabaseRegistrationResult]):
 
         if total_count == 0:
             logger.warning(f"画像ファイルが見つかりません: {self.directory}")
-            return DatabaseRegistrationResult(0, 0, 0, [], 0.0, variant_count=0)
+            return DatabaseRegistrationResult(
+                0, 0, 0, [], 0.0, variant_count=0, directory=self.directory, detail=[]
+            )
 
         logger.info(f"登録対象画像: {total_count}件")
 
@@ -89,6 +112,7 @@ class DatabaseRegistrationWorker(LoRAIroWorkerBase[DatabaseRegistrationResult]):
         # 統計情報初期化 (#633: variant を追加し全経路統一)
         stats = {"registered": 0, "variant": 0, "skipped": 0, "errors": 0}
         processed_paths: list[Path] = []
+        detail: list[RegistrationDetailItem] = []
 
         # バッチ処理開始
         self._report_progress(10, f"バッチ登録開始: {total_count}件")
@@ -104,13 +128,14 @@ class DatabaseRegistrationWorker(LoRAIroWorkerBase[DatabaseRegistrationResult]):
                 total_count,
                 stats,
                 processed_paths,
+                detail,
                 annotations=annotations_by_path.get(image_path),
                 tag_id_cache=tag_id_cache,
             )
 
         # 完了処理
         self._report_progress(100, "データベース登録完了")
-        return self._build_registration_result(stats, processed_paths, start_time)
+        return self._build_registration_result(stats, processed_paths, detail, start_time)
 
     def _process_single_image_in_batch(
         self,
@@ -119,6 +144,7 @@ class DatabaseRegistrationWorker(LoRAIroWorkerBase[DatabaseRegistrationResult]):
         total_count: int,
         stats: dict[str, int],
         processed_paths: list[Path],
+        detail: list[RegistrationDetailItem],
         *,
         annotations: dict[str, object] | None = None,
         tag_id_cache: dict[str, int | None] | None = None,
@@ -131,12 +157,13 @@ class DatabaseRegistrationWorker(LoRAIroWorkerBase[DatabaseRegistrationResult]):
             total_count: 処理対象の総画像数。
             stats: 処理統計情報を格納する辞書（in-place更新）。
             processed_paths: 登録成功した画像パスを格納するリスト（in-place更新）。
+            detail: 1ファイル分の内訳を格納するリスト（in-place更新、登録完了サマリ用）。
             annotations: 事前読み込み済みのアノテーション。Noneの場合はその場で読み込む。
             tag_id_cache: 正規化済みタグ→tag_idのキャッシュ。
         """
         try:
             # 単一画像の登録処理 (統一エントリ経由で副作用は db_manager 側で適用)
-            outcome, _ = self._register_single_image(
+            outcome, image_id = self._register_single_image(
                 image_path, i, total_count, annotations=annotations, tag_id_cache=tag_id_cache
             )
 
@@ -146,9 +173,13 @@ class DatabaseRegistrationWorker(LoRAIroWorkerBase[DatabaseRegistrationResult]):
             # 新規 / 別版はどちらも新規行を作るので processed として記録する
             if outcome in (RegistrationOutcome.REGISTERED, RegistrationOutcome.VARIANT):
                 processed_paths.append(image_path)
+            # 登録完了サマリ用に内訳を記録 (DUPLICATE=既存ID, VARIANT/REGISTERED=新規ID)
+            resolved_id = image_id if image_id is not None and image_id >= 0 else None
+            detail.append(RegistrationDetailItem(image_path.name, outcome, resolved_id))
 
         except Exception as e:
             stats["errors"] += 1
+            detail.append(RegistrationDetailItem(image_path.name, RegistrationOutcome.FAILED, None))
             logger.error(f"画像登録エラー: {image_path}, {e}")
 
             # エラーレコード保存（二次エラー対策付き）
@@ -223,7 +254,11 @@ class DatabaseRegistrationWorker(LoRAIroWorkerBase[DatabaseRegistrationResult]):
         return outcome, image_id
 
     def _build_registration_result(
-        self, stats: dict[str, int], processed_paths: list[Path], start_time: float
+        self,
+        stats: dict[str, int],
+        processed_paths: list[Path],
+        detail: list[RegistrationDetailItem],
+        start_time: float,
     ) -> DatabaseRegistrationResult:
         """登録結果オブジェクトを構築
 
@@ -233,6 +268,7 @@ class DatabaseRegistrationWorker(LoRAIroWorkerBase[DatabaseRegistrationResult]):
         Args:
             stats: 処理統計情報（registered, skipped, errors）
             processed_paths: 登録成功した画像パスのリスト
+            detail: 1ファイル分の内訳のリスト（登録完了サマリ用）
             start_time: 処理開始時刻（time.time()）
 
         Returns:
@@ -249,6 +285,8 @@ class DatabaseRegistrationWorker(LoRAIroWorkerBase[DatabaseRegistrationResult]):
             processed_paths=processed_paths,
             total_processing_time=processing_time,
             variant_count=stats["variant"],
+            directory=self.directory,
+            detail=detail,
         )
 
         # バッチサマリーログ（INFOレベル）
