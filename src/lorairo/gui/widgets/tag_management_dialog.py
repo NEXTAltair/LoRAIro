@@ -39,7 +39,7 @@ class TagManagementDialog(QDialog):
         self.tag_service = tag_service
 
         # Dialog設定
-        self.setWindowTitle("タグタイプ管理")
+        self.setWindowTitle("未分類タグの整理")
         self.resize(820, 620)  # Widget 800x600 + margin
         self.setModal(False)  # Non-modal: MainWindowと並行操作可能
         self.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose, False)  # 閉じても破棄しない

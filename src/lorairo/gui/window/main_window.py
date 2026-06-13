@@ -143,15 +143,15 @@ class MainWindow(QMainWindow, Ui_MainWindow):
                 self.actionErrorLog.triggered.connect(self._on_error_notification_clicked)
                 logger.debug("Error log menu action connected")
 
-            # タグ管理メニューアクション追加（プログラム的に追加）
-            if hasattr(self, "menuView"):
+            # タグ管理メニューアクション追加（ツールメニューへ）
+            if hasattr(self, "menuTools"):
                 from PySide6.QtGui import QAction
 
-                self.actionTagManagement = QAction("タグタイプ管理", self)
+                self.actionTagManagement = QAction("未分類タグの整理", self)
                 self.actionTagManagement.setShortcut("Ctrl+Shift+T")
                 self.actionTagManagement.triggered.connect(self._show_tag_management_dialog)
-                self.menuView.addAction(self.actionTagManagement)
-                logger.debug("Tag management menu action added")
+                self.menuTools.addAction(self.actionTagManagement)
+                logger.debug("Tag management menu action added to Tools menu")
 
             # Batch APIインポートメニューアクション追加
             if hasattr(self, "menuFile"):

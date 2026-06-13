@@ -31,7 +31,7 @@ class TestTagManagementDialog:
     def test_initialization(self, dialog: TagManagementDialog) -> None:
         """初期化時の設定確認"""
         assert dialog.tag_service is not None
-        assert dialog.windowTitle() == "タグタイプ管理"
+        assert dialog.windowTitle() == "未分類タグの整理"
         assert not dialog.isModal()  # Non-modal
         assert dialog.testAttribute(Qt.WidgetAttribute.WA_DeleteOnClose) is False
 
