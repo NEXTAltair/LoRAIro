@@ -17,7 +17,7 @@ from __future__ import annotations
 from typing import Literal
 
 from PySide6.QtGui import QColor, QPalette
-from PySide6.QtWidgets import QApplication
+from PySide6.QtWidgets import QApplication, QStyleFactory
 
 from ..utils.log import logger
 
@@ -451,17 +451,72 @@ QScrollArea {{
 """
 
 
+def _build_light_palette() -> QPalette:
+    """Theme v1 のフル light パレットを構築する。
+
+    Windows ダークモード等、OS テーマが優先されるケースで QSS が届かない
+    ウィジェット（コンテナ背景等）のフォールバックとして機能する。
+    """
+    p = QPalette()
+
+    roles_light: list[tuple[QPalette.ColorRole, str]] = [
+        (QPalette.ColorRole.Window, PAPER),
+        (QPalette.ColorRole.WindowText, INK),
+        (QPalette.ColorRole.Base, CARD),
+        (QPalette.ColorRole.AlternateBase, PAPER),
+        (QPalette.ColorRole.Text, INK),
+        (QPalette.ColorRole.BrightText, "#ffffff"),
+        (QPalette.ColorRole.Button, PAPER_SHADE),
+        (QPalette.ColorRole.ButtonText, INK),
+        (QPalette.ColorRole.Highlight, ACCENT_SOFT),
+        (QPalette.ColorRole.HighlightedText, INK),
+        (QPalette.ColorRole.Link, ACCENT),
+        (QPalette.ColorRole.LinkVisited, ACCENT_HOVER),
+        (QPalette.ColorRole.ToolTipBase, CARD),
+        (QPalette.ColorRole.ToolTipText, INK),
+        (QPalette.ColorRole.PlaceholderText, INK_FAINT),
+        (QPalette.ColorRole.Mid, LINE),
+        (QPalette.ColorRole.Midlight, PAPER_SHADE),
+        (QPalette.ColorRole.Light, "#ffffff"),
+        (QPalette.ColorRole.Dark, LINE_STRONG),
+        (QPalette.ColorRole.Shadow, LINE_STRONG),
+    ]
+
+    for group in (QPalette.ColorGroup.Active, QPalette.ColorGroup.Inactive):
+        for role, hex_color in roles_light:
+            p.setColor(group, role, QColor(hex_color))
+
+    roles_disabled: list[tuple[QPalette.ColorRole, str]] = [
+        (QPalette.ColorRole.Window, PAPER_SHADE),
+        (QPalette.ColorRole.WindowText, INK_FAINT),
+        (QPalette.ColorRole.Base, PAPER_SHADE),
+        (QPalette.ColorRole.Text, INK_FAINT),
+        (QPalette.ColorRole.Button, PAPER_SHADE),
+        (QPalette.ColorRole.ButtonText, INK_FAINT),
+        (QPalette.ColorRole.Highlight, PAPER_SHADE),
+        (QPalette.ColorRole.HighlightedText, INK_FAINT),
+    ]
+    for role, hex_color in roles_disabled:
+        p.setColor(QPalette.ColorGroup.Disabled, role, QColor(hex_color))
+
+    return p
+
+
 def apply_theme(app: QApplication) -> None:
     """Theme v1 を QApplication に適用する。
 
-    グローバル QSS の設定に加え、QSS で表現できない placeholder 文字色を
-    palette で ink-faint に揃える。
+    Windows ダークモード等の OS テーマを Fusion スタイルで切り離し、
+    light パレットを明示した上でグローバル QSS を上乗せする。
 
     Args:
         app: 適用対象の QApplication。
     """
+    # Fusion スタイルはプラットフォーム固有 UI を描画せず OS ダークモードを無視する。
+    # これにより QSS が全ウィジェットで一貫して機能する。
+    fusion = QStyleFactory.create("Fusion")
+    if fusion is not None:
+        app.setStyle(fusion)
+
+    app.setPalette(_build_light_palette())
     app.setStyleSheet(build_global_qss())
-    palette = app.palette()
-    palette.setColor(QPalette.ColorRole.PlaceholderText, QColor(INK_FAINT))
-    app.setPalette(palette)
-    logger.info("Theme v1 グローバル QSS を適用しました")
+    logger.info("Theme v1 グローバル QSS を適用しました (Fusion style)")
