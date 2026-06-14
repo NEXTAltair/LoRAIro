@@ -1,4 +1,4 @@
-"""TagCloudService のユニットテスト。"""
+"""TagCloudService のユニットテスト（共起グラフモデル）。"""
 
 from __future__ import annotations
 
@@ -7,9 +7,8 @@ from unittest.mock import MagicMock
 import pytest
 
 from lorairo.services.tag_cloud_service import (
-    CloudResult,
+    GraphResult,
     TagCloudService,
-    TagWeight,
 )
 
 
@@ -22,16 +21,17 @@ def _make_service(image_tags: dict[int, list[str]]) -> TagCloudService:
 
 
 @pytest.mark.unit
-class TestBuildCloud:
-    def test_empty_keyword_returns_empty_cloud(self) -> None:
+class TestBuildGraph:
+    def test_empty_keyword_returns_empty_graph(self) -> None:
         svc = _make_service({1: ["a", "b"], 2: ["c"]})
-        result = svc.build_cloud("", [])
-        assert isinstance(result, CloudResult)
-        assert result.entries == []
+        result = svc.build_graph("", [])
+        assert isinstance(result, GraphResult)
+        assert result.nodes == []
+        assert result.edges == []
         assert result.matched_images == 0
         assert result.total_images == 2
 
-    def test_substring_match_aggregates_cooccurring_tags(self) -> None:
+    def test_substring_match_builds_nodes(self) -> None:
         image_tags = {
             1: ["long_hair", "blonde_hair", "smile"],
             2: ["long_hair", "blue_eyes"],
@@ -39,15 +39,11 @@ class TestBuildCloud:
             4: ["tree", "outdoor"],  # hair を含まない → 除外
         }
         svc = _make_service(image_tags)
-        result = svc.build_cloud("hair", [])
-        tags = {e.tag for e in result.entries}
-        # hair を含む画像 (1,2,3) の全タグが対象
+        result = svc.build_graph("hair", [])
+        tags = {n.tag for n in result.nodes}
         assert "smile" in tags
         assert "blue_eyes" in tags
-        assert "long_hair" in tags
-        # hair を含まない画像のタグは出ない
         assert "tree" not in tags
-        assert "outdoor" not in tags
         assert result.matched_images == 3
 
     def test_drilldown_and_filter_narrows_results(self) -> None:
@@ -57,78 +53,102 @@ class TestBuildCloud:
             3: ["short_hair", "smile"],
         }
         svc = _make_service(image_tags)
-        # keyword=hair + selected=smile → 画像1,3 のみ (long/short_hair 両方含む)
-        result = svc.build_cloud("hair", ["smile"])
+        result = svc.build_graph("hair", ["smile"])
         assert result.matched_images == 2
-        tags = {e.tag for e in result.entries}
-        assert "serious" not in tags  # 画像2は smile を持たないので除外
+        tags = {n.tag for n in result.nodes}
+        assert "serious" not in tags
         assert "long_hair" in tags
         assert "short_hair" in tags
 
-    def test_selected_tags_excluded_from_cloud(self) -> None:
+    def test_selected_tags_excluded_from_nodes(self) -> None:
         image_tags = {1: ["long_hair", "smile"], 2: ["long_hair", "smile", "blush"]}
         svc = _make_service(image_tags)
-        result = svc.build_cloud("hair", ["smile"])
-        tags = {e.tag for e in result.entries}
-        # 絞り込みに使った smile はクラウドに出さない
+        result = svc.build_graph("hair", ["smile"])
+        tags = {n.tag for n in result.nodes}
         assert "smile" not in tags
         assert "long_hair" in tags
-        assert "blush" in tags
+        assert result.excluded_tags == ["smile"]
 
-    def test_top_n_limits_entries(self) -> None:
-        image_tags = {1: ["kw_tag"] + [f"tag_{i}" for i in range(100)]}
+    def test_max_nodes_limits_nodes(self) -> None:
+        image_tags = {1: ["kw_tag", *[f"tag_{i}" for i in range(100)]]}
         svc = _make_service(image_tags)
-        result = svc.build_cloud("kw", [], top_n=10)
-        assert len(result.entries) <= 10
+        result = svc.build_graph("kw", [], max_nodes=10)
+        assert len(result.nodes) <= 10
 
-    def test_no_match_returns_empty_entries(self) -> None:
+    def test_no_match_returns_empty_nodes(self) -> None:
         svc = _make_service({1: ["cat"], 2: ["dog"]})
-        result = svc.build_cloud("xyz", [])
-        assert result.entries == []
+        result = svc.build_graph("xyz", [])
+        assert result.nodes == []
         assert result.matched_images == 0
         assert result.total_images == 2
 
-    def test_weights_normalized_in_range(self) -> None:
+    def test_node_weights_normalized_in_range(self) -> None:
         image_tags = {
             1: ["kw", "common", "rare"],
             2: ["kw", "common"],
             3: ["kw", "common"],
         }
         svc = _make_service(image_tags)
-        result = svc.build_cloud("kw", [])
-        assert all(isinstance(e, TagWeight) for e in result.entries)
-        for e in result.entries:
-            assert 0.0 <= e.weight <= 1.0
-        # 最頻タグの weight が最大 (1.0)
-        top = max(result.entries, key=lambda e: e.count)
+        result = svc.build_graph("kw", [])
+        for n in result.nodes:
+            assert 0.0 <= n.weight <= 1.0
+        top = max(result.nodes, key=lambda n: n.count)
         assert top.weight == pytest.approx(1.0)
 
-    def test_entries_sorted_by_count_desc(self) -> None:
+    def test_edges_built_from_cooccurrence(self) -> None:
         image_tags = {
-            1: ["kw", "common", "mid"],
-            2: ["kw", "common", "mid"],
-            3: ["kw", "common"],
+            1: ["kw_a", "long_hair", "smile"],
+            2: ["kw_a", "long_hair", "smile"],
+            3: ["kw_a", "long_hair", "smile"],
         }
         svc = _make_service(image_tags)
-        result = svc.build_cloud("kw", [])
-        counts = [e.count for e in result.entries]
-        assert counts == sorted(counts, reverse=True)
+        result = svc.build_graph("kw", [])
+        assert len(result.edges) > 0
+        for e in result.edges:
+            assert 0 <= e.a < len(result.nodes)
+            assert 0 <= e.b < len(result.nodes)
+            assert 0.0 <= e.norm <= 1.0
+
+    def test_edge_below_min_weight_excluded(self) -> None:
+        # 各ペアの共起が1回のみ → エッジ採用されない（min=2）
+        image_tags = {
+            1: ["kw_a", "x1", "y1"],
+            2: ["kw_b", "x2", "y2"],
+        }
+        svc = _make_service(image_tags)
+        result = svc.build_graph("kw", [])
+        assert result.edges == []
+
+    def test_adjacency_is_symmetric(self) -> None:
+        image_tags = {
+            1: ["kw_a", "p", "q"],
+            2: ["kw_a", "p", "q"],
+        }
+        svc = _make_service(image_tags)
+        result = svc.build_graph("kw", [])
+        assert len(result.adjacency) == len(result.nodes)
+        for e in result.edges:
+            assert e.b in result.adjacency[e.a]
+            assert e.a in result.adjacency[e.b]
+
+    def test_tag_count_reflects_unique_tags(self) -> None:
+        image_tags = {1: ["kw", "a", "b"], 2: ["kw", "b", "c"]}
+        svc = _make_service(image_tags)
+        result = svc.build_graph("kw", [])
+        assert result.tag_count == 4
 
     def test_case_insensitive_match(self) -> None:
-        # _load_tags は小文字化済みを返す前提
         svc = _make_service({1: ["long_hair", "smile"]})
-        result = svc.build_cloud("HAIR", [])
+        result = svc.build_graph("HAIR", [])
         assert result.matched_images == 1
 
     def test_refresh_reloads_tags(self) -> None:
         svc = _make_service({1: ["kw_a"]})
-        first = svc.build_cloud("kw", [])
+        first = svc.build_graph("kw", [])
         assert first.total_images == 1
-        # DB が更新されたと仮定して別データを返すようにする
         svc._load_tags = MagicMock(return_value={1: ["kw_a"], 2: ["kw_b"]})  # type: ignore[method-assign]
-        # refresh 前はキャッシュのまま
-        cached = svc.build_cloud("kw", [])
+        cached = svc.build_graph("kw", [])
         assert cached.total_images == 1
         svc.refresh()
-        after = svc.build_cloud("kw", [])
+        after = svc.build_graph("kw", [])
         assert after.total_images == 2
