@@ -59,8 +59,8 @@ from ..widgets.registration_summary_widget import RegistrationSummaryWidget
 from ..widgets.results_widget import ResultsWidget
 from ..widgets.selected_image_details_widget import SelectedImageDetailsWidget
 from ..widgets.stage_model_picker_dialog import StageModelPickerDialog
+from ..widgets.tag_cloud_widget import TagCloudWidget
 from ..widgets.tag_management_dialog import TagManagementDialog
-from ..widgets.tag_map_widget import TagMapWidget
 from ..widgets.thumbnail import ThumbnailSelectorWidget
 
 
@@ -121,7 +121,7 @@ class MainWindow(QMainWindow, Ui_MainWindow):
     quality_issue_detection_service: QualityIssueDetectionService
 
     # Map tab
-    map_widget: TagMapWidget | None
+    map_widget: TagCloudWidget | None
 
     # 登録完了サマリパネル (Wireframes v11 Frame 1)
     registration_summary_widget: RegistrationSummaryWidget | None
@@ -403,7 +403,7 @@ class MainWindow(QMainWindow, Ui_MainWindow):
         self._setup_registration_summary_panel()
 
     def _setup_map_tab(self) -> None:
-        """マップタブ (TagMapWidget) を初期化する。"""
+        """マップタブ (TagCloudWidget) を初期化する。"""
         container = getattr(self, "tabMap", None)
         if container is None:
             logger.warning("tabMap not found - マップタブ skipped")
@@ -425,21 +425,13 @@ class MainWindow(QMainWindow, Ui_MainWindow):
                 from PySide6.QtWidgets import QVBoxLayout
 
                 layout = QVBoxLayout(container)
-            widget = TagMapWidget(db_manager=self.db_manager, parent=container)
-            widget.images_staged.connect(self._on_map_images_staged)
+            widget = TagCloudWidget(db_manager=self.db_manager, parent=container)
             layout.addWidget(widget)
             self.map_widget = widget
-            logger.info("マップタブ (TagMapWidget) initialized")
+            logger.info("マップタブ (TagCloudWidget) initialized")
         except Exception as e:
             self.map_widget = None
             logger.error(f"マップタブ initialization failed: {e}", exc_info=True)
-
-    def _on_map_images_staged(self, image_ids: list[int]) -> None:
-        """マップタブからのステージング要求を処理する。"""
-        logger.debug(f"マップタブから {len(image_ids)} 件のステージング要求")
-        batch_widget = getattr(self, "batchTagAddWidget", None)
-        if batch_widget is not None:
-            batch_widget.add_image_ids_to_staging(image_ids)
 
     def _setup_registration_summary_panel(self) -> None:
         """登録完了サマリパネルを Search タブ上部 (qbar の上) へ常設する。
