@@ -12,6 +12,7 @@ import click
 import typer
 from rich.table import Table
 
+from lorairo.api.exceptions import ErrorRecordNotFoundError
 from lorairo.api.project import get_project as api_get_project
 from lorairo.cli._boundary import command_boundary
 from lorairo.cli._console import make_console
@@ -123,6 +124,56 @@ def list_errors(
             )
         console.print(table)
         console.print(f"[dim]{len(records)} record(s) shown[/dim]")
+
+
+@app.command("get")
+def get_error(
+    error_id: int = typer.Argument(..., help="Error record ID to retrieve"),
+    project: str = typer.Option(..., "--project", "-p", help="Project name"),
+) -> None:
+    """Get a single error record by ID (full detail).
+
+    `list` は error_message を切り詰め stack_trace / file_path / image_id を省くため、
+    1 件の全容を確認するには本コマンドを使う。
+
+    Example:
+        lorairo-cli errors get 42 --project proj
+    """
+    with command_boundary():
+        api_get_project(project)
+
+        container = get_service_container()
+        container.set_active_project(project)
+        repo = container.db_manager.error_record_repo
+
+        record = repo.get_error_record(error_id)
+        if record is None:
+            raise ErrorRecordNotFoundError(error_id)
+
+        fields = {
+            "id": record.id,
+            "image_id": record.image_id,
+            "operation_type": record.operation_type,
+            "error_type": record.error_type,
+            "error_message": record.error_message,
+            "stack_trace": record.stack_trace,
+            "file_path": record.file_path,
+            "model_name": record.model_name,
+            "resolved_at": record.resolved_at.isoformat() if record.resolved_at else None,
+            "created_at": record.created_at.isoformat() if record.created_at else None,
+        }
+
+        if is_json_mode():
+            emit_item(fields)
+            emit_result("1 error record", count=1)
+            return
+
+        table = Table(title=f"Error Record #{record.id} ({project})", show_header=False)
+        table.add_column("Field", style="cyan", no_wrap=True)
+        table.add_column("Value", style="white")
+        for key, value in fields.items():
+            table.add_row(key, "" if value is None else str(value))
+        console.print(table)
 
 
 @app.command("resolve")

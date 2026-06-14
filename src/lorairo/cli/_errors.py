@@ -185,7 +185,13 @@ def _classify_lorairo_exception(exc: BaseException) -> ErrorInfo | None:
     from lorairo.api import exceptions as app_exc
 
     if isinstance(
-        exc, (app_exc.ProjectNotFoundError, app_exc.ImageNotFoundError, app_exc.TagNotFoundError)
+        exc,
+        (
+            app_exc.ProjectNotFoundError,
+            app_exc.ImageNotFoundError,
+            app_exc.TagNotFoundError,
+            app_exc.ErrorRecordNotFoundError,
+        ),
     ):
         return ErrorInfo(ErrorCode.NOT_FOUND, retryable=False, user_action_required=True)
     if isinstance(exc, (app_exc.ProjectAlreadyExistsError, app_exc.DuplicateImageError)):
