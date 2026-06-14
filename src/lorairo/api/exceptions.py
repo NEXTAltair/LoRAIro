@@ -224,6 +224,25 @@ class TagRegistrationError(TagError):
         super().__init__(f"タグ '{tag_name}' の登録に失敗しました: {reason}")
 
 
+# エラーレコード関連例外
+class ErrorRecordError(LoRAIroException):
+    """エラーレコード操作エラーの基底クラス。"""
+
+    pass
+
+
+class ErrorRecordNotFoundError(ErrorRecordError):
+    """指定されたエラーレコードが見つからない場合に発生。
+
+    Args:
+        error_id: 見つからないエラーレコードID。
+    """
+
+    def __init__(self, error_id: int) -> None:
+        self.error_id = error_id
+        super().__init__(f"エラーレコード ID={error_id} が見つかりません")
+
+
 # データベース関連例外
 class DatabaseError(LoRAIroException):
     """データベース操作エラーの基底クラス。"""

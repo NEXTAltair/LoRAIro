@@ -213,6 +213,33 @@ class ErrorRecordRepository(BaseRepository):
                 logger.error(f"エラーレコードの取得中にエラーが発生しました: {e}", exc_info=True)
                 raise
 
+    def get_error_record(self, error_id: int) -> ErrorRecord | None:
+        """ID 指定で単一のエラーレコードを取得する。
+
+        Args:
+            error_id: エラーレコードID。
+
+        Returns:
+            ErrorRecord | None: 該当レコード。存在しなければ None。
+
+        Raises:
+            SQLAlchemyError: データベース操作でエラーが発生した場合。
+        """
+        with self.session_factory() as session:
+            try:
+                record = session.get(ErrorRecord, error_id)
+                if record is None:
+                    logger.debug(f"エラーレコードが見つかりません: ID={error_id}")
+                    return None
+                # session クローズ後も全属性へアクセスできるよう detach 前に展開しておく
+                session.expunge(record)
+                return record
+            except SQLAlchemyError as e:
+                logger.error(
+                    f"エラーレコードの取得中にエラーが発生しました (ID={error_id}): {e}", exc_info=True
+                )
+                raise
+
     def mark_error_resolved(self, error_id: int) -> None:
         """エラーを解決済みにマークする (resolved_at = 現在時刻)。
 

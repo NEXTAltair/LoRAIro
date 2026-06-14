@@ -249,6 +249,39 @@ class TestGetErrorRecords:
 
 
 @pytest.mark.unit
+class TestGetErrorRecord:
+    """`get_error_record` の単件取得動作。"""
+
+    def test_returns_record_by_id(self, error_record_repository: ErrorRecordRepository) -> None:
+        """ID 指定で該当する 1 件を返す。"""
+        eid = error_record_repository.save_error_record(
+            operation_type="annotation",
+            error_type="APIError",
+            error_message="timeout",
+            image_id=42,
+            stack_trace="trace lines",
+            file_path="/path/to/file.jpg",
+            model_name="gpt-4",
+        )
+
+        record = error_record_repository.get_error_record(eid)
+
+        assert record is not None
+        assert record.id == eid
+        assert record.operation_type == "annotation"
+        assert record.error_type == "APIError"
+        assert record.error_message == "timeout"
+        assert record.image_id == 42
+        assert record.stack_trace == "trace lines"
+        assert record.file_path == "/path/to/file.jpg"
+        assert record.model_name == "gpt-4"
+
+    def test_returns_none_for_unknown_id(self, error_record_repository: ErrorRecordRepository) -> None:
+        """存在しない ID では None を返す (正常系)。"""
+        assert error_record_repository.get_error_record(99999) is None
+
+
+@pytest.mark.unit
 class TestMarkErrorResolved:
     """`mark_error_resolved` の単件解決動作。"""
 

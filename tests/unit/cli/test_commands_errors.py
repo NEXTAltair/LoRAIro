@@ -24,6 +24,9 @@ def _make_error_record(
     model_name: str | None = None,
     resolved_at: datetime | None = None,
     created_at: datetime = _NOW,
+    image_id: int | None = None,
+    stack_trace: str | None = None,
+    file_path: str | None = None,
 ) -> MagicMock:
     r = MagicMock()
     r.id = id
@@ -33,6 +36,9 @@ def _make_error_record(
     r.model_name = model_name
     r.resolved_at = resolved_at
     r.created_at = created_at
+    r.image_id = image_id
+    r.stack_trace = stack_trace
+    r.file_path = file_path
     return r
 
 
@@ -115,6 +121,80 @@ class TestErrorsList:
         runner.invoke(app, ["--json", "errors", "list", "--project", "proj", "--all"])
         kwargs = mock_project_and_container.db_manager.error_record_repo.get_error_records.call_args.kwargs
         assert kwargs.get("resolved") is None
+
+
+@pytest.mark.unit
+class TestErrorsGet:
+    @pytest.fixture
+    def mock_get(self, monkeypatch):
+        record = _make_error_record(
+            id=7,
+            op="annotation",
+            et="APIError",
+            msg="long error message " * 20,
+            model_name="gpt-4",
+            image_id=42,
+            stack_trace="Traceback (most recent call last):\n  ...",
+            file_path="/path/to/file.jpg",
+        )
+        container = MagicMock()
+        container.db_manager.error_record_repo.get_error_record.return_value = record
+        monkeypatch.setattr(
+            "lorairo.cli.commands.errors.api_get_project", MagicMock(return_value=MagicMock())
+        )
+        monkeypatch.setattr(
+            "lorairo.cli.commands.errors.get_service_container", MagicMock(return_value=container)
+        )
+        return container, record
+
+    def test_get_calls_repo_with_id(self, mock_get):
+        container, _ = mock_get
+        result = runner.invoke(app, ["--json", "errors", "get", "7", "--project", "proj"])
+        assert result.exit_code == 0, result.output
+        container.db_manager.error_record_repo.get_error_record.assert_called_once_with(7)
+
+    def test_get_json_emits_full_fields(self, mock_get):
+        _, record = mock_get
+        result = runner.invoke(app, ["--json", "errors", "get", "7", "--project", "proj"])
+        assert result.exit_code == 0, result.output
+        lines = [json.loads(line) for line in result.stdout.strip().splitlines() if line.strip()]
+        item = next(r for r in lines if r.get("kind") == "item")
+        for field in (
+            "id",
+            "image_id",
+            "operation_type",
+            "error_type",
+            "error_message",
+            "stack_trace",
+            "file_path",
+            "model_name",
+            "resolved_at",
+            "created_at",
+        ):
+            assert field in item, f"Missing field: {field}"
+        # error_message は truncate されず全文が出る
+        assert item["error_message"] == record.error_message
+        assert item["stack_trace"] == record.stack_trace
+
+    def test_get_not_found_returns_error_exit(self, monkeypatch):
+        container = MagicMock()
+        container.db_manager.error_record_repo.get_error_record.return_value = None
+        monkeypatch.setattr(
+            "lorairo.cli.commands.errors.api_get_project", MagicMock(return_value=MagicMock())
+        )
+        monkeypatch.setattr(
+            "lorairo.cli.commands.errors.get_service_container", MagicMock(return_value=container)
+        )
+        result = runner.invoke(app, ["--json", "errors", "get", "999", "--project", "proj"])
+        assert result.exit_code != 0
+        lines = [json.loads(line) for line in result.stdout.strip().splitlines() if line.strip()]
+        error_row = next(r for r in lines if r.get("kind") == "error")
+        assert error_row["code"] == "NOT_FOUND"
+
+    def test_get_rich_output(self, mock_get):
+        result = runner.invoke(app, ["errors", "get", "7", "--project", "proj"])
+        assert result.exit_code == 0, result.output
+        assert "7" in result.stdout
 
 
 @pytest.mark.unit
