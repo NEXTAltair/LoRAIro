@@ -123,6 +123,29 @@ def test_classify_sqlalchemy_by_module() -> None:
 
 @pytest.mark.unit
 @pytest.mark.cli
+def test_classify_sqlite_lock_as_conflict() -> None:
+    """SQLite の database is locked は再試行可能な CONFLICT に分類する (Issue #767)。"""
+    locked = type("OperationalError", (Exception,), {"__module__": "sqlalchemy.exc"})(
+        "(sqlite3.OperationalError) database is locked"
+    )
+    info = classify_exception(locked)
+    assert info.code == ErrorCode.CONFLICT
+    assert info.retryable is True
+
+
+@pytest.mark.unit
+@pytest.mark.cli
+def test_classify_sqlite_lock_wrapped_in_cause_chain() -> None:
+    """cause chain 下層の database is locked も CONFLICT として拾う (Issue #767)。"""
+    orig = type("OperationalError", (Exception,), {"__module__": "sqlite3"})("database is locked")
+    try:
+        raise RuntimeError("save failed") from orig
+    except RuntimeError as exc:
+        assert classify_exception(exc).code == ErrorCode.CONFLICT
+
+
+@pytest.mark.unit
+@pytest.mark.cli
 def test_classify_pydantic_validation_before_value_error() -> None:
     """Pydantic ValidationError は ValueError subclass だが VALIDATION_FAILED にする。"""
     pyd = type("ValidationError", (ValueError,), {"__module__": "pydantic"})("invalid")
@@ -135,4 +158,5 @@ def test_hint_for_known_codes() -> None:
     """対処ヒントが定義済みコードに返り、未定義には None。"""
     assert hint_for(ErrorCode.RESULT_SET_TOO_LARGE) is not None
     assert hint_for(ErrorCode.AUTH_ERROR) is not None
+    assert hint_for(ErrorCode.CONFLICT) is not None
     assert hint_for(ErrorCode.INTERNAL_ERROR) is None

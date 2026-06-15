@@ -22,6 +22,27 @@ lorairo-cli version
 lorairo-cli status
 ```
 
+## GUI との同時利用 (DB ロックの制約)
+
+LoRAIro の画像 DB は SQLite です。SQLite は同時読み取りは可能ですが、**同時書き込みは
+1 プロセスのみ**に制限されます (ADR 0067)。GUI を開いたまま CLI を併用する場合、次の点に
+注意してください。
+
+- **検索・一覧 (read) は併用しやすい**: WAL モードのため、GUI の書き込み中でも CLI の
+  読み取りはブロックされにくいです。
+- **書き込みの同時実行は避ける**: GUI と CLI が同時に同じプロジェクト DB へ書き込む
+  (アノテーション保存・画像登録・タグ編集など) と一時的に競合します。`PRAGMA busy_timeout`
+  (既定 30 秒、`config/lorairo.toml` の `[database] busy_timeout_ms`) により短時間の競合は
+  自動で待機・再試行されますが、長時間の書き込みを両側で同時に走らせるのは推奨しません。
+- **ロック競合時の表示**: 待機時間を超えてロックが解放されない場合、CLI は `CONFLICT`
+  エラー (`retryable=true`) と「他プロセスの書き込み完了を待って再試行」のヒントを返します。
+  GUI も同様の日本語メッセージを表示します。いずれも入力を変えずに再試行すれば成功し得ます。
+- **CLI で書き換えた後の GUI 表示**: CLI が DB を更新しても、GUI のメモリ上の検索結果・
+  件数表示は自動更新されません。CLI 併用後は GUI 側で **再検索 / 再読み込み**してください。
+
+大量アノテーションを GUI と CLI で同時実行するようなワークロードは現状の想定外です。本格的な
+複数 writer 対応が必要になった場合は PostgreSQL 等への移行を別途検討します。
+
 ## Machine-Readable Introspection
 
 ADR 0059 に従い、introspection は既存 JSONL kind の `item` / `result` / `error`

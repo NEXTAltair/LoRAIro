@@ -103,6 +103,10 @@ DEFAULT_CONFIG = {
     ],
     "database": {
         "image_db_filename": "image_database.db",  # 画像データベースのファイル名
+        # SQLite 書き込みロック競合時の最大待機時間 (ミリ秒)。GUI/CLI を同じプロジェクト
+        # DB に併用すると一時的な書き込み競合が起こり得るため、即時失敗せず一定時間
+        # リトライ待機する (PRAGMA busy_timeout / Issue #767)。
+        "busy_timeout_ms": 30000,
         # Note: tag_db_package and tag_db_filename were removed (2026-01-02)
         # Tag databases are now managed via genai-tag-db-tools public API (initialize_databases)
     },
