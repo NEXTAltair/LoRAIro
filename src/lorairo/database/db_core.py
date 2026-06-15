@@ -25,6 +25,10 @@ config = get_config()
 db_config = config.get("database", {})
 dir_config = config.get("directories", {})
 
+# SQLite 書き込みロック競合時の待機時間 (ミリ秒)。GUI/CLI 併用時の一時的な
+# `database is locked` を即時失敗させず、この時間まで再試行待機する (Issue #767)。
+BUSY_TIMEOUT_MS: int = int(db_config.get("busy_timeout_ms", 30000))
+
 
 def get_project_dir(base_dir_name: str, project_name: str) -> Path:
     """プロジェクトディレクトリを生成（任意名前_日付_連番形式）
@@ -340,6 +344,9 @@ def create_db_engine(database_url: str | None = None) -> Engine:
             logger.debug(f"PRAGMA journal_mode=WAL executed: {journal_mode}")
             cursor.execute("PRAGMA synchronous=NORMAL")
             logger.debug("PRAGMA synchronous=NORMAL executed.")
+            # GUI/CLI 併用時の一時的な書き込みロックを即時失敗させず待機させる (Issue #767)。
+            cursor.execute(f"PRAGMA busy_timeout={BUSY_TIMEOUT_MS}")
+            logger.debug(f"PRAGMA busy_timeout={BUSY_TIMEOUT_MS} executed.")
         except Exception:
             logger.opt(exception=True).warning("Failed to configure SQLite PRAGMA settings")
         finally:

@@ -250,6 +250,27 @@ class TestLoRAIroWorkerBase:
         status_calls = [call[0][0] for call in status_mock.call_args_list]
         assert WorkerStatus.FAILED in status_calls
 
+    def test_execution_with_sqlite_lock_error_emits_friendly_message(self):
+        """SQLite ロック競合は GUI 向けの分かりやすい文言に整形される (Issue #767)。"""
+
+        class LockWorker(LoRAIroWorkerBase[str]):
+            def execute(self) -> str:
+                lock_error = type("OperationalError", (Exception,), {"__module__": "sqlalchemy.exc"})(
+                    "(sqlite3.OperationalError) database is locked"
+                )
+                raise lock_error
+
+        worker = LockWorker()
+        error_mock = Mock()
+        worker.error_occurred.connect(error_mock)
+
+        worker.run()
+
+        error_mock.assert_called_once()
+        error_message = error_mock.call_args[0][0]
+        assert "ロック" in error_message
+        assert "他プロセス" in error_message
+
     def test_cancellation(self, worker):
         """キャンセルテスト"""
         # キャンセルシグナル接続

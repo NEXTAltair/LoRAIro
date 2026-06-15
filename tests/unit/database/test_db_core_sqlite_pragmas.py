@@ -19,6 +19,20 @@ def test_create_db_engine_sets_file_sqlite_wal_and_normal(tmp_path) -> None:
     assert foreign_keys == 1
 
 
+def test_create_db_engine_sets_busy_timeout(tmp_path) -> None:
+    """GUI/CLI 併用時のロック待機のため busy_timeout が設定される (Issue #767)。"""
+    from lorairo.database.db_core import BUSY_TIMEOUT_MS
+
+    db_path = tmp_path / "busy-timeout.sqlite"
+    engine = create_db_engine(f"sqlite:///{db_path}?check_same_thread=False")
+
+    with engine.connect() as connection:
+        busy_timeout = connection.execute(text("PRAGMA busy_timeout")).scalar_one()
+
+    assert busy_timeout == BUSY_TIMEOUT_MS
+    assert BUSY_TIMEOUT_MS > 0
+
+
 def test_create_db_engine_keeps_memory_sqlite_usable() -> None:
     engine = create_db_engine("sqlite:///:memory:")
 

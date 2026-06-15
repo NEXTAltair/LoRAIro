@@ -73,6 +73,12 @@ app = typer.Typer(
         "              lorairo-cli batch submit --project <name> --task-type rating_preflight "
         "--model openai/omni-moderation-latest --image-ids <id,id,...>"
     ),
+    epilog=(
+        "GUI/CLI concurrent use: the image DB is SQLite (single concurrent writer). "
+        "Reads are safe alongside the GUI; avoid concurrent writes. Lock contention "
+        "waits up to busy_timeout (default 30s) then returns CONFLICT (retryable). "
+        "After CLI writes, reload/re-search in the GUI to see changes. See docs/cli.md."
+    ),
     add_completion=True,
     no_args_is_help=True,
 )

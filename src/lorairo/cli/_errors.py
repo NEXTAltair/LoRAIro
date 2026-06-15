@@ -64,6 +64,10 @@ _HINTS: dict[ErrorCode, str] = {
     ErrorCode.RESOURCE_EXHAUSTED: "batch_size を下げてから再実行してください (同一条件の再試行は再失敗します)。",
     ErrorCode.RATE_LIMITED: "しばらく待ってから再試行してください。",
     ErrorCode.RESULT_SET_TOO_LARGE: "検索条件を追加して 500 件以下に絞ってください。",
+    ErrorCode.CONFLICT: (
+        "DB が他プロセス (GUI 等) の書き込みでロックされています。"
+        "完了を待ってから再試行してください (SQLite は同時書き込みを 1 つに制限します)。"
+    ),
 }
 
 
@@ -149,6 +153,17 @@ def _is_db_error(exc: BaseException) -> bool:
     return any(_module_chain_matches(item, ("sqlalchemy",)) for item in _iter_cause_chain(exc))
 
 
+def _is_sqlite_lock(exc: BaseException) -> bool:
+    """SQLite の書き込みロック競合 (``database is locked``) かを判定する。
+
+    判定ロジックは GUI ワーカーと共有するため :mod:`lorairo.database.db_errors`
+    に集約している (遅延 import で軽量に保つ)。
+    """
+    from lorairo.database.db_errors import is_sqlite_lock_error
+
+    return is_sqlite_lock_error(exc)
+
+
 def _is_auth_error(exc: BaseException) -> bool:
     for item in _iter_cause_chain(exc):
         # LoRAIro 独自の APIKeyNotConfiguredError (SDK 到達前にキー未設定で送出)
@@ -213,6 +228,8 @@ def _classify_lorairo_exception(exc: BaseException) -> ErrorInfo | None:
 
 # cause-chain で真因を優先判定する分類器テーブル (順序が結果優先順位、上が勝つ)。
 # wrap された OOM / 認証 / ネットワークを真因として拾うため LoRAIro 独自例外より先に評価する。
+# SQLite ロックは SQLAlchemy ``OperationalError`` でもあるため、汎用 DB エラーより先に
+# 評価して再試行可能な CONFLICT に分類する (Issue #767)。
 _CHAIN_CLASSIFIERS: tuple[tuple[Callable[[BaseException], bool], ErrorInfo], ...] = (
     (
         _is_resource_exhausted,
@@ -221,6 +238,7 @@ _CHAIN_CLASSIFIERS: tuple[tuple[Callable[[BaseException], bool], ErrorInfo], ...
     (_is_auth_error, ErrorInfo(ErrorCode.AUTH_ERROR, retryable=False, user_action_required=True)),
     (_is_rate_limited, ErrorInfo(ErrorCode.RATE_LIMITED, retryable=True, user_action_required=False)),
     (_is_network_error, ErrorInfo(ErrorCode.NETWORK_ERROR, retryable=True, user_action_required=False)),
+    (_is_sqlite_lock, ErrorInfo(ErrorCode.CONFLICT, retryable=True, user_action_required=False)),
     (_is_db_error, ErrorInfo(ErrorCode.DB_ERROR, retryable=False, user_action_required=False)),
 )
 

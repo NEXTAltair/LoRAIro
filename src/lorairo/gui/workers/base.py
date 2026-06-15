@@ -168,10 +168,27 @@ class LoRAIroWorkerBase[T](QObject):
 
         except Exception as e:
             self._set_status(WorkerStatus.FAILED)
-            error_msg = f"ワーカー実行エラー: {e!s}"
+            error_msg = self._format_worker_error(e)
             logger.error(error_msg, exc_info=True)
             self._record_unhandled_error(e)
             self.error_occurred.emit(error_msg)
+
+    @staticmethod
+    def _format_worker_error(e: Exception) -> str:
+        """ワーカー例外をユーザー向けメッセージに整形する。
+
+        SQLite の書き込みロック競合 (``database is locked``) は CLI 等の他プロセスが
+        同じ DB に書き込み中であることを示すため、専用の分かりやすい文言にする
+        (Issue #767)。それ以外は従来どおり例外文字列を提示する。
+        """
+        from ...database.db_errors import is_sqlite_lock_error
+
+        if is_sqlite_lock_error(e):
+            return (
+                "DB が他プロセス (CLI 等) の書き込みでロックされています。"
+                "完了を待ってから再読み込み/再実行してください。"
+            )
+        return f"ワーカー実行エラー: {e!s}"
 
     def _record_unhandled_error(self, e: Exception) -> None:
         """ハンドルされなかった例外をDBエラーログに記録する。
