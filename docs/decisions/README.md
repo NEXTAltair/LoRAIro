@@ -70,7 +70,7 @@ LoRAIro の重要な設計判断を記録するドキュメント群。
 | [0064](0064-cli-original-image-annotation-guard.md) | CLI Original Image Annotation Guard | 2026-06-07 | Accepted |
 | [0065](0065-tag-caption-soft-reject.md) | Tag/Caption Soft-Reject And Export Resolution | 2026-06-11 | Accepted |
 | [0066](0066-unified-jobs-lifecycle-view.md) | Unified Jobs Lifecycle View | 2026-06-12 | Accepted |
-| [0067](0067-sqlite-concurrency-busy-timeout.md) | SQLite Concurrency: busy_timeout + Lock Error Classification | 2026-06-15 | Proposed |
+| [0067](0067-sqlite-concurrency-busy-timeout.md) | SQLite Concurrency: busy_timeout + Lock Error Classification | 2026-06-15 | Accepted |
 
 ## ADR テンプレート
 
