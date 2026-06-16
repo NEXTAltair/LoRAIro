@@ -22,6 +22,9 @@ repair_script = importlib.util.module_from_spec(_SPEC)
 sys.modules["repair_tag_normalization"] = repair_script
 _SPEC.loader.exec_module(repair_script)
 
+# autouse フィクスチャが `_get_canonical_reader` を差し替えるため、実関数参照を捕捉しておく。
+_ORIGINAL_GET_CANONICAL_READER = repair_script._get_canonical_reader
+
 pytestmark = pytest.mark.unit
 
 
@@ -273,6 +276,39 @@ def test_build_canonical_resolver_excludes_deprecated(tmp_path: Path) -> None:
 
     result = resolver({"old tag", "gray hair"})
     assert result == {"gray hair": "grey hair"}
+
+
+def test_get_canonical_reader_initializes_tag_db_before_reader(monkeypatch: pytest.MonkeyPatch) -> None:
+    """`_get_canonical_reader` は get_default_reader 前に ensure_tag_db_initialized を呼ぶ。
+
+    base DB パス未設定だと get_default_reader が失敗するため、初期化順序が重要 (実 DB 修復時の回帰)。
+    """
+    from unittest.mock import Mock
+
+    calls: list[str] = []
+    ensure_mock = Mock(side_effect=lambda: calls.append("ensure"))
+    reader = Mock()
+    get_reader_mock = Mock(side_effect=lambda: (calls.append("get_reader"), reader)[1])
+    monkeypatch.setattr(repair_script, "ensure_tag_db_initialized", ensure_mock)
+    monkeypatch.setattr(repair_script, "get_default_reader", get_reader_mock)
+
+    result = _ORIGINAL_GET_CANONICAL_READER()
+
+    assert result is reader
+    assert calls == ["ensure", "get_reader"]
+
+
+def test_get_canonical_reader_returns_none_on_init_failure(monkeypatch: pytest.MonkeyPatch) -> None:
+    """初期化失敗時は None を返し clean_format のみへ縮退する。"""
+    from unittest.mock import Mock
+
+    monkeypatch.setattr(
+        repair_script,
+        "ensure_tag_db_initialized",
+        Mock(side_effect=RuntimeError("Tag database initialization failed")),
+    )
+
+    assert _ORIGINAL_GET_CANONICAL_READER() is None
 
 
 def test_resolve_db_path_missing_raises(tmp_path: Path) -> None:
