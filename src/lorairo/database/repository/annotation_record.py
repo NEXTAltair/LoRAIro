@@ -858,41 +858,47 @@ class AnnotationRepository(BaseRepository):
         # 既存のタグを image_id と tag 文字列で取得 (効率化のため)
         existing_tags_stmt = select(Tag).where(Tag.image_id == image_id)
         existing_tags_result = session.execute(existing_tags_stmt).scalars().all()
-        # (tag_string, model_id) をキーとする辞書を作成
-        existing_tags_map = {(t.tag, t.model_id): t for t in existing_tags_result}
+        # (整形済み tag_string, model_id) をキーとする辞書を作成。
+        # 旧 raw 行 (clean_format 前) も整形後キーに揃え、整形後の入力と突合できるようにする。
+        existing_tags_map = {
+            (TagCleaner.clean_format(t.tag).strip(), t.model_id): t for t in existing_tags_result
+        }
 
         for tag_info in tags_data:
-            tag_string = tag_info["tag"]
+            # 保存境界の SSoT (ADR 0068): 全取込経路の tag をここで clean_format 整形に統一する。
+            # preferred 解決はしない (format 依存のため出力時に回す)。lower 化もしない。
+            tag_string = TagCleaner.clean_format(tag_info["tag"]).strip()
+            if not tag_string:
+                # 整形後に空文字になったタグはスキップ
+                continue
             model_id = tag_info.get("model_id")  # Optional
             confidence = tag_info.get("confidence_score")  # Optional
             is_existing_tag = tag_info.get("existing", False)  # 元ファイル由来か
 
             # 外部DBから tag_id を取得/作成
-            # 呼び出し元が設定済みの tag_id を優先し、未設定時はキャッシュ→個別照会の順
+            # 呼び出し元が設定済みの tag_id を優先し、未設定時はキャッシュ→個別照会の順。
+            # tag_string は整形済みなので tag_id_cache (整形後キー) と直接突合できる。
             external_tag_id: int | None = tag_info.get("tag_id")
             if external_tag_id is None:
-                if tag_id_cache is not None:
-                    normalized_key = TagCleaner.clean_format(tag_string).strip()
-                    if normalized_key in tag_id_cache:
-                        external_tag_id = tag_id_cache[normalized_key]
-                    else:
-                        # キャッシュミス: 従来の個別照会にフォールバック
-                        external_tag_id = self._get_or_create_tag_id_external(session, tag_string)
+                if tag_id_cache is not None and tag_string in tag_id_cache:
+                    external_tag_id = tag_id_cache[tag_string]
                 else:
+                    # キャッシュミス / キャッシュ無し: 従来の個別照会にフォールバック
                     external_tag_id = self._get_or_create_tag_id_external(session, tag_string)
 
-            if external_tag_id is None and tag_string:
+            if external_tag_id is None:
                 logger.warning(
                     f"Tag '{tag_string}' could not be linked to external tag_db. "
                     "Saving with tag_id=None (limited taxonomy features).",
                 )
 
-            # 既存レコードを検索
+            # 既存レコードを整形後キーで検索
             existing_record = existing_tags_map.get((tag_string, model_id))
 
             if existing_record:
-                # 更新
+                # 更新 (旧 raw 行は整形後の値へ揃える)
                 logger.debug(f"Updating existing tag: id={existing_record.id}, tag='{tag_string}'")
+                existing_record.tag = tag_string
                 existing_record.tag_id = external_tag_id
                 existing_record.confidence_score = confidence
                 existing_record.existing = is_existing_tag

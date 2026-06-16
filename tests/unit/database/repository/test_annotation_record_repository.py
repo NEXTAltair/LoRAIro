@@ -383,6 +383,95 @@ class TestSaveTagsAndCaptions:
             assert len(rows) == 1
             assert rows[0].rejected_at is not None
 
+    def test_save_tags_normalizes_raw_tag_to_clean_format(
+        self,
+        annotation_repository: AnnotationRepository,
+        image_id: int,
+        memory_session_factory,
+    ) -> None:
+        """raw なタグを保存しても DB には clean_format 整形済みが入る (ADR 0068)。"""
+        annotation_repository.save_annotations(
+            image_id=image_id,
+            annotations={
+                "tags": [
+                    {"tag": "_touhou", "model_id": None, "tag_id": None},
+                    {"tag": "blue_hair_", "model_id": None, "tag_id": None},
+                    {"tag": "alternate_costume", "model_id": None, "tag_id": None},
+                ]
+            },
+        )
+
+        with memory_session_factory() as session:
+            rows = session.execute(select(Tag).where(Tag.image_id == image_id)).scalars().all()
+            saved = {row.tag for row in rows}
+        # clean_format は `_`→空白・先頭末尾記号整理 (preferred 解決・lower 化はしない)
+        assert saved == {"touhou", "blue hair", "alternate costume"}
+
+    def test_save_tags_skips_tag_empty_after_clean_format(
+        self,
+        annotation_repository: AnnotationRepository,
+        image_id: int,
+        memory_session_factory,
+    ) -> None:
+        """整形後に空文字になるタグはスキップする。"""
+        annotation_repository.save_annotations(
+            image_id=image_id,
+            annotations={
+                "tags": [
+                    {"tag": "___", "model_id": None, "tag_id": None},
+                    {"tag": "valid_tag", "model_id": None, "tag_id": None},
+                ]
+            },
+        )
+
+        with memory_session_factory() as session:
+            rows = session.execute(select(Tag).where(Tag.image_id == image_id)).scalars().all()
+            saved = {row.tag for row in rows}
+        assert saved == {"valid tag"}
+
+    def test_save_tags_dedupes_tags_colliding_after_clean_format(
+        self,
+        annotation_repository: AnnotationRepository,
+        image_id: int,
+        memory_session_factory,
+    ) -> None:
+        """整形で同一になるタグ (`blue_hair` と `blue hair`) は Upsert で 1 行に吸収する。"""
+        annotation_repository.save_annotations(
+            image_id=image_id,
+            annotations={
+                "tags": [
+                    {"tag": "blue_hair", "model_id": None, "tag_id": None},
+                    {"tag": "blue hair", "model_id": None, "tag_id": None},
+                ]
+            },
+        )
+
+        with memory_session_factory() as session:
+            rows = session.execute(select(Tag).where(Tag.image_id == image_id)).scalars().all()
+        assert len(rows) == 1
+        assert rows[0].tag == "blue hair"
+
+    def test_save_tags_matches_existing_raw_row_by_normalized_key(
+        self,
+        annotation_repository: AnnotationRepository,
+        image_id: int,
+        memory_session_factory,
+    ) -> None:
+        """既存 raw 行 (`blue_hair`) は整形後キーで突合し、整形済み値へ揃える。"""
+        with memory_session_factory() as session:
+            session.add(Tag(image_id=image_id, model_id=None, tag="blue_hair", existing=False))
+            session.commit()
+
+        annotation_repository.save_annotations(
+            image_id=image_id,
+            annotations={"tags": [{"tag": "blue hair", "model_id": None, "tag_id": None}]},
+        )
+
+        with memory_session_factory() as session:
+            rows = session.execute(select(Tag).where(Tag.image_id == image_id)).scalars().all()
+        assert len(rows) == 1
+        assert rows[0].tag == "blue hair"
+
     def test_save_captions_does_not_revive_rejected_row(
         self,
         annotation_repository: AnnotationRepository,
