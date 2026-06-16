@@ -16,9 +16,10 @@ class FakeDatasetStateManager(QObject):
 
 
 class FakeMergedReader:
-    """convert_tags を実経路で動かすための最小 MergedTagReader スタブ。
+    """翻訳取得と bulk lookup 呼び出し回数検証のための最小 MergedTagReader スタブ。
 
     完全一致 lookup は大文字小文字を無視する (実 repository の COLLATE NOCASE 相当)。
+    表示が verbatim であること (search_tags_bulk を呼ばないこと) の検証にも使う。
     """
 
     def __init__(
@@ -627,11 +628,11 @@ class TestSelectedImageDetailsWidget:
         assert details.annotation_data is not None
         assert details.annotation_data.quality_summary == {}
 
-    # ─── 表示時 canonical 解決 (ADR 0068 Phase 2) ───────────────────────────
+    # ─── 表示は verbatim (ADR 0068 改訂: canonical は保存時に焼き込み済み) ──────
 
     @staticmethod
     def _build_tag_metadata(tags: list[dict]) -> dict:
-        """canonical 解決テスト用の最小 metadata を生成する。"""
+        """表示テスト用の最小 metadata を生成する。"""
         return {
             "id": 1,
             "file_path": "/test/img.jpg",
@@ -642,71 +643,37 @@ class TestSelectedImageDetailsWidget:
             "rating_value": "",
         }
 
-    def test_display_resolves_preferred_canonical(self, widget):
-        """表示時に基準 format (danbooru) の preferred/canonical へ解決されること。"""
-        reader = FakeMergedReader(
-            {"gray hair": "grey hair", "pov hands": "pov hands"},
-        )
-        widget.set_merged_reader(reader)
+    def test_display_shows_tags_verbatim(self, widget):
+        """ADR 0068 改訂: Tag.tag は保存時に canonical 化済みのため表示は verbatim。
 
-        metadata = self._build_tag_metadata(
-            [
-                {"tag": "gray hair", "tag_id": 1, "model_name": "wd", "source": "AI"},
-                {"tag": "Pov hands", "tag_id": 2, "model_name": "wd", "source": "AI"},
-            ]
-        )
-        details = widget._build_image_details_from_metadata(metadata)
-
-        assert details.annotation_data is not None
-        resolved = [t["tag"] for t in details.annotation_data.tags]
-        assert resolved == ["grey hair", "pov hands"]
-        # tags_text も canonical 化されること
-        assert details.tags == "grey hair, pov hands"
-
-    def test_display_keeps_meta_tags(self, widget):
-        """meta タグは表示には残す (除外は export のみ、ADR 0068)。"""
-        reader = FakeMergedReader(
-            {"1girl": "1girl", "highres": "highres"},
-            types={"highres": "meta"},
-        )
-        widget.set_merged_reader(reader)
-
-        metadata = self._build_tag_metadata(
-            [
-                {"tag": "1girl", "tag_id": 1, "model_name": "wd", "source": "AI"},
-                {"tag": "highres", "tag_id": 2, "model_name": "wd", "source": "AI"},
-            ]
-        )
-        details = widget._build_image_details_from_metadata(metadata)
-
-        assert details.annotation_data is not None
-        resolved = [t["tag"] for t in details.annotation_data.tags]
-        assert "highres" in resolved
-
-    def test_display_without_reader_keeps_formatted_tags(self, widget):
-        """reader 未設定時は整形済みタグをそのまま表示する (graceful degradation)。"""
-        metadata = self._build_tag_metadata(
-            [
-                {"tag": "gray hair", "tag_id": 1, "model_name": "wd", "source": "AI"},
-            ]
-        )
-        details = widget._build_image_details_from_metadata(metadata)
-
-        assert details.annotation_data is not None
-        assert [t["tag"] for t in details.annotation_data.tags] == ["gray hair"]
-        assert details.tags == "gray hair"
-
-    def test_display_canonical_conversion_is_cached(self, widget):
-        """同一タグの再変換を避けるためキャッシュが効くこと。"""
+        reader を設定しても表示時に DB 変換 (search_tags_bulk) を呼ばないこと。
+        """
         reader = FakeMergedReader({"gray hair": "grey hair"})
         widget.set_merged_reader(reader)
 
         metadata = self._build_tag_metadata(
-            [{"tag": "gray hair", "tag_id": 1, "model_name": "wd", "source": "AI"}]
+            [
+                {"tag": "grey hair", "tag_id": 1, "model_name": "wd", "source": "AI"},
+                {"tag": "pov hands", "tag_id": 2, "model_name": "wd", "source": "AI"},
+            ]
         )
-        widget._build_image_details_from_metadata(metadata)
-        widget._build_image_details_from_metadata(metadata)
+        details = widget._build_image_details_from_metadata(metadata)
 
-        # 2 回 build しても DB lookup は 1 回だけ (キャッシュ命中)
-        assert reader.bulk_calls == 1
-        assert widget._canonical_cache.get("gray hair") == "grey hair"
+        assert details.annotation_data is not None
+        # 保存済みの値がそのまま表示される (変換しない)
+        assert [t["tag"] for t in details.annotation_data.tags] == ["grey hair", "pov hands"]
+        # 表示時に canonical 変換の DB lookup が走らないこと
+        assert reader.bulk_calls == 0
+
+    def test_display_without_reader_shows_tags_verbatim(self, widget):
+        """reader 未設定でも保存済みタグをそのまま表示する。"""
+        metadata = self._build_tag_metadata(
+            [
+                {"tag": "grey hair", "tag_id": 1, "model_name": "wd", "source": "AI"},
+            ]
+        )
+        details = widget._build_image_details_from_metadata(metadata)
+
+        assert details.annotation_data is not None
+        assert [t["tag"] for t in details.annotation_data.tags] == ["grey hair"]
+        assert details.tags == "grey hair"

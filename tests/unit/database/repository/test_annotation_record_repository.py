@@ -57,8 +57,16 @@ def memory_session_factory():
 
 @pytest.fixture
 def annotation_repository(memory_session_factory) -> AnnotationRepository:
-    """In-memory SQLite に対する AnnotationRepository インスタンス。"""
-    return AnnotationRepository(session_factory=memory_session_factory)
+    """In-memory SQLite に対する AnnotationRepository インスタンス。
+
+    ユニットテストを hermetic にするため、外部 tag_db (MergedTagReader) は既定で
+    無効化する (実 HF tag DB に依存させない)。canonical 解決や lazy init を検証する
+    テストは個別に `merged_reader` / `_merged_reader_initialized` を設定する。
+    """
+    repo = AnnotationRepository(session_factory=memory_session_factory)
+    repo.merged_reader = None
+    repo._merged_reader_initialized = True
+    return repo
 
 
 @pytest.fixture
@@ -144,6 +152,8 @@ class TestExternalTagDbInitialization:
         self, annotation_repository: AnnotationRepository, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """tag_id 解決が必要になった時点で外部 tag DB reader を初期化する。"""
+        # fixture は reader を無効化済みなので lazy init を再アームする
+        annotation_repository._merged_reader_initialized = False
         ensure_spy = Mock()
         merged_reader = Mock()
         merged_reader.search_tags_bulk.return_value = {"new tag": {"tag_id": 123, "deprecated": False}}
@@ -165,6 +175,8 @@ class TestExternalTagDbInitialization:
         self, annotation_repository: AnnotationRepository, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """GUI 統合用の公開 accessor が外部 tag DB reader を初期化する。"""
+        # fixture は reader を無効化済みなので lazy init を再アームする
+        annotation_repository._merged_reader_initialized = False
         ensure_spy = Mock()
         merged_reader = Mock()
         monkeypatch.setattr(
@@ -471,6 +483,104 @@ class TestSaveTagsAndCaptions:
             rows = session.execute(select(Tag).where(Tag.image_id == image_id)).scalars().all()
         assert len(rows) == 1
         assert rows[0].tag == "blue hair"
+
+    @staticmethod
+    def _reader_with_canonical(mapping: dict[str, dict]) -> Mock:
+        """search_tags_bulk が指定マッピングを返す mock reader を生成する。
+
+        mapping は clean_format 済みタグ → row dict ({"tag", "tag_id", "deprecated"})。
+        """
+        reader = Mock()
+        reader.search_tags_bulk.side_effect = lambda tags, **_: {
+            tag: mapping[tag] for tag in tags if tag in mapping
+        }
+        return reader
+
+    def test_save_tags_bakes_danbooru_canonical_for_ai_tags(
+        self,
+        annotation_repository: AnnotationRepository,
+        image_id: int,
+        memory_session_factory,
+    ) -> None:
+        """ADR 0068 改訂: 非手動タグは保存時に danbooru preferred と preferred tag_id へ焼き込む。"""
+        annotation_repository.merged_reader = self._reader_with_canonical(
+            {"gray hair": {"tag": "grey hair", "tag_id": 42, "deprecated": False}}
+        )
+
+        annotation_repository.save_annotations(
+            image_id=image_id,
+            annotations={"tags": [{"tag": "gray_hair", "model_id": None, "tag_id": None}]},
+        )
+
+        with memory_session_factory() as session:
+            rows = session.execute(select(Tag).where(Tag.image_id == image_id)).scalars().all()
+        assert len(rows) == 1
+        assert rows[0].tag == "grey hair"
+        assert rows[0].tag_id == 42
+
+    def test_save_tags_preserves_manual_edited_tag(
+        self,
+        annotation_repository: AnnotationRepository,
+        image_id: int,
+        memory_session_factory,
+    ) -> None:
+        """ADR 0068 改訂: 手動編集タグは canonical 化せず clean_format 表記を維持する。"""
+        annotation_repository.merged_reader = self._reader_with_canonical(
+            {"gray hair": {"tag": "grey hair", "tag_id": 42, "deprecated": False}}
+        )
+
+        annotation_repository.save_annotations(
+            image_id=image_id,
+            annotations={
+                "tags": [{"tag": "gray_hair", "model_id": None, "tag_id": None, "is_edited_manually": True}]
+            },
+        )
+
+        with memory_session_factory() as session:
+            rows = session.execute(select(Tag).where(Tag.image_id == image_id)).scalars().all()
+        assert len(rows) == 1
+        # 手動編集は canonical 化されず clean_format のまま
+        assert rows[0].tag == "gray hair"
+
+    def test_save_tags_keeps_clean_format_when_canonical_unresolved(
+        self,
+        annotation_repository: AnnotationRepository,
+        image_id: int,
+        memory_session_factory,
+    ) -> None:
+        """canonical が解決できない非手動タグは clean_format のまま保存する。"""
+        annotation_repository.merged_reader = self._reader_with_canonical({})
+
+        annotation_repository.save_annotations(
+            image_id=image_id,
+            annotations={"tags": [{"tag": "unknown_tag", "model_id": None, "tag_id": None}]},
+        )
+
+        with memory_session_factory() as session:
+            rows = session.execute(select(Tag).where(Tag.image_id == image_id)).scalars().all()
+        assert len(rows) == 1
+        assert rows[0].tag == "unknown tag"
+
+    def test_save_tags_excludes_deprecated_canonical(
+        self,
+        annotation_repository: AnnotationRepository,
+        image_id: int,
+        memory_session_factory,
+    ) -> None:
+        """deprecated な解決結果は採用せず clean_format を維持する。"""
+        annotation_repository.merged_reader = self._reader_with_canonical(
+            {"old tag": {"tag": "new tag", "tag_id": 9, "deprecated": True}}
+        )
+
+        annotation_repository.save_annotations(
+            image_id=image_id,
+            annotations={"tags": [{"tag": "old_tag", "model_id": None, "tag_id": None}]},
+        )
+
+        with memory_session_factory() as session:
+            rows = session.execute(select(Tag).where(Tag.image_id == image_id)).scalars().all()
+        assert len(rows) == 1
+        assert rows[0].tag == "old tag"
 
     def test_save_captions_does_not_revive_rejected_row(
         self,

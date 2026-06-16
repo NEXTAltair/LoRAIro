@@ -1,9 +1,11 @@
-"""既存 LoRAIro DB の `tags.tag` を `clean_format` で一括整形する修復スクリプト (Issue #769)。
+"""既存 LoRAIro DB の `tags.tag` を保存境界の正規化規則へ一括整形する修復スクリプト (Issue #769)。
 
-ADR 0068 の保存境界方針に従い、保存は整形 (`TagCleaner.clean_format().strip()`) のみを
-焼き込む。alias→preferred の解決や lower 化は format 依存のため **行わない**。
+ADR 0068 (改訂) の保存境界方針に従い、**非手動タグ** は `clean_format` 整形後に danbooru
+canonical (preferred) へ解決して焼き込む。**手動編集タグ** (`is_edited_manually=True`) は
+ユーザー表記を尊重して `clean_format` 整形のみに留める。外部 tag_db が利用できない場合は
+全タグを `clean_format` のみへ縮退する (graceful degradation)。
 
-整形によって同一 `(image_id, model_id)` 内で `tag` 文字列が衝突した行 (例:
+整形・canonical 解決によって同一 `(image_id, model_id)` 内で `tag` 文字列が衝突した行 (例:
 `blue_hair_` → `blue hair` が既存の `blue hair` と重複) は、代表行 1 件を残して残りを
 削除し、論理的な一意性 `(image_id, model_id, tag)` を保つ。
 
@@ -18,11 +20,13 @@ ADR 0068 の保存境界方針に従い、保存は整形 (`TagCleaner.clean_for
 from __future__ import annotations
 
 import shutil
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
 
 import typer
+from genai_tag_db_tools.db.repository import MergedTagReader, get_default_reader
 from genai_tag_db_tools.utils.cleanup_str import TagCleaner
 from loguru import logger
 from sqlalchemy import create_engine, select
@@ -36,12 +40,21 @@ app = typer.Typer(help="Repair tags.tag normalization in an existing LoRAIro ima
 # dry-run 時に表示する diff サンプルの最大件数。
 _DIFF_SAMPLE_LIMIT = 30
 
+# search_tags_bulk へ一度に渡す keyword 数の上限 (SQLite の IN 変数上限と巨大集合対策)。
+_CANONICAL_LOOKUP_CHUNK = 500
+
+# canonical 解決の基準フォーマット (annotation_record._DANBOORU_FORMAT と一致)。
+_DANBOORU_FORMAT = "danbooru"
+
+# clean_format 済みタグ → canonical (danbooru preferred) を返す resolver の型。
+CanonicalResolver = Callable[[set[str]], dict[str, str]]
+
 
 def normalize_tag_value(tag: str) -> str:
-    """タグ文字列を保存境界の正規化規則で整形する。
+    """タグ文字列を `clean_format` で整形する (canonical 解決はしない)。
 
-    ADR 0068 に従い `TagCleaner.clean_format()` + `strip()` のみを適用する。
-    lower 化や alias/preferred 解決は行わない。
+    `TagCleaner.clean_format()` + `strip()` のみを適用する。lower 化や
+    alias/preferred 解決は行わない。canonical 解決は `_final_tag_value` 側で行う。
 
     Args:
         tag: 整形前のタグ文字列。
@@ -52,6 +65,59 @@ def normalize_tag_value(tag: str) -> str:
     # clean_format は @cache + @staticmethod のため戻り値型が Any になる。str に束縛して返す。
     cleaned: str = TagCleaner.clean_format(tag)
     return cleaned.strip()
+
+
+def _final_tag_value(row: Tag, canonical_map: dict[str, str]) -> str:
+    """1 行の最終保存タグ値を算出する。
+
+    非手動タグは canonical_map に解決があれば danbooru canonical を採用する。
+    手動編集タグ・未解決タグは `clean_format` 整形値を維持する。
+
+    Args:
+        row: 評価対象の Tag 行。
+        canonical_map: clean_format 済みタグ → danbooru canonical のマッピング。
+
+    Returns:
+        最終的な保存タグ値。整形結果が空の場合は空文字列。
+    """
+    clean = normalize_tag_value(row.tag)
+    if not clean or row.is_edited_manually:
+        return clean
+    return canonical_map.get(clean, clean)
+
+
+def build_canonical_resolver(reader: MergedTagReader | None) -> CanonicalResolver | None:
+    """MergedTagReader から danbooru canonical resolver を生成する。
+
+    reader が None の場合は None を返し、呼び出し元は clean_format のみへ縮退する。
+
+    Args:
+        reader: 外部 tag_db リーダー。None の場合は resolver を生成しない。
+
+    Returns:
+        clean_format 済みタグ集合 → canonical マッピングを返す resolver。reader が
+        None の場合は None。
+    """
+    if reader is None:
+        return None
+
+    def resolve(clean_tags: set[str]) -> dict[str, str]:
+        if not clean_tags:
+            return {}
+        out: dict[str, str] = {}
+        items = list(clean_tags)
+        for start in range(0, len(items), _CANONICAL_LOOKUP_CHUNK):
+            chunk = items[start : start + _CANONICAL_LOOKUP_CHUNK]
+            rows = reader.search_tags_bulk(chunk, format_name=_DANBOORU_FORMAT, resolve_preferred=True)
+            for clean_tag, row in rows.items():
+                if row.get("deprecated", False):
+                    continue
+                canonical_str = row.get("tag")
+                if canonical_str:
+                    out[clean_tag] = canonical_str
+        return out
+
+    return resolve
 
 
 @dataclass
@@ -128,11 +194,13 @@ def _pick_survivor(rows: list[Tag]) -> Tag:
     return sorted(rows, key=_survivor_sort_key)[0]
 
 
-def build_repair_plan(session: Session) -> RepairPlan:
+def build_repair_plan(session: Session, canonical_resolver: CanonicalResolver | None = None) -> RepairPlan:
     """DB の全 Tag 行を走査して修復計画を構築する。
 
     Args:
         session: 対象 DB の SQLAlchemy セッション。
+        canonical_resolver: 非手動タグを danbooru canonical へ解決する resolver。
+            None の場合は canonical 解決を行わず `clean_format` 整形のみを適用する。
 
     Returns:
         算出された RepairPlan。
@@ -140,7 +208,15 @@ def build_repair_plan(session: Session) -> RepairPlan:
     rows = list(session.execute(select(Tag)).scalars())
     plan = RepairPlan(total_count=len(rows))
 
-    # (image_id, model_id) ごとにグループ化し、グループ内で normalized tag の衝突を解決する。
+    # 非手動タグの clean_format 値を集めて 1 度だけ canonical を一括解決する。
+    canonical_map: dict[str, str] = {}
+    if canonical_resolver is not None:
+        clean_targets = {
+            clean for row in rows if not row.is_edited_manually and (clean := normalize_tag_value(row.tag))
+        }
+        canonical_map = canonical_resolver(clean_targets)
+
+    # (image_id, model_id) ごとにグループ化し、グループ内で最終 tag 値の衝突を解決する。
     groups: dict[tuple[int | None, int | None], list[Tag]] = {}
     for row in rows:
         groups.setdefault((row.image_id, row.model_id), []).append(row)
@@ -148,7 +224,7 @@ def build_repair_plan(session: Session) -> RepairPlan:
     for (image_id, model_id), group_rows in groups.items():
         by_normalized: dict[str, list[Tag]] = {}
         for row in group_rows:
-            normalized = normalize_tag_value(row.tag)
+            normalized = _final_tag_value(row, canonical_map)
             if not normalized:
                 plan.empty_deletions.append(
                     TagDeletion(
@@ -317,6 +393,23 @@ def _echo_diff_samples(plan: RepairPlan) -> None:
         shown += 1
 
 
+def _get_canonical_reader() -> MergedTagReader | None:
+    """canonical 解決用の外部 tag_db リーダーを取得する。
+
+    取得に失敗した場合は警告ログを出して None を返し、呼び出し元は clean_format
+    のみへ縮退する (外部 tag_db は任意依存)。
+
+    Returns:
+        初期化済み MergedTagReader。取得失敗時は None。
+    """
+    try:
+        return get_default_reader()
+    except Exception as e:
+        # 外部 tag_db は任意依存: 取得失敗時は clean_format のみへ縮退する。
+        logger.warning(f"外部 tag_db リーダーを取得できません。clean_format のみで整形します: {e}")
+        return None
+
+
 def repair_database(db_path: Path, apply: bool, backup: bool = True) -> RepairPlan:
     """対象 DB のタグ整形を実行する (またはプレビューする)。
 
@@ -329,9 +422,10 @@ def repair_database(db_path: Path, apply: bool, backup: bool = True) -> RepairPl
         算出 (および適用) された RepairPlan。
     """
     session_factory = _make_session_factory(db_path)
+    resolver = build_canonical_resolver(_get_canonical_reader())
 
     with session_factory() as session:
-        plan = build_repair_plan(session)
+        plan = build_repair_plan(session, resolver)
         _log_plan_summary(plan)
 
         if not apply:
