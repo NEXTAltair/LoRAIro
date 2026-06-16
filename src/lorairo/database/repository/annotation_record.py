@@ -74,6 +74,10 @@ from ..schema import (
 from .base import BaseRepository
 from .model import ModelRepository
 
+# ADR 0068 (改訂): 保存境界で焼き込む基準フォーマット。非手動タグはこの format の
+# preferred (canonical) へ解決して保存し、表示は verbatim にする。
+_DANBOORU_FORMAT = "danbooru"
+
 
 @dataclass(frozen=True, slots=True)
 class AnnotationSaveItem:
@@ -83,6 +87,14 @@ class AnnotationSaveItem:
     annotations: AnnotationsDict
     skip_existence_check: bool = False
     tag_id_cache: dict[str, int | None] | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class CanonicalTag:
+    """danbooru preferred へ解決済みのタグ (文字列 + preferred tag_id)。"""
+
+    tag: str
+    tag_id: int | None
 
 
 class AnnotationRepository(BaseRepository):
@@ -832,6 +844,49 @@ class AnnotationRepository(BaseRepository):
             logger.error(f"Retry search failed for '{tag_str}': {retry_error}")
             return None
 
+    def _resolve_danbooru_canonical(self, clean_tags: set[str]) -> dict[str, CanonicalTag]:
+        """clean_format 済みタグ集合を danbooru preferred (canonical) へ一括解決する。
+
+        ADR 0068 (改訂) の保存境界方針。`search_tags_bulk` を 1 回だけ呼び、
+        alias→preferred を解決した canonical 文字列と preferred tag_id を返す。
+        reader 不在・未登録・deprecated なタグは結果に含めず、呼び出し元が整形済み
+        文字列を維持する (graceful degradation)。
+
+        Args:
+            clean_tags: `TagCleaner.clean_format().strip()` 済みタグ文字列の集合。
+
+        Returns:
+            clean_format 済みタグ → CanonicalTag のマッピング。解決できたタグのみ含む。
+        """
+        if not clean_tags:
+            return {}
+
+        merged_reader = self._get_merged_reader()
+        if merged_reader is None:
+            logger.debug("MergedTagReader unavailable, skipping danbooru canonical resolution")
+            return {}
+
+        try:
+            bulk_results = merged_reader.search_tags_bulk(
+                list(clean_tags),
+                format_name=_DANBOORU_FORMAT,
+                resolve_preferred=True,
+            )
+        except Exception as e:
+            # tag_db は任意依存 (ADR 0068): 解決失敗時は整形済みのまま保存へ縮退する。
+            logger.error(f"danbooru canonical の一括解決に失敗: {e}", exc_info=True)
+            return {}
+
+        result: dict[str, CanonicalTag] = {}
+        for clean_tag, row in bulk_results.items():
+            if row.get("deprecated", False):
+                continue
+            canonical_str = row.get("tag")
+            if not canonical_str:
+                continue
+            result[clean_tag] = CanonicalTag(tag=canonical_str, tag_id=row.get("tag_id"))
+        return result
+
     # --- _save_* (Upsert by entity) ---
 
     def _save_tags(
@@ -844,13 +899,18 @@ class AnnotationRepository(BaseRepository):
     ) -> None:
         """タグ情報を保存・更新 (Upsert)
 
+        ADR 0068 (改訂) の保存境界: 非手動タグは clean_format 整形後に danbooru
+        canonical (preferred) へ焼き込んで保存する。手動編集タグ
+        (is_edited_manually=True) は整形のみでユーザー表記を維持する。これにより
+        表示/export は変換なしの verbatim で済む。
+
         Args:
             session: SQLAlchemyセッション。
             image_id: 対象画像のID。
             tags_data: 保存するタグデータのリスト。
             tag_id_cache: 正規化済みタグ文字列→tag_idのキャッシュ。
-                バッチ処理で事前解決済みの場合に渡す。キャッシュミス時は
-                従来通り_get_or_create_tag_id_external()にフォールバック。
+                canonical 解決できなかった非手動タグ・手動タグの tag_id 解決に使う。
+                キャッシュミス時は従来通り_get_or_create_tag_id_external()にフォールバック。
 
         """
         logger.debug(f"Saving/Updating {len(tags_data)} tags for image_id {image_id}")
@@ -864,27 +924,46 @@ class AnnotationRepository(BaseRepository):
             (TagCleaner.clean_format(t.tag).strip(), t.model_id): t for t in existing_tags_result
         }
 
+        # ADR 0068 (改訂): 非手動タグは保存時に danbooru canonical (preferred) へ焼き込む。
+        # 手動編集タグ (is_edited_manually=True) はユーザーの表記を尊重し canonical 化しない。
+        canonical_targets = {
+            clean
+            for tag_info in tags_data
+            if not tag_info.get("is_edited_manually")
+            and (clean := TagCleaner.clean_format(tag_info["tag"]).strip())
+        }
+        canonical_map = self._resolve_danbooru_canonical(canonical_targets)
+
         for tag_info in tags_data:
-            # 保存境界の SSoT (ADR 0068): 全取込経路の tag をここで clean_format 整形に統一する。
-            # preferred 解決はしない (format 依存のため出力時に回す)。lower 化もしない。
-            tag_string = TagCleaner.clean_format(tag_info["tag"]).strip()
-            if not tag_string:
+            # 全取込経路の tag をまず clean_format 整形に統一する (lower 化はしない)。
+            clean_tag = TagCleaner.clean_format(tag_info["tag"]).strip()
+            if not clean_tag:
                 # 整形後に空文字になったタグはスキップ
                 continue
+
+            # 非手動タグは canonical 解決できれば preferred 文字列 + preferred tag_id を採用する。
+            is_manual = bool(tag_info.get("is_edited_manually"))
+            canonical = None if is_manual else canonical_map.get(clean_tag)
+            tag_string = canonical.tag if canonical is not None else clean_tag
+
             model_id = tag_info.get("model_id")  # Optional
             confidence = tag_info.get("confidence_score")  # Optional
             is_existing_tag = tag_info.get("existing", False)  # 元ファイル由来か
 
-            # 外部DBから tag_id を取得/作成
-            # 呼び出し元が設定済みの tag_id を優先し、未設定時はキャッシュ→個別照会の順。
-            # tag_string は整形済みなので tag_id_cache (整形後キー) と直接突合できる。
-            external_tag_id: int | None = tag_info.get("tag_id")
-            if external_tag_id is None:
-                if tag_id_cache is not None and tag_string in tag_id_cache:
-                    external_tag_id = tag_id_cache[tag_string]
-                else:
-                    # キャッシュミス / キャッシュ無し: 従来の個別照会にフォールバック
-                    external_tag_id = self._get_or_create_tag_id_external(session, tag_string)
+            # 外部DBから tag_id を取得/作成。
+            # canonical 解決済みなら preferred tag_id を最優先し、文字列と tag_id の整合を保つ。
+            # それ以外は呼び出し元設定値 → キャッシュ (clean_format キー) → 個別照会の順。
+            external_tag_id: int | None
+            if canonical is not None:
+                external_tag_id = canonical.tag_id
+            else:
+                external_tag_id = tag_info.get("tag_id")
+                if external_tag_id is None:
+                    if tag_id_cache is not None and clean_tag in tag_id_cache:
+                        external_tag_id = tag_id_cache[clean_tag]
+                    else:
+                        # キャッシュミス / キャッシュ無し: 従来の個別照会にフォールバック
+                        external_tag_id = self._get_or_create_tag_id_external(session, clean_tag)
 
             if external_tag_id is None:
                 logger.warning(

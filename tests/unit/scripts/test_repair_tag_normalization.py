@@ -25,6 +25,16 @@ _SPEC.loader.exec_module(repair_script)
 pytestmark = pytest.mark.unit
 
 
+@pytest.fixture(autouse=True)
+def _disable_external_tag_db(monkeypatch: pytest.MonkeyPatch) -> None:
+    """ユニットテストを hermetic にするため canonical reader を既定で無効化する。
+
+    `repair_database` 経由のテストは実 HF tag DB に依存させない (clean_format のみへ縮退)。
+    canonical 解決の検証は `build_repair_plan` に明示の resolver を渡すテストで行う。
+    """
+    monkeypatch.setattr(repair_script, "_get_canonical_reader", lambda: None)
+
+
 def _make_db(tmp_path: Path) -> tuple[Path, sessionmaker[Session]]:
     """テスト用の空 image database を作成してパスとセッションファクトリを返す。"""
     db_path = tmp_path / "image_database.db"
@@ -187,6 +197,82 @@ def test_repair_database_apply_no_changes_skips_backup(tmp_path: Path) -> None:
 
     backups = list(tmp_path.glob("image_database.db.bak-*"))
     assert backups == []
+
+
+def test_build_repair_plan_resolves_canonical_for_ai_tags(tmp_path: Path) -> None:
+    """resolver があれば非手動タグを danbooru canonical へ更新する (ADR 0068 改訂)。"""
+    _db_path, factory = _make_db(tmp_path)
+    with factory() as session:
+        _add_tag(session, tag="gray_hair", image_id=1, model_id=1)
+        session.commit()
+
+    def resolver(clean_tags: set[str]) -> dict[str, str]:
+        return {"gray hair": "grey hair"}
+
+    with factory() as session:
+        plan = repair_script.build_repair_plan(session, resolver)
+
+    assert len(plan.updates) == 1
+    assert plan.updates[0].old_tag == "gray_hair"
+    assert plan.updates[0].new_tag == "grey hair"
+
+
+def test_build_repair_plan_keeps_manual_tag_clean_format(tmp_path: Path) -> None:
+    """手動編集タグは canonical 化せず clean_format のみ適用する。"""
+    _db_path, factory = _make_db(tmp_path)
+    with factory() as session:
+        _add_tag(session, tag="gray_hair", image_id=1, model_id=1, is_edited_manually=True)
+        session.commit()
+
+    def resolver(clean_tags: set[str]) -> dict[str, str]:
+        # 手動タグは resolver の対象に含まれない想定だが、含まれても無視されること
+        return {"gray hair": "grey hair"}
+
+    with factory() as session:
+        plan = repair_script.build_repair_plan(session, resolver)
+
+    assert len(plan.updates) == 1
+    # canonical 化されず clean_format のみ
+    assert plan.updates[0].new_tag == "gray hair"
+
+
+def test_build_repair_plan_canonical_merges_into_existing(tmp_path: Path) -> None:
+    """canonical 解決で既存 canonical 行と衝突したら 1 行へ統合する。"""
+    _db_path, factory = _make_db(tmp_path)
+    with factory() as session:
+        _add_tag(session, tag="grey hair", image_id=1, model_id=1)
+        _add_tag(session, tag="gray_hair", image_id=1, model_id=1)
+        session.commit()
+
+    def resolver(clean_tags: set[str]) -> dict[str, str]:
+        return {"gray hair": "grey hair", "grey hair": "grey hair"}
+
+    with factory() as session:
+        plan = repair_script.build_repair_plan(session, resolver)
+
+    assert len(plan.duplicate_deletions) == 1
+    assert plan.duplicate_deletions[0].new_tag == "grey hair"
+
+
+def test_build_canonical_resolver_returns_none_without_reader() -> None:
+    """reader が None なら resolver も None (clean_format のみへ縮退)。"""
+    assert repair_script.build_canonical_resolver(None) is None
+
+
+def test_build_canonical_resolver_excludes_deprecated(tmp_path: Path) -> None:
+    """resolver は deprecated な解決結果を除外する。"""
+    from unittest.mock import Mock
+
+    reader = Mock()
+    reader.search_tags_bulk.return_value = {
+        "old tag": {"tag": "new tag", "tag_id": 1, "deprecated": True},
+        "gray hair": {"tag": "grey hair", "tag_id": 2, "deprecated": False},
+    }
+    resolver = repair_script.build_canonical_resolver(reader)
+    assert resolver is not None
+
+    result = resolver({"old tag", "gray hair"})
+    assert result == {"gray hair": "grey hair"}
 
 
 def test_resolve_db_path_missing_raises(tmp_path: Path) -> None:
