@@ -45,7 +45,7 @@ def test_normalize_tag_value_strips_underscores_without_lowercasing() -> None:
     assert repair_script.normalize_tag_value("blue_hair_") == "blue hair"
     assert repair_script.normalize_tag_value("_touhou") == "touhou"
     assert repair_script.normalize_tag_value("alternate_costume") == "alternate costume"
-    # lower 化はしない (ADR 0067)
+    # lower 化はしない (ADR 0068)
     assert repair_script.normalize_tag_value("Grey hair") == "Grey hair"
 
 

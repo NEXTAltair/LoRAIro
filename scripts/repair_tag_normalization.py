@@ -1,6 +1,6 @@
 """既存 LoRAIro DB の `tags.tag` を `clean_format` で一括整形する修復スクリプト (Issue #769)。
 
-ADR 0067 の保存境界方針に従い、保存は整形 (`TagCleaner.clean_format().strip()`) のみを
+ADR 0068 の保存境界方針に従い、保存は整形 (`TagCleaner.clean_format().strip()`) のみを
 焼き込む。alias→preferred の解決や lower 化は format 依存のため **行わない**。
 
 整形によって同一 `(image_id, model_id)` 内で `tag` 文字列が衝突した行 (例:
@@ -40,7 +40,7 @@ _DIFF_SAMPLE_LIMIT = 30
 def normalize_tag_value(tag: str) -> str:
     """タグ文字列を保存境界の正規化規則で整形する。
 
-    ADR 0067 に従い `TagCleaner.clean_format()` + `strip()` のみを適用する。
+    ADR 0068 に従い `TagCleaner.clean_format()` + `strip()` のみを適用する。
     lower 化や alias/preferred 解決は行わない。
 
     Args:
