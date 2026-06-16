@@ -32,6 +32,7 @@ from loguru import logger
 from sqlalchemy import create_engine, select
 from sqlalchemy.orm import Session, sessionmaker
 
+from lorairo.database.db_core import ensure_tag_db_initialized
 from lorairo.database.schema import Tag
 from lorairo.utils.config import get_config
 
@@ -403,6 +404,9 @@ def _get_canonical_reader() -> MergedTagReader | None:
         初期化済み MergedTagReader。取得失敗時は None。
     """
     try:
+        # get_default_reader() は base DB パス設定済みが前提のため、先に初期化する
+        # (annotation_record._initialize_merged_reader と同じ順序)。
+        ensure_tag_db_initialized()
         return get_default_reader()
     except Exception as e:
         # 外部 tag_db は任意依存: 取得失敗時は clean_format のみへ縮退する。
