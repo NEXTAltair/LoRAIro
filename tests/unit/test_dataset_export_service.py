@@ -39,6 +39,8 @@ class TestDatasetExportService:
     def mock_db_manager(self):
         """データベースマネージャーのモック"""
         mock = Mock()
+        # 既定では外部 tag_db 不在 (変換せず素通し、ADR 0068 graceful degradation)
+        mock.annotation_repo.get_merged_reader.return_value = None
         return mock
 
     @pytest.fixture
@@ -827,6 +829,178 @@ class TestDatasetExportService:
                 assert not (output_path / "test_project_00001.txt").exists()
 
 
+class FakeExportReader:
+    """convert_tags を実経路で動かす最小 MergedTagReader スタブ (export 用)。"""
+
+    def __init__(self, mapping: dict[str, str], *, types: dict[str, str] | None = None) -> None:
+        self._mapping = mapping
+        self._types = types or {}
+        self.seen_formats: list[str] = []
+
+    def get_format_id(self, format_name: str) -> int:
+        self.seen_formats.append(format_name)
+        return 1
+
+    def search_tags_bulk(
+        self, tags: list[str], format_name: str | None = None, resolve_preferred: bool = True
+    ) -> dict[str, dict]:
+        result: dict[str, dict] = {}
+        for tag in tags:
+            key = tag.lower()
+            if key in self._mapping:
+                result[tag] = {"tag": self._mapping[key], "type_name": self._types.get(key)}
+        return result
+
+
+@pytest.mark.unit
+class TestExportTagFormatResolution:
+    """ADR 0068 Phase 3: export 時の canonical 解決 + meta 除外のテスト。"""
+
+    @pytest.fixture
+    def mock_config_service(self):
+        return Mock()
+
+    @pytest.fixture
+    def mock_file_system_manager(self):
+        mock = Mock()
+        mock.copy_file = Mock()
+        return mock
+
+    @pytest.fixture
+    def mock_search_processor(self):
+        return Mock()
+
+    def _make_service(self, reader, mock_file_system_manager, mock_config_service, mock_search_processor):
+        db_manager = Mock()
+        db_manager.annotation_repo.get_merged_reader.return_value = reader
+        return DatasetExportService(
+            config_service=mock_config_service,
+            file_system_manager=mock_file_system_manager,
+            db_manager=db_manager,
+            search_processor=mock_search_processor,
+        )
+
+    def test_txt_resolves_format_and_excludes_meta(
+        self, mock_file_system_manager, mock_config_service, mock_search_processor
+    ):
+        """TXT export は target format の canonical へ解決し meta タグを除外する。"""
+        reader = FakeExportReader(
+            {"anime": "anime", "girl": "1girl", "highres": "highres"},
+            types={"highres": "meta"},
+        )
+        service = self._make_service(
+            reader, mock_file_system_manager, mock_config_service, mock_search_processor
+        )
+        image_data = {
+            "metadata": {"id": 1},
+            "tags": [{"tag": "anime"}, {"tag": "girl"}, {"tag": "highres"}],
+            "captions": [],
+        }
+        with tempfile.TemporaryDirectory() as temp_dir:
+            output_path = Path(temp_dir) / "export"
+            output_path.mkdir()
+            with (
+                patch.object(
+                    service,
+                    "_resolve_processed_image_path",
+                    return_value=Path("/mock/processed/test_project_00001.webp"),
+                ),
+                patch.object(service, "_get_image_export_data", return_value=image_data),
+            ):
+                service.export_dataset_txt_format([1], output_path)
+
+            content = (output_path / "test_project_00001.txt").read_text(encoding="utf-8")
+            # girl -> 1girl (canonical)、highres (meta) は除外
+            assert content == "anime, 1girl"
+
+    def test_json_resolves_format_and_excludes_meta(
+        self, mock_file_system_manager, mock_config_service, mock_search_processor
+    ):
+        """JSON export も canonical 解決 + meta 除外を行う。"""
+        reader = FakeExportReader(
+            {"anime": "anime", "girl": "1girl", "highres": "highres"},
+            types={"highres": "meta"},
+        )
+        service = self._make_service(
+            reader, mock_file_system_manager, mock_config_service, mock_search_processor
+        )
+        image_data = {
+            "metadata": {"id": 1},
+            "tags": [{"tag": "anime"}, {"tag": "girl"}, {"tag": "highres"}],
+            "captions": [],
+            "score_labels": [],
+            "quality_summary": {},
+        }
+        with tempfile.TemporaryDirectory() as temp_dir:
+            output_path = Path(temp_dir) / "export"
+            output_path.mkdir()
+            with (
+                patch.object(
+                    service,
+                    "_resolve_processed_image_path",
+                    return_value=Path("/mock/processed/test_project_00001.webp"),
+                ),
+                patch.object(service, "_get_image_export_data", return_value=image_data),
+            ):
+                service.export_dataset_json_format([1], output_path)
+
+            metadata = json.loads((output_path / "metadata.json").read_text(encoding="utf-8"))
+            entry = metadata[str(output_path / "test_project_00001.webp")]
+            assert entry["tags"] == "anime, 1girl"
+
+    def test_tag_format_argument_is_forwarded(
+        self, mock_file_system_manager, mock_config_service, mock_search_processor
+    ):
+        """tag_format 引数が convert_tags の対象 format として使われること。"""
+        reader = FakeExportReader({"anime": "anime"})
+        service = self._make_service(
+            reader, mock_file_system_manager, mock_config_service, mock_search_processor
+        )
+        image_data = {"metadata": {"id": 1}, "tags": [{"tag": "anime"}], "captions": []}
+        with tempfile.TemporaryDirectory() as temp_dir:
+            output_path = Path(temp_dir) / "export"
+            output_path.mkdir()
+            with (
+                patch.object(
+                    service,
+                    "_resolve_processed_image_path",
+                    return_value=Path("/mock/processed/test_project_00001.webp"),
+                ),
+                patch.object(service, "_get_image_export_data", return_value=image_data),
+            ):
+                service.export_dataset_txt_format([1], output_path, tag_format="e621")
+
+            assert "e621" in reader.seen_formats
+
+    def test_no_reader_keeps_formatted_tags(
+        self, mock_file_system_manager, mock_config_service, mock_search_processor
+    ):
+        """外部 tag_db 不在時は整形済みタグをそのまま出力する (graceful degradation)。"""
+        service = self._make_service(
+            None, mock_file_system_manager, mock_config_service, mock_search_processor
+        )
+        image_data = {
+            "metadata": {"id": 1},
+            "tags": [{"tag": "anime"}, {"tag": "girl"}],
+            "captions": [],
+        }
+        with tempfile.TemporaryDirectory() as temp_dir:
+            output_path = Path(temp_dir) / "export"
+            output_path.mkdir()
+            with (
+                patch.object(
+                    service,
+                    "_resolve_processed_image_path",
+                    return_value=Path("/mock/processed/test_project_00001.webp"),
+                ),
+                patch.object(service, "_get_image_export_data", return_value=image_data),
+            ):
+                service.export_dataset_txt_format([1], output_path)
+
+            content = (output_path / "test_project_00001.txt").read_text(encoding="utf-8")
+            assert content == "anime, girl"
+
+
 @pytest.mark.unit
 class TestExportWithCriteria:
     """DatasetExportService.export_with_criteria() のユニットテスト"""
@@ -970,7 +1144,10 @@ def mock_file_system_manager() -> MagicMock:
 @pytest.fixture()
 def mock_db_manager() -> MagicMock:
     """ImageDatabaseManager のモック。"""
-    return MagicMock()
+    mock = MagicMock()
+    # 既定では外部 tag_db 不在 (変換せず素通し、ADR 0068 graceful degradation)
+    mock.annotation_repo.get_merged_reader.return_value = None
+    return mock
 
 
 @pytest.fixture()

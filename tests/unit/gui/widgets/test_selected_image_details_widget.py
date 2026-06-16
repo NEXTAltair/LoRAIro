@@ -15,6 +15,46 @@ class FakeDatasetStateManager(QObject):
     current_image_data_changed = Signal(dict)
 
 
+class FakeMergedReader:
+    """convert_tags を実経路で動かすための最小 MergedTagReader スタブ。
+
+    完全一致 lookup は大文字小文字を無視する (実 repository の COLLATE NOCASE 相当)。
+    """
+
+    def __init__(
+        self,
+        mapping: dict[str, str],
+        *,
+        types: dict[str, str] | None = None,
+        languages: list[str] | None = None,
+    ) -> None:
+        # mapping / types のキーは lowercase 化済みの整形タグ
+        self._mapping = mapping
+        self._types = types or {}
+        self._languages = languages or []
+        self.bulk_calls = 0
+
+    def get_tag_languages(self) -> list[str]:
+        return self._languages
+
+    def get_translations_batch(self, tag_ids: list[int]) -> dict[int, list]:
+        return {}
+
+    def get_format_id(self, format_name: str) -> int:
+        return 1
+
+    def search_tags_bulk(
+        self, tags: list[str], format_name: str | None = None, resolve_preferred: bool = True
+    ) -> dict[str, dict]:
+        self.bulk_calls += 1
+        result: dict[str, dict] = {}
+        for tag in tags:
+            key = tag.lower()
+            if key in self._mapping:
+                result[tag] = {"tag": self._mapping[key], "type_name": self._types.get(key)}
+        return result
+
+
 class TestSelectedImageDetailsWidget:
     """SelectedImageDetailsWidget単体テスト（Enhanced Event-Driven Pattern対応）"""
 
@@ -389,6 +429,8 @@ class TestSelectedImageDetailsWidget:
         """翻訳データが正しくAnnotationData.tag_translationsに入ること"""
         mock_reader = Mock()
         mock_reader.get_tag_languages.return_value = ["japanese"]
+        # 翻訳検証に集中するため canonical 変換は no-op (format 未解決) にする
+        mock_reader.get_format_id.return_value = None
         tr_mock = Mock()
         tr_mock.language = "japanese"
         tr_mock.translation = "1人の女の子"
@@ -423,6 +465,7 @@ class TestSelectedImageDetailsWidget:
         """tag_id=Noneのタグは翻訳取得をスキップすること"""
         mock_reader = Mock()
         mock_reader.get_tag_languages.return_value = ["japanese"]
+        mock_reader.get_format_id.return_value = None
         mock_reader.get_translations_batch.return_value = {}
         widget.set_merged_reader(mock_reader)
 
@@ -455,6 +498,7 @@ class TestSelectedImageDetailsWidget:
         """N個タグが存在してもget_translations_batchは1回だけ呼ばれること"""
         mock_reader = Mock()
         mock_reader.get_tag_languages.return_value = []
+        mock_reader.get_format_id.return_value = None
         mock_reader.get_translations_batch.return_value = {}
         widget.set_merged_reader(mock_reader)
 
@@ -582,3 +626,87 @@ class TestSelectedImageDetailsWidget:
 
         assert details.annotation_data is not None
         assert details.annotation_data.quality_summary == {}
+
+    # ─── 表示時 canonical 解決 (ADR 0068 Phase 2) ───────────────────────────
+
+    @staticmethod
+    def _build_tag_metadata(tags: list[dict]) -> dict:
+        """canonical 解決テスト用の最小 metadata を生成する。"""
+        return {
+            "id": 1,
+            "file_path": "/test/img.jpg",
+            "tags": tags,
+            "caption_text": "",
+            "tags_text": ", ".join(t["tag"] for t in tags),
+            "score_value": 0,
+            "rating_value": "",
+        }
+
+    def test_display_resolves_preferred_canonical(self, widget):
+        """表示時に基準 format (danbooru) の preferred/canonical へ解決されること。"""
+        reader = FakeMergedReader(
+            {"gray hair": "grey hair", "pov hands": "pov hands"},
+        )
+        widget.set_merged_reader(reader)
+
+        metadata = self._build_tag_metadata(
+            [
+                {"tag": "gray hair", "tag_id": 1, "model_name": "wd", "source": "AI"},
+                {"tag": "Pov hands", "tag_id": 2, "model_name": "wd", "source": "AI"},
+            ]
+        )
+        details = widget._build_image_details_from_metadata(metadata)
+
+        assert details.annotation_data is not None
+        resolved = [t["tag"] for t in details.annotation_data.tags]
+        assert resolved == ["grey hair", "pov hands"]
+        # tags_text も canonical 化されること
+        assert details.tags == "grey hair, pov hands"
+
+    def test_display_keeps_meta_tags(self, widget):
+        """meta タグは表示には残す (除外は export のみ、ADR 0068)。"""
+        reader = FakeMergedReader(
+            {"1girl": "1girl", "highres": "highres"},
+            types={"highres": "meta"},
+        )
+        widget.set_merged_reader(reader)
+
+        metadata = self._build_tag_metadata(
+            [
+                {"tag": "1girl", "tag_id": 1, "model_name": "wd", "source": "AI"},
+                {"tag": "highres", "tag_id": 2, "model_name": "wd", "source": "AI"},
+            ]
+        )
+        details = widget._build_image_details_from_metadata(metadata)
+
+        assert details.annotation_data is not None
+        resolved = [t["tag"] for t in details.annotation_data.tags]
+        assert "highres" in resolved
+
+    def test_display_without_reader_keeps_formatted_tags(self, widget):
+        """reader 未設定時は整形済みタグをそのまま表示する (graceful degradation)。"""
+        metadata = self._build_tag_metadata(
+            [
+                {"tag": "gray hair", "tag_id": 1, "model_name": "wd", "source": "AI"},
+            ]
+        )
+        details = widget._build_image_details_from_metadata(metadata)
+
+        assert details.annotation_data is not None
+        assert [t["tag"] for t in details.annotation_data.tags] == ["gray hair"]
+        assert details.tags == "gray hair"
+
+    def test_display_canonical_conversion_is_cached(self, widget):
+        """同一タグの再変換を避けるためキャッシュが効くこと。"""
+        reader = FakeMergedReader({"gray hair": "grey hair"})
+        widget.set_merged_reader(reader)
+
+        metadata = self._build_tag_metadata(
+            [{"tag": "gray hair", "tag_id": 1, "model_name": "wd", "source": "AI"}]
+        )
+        widget._build_image_details_from_metadata(metadata)
+        widget._build_image_details_from_metadata(metadata)
+
+        # 2 回 build しても DB lookup は 1 回だけ (キャッシュ命中)
+        assert reader.bulk_calls == 1
+        assert widget._canonical_cache.get("gray hair") == "grey hair"

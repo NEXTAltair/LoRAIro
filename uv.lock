@@ -1466,7 +1466,7 @@ requires-dist = [
     { name = "datetime", specifier = ">=5.5" },
     { name = "diffusers", specifier = ">=0.24.0" },
     { name = "google-genai" },
-    { name = "huggingface-hub", specifier = ">=0.19.0" },
+    { name = "huggingface-hub", specifier = ">=1.1.0" },
     { name = "imagehash" },
     { name = "litellm", specifier = ">=1.0.0" },
     { name = "loguru" },
