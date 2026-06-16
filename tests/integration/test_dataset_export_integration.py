@@ -138,6 +138,8 @@ class TestDatasetExportIntegration:
         mock.get_tags.side_effect = get_tags_side_effect
         mock.get_captions.side_effect = get_captions_side_effect
         mock.get_image_annotations.side_effect = get_annotations_side_effect
+        # 外部 tag_db 不在 (変換せず素通し、ADR 0068 graceful degradation)
+        mock.annotation_repo.get_merged_reader.return_value = None
 
         return mock
 

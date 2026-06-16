@@ -8,8 +8,9 @@ import json
 import warnings
 from datetime import datetime
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
+from genai_tag_db_tools import convert_tags
 from loguru import logger
 
 from ..database.db_core import resolve_stored_path
@@ -18,6 +19,12 @@ from ..database.filter_criteria import ImageFilterCriteria
 from ..storage.file_system import FileSystemManager
 from .configuration_service import ConfigurationService
 from .search_criteria_processor import SearchCriteriaProcessor
+
+if TYPE_CHECKING:
+    from genai_tag_db_tools.db.repository import MergedTagReader
+
+# ADR 0068 Phase 3: 学習 export のデフォルト target format
+_DEFAULT_EXPORT_TAG_FORMAT = "danbooru"
 
 
 class DatasetExportService:
@@ -57,6 +64,7 @@ class DatasetExportService:
         output_path: Path,
         resolution: int = 512,
         merge_caption: bool = False,
+        tag_format: str = _DEFAULT_EXPORT_TAG_FORMAT,
     ) -> Path:
         """Export dataset in TXT format compatible with kohya-ss training.
 
@@ -68,6 +76,9 @@ class DatasetExportService:
             output_path: Directory path for exported dataset
             resolution: Target resolution for processed images (default: 512)
             merge_caption: Whether to merge captions into tag files
+            tag_format: Target tag format for canonical resolution (default: "danbooru").
+                Tags are resolved to this format's canonical form and ``type=meta``
+                tags are excluded (ADR 0068 Phase 3).
 
         Returns:
             Path: Path to the exported dataset directory
@@ -84,6 +95,7 @@ class DatasetExportService:
 
         logger.info(f"Starting TXT format dataset export: {len(image_ids)} images, resolution={resolution}")
 
+        reader = self._get_export_reader()
         exported_count = 0
         for image_id in image_ids:
             try:
@@ -114,6 +126,7 @@ class DatasetExportService:
                 export_tags = self._resolve_export_tags(image_data["tags"])
                 export_caption = self._resolve_export_caption(image_data["captions"])
                 tags = ", ".join([tag_data["tag"] for tag_data in export_tags])
+                tags = self._convert_tags_for_export(tags, tag_format, reader)
                 if merge_caption and export_caption:
                     captions = export_caption["caption"]
                     tags = f"{tags}, {captions}" if tags else captions
@@ -143,6 +156,7 @@ class DatasetExportService:
         output_path: Path,
         resolution: int = 512,
         metadata_filename: str = "metadata.json",
+        tag_format: str = _DEFAULT_EXPORT_TAG_FORMAT,
     ) -> Path:
         """Export dataset in JSON metadata format compatible with kohya-ss.
 
@@ -154,6 +168,9 @@ class DatasetExportService:
             output_path: Directory path for exported dataset
             resolution: Target resolution for processed images (default: 512)
             metadata_filename: Name of the JSON metadata file
+            tag_format: Target tag format for canonical resolution (default: "danbooru").
+                Tags are resolved to this format's canonical form and ``type=meta``
+                tags are excluded (ADR 0068 Phase 3).
 
         Returns:
             Path: Path to the exported dataset directory
@@ -172,6 +189,7 @@ class DatasetExportService:
             f"Starting JSON format dataset export: {len(image_ids)} images, resolution={resolution}"
         )
 
+        reader = self._get_export_reader()
         metadata = {}
         exported_count = 0
 
@@ -199,6 +217,7 @@ class DatasetExportService:
                 export_tags = self._resolve_export_tags(image_data["tags"])
                 export_caption = self._resolve_export_caption(image_data["captions"])
                 tags = ", ".join([tag_data["tag"] for tag_data in export_tags])
+                tags = self._convert_tags_for_export(tags, tag_format, reader)
                 captions = export_caption["caption"] if export_caption else ""
                 # ADR 0028: score_labels は {model, label} を主とする JSON-safe な形で埋め込む
                 score_labels = [
@@ -358,6 +377,34 @@ class DatasetExportService:
         except Exception as e:
             logger.error(f"Error resolving processed image path for ID {image_id}: {e}")
             return None
+
+    def _get_export_reader(self) -> "MergedTagReader | None":
+        """外部 tag_db reader を取得する。
+
+        Returns:
+            MergedTagReader。外部 tag_db が無い場合は None (変換せず素通し)。
+        """
+        return self.db_manager.annotation_repo.get_merged_reader()
+
+    def _convert_tags_for_export(self, tags: str, tag_format: str, reader: "MergedTagReader | None") -> str:
+        """学習 export 向けにタグを target format の canonical へ解決し meta タグを除外する。
+
+        alias->preferred 解決は format 依存のため export 時に target format で都度解決する
+        (ADR 0068 Phase 3)。reader が None (外部 tag_db 不在) の場合は整形済み文字列を
+        そのまま返す (graceful degradation)。
+
+        Args:
+            tags: カンマ区切りの整形済みタグ文字列。
+            tag_format: 変換先フォーマット名 (例: "danbooru")。
+            reader: タグ解決に用いる MergedTagReader。None の場合は変換しない。
+
+        Returns:
+            canonical 化 + ``type=meta`` 除外済みのタグ文字列。
+        """
+        if not tags or reader is None:
+            return tags
+        # genai_tag_db_tools は mypy 上 untyped 扱いのため str へ明示変換する
+        return str(convert_tags(reader, tags, tag_format, exclude_types=["meta"]))
 
     def _get_image_export_data(self, image_id: int) -> dict[str, Any] | None:
         """Get image data required for export (tags, captions, metadata).
