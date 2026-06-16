@@ -865,7 +865,7 @@ class AnnotationRepository(BaseRepository):
         }
 
         for tag_info in tags_data:
-            # 保存境界の SSoT (ADR 0067): 全取込経路の tag をここで clean_format 整形に統一する。
+            # 保存境界の SSoT (ADR 0068): 全取込経路の tag をここで clean_format 整形に統一する。
             # preferred 解決はしない (format 依存のため出力時に回す)。lower 化もしない。
             tag_string = TagCleaner.clean_format(tag_info["tag"]).strip()
             if not tag_string:

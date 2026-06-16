@@ -71,6 +71,7 @@ LoRAIro の重要な設計判断を記録するドキュメント群。
 | [0065](0065-tag-caption-soft-reject.md) | Tag/Caption Soft-Reject And Export Resolution | 2026-06-11 | Accepted |
 | [0066](0066-unified-jobs-lifecycle-view.md) | Unified Jobs Lifecycle View | 2026-06-12 | Accepted |
 | [0067](0067-sqlite-concurrency-busy-timeout.md) | SQLite Concurrency: busy_timeout + Lock Error Classification | 2026-06-15 | Accepted |
+| [0068](0068-tag-normalization-tagdb-delegation.md) | タグ正規化責任の genai-tag-db-tools への集約 | 2026-06-16 | Accepted |
 
 ## ADR テンプレート
 

@@ -389,7 +389,7 @@ class TestSaveTagsAndCaptions:
         image_id: int,
         memory_session_factory,
     ) -> None:
-        """raw なタグを保存しても DB には clean_format 整形済みが入る (ADR 0067)。"""
+        """raw なタグを保存しても DB には clean_format 整形済みが入る (ADR 0068)。"""
         annotation_repository.save_annotations(
             image_id=image_id,
             annotations={

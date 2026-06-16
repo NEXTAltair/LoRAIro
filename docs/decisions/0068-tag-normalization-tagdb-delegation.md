@@ -1,6 +1,6 @@
-# 0067. タグ正規化責任の genai-tag-db-tools への集約
+# 0068. タグ正規化責任の genai-tag-db-tools への集約
 
-- Status: Proposed
+- Status: Accepted
 - Date: 2026-06-16
 - Deciders: NEXTAltair
 
