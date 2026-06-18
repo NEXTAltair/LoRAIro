@@ -18,12 +18,15 @@ from PySide6.QtWidgets import (
 
 from lorairo.services.quality_issue_detection_service import (
     BatchTriageSummary,
+    CleanAuditPlan,
     ImageTriageResult,
     IssueType,
+    QualityIssueDetectionService,
     RatingView,
     ScorerView,
     TagView,
 )
+from lorairo.utils.log import logger
 
 # issue 種別の user-facing ラベル。
 _ISSUE_LABELS: dict[IssueType, str] = {
@@ -52,6 +55,10 @@ class ResultsWidget(QWidget):
         self._root = QVBoxLayout(self)
         # 描画順の image_id を保持 (内部アクセサ _row_order が返す)。
         self._row_image_ids: list[int] = []
+        # CLEAN 監査 (OK箱) の再描画・引き直し用に直近の入力を保持する。
+        self._summary_cache: BatchTriageSummary | None = None
+        self._results_cache: list[ImageTriageResult] = []
+        self._clean_plan: CleanAuditPlan | None = None
         self.clear()
 
     # ------------------------------------------------------------------
@@ -65,10 +72,16 @@ class ResultsWidget(QWidget):
             results: 画像別トリアージ結果。``needs_review`` を優先して縦に並べる。
         """
         self._reset()
+        self._summary_cache = summary
+        self._results_cache = list(results)
 
         if not results:
+            self._clean_plan = None
             self._build_empty_state()
             return
+
+        # CLEAN 監査 (OK箱) の抜き取りプランを算出する (毎回 display で引き直す)。
+        self._clean_plan = QualityIssueDetectionService.build_clean_audit(results)
 
         # needs_review (issue 有) を先頭に安定ソートする。
         ordered = sorted(results, key=lambda r: not r.needs_review)
@@ -91,30 +104,71 @@ class ResultsWidget(QWidget):
         scroll.setWidget(rows_container)
         self._root.addWidget(scroll, stretch=1)
 
-        footer = self._build_bulk_footer(ordered)
-        if footer is not None:
-            self._root.addWidget(footer)
+        band = self._build_clean_audit_band(ordered)
+        if band is not None:
+            self._root.addWidget(band)
 
-    def _build_bulk_footer(self, results: list[ImageTriageResult]) -> QWidget | None:
-        """「問題なしを一括 accept」フッタを構築する (対象が無ければ None)。"""
-        # 問題なし かつ 未 accept の画像を一括 accept 対象にする。
-        clean_unaccepted = [r.image_id for r in results if not r.issues and not r.reviewed]
-        if not clean_unaccepted:
+    def _build_clean_audit_band(self, results: list[ImageTriageResult]) -> QWidget | None:
+        """CLEAN 監査 (OK箱) バンドを構築する (clean が無ければ None)。
+
+        無確認で一括 accept される clean 集合の手前に「ランダム抽出を目視 → 一括 accept」
+        のゲートを挟む。抽出行の「▸ レビュー」がそのまま「これはダメ → Annotate」導線。
+        """
+        plan = self._clean_plan
+        if plan is None or not plan.clean_image_ids:
             return None
 
-        footer = QFrame()
-        footer.setObjectName("resultsBulkFooter")
-        layout = QHBoxLayout(footer)
-        layout.addWidget(QLabel(f"問題なし {len(clean_unaccepted)} 件"))
-        layout.addStretch(1)
+        clean_count = len(plan.clean_image_ids)
+        sample_count = len(plan.sample_image_ids)
 
-        button = QPushButton(f"✓ 問題なしを一括 accept ({len(clean_unaccepted)})")
-        button.setObjectName("resultsAcceptCleanButton")
-        button.clicked.connect(
-            lambda _checked=False, ids=clean_unaccepted: self.accept_clean_requested.emit(ids)
+        band = QFrame()
+        band.setObjectName("resultsCleanAuditBand")
+        band.setFrameShape(QFrame.Shape.StyledPanel)
+        layout = QVBoxLayout(band)
+
+        header = QLabel(
+            f"CLEAN 監査: 無確認で承認されようとしている {clean_count} 件。"
+            f"一括 accept の前にランダム {sample_count} 件を確認:"
         )
-        layout.addWidget(button)
-        return footer
+        header.setObjectName("resultsCleanAuditHeader")
+        header.setWordWrap(True)
+        layout.addWidget(header)
+
+        resample = QPushButton("↻ 引き直す")
+        resample.setObjectName("resultsResampleButton")
+        resample.clicked.connect(self._resample_clean)
+        layout.addWidget(resample)
+
+        # 抽出された clean 画像のアノテーションを行表示する (「▸ レビュー」が bad-path)。
+        by_id = {r.image_id: r for r in results}
+        for image_id in plan.sample_image_ids:
+            result = by_id.get(image_id)
+            if result is not None:
+                layout.addWidget(self._build_row(result))
+
+        accept = QPushButton(f"✓ 確認して accept ({clean_count})")
+        accept.setObjectName("resultsAcceptCleanButton")
+        clean_ids = list(plan.clean_image_ids)
+        sample_ids = list(plan.sample_image_ids)
+        accept.clicked.connect(
+            lambda _checked=False, ids=clean_ids, sampled=sample_ids: self._on_clean_accept(ids, sampled)
+        )
+        layout.addWidget(accept)
+        return band
+
+    def _resample_clean(self) -> None:
+        """抜き取りサンプルを引き直す (直近の入力で再描画する)。"""
+        if self._summary_cache is not None and self._results_cache:
+            self.display(self._summary_cache, self._results_cache)
+
+    def _on_clean_accept(self, clean_ids: list[int], sample_ids: list[int]) -> None:
+        """CLEAN 監査の確認後一括 accept。監査ログを残してから accept を要求する。"""
+        # ユーザー操作の監査記録 (誰が抜き取り確認して何件 accept したか)。INFO で1回。
+        logger.info(
+            f"clean 抜き取り監査 accept: 確認 {len(sample_ids)} 件 / 一括 accept {len(clean_ids)} 件 "
+            f"(sampled={sample_ids})"
+        )
+        self.accept_clean_requested.emit(clean_ids)
 
     def clear(self) -> None:
         """空状態 (ステージング 0 件) を表示する。"""
@@ -131,6 +185,10 @@ class ResultsWidget(QWidget):
     def _reset(self) -> None:
         """前回描画の子ウィジェットをすべて破棄する。"""
         self._row_image_ids = []
+        # キャッシュも初期化する (display が直後に再設定する / clear 後は空に保つ)。
+        self._summary_cache = None
+        self._results_cache = []
+        self._clean_plan = None
         while self._root.count():
             item = self._root.takeAt(0)
             if item is None:

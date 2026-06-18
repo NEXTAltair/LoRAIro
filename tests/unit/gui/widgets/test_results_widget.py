@@ -157,3 +157,45 @@ def test_no_bulk_footer_when_no_clean_unreviewed(qapp):
     # 全て issue 有 → 一括対象なし → フッタ無し。
     widget.display(_summary(), [_reviewed_result(10, [IssueType.EMPTY_TAGS], reviewed=False)])
     assert widget.findChild(object, "resultsAcceptCleanButton") is None
+
+
+def test_clean_audit_band_shows_resample_and_accept(qapp):
+    """CLEAN 監査バンドに引き直しボタンと accept ボタンが出る。"""
+    widget = ResultsWidget()
+    # #11 が clean 未 accept、#10 は issue 有。
+    results = [_result(10, [IssueType.EMPTY_TAGS]), _result(11, [])]
+    widget.display(_summary(), results)
+    assert widget.findChild(object, "resultsCleanAuditBand") is not None
+    assert widget.findChild(object, "resultsResampleButton") is not None
+    assert widget.findChild(object, "resultsAcceptCleanButton") is not None
+
+
+def test_resample_keeps_clean_audit_band(qapp):
+    """引き直し後もバンド・accept ボタンが残る (再描画されても消えない)。"""
+    widget = ResultsWidget()
+    results = [_result(11, []), _result(12, [])]
+    widget.display(_summary(), results)
+    button = widget.findChild(object, "resultsResampleButton")
+    assert button is not None
+    button.click()
+    assert widget.findChild(object, "resultsCleanAuditBand") is not None
+    assert widget.findChild(object, "resultsAcceptCleanButton") is not None
+
+
+def test_clean_audit_accept_emits_all_clean_ids(qapp, qtbot):
+    """accept は抽出枚数に関係なく clean 全件 id を emit する。"""
+    results = [_result(11, []), _result(12, [])]
+    widget = ResultsWidget()
+    widget.display(_summary(), results)
+    button = widget.findChild(object, "resultsAcceptCleanButton")
+    with qtbot.waitSignal(widget.accept_clean_requested, timeout=1000) as blocker:
+        button.click()
+    assert sorted(blocker.args[0]) == [11, 12]
+
+
+def test_no_clean_audit_band_when_no_clean(qapp):
+    """clean が無ければバンドも accept ボタンも出ない。"""
+    widget = ResultsWidget()
+    widget.display(_summary(), [_result(10, [IssueType.EMPTY_TAGS])])
+    assert widget.findChild(object, "resultsCleanAuditBand") is None
+    assert widget.findChild(object, "resultsAcceptCleanButton") is None
