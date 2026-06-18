@@ -1,7 +1,7 @@
 # LoRAIro Project Makefile
 # Development task automation
 
-.PHONY: help setup test test-iam-lib test-runtime-local test-runtime-webapi test-genai-tag test-all mypy format install install-dev clean run-gui generate-ui skills-update venv-rebuild worktree-cleanup-merged worktree-cleanup-merged-dry-run _ensure-submodules _ensure-root-venv
+.PHONY: help setup test test-iam-lib test-runtime-local test-runtime-webapi test-genai-tag test-all mypy format adr-drift install install-dev clean run-gui generate-ui skills-update venv-rebuild worktree-cleanup-merged worktree-cleanup-merged-dry-run _ensure-submodules _ensure-root-venv
 
 WORKTREE_ROOT := /workspaces/LoRAIro/.agents/worktree
 ifeq ($(filter $(WORKTREE_ROOT)/%,$(CURDIR)),)
@@ -29,6 +29,7 @@ help:
 	@echo "  test-all     Run all 3 package test sessions sequentially"
 	@echo "  mypy         Run code check (mypy)"
 	@echo "  format       Format code (ruff format)"
+	@echo "  adr-drift    List ADR review candidates (drift detection)"
 	@echo "  clean        Clean build artifacts"
 	@echo "  venv-rebuild Rebuild .venv from scratch (recovery from corruption)"
 	@echo "  worktree-cleanup-merged Remove clean merged /workspaces/LoRAIro/.agents/worktree entries"
@@ -117,6 +118,10 @@ format: _ensure-submodules
 	@echo "Formatting code..."
 	uv run ruff format src/ tests/
 	uv run ruff check src/ tests/ --fix
+
+adr-drift:
+	@echo "Checking ADR drift (見直し候補)..."
+	uv run python scripts/check_adr_drift.py
 
 skills-update:
 	@echo "Restoring skills from skills-lock.json..."
