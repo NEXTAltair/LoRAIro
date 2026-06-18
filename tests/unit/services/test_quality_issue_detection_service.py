@@ -5,10 +5,13 @@ RATING_DISAGREEMENT / SCORER_DISAGREEMENT) と集約 (canonical_rating /
 canonical_tier / caption_word_count / tags) を検証する。
 """
 
+import random
+
 import pytest
 
 from lorairo.domain.quality_tier import QualityTier
 from lorairo.services.quality_issue_detection_service import (
+    ImageTriageResult,
     IssueType,
     QualityIssueDetectionService,
 )
@@ -241,3 +244,82 @@ def test_summarize_counts_accepted(service):
     unreviewed = service.detect_image(2, {**META, "reviewed_at": None}, _ann())
     summary = service.summarize([accepted, unreviewed])
     assert summary.accepted_count == 1
+
+
+def _triage(image_id: int, issues: list[IssueType], *, reviewed: bool = False) -> ImageTriageResult:
+    """build_clean_audit 用の最小 ImageTriageResult (image_id / issues / reviewed のみ意味を持つ)。"""
+    return ImageTriageResult(
+        image_id=image_id,
+        uuid=None,
+        width=None,
+        height=None,
+        tags=[],
+        caption=None,
+        caption_word_count=0,
+        canonical_rating=None,
+        ratings=[],
+        canonical_tier=None,
+        scorers=[],
+        issues=issues,
+        reviewed=reviewed,
+    )
+
+
+def test_build_clean_audit_includes_only_clean_unreviewed():
+    """clean (issue 無し) かつ未 accept のみを一括 accept 対象にする。"""
+    results = [
+        _triage(1, []),
+        _triage(2, [IssueType.EMPTY_TAGS]),  # issue 有 → 対象外
+        _triage(3, [], reviewed=True),  # accept 済み → 対象外
+        _triage(4, []),
+    ]
+    plan = QualityIssueDetectionService.build_clean_audit(results, rng=random.Random(0))
+    assert plan.clean_image_ids == [1, 4]
+    assert set(plan.sample_image_ids) <= {1, 4}
+
+
+def test_build_clean_audit_samples_all_when_small():
+    """母数 20 以下は全数抽出する。"""
+    results = [_triage(i, []) for i in range(1, 6)]
+    plan = QualityIssueDetectionService.build_clean_audit(results, rng=random.Random(0))
+    assert plan.sample_image_ids == [1, 2, 3, 4, 5]
+
+
+def test_build_clean_audit_sample_size_explicit_and_bounded():
+    """明示 sample_size は母数で頭打ちされる。"""
+    results = [_triage(i, []) for i in range(1, 11)]
+    plan = QualityIssueDetectionService.build_clean_audit(results, sample_size=3, rng=random.Random(0))
+    assert len(plan.sample_image_ids) == 3
+    plan_over = QualityIssueDetectionService.build_clean_audit(
+        results, sample_size=999, rng=random.Random(0)
+    )
+    assert len(plan_over.sample_image_ids) == 10
+
+
+def test_build_clean_audit_sample_preserves_clean_order():
+    """抽出は clean_image_ids の元順序を保持する (昇順入力なら昇順)。"""
+    results = [_triage(i, []) for i in range(1, 11)]
+    plan = QualityIssueDetectionService.build_clean_audit(results, sample_size=4, rng=random.Random(1))
+    assert plan.sample_image_ids == sorted(plan.sample_image_ids)
+
+
+def test_build_clean_audit_mid_tier_uses_sqrt():
+    """母数 21〜500 は ceil(sqrt(n)) 枚抽出する (n=100 → 10)。"""
+    results = [_triage(i, []) for i in range(1, 101)]
+    plan = QualityIssueDetectionService.build_clean_audit(results, rng=random.Random(0))
+    assert len(plan.sample_image_ids) == 10
+
+
+def test_build_clean_audit_large_tier_caps():
+    """母数 500 超は上限 30 枚で頭打ちにする。"""
+    results = [_triage(i, []) for i in range(1, 601)]
+    plan = QualityIssueDetectionService.build_clean_audit(results, rng=random.Random(0))
+    assert len(plan.sample_image_ids) == 30
+
+
+def test_build_clean_audit_empty_when_no_clean():
+    """clean が無ければ両方空。"""
+    results = [_triage(1, [IssueType.EMPTY_TAGS]), _triage(2, [], reviewed=True)]
+    plan = QualityIssueDetectionService.build_clean_audit(results)
+    assert plan.clean_image_ids == []
+    assert plan.sample_image_ids == []
