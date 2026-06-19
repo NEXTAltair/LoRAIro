@@ -1,7 +1,12 @@
+---
+type: ADR
+title: CLI Streaming Annotation Memory-Bounded Execution Contract
+status: Accepted (1 回の呼び出しの処理総数上限は ADR 0057 で 500 に改定)
+timestamp: 2026-05-29
+tags: []
+---
 # ADR 0053: CLI Streaming Annotation Memory-Bounded Execution Contract
 
-- **日付**: 2026-05-29
-- **ステータス**: Accepted (1 回の呼び出しの処理総数上限は ADR 0057 で 500 に改定)
 - **関連 Issue**: #531 (epic) / #536 / #537 / #538
 
 > **改定 (2026-06-05, ADR 0057)**: 本 ADR は「1 回の呼び出しで総数無制限に annotate を実行できる」ことを

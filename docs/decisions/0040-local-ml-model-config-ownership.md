@@ -1,7 +1,12 @@
+---
+type: ADR
+title: Local ML Model Config Ownership
+status: Accepted
+timestamp: 2026-05-24
+tags: []
+---
 # ADR 0040: Local ML Model Config Ownership
 
-- **日付**: 2026-05-24
-- **ステータス**: Accepted
 - **関連 Issue**:
   [NEXTAltair/image-annotator-lib#95](https://github.com/NEXTAltair/image-annotator-lib/issues/95),
   [NEXTAltair/LoRAIro#365](https://github.com/NEXTAltair/LoRAIro/issues/365),

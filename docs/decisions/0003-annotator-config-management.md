@@ -1,7 +1,12 @@
+---
+type: ADR
+title: Annotator Config Management
+status: Superseded by ADR 0021 (partial — WebAPI セクションのみ)
+timestamp: 2025-11-15
+superseded_by: ["0021"]
+tags: []
+---
 # ADR 0003: Annotator Config Management
-
-- **日付**: 2025-11-15
-- **ステータス**: Superseded by ADR 0021 (partial — WebAPI セクションのみ)
 
 ## Context
 

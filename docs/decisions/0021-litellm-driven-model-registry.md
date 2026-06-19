@@ -1,7 +1,13 @@
+---
+type: ADR
+title: LiteLLM-Driven WebAPI Model Registry
+status: Superseded by ADR 0023 (partial)
+timestamp: 2026-04-28
+superseded_by: ["0023"]
+tags: []
+---
 # ADR 0021: LiteLLM-Driven WebAPI Model Registry
 
-- **日付**: 2026-04-28
-- **ステータス**: Superseded by ADR 0023 (partial)
 - **Supersedes**: ADR 0003 (partial — WebAPI セクションのみ)
 - **Superseded by**:
   [ADR 0023](0023-pydanticai-litellm-webapi-inference-boundary.md) (partial — WebAPI model registry runtime 化)

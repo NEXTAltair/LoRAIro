@@ -1,7 +1,11 @@
+---
+type: ADR
+title: Batch Tag Annotation UX
+status: Accepted
+timestamp: 2026-02-09
+tags: []
+---
 # ADR 0007: Batch Tag Annotation UX
-
-- **日付**: 2026-02-09
-- **ステータス**: Accepted
 
 ## Context
 

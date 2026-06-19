@@ -1,7 +1,12 @@
+---
+type: ADR
+title: CLI Bounded Pagination and Count-First Contract
+status: Accepted
+timestamp: 2026-06-06
+tags: []
+---
 # ADR 0060: CLI Bounded Pagination and Count-First Contract
 
-- **日付**: 2026-06-06
-- **ステータス**: Accepted
 - **関連 Issue**: #634 (epic) / #639
 - **関連 ADR**: [0057](0057-cli-jsonl-output-and-error-contract.md) (JSONL / エラー契約 / 500 cap — 本 ADR が cap コードを amend), [0058](0058-cli-output-mode-trigger-and-entrypoint-policy.md) (rich / JSON 出力モード), [0059](0059-cli-command-introspection.md) (introspection), [0049](0049-cli-images-list-db-limit.md) (images list の DB pushdown), [0055](0055-workspace-export-target-staging-unification.md) (検索→ステージング集合), [0056](0056-exact-set-selector-id-count-guard.md) (count-only 軽量化方針), [0006](0006-pagination-approach.md) (GUI pagination)
 - **参照**: tag-db ADR 0004 / 0006 (bounded pagination / filter pushdown)

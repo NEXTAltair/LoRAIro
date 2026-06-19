@@ -1,7 +1,11 @@
+---
+type: ADR
+title: Copyable Read-Only Text Display Policy
+status: Accepted
+timestamp: 2026-05-23
+tags: []
+---
 # ADR 0032: Copyable Read-Only Text Display Policy
-
-- **日付**: 2026-05-23
-- **ステータス**: Accepted
 
 ## Context
 

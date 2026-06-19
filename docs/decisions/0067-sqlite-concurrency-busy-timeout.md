@@ -1,7 +1,12 @@
+---
+type: ADR
+title: SQLite Concurrency: busy_timeout + Lock Error Classification
+status: Accepted (2026-06-15)
+timestamp: 2026-06-15
+tags: []
+---
 # ADR 0067: SQLite Concurrency: busy_timeout + Lock Error Classification
 
-- **日付**: 2026-06-15
-- **ステータス**: Accepted (2026-06-15)
 - **関連 Issue**: [NEXTAltair/LoRAIro#767](https://github.com/NEXTAltair/LoRAIro/issues/767)
 - **関連 ADR**: [ADR 0042](0042-batch-annotation-db-save-io.md) (Batch Annotation DB Save I/O),
   [ADR 0057](0057-cli-jsonl-output-and-error-contract.md) (CLI Error Contract)

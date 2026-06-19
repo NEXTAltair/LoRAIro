@@ -1,7 +1,12 @@
+---
+type: ADR
+title: PydanticAI / LiteLLM WebAPI Inference Boundary
+status: Accepted
+timestamp: 2026-05-07
+tags: []
+---
 # ADR 0023: PydanticAI / LiteLLM WebAPI Inference Boundary
 
-- **日付**: 2026-05-07
-- **ステータス**: Accepted
 - **Supersedes**: ADR 0021 (partial — `available_api_models.toml` キャッシュ運用と WebAPI 用 user TOML override 部分)
 - **関連 ADR**: [0021 LiteLLM-Driven WebAPI Model Registry](0021-litellm-driven-model-registry.md),
   image-annotator-lib ADR 0007 (WebAPI Dual-Endpoint Runtime — Chat + Responses; runtime 構築の具体 contract)

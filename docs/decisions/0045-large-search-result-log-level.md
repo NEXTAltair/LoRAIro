@@ -1,7 +1,11 @@
+---
+type: ADR
+title: Large Search Result Log Level
+status: Accepted
+timestamp: 2026-05-31
+tags: []
+---
 # ADR 0045: Large Search Result Log Level
-
-- **日付**: 2026-05-31
-- **ステータス**: Accepted
 
 ## Context
 

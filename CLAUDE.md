@@ -126,9 +126,9 @@ make clean                 # Remove build artifacts and caches
 - Core: `src/lorairo/database/db_core.py`
 
 **Service Layer (2-Tier Architecture):**
-- **Business Logic Services** (`src/lorairo/services/`, 22 services) — Qt-free
-- **GUI Services** (`src/lorairo/gui/services/`, 7 services) — Qt-dependent, Signal-based
-- See [docs/services.md](docs/services.md) for all 29 services
+- **Business Logic Services** (`src/lorairo/services/`, 36 services) — Qt-free
+- **GUI Services** (`src/lorairo/gui/services/`, 9 services) — Qt-dependent, Signal-based
+- See [docs/services.md](docs/services.md) for all 45 services
 
 **AI Integration (Local Packages):**
 - **image-annotator-lib**: `src/lorairo/annotations/annotator_adapter.py`, `annotation_logic.py`

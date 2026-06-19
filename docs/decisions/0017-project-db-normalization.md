@@ -1,7 +1,11 @@
+---
+type: ADR
+title: Project DB Normalization
+status: Implemented (2026-04-25)
+timestamp: 2026-04-22
+tags: []
+---
 # ADR 0017: Project DB Normalization
-
-- **日付**: 2026-04-22
-- **ステータス**: Implemented (2026-04-25)
 
 ## Context
 
@@ -41,7 +45,6 @@ class Project(Base):
         DateTime, nullable=False, default=datetime.datetime.utcnow
     )
     images: Mapped[list["Image"]] = relationship("Image", back_populates="project")
-
 
 class Image(Base):
     # 既存フィールドに追加

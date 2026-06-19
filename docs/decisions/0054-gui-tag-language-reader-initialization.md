@@ -1,7 +1,12 @@
+---
+type: ADR
+title: GUI tag language reader initialization
+status: Accepted
+timestamp: 2026-06-03
+tags: []
+---
 # ADR 0054: GUI tag language reader initialization
 
-- **Date**: 2026-06-03
-- **Status**: Accepted
 - **Related Issue**: #603
 - **Related PR**: #609
 

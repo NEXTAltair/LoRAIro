@@ -1,7 +1,12 @@
+---
+type: ADR
+title: Aesthetic Score Predictor Model Survey
+status: Accepted
+timestamp: 2025-02-06
+tags: []
+---
 # ADR 0022: Aesthetic Score Predictor Model Survey
 
-- **日付**: 2025-02-06
-- **ステータス**: Accepted
 - **ソース**: [美的評価モデル比較：Aesthetic ShadowとVisionRewardの選択 (NEXTAltair, 2025-02-06)](https://nextaltair.hatenablog.com/entry/2025/02/06/Aesthetic_Score_Predictor)
 - **関連 ADR**: [0004 Annotator-Lib Architecture](0004-annotator-lib-architecture.md)
 - **関連実装**:

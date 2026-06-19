@@ -1,7 +1,12 @@
+---
+type: ADR
+title: Provider Batch 実行 UI の個別実行フロー統一
+status: Accepted
+timestamp: 2026-05-29
+tags: []
+---
 # ADR 0041: Provider Batch 実行 UI の個別実行フロー統一
 
-- **日付**: 2026-05-29
-- **ステータス**: Accepted
 - **関連 Issue**: #545 (epic), #547 (本 ADR 起票 / 設計確定), #548 (B), #549 (C), #550 (D)
 - **関連 ADR**: 0030 (Batch Annotation Model Selection UI), 0036 (GUI Compound Widget 分割方針), 0038 (Provider Batch API Integration Strategy)
 

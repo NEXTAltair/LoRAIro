@@ -1,7 +1,12 @@
+---
+type: ADR
+title: CLI Machine-Readable (JSONL) Output and Error Contract
+status: Accepted (§2/§3/§4/§6 を ADR 0060 で amend)
+timestamp: 2026-06-05
+tags: []
+---
 # ADR 0057: CLI Machine-Readable (JSONL) Output and Error Contract
 
-- **日付**: 2026-06-05
-- **ステータス**: Accepted (§2/§3/§4/§6 を ADR 0060 で amend)
 - **関連 Issue**: #634 (epic) / #636 / #637
 
 ## Context

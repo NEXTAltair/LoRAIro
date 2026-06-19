@@ -1,7 +1,11 @@
-# ADR 0018: Project Storage Unification (lorairo_data/ 配下統一)
-
-- **日付**: 2026-04-22
-- **ステータス**: Implemented (2026-04-25)
+---
+type: ADR
+title: Project Storage Unification
+status: Implemented (2026-04-25)
+timestamp: 2026-04-22
+tags: []
+---
+# ADR 0018: Project Storage Unification
 
 ## Context
 

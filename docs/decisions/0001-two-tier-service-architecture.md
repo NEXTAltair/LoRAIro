@@ -1,7 +1,11 @@
+---
+type: ADR
+title: Two-Tier Service Architecture
+status: Accepted
+timestamp: 2025-08-16
+tags: []
+---
 # ADR 0001: Two-Tier Service Architecture
-
-- **日付**: 2025-08-16
-- **ステータス**: Accepted
 
 ## Context
 

@@ -1,7 +1,12 @@
+---
+type: ADR
+title: TRACE Level for Per-Item Diagnostics
+status: Accepted
+timestamp: 2026-05-31
+tags: []
+---
 # ADR 0047: TRACE Level for Per-Item Diagnostics
 
-- **日付**: 2026-05-31
-- **ステータス**: Accepted
 - **関連 Issue**: [NEXTAltair/LoRAIro#584](https://github.com/NEXTAltair/LoRAIro/issues/584)
 - **関連 ADR**: [ADR 0043](0043-db-core-logging-loguru-unification.md), [ADR 0045](0045-large-search-result-log-level.md)
 

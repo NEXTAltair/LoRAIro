@@ -1,7 +1,11 @@
+---
+type: ADR
+title: AI Rating Mapping to Canonical Rating
+status: Accepted (amended 2026-05-27)
+timestamp: 2026-05-21
+tags: []
+---
 # ADR 0031: AI Rating Mapping to Canonical Rating
-
-- **日付**: 2026-05-21
-- **ステータス**: Accepted (amended 2026-05-27)
 
 ## Context
 

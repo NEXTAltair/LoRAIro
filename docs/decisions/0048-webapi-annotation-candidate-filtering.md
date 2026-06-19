@@ -1,7 +1,12 @@
+---
+type: ADR
+title: WebAPI Annotation Candidate Filtering (Endpoint / Capability / Suitability)
+status: Accepted
+timestamp: 2026-05-31
+tags: []
+---
 # ADR 0048: WebAPI Annotation Candidate Filtering (Endpoint / Capability / Suitability)
 
-- **日付**: 2026-05-31
-- **ステータス**: Accepted
 - **関連 Issue**: [NEXTAltair/image-annotator-lib#130](https://github.com/NEXTAltair/image-annotator-lib/issues/130), [NEXTAltair/image-annotator-lib#131](https://github.com/NEXTAltair/image-annotator-lib/issues/131), [NEXTAltair/LoRAIro#589](https://github.com/NEXTAltair/LoRAIro/issues/589)
 - **関連 ADR**: [ADR 0021](0021-litellm-driven-model-registry.md), [ADR 0023](0023-pydanticai-litellm-webapi-inference-boundary.md), [ADR 0026](0026-on-demand-runtime-validation-strategy.md), [ADR 0038](0038-provider-batch-api-integration-strategy.md)
 

@@ -1,7 +1,11 @@
+---
+type: ADR
+title: Score Labels DB Storage
+status: Accepted
+timestamp: 2026-05-17
+tags: []
+---
 # ADR 0027: Score Labels DB Storage
-
-- **日付**: 2026-05-17
-- **ステータス**: Accepted
 
 ## Context
 

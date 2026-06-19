@@ -1,7 +1,11 @@
+---
+type: ADR
+title: Unified Dataset Quality Tier
+status: Accepted (Revised: 2026-06-18 — 品質尺度の主従を反転、数値スコアをベースに)
+timestamp: 2026-05-19
+tags: []
+---
 # ADR 0029: Unified Dataset Quality Tier
-
-- **日付**: 2026-05-19
-- **ステータス**: Accepted (Revised: 2026-06-18 — 品質尺度の主従を反転、数値スコアをベースに)
 
 ## 改訂 (2026-06-18): 品質尺度は数値スコアをベース、tier は派生サマリ
 

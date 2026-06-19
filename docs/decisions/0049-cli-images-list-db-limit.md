@@ -1,8 +1,11 @@
+---
+type: ADR
+title: Apply CLI Image List Limit in the Repository Query
+status: Accepted
+timestamp: 2026-06-01
+tags: []
+---
 # ADR 0049: Apply CLI Image List Limit in the Repository Query
-
-## Status
-
-Accepted
 
 ## Context
 

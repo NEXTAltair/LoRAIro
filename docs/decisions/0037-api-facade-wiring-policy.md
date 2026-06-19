@@ -1,7 +1,12 @@
+---
+type: ADR
+title: api/ Public Facade Wiring Policy
+status: Accepted
+timestamp: 2026-05-25
+tags: []
+---
 # ADR 0037: api/ Public Facade Wiring Policy
 
-- **日付**: 2026-05-25
-- **ステータス**: Accepted
 - **関連 Issue**: #428 (ADR起票), #425 (調査結論)
 
 ## Context

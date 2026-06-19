@@ -1,7 +1,12 @@
+---
+type: ADR
+title: CLI Original Image Annotation Guard
+status: Accepted
+timestamp: 2026-06-07
+tags: []
+---
 # ADR 0064: CLI Original Image Annotation Guard
 
-- **Date**: 2026-06-07
-- **Status**: Accepted
 - **Related Issue**: #686
 - **Related ADRs**: [0053](0053-cli-streaming-annotation-memory-bounded-contract.md), [0057](0057-cli-jsonl-output-and-error-contract.md), [0063](0063-cli-batch-submit-image-ids-csv.md)
 

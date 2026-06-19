@@ -1,7 +1,11 @@
+---
+type: ADR
+title: Score Labels Usage and Display Strategy
+status: Accepted
+timestamp: 2026-05-18
+tags: []
+---
 # ADR 0028: Score Labels Usage and Display Strategy
-
-- **日付**: 2026-05-18
-- **ステータス**: Accepted
 
 ## Context
 

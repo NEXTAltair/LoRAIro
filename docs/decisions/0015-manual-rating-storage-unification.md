@@ -1,7 +1,11 @@
+---
+type: ADR
+title: Manual Rating Storage Unification
+status: Accepted
+timestamp: 2026-04-18
+tags: []
+---
 # ADR 0015: Manual Rating Storage Unification
-
-- **日付**: 2026-04-18
-- **ステータス**: Accepted
 
 ## Context
 

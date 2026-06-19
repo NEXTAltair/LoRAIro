@@ -1,7 +1,12 @@
-# ADR 0033: AnnotationWorker バッチ実行契約
+---
+type: ADR
+title: AnnotationWorker Batch Execution Contract
+status: Accepted
+timestamp: 2026-05-23
+tags: []
+---
+# ADR 0033: AnnotationWorker Batch Execution Contract
 
-- **日付**: 2026-05-23
-- **ステータス**: Accepted
 - **関連 Issue**: #384
 
 ## Context

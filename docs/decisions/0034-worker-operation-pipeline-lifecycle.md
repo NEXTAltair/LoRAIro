@@ -1,7 +1,12 @@
+---
+type: ADR
+title: Worker / Operation / Pipeline Lifecycle Boundary
+status: Accepted
+timestamp: 2026-05-24
+tags: []
+---
 # ADR 0034: Worker / Operation / Pipeline Lifecycle Boundary
 
-- **日付**: 2026-05-24
-- **ステータス**: Accepted
 - **関連 Issue**: #434, #435
 
 ## Context

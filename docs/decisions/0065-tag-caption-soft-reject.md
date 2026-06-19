@@ -1,4 +1,11 @@
-# 0065. Tag/Caption Soft-Reject And Export Resolution
+---
+type: ADR
+title: Tag/Caption Soft-Reject And Export Resolution
+status: Accepted
+timestamp: 2026-06-11
+tags: []
+---
+# ADR 0065: Tag/Caption Soft-Reject And Export Resolution
 
 ## Context
 

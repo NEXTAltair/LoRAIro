@@ -1,7 +1,12 @@
+---
+type: ADR
+title: Provider Batch Submit Threading
+status: Accepted
+timestamp: 2026-05-31
+tags: []
+---
 # ADR 0044: Provider Batch Submit Threading
 
-- **日付**: 2026-05-31
-- **ステータス**: Accepted
 - **関連 Issue**: #576
 
 ## Context

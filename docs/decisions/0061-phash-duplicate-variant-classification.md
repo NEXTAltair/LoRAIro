@@ -1,7 +1,12 @@
+---
+type: ADR
+title: 登録パイプライン再設計 — pHash 候補の重複/別版分類
+status: Accepted
+timestamp: 2026-06-05
+tags: []
+---
 # ADR 0061: 登録パイプライン再設計 — pHash 候補の重複/別版分類
 
-- **日付**: 2026-06-05
-- **ステータス**: Accepted
 - **関連 Issue**: #630 / #631 / #632 / #633
 
 ## Context

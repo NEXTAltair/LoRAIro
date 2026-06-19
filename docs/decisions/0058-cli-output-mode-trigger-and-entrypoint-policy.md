@@ -1,7 +1,12 @@
+---
+type: ADR
+title: CLI Output Mode Trigger and Entry-Point Policy
+status: Accepted
+timestamp: 2026-06-05
+tags: []
+---
 # ADR 0058: CLI Output Mode Trigger and Entry-Point Policy
 
-- **日付**: 2026-06-05
-- **ステータス**: Accepted
 - **関連 Issue**: #634 (epic) / #637 / #636
 
 ## Context

@@ -1,7 +1,11 @@
+---
+type: ADR
+title: Pagination Approach
+status: Accepted
+timestamp: 2026-02-05
+tags: []
+---
 # ADR 0006: Pagination Approach
-
-- **日付**: 2026-02-05
-- **ステータス**: Accepted
 
 ## Context
 

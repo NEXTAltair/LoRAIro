@@ -1,7 +1,12 @@
+---
+type: ADR
+title: Provider Batch API Integration Strategy
+status: Accepted
+timestamp: 2026-05-25
+tags: []
+---
 # ADR 0038: Provider Batch API Integration Strategy
 
-- **日付**: 2026-05-25
-- **ステータス**: Accepted
 - **関連 Issue**: #395
 
 ## Context
