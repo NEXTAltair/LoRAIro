@@ -1,7 +1,7 @@
 ---
 type: ADR
 title: pytest Test Responsibility Separation by Package
-status: Accepted (created), 2026-05-19 (amended #291: single-venv via UV_PROJECT_ENVIRONMENT)
+status: "Accepted (created), 2026-05-19 (amended #291: single-venv via UV_PROJECT_ENVIRONMENT)"
 timestamp: 2026-05-13
 tags: []
 ---

@@ -1,7 +1,7 @@
 ---
 type: ADR
 title: Unified Dataset Quality Tier
-status: Accepted (Revised: 2026-06-18 — 品質尺度の主従を反転、数値スコアをベースに)
+status: "Accepted (Revised: 2026-06-18 — 品質尺度の主従を反転、数値スコアをベースに)"
 timestamp: 2026-05-19
 tags: []
 ---

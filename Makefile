@@ -138,7 +138,8 @@ adr-index:
 # ADR の frontmatter を OKF 規約に照らして検証する (ADR 0069)。
 adr-okf:
 	@echo "Validating ADR frontmatter (OKF)..."
-	python3 .agents/skills/okf-bundle/scripts/okf_validate.py --bundle-root docs/decisions --exclude README.md
+	python3 .agents/skills/okf-bundle/scripts/okf_validate.py --bundle-root docs/decisions \
+		--require type,title,status,timestamp --exclude README.md
 	python3 .agents/skills/okf-bundle/scripts/okf_index.py --bundle-root docs/decisions \
 		--table --columns id,title,timestamp,status --headers "ADR,タイトル,日付,ステータス" \
 		--link-column id --exclude README.md --table-output docs/decisions/README.md --check

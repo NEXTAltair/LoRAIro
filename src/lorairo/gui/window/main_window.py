@@ -2207,7 +2207,7 @@ class MainWindow(QMainWindow, Ui_MainWindow):
         """エクスポート入口（ツールバー action / 下部バーボタン）のハンドラ。
 
         ``QAction.triggered`` / ``QPushButton.clicked`` が渡す bool ペイロードは
-        画像 ID ではないため無視する（ADR 0043 / Issue #570）。対象解決は
+        画像 ID ではないため無視する（ADR 0072 / Issue #570）。対象解決は
         ``export_data()``（エクスポートタブ遷移）に委譲し、新しい選択解決パスを足さない。
 
         Args:
