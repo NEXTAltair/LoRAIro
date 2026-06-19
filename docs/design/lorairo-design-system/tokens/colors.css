@@ -1,0 +1,75 @@
+/* =============================================================
+   LoRAIro — Color tokens (Theme v1)
+   SSoT: src/lorairo/gui/theme.py  +  docs/design/theme-v1/hifi-mock.html
+   The v11 wireframe color language ("paper / ink / accent / ok / warn / err")
+   normalized from oklch to QSS-implementable hex. Change a value here AND in
+   theme.py / hifi-mock.html together — they are kept 1:1.
+   ============================================================= */
+
+:root {
+  /* ---- surface : warm paper substrate, white cards, one dark pane ---- */
+  --paper:        #fbfaf6;  /* app background */
+  --paper-shade:  #f1efe6;  /* sidebar, header band, row hover, headers */
+  --card:         #ffffff;  /* card & input fill */
+  --terminal:     #23211d;  /* code / JSONL dark pane */
+
+  /* ---- ink : near-black body, two softer greys ---- */
+  --ink:          #1a1a1a;  /* body text */
+  --ink-soft:     #4a4a4a;  /* secondary / helper text */
+  --ink-faint:    #9a9a9a;  /* placeholder, disabled */
+
+  /* ---- line : warm hairline borders ---- */
+  --line:         #dcd8cc;  /* standard 1px border */
+  --line-strong:  #b9b4a5;  /* emphasized border, focus underlay */
+
+  /* ---- accent : terracotta / clay (oklch(0.62 0.14 32)) ---- */
+  --accent:        #c25e3f;  /* primary action, selection, active tab underline */
+  --accent-hover:  #a94e33;
+  --accent-soft:   #f6e3dc;  /* selected-row bg, accent badge fill */
+  --accent-border: #ecc9bd;  /* accent chip same-family border */
+
+  /* ---- status : ok / warn / err / info, each soft fill + family border ---- */
+  --ok:          #3c8a55;  /* success, installed, API ready (oklch(0.55 0.13 145)) */
+  --ok-soft:     #e2f0e6;
+  --ok-border:   #bedfc8;
+  --warn:        #b87f1f;  /* warning, needs key, low confidence (oklch(0.65 0.16 70)) */
+  --warn-soft:   #f7ecd8;
+  --warn-border: #e7d3a8;
+  --err:         #b8402c;  /* error, failed (oklch(0.55 0.18 25)) */
+  --err-soft:    #f7e1dc;
+  --err-border:  #e8c2ba;
+  --info:        #3d6f9e;  /* running, progress */
+  --info-soft:   #e1ebf4;
+  --info-border: #bcd2e5;
+
+  /* ---- terminal pane syntax (dark JSONL/code pane) ---- */
+  --terminal-fg:    #d8d4c8;
+  --terminal-key:   #8ab4d8;  /* JSON keys */
+  --terminal-str:   #a8c890;  /* strings */
+  --terminal-num:   #d8b070;  /* numbers */
+  --terminal-bool:  #c98a8a;  /* booleans */
+  --terminal-muted: #8a877f;  /* helper text on dark pane */
+
+  /* =====================================================================
+     Semantic aliases — reference these in product UI, not raw tokens above
+     ===================================================================== */
+  --bg-app:        var(--paper);
+  --bg-band:       var(--paper-shade);   /* nav bar, header strip, table head */
+  --bg-hover:      var(--paper-shade);   /* row / item hover */
+  --surface-card:  var(--card);
+  --surface-input: var(--card);
+  --surface-sel:   var(--accent-soft);   /* selected row / thumbnail bg */
+
+  --text-body:     var(--ink);
+  --text-muted:    var(--ink-soft);
+  --text-faint:    var(--ink-faint);
+  --text-on-accent: #ffffff;
+
+  --border-default: var(--line);
+  --border-strong:  var(--line-strong);
+  --border-focus:   var(--accent);
+
+  --action-primary:       var(--accent);
+  --action-primary-hover: var(--accent-hover);
+  --action-press:         var(--accent-soft);
+}

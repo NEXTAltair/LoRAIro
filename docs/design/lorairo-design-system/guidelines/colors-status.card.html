@@ -1,0 +1,40 @@
+<!-- @dsCard group="Colors" viewport="700x190" name="Status — ok / warn / err / info" subtitle="Each: solid token, soft fill, same-family border" -->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<link rel="stylesheet" href="../styles.css">
+<style>
+  body { margin: 0; font-family: var(--font-sans); color: var(--text-body); background: var(--paper); }
+  .wrap { padding: var(--gap-4); display: flex; flex-direction: column; gap: var(--gap-3); }
+  .grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: var(--gap-3); }
+  .col { border: 1px solid var(--line); border-radius: var(--radius); overflow: hidden; background: var(--card); }
+  .solid { height: 40px; display: flex; align-items: center; padding: 0 10px; color: #fff; font-family: var(--font-mono); font-size: var(--fs-small); font-weight: 600; }
+  .soft { height: 26px; }
+  .meta { padding: 5px 10px; font-size: var(--fs-small); color: var(--text-muted); }
+  .chips { display: flex; gap: var(--gap-2); flex-wrap: wrap; }
+  .chip { display: inline-flex; align-items: center; gap: 5px; padding: 1px 9px; border-radius: var(--radius-chip); font-size: var(--fs-small); font-weight: 600; border: 1px solid transparent; }
+  .dot { font-size: 9px; }
+  .c-ok { background: var(--ok-soft); color: var(--ok); border-color: var(--ok-border); }
+  .c-warn { background: var(--warn-soft); color: var(--warn); border-color: var(--warn-border); }
+  .c-err { background: var(--err-soft); color: var(--err); border-color: var(--err-border); }
+  .c-info { background: var(--info-soft); color: var(--info); border-color: var(--info-border); }
+</style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="grid">
+      <div class="col"><div class="solid" style="background:#3c8a55">--ok</div><div class="soft" style="background:#e2f0e6;border-top:1px solid var(--ok-border)"></div><div class="meta">success · installed</div></div>
+      <div class="col"><div class="solid" style="background:#b87f1f">--warn</div><div class="soft" style="background:#f7ecd8;border-top:1px solid var(--warn-border)"></div><div class="meta">needs key · low conf</div></div>
+      <div class="col"><div class="solid" style="background:#b8402c">--err</div><div class="soft" style="background:#f7e1dc;border-top:1px solid var(--err-border)"></div><div class="meta">error · failed</div></div>
+      <div class="col"><div class="solid" style="background:#3d6f9e">--info</div><div class="soft" style="background:#e1ebf4;border-top:1px solid var(--info-border)"></div><div class="meta">running · progress</div></div>
+    </div>
+    <div class="chips">
+      <span class="chip c-ok"><span class="dot">●</span>installed</span>
+      <span class="chip c-info"><span class="dot">●</span>実行中</span>
+      <span class="chip c-warn"><span class="dot">○</span>needs key</span>
+      <span class="chip c-err"><span class="dot">●</span>失敗</span>
+    </div>
+  </div>
+</body>
+</html>

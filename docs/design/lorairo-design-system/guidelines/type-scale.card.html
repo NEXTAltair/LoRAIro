@@ -1,0 +1,28 @@
+<!-- @dsCard group="Type" viewport="700x210" name="Type scale" subtitle="18 / 14 / 13 / 11 / 10 px — compact desktop scale" -->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<link rel="stylesheet" href="../styles.css">
+<style>
+  body { margin: 0; font-family: var(--font-sans); color: var(--text-body); background: var(--paper); }
+  .wrap { padding: var(--gap-4); display: flex; flex-direction: column; gap: 10px; }
+  .line { display: flex; align-items: baseline; gap: var(--gap-3); }
+  .tag { font-family: var(--font-mono); font-size: var(--fs-small); color: var(--text-muted); width: 130px; flex: none; }
+  .h1 { font-size: 18px; font-weight: 700; }
+  .h2 { font-size: 14px; font-weight: 700; }
+  .base { font-size: 13px; }
+  .small { font-size: 11px; color: var(--text-muted); }
+  .meta { font-size: 10px; font-family: var(--font-mono); color: var(--text-muted); }
+</style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="line"><span class="tag">--fs-h1 · 18</span><span class="h1">検索結果 — Screen heading</span></div>
+    <div class="line"><span class="tag">--fs-h2 · 14/700</span><span class="h2">パイプライン構成 — Section / card title</span></div>
+    <div class="line"><span class="tag">--fs-base · 13</span><span class="base">Body copy — the default reading size for labels and prose.</span></div>
+    <div class="line"><span class="tag">--fs-small · 11</span><span class="small">Helper text, chips, table headers, field labels</span></div>
+    <div class="line"><span class="tag">--fs-meta · 10</span><span class="meta">1024×1536 · 0.82 · numeric meta</span></div>
+  </div>
+</body>
+</html>

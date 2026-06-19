@@ -1,0 +1,25 @@
+<!-- @dsCard group="Colors" viewport="700x150" name="Surface" subtitle="Warm paper substrate, white cards, one dark pane" -->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<link rel="stylesheet" href="../styles.css">
+<style>
+  body { margin: 0; font-family: var(--font-sans); color: var(--text-body); background: var(--paper); }
+  .row { display: flex; gap: var(--gap-3); padding: var(--gap-4); }
+  .sw { flex: 1; border: 1px solid var(--line); border-radius: var(--radius); overflow: hidden; background: var(--card); }
+  .chip { height: 64px; }
+  .meta { padding: 7px 10px; }
+  .meta b { display: block; font-family: var(--font-mono); font-size: var(--fs-small); }
+  .meta span { font-size: var(--fs-small); color: var(--text-muted); }
+</style>
+</head>
+<body>
+  <div class="row">
+    <div class="sw"><div class="chip" style="background:#fbfaf6"></div><div class="meta"><b>--paper</b><span>app background</span></div></div>
+    <div class="sw"><div class="chip" style="background:#f1efe6"></div><div class="meta"><b>--paper-shade</b><span>band / row hover</span></div></div>
+    <div class="sw"><div class="chip" style="background:#ffffff;border-bottom:1px solid var(--line)"></div><div class="meta"><b>--card</b><span>card / input fill</span></div></div>
+    <div class="sw"><div class="chip" style="background:#23211d"></div><div class="meta"><b>--terminal</b><span>dark code pane</span></div></div>
+  </div>
+</body>
+</html>

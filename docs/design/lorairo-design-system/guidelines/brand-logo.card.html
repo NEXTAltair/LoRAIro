@@ -1,0 +1,29 @@
+<!-- @dsCard group="Brand" viewport="700x180" name="Logo lockup" subtitle="Wordmark LoRA·Iro — “Iro” (色 / colour) set in accent" -->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<link rel="stylesheet" href="../styles.css">
+<style>
+  body { margin: 0; font-family: var(--font-sans); color: var(--text-body); background: var(--paper); }
+  .wrap { padding: var(--gap-5); display: flex; align-items: center; gap: var(--gap-5); }
+  .logo { font-weight: 700; letter-spacing: .02em; }
+  .logo span { color: var(--accent); }
+  .lg { font-size: 40px; }
+  .md { font-size: 20px; }
+  .onband { background: var(--paper-shade); border: 1px solid var(--line); border-radius: var(--radius); padding: 10px 16px; display: flex; align-items: center; gap: var(--gap-3); }
+  .onband .proj { font-family: var(--font-mono); font-size: var(--fs-small); color: var(--text-muted); }
+  .note { font-size: var(--fs-small); color: var(--text-muted); max-width: 200px; }
+</style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="logo lg">LoRA<span>Iro</span></div>
+    <div class="onband">
+      <div class="logo md">LoRA<span>Iro</span></div>
+      <div class="proj">project: main_dataset</div>
+    </div>
+    <div class="note">Text wordmark only — no icon mark. Always “LoRA” in ink + “Iro” in <b>--accent</b>.</div>
+  </div>
+</body>
+</html>

@@ -1,0 +1,30 @@
+<!-- @dsCard group="Type" viewport="700x180" name="Sans — Noto Sans JP" subtitle="Body face, Japanese-first. Regular / Medium / Semibold / Bold" -->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<link rel="stylesheet" href="../styles.css">
+<style>
+  body { margin: 0; font-family: var(--font-sans); color: var(--text-body); background: var(--paper); }
+  .wrap { padding: var(--gap-4); }
+  .big { font-size: 30px; font-weight: 700; line-height: 1.2; }
+  .big span { color: var(--accent); }
+  .ja { font-size: 16px; margin-top: 6px; }
+  .weights { display: flex; gap: var(--gap-4); margin-top: var(--gap-3); flex-wrap: wrap; }
+  .weights div { font-size: 15px; }
+  .weights span { display: block; font-family: var(--font-mono); font-size: var(--fs-small); color: var(--text-muted); font-weight: 400; margin-top: 2px; }
+</style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="big">LoRA<span>Iro</span> — データセット準備</div>
+    <div class="ja">あいうえお 漢字 カタカナ · The quick brown fox jumps over 1,247 images.</div>
+    <div class="weights">
+      <div style="font-weight:400">Regular<span>400</span></div>
+      <div style="font-weight:500">Medium<span>500</span></div>
+      <div style="font-weight:600">Semibold<span>600</span></div>
+      <div style="font-weight:700">Bold<span>700</span></div>
+    </div>
+  </div>
+</body>
+</html>

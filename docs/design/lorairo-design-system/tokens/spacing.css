@@ -1,0 +1,35 @@
+/* =============================================================
+   LoRAIro — Shape, spacing & elevation tokens (Theme v1)
+   Compact desktop rhythm. Square-ish 6px radius, 10px chips. Borders do most
+   of the separation work; shadows are reserved for the floating app shell and
+   loading scrim only — flat inside the window.
+   ============================================================= */
+
+:root {
+  /* ---- radius ---- */
+  --radius:       6px;   /* cards, buttons, inputs */
+  --radius-chip:  10px;  /* status chips, tag chips */
+  --radius-badge: 3px;   /* type badges, progress fill */
+  --radius-shell: 8px;   /* outer app window */
+
+  /* ---- spacing scale : 4 / 8 / 12 / 16 / 24 ---- */
+  --gap-1: 4px;
+  --gap-2: 8px;
+  --gap-3: 12px;
+  --gap-4: 16px;
+  --gap-5: 24px;
+
+  /* ---- borders ---- */
+  --bw:        1px;        /* standard hairline */
+  --bw-accent: 2px;        /* active tab underline, selected thumbnail outline */
+
+  /* ---- elevation : near-flat; only the window floats ---- */
+  --shadow-shell:   0 2px 10px rgba(26, 26, 26, .07);
+  --scrim:          rgba(26, 26, 26, .47);  /* loading overlay (theme.py rgba 120) */
+
+  /* ---- semantic ---- */
+  --pad-card:    var(--gap-3);
+  --pad-input:   3px var(--gap-2);
+  --pad-btn:     6px 14px;
+  --pad-chip:    1px 9px;
+}

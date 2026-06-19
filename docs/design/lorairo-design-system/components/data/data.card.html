@@ -1,0 +1,54 @@
+<!-- @dsCard group="Components" viewport="700x320" name="Data — Card / DataTable / Thumbnail" -->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<link rel="stylesheet" href="../../styles.css">
+<style>
+  body { margin: 0; font-family: var(--font-sans); color: var(--text-body); background: var(--paper); }
+  #root { padding: var(--gap-4); display: grid; grid-template-columns: 1.3fr 1fr; gap: var(--gap-3); align-items: start; }
+  .grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: var(--gap-2); }
+</style>
+<script src="https://unpkg.com/react@18.3.1/umd/react.development.js" integrity="sha384-hD6/rw4ppMLGNu3tX5cjIb+uRZ7UkRJ6BPkLpg4hAu/6onKUg4lLsHAs9EBPT82L" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
+<script src="../../_ds_bundle.js"></script>
+</head>
+<body>
+<div id="root"></div>
+<script type="text/babel">
+  const { Card, DataTable, Thumbnail, Chip, TypeBadge } = window.LoRAIroDesignSystem_64d8f7;
+  const rows = [
+    { id: 1, tone: "info", dot: "filled", state: "実行中", kind: "model_install", body: "wd-eva02-large-v3", time: "—" },
+    { id: 2, tone: "ok", state: "完了", kind: "annotation", body: "キャプション 96 枚", time: "14:32" },
+    { id: 3, tone: "err", state: "失敗", kind: "provider_batch", body: "Batch 提出 512 枚", time: "13:05" },
+  ];
+  function Demo() {
+    return (
+      <React.Fragment>
+        <Card title="履歴">
+          <DataTable
+            columns={[
+              { key: "state", header: "状態", render: r => <Chip kind={r.tone}>{r.state}</Chip> },
+              { key: "kind", header: "種別", render: r => <TypeBadge>{r.kind}</TypeBadge> },
+              { key: "body", header: "内容" },
+              { key: "time", header: "完了", align: "right" },
+            ]}
+            rows={rows}
+            selectedKey={2}
+          />
+        </Card>
+        <Card title="検索結果">
+          <div className="grid">
+            <Thumbnail label="img_0001" dims="1024×1536" score={0.82} selected />
+            <Thumbnail label="img_0002" dims="832×1216" score={0.74} />
+            <Thumbnail label="img_0003" dims="1024×1024" score={0.91} />
+          </div>
+        </Card>
+      </React.Fragment>
+    );
+  }
+  ReactDOM.createRoot(document.getElementById("root")).render(<Demo />);
+</script>
+</body>
+</html>

@@ -1,0 +1,36 @@
+<!-- @dsCard group="Colors" viewport="700x170" name="Terminal pane syntax" subtitle="Dark JSONL / code pane — keys, strings, numbers, booleans" -->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<link rel="stylesheet" href="../styles.css">
+<style>
+  body { margin: 0; font-family: var(--font-sans); color: var(--text-body); background: var(--paper); }
+  .wrap { padding: var(--gap-4); }
+  .term { background: var(--terminal); border-radius: var(--radius); padding: 12px 16px; font-family: var(--font-mono); font-size: 12px; line-height: 1.7; color: var(--terminal-fg); overflow-x: auto; }
+  .jk { color: var(--terminal-key); }
+  .js { color: var(--terminal-str); }
+  .jn { color: var(--terminal-num); }
+  .jb { color: var(--terminal-bool); }
+  .mut { color: var(--terminal-muted); }
+  .swatches { display: flex; gap: var(--gap-3); margin-top: var(--gap-3); font-family: var(--font-mono); font-size: var(--fs-small); color: var(--text-muted); }
+  .sw { display: flex; align-items: center; gap: 6px; }
+  .dot { width: 12px; height: 12px; border-radius: 3px; }
+</style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="term">
+      <span class="mut">$ lorairo-cli annotate run --models wd-eva02 --json</span><br>
+      {<span class="jk">"kind"</span>:<span class="js">"item"</span>,<span class="jk">"image_id"</span>:<span class="jn">42</span>,<span class="jk">"tags"</span>:[<span class="js">"1girl"</span>,<span class="js">"outdoor"</span>]}<br>
+      {<span class="jk">"kind"</span>:<span class="js">"result"</span>,<span class="jk">"count"</span>:<span class="jn">128</span>,<span class="jk">"has_more"</span>:<span class="jb">false</span>}
+    </div>
+    <div class="swatches">
+      <div class="sw"><span class="dot" style="background:#8ab4d8"></span>--terminal-key</div>
+      <div class="sw"><span class="dot" style="background:#a8c890"></span>--terminal-str</div>
+      <div class="sw"><span class="dot" style="background:#d8b070"></span>--terminal-num</div>
+      <div class="sw"><span class="dot" style="background:#c98a8a"></span>--terminal-bool</div>
+    </div>
+  </div>
+</body>
+</html>

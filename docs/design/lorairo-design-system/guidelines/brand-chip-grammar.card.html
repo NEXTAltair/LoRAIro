@@ -1,0 +1,35 @@
+<!-- @dsCard group="Brand" viewport="700x150" name="Chip grammar — ● / ○" subtitle="● = available (ok) · ○ = needs action (warn) or inactive (faint)" -->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<link rel="stylesheet" href="../styles.css">
+<style>
+  body { margin: 0; font-family: var(--font-sans); color: var(--text-body); background: var(--paper); }
+  .wrap { padding: var(--gap-4); display: flex; flex-direction: column; gap: var(--gap-3); }
+  .grp { display: flex; align-items: center; gap: var(--gap-2); flex-wrap: wrap; }
+  .lab { font-size: var(--fs-small); color: var(--text-muted); width: 130px; flex: none; }
+  .chip { display: inline-flex; align-items: center; gap: 5px; padding: 1px 9px; border-radius: var(--radius-chip); font-size: var(--fs-small); font-weight: 600; border: 1px solid transparent; }
+  .dot { font-size: 9px; }
+  .c-ok { background: var(--ok-soft); color: var(--ok); border-color: var(--ok-border); }
+  .c-warn { background: var(--warn-soft); color: var(--warn); border-color: var(--warn-border); }
+  .c-info { background: var(--info-soft); color: var(--info); border-color: var(--info-border); }
+  .c-neutral { background: var(--paper-shade); color: var(--ink-soft); border-color: var(--line); }
+  .c-muted { background: var(--paper-shade); color: var(--ink-faint); border-color: var(--line); }
+</style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="grp"><span class="lab">● available</span>
+      <span class="chip c-ok"><span class="dot">●</span>installed</span>
+      <span class="chip c-ok"><span class="dot">●</span>API ready</span>
+      <span class="chip c-info"><span class="dot">●</span>実行中</span>
+    </div>
+    <div class="grp"><span class="lab">○ needs action / off</span>
+      <span class="chip c-warn"><span class="dot">○</span>needs key</span>
+      <span class="chip c-neutral"><span class="dot">○</span>待機</span>
+      <span class="chip c-muted"><span class="dot">○</span>discontinued</span>
+    </div>
+  </div>
+</body>
+</html>

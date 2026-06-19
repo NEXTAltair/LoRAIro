@@ -1,0 +1,10 @@
+/* =============================================================
+   LoRAIro Design System — global entry point
+   Consumers link THIS one file. It is a manifest of @import lines only;
+   never add rules here. Everything reachable from here ships to consumers.
+   SSoT: src/lorairo/gui/theme.py + docs/design/theme-v1/hifi-mock.html
+   ============================================================= */
+
+@import url("tokens/typography.css");
+@import url("tokens/colors.css");
+@import url("tokens/spacing.css");

@@ -1,0 +1,49 @@
+<!-- @dsCard group="Components" viewport="700x230" name="Feedback — Chip / TagChip / TypeBadge / Progress" -->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<link rel="stylesheet" href="../../styles.css">
+<style>
+  body { margin: 0; font-family: var(--font-sans); color: var(--text-body); background: var(--paper); }
+  #root { padding: var(--gap-4); }
+  .row { display: flex; gap: var(--gap-2); align-items: center; flex-wrap: wrap; margin-bottom: var(--gap-3); }
+  .lbl { font-size: var(--fs-small); color: var(--text-muted); width: 96px; flex: none; }
+</style>
+<script src="https://unpkg.com/react@18.3.1/umd/react.development.js" integrity="sha384-hD6/rw4ppMLGNu3tX5cjIb+uRZ7UkRJ6BPkLpg4hAu/6onKUg4lLsHAs9EBPT82L" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
+<script src="../../_ds_bundle.js"></script>
+</head>
+<body>
+<div id="root"></div>
+<script type="text/babel">
+  const { Chip, TagChip, TypeBadge, ProgressBar } = window.LoRAIroDesignSystem_64d8f7;
+  function Demo() {
+    return (
+      <React.Fragment>
+        <div className="row"><span className="lbl">status</span>
+          <Chip kind="ok">installed</Chip>
+          <Chip kind="ok">API ready</Chip>
+          <Chip kind="info">実行中</Chip>
+          <Chip kind="warn">needs key</Chip>
+          <Chip kind="err">失敗</Chip>
+          <Chip kind="neutral">待機</Chip>
+          <Chip kind="muted">discontinued</Chip>
+        </div>
+        <div className="row"><span className="lbl">tags</span>
+          <TagChip>1girl</TagChip><TagChip>outdoor</TagChip><TagChip onRemove={() => {}}>solo</TagChip>
+        </div>
+        <div className="row"><span className="lbl">type</span>
+          <TypeBadge>anthropic</TypeBadge><TypeBadge>multimodal</TypeBadge><TypeBadge>model_install</TypeBadge>
+        </div>
+        <div className="row"><span className="lbl">progress</span>
+          <ProgressBar value={45} /><ProgressBar value={100} tone="ok" /><ProgressBar value={20} striped />
+        </div>
+      </React.Fragment>
+    );
+  }
+  ReactDOM.createRoot(document.getElementById("root")).render(<Demo />);
+</script>
+</body>
+</html>

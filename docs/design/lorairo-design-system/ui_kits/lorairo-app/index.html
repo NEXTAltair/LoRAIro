@@ -1,0 +1,99 @@
+<!-- @dsCard group="LoRAIro App" viewport="1180x720" name="LoRAIro — desktop app" subtitle="Interactive recreation: Search → Annotate → Jobs" -->
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>LoRAIro — UI kit</title>
+<link rel="stylesheet" href="../../styles.css">
+<style>
+  body { margin: 0; padding: 24px 16px 60px; background: var(--paper); color: var(--text-body); font-family: var(--font-sans); font-size: var(--fs-base); line-height: var(--lh-base); }
+  .stub { padding: 60px 24px; text-align: center; color: var(--ink-soft); }
+  .stub h2 { font-size: var(--fs-h2); color: var(--ink); margin: 0 0 8px; }
+  .overlay { position: fixed; inset: 0; background: var(--scrim); display: flex; align-items: center; justify-content: center; z-index: 50; }
+  .dialog { width: 460px; max-width: 92vw; background: var(--card); border: 1px solid var(--line-strong); border-radius: var(--radius-shell); box-shadow: var(--shadow-shell); overflow: hidden; }
+  .dialog-head { display: flex; align-items: center; padding: 12px 16px; background: var(--paper-shade); border-bottom: 1px solid var(--line); font-weight: 600; }
+  .dialog-body { padding: 16px; }
+  .keyrow { display: flex; align-items: center; gap: 10px; padding: 8px 0; border-bottom: 1px solid var(--line); }
+  .keyrow:last-child { border-bottom: none; }
+  .keyrow .nm { flex: 1; }
+</style>
+<script src="https://unpkg.com/react@18.3.1/umd/react.development.js" integrity="sha384-hD6/rw4ppMLGNu3tX5cjIb+uRZ7UkRJ6BPkLpg4hAu/6onKUg4lLsHAs9EBPT82L" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
+<script src="../../_ds_bundle.js"></script>
+<script type="text/babel" src="AppShell.jsx"></script>
+<script type="text/babel" src="SearchScreen.jsx"></script>
+<script type="text/babel" src="AnnotateScreen.jsx"></script>
+<script type="text/babel" src="JobsScreen.jsx"></script>
+</head>
+<body>
+<div id="root"></div>
+<script type="text/babel">
+  const DS = window.LoRAIroDesignSystem_64d8f7;
+
+  function Stub({ title, body }) {
+    return <div className="stub"><h2>{title}</h2><div>{body}</div></div>;
+  }
+
+  function Settings({ onClose }) {
+    const { Chip, Button } = DS;
+    const keys = [
+      ["Anthropic", "ok", "保存済"],
+      ["Google", "ok", "保存済"],
+      ["OpenAI", "warn", "未設定"],
+    ];
+    return (
+      <div className="overlay" onClick={onClose}>
+        <div className="dialog" onClick={(e) => e.stopPropagation()}>
+          <div className="dialog-head">設定 — API キー / モデル経路</div>
+          <div className="dialog-body">
+            {keys.map(([nm, tone, txt]) => (
+              <div className="keyrow" key={nm}>
+                <span className="nm">{nm}</span>
+                <Chip kind={tone}>{txt}</Chip>
+              </div>
+            ))}
+            <div style={{ marginTop: 16, display: "flex", justifyContent: "flex-end", gap: 8 }}>
+              <Button onClick={onClose}>閉じる</Button>
+              <Button variant="primary" onClick={onClose}>保存</Button>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  function App() {
+    const [tab, setTab] = React.useState("search");
+    const [staged, setStaged] = React.useState(128);
+    const [running, setRunning] = React.useState(false);
+    const [settings, setSettings] = React.useState(false);
+
+    const stage = (id) => setStaged((n) => n + 1);
+    const run = () => { setRunning(true); setTab("jobs"); };
+
+    let screen;
+    if (tab === "search") screen = <window.SearchScreen staged={staged} onStage={stage} />;
+    else if (tab === "annotate") screen = <window.AnnotateScreen staged={staged} onRun={run} />;
+    else if (tab === "jobs") screen = <window.JobsScreen running={running} />;
+    else if (tab === "map") screen = <Stub title="マップ" body="embedding 散布図によるデータセット俯瞰（Phase 8 予定）" />;
+    else if (tab === "results") screen = <Stub title="結果" body="アノテーション品質トリアージ（Frame 5 / Phase 2 予定）" />;
+    else if (tab === "errors") screen = <Stub title="エラー" body="失敗の triage — 原因別グルーピング表示" />;
+    else if (tab === "export") screen = <Stub title="エクスポート" body="学習用データセットの書き出し（format 別変換）" />;
+    else screen = <Stub title="CLI" body="agent-friendly な JSONL 契約。lorairo-cli --json list-commands" />;
+
+    return (
+      <React.Fragment>
+        <window.AppShell tab={tab} onTab={setTab} onGear={() => setSettings(true)}>
+          {screen}
+        </window.AppShell>
+        {settings && <Settings onClose={() => setSettings(false)} />}
+      </React.Fragment>
+    );
+  }
+
+  ReactDOM.createRoot(document.getElementById("root")).render(<App />);
+</script>
+</body>
+</html>

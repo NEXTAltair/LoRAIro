@@ -1,0 +1,36 @@
+<!-- @dsCard group="Colors" viewport="700x160" name="Accent — terracotta" subtitle="Primary action, selection, active tab underline" -->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<link rel="stylesheet" href="../styles.css">
+<style>
+  body { margin: 0; font-family: var(--font-sans); color: var(--text-body); background: var(--paper); }
+  .wrap { padding: var(--gap-4); }
+  .row { display: flex; gap: var(--gap-3); }
+  .sw { flex: 1; border: 1px solid var(--line); border-radius: var(--radius); overflow: hidden; background: var(--card); }
+  .chip { height: 52px; }
+  .meta { padding: 6px 10px; }
+  .meta b { display: block; font-family: var(--font-mono); font-size: var(--fs-small); }
+  .meta span { font-size: var(--fs-small); color: var(--text-muted); }
+  .demo { display: flex; align-items: center; gap: var(--gap-2); margin-top: var(--gap-3); }
+  .btn { background: var(--accent); color: #fff; font-weight: 600; border: none; border-radius: var(--radius); padding: 6px 14px; font: inherit; font-size: var(--fs-base); }
+  .tag { background: var(--accent-soft); color: var(--accent-hover); border: 1px solid var(--accent-border); border-radius: var(--radius-chip); padding: 1px 9px; font-size: var(--fs-small); font-weight: 600; }
+</style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="row">
+      <div class="sw"><div class="chip" style="background:#c25e3f"></div><div class="meta"><b>--accent</b><span>#c25e3f</span></div></div>
+      <div class="sw"><div class="chip" style="background:#a94e33"></div><div class="meta"><b>--accent-hover</b><span>#a94e33</span></div></div>
+      <div class="sw"><div class="chip" style="background:#f6e3dc"></div><div class="meta"><b>--accent-soft</b><span>#f6e3dc</span></div></div>
+      <div class="sw"><div class="chip" style="background:#ecc9bd"></div><div class="meta"><b>--accent-border</b><span>#ecc9bd</span></div></div>
+    </div>
+    <div class="demo">
+      <button class="btn">検索</button>
+      <span class="tag">1girl</span>
+      <span style="font-size:var(--fs-small);color:var(--text-muted)">primary button · tag chip</span>
+    </div>
+  </div>
+</body>
+</html>

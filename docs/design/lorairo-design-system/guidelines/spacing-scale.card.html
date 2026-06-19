@@ -1,0 +1,25 @@
+<!-- @dsCard group="Spacing" viewport="700x150" name="Spacing scale" subtitle="4 / 8 / 12 / 16 / 24 — the only step values used" -->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<link rel="stylesheet" href="../styles.css">
+<style>
+  body { margin: 0; font-family: var(--font-sans); color: var(--text-body); background: var(--paper); }
+  .wrap { padding: var(--gap-4); display: flex; gap: var(--gap-4); align-items: flex-end; }
+  .step { text-align: center; }
+  .bar { background: var(--accent-soft); border: 1px solid var(--accent-border); border-radius: var(--radius-badge); }
+  .lab { font-family: var(--font-mono); font-size: var(--fs-small); color: var(--text-muted); margin-top: 6px; }
+  .lab b { display: block; color: var(--text-body); }
+</style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="step"><div class="bar" style="width:4px;height:4px"></div><div class="lab"><b>--gap-1</b>4</div></div>
+    <div class="step"><div class="bar" style="width:8px;height:8px"></div><div class="lab"><b>--gap-2</b>8</div></div>
+    <div class="step"><div class="bar" style="width:12px;height:12px"></div><div class="lab"><b>--gap-3</b>12</div></div>
+    <div class="step"><div class="bar" style="width:16px;height:16px"></div><div class="lab"><b>--gap-4</b>16</div></div>
+    <div class="step"><div class="bar" style="width:24px;height:24px"></div><div class="lab"><b>--gap-5</b>24</div></div>
+  </div>
+</body>
+</html>

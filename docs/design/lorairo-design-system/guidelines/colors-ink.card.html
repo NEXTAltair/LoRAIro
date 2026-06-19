@@ -1,0 +1,26 @@
+<!-- @dsCard group="Colors" viewport="700x150" name="Ink & Line" subtitle="Near-black body, two greys, warm hairline borders" -->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<link rel="stylesheet" href="../styles.css">
+<style>
+  body { margin: 0; font-family: var(--font-sans); color: var(--text-body); background: var(--paper); }
+  .row { display: flex; gap: var(--gap-3); padding: var(--gap-4); }
+  .sw { flex: 1; border: 1px solid var(--line); border-radius: var(--radius); overflow: hidden; background: var(--card); }
+  .chip { height: 64px; }
+  .meta { padding: 7px 10px; }
+  .meta b { display: block; font-family: var(--font-mono); font-size: var(--fs-small); }
+  .meta span { font-size: var(--fs-small); color: var(--text-muted); }
+</style>
+</head>
+<body>
+  <div class="row">
+    <div class="sw"><div class="chip" style="background:#1a1a1a"></div><div class="meta"><b>--ink</b><span>body text</span></div></div>
+    <div class="sw"><div class="chip" style="background:#4a4a4a"></div><div class="meta"><b>--ink-soft</b><span>secondary text</span></div></div>
+    <div class="sw"><div class="chip" style="background:#9a9a9a"></div><div class="meta"><b>--ink-faint</b><span>placeholder / disabled</span></div></div>
+    <div class="sw"><div class="chip" style="background:#dcd8cc"></div><div class="meta"><b>--line</b><span>standard border</span></div></div>
+    <div class="sw"><div class="chip" style="background:#b9b4a5"></div><div class="meta"><b>--line-strong</b><span>emphasized border</span></div></div>
+  </div>
+</body>
+</html>

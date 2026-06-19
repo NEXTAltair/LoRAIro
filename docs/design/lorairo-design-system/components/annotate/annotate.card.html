@@ -1,0 +1,44 @@
+<!-- @dsCard group="Components" viewport="700x300" name="Annotate — StageCard / ModelRow" -->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<link rel="stylesheet" href="../../styles.css">
+<style>
+  body { margin: 0; font-family: var(--font-sans); color: var(--text-body); background: var(--paper); }
+  #root { padding: var(--gap-4); }
+  .stage { display: flex; align-items: stretch; gap: var(--gap-2); margin-bottom: var(--gap-3); }
+  .arrow { display: flex; align-items: center; color: var(--ink-faint); }
+</style>
+<script src="https://unpkg.com/react@18.3.1/umd/react.development.js" integrity="sha384-hD6/rw4ppMLGNu3tX5cjIb+uRZ7UkRJ6BPkLpg4hAu/6onKUg4lLsHAs9EBPT82L" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
+<script src="../../_ds_bundle.js"></script>
+</head>
+<body>
+<div id="root"></div>
+<script type="text/babel">
+  const { StageCard, ModelRow, Chip, TypeBadge, Card } = window.LoRAIroDesignSystem_64d8f7;
+  function Demo() {
+    return (
+      <React.Fragment>
+        <div className="stage">
+          <StageCard label="TAGGER" model="wd-eva02-large-v3" active status={<Chip kind="ok">installed</Chip>} />
+          <span className="arrow">→</span>
+          <StageCard label="CAPTION" model="claude-haiku-4-5" status={<Chip kind="ok">API ready</Chip>} />
+          <span className="arrow">→</span>
+          <StageCard label="RATING" model="↝ from caption" shadow />
+        </div>
+        <Card title="モデルピッカー — CAPTION" aside={<TypeBadge>multimodal</TypeBadge>}>
+          <ModelRow status={<Chip kind="ok">API ready</Chip>} name="claude-haiku-4-5" badge={<TypeBadge>anthropic</TypeBadge>} cost="$0.0011/img · ~0.8s" />
+          <ModelRow status={<Chip kind="ok">API ready</Chip>} name="gemini-2.5-flash" badge={<TypeBadge>google</TypeBadge>} cost="$0.0007/img · ~0.6s" />
+          <ModelRow status={<Chip kind="warn">needs key</Chip>} name="gpt-5-mini" badge={<TypeBadge>openai</TypeBadge>} cost="$0.0009/img · ~0.7s" />
+          <ModelRow status={<Chip kind="muted">discontinued</Chip>} name="gpt-4-vision-preview" badge={<TypeBadge>openai</TypeBadge>} cost="—" disabled />
+        </Card>
+      </React.Fragment>
+    );
+  }
+  ReactDOM.createRoot(document.getElementById("root")).render(<Demo />);
+</script>
+</body>
+</html>
