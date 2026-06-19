@@ -6,7 +6,7 @@ ADR は「書いた時点の決定スナップショット」で、下流(コー
 1. REFERENCE-DRIFT — その ADR を参照しているファイルが、ADR 本体より新しく更新されている
    (世界が動いたのに ADR が据え置き)。
 2. ADDITIVE-DRIFT — ADR 本文に「追補 / amendment / addendum」的な後付け節があるのに、
-   Status 行に "Revised" が無い(主従が変わったサインを付録で吸収している)。
+   frontmatter の status に "Revised"/"amended" が無い(主従が変わったサインを付録で吸収している)。
 
 意味的 currency(決定がまだ妥当か)は判定しない。あくまで「見直すべき候補」を出すだけ。
 
@@ -105,6 +105,20 @@ def _resolve_date(path: Path, git_dates: dict[str, datetime]) -> datetime | None
 
 
 _ADR_REF_RE = re.compile(r"ADR[\s_-]*(\d{4})\b|\b(\d{4})-")
+_FM_STATUS_RE = re.compile(r"^status:\s*(.+)$", re.MULTILINE)
+
+
+def _frontmatter_status(text: str) -> str:
+    """ADR の frontmatter (先頭 --- ブロック) から status 値を返す (ADR 0069)。
+
+    frontmatter が無い、または status キーが無い場合は空文字を返す。
+    """
+    if not text.startswith("---"):
+        return ""
+    end = text.find("\n---", 3)
+    block = text[3:end] if end != -1 else ""
+    m = _FM_STATUS_RE.search(block)
+    return m.group(1).strip() if m else ""
 
 
 def _referenced_numbers(text: str) -> set[int]:
@@ -167,14 +181,14 @@ def analyze(days: int) -> list[AdrInfo]:
     for adr_path in _adr_files():
         number = int(adr_path.name[:4])
         text = adr_path.read_text(encoding="utf-8")
-        status_line = next((ln for ln in text.splitlines() if "ステータス" in ln or "Status" in ln), "")
+        status = _frontmatter_status(text)
         adr_date = _resolve_date(adr_path, git_dates)
         info = AdrInfo(
             number=number,
             path=adr_path,
             last_commit=adr_date,
             has_addendum=any(m in text for m in _ADDENDUM_MARKERS),
-            status_has_revised="Revised" in status_line,
+            status_has_revised="revised" in status.lower() or "amended" in status.lower(),
         )
         if adr_date is not None:
             adr_rel = adr_path.relative_to(ROOT).as_posix()

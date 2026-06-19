@@ -1,7 +1,7 @@
 # LoRAIro Project Makefile
 # Development task automation
 
-.PHONY: help setup test test-iam-lib test-runtime-local test-runtime-webapi test-genai-tag test-all mypy format adr-drift install install-dev clean run-gui generate-ui skills-update venv-rebuild worktree-cleanup-merged worktree-cleanup-merged-dry-run _ensure-submodules _ensure-root-venv
+.PHONY: help setup test test-iam-lib test-runtime-local test-runtime-webapi test-genai-tag test-all mypy format adr-drift adr-index adr-okf install install-dev clean run-gui generate-ui skills-update venv-rebuild worktree-cleanup-merged worktree-cleanup-merged-dry-run _ensure-submodules _ensure-root-venv
 
 WORKTREE_ROOT := /workspaces/LoRAIro/.agents/worktree
 ifeq ($(filter $(WORKTREE_ROOT)/%,$(CURDIR)),)
@@ -30,6 +30,8 @@ help:
 	@echo "  mypy         Run code check (mypy)"
 	@echo "  format       Format code (ruff format)"
 	@echo "  adr-drift    List ADR review candidates (drift detection)"
+	@echo "  adr-index    Regenerate ADR index.md + README from frontmatter (ADR 0069)"
+	@echo "  adr-okf      Validate ADR frontmatter and check index is up to date"
 	@echo "  clean        Clean build artifacts"
 	@echo "  venv-rebuild Rebuild .venv from scratch (recovery from corruption)"
 	@echo "  worktree-cleanup-merged Remove clean merged /workspaces/LoRAIro/.agents/worktree entries"
@@ -122,6 +124,27 @@ format: _ensure-submodules
 adr-drift:
 	@echo "Checking ADR drift (見直し候補)..."
 	uv run python scripts/check_adr_drift.py
+
+# ADR (OKF バンドル) の index.md + README テーブルを frontmatter から再生成する (ADR 0069)。
+adr-index:
+	@echo "Regenerating ADR index from frontmatter..."
+	python3 .agents/skills/okf-bundle/scripts/okf_index.py --bundle-root docs/decisions \
+		--table --columns id,title,timestamp,status --headers "ADR,タイトル,日付,ステータス" \
+		--link-column id --exclude README.md --table-output docs/decisions/README.md
+	python3 .agents/skills/okf-bundle/scripts/okf_index.py --bundle-root docs/decisions \
+		--index --index-output docs/decisions/index.md \
+		--index-title "Architecture Decision Records" --exclude README.md
+
+# ADR の frontmatter を OKF 規約に照らして検証する (ADR 0069)。
+adr-okf:
+	@echo "Validating ADR frontmatter (OKF)..."
+	python3 .agents/skills/okf-bundle/scripts/okf_validate.py --bundle-root docs/decisions --exclude README.md
+	python3 .agents/skills/okf-bundle/scripts/okf_index.py --bundle-root docs/decisions \
+		--table --columns id,title,timestamp,status --headers "ADR,タイトル,日付,ステータス" \
+		--link-column id --exclude README.md --table-output docs/decisions/README.md --check
+	python3 .agents/skills/okf-bundle/scripts/okf_index.py --bundle-root docs/decisions \
+		--index --index-output docs/decisions/index.md \
+		--index-title "Architecture Decision Records" --exclude README.md --check
 
 skills-update:
 	@echo "Restoring skills from skills-lock.json..."
