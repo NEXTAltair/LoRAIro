@@ -1,7 +1,7 @@
 ---
 type: ADR
 title: Coverage Threshold Policy
-status: Accepted (amended 2026-04-20: `source` 除外基準を追記 — Issue #153)
+status: "Accepted (amended 2026-04-20: `source` 除外基準を追記 — Issue #153)"
 timestamp: 2026-04-19
 tags: []
 ---

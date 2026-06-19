@@ -1,7 +1,7 @@
 """MainWindow エクスポート入口（下部バー）のテスト。
 
 Issue #611 (S1: エクスポート入口追加) / ADR 0055 (対象=ステージング集合) /
-ADR 0043 (単一選択ソース・clicked(bool) 注意) 準拠。
+ADR 0072 (単一選択ソース・clicked(bool) 注意) 準拠。
 
 検証内容:
 - ツールバーは 8タブナビへの移行で削除済み（アノテーション/エクスポート等は tabs で到達）
@@ -140,7 +140,7 @@ class TestExportTargetFollowsStaging:
 
 
 class TestExportEntryHandlers:
-    """入口ハンドラが bool ペイロードを画像 ID と誤認しない（ADR 0043 / #570）。"""
+    """入口ハンドラが bool ペイロードを画像 ID と誤認しない（ADR 0072 / #570）。"""
 
     def test_on_export_entry_triggered_ignores_clicked_bool(self):
         mock_window = Mock()

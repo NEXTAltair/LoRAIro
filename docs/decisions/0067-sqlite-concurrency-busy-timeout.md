@@ -1,6 +1,6 @@
 ---
 type: ADR
-title: SQLite Concurrency: busy_timeout + Lock Error Classification
+title: "SQLite Concurrency: busy_timeout + Lock Error Classification"
 status: Accepted (2026-06-15)
 timestamp: 2026-06-15
 tags: []

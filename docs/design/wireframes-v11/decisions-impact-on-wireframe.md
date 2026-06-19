@@ -89,7 +89,7 @@
 - **対応方針**: 不一致表示は canonical 値同士の比較である点を明記。`X/XXX` が混ざるケース、
   「mapping 不能で未判定」のケースを Results に追加できる。
 
-### 2-4. OpenAI Moderations による rating preflight（ADR 0031 amend / 0042-openai-moderation）★新概念
+### 2-4. OpenAI Moderations による rating preflight（ADR 0031 amend / 0070-openai-moderation）★新概念
 - annotation API に送る**前**に OpenAI Moderations Batch で rating を判定し、
   **`X / XXX` は annotation API に送らない**（`PG/PG-13/R` は送る。`violence/graphic` は R 止まり）。
   - これは Annotate → Jobs の間に挟まる**ゲート**。v10 には無い。Annotate の「送信前プリフライト」または

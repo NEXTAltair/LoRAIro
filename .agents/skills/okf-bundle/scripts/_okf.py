@@ -36,11 +36,12 @@ def split_frontmatter(text: str) -> tuple[str, str]:
     if not text.startswith("---"):
         return "", text
     # 開始 --- 行の直後から、次の --- 行までを frontmatter とする。
+    # rstrip() で CRLF (``---\r``) や末尾空白も区切りとして認識する。
     lines = text.splitlines(keepends=True)
-    if not lines or lines[0].rstrip("\n") != "---":
+    if not lines or lines[0].rstrip() != "---":
         return "", text
     for i in range(1, len(lines)):
-        if lines[i].rstrip("\n") == "---":
+        if lines[i].rstrip() == "---":
             block = "".join(lines[1:i])
             body = "".join(lines[i + 1 :])
             return block, body
