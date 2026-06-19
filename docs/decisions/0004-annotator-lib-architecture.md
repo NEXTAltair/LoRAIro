@@ -1,7 +1,11 @@
+---
+type: ADR
+title: Annotator-Lib Architecture
+status: Accepted
+timestamp: 2025-10-22
+tags: []
+---
 # ADR 0004: Annotator-Lib Architecture
-
-- **日付**: 2025-10-22
-- **ステータス**: Accepted
 
 ## Context
 

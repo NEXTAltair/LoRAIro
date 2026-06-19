@@ -1,4 +1,11 @@
-# 0042 Provider Batch Submit Button Busy State
+---
+type: ADR
+title: Provider Batch Submit Button Busy State
+status: Accepted
+timestamp: 2026-05-30
+tags: []
+---
+# ADR 0071: Provider Batch Submit Button Busy State
 
 ## Context
 

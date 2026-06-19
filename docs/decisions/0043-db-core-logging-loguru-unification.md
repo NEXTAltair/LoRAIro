@@ -1,7 +1,12 @@
+---
+type: ADR
+title: db_core Logging Loguru Unification
+status: Accepted
+timestamp: 2026-05-31
+tags: []
+---
 # ADR 0043: db_core Logging Loguru Unification
 
-- **日付**: 2026-05-31
-- **ステータス**: Accepted
 - **関連 Issue**: [NEXTAltair/LoRAIro#572](https://github.com/NEXTAltair/LoRAIro/issues/572)
 - **関連 ADR**: [ADR 0042](0042-batch-annotation-db-save-io.md)
 

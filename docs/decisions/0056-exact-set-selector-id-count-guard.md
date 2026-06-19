@@ -1,7 +1,12 @@
+---
+type: ADR
+title: exact-set selector の大量ID集合ガード / count-only 軽量化方針
+status: Accepted
+timestamp: 2026-06-05
+tags: []
+---
 # ADR 0056: exact-set selector の大量ID集合ガード / count-only 軽量化方針
 
-- **日付**: 2026-06-05
-- **ステータス**: Accepted
 - **関連 Issue**: #624 (本 ADR), #612 / PR #623 (exact-set selector 導入)
 
 ## Context

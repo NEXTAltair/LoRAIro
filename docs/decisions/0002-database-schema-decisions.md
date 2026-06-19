@@ -1,7 +1,11 @@
+---
+type: ADR
+title: Database Schema Decisions
+status: Accepted
+timestamp: 2025-04-16
+tags: []
+---
 # ADR 0002: Database Schema Decisions
-
-- **日付**: 2025-04-16
-- **ステータス**: Accepted
 
 ## Context
 

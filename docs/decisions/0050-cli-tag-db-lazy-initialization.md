@@ -1,8 +1,11 @@
-# 0050. CLI tag DB lazy initialization
-
-## Status
-
-Accepted
+---
+type: ADR
+title: CLI Tag DB Lazy Initialization
+status: Accepted
+timestamp: 2026-06-01
+tags: []
+---
+# ADR 0050: CLI Tag DB Lazy Initialization
 
 ## Context
 

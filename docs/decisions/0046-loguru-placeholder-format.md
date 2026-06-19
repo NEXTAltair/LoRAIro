@@ -1,7 +1,11 @@
+---
+type: ADR
+title: Loguru Placeholder Format
+status: Accepted
+timestamp: 2026-05-31
+tags: []
+---
 # ADR 0046: Loguru Placeholder Format
-
-- **日付**: 2026-05-31
-- **ステータス**: Accepted
 
 ## Context
 

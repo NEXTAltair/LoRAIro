@@ -1,8 +1,12 @@
-# 0068. タグ正規化責任の genai-tag-db-tools への集約
-
-- Status: Accepted
-- Date: 2026-06-16 (Revised: 2026-06-16 — 解決タイミングを表示時から保存時へ変更)
-- Deciders: NEXTAltair
+---
+type: ADR
+title: タグ正規化責任の genai-tag-db-tools への集約
+status: Accepted (Revised: 2026-06-16 — 解決タイミングを表示時から保存時へ変更)
+timestamp: 2026-06-16
+deciders: NEXTAltair
+tags: []
+---
+# ADR 0068: タグ正規化責任の genai-tag-db-tools への集約
 
 ## Context
 

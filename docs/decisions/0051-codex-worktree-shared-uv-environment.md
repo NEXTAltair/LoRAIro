@@ -1,8 +1,11 @@
-# 0051. Codex worktree shared uv environment
-
-## Status
-
-Accepted
+---
+type: ADR
+title: Codex Worktree Shared uv Environment
+status: Accepted
+timestamp: 2026-06-01
+tags: []
+---
+# ADR 0051: Codex Worktree Shared uv Environment
 
 ## Context
 

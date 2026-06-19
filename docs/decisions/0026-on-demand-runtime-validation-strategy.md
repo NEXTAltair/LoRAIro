@@ -1,8 +1,13 @@
+---
+type: ADR
+title: On-Demand Runtime Validation Strategy
+status: Accepted (amended)
+timestamp: 2026-05-17
+tags: []
+---
 # ADR 0026: On-Demand Runtime Validation Strategy
 
-- **日付**: 2026-05-17
 - **Amended**: 2026-05-18
-- **ステータス**: Accepted (amended)
 
 ## Context
 

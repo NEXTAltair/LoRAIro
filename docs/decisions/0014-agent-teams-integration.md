@@ -1,7 +1,11 @@
+---
+type: ADR
+title: Agent Teams Integration
+status: Accepted
+timestamp: 2026-04-09
+tags: []
+---
 # ADR 0014: Agent Teams Integration
-
-- **日付**: 2026-04-09
-- **ステータス**: Accepted
 
 ## Context
 

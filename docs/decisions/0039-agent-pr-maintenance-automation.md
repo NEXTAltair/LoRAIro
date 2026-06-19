@@ -1,7 +1,11 @@
+---
+type: ADR
+title: Agent PR Maintenance Automation
+status: Accepted
+timestamp: 2026-05-25
+tags: []
+---
 # ADR 0039: Agent PR Maintenance Automation
-
-- **日付**: 2026-05-25
-- **ステータス**: Accepted
 
 ## Context
 

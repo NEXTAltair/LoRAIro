@@ -1,7 +1,11 @@
+---
+type: ADR
+title: MainWindow UI Redesign
+status: Accepted
+timestamp: 2026-01-04
+tags: []
+---
 # ADR 0011: MainWindow UI Redesign
-
-- **日付**: 2026-01-04
-- **ステータス**: Accepted
 
 ## Context
 

@@ -1,7 +1,11 @@
+---
+type: ADR
+title: uv.lock Version Control Policy
+status: Accepted
+timestamp: 2026-05-14
+tags: []
+---
 # ADR 0025: uv.lock Version Control Policy
-
-- **日付**: 2026-05-14
-- **ステータス**: Accepted
 
 ## Context
 

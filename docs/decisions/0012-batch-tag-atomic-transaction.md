@@ -1,7 +1,11 @@
+---
+type: ADR
+title: Batch Tag Atomic Transaction Fix
+status: Accepted
+timestamp: 2026-01-06
+tags: []
+---
 # ADR 0012: Batch Tag Atomic Transaction Fix
-
-- **日付**: 2026-01-06
-- **ステータス**: Accepted
 
 ## Context
 

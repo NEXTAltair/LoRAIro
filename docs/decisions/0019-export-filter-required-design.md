@@ -1,7 +1,11 @@
+---
+type: ADR
+title: Export Filter Required Design
+status: Implemented (2026-04-25)
+timestamp: 2026-04-22
+tags: []
+---
 # ADR 0019: Export Filter Required Design
-
-- **日付**: 2026-04-22
-- **ステータス**: Implemented (2026-04-25)
 
 ## Context
 

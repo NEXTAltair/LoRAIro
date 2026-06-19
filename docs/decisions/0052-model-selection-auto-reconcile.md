@@ -1,8 +1,11 @@
-# 0052. ModelSelectionWidget 初回表示時の model reconcile
-
-## Status
-
-Accepted
+---
+type: ADR
+title: ModelSelectionWidget 初回表示時の model reconcile
+status: Accepted
+timestamp: 2026-06-01
+tags: []
+---
+# ADR 0052: ModelSelectionWidget 初回表示時の model reconcile
 
 ## Context
 

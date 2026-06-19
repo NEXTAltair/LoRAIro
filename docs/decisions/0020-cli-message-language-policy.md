@@ -1,7 +1,11 @@
+---
+type: ADR
+title: CLI Message Language Policy
+status: Accepted
+timestamp: 2026-04-27
+tags: []
+---
 # ADR 0020: CLI Message Language Policy
-
-- **日付**: 2026-04-27
-- **ステータス**: Accepted
 
 ## Context
 

@@ -1,7 +1,12 @@
+---
+type: ADR
+title: Repository Aggregate分割方針
+status: Accepted
+timestamp: 2026-05-25
+tags: []
+---
 # ADR 0035: Repository Aggregate分割方針
 
-- **日付**: 2026-05-25
-- **ステータス**: Accepted
 - **関連 Issue**: #426 (ADR起票), #423 (実装)
 
 ## Context

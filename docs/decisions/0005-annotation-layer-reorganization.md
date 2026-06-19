@@ -1,7 +1,11 @@
+---
+type: ADR
+title: Annotation Layer Reorganization
+status: Accepted
+timestamp: 2025-11-15
+tags: []
+---
 # ADR 0005: Annotation Layer Reorganization
-
-- **日付**: 2025-11-15
-- **ステータス**: Accepted
 
 ## Context
 

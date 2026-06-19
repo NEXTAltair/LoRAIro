@@ -1,7 +1,12 @@
+---
+type: ADR
+title: CLI Batch Submit Image IDs CSV Contract
+status: Accepted
+timestamp: 2026-06-07
+tags: []
+---
 # ADR 0063: CLI Batch Submit Image IDs CSV Contract
 
-- **日付**: 2026-06-07
-- **ステータス**: Accepted
 - **関連 Issue**: #671
 - **関連 ADR**: [0057](0057-cli-jsonl-output-and-error-contract.md), [0059](0059-cli-command-introspection.md), [0060](0060-cli-bounded-pagination-contract.md)
 

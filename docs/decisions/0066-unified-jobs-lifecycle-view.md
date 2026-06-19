@@ -1,7 +1,12 @@
-# ADR 0066: Unified Jobs Lifecycle View (Wireframes v11 Phase 7)
+---
+type: ADR
+title: Unified Jobs Lifecycle View
+status: Accepted (2026-06-12)
+timestamp: 2026-06-12
+tags: []
+---
+# ADR 0066: Unified Jobs Lifecycle View
 
-- **日付**: 2026-06-12
-- **ステータス**: Accepted (2026-06-12)
 - **関連**: ADR 0034 (Worker / Operation / Pipeline Lifecycle Boundary), ADR 0038 (Provider Batch API Integration), ADR 0041 (Provider Batch 実行 UI 統一), ADR 0044 (Provider Batch Submit Threading)
 
 ## Context

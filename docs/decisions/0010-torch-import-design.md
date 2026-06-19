@@ -1,7 +1,11 @@
+---
+type: ADR
+title: Torch Import Design
+status: Accepted
+timestamp: 2025-10-28
+tags: []
+---
 # ADR 0010: Torch Import Design
-
-- **日付**: 2025-10-28
-- **ステータス**: Accepted
 
 ## Context
 

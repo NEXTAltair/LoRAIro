@@ -1,7 +1,11 @@
+---
+type: ADR
+title: Batch Annotation Model Selection UI
+status: Accepted
+timestamp: 2026-05-20
+tags: []
+---
 # ADR 0030: Batch Annotation Model Selection UI
-
-- **日付**: 2026-05-20
-- **ステータス**: Accepted
 
 ## Context
 

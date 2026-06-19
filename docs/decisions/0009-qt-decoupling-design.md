@@ -1,7 +1,11 @@
+---
+type: ADR
+title: Qt Decoupling Design
+status: Accepted
+timestamp: 2026-02-16
+tags: []
+---
 # ADR 0009: Qt Decoupling Design
-
-- **日付**: 2026-02-16
-- **ステータス**: Accepted
 
 ## Context
 

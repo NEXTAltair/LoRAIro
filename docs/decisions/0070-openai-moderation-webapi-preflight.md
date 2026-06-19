@@ -1,4 +1,11 @@
-# 0042. OpenAI Moderation WebAPI Preflight
+---
+type: ADR
+title: OpenAI Moderation WebAPI Preflight
+status: Accepted
+timestamp: 2026-05-30
+tags: []
+---
+# ADR 0070: OpenAI Moderation WebAPI Preflight
 
 ## Context
 

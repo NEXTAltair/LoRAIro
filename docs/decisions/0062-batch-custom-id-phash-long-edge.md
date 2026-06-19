@@ -1,7 +1,12 @@
+---
+type: ADR
+title: Provider Batch custom_id を pHash + 長辺解像度基準へ統一
+status: Accepted
+timestamp: 2026-06-05
+tags: []
+---
 # ADR 0062: Provider Batch custom_id を pHash + 長辺解像度基準へ統一
 
-- **日付**: 2026-06-05
-- **ステータス**: Accepted
 - **関連 Issue**: #629 (本 ADR)
 - **関連 ADR**: 0038 (Provider Batch Job Lifecycle), 0044 (Provider Batch Submit Threading)
 

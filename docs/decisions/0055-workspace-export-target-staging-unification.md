@@ -1,7 +1,12 @@
+---
+type: ADR
+title: Workspace Export Target = Staging Set / Selection-Source Unification
+status: Accepted
+timestamp: 2026-06-04
+tags: []
+---
 # ADR 0055: Workspace Export Target = Staging Set / Selection-Source Unification
 
-- **日付**: 2026-06-04
-- **ステータス**: Accepted
 - **関連 Issue**: #610 (epic), #611 (S1 入口), #612 (S2 接続), #613 (S3 picker), #614 (S4 changed-since), #615 (S5 解像度UI)
 
 ## Context

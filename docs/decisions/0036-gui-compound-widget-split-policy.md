@@ -1,7 +1,12 @@
+---
+type: ADR
+title: GUI Compound Widget 分割方針
+status: Accepted
+timestamp: 2026-05-25
+tags: []
+---
 # ADR 0036: GUI Compound Widget 分割方針
 
-- **日付**: 2026-05-25
-- **ステータス**: Accepted
 - **関連 Issue**: #427 (ADR起票), #420 (実装: FilterSearchPanel)
 
 ## Context

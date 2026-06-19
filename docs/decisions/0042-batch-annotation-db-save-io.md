@@ -1,7 +1,12 @@
+---
+type: ADR
+title: Batch Annotation DB Save I/O
+status: Accepted
+timestamp: 2026-05-30
+tags: []
+---
 # ADR 0042: Batch Annotation DB Save I/O
 
-- **日付**: 2026-05-30
-- **ステータス**: Accepted
 - **関連 Issue**: [NEXTAltair/LoRAIro#568](https://github.com/NEXTAltair/LoRAIro/issues/568)
 - **関連 ADR**: [ADR 0012](0012-batch-tag-atomic-transaction.md),
   [ADR 0035](0035-repository-aggregate-split-policy.md)

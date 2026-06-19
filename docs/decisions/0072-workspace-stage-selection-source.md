@@ -1,4 +1,11 @@
-# 0043. Workspace stage button selection source
+---
+type: ADR
+title: Workspace stage button selection source
+status: Accepted
+timestamp: 2026-05-31
+tags: []
+---
+# ADR 0072: Workspace stage button selection source
 
 ## Context
 

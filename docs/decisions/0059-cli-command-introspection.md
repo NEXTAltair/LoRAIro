@@ -1,7 +1,12 @@
+---
+type: ADR
+title: CLI Command Introspection Contract
+status: Accepted
+timestamp: 2026-06-06
+tags: []
+---
 # ADR 0059: CLI Command Introspection Contract
 
-- **日付**: 2026-06-06
-- **ステータス**: Accepted
 - **関連 Issue**: #634 (epic) / #638
 - **関連 ADR**: [0057](0057-cli-jsonl-output-and-error-contract.md) (JSONL 出力 / エラー契約), [0058](0058-cli-output-mode-trigger-and-entrypoint-policy.md) (出力モード / エントリ方針), [0048](0048-webapi-annotation-candidate-filtering.md) (モデル候補フィルタ), [0055](0055-workspace-export-target-staging-unification.md) (検索→ステージング集合), [0056](0056-exact-set-selector-id-count-guard.md) (exact-set 上限)
 - **参照**: tag-db ADR 0005 (CLI Command Introspection Contract)
