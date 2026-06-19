@@ -137,6 +137,8 @@ dev_config/
 
 # 開発用ツール（サードパーティ）
 data/
+# 例外: docs の Design System ミラーには runtime でない components/data/ がある
+!docs/design/lorairo-design-system/components/data/
 .clinerules/byterover-rules.md
 .kilocode/rules/byterover-rules.md
 .roo/rules/byterover-rules.md
