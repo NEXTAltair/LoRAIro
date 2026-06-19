@@ -28,11 +28,10 @@ GUI の画像エクスポート導線が「悪い」と報告された (#610)。
 - **ADR 0019 (Export Filter Required Design)**: LoRA 学習データ作成では「全件エクスポート」が
   正常ケースとして存在しない。GUI は「明示選択＝暗黙フィルタ」を維持し、フィルタ結果や全件の
   直エクスポートは大量誤エクスポート（21k 件事故, Issue #166）防止のため**意図的に避ける**。
-- **ADR 0043 (`0043-workspace-stage-selection-source.md`, Workspace stage button selection source)**:
+- **ADR 0072 (`0072-workspace-stage-selection-source.md`, Workspace stage button selection source)**:
   `DatasetStateManager` が唯一の選択ソース。新しいワークスペース入口は別の選択解決パスを足さない。
   `QPushButton.clicked(bool)` ペイロードを ID と誤認しない（Issue #570 のバグ元）。
-  ※ ADR 番号 0043 は `0043-db-core-logging-loguru-unification.md` と重複している。本 ADR が指すのは
-  **workspace-stage-selection-source** の方であり、ファイル名で参照する。
+  ※ かつて番号 0043 が `0043-db-core-logging-loguru-unification.md` と重複していたため、#777 で 0072 へ採番し直した。
 - **lesson #178**: `DatasetExportService.export_with_criteria()` を GUI/CLI/API 3 経路の ID 解決
   SSoT として集約済み。各経路で個別実装すると二重クエリ・整合性ズレが起きる。
 
@@ -58,9 +57,9 @@ GUI の画像エクスポート導線が「悪い」と報告された (#610)。
   変更・クリアしても対象がズレない（Codex review #617 の指摘=「選択を読むと対象が再び曖昧化する」を回避）。
 - 下部バーの件数表示は `StagingWidget.staged_images_changed` を購読し**ステージング件数**を出す。
 - サムネ選択をエクスポート対象に入れたい場合は、まず明示の「選択をステージングへ」アクションを経由する。
-  このアクション**のみ** `DatasetStateManager` を読み、ADR 0043
-  (`0043-workspace-stage-selection-source.md`) の `clicked(bool)` 規約に従う。
-  新規入口は別の選択解決パスを足さない（ADR 0043 継承）。
+  このアクション**のみ** `DatasetStateManager` を読み、ADR 0072
+  (`0072-workspace-stage-selection-source.md`) の `clicked(bool)` 規約に従う。
+  新規入口は別の選択解決パスを足さない（ADR 0072 継承）。
 
 ### 3. `ImageFilterCriteria` への明示 ID 統合
 
@@ -90,7 +89,7 @@ A を採用した理由:
 
 - **ADR 0019 整合**: ステージング投入はユーザーの明示操作であり「意図の明示」を満たす。
   有界（MAX 件数）なので 21k 件級の誤エクスポートを構造的に防ぐ。
-- **ADR 0043 整合**: `DatasetStateManager` を唯一の選択ソースに保ち、ステージングはその下流の
+- **ADR 0072 整合**: `DatasetStateManager` を唯一の選択ソースに保ち、ステージングはその下流の
   明示集合として扱う。新規入口は選択解決パスを増やさない。
 - **対象が可視化される**: 「現在選択中」という不可視概念ではなく、名前付きの集合（ステージング）
   を対象にすることで「対象が不明瞭」が構造的に解消する。
@@ -105,7 +104,7 @@ A を採用した理由:
 ### 良い点
 
 - ◎ エクスポート対象が常に可視・明示・有界になり「対象が不明瞭」が構造的に消える。
-- ◎ ADR 0019（誤エクスポート防止）と ADR 0043（単一選択ソース）の双方を不変に保つ。
+- ◎ ADR 0019（誤エクスポート防止）と ADR 0072（単一選択ソース）の双方を不変に保つ。
 - ◎ `export_with_criteria` を唯一の ID 解決 SSoT として維持（lesson #178）。
 
 ### トレードオフ
@@ -126,8 +125,8 @@ A を採用した理由:
 ## Related
 
 - ADR 0019: Export Filter Required Design（GUI 選択＝暗黙フィルタ、誤エクスポート防止）
-- ADR 0043 (`0043-workspace-stage-selection-source.md`): Workspace stage button selection source
-  （単一選択ソース、clicked(bool) 注意）。※番号 0043 は `0043-db-core-logging-loguru-unification.md` と重複、本 ADR が指すのは前者。
+- ADR 0072 (`0072-workspace-stage-selection-source.md`): Workspace stage button selection source
+  （単一選択ソース、clicked(bool) 注意）。※ 旧番号 0043 の db_core ログ ADR との重複を #777 で解消し 0072 へ採番。
 - ADR 0001 / 0009: Two-Tier Service Architecture / Qt Decoupling（Qt-free な対象解決ロジック）
 - lesson #178: `export_with_criteria` を 3 経路の ID 解決 SSoT に集約
 - Issue #610 (epic), #611, #612, #614
