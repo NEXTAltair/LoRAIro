@@ -193,8 +193,9 @@ if not __name__ == "__main__":
             self.btnRefreshModels.setToolTip("モデル一覧を更新")
             self.btnRefreshModels.setMaximumSize(48, 24)
             self.btnRefreshModels.setStyleSheet(
-                f"QPushButton {{ font-size: 10px; padding: 3px 6px;"
-                f" border: 1px solid {theme.LINE_STRONG}; border-radius: 3px;"
+                f"QPushButton {{ font-size: {theme.FONT_SIZE_META}px; padding: 3px 6px;"
+                f" border: {theme.BORDER_WIDTH}px solid {theme.LINE_STRONG};"
+                f" border-radius: {theme.RADIUS_BADGE}px;"
                 f" background-color: {theme.CARD}; color: {theme.INK_SOFT}; }}"
                 f"QPushButton:hover {{ background-color: {theme.PAPER_SHADE}; }}"
                 f"QPushButton:pressed {{ background-color: {theme.ACCENT_SOFT}; }}"

@@ -5,6 +5,7 @@ QSS 生成 / チップ文法 API の振る舞いを検証する。
 """
 
 import re
+from pathlib import Path
 
 import pytest
 
@@ -13,6 +14,11 @@ from lorairo.gui import theme
 pytestmark = pytest.mark.unit
 
 _HEX_RE = re.compile(r"^#[0-9a-f]{6}$")
+
+# DS token SSoT (theme.py と 1:1 で維持される。Issue #782)
+_DS_TOKENS_DIR = Path(__file__).parents[3] / "docs" / "design" / "lorairo-design-system" / "tokens"
+# CSS var (--accent-hover) -> theme.py 定数名 (ACCENT_HOVER) への素直な変換で対応する色トークン
+_CSS_HEX_RE = re.compile(r"--([a-z0-9-]+):\s*(#[0-9a-f]{6});")
 
 
 class TestTokenValues:
@@ -51,6 +57,8 @@ class TestTokenValues:
     def test_shape_tokens(self):
         assert theme.RADIUS == 6
         assert theme.RADIUS_CHIP == 10
+        assert theme.RADIUS_BADGE == 3
+        assert theme.RADIUS_SHELL == 8
         assert (theme.SPACE_1, theme.SPACE_2, theme.SPACE_3, theme.SPACE_4, theme.SPACE_5) == (
             4,
             8,
@@ -58,6 +66,54 @@ class TestTokenValues:
             16,
             24,
         )
+
+    def test_border_width_tokens(self):
+        # tokens/spacing.css --bw / --bw-accent と 1:1
+        assert theme.BORDER_WIDTH == 1
+        assert theme.BORDER_WIDTH_ACCENT == 2
+
+    def test_typography_size_tokens(self):
+        # tokens/typography.css --fs-* と 1:1
+        assert theme.FONT_SIZE_BASE == 13
+        assert theme.FONT_SIZE_SMALL == 11
+        assert theme.FONT_SIZE_H2 == 14
+        assert theme.FONT_SIZE_H1 == 18
+        assert theme.FONT_SIZE_META == 10
+
+    def test_typography_weight_tokens(self):
+        # tokens/typography.css --fw-* と 1:1
+        assert theme.FONT_WEIGHT_REGULAR == 400
+        assert theme.FONT_WEIGHT_MEDIUM == 500
+        assert theme.FONT_WEIGHT_SEMIBOLD == 600
+        assert theme.FONT_WEIGHT_BOLD == 700
+
+    def test_letter_caps_token(self):
+        assert theme.LETTER_CAPS == "0.06em"
+
+    def test_font_css_helpers_quote_family_chain(self):
+        # tokens/typography.css --font-sans / --font-mono と 1:1 (QSS 用の引用符付き連結)
+        assert theme.FONT_MONO_CSS == "'JetBrains Mono', 'Cascadia Mono', 'monospace'"
+        assert theme.FONT_SANS_CSS == "'Noto Sans JP', 'Segoe UI', 'Hiragino Sans'"
+        for family in theme.FONT_MONO_FAMILIES:
+            assert f"'{family}'" in theme.FONT_MONO_CSS
+        for family in theme.FONT_SANS_FAMILIES:
+            assert f"'{family}'" in theme.FONT_SANS_CSS
+
+
+class TestDsTokenParity:
+    """DS token CSS (SSoT) と theme.py 定数が 1:1 で一致することを保証する (Issue #782)。"""
+
+    def test_color_tokens_match_ds_colors_css(self):
+        colors_css = (_DS_TOKENS_DIR / "colors.css").read_text(encoding="utf-8")
+        # :root 直下の生 hex トークンのみ対象 (var() 参照の semantic alias は除外)
+        ds_tokens = dict(_CSS_HEX_RE.findall(colors_css))
+        assert ds_tokens, "DS colors.css から hex トークンを抽出できなかった"
+
+        for css_name, hex_value in ds_tokens.items():
+            py_name = css_name.upper().replace("-", "_")
+            actual = getattr(theme, py_name, None)
+            assert actual is not None, f"theme.{py_name} が存在しない (DS --{css_name})"
+            assert actual == hex_value, f"theme.{py_name}={actual} が DS --{css_name}={hex_value} と不一致"
 
 
 class TestBuildGlobalQss:
