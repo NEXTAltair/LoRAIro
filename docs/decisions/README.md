@@ -82,6 +82,7 @@ ADR は OKF (Open Knowledge Format) バンドルとして管理する。各 ADR 
 | [0070](0070-openai-moderation-webapi-preflight.md) | OpenAI Moderation WebAPI Preflight | 2026-05-30 | Accepted |
 | [0071](0071-provider-batch-submit-button-busy.md) | Provider Batch Submit Button Busy State | 2026-05-30 | Accepted |
 | [0072](0072-workspace-stage-selection-source.md) | Workspace stage button selection source | 2026-05-31 | Accepted |
+| [0073](0073-missing-ds-parts-qt-strategy.md) | Qt implementation strategy for DS parts without Qt equivalents | 2026-06-20 | Accepted |
 <!-- OKF-TABLE:END -->
 
 ## ADR テンプレート

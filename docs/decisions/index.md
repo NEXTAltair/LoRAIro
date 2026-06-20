@@ -72,3 +72,4 @@
 * [OpenAI Moderation WebAPI Preflight](0070-openai-moderation-webapi-preflight.md)
 * [Provider Batch Submit Button Busy State](0071-provider-batch-submit-button-busy.md)
 * [Workspace stage button selection source](0072-workspace-stage-selection-source.md)
+* [Qt implementation strategy for DS parts without Qt equivalents](0073-missing-ds-parts-qt-strategy.md)
