@@ -141,6 +141,22 @@ def badge_qss() -> str:
     )
 
 
+def tag_chip_untranslated_qss() -> str:
+    """翻訳が存在しないタグ chip 用の QLabel QSS を返す。
+
+    表示言語に翻訳が無く英語原文へフォールバックしたタグを、点線 border +
+    faint 文字色で視覚的に区別する (DS wireframe v12 TagChip: borderStyle dashed)。
+
+    Returns:
+        paper-shade 地 + 点線 border + faint 文字の chip スタイル文字列。
+    """
+    return (
+        f"QLabel {{ background-color: {PAPER_SHADE}; color: {INK_FAINT};"
+        f" border: 1px dashed {LINE}; border-radius: {RADIUS_CHIP}px; padding: 1px 9px;"
+        f" font-size: {FONT_SIZE_SMALL}px; font-weight: 600; }}"
+    )
+
+
 # ジョブ状態 → トークン色 (実行中=info / 待機=灰 / 完了=ok / 失敗=err / 中止=灰)
 _JOB_STATUS_COLORS: dict[str, str] = {
     "submitted": INFO,

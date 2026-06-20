@@ -125,6 +125,10 @@ class AnnotationDataDisplayWidget(QWidget, Ui_AnnotationDataDisplayWidget):
         self._make_label_copyable(self.labelOverallValue)
 
     def _setup_tags_compact_view(self) -> None:
+        # 折り返しチップ配置レイアウト (DS wireframe v12 TagChip)。
+        # tag_cloud_service への module-load 連鎖を避けるため遅延 import する。
+        from .tag_cloud_widget import FlowLayout
+
         # 言語切り替えバー（コンボボックス付き）を先頭に動的追加
         self._lang_bar = QWidget(self.groupBoxTags)
         lang_layout = QHBoxLayout(self._lang_bar)
@@ -137,12 +141,30 @@ class AnnotationDataDisplayWidget(QWidget, Ui_AnnotationDataDisplayWidget):
         self._lang_bar.setVisible(False)  # merged_readerがない場合は非表示
         self.verticalLayoutTags.insertWidget(0, self._lang_bar)
 
+        # チップ表示コンテナ (DS chip 文法・borders-not-shadows)
+        self._tags_chip_container = QWidget(self.groupBoxTags)
+        self._tags_chip_layout = FlowLayout(self._tags_chip_container, spacing=4)
+        self._tags_chip_container.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Minimum)
+        self.verticalLayoutTags.insertWidget(1, self._tags_chip_container)
+
+        # 翻訳脚注 (非英語選択時のみ表示)
+        self._tags_translation_note = QLabel(self.groupBoxTags)
+        self._tags_translation_note.setWordWrap(True)
+        self._tags_translation_note.setStyleSheet(
+            f"color: {theme.INK_FAINT}; font-size: {theme.FONT_SIZE_SMALL - 1}px;"
+        )
+        self._tags_translation_note.setVisible(False)
+        self.verticalLayoutTags.insertWidget(2, self._tags_translation_note)
+
+        # コピー / アクセシビリティ用のテキストバッキング (非表示)。
+        # displayed_tags_text() と詳細コピーが参照する SSoT 文字列を保持する。
         self._tags_compact_label = QLabel(self.groupBoxTags)
         self._tags_compact_label.setWordWrap(True)
         self._tags_compact_label.setText("-")
         self._tags_compact_label.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Minimum)
         self._make_label_copyable(self._tags_compact_label)
-        self.verticalLayoutTags.insertWidget(1, self._tags_compact_label)
+        self._tags_compact_label.setVisible(False)
+        self.verticalLayoutTags.insertWidget(3, self._tags_compact_label)
 
         self.tableWidgetTags.setVisible(False)
 
@@ -355,9 +377,7 @@ class AnnotationDataDisplayWidget(QWidget, Ui_AnnotationDataDisplayWidget):
             self.tableWidgetTags.setRowCount(len(tags))
             self.tableWidgetTags.setSortingEnabled(False)  # 更新中はソート無効
 
-            tag_names = []
             for row, tag_dict in enumerate(tags):
-                tag_names.append(tag_dict.get("tag", ""))
                 # Tag列
                 tag_item = QTableWidgetItem(tag_dict["tag"])
                 self.tableWidgetTags.setItem(row, 0, tag_item)
@@ -393,13 +413,10 @@ class AnnotationDataDisplayWidget(QWidget, Ui_AnnotationDataDisplayWidget):
             self.tableWidgetTags.setSortingEnabled(True)  # ソート有効化
             self.tableWidgetTags.resizeColumnsToContents()
 
-            self._tags_compact_label.setText(", ".join([name for name in tag_names if name]) or "-")
-
-            # 英語以外の言語が選択されている場合は翻訳で再描画
+            # チップ表示・コンパクトラベルを現在の表示言語で描画する。
             # isHidden()で判定（isVisible()は親ウィジェット未表示時にFalseを返すため）
             current_lang = self._lang_combo.currentText() if not self._lang_bar.isHidden() else "english"
-            if current_lang and current_lang != "english":
-                self._refresh_tags_for_language(current_lang)
+            self._refresh_tags_for_language(current_lang)
 
             logger.debug(f"Updated tags display: {len(tags)} rows")
 
@@ -442,15 +459,21 @@ class AnnotationDataDisplayWidget(QWidget, Ui_AnnotationDataDisplayWidget):
         use_english = language == "english" or not language
 
         tag_names: list[str] = []
+        # チップ描画用メタ: (表示名, 原文, 翻訳ありか)
+        chip_items: list[tuple[str, str, bool]] = []
         for row, tag_dict in enumerate(tags):
             tag_id = tag_dict.get("tag_id")
             original = tag_dict.get("tag", "")
             if use_english or tag_id is None:
                 display = original
+                has_translation = True  # 英語表示では翻訳欠落マークを付けない
             else:
+                translated = translations.get(tag_id, {}).get(language)
                 # 翻訳がなければ英語原文にフォールバック
-                display = translations.get(tag_id, {}).get(language, original)
+                display = translated if translated else original
+                has_translation = translated is not None
             tag_names.append(display)
+            chip_items.append((display, original, has_translation))
 
             # テーブルのTag列（列0）も更新
             item = self.tableWidgetTags.item(row, 0)
@@ -458,6 +481,51 @@ class AnnotationDataDisplayWidget(QWidget, Ui_AnnotationDataDisplayWidget):
                 item.setText(display)
 
         self._tags_compact_label.setText(", ".join(n for n in tag_names if n) or "-")
+        self._render_tag_chips(chip_items, is_translated=not use_english)
+
+    def _render_tag_chips(self, chip_items: list[tuple[str, str, bool]], *, is_translated: bool) -> None:
+        """タグチップを DS chip 文法で再描画する (borders-not-shadows)。
+
+        Args:
+            chip_items: (表示名, 原文, 翻訳ありか) のタプルリスト。
+            is_translated: 非英語言語で表示中なら True。脚注表示と翻訳欠落の
+                点線マーク (theme.tag_chip_untranslated_qss) の有効/無効を切り替える。
+        """
+        # 既存チップをクリア
+        while self._tags_chip_layout.count():
+            child = self._tags_chip_layout.takeAt(0)
+            if child is None:
+                continue
+            widget = child.widget()
+            if widget is not None:
+                widget.deleteLater()
+
+        visible_items = [(display, original, has_tr) for display, original, has_tr in chip_items if display]
+        if not visible_items:
+            placeholder = QLabel("-")
+            placeholder.setStyleSheet(f"color: {theme.INK_FAINT};")
+            self._tags_chip_layout.addWidget(placeholder)
+            self._tags_translation_note.setVisible(False)
+            return
+
+        for display, original, has_tr in visible_items:
+            chip = QLabel(display)
+            if is_translated and not has_tr:
+                chip.setStyleSheet(theme.tag_chip_untranslated_qss())
+                chip.setToolTip(f"{original} — 翻訳なし")
+            else:
+                chip.setStyleSheet(theme.chip_qss("accent"))
+                if is_translated and display != original:
+                    chip.setToolTip(f"{original} → {display}")
+            self._tags_chip_layout.addWidget(chip)
+
+        if is_translated:
+            self._tags_translation_note.setText(
+                "表示のみ翻訳 · 保存値は danbooru canonical 固定 · 点線 = 翻訳なし"
+            )
+            self._tags_translation_note.setVisible(True)
+        else:
+            self._tags_translation_note.setVisible(False)
 
     def _update_caption_display(self, caption: str) -> None:
         """キャプション表示を更新"""
@@ -633,6 +701,7 @@ class AnnotationDataDisplayWidget(QWidget, Ui_AnnotationDataDisplayWidget):
             self._update_quality_tier_display({})
 
             self._tags_compact_label.setText("-")
+            self._render_tag_chips([], is_translated=False)
             self._adjust_content_heights()
 
             self.data_cleared.emit()
