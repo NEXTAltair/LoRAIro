@@ -767,7 +767,8 @@ def test_refresh_sync_jobs_reflects_ledger_changes(widget):
 
     table = widget.get_sync_jobs_widget().tableSyncJobs
     assert table.rowCount() == 1
-    assert table.item(0, 2).text() == "完了"
+    # 状態 (col2) は DS chip 文法で cellWidget 化 (Issue #790)
+    assert table.cellWidget(0, 2).text() == "完了"
 
 
 @pytest.mark.unit
