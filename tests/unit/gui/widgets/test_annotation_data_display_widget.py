@@ -245,6 +245,88 @@ class TestAnnotationDataDisplayWidget:
 
         assert "1人の女の子" in widget._tags_compact_label.text()
 
+    # ─── タグチップ表示 (Issue #785 / DS chip 文法) ──────────────────────
+
+    def _chip_texts(self, widget):
+        """チップコンテナ内の QLabel テキストを順序付きで返す。"""
+        layout = widget._tags_chip_layout
+        texts = []
+        for i in range(layout.count()):
+            item = layout.itemAt(i)
+            w = item.widget() if item is not None else None
+            if w is not None:
+                texts.append(w.text())
+        return texts
+
+    def test_chips_render_english_tags(self, widget, sample_tags):
+        """英語表示でタグ数ぶんのチップが描画されること。"""
+        widget.update_data(AnnotationData(tags=sample_tags))
+        assert self._chip_texts(widget) == ["1girl", "flower", "solo"]
+
+    def test_chips_render_translated_tags(self, widget, sample_tags):
+        """言語切り替えでチップが翻訳テキストになること。"""
+        translations = {10: {"japanese": "1人の女の子"}, 20: {"japanese": "花"}}
+        data = AnnotationData(
+            tags=sample_tags,
+            tag_translations=translations,
+            available_languages=["japanese"],
+        )
+        widget.update_data(data)
+        widget.initialize_language_selector(["japanese"])
+        widget._lang_combo.setCurrentText("japanese")
+
+        # tag_id=None の solo は英語原文へフォールバック
+        assert self._chip_texts(widget) == ["1人の女の子", "花", "solo"]
+
+    def test_untranslated_chip_uses_dashed_style(self, widget, sample_tags):
+        """翻訳のないタグのチップは点線スタイル (faint) になること。"""
+        from lorairo.gui import theme
+
+        translations = {10: {"japanese": "1人の女の子"}}  # flower(20) は翻訳なし
+        data = AnnotationData(
+            tags=sample_tags,
+            tag_translations=translations,
+            available_languages=["japanese"],
+        )
+        widget.update_data(data)
+        widget.initialize_language_selector(["japanese"])
+        widget._lang_combo.setCurrentText("japanese")
+
+        layout = widget._tags_chip_layout
+        flower_chip = layout.itemAt(1).widget()  # row1 = flower (翻訳なし)
+        assert flower_chip.styleSheet() == theme.tag_chip_untranslated_qss()
+
+    def test_translation_note_visible_only_when_translated(self, widget, sample_tags):
+        """脚注は非英語選択時のみ表示されること。"""
+        translations = {10: {"japanese": "1人の女の子"}}
+        data = AnnotationData(
+            tags=sample_tags,
+            tag_translations=translations,
+            available_languages=["japanese"],
+        )
+        widget.update_data(data)
+        widget.initialize_language_selector(["japanese"])
+
+        # 英語選択中は脚注非表示
+        assert widget._tags_translation_note.isHidden()
+
+        widget._lang_combo.setCurrentText("japanese")
+        assert not widget._tags_translation_note.isHidden()
+        assert "canonical" in widget._tags_translation_note.text()
+
+        # 英語へ戻すと再び非表示
+        widget._lang_combo.setCurrentText("english")
+        assert widget._tags_translation_note.isHidden()
+
+    def test_clear_data_removes_chips(self, widget, sample_tags):
+        """clear_data でチップが空になること。"""
+        widget.update_data(AnnotationData(tags=sample_tags))
+        assert len(self._chip_texts(widget)) == 3
+
+        widget.clear_data()
+        # placeholder ("-") のみ
+        assert self._chip_texts(widget) == ["-"]
+
     # ─── score_labels compact pill display (Issue #284 / ADR 0028) ─────
 
     @pytest.fixture
