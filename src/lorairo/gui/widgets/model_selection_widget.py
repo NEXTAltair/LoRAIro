@@ -22,6 +22,14 @@ from PySide6.QtWidgets import QLabel, QMessageBox, QProgressBar, QPushButton, QW
 
 from lorairo.gui import theme
 
+# DS v12 AnnotateScreen ModelPicker (Issue #788): プロバイダーグループ見出しは
+# emoji を使わず (DS no-emoji)、ink-soft + letter-caps + bold の DS group ヘッダ文法。
+_GROUP_HEADER_QSS = (
+    f"color: {theme.INK_SOFT}; font-weight: {theme.FONT_WEIGHT_BOLD};"
+    f" letter-spacing: {theme.LETTER_CAPS}; font-size: {theme.FONT_SIZE_SMALL}px;"
+    f" padding: 2px 0; margin: 4px 0 2px 0;"
+)
+
 # Database imports moved to conditional section for standalone compatibility
 if __name__ == "__main__":
     # テスト実行時は絶対インポート使用（後でインポート）
@@ -594,12 +602,10 @@ if not __name__ == "__main__":
 
         def _add_provider_group(self, provider: str, options: list[DisplayModelOption]) -> None:
             """プロバイダーグループをUIに追加 (Issue #241: DisplayModelOption 経由)"""
-            # プロバイダーラベル
-            provider_icons = {"openai": "🤖", "anthropic": "🧠", "google": "🌟", "local": "💻"}
-            icon = provider_icons.get(provider.lower(), "🔧")
-
-            provider_label = QLabel(f"{icon} {provider.title()} Models")
+            # プロバイダーラベル (Issue #788: DS group ヘッダ文法、emoji 不使用)
+            provider_label = QLabel(f"{provider.title()} Models")
             provider_label.setProperty("class", "provider-group-label")
+            provider_label.setStyleSheet(_GROUP_HEADER_QSS)
 
             # Qt Designer多重継承パターンでは直接アクセス
             self.dynamicContentLayout.addWidget(provider_label)
@@ -961,14 +967,14 @@ if not __name__ == "__main__":
             Args:
                 batch_options: (provider, direct_litellm_id, ModelInfo) のリスト。
             """
-            provider_icons = {"openai": "🤖", "anthropic": "🧠"}
             current_provider: str | None = None
             for provider, direct_id, model_info in batch_options:
                 if provider != current_provider:
                     current_provider = provider
-                    icon = provider_icons.get(provider, "🔧")
-                    group_label = QLabel(f"{icon} {provider.title()} Models")
+                    # Issue #788: DS group ヘッダ文法、emoji 不使用
+                    group_label = QLabel(f"{provider.title()} Models")
                     group_label.setProperty("class", "provider-group-label")
+                    group_label.setStyleSheet(_GROUP_HEADER_QSS)
                     self.dynamicContentLayout.addWidget(group_label)
 
                 checkbox_widget = ModelCheckboxWidget(model_info)
