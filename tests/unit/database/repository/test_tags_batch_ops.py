@@ -118,3 +118,49 @@ class TestReplaceTagForImagesBatch:
         with pytest.raises(SQLAlchemyError):
             repo.replace_tag_for_images_batch([123], "bad_tag", "good_tag")
         mock_session.rollback.assert_called_once()
+
+
+@pytest.mark.unit
+class TestRestoreTagForImagesBatch:
+    def test_restores_rejected_tag_returns_per_item(self, repo, mock_session):
+        mock_session.execute = MagicMock(return_value=MagicMock(scalars=MagicMock(return_value=[123])))
+
+        ok, results = repo.restore_tag_for_images_batch([123, 456], "bad_tag")
+
+        assert ok is True
+        assert (123, "changed") in results
+        assert (456, "skipped") in results
+        mock_session.commit.assert_called_once()
+
+    def test_empty_image_ids_returns_false(self, repo, mock_session):
+        ok, results = repo.restore_tag_for_images_batch([], "bad_tag")
+        assert ok is False
+        assert results == []
+
+    def test_empty_tag_returns_false(self, repo, mock_session):
+        ok, results = repo.restore_tag_for_images_batch([123], "  ")
+        assert ok is False
+        assert results == []
+
+    def test_db_error_rolls_back_and_reraises(self, repo, mock_session):
+        from sqlalchemy.exc import SQLAlchemyError
+
+        mock_session.execute = MagicMock(side_effect=SQLAlchemyError("db error"))
+        with pytest.raises(SQLAlchemyError):
+            repo.restore_tag_for_images_batch([123], "bad_tag")
+        mock_session.rollback.assert_called_once()
+
+
+@pytest.mark.unit
+class TestGetRejectedTags:
+    def test_returns_rejected_tag_dicts(self, repo, mock_session):
+        row = MagicMock(tag="bad_tag", tag_id=7, is_edited_manually=False)
+        mock_session.execute = MagicMock(return_value=MagicMock(all=MagicMock(return_value=[row])))
+
+        result = repo.get_rejected_tags(42)
+
+        assert result == [{"tag": "bad_tag", "tag_id": 7, "is_edited_manually": False}]
+
+    def test_empty_when_no_rejected(self, repo, mock_session):
+        mock_session.execute = MagicMock(return_value=MagicMock(all=MagicMock(return_value=[])))
+        assert repo.get_rejected_tags(42) == []

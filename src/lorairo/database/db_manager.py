@@ -1178,6 +1178,59 @@ class ImageDatabaseManager:
             logger.debug(f"MANUAL_EDITモデルIDをキャッシュ: {self._manual_edit_model_id}")
         return self._manual_edit_model_id
 
+    # --- TagEdit soft-reject 導線 (Issue #792) ---
+
+    def soft_reject_tag(self, image_id: int, tag: str) -> bool:
+        """画像の 1 タグを soft-reject する (rejected_at に記録、行は残す)。
+
+        Args:
+            image_id: 対象画像 ID。
+            tag: soft-reject するタグ。
+
+        Returns:
+            実際に reject された場合 True (既に無い場合 False)。
+        """
+        success, per_item = self.annotation_repo.remove_tag_from_images_batch([image_id], tag)
+        return success and any(status == "changed" for _, status in per_item)
+
+    def restore_tag(self, image_id: int, tag: str) -> bool:
+        """soft-reject されたタグを復活する (rejected_at を NULL へ)。
+
+        Args:
+            image_id: 対象画像 ID。
+            tag: 復活するタグ。
+
+        Returns:
+            実際に復活された場合 True。
+        """
+        success, per_item = self.annotation_repo.restore_tag_for_images_batch([image_id], tag)
+        return success and any(status == "changed" for _, status in per_item)
+
+    def add_manual_tag(self, image_id: int, tag: str) -> bool:
+        """画像に手動タグを追加する (is_edited_manually=True)。
+
+        Args:
+            image_id: 対象画像 ID。
+            tag: 追加するタグ。
+
+        Returns:
+            実際に追加された場合 True (重複で skip された場合 False)。
+        """
+        model_id = self.get_manual_edit_model_id()
+        success, added = self.annotation_repo.add_tag_to_images_batch([image_id], tag, model_id)
+        return success and added > 0
+
+    def get_rejected_tags(self, image_id: int) -> list[dict[str, Any]]:
+        """画像の soft-reject 済みタグ一覧を返す (復活セクション表示用)。
+
+        Args:
+            image_id: 対象画像 ID。
+
+        Returns:
+            ``{"tag", "tag_id", "is_edited_manually"}`` の dict リスト。
+        """
+        return self.annotation_repo.get_rejected_tags(image_id)
+
     def get_images_by_filter(
         self,
         criteria: ImageFilterCriteria | None = None,

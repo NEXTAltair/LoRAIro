@@ -87,6 +87,10 @@ class AnnotationDataDisplayWidget(QWidget, Ui_AnnotationDataDisplayWidget):
     # シグナル
     data_loaded = Signal(AnnotationData)  # データロード完了
     data_cleared = Signal()  # データクリア完了
+    # TagEdit soft-reject 導線 (Issue #792)。引数は canonical タグ文字列。
+    tag_reject_requested = Signal(str)  # × でタグを soft-reject
+    tag_restore_requested = Signal(str)  # soft-rejected タグを復活
+    tag_add_requested = Signal(str)  # 手動タグ追加
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -94,6 +98,9 @@ class AnnotationDataDisplayWidget(QWidget, Ui_AnnotationDataDisplayWidget):
 
         # 現在のデータ
         self.current_data: AnnotationData = AnnotationData()
+        # TagEdit soft-reject 編集モード (Issue #792、既定は read-only)。
+        self._tag_edit_enabled: bool = False
+        self._rejected_tags: list[str] = []
 
         # UI初期化
         self._setup_widget_properties()
@@ -155,6 +162,28 @@ class AnnotationDataDisplayWidget(QWidget, Ui_AnnotationDataDisplayWidget):
         )
         self._tags_translation_note.setVisible(False)
         self.verticalLayoutTags.insertWidget(2, self._tags_translation_note)
+
+        # soft-rejected セクション (Issue #792、編集モードのみ表示)。
+        # 取り消し線チップをクリックで復活する。
+        self._rejected_note = QLabel(self.groupBoxTags)
+        self._rejected_note.setStyleSheet(f"color: {theme.INK_SOFT}; font-size: {theme.FONT_SIZE_META}px;")
+        self._rejected_note.setVisible(False)
+        self.verticalLayoutTags.insertWidget(3, self._rejected_note)
+
+        self._rejected_container = QWidget(self.groupBoxTags)
+        self._rejected_layout = FlowLayout(self._rejected_container, spacing=4)
+        self._rejected_container.setVisible(False)
+        self.verticalLayoutTags.insertWidget(4, self._rejected_container)
+
+        # 手動タグ追加入力 (Issue #792、編集モードのみ表示)。
+        from PySide6.QtWidgets import QLineEdit
+
+        self._tag_add_input = QLineEdit(self.groupBoxTags)
+        self._tag_add_input.setObjectName("tagAddInput")
+        self._tag_add_input.setPlaceholderText("手動タグを追加 (Enter で確定)…")
+        self._tag_add_input.returnPressed.connect(self._on_tag_add_submitted)
+        self._tag_add_input.setVisible(False)
+        self.verticalLayoutTags.insertWidget(5, self._tag_add_input)
 
         # コピー / アクセシビリティ用のテキストバッキング (非表示)。
         # displayed_tags_text() と詳細コピーが参照する SSoT 文字列を保持する。
@@ -517,7 +546,8 @@ class AnnotationDataDisplayWidget(QWidget, Ui_AnnotationDataDisplayWidget):
                 chip.setStyleSheet(theme.chip_qss("accent"))
                 if is_translated and display != original:
                     chip.setToolTip(f"{original} → {display}")
-            self._tags_chip_layout.addWidget(chip)
+            # 編集モードでは × ボタン付きコンテナで soft-reject 可能にする (Issue #792)。
+            self._tags_chip_layout.addWidget(self._wrap_editable_chip(chip, original))
 
         if is_translated:
             self._tags_translation_note.setText(
@@ -526,6 +556,96 @@ class AnnotationDataDisplayWidget(QWidget, Ui_AnnotationDataDisplayWidget):
             self._tags_translation_note.setVisible(True)
         else:
             self._tags_translation_note.setVisible(False)
+
+    def _wrap_editable_chip(self, chip: QLabel, original: str) -> QWidget:
+        """編集モード時にチップを × ボタン付きコンテナで包む (Issue #792)。
+
+        read-only モードでは chip をそのまま返す。
+
+        Args:
+            chip: タグチップ QLabel。
+            original: canonical タグ文字列 (soft-reject 対象)。
+
+        Returns:
+            編集モードなら × 付きコンテナ、そうでなければ chip。
+        """
+        if not self._tag_edit_enabled:
+            return chip
+        from PySide6.QtWidgets import QToolButton
+
+        container = QWidget()
+        layout = QHBoxLayout(container)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(1)
+        layout.addWidget(chip)
+        remove = QToolButton(container)
+        remove.setObjectName("tagRejectButton")
+        remove.setText("×")
+        remove.setAutoRaise(True)
+        remove.setToolTip(f"{original} を soft-reject (rejected_at に記録、行は残す)")
+        remove.clicked.connect(lambda _checked=False, tag=original: self.tag_reject_requested.emit(tag))
+        layout.addWidget(remove)
+        return container
+
+    def set_tag_edit_enabled(self, enabled: bool) -> None:
+        """タグ soft-reject 編集モードを切り替える (Issue #792)。
+
+        Args:
+            enabled: True で × / 手動追加 / 復活セクションを表示する。
+        """
+        self._tag_edit_enabled = enabled
+        self._tag_add_input.setVisible(enabled)
+        self._refresh_tags_for_language(self._lang_combo.currentText() or "English")
+        self._render_rejected_tags()
+
+    def set_rejected_tags(self, rejected_tags: list[str]) -> None:
+        """soft-rejected タグ一覧を設定し復活セクションを再描画する (Issue #792)。
+
+        Args:
+            rejected_tags: soft-reject 済み canonical タグ文字列のリスト。
+        """
+        self._rejected_tags = list(rejected_tags)
+        self._render_rejected_tags()
+
+    def _render_rejected_tags(self) -> None:
+        """soft-rejected セクションを再描画する (クリックで復活)。"""
+        while self._rejected_layout.count():
+            child = self._rejected_layout.takeAt(0)
+            if child is None:
+                continue
+            widget = child.widget()
+            if widget is not None:
+                widget.deleteLater()
+
+        show = self._tag_edit_enabled and bool(self._rejected_tags)
+        self._rejected_note.setVisible(show)
+        self._rejected_container.setVisible(show)
+        if not show:
+            return
+
+        from PySide6.QtWidgets import QPushButton
+
+        self._rejected_note.setText(f"soft-rejected · {len(self._rejected_tags)}（クリックで復活）")
+        for tag in self._rejected_tags:
+            # クリックで復活する flat ボタン (取り消し線 chip 風)。
+            # QLabel.mousePressEvent への代入は mypy method-assign 違反になるため
+            # QPushButton.clicked を使う。
+            chip = QPushButton(tag)
+            chip.setObjectName("rejectedTagChip")
+            chip.setFlat(True)
+            chip.setCursor(Qt.CursorShape.PointingHandCursor)
+            chip.setStyleSheet(theme.tag_chip_untranslated_qss().replace("QLabel", "QPushButton"))
+            chip.setToolTip(f"{tag} を復活 (rejected_at を解除)")
+            chip.clicked.connect(lambda _checked=False, t=tag: self.tag_restore_requested.emit(t))
+            self._rejected_layout.addWidget(chip)
+
+    def _on_tag_add_submitted(self) -> None:
+        """手動タグ追加入力の Enter ハンドラ (Issue #792)。"""
+        text = self._tag_add_input.text().strip()
+        if not text:
+            return
+        self._tag_add_input.clear()
+        self.tag_add_requested.emit(text)
 
     def _update_caption_display(self, caption: str) -> None:
         """キャプション表示を更新"""

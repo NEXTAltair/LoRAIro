@@ -590,6 +590,109 @@ class AnnotationRepository(BaseRepository):
                 logger.error(f"Atomic batch tag replace failed, rolled back: {e}", exc_info=True)
                 raise
 
+    def restore_tag_for_images_batch(
+        self,
+        image_ids: list[int],
+        tag: str,
+    ) -> tuple[bool, list[tuple[int, str]]]:
+        """soft-reject されたタグを復活する (rejected_at を NULL に戻す、Issue #792)。
+
+        ``remove_tag_from_images_batch`` の逆操作。rejected_at が値を持つ行のみ対象。
+
+        Args:
+            image_ids: 対象画像の ID リスト。
+            tag: 復活するタグ (正規化済み前提: lower + strip)。
+
+        Returns:
+            (成功フラグ, [(image_id, "changed"|"skipped"), ...])。
+
+        Raises:
+            SQLAlchemyError: データベースエラー時 (ロールバック後に再送出)。
+        """
+        if not image_ids:
+            logger.warning("Empty image_ids list for batch tag restore")
+            return (False, [])
+        if not tag.strip():
+            logger.warning("Empty tag for batch restore")
+            return (False, [])
+
+        normalized_tag = tag.strip().lower()
+        per_item: list[tuple[int, str]] = []
+
+        with self.session_factory() as session:
+            try:
+                # rejected_at が値を持つ (= soft-reject 済み) 行を image ごとに把握
+                rejected_rows = session.execute(
+                    select(Tag.image_id)
+                    .where(
+                        Tag.image_id.in_(image_ids),
+                        Tag.tag == normalized_tag,
+                        Tag.rejected_at.is_not(None),
+                    )
+                    .distinct()
+                ).scalars()
+                rejected_image_ids = set(rejected_rows)
+
+                for image_id in image_ids:
+                    per_item.append((image_id, "changed" if image_id in rejected_image_ids else "skipped"))
+
+                if rejected_image_ids:
+                    session.execute(
+                        update(Tag)
+                        .where(
+                            Tag.image_id.in_(rejected_image_ids),
+                            Tag.tag == normalized_tag,
+                            Tag.rejected_at.is_not(None),
+                        )
+                        .values(
+                            rejected_at=None,
+                            updated_at=datetime.datetime.now(datetime.UTC),
+                        )
+                    )
+
+                session.commit()
+                restored = len(rejected_image_ids)
+                logger.info(
+                    f"Atomic batch tag restore completed: tag='{normalized_tag}', "
+                    f"processed={len(image_ids)}, restored={restored}",
+                )
+                return (True, per_item)
+
+            except SQLAlchemyError as e:
+                session.rollback()
+                logger.error(f"Atomic batch tag restore failed, rolled back: {e}", exc_info=True)
+                raise
+
+    def get_rejected_tags(self, image_id: int) -> list[dict[str, Any]]:
+        """画像の soft-reject 済みタグ (rejected_at IS NOT NULL) を返す (Issue #792)。
+
+        TagEdit の「soft-rejected」復活セクション表示に使う。
+
+        Args:
+            image_id: 対象画像 ID。
+
+        Returns:
+            ``{"tag": str, "tag_id": int | None, "is_edited_manually": bool | None}``
+            の dict リスト (rejected_at 昇順)。
+
+        Raises:
+            SQLAlchemyError: データベースエラー時 (再送出)。
+        """
+        with self.session_factory() as session:
+            try:
+                rows = session.execute(
+                    select(Tag.tag, Tag.tag_id, Tag.is_edited_manually)
+                    .where(Tag.image_id == image_id, Tag.rejected_at.is_not(None))
+                    .order_by(Tag.rejected_at)
+                ).all()
+            except SQLAlchemyError:
+                logger.error(f"Failed to fetch rejected tags for image_id={image_id}", exc_info=True)
+                raise
+        return [
+            {"tag": row.tag, "tag_id": row.tag_id, "is_edited_manually": row.is_edited_manually}
+            for row in rows
+        ]
+
     # --- External tag_db: resolve / register ---
 
     def _get_or_create_tag_id_external(self, session: Session, tag_string: str) -> int | None:
