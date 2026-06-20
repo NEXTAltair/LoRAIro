@@ -18,9 +18,20 @@ from lorairo.services.pipeline_composition import InferenceLedger, LedgerEntry
 _TITLE_TEXT = "INFERENCE LEDGER — 推論回数 = ユニークモデル × ステージング枚数"
 _PLACEHOLDER_TEXT = "モデル未選択"
 
-# Theme v1 (Issue #760): エントリ = info、multimodal 集約バッジ = accent
-_ENTRY_CHIP_STYLE = theme.chip_qss("info")
-_MULTI_BADGE_STYLE = theme.chip_qss("accent")
+# DS v12 AnnotateScreen ledger (Issue #787): エントリ = TypeBadge 文法 (paper-shade 地 +
+# line border の mono バッジ)、multimodal 集約バッジ = accent-soft の mono バッジ。
+_ENTRY_CHIP_STYLE = (
+    f"QLabel {{ font-family: {theme.FONT_MONO_CSS}; background-color: {theme.PAPER_SHADE};"
+    f" color: {theme.INK_SOFT}; border: {theme.BORDER_WIDTH}px solid {theme.LINE};"
+    f" border-radius: {theme.RADIUS_BADGE}px; padding: 1px 6px;"
+    f" font-size: {theme.FONT_SIZE_META}px; }}"
+)
+_MULTI_BADGE_STYLE = (
+    f"QLabel {{ font-family: {theme.FONT_MONO_CSS}; background-color: {theme.ACCENT_SOFT};"
+    f" color: {theme.ACCENT_HOVER}; border: {theme.BORDER_WIDTH}px solid {theme.ACCENT_BORDER};"
+    f" border-radius: {theme.RADIUS_BADGE}px; padding: 1px 6px;"
+    f" font-size: {theme.FONT_SIZE_META}px; font-weight: {theme.FONT_WEIGHT_SEMIBOLD}; }}"
+)
 
 
 class InferenceLedgerWidget(QWidget):
@@ -39,22 +50,35 @@ class InferenceLedgerWidget(QWidget):
         title_font = title.font()
         title_font.setBold(True)
         title.setFont(title_font)
+        # DS: ledger 見出しは UPPERCASE + letter-caps + ink-soft
+        title.setStyleSheet(
+            f"color: {theme.INK_SOFT}; letter-spacing: {theme.LETTER_CAPS};"
+            f" font-size: {theme.FONT_SIZE_SMALL}px;"
+        )
         layout.addWidget(title)
 
         self._entries_layout = QHBoxLayout()
         self._entries_layout.setContentsMargins(0, 2, 0, 2)
         layout.addLayout(self._entries_layout)
 
+        # DS: 推論回数の式・コスト概算は mono 数値メタ
+        _meta_qss = (
+            f"font-family: {theme.FONT_MONO_CSS}; color: {theme.INK_SOFT};"
+            f" font-size: {theme.FONT_SIZE_SMALL}px;"
+        )
         self._formula_label = QLabel("", self)
         self._formula_label.setObjectName("ledgerFormulaLabel")
+        self._formula_label.setStyleSheet(_meta_qss)
         layout.addWidget(self._formula_label)
 
         self._cost_label = QLabel("", self)
         self._cost_label.setObjectName("ledgerCostLabel")
+        self._cost_label.setStyleSheet(_meta_qss)
         layout.addWidget(self._cost_label)
 
         self._placeholder_label = QLabel(_PLACEHOLDER_TEXT, self)
         self._placeholder_label.setObjectName("ledgerPlaceholderLabel")
+        self._placeholder_label.setStyleSheet(f"color: {theme.INK_FAINT};")
         layout.addWidget(self._placeholder_label)
 
         layout.addStretch(1)
