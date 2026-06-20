@@ -23,14 +23,17 @@ from lorairo.gui.widgets.date_histogram_widget import DateHistogramWidget
 def _group_title_qss() -> str:
     """DS Group ヘッダ (uppercase ラベル) 用の QLabel QSS。"""
     return (
-        f"font-size: {theme.FONT_SIZE_SMALL}px; font-weight: 700;"
-        f" color: {theme.INK}; letter-spacing: 0.06em;"
+        f"font-size: {theme.FONT_SIZE_SMALL}px; font-weight: {theme.FONT_WEIGHT_BOLD};"
+        f" color: {theme.INK}; letter-spacing: {theme.LETTER_CAPS};"
     )
 
 
 def _group_sub_qss() -> str:
     """DS Group ヘッダの mono サブコード用 QLabel QSS。"""
-    return f"font-family: 'JetBrains Mono'; font-size: 10px; color: {theme.INK_FAINT};"
+    return (
+        f"font-family: {theme.FONT_MONO_CSS}; font-size: {theme.FONT_SIZE_META}px;"
+        f" color: {theme.INK_FAINT};"
+    )
 
 
 def _facet_radio_qss() -> str:
