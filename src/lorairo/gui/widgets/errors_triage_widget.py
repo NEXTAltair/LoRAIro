@@ -21,6 +21,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from lorairo.gui import theme
 from lorairo.services.error_triage_service import (
     ErrorFilter,
     ErrorGroup,
@@ -74,11 +75,21 @@ class ErrorsTriageWidget(QWidget):
         """サマリ band (total / unresolved / resolved / last_24h / by_error_type)。"""
         band = QFrame(self)
         band.setObjectName("errorsSummaryBand")
+        # DS: サマリ帯は paper-shade 地 + hairline border (Issue #793)
+        band.setStyleSheet(
+            f"QFrame#errorsSummaryBand {{ background-color: {theme.PAPER_SHADE};"
+            f" border: {theme.BORDER_WIDTH}px solid {theme.LINE}; border-radius: {theme.RADIUS}px; }}"
+        )
         layout = QHBoxLayout(band)
         self._summary_label = QLabel("", band)
         self._summary_label.setObjectName("errorsSummaryLabel")
+        self._summary_label.setStyleSheet(f"font-weight: {theme.FONT_WEIGHT_SEMIBOLD};")
         self._summary_by_type_label = QLabel("", band)
         self._summary_by_type_label.setObjectName("errorsSummaryByTypeLabel")
+        self._summary_by_type_label.setStyleSheet(
+            f"font-family: {theme.FONT_MONO_CSS}; color: {theme.INK_SOFT};"
+            f" font-size: {theme.FONT_SIZE_META}px;"
+        )
         layout.addWidget(self._summary_label)
         layout.addWidget(self._summary_by_type_label)
         layout.addStretch(1)
@@ -259,17 +270,35 @@ class ErrorsTriageWidget(QWidget):
             f"{_normalize_key(group.error_type)}_{model_key}"
         )
         card.setFrameShape(QFrame.Shape.StyledPanel)
+        # DS: 原因別グループは card 地 + hairline border (borders-not-shadows)
+        card.setStyleSheet(
+            f"QFrame#{card.objectName()} {{ background-color: {theme.CARD};"
+            f" border: {theme.BORDER_WIDTH}px solid {theme.LINE}; border-radius: {theme.RADIUS}px; }}"
+        )
         layout = QVBoxLayout(card)
 
         header = QLabel(f"{group.operation_type} · {group.error_type} · {model_label}", card)
         header.setObjectName("errorGroupHeader")
+        # DS: グループ見出しは ink-soft + letter-caps の見出し文法
+        header.setStyleSheet(
+            f"color: {theme.INK_SOFT}; font-weight: {theme.FONT_WEIGHT_BOLD};"
+            f" letter-spacing: {theme.LETTER_CAPS}; font-size: {theme.FONT_SIZE_SMALL}px;"
+        )
         layout.addWidget(header)
 
+        # DS: 件数バッジは未解決ありなら warn chip、全解決なら ok chip
         badge = QLabel(f"件数 {group.count} · 未解決 {group.unresolved_count}", card)
+        badge.setObjectName("errorGroupCountBadge")
+        badge.setStyleSheet(theme.chip_qss("warn" if group.unresolved_count > 0 else "ok"))
         layout.addWidget(badge)
 
         sample = QLabel(group.sample_message, card)
+        sample.setObjectName("errorGroupSample")
         sample.setWordWrap(True)
+        sample.setStyleSheet(
+            f"font-family: {theme.FONT_MONO_CSS}; color: {theme.INK_SOFT};"
+            f" font-size: {theme.FONT_SIZE_SMALL}px;"
+        )
         layout.addWidget(sample)
 
         if group.image_ids:
@@ -311,6 +340,11 @@ class ErrorsTriageWidget(QWidget):
         line = QFrame(self._content)
         line.setObjectName(f"errorRow_{row.error_id}")
         line.setFrameShape(QFrame.Shape.StyledPanel)
+        # DS: 個別行も hairline border (borders-not-shadows)
+        line.setStyleSheet(
+            f"QFrame#{line.objectName()} {{ background-color: {theme.CARD};"
+            f" border: {theme.BORDER_WIDTH}px solid {theme.LINE}; border-radius: {theme.RADIUS}px; }}"
+        )
         layout = QHBoxLayout(line)
 
         info = QLabel(
@@ -319,6 +353,7 @@ class ErrorsTriageWidget(QWidget):
             line,
         )
         info.setWordWrap(True)
+        info.setStyleSheet(f"color: {theme.INK_SOFT}; font-size: {theme.FONT_SIZE_SMALL}px;")
         layout.addWidget(info, stretch=1)
 
         if not row.resolved:
