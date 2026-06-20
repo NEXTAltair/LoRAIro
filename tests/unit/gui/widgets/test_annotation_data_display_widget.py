@@ -585,3 +585,51 @@ class TestQualityTierBadge:
 
         widget.clear_data()
         assert widget._quality_tier_label.isHidden()
+
+
+class TestAnnotationDataDisplaySoftRejectEdit:
+    """TagEdit soft-reject 編集モード (Issue #792)。"""
+
+    @pytest.fixture
+    def widget(self, qtbot):
+        w = AnnotationDataDisplayWidget()
+        qtbot.addWidget(w)
+        return w
+
+    def test_edit_mode_off_renders_plain_chip_no_reject_button(self, widget):
+        from PySide6.QtWidgets import QToolButton
+
+        widget.update_data(AnnotationData(tags=[{"tag": "1girl", "tag_id": 10}]))
+        assert widget.findChildren(QToolButton, "tagRejectButton") == []
+
+    def test_edit_mode_on_adds_reject_button_emitting_canonical_tag(self, widget, qtbot):
+        from PySide6.QtWidgets import QToolButton
+
+        widget.set_tag_edit_enabled(True)
+        widget.update_data(AnnotationData(tags=[{"tag": "1girl", "tag_id": 10}]))
+        buttons = widget.findChildren(QToolButton, "tagRejectButton")
+        assert len(buttons) == 1
+        with qtbot.waitSignal(widget.tag_reject_requested, timeout=1000) as blocker:
+            buttons[0].click()
+        assert blocker.args == ["1girl"]
+
+    def test_manual_add_input_emits_tag_add_requested(self, widget, qtbot):
+        widget.set_tag_edit_enabled(True)
+        widget._tag_add_input.setText("new_tag")
+        with qtbot.waitSignal(widget.tag_add_requested, timeout=1000) as blocker:
+            widget._tag_add_input.returnPressed.emit()
+        assert blocker.args == ["new_tag"]
+        assert widget._tag_add_input.text() == ""
+
+    def test_set_rejected_tags_renders_restore_chips(self, widget):
+        from PySide6.QtWidgets import QLabel
+
+        widget.set_tag_edit_enabled(True)
+        widget.set_rejected_tags(["bad_tag"])
+        chips = widget.findChildren(QLabel, "rejectedTagChip")
+        assert len(chips) == 1
+        assert chips[0].text() == "bad_tag"
+
+    def test_rejected_section_hidden_when_edit_off(self, widget):
+        widget.set_rejected_tags(["bad_tag"])
+        assert not widget._rejected_container.isVisible()

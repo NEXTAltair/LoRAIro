@@ -321,6 +321,60 @@ class SelectedImageDetailsWidget(QWidget):
         self.annotation_display.initialize_language_selector(self._available_languages)
         logger.debug(f"MergedTagReader設定完了: 利用可能言語={self._available_languages}")
 
+    def set_db_manager(self, db_manager: Any) -> None:
+        """soft-reject 導線用に ImageDatabaseManager を設定し編集モードを有効化する (Issue #792)。
+
+        Args:
+            db_manager: タグ soft-reject / 復活 / 手動追加を実行する Manager。
+        """
+        self._db_manager = db_manager
+        self.annotation_display.set_tag_edit_enabled(True)
+        self.annotation_display.tag_reject_requested.connect(self._on_tag_reject)
+        self.annotation_display.tag_restore_requested.connect(self._on_tag_restore)
+        self.annotation_display.tag_add_requested.connect(self._on_tag_add)
+        logger.debug("SelectedImageDetailsWidget: soft-reject 編集モードを有効化")
+
+    def _populate_rejected_tags(self) -> None:
+        """現在画像の soft-rejected タグを取得して復活セクションへ反映する (Issue #792)。"""
+        db_manager = getattr(self, "_db_manager", None)
+        if db_manager is None or self.current_image_id is None:
+            return
+        rejected = [row["tag"] for row in db_manager.get_rejected_tags(self.current_image_id)]
+        self.annotation_display.set_rejected_tags(rejected)
+
+    def _reload_current_image(self) -> None:
+        """編集後に現在画像のメタデータを再取得して表示を更新する (Issue #792)。"""
+        db_manager = getattr(self, "_db_manager", None)
+        if db_manager is None or self.current_image_id is None:
+            return
+        metadata = db_manager.image_repo.get_image_metadata(self.current_image_id)
+        if metadata:
+            self._on_image_data_received(metadata)
+
+    @Slot(str)
+    def _on_tag_reject(self, tag: str) -> None:
+        """タグ soft-reject 要求を Manager に委譲し再描画する。"""
+        if self.current_image_id is None:
+            return
+        self._db_manager.soft_reject_tag(self.current_image_id, tag)
+        self._reload_current_image()
+
+    @Slot(str)
+    def _on_tag_restore(self, tag: str) -> None:
+        """タグ復活要求を Manager に委譲し再描画する。"""
+        if self.current_image_id is None:
+            return
+        self._db_manager.restore_tag(self.current_image_id, tag)
+        self._reload_current_image()
+
+    @Slot(str)
+    def _on_tag_add(self, tag: str) -> None:
+        """手動タグ追加要求を Manager に委譲し再描画する。"""
+        if self.current_image_id is None:
+            return
+        self._db_manager.add_manual_tag(self.current_image_id, tag)
+        self._reload_current_image()
+
     def connect_to_dataset_state_manager(self, state_manager: "DatasetStateManager") -> None:
         """DatasetStateManagerの選択画像メタデータシグナルに接続する。
 
@@ -378,12 +432,14 @@ class SelectedImageDetailsWidget(QWidget):
             return
 
         image_id = image_data.get("id")
+        self.current_image_id = image_id
         logger.info(
             f"📨 SelectedImageDetailsWidget(instance={id(self)}): current_image_data_changed シグナル受信 - image_id: {image_id}"
         )
 
         details = self._build_image_details_from_metadata(image_data)
         self._update_details_display(details)
+        self._populate_rejected_tags()
 
     def _build_image_details_from_metadata(self, metadata: dict[str, Any]) -> ImageDetails:
         """

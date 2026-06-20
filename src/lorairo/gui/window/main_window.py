@@ -1564,6 +1564,10 @@ class MainWindow(QMainWindow, Ui_MainWindow):
             # ImageDBWriteServiceを作成
             self.image_db_write_service = ImageDBWriteService(self.db_manager)
 
+            # Issue #792: タグ soft-reject / 復活 / 手動追加の編集モードを有効化
+            if hasattr(self.selected_image_details_widget, "set_db_manager"):
+                self.selected_image_details_widget.set_db_manager(self.db_manager)
+
             # SelectedImageDetailsWidgetが編集シグナルを持たない場合はスキップ（閲覧専用化対応）
             if (
                 hasattr(self.selected_image_details_widget, "rating_updated")
