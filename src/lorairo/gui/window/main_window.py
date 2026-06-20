@@ -14,6 +14,7 @@ from PySide6.QtWidgets import (
     QMainWindow,
     QMenu,
     QMessageBox,
+    QPushButton,
     QTabWidget,
     QWidget,
 )
@@ -57,6 +58,7 @@ from ..widgets.provider_batch_job_widget import ProviderBatchJobWidget
 from ..widgets.quick_tag_dialog import QuickTagDialog
 from ..widgets.registration_summary_widget import RegistrationSummaryWidget
 from ..widgets.results_widget import ResultsWidget
+from ..widgets.run_settings_dialog import RunOptions, RunSettingsDialog
 from ..widgets.selected_image_details_widget import SelectedImageDetailsWidget
 from ..widgets.stage_model_picker_dialog import StageModelPickerDialog
 from ..widgets.tag_cloud_widget import TagCloudWidget
@@ -94,6 +96,7 @@ class MainWindow(QMainWindow, Ui_MainWindow):
     export_widget: DatasetExportWidget | None
     pipeline_stage_table: PipelineStageTableWidget | None
     inference_ledger_widget: InferenceLedgerWidget | None
+    btnPipelineRunSettings: QPushButton
     result_handler_service: ResultHandlerService | None
     pipeline_control_service: PipelineControlService | None
     progress_state_service: ProgressStateService | None
@@ -760,6 +763,8 @@ class MainWindow(QMainWindow, Ui_MainWindow):
         """
         self.pipeline_composition_service = PipelineCompositionService()
         self._pipeline_staged_count = 0
+        # 実行詳細設定 (Issue #789)。詳細設定モーダルの確定値を保持する。
+        self._pipeline_run_options = RunOptions()
 
         annotation_group = getattr(self, "groupBoxAnnotation", None)
         model_widget = getattr(self, "batchModelSelection", None)
@@ -775,6 +780,12 @@ class MainWindow(QMainWindow, Ui_MainWindow):
         layout.addWidget(self.pipeline_stage_table)
         layout.addWidget(self.inference_ledger_widget)
 
+        # 実行詳細設定モーダルを開く導線 (Issue #789、DS Frame 3 run bar「詳細設定 ▸」)
+        self.btnPipelineRunSettings = QPushButton("詳細設定 ▸", annotation_group)
+        self.btnPipelineRunSettings.setObjectName("btnPipelineRunSettings")
+        self.btnPipelineRunSettings.clicked.connect(self._open_run_settings)
+        layout.addWidget(self.btnPipelineRunSettings)
+
         model_widget.model_selection_changed.connect(self._on_pipeline_models_changed)
         self.pipeline_stage_table.add_model_requested.connect(self._on_pipeline_add_model_requested)
         self.pipeline_stage_table.remove_model_requested.connect(self._on_pipeline_remove_model_requested)
@@ -784,6 +795,18 @@ class MainWindow(QMainWindow, Ui_MainWindow):
     def _on_pipeline_models_changed(self, selected_litellm_model_ids: list[str]) -> None:
         """モデル選択変化でパイプライン構成ビューを再計算する (Phase 6a)。"""
         self._refresh_pipeline_panel(list(selected_litellm_model_ids))
+
+    def _open_run_settings(self) -> None:
+        """実行詳細設定モーダルを開き、確定値を保持する (Issue #789)。
+
+        OK 時の :class:`RunOptions` を ``self._pipeline_run_options`` に格納する。
+        実 run flow への適用 (dry-run / rating-gate を worker へ配線) は後続
+        backend issue で行う。
+        """
+        dialog = RunSettingsDialog(self._pipeline_staged_count, parent=self)
+        if dialog.exec() == QDialog.DialogCode.Accepted:
+            self._pipeline_run_options = dialog.run_options()
+            logger.info(f"実行詳細設定を更新: {self._pipeline_run_options}")
 
     def _refresh_pipeline_panel(self, selected_ids: list[str] | None = None) -> None:
         """ステージテーブルと推論台帳を現在の選択・ステージング件数で再描画する。
