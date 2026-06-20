@@ -623,14 +623,20 @@ class AnnotationDataDisplayWidget(QWidget, Ui_AnnotationDataDisplayWidget):
         if not show:
             return
 
+        from PySide6.QtWidgets import QPushButton
+
         self._rejected_note.setText(f"soft-rejected · {len(self._rejected_tags)}（クリックで復活）")
         for tag in self._rejected_tags:
-            chip = QLabel(tag)
+            # クリックで復活する flat ボタン (取り消し線 chip 風)。
+            # QLabel.mousePressEvent への代入は mypy method-assign 違反になるため
+            # QPushButton.clicked を使う。
+            chip = QPushButton(tag)
             chip.setObjectName("rejectedTagChip")
-            chip.setStyleSheet(theme.tag_chip_untranslated_qss())
-            chip.setToolTip(f"{tag} を復活 (rejected_at を解除)")
+            chip.setFlat(True)
             chip.setCursor(Qt.CursorShape.PointingHandCursor)
-            chip.mousePressEvent = lambda _event, t=tag: self.tag_restore_requested.emit(t)
+            chip.setStyleSheet(theme.tag_chip_untranslated_qss().replace("QLabel", "QPushButton"))
+            chip.setToolTip(f"{tag} を復活 (rejected_at を解除)")
+            chip.clicked.connect(lambda _checked=False, t=tag: self.tag_restore_requested.emit(t))
             self._rejected_layout.addWidget(chip)
 
     def _on_tag_add_submitted(self) -> None:

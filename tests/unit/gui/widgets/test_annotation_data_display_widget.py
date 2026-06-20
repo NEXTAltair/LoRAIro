@@ -621,14 +621,17 @@ class TestAnnotationDataDisplaySoftRejectEdit:
         assert blocker.args == ["new_tag"]
         assert widget._tag_add_input.text() == ""
 
-    def test_set_rejected_tags_renders_restore_chips(self, widget):
-        from PySide6.QtWidgets import QLabel
+    def test_set_rejected_tags_renders_restore_chips(self, widget, qtbot):
+        from PySide6.QtWidgets import QPushButton
 
         widget.set_tag_edit_enabled(True)
         widget.set_rejected_tags(["bad_tag"])
-        chips = widget.findChildren(QLabel, "rejectedTagChip")
+        chips = widget.findChildren(QPushButton, "rejectedTagChip")
         assert len(chips) == 1
         assert chips[0].text() == "bad_tag"
+        with qtbot.waitSignal(widget.tag_restore_requested, timeout=1000) as blocker:
+            chips[0].click()
+        assert blocker.args == ["bad_tag"]
 
     def test_rejected_section_hidden_when_edit_off(self, widget):
         widget.set_rejected_tags(["bad_tag"])
