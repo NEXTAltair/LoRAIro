@@ -214,7 +214,8 @@ class TestJobsTabSyncLedgerWiring:
 
         assert table.rowCount() == 1
         assert table.item(0, 1).text() == "アノテーション処理"
-        assert table.item(0, 2).text() == "実行中"
+        # 状態 (col2) は DS chip 文法で cellWidget 化 (Issue #790)
+        assert table.cellWidget(0, 2).text() == "実行中"
 
     def test_sync_job_cancel_routes_to_worker_service(self, main_window_with_tabs):
         """Jobs 行のキャンセル要求が WorkerService.cancel_job へ委譲される (ADR 0066 §4)"""

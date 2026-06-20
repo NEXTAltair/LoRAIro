@@ -61,12 +61,13 @@ class TestSyncJobLedgerWidget:
 
         table = widget.tableSyncJobs
         assert table.rowCount() == 2
-        assert table.item(0, 0).text() == "annotation"
+        # 種別 (col0) / 状態 (col2) は DS chip 文法で cellWidget 化 (Issue #790)
+        assert table.cellWidget(0, 0).text() == "annotation"
         assert table.item(0, 1).text() == "アノテーション処理"
-        assert table.item(0, 2).text() == "実行中"
+        assert table.cellWidget(0, 2).text() == "実行中"
         assert table.item(0, 3).text() == "10:30:05"
         assert table.item(0, 4).text() == ""
-        assert table.item(1, 2).text() == "完了"
+        assert table.cellWidget(1, 2).text() == "完了"
         assert table.item(1, 4).text() == "10:31:45"
         assert table.item(1, 5).text() == "登録完了"
 
@@ -95,9 +96,29 @@ class TestSyncJobLedgerWidget:
 
         assert blocker.args == ["annotation_cancel_me"]
 
+    def test_status_chip_tone_matches_status(self, widget):
+        from lorairo.gui import theme
+
+        widget.set_entries(
+            [
+                _entry(status=JobStatus.FINISHED, finished_at=datetime(2026, 6, 12, 10, 32)),
+                _entry(job_id="x", status=JobStatus.FAILED, finished_at=datetime(2026, 6, 12, 10, 33)),
+            ]
+        )
+        # 完了 = ok tone、失敗 = err tone (DS status chip 文法)
+        assert theme.OK_SOFT in widget.tableSyncJobs.cellWidget(0, 2).styleSheet()
+        assert theme.ERR_SOFT in widget.tableSyncJobs.cellWidget(1, 2).styleSheet()
+
+    def test_kind_badge_uses_badge_qss(self, widget):
+        from lorairo.gui import theme
+
+        widget.set_entries([_entry()])
+        badge = widget.tableSyncJobs.cellWidget(0, 0)
+        assert theme.PAPER_SHADE in badge.styleSheet()
+
     def test_set_entries_replaces_previous_rows(self, widget):
         widget.set_entries([_entry(), _entry(job_id="annotation_2")])
         widget.set_entries([_entry(job_id="annotation_3")])
 
         assert widget.tableSyncJobs.rowCount() == 1
-        assert widget.tableSyncJobs.item(0, 0).text() == "annotation"
+        assert widget.tableSyncJobs.cellWidget(0, 0).text() == "annotation"
