@@ -1,7 +1,7 @@
 ---
 type: ADR
 title: Qt implementation strategy for DS parts without Qt equivalents
-status: Proposed
+status: Accepted
 timestamp: 2026-06-20
 tags: [gui, design-system]
 ---
