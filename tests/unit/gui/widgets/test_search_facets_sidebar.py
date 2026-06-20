@@ -143,3 +143,29 @@ class TestSearchFacetsSidebar:
         bins = [(now, now + datetime.timedelta(days=1), 3)]
         sidebar.update_histogram(bins)
         assert sidebar._histogram._bins == bins
+
+    def test_model_search_filters_visible_items(self, qtbot: pytest.FixtureRequest) -> None:
+        """モデル名検索入力で一致しない項目が非表示になることを確認する。"""
+        sidebar = SearchFacetsSidebar()
+        qtbot.addWidget(sidebar)
+        sidebar.update_models(["openai/gpt-4o", "anthropic/claude-3-5-haiku", "wd-v1-4-tagger"])
+
+        sidebar._model_search.setText("claude")
+
+        visible = [
+            sidebar._model_list.item(i).text()
+            for i in range(sidebar._model_list.count())
+            if not sidebar._model_list.item(i).isHidden()
+        ]
+        assert visible == ["anthropic/claude-3-5-haiku"]
+
+    def test_model_search_empty_shows_all_items(self, qtbot: pytest.FixtureRequest) -> None:
+        """検索語をクリアすると全項目が再表示されることを確認する。"""
+        sidebar = SearchFacetsSidebar()
+        qtbot.addWidget(sidebar)
+        sidebar.update_models(["openai/gpt-4o", "wd-v1-4-tagger"])
+        sidebar._model_search.setText("gpt")
+        sidebar._model_search.clear()
+
+        hidden = [sidebar._model_list.item(i).isHidden() for i in range(sidebar._model_list.count())]
+        assert hidden == [False, False]
