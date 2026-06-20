@@ -16,6 +16,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from lorairo.gui import theme
 from lorairo.services.quality_issue_detection_service import (
     BatchTriageSummary,
     CleanAuditPlan,
@@ -39,6 +40,16 @@ _ISSUE_LABELS: dict[IssueType, str] = {
 
 # 低信頼度タグを視覚的に弱める閾値 (表示上の dim 判定のみ。issue 化はしない)。
 _DIM_CONFIDENCE: float = 0.5
+
+# DS v12 ResultsScreen (Issue #791): 構造的 issue 種別 → chip 文法の kind。
+# 空タグは欠落 = err、その他の不一致/欠落は warn。
+_ISSUE_CHIP_KINDS: dict[IssueType, theme.ChipKind] = {
+    IssueType.EMPTY_TAGS: "err",
+    IssueType.NO_SCORE: "warn",
+    IssueType.UNKNOWN_TIER: "warn",
+    IssueType.RATING_DISAGREEMENT: "warn",
+    IssueType.SCORER_DISAGREEMENT: "warn",
+}
 
 
 class ResultsWidget(QWidget):
@@ -211,20 +222,27 @@ class ResultsWidget(QWidget):
         band = QFrame()
         band.setObjectName("resultsSummaryBand")
         band.setFrameShape(QFrame.Shape.StyledPanel)
+        # DS: サマリ帯は paper-shade 地 + hairline border
+        band.setStyleSheet(
+            f"QFrame#resultsSummaryBand {{ background-color: {theme.PAPER_SHADE};"
+            f" border: {theme.BORDER_WIDTH}px solid {theme.LINE}; border-radius: {theme.RADIUS}px; }}"
+        )
         layout = QHBoxLayout(band)
 
         issue_total = sum(summary.issue_counts.values())
         tier_text = self._format_tier_distribution(summary)
-        parts = [
-            f"バッチ: {summary.batch_size} 件",
-            f"要レビュー: {summary.needs_review_count}",
-            f"clean: {summary.clean_count}",
-            f"accepted: {summary.accepted_count}/{summary.batch_size}",
-            f"tier: {tier_text}",
-            f"issue 総数: {issue_total}",
+        # (テキスト, tone 色) — flagged=warn / clean=ok を DS tone で色付け
+        parts: list[tuple[str, str]] = [
+            (f"バッチ: {summary.batch_size} 件", theme.INK_SOFT),
+            (f"要レビュー: {summary.needs_review_count}", theme.WARN),
+            (f"clean: {summary.clean_count}", theme.OK),
+            (f"accepted: {summary.accepted_count}/{summary.batch_size}", theme.OK),
+            (f"tier: {tier_text}", theme.INK_SOFT),
+            (f"issue 総数: {issue_total}", theme.INK_SOFT),
         ]
-        for text in parts:
+        for text, color in parts:
             label = QLabel(text)
+            label.setStyleSheet(f"color: {color}; font-weight: {theme.FONT_WEIGHT_SEMIBOLD};")
             layout.addWidget(label)
         layout.addStretch(1)
         return band
@@ -264,6 +282,8 @@ class ResultsWidget(QWidget):
         label = _ISSUE_LABELS.get(issue, issue.value)
         header = QLabel(f"{label} ({count})")
         header.setObjectName("resultsIssueCardHeader")
+        # DS: issue 種別は重大度で色分けした chip 文法
+        header.setStyleSheet(theme.chip_qss(_ISSUE_CHIP_KINDS.get(issue, "warn")))
         layout.addWidget(header)
 
         image_ids = [r.image_id for r in results if issue in r.issues]
@@ -282,6 +302,13 @@ class ResultsWidget(QWidget):
             row.setProperty("needsReview", True)
         if result.reviewed:
             row.setProperty("accepted", True)
+        # DS: flagged (要レビュー) 行は warn border + warn-soft 地で強調
+        if result.needs_review:
+            row.setStyleSheet(
+                f"QFrame#resultsRow_{result.image_id} {{"
+                f" border: {theme.BORDER_WIDTH}px solid {theme.WARN_BORDER};"
+                f" background-color: {theme.WARN_SOFT}; border-radius: {theme.RADIUS}px; }}"
+            )
         layout = QVBoxLayout(row)
 
         layout.addWidget(self._build_row_header(result))
@@ -361,6 +388,8 @@ class ResultsWidget(QWidget):
         chip = QLabel(text)
         is_dim = tag_view.confidence_score is not None and tag_view.confidence_score < _DIM_CONFIDENCE
         chip.setProperty("dim", is_dim)
+        # DS: タグは accent chip 文法、低 conf は muted で弱める
+        chip.setStyleSheet(theme.chip_qss("muted" if is_dim else "accent"))
         return chip
 
     def _build_caption_line(self, result: ImageTriageResult) -> QWidget:
@@ -386,6 +415,8 @@ class ResultsWidget(QWidget):
         label = scorer.label if scorer.label else "?"
         pill = QLabel(f"{scorer.model}: {label}")
         pill.setProperty("dim", scorer.tier is None)
+        # DS: scorer は中立 badge、tier 不能は muted chip
+        pill.setStyleSheet(theme.chip_qss("muted") if scorer.tier is None else theme.badge_qss())
         return pill
 
     def _build_rating_line(self, result: ImageTriageResult) -> QWidget:
@@ -411,6 +442,8 @@ class ResultsWidget(QWidget):
             and rating.normalized_rating != canonical_rating
         )
         chip.setProperty("disagree", disagree)
+        # DS: canonical と不一致な rating は warn chip、一致は中立 badge
+        chip.setStyleSheet(theme.chip_qss("warn") if disagree else theme.badge_qss())
         return chip
 
     def _build_issue_badges(self, issues: list[IssueType]) -> QWidget:
@@ -421,6 +454,8 @@ class ResultsWidget(QWidget):
         for issue in issues:
             badge = QLabel(_ISSUE_LABELS.get(issue, issue.value))
             badge.setProperty("issueBadge", True)
+            # DS: 行内 issue バッジも重大度の chip 文法
+            badge.setStyleSheet(theme.chip_qss(_ISSUE_CHIP_KINDS.get(issue, "warn")))
             layout.addWidget(badge)
         layout.addStretch(1)
         return line
