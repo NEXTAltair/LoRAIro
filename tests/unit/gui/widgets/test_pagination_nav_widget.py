@@ -68,6 +68,30 @@ class TestPaginationNavWidgetUpdateState:
         assert widget._total_pages == 1
 
 
+class TestPaginationNavWidgetRange:
+    """件数・範囲表示 (ADR 0006 / DS Pagination)。"""
+
+    def test_range_hidden_without_total_items(self, widget):
+        """total_items 未指定なら件数・範囲は空文字。"""
+        widget.update_state(current=1, total=5, is_loading=False)
+        assert widget._label_range.text() == ""
+
+    def test_range_first_page(self, widget):
+        """先頭ページの範囲は 1–pagesize / 総件数。"""
+        widget.update_state(current=1, total=5, is_loading=False, total_items=247, page_size=50)
+        assert widget._label_range.text() == "1–50 / 247 件"
+
+    def test_range_last_page_clamps_to_total(self, widget):
+        """末尾ページの終端は総件数で頭打ちになる。"""
+        widget.update_state(current=5, total=5, is_loading=False, total_items=247, page_size=50)
+        assert widget._label_range.text() == "201–247 / 247 件"
+
+    def test_range_zero_items(self, widget):
+        """総件数 0 のときは 0 件。"""
+        widget.update_state(current=1, total=1, is_loading=False, total_items=0, page_size=50)
+        assert widget._label_range.text() == "0 件"
+
+
 class TestPaginationNavWidgetSignals:
     def test_next_button_emits_correct_page(self, widget, qtbot):
         widget.update_state(current=2, total=5, is_loading=False)

@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any, cast, overload
 
 from PySide6.QtCore import QPoint, QRectF, QSize, Qt, QTimer, Signal, Slot
-from PySide6.QtGui import QColor, QMouseEvent, QPainter, QPen, QPixmap, QResizeEvent
+from PySide6.QtGui import QColor, QFont, QMouseEvent, QPainter, QPen, QPixmap, QResizeEvent
 from PySide6.QtWidgets import (
     QGraphicsItem,
     QGraphicsObject,
@@ -106,11 +106,99 @@ class ThumbnailItem(QGraphicsObject):
         option: QStyleOptionGraphicsItem,
         widget: QWidget | None = None,
     ) -> None:
-        painter.drawPixmap(self.boundingRect().toRect(), self.pixmap)
+        rect = self.boundingRect()
+        painter.drawPixmap(rect.toRect(), self.pixmap)
+        self._paint_overlays(painter, rect)
         if self.isSelected():
-            pen = QPen(QColor(0, 120, 215), 3)
+            pen = QPen(QColor(theme.ACCENT), 3)
             painter.setPen(pen)
-            painter.drawRect(self.boundingRect().adjusted(1, 1, -1, -1))
+            painter.drawRect(rect.adjusted(1, 1, -1, -1))
+
+    def _paint_overlays(self, painter: QPainter, rect: QRectF) -> None:
+        """サムネ四隅に score / rating / 解像度 のバッジを描画する (DS Thumbnail)。
+
+        右上=score / 右下=rating / 左下=解像度。メタデータが無い角は省略する。
+        """
+        if self.parent_widget.dataset_state is None:
+            return
+        metadata = self.parent_widget.dataset_state.get_image_by_id(self.image_id)
+        if not metadata:
+            return
+
+        score_text, rating_text, resolution_text = self._overlay_texts(metadata)
+        if score_text is not None:
+            self._draw_badge(painter, rect, score_text, "top-right")
+        if rating_text is not None:
+            self._draw_badge(painter, rect, rating_text, "bottom-right")
+        if resolution_text is not None:
+            self._draw_badge(painter, rect, resolution_text, "bottom-left")
+
+    @staticmethod
+    def _overlay_texts(metadata: dict[str, Any]) -> tuple[str | None, str | None, str | None]:
+        """メタデータから (score, rating, 解像度) のバッジ文字列を組み立てる。
+
+        Args:
+            metadata: DatasetStateManager の画像メタデータ辞書。
+
+        Returns:
+            (score_text, rating_text, resolution_text) のタプル。
+            表示すべき値が無い項目は None。
+        """
+        score_value = metadata.get("score_value")
+        score_text = (
+            f"{float(score_value):.1f}" if isinstance(score_value, int | float) and score_value else None
+        )
+
+        rating_value = metadata.get("rating_value")
+        rating_text = rating_value if isinstance(rating_value, str) and rating_value else None
+
+        width = metadata.get("width")
+        height = metadata.get("height")
+        resolution_text = f"{width}×{height}" if width and height else None
+
+        return score_text, rating_text, resolution_text
+
+    @staticmethod
+    def _draw_badge(painter: QPainter, rect: QRectF, text: str, corner: str) -> None:
+        """指定コーナーに DS トークン配色のバッジ (ink 地 + paper 文字) を描画する。
+
+        Args:
+            painter: 描画先 QPainter。
+            rect: サムネの境界矩形。
+            text: バッジに表示する文字列。
+            corner: "top-right" / "bottom-right" / "bottom-left" のいずれか。
+        """
+        painter.save()
+        font = QFont(theme.FONT_MONO_FAMILIES[0])
+        font.setPixelSize(theme.FONT_SIZE_SMALL)
+        font.setWeight(QFont.Weight.DemiBold)
+        painter.setFont(font)
+
+        metrics = painter.fontMetrics()
+        pad_x, pad_y, margin = 4, 1, 3
+        badge_w = metrics.horizontalAdvance(text) + pad_x * 2
+        badge_h = metrics.height() + pad_y * 2
+
+        if corner == "top-right":
+            x = rect.right() - badge_w - margin
+            y = rect.top() + margin
+        elif corner == "bottom-right":
+            x = rect.right() - badge_w - margin
+            y = rect.bottom() - badge_h - margin
+        else:  # bottom-left
+            x = rect.left() + margin
+            y = rect.bottom() - badge_h - margin
+        badge_rect = QRectF(x, y, badge_w, badge_h)
+
+        ink = QColor(theme.INK)
+        ink.setAlpha(205)
+        painter.setPen(Qt.PenStyle.NoPen)
+        painter.setBrush(ink)
+        painter.drawRoundedRect(badge_rect, 3, 3)
+
+        painter.setPen(QColor(theme.PAPER))
+        painter.drawText(badge_rect, int(Qt.AlignmentFlag.AlignCenter), text)
+        painter.restore()
 
 
 class CustomGraphicsView(QGraphicsView):
@@ -396,6 +484,8 @@ class ThumbnailSelectorWidget(QWidget, Ui_ThumbnailSelectorWidget):
                 current=1,
                 total=self.pagination_state.total_pages,
                 is_loading=False,
+                total_items=self.pagination_state.total_items,
+                page_size=self.pagination_state.page_size,
             )
 
         self._suspend_page_change = True
@@ -459,6 +549,8 @@ class ThumbnailSelectorWidget(QWidget, Ui_ThumbnailSelectorWidget):
                 current=self.pagination_state.current_page,
                 total=self.pagination_state.total_pages,
                 is_loading=is_loading,
+                total_items=self.pagination_state.total_items,
+                page_size=self.pagination_state.page_size,
             )
 
     @Slot(int)
@@ -606,6 +698,8 @@ class ThumbnailSelectorWidget(QWidget, Ui_ThumbnailSelectorWidget):
                 current=self.pagination_state.current_page,
                 total=self.pagination_state.total_pages,
                 is_loading=self._display_request_id is not None,
+                total_items=self.pagination_state.total_items,
+                page_size=self.pagination_state.page_size,
             )
 
     def _start_prefetch_if_needed(self, current_page: int) -> None:
@@ -682,6 +776,8 @@ class ThumbnailSelectorWidget(QWidget, Ui_ThumbnailSelectorWidget):
                 current=page,
                 total=self.pagination_state.total_pages,
                 is_loading=self._display_request_id is not None,
+                total_items=self.pagination_state.total_items,
+                page_size=self.pagination_state.page_size,
             )
 
     def _show_loading_overlay(self) -> None:
