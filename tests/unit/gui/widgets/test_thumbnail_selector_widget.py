@@ -14,11 +14,30 @@ from PySide6.QtCore import QSize, Qt
 from PySide6.QtGui import QImage
 
 from lorairo.gui.state.dataset_state import DatasetStateManager
-from lorairo.gui.widgets.thumbnail import ThumbnailSelectorWidget
+from lorairo.gui.widgets.thumbnail import ThumbnailItem, ThumbnailSelectorWidget
 from lorairo.gui.workers.search_worker import SearchResult
 from lorairo.gui.workers.terminal import CancelReason
 from lorairo.gui.workers.thumbnail_worker import ThumbnailLoadResult
 from lorairo.services.search_models import SearchConditions
+
+
+class TestThumbnailItemOverlayTexts:
+    """ThumbnailItem._overlay_texts のバッジ文字列組み立て (DS Thumbnail · #786)。"""
+
+    def test_full_metadata(self):
+        """score / rating / 解像度 すべて揃うケース。"""
+        meta = {"score_value": 6.5, "rating_value": "PG-13", "width": 1024, "height": 1536}
+        assert ThumbnailItem._overlay_texts(meta) == ("6.5", "PG-13", "1024×1536")
+
+    def test_missing_values_yield_none(self):
+        """欠損・ゼロ・空文字の項目は None になる。"""
+        meta = {"score_value": 0, "rating_value": "", "width": 0, "height": 0}
+        assert ThumbnailItem._overlay_texts(meta) == (None, None, None)
+
+    def test_partial_metadata(self):
+        """一部の項目だけ揃うケース (rating のみ)。"""
+        meta = {"rating_value": "R"}
+        assert ThumbnailItem._overlay_texts(meta) == (None, "R", None)
 
 
 class TestThumbnailSelectorWidgetBasic:
