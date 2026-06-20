@@ -48,8 +48,8 @@ _API_KEY_ROWS: tuple[tuple[str, str, str, str], ...] = (
 _API_KEY_SAVED_TEXT = "保存済"
 _API_KEY_UNSET_TEXT = "未設定"
 _API_KEY_SAVED_PLACEHOLDER = "保存済（変更する場合のみ入力）"
-_API_KEY_HIGHLIGHT_STYLE = f"QLineEdit {{ border: 2px solid {theme.WARN}; }}"
-_API_KEY_SAVED_STATUS_STYLE = f"QLabel {{ color: {theme.OK}; font-weight: 600; }}"
+_API_KEY_HIGHLIGHT_STYLE = f"QLineEdit {{ border: {theme.BORDER_WIDTH_ACCENT}px solid {theme.WARN}; }}"
+_API_KEY_SAVED_STATUS_STYLE = f"QLabel {{ color: {theme.OK}; font-weight: {theme.FONT_WEIGHT_SEMIBOLD}; }}"
 _API_KEY_UNSET_STATUS_STYLE = f"QLabel {{ color: {theme.INK_FAINT}; }}"
 
 
