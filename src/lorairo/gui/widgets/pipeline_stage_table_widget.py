@@ -41,12 +41,27 @@ _RATING_NOTE_TOOLTIP = (
 _REMOVE_BUTTON_TOOLTIP = "選択から外す（このモデルは全ステージから外れます）"
 _ADD_BUTTON_TEXT = "+ 追加"
 
-# Theme v1 (Issue #760): 主割当 = info、multi-stage 強調 = accent、派生 = 点線 muted
-_PRIMARY_CHIP_STYLE = theme.chip_qss("info")
-_MULTI_CHIP_STYLE = theme.chip_qss("accent")
+# DS v12 AnnotateScreen (Issue #787): chip 文法 = borders-not-shadows / mono。
+# 主割当 = card 地 + line-strong border の mono チップ、multimodal は accent border で強調、
+# 派生 = 点線 border + 斜体 mono (操作不可)。
+_PRIMARY_CHIP_STYLE = (
+    f"QLabel {{ font-family: {theme.FONT_MONO_CSS}; background-color: {theme.CARD};"
+    f" border: {theme.BORDER_WIDTH}px solid {theme.LINE_STRONG};"
+    f" border-radius: {theme.RADIUS_CHIP}px; padding: 1px 9px;"
+    f" color: {theme.INK}; font-size: {theme.FONT_SIZE_SMALL}px; }}"
+)
+_MULTI_CHIP_STYLE = (
+    f"QLabel {{ font-family: {theme.FONT_MONO_CSS}; background-color: {theme.CARD};"
+    f" border: {theme.BORDER_WIDTH}px solid {theme.ACCENT_BORDER};"
+    f" border-radius: {theme.RADIUS_CHIP}px; padding: 1px 9px;"
+    f" color: {theme.ACCENT_HOVER}; font-size: {theme.FONT_SIZE_SMALL}px;"
+    f" font-weight: {theme.FONT_WEIGHT_SEMIBOLD}; }}"
+)
 _DERIVED_CHIP_STYLE = (
-    f"QLabel {{ border: 1px dashed {theme.LINE_STRONG}; border-radius: {theme.RADIUS_CHIP}px;"
-    f" padding: 1px 9px; color: {theme.INK_FAINT}; font-style: italic; }}"
+    f"QLabel {{ font-family: {theme.FONT_MONO_CSS};"
+    f" border: {theme.BORDER_WIDTH}px dashed {theme.LINE_STRONG};"
+    f" border-radius: {theme.RADIUS_CHIP}px; padding: 1px 9px;"
+    f" color: {theme.INK_SOFT}; font-style: italic; font-size: {theme.FONT_SIZE_SMALL}px; }}"
 )
 
 
@@ -66,9 +81,7 @@ class PipelineStageTableWidget(QWidget):
 
         legend = QLabel(_LEGEND_TEXT, self)
         legend.setObjectName("pipelineLegendLabel")
-        legend_font = legend.font()
-        legend_font.setPointSize(max(6, legend_font.pointSize() - 2))
-        legend.setFont(legend_font)
+        legend.setStyleSheet(f"color: {theme.INK_SOFT}; font-size: {theme.FONT_SIZE_META}px;")
         layout.addWidget(legend)
 
         self._rows_layout = QVBoxLayout()
@@ -114,6 +127,11 @@ class PipelineStageTableWidget(QWidget):
         name_font.setBold(True)
         name_label.setFont(name_font)
         name_label.setFixedWidth(72)
+        # DS: UPPERCASE ステージ見出し = ink-soft + letter-caps の字間
+        name_label.setStyleSheet(
+            f"color: {theme.INK_SOFT}; letter-spacing: {theme.LETTER_CAPS};"
+            f" font-size: {theme.FONT_SIZE_SMALL}px;"
+        )
         row_layout.addWidget(name_label)
 
         primary_models = row.primary_models if row is not None else ()
@@ -124,6 +142,11 @@ class PipelineStageTableWidget(QWidget):
             count_text += f" + ↝{len(derived_chips)}"
         count_label = QLabel(count_text, container)
         count_label.setObjectName(f"stageCount_{stage.name}")
+        # DS: n / ↝N の件数は mono ・ ink-faint
+        count_label.setStyleSheet(
+            f"font-family: {theme.FONT_MONO_CSS}; color: {theme.INK_FAINT};"
+            f" font-size: {theme.FONT_SIZE_META}px;"
+        )
         row_layout.addWidget(count_label)
 
         for model in primary_models:
