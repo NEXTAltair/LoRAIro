@@ -133,7 +133,11 @@ class AnnotationSummaryDialog(QDialog):
             color = theme.ERR
 
         label = QLabel(text)
-        label.setStyleSheet(f"font-size: 16px; font-weight: bold; color: {color}; padding: 8px 0;")
+        # DS: サマリ見出しは fs-h1 token (Issue #791)
+        label.setStyleSheet(
+            f"font-size: {theme.FONT_SIZE_H1}px; font-weight: {theme.FONT_WEIGHT_BOLD};"
+            f" color: {color}; padding: 8px 0;"
+        )
         label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         return label
 
