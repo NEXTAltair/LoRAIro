@@ -22,47 +22,22 @@
 <script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm" crossorigin="anonymous"></script>
 <script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
 <script src="../../_ds_bundle.js"></script>
+<script src="tagI18n.jsx"></script>
 <script type="text/babel" src="AppShell.jsx"></script>
 <script type="text/babel" src="SearchScreen.jsx"></script>
+<script type="text/babel" src="MapScreen.jsx"></script>
 <script type="text/babel" src="AnnotateScreen.jsx"></script>
 <script type="text/babel" src="JobsScreen.jsx"></script>
+<script type="text/babel" src="ResultsScreen.jsx"></script>
+<script type="text/babel" src="ErrorsScreen.jsx"></script>
+<script type="text/babel" src="ExportScreen.jsx"></script>
+<script type="text/babel" src="CLIScreen.jsx"></script>
+<script type="text/babel" src="SettingsScreen.jsx"></script>
 </head>
 <body>
 <div id="root"></div>
 <script type="text/babel">
   const DS = window.LoRAIroDesignSystem_64d8f7;
-
-  function Stub({ title, body }) {
-    return <div className="stub"><h2>{title}</h2><div>{body}</div></div>;
-  }
-
-  function Settings({ onClose }) {
-    const { Chip, Button } = DS;
-    const keys = [
-      ["Anthropic", "ok", "保存済"],
-      ["Google", "ok", "保存済"],
-      ["OpenAI", "warn", "未設定"],
-    ];
-    return (
-      <div className="overlay" onClick={onClose}>
-        <div className="dialog" onClick={(e) => e.stopPropagation()}>
-          <div className="dialog-head">設定 — API キー / モデル経路</div>
-          <div className="dialog-body">
-            {keys.map(([nm, tone, txt]) => (
-              <div className="keyrow" key={nm}>
-                <span className="nm">{nm}</span>
-                <Chip kind={tone}>{txt}</Chip>
-              </div>
-            ))}
-            <div style={{ marginTop: 16, display: "flex", justifyContent: "flex-end", gap: 8 }}>
-              <Button onClick={onClose}>閉じる</Button>
-              <Button variant="primary" onClick={onClose}>保存</Button>
-            </div>
-          </div>
-        </div>
-      </div>
-    );
-  }
 
   function App() {
     const [tab, setTab] = React.useState("search");
@@ -75,20 +50,20 @@
 
     let screen;
     if (tab === "search") screen = <window.SearchScreen staged={staged} onStage={stage} />;
+    else if (tab === "map") screen = <window.MapScreen />;
     else if (tab === "annotate") screen = <window.AnnotateScreen staged={staged} onRun={run} />;
     else if (tab === "jobs") screen = <window.JobsScreen running={running} />;
-    else if (tab === "map") screen = <Stub title="マップ" body="embedding 散布図によるデータセット俯瞰（Phase 8 予定）" />;
-    else if (tab === "results") screen = <Stub title="結果" body="アノテーション品質トリアージ（Frame 5 / Phase 2 予定）" />;
-    else if (tab === "errors") screen = <Stub title="エラー" body="失敗の triage — 原因別グルーピング表示" />;
-    else if (tab === "export") screen = <Stub title="エクスポート" body="学習用データセットの書き出し（format 別変換）" />;
-    else screen = <Stub title="CLI" body="agent-friendly な JSONL 契約。lorairo-cli --json list-commands" />;
+    else if (tab === "results") screen = <window.ResultsScreen />;
+    else if (tab === "errors") screen = <window.ErrorsScreen />;
+    else if (tab === "export") screen = <window.ExportScreen />;
+    else screen = <window.CLIScreen />;
 
     return (
       <React.Fragment>
         <window.AppShell tab={tab} onTab={setTab} onGear={() => setSettings(true)}>
           {screen}
         </window.AppShell>
-        {settings && <Settings onClose={() => setSettings(false)} />}
+        {settings && <window.SettingsScreen onClose={() => setSettings(false)} />}
       </React.Fragment>
     );
   }

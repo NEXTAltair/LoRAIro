@@ -1,4 +1,4 @@
-<!-- @dsCard group="Components" viewport="700x250" name="Forms — Button / Input / Select" -->
+<!-- @dsCard group="Components" viewport="700x500" name="Forms — Button / Input / Select / Segmented / Checkbox / Slider / TagInput" -->
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -18,8 +18,13 @@
 <body>
 <div id="root"></div>
 <script type="text/babel">
-  const { Button, Input, Select } = window.LoRAIroDesignSystem_64d8f7;
+  const { Button, Input, Select, SegmentedControl, Checkbox, Slider, TagInput } = window.LoRAIroDesignSystem_64d8f7;
   function Demo() {
+    const [status, setStatus] = React.useState("open");
+    const [picks, setPicks] = React.useState({ api: true, local: false });
+    const [q, setQ] = React.useState(6.5);
+    const [tags, setTags] = React.useState(["1girl", "solo", "cherry_blossoms"]);
+    const some = picks.api || picks.local, all = picks.api && picks.local;
     return (
       <React.Fragment>
         <div className="group">
@@ -34,6 +39,28 @@
           <Input label="タグ検索" placeholder="1girl, solo, ..." />
           <Select label="解像度" options={["すべて", "1024px 以上"]} />
           <Input label="スコア" placeholder="0.6 以上" />
+        </div>
+        <div style={{ marginTop: "var(--gap-3)", display: "flex", gap: "var(--gap-3)", flexWrap: "wrap" }}>
+          <SegmentedControl value={status} onChange={setStatus} options={[
+            { value: "open", label: "未解決", count: 33 },
+            { value: "resolved", label: "解決済", count: 318 },
+            { value: "all", label: "すべて", count: 354 },
+          ]} />
+        </div>
+        <div className="group" style={{ alignItems: "center", marginTop: "var(--gap-1)" }}>
+          <Checkbox label="すべて選択" indeterminate={some && !all} checked={all}
+            onChange={() => setPicks(all ? { api: false, local: false } : { api: true, local: true })} />
+          <Checkbox label="API モデル" checked={picks.api} onChange={e => setPicks(p => ({ ...p, api: e.target.checked }))} />
+          <Checkbox label="ローカルモデル" checked={picks.local} onChange={e => setPicks(p => ({ ...p, local: e.target.checked }))} />
+          <Checkbox label="discontinued を含む" disabled />
+        </div>
+        <div className="fields" style={{ marginTop: "var(--gap-1)", gridTemplateColumns: "1fr 1fr" }}>
+          <Slider label="品質スコア min" min={0} max={10} step={0.5} value={q} onChange={setQ}
+            suffix="↑" minLabel="0.0" maxLabel="10.0" />
+          <div style={{ display: "flex", flexDirection: "column" }}>
+            <span style={{ fontSize: "var(--fs-small)", color: "var(--ink-soft)", fontWeight: 600, margin: "0 0 3px" }}>手動タグ</span>
+            <TagInput tags={tags} onChange={setTags} placeholder="タグを追加…" />
+          </div>
         </div>
       </React.Fragment>
     );

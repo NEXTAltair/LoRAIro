@@ -1,4 +1,4 @@
-<!-- @dsCard group="Components" viewport="700x230" name="Feedback — Chip / TagChip / TypeBadge / Progress" -->
+<!-- @dsCard group="Components" viewport="700x420" name="Feedback — Chip / TagChip / TypeBadge / Progress / Stat / Toast" -->
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -18,7 +18,7 @@
 <body>
 <div id="root"></div>
 <script type="text/babel">
-  const { Chip, TagChip, TypeBadge, ProgressBar } = window.LoRAIroDesignSystem_64d8f7;
+  const { Chip, TagChip, TypeBadge, ProgressBar, SummaryStat, Toast } = window.LoRAIroDesignSystem_64d8f7;
   function Demo() {
     return (
       <React.Fragment>
@@ -39,6 +39,17 @@
         </div>
         <div className="row"><span className="lbl">progress</span>
           <ProgressBar value={45} /><ProgressBar value={100} tone="ok" /><ProgressBar value={20} striped />
+        </div>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: "var(--gap-3)" }}>
+          <SummaryStat label="実行中 running" value="1" sub="staged 9" tone="info" />
+          <SummaryStat label="待機 queued" value="2 件" sub="est. 8m" />
+          <SummaryStat label="完了 done (7d)" value="17 件" sub="✓ 14 / ⚠ 3" tone="ok" />
+          <SummaryStat label="未解決 errors" value="33" sub="retry可 31" tone="warn" />
+        </div>
+        <div className="row" style={{ marginTop: "var(--gap-3)", alignItems: "flex-start" }}><span className="lbl">toast</span>
+          <Toast kind="ok" title="保存しました" onClose={() => {}}>img_0418 · 変更 5 件を反映</Toast>
+          <Toast kind="neutral" title="タグを soft-reject" action={() => {}} actionLabel="元に戻す" onClose={() => {}}>blurry_background を除外</Toast>
+          <Toast kind="err" title="アノテーション失敗" onClose={() => {}}>provider_batch · rate_limit — retry可</Toast>
         </div>
       </React.Fragment>
     );

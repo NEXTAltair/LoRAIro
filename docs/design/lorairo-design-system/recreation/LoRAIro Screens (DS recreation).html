@@ -1,0 +1,101 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>LoRAIro — 画面再現 (DS)</title>
+<link rel="stylesheet" href="../styles.css">
+<style>
+  body { margin: 0; padding: 28px 18px 80px; background: var(--paper-shade); color: var(--text-body); font-family: var(--font-sans); font-size: var(--fs-base); line-height: var(--lh-base); }
+  .catalogue { max-width: 1180px; margin: 0 auto; display: flex; flex-direction: column; gap: 44px; }
+  .doc-head { display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; padding-bottom: 6px; }
+  .doc-head h1 { margin: 0; font-size: var(--fs-h1); font-weight: 700; letter-spacing: .01em; }
+  .doc-head h1 .iro { color: var(--accent); }
+  .doc-head .sub { font-family: var(--font-mono); font-size: var(--fs-small); color: var(--ink-soft); }
+  /* frame = one labelled app window, matching v12 frame catalogue structure */
+  .frame { position: relative; scroll-margin-top: 18px; }
+  .frame-label { font-family: var(--font-mono); font-size: var(--fs-small); letter-spacing: var(--letter-caps); text-transform: uppercase; color: var(--ink-soft); margin-bottom: 8px; display: flex; align-items: center; gap: 8px; }
+  .frame-label .n { background: var(--ink); color: var(--paper); border-radius: var(--radius-badge); padding: 1px 8px; font-weight: 700; }
+  /* frame index rail */
+  .rail { position: sticky; top: 0; z-index: 30; background: var(--paper-shade); padding: 10px 0 12px; margin: 0 auto; max-width: 1180px; display: flex; gap: 6px; flex-wrap: wrap; border-bottom: 1px solid var(--line); }
+  .rail a { font-family: var(--font-mono); font-size: var(--fs-small); color: var(--ink-soft); text-decoration: none; border: 1px solid var(--line); border-radius: var(--radius); padding: 3px 9px; background: var(--card); }
+  .rail a:hover { border-color: var(--accent); color: var(--accent); }
+  .rail a b { color: var(--ink); }
+</style>
+<script src="https://unpkg.com/react@18.3.1/umd/react.development.js" integrity="sha384-hD6/rw4ppMLGNu3tX5cjIb+uRZ7UkRJ6BPkLpg4hAu/6onKUg4lLsHAs9EBPT82L" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
+<script src="../_ds_bundle.js"></script>
+<script src="../ui_kits/lorairo-app/tagI18n.jsx"></script>
+<script type="text/babel" src="../ui_kits/lorairo-app/AppShell.jsx"></script>
+<script type="text/babel" src="../ui_kits/lorairo-app/SearchScreen.jsx"></script>
+<script type="text/babel" src="../ui_kits/lorairo-app/MapScreen.jsx"></script>
+<script type="text/babel" src="../ui_kits/lorairo-app/AnnotateScreen.jsx"></script>
+<script type="text/babel" src="../ui_kits/lorairo-app/JobsScreen.jsx"></script>
+<script type="text/babel" src="../ui_kits/lorairo-app/ResultsScreen.jsx"></script>
+<script type="text/babel" src="../ui_kits/lorairo-app/ErrorsScreen.jsx"></script>
+<script type="text/babel" src="../ui_kits/lorairo-app/ExportScreen.jsx"></script>
+<script type="text/babel" src="../ui_kits/lorairo-app/CLIScreen.jsx"></script>
+<script type="text/babel" src="../ui_kits/lorairo-app/SettingsScreen.jsx"></script>
+<script type="text/babel" src="TagEditScreen.jsx"></script>
+<script type="text/babel" src="StatesScreen.jsx"></script>
+</head>
+<body>
+<div id="root"></div>
+<script type="text/babel">
+  const DS = window.LoRAIroDesignSystem_64d8f7;
+
+  function App() {
+    const [staged, setStaged] = React.useState(9);
+    const [running, setRunning] = React.useState(true);
+    const [settings, setSettings] = React.useState(false);
+    const stage = () => setStaged((n) => n + 1);
+    const openGear = () => setSettings(true);
+
+    // FRAME registry — v12 order & numbering. Annotate (3) carries 3A/3B states
+    // internally; Settings (3C) is the ⚙ modal reachable from any frame.
+    const FRAMES = [
+      { n: "1",  id: "search",   title: "SEARCH",   ja: "検索",            el: <window.SearchScreen staged={staged} onStage={stage} /> },
+      { n: "2",  id: "map",      title: "MAP",      ja: "マップ",          el: <window.MapScreen /> },
+      { n: "3",  id: "annotate", title: "ANNOTATE", ja: "アノテーション",  el: <window.AnnotateScreen staged={staged} onRun={() => {}} /> },
+      { n: "4",  id: "jobs",     title: "JOBS",     ja: "ジョブ",          el: <window.JobsScreen running={running} /> },
+      { n: "5",  id: "results",  title: "RESULTS",  ja: "結果",            el: <window.ResultsScreen /> },
+      { n: "5B", id: "tagedit",  title: "TAG EDIT", ja: "タグ編集",        tab: "results", el: <window.TagEditScreen /> },
+      { n: "6",  id: "errors",   title: "ERRORS",   ja: "エラー",          el: <window.ErrorsScreen /> },
+      { n: "7",  id: "export",   title: "EXPORT",   ja: "エクスポート",    el: <window.ExportScreen /> },
+      { n: "8",  id: "cli",      title: "CLI",      ja: "CLI",             el: <window.CLIScreen /> },
+      { n: "9",  id: "states",   title: "STATES",   ja: "状態",            tab: null, el: <window.StatesScreen /> },
+    ];
+
+    return (
+      <React.Fragment>
+        <div className="rail">
+          {FRAMES.map((f) => (
+            <a key={f.id} href={"#frame-" + f.id}><b>{f.n}</b> {f.ja}</a>
+          ))}
+        </div>
+        <div className="catalogue">
+          <div className="doc-head">
+            <h1>LoRA<span className="iro">Iro</span> — 画面再現</h1>
+            <span className="sub">Wireframes v12 の構成を Design System のコンポーネントで忠実再現 · FRAME 1–8</span>
+          </div>
+
+          {FRAMES.map((f) => (
+            <section className="frame" id={"frame-" + f.id} key={f.id} data-screen-label={f.n + " " + f.title}>
+              <div className="frame-label"><span className="n">FRAME {f.n}</span> {f.title} · {f.ja}</div>
+              <window.AppShell tab={f.tab === undefined ? f.id : f.tab} onTab={() => {}} onGear={openGear}>
+                {f.el}
+              </window.AppShell>
+            </section>
+          ))}
+        </div>
+
+        {settings && <window.SettingsScreen onClose={() => setSettings(false)} />}
+      </React.Fragment>
+    );
+  }
+
+  ReactDOM.createRoot(document.getElementById("root")).render(<App />);
+</script>
+</body>
+</html>

@@ -1,4 +1,4 @@
-<!-- @dsCard group="Components" viewport="700x240" name="Surfaces — Tabs / Terminal" -->
+<!-- @dsCard group="Components" viewport="700x420" name="Surfaces — Tabs / Terminal / Dialog / Menu" -->
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -17,10 +17,11 @@
 <body>
 <div id="root"></div>
 <script type="text/babel">
-  const { Tabs, Terminal } = window.LoRAIroDesignSystem_64d8f7;
+  const { Tabs, Terminal, Dialog, Button, Menu } = window.LoRAIroDesignSystem_64d8f7;
   const T = Terminal;
   function Demo() {
     const [tab, setTab] = React.useState("annotate");
+    const [open, setOpen] = React.useState(true);
     const tabs = [
       { id: "search", label: "検索" }, { id: "map", label: "マップ" },
       { id: "annotate", label: "アノテーション" }, { id: "jobs", label: "ジョブ" },
@@ -34,6 +35,24 @@
           {"{"}<T.K>"kind"</T.K>:<T.S>"item"</T.S>,<T.K>"image_id"</T.K>:<T.N>42</T.N>,<T.K>"tags"</T.K>:[<T.S>"1girl"</T.S>,<T.S>"outdoor"</T.S>]{"}"}{"\n"}
           {"{"}<T.K>"kind"</T.K>:<T.S>"result"</T.S>,<T.K>"count"</T.K>:<T.N>128</T.N>,<T.K>"has_more"</T.K>:<T.B>false</T.B>{"}"}
         </Terminal>
+        <div style={{ display: "flex", gap: "var(--gap-2)" }}>
+          <Button onClick={() => setOpen(true)}>確認ダイアログを開く</Button>
+          <Menu
+            trigger={<Button variant="ghost">サムネイル ▾</Button>}
+            items={[
+              { label: "スコア降順", value: "score", glyph: "▾", shortcut: "⌘1" },
+              { label: "登録日時", value: "date", glyph: "▸" },
+              { label: "解像度", value: "res", glyph: "▸" },
+              { separator: true },
+              { label: "この画像を skip", value: "skip", glyph: "×", danger: true },
+            ]}
+            onSelect={() => {}}
+          />
+        </div>
+        <Dialog open={open} onClose={() => setOpen(false)} variant="confirm"
+          title="アノテーションを破棄" confirmLabel="破棄" cancelLabel="キャンセル">
+          未保存の手動編集が <b>3 件</b> あります。破棄して次の画像へ進みますか？
+        </Dialog>
       </React.Fragment>
     );
   }
