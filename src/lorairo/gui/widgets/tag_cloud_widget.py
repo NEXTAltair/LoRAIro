@@ -37,6 +37,24 @@ from lorairo.services.tag_cloud_service import GraphResult, TagCloudService
 if TYPE_CHECKING:
     from lorairo.database.db_manager import ImageDatabaseManager
 
+
+def _mono_font(point_size: int = -1) -> QFont:
+    """DS mono フォント (JetBrains Mono、tokens/typography.css --font-mono) を返す。
+
+    汎用 "monospace" の代わりに DS 確定の mono family を使う (Issue #794)。
+
+    Args:
+        point_size: ポイントサイズ。0 以下なら既定サイズのまま。
+
+    Returns:
+        DS mono family を設定した QFont。
+    """
+    font = QFont(theme.FONT_MONO_FAMILIES[0])
+    if point_size > 0:
+        font.setPointSize(point_size)
+    return font
+
+
 # キーワード入力のデバウンス（ms）
 _DEBOUNCE_MS = 250
 # 力学シミュレーションの更新間隔（ms）
@@ -135,7 +153,7 @@ class _TagCloudLabel(QLabel):
         super().__init__(f"{tag}", parent)
         self._tag = tag
         font_px = 13 + round(34 * math.pow(weight, 0.8))
-        font = QFont("monospace", -1)
+        font = _mono_font()
         font.setPixelSize(font_px)
         font.setWeight(QFont.Weight.DemiBold if weight > 0.55 else QFont.Weight.Normal)
         self.setFont(font)
@@ -160,11 +178,11 @@ class _DrillChip(QWidget):
         layout.setContentsMargins(6, 2, 4, 2)
         layout.setSpacing(4)
         self.setStyleSheet(
-            f"background:{theme.ACCENT_SOFT};border:1px solid {theme.ACCENT_BORDER};"
+            f"background:{theme.ACCENT_SOFT};border:{theme.BORDER_WIDTH}px solid {theme.ACCENT_BORDER};"
             f"border-radius:{theme.RADIUS_CHIP}px;"
         )
         name = QLabel(tag)
-        name.setFont(QFont("monospace", 9))
+        name.setFont(_mono_font(theme.FONT_SIZE_META))
         name.setStyleSheet(f"color:{theme.ACCENT_HOVER};border:none;background:transparent;")
         layout.addWidget(name)
         close_btn = QPushButton("✕")
@@ -443,7 +461,7 @@ class NetworkGraphView(QWidget):
             if dim:
                 continue
             fs = round(10 + 9 * node.weight + (1.5 if hov == i else 0))
-            font = QFont("monospace", -1)
+            font = _mono_font()
             font.setPixelSize(fs)
             if hov == i or node.weight > 0.55:
                 font.setWeight(QFont.Weight.DemiBold)
@@ -464,7 +482,7 @@ class NetworkGraphView(QWidget):
         painter.setBrush(QBrush(QColor(255, 255, 255, 235)))
         painter.setPen(QPen(QColor(theme.LINE), 1))
         painter.drawRoundedRect(QRectF(x, y, 156, 52), 6, 6)
-        font = QFont("monospace", -1)
+        font = _mono_font()
         font.setPixelSize(9)
         painter.setFont(font)
         painter.setPen(QColor(theme.INK_FAINT))
@@ -479,7 +497,7 @@ class NetworkGraphView(QWidget):
 
     def _draw_hint(self, painter: QPainter, w: int) -> None:
         text = "ノードをクリックで絞り込み・ホバーで近傍を強調"
-        font = QFont("monospace", -1)
+        font = _mono_font()
         font.setPixelSize(10)
         painter.setFont(font)
         tw = painter.fontMetrics().horizontalAdvance(text) + 22
@@ -499,7 +517,7 @@ class NetworkGraphView(QWidget):
         title = node.tag
         line = f"出現 {node.count:,} 枚 · 共起 {deg} タグ"
         hint = "クリックで AND 絞り込みに追加"
-        font = QFont("monospace", -1)
+        font = _mono_font()
         font.setPixelSize(11)
         painter.setFont(font)
         fm = painter.fontMetrics()
@@ -615,21 +633,21 @@ class TagCloudWidget(QWidget):
 
         # ステータス
         self._status_label = QLabel("")
-        self._status_label.setFont(QFont("monospace", 9))
+        self._status_label.setFont(_mono_font(theme.FONT_SIZE_META))
         self._status_label.setStyleSheet(f"color:{theme.INK_SOFT};")
         root.addWidget(self._status_label)
 
         # ステージ（メッセージ / ネットワーク / クラウド の3ページ）
         self._stack = QStackedWidget()
         self._stack.setStyleSheet(
-            f"background:{theme.CARD};border:1px solid {theme.LINE};border-radius:{theme.RADIUS}px;"
+            f"background:{theme.CARD};border:{theme.BORDER_WIDTH}px solid {theme.LINE};border-radius:{theme.RADIUS}px;"
         )
 
         self._message_label = QLabel()
         self._message_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self._message_label.setWordWrap(True)
         self._message_label.setStyleSheet(f"color:{theme.INK_FAINT};")
-        self._message_label.setFont(QFont("monospace", 11))
+        self._message_label.setFont(_mono_font(theme.FONT_SIZE_SMALL))
         self._stack.addWidget(self._message_label)  # PAGE_MESSAGE
 
         self._network_view = NetworkGraphView()
@@ -652,12 +670,12 @@ class TagCloudWidget(QWidget):
         btn.setCheckable(True)
         btn.setChecked(checked)
         btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        btn.setFont(QFont("monospace", 9))
+        btn.setFont(_mono_font(theme.FONT_SIZE_META))
         btn.setStyleSheet(
             f"QPushButton{{background:{theme.PAPER_SHADE};color:{theme.INK_SOFT};"
-            f"border:1px solid {theme.LINE_STRONG};border-radius:4px;padding:5px 12px;}}"
+            f"border:{theme.BORDER_WIDTH}px solid {theme.LINE_STRONG};border-radius:4px;padding:5px 12px;}}"
             f"QPushButton:checked{{background:{theme.CARD};color:{theme.INK};"
-            f"border-color:{theme.ACCENT};font-weight:bold;}}"
+            f"border-color:{theme.ACCENT};font-weight:{theme.FONT_WEIGHT_BOLD};}}"
         )
         btn.clicked.connect(lambda: self._on_view_changed(view))
         return btn
@@ -781,14 +799,14 @@ class TagCloudWidget(QWidget):
     def _refresh_chips(self) -> None:
         self._clear_layout(self._chip_layout)
         lead = QLabel("ドリルダウン:")
-        lead.setFont(QFont("monospace", 9))
+        lead.setFont(_mono_font(theme.FONT_SIZE_META))
         lead.setStyleSheet(f"color:{theme.INK_FAINT};")
         self._chip_layout.addWidget(lead)
         if not self._selected_tags:
             hint = QLabel("なし — ノードをクリックして絞り込み")
-            hint.setFont(QFont("monospace", 9))
+            hint.setFont(_mono_font(theme.FONT_SIZE_META))
             hint.setStyleSheet(
-                f"color:{theme.INK_FAINT};border:1px dashed {theme.LINE_STRONG};"
+                f"color:{theme.INK_FAINT};border:{theme.BORDER_WIDTH}px dashed {theme.LINE_STRONG};"
                 f"border-radius:{theme.RADIUS_CHIP}px;padding:2px 8px;"
             )
             self._chip_layout.addWidget(hint)
