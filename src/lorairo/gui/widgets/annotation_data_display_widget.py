@@ -67,6 +67,10 @@ class ImageDetails:
     score_value: int = 0  # 0-1000 range
     caption: str = ""  # Image caption text
     tags: str = ""  # Comma-separated tags
+    # オリジナル画像メタデータ (Issue #813): 登録時にリサイズ/拡張子変換されるため original を表示
+    original_extension: str = ""  # ".png" / ".jpg" 等 (Image.extension 由来)
+    aspect_ratio: str = ""  # "16:9" 等 (original width:height の既約比)
+    alpha_text: str = ""  # "あり (RGBA)" / "なし (RGB)" / "不明"
     annotation_data: AnnotationData | None = field(default=None)
 
     def __post_init__(self) -> None:

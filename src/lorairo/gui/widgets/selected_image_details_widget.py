@@ -129,10 +129,33 @@ class SelectedImageDetailsWidget(QWidget):
 
         self._setup_connections()
         self._remove_duplicate_detail_tabs()
+        self._setup_original_meta_rows()
         self._apply_readable_layout()
         self._clear_display()
 
         logger.debug("SelectedImageDetailsWidget initialized")
+
+    def _setup_original_meta_rows(self) -> None:
+        """画像情報グリッドにオリジナルメタ行 (拡張子/アスペクト比/アルファ) を追加する。
+
+        登録時にリサイズ・拡張子変換されるため、オリジナル画像のメタデータを表示する
+        (Issue #813)。.ui は再生成せず、既存 gridLayoutImageInfo に行を増設する。
+        """
+        grid = self.ui.gridLayoutImageInfo
+        group = self.ui.groupBoxImageInfo
+        next_row = grid.rowCount()
+        self.labelExtensionValue = QLabel("-", group)
+        self.labelAspectValue = QLabel("-", group)
+        self.labelAlphaValue = QLabel("-", group)
+        rows = (
+            ("拡張子", self.labelExtensionValue),
+            ("アスペクト比", self.labelAspectValue),
+            ("アルファ", self.labelAlphaValue),
+        )
+        for offset, (caption, value_label) in enumerate(rows):
+            key_label = QLabel(caption, group)
+            grid.addWidget(key_label, next_row + offset, 0, 1, 1)
+            grid.addWidget(value_label, next_row + offset, 1, 1, 1)
 
     def _remove_duplicate_detail_tabs(self) -> None:
         """重複表示になるタブを削除する。"""
@@ -469,9 +492,14 @@ class SelectedImageDetailsWidget(QWidget):
         file_path_str = self._get_display_file_path(metadata)
         file_name = Path(file_path_str).name if file_path_str else ""
 
+        # オリジナル画像の解像度 (Image テーブル = original。登録時にリサイズ/変換されるため
+        # ここでは必ずオリジナル値を表示する。Issue #813)
         width = metadata.get("width", 0)
         height = metadata.get("height", 0)
-        image_size = f"{width} x {height}" if width and height else ""
+        image_size = f"{width} × {height} px" if width and height else ""
+        aspect_ratio = self._format_aspect_ratio(width, height)
+        original_extension = self._format_original_extension(metadata)
+        alpha_text = self._format_alpha(metadata)
 
         file_size = self._get_file_size_bytes(metadata, image_id)
         if file_size is not None and file_size > 0:
@@ -537,6 +565,9 @@ class SelectedImageDetailsWidget(QWidget):
             score_value=score_value,
             caption=caption_text,
             tags=tags_text,
+            original_extension=original_extension,
+            aspect_ratio=aspect_ratio,
+            alpha_text=alpha_text,
             annotation_data=annotation_data,
         )
 
@@ -546,6 +577,45 @@ class SelectedImageDetailsWidget(QWidget):
         )
 
         return details
+
+    @staticmethod
+    def _format_aspect_ratio(width: Any, height: Any) -> str:
+        """オリジナル解像度から既約アスペクト比 (例 "16:9") を返す (Issue #813)。"""
+        try:
+            w = int(width)
+            h = int(height)
+        except (TypeError, ValueError):
+            return ""
+        if w <= 0 or h <= 0:
+            return ""
+        from math import gcd
+
+        g = gcd(w, h)
+        return f"{w // g}:{h // g}"
+
+    @staticmethod
+    def _format_original_extension(metadata: dict[str, Any]) -> str:
+        """オリジナル画像の拡張子表示 (Image.extension / format 由来、Issue #813)。"""
+        ext = metadata.get("extension")
+        if isinstance(ext, str) and ext.strip():
+            normalized = ext.strip()
+            return normalized if normalized.startswith(".") else f".{normalized}"
+        fmt = metadata.get("format")
+        if isinstance(fmt, str) and fmt.strip():
+            return fmt.strip().upper()
+        return ""
+
+    @staticmethod
+    def _format_alpha(metadata: dict[str, Any]) -> str:
+        """アルファチャンネル有無の表示 (Image.has_alpha / mode 由来、Issue #813)。"""
+        has_alpha = metadata.get("has_alpha")
+        mode = metadata.get("mode")
+        mode_text = f" ({mode})" if isinstance(mode, str) and mode.strip() else ""
+        if has_alpha is True:
+            return f"あり{mode_text or ' (RGBA)'}"
+        if has_alpha is False:
+            return f"なし{mode_text or ' (RGB)'}"
+        return "不明"
 
     @staticmethod
     def _get_display_file_path(metadata: dict[str, Any]) -> str:
@@ -638,6 +708,11 @@ class SelectedImageDetailsWidget(QWidget):
         created_date_text = details.created_date if details.created_date else "-"
         self.ui.labelCreatedDateValue.setText(created_date_text)
 
+        # オリジナル画像メタ (Issue #813)
+        self.labelExtensionValue.setText(details.original_extension or "-")
+        self.labelAspectValue.setText(details.aspect_ratio or "-")
+        self.labelAlphaValue.setText(details.alpha_text or "-")
+
         # Rating / Score
         self._update_rating_score_display(details)
 
@@ -707,6 +782,9 @@ class SelectedImageDetailsWidget(QWidget):
         self.ui.labelFileNameValue.setText("-")
         self.ui.labelImageSizeValue.setText("-")
         self.ui.labelFileSizeValue.setText("-")
+        self.labelExtensionValue.setText("-")
+        self.labelAspectValue.setText("-")
+        self.labelAlphaValue.setText("-")
         self.ui.labelCreatedDateValue.setText("-")
         if self.ui.tabWidgetDetails.indexOf(self.ui.tabTags) != -1:
             self.ui.labelTagsContent.setText("-")
