@@ -449,6 +449,203 @@ class TestRatedFilter:
         assert result_query != base_query
 
 
+class TestMultiSelectRatingFilter:
+    """Issue #811: マルチセレクト (list[str]) レーティングフィルタのテスト。"""
+
+    @pytest.fixture
+    def repository(self):
+        return ImageRepository(session_factory=Mock())
+
+    def test_normalize_rating_filter_variants(self, repository):
+        """単一値 / 複数値 / None / 空要素を共通の list[str] に正規化する。"""
+        assert repository._normalize_rating_filter(None) == []
+        assert repository._normalize_rating_filter("PG") == ["PG"]
+        assert repository._normalize_rating_filter(["PG", "R"]) == ["PG", "R"]
+        # 空文字要素は除去
+        assert repository._normalize_rating_filter(["PG", ""]) == ["PG"]
+
+    def test_rating_filter_has_nsfw(self, repository):
+        """NSFW (R/X/XXX) 値の有無を単一値・複数値どちらでも判定する。"""
+        assert repository._rating_filter_has_nsfw("R") is True
+        assert repository._rating_filter_has_nsfw(["PG", "X"]) is True
+        assert repository._rating_filter_has_nsfw(["PG", "PG-13"]) is False
+        assert repository._rating_filter_has_nsfw(None) is False
+
+    def test_build_ai_rating_condition_list(self, repository):
+        """AI レーティング複数値で条件式が生成される (None は条件なし)。"""
+        assert repository._build_ai_rating_condition(["PG", "R"]) is not None
+        assert repository._build_ai_rating_condition(None) is None
+        assert repository._build_ai_rating_condition([]) is None
+
+    def test_build_ai_rating_condition_mixed_sentinel(self, repository):
+        """通常値 + 番兵 (UNRATED) の併用でも条件式が生成される。"""
+        assert repository._build_ai_rating_condition(["PG", "UNRATED"]) is not None
+
+    def test_apply_ai_rating_filter_list_changes_query(self, repository):
+        """_apply_ai_rating_filter は複数値で query を変更する。"""
+        base_query = select(Image.id)
+        result = repository._apply_ai_rating_filter(base_query, ["PG", "R"])
+        assert result is not None
+        assert result != base_query
+
+    def test_build_manual_rating_condition_list(self, repository):
+        """手動レーティング複数値で条件式が生成される。"""
+        mock_session = Mock(spec=Session)
+        with patch(
+            "lorairo.database.repository.image.ModelRepository._get_or_create_manual_edit_model",
+            return_value=1,
+        ):
+            condition = repository._build_manual_rating_condition(["PG", "R"], mock_session)
+            assert condition is not None
+            assert repository._build_manual_rating_condition(None, mock_session) is None
+
+    def test_get_images_by_filter_multi_and(self, repository_with_mock_session):
+        """manual / AI 複数値 + AND 結合 (既定) でクエリが実行される。"""
+        repository, mock_session = repository_with_mock_session
+        with patch(
+            "lorairo.database.repository.image.ModelRepository._get_or_create_manual_edit_model",
+            return_value=1,
+        ):
+            results, count = repository.get_images_by_filter(
+                manual_rating_filter=["PG", "R"], ai_rating_filter=["X"]
+            )
+        assert mock_session.execute.called
+        assert results == []
+        assert count == 0
+
+    def test_get_images_by_filter_multi_or(self, repository_with_mock_session):
+        """manual / AI 両方指定 + rating_combine='or' で OR 合成パスが実行される。"""
+        repository, mock_session = repository_with_mock_session
+        with patch(
+            "lorairo.database.repository.image.ModelRepository._get_or_create_manual_edit_model",
+            return_value=1,
+        ):
+            _results, count = repository.get_images_by_filter(
+                manual_rating_filter=["PG"], ai_rating_filter=["R"], rating_combine="or"
+            )
+        assert mock_session.execute.called
+        assert count == 0
+
+    @pytest.fixture
+    def repository_with_mock_session(self):
+        mock_session = Mock(spec=Session)
+        mock_session_factory = Mock(return_value=mock_session)
+        mock_session.__enter__ = Mock(return_value=mock_session)
+        mock_session.__exit__ = Mock(return_value=None)
+        mock_execute_result = Mock()
+        mock_execute_result.scalar_one.return_value = 0
+        mock_execute_result.scalars = Mock(return_value=Mock(all=Mock(return_value=[])))
+        mock_session.execute = Mock(return_value=mock_execute_result)
+        return ImageRepository(session_factory=mock_session_factory), mock_session
+
+
+class TestMultiSelectRatingDataModels:
+    """Issue #811: ImageFilterCriteria / SearchConditions の list 受け入れと結合。"""
+
+    def test_filter_criteria_accepts_list_and_combine(self):
+        """ImageFilterCriteria が list と rating_combine を保持し to_dict に含める。"""
+        from lorairo.database.filter_criteria import ImageFilterCriteria
+
+        criteria = ImageFilterCriteria(
+            manual_rating_filter=["PG", "R"],
+            ai_rating_filter=["X"],
+            rating_combine="or",
+        )
+        assert criteria.manual_rating_filter == ["PG", "R"]
+        assert criteria.rating_combine == "or"
+        d = criteria.to_dict()
+        assert d["ai_rating_filter"] == ["X"]
+        assert d["rating_combine"] == "or"
+
+    def test_filter_criteria_default_combine_is_and(self):
+        """rating_combine の既定は 'and' (後方互換: 従来の AND 挙動)。"""
+        from lorairo.database.filter_criteria import ImageFilterCriteria
+
+        assert ImageFilterCriteria().rating_combine == "and"
+
+    def test_search_conditions_list_to_filter_criteria(self):
+        """SearchConditions の list レーティングが criteria に伝播する。"""
+        from lorairo.services.search_models import SearchConditions
+
+        conditions = SearchConditions(
+            search_type="tags",
+            keywords=["test"],
+            tag_logic="and",
+            rating_filter=["PG", "R"],
+            ai_rating_filter=["X"],
+            rating_combine="or",
+        )
+        criteria = conditions.to_filter_criteria()
+        assert criteria.manual_rating_filter == ["PG", "R"]
+        assert criteria.ai_rating_filter == ["X"]
+        assert criteria.rating_combine == "or"
+
+    def test_search_conditions_single_value_still_works(self):
+        """後方互換: 単一 str レーティングも従来どおり criteria に伝播する。"""
+        from lorairo.services.search_models import SearchConditions
+
+        conditions = SearchConditions(
+            search_type="tags",
+            keywords=["test"],
+            tag_logic="and",
+            rating_filter="PG",
+        )
+        criteria = conditions.to_filter_criteria()
+        assert criteria.manual_rating_filter == "PG"
+        assert criteria.rating_combine == "and"
+
+
+class TestMultiSelectPreviewDisplay:
+    """Issue #811: マルチセレクト / OR 結合のプレビュー表示テスト。"""
+
+    def _make_service(self):
+        from lorairo.gui.services.search_filter_service import SearchFilterService
+
+        return SearchFilterService(db_manager=Mock(), model_selection_service=Mock())
+
+    def test_preview_shows_multi_select_or_join(self):
+        """複数選択は ' / ' 区切りで表示される。"""
+        from lorairo.services.search_models import SearchConditions
+
+        service = self._make_service()
+        conditions = SearchConditions(
+            search_type="tags", keywords=[], tag_logic="and", rating_filter=["PG", "R"]
+        )
+        preview = service.create_search_preview(conditions)
+        assert "手動レーティング: PG / R" in preview
+
+    def test_preview_shows_or_combine_note(self):
+        """manual / AI 両方指定 + OR 結合時に結合注記を表示する。"""
+        from lorairo.services.search_models import SearchConditions
+
+        service = self._make_service()
+        conditions = SearchConditions(
+            search_type="tags",
+            keywords=[],
+            tag_logic="and",
+            rating_filter=["PG"],
+            ai_rating_filter=["R"],
+            rating_combine="or",
+        )
+        preview = service.create_search_preview(conditions)
+        assert "いずれか (OR)" in preview
+
+    def test_preview_no_or_note_for_and(self):
+        """既定 (AND) では OR 結合注記を表示しない。"""
+        from lorairo.services.search_models import SearchConditions
+
+        service = self._make_service()
+        conditions = SearchConditions(
+            search_type="tags",
+            keywords=[],
+            tag_logic="and",
+            rating_filter=["PG"],
+            ai_rating_filter=["R"],
+        )
+        preview = service.create_search_preview(conditions)
+        assert "いずれか (OR)" not in preview
+
+
 class TestRatedPreviewDisplay:
     """RATEDフィルターのプレビュー表示テスト (Issue #561)"""
 

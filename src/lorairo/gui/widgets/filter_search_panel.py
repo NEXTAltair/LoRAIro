@@ -24,9 +24,15 @@ import 互換性: `PipelineState` Enum は本モジュールから引き続き e
 from datetime import datetime
 from typing import TYPE_CHECKING, Any, cast
 
-from PySide6.QtCore import Signal
+from PySide6.QtCore import Qt, Signal
 from PySide6.QtGui import QCloseEvent
-from PySide6.QtWidgets import QScrollArea, QWidget
+from PySide6.QtWidgets import (
+    QButtonGroup,
+    QHBoxLayout,
+    QPushButton,
+    QScrollArea,
+    QWidget,
+)
 
 from ...gui.designer.FilterSearchPanel_ui import Ui_FilterSearchPanel
 from ...gui.services.operation_events import OperationOutcome, OperationType, WorkerOperationEvent
@@ -46,10 +52,138 @@ from .search_facets_sidebar import SearchFacetsSidebar
 __all__ = ["FilterSearchPanel", "PipelineState"]
 
 if TYPE_CHECKING:
+    from collections.abc import Callable
+
     from ...services.search_models import SearchConditions
     from ...services.tag_suggestion_service import TagSuggestionService
     from ..services.search_filter_service import SearchFilterService
     from ..services.worker_service import WorkerService
+
+
+# レーティング chip の選択肢 (filter_value, 表示ラベル)。
+# 番兵 UNRATED は手動行で「なし」、AI 行で「未設定」と表示し分ける (Issue #811)。
+_MANUAL_RATING_OPTIONS: list[tuple[str, str]] = [
+    ("PG", "PG"),
+    ("PG-13", "PG-13"),
+    ("R", "R"),
+    ("X", "X"),
+    ("XXX", "XXX"),
+    ("UNRATED", "なし"),
+]
+_AI_RATING_OPTIONS: list[tuple[str, str]] = [
+    ("PG", "PG"),
+    ("PG-13", "PG-13"),
+    ("R", "R"),
+    ("X", "X"),
+    ("XXX", "XXX"),
+    ("UNRATED", "未設定"),
+]
+_RATING_COMBINE_OPTIONS: list[tuple[str, str]] = [("and", "AND"), ("or", "OR")]
+
+
+def _rating_chip_qss(active: bool) -> str:
+    """レーティング chip トグル 1 個分の QSS を返す (DS chip 文法、borders-not-shadows)。
+
+    active = accent-soft 塗り + accent border + accent-hover 文字。inactive = card 地 +
+    line border + ink-soft 文字 (hover で line-strong 強調)。ハードコード hex/px は使わず
+    theme token のみを参照する (Issue #782 token / #811)。
+
+    Args:
+        active: chip が選択状態か。
+
+    Returns:
+        QPushButton 用の QSS 文字列。
+    """
+    if active:
+        return (
+            f"QPushButton {{ background-color: {theme.ACCENT_SOFT}; color: {theme.ACCENT_HOVER};"
+            f" border: {theme.BORDER_WIDTH}px solid {theme.ACCENT_BORDER};"
+            f" border-radius: {theme.RADIUS_CHIP}px; padding: 2px 10px;"
+            f" font-size: {theme.FONT_SIZE_SMALL}px; font-weight: {theme.FONT_WEIGHT_SEMIBOLD}; }}"
+        )
+    return (
+        f"QPushButton {{ background-color: {theme.CARD}; color: {theme.INK_SOFT};"
+        f" border: {theme.BORDER_WIDTH}px solid {theme.LINE}; border-radius: {theme.RADIUS_CHIP}px;"
+        f" padding: 2px 10px; font-size: {theme.FONT_SIZE_SMALL}px;"
+        f" font-weight: {theme.FONT_WEIGHT_MEDIUM}; }}"
+        f" QPushButton:hover {{ border-color: {theme.LINE_STRONG}; color: {theme.INK}; }}"
+    )
+
+
+class RatingChipToggleRow(QWidget):
+    """レーティング値などを選択する chip トグルボタン行 (Issue #811)。
+
+    checkable な flat ``QPushButton`` を ``QButtonGroup`` で束ねる。``exclusive=False``
+    でマルチセレクト (レーティング選択集合 = OR)、``exclusive=True`` で単一選択
+    (AND/OR 結合トグル) として使う。選択変更時に :data:`changed` を emit する。
+    """
+
+    changed = Signal()
+
+    def __init__(
+        self,
+        options: list[tuple[str, str]],
+        *,
+        exclusive: bool,
+        default: str | None = None,
+        parent: QWidget | None = None,
+    ) -> None:
+        """chip 行を構築する。
+
+        Args:
+            options: (filter_value, 表示ラベル) のリスト。
+            exclusive: 単一選択にするか (True) マルチセレクトにするか (False)。
+            default: 初期選択する filter_value (主に exclusive トグル用)。
+            parent: 親 widget。
+        """
+        super().__init__(parent)
+        layout = QHBoxLayout(self)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(4)
+
+        self._group = QButtonGroup(self)
+        self._group.setExclusive(exclusive)
+        self._buttons: dict[str, QPushButton] = {}
+        for value, label in options:
+            button = QPushButton(label, self)
+            button.setCheckable(True)
+            button.setCursor(Qt.CursorShape.PointingHandCursor)
+            checked = value == default
+            button.setChecked(checked)
+            button.setStyleSheet(_rating_chip_qss(checked))
+            button.toggled.connect(self._make_toggle_handler(button))
+            self._group.addButton(button)
+            self._buttons[value] = button
+            layout.addWidget(button)
+
+    def _make_toggle_handler(self, button: QPushButton) -> "Callable[[bool], None]":
+        """chip の checked 状態に応じて QSS を更新し changed を emit するハンドラを返す。"""
+
+        def handler(checked: bool) -> None:
+            button.setStyleSheet(_rating_chip_qss(checked))
+            self.changed.emit()
+
+        return handler
+
+    def selected_values(self) -> list[str]:
+        """選択中の filter_value を選択順 (定義順) で返す。"""
+        return [value for value, button in self._buttons.items() if button.isChecked()]
+
+    def value(self) -> str | None:
+        """単一選択トグルの現在値を返す (未選択時 None)。"""
+        selected = self.selected_values()
+        return selected[0] if selected else None
+
+    def set_value(self, value: str) -> None:
+        """指定 value を選択状態にする (排他グループでは他を自動解除)。"""
+        button = self._buttons.get(value)
+        if button is not None:
+            button.setChecked(True)
+
+    def clear(self) -> None:
+        """全 chip を未選択にする (非排他グループ用)。"""
+        for button in self._buttons.values():
+            button.setChecked(False)
 
 
 class FilterSearchPanel(QScrollArea):
@@ -231,6 +365,9 @@ class FilterSearchPanel(QScrollArea):
             main_layout.addWidget(self._count_estimate)
             main_layout.addLayout(self.progress_layout)
 
+        # レーティング chip トグル群 (Issue #811: dropdown → マルチセレクト chip)
+        self._setup_rating_chips()
+
         # 廃止フラグ (登録時 pHash 重複防止により不要)
         self.ui.checkboxExcludeDuplicates.setChecked(False)
         self.ui.checkboxExcludeDuplicates.setVisible(False)
@@ -245,6 +382,37 @@ class FilterSearchPanel(QScrollArea):
             insert_index = contents_layout.count() - 1
             contents_layout.insertWidget(insert_index, self._favorite_filter)
             contents_layout.addWidget(self._search_facets_sidebar)
+
+    def _setup_rating_chips(self) -> None:
+        """レーティング dropdown を chip トグル群へ置き換える (Issue #811)。
+
+        手動 / AI それぞれをマルチセレクト chip 行に、両者の組合せ (AND/OR) を
+        単一選択トグルに置き換え、Qt Designer の placeholder と差し替える。
+        """
+        self._rating_chips = RatingChipToggleRow(_MANUAL_RATING_OPTIONS, exclusive=False)
+        self._ai_rating_chips = RatingChipToggleRow(_AI_RATING_OPTIONS, exclusive=False)
+        self._rating_combine_toggle = RatingChipToggleRow(
+            _RATING_COMBINE_OPTIONS, exclusive=True, default="and"
+        )
+
+        self._replace_placeholder(self.ui.ratingChipPlaceholder, self._rating_chips)
+        self._replace_placeholder(self.ui.aiRatingChipPlaceholder, self._ai_rating_chips)
+        self._replace_placeholder(self.ui.ratingCombinePlaceholder, self._rating_combine_toggle)
+
+    @staticmethod
+    def _replace_placeholder(placeholder: QWidget, widget: QWidget) -> None:
+        """Qt Designer の placeholder widget をレイアウト上で実 widget に差し替える。"""
+        parent_widget = placeholder.parentWidget()
+        if parent_widget is None:
+            return
+        layout = parent_widget.layout()
+        from PySide6.QtWidgets import QBoxLayout
+
+        if isinstance(layout, QBoxLayout):
+            index = layout.indexOf(placeholder)
+            layout.removeWidget(placeholder)
+            placeholder.deleteLater()
+            layout.insertWidget(index, widget)
 
     def _setup_sub_components(self) -> None:
         """Sub-component の依存と連携を設定する。"""
@@ -278,8 +446,8 @@ class FilterSearchPanel(QScrollArea):
         self.ui.checkboxDateFilter.toggled.connect(self._on_date_filter_toggled)
         self.date_range_slider.valueChanged.connect(self._on_date_range_changed)
 
-        # Rating フィルター
-        self.ui.comboRating.currentTextChanged.connect(self._on_rating_changed)
+        # Rating フィルター (Issue #811: chip トグル群)
+        self._rating_chips.changed.connect(self._on_rating_changed)
 
         # アクションボタン
         self.ui.buttonApply.clicked.connect(self._on_apply_clicked)
@@ -292,8 +460,9 @@ class FilterSearchPanel(QScrollArea):
         self.ui.comboResolution.currentTextChanged.connect(self._on_filter_value_changed)
         self.ui.comboAspectRatio.currentTextChanged.connect(self._on_filter_value_changed)
         self.ui.checkboxDateFilter.toggled.connect(self._on_filter_value_changed)
-        self.ui.comboRating.currentTextChanged.connect(self._on_filter_value_changed)
-        self.ui.comboAIRating.currentTextChanged.connect(self._on_filter_value_changed)
+        self._rating_chips.changed.connect(self._on_filter_value_changed)
+        self._ai_rating_chips.changed.connect(self._on_filter_value_changed)
+        self._rating_combine_toggle.changed.connect(self._on_filter_value_changed)
         self.ui.checkboxIncludeUnrated.toggled.connect(self._on_filter_value_changed)
         self.ui.checkboxOnlyUntagged.toggled.connect(self._on_filter_value_changed)
         self.ui.checkboxOnlyUncaptioned.toggled.connect(self._on_filter_value_changed)
@@ -557,9 +726,9 @@ class FilterSearchPanel(QScrollArea):
         """解像度選択変更処理。"""
         del text  # 固定解像度のみのため処理不要
 
-    def _on_rating_changed(self, text: str) -> None:
-        """Rating 選択変更処理。"""
-        logger.debug(f"Rating changed: {text}")
+    def _on_rating_changed(self) -> None:
+        """手動 Rating chip 選択変更処理。"""
+        logger.debug(f"Manual rating chips changed: {self._rating_chips.selected_values()}")
 
     def _on_date_filter_toggled(self, checked: bool) -> None:
         """日付フィルター有効化切り替え処理。"""
@@ -632,31 +801,24 @@ class FilterSearchPanel(QScrollArea):
             return "caption"
         return "tags"
 
-    def _get_rating_filter_value(self) -> str | None:
-        """Rating コンボボックスから選択された値を取得。"""
-        text = self.ui.comboRating.currentText()
-        if text == "----":
-            return None
-        if text == "レーティング済み":
-            return "RATED"
-        if text == "未設定のみ":
-            return "UNRATED"
-        rating_value = text.split()[0] if text else None
-        logger.debug(f"Rating filter value: {rating_value}")
-        return rating_value
+    def _get_rating_filter_value(self) -> list[str]:
+        """手動 Rating chip から選択された値リストを取得 (Issue #811)。
 
-    def _get_ai_rating_filter_value(self) -> str | None:
-        """AI レーティングコンボボックスから選択された値を取得。"""
-        text = self.ui.comboAIRating.currentText()
-        if text == "----":
-            return None
-        if text == "レーティング済み":
-            return "RATED"
-        if text == "未設定のみ":
-            return "UNRATED"
-        ai_rating_value = text.split()[0] if text else None
-        logger.debug(f"AI rating filter value: {ai_rating_value}")
-        return ai_rating_value
+        マルチセレクト chip の選択集合を返す。未選択時は空リスト (絞り込みなし)。
+        複数値はバックエンドで選択集合の OR として扱われる。
+        """
+        values = self._rating_chips.selected_values()
+        logger.debug(f"Manual rating filter values: {values}")
+        return values
+
+    def _get_ai_rating_filter_value(self) -> list[str]:
+        """AI Rating chip から選択された値リストを取得 (Issue #811)。
+
+        マルチセレクト chip の選択集合を返す。未選択時は空リスト (絞り込みなし)。
+        """
+        values = self._ai_rating_chips.selected_values()
+        logger.debug(f"AI rating filter values: {values}")
+        return values
 
     def _get_score_filter_values(self) -> tuple[float | None, float | None]:
         """スコアスライダーからフィルター値を取得。"""
@@ -666,25 +828,40 @@ class FilterSearchPanel(QScrollArea):
         return score_min_internal / 100.0, score_max_internal / 100.0
 
     @staticmethod
-    def _is_nsfw_rating(rating_value: str | None) -> bool:
-        """NSFW レーティング値かどうか判定する。"""
-        return rating_value in {"R", "X", "XXX"}
+    def _normalize_rating_values(rating_filter: str | list[str] | None) -> list[str]:
+        """レーティングフィルタ値を非空文字列のリストへ正規化する (単一値/複数値/None 共通)。"""
+        if rating_filter is None:
+            return []
+        values = [rating_filter] if isinstance(rating_filter, str) else list(rating_filter)
+        return [v for v in values if v]
 
-    def _resolve_include_nsfw(self, rating_filter: str | None, ai_rating_filter: str | None) -> bool:
+    @classmethod
+    def _is_nsfw_rating(cls, rating_filter: str | list[str] | None) -> bool:
+        """NSFW レーティング値 (R/X/XXX) を含むか判定する (単一値/複数値対応)。"""
+        return any(v in {"R", "X", "XXX"} for v in cls._normalize_rating_values(rating_filter))
+
+    def _resolve_include_nsfw(
+        self,
+        rating_filter: str | list[str] | None,
+        ai_rating_filter: str | list[str] | None,
+    ) -> bool:
         """レーティング選択から NSFW 含有フラグを決定する。
 
-        「レーティング済み」(RATED) は「レーティングがある画像すべて」を意味するため、
-        NSFW レーティング画像も含める (Issue #561)。
+        選択集合に NSFW レーティング (R/X/XXX) が含まれる、または「レーティング済み」
+        (RATED = レーティングがある画像すべて) が含まれる場合は NSFW 画像も含める
+        (Issue #561 / #811 マルチセレクト対応)。
         """
+        manual_values = self._normalize_rating_values(rating_filter)
+        ai_values = self._normalize_rating_values(ai_rating_filter)
         include_nsfw = (
-            self._is_nsfw_rating(rating_filter)
-            or self._is_nsfw_rating(ai_rating_filter)
-            or rating_filter == "RATED"
-            or ai_rating_filter == "RATED"
+            self._is_nsfw_rating(manual_values)
+            or self._is_nsfw_rating(ai_values)
+            or "RATED" in manual_values
+            or "RATED" in ai_values
         )
         logger.debug(
-            f"NSFW include resolved from ratings: manual={rating_filter}, "
-            f"ai={ai_rating_filter}, include_nsfw={include_nsfw}",
+            f"NSFW include resolved from ratings: manual={manual_values}, "
+            f"ai={ai_values}, include_nsfw={include_nsfw}",
         )
         return include_nsfw
 
@@ -747,8 +924,8 @@ class FilterSearchPanel(QScrollArea):
                 self.ui.checkboxDateFilter.isChecked(),
                 self.ui.comboResolution.currentText() != "全て",
                 self.ui.comboAspectRatio.currentText() != "全て",
-                self.ui.comboRating.currentText() != "----",
-                self.ui.comboAIRating.currentText() != "----",
+                bool(self._get_rating_filter_value()),
+                bool(self._get_ai_rating_filter_value()),
                 has_score_filter,
                 has_facet_filter,
             ],
@@ -786,6 +963,7 @@ class FilterSearchPanel(QScrollArea):
             include_nsfw=include_nsfw,
             rating_filter=rating_filter,
             ai_rating_filter=ai_rating_filter,
+            rating_combine=self._rating_combine_toggle.value() or "and",
             include_unrated=self.ui.checkboxIncludeUnrated.isChecked(),
             score_min=score_min,
             score_max=score_max,
@@ -918,6 +1096,11 @@ class FilterSearchPanel(QScrollArea):
         self.ui.checkboxOnlyUntagged.setChecked(False)
         self.ui.checkboxOnlyUncaptioned.setChecked(False)
         self.ui.checkboxExcludeDuplicates.setChecked(False)
+
+        # レーティング chip を全解除し、組合せトグルを既定 (AND) に戻す (Issue #811)
+        self._rating_chips.clear()
+        self._ai_rating_chips.clear()
+        self._rating_combine_toggle.set_value("and")
 
     # ============================================================
     # ===  Public API (外部から呼ばれるもの)

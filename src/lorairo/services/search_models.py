@@ -40,8 +40,11 @@ class SearchConditions:
 
     # Rating Filter Extensions
     include_nsfw: bool = True  # NSFWコンテンツを含むか（デフォルト: True for 後方互換性）
-    rating_filter: str | None = None  # 手動Rating値でフィルタ ('PG', 'PG-13', 'R', 'X', 'XXX')
-    ai_rating_filter: str | None = None  # AI評価Rating値でフィルタ (PG, PG-13, R, X, XXX) - 多数決ロジック
+    # Issue #811: マルチセレクト chip 対応で単一値 (str) / 複数値 (list[str]) を受ける。
+    # 複数値は選択集合の OR。
+    rating_filter: str | list[str] | None = None  # 手動Rating値でフィルタ ('PG', 'PG-13', 'R', 'X', 'XXX')
+    ai_rating_filter: str | list[str] | None = None  # AI評価Rating値 (多数決) でフィルタ
+    rating_combine: str = "and"  # manual / AI レーティングの組合せ ("and" | "or")
     include_unrated: bool = True  # 未評価画像を含むか (Either: 手動またはAI評価のいずれか1つ以上)
 
     # Score Filter Extensions
@@ -75,6 +78,7 @@ class SearchConditions:
             include_unrated=self.include_unrated,
             manual_rating_filter=self.rating_filter,
             ai_rating_filter=self.ai_rating_filter,
+            rating_combine=self.rating_combine,
             score_min=self.score_min,
             score_max=self.score_max,
             manual_edit_filter=self.manual_edit_filter,

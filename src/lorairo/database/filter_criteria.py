@@ -30,8 +30,17 @@ class ImageFilterCriteria:
         include_unrated: 未評価画像を含めるか (False: 手動またはAI評価のいずれか1つ以上を持つ画像のみ)
         only_unrated: rating が無い画像のみを対象とするか
         missing_model_litellm_id: 指定モデルのannotation行が無い画像のみを対象とするか
-        manual_rating_filter: 指定した手動レーティングを持つ画像のみを対象とするか
-        ai_rating_filter: 指定したAI評価レーティングを持つ画像のみを対象とするか (多数決ロジック)
+        manual_rating_filter: 指定した手動レーティングを持つ画像のみを対象とするか。
+            単一値 (str) または複数値 (list[str]) を受け付ける。複数値は選択集合の
+            OR (いずれかに一致) として扱う (Issue #811 マルチセレクト chip)。番兵
+            "UNRATED" (手動レーティングなし) / "RATED" (手動レーティングあり) を
+            通常値と併用した場合も同じ集合内 OR で合成する。
+        ai_rating_filter: 指定したAI評価レーティングを持つ画像のみを対象とするか (多数決ロジック)。
+            単一値 (str) または複数値 (list[str]) を受け付ける。複数値は選択集合の
+            OR として扱い、多数決は「選択集合のいずれかに一致する評価」を母数に判定する。
+        rating_combine: manual_rating_filter と ai_rating_filter の組合せ方。
+            "and" (デフォルト, 両方を満たす) または "or" (いずれかを満たす)。両方が
+            指定されたときのみ意味を持ち、片方のみ指定時は常に AND と等価。
         manual_edit_filter: アノテーションが手動編集されたかでフィルタするか
         score_min: 最小スコア値（0.0-10.0）
         score_max: 最大スコア値（0.0-10.0）
@@ -61,8 +70,10 @@ class ImageFilterCriteria:
     include_unrated: bool = True
     only_unrated: bool = False
     missing_model_litellm_id: str | None = None
-    manual_rating_filter: str | None = None
-    ai_rating_filter: str | None = None
+    manual_rating_filter: str | list[str] | None = None
+    ai_rating_filter: str | list[str] | None = None
+    # Issue #811: manual / AI レーティングフィルタの組合せ方 ("and" | "or")
+    rating_combine: str = "and"
     manual_edit_filter: bool | None = None
     score_min: float | None = None
     score_max: float | None = None
@@ -130,6 +141,7 @@ class ImageFilterCriteria:
             "missing_model_litellm_id": self.missing_model_litellm_id,
             "manual_rating_filter": self.manual_rating_filter,
             "ai_rating_filter": self.ai_rating_filter,
+            "rating_combine": self.rating_combine,
             "manual_edit_filter": self.manual_edit_filter,
             "score_min": self.score_min,
             "score_max": self.score_max,
