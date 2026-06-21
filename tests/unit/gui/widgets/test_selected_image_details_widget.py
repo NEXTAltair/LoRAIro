@@ -271,7 +271,9 @@ class TestSelectedImageDetailsWidget:
         # 状態確認
         assert widget.current_image_id == 456
         assert widget.current_details.file_name == "test_image.jpg"
-        assert widget.current_details.image_size == "1920 x 1080"
+        # Issue #813: 解像度はオリジナル画像基準で "W × H px" 形式
+        assert widget.current_details.image_size == "1920 × 1080 px"
+        assert widget.current_details.aspect_ratio == "16:9"
         # Phase 2: Read-only widget - rating/score are displayed but not editable
         # The values are stored in current_details
         if widget.current_details.rating_value:
@@ -677,3 +679,41 @@ class TestSelectedImageDetailsWidget:
         assert details.annotation_data is not None
         assert [t["tag"] for t in details.annotation_data.tags] == ["grey hair"]
         assert details.tags == "grey hair"
+
+
+@pytest.mark.unit
+@pytest.mark.gui
+class TestOriginalImageMetaDisplay:
+    """Issue #813: オリジナル画像メタ (拡張子/アスペクト比/アルファ) の整形・表示。"""
+
+    @pytest.fixture
+    def widget(self, qtbot):
+        from lorairo.gui.widgets.selected_image_details_widget import SelectedImageDetailsWidget
+
+        w = SelectedImageDetailsWidget()
+        qtbot.addWidget(w)
+        return w
+
+    def test_aspect_ratio_reduced(self, widget):
+        assert widget._format_aspect_ratio(1920, 1080) == "16:9"
+        assert widget._format_aspect_ratio(1024, 1024) == "1:1"
+        assert widget._format_aspect_ratio(0, 100) == ""
+
+    def test_extension_prefers_extension_then_format(self, widget):
+        assert widget._format_original_extension({"extension": "png"}) == ".png"
+        assert widget._format_original_extension({"extension": ".jpg"}) == ".jpg"
+        assert widget._format_original_extension({"format": "WEBP"}) == "WEBP"
+        assert widget._format_original_extension({}) == ""
+
+    def test_alpha_text(self, widget):
+        assert "あり" in widget._format_alpha({"has_alpha": True})
+        assert "なし" in widget._format_alpha({"has_alpha": False})
+        assert widget._format_alpha({"has_alpha": None}) == "不明"
+
+    def test_display_populates_original_meta_rows(self, widget):
+        widget._on_image_data_received(
+            {"id": 7, "width": 1600, "height": 900, "extension": "png", "has_alpha": True, "mode": "RGBA"}
+        )
+        assert widget.labelExtensionValue.text() == ".png"
+        assert widget.labelAspectValue.text() == "16:9"
+        assert "あり" in widget.labelAlphaValue.text()
