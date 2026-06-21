@@ -218,7 +218,11 @@ class TestSubComponentDirectConnectionForbidden:
 
 
 class TestRatingFilterOptions:
-    """Issue #561: レーティングコンボの ---- / レーティング済み / 未設定のみ マッピング。"""
+    """Issue #811: レーティング選択を dropdown → マルチセレクト chip へ。
+
+    手動 / AI レーティングを chip で複数選択でき、選択集合の OR で絞り込める。
+    手動×AI の組合せ (AND/OR) トグルと、番兵 (UNRATED) の併用も検証する。
+    """
 
     @pytest.fixture()
     def panel_with_service(self, panel):
@@ -231,71 +235,89 @@ class TestRatingFilterOptions:
         panel._sentinel = sentinel
         return panel
 
-    @pytest.mark.parametrize(
-        ("combo_text", "expected"),
-        [
-            ("----", None),
-            ("レーティング済み", "RATED"),
-            ("未設定のみ", "UNRATED"),
-            ("PG (全年齢)", "PG"),
-            ("XXX (過激な表現)", "XXX"),
-        ],
-    )
-    def test_manual_rating_value_mapping(self, panel, combo_text, expected):
-        """comboRating のテキストが内部フィルタ値に正しく変換される。"""
-        panel.ui.comboRating.setCurrentText(combo_text)
-        assert panel._get_rating_filter_value() == expected
+    def test_manual_rating_single_select_returns_list(self, panel):
+        """手動 chip 1 個選択で単一要素リストを返す。"""
+        panel._rating_chips.set_value("PG")
+        assert panel._get_rating_filter_value() == ["PG"]
 
-    @pytest.mark.parametrize(
-        ("combo_text", "expected"),
-        [
-            ("----", None),
-            ("レーティング済み", "RATED"),
-            ("未設定のみ", "UNRATED"),
-            ("R (中程度)", "R"),
-        ],
-    )
-    def test_ai_rating_value_mapping(self, panel, combo_text, expected):
-        """comboAIRating のテキストが内部フィルタ値に正しく変換される。"""
-        panel.ui.comboAIRating.setCurrentText(combo_text)
-        assert panel._get_ai_rating_filter_value() == expected
+    def test_manual_rating_multi_select_returns_or_set(self, panel):
+        """手動 chip 複数選択で選択集合 (OR) のリストを返す。"""
+        panel._rating_chips.set_value("PG")
+        panel._rating_chips.set_value("R")
+        assert panel._get_rating_filter_value() == ["PG", "R"]
 
-    def test_default_is_no_filter_label(self, panel):
-        """両コンボの既定値は ---- (絞り込みなし)。"""
-        assert panel.ui.comboRating.currentText() == "----"
-        assert panel.ui.comboAIRating.currentText() == "----"
+    def test_ai_rating_multi_select_with_unrated_sentinel(self, panel):
+        """AI chip は通常値と番兵 (UNRATED=未設定) を併用できる。"""
+        panel._ai_rating_chips.set_value("PG")
+        panel._ai_rating_chips.set_value("UNRATED")
+        assert panel._get_ai_rating_filter_value() == ["PG", "UNRATED"]
 
-    def test_ai_rated_only_builds_conditions_without_keyword(self, panel_with_service):
-        """AIレーティング=レーティング済み のみ(キーワード無し)で検索条件を返す。"""
+    def test_default_is_empty_selection(self, panel):
+        """既定では chip は未選択 (絞り込みなし) で空リストを返す。"""
+        assert panel._get_rating_filter_value() == []
+        assert panel._get_ai_rating_filter_value() == []
+
+    def test_combine_toggle_default_and(self, panel):
+        """手動×AI の組合せトグルは既定で AND。"""
+        assert panel._rating_combine_toggle.value() == "and"
+
+    def test_ai_multi_builds_conditions_without_keyword(self, panel_with_service):
+        """AI レーティング複数選択のみ(キーワード無し)で検索条件を返し list で渡す。"""
         panel = panel_with_service
-        panel.ui.comboAIRating.setCurrentText("レーティング済み")
+        panel._ai_rating_chips.set_value("R")
+        panel._ai_rating_chips.set_value("X")
         assert panel._build_search_conditions_from_ui() is panel._sentinel
         _, kwargs = panel.search_filter_service.create_search_conditions.call_args
-        assert kwargs["ai_rating_filter"] == "RATED"
-        # 「レーティング済み」は NSFW も含む (Issue #561)
+        assert kwargs["ai_rating_filter"] == ["R", "X"]
+        # NSFW (R/X) を含む選択は include_nsfw=True を解決する
         assert kwargs["include_nsfw"] is True
 
-    def test_rated_includes_nsfw(self, panel):
-        """レーティング済み(RATED)は include_nsfw=True を解決する。"""
-        assert panel._resolve_include_nsfw("RATED", None) is True
-        assert panel._resolve_include_nsfw(None, "RATED") is True
-        # 既存挙動: ---- (None) のみなら NSFW 除外
-        assert panel._resolve_include_nsfw(None, None) is False
-
-    def test_manual_rated_only_builds_conditions_without_keyword(self, panel_with_service):
-        """手動レーティング=レーティング済み のみ(キーワード無し)で検索条件を返す (対称ケース)。"""
+    def test_combine_or_passed_to_service(self, panel_with_service):
+        """手動×AI 両方選択 + OR トグルで rating_combine='or' を渡す。"""
         panel = panel_with_service
-        panel.ui.comboRating.setCurrentText("レーティング済み")
+        panel._rating_chips.set_value("PG")
+        panel._ai_rating_chips.set_value("R")
+        panel._rating_combine_toggle.set_value("or")
         assert panel._build_search_conditions_from_ui() is panel._sentinel
         _, kwargs = panel.search_filter_service.create_search_conditions.call_args
-        assert kwargs["rating_filter"] == "RATED"
+        assert kwargs["rating_filter"] == ["PG"]
+        assert kwargs["ai_rating_filter"] == ["R"]
+        assert kwargs["rating_combine"] == "or"
+
+    def test_nsfw_resolution_accepts_list_and_str(self, panel):
+        """_resolve_include_nsfw は単一値(後方互換)と複数値の両方を解決する。"""
+        # 後方互換: 単一 str の RATED / None
+        assert panel._resolve_include_nsfw("RATED", None) is True
+        assert panel._resolve_include_nsfw(None, "RATED") is True
+        assert panel._resolve_include_nsfw(None, None) is False
+        # マルチセレクト: NSFW 値を含むリスト
+        assert panel._resolve_include_nsfw(["PG", "X"], None) is True
+        assert panel._resolve_include_nsfw(["PG"], ["PG-13"]) is False
+
+    def test_manual_multi_builds_conditions_without_keyword(self, panel_with_service):
+        """手動レーティング複数選択のみ(キーワード無し)で検索条件を返す (対称ケース)。"""
+        panel = panel_with_service
+        panel._rating_chips.set_value("PG")
+        panel._rating_chips.set_value("PG-13")
+        assert panel._build_search_conditions_from_ui() is panel._sentinel
+        _, kwargs = panel.search_filter_service.create_search_conditions.call_args
+        assert kwargs["rating_filter"] == ["PG", "PG-13"]
 
     def test_all_default_still_blocked(self, panel_with_service):
-        """---- のみ(他条件・キーワード無し)は従来どおり検索をブロックする。"""
+        """chip 未選択 (他条件・キーワード無し) は従来どおり検索をブロックする。"""
         panel = panel_with_service
-        # 全コンボ既定 (----/全て), キーワード無し
         assert panel._build_search_conditions_from_ui() is None
         panel.search_filter_service.create_search_conditions.assert_not_called()
+
+    def test_clear_resets_chips_and_combine(self, panel):
+        """クリアで chip 全解除・組合せトグルが AND に戻る。"""
+        panel._rating_chips.set_value("PG")
+        panel._ai_rating_chips.set_value("R")
+        panel._rating_combine_toggle.set_value("or")
+        panel._clear_all_inputs()
+        assert panel._get_rating_filter_value() == []
+        assert panel._get_ai_rating_filter_value() == []
+        assert panel._rating_combine_toggle.value() == "and"
 
 
 class TestPublicAPICompat:

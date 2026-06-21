@@ -32,6 +32,7 @@ from pathlib import Path
 from typing import Any, ClassVar
 
 from sqlalchemy import (
+    ColumnElement,
     Select,
     and_,
     exists,
@@ -1445,75 +1446,128 @@ class ImageRepository(BaseRepository):
             query = query.where(exists_subquery)
         return query
 
-    def _apply_ai_rating_filter(self, query: Select[Any], ai_rating_filter: str) -> Select[Any]:
-        """クエリにAI評価レーティングフィルタを適用します (多数決ロジック)。
+    @staticmethod
+    def _normalize_rating_filter(rating_filter: str | list[str] | None) -> list[str]:
+        """レーティングフィルタ値を非空文字列のリストへ正規化する。
 
-        1つの画像に複数のAIモデルによる異なる評価がある場合、
-        50%以上のAI評価が指定されたレーティングと一致する画像のみを返します。
+        単一値 (str) / 複数値 (list[str]) / None を共通の list[str] に揃える
+        (Issue #811 マルチセレクト chip)。空文字・None 要素は除去する。
 
         Args:
-            query (Select): 適用対象のクエリ
-            ai_rating_filter (str): フィルタリングするレーティング値 (PG, PG-13, R, X, XXX, UNRATED)
+            rating_filter: 単一値、複数値、または None。
 
         Returns:
-            Select: AIレーティングフィルタが適用されたクエリ
-
+            正規化された選択値リスト。フィルタ無指定時は空リスト。
         """
-        logger.debug(f"Applying AI rating filter (majority vote) for rating: '{ai_rating_filter}'")
+        if rating_filter is None:
+            return []
+        values = [rating_filter] if isinstance(rating_filter, str) else list(rating_filter)
+        return [v for v in values if v]
+
+    @classmethod
+    def _rating_filter_has_nsfw(cls, rating_filter: str | list[str] | None) -> bool:
+        """選択されたレーティングフィルタに NSFW (r/x/xxx) 値が含まれるか判定する。"""
+        nsfw_values = {"r", "x", "xxx"}
+        return any(v.lower() in nsfw_values for v in cls._normalize_rating_filter(rating_filter))
+
+    def _build_ai_rating_condition(
+        self, ai_rating_filter: str | list[str] | None
+    ) -> ColumnElement[bool] | None:
+        """AI評価レーティングフィルタの WHERE 条件式を構築する (多数決ロジック)。
+
+        単一値・複数値どちらも受け付け、複数値は選択集合の OR として扱う。
+        番兵 "UNRATED" (AI評価なし) / "RATED" (AI評価あり) は有無判定として、
+        通常のレーティング値 (PG 等) は多数決判定として条件を生成し、選択された
+        全条件を OR で合成する。1つの画像に複数のAIモデルによる異なる評価がある
+        場合、選択集合のいずれかに一致する評価が 50% 以上を占める画像が多数決
+        条件を満たす。
+
+        Args:
+            ai_rating_filter: フィルタリングするレーティング値 (PG, PG-13, R, X, XXX,
+                UNRATED, RATED) の単一値または複数値。
+
+        Returns:
+            WHERE 条件式。フィルタ無指定時は None。
+        """
+        values = self._normalize_rating_filter(ai_rating_filter)
+        if not values:
+            return None
+
+        logger.debug(f"Building AI rating condition (majority vote) for ratings: {values}")
 
         # MANUAL_EDIT は AI フィルタから除外（AI 判定行のみを対象とする）
         ai_only = Rating.model_id.in_(select(Model.id).where(Model.name != "MANUAL_EDIT"))
-
-        # UNRATED / RATED: AI レーティングの有無でフィルタ
-        if ai_rating_filter in ("UNRATED", "RATED"):
-            has_any_ai_rating = exists(
-                select(Rating.id).where(Rating.image_id == Image.id, ai_only)
-            ).correlate(Image)
-            if ai_rating_filter == "UNRATED":
-                query = query.where(not_(has_any_ai_rating))
-                logger.debug("AI rating filter applied: UNRATED (no AI ratings)")
-            else:
-                query = query.where(has_any_ai_rating)
-                logger.debug("AI rating filter applied: RATED (has any AI rating)")
-            return query
-
-        # 多数決ロジック: 画像ごとに総AI評価数とマッチング数を計算
-        # マッチング数 >= 総評価数 / 2.0 の画像のみを返す
-
-        # サブクエリ1: 画像ごとの総AI評価数（MANUAL_EDIT 除外）
-        total_ratings_subquery = (
-            select(Rating.image_id, func.count(Rating.id).label("total_count"))
-            .where(ai_only)
-            .group_by(Rating.image_id)
-            .subquery()
+        has_any_ai_rating = exists(select(Rating.id).where(Rating.image_id == Image.id, ai_only)).correlate(
+            Image
         )
 
-        # サブクエリ2: 画像ごとのマッチング評価数（MANUAL_EDIT 除外）
-        matching_ratings_subquery = (
-            select(Rating.image_id, func.count(Rating.id).label("matching_count"))
-            .where(func.lower(Rating.normalized_rating) == ai_rating_filter.lower(), ai_only)
-            .group_by(Rating.image_id)
-            .subquery()
-        )
+        conditions: list[ColumnElement[bool]] = []
+        # 番兵を有無判定に、通常値を多数決判定にそれぞれ振り分ける
+        sentinels = {v for v in values if v in ("UNRATED", "RATED")}
+        concrete = [v for v in values if v not in ("UNRATED", "RATED")]
 
-        # EXISTS条件: マッチング数 >= 総評価数 / 2.0
-        # COALESCE(matching_count, 0) で、マッチが0件の画像も処理
-        majority_vote_condition = exists(
-            select(1)
-            .select_from(total_ratings_subquery)
-            .outerjoin(
-                matching_ratings_subquery,
-                total_ratings_subquery.c.image_id == matching_ratings_subquery.c.image_id,
+        if "UNRATED" in sentinels:
+            conditions.append(not_(has_any_ai_rating))
+        if "RATED" in sentinels:
+            conditions.append(has_any_ai_rating)
+
+        if concrete:
+            # 多数決ロジック: 画像ごとに総AI評価数とマッチング数を計算し、
+            # マッチング数 >= 総評価数 / 2.0 の画像のみを対象にする。
+            # マッチング = normalized_rating が選択集合 (concrete) のいずれかに一致。
+            concrete_lower = [v.lower() for v in concrete]
+
+            # サブクエリ1: 画像ごとの総AI評価数（MANUAL_EDIT 除外）
+            total_ratings_subquery = (
+                select(Rating.image_id, func.count(Rating.id).label("total_count"))
+                .where(ai_only)
+                .group_by(Rating.image_id)
+                .subquery()
             )
-            .where(
-                total_ratings_subquery.c.image_id == Image.id,
-                func.coalesce(matching_ratings_subquery.c.matching_count, 0)
-                >= (total_ratings_subquery.c.total_count / 2.0),
-            ),
-        ).correlate(Image)
 
-        query = query.where(majority_vote_condition)
-        logger.debug("AI rating filter applied with majority vote logic")
+            # サブクエリ2: 画像ごとのマッチング評価数（MANUAL_EDIT 除外、選択集合 IN）
+            matching_ratings_subquery = (
+                select(Rating.image_id, func.count(Rating.id).label("matching_count"))
+                .where(func.lower(Rating.normalized_rating).in_(concrete_lower), ai_only)
+                .group_by(Rating.image_id)
+                .subquery()
+            )
+
+            # EXISTS条件: マッチング数 >= 総評価数 / 2.0
+            # COALESCE(matching_count, 0) で、マッチが0件の画像も処理
+            majority_vote_condition = exists(
+                select(1)
+                .select_from(total_ratings_subquery)
+                .outerjoin(
+                    matching_ratings_subquery,
+                    total_ratings_subquery.c.image_id == matching_ratings_subquery.c.image_id,
+                )
+                .where(
+                    total_ratings_subquery.c.image_id == Image.id,
+                    func.coalesce(matching_ratings_subquery.c.matching_count, 0)
+                    >= (total_ratings_subquery.c.total_count / 2.0),
+                ),
+            ).correlate(Image)
+            conditions.append(majority_vote_condition)
+
+        return or_(*conditions) if len(conditions) > 1 else conditions[0]
+
+    def _apply_ai_rating_filter(
+        self, query: Select[Any], ai_rating_filter: str | list[str] | None
+    ) -> Select[Any]:
+        """クエリにAI評価レーティングフィルタを適用します (多数決ロジック)。
+
+        Args:
+            query (Select): 適用対象のクエリ
+            ai_rating_filter: フィルタリングするレーティング値 (単一値または複数値)
+
+        Returns:
+            Select: AIレーティングフィルタが適用されたクエリ
+        """
+        condition = self._build_ai_rating_condition(ai_rating_filter)
+        if condition is not None:
+            query = query.where(condition)
+            logger.debug("AI rating filter applied")
         return query
 
     def _apply_unrated_filter(
@@ -1696,37 +1750,76 @@ class ImageRepository(BaseRepository):
 
         return query
 
+    def _build_manual_rating_condition(
+        self,
+        manual_rating_filter: str | list[str] | None,
+        session: Session,
+    ) -> ColumnElement[bool] | None:
+        """手動評価レーティングフィルタの WHERE 条件式を構築する。
+
+        単一値・複数値どちらも受け付け、複数値は選択集合の OR として扱う
+        (Issue #811 マルチセレクト chip)。番兵 "UNRATED" (手動レーティングなし) /
+        "RATED" (手動レーティングあり) は有無判定として、通常のレーティング値は
+        値一致 (IN) として条件を生成し、選択された全条件を OR で合成する。
+
+        Args:
+            manual_rating_filter: フィルタリングするレーティング値の単一値または複数値。
+            session: MANUAL_EDIT モデル ID 解決用の SQLAlchemy セッション。
+
+        Returns:
+            WHERE 条件式。フィルタ無指定時は None。
+        """
+        values = self._normalize_rating_filter(manual_rating_filter)
+        if not values:
+            return None
+
+        # ADR 0035 段階 4: MANUAL_EDIT model lookup は ModelRepository static helper を直接呼ぶ。
+        manual_edit_model_id = ModelRepository._get_or_create_manual_edit_model(session)
+        has_manual_rating_subq = (
+            select(Rating.image_id).where(Rating.model_id == manual_edit_model_id).distinct()
+        )
+
+        conditions: list[ColumnElement[bool]] = []
+        sentinels = {v for v in values if v in ("UNRATED", "RATED")}
+        concrete = [v for v in values if v not in ("UNRATED", "RATED")]
+
+        if "UNRATED" in sentinels:
+            conditions.append(Image.id.notin_(has_manual_rating_subq))
+        if "RATED" in sentinels:
+            conditions.append(Image.id.in_(has_manual_rating_subq))
+
+        if concrete:
+            # 特定の手動レーティング (選択集合のいずれか) を持つ画像をフィルタ
+            manual_rating_subq = (
+                select(Rating.image_id)
+                .where(Rating.normalized_rating.in_(concrete))
+                .where(Rating.model_id == manual_edit_model_id)
+                .distinct()
+            )
+            conditions.append(Image.id.in_(manual_rating_subq))
+
+        return or_(*conditions) if len(conditions) > 1 else conditions[0]
+
     def _apply_manual_filters(
         self,
         query: Select[Any],
-        manual_rating_filter: str | None,
+        manual_rating_filter: str | list[str] | None,
         manual_edit_filter: bool | None,
         session: Session,
     ) -> Select[Any]:
         """クエリに手動評価と手動編集フラグのフィルタを適用します。"""
-        if manual_rating_filter:
-            # ADR 0035 段階 4: MANUAL_EDIT model lookup は ModelRepository static helper を直接呼ぶ。
-            manual_edit_model_id = ModelRepository._get_or_create_manual_edit_model(session)
+        manual_rating_condition = self._build_manual_rating_condition(manual_rating_filter, session)
+        if manual_rating_condition is not None:
+            query = query.where(manual_rating_condition)
 
-            if manual_rating_filter in ("UNRATED", "RATED"):
-                # 手動レーティングの有無でフィルタ
-                has_manual_rating_subq = (
-                    select(Rating.image_id).where(Rating.model_id == manual_edit_model_id).distinct()
-                )
-                if manual_rating_filter == "UNRATED":
-                    query = query.where(Image.id.notin_(has_manual_rating_subq))
-                else:
-                    query = query.where(Image.id.in_(has_manual_rating_subq))
-            else:
-                # 特定の手動レーティングを持つ画像をフィルタ
-                manual_rating_subq = (
-                    select(Rating.image_id)
-                    .where(Rating.normalized_rating == manual_rating_filter)
-                    .where(Rating.model_id == manual_edit_model_id)
-                    .distinct()
-                )
-                query = query.where(Image.id.in_(manual_rating_subq))
+        return self._apply_manual_edit_filter(query, manual_edit_filter)
 
+    def _apply_manual_edit_filter(
+        self,
+        query: Select[Any],
+        manual_edit_filter: bool | None,
+    ) -> Select[Any]:
+        """クエリに手動編集フラグフィルタを適用します (レーティングとは独立して常に AND)。"""
         if manual_edit_filter is not None:
             has_manual_edit = or_(
                 exists()
@@ -2222,8 +2315,8 @@ class ImageRepository(BaseRepository):
         include_unrated: bool,
         only_unrated: bool,
         missing_model_litellm_id: str | None,
-        manual_rating_filter: str | None,
-        ai_rating_filter: str | None,
+        manual_rating_filter: str | list[str] | None,
+        ai_rating_filter: str | list[str] | None,
         manual_edit_filter: bool | None,
         score_min: float | None = None,
         score_max: float | None = None,
@@ -2232,6 +2325,7 @@ class ImageRepository(BaseRepository):
         reviewed_at_filter: str | None = None,
         error_state_filter: str | None = None,
         model_filter: list[str] | None = None,
+        rating_combine: str = "and",
     ) -> Select[Any]:
         """画像フィルタ条件を適用したクエリを構築する。
 
@@ -2258,6 +2352,8 @@ class ImageRepository(BaseRepository):
             reviewed_at_filter: レビュー状態フィルタ。"unreviewed" | "reviewed" | None=全て。
             error_state_filter: エラー状態フィルタ。"has_error" | "no_error" | None=全て。
             model_filter: モデルフィルタ。litellm_model_id のリスト。None=全モデル。
+            rating_combine: manual / AI レーティングフィルタの組合せ方 ("and" | "or")。
+                両方指定時のみ意味を持つ (Issue #811)。
 
         Returns:
             フィルタ適用済みのSelectクエリ。
@@ -2275,14 +2371,26 @@ class ImageRepository(BaseRepository):
         query = self._apply_tag_filter(query, tags, excluded_tags, use_and, include_untagged)
         query = self._apply_caption_filter(query, caption)
 
-        # Rating Filters: manual / AI を独立に AND 適用する (Issue #604)
-        # 旧実装は manual と AI を排他 (if/elif) にしており、両方指定時に AI フィルタが
-        # 無視されていた。manual_rating_filter=None のとき _apply_manual_filters は
-        # manual_edit_filter のみ適用するため、無条件呼び出しで全組み合わせを網羅できる。
-        query = self._apply_manual_filters(query, manual_rating_filter, manual_edit_filter, session)
-        if ai_rating_filter:
-            logger.debug("Applying AI rating filter")
-            query = self._apply_ai_rating_filter(query, ai_rating_filter)
+        # Rating Filters (Issue #604 / #811):
+        # - 既定 (rating_combine="and"): manual / AI を独立に AND 適用する。
+        #   manual_rating_filter=None のとき _apply_manual_filters は manual_edit_filter
+        #   のみ適用するため、無条件呼び出しで全組み合わせを網羅できる。
+        # - rating_combine="or" かつ manual / AI 両方指定時: 2 条件を OR で合成する。
+        #   manual_edit_filter は rating とは独立して常に AND 適用する。
+        manual_values = self._normalize_rating_filter(manual_rating_filter)
+        ai_values = self._normalize_rating_filter(ai_rating_filter)
+        if rating_combine == "or" and manual_values and ai_values:
+            manual_cond = self._build_manual_rating_condition(manual_rating_filter, session)
+            ai_cond = self._build_ai_rating_condition(ai_rating_filter)
+            if manual_cond is not None and ai_cond is not None:
+                query = query.where(or_(manual_cond, ai_cond))
+                logger.debug("Rating filters combined with OR (manual OR AI)")
+            query = self._apply_manual_edit_filter(query, manual_edit_filter)
+        else:
+            query = self._apply_manual_filters(query, manual_rating_filter, manual_edit_filter, session)
+            if ai_values:
+                logger.debug("Applying AI rating filter")
+                query = self._apply_ai_rating_filter(query, ai_rating_filter)
 
         # Unrated Filter
         query = self._apply_unrated_filter(query, include_unrated, only_unrated)
@@ -2291,10 +2399,11 @@ class ImageRepository(BaseRepository):
         query = self._apply_missing_model_filter(query, missing_model_litellm_id)
 
         # NSFW Filter
-        nsfw_values_to_exclude = {"r", "x", "xxx"}
-        apply_nsfw_exclusion = not include_nsfw and (
-            (manual_rating_filter is None or manual_rating_filter.lower() not in nsfw_values_to_exclude)
-            and (ai_rating_filter is None or ai_rating_filter.lower() not in nsfw_values_to_exclude)
+        # 選択された manual / AI レーティングのいずれかが NSFW (r/x/xxx) を含む場合、
+        # NSFW 除外を無効化する (ユーザーが明示的に NSFW を選んでいるため)。
+        apply_nsfw_exclusion = not include_nsfw and not (
+            self._rating_filter_has_nsfw(manual_rating_filter)
+            or self._rating_filter_has_nsfw(ai_rating_filter)
         )
         if apply_nsfw_exclusion:
             query = self._apply_nsfw_filter(query, include_nsfw=False, session=session)
@@ -2441,6 +2550,7 @@ class ImageRepository(BaseRepository):
                     reviewed_at_filter=filter_criteria.reviewed_at_filter,
                     error_state_filter=filter_criteria.error_state_filter,
                     model_filter=filter_criteria.model_filter,
+                    rating_combine=filter_criteria.rating_combine,
                 )
                 query = self._apply_processed_resolution_filter(query, filter_criteria.resolution)
 
@@ -2530,6 +2640,7 @@ class ImageRepository(BaseRepository):
                     reviewed_at_filter=filter_criteria.reviewed_at_filter,
                     error_state_filter=filter_criteria.error_state_filter,
                     model_filter=filter_criteria.model_filter,
+                    rating_combine=filter_criteria.rating_combine,
                 )
                 filtered_query = self._apply_processed_resolution_filter(
                     filtered_query, filter_criteria.resolution
@@ -2589,6 +2700,7 @@ class ImageRepository(BaseRepository):
                     reviewed_at_filter=filter_criteria.reviewed_at_filter,
                     error_state_filter=filter_criteria.error_state_filter,
                     model_filter=filter_criteria.model_filter,
+                    rating_combine=filter_criteria.rating_combine,
                 )
                 filtered_query = self._apply_processed_resolution_filter(
                     filtered_query, filter_criteria.resolution

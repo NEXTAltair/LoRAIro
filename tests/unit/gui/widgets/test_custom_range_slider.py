@@ -6,7 +6,14 @@ import pytest
 from PySide6.QtWidgets import QWidget
 
 from lorairo.gui.widgets.custom_range_slider import CustomRangeSlider
-from lorairo.gui.widgets.filter_search_panel import FilterSearchPanel, PipelineState
+from lorairo.gui.widgets.filter_search_panel import (
+    _AI_RATING_OPTIONS,
+    _MANUAL_RATING_OPTIONS,
+    _RATING_COMBINE_OPTIONS,
+    FilterSearchPanel,
+    PipelineState,
+    RatingChipToggleRow,
+)
 
 
 class TestCustomRangeSlider:
@@ -237,6 +244,12 @@ class _TestableFilterSearchPanel(FilterSearchPanel):
         self.progress_bar = Mock()
         self._status_label = Mock()
         self.progress_layout = Mock()
+        # Issue #811: レーティング chip 群は実 widget を生成して値取得/クリアを成立させる
+        self._rating_chips = RatingChipToggleRow(_MANUAL_RATING_OPTIONS, exclusive=False)
+        self._ai_rating_chips = RatingChipToggleRow(_AI_RATING_OPTIONS, exclusive=False)
+        self._rating_combine_toggle = RatingChipToggleRow(
+            _RATING_COMBINE_OPTIONS, exclusive=True, default="and"
+        )
 
     def _setup_sub_components(self) -> None:
         """テスト時は sub-component の依存設定をスキップする。"""

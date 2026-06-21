@@ -116,8 +116,9 @@ class SearchFilterService:
         annotation_provider_filter: list[str] | None = None,
         annotation_function_filter: list[str] | None = None,
         include_nsfw: bool = True,
-        rating_filter: str | None = None,
-        ai_rating_filter: str | None = None,
+        rating_filter: str | list[str] | None = None,
+        ai_rating_filter: str | list[str] | None = None,
+        rating_combine: str = "and",
         include_unrated: bool = True,
         score_min: float | None = None,
         score_max: float | None = None,
@@ -154,6 +155,7 @@ class SearchFilterService:
             include_nsfw=include_nsfw,
             rating_filter=rating_filter,
             ai_rating_filter=ai_rating_filter,
+            rating_combine=rating_combine,
             include_unrated=include_unrated,
             score_min=score_min,
             score_max=score_max,
@@ -206,13 +208,28 @@ class SearchFilterService:
         return parts
 
     @staticmethod
-    def _rating_display_label(rating_filter: str) -> str:
-        """レーティングフィルタ値を表示用ラベルに変換する。"""
-        if rating_filter == "UNRATED":
-            return "未設定のみ"
-        if rating_filter == "RATED":
-            return "レーティング済み"
-        return rating_filter
+    def _rating_display_label(rating_filter: str | list[str]) -> str:
+        """レーティングフィルタ値を表示用ラベルに変換する。
+
+        単一値・複数値 (Issue #811 マルチセレクト chip) どちらも受け付ける。
+        複数値は選択集合の OR を表す " / " 区切りで連結する。
+        """
+        values = [rating_filter] if isinstance(rating_filter, str) else list(rating_filter)
+
+        def _label(value: str) -> str:
+            if value == "UNRATED":
+                return "未設定のみ"
+            if value == "RATED":
+                return "レーティング済み"
+            return value
+
+        return " / ".join(_label(v) for v in values if v)
+
+    @staticmethod
+    def _rating_is_specific(rating_filter: str | list[str]) -> bool:
+        """選択値に番兵以外の具体レーティング (PG 等) が含まれるか判定する。"""
+        values = [rating_filter] if isinstance(rating_filter, str) else list(rating_filter)
+        return any(v and v not in ("UNRATED", "RATED") for v in values)
 
     def _format_rating_parts(self, conditions: SearchConditions) -> list[str]:
         """レーティング・NSFW 関連のプレビューパーツを返す。"""
@@ -223,12 +240,15 @@ class SearchFilterService:
         if conditions.ai_rating_filter:
             ai_rating_display = self._rating_display_label(conditions.ai_rating_filter)
             # 多数決ロジックは特定レーティング値の判定にのみ適用される
-            is_specific = conditions.ai_rating_filter not in ("UNRATED", "RATED")
+            is_specific = self._rating_is_specific(conditions.ai_rating_filter)
             ai_rating_text = f"AIレーティング: {ai_rating_display}"
             if is_specific:
                 ai_rating_text += " (多数決)"
             # Issue #604: manual / AI は AND 結合 (優先関係なし)。優先注記は付けない。
             parts.append(ai_rating_text)
+        # Issue #811: manual / AI 両方指定かつ OR 結合時のみ注記する
+        if conditions.rating_filter and conditions.ai_rating_filter and conditions.rating_combine == "or":
+            parts.append("レーティング結合: いずれか (OR)")
         if not conditions.include_nsfw:
             parts.append("NSFW除外")
         if not conditions.include_unrated:
