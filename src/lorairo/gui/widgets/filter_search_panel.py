@@ -27,8 +27,10 @@ from typing import TYPE_CHECKING, Any, cast
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtGui import QCloseEvent
 from PySide6.QtWidgets import (
+    QBoxLayout,
     QButtonGroup,
     QHBoxLayout,
+    QLayout,
     QPushButton,
     QScrollArea,
     QWidget,
@@ -313,16 +315,12 @@ class FilterSearchPanel(QScrollArea):
         # 日付範囲スライダー
         self.date_range_slider = CustomRangeSlider()
         self.date_range_slider.set_date_range()
+        self._replace_placeholder(self.ui.dateRangeSliderPlaceholder, self.date_range_slider)
 
-        placeholder = self.ui.dateRangeSliderPlaceholder
-        parent_widget = placeholder.parentWidget()
-        if parent_widget:
-            layout = parent_widget.layout()
-            if isinstance(layout, QBoxLayout):
-                index = layout.indexOf(placeholder)
-                layout.removeWidget(placeholder)
-                placeholder.deleteLater()
-                layout.insertWidget(index, self.date_range_slider)
+        # 登録日フィルタの導線 (checkbox) を見落とされないよう強調 (#821)
+        self.ui.checkboxDateFilter.setStyleSheet(
+            f"QCheckBox {{ font-weight: {theme.FONT_WEIGHT_BOLD}; color: {theme.INK}; }}"
+        )
 
         # スコア範囲スライダー (内部値 0-1000、表示 0.00-10.00)
         self.score_range_slider = CustomRangeSlider(min_value=0, max_value=1000)
@@ -401,18 +399,38 @@ class FilterSearchPanel(QScrollArea):
 
     @staticmethod
     def _replace_placeholder(placeholder: QWidget, widget: QWidget) -> None:
-        """Qt Designer の placeholder widget をレイアウト上で実 widget に差し替える。"""
+        """Qt Designer の placeholder widget をレイアウト上で実 widget に差し替える。
+
+        placeholder が parent widget のトップレベルレイアウトではなく
+        ネストした子レイアウト (例: QGroupBox の QVBoxLayout 内の QHBoxLayout) に
+        属していても、その実レイアウトを再帰探索して同じ位置に差し替える。
+        """
         parent_widget = placeholder.parentWidget()
         if parent_widget is None:
             return
-        layout = parent_widget.layout()
-        from PySide6.QtWidgets import QBoxLayout
+        target = FilterSearchPanel._find_box_layout_containing(parent_widget.layout(), placeholder)
+        if target is None:
+            return
+        index = target.indexOf(placeholder)
+        target.removeWidget(placeholder)
+        placeholder.deleteLater()
+        target.insertWidget(index, widget)
 
-        if isinstance(layout, QBoxLayout):
-            index = layout.indexOf(placeholder)
-            layout.removeWidget(placeholder)
-            placeholder.deleteLater()
-            layout.insertWidget(index, widget)
+    @staticmethod
+    def _find_box_layout_containing(layout: QLayout | None, widget: QWidget) -> QBoxLayout | None:
+        """widget を直接保持する QBoxLayout を (ネストした子レイアウト含め) 再帰探索する。"""
+        if layout is None:
+            return None
+        for i in range(layout.count()):
+            item = layout.itemAt(i)
+            if item is None:
+                continue
+            if item.widget() is widget:
+                return layout if isinstance(layout, QBoxLayout) else None
+            found = FilterSearchPanel._find_box_layout_containing(item.layout(), widget)
+            if found is not None:
+                return found
+        return None
 
     def _setup_sub_components(self) -> None:
         """Sub-component の依存と連携を設定する。"""

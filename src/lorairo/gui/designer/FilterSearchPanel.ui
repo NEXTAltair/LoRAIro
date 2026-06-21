@@ -262,13 +262,16 @@
     <item>
      <widget class="QGroupBox" name="dateGroup">
       <property name="title">
-       <string>日付範囲</string>
+       <string>登録日</string>
       </property>
       <layout class="QVBoxLayout" name="dateLayout">
        <item>
         <widget class="QCheckBox" name="checkboxDateFilter">
          <property name="text">
-          <string>日付範囲でフィルター</string>
+          <string>登録日で絞り込む</string>
+         </property>
+         <property name="toolTip">
+          <string>画像を DB に登録した日付 (created_at) で絞り込みます</string>
          </property>
         </widget>
        </item>
