@@ -109,15 +109,19 @@ class TestRatingScoreEditWidget:
         assert widget.ui.labelScoreValue.text() == "6.50"
 
     def test_default_values(self, widget):
-        """デフォルト値のテスト"""
+        """未設定 (手動値なし) のテスト (Issue #825)。
+
+        手動 rating / score が無い場合は未設定表示にする:
+        rating は "----"、score は slider 中立位置 (500) かつラベルは "--"。
+        """
         image_data = {"id": 111}
 
         widget.populate_from_image_data(image_data)
 
-        # デフォルト値が適用されることを確認
         assert widget.ui.comboBoxRating.currentText() == "----"
         assert widget.ui.sliderScore.value() == 500
-        assert widget.ui.labelScoreValue.text() == "5.00"
+        # 手動スコア未設定は "--" (旧仕様の "5.00" デフォルトから変更)
+        assert widget.ui.labelScoreValue.text() == "--"
 
     def test_save_unrated_image_does_not_emit_rating(self, widget, qtbot):
         """未設定画像の保存ではrating_changedを発行しない（scoreのみ発行）"""
@@ -404,3 +408,80 @@ class TestRatingScoreEditWidgetBatchMode:
             widget.ui.pushButtonSave.click()
 
         assert batch_emitted is False
+
+
+class TestAiManualSeparation:
+    """Issue #825: AI セクションと人間セクションの値分離。"""
+
+    @pytest.fixture
+    def widget(self, qtbot):
+        widget = RatingScoreEditWidget()
+        qtbot.addWidget(widget)
+        return widget
+
+    def test_ai_section_uses_ai_values_not_manual(self, widget):
+        """AI セクションは AI 値を、人間セクションは手動値を独立して表示する。"""
+        widget.populate_from_image_data(
+            {
+                "id": 1,
+                "rating": "R",  # 手動 rating
+                "score_value": 8.0,  # 手動 score
+                "ai_rating": "PG",  # AI rating (手動と別)
+                "ai_score_value": 3.0,  # AI score (手動と別)
+            }
+        )
+
+        # 人間 (編集可能) セクション = 手動値
+        assert widget.ui.comboBoxRating.currentText() == "R"
+        assert widget.ui.sliderScore.value() == 800
+        # AI (read-only) セクション = AI 値
+        assert widget._ai_rating == "PG"
+        assert widget._ai_score_ui == 300
+
+    def test_manual_unset_with_ai_present_shows_unset_and_no_delta(self, widget):
+        """手動値が無く AI のみある場合、人間側は未設定で Δ/MANUAL_EDIT を出さない。"""
+        widget.populate_from_image_data(
+            {
+                "id": 2,
+                "rating": "----",  # 手動 rating 未設定
+                "score_value": None,  # 手動 score 未設定
+                "ai_rating": "X",
+                "ai_score_value": 6.0,
+            }
+        )
+
+        # 人間側は未設定表示
+        assert widget.ui.comboBoxRating.currentText() == "----"
+        assert widget.ui.labelScoreValue.text() == "--"
+        assert widget._manual_score_set is False
+        # AI 側は AI 値
+        assert widget._ai_rating == "X"
+        assert widget._ai_score_ui == 600
+        # 手動未編集なので差分表示・MANUAL_EDIT chip は出さない
+        assert widget._delta_label.isVisible() is False
+        assert widget._manual_edit_chip.isVisible() is False
+
+    def test_ai_unset_shows_placeholder(self, widget):
+        """AI 値が無い場合 AI セクションは未設定 (--) 表示。"""
+        widget.populate_from_image_data(
+            {
+                "id": 3,
+                "rating": "PG",
+                "score_value": 5.0,
+                "ai_rating": "----",
+                "ai_score_value": None,
+            }
+        )
+
+        assert widget._ai_rating is None
+        assert widget._ai_score_ui is None
+        assert widget._ai_score_value.text() == "--"
+
+    def test_dragging_slider_marks_manual_set(self, widget, qtbot):
+        """未設定からスライダーを動かすと手動スコアが設定済みになる。"""
+        widget.populate_from_image_data({"id": 4, "score_value": None, "ai_score_value": 6.0})
+        assert widget._manual_score_set is False
+
+        widget.ui.sliderScore.setValue(700)
+        assert widget._manual_score_set is True
+        assert widget.ui.labelScoreValue.text() == "7.00"

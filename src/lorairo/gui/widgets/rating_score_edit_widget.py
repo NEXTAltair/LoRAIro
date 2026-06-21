@@ -239,6 +239,9 @@ class RatingScoreEditWidget(QWidget):
         # AI 推論値 (read-only セクション用)。manual との差分計算に使う
         self._ai_rating: str | None = None
         self._ai_score_ui: int | None = None
+        # 手動スコアが設定済みか (Issue #825)。未設定 (None) のときは slider が中立位置でも
+        # 「AI と差分あり」と誤判定しないよう、Δ/MANUAL_EDIT 判定をスキップする。
+        self._manual_score_set: bool = False
 
         # UI設定
         self.ui = Ui_RatingScoreEditWidget()
@@ -266,6 +269,8 @@ class RatingScoreEditWidget(QWidget):
         Args:
             value: 新しいスコア値（内部値 0-1000）
         """
+        # ユーザーがスライダーを動かした = 手動スコアが設定された (Issue #825)
+        self._manual_score_set = True
         self.ui.labelScoreValue.setText(f"{value / 100.0:.2f}")
         self._update_manual_edit_state()
 
@@ -465,10 +470,15 @@ class RatingScoreEditWidget(QWidget):
         manual_score_ui = self.ui.sliderScore.value()
 
         rating_edited = manual_rating in self._VALID_RATINGS and manual_rating != self._ai_rating
-        score_edited = self._ai_score_ui is not None and manual_score_ui != self._ai_score_ui
+        # 手動スコア未設定 (Issue #825) のときは slider が中立位置でも「編集済み」扱いしない
+        score_edited = (
+            self._manual_score_set
+            and self._ai_score_ui is not None
+            and manual_score_ui != self._ai_score_ui
+        )
         self._manual_edit_chip.setVisible(rating_edited or score_edited)
 
-        if self._ai_score_ui is not None:
+        if self._manual_score_set and self._ai_score_ui is not None:
             delta = (manual_score_ui - self._ai_score_ui) / 100.0
             if abs(delta) >= 0.005:
                 self._delta_label.setText(f"Δ {delta:+.2f} vs AI")
@@ -557,7 +567,9 @@ class RatingScoreEditWidget(QWidget):
         # Score値の変換処理
         # Repository層からは "score_value" (DB値 0.0-10.0) が返される
         # UI層では 0-1000 の整数値で扱う
-        score_db = image_data.get("score_value", image_data.get("score", 5.0))
+        # Issue #825: 人間 (手動) スコアが None のときは未設定として "--" 表示にする
+        # (slider は中立位置に置き、ユーザーがドラッグして初めて手動値が確定する)。
+        score_db = image_data.get("score_value", image_data.get("score"))
         if isinstance(score_db, (int, float)):
             # DB値（0.0-10.0）→ UI値（0-1000）に変換
             if score_db <= 10.0:
@@ -566,11 +578,14 @@ class RatingScoreEditWidget(QWidget):
             else:
                 # すでにUI値（0-1000範囲）
                 score_ui = int(score_db)
+            self._manual_score_set = True
+            self.ui.sliderScore.setValue(score_ui)
+            self.ui.labelScoreValue.setText(f"{score_ui / 100.0:.2f}")
         else:
-            score_ui = 500  # デフォルト値
-
-        self.ui.sliderScore.setValue(score_ui)
-        self.ui.labelScoreValue.setText(f"{score_ui / 100.0:.2f}")
+            self._manual_score_set = False
+            score_ui = 500  # 中立位置 (未設定)
+            self.ui.sliderScore.setValue(score_ui)
+            self.ui.labelScoreValue.setText("--")
 
         # シグナルのブロックを解除
         self.ui.comboBoxRating.blockSignals(False)
@@ -591,7 +606,7 @@ class RatingScoreEditWidget(QWidget):
 
         logger.trace(
             f"Form populated for image_id={self._current_image_id}: "
-            f"DB score={score_db:.2f}, UI score={score_ui}"
+            f"DB score={score_db}, UI score={score_ui}"
         )
 
     def populate_from_selection(self, image_ids: list[int], db_manager: Any) -> None:
@@ -654,10 +669,12 @@ class RatingScoreEditWidget(QWidget):
             # 全画像が同じScore
             common_score_db = next(iter(scores))
             score_ui = int(common_score_db * 100)
+            self._manual_score_set = True
             self.ui.sliderScore.setValue(score_ui)
             self.ui.labelScoreValue.setText(f"{score_ui / 100.0:.2f}")
         else:
             # 異なるScoreまたは値なし → デフォルト値
+            self._manual_score_set = True
             self.ui.sliderScore.setValue(500)
             self.ui.labelScoreValue.setText("5.00")
 

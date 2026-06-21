@@ -2003,9 +2003,15 @@ class ImageRepository(BaseRepository):
                 for score in image.scores
             ]
             annotations["score_value"] = self._derive_display_score(image)
+            # AI / 手動を分離した値も公開する (Issue #825: スコアカードの AI セクションは
+            # 純粋 AI 値、人間セクションは手動値のみを表示する)。
+            annotations["ai_score_value"] = self._derive_ai_score(image)
+            annotations["manual_score_value"] = self._derive_manual_score(image)
         else:
             annotations["scores"] = []
             annotations["score_value"] = 0.0
+            annotations["ai_score_value"] = None
+            annotations["manual_score_value"] = None
 
     @staticmethod
     def _derive_display_score(image: Image) -> float:
@@ -2029,14 +2035,35 @@ class ImageRepository(BaseRepository):
         Returns:
             0.0-10.0 の表示スコア。
         """
-        manual_scores = [s for s in image.scores if s.is_edited_manually]
-        if manual_scores:
-            latest_manual = max(manual_scores, key=lambda s: s.created_at)
-            return float(latest_manual.score)
+        manual = ImageRepository._derive_manual_score(image)
+        if manual is not None:
+            return manual
+        ai = ImageRepository._derive_ai_score(image)
+        return ai if ai is not None else 0.0
 
+    @staticmethod
+    def _derive_manual_score(image: Image) -> float | None:
+        """手動編集行 (``is_edited_manually=True``) の最新生値 (0-10) を返す (Issue #825)。
+
+        手動スコアが無ければ ``None`` を返す (スコアカード人間セクションは未設定表示)。
+        """
+        manual_scores = [s for s in image.scores if s.is_edited_manually]
+        if not manual_scores:
+            return None
+        latest_manual = max(manual_scores, key=lambda s: s.created_at)
+        return float(latest_manual.score)
+
+    @staticmethod
+    def _derive_ai_score(image: Image) -> float | None:
+        """AI Score 行のみから 0.0-10.0 の表示スコアを導出する (Issue #825)。
+
+        手動編集行は無視し、model 単位の最新行を ``calibrate_to_display`` で 0-10 化した
+        加重平均を返す。AI Score 行が無ければ ``None`` を返す
+        (スコアカード AI セクションは未設定表示)。
+        """
         ai_scores = [s for s in image.scores if not s.is_edited_manually]
         if not ai_scores:
-            return 0.0
+            return None
 
         # model 単位で最新行を 1 つに絞る (legacy 複数行データは近似)。
         # model_id は SET NULL で None になり得る (model 削除済み orphan 行)。
@@ -2056,7 +2083,7 @@ class ImageRepository(BaseRepository):
             total_weight += weight
 
         if total_weight == 0.0:
-            return 0.0
+            return None
         return weighted_sum / total_weight
 
     def _format_score_labels(self, image: Image, annotations: dict[str, Any]) -> None:
@@ -2089,9 +2116,38 @@ class ImageRepository(BaseRepository):
             annotations["ratings"] = [self._format_rating_annotation(rating) for rating in image.ratings]
             latest_rating = max(image.ratings, key=lambda r: r.created_at)
             annotations["rating_value"] = latest_rating.normalized_rating
+            # AI / 手動を分離した値も公開する (Issue #825)。
+            annotations["ai_rating_value"] = self._derive_ai_rating(image)
+            annotations["manual_rating_value"] = self._derive_manual_rating(image)
         else:
             annotations["ratings"] = []
             annotations["rating_value"] = ""
+            annotations["ai_rating_value"] = ""
+            annotations["manual_rating_value"] = ""
+
+    @staticmethod
+    def _derive_ai_rating(image: Image) -> str:
+        """AI 判定 (非 MANUAL_EDIT) の最新 normalized_rating を返す (Issue #825)。
+
+        AI rating が無ければ空文字を返す (スコアカード AI セクションは未設定表示)。
+        """
+        ai_ratings = [r for r in image.ratings if not (r.model and r.model.name == MANUAL_EDIT_NAME)]
+        if not ai_ratings:
+            return ""
+        latest = max(ai_ratings, key=lambda r: r.created_at)
+        return latest.normalized_rating or ""
+
+    @staticmethod
+    def _derive_manual_rating(image: Image) -> str:
+        """手動編集 (MANUAL_EDIT) の最新 normalized_rating を返す (Issue #825)。
+
+        手動 rating が無ければ空文字を返す (スコアカード人間セクションは未設定表示)。
+        """
+        manual_ratings = [r for r in image.ratings if r.model and r.model.name == MANUAL_EDIT_NAME]
+        if not manual_ratings:
+            return ""
+        latest = max(manual_ratings, key=lambda r: r.created_at)
+        return latest.normalized_rating or ""
 
     def _format_annotations_for_metadata(self, image: Image) -> dict[str, Any]:
         """画像のアノテーション情報を辞書形式にフォーマット。
