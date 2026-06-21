@@ -245,6 +245,19 @@ class TestRatingScoreEditWidgetAiSection:
         widget._rating_segmented._buttons["XXX"].click()
         assert widget.ui.comboBoxRating.currentText() == "XXX"
 
+    def test_segmented_click_highlights_chip(self, widget):
+        """#829: クリックしたチップが選択ハイライト (active QSS) される。"""
+        from lorairo.gui.widgets.rating_score_edit_widget import _segment_button_qss
+
+        widget.populate_from_image_data({"id": 9, "rating": "----", "score_value": None})
+        btn = widget._rating_segmented._buttons["R"]
+        btn.click()
+        assert btn.isChecked() is True
+        assert btn.styleSheet() == _segment_button_qss(True)
+        # 他のチップは非選択スタイルのまま
+        other = widget._rating_segmented._buttons["PG"]
+        assert other.styleSheet() == _segment_button_qss(False)
+
     def test_manual_edit_chip_hidden_when_equal_to_ai(self, widget):
         """手動値が AI と一致する初期状態では MANUAL_EDIT chip は非表示"""
         widget.populate_from_image_data(

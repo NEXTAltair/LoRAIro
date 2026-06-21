@@ -280,6 +280,10 @@ class RatingScoreEditWidget(QWidget):
         index = self.ui.comboBoxRating.findText(rating)
         if index >= 0:
             self.ui.comboBoxRating.setCurrentIndex(index)
+        # チップ QSS は :checked を持たない静的スタイルのため、選択ハイライトを
+        # 明示的に再適用する (#829: クリックしても見た目が変わらない問題)。
+        self._rating_segmented.set_active(rating)
+        # 手動でレーティングを付けたら手動スコア扱いにはしないが、手動編集状態を更新
         self._update_manual_edit_state()
 
     def _build_two_tier_card(self) -> None:
