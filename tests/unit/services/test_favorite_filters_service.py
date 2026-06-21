@@ -134,6 +134,23 @@ class TestFavoriteFiltersService:
         filters = service.list_filters()
         assert filters == []
 
+    def test_get_all_filters_success(
+        self, service: FavoriteFiltersService, sample_filter: dict[str, Any]
+    ) -> None:
+        """全フィルター名→条件辞書の一括取得 (#815)"""
+        service.save_filter("Filter A", sample_filter)
+        service.save_filter("Filter B", {"keywords": ["dog"]})
+
+        all_filters = service.get_all_filters()
+
+        assert set(all_filters.keys()) == {"Filter A", "Filter B"}
+        assert all_filters["Filter A"] == sample_filter
+        assert all_filters["Filter B"] == {"keywords": ["dog"]}
+
+    def test_get_all_filters_empty(self, service: FavoriteFiltersService) -> None:
+        """フィルターが空のときは空辞書 (#815)"""
+        assert service.get_all_filters() == {}
+
     def test_delete_filter_success(
         self, service: FavoriteFiltersService, sample_filter: dict[str, Any]
     ) -> None:

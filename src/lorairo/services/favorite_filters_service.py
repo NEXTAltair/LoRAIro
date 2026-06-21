@@ -122,6 +122,22 @@ class FavoriteFiltersService:
             logger.error("Failed to list filters: {}", e, exc_info=True)
             return []
 
+    def get_all_filters(self) -> dict[str, dict[str, Any]]:
+        """すべてのフィルター名→条件辞書を一括取得します。
+
+        chip サマリ表示 (#815) のように全フィルタの条件を一度に必要とする
+        呼び出し元向け。名前ごとに `load_filter` を呼ぶ N 回読みを避ける。
+
+        Returns:
+            dict: フィルター名→条件辞書のマップ。失敗時は空辞書。
+        """
+        try:
+            filters = self._load_all_filters()
+            return {name: cond for name, cond in filters.items() if isinstance(cond, dict)}
+        except Exception as e:
+            logger.error("Failed to get all filters: {}", e, exc_info=True)
+            return {}
+
     def delete_filter(self, name: str) -> bool:
         """フィルター条件を削除します。
 
