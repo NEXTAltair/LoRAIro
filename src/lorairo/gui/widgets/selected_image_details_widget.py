@@ -205,13 +205,24 @@ class SelectedImageDetailsWidget(QWidget):
         layout.addWidget(self._image_info_toggle)
         layout.addWidget(self._copy_details_button)
         layout.addWidget(self.ui.groupBoxImageInfo)
+        # annotationDataDisplay は内容相応の高さに収め、余剰を末尾 spacer に渡す (#827)。
+        # 既定の Expanding だと stretch=0 でも余剰を一部吸い込み、レーティング詳細と
+        # 評価スコア編集の間に隙間が残るため、縦は Preferred に固定する。
+        self.ui.annotationDataDisplay.setSizePolicy(
+            QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred
+        )
         layout.addWidget(self.ui.annotationDataDisplay)
         layout.addWidget(self._rating_score_widget)
+        # 全 widget をトップ詰めにし、余剰高さは最下部 (評価スコア編集の下) へ逃がす (#827)。
+        # annotationDataDisplay に stretch を与えると、その余白がレーティング詳細と
+        # 評価スコア編集の間に出てしまうため、stretch は末尾 spacer に集約する。
+        layout.addStretch(1)
         layout.setStretch(0, 0)  # _image_info_toggle
         layout.setStretch(1, 0)  # _copy_details_button
         layout.setStretch(2, 0)  # groupBoxImageInfo
-        layout.setStretch(3, 1)  # annotationDataDisplay
+        layout.setStretch(3, 0)  # annotationDataDisplay
         layout.setStretch(4, 0)  # _rating_score_widget
+        layout.setStretch(5, 1)  # 末尾 spacer (余剰を吸収)
 
         scroll_area = QScrollArea(self)
         scroll_area.setFrameShape(QFrame.Shape.NoFrame)

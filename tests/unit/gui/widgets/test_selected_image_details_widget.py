@@ -717,3 +717,56 @@ class TestOriginalImageMetaDisplay:
         assert widget.labelExtensionValue.text() == ".png"
         assert widget.labelAspectValue.text() == "16:9"
         assert "あり" in widget.labelAlphaValue.text()
+
+
+class TestReadableLayoutTopPacking:
+    """#827: 詳細ペインをトップ詰めにし、レーティング詳細と評価スコア編集の間に
+    余白ができないことを担保する。"""
+
+    @pytest.fixture
+    def widget(self, qtbot):
+        widget = SelectedImageDetailsWidget()
+        qtbot.addWidget(widget)
+        return widget
+
+    def test_layout_ends_with_stretch_spacer(self, widget):
+        """コンテナレイアウト末尾に stretch spacer があり、余剰を最下部へ逃がす。"""
+        layout = widget._summary_layout
+        last_item = layout.itemAt(layout.count() - 1)
+        assert last_item.spacerItem() is not None
+
+    def test_annotation_display_has_no_stretch(self, widget):
+        """annotationDataDisplay には stretch を与えない (余白が間に出ないように)。"""
+        layout = widget._summary_layout
+        index = layout.indexOf(widget.ui.annotationDataDisplay)
+        assert index != -1
+        assert layout.stretch(index) == 0
+
+    def test_no_gap_between_annotation_and_rating_score(self, widget, qtbot):
+        """画像選択時、annotationDataDisplay と評価スコア編集の間が spacing のみになる。"""
+        widget.resize(400, 900)
+        widget.show()
+        qtbot.waitExposed(widget)
+        widget._on_image_data_received(
+            {
+                "id": 1,
+                "width": 1024,
+                "height": 768,
+                "rating": "R",
+                "score_value": 7.0,
+                "ratings": [
+                    {
+                        "model": "m1",
+                        "normalized_rating": "R",
+                        "raw_rating_value": "explicit",
+                        "confidence_score": 0.9,
+                        "source": "AI",
+                    }
+                ],
+            }
+        )
+        ad = widget.ui.annotationDataDisplay
+        rsw = widget._rating_score_widget
+        gap = rsw.geometry().y() - (ad.geometry().y() + ad.geometry().height())
+        # spacing (4px) 程度。過大な余白 (>= 40px) が出ないこと。
+        assert gap < 40
