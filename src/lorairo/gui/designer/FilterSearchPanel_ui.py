@@ -334,8 +334,11 @@ class Ui_FilterSearchPanel(object):
         self.comboAspectRatio.setItemText(4, QCoreApplication.translate("FilterSearchPanel", u"\u98a8\u666f (4:3)", None))
         self.comboAspectRatio.setItemText(5, QCoreApplication.translate("FilterSearchPanel", u"\u7e26\u9577 (3:4)", None))
 
-        self.dateGroup.setTitle(QCoreApplication.translate("FilterSearchPanel", u"\u65e5\u4ed8\u7bc4\u56f2", None))
-        self.checkboxDateFilter.setText(QCoreApplication.translate("FilterSearchPanel", u"\u65e5\u4ed8\u7bc4\u56f2\u3067\u30d5\u30a3\u30eb\u30bf\u30fc", None))
+        self.dateGroup.setTitle(QCoreApplication.translate("FilterSearchPanel", u"\u767b\u9332\u65e5", None))
+        self.checkboxDateFilter.setText(QCoreApplication.translate("FilterSearchPanel", u"\u767b\u9332\u65e5\u3067\u7d5e\u308a\u8fbc\u3080", None))
+#if QT_CONFIG(tooltip)
+        self.checkboxDateFilter.setToolTip(QCoreApplication.translate("FilterSearchPanel", u"\u753b\u50cf\u3092 DB \u306b\u767b\u9332\u3057\u305f\u65e5\u4ed8 (created_at) \u3067\u7d5e\u308a\u8fbc\u307f\u307e\u3059", None))
+#endif // QT_CONFIG(tooltip)
         self.dateRangeSliderPlaceholder.setStyleSheet(QCoreApplication.translate("FilterSearchPanel", u"background-color: #f0f0f0; border: 1px dashed #ccc; padding: 10px;", None))
         self.dateRangeSliderPlaceholder.setText(QCoreApplication.translate("FilterSearchPanel", u"\u65e5\u4ed8\u7bc4\u56f2\u30b9\u30e9\u30a4\u30c0\u30fc (CustomRangeSlider)", None))
         self.ratingGroup.setTitle(QCoreApplication.translate("FilterSearchPanel", u"\u30ec\u30fc\u30c6\u30a3\u30f3\u30b0", None))

@@ -358,3 +358,60 @@ class TestPublicAPICompat:
         panel._tag_suggestion.on_search_text_edited = MagicMock()
         panel._on_search_text_edited("test")
         panel._tag_suggestion.on_search_text_edited.assert_called_once_with("test")
+
+
+class TestPlaceholderReplacement:
+    """placeholder 差し替えのリグレッション (#821)。
+
+    レーティング chip の placeholder はネストした子レイアウト (ratingFilterLayout)
+    内にあるため、`_replace_placeholder` がネスト探索できないと chip が
+    ratingGroup の末尾にまとめて追加されラベルと分離してズレる。
+    """
+
+    def test_rating_chips_placed_in_their_label_rows(self, panel):
+        """各レーティング chip 行が [ラベル, chip, ...] の順で同じ行に並ぶ。"""
+        from PySide6.QtWidgets import QBoxLayout, QLabel, QWidget
+
+        from lorairo.gui.widgets.filter_search_panel import RatingChipToggleRow
+
+        rating_group = panel.findChild(QWidget, "ratingGroup")
+        rating_layout = rating_group.layout()
+
+        chip_rows = []
+        for i in range(rating_layout.count()):
+            sub = rating_layout.itemAt(i).layout()
+            if not isinstance(sub, QBoxLayout):
+                continue
+            widget_types = [
+                type(sub.itemAt(j).widget()) for j in range(sub.count()) if sub.itemAt(j).widget()
+            ]
+            if any(t is RatingChipToggleRow for t in widget_types):
+                chip_rows.append(widget_types)
+
+        # 手動 / AI / 組合せ の 3 行それぞれにラベルと chip が同居している
+        assert len(chip_rows) == 3
+        for types in chip_rows:
+            assert QLabel in types
+            assert RatingChipToggleRow in types
+
+        # ratingGroup 直下に RatingChipToggleRow が裸で append されていない (ズレ防止)
+        direct_widgets = [
+            rating_layout.itemAt(i).widget()
+            for i in range(rating_layout.count())
+            if rating_layout.itemAt(i).widget() is not None
+        ]
+        assert not any(isinstance(w, RatingChipToggleRow) for w in direct_widgets)
+
+    def test_date_slider_replaces_placeholder(self, panel):
+        """日付スライダー placeholder が CustomRangeSlider に差し替えられる。"""
+        from lorairo.gui.widgets.custom_range_slider import CustomRangeSlider
+
+        assert isinstance(panel.date_range_slider, CustomRangeSlider)
+        assert panel.date_range_slider.parentWidget() is panel.ui.frameDateRange
+
+    def test_date_filter_labels_clarify_registration_date(self, panel):
+        """登録日であることが分かるラベルになっている (#821 UX)。"""
+        from PySide6.QtWidgets import QWidget
+
+        assert panel.findChild(QWidget, "dateGroup").title() == "登録日"
+        assert panel.ui.checkboxDateFilter.text() == "登録日で絞り込む"
