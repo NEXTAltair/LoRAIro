@@ -99,9 +99,13 @@ class TestFormatAnnotationsForMetadata:
             "caption_text": "",
             "scores": [],
             "score_value": 0.0,
+            "ai_score_value": None,  # Issue #825: AI/手動分離
+            "manual_score_value": None,  # Issue #825
             "score_labels": [],
             "ratings": [],
             "rating_value": "",  # Issue #4: Rating値は文字列型
+            "ai_rating_value": "",  # Issue #825: AI/手動分離
+            "manual_rating_value": "",  # Issue #825
             # ADR 0029: derived view。score 系が空なので tier="no score"
             "quality_summary": {
                 "mapping_version": "quality-tier-v1",
@@ -663,3 +667,92 @@ class TestDeriveDisplayScore:
             ),
         ]
         assert ImageRepository._derive_display_score(image) == pytest.approx(10.0)
+
+
+def _rating_row(normalized: str, model_name: str, created_at: datetime) -> Mock:
+    """_derive_ai_rating / _derive_manual_rating 用の Rating 行モックを作る。"""
+    row = Mock(spec=Rating)
+    row.normalized_rating = normalized
+    row.created_at = created_at
+    row.model = Mock()
+    row.model.name = model_name
+    return row
+
+
+class TestDeriveAiManualScore:
+    """ImageRepository._derive_ai_score / _derive_manual_score のテスト (Issue #825)。"""
+
+    @pytest.mark.unit
+    def test_manual_score_none_when_no_manual_row(self):
+        image = Mock(spec=Image)
+        image.scores = [
+            _score_row(0.5, "cafe_aesthetic", is_manual=False, created_at=datetime(2025, 1, 1)),
+        ]
+        assert ImageRepository._derive_manual_score(image) is None
+
+    @pytest.mark.unit
+    def test_manual_score_returns_latest_manual(self):
+        image = Mock(spec=Image)
+        image.scores = [
+            _score_row(3.0, "manual", is_manual=True, created_at=datetime(2025, 1, 1)),
+            _score_row(8.0, "manual", is_manual=True, created_at=datetime(2025, 1, 3)),
+        ]
+        assert ImageRepository._derive_manual_score(image) == pytest.approx(8.0)
+
+    @pytest.mark.unit
+    def test_ai_score_none_when_no_ai_row(self):
+        image = Mock(spec=Image)
+        image.scores = [
+            _score_row(7.0, "manual", is_manual=True, created_at=datetime(2025, 1, 1)),
+        ]
+        assert ImageRepository._derive_ai_score(image) is None
+
+    @pytest.mark.unit
+    def test_ai_score_ignores_manual_rows(self):
+        """AI スコアは手動行を無視して AI 行のみから導出する (cafe 0.5 → 6.0)。"""
+        image = Mock(spec=Image)
+        image.scores = [
+            _score_row(0.5, "cafe_aesthetic", is_manual=False, created_at=datetime(2025, 1, 1)),
+            _score_row(9.0, "manual", is_manual=True, created_at=datetime(2025, 1, 2)),
+        ]
+        assert ImageRepository._derive_ai_score(image) == pytest.approx(6.0)
+
+
+class TestDeriveAiManualRating:
+    """ImageRepository._derive_ai_rating / _derive_manual_rating のテスト (Issue #825)。"""
+
+    @pytest.mark.unit
+    def test_ai_rating_excludes_manual_edit(self):
+        """AI rating は MANUAL_EDIT を除外した最新を返す。"""
+        image = Mock(spec=Image)
+        image.ratings = [
+            _rating_row("PG", "wdtagger", created_at=datetime(2025, 1, 1)),
+            _rating_row("X", "MANUAL_EDIT", created_at=datetime(2025, 1, 5)),
+        ]
+        assert ImageRepository._derive_ai_rating(image) == "PG"
+
+    @pytest.mark.unit
+    def test_ai_rating_empty_when_only_manual(self):
+        image = Mock(spec=Image)
+        image.ratings = [
+            _rating_row("X", "MANUAL_EDIT", created_at=datetime(2025, 1, 5)),
+        ]
+        assert ImageRepository._derive_ai_rating(image) == ""
+
+    @pytest.mark.unit
+    def test_manual_rating_returns_latest_manual_edit(self):
+        image = Mock(spec=Image)
+        image.ratings = [
+            _rating_row("PG", "wdtagger", created_at=datetime(2025, 1, 1)),
+            _rating_row("R", "MANUAL_EDIT", created_at=datetime(2025, 1, 3)),
+            _rating_row("X", "MANUAL_EDIT", created_at=datetime(2025, 1, 5)),
+        ]
+        assert ImageRepository._derive_manual_rating(image) == "X"
+
+    @pytest.mark.unit
+    def test_manual_rating_empty_when_no_manual_edit(self):
+        image = Mock(spec=Image)
+        image.ratings = [
+            _rating_row("PG", "wdtagger", created_at=datetime(2025, 1, 1)),
+        ]
+        assert ImageRepository._derive_manual_rating(image) == ""

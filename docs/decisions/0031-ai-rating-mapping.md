@@ -1,7 +1,7 @@
 ---
 type: ADR
 title: AI Rating Mapping to Canonical Rating
-status: Accepted (amended 2026-05-27)
+status: Accepted (amended 2026-06-21)
 timestamp: 2026-05-21
 tags: []
 ---
@@ -326,3 +326,38 @@ import 前の同一画像を別 job で重複 submit してしまうことがあ
 - ADR 0015 (Manual Rating Storage Unification) — manual / AI rating の Rating テーブル統一
 - ADR 0026 (On-Demand Runtime Validation Strategy) — 実 OpenAI Moderations Batch 検証境界
 - ADR 0038 (Provider Batch API Integration Strategy) — OpenAI `/v1/moderations` Batch lifecycle
+### Amendment 2026-06-21: 評価スコアカードの AI/手動表示分離 (Issue #825)
+
+評価・スコア編集カード (RatingScoreEditWidget, Issue #812) は AI セクション (read-only) と
+人間セクション (手動編集可能) に分かれている。当初は両セクションへ Repository 解決済みの
+`rating_value` / `score_value` (手動優先・無ければ AI の resolved 値) を渡していたため、
+AI セクションが「人間優先で解決された値」を表示してしまい、純粋な AI 判定が見えなかった。
+
+決定:
+
+1. **AI セクションは純粋な AI 値を read-only 表示する。**
+   - AI rating = MANUAL_EDIT を除外した最新 `Rating.normalized_rating`。無ければ未設定 (空)。
+   - AI score = AI Score 行のみ (`is_edited_manually=False`) の model 別最新値を
+     `calibrate_to_display` で 0-10 化した加重平均 (score 導出は Issue #626 / ADR 0028 を踏襲)。
+     AI Score 行が無ければ未設定 (`None` → UI は "--")。
+
+2. **人間セクションは手動値のみを編集可能表示する。**
+   - 手動 rating = 最新 MANUAL_EDIT `Rating.normalized_rating`。無ければ未設定 (`----`)。
+   - 手動 score = 最新の手動 Score 行 (`is_edited_manually=True`)。無ければ未設定 (UI は "--"、
+     slider は中立位置で、ユーザーが操作して初めて手動値が確定する)。
+
+3. **解決済み値 (`rating_value` / `score_value`) は維持する。**
+   フィルタ・検索・他の consumer は従来どおり「手動優先・無ければ AI」の解決済み値を使う。
+   AI/手動分離は表示面 (スコアカード) のための追加情報であり、解決規約 (Issue #4 / #626) は変えない。
+
+4. **Repository が AI/手動分離値を公開する。**
+   `ImageRepository` は metadata に `ai_rating_value` / `manual_rating_value` /
+   `ai_score_value` / `manual_score_value` を追加する。GUI 側で `ratings` / `scores` list から
+   再導出して calibration ロジックを二重持ちしない (SSoT は Repository)。
+
+関連:
+
+- ADR 0015: Manual Rating Storage Unification (MANUAL_EDIT 一元化)
+- ADR 0028: Score Labels Usage and Display
+- Issue #4 / #626: rating_value / score_value 解決規約
+- Issue #812: 評価スコアカード AI 併記

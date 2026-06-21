@@ -93,8 +93,13 @@ class ImageDetails:
     image_size: str = ""  # "1920x1080" format
     file_size: str = ""  # "2.5 MB" format
     created_date: str = ""  # "2025-07-29 15:30:00" format
-    rating_value: str = ""  # "PG", "R", etc.
-    score_value: int = 0  # 0-1000 range
+    rating_value: str = ""  # "PG", "R", etc. (解決済み: 手動優先・無ければAI)
+    score_value: int = 0  # 0-1000 range (解決済み: 手動優先・無ければAI)
+    # Issue #825: スコアカードの AI/手動セクション分離表示用
+    ai_rating_value: str = ""  # AI 判定 rating (無ければ空)
+    manual_rating_value: str = ""  # 手動 rating (無ければ空)
+    ai_score_value: float | None = None  # AI スコア (DB値 0.0-10.0、無ければ None)
+    manual_score_value: float | None = None  # 手動スコア (DB値 0.0-10.0、無ければ None)
     caption: str = ""  # Image caption text
     tags: str = ""  # Comma-separated tags
     # オリジナル画像メタデータ (Issue #813): 登録時にリサイズ/拡張子変換されるため original を表示

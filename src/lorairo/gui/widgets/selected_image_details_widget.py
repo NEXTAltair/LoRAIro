@@ -514,6 +514,12 @@ class SelectedImageDetailsWidget(QWidget):
         # Rating / Score（Issue #4: Repository側で整形済みの値を使用）
         rating_value = metadata.get("rating_value", "")
         score_value = metadata.get("score_value", 0)
+        # Issue #825: AI/手動を分離した値 (スコアカードの AI セクションは純粋 AI 値、
+        # 人間セクションは手動値のみを表示する)。
+        ai_rating_value = metadata.get("ai_rating_value", "")
+        manual_rating_value = metadata.get("manual_rating_value", "")
+        ai_score_value = metadata.get("ai_score_value")
+        manual_score_value = metadata.get("manual_score_value")
 
         # アノテーション情報（Repository層で変換済み・直接キーアクセス）
         # Repository層は metadata に直接 tags, captions などのキーを追加
@@ -563,6 +569,10 @@ class SelectedImageDetailsWidget(QWidget):
             created_date=created_date,
             rating_value=rating_value,
             score_value=score_value,
+            ai_rating_value=ai_rating_value,
+            manual_rating_value=manual_rating_value,
+            ai_score_value=ai_score_value,
+            manual_score_value=manual_score_value,
             caption=caption_text,
             tags=tags_text,
             original_extension=original_extension,
@@ -748,21 +758,25 @@ class SelectedImageDetailsWidget(QWidget):
             - モックアップパターン: RatingScoreEditWidgetで編集可能
             - score_value: DB値（0.0-10.0）をそのまま渡す
         """
-        # RatingScoreEditWidgetにデータを設定
-        # score_value: DB値（0.0-10.0）→ RatingScoreEditWidget内でUI値（0-1000）に変換
-        # rating_value / score_value は Repository 層で整形済みの AI canonical 値 (Issue #4)。
-        # AI セクション (read-only) と人間セクション (手動編集) の両方へ同じソースを渡す (Issue #812)。
+        # RatingScoreEditWidgetにデータを設定 (Issue #825)。
+        # AI セクション (read-only) は純粋な AI 値 (ai_rating_value / ai_score_value) を、
+        # 人間セクション (手動編集) は手動値 (manual_rating_value / manual_score_value) を表示する。
+        # 手動値が無ければ未設定 (rating は "----"、score は "--") で表示し、AI 値とは独立させる。
         self._rating_score_widget.populate_from_image_data(
             {
                 "id": details.image_id,
-                "rating": details.rating_value or "----",
-                "score_value": details.score_value,
-                "ai_rating": details.rating_value or "----",
-                "ai_score_value": details.score_value,
+                "rating": details.manual_rating_value or "----",
+                "score_value": details.manual_score_value,
+                "ai_rating": details.ai_rating_value or "----",
+                "ai_score_value": details.ai_score_value,
             }
         )
 
-        logger.debug(f"Rating/Score updated: {details.rating_value}, {details.score_value}")
+        logger.debug(
+            f"Rating/Score updated: manual_rating={details.manual_rating_value!r}, "
+            f"manual_score={details.manual_score_value}, ai_rating={details.ai_rating_value!r}, "
+            f"ai_score={details.ai_score_value}"
+        )
 
     def _clear_display(self) -> None:
         """
