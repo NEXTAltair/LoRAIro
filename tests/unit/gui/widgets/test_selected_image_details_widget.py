@@ -729,24 +729,23 @@ class TestReadableLayoutTopPacking:
         qtbot.addWidget(widget)
         return widget
 
-    def test_content_scroll_area_hugs_content(self, widget):
-        """#831: スクロールエリアは widgetResizable=False の縦ハグ型で、
-        コンテンツより短い余白を作らない (余剰はスクロール背景)。"""
-        from lorairo.gui.widgets.selected_image_details_widget import _VerticalHugScrollArea
-
-        scroll = widget._content_scroll_area
-        assert isinstance(scroll, _VerticalHugScrollArea)
-        assert scroll.widgetResizable() is False
+    def test_layout_ends_with_stretch_spacer(self, widget):
+        """#833: コンテナレイアウト末尾に stretch spacer があり、余剰を最下部へ逃がす
+        (widgetResizable=True + 末尾 spacer の堅牢構成)。"""
+        layout = widget._summary_layout
+        last_item = layout.itemAt(layout.count() - 1)
+        assert last_item.spacerItem() is not None
 
     def test_annotation_display_has_no_stretch(self, widget):
-        """annotationDataDisplay には stretch を与えない (余白が間に出ないように)。"""
+        """annotationDataDisplay には stretch を与えない (余白は末尾 spacer に集約)。"""
         layout = widget._summary_layout
         index = layout.indexOf(widget.ui.annotationDataDisplay)
         assert index != -1
         assert layout.stretch(index) == 0
 
     def test_no_gap_between_annotation_and_rating_score(self, widget, qtbot):
-        """画像選択時、annotationDataDisplay と評価スコア編集の間が spacing のみになる。"""
+        """画像選択時、annotationDataDisplay と評価スコア編集の間が spacing のみになる
+        (#827 / #833: タグが多くても巨大な隙間が出ないこと)。"""
         widget.resize(400, 900)
         widget.show()
         qtbot.waitExposed(widget)
@@ -757,6 +756,7 @@ class TestReadableLayoutTopPacking:
                 "height": 768,
                 "rating": "R",
                 "score_value": 7.0,
+                "tags": [{"tag": f"tag{i}", "tag_id": i} for i in range(60)],
                 "ratings": [
                     {
                         "model": "m1",
@@ -768,53 +768,9 @@ class TestReadableLayoutTopPacking:
                 ],
             }
         )
+        qtbot.waitUntil(lambda: widget._rating_score_widget.isVisible(), timeout=2000)
         ad = widget.ui.annotationDataDisplay
         rsw = widget._rating_score_widget
         gap = rsw.geometry().y() - (ad.geometry().y() + ad.geometry().height())
-        # spacing (4px) 程度。過大な余白 (>= 40px) が出ないこと。
+        # spacing (4px) 程度。タグが多くても過大な隙間 (>= 40px) が出ないこと。
         assert gap < 40
-
-    def test_short_content_hugs_no_bottom_void(self, widget, qtbot):
-        """#831: コンテンツが短いとき inner widget が自然高さで上詰めになり、
-        ビューポート高さまで引き伸ばされない (末尾の長い余白が出ない)。"""
-        widget.resize(400, 900)
-        widget.show()
-        qtbot.waitExposed(widget)
-        widget._on_image_data_received(
-            {"id": 1, "width": 1024, "height": 768, "rating": "R", "score_value": 7.0}
-        )
-        qtbot.waitUntil(
-            lambda: (
-                widget._content_scroll_area.widget().height()
-                < widget._content_scroll_area.viewport().height()
-            ),
-            timeout=2000,
-        )
-        scroll = widget._content_scroll_area
-        inner = scroll.widget()
-        # inner はコンテンツ自然高さ (ビューポートより十分小さい) で、引き伸ばされない
-        # = 末尾の長い余白が出ず、余剰はスクロール背景になる
-        assert inner.height() < scroll.viewport().height() - 50
-
-    def test_tall_content_scrolls_without_clip(self, widget, qtbot):
-        """#831: コンテンツがビューポートより高いとき inner widget が全高に伸び、
-        縦スクロールでクリップなく到達できる。"""
-        widget.resize(400, 400)
-        widget.show()
-        qtbot.waitExposed(widget)
-        widget._on_image_data_received(
-            {
-                "id": 2,
-                "width": 1024,
-                "height": 768,
-                "tags": [{"tag": f"tag{i}", "tag_id": i} for i in range(60)],
-            }
-        )
-        scroll = widget._content_scroll_area
-        # inner がビューポートより高く伸びる = 全コンテンツがスクロールで到達可能
-        # (sizeHint の過小報告でクリップされない)
-        qtbot.waitUntil(
-            lambda: scroll.widget().height() > scroll.viewport().height(),
-            timeout=2000,
-        )
-        assert scroll.widget().height() >= scroll.widget().minimumSizeHint().height()
