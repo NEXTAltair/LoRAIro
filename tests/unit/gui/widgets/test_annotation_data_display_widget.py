@@ -4,7 +4,11 @@ import pytest
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QApplication, QTableWidgetSelectionRange
 
-from lorairo.gui.widgets.annotation_data_display_widget import AnnotationData, AnnotationDataDisplayWidget
+from lorairo.gui.widgets.annotation_data_display_widget import (
+    AnnotationData,
+    AnnotationDataDisplayWidget,
+    SelectableTagChip,
+)
 
 
 class TestAnnotationDataDisplayWidget:
@@ -475,6 +479,93 @@ class TestAnnotationDataDisplayWidget:
 
         assert widget.copy_selected_rating_cells_to_clipboard() is True
         assert QApplication.clipboard().text() == "wd-vit-tagger-v3\tR\tquestionable"
+
+
+class TestAnnotationTagChipSelectionCopy:
+    """タグ chip 選択コピー (Issue #814): カンマ区切りで canonical 原文を取得する。"""
+
+    @pytest.fixture
+    def widget(self, qtbot):
+        w = AnnotationDataDisplayWidget()
+        qtbot.addWidget(w)
+        return w
+
+    @pytest.fixture
+    def sample_tags(self):
+        return [
+            {"tag": "1girl", "tag_id": 10, "model_name": "wd", "source": "AI"},
+            {"tag": "flower", "tag_id": 20, "model_name": "wd", "source": "AI"},
+            {"tag": "solo", "tag_id": None, "model_name": "wd", "source": "AI"},
+        ]
+
+    def test_chips_are_selectable_instances(self, widget, sample_tags):
+        """描画される chip は SelectableTagChip インスタンスであること。"""
+        widget.update_data(AnnotationData(tags=sample_tags))
+        assert len(widget._tag_chips) == 3
+        assert all(isinstance(chip, SelectableTagChip) for chip in widget._tag_chips)
+        assert [chip.canonical for chip in widget._tag_chips] == ["1girl", "flower", "solo"]
+
+    def test_click_toggles_selection_and_style(self, widget, sample_tags):
+        """chip クリックで選択がトグルし、選択時は base_qss と異なる強調 QSS になる。"""
+        widget.update_data(AnnotationData(tags=sample_tags))
+        chip = widget._tag_chips[0]
+        assert chip.selected is False
+        base = chip.styleSheet()
+
+        chip.clicked.emit()
+        assert chip.selected is True
+        assert chip.styleSheet() != base
+
+        chip.clicked.emit()
+        assert chip.selected is False
+        assert chip.styleSheet() == chip.base_qss
+
+    def test_copy_without_selection_copies_all_comma_separated(self, widget, sample_tags):
+        """無選択時は全タグをカンマ区切りでコピーすること。"""
+        widget.update_data(AnnotationData(tags=sample_tags))
+        assert widget.copy_selected_tags_to_clipboard() is True
+        assert QApplication.clipboard().text() == "1girl, flower, solo"
+
+    def test_copy_with_selection_copies_only_selected(self, widget, sample_tags):
+        """選択時は選択中タグのみをカンマ区切りでコピーすること。"""
+        widget.update_data(AnnotationData(tags=sample_tags))
+        widget._tag_chips[0].clicked.emit()  # 1girl を選択
+        widget._tag_chips[2].clicked.emit()  # solo を選択
+
+        assert widget.copy_selected_tags_to_clipboard() is True
+        assert QApplication.clipboard().text() == "1girl, solo"
+
+    def test_copy_uses_canonical_not_translated(self, widget, sample_tags):
+        """言語切替で表示が翻訳でも、コピーは canonical 原文を使うこと。"""
+        translations = {10: {"japanese": "1人の女の子"}, 20: {"japanese": "花"}}
+        data = AnnotationData(
+            tags=sample_tags,
+            tag_translations=translations,
+            available_languages=["japanese"],
+        )
+        widget.update_data(data)
+        widget.initialize_language_selector(["japanese"])
+        widget._lang_combo.setCurrentText("japanese")
+
+        # 表示は翻訳テキストだが canonical は原文
+        assert [chip.text() for chip in widget._tag_chips] == ["1人の女の子", "花", "solo"]
+        assert widget.copy_selected_tags_to_clipboard() is True
+        assert QApplication.clipboard().text() == "1girl, flower, solo"
+
+    def test_copy_returns_false_when_no_tags(self, widget):
+        """タグが無ければコピーは False を返すこと。"""
+        widget.clear_data()
+        assert widget._tag_chips == []
+        assert widget.copy_selected_tags_to_clipboard() is False
+
+    def test_selection_reset_on_re_render(self, widget, sample_tags):
+        """再描画 (言語切替等) で選択状態がリセットされること。"""
+        widget.update_data(AnnotationData(tags=sample_tags))
+        widget._tag_chips[0].clicked.emit()
+        assert widget._tag_chips[0].selected is True
+
+        widget.update_data(AnnotationData(tags=sample_tags))
+        assert all(chip.selected is False for chip in widget._tag_chips)
 
 
 class TestQualityTierBadge:

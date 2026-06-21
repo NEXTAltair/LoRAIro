@@ -9,7 +9,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from PySide6.QtCore import QPoint, Qt, Signal, Slot
-from PySide6.QtGui import QKeySequence, QResizeEvent, QShortcut
+from PySide6.QtGui import QKeySequence, QMouseEvent, QResizeEvent, QShortcut
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QAbstractScrollArea,
@@ -30,6 +30,36 @@ from PySide6.QtWidgets import (
 from ...gui.designer.AnnotationDataDisplayWidget_ui import Ui_AnnotationDataDisplayWidget
 from ...utils.log import logger
 from .. import theme
+
+
+class SelectableTagChip(QLabel):
+    """選択トグルできるタグ chip (Issue #814)。
+
+    1 タグ 1 chip 表示のうえで、chip クリックで選択状態をトグルし、
+    選択中の chip だけ (無選択なら全 chip) をカンマ区切りでコピーできる。
+
+    ``QLabel.mousePressEvent`` への代入は mypy method-assign 違反になるため、
+    サブクラスで override して ``clicked`` Signal を emit する。コピー対象は
+    表示テキスト (翻訳後) ではなく ``canonical`` (danbooru canonical / 原文) を
+    使う。タグは保存値が SSoT であり、言語切替に依らず一貫したコピー結果にする。
+    """
+
+    clicked = Signal()
+
+    def __init__(self, display_text: str, canonical: str, parent: QWidget | None = None) -> None:
+        super().__init__(display_text, parent)
+        self.canonical = canonical
+        self.base_qss = ""
+        self.selected = False
+        self.setCursor(Qt.CursorShape.PointingHandCursor)
+        # Ctrl+C を chip フォーカス中に拾えるようクリックフォーカスを許可する。
+        self.setFocusPolicy(Qt.FocusPolicy.ClickFocus)
+
+    def mousePressEvent(self, event: QMouseEvent) -> None:
+        """左クリックで選択トグル用の clicked を emit する。"""
+        if event.button() == Qt.MouseButton.LeftButton:
+            self.clicked.emit()
+        super().mousePressEvent(event)
 
 
 @dataclass
@@ -157,6 +187,16 @@ class AnnotationDataDisplayWidget(QWidget, Ui_AnnotationDataDisplayWidget):
         self._tags_chip_layout = FlowLayout(self._tags_chip_container, spacing=4)
         self._tags_chip_container.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Minimum)
         self.verticalLayoutTags.insertWidget(1, self._tags_chip_container)
+
+        # 選択コピー導線 (Issue #814): chip クリックで選択、Ctrl+C / 右クリックで
+        # 選択タグ (無選択なら全タグ) をカンマ区切りコピーする。
+        self._tag_chips: list[SelectableTagChip] = []
+        self._tags_chip_container.setFocusPolicy(Qt.FocusPolicy.ClickFocus)
+        self._tags_chip_container.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        self._tags_chip_container.customContextMenuRequested.connect(self._show_tags_chip_context_menu)
+        self._tags_chip_copy_shortcut = QShortcut(QKeySequence.StandardKey.Copy, self._tags_chip_container)
+        self._tags_chip_copy_shortcut.setContext(Qt.ShortcutContext.WidgetWithChildrenShortcut)
+        self._tags_chip_copy_shortcut.activated.connect(self.copy_selected_tags_to_clipboard)
 
         # 翻訳脚注 (非英語選択時のみ表示)
         self._tags_translation_note = QLabel(self.groupBoxTags)
@@ -304,6 +344,56 @@ class AnnotationDataDisplayWidget(QWidget, Ui_AnnotationDataDisplayWidget):
     def displayed_tags_text(self) -> str:
         """現在の言語選択で表示されているタグ文字列を返す。"""
         return self._tags_compact_label.text()
+
+    def _on_tag_chip_clicked(self, chip: SelectableTagChip) -> None:
+        """タグ chip クリックで選択状態をトグルし視覚強調を更新する (Issue #814)。"""
+        chip.selected = not chip.selected
+        self._apply_chip_selection_style(chip)
+
+    def _apply_chip_selection_style(self, chip: SelectableTagChip) -> None:
+        """chip の選択状態に応じて QSS を切り替える。
+
+        非選択時は描画時の ``base_qss`` (DS chip 文法) に戻し、選択時は accent
+        トークンで強調する。ハードコード hex/px は使わず theme トークンのみ参照する。
+        """
+        chip.setStyleSheet(self._selected_chip_qss() if chip.selected else chip.base_qss)
+
+    @staticmethod
+    def _selected_chip_qss() -> str:
+        """選択中タグ chip 用の強調 QSS を theme トークンで生成する (Issue #814)。"""
+        return (
+            f"QLabel {{ background-color: {theme.ACCENT}; color: {theme.TEXT_ON_ACCENT};"
+            f" border: {theme.BORDER_WIDTH_ACCENT}px solid {theme.ACCENT};"
+            f" border-radius: {theme.RADIUS_CHIP}px; padding: 1px 9px;"
+            f" font-size: {theme.FONT_SIZE_SMALL}px; font-weight: 600; }}"
+        )
+
+    @Slot()
+    def copy_selected_tags_to_clipboard(self) -> bool:
+        """選択中タグ (無選択なら全タグ) をカンマ区切りでクリップボードへコピーする。
+
+        コピー値は表示テキスト (翻訳後) ではなく canonical 原文を使う。タグは
+        保存値が SSoT であり、言語切替に依らず一貫したコピー結果にするため (Issue #814)。
+
+        Returns:
+            コピー対象が 1 件以上あれば True、タグが無ければ False。
+        """
+        selected = [chip.canonical for chip in self._tag_chips if chip.selected]
+        targets = selected if selected else [chip.canonical for chip in self._tag_chips]
+        targets = [tag for tag in targets if tag]
+        if not targets:
+            return False
+        QApplication.clipboard().setText(", ".join(targets))
+        return True
+
+    @Slot(QPoint)
+    def _show_tags_chip_context_menu(self, position: QPoint) -> None:
+        """タグ chip コンテナの右クリックメニュー (選択タグのカンマ区切りコピー)。"""
+        menu = QMenu(self._tags_chip_container)
+        copy_action = menu.addAction("選択タグをコピー")
+        copy_action.setEnabled(bool(self._tag_chips))
+        copy_action.triggered.connect(self.copy_selected_tags_to_clipboard)
+        menu.exec(self._tags_chip_container.mapToGlobal(position))
 
     @Slot(QPoint)
     def _show_tags_table_context_menu(self, position: QPoint) -> None:
@@ -532,6 +622,8 @@ class AnnotationDataDisplayWidget(QWidget, Ui_AnnotationDataDisplayWidget):
             widget = child.widget()
             if widget is not None:
                 widget.deleteLater()
+        # 再描画で選択状態はリセットする (chip オブジェクトが入れ替わるため)。
+        self._tag_chips = []
 
         visible_items = [(display, original, has_tr) for display, original, has_tr in chip_items if display]
         if not visible_items:
@@ -542,14 +634,17 @@ class AnnotationDataDisplayWidget(QWidget, Ui_AnnotationDataDisplayWidget):
             return
 
         for display, original, has_tr in visible_items:
-            chip = QLabel(display)
+            chip = SelectableTagChip(display, original)
             if is_translated and not has_tr:
-                chip.setStyleSheet(theme.tag_chip_untranslated_qss())
+                chip.base_qss = theme.tag_chip_untranslated_qss()
                 chip.setToolTip(f"{original} — 翻訳なし")
             else:
-                chip.setStyleSheet(theme.chip_qss("accent"))
+                chip.base_qss = theme.chip_qss("accent")
                 if is_translated and display != original:
                     chip.setToolTip(f"{original} → {display}")
+            chip.setStyleSheet(chip.base_qss)
+            chip.clicked.connect(lambda c=chip: self._on_tag_chip_clicked(c))
+            self._tag_chips.append(chip)
             # 編集モードでは × ボタン付きコンテナで soft-reject 可能にする (Issue #792)。
             self._tags_chip_layout.addWidget(self._wrap_editable_chip(chip, original))
 
