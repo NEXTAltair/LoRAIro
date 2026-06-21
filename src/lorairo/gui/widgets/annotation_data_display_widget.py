@@ -20,6 +20,7 @@ from PySide6.QtWidgets import (
     QHeaderView,
     QLabel,
     QMenu,
+    QScrollArea,
     QSizePolicy,
     QTableWidget,
     QTableWidgetItem,
@@ -191,7 +192,16 @@ class AnnotationDataDisplayWidget(QWidget, Ui_AnnotationDataDisplayWidget):
         self._tags_chip_container = QWidget(self.groupBoxTags)
         self._tags_chip_layout = FlowLayout(self._tags_chip_container, spacing=4)
         self._tags_chip_container.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Minimum)
-        self.verticalLayoutTags.insertWidget(1, self._tags_chip_container)
+        # 高さ上限付きスクロール箱に収める (#835)。FlowLayout の minimumSizeHint は
+        # 「最小幅で全チップ縦積み」の過大値を報告し、放置すると親の高さを膨張させて
+        # スコアカード下に異常な余白 + 不要スクロールを生む。タグ数に依らず本箱で
+        # 高さを上限まで (_TAGS_MAX_HEIGHT) に固定し、超過分は箱内スクロールにする。
+        self._tags_scroll = QScrollArea(self.groupBoxTags)
+        self._tags_scroll.setWidgetResizable(True)
+        self._tags_scroll.setFrameShape(QScrollArea.Shape.NoFrame)
+        self._tags_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self._tags_scroll.setWidget(self._tags_chip_container)
+        self.verticalLayoutTags.insertWidget(1, self._tags_scroll)
 
         # 選択コピー導線 (Issue #814): chip クリックで選択、Ctrl+C / 右クリックで
         # 選択タグ (無選択なら全タグ) をカンマ区切りコピーする。
@@ -962,14 +972,37 @@ class AnnotationDataDisplayWidget(QWidget, Ui_AnnotationDataDisplayWidget):
         self.groupBoxScoreLabels.setVisible(score_labels)
         self.groupBoxRatings.setVisible(ratings)
 
+    # タグチップ箱の高さ上限 (#835)。これを超えるタグは箱内スクロールにし、
+    # annotationDataDisplay 全体の高さがタグ数で膨張しないようにする。
+    _TAGS_MAX_HEIGHT = 220
+
     def resizeEvent(self, event: QResizeEvent) -> None:
         super().resizeEvent(event)
         self._adjust_caption_height()
+        # 幅変化でタグチップの折り返し行数が変わるため箱の高さを追従させる (#835)
+        self._adjust_tags_chip_height()
 
     def _adjust_content_heights(self) -> None:
         self._adjust_tags_height()
+        self._adjust_tags_chip_height()
         self._adjust_caption_height()
         self._adjust_ratings_height()
+
+    def _adjust_tags_chip_height(self) -> None:
+        """タグチップ箱の高さを min(実幅での必要高さ, 上限) に収める (#835)。
+
+        FlowLayout の minimumSizeHint (最小幅での全チップ縦積み) が親へ伝播して
+        スクロール領域を膨張させるのを防ぐため、箱の高さを実寸ベースで明示する。
+        タグが少なければ内容ぴったり、多ければ上限で頭打ち + 箱内スクロールになる。
+        """
+        if not self._tags_scroll.isVisible():
+            return
+        width = self._tags_scroll.viewport().width()
+        if width <= 0:
+            return
+        # 収まるときに内側スクロールバーが出ないよう僅かな余裕を足す。
+        needed = self._tags_chip_layout.heightForWidth(width) + 8
+        self._tags_scroll.setFixedHeight(min(needed, self._TAGS_MAX_HEIGHT))
 
     def _adjust_tags_height(self) -> None:
         if not self.tableWidgetTags.isVisible():

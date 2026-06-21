@@ -749,3 +749,40 @@ class TestMainLayoutTrailingStretch:
         assert last_item.spacerItem() is not None
         # 最後尾が groupBoxRatings 自体ではない (= ratings の後ろに stretch がある)
         assert last_item.widget() is None
+
+
+class TestTagsChipBoundedScroll:
+    """#835: タグチップを高さ上限付きスクロール箱に収め、タグ数で高さが膨張しない。"""
+
+    @pytest.fixture
+    def widget(self, qtbot):
+        w = AnnotationDataDisplayWidget()
+        w.resize(400, 600)
+        qtbot.addWidget(w)
+        w.show()
+        qtbot.waitExposed(w)
+        return w
+
+    def _make_data(self, ntags: int) -> AnnotationData:
+        return AnnotationData(
+            tags=[{"tag": f"tag{i}", "tag_id": i} for i in range(ntags)],
+        )
+
+    def test_tags_box_height_capped_for_many_tags(self, widget, qtbot):
+        """タグが多くてもタグ箱の高さは上限以内 (= 親の高さが膨張しない)。"""
+        widget.update_data(self._make_data(284))
+        qtbot.waitUntil(lambda: widget._tags_scroll.height() > 0, timeout=2000)
+        assert widget._tags_scroll.height() <= widget._TAGS_MAX_HEIGHT
+
+    def test_all_tags_rendered_even_when_capped(self, widget, qtbot):
+        """上限に達しても全タグ chip は生成され、箱内スクロールで到達できる。"""
+        widget.update_data(self._make_data(284))
+        qtbot.waitUntil(lambda: len(widget.findChildren(SelectableTagChip)) == 284, timeout=2000)
+        # 箱の中身 (chip コンテナ) は上限より高い = スクロールで全件到達可能
+        assert widget._tags_chip_container.height() >= widget._tags_scroll.height()
+
+    def test_few_tags_box_fits_content(self, widget, qtbot):
+        """タグが少なければ箱は内容ぴったり (上限より十分小さい)。"""
+        widget.update_data(self._make_data(2))
+        qtbot.waitUntil(lambda: widget._tags_scroll.height() > 0, timeout=2000)
+        assert widget._tags_scroll.height() < widget._TAGS_MAX_HEIGHT
