@@ -800,7 +800,9 @@ class SelectedImageDetailsWidget(QWidget):
         if scroll is None:
             return
         scroll.sync_content_size()
-        QTimer.singleShot(0, scroll.sync_content_size)
+        # 遅延同期は context=self 付きで予約し、widget 破棄後に削除済み C++ object へ
+        # アクセスしてクラッシュするのを防ぐ (self 破棄時はスロットが呼ばれない)。
+        QTimer.singleShot(0, self, scroll.sync_content_size)
 
     def _update_rating_score_display(self, details: ImageDetails) -> None:
         """
