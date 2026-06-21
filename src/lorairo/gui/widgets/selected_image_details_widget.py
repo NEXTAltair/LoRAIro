@@ -750,11 +750,15 @@ class SelectedImageDetailsWidget(QWidget):
         """
         # RatingScoreEditWidgetにデータを設定
         # score_value: DB値（0.0-10.0）→ RatingScoreEditWidget内でUI値（0-1000）に変換
+        # rating_value / score_value は Repository 層で整形済みの AI canonical 値 (Issue #4)。
+        # AI セクション (read-only) と人間セクション (手動編集) の両方へ同じソースを渡す (Issue #812)。
         self._rating_score_widget.populate_from_image_data(
             {
                 "id": details.image_id,
                 "rating": details.rating_value or "----",
                 "score_value": details.score_value,
+                "ai_rating": details.rating_value or "----",
+                "ai_score_value": details.score_value,
             }
         )
 
