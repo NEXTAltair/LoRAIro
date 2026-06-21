@@ -208,6 +208,76 @@ class TestDeleteFlow:
         mock_service.delete_filter.assert_not_called()
 
 
+class TestChipRendering:
+    """保存クエリ chip 表示のテスト (#815)。"""
+
+    def test_chips_built_for_each_filter(
+        self,
+        panel: FavoriteFilterPanel,
+        mock_service: MagicMock,
+    ) -> None:
+        mock_service.list_filters.return_value = ["q1", "q2"]
+        mock_service.get_all_filters.return_value = {
+            "q1": {"keywords": ["1girl", "solo"]},
+            "q2": {"only_untagged": True},
+        }
+
+        panel.set_favorite_filters_service(mock_service)
+
+        # checkable QGroupBox なので isVisible は親 show 依存。isHidden で明示状態を見る
+        assert panel._chip_layout.count() == 2
+        assert panel._chip_container.isHidden() is False
+        assert panel._empty_label.isHidden() is True
+
+    def test_empty_state_shows_placeholder(
+        self,
+        panel: FavoriteFilterPanel,
+        mock_service: MagicMock,
+    ) -> None:
+        mock_service.list_filters.return_value = []
+        mock_service.get_all_filters.return_value = {}
+
+        panel.set_favorite_filters_service(mock_service)
+
+        assert panel._chip_layout.count() == 0
+        assert panel._empty_label.isHidden() is False
+
+    def test_chip_click_invokes_applier(
+        self,
+        panel: FavoriteFilterPanel,
+        mock_service: MagicMock,
+    ) -> None:
+        from PySide6.QtWidgets import QPushButton
+
+        applier = MagicMock()
+        mock_service.list_filters.return_value = ["q1"]
+        mock_service.get_all_filters.return_value = {"q1": {"keywords": ["1girl"]}}
+        panel.setChecked(True)  # 折りたたみ中は子 widget が無効化されるため展開する
+        panel.set_favorite_filters_service(mock_service)
+        panel.set_conditions_applier(applier)
+
+        chip_item = panel._chip_layout.itemAt(0)
+        assert chip_item is not None
+        chip_button = chip_item.widget().findChild(QPushButton, "favoriteQueryChip")
+        assert chip_button is not None
+        chip_button.click()
+
+        mock_service.load_filter.assert_called_once_with("q1")
+        applier.assert_called_once_with({"some": "conditions"})
+
+    def test_chip_summary_reflects_conditions(
+        self,
+        panel: FavoriteFilterPanel,
+    ) -> None:
+        summary = panel._summarize_conditions({"keywords": ["a", "b", "c"], "only_untagged": True})
+
+        assert "a,b…" in summary
+        assert "untagged" in summary
+
+    def test_chip_summary_empty_for_none(self, panel: FavoriteFilterPanel) -> None:
+        assert panel._summarize_conditions(None) == ""
+
+
 class TestServiceMissingGuards:
     """service 未設定時の動作。"""
 

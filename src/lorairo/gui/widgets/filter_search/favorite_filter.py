@@ -15,18 +15,22 @@ condition の取得・適用は Parent コールバックで委ねる。
 from collections.abc import Callable
 from typing import Any
 
+from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
     QGroupBox,
     QHBoxLayout,
     QInputDialog,
+    QLabel,
     QListWidget,
     QListWidgetItem,
     QMessageBox,
     QPushButton,
+    QToolButton,
     QVBoxLayout,
     QWidget,
 )
 
+from ....gui import theme
 from ....utils.log import logger
 
 ConditionsGetter = Callable[[], dict[str, Any]]
@@ -52,11 +56,24 @@ class FavoriteFilterPanel(QGroupBox):
         self._conditions_getter: ConditionsGetter | None = None
         self._conditions_applier: ConditionsApplier | None = None
 
-        # UI 構築
+        # DS v12: 保存クエリを chip 一覧で表示 (#815)。QListWidget は back-compat の
+        # 隠し backing として残し (count/item/setCurrentRow が既存テスト・mediator
+        # property の contract)、表示は chip FlowLayout で行う。
+        from ..tag_cloud_widget import FlowLayout
+
         self.favorite_filters_list = QListWidget()
         self.favorite_filters_list.setMaximumHeight(150)
+        self.favorite_filters_list.setVisible(False)  # chip 表示が主、list は backing
 
-        self.button_save_filter = QPushButton("保存")
+        self._chip_container = QWidget()
+        self._chip_layout = FlowLayout(self._chip_container, spacing=4)
+        self._empty_label = QLabel("保存済みのお気に入りはありません")
+        self._empty_label.setStyleSheet(f"color: {theme.INK_FAINT}; font-size: {theme.FONT_SIZE_SMALL}px;")
+
+        # ☆ お気に入りに保存 (DS の保存導線)
+        self.button_save_filter = QPushButton("☆ お気に入りに保存")
+        # back-compat: 読込/削除は chip クリック・× に集約したが、既存テスト・
+        # アクセシビリティ用に残す。
         self.button_load_filter = QPushButton("読込")
         self.button_delete_filter = QPushButton("削除")
 
@@ -66,6 +83,8 @@ class FavoriteFilterPanel(QGroupBox):
         button_layout.addWidget(self.button_delete_filter)
 
         group_layout = QVBoxLayout()
+        group_layout.addWidget(self._empty_label)
+        group_layout.addWidget(self._chip_container)
         group_layout.addWidget(self.favorite_filters_list)
         group_layout.addLayout(button_layout)
         self.setLayout(group_layout)
@@ -116,9 +135,84 @@ class FavoriteFilterPanel(QGroupBox):
             filter_names = self.favorite_filters_service.list_filters()
             for name in filter_names:
                 self.favorite_filters_list.addItem(name)
+            # chip サマリ用に条件を一括取得 (N 回 load_filter する 2 回読みを回避)
+            conditions_map = self.favorite_filters_service.get_all_filters()
+            self._render_chips(filter_names, conditions_map)
             logger.debug("Refreshed favorite filters list: {} items", len(filter_names))
         except Exception as e:
             logger.error("Failed to refresh favorite filters list: {}", e, exc_info=True)
+
+    def _render_chips(self, filter_names: list[str], conditions_map: dict[str, Any]) -> None:
+        """保存クエリを DS chip で再描画する (#815)。
+
+        各 chip = 名前 + 条件サマリ (mono) + × 削除。chip クリックで適用。
+
+        Args:
+            filter_names: 表示する保存フィルタ名のリスト。
+            conditions_map: フィルタ名→条件辞書のマップ (サマリ表示用)。
+        """
+        while self._chip_layout.count():
+            item = self._chip_layout.takeAt(0)
+            if item is None:
+                continue
+            widget = item.widget()
+            if widget is not None:
+                widget.deleteLater()
+
+        self._empty_label.setVisible(not filter_names)
+        self._chip_container.setVisible(bool(filter_names))
+        for name in filter_names:
+            self._chip_layout.addWidget(self._build_query_chip(name, conditions_map.get(name)))
+
+    def _build_query_chip(self, name: str, conditions: dict[str, Any] | None) -> QWidget:
+        """保存クエリ 1 件分の chip (名前 + サマリ + × 削除、クリックで適用)。"""
+        container = QWidget()
+        layout = QHBoxLayout(container)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(1)
+
+        summary = self._summarize_conditions(conditions)
+        label = f"★ {name}" + (f"  {summary}" if summary else "")
+        chip = QPushButton(label, container)
+        chip.setObjectName("favoriteQueryChip")
+        chip.setCursor(Qt.CursorShape.PointingHandCursor)
+        chip.setToolTip(f"{name} を適用" + (f" ({summary})" if summary else ""))
+        chip.setStyleSheet(
+            f"QPushButton {{ background-color: {theme.ACCENT_SOFT}; color: {theme.ACCENT_HOVER};"
+            f" border: {theme.BORDER_WIDTH}px solid {theme.ACCENT_BORDER};"
+            f" border-radius: {theme.RADIUS_CHIP}px; padding: 2px 9px;"
+            f" font-size: {theme.FONT_SIZE_SMALL}px; }}"
+            f" QPushButton:hover {{ border-color: {theme.ACCENT}; }}"
+        )
+        chip.clicked.connect(lambda _checked=False, n=name: self._load_by_name(n))
+        layout.addWidget(chip)
+
+        remove = QToolButton(container)
+        remove.setObjectName("favoriteQueryChipRemove")
+        remove.setText("×")
+        remove.setAutoRaise(True)
+        remove.setToolTip(f"{name} を削除")
+        remove.clicked.connect(lambda _checked=False, n=name: self._delete_by_name(n))
+        layout.addWidget(remove)
+        return container
+
+    def _summarize_conditions(self, conditions: dict[str, Any] | None) -> str:
+        """保存フィルタ条件の短い mono サマリを返す (#815、chip sub 用)。"""
+        if not isinstance(conditions, dict) or not conditions:
+            return ""
+        parts: list[str] = []
+        keywords = conditions.get("keywords") or []
+        if keywords:
+            joined = ",".join(str(k) for k in keywords[:2])
+            parts.append(joined + ("…" if len(keywords) > 2 else ""))
+        resolution = conditions.get("resolution_filter")
+        if resolution:
+            parts.append(f"{resolution}px")
+        if conditions.get("date_filter_enabled"):
+            parts.append("期間指定")
+        if conditions.get("only_untagged"):
+            parts.append("untagged")
+        return " · ".join(parts)
 
     def _on_save_clicked(self) -> None:
         """保存ボタンクリックハンドラ。"""
@@ -215,7 +309,13 @@ class FavoriteFilterPanel(QGroupBox):
             QMessageBox.warning(self, "削除失敗", "削除するフィルターを選択してください。")
             return
 
-        filter_name = selected_items[0].text()
+        self._delete_by_name(selected_items[0].text())
+
+    def _delete_by_name(self, filter_name: str) -> None:
+        """フィルター名から削除する (chip × / 削除ボタン 共通、#815)。"""
+        if not self.favorite_filters_service:
+            QMessageBox.warning(self, "エラー", "お気に入りフィルターサービスが利用できません。")
+            return
 
         reply = QMessageBox.question(
             self,
