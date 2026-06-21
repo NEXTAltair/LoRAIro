@@ -314,6 +314,10 @@ class AnnotationDataDisplayWidget(QWidget, Ui_AnnotationDataDisplayWidget):
         ratings_layout.addWidget(self.tableWidgetRatings)
 
         self.verticalLayoutMain.addWidget(self.groupBoxRatings)
+        # 親 (SelectedImageDetailsWidget) が本 widget を縦に展開させるため、末尾 stretch を
+        # 置いて余剰高さを最下部に逃がす。これが無いと最後尾の groupBoxRatings が
+        # 余白を吸収して「レーティング詳細」が過大表示される (#823)。
+        self.verticalLayoutMain.addStretch(1)
 
     def _make_label_copyable(self, label: QLabel) -> None:
         """読み取り専用 QLabel を選択・コピー可能にする。"""

@@ -727,3 +727,25 @@ class TestAnnotationDataDisplaySoftRejectEdit:
     def test_rejected_section_hidden_when_edit_off(self, widget):
         widget.set_rejected_tags(["bad_tag"])
         assert not widget._rejected_container.isVisible()
+
+
+class TestMainLayoutTrailingStretch:
+    """#823: 主レイアウト末尾の stretch で最下部グループの過大化を防ぐ。"""
+
+    @pytest.fixture
+    def widget(self, qtbot):
+        w = AnnotationDataDisplayWidget()
+        qtbot.addWidget(w)
+        return w
+
+    def test_main_layout_ends_with_stretch(self, widget):
+        """verticalLayoutMain の最後尾に spacer (stretch) が存在する。
+
+        親が本 widget を縦に展開させても、余剰高さが末尾 stretch に逃げ
+        groupBoxRatings (レーティング詳細) が余白を吸収しないことを担保する。
+        """
+        layout = widget.verticalLayoutMain
+        last_item = layout.itemAt(layout.count() - 1)
+        assert last_item.spacerItem() is not None
+        # 最後尾が groupBoxRatings 自体ではない (= ratings の後ろに stretch がある)
+        assert last_item.widget() is None
