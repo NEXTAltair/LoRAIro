@@ -187,13 +187,13 @@ class WidgetSetupService:
             main_window.splitterPreviewDetails.setStretchFactor(1, 1)
             logger.info("✅ splitterPreviewDetails 初期化完了（プレビュー/詳細比率55/45）")
 
-        # バッチタグタブのメインスプリッター（左:ステージング一覧、右:操作パネル）
+        # バッチタグタブのメインスプリッター（#863: 縦積み。上=ステージング帯、下=パイプライン全幅）
         if hasattr(main_window, "splitterBatchTagMain") and main_window.splitterBatchTagMain:
-            # 初期サイズ設定（左: 50%, 右: 50%）
-            main_window.splitterBatchTagMain.setSizes([560, 560])
-            main_window.splitterBatchTagMain.setStretchFactor(0, 5)  # 左: ステージング一覧
-            main_window.splitterBatchTagMain.setStretchFactor(1, 5)  # 右: 操作パネル
-            logger.info("✅ splitterBatchTagMain 初期化完了（ステージング/操作比率50/50）")
+            # 初期サイズ設定（上: ステージング帯を細く、下: パイプラインを大きく）
+            main_window.splitterBatchTagMain.setSizes([220, 900])
+            main_window.splitterBatchTagMain.setStretchFactor(0, 1)  # 上: ステージング帯
+            main_window.splitterBatchTagMain.setStretchFactor(1, 6)  # 下: パイプライン構成
+            logger.info("✅ splitterBatchTagMain 初期化完了（#863: 縦積み ステージング帯/パイプライン）")
         # #844: 操作パネルはサブタブ廃止により単一縦カラム (scrollAreaBatchTagColumn) へ。
         # splitterBatchTagOperations は撤去したため初期化不要。
 

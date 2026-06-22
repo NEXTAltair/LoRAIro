@@ -335,7 +335,7 @@ class Ui_MainWindow(object):
         self.verticalLayout_batchTag.setContentsMargins(8, 8, 8, 8)
         self.splitterBatchTagMain = QSplitter(self.tabBatchTag)
         self.splitterBatchTagMain.setObjectName(u"splitterBatchTagMain")
-        self.splitterBatchTagMain.setOrientation(Qt.Orientation.Horizontal)
+        self.splitterBatchTagMain.setOrientation(Qt.Orientation.Vertical)
         self.splitterBatchTagMain.setChildrenCollapsible(False)
         self.batchTagWidgetPlaceholder = QWidget(self.splitterBatchTagMain)
         self.batchTagWidgetPlaceholder.setObjectName(u"batchTagWidgetPlaceholder")
