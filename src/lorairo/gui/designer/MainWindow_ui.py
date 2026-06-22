@@ -18,9 +18,9 @@ from PySide6.QtGui import (QAction, QBrush, QColor, QConicalGradient,
     QTransform)
 from PySide6.QtWidgets import (QApplication, QFrame, QGroupBox, QHBoxLayout,
     QLabel, QLineEdit, QMainWindow, QMenu,
-    QMenuBar, QPushButton, QSizePolicy, QSpacerItem,
-    QSplitter, QStatusBar, QTabWidget, QVBoxLayout,
-    QWidget)
+    QMenuBar, QPushButton, QScrollArea, QSizePolicy,
+    QSpacerItem, QSplitter, QStatusBar, QTabWidget,
+    QVBoxLayout, QWidget)
 
 from ..widgets.filter_search_panel import FilterSearchPanel
 from ..widgets.image_preview import ImagePreviewWidget
@@ -344,29 +344,21 @@ class Ui_MainWindow(object):
         self.groupBoxBatchOperations.setObjectName(u"groupBoxBatchOperations")
         self.verticalLayout_operations = QVBoxLayout(self.groupBoxBatchOperations)
         self.verticalLayout_operations.setObjectName(u"verticalLayout_operations")
-        self.splitterBatchTagOperations = QSplitter(self.groupBoxBatchOperations)
-        self.splitterBatchTagOperations.setObjectName(u"splitterBatchTagOperations")
-        self.splitterBatchTagOperations.setOrientation(Qt.Orientation.Vertical)
-        self.splitterBatchTagOperations.setChildrenCollapsible(False)
-        self.tabWidgetBatchTagWorkflow = QTabWidget(self.splitterBatchTagOperations)
-        self.tabWidgetBatchTagWorkflow.setObjectName(u"tabWidgetBatchTagWorkflow")
-        self.tabBatchTagTagAdd = QWidget()
-        self.tabBatchTagTagAdd.setObjectName(u"tabBatchTagTagAdd")
-        self.verticalLayout_batchTagTagAdd = QVBoxLayout(self.tabBatchTagTagAdd)
-        self.verticalLayout_batchTagTagAdd.setObjectName(u"verticalLayout_batchTagTagAdd")
-        self.verticalLayout_batchTagTagAdd.setContentsMargins(0, 0, 0, 0)
-        self.batchTagInputPlaceholder = QWidget(self.tabBatchTagTagAdd)
+        self.scrollAreaBatchTagColumn = QScrollArea(self.groupBoxBatchOperations)
+        self.scrollAreaBatchTagColumn.setObjectName(u"scrollAreaBatchTagColumn")
+        self.scrollAreaBatchTagColumn.setWidgetResizable(True)
+        self.scrollAreaBatchTagColumn.setFrameShape(QFrame.Shape.NoFrame)
+        self.batchTagColumnContents = QWidget()
+        self.batchTagColumnContents.setObjectName(u"batchTagColumnContents")
+        self.verticalLayout_batchTagColumn = QVBoxLayout(self.batchTagColumnContents)
+        self.verticalLayout_batchTagColumn.setObjectName(u"verticalLayout_batchTagColumn")
+        self.verticalLayout_batchTagColumn.setContentsMargins(0, 0, 0, 0)
+        self.batchTagInputPlaceholder = QWidget(self.batchTagColumnContents)
         self.batchTagInputPlaceholder.setObjectName(u"batchTagInputPlaceholder")
 
-        self.verticalLayout_batchTagTagAdd.addWidget(self.batchTagInputPlaceholder)
+        self.verticalLayout_batchTagColumn.addWidget(self.batchTagInputPlaceholder)
 
-        self.tabWidgetBatchTagWorkflow.addTab(self.tabBatchTagTagAdd, "")
-        self.tabBatchTagAnnotation = QWidget()
-        self.tabBatchTagAnnotation.setObjectName(u"tabBatchTagAnnotation")
-        self.verticalLayout_batchTagAnnotation = QVBoxLayout(self.tabBatchTagAnnotation)
-        self.verticalLayout_batchTagAnnotation.setObjectName(u"verticalLayout_batchTagAnnotation")
-        self.verticalLayout_batchTagAnnotation.setContentsMargins(0, 0, 0, 0)
-        self.groupBoxAnnotation = QGroupBox(self.tabBatchTagAnnotation)
+        self.groupBoxAnnotation = QGroupBox(self.batchTagColumnContents)
         self.groupBoxAnnotation.setObjectName(u"groupBoxAnnotation")
         self.verticalLayout_annotation = QVBoxLayout(self.groupBoxAnnotation)
         self.verticalLayout_annotation.setObjectName(u"verticalLayout_annotation")
@@ -391,15 +383,16 @@ class Ui_MainWindow(object):
         self.verticalLayout_annotation.addWidget(self.btnAnnotationExecute)
 
 
-        self.verticalLayout_batchTagAnnotation.addWidget(self.groupBoxAnnotation)
+        self.verticalLayout_batchTagColumn.addWidget(self.groupBoxAnnotation)
 
-        self.tabWidgetBatchTagWorkflow.addTab(self.tabBatchTagAnnotation, "")
-        self.splitterBatchTagOperations.addWidget(self.tabWidgetBatchTagWorkflow)
-        self.annotationDisplayPlaceholder = QWidget(self.splitterBatchTagOperations)
+        self.annotationDisplayPlaceholder = QWidget(self.batchTagColumnContents)
         self.annotationDisplayPlaceholder.setObjectName(u"annotationDisplayPlaceholder")
-        self.splitterBatchTagOperations.addWidget(self.annotationDisplayPlaceholder)
 
-        self.verticalLayout_operations.addWidget(self.splitterBatchTagOperations)
+        self.verticalLayout_batchTagColumn.addWidget(self.annotationDisplayPlaceholder)
+
+        self.scrollAreaBatchTagColumn.setWidget(self.batchTagColumnContents)
+
+        self.verticalLayout_operations.addWidget(self.scrollAreaBatchTagColumn)
 
         self.splitterBatchTagMain.addWidget(self.groupBoxBatchOperations)
 
@@ -471,7 +464,6 @@ class Ui_MainWindow(object):
 
         self.tabWidgetMainMode.setCurrentIndex(0)
         self.tabWidgetRightPanel.setCurrentIndex(0)
-        self.tabWidgetBatchTagWorkflow.setCurrentIndex(0)
 
 
         QMetaObject.connectSlotsByName(MainWindow)
@@ -527,11 +519,9 @@ class Ui_MainWindow(object):
 "embedding \u6563\u5e03\u56f3\u306b\u3088\u308b\u30c7\u30fc\u30bf\u30bb\u30c3\u30c8\u4fef\u77b0\u3092\u4e88\u5b9a\uff08Wireframes v11 \u00b7 Map / \u5b9f\u88c5\u30ed\u30fc\u30c9\u30de\u30c3\u30d7 Phase 8\uff09\u3002", None))
         self.tabWidgetMainMode.setTabText(self.tabWidgetMainMode.indexOf(self.tabMap), QCoreApplication.translate("MainWindow", u"\u30de\u30c3\u30d7", None))
         self.groupBoxBatchOperations.setTitle(QCoreApplication.translate("MainWindow", u"\u64cd\u4f5c", None))
-        self.tabWidgetBatchTagWorkflow.setTabText(self.tabWidgetBatchTagWorkflow.indexOf(self.tabBatchTagTagAdd), QCoreApplication.translate("MainWindow", u"\u30bf\u30b0\u8ffd\u52a0", None))
         self.groupBoxAnnotation.setTitle(QCoreApplication.translate("MainWindow", u"\u30a2\u30ce\u30c6\u30fc\u30b7\u30e7\u30f3", None))
         self.labelAnnotationTarget.setText(QCoreApplication.translate("MainWindow", u"\u5bfe\u8c61: \u30b9\u30c6\u30fc\u30b8\u30f3\u30b0\u6e08\u307f\u753b\u50cf", None))
         self.btnAnnotationExecute.setText(QCoreApplication.translate("MainWindow", u"\u30a2\u30ce\u30c6\u30fc\u30b7\u30e7\u30f3\u5b9f\u884c", None))
-        self.tabWidgetBatchTagWorkflow.setTabText(self.tabWidgetBatchTagWorkflow.indexOf(self.tabBatchTagAnnotation), QCoreApplication.translate("MainWindow", u"\u30a2\u30ce\u30c6\u30fc\u30b7\u30e7\u30f3\u8a2d\u5b9a", None))
         self.tabWidgetMainMode.setTabText(self.tabWidgetMainMode.indexOf(self.tabBatchTag), QCoreApplication.translate("MainWindow", u"\u30a2\u30ce\u30c6\u30fc\u30b7\u30e7\u30f3", None))
         self.labelResultsStub.setText(QCoreApplication.translate("MainWindow", u"\u7d50\u679c\u30d3\u30e5\u30fc\u306f\u672a\u5b9f\u88c5\u3067\u3059\u3002\n"
 "\u30a2\u30ce\u30c6\u30fc\u30b7\u30e7\u30f3\u54c1\u8cea\u30c8\u30ea\u30a2\u30fc\u30b8\uff08issue \u96c6\u7d04 + accept/edit/reject\uff09\u3092\u4e88\u5b9a\uff08Wireframes v11 \u00b7 Frame 5 / \u5b9f\u88c5\u30ed\u30fc\u30c9\u30de\u30c3\u30d7 Phase 2\uff09\u3002", None))

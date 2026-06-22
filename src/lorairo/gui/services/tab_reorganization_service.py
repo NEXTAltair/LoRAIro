@@ -13,17 +13,15 @@ UI構造 (MainWindow.ui で定義):
         │   ├── frameDbStatus
         │   ├── splitterMainWorkArea (3分割)
         │   └── frameActionToolbar
-    └── Tab 1: tabBatchTag (バッチタグ)
+    └── Tab 1: tabBatchTag (アノテーション)
             └── splitterBatchTagMain (左右2カラム)
-                ├── batchTagWidgetPlaceholder (左: ステージング)
+                ├── batchTagWidgetPlaceholder (左: ステージング、#844 で維持)
                 └── groupBoxBatchOperations (右: 操作パネル)
-                    └── splitterBatchTagOperations (垂直)
-                        ├── tabWidgetBatchTagWorkflow
-                        │   ├── tabBatchTagTagAdd
-                        │   │   └── batchTagInputPlaceholder
-                        │   └── tabBatchTagAnnotation
-                        │       └── groupBoxAnnotation
-                        └── annotationDisplayPlaceholder
+                    └── scrollAreaBatchTagColumn (#844: サブタブ廃止、単一縦カラム)
+                        └── batchTagColumnContents
+                            ├── batchTagInputPlaceholder
+                            ├── groupBoxAnnotation
+                            └── annotationDisplayPlaceholder
 
 Note:
     プログラム的なレイアウト構築は廃止され、

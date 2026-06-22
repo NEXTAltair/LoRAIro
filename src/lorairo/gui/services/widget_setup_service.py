@@ -194,14 +194,8 @@ class WidgetSetupService:
             main_window.splitterBatchTagMain.setStretchFactor(0, 5)  # 左: ステージング一覧
             main_window.splitterBatchTagMain.setStretchFactor(1, 5)  # 右: 操作パネル
             logger.info("✅ splitterBatchTagMain 初期化完了（ステージング/操作比率50/50）")
-
-        # バッチタグ操作パネル内のスプリッター（タグ追加/表示/アノテーション）
-        if hasattr(main_window, "splitterBatchTagOperations") and main_window.splitterBatchTagOperations:
-            # 初期サイズ設定（上: 40%, 下: 60%）- タブ(操作) + 表示
-            main_window.splitterBatchTagOperations.setSizes([280, 420])
-            main_window.splitterBatchTagOperations.setStretchFactor(0, 4)  # 操作タブ
-            main_window.splitterBatchTagOperations.setStretchFactor(1, 6)  # AnnotationDisplay
-            logger.info("✅ splitterBatchTagOperations 初期化完了（操作タブ/表示比率4/6）")
+        # #844: 操作パネルはサブタブ廃止により単一縦カラム (scrollAreaBatchTagColumn) へ。
+        # splitterBatchTagOperations は撤去したため初期化不要。
 
     @staticmethod
     def setup_batch_tag_tab_widgets(main_window: Any) -> None:
@@ -246,14 +240,9 @@ class WidgetSetupService:
             else:
                 logger.warning("⚠️ BatchTagAddWidget が見つかりません")
 
-        # 操作パネル内のスプリッター取得（右カラム）
-        operations_splitter = batch_tag_tab.findChild(object, "splitterBatchTagOperations")
-        if not operations_splitter:
-            logger.error("❌ splitterBatchTagOperations が見つかりません")
-            return
-
-        # AnnotationDataDisplayWidget
-        WidgetSetupService._setup_annotation_display_widget(main_window, operations_splitter)
+        # AnnotationDataDisplayWidget（#844: サブタブ廃止により単一縦カラム内の
+        # プレースホルダーを置換。コンテナを findChild で辿るため tab を渡す）
+        WidgetSetupService._setup_annotation_display_widget(main_window, batch_tag_tab)
 
         # アノテーショングループ内のウィジェット
         annotation_group = batch_tag_tab.findChild(object, "groupBoxAnnotation")

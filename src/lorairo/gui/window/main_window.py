@@ -2334,11 +2334,9 @@ class MainWindow(QMainWindow, Ui_MainWindow):
             QMessageBox.information(self, "選択なし", "バッチタグに追加する画像が選択されていません。")
             return
 
-        # アノテーションタブへ移動してステージングタブを表示
+        # アノテーションタブへ移動 (#844: サブタブ廃止、単一縦カラム)
         if hasattr(self, "tabWidgetMainMode") and self.tabWidgetMainMode:
             self.tabWidgetMainMode.setCurrentWidget(self.tabBatchTag)
-        if hasattr(self, "tabWidgetBatchTagWorkflow") and self.tabWidgetBatchTagWorkflow:
-            self.tabWidgetBatchTagWorkflow.setCurrentIndex(0)
 
         # ステージングに追加
         if hasattr(batch_tag_widget, "add_image_ids_to_staging"):
@@ -2472,7 +2470,6 @@ class MainWindow(QMainWindow, Ui_MainWindow):
             ("splitterMainWorkArea", "splitter/main_work_area"),
             ("splitterPreviewDetails", "splitter/preview_details"),
             ("splitterBatchTagMain", "splitter/batch_tag_main"),
-            ("splitterBatchTagOperations", "splitter/batch_tag_operations"),
         ]
 
         for attr_name, settings_key in splitters:
@@ -2527,7 +2524,6 @@ class MainWindow(QMainWindow, Ui_MainWindow):
             ("splitterMainWorkArea", "splitter/main_work_area"),
             ("splitterPreviewDetails", "splitter/preview_details"),
             ("splitterBatchTagMain", "splitter/batch_tag_main"),
-            ("splitterBatchTagOperations", "splitter/batch_tag_operations"),
         ]
 
         restored_any = False
