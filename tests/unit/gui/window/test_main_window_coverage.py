@@ -999,7 +999,6 @@ class TestSendSelectedToBatchTag:
         mock_window.dataset_state_manager.selected_image_ids = [7]
         mock_window.batchTagAddWidget = Mock()
         mock_window.tabWidgetMainMode = Mock()
-        mock_window.tabWidgetBatchTagWorkflow = Mock()
 
         MainWindow.send_selected_to_batch_tag(mock_window, False)
 
@@ -1026,7 +1025,6 @@ class TestSendSelectedToBatchTag:
         mock_window.dataset_state_manager = Mock()
         mock_window.batchTagAddWidget = Mock()
         mock_window.tabWidgetMainMode = Mock()
-        mock_window.tabWidgetBatchTagWorkflow = Mock()
         MainWindow.send_selected_to_batch_tag(mock_window, [1, 2, 3])
         mock_window.batchTagAddWidget.add_image_ids_to_staging.assert_called_once_with([1, 2, 3])
 
