@@ -11,6 +11,8 @@ from PySide6.QtWidgets import (
     QDialog,
     QFileDialog,
     QGraphicsOpacityEffect,
+    QHBoxLayout,
+    QLabel,
     QMainWindow,
     QMenu,
     QMessageBox,
@@ -34,6 +36,7 @@ from ...services.selection_state_service import SelectionStateService
 from ...services.service_container import ServiceContainer
 from ...storage.file_system import FileSystemManager
 from ...utils.log import logger
+from .. import theme
 from ..controllers.annotation_workflow_controller import AnnotationWorkflowController
 from ..controllers.dataset_controller import DatasetController
 from ..controllers.settings_controller import SettingsController
@@ -102,6 +105,10 @@ class MainWindow(QMainWindow, Ui_MainWindow):
     result_handler_service: ResultHandlerService | None
     pipeline_control_service: PipelineControlService | None
     progress_state_service: ProgressStateService | None
+
+    # run bar ウィジェット参照 (Issue #849)
+    _run_bar_scope_label: QLabel | None
+    _btn_pipeline_execute: QPushButton | None
 
     @property
     def service_container(self) -> ServiceContainer:
@@ -792,11 +799,21 @@ class MainWindow(QMainWindow, Ui_MainWindow):
         self.btnPipelineRunSettings = QPushButton("詳細設定 ▸", annotation_group)
         self.btnPipelineRunSettings.setObjectName("btnPipelineRunSettings")
         self.btnPipelineRunSettings.clicked.connect(self._open_run_settings)
-        layout.addWidget(self.btnPipelineRunSettings)
+
+        # run bar (Issue #849): scope 表示 + 詳細設定 + 実行ボタンを横一列に配置
+        run_bar = self._build_pipeline_run_bar(annotation_group)
+        layout.addWidget(run_bar)
+
+        # .ui 由来の btnAnnotationExecute は run bar に統合したため非表示にする (Issue #849)
+        if hasattr(self, "btnAnnotationExecute"):
+            self.btnAnnotationExecute.setVisible(False)
 
         model_widget.model_selection_changed.connect(self._on_pipeline_models_changed)
         self.pipeline_stage_table.add_model_requested.connect(self._on_pipeline_add_model_requested)
         self.pipeline_stage_table.remove_model_requested.connect(self._on_pipeline_remove_model_requested)
+        # preset 配線 (Issue #847): preset chip 選択 / 保存要求をハンドラへ接続
+        self.pipeline_stage_table.preset_selected.connect(self._on_pipeline_preset_selected)
+        self.pipeline_stage_table.save_preset_requested.connect(self._on_pipeline_save_preset_requested)
         self._refresh_pipeline_panel([])
         self._refresh_preflight_summary()
         logger.info("✅ パイプライン構成ビュー (Frame 2A) initialized")
@@ -816,6 +833,154 @@ class MainWindow(QMainWindow, Ui_MainWindow):
         if dialog.exec() == QDialog.DialogCode.Accepted:
             self._pipeline_run_options = dialog.run_options()
             logger.info(f"実行詳細設定を更新: {self._pipeline_run_options}")
+
+    def _build_pipeline_run_bar(self, parent: QWidget) -> QWidget:
+        """パイプライン実行バーウィジェットを構築する (Issue #849)。
+
+        左側にスコープ表示ラベル、右側に詳細設定ボタンと実行ボタンを横並びに配置する。
+        実行ボタンは既存の start_annotation() を呼び出し、
+        .ui 由来の btnAnnotationExecute と統合する。
+
+        Args:
+            parent: 親ウィジェット (groupBoxAnnotation)。
+
+        Returns:
+            run bar ウィジェット。
+        """
+        bar = QWidget(parent)
+        bar.setObjectName("pipelineRunBar")
+        bar_layout = QHBoxLayout(bar)
+        bar_layout.setContentsMargins(0, 4, 0, 0)
+        bar_layout.setSpacing(8)
+
+        # スコープ表示ラベル (左側): 「ステージング集合のみ · staged N · 実行 → Jobs タブへ」
+        scope_label = QLabel(self._run_bar_scope_text(0), bar)
+        scope_label.setObjectName("runBarScopeLabel")
+        scope_label.setStyleSheet(f"color: {theme.INK_SOFT}; font-size: {theme.FONT_SIZE_SMALL}px;")
+        self._run_bar_scope_label = scope_label
+        bar_layout.addWidget(scope_label)
+        bar_layout.addStretch(1)
+
+        # 詳細設定ボタン (btnPipelineRunSettings を run bar へ再配置)
+        bar_layout.addWidget(self.btnPipelineRunSettings)
+
+        # パイプライン実行ボタン (primary action、Issue #849)
+        execute_btn = QPushButton(self._run_bar_execute_text(0), bar)
+        execute_btn.setObjectName("btnPipelineExecute")
+        execute_btn.setEnabled(False)
+        execute_btn.clicked.connect(self.start_annotation)
+        self._btn_pipeline_execute = execute_btn
+        bar_layout.addWidget(execute_btn)
+
+        return bar
+
+    @staticmethod
+    def _run_bar_scope_text(count: int) -> str:
+        """run bar のスコープ表示テキストを生成する。
+
+        Args:
+            count: 現在のステージング画像件数。
+
+        Returns:
+            スコープ表示テキスト。
+        """
+        return f"ステージング集合のみ · staged {count} · 実行 → Jobs タブへ"
+
+    @staticmethod
+    def _run_bar_execute_text(count: int) -> str:
+        """run bar の実行ボタンテキストを生成する。
+
+        Args:
+            count: 現在のステージング画像件数。
+
+        Returns:
+            実行ボタンテキスト。
+        """
+        return f"▶ パイプライン実行 · {count}枚"
+
+    def _on_pipeline_preset_selected(self, preset_id: str) -> None:
+        """プリセット chip 選択に応じてモデル割当を切り替える (Issue #847)。
+
+        batchModelSelection (SSoT) の選択状態を全 OFF にしてから、preset_id に
+        対応するモデルのみ ON にする。active preset 表示は Signal emit なしに更新する。
+
+        Args:
+            preset_id: 選択されたプリセットの ID (PipelinePreset.preset_id)。
+        """
+        model_widget = getattr(self, "batchModelSelection", None)
+        if model_widget is None:
+            return
+
+        service = getattr(model_widget, "model_selection_service", None)
+        all_models = service.load_models() if service is not None else []
+        all_infos = self._build_stage_model_infos([m.litellm_model_id for m in all_models])
+
+        # プリセットに対応する litellm_model_id を絞り込んで一括セット
+        preset_ids = self._filter_model_ids_for_preset(preset_id, all_infos)
+        model_widget.set_selected_models(preset_ids)
+
+        # アクティブプリセット表示を同期 (Signal emit なし)
+        stage_table = getattr(self, "pipeline_stage_table", None)
+        if stage_table is not None:
+            stage_table.set_active_preset(preset_id)
+
+        self._refresh_pipeline_panel()
+        logger.info(f"プリセット '{preset_id}' を適用: {len(preset_ids)} 件のモデルを選択")
+
+    def _filter_model_ids_for_preset(self, preset_id: str, all_infos: list[StageModelInfo]) -> list[str]:
+        """プリセット ID に対応するモデル ID リストを返す。
+
+        各プリセットは以下の capability フィルタを適用する:
+        - default: 全モデル
+        - tags_only: tags capability を持つが multimodal でないモデル
+        - full_caption: multimodal または caption capability を持つモデル
+        - score_rate: scores または ratings capability を持つモデル
+
+        Args:
+            preset_id: PipelinePreset.preset_id。
+            all_infos: 全モデルの StageModelInfo リスト。
+
+        Returns:
+            プリセットに割り当てるモデルの litellm_model_id リスト。
+        """
+        if preset_id == "default":
+            return [info.litellm_model_id for info in all_infos]
+        if preset_id == "tags_only":
+            return [
+                info.litellm_model_id
+                for info in all_infos
+                if "tags" in info.capabilities and not info.is_multimodal
+            ]
+        if preset_id == "full_caption":
+            return [
+                info.litellm_model_id
+                for info in all_infos
+                if info.is_multimodal or "caption" in info.capabilities
+            ]
+        if preset_id == "score_rate":
+            return [
+                info.litellm_model_id
+                for info in all_infos
+                if "scores" in info.capabilities or "ratings" in info.capabilities
+            ]
+        # 未知のプリセット: 全モデルを安全なフォールバックとして返す
+        logger.warning(f"未知のプリセット ID: {preset_id} — 全モデルを選択します")
+        return [info.litellm_model_id for info in all_infos]
+
+    def _on_pipeline_save_preset_requested(self) -> None:
+        """現在のモデル構成を名前付きプリセットとして保存する要求を処理する (Issue #847)。
+
+        最小実装: 保存要求をログに記録してステータスバーへ通知する。
+        永続化の本実装は後続 Issue で行う。
+        """
+        # TODO: Issue #847 - プリセット永続化の実装 (QSettings 等への名前付き保存)
+        model_widget = getattr(self, "batchModelSelection", None)
+        if model_widget is not None:
+            selected_ids = model_widget.get_selected_models()
+            logger.info(f"プリセット保存要求: 現在の選択モデル = {selected_ids}")
+        self.statusBar().showMessage(
+            "現在の構成をプリセットとして保存しました（永続化は次回実装予定）", 5000
+        )
 
     def _refresh_pipeline_panel(self, selected_ids: list[str] | None = None) -> None:
         """ステージテーブルと推論台帳を現在の選択・ステージング件数で再描画する。
@@ -1895,6 +2060,7 @@ class MainWindow(QMainWindow, Ui_MainWindow):
         """アノテーション対象UIを更新
 
         ステージング画像数に応じてラベルテキストとボタンの有効/無効を設定する。
+        run bar (Issue #849) のスコープラベルと実行ボタンも同期する。
 
         Args:
             staging_count: ステージング画像数
@@ -1906,9 +2072,20 @@ class MainWindow(QMainWindow, Ui_MainWindow):
             else:
                 self.labelAnnotationTarget.setText("◎ ステージング: 0 枚（画像を追加してください）")
 
-        # ボタン有効/無効
+        # ボタン有効/無効 (.ui 由来、非表示だが互換性のため更新を維持)
         if hasattr(self, "btnAnnotationExecute"):
             self.btnAnnotationExecute.setEnabled(staging_count > 0)
+
+        # run bar スコープラベルを更新 (Issue #849)
+        scope_label = getattr(self, "_run_bar_scope_label", None)
+        if scope_label is not None:
+            scope_label.setText(self._run_bar_scope_text(staging_count))
+
+        # run bar 実行ボタンを更新 (Issue #849)
+        execute_btn = getattr(self, "_btn_pipeline_execute", None)
+        if execute_btn is not None:
+            execute_btn.setEnabled(staging_count > 0)
+            execute_btn.setText(self._run_bar_execute_text(staging_count))
 
     def _update_export_target_ui(self, staging_count: int) -> None:
         """エクスポート下部バーの対象件数ラベルを更新する。
