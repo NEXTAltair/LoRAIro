@@ -1,6 +1,6 @@
 ---
 name: lorairo-qt-widget
-version: "1.1.0"
+version: "1.2.0"
 description: PySide6 widget technical implementation for LoRAIro GUI. Covers Signal/Slot patterns, Direct Widget Communication, Qt Designer integration, and async workers. For design intent and aesthetics, use interface-design skill first.
 metadata:
   short-description: PySide6技術実装（Signal/Slot、Qt Designer）。デザイン意図はinterface-design参照。
@@ -258,6 +258,36 @@ QWidget {
 }
 ```
 
+## Layout & Sizing Pitfalls
+
+レイアウト/サイズの不具合 (余白・隙間・はみ出し) は対症療法で潰すと別の症状に化けて堂々巡りになる。**まず実測して根本原因を特定する。**
+
+### 余白/隙間の原因は実測で特定する
+
+「スコアカード下に異常な余白が出る」のような症状を見たら、推測で `addStretch` 追加やサイズポリシー変更を繰り返さない。次を測る:
+
+```python
+# どの widget が想定より高い/低いかを実測
+print(inner.height(), inner.sizeHint().height(), inner.minimumSizeHint().height())
+# scroll なら viewport vs inner、各子の minimumSizeHint を dump して伝播源を探す
+```
+
+トップ詰め (末尾 stretch) ⇄ ボトム固定 ⇄ 縦ハグ は「下の余白 ↔ セクション間の隙間 ↔ 中身のクリップ」を**交換するだけ**。原因 widget を特定せず切り替えると無限ループになる (LoRAIro #823→#827→#831→#833→#835 の実例)。
+
+### `heightForWidth` レイアウト (FlowLayout 等) を `widgetResizable=True` の QScrollArea に入れない (素のままでは)
+
+FlowLayout のような折り返しレイアウトは **`minimumSizeHint` を「最小幅で全アイテム縦積み」した過大値**で報告する。これがネストした親 → `widgetResizable=True` のスクロール領域へ伝播すると、Qt が container を minimumSize まで引き伸ばし、コンテンツ末尾に**ビューポートを超える余白 + 不要スクロール**が出る。
+
+対処:
+- **可変高さの折り返し領域は高さ上限付きの内側 `QScrollArea` に隔離**し、親の高さがアイテム数に依存しないよう有界化する (`setFixedHeight(min(layout.heightForWidth(実幅), 上限))`、`resizeEvent` で追従)。
+- 手動 `setFixedHeight(sizeHint().height())` での縦ハグは FlowLayout の `sizeHint` 過小報告で**アイテムをクリップ**し、レイアウト確定前 width での timing 依存になるため避ける。
+
+### 込み入ったレイアウト部品は専用ウィジェットへ切り出してカプセル化する
+
+`sizeHint`/`minimumSizeHint`/`heightForWidth` を内部で閉じた専用ウィジェット (例: `TagChipBox(QWidget)`) に切り出せば、過大な最小サイズが親へ漏れる伝播事故を構造的に断てる。**Qt ではウィジェット分割 + composition は基本設計であり「大幅リファクタ」ではない** — コストを過大評価せず第一級の選択肢として検討する。
+
+詳細は `docs/lessons-learned.md` の「PySide6 / Qt」セクション参照。
+
 ## Best Practices
 
 **DO:**
@@ -267,6 +297,8 @@ QWidget {
 - Provide `connect_to_*` methods for connections
 - Log important events with loguru
 - Apply styling from interface-design decisions
+- **Diagnose layout issues by measurement** (`height()` / `sizeHint()` / `minimumSizeHint()`) before changing layout
+- **Isolate variable-height wrap layouts (FlowLayout) in a height-capped inner QScrollArea**; extract complex layout parts into a dedicated widget to encapsulate sizing
 
 **DON'T:**
 - Access `widget._ui.button` from outside
@@ -275,6 +307,8 @@ QWidget {
 - Run long operations on UI thread (use workers)
 - Rely on auto-connection (explicit `connect()` only)
 - Make design decisions here (use interface-design)
+- **Trade layout symptoms by trial-and-error** (top-pack ⇄ bottom-anchor ⇄ hug) without finding the root cause
+- **Put a `heightForWidth` layout (FlowLayout) directly in a `widgetResizable=True` QScrollArea** — its inflated `minimumSizeHint` propagates and bloats the scroll container
 
 ## Testing
 
