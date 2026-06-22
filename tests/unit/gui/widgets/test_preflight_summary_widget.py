@@ -1,4 +1,10 @@
-"""PreflightSummaryWidget 単体テスト (Issue #837)。"""
+"""PreflightSummaryWidget 単体テスト (Issue #837, Card化 #848)。
+
+DsCard + DsChip 化後のテスト。DsChip.text() はドット文字付きテキストを返す:
+- ok (●filled): "● N 送信可 sendable"
+- warn (○open): "○ N 保留 held"
+- neutral (○open): "○ N 未判定"
+"""
 
 from __future__ import annotations
 
@@ -50,8 +56,9 @@ def widget(qtbot):
 class TestPreflightSummaryWidgetDisplay:
     def test_display_sets_sendable_and_held_chip_text(self, widget):
         widget.display({1: "PG", 2: "R", 3: "X"}, [1, 2, 3])
-        assert widget._sendable_chip.text() == "2 送信可 sendable"
-        assert widget._held_chip.text() == "1 保留 held"
+        # DsChip は kind に応じたドット文字を前置する (ok=●filled, warn=○open)
+        assert widget._sendable_chip.text() == "● 2 送信可 sendable"
+        assert widget._held_chip.text() == "○ 1 保留 held"
         assert not widget._sendable_chip.isHidden()
         assert not widget._held_chip.isHidden()
         assert not widget._badge.isHidden()
@@ -59,7 +66,8 @@ class TestPreflightSummaryWidgetDisplay:
 
     def test_unrated_chip_visible_only_when_present(self, widget):
         widget.display({1: "PG"}, [1, 2])
-        assert widget._unrated_chip.text() == "1 未判定"
+        # neutral は ○open
+        assert widget._unrated_chip.text() == "○ 1 未判定"
         assert not widget._unrated_chip.isHidden()
 
     def test_unrated_chip_hidden_when_zero(self, widget):

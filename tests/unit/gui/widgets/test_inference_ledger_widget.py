@@ -1,4 +1,9 @@
-"""InferenceLedgerWidget 単体テスト"""
+"""InferenceLedgerWidget 単体テスト (Card化 #848)。
+
+DsCard + DsSummaryStat グリッド化後のテスト。
+推論ジョブ合計・コスト・ブレークダウンは各 DsSummaryStat の
+_value_widget / _sub_widget で検証する。
+"""
 
 from __future__ import annotations
 
@@ -55,19 +60,30 @@ def widget(qtbot):
     return w
 
 
-class TestInferenceLedgerWidgetFormula:
-    def test_formula_shows_unique_staged_and_total(self, widget):
-        widget.display(_sample_ledger())
-        formula = widget._formula_label.text()
-        assert "6 ユニークモデル" in formula
-        assert "9 枚" in formula
-        assert "54 推論ジョブ" in formula
+class TestInferenceLedgerWidgetStats:
+    """DsSummaryStat グリッドの値検証。"""
 
-    def test_formula_shows_local_api_breakdown(self, widget):
+    def test_stats_show_unique_staged_and_total(self, widget):
         widget.display(_sample_ledger())
-        formula = widget._formula_label.text()
-        assert "local 5" in formula
-        assert "API 1" in formula
+        # ユニークモデル数 / staged / total をそれぞれ stat value で確認
+        assert widget._stat_unique_models._value_widget.text() == "6"
+        assert widget._stat_staged._value_widget.text() == "9"
+        assert widget._stat_total_jobs._value_widget.text() == "54"
+
+    def test_stats_show_local_api_breakdown_in_sub(self, widget):
+        widget.display(_sample_ledger())
+        # local/API 内訳は total_jobs stat の sub に表示される
+        sub_text = widget._stat_total_jobs._sub_widget.text()
+        assert "local 5" in sub_text
+        assert "API 1" in sub_text
+
+    def test_stats_visible_after_display(self, widget):
+        widget.display(_sample_ledger())
+        assert not widget._stats_widget.isHidden()
+
+    def test_stats_hidden_when_placeholder(self, widget):
+        widget.display(InferenceLedger(entries=(), staged_count=9))
+        assert widget._stats_widget.isHidden()
 
 
 class TestInferenceLedgerWidgetChips:
@@ -91,18 +107,33 @@ class TestInferenceLedgerWidgetChips:
         assert len(widget.findChildren(QLabel, "ledgerChip")) == 6
         assert len(widget.findChildren(QLabel, "ledgerMultiBadge")) == 1
 
-
-class TestInferenceLedgerWidgetCost:
-    def test_cost_line_shows_estimate_and_duration(self, widget):
+    def test_multimodal_dedupe_note_shown_when_multimodal_present(self, widget):
         widget.display(_sample_ledger())
-        cost_text = widget._cost_label.text()
-        # GPT4O per-image = 1500*2.5e-6 + 400*1e-5 = 0.00775、×9枚 ≈ $0.07
-        assert "推定 $0.07" in cost_text
-        # 54 ジョブ × 3.0s = 162s = 2m42s
-        assert "2m42s" in cost_text
-        assert not widget._cost_label.isHidden()
+        # GPT4O は multimodal → 注記ラベルが表示される
+        assert not widget._multi_note_label.isHidden()
 
-    def test_cost_line_flags_unknown_when_pricing_missing(self, widget):
+    def test_multimodal_dedupe_note_hidden_when_no_multimodal(self, widget):
+        ledger = InferenceLedger(
+            entries=(LedgerEntry(model=_local_model("wd-tagger", "tags"), stage_count=1),),
+            staged_count=3,
+        )
+        widget.display(ledger)
+        assert widget._multi_note_label.isHidden()
+
+
+class TestInferenceLedgerWidgetEstimate:
+    """DsSummaryStat 推定 stat の値検証。"""
+
+    def test_estimate_stat_shows_amount_and_duration(self, widget):
+        widget.display(_sample_ledger())
+        est_val = widget._stat_estimate._value_widget.text()
+        # GPT4O per-image = 1500*2.5e-6 + 400*1e-5 = 0.00775、×9枚 ≈ $0.07
+        assert "$0.07" in est_val
+        # 54 ジョブ × 3.0s = 162s = 2m42s
+        assert "2m42s" in est_val
+        assert not widget._stats_widget.isHidden()
+
+    def test_estimate_stat_flags_unknown_when_pricing_missing(self, widget):
         no_price_api = StageModelInfo(
             litellm_model_id="anthropic/claude-x",
             display_name="claude-x",
@@ -112,9 +143,11 @@ class TestInferenceLedgerWidgetCost:
         )
         ledger = InferenceLedger(entries=(LedgerEntry(model=no_price_api, stage_count=1),), staged_count=4)
         widget.display(ledger)
-        cost_text = widget._cost_label.text()
-        assert "$0.00+" in cost_text
-        assert "料金不明" in cost_text
+        est_val = widget._stat_estimate._value_widget.text()
+        assert "$0.00+" in est_val
+        # 料金不明注記は sub に入る
+        sub_text = widget._stat_estimate._sub_widget.text()
+        assert "料金不明" in sub_text
 
     def test_local_only_ledger_shows_zero_cost(self, widget):
         ledger = InferenceLedger(
@@ -122,16 +155,17 @@ class TestInferenceLedgerWidgetCost:
             staged_count=5,
         )
         widget.display(ledger)
-        cost_text = widget._cost_label.text()
-        assert "推定 $0.00 ·" in cost_text
-        assert "料金不明" not in cost_text
+        est_val = widget._stat_estimate._value_widget.text()
+        assert "$0.00" in est_val
+        # 料金不明注記なし (sub は空文字/非表示)
+        assert widget._stat_estimate._sub_widget.isHidden()
 
 
 class TestInferenceLedgerWidgetPlaceholder:
     def test_empty_entries_shows_placeholder(self, widget):
         widget.display(InferenceLedger(entries=(), staged_count=9))
         assert widget._placeholder_label.text() == "モデル未選択"
-        assert widget._formula_label.text() == ""
+        assert widget._stats_widget.isHidden()
         assert widget.findChildren(QLabel, "ledgerChip") == []
 
     def test_zero_staged_count_shows_placeholder(self, widget):
@@ -144,7 +178,6 @@ class TestInferenceLedgerWidgetPlaceholder:
         widget.display(_sample_ledger())
         widget.clear()
         assert widget._placeholder_label.text() == "モデル未選択"
-        assert widget._formula_label.text() == ""
-        assert widget._cost_label.text() == ""
+        assert widget._stats_widget.isHidden()
         assert widget.findChildren(QLabel, "ledgerChip") == []
         assert widget.findChildren(QLabel, "ledgerMultiBadge") == []
