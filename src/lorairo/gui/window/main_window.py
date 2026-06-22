@@ -31,7 +31,6 @@ from ...services.error_triage_service import ErrorFilter, ErrorRow, ErrorTriageS
 from ...services.model_route_service import build_available_providers
 from ...services.model_selection_service import ModelSelectionService
 from ...services.pipeline_composition import PipelineCompositionService, PipelineStage, StageModelInfo
-from ...services.quality_issue_detection_service import QualityIssueDetectionService
 from ...services.selection_state_service import SelectionStateService
 from ...services.service_container import ServiceContainer
 from ...storage.file_system import FileSystemManager
@@ -52,6 +51,7 @@ from ..state.dataset_state import DatasetStateManager
 from ..state.staging_state import StagingStateManager
 from ..tab.cli_tab import CliTabWidget
 from ..tab.map_tab import MapTabWidget
+from ..tab.results_tab import ResultsTabWidget
 from ..widgets.dataset_export_widget import DatasetExportWidget
 from ..widgets.error_notification_widget import ErrorNotificationWidget
 from ..widgets.errors_triage_widget import ErrorsTriageWidget
@@ -63,7 +63,6 @@ from ..widgets.preflight_summary_widget import PreflightSummaryWidget
 from ..widgets.provider_batch_job_widget import ProviderBatchJobWidget
 from ..widgets.quick_tag_dialog import QuickTagDialog
 from ..widgets.registration_summary_widget import RegistrationSummaryWidget
-from ..widgets.results_widget import ResultsWidget
 from ..widgets.run_settings_dialog import RunOptions, RunSettingsDialog
 from ..widgets.selected_image_details_widget import SelectedImageDetailsWidget
 from ..widgets.stage_model_picker_dialog import StageModelPickerDialog
@@ -132,8 +131,7 @@ class MainWindow(QMainWindow, Ui_MainWindow):
     error_notification_widget: ErrorNotificationWidget | None
     errors_triage_widget: ErrorsTriageWidget | None
     error_triage_service: ErrorTriageService
-    results_widget: ResultsWidget | None
-    quality_issue_detection_service: QualityIssueDetectionService
+    results_tab: ResultsTabWidget | None
 
     # Map tab
     map_tab: MapTabWidget | None
@@ -636,17 +634,16 @@ class MainWindow(QMainWindow, Ui_MainWindow):
         logger.debug(f"移動メニュー登録: Ctrl+1..Ctrl+{self.tabWidgetMainMode.count()}")
 
     def _setup_results_tab(self) -> None:
-        """結果タブに ResultsWidget を埋め込む。
+        """結果タブに ResultsTabWidget を埋め込む。
 
         Wireframes v11 Frame 5 · Results。Phase 1 のスタブラベルを除去し、
-        読み取り専用トリアージ表示ウィジェットを常設する。
+        固有の振る舞いを持つ ResultsTabWidget を常設する。MainWindow は .ui の
+        tabResults コンテナへ埋め込み、依存を注入するだけ (glue, #870)。
         """
-        self.quality_issue_detection_service = QualityIssueDetectionService()
-
         container = getattr(self, "tabResults", None)
         if container is None:
             logger.warning("tabResults not found - results tab skipped")
-            self.results_widget = None
+            self.results_tab = None
             return
 
         # Phase 1 スタブラベルを除去（setParent(None) で即座に tabResults から切り離す）
@@ -656,74 +653,14 @@ class MainWindow(QMainWindow, Ui_MainWindow):
             stub.setParent(None)
             stub.deleteLater()
 
-        widget = ResultsWidget(parent=container)
-        widget.accept_requested.connect(self._on_results_accept)
-        widget.unaccept_requested.connect(self._on_results_unaccept)
-        widget.accept_clean_requested.connect(self._on_results_accept_clean)
+        widget = ResultsTabWidget(
+            db_manager=self.db_manager,
+            staging_state_manager=self.staging_state_manager,
+            parent=container,
+        )
         container.layout().addWidget(widget)
-        self.results_widget = widget
-        logger.info("✅ 結果タブ (ResultsWidget) initialized")
-
-    def _on_results_accept(self, image_id: int) -> None:
-        """Results 行の accept: reviewed_at を設定して再描画する。"""
-        if self.db_manager:
-            self.db_manager.mark_image_reviewed(image_id, reviewed=True)
-        self._refresh_results_tab()
-
-    def _on_results_unaccept(self, image_id: int) -> None:
-        """Results 行の accept 取消: reviewed_at を解除して再描画する。"""
-        if self.db_manager:
-            self.db_manager.mark_image_reviewed(image_id, reviewed=False)
-        self._refresh_results_tab()
-
-    def _on_results_accept_clean(self, image_ids: list[int]) -> None:
-        """問題なし画像を一括 accept して再描画する。"""
-        if self.db_manager:
-            for image_id in image_ids:
-                self.db_manager.mark_image_reviewed(image_id, reviewed=True)
-            logger.info(f"一括 accept 完了: {len(image_ids)} 件")
-        self._refresh_results_tab()
-
-    def _refresh_results_tab(self) -> None:
-        """結果タブ表示時に、ステージング集合のトリアージを再計算して描画する。"""
-        if self.results_widget is None:
-            return
-        if not self.db_manager:
-            self.results_widget.clear()
-            return
-
-        batch_widget = getattr(self, "batchTagAddWidget", None)
-        if batch_widget is None or not hasattr(batch_widget, "get_staged_items"):
-            self.results_widget.clear()
-            return
-
-        image_ids = list(batch_widget.get_staged_items().keys())
-        if not image_ids:
-            self.results_widget.clear()
-            return
-
-        results = []
-        for image_id in image_ids:
-            metadata = self.db_manager.get_image_metadata(image_id)
-            if metadata is None:
-                continue
-            annotations = self.db_manager.get_image_annotations(image_id)
-            image_meta = {
-                "uuid": metadata.get("uuid"),
-                "width": metadata.get("width"),
-                "height": metadata.get("height"),
-                "reviewed_at": metadata.get("reviewed_at"),
-            }
-            results.append(
-                self.quality_issue_detection_service.detect_image(image_id, image_meta, annotations)
-            )
-
-        if not results:
-            self.results_widget.clear()
-            return
-
-        summary = self.quality_issue_detection_service.summarize(results)
-        self.results_widget.display(summary, results)
+        self.results_tab = widget
+        logger.info("✅ 結果タブ (ResultsTabWidget) initialized")
 
     def _setup_errors_tab(self) -> None:
         """エラータブに ErrorsTriageWidget を埋め込む。
@@ -2595,7 +2532,8 @@ class MainWindow(QMainWindow, Ui_MainWindow):
             self.provider_batch_job_widget.refresh_jobs()
         elif current is getattr(self, "tabResults", None):
             logger.info("Switched to Results tab")
-            self._refresh_results_tab()
+            if self.results_tab is not None:
+                self.results_tab.refresh()
         elif current is getattr(self, "tabErrors", None):
             logger.info("Switched to Errors tab")
             self._refresh_errors_tab()

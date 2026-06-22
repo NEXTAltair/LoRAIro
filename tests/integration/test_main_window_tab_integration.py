@@ -131,11 +131,14 @@ class TestMainWindowTabInitialization:
         assert window.tabWidgetMainMode.currentWidget() is window.tabErrors
 
     def test_results_tab_embeds_results_widget(self, main_window_with_tabs):
-        """結果タブに ResultsWidget が常設される"""
-        results_tab = main_window_with_tabs.tabResults
-        viewer = results_tab.findChild(ResultsWidget)
+        """結果タブに ResultsTabWidget が常設され ResultsWidget を内包する (#870)"""
+        from lorairo.gui.tab.results_tab import ResultsTabWidget
+
+        results_container = main_window_with_tabs.tabResults
+        viewer = results_container.findChild(ResultsWidget)
         assert viewer is not None
-        assert main_window_with_tabs.results_widget is viewer
+        assert isinstance(main_window_with_tabs.results_tab, ResultsTabWidget)
+        assert main_window_with_tabs.results_tab.results_widget is viewer
 
     def test_results_tab_has_no_stub_label(self, main_window_with_tabs):
         """スタブラベルが除去されている"""
@@ -151,7 +154,7 @@ class TestMainWindowTabInitialization:
         window = main_window_with_tabs
         mark = Mock(return_value=True)
         window.db_manager.mark_image_reviewed = mark
-        window.results_widget.accept_requested.emit(42)
+        window.results_tab.results_widget.accept_requested.emit(42)
         mark.assert_called_once_with(42, reviewed=True)
 
     def test_results_accept_clean_marks_all(self, main_window_with_tabs):
@@ -161,7 +164,7 @@ class TestMainWindowTabInitialization:
         window = main_window_with_tabs
         mark = Mock(return_value=True)
         window.db_manager.mark_image_reviewed = mark
-        window.results_widget.accept_clean_requested.emit([1, 2, 3])
+        window.results_tab.results_widget.accept_clean_requested.emit([1, 2, 3])
         assert mark.call_count == 3
 
     def test_workspace_tab_contains_splitter(self, main_window_with_tabs):
