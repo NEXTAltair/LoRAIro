@@ -54,6 +54,7 @@ from ..widgets.filter_search_panel import FilterSearchPanel
 from ..widgets.image_preview import ImagePreviewWidget
 from ..widgets.inference_ledger_widget import InferenceLedgerWidget
 from ..widgets.pipeline_stage_table_widget import PipelineStageTableWidget
+from ..widgets.preflight_summary_widget import PreflightSummaryWidget
 from ..widgets.provider_batch_job_widget import ProviderBatchJobWidget
 from ..widgets.quick_tag_dialog import QuickTagDialog
 from ..widgets.registration_summary_widget import RegistrationSummaryWidget
@@ -95,6 +96,7 @@ class MainWindow(QMainWindow, Ui_MainWindow):
     settings_controller: SettingsController | None
     export_widget: DatasetExportWidget | None
     pipeline_stage_table: PipelineStageTableWidget | None
+    preflight_summary_widget: PreflightSummaryWidget | None
     inference_ledger_widget: InferenceLedgerWidget | None
     btnPipelineRunSettings: QPushButton
     result_handler_service: ResultHandlerService | None
@@ -763,6 +765,8 @@ class MainWindow(QMainWindow, Ui_MainWindow):
         """
         self.pipeline_composition_service = PipelineCompositionService()
         self._pipeline_staged_count = 0
+        # 送信前プリフライト card (Issue #837) の集計対象。ステージング集合の image_id。
+        self._pipeline_staged_image_ids: list[int] = []
         # 実行詳細設定 (Issue #789)。詳細設定モーダルの確定値を保持する。
         self._pipeline_run_options = RunOptions()
 
@@ -771,13 +775,17 @@ class MainWindow(QMainWindow, Ui_MainWindow):
         if annotation_group is None or model_widget is None:
             logger.warning("groupBoxAnnotation/batchModelSelection 未構築 - パイプライン構成ビュー skipped")
             self.pipeline_stage_table = None
+            self.preflight_summary_widget = None
             self.inference_ledger_widget = None
             return
 
         self.pipeline_stage_table = PipelineStageTableWidget(parent=annotation_group)
+        # DS AnnotateScreen 順: ステージ表 → 送信前プリフライト → 推論台帳
+        self.preflight_summary_widget = PreflightSummaryWidget(parent=annotation_group)
         self.inference_ledger_widget = InferenceLedgerWidget(parent=annotation_group)
         layout = annotation_group.layout()
         layout.addWidget(self.pipeline_stage_table)
+        layout.addWidget(self.preflight_summary_widget)
         layout.addWidget(self.inference_ledger_widget)
 
         # 実行詳細設定モーダルを開く導線 (Issue #789、DS Frame 3 run bar「詳細設定 ▸」)
@@ -790,6 +798,7 @@ class MainWindow(QMainWindow, Ui_MainWindow):
         self.pipeline_stage_table.add_model_requested.connect(self._on_pipeline_add_model_requested)
         self.pipeline_stage_table.remove_model_requested.connect(self._on_pipeline_remove_model_requested)
         self._refresh_pipeline_panel([])
+        self._refresh_preflight_summary()
         logger.info("✅ パイプライン構成ビュー (Frame 2A) initialized")
 
     def _on_pipeline_models_changed(self, selected_litellm_model_ids: list[str]) -> None:
@@ -828,6 +837,23 @@ class MainWindow(QMainWindow, Ui_MainWindow):
         self.pipeline_composition_service.compose_from_models(infos)
         stage_table.display(self.pipeline_composition_service.stage_rows())
         ledger_widget.display(self.pipeline_composition_service.ledger(self._pipeline_staged_count))
+
+    def _refresh_preflight_summary(self) -> None:
+        """送信前プリフライト card をステージング集合の既存 rating で再描画する (Issue #837)。
+
+        ステージング集合の最新 rating を DB から引き、送信可 / 保留 / 未判定 に
+        分類して表示する。moderation は実行しない (実送信時に
+        :class:`ModerationPreflightService` が判定する)。
+        """
+        preflight_widget = getattr(self, "preflight_summary_widget", None)
+        if preflight_widget is None:
+            return
+
+        image_ids = list(self._pipeline_staged_image_ids)
+        ratings_by_id: dict[int, str | None] = {}
+        if image_ids and self.db_manager is not None:
+            ratings_by_id = self.db_manager.image_repo.get_latest_normalized_ratings_by_image_ids(image_ids)
+        preflight_widget.display(ratings_by_id, image_ids)
 
     def _build_stage_model_infos(self, selected_ids: list[str]) -> list[StageModelInfo]:
         """選択 litellm_model_id を StageModelInfo へ変換する。
@@ -1860,7 +1886,10 @@ class MainWindow(QMainWindow, Ui_MainWindow):
             export_widget.set_image_ids(list(image_ids) if image_ids else [])
         # Phase 6a: 推論台帳の枚数もステージング件数と同期する
         self._pipeline_staged_count = count
+        # Issue #837: 送信前プリフライト card の集計対象もステージング集合と同期する
+        self._pipeline_staged_image_ids = list(image_ids) if image_ids else []
         self._refresh_pipeline_panel()
+        self._refresh_preflight_summary()
 
     def _update_annotation_target_ui(self, staging_count: int) -> None:
         """アノテーション対象UIを更新

@@ -22,6 +22,13 @@ MODERATION_ERROR_TYPE_FAILED = "moderation_preflight_failed"
 MODERATION_ERROR_TYPE_NO_RATING = "moderation_preflight_no_rating"
 MODERATION_ERROR_TYPE_BLOCKED = "moderation_preflight_blocked"
 
+# 送信前プリフライトの canonical rating 分類境界 (ADR 0031 amendment / Issue #471)。
+# SENDABLE = annotation WebAPI に送ってよい / HELD = X/XXX で送らず保留。
+# どちらにも該当しない rating (None / UNRATED / 未知) は「未判定」として moderation 行き。
+# 表示専用の preflight summary widget と本サービスで境界を共有する SSoT。
+SENDABLE_RATINGS = frozenset({"PG", "PG-13", "R"})
+HELD_RATINGS = frozenset({"X", "XXX"})
+
 
 class ModerationRunner(Protocol):
     """Callable boundary for running a single moderation model over image paths."""
@@ -65,8 +72,8 @@ class ModerationPreflightResult:
 class ModerationPreflightService:
     """Run moderation for unrated images before WebAPI annotation."""
 
-    _ALLOW_RATINGS = frozenset({"PG", "PG-13", "R"})
-    _BLOCK_RATINGS = frozenset({"X", "XXX"})
+    _ALLOW_RATINGS = SENDABLE_RATINGS
+    _BLOCK_RATINGS = HELD_RATINGS
 
     def __init__(
         self,

@@ -181,7 +181,50 @@ class TestPipelinePanelRefresh:
         MainWindow._on_staged_images_changed(mock_window, [1, 2, 3])
 
         assert mock_window._pipeline_staged_count == 3
+        # Issue #837: 送信前プリフライト用の image_id 集合も同期し再描画する
+        assert mock_window._pipeline_staged_image_ids == [1, 2, 3]
         mock_window._refresh_pipeline_panel.assert_called_once_with()
+        mock_window._refresh_preflight_summary.assert_called_once_with()
+
+
+@pytest.mark.unit
+class TestPreflightSummaryRefresh:
+    """Issue #837: 送信前プリフライト card 配線の検証。"""
+
+    def test_queries_ratings_and_displays(self):
+        from lorairo.gui.window.main_window import MainWindow
+
+        mock_window = Mock()
+        mock_window._pipeline_staged_image_ids = [1, 2]
+        ratings = {1: "PG", 2: "X"}
+        repo = mock_window.db_manager.image_repo
+        repo.get_latest_normalized_ratings_by_image_ids.return_value = ratings
+
+        MainWindow._refresh_preflight_summary(mock_window)
+
+        repo.get_latest_normalized_ratings_by_image_ids.assert_called_once_with([1, 2])
+        mock_window.preflight_summary_widget.display.assert_called_once_with(ratings, [1, 2])
+
+    def test_empty_staging_skips_query(self):
+        from lorairo.gui.window.main_window import MainWindow
+
+        mock_window = Mock()
+        mock_window._pipeline_staged_image_ids = []
+
+        MainWindow._refresh_preflight_summary(mock_window)
+
+        repo = mock_window.db_manager.image_repo
+        repo.get_latest_normalized_ratings_by_image_ids.assert_not_called()
+        mock_window.preflight_summary_widget.display.assert_called_once_with({}, [])
+
+    def test_skips_when_widget_missing(self):
+        from lorairo.gui.window.main_window import MainWindow
+
+        mock_window = Mock()
+        mock_window.preflight_summary_widget = None
+        # widget 未構築でも例外なく早期 return する
+        MainWindow._refresh_preflight_summary(mock_window)
+        mock_window.db_manager.image_repo.get_latest_normalized_ratings_by_image_ids.assert_not_called()
 
 
 @pytest.mark.unit
