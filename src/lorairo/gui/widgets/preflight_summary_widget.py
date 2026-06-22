@@ -17,6 +17,7 @@ from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QHBoxLayout, QLabel, QVBoxLayout, QWidget
 
 from lorairo.gui import theme
+from lorairo.gui.widgets.ds import DsCard, DsChip
 from lorairo.services.moderation_preflight_service import HELD_RATINGS, SENDABLE_RATINGS
 
 _TITLE_TEXT = "送信前プリフライト — OpenAI Moderations で rating 判定"
@@ -75,25 +76,24 @@ def classify_preflight_counts(
     return PreflightSummary(sendable=sendable, held=held, unrated=unrated)
 
 
-class PreflightSummaryWidget(QWidget):
-    """DS v12 AnnotateScreen の送信前プリフライト card (表示専用)。"""
+class PreflightSummaryWidget(DsCard):
+    """DS v12 AnnotateScreen の送信前プリフライト card (表示専用)。
+
+    DsCard を継承し、タイトル行 + 本体 (説明文・DsChip 3 種・task_type バッジ) を
+    テーマトークン駆動で描画する。
+    """
 
     def __init__(self, parent: QWidget | None = None) -> None:
-        super().__init__(parent)
+        super().__init__(title=_TITLE_TEXT, parent=parent)
 
-        layout = QVBoxLayout(self)
-        layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(theme.SPACE_1)
+        # card 本体エリアを QWidget でラップして set_body() に渡す
+        body = QWidget(self)
+        body_layout = QVBoxLayout(body)
+        body_layout.setContentsMargins(0, 0, 0, 0)
+        body_layout.setSpacing(theme.SPACE_1)
 
-        title = QLabel(_TITLE_TEXT, self)
-        title.setObjectName("preflightTitleLabel")
-        title_font = title.font()
-        title_font.setBold(True)
-        title.setFont(title_font)
-        title.setStyleSheet(f"color: {theme.INK}; font-size: {theme.FONT_SIZE_BASE}px;")
-        layout.addWidget(title)
-
-        self._description_label = QLabel(self)
+        # 方針説明ラベル (RichText で X/XXX を INK 強調)
+        self._description_label = QLabel(body)
         self._description_label.setObjectName("preflightDescriptionLabel")
         self._description_label.setTextFormat(Qt.TextFormat.RichText)
         self._description_label.setText(_DESCRIPTION_HTML)
@@ -101,50 +101,57 @@ class PreflightSummaryWidget(QWidget):
         self._description_label.setStyleSheet(
             f"color: {theme.INK_SOFT}; font-size: {theme.FONT_SIZE_SMALL}px;"
         )
-        layout.addWidget(self._description_label)
+        body_layout.addWidget(self._description_label)
 
+        # チップ行: 送信可 / 保留 / 未判定 + task_type バッジ
         chip_row = QHBoxLayout()
         chip_row.setContentsMargins(0, theme.SPACE_1, 0, 0)
         chip_row.setSpacing(theme.SPACE_2)
 
-        self._sendable_chip = QLabel(self)
+        # 送信可 = ok (●、green)
+        self._sendable_chip = DsChip("", kind="ok", parent=body)
         self._sendable_chip.setObjectName("preflightSendableChip")
-        self._sendable_chip.setStyleSheet(theme.chip_qss("ok"))
         chip_row.addWidget(self._sendable_chip)
 
-        self._held_chip = QLabel(self)
+        # 保留 = warn (○、amber) + tooltip
+        self._held_chip = DsChip("", kind="warn", parent=body)
         self._held_chip.setObjectName("preflightHeldChip")
-        self._held_chip.setStyleSheet(theme.chip_qss("warn"))
         self._held_chip.setToolTip(_HELD_TOOLTIP)
         chip_row.addWidget(self._held_chip)
 
-        # 未判定 (rating 未登録) は 0 件のとき非表示にする。
-        self._unrated_chip = QLabel(self)
+        # 未判定 = neutral (○、gray) + tooltip、0 件のとき非表示
+        self._unrated_chip = DsChip("", kind="neutral", parent=body)
         self._unrated_chip.setObjectName("preflightUnratedChip")
-        self._unrated_chip.setStyleSheet(theme.chip_qss("neutral"))
         self._unrated_chip.setToolTip(_UNRATED_TOOLTIP)
         chip_row.addWidget(self._unrated_chip)
 
-        self._badge = QLabel(_BADGE_TEXT, self)
+        # task_type バッジ (DsBadge 未実装のため QLabel + badge_qss を維持)
+        self._badge = QLabel(_BADGE_TEXT, body)
         self._badge.setObjectName("preflightTypeBadge")
         self._badge.setStyleSheet(theme.badge_qss())
         chip_row.addWidget(self._badge)
 
         chip_row.addStretch(1)
-        self._chip_row = chip_row
-        layout.addLayout(chip_row)
+        body_layout.addLayout(chip_row)
 
-        self._placeholder_label = QLabel(_PLACEHOLDER_TEXT, self)
+        # ステージング画像なし時のプレースホルダ
+        self._placeholder_label = QLabel(_PLACEHOLDER_TEXT, body)
         self._placeholder_label.setObjectName("preflightPlaceholderLabel")
         self._placeholder_label.setStyleSheet(f"color: {theme.INK_FAINT};")
-        layout.addWidget(self._placeholder_label)
+        body_layout.addWidget(self._placeholder_label)
 
-        layout.addStretch(1)
+        body_layout.addStretch(1)
+        self.set_body(body)
 
         self.clear()
 
     def display(self, ratings_by_id: dict[int, str | None], staged_image_ids: list[int]) -> None:
-        """ステージング集合の rating から送信可 / 保留 / 未判定 を再描画する。"""
+        """ステージング集合の rating から送信可 / 保留 / 未判定 を再描画する。
+
+        Args:
+            ratings_by_id: ``{image_id: 最新 normalized_rating}``。
+            staged_image_ids: ステージング集合の image_id 一覧。
+        """
         if not staged_image_ids:
             self.clear()
             return
@@ -152,11 +159,12 @@ class PreflightSummaryWidget(QWidget):
         summary = classify_preflight_counts(ratings_by_id, staged_image_ids)
         self._placeholder_label.setVisible(False)
 
-        self._sendable_chip.setText(f"{summary.sendable} 送信可 sendable")
+        # DsChip.set_text() でドット付きテキストを更新する
+        self._sendable_chip.set_text(f"{summary.sendable} 送信可 sendable")
         self._sendable_chip.setVisible(True)
-        self._held_chip.setText(f"{summary.held} 保留 held")
+        self._held_chip.set_text(f"{summary.held} 保留 held")
         self._held_chip.setVisible(True)
-        self._unrated_chip.setText(f"{summary.unrated} 未判定")
+        self._unrated_chip.set_text(f"{summary.unrated} 未判定")
         self._unrated_chip.setVisible(summary.unrated > 0)
         self._badge.setVisible(True)
 
