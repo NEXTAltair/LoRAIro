@@ -1,7 +1,7 @@
 ---
 name: interface-design
-version: "1.0.0"
-description: Interface design skill for dashboards, admin panels, apps, and tools. NOT for marketing design. Provides design intent, domain exploration, and craft principles. For PySide6/Qt technical implementation, use lorairo-qt-widget skill.
+version: "1.1.0"
+description: Interface design skill for dashboards, admin panels, apps, and tools. NOT for marketing design. Provides design intent, domain exploration, craft principles, and component-driven design-tool↔code sync. For PySide6/Qt technical implementation, use lorairo-qt-widget skill.
 metadata:
   short-description: UIデザイン原則（意図、ドメイン探索、クラフト）。技術実装はlorairo-qt-widget参照。
   origin: https://github.com/Dammyjay93/interface-design
@@ -266,6 +266,47 @@ QWidget {
 | Focus | Design intent, aesthetics, craft | Technical patterns, Qt APIs |
 | Answers | Why this design? | How to implement? |
 | Outputs | Color world, signature, hierarchy | Signal/Slot, Widget structure |
+
+---
+
+# Design Tool ↔ Implementation Sync (component-driven)
+
+When a design tool holds the design system (e.g. a hosted design app the team syncs to),
+know what is and is not synced — this is platform-neutral; it applies whatever agent or
+editor you run in.
+
+- The connector syncs the **component catalog** (tokens + reusable components), one-way:
+  repo → design tool. It does **not** sync **screen compositions** back, and it does **not**
+  generate implementation (PySide/Qt) code.
+- Screen layouts (which components, arranged how) live only in the design tool as mockups.
+  Porting them to the app is **manual**.
+- So design and implementation **drift** whenever a screen is ported only partially, the
+  design changes, or correct components are dropped into a legacy layout.
+
+To prevent drift, work **component-driven**, not screen-by-screen:
+
+1. **Per component** — the design tool already defines each reusable widget (the catalog).
+   Treat each as the spec (its component source + usage notes).
+2. **Judge commonization** — decide: extract a reusable widget in code, or inline it.
+   Extract widgets used in **2+ screens**; inline true one-offs. Widget extraction is cheap
+   composition, not a big refactor.
+3. **Mirror in code** — build a reusable widget that mirrors the design component, driven by
+   the shared **design tokens** (one token source of truth). Keep mirrors in a dedicated module.
+4. **Compose** — build each screen from the mirrored widgets, so the app and the design's
+   screens share the same component vocabulary. Both sides now reuse the same parts and stay
+   aligned.
+
+Anti-patterns:
+
+- Hand-porting each screen from scratch → repeats the drift.
+- Building the whole mirror library speculatively before any screen uses it (YAGNI). Build the
+  components a screen actually needs, prove them by composing that screen, reuse on the next.
+- Placing correct components inside the old layout and calling the screen done — components
+  right, structure wrong = visual divergence.
+
+Tokens are the **only** thing the two implementations share. Keep their values in sync between
+the design tool's stylesheet and the app's token module — this is **not automatic**; verify it.
+For the extraction/Qt mechanics of the mirror widgets, use the `lorairo-qt-widget` skill.
 
 ---
 
