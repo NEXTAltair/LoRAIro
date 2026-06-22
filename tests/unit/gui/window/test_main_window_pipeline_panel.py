@@ -470,3 +470,183 @@ class TestPipelineRemoveModelHandler:
         MainWindow._on_pipeline_remove_model_requested(mock_window, "tags", "missing/model")
 
         mock_window._refresh_pipeline_panel.assert_not_called()
+
+
+@pytest.mark.unit
+class TestRunBarTexts:
+    """run bar の表示テキスト生成の検証 (Issue #849)。"""
+
+    def test_scope_text_contains_count(self):
+        from lorairo.gui.window.main_window import MainWindow
+
+        text = MainWindow._run_bar_scope_text(42)
+        assert "42" in text
+
+    def test_scope_text_zero(self):
+        from lorairo.gui.window.main_window import MainWindow
+
+        text = MainWindow._run_bar_scope_text(0)
+        assert "0" in text
+
+    def test_execute_text_contains_count(self):
+        from lorairo.gui.window.main_window import MainWindow
+
+        text = MainWindow._run_bar_execute_text(7)
+        assert "7" in text
+
+    def test_execute_text_contains_枚(self):
+        from lorairo.gui.window.main_window import MainWindow
+
+        text = MainWindow._run_bar_execute_text(3)
+        assert "枚" in text
+
+
+@pytest.mark.unit
+class TestFilterModelIdsForPreset:
+    """プリセット ID → モデル ID フィルタの検証 (Issue #847)。"""
+
+    def _make_info(self, litellm_id: str, capabilities: set[str], is_api: bool = True) -> StageModelInfo:
+        return StageModelInfo(
+            litellm_model_id=litellm_id,
+            display_name=litellm_id,
+            provider="openai" if is_api else None,
+            is_api=is_api,
+            capabilities=frozenset(capabilities),
+        )
+
+    def _call(self, preset_id: str, infos: list[StageModelInfo]) -> list[str]:
+        from lorairo.gui.window.main_window import MainWindow
+
+        mock_window = Mock()
+        return MainWindow._filter_model_ids_for_preset(mock_window, preset_id, infos)
+
+    def test_default_returns_all(self):
+        infos = [
+            self._make_info("a/tags", {"tags"}),
+            self._make_info("b/caption", {"caption", "multimodal"}),
+            self._make_info("c/score", {"scores"}),
+        ]
+        result = self._call("default", infos)
+        assert set(result) == {"a/tags", "b/caption", "c/score"}
+
+    def test_tags_only_excludes_multimodal(self):
+        infos = [
+            self._make_info("a/tags", {"tags"}, is_api=False),
+            self._make_info("b/multi", {"tags", "caption", "multimodal"}),
+            self._make_info("c/caption", {"caption"}),
+        ]
+        result = self._call("tags_only", infos)
+        # multimodal は除外、pure tags のみ
+        assert result == ["a/tags"]
+
+    def test_full_caption_includes_multimodal_and_caption(self):
+        infos = [
+            self._make_info("a/tags", {"tags"}, is_api=False),
+            self._make_info("b/multi", {"tags", "caption", "multimodal"}),
+            self._make_info("c/caption", {"caption"}),
+        ]
+        result = self._call("full_caption", infos)
+        assert set(result) == {"b/multi", "c/caption"}
+
+    def test_score_rate_includes_scores_and_ratings(self):
+        infos = [
+            self._make_info("a/score", {"scores"}),
+            self._make_info("b/rating", {"ratings"}),
+            self._make_info("c/tags", {"tags"}, is_api=False),
+        ]
+        result = self._call("score_rate", infos)
+        assert set(result) == {"a/score", "b/rating"}
+
+    def test_unknown_preset_returns_all(self):
+        infos = [
+            self._make_info("a/tags", {"tags"}),
+            self._make_info("b/score", {"scores"}),
+        ]
+        result = self._call("unknown_preset", infos)
+        assert set(result) == {"a/tags", "b/score"}
+
+
+@pytest.mark.unit
+class TestPresetSignalWiring:
+    """preset_selected / save_preset_requested の配線と動作の検証 (Issue #847)。"""
+
+    def _make_mock_window_with_model_widget(self, all_model_infos: list[StageModelInfo]) -> Mock:
+        """batchModelSelection を持つ mock window を生成する。"""
+        mock_window = Mock()
+        mock_window.batchModelSelection.model_selection_service.load_models.return_value = [
+            SimpleNamespace(litellm_model_id=info.litellm_model_id) for info in all_model_infos
+        ]
+        mock_window._build_stage_model_infos.return_value = all_model_infos
+        mock_window._filter_model_ids_for_preset.side_effect = lambda pid, infos: [
+            i.litellm_model_id for i in infos
+        ]
+        return mock_window
+
+    def test_preset_selected_calls_set_selected_models(self):
+        """_on_pipeline_preset_selected が batchModelSelection.set_selected_models を呼ぶ。"""
+        from lorairo.gui.window.main_window import MainWindow
+
+        info = StageModelInfo(
+            litellm_model_id="wd/tagger",
+            display_name="wd-tagger",
+            provider=None,
+            is_api=False,
+            capabilities=frozenset({"tags"}),
+        )
+        mock_window = Mock()
+        mock_window.batchModelSelection.model_selection_service.load_models.return_value = [
+            SimpleNamespace(litellm_model_id="wd/tagger")
+        ]
+        mock_window._build_stage_model_infos.return_value = [info]
+        mock_window._filter_model_ids_for_preset.return_value = ["wd/tagger"]
+
+        MainWindow._on_pipeline_preset_selected(mock_window, "tags_only")
+
+        mock_window.batchModelSelection.set_selected_models.assert_called_once_with(["wd/tagger"])
+
+    def test_preset_selected_syncs_active_preset_display(self):
+        """_on_pipeline_preset_selected が set_active_preset を呼ぶ。"""
+        from lorairo.gui.window.main_window import MainWindow
+
+        mock_window = Mock()
+        mock_window.batchModelSelection.model_selection_service.load_models.return_value = []
+        mock_window._build_stage_model_infos.return_value = []
+        mock_window._filter_model_ids_for_preset.return_value = []
+
+        MainWindow._on_pipeline_preset_selected(mock_window, "default")
+
+        mock_window.pipeline_stage_table.set_active_preset.assert_called_once_with("default")
+
+    def test_preset_selected_refreshes_pipeline_panel(self):
+        """_on_pipeline_preset_selected が _refresh_pipeline_panel を呼ぶ。"""
+        from lorairo.gui.window.main_window import MainWindow
+
+        mock_window = Mock()
+        mock_window.batchModelSelection.model_selection_service.load_models.return_value = []
+        mock_window._build_stage_model_infos.return_value = []
+        mock_window._filter_model_ids_for_preset.return_value = []
+
+        MainWindow._on_pipeline_preset_selected(mock_window, "full_caption")
+
+        mock_window._refresh_pipeline_panel.assert_called_once_with()
+
+    def test_save_preset_shows_statusbar_message(self):
+        """_on_pipeline_save_preset_requested がステータスバーにメッセージを表示する。"""
+        from lorairo.gui.window.main_window import MainWindow
+
+        mock_window = Mock()
+        mock_window.batchModelSelection.get_selected_models.return_value = ["wd/tagger"]
+
+        MainWindow._on_pipeline_save_preset_requested(mock_window)
+
+        mock_window.statusBar().showMessage.assert_called_once()
+
+    def test_save_preset_no_crash_when_no_model_widget(self):
+        """batchModelSelection が None でも _on_pipeline_save_preset_requested がクラッシュしない。"""
+        from lorairo.gui.window.main_window import MainWindow
+
+        mock_window = Mock()
+        mock_window.batchModelSelection = None
+
+        # クラッシュしないことを確認
+        MainWindow._on_pipeline_save_preset_requested(mock_window)
