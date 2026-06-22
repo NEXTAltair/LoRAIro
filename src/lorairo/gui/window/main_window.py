@@ -49,7 +49,8 @@ from ..services.tab_reorganization_service import TabReorganizationService
 from ..services.widget_setup_service import WidgetSetupService
 from ..services.worker_service import WorkerService
 from ..state.dataset_state import DatasetStateManager
-from ..widgets.cli_reference_widget import CliReferenceWidget
+from ..tab.cli_tab import CliTabWidget
+from ..tab.map_tab import MapTabWidget
 from ..widgets.dataset_export_widget import DatasetExportWidget
 from ..widgets.error_notification_widget import ErrorNotificationWidget
 from ..widgets.errors_triage_widget import ErrorsTriageWidget
@@ -65,7 +66,6 @@ from ..widgets.results_widget import ResultsWidget
 from ..widgets.run_settings_dialog import RunOptions, RunSettingsDialog
 from ..widgets.selected_image_details_widget import SelectedImageDetailsWidget
 from ..widgets.stage_model_picker_dialog import StageModelPickerDialog
-from ..widgets.tag_cloud_widget import TagCloudWidget
 from ..widgets.tag_management_dialog import TagManagementDialog
 from ..widgets.thumbnail import ThumbnailSelectorWidget
 
@@ -134,7 +134,7 @@ class MainWindow(QMainWindow, Ui_MainWindow):
     quality_issue_detection_service: QualityIssueDetectionService
 
     # Map tab
-    map_widget: TagCloudWidget | None
+    map_tab: MapTabWidget | None
 
     # 登録完了サマリパネル (Wireframes v11 Frame 1)
     registration_summary_widget: RegistrationSummaryWidget | None
@@ -416,15 +416,19 @@ class MainWindow(QMainWindow, Ui_MainWindow):
         self._setup_registration_summary_panel()
 
     def _setup_map_tab(self) -> None:
-        """マップタブ (TagCloudWidget) を初期化する。"""
+        """マップタブ (MapTabWidget) を初期化する。
+
+        固有の配置・振る舞いは MapTabWidget が所有し、MainWindow は .ui の
+        tabMap コンテナへ埋め込み db_manager を注入するだけ (glue)。
+        """
         container = getattr(self, "tabMap", None)
         if container is None:
             logger.warning("tabMap not found - マップタブ skipped")
-            self.map_widget = None
+            self.map_tab = None
             return
         if self.db_manager is None:
             logger.warning("db_manager 未初期化 - マップタブ skipped")
-            self.map_widget = None
+            self.map_tab = None
             return
         try:
             layout = container.layout()
@@ -438,12 +442,12 @@ class MainWindow(QMainWindow, Ui_MainWindow):
                 from PySide6.QtWidgets import QVBoxLayout
 
                 layout = QVBoxLayout(container)
-            widget = TagCloudWidget(db_manager=self.db_manager, parent=container)
+            widget = MapTabWidget(db_manager=self.db_manager, parent=container)
             layout.addWidget(widget)
-            self.map_widget = widget
-            logger.info("マップタブ (TagCloudWidget) initialized")
+            self.map_tab = widget
+            logger.info("マップタブ (MapTabWidget) initialized")
         except Exception as e:
-            self.map_widget = None
+            self.map_tab = None
             logger.error(f"マップタブ initialization failed: {e}", exc_info=True)
 
     def _setup_registration_summary_panel(self) -> None:
@@ -746,21 +750,22 @@ class MainWindow(QMainWindow, Ui_MainWindow):
         logger.info("✅ エクスポートタブ (DatasetExportWidget) initialized")
 
     def _setup_cli_tab(self) -> None:
-        """CLI タブ (CliReferenceWidget) をナビ末尾に追加する。
+        """CLI タブ (CliTabWidget) をナビ末尾に追加する。
 
         Wireframes v11 Frame 8。agent-friendly CLI 契約 (ADR 0057-0060) を
         読み物として図解する読み取り専用リファレンス。DB 接続不要のため
-        依存注入はなく、コンテンツは初回表示時に遅延生成される。
+        依存注入はなく、コンテンツは初回表示時に遅延生成される。MainWindow は
+        タブを末尾へ追加するだけ (glue)。
         """
         if not hasattr(self, "tabWidgetMainMode") or not self.tabWidgetMainMode:
             logger.warning("tabWidgetMainMode not found - CLIタブ skipped")
-            self.cli_reference_widget = None
+            self.cli_tab = None
             return
 
-        widget = CliReferenceWidget(parent=self.tabWidgetMainMode)
+        widget = CliTabWidget(parent=self.tabWidgetMainMode)
         self.tabWidgetMainMode.addTab(widget, "CLI")
-        self.cli_reference_widget = widget
-        logger.info("✅ CLIタブ (CliReferenceWidget) initialized")
+        self.cli_tab = widget
+        logger.info("✅ CLIタブ (CliTabWidget) initialized")
 
     def _setup_pipeline_composition_panel(self) -> None:
         """アノテーショングループにパイプライン構成ビューを常設する。

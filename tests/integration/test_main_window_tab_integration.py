@@ -83,16 +83,18 @@ class TestMainWindowTabInitialization:
         assert main_window_with_tabs.export_widget is widget
 
     def test_cli_tab_embeds_reference_widget(self, main_window_with_tabs):
-        """CLI タブに CliReferenceWidget が常設される (Frame 8)"""
+        """CLI タブが CliTabWidget で常設され、CliReferenceWidget を内包する (Frame 8, #873)"""
+        from lorairo.gui.tab.cli_tab import CliTabWidget
         from lorairo.gui.widgets.cli_reference_widget import CliReferenceWidget
 
         window = main_window_with_tabs
         tab_widget = window.tabWidgetMainMode
         cli_tab = tab_widget.widget(7)
-        assert isinstance(cli_tab, CliReferenceWidget)
-        assert window.cli_reference_widget is cli_tab
+        assert isinstance(cli_tab, CliTabWidget)
+        assert window.cli_tab is cli_tab
+        assert isinstance(cli_tab.reference, CliReferenceWidget)
         # コンテンツは初回表示まで遅延生成される
-        assert cli_tab.content_loaded is False
+        assert cli_tab.reference.content_loaded is False
 
     def test_pipeline_panel_embedded_in_annotation_group(self, main_window_with_tabs):
         """アノテーショングループにパイプライン構成ビューが常設される (Phase 6a)"""
