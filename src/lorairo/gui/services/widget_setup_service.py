@@ -349,9 +349,12 @@ class WidgetSetupService:
             widget.setObjectName("batchAnnotationFilter")
             widget.setParent(annotation_group)
             annotation_group.layout().insertWidget(1, widget)
+            # #845: 絞り込みは per-stage ピッカー (+pick…) のレールへ集約。
+            # 常設インライン UI は畳むが、filter_changed → model 連携の SSoT として残す。
+            widget.setVisible(False)
 
             main_window.batchAnnotationFilter = widget
-            logger.info("✅ AnnotationFilterWidget を追加完了")
+            logger.info("✅ AnnotationFilterWidget を追加完了 (#845: 非表示・SSoT)")
 
         # ModelSelectionWidget
         if not (hasattr(main_window, "batchModelSelection") and main_window.batchModelSelection):
@@ -368,9 +371,13 @@ class WidgetSetupService:
             model_widget.setObjectName("batchModelSelection")
             model_widget.setParent(annotation_group)
             annotation_group.layout().insertWidget(2, model_widget)
+            # #845: モデル選択は per-stage ピッカー (+pick…) へ集約。常設の巨大セレクタ
+            # は畳むが、選択状態 (model_checkbox_widgets) はピッカー適用・実行・pipeline
+            # 購読の SSoT として保持するため widget 自体は生成・populate する。
+            model_widget.setVisible(False)
 
             main_window.batchModelSelection = model_widget
-            logger.info("✅ ModelSelectionWidget を追加完了 (mode=advanced)")
+            logger.info("✅ ModelSelectionWidget を追加完了 (#845: 非表示・SSoT, mode=advanced)")
 
         WidgetSetupService._configure_batch_model_selection_widget(main_window.batchModelSelection)
 
