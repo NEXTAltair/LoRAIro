@@ -8,6 +8,7 @@ tags: []
 # ADR 0055: Workspace Export Target = Staging Set / Selection-Source Unification
 
 - **関連 Issue**: #610 (epic), #611 (S1 入口), #612 (S2 接続), #613 (S3 picker), #614 (S4 changed-since), #615 (S5 解像度UI)
+- **一部改訂**: ADR 0074 — 統一対象 (ステージング集合) の SSoT を `StagingWidget` から `StagingStateManager` へ移管。3 者が同一集合を指す統一の意図は不変。
 
 ## Context
 

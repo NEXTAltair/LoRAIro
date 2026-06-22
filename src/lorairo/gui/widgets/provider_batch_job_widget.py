@@ -23,6 +23,7 @@ from PySide6.QtWidgets import QMenu, QMessageBox, QTableWidget, QTableWidgetItem
 
 from lorairo.gui import theme
 from lorairo.gui.designer.ProviderBatchJobWidget_ui import Ui_ProviderBatchJobWidget
+from lorairo.gui.state.staging_state import StagingStateManager
 from lorairo.gui.widgets.model_selection_widget import ModelSelectionWidget
 from lorairo.gui.widgets.staging_widget import StagingWidget
 from lorairo.gui.widgets.sync_job_ledger_widget import SyncJobLedgerWidget
@@ -204,9 +205,16 @@ class ProviderBatchJobWidget(QWidget, Ui_ProviderBatchJobWidget):
         self._dataset_state_manager = dataset_state_manager
         self._staging_widget.set_dataset_state_manager(dataset_state_manager)
 
-    def connect_shared_staging(self, source: StagingWidget) -> None:
-        """通常アノテーションと同じステージング状態を共有する。"""
-        self._staging_widget.connect_shared_staging(source)
+    def set_staging_state_manager(self, manager: StagingStateManager) -> None:
+        """通常アノテーションと同じステージング集合 (SSoT) を共有する (ADR 0074)。
+
+        従来の connect_shared_staging を置換する。両タブの StagingWidget が同一の
+        StagingStateManager を共有することで、ステージング状態が自動同期する。
+
+        Args:
+            manager: 共有する StagingStateManager。
+        """
+        self._staging_widget.set_staging_state_manager(manager)
         self._update_target_label()
 
     def get_staging_widget(self) -> StagingWidget:

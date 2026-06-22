@@ -49,6 +49,7 @@ from ..services.tab_reorganization_service import TabReorganizationService
 from ..services.widget_setup_service import WidgetSetupService
 from ..services.worker_service import WorkerService
 from ..state.dataset_state import DatasetStateManager
+from ..state.staging_state import StagingStateManager
 from ..tab.cli_tab import CliTabWidget
 from ..tab.map_tab import MapTabWidget
 from ..widgets.dataset_export_widget import DatasetExportWidget
@@ -92,6 +93,7 @@ class MainWindow(QMainWindow, Ui_MainWindow):
     db_manager: ImageDatabaseManager | None
     worker_service: WorkerService | None
     dataset_state_manager: DatasetStateManager | None
+    staging_state_manager: StagingStateManager | None
 
     # Service/Controller層属性
     selection_state_service: SelectionStateService | None
@@ -256,10 +258,29 @@ class MainWindow(QMainWindow, Ui_MainWindow):
             logger.error(f"❌ DatasetStateManager初期化失敗: {e}")
             self.dataset_state_manager = None
 
+        # ステージング集合の SSoT (Annotate / Jobs タブが共有する、ADR 0074)
+        self._initialize_staging_state_manager()
+
         # DBステータス表示を現在のプロジェクトディレクトリに更新
         self._update_database_status_label()
 
         logger.info("サービス初期化完了")
+
+    def _initialize_staging_state_manager(self) -> None:
+        """ステージング集合の SSoT (StagingStateManager) を初期化する (ADR 0074)。
+
+        fan-out 元を manager 一本に集約し、各タブの widget シグナルでの二重発火を避ける。
+        """
+        try:
+            self.staging_state_manager = StagingStateManager()
+            if self.dataset_state_manager is not None:
+                self.staging_state_manager.set_dataset_state_manager(self.dataset_state_manager)
+            self.staging_state_manager.staged_images_changed.connect(self._on_staged_images_changed)
+            self.staging_state_manager.staging_cleared.connect(self._handle_staging_cleared)
+            logger.info("✅ StagingStateManager初期化成功")
+        except Exception as e:
+            logger.error(f"❌ StagingStateManager初期化失敗: {e}")
+            self.staging_state_manager = None
 
     def _update_database_status_label(self) -> None:
         """ステータスバーのDB表示を現在のプロジェクトディレクトリに合わせる"""
@@ -505,11 +526,10 @@ class MainWindow(QMainWindow, Ui_MainWindow):
                 model_source=service_container.annotator_library,
                 model_repository=service_container.db_manager.model_repo,
             )
-            batch_tag_widget = getattr(self, "batchTagAddWidget", None)
-            if batch_tag_widget is not None and hasattr(batch_tag_widget, "get_staging_widget"):
-                widget.connect_shared_staging(batch_tag_widget.get_staging_widget())
-                widget.staging_cleared.connect(self._handle_staging_cleared)
-                widget.staged_images_changed.connect(self._on_staged_images_changed)
+            # 共有 SSoT を注入 (Annotate タブと同一の StagingStateManager を共有、ADR 0074)。
+            # fan-out は staging_state_manager 側で一括接続済みのため widget シグナルは繋がない。
+            if self.staging_state_manager is not None:
+                widget.set_staging_state_manager(self.staging_state_manager)
             # ADR 0066: 同期ジョブ台帳 (実行中/履歴) を Jobs タブへ接続
             if self.worker_service:
                 widget.set_job_ledger(self.worker_service.job_ledger)
@@ -1359,9 +1379,11 @@ class MainWindow(QMainWindow, Ui_MainWindow):
             return
         try:
             self.batchTagAddWidget.set_dataset_state_manager(self.dataset_state_manager)
+            # 共有 SSoT を注入 (staged_images_changed / staging_cleared の fan-out は
+            # staging_state_manager 側で一括接続済み、ADR 0074)
+            if self.staging_state_manager is not None:
+                self.batchTagAddWidget.set_staging_state_manager(self.staging_state_manager)
             self.batchTagAddWidget.tag_add_requested.connect(self._handle_batch_tag_add)
-            self.batchTagAddWidget.staging_cleared.connect(self._handle_staging_cleared)
-            self.batchTagAddWidget.staged_images_changed.connect(self._on_staged_images_changed)
             self._update_annotation_target_ui(0)
             logger.info("    ✅ BatchTagAddWidget シグナル接続完了")
         except Exception as e:

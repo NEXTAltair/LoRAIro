@@ -31,6 +31,7 @@ from .staging_widget import StagingWidget
 
 if TYPE_CHECKING:
     from ..state.dataset_state import DatasetStateManager
+    from ..state.staging_state import StagingStateManager
 
 
 def normalize_tag(tag: str) -> str:
@@ -134,6 +135,14 @@ class BatchTagAddWidget(QWidget):
         self._dataset_state_manager = dataset_state_manager
         self._staging_widget.set_dataset_state_manager(dataset_state_manager)
         logger.debug("DatasetStateManager reference set in BatchTagAddWidget")
+
+    def set_staging_state_manager(self, manager: "StagingStateManager") -> None:
+        """共有 StagingStateManager を内部 StagingWidget へ注入する (ADR 0074)。
+
+        Args:
+            manager: 共有する StagingStateManager。
+        """
+        self._staging_widget.set_staging_state_manager(manager)
 
     def add_selected_images_to_staging(self) -> None:
         """外部から選択画像をステージングに追加するための公開 API。"""

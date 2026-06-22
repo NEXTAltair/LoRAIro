@@ -171,13 +171,17 @@ def test_model_selection_placeholder_is_replaced(widget):
 
 @pytest.mark.unit
 @pytest.mark.gui
-def test_connect_shared_staging_uses_same_staged_items(widget, qtbot):
-    source = widget.get_staging_widget().__class__()
-    qtbot.addWidget(source)
+def test_shared_staging_state_manager_uses_same_staged_items(widget, qtbot):
+    """共有 StagingStateManager 注入で Annotate↔Jobs のステージング集合が同一になる (ADR 0074)。"""
+    from lorairo.gui.state.staging_state import StagingStateManager
 
-    widget.connect_shared_staging(source)
+    manager = StagingStateManager()
+    widget.set_staging_state_manager(manager)
 
-    assert widget.get_staging_widget().get_staged_items() is source.get_staged_items()
+    inner = widget.get_staging_widget()
+    assert inner.get_staging_state_manager() is manager
+    # SSoT の OrderedDict 実体を共有する (旧 connect_shared_staging と同等)
+    assert inner.get_staged_items() is manager.get_staged_items()
 
 
 @pytest.mark.unit

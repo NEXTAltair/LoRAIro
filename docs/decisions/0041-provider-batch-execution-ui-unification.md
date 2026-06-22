@@ -9,6 +9,7 @@ tags: []
 
 - **関連 Issue**: #545 (epic), #547 (本 ADR 起票 / 設計確定), #548 (B), #549 (C), #550 (D)
 - **関連 ADR**: 0030 (Batch Annotation Model Selection UI), 0036 (GUI Compound Widget 分割方針), 0038 (Provider Batch API Integration Strategy)
+- **一部改訂**: ADR 0074 — ステージング集合の SSoT を `StagingWidget` から `StagingStateManager` へ移し、`StagingWidget` は view に降格 (`connect_shared_staging` 廃止)。統一フロー・共通コンポーネント構成は不変。
 
 ## Context
 
