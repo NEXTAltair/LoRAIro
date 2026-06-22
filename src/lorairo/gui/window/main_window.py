@@ -49,9 +49,9 @@ from ..state.dataset_state import DatasetStateManager
 from ..state.staging_state import StagingStateManager
 from ..tab.cli_tab import CliTabWidget
 from ..tab.errors_tab import ErrorsTabWidget
+from ..tab.export_tab import ExportTabWidget
 from ..tab.map_tab import MapTabWidget
 from ..tab.results_tab import ResultsTabWidget
-from ..widgets.dataset_export_widget import DatasetExportWidget
 from ..widgets.error_notification_widget import ErrorNotificationWidget
 from ..widgets.filter_search_panel import FilterSearchPanel
 from ..widgets.image_preview import ImagePreviewWidget
@@ -97,7 +97,7 @@ class MainWindow(QMainWindow, Ui_MainWindow):
     dataset_controller: DatasetController | None
     annotation_workflow_controller: AnnotationWorkflowController | None
     settings_controller: SettingsController | None
-    export_widget: DatasetExportWidget | None
+    export_tab: ExportTabWidget | None
     pipeline_stage_table: PipelineStageTableWidget | None
     preflight_summary_widget: PreflightSummaryWidget | None
     inference_ledger_widget: InferenceLedgerWidget | None
@@ -684,26 +684,27 @@ class MainWindow(QMainWindow, Ui_MainWindow):
             self.error_notification_widget.update_error_count()
 
     def _setup_export_tab(self) -> None:
-        """エクスポートタブに DatasetExportWidget を常設する。
+        """エクスポートタブに ExportTabWidget を常設する。
 
         Wireframes v11 Frame 7 · Export (Phase 5)。対象 = ステージング集合
         (ADR 0055/0019)。初期対象は現在のステージングから読み、以降は
-        ``staged_images_changed`` → ``set_image_ids`` でライブ更新する。
+        ``staged_images_changed`` → ``set_image_ids`` でライブ更新する。.ui の
+        tabExport コンテナへ埋め込み依存を注入するだけ (glue, #872)。
         """
         container = getattr(self, "tabExport", None)
         if container is None:
             logger.warning("tabExport not found - export tab skipped")
-            self.export_widget = None
+            self.export_tab = None
             return
 
-        widget = DatasetExportWidget(
+        widget = ExportTabWidget(
             service_container=self.service_container,
             initial_image_ids=self._get_staged_export_ids(),
             parent=container,
         )
         container.layout().addWidget(widget)
-        self.export_widget = widget
-        logger.info("✅ エクスポートタブ (DatasetExportWidget) initialized")
+        self.export_tab = widget
+        logger.info("✅ エクスポートタブ (ExportTabWidget) initialized")
 
     def _setup_cli_tab(self) -> None:
         """CLI タブ (CliTabWidget) をナビ末尾に追加する。
@@ -1950,9 +1951,9 @@ class MainWindow(QMainWindow, Ui_MainWindow):
         self._update_annotation_target_ui(count)
         self._update_export_target_ui(count)
         # Phase 5: エクスポートタブの対象もステージング集合とライブ同期する (ADR 0055)
-        export_widget = getattr(self, "export_widget", None)
-        if export_widget is not None:
-            export_widget.set_image_ids(list(image_ids) if image_ids else [])
+        export_tab = getattr(self, "export_tab", None)
+        if export_tab is not None:
+            export_tab.set_image_ids(list(image_ids) if image_ids else [])
         # Phase 6a: 推論台帳の枚数もステージング件数と同期する
         self._pipeline_staged_count = count
         # Issue #837: 送信前プリフライト card の集計対象もステージング集合と同期する
@@ -2378,15 +2379,15 @@ class MainWindow(QMainWindow, Ui_MainWindow):
         遷移前にステージング集合を再読込し、シグナル取りこぼしがあっても
         タブ表示時点の対象件数を正とする。
         """
-        export_widget = getattr(self, "export_widget", None)
-        if export_widget is None or not hasattr(self, "tabExport"):
+        export_tab = getattr(self, "export_tab", None)
+        if export_tab is None or not hasattr(self, "tabExport"):
             logger.error("エクスポートタブが初期化されていません")
             QMessageBox.warning(
                 self, "エラー", "エクスポートタブが初期化されていないため、エクスポートを開けません。"
             )
             return
 
-        export_widget.set_image_ids(self._get_staged_export_ids())
+        export_tab.set_image_ids(self._get_staged_export_ids())
         self.tabWidgetMainMode.setCurrentWidget(self.tabExport)
 
     def send_selected_to_batch_tag(self, selected_ids: list[int] | bool | None = None) -> None:
@@ -2480,9 +2481,9 @@ class MainWindow(QMainWindow, Ui_MainWindow):
         elif current is getattr(self, "tabExport", None):
             logger.info("Switched to Export tab")
             # ステージング集合を再読込（シグナル取りこぼしの安全網、ADR 0055）
-            export_widget = getattr(self, "export_widget", None)
-            if export_widget is not None:
-                export_widget.set_image_ids(self._get_staged_export_ids())
+            export_tab = getattr(self, "export_tab", None)
+            if export_tab is not None:
+                export_tab.set_image_ids(self._get_staged_export_ids())
 
     def _refresh_batch_tag_staging(self) -> None:
         """

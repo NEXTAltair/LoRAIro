@@ -738,14 +738,14 @@ class TestAnnotationTargetUI:
 
         mock_window = Mock()
         MainWindow._on_staged_images_changed(mock_window, [1, 2, 3])
-        mock_window.export_widget.set_image_ids.assert_called_once_with([1, 2, 3])
+        mock_window.export_tab.set_image_ids.assert_called_once_with([1, 2, 3])
 
     def test_on_staged_images_changed_skips_export_sync_when_widget_missing(self):
         """Phase 5: エクスポートタブ未初期化時は同期をスキップする。"""
         from lorairo.gui.window.main_window import MainWindow
 
         mock_window = Mock()
-        mock_window.export_widget = None
+        mock_window.export_tab = None
         # export_widget が None でも例外なく処理が完了する
         MainWindow._on_staged_images_changed(mock_window, [1, 2])
         mock_window._update_annotation_target_ui.assert_called_once_with(2)
@@ -792,7 +792,7 @@ class TestOpenDialogs:
         mock_window = Mock()
         mock_window._get_staged_export_ids.return_value = [1, 2]
         MainWindow.export_data(mock_window)
-        mock_window.export_widget.set_image_ids.assert_called_once_with([1, 2])
+        mock_window.export_tab.set_image_ids.assert_called_once_with([1, 2])
         mock_window.tabWidgetMainMode.setCurrentWidget.assert_called_once_with(mock_window.tabExport)
 
     def test_export_data_without_export_widget_shows_warning(self):
@@ -800,7 +800,7 @@ class TestOpenDialogs:
         from lorairo.gui.window.main_window import MainWindow
 
         mock_window = Mock()
-        mock_window.export_widget = None
+        mock_window.export_tab = None
         with patch("lorairo.gui.window.main_window.QMessageBox") as mock_qmb:
             MainWindow.export_data(mock_window)
             mock_qmb.warning.assert_called_once()
@@ -851,7 +851,7 @@ class TestTabChangedHandler:
         mock_window.tabWidgetMainMode.widget.return_value = export_tab
         mock_window._get_staged_export_ids.return_value = [7, 8]
         MainWindow._on_main_tab_changed(mock_window, 6)
-        mock_window.export_widget.set_image_ids.assert_called_once_with([7, 8])
+        mock_window.export_tab.set_image_ids.assert_called_once_with([7, 8])
 
     def test_on_main_tab_changed_search_tab_is_silent(self):
         from lorairo.gui.window.main_window import MainWindow
