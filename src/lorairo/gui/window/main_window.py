@@ -79,7 +79,8 @@ class MainWindow(QMainWindow, Ui_MainWindow):
     # QSettings バージョン（UI構造変更時にインクリメント）
     # 2: Wireframes v11 · 6 タブ化（検索/マップ/アノテーション/ジョブ/結果/エラー）
     # 3: Wireframes v11 Phase 5 · エクスポートタブ追加（7 タブ化）
-    SETTINGS_VERSION = 3
+    # 4: #863 アノテタブ1カラム化（splitterBatchTagMain 縦）· 旧 (横) 保存状態を破棄
+    SETTINGS_VERSION = 4
 
     # シグナル
     dataset_loaded = Signal(str)  # dataset_path
@@ -2709,7 +2710,12 @@ class MainWindow(QMainWindow, Ui_MainWindow):
             if splitter:
                 state = settings.value(settings_key)
                 if state:
+                    # QSplitter.restoreState() は sizes だけでなく orientation も
+                    # 復元するため、.ui 由来の orientation を保存し復元後に再適用する。
+                    # 旧 (横) 状態が新 (縦) レイアウトの向きを巻き戻す回帰を防ぐ (#865)。
+                    designed_orientation = splitter.orientation()
                     splitter.restoreState(state)
+                    splitter.setOrientation(designed_orientation)
                     restored_any = True
                     logger.debug(f"{attr_name} state restored")
 
