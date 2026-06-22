@@ -25,6 +25,7 @@ from PySide6.QtWidgets import QFrame, QGraphicsView, QWidget
 
 from ...gui.designer.StagingWidget_ui import Ui_StagingWidget
 from ...utils.log import logger
+from ..state.staging_state import StagingStateManager
 
 if TYPE_CHECKING:
     from ..state.dataset_state import DatasetStateManager
@@ -57,37 +58,35 @@ class StagingWidget(QWidget):
     - 追加順を保持（OrderedDict）
     """
 
-    # シグナル
+    # シグナル (StagingStateManager のシグナルを再 emit し、既存の消費者契約を維持する)
     staged_images_changed = Signal(list)  # list[int] - ステージング画像IDリスト
     staging_cleared = Signal()  # ステージングリストクリア
 
     # 定数
-    MAX_STAGING_IMAGES = 500
+    MAX_STAGING_IMAGES = StagingStateManager.MAX_STAGING_IMAGES
 
     def __init__(self, parent: QWidget | None = None):
         """
         StagingWidget 初期化
 
         UIコンポーネントの初期化、内部状態の設定、サムネイルウィジェット設定を実行。
+        ステージング集合の SSoT は StagingStateManager に持たせ、本ウィジェットは
+        その view として振る舞う (ADR 0074)。既定では自前の manager を生成し、
+        set_staging_state_manager() で共有 manager に差し替える。
 
         Args:
             parent: 親ウィジェット
-
-        初期状態:
-            - _staged_images: 空の OrderedDict
-            - _dataset_state_manager: None
         """
         super().__init__(parent)
         logger.debug("StagingWidget.__init__() called")
 
-        # 内部状態: ステージング画像管理（OrderedDict で順序保持 + 重複排除）
-        # {image_id: (filename, stored_path)}
-        self._staged_images: OrderedDict[int, tuple[str, str]] = OrderedDict()
+        # ステージング集合の SSoT (既定は自前。共有時は set_staging_state_manager で差替)
+        self._staging_state = StagingStateManager(self)
 
-        # サムネイルキャッシュ（表示用の縮小Pixmap）
+        # サムネイルキャッシュ（表示用の縮小Pixmap、view ローカル）
         self._thumbnail_cache: dict[int, QPixmap] = {}
 
-        # DatasetStateManager への参照（後で set_dataset_state_manager() で設定）
+        # DatasetStateManager への参照（パス解決フォールバック用、view ローカル保持）
         self._dataset_state_manager: DatasetStateManager | None = None
 
         # UI 設定
@@ -98,41 +97,67 @@ class StagingWidget(QWidget):
         self._staging_thumbnail_widget: ThumbnailSelectorWidget | None = None
         self._setup_staging_thumbnail_widget()
 
+        self._connect_state_signals()
+
         # 初期状態更新
         self._update_staging_count_label()
 
         logger.debug("StagingWidget initialized")
 
+    def _connect_state_signals(self) -> None:
+        """現在の StagingStateManager のシグナルを view へ接続する。"""
+        self._staging_state.staged_images_changed.connect(self._on_state_changed)
+        self._staging_state.staging_cleared.connect(self._on_state_cleared)
+
+    @Slot(list)
+    def _on_state_changed(self, image_ids: list[int]) -> None:
+        """SSoT の変更を表示へ反映し、ウィジェットシグナルとして再 emit する。"""
+        self._refresh_staging_list_ui()
+        self.staged_images_changed.emit(image_ids)
+
+    @Slot()
+    def _on_state_cleared(self) -> None:
+        """SSoT のクリアを表示へ反映し、ウィジェットシグナルとして再 emit する。"""
+        self._thumbnail_cache.clear()
+        self._refresh_staging_list_ui()
+        self.staging_cleared.emit()
+
+    def set_staging_state_manager(self, manager: StagingStateManager) -> None:
+        """共有 StagingStateManager に差し替える (タブ間でステージングを共有する)。
+
+        旧 manager のシグナル接続を解除し、新 manager へ接続し直して再描画する。
+        従来の connect_shared_staging を置換する (ADR 0074)。
+
+        Args:
+            manager: 共有する StagingStateManager インスタンス。
+        """
+        if manager is self._staging_state:
+            return
+        try:
+            self._staging_state.staged_images_changed.disconnect(self._on_state_changed)
+            self._staging_state.staging_cleared.disconnect(self._on_state_cleared)
+        except (RuntimeError, TypeError):
+            pass
+        self._staging_state = manager
+        # view が把握している DatasetStateManager を新 manager にも引き継ぐ
+        if self._dataset_state_manager is not None:
+            manager.set_dataset_state_manager(self._dataset_state_manager)
+        self._connect_state_signals()
+        self._refresh_staging_list_ui()
+
+    def get_staging_state_manager(self) -> StagingStateManager:
+        """現在の SSoT である StagingStateManager を返す。"""
+        return self._staging_state
+
     def set_dataset_state_manager(self, dataset_state_manager: "DatasetStateManager") -> None:
-        """DatasetStateManager への参照を設定する。
+        """DatasetStateManager への参照を設定する (view と SSoT 双方へ)。
 
         Args:
             dataset_state_manager: DatasetStateManager インスタンス
         """
         self._dataset_state_manager = dataset_state_manager
+        self._staging_state.set_dataset_state_manager(dataset_state_manager)
         logger.debug("DatasetStateManager reference set in StagingWidget")
-
-    def connect_shared_staging(self, source: "StagingWidget") -> None:
-        """別 StagingWidget と同じステージング状態を共有する。
-
-        Provider Batch タブは通常アノテーションと同じ対象集合を扱うため、
-        class だけでなく OrderedDict 実体も共有する。
-        """
-        if source is self:
-            return
-        self._staged_images = source.get_staged_items()
-        self._thumbnail_cache = source._thumbnail_cache
-        source.staged_images_changed.connect(self._sync_from_shared_staging)
-        source.staging_cleared.connect(self._sync_from_shared_staging)
-        self.staged_images_changed.connect(source._sync_from_shared_staging)
-        self.staging_cleared.connect(source._sync_from_shared_staging)
-        self._refresh_staging_list_ui()
-
-    @Slot()
-    @Slot(list)
-    def _sync_from_shared_staging(self, _image_ids: list[int] | None = None) -> None:
-        """共有ステージングの変更を自分の表示へ反映する。"""
-        self._refresh_staging_list_ui()
 
     def _setup_staging_thumbnail_widget(self) -> None:
         """ステージング一覧を ThumbnailSelectorWidget で表示するセットアップ。"""
@@ -169,124 +194,51 @@ class StagingWidget(QWidget):
 
         現在のステージング画像数 / 最大数 を表示。
         """
-        count = len(self._staged_images)
+        count = self._staging_state.count()
         self.ui.labelStagingCount.setText(f"{count} / {self.MAX_STAGING_IMAGES} 枚")
 
     def add_image_ids(self, image_ids: list[int]) -> None:
-        """指定した画像 ID リストをステージングに追加する。
+        """指定した画像 ID リストをステージングに追加する (SSoT へ委譲)。
 
-        最大 MAX_STAGING_IMAGES 枚の上限と重複排除を適用。
-        追加後に staged_images_changed シグナルを発行する。
+        最大 MAX_STAGING_IMAGES 枚の上限と重複排除を適用。表示更新とシグナル再
+        emit は SSoT の staged_images_changed 経由で行われる。
 
         Args:
             image_ids: 追加する画像 ID リスト
         """
-        if self._dataset_state_manager is None:
-            logger.warning("DatasetStateManager not set")
-            return
-
-        added_count = 0
-        for image_id in image_ids:
-            # 上限チェック
-            if len(self._staged_images) >= self.MAX_STAGING_IMAGES:
-                logger.warning(f"Staging limit reached ({self.MAX_STAGING_IMAGES}), cannot add more images")
-                break
-
-            # 重複チェック（OrderedDict のキー存在確認）
-            if image_id in self._staged_images:
-                continue
-
-            # 画像情報取得
-            image_metadata = self._dataset_state_manager.get_image_by_id(image_id)
-            if image_metadata:
-                from pathlib import Path
-
-                stored_path = image_metadata.get("stored_image_path", "") if image_metadata else ""
-                filename = Path(stored_path).name if stored_path else f"ID:{image_id}"
-                self._staged_images[image_id] = (filename, stored_path)
-                added_count += 1
-
-        # UI 更新
-        self._refresh_staging_list_ui()
-        logger.info(f"Added {added_count} images to staging (total: {len(self._staged_images)})")
-
-        # シグナル発行
-        self.staged_images_changed.emit(list(self._staged_images.keys()))
+        self._staging_state.add_image_ids(image_ids)
 
     def add_selected_images(self) -> None:
-        """DatasetStateManager.selected_image_ids をステージングに追加する。
-
-        DatasetStateManager が未設定の場合、または選択画像がない場合は何もしない。
-        """
-        if self._dataset_state_manager is None:
-            logger.warning("DatasetStateManager not set")
-            return
-
-        selected_ids = self._dataset_state_manager.selected_image_ids
-        if not selected_ids:
-            logger.info("No images selected")
-            return
-
-        self.add_image_ids(selected_ids)
+        """DatasetStateManager.selected_image_ids をステージングに追加する (SSoT へ委譲)。"""
+        self._staging_state.add_selected_images()
 
     def clear(self) -> None:
-        """ステージングリストを全削除する。
-
-        staging_cleared と staged_images_changed([]) シグナルを発行する。
-        """
-        self._staged_images.clear()
-        self._thumbnail_cache.clear()
-        self._refresh_staging_list_ui()
-        logger.info("Staging list cleared")
-
-        # シグナル発行
-        self.staging_cleared.emit()
-        self.staged_images_changed.emit([])
+        """ステージングリストを全削除する (SSoT へ委譲)。"""
+        self._staging_state.clear()
 
     def remove_image_ids(self, image_ids: list[int]) -> None:
-        """指定した画像 ID のみをステージングから除外する。
-
-        送信スナップショット後に追加された画像を保持したまま、送信済み対象だけを
-        ステージングから外すために使う (Issue #571)。変更があった場合のみ
-        staged_images_changed を発行する。
+        """指定した画像 ID のみをステージングから除外する (SSoT へ委譲、Issue #571)。
 
         Args:
             image_ids: 除外する画像 ID リスト。
         """
-        removed = False
-        for image_id in image_ids:
-            if image_id in self._staged_images:
-                del self._staged_images[image_id]
-                self._thumbnail_cache.pop(image_id, None)
-                removed = True
-        if not removed:
-            return
-        self._refresh_staging_list_ui()
-        self.staged_images_changed.emit(self.get_image_ids())
+        self._staging_state.remove_image_ids(image_ids)
 
     def get_image_ids(self) -> list[int]:
-        """ステージング中の画像 ID リストを返す。
-
-        Returns:
-            追加順の画像 ID リスト
-        """
-        return list(self._staged_images.keys())
+        """ステージング中の画像 ID リストを返す (SSoT へ委譲)。"""
+        return self._staging_state.get_image_ids()
 
     def count(self) -> int:
-        """ステージング中の画像数を返す。
-
-        Returns:
-            ステージング画像数
-        """
-        return len(self._staged_images)
+        """ステージング中の画像数を返す (SSoT へ委譲)。"""
+        return self._staging_state.count()
 
     def get_staged_items(self) -> "OrderedDict[int, tuple[str, str]]":
-        """ステージング中の画像メタデータを返す。
+        """ステージング中の画像メタデータを返す (SSoT へ委譲)。
 
         Returns:
             {image_id: (filename, stored_path)} の OrderedDict（追加順）
         """
-        return self._staged_images
+        return self._staging_state.get_staged_items()
 
     def _refresh_staging_list_ui(self) -> None:
         """ステージングリスト UI を再描画する。
@@ -298,7 +250,7 @@ class StagingWidget(QWidget):
 
         staging_paths: list[tuple[str, int]] = []
 
-        for image_id, (_, stored_path) in self._staged_images.items():
+        for image_id, (_, stored_path) in self._staging_state.get_staged_items().items():
             path = stored_path
             if not path and self._dataset_state_manager:
                 metadata = self._dataset_state_manager.get_image_by_id(image_id)
