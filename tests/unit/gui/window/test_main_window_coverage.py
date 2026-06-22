@@ -1138,5 +1138,43 @@ class TestHandleBatchTagAddEdgeCases:
             assert "empty" in mock_logger.warning.call_args[0][0]
 
 
+class TestRestoreSplitterStatesOrientation:
+    """#865: QSplitter.restoreState が orientation を巻き戻さないことの検証。"""
+
+    def test_restore_preserves_designed_orientation(self, qtbot):
+        """旧 (横) 保存状態を縦スプリッターへ復元しても縦のまま維持される。"""
+        from unittest.mock import Mock
+
+        from PySide6.QtCore import Qt
+        from PySide6.QtWidgets import QSplitter, QWidget
+
+        from lorairo.gui.window.main_window import MainWindow
+
+        # 旧 (横) スプリッターの保存状態 (orientation を含む)
+        horizontal = QSplitter(Qt.Orientation.Horizontal)
+        horizontal.addWidget(QWidget())
+        horizontal.addWidget(QWidget())
+        saved_horizontal_state = horizontal.saveState()
+
+        # 新 (縦) スプリッター = .ui 由来の設計 orientation
+        vertical = QSplitter(Qt.Orientation.Vertical)
+        vertical.addWidget(QWidget())
+        vertical.addWidget(QWidget())
+
+        mock_window = Mock()
+        mock_window.splitterMainWorkArea = None
+        mock_window.splitterPreviewDetails = None
+        mock_window.splitterBatchTagMain = vertical
+
+        settings = Mock()
+        settings.value.side_effect = lambda key: (
+            saved_horizontal_state if key == "splitter/batch_tag_main" else None
+        )
+
+        MainWindow._restore_splitter_states(mock_window, settings)
+
+        assert vertical.orientation() == Qt.Orientation.Vertical
+
+
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])
