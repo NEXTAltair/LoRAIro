@@ -1,12 +1,17 @@
-"""StageModelPickerDialog 単体テスト (Phase 6b)"""
+"""StageModelPickerDialog 単体テスト (Issue #839: リッチモーダル化)。
+
+旧 QListWidget 版から ``実行環境 × アノテーション種類 × provider`` 絞り込み +
+モデル行 + conf-min スライダーのリッチモーダルへ刷新したことを検証する。公開 API
+(コンストラクタの 4 キーワード / configure_key_requested / selected_model_ids /
+refresh_key_status) の後方互換も併せて確認する。
+"""
 
 from __future__ import annotations
 
 import pytest
-from PySide6.QtCore import Qt
-from PySide6.QtWidgets import QDialogButtonBox, QLabel, QListWidget
+from PySide6.QtWidgets import QDialogButtonBox, QLabel
 
-from lorairo.gui.widgets.stage_model_picker_dialog import StageModelPickerDialog
+from lorairo.gui.widgets.stage_model_picker_dialog import StageModelPickerDialog, _ModelRow
 from lorairo.services.pipeline_composition import PipelineStage, StageModelInfo
 
 pytestmark = [pytest.mark.unit, pytest.mark.gui]
@@ -20,7 +25,7 @@ GPT4O = StageModelInfo(
     input_cost_per_token=2.5e-06,
     output_cost_per_token=1.0e-05,
 )
-NO_PRICE_API = StageModelInfo(
+CLAUDE_TAGS = StageModelInfo(
     litellm_model_id="anthropic/claude-x",
     display_name="claude-x",
     provider="anthropic",
@@ -34,12 +39,24 @@ WD_TAGGER = StageModelInfo(
     is_api=False,
     capabilities=frozenset({"tags"}),
 )
+AESTHETIC = StageModelInfo(
+    litellm_model_id="aesthetic-v2",
+    display_name="aesthetic-v2",
+    provider=None,
+    is_api=False,
+    capabilities=frozenset({"scores"}),
+)
 
 
-def _candidate_list(dialog: StageModelPickerDialog) -> QListWidget:
-    lists = dialog.findChildren(QListWidget, "stageModelCandidateList")
-    assert len(lists) == 1
-    return lists[0]
+def _rows(dialog: StageModelPickerDialog) -> list[_ModelRow]:
+    return list(dialog._rows)
+
+
+def _row_by_id(dialog: StageModelPickerDialog, model_id: str) -> _ModelRow:
+    for row in dialog._rows:
+        if row.info.litellm_model_id == model_id:
+            return row
+    raise AssertionError(f"row not found: {model_id}")
 
 
 def _ok_button(dialog: StageModelPickerDialog):
@@ -48,78 +65,136 @@ def _ok_button(dialog: StageModelPickerDialog):
     return boxes[0].button(QDialogButtonBox.StandardButton.Ok)
 
 
-class TestStageModelPickerDialogRendering:
+class TestRendering:
     def test_title_uses_uppercase_stage_value(self, qtbot):
         dialog = StageModelPickerDialog(PipelineStage.TAGS, [GPT4O, WD_TAGGER])
         qtbot.addWidget(dialog)
         assert dialog.windowTitle() == "TAGS のモデルを選択"
 
-    def test_candidates_rendered_with_provider_origin(self, qtbot):
-        dialog = StageModelPickerDialog(PipelineStage.TAGS, [GPT4O, WD_TAGGER])
+    def test_one_row_per_candidate(self, qtbot):
+        dialog = StageModelPickerDialog(PipelineStage.TAGS, [GPT4O, WD_TAGGER, CLAUDE_TAGS])
         qtbot.addWidget(dialog)
-        candidate_list = _candidate_list(dialog)
-        assert candidate_list.count() == 2
-        texts = [candidate_list.item(i).text() for i in range(candidate_list.count())]
-        assert any("gpt-4o" in text and "API: openai" in text for text in texts)
-        assert any("wd-v1-4-tagger" in text and "ローカル" in text for text in texts)
+        assert len(_rows(dialog)) == 3
 
     def test_multimodal_row_shows_fanout_note(self, qtbot):
         dialog = StageModelPickerDialog(PipelineStage.TAGS, [GPT4O, WD_TAGGER])
         qtbot.addWidget(dialog)
-        candidate_list = _candidate_list(dialog)
-        texts = [candidate_list.item(i).text() for i in range(candidate_list.count())]
-        multimodal_texts = [text for text in texts if "gpt-4o" in text]
-        assert len(multimodal_texts) == 1
-        assert "1推論で T C S" in multimodal_texts[0]
-        assert "preflight" in multimodal_texts[0]
-        local_texts = [text for text in texts if "wd-v1-4-tagger" in text]
-        assert "1推論で" not in local_texts[0]
+        gpt_row = _row_by_id(dialog, "openai/gpt-4o")
+        note_texts = [label.text() for label in gpt_row.findChildren(QLabel) if "1推論で" in label.text()]
+        assert note_texts and "preflight" in note_texts[0]
+        wd_row = _row_by_id(dialog, "wd-v1-4-tagger")
+        assert all("1推論で" not in label.text() for label in wd_row.findChildren(QLabel))
 
-    def test_candidate_cards_show_per_image_cost(self, qtbot):
-        dialog = StageModelPickerDialog(PipelineStage.TAGS, [GPT4O, WD_TAGGER, NO_PRICE_API])
+    def test_per_image_cost_rendered(self, qtbot):
+        dialog = StageModelPickerDialog(PipelineStage.TAGS, [GPT4O, WD_TAGGER, CLAUDE_TAGS])
         qtbot.addWidget(dialog)
-        candidate_list = _candidate_list(dialog)
-        texts = [candidate_list.item(i).text() for i in range(candidate_list.count())]
-        # GPT4O per-image = 1500*2.5e-6 + 400*1e-5 = 0.00775 → $0.0077/img (.4f 丸め)
-        assert any("gpt-4o" in t and "$0.0077/img" in t for t in texts)
-        # ローカルは無料表記
-        assert any("wd-v1-4-tagger" in t and "ローカル（無料）" in t for t in texts)
-        # pricing 未取得の API モデルは "—"
-        assert any("claude-x" in t and "—" in t for t in texts)
-
-    def test_items_are_user_checkable_and_initially_unchecked(self, qtbot):
-        dialog = StageModelPickerDialog(PipelineStage.TAGS, [GPT4O, WD_TAGGER])
-        qtbot.addWidget(dialog)
-        candidate_list = _candidate_list(dialog)
-        for i in range(candidate_list.count()):
-            item = candidate_list.item(i)
-            assert item.flags() & Qt.ItemFlag.ItemIsUserCheckable
-            assert item.checkState() == Qt.CheckState.Unchecked
+        gpt_texts = [label.text() for label in _row_by_id(dialog, "openai/gpt-4o").findChildren(QLabel)]
+        # GPT4O per-image = 1500*2.5e-6 + 400*1e-5 = 0.00775 → $0.0077/img
+        assert any("$0.0077/img" in t for t in gpt_texts)
+        wd_texts = [label.text() for label in _row_by_id(dialog, "wd-v1-4-tagger").findChildren(QLabel)]
+        assert any("ローカル（無料）" in t for t in wd_texts)
+        claude_texts = [
+            label.text() for label in _row_by_id(dialog, "anthropic/claude-x").findChildren(QLabel)
+        ]
+        assert any("—" in t for t in claude_texts)
 
 
-class TestStageModelPickerDialogSelection:
-    def test_no_check_returns_empty(self, qtbot):
+class TestSelection:
+    def test_no_selection_returns_empty(self, qtbot):
         dialog = StageModelPickerDialog(PipelineStage.TAGS, [GPT4O, WD_TAGGER])
         qtbot.addWidget(dialog)
         assert dialog.selected_model_ids() == []
 
-    def test_checked_items_return_litellm_model_ids(self, qtbot):
+    def test_row_click_toggles_selection_in_candidate_order(self, qtbot):
         dialog = StageModelPickerDialog(PipelineStage.TAGS, [GPT4O, WD_TAGGER])
         qtbot.addWidget(dialog)
-        candidate_list = _candidate_list(dialog)
-        candidate_list.item(0).setCheckState(Qt.CheckState.Checked)
-        candidate_list.item(1).setCheckState(Qt.CheckState.Checked)
+        _row_by_id(dialog, "wd-v1-4-tagger").toggle_requested.emit()
+        _row_by_id(dialog, "openai/gpt-4o").toggle_requested.emit()
+        # 候補順 (GPT4O, WD) で返る
         assert dialog.selected_model_ids() == ["openai/gpt-4o", "wd-v1-4-tagger"]
 
-    def test_partial_check_returns_only_checked(self, qtbot):
+    def test_row_click_twice_deselects(self, qtbot):
+        dialog = StageModelPickerDialog(PipelineStage.TAGS, [WD_TAGGER])
+        qtbot.addWidget(dialog)
+        row = _row_by_id(dialog, "wd-v1-4-tagger")
+        row.toggle_requested.emit()
+        assert dialog.selected_model_ids() == ["wd-v1-4-tagger"]
+        row.toggle_requested.emit()
+        assert dialog.selected_model_ids() == []
+
+    def test_select_all_visible_selects_checkable(self, qtbot):
         dialog = StageModelPickerDialog(PipelineStage.TAGS, [GPT4O, WD_TAGGER])
         qtbot.addWidget(dialog)
-        candidate_list = _candidate_list(dialog)
-        candidate_list.item(1).setCheckState(Qt.CheckState.Checked)
-        assert dialog.selected_model_ids() == ["wd-v1-4-tagger"]
+        dialog._select_all_visible()
+        assert set(dialog.selected_model_ids()) == {"openai/gpt-4o", "wd-v1-4-tagger"}
+        dialog._deselect_all_visible()
+        assert dialog.selected_model_ids() == []
+
+    def test_select_recommended_picks_local_and_multimodal(self, qtbot):
+        # CLAUDE_TAGS は単機能 API → 推奨外。GPT4O(multimodal API) と WD(local) は推奨。
+        dialog = StageModelPickerDialog(
+            PipelineStage.TAGS,
+            [GPT4O, WD_TAGGER, CLAUDE_TAGS],
+            available_providers={"openai", "anthropic"},
+        )
+        qtbot.addWidget(dialog)
+        dialog._select_recommended()
+        assert set(dialog.selected_model_ids()) == {"openai/gpt-4o", "wd-v1-4-tagger"}
 
 
-class TestStageModelPickerDialogEmptyCandidates:
+class TestFilters:
+    def test_env_local_hides_api_rows(self, qtbot):
+        dialog = StageModelPickerDialog(PipelineStage.TAGS, [GPT4O, WD_TAGGER])
+        qtbot.addWidget(dialog)
+        dialog._set_env("local")
+        assert _row_by_id(dialog, "openai/gpt-4o").isHidden()
+        assert not _row_by_id(dialog, "wd-v1-4-tagger").isHidden()
+
+    def test_env_change_resets_provider_to_all(self, qtbot):
+        dialog = StageModelPickerDialog(PipelineStage.TAGS, [GPT4O, WD_TAGGER])
+        qtbot.addWidget(dialog)
+        dialog._on_provider_toggled("openai", True)
+        assert dialog._provider == "openai"
+        dialog._set_env("local")
+        assert dialog._provider == "all"
+
+    def test_type_filter_narrows_to_matching_stage(self, qtbot):
+        # SCORE ステージ: multimodal(GPT4O) と score-only(AESTHETIC) が候補。
+        dialog = StageModelPickerDialog(PipelineStage.SCORE, [GPT4O, AESTHETIC])
+        qtbot.addWidget(dialog)
+        # atype=tags に絞ると tags を出せる GPT4O のみ表示、AESTHETIC は非表示
+        dialog._on_type_toggled("tags", True)
+        assert not _row_by_id(dialog, "openai/gpt-4o").isHidden()
+        assert _row_by_id(dialog, "aesthetic-v2").isHidden()
+
+    def test_no_match_label_visible_when_nothing_matches(self, qtbot):
+        dialog = StageModelPickerDialog(PipelineStage.TAGS, [WD_TAGGER])
+        qtbot.addWidget(dialog)
+        dialog._set_env("api")  # ローカルのみの候補が消える
+        labels = dialog.findChildren(QLabel, "noMatchLabel")
+        assert len(labels) == 1
+        assert not labels[0].isHidden()
+
+
+class TestConfidenceSlider:
+    def test_slider_only_for_tag_models(self, qtbot):
+        dialog = StageModelPickerDialog(PipelineStage.SCORE, [GPT4O, AESTHETIC])
+        qtbot.addWidget(dialog)
+        assert _row_by_id(dialog, "openai/gpt-4o").confidence_value() is not None
+        assert _row_by_id(dialog, "aesthetic-v2").confidence_value() is None
+
+    def test_confidence_thresholds_returns_selected_tag_models(self, qtbot):
+        dialog = StageModelPickerDialog(PipelineStage.SCORE, [GPT4O, AESTHETIC])
+        qtbot.addWidget(dialog)
+        _row_by_id(dialog, "openai/gpt-4o").toggle_requested.emit()
+        _row_by_id(dialog, "aesthetic-v2").toggle_requested.emit()
+        thresholds = dialog.confidence_thresholds()
+        assert "openai/gpt-4o" in thresholds  # tags 対応 + 選択済み
+        assert "aesthetic-v2" not in thresholds  # スライダー非対応
+        assert thresholds["openai/gpt-4o"] == pytest.approx(0.35, abs=0.011)
+
+
+class TestEmptyCandidates:
     def test_empty_candidates_shows_label_and_disables_ok(self, qtbot):
         dialog = StageModelPickerDialog(PipelineStage.RATING, [])
         qtbot.addWidget(dialog)
@@ -127,98 +202,78 @@ class TestStageModelPickerDialogEmptyCandidates:
         assert len(labels) == 1
         assert "追加できる未選択モデルがありません" in labels[0].text()
         ok_button = _ok_button(dialog)
-        assert ok_button is not None
-        assert not ok_button.isEnabled()
+        assert ok_button is not None and not ok_button.isEnabled()
         assert dialog.selected_model_ids() == []
 
 
-class TestStageModelPickerDialogKeyStatus:
-    """Issue #755: ● installed / ● API ready / ○ needs key ステータス表示。"""
+class TestKeyStatus:
+    """Issue #755: ● installed / ● API ready / ○ needs key ステータス。"""
 
-    def _texts(self, dialog: StageModelPickerDialog) -> list[str]:
-        candidate_list = _candidate_list(dialog)
-        return [candidate_list.item(i).text() for i in range(candidate_list.count())]
-
-    def test_local_model_shows_installed_status(self, qtbot):
-        dialog = StageModelPickerDialog(PipelineStage.TAGS, [WD_TAGGER], available_providers=set())
-        qtbot.addWidget(dialog)
-        texts = self._texts(dialog)
-        assert any("wd-v1-4-tagger" in t and "● installed" in t for t in texts)
-
-    def test_api_model_with_key_shows_api_ready(self, qtbot):
-        dialog = StageModelPickerDialog(PipelineStage.TAGS, [GPT4O], available_providers={"openai"})
-        qtbot.addWidget(dialog)
-        texts = self._texts(dialog)
-        assert any("gpt-4o" in t and "● API ready" in t for t in texts)
-
-    def test_api_model_without_key_shows_needs_key_and_not_checkable(self, qtbot):
+    def test_needs_key_row_not_selectable_and_emits_configure(self, qtbot):
         dialog = StageModelPickerDialog(
-            PipelineStage.TAGS, [GPT4O, NO_PRICE_API], available_providers={"openai"}
+            PipelineStage.TAGS, [GPT4O, CLAUDE_TAGS], available_providers={"openai"}
         )
         qtbot.addWidget(dialog)
-        candidate_list = _candidate_list(dialog)
-        texts = self._texts(dialog)
-        assert any("claude-x" in t and "○ needs key" in t for t in texts)
-        # needs key 行 (anthropic) はチェック不可、API ready 行 (openai) はチェック可
-        for i in range(candidate_list.count()):
-            item = candidate_list.item(i)
-            if "claude-x" in item.text():
-                assert not (item.flags() & Qt.ItemFlag.ItemIsUserCheckable)
-            else:
-                assert item.flags() & Qt.ItemFlag.ItemIsUserCheckable
-
-    def test_default_none_available_providers_treats_all_api_ready(self, qtbot):
-        """後方互換: available_providers 未指定では needs key を出さない。"""
-        dialog = StageModelPickerDialog(PipelineStage.TAGS, [GPT4O, NO_PRICE_API])
-        qtbot.addWidget(dialog)
-        texts = self._texts(dialog)
-        assert all("○ needs key" not in t for t in texts)
-
-    def test_needs_key_item_click_emits_configure_key_requested(self, qtbot):
-        dialog = StageModelPickerDialog(PipelineStage.TAGS, [NO_PRICE_API], available_providers=set())
-        qtbot.addWidget(dialog)
-        candidate_list = _candidate_list(dialog)
-        item = candidate_list.item(0)
+        claude_row = _row_by_id(dialog, "anthropic/claude-x")
+        # needs key 行はトグルしても選択されない
+        claude_row.toggle_requested.emit()
+        assert "anthropic/claude-x" not in dialog.selected_model_ids()
+        # クリックで configure_key_requested を emit
         with qtbot.waitSignal(dialog.configure_key_requested, timeout=1000) as blocker:
-            candidate_list.itemClicked.emit(item)
+            claude_row.configure_requested.emit()
         assert blocker.args == ["anthropic"]
 
-    def test_ready_item_click_does_not_emit_signal(self, qtbot):
+    def test_ready_row_does_not_emit_configure(self, qtbot):
         dialog = StageModelPickerDialog(PipelineStage.TAGS, [GPT4O], available_providers={"openai"})
         qtbot.addWidget(dialog)
-        candidate_list = _candidate_list(dialog)
         emitted: list[str] = []
         dialog.configure_key_requested.connect(emitted.append)
-        candidate_list.itemClicked.emit(candidate_list.item(0))
+        _row_by_id(dialog, "openai/gpt-4o").configure_requested.emit()
         assert emitted == []
 
-    def test_refresh_key_status_resolves_needs_key_to_api_ready(self, qtbot):
-        """キー保存後の refresh で ○ needs key → ● API ready に解消され、選択可能になる。"""
-        dialog = StageModelPickerDialog(PipelineStage.TAGS, [NO_PRICE_API], available_providers=set())
+    def test_default_none_available_providers_treats_all_ready(self, qtbot):
+        dialog = StageModelPickerDialog(PipelineStage.TAGS, [GPT4O, CLAUDE_TAGS])
         qtbot.addWidget(dialog)
-        candidate_list = _candidate_list(dialog)
-        item = candidate_list.item(0)
-        assert "○ needs key" in item.text()
+        # available_providers 未指定 → needs key なし → 両方選択可
+        _row_by_id(dialog, "anthropic/claude-x").toggle_requested.emit()
+        assert "anthropic/claude-x" in dialog.selected_model_ids()
+
+    def test_refresh_key_status_resolves_needs_key(self, qtbot):
+        dialog = StageModelPickerDialog(PipelineStage.TAGS, [CLAUDE_TAGS], available_providers=set())
+        qtbot.addWidget(dialog)
+        claude_row = _row_by_id(dialog, "anthropic/claude-x")
+        claude_row.toggle_requested.emit()  # needs key 中は選択不可
+        assert dialog.selected_model_ids() == []
 
         dialog.refresh_key_status({"anthropic"})
 
-        assert "● API ready" in item.text()
-        assert "○ needs key" not in item.text()
-        assert item.flags() & Qt.ItemFlag.ItemIsUserCheckable
-        item.setCheckState(Qt.CheckState.Checked)
+        claude_row.toggle_requested.emit()  # キー解消後は選択可
         assert dialog.selected_model_ids() == ["anthropic/claude-x"]
 
-    def test_refresh_key_status_preserves_checked_state(self, qtbot):
-        """refresh はチェック済み行の選択状態を維持する。"""
+
+class TestBackwardCompatAndFooter:
+    def test_constructor_matches_main_window_call_shape(self, qtbot):
+        # main_window と同じ呼び出し形 (available_providers / parent はキーワード)
         dialog = StageModelPickerDialog(
-            PipelineStage.TAGS, [GPT4O, NO_PRICE_API], available_providers={"openai"}
+            PipelineStage.TAGS,
+            [GPT4O, WD_TAGGER],
+            available_providers={"openai"},
+            parent=None,
         )
         qtbot.addWidget(dialog)
-        candidate_list = _candidate_list(dialog)
-        for i in range(candidate_list.count()):
-            if "gpt-4o" in candidate_list.item(i).text():
-                candidate_list.item(i).setCheckState(Qt.CheckState.Checked)
+        assert dialog.selected_model_ids() == []
 
-        dialog.refresh_key_status({"openai", "anthropic"})
+    def test_staged_count_shows_jobs_in_footer(self, qtbot):
+        dialog = StageModelPickerDialog(PipelineStage.TAGS, [WD_TAGGER], staged_count=9)
+        qtbot.addWidget(dialog)
+        _row_by_id(dialog, "wd-v1-4-tagger").toggle_requested.emit()
+        footer_texts = [label.text() for label in dialog.findChildren(QLabel)]
+        assert any("1 × 9 = 9 jobs" in t for t in footer_texts)
 
-        assert dialog.selected_model_ids() == ["openai/gpt-4o"]
+    def test_no_staged_count_omits_jobs(self, qtbot):
+        dialog = StageModelPickerDialog(PipelineStage.TAGS, [WD_TAGGER])
+        qtbot.addWidget(dialog)
+        _row_by_id(dialog, "wd-v1-4-tagger").toggle_requested.emit()
+        footer_texts = [label.text() for label in dialog.findChildren(QLabel)]
+        assert any("1 モデル選択中" in t for t in footer_texts)
+        assert all("jobs" not in t for t in footer_texts)
