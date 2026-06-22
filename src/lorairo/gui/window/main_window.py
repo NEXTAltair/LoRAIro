@@ -23,11 +23,9 @@ from PySide6.QtWidgets import (
 
 from ...database.db_core import IMG_DB_PATH, get_current_project_root, get_user_tag_db_path
 from ...database.db_manager import ImageDatabaseManager
-from ...database.schema import ErrorRecord
 from ...gui.designer.MainWindow_ui import Ui_MainWindow
 from ...services import get_service_container
 from ...services.configuration_service import ConfigurationService
-from ...services.error_triage_service import ErrorFilter, ErrorRow, ErrorTriageService
 from ...services.model_route_service import build_available_providers
 from ...services.model_selection_service import ModelSelectionService
 from ...services.pipeline_composition import PipelineCompositionService, PipelineStage, StageModelInfo
@@ -50,11 +48,11 @@ from ..services.worker_service import WorkerService
 from ..state.dataset_state import DatasetStateManager
 from ..state.staging_state import StagingStateManager
 from ..tab.cli_tab import CliTabWidget
+from ..tab.errors_tab import ErrorsTabWidget
 from ..tab.map_tab import MapTabWidget
 from ..tab.results_tab import ResultsTabWidget
 from ..widgets.dataset_export_widget import DatasetExportWidget
 from ..widgets.error_notification_widget import ErrorNotificationWidget
-from ..widgets.errors_triage_widget import ErrorsTriageWidget
 from ..widgets.filter_search_panel import FilterSearchPanel
 from ..widgets.image_preview import ImagePreviewWidget
 from ..widgets.inference_ledger_widget import InferenceLedgerWidget
@@ -129,8 +127,7 @@ class MainWindow(QMainWindow, Ui_MainWindow):
 
     # Error handling UI components
     error_notification_widget: ErrorNotificationWidget | None
-    errors_triage_widget: ErrorsTriageWidget | None
-    error_triage_service: ErrorTriageService
+    errors_tab: ErrorsTabWidget | None
     results_tab: ResultsTabWidget | None
 
     # Map tab
@@ -663,26 +660,28 @@ class MainWindow(QMainWindow, Ui_MainWindow):
         logger.info("✅ 結果タブ (ResultsTabWidget) initialized")
 
     def _setup_errors_tab(self) -> None:
-        """エラータブに ErrorsTriageWidget を埋め込む。
+        """エラータブに ErrorsTabWidget を埋め込む。
 
-        Wireframes v11 Frame 4 · Errors。同一原因グルーピング + クロスフィルタ +
-        resolve アクションを持つトリアージ widget を常設する。
+        Wireframes v11 Frame 4 · Errors。固有の振る舞いを持つ ErrorsTabWidget を
+        .ui の tabErrors コンテナへ埋め込み、依存を注入するだけ (glue, #871)。
+        resolve 時の statusBar 通知バッジ更新は errors_resolved シグナル経由で行う。
         """
-        self.error_triage_service = ErrorTriageService()
-
         container = getattr(self, "tabErrors", None)
         if container is None:
             logger.warning("tabErrors not found - errors tab skipped")
-            self.errors_triage_widget = None
+            self.errors_tab = None
             return
 
-        widget = ErrorsTriageWidget(parent=container)
-        widget.resolve_requested.connect(self._on_error_resolve)
-        widget.resolve_group_requested.connect(self._on_errors_resolve_group)
-        widget.filter_changed.connect(self._refresh_errors_tab)
+        widget = ErrorsTabWidget(db_manager=self.db_manager, parent=container)
+        widget.errors_resolved.connect(self._update_error_notification_count)
         container.layout().addWidget(widget)
-        self.errors_triage_widget = widget
-        logger.info("✅ エラータブ (ErrorsTriageWidget) initialized")
+        self.errors_tab = widget
+        logger.info("✅ エラータブ (ErrorsTabWidget) initialized")
+
+    def _update_error_notification_count(self) -> None:
+        """statusBar のエラー通知バッジ件数を再計算する。"""
+        if self.error_notification_widget:
+            self.error_notification_widget.update_error_count()
 
     def _setup_export_tab(self) -> None:
         """エクスポートタブに DatasetExportWidget を常設する。
@@ -1156,66 +1155,6 @@ class MainWindow(QMainWindow, Ui_MainWindow):
             return
         self._reload_model_widget_after_settings()
         dialog.refresh_key_status(self._available_api_providers())
-
-    def _refresh_errors_tab(self) -> None:
-        """エラータブ表示時 / フィルタ変更時にトリアージを再計算して描画する。"""
-        if self.errors_triage_widget is None:
-            return
-        if not self.db_manager:
-            self.errors_triage_widget.display(
-                self.error_triage_service.summarize([]),
-                [],
-                [],
-            )
-            return
-
-        # 全エラー (resolved/unresolved 両方) を取得して ErrorRow へ変換する。
-        # status/operation/error_type は DB クエリ、model は in-memory で絞り込む。
-        records = self.db_manager.error_record_repo.get_error_records(resolved=None, limit=500)
-        all_rows = [self._error_record_to_row(record) for record in records]
-
-        # フィルタ combo の選択肢を distinct 値で更新する。
-        operation_types = sorted({r.operation_type for r in all_rows})
-        error_types = sorted({r.error_type for r in all_rows})
-        model_names = sorted({r.model_name for r in all_rows if r.model_name})
-        self.errors_triage_widget.set_filter_options(operation_types, error_types, model_names)
-
-        summary = self.error_triage_service.summarize(all_rows)
-        error_filter = self.errors_triage_widget.get_filter()
-        filtered = self.error_triage_service.apply_filter(all_rows, error_filter)
-        groups = self.error_triage_service.group_errors(filtered)
-        self.errors_triage_widget.display(summary, groups, filtered)
-
-    @staticmethod
-    def _error_record_to_row(record: ErrorRecord) -> ErrorRow:
-        """ErrorRecord ORM を ORM 非依存の ErrorRow に変換する。"""
-        return ErrorRow(
-            error_id=record.id,
-            image_id=record.image_id,
-            operation_type=record.operation_type,
-            error_type=record.error_type,
-            error_message=record.error_message,
-            model_name=record.model_name,
-            resolved=record.resolved_at is not None,
-            created_at=record.created_at,
-        )
-
-    def _on_error_resolve(self, error_id: int) -> None:
-        """単一エラーを resolve して再描画する。"""
-        if self.db_manager:
-            self.db_manager.mark_errors_resolved_batch([error_id])
-            if self.error_notification_widget:
-                self.error_notification_widget.update_error_count()
-        self._refresh_errors_tab()
-
-    def _on_errors_resolve_group(self, error_ids: list[int]) -> None:
-        """グループ / 一括の error_id 群を resolve して再描画する。"""
-        if self.db_manager and error_ids:
-            _, resolved = self.db_manager.mark_errors_resolved_batch(error_ids)
-            logger.info(f"一括 resolve 完了: {resolved} 件")
-            if self.error_notification_widget:
-                self.error_notification_widget.update_error_count()
-        self._refresh_errors_tab()
 
     def _on_error_notification_clicked(self) -> None:
         """エラー通知 / メニュー操作でエラータブへ遷移する。"""
@@ -2536,7 +2475,8 @@ class MainWindow(QMainWindow, Ui_MainWindow):
                 self.results_tab.refresh()
         elif current is getattr(self, "tabErrors", None):
             logger.info("Switched to Errors tab")
-            self._refresh_errors_tab()
+            if self.errors_tab is not None:
+                self.errors_tab.refresh()
         elif current is getattr(self, "tabExport", None):
             logger.info("Switched to Export tab")
             # ステージング集合を再読込（シグナル取りこぼしの安全網、ADR 0055）

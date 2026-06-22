@@ -65,12 +65,15 @@ class TestMainWindowTabInitialization:
         assert tab_widget.widget(5).objectName() == "tabErrors"
 
     def test_errors_tab_embeds_triage_widget(self, main_window_with_tabs):
-        """エラータブに ErrorsTriageWidget が常設される"""
-        errors_tab = main_window_with_tabs.tabWidgetMainMode.widget(5)
-        assert errors_tab.objectName() == "tabErrors"
-        viewer = errors_tab.findChild(ErrorsTriageWidget)
+        """エラータブが ErrorsTabWidget で常設され ErrorsTriageWidget を内包する (#871)"""
+        from lorairo.gui.tab.errors_tab import ErrorsTabWidget
+
+        errors_container = main_window_with_tabs.tabWidgetMainMode.widget(5)
+        assert errors_container.objectName() == "tabErrors"
+        viewer = errors_container.findChild(ErrorsTriageWidget)
         assert viewer is not None
-        assert main_window_with_tabs.errors_triage_widget is viewer
+        assert isinstance(main_window_with_tabs.errors_tab, ErrorsTabWidget)
+        assert main_window_with_tabs.errors_tab.triage_widget is viewer
 
     def test_export_tab_embeds_export_widget(self, main_window_with_tabs):
         """エクスポートタブに DatasetExportWidget が常設される (Phase 5)"""
@@ -111,7 +114,7 @@ class TestMainWindowTabInitialization:
         window = main_window_with_tabs
         mark = Mock(return_value=(True, 1))
         window.db_manager.mark_errors_resolved_batch = mark
-        window.errors_triage_widget.resolve_requested.emit(7)
+        window.errors_tab.triage_widget.resolve_requested.emit(7)
         mark.assert_called_once_with([7])
 
     def test_errors_resolve_group_marks_all(self, main_window_with_tabs):
@@ -121,7 +124,7 @@ class TestMainWindowTabInitialization:
         window = main_window_with_tabs
         mark = Mock(return_value=(True, 3))
         window.db_manager.mark_errors_resolved_batch = mark
-        window.errors_triage_widget.resolve_group_requested.emit([1, 2, 3])
+        window.errors_tab.triage_widget.resolve_group_requested.emit([1, 2, 3])
         mark.assert_called_once_with([1, 2, 3])
 
     def test_error_notification_click_navigates_to_errors_tab(self, main_window_with_tabs):
