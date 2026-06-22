@@ -290,8 +290,13 @@ class WidgetSetupService:
         logger.info("✅ BatchTagAddWidget を新規作成してバッチタグタブに追加完了")
 
     @staticmethod
-    def _setup_annotation_display_widget(main_window: Any, splitter: Any) -> None:
-        """AnnotationDataDisplayWidgetの設定（スプリッター内のプレースホルダーを置換）"""
+    def _setup_annotation_display_widget(main_window: Any, container: Any) -> None:
+        """AnnotationDataDisplayWidgetの設定（コンテナ内のプレースホルダーを置換）
+
+        #844 で操作パネルはサブタブ(QSplitter)から単一縦カラム(QScrollArea +
+        QVBoxLayout)へ移行したため、QSplitter 固有の ``indexOf``/``replaceWidget``
+        は splitter のときだけ使い、それ以外はレイアウト経由で置換する。
+        """
         if hasattr(main_window, "batchTagAnnotationDisplay") and main_window.batchTagAnnotationDisplay:
             logger.debug("AnnotationDataDisplayWidget は既に作成済み、スキップ")
             return
@@ -299,7 +304,7 @@ class WidgetSetupService:
         from ..widgets.annotation_data_display_widget import AnnotationDataDisplayWidget
 
         # プレースホルダーを取得
-        placeholder = splitter.findChild(object, "annotationDisplayPlaceholder")
+        placeholder = container.findChild(object, "annotationDisplayPlaceholder")
         if not placeholder:
             logger.warning("⚠️ annotationDisplayPlaceholder が見つかりません")
             return
@@ -307,9 +312,10 @@ class WidgetSetupService:
         # AnnotationDataDisplayWidget新規作成してプレースホルダーを置換
         widget = AnnotationDataDisplayWidget()
         widget.setObjectName("batchTagAnnotationDisplay")
-        index = splitter.indexOf(placeholder)
+        # QSplitter のときのみ indexOf/replaceWidget を使い、それ以外はレイアウト置換
+        index = container.indexOf(placeholder) if hasattr(container, "indexOf") else -1
         if index != -1:
-            splitter.replaceWidget(index, widget)
+            container.replaceWidget(index, widget)
         else:
             parent = placeholder.parentWidget()
             if parent and parent.layout():
