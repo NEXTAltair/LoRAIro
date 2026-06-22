@@ -1,6 +1,6 @@
 ---
 name: lorairo-qt-widget
-version: "1.2.0"
+version: "1.3.0"
 description: PySide6 widget technical implementation for LoRAIro GUI. Covers Signal/Slot patterns, Direct Widget Communication, Qt Designer integration, and async workers. For design intent and aesthetics, use interface-design skill first.
 metadata:
   short-description: PySide6技術実装（Signal/Slot、Qt Designer）。デザイン意図はinterface-design参照。
@@ -211,6 +211,14 @@ class AsyncWidget(QWidget):
 2. **Centralize in MainWindow**: All connections in `_connect_widgets()`
 3. **connect_to_* pattern**: Provide `connect_to_{widget}()` methods
 4. **Type safety**: All signals/slots must specify types
+
+### Widget Composition / MainWindow = glue (MUST)
+画面/タブの構成は **コンポジション** を基本とし、MainWindow は薄く保つ。
+- **1 タブ / 1 画面 = 1 専用ウィジェット。** そのタブのレイアウト・子ウィジェット・Signal 配線・固有の振る舞い (ピッカー起動 / preset 配線 / run bar 構築 / パイプライン構成 等) は **そのタブウィジェットが所有**する。
+- **MainWindow は「接着剤 (glue / orchestrator)」に徹する。** 役割は ① タブウィジェットを配置 ② サービス注入 ③ トップレベル Signal 接続 まで。**タブ/画面固有のロジックを MainWindow に直接書かない** (書きたくなったら、そのタブウィジェットへ移す合図)。
+- **再利用部品は DS 部品ライブラリ** `src/lorairo/gui/widgets/ds/` (DsCard/DsChip/DsSegmentedControl/DsSummaryStat 等) に切り出し、画面はそれを組み合わせて構成する (claude.ai/design の「画面ごとコンポーネント」と同じ語彙)。
+- **判断基準**: その振る舞いは「タブ間で共有する接着」か「特定タブ固有」か。固有なら MainWindow でなくタブウィジェットへ。再利用するなら `ds/` へ。
+- ウィジェット分割 + composition は Qt の基本設計でコスト低 — 「大幅リファクタ」と過大評価しない ([[feedback_qt_widget_extraction_cheap]])。根拠と全体方針は `docs/architecture.md` の GUI Architecture「Widget composition principle」+ `docs/lessons-learned.md` (MainWindow 肥大)。
 
 ## Styling with QSS
 
