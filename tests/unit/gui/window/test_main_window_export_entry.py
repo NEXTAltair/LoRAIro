@@ -54,6 +54,10 @@ class _BareMainWindow(QMainWindow, Ui_MainWindow):
     def _refresh_pipeline_panel(self, selected_ids: list[str] | None = None) -> None:
         pass
 
+    # Issue #837: _on_staged_images_changed が送信前プリフライト card も再描画するため
+    def _refresh_preflight_summary(self) -> None:
+        pass
+
 
 @pytest.fixture
 def bare_window(qtbot):
