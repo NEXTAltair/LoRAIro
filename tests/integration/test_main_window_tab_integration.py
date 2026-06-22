@@ -76,14 +76,16 @@ class TestMainWindowTabInitialization:
         assert main_window_with_tabs.errors_tab.triage_widget is viewer
 
     def test_export_tab_embeds_export_widget(self, main_window_with_tabs):
-        """エクスポートタブに DatasetExportWidget が常設される (Phase 5)"""
+        """エクスポートタブが ExportTabWidget で常設され DatasetExportWidget を内包する (#872)"""
+        from lorairo.gui.tab.export_tab import ExportTabWidget
         from lorairo.gui.widgets.dataset_export_widget import DatasetExportWidget
 
-        export_tab = main_window_with_tabs.tabWidgetMainMode.widget(6)
-        assert export_tab.objectName() == "tabExport"
-        widget = export_tab.findChild(DatasetExportWidget)
+        export_container = main_window_with_tabs.tabWidgetMainMode.widget(6)
+        assert export_container.objectName() == "tabExport"
+        widget = export_container.findChild(DatasetExportWidget)
         assert widget is not None
-        assert main_window_with_tabs.export_widget is widget
+        assert isinstance(main_window_with_tabs.export_tab, ExportTabWidget)
+        assert main_window_with_tabs.export_tab.export_widget is widget
 
     def test_cli_tab_embeds_reference_widget(self, main_window_with_tabs):
         """CLI タブが CliTabWidget で常設され、CliReferenceWidget を内包する (Frame 8, #873)"""
