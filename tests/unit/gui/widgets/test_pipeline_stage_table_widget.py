@@ -5,6 +5,7 @@ from __future__ import annotations
 import pytest
 from PySide6.QtWidgets import QLabel, QToolButton, QWidget
 
+from lorairo.gui.widgets.ds import DsCard
 from lorairo.gui.widgets.pipeline_stage_table_widget import (
     _BUILTIN_PRESETS,
     _DEFAULT_PRESET_ID,
@@ -248,3 +249,60 @@ class TestPipelineStageTableWidgetRedisplay:
         assert len(widget.findChildren(QLabel, "derivedChip")) == first_derived
         for stage in ("TAGS", "CAPTION", "SCORE", "RATING"):
             assert len(widget.findChildren(QWidget, f"stageRow_{stage}")) == 1
+
+
+class TestPipelineStageTableWidgetDsCardStructure:
+    """#846/#847: DsCard 化による視覚構造テスト。"""
+
+    def test_stage_rows_are_wrapped_in_ds_card(self, widget):
+        """各ステージ行は DsCard で包まれている (#846)。"""
+        widget.display(_sample_rows())
+        for stage in ("TAGS", "CAPTION", "SCORE", "RATING"):
+            rows = widget.findChildren(QWidget, f"stageRow_{stage}")
+            assert len(rows) == 1
+            assert isinstance(rows[0], DsCard), f"stageRow_{stage} は DsCard であるべき"
+
+    def test_stage_rows_are_ds_card_after_clear(self, widget):
+        """clear() 後も空ステージ行は DsCard で包まれている (#846)。"""
+        widget.clear()
+        for stage in ("TAGS", "CAPTION", "SCORE", "RATING"):
+            rows = widget.findChildren(QWidget, f"stageRow_{stage}")
+            assert len(rows) == 1
+            assert isinstance(rows[0], DsCard)
+
+    def test_preset_row_is_wrapped_in_ds_card(self, widget):
+        """プリセット chip 行は DsCard で包まれている (#847)。"""
+        preset_cards = widget.findChildren(DsCard, "presetRow")
+        assert len(preset_cards) == 1
+
+    def test_legend_is_inside_preset_card(self, widget):
+        """凡例ラベルはプリセット DsCard 内に収まっている (#847)。"""
+        preset_card = widget.findChildren(DsCard, "presetRow")[0]
+        legends = preset_card.findChildren(QLabel, "pipelineLegendLabel")
+        assert len(legends) == 1
+        assert "↝" in legends[0].text()
+        assert "MULTI" in legends[0].text()
+
+    def test_preset_chips_are_inside_preset_card(self, widget):
+        """preset chip ボタンはプリセット DsCard 内に収まっている (#847)。"""
+        preset_card = widget.findChildren(DsCard, "presetRow")[0]
+        chips = preset_card.findChildren(QToolButton, "presetChip")
+        assert len(chips) == len(_BUILTIN_PRESETS)
+
+    def test_stage_card_contains_count_and_chips(self, widget):
+        """ステージ DsCard 内に count ラベルとチップが収まっている (#846)。"""
+        widget.display(_sample_rows())
+        tags_card = widget.findChildren(DsCard, "stageRow_TAGS")[0]
+        # count ラベル
+        assert len(tags_card.findChildren(QLabel, "stageCount_TAGS")) == 1
+        # primary chip
+        assert len(tags_card.findChildren(QLabel, "primaryChip")) >= 1
+        # derived chip
+        assert len(tags_card.findChildren(QLabel, "derivedChip")) >= 1
+
+    def test_stage_card_contains_add_button(self, widget):
+        """ステージ DsCard 内に「+ 追加」ボタンが収まっている (#846)。"""
+        widget.display(_sample_rows())
+        for stage in ("TAGS", "CAPTION", "SCORE", "RATING"):
+            card = widget.findChildren(DsCard, f"stageRow_{stage}")[0]
+            assert len(card.findChildren(QToolButton, "stageAddModelButton")) == 1
