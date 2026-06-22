@@ -834,11 +834,12 @@ class TestTabChangedHandler:
         from lorairo.gui.window.main_window import MainWindow
 
         mock_window = Mock()
-        errors_tab = Mock()
-        mock_window.tabErrors = errors_tab
-        mock_window.tabWidgetMainMode.widget.return_value = errors_tab
+        errors_container = Mock()
+        mock_window.tabErrors = errors_container
+        mock_window.tabWidgetMainMode.widget.return_value = errors_container
         MainWindow._on_main_tab_changed(mock_window, 5)
-        mock_window._refresh_errors_tab.assert_called_once()
+        # #871: タブ切替は ErrorsTabWidget.refresh() へ委譲する
+        mock_window.errors_tab.refresh.assert_called_once()
 
     def test_on_main_tab_changed_export_tab_syncs_staging(self):
         """Phase 5: エクスポートタブ表示時はステージング集合を再読込する。"""
@@ -1032,26 +1033,8 @@ class TestSendSelectedToBatchTag:
 class TestErrorHandlers:
     """エラーハンドラのテスト"""
 
-    def test_on_error_resolve_marks_and_updates_notification(self):
-        from lorairo.gui.window.main_window import MainWindow
-
-        mock_window = Mock()
-        mock_window.db_manager.mark_errors_resolved_batch.return_value = (True, 1)
-        mock_window.error_notification_widget = Mock()
-        MainWindow._on_error_resolve(mock_window, 42)
-        mock_window.db_manager.mark_errors_resolved_batch.assert_called_once_with([42])
-        mock_window.error_notification_widget.update_error_count.assert_called_once()
-        mock_window._refresh_errors_tab.assert_called_once()
-
-    def test_on_errors_resolve_group_marks_all(self):
-        from lorairo.gui.window.main_window import MainWindow
-
-        mock_window = Mock()
-        mock_window.db_manager.mark_errors_resolved_batch.return_value = (True, 3)
-        mock_window.error_notification_widget = Mock()
-        MainWindow._on_errors_resolve_group(mock_window, [1, 2, 3])
-        mock_window.db_manager.mark_errors_resolved_batch.assert_called_once_with([1, 2, 3])
-        mock_window._refresh_errors_tab.assert_called_once()
+    # NOTE: _on_error_resolve / _on_errors_resolve_group は #871 で ErrorsTabWidget へ
+    # 移設したため、resolve 振る舞いの検証は tests/unit/gui/tab/test_errors_tab.py に移動。
 
     def test_on_batch_import_error_shows_critical_and_updates_widget(self):
         from lorairo.gui.window.main_window import MainWindow
