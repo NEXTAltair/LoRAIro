@@ -5,7 +5,11 @@ from __future__ import annotations
 import pytest
 from PySide6.QtWidgets import QLabel, QToolButton, QWidget
 
-from lorairo.gui.widgets.pipeline_stage_table_widget import PipelineStageTableWidget
+from lorairo.gui.widgets.pipeline_stage_table_widget import (
+    _BUILTIN_PRESETS,
+    _DEFAULT_PRESET_ID,
+    PipelineStageTableWidget,
+)
 from lorairo.services.pipeline_composition import (
     DerivedChip,
     PipelineStage,
@@ -178,6 +182,60 @@ class TestPipelineStageTableWidgetOperations:
         derived = widget.findChildren(QLabel, "derivedChip")
         assert derived != []
         assert all("外せません" in chip.toolTip() for chip in derived)
+
+
+class TestPipelineStageTableWidgetPresetRow:
+    """Issue #838: パイプライン上部の preset chip 行を検証する。"""
+
+    def test_preset_row_renders_all_builtin_presets(self, widget):
+        chips = widget.findChildren(QToolButton, "presetChip")
+        assert len(chips) == len(_BUILTIN_PRESETS)
+        texts = [chip.text() for chip in chips]
+        assert texts == [f"{p.label} {p.model_count}" for p in _BUILTIN_PRESETS]
+
+    def test_preset_row_has_save_button(self, widget):
+        save_buttons = widget.findChildren(QToolButton, "savePresetButton")
+        assert len(save_buttons) == 1
+        assert "保存" in save_buttons[0].text()
+
+    def test_default_preset_is_active_on_init(self, widget):
+        chips = {
+            chip.text().rsplit(" ", 1)[0]: chip for chip in widget.findChildren(QToolButton, "presetChip")
+        }
+        default_label = next(p.label for p in _BUILTIN_PRESETS if p.preset_id == _DEFAULT_PRESET_ID)
+        assert chips[default_label].isChecked()
+        # 他のプリセットは非アクティブ
+        for label, chip in chips.items():
+            assert chip.isChecked() == (label == default_label)
+
+    def test_preset_click_emits_preset_id(self, widget, qtbot):
+        chips = widget.findChildren(QToolButton, "presetChip")
+        target = next(c for c in chips if c.text().startswith("Tags only"))
+        with qtbot.waitSignal(widget.preset_selected, timeout=1000) as blocker:
+            target.click()
+        assert blocker.args == ["tags_only"]
+
+    def test_preset_click_updates_active_highlight(self, widget):
+        chips = {c.text().split(" ")[0]: c for c in widget.findChildren(QToolButton, "presetChip")}
+        chips["Tags"].click()  # "Tags only N"
+        assert chips["Tags"].isChecked()
+        assert not chips["Default"].isChecked()
+
+    def test_set_active_preset_does_not_emit(self, widget, qtbot):
+        with qtbot.assertNotEmitted(widget.preset_selected):
+            widget.set_active_preset("score_rate")
+        chips = {c.text().split(" ")[0]: c for c in widget.findChildren(QToolButton, "presetChip")}
+        assert chips["Score·rate"].isChecked()
+
+    def test_set_active_preset_unknown_clears_all(self, widget):
+        widget.set_active_preset("nonexistent")
+        chips = widget.findChildren(QToolButton, "presetChip")
+        assert all(not chip.isChecked() for chip in chips)
+
+    def test_save_button_click_emits_save_request(self, widget, qtbot):
+        save_button = widget.findChildren(QToolButton, "savePresetButton")[0]
+        with qtbot.waitSignal(widget.save_preset_requested, timeout=1000):
+            save_button.click()
 
 
 class TestPipelineStageTableWidgetRedisplay:
