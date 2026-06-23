@@ -22,7 +22,6 @@ from ...database.db_manager import ImageDatabaseManager
 from ...gui.designer.MainWindow_ui import Ui_MainWindow
 from ...services import get_service_container
 from ...services.configuration_service import ConfigurationService
-from ...services.model_selection_service import ModelSelectionService
 from ...services.selection_state_service import SelectionStateService
 from ...services.service_container import ServiceContainer
 from ...storage.file_system import FileSystemManager
@@ -34,9 +33,7 @@ from ..services.image_db_write_service import ImageDBWriteService
 from ..services.pipeline_control_service import PipelineControlService
 from ..services.progress_state_service import ProgressStateService
 from ..services.result_handler_service import ResultHandlerService
-from ..services.search_filter_service import SearchFilterService
 from ..services.tab_reorganization_service import TabReorganizationService
-from ..services.widget_setup_service import WidgetSetupService
 from ..services.worker_service import WorkerService
 from ..state.dataset_state import DatasetStateManager
 from ..state.staging_state import StagingStateManager
@@ -46,15 +43,12 @@ from ..tab.errors_tab import ErrorsTabWidget
 from ..tab.export_tab import ExportTabWidget
 from ..tab.map_tab import MapTabWidget
 from ..tab.results_tab import ResultsTabWidget
+from ..tab.search_tab import SearchTabWidget
 from ..widgets.error_notification_widget import ErrorNotificationWidget
-from ..widgets.filter_search_panel import FilterSearchPanel
-from ..widgets.image_preview import ImagePreviewWidget
 from ..widgets.provider_batch_job_widget import ProviderBatchJobWidget
 from ..widgets.quick_tag_dialog import QuickTagDialog
 from ..widgets.registration_summary_widget import RegistrationSummaryWidget
-from ..widgets.selected_image_details_widget import SelectedImageDetailsWidget
 from ..widgets.tag_management_dialog import TagManagementDialog
-from ..widgets.thumbnail import ThumbnailSelectorWidget
 
 
 class MainWindow(QMainWindow, Ui_MainWindow):
@@ -67,7 +61,8 @@ class MainWindow(QMainWindow, Ui_MainWindow):
     # 2: Wireframes v11 · 6 タブ化（検索/マップ/アノテーション/ジョブ/結果/エラー）
     # 3: Wireframes v11 Phase 5 · エクスポートタブ追加（7 タブ化）
     # 4: #863 アノテタブ1カラム化（splitterBatchTagMain 縦）· 旧 (横) 保存状態を破棄
-    SETTINGS_VERSION = 4
+    # 5: #869 検索タブ SearchTabWidget 化（tabWorkspace 空化）· splitter キー構成変更
+    SETTINGS_VERSION = 5
 
     # シグナル
     dataset_loaded = Signal(str)  # dataset_path
@@ -88,20 +83,18 @@ class MainWindow(QMainWindow, Ui_MainWindow):
     settings_controller: SettingsController | None
     export_tab: ExportTabWidget | None
     annotate_tab: AnnotateTabWidget | None
+    search_tab: SearchTabWidget | None
     result_handler_service: ResultHandlerService | None
     pipeline_control_service: PipelineControlService | None
     progress_state_service: ProgressStateService | None
+    image_db_write_service: ImageDBWriteService | None
 
     @property
     def service_container(self) -> ServiceContainer:
         """ServiceContainer singleton instance"""
         return ServiceContainer()
 
-    # ウィジェット属性の型定義（Qt Designerで生成）
-    filterSearchPanel: FilterSearchPanel  # Qt Designer生成
-    thumbnail_selector: ThumbnailSelectorWidget | None
-    image_preview_widget: ImagePreviewWidget | None
-    selected_image_details_widget: SelectedImageDetailsWidget | None
+    # ウィジェット属性の型定義
     provider_batch_job_widget: ProviderBatchJobWidget | None
 
     # Tab widget (programmatically created)
@@ -162,10 +155,6 @@ class MainWindow(QMainWindow, Ui_MainWindow):
             # Phase 3: UI カスタマイズ（サービス依存）
             logger.info("Phase 3: UI カスタマイズ開始")
             self.setup_custom_widgets()
-
-            # Phase 3.5: サービス統合（新規）
-            logger.info("Phase 3.5: SearchFilterService統合開始")
-            self._setup_search_filter_integration()
 
             # Service統合（DataTransform/ResultHandler/PipelineControl）
             logger.info("Service層統合開始")
@@ -260,8 +249,14 @@ class MainWindow(QMainWindow, Ui_MainWindow):
             self.staging_state_manager = None
 
     def _update_database_status_label(self) -> None:
-        """ステータスバーのDB表示を現在のプロジェクトディレクトリに合わせる"""
-        if not hasattr(self, "labelDbInfo") or self.labelDbInfo is None:
+        """検索タブのDB状態バーを現在のプロジェクトディレクトリに合わせる。
+
+        DB 状態バー (labelDbInfo) は SearchTabWidget へ移管したため、
+        ``set_db_info`` 経由で更新する。検索タブ生成前 (サービス初期化フェーズ)
+        は no-op とし、タブ生成直後に再度呼び出して反映させる (#869)。
+        """
+        search_tab = getattr(self, "search_tab", None)
+        if search_tab is None:
             return
 
         try:
@@ -273,9 +268,8 @@ class MainWindow(QMainWindow, Ui_MainWindow):
             if tag_db_path:
                 tooltip_lines.append(f"タグDB: {tag_db_path.resolve()}")
 
-            self.labelDbInfo.setText(f"データベース: {project_root}")
-            self.labelDbInfo.setToolTip("\n".join(tooltip_lines))
-        except Exception as e:
+            search_tab.set_db_info(f"データベース: {project_root}", "\n".join(tooltip_lines))
+        except (OSError, RuntimeError) as e:
             logger.warning(f"データベース表示の更新に失敗: {e}")
 
     def _handle_critical_initialization_failure(self, component_name: str, error: Exception) -> None:
@@ -316,53 +310,24 @@ class MainWindow(QMainWindow, Ui_MainWindow):
         sys.exit(1)
 
     def setup_custom_widgets(self) -> None:
-        """カスタムウィジェットを設定（Qt Designer生成ウィジェット直接使用版）"""
+        """カスタムウィジェット・タブを設定する。
 
+        検索系ウィジェット (filterSearchPanel / thumbnail / preview / details /
+        splitter) は SearchTabWidget へ移管したため、MainWindow ではタブ埋め込みと
+        横断 glue サービスの初期化のみを行う (#869)。
+        """
         logger.info("🔍 カスタムウィジェット設定開始")
-
-        # Qt Designer生成済みウィジェットの検証
-        if not hasattr(self, "filterSearchPanel"):
-            logger.error("❌ filterSearchPanel not found - Qt Designer UI generation failed")
-            self._handle_critical_initialization_failure(
-                "FilterSearchPanel設定", RuntimeError("filterSearchPanel attribute missing from setupUi()")
-            )
-            return
-        # filterSearchPanelは型定義により保証されているため、isinstance不要
-
-        # FilterSearchPanel interface validation
-        required_methods = ["set_search_filter_service", "set_worker_service"]
-        missing_methods = [
-            method for method in required_methods if not hasattr(self.filterSearchPanel, method)
-        ]
-
-        if missing_methods:
-            logger.error(f"❌ filterSearchPanel missing required methods: {missing_methods}")
-            self._handle_critical_initialization_failure(
-                "FilterSearchPanel設定",
-                RuntimeError(f"filterSearchPanel interface validation failed: missing {missing_methods}"),
-            )
-            return
-
-        logger.info(
-            f"✅ filterSearchPanel validation successful: {type(self.filterSearchPanel)} (ID: {id(self.filterSearchPanel)})"
-        )
-
-        # その他のカスタムウィジェット設定
         self._setup_other_custom_widgets()
-
         logger.info("カスタムウィジェット設定完了")
 
     def _setup_other_custom_widgets(self) -> None:
-        """その他のカスタムウィジェット設定（WidgetSetupServiceに委譲）"""
-        WidgetSetupService.setup_all_widgets(self, self.dataset_state_manager)
-
+        """タブ埋め込みと Service/Controller 層を初期化する。"""
         # Service/Controller層初期化
         try:
             self.selection_state_service = SelectionStateService(
                 dataset_state_manager=self.dataset_state_manager,
                 db_repository=self.db_manager.image_repo if self.db_manager else None,
             )
-            self._verify_state_management_connections()
 
             self.dataset_controller = DatasetController(
                 db_manager=self.db_manager,
@@ -395,6 +360,9 @@ class MainWindow(QMainWindow, Ui_MainWindow):
 
         # ErrorNotificationWidget初期化（Phase 4.5）
         self._setup_error_notification()
+
+        # 検索タブ (SearchTabWidget) を tabWorkspace へ埋め込む (#869)
+        self._setup_search_tab()
 
         # アノテーションタブ (AnnotateTabWidget) を tabBatchTag へ埋め込む (#868)
         self._setup_annotate_tab()
@@ -459,14 +427,8 @@ class MainWindow(QMainWindow, Ui_MainWindow):
             return
         widget = RegistrationSummaryWidget(parent=container)
         widget.view_image_requested.connect(self._on_registration_view_image_requested)
-        # work area splitter (qbar を含む) の直前へ挿入する = qbar の上
-        insert_index = layout.count()
-        splitter = getattr(self, "splitterMainWorkArea", None)
-        if splitter is not None:
-            idx = layout.indexOf(splitter)
-            if idx != -1:
-                insert_index = idx
-        layout.insertWidget(insert_index, widget)
+        # SearchTabWidget の上端へ常設する (Wireframes v11 Frame 1、#869 で tabWorkspace 直下へ移設)
+        layout.insertWidget(0, widget)
         self.registration_summary_widget = widget
         logger.info("✅ 登録完了サマリパネル (RegistrationSummaryWidget) initialized")
 
@@ -532,17 +494,6 @@ class MainWindow(QMainWindow, Ui_MainWindow):
             self.statusBar().showMessage(f"ジョブをキャンセルしています: {job_id}", 5000)
         else:
             logger.warning(f"ジョブキャンセル要求に失敗: {job_id}")
-
-    def _verify_state_management_connections(self) -> None:
-        """状態管理接続の検証（SelectionStateServiceに委譲）"""
-        if self.selection_state_service:
-            self.selection_state_service.verify_state_management_connections(
-                thumbnail_selector=getattr(self, "thumbnail_selector", None),
-                image_preview_widget=getattr(self, "image_preview_widget", None),
-                selected_image_details_widget=getattr(self, "selected_image_details_widget", None),
-            )
-        else:
-            logger.error("SelectionStateServiceが初期化されていません - 接続検証をスキップ")
 
     def _setup_error_notification(self) -> None:
         """エラー通知Widget設定（StatusBar統合）"""
@@ -703,6 +654,65 @@ class MainWindow(QMainWindow, Ui_MainWindow):
         self.cli_tab = widget
         logger.info("✅ CLIタブ (CliTabWidget) initialized")
 
+    def _setup_search_tab(self) -> None:
+        """検索タブに SearchTabWidget を埋め込む (Epic #867 / #869)。
+
+        Wireframes v11 Frame 1 · Search/Workbench。データセット選択・DB 検索・
+        サムネ表示・プレビュー/詳細編集・3 ペイン splitter・ステージング/エクスポート
+        導線を SearchTabWidget が所有する。MainWindow は .ui の tabWorkspace
+        コンテナへ埋め込み依存を注入し、横断 glue (worker dispatch /
+        PipelineControlService 所有 / staging fan-out / settings) だけを残す (glue)。
+        """
+        container = getattr(self, "tabWorkspace", None)
+        if container is None:
+            logger.warning("tabWorkspace not found - 検索タブ skipped")
+            self.search_tab = None
+            return
+
+        widget = SearchTabWidget(
+            service_container=self.service_container,
+            db_manager=self.db_manager,
+            dataset_state_manager=self.dataset_state_manager,
+            staging_state_manager=self.staging_state_manager,
+            worker_service=self.worker_service,
+            parent=container,
+        )
+        container.layout().addWidget(widget)
+        self.search_tab = widget
+        self._connect_search_tab_signals()
+        # 検索タブ生成後に DB 状態バーを反映する (サービス初期化フェーズでは no-op)
+        self._update_database_status_label()
+        logger.info("✅ 検索タブ (SearchTabWidget) initialized")
+
+    def _connect_search_tab_signals(self) -> None:
+        """SearchTabWidget の glue シグナル接続を行う (#869)。
+
+        ステージング集合の fan-out は StagingStateManager 側で一括接続済み
+        (ADR 0074) のため、タブ → MainWindow の横断 glue シグナルのみ接続する。
+        """
+        if self.search_tab is None:
+            return
+        try:
+            self.search_tab.stage_to_annotation_requested.connect(self.send_selected_to_batch_tag)
+            self.search_tab.quick_tag_requested.connect(self._show_quick_tag_dialog)
+            self.search_tab.export_requested.connect(self.export_data)
+            self.search_tab.dataset_selection_requested.connect(self.select_and_process_dataset)
+            self.search_tab.settings_requested.connect(self.open_settings)
+            self.search_tab.search_error_occurred.connect(self._on_search_error)
+            logger.info("    ✅ SearchTabWidget シグナル接続完了")
+        except Exception as e:
+            logger.error(f"    ❌ SearchTabWidget シグナル接続失敗: {e}")
+
+    def _on_search_error(self, error_message: str) -> None:
+        """検索/サムネ pipeline エラー → エラー通知バッジを更新する (#869)。
+
+        Args:
+            error_message: SearchTabWidget が報告したエラーメッセージ。
+        """
+        logger.warning(f"検索タブ pipeline エラー: {error_message}")
+        if self.error_notification_widget:
+            self.error_notification_widget.update_error_count()
+
     def _setup_annotate_tab(self) -> None:
         """アノテーションタブに AnnotateTabWidget を埋め込む (Epic #867 / #868)。
 
@@ -759,34 +769,25 @@ class MainWindow(QMainWindow, Ui_MainWindow):
             logger.error(f"Failed to show tag management dialog: {e}", exc_info=True)
             QMessageBox.critical(self, "エラー", f"タグ管理の表示に失敗しました:\n{e}")
 
-    def _connect_thumbnail_preview_signals(self) -> None:
-        """サムネイル→プレビュー間の Signal 接続を行う。"""
-        if not (self.thumbnail_selector and self.image_preview_widget):
-            return
-        try:
-            self.thumbnail_selector.image_selected.connect(self.image_preview_widget.load_image)
-            if hasattr(self.thumbnail_selector, "stage_selected_requested"):
-                self.thumbnail_selector.stage_selected_requested.connect(self.send_selected_to_batch_tag)
-            if hasattr(self.thumbnail_selector, "quick_tag_requested"):
-                self.thumbnail_selector.quick_tag_requested.connect(self._show_quick_tag_dialog)
-            logger.info("    ✅ サムネイル→プレビュー接続完了")
-        except Exception as e:
-            logger.error(f"    ❌ サムネイル→プレビュー接続失敗: {e}")
-
     def _connect_menu_actions(self) -> None:
-        """ファイル/編集/ヘルプメニューのアクション Signal 接続を行う。"""
-        # ファイル: 終了 / ヘルプ: about（thumbnail_selector 非依存なので先に接続）
+        """ファイル/編集/ヘルプメニューのアクション Signal 接続を行う。
+
+        全選択/選択解除は SearchTabWidget が所有するサムネイルセレクタへ委譲する
+        (検索系ウィジェットは #869 で SearchTab へ移管)。
+        """
+        # ファイル: 終了 / ヘルプ: about（タブ非依存なので先に接続）
         if hasattr(self, "actionExit"):
             self.actionExit.triggered.connect(self.close)
         if hasattr(self, "actionAbout"):
             self.actionAbout.triggered.connect(self._show_about_dialog)
-        if not self.thumbnail_selector:
+        if self.search_tab is None:
             return
+        thumbnail_selector = self.search_tab.thumbnail_selector
         try:
             if hasattr(self, "actionSelectAll"):
-                self.actionSelectAll.triggered.connect(self.thumbnail_selector._select_all_items)
+                self.actionSelectAll.triggered.connect(thumbnail_selector._select_all_items)
             if hasattr(self, "actionDeselectAll"):
-                self.actionDeselectAll.triggered.connect(self.thumbnail_selector._deselect_all_items)
+                self.actionDeselectAll.triggered.connect(thumbnail_selector._deselect_all_items)
             logger.info("    ✅ 編集メニュー（全選択/選択解除）接続完了")
         except Exception as e:
             logger.error(f"    ❌ 編集メニュー接続失敗: {e}")
@@ -798,29 +799,6 @@ class MainWindow(QMainWindow, Ui_MainWindow):
             "LoRAIroについて",
             "LoRAIro — LoRA 学習用データセット管理ツール",
         )
-
-    def _connect_details_widget_signals(self) -> None:
-        """SelectedImageDetailsWidget の Rating/Score シグナル接続を行う。"""
-        if not hasattr(self, "selectedImageDetailsWidget"):
-            return
-        try:
-            self.selectedImageDetailsWidget.rating_changed.connect(self._handle_rating_changed)
-            self.selectedImageDetailsWidget.score_changed.connect(self._handle_score_changed)
-            self.selectedImageDetailsWidget.batch_rating_changed.connect(self._handle_batch_rating_changed)
-            self.selectedImageDetailsWidget.batch_score_changed.connect(self._handle_batch_score_changed)
-            logger.info("    ✅ SelectedImageDetailsWidget シグナル接続完了")
-        except Exception as e:
-            logger.error(f"    ❌ SelectedImageDetailsWidget シグナル接続失敗: {e}")
-
-    def _connect_dataset_state_signals(self) -> None:
-        """DatasetStateManager の選択変更シグナル接続を行う。"""
-        if not self.dataset_state_manager:
-            return
-        try:
-            self.dataset_state_manager.selection_changed.connect(self._handle_selection_changed_for_rating)
-            logger.info("    ✅ DatasetStateManager selection_changed シグナル接続完了")
-        except Exception as e:
-            logger.error(f"    ❌ DatasetStateManager selection_changed 接続失敗: {e}")
 
     def _connect_batch_tag_signals(self) -> None:
         """AnnotateTabWidget の glue シグナル接続を行う (#868)。
@@ -861,24 +839,23 @@ class MainWindow(QMainWindow, Ui_MainWindow):
             self.annotate_tab.refresh()
 
     def _connect_settings_signals(self) -> None:
-        """設定ダイアログを開くアクション・ボタンの Signal 接続を行う。"""
+        """設定ダイアログを開くメニューアクションの Signal 接続を行う。
+
+        旧ワークスペースの ``pushButtonSettings`` は SearchTabWidget の
+        ``settings_requested`` シグナルへ移管したため、ここでは menubar の
+        ``actionSettings`` のみ接続する (#869)。
+        """
         if hasattr(self, "actionSettings"):
             self.actionSettings.triggered.connect(self.open_settings)
-        if hasattr(self, "pushButtonSettings"):
-            self.pushButtonSettings.clicked.connect(self.open_settings)
 
     def _connect_events(self) -> None:
         """イベント接続を設定（安全な実装）"""
         try:
             logger.info("  - イベント接続開始...")
-            self._connect_thumbnail_preview_signals()
             self._connect_menu_actions()
             self._setup_worker_pipeline_signals()
-            self._connect_details_widget_signals()
-            self._connect_dataset_state_signals()
             self._connect_batch_tag_signals()
             self._connect_settings_signals()
-            self._connect_export_entry_signals()
             self._connect_panel_toggle_actions()
             logger.info("  ✅ イベント接続完了")
         except Exception as e:
@@ -905,43 +882,27 @@ class MainWindow(QMainWindow, Ui_MainWindow):
             logger.error(f"    ❌ パネル表示切替接続失敗: {e}")
 
     def _toggle_filter_panel(self, checked: bool) -> None:
-        """フィルターパネルの表示/非表示を切り替える。
+        """フィルターパネルの表示切替を SearchTabWidget へ委譲する (#869)。
+
+        パネル本体とスプリッターサイズの退避/復元は SearchTabWidget が所有する
+        (契約スロット ``toggle_filter_panel``)。MainWindow は menubar の
+        ``actionToggleFilterPanel`` (checkable) を薄く中継するだけ。
 
         Args:
-            checked: True で表示、False で非表示
+            checked: ``actionToggleFilterPanel`` の新しいチェック状態。
         """
-        panel = getattr(self, "frameFilterSearchPanel", None)
-        splitter = getattr(self, "splitterMainWorkArea", None)
-        if not panel or not splitter:
-            return
-
-        if not checked:
-            # 非表示前にスプリッターサイズを退避
-            self._main_splitter_sizes_before_filter_hide = splitter.sizes()
-        panel.setVisible(checked)
-        if checked and hasattr(self, "_main_splitter_sizes_before_filter_hide"):
-            # 再表示時にサイズを復元
-            splitter.setSizes(self._main_splitter_sizes_before_filter_hide)
+        if self.search_tab is not None:
+            self.search_tab.toggle_filter_panel()
         logger.debug(f"Filter panel visibility: {checked}")
 
     def _toggle_preview_panel(self, checked: bool) -> None:
-        """プレビューパネルの表示/非表示を切り替える。
+        """プレビューパネルの表示切替を SearchTabWidget へ委譲する (#869)。
 
         Args:
-            checked: True で表示、False で非表示
+            checked: ``actionTogglePreviewPanel`` の新しいチェック状態。
         """
-        panel = getattr(self, "framePreviewDetailPanel", None)
-        splitter = getattr(self, "splitterMainWorkArea", None)
-        if not panel or not splitter:
-            return
-
-        if not checked:
-            # 非表示前にスプリッターサイズを退避
-            self._main_splitter_sizes_before_preview_hide = splitter.sizes()
-        panel.setVisible(checked)
-        if checked and hasattr(self, "_main_splitter_sizes_before_preview_hide"):
-            # 再表示時にサイズを復元
-            splitter.setSizes(self._main_splitter_sizes_before_preview_hide)
+        if self.search_tab is not None:
+            self.search_tab.toggle_preview_panel()
         logger.debug(f"Preview panel visibility: {checked}")
 
     def _setup_worker_pipeline_signals(self) -> None:
@@ -1241,242 +1202,12 @@ class MainWindow(QMainWindow, Ui_MainWindow):
             )
 
     def load_images_from_db(self) -> None:
-        """データベースから画像を読み込み、検索パイプラインを開始"""
-        self._on_search_completed_start_thumbnail(True)
+        """データベースから画像を読み込み、検索パイプラインを開始する。
 
-    def _setup_image_db_write_service(self) -> None:
-        """ImageDBWriteServiceを作成してselected_image_details_widgetのシグナルを接続
-
-        Phase 3.4: DB操作分離パターンの実装
-        Issue #4: Rating/Score更新機能統合
+        検索起動ロジックは SearchTabWidget が所有するため委譲する (#869)。
         """
-        if self.db_manager and self.selected_image_details_widget:
-            # ImageDBWriteServiceを作成
-            self.image_db_write_service = ImageDBWriteService(self.db_manager)
-
-            # Issue #792: タグ soft-reject / 復活 / 手動追加の編集モードを有効化
-            if hasattr(self.selected_image_details_widget, "set_db_manager"):
-                self.selected_image_details_widget.set_db_manager(self.db_manager)
-
-            # SelectedImageDetailsWidgetが編集シグナルを持たない場合はスキップ（閲覧専用化対応）
-            if (
-                hasattr(self.selected_image_details_widget, "rating_updated")
-                and hasattr(self.selected_image_details_widget, "score_updated")
-                and hasattr(self.selected_image_details_widget, "save_requested")
-            ):
-                self.selected_image_details_widget.rating_updated.connect(self._on_rating_update_requested)
-                self.selected_image_details_widget.score_updated.connect(self._on_score_update_requested)
-                self.selected_image_details_widget.save_requested.connect(self._on_save_requested)
-                logger.info("ImageDBWriteService created and signals connected")
-            else:
-                logger.info("SelectedImageDetailsWidget is view-only; edit signals not connected")
-        else:
-            logger.warning(
-                "Cannot setup ImageDBWriteService: db_manager or selected_image_details_widget not available"
-            )
-
-    def _on_rating_update_requested(self, image_id: int, rating: str) -> None:
-        """Rating更新シグナルハンドラ（Issue #4）
-
-        Args:
-            image_id: 画像ID
-            rating: Rating値 ("PG", "R", "X", など)
-        """
-        if not self.image_db_write_service:
-            logger.warning("ImageDBWriteService not initialized")
-            return
-
-        success = self.image_db_write_service.update_rating(image_id, rating)
-        if success:
-            logger.info(f"Rating updated: image_id={image_id}, rating={rating}")
-        else:
-            logger.error(f"Failed to update rating: image_id={image_id}, rating={rating}")
-
-    def _on_score_update_requested(self, image_id: int, score: int) -> None:
-        """Score更新シグナルハンドラ（Issue #4）
-
-        Args:
-            image_id: 画像ID
-            score: Score値 (0-1000範囲)
-        """
-        if not self.image_db_write_service:
-            logger.warning("ImageDBWriteService not initialized")
-            return
-
-        success = self.image_db_write_service.update_score(image_id, score)
-        if success:
-            logger.info(f"Score updated: image_id={image_id}, score={score}")
-        else:
-            logger.error(f"Failed to update score: image_id={image_id}, score={score}")
-
-    def _handle_rating_changed(self, image_id: int, rating: str) -> None:
-        """
-        RatingScoreEditWidget からの Rating 変更シグナルハンドラ（Phase 3.1）
-
-        Args:
-            image_id: 画像ID
-            rating: Rating値 ("PG", "PG-13", "R", "X", "XXX")
-
-        Side Effects:
-            - ImageDBWriteService.update_rating() を呼び出し
-            - 成功時: DatasetStateManager.refresh_image() でキャッシュ更新
-            - 失敗時: エラーログ出力
-        """
-        if not self.image_db_write_service:
-            logger.warning("ImageDBWriteService not initialized")
-            return
-
-        success = self.image_db_write_service.update_rating(image_id, rating)
-        if success:
-            # キャッシュを更新
-            if self.dataset_state_manager:
-                self.dataset_state_manager.refresh_image(image_id)
-            logger.info(f"Rating updated successfully: image_id={image_id}, rating={rating}")
-        else:
-            logger.error(f"Failed to update rating: image_id={image_id}, rating={rating}")
-
-    def _handle_score_changed(self, image_id: int, score: int) -> None:
-        """
-        RatingScoreEditWidget からの Score 変更シグナルハンドラ（Phase 3.1）
-
-        Args:
-            image_id: 画像ID
-            score: Score値 (0-1000範囲)
-
-        Side Effects:
-            - ImageDBWriteService.update_score() を呼び出し
-            - 成功時: DatasetStateManager.refresh_image() でキャッシュ更新
-            - 失敗時: エラーログ出力
-        """
-        if not self.image_db_write_service:
-            logger.warning("ImageDBWriteService not initialized")
-            return
-
-        success = self.image_db_write_service.update_score(image_id, score)
-        if success:
-            # キャッシュを更新
-            if self.dataset_state_manager:
-                self.dataset_state_manager.refresh_image(image_id)
-            logger.info(f"Score updated successfully: image_id={image_id}, score={score}")
-        else:
-            logger.error(f"Failed to update score: image_id={image_id}, score={score}")
-
-    def _handle_selection_changed_for_rating(self, image_ids: list[int]) -> None:
-        """
-        DatasetStateManager からの選択変更シグナルハンドラ（バッチレーティング/スコア機能）
-
-        選択画像数に応じて RatingScoreEditWidget を更新:
-        - 0件: クリア（未実装）
-        - 1件: 単一選択モード（populate_from_image_data）
-        - 2件以上: バッチモード（populate_from_selection）
-
-        Args:
-            image_ids: 選択画像IDリスト
-        """
-        if not hasattr(self, "selectedImageDetailsWidget"):
-            return
-
-        if not hasattr(self.selectedImageDetailsWidget, "_rating_score_widget"):
-            return
-
-        rating_widget = self.selectedImageDetailsWidget._rating_score_widget
-
-        if len(image_ids) == 0:
-            # 選択なし: 詳細パネルとRating/Scoreをクリア
-            self.selectedImageDetailsWidget._clear_display()
-            logger.debug("No images selected - display cleared")
-
-        elif len(image_ids) == 1:
-            # 単一選択: 従来の populate_from_image_data()
-            if self.dataset_state_manager:
-                image_data = self.dataset_state_manager.get_image_by_id(image_ids[0])
-                if image_data:
-                    rating_widget.populate_from_image_data(image_data)
-                    logger.debug(f"Single selection: populated rating widget for image_id={image_ids[0]}")
-
-        else:
-            # 複数選択: 新規 populate_from_selection()
-            if self.db_manager:
-                rating_widget.populate_from_selection(image_ids, self.db_manager)
-                logger.info(f"Batch mode activated for {len(image_ids)} images")
-
-    def _handle_batch_rating_changed(self, image_ids: list[int], rating: str) -> None:
-        """
-        RatingScoreEditWidget からのバッチRating変更シグナルハンドラ
-
-        Args:
-            image_ids: 画像IDリスト
-            rating: Rating値 ("PG", "PG-13", "R", "X", "XXX")
-
-        Side Effects:
-            - ImageDBWriteService.update_rating_batch() を呼び出し
-            - 成功時: DatasetStateManager.refresh_images() でキャッシュ一括更新
-            - 失敗時: エラーログ出力
-        """
-        logger.info(f"Batch rating change requested: {len(image_ids)} images, rating='{rating}'")
-
-        success = self._execute_batch_rating_write(image_ids, rating)
-        if success:
-            # キャッシュを一括更新
-            if self.dataset_state_manager:
-                self.dataset_state_manager.refresh_images(image_ids)
-            logger.info("Batch rating update completed successfully")
-
-    def _execute_batch_rating_write(self, image_ids: list[int], rating: str) -> bool:
-        """バッチレーティング書き込みとキャッシュ更新を実行する。
-
-        Args:
-            image_ids: 対象画像のIDリスト
-            rating: Rating値
-
-        Returns:
-            成功した場合True
-        """
-        if not self.image_db_write_service:
-            logger.warning("ImageDBWriteService not initialized")
-            return False
-
-        success = self.image_db_write_service.update_rating_batch(image_ids, rating)
-        return success
-
-    def _handle_batch_score_changed(self, image_ids: list[int], score: int) -> None:
-        """
-        RatingScoreEditWidget からのバッチScore変更シグナルハンドラ
-
-        Args:
-            image_ids: 画像IDリスト
-            score: Score値 (0-1000範囲)
-
-        Side Effects:
-            - ImageDBWriteService.update_score_batch() を呼び出し
-            - 成功時: DatasetStateManager.refresh_images() でキャッシュ一括更新
-            - 失敗時: エラーログ出力
-        """
-        logger.info(f"Batch score change requested: {len(image_ids)} images, score={score}")
-
-        success = self._execute_batch_score_write(image_ids, score)
-        if success:
-            # キャッシュを一括更新
-            if self.dataset_state_manager:
-                self.dataset_state_manager.refresh_images(image_ids)
-            logger.info("Batch score update completed successfully")
-
-    def _execute_batch_score_write(self, image_ids: list[int], score: int) -> bool:
-        """バッチスコア書き込みとキャッシュ更新を実行する。
-
-        Args:
-            image_ids: 対象画像のIDリスト
-            score: Score値 (0-1000範囲のUI値)
-
-        Returns:
-            成功した場合True
-        """
-        if not self.image_db_write_service:
-            logger.warning("ImageDBWriteService not initialized")
-            return False
-
-        success = self.image_db_write_service.update_score_batch(image_ids, score)
-        return success
+        if self.search_tab is not None:
+            self.search_tab.load_images_from_db()
 
     def _execute_batch_tag_write(self, image_ids: list[int], tag: str) -> bool:
         """バッチタグ書き込みとキャッシュ更新を実行する。
@@ -1560,14 +1291,14 @@ class MainWindow(QMainWindow, Ui_MainWindow):
 
         ADR 0055: ワークスペースのエクスポート入口の対象＝ステージング集合。
         件数は ``StagingWidget.staged_images_changed``（= ステージング件数）を反映し、
-        サムネ選択数ではない。ステージング後にサムネ選択を変更・クリアしても件数は
-        ズレない。
+        サムネ選択数ではない。件数ラベルは SearchTabWidget へ移管したため
+        ``set_export_target_count`` 経由で更新する (#869)。
 
         Args:
             staging_count: 現在のステージング画像数。
         """
-        if hasattr(self, "labelExportTarget"):
-            self.labelExportTarget.setText(f"エクスポート対象: {staging_count} 枚")
+        if self.search_tab is not None:
+            self.search_tab.set_export_target_count(staging_count)
 
     def _show_quick_tag_dialog(self, image_ids: list[int]) -> None:
         """クイックタグダイアログを表示する。
@@ -1603,119 +1334,6 @@ class MainWindow(QMainWindow, Ui_MainWindow):
             QMessageBox.critical(self, "タグ追加失敗", f"クイックタグ '{tag}' の追加に失敗しました。")
             logger.error(f"Failed quick tag add: tag='{tag}', image_count={len(image_ids)}")
 
-    def _on_save_requested(self, save_data: dict[str, Any]) -> None:
-        """保存要求シグナルハンドラ（Issue #4）
-
-        Args:
-            save_data: 保存データ {"image_id": int, "rating": str, "score": int}
-        """
-        if not self.image_db_write_service:
-            logger.warning("ImageDBWriteService not initialized")
-            return
-
-        image_id = save_data.get("image_id")
-        rating = save_data.get("rating")
-        score = save_data.get("score")
-
-        if image_id is None:
-            logger.warning("Save requested but image_id is None")
-            return
-
-        # Rating更新
-        if rating:
-            self.image_db_write_service.update_rating(image_id, rating)
-
-        # Score更新
-        if score is not None:
-            self.image_db_write_service.update_score(image_id, score)
-
-        logger.info(f"Save completed: image_id={image_id}, rating={rating}, score={score}")
-
-    # === Edit/View モード切替（Side Panel） ===
-    def _get_current_image_payload(self) -> dict[str, Any] | None:
-        """現在選択中の画像データを編集パネル用に取得"""
-        if not self.dataset_state_manager:
-            logger.warning("DatasetStateManager not available")
-            return None
-
-        data = self.dataset_state_manager.get_current_image_data()
-        if not data:
-            logger.warning("No current image selected")
-            return None
-
-        payload = {
-            "id": data.get("id"),
-            "rating": data.get("rating_value") or "PG",
-            # DBスコア(0-10) → UI内部値(0-1000)へ変換
-            "score": int((data.get("score_value") or 0) * 100),
-            "tags": data.get("tags_text") or "",
-            "caption": data.get("caption_text") or "",
-        }
-        return payload
-
-    def _create_search_filter_service(self) -> SearchFilterService:
-        """
-        SearchFilterService作成（ServiceContainer統一）
-
-        Returns:
-            SearchFilterService: 設定されたサービスインスタンス
-        """
-        try:
-            # ServiceContainer経由で一貫したサービス取得
-            service_container = get_service_container()
-            repo = service_container.db_manager.model_repo
-            model_selection_service = ModelSelectionService.create(db_repository=repo)
-
-            dbm = self.db_manager
-
-            if not dbm:
-                raise ValueError("ImageDatabaseManager is required but not available")
-
-            return SearchFilterService(db_manager=dbm, model_selection_service=model_selection_service)
-
-        except Exception as e:
-            logger.error(f"Failed to create SearchFilterService: {e}", exc_info=True)
-            # 致命的エラーとして扱う（フォールバック中止）
-            raise ValueError("SearchFilterService作成不可") from e
-
-    def _setup_search_filter_integration(self) -> None:
-        """SearchFilterService統合処理（必須機能）
-
-        filterSearchPanelにSearchFilterServiceを注入して検索機能を有効化。
-        検索機能は必須のため、失敗時はアプリケーション起動を中止する。
-        """
-        if not hasattr(self, "filterSearchPanel") or not self.filterSearchPanel:
-            self._handle_critical_initialization_failure(
-                "SearchFilterService統合", RuntimeError("filterSearchPanel not available")
-            )
-            return
-
-        if not self.db_manager:
-            self._handle_critical_initialization_failure(
-                "SearchFilterService統合", RuntimeError("db_manager not available")
-            )
-            return
-
-        try:
-            search_filter_service = self._create_search_filter_service()
-            self.filterSearchPanel.set_search_filter_service(search_filter_service)
-
-            if self.worker_service:
-                self.filterSearchPanel.set_worker_service(self.worker_service)
-                logger.info("✅ SearchFilterService統合完了（WorkerService統合済み）")
-            else:
-                logger.info("✅ SearchFilterService統合完了（同期検索モード）")
-
-            # Phase 4: FavoriteFiltersService統合
-            service_container = get_service_container()
-            favorite_filters_service = service_container.favorite_filters_service
-            self.filterSearchPanel.set_favorite_filters_service(favorite_filters_service)
-            logger.info("✅ FavoriteFiltersService統合完了")
-
-        except Exception as e:
-            # 検索機能は必須のため、失敗時はアプリケーション起動を中止
-            self._handle_critical_initialization_failure("SearchFilterService統合", e)
-
     def _setup_phase24_services(self) -> None:
         """Service層の初期化と統合
 
@@ -1729,11 +1347,13 @@ class MainWindow(QMainWindow, Ui_MainWindow):
             logger.info("  ✅ ResultHandlerService初期化成功")
 
             # PipelineControlService初期化（Stage 4-2）
+            # worker 横断のため MainWindow が所有し、検索系ウィジェットは
+            # SearchTabWidget のプロパティ経由で注入する (#869)。
             logger.info("  - PipelineControlService初期化中...")
             self.pipeline_control_service = PipelineControlService(
                 worker_service=self.worker_service,
-                thumbnail_selector=self.thumbnail_selector,
-                filter_search_panel=self.filterSearchPanel if hasattr(self, "filterSearchPanel") else None,
+                thumbnail_selector=self.search_tab.thumbnail_selector if self.search_tab else None,
+                filter_search_panel=self.search_tab.filter_search_panel if self.search_tab else None,
             )
             logger.info("  ✅ PipelineControlService初期化成功")
 
@@ -1742,9 +1362,10 @@ class MainWindow(QMainWindow, Ui_MainWindow):
             self.progress_state_service = ProgressStateService(status_bar=self.statusBar())
             logger.info("  ✅ ProgressStateService初期化成功")
 
-            # ImageDBWriteService初期化（Issue #4: Rating/Score更新機能）
+            # ImageDBWriteService初期化（バッチタグ/クイックタグ書込用、#869 で rating/score
+            # 編集配線は SearchTabWidget へ移管）
             logger.info("  - ImageDBWriteService初期化中...")
-            self._setup_image_db_write_service()
+            self.image_db_write_service = ImageDBWriteService(self.db_manager) if self.db_manager else None
             logger.info("  ✅ ImageDBWriteService初期化成功")
 
             logger.info("Service層統合完了")
@@ -1892,36 +1513,6 @@ class MainWindow(QMainWindow, Ui_MainWindow):
         logger.debug(f"ステージング画像パスを取得: {len(paths)}件")
         return paths
 
-    def _connect_export_entry_signals(self) -> None:
-        """エクスポート/アノテーション入口（ツールバー・下部バー）の Signal 接続を行う。
-
-        ADR 0055: ワークスペースに常設のエクスポート入口（ツールバー action と
-        サムネグリッド下部バーのボタン）を追加する。対象解決ロジックは変更せず、
-        既存の ``export_data()``（エクスポートタブ遷移）に委譲する（新しい選択解決
-        パスを足さない）。
-        """
-        try:
-            # サムネグリッド下部バーのエクスポートボタン（triggered の bool ペイロードは無視する）
-            if hasattr(self, "btnExportData"):
-                self.btnExportData.clicked.connect(self._on_export_entry_triggered)
-            # 下部バーの件数表示を初期化（起動直後のステージング件数 0）
-            self._update_export_target_ui(0)
-            logger.info("    ✅ エクスポート入口 Signal 接続完了")
-        except Exception as e:
-            logger.error(f"    ❌ エクスポート入口 Signal 接続失敗: {e}")
-
-    def _on_export_entry_triggered(self, _checked: bool = False) -> None:
-        """エクスポート入口（ツールバー action / 下部バーボタン）のハンドラ。
-
-        ``QAction.triggered`` / ``QPushButton.clicked`` が渡す bool ペイロードは
-        画像 ID ではないため無視する（ADR 0072 / Issue #570）。対象解決は
-        ``export_data()``（エクスポートタブ遷移）に委譲し、新しい選択解決パスを足さない。
-
-        Args:
-            _checked: シグナルが渡す checked 状態。意図的に無視する。
-        """
-        self.export_data()
-
     def _get_staged_export_ids(self) -> list[int]:
         """エクスポート対象のステージング画像 ID を返す（エクスポートタブの対象ソース）。
 
@@ -1973,7 +1564,7 @@ class MainWindow(QMainWindow, Ui_MainWindow):
         )
         if not target_ids:
             dataset_selected_count = len(self.dataset_state_manager.selected_image_ids)
-            thumbnail_selector_available = bool(getattr(self, "thumbnail_selector", None))
+            thumbnail_selector_available = self.search_tab is not None
             logger.debug(
                 "No image ids resolved for batch tag staging: "
                 f"dataset_selected={dataset_selected_count}, "
@@ -2024,26 +1615,47 @@ class MainWindow(QMainWindow, Ui_MainWindow):
             index: 切り替え先のタブインデックス。
         """
         current = self.tabWidgetMainMode.widget(index)
-        if current is getattr(self, "tabBatchTag", None):
-            logger.info("Switched to Annotate tab")
-            self._refresh_batch_tag_staging()
-        elif self.provider_batch_job_widget is not None and current is self.provider_batch_job_widget:
-            logger.info("Switched to Jobs tab")
+        # (タブ widget, ログ名, 表示時ハンドラ) の dispatch 表。index ではなく
+        # widget 同一性で分岐し、タブ構成変更に耐える。
+        dispatch: list[tuple[QWidget | None, str, Callable[[], None]]] = [
+            (getattr(self, "tabWorkspace", None), "Search", self._refresh_search_tab),
+            (getattr(self, "tabBatchTag", None), "Annotate", self._refresh_batch_tag_staging),
+            (self.provider_batch_job_widget, "Jobs", self._refresh_jobs_tab),
+            (getattr(self, "tabResults", None), "Results", self._refresh_results_tab),
+            (getattr(self, "tabErrors", None), "Errors", self._refresh_errors_tab),
+            (getattr(self, "tabExport", None), "Export", self._refresh_export_tab),
+        ]
+        for widget, label, handler in dispatch:
+            if widget is not None and current is widget:
+                logger.info(f"Switched to {label} tab")
+                handler()
+                return
+
+    def _refresh_search_tab(self) -> None:
+        """検索タブ表示時の再計算をタブへ委譲する (#869)。"""
+        if self.search_tab is not None:
+            self.search_tab.refresh()
+
+    def _refresh_jobs_tab(self) -> None:
+        """ジョブタブ表示時にジョブ一覧を再読込する。"""
+        if self.provider_batch_job_widget is not None:
             self.provider_batch_job_widget.refresh_jobs()
-        elif current is getattr(self, "tabResults", None):
-            logger.info("Switched to Results tab")
-            if self.results_tab is not None:
-                self.results_tab.refresh()
-        elif current is getattr(self, "tabErrors", None):
-            logger.info("Switched to Errors tab")
-            if self.errors_tab is not None:
-                self.errors_tab.refresh()
-        elif current is getattr(self, "tabExport", None):
-            logger.info("Switched to Export tab")
-            # ステージング集合を再読込（シグナル取りこぼしの安全網、ADR 0055）
-            export_tab = getattr(self, "export_tab", None)
-            if export_tab is not None:
-                export_tab.set_image_ids(self._get_staged_export_ids())
+
+    def _refresh_results_tab(self) -> None:
+        """結果タブ表示時の再計算をタブへ委譲する。"""
+        if self.results_tab is not None:
+            self.results_tab.refresh()
+
+    def _refresh_errors_tab(self) -> None:
+        """エラータブ表示時の再計算をタブへ委譲する。"""
+        if self.errors_tab is not None:
+            self.errors_tab.refresh()
+
+    def _refresh_export_tab(self) -> None:
+        """エクスポートタブ表示時にステージング集合を再読込する (ADR 0055 安全網)。"""
+        export_tab = getattr(self, "export_tab", None)
+        if export_tab is not None:
+            export_tab.set_image_ids(self._get_staged_export_ids())
 
     def _refresh_batch_tag_staging(self) -> None:
         """アノテーションタブ表示時の再計算をタブへ委譲する (#868)。
@@ -2098,19 +1710,16 @@ class MainWindow(QMainWindow, Ui_MainWindow):
     def _save_splitter_states(self, settings: QSettings) -> None:
         """スプリッター状態を保存する。
 
+        3 ペイン作業領域 splitter は SearchTabWidget が所有するため
+        ``main_splitter`` プロパティ経由で保存する。プレビュー/詳細の内部
+        splitter は SearchTabWidget 自身が管理する (#869)。
+
         Args:
             settings: QSettingsインスタンス
         """
-        splitters = [
-            ("splitterMainWorkArea", "splitter/main_work_area"),
-            ("splitterPreviewDetails", "splitter/preview_details"),
-            ("splitterBatchTagMain", "splitter/batch_tag_main"),
-        ]
-
-        for attr_name, settings_key in splitters:
-            splitter = getattr(self, attr_name, None)
-            if splitter:
-                settings.setValue(settings_key, splitter.saveState())
+        main_splitter = self.search_tab.main_splitter if self.search_tab is not None else None
+        if main_splitter is not None:
+            settings.setValue("splitter/main_work_area", main_splitter.saveState())
 
     def _restore_window_state(self) -> None:
         """QSettingsからウィンドウ/スプリッター状態を復元する。"""
@@ -2147,36 +1756,33 @@ class MainWindow(QMainWindow, Ui_MainWindow):
             logger.info("Window state restored from QSettings")
 
     def _restore_splitter_states(self, settings: QSettings) -> bool:
-        """スプリッター状態を復元する。
+        """3 ペイン作業領域 splitter の状態を復元する。
+
+        作業領域 splitter は SearchTabWidget が所有するため ``main_splitter``
+        プロパティ経由で復元する (#869)。
 
         Args:
             settings: QSettingsインスタンス
 
         Returns:
-            少なくとも1つのスプリッターが復元された場合True
+            復元された場合True
         """
-        splitters = [
-            ("splitterMainWorkArea", "splitter/main_work_area"),
-            ("splitterPreviewDetails", "splitter/preview_details"),
-            ("splitterBatchTagMain", "splitter/batch_tag_main"),
-        ]
+        main_splitter = self.search_tab.main_splitter if self.search_tab is not None else None
+        if main_splitter is None:
+            return False
 
-        restored_any = False
-        for attr_name, settings_key in splitters:
-            splitter = getattr(self, attr_name, None)
-            if splitter:
-                state = settings.value(settings_key)
-                if state:
-                    # QSplitter.restoreState() は sizes だけでなく orientation も
-                    # 復元するため、.ui 由来の orientation を保存し復元後に再適用する。
-                    # 旧 (横) 状態が新 (縦) レイアウトの向きを巻き戻す回帰を防ぐ (#865)。
-                    designed_orientation = splitter.orientation()
-                    splitter.restoreState(state)
-                    splitter.setOrientation(designed_orientation)
-                    restored_any = True
-                    logger.debug(f"{attr_name} state restored")
+        state = settings.value("splitter/main_work_area")
+        if not state:
+            return False
 
-        return restored_any
+        # QSplitter.restoreState() は sizes だけでなく orientation も復元するため、
+        # .ui 由来の orientation を保存し復元後に再適用する。旧状態が新レイアウトの
+        # 向きを巻き戻す回帰を防ぐ (#865)。
+        designed_orientation = main_splitter.orientation()
+        main_splitter.restoreState(state)
+        main_splitter.setOrientation(designed_orientation)
+        logger.debug("main_splitter state restored")
+        return True
 
     def _restore_panel_visibility(self, settings: QSettings) -> None:
         """パネル表示状態を復元する。
@@ -2187,15 +1793,15 @@ class MainWindow(QMainWindow, Ui_MainWindow):
         Args:
             settings: QSettingsインスタンス
         """
-        # フィルターパネル
+        # フィルターパネル: 実体は SearchTabWidget が所有する。非表示で保存されていた
+        # 場合のみ契約スロットで切り替える (タブは既定で表示状態、#869)。
         filter_visible = bool(settings.value("panel_visible/filter", True, type=bool))
         if hasattr(self, "actionToggleFilterPanel"):
             self.actionToggleFilterPanel.blockSignals(True)
             self.actionToggleFilterPanel.setChecked(filter_visible)
             self.actionToggleFilterPanel.blockSignals(False)
-            panel = getattr(self, "frameFilterSearchPanel", None)
-            if panel:
-                panel.setVisible(filter_visible)
+            if not filter_visible and self.search_tab is not None:
+                self.search_tab.toggle_filter_panel()
 
         # プレビューパネル
         preview_visible = bool(settings.value("panel_visible/preview", True, type=bool))
@@ -2203,9 +1809,8 @@ class MainWindow(QMainWindow, Ui_MainWindow):
             self.actionTogglePreviewPanel.blockSignals(True)
             self.actionTogglePreviewPanel.setChecked(preview_visible)
             self.actionTogglePreviewPanel.blockSignals(False)
-            panel = getattr(self, "framePreviewDetailPanel", None)
-            if panel:
-                panel.setVisible(preview_visible)
+            if not preview_visible and self.search_tab is not None:
+                self.search_tab.toggle_preview_panel()
 
     def _start_batch_import(self) -> None:
         """Batch APIインポートダイアログを開いてワーカーを起動する。"""
