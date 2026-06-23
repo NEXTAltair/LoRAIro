@@ -54,14 +54,14 @@ class TestMainWindowSignalConnection:
         assert main_window.dataset_state_manager is not None
 
     def test_mainwindow_has_selected_image_details_widget(self, main_window):
-        """MainWindowがSelectedImageDetailsWidgetを持つことを確認"""
-        assert hasattr(main_window, "selected_image_details_widget")
-        assert main_window.selected_image_details_widget is not None
+        """SelectedImageDetailsWidget が SearchTabWidget 経由で参照できる (#869)"""
+        assert main_window.search_tab is not None
+        assert main_window.search_tab.selected_image_details_widget is not None
 
     def test_mainwindow_has_image_preview_widget(self, main_window):
-        """MainWindowがImagePreviewWidgetを持つことを確認"""
-        assert hasattr(main_window, "imagePreviewWidget")
-        assert main_window.imagePreviewWidget is not None
+        """ImagePreviewWidget が SearchTabWidget 経由で参照できる (#869)"""
+        assert main_window.search_tab is not None
+        assert main_window.search_tab.image_preview_widget is not None
 
     def test_selected_image_details_signal_connection(self, qtbot, main_window):
         """SelectedImageDetailsWidget シグナル接続テスト
@@ -78,11 +78,9 @@ class TestMainWindowSignalConnection:
         # DatasetStateManagerインスタンス確認
         assert main_window.dataset_state_manager is not None, "DatasetStateManagerが未初期化"
 
-        # WidgetSetupServiceで接続されたインスタンス確認
-        assert hasattr(main_window, "selected_image_details_widget"), (
-            "selected_image_details_widgetが存在しない"
-        )
-        widget = main_window.selected_image_details_widget
+        # SearchTabWidget 経由で接続されたインスタンス確認 (#869)
+        assert main_window.search_tab is not None, "search_tab が存在しない"
+        widget = main_window.search_tab.selected_image_details_widget
         assert widget is not None, "Widgetインスタンスがない"
 
         # テストデータ
@@ -124,9 +122,9 @@ class TestMainWindowSignalConnection:
         # DatasetStateManagerインスタンス確認
         assert main_window.dataset_state_manager is not None, "DatasetStateManagerが未初期化"
 
-        # ImagePreviewWidget確認
-        assert hasattr(main_window, "imagePreviewWidget"), "imagePreviewWidgetが存在しない"
-        widget = main_window.imagePreviewWidget
+        # ImagePreviewWidget確認 (#869: SearchTabWidget 経由)
+        assert main_window.search_tab is not None, "search_tab が存在しない"
+        widget = main_window.search_tab.image_preview_widget
         assert widget is not None, "ImagePreviewWidgetインスタンスがない"
 
         test_image = Path(__file__).resolve().parents[2] / "resources/img/1_img/file01.webp"
@@ -154,11 +152,11 @@ class TestMainWindowSignalConnection:
         - SelectedImageDetailsWidgetとImagePreviewWidget両方がシグナルを受信
         - 同一データが両Widgetに配信される
         """
-        # SelectedImageDetailsWidget
-        widget_details = main_window.selected_image_details_widget
+        # SelectedImageDetailsWidget (#869: SearchTabWidget 経由)
+        widget_details = main_window.search_tab.selected_image_details_widget
 
         # ImagePreviewWidget
-        widget_preview = main_window.imagePreviewWidget
+        widget_preview = main_window.search_tab.image_preview_widget
         test_image = Path(__file__).resolve().parents[2] / "resources/img/1_img/file01.webp"
 
         # テストデータ
@@ -189,7 +187,7 @@ class TestMainWindowSignalConnection:
 
     def test_signal_connection_with_multiple_emissions(self, qtbot, main_window):
         """複数回のシグナル発行が正しく処理されることを検証"""
-        widget = main_window.selected_image_details_widget
+        widget = main_window.search_tab.selected_image_details_widget
         signal_count = []
 
         widget.image_details_loaded.connect(lambda details: signal_count.append(details.image_id))
@@ -211,7 +209,7 @@ class TestMainWindowSignalConnection:
 
     def test_signal_connection_with_empty_data(self, qtbot, main_window):
         """空データのシグナル発行が正しく処理されることを検証"""
-        widget = main_window.selected_image_details_widget
+        widget = main_window.search_tab.selected_image_details_widget
         widget.current_image_id = 123
 
         # 空データでシグナル発行

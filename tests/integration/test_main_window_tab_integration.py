@@ -174,12 +174,12 @@ class TestMainWindowTabInitialization:
         assert mark.call_count == 3
 
     def test_workspace_tab_contains_splitter(self, main_window_with_tabs):
-        """ワークスペースタブにsplitterMainWorkAreaが含まれる"""
+        """ワークスペースタブに 3 ペイン作業領域 splitter が含まれる (#869: SearchTab 所有)"""
         workspace_tab = main_window_with_tabs.tabWidgetMainMode.widget(0)
         assert workspace_tab is not None
 
-        # splitterMainWorkAreaがワークスペースタブの子孫である
-        splitter = main_window_with_tabs.splitterMainWorkArea
+        # 作業領域 splitter は SearchTabWidget が所有し、main_splitter プロパティで公開する
+        splitter = main_window_with_tabs.search_tab.main_splitter
         assert splitter is not None
 
         # splitterの親を辿ってworkspace_tabに到達できる
@@ -351,7 +351,8 @@ class TestBatchTagWidgetIntegration:
         information = Mock()
         monkeypatch.setattr("lorairo.gui.window.main_window.QMessageBox.information", information)
 
-        main_window_with_tabs.pushButtonStageToBatchTag.click()
+        # #869: ステージング導線ボタンは SearchTabWidget が所有する
+        main_window_with_tabs.search_tab.pushButtonStageToBatchTag.click()
         qtbot.wait(10)
 
         add_to_staging.assert_called_once_with([101, 102])
