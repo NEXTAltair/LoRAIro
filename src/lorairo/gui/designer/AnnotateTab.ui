@@ -1,0 +1,112 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<ui version="4.0">
+ <class>AnnotateTab</class>
+ <widget class="QWidget" name="AnnotateTab">
+  <property name="geometry">
+   <rect>
+    <x>0</x>
+    <y>0</y>
+    <width>800</width>
+    <height>600</height>
+   </rect>
+  </property>
+  <layout class="QVBoxLayout" name="verticalLayout_batchTag">
+   <property name="spacing">
+    <number>8</number>
+   </property>
+   <property name="leftMargin">
+    <number>8</number>
+   </property>
+   <property name="topMargin">
+    <number>8</number>
+   </property>
+   <property name="rightMargin">
+    <number>8</number>
+   </property>
+   <property name="bottomMargin">
+    <number>8</number>
+   </property>
+   <item>
+    <widget class="QSplitter" name="splitterBatchTagMain">
+     <property name="orientation">
+      <enum>Qt::Orientation::Vertical</enum>
+     </property>
+     <property name="childrenCollapsible">
+      <bool>false</bool>
+     </property>
+     <widget class="QWidget" name="batchTagWidgetPlaceholder" native="true"/>
+     <widget class="QGroupBox" name="groupBoxBatchOperations">
+      <property name="title">
+       <string>操作</string>
+      </property>
+      <layout class="QVBoxLayout" name="verticalLayout_operations">
+      <item>
+       <widget class="QScrollArea" name="scrollAreaBatchTagColumn">
+        <property name="widgetResizable">
+         <bool>true</bool>
+        </property>
+        <property name="frameShape">
+         <enum>QFrame::Shape::NoFrame</enum>
+        </property>
+        <widget class="QWidget" name="batchTagColumnContents">
+         <layout class="QVBoxLayout" name="verticalLayout_batchTagColumn">
+          <property name="leftMargin">
+           <number>0</number>
+          </property>
+          <property name="topMargin">
+           <number>0</number>
+          </property>
+          <property name="rightMargin">
+           <number>0</number>
+          </property>
+          <property name="bottomMargin">
+           <number>0</number>
+          </property>
+          <item>
+           <widget class="QWidget" name="batchTagInputPlaceholder" native="true"/>
+          </item>
+          <item>
+           <widget class="QGroupBox" name="groupBoxAnnotation">
+            <property name="title">
+             <string>アノテーション</string>
+            </property>
+            <layout class="QVBoxLayout" name="verticalLayout_annotation">
+             <item>
+              <widget class="QLabel" name="labelAnnotationTarget">
+               <property name="text">
+                <string>対象: ステージング済み画像</string>
+               </property>
+              </widget>
+             </item>
+             <item>
+              <widget class="QWidget" name="annotationFilterPlaceholder" native="true"/>
+             </item>
+             <item>
+              <widget class="QWidget" name="modelSelectionPlaceholder" native="true"/>
+             </item>
+             <item>
+              <widget class="QPushButton" name="btnAnnotationExecute">
+               <property name="text">
+                <string>アノテーション実行</string>
+               </property>
+              </widget>
+             </item>
+            </layout>
+           </widget>
+          </item>
+          <item>
+           <widget class="QWidget" name="annotationDisplayPlaceholder" native="true"/>
+          </item>
+         </layout>
+        </widget>
+       </widget>
+      </item>
+      </layout>
+     </widget>
+    </widget>
+   </item>
+  </layout>
+ </widget>
+ <resources/>
+ <connections/>
+</ui>
