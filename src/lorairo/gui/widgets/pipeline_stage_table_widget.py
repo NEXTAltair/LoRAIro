@@ -89,12 +89,13 @@ _SAVE_PRESET_STYLE = (
 )
 
 _LEGEND_TEXT = (
-    "MULTI model-name = 主割当 / ↝ model-name = 派生 = 同推論の副産物 · 操作不可（Results で却下）"
+    "MULTI model-name = 主割当 / ↝ model-name = 派生 = 同推論の副産物"
+    " · 操作不可（既定で採用 · 不要分は Results で外せる）"
 )
 
 _DERIVED_TOOLTIP = (
     "派生 = 同一推論の副産物。構成時には外せません（外しても課金は同じ 1 推論）。"
-    "不要なら Results で却下してください"
+    "既定で採用され、不要なものだけ Results で外せます"
 )
 
 _RATING_NOTE_TEXT = "multimodal 派生なし †"
