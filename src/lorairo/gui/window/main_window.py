@@ -1823,12 +1823,6 @@ class MainWindow(QMainWindow, Ui_MainWindow):
                 )
                 return
 
-        # #851: stage ピッカーで設定された conf-min 閾値を worker へ伝播する
-        # (litellm_model_id → 閾値)。RunOptions には混ぜず別 dict で渡す。
-        confidence_thresholds: dict[str, float] = {}
-        if self.annotate_tab is not None:
-            confidence_thresholds = self.annotate_tab.stage_confidence_thresholds()
-
         # AnnotationWorkflowControllerに委譲（チェックボックスから選択されたモデルを優先）
         self.annotation_workflow_controller.start_annotation_workflow(
             selected_litellm_model_ids=selected_litellm_model_ids if selected_litellm_model_ids else None,
@@ -1836,7 +1830,6 @@ class MainWindow(QMainWindow, Ui_MainWindow):
             if not selected_litellm_model_ids
             else None,
             image_paths=override_image_paths,
-            confidence_thresholds=confidence_thresholds or None,
         )
 
     def _show_model_selection_dialog(self, available_models: list[str]) -> str | None:

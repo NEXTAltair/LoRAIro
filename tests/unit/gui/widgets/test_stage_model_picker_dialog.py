@@ -1,7 +1,7 @@
 """StageModelPickerDialog 単体テスト (Issue #839: リッチモーダル化)。
 
 旧 QListWidget 版から ``実行環境 × アノテーション種類 × provider`` 絞り込み +
-モデル行 + conf-min スライダーのリッチモーダルへ刷新したことを検証する。公開 API
+モデル行のリッチモーダルへ刷新したことを検証する。公開 API
 (コンストラクタの 4 キーワード / configure_key_requested / selected_model_ids /
 refresh_key_status) の後方互換も併せて確認する。
 """
@@ -174,24 +174,6 @@ class TestFilters:
         labels = dialog.findChildren(QLabel, "noMatchLabel")
         assert len(labels) == 1
         assert not labels[0].isHidden()
-
-
-class TestConfidenceSlider:
-    def test_slider_only_for_tag_models(self, qtbot):
-        dialog = StageModelPickerDialog(PipelineStage.SCORE, [GPT4O, AESTHETIC])
-        qtbot.addWidget(dialog)
-        assert _row_by_id(dialog, "openai/gpt-4o").confidence_value() is not None
-        assert _row_by_id(dialog, "aesthetic-v2").confidence_value() is None
-
-    def test_confidence_thresholds_returns_selected_tag_models(self, qtbot):
-        dialog = StageModelPickerDialog(PipelineStage.SCORE, [GPT4O, AESTHETIC])
-        qtbot.addWidget(dialog)
-        _row_by_id(dialog, "openai/gpt-4o").toggle_requested.emit()
-        _row_by_id(dialog, "aesthetic-v2").toggle_requested.emit()
-        thresholds = dialog.confidence_thresholds()
-        assert "openai/gpt-4o" in thresholds  # tags 対応 + 選択済み
-        assert "aesthetic-v2" not in thresholds  # スライダー非対応
-        assert thresholds["openai/gpt-4o"] == pytest.approx(0.35, abs=0.011)
 
 
 class TestEmptyCandidates:

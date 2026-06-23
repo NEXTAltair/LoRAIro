@@ -47,24 +47,20 @@ WD_TAGGER_INFO = StageModelInfo(
 def _make_stub_dialog(
     exec_result: QDialog.DialogCode,
     picked_ids: list[str],
-    thresholds: dict[str, float] | None = None,
 ) -> tuple[type, dict[str, object]]:
     """StageModelPickerDialog 差し替え用 stub クラスと捕捉 dict を返す。
 
     headless で ``exec()`` がブロックしないよう固定値を返す。テストごとに新しい
-    クラスを生成し、クラスレベルの状態共有 (テスト順依存) を避ける。#851 対応で
-    ``confidence_thresholds()`` も実装する。
+    クラスを生成し、クラスレベルの状態共有 (テスト順依存) を避ける。
 
     Args:
         exec_result: ``exec()`` が返すダイアログ終了コード。
         picked_ids: ``selected_model_ids()`` が返す litellm_model_id リスト。
-        thresholds: ``confidence_thresholds()`` が返す conf-min 閾値辞書。
 
     Returns:
         (stub クラス, コンストラクタ引数を記録する dict) のタプル。
     """
     captured: dict[str, object] = {}
-    conf = dict(thresholds) if thresholds else {}
 
     class _StubPickerDialog:
         def __init__(self, stage, candidates, available_providers=None, parent=None):
@@ -80,9 +76,6 @@ def _make_stub_dialog(
 
         def selected_model_ids(self) -> list[str]:
             return picked_ids
-
-        def confidence_thresholds(self) -> dict[str, float]:
-            return conf
 
     return _StubPickerDialog, captured
 
@@ -298,18 +291,6 @@ class TestPipelineRemoveModelHandler:
         tab._on_pipeline_remove_model_requested("tags", "missing/model")
 
         tab._refresh_pipeline_panel.assert_not_called()
-
-    def test_remove_discards_confidence_threshold(self, tab):
-        checkbox = Mock()
-        tab._batch_model_selection = Mock()
-        tab._batch_model_selection.model_checkbox_widgets = {"openai/gpt-4o": checkbox}
-        tab._refresh_pipeline_panel = Mock()
-        tab._stage_confidence_thresholds = {"openai/gpt-4o": 0.4}
-
-        tab._on_pipeline_remove_model_requested("caption", "openai/gpt-4o")
-
-        # #851: 除外時は捕捉済み conf 閾値も破棄される
-        assert tab.stage_confidence_thresholds() == {}
 
 
 # == 5. preset 配線 ===========================================================
@@ -547,27 +528,7 @@ class TestRunBar:
         assert tab._btn_pipeline_execute.isEnabled() is False
 
 
-# == 8. #851 conf 閾値回帰 ====================================================
-
-
-@pytest.mark.gui
-def test_add_model_retains_confidence_threshold(tab, monkeypatch):
-    """#851: ピッカーの conf-min 閾値を捕捉して stage_confidence_thresholds に保持する。"""
-    from lorairo.gui.tab import annotate_tab as annotate_tab_module
-
-    checkbox = Mock()
-    _wire_model_selection(tab, {"openai/gpt-4o": checkbox}, [], [GPT4O_INFO])
-    stub_cls, _captured = _make_stub_dialog(
-        QDialog.DialogCode.Accepted, ["openai/gpt-4o"], thresholds={"openai/gpt-4o": 0.55}
-    )
-    monkeypatch.setattr(annotate_tab_module, "StageModelPickerDialog", stub_cls)
-
-    tab._on_pipeline_add_model_requested("tags")
-
-    assert tab.stage_confidence_thresholds() == {"openai/gpt-4o": 0.55}
-
-
-# == 9. トップレベル Signal ===================================================
+# == 8. トップレベル Signal ===================================================
 
 
 @pytest.mark.gui
