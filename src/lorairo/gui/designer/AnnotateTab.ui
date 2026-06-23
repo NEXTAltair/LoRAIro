@@ -94,9 +94,6 @@
             </layout>
            </widget>
           </item>
-          <item>
-           <widget class="QWidget" name="annotationDisplayPlaceholder" native="true"/>
-          </item>
          </layout>
         </widget>
        </widget>
