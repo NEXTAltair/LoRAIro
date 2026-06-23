@@ -1,16 +1,19 @@
 # src/lorairo/services/pipeline_composition.py
 """アノテーションパイプライン構成の Qt-free ドメインモデル (Wireframes v11 Frame 2A / Phase 6a)。
 
-ステージ中心パイプライン (TAGS/CAPTION/SCORE/RATING) のモデル割当状態と、
-multimodal 派生出力・推論台帳 (INFERENCE LEDGER) の計算を担う。
+SSoT は選択モデル集合 (ModelSelectionWidget のチェック状態)。本サービスはそれを
+4 つのアノテーション種類 (TAGS/CAPTION/SCORE/RATING) へ投影した派生ビューと、
+multimodal 派生出力・推論台帳 (INFERENCE LEDGER) の計算を担う。ステージへの割り当ては
+選択集合から毎回作り直す派生であり、出力にもコストにも影響しない (詳細は ADR 0075)。
 
-設計確定事項 (デザインセッション 2026-06-11 / docs/design/wireframes-v11):
+設計確定事項 (ADR 0075、デザインセッション 2026-06-11 / docs/design/wireframes-v11):
 - multimodal の AnnotationSchema は {tags, captions, score} 固定 — 派生は
-  TAGS / CAPTION / SCORE のみで RATING には決して届かない (ADR 0023/0031)
+  TAGS / CAPTION / SCORE のみで RATING には届かない。rating は rating 対応モデルか
+  送信前 moderation プリフライト由来 (ADR 0070)
 - 派生チップは read-only (compose 時には外せない)。派生出力は既定で採用され、
-  間違ったものだけ Results の soft-reject (#719) で任意に外せる
-- 推論回数 = ユニークモデル数 × ステージング枚数。同一モデルを複数ステージに
-  明示割当しても dedupe され、コストは増えない
+  間違ったものだけ Results の soft-reject (ADR 0065 / #719) で任意に外せる
+- 推論回数 = ユニークモデル数 × ステージング枚数。同一モデルを複数のアノテーション
+  種類に充当しても dedupe され、コストは増えない
 """
 
 from __future__ import annotations
