@@ -41,7 +41,7 @@ class InferenceLedgerWidget(DsCard):
     """DS v12 AnnotateScreen の INFERENCE LEDGER (推論台帳) card。
 
     DsCard を継承し、DsSummaryStat グリッド (ユニークモデル / × staged /
-    推論ジョブ合計 / 推定) + モデルバッジ + multimodal dedupe 注記を描画する。
+    推論回数合計 / 推定) + モデルバッジ + multimodal dedupe 注記を描画する。
     """
 
     def __init__(self, parent: QWidget | None = None) -> None:
@@ -72,9 +72,9 @@ class InferenceLedgerWidget(DsCard):
         self._stat_staged.setObjectName("ledgerStatStaged")
         stats_row.addWidget(self._stat_staged)
 
-        # 推論ジョブ合計 = accent 強調
+        # 推論回数合計 = accent 強調
         self._stat_total_jobs = DsSummaryStat(
-            label="推論ジョブ合計", value="—", tone="accent", parent=self._stats_widget
+            label="推論回数合計", value="—", tone="accent", parent=self._stats_widget
         )
         self._stat_total_jobs.setObjectName("ledgerStatTotalJobs")
         stats_row.addWidget(self._stat_total_jobs)
