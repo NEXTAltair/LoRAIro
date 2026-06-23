@@ -91,8 +91,25 @@ def check_ng_words(message: str, rules: dict[str, Any], log_file: Path) -> tuple
         keywords = rule_config.get("keywords", [])
         rule_message = rule_config.get("message", f"Rule violation: {rule_name}")
         exclude_patterns = rule_config.get("exclude_patterns", [])
+        threshold = rule_config.get("threshold", 1)
 
-        log_debug(log_file, f"Checking rule '{rule_name}' with {len(keywords)} keywords")
+        log_debug(log_file, f"Checking rule '{rule_name}' with {len(keywords)} keywords (threshold={threshold})")
+
+        # threshold > 1 のルールは「連打」検知: グループ内キーワードの総出現回数で判定
+        if isinstance(threshold, int) and threshold > 1:
+            total = 0
+            for keyword in keywords:
+                if not isinstance(keyword, str) or not keyword:
+                    continue
+                total += len(re.findall(re.escape(keyword), check_message, re.IGNORECASE))
+
+            if total >= threshold:
+                violation_detail = (
+                    f"🚫 [{rule_name}] 接続詞が{total}回検出（閾値{threshold}回）\n   → {rule_message}"
+                )
+                violations.append(violation_detail)
+                log_debug(log_file, f"VIOLATION DETECTED - Rule: {rule_name}, count={total} >= {threshold}")
+            continue
 
         for keyword in keywords:
             if not isinstance(keyword, str) or not keyword:
@@ -209,7 +226,7 @@ def main() -> None:
             sys.exit(0)
 
         input_data: dict[str, Any] = json.load(sys.stdin)
-        log_debug(log_file, f"Stop hook input data received")
+        log_debug(log_file, "Stop hook input data received")
 
         # NGワードルールファイル読み込み
         rules_file = Path(__file__).parent / "rules" / "hook_stop_words_rules.json"
