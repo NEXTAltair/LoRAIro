@@ -122,8 +122,9 @@ graph TD
 **Widget composition principle (MUST)**:
 - **各タブ / 画面は専用の composed ウィジェットに分ける。** 1 タブ = 1 ウィジェット (例: 検索タブ / アノテタブ / 結果タブ …) が、自身のレイアウト・子ウィジェット・Signal 配線・そのタブ固有の振る舞いを所有する。
 - **MainWindow は「接着剤 (glue / orchestrator)」に徹する。** 役割は ① タブウィジェットを配置する ② サービスを注入する ③ トップレベル Signal を接続する、まで。**タブ/画面固有のロジック (ピッカー起動・preset 配線・run bar 構築・パイプライン構成等) を MainWindow に直接書かない** — それは各タブウィジェットの責務。
-- **再利用部品は DS 部品ライブラリ** (`src/lorairo/gui/widgets/ds/`) に切り出し、画面はそれを組み合わせて構成する (デザイン = 画面ごとコンポーネント、と同じ語彙)。
-- 根拠: MainWindow 肥大の再発防止 (1,645→688 行の教訓)、Qt のウィジェット分割 + composition は基本設計でコスト低 ([[feedback_qt_widget_extraction_cheap]])、`docs/lessons-learned.md` の「GUI オーケストレーターは接着剤に留める」。実装手順は `lorairo-qt-widget` skill 参照。
+- **再利用ウィジェットは `widgets/` に置く。複数画面で実際に共有されるものだけ切り出す** (YAGNI、role/layer 分離の最小形)。`ds/` のような部品ライブラリ・サブパッケージを事前に作らない。
+- design↔code の整合は `theme.py` token parity (#782) と `docs/design/lorairo-design-system/` (Claude Design ミラー) が担う。Qt ウィジェットの配置構成はこれと独立。
+- 根拠: MainWindow 肥大の再発防止、Qt のウィジェット分割 + composition は基本設計でコスト低 ([[feedback_qt_widget_extraction_cheap]])、`docs/lessons-learned.md` の「GUI オーケストレーターは接着剤に留める」。実装手順は `lorairo-qt-widget` skill 参照。
 
 **Design decisions**: `docs/decisions/0011-mainwindow-ui-redesign.md`
 

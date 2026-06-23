@@ -216,8 +216,8 @@ class AsyncWidget(QWidget):
 画面/タブの構成は **コンポジション** を基本とし、MainWindow は薄く保つ。
 - **1 タブ / 1 画面 = 1 専用ウィジェット。** そのタブのレイアウト・子ウィジェット・Signal 配線・固有の振る舞い (ピッカー起動 / preset 配線 / run bar 構築 / パイプライン構成 等) は **そのタブウィジェットが所有**する。
 - **MainWindow は「接着剤 (glue / orchestrator)」に徹する。** 役割は ① タブウィジェットを配置 ② サービス注入 ③ トップレベル Signal 接続 まで。**タブ/画面固有のロジックを MainWindow に直接書かない** (書きたくなったら、そのタブウィジェットへ移す合図)。
-- **再利用部品は DS 部品ライブラリ** `src/lorairo/gui/widgets/ds/` (DsCard/DsChip/DsSegmentedControl/DsSummaryStat 等) に切り出し、画面はそれを組み合わせて構成する (claude.ai/design の「画面ごとコンポーネント」と同じ語彙)。
-- **判断基準**: その振る舞いは「タブ間で共有する接着」か「特定タブ固有」か。固有なら MainWindow でなくタブウィジェットへ。再利用するなら `ds/` へ。
+- **再利用ウィジェットは `widgets/` に置く。複数画面で実際に共有されるものだけ切り出す** (YAGNI)。`ds/` のような部品ライブラリ・サブパッケージは事前に作らない。design↔code の整合は `theme.py` token parity (#782) と `docs/design/lorairo-design-system/` (Claude Design ミラー) が担い、Qt ウィジェットの配置構成とは独立。
+- **判断基準**: その振る舞いは「タブ間で共有する接着」か「特定タブ固有」か。固有なら MainWindow でなくタブウィジェットへ。再利用するなら `widgets/` へ。
 - ウィジェット分割 + composition は Qt の基本設計でコスト低 — 「大幅リファクタ」と過大評価しない ([[feedback_qt_widget_extraction_cheap]])。根拠と全体方針は `docs/architecture.md` の GUI Architecture「Widget composition principle」+ `docs/lessons-learned.md` (MainWindow 肥大)。
 
 ## Styling with QSS

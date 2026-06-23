@@ -116,7 +116,7 @@ make clean                 # Remove build artifacts and caches
 
 **Main Application Flow:**
 - Entry point: `src/lorairo/main.py`
-- Main Window: `src/lorairo/gui/window/main_window.py` (5段階初期化、688行)
+- Main Window: `src/lorairo/gui/window/main_window.py`
 - Configuration: `config/lorairo.toml`
 
 **Data Layer:**
@@ -126,9 +126,9 @@ make clean                 # Remove build artifacts and caches
 - Core: `src/lorairo/database/db_core.py`
 
 **Service Layer (2-Tier Architecture):**
-- **Business Logic Services** (`src/lorairo/services/`, 36 services) — Qt-free
-- **GUI Services** (`src/lorairo/gui/services/`, 9 services) — Qt-dependent, Signal-based
-- See [docs/services.md](docs/services.md) for all 45 services
+- **Business Logic Services** (`src/lorairo/services/`) — Qt-free
+- **GUI Services** (`src/lorairo/gui/services/`) — Qt-dependent, Signal-based
+- See [docs/services.md](docs/services.md) for the service catalog
 
 **AI Integration (Local Packages):**
 - **image-annotator-lib**: `src/lorairo/annotations/annotator_adapter.py`, `annotation_logic.py`
@@ -253,7 +253,7 @@ level = "INFO"
 ## Further Reading
 
 - [Architecture](docs/architecture.md) — システム設計原則
-- [Services Catalog](docs/services.md) — 全29サービス一覧
+- [Services Catalog](docs/services.md) — 全サービス一覧
 - [Testing Guide](docs/testing.md) — テスト戦略
 - [Integrations](docs/integrations.md) — 外部パッケージ統合
 - [Design Decisions](docs/decisions/README.md) — ADR インデックス
