@@ -697,3 +697,71 @@ def test_tab_does_not_host_annotation_data_display(tab: AnnotateTabWidget) -> No
 
     for child in tab.findChildren(QWidget):
         assert type(child).__name__ != "AnnotationDataDisplayWidget"
+
+
+# == 12. AnnotationFilter → ModelSelection 連携 (旧 WidgetSetupService から移送) =====
+
+
+class TestFilterToModelDelegation:
+    """AnnotationFilterWidget の出力を ModelSelectionWidget.apply_filters へ変換する配線。
+
+    旧 ``WidgetSetupService._build_model_selection_filters`` /
+    ``_configure_batch_model_selection_widget`` は AnnotateTabWidget へ移送された (#868)。
+    """
+
+    @pytest.mark.gui
+    def test_api_environment_maps_to_execution_env(self, tab: AnnotateTabWidget) -> None:
+        """API環境指定時、execution_env="APIモデルのみ" で apply_filters を呼ぶ。"""
+        tab._batch_model_selection = Mock()
+        tab._apply_filter_to_model({"capabilities": [], "environment": "api"})
+        tab._batch_model_selection.apply_filters.assert_called_once_with(
+            provider=None,
+            capabilities=[],
+            exclude_local=False,
+            execution_env="APIモデルのみ",
+            annotation_only=True,
+        )
+
+    @pytest.mark.gui
+    def test_local_environment_maps_to_execution_env(self, tab: AnnotateTabWidget) -> None:
+        """ローカル環境指定時、execution_env="ローカルモデルのみ" で apply_filters を呼ぶ。"""
+        tab._batch_model_selection = Mock()
+        tab._apply_filter_to_model({"capabilities": [], "environment": "local"})
+        tab._batch_model_selection.apply_filters.assert_called_once_with(
+            provider=None,
+            capabilities=[],
+            exclude_local=False,
+            execution_env="ローカルモデルのみ",
+            annotation_only=True,
+        )
+
+    @pytest.mark.gui
+    def test_capabilities_passed_through_without_environment(self, tab: AnnotateTabWidget) -> None:
+        """選択済み capabilities はそのまま渡し、環境未指定なら execution_env は None。"""
+        tab._batch_model_selection = Mock()
+        tab._apply_filter_to_model({"capabilities": ["caption"], "environment": None})
+        tab._batch_model_selection.apply_filters.assert_called_once_with(
+            provider=None,
+            capabilities=["caption"],
+            exclude_local=False,
+            execution_env=None,
+            annotation_only=True,
+        )
+
+    @pytest.mark.gui
+    def test_missing_capabilities_defaults_to_empty_list(self, tab: AnnotateTabWidget) -> None:
+        """capabilities キー欠落時も絞り込みなし (空リスト) として扱う。"""
+        tab._batch_model_selection = Mock()
+        tab._apply_filter_to_model({"environment": None})
+        tab._batch_model_selection.apply_filters.assert_called_once_with(
+            provider=None,
+            capabilities=[],
+            exclude_local=False,
+            execution_env=None,
+            annotation_only=True,
+        )
+
+    @pytest.mark.gui
+    def test_model_selection_hides_internal_execution_env_combo(self, tab: AnnotateTabWidget) -> None:
+        """Batch annotation ではモデル選択側の環境 Combo を操作面にしない。"""
+        assert tab.batch_model_selection.executionEnvCombo.isVisible() is False

@@ -115,32 +115,31 @@ class TestExportTargetFollowsStaging:
     def test_staged_images_changed_follows_staging_count(self, bare_window):
         """staged_images_changed 経路で下部バー件数がステージング件数に追従する。
 
-        サムネ選択数ではなくステージング集合のサイズを反映することを、
-        実ウィジェット（labelExportTarget / labelAnnotationTarget）で検証する。
+        サムネ選択数ではなくステージング集合のサイズを反映することを実ウィジェット
+        （labelExportTarget）で検証する。アノテ側の対象表示は #868 で
+        AnnotateTabWidget.set_staging_target へ委譲されたため、ここでは委譲呼び出しを検証する。
         """
-        bare_window._update_annotation_target_ui = types.MethodType(
-            MainWindow._update_annotation_target_ui, bare_window
-        )
         bare_window._update_export_target_ui = types.MethodType(
             MainWindow._update_export_target_ui, bare_window
         )
+        bare_window.annotate_tab = Mock()
 
         MainWindow._on_staged_images_changed(bare_window, [10, 20, 30, 40])
 
         assert bare_window.labelExportTarget.text() == "エクスポート対象: 4 枚"
-        assert "4 枚" in bare_window.labelAnnotationTarget.text()
+        # #868: アノテーションタブへステージング集合が push される
+        bare_window.annotate_tab.set_staging_target.assert_called_once_with([10, 20, 30, 40])
 
     def test_staged_images_changed_empty_resets_to_zero(self, bare_window):
-        bare_window._update_annotation_target_ui = types.MethodType(
-            MainWindow._update_annotation_target_ui, bare_window
-        )
         bare_window._update_export_target_ui = types.MethodType(
             MainWindow._update_export_target_ui, bare_window
         )
+        bare_window.annotate_tab = Mock()
 
         MainWindow._on_staged_images_changed(bare_window, [])
 
         assert bare_window.labelExportTarget.text() == "エクスポート対象: 0 枚"
+        bare_window.annotate_tab.set_staging_target.assert_called_once_with([])
 
 
 class TestExportEntryHandlers:
@@ -182,29 +181,20 @@ class TestExportEntryWiring:
 
 
 class TestStagedExportIdsProvider:
-    """_get_staged_export_ids（エクスポートタブの対象ソース）の検証（ADR 0055 / #620 案A）。"""
+    """_get_staged_export_ids（エクスポートタブの対象ソース）の検証。
+
+    #868 以降は StagingStateManager (ADR 0074 の SSoT) を直接読む。下部バーの件数表示と
+    実エクスポート対象を一致させるため、batchTagAddWidget 経由の参照は廃止された。
+    """
 
     def test_returns_staging_image_ids(self):
         mock_window = Mock()
-        staging_widget = Mock()
-        staging_widget.get_image_ids.return_value = [3, 1, 2]
-        mock_window.batchTagAddWidget = Mock()
-        mock_window.batchTagAddWidget.get_staging_widget.return_value = staging_widget
+        mock_window.staging_state_manager.get_image_ids.return_value = [3, 1, 2]
 
         result = MainWindow._get_staged_export_ids(mock_window)
         assert result == [3, 1, 2]
 
-    def test_returns_empty_when_no_batch_widget(self):
-        mock_window = Mock(spec=[])
-        assert MainWindow._get_staged_export_ids(mock_window) == []
-
-    def test_returns_empty_when_no_get_staging_widget(self):
+    def test_returns_empty_when_staging_state_manager_none(self):
         mock_window = Mock()
-        mock_window.batchTagAddWidget = Mock(spec=[])
-        assert MainWindow._get_staged_export_ids(mock_window) == []
-
-    def test_returns_empty_when_staging_widget_none(self):
-        mock_window = Mock()
-        mock_window.batchTagAddWidget = Mock()
-        mock_window.batchTagAddWidget.get_staging_widget.return_value = None
+        mock_window.staging_state_manager = None
         assert MainWindow._get_staged_export_ids(mock_window) == []
