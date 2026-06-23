@@ -18,37 +18,11 @@ from lorairo.gui.window.main_window import MainWindow
 pytestmark = [pytest.mark.integration, pytest.mark.fast_integration]
 
 
-@pytest.fixture
-def mock_services(monkeypatch):
-    """MainWindow初期化に必要な外部サービスをモック
-
-    Args:
-        monkeypatch: pytestのmonkeypatchフィクスチャ
-    """
-    # ConfigurationServiceをモック
-    mock_config = Mock()
-    monkeypatch.setattr(
-        "lorairo.gui.window.main_window.ConfigurationService", Mock(return_value=mock_config)
-    )
-
-    # ServiceContainerをモック
-    mock_container = Mock()
-    mock_container.image_db_manager = Mock()
-    mock_container.image_repository = Mock()
-    monkeypatch.setattr(
-        "lorairo.gui.window.main_window.get_service_container", Mock(return_value=mock_container)
-    )
-
-    # WorkerServiceをモック
-    mock_worker = Mock()
-    mock_worker.get_active_worker_count = Mock(return_value=0)
-    monkeypatch.setattr("lorairo.gui.window.main_window.WorkerService", Mock(return_value=mock_worker))
-
-    # DatasetStateManagerをモック
-    monkeypatch.setattr("lorairo.gui.window.main_window.DatasetStateManager", Mock())
-
-    # FileSystemManagerをモック
-    monkeypatch.setattr("lorairo.gui.window.main_window.FileSystemManager", Mock())
+# NOTE: #869 で SearchFilterService 生成 / filterSearchPanel インターフェース検証は
+# SearchTabWidget の構築へ移送された。検索機能は必須のため、MainWindow は SearchTabWidget
+# 構築失敗を引き続き致命的初期化失敗 (sys.exit) として扱う (_setup_search_tab の try/except →
+# _handle_critical_initialization_failure)。その経路テストは下記 "Phase 3" に置く。
+# SearchTabWidget 内部の widget 振る舞いは tests/unit/gui/tab/test_search_tab.py が担う。
 
 
 # ============================================================================
@@ -176,68 +150,6 @@ def test_worker_service_initialization_failure(qtbot, critical_failure_hooks, mo
     assert "WorkerService" in str(text_args)
 
 
-# ============================================================================
-# Phase 3.5: SearchFilterService統合経路テスト
-# ============================================================================
-
-
-def test_missing_filter_search_panel_triggers_critical_failure(qtbot, critical_failure_hooks, monkeypatch):
-    """filterSearchPanel属性欠落時の致命的失敗テスト
-
-    検証項目:
-    - sys.exit(1)が呼ばれること
-    - logger.criticalが呼ばれること
-    - QMessageBoxが表示されること
-    - エラーメッセージに"filterSearchPanel"が含まれること
-    """
-
-    # setupUi()をモックして、filterSearchPanelを作成しない
-    def mock_setupui(ui_self, main_window_instance):
-        """Ui_MainWindow.setupUi()のモック
-
-        Args:
-            ui_self: Ui_MainWindowインスタンス（使用しない）
-            main_window_instance: MainWindowインスタンス（属性を設定する対象）
-        """
-        # filterSearchPanel属性を意図的に作成しない
-        # その他の必須属性は作成
-        main_window_instance.centralwidget = Mock()
-
-    # MainWindowインポート前にUi_MainWindowをパッチ
-    monkeypatch.setattr("lorairo.gui.designer.MainWindow_ui.Ui_MainWindow.setupUi", mock_setupui)
-
-    # MainWindowの初期化を試みる（致命的エラーが発生する）
-    try:
-        window = MainWindow()
-        qtbot.addWidget(window)
-    except SystemExit:
-        # SystemExitはモックがraise SystemExitするため発生する
-        pass
-
-    # 検証1: sys.exit(1)が呼ばれたこと
-    assert len(critical_failure_hooks["sys_exit"]) == 1, "sys.exit()が呼ばれていない"
-    assert critical_failure_hooks["sys_exit"][0] == 1, "sys.exit()の引数が1でない"
-
-    # 検証2: logger.criticalが呼ばれたこと
-    critical_failure_hooks["logger"].critical.assert_called()
-    logger_args = critical_failure_hooks["logger"].critical.call_args
-    assert "FilterSearchPanel" in str(logger_args), (
-        "logger.criticalのメッセージにFilterSearchPanelが含まれていない"
-    )
-
-    # 検証3: QMessageBoxが作成・表示されたこと
-    assert len(critical_failure_hooks["messagebox_instances"]) > 0, "QMessageBoxが作成されていない"
-    messagebox = critical_failure_hooks["messagebox_instances"][0]
-    messagebox.setIcon.assert_called()
-    messagebox.setWindowTitle.assert_called()
-    messagebox.setText.assert_called()
-    messagebox.exec.assert_called()
-
-    # 検証4: エラーメッセージに期待されるキーワードが含まれること
-    text_args = messagebox.setText.call_args
-    assert "filterSearchPanel" in str(text_args), "エラーメッセージにfilterSearchPanelが含まれていない"
-
-
 def test_missing_db_manager_triggers_critical_failure(qtbot, critical_failure_hooks, monkeypatch):
     """db_manager欠落時の致命的失敗テスト
 
@@ -282,79 +194,36 @@ def test_missing_db_manager_triggers_critical_failure(qtbot, critical_failure_ho
     assert "ImageDatabaseManager" in str(text_args) or "ServiceContainer" in str(text_args)
 
 
-def test_service_creation_exception_triggers_critical_failure(
-    qtbot, critical_failure_hooks, mock_services, monkeypatch
-):
-    """SearchFilterService作成失敗時の致命的失敗テスト
-
-    検証項目:
-    - sys.exit(1)が呼ばれること
-    - logger.criticalが呼ばれること
-    - QMessageBoxが表示されること
-    - エラーメッセージに"SearchFilterService"が含まれること
-    """
-
-    # _create_search_filter_service()が例外を投げるようにモック
-    def mock_create_service_with_exception(self):
-        raise ValueError("SearchFilterService作成に失敗しました（テスト用例外）")
-
-    monkeypatch.setattr(
-        "lorairo.gui.window.main_window.MainWindow._create_search_filter_service",
-        mock_create_service_with_exception,
-    )
-
-    # MainWindowの初期化を試みる（致命的エラーが発生する）
-    try:
-        window = MainWindow()
-        qtbot.addWidget(window)
-    except SystemExit:
-        pass
-
-    # 検証1: sys.exit(1)が呼ばれたこと
-    assert len(critical_failure_hooks["sys_exit"]) == 1
-    assert critical_failure_hooks["sys_exit"][0] == 1
-
-    # 検証2: logger.criticalが呼ばれたこと
-    critical_failure_hooks["logger"].critical.assert_called()
-    logger_args = critical_failure_hooks["logger"].critical.call_args
-    assert "SearchFilterService" in str(logger_args)
-
-    # 検証3: QMessageBoxが作成・表示されたこと
-    assert len(critical_failure_hooks["messagebox_instances"]) > 0
-    messagebox = critical_failure_hooks["messagebox_instances"][0]
-    messagebox.exec.assert_called()
-
-    # 検証4: エラーメッセージに"SearchFilterService"が含まれること
-    text_args = messagebox.setText.call_args
-    assert "SearchFilterService" in str(text_args)
-
-
 # ============================================================================
-# Phase 3: 追加経路テスト
+# Phase 3: 検索タブ (SearchTabWidget) 構築失敗経路テスト (#869 回帰防止)
 # ============================================================================
 
 
-def test_invalid_filter_panel_interface_triggers_critical_failure(
-    qtbot, critical_failure_hooks, monkeypatch
+def test_search_tab_construction_failure_triggers_critical_failure(
+    qtbot, critical_failure_hooks, tmp_path, monkeypatch
 ):
-    """filterSearchPanelインターフェース検証失敗時の致命的失敗テスト
+    """SearchTabWidget 構築失敗時の致命的失敗テスト (#869 回帰防止)
 
     検証項目:
-    - sys.exit(1)が呼ばれること
-    - logger.criticalが呼ばれること
-    - QMessageBoxが表示されること
-    - エラーメッセージに"interface validation failed"が含まれること
-    """
+    - sys.exit(1) が呼ばれること
+    - logger.critical が呼ばれること
+    - QMessageBox が表示されること
+    - エラーメッセージに "SearchTabWidget" が含まれること
 
-    # setupUi()をモックして、不完全なfilterSearchPanelを作成
-    def mock_setupui_with_invalid_interface(ui_self, main_window_instance):
-        # 必須メソッドが欠落したfilterSearchPanelを作成
-        main_window_instance.filterSearchPanel = Mock(spec=[])  # 空のspecで必須メソッドが存在しない
-        main_window_instance.centralwidget = Mock()
+    #869 で検索フィルタ統合は SearchTabWidget 構築へ移管されたが、検索機能は必須のため
+    旧 _setup_search_filter_integration() の fatal フロー (失敗時 sys.exit) を維持する。
+    SearchTabWidget 構築失敗を MainWindow.__init__ の broad catch に流して中途半端な
+    window を表示し続ける回帰を防ぐ。
+    """
+    # 実サービスコンテナで MainWindow を最後まで構築させ、SearchTabWidget 生成のみ失敗させる
+    monkeypatch.setenv("LORAIRO_DATA_DIR", str(tmp_path))
+
+    def mock_search_tab_init_with_exception(*args, **kwargs):
+        raise RuntimeError("SearchFilterService 生成失敗（テスト用例外）")
 
     monkeypatch.setattr(
-        "lorairo.gui.designer.MainWindow_ui.Ui_MainWindow.setupUi",
-        mock_setupui_with_invalid_interface,
+        "lorairo.gui.window.main_window.SearchTabWidget",
+        mock_search_tab_init_with_exception,
     )
 
     # MainWindowの初期化を試みる（致命的エラーが発生する）
@@ -371,64 +240,13 @@ def test_invalid_filter_panel_interface_triggers_critical_failure(
     # 検証2: logger.criticalが呼ばれたこと
     critical_failure_hooks["logger"].critical.assert_called()
     logger_args = critical_failure_hooks["logger"].critical.call_args
-    assert "FilterSearchPanel" in str(logger_args)
+    assert "SearchTabWidget" in str(logger_args)
 
     # 検証3: QMessageBoxが作成・表示されたこと
     assert len(critical_failure_hooks["messagebox_instances"]) > 0
     messagebox = critical_failure_hooks["messagebox_instances"][0]
     messagebox.exec.assert_called()
 
-    # 検証4: エラーメッセージに"interface validation"が含まれること
+    # 検証4: エラーメッセージに"SearchTabWidget"が含まれること
     text_args = messagebox.setText.call_args
-    assert "interface validation failed" in str(text_args) or "missing" in str(text_args)
-
-
-def test_service_injection_exception_triggers_critical_failure(qtbot, critical_failure_hooks, monkeypatch):
-    """SearchFilterService注入失敗時の致命的失敗テスト
-
-    検証項目:
-    - sys.exit(1)が呼ばれること
-    - logger.criticalが呼ばれること
-    - QMessageBoxが表示されること
-    - エラーメッセージに"SearchFilterService"が含まれること
-    """
-
-    # setupUi()をモックして、set_search_filter_service()が例外を投げるようにする
-    def mock_setupui_with_injection_failure(ui_self, main_window_instance):
-        mock_panel = Mock()
-        # set_search_filter_service()呼び出し時に例外を投げる
-        mock_panel.set_search_filter_service.side_effect = RuntimeError(
-            "SearchFilterService注入に失敗しました（テスト用例外）"
-        )
-        main_window_instance.filterSearchPanel = mock_panel
-        main_window_instance.centralwidget = Mock()
-
-    monkeypatch.setattr(
-        "lorairo.gui.designer.MainWindow_ui.Ui_MainWindow.setupUi",
-        mock_setupui_with_injection_failure,
-    )
-
-    # MainWindowの初期化を試みる（致命的エラーが発生する）
-    try:
-        window = MainWindow()
-        qtbot.addWidget(window)
-    except SystemExit:
-        pass
-
-    # 検証1: sys.exit(1)が呼ばれたこと
-    assert len(critical_failure_hooks["sys_exit"]) == 1
-    assert critical_failure_hooks["sys_exit"][0] == 1
-
-    # 検証2: logger.criticalが呼ばれたこと
-    critical_failure_hooks["logger"].critical.assert_called()
-    logger_args = critical_failure_hooks["logger"].critical.call_args
-    assert "SearchFilterService" in str(logger_args)
-
-    # 検証3: QMessageBoxが作成・表示されたこと
-    assert len(critical_failure_hooks["messagebox_instances"]) > 0
-    messagebox = critical_failure_hooks["messagebox_instances"][0]
-    messagebox.exec.assert_called()
-
-    # 検証4: エラーメッセージに"SearchFilterService"が含まれること
-    text_args = messagebox.setText.call_args
-    assert "SearchFilterService" in str(text_args)
+    assert "SearchTabWidget" in str(text_args)

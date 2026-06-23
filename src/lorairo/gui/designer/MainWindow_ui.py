@@ -8,318 +8,100 @@
 ## WARNING! All changes made in this file will be lost when recompiling UI file!
 ################################################################################
 
-from PySide6.QtCore import (QCoreApplication, QDate, QDateTime, QLocale,
-    QMetaObject, QObject, QPoint, QRect,
-    QSize, QTime, QUrl, Qt)
-from PySide6.QtGui import (QAction, QBrush, QColor, QConicalGradient,
-    QCursor, QFont, QFontDatabase, QGradient,
-    QIcon, QImage, QKeySequence, QLinearGradient,
-    QPainter, QPalette, QPixmap, QRadialGradient,
-    QTransform)
-from PySide6.QtWidgets import (QApplication, QFrame, QHBoxLayout, QLabel,
-    QLineEdit, QMainWindow, QMenu, QMenuBar,
-    QPushButton, QSizePolicy, QSpacerItem, QSplitter,
-    QStatusBar, QTabWidget, QVBoxLayout, QWidget)
+from PySide6.QtCore import (
+    QCoreApplication,
+    QDate,
+    QDateTime,
+    QLocale,
+    QMetaObject,
+    QObject,
+    QPoint,
+    QRect,
+    QSize,
+    QTime,
+    QUrl,
+    Qt,
+)
+from PySide6.QtGui import (
+    QAction,
+    QBrush,
+    QColor,
+    QConicalGradient,
+    QCursor,
+    QFont,
+    QFontDatabase,
+    QGradient,
+    QIcon,
+    QImage,
+    QKeySequence,
+    QLinearGradient,
+    QPainter,
+    QPalette,
+    QPixmap,
+    QRadialGradient,
+    QTransform,
+)
+from PySide6.QtWidgets import (
+    QApplication,
+    QLabel,
+    QMainWindow,
+    QMenu,
+    QMenuBar,
+    QSizePolicy,
+    QStatusBar,
+    QTabWidget,
+    QVBoxLayout,
+    QWidget,
+)
 
-from ..widgets.filter_search_panel import FilterSearchPanel
-from ..widgets.image_preview import ImagePreviewWidget
-from ..widgets.selected_image_details_widget import SelectedImageDetailsWidget
-from ..widgets.thumbnail import ThumbnailSelectorWidget
 
 class Ui_MainWindow(object):
     def setupUi(self, MainWindow: QWidget) -> None:
         if not MainWindow.objectName():
-            MainWindow.setObjectName(u"MainWindow")
+            MainWindow.setObjectName("MainWindow")
         MainWindow.resize(1287, 1178)
         icon = QIcon()
-        icon.addFile(u".", QSize(), QIcon.Mode.Normal, QIcon.State.Off)
+        icon.addFile(".", QSize(), QIcon.Mode.Normal, QIcon.State.Off)
         MainWindow.setWindowIcon(icon)
         self.actionExit = QAction(MainWindow)
-        self.actionExit.setObjectName(u"actionExit")
+        self.actionExit.setObjectName("actionExit")
         self.actionSelectAll = QAction(MainWindow)
-        self.actionSelectAll.setObjectName(u"actionSelectAll")
+        self.actionSelectAll.setObjectName("actionSelectAll")
         self.actionDeselectAll = QAction(MainWindow)
-        self.actionDeselectAll.setObjectName(u"actionDeselectAll")
+        self.actionDeselectAll.setObjectName("actionDeselectAll")
         self.actionToggleFilterPanel = QAction(MainWindow)
-        self.actionToggleFilterPanel.setObjectName(u"actionToggleFilterPanel")
+        self.actionToggleFilterPanel.setObjectName("actionToggleFilterPanel")
         self.actionToggleFilterPanel.setCheckable(True)
         self.actionToggleFilterPanel.setChecked(True)
         self.actionTogglePreviewPanel = QAction(MainWindow)
-        self.actionTogglePreviewPanel.setObjectName(u"actionTogglePreviewPanel")
+        self.actionTogglePreviewPanel.setObjectName("actionTogglePreviewPanel")
         self.actionTogglePreviewPanel.setCheckable(True)
         self.actionTogglePreviewPanel.setChecked(True)
         self.actionSettings = QAction(MainWindow)
-        self.actionSettings.setObjectName(u"actionSettings")
+        self.actionSettings.setObjectName("actionSettings")
         self.actionAbout = QAction(MainWindow)
-        self.actionAbout.setObjectName(u"actionAbout")
+        self.actionAbout.setObjectName("actionAbout")
         self.centralwidget = QWidget(MainWindow)
-        self.centralwidget.setObjectName(u"centralwidget")
+        self.centralwidget.setObjectName("centralwidget")
         self.verticalLayout_main = QVBoxLayout(self.centralwidget)
         self.verticalLayout_main.setSpacing(0)
-        self.verticalLayout_main.setObjectName(u"verticalLayout_main")
+        self.verticalLayout_main.setObjectName("verticalLayout_main")
         self.verticalLayout_main.setContentsMargins(0, 0, 0, 0)
         self.tabWidgetMainMode = QTabWidget(self.centralwidget)
-        self.tabWidgetMainMode.setObjectName(u"tabWidgetMainMode")
+        self.tabWidgetMainMode.setObjectName("tabWidgetMainMode")
         self.tabWorkspace = QWidget()
-        self.tabWorkspace.setObjectName(u"tabWorkspace")
+        self.tabWorkspace.setObjectName("tabWorkspace")
         self.verticalLayout_workspace = QVBoxLayout(self.tabWorkspace)
         self.verticalLayout_workspace.setSpacing(0)
-        self.verticalLayout_workspace.setObjectName(u"verticalLayout_workspace")
+        self.verticalLayout_workspace.setObjectName("verticalLayout_workspace")
         self.verticalLayout_workspace.setContentsMargins(0, 0, 0, 0)
-        self.frameDatasetSelector = QFrame(self.tabWorkspace)
-        self.frameDatasetSelector.setObjectName(u"frameDatasetSelector")
-        sizePolicy = QSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Fixed)
-        sizePolicy.setHorizontalStretch(0)
-        sizePolicy.setVerticalStretch(0)
-        sizePolicy.setHeightForWidth(self.frameDatasetSelector.sizePolicy().hasHeightForWidth())
-        self.frameDatasetSelector.setSizePolicy(sizePolicy)
-        self.frameDatasetSelector.setFrameShape(QFrame.Shape.StyledPanel)
-        self.frameDatasetSelector.setFrameShadow(QFrame.Shadow.Raised)
-        self.horizontalLayout_dataset = QHBoxLayout(self.frameDatasetSelector)
-        self.horizontalLayout_dataset.setObjectName(u"horizontalLayout_dataset")
-        self.horizontalLayout_dataset.setContentsMargins(10, 10, 10, 10)
-        self.labelDataset = QLabel(self.frameDatasetSelector)
-        self.labelDataset.setObjectName(u"labelDataset")
-        sizePolicy1 = QSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Preferred)
-        sizePolicy1.setHorizontalStretch(0)
-        sizePolicy1.setVerticalStretch(0)
-        sizePolicy1.setHeightForWidth(self.labelDataset.sizePolicy().hasHeightForWidth())
-        self.labelDataset.setSizePolicy(sizePolicy1)
-
-        self.horizontalLayout_dataset.addWidget(self.labelDataset)
-
-        self.lineEditDatasetPath = QLineEdit(self.frameDatasetSelector)
-        self.lineEditDatasetPath.setObjectName(u"lineEditDatasetPath")
-        self.lineEditDatasetPath.setReadOnly(True)
-
-        self.horizontalLayout_dataset.addWidget(self.lineEditDatasetPath)
-
-        self.pushButtonSelectDataset = QPushButton(self.frameDatasetSelector)
-        self.pushButtonSelectDataset.setObjectName(u"pushButtonSelectDataset")
-        sizePolicy1.setHeightForWidth(self.pushButtonSelectDataset.sizePolicy().hasHeightForWidth())
-        self.pushButtonSelectDataset.setSizePolicy(sizePolicy1)
-
-        self.horizontalLayout_dataset.addWidget(self.pushButtonSelectDataset)
-
-        self.horizontalSpacer_dataset = QSpacerItem(20, 20, QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Minimum)
-
-        self.horizontalLayout_dataset.addItem(self.horizontalSpacer_dataset)
-
-        self.pushButtonSettings = QPushButton(self.frameDatasetSelector)
-        self.pushButtonSettings.setObjectName(u"pushButtonSettings")
-        sizePolicy1.setHeightForWidth(self.pushButtonSettings.sizePolicy().hasHeightForWidth())
-        self.pushButtonSettings.setSizePolicy(sizePolicy1)
-
-        self.horizontalLayout_dataset.addWidget(self.pushButtonSettings)
-
-
-        self.verticalLayout_workspace.addWidget(self.frameDatasetSelector)
-
-        self.frameDbStatus = QFrame(self.tabWorkspace)
-        self.frameDbStatus.setObjectName(u"frameDbStatus")
-        sizePolicy.setHeightForWidth(self.frameDbStatus.sizePolicy().hasHeightForWidth())
-        self.frameDbStatus.setSizePolicy(sizePolicy)
-        self.frameDbStatus.setFrameShape(QFrame.Shape.StyledPanel)
-        self.frameDbStatus.setFrameShadow(QFrame.Shadow.Raised)
-        self.horizontalLayout_dbStatus = QHBoxLayout(self.frameDbStatus)
-        self.horizontalLayout_dbStatus.setObjectName(u"horizontalLayout_dbStatus")
-        self.horizontalLayout_dbStatus.setContentsMargins(10, 5, 10, 5)
-        self.labelDbInfo = QLabel(self.frameDbStatus)
-        self.labelDbInfo.setObjectName(u"labelDbInfo")
-
-        self.horizontalLayout_dbStatus.addWidget(self.labelDbInfo)
-
-        self.horizontalSpacer_dbStatus = QSpacerItem(40, 20, QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Minimum)
-
-        self.horizontalLayout_dbStatus.addItem(self.horizontalSpacer_dbStatus)
-
-
-        self.verticalLayout_workspace.addWidget(self.frameDbStatus)
-
-        self.splitterMainWorkArea = QSplitter(self.tabWorkspace)
-        self.splitterMainWorkArea.setObjectName(u"splitterMainWorkArea")
-        sizePolicy2 = QSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
-        sizePolicy2.setHorizontalStretch(0)
-        sizePolicy2.setVerticalStretch(0)
-        sizePolicy2.setHeightForWidth(self.splitterMainWorkArea.sizePolicy().hasHeightForWidth())
-        self.splitterMainWorkArea.setSizePolicy(sizePolicy2)
-        self.splitterMainWorkArea.setOrientation(Qt.Orientation.Horizontal)
-        self.splitterMainWorkArea.setChildrenCollapsible(False)
-        self.frameFilterSearchPanel = QFrame(self.splitterMainWorkArea)
-        self.frameFilterSearchPanel.setObjectName(u"frameFilterSearchPanel")
-        sizePolicy3 = QSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Expanding)
-        sizePolicy3.setHorizontalStretch(1)
-        sizePolicy3.setVerticalStretch(0)
-        sizePolicy3.setHeightForWidth(self.frameFilterSearchPanel.sizePolicy().hasHeightForWidth())
-        self.frameFilterSearchPanel.setSizePolicy(sizePolicy3)
-        self.frameFilterSearchPanel.setFrameShape(QFrame.Shape.StyledPanel)
-        self.frameFilterSearchPanel.setFrameShadow(QFrame.Shadow.Raised)
-        self.verticalLayout = QVBoxLayout(self.frameFilterSearchPanel)
-        self.verticalLayout.setObjectName(u"verticalLayout")
-        self.labelFilterSearch = QLabel(self.frameFilterSearchPanel)
-        self.labelFilterSearch.setObjectName(u"labelFilterSearch")
-
-        self.verticalLayout.addWidget(self.labelFilterSearch)
-
-        self.filterSearchPanel = FilterSearchPanel(self.frameFilterSearchPanel)
-        self.filterSearchPanel.setObjectName(u"filterSearchPanel")
-        sizePolicy4 = QSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
-        sizePolicy4.setHorizontalStretch(0)
-        sizePolicy4.setVerticalStretch(1)
-        sizePolicy4.setHeightForWidth(self.filterSearchPanel.sizePolicy().hasHeightForWidth())
-        self.filterSearchPanel.setSizePolicy(sizePolicy4)
-
-        self.verticalLayout.addWidget(self.filterSearchPanel)
-
-        self.splitterMainWorkArea.addWidget(self.frameFilterSearchPanel)
-        self.frameThumbnailGrid = QFrame(self.splitterMainWorkArea)
-        self.frameThumbnailGrid.setObjectName(u"frameThumbnailGrid")
-        sizePolicy2.setHeightForWidth(self.frameThumbnailGrid.sizePolicy().hasHeightForWidth())
-        self.frameThumbnailGrid.setSizePolicy(sizePolicy2)
-        self.frameThumbnailGrid.setFrameShape(QFrame.Shape.StyledPanel)
-        self.frameThumbnailGrid.setFrameShadow(QFrame.Shadow.Raised)
-        self.verticalLayout_thumbnailGrid = QVBoxLayout(self.frameThumbnailGrid)
-        self.verticalLayout_thumbnailGrid.setSpacing(5)
-        self.verticalLayout_thumbnailGrid.setObjectName(u"verticalLayout_thumbnailGrid")
-        self.verticalLayout_thumbnailGrid.setContentsMargins(5, 5, 5, 5)
-        self.thumbnailSelectorWidget = ThumbnailSelectorWidget(self.frameThumbnailGrid)
-        self.thumbnailSelectorWidget.setObjectName(u"thumbnailSelectorWidget")
-        sizePolicy5 = QSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
-        sizePolicy5.setHorizontalStretch(2)
-        sizePolicy5.setVerticalStretch(0)
-        sizePolicy5.setHeightForWidth(self.thumbnailSelectorWidget.sizePolicy().hasHeightForWidth())
-        self.thumbnailSelectorWidget.setSizePolicy(sizePolicy5)
-
-        self.verticalLayout_thumbnailGrid.addWidget(self.thumbnailSelectorWidget)
-
-        self.horizontalLayout_exportBottomBar = QHBoxLayout()
-        self.horizontalLayout_exportBottomBar.setObjectName(u"horizontalLayout_exportBottomBar")
-        self.labelExportTarget = QLabel(self.frameThumbnailGrid)
-        self.labelExportTarget.setObjectName(u"labelExportTarget")
-
-        self.horizontalLayout_exportBottomBar.addWidget(self.labelExportTarget)
-
-        self.horizontalSpacer_exportBottomBar = QSpacerItem(40, 20, QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Minimum)
-
-        self.horizontalLayout_exportBottomBar.addItem(self.horizontalSpacer_exportBottomBar)
-
-        self.btnExportData = QPushButton(self.frameThumbnailGrid)
-        self.btnExportData.setObjectName(u"btnExportData")
-
-        self.horizontalLayout_exportBottomBar.addWidget(self.btnExportData)
-
-
-        self.verticalLayout_thumbnailGrid.addLayout(self.horizontalLayout_exportBottomBar)
-
-        self.splitterMainWorkArea.addWidget(self.frameThumbnailGrid)
-        self.framePreviewDetailPanel = QFrame(self.splitterMainWorkArea)
-        self.framePreviewDetailPanel.setObjectName(u"framePreviewDetailPanel")
-        sizePolicy5.setHeightForWidth(self.framePreviewDetailPanel.sizePolicy().hasHeightForWidth())
-        self.framePreviewDetailPanel.setSizePolicy(sizePolicy5)
-        self.framePreviewDetailPanel.setFrameShape(QFrame.Shape.StyledPanel)
-        self.framePreviewDetailPanel.setFrameShadow(QFrame.Shadow.Raised)
-        self.verticalLayout_previewDetail = QVBoxLayout(self.framePreviewDetailPanel)
-        self.verticalLayout_previewDetail.setSpacing(5)
-        self.verticalLayout_previewDetail.setObjectName(u"verticalLayout_previewDetail")
-        self.verticalLayout_previewDetail.setContentsMargins(5, 5, 5, 5)
-        self.labelPreviewDetail = QLabel(self.framePreviewDetailPanel)
-        self.labelPreviewDetail.setObjectName(u"labelPreviewDetail")
-
-        self.verticalLayout_previewDetail.addWidget(self.labelPreviewDetail)
-
-        self.framePreviewDetailContent = QFrame(self.framePreviewDetailPanel)
-        self.framePreviewDetailContent.setObjectName(u"framePreviewDetailContent")
-        sizePolicy6 = QSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Expanding)
-        sizePolicy6.setHorizontalStretch(0)
-        sizePolicy6.setVerticalStretch(0)
-        sizePolicy6.setHeightForWidth(self.framePreviewDetailContent.sizePolicy().hasHeightForWidth())
-        self.framePreviewDetailContent.setSizePolicy(sizePolicy6)
-        self.framePreviewDetailContent.setMaximumSize(QSize(16777215, 16777215))
-        self.framePreviewDetailContent.setStyleSheet(u"")
-        self.framePreviewDetailContent.setFrameShape(QFrame.Shape.NoFrame)
-        self.verticalLayout_previewDetailContent = QVBoxLayout(self.framePreviewDetailContent)
-        self.verticalLayout_previewDetailContent.setSpacing(8)
-        self.verticalLayout_previewDetailContent.setObjectName(u"verticalLayout_previewDetailContent")
-        self.verticalLayout_previewDetailContent.setContentsMargins(5, 5, 5, 5)
-        self.splitterPreviewDetails = QSplitter(self.framePreviewDetailContent)
-        self.splitterPreviewDetails.setObjectName(u"splitterPreviewDetails")
-        self.splitterPreviewDetails.setOrientation(Qt.Orientation.Vertical)
-        self.imagePreviewWidget = ImagePreviewWidget(self.splitterPreviewDetails)
-        self.imagePreviewWidget.setObjectName(u"imagePreviewWidget")
-        sizePolicy7 = QSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
-        sizePolicy7.setHorizontalStretch(0)
-        sizePolicy7.setVerticalStretch(2)
-        sizePolicy7.setHeightForWidth(self.imagePreviewWidget.sizePolicy().hasHeightForWidth())
-        self.imagePreviewWidget.setSizePolicy(sizePolicy7)
-        self.splitterPreviewDetails.addWidget(self.imagePreviewWidget)
-        self.tabWidgetRightPanel = QTabWidget(self.splitterPreviewDetails)
-        self.tabWidgetRightPanel.setObjectName(u"tabWidgetRightPanel")
-        sizePolicy7.setHeightForWidth(self.tabWidgetRightPanel.sizePolicy().hasHeightForWidth())
-        self.tabWidgetRightPanel.setSizePolicy(sizePolicy7)
-        self.tabWidgetRightPanel.setMinimumSize(QSize(200, 220))
-        self.tabImageDetails = QWidget()
-        self.tabImageDetails.setObjectName(u"tabImageDetails")
-        self.verticalLayoutTabDetails = QVBoxLayout(self.tabImageDetails)
-        self.verticalLayoutTabDetails.setSpacing(0)
-        self.verticalLayoutTabDetails.setObjectName(u"verticalLayoutTabDetails")
-        self.verticalLayoutTabDetails.setContentsMargins(0, 0, 0, 0)
-        self.selectedImageDetailsWidget = SelectedImageDetailsWidget(self.tabImageDetails)
-        self.selectedImageDetailsWidget.setObjectName(u"selectedImageDetailsWidget")
-
-        self.verticalLayoutTabDetails.addWidget(self.selectedImageDetailsWidget)
-
-        self.tabWidgetRightPanel.addTab(self.tabImageDetails, "")
-        self.splitterPreviewDetails.addWidget(self.tabWidgetRightPanel)
-
-        self.verticalLayout_previewDetailContent.addWidget(self.splitterPreviewDetails)
-
-        self.verticalLayout_previewDetailContent.setStretch(0, 3)
-
-        self.verticalLayout_previewDetail.addWidget(self.framePreviewDetailContent)
-
-        self.splitterMainWorkArea.addWidget(self.framePreviewDetailPanel)
-
-        self.verticalLayout_workspace.addWidget(self.splitterMainWorkArea)
-
-        self.frameActionToolbar = QFrame(self.tabWorkspace)
-        self.frameActionToolbar.setObjectName(u"frameActionToolbar")
-        sizePolicy8 = QSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
-        sizePolicy8.setHorizontalStretch(0)
-        sizePolicy8.setVerticalStretch(0)
-        sizePolicy8.setHeightForWidth(self.frameActionToolbar.sizePolicy().hasHeightForWidth())
-        self.frameActionToolbar.setSizePolicy(sizePolicy8)
-        self.frameActionToolbar.setFrameShape(QFrame.Shape.StyledPanel)
-        self.frameActionToolbar.setFrameShadow(QFrame.Shadow.Raised)
-        self.horizontalLayout_actionToolbar = QHBoxLayout(self.frameActionToolbar)
-        self.horizontalLayout_actionToolbar.setObjectName(u"horizontalLayout_actionToolbar")
-        self.horizontalLayout_actionToolbar.setContentsMargins(10, 5, 10, 5)
-        self.pushButtonStageToBatchTag = QPushButton(self.frameActionToolbar)
-        self.pushButtonStageToBatchTag.setObjectName(u"pushButtonStageToBatchTag")
-        sizePolicy1.setHeightForWidth(self.pushButtonStageToBatchTag.sizePolicy().hasHeightForWidth())
-        self.pushButtonStageToBatchTag.setSizePolicy(sizePolicy1)
-        self.pushButtonStageToBatchTag.setMinimumWidth(140)
-
-        self.horizontalLayout_actionToolbar.addWidget(self.pushButtonStageToBatchTag)
-
-        self.horizontalSpacer_actionToolbar = QSpacerItem(40, 20, QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Minimum)
-
-        self.horizontalLayout_actionToolbar.addItem(self.horizontalSpacer_actionToolbar)
-
-        self.labelStatus = QLabel(self.frameActionToolbar)
-        self.labelStatus.setObjectName(u"labelStatus")
-
-        self.horizontalLayout_actionToolbar.addWidget(self.labelStatus)
-
-
-        self.verticalLayout_workspace.addWidget(self.frameActionToolbar)
-
         self.tabWidgetMainMode.addTab(self.tabWorkspace, "")
         self.tabMap = QWidget()
-        self.tabMap.setObjectName(u"tabMap")
+        self.tabMap.setObjectName("tabMap")
         self.verticalLayout_map = QVBoxLayout(self.tabMap)
-        self.verticalLayout_map.setObjectName(u"verticalLayout_map")
+        self.verticalLayout_map.setObjectName("verticalLayout_map")
         self.labelMapStub = QLabel(self.tabMap)
-        self.labelMapStub.setObjectName(u"labelMapStub")
+        self.labelMapStub.setObjectName("labelMapStub")
         self.labelMapStub.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.labelMapStub.setWordWrap(True)
 
@@ -327,18 +109,18 @@ class Ui_MainWindow(object):
 
         self.tabWidgetMainMode.addTab(self.tabMap, "")
         self.tabBatchTag = QWidget()
-        self.tabBatchTag.setObjectName(u"tabBatchTag")
+        self.tabBatchTag.setObjectName("tabBatchTag")
         self.verticalLayout_batchTag = QVBoxLayout(self.tabBatchTag)
         self.verticalLayout_batchTag.setSpacing(0)
-        self.verticalLayout_batchTag.setObjectName(u"verticalLayout_batchTag")
+        self.verticalLayout_batchTag.setObjectName("verticalLayout_batchTag")
         self.verticalLayout_batchTag.setContentsMargins(0, 0, 0, 0)
         self.tabWidgetMainMode.addTab(self.tabBatchTag, "")
         self.tabResults = QWidget()
-        self.tabResults.setObjectName(u"tabResults")
+        self.tabResults.setObjectName("tabResults")
         self.verticalLayout_results = QVBoxLayout(self.tabResults)
-        self.verticalLayout_results.setObjectName(u"verticalLayout_results")
+        self.verticalLayout_results.setObjectName("verticalLayout_results")
         self.labelResultsStub = QLabel(self.tabResults)
-        self.labelResultsStub.setObjectName(u"labelResultsStub")
+        self.labelResultsStub.setObjectName("labelResultsStub")
         self.labelResultsStub.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.labelResultsStub.setWordWrap(True)
 
@@ -346,35 +128,35 @@ class Ui_MainWindow(object):
 
         self.tabWidgetMainMode.addTab(self.tabResults, "")
         self.tabErrors = QWidget()
-        self.tabErrors.setObjectName(u"tabErrors")
+        self.tabErrors.setObjectName("tabErrors")
         self.verticalLayout_errors = QVBoxLayout(self.tabErrors)
-        self.verticalLayout_errors.setObjectName(u"verticalLayout_errors")
+        self.verticalLayout_errors.setObjectName("verticalLayout_errors")
         self.tabWidgetMainMode.addTab(self.tabErrors, "")
         self.tabExport = QWidget()
-        self.tabExport.setObjectName(u"tabExport")
+        self.tabExport.setObjectName("tabExport")
         self.verticalLayout_export = QVBoxLayout(self.tabExport)
-        self.verticalLayout_export.setObjectName(u"verticalLayout_export")
+        self.verticalLayout_export.setObjectName("verticalLayout_export")
         self.tabWidgetMainMode.addTab(self.tabExport, "")
 
         self.verticalLayout_main.addWidget(self.tabWidgetMainMode)
 
         MainWindow.setCentralWidget(self.centralwidget)
         self.menubar = QMenuBar(MainWindow)
-        self.menubar.setObjectName(u"menubar")
+        self.menubar.setObjectName("menubar")
         self.menubar.setGeometry(QRect(0, 0, 1287, 33))
         self.menuFile = QMenu(self.menubar)
-        self.menuFile.setObjectName(u"menuFile")
+        self.menuFile.setObjectName("menuFile")
         self.menuEdit = QMenu(self.menubar)
-        self.menuEdit.setObjectName(u"menuEdit")
+        self.menuEdit.setObjectName("menuEdit")
         self.menuView = QMenu(self.menubar)
-        self.menuView.setObjectName(u"menuView")
+        self.menuView.setObjectName("menuView")
         self.menuTools = QMenu(self.menubar)
-        self.menuTools.setObjectName(u"menuTools")
+        self.menuTools.setObjectName("menuTools")
         self.menuHelp = QMenu(self.menubar)
-        self.menuHelp.setObjectName(u"menuHelp")
+        self.menuHelp.setObjectName("menuHelp")
         MainWindow.setMenuBar(self.menubar)
         self.statusbar = QStatusBar(MainWindow)
-        self.statusbar.setObjectName(u"statusbar")
+        self.statusbar.setObjectName("statusbar")
         MainWindow.setStatusBar(self.statusbar)
 
         self.menubar.addAction(self.menuFile.menuAction())
@@ -391,76 +173,96 @@ class Ui_MainWindow(object):
         self.menuHelp.addAction(self.actionAbout)
 
         self.retranslateUi(MainWindow)
-        self.pushButtonSelectDataset.clicked.connect(MainWindow.select_and_process_dataset)
-        self.pushButtonSettings.clicked.connect(MainWindow.open_settings)
-        self.pushButtonStageToBatchTag.clicked.connect(MainWindow.send_selected_to_batch_tag)
 
         self.tabWidgetMainMode.setCurrentIndex(0)
-        self.tabWidgetRightPanel.setCurrentIndex(0)
-
 
         QMetaObject.connectSlotsByName(MainWindow)
+
     # setupUi
 
     def retranslateUi(self, MainWindow: QWidget) -> None:
-        MainWindow.setWindowTitle(QCoreApplication.translate("MainWindow", u"LoRAIro", None))
-        self.actionExit.setText(QCoreApplication.translate("MainWindow", u"\u7d42\u4e86", None))
-#if QT_CONFIG(shortcut)
-        self.actionExit.setShortcut(QCoreApplication.translate("MainWindow", u"Ctrl+Q", None))
-#endif // QT_CONFIG(shortcut)
-        self.actionSelectAll.setText(QCoreApplication.translate("MainWindow", u"\u3059\u3079\u3066\u9078\u629e", None))
-#if QT_CONFIG(shortcut)
-        self.actionSelectAll.setShortcut(QCoreApplication.translate("MainWindow", u"Ctrl+A", None))
-#endif // QT_CONFIG(shortcut)
-        self.actionDeselectAll.setText(QCoreApplication.translate("MainWindow", u"\u9078\u629e\u89e3\u9664", None))
-#if QT_CONFIG(shortcut)
-        self.actionDeselectAll.setShortcut(QCoreApplication.translate("MainWindow", u"Ctrl+D", None))
-#endif // QT_CONFIG(shortcut)
-        self.actionToggleFilterPanel.setText(QCoreApplication.translate("MainWindow", u"\u30d5\u30a3\u30eb\u30bf\u30fc\u30d1\u30cd\u30eb\u8868\u793a\u5207\u66ff", None))
-        self.actionTogglePreviewPanel.setText(QCoreApplication.translate("MainWindow", u"\u30d7\u30ec\u30d3\u30e5\u30fc\u30d1\u30cd\u30eb\u8868\u793a\u5207\u66ff", None))
-        self.actionSettings.setText(QCoreApplication.translate("MainWindow", u"\u8a2d\u5b9a", None))
-#if QT_CONFIG(shortcut)
-        self.actionSettings.setShortcut(QCoreApplication.translate("MainWindow", u"Ctrl+,", None))
-#endif // QT_CONFIG(shortcut)
-        self.actionAbout.setText(QCoreApplication.translate("MainWindow", u"LoRAIro\u306b\u3064\u3044\u3066", None))
-        self.labelDataset.setText(QCoreApplication.translate("MainWindow", u"\u30c7\u30fc\u30bf\u30bb\u30c3\u30c8:", None))
-        self.lineEditDatasetPath.setPlaceholderText(QCoreApplication.translate("MainWindow", u"\u30c7\u30fc\u30bf\u30bb\u30c3\u30c8\u30c7\u30a3\u30ec\u30af\u30c8\u30ea\u3092\u9078\u629e\u3057\u3066\u304f\u3060\u3055\u3044", None))
-        self.pushButtonSelectDataset.setText(QCoreApplication.translate("MainWindow", u"\u9078\u629e", None))
-        self.pushButtonSettings.setText(QCoreApplication.translate("MainWindow", u"\u8a2d\u5b9a", None))
-        self.labelDbInfo.setStyleSheet(QCoreApplication.translate("MainWindow", u"font-weight: bold;", None))
-        self.labelDbInfo.setText(QCoreApplication.translate("MainWindow", u"\u30c7\u30fc\u30bf\u30d9\u30fc\u30b9: \u672a\u63a5\u7d9a", None))
-        self.labelFilterSearch.setStyleSheet(QCoreApplication.translate("MainWindow", u"font-weight: bold;", None))
-        self.labelFilterSearch.setText(QCoreApplication.translate("MainWindow", u"\u691c\u7d22\u30fb\u30d5\u30a3\u30eb\u30bf\u30fc", None))
-#if QT_CONFIG(tooltip)
-        self.labelExportTarget.setToolTip(QCoreApplication.translate("MainWindow", u"\u30a8\u30af\u30b9\u30dd\u30fc\u30c8\u5bfe\u8c61\u306f\u30b9\u30c6\u30fc\u30b8\u30f3\u30b0\u96c6\u5408\uff08\u660e\u793a\u7684\u306b\u6295\u5165\u3057\u305f\u753b\u50cf\uff09\u3067\u3059", None))
-#endif // QT_CONFIG(tooltip)
-        self.labelExportTarget.setText(QCoreApplication.translate("MainWindow", u"\u30a8\u30af\u30b9\u30dd\u30fc\u30c8\u5bfe\u8c61: 0 \u679a", None))
-#if QT_CONFIG(tooltip)
-        self.btnExportData.setToolTip(QCoreApplication.translate("MainWindow", u"\u30b9\u30c6\u30fc\u30b8\u30f3\u30b0\u96c6\u5408\u3092\u30a8\u30af\u30b9\u30dd\u30fc\u30c8", None))
-#endif // QT_CONFIG(tooltip)
-        self.btnExportData.setText(QCoreApplication.translate("MainWindow", u"\u30a8\u30af\u30b9\u30dd\u30fc\u30c8", None))
-        self.labelPreviewDetail.setStyleSheet(QCoreApplication.translate("MainWindow", u"font-weight: bold;", None))
-        self.labelPreviewDetail.setText(QCoreApplication.translate("MainWindow", u"\u30d7\u30ec\u30d3\u30e5\u30fc\u30fb\u8a73\u7d30", None))
-        self.tabWidgetRightPanel.setTabText(self.tabWidgetRightPanel.indexOf(self.tabImageDetails), QCoreApplication.translate("MainWindow", u"\u753b\u50cf\u8a73\u7d30", None))
-#if QT_CONFIG(tooltip)
-        self.pushButtonStageToBatchTag.setToolTip(QCoreApplication.translate("MainWindow", u"\u9078\u629e\u4e2d\u306e\u753b\u50cf\u3092\u30d0\u30c3\u30c1\u30bf\u30b0\u306e\u30b9\u30c6\u30fc\u30b8\u30f3\u30b0\u306b\u8ffd\u52a0\u3057\u307e\u3059", None))
-#endif // QT_CONFIG(tooltip)
-        self.pushButtonStageToBatchTag.setText(QCoreApplication.translate("MainWindow", u"\u9078\u629e\u3092\u30b9\u30c6\u30fc\u30b8\u30f3\u30b0\u3078", None))
-        self.labelStatus.setText(QCoreApplication.translate("MainWindow", u"\u6e96\u5099\u5b8c\u4e86", None))
-        self.tabWidgetMainMode.setTabText(self.tabWidgetMainMode.indexOf(self.tabWorkspace), QCoreApplication.translate("MainWindow", u"\u691c\u7d22", None))
-        self.labelMapStub.setText(QCoreApplication.translate("MainWindow", u"\u30de\u30c3\u30d7\u30d3\u30e5\u30fc\u306f\u672a\u5b9f\u88c5\u3067\u3059\u3002\n"
-"embedding \u6563\u5e03\u56f3\u306b\u3088\u308b\u30c7\u30fc\u30bf\u30bb\u30c3\u30c8\u4fef\u77b0\u3092\u4e88\u5b9a\uff08Wireframes v11 \u00b7 Map / \u5b9f\u88c5\u30ed\u30fc\u30c9\u30de\u30c3\u30d7 Phase 8\uff09\u3002", None))
-        self.tabWidgetMainMode.setTabText(self.tabWidgetMainMode.indexOf(self.tabMap), QCoreApplication.translate("MainWindow", u"\u30de\u30c3\u30d7", None))
-        self.tabWidgetMainMode.setTabText(self.tabWidgetMainMode.indexOf(self.tabBatchTag), QCoreApplication.translate("MainWindow", u"\u30a2\u30ce\u30c6\u30fc\u30b7\u30e7\u30f3", None))
-        self.labelResultsStub.setText(QCoreApplication.translate("MainWindow", u"\u7d50\u679c\u30d3\u30e5\u30fc\u306f\u672a\u5b9f\u88c5\u3067\u3059\u3002\n"
-"\u30a2\u30ce\u30c6\u30fc\u30b7\u30e7\u30f3\u54c1\u8cea\u30c8\u30ea\u30a2\u30fc\u30b8\uff08issue \u96c6\u7d04 + accept/edit/reject\uff09\u3092\u4e88\u5b9a\uff08Wireframes v11 \u00b7 Frame 5 / \u5b9f\u88c5\u30ed\u30fc\u30c9\u30de\u30c3\u30d7 Phase 2\uff09\u3002", None))
-        self.tabWidgetMainMode.setTabText(self.tabWidgetMainMode.indexOf(self.tabResults), QCoreApplication.translate("MainWindow", u"\u7d50\u679c", None))
-        self.tabWidgetMainMode.setTabText(self.tabWidgetMainMode.indexOf(self.tabErrors), QCoreApplication.translate("MainWindow", u"\u30a8\u30e9\u30fc", None))
-        self.tabWidgetMainMode.setTabText(self.tabWidgetMainMode.indexOf(self.tabExport), QCoreApplication.translate("MainWindow", u"\u30a8\u30af\u30b9\u30dd\u30fc\u30c8", None))
-        self.menuFile.setTitle(QCoreApplication.translate("MainWindow", u"\u30d5\u30a1\u30a4\u30eb", None))
-        self.menuEdit.setTitle(QCoreApplication.translate("MainWindow", u"\u7de8\u96c6", None))
-        self.menuView.setTitle(QCoreApplication.translate("MainWindow", u"\u8868\u793a", None))
-        self.menuTools.setTitle(QCoreApplication.translate("MainWindow", u"\u30c4\u30fc\u30eb", None))
-        self.menuHelp.setTitle(QCoreApplication.translate("MainWindow", u"\u30d8\u30eb\u30d7", None))
-    # retranslateUi
+        MainWindow.setWindowTitle(QCoreApplication.translate("MainWindow", "LoRAIro", None))
+        self.actionExit.setText(QCoreApplication.translate("MainWindow", "\u7d42\u4e86", None))
+        # if QT_CONFIG(shortcut)
+        self.actionExit.setShortcut(QCoreApplication.translate("MainWindow", "Ctrl+Q", None))
+        # endif // QT_CONFIG(shortcut)
+        self.actionSelectAll.setText(
+            QCoreApplication.translate("MainWindow", "\u3059\u3079\u3066\u9078\u629e", None)
+        )
+        # if QT_CONFIG(shortcut)
+        self.actionSelectAll.setShortcut(QCoreApplication.translate("MainWindow", "Ctrl+A", None))
+        # endif // QT_CONFIG(shortcut)
+        self.actionDeselectAll.setText(
+            QCoreApplication.translate("MainWindow", "\u9078\u629e\u89e3\u9664", None)
+        )
+        # if QT_CONFIG(shortcut)
+        self.actionDeselectAll.setShortcut(QCoreApplication.translate("MainWindow", "Ctrl+D", None))
+        # endif // QT_CONFIG(shortcut)
+        self.actionToggleFilterPanel.setText(
+            QCoreApplication.translate(
+                "MainWindow",
+                "\u30d5\u30a3\u30eb\u30bf\u30fc\u30d1\u30cd\u30eb\u8868\u793a\u5207\u66ff",
+                None,
+            )
+        )
+        self.actionTogglePreviewPanel.setText(
+            QCoreApplication.translate(
+                "MainWindow",
+                "\u30d7\u30ec\u30d3\u30e5\u30fc\u30d1\u30cd\u30eb\u8868\u793a\u5207\u66ff",
+                None,
+            )
+        )
+        self.actionSettings.setText(QCoreApplication.translate("MainWindow", "\u8a2d\u5b9a", None))
+        # if QT_CONFIG(shortcut)
+        self.actionSettings.setShortcut(QCoreApplication.translate("MainWindow", "Ctrl+,", None))
+        # endif // QT_CONFIG(shortcut)
+        self.actionAbout.setText(
+            QCoreApplication.translate("MainWindow", "LoRAIro\u306b\u3064\u3044\u3066", None)
+        )
+        self.tabWidgetMainMode.setTabText(
+            self.tabWidgetMainMode.indexOf(self.tabWorkspace),
+            QCoreApplication.translate("MainWindow", "\u691c\u7d22", None),
+        )
+        self.labelMapStub.setText(
+            QCoreApplication.translate(
+                "MainWindow",
+                "\u30de\u30c3\u30d7\u30d3\u30e5\u30fc\u306f\u672a\u5b9f\u88c5\u3067\u3059\u3002\n"
+                "embedding \u6563\u5e03\u56f3\u306b\u3088\u308b\u30c7\u30fc\u30bf\u30bb\u30c3\u30c8\u4fef\u77b0\u3092\u4e88\u5b9a\uff08Wireframes v11 \u00b7 Map / \u5b9f\u88c5\u30ed\u30fc\u30c9\u30de\u30c3\u30d7 Phase 8\uff09\u3002",
+                None,
+            )
+        )
+        self.tabWidgetMainMode.setTabText(
+            self.tabWidgetMainMode.indexOf(self.tabMap),
+            QCoreApplication.translate("MainWindow", "\u30de\u30c3\u30d7", None),
+        )
+        self.tabWidgetMainMode.setTabText(
+            self.tabWidgetMainMode.indexOf(self.tabBatchTag),
+            QCoreApplication.translate("MainWindow", "\u30a2\u30ce\u30c6\u30fc\u30b7\u30e7\u30f3", None),
+        )
+        self.labelResultsStub.setText(
+            QCoreApplication.translate(
+                "MainWindow",
+                "\u7d50\u679c\u30d3\u30e5\u30fc\u306f\u672a\u5b9f\u88c5\u3067\u3059\u3002\n"
+                "\u30a2\u30ce\u30c6\u30fc\u30b7\u30e7\u30f3\u54c1\u8cea\u30c8\u30ea\u30a2\u30fc\u30b8\uff08issue \u96c6\u7d04 + accept/edit/reject\uff09\u3092\u4e88\u5b9a\uff08Wireframes v11 \u00b7 Frame 5 / \u5b9f\u88c5\u30ed\u30fc\u30c9\u30de\u30c3\u30d7 Phase 2\uff09\u3002",
+                None,
+            )
+        )
+        self.tabWidgetMainMode.setTabText(
+            self.tabWidgetMainMode.indexOf(self.tabResults),
+            QCoreApplication.translate("MainWindow", "\u7d50\u679c", None),
+        )
+        self.tabWidgetMainMode.setTabText(
+            self.tabWidgetMainMode.indexOf(self.tabErrors),
+            QCoreApplication.translate("MainWindow", "\u30a8\u30e9\u30fc", None),
+        )
+        self.tabWidgetMainMode.setTabText(
+            self.tabWidgetMainMode.indexOf(self.tabExport),
+            QCoreApplication.translate("MainWindow", "\u30a8\u30af\u30b9\u30dd\u30fc\u30c8", None),
+        )
+        self.menuFile.setTitle(QCoreApplication.translate("MainWindow", "\u30d5\u30a1\u30a4\u30eb", None))
+        self.menuEdit.setTitle(QCoreApplication.translate("MainWindow", "\u7de8\u96c6", None))
+        self.menuView.setTitle(QCoreApplication.translate("MainWindow", "\u8868\u793a", None))
+        self.menuTools.setTitle(QCoreApplication.translate("MainWindow", "\u30c4\u30fc\u30eb", None))
+        self.menuHelp.setTitle(QCoreApplication.translate("MainWindow", "\u30d8\u30eb\u30d7", None))
 
+    # retranslateUi

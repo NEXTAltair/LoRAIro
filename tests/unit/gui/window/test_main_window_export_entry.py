@@ -96,88 +96,50 @@ class TestExportEntryUiStructure:
         assert len(actions) == bare_window.tabWidgetMainMode.count()
         assert actions[0].shortcut().toString() == "Ctrl+1"
 
-    def test_export_bottom_bar_widgets_exist(self, bare_window):
-        """サムネグリッド下部バーの件数ラベルとエクスポートボタンが起動する。"""
-        assert hasattr(bare_window, "labelExportTarget")
-        assert hasattr(bare_window, "btnExportData")
-        assert bare_window.btnExportData.text() == "エクスポート"
-        # 初期ラベルは 0 枚
-        assert "0 枚" in bare_window.labelExportTarget.text()
-
 
 class TestExportTargetFollowsStaging:
-    """件数表示がステージング件数に追従する（ADR 0055）。"""
+    """件数表示がステージング件数に追従する（ADR 0055）。
 
-    def test_update_export_target_ui_sets_real_label(self, bare_window):
+    #869: エクスポート下部バー (labelExportTarget / btnExportData) は SearchTabWidget へ
+    移管された。MainWindow 側は ``_update_export_target_ui`` で
+    ``search_tab.set_export_target_count`` へ委譲する。下部バー自体の表示・ボタン結線の
+    検証は tests/unit/gui/tab/test_search_tab.py が担う。
+    """
+
+    def test_update_export_target_ui_delegates_to_search_tab(self, bare_window):
+        """_update_export_target_ui は search_tab.set_export_target_count へ委譲する。"""
+        bare_window.search_tab = Mock()
         MainWindow._update_export_target_ui(bare_window, 7)
-        assert bare_window.labelExportTarget.text() == "エクスポート対象: 7 枚"
+        bare_window.search_tab.set_export_target_count.assert_called_once_with(7)
 
     def test_staged_images_changed_follows_staging_count(self, bare_window):
-        """staged_images_changed 経路で下部バー件数がステージング件数に追従する。
+        """staged_images_changed 経路でステージング件数が各タブへ fan-out される。
 
-        サムネ選択数ではなくステージング集合のサイズを反映することを実ウィジェット
-        （labelExportTarget）で検証する。アノテ側の対象表示は #868 で
-        AnnotateTabWidget.set_staging_target へ委譲されたため、ここでは委譲呼び出しを検証する。
+        サムネ選択数ではなくステージング集合のサイズを反映する。エクスポート件数は
+        SearchTab へ、アノテ対象は AnnotateTab へそれぞれ委譲される (ADR 0074)。
         """
         bare_window._update_export_target_ui = types.MethodType(
             MainWindow._update_export_target_ui, bare_window
         )
+        bare_window.search_tab = Mock()
         bare_window.annotate_tab = Mock()
 
         MainWindow._on_staged_images_changed(bare_window, [10, 20, 30, 40])
 
-        assert bare_window.labelExportTarget.text() == "エクスポート対象: 4 枚"
-        # #868: アノテーションタブへステージング集合が push される
+        bare_window.search_tab.set_export_target_count.assert_called_once_with(4)
         bare_window.annotate_tab.set_staging_target.assert_called_once_with([10, 20, 30, 40])
 
     def test_staged_images_changed_empty_resets_to_zero(self, bare_window):
         bare_window._update_export_target_ui = types.MethodType(
             MainWindow._update_export_target_ui, bare_window
         )
+        bare_window.search_tab = Mock()
         bare_window.annotate_tab = Mock()
 
         MainWindow._on_staged_images_changed(bare_window, [])
 
-        assert bare_window.labelExportTarget.text() == "エクスポート対象: 0 枚"
+        bare_window.search_tab.set_export_target_count.assert_called_once_with(0)
         bare_window.annotate_tab.set_staging_target.assert_called_once_with([])
-
-
-class TestExportEntryHandlers:
-    """入口ハンドラが bool ペイロードを画像 ID と誤認しない（ADR 0072 / #570）。"""
-
-    def test_on_export_entry_triggered_ignores_clicked_bool(self):
-        mock_window = Mock()
-        # QPushButton.clicked / QAction.triggered は checked(bool) を渡す
-        MainWindow._on_export_entry_triggered(mock_window, True)
-        # export_data は引数なしで呼ばれる（bool が ID として漏れない）
-        mock_window.export_data.assert_called_once_with()
-
-    def test_on_export_entry_triggered_default_arg(self):
-        mock_window = Mock()
-        MainWindow._on_export_entry_triggered(mock_window)
-        mock_window.export_data.assert_called_once_with()
-
-
-class TestExportEntryWiring:
-    """_connect_export_entry_signals の結線を実ウィジェットで検証。"""
-
-    def test_connect_wires_bottom_bar_export_button(self, bare_window, qtbot):
-        bare_window.export_data = Mock()
-        bare_window._update_export_target_ui = types.MethodType(
-            MainWindow._update_export_target_ui, bare_window
-        )
-        bare_window._on_export_entry_triggered = types.MethodType(
-            MainWindow._on_export_entry_triggered, bare_window
-        )
-
-        MainWindow._connect_export_entry_signals(bare_window)
-
-        # 結線時に件数ラベルが初期化される
-        assert bare_window.labelExportTarget.text() == "エクスポート対象: 0 枚"
-
-        # 下部バーボタンの clicked(bool) → export_data（引数なし、bool を ID 化しない）
-        qtbot.mouseClick(bare_window.btnExportData, Qt.MouseButton.LeftButton)
-        bare_window.export_data.assert_called_once_with()
 
 
 class TestStagedExportIdsProvider:

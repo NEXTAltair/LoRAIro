@@ -338,296 +338,20 @@ class TestDatasetRegistration:
             MainWindow._execute_dataset_registration(mock_window)
             mock_qmb.warning.assert_called_once()
 
-    def test_load_images_from_db_calls_search_handler(self):
+    def test_load_images_from_db_delegates_to_search_tab(self):
+        """#869: 検索起動ロジックは SearchTabWidget が所有するため委譲する。"""
         from lorairo.gui.window.main_window import MainWindow
 
         mock_window = Mock()
         MainWindow.load_images_from_db(mock_window)
-        mock_window._on_search_completed_start_thumbnail.assert_called_once_with(True)
+        mock_window.search_tab.load_images_from_db.assert_called_once_with()
 
 
-class TestRatingScoreHandlers:
-    """Rating/Score更新ハンドラのテスト"""
-
-    def test_on_rating_update_requested_no_service(self):
-        from lorairo.gui.window.main_window import MainWindow
-
-        mock_window = Mock()
-        mock_window.image_db_write_service = None
-        with patch("lorairo.gui.window.main_window.logger") as mock_logger:
-            MainWindow._on_rating_update_requested(mock_window, 1, "PG")
-            mock_logger.warning.assert_called_once()
-
-    def test_on_rating_update_requested_success(self):
-        from lorairo.gui.window.main_window import MainWindow
-
-        mock_window = Mock()
-        mock_window.image_db_write_service = Mock()
-        mock_window.image_db_write_service.update_rating.return_value = True
-        with patch("lorairo.gui.window.main_window.logger") as mock_logger:
-            MainWindow._on_rating_update_requested(mock_window, 1, "R")
-            mock_logger.info.assert_called_once()
-
-    def test_on_rating_update_requested_failure(self):
-        from lorairo.gui.window.main_window import MainWindow
-
-        mock_window = Mock()
-        mock_window.image_db_write_service = Mock()
-        mock_window.image_db_write_service.update_rating.return_value = False
-        with patch("lorairo.gui.window.main_window.logger") as mock_logger:
-            MainWindow._on_rating_update_requested(mock_window, 1, "X")
-            mock_logger.error.assert_called_once()
-
-    def test_on_score_update_requested_no_service(self):
-        from lorairo.gui.window.main_window import MainWindow
-
-        mock_window = Mock()
-        mock_window.image_db_write_service = None
-        with patch("lorairo.gui.window.main_window.logger") as mock_logger:
-            MainWindow._on_score_update_requested(mock_window, 1, 750)
-            mock_logger.warning.assert_called_once()
-
-    def test_on_score_update_requested_success(self):
-        from lorairo.gui.window.main_window import MainWindow
-
-        mock_window = Mock()
-        mock_window.image_db_write_service = Mock()
-        mock_window.image_db_write_service.update_score.return_value = True
-        with patch("lorairo.gui.window.main_window.logger") as mock_logger:
-            MainWindow._on_score_update_requested(mock_window, 1, 750)
-            mock_logger.info.assert_called_once()
-
-    def test_on_score_update_requested_failure(self):
-        from lorairo.gui.window.main_window import MainWindow
-
-        mock_window = Mock()
-        mock_window.image_db_write_service = Mock()
-        mock_window.image_db_write_service.update_score.return_value = False
-        with patch("lorairo.gui.window.main_window.logger") as mock_logger:
-            MainWindow._on_score_update_requested(mock_window, 1, 750)
-            mock_logger.error.assert_called_once()
-
-    def test_handle_rating_changed_no_service(self):
-        from lorairo.gui.window.main_window import MainWindow
-
-        mock_window = Mock()
-        mock_window.image_db_write_service = None
-        with patch("lorairo.gui.window.main_window.logger") as mock_logger:
-            MainWindow._handle_rating_changed(mock_window, 1, "PG")
-            mock_logger.warning.assert_called_once()
-
-    def test_handle_rating_changed_success_refreshes_cache(self):
-        from lorairo.gui.window.main_window import MainWindow
-
-        mock_window = Mock()
-        mock_window.image_db_write_service = Mock()
-        mock_window.image_db_write_service.update_rating.return_value = True
-        mock_window.dataset_state_manager = Mock()
-        MainWindow._handle_rating_changed(mock_window, 42, "R")
-        mock_window.dataset_state_manager.refresh_image.assert_called_once_with(42)
-
-    def test_handle_rating_changed_failure_logs_error(self):
-        from lorairo.gui.window.main_window import MainWindow
-
-        mock_window = Mock()
-        mock_window.image_db_write_service = Mock()
-        mock_window.image_db_write_service.update_rating.return_value = False
-        mock_window.dataset_state_manager = Mock()
-        with patch("lorairo.gui.window.main_window.logger") as mock_logger:
-            MainWindow._handle_rating_changed(mock_window, 42, "X")
-            mock_logger.error.assert_called_once()
-
-    def test_handle_score_changed_no_service(self):
-        from lorairo.gui.window.main_window import MainWindow
-
-        mock_window = Mock()
-        mock_window.image_db_write_service = None
-        with patch("lorairo.gui.window.main_window.logger") as mock_logger:
-            MainWindow._handle_score_changed(mock_window, 1, 500)
-            mock_logger.warning.assert_called_once()
-
-    def test_handle_score_changed_success_refreshes_cache(self):
-        from lorairo.gui.window.main_window import MainWindow
-
-        mock_window = Mock()
-        mock_window.image_db_write_service = Mock()
-        mock_window.image_db_write_service.update_score.return_value = True
-        mock_window.dataset_state_manager = Mock()
-        MainWindow._handle_score_changed(mock_window, 42, 800)
-        mock_window.dataset_state_manager.refresh_image.assert_called_once_with(42)
-
-    def test_handle_score_changed_failure_logs_error(self):
-        from lorairo.gui.window.main_window import MainWindow
-
-        mock_window = Mock()
-        mock_window.image_db_write_service = Mock()
-        mock_window.image_db_write_service.update_score.return_value = False
-        mock_window.dataset_state_manager = Mock()
-        with patch("lorairo.gui.window.main_window.logger") as mock_logger:
-            MainWindow._handle_score_changed(mock_window, 42, 800)
-            mock_logger.error.assert_called_once()
-
-
-class TestSelectionHandlerExtended:
-    """選択ハンドラ拡張テスト（単一・複数選択）"""
-
-    def test_handle_selection_changed_single_image_populates_widget(self):
-        from lorairo.gui.window.main_window import MainWindow
-
-        mock_window = Mock()
-        mock_window.selectedImageDetailsWidget = Mock()
-        mock_window.selectedImageDetailsWidget._rating_score_widget = Mock()
-        mock_window.dataset_state_manager = Mock()
-        image_data = {"id": 1, "rating_value": "PG"}
-        mock_window.dataset_state_manager.get_image_by_id.return_value = image_data
-
-        MainWindow._handle_selection_changed_for_rating(mock_window, [1])
-
-        mock_window.selectedImageDetailsWidget._rating_score_widget.populate_from_image_data.assert_called_once_with(
-            image_data
-        )
-
-    def test_handle_selection_changed_single_image_no_data_no_populate(self):
-        from lorairo.gui.window.main_window import MainWindow
-
-        mock_window = Mock()
-        mock_window.selectedImageDetailsWidget = Mock()
-        mock_window.selectedImageDetailsWidget._rating_score_widget = Mock()
-        mock_window.dataset_state_manager = Mock()
-        mock_window.dataset_state_manager.get_image_by_id.return_value = None
-
-        MainWindow._handle_selection_changed_for_rating(mock_window, [1])
-
-        mock_window.selectedImageDetailsWidget._rating_score_widget.populate_from_image_data.assert_not_called()
-
-    def test_handle_selection_changed_multiple_images_batch_mode(self):
-        from lorairo.gui.window.main_window import MainWindow
-
-        mock_window = Mock()
-        mock_window.selectedImageDetailsWidget = Mock()
-        mock_window.selectedImageDetailsWidget._rating_score_widget = Mock()
-        mock_window.db_manager = Mock()
-
-        MainWindow._handle_selection_changed_for_rating(mock_window, [1, 2, 3])
-
-        mock_window.selectedImageDetailsWidget._rating_score_widget.populate_from_selection.assert_called_once_with(
-            [1, 2, 3], mock_window.db_manager
-        )
-
-    def test_handle_selection_changed_no_widget_attr_returns_early(self):
-        from lorairo.gui.window.main_window import MainWindow
-
-        mock_window = Mock(spec=[])
-        MainWindow._handle_selection_changed_for_rating(mock_window, [1])
-
-
-class TestSaveRequestHandler:
-    """保存リクエストハンドラのテスト"""
-
-    def test_on_save_requested_no_service(self):
-        from lorairo.gui.window.main_window import MainWindow
-
-        mock_window = Mock()
-        mock_window.image_db_write_service = None
-        with patch("lorairo.gui.window.main_window.logger") as mock_logger:
-            MainWindow._on_save_requested(mock_window, {"image_id": 1, "rating": "PG", "score": 500})
-            mock_logger.warning.assert_called_once()
-
-    def test_on_save_requested_no_image_id(self):
-        from lorairo.gui.window.main_window import MainWindow
-
-        mock_window = Mock()
-        mock_window.image_db_write_service = Mock()
-        with patch("lorairo.gui.window.main_window.logger") as mock_logger:
-            MainWindow._on_save_requested(mock_window, {"image_id": None, "rating": "PG"})
-            mock_logger.warning.assert_called_once()
-
-    def test_on_save_requested_updates_rating_and_score(self):
-        from lorairo.gui.window.main_window import MainWindow
-
-        mock_window = Mock()
-        mock_window.image_db_write_service = Mock()
-        MainWindow._on_save_requested(mock_window, {"image_id": 10, "rating": "R", "score": 700})
-        mock_window.image_db_write_service.update_rating.assert_called_once_with(10, "R")
-        mock_window.image_db_write_service.update_score.assert_called_once_with(10, 700)
-
-    def test_on_save_requested_no_rating_skips_rating_update(self):
-        from lorairo.gui.window.main_window import MainWindow
-
-        mock_window = Mock()
-        mock_window.image_db_write_service = Mock()
-        MainWindow._on_save_requested(mock_window, {"image_id": 10, "rating": None, "score": 700})
-        mock_window.image_db_write_service.update_rating.assert_not_called()
-        mock_window.image_db_write_service.update_score.assert_called_once_with(10, 700)
-
-    def test_on_save_requested_no_score_skips_score_update(self):
-        from lorairo.gui.window.main_window import MainWindow
-
-        mock_window = Mock()
-        mock_window.image_db_write_service = Mock()
-        MainWindow._on_save_requested(mock_window, {"image_id": 10, "rating": "X", "score": None})
-        mock_window.image_db_write_service.update_rating.assert_called_once_with(10, "X")
-        mock_window.image_db_write_service.update_score.assert_not_called()
-
-
-class TestCurrentImagePayload:
-    """現在選択中画像データ取得のテスト"""
-
-    def test_get_current_image_payload_no_state_manager(self):
-        from lorairo.gui.window.main_window import MainWindow
-
-        mock_window = Mock()
-        mock_window.dataset_state_manager = None
-        result = MainWindow._get_current_image_payload(mock_window)
-        assert result is None
-
-    def test_get_current_image_payload_no_current_image(self):
-        from lorairo.gui.window.main_window import MainWindow
-
-        mock_window = Mock()
-        mock_window.dataset_state_manager = Mock()
-        mock_window.dataset_state_manager.get_current_image_data.return_value = None
-        result = MainWindow._get_current_image_payload(mock_window)
-        assert result is None
-
-    def test_get_current_image_payload_returns_correct_structure(self):
-        from lorairo.gui.window.main_window import MainWindow
-
-        mock_window = Mock()
-        mock_window.dataset_state_manager = Mock()
-        mock_window.dataset_state_manager.get_current_image_data.return_value = {
-            "id": 42,
-            "rating_value": "R",
-            "score_value": 7.5,
-            "tags_text": "landscape, sky",
-            "caption_text": "A beautiful landscape",
-        }
-        result = MainWindow._get_current_image_payload(mock_window)
-        assert result is not None
-        assert result["id"] == 42
-        assert result["rating"] == "R"
-        assert result["score"] == 750
-        assert result["tags"] == "landscape, sky"
-        assert result["caption"] == "A beautiful landscape"
-
-    def test_get_current_image_payload_handles_none_values(self):
-        from lorairo.gui.window.main_window import MainWindow
-
-        mock_window = Mock()
-        mock_window.dataset_state_manager = Mock()
-        mock_window.dataset_state_manager.get_current_image_data.return_value = {
-            "id": 1,
-            "rating_value": None,
-            "score_value": None,
-            "tags_text": None,
-            "caption_text": None,
-        }
-        result = MainWindow._get_current_image_payload(mock_window)
-        assert result is not None
-        assert result["rating"] == "PG"
-        assert result["score"] == 0
-        assert result["tags"] == ""
-        assert result["caption"] == ""
+# NOTE: #869 で Rating/Score 編集ハンドラ (_on_rating_update_requested /
+# _on_score_update_requested / _on_save_requested / _handle_rating_changed /
+# _handle_score_changed) と選択ハンドラ (_handle_selection_changed_for_rating)、
+# および _get_current_image_payload は SearchTabWidget へ移送された。
+# これらの振る舞い検証は tests/unit/gui/tab/test_search_tab.py が担う。
 
 
 class TestBatchTagWrite:
@@ -809,7 +533,8 @@ class TestTabChangedHandler:
         mock_window.provider_batch_job_widget = jobs_widget
         mock_window.tabWidgetMainMode.widget.return_value = jobs_widget
         MainWindow._on_main_tab_changed(mock_window, 3)
-        jobs_widget.refresh_jobs.assert_called_once()
+        # dispatch 表は widget 同一性で一致した delegate へ委譲する
+        mock_window._refresh_jobs_tab.assert_called_once()
 
     def test_on_main_tab_changed_errors_tab_refreshes(self):
         from lorairo.gui.window.main_window import MainWindow
@@ -819,8 +544,8 @@ class TestTabChangedHandler:
         mock_window.tabErrors = errors_container
         mock_window.tabWidgetMainMode.widget.return_value = errors_container
         MainWindow._on_main_tab_changed(mock_window, 5)
-        # #871: タブ切替は ErrorsTabWidget.refresh() へ委譲する
-        mock_window.errors_tab.refresh.assert_called_once()
+        # #871: タブ切替は _refresh_errors_tab (= ErrorsTabWidget.refresh) へ委譲する
+        mock_window._refresh_errors_tab.assert_called_once()
 
     def test_on_main_tab_changed_export_tab_syncs_staging(self):
         """Phase 5: エクスポートタブ表示時はステージング集合を再読込する。"""
@@ -830,9 +555,8 @@ class TestTabChangedHandler:
         export_tab = Mock()
         mock_window.tabExport = export_tab
         mock_window.tabWidgetMainMode.widget.return_value = export_tab
-        mock_window._get_staged_export_ids.return_value = [7, 8]
         MainWindow._on_main_tab_changed(mock_window, 6)
-        mock_window.export_tab.set_image_ids.assert_called_once_with([7, 8])
+        mock_window._refresh_export_tab.assert_called_once()
 
     def test_on_main_tab_changed_search_tab_is_silent(self):
         from lorairo.gui.window.main_window import MainWindow
@@ -869,66 +593,40 @@ class TestRefreshBatchTagStaging:
 
 
 class TestPanelToggle:
-    """パネル表示切替のテスト"""
+    """パネル表示切替のテスト。
 
-    def test_toggle_filter_panel_hide_saves_splitter_sizes(self):
+    #869: パネル本体と splitter サイズの退避/復元は SearchTabWidget が所有する。
+    MainWindow は menubar の checkable action を契約スロットへ薄く中継するだけ。
+    """
+
+    def test_toggle_filter_panel_delegates_to_search_tab(self):
         from lorairo.gui.window.main_window import MainWindow
 
         mock_window = Mock()
-        mock_panel = Mock()
-        mock_splitter = Mock()
-        mock_splitter.sizes.return_value = [300, 500]
-        mock_window.frameFilterSearchPanel = mock_panel
-        mock_window.splitterMainWorkArea = mock_splitter
         MainWindow._toggle_filter_panel(mock_window, False)
-        mock_panel.setVisible.assert_called_once_with(False)
-        assert mock_window._main_splitter_sizes_before_filter_hide == [300, 500]
+        mock_window.search_tab.toggle_filter_panel.assert_called_once_with()
 
-    def test_toggle_filter_panel_show_restores_sizes(self):
+    def test_toggle_filter_panel_no_search_tab_returns_early(self):
         from lorairo.gui.window.main_window import MainWindow
 
         mock_window = Mock()
-        mock_panel = Mock()
-        mock_splitter = Mock()
-        mock_window.frameFilterSearchPanel = mock_panel
-        mock_window.splitterMainWorkArea = mock_splitter
-        mock_window._main_splitter_sizes_before_filter_hide = [300, 500]
-        MainWindow._toggle_filter_panel(mock_window, True)
-        mock_panel.setVisible.assert_called_once_with(True)
-        mock_splitter.setSizes.assert_called_once_with([300, 500])
-
-    def test_toggle_filter_panel_no_panel_returns_early(self):
-        from lorairo.gui.window.main_window import MainWindow
-
-        mock_window = Mock()
-        mock_window.frameFilterSearchPanel = None
+        mock_window.search_tab = None
+        # search_tab 未初期化でも例外なく完了する
         MainWindow._toggle_filter_panel(mock_window, True)
 
-    def test_toggle_preview_panel_hide_saves_splitter_sizes(self):
+    def test_toggle_preview_panel_delegates_to_search_tab(self):
         from lorairo.gui.window.main_window import MainWindow
 
         mock_window = Mock()
-        mock_panel = Mock()
-        mock_splitter = Mock()
-        mock_splitter.sizes.return_value = [400, 400]
-        mock_window.framePreviewDetailPanel = mock_panel
-        mock_window.splitterMainWorkArea = mock_splitter
         MainWindow._toggle_preview_panel(mock_window, False)
-        mock_panel.setVisible.assert_called_once_with(False)
-        assert mock_window._main_splitter_sizes_before_preview_hide == [400, 400]
+        mock_window.search_tab.toggle_preview_panel.assert_called_once_with()
 
-    def test_toggle_preview_panel_show_restores_sizes(self):
+    def test_toggle_preview_panel_no_search_tab_returns_early(self):
         from lorairo.gui.window.main_window import MainWindow
 
         mock_window = Mock()
-        mock_panel = Mock()
-        mock_splitter = Mock()
-        mock_window.framePreviewDetailPanel = mock_panel
-        mock_window.splitterMainWorkArea = mock_splitter
-        mock_window._main_splitter_sizes_before_preview_hide = [400, 400]
+        mock_window.search_tab = None
         MainWindow._toggle_preview_panel(mock_window, True)
-        mock_panel.setVisible.assert_called_once_with(True)
-        mock_splitter.setSizes.assert_called_once_with([400, 400])
 
 
 class TestSendSelectedToBatchTag:
@@ -960,7 +658,7 @@ class TestSendSelectedToBatchTag:
         mock_window.dataset_state_manager = Mock()
         mock_window.dataset_state_manager.selected_image_ids = []
         mock_window.annotate_tab = Mock()
-        mock_window.thumbnail_selector = None
+        # #869: サムネイルセレクタは search_tab.thumbnail_selector 経由 (直接参照は無い)
         with patch("lorairo.gui.window.main_window.QMessageBox") as mock_qmb:
             MainWindow.send_selected_to_batch_tag(mock_window, None)
             mock_qmb.information.assert_called_once()
@@ -1038,26 +736,31 @@ class TestErrorHandlers:
 
 
 class TestDatabaseStatusLabel:
-    """データベースステータスラベルのテスト"""
+    """データベースステータスラベルのテスト。
 
-    def test_update_database_status_label_no_attr_returns_early(self):
+    #869: DB 状態バー (labelDbInfo) は SearchTabWidget へ移管したため、
+    更新は search_tab.set_db_info 経由で行う。
+    """
+
+    def test_update_database_status_label_no_search_tab_returns_early(self):
         from lorairo.gui.window.main_window import MainWindow
 
         mock_window = Mock(spec=[])
+        # search_tab 属性が無い (タブ生成前) なら no-op
         MainWindow._update_database_status_label(mock_window)
 
-    def test_update_database_status_label_none_label_returns_early(self):
+    def test_update_database_status_label_none_search_tab_returns_early(self):
         from lorairo.gui.window.main_window import MainWindow
 
         mock_window = Mock()
-        mock_window.labelDbInfo = None
+        mock_window.search_tab = None
         MainWindow._update_database_status_label(mock_window)
 
-    def test_update_database_status_label_updates_text(self):
+    def test_update_database_status_label_updates_via_search_tab(self):
         from lorairo.gui.window.main_window import MainWindow
 
         mock_window = Mock()
-        mock_window.labelDbInfo = Mock()
+        mock_window.search_tab = Mock()
         mock_root = Mock()
         mock_root.resolve.return_value = Path("/test/project")
         mock_img_db = Mock()
@@ -1066,13 +769,13 @@ class TestDatabaseStatusLabel:
             with patch("lorairo.gui.window.main_window.IMG_DB_PATH", mock_img_db):
                 with patch("lorairo.gui.window.main_window.get_user_tag_db_path", return_value=None):
                     MainWindow._update_database_status_label(mock_window)
-        mock_window.labelDbInfo.setText.assert_called_once()
+        mock_window.search_tab.set_db_info.assert_called_once()
 
     def test_update_database_status_label_handles_exception(self):
         from lorairo.gui.window.main_window import MainWindow
 
         mock_window = Mock()
-        mock_window.labelDbInfo = Mock()
+        mock_window.search_tab = Mock()
         with patch(
             "lorairo.gui.window.main_window.get_current_project_root", side_effect=RuntimeError("DB error")
         ):
@@ -1095,10 +798,14 @@ class TestHandleBatchTagAddEdgeCases:
 
 
 class TestRestoreSplitterStatesOrientation:
-    """#865: QSplitter.restoreState が orientation を巻き戻さないことの検証。"""
+    """#865: QSplitter.restoreState が orientation を巻き戻さないことの検証。
+
+    #869: 3 ペイン作業領域 splitter は SearchTabWidget が所有するため、
+    MainWindow は search_tab.main_splitter プロパティ経由で復元する。
+    """
 
     def test_restore_preserves_designed_orientation(self, qtbot):
-        """旧 (横) 保存状態を縦スプリッターへ復元しても縦のまま維持される。"""
+        """旧 (縦) 保存状態を横スプリッターへ復元しても横のまま維持される。"""
         from unittest.mock import Mock
 
         from PySide6.QtCore import Qt
@@ -1106,25 +813,72 @@ class TestRestoreSplitterStatesOrientation:
 
         from lorairo.gui.window.main_window import MainWindow
 
-        # 旧 (横) スプリッターの保存状態 (orientation を含む)
+        # 旧 (縦) スプリッターの保存状態 (orientation を含む)
+        vertical = QSplitter(Qt.Orientation.Vertical)
+        vertical.addWidget(QWidget())
+        vertical.addWidget(QWidget())
+        saved_vertical_state = vertical.saveState()
+
+        # 新 (横) スプリッター = .ui 由来の設計 orientation (work area=Horizontal)
+        horizontal = QSplitter(Qt.Orientation.Horizontal)
+        horizontal.addWidget(QWidget())
+        horizontal.addWidget(QWidget())
+
+        mock_window = Mock()
+        mock_window.search_tab.main_splitter = horizontal
+
+        settings = Mock()
+        settings.value.side_effect = lambda key: (
+            saved_vertical_state if key == "splitter/main_work_area" else None
+        )
+
+        MainWindow._restore_splitter_states(mock_window, settings)
+
+        assert horizontal.orientation() == Qt.Orientation.Horizontal
+
+    def test_save_persists_both_main_and_preview_splitters(self, qtbot):
+        """#869 回帰防止: 作業領域とプレビュー詳細 splitter の両方を保存する。"""
+        from unittest.mock import Mock
+
+        from lorairo.gui.window.main_window import MainWindow
+
+        mock_window = Mock()
+        mock_window.search_tab.main_splitter.saveState.return_value = b"main-state"
+        mock_window.search_tab.preview_splitter.saveState.return_value = b"preview-state"
+
+        settings = Mock()
+        MainWindow._save_splitter_states(mock_window, settings)
+
+        saved_keys = {call.args[0] for call in settings.setValue.call_args_list}
+        assert "splitter/main_work_area" in saved_keys
+        assert "splitter/preview_details" in saved_keys
+
+    def test_restore_preserves_preview_orientation(self, qtbot):
+        """#865/#869: プレビュー詳細 splitter の縦 orientation を復元後も維持する。"""
+        from unittest.mock import Mock
+
+        from PySide6.QtCore import Qt
+        from PySide6.QtWidgets import QSplitter, QWidget
+
+        from lorairo.gui.window.main_window import MainWindow
+
+        # 旧 (横) 保存状態
         horizontal = QSplitter(Qt.Orientation.Horizontal)
         horizontal.addWidget(QWidget())
         horizontal.addWidget(QWidget())
         saved_horizontal_state = horizontal.saveState()
 
-        # 新 (縦) スプリッター = .ui 由来の設計 orientation
+        # 新 (縦) = .ui 由来の設計 orientation (preview-details=Vertical)
         vertical = QSplitter(Qt.Orientation.Vertical)
         vertical.addWidget(QWidget())
         vertical.addWidget(QWidget())
 
         mock_window = Mock()
-        mock_window.splitterMainWorkArea = None
-        mock_window.splitterPreviewDetails = None
-        mock_window.splitterBatchTagMain = vertical
+        mock_window.search_tab.preview_splitter = vertical
 
         settings = Mock()
         settings.value.side_effect = lambda key: (
-            saved_horizontal_state if key == "splitter/batch_tag_main" else None
+            saved_horizontal_state if key == "splitter/preview_details" else None
         )
 
         MainWindow._restore_splitter_states(mock_window, settings)
