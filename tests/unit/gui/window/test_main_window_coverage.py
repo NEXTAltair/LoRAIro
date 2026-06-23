@@ -836,6 +836,55 @@ class TestRestoreSplitterStatesOrientation:
 
         assert horizontal.orientation() == Qt.Orientation.Horizontal
 
+    def test_save_persists_both_main_and_preview_splitters(self, qtbot):
+        """#869 回帰防止: 作業領域とプレビュー詳細 splitter の両方を保存する。"""
+        from unittest.mock import Mock
+
+        from lorairo.gui.window.main_window import MainWindow
+
+        mock_window = Mock()
+        mock_window.search_tab.main_splitter.saveState.return_value = b"main-state"
+        mock_window.search_tab.preview_splitter.saveState.return_value = b"preview-state"
+
+        settings = Mock()
+        MainWindow._save_splitter_states(mock_window, settings)
+
+        saved_keys = {call.args[0] for call in settings.setValue.call_args_list}
+        assert "splitter/main_work_area" in saved_keys
+        assert "splitter/preview_details" in saved_keys
+
+    def test_restore_preserves_preview_orientation(self, qtbot):
+        """#865/#869: プレビュー詳細 splitter の縦 orientation を復元後も維持する。"""
+        from unittest.mock import Mock
+
+        from PySide6.QtCore import Qt
+        from PySide6.QtWidgets import QSplitter, QWidget
+
+        from lorairo.gui.window.main_window import MainWindow
+
+        # 旧 (横) 保存状態
+        horizontal = QSplitter(Qt.Orientation.Horizontal)
+        horizontal.addWidget(QWidget())
+        horizontal.addWidget(QWidget())
+        saved_horizontal_state = horizontal.saveState()
+
+        # 新 (縦) = .ui 由来の設計 orientation (preview-details=Vertical)
+        vertical = QSplitter(Qt.Orientation.Vertical)
+        vertical.addWidget(QWidget())
+        vertical.addWidget(QWidget())
+
+        mock_window = Mock()
+        mock_window.search_tab.preview_splitter = vertical
+
+        settings = Mock()
+        settings.value.side_effect = lambda key: (
+            saved_horizontal_state if key == "splitter/preview_details" else None
+        )
+
+        MainWindow._restore_splitter_states(mock_window, settings)
+
+        assert vertical.orientation() == Qt.Orientation.Vertical
+
 
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])

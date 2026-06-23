@@ -317,6 +317,11 @@ class SearchTabWidget(QWidget, Ui_SearchTab):
         """3 ペイン横 splitter を返す (QSettings 復元・パネルトグル用)。"""
         return self._main_splitter
 
+    @property
+    def preview_splitter(self) -> QSplitter:
+        """プレビュー/詳細の縦 splitter を返す (QSettings 保存・復元用)。"""
+        return self.splitterPreviewDetails
+
     # -- #865: splitter orientation 再適用 ------------------------------------
 
     def apply_designed_splitter_orientations(self) -> None:
