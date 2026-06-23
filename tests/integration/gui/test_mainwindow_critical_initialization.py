@@ -19,12 +19,10 @@ pytestmark = [pytest.mark.integration, pytest.mark.fast_integration]
 
 
 # NOTE: #869 で SearchFilterService 生成 / filterSearchPanel インターフェース検証は
-# SearchTabWidget の構築 (_setup_search_filter_integration / _create_search_filter_service)
-# へ移送された。MainWindow ではこれらは致命的初期化失敗 (sys.exit) ではなくなったため、
-# 旧 "Phase 3.5 / Phase 3: SearchFilterService 統合経路" の致命的失敗テストは削除した。
-# SearchTab 構築失敗時の振る舞いは tests/unit/gui/tab/test_search_tab.py が担う。
-# 本ファイルには MainWindow の致命的サービス初期化 (ConfigurationService / WorkerService /
-# ImageDatabaseManager) の経路テストのみを残す。
+# SearchTabWidget の構築へ移送された。検索機能は必須のため、MainWindow は SearchTabWidget
+# 構築失敗を引き続き致命的初期化失敗 (sys.exit) として扱う (_setup_search_tab の try/except →
+# _handle_critical_initialization_failure)。その経路テストは下記 "Phase 3" に置く。
+# SearchTabWidget 内部の widget 振る舞いは tests/unit/gui/tab/test_search_tab.py が担う。
 
 
 # ============================================================================
@@ -194,3 +192,61 @@ def test_missing_db_manager_triggers_critical_failure(qtbot, critical_failure_ho
     # 検証4: エラーメッセージに"ImageDatabaseManager"または"ServiceContainer"が含まれること
     text_args = messagebox.setText.call_args
     assert "ImageDatabaseManager" in str(text_args) or "ServiceContainer" in str(text_args)
+
+
+# ============================================================================
+# Phase 3: 検索タブ (SearchTabWidget) 構築失敗経路テスト (#869 回帰防止)
+# ============================================================================
+
+
+def test_search_tab_construction_failure_triggers_critical_failure(
+    qtbot, critical_failure_hooks, tmp_path, monkeypatch
+):
+    """SearchTabWidget 構築失敗時の致命的失敗テスト (#869 回帰防止)
+
+    検証項目:
+    - sys.exit(1) が呼ばれること
+    - logger.critical が呼ばれること
+    - QMessageBox が表示されること
+    - エラーメッセージに "SearchTabWidget" が含まれること
+
+    #869 で検索フィルタ統合は SearchTabWidget 構築へ移管されたが、検索機能は必須のため
+    旧 _setup_search_filter_integration() の fatal フロー (失敗時 sys.exit) を維持する。
+    SearchTabWidget 構築失敗を MainWindow.__init__ の broad catch に流して中途半端な
+    window を表示し続ける回帰を防ぐ。
+    """
+    # 実サービスコンテナで MainWindow を最後まで構築させ、SearchTabWidget 生成のみ失敗させる
+    monkeypatch.setenv("LORAIRO_DATA_DIR", str(tmp_path))
+
+    def mock_search_tab_init_with_exception(*args, **kwargs):
+        raise RuntimeError("SearchFilterService 生成失敗（テスト用例外）")
+
+    monkeypatch.setattr(
+        "lorairo.gui.window.main_window.SearchTabWidget",
+        mock_search_tab_init_with_exception,
+    )
+
+    # MainWindowの初期化を試みる（致命的エラーが発生する）
+    try:
+        window = MainWindow()
+        qtbot.addWidget(window)
+    except SystemExit:
+        pass
+
+    # 検証1: sys.exit(1)が呼ばれたこと
+    assert len(critical_failure_hooks["sys_exit"]) == 1
+    assert critical_failure_hooks["sys_exit"][0] == 1
+
+    # 検証2: logger.criticalが呼ばれたこと
+    critical_failure_hooks["logger"].critical.assert_called()
+    logger_args = critical_failure_hooks["logger"].critical.call_args
+    assert "SearchTabWidget" in str(logger_args)
+
+    # 検証3: QMessageBoxが作成・表示されたこと
+    assert len(critical_failure_hooks["messagebox_instances"]) > 0
+    messagebox = critical_failure_hooks["messagebox_instances"][0]
+    messagebox.exec.assert_called()
+
+    # 検証4: エラーメッセージに"SearchTabWidget"が含まれること
+    text_args = messagebox.setText.call_args
+    assert "SearchTabWidget" in str(text_args)

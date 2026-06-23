@@ -669,14 +669,21 @@ class MainWindow(QMainWindow, Ui_MainWindow):
             self.search_tab = None
             return
 
-        widget = SearchTabWidget(
-            service_container=self.service_container,
-            db_manager=self.db_manager,
-            dataset_state_manager=self.dataset_state_manager,
-            staging_state_manager=self.staging_state_manager,
-            worker_service=self.worker_service,
-            parent=container,
-        )
+        # 検索機能は必須。SearchTabWidget 構築失敗 (例: SearchFilterService 生成失敗) は
+        # 致命的初期化エラーとして扱い、中途半端な window を表示せず終了する。
+        # 旧 _setup_search_filter_integration() の fatal フローを維持する (#869 回帰防止)。
+        try:
+            widget = SearchTabWidget(
+                service_container=self.service_container,
+                db_manager=self.db_manager,
+                dataset_state_manager=self.dataset_state_manager,
+                staging_state_manager=self.staging_state_manager,
+                worker_service=self.worker_service,
+                parent=container,
+            )
+        except Exception as e:
+            self._handle_critical_initialization_failure("SearchTabWidget", e)
+            return
         container.layout().addWidget(widget)
         self.search_tab = widget
         self._connect_search_tab_signals()
