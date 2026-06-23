@@ -220,6 +220,7 @@ class WorkerService(QObject):
         self,
         image_paths: list[str],
         litellm_model_ids: list[str],
+        confidence_thresholds: dict[str, float] | None = None,
     ) -> str:
         """バッチアノテーション開始（新API）
 
@@ -234,6 +235,8 @@ class WorkerService(QObject):
         Args:
             image_paths: 画像パスリスト
             litellm_model_ids: 使用モデルの `litellm_model_id` リスト
+            confidence_thresholds: stage ピッカー由来の conf-min 閾値
+                (`litellm_model_id` → 閾値)。AnnotationWorker へ伝播する (#851)。
 
         Returns:
             str: ワーカーID
@@ -254,6 +257,7 @@ class WorkerService(QObject):
             litellm_model_ids=litellm_model_ids,
             db_manager=self.db_manager,
             model_registry=model_registry,
+            confidence_thresholds=confidence_thresholds,
         )
         worker_id = f"annotation_{uuid.uuid4().hex[:8]}"
         self._register_operation(worker_id, OperationType.ANNOTATION)

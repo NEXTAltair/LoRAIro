@@ -687,50 +687,30 @@ class TestQuickTagDialog:
             mock_dialog.exec.assert_called_once()
 
 
-class TestAnnotationTargetUI:
-    """アノテーション対象UI更新のテスト"""
+class TestStagingFanOut:
+    """ステージング集合 fan-out のテスト (#868)。
 
-    def test_update_annotation_target_ui_zero_count(self):
-        from lorairo.gui.window.main_window import MainWindow
+    アノテ対象 UI 更新ロジックは AnnotateTabWidget へ移送済み (#868) のため、
+    MainWindow 側はエクスポート対象件数ラベルの更新と、アノテ/エクスポートタブ
+    への委譲だけを担う。
+    """
 
-        mock_window = Mock()
-        mock_window.labelAnnotationTarget = Mock()
-        mock_window.btnAnnotationExecute = Mock()
-        MainWindow._update_annotation_target_ui(mock_window, 0)
-        label_text = mock_window.labelAnnotationTarget.setText.call_args[0][0]
-        assert "0 枚" in label_text
-        mock_window.btnAnnotationExecute.setEnabled.assert_called_once_with(False)
-
-    def test_update_annotation_target_ui_nonzero_count(self):
-        from lorairo.gui.window.main_window import MainWindow
-
-        mock_window = Mock()
-        mock_window.labelAnnotationTarget = Mock()
-        mock_window.btnAnnotationExecute = Mock()
-        MainWindow._update_annotation_target_ui(mock_window, 5)
-        label_text = mock_window.labelAnnotationTarget.setText.call_args[0][0]
-        assert "5 枚" in label_text
-        mock_window.btnAnnotationExecute.setEnabled.assert_called_once_with(True)
-
-    def test_update_annotation_target_ui_no_attrs_no_error(self):
-        from lorairo.gui.window.main_window import MainWindow
-
-        mock_window = Mock(spec=[])
-        MainWindow._update_annotation_target_ui(mock_window, 3)
-
-    def test_handle_staging_cleared_calls_update_ui(self):
+    def test_handle_staging_cleared_updates_export_ui_and_delegates(self):
+        """ステージングクリアでエクスポート件数を 0 にし、アノテタブへ空集合を委譲する。"""
         from lorairo.gui.window.main_window import MainWindow
 
         mock_window = Mock()
         MainWindow._handle_staging_cleared(mock_window)
-        mock_window._update_annotation_target_ui.assert_called_once_with(0)
+        mock_window._update_export_target_ui.assert_called_once_with(0)
+        mock_window.annotate_tab.set_staging_target.assert_called_once_with([])
 
     def test_on_staged_images_changed_updates_with_count(self):
         from lorairo.gui.window.main_window import MainWindow
 
         mock_window = Mock()
         MainWindow._on_staged_images_changed(mock_window, [1, 2, 3])
-        mock_window._update_annotation_target_ui.assert_called_once_with(3)
+        mock_window._update_export_target_ui.assert_called_once_with(3)
+        mock_window.annotate_tab.set_staging_target.assert_called_once_with([1, 2, 3])
 
     def test_on_staged_images_changed_syncs_export_widget(self):
         """Phase 5: ステージング変更はエクスポートタブの対象にもライブ反映される (ADR 0055)。"""
@@ -746,23 +726,24 @@ class TestAnnotationTargetUI:
 
         mock_window = Mock()
         mock_window.export_tab = None
-        # export_widget が None でも例外なく処理が完了する
+        # export_tab が None でも例外なく処理が完了する
         MainWindow._on_staged_images_changed(mock_window, [1, 2])
-        mock_window._update_annotation_target_ui.assert_called_once_with(2)
+        mock_window._update_export_target_ui.assert_called_once_with(2)
+        mock_window.annotate_tab.set_staging_target.assert_called_once_with([1, 2])
 
     def test_on_staged_images_changed_empty_list(self):
         from lorairo.gui.window.main_window import MainWindow
 
         mock_window = Mock()
         MainWindow._on_staged_images_changed(mock_window, [])
-        mock_window._update_annotation_target_ui.assert_called_once_with(0)
+        mock_window._update_export_target_ui.assert_called_once_with(0)
 
     def test_on_staged_images_changed_none(self):
         from lorairo.gui.window.main_window import MainWindow
 
         mock_window = Mock()
         MainWindow._on_staged_images_changed(mock_window, None)
-        mock_window._update_annotation_target_ui.assert_called_once_with(0)
+        mock_window._update_export_target_ui.assert_called_once_with(0)
 
 
 class TestOpenDialogs:
@@ -864,35 +845,27 @@ class TestTabChangedHandler:
 
 
 class TestRefreshBatchTagStaging:
-    """バッチタグステージングリフレッシュのテスト"""
+    """アノテタブ再計算委譲のテスト (#868)。
 
-    def test_refresh_batch_tag_staging_no_widget_logs_warning(self):
+    ステージングリスト・run bar・pipeline・preflight の再描画は
+    AnnotateTabWidget.refresh() へ委譲される。
+    """
+
+    def test_refresh_batch_tag_staging_no_annotate_tab_logs_warning(self):
         from lorairo.gui.window.main_window import MainWindow
 
         mock_window = Mock()
-        mock_window.batchTagAddWidget = None
+        mock_window.annotate_tab = None
         with patch("lorairo.gui.window.main_window.logger") as mock_logger:
             MainWindow._refresh_batch_tag_staging(mock_window)
             mock_logger.warning.assert_called_once()
 
-    def test_refresh_batch_tag_staging_calls_refresh_method(self):
+    def test_refresh_batch_tag_staging_delegates_to_annotate_tab(self):
         from lorairo.gui.window.main_window import MainWindow
 
         mock_window = Mock()
-        mock_widget = Mock()
-        mock_window.batchTagAddWidget = mock_widget
         MainWindow._refresh_batch_tag_staging(mock_window)
-        mock_widget._refresh_staging_list_ui.assert_called_once()
-
-    def test_refresh_batch_tag_staging_no_refresh_method_logs_error(self):
-        from lorairo.gui.window.main_window import MainWindow
-
-        mock_window = Mock()
-        mock_widget = Mock(spec=["__class__", "__str__"])
-        mock_window.batchTagAddWidget = mock_widget
-        with patch("lorairo.gui.window.main_window.logger") as mock_logger:
-            MainWindow._refresh_batch_tag_staging(mock_window)
-            mock_logger.error.assert_called_once()
+        mock_window.annotate_tab.refresh.assert_called_once_with()
 
 
 class TestPanelToggle:
@@ -970,12 +943,12 @@ class TestSendSelectedToBatchTag:
             MainWindow.send_selected_to_batch_tag(mock_window)
             mock_qmb.warning.assert_called_once()
 
-    def test_send_selected_no_batch_widget_shows_warning(self):
+    def test_send_selected_no_annotate_tab_shows_warning(self):
         from lorairo.gui.window.main_window import MainWindow
 
         mock_window = Mock()
         mock_window.dataset_state_manager = Mock()
-        mock_window.batchTagAddWidget = None
+        mock_window.annotate_tab = None
         with patch("lorairo.gui.window.main_window.QMessageBox") as mock_qmb:
             MainWindow.send_selected_to_batch_tag(mock_window)
             mock_qmb.warning.assert_called_once()
@@ -986,7 +959,7 @@ class TestSendSelectedToBatchTag:
         mock_window = Mock()
         mock_window.dataset_state_manager = Mock()
         mock_window.dataset_state_manager.selected_image_ids = []
-        mock_window.batchTagAddWidget = Mock()
+        mock_window.annotate_tab = Mock()
         mock_window.thumbnail_selector = None
         with patch("lorairo.gui.window.main_window.QMessageBox") as mock_qmb:
             MainWindow.send_selected_to_batch_tag(mock_window, None)
@@ -998,12 +971,12 @@ class TestSendSelectedToBatchTag:
         mock_window = Mock()
         mock_window.dataset_state_manager = Mock()
         mock_window.dataset_state_manager.selected_image_ids = [7]
-        mock_window.batchTagAddWidget = Mock()
+        mock_window.annotate_tab = Mock()
         mock_window.tabWidgetMainMode = Mock()
 
         MainWindow.send_selected_to_batch_tag(mock_window, False)
 
-        mock_window.batchTagAddWidget.add_image_ids_to_staging.assert_called_once_with([7])
+        mock_window.annotate_tab.add_image_ids_to_staging.assert_called_once_with([7])
 
     def test_send_selected_explicit_empty_ids_does_not_fallback(self):
         from lorairo.gui.window.main_window import MainWindow
@@ -1011,12 +984,12 @@ class TestSendSelectedToBatchTag:
         mock_window = Mock()
         mock_window.dataset_state_manager = Mock()
         mock_window.dataset_state_manager.selected_image_ids = [1]
-        mock_window.batchTagAddWidget = Mock()
+        mock_window.annotate_tab = Mock()
 
         with patch("lorairo.gui.window.main_window.QMessageBox") as mock_qmb:
             MainWindow.send_selected_to_batch_tag(mock_window, [])
 
-        mock_window.batchTagAddWidget.add_image_ids_to_staging.assert_not_called()
+        mock_window.annotate_tab.add_image_ids_to_staging.assert_not_called()
         mock_qmb.information.assert_called_once()
 
     def test_send_selected_with_ids_adds_to_staging(self):
@@ -1024,10 +997,10 @@ class TestSendSelectedToBatchTag:
 
         mock_window = Mock()
         mock_window.dataset_state_manager = Mock()
-        mock_window.batchTagAddWidget = Mock()
+        mock_window.annotate_tab = Mock()
         mock_window.tabWidgetMainMode = Mock()
         MainWindow.send_selected_to_batch_tag(mock_window, [1, 2, 3])
-        mock_window.batchTagAddWidget.add_image_ids_to_staging.assert_called_once_with([1, 2, 3])
+        mock_window.annotate_tab.add_image_ids_to_staging.assert_called_once_with([1, 2, 3])
 
 
 class TestErrorHandlers:

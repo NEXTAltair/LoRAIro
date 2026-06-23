@@ -7,7 +7,7 @@ MainWindow初期化、タブ切り替え、ウィジェット統合を検証。
 from unittest.mock import Mock
 
 import pytest
-from PySide6.QtWidgets import QTabWidget
+from PySide6.QtWidgets import QTabWidget, QWidget
 
 from lorairo.gui.widgets.errors_triage_widget import ErrorsTriageWidget
 from lorairo.gui.widgets.results_widget import ResultsWidget
@@ -102,12 +102,13 @@ class TestMainWindowTabInitialization:
         assert cli_tab.reference.content_loaded is False
 
     def test_pipeline_panel_embedded_in_annotation_group(self, main_window_with_tabs):
-        """アノテーショングループにパイプライン構成ビューが常設される (Phase 6a)"""
-        window = main_window_with_tabs
-        assert window.pipeline_stage_table is not None
-        assert window.inference_ledger_widget is not None
-        assert window.pipeline_stage_table.parent() is window.groupBoxAnnotation
-        assert window.inference_ledger_widget.parent() is window.groupBoxAnnotation
+        """アノテーショングループにパイプライン構成ビューが常設される (#868 で AnnotateTab へ移送)"""
+        annotate_tab = main_window_with_tabs.annotate_tab
+        assert annotate_tab is not None
+        assert annotate_tab.pipeline_stage_table is not None
+        assert annotate_tab.inference_ledger_widget is not None
+        assert annotate_tab.pipeline_stage_table.parent() is annotate_tab.groupBoxAnnotation
+        assert annotate_tab.inference_ledger_widget.parent() is annotate_tab.groupBoxAnnotation
 
     def test_errors_resolve_marks_resolved(self, main_window_with_tabs):
         """resolve_requested シグナルで mark_errors_resolved_batch が呼ばれる"""
@@ -297,7 +298,7 @@ class TestTabSwitching:
 
     def test_provider_batch_shares_batch_tag_staging(self, main_window_with_tabs):
         """通常アノテーションとバッチAPIは同じステージング状態を共有する。"""
-        batch_staging = main_window_with_tabs.batchTagAddWidget.get_staging_widget()
+        batch_staging = main_window_with_tabs.annotate_tab.batch_tag_add_widget.get_staging_widget()
         provider_staging = main_window_with_tabs.provider_batch_job_widget.get_staging_widget()
 
         assert provider_staging.get_staged_items() is batch_staging.get_staged_items()
@@ -334,9 +335,10 @@ class TestBatchTagWidgetIntegration:
     """BatchTagAddWidget統合テスト"""
 
     def test_batchtagaddwidget_exists(self, main_window_with_tabs):
-        """BatchTagAddWidgetが存在する"""
-        assert hasattr(main_window_with_tabs, "batchTagAddWidget")
-        assert main_window_with_tabs.batchTagAddWidget is not None
+        """BatchTagAddWidget が AnnotateTabWidget 経由で参照できる (#868)"""
+        annotate_tab = main_window_with_tabs.annotate_tab
+        assert annotate_tab is not None
+        assert annotate_tab.batch_tag_add_widget is not None
 
     def test_stage_toolbar_button_treats_clicked_bool_as_selection_request(
         self, main_window_with_tabs, monkeypatch, qtbot
@@ -344,9 +346,8 @@ class TestBatchTagWidgetIntegration:
         """ツールバーボタンは clicked(bool) を通常選択要求としてステージングへ送る。"""
         main_window_with_tabs.dataset_state_manager.set_selected_images([101, 102])
         add_to_staging = Mock()
-        monkeypatch.setattr(
-            main_window_with_tabs.batchTagAddWidget, "add_image_ids_to_staging", add_to_staging
-        )
+        # #868: ステージング導線は AnnotateTabWidget へ委譲される
+        monkeypatch.setattr(main_window_with_tabs.annotate_tab, "add_image_ids_to_staging", add_to_staging)
         information = Mock()
         monkeypatch.setattr("lorairo.gui.window.main_window.QMessageBox.information", information)
 
@@ -360,7 +361,7 @@ class TestBatchTagWidgetIntegration:
     def test_batchtagaddwidget_in_batch_tag_tab(self, main_window_with_tabs):
         """BatchTagAddWidgetがアノテーションタブ内に配置されている"""
         batch_tag_tab = main_window_with_tabs.tabBatchTag
-        batch_tag_widget = main_window_with_tabs.batchTagAddWidget
+        batch_tag_widget = main_window_with_tabs.annotate_tab.batch_tag_add_widget
 
         # BatchTagAddWidgetの親を辿ってbatch_tag_tabに到達できる
         parent = batch_tag_widget.parent()
@@ -376,15 +377,14 @@ class TestBatchTagWidgetIntegration:
         """BatchTagAddWidgetプレースホルダーが置換されている"""
         # プレースホルダーは deleteLater() で非同期削除されるため、
         # 置換後のウィジェットが正しく配置されていることを検証
-        batch_tag_widget = main_window_with_tabs.batchTagAddWidget
+        annotate_tab = main_window_with_tabs.annotate_tab
+        batch_tag_widget = annotate_tab.batch_tag_add_widget
         assert batch_tag_widget is not None
         assert batch_tag_widget.objectName() == "batchTagAddWidget"
 
-        # BatchTagAddWidgetがスプリッター内に正しく配置されている
-        batch_tag_tab = main_window_with_tabs.tabBatchTag
-        splitter = batch_tag_tab.findChild(object, "splitterBatchTagMain")
+        # BatchTagAddWidgetがスプリッター内に正しく配置されている (#868: AnnotateTab が所有)
+        splitter = annotate_tab.splitterBatchTagMain
         if splitter:
-            # スプリッター内にBatchTagAddWidgetが含まれている
             found_in_splitter = False
             for i in range(splitter.count()):
                 if splitter.widget(i) == batch_tag_widget:
@@ -437,32 +437,19 @@ class TestAnnotationControlVisibility:
 
 
 class TestAnnotationDataDisplayWidget:
-    """AnnotationDataDisplayWidget統合テスト"""
+    """AnnotationDataDisplayWidget 除去の回帰テスト (#850)。
 
-    def test_annotation_display_exists_in_batch_tag(self, main_window_with_tabs):
-        """バッチタグタブにAnnotationDataDisplayWidgetが存在する"""
-        assert hasattr(main_window_with_tabs, "batchTagAnnotationDisplay")
-        assert main_window_with_tabs.batchTagAnnotationDisplay is not None
+    バッチタグタブの常設アノテーション詳細表示 (batchTagAnnotationDisplay) は
+    #850 で AnnotateTab から除去された。MainWindow / AnnotateTabWidget の
+    どちらにも残存しないことを確認する。
+    """
 
-    def test_annotation_display_in_batch_tag_tab(self, main_window_with_tabs):
-        """AnnotationDataDisplayWidgetがアノテーションタブ内に配置されている"""
-        batch_tag_tab = main_window_with_tabs.tabBatchTag
-        annotation_display = main_window_with_tabs.batchTagAnnotationDisplay
+    def test_annotation_display_removed_from_main_window(self, main_window_with_tabs):
+        """MainWindow は batchTagAnnotationDisplay 属性を持たない (#850)"""
+        assert not hasattr(main_window_with_tabs, "batchTagAnnotationDisplay")
 
-        # AnnotationDataDisplayWidgetの親を辿ってbatch_tag_tabに到達できる
-        parent = annotation_display.parent()
-        found = False
-        while parent is not None:
-            if parent == batch_tag_tab:
-                found = True
-                break
-            parent = parent.parent()
-        assert found, "AnnotationDataDisplayWidget should be a descendant of batch tag tab"
-
-    def test_annotation_display_placeholder_replaced(self, main_window_with_tabs):
-        """AnnotationDataDisplayWidgetプレースホルダーが置換されている"""
-        # プレースホルダーは deleteLater() で非同期削除されるため、
-        # 置換後のウィジェットが正しく配置されていることを検証
-        annotation_display = main_window_with_tabs.batchTagAnnotationDisplay
-        assert annotation_display is not None
-        assert annotation_display.objectName() == "batchTagAnnotationDisplay"
+    def test_annotation_display_removed_from_annotate_tab(self, main_window_with_tabs):
+        """アノテーションタブ配下に batchTagAnnotationDisplay が残っていない (#850)"""
+        annotate_tab = main_window_with_tabs.annotate_tab
+        assert annotate_tab is not None
+        assert annotate_tab.findChild(QWidget, "batchTagAnnotationDisplay") is None
