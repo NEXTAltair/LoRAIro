@@ -1966,8 +1966,11 @@ class MainWindow(QMainWindow, Ui_MainWindow):
             QMessageBox.warning(self, "エラー", "アノテーション機能が初期化されていません。")
             return
 
-        has_explicit_ids = isinstance(selected_ids, list)
-        target_ids = selected_ids if has_explicit_ids else self.dataset_state_manager.selected_image_ids
+        target_ids = (
+            selected_ids
+            if isinstance(selected_ids, list)
+            else self.dataset_state_manager.selected_image_ids
+        )
         if not target_ids:
             dataset_selected_count = len(self.dataset_state_manager.selected_image_ids)
             thumbnail_selector_available = bool(getattr(self, "thumbnail_selector", None))
