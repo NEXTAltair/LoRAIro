@@ -530,7 +530,7 @@ class TestTabChangedHandler:
 
         mock_window = Mock()
         jobs_widget = Mock()
-        mock_window.provider_batch_job_widget = jobs_widget
+        mock_window.jobs_tab = jobs_widget
         mock_window.tabWidgetMainMode.widget.return_value = jobs_widget
         MainWindow._on_main_tab_changed(mock_window, 3)
         # dispatch 表は widget 同一性で一致した delegate へ委譲する

@@ -61,7 +61,7 @@ class TestMainWindowTabInitialization:
         tab_widget = window.tabWidgetMainMode
         assert tab_widget.widget(0) is window.tabWorkspace
         assert tab_widget.widget(2) is window.tabBatchTag
-        assert tab_widget.widget(3) is window.provider_batch_job_widget
+        assert tab_widget.widget(3) is window.jobs_tab
         assert tab_widget.widget(5).objectName() == "tabErrors"
 
     def test_errors_tab_embeds_triage_widget(self, main_window_with_tabs):
@@ -203,12 +203,13 @@ class TestMainWindowTabInitialization:
         assert operations_group is not None
 
     def test_provider_batch_tab_structure(self, main_window_with_tabs):
-        """ジョブタブ（Provider Batch）が適切な構造を持つ"""
-        provider_batch_tab = main_window_with_tabs.provider_batch_job_widget
-        assert provider_batch_tab is not None
-        assert provider_batch_tab.objectName() == "providerBatchJobWidget"
+        """ジョブタブ（JobsTabWidget）が適切な構造を持つ (#874)"""
+        jobs_tab = main_window_with_tabs.jobs_tab
+        assert jobs_tab is not None
+        # タブ本体は JobsTabWidget、内部に ProviderBatchJobWidget を内包する
+        assert jobs_tab.provider_batch_job_widget.objectName() == "providerBatchJobWidget"
         tab_widget = main_window_with_tabs.tabWidgetMainMode
-        assert tab_widget.widget(tab_widget.indexOf(provider_batch_tab)) is provider_batch_tab
+        assert tab_widget.widget(tab_widget.indexOf(jobs_tab)) is jobs_tab
 
 
 class TestJobsTabSyncLedgerWiring:
@@ -217,7 +218,7 @@ class TestJobsTabSyncLedgerWiring:
     def test_job_ledger_changed_refreshes_sync_jobs_table(self, main_window_with_tabs):
         """job_ledger_changed シグナルで Jobs タブの同期ジョブテーブルが更新される"""
         window = main_window_with_tabs
-        table = window.provider_batch_job_widget.get_sync_jobs_widget().tableSyncJobs
+        table = window.jobs_tab.provider_batch_job_widget.get_sync_jobs_widget().tableSyncJobs
         assert table.rowCount() == 0
 
         window.worker_service.job_ledger.register("annotation_wiring", "annotation", "アノテーション処理")
@@ -234,7 +235,7 @@ class TestJobsTabSyncLedgerWiring:
         cancel_mock = Mock(return_value=True)
         window.worker_service.cancel_job = cancel_mock
 
-        window.provider_batch_job_widget.sync_job_cancel_requested.emit("annotation_busy")
+        window.jobs_tab.provider_batch_job_widget.sync_job_cancel_requested.emit("annotation_busy")
 
         cancel_mock.assert_called_once_with("annotation_busy")
         assert "annotation_busy" in window.statusBar().currentMessage()
@@ -291,21 +292,21 @@ class TestTabSwitching:
         window = main_window_with_tabs
         tab_widget = window.tabWidgetMainMode
 
-        tab_widget.setCurrentWidget(window.provider_batch_job_widget)
+        tab_widget.setCurrentWidget(window.jobs_tab)
         qtbot.wait(10)
 
-        assert tab_widget.currentWidget() is window.provider_batch_job_widget
+        assert tab_widget.currentWidget() is window.jobs_tab
 
     def test_provider_batch_shares_batch_tag_staging(self, main_window_with_tabs):
         """通常アノテーションとバッチAPIは同じステージング状態を共有する。"""
         batch_staging = main_window_with_tabs.annotate_tab.batch_tag_add_widget.get_staging_widget()
-        provider_staging = main_window_with_tabs.provider_batch_job_widget.get_staging_widget()
+        provider_staging = main_window_with_tabs.jobs_tab.provider_batch_job_widget.get_staging_widget()
 
         assert provider_staging.get_staged_items() is batch_staging.get_staged_items()
 
     def test_provider_batch_model_selection_widget_is_injected(self, main_window_with_tabs):
         """バッチAPIのモデル選択 placeholder は実 widget に置換されている。"""
-        provider_widget = main_window_with_tabs.provider_batch_job_widget
+        provider_widget = main_window_with_tabs.jobs_tab.provider_batch_job_widget
         model_selection = provider_widget.get_model_selection_widget()
 
         assert model_selection.objectName() == "providerBatchModelSelection"
