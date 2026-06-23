@@ -41,11 +41,11 @@ from ..tab.annotate_tab import AnnotateTabWidget
 from ..tab.cli_tab import CliTabWidget
 from ..tab.errors_tab import ErrorsTabWidget
 from ..tab.export_tab import ExportTabWidget
+from ..tab.jobs_tab import JobsTabWidget
 from ..tab.map_tab import MapTabWidget
 from ..tab.results_tab import ResultsTabWidget
 from ..tab.search_tab import SearchTabWidget
 from ..widgets.error_notification_widget import ErrorNotificationWidget
-from ..widgets.provider_batch_job_widget import ProviderBatchJobWidget
 from ..widgets.quick_tag_dialog import QuickTagDialog
 from ..widgets.registration_summary_widget import RegistrationSummaryWidget
 from ..widgets.tag_management_dialog import TagManagementDialog
@@ -95,7 +95,7 @@ class MainWindow(QMainWindow, Ui_MainWindow):
         return ServiceContainer()
 
     # ウィジェット属性の型定義
-    provider_batch_job_widget: ProviderBatchJobWidget | None
+    jobs_tab: JobsTabWidget | None
 
     # Tab widget (programmatically created)
     tabWidgetMainMode: QTabWidget
@@ -370,7 +370,7 @@ class MainWindow(QMainWindow, Ui_MainWindow):
         # QTabWidget初期化（タブ切り替え用）
         self._setup_tab_widget()
         self._setup_map_tab()
-        self._setup_provider_batch_tab()
+        self._setup_jobs_tab()
         self._setup_results_tab()
         self._setup_errors_tab()
         self._setup_export_tab()
@@ -441,59 +441,52 @@ class MainWindow(QMainWindow, Ui_MainWindow):
         if self.dataset_state_manager is not None:
             self.dataset_state_manager.set_current_image(image_id)
 
-    def _setup_provider_batch_tab(self) -> None:
-        """ジョブタブ (Provider Batch job management) を追加する。
+    def _setup_jobs_tab(self) -> None:
+        """ジョブタブに JobsTabWidget を埋め込む (Epic #867 / #874)。
 
         Wireframes v11 ナビ順（検索 / マップ / アノテーション / ジョブ / 結果 / エラー）
-        に従い、結果タブ (tabResults) の直前へ挿入する。
+        に従い、結果タブ (tabResults) の直前へ挿入する。Provider Batch ジョブの投入・
+        監視・キャンセル・同期ジョブ台帳・Batch API 結果インポートを JobsTabWidget が
+        所有する。MainWindow は配置 + サービス注入 + 共有サービスへの橋渡し (glue) だけを残す。
+
+        ジョブタブは必須機能ではないため、構築失敗時は graceful degradation
+        (jobs_tab=None) とし、検索タブのような致命的終了はしない。
         """
         if not hasattr(self, "tabWidgetMainMode") or not self.tabWidgetMainMode:
             logger.warning("tabWidgetMainMode not found - ジョブタブ skipped")
-            self.provider_batch_job_widget = None
+            self.jobs_tab = None
             return
 
         try:
-            widget = ProviderBatchJobWidget(parent=self.tabWidgetMainMode)
-            widget.set_dataset_state_manager(self.dataset_state_manager)
-            service_container = self.service_container
-            widget.set_dependencies(
-                workflow_service=service_container.provider_batch_workflow_service,
-                repository=service_container.db_manager.provider_batch_repo,
-                model_source=service_container.annotator_library,
-                model_repository=service_container.db_manager.model_repo,
+            widget = JobsTabWidget(
+                service_container=self.service_container,
+                db_manager=self.db_manager,
+                dataset_state_manager=self.dataset_state_manager,
+                staging_state_manager=self.staging_state_manager,
+                worker_service=self.worker_service,
+                parent=self.tabWidgetMainMode,
             )
-            # 共有 SSoT を注入 (Annotate タブと同一の StagingStateManager を共有、ADR 0074)。
-            # fan-out は staging_state_manager 側で一括接続済みのため widget シグナルは繋がない。
-            if self.staging_state_manager is not None:
-                widget.set_staging_state_manager(self.staging_state_manager)
-            # ADR 0066: 同期ジョブ台帳 (実行中/履歴) を Jobs タブへ接続
-            if self.worker_service:
-                widget.set_job_ledger(self.worker_service.job_ledger)
-                self.worker_service.job_ledger_changed.connect(widget.refresh_sync_jobs)
-                widget.sync_job_cancel_requested.connect(self._on_sync_job_cancel_requested)
-            self.provider_batch_job_widget = widget
+            self.jobs_tab = widget
+            self._connect_jobs_tab_signals()
             insert_index = self.tabWidgetMainMode.indexOf(self.tabResults)
             self.tabWidgetMainMode.insertTab(insert_index, widget, "ジョブ")
-            logger.info("✅ ジョブタブ (Provider Batch) initialized")
+            logger.info("✅ ジョブタブ (JobsTabWidget) initialized")
         except Exception as e:
-            self.provider_batch_job_widget = None
+            self.jobs_tab = None
             logger.error(f"❌ ジョブタブ initialization failed: {e}", exc_info=True)
 
-    def _on_sync_job_cancel_requested(self, job_id: str) -> None:
-        """Jobs タブの同期ジョブ行からのキャンセル要求 (ADR 0066 §4)。
+    def _connect_jobs_tab_signals(self) -> None:
+        """JobsTabWidget の glue シグナル接続を行う (#874)。
 
-        進捗ポップアップ廃止に伴い、キャンセル操作は Jobs 行のボタンへ移設された。
-
-        Args:
-            job_id: 台帳の job_id (= worker_id)。
+        共有サービス (statusbar / error_notification / ProgressStateService) への
+        作用はタブから Signal で受け、MainWindow が委譲する。
         """
-        if not self.worker_service:
-            logger.warning("WorkerService未初期化 - ジョブキャンセルをスキップ")
+        if self.jobs_tab is None:
             return
-        if self.worker_service.cancel_job(job_id):
-            self.statusBar().showMessage(f"ジョブをキャンセルしています: {job_id}", 5000)
-        else:
-            logger.warning(f"ジョブキャンセル要求に失敗: {job_id}")
+        self.jobs_tab.status_message_requested.connect(self.statusBar().showMessage)
+        self.jobs_tab.batch_import_error_occurred.connect(self._on_batch_import_error)
+        self.jobs_tab.batch_import_canceled.connect(self._on_batch_import_canceled)
+        logger.info("    ✅ JobsTabWidget シグナル接続完了")
 
     def _setup_error_notification(self) -> None:
         """エラー通知Widget設定（StatusBar統合）"""
@@ -919,14 +912,13 @@ class MainWindow(QMainWindow, Ui_MainWindow):
             return
 
         # Verify WorkerService has required signals
+        # batch_import_finished/error/canceled は JobsTabWidget が self-wire するため
+        # ここでは検証・接続しない (#874)。
         required_signals = [
             "batch_registration_started",
             "batch_registration_finished",
             "batch_registration_error",
             "batch_registration_canceled",
-            "batch_import_finished",
-            "batch_import_error",
-            "batch_import_canceled",
             "enhanced_annotation_finished",
             "enhanced_annotation_error",
             "enhanced_annotation_canceled",
@@ -952,10 +944,9 @@ class MainWindow(QMainWindow, Ui_MainWindow):
         self.worker_service.batch_registration_error.connect(self._on_batch_registration_error)
         self.worker_service.batch_registration_canceled.connect(self._on_batch_registration_canceled)
 
-        # Batch import connections
-        self.worker_service.batch_import_finished.connect(self._on_batch_import_finished)
-        self.worker_service.batch_import_error.connect(self._on_batch_import_error)
-        self.worker_service.batch_import_canceled.connect(self._on_batch_import_canceled)
+        # Batch import の完了/エラー/キャンセルは JobsTabWidget が self-wire し所有する (#874)。
+        # MainWindow は JobsTabWidget からの glue シグナル経由で error_notification /
+        # ProgressStateService へ委譲する (_connect_jobs_tab_signals)。
 
         # Annotation connections
         self.worker_service.enhanced_annotation_finished.connect(self._on_annotation_finished)
@@ -1620,7 +1611,7 @@ class MainWindow(QMainWindow, Ui_MainWindow):
         dispatch: list[tuple[QWidget | None, str, Callable[[], None]]] = [
             (getattr(self, "tabWorkspace", None), "Search", self._refresh_search_tab),
             (getattr(self, "tabBatchTag", None), "Annotate", self._refresh_batch_tag_staging),
-            (self.provider_batch_job_widget, "Jobs", self._refresh_jobs_tab),
+            (self.jobs_tab, "Jobs", self._refresh_jobs_tab),
             (getattr(self, "tabResults", None), "Results", self._refresh_results_tab),
             (getattr(self, "tabErrors", None), "Errors", self._refresh_errors_tab),
             (getattr(self, "tabExport", None), "Export", self._refresh_export_tab),
@@ -1637,9 +1628,9 @@ class MainWindow(QMainWindow, Ui_MainWindow):
             self.search_tab.refresh()
 
     def _refresh_jobs_tab(self) -> None:
-        """ジョブタブ表示時にジョブ一覧を再読込する。"""
-        if self.provider_batch_job_widget is not None:
-            self.provider_batch_job_widget.refresh_jobs()
+        """ジョブタブ表示時の再計算をタブへ委譲する (#874)。"""
+        if self.jobs_tab is not None:
+            self.jobs_tab.refresh()
 
     def _refresh_results_tab(self) -> None:
         """結果タブ表示時の再計算をタブへ委譲する。"""
@@ -1826,96 +1817,19 @@ class MainWindow(QMainWindow, Ui_MainWindow):
                 self.search_tab.toggle_preview_panel()
 
     def _start_batch_import(self) -> None:
-        """Batch APIインポートダイアログを開いてワーカーを起動する。"""
-        from PySide6.QtWidgets import QDialogButtonBox
+        """Batch APIインポートを起動する (File メニュー → JobsTabWidget へ委譲, #874)。
 
-        if not self.worker_service:
-            QMessageBox.warning(self, "エラー", "WorkerServiceが初期化されていません")
+        実ロジック (ファイル選択 / Dry-Run 選択 / worker 起動) は JobsTabWidget が所有する。
+        メニューアクションは MainWindow 初期化フェーズで配線するため、タブ生成後に
+        jobs_tab が存在する場合のみ委譲する。
+        """
+        if self.jobs_tab is None:
+            QMessageBox.warning(self, "エラー", "ジョブタブが初期化されていません")
             return
-
-        # JSONLファイル選択（複数可）
-        file_paths, _ = QFileDialog.getOpenFileNames(
-            self,
-            "Batch API結果ファイルを選択 (JSONL)",
-            "",
-            "JSONL Files (*.jsonl)",
-        )
-        if not file_paths:
-            return
-
-        jsonl_files = [Path(p) for p in file_paths]
-
-        # Dry-Run確認
-        dry_run_box = QMessageBox(self)
-        dry_run_box.setWindowTitle("インポートモード選択")
-        dry_run_box.setText(
-            f"{len(jsonl_files)}ファイルをインポートします。\n\n"
-            "Dry-Run: 照合結果のみ確認（DB書き込みなし）\n"
-            "インポート: DBに保存"
-        )
-        dry_run_btn = dry_run_box.addButton("Dry-Run", QMessageBox.ButtonRole.AcceptRole)
-        import_btn = dry_run_box.addButton("インポート", QMessageBox.ButtonRole.AcceptRole)
-        dry_run_box.addButton("キャンセル", QMessageBox.ButtonRole.RejectRole)
-        dry_run_box.exec()
-
-        clicked = dry_run_box.clickedButton()
-        if clicked is None or (clicked is not dry_run_btn and clicked is not import_btn):
-            return
-
-        dry_run = clicked is dry_run_btn
-        self.worker_service.start_batch_import(jsonl_files, dry_run=dry_run)
-
-    def _on_batch_import_finished(self, result: Any) -> None:
-        """バッチインポート完了ハンドラ。"""
-        from PySide6.QtWidgets import QDialog, QDialogButtonBox, QTextEdit, QVBoxLayout
-
-        from ...services.batch_image_matcher import BatchImageMatcher
-        from ...services.batch_import_service import BatchImportResult
-
-        if not isinstance(result, BatchImportResult):
-            logger.warning(f"Unexpected batch import result type: {type(result)}")
-            return
-
-        mode = "DRY-RUN" if result.saved == 0 and result.matched > 0 else "LIVE"
-        message = (
-            f"バッチインポート完了 ({mode})\n\n"
-            f"総レコード: {result.total_records}\n"
-            f"パース成功: {result.parsed_ok}\n"
-            f"照合成功: {result.matched}\n"
-            f"照合失敗: {result.unmatched}\n"
-            f"保存: {result.saved}\n"
-            f"モデル: {result.model_name}"
-        )
-
-        if result.unmatched_ids:
-            message += f"\n\n照合失敗 ({len(result.unmatched_ids)}件):"
-            message += "\n(custom_idから抽出したファイル名がDBに未登録)"
-            for uid in result.unmatched_ids[:5]:
-                stem = BatchImageMatcher.extract_stem(uid)
-                message += f"\n  - {stem}  ← {uid}"
-            if len(result.unmatched_ids) > 5:
-                message += f"\n  ... 他 {len(result.unmatched_ids) - 5} 件"
-
-        # コピー可能なダイアログで結果表示
-        dlg = QDialog(self)
-        dlg.setWindowTitle("バッチインポート結果")
-        dlg.setMinimumSize(520, 360)
-        layout = QVBoxLayout(dlg)
-        text_edit = QTextEdit()
-        text_edit.setReadOnly(True)
-        text_edit.setPlainText(message)
-        layout.addWidget(text_edit)
-        btn_box = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok)
-        btn_box.accepted.connect(dlg.accept)
-        layout.addWidget(btn_box)
-        dlg.exec()
-
-        self.statusBar().showMessage(
-            f"バッチインポート完了: {result.saved}件保存, {result.unmatched}件アンマッチ", 10000
-        )
+        self.jobs_tab.start_batch_import()
 
     def _on_batch_import_error(self, error_message: str) -> None:
-        """バッチインポートエラーハンドラ。"""
+        """バッチインポートエラーハンドラ (JobsTabWidget からの glue, #874)。"""
         QMessageBox.critical(
             self, "バッチインポートエラー", f"インポート中にエラーが発生しました:\n\n{error_message}"
         )
@@ -1923,5 +1837,5 @@ class MainWindow(QMainWindow, Ui_MainWindow):
             self.error_notification_widget.update_error_count()
 
     def _on_batch_import_canceled(self, worker_id: str) -> None:
-        """バッチインポートキャンセルハンドラ（エラー通知は出さない）。"""
+        """バッチインポートキャンセルハンドラ (JobsTabWidget からの glue, #874)。"""
         self._delegate_to_progress_state("on_batch_import_canceled", worker_id)

@@ -115,18 +115,18 @@ class TestMainWindowAnnotationCompletion:
 
         mock_window = Mock()
         mock_window.worker_service = Mock()
-        # required_signalsを全て持つようにモック
+        # required_signalsを全て持つようにモック (batch_import_* は JobsTabWidget が
+        # self-wire するため、ここでの接続対象には含めない、#874)
         for signal_name in [
             "batch_registration_started",
             "batch_registration_finished",
             "batch_registration_error",
             "batch_registration_canceled",
-            "batch_import_finished",
-            "batch_import_error",
-            "batch_import_canceled",
             "enhanced_annotation_finished",
             "enhanced_annotation_error",
             "enhanced_annotation_canceled",
+            "enhanced_annotation_started",
+            "batch_import_started",
             "worker_progress_updated",
             "worker_batch_progress",
             "operation_event",
@@ -141,9 +141,6 @@ class TestMainWindowAnnotationCompletion:
                 "batch_registration_finished",
                 "batch_registration_error",
                 "batch_registration_canceled",
-                "batch_import_finished",
-                "batch_import_error",
-                "batch_import_canceled",
                 "enhanced_annotation_finished",
                 "enhanced_annotation_error",
                 "enhanced_annotation_canceled",
