@@ -39,7 +39,7 @@ ADR は OKF (Open Knowledge Format) バンドルとして管理する。各 ADR 
 | [0027](0027-score-labels-db-storage.md) | Score Labels DB Storage | 2026-05-17 | Accepted |
 | [0028](0028-score-labels-usage-and-display.md) | Score Labels Usage and Display Strategy | 2026-05-18 | Accepted |
 | [0029](0029-unified-dataset-quality-tier.md) | Unified Dataset Quality Tier | 2026-05-19 | Accepted (Revised: 2026-06-18 — 品質尺度の主従を反転、数値スコアをベースに) |
-| [0030](0030-batch-annotation-model-selection-ui.md) | Batch Annotation Model Selection UI | 2026-05-20 | Accepted |
+| [0030](0030-batch-annotation-model-selection-ui.md) | Batch Annotation Model Selection UI | 2026-05-20 | Superseded |
 | [0031](0031-ai-rating-mapping.md) | AI Rating Mapping to Canonical Rating | 2026-05-21 | Accepted (amended 2026-06-21) |
 | [0032](0032-copyable-readonly-text-display.md) | Copyable Read-Only Text Display Policy | 2026-05-23 | Accepted |
 | [0033](0033-annotation-worker-batch-execution-contract.md) | AnnotationWorker Batch Execution Contract | 2026-05-23 | Accepted |
@@ -84,7 +84,7 @@ ADR は OKF (Open Knowledge Format) バンドルとして管理する。各 ADR 
 | [0072](0072-workspace-stage-selection-source.md) | Workspace stage button selection source | 2026-05-31 | Accepted |
 | [0073](0073-missing-ds-parts-qt-strategy.md) | Qt implementation strategy for DS parts without Qt equivalents | 2026-06-20 | Accepted |
 | [0074](0074-staging-state-manager-hoist.md) | ステージング集合の SSoT を StagingStateManager へ hoist | 2026-06-22 | Accepted |
-| [0075](0075-annotation-pipeline-composition-domain-model.md) | アノテーションパイプライン構成 (選択モデル × アノテーション種類) のドメインモデル | 2026-06-23 | Proposed |
+| [0075](0075-annotation-pipeline-composition-domain-model.md) | アノテーションパイプライン構成 (選択モデル × アノテーション種類) のドメインモデル | 2026-06-23 | Accepted |
 <!-- OKF-TABLE:END -->
 
 ## ADR テンプレート
