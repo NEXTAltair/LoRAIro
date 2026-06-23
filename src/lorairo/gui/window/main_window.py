@@ -8,15 +8,11 @@ from typing import Any, cast
 from PySide6.QtCore import QEasingCurve, QPropertyAnimation, QSettings, Qt, QTimer, Signal
 from PySide6.QtGui import QAction, QCloseEvent, QKeySequence, QResizeEvent
 from PySide6.QtWidgets import (
-    QDialog,
     QFileDialog,
     QGraphicsOpacityEffect,
-    QHBoxLayout,
-    QLabel,
     QMainWindow,
     QMenu,
     QMessageBox,
-    QPushButton,
     QTabWidget,
     QWidget,
 )
@@ -26,14 +22,11 @@ from ...database.db_manager import ImageDatabaseManager
 from ...gui.designer.MainWindow_ui import Ui_MainWindow
 from ...services import get_service_container
 from ...services.configuration_service import ConfigurationService
-from ...services.model_route_service import build_available_providers
 from ...services.model_selection_service import ModelSelectionService
-from ...services.pipeline_composition import PipelineCompositionService, PipelineStage, StageModelInfo
 from ...services.selection_state_service import SelectionStateService
 from ...services.service_container import ServiceContainer
 from ...storage.file_system import FileSystemManager
 from ...utils.log import logger
-from .. import theme
 from ..controllers.annotation_workflow_controller import AnnotationWorkflowController
 from ..controllers.dataset_controller import DatasetController
 from ..controllers.settings_controller import SettingsController
@@ -47,6 +40,7 @@ from ..services.widget_setup_service import WidgetSetupService
 from ..services.worker_service import WorkerService
 from ..state.dataset_state import DatasetStateManager
 from ..state.staging_state import StagingStateManager
+from ..tab.annotate_tab import AnnotateTabWidget
 from ..tab.cli_tab import CliTabWidget
 from ..tab.errors_tab import ErrorsTabWidget
 from ..tab.export_tab import ExportTabWidget
@@ -55,15 +49,10 @@ from ..tab.results_tab import ResultsTabWidget
 from ..widgets.error_notification_widget import ErrorNotificationWidget
 from ..widgets.filter_search_panel import FilterSearchPanel
 from ..widgets.image_preview import ImagePreviewWidget
-from ..widgets.inference_ledger_widget import InferenceLedgerWidget
-from ..widgets.pipeline_stage_table_widget import PipelineStageTableWidget
-from ..widgets.preflight_summary_widget import PreflightSummaryWidget
 from ..widgets.provider_batch_job_widget import ProviderBatchJobWidget
 from ..widgets.quick_tag_dialog import QuickTagDialog
 from ..widgets.registration_summary_widget import RegistrationSummaryWidget
-from ..widgets.run_settings_dialog import RunOptions, RunSettingsDialog
 from ..widgets.selected_image_details_widget import SelectedImageDetailsWidget
-from ..widgets.stage_model_picker_dialog import StageModelPickerDialog
 from ..widgets.tag_management_dialog import TagManagementDialog
 from ..widgets.thumbnail import ThumbnailSelectorWidget
 
@@ -98,17 +87,10 @@ class MainWindow(QMainWindow, Ui_MainWindow):
     annotation_workflow_controller: AnnotationWorkflowController | None
     settings_controller: SettingsController | None
     export_tab: ExportTabWidget | None
-    pipeline_stage_table: PipelineStageTableWidget | None
-    preflight_summary_widget: PreflightSummaryWidget | None
-    inference_ledger_widget: InferenceLedgerWidget | None
-    btnPipelineRunSettings: QPushButton
+    annotate_tab: AnnotateTabWidget | None
     result_handler_service: ResultHandlerService | None
     pipeline_control_service: PipelineControlService | None
     progress_state_service: ProgressStateService | None
-
-    # run bar ウィジェット参照 (Issue #849)
-    _run_bar_scope_label: QLabel | None
-    _btn_pipeline_execute: QPushButton | None
 
     @property
     def service_container(self) -> ServiceContainer:
@@ -414,11 +396,8 @@ class MainWindow(QMainWindow, Ui_MainWindow):
         # ErrorNotificationWidget初期化（Phase 4.5）
         self._setup_error_notification()
 
-        # BatchTagAddWidget再配置（Phase 2.5統合、Day 2）
-        WidgetSetupService.setup_batch_tag_tab_widgets(self)
-
-        # パイプライン構成ビュー（Phase 6a、batchModelSelection 構築後に配置）
-        self._setup_pipeline_composition_panel()
+        # アノテーションタブ (AnnotateTabWidget) を tabBatchTag へ埋め込む (#868)
+        self._setup_annotate_tab()
 
         # QTabWidget初期化（タブ切り替え用）
         self._setup_tab_widget()
@@ -724,438 +703,31 @@ class MainWindow(QMainWindow, Ui_MainWindow):
         self.cli_tab = widget
         logger.info("✅ CLIタブ (CliTabWidget) initialized")
 
-    def _setup_pipeline_composition_panel(self) -> None:
-        """アノテーショングループにパイプライン構成ビューを常設する。
+    def _setup_annotate_tab(self) -> None:
+        """アノテーションタブに AnnotateTabWidget を埋め込む (Epic #867 / #868)。
 
-        Wireframes v11 Frame 2A/2B。ModelSelectionWidget の選択を購読して
-        TAGS/CAPTION/SCORE/RATING への自動仕分け・multimodal 派生チップ・
-        推論台帳 (INFERENCE LEDGER) をリアルタイム表示する (Phase 6a)。
-        各ステージ行の「+ 追加」/ primary チップの × はチェック状態の ON/OFF に
-        変換する (Phase 6b、SSoT は選択モデル集合)。
+        Wireframes v11 Frame 2 · Annotate。パイプライン構成ビュー・モデル選択 SSoT・
+        stage ピッカー往復・preset 配線・送信前プリフライト・推論台帳・run bar・
+        batch tag フローを AnnotateTabWidget が所有する。MainWindow は .ui の
+        tabBatchTag コンテナへ埋め込み依存を注入し、横断 glue (worker dispatch /
+        settings / staging fan-out) だけを残す (glue)。
         """
-        self.pipeline_composition_service = PipelineCompositionService()
-        self._pipeline_staged_count = 0
-        # 送信前プリフライト card (Issue #837) の集計対象。ステージング集合の image_id。
-        self._pipeline_staged_image_ids: list[int] = []
-        # 実行詳細設定 (Issue #789)。詳細設定モーダルの確定値を保持する。
-        self._pipeline_run_options = RunOptions()
-
-        annotation_group = getattr(self, "groupBoxAnnotation", None)
-        model_widget = getattr(self, "batchModelSelection", None)
-        if annotation_group is None or model_widget is None:
-            logger.warning("groupBoxAnnotation/batchModelSelection 未構築 - パイプライン構成ビュー skipped")
-            self.pipeline_stage_table = None
-            self.preflight_summary_widget = None
-            self.inference_ledger_widget = None
+        container = getattr(self, "tabBatchTag", None)
+        if container is None:
+            logger.warning("tabBatchTag not found - アノテーションタブ skipped")
+            self.annotate_tab = None
             return
 
-        self.pipeline_stage_table = PipelineStageTableWidget(parent=annotation_group)
-        # DS AnnotateScreen 順: ステージ表 → 送信前プリフライト → 推論台帳
-        self.preflight_summary_widget = PreflightSummaryWidget(parent=annotation_group)
-        self.inference_ledger_widget = InferenceLedgerWidget(parent=annotation_group)
-        layout = annotation_group.layout()
-        layout.addWidget(self.pipeline_stage_table)
-        layout.addWidget(self.preflight_summary_widget)
-        layout.addWidget(self.inference_ledger_widget)
-
-        # 実行詳細設定モーダルを開く導線 (Issue #789、DS Frame 3 run bar「詳細設定 ▸」)
-        self.btnPipelineRunSettings = QPushButton("詳細設定 ▸", annotation_group)
-        self.btnPipelineRunSettings.setObjectName("btnPipelineRunSettings")
-        self.btnPipelineRunSettings.clicked.connect(self._open_run_settings)
-
-        # run bar (Issue #849): scope 表示 + 詳細設定 + 実行ボタンを横一列に配置
-        run_bar = self._build_pipeline_run_bar(annotation_group)
-        layout.addWidget(run_bar)
-
-        # .ui 由来の btnAnnotationExecute は run bar に統合したため非表示にする (Issue #849)
-        if hasattr(self, "btnAnnotationExecute"):
-            self.btnAnnotationExecute.setVisible(False)
-
-        model_widget.model_selection_changed.connect(self._on_pipeline_models_changed)
-        self.pipeline_stage_table.add_model_requested.connect(self._on_pipeline_add_model_requested)
-        self.pipeline_stage_table.remove_model_requested.connect(self._on_pipeline_remove_model_requested)
-        # preset 配線 (Issue #847): preset chip 選択 / 保存要求をハンドラへ接続
-        self.pipeline_stage_table.preset_selected.connect(self._on_pipeline_preset_selected)
-        self.pipeline_stage_table.save_preset_requested.connect(self._on_pipeline_save_preset_requested)
-        self._refresh_pipeline_panel([])
-        self._refresh_preflight_summary()
-        logger.info("✅ パイプライン構成ビュー (Frame 2A) initialized")
-
-    def _on_pipeline_models_changed(self, selected_litellm_model_ids: list[str]) -> None:
-        """モデル選択変化でパイプライン構成ビューを再計算する (Phase 6a)。"""
-        self._refresh_pipeline_panel(list(selected_litellm_model_ids))
-
-    def _open_run_settings(self) -> None:
-        """実行詳細設定モーダルを開き、確定値を保持する (Issue #789)。
-
-        OK 時の :class:`RunOptions` を ``self._pipeline_run_options`` に格納する。
-        実 run flow への適用 (dry-run / rating-gate を worker へ配線) は後続
-        backend issue で行う。
-        """
-        dialog = RunSettingsDialog(self._pipeline_staged_count, parent=self)
-        if dialog.exec() == QDialog.DialogCode.Accepted:
-            self._pipeline_run_options = dialog.run_options()
-            logger.info(f"実行詳細設定を更新: {self._pipeline_run_options}")
-
-    def _build_pipeline_run_bar(self, parent: QWidget) -> QWidget:
-        """パイプライン実行バーウィジェットを構築する (Issue #849)。
-
-        左側にスコープ表示ラベル、右側に詳細設定ボタンと実行ボタンを横並びに配置する。
-        実行ボタンは既存の start_annotation() を呼び出し、
-        .ui 由来の btnAnnotationExecute と統合する。
-
-        Args:
-            parent: 親ウィジェット (groupBoxAnnotation)。
-
-        Returns:
-            run bar ウィジェット。
-        """
-        bar = QWidget(parent)
-        bar.setObjectName("pipelineRunBar")
-        bar_layout = QHBoxLayout(bar)
-        bar_layout.setContentsMargins(0, 4, 0, 0)
-        bar_layout.setSpacing(8)
-
-        # スコープ表示ラベル (左側): 「ステージング集合のみ · staged N · 実行 → Jobs タブへ」
-        scope_label = QLabel(self._run_bar_scope_text(0), bar)
-        scope_label.setObjectName("runBarScopeLabel")
-        scope_label.setStyleSheet(f"color: {theme.INK_SOFT}; font-size: {theme.FONT_SIZE_SMALL}px;")
-        self._run_bar_scope_label = scope_label
-        bar_layout.addWidget(scope_label)
-        bar_layout.addStretch(1)
-
-        # 詳細設定ボタン (btnPipelineRunSettings を run bar へ再配置)
-        bar_layout.addWidget(self.btnPipelineRunSettings)
-
-        # パイプライン実行ボタン (primary action、Issue #849)
-        execute_btn = QPushButton(self._run_bar_execute_text(0), bar)
-        execute_btn.setObjectName("btnPipelineExecute")
-        execute_btn.setEnabled(False)
-        execute_btn.clicked.connect(self.start_annotation)
-        self._btn_pipeline_execute = execute_btn
-        bar_layout.addWidget(execute_btn)
-
-        return bar
-
-    @staticmethod
-    def _run_bar_scope_text(count: int) -> str:
-        """run bar のスコープ表示テキストを生成する。
-
-        Args:
-            count: 現在のステージング画像件数。
-
-        Returns:
-            スコープ表示テキスト。
-        """
-        return f"ステージング集合のみ · staged {count} · 実行 → Jobs タブへ"
-
-    @staticmethod
-    def _run_bar_execute_text(count: int) -> str:
-        """run bar の実行ボタンテキストを生成する。
-
-        Args:
-            count: 現在のステージング画像件数。
-
-        Returns:
-            実行ボタンテキスト。
-        """
-        return f"▶ パイプライン実行 · {count}枚"
-
-    def _on_pipeline_preset_selected(self, preset_id: str) -> None:
-        """プリセット chip 選択に応じてモデル割当を切り替える (Issue #847)。
-
-        batchModelSelection (SSoT) の選択状態を全 OFF にしてから、preset_id に
-        対応するモデルのみ ON にする。active preset 表示は Signal emit なしに更新する。
-
-        Args:
-            preset_id: 選択されたプリセットの ID (PipelinePreset.preset_id)。
-        """
-        model_widget = getattr(self, "batchModelSelection", None)
-        if model_widget is None:
-            return
-
-        service = getattr(model_widget, "model_selection_service", None)
-        all_models = service.load_models() if service is not None else []
-        all_infos = self._build_stage_model_infos([m.litellm_model_id for m in all_models])
-
-        # プリセットに対応する litellm_model_id を絞り込んで一括セット
-        preset_ids = self._filter_model_ids_for_preset(preset_id, all_infos)
-        model_widget.set_selected_models(preset_ids)
-
-        # アクティブプリセット表示を同期 (Signal emit なし)
-        stage_table = getattr(self, "pipeline_stage_table", None)
-        if stage_table is not None:
-            stage_table.set_active_preset(preset_id)
-
-        self._refresh_pipeline_panel()
-        logger.info(f"プリセット '{preset_id}' を適用: {len(preset_ids)} 件のモデルを選択")
-
-    def _filter_model_ids_for_preset(self, preset_id: str, all_infos: list[StageModelInfo]) -> list[str]:
-        """プリセット ID に対応するモデル ID リストを返す。
-
-        各プリセットは以下の capability フィルタを適用する:
-        - default: 全モデル
-        - tags_only: tags capability を持つが multimodal でないモデル
-        - full_caption: multimodal または caption capability を持つモデル
-        - score_rate: scores または ratings capability を持つモデル
-
-        Args:
-            preset_id: PipelinePreset.preset_id。
-            all_infos: 全モデルの StageModelInfo リスト。
-
-        Returns:
-            プリセットに割り当てるモデルの litellm_model_id リスト。
-        """
-        if preset_id == "default":
-            return [info.litellm_model_id for info in all_infos]
-        if preset_id == "tags_only":
-            return [
-                info.litellm_model_id
-                for info in all_infos
-                if "tags" in info.capabilities and not info.is_multimodal
-            ]
-        if preset_id == "full_caption":
-            return [
-                info.litellm_model_id
-                for info in all_infos
-                if info.is_multimodal or "caption" in info.capabilities
-            ]
-        if preset_id == "score_rate":
-            return [
-                info.litellm_model_id
-                for info in all_infos
-                if "scores" in info.capabilities or "ratings" in info.capabilities
-            ]
-        # 未知のプリセット: 全モデルを安全なフォールバックとして返す
-        logger.warning(f"未知のプリセット ID: {preset_id} — 全モデルを選択します")
-        return [info.litellm_model_id for info in all_infos]
-
-    def _on_pipeline_save_preset_requested(self) -> None:
-        """現在のモデル構成を名前付きプリセットとして保存する要求を処理する (Issue #847)。
-
-        最小実装: 保存要求をログに記録してステータスバーへ通知する。
-        永続化の本実装は後続 Issue で行う。
-        """
-        # TODO: Issue #847 - プリセット永続化の実装 (QSettings 等への名前付き保存)
-        model_widget = getattr(self, "batchModelSelection", None)
-        if model_widget is not None:
-            selected_ids = model_widget.get_selected_models()
-            logger.info(f"プリセット保存要求: 現在の選択モデル = {selected_ids}")
-        self.statusBar().showMessage(
-            "現在の構成をプリセットとして保存しました（永続化は次回実装予定）", 5000
+        widget = AnnotateTabWidget(
+            service_container=self.service_container,
+            db_manager=self.db_manager,
+            staging_state_manager=self.staging_state_manager,
+            dataset_state_manager=self.dataset_state_manager,
+            parent=container,
         )
-
-    def _refresh_pipeline_panel(self, selected_ids: list[str] | None = None) -> None:
-        """ステージテーブルと推論台帳を現在の選択・ステージング件数で再描画する。
-
-        Args:
-            selected_ids: 選択中の litellm_model_id。None なら ModelSelectionWidget
-                から現在値を取得する（ステージング件数変化時の再計算用）。
-        """
-        stage_table = getattr(self, "pipeline_stage_table", None)
-        ledger_widget = getattr(self, "inference_ledger_widget", None)
-        if stage_table is None or ledger_widget is None:
-            return
-
-        if selected_ids is None:
-            model_widget = getattr(self, "batchModelSelection", None)
-            selected_ids = model_widget.get_selected_models() if model_widget is not None else []
-
-        infos = self._build_stage_model_infos(selected_ids)
-        self.pipeline_composition_service.compose_from_models(infos)
-        stage_table.display(self.pipeline_composition_service.stage_rows())
-        ledger_widget.display(self.pipeline_composition_service.ledger(self._pipeline_staged_count))
-
-    def _refresh_preflight_summary(self) -> None:
-        """送信前プリフライト card をステージング集合の既存 rating で再描画する (Issue #837)。
-
-        ステージング集合の最新 rating を DB から引き、送信可 / 保留 / 未判定 に
-        分類して表示する。moderation は実行しない (実送信時に
-        :class:`ModerationPreflightService` が判定する)。
-        """
-        preflight_widget = getattr(self, "preflight_summary_widget", None)
-        if preflight_widget is None:
-            return
-
-        image_ids = list(self._pipeline_staged_image_ids)
-        ratings_by_id: dict[int, str | None] = {}
-        if image_ids and self.db_manager is not None:
-            ratings_by_id = self.db_manager.image_repo.get_latest_normalized_ratings_by_image_ids(image_ids)
-        preflight_widget.display(ratings_by_id, image_ids)
-
-    def _build_stage_model_infos(self, selected_ids: list[str]) -> list[StageModelInfo]:
-        """選択 litellm_model_id を StageModelInfo へ変換する。
-
-        capabilities は DB Model の model_types 由来。provider が空または "local" の
-        モデルはローカル ML として扱う（ModelSelectionService._provider_key と同じ規約）。
-
-        Args:
-            selected_ids: ModelSelectionWidget で選択中の litellm_model_id リスト。
-
-        Returns:
-            変換済み StageModelInfo リスト。DB に見つからない ID はスキップする。
-        """
-        model_widget = getattr(self, "batchModelSelection", None)
-        service = getattr(model_widget, "model_selection_service", None)
-        all_models = service.load_models() if service is not None else []
-        models_by_id = {m.litellm_model_id: m for m in all_models}
-        cost_by_id = self._build_cost_map()
-
-        infos: list[StageModelInfo] = []
-        for litellm_id in selected_ids:
-            model = models_by_id.get(litellm_id)
-            if model is None:
-                logger.debug(f"選択モデルが DB モデル一覧に見つかりません: {litellm_id}")
-                continue
-            provider = model.provider
-            is_api = bool(provider) and provider.lower() != "local"
-            input_cost, output_cost = cost_by_id.get(litellm_id, (None, None))
-            infos.append(
-                StageModelInfo(
-                    litellm_model_id=litellm_id,
-                    display_name=model.name,
-                    provider=provider,
-                    is_api=is_api,
-                    capabilities=frozenset(str(c) for c in model.capabilities),
-                    input_cost_per_token=input_cost,
-                    output_cost_per_token=output_cost,
-                )
-            )
-        return infos
-
-    def _build_cost_map(self) -> dict[str, tuple[float | None, float | None]]:
-        """litellm_model_id → (input単価, output単価) のコストマップを構築する。
-
-        image-annotator-lib の ``list_annotator_info()`` から実行時に pricing を取得する
-        (Issue #747: litellm pricing は DB 保存せず on-demand)。取得失敗時は空マップを
-        返してコスト表示なしで続行する (best-effort、アノテーション機能はブロックしない)。
-
-        Returns:
-            litellm_model_id をキーとした (input_cost_per_token, output_cost_per_token)。
-        """
-        adapter = getattr(self.service_container, "annotator_library", None)
-        if adapter is None:
-            return {}
-        cost_map: dict[str, tuple[float | None, float | None]] = {}
-        try:
-            for info in adapter.list_annotator_info():
-                if info.litellm_model_id is None:
-                    continue
-                cost_map[info.litellm_model_id] = (
-                    info.input_cost_per_token,
-                    info.output_cost_per_token,
-                )
-        except (TypeError, AttributeError, RuntimeError):
-            logger.warning("コスト概算用の AnnotatorInfo 取得に失敗。コスト表示なしで続行", exc_info=True)
-            return {}
-        return cost_map
-
-    def _available_api_providers(self) -> set[str]:
-        """config の API キー設定状況から実行可能な WebAPI provider 集合を返す (Issue #755)。
-
-        Returns:
-            非空キーが保存されている provider 名集合。config 未初期化・取得失敗時は
-            空集合 (= 全 WebAPI モデルが needs key 扱い)。
-        """
-        config_service = getattr(self, "config_service", None)
-        if config_service is None:
-            return set()
-        try:
-            api_keys = {
-                "openai": config_service.get_setting("api", "openai_key", ""),
-                "anthropic": config_service.get_setting("api", "claude_key", ""),
-                "google": config_service.get_setting("api", "google_key", ""),
-                "openrouter": config_service.get_setting("api", "openrouter_key", ""),
-            }
-        except (AttributeError, KeyError, TypeError):
-            logger.warning("API キー設定の取得に失敗 (全 provider を needs key 扱い)", exc_info=True)
-            return set()
-        return build_available_providers(api_keys)
-
-    def _on_pipeline_add_model_requested(self, stage_value: str) -> None:
-        """ステージ行の「+ 追加」でピッカーを開き、選択モデル集合へ追加する (Phase 6b)。
-
-        SSoT は ModelSelectionWidget のチェック状態。ピッカーで選んだモデルは
-        チェック ON で集合へ追加し、ステージ仕分けは compose_from_models に任せる。
-        set_selected() は checkbox シグナルを抑制するため、最後に明示再描画する。
-
-        Issue #755: キー未設定 WebAPI モデルも候補に含め ``○ needs key`` で可視化。
-        チップクリック → 設定 → キー保存 → ``● API ready`` の往復導線を配線する。
-
-        Args:
-            stage_value: 追加先ステージの PipelineStage value。
-        """
-        model_widget = getattr(self, "batchModelSelection", None)
-        if model_widget is None:
-            return
-        stage = PipelineStage(stage_value)
-
-        service = getattr(model_widget, "model_selection_service", None)
-        all_models = service.load_models() if service is not None else []
-        all_ids = [model.litellm_model_id for model in all_models]
-        selected_ids = set(model_widget.get_selected_models())
-        candidates = [
-            info
-            for info in self._build_stage_model_infos(all_ids)
-            if stage in info.fill_stages() and info.litellm_model_id not in selected_ids
-        ]
-
-        dialog = StageModelPickerDialog(
-            stage,
-            candidates,
-            available_providers=self._available_api_providers(),
-            parent=self,
-        )
-        dialog.configure_key_requested.connect(
-            lambda provider, dialog=dialog: self._on_picker_configure_key_requested(provider, dialog)
-        )
-        if dialog.exec() != QDialog.DialogCode.Accepted:
-            return
-        for litellm_model_id in dialog.selected_model_ids():
-            checkbox_widget = model_widget.model_checkbox_widgets.get(litellm_model_id)
-            if checkbox_widget is None:
-                logger.warning(f"チェックボックス未表示のため追加をスキップ: {litellm_model_id}")
-                continue
-            checkbox_widget.set_selected(True)
-        self._refresh_pipeline_panel()
-
-    def _on_pipeline_remove_model_requested(self, stage_value: str, litellm_model_id: str) -> None:
-        """Primary チップの × でモデルを選択集合から外す (Phase 6b)。
-
-        実行粒度はモデル単位のため、チェック OFF = 全ステージから外れる。
-
-        Args:
-            stage_value: × が押されたステージの value (シグナル形状の都合で受けるが未使用)。
-            litellm_model_id: 集合から外すモデルの litellm_model_id。
-        """
-        model_widget = getattr(self, "batchModelSelection", None)
-        if model_widget is None:
-            return
-        checkbox_widget = model_widget.model_checkbox_widgets.get(litellm_model_id)
-        if checkbox_widget is None:
-            logger.warning(f"チェックボックス未表示のため除外をスキップ: {litellm_model_id}")
-            return
-        checkbox_widget.set_selected(False)
-        self._refresh_pipeline_panel()
-
-    def _on_picker_configure_key_requested(self, provider: str, dialog: StageModelPickerDialog) -> None:
-        """ピッカーの ``○ needs key`` チップから設定の該当プロバイダ欄へ誘導する (Issue #755)。
-
-        キー保存 (OK) 後はモデル一覧と開いたままのピッカーを再評価し、
-        アプリ再起動なしで ``● API ready`` に解消する。
-
-        Args:
-            provider: API キーが必要な provider 名 (例 ``"anthropic"``)。
-            dialog: シグナル発火元のピッカーダイアログ (開いたまま更新する)。
-        """
-        if not self.settings_controller:
-            logger.warning("SettingsController 未初期化のため API キー設定導線をスキップします")
-            return
-        settings_applied = self.settings_controller.open_settings_dialog(highlight_provider=provider)
-        if not settings_applied:
-            return
-        self._reload_model_widget_after_settings()
-        dialog.refresh_key_status(self._available_api_providers())
+        container.layout().addWidget(widget)
+        self.annotate_tab = widget
+        logger.info("✅ アノテーションタブ (AnnotateTabWidget) initialized")
 
     def _on_error_notification_clicked(self) -> None:
         """エラー通知 / メニュー操作でエラータブへ遷移する。"""
@@ -1251,20 +823,42 @@ class MainWindow(QMainWindow, Ui_MainWindow):
             logger.error(f"    ❌ DatasetStateManager selection_changed 接続失敗: {e}")
 
     def _connect_batch_tag_signals(self) -> None:
-        """BatchTagAddWidget の各種シグナル接続と初期状態設定を行う。"""
-        if not hasattr(self, "batchTagAddWidget"):
+        """AnnotateTabWidget の glue シグナル接続を行う (#868)。
+
+        ステージング集合の fan-out は StagingStateManager 側で一括接続済み
+        (ADR 0074) のため、タブが再公開する ``staged_images_changed`` /
+        ``staging_cleared`` は繋がない (二重発火回避)。タブ → MainWindow の
+        横断 glue シグナルのみ接続する。
+        """
+        if self.annotate_tab is None:
             return
         try:
-            self.batchTagAddWidget.set_dataset_state_manager(self.dataset_state_manager)
-            # 共有 SSoT を注入 (staged_images_changed / staging_cleared の fan-out は
-            # staging_state_manager 側で一括接続済み、ADR 0074)
-            if self.staging_state_manager is not None:
-                self.batchTagAddWidget.set_staging_state_manager(self.staging_state_manager)
-            self.batchTagAddWidget.tag_add_requested.connect(self._handle_batch_tag_add)
-            self._update_annotation_target_ui(0)
-            logger.info("    ✅ BatchTagAddWidget シグナル接続完了")
+            self.annotate_tab.tag_add_requested.connect(self._handle_batch_tag_add)
+            self.annotate_tab.annotation_execute_requested.connect(self.start_annotation)
+            self.annotate_tab.configure_key_requested.connect(self._on_annotate_configure_key_requested)
+            logger.info("    ✅ AnnotateTabWidget シグナル接続完了")
         except Exception as e:
-            logger.error(f"    ❌ BatchTagAddWidget シグナル接続失敗: {e}")
+            logger.error(f"    ❌ AnnotateTabWidget シグナル接続失敗: {e}")
+
+    def _on_annotate_configure_key_requested(self, provider: str) -> None:
+        """アノテタブの ``○ needs key`` チップ → 設定の該当プロバイダ欄へ誘導する (#755/#868)。
+
+        旧 ``_on_picker_configure_key_requested`` の MainWindow 側ハンドラ。ピッカー
+        本体は AnnotateTabWidget が所有するため、ここでは設定ダイアログを開き、
+        キー保存後にモデル一覧とタブを再評価させる薄い glue だけを担う。
+
+        Args:
+            provider: API キーが必要な provider 名 (例 ``"anthropic"``)。
+        """
+        if not self.settings_controller:
+            logger.warning("SettingsController 未初期化のため API キー設定導線をスキップします")
+            return
+        settings_applied = self.settings_controller.open_settings_dialog(highlight_provider=provider)
+        if not settings_applied:
+            return
+        self._reload_model_widget_after_settings()
+        if self.annotate_tab is not None:
+            self.annotate_tab.refresh()
 
     def _connect_settings_signals(self) -> None:
         """設定ダイアログを開くアクション・ボタンの Signal 接続を行う。"""
@@ -1918,9 +1512,9 @@ class MainWindow(QMainWindow, Ui_MainWindow):
 
         success = self._execute_batch_tag_write(image_ids, tag)
         if success:
-            # ステージングリストをクリア
-            if hasattr(self, "batchTagAddWidget"):
-                self.batchTagAddWidget._on_clear_staging_clicked()
+            # ステージング集合をクリア (SSoT = StagingStateManager、fan-out で各タブへ反映)
+            if self.staging_state_manager is not None:
+                self.staging_state_manager.clear()
 
             self.statusBar().showMessage(f"タグ '{tag}' を {len(image_ids)} 件の画像に追加しました", 5000)
             logger.info(
@@ -1931,66 +1525,35 @@ class MainWindow(QMainWindow, Ui_MainWindow):
             logger.error(f"Failed to add tag in batch: tag='{tag}', image_count={len(image_ids)}")
 
     def _handle_staging_cleared(self) -> None:
-        """
-        BatchTagAddWidget からのステージングクリアシグナルハンドラ（Phase 3.1）
+        """ステージング集合クリア時のハンドラ (StagingStateManager fan-out、ADR 0074)。
 
-        ステージングクリア時にアノテーションUIを更新する。
+        アノテーションタブ (run bar / pipeline / preflight) とエクスポート対象を
+        空集合へ同期する。
         """
         logger.debug("Batch staging cleared")
-        self._update_annotation_target_ui(0)
+        self._update_export_target_ui(0)
+        if self.annotate_tab is not None:
+            self.annotate_tab.set_staging_target([])
 
     def _on_staged_images_changed(self, image_ids: list[int]) -> None:
-        """ステージング画像変更シグナルハンドラ
+        """ステージング画像変更シグナルハンドラ (StagingStateManager fan-out、ADR 0074)。
 
-        ステージング画像数に応じてアノテーション対象ラベルとボタン状態を更新する。
+        エクスポート対象・エクスポートタブ・アノテーションタブをステージング集合へ
+        ライブ同期する。アノテ側の run bar / pipeline / preflight 再計算は
+        AnnotateTabWidget.set_staging_target() が担う (#868)。
 
         Args:
             image_ids: 現在のステージング画像IDリスト
         """
         count = len(image_ids) if image_ids else 0
-        self._update_annotation_target_ui(count)
         self._update_export_target_ui(count)
         # Phase 5: エクスポートタブの対象もステージング集合とライブ同期する (ADR 0055)
         export_tab = getattr(self, "export_tab", None)
         if export_tab is not None:
             export_tab.set_image_ids(list(image_ids) if image_ids else [])
-        # Phase 6a: 推論台帳の枚数もステージング件数と同期する
-        self._pipeline_staged_count = count
-        # Issue #837: 送信前プリフライト card の集計対象もステージング集合と同期する
-        self._pipeline_staged_image_ids = list(image_ids) if image_ids else []
-        self._refresh_pipeline_panel()
-        self._refresh_preflight_summary()
-
-    def _update_annotation_target_ui(self, staging_count: int) -> None:
-        """アノテーション対象UIを更新
-
-        ステージング画像数に応じてラベルテキストとボタンの有効/無効を設定する。
-        run bar (Issue #849) のスコープラベルと実行ボタンも同期する。
-
-        Args:
-            staging_count: ステージング画像数
-        """
-        # ラベル更新
-        if hasattr(self, "labelAnnotationTarget"):
-            if staging_count > 0:
-                self.labelAnnotationTarget.setText(f"◎ ステージング: {staging_count} 枚")
-            else:
-                self.labelAnnotationTarget.setText("◎ ステージング: 0 枚（画像を追加してください）")
-
-        # ボタン有効/無効 (.ui 由来、非表示だが互換性のため更新を維持)
-        if hasattr(self, "btnAnnotationExecute"):
-            self.btnAnnotationExecute.setEnabled(staging_count > 0)
-
-        # run bar スコープラベルを更新 (Issue #849)
-        scope_label = getattr(self, "_run_bar_scope_label", None)
-        if scope_label is not None:
-            scope_label.setText(self._run_bar_scope_text(staging_count))
-
-        # run bar 実行ボタンを更新 (Issue #849)
-        execute_btn = getattr(self, "_btn_pipeline_execute", None)
-        if execute_btn is not None:
-            execute_btn.setEnabled(staging_count > 0)
-            execute_btn.setText(self._run_bar_execute_text(staging_count))
+        # #868: アノテーションタブ (run bar / pipeline / preflight) をステージング集合と同期
+        if self.annotate_tab is not None:
+            self.annotate_tab.set_staging_target(list(image_ids) if image_ids else [])
 
     def _update_export_target_ui(self, staging_count: int) -> None:
         """エクスポート下部バーの対象件数ラベルを更新する。
@@ -2208,9 +1771,9 @@ class MainWindow(QMainWindow, Ui_MainWindow):
         except (RuntimeError, AttributeError) as e:
             logger.warning(f"ServiceContainer の config_service 再読込に失敗 (継続可): {e}")
 
-        batch_widget = getattr(self, "batchModelSelection", None)
-        if batch_widget is None:
+        if self.annotate_tab is None:
             return
+        batch_widget = self.annotate_tab.batch_model_selection
         try:
             batch_widget.update_model_display()
             logger.debug("設定変更を反映してモデル選択ウィジェットを更新しました")
@@ -2239,12 +1802,12 @@ class MainWindow(QMainWindow, Ui_MainWindow):
             )
             return
 
-        # batchModelSelectionから選択されたモデルを取得 (Issue #245: litellm_model_id ベース)
+        # アノテーションタブの選択モデルを取得 (Issue #245: litellm_model_id ベース、#868)
         selected_litellm_model_ids: list[str] = []
-        if hasattr(self, "batchModelSelection") and self.batchModelSelection:
-            selected_litellm_model_ids = self.batchModelSelection.get_selected_models()
+        if self.annotate_tab is not None:
+            selected_litellm_model_ids = self.annotate_tab.selected_litellm_model_ids()
             logger.debug(
-                f"batchModelSelectionから選択されたモデル (litellm_model_ids): {selected_litellm_model_ids}"
+                f"アノテタブから選択されたモデル (litellm_model_ids): {selected_litellm_model_ids}"
             )
 
         # アノテーションタブの場合はステージング画像を使用
@@ -2260,6 +1823,12 @@ class MainWindow(QMainWindow, Ui_MainWindow):
                 )
                 return
 
+        # #851: stage ピッカーで設定された conf-min 閾値を worker へ伝播する
+        # (litellm_model_id → 閾値)。RunOptions には混ぜず別 dict で渡す。
+        confidence_thresholds: dict[str, float] = {}
+        if self.annotate_tab is not None:
+            confidence_thresholds = self.annotate_tab.stage_confidence_thresholds()
+
         # AnnotationWorkflowControllerに委譲（チェックボックスから選択されたモデルを優先）
         self.annotation_workflow_controller.start_annotation_workflow(
             selected_litellm_model_ids=selected_litellm_model_ids if selected_litellm_model_ids else None,
@@ -2267,6 +1836,7 @@ class MainWindow(QMainWindow, Ui_MainWindow):
             if not selected_litellm_model_ids
             else None,
             image_paths=override_image_paths,
+            confidence_thresholds=confidence_thresholds or None,
         )
 
     def _show_model_selection_dialog(self, available_models: list[str]) -> str | None:
@@ -2292,9 +1862,9 @@ class MainWindow(QMainWindow, Ui_MainWindow):
         return selected_model if ok else None
 
     def _get_staged_image_paths_for_annotation(self) -> list[str]:
-        """バッチタグタブのステージング画像パスを取得
+        """アノテーションタブのステージング画像パスを取得
 
-        BatchTagAddWidget.get_staged_items() で画像 ID とメタデータを取得し、
+        AnnotateTabWidget.get_staged_items() で画像 ID とメタデータを取得し、
         DatasetStateManager 由来の stored_path を実際のファイルパスに解決する。
 
         Returns:
@@ -2302,8 +1872,7 @@ class MainWindow(QMainWindow, Ui_MainWindow):
         """
         from lorairo.database.db_core import resolve_stored_path
 
-        batch_widget = getattr(self, "batchTagAddWidget", None)
-        staged_items = batch_widget.get_staged_items() if batch_widget else None
+        staged_items = self.annotate_tab.get_staged_items() if self.annotate_tab is not None else None
         if not staged_items:
             return []
 
@@ -2356,21 +1925,16 @@ class MainWindow(QMainWindow, Ui_MainWindow):
     def _get_staged_export_ids(self) -> list[int]:
         """エクスポート対象のステージング画像 ID を返す（エクスポートタブの対象ソース）。
 
-        ADR 0055: エクスポート対象＝ステージング集合。ワークスペース下部バーの件数表示
-        （``staged_images_changed``）と同一の ``StagingWidget`` を読むことで、表示件数と
-        実エクスポート対象を一致させる。ステージングが未構築の場合は空リストを返す。
+        ADR 0055: エクスポート対象＝ステージング集合。SSoT である
+        ``StagingStateManager``（ADR 0074）を直接読むことで、下部バーの件数表示と
+        実エクスポート対象を一致させる。未初期化の場合は空リストを返す。
 
         Returns:
-            ステージング中の画像 ID リスト（追加順）。未構築時は空リスト。
+            ステージング中の画像 ID リスト（追加順）。未初期化時は空リスト。
         """
-        batch_tag_widget = getattr(self, "batchTagAddWidget", None)
-        if batch_tag_widget is None or not hasattr(batch_tag_widget, "get_staging_widget"):
+        if self.staging_state_manager is None:
             return []
-        staging_widget = batch_tag_widget.get_staging_widget()
-        if staging_widget is None:
-            return []
-        staged_ids: list[int] = staging_widget.get_image_ids()
-        return staged_ids
+        return self.staging_state_manager.get_image_ids()
 
     def export_data(self) -> None:
         """エクスポートタブへ遷移する。
@@ -2391,16 +1955,15 @@ class MainWindow(QMainWindow, Ui_MainWindow):
         self.tabWidgetMainMode.setCurrentWidget(self.tabExport)
 
     def send_selected_to_batch_tag(self, selected_ids: list[int] | bool | None = None) -> None:
-        """ワークスペースの選択画像をバッチタグのステージングに追加"""
+        """ワークスペースの選択画像をアノテーションタブのステージングに追加 (#868)。"""
         if not self.dataset_state_manager:
             logger.warning("DatasetStateManager not available")
             QMessageBox.warning(self, "エラー", "データセットが初期化されていません。")
             return
 
-        batch_tag_widget = getattr(self, "batchTagAddWidget", None)
-        if not batch_tag_widget:
-            logger.warning("BatchTagAddWidget not found")
-            QMessageBox.warning(self, "エラー", "バッチタグ機能が初期化されていません。")
+        if self.annotate_tab is None:
+            logger.warning("AnnotateTabWidget not found")
+            QMessageBox.warning(self, "エラー", "アノテーション機能が初期化されていません。")
             return
 
         has_explicit_ids = isinstance(selected_ids, list)
@@ -2420,14 +1983,8 @@ class MainWindow(QMainWindow, Ui_MainWindow):
         if hasattr(self, "tabWidgetMainMode") and self.tabWidgetMainMode:
             self.tabWidgetMainMode.setCurrentWidget(self.tabBatchTag)
 
-        # ステージングに追加
-        if hasattr(batch_tag_widget, "add_image_ids_to_staging"):
-            batch_tag_widget.add_image_ids_to_staging(target_ids)
-        elif hasattr(batch_tag_widget, "add_selected_images_to_staging"):
-            batch_tag_widget.add_selected_images_to_staging()
-        else:
-            # 互換: 旧実装のクリックハンドラを直接呼び出す
-            batch_tag_widget._on_add_selected_clicked()
+        # ステージングへ追加する導線はタブへ委譲 (#868)
+        self.annotate_tab.add_image_ids_to_staging(list(target_ids))
 
     def _setup_main_tab_connections(self) -> None:
         """
@@ -2486,25 +2043,16 @@ class MainWindow(QMainWindow, Ui_MainWindow):
                 export_tab.set_image_ids(self._get_staged_export_ids())
 
     def _refresh_batch_tag_staging(self) -> None:
-        """
-        バッチタグタブのステージングリスト更新
+        """アノテーションタブ表示時の再計算をタブへ委譲する (#868)。
 
-        Note:
-            ステージング状態へは直接アクセスせず、_refresh_staging_list_ui() を
-            呼び出して BatchTagAddWidget / StagingWidget に UI 更新を委譲する。
+        ステージングリスト・run bar・pipeline・preflight の再描画は
+        AnnotateTabWidget.refresh() が担う。
         """
-        # BatchTagAddWidgetを取得（Ui_MainWindowを多重継承しているため、selfの直接の属性）
-        batch_tag_widget = getattr(self, "batchTagAddWidget", None)
-        if not batch_tag_widget:
-            logger.warning("BatchTagAddWidget not found, skipping staging refresh")
+        if self.annotate_tab is None:
+            logger.warning("AnnotateTabWidget not found, skipping staging refresh")
             return
-
-        # BatchTagAddWidgetのUI更新メソッドを呼び出し
-        if hasattr(batch_tag_widget, "_refresh_staging_list_ui"):
-            batch_tag_widget._refresh_staging_list_ui()
-            logger.debug("Batch tag staging list refreshed")
-        else:
-            logger.error("_refresh_staging_list_ui method not found on BatchTagAddWidget")
+        self.annotate_tab.refresh()
+        logger.debug("Annotate tab refreshed")
 
     # -------------------------------------------------------------------------
     # QSettings: ウィンドウ/スプリッター状態の保存・復元

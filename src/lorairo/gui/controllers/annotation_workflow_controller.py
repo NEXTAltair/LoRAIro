@@ -53,6 +53,7 @@ class AnnotationWorkflowController:
         selected_litellm_model_ids: list[str] | None = None,
         model_selection_callback: Callable[[list[str]], str | None] | None = None,
         image_paths: list[str] | None = None,
+        confidence_thresholds: dict[str, float] | None = None,
     ) -> None:
         """アノテーションワークフロー実行
 
@@ -73,6 +74,9 @@ class AnnotationWorkflowController:
                 キャンセル時はNone。
             image_paths: 明示的に指定する画像パスリスト（バッチタグタブから使用）
                 指定時はSelectionStateServiceをバイパスしてこのリストを使用。
+            confidence_thresholds: stage ピッカーで設定された conf-min 閾値
+                (`litellm_model_id` → 閾値)。RunOptions とは別経路で worker へ伝播する
+                (#851)。None または空 dict の場合は閾値フィルタなし。
         """
         try:
             # Step 1: サービス検証（image_paths指定時はSelectionStateService不要）
@@ -107,7 +111,7 @@ class AnnotationWorkflowController:
                 return
 
             # Step 4: バッチアノテーション開始
-            self._start_batch_annotation(image_paths, models_to_use)
+            self._start_batch_annotation(image_paths, models_to_use, confidence_thresholds)
 
         except Exception as e:
             error_msg = f"アノテーション処理の開始に失敗しました: {e}"
@@ -328,12 +332,19 @@ class AnnotationWorkflowController:
             )
         return False
 
-    def _start_batch_annotation(self, image_paths: list[str], litellm_model_ids: list[str]) -> None:
+    def _start_batch_annotation(
+        self,
+        image_paths: list[str],
+        litellm_model_ids: list[str],
+        confidence_thresholds: dict[str, float] | None = None,
+    ) -> None:
         """バッチアノテーション開始
 
         Args:
             image_paths: 画像パスリスト
             litellm_model_ids: モデルの `litellm_model_id` リスト
+            confidence_thresholds: stage ピッカー由来の conf-min 閾値
+                (`litellm_model_id` → 閾値)。worker へ伝播する (#851)。
         """
         try:
             logger.info(
@@ -345,6 +356,7 @@ class AnnotationWorkflowController:
             self.worker_service.start_enhanced_batch_annotation(
                 image_paths=image_paths,
                 litellm_model_ids=litellm_model_ids,
+                confidence_thresholds=confidence_thresholds,
             )
 
             # 非ブロッキング通知
