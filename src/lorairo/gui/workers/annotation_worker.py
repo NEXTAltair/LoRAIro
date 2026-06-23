@@ -126,7 +126,6 @@ class AnnotationWorker(LoRAIroWorkerBase["AnnotationExecutionResult"]):
         litellm_model_ids: list[str],
         db_manager: "ImageDatabaseManager",
         model_registry: ModelRegistryServiceProtocol,
-        confidence_thresholds: dict[str, float] | None = None,
     ):
         """AnnotationWorker初期化
 
@@ -141,8 +140,6 @@ class AnnotationWorker(LoRAIroWorkerBase["AnnotationExecutionResult"]):
             litellm_model_ids: 使用モデルの `litellm_model_id` リスト
             db_manager: データベースマネージャ（必須: DB保存・エラー記録用）
             model_registry: モデルレジストリ (provider/capabilities 取得用、Issue #225)
-            confidence_thresholds: stage ピッカー由来の conf-min 閾値
-                (`litellm_model_id` → 閾値、#851)。None なら閾値フィルタなし。
         """
         super().__init__(db_manager=db_manager)
 
@@ -151,9 +148,6 @@ class AnnotationWorker(LoRAIroWorkerBase["AnnotationExecutionResult"]):
         self.litellm_model_ids = list(litellm_model_ids)
         self.db_manager = db_manager
         self.model_registry = model_registry
-        # PENDING: Issue #851 - conf-min 閾値による予測フィルタの実適用は後続で配線する。
-        # 現状は stage ピッカー → worker までの伝播のみ確立 (保持して将来の filter で使う)。
-        self.confidence_thresholds: dict[str, float] = dict(confidence_thresholds or {})
         self._path_to_phash: dict[str, str | None] = {}
         self._phash_to_input_path: dict[str, str] = {}
         self._phash_to_input_filename: dict[str, str] = {}

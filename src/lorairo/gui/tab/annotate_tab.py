@@ -26,7 +26,6 @@ MainWindow rewire (Track B) はこの契約に対してコードを書く。
     - ``refresh() -> None`` — タブ表示時の再計算 (results/errors と同型)
 - 実行系 getter (MainWindow.start_annotation が読む):
     - ``selected_litellm_model_ids() -> list[str]``
-    - ``stage_confidence_thresholds() -> dict[str, float]`` (#851)
     - ``get_staged_items() -> dict[int, tuple[str, str]]``
     - ``run_options() -> RunOptions``
 - プロパティ (タブ内配線・テスト用):
@@ -105,8 +104,6 @@ class AnnotateTabWidget(QWidget, Ui_AnnotateTab):
         self._pipeline_staged_image_ids: list[int] = []
         # 実行詳細設定 (Issue #789)。詳細設定モーダルの確定値を保持する。
         self._pipeline_run_options = RunOptions()
-        # stage ピッカーで設定された conf-min 閾値 (#851)。litellm_model_id → 閾値。
-        self._stage_confidence_thresholds: dict[str, float] = {}
 
         # .ui placeholder を実ウィジェットへ swap (BatchTagAddWidget / フィルタ / モデル選択)
         self._batch_tag_add_widget = self._swap_batch_tag_add_widget()
@@ -384,10 +381,6 @@ class AnnotateTabWidget(QWidget, Ui_AnnotateTab):
         """選択中のモデル (litellm_model_id) を返す。"""
         return self._batch_model_selection.get_selected_models()
 
-    def stage_confidence_thresholds(self) -> dict[str, float]:
-        """stage ピッカーで設定された conf-min 閾値 (litellm_model_id → 閾値) を返す (#851)。"""
-        return dict(self._stage_confidence_thresholds)
-
     def get_staged_items(self) -> dict[int, tuple[str, str]]:
         """ステージング項目 (image_id → (name, stored_path)) を返す。"""
         return self._batch_tag_add_widget.get_staged_items()
@@ -614,7 +607,6 @@ class AnnotateTabWidget(QWidget, Ui_AnnotateTab):
         set_selected() は checkbox シグナルを抑制するため、最後に明示再描画する。
 
         Issue #755: キー未設定 WebAPI モデルも候補に含め ``○ needs key`` で可視化。
-        Issue #851: ピッカーの conf-min 閾値を捕捉して保持する。
 
         Args:
             stage_value: 追加先ステージの PipelineStage value。
@@ -643,16 +635,12 @@ class AnnotateTabWidget(QWidget, Ui_AnnotateTab):
         if dialog.exec() != QDialog.DialogCode.Accepted:
             return
 
-        # Issue #851: conf-min 閾値を捕捉 (worker 伝播は Track B が担当)
-        thresholds = dialog.confidence_thresholds()
         for litellm_model_id in dialog.selected_model_ids():
             checkbox_widget = self._batch_model_selection.model_checkbox_widgets.get(litellm_model_id)
             if checkbox_widget is None:
                 logger.warning(f"チェックボックス未表示のため追加をスキップ: {litellm_model_id}")
                 continue
             checkbox_widget.set_selected(True)
-            if litellm_model_id in thresholds:
-                self._stage_confidence_thresholds[litellm_model_id] = thresholds[litellm_model_id]
         self._refresh_pipeline_panel()
 
     def _on_pipeline_remove_model_requested(self, stage_value: str, litellm_model_id: str) -> None:
@@ -669,8 +657,6 @@ class AnnotateTabWidget(QWidget, Ui_AnnotateTab):
             logger.warning(f"チェックボックス未表示のため除外をスキップ: {litellm_model_id}")
             return
         checkbox_widget.set_selected(False)
-        # Issue #851: 除外時は捕捉済み conf 閾値も破棄する
-        self._stage_confidence_thresholds.pop(litellm_model_id, None)
         self._refresh_pipeline_panel()
 
     def _on_picker_configure_key_requested(self, provider: str, dialog: StageModelPickerDialog) -> None:
