@@ -33,6 +33,13 @@
 ## 1. Annotate / モデルピッカー（Frame 2A / 2B）
 
 ### 1-1. モデル選択は「環境ファースト」の二段フィルタ（ADR 0030, amended #585）
+
+> **⚠️ Superseded by ADR 0075（2026-06-23、#885/#887/#889）**: この「環境 → タスク」二段フィルタ案は
+> per-stage ピッカー（`StageModelPickerDialog`、#741/#839/#845）へ移行済みで、ADR 0030 は Superseded。
+> 現行の正準は **ADR 0075**: SSoT は選択モデル集合、ステージ表示は派生ビュー、実行環境は
+> `すべて / APIのみ / ローカルのみ` の3値（既定 `すべて`）＝絞り込みの1軸（環境未選択を持たない、という
+> 0030 の規定は撤回）。以下は移行前の設計記録として残す。
+
 - **v10 の現状**: ピッカーは CAPTION ステージから開く task ドリブン。左レールはモデル種別。
   `Model.type ∈ {multimodal}` で事前絞り込み。
 - **ADR の決定**: フィルタは **① 実行環境（Web API / ローカル）→ ② タスク（Caption/Tags/Scores/すべて）→
@@ -159,7 +166,7 @@
 ## 6. v10 に「足す価値が高い」もの（優先度順）
 
 1. **Results: raw スコア → 統一品質ティア badge**（ADR 0029 / 0028） — 影響最大、思想の核。
-2. **モデルピッカー: 環境ファースト二段フィルタ**（ADR 0030）— v10 と明確に食い違う。
+2. **モデルピッカー: per-stage ピッカー**（ADR 0075、旧 0030 の二段フィルタを supersede）— v10 と明確に食い違う。
 3. **Annotate↔Jobs 間に rating preflight（Moderations）ゲート**（ADR 0031）— 新フロー段。
 4. **Jobs: 非同期 Provider Batch 行 ＋「状態を確認」集約**（ADR 0041 / 0038）— Jobs の見せ方を更新。
 5. **Export スタブ → ステージング集合ベースの実画面**（ADR 0055 / 0019）。
@@ -178,7 +185,7 @@
 | canonical rating（PG/PG-13/R/X/XXX） | 0031 / 0015 | rating 表示・不一致・フィルタ |
 | rating preflight（Moderations, X/XXX 非送信） | 0031 / 0042 | Annotate→Jobs のゲート |
 | Provider Batch（非同期 submit→確認→自動 import） | 0038 / 0041 | Jobs の非同期ジョブ |
-| environment ファースト二段フィルタ | 0030 | モデルピッカー |
+| per-stage ピッカー（環境=絞り込み1軸、選択モデル集合 SSoT） | 0075（旧 0030） | モデルピッカー |
 | WebAPI 3軸候補フィルタ | 0048 | ピッカーの Web API 母集団 |
 | Export = フィルタ必須・staging 集合 | 0019 / 0055 | Export 画面 |
 
