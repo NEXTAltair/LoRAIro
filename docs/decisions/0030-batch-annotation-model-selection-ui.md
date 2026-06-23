@@ -1,11 +1,17 @@
 ---
 type: ADR
 title: Batch Annotation Model Selection UI
-status: Accepted
+status: Superseded
 timestamp: 2026-05-20
 tags: []
 ---
 # ADR 0030: Batch Annotation Model Selection UI
+
+> **Superseded by [ADR 0075](0075-annotation-pipeline-composition-domain-model.md) (2026-06-23)**:
+> 本 ADR の「二段階フィルタ」モデル選択 UI と `environment = Literal["api","local"]`
+> (環境未選択状態なし) は、per-stage ピッカーへの移行 (#741 / #839 / #845) で実態を
+> 離れた。選択 UI のドメインモデルと env 意味論 (3値 `all`/`api`/`local`、既定 `all`) の
+> 正準は ADR 0075。本 ADR は経緯の記録として残す。
 
 ## Context
 
