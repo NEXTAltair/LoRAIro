@@ -75,13 +75,13 @@ class TestRunSettingsDialogDispatchMode:
     def test_dispatch_mode_defaults_to_sync(self, dialog):
         assert dialog.run_options().dispatch_mode == "sync"
 
-    def test_dispatch_mode_control_is_disabled_pending_phase2c(self, dialog):
-        # Batch API 配線 (Phase 2c) まで disabled。見せかけ操作を作らない方針。
-        assert not dialog._dispatch_mode.isEnabled()
+    def test_dispatch_mode_control_is_enabled(self, dialog):
+        # Phase 2c で Batch API 経路を配線済みのため操作可能。
+        assert dialog._dispatch_mode.isEnabled()
         assert dialog._dispatch_mode.toolTip() != ""
 
     def test_dispatch_mode_value_reflected_in_run_options(self, dialog):
-        # control を直接操作すれば run_options に載る (Phase 2c で enable する前提の配線確認)。
+        # control を操作すると run_options に載る。
         dialog._dispatch_mode.set_value("batch_api")
         assert dialog.run_options().dispatch_mode == "batch_api"
 

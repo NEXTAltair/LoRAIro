@@ -40,7 +40,8 @@ SegmentedControl = DsSegmentedControl
 _UNIMPLEMENTED_TOOLTIP = "バックエンド未実装 — 後続 issue で worker に配線予定"
 _DEDUPE_TOOLTIP = "multimodal は常時 dedupe (同一推論を 1 回に集約)。常に ON。"
 _DISPATCH_MODE_TOOLTIP = (
-    "Batch API への async 送信は後続フェーズ (#884 Phase 2c) で配線予定。現在は同期実行のみ。"
+    "Batch API は batch-capable な選択モデルのみ async 送信できる。"
+    "非対応モデルが混在する場合は dispatch を拒否する (ADR 0076)。"
 )
 
 
@@ -151,14 +152,14 @@ class RunSettingsDialog(QDialog):
             tooltip=_DEDUPE_TOOLTIP,
         )
 
-        # 送信方式 dispatch mode (Batch API 配線は Phase 2c → 現状 disabled)
+        # 送信方式 dispatch mode (Batch API 配線済み, #884 Phase 2c)
         self._dispatch_mode = self._add_segment_row(
             layout,
             "送信方式 dispatch mode",
             "同期 = その場で推論。Batch API = Provider の非同期バッチへ送信 (大量・低コスト)。",
             [("sync", "同期"), ("batch_api", "Batch API")],
             "sync",
-            enabled=False,
+            enabled=True,
             tooltip=_DISPATCH_MODE_TOOLTIP,
         )
 
