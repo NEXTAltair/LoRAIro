@@ -49,6 +49,8 @@ Provider Batch (async) を「Annotate の選択モデル集合からの dispatch
 
 ADR 0041 が却下したのは「暗黙の fan-out + 隠れコスト」である。本案は INFERENCE LEDGER (ADR 0075) で dispatch 前に全ジョブ・全推論回数をプレビューするため、コストが暗黙に増える状況を作らない。0041 の意図を満たしたまま、選び方を「手動単一選択」から「集合の射影 + 事前プレビュー」へ置き換える。
 
+なお **moderation preflight 自体はコスト中立**である。OpenAI の `omni-moderation` は Moderation API 経由で**無料提供** (課金なし、制約は usage tier 依存の rate limit のみ — [OpenAI Help Center](https://help.openai.com/en/articles/4936833-is-the-moderation-endpoint-free-to-use) / [OpenAI announcement](https://openai.com/index/upgrading-the-moderation-api-with-our-new-multimodal-moderation-model/)) なので、未評価画像へ送信ゲートを自動挿入しても課金は発生しない。0041 がコスト懸念で嫌った fan-out は annotation 推論側の話であり、無料の preflight 挿入とは別軸である。
+
 ### 3. 第2ピッカーの撤去と state hoist
 
 - Jobs 側 (`provider_batch_job_widget.py`) の `ModelSelectionWidget` (単一選択) と Submit 導線を撤去する。
