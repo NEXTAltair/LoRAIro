@@ -555,11 +555,15 @@ class AnnotateTabWidget(QWidget, Ui_AnnotateTab):
         """ステージテーブルと推論台帳を現在の選択・ステージング件数で再描画する。
 
         Args:
-            selected_ids: 選択中の litellm_model_id。None なら ModelSelectionWidget
-                から現在値を取得する (ステージング件数変化時の再計算用)。
+            selected_ids: 選択中の litellm_model_id。None なら SSoT (manager 注入時は
+                ModelSelectionStateManager、未注入時は ModelSelectionWidget) から現在値を
+                取得する (ステージング件数変化時の再計算用、#884 P2)。
         """
         if selected_ids is None:
-            selected_ids = self._batch_model_selection.get_selected_models()
+            if self._model_selection_state_manager is not None:
+                selected_ids = self._model_selection_state_manager.get_selected()
+            else:
+                selected_ids = self._batch_model_selection.get_selected_models()
 
         infos = self._build_stage_model_infos(selected_ids)
         self._pipeline_composition_service.compose_from_models(infos)

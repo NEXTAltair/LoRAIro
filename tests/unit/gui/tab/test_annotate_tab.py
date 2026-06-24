@@ -847,3 +847,34 @@ def test_preset_selected_syncs_widget_ground_truth_to_state(
     widget._on_pipeline_preset_selected("default")
 
     assert state_manager.get_selected() == preset_model_ids
+
+
+@pytest.mark.gui
+def test_refresh_pipeline_panel_sources_from_state_manager(
+    monkeypatch: pytest.MonkeyPatch,
+    annotate_tab_with_state: tuple[AnnotateTabWidget, ModelSelectionStateManager],
+) -> None:
+    """manager 注入時、selected_ids 省略の pipeline 再描画は manager (SSoT) を読む (#884 P2)。
+
+    widget と manager を意図的に乖離させ、None 経路 (refresh()/set_staging_target())
+    が widget ではなく manager から読むことを ``_build_stage_model_infos`` への
+    引数捕捉で直接検証する。
+    """
+    widget, state_manager = annotate_tab_with_state
+
+    # manager の値を先にセット (selection_changed で _refresh_pipeline_panel が1回呼ばれる)
+    state_manager.set_selected(["manager/a", "manager/b"])
+
+    # monkeypatch を set_selected 後に行う (instruction 通り)
+    # widget と manager を乖離させる
+    monkeypatch.setattr(widget.batch_model_selection, "get_selected_models", lambda: ["widget-only"])
+
+    captured: list[list[str]] = []
+    monkeypatch.setattr(widget, "_build_stage_model_infos", lambda ids: captured.append(list(ids)) or [])
+
+    widget.refresh()  # selected_ids=None 経路
+
+    assert captured, "_build_stage_model_infos が呼ばれなかった"
+    assert captured[-1] == ["manager/a", "manager/b"], (
+        f"widget ではなく manager から読むはずだが実際: {captured[-1]}"
+    )
