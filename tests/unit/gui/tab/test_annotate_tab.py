@@ -15,6 +15,7 @@ import pytest
 from PySide6.QtWidgets import QDialog
 
 from lorairo.gui.state.dataset_state import DatasetStateManager
+from lorairo.gui.state.model_selection_state import ModelSelectionStateManager
 from lorairo.gui.state.staging_state import StagingStateManager
 from lorairo.gui.tab.annotate_tab import AnnotateTabWidget
 from lorairo.gui.widgets.batch_tag_add_widget import BatchTagAddWidget
@@ -726,3 +727,154 @@ class TestFilterToModelDelegation:
     def test_model_selection_hides_internal_execution_env_combo(self, tab: AnnotateTabWidget) -> None:
         """Batch annotation ではモデル選択側の環境 Combo を操作面にしない。"""
         assert tab.batch_model_selection.executionEnvCombo.isVisible() is False
+
+
+# == 13. ModelSelectionStateManager DI + 双方向同期 (#884) =====================
+
+
+@pytest.fixture
+def annotate_tab_with_state(
+    qtbot: object, service_container: Mock, db_manager: Mock
+) -> tuple[AnnotateTabWidget, ModelSelectionStateManager]:
+    """ModelSelectionStateManager を注入した AnnotateTabWidget と manager を返す。"""
+    state_manager = ModelSelectionStateManager()
+    widget = AnnotateTabWidget(
+        service_container=service_container,
+        db_manager=db_manager,
+        staging_state_manager=None,
+        dataset_state_manager=None,
+        model_selection_state_manager=state_manager,
+    )
+    qtbot.addWidget(widget)
+    return widget, state_manager
+
+
+@pytest.mark.gui
+def test_widget_selection_propagates_to_state_manager(
+    qtbot: object, annotate_tab_with_state: tuple[AnnotateTabWidget, ModelSelectionStateManager]
+) -> None:
+    """ModelSelectionWidget の選択変化が state manager へ伝播する。"""
+    widget, state_manager = annotate_tab_with_state
+    widget.batch_model_selection.model_selection_changed.emit(["openai/gpt-4o"])
+    assert state_manager.get_selected() == ["openai/gpt-4o"]
+
+
+@pytest.mark.gui
+def test_state_manager_change_updates_getter(
+    qtbot: object, annotate_tab_with_state: tuple[AnnotateTabWidget, ModelSelectionStateManager]
+) -> None:
+    """state manager の変更が selected_litellm_model_ids() に反映される。"""
+    widget, state_manager = annotate_tab_with_state
+    # manager が SSoT なので getter は manager から読む
+    state_manager.set_selected(["openai/gpt-4o"])
+    assert widget.selected_litellm_model_ids() == ["openai/gpt-4o"]
+
+
+@pytest.mark.gui
+def test_state_manager_change_reflects_to_widget_view(
+    qtbot: object,
+    annotate_tab_with_state: tuple[AnnotateTabWidget, ModelSelectionStateManager],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """state manager の変更が ModelSelectionWidget (view) の set_selected_models に伝播する。
+
+    _on_state_model_selection_changed が no-op になっても getter 経路では検出できないため、
+    widget.batch_model_selection.set_selected_models を spy してコール引数を直接検証する。
+    """
+    widget, state_manager = annotate_tab_with_state
+    calls: list[list[str]] = []
+    original = widget.batch_model_selection.set_selected_models
+    monkeypatch.setattr(
+        widget.batch_model_selection,
+        "set_selected_models",
+        lambda ids: (calls.append(list(ids)), original(ids)),
+    )
+
+    state_manager.set_selected(["openai/gpt-4o"])
+
+    assert calls == [["openai/gpt-4o"]]
+
+
+@pytest.mark.gui
+def test_programmatic_widget_change_syncs_to_state(
+    qtbot: object,
+    annotate_tab_with_state: tuple[AnnotateTabWidget, ModelSelectionStateManager],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """picker/preset 等 programmatic 変更後にヘルパーが manager を widget の ground-truth へ同期する (#884)。
+
+    ``ModelCheckboxWidget.set_selected`` / ``ModelSelectionWidget.set_selected_models``
+    は checkbox signal を抑制するため、_sync_widget_selection_to_state が
+    widget の get_selected_models() を明示的に SSoT へ押し出す必要がある。
+    """
+    widget, state_manager = annotate_tab_with_state
+    monkeypatch.setattr(
+        widget.batch_model_selection, "get_selected_models", lambda: ["openai/gpt-4o", "anthropic/claude"]
+    )
+    widget._sync_widget_selection_to_state()
+    assert state_manager.get_selected() == ["openai/gpt-4o", "anthropic/claude"]
+
+
+@pytest.mark.gui
+def test_preset_selected_syncs_widget_ground_truth_to_state(
+    qtbot: object,
+    annotate_tab_with_state: tuple[AnnotateTabWidget, ModelSelectionStateManager],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """_on_pipeline_preset_selected が manager を widget の ground-truth へ同期する (#884 P1)。
+
+    preset 適用は set_selected_models (signal 抑制) で行われるため、
+    _sync_widget_selection_to_state 呼び出しがないと manager が stale になる。
+    widget.batch_model_selection.set_selected_models と get_selected_models を stub し、
+    preset 適用後に state_manager.get_selected() が stub の戻り値と一致することを検証する。
+    """
+    widget, state_manager = annotate_tab_with_state
+
+    preset_model_ids = ["wd/tagger", "openai/gpt-4o"]
+    # set_selected_models は signal を抑制するため manager 同期は _sync_widget_selection_to_state に依存
+    monkeypatch.setattr(widget.batch_model_selection, "set_selected_models", lambda ids: None)
+    monkeypatch.setattr(widget.batch_model_selection, "get_selected_models", lambda: preset_model_ids)
+    # 内部 Mock を差し替えてピュアに preset 経路のみを通す
+    widget._batch_model_selection = widget.batch_model_selection
+    widget._pipeline_stage_table = Mock()
+    widget._refresh_pipeline_panel = Mock()
+    widget._build_stage_model_infos = lambda ids: []
+    widget._filter_model_ids_for_preset = lambda pid, infos: preset_model_ids
+    service_mock = Mock()
+    service_mock.load_models.return_value = []
+    widget.batch_model_selection.model_selection_service = service_mock
+
+    widget._on_pipeline_preset_selected("default")
+
+    assert state_manager.get_selected() == preset_model_ids
+
+
+@pytest.mark.gui
+def test_refresh_pipeline_panel_sources_from_state_manager(
+    monkeypatch: pytest.MonkeyPatch,
+    annotate_tab_with_state: tuple[AnnotateTabWidget, ModelSelectionStateManager],
+) -> None:
+    """manager 注入時、selected_ids 省略の pipeline 再描画は manager (SSoT) を読む (#884 P2)。
+
+    widget と manager を意図的に乖離させ、None 経路 (refresh()/set_staging_target())
+    が widget ではなく manager から読むことを ``_build_stage_model_infos`` への
+    引数捕捉で直接検証する。
+    """
+    widget, state_manager = annotate_tab_with_state
+
+    # manager の値を先にセット (selection_changed で _refresh_pipeline_panel が1回呼ばれる)
+    state_manager.set_selected(["manager/a", "manager/b"])
+
+    # monkeypatch を set_selected 後に行う (instruction 通り)
+    # widget と manager を乖離させる
+    monkeypatch.setattr(widget.batch_model_selection, "get_selected_models", lambda: ["widget-only"])
+
+    captured: list[list[str]] = []
+    monkeypatch.setattr(widget, "_build_stage_model_infos", lambda ids: captured.append(list(ids)) or [])
+
+    widget.refresh()  # selected_ids=None 経路
+
+    assert captured, "_build_stage_model_infos が呼ばれなかった"
+    assert captured[-1] == ["manager/a", "manager/b"], (
+        f"widget ではなく manager から読むはずだが実際: {captured[-1]}"
+    )

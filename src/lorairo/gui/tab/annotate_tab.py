@@ -12,7 +12,9 @@ MainWindow rewire (Track B) はこの契約に対してコードを書く。
 
 == 凍結契約 (後続タブの雛形) ==
 - コンストラクタ: ``AnnotateTabWidget(*, service_container, db_manager,
-  staging_state_manager, dataset_state_manager, parent=None)``
+  staging_state_manager, dataset_state_manager,
+  model_selection_state_manager=None, parent=None)``
+  (#884: model_selection_state_manager を追加、後方互換のため既定値 None)
 - Signal (タブ → MainWindow glue):
     - ``annotation_execute_requested = Signal()`` — run bar 実行ボタン
     - ``configure_key_requested = Signal(str)`` — picker の needs key → 設定導線 (provider)
@@ -45,6 +47,7 @@ from ...utils.log import logger
 from .. import theme
 from ..designer.AnnotateTab_ui import Ui_AnnotateTab
 from ..state.dataset_state import DatasetStateManager
+from ..state.model_selection_state import ModelSelectionStateManager
 from ..state.staging_state import StagingStateManager
 from ..widgets.annotation_filter_widget import AnnotationFilterWidget
 from ..widgets.batch_tag_add_widget import BatchTagAddWidget
@@ -78,6 +81,7 @@ class AnnotateTabWidget(QWidget, Ui_AnnotateTab):
         db_manager: ImageDatabaseManager | None,
         staging_state_manager: StagingStateManager | None,
         dataset_state_manager: DatasetStateManager | None,
+        model_selection_state_manager: ModelSelectionStateManager | None = None,
         parent: QWidget | None = None,
     ) -> None:
         """アノテーションタブを初期化する。
@@ -87,6 +91,8 @@ class AnnotateTabWidget(QWidget, Ui_AnnotateTab):
             db_manager: 送信前プリフライトの rating 取得・アノテ結果読み書きに使う。
             staging_state_manager: アノテ対象 (= ステージング集合 SSoT)。
             dataset_state_manager: ステージングのパス解決・選択画像追加導線に使う。
+            model_selection_state_manager: 選択モデル集合 SSoT (#884, ADR 0076)。
+                None の場合は従来どおり ModelSelectionWidget の checkbox 状態を読む。
             parent: 親ウィジェット。
         """
         super().__init__(parent)
@@ -94,6 +100,9 @@ class AnnotateTabWidget(QWidget, Ui_AnnotateTab):
         self._db_manager = db_manager
         self._staging_state_manager = staging_state_manager
         self._dataset_state_manager = dataset_state_manager
+        self._model_selection_state_manager = model_selection_state_manager
+        # widget ↔ state manager 双方向同期の再帰ガード
+        self._syncing_model_selection = False
 
         self.setupUi(self)
 
@@ -251,6 +260,15 @@ class AnnotateTabWidget(QWidget, Ui_AnnotateTab):
         self._pipeline_stage_table.preset_selected.connect(self._on_pipeline_preset_selected)
         self._pipeline_stage_table.save_preset_requested.connect(self._on_pipeline_save_preset_requested)
 
+        # モデル選択 SSoT を gui/state/ へ hoist (#884, ADR 0076)
+        if self._model_selection_state_manager is not None:
+            self._batch_model_selection.model_selection_changed.connect(
+                self._on_widget_model_selection_changed
+            )
+            self._model_selection_state_manager.selection_changed.connect(
+                self._on_state_model_selection_changed
+            )
+
     def _build_pipeline_run_bar(self) -> QWidget:
         """パイプライン実行バーウィジェットを構築する (Issue #849)。
 
@@ -377,8 +395,61 @@ class AnnotateTabWidget(QWidget, Ui_AnnotateTab):
 
     # -- 実行系 getter (MainWindow.start_annotation が読む) --------------------
 
+    def _sync_widget_selection_to_state(self) -> None:
+        """widget の programmatic な選択変更を state manager (SSoT) へ反映する (#884)。
+
+        ``ModelCheckboxWidget.set_selected`` / ``ModelSelectionWidget.set_selected_models``
+        は checkbox signal を抑制するため ``model_selection_changed`` 経由の同期
+        (:meth:`_on_widget_model_selection_changed`) が走らない。picker / preset / × など
+        の programmatic 変更後に本メソッドで checkbox の ground-truth を SSoT へ押し出す。
+        """
+        if self._model_selection_state_manager is None or self._syncing_model_selection:
+            return
+        self._syncing_model_selection = True
+        try:
+            self._model_selection_state_manager.set_selected(
+                self._batch_model_selection.get_selected_models()
+            )
+        finally:
+            self._syncing_model_selection = False
+
+    def _on_widget_model_selection_changed(self, litellm_model_ids: list[str]) -> None:
+        """ModelSelectionWidget の選択変化を state manager (SSoT) へ反映する (#884)。
+
+        Args:
+            litellm_model_ids: widget が emit した選択済み litellm_model_id リスト。
+        """
+        if self._syncing_model_selection or self._model_selection_state_manager is None:
+            return
+        self._syncing_model_selection = True
+        try:
+            self._model_selection_state_manager.set_selected(list(litellm_model_ids))
+        finally:
+            self._syncing_model_selection = False
+
+    def _on_state_model_selection_changed(self, litellm_model_ids: list[str]) -> None:
+        """state manager (SSoT) の変化を ModelSelectionWidget (view) へ反映する (#884)。
+
+        Args:
+            litellm_model_ids: manager が emit した選択済み litellm_model_id リスト。
+        """
+        if self._syncing_model_selection:
+            return
+        self._syncing_model_selection = True
+        try:
+            self._batch_model_selection.set_selected_models(list(litellm_model_ids))
+            self._refresh_pipeline_panel(list(litellm_model_ids))
+        finally:
+            self._syncing_model_selection = False
+
     def selected_litellm_model_ids(self) -> list[str]:
-        """選択中のモデル (litellm_model_id) を返す。"""
+        """選択中のモデル (litellm_model_id) を返す。
+
+        SSoT は ``ModelSelectionStateManager`` (#884)。未注入時は従来どおり
+        ``ModelSelectionWidget`` の checkbox state を読む。
+        """
+        if self._model_selection_state_manager is not None:
+            return self._model_selection_state_manager.get_selected()
         return self._batch_model_selection.get_selected_models()
 
     def get_staged_items(self) -> dict[int, tuple[str, str]]:
@@ -423,6 +494,7 @@ class AnnotateTabWidget(QWidget, Ui_AnnotateTab):
         # プリセットに対応する litellm_model_id を絞り込んで一括セット
         preset_ids = self._filter_model_ids_for_preset(preset_id, all_infos)
         self._batch_model_selection.set_selected_models(preset_ids)
+        self._sync_widget_selection_to_state()
 
         # アクティブプリセット表示を同期 (Signal emit なし)
         self._pipeline_stage_table.set_active_preset(preset_id)
@@ -483,11 +555,15 @@ class AnnotateTabWidget(QWidget, Ui_AnnotateTab):
         """ステージテーブルと推論台帳を現在の選択・ステージング件数で再描画する。
 
         Args:
-            selected_ids: 選択中の litellm_model_id。None なら ModelSelectionWidget
-                から現在値を取得する (ステージング件数変化時の再計算用)。
+            selected_ids: 選択中の litellm_model_id。None なら SSoT (manager 注入時は
+                ModelSelectionStateManager、未注入時は ModelSelectionWidget) から現在値を
+                取得する (ステージング件数変化時の再計算用、#884 P2)。
         """
         if selected_ids is None:
-            selected_ids = self._batch_model_selection.get_selected_models()
+            if self._model_selection_state_manager is not None:
+                selected_ids = self._model_selection_state_manager.get_selected()
+            else:
+                selected_ids = self._batch_model_selection.get_selected_models()
 
         infos = self._build_stage_model_infos(selected_ids)
         self._pipeline_composition_service.compose_from_models(infos)
@@ -641,6 +717,7 @@ class AnnotateTabWidget(QWidget, Ui_AnnotateTab):
                 logger.warning(f"チェックボックス未表示のため追加をスキップ: {litellm_model_id}")
                 continue
             checkbox_widget.set_selected(True)
+        self._sync_widget_selection_to_state()
         self._refresh_pipeline_panel()
 
     def _on_pipeline_remove_model_requested(self, stage_value: str, litellm_model_id: str) -> None:
@@ -657,6 +734,7 @@ class AnnotateTabWidget(QWidget, Ui_AnnotateTab):
             logger.warning(f"チェックボックス未表示のため除外をスキップ: {litellm_model_id}")
             return
         checkbox_widget.set_selected(False)
+        self._sync_widget_selection_to_state()
         self._refresh_pipeline_panel()
 
     def _on_picker_configure_key_requested(self, provider: str, dialog: StageModelPickerDialog) -> None:
