@@ -916,12 +916,22 @@ class TestModelSelectionStateManagerInit:
         assert mock_window.model_selection_state_manager is None
 
 
-class TestStartAnnotationDispatchMode:
-    """start_annotation の dispatch mode 分岐テスト (#884 Phase 2a, ADR 0076 §1)。"""
+class _StubModel:
+    """provider_batch_capability helper が読む属性だけ持つ stub。"""
 
-    def test_batch_api_mode_shows_guard_and_skips_workflow(self) -> None:
-        """dispatch_mode=batch_api は guard を出し同期 workflow を起動しない。"""
-        from unittest.mock import Mock, patch
+    def __init__(self, *, id: int, provider: str, litellm_model_id: str) -> None:
+        self.id = id
+        self.provider = provider
+        self.litellm_model_id = litellm_model_id
+        self.model_types: tuple[object, ...] = ()
+
+
+class TestStartAnnotationDispatchMode:
+    """start_annotation の dispatch mode 分岐テスト (#884 Phase 2c, ADR 0076 §1)。"""
+
+    def test_batch_api_mode_delegates_to_async_dispatch(self) -> None:
+        """dispatch_mode=batch_api は async dispatch へ委譲し同期 workflow を起動しない。"""
+        from unittest.mock import Mock
 
         from lorairo.gui.widgets.run_settings_dialog import RunOptions
         from lorairo.gui.window.main_window import MainWindow
@@ -930,10 +940,9 @@ class TestStartAnnotationDispatchMode:
         mock_window.annotation_workflow_controller = Mock()
         mock_window.annotate_tab.run_options.return_value = RunOptions(dispatch_mode="batch_api")
 
-        with patch("lorairo.gui.window.main_window.QMessageBox") as mock_qmb:
-            MainWindow.start_annotation(mock_window)
-            mock_qmb.information.assert_called_once()
+        MainWindow.start_annotation(mock_window)
 
+        mock_window._dispatch_async_batch.assert_called_once()
         mock_window.annotation_workflow_controller.start_annotation_workflow.assert_not_called()
 
     def test_sync_mode_runs_workflow(self) -> None:
@@ -953,6 +962,131 @@ class TestStartAnnotationDispatchMode:
         MainWindow.start_annotation(mock_window)
 
         mock_window.annotation_workflow_controller.start_annotation_workflow.assert_called_once()
+
+
+class TestDispatchAsyncBatch:
+    """_dispatch_async_batch の射影 + fail-closed gate テスト (#884 Phase 2c, ADR 0076 §2)。"""
+
+    @staticmethod
+    def _build_window(
+        *,
+        ratings: dict[int, str | None],
+        selected: list[str],
+        discovery: list[str],
+        model: object | None,
+        in_progress: bool = False,
+    ) -> object:
+        from unittest.mock import Mock
+
+        from lorairo.gui.widgets.run_settings_dialog import RunOptions
+
+        mock_window = Mock()
+        mock_window._async_dispatch_in_progress = in_progress
+        mock_window.annotate_tab.run_options.return_value = RunOptions(dispatch_mode="batch_api")
+        mock_window.annotate_tab.selected_litellm_model_ids.return_value = selected
+        mock_window._get_staged_id_path_map_for_annotation.return_value = {10: "/data/p10.webp"}
+
+        workflow_service = Mock()
+        workflow_service.list_batch_capable_models.return_value = discovery
+        mock_window.service_container.provider_batch_workflow_service = workflow_service
+        mock_window.service_container.annotator_library = Mock()
+        mock_window.db_manager.image_repo.get_latest_normalized_ratings_by_image_ids.return_value = ratings
+        mock_window.db_manager.model_repo.get_model_by_litellm_id.return_value = model
+        return mock_window
+
+    def test_all_sendable_batch_capable_starts_worker(self) -> None:
+        from unittest.mock import patch
+
+        from lorairo.gui.window.main_window import MainWindow
+
+        model = _StubModel(id=1, provider="openai", litellm_model_id="openai/gpt-4o")
+        mock_window = self._build_window(
+            ratings={10: "PG"},
+            selected=["openai/gpt-4o"],
+            discovery=["openai/gpt-4o"],
+            model=model,
+        )
+
+        with patch("lorairo.gui.window.main_window.QMessageBox") as mock_qmb:
+            MainWindow._dispatch_async_batch(mock_window)
+            mock_qmb.warning.assert_not_called()
+            mock_qmb.critical.assert_not_called()
+
+        mock_window._start_async_dispatch_worker.assert_called_once()
+        assert mock_window._async_dispatch_in_progress is True
+
+    def test_unrated_images_rejected(self) -> None:
+        from unittest.mock import patch
+
+        from lorairo.gui.window.main_window import MainWindow
+
+        model = _StubModel(id=1, provider="openai", litellm_model_id="openai/gpt-4o")
+        mock_window = self._build_window(
+            ratings={},  # 未判定 (unrated)
+            selected=["openai/gpt-4o"],
+            discovery=["openai/gpt-4o"],
+            model=model,
+        )
+
+        with patch("lorairo.gui.window.main_window.QMessageBox") as mock_qmb:
+            MainWindow._dispatch_async_batch(mock_window)
+            mock_qmb.warning.assert_called_once()
+
+        mock_window._start_async_dispatch_worker.assert_not_called()
+
+    def test_non_batch_capable_model_rejected(self) -> None:
+        from unittest.mock import patch
+
+        from lorairo.gui.window.main_window import MainWindow
+
+        model = _StubModel(id=9, provider="local", litellm_model_id="local/wd-tagger")
+        mock_window = self._build_window(
+            ratings={10: "PG"},
+            selected=["local/wd-tagger"],
+            discovery=["openai/gpt-4o"],  # local は discovery に無い
+            model=model,
+        )
+
+        with patch("lorairo.gui.window.main_window.QMessageBox") as mock_qmb:
+            MainWindow._dispatch_async_batch(mock_window)
+            mock_qmb.warning.assert_called_once()
+
+        mock_window._start_async_dispatch_worker.assert_not_called()
+
+    def test_no_staged_images_shows_info(self) -> None:
+        from unittest.mock import patch
+
+        from lorairo.gui.window.main_window import MainWindow
+
+        mock_window = self._build_window(
+            ratings={},
+            selected=["openai/gpt-4o"],
+            discovery=["openai/gpt-4o"],
+            model=None,
+        )
+        mock_window._get_staged_id_path_map_for_annotation.return_value = {}
+
+        with patch("lorairo.gui.window.main_window.QMessageBox") as mock_qmb:
+            MainWindow._dispatch_async_batch(mock_window)
+            mock_qmb.information.assert_called_once()
+
+        mock_window._start_async_dispatch_worker.assert_not_called()
+
+    def test_reentry_guard_blocks_second_dispatch(self) -> None:
+        from lorairo.gui.window.main_window import MainWindow
+
+        model = _StubModel(id=1, provider="openai", litellm_model_id="openai/gpt-4o")
+        mock_window = self._build_window(
+            ratings={10: "PG"},
+            selected=["openai/gpt-4o"],
+            discovery=["openai/gpt-4o"],
+            model=model,
+            in_progress=True,
+        )
+
+        MainWindow._dispatch_async_batch(mock_window)
+
+        mock_window._start_async_dispatch_worker.assert_not_called()
 
 
 if __name__ == "__main__":

@@ -5,7 +5,15 @@ from functools import partial
 from pathlib import Path
 from typing import Any, cast
 
-from PySide6.QtCore import QEasingCurve, QPropertyAnimation, QSettings, Qt, QTimer, Signal
+from PySide6.QtCore import (
+    QEasingCurve,
+    QPropertyAnimation,
+    QSettings,
+    Qt,
+    QThread,
+    QTimer,
+    Signal,
+)
 from PySide6.QtGui import QAction, QCloseEvent, QKeySequence, QResizeEvent
 from PySide6.QtWidgets import (
     QFileDialog,
@@ -22,6 +30,11 @@ from ...database.db_manager import ImageDatabaseManager
 from ...gui.designer.MainWindow_ui import Ui_MainWindow
 from ...services import get_service_container
 from ...services.configuration_service import ConfigurationService
+from ...services.dispatch_projection_service import (
+    DispatchProjection,
+    DispatchProjectionError,
+    project_async_batch_dispatch,
+)
 from ...services.selection_state_service import SelectionStateService
 from ...services.service_container import ServiceContainer
 from ...storage.file_system import FileSystemManager
@@ -47,9 +60,14 @@ from ..tab.map_tab import MapTabWidget
 from ..tab.results_tab import ResultsTabWidget
 from ..tab.search_tab import SearchTabWidget
 from ..widgets.error_notification_widget import ErrorNotificationWidget
+from ..widgets.preflight_summary_widget import classify_preflight_counts
 from ..widgets.quick_tag_dialog import QuickTagDialog
 from ..widgets.registration_summary_widget import RegistrationSummaryWidget
 from ..widgets.tag_management_dialog import TagManagementDialog
+from ..workers.async_batch_dispatch_worker import AsyncBatchDispatchWorker
+
+# async batch dispatch worker thread の GC 防止用 (ProviderBatchJobWidget と同方式)。
+_ACTIVE_DISPATCH_THREADS: set[QThread] = set()
 
 
 class MainWindow(QMainWindow, Ui_MainWindow):
@@ -122,6 +140,11 @@ class MainWindow(QMainWindow, Ui_MainWindow):
         # 初期化失敗フラグ
         self._initialization_failed = False
         self._initialization_error: str | None = None
+
+        # async batch dispatch の再入/busy ガード (#884 Phase 2c, ADR 0044)
+        self._async_dispatch_in_progress = False
+        self._async_dispatch_thread: QThread | None = None
+        self._async_dispatch_worker: AsyncBatchDispatchWorker | None = None
 
         try:
             # Phase 1: 基本UI設定（最優先）
@@ -1436,15 +1459,10 @@ class MainWindow(QMainWindow, Ui_MainWindow):
             )
             return
 
-        # 送信方式 (dispatch mode) 判定 (#884 Phase 2a, ADR 0076 §1)
-        # batch_api (async) は射影 service (Phase 2b) / worker 配線 (Phase 2c) が未実装のため guard。
+        # 送信方式 (dispatch mode) 判定 (#884 Phase 2c, ADR 0076 §1)
+        # batch_api (async) は dispatch 射影 → worker thread へ分岐する。
         if self.annotate_tab is not None and self.annotate_tab.run_options().dispatch_mode == "batch_api":
-            QMessageBox.information(
-                self,
-                "Batch API 送信",
-                "Batch API への async 送信は後続フェーズ (#884 Phase 2c) で配線予定です。\n"
-                "現在は同期実行のみ利用できます。",
-            )
+            self._dispatch_async_batch()
             return
 
         # アノテーションタブの選択モデルを取得 (Issue #245: litellm_model_id ベース、#868)
@@ -1477,6 +1495,113 @@ class MainWindow(QMainWindow, Ui_MainWindow):
             image_paths=override_image_paths,
         )
 
+    def _dispatch_async_batch(self) -> None:
+        """選択モデル集合を async Provider Batch dispatch へ射影して送信する。
+
+        ADR 0076 §2: 選択モデル集合 → dispatch 射影 (batch-capable ∩ discovery) →
+        worker thread で ``submit_images`` をモデルごとにループ呼び出しする。
+        非 batch-capable 混在は射影が拒否する ((a))。送信前 moderation が未完了の
+        画像 (保留 / 未判定) がある場合は fail-closed で拒否する (ADR 0070、自動2段は
+        deferral)。
+        """
+        if self.annotate_tab is None:
+            return
+        if self._async_dispatch_in_progress:
+            return
+
+        container = self.service_container
+        workflow_service = getattr(container, "provider_batch_workflow_service", None)
+        model_source = getattr(container, "annotator_library", None)
+        db_manager = self.db_manager
+        if workflow_service is None or model_source is None or db_manager is None:
+            QMessageBox.warning(self, "Batch API 送信", "Batch API サービスを利用できません。")
+            return
+
+        id_path_map = self._get_staged_id_path_map_for_annotation()
+        image_ids = list(id_path_map.keys())
+        if not image_ids:
+            QMessageBox.information(
+                self,
+                "ステージング画像なし",
+                "ステージングリストに画像がありません。\n"
+                "画像を選択してからアノテーションを実行してください。",
+            )
+            return
+
+        # fail-closed moderation gate (ADR 0070)。自動 preflight は未対応のため、
+        # 送信可 (sendable) でない画像が含まれる場合は dispatch を拒否する。
+        ratings_by_id = db_manager.image_repo.get_latest_normalized_ratings_by_image_ids(image_ids)
+        preflight = classify_preflight_counts(ratings_by_id, image_ids)
+        if preflight.held > 0 or preflight.unrated > 0:
+            QMessageBox.warning(
+                self,
+                "Batch API 送信",
+                "送信前 moderation が未完了の画像があります "
+                f"(保留 {preflight.held} 件 / 未判定 {preflight.unrated} 件)。\n"
+                "Batch API の自動 preflight は未対応のため、先に rating を確定してください。",
+            )
+            return
+
+        run_options = self.annotate_tab.run_options()
+        try:
+            projection = project_async_batch_dispatch(
+                selected_litellm_model_ids=self.annotate_tab.selected_litellm_model_ids(),
+                batch_capable_models=workflow_service.list_batch_capable_models(),
+                model_resolver=db_manager.model_repo.get_model_by_litellm_id,
+                image_ids=image_ids,
+                prompt_profile="default",
+                description=None,
+                image_paths=id_path_map,
+            )
+        except DispatchProjectionError as e:
+            QMessageBox.warning(self, "Batch API 送信", str(e))
+            return
+
+        logger.info(
+            f"Batch API dispatch 開始: {projection.job_count} ジョブ / {len(image_ids)} 枚 "
+            f"(dispatch_mode={run_options.dispatch_mode})"
+        )
+        self._async_dispatch_in_progress = True
+        self._start_async_dispatch_worker(workflow_service, projection)
+
+    def _start_async_dispatch_worker(self, workflow_service: Any, projection: DispatchProjection) -> None:
+        """射影結果を専用 QThread で submit する (ADR 0044)。"""
+        thread = QThread()
+        worker = AsyncBatchDispatchWorker(workflow_service, projection.entries)
+        worker.moveToThread(thread)
+        _ACTIVE_DISPATCH_THREADS.add(thread)
+
+        thread.started.connect(worker.run)
+        worker.succeeded.connect(self._on_async_dispatch_succeeded)
+        worker.failed.connect(self._on_async_dispatch_failed)
+        worker.finished.connect(thread.quit)
+        worker.finished.connect(worker.deleteLater)
+        thread.finished.connect(self._on_async_dispatch_thread_finished)
+        thread.finished.connect(lambda: _ACTIVE_DISPATCH_THREADS.discard(thread))
+        thread.finished.connect(thread.deleteLater)
+
+        self._async_dispatch_thread = thread
+        self._async_dispatch_worker = worker
+        thread.start()
+
+    def _on_async_dispatch_succeeded(self, job_ids: list[int]) -> None:
+        """全ジョブ送信成功時に Jobs 台帳を更新しサマリーを表示する。"""
+        logger.info(f"Batch API dispatch 完了: {len(job_ids)} ジョブを送信しました")
+        if self.jobs_tab is not None:
+            self.jobs_tab.refresh()
+        self.statusBar().showMessage(f"Batch API: {len(job_ids)} ジョブを送信しました", 5000)
+
+    def _on_async_dispatch_failed(self, error: object) -> None:
+        """dispatch 失敗時にエラーを通知する。"""
+        logger.error(f"Batch API dispatch 失敗: {error}", exc_info=isinstance(error, Exception))
+        QMessageBox.critical(self, "Batch API 送信", f"Batch API 送信に失敗しました:\n{error}")
+
+    def _on_async_dispatch_thread_finished(self) -> None:
+        """worker thread 終了時に busy/再入ガードを解除する。"""
+        self._async_dispatch_in_progress = False
+        self._async_dispatch_worker = None
+        self._async_dispatch_thread = None
+
     def _show_model_selection_dialog(self, available_models: list[str]) -> str | None:
         """モデル選択ダイアログ表示（Callbackパターン）
 
@@ -1499,36 +1624,44 @@ class MainWindow(QMainWindow, Ui_MainWindow):
 
         return selected_model if ok else None
 
-    def _get_staged_image_paths_for_annotation(self) -> list[str]:
-        """アノテーションタブのステージング画像パスを取得
+    def _get_staged_id_path_map_for_annotation(self) -> dict[int, str]:
+        """ステージング画像の {image_id: 解決済みファイルパス} を返す。
 
-        AnnotateTabWidget.get_staged_items() で画像 ID とメタデータを取得し、
-        DatasetStateManager 由来の stored_path を実際のファイルパスに解決する。
+        AnnotateTabWidget.get_staged_items() の stored_path を DatasetStateManager 由来で
+        実ファイルパスに解決し、存在するもののみ返す。同期 / async dispatch の双方で使う。
 
         Returns:
-            list[str]: 画像ファイルパスリスト。エラー時は空リスト。
+            {image_id: ファイルパス}。エラー時は空辞書。
         """
         from lorairo.database.db_core import resolve_stored_path
 
         staged_items = self.annotate_tab.get_staged_items() if self.annotate_tab is not None else None
         if not staged_items:
-            return []
+            return {}
 
         if not self.dataset_state_manager:
             logger.warning("DatasetStateManager not available for path resolution")
-            return []
+            return {}
 
-        paths: list[str] = []
+        id_path_map: dict[int, str] = {}
         for image_id, (_, stored_path) in staged_items.items():
             if stored_path:
                 resolved = resolve_stored_path(stored_path)
                 if resolved and resolved.exists():
-                    paths.append(str(resolved))
+                    id_path_map[image_id] = str(resolved)
                 else:
                     logger.debug(f"画像パスが存在しない: ID={image_id}, path={stored_path}")
 
-        logger.debug(f"ステージング画像パスを取得: {len(paths)}件")
-        return paths
+        logger.debug(f"ステージング画像パスを取得: {len(id_path_map)}件")
+        return id_path_map
+
+    def _get_staged_image_paths_for_annotation(self) -> list[str]:
+        """アノテーションタブのステージング画像パスリストを取得する。
+
+        Returns:
+            list[str]: 画像ファイルパスリスト。エラー時は空リスト。
+        """
+        return list(self._get_staged_id_path_map_for_annotation().values())
 
     def _get_staged_export_ids(self) -> list[int]:
         """エクスポート対象のステージング画像 ID を返す（エクスポートタブの対象ソース）。
