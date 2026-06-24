@@ -1,14 +1,14 @@
 ---
 type: ADR
 title: Submit を Annotate の dispatch 射影へ移し Jobs を純粋な監視台帳にする
-status: Proposed
+status: Accepted
 timestamp: 2026-06-24
 tags: [gui, annotation, jobs, provider-batch, state]
 ---
 # ADR 0076: Submit を Annotate の dispatch 射影へ移し Jobs を純粋な監視台帳にする
 
 - **関連 Issue**: #884 (モデル選択 state の hoist / 複数→単一射影), #867 (epic: MainWindow 分解), #874 (JobsTabWidget 抽出)
-- **一部改訂対象** (back-ref / 本体改定は本 ADR の Accept と同一コミットで適用する。ADR 0060 の前例に倣い、Proposed の間は確定済み ADR を編集しない):
+- **一部改訂対象** (本 ADR の Accept 昇格コミットで back-ref を適用済み。ADR 0060 の前例に倣い、Proposed の間は確定済み ADR を編集しなかった):
   - ADR 0041 (Provider Batch 実行 UI 統一) — §1 統一レイアウトの submit 条項を relocation
   - ADR 0066 (Unified Jobs Lifecycle View) — Jobs に submit (作成) 入口を持たせない旨を追補
   - ADR 0075 (アノテーションパイプライン構成ドメインモデル) — 選択モデル集合 (SSoT) の所在を `ModelSelectionWidget` checkbox state から `gui/state/` の選択 state manager へ移す (#884 hoist)。SSoT が「選択モデル集合」である定義自体は不変
@@ -71,9 +71,7 @@ ADR 0041 が却下したのは「暗黙の fan-out + 隠れコスト」である
 - **ADR 0066**: 「Jobs = lifecycle 台帳」は不変。本 ADR は「Jobs は作成 (submit) 入口を持たない」を明文化し、submit 面の所在を Annotate に確定する追補である。lifecycle / recovery 操作 (状態を確認・キャンセル・fetch・import) は保持し、lifecycle 状態・キューの実セマンティクス (GPU 直列 / API 並列) は不変。
 - **ADR 0075**: 「SSoT = 選択モデル集合」という定義は不変。SSoT の *所在* を `ModelSelectionWidget` checkbox state から `gui/state/` の選択 state manager へ移す改定 (#884 hoist)。これを明示しないと「checkbox が SSoT」「gui/state/ が SSoT」の 2 つの確定済み記述が競合し、実装者が hoist を見落とす。
 
-3 ADR は Status を Accepted のまま、責務 / 所在のみ更新される。**確定済み ADR (0041 / 0066 / 0075) 本体への back-ref / 本体改定は本 ADR の Accept 昇格と同一コミットで適用し、Proposed の間は編集しない** (ADR 0060 の前例に倣う)。
-
-ただし**本 ADR 自身の index 行 (`docs/decisions/README.md` / `index.md`) は Proposed の段階でも生成する**。`make adr-okf` の `okf_index.py --check` は status filter を持たず全 `docs/decisions` ファイルの index 整合を検査するため、0076 を index から外すと docs 検証が DRIFT で red になる。新規 ADR ファイル自身を `status: Proposed` 行として index へ載せることは確定済み ADR 本体の編集ではなく、ADR 0060 の制約 (確定済み ADR を未確定改定で書き換えない) に抵触しない。`make adr-index` で 0076 を含む index を再生成する。
+3 ADR は Status を Accepted のまま、責務 / 所在のみ更新される。**確定済み ADR (0041 / 0066 / 0075) 本体への back-ref は本 ADR の Accept 昇格コミットで適用した** (ADR 0060 の前例に倣い、Proposed の間は編集しなかった)。`make adr-index` で 0076 を Accepted として含む index を再生成する。
 
 ## Rationale
 

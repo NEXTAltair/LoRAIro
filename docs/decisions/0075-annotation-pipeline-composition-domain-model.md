@@ -7,6 +7,8 @@ tags: [gui, annotation, pipeline, domain-model]
 ---
 # ADR 0075: アノテーションパイプライン構成 (選択モデル × アノテーション種類) のドメインモデル
 
+- **一部改訂**: ADR 0076 — 「SSoT = 選択モデル集合」の定義は不変。SSoT の *所在* を `ModelSelectionWidget` checkbox state から `gui/state/` の選択 state manager へ移す (#884 hoist)。
+
 ## Context
 
 バッチアノテーションのモデル選択 UI は、ADR 0030 が規定した「環境 → タスク」の
