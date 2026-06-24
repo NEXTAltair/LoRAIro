@@ -31,7 +31,7 @@ tags: [gui, annotation, jobs, provider-batch, state]
 ### 1. 役割境界: 構成は Annotate・監視は Jobs
 
 - **Annotate** = アノテーション構成の唯一の入口。選択モデル集合 (SSoT, ADR 0075)・pipeline ステージ割当・実行トリガー (同期/非同期の双方) を所有する。
-- **Jobs** = 実行 lifecycle の純粋な監視台帳。実行中/キュー/履歴を表示し、`状態を確認` / `キャンセル` のみを操作として持つ。**作成入口 (モデルピッカー・Submit フォーム) を持たない**。
+- **Jobs** = 実行 lifecycle の純粋な監視台帳。実行中/キュー/履歴を表示する。操作は **lifecycle / 事故復旧系に限る**: 主操作 `状態を確認` / `キャンセル`、および ADR 0041 §7 が定める二次的な復旧操作 (`fetch` / `import` の再取得・再取り込み) は残す。Jobs から取り除くのは**作成入口 (モデルピッカー・Submit フォーム) だけ**であり、lifecycle/recovery 操作は保持する。
 
 同期と非同期は authoring (構成) の違いではなく dispatch (実行経路) の違いなので、入口は Annotate 1つでよい。
 
@@ -40,8 +40,9 @@ tags: [gui, annotation, jobs, provider-batch, state]
 Provider Batch (async) を「Annotate の選択モデル集合からの dispatch 射影」として定義する:
 
 - 選択モデル集合を route で分割し、batch-capable なモデル1台につき `provider_batch_jobs` を1行生成する。
-- 「1 submit = 1 model」(ADR 0041 / 0038) は**手で1つ選ばせる制約ではなく、射影の出力不変条件**として守る。`provider_batch_workflow_service.submit_images(*, litellm_model_id: str, ...) -> int` は単一モデルで1ジョブを返すため、batch-capable モデルN台をループ呼び出しすれば N 行になる (service 改変ゼロ、各呼び出しは1モデル1ジョブのまま)。
-- rating_preflight (ADR 0070, `task_type = "rating_preflight"`, `openai/omni-moderation-*`) も RATING ステージ由来の射影出力の一系統として扱う。射影分岐に含める。
+- 「1 submit = 1 model」(ADR 0041 / 0038) は**手で1つ選ばせる制約ではなく、射影の出力不変条件**として守る。`provider_batch_workflow_service.submit_images(*, litellm_model_id: str, model_id: int | None, ...) -> int` は単一モデルで1ジョブを返すため、batch-capable モデルN台をループ呼び出しすれば N 行になる (service 改変ゼロ、各呼び出しは1モデル1ジョブのまま)。
+- **射影は litellm_model_id だけでなく DB の `Model.id` (`model_id`) も各 submit に運ぶ**。`_validate_submit_task` は `task_type = "rating_preflight"` で `model_id` が `None` だと reject し、結果 import も DB model ID に依存する。射影 glue が `model_id` を省くと moderation batch が submit 前に失敗するため、選択/登録済み `Model.id` を射影の出力契約に含める。
+- **moderation preflight は「送信ゲート」であって RATING 出力の派生ではない** (ADR 0070)。未評価画像に対する WebAPI 送信の事前判定 (fail-closed) なので、射影は **画像の rating / 送信可否から preflight 要否を決める**。RATING 出力ステージが選択されているか否かでは決めない (tags/caption/score のみ要求 + 未評価画像でも preflight を落とさない)。ただし ADR 0070 line 30 は **Provider Batch の自動2段オーケストレーションを対象外**とし manual `rating_preflight` batch を残す立場なので、async batch の自動 preflight 連鎖は本 ADR では契約 (model_id 同伴・送信ゲート由来) のみ定義し、自動2段の実装は ADR 0070 の deferral を引き継ぐフォローアップとする。
 
 ADR 0041 が却下したのは「暗黙の fan-out + 隠れコスト」である。本案は INFERENCE LEDGER (ADR 0075) で dispatch 前に全ジョブ・全推論回数をプレビューするため、コストが暗黙に増える状況を作らない。0041 の意図を満たしたまま、選び方を「手動単一選択」から「集合の射影 + 事前プレビュー」へ置き換える。
 
