@@ -10,6 +10,7 @@ tags: []
 - **関連 Issue**: #545 (epic), #547 (本 ADR 起票 / 設計確定), #548 (B), #549 (C), #550 (D)
 - **関連 ADR**: 0030 (Batch Annotation Model Selection UI), 0036 (GUI Compound Widget 分割方針), 0038 (Provider Batch API Integration Strategy)
 - **一部改訂**: ADR 0074 — ステージング集合の SSoT を `StagingWidget` から `StagingStateManager` へ移し、`StagingWidget` は view に降格 (`connect_shared_staging` 廃止)。統一フロー・共通コンポーネント構成は不変。
+- **一部改訂**: ADR 0076 (Proposed) — §1 統一レイアウトの「右上に単一選択ピッカー + Submit」条項を relocation。submit の置き場を Jobs タブから Annotate の dispatch 射影へ移す。「1 submit = 1 model」不変条件・staging 共通化は不変。
 
 ## Context
 
