@@ -39,6 +39,9 @@ SegmentedControl = DsSegmentedControl
 
 _UNIMPLEMENTED_TOOLTIP = "バックエンド未実装 — 後続 issue で worker に配線予定"
 _DEDUPE_TOOLTIP = "multimodal は常時 dedupe (同一推論を 1 回に集約)。常に ON。"
+_DISPATCH_MODE_TOOLTIP = (
+    "Batch API への async 送信は後続フェーズ (#884 Phase 2c) で配線予定。現在は同期実行のみ。"
+)
 
 
 @dataclass(frozen=True)
@@ -53,6 +56,7 @@ class RunOptions:
         overwrite: 既存アノテーションを上書きするか。
         dedupe: multimodal 推論を 1 回に集約するか (常時 True)。
         dry_run: 実推論せずジョブ件数・推定のみ検証するか。
+        dispatch_mode: 送信方式 ("sync" = 同期実行 / "batch_api" = async Provider Batch API)。
     """
 
     concurrency: int = 4
@@ -62,6 +66,7 @@ class RunOptions:
     overwrite: bool = False
     dedupe: bool = True
     dry_run: bool = False
+    dispatch_mode: str = "sync"
 
 
 class RunSettingsDialog(QDialog):
@@ -146,6 +151,17 @@ class RunSettingsDialog(QDialog):
             tooltip=_DEDUPE_TOOLTIP,
         )
 
+        # 送信方式 dispatch mode (Batch API 配線は Phase 2c → 現状 disabled)
+        self._dispatch_mode = self._add_segment_row(
+            layout,
+            "送信方式 dispatch mode",
+            "同期 = その場で推論。Batch API = Provider の非同期バッチへ送信 (大量・低コスト)。",
+            [("sync", "同期"), ("batch_api", "Batch API")],
+            "sync",
+            enabled=False,
+            tooltip=_DISPATCH_MODE_TOOLTIP,
+        )
+
         # dry-run (実装済 → 操作可)
         self._dry_run = QCheckBox("ドライラン dry-run", self)
         self._dry_run.setObjectName("runSettingsDryRun")
@@ -212,4 +228,5 @@ class RunSettingsDialog(QDialog):
             overwrite=self._overwrite.value() == "on",
             dedupe=self._dedupe.value() == "on",
             dry_run=self._dry_run.isChecked(),
+            dispatch_mode=self._dispatch_mode.value(),
         )

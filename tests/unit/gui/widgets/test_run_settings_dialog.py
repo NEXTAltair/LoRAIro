@@ -46,6 +46,7 @@ class TestRunSettingsDialogDefaults:
             overwrite=False,
             dedupe=True,
             dry_run=False,
+            dispatch_mode="sync",
         )
 
     def test_header_shows_staged_count(self, dialog):
@@ -68,6 +69,21 @@ class TestRunSettingsDialogEnabledControls:
     def test_rating_gate_and_dry_run_are_enabled(self, dialog):
         assert dialog._rating_gate.isEnabled()
         assert dialog._dry_run.isEnabled()
+
+
+class TestRunSettingsDialogDispatchMode:
+    def test_dispatch_mode_defaults_to_sync(self, dialog):
+        assert dialog.run_options().dispatch_mode == "sync"
+
+    def test_dispatch_mode_control_is_disabled_pending_phase2c(self, dialog):
+        # Batch API 配線 (Phase 2c) まで disabled。見せかけ操作を作らない方針。
+        assert not dialog._dispatch_mode.isEnabled()
+        assert dialog._dispatch_mode.toolTip() != ""
+
+    def test_dispatch_mode_value_reflected_in_run_options(self, dialog):
+        # control を直接操作すれば run_options に載る (Phase 2c で enable する前提の配線確認)。
+        dialog._dispatch_mode.set_value("batch_api")
+        assert dialog.run_options().dispatch_mode == "batch_api"
 
 
 class TestRunSettingsDialogDisabledControls:
