@@ -62,7 +62,7 @@ class ModelSelectionStateManager(QObject):
         if list(new_selected.keys()) == list(self._selected.keys()):
             return
         self._selected = new_selected
-        logger.info(f"選択モデル集合を更新: {len(self._selected)} 件")
+        logger.debug(f"選択モデル集合を更新: {len(self._selected)} 件")
         self.selection_changed.emit(self.get_selected())
 
     def set_model_selected(self, litellm_model_id: str, selected: bool) -> None:

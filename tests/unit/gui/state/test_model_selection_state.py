@@ -30,6 +30,12 @@ def test_set_selected_dedupes(manager: ModelSelectionStateManager) -> None:
     assert manager.get_selected() == ["a", "b"]
 
 
+def test_set_selected_dedupes_keeps_first_occurrence(manager: ModelSelectionStateManager) -> None:
+    """後続重複は最初の出現順を保持する (first occurrence wins)。"""
+    manager.set_selected(["a", "b", "a"])
+    assert manager.get_selected() == ["a", "b"]
+
+
 def test_set_selected_emits_only_on_change(qtbot, manager: ModelSelectionStateManager) -> None:
     with qtbot.waitSignal(manager.selection_changed, timeout=1000) as blocker:
         manager.set_selected(["a", "b"])
