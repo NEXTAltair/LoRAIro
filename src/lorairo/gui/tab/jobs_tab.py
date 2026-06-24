@@ -1,18 +1,22 @@
 """ジョブタブ (Provider Batch) の専用ウィジェット (Epic #867 / #874)。
 
-MainWindow のジョブタブ — Provider Batch ジョブの投入・監視・キャンセル・同期ジョブ台帳・
+MainWindow のジョブタブ — Provider Batch ジョブの監視・キャンセル・同期ジョブ台帳・
 Batch API 結果インポート — のオーケストレーションを ``JobsTabWidget`` へ集約する。
 MainWindow には worker dispatch とタブ間遷移・共有サービス (statusbar / error_notification /
 ProgressStateService) への橋渡しだけを残す。
 
-本タブの中身 (左: StagingWidget / 右上: モデル選択+Submit / 右下: ジョブ状態) は
-独立 widget ``ProviderBatchJobWidget`` が所有する。``JobsTabWidget`` はそれを単一の
-子として配置し、サービス注入・WorkerService シグナルの self-wire・Batch インポートの
-実ロジック (ファイル選択ダイアログ / Dry-Run 選択 / 結果ダイアログ) を所有する。
+ADR 0076 §3: ジョブの**作成入口** (ステージング + モデルピッカー + Submit) は Annotate の
+dispatch 射影へ移したため、本タブは純粋な監視台帳に徹する。よってステージング集合
+(StagingStateManager / DatasetStateManager) の購読は持たない。
+
+本タブの中身 (ジョブ状態の監視 / lifecycle / 復旧操作) は独立 widget
+``ProviderBatchJobWidget`` が所有する。``JobsTabWidget`` はそれを単一の子として配置し、
+サービス注入・WorkerService シグナルの self-wire・Batch インポートの実ロジック
+(ファイル選択ダイアログ / Dry-Run 選択 / 結果ダイアログ) を所有する。
 
 == 凍結契約 ==
 - コンストラクタ: ``JobsTabWidget(*, service_container, db_manager,
-  dataset_state_manager, staging_state_manager, worker_service, parent=None)``
+  worker_service, parent=None)``
 - Signal (タブ → MainWindow glue):
     - ``status_message_requested = Signal(str, int)`` — statusbar 表示 (メッセージ, ms)
     - ``batch_import_error_occurred = Signal(str)`` — Batch インポートエラー
@@ -44,8 +48,6 @@ from ...database.db_manager import ImageDatabaseManager
 from ...services.service_container import ServiceContainer
 from ...utils.log import logger
 from ..services.worker_service import WorkerService
-from ..state.dataset_state import DatasetStateManager
-from ..state.staging_state import StagingStateManager
 from ..widgets.provider_batch_job_widget import ProviderBatchJobWidget
 
 
@@ -67,27 +69,20 @@ class JobsTabWidget(QWidget):
         *,
         service_container: ServiceContainer,
         db_manager: ImageDatabaseManager | None,
-        dataset_state_manager: DatasetStateManager | None,
-        staging_state_manager: StagingStateManager | None,
         worker_service: WorkerService | None,
         parent: QWidget | None = None,
     ) -> None:
         """ジョブタブを初期化する。
 
         Args:
-            service_container: provider_batch_workflow_service / provider_batch_repo /
-                annotator_library / model_repo の供給元。
-            db_manager: provider_batch_repo / model_repo へのアクセス元。
-            dataset_state_manager: ステージング import 用の選択 SSoT。
-            staging_state_manager: Annotate タブと共有するステージング集合 (ADR 0074)。
+            service_container: provider_batch_workflow_service / provider_batch_repo の供給元。
+            db_manager: provider_batch_repo へのアクセス元。
             worker_service: 同期ジョブ台帳 (ADR 0066) / Batch インポート worker driver。
             parent: 親ウィジェット。
         """
         super().__init__(parent)
         self._service_container = service_container
         self._db_manager = db_manager
-        self._dataset_state_manager = dataset_state_manager
-        self._staging_state_manager = staging_state_manager
         self._worker_service = worker_service
 
         layout = QVBoxLayout(self)
@@ -103,20 +98,12 @@ class JobsTabWidget(QWidget):
     # -- 初期化: widget 依存注入 ----------------------------------------------
 
     def _setup_widget(self) -> None:
-        """ProviderBatchJobWidget へサービス・状態管理を注入する。"""
+        """ProviderBatchJobWidget へ監視用サービスを注入する (ADR 0076 §3 — 監視専用)。"""
         widget = self._provider_batch_job_widget
-        if self._dataset_state_manager is not None:
-            widget.set_dataset_state_manager(self._dataset_state_manager)
         widget.set_dependencies(
             workflow_service=self._service_container.provider_batch_workflow_service,
             repository=self._service_container.db_manager.provider_batch_repo,
-            model_source=self._service_container.annotator_library,
-            model_repository=self._service_container.db_manager.model_repo,
         )
-        # 共有 SSoT を注入 (Annotate タブと同一の StagingStateManager を共有、ADR 0074)。
-        # fan-out は staging_state_manager 側で一括接続済みのため widget シグナルは繋がない。
-        if self._staging_state_manager is not None:
-            widget.set_staging_state_manager(self._staging_state_manager)
 
     def _connect_worker_signals(self) -> None:
         """WorkerService の同期ジョブ台帳 / Batch インポートシグナルを接続する。

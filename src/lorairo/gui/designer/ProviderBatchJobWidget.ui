@@ -13,7 +13,7 @@
   <property name="windowTitle">
    <string>バッチAPI</string>
   </property>
-  <layout class="QHBoxLayout" name="rootLayout">
+  <layout class="QVBoxLayout" name="rootLayout">
    <property name="spacing">
     <number>8</number>
    </property>
@@ -30,47 +30,42 @@
     <number>8</number>
    </property>
    <item>
-    <widget class="QSplitter" name="splitterMain">
+    <widget class="QSplitter" name="splitterRight">
      <property name="orientation">
-      <enum>Qt::Orientation::Horizontal</enum>
+      <enum>Qt::Orientation::Vertical</enum>
      </property>
      <property name="childrenCollapsible">
       <bool>false</bool>
      </property>
-     <widget class="QWidget" name="leftContainer" native="true">
-      <property name="sizePolicy">
-       <sizepolicy hsizetype="Preferred" vsizetype="Expanding">
-        <horstretch>1</horstretch>
-        <verstretch>0</verstretch>
-       </sizepolicy>
+     <widget class="QGroupBox" name="groupBoxStatus">
+      <property name="title">
+       <string>バッチジョブ状態</string>
       </property>
-      <layout class="QVBoxLayout" name="leftLayout">
-       <property name="leftMargin">
-        <number>0</number>
-       </property>
-       <property name="topMargin">
-        <number>0</number>
-       </property>
-       <property name="rightMargin">
-        <number>0</number>
-       </property>
-       <property name="bottomMargin">
-        <number>0</number>
-       </property>
+      <layout class="QVBoxLayout" name="statusLayout">
        <item>
-        <widget class="StagingWidget" name="stagingWidget" native="true">
-         <property name="sizePolicy">
-          <sizepolicy hsizetype="Expanding" vsizetype="Expanding">
-           <horstretch>1</horstretch>
-           <verstretch>1</verstretch>
-          </sizepolicy>
-         </property>
-        </widget>
-       </item>
-       <item>
-        <layout class="QHBoxLayout" name="stagingButtonsLayout">
+        <layout class="QHBoxLayout" name="jobButtonsLayout">
+        <item>
+          <widget class="QPushButton" name="buttonRefreshStatus">
+           <property name="text">
+            <string>状態を確認</string>
+           </property>
+           <property name="objectName">
+            <string>buttonProviderBatchRefreshStatus</string>
+           </property>
+          </widget>
+         </item>
          <item>
-          <spacer name="horizontalSpacerStaging">
+          <widget class="QPushButton" name="buttonCancel">
+           <property name="text">
+            <string>キャンセル</string>
+           </property>
+           <property name="objectName">
+            <string>buttonProviderBatchCancel</string>
+           </property>
+          </widget>
+         </item>
+         <item>
+          <spacer name="horizontalSpacerJobButtons">
            <property name="orientation">
             <enum>Qt::Orientation::Horizontal</enum>
            </property>
@@ -82,288 +77,101 @@
            </property>
           </spacer>
          </item>
+        </layout>
+       </item>
+       <item>
+        <widget class="QTableWidget" name="tableJobs">
+         <property name="objectName">
+          <string>tableProviderBatchJobs</string>
+         </property>
+        </widget>
+       </item>
+       <item>
+        <layout class="QHBoxLayout" name="detailRow">
          <item>
-          <widget class="QPushButton" name="buttonAddSelected">
-           <property name="text">
-            <string>選択を追加</string>
+          <widget class="QGroupBox" name="groupBoxDetail">
+           <property name="title">
+            <string>詳細</string>
            </property>
-           <property name="objectName">
-            <string>buttonProviderBatchAddSelected</string>
+           <layout class="QVBoxLayout" name="detailLayout">
+            <item>
+             <widget class="QTextEdit" name="textEditJobDetail">
+              <property name="readOnly">
+               <bool>true</bool>
+              </property>
+              <property name="objectName">
+               <string>textEditProviderBatchJobDetail</string>
+              </property>
+             </widget>
+            </item>
+           </layout>
+          </widget>
+         </item>
+         <item>
+          <widget class="QGroupBox" name="groupBoxItems">
+           <property name="title">
+            <string>項目</string>
            </property>
+           <layout class="QVBoxLayout" name="itemsLayout">
+            <item>
+             <layout class="QHBoxLayout" name="itemFilterLayout">
+              <item>
+               <widget class="QLabel" name="labelItemStatus">
+                <property name="text">
+                 <string>状態</string>
+                </property>
+               </widget>
+              </item>
+              <item>
+               <widget class="QComboBox" name="comboBoxItemStatus">
+                <property name="objectName">
+                 <string>comboBoxProviderBatchItemStatus</string>
+                </property>
+               </widget>
+              </item>
+              <item>
+               <spacer name="horizontalSpacerItemFilter">
+                <property name="orientation">
+                 <enum>Qt::Orientation::Horizontal</enum>
+                </property>
+                <property name="sizeHint" stdset="0">
+                 <size>
+                  <width>40</width>
+                  <height>20</height>
+                 </size>
+                </property>
+               </spacer>
+              </item>
+             </layout>
+            </item>
+            <item>
+             <widget class="QTableWidget" name="tableItems">
+              <property name="objectName">
+               <string>tableProviderBatchItems</string>
+              </property>
+             </widget>
+            </item>
+           </layout>
           </widget>
          </item>
         </layout>
        </item>
-       <item>
-        <widget class="QLabel" name="labelStatus">
-         <property name="text">
-          <string>Ready</string>
-         </property>
-         <property name="objectName">
-          <string>labelProviderBatchStatus</string>
-         </property>
-        </widget>
-       </item>
       </layout>
      </widget>
-     <widget class="QSplitter" name="splitterRight">
-      <property name="orientation">
-       <enum>Qt::Orientation::Vertical</enum>
-      </property>
-      <property name="childrenCollapsible">
-       <bool>false</bool>
-      </property>
-      <widget class="QGroupBox" name="groupBoxExecution">
-       <property name="title">
-        <string>実行設定</string>
-       </property>
-       <layout class="QVBoxLayout" name="executionLayout">
-        <item>
-         <widget class="QLabel" name="labelTarget">
-          <property name="text">
-           <string>◎ ステージング: 0 枚</string>
-          </property>
-         </widget>
-        </item>
-        <item>
-         <layout class="QHBoxLayout" name="taskTypeLayout">
-          <item>
-           <widget class="QLabel" name="labelTaskType">
-            <property name="text">
-             <string>タスク</string>
-            </property>
-           </widget>
-          </item>
-          <item>
-           <widget class="QComboBox" name="comboBoxTaskType">
-            <property name="objectName">
-             <string>comboBoxProviderBatchTaskType</string>
-            </property>
-           </widget>
-          </item>
-          <item>
-           <spacer name="horizontalSpacerTaskType">
-            <property name="orientation">
-             <enum>Qt::Orientation::Horizontal</enum>
-            </property>
-            <property name="sizeHint" stdset="0">
-             <size>
-              <width>40</width>
-              <height>20</height>
-             </size>
-            </property>
-           </spacer>
-          </item>
-         </layout>
-        </item>
-        <item>
-         <widget class="QWidget" name="modelSelectionPlaceholder" native="true">
-          <property name="sizePolicy">
-           <sizepolicy hsizetype="Expanding" vsizetype="Expanding">
-            <horstretch>0</horstretch>
-            <verstretch>1</verstretch>
-           </sizepolicy>
-          </property>
-         </widget>
-        </item>
-        <item>
-         <layout class="QFormLayout" name="paramsLayout">
-          <item row="0" column="0">
-           <widget class="QLabel" name="labelPromptProfile">
-            <property name="text">
-             <string>プロンプト</string>
-            </property>
-           </widget>
-          </item>
-          <item row="0" column="1">
-           <widget class="QLineEdit" name="lineEditPromptProfile">
-            <property name="text">
-             <string>default</string>
-            </property>
-            <property name="objectName">
-             <string>lineEditProviderBatchPromptProfile</string>
-            </property>
-           </widget>
-          </item>
-          <item row="1" column="0">
-           <widget class="QLabel" name="labelDescription">
-            <property name="text">
-             <string>説明</string>
-            </property>
-           </widget>
-          </item>
-          <item row="1" column="1">
-           <widget class="QLineEdit" name="lineEditDescription">
-            <property name="objectName">
-             <string>lineEditProviderBatchDescription</string>
-            </property>
-           </widget>
-          </item>
-         </layout>
-        </item>
-        <item>
-         <layout class="QHBoxLayout" name="submitLayout">
-          <item>
-           <spacer name="horizontalSpacerSubmit">
-            <property name="orientation">
-             <enum>Qt::Orientation::Horizontal</enum>
-            </property>
-            <property name="sizeHint" stdset="0">
-             <size>
-              <width>40</width>
-              <height>20</height>
-             </size>
-            </property>
-           </spacer>
-          </item>
-          <item>
-           <widget class="QPushButton" name="buttonSubmit">
-            <property name="text">
-             <string>送信</string>
-            </property>
-            <property name="objectName">
-             <string>buttonProviderBatchSubmit</string>
-            </property>
-           </widget>
-          </item>
-         </layout>
-        </item>
-       </layout>
-      </widget>
-      <widget class="QGroupBox" name="groupBoxStatus">
-       <property name="title">
-        <string>バッチジョブ状態</string>
-       </property>
-       <layout class="QVBoxLayout" name="statusLayout">
-        <item>
-         <layout class="QHBoxLayout" name="jobButtonsLayout">
-         <item>
-           <widget class="QPushButton" name="buttonRefreshStatus">
-            <property name="text">
-             <string>状態を確認</string>
-            </property>
-            <property name="objectName">
-             <string>buttonProviderBatchRefreshStatus</string>
-            </property>
-           </widget>
-          </item>
-          <item>
-           <widget class="QPushButton" name="buttonCancel">
-            <property name="text">
-             <string>キャンセル</string>
-            </property>
-            <property name="objectName">
-             <string>buttonProviderBatchCancel</string>
-            </property>
-           </widget>
-          </item>
-          <item>
-           <spacer name="horizontalSpacerJobButtons">
-            <property name="orientation">
-             <enum>Qt::Orientation::Horizontal</enum>
-            </property>
-            <property name="sizeHint" stdset="0">
-             <size>
-              <width>40</width>
-              <height>20</height>
-             </size>
-            </property>
-           </spacer>
-          </item>
-         </layout>
-        </item>
-        <item>
-         <widget class="QTableWidget" name="tableJobs">
-          <property name="objectName">
-           <string>tableProviderBatchJobs</string>
-          </property>
-         </widget>
-        </item>
-        <item>
-         <layout class="QHBoxLayout" name="detailRow">
-          <item>
-           <widget class="QGroupBox" name="groupBoxDetail">
-            <property name="title">
-             <string>詳細</string>
-            </property>
-            <layout class="QVBoxLayout" name="detailLayout">
-             <item>
-              <widget class="QTextEdit" name="textEditJobDetail">
-               <property name="readOnly">
-                <bool>true</bool>
-               </property>
-               <property name="objectName">
-                <string>textEditProviderBatchJobDetail</string>
-               </property>
-              </widget>
-             </item>
-            </layout>
-           </widget>
-          </item>
-          <item>
-           <widget class="QGroupBox" name="groupBoxItems">
-            <property name="title">
-             <string>項目</string>
-            </property>
-            <layout class="QVBoxLayout" name="itemsLayout">
-             <item>
-              <layout class="QHBoxLayout" name="itemFilterLayout">
-               <item>
-                <widget class="QLabel" name="labelItemStatus">
-                 <property name="text">
-                  <string>状態</string>
-                 </property>
-                </widget>
-               </item>
-               <item>
-                <widget class="QComboBox" name="comboBoxItemStatus">
-                 <property name="objectName">
-                  <string>comboBoxProviderBatchItemStatus</string>
-                 </property>
-                </widget>
-               </item>
-               <item>
-                <spacer name="horizontalSpacerItemFilter">
-                 <property name="orientation">
-                  <enum>Qt::Orientation::Horizontal</enum>
-                 </property>
-                 <property name="sizeHint" stdset="0">
-                  <size>
-                   <width>40</width>
-                   <height>20</height>
-                  </size>
-                 </property>
-                </spacer>
-               </item>
-              </layout>
-             </item>
-             <item>
-              <widget class="QTableWidget" name="tableItems">
-               <property name="objectName">
-                <string>tableProviderBatchItems</string>
-               </property>
-              </widget>
-             </item>
-            </layout>
-           </widget>
-          </item>
-         </layout>
-        </item>
-       </layout>
-      </widget>
-     </widget>
+    </widget>
+   </item>
+   <item>
+    <widget class="QLabel" name="labelStatus">
+     <property name="text">
+      <string>Ready</string>
+     </property>
+     <property name="objectName">
+      <string>labelProviderBatchStatus</string>
+     </property>
     </widget>
    </item>
   </layout>
  </widget>
- <customwidgets>
-  <customwidget>
-   <class>StagingWidget</class>
-   <extends>QWidget</extends>
-   <header>lorairo/gui/widgets/staging_widget.h</header>
-   <container>0</container>
-  </customwidget>
- </customwidgets>
  <resources />
  <connections />
 </ui>
