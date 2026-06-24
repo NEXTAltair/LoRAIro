@@ -75,3 +75,4 @@
 * [Qt implementation strategy for DS parts without Qt equivalents](0073-missing-ds-parts-qt-strategy.md)
 * [ステージング集合の SSoT を StagingStateManager へ hoist](0074-staging-state-manager-hoist.md)
 * [アノテーションパイプライン構成 (選択モデル × アノテーション種類) のドメインモデル](0075-annotation-pipeline-composition-domain-model.md)
+* [Submit を Annotate の dispatch 射影へ移し Jobs を純粋な監視台帳にする](0076-submit-relocation-annotate-dispatch-projection.md)
