@@ -8,7 +8,6 @@ tags: []
 # ADR 0066: Unified Jobs Lifecycle View
 
 - **関連**: ADR 0034 (Worker / Operation / Pipeline Lifecycle Boundary), ADR 0038 (Provider Batch API Integration), ADR 0041 (Provider Batch 実行 UI 統一), ADR 0044 (Provider Batch Submit Threading)
-- **追補**: ADR 0076 (Proposed) — Jobs は作成入口 (submit) を持たない純粋な監視台帳とし、submit 面の所在を Annotate の dispatch 射影へ確定する。lifecycle 状態・キューの実セマンティクスは不変。
 
 ## Context
 

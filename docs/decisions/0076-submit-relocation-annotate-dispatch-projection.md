@@ -8,7 +8,10 @@ tags: [gui, annotation, jobs, provider-batch, state]
 # ADR 0076: Submit を Annotate の dispatch 射影へ移し Jobs を純粋な監視台帳にする
 
 - **関連 Issue**: #884 (モデル選択 state の hoist / 複数→単一射影), #867 (epic: MainWindow 分解), #874 (JobsTabWidget 抽出)
-- **一部改訂対象**: ADR 0041 (Provider Batch 実行 UI 統一) — submit のレイアウト条項を relocation, ADR 0066 (Unified Jobs Lifecycle View) — Jobs に submit 入口を持たせない旨を追補
+- **一部改訂対象** (back-ref / 本体改定は本 ADR の Accept と同一コミットで適用する。ADR 0060 の前例に倣い、Proposed の間は確定済み ADR を編集しない):
+  - ADR 0041 (Provider Batch 実行 UI 統一) — §1 統一レイアウトの submit 条項を relocation
+  - ADR 0066 (Unified Jobs Lifecycle View) — Jobs に submit (作成) 入口を持たせない旨を追補
+  - ADR 0075 (アノテーションパイプライン構成ドメインモデル) — 選択モデル集合 (SSoT) の所在を `ModelSelectionWidget` checkbox state から `gui/state/` の選択 state manager へ移す (#884 hoist)。SSoT が「選択モデル集合」である定義自体は不変
 - **関連 ADR**: 0030 (Batch Annotation Model Selection UI), 0034 (Worker / Operation / Pipeline Lifecycle Boundary), 0038 (Provider Batch API Integration Strategy), 0070 (OpenAI Moderation WebAPI Preflight), 0074 (StagingStateManager hoist), 0075 (アノテーションパイプライン構成ドメインモデル)
 
 ## Context
@@ -49,15 +52,17 @@ ADR 0041 が却下したのは「暗黙の fan-out + 隠れコスト」である
 ### 3. 第2ピッカーの撤去と state hoist
 
 - Jobs 側 (`provider_batch_job_widget.py`) の `ModelSelectionWidget` (単一選択) と Submit 導線を撤去する。
-- モデル選択 state を `gui/state/` へ hoist する (#884, ADR 0074 の `StagingStateManager` に倣う)。canonical = 選択モデル集合。Annotate はこれを購読する唯一の view。Jobs は購読しない (監視のみ)。
-- batch-capable フィルタ判定 (現 `ModelSelectionWidget` 内, ADR 0041 §B で移設済) は**削除せず射影レイヤへ転用**する。第2ピッカー撤去後も dispatch 射影がこの helper を要する。
+- **撤去の前提条件**: Jobs の task-type combo + Submit は、現状 manual `task_type = "rating_preflight"` batch を作成できる**唯一の GUI 導線**でもある。ADR 0070 は manual rating_preflight batch を「残す」立場 (line 30) なので、Jobs submit を撤去する前に **Annotate 側に manual rating_preflight の作成口を用意する** (例: Annotate の RATING ステージ / 実行詳細設定で `omni-moderation` を batch dispatch する経路)。代替導線が無いまま Jobs submit を消すと manual moderation preflight 作成能力が GUI から失われるため、これを撤去の受け入れ条件とする。
+- モデル選択 state を `gui/state/` へ hoist する (#884, ADR 0074 の `StagingStateManager` に倣う)。canonical = 選択モデル集合。Annotate はこれを購読する唯一の view。Jobs は購読しない (監視のみ)。**これは ADR 0075 の「SSoT = 選択モデル集合」の *所在* を `ModelSelectionWidget` checkbox state から `gui/state/` の選択 state manager へ移す改定であり、0075 を改定対象に含める** (本 ADR Accept と同一コミットで back-ref 適用)。
+- batch-capable フィルタ判定の SSoT は **Qt-free service `lorairo.services.provider_batch_capability`** (`direct_provider_for_model` / `model_supports_task_type` / `endpoint_for_task` / `litellm_id_from_batch_model`) であり、両 GUI widget は既にこれを import している。dispatch 射影レイヤも **この Qt-free helper を再利用**する。`ModelSelectionWidget` の Qt 依存メソッドへ依存させたり判定を再実装したりしない (provider/task ルール — OpenAI annotation・moderation 除外等 — の drift を防ぐ)。
 
-## ADR 0041 / 0066 への影響
+## ADR 0041 / 0066 / 0075 への影響
 
 - **ADR 0041**: §1 統一レイアウトの「右上に単一選択ピッカー + Submit」条項を relocation する。staging = 共通対象集合 (ADR 0074) と「1 submit = 1 model」不変条件は不変。submit の **置き場**のみが Jobs タブから Annotate の dispatch 射影へ移る。
-- **ADR 0066**: 「Jobs = lifecycle 台帳」は不変。本 ADR は「Jobs は作成入口 (submit) を持たない」を明文化し、submit 面の所在を Annotate に確定する追補である。lifecycle 状態 (実行中/キュー/履歴)・キューの実セマンティクス (GPU 直列 / API 並列) は不変。
+- **ADR 0066**: 「Jobs = lifecycle 台帳」は不変。本 ADR は「Jobs は作成 (submit) 入口を持たない」を明文化し、submit 面の所在を Annotate に確定する追補である。lifecycle / recovery 操作 (状態を確認・キャンセル・fetch・import) は保持し、lifecycle 状態・キューの実セマンティクス (GPU 直列 / API 並列) は不変。
+- **ADR 0075**: 「SSoT = 選択モデル集合」という定義は不変。SSoT の *所在* を `ModelSelectionWidget` checkbox state から `gui/state/` の選択 state manager へ移す改定 (#884 hoist)。これを明示しないと「checkbox が SSoT」「gui/state/ が SSoT」の 2 つの確定済み記述が競合し、実装者が hoist を見落とす。
 
-両 ADR は Status を Accepted のまま、責務の所在のみ更新される。
+3 ADR は Status を Accepted のまま、責務 / 所在のみ更新される。**back-ref / 本体改定は本 ADR の Accept 昇格と同一コミットで適用し、Proposed の間は確定済み ADR (0041 / 0066 / 0075) を編集しない** (ADR 0060 の前例に倣う)。生成物 (`docs/decisions/README.md` / `index.md`) も同コミットで `make adr-index` 再生成し、Proposed の間は本 ADR を index へ載せない。
 
 ## Rationale
 

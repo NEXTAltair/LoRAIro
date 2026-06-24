@@ -85,7 +85,6 @@ ADR は OKF (Open Knowledge Format) バンドルとして管理する。各 ADR 
 | [0073](0073-missing-ds-parts-qt-strategy.md) | Qt implementation strategy for DS parts without Qt equivalents | 2026-06-20 | Accepted |
 | [0074](0074-staging-state-manager-hoist.md) | ステージング集合の SSoT を StagingStateManager へ hoist | 2026-06-22 | Accepted |
 | [0075](0075-annotation-pipeline-composition-domain-model.md) | アノテーションパイプライン構成 (選択モデル × アノテーション種類) のドメインモデル | 2026-06-23 | Accepted |
-| [0076](0076-submit-relocation-annotate-dispatch-projection.md) | Submit を Annotate の dispatch 射影へ移し Jobs を純粋な監視台帳にする | 2026-06-24 | Proposed |
 <!-- OKF-TABLE:END -->
 
 ## ADR テンプレート
