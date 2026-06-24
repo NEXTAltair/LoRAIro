@@ -26,27 +26,22 @@ from lorairo.services.batch_import_service import BatchImportResult
 
 
 class _FakeProviderBatchJobWidget(QWidget):
-    """ProviderBatchJobWidget の軽量スタブ (service container 非依存)。"""
+    """ProviderBatchJobWidget の軽量スタブ (service container 非依存)。
+
+    ADR 0076 §3: 作成入口撤去に伴い staging / dataset 注入は持たない (監視専用)。
+    """
 
     sync_job_cancel_requested = Signal(str)
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
-        self.dataset_state_manager: object | None = None
-        self.staging_state_manager: object | None = None
         self.job_ledger: object | None = None
         self.dependencies: dict[str, object] = {}
         self.refresh_jobs_calls = 0
         self.refresh_sync_jobs_calls = 0
 
-    def set_dataset_state_manager(self, manager: object) -> None:
-        self.dataset_state_manager = manager
-
     def set_dependencies(self, **kwargs: object) -> None:
         self.dependencies = kwargs
-
-    def set_staging_state_manager(self, manager: object) -> None:
-        self.staging_state_manager = manager
 
     def set_job_ledger(self, job_ledger: object) -> None:
         self.job_ledger = job_ledger
@@ -84,8 +79,6 @@ def tab(qtbot, service_container: Mock, worker_service: MagicMock) -> JobsTabWid
     widget = JobsTabWidget(
         service_container=service_container,
         db_manager=Mock(),
-        dataset_state_manager=Mock(),
-        staging_state_manager=Mock(),
         worker_service=worker_service,
     )
     qtbot.addWidget(widget)
@@ -106,15 +99,16 @@ def test_di_forwarded_to_inner_widget(
     tab: JobsTabWidget,
     service_container: Mock,
 ) -> None:
-    """dataset/staging/job_ledger と service 依存を内部 widget へ転送する。"""
+    """job_ledger と監視用 service 依存を内部 widget へ転送する (ADR 0076 §3)。
+
+    作成入口撤去に伴い staging / dataset / model_source / model_repository は転送しない。
+    """
     inner = tab.provider_batch_job_widget
-    assert inner.dataset_state_manager is tab._dataset_state_manager
-    assert inner.staging_state_manager is tab._staging_state_manager
     assert inner.job_ledger is tab._worker_service.job_ledger
     assert inner.dependencies["workflow_service"] is (service_container.provider_batch_workflow_service)
     assert inner.dependencies["repository"] is service_container.db_manager.provider_batch_repo
-    assert inner.dependencies["model_source"] is service_container.annotator_library
-    assert inner.dependencies["model_repository"] is service_container.db_manager.model_repo
+    assert "model_source" not in inner.dependencies
+    assert "model_repository" not in inner.dependencies
 
 
 @pytest.mark.gui
@@ -134,8 +128,6 @@ def test_construction_safe_without_worker_service(qtbot, service_container: Mock
     widget = JobsTabWidget(
         service_container=service_container,
         db_manager=Mock(),
-        dataset_state_manager=None,
-        staging_state_manager=None,
         worker_service=None,
     )
     qtbot.addWidget(widget)
@@ -224,8 +216,6 @@ def test_start_batch_import_no_worker_service_warns(qtbot, service_container: Mo
     widget = JobsTabWidget(
         service_container=service_container,
         db_manager=Mock(),
-        dataset_state_manager=None,
-        staging_state_manager=None,
         worker_service=None,
     )
     qtbot.addWidget(widget)

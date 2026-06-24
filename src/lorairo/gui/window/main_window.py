@@ -485,9 +485,10 @@ class MainWindow(QMainWindow, Ui_MainWindow):
         """ジョブタブに JobsTabWidget を埋め込む (Epic #867 / #874)。
 
         Wireframes v11 ナビ順（検索 / マップ / アノテーション / ジョブ / 結果 / エラー）
-        に従い、結果タブ (tabResults) の直前へ挿入する。Provider Batch ジョブの投入・
+        に従い、結果タブ (tabResults) の直前へ挿入する。Provider Batch ジョブの
         監視・キャンセル・同期ジョブ台帳・Batch API 結果インポートを JobsTabWidget が
-        所有する。MainWindow は配置 + サービス注入 + 共有サービスへの橋渡し (glue) だけを残す。
+        所有する (ADR 0076 §3: 作成入口は Annotate へ移管済み)。MainWindow は配置 +
+        サービス注入 + 共有サービスへの橋渡し (glue) だけを残す。
 
         ジョブタブは必須機能ではないため、構築失敗時は graceful degradation
         (jobs_tab=None) とし、検索タブのような致命的終了はしない。
@@ -501,8 +502,6 @@ class MainWindow(QMainWindow, Ui_MainWindow):
             widget = JobsTabWidget(
                 service_container=self.service_container,
                 db_manager=self.db_manager,
-                dataset_state_manager=self.dataset_state_manager,
-                staging_state_manager=self.staging_state_manager,
                 worker_service=self.worker_service,
                 parent=self.tabWidgetMainMode,
             )

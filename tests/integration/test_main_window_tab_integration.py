@@ -297,21 +297,13 @@ class TestTabSwitching:
 
         assert tab_widget.currentWidget() is window.jobs_tab
 
-    def test_provider_batch_shares_batch_tag_staging(self, main_window_with_tabs):
-        """通常アノテーションとバッチAPIは同じステージング状態を共有する。"""
-        batch_staging = main_window_with_tabs.annotate_tab.batch_tag_add_widget.get_staging_widget()
-        provider_staging = main_window_with_tabs.jobs_tab.provider_batch_job_widget.get_staging_widget()
-
-        assert provider_staging.get_staged_items() is batch_staging.get_staged_items()
-
-    def test_provider_batch_model_selection_widget_is_injected(self, main_window_with_tabs):
-        """バッチAPIのモデル選択 placeholder は実 widget に置換されている。"""
+    def test_provider_batch_is_monitor_only(self, main_window_with_tabs):
+        """ジョブタブは監視専用で、作成入口 (ステージング / モデルピッカー) を持たない (ADR 0076 §3)。"""
         provider_widget = main_window_with_tabs.jobs_tab.provider_batch_job_widget
-        model_selection = provider_widget.get_model_selection_widget()
 
-        assert model_selection.objectName() == "providerBatchModelSelection"
-        assert provider_widget.modelSelectionPlaceholder.parent() is None
-        assert provider_widget.executionLayout.indexOf(model_selection) != -1
+        assert not hasattr(provider_widget, "get_staging_widget")
+        assert not hasattr(provider_widget, "get_model_selection_widget")
+        assert not hasattr(provider_widget, "buttonSubmit")
 
     def test_navigate_menu_actions_for_all_tabs(self, main_window_with_tabs):
         """「移動」メニューに Ctrl+1〜N 付きアクションがタブ数分登録される"""
