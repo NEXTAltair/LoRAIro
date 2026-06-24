@@ -86,5 +86,5 @@ class ModelSelectionStateManager(QObject):
         if not self._selected:
             return
         self._selected.clear()
-        logger.info("選択モデル集合をクリア")
+        logger.debug("選択モデル集合をクリア")
         self.selection_changed.emit([])

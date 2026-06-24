@@ -768,3 +768,28 @@ def test_state_manager_change_updates_getter(
     # manager が SSoT なので getter は manager から読む
     state_manager.set_selected(["openai/gpt-4o"])
     assert widget.selected_litellm_model_ids() == ["openai/gpt-4o"]
+
+
+@pytest.mark.gui
+def test_state_manager_change_reflects_to_widget_view(
+    qtbot: object,
+    annotate_tab_with_state: tuple[AnnotateTabWidget, ModelSelectionStateManager],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """state manager の変更が ModelSelectionWidget (view) の set_selected_models に伝播する。
+
+    _on_state_model_selection_changed が no-op になっても getter 経路では検出できないため、
+    widget.batch_model_selection.set_selected_models を spy してコール引数を直接検証する。
+    """
+    widget, state_manager = annotate_tab_with_state
+    calls: list[list[str]] = []
+    original = widget.batch_model_selection.set_selected_models
+    monkeypatch.setattr(
+        widget.batch_model_selection,
+        "set_selected_models",
+        lambda ids: (calls.append(list(ids)), original(ids)),
+    )
+
+    state_manager.set_selected(["openai/gpt-4o"])
+
+    assert calls == [["openai/gpt-4o"]]
