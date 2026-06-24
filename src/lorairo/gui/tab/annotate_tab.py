@@ -395,6 +395,24 @@ class AnnotateTabWidget(QWidget, Ui_AnnotateTab):
 
     # -- 実行系 getter (MainWindow.start_annotation が読む) --------------------
 
+    def _sync_widget_selection_to_state(self) -> None:
+        """widget の programmatic な選択変更を state manager (SSoT) へ反映する (#884)。
+
+        ``ModelCheckboxWidget.set_selected`` / ``ModelSelectionWidget.set_selected_models``
+        は checkbox signal を抑制するため ``model_selection_changed`` 経由の同期
+        (:meth:`_on_widget_model_selection_changed`) が走らない。picker / preset / × など
+        の programmatic 変更後に本メソッドで checkbox の ground-truth を SSoT へ押し出す。
+        """
+        if self._model_selection_state_manager is None or self._syncing_model_selection:
+            return
+        self._syncing_model_selection = True
+        try:
+            self._model_selection_state_manager.set_selected(
+                self._batch_model_selection.get_selected_models()
+            )
+        finally:
+            self._syncing_model_selection = False
+
     def _on_widget_model_selection_changed(self, litellm_model_ids: list[str]) -> None:
         """ModelSelectionWidget の選択変化を state manager (SSoT) へ反映する (#884)。
 
@@ -476,6 +494,7 @@ class AnnotateTabWidget(QWidget, Ui_AnnotateTab):
         # プリセットに対応する litellm_model_id を絞り込んで一括セット
         preset_ids = self._filter_model_ids_for_preset(preset_id, all_infos)
         self._batch_model_selection.set_selected_models(preset_ids)
+        self._sync_widget_selection_to_state()
 
         # アクティブプリセット表示を同期 (Signal emit なし)
         self._pipeline_stage_table.set_active_preset(preset_id)
@@ -694,6 +713,7 @@ class AnnotateTabWidget(QWidget, Ui_AnnotateTab):
                 logger.warning(f"チェックボックス未表示のため追加をスキップ: {litellm_model_id}")
                 continue
             checkbox_widget.set_selected(True)
+        self._sync_widget_selection_to_state()
         self._refresh_pipeline_panel()
 
     def _on_pipeline_remove_model_requested(self, stage_value: str, litellm_model_id: str) -> None:
@@ -710,6 +730,7 @@ class AnnotateTabWidget(QWidget, Ui_AnnotateTab):
             logger.warning(f"チェックボックス未表示のため除外をスキップ: {litellm_model_id}")
             return
         checkbox_widget.set_selected(False)
+        self._sync_widget_selection_to_state()
         self._refresh_pipeline_panel()
 
     def _on_picker_configure_key_requested(self, provider: str, dialog: StageModelPickerDialog) -> None:

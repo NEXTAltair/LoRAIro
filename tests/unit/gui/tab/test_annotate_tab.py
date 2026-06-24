@@ -793,3 +793,57 @@ def test_state_manager_change_reflects_to_widget_view(
     state_manager.set_selected(["openai/gpt-4o"])
 
     assert calls == [["openai/gpt-4o"]]
+
+
+@pytest.mark.gui
+def test_programmatic_widget_change_syncs_to_state(
+    qtbot: object,
+    annotate_tab_with_state: tuple[AnnotateTabWidget, ModelSelectionStateManager],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """picker/preset 等 programmatic 変更後にヘルパーが manager を widget の ground-truth へ同期する (#884)。
+
+    ``ModelCheckboxWidget.set_selected`` / ``ModelSelectionWidget.set_selected_models``
+    は checkbox signal を抑制するため、_sync_widget_selection_to_state が
+    widget の get_selected_models() を明示的に SSoT へ押し出す必要がある。
+    """
+    widget, state_manager = annotate_tab_with_state
+    monkeypatch.setattr(
+        widget.batch_model_selection, "get_selected_models", lambda: ["openai/gpt-4o", "anthropic/claude"]
+    )
+    widget._sync_widget_selection_to_state()
+    assert state_manager.get_selected() == ["openai/gpt-4o", "anthropic/claude"]
+
+
+@pytest.mark.gui
+def test_preset_selected_syncs_widget_ground_truth_to_state(
+    qtbot: object,
+    annotate_tab_with_state: tuple[AnnotateTabWidget, ModelSelectionStateManager],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """_on_pipeline_preset_selected が manager を widget の ground-truth へ同期する (#884 P1)。
+
+    preset 適用は set_selected_models (signal 抑制) で行われるため、
+    _sync_widget_selection_to_state 呼び出しがないと manager が stale になる。
+    widget.batch_model_selection.set_selected_models と get_selected_models を stub し、
+    preset 適用後に state_manager.get_selected() が stub の戻り値と一致することを検証する。
+    """
+    widget, state_manager = annotate_tab_with_state
+
+    preset_model_ids = ["wd/tagger", "openai/gpt-4o"]
+    # set_selected_models は signal を抑制するため manager 同期は _sync_widget_selection_to_state に依存
+    monkeypatch.setattr(widget.batch_model_selection, "set_selected_models", lambda ids: None)
+    monkeypatch.setattr(widget.batch_model_selection, "get_selected_models", lambda: preset_model_ids)
+    # 内部 Mock を差し替えてピュアに preset 経路のみを通す
+    widget._batch_model_selection = widget.batch_model_selection
+    widget._pipeline_stage_table = Mock()
+    widget._refresh_pipeline_panel = Mock()
+    widget._build_stage_model_infos = lambda ids: []
+    widget._filter_model_ids_for_preset = lambda pid, infos: preset_model_ids
+    service_mock = Mock()
+    service_mock.load_models.return_value = []
+    widget.batch_model_selection.model_selection_service = service_mock
+
+    widget._on_pipeline_preset_selected("default")
+
+    assert state_manager.get_selected() == preset_model_ids
