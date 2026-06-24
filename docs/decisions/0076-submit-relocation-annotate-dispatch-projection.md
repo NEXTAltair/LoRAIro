@@ -34,6 +34,7 @@ tags: [gui, annotation, jobs, provider-batch, state]
 ### 1. 役割境界: 構成は Annotate・監視は Jobs
 
 - **Annotate** = アノテーション構成の唯一の入口。選択モデル集合 (SSoT, ADR 0075)・pipeline ステージ割当・実行トリガー (同期/非同期の双方) を所有する。
+- **Annotate に明示的な dispatch mode (同期 / async Batch API) を設けるのが Jobs submit 撤去の前提条件**。現状 Annotate の `annotation_execute_requested` は `MainWindow.start_annotation()` (同期 workflow のみ) に接続され、`RunOptions` に provider-batch/async モードが無い。Jobs Submit を消す前に、Annotate 実行系へ「送信方式 = 同期 / Batch API」の選択 (run settings の dispatch mode + `RunOptions` への async 経路) を追加する。これが無いと normal `annotation` の async batch 作成経路が消える。
 - **Jobs** = 実行 lifecycle の純粋な監視台帳。実行中/キュー/履歴を表示する。操作は **lifecycle / 事故復旧系に限る**: 主操作 `状態を確認` / `キャンセル`、および ADR 0041 §7 が定める二次的な復旧操作 (`fetch` / `import` の再取得・再取り込み) は残す。Jobs から取り除くのは**作成入口 (モデルピッカー・Submit フォーム) だけ**であり、lifecycle/recovery 操作は保持する。
 
 同期と非同期は authoring (構成) の違いではなく dispatch (実行経路) の違いなので、入口は Annotate 1つでよい。
@@ -45,6 +46,7 @@ Provider Batch (async) を「Annotate の選択モデル集合からの dispatch
 - 選択モデル集合を route で分割し、batch-capable なモデル1台につき `provider_batch_jobs` を1行生成する。
 - 「1 submit = 1 model」(ADR 0041 / 0038) は**手で1つ選ばせる制約ではなく、射影の出力不変条件**として守る。`provider_batch_workflow_service.submit_images(*, litellm_model_id: str, model_id: int | None, ...) -> int` は単一モデルで1ジョブを返すため、batch-capable モデルN台をループ呼び出しすれば N 行になる (service 改変ゼロ、各呼び出しは1モデル1ジョブのまま)。
 - **射影は litellm_model_id だけでなく DB の `Model.id` (`model_id`) も各 submit に運ぶ**。`_validate_submit_task` は `task_type = "rating_preflight"` で `model_id` が `None` だと reject し、結果 import も DB model ID に依存する。射影 glue が `model_id` を省くと moderation batch が submit 前に失敗するため、選択/登録済み `Model.id` を射影の出力契約に含める。
+- **`prompt_profile` / `description` も dispatch 契約に含める**。現 `ProviderBatchJobWidget.submit_job()` は `lineEditPromptProfile` / `lineEditDescription` を読んで `submit_images(prompt_profile=..., description=...)` へ渡しており、ADR 0038 は `prompt_profile` を job metadata として扱う。Annotate dispatch がこれらを運ばないと新経路が `prompt_profile="default"` 固定 + description 欠落となり、request payload と job 監査データが変わる。Annotate 実行詳細設定 (run settings) でこの 2 値を指定し、射影出力契約に含める。
 - **moderation preflight は「送信ゲート」であって RATING 出力の派生ではない** (ADR 0070)。未評価画像に対する WebAPI 送信の事前判定 (fail-closed) なので、射影は **画像の rating / 送信可否から preflight 要否を決める**。RATING 出力ステージが選択されているか否かでは決めない (tags/caption/score のみ要求 + 未評価画像でも preflight を落とさない)。ただし ADR 0070 line 30 は **Provider Batch の自動2段オーケストレーションを対象外**とする立場なので、async batch の自動 preflight 連鎖は本 ADR では契約 (model_id 同伴・送信ゲート由来) のみ定義し、自動2段の実装は ADR 0070 の deferral を引き継ぐフォローアップとする (bulk pre-moderation の manual rating_preflight task は CLI に残る、§3 参照)。
 
 ADR 0041 が却下したのは「暗黙の fan-out + 隠れコスト」である。本案は INFERENCE LEDGER (ADR 0075) で dispatch 前に全ジョブ・全推論回数をプレビューするため、コストが暗黙に増える状況を作らない。0041 の意図を満たしたまま、選び方を「手動単一選択」から「集合の射影 + 事前プレビュー」へ置き換える。
@@ -53,10 +55,11 @@ ADR 0041 が却下したのは「暗黙の fan-out + 隠れコスト」である
 
 ### 3. 第2ピッカーの撤去と state hoist
 
-- Jobs 側 (`provider_batch_job_widget.py`) の `ModelSelectionWidget` (単一選択) と Submit 導線を撤去する。
+- Jobs 側 (`provider_batch_job_widget.py`) の submit パネルを**丸ごと**撤去する。`ModelSelectionWidget` (単一選択) と Submit 導線だけでなく、submit のためだけに存在する **staging / 対象選択コントロール (`StagingWidget` / `buttonAddSelected` 等)** も対象。これらは `submit_job` にしか供給しないので、監視専用台帳に authoring コントロールが残らないようにする。staging 集合自体は `StagingStateManager` (ADR 0074) が SSoT で、対象選択 UI は Annotate / Search 側に既にある。
 - **rating_preflight は GUI のユーザー操作にしない**。rating_preflight は「rating 情報が無い画像を WebAPI へ送って良いか確認する**自動の安全チェック**」(ADR 0070, fail-closed) であって、ユーザーが combo で選んで submit する機能ではない。現 `ProviderBatchJobWidget` の task-type combo が rating_preflight を選択肢に出しているのは内部の安全機構を誤ってユーザー操作面へ露出したものなので、Jobs submit 撤去に合わせて**この combo 露出ごと取り除く**。Annotate 側に代替の「手動 preflight 作成口」を設ける必要は無い (送信ゲートは射影が自動で挿入する)。一括 pre-moderation / 監査用の bulk rating_preflight は既に CLI (`lorairo-cli batch submit --task-type rating_preflight`) にあり、ADR 0070 が言う「manual rating_preflight task が残る」はこの CLI 経路で満たされる。
 - モデル選択 state を `gui/state/` へ hoist する (#884, ADR 0074 の `StagingStateManager` に倣う)。canonical = 選択モデル集合。Annotate はこれを購読する唯一の view。Jobs は購読しない (監視のみ)。**これは ADR 0075 の「SSoT = 選択モデル集合」の *所在* を `ModelSelectionWidget` checkbox state から `gui/state/` の選択 state manager へ移す改定であり、0075 を改定対象に含める** (本 ADR Accept と同一コミットで back-ref 適用)。
 - batch-capable フィルタ判定の SSoT は **Qt-free service `lorairo.services.provider_batch_capability`** (`direct_provider_for_model` / `model_supports_task_type` / `endpoint_for_task` / `litellm_id_from_batch_model`) であり、両 GUI widget は既にこれを import している。dispatch 射影レイヤも **この Qt-free helper を再利用**する。`ModelSelectionWidget` の Qt 依存メソッドへ依存させたり判定を再実装したりしない (provider/task ルール — OpenAI annotation・moderation 除外等 — の drift を防ぐ)。
+- **batch 適格性 = library discovery ∩ helper 判定**。`provider_batch_capability` の helper は provider/task ルールのみを検査するため、これだけでは batch 適格を証明できない。現 picker は **まず `model_source.list_batch_capable_models()` (image-annotator-lib の discovery、ADR 0038 が batch eligibility の SSoT) を列挙してから** helper を当てている。射影も同様に、**選択モデルを `list_batch_capable_models()` の discovery 結果と intersect** したうえで helper を適用する。これを怠ると、discovery が意図的に除外した direct OpenAI/Anthropic モデルを submit してしまう。
 
 ## ADR 0041 / 0066 / 0075 への影響
 
@@ -64,7 +67,9 @@ ADR 0041 が却下したのは「暗黙の fan-out + 隠れコスト」である
 - **ADR 0066**: 「Jobs = lifecycle 台帳」は不変。本 ADR は「Jobs は作成 (submit) 入口を持たない」を明文化し、submit 面の所在を Annotate に確定する追補である。lifecycle / recovery 操作 (状態を確認・キャンセル・fetch・import) は保持し、lifecycle 状態・キューの実セマンティクス (GPU 直列 / API 並列) は不変。
 - **ADR 0075**: 「SSoT = 選択モデル集合」という定義は不変。SSoT の *所在* を `ModelSelectionWidget` checkbox state から `gui/state/` の選択 state manager へ移す改定 (#884 hoist)。これを明示しないと「checkbox が SSoT」「gui/state/ が SSoT」の 2 つの確定済み記述が競合し、実装者が hoist を見落とす。
 
-3 ADR は Status を Accepted のまま、責務 / 所在のみ更新される。**back-ref / 本体改定は本 ADR の Accept 昇格と同一コミットで適用し、Proposed の間は確定済み ADR (0041 / 0066 / 0075) を編集しない** (ADR 0060 の前例に倣う)。生成物 (`docs/decisions/README.md` / `index.md`) も同コミットで `make adr-index` 再生成し、Proposed の間は本 ADR を index へ載せない。
+3 ADR は Status を Accepted のまま、責務 / 所在のみ更新される。**確定済み ADR (0041 / 0066 / 0075) 本体への back-ref / 本体改定は本 ADR の Accept 昇格と同一コミットで適用し、Proposed の間は編集しない** (ADR 0060 の前例に倣う)。
+
+ただし**本 ADR 自身の index 行 (`docs/decisions/README.md` / `index.md`) は Proposed の段階でも生成する**。`make adr-okf` の `okf_index.py --check` は status filter を持たず全 `docs/decisions` ファイルの index 整合を検査するため、0076 を index から外すと docs 検証が DRIFT で red になる。新規 ADR ファイル自身を `status: Proposed` 行として index へ載せることは確定済み ADR 本体の編集ではなく、ADR 0060 の制約 (確定済み ADR を未確定改定で書き換えない) に抵触しない。`make adr-index` で 0076 を含む index を再生成する。
 
 ## Rationale
 
