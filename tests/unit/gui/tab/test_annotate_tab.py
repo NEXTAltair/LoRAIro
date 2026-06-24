@@ -15,6 +15,7 @@ import pytest
 from PySide6.QtWidgets import QDialog
 
 from lorairo.gui.state.dataset_state import DatasetStateManager
+from lorairo.gui.state.model_selection_state import ModelSelectionStateManager
 from lorairo.gui.state.staging_state import StagingStateManager
 from lorairo.gui.tab.annotate_tab import AnnotateTabWidget
 from lorairo.gui.widgets.batch_tag_add_widget import BatchTagAddWidget
@@ -726,3 +727,44 @@ class TestFilterToModelDelegation:
     def test_model_selection_hides_internal_execution_env_combo(self, tab: AnnotateTabWidget) -> None:
         """Batch annotation ではモデル選択側の環境 Combo を操作面にしない。"""
         assert tab.batch_model_selection.executionEnvCombo.isVisible() is False
+
+
+# == 13. ModelSelectionStateManager DI + 双方向同期 (#884) =====================
+
+
+@pytest.fixture
+def annotate_tab_with_state(
+    qtbot: object, service_container: Mock, db_manager: Mock
+) -> tuple[AnnotateTabWidget, ModelSelectionStateManager]:
+    """ModelSelectionStateManager を注入した AnnotateTabWidget と manager を返す。"""
+    state_manager = ModelSelectionStateManager()
+    widget = AnnotateTabWidget(
+        service_container=service_container,
+        db_manager=db_manager,
+        staging_state_manager=None,
+        dataset_state_manager=None,
+        model_selection_state_manager=state_manager,
+    )
+    qtbot.addWidget(widget)
+    return widget, state_manager
+
+
+@pytest.mark.gui
+def test_widget_selection_propagates_to_state_manager(
+    qtbot: object, annotate_tab_with_state: tuple[AnnotateTabWidget, ModelSelectionStateManager]
+) -> None:
+    """ModelSelectionWidget の選択変化が state manager へ伝播する。"""
+    widget, state_manager = annotate_tab_with_state
+    widget.batch_model_selection.model_selection_changed.emit(["openai/gpt-4o"])
+    assert state_manager.get_selected() == ["openai/gpt-4o"]
+
+
+@pytest.mark.gui
+def test_state_manager_change_updates_getter(
+    qtbot: object, annotate_tab_with_state: tuple[AnnotateTabWidget, ModelSelectionStateManager]
+) -> None:
+    """state manager の変更が selected_litellm_model_ids() に反映される。"""
+    widget, state_manager = annotate_tab_with_state
+    # manager が SSoT なので getter は manager から読む
+    state_manager.set_selected(["openai/gpt-4o"])
+    assert widget.selected_litellm_model_ids() == ["openai/gpt-4o"]

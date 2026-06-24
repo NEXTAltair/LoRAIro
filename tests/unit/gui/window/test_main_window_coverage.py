@@ -886,5 +886,35 @@ class TestRestoreSplitterStatesOrientation:
         assert vertical.orientation() == Qt.Orientation.Vertical
 
 
+class TestModelSelectionStateManagerInit:
+    """ModelSelectionStateManager 初期化と AnnotateTab への DI 検証 (#884)。"""
+
+    def test_model_selection_state_manager_initialized(self) -> None:
+        """MainWindow が ModelSelectionStateManager を初期化する (#884)。"""
+        from unittest.mock import Mock, patch
+
+        from lorairo.gui.state.model_selection_state import ModelSelectionStateManager
+        from lorairo.gui.window.main_window import MainWindow
+
+        mock_window = Mock()
+        # RuntimeError が起きない正常系
+        MainWindow._initialize_model_selection_state_manager(mock_window)
+        assert isinstance(mock_window.model_selection_state_manager, ModelSelectionStateManager)
+
+    def test_model_selection_state_manager_init_failure_sets_none(self) -> None:
+        """ModelSelectionStateManager 初期化失敗時は None を設定する (#884)。"""
+        from unittest.mock import Mock, patch
+
+        from lorairo.gui.window.main_window import MainWindow
+
+        mock_window = Mock()
+        with patch(
+            "lorairo.gui.window.main_window.ModelSelectionStateManager",
+            side_effect=RuntimeError("init error"),
+        ):
+            MainWindow._initialize_model_selection_state_manager(mock_window)
+        assert mock_window.model_selection_state_manager is None
+
+
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])

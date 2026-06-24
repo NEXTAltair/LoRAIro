@@ -36,6 +36,7 @@ from ..services.result_handler_service import ResultHandlerService
 from ..services.tab_reorganization_service import TabReorganizationService
 from ..services.worker_service import WorkerService
 from ..state.dataset_state import DatasetStateManager
+from ..state.model_selection_state import ModelSelectionStateManager
 from ..state.staging_state import StagingStateManager
 from ..tab.annotate_tab import AnnotateTabWidget
 from ..tab.cli_tab import CliTabWidget
@@ -75,6 +76,7 @@ class MainWindow(QMainWindow, Ui_MainWindow):
     worker_service: WorkerService | None
     dataset_state_manager: DatasetStateManager | None
     staging_state_manager: StagingStateManager | None
+    model_selection_state_manager: ModelSelectionStateManager | None
 
     # Service/Controller層属性
     selection_state_service: SelectionStateService | None
@@ -227,6 +229,9 @@ class MainWindow(QMainWindow, Ui_MainWindow):
         # ステージング集合の SSoT (Annotate / Jobs タブが共有する、ADR 0074)
         self._initialize_staging_state_manager()
 
+        # 選択モデル集合の SSoT (#884, ADR 0076)
+        self._initialize_model_selection_state_manager()
+
         # DBステータス表示を現在のプロジェクトディレクトリに更新
         self._update_database_status_label()
 
@@ -247,6 +252,15 @@ class MainWindow(QMainWindow, Ui_MainWindow):
         except Exception as e:
             logger.error(f"❌ StagingStateManager初期化失敗: {e}")
             self.staging_state_manager = None
+
+    def _initialize_model_selection_state_manager(self) -> None:
+        """選択モデル集合の SSoT (ModelSelectionStateManager) を初期化する (#884, ADR 0076)。"""
+        try:
+            self.model_selection_state_manager = ModelSelectionStateManager()
+            logger.info("✅ ModelSelectionStateManager初期化成功")
+        except RuntimeError as e:
+            logger.error(f"❌ ModelSelectionStateManager初期化失敗: {e}", exc_info=True)
+            self.model_selection_state_manager = None
 
     def _update_database_status_label(self) -> None:
         """検索タブのDB状態バーを現在のプロジェクトディレクトリに合わせる。
@@ -733,6 +747,7 @@ class MainWindow(QMainWindow, Ui_MainWindow):
             db_manager=self.db_manager,
             staging_state_manager=self.staging_state_manager,
             dataset_state_manager=self.dataset_state_manager,
+            model_selection_state_manager=self.model_selection_state_manager,
             parent=container,
         )
         container.layout().addWidget(widget)
