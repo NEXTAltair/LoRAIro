@@ -1436,6 +1436,17 @@ class MainWindow(QMainWindow, Ui_MainWindow):
             )
             return
 
+        # 送信方式 (dispatch mode) 判定 (#884 Phase 2a, ADR 0076 §1)
+        # batch_api (async) は射影 service (Phase 2b) / worker 配線 (Phase 2c) が未実装のため guard。
+        if self.annotate_tab is not None and self.annotate_tab.run_options().dispatch_mode == "batch_api":
+            QMessageBox.information(
+                self,
+                "Batch API 送信",
+                "Batch API への async 送信は後続フェーズ (#884 Phase 2c) で配線予定です。\n"
+                "現在は同期実行のみ利用できます。",
+            )
+            return
+
         # アノテーションタブの選択モデルを取得 (Issue #245: litellm_model_id ベース、#868)
         selected_litellm_model_ids: list[str] = []
         if self.annotate_tab is not None:
