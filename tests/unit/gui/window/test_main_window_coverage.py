@@ -984,7 +984,9 @@ class TestDispatchAsyncBatch:
         mock_window._async_dispatch_in_progress = in_progress
         mock_window.annotate_tab.run_options.return_value = RunOptions(dispatch_mode="batch_api")
         mock_window.annotate_tab.selected_litellm_model_ids.return_value = selected
-        mock_window._get_staged_id_path_map_for_annotation.return_value = {10: "/data/p10.webp"}
+        mock_window.annotate_tab.get_staged_items.return_value = {10: ("img10", "stored/10.webp")}
+        # processed パス解決 (ADR 0064) は別メソッド。既定で解決成功を返す。
+        mock_window._resolve_processed_paths_for_batch.return_value = {10: "/data/processed/10.webp"}
 
         workflow_service = Mock()
         workflow_service.list_batch_capable_models.return_value = discovery
@@ -1064,7 +1066,7 @@ class TestDispatchAsyncBatch:
             discovery=["openai/gpt-4o"],
             model=None,
         )
-        mock_window._get_staged_id_path_map_for_annotation.return_value = {}
+        mock_window.annotate_tab.get_staged_items.return_value = {}
 
         with patch("lorairo.gui.window.main_window.QMessageBox") as mock_qmb:
             MainWindow._dispatch_async_batch(mock_window)
@@ -1087,6 +1089,104 @@ class TestDispatchAsyncBatch:
         MainWindow._dispatch_async_batch(mock_window)
 
         mock_window._start_async_dispatch_worker.assert_not_called()
+
+    def test_dry_run_skips_submission(self) -> None:
+        from unittest.mock import patch
+
+        from lorairo.gui.widgets.run_settings_dialog import RunOptions
+        from lorairo.gui.window.main_window import MainWindow
+
+        model = _StubModel(id=1, provider="openai", litellm_model_id="openai/gpt-4o")
+        mock_window = self._build_window(
+            ratings={10: "PG"},
+            selected=["openai/gpt-4o"],
+            discovery=["openai/gpt-4o"],
+            model=model,
+        )
+        mock_window.annotate_tab.run_options.return_value = RunOptions(
+            dispatch_mode="batch_api", dry_run=True
+        )
+
+        with patch("lorairo.gui.window.main_window.QMessageBox") as mock_qmb:
+            MainWindow._dispatch_async_batch(mock_window)
+            mock_qmb.information.assert_called_once()
+
+        mock_window._start_async_dispatch_worker.assert_not_called()
+
+    def test_missing_processed_paths_rejected(self) -> None:
+        # ADR 0064: processed 版が無い画像があれば dispatch しない。
+        from lorairo.gui.window.main_window import MainWindow
+
+        model = _StubModel(id=1, provider="openai", litellm_model_id="openai/gpt-4o")
+        mock_window = self._build_window(
+            ratings={10: "PG"},
+            selected=["openai/gpt-4o"],
+            discovery=["openai/gpt-4o"],
+            model=model,
+        )
+        mock_window._resolve_processed_paths_for_batch.return_value = None  # 解決失敗
+
+        MainWindow._dispatch_async_batch(mock_window)
+
+        mock_window._start_async_dispatch_worker.assert_not_called()
+
+
+class TestFinalizeSubmittedJobs:
+    """_finalize_submitted_jobs の二重送信防止テスト (#900 Codex P2)。"""
+
+    def test_finalize_clears_staging_and_refreshes_jobs(self) -> None:
+        from unittest.mock import Mock
+
+        from lorairo.gui.window.main_window import MainWindow
+
+        mock_window = Mock()
+        mock_window.staging_state_manager = Mock()
+        mock_window._async_dispatch_image_ids = [10, 11]
+        mock_window.jobs_tab = Mock()
+
+        MainWindow._finalize_submitted_jobs(mock_window, [101])
+
+        mock_window.staging_state_manager.remove_image_ids.assert_called_once_with([10, 11])
+        mock_window.jobs_tab.refresh.assert_called_once()
+
+    def test_finalize_noop_when_no_jobs(self) -> None:
+        from unittest.mock import Mock
+
+        from lorairo.gui.window.main_window import MainWindow
+
+        mock_window = Mock()
+        mock_window.staging_state_manager = Mock()
+        mock_window._async_dispatch_image_ids = [10]
+
+        MainWindow._finalize_submitted_jobs(mock_window, [])
+
+        mock_window.staging_state_manager.remove_image_ids.assert_not_called()
+
+    def test_failed_with_partial_finalizes(self) -> None:
+        from unittest.mock import Mock, patch
+
+        from lorairo.gui.window.main_window import MainWindow
+
+        mock_window = Mock()
+
+        with patch("lorairo.gui.window.main_window.QMessageBox") as mock_qmb:
+            MainWindow._on_async_dispatch_failed(mock_window, ValueError("boom"), [101])
+            mock_qmb.critical.assert_called_once()
+
+        mock_window._finalize_submitted_jobs.assert_called_once_with([101])
+
+    def test_failed_total_does_not_finalize(self) -> None:
+        from unittest.mock import Mock, patch
+
+        from lorairo.gui.window.main_window import MainWindow
+
+        mock_window = Mock()
+
+        with patch("lorairo.gui.window.main_window.QMessageBox") as mock_qmb:
+            MainWindow._on_async_dispatch_failed(mock_window, ValueError("boom"), [])
+            mock_qmb.critical.assert_called_once()
+
+        mock_window._finalize_submitted_jobs.assert_not_called()
 
 
 if __name__ == "__main__":

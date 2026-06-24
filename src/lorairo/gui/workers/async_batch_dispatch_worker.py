@@ -23,7 +23,7 @@ class AsyncBatchDispatchWorker(QObject):
     """射影 entries を provider batch job として順次 submit する worker。"""
 
     succeeded = Signal(list)  # list[int]: 生成された job_id
-    failed = Signal(object)
+    failed = Signal(object, list)  # (例外, 失敗前に送信済みの job_id list)
     finished = Signal()
 
     def __init__(self, workflow_service: Any, entries: Sequence[DispatchEntry]) -> None:
@@ -35,8 +35,9 @@ class AsyncBatchDispatchWorker(QObject):
     def run(self) -> None:
         """全 entry を submit し、生成 job_id を ``succeeded`` で通知する。
 
-        いずれかの entry で例外が出た場合は ``failed`` で送出する
-        (worker thread 境界なので全例外を marshalする、ADR 0044)。
+        いずれかの entry で例外が出た場合は、それまでに送信済みの job_id を添えて
+        ``failed`` で送出する (worker thread 境界なので全例外を marshalする、ADR 0044)。
+        部分送信済み job_id を呼び出し側へ渡すことで、再送信による重複ジョブを防ぐ。
         """
         job_ids: list[int] = []
         try:
@@ -56,6 +57,7 @@ class AsyncBatchDispatchWorker(QObject):
             self.succeeded.emit(job_ids)
         except Exception as e:
             # worker thread 境界では全例外を捕捉し GUI へ marshal する (ADR 0044)。
-            self.failed.emit(e)
+            # 部分送信済みの job_ids を添えて重複送信を防ぐ。
+            self.failed.emit(e, job_ids)
         finally:
             self.finished.emit()
