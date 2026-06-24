@@ -916,5 +916,44 @@ class TestModelSelectionStateManagerInit:
         assert mock_window.model_selection_state_manager is None
 
 
+class TestStartAnnotationDispatchMode:
+    """start_annotation の dispatch mode 分岐テスト (#884 Phase 2a, ADR 0076 §1)。"""
+
+    def test_batch_api_mode_shows_guard_and_skips_workflow(self) -> None:
+        """dispatch_mode=batch_api は guard を出し同期 workflow を起動しない。"""
+        from unittest.mock import Mock, patch
+
+        from lorairo.gui.widgets.run_settings_dialog import RunOptions
+        from lorairo.gui.window.main_window import MainWindow
+
+        mock_window = Mock()
+        mock_window.annotation_workflow_controller = Mock()
+        mock_window.annotate_tab.run_options.return_value = RunOptions(dispatch_mode="batch_api")
+
+        with patch("lorairo.gui.window.main_window.QMessageBox") as mock_qmb:
+            MainWindow.start_annotation(mock_window)
+            mock_qmb.information.assert_called_once()
+
+        mock_window.annotation_workflow_controller.start_annotation_workflow.assert_not_called()
+
+    def test_sync_mode_runs_workflow(self) -> None:
+        """dispatch_mode=sync は従来どおり同期 workflow を起動する。"""
+        from unittest.mock import Mock
+
+        from lorairo.gui.widgets.run_settings_dialog import RunOptions
+        from lorairo.gui.window.main_window import MainWindow
+
+        mock_window = Mock()
+        mock_window.annotation_workflow_controller = Mock()
+        mock_window.annotate_tab.run_options.return_value = RunOptions(dispatch_mode="sync")
+        mock_window.annotate_tab.selected_litellm_model_ids.return_value = ["openai/gpt-4o"]
+        # tabBatchTag 経路 (ステージング必須) を避けるため別 widget を currentWidget に返す
+        mock_window.tabWidgetMainMode.currentWidget.return_value = Mock()
+
+        MainWindow.start_annotation(mock_window)
+
+        mock_window.annotation_workflow_controller.start_annotation_workflow.assert_called_once()
+
+
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])
