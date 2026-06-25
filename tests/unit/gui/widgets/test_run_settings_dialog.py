@@ -86,6 +86,37 @@ class TestRunSettingsDialogDispatchMode:
         assert dialog.run_options().dispatch_mode == "batch_api"
 
 
+class TestRunSettingsDialogPromptMetadata:
+    """prompt_profile / description 入力 (#902, ADR 0076 §1)。"""
+
+    def test_prompt_profile_defaults_to_default(self, dialog):
+        assert dialog.run_options().prompt_profile == "default"
+
+    def test_description_defaults_to_none(self, dialog):
+        assert dialog.run_options().description is None
+
+    def test_prompt_profile_value_reflected(self, dialog):
+        dialog._prompt_profile.setText("photoreal-v2")
+        assert dialog.run_options().prompt_profile == "photoreal-v2"
+
+    def test_blank_prompt_profile_falls_back_to_default(self, dialog):
+        # 空入力は "default" に正規化する (射影は非空 prompt_profile を要求)。
+        dialog._prompt_profile.setText("   ")
+        assert dialog.run_options().prompt_profile == "default"
+
+    def test_description_value_reflected(self, dialog):
+        dialog._description.setText("monthly audit run")
+        assert dialog.run_options().description == "monthly audit run"
+
+    def test_blank_description_normalized_to_none(self, dialog):
+        dialog._description.setText("   ")
+        assert dialog.run_options().description is None
+
+    def test_prompt_metadata_inputs_are_enabled(self, dialog):
+        assert dialog._prompt_profile.isEnabled()
+        assert dialog._description.isEnabled()
+
+
 class TestRunSettingsDialogDisabledControls:
     def test_unimplemented_controls_are_disabled(self, dialog):
         for control in (

@@ -1573,8 +1573,8 @@ class MainWindow(QMainWindow, Ui_MainWindow):
                 batch_capable_models=batch_capable_models,
                 model_resolver=db_manager.model_repo.get_model_by_litellm_id,
                 image_ids=image_ids,
-                prompt_profile="default",
-                description=None,
+                prompt_profile=run_options.prompt_profile,
+                description=run_options.description,
                 image_paths=processed_paths,
             )
         except DispatchProjectionError as e:

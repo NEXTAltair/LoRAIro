@@ -1017,6 +1017,38 @@ class TestDispatchAsyncBatch:
         mock_window._start_async_dispatch_worker.assert_called_once()
         assert mock_window._async_dispatch_in_progress is True
 
+    def test_run_settings_prompt_profile_and_description_forwarded(self) -> None:
+        # #902: run settings の prompt_profile / description を射影へ配線する
+        # (旧: "default" / None 固定)。ADR 0076 §1。
+        from unittest.mock import patch
+
+        from lorairo.gui.widgets.run_settings_dialog import RunOptions
+        from lorairo.gui.window.main_window import MainWindow
+
+        model = _StubModel(id=1, provider="openai", litellm_model_id="openai/gpt-4o")
+        mock_window = self._build_window(
+            ratings={10: "PG"},
+            selected=["openai/gpt-4o"],
+            discovery=["openai/gpt-4o"],
+            model=model,
+        )
+        mock_window.annotate_tab.run_options.return_value = RunOptions(
+            dispatch_mode="batch_api",
+            prompt_profile="photoreal-v2",
+            description="monthly audit run",
+        )
+
+        with (
+            patch("lorairo.gui.window.main_window.QMessageBox"),
+            patch("lorairo.gui.window.main_window.project_async_batch_dispatch") as mock_project,
+        ):
+            MainWindow._dispatch_async_batch(mock_window)
+
+        mock_project.assert_called_once()
+        kwargs = mock_project.call_args.kwargs
+        assert kwargs["prompt_profile"] == "photoreal-v2"
+        assert kwargs["description"] == "monthly audit run"
+
     def test_unrated_images_rejected(self) -> None:
         from unittest.mock import patch
 
