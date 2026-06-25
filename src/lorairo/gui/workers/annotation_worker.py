@@ -11,9 +11,15 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from image_annotator_lib import PHashAnnotationResults
+from PySide6.QtCore import Signal
 
 from lorairo.annotations.annotation_logic import AnnotationLogic
 from lorairo.services.annotation_save_service import AnnotationSaveService
+from lorairo.services.job_ledger_service import (
+    StageModelInput,
+    StageProgress,
+    build_stage_progress,
+)
 from lorairo.services.model_registry_protocol import (
     ModelInfo,
     ModelRegistryServiceProtocol,
@@ -114,6 +120,9 @@ class AnnotationWorker(LoRAIroWorkerBase["AnnotationExecutionResult"]):
     - キャンセル対応
     - AnnotationLogic呼び出し
     """
+
+    # Issue #805: DS JobsScreen のステージ別 progress 用。list[StageProgress] を運ぶ。
+    stage_progress_updated = Signal(object)
 
     _OPERATION_TYPE = "annotation"
     _ERROR_TYPE_L2 = "lib_call_exception"
@@ -327,6 +336,80 @@ class AnnotationWorker(LoRAIroWorkerBase["AnnotationExecutionResult"]):
                 destination[phash] = {}
             destination[phash].update(annotations)
 
+    def _build_stage_model_inputs(self) -> list[StageModelInput]:
+        """選択モデルを registry 解決して StageModelInput 列に変換する (Issue #805)。
+
+        registry に無い litellm_model_id は capability 不明扱い (ANNOTATE ステージ) に
+        縮退する。registry 取得失敗時は空リストを返し、ステージ表示を諦める
+        (進捗本体は別途報告されるため annotation は継続)。
+
+        Returns:
+            選択順の StageModelInput リスト。
+        """
+        try:
+            model_info_list = self.model_registry.get_available_models()
+        except Exception as exc:
+            logger.warning(f"ステージ進捗用モデル情報の取得に失敗: {exc}")
+            return []
+        info_map = {(info.litellm_model_id or info.name): info for info in model_info_list}
+        inputs: list[StageModelInput] = []
+        for model_id in self.litellm_model_ids:
+            info = info_map.get(model_id)
+            # key は一意な litellm_model_id を使う (同一 info.name へ解決する別ルートを
+            # 取り違えないため、Codex P2)。表示名 model_name は重複し得る。
+            if info is None:
+                inputs.append(StageModelInput(model_id, model_id, "", [], False))
+            else:
+                inputs.append(
+                    StageModelInput(
+                        model_id, info.name, info.provider, list(info.capabilities), info.requires_api_key
+                    )
+                )
+        return inputs
+
+    def _emit_stage_progress(
+        self,
+        stage_inputs: list[StageModelInput],
+        *,
+        processed_count: int,
+        finished: bool = False,
+        completed_keys: set[str] | None = None,
+        errored_keys: set[str] | None = None,
+    ) -> None:
+        """ステージ別進捗を構築して signal で通知する (Issue #805)。"""
+        if not stage_inputs:
+            return
+        stages: list[StageProgress] = build_stage_progress(
+            stage_inputs,
+            processed_count=processed_count,
+            total_count=len(self.image_paths),
+            finished=finished,
+            completed_keys=completed_keys,
+            errored_keys=errored_keys,
+        )
+        self.stage_progress_updated.emit(stages)
+
+    @staticmethod
+    def _stage_errored_model_keys(results: PHashAnnotationResults) -> set[str]:
+        """result.error を持つモデルキー集合を返す (Issue #805 / Codex P2)。
+
+        例外を投げない L1 エラー (provider/model の result_error) を持つモデルを
+        ステージ表示で失敗扱いにするために使う。結果のモデルキーは registry key
+        SSoT (= litellm_model_id) であり ``StageModelInput.key`` と一致する。
+
+        Args:
+            results: phash → model_key → UnifiedResult のマッピング。
+
+        Returns:
+            error フィールドが立っているモデルキーの集合。
+        """
+        errored: set[str] = set()
+        for annotations in results.values():
+            for model_key, unified_result in annotations.items():
+                if AnnotationWorker._extract_field(unified_result, "error"):
+                    errored.add(model_key)
+        return errored
+
     def _run_annotation(self) -> tuple[PHashAnnotationResults, list[ModelErrorDetail]]:
         """選択モデルを一括渡ししてアノテーションを実行する。
 
@@ -344,12 +427,15 @@ class AnnotationWorker(LoRAIroWorkerBase["AnnotationExecutionResult"]):
 
         logger.debug(f"モデル一括実行開始: {total_models}モデル = {self.litellm_model_ids}")
 
+        stage_inputs = self._build_stage_model_inputs()
         self._report_progress(
             5,
             f"AIモデル一括実行中: {total_models}モデル",
             processed_count=0,
             total_count=len(self.image_paths),
         )
+        # 実行開始時点のステージ別進捗 (全モデル 0 件処理済み) を通知する。
+        self._emit_stage_progress(stage_inputs, processed_count=0)
 
         try:
             self._check_cancellation()
@@ -375,6 +461,18 @@ class AnnotationWorker(LoRAIroWorkerBase["AnnotationExecutionResult"]):
                 processed_count=len(self.image_paths),
                 total_count=len(self.image_paths),
             )
+            # 一括実行完了: result.error を持つモデル (例外を投げない L1 エラー) は
+            # 失敗ステージとして通知し、それ以外を完了 (100% / ok) にする。
+            # finished=True で一律 ok にすると result_error のモデルが成功表示になり、
+            # サマリーと矛盾する (Codex P2)。
+            errored_keys = self._stage_errored_model_keys(valid_results)
+            completed_keys = {key for key in self.litellm_model_ids if key not in errored_keys}
+            self._emit_stage_progress(
+                stage_inputs,
+                processed_count=len(self.image_paths),
+                completed_keys=completed_keys,
+                errored_keys=errored_keys,
+            )
             logger.debug(f"モデル一括実行完了: 結果={len(bulk_results)}件")
             return merged_results, model_errors
 
@@ -399,6 +497,14 @@ class AnnotationWorker(LoRAIroWorkerBase["AnnotationExecutionResult"]):
 
         logger.debug(f"モデル単位 fallback 実行開始: {total_models}モデル = {self.litellm_model_ids}")
 
+        # Issue #805: per-model 完了/失敗を一意キー (litellm_model_id) で追跡する。
+        # 未起動モデルを 100% と誤表示しないよう、ステージ進捗の率は
+        # processed_count=0 (未完了は 0%) で出し、完了は completed_keys 経由で 100%
+        # にする (Codex P2: fallback で未起動モデルが false 100% になる回帰の回避)。
+        stage_inputs = self._build_stage_model_inputs()
+        completed_keys: set[str] = set()
+        errored_keys: set[str] = set()
+
         for model_idx, litellm_model_id in enumerate(self.litellm_model_ids):
             self._check_cancellation()
 
@@ -410,6 +516,12 @@ class AnnotationWorker(LoRAIroWorkerBase["AnnotationExecutionResult"]):
                 f"AIモデル実行中: {litellm_model_id} ({model_idx + 1}/{total_models})",
                 processed_count=min(processed_steps, len(self.image_paths)),
                 total_count=len(self.image_paths),
+            )
+            self._emit_stage_progress(
+                stage_inputs,
+                processed_count=0,
+                completed_keys=completed_keys,
+                errored_keys=errored_keys,
             )
 
             try:
@@ -433,6 +545,8 @@ class AnnotationWorker(LoRAIroWorkerBase["AnnotationExecutionResult"]):
 
                 self._merge_annotation_results(merged_results, valid_model_results)
 
+                completed_keys.add(litellm_model_id)
+
                 logger.debug(
                     f"モデル実行完了: {litellm_model_id}, 結果={len(model_results)}件, "
                     f"マージ後合計={len(merged_results)}件"
@@ -443,6 +557,7 @@ class AnnotationWorker(LoRAIroWorkerBase["AnnotationExecutionResult"]):
                 raise
 
             except Exception as e:
+                errored_keys.add(litellm_model_id)
                 logger.error(f"モデル {litellm_model_id} でエラー: {e}", exc_info=True)
                 self._save_error_records(
                     e,
@@ -471,6 +586,14 @@ class AnnotationWorker(LoRAIroWorkerBase["AnnotationExecutionResult"]):
                 f"AIモデル実行完了: {litellm_model_id} ({model_idx + 1}/{total_models})",
                 processed_count=len(self.image_paths),
                 total_count=len(self.image_paths),
+            )
+            # このモデルの完了/失敗を反映したステージ別進捗を通知する。
+            # 未起動モデルは completed_keys に無いため 0% のまま (false 100% を出さない)。
+            self._emit_stage_progress(
+                stage_inputs,
+                processed_count=0,
+                completed_keys=completed_keys,
+                errored_keys=errored_keys,
             )
 
         logger.debug(f"モデル単位 fallback 実行完了: 最終結果={len(merged_results)}件")

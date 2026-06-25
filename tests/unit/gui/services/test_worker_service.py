@@ -857,6 +857,79 @@ class TestWorkerService:
         if expected_status is JobStatus.FAILED:
             assert entry.summary == "boom"
 
+    def test_annotation_stage_progress_updates_ledger(self, worker_service):
+        """Issue #805: stage progress ハンドラが台帳へ反映し変更通知を出す。"""
+        from lorairo.services.job_ledger_service import StageProgress
+
+        worker_id = "annotation_abc12345"
+        worker_service._on_worker_started(worker_id)
+        ledger_changed_mock = Mock()
+        worker_service.job_ledger_changed.connect(ledger_changed_mock)
+
+        stages = [StageProgress("TAGS", "wd-tagger", "local", 67, "6 / 9", "info")]
+        worker_service._on_annotation_stage_progress(worker_id, stages)
+
+        entry = worker_service.job_ledger.get(worker_id)
+        assert entry is not None
+        assert entry.stage_progress == stages
+        ledger_changed_mock.assert_called_once()
+
+    def test_annotation_stage_progress_unknown_worker_no_emit(self, worker_service):
+        """未登録 worker_id へのステージ進捗は即時反映されず通知も出さない。"""
+        from lorairo.services.job_ledger_service import StageProgress
+
+        ledger_changed_mock = Mock()
+        worker_service.job_ledger_changed.connect(ledger_changed_mock)
+
+        worker_service._on_annotation_stage_progress(
+            "missing", [StageProgress("TAGS", "m", "local", 0, "", "info")]
+        )
+
+        ledger_changed_mock.assert_not_called()
+
+    def test_annotation_stage_progress_before_register_is_buffered_and_flushed(self, worker_service):
+        """Issue #805 (Codex P2): 登録前に届いたステージ進捗は登録時に flush される。"""
+        from lorairo.services.job_ledger_service import StageProgress
+
+        worker_id = "annotation_pre12345"
+        stages = [StageProgress("TAGS", "wd-tagger", "local", 0, "0 / 9", "info")]
+
+        # 台帳行登録より前にステージ進捗が届くケースを再現
+        worker_service._on_annotation_stage_progress(worker_id, stages)
+        assert worker_service.job_ledger.get(worker_id) is None
+        assert worker_service._pending_stage_progress[worker_id] == stages
+
+        # worker_started で登録されるとバッファが flush される
+        worker_service._on_worker_started(worker_id)
+
+        entry = worker_service.job_ledger.get(worker_id)
+        assert entry is not None
+        assert entry.stage_progress == stages
+        assert worker_id not in worker_service._pending_stage_progress
+
+    def test_pending_stage_progress_cleared_on_terminal(self, worker_service):
+        """未 flush のステージ進捗バッファは終端時に破棄される (leak 防止)。"""
+        from lorairo.gui.workers.terminal import WorkerOutcome, WorkerTerminalEvent
+        from lorairo.services.job_ledger_service import StageProgress
+
+        worker_id = "annotation_leak1234"
+        worker_service._on_worker_started(worker_id)
+        # 登録後に手動でバッファを汚し、終端でクリアされることを確認
+        worker_service._pending_stage_progress[worker_id] = [
+            StageProgress("TAGS", "m", "local", 0, "", "info")
+        ]
+
+        worker_service._on_worker_terminal(
+            WorkerTerminalEvent(
+                worker_id=worker_id,
+                worker_type="annotation",
+                outcome=WorkerOutcome.SUCCEEDED,
+                result={"ok": True},
+            )
+        )
+
+        assert worker_id not in worker_service._pending_stage_progress
+
     @pytest.mark.parametrize("worker_id", ["search_abc12345", "thumbnail_abc12345"])
     def test_job_ledger_excludes_search_and_thumbnail(self, worker_service, worker_id):
         """検索/サムネイル等のUI応答系workerは台帳に載せない (ADR 0066 §3)"""
