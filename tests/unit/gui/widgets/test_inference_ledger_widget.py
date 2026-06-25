@@ -150,6 +150,51 @@ class TestInferenceLedgerWidgetChips:
         assert widget._multi_note_label.isHidden()
 
 
+class TestInferenceLedgerWidgetBands:
+    """#884 Phase 4b: SYNC / PROVIDER BATCH 2バンド分割。"""
+
+    @staticmethod
+    def _batch_ledger() -> InferenceLedger:
+        """local 2 (sync) + API 1 (batch route) × 9 枚。"""
+        entries = (
+            LedgerEntry(model=GPT4O, stage_count=3, route="batch"),
+            LedgerEntry(model=_local_model("wd-tagger", "tags"), stage_count=1, route="sync"),
+            LedgerEntry(model=_local_model("aesthetic", "scores"), stage_count=1, route="sync"),
+        )
+        return InferenceLedger(entries=entries, staged_count=9)
+
+    def test_batch_band_hidden_when_no_batch_entries(self, widget):
+        widget.display(_sample_ledger())  # 全 sync (default route)
+        assert widget._batch_band.isHidden()
+
+    def test_batch_band_shown_when_batch_entries_present(self, widget):
+        widget.display(self._batch_ledger())
+        assert not widget._batch_band.isHidden()
+
+    def test_batch_entry_has_batch_route_badge(self, widget):
+        widget.display(self._batch_ledger())
+        badges = [b.text() for b in widget.findChildren(QLabel, "ledgerRouteBadge")]
+        assert "batch·api" in badges
+        assert badges.count("local") == 2
+
+    def test_batch_chip_rendered(self, widget):
+        widget.display(self._batch_ledger())
+        chips = [c.text() for c in widget.findChildren(QLabel, "ledgerChip")]
+        assert any("gpt-4o" in t and "×9枚" in t for t in chips)
+        assert len(chips) == 3  # sync 2 + batch 1
+
+    def test_redisplay_sync_only_hides_batch_band_again(self, widget):
+        widget.display(self._batch_ledger())
+        widget.display(_sample_ledger())
+        assert widget._batch_band.isHidden()
+        assert "batch·api" not in [b.text() for b in widget.findChildren(QLabel, "ledgerRouteBadge")]
+
+    def test_clear_hides_batch_band(self, widget):
+        widget.display(self._batch_ledger())
+        widget.clear()
+        assert widget._batch_band.isHidden()
+
+
 class TestInferenceLedgerWidgetEstimate:
     """DsSummaryStat 推定 stat の値検証。"""
 

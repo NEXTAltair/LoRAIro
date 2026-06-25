@@ -260,3 +260,72 @@ class TestLedger:
             "cafe-aesthetic",
             "classification-rater",
         ]
+
+
+class TestLedgerDispatchRoute:
+    """#884 Phase 4b: dispatch_mode + batch-capable 集合からの route 分割。"""
+
+    def test_default_dispatch_all_sync(
+        self, service: PipelineCompositionService, v11_reference_models: list[StageModelInfo]
+    ) -> None:
+        service.compose_from_models(v11_reference_models)
+        ledger = service.ledger(staged_count=9)
+        assert all(e.route == "sync" for e in ledger.entries)
+        assert len(ledger.sync_entries) == 6
+        assert ledger.batch_entries == ()
+
+    def test_batch_api_splits_batch_capable_to_batch_lane(
+        self, service: PipelineCompositionService, v11_reference_models: list[StageModelInfo]
+    ) -> None:
+        service.compose_from_models(v11_reference_models)
+        ledger = service.ledger(
+            staged_count=9,
+            dispatch_mode="batch_api",
+            batch_capable_litellm_ids={"openai/gpt-4o"},
+        )
+        routes = {e.model.litellm_model_id: e.route for e in ledger.entries}
+        assert routes["openai/gpt-4o"] == "batch"
+        assert routes["wd-v1-4"] == "sync"
+        assert len(ledger.batch_entries) == 1
+        assert ledger.batch_entries[0].model.litellm_model_id == "openai/gpt-4o"
+        assert len(ledger.sync_entries) == 5
+
+    def test_batch_api_local_never_batch_even_if_in_set(
+        self, service: PipelineCompositionService, v11_reference_models: list[StageModelInfo]
+    ) -> None:
+        # local モデル ID を誤って batch 集合に入れても batch 扱いしない (is_api False)
+        service.compose_from_models(v11_reference_models)
+        ledger = service.ledger(
+            staged_count=9,
+            dispatch_mode="batch_api",
+            batch_capable_litellm_ids={"openai/gpt-4o", "wd-v1-4"},
+        )
+        routes = {e.model.litellm_model_id: e.route for e in ledger.entries}
+        assert routes["wd-v1-4"] == "sync"
+        assert routes["openai/gpt-4o"] == "batch"
+
+    def test_batch_api_non_capable_api_stays_sync(self, service: PipelineCompositionService) -> None:
+        # batch 非対応の API モデル (集合に無い) は sync レーンに残る
+        service.compose_from_models(
+            [_model("google/gemini-2.5", {"multimodal"}, is_api=True, provider="google")]
+        )
+        ledger = service.ledger(
+            staged_count=4,
+            dispatch_mode="batch_api",
+            batch_capable_litellm_ids=set(),
+        )
+        assert ledger.entries[0].route == "sync"
+        assert ledger.batch_entries == ()
+
+    def test_sync_mode_ignores_batch_capable_set(
+        self, service: PipelineCompositionService, v11_reference_models: list[StageModelInfo]
+    ) -> None:
+        # dispatch_mode=sync では batch_capable 集合があっても全 sync
+        service.compose_from_models(v11_reference_models)
+        ledger = service.ledger(
+            staged_count=9,
+            dispatch_mode="sync",
+            batch_capable_litellm_ids={"openai/gpt-4o"},
+        )
+        assert all(e.route == "sync" for e in ledger.entries)
+        assert ledger.batch_entries == ()

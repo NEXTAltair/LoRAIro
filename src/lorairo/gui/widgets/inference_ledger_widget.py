@@ -20,6 +20,10 @@ from lorairo.services.pipeline_composition import InferenceLedger, LedgerEntry
 _TITLE_TEXT = "INFERENCE LEDGER"
 _PLACEHOLDER_TEXT = "モデル未選択"
 _MULTI_NOTE_TEXT = "multimodal: 複数ステージに出力しても 1 推論として課金"
+# #884 Phase 4b: SYNC / PROVIDER BATCH 2バンド (ADR 0038 / wireframes v12)
+_SYNC_BAND_TITLE = "SYNC"
+_BATCH_BAND_TITLE = "PROVIDER BATCH (非同期)"
+_BATCH_ROUTE_BADGE_TEXT = "batch·api"
 
 # DS v12 AnnotateScreen ledger (Issue #787): エントリ = TypeBadge 文法 (paper-shade 地 +
 # line border の mono バッジ)、multimodal 集約バッジ = accent-soft の mono バッジ。
@@ -49,6 +53,12 @@ _ROUTE_BADGE_STYLE_API = (
     f" color: {theme.ACCENT_HOVER}; border: {theme.BORDER_WIDTH}px solid {theme.ACCENT_BORDER};"
     f" border-radius: {theme.RADIUS_BADGE}px; padding: 1px 6px;"
     f" font-size: {theme.FONT_SIZE_META}px; }}"
+)
+
+# #884 Phase 4b: バンド見出し (SYNC / PROVIDER BATCH)
+_BAND_HEADER_STYLE = (
+    f"color: {theme.INK_SOFT}; font-size: {theme.FONT_SIZE_META}px;"
+    f" font-weight: {theme.FONT_WEIGHT_SEMIBOLD};"
 )
 
 
@@ -102,11 +112,14 @@ class InferenceLedgerWidget(DsCard):
         stats_row.addStretch(1)
         body_layout.addWidget(self._stats_widget)
 
-        # ---- モデルバッジ行 ----
-        self._entries_layout = QHBoxLayout()
-        self._entries_layout.setContentsMargins(0, 0, 0, 0)
-        self._entries_layout.setSpacing(theme.SPACE_1)
-        body_layout.addLayout(self._entries_layout)
+        # ---- SYNC / PROVIDER BATCH 2バンド (#884 Phase 4b) ----
+        self._sync_band, self._sync_entries_layout = self._build_band(body, _SYNC_BAND_TITLE)
+        self._sync_band.setObjectName("ledgerSyncBand")
+        body_layout.addWidget(self._sync_band)
+
+        self._batch_band, self._batch_entries_layout = self._build_band(body, _BATCH_BAND_TITLE)
+        self._batch_band.setObjectName("ledgerBatchBand")
+        body_layout.addWidget(self._batch_band)
 
         # multimodal dedupe 注記 (multimodal エントリが存在するときのみ表示)
         self._multi_note_label = QLabel(_MULTI_NOTE_TEXT, body)
@@ -126,6 +139,23 @@ class InferenceLedgerWidget(DsCard):
         self.set_body(body)
 
         self.clear()
+
+    def _build_band(self, body: QWidget, title: str) -> tuple[QWidget, QHBoxLayout]:
+        """見出し付きバンド (header + エントリ行) を構築して返す。"""
+        band = QWidget(body)
+        band_layout = QVBoxLayout(band)
+        band_layout.setContentsMargins(0, 0, 0, 0)
+        band_layout.setSpacing(theme.SPACE_1)
+
+        header = QLabel(title, band)
+        header.setStyleSheet(_BAND_HEADER_STYLE)
+        band_layout.addWidget(header)
+
+        entries_layout = QHBoxLayout()
+        entries_layout.setContentsMargins(0, 0, 0, 0)
+        entries_layout.setSpacing(theme.SPACE_1)
+        band_layout.addLayout(entries_layout)
+        return band, entries_layout
 
     def display(self, ledger: InferenceLedger) -> None:
         """台帳を再描画する。
@@ -162,15 +192,22 @@ class InferenceLedgerWidget(DsCard):
 
         self._stats_widget.setVisible(True)
 
-        # ---- モデルバッジ行 ----
-        has_multimodal = False
-        for entry in ledger.entries:
-            self._add_entry_chip(entry, ledger.staged_count)
-            if entry.model.is_multimodal:
-                has_multimodal = True
-        self._entries_layout.addStretch(1)
+        # ---- SYNC バンド (常時表示) ----
+        sync_entries = ledger.sync_entries
+        for entry in sync_entries:
+            self._add_entry_chip(entry, ledger.staged_count, self._sync_entries_layout)
+        self._sync_entries_layout.addStretch(1)
+        self._sync_band.setVisible(True)
+
+        # ---- PROVIDER BATCH バンド (batch エントリがある時のみ表示) ----
+        batch_entries = ledger.batch_entries
+        for entry in batch_entries:
+            self._add_entry_chip(entry, ledger.staged_count, self._batch_entries_layout)
+        self._batch_entries_layout.addStretch(1)
+        self._batch_band.setVisible(bool(batch_entries))
 
         # multimodal エントリが 1 件以上のとき dedupe 注記を表示
+        has_multimodal = any(e.model.is_multimodal for e in ledger.entries)
         self._multi_note_label.setVisible(has_multimodal)
 
     def clear(self) -> None:
@@ -181,44 +218,55 @@ class InferenceLedgerWidget(DsCard):
     def _show_placeholder(self) -> None:
         """「モデル未選択」プレースホルダ状態に切り替える。"""
         self._stats_widget.setVisible(False)
+        self._sync_band.setVisible(False)
+        self._batch_band.setVisible(False)
         self._multi_note_label.setVisible(False)
         self._placeholder_label.setText(_PLACEHOLDER_TEXT)
         self._placeholder_label.setVisible(True)
 
     def _clear_entries(self) -> None:
-        """既存のエントリチップを layout から外して破棄する。"""
-        while self._entries_layout.count():
-            item = self._entries_layout.takeAt(0)
-            if item is None:
-                continue
-            widget = item.widget()
-            if widget is not None:
-                # findChildren で前回チップが見えないよう、即時に親子関係を切る
-                widget.setParent(None)
-                widget.deleteLater()
+        """既存のエントリチップを両バンドの layout から外して破棄する。"""
+        for layout in (self._sync_entries_layout, self._batch_entries_layout):
+            while layout.count():
+                item = layout.takeAt(0)
+                if item is None:
+                    continue
+                widget = item.widget()
+                if widget is not None:
+                    # findChildren で前回チップが見えないよう、即時に親子関係を切る
+                    widget.setParent(None)
+                    widget.deleteLater()
 
-    def _add_entry_chip(self, entry: LedgerEntry, staged_count: int) -> None:
-        """エントリチップ (+ multimodal バッジ) を 1 つ追加する。
+    def _add_entry_chip(self, entry: LedgerEntry, staged_count: int, entries_layout: QHBoxLayout) -> None:
+        """エントリチップ (+ route / multimodal バッジ) を 1 つ追加する。
 
         Args:
-            entry: 台帳エントリ (モデル情報 + ステージ数)。
+            entry: 台帳エントリ (モデル情報 + ステージ数 + route)。
             staged_count: ステージング枚数。
+            entries_layout: 追加先バンドのエントリ行 layout。
         """
-        # #884 Phase 4a: local/api route バッジ (is_api が canonical 判定)
+        # route バッジ: batch route = "batch·api" (#884 Phase 4b)、
+        # sync route = local/api (#884 Phase 4a、is_api が canonical 判定)。
         is_api = entry.model.is_api
-        route_badge = QLabel("api" if is_api else "local", self)
+        if entry.route == "batch":
+            badge_text = _BATCH_ROUTE_BADGE_TEXT
+            badge_style = _ROUTE_BADGE_STYLE_API
+        else:
+            badge_text = "api" if is_api else "local"
+            badge_style = _ROUTE_BADGE_STYLE_API if is_api else _ROUTE_BADGE_STYLE_LOCAL
+        route_badge = QLabel(badge_text, self)
         route_badge.setObjectName("ledgerRouteBadge")
-        route_badge.setStyleSheet(_ROUTE_BADGE_STYLE_API if is_api else _ROUTE_BADGE_STYLE_LOCAL)
-        self._entries_layout.addWidget(route_badge)
+        route_badge.setStyleSheet(badge_style)
+        entries_layout.addWidget(route_badge)
 
         chip = QLabel(f"{entry.model.display_name} ×{staged_count}枚", self)
         chip.setObjectName("ledgerChip")
         chip.setStyleSheet(_ENTRY_CHIP_STYLE)
-        self._entries_layout.addWidget(chip)
+        entries_layout.addWidget(chip)
 
         if entry.model.is_multimodal:
             badge = QLabel(f"{entry.stage_count}枠 → 1推論", self)
             badge.setObjectName("ledgerMultiBadge")
             badge.setStyleSheet(_MULTI_BADGE_STYLE)
             badge.setToolTip("multimodal モデルは複数ステージに出力しても 1 推論として課金されます")
-            self._entries_layout.addWidget(badge)
+            entries_layout.addWidget(badge)

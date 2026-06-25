@@ -42,6 +42,8 @@ from ...database.db_manager import ImageDatabaseManager
 from ...services.model_route_service import build_available_providers
 from ...services.model_selection_service import ModelSelectionService
 from ...services.pipeline_composition import PipelineCompositionService, PipelineStage, StageModelInfo
+from ...services.provider_batch_capability import litellm_id_from_batch_model
+from ...services.provider_batch_service import ProviderBatchError
 from ...services.service_container import ServiceContainer
 from ...utils.log import logger
 from .. import theme
@@ -473,6 +475,8 @@ class AnnotateTabWidget(QWidget, Ui_AnnotateTab):
         if dialog.exec() == QDialog.DialogCode.Accepted:
             self._pipeline_run_options = dialog.run_options()
             logger.info(f"実行詳細設定を更新: {self._pipeline_run_options}")
+            # dispatch_mode 変更を INFERENCE LEDGER のレーン分割へ反映する (#884 Phase 4b)
+            self._refresh_pipeline_panel()
 
     # -- パイプライン構成ビュー (Phase 6a/6b) ---------------------------------
 
@@ -570,9 +574,40 @@ class AnnotateTabWidget(QWidget, Ui_AnnotateTab):
         infos = self._build_stage_model_infos(selected_ids)
         self._pipeline_composition_service.compose_from_models(infos)
         self._pipeline_stage_table.display(self._pipeline_composition_service.stage_rows())
+
+        # #884 Phase 4b: dispatch_mode=batch_api のとき batch 対応モデルを別レーンへ。
+        # batch-capable 判定は lib が SSoT (ADR 0038 / ADR 0005) → 都度問い合わせて消費する。
+        dispatch_mode = self._pipeline_run_options.dispatch_mode
+        batch_capable_ids = self._resolve_batch_capable_ids() if dispatch_mode == "batch_api" else None
         self._inference_ledger_widget.display(
-            self._pipeline_composition_service.ledger(self._pipeline_staged_count)
+            self._pipeline_composition_service.ledger(
+                self._pipeline_staged_count,
+                dispatch_mode=dispatch_mode,
+                batch_capable_litellm_ids=batch_capable_ids,
+            )
         )
+
+    def _resolve_batch_capable_ids(self) -> set[str]:
+        """lib の ``list_batch_capable_models()`` から batch 対応 litellm_model_id 集合を得る。
+
+        batch-capable の SSoT は lib (ADR 0038 / ADR 0005)。LEDGER の preview 用に都度問い合わせる。
+        discovery 失敗時は warning を出して空集合を返し、全エントリを sync レーン扱いにする
+        (preview の degrade、実送信時は dispatch 射影が厳密判定する)。
+
+        Returns:
+            batch 対応 litellm_model_id 集合。
+        """
+        workflow_service = getattr(self._service_container, "provider_batch_workflow_service", None)
+        if workflow_service is None:
+            return set()
+        try:
+            raw_models = workflow_service.list_batch_capable_models()
+        except (ProviderBatchError, RuntimeError, OSError) as e:
+            logger.warning(f"Batch API 対応モデルの取得に失敗 (LEDGER は sync 表示に degrade): {e}")
+            return set()
+        return {
+            resolved for raw in raw_models if (resolved := litellm_id_from_batch_model(raw)) is not None
+        }
 
     def _refresh_preflight_summary(self) -> None:
         """送信前プリフライト card をステージング集合の既存 rating で再描画する (Issue #837)。
