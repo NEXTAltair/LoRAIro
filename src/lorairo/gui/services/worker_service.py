@@ -3,7 +3,7 @@
 import uuid
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from PIL.Image import Image
 from PySide6.QtCore import QObject, QSize, Signal
@@ -27,6 +27,9 @@ from ..workers.search_worker import SearchResult, SearchWorker
 from ..workers.terminal import CancelReason, WorkerOutcome, WorkerTerminalEvent
 from ..workers.thumbnail_worker import ThumbnailWorker
 from .operation_events import OperationContext, OperationOutcome, OperationType, WorkerOperationEvent
+
+if TYPE_CHECKING:
+    from ..widgets.run_settings_dialog import RunOptions
 
 # ADR 0066 §3: Jobs 台帳に載せる operation (Pipeline/Operation レベル) とその表示タイトル。
 # 検索/サムネイル等の UI 応答系 worker は載せない (firehose 化を防ぐ)。
@@ -220,6 +223,7 @@ class WorkerService(QObject):
         self,
         image_paths: list[str],
         litellm_model_ids: list[str],
+        run_options: "RunOptions | None" = None,
     ) -> str:
         """バッチアノテーション開始（新API）
 
@@ -234,6 +238,8 @@ class WorkerService(QObject):
         Args:
             image_paths: 画像パスリスト
             litellm_model_ids: 使用モデルの `litellm_model_id` リスト
+            run_options: 実行詳細設定 (Issue #803)。``dry_run`` / ``rating_gate`` を
+                AnnotationWorker に伝搬する。``None`` の場合は従来挙動。
 
         Returns:
             str: ワーカーID
@@ -254,6 +260,7 @@ class WorkerService(QObject):
             litellm_model_ids=litellm_model_ids,
             db_manager=self.db_manager,
             model_registry=model_registry,
+            run_options=run_options,
         )
         worker_id = f"annotation_{uuid.uuid4().hex[:8]}"
         self._register_operation(worker_id, OperationType.ANNOTATION)
