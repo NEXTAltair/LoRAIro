@@ -141,22 +141,15 @@ class TestExportTargetFollowsStaging:
         bare_window.search_tab.set_export_target_count.assert_called_once_with(0)
         bare_window.annotate_tab.set_staging_target.assert_called_once_with([])
 
+    def test_staged_images_changed_does_not_push_to_export_tab(self, bare_window):
+        """エクスポートタブへの push は廃止され、ExportTabWidget が自治購読する (#896)。"""
+        bare_window._update_export_target_ui = types.MethodType(
+            MainWindow._update_export_target_ui, bare_window
+        )
+        bare_window.search_tab = Mock()
+        bare_window.annotate_tab = Mock()
+        bare_window.export_tab = Mock()
 
-class TestStagedExportIdsProvider:
-    """_get_staged_export_ids（エクスポートタブの対象ソース）の検証。
+        MainWindow._on_staged_images_changed(bare_window, [10, 20])
 
-    #868 以降は StagingStateManager (ADR 0074 の SSoT) を直接読む。下部バーの件数表示と
-    実エクスポート対象を一致させるため、batchTagAddWidget 経由の参照は廃止された。
-    """
-
-    def test_returns_staging_image_ids(self):
-        mock_window = Mock()
-        mock_window.staging_state_manager.get_image_ids.return_value = [3, 1, 2]
-
-        result = MainWindow._get_staged_export_ids(mock_window)
-        assert result == [3, 1, 2]
-
-    def test_returns_empty_when_staging_state_manager_none(self):
-        mock_window = Mock()
-        mock_window.staging_state_manager = None
-        assert MainWindow._get_staged_export_ids(mock_window) == []
+        bare_window.export_tab.set_image_ids.assert_not_called()
