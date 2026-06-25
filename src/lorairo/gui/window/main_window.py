@@ -1,27 +1,25 @@
 # src/lorairo/gui/window/main_window.py
 
+import sys
 from collections.abc import Callable
 from functools import partial
 from pathlib import Path
 from typing import Any, cast
 
 from PySide6.QtCore import (
-    QEasingCurve,
-    QPropertyAnimation,
     QSettings,
-    Qt,
     QThread,
-    QTimer,
     Signal,
 )
-from PySide6.QtGui import QAction, QCloseEvent, QKeySequence, QResizeEvent
+from PySide6.QtGui import QAction, QCloseEvent, QKeySequence
 from PySide6.QtWidgets import (
     QFileDialog,
-    QGraphicsOpacityEffect,
+    QInputDialog,
     QMainWindow,
     QMenu,
     QMessageBox,
     QTabWidget,
+    QVBoxLayout,
     QWidget,
 )
 
@@ -345,8 +343,6 @@ class MainWindow(QMainWindow, Ui_MainWindow):
             print(f"{'=' * 60}\n")
 
         # アプリケーション終了
-        import sys
-
         sys.exit(1)
 
     def setup_custom_widgets(self) -> None:
@@ -442,8 +438,6 @@ class MainWindow(QMainWindow, Ui_MainWindow):
                     if w is not None:
                         w.deleteLater()
             else:
-                from PySide6.QtWidgets import QVBoxLayout
-
                 layout = QVBoxLayout(container)
             widget = MapTabWidget(db_manager=self.db_manager, parent=container)
             layout.addWidget(widget)
@@ -1702,8 +1696,6 @@ class MainWindow(QMainWindow, Ui_MainWindow):
         Returns:
             str | None: 選択されたモデル名、キャンセル時はNone
         """
-        from PySide6.QtWidgets import QInputDialog
-
         selected_model, ok = QInputDialog.getItem(
             self,
             "モデル選択",
