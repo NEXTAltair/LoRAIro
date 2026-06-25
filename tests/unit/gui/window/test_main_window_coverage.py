@@ -783,5 +783,37 @@ class TestModelSelectionStateManagerInit:
         assert mock_window.model_selection_state_manager is None
 
 
+class TestAnnotationExecuteWrapper:
+    """_on_annotation_execute_requested の縮退ガード (#896 PR4c, Codex P2)。
+
+    controller 初期化が縮退した起動でも実行ボタンが無反応にならず、未初期化を
+    警告することを検証する (旧 MainWindow.start_annotation の UX を保全)。
+    """
+
+    def test_delegates_to_controller_when_present(self) -> None:
+        from unittest.mock import Mock
+
+        from lorairo.gui.window.main_window import MainWindow
+
+        mock_window = Mock()
+        mock_window.annotation_workflow_controller = Mock()
+
+        MainWindow._on_annotation_execute_requested(mock_window)
+
+        mock_window.annotation_workflow_controller.start_annotation.assert_called_once()
+
+    def test_warns_when_controller_missing(self) -> None:
+        from unittest.mock import Mock, patch
+
+        from lorairo.gui.window.main_window import MainWindow
+
+        mock_window = Mock()
+        mock_window.annotation_workflow_controller = None
+
+        with patch("lorairo.gui.window.main_window.QMessageBox") as mock_qmb:
+            MainWindow._on_annotation_execute_requested(mock_window)
+            mock_qmb.warning.assert_called_once()
+
+
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])

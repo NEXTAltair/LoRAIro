@@ -848,15 +848,28 @@ class MainWindow(QMainWindow, Ui_MainWindow):
         try:
             # #896: batch tag 書込はタブ内で完結。タブの status_message を statusBar へ橋渡しする。
             self.annotate_tab.status_message.connect(self.statusBar().showMessage)
-            # 実行エントリは AnnotationWorkflowController が所有 (#896 PR4c)。
-            if self.annotation_workflow_controller is not None:
-                self.annotate_tab.annotation_execute_requested.connect(
-                    self.annotation_workflow_controller.start_annotation
-                )
+            # 実行エントリは AnnotationWorkflowController が所有 (#896 PR4c)。controller 未初期化の
+            # 縮退起動でも実行ボタンが無反応にならないよう、薄い wrapper 経由で接続し警告を出す。
+            self.annotate_tab.annotation_execute_requested.connect(self._on_annotation_execute_requested)
             self.annotate_tab.configure_key_requested.connect(self._on_annotate_configure_key_requested)
             logger.info("    ✅ AnnotateTabWidget シグナル接続完了")
         except Exception as e:
             logger.error(f"    ❌ AnnotateTabWidget シグナル接続失敗: {e}")
+
+    def _on_annotation_execute_requested(self) -> None:
+        """run bar 実行ボタン → AnnotationWorkflowController へ委譲する (#896 PR4c)。
+
+        controller 初期化が縮退した起動 (``_setup_other_custom_widgets`` の except 経路)
+        でも実行ボタンが無反応にならないよう、薄い wrapper で受けて未初期化を警告する。
+        """
+        if self.annotation_workflow_controller is None:
+            QMessageBox.warning(
+                self,
+                "コントローラー未初期化",
+                "AnnotationWorkflowControllerが初期化されていないため、アノテーション処理を開始できません。",
+            )
+            return
+        self.annotation_workflow_controller.start_annotation()
 
     def _on_annotate_configure_key_requested(self, provider: str) -> None:
         """アノテタブの ``○ needs key`` チップ → 設定の該当プロバイダ欄へ誘導する (#755/#868)。
