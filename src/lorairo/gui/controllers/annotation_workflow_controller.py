@@ -92,6 +92,8 @@ class AnnotationWorkflowController(QObject):
         self._annotate_tab: AnnotateTabWidget | None = None
         self._jobs_refresh: Callable[[], None] = lambda: None
         self._status_callback: Callable[[str, int], None] = lambda message, timeout: None
+        # アノテーションタブが現在アクティブか (= ステージング画像を override に使うか)
+        self._is_annotate_tab_active: Callable[[], bool] = lambda: False
 
     def configure_async_dispatch(
         self,
@@ -102,8 +104,9 @@ class AnnotationWorkflowController(QObject):
         annotate_tab: "AnnotateTabWidget | None",
         jobs_refresh: Callable[[], None],
         status_callback: Callable[[str, int], None],
+        is_annotate_tab_active: Callable[[], bool],
     ) -> None:
-        """async batch dispatch に必要な協調オブジェクトを注入する (#896 PR4b)。
+        """アノテーション実行フローに必要な協調オブジェクトを注入する (#896 PR4b/PR4c)。
 
         MainWindow が全タブ構築後に呼ぶ。controller 生成時点では annotate_tab /
         jobs_tab が未生成のため、constructor injection でなく setter injection で
@@ -116,6 +119,8 @@ class AnnotationWorkflowController(QObject):
             annotate_tab: run options / staging 集合 / 選択モデルの読み出し元。
             jobs_refresh: 送信後に Jobs 台帳を再読込する callback。
             status_callback: statusBar への ``(message, timeout_ms)`` 表示 callback。
+            is_annotate_tab_active: アノテーションタブが現在アクティブかを返す callback
+                (#896 PR4c)。True のとき同期アノテはステージング画像を override に使う。
         """
         self._service_container = service_container
         self._db_manager = db_manager
@@ -123,6 +128,53 @@ class AnnotationWorkflowController(QObject):
         self._annotate_tab = annotate_tab
         self._jobs_refresh = jobs_refresh
         self._status_callback = status_callback
+        self._is_annotate_tab_active = is_annotate_tab_active
+
+    def start_annotation(self) -> None:
+        """アノテーション実行エントリ。dispatch mode で分岐する (#896 PR4c)。
+
+        AnnotateTabWidget の run bar 実行ボタン (``annotation_execute_requested``)
+        から呼ばれる。``dispatch_mode`` (ADR 0076 §1) が ``batch_api`` なら async
+        Provider Batch dispatch へ、それ以外は同期バッチアノテーション
+        (:meth:`start_annotation_workflow`) へ分岐する。
+        """
+        annotate_tab = self._annotate_tab
+
+        # 送信方式 (dispatch mode) 判定 (#884 Phase 2c, ADR 0076 §1)。
+        # batch_api (async) は dispatch 射影 → worker thread へ分岐する。
+        if annotate_tab is not None and annotate_tab.run_options().dispatch_mode == "batch_api":
+            self.dispatch_async_batch()
+            return
+
+        # アノテーションタブの選択モデルを取得 (Issue #245: litellm_model_id ベース、#868)
+        selected_litellm_model_ids: list[str] = []
+        if annotate_tab is not None:
+            selected_litellm_model_ids = annotate_tab.selected_litellm_model_ids()
+            logger.debug(
+                f"アノテタブから選択されたモデル (litellm_model_ids): {selected_litellm_model_ids}"
+            )
+
+        # アノテーションタブがアクティブな場合はステージング画像を override に使う
+        override_image_paths: list[str] | None = None
+        if self._is_annotate_tab_active():
+            override_image_paths = annotate_tab.staged_image_paths() if annotate_tab is not None else []
+            if not override_image_paths:
+                QMessageBox.information(
+                    self._parent_widget,
+                    "ステージング画像なし",
+                    "ステージングリストに画像がありません。\n"
+                    "画像を選択してからアノテーションを実行してください。",
+                )
+                return
+
+        # チェックボックスから選択されたモデルを優先し、無ければダイアログ callback へ
+        self.start_annotation_workflow(
+            selected_litellm_model_ids=selected_litellm_model_ids if selected_litellm_model_ids else None,
+            model_selection_callback=annotate_tab.show_model_selection_dialog
+            if not selected_litellm_model_ids and annotate_tab is not None
+            else None,
+            image_paths=override_image_paths,
+        )
 
     def start_annotation_workflow(
         self,

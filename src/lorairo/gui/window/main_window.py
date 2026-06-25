@@ -411,6 +411,7 @@ class MainWindow(QMainWindow, Ui_MainWindow):
             annotate_tab=self.annotate_tab,
             jobs_refresh=lambda: self.jobs_tab.refresh() if self.jobs_tab is not None else None,
             status_callback=lambda message, timeout: self.statusBar().showMessage(message, timeout),
+            is_annotate_tab_active=lambda: self.tabWidgetMainMode.currentWidget() is self.tabBatchTag,
         )
 
     def _setup_map_tab(self) -> None:
@@ -847,7 +848,11 @@ class MainWindow(QMainWindow, Ui_MainWindow):
         try:
             # #896: batch tag 書込はタブ内で完結。タブの status_message を statusBar へ橋渡しする。
             self.annotate_tab.status_message.connect(self.statusBar().showMessage)
-            self.annotate_tab.annotation_execute_requested.connect(self.start_annotation)
+            # 実行エントリは AnnotationWorkflowController が所有 (#896 PR4c)。
+            if self.annotation_workflow_controller is not None:
+                self.annotate_tab.annotation_execute_requested.connect(
+                    self.annotation_workflow_controller.start_annotation
+                )
             self.annotate_tab.configure_key_requested.connect(self._on_annotate_configure_key_requested)
             logger.info("    ✅ AnnotateTabWidget シグナル接続完了")
         except Exception as e:
@@ -1358,54 +1363,6 @@ class MainWindow(QMainWindow, Ui_MainWindow):
             QMessageBox.warning(
                 self, "設定エラー", "SettingsControllerが初期化されていないため、設定を開けません。"
             )
-
-    def start_annotation(self) -> None:
-        """アノテーション処理を開始（AnnotationWorkflowController統合版）"""
-        if not self.annotation_workflow_controller:
-            QMessageBox.warning(
-                self,
-                "コントローラー未初期化",
-                "AnnotationWorkflowControllerが初期化されていないため、アノテーション処理を開始できません。",
-            )
-            return
-
-        # 送信方式 (dispatch mode) 判定 (#884 Phase 2c, ADR 0076 §1)
-        # batch_api (async) は dispatch 射影 → worker thread へ分岐する。
-        if self.annotate_tab is not None and self.annotate_tab.run_options().dispatch_mode == "batch_api":
-            self.annotation_workflow_controller.dispatch_async_batch()
-            return
-
-        # アノテーションタブの選択モデルを取得 (Issue #245: litellm_model_id ベース、#868)
-        selected_litellm_model_ids: list[str] = []
-        if self.annotate_tab is not None:
-            selected_litellm_model_ids = self.annotate_tab.selected_litellm_model_ids()
-            logger.debug(
-                f"アノテタブから選択されたモデル (litellm_model_ids): {selected_litellm_model_ids}"
-            )
-
-        # アノテーションタブの場合はステージング画像を使用
-        override_image_paths: list[str] | None = None
-        if self.tabWidgetMainMode.currentWidget() is self.tabBatchTag:
-            override_image_paths = (
-                self.annotate_tab.staged_image_paths() if self.annotate_tab is not None else []
-            )
-            if not override_image_paths:
-                QMessageBox.information(
-                    self,
-                    "ステージング画像なし",
-                    "ステージングリストに画像がありません。\n"
-                    "画像を選択してからアノテーションを実行してください。",
-                )
-                return
-
-        # AnnotationWorkflowControllerに委譲（チェックボックスから選択されたモデルを優先）
-        self.annotation_workflow_controller.start_annotation_workflow(
-            selected_litellm_model_ids=selected_litellm_model_ids if selected_litellm_model_ids else None,
-            model_selection_callback=self.annotate_tab.show_model_selection_dialog
-            if not selected_litellm_model_ids and self.annotate_tab is not None
-            else None,
-            image_paths=override_image_paths,
-        )
 
     def export_data(self) -> None:
         """エクスポートタブへ遷移する。
