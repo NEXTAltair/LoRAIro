@@ -165,6 +165,39 @@ def test_apply_designed_orientations_recovers_from_restore_state(tab: SearchTabW
     assert tab.splitterPreviewDetails.orientation() == Qt.Orientation.Vertical
 
 
+@pytest.mark.gui
+def test_restore_layout_state_keeps_designed_orientation(tab: SearchTabWidget) -> None:
+    """横保存状態を縦設計の splitter に restore しても designed orientation を維持する (#865)。"""
+    from PySide6.QtCore import QSettings
+
+    settings = QSettings("lorairo-test", "search-tab-layout")
+    settings.clear()
+    # preview は設計上 Vertical。横状態を保存してから復元する。
+    tab.preview_splitter.setOrientation(Qt.Orientation.Horizontal)
+    settings.setValue("splitter/preview_details", tab.preview_splitter.saveState())
+    settings.setValue("splitter/main_work_area", tab.main_splitter.saveState())
+
+    restored = tab.restore_layout_state(settings)
+
+    assert restored is True
+    # restore 後に designed orientation が再適用される
+    assert tab.preview_splitter.orientation() == Qt.Orientation.Vertical
+    assert tab.main_splitter.orientation() == Qt.Orientation.Horizontal
+
+
+@pytest.mark.gui
+def test_save_layout_state_writes_both_splitters(tab: SearchTabWidget) -> None:
+    """main と preview の両 splitter を保存する (#869 preview 取りこぼし防止)。"""
+    from PySide6.QtCore import QSettings
+
+    settings = QSettings("lorairo-test", "search-tab-layout-save")
+    settings.clear()
+    tab.save_layout_state(settings)
+
+    assert settings.value("splitter/main_work_area") is not None
+    assert settings.value("splitter/preview_details") is not None
+
+
 # == 4. 検索 / フィルタ統合 ===================================================
 
 

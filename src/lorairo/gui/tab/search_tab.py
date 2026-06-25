@@ -37,7 +37,7 @@ worker dispatch・PipelineControlService 所有・staging fan-out・タブ間遷
 
 from typing import Any
 
-from PySide6.QtCore import Qt, Signal, Slot
+from PySide6.QtCore import QSettings, Qt, Signal, Slot
 from PySide6.QtWidgets import QSplitter, QWidget
 
 from ...database.db_manager import ImageDatabaseManager
@@ -335,6 +335,42 @@ class SearchTabWidget(QWidget, Ui_SearchTab):
         """
         self._main_splitter.setOrientation(Qt.Orientation.Horizontal)
         self.splitterPreviewDetails.setOrientation(Qt.Orientation.Vertical)
+
+    # -- #896: splitter サイズ状態の自治 (QSettings save/restore) --------------
+
+    def save_layout_state(self, settings: QSettings) -> None:
+        """splitter サイズ状態を QSettings に保存する (#869: 両 splitter 必須)。
+
+        Args:
+            settings: 書き込み先 QSettings。
+        """
+        settings.setValue("splitter/main_work_area", self._main_splitter.saveState())
+        settings.setValue("splitter/preview_details", self.splitterPreviewDetails.saveState())
+
+    def restore_layout_state(self, settings: QSettings) -> bool:
+        """splitter サイズ状態を QSettings から復元する。
+
+        ``QSplitter.restoreState()`` は orientation も復元するため、復元後に
+        ``apply_designed_splitter_orientations()`` で .ui 設計値へ戻す (#865)。
+
+        Args:
+            settings: 読み出し元 QSettings。
+
+        Returns:
+            いずれかの splitter を復元した場合 True。
+        """
+        restored = False
+        main_state = settings.value("splitter/main_work_area")
+        if main_state:
+            self._main_splitter.restoreState(main_state)
+            restored = True
+        preview_state = settings.value("splitter/preview_details")
+        if preview_state:
+            self.splitterPreviewDetails.restoreState(preview_state)
+            restored = True
+        if restored:
+            self.apply_designed_splitter_orientations()
+        return restored
 
     # -- スロット (MainWindow → タブ) ----------------------------------------
 
