@@ -1936,8 +1936,9 @@ class MainWindow(QMainWindow, Ui_MainWindow):
         # ウィンドウ状態（最大化等）
         settings.setValue("main_window/state", self.saveState())
 
-        # スプリッター状態
-        self._save_splitter_states(settings)
+        # スプリッター状態 (SearchTab が所有・#896)
+        if self.search_tab is not None:
+            self.search_tab.save_layout_state(settings)
 
         # パネル表示状態
         if hasattr(self, "actionToggleFilterPanel"):
@@ -1947,21 +1948,6 @@ class MainWindow(QMainWindow, Ui_MainWindow):
 
         settings.sync()
         logger.info("Window state saved to QSettings")
-
-    def _save_splitter_states(self, settings: QSettings) -> None:
-        """スプリッター状態を保存する。
-
-        3 ペイン作業領域 splitter とプレビュー/詳細 splitter はどちらも
-        SearchTabWidget が所有するため、``main_splitter`` / ``preview_splitter``
-        プロパティ経由で保存する (#869)。
-
-        Args:
-            settings: QSettingsインスタンス
-        """
-        if self.search_tab is None:
-            return
-        settings.setValue("splitter/main_work_area", self.search_tab.main_splitter.saveState())
-        settings.setValue("splitter/preview_details", self.search_tab.preview_splitter.saveState())
 
     def _restore_window_state(self) -> None:
         """QSettingsからウィンドウ/スプリッター状態を復元する。"""
@@ -1988,55 +1974,14 @@ class MainWindow(QMainWindow, Ui_MainWindow):
             self.restoreState(state)
             logger.debug("Window state restored")
 
-        # スプリッター状態
-        restored = self._restore_splitter_states(settings)
+        # スプリッター状態 (SearchTab が所有・#896)
+        restored = self.search_tab.restore_layout_state(settings) if self.search_tab is not None else False
 
         # パネル表示状態
         self._restore_panel_visibility(settings)
 
         if restored:
             logger.info("Window state restored from QSettings")
-
-    def _restore_splitter_states(self, settings: QSettings) -> bool:
-        """作業領域 / プレビュー詳細 splitter の状態を復元する。
-
-        どちらの splitter も SearchTabWidget が所有するため ``main_splitter`` /
-        ``preview_splitter`` プロパティ経由で復元する (#869)。
-
-        ``QSplitter.restoreState()`` は sizes だけでなく orientation も復元するため、
-        .ui 由来の orientation を保存し復元後に再適用して、旧状態が新レイアウトの
-        向きを巻き戻す回帰を防ぐ (#865)。
-
-        Args:
-            settings: QSettingsインスタンス
-
-        Returns:
-            いずれかが復元された場合True
-        """
-        if self.search_tab is None:
-            return False
-
-        restored = False
-
-        main_splitter = self.search_tab.main_splitter
-        main_state = settings.value("splitter/main_work_area")
-        if main_state:
-            designed_orientation = main_splitter.orientation()
-            main_splitter.restoreState(main_state)
-            main_splitter.setOrientation(designed_orientation)
-            restored = True
-
-        preview_splitter = self.search_tab.preview_splitter
-        preview_state = settings.value("splitter/preview_details")
-        if preview_state:
-            designed_orientation = preview_splitter.orientation()
-            preview_splitter.restoreState(preview_state)
-            preview_splitter.setOrientation(designed_orientation)
-            restored = True
-
-        if restored:
-            logger.debug("splitter states restored")
-        return restored
 
     def _restore_panel_visibility(self, settings: QSettings) -> None:
         """パネル表示状態を復元する。

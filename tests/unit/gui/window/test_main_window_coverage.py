@@ -797,93 +797,42 @@ class TestHandleBatchTagAddEdgeCases:
             assert "empty" in mock_logger.warning.call_args[0][0]
 
 
-class TestRestoreSplitterStatesOrientation:
-    """#865: QSplitter.restoreState が orientation を巻き戻さないことの検証。
+class TestSplitterStateDelegation:
+    """#896: MainWindow は splitter サイズ状態の save/restore を SearchTab へ委譲する。
 
-    #869: 3 ペイン作業領域 splitter は SearchTabWidget が所有するため、
-    MainWindow は search_tab.main_splitter プロパティ経由で復元する。
+    #865/#869 の orientation 維持・両 splitter 保存の不変条件は SearchTabWidget 側の
+    ``save_layout_state`` / ``restore_layout_state`` テスト (test_search_tab.py) が担保する。
+    MainWindow 側は委譲が行われることのみ検証する。
     """
 
-    def test_restore_preserves_designed_orientation(self, qtbot):
-        """旧 (縦) 保存状態を横スプリッターへ復元しても横のまま維持される。"""
-        from unittest.mock import Mock
-
-        from PySide6.QtCore import Qt
-        from PySide6.QtWidgets import QSplitter, QWidget
-
-        from lorairo.gui.window.main_window import MainWindow
-
-        # 旧 (縦) スプリッターの保存状態 (orientation を含む)
-        vertical = QSplitter(Qt.Orientation.Vertical)
-        vertical.addWidget(QWidget())
-        vertical.addWidget(QWidget())
-        saved_vertical_state = vertical.saveState()
-
-        # 新 (横) スプリッター = .ui 由来の設計 orientation (work area=Horizontal)
-        horizontal = QSplitter(Qt.Orientation.Horizontal)
-        horizontal.addWidget(QWidget())
-        horizontal.addWidget(QWidget())
-
-        mock_window = Mock()
-        mock_window.search_tab.main_splitter = horizontal
-
-        settings = Mock()
-        settings.value.side_effect = lambda key: (
-            saved_vertical_state if key == "splitter/main_work_area" else None
-        )
-
-        MainWindow._restore_splitter_states(mock_window, settings)
-
-        assert horizontal.orientation() == Qt.Orientation.Horizontal
-
-    def test_save_persists_both_main_and_preview_splitters(self, qtbot):
-        """#869 回帰防止: 作業領域とプレビュー詳細 splitter の両方を保存する。"""
-        from unittest.mock import Mock
+    def test_save_window_state_delegates_splitter_to_search_tab(self, qtbot):
+        """MainWindow は splitter 保存を SearchTab へ委譲する (#896)。"""
+        from unittest.mock import MagicMock, Mock
 
         from lorairo.gui.window.main_window import MainWindow
 
         mock_window = Mock()
-        mock_window.search_tab.main_splitter.saveState.return_value = b"main-state"
-        mock_window.search_tab.preview_splitter.saveState.return_value = b"preview-state"
+        mock_window.search_tab = MagicMock()
+        with patch("lorairo.gui.window.main_window.QSettings"):
+            MainWindow._save_window_state(mock_window)
+        mock_window.search_tab.save_layout_state.assert_called_once()
 
-        settings = Mock()
-        MainWindow._save_splitter_states(mock_window, settings)
-
-        saved_keys = {call.args[0] for call in settings.setValue.call_args_list}
-        assert "splitter/main_work_area" in saved_keys
-        assert "splitter/preview_details" in saved_keys
-
-    def test_restore_preserves_preview_orientation(self, qtbot):
-        """#865/#869: プレビュー詳細 splitter の縦 orientation を復元後も維持する。"""
-        from unittest.mock import Mock
-
-        from PySide6.QtCore import Qt
-        from PySide6.QtWidgets import QSplitter, QWidget
+    def test_restore_window_state_delegates_splitter_to_search_tab(self, qtbot):
+        """MainWindow は splitter 復元を SearchTab へ委譲する (#896)。"""
+        from unittest.mock import MagicMock, Mock
 
         from lorairo.gui.window.main_window import MainWindow
 
-        # 旧 (横) 保存状態
-        horizontal = QSplitter(Qt.Orientation.Horizontal)
-        horizontal.addWidget(QWidget())
-        horizontal.addWidget(QWidget())
-        saved_horizontal_state = horizontal.saveState()
-
-        # 新 (縦) = .ui 由来の設計 orientation (preview-details=Vertical)
-        vertical = QSplitter(Qt.Orientation.Vertical)
-        vertical.addWidget(QWidget())
-        vertical.addWidget(QWidget())
-
         mock_window = Mock()
-        mock_window.search_tab.preview_splitter = vertical
-
-        settings = Mock()
-        settings.value.side_effect = lambda key: (
-            saved_horizontal_state if key == "splitter/preview_details" else None
-        )
-
-        MainWindow._restore_splitter_states(mock_window, settings)
-
-        assert vertical.orientation() == Qt.Orientation.Vertical
+        mock_window.SETTINGS_VERSION = MainWindow.SETTINGS_VERSION
+        mock_window.search_tab = MagicMock()
+        with patch("lorairo.gui.window.main_window.QSettings") as mock_settings_cls:
+            settings = mock_settings_cls.return_value
+            settings.value.side_effect = lambda key, *args, **kwargs: (
+                MainWindow.SETTINGS_VERSION if key == "main_window/settings_version" else None
+            )
+            MainWindow._restore_window_state(mock_window)
+        mock_window.search_tab.restore_layout_state.assert_called_once()
 
 
 class TestModelSelectionStateManagerInit:
