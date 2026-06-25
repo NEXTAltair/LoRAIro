@@ -5,10 +5,15 @@ from __future__ import annotations
 from datetime import datetime
 
 import pytest
-from PySide6.QtWidgets import QPushButton
+from PySide6.QtWidgets import QGroupBox, QProgressBar, QPushButton
 
 from lorairo.gui.widgets.sync_job_ledger_widget import SyncJobLedgerWidget
-from lorairo.services.job_ledger_service import JobEntry, JobStatus
+from lorairo.services.job_ledger_service import (
+    JobEntry,
+    JobsSummary,
+    JobStatus,
+    StageProgress,
+)
 
 
 @pytest.fixture
@@ -122,3 +127,80 @@ class TestSyncJobLedgerWidget:
 
         assert widget.tableSyncJobs.rowCount() == 1
         assert widget.tableSyncJobs.cellWidget(0, 0).text() == "annotation"
+
+
+def _stage(**overrides) -> StageProgress:
+    values = {
+        "stage": "TAGS",
+        "model_name": "wd-tagger",
+        "meta": "local",
+        "percentage": 67,
+        "detail": "6 / 9",
+        "tone": "info",
+    }
+    values.update(overrides)
+    return StageProgress(**values)
+
+
+@pytest.mark.unit
+@pytest.mark.gui
+class TestSyncJobLedgerSummaryStrip:
+    """Issue #805: サマリ帯 (SummaryStat) の表示。"""
+
+    def test_set_summary_updates_stat_values(self, widget):
+        widget.set_summary(JobsSummary(running=1, queued=2, done_7d=17, failed_7d=3))
+
+        assert widget._stat_running._value_label.text() == "1"
+        assert widget._stat_queued._value_label.text() == "2"
+        assert widget._stat_done._value_label.text() == "17"
+        assert widget._stat_done._sub_label.text() == "失敗 3"
+
+    def test_api_stat_shows_no_data_honestly(self, widget):
+        """API レート使用量は台帳に無い → 捏造せず「データなし」を表示 (空状態の正直表示)。"""
+        widget.set_summary(JobsSummary(running=0, queued=0, done_7d=0, failed_7d=0))
+
+        assert widget._stat_api._value_label.text() == "—"
+        assert widget._stat_api._sub_label.text() == "データなし"
+
+
+@pytest.mark.unit
+@pytest.mark.gui
+class TestSyncJobLedgerRunningStages:
+    """Issue #805: 実行中ジョブの per-stage progress カード。"""
+
+    def test_running_entry_with_stages_renders_card(self, widget):
+        entry = _entry(stage_progress=[_stage(), _stage(stage="CAPTION", percentage=33, detail="3 / 9")])
+        widget.set_entries([entry])
+
+        card = widget.findChild(QGroupBox, f"jobStageCard_{entry.job_id}")
+        assert card is not None
+        bars = card.findChildren(QProgressBar)
+        assert len(bars) == 2
+        assert {bar.value() for bar in bars} == {67, 33}
+        assert widget._running_container.isVisibleTo(widget)
+
+    def test_no_stage_data_hides_running_container(self, widget):
+        """ステージデータが無ければ実行中コンテナを隠す (空カードを捏造しない)。"""
+        widget.set_entries([_entry(stage_progress=[])])
+
+        assert not widget._running_container.isVisibleTo(widget)
+
+    def test_terminal_entry_with_stage_data_not_rendered(self, widget):
+        """終端ジョブのステージ進捗カードは出さない (実行中のみ)。"""
+        entry = _entry(
+            job_id="finished_job",
+            status=JobStatus.FINISHED,
+            finished_at=datetime(2026, 6, 12, 10, 32),
+            stage_progress=[_stage()],
+        )
+        widget.set_entries([entry])
+
+        assert widget.findChild(QGroupBox, "jobStageCard_finished_job") is None
+        assert not widget._running_container.isVisibleTo(widget)
+
+    def test_set_entries_clears_previous_stage_cards(self, widget):
+        widget.set_entries([_entry(job_id="job_a", stage_progress=[_stage()])])
+        widget.set_entries([_entry(job_id="job_b", stage_progress=[_stage()])])
+
+        assert widget.findChild(QGroupBox, "jobStageCard_job_a") is None
+        assert widget.findChild(QGroupBox, "jobStageCard_job_b") is not None

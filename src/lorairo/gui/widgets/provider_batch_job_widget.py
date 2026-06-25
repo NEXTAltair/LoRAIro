@@ -114,9 +114,10 @@ class ProviderBatchJobWidget(QWidget, Ui_ProviderBatchJobWidget):
 
     @Slot()
     def refresh_sync_jobs(self) -> None:
-        """同期ジョブ台帳セクションを再描画する。"""
+        """同期ジョブ台帳セクション (サマリ帯・ステージ進捗・履歴) を再描画する。"""
         if self._job_ledger is None:
             return
+        self._sync_jobs_widget.set_summary(self._job_ledger.summary())
         self._sync_jobs_widget.set_entries(self._job_ledger.list_entries())
 
     def _connect_signals(self) -> None:

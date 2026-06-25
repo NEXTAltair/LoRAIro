@@ -1202,3 +1202,214 @@ class TestRunOptionsWiring:
 
         mock_save_service.filter_refused_image_paths.assert_called_once()
         assert worker.image_paths == ["/path/img1.jpg"]
+
+
+@pytest.mark.unit
+@pytest.mark.gui
+class TestAnnotationWorkerStageProgress:
+    """Issue #805: 実行中ステージ別 progress signal の発火。"""
+
+    @staticmethod
+    def _registry_with_model_info(name, capabilities, *, requires_api_key=False, provider="local"):
+        from lorairo.services.model_registry_protocol import ModelInfo
+
+        registry = Mock()
+        registry.get_available_models.return_value = [
+            ModelInfo(
+                name=name,
+                provider=provider,
+                capabilities=capabilities,
+                litellm_model_id=name,
+                requires_api_key=requires_api_key,
+                estimated_size_gb=None,
+            )
+        ]
+        return registry
+
+    def test_execute_emits_stage_progress_start_and_finished(self, mock_annotation_logic):
+        registry = self._registry_with_model_info("wd-tagger", ["tags", "captions"])
+        mock_db_manager = Mock()
+        mock_db_manager.image_repo.get_phashes_by_filepaths.return_value = {}
+        mock_db_manager.image_repo.find_image_ids_by_phashes_multi.return_value = {}
+        mock_db_manager.image_repo.get_image_ids_by_filepaths.return_value = {}
+        mock_annotation_logic.execute_annotation.return_value = {
+            "phash1": {"wd-tagger": {"tags": ["cat"], "error": None}}
+        }
+
+        worker = AnnotationWorker(
+            annotation_logic=mock_annotation_logic,
+            image_paths=["/path/to/image.jpg"],
+            litellm_model_ids=["wd-tagger"],
+            db_manager=mock_db_manager,
+            model_registry=registry,
+        )
+
+        captured: list[list] = []
+        worker.stage_progress_updated.connect(captured.append)
+
+        worker.execute()
+
+        # 実行開始 (0 件) と一括完了 (finished) の最低 2 回発火する
+        assert len(captured) >= 2
+        first_stages = captured[0]
+        assert [s.stage for s in first_stages] == ["TAGS", "CAPTION"]
+        assert all(s.tone == "info" for s in first_stages)
+        # 完了通知では全ステージ ok / 100%
+        last_stages = captured[-1]
+        assert all(s.tone == "ok" and s.percentage == 100 for s in last_stages)
+
+    def test_bulk_l1_result_error_marks_stage_failed(self, mock_annotation_logic):
+        """bulk で result.error を持つモデルはステージ完了通知で失敗扱いにする (Codex P2)。"""
+        registry = Mock()
+        registry.get_available_models.return_value = [
+            self._model_info("model-a", ["tags"]),
+            self._model_info("model-b", ["tags"]),
+        ]
+        mock_db_manager = Mock()
+        mock_db_manager.image_repo.get_phashes_by_filepaths.return_value = {}
+        mock_db_manager.image_repo.find_image_ids_by_phashes_multi.return_value = {}
+        mock_db_manager.image_repo.get_image_ids_by_filepaths.return_value = {}
+        # model-a は正常、model-b は result.error 付き (例外は投げない L1 エラー)
+        mock_annotation_logic.execute_annotation.return_value = {
+            "phash1": {
+                "model-a": {"tags": ["cat"], "error": None},
+                "model-b": {"tags": [], "error": "rate_limited"},
+            }
+        }
+
+        worker = AnnotationWorker(
+            annotation_logic=mock_annotation_logic,
+            image_paths=["/img.jpg"],
+            litellm_model_ids=["model-a", "model-b"],
+            db_manager=mock_db_manager,
+            model_registry=registry,
+        )
+
+        captured: list[list] = []
+        worker.stage_progress_updated.connect(captured.append)
+
+        worker.execute()
+
+        last = {s.model_name: s for s in captured[-1]}
+        assert last["model-a"].tone == "ok"
+        assert last["model-a"].percentage == 100
+        # result.error を持つ model-b は成功表示にしない
+        assert last["model-b"].tone == "err"
+
+    def test_fallback_does_not_mark_unstarted_models_complete(self, mock_annotation_logic):
+        """per-model fallback で未起動モデルを false 100% にしない (Codex P2)。"""
+        registry = Mock()
+        registry.get_available_models.return_value = [
+            self._model_info("model-a", ["tags"]),
+            self._model_info("model-b", ["tags"]),
+        ]
+        mock_db_manager = Mock()
+        mock_db_manager.image_repo.get_phashes_by_filepaths.return_value = {}
+        mock_db_manager.image_repo.find_image_ids_by_phashes_multi.return_value = {}
+        mock_db_manager.image_repo.get_image_ids_by_filepaths.return_value = {}
+
+        def execute_annotation(*_args, **kwargs):
+            model_ids = list(kwargs["litellm_model_ids"])
+            if len(model_ids) > 1:
+                # bulk 呼び出しを失敗させて per-model fallback を強制
+                raise RuntimeError("bulk failed")
+            mid = model_ids[0]
+            return {"phash1": {mid: {"tags": ["cat"], "error": None}}}
+
+        mock_annotation_logic.execute_annotation.side_effect = execute_annotation
+
+        worker = AnnotationWorker(
+            annotation_logic=mock_annotation_logic,
+            image_paths=["/img1.jpg", "/img2.jpg"],
+            litellm_model_ids=["model-a", "model-b"],
+            db_manager=mock_db_manager,
+            model_registry=registry,
+        )
+
+        captured: list[list] = []
+        worker.stage_progress_updated.connect(captured.append)
+
+        worker.execute()
+
+        # model-a 完了直後で model-b 未起動のスナップショットを検証
+        snapshot = None
+        for stages in captured:
+            by_name = {s.model_name: s for s in stages}
+            if by_name.get("model-a") and by_name["model-a"].tone == "ok":
+                if by_name.get("model-b") and by_name["model-b"].tone != "ok":
+                    snapshot = by_name
+                    break
+        assert snapshot is not None, "model-a 完了 / model-b 未完了のスナップショットが必要"
+        assert snapshot["model-a"].percentage == 100
+        # 未起動の model-b は 0% (false 100% を出さない)
+        assert snapshot["model-b"].percentage == 0
+        assert snapshot["model-b"].tone == "info"
+
+    @staticmethod
+    def _model_info(name, capabilities, *, requires_api_key=False, provider="local"):
+        from lorairo.services.model_registry_protocol import ModelInfo
+
+        return ModelInfo(
+            name=name,
+            provider=provider,
+            capabilities=capabilities,
+            litellm_model_id=name,
+            requires_api_key=requires_api_key,
+            estimated_size_gb=None,
+        )
+
+    def test_execute_empty_registry_falls_back_to_annotate_stage(self, mock_annotation_logic):
+        """registry に capability 情報が無くても選択モデルは ANNOTATE ステージで表示する。"""
+        registry = Mock()
+        registry.get_available_models.return_value = []
+        mock_db_manager = Mock()
+        mock_db_manager.image_repo.get_phashes_by_filepaths.return_value = {}
+        mock_db_manager.image_repo.find_image_ids_by_phashes_multi.return_value = {}
+        mock_db_manager.image_repo.get_image_ids_by_filepaths.return_value = {}
+        mock_annotation_logic.execute_annotation.return_value = {
+            "phash1": {"wd-tagger": {"tags": ["cat"], "error": None}}
+        }
+
+        worker = AnnotationWorker(
+            annotation_logic=mock_annotation_logic,
+            image_paths=["/path/to/image.jpg"],
+            litellm_model_ids=["wd-tagger"],
+            db_manager=mock_db_manager,
+            model_registry=registry,
+        )
+
+        captured: list[list] = []
+        worker.stage_progress_updated.connect(captured.append)
+
+        worker.execute()
+
+        assert captured
+        assert [s.stage for s in captured[0]] == ["ANNOTATE"]
+
+    def test_execute_skips_stage_progress_when_registry_lookup_raises(self, mock_annotation_logic):
+        """registry 取得が例外を投げたらステージ表示は諦める (annotation 自体は継続)。"""
+        registry = Mock()
+        registry.get_available_models.side_effect = RuntimeError("registry down")
+        mock_db_manager = Mock()
+        mock_db_manager.image_repo.get_phashes_by_filepaths.return_value = {}
+        mock_db_manager.image_repo.find_image_ids_by_phashes_multi.return_value = {}
+        mock_db_manager.image_repo.get_image_ids_by_filepaths.return_value = {}
+        mock_annotation_logic.execute_annotation.return_value = {
+            "phash1": {"wd-tagger": {"tags": ["cat"], "error": None}}
+        }
+
+        worker = AnnotationWorker(
+            annotation_logic=mock_annotation_logic,
+            image_paths=["/path/to/image.jpg"],
+            litellm_model_ids=["wd-tagger"],
+            db_manager=mock_db_manager,
+            model_registry=registry,
+        )
+
+        captured: list[list] = []
+        worker.stage_progress_updated.connect(captured.append)
+
+        result = worker.execute()
+
+        assert captured == []
+        assert result.total_images == 1

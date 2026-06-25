@@ -114,6 +114,10 @@ class WorkerService(QObject):
 
         # ADR 0066: 同期ジョブの in-memory 台帳 (進捗ポップアップ廃止後の lifecycle ビュー)
         self.job_ledger = JobLedgerService()
+        # Issue #805: 台帳行登録より前に届いたステージ進捗の保険バッファ (worker_id -> stages)。
+        # 通常は worker_started の同期登録が先行するため未使用だが、登録順に依存しない
+        # 安全網として、登録時に flush する (Codex P2)。
+        self._pending_stage_progress: dict[str, Any] = {}
 
         # シングルトンワーカー管理
         self.current_search_worker_id: str | None = None
@@ -269,6 +273,10 @@ class WorkerService(QObject):
         worker.progress_updated.connect(
             lambda progress: self.worker_progress_updated.emit(worker_id, progress)
         )
+        # Issue #805: ステージ別進捗を同期ジョブ台帳へ反映 (DS JobsScreen per-stage カード)
+        worker.stage_progress_updated.connect(
+            lambda stages: self._on_annotation_stage_progress(worker_id, stages)
+        )
 
         # Issue #803 (Codex P2): dry-run は実作業を一切行わない契約のため、未インストール
         # ローカル ML モデルの download/install (`_start_model_install`) や GPU 直列キュー
@@ -397,6 +405,23 @@ class WorkerService(QObject):
         self.worker_progress_updated.emit(worker_id, progress)
         if self.job_ledger.update(worker_id, summary=progress.status_message) is not None:
             self.job_ledger_changed.emit()
+
+    def _on_annotation_stage_progress(self, worker_id: str, stages: Any) -> None:
+        """アノテーションのステージ別進捗を同期ジョブ台帳へ反映する (Issue #805)。
+
+        台帳行が未登録の場合 (理論上は ``worker_started`` の同期登録が先行するため
+        起こらないが、登録順に依存しないよう) 最新スナップショットをバッファし、
+        登録時に flush する (Codex P2: bulk 初回 snapshot の取りこぼし防止)。
+
+        Args:
+            worker_id: 対象アノテーションワーカーID (= 台帳 job_id)。
+            stages: ``list[StageProgress]`` (worker が構築済み)。
+        """
+        if self.job_ledger.set_stage_progress(worker_id, stages) is not None:
+            self.job_ledger_changed.emit()
+        else:
+            # 行未登録: 最新スナップショットだけ保持し、登録時に反映する。
+            self._pending_stage_progress[worker_id] = stages
 
     def _handle_install_chain_terminal(self, event: WorkerTerminalEvent) -> None:
         """install ジョブの終端時に連結アノテーションの扱いを確定する (Issue #754)。
@@ -970,6 +995,10 @@ class WorkerService(QObject):
         if entry.status is JobStatus.QUEUED:
             # ADR 0066 §6: GPU 直列キューからの起動 (queued -> running)
             self.job_ledger.update(context.worker_id, status=JobStatus.RUNNING)
+        # Issue #805: 登録前に届いていたステージ進捗があれば反映する (保険、Codex P2)。
+        pending_stages = self._pending_stage_progress.pop(context.worker_id, None)
+        if pending_stages is not None:
+            self.job_ledger.set_stage_progress(context.worker_id, pending_stages)
         self.job_ledger_changed.emit()
 
     # === GPU 直列キュー (ADR 0066 §6) ===
@@ -1108,6 +1137,8 @@ class WorkerService(QObject):
         """ジョブの終端結果を台帳に確定する (ADR 0066 §3)。"""
         if context.operation_type not in _JOB_LEDGER_TITLES:
             return
+        # Issue #805: 未 flush のステージ進捗バッファが残っていれば破棄 (leak 防止)。
+        self._pending_stage_progress.pop(event.worker_id, None)
         status, summary = self._ledger_status_for_outcome(outcome, event)
         if self.job_ledger.finish(event.worker_id, status, summary) is not None:
             self.job_ledger_changed.emit()
