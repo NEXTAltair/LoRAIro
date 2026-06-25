@@ -270,6 +270,21 @@ class WorkerService(QObject):
             lambda progress: self.worker_progress_updated.emit(worker_id, progress)
         )
 
+        # Issue #803 (Codex P2): dry-run は実作業を一切行わない契約のため、未インストール
+        # ローカル ML モデルの download/install (`_start_model_install`) や GPU 直列キュー
+        # 占有を発生させてはならない。worker.execute() は推論前に短絡し件数のみ算出するため、
+        # model-install / GPU キュー機構をバイパスして worker を直接起動する。
+        if run_options is not None and run_options.dry_run:
+            if self.worker_manager.start_worker(worker_id, worker):
+                self.current_annotation_worker_id = worker_id
+                logger.info(
+                    f"dry-run アノテーション開始: {len(image_paths)}画像, "
+                    f"{len(litellm_model_ids)}モデル (ID: {worker_id}, model-install/GPU キューをバイパス)"
+                )
+                return worker_id
+            self._worker_operations.pop(worker_id, None)
+            raise RuntimeError(f"アノテーションワーカー開始失敗: {worker_id}")
+
         # ADR 0066 §6: GPU ジョブ判定とキュー投入
         local_models = local_ml_model_names(litellm_model_ids, model_registry)
         requires_gpu = bool(local_models)

@@ -142,9 +142,11 @@ class AnnotationWorker(LoRAIroWorkerBase["AnnotationExecutionResult"]):
             litellm_model_ids: 使用モデルの `litellm_model_id` リスト
             db_manager: データベースマネージャ（必須: DB保存・エラー記録用）
             model_registry: モデルレジストリ (provider/capabilities 取得用、Issue #225)
-            run_options: 実行詳細設定 (Issue #803)。``dry_run`` 時は DB 書き込みを
-                スキップし、``rating_gate=False`` 時は送信前 moderation preflight を
-                スキップする。``None`` の場合は従来挙動 (dry_run=False / rating_gate=True)。
+            run_options: 実行詳細設定 (Issue #803)。``dry_run`` 時は推論・送信・DB保存を
+                行わず件数のみ算出する。``rating_gate=False`` 時は X/XXX rating +
+                moderation preflight をスキップする (過去 refusal の再送を防ぐ refusal
+                filter は rating ゲートと独立して維持)。``None`` の場合は従来挙動
+                (dry_run=False / rating_gate=True)。
         """
         super().__init__(db_manager=db_manager)
 
@@ -490,6 +492,21 @@ class AnnotationWorker(LoRAIroWorkerBase["AnnotationExecutionResult"]):
             f"アノテーション処理開始 - {len(self.image_paths)}画像, {len(self.litellm_model_ids)}モデル"
         )
 
+        # Issue #803 (Codex P1): dry-run は実推論・送信・DB保存を一切行わず件数のみ算出する。
+        # RunSettings 契約は「実際に推論せずジョブ件数・推定コストだけを検証する」であり、
+        # 有料 WebAPI 呼び出しや preflight 副作用を発生させてはならない。最終保存だけの
+        # スキップでは不十分なため、推論前にここで短絡する。
+        if self._dry_run:
+            logger.info(
+                "dry-run: 推論・送信・DB保存をスキップし件数のみ算出 "
+                f"({len(self.image_paths)}画像 × {len(self.litellm_model_ids)}モデル)"
+            )
+            return AnnotationExecutionResult(
+                results=PHashAnnotationResults(),
+                total_images=len(self.image_paths),
+                models_used=list(self.litellm_model_ids),
+            )
+
         try:
             # Phase 0: refusal 送信前 filter (5%)
             # ADR 0023 Phase 1.5 (Issue #42, Codex P2 r3209342204): refusal filter
@@ -577,13 +594,6 @@ class AnnotationWorker(LoRAIroWorkerBase["AnnotationExecutionResult"]):
 
         副作用: `self.image_paths` を filter 結果で in-place 置換する。
         """
-        # Issue #803: rating ゲート無効時は送信前 moderation preflight を丸ごとスキップする。
-        if not self._rating_gate:
-            logger.debug(
-                "rating ゲート無効 (run_options.rating_gate=False): moderation preflight をスキップ"
-            )
-            return []
-
         try:
             should_filter = selection_includes_webapi_model(self.litellm_model_ids, self.model_registry)
         except Exception as exc:
@@ -608,7 +618,27 @@ class AnnotationWorker(LoRAIroWorkerBase["AnnotationExecutionResult"]):
         )
         original_count = len(self.image_paths)
         try:
+            # refusal filter は rating ゲートと独立 (Issue #803 Codex P2)。過去に provider が
+            # 拒否した画像 (SAFETY_REFUSAL / EMPTY_ANNOTATION) の再送・API 浪費を防ぐため、
+            # rating ゲートの ON/OFF に関わらず常に適用する。
             filtered_image_paths = save_service.filter_refused_image_paths(self.image_paths)
+
+            # Issue #803: rating ゲート無効時は X/XXX rating + moderation preflight のみスキップ。
+            if not self._rating_gate:
+                self.image_paths = filtered_image_paths
+                excluded = original_count - len(self.image_paths)
+                if excluded > 0:
+                    logger.info(
+                        f"prefilter 適用 (rating ゲート無効): {original_count}件 → "
+                        f"{len(self.image_paths)}件 (refusal 除外のみ: {excluded}件)"
+                    )
+                else:
+                    logger.debug(
+                        "rating ゲート無効 (run_options.rating_gate=False): "
+                        "rating/moderation preflight をスキップ"
+                    )
+                return []
+
             rating_filtered_paths = save_service.filter_excluded_by_rating(filtered_image_paths)
             preflight_service = ModerationPreflightService(
                 image_repo=self.db_manager.image_repo,
@@ -654,25 +684,16 @@ class AnnotationWorker(LoRAIroWorkerBase["AnnotationExecutionResult"]):
         Returns:
             (DB保存成功件数, スキップ件数, 画像ごとの結果概要リスト, phash→ファイル名マップ) のタプル。
         """
-        # Issue #803: dry-run 時は DB 書き込みを行わず、サマリー表示用のマップのみ構築する。
-        if self._dry_run:
-            success_count = 0
-            skip_count = 0
-            logger.info(f"dry-run: DB保存をスキップ ({len(results)}件の結果は保存しません)")
-        else:
-            # #633: 保存対象をこのバッチで実際に処理した image_id 集合に限定する
-            # (同一 pHash の未選択別版へ結果を書き込み汚染しないため)。
-            allowed_image_ids = self._resolve_batch_image_ids()
+        # #633: 保存対象をこのバッチで実際に処理した image_id 集合に限定する
+        # (同一 pHash の未選択別版へ結果を書き込み汚染しないため)。
+        allowed_image_ids = self._resolve_batch_image_ids()
 
-            save_result = AnnotationSaveService(
-                annotation_repo=self.db_manager.annotation_repo,
-                image_repo=self.db_manager.image_repo,
-                model_repo=self.db_manager.model_repo,
-                error_record_repo=self.db_manager.error_record_repo,
-            ).save_annotation_results(results, allowed_image_ids=allowed_image_ids)
-            success_count = save_result.success_count
-            skip_count = save_result.skip_count
-            logger.info(f"DB保存完了: {save_result.success_count}/{save_result.total_count}件成功")
+        save_result = AnnotationSaveService(
+            annotation_repo=self.db_manager.annotation_repo,
+            image_repo=self.db_manager.image_repo,
+            model_repo=self.db_manager.model_repo,
+            error_record_repo=self.db_manager.error_record_repo,
+        ).save_annotation_results(results, allowed_image_ids=allowed_image_ids)
 
         # GUIサマリー用: phash→ファイル名マップを構築 (#633: 別版で複数 image_id になり得る)
         phash_to_image_ids = self.db_manager.image_repo.find_image_ids_by_phashes_multi(set(results.keys()))
@@ -686,7 +707,8 @@ class AnnotationWorker(LoRAIroWorkerBase["AnnotationExecutionResult"]):
             if phash_to_image_ids.get(phash)
         ]
 
-        return success_count, skip_count, image_summaries, phash_to_filename
+        logger.info(f"DB保存完了: {save_result.success_count}/{save_result.total_count}件成功")
+        return save_result.success_count, save_result.skip_count, image_summaries, phash_to_filename
 
     def _resolve_batch_image_ids(self) -> set[int] | None:
         """このバッチの image_paths を DB 上の image_id 集合に解決する (#633)。

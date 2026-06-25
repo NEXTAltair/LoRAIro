@@ -1020,6 +1020,40 @@ class TestWorkerService:
     @patch("lorairo.gui.services.worker_service.get_service_container")
     @patch("lorairo.gui.services.worker_service.AnnotationWorker")
     @patch.object(WorkerService, "annotation_logic", create=True)
+    def test_dry_run_bypasses_model_install_and_gpu_queue(
+        self, mock_annotation_logic, mock_worker_class, mock_container, worker_service
+    ):
+        """Issue #803 (Codex P2): dry-run は model-install / GPU キューを介さず worker を直接起動する。"""
+        from lorairo.gui.widgets.run_settings_dialog import RunOptions
+
+        mock_container.return_value.model_registry.get_available_models.return_value = []
+        mock_worker_class.return_value = Mock()
+        worker_service.worker_manager.start_worker.return_value = True
+        # model-install / GPU キュー機構が呼ばれたら検出できるよう spy を仕込む
+        worker_service._detect_missing_local_models = Mock(return_value=["wd-v1-4-tagger"])
+        worker_service._start_model_install = Mock(return_value="install_worker_id")
+        worker_service._enqueue_gpu_annotation = Mock()
+
+        worker_id = worker_service.start_enhanced_batch_annotation(
+            image_paths=["/path/to/image1.jpg"],
+            litellm_model_ids=["wd-v1-4-tagger"],
+            run_options=RunOptions(dry_run=True),
+        )
+
+        # dry-run では model-install 検出 / install / GPU キュー投入を一切行わない
+        worker_service._detect_missing_local_models.assert_not_called()
+        worker_service._start_model_install.assert_not_called()
+        worker_service._enqueue_gpu_annotation.assert_not_called()
+        # worker は直接起動される
+        worker_service.worker_manager.start_worker.assert_called_once()
+        assert worker_id.startswith("annotation_")
+        assert worker_service.current_annotation_worker_id == worker_id
+        # GPU 直列スロットも占有しない
+        assert worker_service._gpu_active_worker_id is None
+
+    @patch("lorairo.gui.services.worker_service.get_service_container")
+    @patch("lorairo.gui.services.worker_service.AnnotationWorker")
+    @patch.object(WorkerService, "annotation_logic", create=True)
     def test_start_enhanced_batch_annotation_failure_keeps_current_worker_id(
         self, mock_annotation_logic, mock_worker_class, mock_container, worker_service
     ):
