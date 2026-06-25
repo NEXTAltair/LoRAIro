@@ -41,7 +41,6 @@ from ...utils.log import logger
 from ..controllers.annotation_workflow_controller import AnnotationWorkflowController
 from ..controllers.dataset_controller import DatasetController
 from ..controllers.settings_controller import SettingsController
-from ..services.image_db_write_service import ImageDBWriteService
 from ..services.pipeline_control_service import PipelineControlService
 from ..services.progress_state_service import ProgressStateService
 from ..services.result_handler_service import ResultHandlerService
@@ -60,7 +59,6 @@ from ..tab.results_tab import ResultsTabWidget
 from ..tab.search_tab import SearchTabWidget
 from ..widgets.error_notification_widget import ErrorNotificationWidget
 from ..widgets.preflight_summary_widget import classify_preflight_counts
-from ..widgets.quick_tag_dialog import QuickTagDialog
 from ..widgets.registration_summary_widget import RegistrationSummaryWidget
 from ..widgets.tag_management_dialog import TagManagementDialog
 from ..workers.async_batch_dispatch_worker import AsyncBatchDispatchWorker
@@ -106,7 +104,6 @@ class MainWindow(QMainWindow, Ui_MainWindow):
     result_handler_service: ResultHandlerService | None
     pipeline_control_service: PipelineControlService | None
     progress_state_service: ProgressStateService | None
-    image_db_write_service: ImageDBWriteService | None
 
     @property
     def service_container(self) -> ServiceContainer:
@@ -727,7 +724,8 @@ class MainWindow(QMainWindow, Ui_MainWindow):
             return
         try:
             self.search_tab.stage_to_annotation_requested.connect(self.send_selected_to_batch_tag)
-            self.search_tab.quick_tag_requested.connect(self._show_quick_tag_dialog)
+            # #896: クイックタグはタブ内で完結。タブの status_message を statusBar へ橋渡しする。
+            self.search_tab.status_message.connect(self.statusBar().showMessage)
             self.search_tab.export_requested.connect(self.export_data)
             self.search_tab.dataset_selection_requested.connect(self.select_and_process_dataset)
             self.search_tab.settings_requested.connect(self.open_settings)
@@ -845,7 +843,8 @@ class MainWindow(QMainWindow, Ui_MainWindow):
         if self.annotate_tab is None:
             return
         try:
-            self.annotate_tab.tag_add_requested.connect(self._handle_batch_tag_add)
+            # #896: batch tag 書込はタブ内で完結。タブの status_message を statusBar へ橋渡しする。
+            self.annotate_tab.status_message.connect(self.statusBar().showMessage)
             self.annotate_tab.annotation_execute_requested.connect(self.start_annotation)
             self.annotate_tab.configure_key_requested.connect(self._on_annotate_configure_key_requested)
             logger.info("    ✅ AnnotateTabWidget シグナル接続完了")
@@ -1241,52 +1240,6 @@ class MainWindow(QMainWindow, Ui_MainWindow):
         if self.search_tab is not None:
             self.search_tab.load_images_from_db()
 
-    def _execute_batch_tag_write(self, image_ids: list[int], tag: str) -> bool:
-        """バッチタグ書き込みとキャッシュ更新を実行する。
-
-        Args:
-            image_ids: 対象画像のIDリスト
-            tag: 追加するタグ（正規化済み）
-
-        Returns:
-            成功した場合True
-        """
-        if not self.image_db_write_service:
-            logger.warning("ImageDBWriteService not initialized")
-            return False
-
-        success = self.image_db_write_service.add_tag_batch(image_ids, tag)
-        if success and self.dataset_state_manager:
-            self.dataset_state_manager.refresh_images(image_ids)
-        return success
-
-    def _handle_batch_tag_add(self, image_ids: list[int], tag: str) -> None:
-        """BatchTagAddWidget からのバッチタグ追加シグナルハンドラ。
-
-        Args:
-            image_ids: 対象画像のIDリスト
-            tag: 追加するタグ（正規化済み）
-        """
-        if not image_ids:
-            logger.warning("Batch tag add requested with empty image list")
-            return
-
-        logger.info(f"Batch tag add requested: tag='{tag}' for {len(image_ids)} images")
-
-        success = self._execute_batch_tag_write(image_ids, tag)
-        if success:
-            # ステージング集合をクリア (SSoT = StagingStateManager、fan-out で各タブへ反映)
-            if self.staging_state_manager is not None:
-                self.staging_state_manager.clear()
-
-            self.statusBar().showMessage(f"タグ '{tag}' を {len(image_ids)} 件の画像に追加しました", 5000)
-            logger.info(
-                f"Batch tag add completed successfully: tag='{tag}', {len(image_ids)} images updated"
-            )
-        else:
-            QMessageBox.critical(self, "タグ追加失敗", f"タグ '{tag}' の追加に失敗しました。")
-            logger.error(f"Failed to add tag in batch: tag='{tag}', image_count={len(image_ids)}")
-
     def _handle_staging_cleared(self) -> None:
         """ステージング集合クリア時のハンドラ (StagingStateManager fan-out、ADR 0074)。
 
@@ -1331,40 +1284,6 @@ class MainWindow(QMainWindow, Ui_MainWindow):
         if self.search_tab is not None:
             self.search_tab.set_export_target_count(staging_count)
 
-    def _show_quick_tag_dialog(self, image_ids: list[int]) -> None:
-        """クイックタグダイアログを表示する。
-
-        サムネイル右クリックメニューから呼び出され、
-        選択された画像に素早くタグを追加する。
-
-        Args:
-            image_ids: タグを追加する画像IDのリスト
-        """
-        if not image_ids:
-            logger.warning("Quick tag dialog requested with empty image list")
-            return
-
-        dialog = QuickTagDialog(image_ids, parent=self)
-        dialog.tag_add_requested.connect(self._handle_quick_tag_add)
-        dialog.exec()
-
-    def _handle_quick_tag_add(self, image_ids: list[int], tag: str) -> None:
-        """クイックタグダイアログからのタグ追加要求を処理する。
-
-        Args:
-            image_ids: 対象画像のIDリスト
-            tag: 追加するタグ（正規化済み）
-        """
-        logger.info(f"Quick tag add: tag='{tag}' for {len(image_ids)} images")
-
-        success = self._execute_batch_tag_write(image_ids, tag)
-        if success:
-            self.statusBar().showMessage(f"クイックタグ '{tag}' を追加しました", 5000)
-            logger.info(f"Quick tag add completed: tag='{tag}', {len(image_ids)} images updated")
-        else:
-            QMessageBox.critical(self, "タグ追加失敗", f"クイックタグ '{tag}' の追加に失敗しました。")
-            logger.error(f"Failed quick tag add: tag='{tag}', image_count={len(image_ids)}")
-
     def _setup_phase24_services(self) -> None:
         """Service層の初期化と統合
 
@@ -1392,12 +1311,6 @@ class MainWindow(QMainWindow, Ui_MainWindow):
             logger.info("  - ProgressStateService初期化中...")
             self.progress_state_service = ProgressStateService(status_bar=self.statusBar())
             logger.info("  ✅ ProgressStateService初期化成功")
-
-            # ImageDBWriteService初期化（バッチタグ/クイックタグ書込用、#869 で rating/score
-            # 編集配線は SearchTabWidget へ移管）
-            logger.info("  - ImageDBWriteService初期化中...")
-            self.image_db_write_service = ImageDBWriteService(self.db_manager) if self.db_manager else None
-            logger.info("  ✅ ImageDBWriteService初期化成功")
 
             logger.info("Service層統合完了")
 

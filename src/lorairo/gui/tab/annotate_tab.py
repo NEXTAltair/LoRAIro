@@ -18,7 +18,7 @@ MainWindow rewire (Track B) はこの契約に対してコードを書く。
 - Signal (タブ → MainWindow glue):
     - ``annotation_execute_requested = Signal()`` — run bar 実行ボタン
     - ``configure_key_requested = Signal(str)`` — picker の needs key → 設定導線 (provider)
-    - ``tag_add_requested = Signal(list, str)`` — batch tag 追加 (image_ids, tag)
+    - ``status_message = Signal(str)`` — statusBar 表示要求 (batch tag 書込結果など、#896)
     - ``staged_images_changed = Signal(list)`` — 内包 BatchTagAddWidget から再公開
     - ``staging_cleared = Signal()`` — 同上
 - スロット / API (MainWindow → タブ):
@@ -36,7 +36,7 @@ MainWindow rewire (Track B) はこの契約に対してコードを書く。
 """
 
 from PySide6.QtCore import Signal, Slot
-from PySide6.QtWidgets import QDialog, QHBoxLayout, QLabel, QPushButton, QWidget
+from PySide6.QtWidgets import QDialog, QHBoxLayout, QLabel, QMessageBox, QPushButton, QWidget
 
 from ...database.db_manager import ImageDatabaseManager
 from ...services.model_route_service import build_available_providers
@@ -48,6 +48,7 @@ from ...services.service_container import ServiceContainer
 from ...utils.log import logger
 from .. import theme
 from ..designer.AnnotateTab_ui import Ui_AnnotateTab
+from ..services.image_db_write_service import ImageDBWriteService
 from ..state.dataset_state import DatasetStateManager
 from ..state.model_selection_state import ModelSelectionStateManager
 from ..state.staging_state import StagingStateManager
@@ -72,7 +73,7 @@ class AnnotateTabWidget(QWidget, Ui_AnnotateTab):
 
     annotation_execute_requested = Signal()
     configure_key_requested = Signal(str)
-    tag_add_requested = Signal(list, str)
+    status_message = Signal(str)  # statusBar 表示要求 (image_ids バッチタグ書込結果など、#896)
     staged_images_changed = Signal(list)
     staging_cleared = Signal()
 
@@ -103,6 +104,8 @@ class AnnotateTabWidget(QWidget, Ui_AnnotateTab):
         self._staging_state_manager = staging_state_manager
         self._dataset_state_manager = dataset_state_manager
         self._model_selection_state_manager = model_selection_state_manager
+        # バッチタグ書込サービス (#896: MainWindow から移送)。db_manager から自前構築する。
+        self._image_db_write_service = ImageDBWriteService(db_manager) if db_manager else None
         # widget ↔ state manager 双方向同期の再帰ガード
         self._syncing_model_selection = False
 
@@ -332,7 +335,56 @@ class AnnotateTabWidget(QWidget, Ui_AnnotateTab):
 
         self._batch_tag_add_widget.staged_images_changed.connect(self.staged_images_changed)
         self._batch_tag_add_widget.staging_cleared.connect(self.staging_cleared)
-        self._batch_tag_add_widget.tag_add_requested.connect(self.tag_add_requested)
+        # #896: batch tag 書込はタブ内で処理し、MainWindow へは bubble しない。
+        self._batch_tag_add_widget.tag_add_requested.connect(self._handle_batch_tag_add)
+
+    # -- バッチタグ書込 (#896: MainWindow から移送) ---------------------------
+
+    def _execute_batch_tag_write(self, image_ids: list[int], tag: str) -> bool:
+        """バッチタグ書き込みと dataset キャッシュ更新を実行する。
+
+        Args:
+            image_ids: 対象画像の ID リスト。
+            tag: 追加するタグ (正規化済み)。
+
+        Returns:
+            成功した場合 True。
+        """
+        if self._image_db_write_service is None:
+            logger.warning("ImageDBWriteService not initialized")
+            return False
+
+        success = self._image_db_write_service.add_tag_batch(image_ids, tag)
+        if success and self._dataset_state_manager is not None:
+            self._dataset_state_manager.refresh_images(image_ids)
+        return success
+
+    def _handle_batch_tag_add(self, image_ids: list[int], tag: str) -> None:
+        """BatchTagAddWidget からのバッチタグ追加シグナルを処理する。
+
+        Args:
+            image_ids: 対象画像の ID リスト。
+            tag: 追加するタグ (正規化済み)。
+        """
+        if not image_ids:
+            logger.warning("Batch tag add requested with empty image list")
+            return
+
+        logger.info(f"Batch tag add requested: tag='{tag}' for {len(image_ids)} images")
+
+        success = self._execute_batch_tag_write(image_ids, tag)
+        if success:
+            # ステージング集合をクリア (SSoT = StagingStateManager、fan-out で各タブへ反映)
+            if self._staging_state_manager is not None:
+                self._staging_state_manager.clear()
+
+            self.status_message.emit(f"タグ '{tag}' を {len(image_ids)} 件の画像に追加しました")
+            logger.info(
+                f"Batch tag add completed successfully: tag='{tag}', {len(image_ids)} images updated"
+            )
+        else:
+            QMessageBox.critical(self, "タグ追加失敗", f"タグ '{tag}' の追加に失敗しました。")
+            logger.error(f"Failed to add tag in batch: tag='{tag}', image_count={len(image_ids)}")
 
     # -- プロパティ (タブ内配線・テスト用) -----------------------------------
 

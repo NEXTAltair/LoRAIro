@@ -17,7 +17,7 @@ worker dispatch・PipelineControlService 所有・staging fan-out・タブ間遷
   dataset_state_manager, staging_state_manager, worker_service, parent=None)``
 - Signal (タブ → MainWindow glue):
     - ``stage_to_annotation_requested = Signal(list)`` — 選択画像をアノテへステージ
-    - ``quick_tag_requested = Signal(list)`` — クイックタグ付与
+    - ``status_message = Signal(str)`` — statusBar 表示要求 (quick tag 書込結果など、#896)
     - ``export_requested = Signal()`` — エクスポートタブ遷移
     - ``dataset_selection_requested = Signal()`` — データセット選択+登録 dispatch
     - ``settings_requested = Signal()`` — 設定ダイアログ
@@ -38,7 +38,7 @@ worker dispatch・PipelineControlService 所有・staging fan-out・タブ間遷
 from typing import Any
 
 from PySide6.QtCore import QSettings, Qt, Signal, Slot
-from PySide6.QtWidgets import QSplitter, QWidget
+from PySide6.QtWidgets import QMessageBox, QSplitter, QWidget
 
 from ...database.db_manager import ImageDatabaseManager
 from ...services.model_selection_service import ModelSelectionService
@@ -52,6 +52,7 @@ from ..state.dataset_state import DatasetStateManager
 from ..state.staging_state import StagingStateManager
 from ..widgets.filter_search_panel import FilterSearchPanel
 from ..widgets.image_preview import ImagePreviewWidget
+from ..widgets.quick_tag_dialog import QuickTagDialog
 from ..widgets.selected_image_details_widget import SelectedImageDetailsWidget
 from ..widgets.thumbnail import ThumbnailSelectorWidget
 
@@ -66,7 +67,7 @@ class SearchTabWidget(QWidget, Ui_SearchTab):
     """
 
     stage_to_annotation_requested = Signal(list)
-    quick_tag_requested = Signal(list)
+    status_message = Signal(str)  # statusBar 表示要求 (quick tag 書込結果など、#896)
     export_requested = Signal()
     dataset_selection_requested = Signal()
     settings_requested = Signal()
@@ -238,8 +239,52 @@ class SearchTabWidget(QWidget, Ui_SearchTab):
         if hasattr(self._thumbnail_selector, "stage_selected_requested"):
             self._thumbnail_selector.stage_selected_requested.connect(self.stage_to_annotation_requested)
         if hasattr(self._thumbnail_selector, "quick_tag_requested"):
-            self._thumbnail_selector.quick_tag_requested.connect(self.quick_tag_requested)
+            # #896: クイックタグはタブ内で完結 (ダイアログ起動 + 書込)。MainWindow へは bubble しない。
+            self._thumbnail_selector.quick_tag_requested.connect(self._show_quick_tag_dialog)
         logger.debug("サムネイル → プレビュー接続完了")
+
+    # -- クイックタグ書込 (#896: MainWindow から移送) -------------------------
+
+    def _show_quick_tag_dialog(self, image_ids: list[int]) -> None:
+        """サムネ右クリックのクイックタグダイアログを表示する。
+
+        Args:
+            image_ids: タグを追加する画像 ID のリスト。
+        """
+        if not image_ids:
+            logger.warning("Quick tag dialog requested with empty image list")
+            return
+
+        dialog = QuickTagDialog(image_ids, parent=self)
+        dialog.tag_add_requested.connect(self._handle_quick_tag_add)
+        dialog.exec()
+
+    def _handle_quick_tag_add(self, image_ids: list[int], tag: str) -> None:
+        """クイックタグダイアログからのタグ追加要求を処理する。
+
+        書込は rating/score 編集と同じ ``ImageDBWriteService`` を再利用し、成功時は
+        ``dataset_state_manager`` のキャッシュを更新する (#896, 書込共有口=案A)。
+
+        Args:
+            image_ids: 対象画像の ID リスト。
+            tag: 追加するタグ (正規化済み)。
+        """
+        logger.info(f"Quick tag add: tag='{tag}' for {len(image_ids)} images")
+
+        if self._image_db_write_service is None:
+            logger.warning("ImageDBWriteService not initialized")
+            success = False
+        else:
+            success = self._image_db_write_service.add_tag_batch(image_ids, tag)
+            if success and self._dataset_state_manager is not None:
+                self._dataset_state_manager.refresh_images(image_ids)
+
+        if success:
+            self.status_message.emit(f"クイックタグ '{tag}' を追加しました")
+            logger.info(f"Quick tag add completed: tag='{tag}', {len(image_ids)} images updated")
+        else:
+            QMessageBox.critical(self, "タグ追加失敗", f"クイックタグ '{tag}' の追加に失敗しました。")
+            logger.error(f"Failed quick tag add: tag='{tag}', image_count={len(image_ids)}")
 
     def _connect_details_widget_signals(self) -> None:
         """SelectedImageDetailsWidget の Rating/Score シグナルをタブ内ハンドラへ接続する。"""

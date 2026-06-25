@@ -12,7 +12,7 @@ from types import SimpleNamespace
 from unittest.mock import Mock
 
 import pytest
-from PySide6.QtWidgets import QDialog
+from PySide6.QtWidgets import QDialog, QMessageBox
 
 from lorairo.gui.state.dataset_state import DatasetStateManager
 from lorairo.gui.state.model_selection_state import ModelSelectionStateManager
@@ -933,3 +933,82 @@ def test_refresh_pipeline_panel_sources_from_state_manager(
     assert captured[-1] == ["manager/a", "manager/b"], (
         f"widget ではなく manager から読むはずだが実際: {captured[-1]}"
     )
+
+
+# == バッチタグ書込 (#896 PR3: MainWindow から移送) ===========================
+
+
+@pytest.mark.gui
+def test_execute_batch_tag_write_refreshes_on_success(tab: AnnotateTabWidget) -> None:
+    """書込成功時に dataset_state_manager.refresh_images を呼ぶ (#896)。"""
+    tab._image_db_write_service = Mock()
+    tab._image_db_write_service.add_tag_batch.return_value = True
+    tab._dataset_state_manager = Mock()
+
+    result = tab._execute_batch_tag_write([1, 2], "landscape")
+
+    assert result is True
+    tab._image_db_write_service.add_tag_batch.assert_called_once_with([1, 2], "landscape")
+    tab._dataset_state_manager.refresh_images.assert_called_once_with([1, 2])
+
+
+@pytest.mark.gui
+def test_execute_batch_tag_write_no_service_returns_false(tab: AnnotateTabWidget) -> None:
+    """ImageDBWriteService 未初期化時は False を返し書込しない (#896)。"""
+    tab._image_db_write_service = None
+
+    assert tab._execute_batch_tag_write([1], "t") is False
+
+
+@pytest.mark.gui
+def test_handle_batch_tag_add_success_emits_status_and_clears_staging(
+    tab: AnnotateTabWidget, qtbot
+) -> None:
+    """書込成功で status_message を emit しステージングをクリアする (#896)。"""
+    tab._image_db_write_service = Mock()
+    tab._image_db_write_service.add_tag_batch.return_value = True
+    tab._dataset_state_manager = Mock()
+    tab._staging_state_manager = Mock()
+
+    with qtbot.waitSignal(tab.status_message, timeout=1000) as blocker:
+        tab._handle_batch_tag_add([1, 2], "landscape")
+
+    assert "landscape" in blocker.args[0]
+    tab._staging_state_manager.clear.assert_called_once()
+
+
+@pytest.mark.gui
+def test_handle_batch_tag_add_failure_shows_critical(tab: AnnotateTabWidget, monkeypatch) -> None:
+    """書込失敗で QMessageBox.critical を表示する (#896)。"""
+    tab._image_db_write_service = Mock()
+    tab._image_db_write_service.add_tag_batch.return_value = False
+    calls: list[bool] = []
+    monkeypatch.setattr(QMessageBox, "critical", lambda *a, **k: calls.append(True))
+
+    tab._handle_batch_tag_add([1], "x")
+
+    assert calls == [True]
+
+
+@pytest.mark.gui
+def test_handle_batch_tag_add_empty_ids_noop(tab: AnnotateTabWidget) -> None:
+    """空 image_ids では書込せず早期 return する (#896)。"""
+    tab._image_db_write_service = Mock()
+
+    tab._handle_batch_tag_add([], "x")
+
+    tab._image_db_write_service.add_tag_batch.assert_not_called()
+
+
+@pytest.mark.gui
+def test_batch_tag_add_widget_signal_handled_in_tab(tab: AnnotateTabWidget, monkeypatch) -> None:
+    """BatchTagAddWidget の tag_add_requested はタブ内で処理し上方 bubble しない (#896)。"""
+    handled: list[tuple[list[int], str]] = []
+    monkeypatch.setattr(tab, "_handle_batch_tag_add", lambda ids, t: handled.append((ids, t)))
+    # 再配線 (monkeypatch 後の接続を張り直す)
+    tab._batch_tag_add_widget.tag_add_requested.disconnect()
+    tab._batch_tag_add_widget.tag_add_requested.connect(tab._handle_batch_tag_add)
+
+    tab._batch_tag_add_widget.tag_add_requested.emit([3], "sky")
+
+    assert handled == [([3], "sky")]
