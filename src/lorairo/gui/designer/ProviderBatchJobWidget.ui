@@ -39,9 +39,22 @@
      </property>
      <widget class="QGroupBox" name="groupBoxStatus">
       <property name="title">
-       <string>バッチジョブ状態</string>
+       <string>バッチジョブ状態 (監視専用)</string>
       </property>
       <layout class="QVBoxLayout" name="statusLayout">
+       <item>
+        <widget class="QLabel" name="labelMonitorOnlyHint">
+         <property name="text">
+          <string>監視専用ビュー — バッチAPIジョブの作成は Annotate タブから行います。ここでは状態確認・キャンセル・結果の取得/取り込みのみ可能です。</string>
+         </property>
+         <property name="objectName">
+          <string>labelProviderBatchMonitorOnlyHint</string>
+         </property>
+         <property name="wordWrap">
+          <bool>true</bool>
+         </property>
+        </widget>
+       </item>
        <item>
         <layout class="QHBoxLayout" name="jobButtonsLayout">
         <item>

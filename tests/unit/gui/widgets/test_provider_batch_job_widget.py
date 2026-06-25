@@ -115,6 +115,23 @@ def test_submit_authoring_controls_removed(widget):
 
 @pytest.mark.unit
 @pytest.mark.gui
+def test_monitor_only_intent_is_explicit_in_ui(widget):
+    """監視専用であることが UI 上で明示されること (ADR 0076 §3 / Phase 4c)。
+
+    Phase 3 で作成入口は構造的に撤去済みだが、ユーザーには「ここでは作成できない /
+    作成は Annotate タブ」という意図が見えていなかった。可視化として
+    groupBox タイトルとヒントラベルでそれを明示する。
+    """
+    # groupBox タイトルが監視専用を明示する
+    assert "監視専用" in widget.groupBoxStatus.title()
+    # ヒントラベルが存在し、作成導線 (Annotate タブ) を案内する
+    hint_text = widget.labelMonitorOnlyHint.text()
+    assert "監視専用" in hint_text
+    assert "Annotate" in hint_text
+
+
+@pytest.mark.unit
+@pytest.mark.gui
 def test_submit_authoring_methods_removed(widget):
     """作成入口のメソッド / 状態管理ハンドラが撤去されていること (ADR 0076 §3)。"""
     assert not hasattr(widget, "submit_job")

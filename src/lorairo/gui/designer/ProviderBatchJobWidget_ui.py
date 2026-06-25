@@ -37,6 +37,12 @@ class Ui_ProviderBatchJobWidget(object):
         self.groupBoxStatus.setObjectName(u"groupBoxStatus")
         self.statusLayout = QVBoxLayout(self.groupBoxStatus)
         self.statusLayout.setObjectName(u"statusLayout")
+        self.labelMonitorOnlyHint = QLabel(self.groupBoxStatus)
+        self.labelMonitorOnlyHint.setObjectName(u"labelMonitorOnlyHint")
+        self.labelMonitorOnlyHint.setWordWrap(True)
+
+        self.statusLayout.addWidget(self.labelMonitorOnlyHint)
+
         self.jobButtonsLayout = QHBoxLayout()
         self.jobButtonsLayout.setObjectName(u"jobButtonsLayout")
         self.buttonRefreshStatus = QPushButton(self.groupBoxStatus)
@@ -127,7 +133,9 @@ class Ui_ProviderBatchJobWidget(object):
 
     def retranslateUi(self, ProviderBatchJobWidget: QWidget) -> None:
         ProviderBatchJobWidget.setWindowTitle(QCoreApplication.translate("ProviderBatchJobWidget", u"\u30d0\u30c3\u30c1API", None))
-        self.groupBoxStatus.setTitle(QCoreApplication.translate("ProviderBatchJobWidget", u"\u30d0\u30c3\u30c1\u30b8\u30e7\u30d6\u72b6\u614b", None))
+        self.groupBoxStatus.setTitle(QCoreApplication.translate("ProviderBatchJobWidget", u"\u30d0\u30c3\u30c1\u30b8\u30e7\u30d6\u72b6\u614b (\u76e3\u8996\u5c02\u7528)", None))
+        self.labelMonitorOnlyHint.setText(QCoreApplication.translate("ProviderBatchJobWidget", u"\u76e3\u8996\u5c02\u7528\u30d3\u30e5\u30fc \u2014 \u30d0\u30c3\u30c1API\u30b8\u30e7\u30d6\u306e\u4f5c\u6210\u306f Annotate \u30bf\u30d6\u304b\u3089\u884c\u3044\u307e\u3059\u3002\u3053\u3053\u3067\u306f\u72b6\u614b\u78ba\u8a8d\u30fb\u30ad\u30e3\u30f3\u30bb\u30eb\u30fb\u7d50\u679c\u306e\u53d6\u5f97/\u53d6\u308a\u8fbc\u307f\u306e\u307f\u53ef\u80fd\u3067\u3059\u3002", None))
+        self.labelMonitorOnlyHint.setObjectName(QCoreApplication.translate("ProviderBatchJobWidget", u"labelProviderBatchMonitorOnlyHint", None))
         self.buttonRefreshStatus.setText(QCoreApplication.translate("ProviderBatchJobWidget", u"\u72b6\u614b\u3092\u78ba\u8a8d", None))
         self.buttonRefreshStatus.setObjectName(QCoreApplication.translate("ProviderBatchJobWidget", u"buttonProviderBatchRefreshStatus", None))
         self.buttonCancel.setText(QCoreApplication.translate("ProviderBatchJobWidget", u"\u30ad\u30e3\u30f3\u30bb\u30eb", None))
