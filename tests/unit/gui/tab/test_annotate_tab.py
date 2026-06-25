@@ -154,6 +154,86 @@ def test_di_graceful_with_none_managers(qtbot, service_container: Mock) -> None:
     widget.refresh()
 
 
+# == 2b. staging パス解決 helper (#896 PR4a: MainWindow から移送) ==============
+
+
+@pytest.mark.gui
+class TestStagedPathHelpers:
+    """staging 画像の {image_id: パス} 解決 helper (#896 PR4a)。
+
+    MainWindow から ``_get_staged_id_path_map_for_annotation`` /
+    ``_get_staged_image_paths_for_annotation`` を移送した先を検証する。
+    """
+
+    def test_staged_id_path_map_resolves_only_existing(self, tab, monkeypatch):
+        """resolve 後に存在するパスのみ返し、存在しない画像は除外する。"""
+        from lorairo.gui.tab import annotate_tab as annotate_tab_module
+
+        monkeypatch.setattr(
+            tab, "get_staged_items", lambda: {1: ("a", "stored/1.png"), 2: ("b", "stored/2.png")}
+        )
+
+        class _FakePath:
+            def __init__(self, value: str) -> None:
+                self._value = value
+
+            def exists(self) -> bool:
+                # 1.png のみ存在する想定
+                return "1" in self._value
+
+            def __str__(self) -> str:
+                return self._value
+
+        monkeypatch.setattr(annotate_tab_module, "resolve_stored_path", lambda p: _FakePath(p))
+
+        assert tab.staged_id_path_map() == {1: "stored/1.png"}
+
+    def test_staged_id_path_map_empty_without_dataset_manager(self, qtbot, service_container):
+        """DatasetStateManager 未注入時はパス解決せず空辞書を返す。"""
+        widget = AnnotateTabWidget(
+            service_container=service_container,
+            db_manager=None,
+            staging_state_manager=None,
+            dataset_state_manager=None,
+        )
+        qtbot.addWidget(widget)
+        widget.get_staged_items = lambda: {1: ("a", "stored/1.png")}  # type: ignore[method-assign]
+
+        assert widget.staged_id_path_map() == {}
+
+    def test_staged_image_paths_returns_map_values(self, tab, monkeypatch):
+        """staged_image_paths は id→path マップの値リストを返す。"""
+        monkeypatch.setattr(tab, "staged_id_path_map", lambda: {1: "/a.png", 2: "/b.png"})
+
+        assert tab.staged_image_paths() == ["/a.png", "/b.png"]
+
+    def test_show_model_selection_dialog_returns_pick(self, tab, monkeypatch):
+        """ダイアログ確定時に選択モデルを返す。"""
+        from lorairo.gui.tab import annotate_tab as annotate_tab_module
+
+        class _FakeInputDialog:
+            @staticmethod
+            def getItem(*args, **kwargs):
+                return ("openai/gpt-4o", True)
+
+        monkeypatch.setattr(annotate_tab_module, "QInputDialog", _FakeInputDialog)
+
+        assert tab.show_model_selection_dialog(["openai/gpt-4o"]) == "openai/gpt-4o"
+
+    def test_show_model_selection_dialog_cancel_returns_none(self, tab, monkeypatch):
+        """ダイアログキャンセル時は None を返す。"""
+        from lorairo.gui.tab import annotate_tab as annotate_tab_module
+
+        class _FakeInputDialog:
+            @staticmethod
+            def getItem(*args, **kwargs):
+                return ("openai/gpt-4o", False)
+
+        monkeypatch.setattr(annotate_tab_module, "QInputDialog", _FakeInputDialog)
+
+        assert tab.show_model_selection_dialog(["openai/gpt-4o"]) is None
+
+
 # == 3. モデル選択 SSoT: 追加ハンドラ =========================================
 
 
