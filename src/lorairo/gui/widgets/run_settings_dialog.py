@@ -82,12 +82,21 @@ class RunSettingsDialog(QDialog):
     rating_gate / dry_run のみ操作可能、未実装オプションは disabled。
     """
 
-    def __init__(self, staged_count: int, parent: QWidget | None = None) -> None:
+    def __init__(
+        self,
+        staged_count: int,
+        parent: QWidget | None = None,
+        *,
+        current: RunOptions | None = None,
+    ) -> None:
         """モーダルを構築する。
 
         Args:
             staged_count: 対象ステージング枚数 (ヘッダ表示用)。
             parent: 親 widget。
+            current: 直前に確定した :class:`RunOptions`。指定時は各コントロールを
+                その値で初期化し、再オープン時に保存済み設定が失われないようにする
+                (#902 Codex P2)。None なら DS 既定値で構築する。
         """
         super().__init__(parent)
         self.setWindowTitle("実行の詳細設定")
@@ -198,6 +207,26 @@ class RunSettingsDialog(QDialog):
         button_box.accepted.connect(self.accept)
         button_box.rejected.connect(self.reject)
         layout.addWidget(button_box)
+
+        if current is not None:
+            self._seed_from(current)
+
+    def _seed_from(self, current: RunOptions) -> None:
+        """各コントロールを ``current`` の値で初期化する (#902 Codex P2)。
+
+        再オープン時に確定済み設定が DS 既定値へ巻き戻り、空欄正規化で metadata が
+        黙って失われるのを防ぐ。``set_value`` は未知値で no-op のため安全。
+        """
+        self._concurrency.set_value(str(current.concurrency))
+        self._retries.set_value(str(current.retries))
+        self._on_fail.set_value(current.on_fail)
+        self._rating_gate.set_value("on" if current.rating_gate else "off")
+        self._overwrite.set_value("on" if current.overwrite else "off")
+        self._dedupe.set_value("on" if current.dedupe else "off")
+        self._dispatch_mode.set_value(current.dispatch_mode)
+        self._dry_run.setChecked(current.dry_run)
+        self._prompt_profile.setText(current.prompt_profile)
+        self._description.setText(current.description or "")
 
     def _add_segment_row(
         self,

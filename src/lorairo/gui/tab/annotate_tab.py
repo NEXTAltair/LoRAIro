@@ -467,7 +467,9 @@ class AnnotateTabWidget(QWidget, Ui_AnnotateTab):
 
         OK 時の :class:`RunOptions` を ``self._pipeline_run_options`` に格納する。
         """
-        dialog = RunSettingsDialog(self._pipeline_staged_count, parent=self)
+        dialog = RunSettingsDialog(
+            self._pipeline_staged_count, parent=self, current=self._pipeline_run_options
+        )
         if dialog.exec() == QDialog.DialogCode.Accepted:
             self._pipeline_run_options = dialog.run_options()
             logger.info(f"実行詳細設定を更新: {self._pipeline_run_options}")

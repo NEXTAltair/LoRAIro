@@ -117,6 +117,44 @@ class TestRunSettingsDialogPromptMetadata:
         assert dialog._description.isEnabled()
 
 
+class TestRunSettingsDialogSeedFromCurrent:
+    """再オープン時に現在の RunOptions を seed する (#902 Codex P2)。"""
+
+    def test_seeds_prompt_metadata_from_current(self, qtbot):
+        current = RunOptions(prompt_profile="photoreal-v2", description="audit run")
+        d = RunSettingsDialog(staged_count=3, current=current)
+        qtbot.addWidget(d)
+        opts = d.run_options()
+        assert opts.prompt_profile == "photoreal-v2"
+        assert opts.description == "audit run"
+
+    def test_seeds_enabled_controls_from_current(self, qtbot):
+        current = RunOptions(dispatch_mode="batch_api", rating_gate=False, dry_run=True)
+        d = RunSettingsDialog(staged_count=3, current=current)
+        qtbot.addWidget(d)
+        opts = d.run_options()
+        assert opts.dispatch_mode == "batch_api"
+        assert opts.rating_gate is False
+        assert opts.dry_run is True
+
+    def test_full_round_trip_preserves_run_options(self, qtbot):
+        current = RunOptions(
+            dispatch_mode="batch_api",
+            rating_gate=False,
+            dry_run=True,
+            prompt_profile="custom",
+            description="note",
+        )
+        d = RunSettingsDialog(staged_count=3, current=current)
+        qtbot.addWidget(d)
+        assert d.run_options() == current
+
+    def test_none_current_uses_defaults(self, qtbot):
+        d = RunSettingsDialog(staged_count=3, current=None)
+        qtbot.addWidget(d)
+        assert d.run_options() == RunOptions()
+
+
 class TestRunSettingsDialogDisabledControls:
     def test_unimplemented_controls_are_disabled(self, dialog):
         for control in (
