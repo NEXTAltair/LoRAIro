@@ -461,11 +461,13 @@ class TestConfigureAsyncDispatch:
         # 未注入時の callback は no-op (呼んでも例外を出さない)
         controller._jobs_refresh()
         controller._status_callback("msg", 100)
+        # 未注入時はアノテーションタブ非アクティブ扱い (#896 PR4c)
+        assert controller._is_annotate_tab_active() is False
 
     def test_configure_async_dispatch_injects_collaborators(self, controller):
         """configure_async_dispatch が協調オブジェクトを注入する。"""
         sc, db, staging, tab = Mock(), Mock(), Mock(), Mock()
-        jobs_refresh, status_cb = Mock(), Mock()
+        jobs_refresh, status_cb, is_active = Mock(), Mock(), Mock()
 
         controller.configure_async_dispatch(
             service_container=sc,
@@ -474,6 +476,7 @@ class TestConfigureAsyncDispatch:
             annotate_tab=tab,
             jobs_refresh=jobs_refresh,
             status_callback=status_cb,
+            is_annotate_tab_active=is_active,
         )
 
         assert controller._service_container is sc
@@ -482,6 +485,7 @@ class TestConfigureAsyncDispatch:
         assert controller._annotate_tab is tab
         assert controller._jobs_refresh is jobs_refresh
         assert controller._status_callback is status_cb
+        assert controller._is_annotate_tab_active is is_active
 
 
 class TestDispatchAsyncBatch:
@@ -734,3 +738,57 @@ class TestFinalizeSubmittedJobs:
             mock_qmb.critical.assert_called_once()
 
         ctrl._finalize_submitted_jobs.assert_not_called()
+
+
+class TestStartAnnotationEntry:
+    """start_annotation の dispatch mode 分岐テスト (ADR 0076 §1)。
+
+    #896 PR4c で MainWindow から移送 (移送元: test_main_window_coverage.py の
+    TestStartAnnotationDispatchMode)。run bar 実行ボタンのエントリ分岐を検証する。
+    """
+
+    def test_batch_api_mode_delegates_to_async_dispatch(self) -> None:
+        """dispatch_mode=batch_api は async dispatch へ委譲し同期 workflow を起動しない。"""
+        from lorairo.gui.controllers.annotation_workflow_controller import AnnotationWorkflowController
+        from lorairo.gui.widgets.run_settings_dialog import RunOptions
+
+        ctrl = Mock()
+        ctrl._annotate_tab.run_options.return_value = RunOptions(dispatch_mode="batch_api")
+
+        AnnotationWorkflowController.start_annotation(ctrl)
+
+        ctrl.dispatch_async_batch.assert_called_once()
+        ctrl.start_annotation_workflow.assert_not_called()
+
+    def test_sync_mode_runs_workflow(self) -> None:
+        """dispatch_mode=sync は従来どおり同期 workflow を起動する。"""
+        from lorairo.gui.controllers.annotation_workflow_controller import AnnotationWorkflowController
+        from lorairo.gui.widgets.run_settings_dialog import RunOptions
+
+        ctrl = Mock()
+        ctrl._annotate_tab.run_options.return_value = RunOptions(dispatch_mode="sync")
+        ctrl._annotate_tab.selected_litellm_model_ids.return_value = ["openai/gpt-4o"]
+        # アノテーションタブ非アクティブ → ステージング override 経路を避ける
+        ctrl._is_annotate_tab_active.return_value = False
+
+        AnnotationWorkflowController.start_annotation(ctrl)
+
+        ctrl.start_annotation_workflow.assert_called_once()
+        ctrl.dispatch_async_batch.assert_not_called()
+
+    def test_annotate_tab_active_with_empty_staging_aborts(self) -> None:
+        """アノテーションタブがアクティブでステージング空なら info 表示し中止する (#896 PR4c)。"""
+        from lorairo.gui.controllers.annotation_workflow_controller import AnnotationWorkflowController
+        from lorairo.gui.widgets.run_settings_dialog import RunOptions
+
+        ctrl = Mock()
+        ctrl._annotate_tab.run_options.return_value = RunOptions(dispatch_mode="sync")
+        ctrl._annotate_tab.selected_litellm_model_ids.return_value = ["openai/gpt-4o"]
+        ctrl._is_annotate_tab_active.return_value = True
+        ctrl._annotate_tab.staged_image_paths.return_value = []  # ステージング空
+
+        with patch("lorairo.gui.controllers.annotation_workflow_controller.QMessageBox") as mock_qmb:
+            AnnotationWorkflowController.start_annotation(ctrl)
+            mock_qmb.information.assert_called_once()
+
+        ctrl.start_annotation_workflow.assert_not_called()
