@@ -36,8 +36,17 @@ MainWindow rewire (Track B) はこの契約に対してコードを書く。
 """
 
 from PySide6.QtCore import Signal, Slot
-from PySide6.QtWidgets import QDialog, QHBoxLayout, QLabel, QMessageBox, QPushButton, QWidget
+from PySide6.QtWidgets import (
+    QDialog,
+    QHBoxLayout,
+    QInputDialog,
+    QLabel,
+    QMessageBox,
+    QPushButton,
+    QWidget,
+)
 
+from ...database.db_core import resolve_stored_path
 from ...database.db_manager import ImageDatabaseManager
 from ...services.model_route_service import build_available_providers
 from ...services.model_selection_service import ModelSelectionService
@@ -513,6 +522,63 @@ class AnnotateTabWidget(QWidget, Ui_AnnotateTab):
     def run_options(self) -> RunOptions:
         """実行詳細設定 (RunOptions) を返す。"""
         return self._pipeline_run_options
+
+    def staged_id_path_map(self) -> dict[int, str]:
+        """ステージング画像の {image_id: 解決済みファイルパス} を返す (#896 PR4a)。
+
+        :meth:`get_staged_items` の stored_path を実ファイルパスに解決し、存在する
+        ものだけ返す。同期 / async dispatch の双方で使う。DatasetStateManager 未注入時は
+        パス解決の前提が揃わないため空辞書を返す。
+
+        Returns:
+            {image_id: ファイルパス}。対象なし / 解決不能時は空辞書。
+        """
+        staged_items = self.get_staged_items()
+        if not staged_items:
+            return {}
+
+        if self._dataset_state_manager is None:
+            logger.warning("DatasetStateManager not available for path resolution")
+            return {}
+
+        id_path_map: dict[int, str] = {}
+        for image_id, (_, stored_path) in staged_items.items():
+            if stored_path:
+                resolved = resolve_stored_path(stored_path)
+                if resolved and resolved.exists():
+                    id_path_map[image_id] = str(resolved)
+                else:
+                    logger.debug(f"画像パスが存在しない: ID={image_id}, path={stored_path}")
+
+        logger.debug(f"ステージング画像パスを取得: {len(id_path_map)}件")
+        return id_path_map
+
+    def staged_image_paths(self) -> list[str]:
+        """ステージング画像のファイルパスリストを返す (#896 PR4a)。
+
+        Returns:
+            list[str]: 画像ファイルパスリスト。対象なし時は空リスト。
+        """
+        return list(self.staged_id_path_map().values())
+
+    def show_model_selection_dialog(self, available_models: list[str]) -> str | None:
+        """モデル選択ダイアログを表示する (Callback パターン、#896 PR4a)。
+
+        Args:
+            available_models: 利用可能なモデル名リスト。
+
+        Returns:
+            str | None: 選択されたモデル名。キャンセル時は None。
+        """
+        selected_model, ok = QInputDialog.getItem(
+            self,
+            "モデル選択",
+            "アノテーションに使用するモデルを選択してください:",
+            available_models,
+            0,  # デフォルト選択
+            False,  # 編集不可
+        )
+        return selected_model if ok else None
 
     # -- 実行詳細設定 (Issue #789) --------------------------------------------
 

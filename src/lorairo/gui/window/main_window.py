@@ -14,7 +14,6 @@ from PySide6.QtCore import (
 from PySide6.QtGui import QAction, QCloseEvent, QKeySequence
 from PySide6.QtWidgets import (
     QFileDialog,
-    QInputDialog,
     QMainWindow,
     QMenu,
     QMessageBox,
@@ -1384,7 +1383,9 @@ class MainWindow(QMainWindow, Ui_MainWindow):
         # アノテーションタブの場合はステージング画像を使用
         override_image_paths: list[str] | None = None
         if self.tabWidgetMainMode.currentWidget() is self.tabBatchTag:
-            override_image_paths = self._get_staged_image_paths_for_annotation()
+            override_image_paths = (
+                self.annotate_tab.staged_image_paths() if self.annotate_tab is not None else []
+            )
             if not override_image_paths:
                 QMessageBox.information(
                     self,
@@ -1397,8 +1398,8 @@ class MainWindow(QMainWindow, Ui_MainWindow):
         # AnnotationWorkflowControllerに委譲（チェックボックスから選択されたモデルを優先）
         self.annotation_workflow_controller.start_annotation_workflow(
             selected_litellm_model_ids=selected_litellm_model_ids if selected_litellm_model_ids else None,
-            model_selection_callback=self._show_model_selection_dialog
-            if not selected_litellm_model_ids
+            model_selection_callback=self.annotate_tab.show_model_selection_dialog
+            if not selected_litellm_model_ids and self.annotate_tab is not None
             else None,
             image_paths=override_image_paths,
         )
@@ -1598,65 +1599,6 @@ class MainWindow(QMainWindow, Ui_MainWindow):
         self._async_dispatch_in_progress = False
         self._async_dispatch_worker = None
         self._async_dispatch_thread = None
-
-    def _show_model_selection_dialog(self, available_models: list[str]) -> str | None:
-        """モデル選択ダイアログ表示（Callbackパターン）
-
-        Args:
-            available_models: 利用可能なモデル名リスト
-
-        Returns:
-            str | None: 選択されたモデル名、キャンセル時はNone
-        """
-        selected_model, ok = QInputDialog.getItem(
-            self,
-            "モデル選択",
-            "アノテーションに使用するモデルを選択してください:",
-            available_models,
-            0,  # デフォルト選択
-            False,  # 編集不可
-        )
-
-        return selected_model if ok else None
-
-    def _get_staged_id_path_map_for_annotation(self) -> dict[int, str]:
-        """ステージング画像の {image_id: 解決済みファイルパス} を返す。
-
-        AnnotateTabWidget.get_staged_items() の stored_path を DatasetStateManager 由来で
-        実ファイルパスに解決し、存在するもののみ返す。同期 / async dispatch の双方で使う。
-
-        Returns:
-            {image_id: ファイルパス}。エラー時は空辞書。
-        """
-        from lorairo.database.db_core import resolve_stored_path
-
-        staged_items = self.annotate_tab.get_staged_items() if self.annotate_tab is not None else None
-        if not staged_items:
-            return {}
-
-        if not self.dataset_state_manager:
-            logger.warning("DatasetStateManager not available for path resolution")
-            return {}
-
-        id_path_map: dict[int, str] = {}
-        for image_id, (_, stored_path) in staged_items.items():
-            if stored_path:
-                resolved = resolve_stored_path(stored_path)
-                if resolved and resolved.exists():
-                    id_path_map[image_id] = str(resolved)
-                else:
-                    logger.debug(f"画像パスが存在しない: ID={image_id}, path={stored_path}")
-
-        logger.debug(f"ステージング画像パスを取得: {len(id_path_map)}件")
-        return id_path_map
-
-    def _get_staged_image_paths_for_annotation(self) -> list[str]:
-        """アノテーションタブのステージング画像パスリストを取得する。
-
-        Returns:
-            list[str]: 画像ファイルパスリスト。エラー時は空リスト。
-        """
-        return list(self._get_staged_id_path_map_for_annotation().values())
 
     def export_data(self) -> None:
         """エクスポートタブへ遷移する。
