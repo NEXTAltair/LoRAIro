@@ -27,6 +27,7 @@ from PySide6.QtWidgets import (
     QDialogButtonBox,
     QHBoxLayout,
     QLabel,
+    QLineEdit,
     QVBoxLayout,
     QWidget,
 )
@@ -58,6 +59,8 @@ class RunOptions:
         dedupe: multimodal 推論を 1 回に集約するか (常時 True)。
         dry_run: 実推論せずジョブ件数・推定のみ検証するか。
         dispatch_mode: 送信方式 ("sync" = 同期実行 / "batch_api" = async Provider Batch API)。
+        prompt_profile: Batch API job metadata の prompt profile (ADR 0038、空欄時 "default")。
+        description: Batch API job 監査用の説明 (任意、空欄時 None)。
     """
 
     concurrency: int = 4
@@ -68,6 +71,8 @@ class RunOptions:
     dedupe: bool = True
     dry_run: bool = False
     dispatch_mode: str = "sync"
+    prompt_profile: str = "default"
+    description: str | None = None
 
 
 class RunSettingsDialog(QDialog):
@@ -77,12 +82,21 @@ class RunSettingsDialog(QDialog):
     rating_gate / dry_run のみ操作可能、未実装オプションは disabled。
     """
 
-    def __init__(self, staged_count: int, parent: QWidget | None = None) -> None:
+    def __init__(
+        self,
+        staged_count: int,
+        parent: QWidget | None = None,
+        *,
+        current: RunOptions | None = None,
+    ) -> None:
         """モーダルを構築する。
 
         Args:
             staged_count: 対象ステージング枚数 (ヘッダ表示用)。
             parent: 親 widget。
+            current: 直前に確定した :class:`RunOptions`。指定時は各コントロールを
+                その値で初期化し、再オープン時に保存済み設定が失われないようにする
+                (#902 Codex P2)。None なら DS 既定値で構築する。
         """
         super().__init__(parent)
         self.setWindowTitle("実行の詳細設定")
@@ -163,6 +177,20 @@ class RunSettingsDialog(QDialog):
             tooltip=_DISPATCH_MODE_TOOLTIP,
         )
 
+        # Batch API job metadata (prompt profile / description, #902 ADR 0076 §1)
+        self._prompt_profile = self._add_text_row(
+            layout,
+            "prompt profile",
+            "Batch API job に付与する prompt profile (空欄なら default)。",
+            placeholder="default",
+        )
+        self._description = self._add_text_row(
+            layout,
+            "description",
+            "Batch API job の監査用メモ (任意)。",
+            placeholder="(任意)",
+        )
+
         # dry-run (実装済 → 操作可)
         self._dry_run = QCheckBox("ドライラン dry-run", self)
         self._dry_run.setObjectName("runSettingsDryRun")
@@ -179,6 +207,26 @@ class RunSettingsDialog(QDialog):
         button_box.accepted.connect(self.accept)
         button_box.rejected.connect(self.reject)
         layout.addWidget(button_box)
+
+        if current is not None:
+            self._seed_from(current)
+
+    def _seed_from(self, current: RunOptions) -> None:
+        """各コントロールを ``current`` の値で初期化する (#902 Codex P2)。
+
+        再オープン時に確定済み設定が DS 既定値へ巻き戻り、空欄正規化で metadata が
+        黙って失われるのを防ぐ。``set_value`` は未知値で no-op のため安全。
+        """
+        self._concurrency.set_value(str(current.concurrency))
+        self._retries.set_value(str(current.retries))
+        self._on_fail.set_value(current.on_fail)
+        self._rating_gate.set_value("on" if current.rating_gate else "off")
+        self._overwrite.set_value("on" if current.overwrite else "off")
+        self._dedupe.set_value("on" if current.dedupe else "off")
+        self._dispatch_mode.set_value(current.dispatch_mode)
+        self._dry_run.setChecked(current.dry_run)
+        self._prompt_profile.setText(current.prompt_profile)
+        self._description.setText(current.description or "")
 
     def _add_segment_row(
         self,
@@ -219,8 +267,42 @@ class RunSettingsDialog(QDialog):
         layout.addWidget(row)
         return control
 
+    def _add_text_row(
+        self,
+        layout: QVBoxLayout,
+        title: str,
+        sub: str,
+        *,
+        placeholder: str = "",
+    ) -> QLineEdit:
+        """1 行 (タイトル + 補足 + QLineEdit) を追加し入力欄を返す。"""
+        row = QWidget(self)
+        row_layout = QHBoxLayout(row)
+        row_layout.setContentsMargins(0, 6, 0, 6)
+
+        text_box = QVBoxLayout()
+        title_label = QLabel(title, row)
+        title_label.setStyleSheet(
+            f"font-size: {theme.FONT_SIZE_SMALL}px; font-weight: {theme.FONT_WEIGHT_SEMIBOLD};"
+        )
+        sub_label = QLabel(sub, row)
+        sub_label.setWordWrap(True)
+        sub_label.setStyleSheet(f"color: {theme.INK_FAINT}; font-size: {theme.FONT_SIZE_META}px;")
+        text_box.addWidget(title_label)
+        text_box.addWidget(sub_label)
+        row_layout.addLayout(text_box, 1)
+
+        field = QLineEdit(row)
+        field.setPlaceholderText(placeholder)
+        row_layout.addWidget(field, 1)
+
+        layout.addWidget(row)
+        return field
+
     def run_options(self) -> RunOptions:
         """ダイアログの現在値を :class:`RunOptions` として返す。"""
+        prompt_profile = self._prompt_profile.text().strip() or "default"
+        description = self._description.text().strip() or None
         return RunOptions(
             concurrency=int(self._concurrency.value()),
             retries=int(self._retries.value()),
@@ -230,4 +312,6 @@ class RunSettingsDialog(QDialog):
             dedupe=self._dedupe.value() == "on",
             dry_run=self._dry_run.isChecked(),
             dispatch_mode=self._dispatch_mode.value(),
+            prompt_profile=prompt_profile,
+            description=description,
         )

@@ -86,6 +86,75 @@ class TestRunSettingsDialogDispatchMode:
         assert dialog.run_options().dispatch_mode == "batch_api"
 
 
+class TestRunSettingsDialogPromptMetadata:
+    """prompt_profile / description 入力 (#902, ADR 0076 §1)。"""
+
+    def test_prompt_profile_defaults_to_default(self, dialog):
+        assert dialog.run_options().prompt_profile == "default"
+
+    def test_description_defaults_to_none(self, dialog):
+        assert dialog.run_options().description is None
+
+    def test_prompt_profile_value_reflected(self, dialog):
+        dialog._prompt_profile.setText("photoreal-v2")
+        assert dialog.run_options().prompt_profile == "photoreal-v2"
+
+    def test_blank_prompt_profile_falls_back_to_default(self, dialog):
+        # 空入力は "default" に正規化する (射影は非空 prompt_profile を要求)。
+        dialog._prompt_profile.setText("   ")
+        assert dialog.run_options().prompt_profile == "default"
+
+    def test_description_value_reflected(self, dialog):
+        dialog._description.setText("monthly audit run")
+        assert dialog.run_options().description == "monthly audit run"
+
+    def test_blank_description_normalized_to_none(self, dialog):
+        dialog._description.setText("   ")
+        assert dialog.run_options().description is None
+
+    def test_prompt_metadata_inputs_are_enabled(self, dialog):
+        assert dialog._prompt_profile.isEnabled()
+        assert dialog._description.isEnabled()
+
+
+class TestRunSettingsDialogSeedFromCurrent:
+    """再オープン時に現在の RunOptions を seed する (#902 Codex P2)。"""
+
+    def test_seeds_prompt_metadata_from_current(self, qtbot):
+        current = RunOptions(prompt_profile="photoreal-v2", description="audit run")
+        d = RunSettingsDialog(staged_count=3, current=current)
+        qtbot.addWidget(d)
+        opts = d.run_options()
+        assert opts.prompt_profile == "photoreal-v2"
+        assert opts.description == "audit run"
+
+    def test_seeds_enabled_controls_from_current(self, qtbot):
+        current = RunOptions(dispatch_mode="batch_api", rating_gate=False, dry_run=True)
+        d = RunSettingsDialog(staged_count=3, current=current)
+        qtbot.addWidget(d)
+        opts = d.run_options()
+        assert opts.dispatch_mode == "batch_api"
+        assert opts.rating_gate is False
+        assert opts.dry_run is True
+
+    def test_full_round_trip_preserves_run_options(self, qtbot):
+        current = RunOptions(
+            dispatch_mode="batch_api",
+            rating_gate=False,
+            dry_run=True,
+            prompt_profile="custom",
+            description="note",
+        )
+        d = RunSettingsDialog(staged_count=3, current=current)
+        qtbot.addWidget(d)
+        assert d.run_options() == current
+
+    def test_none_current_uses_defaults(self, qtbot):
+        d = RunSettingsDialog(staged_count=3, current=None)
+        qtbot.addWidget(d)
+        assert d.run_options() == RunOptions()
+
+
 class TestRunSettingsDialogDisabledControls:
     def test_unimplemented_controls_are_disabled(self, dialog):
         for control in (
