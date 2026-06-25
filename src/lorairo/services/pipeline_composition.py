@@ -104,10 +104,18 @@ class StageRow:
 
 @dataclass(frozen=True)
 class LedgerEntry:
-    """推論台帳の 1 エントリ (ユニークモデル単位)。"""
+    """推論台帳の 1 エントリ (ユニークモデル単位)。
+
+    Attributes:
+        model: モデル情報。
+        stage_count: このモデルが出力を届けるステージ数 (明示+派生)。
+        route: dispatch route ("sync" = 同期実行 / "batch" = async provider batch)。
+            #884 Phase 4b。local ML と batch 非対応 API は常に "sync"。
+    """
 
     model: StageModelInfo
-    stage_count: int  # このモデルが出力を届けるステージ数 (明示+派生)
+    stage_count: int
+    route: str = "sync"
 
 
 @dataclass(frozen=True)
@@ -126,6 +134,16 @@ class InferenceLedger:
         object.__setattr__(self, "total_jobs", len(self.entries) * self.staged_count)
         object.__setattr__(self, "local_count", sum(1 for e in self.entries if not e.model.is_api))
         object.__setattr__(self, "api_count", sum(1 for e in self.entries if e.model.is_api))
+
+    @property
+    def sync_entries(self) -> tuple[LedgerEntry, ...]:
+        """SYNC バンドのエントリ (route == "sync")。"""
+        return tuple(e for e in self.entries if e.route == "sync")
+
+    @property
+    def batch_entries(self) -> tuple[LedgerEntry, ...]:
+        """PROVIDER BATCH バンドのエントリ (route == "batch")。"""
+        return tuple(e for e in self.entries if e.route == "batch")
 
 
 class PipelineCompositionService:
@@ -199,8 +217,28 @@ class PipelineCompositionService:
             rows.append(StageRow(stage=stage, primary_models=primary, derived_chips=tuple(chips)))
         return rows
 
-    def ledger(self, staged_count: int) -> InferenceLedger:
-        """推論台帳を返す。multimodal の多段出現は dedupe する。"""
+    def ledger(
+        self,
+        staged_count: int,
+        *,
+        dispatch_mode: str = "sync",
+        batch_capable_litellm_ids: set[str] | None = None,
+    ) -> InferenceLedger:
+        """推論台帳を返す。multimodal の多段出現は dedupe する。
+
+        Args:
+            staged_count: ステージング枚数。
+            dispatch_mode: 送信方式 ("sync" / "batch_api")。#884 Phase 4b。
+            batch_capable_litellm_ids: lib の ``list_batch_capable_models()`` 由来の
+                batch 対応 litellm_model_id 集合 (ADR 0038 / ADR 0005 = lib が SSoT)。
+                ``dispatch_mode == "batch_api"`` のとき、この集合に含まれる **API** モデルを
+                "batch" route に振り分ける。local ML / 非対応 API は "sync" に残す。
+
+        Returns:
+            route 付き :class:`InferenceLedger`。
+        """
+        batch_ids = batch_capable_litellm_ids or set()
+        use_batch = dispatch_mode == "batch_api"
         unique_models: dict[str, StageModelInfo] = {}
         explicit_stages: dict[str, set[PipelineStage]] = {}
         for stage in PipelineStage:
@@ -212,7 +250,10 @@ class PipelineCompositionService:
             delivered = set(explicit_stages[model_id])
             if model.is_multimodal:
                 delivered |= model.fill_stages()
-            entries.append(LedgerEntry(model=model, stage_count=len(delivered)))
+            # local ML は batch 不可。API かつ lib の batch-capable 集合に含まれる場合のみ batch。
+            is_batch = use_batch and model.is_api and model_id in batch_ids
+            route = "batch" if is_batch else "sync"
+            entries.append(LedgerEntry(model=model, stage_count=len(delivered), route=route))
         return InferenceLedger(entries=tuple(entries), staged_count=staged_count)
 
     def unique_model_ids(self) -> list[str]:

@@ -483,6 +483,61 @@ class TestPipelinePanelRefresh:
         assert ledger.unique_model_count == 1
         assert ledger.total_jobs == 9
 
+    def test_batch_api_dispatch_splits_batch_capable_to_batch_lane(self, tab):
+        """#884 Phase 4b: dispatch_mode=batch_api で lib の batch 対応集合を消費しレーン分割。"""
+        from lorairo.gui.widgets.run_settings_dialog import RunOptions
+
+        tab._pipeline_composition_service = PipelineCompositionService()
+        tab._pipeline_staged_count = 9
+        tab._build_stage_model_infos = lambda ids: [GPT4O_INFO]
+        tab._pipeline_stage_table = Mock()
+        tab._inference_ledger_widget = Mock()
+        tab._pipeline_run_options = RunOptions(dispatch_mode="batch_api")
+        tab._service_container.provider_batch_workflow_service.list_batch_capable_models.return_value = [
+            "openai/gpt-4o"
+        ]
+
+        tab._refresh_pipeline_panel(["openai/gpt-4o"])
+
+        ledger = tab._inference_ledger_widget.display.call_args[0][0]
+        assert len(ledger.batch_entries) == 1
+        assert ledger.batch_entries[0].model.litellm_model_id == "openai/gpt-4o"
+
+    def test_sync_dispatch_does_not_query_batch_models(self, tab):
+        from lorairo.gui.widgets.run_settings_dialog import RunOptions
+
+        tab._pipeline_composition_service = PipelineCompositionService()
+        tab._pipeline_staged_count = 9
+        tab._build_stage_model_infos = lambda ids: [GPT4O_INFO]
+        tab._pipeline_stage_table = Mock()
+        tab._inference_ledger_widget = Mock()
+        tab._pipeline_run_options = RunOptions(dispatch_mode="sync")
+
+        tab._refresh_pipeline_panel(["openai/gpt-4o"])
+
+        tab._service_container.provider_batch_workflow_service.list_batch_capable_models.assert_not_called()
+        ledger = tab._inference_ledger_widget.display.call_args[0][0]
+        assert ledger.batch_entries == ()
+
+    def test_batch_api_discovery_failure_degrades_to_sync(self, tab):
+        from lorairo.gui.widgets.run_settings_dialog import RunOptions
+        from lorairo.services.provider_batch_service import ProviderBatchError
+
+        tab._pipeline_composition_service = PipelineCompositionService()
+        tab._pipeline_staged_count = 9
+        tab._build_stage_model_infos = lambda ids: [GPT4O_INFO]
+        tab._pipeline_stage_table = Mock()
+        tab._inference_ledger_widget = Mock()
+        tab._pipeline_run_options = RunOptions(dispatch_mode="batch_api")
+        tab._service_container.provider_batch_workflow_service.list_batch_capable_models.side_effect = (
+            ProviderBatchError("discovery failed")
+        )
+
+        tab._refresh_pipeline_panel(["openai/gpt-4o"])
+
+        ledger = tab._inference_ledger_widget.display.call_args[0][0]
+        assert ledger.batch_entries == ()  # 失敗時は全 sync に degrade
+
     def test_set_staging_target_syncs_counts(self, tab):
         """set_staging_target で件数・image_id 集合が同期され再計算される。"""
         tab._refresh_pipeline_panel = Mock()
