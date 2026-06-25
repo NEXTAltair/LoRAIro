@@ -8,7 +8,6 @@ from typing import Any, cast
 
 from PySide6.QtCore import (
     QSettings,
-    QThread,
     Signal,
 )
 from PySide6.QtGui import QAction, QCloseEvent, QKeySequence
@@ -27,12 +26,6 @@ from ...database.db_manager import ImageDatabaseManager
 from ...gui.designer.MainWindow_ui import Ui_MainWindow
 from ...services import get_service_container
 from ...services.configuration_service import ConfigurationService
-from ...services.dispatch_projection_service import (
-    DispatchProjection,
-    DispatchProjectionError,
-    project_async_batch_dispatch,
-)
-from ...services.provider_batch_service import ProviderBatchError
 from ...services.selection_state_service import SelectionStateService
 from ...services.service_container import ServiceContainer
 from ...storage.file_system import FileSystemManager
@@ -57,13 +50,8 @@ from ..tab.map_tab import MapTabWidget
 from ..tab.results_tab import ResultsTabWidget
 from ..tab.search_tab import SearchTabWidget
 from ..widgets.error_notification_widget import ErrorNotificationWidget
-from ..widgets.preflight_summary_widget import classify_preflight_counts
 from ..widgets.registration_summary_widget import RegistrationSummaryWidget
 from ..widgets.tag_management_dialog import TagManagementDialog
-from ..workers.async_batch_dispatch_worker import AsyncBatchDispatchWorker
-
-# async batch dispatch worker thread の GC 防止用 (ProviderBatchJobWidget と同方式)。
-_ACTIVE_DISPATCH_THREADS: set[QThread] = set()
 
 
 class MainWindow(QMainWindow, Ui_MainWindow):
@@ -135,13 +123,6 @@ class MainWindow(QMainWindow, Ui_MainWindow):
         # 初期化失敗フラグ
         self._initialization_failed = False
         self._initialization_error: str | None = None
-
-        # async batch dispatch の再入/busy ガード (#884 Phase 2c, ADR 0044)
-        self._async_dispatch_in_progress = False
-        self._async_dispatch_thread: QThread | None = None
-        self._async_dispatch_worker: AsyncBatchDispatchWorker | None = None
-        # 送信済み画像 (成功/部分失敗時に staging から外し二重送信を防ぐ)
-        self._async_dispatch_image_ids: list[int] = []
 
         try:
             # Phase 1: 基本UI設定（最優先）
@@ -409,6 +390,28 @@ class MainWindow(QMainWindow, Ui_MainWindow):
         self._setup_cli_tab()
         self._setup_tab_shortcuts()
         self._setup_registration_summary_panel()
+
+        # 全タブ構築後に async batch dispatch の協調オブジェクトを controller へ注入する
+        # (#896 PR4b)。controller 生成時点では annotate_tab / jobs_tab が未生成のため
+        # setter injection で受ける。
+        self._configure_async_dispatch_controller()
+
+    def _configure_async_dispatch_controller(self) -> None:
+        """AnnotationWorkflowController へ async batch dispatch の依存を注入する (#896 PR4b)。
+
+        jobs 台帳の再読込と statusBar 表示は callback 経由で委譲し、controller が
+        MainWindow の widget を直接握らないようにする。
+        """
+        if self.annotation_workflow_controller is None:
+            return
+        self.annotation_workflow_controller.configure_async_dispatch(
+            service_container=self.service_container,
+            db_manager=self.db_manager,
+            staging_state_manager=self.staging_state_manager,
+            annotate_tab=self.annotate_tab,
+            jobs_refresh=lambda: self.jobs_tab.refresh() if self.jobs_tab is not None else None,
+            status_callback=lambda message, timeout: self.statusBar().showMessage(message, timeout),
+        )
 
     def _setup_map_tab(self) -> None:
         """マップタブ (MapTabWidget) を初期化する。
@@ -1369,7 +1372,7 @@ class MainWindow(QMainWindow, Ui_MainWindow):
         # 送信方式 (dispatch mode) 判定 (#884 Phase 2c, ADR 0076 §1)
         # batch_api (async) は dispatch 射影 → worker thread へ分岐する。
         if self.annotate_tab is not None and self.annotate_tab.run_options().dispatch_mode == "batch_api":
-            self._dispatch_async_batch()
+            self.annotation_workflow_controller.dispatch_async_batch()
             return
 
         # アノテーションタブの選択モデルを取得 (Issue #245: litellm_model_id ベース、#868)
@@ -1403,202 +1406,6 @@ class MainWindow(QMainWindow, Ui_MainWindow):
             else None,
             image_paths=override_image_paths,
         )
-
-    def _dispatch_async_batch(self) -> None:
-        """選択モデル集合を async Provider Batch dispatch へ射影して送信する。
-
-        ADR 0076 §2: 選択モデル集合 → dispatch 射影 (batch-capable ∩ discovery) →
-        worker thread で ``submit_images`` をモデルごとにループ呼び出しする。
-        非 batch-capable 混在は射影が拒否する ((a))。送信前 moderation が未完了の
-        画像 (保留 / 未判定) がある場合は fail-closed で拒否する (ADR 0070、自動2段は
-        deferral)。
-        """
-        if self.annotate_tab is None:
-            return
-        if self._async_dispatch_in_progress:
-            return
-
-        container = self.service_container
-        workflow_service = getattr(container, "provider_batch_workflow_service", None)
-        model_source = getattr(container, "annotator_library", None)
-        db_manager = self.db_manager
-        if workflow_service is None or model_source is None or db_manager is None:
-            QMessageBox.warning(self, "Batch API 送信", "Batch API サービスを利用できません。")
-            return
-
-        run_options = self.annotate_tab.run_options()
-        image_ids = list(self.annotate_tab.get_staged_items().keys())
-        if not image_ids:
-            QMessageBox.information(
-                self,
-                "ステージング画像なし",
-                "ステージングリストに画像がありません。\n"
-                "画像を選択してからアノテーションを実行してください。",
-            )
-            return
-
-        # dry-run: 実送信せず件数プレビューのみ (RunSettings の dry-run 契約)
-        if run_options.dry_run:
-            QMessageBox.information(
-                self,
-                "Batch API 送信 (dry-run)",
-                f"dry-run: {len(image_ids)} 枚を Batch API へ送信予定です。\n実際の送信・推論は行いません。",
-            )
-            return
-
-        # fail-closed moderation gate (ADR 0070)。自動 preflight は未対応のため、
-        # 送信可 (sendable) でない画像が含まれる場合は dispatch を拒否する。
-        ratings_by_id = db_manager.image_repo.get_latest_normalized_ratings_by_image_ids(image_ids)
-        preflight = classify_preflight_counts(ratings_by_id, image_ids)
-        if preflight.held > 0 or preflight.unrated > 0:
-            QMessageBox.warning(
-                self,
-                "Batch API 送信",
-                "送信前 moderation が未完了の画像があります "
-                f"(保留 {preflight.held} 件 / 未判定 {preflight.unrated} 件)。\n"
-                "Batch API の自動 preflight は未対応のため、先に rating を確定してください。",
-            )
-            return
-
-        # ADR 0064: original でなく processed/resized パスを送信する。staging の
-        # stored_path は original を指し得るため、低解像度 processed 版を解決する。
-        processed_paths = self._resolve_processed_paths_for_batch(image_ids)
-        if processed_paths is None:
-            return  # 解決失敗 (warning は helper 内で表示済み)
-
-        # batch-capable discovery (失敗は recoverable warning として slot 内で処理)
-        try:
-            batch_capable_models = workflow_service.list_batch_capable_models()
-        except (ProviderBatchError, RuntimeError, OSError) as e:
-            logger.error(f"Batch API モデル discovery 失敗: {e}", exc_info=True)
-            QMessageBox.warning(self, "Batch API 送信", f"Batch API 対応モデルの取得に失敗しました:\n{e}")
-            return
-
-        try:
-            projection = project_async_batch_dispatch(
-                selected_litellm_model_ids=self.annotate_tab.selected_litellm_model_ids(),
-                batch_capable_models=batch_capable_models,
-                model_resolver=db_manager.model_repo.get_model_by_litellm_id,
-                image_ids=image_ids,
-                prompt_profile=run_options.prompt_profile,
-                description=run_options.description,
-                image_paths=processed_paths,
-            )
-        except DispatchProjectionError as e:
-            QMessageBox.warning(self, "Batch API 送信", str(e))
-            return
-
-        logger.info(
-            f"Batch API dispatch 開始: {projection.job_count} ジョブ / {len(image_ids)} 枚 "
-            f"(dispatch_mode={run_options.dispatch_mode})"
-        )
-        self._async_dispatch_in_progress = True
-        self._async_dispatch_image_ids = image_ids
-        self._start_async_dispatch_worker(workflow_service, projection)
-
-    def _resolve_processed_paths_for_batch(self, image_ids: list[int]) -> dict[int, str] | None:
-        """各 image_id の低解像度 processed パスを解決する (ADR 0064)。
-
-        original 送信を避けるため processed/resized 版のみを使う。processed 版が無い
-        画像が 1 枚でもあれば warning を出して None を返す (fail-closed)。
-
-        Args:
-            image_ids: 送信対象の image_id。
-
-        Returns:
-            {image_id: 解決済み processed パス}。解決できない画像があれば None。
-        """
-        from lorairo.database.db_core import resolve_stored_path
-
-        if self.db_manager is None:
-            return None
-        processed_paths: dict[int, str] = {}
-        missing: list[int] = []
-        for image_id in image_ids:
-            stored = self.db_manager.get_low_res_image_path(image_id)
-            resolved = resolve_stored_path(stored) if stored else None
-            if resolved is not None and resolved.exists():
-                processed_paths[image_id] = str(resolved)
-            else:
-                missing.append(image_id)
-        if missing:
-            QMessageBox.warning(
-                self,
-                "Batch API 送信",
-                f"processed 版が無い画像が {len(missing)} 件あります。\n"
-                "Batch API は processed/resized 画像のみ送信できます (ADR 0064)。\n"
-                "先に画像処理を実行してください。",
-            )
-            return None
-        return processed_paths
-
-    def _start_async_dispatch_worker(self, workflow_service: Any, projection: DispatchProjection) -> None:
-        """射影結果を専用 QThread で submit する (ADR 0044)。"""
-        thread = QThread()
-        worker = AsyncBatchDispatchWorker(workflow_service, projection.entries)
-        worker.moveToThread(thread)
-        _ACTIVE_DISPATCH_THREADS.add(thread)
-
-        thread.started.connect(worker.run)
-        worker.succeeded.connect(self._on_async_dispatch_succeeded)
-        worker.failed.connect(self._on_async_dispatch_failed)
-        worker.finished.connect(thread.quit)
-        worker.finished.connect(worker.deleteLater)
-        thread.finished.connect(self._on_async_dispatch_thread_finished)
-        thread.finished.connect(lambda: _ACTIVE_DISPATCH_THREADS.discard(thread))
-        thread.finished.connect(thread.deleteLater)
-
-        self._async_dispatch_thread = thread
-        self._async_dispatch_worker = worker
-        thread.start()
-
-    def _finalize_submitted_jobs(self, job_ids: list[int]) -> None:
-        """送信済みジョブを台帳へ反映し、対象画像を staging から外す。
-
-        成功・部分失敗の双方で呼ぶ。1 つでもジョブが作成されていれば対象画像は
-        dispatch 済みなので staging から除去し、再クリックによる二重送信を防ぐ
-        (ProviderBatchJobWidget と同方針)。
-
-        Args:
-            job_ids: 作成済みの provider batch job_id。
-        """
-        if not job_ids:
-            return
-        if self.staging_state_manager is not None and self._async_dispatch_image_ids:
-            self.staging_state_manager.remove_image_ids(self._async_dispatch_image_ids)
-        if self.jobs_tab is not None:
-            self.jobs_tab.refresh()
-
-    def _on_async_dispatch_succeeded(self, job_ids: list[int]) -> None:
-        """全ジョブ送信成功時に Jobs 台帳を更新しサマリーを表示する。"""
-        logger.info(f"Batch API dispatch 完了: {len(job_ids)} ジョブを送信しました")
-        self._finalize_submitted_jobs(job_ids)
-        self.statusBar().showMessage(f"Batch API: {len(job_ids)} ジョブを送信しました", 5000)
-
-    def _on_async_dispatch_failed(self, error: object, job_ids: list[int]) -> None:
-        """dispatch 失敗時にエラーを通知する。部分送信済みジョブは台帳へ反映する。
-
-        Args:
-            error: 送信中に発生した例外。
-            job_ids: 失敗前に作成済みの provider batch job_id (部分成功)。
-        """
-        if job_ids:
-            # 部分送信: 作成済みジョブを台帳へ反映 + staging 除去で二重送信を防ぐ。
-            logger.warning(
-                f"Batch API dispatch 部分失敗: {len(job_ids)} ジョブ送信済み、以降で失敗: {error}"
-            )
-            self._finalize_submitted_jobs(job_ids)
-            message = f"Batch API 送信が途中で失敗しました ({len(job_ids)} ジョブ送信済み):\n{error}"
-        else:
-            logger.error(f"Batch API dispatch 失敗: {error}", exc_info=isinstance(error, Exception))
-            message = f"Batch API 送信に失敗しました:\n{error}"
-        QMessageBox.critical(self, "Batch API 送信", message)
-
-    def _on_async_dispatch_thread_finished(self) -> None:
-        """worker thread 終了時に busy/再入ガードを解除する。"""
-        self._async_dispatch_in_progress = False
-        self._async_dispatch_worker = None
-        self._async_dispatch_thread = None
 
     def export_data(self) -> None:
         """エクスポートタブへ遷移する。

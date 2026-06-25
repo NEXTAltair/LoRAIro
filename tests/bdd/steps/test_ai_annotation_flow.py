@@ -101,9 +101,9 @@ def _run_workflow(ctx: AnnotationFlowContext, model: str, reply: object) -> None
 
     廃止モデル警告 / API キー警告の QMessageBox は ``parent`` が None だと
     そもそも表示されない (Controller の早期 return)。reply を効かせるため
-    parent をモックで注入する。
+    parent をモックで注入する (#896 PR4b で属性名が ``_parent_widget`` に変更)。
     """
-    ctx.controller.parent = Mock()
+    ctx.controller._parent_widget = Mock()
     container = Mock()
     container.annotator_library.is_model_deprecated.side_effect = lambda model_name: (
         model_name in ctx.deprecated_models
