@@ -1075,14 +1075,12 @@ class TestRunOptionsWiring:
         assert worker._dry_run is False
         assert worker._rating_gate is True
 
-    def test_dry_run_skips_database_save(self, mock_annotation_logic, mock_model_registry, monkeypatch):
-        """dry_run=True では DB 書き込み (save_annotation_results) を行わない。"""
+    def test_dry_run_skips_inference_and_save(
+        self, mock_annotation_logic, mock_model_registry, monkeypatch
+    ):
+        """dry_run=True では推論・送信・DB 書き込みを一切行わず件数のみ算出する (Codex P1)。"""
         from lorairo.gui.widgets.run_settings_dialog import RunOptions
         from lorairo.gui.workers import annotation_worker as aw_mod
-
-        mock_db_manager = Mock()
-        mock_db_manager.image_repo.find_image_ids_by_phashes_multi.return_value = {"test_phash": [1]}
-        mock_db_manager.image_repo.get_image_ids_by_filepaths.return_value = {"/path/to/image1.jpg": 1}
 
         save_service = Mock()
         monkeypatch.setattr(aw_mod, "AnnotationSaveService", lambda **kwargs: save_service)
@@ -1091,19 +1089,22 @@ class TestRunOptionsWiring:
             annotation_logic=mock_annotation_logic,
             image_paths=["/path/to/image1.jpg"],
             litellm_model_ids=["gpt-4o-mini"],
-            db_manager=mock_db_manager,
+            db_manager=Mock(),
             model_registry=mock_model_registry,
             run_options=RunOptions(dry_run=True),
         )
 
         result = worker.execute()
 
-        # DB 保存は呼ばれない
+        # 推論 (lib 呼び出し) も DB 保存も行われない
+        mock_annotation_logic.execute_annotation.assert_not_called()
         save_service.save_annotation_results.assert_not_called()
+        # 件数のみ算出し結果は空
+        assert result.results == {}
         assert result.db_save_success == 0
         assert result.db_save_skip == 0
-        # 推論結果自体はサマリー表示用に構築される
-        assert "test_phash" in result.results
+        assert result.total_images == 1
+        assert result.models_used == ["gpt-4o-mini"]
 
     def test_non_dry_run_saves_to_database(self, mock_annotation_logic, mock_model_registry, monkeypatch):
         """dry_run=False (既定) では DB 書き込みが行われる (対照テスト)。"""
@@ -1134,16 +1135,25 @@ class TestRunOptionsWiring:
         save_service.save_annotation_results.assert_called_once()
         assert result.db_save_success == 1
 
-    def test_rating_gate_disabled_skips_preflight(self, mock_annotation_logic, monkeypatch):
-        """rating_gate=False では moderation preflight を丸ごとスキップする。"""
+    def test_rating_gate_disabled_skips_rating_but_keeps_refusal_filter(
+        self, mock_annotation_logic, monkeypatch
+    ):
+        """rating_gate=False では rating/moderation のみスキップし refusal filter は維持する (Codex P2)。"""
         from lorairo.gui.widgets.run_settings_dialog import RunOptions
         from lorairo.gui.workers import annotation_worker as aw_mod
 
         registry = self._webapi_registry()
         mock_save_service = Mock()
-        mock_save_service.filter_refused_image_paths = Mock()
+        # refusal filter は 1 件除外する想定 (rating ゲートと独立に適用されることを確認)
+        mock_save_service.filter_refused_image_paths = Mock(return_value=["/path/img1.jpg"])
         mock_save_service.filter_excluded_by_rating = Mock()
         monkeypatch.setattr(aw_mod, "AnnotationSaveService", lambda **kwargs: mock_save_service)
+        # ModerationPreflightService が呼ばれたら検出できるよう例外を仕込む
+        monkeypatch.setattr(
+            aw_mod,
+            "ModerationPreflightService",
+            Mock(side_effect=AssertionError("moderation preflight は実行されてはならない")),
+        )
 
         worker = AnnotationWorker(
             annotation_logic=mock_annotation_logic,
@@ -1156,11 +1166,14 @@ class TestRunOptionsWiring:
 
         preflight_errors = worker._apply_refusal_prefilter()
 
-        # preflight は実行されず、image_paths も変化しない
         assert preflight_errors == []
-        mock_save_service.filter_refused_image_paths.assert_not_called()
+        # refusal filter は適用される (過去 refusal の再送防止)
+        mock_save_service.filter_refused_image_paths.assert_called_once_with(
+            ["/path/img1.jpg", "/path/img2.jpg"]
+        )
+        assert worker.image_paths == ["/path/img1.jpg"]
+        # rating ゲート / moderation preflight はスキップされる
         mock_save_service.filter_excluded_by_rating.assert_not_called()
-        assert worker.image_paths == ["/path/img1.jpg", "/path/img2.jpg"]
 
     def test_rating_gate_enabled_runs_preflight_for_webapi(self, mock_annotation_logic, monkeypatch):
         """rating_gate=True (既定) かつ WebAPI 選択時は preflight が実行される (対照テスト)。"""
