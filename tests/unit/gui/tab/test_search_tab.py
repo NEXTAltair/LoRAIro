@@ -16,7 +16,7 @@ from unittest.mock import Mock
 
 import pytest
 from PySide6.QtCore import Qt
-from PySide6.QtWidgets import QSplitter, QWidget
+from PySide6.QtWidgets import QMessageBox, QSplitter, QWidget
 
 from lorairo.gui.state.dataset_state import DatasetStateManager
 from lorairo.gui.state.staging_state import StagingStateManager
@@ -246,11 +246,55 @@ def test_stage_selected_forwards_to_top_signal(tab: SearchTabWidget, qtbot) -> N
 
 
 @pytest.mark.gui
-def test_quick_tag_forwards_to_top_signal(tab: SearchTabWidget, qtbot) -> None:
-    """thumbnail.quick_tag_requested → quick_tag_requested を上方 emit する。"""
-    with qtbot.waitSignal(tab.quick_tag_requested, timeout=1000) as blocker:
-        tab.thumbnail_selector.quick_tag_requested.emit([7])
-    assert blocker.args == [[7]]
+def test_quick_tag_request_opens_dialog_in_tab(tab: SearchTabWidget, monkeypatch) -> None:
+    """thumbnail.quick_tag_requested はタブ内の _show_quick_tag_dialog を起動する (#896)。"""
+    opened: list[list[int]] = []
+    monkeypatch.setattr(tab, "_show_quick_tag_dialog", lambda ids: opened.append(ids))
+
+    tab.thumbnail_selector.quick_tag_requested.emit([7])
+
+    assert opened == [[7]]
+
+
+@pytest.mark.gui
+def test_show_quick_tag_dialog_empty_ids_noop(tab: SearchTabWidget, monkeypatch) -> None:
+    """空 image_ids ではダイアログを起動しない (#896)。"""
+    from lorairo.gui.tab import search_tab as search_tab_module
+
+    created: list[object] = []
+    monkeypatch.setattr(search_tab_module, "QuickTagDialog", lambda *a, **k: created.append(object()))
+
+    tab._show_quick_tag_dialog([])
+
+    assert created == []
+
+
+@pytest.mark.gui
+def test_handle_quick_tag_add_success_emits_status(tab: SearchTabWidget, qtbot) -> None:
+    """書込成功で status_message を emit し dataset キャッシュを更新する (#896)。"""
+    tab._image_db_write_service = Mock()
+    tab._image_db_write_service.add_tag_batch.return_value = True
+    tab._dataset_state_manager = Mock()
+
+    with qtbot.waitSignal(tab.status_message, timeout=1000) as blocker:
+        tab._handle_quick_tag_add([1, 2], "portrait")
+
+    assert "portrait" in blocker.args[0]
+    tab._image_db_write_service.add_tag_batch.assert_called_once_with([1, 2], "portrait")
+    tab._dataset_state_manager.refresh_images.assert_called_once_with([1, 2])
+
+
+@pytest.mark.gui
+def test_handle_quick_tag_add_failure_shows_critical(tab: SearchTabWidget, monkeypatch) -> None:
+    """書込失敗で QMessageBox.critical を表示する (#896)。"""
+    tab._image_db_write_service = Mock()
+    tab._image_db_write_service.add_tag_batch.return_value = False
+    calls: list[bool] = []
+    monkeypatch.setattr(QMessageBox, "critical", lambda *a, **k: calls.append(True))
+
+    tab._handle_quick_tag_add([1], "x")
+
+    assert calls == [True]
 
 
 # == 6. 選択 → 詳細反映 =======================================================

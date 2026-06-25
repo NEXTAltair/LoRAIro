@@ -354,63 +354,6 @@ class TestDatasetRegistration:
 # これらの振る舞い検証は tests/unit/gui/tab/test_search_tab.py が担う。
 
 
-class TestBatchTagWrite:
-    """バッチタグ書き込みのテスト"""
-
-    def test_execute_batch_tag_write_no_service(self):
-        from lorairo.gui.window.main_window import MainWindow
-
-        mock_window = Mock()
-        mock_window.image_db_write_service = None
-        result = MainWindow._execute_batch_tag_write(mock_window, [1, 2], "landscape")
-        assert result is False
-
-    def test_execute_batch_tag_write_success_refreshes_cache(self):
-        from lorairo.gui.window.main_window import MainWindow
-
-        mock_window = Mock()
-        mock_window.image_db_write_service = Mock()
-        mock_window.image_db_write_service.add_tag_batch.return_value = True
-        mock_window.dataset_state_manager = Mock()
-        result = MainWindow._execute_batch_tag_write(mock_window, [1, 2], "landscape")
-        assert result is True
-        mock_window.dataset_state_manager.refresh_images.assert_called_once_with([1, 2])
-
-    def test_execute_batch_tag_write_failure_no_cache_update(self):
-        from lorairo.gui.window.main_window import MainWindow
-
-        mock_window = Mock()
-        mock_window.image_db_write_service = Mock()
-        mock_window.image_db_write_service.add_tag_batch.return_value = False
-        mock_window.dataset_state_manager = Mock()
-        result = MainWindow._execute_batch_tag_write(mock_window, [1, 2], "tag")
-        assert result is False
-        mock_window.dataset_state_manager.refresh_images.assert_not_called()
-
-
-class TestQuickTagDialog:
-    """クイックタグダイアログのテスト"""
-
-    def test_show_quick_tag_dialog_empty_ids(self):
-        from lorairo.gui.window.main_window import MainWindow
-
-        mock_window = Mock()
-        with patch("lorairo.gui.window.main_window.logger") as mock_logger:
-            MainWindow._show_quick_tag_dialog(mock_window, [])
-            mock_logger.warning.assert_called_once()
-
-    def test_show_quick_tag_dialog_with_ids_shows_dialog(self):
-        from lorairo.gui.window.main_window import MainWindow
-
-        mock_window = Mock()
-        with patch("lorairo.gui.window.main_window.QuickTagDialog") as mock_dialog_class:
-            mock_dialog = Mock()
-            mock_dialog_class.return_value = mock_dialog
-            MainWindow._show_quick_tag_dialog(mock_window, [1, 2])
-            mock_dialog_class.assert_called_once_with([1, 2], parent=mock_window)
-            mock_dialog.exec.assert_called_once()
-
-
 class TestStagingFanOut:
     """ステージング集合 fan-out のテスト (#868)。
 
@@ -770,19 +713,6 @@ class TestDatabaseStatusLabel:
             with patch("lorairo.gui.window.main_window.logger") as mock_logger:
                 MainWindow._update_database_status_label(mock_window)
                 mock_logger.warning.assert_called_once()
-
-
-class TestHandleBatchTagAddEdgeCases:
-    """バッチタグ追加エッジケースのテスト"""
-
-    def test_handle_batch_tag_add_empty_image_ids_logs_warning(self):
-        from lorairo.gui.window.main_window import MainWindow
-
-        mock_window = Mock()
-        with patch("lorairo.gui.window.main_window.logger") as mock_logger:
-            MainWindow._handle_batch_tag_add(mock_window, [], "landscape")
-            mock_logger.warning.assert_called_once()
-            assert "empty" in mock_logger.warning.call_args[0][0]
 
 
 class TestSplitterStateDelegation:
