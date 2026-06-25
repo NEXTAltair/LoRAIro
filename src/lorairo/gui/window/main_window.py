@@ -655,7 +655,7 @@ class MainWindow(QMainWindow, Ui_MainWindow):
 
         widget = ExportTabWidget(
             service_container=self.service_container,
-            initial_image_ids=self._get_staged_export_ids(),
+            staging_state_manager=self.staging_state_manager,
             parent=container,
         )
         container.layout().addWidget(widget)
@@ -1301,19 +1301,18 @@ class MainWindow(QMainWindow, Ui_MainWindow):
     def _on_staged_images_changed(self, image_ids: list[int]) -> None:
         """ステージング画像変更シグナルハンドラ (StagingStateManager fan-out、ADR 0074)。
 
-        エクスポート対象・エクスポートタブ・アノテーションタブをステージング集合へ
-        ライブ同期する。アノテ側の run bar / pipeline / preflight 再計算は
-        AnnotateTabWidget.set_staging_target() が担う (#868)。
+        エクスポート下部バーの件数表示とアノテーションタブをステージング集合へ
+        ライブ同期する。エクスポートタブの対象は ExportTabWidget が自治購読する
+        ため MainWindow からは push しない (#896)。アノテ側の run bar / pipeline /
+        preflight 再計算は AnnotateTabWidget.set_staging_target() が担う (#868)。
 
         Args:
             image_ids: 現在のステージング画像IDリスト
         """
         count = len(image_ids) if image_ids else 0
         self._update_export_target_ui(count)
-        # Phase 5: エクスポートタブの対象もステージング集合とライブ同期する (ADR 0055)
-        export_tab = getattr(self, "export_tab", None)
-        if export_tab is not None:
-            export_tab.set_image_ids(list(image_ids) if image_ids else [])
+        # Phase 5: エクスポートタブの対象は ExportTabWidget が staged_images_changed を
+        # 自治購読してライブ同期する (ADR 0055 / #896)。MainWindow からの push は不要。
         # #868: アノテーションタブ (run bar / pipeline / preflight) をステージング集合と同期
         if self.annotate_tab is not None:
             self.annotate_tab.set_staging_target(list(image_ids) if image_ids else [])
@@ -1746,26 +1745,12 @@ class MainWindow(QMainWindow, Ui_MainWindow):
         """
         return list(self._get_staged_id_path_map_for_annotation().values())
 
-    def _get_staged_export_ids(self) -> list[int]:
-        """エクスポート対象のステージング画像 ID を返す（エクスポートタブの対象ソース）。
-
-        ADR 0055: エクスポート対象＝ステージング集合。SSoT である
-        ``StagingStateManager``（ADR 0074）を直接読むことで、下部バーの件数表示と
-        実エクスポート対象を一致させる。未初期化の場合は空リストを返す。
-
-        Returns:
-            ステージング中の画像 ID リスト（追加順）。未初期化時は空リスト。
-        """
-        if self.staging_state_manager is None:
-            return []
-        return self.staging_state_manager.get_image_ids()
-
     def export_data(self) -> None:
         """エクスポートタブへ遷移する。
 
         Phase 5 (Wireframes v11 Frame 7): モーダルダイアログからタブ常設に変更。
-        遷移前にステージング集合を再読込し、シグナル取りこぼしがあっても
-        タブ表示時点の対象件数を正とする。
+        遷移前に ExportTabWidget.refresh() でステージング集合を再読込し、シグナル
+        取りこぼしがあってもタブ表示時点の対象件数を正とする (#896)。
         """
         export_tab = getattr(self, "export_tab", None)
         if export_tab is None or not hasattr(self, "tabExport"):
@@ -1775,7 +1760,7 @@ class MainWindow(QMainWindow, Ui_MainWindow):
             )
             return
 
-        export_tab.set_image_ids(self._get_staged_export_ids())
+        export_tab.refresh()
         self.tabWidgetMainMode.setCurrentWidget(self.tabExport)
 
     def send_selected_to_batch_tag(self, selected_ids: list[int] | bool | None = None) -> None:
@@ -1885,10 +1870,9 @@ class MainWindow(QMainWindow, Ui_MainWindow):
             self.errors_tab.refresh()
 
     def _refresh_export_tab(self) -> None:
-        """エクスポートタブ表示時にステージング集合を再読込する (ADR 0055 安全網)。"""
-        export_tab = getattr(self, "export_tab", None)
-        if export_tab is not None:
-            export_tab.set_image_ids(self._get_staged_export_ids())
+        """エクスポートタブ表示時の再読込をタブへ委譲する (ADR 0055 安全網, #896)。"""
+        if self.export_tab is not None:
+            self.export_tab.refresh()
 
     def _refresh_batch_tag_staging(self) -> None:
         """アノテーションタブ表示時の再計算をタブへ委譲する (#868)。

@@ -436,24 +436,13 @@ class TestStagingFanOut:
         mock_window._update_export_target_ui.assert_called_once_with(3)
         mock_window.annotate_tab.set_staging_target.assert_called_once_with([1, 2, 3])
 
-    def test_on_staged_images_changed_syncs_export_widget(self):
-        """Phase 5: ステージング変更はエクスポートタブの対象にもライブ反映される (ADR 0055)。"""
+    def test_on_staged_images_changed_does_not_push_to_export_widget(self):
+        """#896: エクスポートタブは自治購読するため MainWindow からは push しない (ADR 0055)。"""
         from lorairo.gui.window.main_window import MainWindow
 
         mock_window = Mock()
         MainWindow._on_staged_images_changed(mock_window, [1, 2, 3])
-        mock_window.export_tab.set_image_ids.assert_called_once_with([1, 2, 3])
-
-    def test_on_staged_images_changed_skips_export_sync_when_widget_missing(self):
-        """Phase 5: エクスポートタブ未初期化時は同期をスキップする。"""
-        from lorairo.gui.window.main_window import MainWindow
-
-        mock_window = Mock()
-        mock_window.export_tab = None
-        # export_tab が None でも例外なく処理が完了する
-        MainWindow._on_staged_images_changed(mock_window, [1, 2])
-        mock_window._update_export_target_ui.assert_called_once_with(2)
-        mock_window.annotate_tab.set_staging_target.assert_called_once_with([1, 2])
+        mock_window.export_tab.set_image_ids.assert_not_called()
 
     def test_on_staged_images_changed_empty_list(self):
         from lorairo.gui.window.main_window import MainWindow
@@ -491,13 +480,12 @@ class TestOpenDialogs:
             mock_qmb.warning.assert_called_once()
 
     def test_export_data_switches_to_export_tab(self):
-        """Phase 5: export_data はステージング集合を再読込してエクスポートタブへ遷移する。"""
+        """Phase 5/#896: export_data は ExportTab.refresh() でステージング再読込し遷移する。"""
         from lorairo.gui.window.main_window import MainWindow
 
         mock_window = Mock()
-        mock_window._get_staged_export_ids.return_value = [1, 2]
         MainWindow.export_data(mock_window)
-        mock_window.export_tab.set_image_ids.assert_called_once_with([1, 2])
+        mock_window.export_tab.refresh.assert_called_once_with()
         mock_window.tabWidgetMainMode.setCurrentWidget.assert_called_once_with(mock_window.tabExport)
 
     def test_export_data_without_export_widget_shows_warning(self):
