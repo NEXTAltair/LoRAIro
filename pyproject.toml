@@ -262,9 +262,12 @@ exclude_lines = [
 packages = ["src/lorairo"] # パッケージディレクトリ指定
 
 
+[tool.uv.workspace]
+members = ["local_packages/image-annotator-lib", "local_packages/genai-tag-db-tools"]
+
 [tool.uv.sources]
-genai-tag-db-tools = { path = "local_packages/genai-tag-db-tools", editable = true }
-image-annotator-lib = { path = "local_packages/image-annotator-lib", editable = true }
+genai-tag-db-tools = { workspace = true }
+image-annotator-lib = { workspace = true }
 torch = { index = "pytorch" }
 torchvision = { index = "pytorch" }
 
