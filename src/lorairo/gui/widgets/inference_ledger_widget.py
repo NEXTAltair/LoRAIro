@@ -36,6 +36,21 @@ _MULTI_BADGE_STYLE = (
     f" font-size: {theme.FONT_SIZE_META}px; font-weight: {theme.FONT_WEIGHT_SEMIBOLD}; }}"
 )
 
+# #884 Phase 4a: route バッジ。local = 中立 (paper-shade / ink-faint)、
+# api = accent-soft の mono バッジ。dispatch の sync/batch 区別は Phase 4b で足す。
+_ROUTE_BADGE_STYLE_LOCAL = (
+    f"QLabel {{ font-family: {theme.FONT_MONO_CSS}; background-color: {theme.PAPER_SHADE};"
+    f" color: {theme.INK_FAINT}; border: {theme.BORDER_WIDTH}px solid {theme.LINE};"
+    f" border-radius: {theme.RADIUS_BADGE}px; padding: 1px 6px;"
+    f" font-size: {theme.FONT_SIZE_META}px; }}"
+)
+_ROUTE_BADGE_STYLE_API = (
+    f"QLabel {{ font-family: {theme.FONT_MONO_CSS}; background-color: {theme.ACCENT_SOFT};"
+    f" color: {theme.ACCENT_HOVER}; border: {theme.BORDER_WIDTH}px solid {theme.ACCENT_BORDER};"
+    f" border-radius: {theme.RADIUS_BADGE}px; padding: 1px 6px;"
+    f" font-size: {theme.FONT_SIZE_META}px; }}"
+)
+
 
 class InferenceLedgerWidget(DsCard):
     """DS v12 AnnotateScreen の INFERENCE LEDGER (推論台帳) card。
@@ -189,6 +204,13 @@ class InferenceLedgerWidget(DsCard):
             entry: 台帳エントリ (モデル情報 + ステージ数)。
             staged_count: ステージング枚数。
         """
+        # #884 Phase 4a: local/api route バッジ (is_api が canonical 判定)
+        is_api = entry.model.is_api
+        route_badge = QLabel("api" if is_api else "local", self)
+        route_badge.setObjectName("ledgerRouteBadge")
+        route_badge.setStyleSheet(_ROUTE_BADGE_STYLE_API if is_api else _ROUTE_BADGE_STYLE_LOCAL)
+        self._entries_layout.addWidget(route_badge)
+
         chip = QLabel(f"{entry.model.display_name} ×{staged_count}枚", self)
         chip.setObjectName("ledgerChip")
         chip.setStyleSheet(_ENTRY_CHIP_STYLE)

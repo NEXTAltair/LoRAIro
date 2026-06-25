@@ -95,6 +95,35 @@ class TestInferenceLedgerWidgetChips:
         assert any("gpt-4o" in text and "×9枚" in text for text in chip_texts)
         assert any("wd-v1-4-tagger" in text and "×9枚" in text for text in chip_texts)
 
+    def test_one_route_badge_per_entry_with_local_api_text(self, widget):
+        # #884 Phase 4a: 各エントリに local/api route バッジを付与する。
+        widget.display(_sample_ledger())
+        badges = widget.findChildren(QLabel, "ledgerRouteBadge")
+        assert len(badges) == 6
+        texts = [b.text() for b in badges]
+        assert texts.count("api") == 1  # GPT4O のみ API
+        assert texts.count("local") == 5
+
+    def test_route_badge_local_only_ledger(self, widget):
+        ledger = InferenceLedger(
+            entries=(LedgerEntry(model=_local_model("wd-tagger", "tags"), stage_count=1),),
+            staged_count=3,
+        )
+        widget.display(ledger)
+        badges = widget.findChildren(QLabel, "ledgerRouteBadge")
+        assert len(badges) == 1
+        assert badges[0].text() == "local"
+
+    def test_route_badges_not_duplicated_on_redisplay(self, widget):
+        widget.display(_sample_ledger())
+        widget.display(_sample_ledger())
+        assert len(widget.findChildren(QLabel, "ledgerRouteBadge")) == 6
+
+    def test_route_badges_cleared_to_placeholder(self, widget):
+        widget.display(_sample_ledger())
+        widget.clear()
+        assert widget.findChildren(QLabel, "ledgerRouteBadge") == []
+
     def test_multimodal_entry_has_frame_to_inference_badge(self, widget):
         widget.display(_sample_ledger())
         badges = widget.findChildren(QLabel, "ledgerMultiBadge")
