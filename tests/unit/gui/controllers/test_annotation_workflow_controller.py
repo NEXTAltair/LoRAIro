@@ -332,6 +332,35 @@ class TestStartAnnotationWorkflow:
         call_args = mock_worker_service.start_enhanced_batch_annotation.call_args
         assert call_args[1]["litellm_model_ids"] == selected_models
 
+    def test_start_annotation_workflow_passes_run_options(
+        self,
+        controller,
+        mock_worker_service,
+    ):
+        """Issue #803: run_options が worker_service へ伝搬される。"""
+        from lorairo.gui.widgets.run_settings_dialog import RunOptions
+
+        run_options = RunOptions(dry_run=True, rating_gate=False)
+
+        controller.start_annotation_workflow(
+            selected_litellm_model_ids=["gpt-4o-mini"],
+            run_options=run_options,
+        )
+
+        call_args = mock_worker_service.start_enhanced_batch_annotation.call_args
+        assert call_args[1]["run_options"] is run_options
+
+    def test_start_annotation_workflow_run_options_default_none(
+        self,
+        controller,
+        mock_worker_service,
+    ):
+        """run_options 省略時は None が伝搬され従来挙動を維持する。"""
+        controller.start_annotation_workflow(selected_litellm_model_ids=["gpt-4o-mini"])
+
+        call_args = mock_worker_service.start_enhanced_batch_annotation.call_args
+        assert call_args[1]["run_options"] is None
+
     def test_start_annotation_workflow_with_selected_models_priority(
         self,
         controller,

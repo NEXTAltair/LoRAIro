@@ -1046,3 +1046,146 @@ class TestRefusalPrefilterRatingsCapability:
         mock_save_service.filter_refused_image_paths.assert_not_called()
         assert worker.image_paths == ["/path/img1.jpg"]
         assert "Model registry lookup failed" not in caplog.text
+
+
+class TestRunOptionsWiring:
+    """Issue #803: ``run_options`` (dry_run / rating_gate) の実 run 反映を検証する。"""
+
+    @staticmethod
+    def _webapi_registry():
+        """WebAPI モデル 1 件を持つ registry Mock を返す (preflight が走る条件)。"""
+        registry = Mock()
+        info = Mock()
+        info.name = "openai/gpt-4o"
+        info.requires_api_key = True
+        info.litellm_model_id = "openai/gpt-4o"
+        registry.get_available_models.return_value = [info]
+        return registry
+
+    def test_run_options_none_keeps_legacy_defaults(self, mock_annotation_logic, mock_model_registry):
+        """run_options 省略時は従来挙動 (dry_run=False / rating_gate=True)。"""
+        worker = AnnotationWorker(
+            annotation_logic=mock_annotation_logic,
+            image_paths=["/path/img1.jpg"],
+            litellm_model_ids=["gpt-4o-mini"],
+            db_manager=Mock(),
+            model_registry=mock_model_registry,
+        )
+
+        assert worker._dry_run is False
+        assert worker._rating_gate is True
+
+    def test_dry_run_skips_database_save(self, mock_annotation_logic, mock_model_registry, monkeypatch):
+        """dry_run=True では DB 書き込み (save_annotation_results) を行わない。"""
+        from lorairo.gui.widgets.run_settings_dialog import RunOptions
+        from lorairo.gui.workers import annotation_worker as aw_mod
+
+        mock_db_manager = Mock()
+        mock_db_manager.image_repo.find_image_ids_by_phashes_multi.return_value = {"test_phash": [1]}
+        mock_db_manager.image_repo.get_image_ids_by_filepaths.return_value = {"/path/to/image1.jpg": 1}
+
+        save_service = Mock()
+        monkeypatch.setattr(aw_mod, "AnnotationSaveService", lambda **kwargs: save_service)
+
+        worker = AnnotationWorker(
+            annotation_logic=mock_annotation_logic,
+            image_paths=["/path/to/image1.jpg"],
+            litellm_model_ids=["gpt-4o-mini"],
+            db_manager=mock_db_manager,
+            model_registry=mock_model_registry,
+            run_options=RunOptions(dry_run=True),
+        )
+
+        result = worker.execute()
+
+        # DB 保存は呼ばれない
+        save_service.save_annotation_results.assert_not_called()
+        assert result.db_save_success == 0
+        assert result.db_save_skip == 0
+        # 推論結果自体はサマリー表示用に構築される
+        assert "test_phash" in result.results
+
+    def test_non_dry_run_saves_to_database(self, mock_annotation_logic, mock_model_registry, monkeypatch):
+        """dry_run=False (既定) では DB 書き込みが行われる (対照テスト)。"""
+        from lorairo.gui.widgets.run_settings_dialog import RunOptions
+        from lorairo.gui.workers import annotation_worker as aw_mod
+
+        mock_db_manager = Mock()
+        mock_db_manager.image_repo.find_image_ids_by_phashes_multi.return_value = {"test_phash": [1]}
+        mock_db_manager.image_repo.get_image_ids_by_filepaths.return_value = {"/path/to/image1.jpg": 1}
+
+        save_service = Mock()
+        save_service.save_annotation_results.return_value = SimpleNamespace(
+            success_count=1, skip_count=0, total_count=1
+        )
+        monkeypatch.setattr(aw_mod, "AnnotationSaveService", lambda **kwargs: save_service)
+
+        worker = AnnotationWorker(
+            annotation_logic=mock_annotation_logic,
+            image_paths=["/path/to/image1.jpg"],
+            litellm_model_ids=["gpt-4o-mini"],
+            db_manager=mock_db_manager,
+            model_registry=mock_model_registry,
+            run_options=RunOptions(dry_run=False),
+        )
+
+        result = worker.execute()
+
+        save_service.save_annotation_results.assert_called_once()
+        assert result.db_save_success == 1
+
+    def test_rating_gate_disabled_skips_preflight(self, mock_annotation_logic, monkeypatch):
+        """rating_gate=False では moderation preflight を丸ごとスキップする。"""
+        from lorairo.gui.widgets.run_settings_dialog import RunOptions
+        from lorairo.gui.workers import annotation_worker as aw_mod
+
+        registry = self._webapi_registry()
+        mock_save_service = Mock()
+        mock_save_service.filter_refused_image_paths = Mock()
+        mock_save_service.filter_excluded_by_rating = Mock()
+        monkeypatch.setattr(aw_mod, "AnnotationSaveService", lambda **kwargs: mock_save_service)
+
+        worker = AnnotationWorker(
+            annotation_logic=mock_annotation_logic,
+            image_paths=["/path/img1.jpg", "/path/img2.jpg"],
+            litellm_model_ids=["openai/gpt-4o"],
+            db_manager=Mock(),
+            model_registry=registry,
+            run_options=RunOptions(rating_gate=False),
+        )
+
+        preflight_errors = worker._apply_refusal_prefilter()
+
+        # preflight は実行されず、image_paths も変化しない
+        assert preflight_errors == []
+        mock_save_service.filter_refused_image_paths.assert_not_called()
+        mock_save_service.filter_excluded_by_rating.assert_not_called()
+        assert worker.image_paths == ["/path/img1.jpg", "/path/img2.jpg"]
+
+    def test_rating_gate_enabled_runs_preflight_for_webapi(self, mock_annotation_logic, monkeypatch):
+        """rating_gate=True (既定) かつ WebAPI 選択時は preflight が実行される (対照テスト)。"""
+        from lorairo.gui.widgets.run_settings_dialog import RunOptions
+        from lorairo.gui.workers import annotation_worker as aw_mod
+
+        registry = self._webapi_registry()
+        mock_save_service = Mock()
+        mock_save_service.filter_refused_image_paths = Mock(return_value=["/path/img1.jpg"])
+        mock_save_service.filter_excluded_by_rating = Mock(return_value=["/path/img1.jpg"])
+        monkeypatch.setattr(aw_mod, "AnnotationSaveService", lambda **kwargs: mock_save_service)
+        preflight = Mock()
+        preflight.apply.return_value = SimpleNamespace(allowed_paths=["/path/img1.jpg"], skipped=[])
+        monkeypatch.setattr(aw_mod, "ModerationPreflightService", lambda **kwargs: preflight)
+
+        worker = AnnotationWorker(
+            annotation_logic=mock_annotation_logic,
+            image_paths=["/path/img1.jpg", "/path/img2.jpg"],
+            litellm_model_ids=["openai/gpt-4o"],
+            db_manager=Mock(),
+            model_registry=registry,
+            run_options=RunOptions(rating_gate=True),
+        )
+
+        worker._apply_refusal_prefilter()
+
+        mock_save_service.filter_refused_image_paths.assert_called_once()
+        assert worker.image_paths == ["/path/img1.jpg"]

@@ -30,6 +30,7 @@ if TYPE_CHECKING:
     from lorairo.database.db_manager import ImageDatabaseManager
     from lorairo.gui.state.staging_state import StagingStateManager
     from lorairo.gui.tab.annotate_tab import AnnotateTabWidget
+    from lorairo.gui.widgets.run_settings_dialog import RunOptions
     from lorairo.services.service_container import ServiceContainer
 
 # async batch dispatch worker thread の GC 防止用 (ProviderBatchJobWidget と同方式)。
@@ -167,6 +168,9 @@ class AnnotationWorkflowController(QObject):
                 )
                 return
 
+        # 実行詳細設定 (RunOptions) を同期アノテフローへ伝搬する (Issue #803)。
+        run_options = annotate_tab.run_options() if annotate_tab is not None else None
+
         # チェックボックスから選択されたモデルを優先し、無ければダイアログ callback へ
         self.start_annotation_workflow(
             selected_litellm_model_ids=selected_litellm_model_ids if selected_litellm_model_ids else None,
@@ -174,6 +178,7 @@ class AnnotationWorkflowController(QObject):
             if not selected_litellm_model_ids and annotate_tab is not None
             else None,
             image_paths=override_image_paths,
+            run_options=run_options,
         )
 
     def start_annotation_workflow(
@@ -181,6 +186,7 @@ class AnnotationWorkflowController(QObject):
         selected_litellm_model_ids: list[str] | None = None,
         model_selection_callback: Callable[[list[str]], str | None] | None = None,
         image_paths: list[str] | None = None,
+        run_options: "RunOptions | None" = None,
     ) -> None:
         """アノテーションワークフロー実行
 
@@ -201,6 +207,8 @@ class AnnotationWorkflowController(QObject):
                 キャンセル時はNone。
             image_paths: 明示的に指定する画像パスリスト（バッチタグタブから使用）
                 指定時はSelectionStateServiceをバイパスしてこのリストを使用。
+            run_options: 実行詳細設定 (Issue #803)。``dry_run`` / ``rating_gate`` を
+                worker_service 経由で AnnotationWorker に伝搬する。``None`` の場合は従来挙動。
         """
         try:
             # Step 1: サービス検証（image_paths指定時はSelectionStateService不要）
@@ -235,7 +243,7 @@ class AnnotationWorkflowController(QObject):
                 return
 
             # Step 4: バッチアノテーション開始
-            self._start_batch_annotation(image_paths, models_to_use)
+            self._start_batch_annotation(image_paths, models_to_use, run_options=run_options)
 
         except Exception as e:
             error_msg = f"アノテーション処理の開始に失敗しました: {e}"
@@ -460,12 +468,14 @@ class AnnotationWorkflowController(QObject):
         self,
         image_paths: list[str],
         litellm_model_ids: list[str],
+        run_options: "RunOptions | None" = None,
     ) -> None:
         """バッチアノテーション開始
 
         Args:
             image_paths: 画像パスリスト
             litellm_model_ids: モデルの `litellm_model_id` リスト
+            run_options: 実行詳細設定 (Issue #803)。worker_service へ伝搬する。
         """
         try:
             logger.info(
@@ -477,6 +487,7 @@ class AnnotationWorkflowController(QObject):
             self.worker_service.start_enhanced_batch_annotation(
                 image_paths=image_paths,
                 litellm_model_ids=litellm_model_ids,
+                run_options=run_options,
             )
 
             # 非ブロッキング通知

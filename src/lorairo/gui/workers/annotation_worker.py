@@ -30,6 +30,7 @@ from .base import CancellationError, LoRAIroWorkerBase
 
 if TYPE_CHECKING:
     from lorairo.database.db_manager import ImageDatabaseManager
+    from lorairo.gui.widgets.run_settings_dialog import RunOptions
 
 
 @dataclass
@@ -126,6 +127,7 @@ class AnnotationWorker(LoRAIroWorkerBase["AnnotationExecutionResult"]):
         litellm_model_ids: list[str],
         db_manager: "ImageDatabaseManager",
         model_registry: ModelRegistryServiceProtocol,
+        run_options: "RunOptions | None" = None,
     ):
         """AnnotationWorker初期化
 
@@ -140,6 +142,9 @@ class AnnotationWorker(LoRAIroWorkerBase["AnnotationExecutionResult"]):
             litellm_model_ids: 使用モデルの `litellm_model_id` リスト
             db_manager: データベースマネージャ（必須: DB保存・エラー記録用）
             model_registry: モデルレジストリ (provider/capabilities 取得用、Issue #225)
+            run_options: 実行詳細設定 (Issue #803)。``dry_run`` 時は DB 書き込みを
+                スキップし、``rating_gate=False`` 時は送信前 moderation preflight を
+                スキップする。``None`` の場合は従来挙動 (dry_run=False / rating_gate=True)。
         """
         super().__init__(db_manager=db_manager)
 
@@ -148,6 +153,9 @@ class AnnotationWorker(LoRAIroWorkerBase["AnnotationExecutionResult"]):
         self.litellm_model_ids = list(litellm_model_ids)
         self.db_manager = db_manager
         self.model_registry = model_registry
+        # Issue #803: run_options 未指定時は従来挙動 (dry_run=False / rating_gate=True)。
+        self._dry_run = run_options.dry_run if run_options is not None else False
+        self._rating_gate = run_options.rating_gate if run_options is not None else True
         self._path_to_phash: dict[str, str | None] = {}
         self._phash_to_input_path: dict[str, str] = {}
         self._phash_to_input_filename: dict[str, str] = {}
@@ -569,6 +577,13 @@ class AnnotationWorker(LoRAIroWorkerBase["AnnotationExecutionResult"]):
 
         副作用: `self.image_paths` を filter 結果で in-place 置換する。
         """
+        # Issue #803: rating ゲート無効時は送信前 moderation preflight を丸ごとスキップする。
+        if not self._rating_gate:
+            logger.debug(
+                "rating ゲート無効 (run_options.rating_gate=False): moderation preflight をスキップ"
+            )
+            return []
+
         try:
             should_filter = selection_includes_webapi_model(self.litellm_model_ids, self.model_registry)
         except Exception as exc:
@@ -639,16 +654,25 @@ class AnnotationWorker(LoRAIroWorkerBase["AnnotationExecutionResult"]):
         Returns:
             (DB保存成功件数, スキップ件数, 画像ごとの結果概要リスト, phash→ファイル名マップ) のタプル。
         """
-        # #633: 保存対象をこのバッチで実際に処理した image_id 集合に限定する
-        # (同一 pHash の未選択別版へ結果を書き込み汚染しないため)。
-        allowed_image_ids = self._resolve_batch_image_ids()
+        # Issue #803: dry-run 時は DB 書き込みを行わず、サマリー表示用のマップのみ構築する。
+        if self._dry_run:
+            success_count = 0
+            skip_count = 0
+            logger.info(f"dry-run: DB保存をスキップ ({len(results)}件の結果は保存しません)")
+        else:
+            # #633: 保存対象をこのバッチで実際に処理した image_id 集合に限定する
+            # (同一 pHash の未選択別版へ結果を書き込み汚染しないため)。
+            allowed_image_ids = self._resolve_batch_image_ids()
 
-        save_result = AnnotationSaveService(
-            annotation_repo=self.db_manager.annotation_repo,
-            image_repo=self.db_manager.image_repo,
-            model_repo=self.db_manager.model_repo,
-            error_record_repo=self.db_manager.error_record_repo,
-        ).save_annotation_results(results, allowed_image_ids=allowed_image_ids)
+            save_result = AnnotationSaveService(
+                annotation_repo=self.db_manager.annotation_repo,
+                image_repo=self.db_manager.image_repo,
+                model_repo=self.db_manager.model_repo,
+                error_record_repo=self.db_manager.error_record_repo,
+            ).save_annotation_results(results, allowed_image_ids=allowed_image_ids)
+            success_count = save_result.success_count
+            skip_count = save_result.skip_count
+            logger.info(f"DB保存完了: {save_result.success_count}/{save_result.total_count}件成功")
 
         # GUIサマリー用: phash→ファイル名マップを構築 (#633: 別版で複数 image_id になり得る)
         phash_to_image_ids = self.db_manager.image_repo.find_image_ids_by_phashes_multi(set(results.keys()))
@@ -662,8 +686,7 @@ class AnnotationWorker(LoRAIroWorkerBase["AnnotationExecutionResult"]):
             if phash_to_image_ids.get(phash)
         ]
 
-        logger.info(f"DB保存完了: {save_result.success_count}/{save_result.total_count}件成功")
-        return save_result.success_count, save_result.skip_count, image_summaries, phash_to_filename
+        return success_count, skip_count, image_summaries, phash_to_filename
 
     def _resolve_batch_image_ids(self) -> set[int] | None:
         """このバッチの image_paths を DB 上の image_id 集合に解決する (#633)。
