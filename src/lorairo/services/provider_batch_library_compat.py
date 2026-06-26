@@ -10,7 +10,6 @@ from typing import Any
 
 from lorairo.services.provider_batch_service import (
     BatchJobHandle,
-    BatchSubmitItem,
     BatchSubmitRequest,
     ProviderBatchArtifactRef,
     ProviderBatchError,

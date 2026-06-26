@@ -10,9 +10,9 @@ from PIL import Image
 from lorairo.database.db_core import create_db_engine
 from lorairo.database.db_manager import ImageDatabaseManager
 from lorairo.database.repository.image import ImageRepository
+from lorairo.filesystem import FileSystemManager
 from lorairo.services.configuration_service import ConfigurationService
 from lorairo.services.image_processing_service import ImageProcessingService
-from lorairo.filesystem import FileSystemManager
 
 
 @pytest.fixture

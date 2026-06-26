@@ -4,10 +4,9 @@ Phase 2.4 Stage 2で作成されたResultHandlerServiceのテスト。
 MainWindowの結果ハンドラメソッドから抽出された結果処理ロジックを検証。
 """
 
-from unittest.mock import MagicMock, Mock
+from unittest.mock import Mock
 
 import pytest
-from PySide6.QtCore import Signal
 
 from lorairo.gui.services.result_handler_service import ResultHandlerService
 

@@ -29,12 +29,6 @@ if TYPE_CHECKING:
     from lorairo.database.repository.model import ModelRepository
     from lorairo.services.batch_import_service import BatchImportResult
 
-from lorairo.public_api.batch_import import import_batch_annotations
-from lorairo.public_api.exceptions import (
-    AnnotationFailedError,
-    ResultSetTooLargeError,
-)
-from lorairo.public_api.project import get_project as api_get_project
 from lorairo.cli._boundary import command_boundary
 from lorairo.cli._console import make_console
 from lorairo.cli._emit import emit_item, emit_result
@@ -42,6 +36,12 @@ from lorairo.cli._image_guard import reject_original_image_records
 from lorairo.cli._output_mode import is_json_mode
 from lorairo.database.db_core import resolve_stored_path
 from lorairo.database.filter_criteria import ImageFilterCriteria
+from lorairo.public_api.batch_import import import_batch_annotations
+from lorairo.public_api.exceptions import (
+    AnnotationFailedError,
+    ResultSetTooLargeError,
+)
+from lorairo.public_api.project import get_project as api_get_project
 from lorairo.services.model_registry_protocol import selection_includes_webapi_model
 from lorairo.services.model_route_service import validate_api_keys_for_models
 from lorairo.services.moderation_preflight_service import (

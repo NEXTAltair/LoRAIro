@@ -1316,7 +1316,6 @@ class TestBatchCapableFiltering:
         self, qtbot, mock_model_service, mock_container_for_batch
     ) -> None:
         """既存 annotation_only フィルタは batch-capable フィルタ OFF 時に不変。"""
-        from unittest.mock import Mock
 
         mock_model_service.load_grouped_models.return_value = []
         w = ModelSelectionWidget(model_selection_service=mock_model_service, mode="advanced")

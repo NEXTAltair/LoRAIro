@@ -1,6 +1,6 @@
 """AnnotationRepository のタグ登録機能の単体テスト (Phase 2)"""
 
-from unittest.mock import MagicMock, Mock, patch
+from unittest.mock import Mock, patch
 
 import pytest
 from genai_tag_db_tools.models import TagRecordPublic, TagRegisterResult, TagSearchResult

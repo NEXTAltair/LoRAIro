@@ -7,10 +7,7 @@ import tempfile
 from pathlib import Path
 from unittest.mock import patch
 
-import pytest
-
 from lorairo.services.configuration_service import ConfigurationService
-from lorairo.utils.config import get_config
 
 
 class TestConfigurationServiceIntegration:

@@ -18,10 +18,6 @@ import typer
 from pydantic import BaseModel, Field, ValidationError
 from rich.table import Table
 
-from lorairo.public_api.exceptions import ImageNotFoundError, ResultSetTooLargeError
-from lorairo.public_api.images import register_images as api_register_images
-from lorairo.public_api.project import get_project as api_get_project
-from lorairo.public_api.types import RegistrationResult
 from lorairo.cli._boundary import command_boundary
 from lorairo.cli._console import make_console
 from lorairo.cli._emit import emit_item, emit_result
@@ -29,6 +25,10 @@ from lorairo.cli._glyphs import OK
 from lorairo.cli._output_mode import is_json_mode
 from lorairo.database.filter_criteria import ImageFilterCriteria
 from lorairo.database.repository.annotation_record import AnnotationRepository
+from lorairo.public_api.exceptions import ImageNotFoundError, ResultSetTooLargeError
+from lorairo.public_api.images import register_images as api_register_images
+from lorairo.public_api.project import get_project as api_get_project
+from lorairo.public_api.types import RegistrationResult
 from lorairo.services.service_container import get_service_container
 
 # サブコマンドアプリ定義

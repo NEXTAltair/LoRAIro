@@ -8,13 +8,12 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
-import pytest
 from pytest_bdd import given, parsers, scenarios, then, when
 
 from lorairo.database.db_manager import ImageDatabaseManager
+from lorairo.filesystem import FileSystemManager
 from lorairo.services.configuration_service import ConfigurationService
 from lorairo.services.image_processing_service import ImageProcessingService
-from lorairo.filesystem import FileSystemManager
 
 _FEATURE_FILE = Path(__file__).parent.parent / "features" / "image_processing_pipeline.feature"
 scenarios(str(_FEATURE_FILE))

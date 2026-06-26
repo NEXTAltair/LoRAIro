@@ -6,7 +6,7 @@ from unittest.mock import Mock, patch
 import pytest
 
 from lorairo.services.search_criteria_processor import SearchCriteriaProcessor
-from lorairo.services.search_models import FilterConditions, SearchConditions
+from lorairo.services.search_models import SearchConditions
 
 
 class TestSearchCriteriaProcessor:
@@ -501,7 +501,6 @@ class TestSearchCriteriaProcessorErrorPaths:
 
     def test_filter_by_date_range_with_timezone_aware_start_date(self, processor) -> None:
         """タイムゾーン付き start_date を naive に変換してフィルタリングする。"""
-        from datetime import timezone
 
         images = [{"created_at": "2023-06-15T00:00:00Z"}]
         # start_date がタイムゾーン付き
@@ -515,7 +514,6 @@ class TestSearchCriteriaProcessorErrorPaths:
 
     def test_filter_by_date_range_with_timezone_aware_end_date(self, processor) -> None:
         """タイムゾーン付き end_date を naive に変換してフィルタリングする。"""
-        from datetime import timezone
 
         images = [{"created_at": "2024-06-15T00:00:00Z"}]
         # end_date がタイムゾーン付きで画像の日付より前

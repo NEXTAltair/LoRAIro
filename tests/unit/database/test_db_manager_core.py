@@ -27,8 +27,8 @@ from lorairo.database.repository.error_record import ErrorRecordRepository
 from lorairo.database.repository.image import ImageRepository
 from lorairo.database.repository.model import ModelRepository
 from lorairo.database.repository.project import ProjectRepository
-from lorairo.services.configuration_service import ConfigurationService
 from lorairo.filesystem import FileSystemManager
+from lorairo.services.configuration_service import ConfigurationService
 
 # ---------------------------------------------------------------------------
 # Fixtures

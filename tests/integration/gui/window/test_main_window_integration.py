@@ -77,7 +77,7 @@ class TestMainWindowThumbnailIntegration:
         window = real_main_window
         thumbnail_widget = real_thumbnail_widget
 
-        # 実際の統合：MainWindowがThumbnailWidgetにデータを渡す
+        # 実際の統合:MainWindowがThumbnailWidgetにデータを渡す
         window.thumbnail_selector = thumbnail_widget
 
         # テスト用の最適化されたメタデータ
@@ -132,7 +132,7 @@ class TestMainWindowThumbnailIntegration:
         """
         thumbnail_widget = real_thumbnail_widget
 
-        # ThumbnailSelectorWidgetの責任：表示のみ
+        # ThumbnailSelectorWidgetの責任:表示のみ
         display_methods = [
             "load_thumbnails_from_result",
             "load_thumbnails_from_paths",
@@ -178,7 +178,7 @@ class TestMainWindowThumbnailIntegration:
         window = real_main_window
         thumbnail_widget = real_thumbnail_widget
 
-        # 統合：MainWindowとThumbnailWidgetを接続
+        # 統合:MainWindowとThumbnailWidgetを接続
         window.thumbnail_selector = thumbnail_widget
 
         # テスト用の画像メタデータ

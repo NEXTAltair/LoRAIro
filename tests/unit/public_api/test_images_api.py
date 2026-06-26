@@ -158,8 +158,8 @@ class TestRegisterIntoDb:
     def test_skip_duplicates_true_counts_duplicate_as_skipped(self) -> None:
         from unittest.mock import Mock
 
-        from lorairo.public_api.images import _register_into_db
         from lorairo.database.db_manager import RegistrationOutcome
+        from lorairo.public_api.images import _register_into_db
 
         db = self._db_with_outcomes([RegistrationOutcome.REGISTERED, RegistrationOutcome.DUPLICATE])
         result = _register_into_db(db, Mock(), [Path("a.jpg"), Path("b.jpg")], skip_duplicates=True)
@@ -170,8 +170,8 @@ class TestRegisterIntoDb:
         """#633 (codex P2): --include-duplicates では重複を既存参照の成功として数える。"""
         from unittest.mock import Mock
 
-        from lorairo.public_api.images import _register_into_db
         from lorairo.database.db_manager import RegistrationOutcome
+        from lorairo.public_api.images import _register_into_db
 
         db = self._db_with_outcomes([RegistrationOutcome.REGISTERED, RegistrationOutcome.DUPLICATE])
         result = _register_into_db(db, Mock(), [Path("a.jpg"), Path("b.jpg")], skip_duplicates=False)

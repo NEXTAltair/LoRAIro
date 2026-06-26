@@ -244,7 +244,7 @@ class ServiceContainer:
     def signal_manager(self) -> "SignalManagerServiceProtocol":
         """SignalManagerService取得（遅延初期化） - Phase 1
 
-        環境に応じて自動選択：
+        環境に応じて自動選択:
         - GUI環境: SignalManagerService (QObject + Signal)
         - CLI環境: NoOpSignalManager (Signal不要)
 

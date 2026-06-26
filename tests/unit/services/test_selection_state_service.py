@@ -5,7 +5,7 @@ Phase 2.3で作成されたSelectionStateServiceのテスト。
 """
 
 from pathlib import Path
-from unittest.mock import MagicMock, Mock
+from unittest.mock import Mock
 
 import pytest
 

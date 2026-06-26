@@ -23,12 +23,12 @@ from PySide6.QtWidgets import (
 
 from ...database.db_core import IMG_DB_PATH, get_current_project_root, get_user_tag_db_path
 from ...database.db_manager import ImageDatabaseManager
+from ...filesystem import FileSystemManager
 from ...gui.designer.MainWindow_ui import Ui_MainWindow
 from ...services import get_service_container
 from ...services.configuration_service import ConfigurationService
 from ...services.selection_state_service import SelectionStateService
 from ...services.service_container import ServiceContainer
-from ...filesystem import FileSystemManager
 from ...utils.log import logger
 from ..controllers.annotation_workflow_controller import AnnotationWorkflowController
 from ..controllers.dataset_controller import DatasetController
@@ -563,7 +563,7 @@ class MainWindow(QMainWindow, Ui_MainWindow):
     def _setup_tab_shortcuts(self) -> None:
         """「移動」メニューと Ctrl+1〜N のタブ切替を登録する。
 
-        Wireframes v11 のナビショートカット (⌘1–⌘8) に対応する。8 タブを
+        Wireframes v11 のナビショートカット (⌘1-⌘8) に対応する。8 タブを
         メニューからも到達できるようにし、旧ツールメニューにあったタブ重複導線
         （アノテーション / エクスポート / エラーログ）を置き換える。各アクションが
         Ctrl+N ショートカットを保持するため、別途 QShortcut は登録しない。
@@ -1293,7 +1293,7 @@ class MainWindow(QMainWindow, Ui_MainWindow):
     def _update_export_target_ui(self, staging_count: int) -> None:
         """エクスポート下部バーの対象件数ラベルを更新する。
 
-        ADR 0055: ワークスペースのエクスポート入口の対象＝ステージング集合。
+        ADR 0055: ワークスペースのエクスポート入口の対象=ステージング集合。
         件数は ``StagingWidget.staged_images_changed``（= ステージング件数）を反映し、
         サムネ選択数ではない。件数ラベルは SearchTabWidget へ移管したため
         ``set_export_target_count`` 経由で更新する (#869)。

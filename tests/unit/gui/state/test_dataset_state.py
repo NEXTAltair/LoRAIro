@@ -1,7 +1,7 @@
 # tests/unit/gui/state/test_dataset_state.py
 
 from pathlib import Path
-from unittest.mock import Mock, patch
+from unittest.mock import Mock
 
 import pytest
 

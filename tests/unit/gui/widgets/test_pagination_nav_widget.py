@@ -77,14 +77,14 @@ class TestPaginationNavWidgetRange:
         assert widget._label_range.text() == ""
 
     def test_range_first_page(self, widget):
-        """先頭ページの範囲は 1–pagesize / 総件数。"""
+        """先頭ページの範囲は 1-pagesize / 総件数。"""
         widget.update_state(current=1, total=5, is_loading=False, total_items=247, page_size=50)
-        assert widget._label_range.text() == "1–50 / 247 件"
+        assert widget._label_range.text() == "1-50 / 247 件"
 
     def test_range_last_page_clamps_to_total(self, widget):
         """末尾ページの終端は総件数で頭打ちになる。"""
         widget.update_state(current=5, total=5, is_loading=False, total_items=247, page_size=50)
-        assert widget._label_range.text() == "201–247 / 247 件"
+        assert widget._label_range.text() == "201-247 / 247 件"
 
     def test_range_zero_items(self, widget):
         """総件数 0 のときは 0 件。"""

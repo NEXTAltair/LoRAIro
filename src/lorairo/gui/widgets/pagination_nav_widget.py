@@ -138,7 +138,7 @@ class PaginationNavWidget(QWidget):
         self._btn_last.setEnabled(can_go_next)
 
     def _format_range(self) -> str:
-        """現在ページの表示範囲と総件数を ``開始–終了 / 総件数件`` 形式で返す。
+        """現在ページの表示範囲と総件数を ``開始-終了 / 総件数件`` 形式で返す。
 
         total_items / page_size が未指定なら空文字を返す (件数・範囲を非表示)。
         """
@@ -148,4 +148,4 @@ class PaginationNavWidget(QWidget):
             return "0 件"
         start = (self._current_page - 1) * self._page_size + 1
         end = min(self._current_page * self._page_size, self._total_items)
-        return f"{start:,}–{end:,} / {self._total_items:,} 件"
+        return f"{start:,}-{end:,} / {self._total_items:,} 件"

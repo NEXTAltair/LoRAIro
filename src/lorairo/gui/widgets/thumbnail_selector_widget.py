@@ -32,7 +32,7 @@ class ThumbnailSelectorWidget(QWidget, Ui_ThumbnailSelectorWidget):
     """
     画像のサムネイル表示と選択操作を管理するメインウィジェット。
 
-    このウィジェットは以下の責任を持つ：
+    このウィジェットは以下の責任を持つ:
     - 画像メタデータからサムネイル画像の表示
     - ユーザーの選択操作（単一選択・複数選択・範囲選択）の処理
     - DatasetStateManagerとの状態同期
@@ -738,7 +738,7 @@ class ThumbnailSelectorWidget(QWidget, Ui_ThumbnailSelectorWidget):
         """
         DatasetStateManagerとのSignal接続を確立する。
 
-        状態変更通知を受信するため、以下のSignalを接続する：
+        状態変更通知を受信するため、以下のSignalを接続する:
         - selection_changed: 選択状態変更時の同期
         - current_image_changed: 現在画像変更時の表示更新
         - thumbnail_size_changed: サムネイルサイズ変更時のレイアウト更新

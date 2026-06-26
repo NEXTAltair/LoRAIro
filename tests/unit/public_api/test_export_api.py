@@ -5,9 +5,9 @@ from unittest.mock import MagicMock
 
 import pytest
 
+from lorairo.database.filter_criteria import ImageFilterCriteria
 from lorairo.public_api.export import export_dataset
 from lorairo.public_api.types import ExportCriteria, ExportResult
-from lorairo.database.filter_criteria import ImageFilterCriteria
 from lorairo.services.service_container import ServiceContainer
 
 

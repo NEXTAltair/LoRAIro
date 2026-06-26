@@ -9,7 +9,6 @@ from collections.abc import Callable
 from typing import Any
 
 from ..utils.log import logger
-from .signal_manager_protocol import SignalManagerServiceProtocol
 
 
 class NoOpSignalManager:

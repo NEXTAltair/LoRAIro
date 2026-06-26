@@ -7,8 +7,8 @@ import pytest
 
 from lorairo.database.db_manager import ImageDatabaseManager
 from lorairo.database.repository.image import ImageRepository
-from lorairo.services.configuration_service import ConfigurationService
 from lorairo.filesystem import FileSystemManager
+from lorairo.services.configuration_service import ConfigurationService
 
 
 @pytest.fixture

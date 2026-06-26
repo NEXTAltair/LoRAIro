@@ -5,18 +5,15 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-from PIL.Image import Image
 from PySide6.QtCore import QObject, QSize, Signal
 
 from ...annotation.annotation_runner import AnnotationRunner
-from ...annotation.annotator_adapter import AnnotatorLibraryAdapter
 from ...database.db_manager import ImageDatabaseManager
-from ...services.configuration_service import ConfigurationService
+from ...filesystem import FileSystemManager
 from ...services.job_ledger_service import JobLedgerService, JobStatus
 from ...services.model_registry_protocol import local_ml_model_names
 from ...services.search_models import SearchConditions
 from ...services.service_container import get_service_container
-from ...filesystem import FileSystemManager
 from ...utils.log import logger
 from ..workers.annotation_worker import AnnotationWorker
 from ..workers.base import LoRAIroWorkerBase, WorkerProgress

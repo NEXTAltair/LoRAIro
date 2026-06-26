@@ -6,7 +6,6 @@ ConfigurationServiceの有無、ConfigurationWindowの生成を検証。
 
 from unittest.mock import Mock, patch
 
-import pytest
 from PySide6.QtWidgets import QDialog, QMessageBox, QWidget
 
 from lorairo.gui.controllers.settings_controller import SettingsController

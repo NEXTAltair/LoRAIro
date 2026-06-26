@@ -95,7 +95,6 @@ class TestTagDbIntegration:
         目的: ImageRepositoryとSidecarAnnotationReaderで正規化ロジックが一致することを確認
         SidecarAnnotationReaderの実際のファイル読み込み処理を使用してテスト
         """
-        from pathlib import Path
 
         # テストファイルを作成
         test_image_path = temp_dir / "test_image.png"
@@ -173,7 +172,6 @@ class TestTagDbIntegration:
 
         目的: search_tags()でエラーが発生した場合、Noneを返すことを確認
         """
-        from genai_tag_db_tools import search_tags
 
         # search_tags()をモックしてエラーを発生させる
         def mock_search_tags(*args, **kwargs):

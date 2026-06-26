@@ -11,8 +11,8 @@ from unittest.mock import Mock, patch
 import pytest
 
 from lorairo.database.filter_criteria import ImageFilterCriteria
-from lorairo.services.dataset_export_service import DatasetExportService
 from lorairo.filesystem import FileSystemManager
+from lorairo.services.dataset_export_service import DatasetExportService
 
 
 @pytest.mark.integration

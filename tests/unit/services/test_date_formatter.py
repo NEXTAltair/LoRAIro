@@ -34,7 +34,6 @@ class TestDateFormatter:
 
     def test_format_datetime_with_timezone(self) -> None:
         """Test formatting of timezone-aware datetime."""
-        from datetime import timezone
 
         dt = datetime(2025, 9, 22, 15, 30, 45, tzinfo=UTC)
         result = format_datetime_for_display(dt)

@@ -4,8 +4,8 @@ from __future__ import annotations
 
 import pytest
 
-from lorairo.public_api import exceptions as app_exc
 from lorairo.cli._errors import ErrorCode, classify_exception, hint_for
+from lorairo.public_api import exceptions as app_exc
 
 
 @pytest.mark.unit

@@ -7,7 +7,6 @@ from unittest.mock import MagicMock, patch
 import pytest
 from typer.testing import CliRunner
 
-from lorairo.cli._output_mode import set_json_mode
 from lorairo.cli.main import app
 from lorairo.services.batch_import_service import BatchImportResult
 

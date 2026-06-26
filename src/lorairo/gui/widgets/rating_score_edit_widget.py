@@ -441,7 +441,7 @@ class RatingScoreEditWidget(QWidget):
     def _build_footnote(self) -> QLabel:
         """カード末尾の注記ラベルを構築して返す。"""
         footnote = QLabel(
-            "quality_score 0–10（ADR 0029）· AI と source 分離 · 手動補正は is_edited_manually",
+            "quality_score 0-10（ADR 0029）· AI と source 分離 · 手動補正は is_edited_manually",
             self,
         )
         footnote.setStyleSheet(_footnote_qss())

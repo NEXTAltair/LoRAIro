@@ -15,14 +15,10 @@ Note:
 """
 
 import uuid
-from unittest.mock import patch
 
 import pytest
-from genai_tag_db_tools.models import TagSearchRequest
 from genai_tag_db_tools.utils.cleanup_str import TagCleaner
 from sqlalchemy.exc import IntegrityError
-
-from lorairo.database.repository.image import ImageRepository
 
 
 @pytest.mark.integration
@@ -123,7 +119,6 @@ class TestTagRegistrationIntegration:
         目的: IntegrityError発生時にリトライ検索が実行され、
               他のプロセスが登録したtag_idを取得することを確認
         """
-        from genai_tag_db_tools import search_tags
         from genai_tag_db_tools.models import TagRecordPublic, TagSearchResult
 
         # テスト用タグ

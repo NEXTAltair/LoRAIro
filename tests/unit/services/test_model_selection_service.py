@@ -6,7 +6,6 @@ from unittest.mock import Mock
 import pytest
 
 from lorairo.database.schema import Model
-from lorairo.services.model_registry_protocol import ModelInfo
 from lorairo.services.model_selection_service import (
     ModelSelectionCriteria,
     ModelSelectionService,
@@ -197,7 +196,7 @@ class TestModelSelectionService:
         assert len(openai_models) == 1
         assert openai_models[0].name == "gpt-4o"
 
-        # 機能でフィルタ（注：実際のcapabilitiesはmodel_typesから取得されるため、
+        # 機能でフィルタ（注:実際のcapabilitiesはmodel_typesから取得されるため、
         # このテストでは空のcapabilitiesに対するフィルタリング動作をテスト）
         criteria = ModelSelectionCriteria(capabilities=["tags"])
         tag_models = service.filter_models(criteria)

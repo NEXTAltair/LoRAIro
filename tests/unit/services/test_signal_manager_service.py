@@ -8,10 +8,10 @@ Phase 5: Signal処理現代化のテスト実装
 import os
 from collections.abc import Generator
 from typing import Any, cast
-from unittest.mock import MagicMock, Mock, patch
+from unittest.mock import patch
 
 import pytest
-from PySide6.QtCore import QObject, Signal
+from PySide6.QtCore import Signal
 from PySide6.QtWidgets import QApplication, QWidget
 
 from lorairo.services.signal_manager_protocol import SignalNamingStandard

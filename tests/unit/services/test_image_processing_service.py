@@ -6,9 +6,9 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from lorairo.database.db_manager import ImageDatabaseManager
+from lorairo.filesystem import FileSystemManager
 from lorairo.services.configuration_service import ConfigurationService
 from lorairo.services.image_processing_service import ImageProcessingService
-from lorairo.filesystem import FileSystemManager
 
 
 @pytest.fixture

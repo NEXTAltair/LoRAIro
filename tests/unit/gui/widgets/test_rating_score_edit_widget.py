@@ -3,7 +3,6 @@
 from unittest.mock import Mock
 
 import pytest
-from PySide6.QtCore import Qt
 
 from lorairo.gui.widgets.rating_score_edit_widget import RatingScoreEditWidget
 

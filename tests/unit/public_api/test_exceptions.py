@@ -1,7 +1,5 @@
 """api/exceptions.py のユニットテスト。"""
 
-import pytest
-
 from lorairo.public_api.exceptions import (
     AnnotationFailedError,
     APIKeyNotConfiguredError,

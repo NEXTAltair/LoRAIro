@@ -4,9 +4,8 @@
 空入力、正規化失敗、正常系のシグナル発行を検証。
 """
 
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
-import pytest
 from PySide6.QtWidgets import QMessageBox
 
 from lorairo.gui.widgets.quick_tag_dialog import QuickTagDialog

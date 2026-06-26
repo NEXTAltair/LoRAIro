@@ -3,7 +3,7 @@
 複数画像のRating/Scoreを一括更新する機能をテストする。
 """
 
-from unittest.mock import MagicMock, Mock, patch
+from unittest.mock import MagicMock, Mock
 
 import pytest
 from sqlalchemy.exc import SQLAlchemyError

@@ -78,8 +78,7 @@ class TestErrorNotificationWidgetUpdateCount:
 
 class TestErrorNotificationWidgetClickSignal:
     def test_click_emits_signal(self, widget_no_db, qtbot):
-        from PySide6.QtCore import QPoint, QPointF, Qt
-        from PySide6.QtGui import QMouseEvent
+        from PySide6.QtCore import Qt
 
         with qtbot.waitSignal(widget_no_db.clicked, timeout=1000):
             qtbot.mouseClick(widget_no_db, Qt.MouseButton.LeftButton)

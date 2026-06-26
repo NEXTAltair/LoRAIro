@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import json
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from unittest.mock import MagicMock
 
 import pytest
@@ -13,7 +13,7 @@ from lorairo.cli.main import app
 
 runner = CliRunner()
 
-_NOW = datetime(2026, 6, 11, 0, 0, 0, tzinfo=timezone.utc)
+_NOW = datetime(2026, 6, 11, 0, 0, 0, tzinfo=UTC)
 
 
 def _make_error_record(

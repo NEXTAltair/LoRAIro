@@ -3,11 +3,8 @@
 overview.py と thumbnail.py の変更をテストする
 """
 
-import tempfile
 from pathlib import Path
 from unittest.mock import Mock, patch
-
-import pytest
 
 from lorairo.services.configuration_service import ConfigurationService
 

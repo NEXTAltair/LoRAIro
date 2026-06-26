@@ -135,13 +135,14 @@ select = [
 ]
 
 ignore = [
-    "RUF001",
-    "RUF003",
-    "RUF002", # カタカナの `ノ` でのメッセージを無視
     "E501",   # Line too long (line-lengthで制御)
-    "F401",   # Unused imports (IDEでの管理が困難なため)
     "B008",   # typer.Option/Argument in function defaults (typer標準パターン)
 ]
+
+# confusable 警告を許可する文字。日本語表記として自然なカタカナ ノ (U+30CE)、全角括弧 （ ）、
+# UI 削除ボタン/乗算で使う × (U+00D7)。残る全角記号 (： ＝ ＋ ！ ？ – 等) は許可せず
+# RUF001/002/003 で検出・半角化させる。
+allowed-confusables = ["ノ", "（", "）", "×"]
 
 [tool.ruff.lint.per-file-ignores]
 # tests/conftest.py はモックを先に設定してから lorairo モジュールをインポートする必要があるため

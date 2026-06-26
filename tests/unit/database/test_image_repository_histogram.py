@@ -9,7 +9,6 @@ from sqlalchemy.orm import sessionmaker
 
 from lorairo.database.repository.image import ImageRepository
 
-
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
@@ -69,7 +68,7 @@ class TestGetCreatedAtHistogram:
 
     def test_single_date_returns_single_bin(self, repository, session_factory):
         """全画像が同一 created_at の場合、1 ビンのみ返す。"""
-        ts = datetime.datetime(2025, 6, 1, 12, 0, 0, tzinfo=datetime.timezone.utc)
+        ts = datetime.datetime(2025, 6, 1, 12, 0, 0, tzinfo=datetime.UTC)
         _create_image(session_factory, created_at=ts)
         _create_image(session_factory, created_at=ts)
 
@@ -80,7 +79,7 @@ class TestGetCreatedAtHistogram:
 
     def test_returns_bins_count_tuples(self, repository, session_factory):
         """bins 数と一致するタプルリストを返す。"""
-        base = datetime.datetime(2025, 1, 1, tzinfo=datetime.timezone.utc)
+        base = datetime.datetime(2025, 1, 1, tzinfo=datetime.UTC)
         for i in range(20):
             _create_image(
                 session_factory,
@@ -93,7 +92,7 @@ class TestGetCreatedAtHistogram:
 
     def test_total_count_equals_image_count(self, repository, session_factory):
         """全ビンのカウント合計が総画像数と一致する。"""
-        base = datetime.datetime(2025, 1, 1, tzinfo=datetime.timezone.utc)
+        base = datetime.datetime(2025, 1, 1, tzinfo=datetime.UTC)
         image_count = 15
         for i in range(image_count):
             _create_image(
@@ -107,7 +106,7 @@ class TestGetCreatedAtHistogram:
 
     def test_bins_are_chronologically_ordered(self, repository, session_factory):
         """ビンの開始時刻が昇順に並んでいる。"""
-        base = datetime.datetime(2025, 1, 1, tzinfo=datetime.timezone.utc)
+        base = datetime.datetime(2025, 1, 1, tzinfo=datetime.UTC)
         for i in range(10):
             _create_image(
                 session_factory,
@@ -120,7 +119,7 @@ class TestGetCreatedAtHistogram:
 
     def test_each_entry_is_tuple_of_datetime_datetime_int(self, repository, session_factory):
         """各エントリが (datetime, datetime, int) の形式である。"""
-        base = datetime.datetime(2025, 3, 1, tzinfo=datetime.timezone.utc)
+        base = datetime.datetime(2025, 3, 1, tzinfo=datetime.UTC)
         for i in range(6):
             _create_image(
                 session_factory,

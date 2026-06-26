@@ -9,8 +9,6 @@ from datetime import datetime
 from pathlib import Path
 from unittest.mock import patch
 
-import pytest
-
 from lorairo.database.db_core import get_project_dir, sanitize_project_name
 
 

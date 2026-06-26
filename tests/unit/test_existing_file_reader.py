@@ -1,9 +1,7 @@
 """SidecarAnnotationReader のユニットテスト"""
 
 from pathlib import Path
-from unittest.mock import Mock, mock_open, patch
-
-import pytest
+from unittest.mock import patch
 
 from lorairo.annotation.sidecar_reader import SidecarAnnotationReader
 

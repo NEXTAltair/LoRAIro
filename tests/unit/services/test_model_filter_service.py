@@ -5,7 +5,7 @@ from unittest.mock import Mock, patch
 import pytest
 
 from lorairo.services.model_filter_service import ModelFilterService
-from lorairo.services.search_models import SearchConditions, ValidationResult
+from lorairo.services.search_models import SearchConditions
 
 
 class TestModelFilterService:

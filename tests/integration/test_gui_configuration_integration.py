@@ -3,11 +3,8 @@ GUI コンポーネントと設定システムの統合テスト
 image_processing_service.py とGUIの相互作用をテストする
 """
 
-import tempfile
 from pathlib import Path
 from unittest.mock import Mock, patch
-
-import pytest
 
 from lorairo.services.configuration_service import ConfigurationService
 from lorairo.services.image_processing_service import ImageProcessingService

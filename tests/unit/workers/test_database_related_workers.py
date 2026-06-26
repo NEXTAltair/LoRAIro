@@ -7,12 +7,13 @@
 
 import tempfile
 from pathlib import Path
-from unittest.mock import MagicMock, Mock, patch
+from unittest.mock import Mock, patch
 
 import pytest
 
 from lorairo.database.db_manager import ImageDatabaseManager
 from lorairo.database.repository.image import ImageRepository
+from lorairo.filesystem import FileSystemManager
 from lorairo.gui.workers.base import CancellationError
 from lorairo.gui.workers.registration_worker import (
     DatabaseRegistrationResult,
@@ -21,7 +22,6 @@ from lorairo.gui.workers.registration_worker import (
 from lorairo.gui.workers.search_worker import SearchWorker
 from lorairo.services.configuration_service import ConfigurationService
 from lorairo.services.search_models import SearchConditions
-from lorairo.filesystem import FileSystemManager
 
 
 class TestDatabaseRegistrationWorker:
@@ -74,7 +74,7 @@ class TestDatabaseRegistrationWorker:
 
         # 実際のDatabaseManagerのメソッドが存在することを確認 (#633: 統一エントリへ移行)
         assert hasattr(real_db_manager, "register_image_with_side_effects")
-        assert hasattr(real_db_manager, "get_image_metadata")  # get_image_by_idではない！
+        assert hasattr(real_db_manager, "get_image_metadata")  # get_image_by_idではない!
 
         # メソッドが呼び出し可能であることを確認
         assert callable(real_db_manager.register_image_with_side_effects)
@@ -88,7 +88,6 @@ class TestDatabaseRegistrationWorker:
         # 分割済みworkerがインポート可能であることを確認
         # 依存するモジュールがインポート可能であることを確認
         from lorairo.database.db_core import resolve_stored_path  # インポートエラーを検出
-        from lorairo.database.schema import CaptionAnnotationData, TagAnnotationData
         from lorairo.gui.workers.registration_worker import DatabaseRegistrationWorker
 
         # クラスが正しく定義されていることを確認
@@ -1028,7 +1027,7 @@ class TestRegistrationErrorHandling:
 
             worker.execute()
 
-            # _report_progress の呼び出し回数：開始 + ループ内 + 完了
+            # _report_progress の呼び出し回数:開始 + ループ内 + 完了
             # 最低3回（開始、開始2、完了）以上
             assert mock_progress.call_count >= 3
             assert mock_progress_throttled.call_count == 3

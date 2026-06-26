@@ -61,7 +61,7 @@ _EMPTY_CANDIDATES_TEXT = "このステージに追加できる未選択モデル
 _NO_MATCH_TEXT = "条件に一致するモデルがありません — フィルタを変更してください"
 _MULTIMODAL_NOTE = "1推論で T C S（R は preflight 由来）"
 _ORIGIN_NOTE = (
-    "候補の出どころ: 設定済 API キー ＋ 利用可能なローカルモデルから DB が自動生成。"
+    "候補の出どころ: 設定済 API キー + 利用可能なローカルモデルから DB が自動生成。"
     "キー未設定は needs key（→ Settings）。"
 )
 

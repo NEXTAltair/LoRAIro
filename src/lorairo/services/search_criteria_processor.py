@@ -310,7 +310,7 @@ class SearchCriteriaProcessor:
                             image_date = image_date[:-1] + "+00:00"
                         image_date = datetime.fromisoformat(image_date)
 
-                    # timezone-aware/naive問題を修正：両方ともnaiveにする
+                    # timezone-aware/naive問題を修正:両方ともnaiveにする
                     if image_date.tzinfo is not None:
                         image_date = image_date.replace(tzinfo=None)
 

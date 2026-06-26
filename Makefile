@@ -1,7 +1,7 @@
 # LoRAIro Project Makefile
 # Development task automation
 
-.PHONY: help setup test test-iam-lib test-runtime-local test-runtime-webapi test-genai-tag test-all mypy format adr-drift adr-index adr-okf install install-dev clean run-gui generate-ui skills-update venv-rebuild worktree-cleanup-merged worktree-cleanup-merged-dry-run _ensure-submodules _ensure-root-venv
+.PHONY: help setup test test-iam-lib test-runtime-local test-runtime-webapi test-genai-tag test-all mypy format format-iam-lib format-genai-tag adr-drift adr-index adr-okf install install-dev clean run-gui generate-ui skills-update venv-rebuild worktree-cleanup-merged worktree-cleanup-merged-dry-run _ensure-submodules _ensure-root-venv
 
 WORKTREE_ROOT := /workspaces/LoRAIro/.agents/worktree
 ifeq ($(filter $(WORKTREE_ROOT)/%,$(CURDIR)),)
@@ -28,7 +28,9 @@ help:
 	@echo "  test-genai-tag Run genai-tag-db-tools tests in its package root"
 	@echo "  test-all     Run all 3 package test sessions sequentially"
 	@echo "  mypy         Run code check (mypy)"
-	@echo "  format       Format code (ruff format)"
+	@echo "  format       Format LoRAIro main code (ruff format + check --fix on src/ tests/)"
+	@echo "  format-iam-lib Format image-annotator-lib in its package root"
+	@echo "  format-genai-tag Format genai-tag-db-tools in its package root"
 	@echo "  adr-drift    List ADR review candidates (drift detection)"
 	@echo "  adr-index    Regenerate ADR index.md + README from frontmatter (ADR 0069)"
 	@echo "  adr-okf      Validate ADR frontmatter and check index is up to date"
@@ -120,6 +122,22 @@ format: _ensure-submodules
 	@echo "Formatting code..."
 	uv run ruff format src/ tests/
 	uv run ruff check src/ tests/ --fix
+
+format-iam-lib: _ensure-root-venv
+	@echo "Formatting image-annotator-lib (sharing LoRAIro root .venv via UV_PROJECT_ENVIRONMENT)..."
+	cd local_packages/image-annotator-lib && \
+		UV_PROJECT_ENVIRONMENT=$(LORAIRO_UV_PROJECT_ENVIRONMENT) \
+		uv run --no-sync ruff format src/ tests/ && \
+		UV_PROJECT_ENVIRONMENT=$(LORAIRO_UV_PROJECT_ENVIRONMENT) \
+		uv run --no-sync ruff check src/ tests/ --fix
+
+format-genai-tag: _ensure-submodules
+	@echo "Formatting genai-tag-db-tools (uses local_packages/genai-tag-db-tools/.venv)..."
+	cd local_packages/genai-tag-db-tools && \
+		UV_PROJECT_ENVIRONMENT=$(CURDIR)/local_packages/genai-tag-db-tools/.venv \
+		uv run ruff format . && \
+		UV_PROJECT_ENVIRONMENT=$(CURDIR)/local_packages/genai-tag-db-tools/.venv \
+		uv run ruff check . --fix
 
 adr-drift:
 	@echo "Checking ADR drift (見直し候補)..."

@@ -758,7 +758,7 @@ class TestModelSelectionStateManagerInit:
 
     def test_model_selection_state_manager_initialized(self) -> None:
         """MainWindow が ModelSelectionStateManager を初期化する (#884)。"""
-        from unittest.mock import Mock, patch
+        from unittest.mock import Mock
 
         from lorairo.gui.state.model_selection_state import ModelSelectionStateManager
         from lorairo.gui.window.main_window import MainWindow
