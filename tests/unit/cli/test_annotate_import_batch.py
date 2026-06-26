@@ -117,7 +117,7 @@ class TestImportBatchCommand:
     @patch("lorairo.cli.commands.annotate.import_batch_annotations")
     def test_project_not_found(self, mock_import: MagicMock, tmp_path: Path) -> None:
         """存在しないプロジェクトでエラー。"""
-        from lorairo.api.exceptions import ProjectNotFoundError
+        from lorairo.public_api.exceptions import ProjectNotFoundError
 
         jsonl_dir = tmp_path / "jsonl"
         jsonl_dir.mkdir()

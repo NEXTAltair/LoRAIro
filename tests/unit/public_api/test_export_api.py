@@ -5,8 +5,8 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from lorairo.api.export import export_dataset
-from lorairo.api.types import ExportCriteria, ExportResult
+from lorairo.public_api.export import export_dataset
+from lorairo.public_api.types import ExportCriteria, ExportResult
 from lorairo.database.filter_criteria import ImageFilterCriteria
 from lorairo.services.service_container import ServiceContainer
 
@@ -63,7 +63,7 @@ def mock_export_service(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> Magi
     mock_project_service.get_project.return_value = mock_project_info
 
     # DB接続先も同プロジェクトを指していると見なす（alignment check をパスさせる）
-    monkeypatch.setattr("lorairo.api.export.get_current_project_root", lambda: project_root)
+    monkeypatch.setattr("lorairo.public_api.export.get_current_project_root", lambda: project_root)
 
     # ImageRepository モック（フィルタ条件を適用して画像IDを返す）
     mock_repository = MagicMock()
@@ -112,7 +112,7 @@ class TestExportDataset:
         self, mock_export_service: MagicMock, tmp_path: Path
     ) -> None:
         """criteria未指定（フィルタなし）は InvalidInputError。"""
-        from lorairo.api.exceptions import InvalidInputError
+        from lorairo.public_api.exceptions import InvalidInputError
 
         output = tmp_path / "output"
 
@@ -162,7 +162,7 @@ class TestExportDataset:
     def test_db_project_mismatch_raises(self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
         """DB接続先と project_name が指すプロジェクトが異なる場合、
         DatabaseConnectionError を発生させる。"""
-        from lorairo.api.exceptions import DatabaseConnectionError
+        from lorairo.public_api.exceptions import DatabaseConnectionError
 
         # ProjectManagementService モック（プロジェクトは存在するが path は別）
         mock_project_service = MagicMock()
@@ -172,7 +172,7 @@ class TestExportDataset:
 
         # DB接続先は別のプロジェクトを指している
         other_project = tmp_path / "project_connected"
-        monkeypatch.setattr("lorairo.api.export.get_current_project_root", lambda: other_project)
+        monkeypatch.setattr("lorairo.public_api.export.get_current_project_root", lambda: other_project)
 
         container = ServiceContainer()
         monkeypatch.setattr(container, "_project_management_service", mock_project_service)

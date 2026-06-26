@@ -9,8 +9,8 @@ from pathlib import Path
 import pytest
 from PIL import Image
 
-from lorairo.api.exceptions import ImageRegistrationError
-from lorairo.api.types import RegistrationResult
+from lorairo.public_api.exceptions import ImageRegistrationError
+from lorairo.public_api.types import RegistrationResult
 from lorairo.services.image_registration_service import ImageRegistrationService
 
 # ==================== ローカル fixture ====================

@@ -194,10 +194,10 @@ def _is_resource_exhausted(exc: BaseException) -> bool:
 def _classify_lorairo_exception(exc: BaseException) -> ErrorInfo | None:
     """LoRAIro 独自例外を分類する (該当しなければ ``None``)。
 
-    自前の例外階層は ``lorairo.api.exceptions`` 由来 (純 ``Exception`` 派生、torch 等を
+    自前の例外階層は ``lorairo.public_api.exceptions`` 由来 (純 ``Exception`` 派生、torch 等を
     引かず import 安全) なので isinstance で判定する。
     """
-    from lorairo.api import exceptions as app_exc
+    from lorairo.public_api import exceptions as app_exc
 
     if isinstance(
         exc,

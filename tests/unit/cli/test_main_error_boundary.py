@@ -7,7 +7,7 @@ import json
 import click
 import pytest
 
-from lorairo.api import exceptions as app_exc
+from lorairo.public_api import exceptions as app_exc
 from lorairo.cli._errors import ErrorCode, classify_exception
 from lorairo.cli.commands.annotate import AnnotationRunFailedError, AnnotationSelectionError
 from lorairo.cli.main import _handle_cli_exception, _handle_click_exception

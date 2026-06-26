@@ -2,7 +2,7 @@
 
 import pytest
 
-from lorairo.api.exceptions import (
+from lorairo.public_api.exceptions import (
     AnnotationFailedError,
     APIKeyNotConfiguredError,
     BatchImportError,

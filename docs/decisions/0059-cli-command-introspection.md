@@ -28,14 +28,14 @@ formal tool 定義の専用 kind を wire に増やす必然がないため)。
 
 - **CLI 実装が Typer (click) 製**で、入力面はコマンド関数シグネチャ (`typer.Argument` / `typer.Option`)。
   tag-db のように「コマンド = 1 Pydantic Request」が一対一で揃っているわけではなく、`--json` / `--force` /
-  `--format` のような **CLI 専用フラグ** は `lorairo.api` の Request モデルに存在しない。
+  `--format` のような **CLI 専用フラグ** は `lorairo.public_api` の Request モデルに存在しない。
 - **コマンドがネスト**している (`project list` / `images update` / `annotate run` / `batch ...` の 6 グループ)。
   tag-db のフラットなコマンド集合と違い、introspection はグループ→サブコマンドのツリーを扱う。
 - **検索条件 (フィルタ) が単一のドメイン契約に統一済み**。GUI の「検索 → ステージング集合 → 各処理」フロー
   (ADR 0055) が示すとおり、export / annotate / images update / GUI / repository はすべて
   `database/filter_criteria.py` の `ImageFilterCriteria` (全 23 フィールド) を共有する。CLI 各コマンドは
   その**一部フィールドだけをフラグで露出している**にすぎず、検索語彙そのものは 1 本に揃っている。
-- **出力モデルは `lorairo.api.types` に Pydantic で整備済み** (`ProjectInfo` / `ImageMetadata` 等)。
+- **出力モデルは `lorairo.public_api.types` に Pydantic で整備済み** (`ProjectInfo` / `ImageMetadata` 等)。
   `model_json_schema()` から出力スキーマをほぼコストなく生成できる (tag-db と同型)。
 
 ## Scope / Non-Goals
@@ -111,12 +111,12 @@ sequenceDiagram
 
 - **入力** — コマンドが受け取る引数 (名前・型・必須・既定値)。検索駆動コマンドの検索条件は §4 の単一
   検索スキーマ (`ImageFilterCriteria`) として表現する。
-- **出力** — コマンドが返す結果の形 (`lorairo.api.types` の Pydantic 出力モデル由来)。
+- **出力** — コマンドが返す結果の形 (`lorairo.public_api.types` の Pydantic 出力モデル由来)。
 - **副作用** — `db_read` / `db_write` / `file_read` / `file_write` / `network` の分類。
 - **`read_only`** — 定常状態 (base DB 存在・追加書き込み無し) で副作用が読み取りのみか。
 
 **スキーマ本体は Pydantic 等の SSoT から生成し、CLI 側でフィールド構造を手書き複製しない。** 出力モデルは
-`lorairo.api.types`、検索スキーマは `database/filter_criteria.py` の `ImageFilterCriteria` が SSoT。
+`lorairo.public_api.types`、検索スキーマは `database/filter_criteria.py` の `ImageFilterCriteria` が SSoT。
 入力スキーマを Typer/click のコマンドツリーから導出するか、コマンドごとに Pydantic 入力モデルを用意するかは
 実装 Issue (#641) の決定に委ねる (本 ADR は SSoT 単一化の要件のみ固定)。
 
@@ -216,7 +216,7 @@ flowchart TD
 
 - `lorairo-cli` に `list-commands` / `describe` を追加する。コマンドメタ定義 (`side_effects` / `read_only` /
   入出力モデルの対応) が introspection の正本になるが、フィールドスキーマの正本は引き続き
-  `lorairo.api.types` (出力) と `database/filter_criteria.py` (検索) の Pydantic / dataclass である。
+  `lorairo.public_api.types` (出力) と `database/filter_criteria.py` (検索) の Pydantic / dataclass である。
 - 入力スキーマの生成機構 (Typer/click 導出 vs Pydantic 入力モデル) は実装 Issue #641 で決定する。`--json` /
   `--force` / `--format` のような CLI 専用フラグの扱いもそこで確定する。
 - **ADR 0057 の kind enum (item/result/error) は拡張しない。** introspection は専用 kind を足さず `item`

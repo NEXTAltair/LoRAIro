@@ -1,8 +1,8 @@
-"""lorairo.api.__init__ の遅延ロードテスト。"""
+"""lorairo.public_api.__init__ の遅延ロードテスト。"""
 
 import pytest
 
-import lorairo.api as api
+import lorairo.public_api as api
 
 
 class TestApiLazyLoad:

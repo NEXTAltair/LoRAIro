@@ -4,18 +4,18 @@ from pathlib import Path
 
 import pytest
 
-from lorairo.api.exceptions import (
+from lorairo.public_api.exceptions import (
     ProjectAlreadyExistsError,
     ProjectNotFoundError,
 )
-from lorairo.api.project import (
+from lorairo.public_api.project import (
     create_project,
     delete_project,
     get_project,
     list_projects,
     update_project,
 )
-from lorairo.api.types import ProjectCreateRequest, ProjectInfo
+from lorairo.public_api.types import ProjectCreateRequest, ProjectInfo
 from lorairo.services.project_management_service import ProjectManagementService
 from lorairo.services.service_container import ServiceContainer
 

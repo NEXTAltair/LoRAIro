@@ -1,7 +1,7 @@
 """Annotation commands.
 
 アノテーション実行コマンド。
-API層（lorairo.api）を経由してService層を利用する。
+API層（lorairo.public_api）を経由してService層を利用する。
 """
 
 from __future__ import annotations
@@ -29,12 +29,12 @@ if TYPE_CHECKING:
     from lorairo.database.repository.model import ModelRepository
     from lorairo.services.batch_import_service import BatchImportResult
 
-from lorairo.api.batch_import import import_batch_annotations
-from lorairo.api.exceptions import (
+from lorairo.public_api.batch_import import import_batch_annotations
+from lorairo.public_api.exceptions import (
     AnnotationFailedError,
     ResultSetTooLargeError,
 )
-from lorairo.api.project import get_project as api_get_project
+from lorairo.public_api.project import get_project as api_get_project
 from lorairo.cli._boundary import command_boundary
 from lorairo.cli._console import make_console
 from lorairo.cli._emit import emit_item, emit_result
