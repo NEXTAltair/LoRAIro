@@ -47,7 +47,9 @@
       "shibokensupport",
       "swinv2",
       "venv",
-      "pycache"
+      "pycache",
+      "autocrop",
+      "centralwidget"
     ],
 
     // Python エディター設定
@@ -184,5 +186,5 @@
   },
   "security.allowedUNCHosts": [
     "wsl.localhost"
-  ],
+  ]
 }
