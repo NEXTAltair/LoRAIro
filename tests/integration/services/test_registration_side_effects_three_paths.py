@@ -16,15 +16,15 @@ from unittest.mock import Mock, patch
 
 import pytest
 
-from lorairo.public_api.images import _register_into_db
 from lorairo.database.db_manager import (
     ImageDatabaseManager,
     RegistrationOutcome,
     RegistrationSideEffectResult,
 )
-from lorairo.gui.workers.registration_worker import DatabaseRegistrationWorker
-from lorairo.services.configuration_service import ConfigurationService
 from lorairo.filesystem import FileSystemManager
+from lorairo.gui.workers.registration_worker import DatabaseRegistrationWorker
+from lorairo.public_api.images import _register_into_db
+from lorairo.services.configuration_service import ConfigurationService
 
 # 分類 outcome の代表的な並び (新規 / 別版 / 重複 / 失敗) を 1 バッチに混在させる
 _OUTCOME_SEQUENCE = [

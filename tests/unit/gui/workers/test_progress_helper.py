@@ -1,6 +1,5 @@
 # tests/unit/gui/workers/test_progress_helper.py
 
-import pytest
 
 from lorairo.gui.workers.progress_helper import ProgressHelper
 

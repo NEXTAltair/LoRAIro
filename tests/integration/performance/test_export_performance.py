@@ -17,8 +17,8 @@ from sqlalchemy.orm import sessionmaker
 
 from lorairo.database.filter_criteria import ImageFilterCriteria
 from lorairo.database.schema import Base, Image, ModelType, Project
-from lorairo.services.dataset_export_service import DatasetExportService
 from lorairo.filesystem import FileSystemManager
+from lorairo.services.dataset_export_service import DatasetExportService
 
 
 @pytest.mark.slow

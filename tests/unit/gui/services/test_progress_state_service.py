@@ -1,7 +1,7 @@
 """ProgressStateService ユニットテスト。"""
 
 from types import SimpleNamespace
-from unittest.mock import MagicMock, Mock
+from unittest.mock import MagicMock
 
 import pytest
 

@@ -276,7 +276,7 @@ def main() -> int:
             logger.info("✅ ウィンドウ表示成功")
         else:
             logger.error("❌ ウィンドウ表示に失敗しました")
-            # 最後の手段：強制的にウィンドウを表示
+            # 最後の手段:強制的にウィンドウを表示
             try:
                 window.showNormal()
                 window.setWindowState(window.windowState() & ~window.windowState().WindowMinimized)

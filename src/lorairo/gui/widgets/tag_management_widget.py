@@ -207,7 +207,7 @@ class TagManagementWidget(QWidget, Ui_TagManagementWidget):
         reply = QMessageBox.question(
             self,
             "確認",
-            f"{len(updates)}個のタグのtypeを更新します。\n実行してよろしいですか？",
+            f"{len(updates)}個のタグのtypeを更新します。\n実行してよろしいですか?",
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
         )
 

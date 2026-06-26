@@ -236,7 +236,7 @@ def resolve_stored_path(stored_path: str) -> Path:
 def _initialize_lorairo_format_mappings() -> None:
     """LoRAIro用のデフォルトtype_nameマッピングを初期化します。
 
-    format_id=1000（LoRAIro専用）に対して、以下のマッピングを作成します：
+    format_id=1000（LoRAIro専用）に対して、以下のマッピングを作成します:
     - type_id=0: "unknown" (デフォルト)
 
     Note:

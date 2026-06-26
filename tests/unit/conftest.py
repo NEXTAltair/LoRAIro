@@ -11,7 +11,7 @@
 ルート conftest では genai-tag-db-tools モックと Qt 設定が済みです。
 """
 
-from unittest.mock import MagicMock, Mock, patch
+from unittest.mock import Mock, patch
 
 import numpy as np
 import pytest

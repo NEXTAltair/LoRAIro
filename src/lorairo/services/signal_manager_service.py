@@ -54,7 +54,7 @@ class SignalNameValidator:
 class SignalManagerService(QObject):
     """統一Signal管理サービス実装
 
-    Phase 5現代化の中核として、以下を提供：
+    Phase 5現代化の中核として、以下を提供:
     - 統一Signal命名規約強制
     - Protocol-based依存注入対応
     - エラーハンドリング標準化

@@ -14,7 +14,7 @@ GUI テスト層の共有フィクスチャ
 from unittest.mock import Mock
 
 import pytest
-from PySide6.QtWidgets import QApplication, QFileDialog, QMessageBox
+from PySide6.QtWidgets import QFileDialog, QMessageBox
 
 # ===== Qt Configuration (inherited from root) =====
 # tests/conftest.py で qapp フィクスチャと configure_qt_for_tests が

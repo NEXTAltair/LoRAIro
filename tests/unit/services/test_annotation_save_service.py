@@ -6,7 +6,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from lorairo.domain.score_scaler import calibrate_to_display
-from lorairo.services.annotation_save_service import AnnotationSaveResult, AnnotationSaveService
+from lorairo.services.annotation_save_service import AnnotationSaveService
 
 
 def _rating(raw_label: str, source_scheme: str, confidence: float | None) -> SimpleNamespace:

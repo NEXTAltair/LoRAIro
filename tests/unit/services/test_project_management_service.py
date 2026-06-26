@@ -386,7 +386,6 @@ class TestProjectCrud:
         self, service: ProjectManagementService
     ) -> None:
         """delete_project: rmtree が OSError → ProjectOperationError (lines 214-216)。"""
-        import shutil
         from unittest.mock import patch
 
         from lorairo.public_api.exceptions import ProjectOperationError

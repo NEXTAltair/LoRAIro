@@ -4,7 +4,6 @@ import time
 from unittest.mock import Mock, patch
 
 import pytest
-from PySide6.QtCore import QObject, QThread
 
 from lorairo.gui.workers.base import (
     CancellationController,

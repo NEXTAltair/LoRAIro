@@ -2,11 +2,9 @@
 
 import sys
 from datetime import datetime
-from unittest.mock import MagicMock, Mock, patch
+from unittest.mock import Mock, patch
 
 import pytest
-from PySide6.QtCore import Qt, QTimer
-from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication
 
 from lorairo.gui.services.search_filter_service import SearchFilterService
@@ -593,7 +591,7 @@ class TestEndToEndIntegration:
             # ただし、フィクスチャの設定によっては結果が返らない場合もある
             pass  # 同期フォールバックのテストは別途必要
 
-        # 基本的なサニティチェック：UIが正常に操作できること
+        # 基本的なサニティチェック:UIが正常に操作できること
         assert filter_panel.ui.lineEditSearch.text() == "recovery test"
 
 

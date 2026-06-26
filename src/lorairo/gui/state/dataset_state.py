@@ -387,7 +387,7 @@ class DatasetStateManager(QObject):
 
     def get_image_by_id(self, image_id: int) -> dict[str, Any] | None:
         """
-        IDで画像メタデータを取得（統一データソース：all_images優先、filtered_imagesフォールバック）
+        IDで画像メタデータを取得（統一データソース:all_images優先、filtered_imagesフォールバック）
 
         Args:
             image_id: 検索する画像ID

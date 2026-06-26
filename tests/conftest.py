@@ -156,7 +156,7 @@ os.environ.setdefault("QT_LOGGING_RULES", "qt.qpa.xcb.warning=false")
 # =============================================================================
 import shutil
 import tempfile
-from datetime import UTC, datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 from unittest.mock import MagicMock, Mock
@@ -214,7 +214,7 @@ def qt_main_window_mock_config():
     """
     Qt MainWorkspaceWindow テスト用の基本モック設定
     """
-    from unittest.mock import Mock, patch
+    from unittest.mock import Mock
 
     mock_config = {
         "config_service": Mock(),

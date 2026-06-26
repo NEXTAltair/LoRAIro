@@ -48,7 +48,6 @@ else:
     from ...services.model_selection_service import ModelSelectionCriteria, ModelSelectionService
     from ...services.provider_batch_capability import (
         direct_provider_for_model,
-        endpoint_for_task,
         litellm_id_from_batch_model,
         model_supports_task_type,
     )
@@ -999,12 +998,10 @@ if not __name__ == "__main__":
 
 if __name__ == "__main__":
     # 単体実行とテスト表示 - 完全な依存関係をインポート
-    import os
     import sys
 
     # 完全な依存関係を強制インポート（テスト用）
     from pathlib import Path
-    from unittest.mock import Mock
 
     from PySide6.QtWidgets import QApplication, QMainWindow, QPushButton, QVBoxLayout, QWidget
 

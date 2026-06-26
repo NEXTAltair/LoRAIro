@@ -1,6 +1,6 @@
 """TagManagementService の単体テスト"""
 
-from unittest.mock import Mock, patch
+from unittest.mock import patch
 
 import pytest
 from genai_tag_db_tools.models import TagRecordPublic, TagTypeUpdate

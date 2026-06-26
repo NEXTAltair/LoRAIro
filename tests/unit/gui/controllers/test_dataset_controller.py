@@ -83,7 +83,7 @@ class TestDatasetController:
         mock_file_system_manager,
         mock_worker_service,
     ):
-        """正常系：ディレクトリ選択→バッチ登録開始"""
+        """正常系:ディレクトリ選択→バッチ登録開始"""
         # Arrange
         selected_dir = Path("/test/dataset")
         mock_dialog_callback = Mock(return_value=selected_dir)

@@ -2,11 +2,9 @@
 
 import time
 from pathlib import Path
-from threading import Event
 from unittest.mock import Mock, patch
 
 import pytest
-from PySide6.QtCore import QEventLoop, QThread, QTimer
 
 from lorairo.gui.services.worker_service import WorkerService
 from lorairo.gui.workers.search_worker import SearchResult, SearchWorker

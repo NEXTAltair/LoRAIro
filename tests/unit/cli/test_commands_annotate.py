@@ -8,10 +8,10 @@ import pytest
 from PIL import Image
 from typer.testing import CliRunner
 
-from lorairo.public_api.exceptions import AnnotationFailedError
 from lorairo.cli._output_mode import set_json_mode
 from lorairo.cli.commands.annotate import _annotation_score, _emit_annotation_items
 from lorairo.cli.main import app
+from lorairo.public_api.exceptions import AnnotationFailedError
 from lorairo.services.annotation_save_service import AnnotationSaveResult
 from lorairo.services.project_management_service import ProjectManagementService
 from lorairo.services.service_container import ServiceContainer

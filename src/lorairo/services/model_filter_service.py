@@ -41,7 +41,7 @@ class ModelFilterService:
 
     def get_annotation_models_list(self) -> list[dict[str, Any]]:
         """
-        アノテーションモデル一覧取得（Phase 3現代化版：ModelSelectionService委譲）
+        アノテーションモデル一覧取得（Phase 3現代化版:ModelSelectionService委譲）
 
         Returns:
             list: モデル情報のリスト（dict形式、後方互換性維持）
@@ -430,7 +430,7 @@ class ModelFilterService:
             bool: 条件に一致するか
         """
         try:
-            # 実装例：アノテーションモデルによる条件チェック
+            # 実装例:アノテーションモデルによる条件チェック
             if hasattr(conditions, "annotation_model_filter"):
                 annotation_model = conditions.annotation_model_filter
                 if annotation_model:
@@ -441,7 +441,7 @@ class ModelFilterService:
                         # 実装詳細は要件に応じて調整
                         pass
 
-            # 実装例：品質スコアによる条件チェック
+            # 実装例:品質スコアによる条件チェック
             if hasattr(conditions, "quality_threshold"):
                 quality_threshold = conditions.quality_threshold
                 if quality_threshold:

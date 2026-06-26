@@ -1,7 +1,7 @@
 # tests/step_defs/test_database_management.py
 
 import re  # 日付範囲のパース用
-from datetime import UTC, datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any, cast
 
@@ -13,11 +13,7 @@ from pytest_bdd import given, parsers, scenarios, then, when
 from lorairo.database.db_manager import ImageDatabaseManager
 from lorairo.database.schema import (
     AnnotationsDict,
-    CaptionAnnotationData,
-    RatingAnnotationData,
-    ScoreAnnotationData,
     Tag,
-    TagAnnotationData,
 )
 from lorairo.database.schema import Image as SchemaImage
 from lorairo.filesystem import FileSystemManager

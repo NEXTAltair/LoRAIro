@@ -2,7 +2,7 @@
 
 from pathlib import Path
 from typing import Any
-from unittest.mock import Mock, patch
+from unittest.mock import patch
 
 import pytest
 
@@ -179,17 +179,17 @@ class TestFavoriteFiltersService:
     def test_filter_exists_true(
         self, service: FavoriteFiltersService, sample_filter: dict[str, Any]
     ) -> None:
-        """フィルター存在確認：存在する"""
+        """フィルター存在確認:存在する"""
         service.save_filter("Test Filter", sample_filter)
 
         assert service.filter_exists("Test Filter") is True
 
     def test_filter_exists_false(self, service: FavoriteFiltersService) -> None:
-        """フィルター存在確認：存在しない"""
+        """フィルター存在確認:存在しない"""
         assert service.filter_exists("NonExistent") is False
 
     def test_filter_exists_empty_name(self, service: FavoriteFiltersService) -> None:
-        """フィルター存在確認：空の名前"""
+        """フィルター存在確認:空の名前"""
         assert service.filter_exists("") is False
         assert service.filter_exists("   ") is False
 

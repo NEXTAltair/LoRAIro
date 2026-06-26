@@ -72,7 +72,7 @@ class TestImageDBWriteService:
         assert isinstance(result, ImageDetails)
         assert result.image_id == 123
         assert result.file_name == "image.jpg"
-        # クロスプラットフォーム対応：パスを正規化して比較
+        # クロスプラットフォーム対応:パスを正規化して比較
         expected_path = str(Path("/test/path/image.jpg"))
         assert result.file_path == expected_path
         assert result.image_size == "1024x768"
@@ -353,7 +353,6 @@ class TestImageDBWriteServiceIntegration:
 
     def test_multiple_image_details_retrieval(self, integration_service):
         """複数画像詳細の連続取得テスト"""
-        from pathlib import Path
 
         # 画像1の詳細取得
         details1 = integration_service.get_image_details(1)

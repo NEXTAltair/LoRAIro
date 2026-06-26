@@ -28,4 +28,4 @@ WARN = r"\[!]"
 """警告マーカー (旧 ``⚠`` の代替)。Rich-escaped。"""
 
 INFO = r"\[i]"
-"""情報マーカー (旧 ``ℹ`` の代替)。Rich-escaped。"""
+"""情報マーカー (旧 info グリフ U+2139 の代替)。Rich-escaped。"""

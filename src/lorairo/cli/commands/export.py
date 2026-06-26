@@ -11,11 +11,11 @@ import click
 import typer
 from rich.table import Table
 
-from lorairo.public_api.project import get_project as api_get_project
 from lorairo.cli._boundary import command_boundary
 from lorairo.cli._console import make_console
 from lorairo.cli._emit import emit_result
 from lorairo.cli._output_mode import is_json_mode
+from lorairo.public_api.project import get_project as api_get_project
 from lorairo.services.service_container import get_service_container
 
 # サブコマンドアプリ定義

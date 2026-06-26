@@ -15,7 +15,6 @@ import types
 from unittest.mock import Mock
 
 import pytest
-from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QMainWindow
 
 from lorairo.gui.designer.MainWindow_ui import Ui_MainWindow

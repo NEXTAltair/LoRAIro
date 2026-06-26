@@ -1,12 +1,10 @@
 # tests/unit/gui/services/test_worker_service.py
 
 import re
-import time
 from pathlib import Path
 from unittest.mock import Mock, patch
 
 import pytest
-from PIL import Image
 from PySide6.QtCore import QSize
 
 from lorairo.gui.services.operation_events import OperationOutcome, OperationType

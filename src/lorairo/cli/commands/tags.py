@@ -11,14 +11,14 @@ from __future__ import annotations
 import click
 import typer
 
-from lorairo.public_api.exceptions import ImageNotFoundError
-from lorairo.public_api.project import get_project as api_get_project
 from lorairo.cli._boundary import command_boundary
 from lorairo.cli._console import make_console
 from lorairo.cli._emit import emit_item, emit_result
 from lorairo.cli._glyphs import OK
 from lorairo.cli._output_mode import is_json_mode
 from lorairo.database.filter_criteria import ImageFilterCriteria
+from lorairo.public_api.exceptions import ImageNotFoundError
+from lorairo.public_api.project import get_project as api_get_project
 from lorairo.services.service_container import ServiceContainer, get_service_container
 
 app = typer.Typer(help="Tag editing commands (agent-friendly)")

@@ -164,7 +164,7 @@ class ErrorDetailDialog(QDialog, Ui_ErrorDetailDialog):
         reply = QMessageBox.question(
             self,
             "確認",
-            "このエラーを解決済みにマークしますか？",
+            "このエラーを解決済みにマークしますか?",
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
         )
 

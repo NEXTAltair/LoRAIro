@@ -16,10 +16,8 @@ from sqlalchemy.orm import sessionmaker
 from lorairo.database.filter_criteria import ImageFilterCriteria
 from lorairo.database.repository.image import ImageRepository
 from lorairo.database.schema import Base, ModelType
-from lorairo.services.configuration_service import ConfigurationService
-from lorairo.services.dataset_export_service import DatasetExportService
-from lorairo.services.search_criteria_processor import SearchCriteriaProcessor
 from lorairo.filesystem import FileSystemManager
+from lorairo.services.dataset_export_service import DatasetExportService
 
 
 class TestDatasetExportIntegration:

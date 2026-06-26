@@ -17,7 +17,6 @@ from __future__ import annotations
 import pytest
 
 from lorairo.database.repository.base import BaseRepository
-from lorairo.database.repository.image import ImageRepository
 from lorairo.database.repository.model import ModelRepository
 from lorairo.database.schema import (
     MANUAL_EDIT_LITELLM_ID,

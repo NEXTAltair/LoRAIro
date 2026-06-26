@@ -7,14 +7,14 @@ and error handling in the process_image method.
 
 import tempfile
 from pathlib import Path
-from unittest.mock import MagicMock, Mock, patch
+from unittest.mock import Mock, patch
 
 import pytest
 from PIL import Image
 
+from lorairo.filesystem import FileSystemManager
 from lorairo.image_transforms.image_processor import ImageProcessingManager, ImageProcessor
 from lorairo.image_transforms.upscaler import Upscaler
-from lorairo.filesystem import FileSystemManager
 
 
 class TestImageProcessor:

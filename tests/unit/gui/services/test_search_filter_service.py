@@ -1,7 +1,6 @@
 # tests/unit/gui/services/test_search_filter_service.py
 
 from datetime import datetime
-from unittest.mock import patch
 
 import pytest
 

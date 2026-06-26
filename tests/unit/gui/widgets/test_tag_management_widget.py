@@ -1,6 +1,6 @@
 """TagManagementWidget の単体テスト"""
 
-from unittest.mock import Mock, patch
+from unittest.mock import Mock
 
 import pytest
 from genai_tag_db_tools.models import TagRecordPublic
@@ -276,7 +276,6 @@ class TestTagManagementWidget:
         self, widget: TagManagementWidget, mock_service: Mock, monkeypatch, qtbot
     ) -> None:
         """確認ダイアログでYesを押すとスレッドが起動し update_tag_types が呼ばれる（line 206-236）"""
-        from genai_tag_db_tools.models import TagTypeUpdate
 
         mock_tags = [
             TagRecordPublic(

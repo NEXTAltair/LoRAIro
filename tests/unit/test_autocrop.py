@@ -5,9 +5,7 @@ Tests for the automatic image cropping functionality, specifically the singleton
 main public interface, helper methods, and error handling scenarios.
 """
 
-import tempfile
-from pathlib import Path
-from unittest.mock import MagicMock, Mock, patch
+from unittest.mock import Mock, patch
 
 import cv2
 import numpy as np

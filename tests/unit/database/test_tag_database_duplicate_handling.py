@@ -1,9 +1,9 @@
 # tests/unit/database/test_tag_database_duplicate_handling.py
 
-from unittest.mock import MagicMock, Mock, patch
+from unittest.mock import Mock, patch
 
 import pytest
-from genai_tag_db_tools.models import TagRecordPublic, TagSearchRequest, TagSearchResult
+from genai_tag_db_tools.models import TagRecordPublic, TagSearchResult
 
 from lorairo.database.repository.annotation_record import AnnotationRepository
 
@@ -39,7 +39,7 @@ class TestTagDatabaseDuplicateHandling:
         tag_string = "test tag"
         expected_tag_id = 12345
 
-        # モック設定：search_tags()が1つの結果を返す
+        # モック設定:search_tags()が1つの結果を返す
         mock_tag_item = TagRecordPublic(
             tag_id=expected_tag_id,
             source_tag=tag_string,
@@ -62,7 +62,7 @@ class TestTagDatabaseDuplicateHandling:
         tag_string = ":d"  # 実際に問題となったタグ
         expected_tag_id = 100
 
-        # モック設定：複数の結果（genai-tag-db-tools側で1つに絞られている想定）
+        # モック設定:複数の結果（genai-tag-db-tools側で1つに絞られている想定）
         mock_tag_item = TagRecordPublic(
             tag_id=expected_tag_id,
             source_tag=tag_string,
@@ -84,7 +84,7 @@ class TestTagDatabaseDuplicateHandling:
         # テストデータ
         tag_string = "nonexistent tag"
 
-        # モック設定：結果なし
+        # モック設定:結果なし
         mock_result = TagSearchResult(items=[], total=0)
 
         with patch("lorairo.database.repository.annotation_record.search_tags", return_value=mock_result):
@@ -99,7 +99,7 @@ class TestTagDatabaseDuplicateHandling:
         # テストデータ
         tag_string = "error tag"
 
-        # モック設定：search_tags()がExceptionを発生
+        # モック設定:search_tags()がExceptionを発生
         # ADR 0035 段階 5: logger は annotation_record.py 側に移動したため、
         # patch path も合わせる。
         with patch(
@@ -110,7 +110,7 @@ class TestTagDatabaseDuplicateHandling:
                 # テスト実行
                 result = repository._get_or_create_tag_id_external(mock_session, tag_string)
 
-                # 結果検証：Noneが返される（例外は再発生しない）
+                # 結果検証:Noneが返される（例外は再発生しない）
                 assert result is None
 
                 # エラーログが呼び出されたか確認
@@ -131,7 +131,7 @@ class TestTagDatabaseDuplicateHandling:
         ]
 
         for tag_string in special_tags:
-            # モック設定：正常結果
+            # モック設定:正常結果
             mock_tag_item = TagRecordPublic(
                 tag_id=999,
                 source_tag=tag_string,
@@ -172,7 +172,7 @@ class TestTagDatabaseDuplicateHandling:
         # テスト実行
         result = repo._get_or_create_tag_id_external(mock_session, "test tag")
 
-        # 結果検証：Noneが返される
+        # 結果検証:Noneが返される
         assert result is None
 
 

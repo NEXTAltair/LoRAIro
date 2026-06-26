@@ -17,7 +17,7 @@ from PySide6.QtCore import QObject
 class SignalManagerServiceProtocol(Protocol):
     """統一Signal管理サービスProtocol
 
-    全Widget間でのSignal処理を標準化し、以下の機能を提供：
+    全Widget間でのSignal処理を標準化し、以下の機能を提供:
     - 統一Signal命名規約の強制
     - エラーハンドリングSignalの標準化
     - Protocol-based依存注入対応

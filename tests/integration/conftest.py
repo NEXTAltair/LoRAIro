@@ -23,8 +23,8 @@ from sqlalchemy.orm import Session, sessionmaker
 from lorairo.database.db_manager import ImageDatabaseManager
 from lorairo.database.repository.image import ImageRepository
 from lorairo.database.schema import Base, ModelType
-from lorairo.services.configuration_service import ConfigurationService
 from lorairo.filesystem import FileSystemManager
+from lorairo.services.configuration_service import ConfigurationService
 
 # ===== Database Fixtures =====
 
@@ -154,7 +154,6 @@ def fs_manager(temp_storage_dir) -> FileSystemManager:
 @pytest.fixture(scope="function")
 def integration_test_images(temp_storage_dir):
     """統合テスト用のサンプル画像"""
-    import numpy as np
     from PIL import Image
 
     images = []

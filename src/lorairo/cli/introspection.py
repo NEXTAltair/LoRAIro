@@ -11,9 +11,9 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from lorairo.public_api.types import ProjectCreateRequest
 from lorairo.cli._emit import emit_item, emit_result
 from lorairo.cli.commands.images import ImageSearchQuery
+from lorairo.public_api.types import ProjectCreateRequest
 
 SideEffect = Literal["db_read", "db_write", "file_read", "file_write", "network"]
 SchemaMode = Literal["compact", "json_schema"]

@@ -12,7 +12,6 @@ from sqlalchemy.orm import sessionmaker
 
 from lorairo.database.repository.image import ImageRepository
 
-
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
@@ -157,7 +156,7 @@ class TestApplyReviewedAtFilterIntegration:
         id_unreviewed = _create_image(session_factory, reviewed_at=None)
         id_reviewed = _create_image(
             session_factory,
-            reviewed_at=datetime.datetime(2025, 1, 1, tzinfo=datetime.timezone.utc),
+            reviewed_at=datetime.datetime(2025, 1, 1, tzinfo=datetime.UTC),
         )
 
         base_query = select(Image.id)
@@ -177,7 +176,7 @@ class TestApplyReviewedAtFilterIntegration:
         id_unreviewed = _create_image(session_factory, reviewed_at=None)
         id_reviewed = _create_image(
             session_factory,
-            reviewed_at=datetime.datetime(2025, 1, 1, tzinfo=datetime.timezone.utc),
+            reviewed_at=datetime.datetime(2025, 1, 1, tzinfo=datetime.UTC),
         )
 
         base_query = select(Image.id)
@@ -197,7 +196,7 @@ class TestApplyReviewedAtFilterIntegration:
         id_unreviewed = _create_image(session_factory, reviewed_at=None)
         id_reviewed = _create_image(
             session_factory,
-            reviewed_at=datetime.datetime(2025, 1, 1, tzinfo=datetime.timezone.utc),
+            reviewed_at=datetime.datetime(2025, 1, 1, tzinfo=datetime.UTC),
         )
 
         base_query = select(Image.id)
@@ -313,7 +312,7 @@ class TestApplyErrorStateFilterIntegration:
         _create_error_record(
             session_factory,
             id_with_resolved_error,
-            resolved_at=datetime.datetime(2025, 1, 1, tzinfo=datetime.timezone.utc),
+            resolved_at=datetime.datetime(2025, 1, 1, tzinfo=datetime.UTC),
         )
 
         base_query = select(Image.id)

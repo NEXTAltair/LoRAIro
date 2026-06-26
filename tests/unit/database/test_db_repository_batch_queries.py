@@ -9,7 +9,7 @@ import pytest
 from sqlalchemy.exc import SQLAlchemyError
 
 from lorairo.database.repository.image import ImageRepository
-from lorairo.database.schema import Caption, Image, Model, Tag
+from lorairo.database.schema import Model
 
 
 class TestGetImagesMetadataBatch:

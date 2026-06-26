@@ -6,10 +6,9 @@
 - 単一クラスの振る舞いに焦点を当てる
 """
 
-import sys
 import tempfile
 from pathlib import Path
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 import pytest
 import toml
