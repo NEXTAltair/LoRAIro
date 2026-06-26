@@ -10,7 +10,7 @@ from ..utils.log import logger
 from .configuration_service import ConfigurationService
 
 if TYPE_CHECKING:
-    from ..editor.image_processor import ImageProcessingManager
+    from ..image_transforms.image_processor import ImageProcessingManager
 
 # ImageAnalyzer はアノテーション関連なので、ここでは直接使わない想定 (必要なら別サービス経由)
 # from ..annotations.caption_tags import ImageAnalyzer
@@ -49,7 +49,7 @@ class ImageProcessingService:
         Raises:
             ValueError: ImageProcessingManager の初期化に失敗した場合
         """
-        from ..editor.image_processor import ImageProcessingManager
+        from ..image_transforms.image_processor import ImageProcessingManager
 
         try:
             preferred_resolutions = self.config_service.get_preferred_resolutions()

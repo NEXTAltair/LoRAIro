@@ -41,7 +41,7 @@ class AutoCrop:
     where removing letterbox borders improves training data quality.
 
     Example:
-        >>> from lorairo.editor.autocrop import AutoCrop
+        >>> from lorairo.image_transforms.autocrop import AutoCrop
         >>> from PIL import Image
         >>>
         >>> image = Image.open("letterboxed_image.png")

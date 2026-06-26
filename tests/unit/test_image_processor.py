@@ -12,8 +12,8 @@ from unittest.mock import MagicMock, Mock, patch
 import pytest
 from PIL import Image
 
-from lorairo.editor.image_processor import ImageProcessingManager, ImageProcessor
-from lorairo.editor.upscaler import Upscaler
+from lorairo.image_transforms.image_processor import ImageProcessingManager, ImageProcessor
+from lorairo.image_transforms.upscaler import Upscaler
 from lorairo.storage.file_system import FileSystemManager
 
 
@@ -191,7 +191,7 @@ class TestImageProcessingManager:
 
         try:
             # Mock AutoCrop to return the image unchanged
-            with patch("lorairo.editor.autocrop.AutoCrop") as mock_autocrop:
+            with patch("lorairo.image_transforms.autocrop.AutoCrop") as mock_autocrop:
                 mock_autocrop.auto_crop_image.return_value = test_img
 
                 result = self.manager.process_image(
@@ -221,7 +221,7 @@ class TestImageProcessingManager:
 
         try:
             # Mock AutoCrop to return the image unchanged
-            with patch("lorairo.editor.autocrop.AutoCrop") as mock_autocrop:
+            with patch("lorairo.image_transforms.autocrop.AutoCrop") as mock_autocrop:
                 mock_autocrop.auto_crop_image.return_value = test_img
 
                 # Mock resize_image to raise an exception
@@ -267,7 +267,7 @@ class TestImageProcessingManager:
             tmp_path = Path(tmp_file.name)
 
         try:
-            with patch("lorairo.editor.image_processor.AutoCrop") as mock_autocrop:
+            with patch("lorairo.image_transforms.image_processor.AutoCrop") as mock_autocrop:
                 mock_autocrop.auto_crop_image.return_value = small_img
 
                 result = self.manager.process_image(
@@ -295,7 +295,7 @@ class TestImageProcessingManager:
     def test_initialization_with_invalid_parameters(self):
         """Test initialization with invalid parameters"""
         # Mock FileSystemManager to raise an exception during ImageProcessor initialization
-        with patch("lorairo.editor.image_processor.ImageProcessor") as mock_processor:
+        with patch("lorairo.image_transforms.image_processor.ImageProcessor") as mock_processor:
             mock_processor.side_effect = Exception("Mock initialization error")
 
             with pytest.raises(ValueError, match="ImageProcessingManagerの初期化中エラー"):

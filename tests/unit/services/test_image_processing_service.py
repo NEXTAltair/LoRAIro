@@ -56,11 +56,11 @@ def image_file():
 
 @pytest.fixture
 def mock_image_processor_module():
-    """lorairo.editor.image_processor のモジュールモック（torch 循環 import 回避）"""
+    """lorairo.image_transforms.image_processor のモジュールモック（torch 循環 import 回避）"""
     mock_module = MagicMock()
     mock_ipm = MagicMock()
     mock_module.ImageProcessingManager = MagicMock(return_value=mock_ipm)
-    with patch.dict("sys.modules", {"lorairo.editor.image_processor": mock_module}):
+    with patch.dict("sys.modules", {"lorairo.image_transforms.image_processor": mock_module}):
         yield mock_module
 
 
