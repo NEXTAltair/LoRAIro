@@ -14,6 +14,7 @@
 - 各サブPR は専用 worktree（`.agents/worktree/issue-717-<name>`）で作業。`origin/main` から分岐。共有 venv (`/workspaces/LoRAIro/.venv`) を使い worktree 内に `.venv` を作らない。
 - 検証は CI-equivalent filter（`-m "not gui_show and not calls_real_webapi and not downloads_and_runs_model and not slow"`）+ `uv run mypy -p lorairo`。worktree のローカル検証は editable install の都合で main checkout を見る可能性があるため、**真偽は push 後 CI が SSoT**。
 - sed の置換対象は `src/` `tests/` + live docs 5ファイル（`docs/conftest_template.py` `docs/integrations.md` `docs/decisions/0037-api-facade-wiring-policy.md` `docs/decisions/0059-cli-command-introspection.md` `docs/specs/core/filesystem_management.md`）に限定。**`docs/superpowers/specs/` `docs/superpowers/plans/` は除外**（設計/計画ドキュメント自身の "before" 記述を壊さないため）。
+- **相対 import を必ず置換する**（Task2 で発覚した教訓）。`lorairo.<old>` の絶対 import だけでなく、`from ..<old>` / `from ...<old>` の**相対 import** も置換対象。後者は mypy をすり抜け runtime で `ModuleNotFoundError` を起こす（外部パッケージから消えたディレクトリへ相対参照するため）。各タスクの sed に相対 import 置換ステップを含め、取りこぼし確認も `from \.+<old>\b` を含める。
 - PR リンク: サブPR1〜3 は `Refs #717`、最後のサブPR4 のみ `Closes #717`。
 - commit 末尾に Co-Authored-By / Claude-Session を付与（リポジトリ規約）。
 
@@ -239,9 +240,12 @@ git mv tests/unit/annotation/test_annotation_logic.py tests/unit/annotation/test
 
 ```bash
 SCOPE_DOCS="docs/conftest_template.py docs/integrations.md docs/decisions/0037-api-facade-wiring-policy.md docs/decisions/0059-cli-command-introspection.md docs/specs/core/filesystem_management.md"
-# dir パス（lorairo.annotations → lorairo.annotation。facade の lorairo.public_api.annotations は非マッチ）
+# dir パス・絶対import（lorairo.annotations → lorairo.annotation。facade の lorairo.public_api.annotations は非マッチ）
 grep -rlE 'lorairo\.annotations\b' src/ tests/ $SCOPE_DOCS 2>/dev/null \
   | xargs -r sed -i -E 's/lorairo\.annotations\b/lorairo.annotation/g'
+# 相対import（from ..annotations / ...annotations 等、先頭ドット温存）← Task2で取りこぼし発覚した必須ステップ
+grep -rlE 'from \.+annotations\b' src/ tests/ scripts/ 2>/dev/null \
+  | xargs -r sed -i -E 's/(from \.+)annotations\b/\1annotation/g'
 # モジュール名
 grep -rl 'annotation_logic' src/ tests/ $SCOPE_DOCS 2>/dev/null \
   | xargs -r sed -i 's/annotation_logic/annotation_runner/g'
@@ -257,7 +261,7 @@ grep -rl 'ExistingFileReader' src/ tests/ $SCOPE_DOCS 2>/dev/null \
 - [ ] **Step 4: 取りこぼし確認**
 
 ```bash
-grep -rnE 'lorairo\.annotations\b|annotation_logic|existing_file_reader|AnnotationLogic|ExistingFileReader' src/ tests/ $SCOPE_DOCS 2>/dev/null
+grep -rnE 'lorairo\.annotations\b|from \.+annotations\b|annotation_logic|existing_file_reader|AnnotationLogic|ExistingFileReader' src/ tests/ scripts/ $SCOPE_DOCS 2>/dev/null
 ```
 Expected: 出力なし
 
@@ -339,14 +343,18 @@ git mv tests/unit/storage tests/unit/filesystem
 
 ```bash
 SCOPE_DOCS="docs/conftest_template.py docs/integrations.md docs/decisions/0037-api-facade-wiring-policy.md docs/decisions/0059-cli-command-introspection.md docs/specs/core/filesystem_management.md"
+# 絶対import
 grep -rlE 'lorairo\.storage\.file_system\b' src/ tests/ $SCOPE_DOCS 2>/dev/null \
   | xargs -r sed -i -E 's/lorairo\.storage\.file_system\b/lorairo.filesystem/g'
+# 相対import（from ..storage.file_system / ...storage.file_system 等、先頭ドット温存）← Task2教訓の必須ステップ
+grep -rlE 'from \.+storage\.file_system\b' src/ tests/ scripts/ 2>/dev/null \
+  | xargs -r sed -i -E 's/(from \.+)storage\.file_system\b/\1filesystem/g'
 ```
 
-- [ ] **Step 4: 取りこぼし確認（`lorairo.storage` 残存ゼロ）**
+- [ ] **Step 4: 取りこぼし確認（`lorairo.storage` / 相対 storage 残存ゼロ）**
 
 ```bash
-grep -rnE 'lorairo\.storage\b' src/ tests/ $SCOPE_DOCS 2>/dev/null
+grep -rnE 'lorairo\.storage\b|from \.+storage\b' src/ tests/ scripts/ $SCOPE_DOCS 2>/dev/null
 ```
 Expected: 出力なし
 
