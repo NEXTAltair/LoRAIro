@@ -1,6 +1,6 @@
 """バッチインポートAPI テスト。
 
-lorairo.api.batch_import モジュールのユニットテスト。
+lorairo.public_api.batch_import モジュールのユニットテスト。
 ServiceContainer と BatchImportService のラッパー関数を検証する。
 """
 
@@ -9,8 +9,8 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from lorairo.api.batch_import import import_batch_annotations
-from lorairo.api.exceptions import BatchImportError, ProjectNotFoundError
+from lorairo.public_api.batch_import import import_batch_annotations
+from lorairo.public_api.exceptions import BatchImportError, ProjectNotFoundError
 from lorairo.services.batch_import_service import BatchImportResult
 
 
@@ -40,7 +40,7 @@ class TestImportBatchAnnotations:
         mock_project_service = MagicMock()
         mock_project_service.get_project.return_value = None
 
-        with patch("lorairo.api.batch_import.ServiceContainer") as mock_container_cls:
+        with patch("lorairo.public_api.batch_import.ServiceContainer") as mock_container_cls:
             mock_container_cls.return_value.project_management_service = mock_project_service
             mock_container_cls.return_value.image_repository = MagicMock()
 
@@ -54,7 +54,7 @@ class TestImportBatchAnnotations:
         mock_project_service = MagicMock()
         mock_project_service.get_project.return_value = None
 
-        with patch("lorairo.api.batch_import.ServiceContainer") as mock_container_cls:
+        with patch("lorairo.public_api.batch_import.ServiceContainer") as mock_container_cls:
             mock_container_cls.return_value.project_management_service = mock_project_service
             mock_container_cls.return_value.image_repository = MagicMock()
 
@@ -72,8 +72,8 @@ class TestImportBatchAnnotations:
         mock_batch_service.import_from_directory.side_effect = FileNotFoundError("dir not found")
 
         with (
-            patch("lorairo.api.batch_import.ServiceContainer") as mock_container_cls,
-            patch("lorairo.api.batch_import.BatchImportService") as mock_service_cls,
+            patch("lorairo.public_api.batch_import.ServiceContainer") as mock_container_cls,
+            patch("lorairo.public_api.batch_import.BatchImportService") as mock_service_cls,
         ):
             mock_container_cls.return_value.project_management_service = mock_project_service
             mock_container_cls.return_value.image_repository = MagicMock()
@@ -91,8 +91,8 @@ class TestImportBatchAnnotations:
         mock_batch_service.import_from_directory.side_effect = ValueError("no jsonl files")
 
         with (
-            patch("lorairo.api.batch_import.ServiceContainer") as mock_container_cls,
-            patch("lorairo.api.batch_import.BatchImportService") as mock_service_cls,
+            patch("lorairo.public_api.batch_import.ServiceContainer") as mock_container_cls,
+            patch("lorairo.public_api.batch_import.BatchImportService") as mock_service_cls,
         ):
             mock_container_cls.return_value.project_management_service = mock_project_service
             mock_container_cls.return_value.image_repository = MagicMock()
@@ -112,8 +112,8 @@ class TestImportBatchAnnotations:
         mock_batch_service.import_from_directory.return_value = expected_result
 
         with (
-            patch("lorairo.api.batch_import.ServiceContainer") as mock_container_cls,
-            patch("lorairo.api.batch_import.BatchImportService") as mock_service_cls,
+            patch("lorairo.public_api.batch_import.ServiceContainer") as mock_container_cls,
+            patch("lorairo.public_api.batch_import.BatchImportService") as mock_service_cls,
         ):
             mock_container_cls.return_value.project_management_service = mock_project_service
             mock_container_cls.return_value.image_repository = MagicMock()
@@ -135,8 +135,8 @@ class TestImportBatchAnnotations:
         mock_batch_service.import_from_directory.return_value = expected_result
 
         with (
-            patch("lorairo.api.batch_import.ServiceContainer") as mock_container_cls,
-            patch("lorairo.api.batch_import.BatchImportService") as mock_service_cls,
+            patch("lorairo.public_api.batch_import.ServiceContainer") as mock_container_cls,
+            patch("lorairo.public_api.batch_import.BatchImportService") as mock_service_cls,
         ):
             mock_container_cls.return_value.project_management_service = mock_project_service
             mock_container_cls.return_value.image_repository = MagicMock()
@@ -158,8 +158,8 @@ class TestImportBatchAnnotations:
         mock_batch_service.import_from_directory.return_value = expected_result
 
         with (
-            patch("lorairo.api.batch_import.ServiceContainer") as mock_container_cls,
-            patch("lorairo.api.batch_import.BatchImportService") as mock_service_cls,
+            patch("lorairo.public_api.batch_import.ServiceContainer") as mock_container_cls,
+            patch("lorairo.public_api.batch_import.BatchImportService") as mock_service_cls,
         ):
             mock_container_cls.return_value.project_management_service = mock_project_service
             mock_container_cls.return_value.image_repository = MagicMock()
@@ -182,8 +182,8 @@ class TestImportBatchAnnotations:
         mock_batch_service.import_from_directory.return_value = expected_result
 
         with (
-            patch("lorairo.api.batch_import.ServiceContainer") as mock_container_cls,
-            patch("lorairo.api.batch_import.BatchImportService") as mock_service_cls,
+            patch("lorairo.public_api.batch_import.ServiceContainer") as mock_container_cls,
+            patch("lorairo.public_api.batch_import.BatchImportService") as mock_service_cls,
         ):
             mock_container_cls.return_value.project_management_service = mock_project_service
             mock_container_cls.return_value.db_manager = mock_manager
@@ -207,8 +207,8 @@ class TestImportBatchAnnotations:
         mock_batch_service.import_from_directory.side_effect = original_error
 
         with (
-            patch("lorairo.api.batch_import.ServiceContainer") as mock_container_cls,
-            patch("lorairo.api.batch_import.BatchImportService") as mock_service_cls,
+            patch("lorairo.public_api.batch_import.ServiceContainer") as mock_container_cls,
+            patch("lorairo.public_api.batch_import.BatchImportService") as mock_service_cls,
         ):
             mock_container_cls.return_value.project_management_service = mock_project_service
             mock_container_cls.return_value.image_repository = MagicMock()

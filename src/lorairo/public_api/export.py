@@ -5,13 +5,13 @@ DatasetExportService をラップし、エクスポート機能を提供。
 
 from pathlib import Path
 
-from lorairo.api.exceptions import (
+from lorairo.public_api.exceptions import (
     DatabaseConnectionError,
     ExportFailedError,
     InvalidFormatError,
     InvalidInputError,
 )
-from lorairo.api.types import ExportCriteria, ExportResult
+from lorairo.public_api.types import ExportCriteria, ExportResult
 from lorairo.database.db_core import get_current_project_root
 from lorairo.database.filter_criteria import ImageFilterCriteria
 from lorairo.services.service_container import ServiceContainer
@@ -47,8 +47,8 @@ def export_dataset(
         ExportFailedError: エクスポート実行に失敗。
 
     使用例:
-        >>> from lorairo.api import export_dataset
-        >>> from lorairo.api.types import ExportCriteria
+        >>> from lorairo.public_api import export_dataset
+        >>> from lorairo.public_api.types import ExportCriteria
         >>>
         >>> criteria = ExportCriteria(
         ...     format_type="txt",

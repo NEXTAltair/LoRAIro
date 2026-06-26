@@ -1,7 +1,7 @@
 """Image management commands.
 
 画像の登録、メタデータ更新などの画像管理コマンド。
-API層（lorairo.api）を経由してService層を利用する。
+API層（lorairo.public_api）を経由してService層を利用する。
 
 出力は ADR 0057/0058 に従う: ``--json`` 時は stdout に JSONL (item/result)、
 それ以外は rich 人間向け。エラー整形は :func:`lorairo.cli._boundary.command_boundary`
@@ -18,10 +18,10 @@ import typer
 from pydantic import BaseModel, Field, ValidationError
 from rich.table import Table
 
-from lorairo.api.exceptions import ImageNotFoundError, ResultSetTooLargeError
-from lorairo.api.images import register_images as api_register_images
-from lorairo.api.project import get_project as api_get_project
-from lorairo.api.types import RegistrationResult
+from lorairo.public_api.exceptions import ImageNotFoundError, ResultSetTooLargeError
+from lorairo.public_api.images import register_images as api_register_images
+from lorairo.public_api.project import get_project as api_get_project
+from lorairo.public_api.types import RegistrationResult
 from lorairo.cli._boundary import command_boundary
 from lorairo.cli._console import make_console
 from lorairo.cli._emit import emit_item, emit_result

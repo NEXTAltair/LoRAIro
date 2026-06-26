@@ -12,12 +12,12 @@ from typing import Optional
 
 from loguru import logger
 
-from lorairo.api.exceptions import (
+from lorairo.public_api.exceptions import (
     ProjectAlreadyExistsError,
     ProjectNotFoundError,
     ProjectOperationError,
 )
-from lorairo.api.types import ProjectInfo
+from lorairo.public_api.types import ProjectInfo
 from lorairo.utils.config import get_config
 
 

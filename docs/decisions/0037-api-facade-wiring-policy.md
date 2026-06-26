@@ -14,14 +14,14 @@ tags: []
 `src/lorairo/api/` は LoRAIro の外部向けパブリック API ファサード層として設計された。
 しかし以下の問題が混在している:
 
-1. **CLI がサブモジュールを直接 import**: `from lorairo.api.batch_import import import_batch_annotations`
+1. **CLI がサブモジュールを直接 import**: `from lorairo.public_api.batch_import import import_batch_annotations`
    のようにファサードの `__init__` を経由せず、内部モジュールに直接アクセスしている
 2. **`_API_FUNCTION_MODULES` への登録漏れ**: `batch_import.import_batch_annotations` が
    `__init__._API_FUNCTION_MODULES` に未登録のため、遅延ロード機構の管理外になっている
 3. **スタブ実装の混入**: `annotations.annotate_images` は `return 0件成功` のプレースホルダーで、
    ADR 0033 の AnnotationWorker バッチ実行コントラクトと矛盾する
 4. **Services → api/ 依存**: `services/image_registration_service.py` 等が
-   `lorairo.api.exceptions` / `lorairo.api.types` を import している
+   `lorairo.public_api.exceptions` / `lorairo.public_api.types` を import している
 
 ## Decision
 
@@ -31,7 +31,7 @@ tags: []
 
 ```
 外部呼び出し元 (CLI / スクリプト)
-    → lorairo.api.*         ← ここを通る
+    → lorairo.public_api.*         ← ここを通る
         → lorairo.services.*  ← Business Logic
         → lorairo.database.*  ← Data Layer
 
@@ -48,9 +48,9 @@ GUI → lorairo.services.* を直接呼ぶ (api/ を経由しない)
 
 ```python
 _API_FUNCTION_MODULES: dict[str, tuple[str, str]] = {
-    "annotate_images":             ("lorairo.api.annotations",  "annotate_images"),
-    "import_batch_annotations":    ("lorairo.api.batch_import",  "import_batch_annotations"),  # 追加
-    "export_dataset":              ("lorairo.api.export",        "export_dataset"),
+    "annotate_images":             ("lorairo.public_api.annotations",  "annotate_images"),
+    "import_batch_annotations":    ("lorairo.public_api.batch_import",  "import_batch_annotations"),  # 追加
+    "export_dataset":              ("lorairo.public_api.export",        "export_dataset"),
     # ... (全公開関数を網羅)
 }
 ```
@@ -60,14 +60,14 @@ _API_FUNCTION_MODULES: dict[str, tuple[str, str]] = {
 
 ### 3. CLI の import パターン
 
-CLI コマンドは **`lorairo.api` トップレベル** から import する (サブモジュール直接 import 禁止)。
+CLI コマンドは **`lorairo.public_api` トップレベル** から import する (サブモジュール直接 import 禁止)。
 
 ```python
 # 正しい
-from lorairo.api import import_batch_annotations
+from lorairo.public_api import import_batch_annotations
 
 # 禁止: ファサードを経由しない直接 import
-from lorairo.api.batch_import import import_batch_annotations
+from lorairo.public_api.batch_import import import_batch_annotations
 ```
 
 既存の違反箇所 (`cli/commands/annotate.py` の直接 import) は #428 実装時に修正する。

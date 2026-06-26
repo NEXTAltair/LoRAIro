@@ -1,6 +1,6 @@
 """タグ管理API テスト。
 
-lorairo.api.tags モジュールのユニットテスト。
+lorairo.public_api.tags モジュールのユニットテスト。
 ServiceContainer を通じた TagManagementService のラッパー関数を検証する。
 """
 
@@ -8,8 +8,8 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from lorairo.api.tags import get_available_types, get_unknown_tags
-from lorairo.api.types import TagInfo
+from lorairo.public_api.tags import get_available_types, get_unknown_tags
+from lorairo.public_api.types import TagInfo
 
 
 @pytest.mark.unit
@@ -21,7 +21,7 @@ class TestGetUnknownTags:
         mock_service = MagicMock()
         mock_service.get_unknown_tags.return_value = []
 
-        with patch("lorairo.api.tags.ServiceContainer") as mock_container_cls:
+        with patch("lorairo.public_api.tags.ServiceContainer") as mock_container_cls:
             mock_container_cls.return_value.tag_management_service = mock_service
             result = get_unknown_tags()
 
@@ -38,7 +38,7 @@ class TestGetUnknownTags:
         mock_service = MagicMock()
         mock_service.get_unknown_tags.return_value = [mock_tag_1, mock_tag_2]
 
-        with patch("lorairo.api.tags.ServiceContainer") as mock_container_cls:
+        with patch("lorairo.public_api.tags.ServiceContainer") as mock_container_cls:
             mock_container_cls.return_value.tag_management_service = mock_service
             result = get_unknown_tags()
 
@@ -59,7 +59,7 @@ class TestGetUnknownTags:
         mock_service = MagicMock()
         mock_service.get_unknown_tags.return_value = [mock_tag]
 
-        with patch("lorairo.api.tags.ServiceContainer") as mock_container_cls:
+        with patch("lorairo.public_api.tags.ServiceContainer") as mock_container_cls:
             mock_container_cls.return_value.tag_management_service = mock_service
             result = get_unknown_tags()
 
@@ -74,7 +74,7 @@ class TestGetUnknownTags:
         mock_service = MagicMock()
         mock_service.get_unknown_tags.return_value = [mock_tag]
 
-        with patch("lorairo.api.tags.ServiceContainer") as mock_container_cls:
+        with patch("lorairo.public_api.tags.ServiceContainer") as mock_container_cls:
             mock_container_cls.return_value.tag_management_service = mock_service
             result = get_unknown_tags()
 
@@ -85,7 +85,7 @@ class TestGetUnknownTags:
         mock_service = MagicMock()
         mock_service.get_unknown_tags.return_value = []
 
-        with patch("lorairo.api.tags.ServiceContainer") as mock_container_cls:
+        with patch("lorairo.public_api.tags.ServiceContainer") as mock_container_cls:
             mock_instance = mock_container_cls.return_value
             mock_instance.tag_management_service = mock_service
             get_unknown_tags()
@@ -104,7 +104,7 @@ class TestGetAvailableTypes:
         mock_service = MagicMock()
         mock_service.get_all_available_types.return_value = expected_types
 
-        with patch("lorairo.api.tags.ServiceContainer") as mock_container_cls:
+        with patch("lorairo.public_api.tags.ServiceContainer") as mock_container_cls:
             mock_container_cls.return_value.tag_management_service = mock_service
             result = get_available_types()
 
@@ -116,7 +116,7 @@ class TestGetAvailableTypes:
         mock_service = MagicMock()
         mock_service.get_all_available_types.return_value = []
 
-        with patch("lorairo.api.tags.ServiceContainer") as mock_container_cls:
+        with patch("lorairo.public_api.tags.ServiceContainer") as mock_container_cls:
             mock_container_cls.return_value.tag_management_service = mock_service
             result = get_available_types()
 
@@ -127,7 +127,7 @@ class TestGetAvailableTypes:
         mock_service = MagicMock()
         mock_service.get_all_available_types.return_value = ["general"]
 
-        with patch("lorairo.api.tags.ServiceContainer") as mock_container_cls:
+        with patch("lorairo.public_api.tags.ServiceContainer") as mock_container_cls:
             mock_container_cls.return_value.tag_management_service = mock_service
             get_available_types()
 
@@ -138,7 +138,7 @@ class TestGetAvailableTypes:
         mock_service = MagicMock()
         mock_service.get_all_available_types.return_value = ["general"]
 
-        with patch("lorairo.api.tags.ServiceContainer") as mock_container_cls:
+        with patch("lorairo.public_api.tags.ServiceContainer") as mock_container_cls:
             mock_container_cls.return_value.tag_management_service = mock_service
             result = get_available_types()
 

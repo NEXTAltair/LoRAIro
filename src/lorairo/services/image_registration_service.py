@@ -12,8 +12,8 @@ from typing import Any, ClassVar
 from loguru import logger
 from PIL import Image
 
-from lorairo.api.exceptions import ImageRegistrationError
-from lorairo.api.types import RegistrationResult
+from lorairo.public_api.exceptions import ImageRegistrationError
+from lorairo.public_api.types import RegistrationResult
 
 
 @dataclass

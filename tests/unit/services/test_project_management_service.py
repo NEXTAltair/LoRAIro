@@ -6,11 +6,11 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from lorairo.api.exceptions import (
+from lorairo.public_api.exceptions import (
     ProjectAlreadyExistsError,
     ProjectNotFoundError,
 )
-from lorairo.api.types import ProjectInfo
+from lorairo.public_api.types import ProjectInfo
 from lorairo.services.project_management_service import ProjectManagementService
 
 
@@ -357,7 +357,7 @@ class TestProjectCrud:
         """
         from unittest.mock import patch
 
-        from lorairo.api.exceptions import ProjectOperationError
+        from lorairo.public_api.exceptions import ProjectOperationError
 
         with patch.object(service, "_project_exists", side_effect=OSError("permission denied")):
             with pytest.raises(ProjectOperationError) as exc_info:
@@ -389,7 +389,7 @@ class TestProjectCrud:
         import shutil
         from unittest.mock import patch
 
-        from lorairo.api.exceptions import ProjectOperationError
+        from lorairo.public_api.exceptions import ProjectOperationError
 
         service.create_project("to_fail_delete")
 
@@ -413,7 +413,7 @@ class TestProjectCrud:
         """
         from unittest.mock import patch
 
-        from lorairo.api.exceptions import ProjectOperationError
+        from lorairo.public_api.exceptions import ProjectOperationError
 
         service.create_project("to_fail_update")
 

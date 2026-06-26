@@ -4,9 +4,9 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from lorairo.api.annotations import annotate_images
-from lorairo.api.exceptions import APIKeyNotConfiguredError
-from lorairo.api.types import AnnotationResult
+from lorairo.public_api.annotations import annotate_images
+from lorairo.public_api.exceptions import APIKeyNotConfiguredError
+from lorairo.public_api.types import AnnotationResult
 from lorairo.services.service_container import ServiceContainer
 
 

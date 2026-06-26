@@ -11,7 +11,7 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from lorairo.api.types import ProjectCreateRequest
+from lorairo.public_api.types import ProjectCreateRequest
 from lorairo.cli._emit import emit_item, emit_result
 from lorairo.cli.commands.images import ImageSearchQuery
 

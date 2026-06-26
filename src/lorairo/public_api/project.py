@@ -3,11 +3,11 @@
 ProjectManagementService をラップし、統一的なインターフェースを提供。
 """
 
-from lorairo.api.exceptions import (
+from lorairo.public_api.exceptions import (
     ProjectAlreadyExistsError,
     ProjectNotFoundError,
 )
-from lorairo.api.types import ProjectCreateRequest, ProjectInfo
+from lorairo.public_api.types import ProjectCreateRequest, ProjectInfo
 from lorairo.services.service_container import ServiceContainer
 
 

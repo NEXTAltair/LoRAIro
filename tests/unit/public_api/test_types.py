@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 
-from lorairo.api.types import (
+from lorairo.public_api.types import (
     AnnotationResult,
     DuplicateInfo,
     ExportCriteria,

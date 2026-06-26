@@ -16,7 +16,7 @@ from unittest.mock import Mock, patch
 
 import pytest
 
-from lorairo.api.images import _register_into_db
+from lorairo.public_api.images import _register_into_db
 from lorairo.database.db_manager import (
     ImageDatabaseManager,
     RegistrationOutcome,

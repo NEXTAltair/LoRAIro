@@ -4,8 +4,8 @@ CLI・GUI・外部ツールから使用されるパブリック API。
 既存 Service を統一的にラップし、型安全で使いやすいインターフェースを提供する。
 
 使用例:
-    >>> from lorairo.api import create_project, list_projects
-    >>> from lorairo.api.types import ProjectCreateRequest
+    >>> from lorairo.public_api import create_project, list_projects
+    >>> from lorairo.public_api.types import ProjectCreateRequest
     >>>
     >>> # プロジェクト作成
     >>> project = create_project(ProjectCreateRequest(name="my_project"))
@@ -19,7 +19,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 # エクスポート: 例外クラス（ServiceContainer非依存、即時インポート安全）
-from lorairo.api.exceptions import (
+from lorairo.public_api.exceptions import (
     AnnotationError,
     AnnotationFailedError,
     APIKeyNotConfiguredError,
@@ -46,7 +46,7 @@ from lorairo.api.exceptions import (
 )
 
 # エクスポート: データ型（ServiceContainer非依存、即時インポート安全）
-from lorairo.api.types import (
+from lorairo.public_api.types import (
     AnnotationResult,
     DuplicateInfo,
     ErrorResponse,
@@ -69,17 +69,17 @@ if TYPE_CHECKING:
 
 # API関数は遅延ロード（ServiceContainer依存のため循環インポート回避）
 _API_FUNCTION_MODULES: dict[str, tuple[str, str]] = {
-    "annotate_images": ("lorairo.api.annotations", "annotate_images"),
-    "export_dataset": ("lorairo.api.export", "export_dataset"),
-    "register_images": ("lorairo.api.images", "register_images"),
-    "detect_duplicate_images": ("lorairo.api.images", "detect_duplicate_images"),
-    "create_project": ("lorairo.api.project", "create_project"),
-    "delete_project": ("lorairo.api.project", "delete_project"),
-    "get_project": ("lorairo.api.project", "get_project"),
-    "list_projects": ("lorairo.api.project", "list_projects"),
-    "update_project": ("lorairo.api.project", "update_project"),
-    "get_available_types": ("lorairo.api.tags", "get_available_types"),
-    "get_unknown_tags": ("lorairo.api.tags", "get_unknown_tags"),
+    "annotate_images": ("lorairo.public_api.annotations", "annotate_images"),
+    "export_dataset": ("lorairo.public_api.export", "export_dataset"),
+    "register_images": ("lorairo.public_api.images", "register_images"),
+    "detect_duplicate_images": ("lorairo.public_api.images", "detect_duplicate_images"),
+    "create_project": ("lorairo.public_api.project", "create_project"),
+    "delete_project": ("lorairo.public_api.project", "delete_project"),
+    "get_project": ("lorairo.public_api.project", "get_project"),
+    "list_projects": ("lorairo.public_api.project", "list_projects"),
+    "update_project": ("lorairo.public_api.project", "update_project"),
+    "get_available_types": ("lorairo.public_api.tags", "get_available_types"),
+    "get_unknown_tags": ("lorairo.public_api.tags", "get_unknown_tags"),
 }
 
 

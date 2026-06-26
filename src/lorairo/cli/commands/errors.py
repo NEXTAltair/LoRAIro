@@ -12,8 +12,8 @@ import click
 import typer
 from rich.table import Table
 
-from lorairo.api.exceptions import ErrorRecordNotFoundError
-from lorairo.api.project import get_project as api_get_project
+from lorairo.public_api.exceptions import ErrorRecordNotFoundError
+from lorairo.public_api.project import get_project as api_get_project
 from lorairo.cli._boundary import command_boundary
 from lorairo.cli._console import make_console
 from lorairo.cli._emit import emit_item, emit_result

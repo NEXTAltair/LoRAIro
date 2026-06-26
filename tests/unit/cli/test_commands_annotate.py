@@ -8,7 +8,7 @@ import pytest
 from PIL import Image
 from typer.testing import CliRunner
 
-from lorairo.api.exceptions import AnnotationFailedError
+from lorairo.public_api.exceptions import AnnotationFailedError
 from lorairo.cli._output_mode import set_json_mode
 from lorairo.cli.commands.annotate import _annotation_score, _emit_annotation_items
 from lorairo.cli.main import app

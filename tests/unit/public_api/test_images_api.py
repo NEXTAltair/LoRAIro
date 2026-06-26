@@ -5,9 +5,9 @@ from pathlib import Path
 import pytest
 from PIL import Image
 
-from lorairo.api.exceptions import ImageRegistrationError
-from lorairo.api.images import detect_duplicate_images, register_images
-from lorairo.api.types import RegistrationResult
+from lorairo.public_api.exceptions import ImageRegistrationError
+from lorairo.public_api.images import detect_duplicate_images, register_images
+from lorairo.public_api.types import RegistrationResult
 from lorairo.services.service_container import ServiceContainer
 
 
@@ -158,7 +158,7 @@ class TestRegisterIntoDb:
     def test_skip_duplicates_true_counts_duplicate_as_skipped(self) -> None:
         from unittest.mock import Mock
 
-        from lorairo.api.images import _register_into_db
+        from lorairo.public_api.images import _register_into_db
         from lorairo.database.db_manager import RegistrationOutcome
 
         db = self._db_with_outcomes([RegistrationOutcome.REGISTERED, RegistrationOutcome.DUPLICATE])
@@ -170,7 +170,7 @@ class TestRegisterIntoDb:
         """#633 (codex P2): --include-duplicates では重複を既存参照の成功として数える。"""
         from unittest.mock import Mock
 
-        from lorairo.api.images import _register_into_db
+        from lorairo.public_api.images import _register_into_db
         from lorairo.database.db_manager import RegistrationOutcome
 
         db = self._db_with_outcomes([RegistrationOutcome.REGISTERED, RegistrationOutcome.DUPLICATE])

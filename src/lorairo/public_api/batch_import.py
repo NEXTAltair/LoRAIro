@@ -6,7 +6,7 @@ BatchImportServiceをラップし、プロジェクト解決を含む
 
 from pathlib import Path
 
-from lorairo.api.exceptions import BatchImportError, ProjectNotFoundError
+from lorairo.public_api.exceptions import BatchImportError, ProjectNotFoundError
 from lorairo.services.batch_import_service import BatchImportResult, BatchImportService
 from lorairo.services.service_container import ServiceContainer
 
