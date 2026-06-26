@@ -7,7 +7,7 @@ from __future__ import annotations
 
 import pytest
 
-from lorairo.gui.widgets.ds.ds_segmented_control import DsSegmentedControl, SegmentOption
+from lorairo.gui.widgets.ds_segmented_control import DsSegmentedControl, SegmentOption
 
 pytestmark = [pytest.mark.unit, pytest.mark.gui]
 

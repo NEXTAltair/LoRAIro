@@ -1,4 +1,4 @@
-# tests/unit/gui/widgets/filter_search/test_favorite_filter.py
+# tests/unit/gui/widgets/test_favorite_filter.py
 """FavoriteFilterPanel の単独 qtbot テスト (ADR 0036 §5)。
 
 QMessageBox / QInputDialog は monkeypatch でモックする
@@ -11,7 +11,7 @@ from unittest.mock import MagicMock
 import pytest
 from PySide6.QtWidgets import QInputDialog, QMessageBox
 
-from lorairo.gui.widgets.filter_search.favorite_filter import FavoriteFilterPanel
+from lorairo.gui.widgets.favorite_filter import FavoriteFilterPanel
 
 
 @pytest.fixture()

@@ -1,11 +1,11 @@
-# tests/unit/gui/widgets/filter_search/test_count_estimate.py
+# tests/unit/gui/widgets/test_count_estimate.py
 """CountEstimateWidget の単独 qtbot テスト (ADR 0036 §5)。"""
 
 from unittest.mock import MagicMock
 
 import pytest
 
-from lorairo.gui.widgets.filter_search.count_estimate import CountEstimateWidget
+from lorairo.gui.widgets.count_estimate import CountEstimateWidget
 
 
 @pytest.fixture()

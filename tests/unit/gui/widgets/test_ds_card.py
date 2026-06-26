@@ -5,7 +5,7 @@ from __future__ import annotations
 import pytest
 from PySide6.QtWidgets import QLabel, QWidget
 
-from lorairo.gui.widgets.ds.ds_card import DsCard
+from lorairo.gui.widgets.ds_card import DsCard
 
 pytestmark = [pytest.mark.unit, pytest.mark.gui]
 

@@ -1,4 +1,4 @@
-# src/lorairo/gui/widgets/filter_search/tag_suggestion.py
+# src/lorairo/gui/widgets/tag_suggestion.py
 """タグオートコンプリート Widget (ADR 0036 §6)。
 
 `TagSuggestionWidget` は `QLineEdit` に QCompleter を取り付け、
@@ -18,10 +18,10 @@ from typing import TYPE_CHECKING
 from PySide6.QtCore import QObject, QRunnable, QStringListModel, Qt, QThreadPool, QTimer, Signal
 from PySide6.QtWidgets import QCompleter, QLineEdit, QWidget
 
-from ....utils.log import logger
+from ...utils.log import logger
 
 if TYPE_CHECKING:
-    from ....services.tag_suggestion_service import TagSuggestionService
+    from ...services.tag_suggestion_service import TagSuggestionService
 
 
 class _TagSuggestionTaskSignals(QObject):

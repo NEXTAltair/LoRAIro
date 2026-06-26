@@ -54,7 +54,7 @@ from ..widgets.filter_search_panel import FilterSearchPanel
 from ..widgets.image_preview import ImagePreviewWidget
 from ..widgets.quick_tag_dialog import QuickTagDialog
 from ..widgets.selected_image_details_widget import SelectedImageDetailsWidget
-from ..widgets.thumbnail import ThumbnailSelectorWidget
+from ..widgets.thumbnail_selector_widget import ThumbnailSelectorWidget
 
 
 class SearchTabWidget(QWidget, Ui_SearchTab):

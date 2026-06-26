@@ -19,7 +19,7 @@ from PySide6.QtCore import QSize
 from PySide6.QtWidgets import QApplication
 
 from lorairo.gui.state.dataset_state import DatasetStateManager
-from lorairo.gui.widgets.thumbnail import ThumbnailSelectorWidget
+from lorairo.gui.widgets.thumbnail_selector_widget import ThumbnailSelectorWidget
 from lorairo.gui.window.main_window import MainWindow
 from lorairo.utils.log import initialize_logging
 

@@ -20,7 +20,7 @@ from PySide6.QtWidgets import (QApplication, QFormLayout, QGridLayout, QGroupBox
     QVBoxLayout, QWidget)
 
 from ..widgets.image_preview import ImagePreviewWidget
-from ..widgets.thumbnail import ThumbnailSelectorWidget
+from ..widgets.thumbnail_selector_widget import ThumbnailSelectorWidget
 
 class Ui_DatasetOverviewWidget(object):
     def setupUi(self, DatasetOverviewWidget: QWidget) -> None:

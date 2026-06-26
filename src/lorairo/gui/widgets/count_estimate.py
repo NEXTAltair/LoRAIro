@@ -1,4 +1,4 @@
-# src/lorairo/gui/widgets/filter_search/count_estimate.py
+# src/lorairo/gui/widgets/count_estimate.py
 """件数見積もり Widget (ADR 0036 §6)。
 
 フィルター変更時に SearchFilterService.get_estimated_count をデバウンス + 非同期で実行する。
@@ -13,12 +13,12 @@ from typing import TYPE_CHECKING
 from PySide6.QtCore import QObject, QRunnable, QThreadPool, QTimer, Signal
 from PySide6.QtWidgets import QLabel, QSizePolicy, QVBoxLayout, QWidget
 
-from ....utils.log import logger
-from ... import theme
+from ...utils.log import logger
+from .. import theme
 
 if TYPE_CHECKING:
-    from ....services.search_models import SearchConditions
-    from ...services.search_filter_service import SearchFilterService
+    from ...services.search_models import SearchConditions
+    from ..services.search_filter_service import SearchFilterService
 
 
 class _CountEstimateTaskSignals(QObject):

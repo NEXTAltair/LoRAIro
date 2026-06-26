@@ -58,7 +58,7 @@ from PySide6.QtWidgets import (
 from ..widgets.filter_search_panel import FilterSearchPanel
 from ..widgets.image_preview import ImagePreviewWidget
 from ..widgets.selected_image_details_widget import SelectedImageDetailsWidget
-from ..widgets.thumbnail import ThumbnailSelectorWidget
+from ..widgets.thumbnail_selector_widget import ThumbnailSelectorWidget
 
 
 class Ui_SearchTab(object):

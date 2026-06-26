@@ -1,4 +1,4 @@
-# tests/unit/gui/widgets/filter_search/test_tag_suggestion.py
+# tests/unit/gui/widgets/test_tag_suggestion.py
 """TagSuggestionWidget の単独 qtbot テスト (ADR 0036 §5)。"""
 
 from unittest.mock import MagicMock
@@ -7,7 +7,7 @@ import pytest
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QCompleter, QLineEdit
 
-from lorairo.gui.widgets.filter_search.tag_suggestion import TagSuggestionWidget
+from lorairo.gui.widgets.tag_suggestion import TagSuggestionWidget
 
 
 @pytest.fixture()

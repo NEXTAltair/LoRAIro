@@ -14,7 +14,8 @@ from PySide6.QtCore import QSize, Qt
 from PySide6.QtGui import QImage
 
 from lorairo.gui.state.dataset_state import DatasetStateManager
-from lorairo.gui.widgets.thumbnail import ThumbnailItem, ThumbnailSelectorWidget
+from lorairo.gui.widgets.thumbnail_item import ThumbnailItem
+from lorairo.gui.widgets.thumbnail_selector_widget import ThumbnailSelectorWidget
 from lorairo.gui.workers.search_worker import SearchResult
 from lorairo.gui.workers.terminal import CancelReason
 from lorairo.gui.workers.thumbnail_worker import ThumbnailLoadResult
@@ -101,7 +102,7 @@ class TestThumbnailSelectorWidgetLoadImages:
         assert widget._explicit_path_items == []
         assert widget.thumbnail_items == []
 
-    @patch("lorairo.gui.widgets.thumbnail.QPixmap")
+    @patch("lorairo.gui.widgets.thumbnail_selector_widget.QPixmap")
     def test_load_thumbnails_from_paths_uses_direct_path(self, mock_pixmap_class, widget):
         """staging用の明示パス表示は渡されたパスを直接使用する"""
         # モックPixmapの設定
@@ -113,7 +114,7 @@ class TestThumbnailSelectorWidgetLoadImages:
 
         # GUI処理をモック化してテストを高速化
         with (
-            patch("lorairo.gui.widgets.thumbnail.ThumbnailItem") as mock_item_class,
+            patch("lorairo.gui.widgets.thumbnail_selector_widget.ThumbnailItem") as mock_item_class,
             patch.object(widget.scene, "addItem") as mock_add_item,
         ):
             mock_item = Mock()
@@ -171,7 +172,7 @@ class TestThumbnailSelectorWidgetQPixmapConversion:
             image_metadata=image_metadata,
         )
 
-    @patch("lorairo.gui.widgets.thumbnail.QPixmap")
+    @patch("lorairo.gui.widgets.thumbnail_selector_widget.QPixmap")
     def test_load_thumbnails_from_result_qimage_to_qpixmap_conversion(
         self, mock_pixmap_class, widget, mock_thumbnail_result
     ):
@@ -183,7 +184,7 @@ class TestThumbnailSelectorWidgetQPixmapConversion:
 
         # GUI処理をモック化してテストを高速化
         with (
-            patch("lorairo.gui.widgets.thumbnail.ThumbnailItem") as mock_item_class,
+            patch("lorairo.gui.widgets.thumbnail_selector_widget.ThumbnailItem") as mock_item_class,
             patch.object(widget.scene, "addItem") as mock_add_item,
             patch.object(widget.scene, "clear") as mock_clear,
             patch.object(widget.scene, "setSceneRect") as mock_set_rect,
@@ -225,7 +226,7 @@ class TestThumbnailSelectorWidgetQPixmapConversion:
         # アイテムが追加されていないことを確認
         assert len(widget.thumbnail_items) == 0
 
-    @patch("lorairo.gui.widgets.thumbnail.QPixmap")
+    @patch("lorairo.gui.widgets.thumbnail_selector_widget.QPixmap")
     def test_load_thumbnails_from_result_failed_qimage_conversion(
         self, mock_pixmap_class, widget, mock_thumbnail_result
     ):
@@ -241,7 +242,7 @@ class TestThumbnailSelectorWidgetQPixmapConversion:
         mock_pixmap_class.return_value = placeholder_pixmap
 
         with (
-            patch("lorairo.gui.widgets.thumbnail.ThumbnailItem"),
+            patch("lorairo.gui.widgets.thumbnail_selector_widget.ThumbnailItem"),
             patch.object(widget.scene, "addItem"),
             patch.object(widget.scene, "clear"),
             patch.object(widget.scene, "setSceneRect"),
@@ -331,7 +332,7 @@ class TestThumbnailSelectorWidgetLayout:
         qtbot.addWidget(widget)
         return widget
 
-    @patch("lorairo.gui.widgets.thumbnail.ThumbnailItem")
+    @patch("lorairo.gui.widgets.thumbnail_selector_widget.ThumbnailItem")
     def test_update_thumbnail_layout_uses_page_cache(self, mock_item_class, qtbot):
         """検索結果のレイアウト更新はページキャッシュから再表示する"""
         state = DatasetStateManager()
@@ -414,7 +415,7 @@ class TestThumbnailSelectorWidgetSelectionSync:
         widget, state_manager = widget_with_state
 
         # ThumbnailItemをモック
-        from lorairo.gui.widgets.thumbnail import ThumbnailItem
+        from lorairo.gui.widgets.thumbnail_item import ThumbnailItem
 
         mock_item1 = Mock(spec=ThumbnailItem)
         mock_item1.image_id = 1
@@ -461,7 +462,7 @@ class TestThumbnailSelectorWidgetSelectionSync:
         """シグナルブロッキング動作の確認"""
         widget, state_manager = widget_with_state
 
-        from lorairo.gui.widgets.thumbnail import ThumbnailItem
+        from lorairo.gui.widgets.thumbnail_item import ThumbnailItem
 
         mock_item = Mock(spec=ThumbnailItem)
         mock_item.image_id = 5
@@ -487,7 +488,7 @@ class TestThumbnailSelectorWidgetClickSelection:
     def widget_with_items(self, qtbot):
         """DatasetStateManager + ThumbnailItemsを持つウィジェット"""
         from lorairo.gui.state.dataset_state import DatasetStateManager
-        from lorairo.gui.widgets.thumbnail import ThumbnailItem
+        from lorairo.gui.widgets.thumbnail_item import ThumbnailItem
 
         state = DatasetStateManager()
         widget = ThumbnailSelectorWidget(dataset_state=state)
@@ -603,7 +604,7 @@ class TestThumbnailSelectorWidgetClickSelection:
     def test_sync_selection_with_ctrl_drag(self, widget_with_items):
         """Ctrl+ドラッグ: 既存選択に追加"""
         widget, state, _items = widget_with_items
-        from lorairo.gui.widgets.thumbnail import ThumbnailItem
+        from lorairo.gui.widgets.thumbnail_item import ThumbnailItem
 
         # まず通常選択
         state.set_selected_images([1, 2])
@@ -624,7 +625,7 @@ class TestThumbnailSelectorWidgetClickSelection:
     def test_sync_selection_with_shift_drag(self, widget_with_items):
         """Shift+ドラッグ: 既存選択に追加"""
         widget, state, _items = widget_with_items
-        from lorairo.gui.widgets.thumbnail import ThumbnailItem
+        from lorairo.gui.widgets.thumbnail_item import ThumbnailItem
 
         state.set_selected_images([1])
 

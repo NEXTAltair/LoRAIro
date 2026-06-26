@@ -5,7 +5,7 @@ from __future__ import annotations
 import pytest
 
 from lorairo.gui import theme
-from lorairo.gui.widgets.ds.ds_summary_stat import DsSummaryStat
+from lorairo.gui.widgets.ds_summary_stat import DsSummaryStat
 
 pytestmark = [pytest.mark.unit, pytest.mark.gui]
 

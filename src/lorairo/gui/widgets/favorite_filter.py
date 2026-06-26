@@ -1,4 +1,4 @@
-# src/lorairo/gui/widgets/filter_search/favorite_filter.py
+# src/lorairo/gui/widgets/favorite_filter.py
 """お気に入りフィルタ Panel (ADR 0036 §6)。
 
 保存・読込・削除ボタンと QListWidget を内包し、FavoriteFiltersService を
@@ -30,8 +30,8 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from ....gui import theme
-from ....utils.log import logger
+from ...gui import theme
+from ...utils.log import logger
 
 ConditionsGetter = Callable[[], dict[str, Any]]
 ConditionsApplier = Callable[[dict[str, Any]], None]
@@ -59,7 +59,7 @@ class FavoriteFilterPanel(QGroupBox):
         # DS v12: 保存クエリを chip 一覧で表示 (#815)。QListWidget は back-compat の
         # 隠し backing として残し (count/item/setCurrentRow が既存テスト・mediator
         # property の contract)、表示は chip FlowLayout で行う。
-        from ..tag_cloud_widget import FlowLayout
+        from .tag_cloud_widget import FlowLayout
 
         self.favorite_filters_list = QListWidget()
         self.favorite_filters_list.setMaximumHeight(150)

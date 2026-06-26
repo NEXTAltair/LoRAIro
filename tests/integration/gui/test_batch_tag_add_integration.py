@@ -14,7 +14,7 @@ from PySide6.QtWidgets import QWidget
 from lorairo.gui.services.image_db_write_service import ImageDBWriteService
 from lorairo.gui.state.dataset_state import DatasetStateManager
 from lorairo.gui.widgets.batch_tag_add_widget import BatchTagAddWidget
-from lorairo.gui.widgets.thumbnail import ThumbnailSelectorWidget
+from lorairo.gui.widgets.thumbnail_selector_widget import ThumbnailSelectorWidget
 
 
 @pytest.mark.gui
