@@ -100,13 +100,6 @@ class Ui_MainWindow(object):
         self.tabMap.setObjectName("tabMap")
         self.verticalLayout_map = QVBoxLayout(self.tabMap)
         self.verticalLayout_map.setObjectName("verticalLayout_map")
-        self.labelMapStub = QLabel(self.tabMap)
-        self.labelMapStub.setObjectName("labelMapStub")
-        self.labelMapStub.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.labelMapStub.setWordWrap(True)
-
-        self.verticalLayout_map.addWidget(self.labelMapStub)
-
         self.tabWidgetMainMode.addTab(self.tabMap, "")
         self.tabBatchTag = QWidget()
         self.tabBatchTag.setObjectName("tabBatchTag")
@@ -222,14 +215,6 @@ class Ui_MainWindow(object):
         self.tabWidgetMainMode.setTabText(
             self.tabWidgetMainMode.indexOf(self.tabWorkspace),
             QCoreApplication.translate("MainWindow", "\u691c\u7d22", None),
-        )
-        self.labelMapStub.setText(
-            QCoreApplication.translate(
-                "MainWindow",
-                "\u30de\u30c3\u30d7\u30d3\u30e5\u30fc\u306f\u672a\u5b9f\u88c5\u3067\u3059\u3002\n"
-                "embedding \u6563\u5e03\u56f3\u306b\u3088\u308b\u30c7\u30fc\u30bf\u30bb\u30c3\u30c8\u4fef\u77b0\u3092\u4e88\u5b9a\uff08Wireframes v11 \u00b7 Map / \u5b9f\u88c5\u30ed\u30fc\u30c9\u30de\u30c3\u30d7 Phase 8\uff09\u3002",
-                None,
-            )
         )
         self.tabWidgetMainMode.setTabText(
             self.tabWidgetMainMode.indexOf(self.tabMap),

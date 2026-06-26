@@ -65,22 +65,7 @@
        <attribute name="title">
         <string>マップ</string>
        </attribute>
-       <layout class="QVBoxLayout" name="verticalLayout_map">
-        <item>
-         <widget class="QLabel" name="labelMapStub">
-          <property name="text">
-           <string>マップビューは未実装です。
-embedding 散布図によるデータセット俯瞰を予定（Wireframes v11 · Map / 実装ロードマップ Phase 8）。</string>
-          </property>
-          <property name="alignment">
-           <set>Qt::AlignmentFlag::AlignCenter</set>
-          </property>
-          <property name="wordWrap">
-           <bool>true</bool>
-          </property>
-         </widget>
-        </item>
-       </layout>
+       <layout class="QVBoxLayout" name="verticalLayout_map"/>
       </widget>
       <widget class="QWidget" name="tabBatchTag">
        <attribute name="title">
