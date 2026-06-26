@@ -62,7 +62,7 @@ class TabReorganizationService:
         "groupBoxAnnotation",
     ]
 
-    # widget_setup_service が期待するプレースホルダー objectName リスト
+    # validate_tab_structure が存在を要求するプレースホルダー objectName リスト
     REQUIRED_PLACEHOLDERS: ClassVar[list[str]] = [
         "batchTagWidgetPlaceholder",
         "batchTagInputPlaceholder",
