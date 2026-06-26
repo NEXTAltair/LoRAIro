@@ -46,7 +46,7 @@ from lorairo.services.model_registry_protocol import selection_includes_webapi_m
 from lorairo.services.model_route_service import validate_api_keys_for_models
 from lorairo.services.moderation_preflight_service import (
     ModerationPreflightService,
-    build_annotation_logic_runner,
+    build_annotation_runner_runner,
 )
 from lorairo.services.service_container import get_service_container
 from lorairo.utils.log import logger
@@ -1032,16 +1032,16 @@ def run(
 
         moderation_preflight_service = None
         if should_preflight:
-            from lorairo.annotations.annotation_logic import AnnotationLogic
+            from lorairo.annotation.annotation_runner import AnnotationRunner
 
-            moderation_logic = AnnotationLogic(annotator)
+            moderation_logic = AnnotationRunner(annotator)
             moderation_preflight_service = ModerationPreflightService(
                 image_repo=container.db_manager.image_repo,
                 model_repo=container.db_manager.model_repo,
                 error_record_repo=container.db_manager.error_record_repo,
                 annotation_save_service=container.annotation_save_service,
                 config_service=config,
-                moderation_runner=build_annotation_logic_runner(moderation_logic.execute_annotation),
+                moderation_runner=build_annotation_runner_runner(moderation_logic.execute_annotation),
             )
 
         summary = _stream_annotate(

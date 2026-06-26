@@ -9,11 +9,11 @@ from lorairo.utils.log import logger
 from lorairo.utils.tools import read_text_with_fallback
 
 
-class ExistingFileReader:
+class SidecarAnnotationReader:
     """画像に関連する既存のテキストファイル (.txt, .caption) からアノテーションを読み込む。"""
 
     def __init__(self) -> None:
-        """ExistingFileReader を初期化します。"""
+        """SidecarAnnotationReader を初期化します。"""
         # TagCleaner.clean_format() is a static method, no instance needed
 
     def get_existing_annotations(self, image_path: Path) -> dict[str, Any] | None:

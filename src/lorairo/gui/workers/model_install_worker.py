@@ -17,7 +17,7 @@ from ...utils.log import logger
 from .base import CancellationError, LoRAIroWorkerBase
 
 if TYPE_CHECKING:
-    from ...annotations.annotator_adapter import AnnotatorLibraryAdapter
+    from ...annotation.annotator_adapter import AnnotatorLibraryAdapter
     from ...database.db_manager import ImageDatabaseManager
 
 

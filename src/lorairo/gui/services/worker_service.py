@@ -8,8 +8,8 @@ from typing import TYPE_CHECKING, Any
 from PIL.Image import Image
 from PySide6.QtCore import QObject, QSize, Signal
 
-from ...annotations.annotation_logic import AnnotationLogic
-from ...annotations.annotator_adapter import AnnotatorLibraryAdapter
+from ...annotation.annotation_runner import AnnotationRunner
+from ...annotation.annotator_adapter import AnnotatorLibraryAdapter
 from ...database.db_manager import ImageDatabaseManager
 from ...services.configuration_service import ConfigurationService
 from ...services.job_ledger_service import JobLedgerService, JobStatus
@@ -143,30 +143,30 @@ class WorkerService(QObject):
         self.worker_manager.active_worker_count_changed.connect(self.active_worker_count_changed)
         self.worker_manager.all_workers_finished.connect(self.all_workers_finished)
 
-        # AnnotationLogic 遅延初期化（依存関係: AnnotatorAdapter, ConfigService, DBManager）
-        self._annotation_logic: AnnotationLogic | None = None
+        # AnnotationRunner 遅延初期化（依存関係: AnnotatorAdapter, ConfigService, DBManager）
+        self._annotation_runner: AnnotationRunner | None = None
 
         logger.debug("WorkerService initialized")
 
     @property
-    def annotation_logic(self) -> AnnotationLogic:
-        """AnnotationLogic 取得（遅延初期化）
+    def annotation_runner(self) -> AnnotationRunner:
+        """AnnotationRunner 取得（遅延初期化）
 
         Returns:
-            AnnotationLogic: アノテーションビジネスロジック
+            AnnotationRunner: アノテーションビジネスロジック
         """
-        if self._annotation_logic is None:
+        if self._annotation_runner is None:
             # ServiceContainer 経由で AnnotatorAdapter 取得
             container = get_service_container()
             annotator_adapter = container.annotator_library
 
-            # AnnotationLogic インスタンス化（annotator_adapterのみ）
-            self._annotation_logic = AnnotationLogic(
+            # AnnotationRunner インスタンス化（annotator_adapterのみ）
+            self._annotation_runner = AnnotationRunner(
                 annotator_adapter=annotator_adapter,
             )
-            logger.debug("AnnotationLogic initialized in WorkerService")
+            logger.debug("AnnotationRunner initialized in WorkerService")
 
-        return self._annotation_logic
+        return self._annotation_runner
 
     # === Database Registration ===
 
@@ -259,7 +259,7 @@ class WorkerService(QObject):
 
         model_registry = get_service_container().model_registry
         worker = AnnotationWorker(
-            annotation_logic=self.annotation_logic,
+            annotation_runner=self.annotation_runner,
             image_paths=image_paths,
             litellm_model_ids=litellm_model_ids,
             db_manager=self.db_manager,

@@ -63,7 +63,7 @@ Qt依存のないビジネスロジックサービス群。CLI、GUI、API全て
 - **Boundary**: `ModerationRunner` Protocol で単一 moderation モデル実行を抽象化
 
 #### AnnotatorLibraryAdapter
-- **Path**: `src/lorairo/annotations/annotator_adapter.py`
+- **Path**: `src/lorairo/annotation/annotator_adapter.py`
 - **Class**: `AnnotatorLibraryAdapter`
 - **Purpose**: image-annotator-lib統合アダプター
 - **Providers**: OpenAI, Anthropic, Google, Local ML models

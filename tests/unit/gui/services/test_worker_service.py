@@ -1051,9 +1051,9 @@ class TestWorkerService:
 
     @patch("lorairo.gui.services.worker_service.get_service_container")
     @patch("lorairo.gui.services.worker_service.AnnotationWorker")
-    @patch.object(WorkerService, "annotation_logic", create=True)
+    @patch.object(WorkerService, "annotation_runner", create=True)
     def test_start_enhanced_batch_annotation_success(
-        self, mock_annotation_logic, mock_worker_class, mock_container, worker_service
+        self, mock_annotation_runner, mock_worker_class, mock_container, worker_service
     ):
         """バッチアノテーション開始成功テスト（新API）"""
         mock_container.return_value.model_registry.get_available_models.return_value = []
@@ -1072,7 +1072,7 @@ class TestWorkerService:
         # AnnotationWorkerが新シグネチャで初期化されたことを確認 (Issue #225: model_registry 追加)
         mock_worker_class.assert_called_once()
         kwargs = mock_worker_class.call_args.kwargs
-        assert kwargs["annotation_logic"] is worker_service.annotation_logic
+        assert kwargs["annotation_runner"] is worker_service.annotation_runner
         assert kwargs["image_paths"] == image_paths
         assert kwargs["litellm_model_ids"] == models
         assert kwargs["db_manager"] is worker_service.db_manager
@@ -1092,9 +1092,9 @@ class TestWorkerService:
 
     @patch("lorairo.gui.services.worker_service.get_service_container")
     @patch("lorairo.gui.services.worker_service.AnnotationWorker")
-    @patch.object(WorkerService, "annotation_logic", create=True)
+    @patch.object(WorkerService, "annotation_runner", create=True)
     def test_dry_run_bypasses_model_install_and_gpu_queue(
-        self, mock_annotation_logic, mock_worker_class, mock_container, worker_service
+        self, mock_annotation_runner, mock_worker_class, mock_container, worker_service
     ):
         """Issue #803 (Codex P2): dry-run は model-install / GPU キューを介さず worker を直接起動する。"""
         from lorairo.gui.widgets.run_settings_dialog import RunOptions
@@ -1126,9 +1126,9 @@ class TestWorkerService:
 
     @patch("lorairo.gui.services.worker_service.get_service_container")
     @patch("lorairo.gui.services.worker_service.AnnotationWorker")
-    @patch.object(WorkerService, "annotation_logic", create=True)
+    @patch.object(WorkerService, "annotation_runner", create=True)
     def test_start_enhanced_batch_annotation_failure_keeps_current_worker_id(
-        self, mock_annotation_logic, mock_worker_class, mock_container, worker_service
+        self, mock_annotation_runner, mock_worker_class, mock_container, worker_service
     ):
         """アノテーション開始失敗時に current_annotation_worker_id を上書きしない"""
         mock_container.return_value.model_registry.get_available_models.return_value = []
@@ -1279,7 +1279,7 @@ class TestWorkerService:
 
 @patch("lorairo.gui.services.worker_service.get_service_container")
 @patch("lorairo.gui.services.worker_service.AnnotationWorker")
-@patch.object(WorkerService, "annotation_logic", create=True)
+@patch.object(WorkerService, "annotation_runner", create=True)
 class TestGpuSerialQueue:
     """ローカル GPU 推論ジョブの直列キュー (ADR 0066 §6) のユニットテスト。
 
@@ -1330,7 +1330,7 @@ class TestGpuSerialQueue:
         )
 
     def test_local_model_job_starts_immediately_when_gpu_idle(
-        self, mock_annotation_logic, mock_worker_class, mock_container, worker_service
+        self, mock_annotation_runner, mock_worker_class, mock_container, worker_service
     ):
         """GPU アイドル時のローカル ML ジョブは即起動し GPU slot を占有する"""
         started_ids = self._setup(mock_container, mock_worker_class, worker_service)
@@ -1344,7 +1344,7 @@ class TestGpuSerialQueue:
         assert worker_service.job_ledger.get(worker_id).status is JobStatus.RUNNING
 
     def test_second_local_job_queued_while_gpu_active(
-        self, mock_annotation_logic, mock_worker_class, mock_container, worker_service
+        self, mock_annotation_runner, mock_worker_class, mock_container, worker_service
     ):
         """GPU ジョブ実行中の追加ローカル ML ジョブは queued で待機する"""
         started_ids = self._setup(mock_container, mock_worker_class, worker_service)
@@ -1367,7 +1367,7 @@ class TestGpuSerialQueue:
         assert [job.worker_id for job in worker_service._gpu_queue] == [second_id]
 
     def test_api_only_job_runs_parallel_while_gpu_active(
-        self, mock_annotation_logic, mock_worker_class, mock_container, worker_service
+        self, mock_annotation_runner, mock_worker_class, mock_container, worker_service
     ):
         """API 系のみのジョブは GPU ジョブ実行中でも並列起動する (ADR 0066 §6)"""
         started_ids = self._setup(mock_container, mock_worker_class, worker_service)
@@ -1394,7 +1394,7 @@ class TestGpuSerialQueue:
     )
     def test_queued_job_autostarts_after_active_terminal(
         self,
-        mock_annotation_logic,
+        mock_annotation_runner,
         mock_worker_class,
         mock_container,
         worker_service,
@@ -1427,7 +1427,7 @@ class TestGpuSerialQueue:
         assert worker_service.job_ledger.get(first_id).status.is_terminal
 
     def test_cancel_queued_job_is_immediately_canceled(
-        self, mock_annotation_logic, mock_worker_class, mock_container, worker_service
+        self, mock_annotation_runner, mock_worker_class, mock_container, worker_service
     ):
         """queued ジョブのキャンセルは実行前に即時 canceled で終端する"""
         started_ids = self._setup(mock_container, mock_worker_class, worker_service)
@@ -1455,7 +1455,7 @@ class TestGpuSerialQueue:
         assert worker_service._gpu_active_worker_id is None
 
     def test_cancel_job_cancels_queued_entry(
-        self, mock_annotation_logic, mock_worker_class, mock_container, worker_service
+        self, mock_annotation_runner, mock_worker_class, mock_container, worker_service
     ):
         """Jobs タブ行アクションの cancel_job でも queued ジョブを即時取り消せる"""
         self._setup(mock_container, mock_worker_class, worker_service)
@@ -1471,7 +1471,7 @@ class TestGpuSerialQueue:
         worker_service.worker_manager.cancel_worker.assert_not_called()
 
     def test_cancel_all_workers_flushes_gpu_queue(
-        self, mock_annotation_logic, mock_worker_class, mock_container, worker_service
+        self, mock_annotation_runner, mock_worker_class, mock_container, worker_service
     ):
         """cancel_all_workers は待機ジョブも SHUTDOWN 理由で取り消す"""
         self._setup(mock_container, mock_worker_class, worker_service)
@@ -1491,7 +1491,7 @@ class TestGpuSerialQueue:
         )
 
     def test_gpu_slot_cleared_when_start_fails(
-        self, mock_annotation_logic, mock_worker_class, mock_container, worker_service
+        self, mock_annotation_runner, mock_worker_class, mock_container, worker_service
     ):
         """GPU ジョブの起動失敗時は slot を解放して例外を伝播する"""
         self._setup(mock_container, mock_worker_class, worker_service)
@@ -1506,7 +1506,7 @@ class TestGpuSerialQueue:
         assert worker_service._gpu_active_worker_id is None
 
     def test_queued_job_start_failure_marks_failed_and_starts_next(
-        self, mock_annotation_logic, mock_worker_class, mock_container, worker_service
+        self, mock_annotation_runner, mock_worker_class, mock_container, worker_service
     ):
         """待機ジョブの起動失敗は台帳 failed で確定し、次の待機ジョブを起動する"""
         started_ids = self._setup(mock_container, mock_worker_class, worker_service)
@@ -1541,7 +1541,7 @@ class TestGpuSerialQueue:
         assert worker_service.job_ledger.get(third_id).status is JobStatus.RUNNING
 
     def test_unresponsive_terminal_keeps_gpu_slot(
-        self, mock_annotation_logic, mock_worker_class, mock_container, worker_service
+        self, mock_annotation_runner, mock_worker_class, mock_container, worker_service
     ):
         """UNRESPONSIVE 終端では VRAM 解放が未確認のため次ジョブを起動しない"""
         started_ids = self._setup(mock_container, mock_worker_class, worker_service)
@@ -1564,7 +1564,7 @@ class TestGpuSerialQueue:
 @patch("lorairo.gui.services.worker_service.get_service_container")
 @patch("lorairo.gui.services.worker_service.ModelInstallWorker")
 @patch("lorairo.gui.services.worker_service.AnnotationWorker")
-@patch.object(WorkerService, "annotation_logic", create=True)
+@patch.object(WorkerService, "annotation_runner", create=True)
 class TestModelInstallChain:
     """model_install ジョブの前段連結 (Issue #754, ADR 0066 §5) のユニットテスト。
 
@@ -1613,7 +1613,7 @@ class TestModelInstallChain:
 
     def test_missing_model_starts_install_first_and_queues_annotation(
         self,
-        mock_annotation_logic,
+        mock_annotation_runner,
         mock_annotation_worker_class,
         mock_install_worker_class,
         mock_container,
@@ -1645,7 +1645,7 @@ class TestModelInstallChain:
 
     def test_installed_models_skip_install_job(
         self,
-        mock_annotation_logic,
+        mock_annotation_runner,
         mock_annotation_worker_class,
         mock_install_worker_class,
         mock_container,
@@ -1667,7 +1667,7 @@ class TestModelInstallChain:
 
     def test_api_only_selection_does_not_query_installer(
         self,
-        mock_annotation_logic,
+        mock_annotation_runner,
         mock_annotation_worker_class,
         mock_install_worker_class,
         mock_container,
@@ -1685,7 +1685,7 @@ class TestModelInstallChain:
 
     def test_install_success_autostarts_chained_annotation(
         self,
-        mock_annotation_logic,
+        mock_annotation_runner,
         mock_annotation_worker_class,
         mock_install_worker_class,
         mock_container,
@@ -1717,7 +1717,7 @@ class TestModelInstallChain:
     )
     def test_install_failure_or_cancel_cancels_chained_annotation(
         self,
-        mock_annotation_logic,
+        mock_annotation_runner,
         mock_annotation_worker_class,
         mock_install_worker_class,
         mock_container,
@@ -1753,7 +1753,7 @@ class TestModelInstallChain:
 
     def test_install_queued_behind_running_gpu_job(
         self,
-        mock_annotation_logic,
+        mock_annotation_runner,
         mock_annotation_worker_class,
         mock_install_worker_class,
         mock_container,
@@ -1798,7 +1798,7 @@ class TestModelInstallChain:
 
     def test_install_progress_updates_ledger_summary(
         self,
-        mock_annotation_logic,
+        mock_annotation_runner,
         mock_annotation_worker_class,
         mock_install_worker_class,
         mock_container,
@@ -1826,7 +1826,7 @@ class TestModelInstallChain:
 
     def test_user_cancel_of_running_install_via_cancel_job(
         self,
-        mock_annotation_logic,
+        mock_annotation_runner,
         mock_annotation_worker_class,
         mock_install_worker_class,
         mock_container,

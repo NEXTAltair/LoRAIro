@@ -9,7 +9,7 @@ import os
 from typing import TYPE_CHECKING, Any, Optional
 
 if TYPE_CHECKING:
-    from lorairo.annotations.annotator_adapter import AnnotatorLibraryAdapter
+    from lorairo.annotation.annotator_adapter import AnnotatorLibraryAdapter
     from lorairo.services.annotation_save_service import AnnotationSaveService
     from lorairo.services.provider_batch_workflow_service import ProviderBatchWorkflowService
     from lorairo.services.signal_manager_protocol import SignalManagerServiceProtocol
@@ -213,7 +213,7 @@ class ServiceContainer:
         Phase 4: image-annotator-lib統合アダプター
         """
         if self._annotator_library is None:
-            from lorairo.annotations.annotator_adapter import AnnotatorLibraryAdapter
+            from lorairo.annotation.annotator_adapter import AnnotatorLibraryAdapter
 
             self._annotator_library = AnnotatorLibraryAdapter(self.config_service)
             logger.info("AnnotatorLibraryAdapter初期化完了（Phase 4統合）")

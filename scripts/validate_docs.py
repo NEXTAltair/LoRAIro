@@ -158,8 +158,8 @@ class DocValidator:
             "src/lorairo/database/repository/model.py",
             "src/lorairo/database/repository/provider_batch.py",
             "src/lorairo/services/tag_management_service.py",
-            "src/lorairo/annotations/annotator_adapter.py",
-            "src/lorairo/annotations/annotation_logic.py",
+            "src/lorairo/annotation/annotator_adapter.py",
+            "src/lorairo/annotation/annotation_runner.py",
         ]
 
         missing_files = []

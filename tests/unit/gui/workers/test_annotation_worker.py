@@ -1,7 +1,7 @@
 """AnnotationWorkerユニットテスト
 
 Phase 7で再設計された3層アーキテクチャに対応:
-- AnnotationLogic依存注入
+- AnnotationRunner依存注入
 - image_paths/modelsインターフェース
 - 進捗報告・キャンセル処理
 - AnnotationExecutionResult サマリー付き戻り値
@@ -21,8 +21,8 @@ from lorairo.gui.workers.base import CancellationError
 
 
 @pytest.fixture
-def mock_annotation_logic():
-    """AnnotationLogicのモック"""
+def mock_annotation_runner():
+    """AnnotationRunnerのモック"""
     logic = Mock()
     logic.execute_annotation.return_value = {
         "test_phash": {
@@ -47,28 +47,28 @@ def mock_model_registry():
 class TestAnnotationWorkerInitialization:
     """AnnotationWorker初期化テスト"""
 
-    def test_initialization_with_annotation_logic(self, mock_annotation_logic, mock_model_registry):
+    def test_initialization_with_annotation_runner(self, mock_annotation_runner, mock_model_registry):
         """正常な初期化テスト"""
         image_paths = ["/path/to/image1.jpg", "/path/to/image2.jpg"]
         models = ["gpt-4o-mini"]
         mock_db_manager = Mock()
 
         worker = AnnotationWorker(
-            annotation_logic=mock_annotation_logic,
+            annotation_runner=mock_annotation_runner,
             image_paths=image_paths,
             litellm_model_ids=models,
             db_manager=mock_db_manager,
             model_registry=mock_model_registry,
         )
 
-        assert worker.annotation_logic is mock_annotation_logic
+        assert worker.annotation_runner is mock_annotation_runner
         assert worker.image_paths == image_paths
         assert worker.litellm_model_ids == models
         assert worker.db_manager is mock_db_manager
         assert worker.model_registry is mock_model_registry
 
     def test_initialization_keeps_model_ids_without_legacy_filter(
-        self, mock_annotation_logic, mock_model_registry
+        self, mock_annotation_runner, mock_model_registry
     ):
         """ADR 0033: Worker は legacy sentinel 互換フィルタを持たず入力IDを保持する。"""
         image_paths = ["/path/to/image1.jpg"]
@@ -76,7 +76,7 @@ class TestAnnotationWorkerInitialization:
         mock_db_manager = Mock()
 
         worker = AnnotationWorker(
-            annotation_logic=mock_annotation_logic,
+            annotation_runner=mock_annotation_runner,
             image_paths=image_paths,
             litellm_model_ids=models,
             db_manager=mock_db_manager,
@@ -89,7 +89,7 @@ class TestAnnotationWorkerInitialization:
 class TestAnnotationWorkerExecute:
     """AnnotationWorker execute()テスト"""
 
-    def test_execute_success_single_model(self, mock_annotation_logic, mock_model_registry):
+    def test_execute_success_single_model(self, mock_annotation_runner, mock_model_registry):
         """単一モデルでの正常実行"""
         image_paths = ["/path/to/image1.jpg", "/path/to/image2.jpg"]
         models = ["gpt-4o-mini"]
@@ -104,7 +104,7 @@ class TestAnnotationWorkerExecute:
         mock_db_manager.annotation_repo.save_annotations = Mock()
 
         worker = AnnotationWorker(
-            annotation_logic=mock_annotation_logic,
+            annotation_runner=mock_annotation_runner,
             image_paths=image_paths,
             litellm_model_ids=models,
             db_manager=mock_db_manager,
@@ -113,7 +113,7 @@ class TestAnnotationWorkerExecute:
 
         result = worker.execute()
 
-        mock_annotation_logic.execute_annotation.assert_called_once_with(
+        mock_annotation_runner.execute_annotation.assert_called_once_with(
             image_paths=image_paths,
             litellm_model_ids=["gpt-4o-mini"],
             phash_list=None,
@@ -127,7 +127,7 @@ class TestAnnotationWorkerExecute:
         assert result.db_save_success == 1
         assert result.model_errors == []
 
-    def test_execute_success_multiple_models(self, mock_annotation_logic, mock_model_registry):
+    def test_execute_success_multiple_models(self, mock_annotation_runner, mock_model_registry):
         """複数モデルでの正常実行（結果マージ確認）"""
         image_paths = ["/path/to/image.jpg"]
         models = ["gpt-4o-mini", "claude-3-haiku-20240307"]
@@ -141,7 +141,7 @@ class TestAnnotationWorkerExecute:
         }
         mock_db_manager.annotation_repo.save_annotations = Mock()
 
-        mock_annotation_logic.execute_annotation.return_value = {
+        mock_annotation_runner.execute_annotation.return_value = {
             "phash1": {
                 "gpt-4o-mini": {
                     "tags": ["cat"],
@@ -157,7 +157,7 @@ class TestAnnotationWorkerExecute:
         }
 
         worker = AnnotationWorker(
-            annotation_logic=mock_annotation_logic,
+            annotation_runner=mock_annotation_runner,
             image_paths=image_paths,
             litellm_model_ids=models,
             db_manager=mock_db_manager,
@@ -166,7 +166,7 @@ class TestAnnotationWorkerExecute:
 
         result = worker.execute()
 
-        mock_annotation_logic.execute_annotation.assert_called_once_with(
+        mock_annotation_runner.execute_annotation.assert_called_once_with(
             image_paths=image_paths,
             litellm_model_ids=models,
             phash_list=None,
@@ -180,7 +180,7 @@ class TestAnnotationWorkerExecute:
         assert result.models_used == ["gpt-4o-mini", "claude-3-haiku-20240307"]
 
     def test_execute_bulk_model_iteration_checks_cancellation_between_models(
-        self, mock_annotation_logic, mock_model_registry
+        self, mock_annotation_runner, mock_model_registry
     ):
         """一括実行でも lib 内部のモデル間 iteration でキャンセルを検知する。"""
         image_paths = ["/path/to/image.jpg"]
@@ -190,7 +190,7 @@ class TestAnnotationWorkerExecute:
         mock_db_manager.image_repo.get_phashes_by_filepaths.return_value = {}
 
         worker = AnnotationWorker(
-            annotation_logic=mock_annotation_logic,
+            annotation_runner=mock_annotation_runner,
             image_paths=image_paths,
             litellm_model_ids=models,
             db_manager=mock_db_manager,
@@ -205,17 +205,17 @@ class TestAnnotationWorkerExecute:
                 worker.cancel()
             return {}
 
-        mock_annotation_logic.execute_annotation.side_effect = execute_annotation
+        mock_annotation_runner.execute_annotation.side_effect = execute_annotation
 
         with pytest.raises(CancellationError):
             worker.execute()
 
         assert processed_models == ["model-a"]
-        mock_annotation_logic.execute_annotation.assert_called_once()
+        mock_annotation_runner.execute_annotation.assert_called_once()
         mock_db_manager.save_error_record.assert_not_called()
 
     def test_execute_does_not_filter_legacy_sentinel_models(
-        self, mock_annotation_logic, mock_model_registry
+        self, mock_annotation_runner, mock_model_registry
     ):
         """ADR 0033: Worker 実行時も legacy sentinel 互換フィルタを持たない。"""
         image_paths = ["/path/to/image.jpg"]
@@ -228,7 +228,7 @@ class TestAnnotationWorkerExecute:
         mock_db_manager.annotation_repo.save_annotations = Mock()
 
         worker = AnnotationWorker(
-            annotation_logic=mock_annotation_logic,
+            annotation_runner=mock_annotation_runner,
             image_paths=image_paths,
             litellm_model_ids=models,
             db_manager=mock_db_manager,
@@ -236,12 +236,12 @@ class TestAnnotationWorkerExecute:
         )
         result = worker.execute()
 
-        mock_annotation_logic.execute_annotation.assert_called_once()
+        mock_annotation_runner.execute_annotation.assert_called_once()
         assert result.models_used == models
-        call_kwargs = mock_annotation_logic.execute_annotation.call_args.kwargs
+        call_kwargs = mock_annotation_runner.execute_annotation.call_args.kwargs
         assert call_kwargs["litellm_model_ids"] == models
 
-    def test_execute_model_error_partial_success(self, mock_annotation_logic, mock_model_registry):
+    def test_execute_model_error_partial_success(self, mock_annotation_runner, mock_model_registry):
         """モデルエラー時の部分的成功"""
         image_paths = ["/path/to/image.jpg"]
         models = ["gpt-4o-mini", "claude-3-haiku-20240307", "gemini-1.5-flash-latest"]
@@ -256,7 +256,7 @@ class TestAnnotationWorkerExecute:
         mock_db_manager.annotation_repo.save_annotations = Mock()
         mock_db_manager.get_image_id_by_filepath.return_value = 1
 
-        mock_annotation_logic.execute_annotation.side_effect = [
+        mock_annotation_runner.execute_annotation.side_effect = [
             RuntimeError("bulk call failed"),
             {"phash1": {"gpt-4o-mini": {"tags": ["cat"], "formatted_output": {}, "error": None}}},
             RuntimeError("API Error"),
@@ -268,7 +268,7 @@ class TestAnnotationWorkerExecute:
         ]
 
         worker = AnnotationWorker(
-            annotation_logic=mock_annotation_logic,
+            annotation_runner=mock_annotation_runner,
             image_paths=image_paths,
             litellm_model_ids=models,
             db_manager=mock_db_manager,
@@ -277,8 +277,8 @@ class TestAnnotationWorkerExecute:
 
         result = worker.execute()
 
-        assert mock_annotation_logic.execute_annotation.call_count == 4
-        bulk_call_kwargs = mock_annotation_logic.execute_annotation.call_args_list[0].kwargs
+        assert mock_annotation_runner.execute_annotation.call_count == 4
+        bulk_call_kwargs = mock_annotation_runner.execute_annotation.call_args_list[0].kwargs
         assert bulk_call_kwargs["litellm_model_ids"] == models
 
         assert isinstance(result, AnnotationExecutionResult)
@@ -293,7 +293,7 @@ class TestAnnotationWorkerExecute:
         assert result.model_errors[0].error_type == "lib_call_exception"
 
     def test_execute_collects_l1_result_error_without_error_record(
-        self, mock_annotation_logic, mock_model_registry
+        self, mock_annotation_runner, mock_model_registry
     ):
         """ADR 0033 L1: lib result.error は error_records に保存せず summary/statistics に載せる。"""
         image_paths = ["/path/to/image.jpg"]
@@ -305,7 +305,7 @@ class TestAnnotationWorkerExecute:
         mock_db_manager.annotation_repo.save_annotations = Mock()
         mock_db_manager.image_repo.get_phashes_by_filepaths.return_value = {}
 
-        mock_annotation_logic.execute_annotation.return_value = {
+        mock_annotation_runner.execute_annotation.return_value = {
             "phash1": {
                 "model-a": {"tags": [], "error": "rate_limited"},
                 "model-b": {"tags": ["cat"], "formatted_output": {}, "error": None},
@@ -313,7 +313,7 @@ class TestAnnotationWorkerExecute:
         }
 
         worker = AnnotationWorker(
-            annotation_logic=mock_annotation_logic,
+            annotation_runner=mock_annotation_runner,
             image_paths=image_paths,
             litellm_model_ids=models,
             db_manager=mock_db_manager,
@@ -330,7 +330,7 @@ class TestAnnotationWorkerExecute:
         assert result.model_errors[0].error_type == "result_error"
 
     def test_execute_records_integrity_violation_for_unexpected_model(
-        self, mock_annotation_logic, mock_model_registry
+        self, mock_annotation_runner, mock_model_registry
     ):
         """ADR 0033 integrity: 選択外 model_id が混入した結果は保存対象外で記録する。"""
         image_paths = ["/path/to/image.jpg"]
@@ -343,12 +343,12 @@ class TestAnnotationWorkerExecute:
         mock_db_manager.image_repo.get_phashes_by_filepaths.return_value = {"/path/to/image.jpg": "phash1"}
         mock_db_manager.get_image_id_by_filepath.return_value = 1
 
-        mock_annotation_logic.execute_annotation.return_value = {
+        mock_annotation_runner.execute_annotation.return_value = {
             "phash1": {"unknown-model": {"tags": ["cat"], "error": None}}
         }
 
         worker = AnnotationWorker(
-            annotation_logic=mock_annotation_logic,
+            annotation_runner=mock_annotation_runner,
             image_paths=image_paths,
             litellm_model_ids=models,
             db_manager=mock_db_manager,
@@ -365,8 +365,8 @@ class TestAnnotationWorkerExecute:
         assert call_kwargs["error_type"] == "integrity_violation"
         assert call_kwargs["model_name"] == "unknown-model"
 
-    def test_execute_passes_registered_phash_list(self, mock_annotation_logic, mock_model_registry):
-        """登録済み画像は DB pHash を input order で AnnotationLogic に渡す。"""
+    def test_execute_passes_registered_phash_list(self, mock_annotation_runner, mock_model_registry):
+        """登録済み画像は DB pHash を input order で AnnotationRunner に渡す。"""
         image_paths = ["/path/to/a.jpg", "/path/to/b.jpg"]
         models = ["model-a"]
 
@@ -378,12 +378,12 @@ class TestAnnotationWorkerExecute:
             "/path/to/a.jpg": "phash-a",
             "/path/to/b.jpg": "phash-b",
         }
-        mock_annotation_logic.execute_annotation.return_value = {
+        mock_annotation_runner.execute_annotation.return_value = {
             "phash-a": {"model-a": {"tags": ["cat"], "error": None}}
         }
 
         worker = AnnotationWorker(
-            annotation_logic=mock_annotation_logic,
+            annotation_runner=mock_annotation_runner,
             image_paths=image_paths,
             litellm_model_ids=models,
             db_manager=mock_db_manager,
@@ -392,10 +392,10 @@ class TestAnnotationWorkerExecute:
 
         worker.execute()
 
-        called_kwargs = mock_annotation_logic.execute_annotation.call_args.kwargs
+        called_kwargs = mock_annotation_runner.execute_annotation.call_args.kwargs
         assert called_kwargs["phash_list"] == ["phash-a", "phash-b"]
 
-    def test_execute_all_models_fail(self, mock_annotation_logic, mock_model_registry):
+    def test_execute_all_models_fail(self, mock_annotation_runner, mock_model_registry):
         """全モデルエラー時（空結果）"""
         image_paths = ["/path/to/image.jpg"]
         models = ["gpt-4o-mini", "claude-3-haiku-20240307"]
@@ -407,14 +407,14 @@ class TestAnnotationWorkerExecute:
         mock_db_manager.annotation_repo.save_annotations = Mock()
         mock_db_manager.get_image_id_by_filepath.return_value = 1
 
-        mock_annotation_logic.execute_annotation.side_effect = [
+        mock_annotation_runner.execute_annotation.side_effect = [
             RuntimeError("bulk call failed"),
             RuntimeError("API Error 1"),
             RuntimeError("API Error 2"),
         ]
 
         worker = AnnotationWorker(
-            annotation_logic=mock_annotation_logic,
+            annotation_runner=mock_annotation_runner,
             image_paths=image_paths,
             litellm_model_ids=models,
             db_manager=mock_db_manager,
@@ -430,7 +430,7 @@ class TestAnnotationWorkerExecute:
 
         assert len(result.model_errors) == 2
 
-    def test_save_uses_batch_queries(self, mock_annotation_logic, mock_model_registry):
+    def test_save_uses_batch_queries(self, mock_annotation_runner, mock_model_registry):
         """DB保存がバッチクエリを使用すること（個別phashルックアップなし）"""
         image_paths = ["/path/to/image.jpg"]
         models = ["gpt-4o-mini"]
@@ -443,7 +443,7 @@ class TestAnnotationWorkerExecute:
         mock_db_manager.annotation_repo.save_annotations = Mock()
 
         worker = AnnotationWorker(
-            annotation_logic=mock_annotation_logic,
+            annotation_runner=mock_annotation_runner,
             image_paths=image_paths,
             litellm_model_ids=models,
             db_manager=mock_db_manager,
@@ -468,10 +468,10 @@ class TestAnnotationWorkerExecute:
 class TestExtractField:
     """_extract_fieldの辞書/Pydanticモデル両対応テスト"""
 
-    def test_extract_field_from_dict(self, mock_annotation_logic, mock_model_registry):
+    def test_extract_field_from_dict(self, mock_annotation_runner, mock_model_registry):
         """辞書からフィールドを取得できる。"""
         worker = AnnotationWorker(
-            annotation_logic=mock_annotation_logic,
+            annotation_runner=mock_annotation_runner,
             image_paths=[],
             litellm_model_ids=[],
             db_manager=Mock(),
@@ -482,10 +482,10 @@ class TestExtractField:
         assert worker._extract_field(data, "error") is None
         assert worker._extract_field(data, "nonexistent") is None
 
-    def test_extract_field_from_object(self, mock_annotation_logic, mock_model_registry):
+    def test_extract_field_from_object(self, mock_annotation_runner, mock_model_registry):
         """オブジェクトからフィールドを取得できる。"""
         worker = AnnotationWorker(
-            annotation_logic=mock_annotation_logic,
+            annotation_runner=mock_annotation_runner,
             image_paths=[],
             litellm_model_ids=[],
             db_manager=Mock(),
@@ -611,7 +611,7 @@ class TestBuildImageSummary:
 class TestBuildPhashToFilenameMap:
     """_build_phash_to_filename_map の filename 解決テスト"""
 
-    def test_uses_batch_path_lookup_once(self, mock_annotation_logic, mock_model_registry):
+    def test_uses_batch_path_lookup_once(self, mock_annotation_runner, mock_model_registry):
         """summary filename 解決は path の batch lookup を1回だけ使う。"""
         mock_db = Mock()
         mock_db.image_repo.get_image_ids_by_filepaths.return_value = {
@@ -619,7 +619,7 @@ class TestBuildPhashToFilenameMap:
             "/images/dog.png": 20,
         }
         worker = AnnotationWorker(
-            annotation_logic=mock_annotation_logic,
+            annotation_runner=mock_annotation_runner,
             image_paths=["/images/cat.png", "/images/dog.png"],
             litellm_model_ids=[],
             db_manager=mock_db,
@@ -634,12 +634,12 @@ class TestBuildPhashToFilenameMap:
         )
         mock_db.get_image_id_by_filepath.assert_not_called()
 
-    def test_unresolved_phash_uses_short_fallback(self, mock_annotation_logic, mock_model_registry):
+    def test_unresolved_phash_uses_short_fallback(self, mock_annotation_runner, mock_model_registry):
         """image_id が input path に対応しない pHash は短縮 fallback 表示にする。"""
         mock_db = Mock()
         mock_db.image_repo.get_image_ids_by_filepaths.return_value = {"/images/cat.png": 10}
         worker = AnnotationWorker(
-            annotation_logic=mock_annotation_logic,
+            annotation_runner=mock_annotation_runner,
             image_paths=["/images/cat.png"],
             litellm_model_ids=[],
             db_manager=mock_db,
@@ -659,11 +659,11 @@ class TestBuildPhashToFilenameMap:
 class TestSaveErrorRecords:
     """_save_error_recordsのエッジケーステスト"""
 
-    def test_save_error_records_empty_paths(self, mock_annotation_logic, mock_model_registry):
+    def test_save_error_records_empty_paths(self, mock_annotation_runner, mock_model_registry):
         """空のimage_pathsでは何も保存されない。"""
         mock_db = Mock()
         worker = AnnotationWorker(
-            annotation_logic=mock_annotation_logic,
+            annotation_runner=mock_annotation_runner,
             image_paths=[],
             litellm_model_ids=[],
             db_manager=mock_db,
@@ -672,12 +672,12 @@ class TestSaveErrorRecords:
         worker._save_error_records(Exception("test"), [], model_name="test-model")
         mock_db.save_error_record.assert_not_called()
 
-    def test_save_error_records_with_none_image_id(self, mock_annotation_logic, mock_model_registry):
+    def test_save_error_records_with_none_image_id(self, mock_annotation_runner, mock_model_registry):
         """image_idがNoneでもエラーレコードは保存される。"""
         mock_db = Mock()
         mock_db.get_image_id_by_filepath.return_value = None
         worker = AnnotationWorker(
-            annotation_logic=mock_annotation_logic,
+            annotation_runner=mock_annotation_runner,
             image_paths=["/test/img.jpg"],
             litellm_model_ids=[],
             db_manager=mock_db,
@@ -690,12 +690,14 @@ class TestSaveErrorRecords:
         assert call_kwargs["model_name"] == "m1"
         assert call_kwargs["error_type"] == "ValueError"
 
-    def test_save_error_records_secondary_error_continues(self, mock_annotation_logic, mock_model_registry):
+    def test_save_error_records_secondary_error_continues(
+        self, mock_annotation_runner, mock_model_registry
+    ):
         """二次エラーが発生しても残りのパスの処理が続行される。"""
         mock_db = Mock()
         mock_db.get_image_id_by_filepath.side_effect = [RuntimeError("db error"), 42]
         worker = AnnotationWorker(
-            annotation_logic=mock_annotation_logic,
+            annotation_runner=mock_annotation_runner,
             image_paths=["/img1.jpg", "/img2.jpg"],
             litellm_model_ids=[],
             db_manager=mock_db,
@@ -705,13 +707,13 @@ class TestSaveErrorRecords:
         assert mock_db.save_error_record.call_count == 1
 
     def test_save_error_records_model_name_none_for_overall_error(
-        self, mock_annotation_logic, mock_model_registry
+        self, mock_annotation_runner, mock_model_registry
     ):
         """全体エラー時にmodel_name=Noneで保存される。"""
         mock_db = Mock()
         mock_db.get_image_id_by_filepath.return_value = 1
         worker = AnnotationWorker(
-            annotation_logic=mock_annotation_logic,
+            annotation_runner=mock_annotation_runner,
             image_paths=["/test/img.jpg"],
             litellm_model_ids=[],
             db_manager=mock_db,
@@ -731,9 +733,9 @@ class TestApplyRefusalPrefilter:
     """
 
     @staticmethod
-    def _make_worker(mock_annotation_logic, image_paths, models, db_manager, model_registry):
+    def _make_worker(mock_annotation_runner, image_paths, models, db_manager, model_registry):
         return AnnotationWorker(
-            annotation_logic=mock_annotation_logic,
+            annotation_runner=mock_annotation_runner,
             image_paths=image_paths,
             litellm_model_ids=models,
             db_manager=db_manager,
@@ -767,7 +769,7 @@ class TestApplyRefusalPrefilter:
         monkeypatch.setattr(aw_mod, "ModerationPreflightService", lambda **kwargs: preflight)
         return preflight
 
-    def test_filter_applied_when_webapi_model_selected(self, mock_annotation_logic, monkeypatch):
+    def test_filter_applied_when_webapi_model_selected(self, mock_annotation_runner, monkeypatch):
         """WebAPI モデル選択時は filter が適用され image_paths が更新される。"""
         from lorairo.gui.workers import annotation_worker as aw_mod
 
@@ -783,7 +785,7 @@ class TestApplyRefusalPrefilter:
         self._patch_preflight(monkeypatch, aw_mod, ["/path/img1.jpg"])
 
         worker = self._make_worker(
-            mock_annotation_logic,
+            mock_annotation_runner,
             ["/path/img1.jpg", "/path/img2.jpg"],
             ["openai/gpt-4o"],
             mock_db,
@@ -799,7 +801,7 @@ class TestApplyRefusalPrefilter:
         # image_paths が filter 結果で置換された
         assert worker.image_paths == ["/path/img1.jpg"]
 
-    def test_filter_applied_for_webapi_then_rating_filter(self, mock_annotation_logic, monkeypatch):
+    def test_filter_applied_for_webapi_then_rating_filter(self, mock_annotation_runner, monkeypatch):
         """WebAPI 選択時は refusal / rating の両 filter が順次適用される。"""
         from lorairo.gui.workers import annotation_worker as aw_mod
 
@@ -816,7 +818,7 @@ class TestApplyRefusalPrefilter:
         self._patch_preflight(monkeypatch, aw_mod, ["/path/img1.jpg"])
 
         worker = self._make_worker(
-            mock_annotation_logic,
+            mock_annotation_runner,
             ["/path/img1.jpg", "/path/img2.jpg", "/path/img3.jpg"],
             ["openai/gpt-4o"],
             mock_db,
@@ -832,7 +834,7 @@ class TestApplyRefusalPrefilter:
         )
         assert worker.image_paths == ["/path/img1.jpg"]
 
-    def test_filter_skipped_for_local_only_selection(self, mock_annotation_logic, monkeypatch):
+    def test_filter_skipped_for_local_only_selection(self, mock_annotation_runner, monkeypatch):
         """ローカルモデル単独選択時は filter スキップ (Codex P1 回帰防止)。"""
         from lorairo.gui.workers import annotation_worker as aw_mod
 
@@ -846,7 +848,7 @@ class TestApplyRefusalPrefilter:
         monkeypatch.setattr(aw_mod, "AnnotationSaveService", lambda **kwargs: mock_save_service)
 
         worker = self._make_worker(
-            mock_annotation_logic,
+            mock_annotation_runner,
             ["/path/img1.jpg", "/path/img2.jpg"],
             ["wd-v1-4-tagger"],
             mock_db,
@@ -860,7 +862,7 @@ class TestApplyRefusalPrefilter:
         # image_paths は変更されない
         assert worker.image_paths == ["/path/img1.jpg", "/path/img2.jpg"]
 
-    def test_filter_skipped_when_registry_lookup_raises(self, mock_annotation_logic, monkeypatch):
+    def test_filter_skipped_when_registry_lookup_raises(self, mock_annotation_runner, monkeypatch):
         """registry 例外時は filter skip + annotation 続行 (Codex P2 回帰防止)。"""
         from lorairo.gui.workers import annotation_worker as aw_mod
 
@@ -874,7 +876,7 @@ class TestApplyRefusalPrefilter:
         monkeypatch.setattr(aw_mod, "AnnotationSaveService", lambda **kwargs: mock_save_service)
 
         worker = self._make_worker(
-            mock_annotation_logic,
+            mock_annotation_runner,
             ["/path/img1.jpg"],
             ["openai/gpt-4o"],
             mock_db,
@@ -886,7 +888,7 @@ class TestApplyRefusalPrefilter:
         # registry 失敗時 image_paths は元のまま (graceful degradation)
         assert worker.image_paths == ["/path/img1.jpg"]
 
-    def test_filter_skipped_when_save_service_raises(self, mock_annotation_logic, monkeypatch):
+    def test_filter_skipped_when_save_service_raises(self, mock_annotation_runner, monkeypatch):
         """filter 内部 (DB クエリ) 例外時も filter skip + annotation 続行 (best-effort)。"""
         from lorairo.gui.workers import annotation_worker as aw_mod
 
@@ -899,7 +901,7 @@ class TestApplyRefusalPrefilter:
         monkeypatch.setattr(aw_mod, "AnnotationSaveService", lambda **kwargs: mock_save_service)
 
         worker = self._make_worker(
-            mock_annotation_logic,
+            mock_annotation_runner,
             ["/path/img1.jpg", "/path/img2.jpg"],
             ["openai/gpt-4o"],
             mock_db,
@@ -911,7 +913,7 @@ class TestApplyRefusalPrefilter:
         mock_save_service.filter_refused_image_paths.assert_called_once()
         assert worker.image_paths == ["/path/img1.jpg", "/path/img2.jpg"]
 
-    def test_filter_no_exclusion_when_no_refusal_records(self, mock_annotation_logic, monkeypatch):
+    def test_filter_no_exclusion_when_no_refusal_records(self, mock_annotation_runner, monkeypatch):
         """filter 結果が同件数 (refusal 0 件) の場合も問題なく動く。"""
         from lorairo.gui.workers import annotation_worker as aw_mod
 
@@ -931,7 +933,7 @@ class TestApplyRefusalPrefilter:
         self._patch_preflight(monkeypatch, aw_mod, ["/path/img1.jpg", "/path/img2.jpg"])
 
         worker = self._make_worker(
-            mock_annotation_logic,
+            mock_annotation_runner,
             ["/path/img1.jpg", "/path/img2.jpg"],
             ["openai/gpt-4o"],
             mock_db,
@@ -1006,7 +1008,7 @@ class TestRefusalPrefilterRatingsCapability:
 
     @pytest.mark.unit
     def test_apply_refusal_prefilter_does_not_skip_for_ratings_local_only(
-        self, mock_annotation_logic, monkeypatch, caplog
+        self, mock_annotation_runner, monkeypatch, caplog
     ):
         """ratings capability を含むローカル単独選択で prefilter skip warning が出ない。
 
@@ -1032,7 +1034,7 @@ class TestRefusalPrefilterRatingsCapability:
         monkeypatch.setattr(aw_mod, "AnnotationSaveService", lambda **kwargs: mock_save_service)
 
         worker = AnnotationWorker(
-            annotation_logic=mock_annotation_logic,
+            annotation_runner=mock_annotation_runner,
             image_paths=["/path/img1.jpg"],
             litellm_model_ids=["wd-rating-v3"],
             db_manager=mock_db,
@@ -1062,10 +1064,10 @@ class TestRunOptionsWiring:
         registry.get_available_models.return_value = [info]
         return registry
 
-    def test_run_options_none_keeps_legacy_defaults(self, mock_annotation_logic, mock_model_registry):
+    def test_run_options_none_keeps_legacy_defaults(self, mock_annotation_runner, mock_model_registry):
         """run_options 省略時は従来挙動 (dry_run=False / rating_gate=True)。"""
         worker = AnnotationWorker(
-            annotation_logic=mock_annotation_logic,
+            annotation_runner=mock_annotation_runner,
             image_paths=["/path/img1.jpg"],
             litellm_model_ids=["gpt-4o-mini"],
             db_manager=Mock(),
@@ -1076,7 +1078,7 @@ class TestRunOptionsWiring:
         assert worker._rating_gate is True
 
     def test_dry_run_skips_inference_and_save(
-        self, mock_annotation_logic, mock_model_registry, monkeypatch
+        self, mock_annotation_runner, mock_model_registry, monkeypatch
     ):
         """dry_run=True では推論・送信・DB 書き込みを一切行わず件数のみ算出する (Codex P1)。"""
         from lorairo.gui.widgets.run_settings_dialog import RunOptions
@@ -1086,7 +1088,7 @@ class TestRunOptionsWiring:
         monkeypatch.setattr(aw_mod, "AnnotationSaveService", lambda **kwargs: save_service)
 
         worker = AnnotationWorker(
-            annotation_logic=mock_annotation_logic,
+            annotation_runner=mock_annotation_runner,
             image_paths=["/path/to/image1.jpg"],
             litellm_model_ids=["gpt-4o-mini"],
             db_manager=Mock(),
@@ -1097,7 +1099,7 @@ class TestRunOptionsWiring:
         result = worker.execute()
 
         # 推論 (lib 呼び出し) も DB 保存も行われない
-        mock_annotation_logic.execute_annotation.assert_not_called()
+        mock_annotation_runner.execute_annotation.assert_not_called()
         save_service.save_annotation_results.assert_not_called()
         # 件数のみ算出し結果は空
         assert result.results == {}
@@ -1106,7 +1108,7 @@ class TestRunOptionsWiring:
         assert result.total_images == 1
         assert result.models_used == ["gpt-4o-mini"]
 
-    def test_non_dry_run_saves_to_database(self, mock_annotation_logic, mock_model_registry, monkeypatch):
+    def test_non_dry_run_saves_to_database(self, mock_annotation_runner, mock_model_registry, monkeypatch):
         """dry_run=False (既定) では DB 書き込みが行われる (対照テスト)。"""
         from lorairo.gui.widgets.run_settings_dialog import RunOptions
         from lorairo.gui.workers import annotation_worker as aw_mod
@@ -1122,7 +1124,7 @@ class TestRunOptionsWiring:
         monkeypatch.setattr(aw_mod, "AnnotationSaveService", lambda **kwargs: save_service)
 
         worker = AnnotationWorker(
-            annotation_logic=mock_annotation_logic,
+            annotation_runner=mock_annotation_runner,
             image_paths=["/path/to/image1.jpg"],
             litellm_model_ids=["gpt-4o-mini"],
             db_manager=mock_db_manager,
@@ -1136,7 +1138,7 @@ class TestRunOptionsWiring:
         assert result.db_save_success == 1
 
     def test_rating_gate_disabled_skips_rating_but_keeps_refusal_filter(
-        self, mock_annotation_logic, monkeypatch
+        self, mock_annotation_runner, monkeypatch
     ):
         """rating_gate=False では rating/moderation のみスキップし refusal filter は維持する (Codex P2)。"""
         from lorairo.gui.widgets.run_settings_dialog import RunOptions
@@ -1156,7 +1158,7 @@ class TestRunOptionsWiring:
         )
 
         worker = AnnotationWorker(
-            annotation_logic=mock_annotation_logic,
+            annotation_runner=mock_annotation_runner,
             image_paths=["/path/img1.jpg", "/path/img2.jpg"],
             litellm_model_ids=["openai/gpt-4o"],
             db_manager=Mock(),
@@ -1175,7 +1177,7 @@ class TestRunOptionsWiring:
         # rating ゲート / moderation preflight はスキップされる
         mock_save_service.filter_excluded_by_rating.assert_not_called()
 
-    def test_rating_gate_enabled_runs_preflight_for_webapi(self, mock_annotation_logic, monkeypatch):
+    def test_rating_gate_enabled_runs_preflight_for_webapi(self, mock_annotation_runner, monkeypatch):
         """rating_gate=True (既定) かつ WebAPI 選択時は preflight が実行される (対照テスト)。"""
         from lorairo.gui.widgets.run_settings_dialog import RunOptions
         from lorairo.gui.workers import annotation_worker as aw_mod
@@ -1190,7 +1192,7 @@ class TestRunOptionsWiring:
         monkeypatch.setattr(aw_mod, "ModerationPreflightService", lambda **kwargs: preflight)
 
         worker = AnnotationWorker(
-            annotation_logic=mock_annotation_logic,
+            annotation_runner=mock_annotation_runner,
             image_paths=["/path/img1.jpg", "/path/img2.jpg"],
             litellm_model_ids=["openai/gpt-4o"],
             db_manager=Mock(),
@@ -1226,18 +1228,18 @@ class TestAnnotationWorkerStageProgress:
         ]
         return registry
 
-    def test_execute_emits_stage_progress_start_and_finished(self, mock_annotation_logic):
+    def test_execute_emits_stage_progress_start_and_finished(self, mock_annotation_runner):
         registry = self._registry_with_model_info("wd-tagger", ["tags", "captions"])
         mock_db_manager = Mock()
         mock_db_manager.image_repo.get_phashes_by_filepaths.return_value = {}
         mock_db_manager.image_repo.find_image_ids_by_phashes_multi.return_value = {}
         mock_db_manager.image_repo.get_image_ids_by_filepaths.return_value = {}
-        mock_annotation_logic.execute_annotation.return_value = {
+        mock_annotation_runner.execute_annotation.return_value = {
             "phash1": {"wd-tagger": {"tags": ["cat"], "error": None}}
         }
 
         worker = AnnotationWorker(
-            annotation_logic=mock_annotation_logic,
+            annotation_runner=mock_annotation_runner,
             image_paths=["/path/to/image.jpg"],
             litellm_model_ids=["wd-tagger"],
             db_manager=mock_db_manager,
@@ -1258,7 +1260,7 @@ class TestAnnotationWorkerStageProgress:
         last_stages = captured[-1]
         assert all(s.tone == "ok" and s.percentage == 100 for s in last_stages)
 
-    def test_bulk_l1_result_error_marks_stage_failed(self, mock_annotation_logic):
+    def test_bulk_l1_result_error_marks_stage_failed(self, mock_annotation_runner):
         """bulk で result.error を持つモデルはステージ完了通知で失敗扱いにする (Codex P2)。"""
         registry = Mock()
         registry.get_available_models.return_value = [
@@ -1270,7 +1272,7 @@ class TestAnnotationWorkerStageProgress:
         mock_db_manager.image_repo.find_image_ids_by_phashes_multi.return_value = {}
         mock_db_manager.image_repo.get_image_ids_by_filepaths.return_value = {}
         # model-a は正常、model-b は result.error 付き (例外は投げない L1 エラー)
-        mock_annotation_logic.execute_annotation.return_value = {
+        mock_annotation_runner.execute_annotation.return_value = {
             "phash1": {
                 "model-a": {"tags": ["cat"], "error": None},
                 "model-b": {"tags": [], "error": "rate_limited"},
@@ -1278,7 +1280,7 @@ class TestAnnotationWorkerStageProgress:
         }
 
         worker = AnnotationWorker(
-            annotation_logic=mock_annotation_logic,
+            annotation_runner=mock_annotation_runner,
             image_paths=["/img.jpg"],
             litellm_model_ids=["model-a", "model-b"],
             db_manager=mock_db_manager,
@@ -1296,7 +1298,7 @@ class TestAnnotationWorkerStageProgress:
         # result.error を持つ model-b は成功表示にしない
         assert last["model-b"].tone == "err"
 
-    def test_fallback_does_not_mark_unstarted_models_complete(self, mock_annotation_logic):
+    def test_fallback_does_not_mark_unstarted_models_complete(self, mock_annotation_runner):
         """per-model fallback で未起動モデルを false 100% にしない (Codex P2)。"""
         registry = Mock()
         registry.get_available_models.return_value = [
@@ -1316,10 +1318,10 @@ class TestAnnotationWorkerStageProgress:
             mid = model_ids[0]
             return {"phash1": {mid: {"tags": ["cat"], "error": None}}}
 
-        mock_annotation_logic.execute_annotation.side_effect = execute_annotation
+        mock_annotation_runner.execute_annotation.side_effect = execute_annotation
 
         worker = AnnotationWorker(
-            annotation_logic=mock_annotation_logic,
+            annotation_runner=mock_annotation_runner,
             image_paths=["/img1.jpg", "/img2.jpg"],
             litellm_model_ids=["model-a", "model-b"],
             db_manager=mock_db_manager,
@@ -1358,7 +1360,7 @@ class TestAnnotationWorkerStageProgress:
             estimated_size_gb=None,
         )
 
-    def test_execute_empty_registry_falls_back_to_annotate_stage(self, mock_annotation_logic):
+    def test_execute_empty_registry_falls_back_to_annotate_stage(self, mock_annotation_runner):
         """registry に capability 情報が無くても選択モデルは ANNOTATE ステージで表示する。"""
         registry = Mock()
         registry.get_available_models.return_value = []
@@ -1366,12 +1368,12 @@ class TestAnnotationWorkerStageProgress:
         mock_db_manager.image_repo.get_phashes_by_filepaths.return_value = {}
         mock_db_manager.image_repo.find_image_ids_by_phashes_multi.return_value = {}
         mock_db_manager.image_repo.get_image_ids_by_filepaths.return_value = {}
-        mock_annotation_logic.execute_annotation.return_value = {
+        mock_annotation_runner.execute_annotation.return_value = {
             "phash1": {"wd-tagger": {"tags": ["cat"], "error": None}}
         }
 
         worker = AnnotationWorker(
-            annotation_logic=mock_annotation_logic,
+            annotation_runner=mock_annotation_runner,
             image_paths=["/path/to/image.jpg"],
             litellm_model_ids=["wd-tagger"],
             db_manager=mock_db_manager,
@@ -1386,7 +1388,7 @@ class TestAnnotationWorkerStageProgress:
         assert captured
         assert [s.stage for s in captured[0]] == ["ANNOTATE"]
 
-    def test_execute_skips_stage_progress_when_registry_lookup_raises(self, mock_annotation_logic):
+    def test_execute_skips_stage_progress_when_registry_lookup_raises(self, mock_annotation_runner):
         """registry 取得が例外を投げたらステージ表示は諦める (annotation 自体は継続)。"""
         registry = Mock()
         registry.get_available_models.side_effect = RuntimeError("registry down")
@@ -1394,12 +1396,12 @@ class TestAnnotationWorkerStageProgress:
         mock_db_manager.image_repo.get_phashes_by_filepaths.return_value = {}
         mock_db_manager.image_repo.find_image_ids_by_phashes_multi.return_value = {}
         mock_db_manager.image_repo.get_image_ids_by_filepaths.return_value = {}
-        mock_annotation_logic.execute_annotation.return_value = {
+        mock_annotation_runner.execute_annotation.return_value = {
             "phash1": {"wd-tagger": {"tags": ["cat"], "error": None}}
         }
 
         worker = AnnotationWorker(
-            annotation_logic=mock_annotation_logic,
+            annotation_runner=mock_annotation_runner,
             image_paths=["/path/to/image.jpg"],
             litellm_model_ids=["wd-tagger"],
             db_manager=mock_db_manager,

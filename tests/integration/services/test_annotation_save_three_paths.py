@@ -167,7 +167,7 @@ class TestAnnotationSaveThreePaths:
         mock_logic.execute_annotation.return_value = mock_annotation_results
 
         worker = AnnotationWorker(
-            annotation_logic=mock_logic,
+            annotation_runner=mock_logic,
             image_paths=["/test/cat.jpg"],
             litellm_model_ids=[TEST_MODEL_NAME],
             db_manager=mock_db_manager,
@@ -261,7 +261,7 @@ class TestAnnotationSaveThreePaths:
         mock_logic = Mock()
         mock_logic.execute_annotation.return_value = annotation_results
         AnnotationWorker(
-            annotation_logic=mock_logic,
+            annotation_runner=mock_logic,
             image_paths=["/test/cat.jpg"],
             litellm_model_ids=[TEST_MODEL_NAME],
             db_manager=mock_db,

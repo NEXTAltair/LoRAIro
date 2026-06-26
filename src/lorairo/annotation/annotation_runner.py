@@ -9,7 +9,7 @@ from typing import TYPE_CHECKING
 
 from PIL import Image
 
-from lorairo.annotations.annotator_adapter import AnnotatorLibraryAdapter
+from lorairo.annotation.annotator_adapter import AnnotatorLibraryAdapter
 from lorairo.utils.log import logger
 
 if TYPE_CHECKING:
@@ -18,7 +18,7 @@ if TYPE_CHECKING:
     )
 
 
-class AnnotationLogic:
+class AnnotationRunner:
     """アノテーション業務ロジック
 
     アノテーション処理のコアロジックを提供する。
@@ -33,13 +33,13 @@ class AnnotationLogic:
         self,
         annotator_adapter: AnnotatorLibraryAdapter,
     ):
-        """AnnotationLogic初期化
+        """AnnotationRunner初期化
 
         Args:
             annotator_adapter: image-annotator-lib統合アダプター
         """
         self.annotator_adapter = annotator_adapter
-        logger.info("AnnotationLogic初期化完了")
+        logger.info("AnnotationRunner初期化完了")
 
     def execute_annotation(
         self,

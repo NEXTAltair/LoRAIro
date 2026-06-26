@@ -8,7 +8,7 @@ from unittest.mock import Mock
 import image_annotator_lib
 import pytest
 
-from lorairo.annotations.annotator_adapter import AnnotatorLibraryAdapter
+from lorairo.annotation.annotator_adapter import AnnotatorLibraryAdapter
 from lorairo.services.provider_batch_service import (
     BatchJobHandle,
     BatchSubmitRequest,

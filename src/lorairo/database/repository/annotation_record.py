@@ -706,7 +706,7 @@ class AnnotationRepository(BaseRepository):
             見つかった/登録したtag_id。エラー時はNone。
 
         """
-        # 1. タグの正規化（ExistingFileReaderと同一処理）
+        # 1. タグの正規化（SidecarAnnotationReaderと同一処理）
         normalized_tag = TagCleaner.clean_format(tag_string).strip()
 
         if not normalized_tag:

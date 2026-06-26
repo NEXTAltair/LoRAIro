@@ -131,7 +131,7 @@ make clean                 # Remove build artifacts and caches
 - See [docs/services.md](docs/services.md) for the service catalog
 
 **AI Integration (Local Packages):**
-- **image-annotator-lib**: `src/lorairo/annotations/annotator_adapter.py`, `annotation_logic.py`
+- **image-annotator-lib**: `src/lorairo/annotation/annotator_adapter.py`, `annotation_runner.py`
 - **genai-tag-db-tools**: `src/lorairo/database/repository/annotation_record.py`, Public APIs: `search_tags()`, `register_tag()`
 
 **Workers:** `src/lorairo/gui/workers/` (DatabaseRegistration, Annotation, Search, Thumbnail)
