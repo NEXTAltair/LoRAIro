@@ -15,6 +15,8 @@
 - 検証は CI-equivalent filter（`-m "not gui_show and not calls_real_webapi and not downloads_and_runs_model and not slow"`）+ `uv run mypy -p lorairo`。worktree のローカル検証は editable install の都合で main checkout を見る可能性があるため、**真偽は push 後 CI が SSoT**。
 - sed の置換対象は `src/` `tests/` + live docs 5ファイル（`docs/conftest_template.py` `docs/integrations.md` `docs/decisions/0037-api-facade-wiring-policy.md` `docs/decisions/0059-cli-command-introspection.md` `docs/specs/core/filesystem_management.md`）に限定。**`docs/superpowers/specs/` `docs/superpowers/plans/` は除外**（設計/計画ドキュメント自身の "before" 記述を壊さないため）。
 - **相対 import を必ず置換する**（Task2 で発覚した教訓）。`lorairo.<old>` の絶対 import だけでなく、`from ..<old>` / `from ...<old>` の**相対 import** も置換対象。後者は mypy をすり抜け runtime で `ModuleNotFoundError` を起こす（外部パッケージから消えたディレクトリへ相対参照するため）。各タスクの sed に相対 import 置換ステップを含め、取りこぼし確認も `from \.+<old>\b` を含める。
+- **平坦化（サブパッケージ → トップレベルモジュール）では移動したファイル自身の相対 import のドットを1つ減らす**（Task4 で発覚した教訓）。`storage/file_system.py`（`.`=storage, `..`=lorairo）を `filesystem.py`（`.`=lorairo）へ移すと、ファイル内の `from ..utils.log` / `from ..database.db_core` が「attempted relative import beyond top-level package」になる。`from ..X` → `from .X` へ修正する。副作用として import が壊れると mypy が依存シンボルを `Any` 扱いし `no-any-return` 等の二次エラーも出る（import を直すと連鎖的に解消）。
+- **validate_docs.py 連動ゲート**（"Validate Agent Harness"）は `CLAUDE.md` / `docs/services.md` / `docs/integrations.md` / `docs/testing.md` のファイルパス参照存在を検証する。ディレクトリ/モジュール改名時は `CLAUDE.md` のパス参照も追従させる（非必須チェックだが green を保つ）。`scripts/validate_docs.py` の `integration_files` リストのパス文字列も同様。
 - PR リンク: サブPR1〜3 は `Refs #717`、最後のサブPR4 のみ `Closes #717`。
 - commit 末尾に Co-Authored-By / Claude-Session を付与（リポジトリ規約）。
 
