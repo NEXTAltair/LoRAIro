@@ -13,7 +13,7 @@ from lorairo.services.service_container import ServiceContainer
 
 if TYPE_CHECKING:
     from lorairo.database.db_manager import ImageDatabaseManager
-    from lorairo.storage.file_system import FileSystemManager
+    from lorairo.filesystem import FileSystemManager
 
 
 def register_images(

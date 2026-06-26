@@ -13,7 +13,7 @@ from PIL import Image
 if TYPE_CHECKING:
     from ..services.configuration_service import ConfigurationService
 
-from ..storage.file_system import FileSystemManager
+from ..filesystem import FileSystemManager
 from ..utils.log import logger
 from .autocrop import AutoCrop
 from .upscaler import Upscaler

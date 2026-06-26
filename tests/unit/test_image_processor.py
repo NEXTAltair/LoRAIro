@@ -14,7 +14,7 @@ from PIL import Image
 
 from lorairo.image_transforms.image_processor import ImageProcessingManager, ImageProcessor
 from lorairo.image_transforms.upscaler import Upscaler
-from lorairo.storage.file_system import FileSystemManager
+from lorairo.filesystem import FileSystemManager
 
 
 class TestImageProcessor:

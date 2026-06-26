@@ -24,7 +24,7 @@ from lorairo.database.db_manager import (
 )
 from lorairo.gui.workers.registration_worker import DatabaseRegistrationWorker
 from lorairo.services.configuration_service import ConfigurationService
-from lorairo.storage.file_system import FileSystemManager
+from lorairo.filesystem import FileSystemManager
 
 # 分類 outcome の代表的な並び (新規 / 別版 / 重複 / 失敗) を 1 バッチに混在させる
 _OUTCOME_SEQUENCE = [

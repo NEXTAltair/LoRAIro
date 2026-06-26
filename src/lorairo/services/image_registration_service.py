@@ -195,7 +195,7 @@ class ImageRegistrationService:
             ``(phash, (属性値, ...))`` の署名。属性取得失敗時は None。
         """
         from lorairo.database.repository.image import ImageRepository
-        from lorairo.storage.file_system import FileSystemManager
+        from lorairo.filesystem import FileSystemManager
 
         # get_image_info は OSError / ValueError に限らず、壊れた埋め込み ICC profile の
         # ImageCms エラー等 (broad re-raise) も投げ得る。本 helper の契約は「属性取得失敗は

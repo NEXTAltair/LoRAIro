@@ -20,7 +20,7 @@ from lorairo.database.schema import (
     TagAnnotationData,
 )
 from lorairo.database.schema import Image as SchemaImage
-from lorairo.storage.file_system import FileSystemManager
+from lorairo.filesystem import FileSystemManager
 
 # Use __file__ based path for pytest-bdd compatibility
 _FEATURE_FILE = Path(__file__).parent.parent / "features" / "database_management.feature"

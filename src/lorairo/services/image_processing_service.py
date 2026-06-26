@@ -5,7 +5,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from ..database.db_manager import ImageDatabaseManager
-from ..storage.file_system import FileSystemManager
+from ..filesystem import FileSystemManager
 from ..utils.log import logger
 from .configuration_service import ConfigurationService
 

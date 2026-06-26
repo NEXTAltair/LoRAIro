@@ -170,7 +170,7 @@ class TestBuildDedupSignature:
         self, service: ImageRegistrationService, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """get_image_info が OSError/ValueError 以外 (ImageCms 等) を投げても None で畳む。"""
-        from lorairo.storage.file_system import FileSystemManager
+        from lorairo.filesystem import FileSystemManager
 
         image_path = tmp_path / "broken_icc.jpg"
         image_path.write_bytes(b"fake")
@@ -188,7 +188,7 @@ class TestBuildDedupSignature:
         self, service: ImageRegistrationService, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """属性取得が broad 例外でも、ハッシュ可能な画像は failed にならず登録される。"""
-        from lorairo.storage.file_system import FileSystemManager
+        from lorairo.filesystem import FileSystemManager
 
         _make_unique_images(tmp_path, 1)
         monkeypatch.setattr(service, "_calculate_phash", lambda p: "deadbeef")

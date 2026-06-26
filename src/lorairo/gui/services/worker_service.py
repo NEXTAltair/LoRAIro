@@ -16,7 +16,7 @@ from ...services.job_ledger_service import JobLedgerService, JobStatus
 from ...services.model_registry_protocol import local_ml_model_names
 from ...services.search_models import SearchConditions
 from ...services.service_container import get_service_container
-from ...storage.file_system import FileSystemManager
+from ...filesystem import FileSystemManager
 from ...utils.log import logger
 from ..workers.annotation_worker import AnnotationWorker
 from ..workers.base import LoRAIroWorkerBase, WorkerProgress
