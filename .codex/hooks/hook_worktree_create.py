@@ -2,17 +2,25 @@
 """
 Claude Code Hooks - WorktreeCreate (PostToolUse Hook)
 
-ワークツリー作成後に共有 venv を指定して uv sync --dev を自動実行する。
-ワークツリー内に .venv を作らず、新しいワークツリーで依存関係が即座に使えるようにする。
+ワークツリー作成後に submodule (local_packages/*) を init するだけにする。
+
+重要: ここで `uv sync` は実行しない。
+  共有 venv (/workspaces/LoRAIro/.venv, named volume) は main checkout から
+  既に sync 済みで、ワークツリーはこれを共有する。ワークツリーの cwd で
+  `uv sync` を走らせると uv が workspace member (local_packages/*) の editable
+  install をワークツリー側のパスへ貼り替え、共有 venv の editable ピンが
+  壊れる (main checkout と他の全ワークツリーのローカルパッケージ import が
+  同時に狂う)。詳細は .claude/rules/git-workflow.md / testing.md 参照。
+
+代わりに submodule を init する。ワークツリーは submodule が未 checkout だと
+conftest が image_annotator_lib を MagicMock fallback して無関係テストが偽陽性に
+なるため、ソースだけ materialize しておく (共有 venv には一切触れない)。
 """
 
 import json
-import os
 import subprocess
 import sys
 from pathlib import Path
-
-SHARED_UV_ENVIRONMENT = "/workspaces/LoRAIro/.venv"
 
 
 def main() -> None:
@@ -31,20 +39,17 @@ def main() -> None:
         if not path.exists():
             sys.exit(0)
 
-        env = os.environ.copy()
-        env["UV_PROJECT_ENVIRONMENT"] = SHARED_UV_ENVIRONMENT
-
+        # submodule のソースのみ init する (共有 venv は触らない)
         result = subprocess.run(
-            ["uv", "sync", "--dev"],
+            ["git", "submodule", "update", "--init", "--recursive"],
             cwd=path,
-            env=env,
             capture_output=True,
             text=True,
         )
 
         if result.returncode != 0:
             print(json.dumps({
-                "systemMessage": f"⚠️ uv sync --dev 失敗:\n{result.stderr[-500:]}",
+                "systemMessage": f"⚠️ git submodule update --init 失敗:\n{result.stderr[-500:]}",
                 "continue": True,
             }, ensure_ascii=False))
 
