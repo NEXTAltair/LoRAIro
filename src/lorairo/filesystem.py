@@ -13,7 +13,7 @@ import numpy as np
 import toml
 from PIL import Image, ImageCms
 
-from ..utils.log import logger
+from .utils.log import logger
 
 Image.MAX_IMAGE_PIXELS = 1000000000  # 大きな画像に対応(ローカルアプリ前提)
 
@@ -129,7 +129,7 @@ class FileSystemManager:
         Raises:
             RuntimeError: 初期化失敗時
         """
-        from ..database.db_core import get_current_project_root
+        from .database.db_core import get_current_project_root
 
         output_dir = get_current_project_root()
         self.initialize(output_dir)

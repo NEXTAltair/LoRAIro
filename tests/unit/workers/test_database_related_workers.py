@@ -21,7 +21,7 @@ from lorairo.gui.workers.registration_worker import (
 from lorairo.gui.workers.search_worker import SearchWorker
 from lorairo.services.configuration_service import ConfigurationService
 from lorairo.services.search_models import SearchConditions
-from lorairo.storage.file_system import FileSystemManager
+from lorairo.filesystem import FileSystemManager
 
 
 class TestDatabaseRegistrationWorker:

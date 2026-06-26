@@ -18,7 +18,7 @@ from ...utils.log import logger
 if TYPE_CHECKING:
     from ...database.db_manager import ImageDatabaseManager
     from ...gui.services.worker_service import WorkerService
-    from ...storage.file_system import FileSystemManager
+    from ...filesystem import FileSystemManager
 
 
 class DatasetController:

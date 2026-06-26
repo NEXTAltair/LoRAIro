@@ -26,7 +26,7 @@ from lorairo.gui.workers.registration_worker import DatabaseRegistrationWorker
 from lorairo.gui.workers.search_worker import SearchResult, SearchWorker
 from lorairo.gui.workers.thumbnail_worker import ThumbnailWorker
 from lorairo.services.search_models import SearchConditions
-from lorairo.storage.file_system import FileSystemManager
+from lorairo.filesystem import FileSystemManager
 
 
 @pytest.fixture

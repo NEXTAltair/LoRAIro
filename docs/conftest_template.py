@@ -565,7 +565,7 @@ from sqlalchemy.orm import sessionmaker  # noqa: E811
 from lorairo.database.db_manager import ImageDatabaseManager
 from lorairo.database.db_repository import ImageRepository
 from lorairo.database.schema import Base, Model, ModelType
-from lorairo.storage.file_system import FileSystemManager
+from lorairo.filesystem import FileSystemManager
 
 
 # =================================================

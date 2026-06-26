@@ -12,7 +12,7 @@ from sqlalchemy.engine import Result
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
-from ..storage.file_system import FileSystemManager
+from ..filesystem import FileSystemManager
 from ..utils.log import logger
 from ..utils.tools import calculate_phash
 from .filter_criteria import ImageFilterCriteria
@@ -1353,7 +1353,7 @@ class ImageDatabaseManager:
         try:
             # ディレクトリ内の画像ファイルを取得
             if not self.fsm:
-                from ..storage.file_system import FileSystemManager
+                from ..filesystem import FileSystemManager
 
                 temp_fsm = FileSystemManager()
                 image_files = temp_fsm.get_image_files(directory_path)

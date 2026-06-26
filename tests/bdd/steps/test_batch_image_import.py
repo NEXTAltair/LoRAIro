@@ -15,7 +15,7 @@ from pytest_bdd import given, parsers, scenarios, then, when
 
 from lorairo.database.db_manager import ImageDatabaseManager
 from lorairo.services.batch_import_service import BatchImportResult, BatchImportService
-from lorairo.storage.file_system import FileSystemManager
+from lorairo.filesystem import FileSystemManager
 
 _FEATURE_FILE = Path(__file__).parent.parent / "features" / "batch_image_import.feature"
 scenarios(str(_FEATURE_FILE))

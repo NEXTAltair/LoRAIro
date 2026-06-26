@@ -18,7 +18,7 @@ if TYPE_CHECKING:
 from ..database.db_core import DefaultSessionLocal, ensure_tag_db_initialized
 from ..database.db_manager import ImageDatabaseManager
 from ..database.repository.image import ImageRepository
-from ..storage.file_system import FileSystemManager
+from ..filesystem import FileSystemManager
 from ..utils.log import logger
 from .configuration_service import ConfigurationService
 from .dataset_export_service import DatasetExportService

@@ -19,7 +19,7 @@ from lorairo.database.schema import Base, ModelType
 from lorairo.services.configuration_service import ConfigurationService
 from lorairo.services.dataset_export_service import DatasetExportService
 from lorairo.services.search_criteria_processor import SearchCriteriaProcessor
-from lorairo.storage.file_system import FileSystemManager
+from lorairo.filesystem import FileSystemManager
 
 
 class TestDatasetExportIntegration:

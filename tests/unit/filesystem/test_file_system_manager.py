@@ -14,7 +14,7 @@ import numpy as np
 import pytest
 from PIL import Image
 
-from lorairo.storage.file_system import FileSystemManager
+from lorairo.filesystem import FileSystemManager
 
 
 class TestInitializeFromDatasetSelection:

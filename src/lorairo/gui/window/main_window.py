@@ -28,7 +28,7 @@ from ...services import get_service_container
 from ...services.configuration_service import ConfigurationService
 from ...services.selection_state_service import SelectionStateService
 from ...services.service_container import ServiceContainer
-from ...storage.file_system import FileSystemManager
+from ...filesystem import FileSystemManager
 from ...utils.log import logger
 from ..controllers.annotation_workflow_controller import AnnotationWorkflowController
 from ..controllers.dataset_controller import DatasetController

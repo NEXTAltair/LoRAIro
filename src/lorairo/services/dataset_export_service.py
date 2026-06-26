@@ -16,7 +16,7 @@ from loguru import logger
 from ..database.db_core import resolve_stored_path
 from ..database.db_manager import ImageDatabaseManager
 from ..database.filter_criteria import ImageFilterCriteria
-from ..storage.file_system import FileSystemManager
+from ..filesystem import FileSystemManager
 from .configuration_service import ConfigurationService
 from .search_criteria_processor import SearchCriteriaProcessor
 

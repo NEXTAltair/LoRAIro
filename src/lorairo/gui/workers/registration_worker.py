@@ -13,7 +13,7 @@ from .progress_helper import ProgressHelper
 
 if TYPE_CHECKING:
     from ...database.db_manager import ImageDatabaseManager
-    from ...storage.file_system import FileSystemManager
+    from ...filesystem import FileSystemManager
 
 
 @dataclass(frozen=True)

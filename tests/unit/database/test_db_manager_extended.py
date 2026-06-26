@@ -778,15 +778,15 @@ class TestGetImageIdsFromDirectory:
 
     def test_uses_temp_fsm_when_no_fsm(self, manager: ImageDatabaseManager) -> None:
         """fsm がないとき、一時的な FileSystemManager を作成して使う。"""
-        from lorairo.storage.file_system import FileSystemManager
+        from lorairo.filesystem import FileSystemManager
 
         mock_temp_fsm = Mock(spec=FileSystemManager)
         mock_temp_fsm.get_image_files.return_value = [Path("/data/img.jpg")]
 
         # get_image_ids_from_directory 内の lazy import は
-        # lorairo.storage.file_system.FileSystemManager を参照するため、
+        # lorairo.filesystem.FileSystemManager を参照するため、
         # そのシンボルをパッチする
-        with patch("lorairo.storage.file_system.FileSystemManager", return_value=mock_temp_fsm):
+        with patch("lorairo.filesystem.FileSystemManager", return_value=mock_temp_fsm):
             with patch.object(manager, "detect_duplicate_image", return_value=7):
                 result = manager.get_image_ids_from_directory(Path("/data"))
 
@@ -808,25 +808,25 @@ class TestGetImageIdsFromDirectory:
 
     def test_raises_on_os_error(self, manager: ImageDatabaseManager) -> None:
         """ディレクトリ走査の OSError は呼び出し元に伝播 (silent return しない)。"""
-        from lorairo.storage.file_system import FileSystemManager
+        from lorairo.filesystem import FileSystemManager
 
         mock_temp_fsm = Mock(spec=FileSystemManager)
         mock_temp_fsm.get_image_files.side_effect = OSError("fsm error")
 
-        with patch("lorairo.storage.file_system.FileSystemManager", return_value=mock_temp_fsm):
+        with patch("lorairo.filesystem.FileSystemManager", return_value=mock_temp_fsm):
             with pytest.raises(OSError, match="fsm error"):
                 manager.get_image_ids_from_directory(Path("/data"))
 
     def test_raises_on_sqlalchemy_error(self, manager: ImageDatabaseManager, mock_image_repo: Mock) -> None:
         """detect_duplicate_image 経由の SQLAlchemyError は呼び出し元に伝播。"""
-        from lorairo.storage.file_system import FileSystemManager
+        from lorairo.filesystem import FileSystemManager
 
         mock_temp_fsm = Mock(spec=FileSystemManager)
         mock_temp_fsm.get_image_files.return_value = [Path("/data/a.jpg")]
         mock_image_repo.find_phash_candidates.side_effect = SQLAlchemyError("DB error")
         attrs = {"width": 800, "height": 600, "has_alpha": False, "is_grayscale_like": False}
 
-        with patch("lorairo.storage.file_system.FileSystemManager", return_value=mock_temp_fsm):
+        with patch("lorairo.filesystem.FileSystemManager", return_value=mock_temp_fsm):
             with patch("lorairo.database.db_manager.calculate_phash", return_value="abc"):
                 with patch.object(FileSystemManager, "get_image_info", return_value=attrs):
                     with pytest.raises(SQLAlchemyError):

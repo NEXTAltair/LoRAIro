@@ -12,7 +12,7 @@ from lorairo.database.db_manager import ImageDatabaseManager
 from lorairo.database.repository.image import ImageRepository
 from lorairo.services.configuration_service import ConfigurationService
 from lorairo.services.image_processing_service import ImageProcessingService
-from lorairo.storage.file_system import FileSystemManager
+from lorairo.filesystem import FileSystemManager
 
 
 @pytest.fixture
