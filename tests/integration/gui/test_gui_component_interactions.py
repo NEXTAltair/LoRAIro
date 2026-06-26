@@ -13,7 +13,7 @@ from lorairo.gui.state.dataset_state import DatasetStateManager
 from lorairo.gui.widgets.filter_search_panel import FilterSearchPanel
 from lorairo.gui.widgets.image_preview import ImagePreviewWidget
 from lorairo.gui.widgets.selected_image_details_widget import SelectedImageDetailsWidget
-from lorairo.gui.widgets.thumbnail import ThumbnailSelectorWidget
+from lorairo.gui.widgets.thumbnail_selector_widget import ThumbnailSelectorWidget
 
 
 @pytest.mark.gui

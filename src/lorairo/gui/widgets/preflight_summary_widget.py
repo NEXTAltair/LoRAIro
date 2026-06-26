@@ -17,7 +17,8 @@ from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QHBoxLayout, QLabel, QVBoxLayout, QWidget
 
 from lorairo.gui import theme
-from lorairo.gui.widgets.ds import DsCard, DsChip
+from lorairo.gui.widgets.ds_card import DsCard
+from lorairo.gui.widgets.ds_chip import DsChip
 from lorairo.services.moderation_preflight_service import HELD_RATINGS, SENDABLE_RATINGS
 
 _TITLE_TEXT = "送信前プリフライト — OpenAI Moderations で rating 判定"

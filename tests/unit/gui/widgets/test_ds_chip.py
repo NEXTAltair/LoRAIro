@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from lorairo.gui.widgets.ds.ds_chip import DsChip
+from lorairo.gui.widgets.ds_chip import DsChip
 
 pytestmark = [pytest.mark.unit, pytest.mark.gui]
 

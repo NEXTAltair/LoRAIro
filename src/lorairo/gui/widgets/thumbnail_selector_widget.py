@@ -1,25 +1,15 @@
-# src/lorairo/gui/widgets/thumbnail.py
+# src/lorairo/gui/widgets/thumbnail_selector_widget.py
 
 from __future__ import annotations
 
 import uuid
 from collections.abc import Callable
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, cast, overload
+from typing import TYPE_CHECKING, Any, cast
 
-from PySide6.QtCore import QPoint, QRectF, QSize, Qt, QTimer, Signal, Slot
-from PySide6.QtGui import QColor, QFont, QMouseEvent, QPainter, QPen, QPixmap, QResizeEvent
-from PySide6.QtWidgets import (
-    QGraphicsItem,
-    QGraphicsObject,
-    QGraphicsScene,
-    QGraphicsView,
-    QLabel,
-    QMenu,
-    QStyleOptionGraphicsItem,
-    QVBoxLayout,
-    QWidget,
-)
+from PySide6.QtCore import QPoint, QSize, Qt, QTimer, Signal, Slot
+from PySide6.QtGui import QPixmap, QResizeEvent
+from PySide6.QtWidgets import QGraphicsScene, QGraphicsView, QLabel, QMenu, QVBoxLayout, QWidget
 
 from ...gui.designer.ThumbnailSelectorWidget_ui import Ui_ThumbnailSelectorWidget
 from ...utils.log import logger
@@ -29,259 +19,13 @@ from ..state.dataset_state import DatasetStateManager
 from ..state.pagination_state import PaginationStateManager
 from ..workers.terminal import CancelReason
 from ..workers.thumbnail_worker import ThumbnailLoadResult
+from .custom_graphics_view import CustomGraphicsView
 from .pagination_nav_widget import PaginationNavWidget
+from .thumbnail_item import ThumbnailItem
 
 if TYPE_CHECKING:
     from ..services.worker_service import WorkerService
     from ..workers.search_worker import SearchResult
-
-
-class ThumbnailItem(QGraphicsObject):
-    """
-    サムネイル画像を表示するGraphicsアイテム。
-
-    Qt Graphics Viewフレームワークを使用してサムネイル画像を描画し、
-    マウスイベントによる選択状態の管理と視覚的フィードバックを提供する。
-
-    Attributes:
-        pixmap (QPixmap): 表示する画像データ
-        image_path (Path): 画像ファイルのパス
-        image_id (int): データベース内での画像ID
-        parent_widget (ThumbnailSelectorWidget): 親ウィジェット
-    """
-
-    def __init__(self, pixmap: QPixmap, image_path: Path, image_id: int, parent: ThumbnailSelectorWidget):
-        """
-        ThumbnailItemを初期化する。
-
-        Args:
-            pixmap (QPixmap): 表示する画像データ（既にスケール済み）
-            image_path (Path): 元画像ファイルのパス
-            image_id (int): データベース内での一意な画像ID
-            parent (ThumbnailSelectorWidget): 親となるサムネイルセレクターウィジェット
-        """
-        super().__init__()
-        self.pixmap = pixmap
-        self.image_path = image_path
-        self.image_id = image_id
-        self.parent_widget = parent
-        self.setAcceptHoverEvents(True)
-        self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsSelectable, True)
-        self._is_selected = False
-
-    def isSelected(self) -> bool:
-        """
-        現在の選択状態をDatasetStateManagerから動的に取得する。
-
-        Returns:
-            bool: このアイテムが選択されている場合True
-        """
-        if self.parent_widget.dataset_state:
-            return self.parent_widget.dataset_state.is_image_selected(self.image_id)
-        return False
-
-    def setSelected(self, selected: bool) -> None:
-        """
-        アイテムの選択状態を設定し、必要に応じて再描画をトリガーする。
-
-        Args:
-            selected (bool): 設定する選択状態
-        """
-        current_selected = self.isSelected()
-        if current_selected != selected:
-            self.update()  # 再描画をトリガー
-
-    def boundingRect(self) -> QRectF:
-        """
-        このアイテムの境界矩形を返す（Qt Graphics View必須メソッド）。
-
-        Returns:
-            QRectF: pixmapのサイズに基づく境界矩形
-        """
-        return QRectF(self.pixmap.rect())
-
-    def paint(
-        self,
-        painter: QPainter,
-        option: QStyleOptionGraphicsItem,
-        widget: QWidget | None = None,
-    ) -> None:
-        rect = self.boundingRect()
-        painter.drawPixmap(rect.toRect(), self.pixmap)
-        self._paint_overlays(painter, rect)
-        if self.isSelected():
-            pen = QPen(QColor(theme.ACCENT), 3)
-            painter.setPen(pen)
-            painter.drawRect(rect.adjusted(1, 1, -1, -1))
-
-    def _paint_overlays(self, painter: QPainter, rect: QRectF) -> None:
-        """サムネ四隅に score / rating / 解像度 のバッジを描画する (DS Thumbnail)。
-
-        右上=score / 右下=rating / 左下=解像度。メタデータが無い角は省略する。
-        """
-        if self.parent_widget.dataset_state is None:
-            return
-        metadata = self.parent_widget.dataset_state.get_image_by_id(self.image_id)
-        if not metadata:
-            return
-
-        score_text, rating_text, resolution_text = self._overlay_texts(metadata)
-        if score_text is not None:
-            self._draw_badge(painter, rect, score_text, "top-right")
-        if rating_text is not None:
-            self._draw_badge(painter, rect, rating_text, "bottom-right")
-        if resolution_text is not None:
-            self._draw_badge(painter, rect, resolution_text, "bottom-left")
-
-    @staticmethod
-    def _overlay_texts(metadata: dict[str, Any]) -> tuple[str | None, str | None, str | None]:
-        """メタデータから (score, rating, 解像度) のバッジ文字列を組み立てる。
-
-        Args:
-            metadata: DatasetStateManager の画像メタデータ辞書。
-
-        Returns:
-            (score_text, rating_text, resolution_text) のタプル。
-            表示すべき値が無い項目は None。
-        """
-        score_value = metadata.get("score_value")
-        score_text = (
-            f"{float(score_value):.1f}" if isinstance(score_value, int | float) and score_value else None
-        )
-
-        rating_value = metadata.get("rating_value")
-        rating_text = rating_value if isinstance(rating_value, str) and rating_value else None
-
-        width = metadata.get("width")
-        height = metadata.get("height")
-        resolution_text = f"{width}×{height}" if width and height else None
-
-        return score_text, rating_text, resolution_text
-
-    @staticmethod
-    def _draw_badge(painter: QPainter, rect: QRectF, text: str, corner: str) -> None:
-        """指定コーナーに DS トークン配色のバッジ (ink 地 + paper 文字) を描画する。
-
-        Args:
-            painter: 描画先 QPainter。
-            rect: サムネの境界矩形。
-            text: バッジに表示する文字列。
-            corner: "top-right" / "bottom-right" / "bottom-left" のいずれか。
-        """
-        painter.save()
-        font = QFont(theme.FONT_MONO_FAMILIES[0])
-        font.setPixelSize(theme.FONT_SIZE_SMALL)
-        font.setWeight(QFont.Weight.DemiBold)
-        painter.setFont(font)
-
-        metrics = painter.fontMetrics()
-        pad_x, pad_y, margin = 4, 1, 3
-        badge_w = metrics.horizontalAdvance(text) + pad_x * 2
-        badge_h = metrics.height() + pad_y * 2
-
-        if corner == "top-right":
-            x = rect.right() - badge_w - margin
-            y = rect.top() + margin
-        elif corner == "bottom-right":
-            x = rect.right() - badge_w - margin
-            y = rect.bottom() - badge_h - margin
-        else:  # bottom-left
-            x = rect.left() + margin
-            y = rect.bottom() - badge_h - margin
-        badge_rect = QRectF(x, y, badge_w, badge_h)
-
-        ink = QColor(theme.INK)
-        ink.setAlpha(205)
-        painter.setPen(Qt.PenStyle.NoPen)
-        painter.setBrush(ink)
-        painter.drawRoundedRect(badge_rect, 3, 3)
-
-        painter.setPen(QColor(theme.PAPER))
-        painter.drawText(badge_rect, int(Qt.AlignmentFlag.AlignCenter), text)
-        painter.restore()
-
-
-class CustomGraphicsView(QGraphicsView):
-    """
-    アイテムのクリックを処理し、信号を発行するカスタムQGraphicsView。
-
-    標準OS準拠の選択動作:
-    - Click: 単一選択
-    - Ctrl+Click: トグル選択
-    - Shift+Click: 範囲選択
-    - Ctrl+Shift+Click: 範囲追加選択
-    - ドラッグ: ラバーバンド矩形選択
-    - Ctrl+ドラッグ / Shift+ドラッグ: 既存選択に矩形選択を追加
-
-    Note: Ctrl+A全選択はMainWindowのactionSelectAllで処理
-    """
-
-    itemClicked = Signal(ThumbnailItem, Qt.KeyboardModifier)
-    emptySpaceClicked = Signal()
-
-    @overload
-    def __init__(self, parent: QWidget | None = None) -> None: ...
-
-    @overload
-    def __init__(self, scene: QGraphicsScene, parent: QWidget | None = None) -> None: ...
-
-    def __init__(self, *args: Any, **kwargs: Any) -> None:
-        """
-        CustomGraphicsViewを初期化する。
-
-        QGraphicsViewの複数の初期化形式をサポート:
-        - CustomGraphicsView(parent)
-        - CustomGraphicsView(scene, parent)
-        """
-        super().__init__(*args, **kwargs)
-        self._drag_modifiers: Qt.KeyboardModifier = Qt.KeyboardModifier.NoModifier
-        # キーボードフォーカスを受け取れるように設定（将来のキー操作対応のため）
-        self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
-
-    def mousePressEvent(self, event: QMouseEvent) -> None:
-        """
-        マウスプレスイベントを処理する。
-
-        左クリック時のみ選択ロジックを処理し、右クリックは無視してコンテキストメニューに委譲する。
-        アイテムクリック時はitemClickedシグナルを発行し、super()を呼ばない。
-        これによりQtのシーン選択が独自の選択ロジックを上書きするのを防止する。
-        空スペースクリック時のみsuper()を呼び、ラバーバンドドラッグを有効にする。
-
-        Args:
-            event: マウスイベント
-        """
-        # 右クリックは無視（コンテキストメニューで処理）
-        if event.button() != Qt.MouseButton.LeftButton:
-            super().mousePressEvent(event)
-            return
-
-        item = self.itemAt(event.position().toPoint())
-        if isinstance(item, ThumbnailItem):
-            # アイテム上のクリック: 独自の選択ロジックで処理
-            # super()を呼ばないことで、Qtのシーン選択による上書きを防止
-            self.itemClicked.emit(item, event.modifiers())
-        else:
-            # 空スペース: ドラッグ修飾子を記録してラバーバンド開始
-            self._drag_modifiers = event.modifiers()
-            if not (
-                event.modifiers()
-                & (Qt.KeyboardModifier.ControlModifier | Qt.KeyboardModifier.ShiftModifier)
-            ):
-                # 修飾子なしの空スペースクリック → 選択解除用シグナル
-                self.emptySpaceClicked.emit()
-            super().mousePressEvent(event)
-
-    def mouseReleaseEvent(self, event: QMouseEvent) -> None:
-        """
-        マウスリリースイベント処理。
-
-        ラバーバンドドラッグ終了後にドラッグ修飾子をリセットする。
-
-        Args:
-            event: マウスイベント
-        """
-        super().mouseReleaseEvent(event)
-        self._drag_modifiers = Qt.KeyboardModifier.NoModifier
 
 
 class ThumbnailSelectorWidget(QWidget, Ui_ThumbnailSelectorWidget):

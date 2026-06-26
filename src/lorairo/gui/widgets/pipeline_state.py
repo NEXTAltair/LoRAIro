@@ -1,4 +1,4 @@
-# src/lorairo/gui/widgets/filter_search/pipeline_state.py
+# src/lorairo/gui/widgets/pipeline_state.py
 """Pipeline State Machine (Qt 非依存)。
 
 検索 → サムネイル読み込み → 表示の一連の流れを 6 状態の Enum で表現する。
@@ -11,7 +11,7 @@ UI 更新やシグナル発火は呼び出し側の責務とする。
 from collections.abc import Callable
 from enum import Enum
 
-from ....utils.log import logger
+from ...utils.log import logger
 
 
 class PipelineState(Enum):

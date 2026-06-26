@@ -14,14 +14,11 @@ from unittest.mock import MagicMock
 import pytest
 from loguru import logger as loguru_logger
 
-from lorairo.gui.widgets.filter_search import (
-    CountEstimateWidget,
-    FavoriteFilterPanel,
-    PipelineState,
-    PipelineStateMachine,
-    TagSuggestionWidget,
-)
+from lorairo.gui.widgets.count_estimate import CountEstimateWidget
+from lorairo.gui.widgets.favorite_filter import FavoriteFilterPanel
 from lorairo.gui.widgets.filter_search_panel import FilterSearchPanel
+from lorairo.gui.widgets.pipeline_state import PipelineState, PipelineStateMachine
+from lorairo.gui.widgets.tag_suggestion import TagSuggestionWidget
 
 
 @pytest.fixture()
@@ -186,7 +183,7 @@ class TestSubComponentDirectConnectionForbidden:
 
         sub-widget 同士の直接接続を防ぐため、static な module 依存も避ける。
         """
-        import lorairo.gui.widgets.filter_search.tag_suggestion as tag_module
+        import lorairo.gui.widgets.tag_suggestion as tag_module
 
         source = open(tag_module.__file__).read()
         assert "from .count_estimate" not in source
@@ -196,7 +193,7 @@ class TestSubComponentDirectConnectionForbidden:
 
     def test_count_estimate_does_not_import_other_sub_widgets(self):
         """ADR 0036 §3: count_estimate module は他 sub-widget を import しない。"""
-        import lorairo.gui.widgets.filter_search.count_estimate as count_module
+        import lorairo.gui.widgets.count_estimate as count_module
 
         source = open(count_module.__file__).read()
         assert "from .tag_suggestion" not in source
@@ -204,7 +201,7 @@ class TestSubComponentDirectConnectionForbidden:
 
     def test_favorite_filter_does_not_import_other_sub_widgets(self):
         """ADR 0036 §3: favorite_filter module は他 sub-widget を import しない。"""
-        import lorairo.gui.widgets.filter_search.favorite_filter as fav_module
+        import lorairo.gui.widgets.favorite_filter as fav_module
 
         source = open(fav_module.__file__).read()
         assert "from .tag_suggestion" not in source

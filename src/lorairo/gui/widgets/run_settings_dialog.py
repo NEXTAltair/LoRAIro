@@ -33,7 +33,7 @@ from PySide6.QtWidgets import (
 )
 
 from .. import theme
-from .ds.ds_segmented_control import DsSegmentedControl
+from .ds_segmented_control import DsSegmentedControl
 
 # 後方互換エイリアス: 既存テスト・呼び出し元が SegmentedControl として参照できるよう維持する
 SegmentedControl = DsSegmentedControl

@@ -18,7 +18,7 @@ from PySide6.QtCore import Signal
 from PySide6.QtWidgets import QHBoxLayout, QLabel, QToolButton, QVBoxLayout, QWidget
 
 from lorairo.gui import theme
-from lorairo.gui.widgets.ds import DsCard
+from lorairo.gui.widgets.ds_card import DsCard
 from lorairo.services.pipeline_composition import DerivedChip, PipelineStage, StageModelInfo, StageRow
 
 # 表示順 (Wireframes v11 Frame 2A の行順)

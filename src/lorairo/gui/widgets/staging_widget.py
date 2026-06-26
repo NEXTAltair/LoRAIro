@@ -29,7 +29,7 @@ from ..state.staging_state import StagingStateManager
 
 if TYPE_CHECKING:
     from ..state.dataset_state import DatasetStateManager
-    from .thumbnail import ThumbnailSelectorWidget
+    from .thumbnail_selector_widget import ThumbnailSelectorWidget
 
 
 class StagingWidget(QWidget):
@@ -161,7 +161,7 @@ class StagingWidget(QWidget):
 
     def _setup_staging_thumbnail_widget(self) -> None:
         """ステージング一覧を ThumbnailSelectorWidget で表示するセットアップ。"""
-        from .thumbnail import ThumbnailSelectorWidget
+        from .thumbnail_selector_widget import ThumbnailSelectorWidget
 
         layout = self.ui.verticalLayoutStaging
         list_widget = self.ui.listWidgetStaging

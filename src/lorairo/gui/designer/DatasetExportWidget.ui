@@ -387,7 +387,7 @@
   <customwidget>
    <class>ThumbnailSelectorWidget</class>
    <extends>QWidget</extends>
-   <header>..widgets.thumbnail</header>
+   <header>..widgets.thumbnail_selector_widget</header>
    <container>1</container>
    <slots>
     <signal>on_thumbnail_clicked()</signal>

@@ -10,7 +10,8 @@ from __future__ import annotations
 from PySide6.QtWidgets import QHBoxLayout, QLabel, QVBoxLayout, QWidget
 
 from lorairo.gui import theme
-from lorairo.gui.widgets.ds import DsCard, DsSummaryStat
+from lorairo.gui.widgets.ds_card import DsCard
+from lorairo.gui.widgets.ds_summary_stat import DsSummaryStat
 from lorairo.services.cost_estimation_service import (
     CostEstimationService,
     format_duration,

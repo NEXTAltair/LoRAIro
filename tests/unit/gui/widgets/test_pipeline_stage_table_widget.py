@@ -5,7 +5,7 @@ from __future__ import annotations
 import pytest
 from PySide6.QtWidgets import QLabel, QToolButton, QWidget
 
-from lorairo.gui.widgets.ds import DsCard
+from lorairo.gui.widgets.ds_card import DsCard
 from lorairo.gui.widgets.pipeline_stage_table_widget import (
     _BUILTIN_PRESETS,
     _DEFAULT_PRESET_ID,

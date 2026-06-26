@@ -1,9 +1,9 @@
-# tests/unit/gui/widgets/filter_search/test_pipeline_state.py
+# tests/unit/gui/widgets/test_pipeline_state.py
 """PipelineStateMachine の Qt 非依存 unit test (ADR 0036 §6)。"""
 
 import pytest
 
-from lorairo.gui.widgets.filter_search.pipeline_state import (
+from lorairo.gui.widgets.pipeline_state import (
     DEFAULT_STATE_MESSAGES,
     PipelineState,
     PipelineStateMachine,

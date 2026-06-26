@@ -22,7 +22,7 @@ from PySide6.QtWidgets import (QApplication, QCheckBox, QComboBox, QDateTimeEdit
 
 from ..widgets.directory_picker import DirectoryPickerWidget
 from ..widgets.image_preview import ImagePreviewWidget
-from ..widgets.thumbnail import ThumbnailSelectorWidget
+from ..widgets.thumbnail_selector_widget import ThumbnailSelectorWidget
 
 class Ui_DatasetExportWidget(object):
     def setupUi(self, DatasetExportWidget: QWidget) -> None:
