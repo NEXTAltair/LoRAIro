@@ -16,7 +16,7 @@ tags: [gui, annotation, pipeline, domain-model]
 `PipelineStageTableWidget` + `PipelineCompositionService`) へ全面移行した
 (#741 / #839 / #845)。しかしこの刷新を記録した ADR が存在せず、ピッカー背後の
 ドメインモデル (`src/lorairo/services/pipeline_composition.py`) の設計ルールは
-「デザインセッション 2026-06-11 / docs/design/wireframes-v11」とコードにしか
+「デザインセッション 2026-06-11 / docs/design/wireframes」とコードにしか
 無い (#885 / #887)。
 
 加えて、ドメインモデルのソースコメントが ADR 0023 / 0031 を「固定スキーマと

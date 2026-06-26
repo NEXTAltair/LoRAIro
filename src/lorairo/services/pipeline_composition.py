@@ -6,7 +6,7 @@ SSoT は選択モデル集合 (ModelSelectionWidget のチェック状態)。本
 multimodal 派生出力・推論台帳 (INFERENCE LEDGER) の計算を担う。ステージへの割り当ては
 選択集合から毎回作り直す派生であり、出力にもコストにも影響しない (詳細は ADR 0075)。
 
-設計確定事項 (ADR 0075、デザインセッション 2026-06-11 / docs/design/wireframes-v11):
+設計確定事項 (ADR 0075、デザインセッション 2026-06-11 / docs/design/wireframes):
 - multimodal の AnnotationSchema は {tags, captions, score} 固定 — 派生は
   TAGS / CAPTION / SCORE のみで RATING には届かない。rating は rating 対応モデルか
   送信前 moderation プリフライト由来 (ADR 0070)

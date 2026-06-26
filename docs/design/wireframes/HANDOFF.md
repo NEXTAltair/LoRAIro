@@ -1,7 +1,7 @@
 # LoRAIro Wireframes — 引き継ぎメモ
 
-最新ファイル: `Wireframes v11.html`
-v1〜v10 は履歴として残置（参照用）。次の作業は v11 を上書き更新でOK。
+最新ファイル: `wireframes.html`（旧 `Wireframes v11/v12.html` を統合した現行版）
+版管理は git で行う。ディレクトリ別の版（v1〜v12）運用は廃止し、`wireframes.html` を上書き更新する。
 
 > **v11 追記 (CLI 大改装 #634 対応)**: agent-friendly CLI 契約を図解する **Frame 8 · CLI** を追加。
 > 詳細は末尾「Frame 8 · CLI」節。ナビは `Search⌘1 / Map⌘2 / Annotate⌘3 / Jobs⌘4 / Results⌘5 / Errors⌘6 / Export⌘7 / CLI⌘8`。
