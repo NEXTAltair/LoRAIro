@@ -13,7 +13,7 @@ if TYPE_CHECKING:
     from ..image_transforms.image_processor import ImageProcessingManager
 
 # ImageAnalyzer はアノテーション関連なので、ここでは直接使わない想定 (必要なら別サービス経由)
-# from ..annotations.caption_tags import ImageAnalyzer
+# from ..annotation.caption_tags import ImageAnalyzer
 
 
 class ImageProcessingService:

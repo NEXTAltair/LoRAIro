@@ -1,6 +1,6 @@
-"""AnnotationLogic ユニットテスト
+"""AnnotationRunner ユニットテスト
 
-annotation_logic.py の全コードパスをカバーする。
+annotation_runner.py の全コードパスをカバーする。
 Qt非依存クラスのため @pytest.mark.unit を付与する。
 """
 
@@ -10,7 +10,7 @@ from unittest.mock import MagicMock
 import pytest
 from PIL import Image
 
-from lorairo.annotations.annotation_logic import AnnotationLogic
+from lorairo.annotation.annotation_runner import AnnotationRunner
 
 # ---- フィクスチャ ----
 
@@ -24,9 +24,9 @@ def mock_adapter() -> MagicMock:
 
 
 @pytest.fixture
-def logic(mock_adapter: MagicMock) -> AnnotationLogic:
-    """AnnotationLogic インスタンス（モックアダプター注入済み）。"""
-    return AnnotationLogic(annotator_adapter=mock_adapter)
+def logic(mock_adapter: MagicMock) -> AnnotationRunner:
+    """AnnotationRunner インスタンス（モックアダプター注入済み）。"""
+    return AnnotationRunner(annotator_adapter=mock_adapter)
 
 
 @pytest.fixture
@@ -49,7 +49,7 @@ def test_image_path(test_image_dir: Path) -> Path:
 
 @pytest.mark.unit
 def test_execute_annotation_calls_adapter_with_correct_args(
-    logic: AnnotationLogic, mock_adapter: MagicMock, test_image_path: Path
+    logic: AnnotationRunner, mock_adapter: MagicMock, test_image_path: Path
 ) -> None:
     """execute_annotation が adapter.annotate を正しい引数で呼ぶことを確認する。"""
     image_paths = [str(test_image_path)]
@@ -69,7 +69,7 @@ def test_execute_annotation_calls_adapter_with_correct_args(
 
 @pytest.mark.unit
 def test_execute_annotation_returns_adapter_result(
-    logic: AnnotationLogic, mock_adapter: MagicMock, test_image_path: Path
+    logic: AnnotationRunner, mock_adapter: MagicMock, test_image_path: Path
 ) -> None:
     """execute_annotation が adapter.annotate の戻り値をそのまま返すことを確認する。"""
     image_paths = [str(test_image_path)]
@@ -86,7 +86,7 @@ def test_execute_annotation_returns_adapter_result(
 
 @pytest.mark.unit
 def test_execute_annotation_passes_phash_list_to_adapter(
-    logic: AnnotationLogic, mock_adapter: MagicMock, test_image_path: Path
+    logic: AnnotationRunner, mock_adapter: MagicMock, test_image_path: Path
 ) -> None:
     """phash_list を渡したとき adapter.annotate に正しく転送されることを確認する。"""
     image_paths = [str(test_image_path)]
@@ -103,7 +103,7 @@ def test_execute_annotation_passes_phash_list_to_adapter(
 
 
 @pytest.mark.unit
-def test_load_images_raises_file_not_found_for_missing_path(logic: AnnotationLogic) -> None:
+def test_load_images_raises_file_not_found_for_missing_path(logic: AnnotationRunner) -> None:
     """存在しないパスを渡すと FileNotFoundError が raise されることを確認する。"""
     nonexistent = "/nonexistent/path/to/image.png"
 
@@ -115,7 +115,7 @@ def test_load_images_raises_file_not_found_for_missing_path(logic: AnnotationLog
 
 
 @pytest.mark.unit
-def test_load_images_raises_value_error_for_corrupt_file(logic: AnnotationLogic, tmp_path: Path) -> None:
+def test_load_images_raises_value_error_for_corrupt_file(logic: AnnotationRunner, tmp_path: Path) -> None:
     """壊れたファイルを渡すと ValueError が raise されることを確認する。"""
     # 無効な画像データのファイルを作成
     corrupt_file = tmp_path / "corrupt.png"
@@ -130,7 +130,7 @@ def test_load_images_raises_value_error_for_corrupt_file(logic: AnnotationLogic,
 
 @pytest.mark.unit
 def test_execute_annotation_reraises_adapter_exception(
-    logic: AnnotationLogic, mock_adapter: MagicMock, test_image_path: Path
+    logic: AnnotationRunner, mock_adapter: MagicMock, test_image_path: Path
 ) -> None:
     """adapter.annotate が Exception を raise すると同一例外が re-raise されることを確認する。"""
     mock_adapter.annotate.side_effect = RuntimeError("test error from adapter")
@@ -145,7 +145,9 @@ def test_execute_annotation_reraises_adapter_exception(
 
 
 @pytest.mark.unit
-def test_execute_annotation_with_empty_image_paths(logic: AnnotationLogic, mock_adapter: MagicMock) -> None:
+def test_execute_annotation_with_empty_image_paths(
+    logic: AnnotationRunner, mock_adapter: MagicMock
+) -> None:
     """空の image_paths を渡しても例外なく結果が返ることを確認する。"""
     mock_adapter.annotate.return_value = {}
 
@@ -163,7 +165,7 @@ def test_execute_annotation_with_empty_image_paths(logic: AnnotationLogic, mock_
 
 @pytest.mark.unit
 def test_execute_annotation_with_multiple_images(
-    logic: AnnotationLogic, mock_adapter: MagicMock, test_image_dir: Path
+    logic: AnnotationRunner, mock_adapter: MagicMock, test_image_dir: Path
 ) -> None:
     """複数の画像パスを渡すと全て読み込まれて adapter.annotate に渡されることを確認する。"""
     image_paths_p = sorted(test_image_dir.glob("*.webp"))[:3]

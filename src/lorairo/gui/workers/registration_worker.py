@@ -5,7 +5,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING, ClassVar
 
-from ...annotations.existing_file_reader import ExistingFileReader
+from ...annotation.sidecar_reader import SidecarAnnotationReader
 from ...database.db_manager import RegistrationOutcome
 from ...utils.log import logger
 from .base import LoRAIroWorkerBase
@@ -73,7 +73,7 @@ class DatabaseRegistrationWorker(LoRAIroWorkerBase[DatabaseRegistrationResult]):
         self.directory = directory
         self.db_manager = db_manager
         self.fsm = fsm
-        self.file_reader = ExistingFileReader()
+        self.file_reader = SidecarAnnotationReader()
 
     def execute(self) -> DatabaseRegistrationResult:
         """データベース登録処理を実行

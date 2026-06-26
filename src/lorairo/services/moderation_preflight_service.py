@@ -411,8 +411,8 @@ class ModerationPreflightService:
         )
 
 
-def build_annotation_logic_runner(execute_annotation: Callable[..., Any]) -> ModerationRunner:
-    """Adapt `AnnotationLogic.execute_annotation` to the moderation runner protocol."""
+def build_annotation_runner_runner(execute_annotation: Callable[..., Any]) -> ModerationRunner:
+    """Adapt `AnnotationRunner.execute_annotation` to the moderation runner protocol."""
 
     def _run(
         *,

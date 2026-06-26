@@ -344,7 +344,7 @@ class ImageDatabaseManager:
             image_path: 登録対象の画像パス。
             fsm: ファイルシステム操作用マネージャー。
             associated_annotations: 事前読み込み済みの関連アノテーション
-                (``ExistingFileReader.get_existing_annotations`` の戻り値)。
+                (``SidecarAnnotationReader.get_existing_annotations`` の戻り値)。
                 None の場合は本メソッド内で読み込む。
             tag_id_cache: 正規化済みタグ → tag_id のキャッシュ (N+1 回避用)。
 
@@ -436,10 +436,10 @@ class ImageDatabaseManager:
             tag_id_cache: 正規化済みタグ → tag_id のキャッシュ。
 
         """
-        from ..annotations.existing_file_reader import ExistingFileReader
+        from ..annotation.sidecar_reader import SidecarAnnotationReader
 
         if annotations is None:
-            annotations = ExistingFileReader().get_existing_annotations(image_path)
+            annotations = SidecarAnnotationReader().get_existing_annotations(image_path)
         if not annotations:
             return
 

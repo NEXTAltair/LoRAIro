@@ -5,7 +5,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 from PIL import Image
 
-from lorairo.annotations.annotator_adapter import AnnotatorLibraryAdapter
+from lorairo.annotation.annotator_adapter import AnnotatorLibraryAdapter
 
 
 @pytest.fixture

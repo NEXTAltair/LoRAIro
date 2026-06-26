@@ -1,7 +1,7 @@
 """Annotation Worker - 層分離リファクタリング版
 
 GUI Layer: 非同期処理とQt進捗管理のみ担当
-ビジネスロジックはAnnotationLogicに委譲
+ビジネスロジックはAnnotationRunnerに委譲
 """
 
 import traceback
@@ -13,7 +13,7 @@ from typing import TYPE_CHECKING, Any
 from image_annotator_lib import PHashAnnotationResults
 from PySide6.QtCore import Signal
 
-from lorairo.annotations.annotation_logic import AnnotationLogic
+from lorairo.annotation.annotation_runner import AnnotationRunner
 from lorairo.services.annotation_save_service import AnnotationSaveService
 from lorairo.services.job_ledger_service import (
     StageModelInput,
@@ -28,7 +28,7 @@ from lorairo.services.model_registry_protocol import (
 from lorairo.services.moderation_preflight_service import (
     MODERATION_LITELLM_MODEL_ID,
     ModerationPreflightService,
-    build_annotation_logic_runner,
+    build_annotation_runner_runner,
 )
 from lorairo.utils.log import logger
 
@@ -112,13 +112,13 @@ class AnnotationWorker(LoRAIroWorkerBase["AnnotationExecutionResult"]):
     """アノテーションワーカー
 
     GUI Layer: Qt非同期処理と進捗管理
-    ビジネスロジックはAnnotationLogicに委譲
+    ビジネスロジックはAnnotationRunnerに委譲
 
     主要機能:
     - QObject + QThreadベースの非同期実行
     - 進捗レポート（Signal経由）
     - キャンセル対応
-    - AnnotationLogic呼び出し
+    - AnnotationRunner呼び出し
     """
 
     # Issue #805: DS JobsScreen のステージ別 progress 用。list[StageProgress] を運ぶ。
@@ -131,7 +131,7 @@ class AnnotationWorker(LoRAIroWorkerBase["AnnotationExecutionResult"]):
 
     def __init__(
         self,
-        annotation_logic: AnnotationLogic,
+        annotation_runner: AnnotationRunner,
         image_paths: list[str],
         litellm_model_ids: list[str],
         db_manager: "ImageDatabaseManager",
@@ -146,7 +146,7 @@ class AnnotationWorker(LoRAIroWorkerBase["AnnotationExecutionResult"]):
         registry lookup hit するように設計されている。
 
         Args:
-            annotation_logic: アノテーション業務ロジック
+            annotation_runner: アノテーション業務ロジック
             image_paths: 画像パスリスト
             litellm_model_ids: 使用モデルの `litellm_model_id` リスト
             db_manager: データベースマネージャ（必須: DB保存・エラー記録用）
@@ -159,7 +159,7 @@ class AnnotationWorker(LoRAIroWorkerBase["AnnotationExecutionResult"]):
         """
         super().__init__(db_manager=db_manager)
 
-        self.annotation_logic = annotation_logic
+        self.annotation_runner = annotation_runner
         self.image_paths = image_paths
         self.litellm_model_ids = list(litellm_model_ids)
         self.db_manager = db_manager
@@ -439,7 +439,7 @@ class AnnotationWorker(LoRAIroWorkerBase["AnnotationExecutionResult"]):
 
         try:
             self._check_cancellation()
-            bulk_results = self.annotation_logic.execute_annotation(
+            bulk_results = self.annotation_runner.execute_annotation(
                 image_paths=self.image_paths,
                 litellm_model_ids=_CancellationCheckingModelList(
                     self.litellm_model_ids,
@@ -530,7 +530,7 @@ class AnnotationWorker(LoRAIroWorkerBase["AnnotationExecutionResult"]):
                     f"対象画像数={len(self.image_paths)}"
                 )
 
-                model_results = self.annotation_logic.execute_annotation(
+                model_results = self.annotation_runner.execute_annotation(
                     image_paths=self.image_paths,
                     litellm_model_ids=[litellm_model_id],
                     phash_list=phash_list,
@@ -602,7 +602,7 @@ class AnnotationWorker(LoRAIroWorkerBase["AnnotationExecutionResult"]):
     def execute(self) -> AnnotationExecutionResult:
         """アノテーション処理実行
 
-        AnnotationLogic経由でビジネスロジックを実行し、
+        AnnotationRunner経由でビジネスロジックを実行し、
         進捗管理とキャンセル処理を担当する。
 
         Returns:
@@ -769,7 +769,7 @@ class AnnotationWorker(LoRAIroWorkerBase["AnnotationExecutionResult"]):
                 error_record_repo=self.db_manager.error_record_repo,
                 annotation_save_service=save_service,
                 config_service=self.db_manager.config_service,
-                moderation_runner=build_annotation_logic_runner(self.annotation_logic.execute_annotation),
+                moderation_runner=build_annotation_runner_runner(self.annotation_runner.execute_annotation),
             )
             preflight_result = preflight_service.apply(rating_filtered_paths)
             self.image_paths = preflight_result.allowed_paths

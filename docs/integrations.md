@@ -224,7 +224,7 @@ Multi-provider AI annotation for image captioning and tagging (OpenAI, Anthropic
 
 #### 主要アダプター
 
-**File**: `src/lorairo/annotations/annotator_adapter.py`
+**File**: `src/lorairo/annotation/annotator_adapter.py`
 
 ```python
 from image_annotator_lib import get_available_annotators, create_annotator
@@ -238,7 +238,7 @@ from image_annotator_lib.types import AnnotationResult, AnnotatorConfig
 
 #### アノテーションロジック
 
-**File**: `src/lorairo/annotations/annotation_logic.py`
+**File**: `src/lorairo/annotation/annotation_runner.py`
 
 ```python
 from image_annotator_lib import annotate
@@ -252,7 +252,7 @@ from image_annotator_lib.types import AnnotationRequest
 
 #### Service Layer
 
-**File**: `src/lorairo/annotations/annotator_adapter.py`
+**File**: `src/lorairo/annotation/annotator_adapter.py`
 
 **Responsibility:**
 - Business logic wrapper for annotation
@@ -290,7 +290,7 @@ max_tokens = 1000
 #### プロバイダー選択
 
 ```python
-from lorairo.annotations.annotator_adapter import AnnotatorLibraryAdapter
+from lorairo.annotation.annotator_adapter import AnnotatorLibraryAdapter
 
 adapter = AnnotatorLibraryAdapter(config_service)
 annotator = adapter.create_annotator(
@@ -324,7 +324,7 @@ result = annotate(request)
 #### バッチアノテーション
 
 ```python
-from lorairo.annotations.annotator_adapter import AnnotatorLibraryAdapter
+from lorairo.annotation.annotator_adapter import AnnotatorLibraryAdapter
 
 adapter = AnnotatorLibraryAdapter(config_service)
 results = adapter.annotate_batch(
@@ -381,7 +381,7 @@ job / item / artifact state を保存し、library から返る `BatchFetchResul
 #### リトライ戦略
 
 ```python
-from lorairo.annotations.annotator_adapter import AnnotatorLibraryAdapter
+from lorairo.annotation.annotator_adapter import AnnotatorLibraryAdapter
 
 adapter = AnnotatorLibraryAdapter(config)
 result = adapter.annotate_with_retry(

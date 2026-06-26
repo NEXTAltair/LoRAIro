@@ -7,7 +7,7 @@ from image_annotator_lib import AnnotatorInfo
 from image_annotator_lib.core.types import TaskCapability
 from PIL import Image
 
-from lorairo.annotations.annotator_adapter import AnnotatorLibraryAdapter
+from lorairo.annotation.annotator_adapter import AnnotatorLibraryAdapter
 
 
 def _make_info(
@@ -38,7 +38,7 @@ def test_refresh_available_models_returns_discovered_models() -> None:
     adapter = AnnotatorLibraryAdapter(MagicMock())
 
     with patch(
-        "lorairo.annotations.annotator_adapter.discover_available_vision_models",
+        "lorairo.annotation.annotator_adapter.discover_available_vision_models",
         return_value={"models": ["openai/gpt-4.1-mini"], "metadata": {}},
     ) as mock_discover:
         result = adapter.refresh_available_models()
@@ -57,7 +57,7 @@ def test_refresh_available_models_raises_on_discovery_error() -> None:
     adapter = AnnotatorLibraryAdapter(MagicMock())
 
     with patch(
-        "lorairo.annotations.annotator_adapter.discover_available_vision_models",
+        "lorairo.annotation.annotator_adapter.discover_available_vision_models",
         side_effect=RuntimeError("network unavailable"),
     ):
         with pytest.raises(RuntimeError, match="network unavailable"):
@@ -69,8 +69,8 @@ def test_list_available_models_switches_active_and_all() -> None:
     adapter = AnnotatorLibraryAdapter(MagicMock())
 
     with (
-        patch("lorairo.annotations.annotator_adapter.get_available_models", return_value=["active"]),
-        patch("lorairo.annotations.annotator_adapter.list_all_models", return_value=["active", "old"]),
+        patch("lorairo.annotation.annotator_adapter.get_available_models", return_value=["active"]),
+        patch("lorairo.annotation.annotator_adapter.list_all_models", return_value=["active", "old"]),
     ):
         assert adapter.list_available_models() == ["active"]
         assert adapter.list_available_models(include_deprecated=True) == ["active", "old"]
@@ -86,7 +86,7 @@ def test_list_annotator_info_passes_through_library_result() -> None:
     ]
 
     with patch(
-        "lorairo.annotations.annotator_adapter.list_annotator_info",
+        "lorairo.annotation.annotator_adapter.list_annotator_info",
         return_value=fake_infos,
     ) as mock_lib:
         result = adapter.list_annotator_info()
@@ -101,7 +101,7 @@ def test_list_annotator_info_propagates_library_exception() -> None:
     adapter = AnnotatorLibraryAdapter(MagicMock())
 
     with patch(
-        "lorairo.annotations.annotator_adapter.list_annotator_info",
+        "lorairo.annotation.annotator_adapter.list_annotator_info",
         side_effect=RuntimeError("registry not initialized"),
     ):
         with pytest.raises(RuntimeError, match="registry not initialized"):
@@ -126,7 +126,7 @@ def test_get_available_models_builds_model_info_with_provider() -> None:
         )
     ]
 
-    with patch("lorairo.annotations.annotator_adapter.list_annotator_info", return_value=fake_infos):
+    with patch("lorairo.annotation.annotator_adapter.list_annotator_info", return_value=fake_infos):
         models = adapter.get_available_models()
 
     assert len(models) == 1
@@ -152,7 +152,7 @@ def test_get_available_models_unknown_provider_falls_back_to_unknown() -> None:
         )
     ]
 
-    with patch("lorairo.annotations.annotator_adapter.list_annotator_info", return_value=fake_infos):
+    with patch("lorairo.annotation.annotator_adapter.list_annotator_info", return_value=fake_infos):
         models = adapter.get_available_models()
 
     assert len(models) == 1
@@ -166,7 +166,7 @@ def test_get_available_models_with_metadata_alias() -> None:
     """get_available_models_with_metadata は get_available_models と同じ結果を返す"""
     adapter = AnnotatorLibraryAdapter(MagicMock())
 
-    with patch("lorairo.annotations.annotator_adapter.list_annotator_info", return_value=[]):
+    with patch("lorairo.annotation.annotator_adapter.list_annotator_info", return_value=[]):
         assert adapter.get_available_models_with_metadata() == adapter.get_available_models()
 
 
@@ -181,7 +181,7 @@ def test_capability_values_includes_ratings() -> None:
     `_to_model_info()` が KeyError を投げ、`get_available_models()` が落ちて
     annotation 全体が degraded mode に入る事象を防ぐ。
     """
-    from lorairo.annotations.annotator_adapter import _CAPABILITY_VALUES
+    from lorairo.annotation.annotator_adapter import _CAPABILITY_VALUES
 
     assert _CAPABILITY_VALUES[TaskCapability.RATINGS] == "ratings"
 
@@ -205,7 +205,7 @@ def test_get_available_models_includes_ratings_capability() -> None:
         )
     ]
 
-    with patch("lorairo.annotations.annotator_adapter.list_annotator_info", return_value=fake_infos):
+    with patch("lorairo.annotation.annotator_adapter.list_annotator_info", return_value=fake_infos):
         models = adapter.get_available_models()
 
     assert len(models) == 1
@@ -229,7 +229,7 @@ def test_to_model_info_local_model_without_provider_falls_back_to_local() -> Non
         )
     ]
 
-    with patch("lorairo.annotations.annotator_adapter.list_annotator_info", return_value=fake_infos):
+    with patch("lorairo.annotation.annotator_adapter.list_annotator_info", return_value=fake_infos):
         models = adapter.get_available_models()
 
     assert len(models) == 1
@@ -246,7 +246,7 @@ def test_list_annotator_info_logs_error_and_reraises_exception() -> None:
     adapter = AnnotatorLibraryAdapter(MagicMock())
 
     with patch(
-        "lorairo.annotations.annotator_adapter.list_annotator_info",
+        "lorairo.annotation.annotator_adapter.list_annotator_info",
         side_effect=ValueError("registry corrupt"),
     ):
         with pytest.raises(ValueError, match="registry corrupt"):
@@ -262,7 +262,7 @@ def test_is_model_deprecated_returns_true_for_deprecated_model() -> None:
     adapter = AnnotatorLibraryAdapter(MagicMock())
 
     with patch(
-        "lorairo.annotations.annotator_adapter.is_model_deprecated",
+        "lorairo.annotation.annotator_adapter.is_model_deprecated",
         return_value=True,
     ):
         assert adapter.is_model_deprecated("old-model-v1") is True
@@ -274,7 +274,7 @@ def test_is_model_deprecated_returns_false_for_active_model() -> None:
     adapter = AnnotatorLibraryAdapter(MagicMock())
 
     with patch(
-        "lorairo.annotations.annotator_adapter.is_model_deprecated",
+        "lorairo.annotation.annotator_adapter.is_model_deprecated",
         return_value=False,
     ):
         assert adapter.is_model_deprecated("active-model") is False

@@ -63,10 +63,10 @@ def given_worker_initialized() -> dict[str, object]:
 
     model_registry = Mock()
     model_registry.get_available_models.return_value = []
-    annotation_logic = Mock()
+    annotation_runner = Mock()
 
     worker = AnnotationWorker(
-        annotation_logic=annotation_logic,
+        annotation_runner=annotation_runner,
         image_paths=image_paths,
         litellm_model_ids=["model-a", "model-b"],
         db_manager=db_manager,
@@ -74,7 +74,7 @@ def given_worker_initialized() -> dict[str, object]:
     )
     return {
         "worker": worker,
-        "annotation_logic": annotation_logic,
+        "annotation_runner": annotation_runner,
         "db_manager": db_manager,
         "behaviors": {},
         "result": None,
@@ -131,10 +131,10 @@ def given_lib_inserts_unknown_model_id(worker_ctx: dict[str, object], model_id: 
 @when("AnnotationWorker を実行する")
 def when_run_worker(worker_ctx: dict[str, object]) -> None:
     worker = worker_ctx["worker"]
-    annotation_logic = worker_ctx["annotation_logic"]
+    annotation_runner = worker_ctx["annotation_runner"]
     behaviors = worker_ctx["behaviors"]
     assert isinstance(worker, AnnotationWorker)
-    assert isinstance(annotation_logic, Mock)
+    assert isinstance(annotation_runner, Mock)
     assert isinstance(behaviors, dict)
 
     def execute_annotation(*_args: object, **kwargs: object) -> object:
@@ -155,7 +155,7 @@ def when_run_worker(worker_ctx: dict[str, object]) -> None:
             raise behavior
         return behavior
 
-    annotation_logic.execute_annotation.side_effect = execute_annotation
+    annotation_runner.execute_annotation.side_effect = execute_annotation
     try:
         worker_ctx["result"] = worker.execute()
     except Exception as exc:

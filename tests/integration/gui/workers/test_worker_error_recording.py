@@ -17,7 +17,7 @@ import pytest
 from PIL import Image
 from PySide6.QtCore import QSize
 
-from lorairo.annotations.annotation_logic import AnnotationLogic
+from lorairo.annotation.annotation_runner import AnnotationRunner
 from lorairo.database.db_core import create_db_engine, create_session_factory
 from lorairo.database.db_manager import ImageDatabaseManager
 from lorairo.database.repository.image import ImageRepository
@@ -130,15 +130,15 @@ class TestAnnotationWorkerErrorRecording:
         """モデルレベルエラー時にエラーレコードが作成される"""
         from lorairo.services.model_registry_protocol import NullModelRegistry
 
-        # AnnotationLogic モック（エラーを引き起こす）
-        mock_logic = Mock(spec=AnnotationLogic)
+        # AnnotationRunner モック（エラーを引き起こす）
+        mock_logic = Mock(spec=AnnotationRunner)
         mock_logic.execute_annotation.side_effect = Exception("API Error")
 
         # Workerの db_manager 注入をテスト
         from lorairo.gui.workers.annotation_worker import AnnotationWorker
 
         worker = AnnotationWorker(
-            annotation_logic=mock_logic,
+            annotation_runner=mock_logic,
             image_paths=["/test/image1.jpg"],
             litellm_model_ids=["test-model"],
             db_manager=db_manager,
@@ -163,14 +163,14 @@ class TestAnnotationWorkerErrorRecording:
         """全体エラー時にエラーレコードが作成される"""
         from lorairo.services.model_registry_protocol import NullModelRegistry
 
-        # AnnotationLogic モック（初期化エラーを引き起こす）
-        mock_logic = Mock(spec=AnnotationLogic)
+        # AnnotationRunner モック（初期化エラーを引き起こす）
+        mock_logic = Mock(spec=AnnotationRunner)
         mock_logic.execute_annotation.side_effect = RuntimeError("Logic Error")
 
         from lorairo.gui.workers.annotation_worker import AnnotationWorker
 
         worker = AnnotationWorker(
-            annotation_logic=mock_logic,
+            annotation_runner=mock_logic,
             image_paths=["/test/image1.jpg"],
             litellm_model_ids=["test-model"],
             db_manager=db_manager,

@@ -4,7 +4,7 @@ Issue #2実装の統合テスト: 外部tag_dbへのタグ登録・検索機能
 テストカバレッジ:
 - 新規タグ作成と外部DB登録
 - 既存タグ検索（重複作成防止）
-- タグ正規化の一貫性（ExistingFileReaderとの整合性）
+- タグ正規化の一貫性（SidecarAnnotationReaderとの整合性）
 - 空タグ/エラー時の縮退動作
 
 Note:
@@ -17,7 +17,7 @@ import uuid
 import pytest
 from genai_tag_db_tools.utils.cleanup_str import TagCleaner
 
-from lorairo.annotations.existing_file_reader import ExistingFileReader
+from lorairo.annotation.sidecar_reader import SidecarAnnotationReader
 
 
 @pytest.mark.integration
@@ -29,9 +29,9 @@ class TestTagDbIntegration:
     """
 
     @pytest.fixture
-    def existing_file_reader(self) -> ExistingFileReader:
-        """ExistingFileReaderインスタンスを提供"""
-        return ExistingFileReader()
+    def sidecar_reader(self) -> SidecarAnnotationReader:
+        """SidecarAnnotationReaderインスタンスを提供"""
+        return SidecarAnnotationReader()
 
     def test_new_tag_creation(self, test_annotation_repository_with_tag_db, test_tag_repository):
         """
@@ -87,13 +87,13 @@ class TestTagDbIntegration:
         assert len(all_matching_tags) == 1, "Should not create duplicate tags"
 
     def test_tag_normalization_consistency(
-        self, test_annotation_repository_with_tag_db, existing_file_reader, temp_dir
+        self, test_annotation_repository_with_tag_db, sidecar_reader, temp_dir
     ):
         """
         タグ正規化の一貫性テスト
 
-        目的: ImageRepositoryとExistingFileReaderで正規化ロジックが一致することを確認
-        ExistingFileReaderの実際のファイル読み込み処理を使用してテスト
+        目的: ImageRepositoryとSidecarAnnotationReaderで正規化ロジックが一致することを確認
+        SidecarAnnotationReaderの実際のファイル読み込み処理を使用してテスト
         """
         from pathlib import Path
 
@@ -114,16 +114,16 @@ class TestTagDbIntegration:
             # テストファイルにタグを書き込み
             test_tag_file.write_text(original_tag, encoding="utf-8")
 
-            # ExistingFileReader経由で正規化（実際のファイル読み込み処理）
-            annotations = existing_file_reader.get_existing_annotations(test_image_path)
+            # SidecarAnnotationReader経由で正規化（実際のファイル読み込み処理）
+            annotations = sidecar_reader.get_existing_annotations(test_image_path)
             assert annotations is not None, "Annotations should be loaded"
             reader_normalized_tags = annotations["tags"]
 
             # ImageRepository経由で正規化（直接TagCleaner使用）
             repo_normalized = TagCleaner.clean_format(original_tag).strip()
 
-            # 検証: ExistingFileReaderで読み込んだタグと直接正規化した結果が一致
-            # ExistingFileReaderはカンマ区切りでリストにするため、結合して比較
+            # 検証: SidecarAnnotationReaderで読み込んだタグと直接正規化した結果が一致
+            # SidecarAnnotationReaderはカンマ区切りでリストにするため、結合して比較
             reader_normalized_str = ", ".join(reader_normalized_tags) if reader_normalized_tags else ""
 
             # カンマ区切りの場合は各要素を比較
