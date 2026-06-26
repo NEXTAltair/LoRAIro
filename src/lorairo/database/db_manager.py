@@ -702,7 +702,7 @@ class ImageDatabaseManager:
             タプル。処理不可な場合は None。
 
         """
-        from ..editor.image_processor import ImageProcessingManager
+        from ..image_transforms.image_processor import ImageProcessingManager
 
         target_resolution = 512
         preferred_resolutions = [(512, 512)]

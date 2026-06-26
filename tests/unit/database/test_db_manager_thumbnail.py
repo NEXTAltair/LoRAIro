@@ -72,7 +72,7 @@ class TestCreateAndSaveThumbnail:
             "height": 512,
         }
 
-        with patch("lorairo.editor.image_processor.ImageProcessingManager") as mock_ipm_class:
+        with patch("lorairo.image_transforms.image_processor.ImageProcessingManager") as mock_ipm_class:
             mock_ipm = Mock()
             mock_ipm_class.return_value = mock_ipm
             mock_ipm.process_image.return_value = (processed_image_mock, processing_metadata)
@@ -109,7 +109,7 @@ class TestCreateAndSaveThumbnail:
             "mode": "RGB",
         }
 
-        with patch("lorairo.editor.image_processor.ImageProcessingManager") as mock_ipm_class:
+        with patch("lorairo.image_transforms.image_processor.ImageProcessingManager") as mock_ipm_class:
             mock_ipm = Mock()
             mock_ipm_class.return_value = mock_ipm
             # process_image が None を返す（処理できない）
@@ -143,7 +143,7 @@ class TestCreateAndSaveThumbnail:
             "mode": "RGBA",
         }
 
-        with patch("lorairo.editor.image_processor.ImageProcessingManager") as mock_ipm_class:
+        with patch("lorairo.image_transforms.image_processor.ImageProcessingManager") as mock_ipm_class:
             mock_ipm = Mock()
             mock_ipm_class.return_value = mock_ipm
             mock_ipm.process_image.return_value = (MagicMock(), {})

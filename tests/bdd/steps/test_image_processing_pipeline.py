@@ -105,7 +105,7 @@ def when_process_image_list(ctx: PipelineContext) -> None:
     side_effect = getattr(ctx, "_process_side_effect", None)
     with patch.dict(
         "sys.modules",
-        {"lorairo.editor.image_processor": _image_processor_module(ctx)},
+        {"lorairo.image_transforms.image_processor": _image_processor_module(ctx)},
     ):
         if side_effect is not None:
             with patch.object(ctx.service, "_process_single_image", side_effect=side_effect):
@@ -140,7 +140,7 @@ def when_process_with_cancel(ctx: PipelineContext, cancel_at: int) -> None:
 
     with patch.dict(
         "sys.modules",
-        {"lorairo.editor.image_processor": _image_processor_module(ctx)},
+        {"lorairo.image_transforms.image_processor": _image_processor_module(ctx)},
     ):
         with patch.object(ctx.service, "_process_single_image") as mock_process:
             ctx.service.process_images_in_list(
@@ -153,7 +153,7 @@ def when_process_with_cancel(ctx: PipelineContext, cancel_at: int) -> None:
 
 
 def _image_processor_module(ctx: PipelineContext) -> MagicMock:
-    """lorairo.editor.image_processor のモジュールモック (torch 循環 import 回避)。"""
+    """lorairo.image_transforms.image_processor のモジュールモック (torch 循環 import 回避)。"""
     mock_module = MagicMock()
     mock_module.ImageProcessingManager = MagicMock(return_value=ctx.mock_ipm)
     return mock_module

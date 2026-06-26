@@ -14,7 +14,7 @@ import numpy as np
 import pytest
 from PIL import Image
 
-from lorairo.editor.autocrop import AutoCrop
+from lorairo.image_transforms.autocrop import AutoCrop
 
 
 class TestAutoCropSingleton:
@@ -98,7 +98,7 @@ class TestAutoCropMainInterface:
         assert result is not None
         assert isinstance(result, Image.Image)
 
-    @patch("lorairo.editor.autocrop.logger")
+    @patch("lorairo.image_transforms.autocrop.logger")
     def test_auto_crop_image_with_exception_handling(self, mock_logger):
         """Test auto_crop_image error handling when processing fails"""
         # Create a test image
@@ -240,8 +240,8 @@ class TestAutoCropHelperMethods:
         gray_image = np.random.randint(0, 255, (100, 100), dtype=np.uint8)
 
         # Patch HAS_SCIPY to True
-        with patch("lorairo.editor.autocrop.HAS_SCIPY", True):
-            with patch("lorairo.editor.autocrop.ndimage") as mock_ndimage:
+        with patch("lorairo.image_transforms.autocrop.HAS_SCIPY", True):
+            with patch("lorairo.image_transforms.autocrop.ndimage") as mock_ndimage:
                 mock_ndimage.sobel.return_value = np.zeros((100, 100))
 
                 result = AutoCrop._calculate_edge_strength(gray_image)
@@ -255,7 +255,7 @@ class TestAutoCropHelperMethods:
         gray_image = np.random.randint(0, 255, (100, 100), dtype=np.uint8)
 
         # Patch HAS_SCIPY to False
-        with patch("lorairo.editor.autocrop.HAS_SCIPY", False):
+        with patch("lorairo.image_transforms.autocrop.HAS_SCIPY", False):
             with patch("cv2.Sobel") as mock_sobel:
                 mock_sobel.return_value = np.zeros((100, 100))
 
@@ -354,7 +354,7 @@ class TestAutoCropGetCropAreaColorConversion:
         _x, _y, _w, h = result
         assert h < 600  # レターボックスが除去される
 
-    @patch("lorairo.editor.autocrop.logger")
+    @patch("lorairo.image_transforms.autocrop.logger")
     def test_get_crop_area_logs_grayscale_conversion(self, mock_logger):
         """Test _get_crop_area logs debug message for grayscale conversion"""
         gray_array = np.full((100, 100), 128, dtype=np.uint8)
@@ -379,7 +379,7 @@ class TestAutoCropGetCropAreaColorConversion:
         _x, _y, _w, h = result
         assert h < 600  # レターボックスが除去される
 
-    @patch("lorairo.editor.autocrop.logger")
+    @patch("lorairo.image_transforms.autocrop.logger")
     def test_get_crop_area_logs_la_conversion(self, mock_logger):
         """Test _get_crop_area logs debug message for LA image conversion"""
         la_array = np.full((100, 100, 2), 128, dtype=np.uint8)
@@ -398,7 +398,7 @@ class TestAutoCropErrorHandling:
         AutoCrop._instance = None
         self.autocrop = AutoCrop()
 
-    @patch("lorairo.editor.autocrop.logger")
+    @patch("lorairo.image_transforms.autocrop.logger")
     def test_get_crop_area_with_exception(self, mock_logger):
         """Test _get_crop_area error handling"""
         # Create test image
@@ -424,7 +424,7 @@ class TestAutoCropErrorHandling:
         # May return None or handle the error gracefully
         assert result is None or isinstance(result, tuple)
 
-    @patch("lorairo.editor.autocrop.logger")
+    @patch("lorairo.image_transforms.autocrop.logger")
     def test_auto_crop_image_with_pil_conversion_error(self, mock_logger):
         """Test error handling when PIL to numpy conversion fails"""
         # Create mock image that fails np.array conversion
@@ -451,18 +451,18 @@ class TestAutoCropScipyDependency:
     def test_module_import_with_scipy_available(self):
         """Test module behavior when scipy is available"""
         # This test verifies that the module imports correctly when scipy is available
-        with patch("lorairo.editor.autocrop.HAS_SCIPY", True):
+        with patch("lorairo.image_transforms.autocrop.HAS_SCIPY", True):
             # Re-import or verify the module state
-            from lorairo.editor.autocrop import AutoCrop
+            from lorairo.image_transforms.autocrop import AutoCrop
 
             autocrop = AutoCrop()
             assert autocrop is not None
 
-    @patch("lorairo.editor.autocrop.logger")
+    @patch("lorairo.image_transforms.autocrop.logger")
     def test_module_import_without_scipy(self, mock_logger):
         """Test module behavior when scipy is not available"""
         # This test verifies fallback behavior when scipy is not available
-        with patch("lorairo.editor.autocrop.HAS_SCIPY", False):
+        with patch("lorairo.image_transforms.autocrop.HAS_SCIPY", False):
             # Create test image for edge strength calculation
             gray_image = np.random.randint(0, 255, (50, 50), dtype=np.uint8)
 
@@ -476,14 +476,14 @@ class TestAutoCropScipyDependency:
         gray_image = np.random.randint(0, 255, (50, 50), dtype=np.uint8)
 
         # Test with scipy
-        with patch("lorairo.editor.autocrop.HAS_SCIPY", True):
-            with patch("lorairo.editor.autocrop.ndimage.sobel") as mock_sobel:
+        with patch("lorairo.image_transforms.autocrop.HAS_SCIPY", True):
+            with patch("lorairo.image_transforms.autocrop.ndimage.sobel") as mock_sobel:
                 mock_sobel.return_value = np.zeros_like(gray_image)
                 result_scipy = AutoCrop._calculate_edge_strength(gray_image)
                 assert result_scipy.shape == gray_image.shape
 
         # Test with OpenCV fallback
-        with patch("lorairo.editor.autocrop.HAS_SCIPY", False):
+        with patch("lorairo.image_transforms.autocrop.HAS_SCIPY", False):
             with patch("cv2.Sobel") as mock_cv_sobel:
                 mock_cv_sobel.return_value = np.zeros_like(gray_image)
                 result_opencv = AutoCrop._calculate_edge_strength(gray_image)
@@ -541,7 +541,7 @@ class TestAutoCropMarginLogic:
         test_img = np.full((100, 1200, 3), 0, dtype=np.uint8)
         test_img[48:51, 100:1100] = [255, 255, 255]  # 3h x 1000w
 
-        with patch("lorairo.editor.autocrop.logger") as mock_logger:
+        with patch("lorairo.image_transforms.autocrop.logger") as mock_logger:
             crop_area = self.autocrop._get_crop_area(test_img)
 
             if crop_area is not None:
@@ -561,7 +561,7 @@ class TestAutoCropMarginLogic:
         test_img = np.full((1200, 100, 3), 0, dtype=np.uint8)
         test_img[100:1100, 48:51] = [255, 255, 255]  # 1000h x 3w
 
-        with patch("lorairo.editor.autocrop.logger") as mock_logger:
+        with patch("lorairo.image_transforms.autocrop.logger") as mock_logger:
             crop_area = self.autocrop._get_crop_area(test_img)
 
             if crop_area is not None:
@@ -590,7 +590,7 @@ class TestAutoCropMarginLogic:
         # margin_x = max(2, int(600 * 0.005)) = 3px (sufficient)
         # margin_y = max(2, int(400 * 0.005)) = 2px (sufficient)
 
-        with patch("lorairo.editor.autocrop.logger") as mock_logger:
+        with patch("lorairo.image_transforms.autocrop.logger") as mock_logger:
             crop_area = self.autocrop._get_crop_area(test_img)
 
             if crop_area is not None:
