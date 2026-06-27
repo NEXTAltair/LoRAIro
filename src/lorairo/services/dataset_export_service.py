@@ -130,15 +130,7 @@ class DatasetExportService:
                 export_tags = self._resolve_export_tags(image_data["tags"])
                 export_caption = self._resolve_export_caption(image_data["captions"])
                 tag_list = [tag_data["tag"] for tag_data in export_tags]
-                if overlay_plan is not None:
-                    # overlay パイプライン: replace → exclude → convert → add → dedup
-                    effective_overlay = overlay_plan.effective_for(image_id)
-                    tag_list = apply_overlay(tag_list, effective_overlay, reader, tag_format)
-                    tags = ", ".join(tag_list)
-                else:
-                    # 従来挙動: convert のみ（overlay 未指定時のリグレッションなし）
-                    tags = ", ".join(tag_list)
-                    tags = self._convert_tags_for_export(tags, tag_format, reader)
+                tags = self._build_export_tags_str(tag_list, image_id, tag_format, reader, overlay_plan)
                 if merge_caption and export_caption:
                     captions = export_caption["caption"]
                     tags = f"{tags}, {captions}" if tags else captions
@@ -232,15 +224,7 @@ class DatasetExportService:
                 export_tags = self._resolve_export_tags(image_data["tags"])
                 export_caption = self._resolve_export_caption(image_data["captions"])
                 tag_list = [tag_data["tag"] for tag_data in export_tags]
-                if overlay_plan is not None:
-                    # overlay パイプライン: replace → exclude → convert → add → dedup
-                    effective_overlay = overlay_plan.effective_for(image_id)
-                    tag_list = apply_overlay(tag_list, effective_overlay, reader, tag_format)
-                    tags = ", ".join(tag_list)
-                else:
-                    # 従来挙動: convert のみ（overlay 未指定時のリグレッションなし）
-                    tags = ", ".join(tag_list)
-                    tags = self._convert_tags_for_export(tags, tag_format, reader)
+                tags = self._build_export_tags_str(tag_list, image_id, tag_format, reader, overlay_plan)
                 captions = export_caption["caption"] if export_caption else ""
                 # ADR 0028: score_labels は {model, label} を主とする JSON-safe な形で埋め込む
                 score_labels = [
@@ -400,6 +384,37 @@ class DatasetExportService:
         except Exception as e:
             logger.error(f"Error resolving processed image path for ID {image_id}: {e}")
             return None
+
+    def _build_export_tags_str(
+        self,
+        tag_list: list[str],
+        image_id: int,
+        tag_format: str,
+        reader: "MergedTagReader | None",
+        overlay_plan: ExportOverlayPlan | None,
+    ) -> str:
+        """タグリストを overlay または従来変換で文字列化する（ADR 0080）。
+
+        overlay_plan が None、または image_id に対する実効 overlay が空の場合は
+        レガシーパス（_convert_tags_for_export）にフォールバックし、リグレッションを防ぐ。
+
+        Args:
+            tag_list: convert 前のタグリスト。
+            image_id: 対象画像の DB ID。
+            tag_format: 変換先フォーマット名。
+            reader: MergedTagReader。None の場合は変換しない。
+            overlay_plan: オーバーレイプラン。None の場合は従来挙動。
+
+        Returns:
+            カンマ区切りのタグ文字列。
+        """
+        if overlay_plan is not None:
+            effective_overlay = overlay_plan.effective_for(image_id)
+            if not effective_overlay.is_noop:
+                # overlay パイプライン: replace → exclude → convert → add → dedup
+                return ", ".join(apply_overlay(tag_list, effective_overlay, reader, tag_format))
+            # 実効 overlay が空（スコープ外画像）→ 従来挙動にフォールバック（リグレッション防止）
+        return self._convert_tags_for_export(", ".join(tag_list), tag_format, reader)
 
     def _get_export_reader(self) -> "MergedTagReader | None":
         """外部 tag_db reader を取得する。

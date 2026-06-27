@@ -70,6 +70,23 @@ class TestExportTagOverlay:
         assert overlay.exclude == {"bad_tag"}
         assert overlay.replace == {"old": "new"}
 
+    def test_is_noop_true_when_all_empty(self) -> None:
+        """add/exclude/replace がすべて空のとき is_noop=True。"""
+        overlay = ExportTagOverlay(add=[], exclude=set(), replace={})
+        assert overlay.is_noop is True
+
+    def test_is_noop_false_when_add_nonempty(self) -> None:
+        overlay = ExportTagOverlay(add=["trigger"], exclude=set(), replace={})
+        assert overlay.is_noop is False
+
+    def test_is_noop_false_when_exclude_nonempty(self) -> None:
+        overlay = ExportTagOverlay(add=[], exclude={"bad"}, replace={})
+        assert overlay.is_noop is False
+
+    def test_is_noop_false_when_replace_nonempty(self) -> None:
+        overlay = ExportTagOverlay(add=[], exclude=set(), replace={"a": "b"})
+        assert overlay.is_noop is False
+
 
 # ─────────────────────────────────────────────────────────────────────────────
 # ScopedOverlayRule
@@ -675,3 +692,72 @@ class TestDatasetExportServiceOverlayHook:
 
             content_2 = (output_path / "img_00002.txt").read_text(encoding="utf-8")
             assert "scoped_trigger" not in content_2
+
+    def test_scoped_overlay_out_of_scope_image_matches_no_overlay_output(self, tmp_path: object) -> None:
+        """スコープ外画像は overlay_plan=None と同一出力になる（P2 リグレッション防止）。
+
+        空 effective overlay で apply_overlay の dedup が走り convert 産重複タグが
+        消えてしまうケースを防ぐ。is_noop=True のときレガシーパスへフォールバックする。
+        """
+        import tempfile
+        from pathlib import Path
+        from unittest.mock import patch
+
+        from lorairo.services.dataset_export_service import DatasetExportService
+
+        service = self._make_service()
+        assert isinstance(service, DatasetExportService)
+
+        # スコープは image_id=1 のみ。image_id=2 はスコープ外 → 空 effective overlay
+        plan = ExportOverlayPlan(
+            rules=[
+                ScopedOverlayRule(
+                    image_ids={1},
+                    overlay=ExportTagOverlay(add=["trigger"], exclude=set(), replace={}),
+                )
+            ]
+        )
+
+        def make_image_data(img_id: int) -> dict:
+            return {
+                "metadata": {"id": img_id},
+                "tags": [{"tag": "anime"}, {"tag": "girl"}],
+                "captions": [],
+            }
+
+        with (
+            tempfile.TemporaryDirectory() as temp_dir_overlay,
+            tempfile.TemporaryDirectory() as temp_dir_no_overlay,
+        ):
+            out_overlay = Path(temp_dir_overlay) / "export"
+            out_overlay.mkdir()
+            out_no_overlay = Path(temp_dir_no_overlay) / "export"
+            out_no_overlay.mkdir()
+
+            with (
+                patch.object(
+                    service,
+                    "_resolve_processed_image_path",
+                    side_effect=lambda img_id, res: Path(f"/mock/processed/img_{img_id:05d}.webp"),
+                ),
+                patch.object(
+                    service,
+                    "_get_image_export_data",
+                    side_effect=make_image_data,
+                ),
+            ):
+                service.export_dataset_txt_format(
+                    image_ids=[2],
+                    output_path=out_overlay,
+                    overlay_plan=plan,
+                )
+                service.export_dataset_txt_format(
+                    image_ids=[2],
+                    output_path=out_no_overlay,
+                    overlay_plan=None,
+                )
+
+            content_overlay = (out_overlay / "img_00002.txt").read_text(encoding="utf-8")
+            content_no_overlay = (out_no_overlay / "img_00002.txt").read_text(encoding="utf-8")
+            # スコープ外画像はレガシーパスと同一出力でなければならない
+            assert content_overlay == content_no_overlay

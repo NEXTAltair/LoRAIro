@@ -37,6 +37,15 @@ class ExportTagOverlay:
     exclude: set[str]
     replace: dict[str, str]
 
+    @property
+    def is_noop(self) -> bool:
+        """overlay が全操作とも空（add/exclude/replace 全て空）かどうかを返す。
+
+        True の場合、apply_overlay を通しても convert/dedup 以外の変化はない。
+        スコープ外画像でのレガシーパスへのフォールバック判定に使用する（ADR 0080 §2）。
+        """
+        return not self.add and not self.exclude and not self.replace
+
 
 @dataclass
 class ScopedOverlayRule:
