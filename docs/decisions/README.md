@@ -86,6 +86,9 @@ ADR は OKF (Open Knowledge Format) バンドルとして管理する。各 ADR 
 | [0074](0074-staging-state-manager-hoist.md) | ステージング集合の SSoT を StagingStateManager へ hoist | 2026-06-22 | Accepted |
 | [0075](0075-annotation-pipeline-composition-domain-model.md) | アノテーションパイプライン構成 (選択モデル × アノテーション種類) のドメインモデル | 2026-06-23 | Accepted |
 | [0076](0076-submit-relocation-annotate-dispatch-projection.md) | Submit を Annotate の dispatch 射影へ移し Jobs を純粋な監視台帳にする | 2026-06-24 | Accepted |
+| [0077](0077-run-options-annotation-run-contract.md) | RunOptions アノテーション実行契約 — dry-run 短絡と rating ゲート / refusal filter 分離 | 2026-06-27 | Accepted |
+| [0078](0078-model-installer-explicit-job.md) | Model installer の明示ジョブ化 — 暗黙 HuggingFace DL を Jobs lifecycle へ | 2026-06-27 | Accepted |
+| [0079](0079-jobs-stage-progress-and-summary-band.md) | Jobs ステージ別 progress + サマリ帯 — 実データ表示契約と Qt-free 構築ロジック | 2026-06-27 | Accepted |
 <!-- OKF-TABLE:END -->
 
 ## ADR テンプレート
