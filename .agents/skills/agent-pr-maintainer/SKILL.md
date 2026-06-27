@@ -98,11 +98,12 @@ Review completion gate:
     blocking review comments.
 - **Codex findings are posted as inline pull request review comments, not issue-level comments.**
   `gh pr view --comments` does not return inline review comments. Always fetch them separately
-  using the pull request review comments endpoint:
+  using the pull request review comments endpoint. GitHub list endpoints are paginated; always pass
+  `--paginate` and `per_page=100` so comments on later pages are not missed:
 
   ```bash
-  gh api "repos/{OWNER}/{REPO}/pulls/$PR/comments" \
-    --jq '[.[] | select(.user.login == "chatgpt-codex-connector[bot]") | {path, body: .body[:300]}]'
+  gh api --paginate "repos/{OWNER}/{REPO}/pulls/$PR/comments?per_page=100" \
+    --jq '[.[] | select(.user.login == "chatgpt-codex-connector[bot]") | {id, path, line, body: .body[:300]}]'
   ```
 
 - A Codex inline comment containing a P1 or P2 badge is a blocking finding. Treat any unresolved
@@ -115,8 +116,12 @@ Review completion gate:
 Commands to gather clean-reaction state:
 
 ```bash
-gh api "repos/NEXTAltair/LoRAIro/issues/$PR/reactions"
+gh api --paginate "repos/NEXTAltair/LoRAIro/issues/$PR/reactions?per_page=100"
 ```
+
+For any other `gh api` call against a GitHub list endpoint, use `--paginate` with `per_page=100` unless the
+endpoint is known to return a single resource. Do not infer "no review artifact" or "no blocking finding" from
+a first page only response.
 
 For failed CI jobs, use `gh` to fetch failed logs:
 
