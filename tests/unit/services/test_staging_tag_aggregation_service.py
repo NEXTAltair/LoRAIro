@@ -274,3 +274,85 @@ class TestImagesWithTag:
 
         # image_id の重複がないこと
         assert result.count(1) == 1
+
+
+# ---------------------------------------------------------------------------
+# aggregate - 複数モデル由来タグの重複除去
+# ---------------------------------------------------------------------------
+
+
+class TestAggregateDeduplication:
+    def test_same_tag_from_multiple_models_counted_once_per_image(self) -> None:
+        """同一画像の同タグが複数モデルから登録されていても画像1枚として数えること。"""
+        rows: list[tuple[int, str, bool | None]] = [
+            (1, "1girl", False),  # model A
+            (1, "1girl", True),  # model B（同一画像・同一タグ）
+        ]
+        svc = _make_service(rows)
+        result = svc.aggregate([1])
+
+        assert len(result) == 1
+        assert result[0].tag == "1girl"
+        assert result[0].count == 1  # 画像1枚なので count=1
+        assert result[0].manual is True  # いずれかのモデルで manual なので True
+
+    def test_cross_image_no_dedup(self) -> None:
+        """異なる画像の同タグは重複除去されず正しく集計されること。"""
+        rows: list[tuple[int, str, bool | None]] = [
+            (1, "smile", False),
+            (1, "smile", False),  # 同画像・同タグ（2モデル）→ 除去
+            (2, "smile", False),  # 別画像
+        ]
+        svc = _make_service(rows)
+        result = svc.aggregate([1, 2])
+
+        assert len(result) == 1
+        assert result[0].tag == "smile"
+        assert result[0].count == 2  # 画像1・画像2 の各1カウント
+
+
+# ---------------------------------------------------------------------------
+# _load_tags_for_images - チャンク分割
+# ---------------------------------------------------------------------------
+
+
+class TestLoadTagsChunking:
+    def test_chunks_large_image_id_lists(self) -> None:
+        """_CHUNK_SIZE を超える image_ids をチャンク分割してクエリを発行すること。"""
+        from unittest.mock import MagicMock
+
+        from lorairo.services.staging_tag_aggregation import _CHUNK_SIZE
+
+        db_manager = MagicMock()
+        svc = StagingTagAggregationService(db_manager)
+
+        # セッションモック（コンテキストマネージャ対応）
+        mock_session = MagicMock()
+        mock_session.__enter__ = MagicMock(return_value=mock_session)
+        mock_session.__exit__ = MagicMock(return_value=False)
+        mock_session.execute.return_value.all.return_value = []
+        db_manager.image_repo.get_session.return_value = mock_session
+
+        # _CHUNK_SIZE + 1 件の image_ids で 2 チャンクになること
+        image_ids = list(range(_CHUNK_SIZE + 1))
+        svc._load_tags_for_images(image_ids)
+
+        assert mock_session.execute.call_count == 2
+
+    def test_single_chunk_for_small_list(self) -> None:
+        """_CHUNK_SIZE 以下の image_ids は 1 クエリのみ発行すること。"""
+        from unittest.mock import MagicMock
+
+        db_manager = MagicMock()
+        svc = StagingTagAggregationService(db_manager)
+
+        mock_session = MagicMock()
+        mock_session.__enter__ = MagicMock(return_value=mock_session)
+        mock_session.__exit__ = MagicMock(return_value=False)
+        mock_session.execute.return_value.all.return_value = []
+        db_manager.image_repo.get_session.return_value = mock_session
+
+        image_ids = [1, 2, 3]
+        svc._load_tags_for_images(image_ids)
+
+        assert mock_session.execute.call_count == 1

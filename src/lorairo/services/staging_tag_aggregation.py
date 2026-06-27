@@ -8,12 +8,15 @@ from __future__ import annotations
 
 from collections import defaultdict
 from dataclasses import dataclass
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, ClassVar
 
 from loguru import logger
 
 if TYPE_CHECKING:
     from lorairo.database.db_manager import ImageDatabaseManager
+
+# SQLite バインド変数上限の安全マージン（BaseRepository.BATCH_CHUNK_SIZE と同値）
+_CHUNK_SIZE: int = 15000
 
 
 @dataclass
@@ -36,7 +39,8 @@ class StagingTagAggregationService:
 
     `image_ids` で指定した画像群の有効タグ（soft-reject 済みを除く）を
     バルク取得し、タグごとの出現数と手動編集フラグを集計して返す。
-    N+1 クエリを避けるため、1回の一括 SQL クエリのみで完結する。
+    N+1 クエリを避けるため ``image_ids`` を一括で取得するが、
+    SQLite バインド変数上限を超えないよう ``_CHUNK_SIZE`` でチャンク分割する。
     """
 
     def __init__(self, db_manager: ImageDatabaseManager) -> None:
@@ -66,11 +70,16 @@ class StagingTagAggregationService:
         rows = self._load_tags_for_images(image_ids)
 
         # tag -> (count, any_manual) を集計
+        # 同一画像の同タグが複数モデル由来で複数行ある場合も (image_id, tag) 単位で重複除去する
         count_map: dict[str, int] = defaultdict(int)
         manual_map: dict[str, bool] = defaultdict(bool)
+        seen_pairs: set[tuple[int, str]] = set()
 
-        for _image_id, tag, is_manual in rows:
-            count_map[tag] += 1
+        for image_id, tag, is_manual in rows:
+            pair = (image_id, tag)
+            if pair not in seen_pairs:
+                seen_pairs.add(pair)
+                count_map[tag] += 1
             if is_manual:
                 manual_map[tag] = True
 
@@ -120,6 +129,8 @@ class StagingTagAggregationService:
         ``rejected_at IS NULL`` の行のみを対象とし、soft-reject 済みタグは除外する。
         これは ``_resolve_export_tags``（DatasetExportService）の ``rejected_at`` 除外ロジックと整合する。
 
+        SQLite のバインド変数上限を超えないよう ``_CHUNK_SIZE`` 単位でチャンク分割する。
+
         Args:
             image_ids: 対象画像 ID のリスト。空リストの場合は空リストを返す。
 
@@ -137,12 +148,20 @@ class StagingTagAggregationService:
 
         from lorairo.database.schema import Tag
 
+        all_rows: list[tuple[int, str, bool | None]] = []
         session = self._db.image_repo.get_session()
         with session:
-            rows = session.execute(
-                select(Tag.image_id, Tag.tag, Tag.is_edited_manually).where(
-                    Tag.image_id.in_(image_ids),
-                    Tag.rejected_at.is_(None),
+            for i in range(0, len(image_ids), _CHUNK_SIZE):
+                chunk = image_ids[i : i + _CHUNK_SIZE]
+                chunk_rows = session.execute(
+                    select(Tag.image_id, Tag.tag, Tag.is_edited_manually).where(
+                        Tag.image_id.in_(chunk),
+                        Tag.rejected_at.is_(None),
+                    )
+                ).all()
+                all_rows.extend(
+                    (row.image_id, row.tag, row.is_edited_manually)
+                    for row in chunk_rows
+                    if row.image_id is not None
                 )
-            ).all()
-        return [(row.image_id, row.tag, row.is_edited_manually) for row in rows if row.image_id is not None]
+        return all_rows
