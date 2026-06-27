@@ -645,6 +645,8 @@ class AnnotationWorker(LoRAIroWorkerBase["AnnotationExecutionResult"]):
             # は WebAPI モデル選択時のみ適用、Worker 内で async 実行 (GUI freeze
             # 回避)。バッチ resolve で N+1 クエリも解消。filter 後の件数を以後の
             # progress total_count として使う。
+            self._refresh_input_phash_cache()
+
             self._report_progress(
                 5,
                 "refusal filter を適用中...",
@@ -652,8 +654,6 @@ class AnnotationWorker(LoRAIroWorkerBase["AnnotationExecutionResult"]):
             )
             self._check_cancellation()
             preflight_errors = self._apply_refusal_prefilter()
-
-            self._refresh_input_phash_cache()
 
             # Phase 1: アノテーション実行(5-90%)
             self._report_progress(5, "アノテーション処理を開始...", total_count=len(self.image_paths))
