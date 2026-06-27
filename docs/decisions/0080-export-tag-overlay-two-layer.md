@@ -1,7 +1,7 @@
 ---
 type: ADR
 title: エクスポート前タグ編集の2層オーバーレイ契約 — DB編集層と出力オーバーレイ層の分離
-status: Proposed
+status: Accepted
 timestamp: 2026-06-27
 tags: [export, tag-overlay, staging, qt-free-service, dataset-export, trigger-word]
 ---
