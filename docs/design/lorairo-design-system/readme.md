@@ -15,7 +15,7 @@
 - **GitHub — [NEXTAltair/LoRAIro](https://github.com/NEXTAltair/LoRAIro)**（MIT）。参照した主なファイル:
   - `src/lorairo/gui/theme.py` — **Theme v1**: 正準のデザイントークン + グローバル Qt スタイルシート（QSS）ジェネレータ。色・形・タイポの唯一の真実の源。
   - `docs/design/theme-v1/hifi-mock.html` — QSS を正規化する元になったハイファイ HTML モック（oklch → hex）。視覚上の SSoT。
-  - `docs/design/wireframes-v11/` — `HANDOFF.md` + `wireframes-v11.html`。全画面カタログとプロダクト上の意思決定。
+  - `docs/design/wireframes/` — `HANDOFF.md` + `wireframes.html`。全画面カタログとプロダクト上の意思決定（版管理は git。旧 v1〜v12 のディレクトリ別運用は廃止）。
   - `src/lorairo/gui/designer/*.ui` + `widgets/*.py` — Qt の画面レイアウト。
   - `src/lorairo/cli/` + `docs/cli.md` — JSONL の CLI コントラクトとグリフ語彙。
 
