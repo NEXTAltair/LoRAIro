@@ -1,0 +1,9 @@
+# claude.ai/design から sync すると Project の作業ディレクトリ丸ごと
+# (旧 ADR コピー / 過去バージョン backup / スクショ / proto jsx 等) が落ちてくる。
+# repo の SSoT は下記 3 点のみなので、それ以外は追跡対象外にする。
+# 新規に追跡したいファイルが増えたら ! で明示的に whitelist すること。
+/*
+!.gitignore
+!wireframes.html
+!HANDOFF.md
+!decisions-impact-on-wireframe.md

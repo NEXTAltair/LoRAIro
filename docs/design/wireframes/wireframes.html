@@ -1,10 +1,10 @@
 <!DOCTYPE html>
 <html lang="ja"><head>
 <meta charset="utf-8">
-<title>LoRAIro v11 — ADR-aligned</title>
+<title>LoRAIro</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin="">
-<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&family=Kalam:wght@300;400;700&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&family=Noto+Sans+JP:wght@400;500;600;700&display=swap" rel="stylesheet">
 <style>/* devanagari */
 
 /* devanagari */
@@ -14,12 +14,22 @@
 </style>
 <style>
   :root{
+    /* === LoRAIro Theme v1 === SSoT: repo docs/design/theme-v1/hifi-mock.html + src/lorairo/gui/theme.py.
+       手書き(Kalam)・ハードシャドウ・付箋テープ調は Theme v1 で廃止。Noto Sans JP + JetBrains Mono の
+       フラットな Qt(Fusion) ルックに正規化。oklch → 実装の hex トークンへ転記。 */
     --ink:#1a1a1a;--ink-soft:#4a4a4a;--ink-faint:#9a9a9a;
-    --paper:#fbfaf6;--paper-shade:#f1efe6;--rule:#2b2b2b;
-    --accent:oklch(0.62 0.14 32);--accent-soft:oklch(0.93 0.04 32);
-    --hl:oklch(0.92 0.09 95);
-    --ok:oklch(0.55 0.13 145);--warn:oklch(0.65 0.16 70);--err:oklch(0.55 0.18 25);
-    --hand:'Kalam',cursive;--mono:'JetBrains Mono',ui-monospace,monospace;
+    --paper:#fbfaf6;--paper-shade:#f1efe6;--card:#ffffff;--terminal:#23211d;
+    --rule:#dcd8cc;--line:#dcd8cc;--line-strong:#b9b4a5;
+    --accent:#c25e3f;--accent-hover:#a94e33;--accent-soft:#f6e3dc;--accent-border:#ecc9bd;
+    --hl:#f7ecd8;
+    --ok:#3c8a55;--ok-soft:#e2f0e6;--ok-border:#bedfc8;
+    --warn:#b87f1f;--warn-soft:#f7ecd8;--warn-border:#e7d3a8;
+    --err:#b8402c;--err-soft:#f7e1dc;--err-border:#e8c2ba;
+    --info:#3d6f9e;--info-soft:#e1ebf4;--info-border:#bcd2e5;
+    --fill:#2b2b2b; /* ダーク chrome (ツールバー/アクティブトグル) — ワイヤー操作用の affordance として暗色を維持 */
+    --sans:'Noto Sans JP','Segoe UI','Hiragino Sans',system-ui,sans-serif;
+    --hand:'Noto Sans JP','Segoe UI','Hiragino Sans',system-ui,sans-serif;
+    --mono:'JetBrains Mono','Cascadia Mono',ui-monospace,monospace;
   }
   *{box-sizing:border-box}
   html,body{margin:0;padding:0;background:var(--paper);color:var(--ink);font-family:var(--hand)}
@@ -1070,7 +1080,7 @@
 
   <!-- PROTOTYPE MODE BAR -->
   <div class="proto-bar">
-    <span class="brand">LoRAIro<span class="tm">v11</span></span>
+    <span class="brand">LoRAIro</span>
     <div class="modes">
       <button data-mode="doc" class="on">📄 <span class="tx-ja">注釈ドキュメント</span><span class="tx-en">Annotated doc</span></button>
       <button data-mode="proto">▶ <span class="tx-ja">操作プロトタイプ</span><span class="tx-en">Click-through</span></button>
@@ -1085,14 +1095,12 @@
 
   <header class="masthead">
     <div>
-      <h1>LoRAIro<span class="tm"> v11 · ADR-aligned</span></h1>
+      <h1>LoRAIro</h1>
       <div class="sub">
-        <b><span class="tx-ja">v11: 設計決定 (ADR 0019–0055) をフレームに反映。</span><span class="tx-en">v11: reflected design decisions (ADR 0019–0055) into the frames.</span></b>
         <span class="tx-ja"><b>統一品質スコア</b>、<b>環境ファーストのモデル選択</b>、<b>rating preflight ゲート</b>、<b>非同期 Provider Batch</b>、<b>ステージング集合ベースの Export</b> を反映。</span><span class="tx-en">Unified quality tier, environment-first model picker, rating-preflight gate, async provider batch, staging-set Export.</span>
         <span class="schema-tag">quality_score</span> <span class="schema-tag">Staging set</span> <span class="schema-tag">normalized_rating</span> <span class="schema-tag">provider_batch_jobs</span>
       </div>
     </div>
-    <div class="stamp">v11 · DRAFT</div>
   </header>
 
   <!-- ============================================== -->
@@ -1298,9 +1306,9 @@
       <div class="bd"><span class="tx-ja">save query は <b>既定 = snapshot</b>（image_id 凍結・再現性優先）。<b>明示操作で live</b>（再評価・動的セット）へ切替</span><span class="tx-en"><b>default = snapshot</b> (frozen image_ids · reproducible); switch to <b>live</b> (re-evaluated) explicitly</span></div>
     </div>
   </div>
-  <div class="frame" data-screen-label="01 Search">
+  <div class="frame" id="frame-search" data-screen-label="01 Search">
     <span class="label">FRAME 1 · SEARCH</span>
-    <div class="titlebar"><span class="dots"><span></span><span></span><span></span></span><span class="path">LoRAIro · Project: shiba_v3 · 12,480 images</span><span>⚙</span></div>
+    <div class="rs-menubar"><span>ファイル</span><span>編集</span><span>表示</span><span>移動</span><span>ツール</span><span>ヘルプ</span></div>
     <div class="topnav">
       <span class="vtab on" data-tab="search"><span class="tx-ja">検索</span><span class="tx-en">Search</span> <span class="k">⌘1</span></span>
       <span class="vtab" data-tab="map"><span class="tx-ja">マップ</span><span class="tx-en">Map</span> <span class="k">⌘2</span></span>
@@ -1312,280 +1320,163 @@
       <span class="proj">project: <b>shiba_v3</b> <span class="schema-tag">Project.name</span> · 12,480 <span class="schema-tag">Image rows</span> · <span class="accent" data-goto="annotate" data-proto-cta="" style="cursor:pointer">📥 stage 9</span></span>
     </div>
 
-    <!-- 登録完了サマリ (ADR 0061 §4 / #633 — 専用 Import frame の代わり) -->
-    <div class="reg-summary">
-      <div class="rh">
-        <span class="ic">✓</span>
-        <span class="tx-ja"><b>登録完了</b> — uploads/shiba_batch_07 · 24枚 · 18.2s</span><span class="tx-en"><b>Registration done</b> — uploads/shiba_batch_07 · 24 files · 18.2s</span>
-        <span class="cnt"><span class="tx-ja">新規</span><span class="tx-en">new</span> <b>9</b> · <span class="tx-ja">別版</span><span class="tx-en">variant</span> <b class="v">3</b> · skip <b class="s">12</b> · <span class="tx-ja">エラー</span><span class="tx-en">errors</span> <b>0</b></span>
-        <span class="schema-tag">DatabaseRegistrationResult</span>
-        <span style="flex:1"></span>
-        <span class="lnk" style="color:var(--accent);cursor:pointer;border-bottom:1px dashed var(--accent);font-family:var(--hand);font-weight:700;font-size:12px">▾ <span class="tx-ja">skip / 別版 の内訳</span><span class="tx-en">skipped / variant detail</span></span>
-        <span class="x">✕</span>
-      </div>
-      <div class="rdetail">
-        <div class="rrow">
-          <span class="fn">shiba_007_copy.jpg</span>
-          <span class="rtag dup">DUPLICATE</span>
-          <span class="why"><span class="tx-ja">同一 pHash · 属性差なし → 自動 skip · ファイル名は alias に記録済</span><span class="tx-en">same pHash, no attr diff → auto-skip · filename recorded as alias</span> <span class="schema-tag">ImageFilenameAlias</span></span>
-          <span style="flex:1"></span>
-          <span class="arr">→</span>
-          <span class="ex"><span class="tx-ja">既存 #4412 を表示</span><span class="tx-en">view existing #4412</span></span>
-        </div>
-        <div class="rrow">
-          <span class="fn">shiba_012 (1).png</span>
-          <span class="rtag dup">DUPLICATE</span>
-          <span class="why"><span class="tx-ja">同一 pHash → 自動 skip</span><span class="tx-en">same pHash → auto-skip</span></span>
-          <span style="flex:1"></span>
-          <span class="arr">→</span>
-          <span class="ex"><span class="tx-ja">既存 #2871 を表示</span><span class="tx-en">view existing #2871</span></span>
-        </div>
-        <div class="rrow">
-          <span class="fn">shiba_close_v2.jpg</span>
-          <span class="rtag var">VARIANT</span>
-          <span class="why"><span class="tx-ja">同一 pHash でも属性差 (2048px 版) → 別版として新規登録</span><span class="tx-en">same pHash but attr diff (2048px) → registered as variant</span></span>
-          <span style="flex:1"></span>
-          <span class="arr">→</span>
-          <span class="ex"><span class="tx-ja">新規 #12481 を表示</span><span class="tx-en">view new #12481</span></span>
-        </div>
-        <div class="rrow" style="border-bottom:0">
-          <span class="why"><span class="tx-ja">… 他 skip 10件 · <b>重複解決の手動操作は不要</b>（分類は登録ロジックが全自動 · ADR 0061 §4）。statusBar の5秒表示と違い ✕ で閉じるまで残る</span><span class="tx-en">… 10 more skips · <b>no manual dedupe needed</b> (classification is fully automatic, ADR 0061 §4). Unlike the 5s statusBar flash, persists until dismissed</span></span>
-        </div>
-      </div>
+    <!-- ============ REAL SEARCH TAB (SearchTab.ui) ============ -->
+    <div class="rs-ds">
+      <span class="l">データセット:</span>
+      <span class="inp">データセットディレクトリを選択してください</span>
+      <span class="b">選択</span>
+      <span class="b">設定</span>
     </div>
+    <div class="rs-db">データベース: C:\LoRAIro\lorairo_data\main_dataset_20250707_001</div>
 
-    <div style="margin:0 0 10px;padding:8px 12px;background:#eef6ee;border:1.5px solid var(--ok);border-radius:3px;font-family:var(--mono);font-size:10px;line-height:1.55;color:var(--ink-soft)">
-      <b style="color:var(--ok)">✓ 実装準拠 (#869):</b> <span class="tx-ja">Search = <b>SearchTabWidget</b>（tabWorkspace 埋込）。<b>3ペイン splitter</b> = facet サイドバー + サムネグリッド + プレビュー/詳細編集（SelectedImageDetailsWidget）。登録完了サマリ帯を上端に常設。検索結果から staging へ送り、staging は <b>StagingStateManager (ADR 0074)</b> で Annotate/Jobs/Export と共有。</span><span class="tx-en">Search = <b>SearchTabWidget</b> (in tabWorkspace): a <b>3-pane splitter</b> = facet sidebar + thumbnail grid + preview/detail edit (SelectedImageDetailsWidget); registration-summary band pinned on top. Results feed staging; staging is the <b>StagingStateManager SSoT (ADR 0074)</b> shared with Annotate/Jobs/Export.</span>
-    </div>
+    <div class="rs-cols">
+      <!-- ===== LEFT: 検索・フィルター (FilterSearchPanel) ===== -->
+      <div class="rs-col c1">
+        <div class="rs-h">検索・フィルター</div>
 
-    <div class="qbar">
-      <span class="hand" style="font-size:18px">⌕</span>
-      <div class="qinput">
-        <span class="tok">1girl</span>
-        <span class="tok neg">-lowres</span>
-        <span class="tok nlq">"桜の下"</span>
-        <span class="tok num">rating=PG-13</span>
-        <span class="tok num">quality≥7.00</span>
-        <span class="tok num">score(aesthetic)≥0.6</span>
-        <span class="faint"><span class="tx-ja">追加はタイプ…</span><span class="tx-en">type to add…</span></span>
+        <div class="rs-gb">
+          <div class="gt">検索</div>
+          <div class="rs-row"><span class="cap">検索対象:</span>
+            <span class="rs-ck"><span class="bx">✓</span>タグ</span>
+            <span class="rs-ck"><span class="bx"></span>キャプション</span>
+          </div>
+          <div class="rs-inp">検索キーワードを入力（複数タグの場合はカンマ区切り） ...</div>
+          <div class="rs-row"><span class="cap">複数タグ:</span>
+            <span class="rs-rd on"><span class="o"></span>すべて含む</span>
+            <span class="rs-rd"><span class="o"></span>いずれか含む</span>
+          </div>
+          <div class="rs-row" style="color:var(--ink-soft);font-size:12px">該当件数: -</div>
+        </div>
+
+        <div class="rs-gb">
+          <div class="gt">フィルター</div>
+          <div class="rs-row"><span class="cap">解像度:</span><span class="rs-cb">全て</span></div>
+          <div class="rs-row"><span class="cap">アスペクト比:</span><span class="rs-cb">全て</span></div>
+          <div class="rs-gb" style="margin-top:16px">
+            <div class="gt">スコア範囲</div>
+            <div class="rs-sl fill"><div class="t"></div><div class="h" style="left:0"></div><div class="h" style="right:0"></div></div>
+            <div class="rs-ends"><span>0.00</span><span>10.00</span></div>
+          </div>
+        </div>
+
+        <div class="rs-gb">
+          <div class="gt">登録日</div>
+          <div class="rs-row"><span class="rs-ck"><span class="bx"></span>登録日で絞り込む</span></div>
+        </div>
+
+        <div class="rs-gb">
+          <div class="gt">レーティング</div>
+          <div class="rs-row"><span class="cap">レーティング:</span><span class="rs-rb">PG</span><span class="rs-rb">PG-13</span><span class="rs-rb">R</span><span class="rs-rb">X</span><span class="rs-rb">XXX</span><span class="rs-rb">なし</span></div>
+          <div class="rs-row"><span class="cap">AIレーティング:</span><span class="rs-rb">PG</span><span class="rs-rb">PG-13</span><span class="rs-rb">R</span><span class="rs-rb">X</span><span class="rs-rb">XXX</span><span class="rs-rb">未設定</span></div>
+          <div class="rs-row"><span class="cap">手動×AIの組合せ:</span><span class="rs-rb on">AND</span><span class="rs-rb">OR</span></div>
+          <div class="rs-row"><span class="rs-ck"><span class="bx">✓</span>レーティング選択時も未設定を含める</span></div>
+        </div>
+
+        <div class="rs-gb">
+          <div class="gt">オプション</div>
+          <div class="rs-row"><span class="rs-ck"><span class="bx"></span>未タグ画像のみ検索</span></div>
+          <div class="rs-row"><span class="rs-ck"><span class="bx"></span>未キャプション画像のみ検索</span></div>
+        </div>
+
+        <div class="rs-acts">
+          <span class="b">検索実行</span>
+          <span class="b">クリア</span>
+        </div>
+
+        <div class="rs-gb rs-fav" style="margin-top:18px">
+          <div class="gt">お気に入りフィルター</div>
+          <div class="rs-row" style="color:var(--ink-faint);font-size:12.5px">保存済みのお気に入りはありません</div>
+          <div class="rs-acts" style="margin-top:8px">
+            <span class="b dis">☆ お気に入りに保存</span>
+            <span class="b dis">読込</span>
+            <span class="b dis">削除</span>
+          </div>
+        </div>
+
+        <div class="rs-facet">
+          <div class="fh">手動編集 <span class="rs-sc">is_edited_manually</span></div>
+          <div class="rs-row"><span class="rs-rd on"><span class="o"></span>全て</span><span class="rs-rd"><span class="o"></span>あり</span><span class="rs-rd"><span class="o"></span>なし</span></div>
+        </div>
+        <div class="rs-facet">
+          <div class="fh">レビュー <span class="rs-sc">reviewed_at</span></div>
+          <div class="rs-row"><span class="rs-rd on"><span class="o"></span>全て</span><span class="rs-rd"><span class="o"></span>未レビュー</span><span class="rs-rd"><span class="o"></span>済み</span></div>
+        </div>
+        <div class="rs-facet">
+          <div class="fh">エラー状態 <span class="rs-sc">ErrorRecord</span></div>
+          <div class="rs-row"><span class="rs-rd on"><span class="o"></span>全て</span><span class="rs-rd"><span class="o"></span>あり</span><span class="rs-rd"><span class="o"></span>なし</span></div>
+        </div>
+        <div class="rs-facet">
+          <div class="fh">モデル <span class="rs-sc">Model.name</span></div>
+          <div class="rs-inp">モデル名で検索…</div>
+          <div class="rs-ml">
+            <div>openai/o1</div>
+            <div>openai/gpt-5-nano</div>
+            <div>wd-vit-tagger-v3</div>
+            <div>wd-vit-large-tagger-v3</div>
+          </div>
+        </div>
       </div>
-      <span class="pill on">247 matches</span>
-      <span class="pill">save query</span>
-    </div>
 
-    <div class="body2">
-      <aside class="side">
-        <div class="sec">
-          <h4>quality score <span class="src">quality_score · 0.00–10.00</span></h4>
-          <div class="hand" style="font-size:13px;line-height:1.6">
-            <div class="mono" style="font-size:11px;color:var(--ink)"><span class="tx-ja">品質</span><span class="tx-en">min</span>: <b id="qsval">6.00</b> <span class="tx-ja">以上</span><span class="tx-en">+</span></div>
-            <div class="qslider" id="qslider" tabindex="0" role="slider" aria-valuemin="0" aria-valuemax="10" aria-valuenow="6" aria-label="minimum quality score">
-              <div class="qtrack">
-                <div class="qfill" id="qfill"></div>
-              </div>
-              <div class="qslabels" id="qslabels"></div>
-              <div class="qthumb" id="qthumb"></div>
-            </div>
-            <div class="mono" style="font-size:10px;color:var(--ink-soft)"><span class="tx-ja">未採点</span><span class="tx-en">no-score</span>:</div>
-            <div style="display:flex;gap:3px;margin:3px 0">
-              <span class="chip sel"><span class="tx-ja">除外</span><span class="tx-en">exclude</span></span>
-              <span class="chip"><span class="tx-ja">含める</span><span class="tx-en">include</span></span>
-              <span class="chip"><span class="tx-ja">未採点のみ</span><span class="tx-en">only</span></span>
-            </div>
-          </div>
-          <div class="mono faint" style="font-size:9.5px;margin-top:4px;line-height:1.5"><span class="tx-ja">0.00–10.00 の連続スコア。 <b>no-score</b>（scorer 出力なし）と <b>unmapped</b>（数値化不可）は別軸で抽出。</span><span class="tx-en">continuous 0.00–10.00; <b>no-score</b> &amp; <b>unmapped</b> filtered separately.</span></div>
+      <!-- ===== CENTER: サムネグリッド (ThumbnailSelectorWidget) ===== -->
+      <div class="rs-col c2">
+        <div class="rs-ch"><span class="n">画像: 0件</span>
+          <span style="display:flex;align-items:center;gap:8px;color:var(--ink-soft)">サイズ:<span class="rs-sl" style="width:90px"><span class="t"></span><span class="h" style="left:30%"></span></span></span>
         </div>
-
-        <div class="sec">
-          <h4><span class="tx-ja">scorer 合意</span><span class="tx-en">scorer agreement</span> <span class="src">is_unanimous</span></h4>
-          <div style="display:flex;gap:4px;flex-wrap:wrap">
-            <span class="chip"><span class="tx-ja">全 scorer 一致</span><span class="tx-en">unanimous</span> <span class="faint">6,210</span></span>
-            <span class="chip sel"><span class="tx-ja">不一致あり</span><span class="tx-en">disagree</span> <span class="faint">1,540</span></span>
-            <span class="chip"><span class="tx-ja">未採点</span><span class="tx-en">no score</span> <span class="faint">980</span></span>
-          </div>
-          <div class="mono faint" style="font-size:9px;margin-top:5px;line-height:1.5"><span class="tx-ja">「割れたか」だけ。 どの scorer がどう割れたかの内訳は <b>その画像の Annotate</b> で見る — facet では追わない（正解が一意でないので深掘り UI は持たない）。</span><span class="tx-en">just "did they split?". Which scorer split how is seen in that image's Annotate, not chased in facets (no single right answer, so no deep UI).</span></div>
+        <div class="rs-grid"></div>
+        <div class="rs-cbar">
+          <span style="color:var(--ink-soft)">エクスポート対象: 0 枚 <span class="rs-sc">StagingStateManager</span></span>
+          <span class="sp"></span>
+          <span class="b">エクスポート</span>
         </div>
-
-        <div class="sec">
-          <h4>rating <span class="src">Rating.normalized_rating · by source</span></h4>
-
-          <div class="mono" style="font-size:9px;letter-spacing:.06em;text-transform:uppercase;color:var(--ink-soft);display:flex;align-items:center;gap:5px;margin-bottom:3px">
-            <span style="background:var(--ink);color:var(--paper);border-radius:2px;padding:0 4px;font-weight:700">AI</span>
-            <span class="tx-ja">AIレーティング</span><span class="tx-en">AI rating</span>
-            <span class="faint" style="text-transform:none;letter-spacing:0">Model ≠ MANUAL_EDIT</span>
-          </div>
-          <div class="hand" style="font-size:12px;line-height:1.8">
-            <span class="chip sel">PG <span class="faint">3,210</span></span>
-            <span class="chip">PG-13 <span class="faint">5,840</span></span>
-            <span class="chip">R <span class="faint">2,140</span></span>
-            <span class="chip">X <span class="faint">820</span></span>
-            <span class="chip">XXX <span class="faint">120</span></span>
-            <span class="chip"><span class="tx-ja">未設定</span><span class="tx-en">unset</span> <span class="faint">1,180</span></span>
-          </div>
-
-          <div class="mono" style="font-size:9px;letter-spacing:.06em;text-transform:uppercase;color:var(--ink-soft);display:flex;align-items:center;gap:5px;margin:7px 0 3px">
-            <span style="background:var(--accent);color:#fff;border-radius:2px;padding:0 4px;font-weight:700">✎</span>
-            <span class="tx-ja">手動レーティング</span><span class="tx-en">manual rating</span>
-            <span class="faint" style="text-transform:none;letter-spacing:0">MANUAL_EDIT</span>
-          </div>
-          <div class="hand" style="font-size:12px;line-height:1.8">
-            <span class="chip">PG <span class="faint">240</span></span>
-            <span class="chip">PG-13 <span class="faint">180</span></span>
-            <span class="chip sel">R <span class="faint">160</span></span>
-            <span class="chip">X <span class="faint">70</span></span>
-            <span class="chip">XXX <span class="faint">18</span></span>
-            <span class="chip"><span class="tx-ja">なし</span><span class="tx-en">none</span> <span class="faint">11,812</span></span>
-          </div>
-
-          <div style="margin-top:7px;border-top:1px dashed var(--ink-faint);padding-top:6px">
-            <div class="mono" style="font-size:10px;color:var(--ink-soft)"><span class="tx-ja">複合条件</span><span class="tx-en">combine</span>:
-              <span style="display:inline-flex;gap:2px;margin-left:4px">
-                <span class="chip sel" style="font-size:10px">AND</span>
-                <span class="chip" style="font-size:10px">OR</span>
-              </span>
-            </div>
-            <div class="hand" style="font-size:13px;color:var(--ink);margin-top:4px;line-height:1.4">
-              <span style="background:var(--ink);color:var(--paper);border-radius:2px;padding:0 3px;font-family:var(--mono);font-size:9px;font-weight:700">AI</span> <b>PG</b>
-              <span style="color:var(--accent)">∧</span>
-              <span style="background:var(--accent);color:#fff;border-radius:2px;padding:0 3px;font-family:var(--mono);font-size:9px;font-weight:700">✎</span> <b>R</b>
-              <span class="mono faint" style="font-size:10px">= 18 <span class="tx-ja">件</span><span class="tx-en">imgs</span></span>
-            </div>
-            <div class="mono faint" style="font-size:9.5px;margin-top:2px;line-height:1.4"><span class="tx-ja">＝ AI は穏当判定だが人が R に引き上げた画像</span><span class="tx-en">= AI lenient, human raised to R</span></div>
-            <div style="display:flex;gap:4px;flex-wrap:wrap;margin-top:6px">
-              <span class="chip"><span class="tx-ja">AI≠手動 の不一致のみ</span><span class="tx-en">AI ≠ manual only</span> <span class="faint">112</span></span>
-              <span class="chip"><span class="tx-ja">手動で上書き済</span><span class="tx-en">manually overridden</span> <span class="faint">668</span></span>
-            </div>
-          </div>
-          <div class="mono faint" style="font-size:9.5px;margin-top:6px;line-height:1.5"><span class="tx-ja">同一画像に AI と手動が併存（Rating を source で分離・ADR 0015/0031）。 canonical (PG…XXX) で各軸を独立指定し AND/OR で結合。 mapping 不能な AI は「未設定」に残る。</span><span class="tx-en">AI &amp; manual coexist per image (separated by source). Each axis filtered independently, combined with AND/OR.</span></div>
-        </div>
-
-        <div class="sec">
-          <h4>annotations state <span class="src">Tag/Caption joins</span></h4>
-          <div class="hand" style="font-size:13px;line-height:1.7">
-            ☑ tags <span class="mono faint" style="font-size:10px">9,820</span><br>
-            ☐ caption <span class="mono faint" style="font-size:10px">2,140</span><br>
-            ☑ <span class="tx-ja">textファイル由来</span><span class="tx-en">from text file (existing)</span> <span class="mono faint" style="font-size:10px">3,810</span><br>
-            ☐ <span class="tx-ja">手動編集あり</span><span class="tx-en">manually edited</span> <span class="mono faint" style="font-size:10px">668</span>
-            <div class="mono faint" style="font-size:10px;margin-left:18px;line-height:1.5;border-left:1px dashed var(--ink-faint);padding-left:6px;margin-top:2px">
-              ☐ tag <span style="color:var(--ink)">540</span> · ☐ caption <span style="color:var(--ink)">120</span> · ☐ score <span style="color:var(--ink)">8</span>
-            </div>
-            <div class="mono faint" style="font-size:10px;margin-top:4px"><span class="tx-ja">手動編集は Tag / Caption / Score の <code style="font-size:9px">is_edited_manually</code> を統合。チェックで一括、個別にも絞れる。</span><span class="tx-en">manually edited = union of Tag / Caption / Score is_edited_manually. toggle all or per-type.</span></div>
-          </div>
-        </div>
-
-        <div class="sec">
-          <h4>model filter <span class="src">Model.name</span></h4>
-          <div style="display:flex;align-items:center;gap:6px;border:1.5px solid var(--rule);background:var(--paper);padding:3px 8px;border-radius:3px;font-family:var(--mono);font-size:11px;margin-bottom:6px">
-            <span class="faint">⌕</span>
-            <span class="faint"><span class="tx-ja">モデル名で検索…</span><span class="tx-en">search models…</span></span>
-          </div>
-          <div class="hand" style="font-size:13px;line-height:1.7">
-            <div class="mono faint" style="font-size:9px;letter-spacing:0.1em;text-transform:uppercase;margin-top:2px"><span class="tx-ja">ピン留め</span><span class="tx-en">pinned</span> · 2</div>
-            ☑ wd-v1-4-tagger <span class="mono faint" style="font-size:10px">9,200</span> <span class="accent" style="font-size:10px">📌</span><br>
-            ☐ gpt-4o-caption <span class="mono faint" style="font-size:10px">2,140</span> <span class="accent" style="font-size:10px">📌</span>
-            <div class="mono faint" style="font-size:9px;letter-spacing:0.1em;text-transform:uppercase;margin-top:6px"><span class="tx-ja">最近使用</span><span class="tx-en">recent</span></div>
-            ☐ claude-3-5-sonnet <span class="mono faint" style="font-size:10px">810</span><br>
-            ☐ deepdanbooru <span class="mono faint" style="font-size:10px">1,420</span>
-            <div class="mono faint" style="font-size:10px;margin-top:6px;color:var(--accent);cursor:pointer;border-top:1px dashed var(--ink-faint);padding-top:4px">
-              + <span class="tx-ja">他 14 モデルを表示</span><span class="tx-en">show 14 more</span> <span class="faint">(合計 18)</span>
-            </div>
-            <div class="mono faint" style="font-size:9px;margin-top:4px;line-height:1.5"><span class="tx-ja">使用回数 0 のモデルは崩し。ピンで上に固定。</span><span class="tx-en">zero-usage models collapsed. pin to keep on top.</span></div>
-          </div>
-        </div>
-
-        <div class="sec">
-          <h4>date <span class="src">Image.created_at</span></h4>
-          <div class="histo" title="日次の追加件数">
-            <b style="height:18%"></b><b style="height:24%"></b><b style="height:30%"></b><b style="height:22%"></b>
-            <b style="height:42%"></b><b style="height:56%"></b><b style="height:48%"></b><b style="height:34%"></b>
-            <b style="height:62%"></b><b style="height:74%"></b><b style="height:88%"></b><b style="height:70%"></b>
-            <b style="height:46%"></b><b style="height:58%"></b><b style="height:82%"></b><b style="height:100%"></b>
-            <b style="height:64%"></b><b style="height:52%"></b><b style="height:38%"></b><b style="height:28%"></b>
-          </div>
-          <div class="sli" style="margin:2px 0 6px">
-            <i style="left:25%;right:5%"></i>
-            <span class="knob" style="left:23%"></span>
-            <span class="knob" style="right:3%"></span>
-          </div>
-          <div class="mono" style="font-size:10px;color:var(--ink);display:flex;justify-content:space-between;line-height:1.4">
-            <span><b>2025-04-04</b></span>
-            <span class="faint">–</span>
-            <span><b>2025-04-25</b></span>
-          </div>
-          <div style="display:flex;gap:3px;flex-wrap:wrap;margin-top:6px">
-            <span class="chip">today</span>
-            <span class="chip">7d</span>
-            <span class="chip sel">30d</span>
-            <span class="chip">90d</span>
-            <span class="chip"><span class="tx-ja">全期間</span><span class="tx-en">all</span></span>
-            <span class="chip nlq"><span class="tx-ja">カスタム…</span><span class="tx-en">custom…</span></span>
-          </div>
-          <div class="mono faint" style="font-size:10px;margin-top:4px;line-height:1.5">
-            <span class="tx-ja">バー = 日次追加件数 · プリセットでスライダがスナップ</span><span class="tx-en">bars = images per day · presets snap the slider</span>
-          </div>
-        </div>
-
-        <div class="sec">
-          <h4><span class="tx-ja">エラー状態</span><span class="tx-en">error state</span> <span class="src">ErrorRecord</span></h4>
-          <div style="display:flex;gap:4px;flex-wrap:wrap">
-            <span class="chip sel">all</span>
-            <span class="chip"><span class="tx-ja">エラーありのみ</span><span class="tx-en">errors only</span> <span class="faint">42</span></span>
-            <span class="chip"><span class="tx-ja">エラーを除外</span><span class="tx-en">exclude errors</span> <span class="faint">−42</span></span>
-          </div>
-          <div class="mono faint" style="font-size:10px;margin-top:6px;line-height:1.5">
-            <span class="tx-ja">エラーありのみ → 未解決ジョブの調査やリトライ向け。 除外 → 学習データの整合性を保つ用途。</span><span class="tx-en">errors only → triage / retry. exclude → keep training set clean.</span><br>
-            unresolved <b>42</b> · resolved <b>318</b>
-          </div>
-        </div>
-      </aside>
-
-      <main class="main">
-        <div class="row between" style="margin-bottom:8px">
-          <span class="mono faint" style="font-size:11px"><span class="tx-ja">並び: score(aesthetic)↓ · 247件 · staged 6枚</span><span class="tx-en">sort: score(aesthetic)↓ · 247 results · 6 staged</span></span>
-          <span class="pill">grid · M</span>
-        </div>
-        <div class="grid-6">
-          <div class="thumb staged"><span class="badge">0.93</span><span class="badge r">PG</span><span class="meta">2048×3072</span></div>
-          <div class="thumb staged"><span class="badge">0.91</span><span class="badge r">PG-13</span><span class="meta">1536×2048</span></div>
-          <div class="thumb"><span class="badge">0.88</span><span class="badge r">PG-13</span><span class="meta">1024×1536</span></div>
-          <div class="thumb staged"><span class="badge">0.86</span><span class="badge r">PG</span><span class="meta">2048×2048</span></div>
-          <div class="thumb"><span class="badge">0.84</span><span class="badge r">PG-13</span><span class="meta">1280×1920</span></div>
-          <div class="thumb"><span class="badge">0.82</span><span class="badge r">PG</span><span class="meta">1024×1024</span></div>
-          <div class="thumb"><span class="badge">0.81</span><span class="badge r">R</span><span class="meta">1536×2048</span></div>
-          <div class="thumb"><span class="badge">0.79</span><span class="badge r">PG-13</span><span class="meta">1024×1536</span></div>
-          <div class="thumb"><span class="badge">0.77</span><span class="badge r">PG</span><span class="meta">1024×1024</span></div>
-          <div class="thumb"><span class="badge">0.76</span><span class="badge r">PG-13</span><span class="meta">2048×3072</span></div>
-          <div class="thumb"><span class="badge">0.74</span><span class="badge r">PG</span><span class="meta">1280×1920</span></div>
-          <div class="thumb"><span class="badge">0.73</span><span class="badge r">R</span><span class="meta">1536×2048</span></div>
-        </div>
-        <div class="mono faint" style="font-size:10px;margin-top:8px">
-          サムネ右上 = <b>Score.score</b> (top model) · 右下 = <b>Rating.normalized_rating</b> · 左下 = <b>Image.width × .height</b>
-        </div>
-      </main>
-    </div>
-
-    <div class="tray-wrap">
-      <div class="tray-head">
-        <div class="stage-title">📥 Stage <span class="num">9</span></div>
-        <span class="mono faint" style="font-size:10px"><span class="tx-ja">3 クエリ · Tag.is_edited_manually を使って再アノテーション</span><span class="tx-en">3 queries · uses Tag.is_edited_manually for re-anno</span></span>
       </div>
-      <div class="tray">
-        <div class="strip">
-          <div class="thumb staged"></div><div class="thumb staged"></div><div class="thumb staged"></div>
-          <div class="thumb staged"></div><div class="thumb staged"></div><div class="thumb staged"></div>
-          <div class="thumb staged"></div><div class="thumb staged"></div><div class="thumb staged"></div>
+
+      <!-- ===== RIGHT: プレビュー・詳細 (SelectedImageDetailsWidget) ===== -->
+      <div class="rs-col c3">
+        <div class="rs-h">プレビュー・詳細</div>
+        <div class="rs-prev"></div>
+        <div class="rs-dt"><span>画像詳細</span></div>
+        <div class="rs-info">▸ 画像情報</div>
+        <div class="rs-copy">詳細をコピー</div>
+
+        <div class="rs-gb">
+          <div class="gt">タグ</div>
+          <div class="rs-row"><span class="cap">言語:</span><span class="rs-cb" style="min-width:150px">english</span></div>
+          <div class="rs-row" style="color:var(--ink-faint)">-</div>
+          <div class="rs-inp">手動タグを追加 (Enter で確定)…</div>
         </div>
-        <div class="right">
-          <button class="btn accent" style="white-space:nowrap" data-goto="annotate" data-proto-cta="">▶ Annotate 9 →</button>
-          <span class="mono faint" style="font-size:10px;text-align:right">⌘↵</span>
+
+        <div class="rs-gb">
+          <div class="gt">キャプション</div>
+          <div class="rs-ph">キャプションが表示されます</div>
+        </div>
+
+        <div class="rs-gb">
+          <div class="gt">スコアラベル</div>
+          <div class="rs-ph">-</div>
+        </div>
+
+        <div class="rs-gb">
+          <div class="gt">レーティング詳細</div>
+          <div class="rs-ph">-</div>
+        </div>
+
+        <div class="rs-gb">
+          <div class="gt">評価・スコア編集</div>
+          <div class="rs-row"><span class="rs-ep ai">AI</span><span class="rs-ro" style="font-size:12px">モデル推論値・読み取り専用</span></div>
+          <div class="rs-row" style="color:var(--ink-faint)"><span style="font-size:12px">PG</span><span style="font-size:12px">PG-13</span><span style="font-size:12px">R</span><span style="font-size:12px">X</span><span style="font-size:12px">XXX</span></div>
+          <div class="rs-row"><span class="rs-sl" style="flex:1"><span class="t"></span><span class="h" style="left:50%"></span></span><span class="rs-ro" style="font-size:12px">--</span></div>
+          <div class="rs-row" style="margin-top:10px"><span class="rs-ep">✎ 人間</span><span style="font-size:12px;color:var(--ink-soft)">手動レーティング・スコア</span></div>
+          <div class="rs-row"><span class="rs-rb">PG</span><span class="rs-rb">PG-13</span><span class="rs-rb">R</span><span class="rs-rb">X</span><span class="rs-rb">XXX</span></div>
+          <div class="rs-row"><span class="rs-sl" style="flex:1"><span class="t"></span><span class="h" style="left:0"></span></span><span style="font-size:12px">0.00</span></div>
+          <div class="rs-row" style="justify-content:flex-end"><span class="b" style="background:#fff;border:1px solid var(--line-strong);border-radius:4px;padding:6px 18px;font-size:13px">保存</span></div>
+          <div class="rs-sc" style="margin:4px 0 0;line-height:1.5;display:block">quality_score 0-10 (ADR 0029) · AI と source 分離 · 手動補正は is_edited_manually</div>
         </div>
       </div>
     </div>
 
-    <div class="selbar">
-      <span class="hand" style="font-size:16px">📥 Stage:</span>
-      <span class="count">9</span>
-      <span>枚 · staged.image_id を models.* 経由でバッチ実行 → ErrorRecord に集約</span>
+    <div class="rs-tb">
+      <span class="b">選択をステージングへ</span>
+      <span class="st">準備完了</span>
     </div>
   </div>
 
@@ -4473,8 +4364,8 @@
   <!-- SCHEMA MAPPING -->
   <!-- ============================================== -->
   <div class="schema-map">
-    <h3>Schema → UI mapping <span class="badge">v11 · ADR-aligned</span></h3>
-    <p style="font-family:var(--mono);font-size:11px;color:var(--ink-soft);margin:0 0 12px;line-height:1.6"><span class="tx-ja"><b>v11 で反映した決定:</b> 統一品質スコア (0029) · score_labels per-scorer (0028) · canonical rating 正規化 (0031/0015) · rating preflight ゲート (0031/0042) · 環境ファーストモデル選択 (0030) · 非同期 Provider Batch (0038/0041) · ステージング集合 Export (0055/0019) · worker lifecycle (0034)。</span><span class="tx-en"><b>Reflected in v11:</b> unified quality score, per-scorer score_labels, canonical rating, rating-preflight gate, environment-first picker, async provider batch, staging-set export, worker lifecycle.</span></p>
+    <h3>Schema → UI mapping</h3>
+    <p style="font-family:var(--mono);font-size:11px;color:var(--ink-soft);margin:0 0 12px;line-height:1.6"><span class="tx-ja"><b>反映した決定:</b> 統一品質スコア (0029) · score_labels per-scorer (0028) · canonical rating 正規化 (0031/0015) · rating preflight ゲート (0031/0042) · 環境ファーストモデル選択 (0030) · 非同期 Provider Batch (0038/0041) · ステージング集合 Export (0055/0019) · worker lifecycle (0034)。</span><span class="tx-en"><b>Reflected in v11:</b> unified quality score, per-scorer score_labels, canonical rating, rating-preflight gate, environment-first picker, async provider batch, staging-set export, worker lifecycle.</span></p>
     <div class="grid">
       <div class="col">
         <h5>Frame 1 · Search</h5>
@@ -4500,7 +4391,7 @@
         </ul>
       </div>
       <div class="col">
-        <h5>Frame 3 · Annotate · Model picker (NEW v10)</h5>
+        <h5>Frame 3 · Annotate · Model picker</h5>
         <ul>
           <li><b>Model.type</b> → 出力ステージ（TAGS/CAPTION/SCORE/RATING/UPSCALE）と左レールフィルタ</li>
           <li><b>Model.requires_api_key</b> → status <code>● API ready</code> / <code>○ needs key</code></li>
@@ -4512,7 +4403,7 @@
         </ul>
       </div>
       <div class="col">
-        <h5>Frame 4 · Jobs (NEW v10)</h5>
+        <h5>Frame 4 · Jobs</h5>
         <ul>
           <li>実行中ジョブの進捗・キュー・履歴・並列度を一画面に</li>
           <li>各ステージにつき <b>モデル × 進捗</b> を行表示。マルチモーダルは <code>↝ from CAPTION</code>（派生＝tags + score）で副産物を明示</li>
@@ -4533,7 +4424,7 @@
         </ul>
       </div>
       <div class="col">
-        <h5>Frame 5 · Results (NEW v10)</h5>
+        <h5>Frame 5 · Results</h5>
         <ul>
           <li><span class="tx-ja">画像ではなく <b>アノテーションの品質</b> をチェック。完了した Job から遷移</span><span class="tx-en">checks <b>annotation quality</b> (not image quality). Reached from a completed Job</span></li>
           <li><b>Tag.confidence_score</b> → <span class="tx-ja">閾値以下を issue カードに集約 + 行内で <code>.tg.low</code> ハイライト</span><span class="tx-en">below threshold → grouped into an issue card + highlighted <code>.tg.low</code> inline</span></li>
@@ -4786,5 +4677,135 @@
 })();
 </script>
 
+<style id="theme-v1-flatten">
+/* === LoRAIro Theme v1 retrofit ===
+   \u5b9f\u88c5(src/lorairo/gui/theme.py + docs/design/theme-v1/hifi-mock.html)\u306e\u30d5\u30e9\u30c3\u30c8\u306a\u898b\u305f\u76ee\u306b\u8ffd\u5f93\u3055\u305b\u308b\u305f\u3081\u306e\u4e0a\u66f8\u304d\u5c64\u3002
+   \u30c8\u30fc\u30af\u30f3\u8272/\u30d5\u30a9\u30f3\u30c8\u306f :root \u518d\u5b9a\u7fa9\u3067\u53ce\u307e\u308b\u305f\u3081\u3001\u3053\u3053\u3067\u306f\u4f4e-fi \u56fa\u6709\u306e\u88c5\u98fe\uff08\u30cf\u30fc\u30c9\u30b7\u30e3\u30c9\u30a6\u30fb\u30c6\u30fc\u30d7\u30fb\u56de\u8ee2\u30b9\u30bf\u30f3\u30d7\u30fb\u91cd\u3044\u9ed2\u67a0\uff09\u3060\u3051\u3092\u6253\u3061\u6d88\u3059\u3002 */
 
+/* 1) \u30cf\u30fc\u30c9\u30aa\u30d5\u30bb\u30c3\u30c8\u5f71\u3092\u5168\u5ec3\u6b62 \u2192 \u7a93\u5185\u306f\u30d5\u30e9\u30c3\u30c8 (theme.py: borders-not-shadows) */
+.intent,.frame,.note,.crit-band,.picker,.job-card,.job-card.running,.pbatch-card,
+.stcard,.reg-summary,.stage,.proto-stub .card,#frame-map .m2-card,#frame-cli .term,
+.clean-audit .samp .sc,.clean-audit .samp .sc.bad{ box-shadow:none !important; }
+
+/* 2) \u30b3\u30f3\u30c6\u30ca\u67a0\u3092 2px \u9ed2 \u2192 1px \u30d8\u30a2\u30e9\u30a4\u30f3 (--line / --line-strong) */
+.frame{ border-width:1px !important; border-color:var(--line-strong) !important; }
+.intent,.crit-band{ border-width:1px !important; }
+.note,.picker,.job-card,.stcard,.intent-card{ border-width:1px !important; }
+
+/* 3) \u4ed8\u7b8b\u30c6\u30fc\u30d7\u30fb\u63cf\u753b\u30c6\u30fc\u30d7\u30fb\u30b9\u30bf\u30f3\u30d7\u306e\u56de\u8ee2\u3092\u9664\u53bb */
+.intent::after,.note::after,.note.job::after,.note.open::after,.note.edge::after,
+.note.batch::after{ display:none !important; }
+.masthead .stamp{ transform:none !important; }
+
+/* 4) \u30dc\u30bf\u30f3\u67a0\u306f mock \u306b\u5408\u308f\u305b strong line\u3001\u4e3b\u30dc\u30bf\u30f3\u306f accent \u5730 */
+.btn{ border-color:var(--line-strong); border-width:1px; }
+.btn.accent,.btn.primary{ background:var(--accent); border-color:var(--accent); color:#fff; }
+
+/* 5) \u3010\u4fee\u6b63\u3011\u5b9f Theme v1 \u306f\u5168\u9762\u30e9\u30a4\u30c8\u30fb\u30d5\u30e9\u30c3\u30c8\u3002lo-fi \u540d\u6b8b\u306e\u300c\u767d\u6587\u5b57\u00d7\u6697\u8272\u30d6\u30ed\u30c3\u30af\u300d\u30d0\u30fc\u3092
+      \u5b9f\u88c5\u306e\u30b9\u30c6\u30fc\u30bf\u30b9/\u30a2\u30af\u30b7\u30e7\u30f3\u30d0\u30fc\uff08paper-shade \u5730\u30fb\u4e0a\u30d8\u30a2\u30e9\u30a4\u30f3\u30fbink \u6587\u5b57\uff09\u306b\u5909\u63db\u3002 */
+.res-foot,.exp-foot,.selbar,.err-bulk{
+  background:var(--paper-shade) !important; color:var(--ink-soft) !important;
+  border-top:1px solid var(--line) !important; }
+.res-foot .count,.exp-foot .count,.selbar .count,.err-bulk .count{ color:var(--accent) !important; }
+.exp-foot .path{ color:var(--ink-soft) !important; border-color:var(--line) !important; opacity:1 !important; }
+/* \u30d7\u30ed\u30c8\u30bf\u30a4\u30d7\u5e2f/\u30c8\u30fc\u30b9\u30c8\u306f\u30d7\u30ec\u30d3\u30e5\u30fc\u30fc\u7528 chrome \u306a\u306e\u3067\u6697\u8272\u3092\u7dad\u6301\uff08\u5b9f\u30a2\u30d7\u30ea\u306b\u306f\u7121\u3044\u88dc\u52a9 UI\uff09 */
+.proto-bar,.proto-toast{ background:var(--fill) !important; border-color:var(--fill) !important; }
+/* \u5c0f\u3055\u306a\u30e2\u30ce\u30d0\u30c3\u30b8\uff08for\u30fb\u30ec\u30fc\u30c6\u30a3\u30f3\u30b0\uff09\u306f\u30e9\u30a4\u30c8\u5730\u00d7\u67a0\u306b */
+.q-row .for,.thumb .badge.r{ background:var(--card) !important; color:var(--ink-soft) !important;
+  border:1px solid var(--line) !important; }
+/* \u9078\u629e\u4e2d\u306e\u30c8\u30b0\u30eb/\u30d4\u30eb = Qt selection \u8abf\u306e accent \u30bd\u30d5\u30c8\uff08\u6697\u8272\u30d6\u30ed\u30c3\u30af\u3067\u306f\u306a\u3044\uff09 */
+.pill.on,.rat-grid .r.on,.err-filters .vtoggle span.on,.res-toolbar .vtoggle span.on,
+.seg span.on,.preset.on{ background:var(--accent-soft) !important; border-color:var(--accent-border) !important; color:var(--accent-hover) !important; }
+/* res-toolbar \u306e\u70b9\u7dda\u4e0b\u7dda\u306f\u5b9f\u88c5\u306b\u7121\u3044\u306e\u3067\u30bd\u30ea\u30c3\u30c9\u306b */
+.res-toolbar{ border-bottom-style:solid !important; border-bottom-color:var(--line) !important; }
+.res-toolbar .vtoggle,.err-filters .vtoggle{ border-color:var(--line-strong) !important; }
+.frame > .label{ background:var(--fill) !important; border-color:var(--fill) !important; }
+
+/* 6) \u30a6\u30a3\u30f3\u30c9\u30a6\u30c1\u30ed\u30fc\u30e0\u3092\u5b9f\u30a2\u30d7\u30ea(Theme v1 window)\u306b\u63c3\u3048\u308b \u2014 macOS \u4fe1\u53f7\u6a5f\u30c9\u30c3\u30c8\u306f\u5b9f\u88c5\u306b\u7121\u3044 */
+.titlebar{ background:var(--paper-shade) !important; border-bottom:1px solid var(--line) !important;
+  font-family:var(--mono); font-size:11px; color:var(--ink-soft); padding:8px 14px; gap:12px; }
+.titlebar .dots{ display:none !important; }
+.titlebar .path{ flex:1; text-align:left !important; font-family:var(--mono); font-size:11px; color:var(--ink-soft); }
+.titlebar > span:last-child:not(.path){ width:26px; height:26px; flex:none; display:inline-flex;
+  align-items:center; justify-content:center; border:1px solid var(--line); border-radius:6px;
+  background:var(--card); color:var(--ink-soft); font-size:14px; }
+
+/* 7) \u30bf\u30d6\u30d0\u30fc = theme.py QTabBar (\u30a2\u30af\u30c6\u30a3\u30d6 = accent \u4e0b\u7dda + \u592a\u5b57\u3001\u7b8b\u7121\u3057)\u3002
+      v12 \u306e\u30d1\u30a4\u30d7\u30e9\u30a4\u30f3\u30fb\u30ec\u30fc\u30eb\u88c5\u98f0\u306f\u5b9f\u88c5\u306b\u7121\u3044\u305f\u3081 CSS \u3067\u7121\u52b9\u5316\u3057\u3001\u5e73\u30bf\u30d6\u306b\u623b\u3059\u3002 */
+.topnav{ background:var(--paper-shade) !important; border-bottom:1px solid var(--line) !important; padding:0 10px !important; gap:2px; }
+.topnav .vtab{ font-family:var(--sans) !important; font-size:13px !important; font-weight:400 !important;
+  color:var(--ink-soft); background:transparent !important; border:none !important;
+  border-bottom:2px solid transparent !important; border-radius:0 !important; padding:9px 16px 7px !important; }
+.topnav .vtab:hover{ color:var(--ink); }
+.topnav .vtab.on{ color:var(--ink) !important; font-weight:600 !important; background:var(--paper) !important;
+  border:none !important; border-bottom:2px solid var(--accent) !important; }
+.topnav .vtab .k{ display:none !important; }
+/* \u30ec\u30fc\u30eb/\u30c4\u30fc\u30eb\u68da\u306e\u67a0\u30fb\u77e2\u5370\u30fb\u756a\u53f7\u30fb"tools"\u30e9\u30d9\u30eb\u3092\u6d88\u3057\u3066\u5358\u4e00\u306e QTabBar \u306b\u898b\u305b\u308b */
+.topnav .nav-rail{ border:none !important; background:transparent !important; padding:0 !important; gap:2px !important; }
+.topnav .flowsep, .topnav .navdiv, .topnav .nav-util::before{ display:none !important; }
+.topnav .nav-rail .vtab[data-role=pipe]{ padding-left:16px !important; }
+.topnav .nav-rail .vtab[data-role=pipe]::before{ display:none !important; }
+.topnav .nav-util .vtab:not(.on){ color:var(--ink-soft); }
+</style>
+
+
+<style id="real-search-css">
+/* === Real Search tab (SearchTab.ui / FilterSearchPanel.ui / SelectedImageDetailsWidget.ui) === */
+#frame-search{ --pane:#f6f5f1; background:var(--pane); }
+#frame-search .proj{ display:none !important; }
+#frame-search .rs-menubar{ display:flex; gap:20px; padding:5px 13px; background:var(--pane); border-bottom:1px solid var(--line); font-size:12.5px; color:var(--ink); font-family:var(--sans); }
+#frame-search .rs-ds{ display:flex; align-items:center; gap:10px; padding:9px 12px; background:var(--pane); }
+#frame-search .rs-ds .l{ font-size:13px; }
+#frame-search .rs-ds .inp{ flex:1; background:#fff; border:1px solid var(--line-strong); border-radius:4px; padding:7px 10px; font-size:13px; color:var(--ink-faint); }
+#frame-search .rs-ds .b{ background:#fff; border:1px solid var(--line-strong); border-radius:4px; padding:7px 16px; font-size:13px; }
+#frame-search .rs-db{ padding:6px 12px 8px; font-weight:700; font-size:13px; background:var(--pane); border-bottom:1px solid var(--line); }
+#frame-search .rs-cols{ display:grid; grid-template-columns:230px minmax(0,1fr) 250px; }
+#frame-search .rs-col{ background:var(--pane); padding:10px 13px 16px; min-width:0; }
+#frame-search .rs-col.c1{ border-right:1px solid var(--line); }
+#frame-search .rs-col.c3{ border-left:1px solid var(--line); }
+#frame-search .rs-h{ font-weight:700; font-size:13.5px; margin:2px 0 6px; }
+#frame-search .rs-gb{ position:relative; border:1px solid var(--line); border-radius:6px; margin:15px 0 0; padding:15px 11px 11px; }
+#frame-search .rs-gb > .gt{ position:absolute; top:-9px; left:9px; background:var(--pane); padding:0 6px; font-size:12.5px; font-weight:600; }
+#frame-search .rs-row{ display:flex; align-items:center; gap:8px; margin:8px 0; font-size:13px; flex-wrap:wrap; }
+#frame-search .rs-ck{ display:inline-flex; align-items:center; gap:6px; font-size:13px; }
+#frame-search .rs-ck .bx{ width:15px; height:15px; border:1px solid var(--line-strong); border-radius:3px; background:#fff; display:inline-flex; align-items:center; justify-content:center; font-size:11px; color:var(--ink); }
+#frame-search .rs-rd{ display:inline-flex; align-items:center; gap:6px; font-size:13px; }
+#frame-search .rs-rd .o{ width:15px; height:15px; border-radius:50%; border:1px solid var(--line-strong); background:#fff; position:relative; }
+#frame-search .rs-rd.on .o{ border-color:var(--accent); }
+#frame-search .rs-rd.on .o::after{ content:""; position:absolute; inset:3px; border-radius:50%; background:var(--accent); }
+#frame-search .rs-cb{ display:inline-flex; align-items:center; justify-content:space-between; min-width:130px; background:#fff; border:1px solid var(--line-strong); border-radius:4px; padding:6px 9px; font-size:12.5px; }
+#frame-search .rs-cb::after{ content:"\25be"; color:var(--ink-faint); margin-left:12px; }
+#frame-search .rs-inp{ width:100%; background:#fff; border:1px solid var(--line-strong); border-radius:4px; padding:7px 9px; font-size:12.5px; color:var(--ink-faint); }
+#frame-search .rs-rb{ display:inline-flex; align-items:center; justify-content:center; min-width:30px; padding:4px 11px; background:#fff; border:1px solid var(--line-strong); border-radius:13px; font-size:12px; }
+#frame-search .rs-rb.on{ background:var(--accent-soft); border-color:var(--accent-border); color:var(--accent-hover); }
+#frame-search .rs-acts{ display:flex; gap:10px; margin-top:13px; }
+#frame-search .rs-acts .b{ flex:1; text-align:center; background:#fff; border:1px solid var(--line-strong); border-radius:4px; padding:9px; font-size:13px; }
+#frame-search .rs-acts .b.dis{ color:var(--ink-faint); background:var(--paper-shade); font-size:12px; }
+#frame-search .rs-sl{ position:relative; height:20px; margin:6px 0; }
+#frame-search .rs-sl .t{ position:absolute; top:8px; left:0; right:0; height:4px; background:#fff; border:1px solid var(--line-strong); border-radius:2px; }
+#frame-search .rs-sl .h{ position:absolute; top:2px; width:15px; height:15px; border-radius:3px; background:#fff; border:1px solid var(--line-strong); }
+#frame-search .rs-sl.fill .t{ background:var(--accent-soft); border-color:var(--accent-border); }
+#frame-search .rs-ends{ display:flex; justify-content:space-between; font-size:12px; color:var(--ink-soft); }
+#frame-search .rs-sc{ font-family:var(--mono); font-size:11px; color:var(--ink-faint); }
+#frame-search .rs-facet > .fh{ font-weight:700; font-size:13px; margin:16px 0 6px; display:flex; align-items:baseline; gap:8px; }
+#frame-search .rs-ml{ border:1px solid var(--line); border-radius:4px; background:#fff; margin-top:6px; max-height:110px; overflow:auto; }
+#frame-search .rs-ml div{ padding:6px 10px; font-size:13px; border-bottom:1px solid var(--paper-shade); }
+#frame-search .rs-ml div:last-child{ border-bottom:0; }
+#frame-search .rs-ch{ display:flex; align-items:center; justify-content:space-between; padding:2px 2px 8px; font-size:13px; }
+#frame-search .rs-ch .n{ font-weight:700; }
+#frame-search .rs-grid{ background:#fff; border:1px solid var(--line-strong); border-radius:3px; min-height:540px; }
+#frame-search .rs-cbar{ display:flex; align-items:center; gap:10px; padding:8px 2px 0; font-size:13px; }
+#frame-search .rs-cbar .sp{ flex:1; }
+#frame-search .rs-cbar .b{ background:#fff; border:1px solid var(--line-strong); border-radius:4px; padding:7px 16px; font-size:13px; }
+#frame-search .rs-prev{ background:#fff; border:1px solid var(--line-strong); border-radius:3px; height:300px; }
+#frame-search .rs-dt{ border-bottom:1px solid var(--line); margin:12px 0 2px; }
+#frame-search .rs-dt span{ display:inline-block; padding:8px 6px 6px; font-weight:600; font-size:13px; border-bottom:2px solid var(--accent); }
+#frame-search .rs-info{ display:flex; align-items:center; gap:6px; font-size:13px; padding:8px 2px; color:var(--ink-soft); }
+#frame-search .rs-copy{ font-size:12.5px; color:var(--ink-faint); padding:2px; }
+#frame-search .rs-ph{ color:var(--ink-faint); font-size:13px; }
+#frame-search .rs-ep{ display:inline-flex; align-items:center; gap:6px; background:var(--paper-shade); border:1px solid var(--line); border-radius:12px; padding:2px 9px; font-size:11.5px; color:var(--ink-soft); font-weight:600; }
+#frame-search .rs-tb{ display:flex; align-items:center; gap:10px; padding:9px 12px; background:var(--pane); border-top:1px solid var(--line); font-size:13px; }
+#frame-search .rs-tb .b{ background:#fff; border:1px solid var(--line-strong); border-radius:4px; padding:8px 16px; font-size:13px; }
+#frame-search .rs-tb .st{ margin-left:auto; color:var(--ink-soft); font-size:12.5px; }
+</style>
 </body></html>
