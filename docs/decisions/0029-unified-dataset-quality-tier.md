@@ -1,11 +1,21 @@
 ---
 type: ADR
 title: Unified Dataset Quality Tier
-status: "Accepted (Revised: 2026-06-18 — 品質尺度の主従を反転、数値スコアをベースに)"
+status: "Accepted (Revised 2: 2026-06-27 — tier ラベルの GUI 表示を廃止、スコア値による大まかな絞り込みは残す)"
 timestamp: 2026-05-19
 tags: []
 ---
 # ADR 0029: Unified Dataset Quality Tier
+
+## 改訂 2 (2026-06-27): tier ラベルの GUI 表示を廃止
+
+改訂 1 で tier を補助フィルタに降格したが、さらに **GUI での tier ラベル表示（バッジ）を廃止する**。
+
+- **廃止**: `品質: best quality (2 scorer)` / `品質: masterpiece (全 scorer 一致)` のような tier 語彙を GUI に表示すること（§Export / GUI 節の badge 仕様）。
+- **残す**: スコア値による大まかな絞り込み。Search filter の品質軸は tier 語彙ではなく **数値スコア (`Score.score` 0–10) の範囲指定**として実装する。`QualityTierFilter.min_tier` のような tier 名指定ではなく、スライダー等の数値入力を interface とする。
+- **内部ロジックは維持**: `domain/quality_tier.py` の mapping と `QualityIssueDetectionService` が参照する tier 判定は引き続き使用する。外に見せる語彙（`masterpiece` 等）を UI から消すだけ。
+
+---
 
 ## 改訂 (2026-06-18): 品質尺度は数値スコアをベース、tier は派生サマリ
 
