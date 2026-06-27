@@ -46,6 +46,7 @@ def given_worker_initialized() -> dict[str, object]:
     db_manager.image_repo.get_phashes_by_filepaths.return_value = {
         image_path: f"phash{i}" for i, image_path in enumerate(image_paths, start=1)
     }
+    db_manager.image_repo.find_image_ids_by_phashes.return_value = {f"phash{i}": i for i in range(1, 4)}
     db_manager.image_repo.find_image_ids_by_phashes_multi.return_value = {
         f"phash{i}": [i] for i in range(1, 4)
     }
