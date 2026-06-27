@@ -21,16 +21,18 @@ ADR 0066 で Jobs frame は「実行中 / キュー / 履歴」の lifecycle ビ
 
 ## Decision
 
-### 1. StageProgress 構築ロジックは Qt-free サービスに置く
+### 1. 「ステージ別進捗」の実態 — 開始/完了 2 点の状態切り替え
 
-`StageProgress` の構築（選択モデル × capability → TAGS/CAPTION/SCORE/RATING ステージへの展開）は `job_ledger_service.build_stage_progress()` に置く。
+image-annotator-lib の `execute_annotation(image_paths, litellm_model_ids)` は**一括渡しのブロッキング呼び出し**であり、途中の推論状況を返さない。そのため `stage_progress_updated` の emit は 2 回のみ:
 
-`AnnotationWorker` は **progress の収集と emit のみ** を担う:
-- 開始時: 0 件の `StageProgress` を `stage_progress_updated` シグナルで emit
-- 一括完了時: 100% / ok の `StageProgress` を emit
-- per-model fallback: モデルごとの完了 / 失敗を tone (ok / err) へ反映して emit
+1. **実行開始直前**: `processed_count=0` → 全ステージ 0%（実行計画カードとして表示）
+2. **`execute_annotation` 返却後**: `processed_count=total` → 各モデルを ok / err で表示
 
-ステージ展開の判定ロジック（どのモデルがどの capability を持つか）は worker に書かない。
+バーが推論中に動く「リアルタイム進捗」ではなく、**実行計画の可視化 + 完了/失敗通知**である。per-model fallback（一括呼び出し失敗時の互換経路）ではモデルごとの ok/err を逐次 emit するが、lib 側が途中経過を返す設計になった場合にのみ真の進捗表示に発展できる。
+
+### 2. StageProgress 構築ロジックは Qt-free サービスに置く
+
+`StageProgress` の構築（選択モデル × capability → TAGS/CAPTION/SCORE/RATING ステージへの展開）は `job_ledger_service.build_stage_progress()` に置く。ステージ展開の判定ロジック（どのモデルがどの capability を持つか）は worker に書かない。
 
 ### 2. 実データのみ表示する（捏造禁止）
 
