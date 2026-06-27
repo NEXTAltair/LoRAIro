@@ -96,6 +96,17 @@ Review completion gate:
   - `eyes` reaction: review is in progress — keep polling, do not merge yet.
   - `+1` reaction: clean review completed — treat as a completed clean bot review when there are no
     blocking review comments.
+- **Codex findings are posted as inline pull request review comments, not issue-level comments.**
+  `gh pr view --comments` does not return inline review comments. Always fetch them separately
+  using the pull request review comments endpoint:
+
+  ```bash
+  gh api "repos/{OWNER}/{REPO}/pulls/$PR/comments" \
+    --jq '[.[] | select(.user.login == "chatgpt-codex-connector[bot]") | {path, body: .body[:300]}]'
+  ```
+
+- A Codex inline comment containing a P1 or P2 badge is a blocking finding. Treat any unresolved
+  P1/P2 inline comment as "review has blocking findings" regardless of the `+1` reaction.
 - If CI is green but there are no reviews/comments/reactions yet, keep waiting until the 20 minute polling timeout.
 - Only treat review as clean after a bot review artifact exists and contains no blocking findings.
 - If no bot review artifact appears within 20 minutes, comment on the PR in Japanese that CI is green but
