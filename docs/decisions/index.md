@@ -79,3 +79,4 @@
 * [RunOptions アノテーション実行契約 — dry-run 短絡と rating ゲート / refusal filter 分離](0077-run-options-annotation-run-contract.md)
 * [Model installer の明示ジョブ化 — 暗黙 HuggingFace DL を Jobs lifecycle へ](0078-model-installer-explicit-job.md)
 * [Jobs ステージ別 progress + サマリ帯 — 実データ表示契約と Qt-free 構築ロジック](0079-jobs-stage-progress-and-summary-band.md)
+* [エクスポート前タグ編集の2層オーバーレイ契約 — DB編集層と出力オーバーレイ層の分離](0080-export-tag-overlay-two-layer.md)

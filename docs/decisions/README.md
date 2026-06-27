@@ -38,7 +38,7 @@ ADR は OKF (Open Knowledge Format) バンドルとして管理する。各 ADR 
 | [0026](0026-on-demand-runtime-validation-strategy.md) | On-Demand Runtime Validation Strategy | 2026-05-17 | Accepted (amended) |
 | [0027](0027-score-labels-db-storage.md) | Score Labels DB Storage | 2026-05-17 | Accepted |
 | [0028](0028-score-labels-usage-and-display.md) | Score Labels Usage and Display Strategy | 2026-05-18 | Accepted |
-| [0029](0029-unified-dataset-quality-tier.md) | Unified Dataset Quality Tier | 2026-05-19 | Accepted (Revised: 2026-06-18 — 品質尺度の主従を反転、数値スコアをベースに) |
+| [0029](0029-unified-dataset-quality-tier.md) | Unified Dataset Quality Tier | 2026-05-19 | Accepted (Revised 2: 2026-06-27 — tier ラベルの GUI 表示を廃止、スコア値による大まかな絞り込みは残す) |
 | [0030](0030-batch-annotation-model-selection-ui.md) | Batch Annotation Model Selection UI | 2026-05-20 | Superseded |
 | [0031](0031-ai-rating-mapping.md) | AI Rating Mapping to Canonical Rating | 2026-05-21 | Accepted (amended 2026-06-21) |
 | [0032](0032-copyable-readonly-text-display.md) | Copyable Read-Only Text Display Policy | 2026-05-23 | Accepted |
@@ -89,6 +89,7 @@ ADR は OKF (Open Knowledge Format) バンドルとして管理する。各 ADR 
 | [0077](0077-run-options-annotation-run-contract.md) | RunOptions アノテーション実行契約 — dry-run 短絡と rating ゲート / refusal filter 分離 | 2026-06-27 | Accepted |
 | [0078](0078-model-installer-explicit-job.md) | Model installer の明示ジョブ化 — 暗黙 HuggingFace DL を Jobs lifecycle へ | 2026-06-27 | Accepted |
 | [0079](0079-jobs-stage-progress-and-summary-band.md) | Jobs ステージ別 progress + サマリ帯 — 実データ表示契約と Qt-free 構築ロジック | 2026-06-27 | Accepted |
+| [0080](0080-export-tag-overlay-two-layer.md) | エクスポート前タグ編集の2層オーバーレイ契約 — DB編集層と出力オーバーレイ層の分離 | 2026-06-27 | Accepted |
 <!-- OKF-TABLE:END -->
 
 ## ADR テンプレート
