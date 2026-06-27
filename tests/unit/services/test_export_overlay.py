@@ -162,6 +162,21 @@ class TestApplyOverlayNoOverlay:
         # dedup されずに convert 産の重複が保持される
         assert result == ["canonical", "canonical"]
 
+    def test_noop_replace_preserves_post_convert_duplicates(self) -> None:
+        """replace キーが画像に存在しない（no-op replace）場合は dedup をスキップする。
+
+        replace={"absent_tag": "new"} のように置換元タグが画像に無い場合、
+        replace は実質的に何もしない（no-op）。この場合でも convert 産の重複は
+        レガシー出力と同様に保持されなければならない（Codex P2 指摘への対応）。
+        """
+        # "taga" と "tagb" が両方 "canonical" に解決される FakeReader
+        reader = FakeReader({"taga": "canonical", "tagb": "canonical"})
+        # replace ルールはあるが対象タグ "absent" は画像に存在しない
+        overlay = ExportTagOverlay(add=[], exclude=set(), replace={"absent": "new"})
+        result = apply_overlay(["taga", "tagb"], overlay, reader, "danbooru")
+        # no-op replace なので dedup されず convert 産の重複が保持される
+        assert result == ["canonical", "canonical"]
+
 
 # ─────────────────────────────────────────────────────────────────────────────
 # apply_overlay - exclude
