@@ -1,7 +1,7 @@
 # LoRAIro Wireframes — 引き継ぎメモ
 
-最新ファイル: `wireframes.html`（v13 を統合した現行版。旧 `LoRAIro Wireframes v13.html` 由来）
-版管理は git で行う。ディレクトリ別の版（v1〜v13）運用は廃止し、`wireframes.html` を上書き更新する。
+最新ファイル: `LoRAIro Wireframes v13.html`
+v1〜v12 は履歴として残置（参照用）。次の作業は v13 を上書き更新でOK。
 
 > **v13 追記 (大規模リファクタ反映 — 検索/export 分離 #698 + Project DB 第一級化)**: GUI ワイヤーは概ね据え置き、変更は Frame 8 · CLI に集中。
 > - **#698 検索責務の分離 (核)**: `export create` から inline フィルタ (`--tags` 等) を撤去し **`--image-ids` 必須**に。検索は新 read-only コマンド **`images search`**（JSON 検索スキーマ → `image_id`/`file_path` の JSONL）へ移譲。`images` 群 3→4、総サブコマンド 17→18 に更新（proj バー・command reference header・list-commands `count:18`）。
