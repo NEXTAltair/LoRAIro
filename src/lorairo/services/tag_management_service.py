@@ -11,8 +11,7 @@ from genai_tag_db_tools import (
     get_unknown_type_tags,
     update_tags_type_batch,
 )
-from genai_tag_db_tools.db.repository import TagReader, get_default_repository
-from genai_tag_db_tools.db.runtime import get_user_session_factory
+from genai_tag_db_tools.db.repository import get_default_reader, get_default_repository
 from genai_tag_db_tools.models import TagRecordPublic, TagTypeUpdate
 
 from ..utils.log import logger
@@ -34,13 +33,15 @@ class TagManagementService:
     def __init__(self) -> None:
         """TagManagementServiceを初期化します。
 
-        user DBのみを対象とするTagReaderを使用します。
+        overlay schema 対応の MergedTagReader を使用します。
         """
-        # user DBのみを対象とするreader（base DBは含まない）
-        self.reader = TagReader(session_factory=get_user_session_factory())
+        # overlay schema 対応 merged reader (base + user overlay)
+        # NOTE: OverlayTagReader.get_unknown_type_tag_ids は現在スタブ([] 返却)。
+        #       genai-tag-db-tools #85 で実装後に自動的に動作する。
+        self.reader = get_default_reader()
         self.repository = get_default_repository()
         logger.info(
-            "TagManagementService initialized (user DB only) with format_id={}",
+            "TagManagementService initialized (overlay reader) with format_id={}",
             self.LORAIRO_FORMAT_ID,
         )
 

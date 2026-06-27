@@ -15,7 +15,7 @@ from typing import TYPE_CHECKING, Any
 from ..utils.log import logger
 
 if TYPE_CHECKING:
-    from genai_tag_db_tools.db.reader import MergedTagReader
+    from genai_tag_db_tools.db.repository import MergedTagReader
 
 
 class TagSuggestionService:
