@@ -150,6 +150,8 @@ def apply_overlay(
     """
     # Step 1: replace（X→Y、convert 前に適用）
     after_replace = [overlay.replace.get(tag, tag) for tag in tags]
+    # replace が実際に発生したか（いずれかのタグが変化したか）を記録する
+    replace_occurred = after_replace != tags
 
     # Step 2: exclude（convert 前に除去）
     after_exclude = [tag for tag in after_replace if tag not in overlay.exclude]
@@ -160,7 +162,15 @@ def apply_overlay(
     # Step 4: add を先頭に literal prepend（convert バイパス）
     result = list(overlay.add) + after_convert
 
-    # Step 5: 順序保持 dedup（先頭=trigger 側を優先して残す）
+    # Step 5: 順序保持 dedup（重複を新たに生み得る操作が実際に行われた場合のみ実行）
+    # 重複を作り得る操作: add（trigger prepend）と replace（X→Y で新たな重複産生）。
+    # exclude は除去のみ、replace.replace が対象画像に一致しない場合（no-op replace）も
+    # 重複を生まない。よって add が空かつ実際の replace も発生しなかった場合は
+    # dedup をスキップし convert_tags が生む重複多重度をそのまま保持する。
+    # これにより overlay_plan=None のレガシー出力と bit 単位で同一になる。
+    if not overlay.add and not replace_occurred:
+        return result
+
     seen: set[str] = set()
     deduped: list[str] = []
     for tag in result:
