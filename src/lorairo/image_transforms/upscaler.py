@@ -6,15 +6,19 @@ like RealESRGAN, configured through the ConfigurationService.
 The implementation supports model caching and configuration-driven operation.
 """
 
+from __future__ import annotations
+
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import numpy as np
-import torch
 from PIL import Image
 
 from ..services.configuration_service import ConfigurationService
 from ..utils.log import logger
+
+if TYPE_CHECKING:
+    import torch
 
 
 class Upscaler:
@@ -131,6 +135,8 @@ class Upscaler:
         Returns:
             Image.Image: アップスケールされた画像
         """
+        import torch  # lazy load: 起動時 CUDA driver チェックで失敗するため遅延
+
         try:
             img_tensor = self._convert_image_to_tensor(img)
             with torch.no_grad():
@@ -142,6 +148,8 @@ class Upscaler:
 
     def _convert_image_to_tensor(self, image: Image.Image) -> torch.Tensor:  # pragma: no cover
         """PIL画像をPyTorchテンソルに変換します（CPU使用）"""
+        import torch  # lazy load: 起動時 CUDA driver チェックで失敗するため遅延
+
         img_np = np.array(image).astype(np.float32) / 255.0
         img_tensor = torch.from_numpy(img_np).permute(2, 0, 1).unsqueeze(0)
         # CPU固定（.cuda() 削除）
