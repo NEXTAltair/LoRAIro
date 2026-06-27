@@ -160,7 +160,15 @@ def apply_overlay(
     # Step 4: add を先頭に literal prepend（convert バイパス）
     result = list(overlay.add) + after_convert
 
-    # Step 5: 順序保持 dedup（先頭=trigger 側を優先して残す）
+    # Step 5: 順序保持 dedup（add か replace が非空のときのみ実行）
+    # add（trigger prepend）と replace（X→Y）だけが重複を生む操作であり、
+    # exclude は除去のみで重複を新たに作らない。
+    # よって add/replace が両方空（空 overlay や exclude-only overlay）の場合は
+    # dedup をスキップし、convert_tags が生む重複多重度をそのまま保持する。
+    # これにより legacy（overlay_plan=None）と bit 単位で同一の出力が得られる。
+    if not overlay.add and not overlay.replace:
+        return result
+
     seen: set[str] = set()
     deduped: list[str] = []
     for tag in result:

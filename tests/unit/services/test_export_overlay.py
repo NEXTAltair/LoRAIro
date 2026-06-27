@@ -131,6 +131,37 @@ class TestApplyOverlayNoOverlay:
         result = apply_overlay([], overlay, None, "danbooru")
         assert result == []
 
+    def test_empty_overlay_preserves_post_convert_duplicates(self) -> None:
+        """空 overlay は dedup をスキップし convert 産の重複を保持する（リグレッション防止）。
+
+        convert_tags が異なる入力タグを同一 canonical 形式に解決した場合、
+        レガシーパス（overlay_plan=None）では重複が出力に残る。
+        空 overlay でも同一の重複多重度を保持しなければならない。
+
+        注意: TagCleaner はアンダースコアをスペースに変換するため FakeReader のキーは
+        アンダースコアなし（正規化済み形式）で指定する（test_replace_then_convert と同様）。
+        """
+        # "taga" と "tagb" が両方 "canonical" に解決される FakeReader
+        reader = FakeReader({"taga": "canonical", "tagb": "canonical"})
+        overlay = ExportTagOverlay(add=[], exclude=set(), replace={})
+        result = apply_overlay(["taga", "tagb"], overlay, reader, "danbooru")
+        # dedup されずに convert 産の重複 ["canonical", "canonical"] が保持される
+        assert result == ["canonical", "canonical"]
+
+    def test_exclude_only_overlay_preserves_post_convert_duplicates(self) -> None:
+        """exclude-only overlay も dedup をスキップし convert 産の重複を保持する。
+
+        exclude は除去のみで重複を生まない操作のため、dedup は不要。
+        convert が重複を生む場合でもレガシー出力と一致しなければならない。
+        """
+        # "taga" と "tagb" が両方 "canonical" に解決され、"bad" は exclude で取り除かれる
+        reader = FakeReader({"taga": "canonical", "tagb": "canonical"})
+        overlay = ExportTagOverlay(add=[], exclude={"bad"}, replace={})
+        result = apply_overlay(["taga", "tagb", "bad"], overlay, reader, "danbooru")
+        assert "bad" not in result
+        # dedup されずに convert 産の重複が保持される
+        assert result == ["canonical", "canonical"]
+
 
 # ─────────────────────────────────────────────────────────────────────────────
 # apply_overlay - exclude
