@@ -317,15 +317,27 @@ class TestTabSwitching:
         assert expected.issubset(sequences)
 
     def test_navigate_menu_action_switches_tab(self, main_window_with_tabs):
-        """移動メニューのアクション発火でメインタブが切り替わる"""
+        """移動メニューのアクション発火でメインタブが切り替わる。
+
+        Ctrl+N は操作プロトタイプ (wireframes.html NUM2KEY) の固定割当で、視覚 index
+        ではなくタブ識別子基準。番号がタブに固定されるため、Ctrl+2 は (視覚順では
+        末尾付近の) マップへ飛ぶ。
+        """
         window = main_window_with_tabs
+        tab_widget = window.tabWidgetMainMode
         action_by_seq = {a.shortcut().toString(): a for a in window.menuNavigate.actions()}
 
+        # Ctrl+4 = ジョブ
         action_by_seq["Ctrl+4"].trigger()
-        assert window.tabWidgetMainMode.currentIndex() == 3
+        assert tab_widget.currentWidget() is window.jobs_tab
 
+        # Ctrl+2 = マップ (番号はタブに固定、視覚位置と非連動)
+        action_by_seq["Ctrl+2"].trigger()
+        assert tab_widget.currentWidget() is window.tabMap
+
+        # Ctrl+1 = 検索
         action_by_seq["Ctrl+1"].trigger()
-        assert window.tabWidgetMainMode.currentIndex() == 0
+        assert tab_widget.currentWidget() is window.tabWorkspace
 
 
 class TestBatchTagWidgetIntegration:
