@@ -37,6 +37,9 @@ class TagManagementService:
         user DBのみを対象とするTagReaderを使用します。
         """
         # user DBのみを対象とするreader（base DBは含まない）
+        # PENDING: Issue #938 — genai-tag-db-tools #85 で OverlayTagReader の read/write が
+        #          完成した後に get_default_reader() へ移行する。
+        #          移行前は TAG_STATUS / TAG_TYPE_NAME を直接読む TagReader を維持する。
         self.reader = TagReader(session_factory=get_user_session_factory())
         self.repository = get_default_repository()
         logger.info(
