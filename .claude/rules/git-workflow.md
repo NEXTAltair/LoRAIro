@@ -37,7 +37,7 @@ git worktree add .agents/worktree/issue-123 -b fix/issue-123 origin/main
 
 ローカル実装だけで作業を終えない。PR URL と最終監視状態を成果として報告する。auth / network / 検証失敗 / スコープ不明で PR 起票がブロックされた場合は、黙ってローカル変更で止めず blocker を明示する。
 
-> 注: Agent tool の `isolation: "worktree"` はこのリポジトリで壊れている。手動 `git worktree add` + 共有 `.venv` で運用する。
+> 注: Agent tool の `isolation: "worktree"` は動作する（provider-hook 修正済み。仕組みは `.claude/hooks/hook_worktree_create.py` の docstring 参照）。手動 `git worktree add` も fallback として有効。
 
 ## ブランチ運用
 
@@ -68,7 +68,7 @@ git worktree add ../fix-issue-123 -b fix/issue-123
 ```
 
 ### Agent呼び出し時
-- 実装タスクの Agent には、リード側で `git worktree add` した専用 worktree のパスを渡す（`isolation: "worktree"` はこのリポジトリで壊れているため使わない）
+- 実装タスクの Agent は `isolation: "worktree"` で起動できる。または リード側で `git worktree add` した専用 worktree のパスを渡す fallback も可
 - 並列実装では worker ごとに別 worktree を割り当て、書き込みスコープ（担当ファイル/モジュール）を分離する
 - メインワークスペースの作業状態を汚さない
 
