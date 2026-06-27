@@ -338,10 +338,10 @@ class TestAnnotationWorkerExecute:
 
         mock_db_manager = Mock()
         mock_db_manager.image_repo.find_image_ids_by_phashes_multi.return_value = {}
+        mock_db_manager.image_repo.find_image_ids_by_phashes.return_value = {"phash1": 1}
         mock_db_manager.model_repo.get_models_by_litellm_ids.return_value = {}
         mock_db_manager.annotation_repo.save_annotations = Mock()
         mock_db_manager.image_repo.get_phashes_by_filepaths.return_value = {"/path/to/image.jpg": "phash1"}
-        mock_db_manager.get_image_id_by_filepath.return_value = 1
 
         mock_annotation_runner.execute_annotation.return_value = {
             "phash1": {"unknown-model": {"tags": ["cat"], "error": None}}
@@ -372,6 +372,7 @@ class TestAnnotationWorkerExecute:
 
         mock_db_manager = Mock()
         mock_db_manager.image_repo.find_image_ids_by_phashes_multi.return_value = {"phash-a": [1]}
+        mock_db_manager.image_repo.find_image_ids_by_phashes.return_value = {"phash-a": 1, "phash-b": 2}
         mock_db_manager.model_repo.get_models_by_litellm_ids.return_value = {"model-a": Mock(id=1)}
         mock_db_manager.annotation_repo.save_annotations = Mock()
         mock_db_manager.image_repo.get_phashes_by_filepaths.return_value = {
@@ -693,9 +694,9 @@ class TestSaveErrorRecords:
     def test_save_error_records_secondary_error_continues(
         self, mock_annotation_runner, mock_model_registry
     ):
-        """二次エラーが発生しても残りのパスの処理が続行される。"""
+        """save_error_record が二次エラーを投げても残りのパスの処理が続行される。"""
         mock_db = Mock()
-        mock_db.get_image_id_by_filepath.side_effect = [RuntimeError("db error"), 42]
+        mock_db.save_error_record.side_effect = [RuntimeError("save failed"), None]
         worker = AnnotationWorker(
             annotation_runner=mock_annotation_runner,
             image_paths=["/img1.jpg", "/img2.jpg"],
@@ -704,7 +705,7 @@ class TestSaveErrorRecords:
             model_registry=mock_model_registry,
         )
         worker._save_error_records(Exception("test"), ["/img1.jpg", "/img2.jpg"])
-        assert mock_db.save_error_record.call_count == 1
+        assert mock_db.save_error_record.call_count == 2
 
     def test_save_error_records_model_name_none_for_overall_error(
         self, mock_annotation_runner, mock_model_registry

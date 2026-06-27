@@ -170,6 +170,7 @@ class AnnotationWorker(LoRAIroWorkerBase["AnnotationExecutionResult"]):
         self._path_to_phash: dict[str, str | None] = {}
         self._phash_to_input_path: dict[str, str] = {}
         self._phash_to_input_filename: dict[str, str] = {}
+        self._path_to_image_id: dict[str, int] = {}
 
         logger.info(
             f"AnnotationWorker初期化 - Images: {len(self.image_paths)}, "
@@ -201,7 +202,7 @@ class AnnotationWorker(LoRAIroWorkerBase["AnnotationExecutionResult"]):
 
         for image_path in image_paths:
             try:
-                image_id = self.db_manager.get_image_id_by_filepath(image_path)
+                image_id = self._path_to_image_id.get(image_path)
                 if image_id is None:
                     logger.warning(f"image_id取得失敗(file_pathで記録): {image_path}")
                 self.db_manager.save_error_record(
@@ -232,6 +233,14 @@ class AnnotationWorker(LoRAIroWorkerBase["AnnotationExecutionResult"]):
         }
         self._phash_to_input_filename = {
             phash: Path(image_path).name for phash, image_path in self._phash_to_input_path.items()
+        }
+
+        phashes = {p for p in self._path_to_phash.values() if p is not None}
+        phash_to_id = self.db_manager.image_repo.find_image_ids_by_phashes(phashes) if phashes else {}
+        self._path_to_image_id = {
+            path: phash_to_id[phash]
+            for path, phash in self._path_to_phash.items()
+            if phash is not None and phash in phash_to_id
         }
 
     def _build_phash_list_for_current_paths(self) -> list[str] | None:
