@@ -1,0 +1,391 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>LoRAIro Theme v1 — hi-fi mock</title>
+<style>
+/* ============================================================
+   LoRAIro Design Tokens v1
+   v11 wireframes の色言語を QSS 実装可能な hex に正規化したもの。
+   oklch → hex 換算済み。QSS へは下の値をそのまま転記する。
+   ============================================================ */
+:root{
+  /* --- surface --- */
+  --paper:        #fbfaf6;  /* アプリ背景 (v11 --paper) */
+  --paper-shade:  #f1efe6;  /* サイドバー・ヘッダ帯・行 hover */
+  --card:         #ffffff;  /* カード・入力欄の地 */
+  --terminal:     #23211d;  /* コード/JSONL ダークペイン (Frame 8) */
+
+  /* --- ink --- */
+  --ink:          #1a1a1a;  /* 本文 */
+  --ink-soft:     #4a4a4a;  /* 補助テキスト */
+  --ink-faint:    #9a9a9a;  /* placeholder・無効 */
+
+  /* --- line --- */
+  --line:         #dcd8cc;  /* 標準 border (1px) */
+  --line-strong:  #b9b4a5;  /* 強調 border・フォーカス枠の下地 */
+
+  /* --- accent (暖色 / oklch(0.62 0.14 32) 換算) --- */
+  --accent:       #c25e3f;  /* 主アクション・選択状態・アクティブタブ下線 */
+  --accent-hover: #a94e33;
+  --accent-soft:  #f6e3dc;  /* 選択行の背景・accent バッジ地 (oklch(0.93 0.04 32)) */
+
+  /* --- status (oklch 換算) --- */
+  --ok:           #3c8a55;  /* 成功・installed・API ready (oklch(0.55 0.13 145)) */
+  --ok-soft:      #e2f0e6;
+  --warn:         #b87f1f;  /* 警告・needs key・low confidence (oklch(0.65 0.16 70)) */
+  --warn-soft:    #f7ecd8;
+  --err:          #b8402c;  /* エラー・failed (oklch(0.55 0.18 25)) */
+  --err-soft:     #f7e1dc;
+  --info:         #3d6f9e;  /* 実行中・進捗 */
+  --info-soft:    #e1ebf4;
+
+  /* --- typography --- */
+  --sans: "Noto Sans JP","Segoe UI","Hiragino Sans",system-ui,sans-serif;
+  --mono: "JetBrains Mono","Cascadia Mono",ui-monospace,monospace;
+  --fs-base: 13px;
+  --fs-small: 11px;
+  --fs-h1: 18px;
+  --fs-h2: 14px;
+
+  /* --- shape & spacing --- */
+  --radius: 6px;       /* カード・ボタン */
+  --radius-chip: 10px; /* チップ・バッジ */
+  --gap-1: 4px; --gap-2: 8px; --gap-3: 12px; --gap-4: 16px; --gap-5: 24px;
+}
+
+*{box-sizing:border-box;margin:0;padding:0}
+body{background:var(--paper);color:var(--ink);font-family:var(--sans);font-size:var(--fs-base);line-height:1.6}
+
+/* ============ mock シェル ============ */
+.mock-note{max-width:1280px;margin:20px auto 0;padding:10px 16px;border:1px solid var(--line);border-left:4px solid var(--accent);background:var(--card);border-radius:var(--radius);font-size:var(--fs-small);color:var(--ink-soft)}
+.mock-note b{color:var(--ink)}
+.shell{max-width:1280px;margin:16px auto 60px;border:1px solid var(--line-strong);border-radius:8px;background:var(--paper);overflow:hidden;box-shadow:0 2px 10px rgba(26,26,26,.07)}
+
+/* ============ ウィンドウタイトルバー ============ */
+.titlebar{display:flex;align-items:center;gap:var(--gap-3);padding:8px 14px;background:var(--paper-shade);border-bottom:1px solid var(--line)}
+.titlebar .logo{font-weight:700;font-size:var(--fs-h2);letter-spacing:.02em}
+.titlebar .logo span{color:var(--accent)}
+.titlebar .proj{font-family:var(--mono);font-size:var(--fs-small);color:var(--ink-soft)}
+.titlebar .spacer{flex:1}
+.gear{width:28px;height:28px;border:1px solid var(--line);border-radius:var(--radius);background:var(--card);cursor:pointer;font-size:14px;color:var(--ink-soft);display:flex;align-items:center;justify-content:center}
+.gear:hover{border-color:var(--accent);color:var(--accent)}
+
+/* ============ ナビタブ ============ */
+.nav{display:flex;gap:2px;padding:0 10px;background:var(--paper-shade);border-bottom:1px solid var(--line)}
+.nav button{appearance:none;border:none;background:transparent;padding:9px 16px 7px;font-family:var(--sans);font-size:var(--fs-base);color:var(--ink-soft);cursor:pointer;border-bottom:2px solid transparent}
+.nav button:hover{color:var(--ink)}
+.nav button.on{color:var(--ink);font-weight:600;border-bottom-color:var(--accent);background:var(--paper)}
+
+/* ============ 画面共通 ============ */
+.screen{display:none;padding:var(--gap-4)}
+.screen.on{display:block}
+.layout{display:grid;grid-template-columns:250px 1fr;gap:var(--gap-4)}
+h2.sec{font-size:var(--fs-h2);font-weight:700;margin-bottom:var(--gap-2)}
+.muted{color:var(--ink-soft);font-size:var(--fs-small)}
+.mono{font-family:var(--mono)}
+
+/* card */
+.card{background:var(--card);border:1px solid var(--line);border-radius:var(--radius);padding:var(--gap-3)}
+.card + .card{margin-top:var(--gap-3)}
+.card h3{font-size:var(--fs-base);font-weight:600;margin-bottom:var(--gap-2);display:flex;align-items:center;gap:var(--gap-2)}
+
+/* buttons */
+.btn{display:inline-flex;align-items:center;gap:6px;padding:6px 14px;border-radius:var(--radius);border:1px solid var(--line-strong);background:var(--card);color:var(--ink);font-family:var(--sans);font-size:var(--fs-base);cursor:pointer}
+.btn:hover{border-color:var(--accent);color:var(--accent)}
+.btn.primary{background:var(--accent);border-color:var(--accent);color:#fff;font-weight:600}
+.btn.primary:hover{background:var(--accent-hover)}
+.btn.small{padding:3px 10px;font-size:var(--fs-small)}
+
+/* inputs */
+.input,select.input{width:100%;padding:6px 10px;border:1px solid var(--line);border-radius:var(--radius);background:var(--card);font-family:var(--sans);font-size:var(--fs-base);color:var(--ink)}
+.input:focus{outline:2px solid var(--accent-soft);border-color:var(--accent)}
+.input::placeholder{color:var(--ink-faint)}
+label.fld{display:block;font-size:var(--fs-small);color:var(--ink-soft);margin:var(--gap-2) 0 3px;font-weight:600}
+
+/* ============ チップ / バッジ ============ */
+.chip{display:inline-flex;align-items:center;gap:5px;padding:1px 9px;border-radius:var(--radius-chip);font-size:var(--fs-small);font-weight:600;border:1px solid transparent}
+.chip .dot{font-size:9px;line-height:1}
+.chip.installed{background:var(--ok-soft);color:var(--ok);border-color:#bedfc8}
+.chip.ready{background:var(--ok-soft);color:var(--ok);border-color:#bedfc8}
+.chip.needskey{background:var(--warn-soft);color:var(--warn);border-color:#e7d3a8;cursor:pointer}
+.chip.needskey:hover{border-color:var(--warn)}
+.chip.discontinued{background:var(--paper-shade);color:var(--ink-faint);border-color:var(--line)}
+.chip.running{background:var(--info-soft);color:var(--info);border-color:#bcd2e5}
+.chip.queued{background:var(--paper-shade);color:var(--ink-soft);border-color:var(--line)}
+.chip.done{background:var(--ok-soft);color:var(--ok);border-color:#bedfc8}
+.chip.failed{background:var(--err-soft);color:var(--err);border-color:#e8c2ba}
+.chip.cancelled{background:var(--paper-shade);color:var(--ink-faint);border-color:var(--line)}
+.tagchip{display:inline-block;padding:1px 8px;border-radius:var(--radius-chip);font-size:var(--fs-small);background:var(--accent-soft);color:var(--accent-hover);border:1px solid #ecc9bd;margin:2px 2px 0 0}
+.badge-type{display:inline-block;padding:0 6px;border-radius:3px;font-family:var(--mono);font-size:10px;background:var(--paper-shade);color:var(--ink-soft);border:1px solid var(--line)}
+
+/* ============ テーブル ============ */
+table.tbl{width:100%;border-collapse:collapse;font-size:var(--fs-base)}
+.tbl th{font-size:var(--fs-small);font-weight:600;color:var(--ink-soft);text-align:left;padding:6px 10px;border-bottom:1px solid var(--line-strong);background:var(--paper-shade)}
+.tbl td{padding:7px 10px;border-bottom:1px solid var(--line);vertical-align:middle}
+.tbl tr:hover td{background:var(--paper-shade)}
+.tbl tr.sel td{background:var(--accent-soft)}
+
+/* progress */
+.prog{height:8px;border-radius:4px;background:var(--paper-shade);border:1px solid var(--line);overflow:hidden;min-width:120px}
+.prog>i{display:block;height:100%;background:var(--info)}
+.prog.okbar>i{background:var(--ok)}
+
+/* ============ Search 画面 ============ */
+.thumbgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(132px,1fr));gap:var(--gap-3)}
+.thumb{border:1px solid var(--line);border-radius:var(--radius);background:var(--card);overflow:hidden;cursor:pointer}
+.thumb:hover{border-color:var(--accent)}
+.thumb.sel{outline:2px solid var(--accent);outline-offset:-1px}
+.thumb .ph{aspect-ratio:1;background:linear-gradient(135deg,var(--paper-shade),#e6e2d5);display:flex;align-items:center;justify-content:center;color:var(--ink-faint);font-size:var(--fs-small)}
+.thumb .meta{padding:4px 8px;font-family:var(--mono);font-size:10px;color:var(--ink-soft);display:flex;justify-content:space-between}
+
+/* ============ Annotate 画面 ============ */
+.stage{display:flex;align-items:center;gap:var(--gap-2);margin-bottom:var(--gap-2)}
+.stage .arrow{color:var(--ink-faint)}
+.stagecard{flex:1;border:1px solid var(--line);border-radius:var(--radius);background:var(--card);padding:8px 12px}
+.stagecard .t{font-size:var(--fs-small);font-weight:700;color:var(--ink-soft);letter-spacing:.06em;margin-bottom:4px}
+.stagecard.active{border-color:var(--accent)}
+.modelrow{display:flex;align-items:center;gap:var(--gap-2);padding:6px 8px;border-radius:var(--radius)}
+.modelrow:hover{background:var(--paper-shade)}
+.modelrow .nm{flex:1}
+.modelrow .cost{font-family:var(--mono);font-size:var(--fs-small);color:var(--ink-soft)}
+
+/* ============ terminal pane (CLI/JSONL 例示) ============ */
+.term{background:var(--terminal);border-radius:var(--radius);padding:10px 14px;font-family:var(--mono);font-size:12px;line-height:1.7;color:#d8d4c8;overflow-x:auto}
+.term .jk{color:#8ab4d8}.term .js{color:#a8c890}.term .jn{color:#d8b070}.term .jb{color:#c98a8a}
+
+/* ============ token sheet ============ */
+.tokens{max-width:1280px;margin:0 auto 80px;padding:0 2px}
+.tokens h2{font-size:var(--fs-h1);margin:32px 0 12px}
+.swatches{display:grid;grid-template-columns:repeat(auto-fill,minmax(170px,1fr));gap:var(--gap-3)}
+.sw{border:1px solid var(--line);border-radius:var(--radius);overflow:hidden;background:var(--card)}
+.sw .c{height:46px}
+.sw .i{padding:6px 10px;font-family:var(--mono);font-size:10px;line-height:1.5}
+.sw .i b{display:block;font-size:11px}
+</style>
+</head>
+<body>
+
+<div class="mock-note">
+  <b>LoRAIro Theme v1 — hi-fi mock</b>（2026-06-12）。
+  v11 wireframes の色言語（paper/ink/accent/ok/warn/err）を QSS 実装可能な hex トークンへ正規化し、
+  主要 3 画面（検索 / アノテーション / ジョブ）に適用した提案。手書きフォントは不採用、
+  本文 Noto Sans JP + コード JetBrains Mono のモダン構成。下部にトークン一覧。
+</div>
+
+<div class="shell">
+  <!-- titlebar -->
+  <div class="titlebar">
+    <div class="logo">LoRA<span>Iro</span></div>
+    <div class="proj">project: main_dataset_20260601_001</div>
+    <div class="spacer"></div>
+    <button class="gear" title="設定">⚙</button>
+  </div>
+
+  <!-- nav -->
+  <div class="nav">
+    <button class="on" data-s="search">検索</button>
+    <button data-s="">マップ</button>
+    <button data-s="annotate">アノテーション</button>
+    <button data-s="jobs">ジョブ</button>
+    <button data-s="">結果</button>
+    <button data-s="">エラー</button>
+    <button data-s="">エクスポート</button>
+    <button data-s="">CLI</button>
+  </div>
+
+  <!-- ========== SCREEN: 検索 ========== -->
+  <div class="screen on" id="s-search">
+    <div class="layout">
+      <div><!-- sidebar -->
+        <div class="card">
+          <h3>フィルタ</h3>
+          <label class="fld">タグ検索</label>
+          <input class="input" placeholder="1girl, solo, ...">
+          <div style="margin-top:6px"><span class="tagchip">1girl</span><span class="tagchip">outdoor</span><span class="tagchip">solo</span></div>
+          <label class="fld">解像度</label>
+          <select class="input"><option>すべて</option><option>1024px 以上</option></select>
+          <label class="fld">レーティング</label>
+          <select class="input"><option>すべて</option><option>PG</option><option>R</option></select>
+          <label class="fld">スコア</label>
+          <input class="input" placeholder="0.6 以上">
+          <div style="margin-top:12px;display:flex;gap:8px">
+            <button class="btn primary">検索</button>
+            <button class="btn">クリア</button>
+          </div>
+        </div>
+        <div class="card">
+          <h3>NLQ</h3>
+          <input class="input" placeholder="屋外で笑っている1人の女の子">
+          <div class="muted" style="margin-top:6px">自然文 → フィルタ変換</div>
+        </div>
+      </div>
+      <div><!-- main -->
+        <div style="display:flex;align-items:center;gap:12px;margin-bottom:10px">
+          <h2 class="sec" style="margin:0">検索結果</h2>
+          <span class="muted mono">1,247 件 / 表示 1–48</span>
+          <span style="flex:1"></span>
+          <button class="btn small">選択をステージへ</button>
+          <button class="btn small">サムネイル ▾</button>
+        </div>
+        <div class="thumbgrid">
+          <div class="thumb sel"><div class="ph">img_0001</div><div class="meta"><span>1024×1536</span><span>0.82</span></div></div>
+          <div class="thumb"><div class="ph">img_0002</div><div class="meta"><span>832×1216</span><span>0.74</span></div></div>
+          <div class="thumb"><div class="ph">img_0003</div><div class="meta"><span>1024×1024</span><span>0.91</span></div></div>
+          <div class="thumb"><div class="ph">img_0004</div><div class="meta"><span>1216×832</span><span>0.66</span></div></div>
+          <div class="thumb"><div class="ph">img_0005</div><div class="meta"><span>1024×1536</span><span>0.88</span></div></div>
+          <div class="thumb"><div class="ph">img_0006</div><div class="meta"><span>1024×1536</span><span>0.79</span></div></div>
+          <div class="thumb"><div class="ph">img_0007</div><div class="meta"><span>640×960</span><span>0.45</span></div></div>
+          <div class="thumb"><div class="ph">img_0008</div><div class="meta"><span>1024×1024</span><span>0.93</span></div></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ========== SCREEN: アノテーション ========== -->
+  <div class="screen" id="s-annotate">
+    <div class="layout">
+      <div><!-- sidebar: stage -->
+        <div class="card">
+          <h3>ステージ</h3>
+          <div class="muted">対象 128 枚（検索から追加）</div>
+          <div style="margin-top:8px;display:flex;gap:6px;flex-wrap:wrap">
+            <span class="chip queued">未処理 96</span>
+            <span class="chip done">済 32</span>
+          </div>
+          <div style="margin-top:12px"><button class="btn small">ステージをクリア</button></div>
+        </div>
+        <div class="card">
+          <h3>実行</h3>
+          <div class="muted">推論 3 モデル · 推定 $0.42 / 約 6 分</div>
+          <div style="margin-top:10px"><button class="btn primary" style="width:100%">RUN PIPELINE ▶</button></div>
+          <div class="muted" style="margin-top:6px">実行はジョブタブで追跡できます</div>
+        </div>
+      </div>
+      <div><!-- main: pipeline + picker -->
+        <h2 class="sec">パイプライン構成</h2>
+        <div class="stage">
+          <div class="stagecard active"><div class="t">TAGGER</div>wd-eva02-large-v3<br><span class="chip installed"><span class="dot">●</span>installed</span></div>
+          <span class="arrow">→</span>
+          <div class="stagecard"><div class="t">CAPTION</div>claude-haiku-4-5<br><span class="chip ready"><span class="dot">●</span>API ready</span></div>
+          <span class="arrow">→</span>
+          <div class="stagecard"><div class="t">SCORER</div>aesthetic-shadow-v2<br><span class="chip installed"><span class="dot">●</span>installed</span></div>
+        </div>
+
+        <div class="card">
+          <h3>モデルピッカー — CAPTION ステージ <span class="badge-type">multimodal</span></h3>
+          <div class="modelrow"><span class="chip ready"><span class="dot">●</span>API ready</span><span class="nm">claude-haiku-4-5</span><span class="badge-type">anthropic</span><span class="cost">$0.0011/img · ~0.8s</span></div>
+          <div class="modelrow"><span class="chip ready"><span class="dot">●</span>API ready</span><span class="nm">gemini-2.5-flash</span><span class="badge-type">google</span><span class="cost">$0.0007/img · ~0.6s</span></div>
+          <div class="modelrow"><span class="chip needskey"><span class="dot">○</span>needs key</span><span class="nm">gpt-5-mini</span><span class="badge-type">openai</span><span class="cost">$0.0009/img · ~0.7s</span></div>
+          <div class="modelrow"><span class="chip installed"><span class="dot">●</span>installed</span><span class="nm">moondream3</span><span class="badge-type">local</span><span class="cost">free · ~2.4s (GPU)</span></div>
+          <div class="modelrow"><span class="chip discontinued"><span class="dot">○</span>discontinued</span><span class="nm" style="color:var(--ink-faint)">gpt-4-vision-preview</span><span class="badge-type">openai</span><span class="cost">—</span></div>
+          <div class="muted" style="margin-top:8px">○ needs key をクリックすると設定の該当プロバイダ欄が開きます</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ========== SCREEN: ジョブ ========== -->
+  <div class="screen" id="s-jobs">
+    <h2 class="sec">ジョブ</h2>
+    <div class="card">
+      <h3>実行中 / キュー</h3>
+      <table class="tbl">
+        <tr><th>状態</th><th>種別</th><th>内容</th><th>進捗</th><th></th></tr>
+        <tr>
+          <td><span class="chip running"><span class="dot">●</span>実行中</span></td>
+          <td><span class="badge-type">model_install</span></td>
+          <td>wd-eva02-large-v3 をダウンロード中</td>
+          <td><div style="display:flex;align-items:center;gap:8px"><div class="prog"><i style="width:45%"></i></div><span class="mono muted">45% (350.0/780.0 MB)</span></div></td>
+          <td><button class="btn small">キャンセル</button></td>
+        </tr>
+        <tr>
+          <td><span class="chip queued"><span class="dot">○</span>待機</span></td>
+          <td><span class="badge-type">annotation</span></td>
+          <td>タグ付け 128 枚 × 3 モデル（install 完了後に実行）</td>
+          <td><div class="prog"><i style="width:0%"></i></div></td>
+          <td><button class="btn small">キャンセル</button></td>
+        </tr>
+      </table>
+    </div>
+    <div class="card">
+      <h3>履歴</h3>
+      <table class="tbl">
+        <tr><th>状態</th><th>種別</th><th>内容</th><th>結果</th><th>完了時刻</th></tr>
+        <tr>
+          <td><span class="chip done"><span class="dot">●</span>完了</span></td>
+          <td><span class="badge-type">annotation</span></td>
+          <td>キャプション 96 枚 (claude-haiku-4-5)</td>
+          <td class="mono muted">成功 96 / 失敗 0</td>
+          <td class="mono muted">14:32</td>
+        </tr>
+        <tr>
+          <td><span class="chip failed"><span class="dot">●</span>失敗</span></td>
+          <td><span class="badge-type">provider_batch</span></td>
+          <td>Batch 提出 512 枚 (gemini-2.5-flash)</td>
+          <td class="mono" style="color:var(--err)">RATE_LIMITED — エラータブで詳細</td>
+          <td class="mono muted">13:05</td>
+        </tr>
+        <tr>
+          <td><span class="chip cancelled"><span class="dot">○</span>中止</span></td>
+          <td><span class="badge-type">db_register</span></td>
+          <td>画像登録 2,400 枚</td>
+          <td class="mono muted">処理済 1,180 で中断</td>
+          <td class="mono muted">11:48</td>
+        </tr>
+      </table>
+    </div>
+    <div class="card">
+      <h3>CLI ペイン例（参考: ダークペイン token）</h3>
+      <div class="term">
+$ lorairo-cli annotate run --models wd-eva02 --json<br>
+{<span class="jk">"kind"</span>:<span class="js">"item"</span>,<span class="jk">"image_id"</span>:<span class="jn">42</span>,<span class="jk">"tags"</span>:[<span class="js">"1girl"</span>,<span class="js">"outdoor"</span>]}<br>
+{<span class="jk">"kind"</span>:<span class="js">"result"</span>,<span class="jk">"count"</span>:<span class="jn">128</span>,<span class="jk">"has_more"</span>:<span class="jb">false</span>}
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ============ TOKEN SHEET ============ -->
+<div class="tokens">
+  <h2>デザイントークン一覧（QSS へ転記する値）</h2>
+  <div class="swatches">
+    <div class="sw"><div class="c" style="background:#fbfaf6"></div><div class="i"><b>--paper #fbfaf6</b>アプリ背景</div></div>
+    <div class="sw"><div class="c" style="background:#f1efe6"></div><div class="i"><b>--paper-shade #f1efe6</b>サイドバー / 行 hover</div></div>
+    <div class="sw"><div class="c" style="background:#ffffff;border-bottom:1px solid #dcd8cc"></div><div class="i"><b>--card #ffffff</b>カード / 入力欄</div></div>
+    <div class="sw"><div class="c" style="background:#23211d"></div><div class="i"><b>--terminal #23211d</b>コード / JSONL ペイン</div></div>
+    <div class="sw"><div class="c" style="background:#1a1a1a"></div><div class="i"><b>--ink #1a1a1a</b>本文</div></div>
+    <div class="sw"><div class="c" style="background:#4a4a4a"></div><div class="i"><b>--ink-soft #4a4a4a</b>補助テキスト</div></div>
+    <div class="sw"><div class="c" style="background:#9a9a9a"></div><div class="i"><b>--ink-faint #9a9a9a</b>placeholder / 無効</div></div>
+    <div class="sw"><div class="c" style="background:#dcd8cc"></div><div class="i"><b>--line #dcd8cc</b>標準 border</div></div>
+    <div class="sw"><div class="c" style="background:#c25e3f"></div><div class="i"><b>--accent #c25e3f</b>主アクション / 選択</div></div>
+    <div class="sw"><div class="c" style="background:#f6e3dc"></div><div class="i"><b>--accent-soft #f6e3dc</b>選択背景 / accent 地</div></div>
+    <div class="sw"><div class="c" style="background:#3c8a55"></div><div class="i"><b>--ok #3c8a55</b>成功 / installed / ready</div></div>
+    <div class="sw"><div class="c" style="background:#b87f1f"></div><div class="i"><b>--warn #b87f1f</b>警告 / needs key</div></div>
+    <div class="sw"><div class="c" style="background:#b8402c"></div><div class="i"><b>--err #b8402c</b>エラー / failed</div></div>
+    <div class="sw"><div class="c" style="background:#3d6f9e"></div><div class="i"><b>--info #3d6f9e</b>実行中 / 進捗</div></div>
+  </div>
+  <h2>タイポグラフィ / 形状</h2>
+  <ul style="font-size:13px;color:#4a4a4a;line-height:2;list-style:none">
+    <li>・本文: <b>Noto Sans JP / Segoe UI / Hiragino Sans</b> 13px（小: 11px、見出し: 14–18px）</li>
+    <li>・コード / 数値メタ: <b>JetBrains Mono</b>（メタ情報は 10–12px）</li>
+    <li>・角丸: カード/ボタン 6px、チップ 10px。border は 1px（強調 1px line-strong）</li>
+    <li>・チップ文法: <b>● = 利用可（ok 色）/ ○ = 要対応（warn 色）or 無効（faint 色）</b>、soft 地 + 同系 border</li>
+    <li>・余白スケール: 4 / 8 / 12 / 16 / 24px</li>
+  </ul>
+</div>
+
+<script>
+document.querySelectorAll('.nav button').forEach(b=>{
+  b.addEventListener('click',()=>{
+    if(!b.dataset.s)return;
+    document.querySelectorAll('.nav button').forEach(x=>x.classList.remove('on'));
+    document.querySelectorAll('.screen').forEach(x=>x.classList.remove('on'));
+    b.classList.add('on');
+    document.getElementById('s-'+b.dataset.s).classList.add('on');
+  });
+});
+</script>
+</body>
+</html>

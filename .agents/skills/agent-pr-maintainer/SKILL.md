@@ -92,9 +92,10 @@ Review completion gate:
 - Do not merge immediately after CI success.
 - Continue polling until the expected Codex/Bot review signal appears as a PR review, review comment,
   issue comment, issue reaction, or other repository-standard bot review artifact.
-- Codex clean-review may appear as a `+1` reaction from `chatgpt-codex-connector[bot]` on the PR issue
-  rather than as a review/comment. Treat that reaction as a completed clean bot review when there are no
-  blocking review comments.
+- Codex review state is signaled by reactions from `chatgpt-codex-connector[bot]` on the PR issue:
+  - `eyes` reaction: review is in progress — keep polling, do not merge yet.
+  - `+1` reaction: clean review completed — treat as a completed clean bot review when there are no
+    blocking review comments.
 - If CI is green but there are no reviews/comments/reactions yet, keep waiting until the 20 minute polling timeout.
 - Only treat review as clean after a bot review artifact exists and contains no blocking findings.
 - If no bot review artifact appears within 20 minutes, comment on the PR in Japanese that CI is green but
