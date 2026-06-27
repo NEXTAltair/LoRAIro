@@ -96,11 +96,6 @@ class Ui_MainWindow(object):
         self.verticalLayout_workspace.setObjectName("verticalLayout_workspace")
         self.verticalLayout_workspace.setContentsMargins(0, 0, 0, 0)
         self.tabWidgetMainMode.addTab(self.tabWorkspace, "")
-        self.tabMap = QWidget()
-        self.tabMap.setObjectName("tabMap")
-        self.verticalLayout_map = QVBoxLayout(self.tabMap)
-        self.verticalLayout_map.setObjectName("verticalLayout_map")
-        self.tabWidgetMainMode.addTab(self.tabMap, "")
         self.tabBatchTag = QWidget()
         self.tabBatchTag.setObjectName("tabBatchTag")
         self.verticalLayout_batchTag = QVBoxLayout(self.tabBatchTag)
@@ -120,16 +115,21 @@ class Ui_MainWindow(object):
         self.verticalLayout_results.addWidget(self.labelResultsStub)
 
         self.tabWidgetMainMode.addTab(self.tabResults, "")
-        self.tabErrors = QWidget()
-        self.tabErrors.setObjectName("tabErrors")
-        self.verticalLayout_errors = QVBoxLayout(self.tabErrors)
-        self.verticalLayout_errors.setObjectName("verticalLayout_errors")
-        self.tabWidgetMainMode.addTab(self.tabErrors, "")
         self.tabExport = QWidget()
         self.tabExport.setObjectName("tabExport")
         self.verticalLayout_export = QVBoxLayout(self.tabExport)
         self.verticalLayout_export.setObjectName("verticalLayout_export")
         self.tabWidgetMainMode.addTab(self.tabExport, "")
+        self.tabMap = QWidget()
+        self.tabMap.setObjectName("tabMap")
+        self.verticalLayout_map = QVBoxLayout(self.tabMap)
+        self.verticalLayout_map.setObjectName("verticalLayout_map")
+        self.tabWidgetMainMode.addTab(self.tabMap, "")
+        self.tabErrors = QWidget()
+        self.tabErrors.setObjectName("tabErrors")
+        self.verticalLayout_errors = QVBoxLayout(self.tabErrors)
+        self.verticalLayout_errors.setObjectName("verticalLayout_errors")
+        self.tabWidgetMainMode.addTab(self.tabErrors, "")
 
         self.verticalLayout_main.addWidget(self.tabWidgetMainMode)
 
@@ -217,10 +217,6 @@ class Ui_MainWindow(object):
             QCoreApplication.translate("MainWindow", "\u691c\u7d22", None),
         )
         self.tabWidgetMainMode.setTabText(
-            self.tabWidgetMainMode.indexOf(self.tabMap),
-            QCoreApplication.translate("MainWindow", "\u30de\u30c3\u30d7", None),
-        )
-        self.tabWidgetMainMode.setTabText(
             self.tabWidgetMainMode.indexOf(self.tabBatchTag),
             QCoreApplication.translate("MainWindow", "\u30a2\u30ce\u30c6\u30fc\u30b7\u30e7\u30f3", None),
         )
@@ -237,12 +233,16 @@ class Ui_MainWindow(object):
             QCoreApplication.translate("MainWindow", "\u7d50\u679c", None),
         )
         self.tabWidgetMainMode.setTabText(
-            self.tabWidgetMainMode.indexOf(self.tabErrors),
-            QCoreApplication.translate("MainWindow", "\u30a8\u30e9\u30fc", None),
-        )
-        self.tabWidgetMainMode.setTabText(
             self.tabWidgetMainMode.indexOf(self.tabExport),
             QCoreApplication.translate("MainWindow", "\u30a8\u30af\u30b9\u30dd\u30fc\u30c8", None),
+        )
+        self.tabWidgetMainMode.setTabText(
+            self.tabWidgetMainMode.indexOf(self.tabMap),
+            QCoreApplication.translate("MainWindow", "\u30de\u30c3\u30d7", None),
+        )
+        self.tabWidgetMainMode.setTabText(
+            self.tabWidgetMainMode.indexOf(self.tabErrors),
+            QCoreApplication.translate("MainWindow", "\u30a8\u30e9\u30fc", None),
         )
         self.menuFile.setTitle(QCoreApplication.translate("MainWindow", "\u30d5\u30a1\u30a4\u30eb", None))
         self.menuEdit.setTitle(QCoreApplication.translate("MainWindow", "\u7de8\u96c6", None))
