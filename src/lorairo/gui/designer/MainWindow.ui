@@ -61,12 +61,6 @@
         </property>
        </layout>
       </widget>
-      <widget class="QWidget" name="tabMap">
-       <attribute name="title">
-        <string>マップ</string>
-       </attribute>
-       <layout class="QVBoxLayout" name="verticalLayout_map"/>
-      </widget>
       <widget class="QWidget" name="tabBatchTag">
        <attribute name="title">
         <string>アノテーション</string>
@@ -110,17 +104,23 @@
         </item>
        </layout>
       </widget>
-      <widget class="QWidget" name="tabErrors">
-       <attribute name="title">
-        <string>エラー</string>
-       </attribute>
-       <layout class="QVBoxLayout" name="verticalLayout_errors"/>
-      </widget>
       <widget class="QWidget" name="tabExport">
        <attribute name="title">
         <string>エクスポート</string>
        </attribute>
        <layout class="QVBoxLayout" name="verticalLayout_export"/>
+      </widget>
+      <widget class="QWidget" name="tabMap">
+       <attribute name="title">
+        <string>マップ</string>
+       </attribute>
+       <layout class="QVBoxLayout" name="verticalLayout_map"/>
+      </widget>
+      <widget class="QWidget" name="tabErrors">
+       <attribute name="title">
+        <string>エラー</string>
+       </attribute>
+       <layout class="QVBoxLayout" name="verticalLayout_errors"/>
       </widget>
      </widget>
     </item>

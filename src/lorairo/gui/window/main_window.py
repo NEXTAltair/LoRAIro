@@ -561,21 +561,38 @@ class MainWindow(QMainWindow, Ui_MainWindow):
         logger.info("tabWidgetRightPanel initialized with 1 tab: 画像詳細")
 
     def _setup_tab_shortcuts(self) -> None:
-        """「移動」メニューと Ctrl+1〜N のタブ切替を登録する。
+        """「移動」メニューと Ctrl+1〜8 のタブ切替を登録する。
 
-        Wireframes v11 のナビショートカット (⌘1-⌘8) に対応する。8 タブを
-        メニューからも到達できるようにし、旧ツールメニューにあったタブ重複導線
-        （アノテーション / エクスポート / エラーログ）を置き換える。各アクションが
-        Ctrl+N ショートカットを保持するため、別途 QShortcut は登録しない。
+        操作プロトタイプ (wireframes.html の NUM2KEY) の固定ショートカット契約に
+        合わせ、Ctrl+N を視覚 index ではなく **タブ識別子** で割り当てる。
+        restructureNav でナビの視覚順が変わっても番号はタブに固定されるため、
+        Ctrl+1=検索 / 2=マップ / 3=アノテーション / 4=ジョブ / 5=結果 / 6=エラー /
+        7=エクスポート / 8=CLI を保つ。各アクションが Ctrl+N を保持するため、別途
+        QShortcut は登録しない。jobs_tab / cli_tab は runtime 生成のため未生成 (None)
+        ならその番号をスキップする。
         """
         if not hasattr(self, "tabWidgetMainMode") or not self.tabWidgetMainMode:
             logger.warning("tabWidgetMainMode not found - 移動メニュー skipped")
             return
+        # Ctrl+N の固定割当 (番号順、タブ識別子基準)。
+        shortcut_tabs: list[QWidget | None] = [
+            getattr(self, "tabWorkspace", None),
+            getattr(self, "tabMap", None),
+            getattr(self, "tabBatchTag", None),
+            getattr(self, "jobs_tab", None),
+            getattr(self, "tabResults", None),
+            getattr(self, "tabErrors", None),
+            getattr(self, "tabExport", None),
+            getattr(self, "cli_tab", None),
+        ]
         navigate_menu = QMenu("移動", self)
-        for i in range(self.tabWidgetMainMode.count()):
-            action = QAction(self.tabWidgetMainMode.tabText(i), self)
-            action.setShortcut(QKeySequence(f"Ctrl+{i + 1}"))
-            action.triggered.connect(partial(self.tabWidgetMainMode.setCurrentIndex, i))
+        for number, tab in enumerate(shortcut_tabs, start=1):
+            if tab is None or self.tabWidgetMainMode.indexOf(tab) < 0:
+                continue
+            label = self.tabWidgetMainMode.tabText(self.tabWidgetMainMode.indexOf(tab))
+            action = QAction(label, self)
+            action.setShortcut(QKeySequence(f"Ctrl+{number}"))
+            action.triggered.connect(partial(self.tabWidgetMainMode.setCurrentWidget, tab))
             navigate_menu.addAction(action)
         # 「表示」と「ツール」の間（ツールメニューの直前）へ挿入する
         tools_action = self.menuTools.menuAction() if hasattr(self, "menuTools") else None
@@ -584,7 +601,7 @@ class MainWindow(QMainWindow, Ui_MainWindow):
         else:
             self.menuBar().addMenu(navigate_menu)
         self.menuNavigate = navigate_menu
-        logger.debug(f"移動メニュー登録: Ctrl+1..Ctrl+{self.tabWidgetMainMode.count()}")
+        logger.debug("移動メニュー登録: Ctrl+1..Ctrl+8 (タブ識別子固定)")
 
     def _setup_results_tab(self) -> None:
         """結果タブに ResultsTabWidget を埋め込む。

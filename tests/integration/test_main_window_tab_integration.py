@@ -35,40 +35,44 @@ class TestMainWindowTabInitialization:
         assert isinstance(main_window_with_tabs.tabWidgetMainMode, QTabWidget)
 
     def test_eight_tabs_created(self, main_window_with_tabs):
-        """8つのタブ（検索/マップ/アノテーション/ジョブ/結果/エラー/エクスポート/CLI）が作成される"""
+        """8つのタブ（検索/アノテーション/ジョブ/結果/エクスポート/マップ/エラー/CLI）が作成される
+
+        順序は操作プロトタイプ (wireframes.html restructureNav) のナビ順 PIPE+UTIL に一致する:
+        PIPE=検索→アノテーション→ジョブ→結果→エクスポート, UTIL=マップ→エラー→CLI。
+        """
         tab_widget = main_window_with_tabs.tabWidgetMainMode
         assert tab_widget.count() == 8
         assert [tab_widget.tabText(i) for i in range(tab_widget.count())] == [
             "検索",
-            "マップ",
             "アノテーション",
             "ジョブ",
             "結果",
-            "エラー",
             "エクスポート",
+            "マップ",
+            "エラー",
             "CLI",
         ]
 
     def test_stub_pages_exist(self, main_window_with_tabs):
         """マップ/結果タブはスタブページとして存在する"""
         tab_widget = main_window_with_tabs.tabWidgetMainMode
-        assert tab_widget.widget(1).objectName() == "tabMap"
-        assert tab_widget.widget(4).objectName() == "tabResults"
+        assert tab_widget.widget(5).objectName() == "tabMap"
+        assert tab_widget.widget(3).objectName() == "tabResults"
 
     def test_tab_order_matches_wireframe_nav(self, main_window_with_tabs):
-        """タブ順序が Wireframes v11 のナビ順に一致する"""
+        """タブ順序が操作プロトタイプ (restructureNav PIPE+UTIL) のナビ順に一致する"""
         window = main_window_with_tabs
         tab_widget = window.tabWidgetMainMode
         assert tab_widget.widget(0) is window.tabWorkspace
-        assert tab_widget.widget(2) is window.tabBatchTag
-        assert tab_widget.widget(3) is window.jobs_tab
-        assert tab_widget.widget(5).objectName() == "tabErrors"
+        assert tab_widget.widget(1) is window.tabBatchTag
+        assert tab_widget.widget(2) is window.jobs_tab
+        assert tab_widget.widget(6).objectName() == "tabErrors"
 
     def test_errors_tab_embeds_triage_widget(self, main_window_with_tabs):
         """エラータブが ErrorsTabWidget で常設され ErrorsTriageWidget を内包する (#871)"""
         from lorairo.gui.tab.errors_tab import ErrorsTabWidget
 
-        errors_container = main_window_with_tabs.tabWidgetMainMode.widget(5)
+        errors_container = main_window_with_tabs.tabWidgetMainMode.widget(6)
         assert errors_container.objectName() == "tabErrors"
         viewer = errors_container.findChild(ErrorsTriageWidget)
         assert viewer is not None
@@ -80,7 +84,7 @@ class TestMainWindowTabInitialization:
         from lorairo.gui.tab.export_tab import ExportTabWidget
         from lorairo.gui.widgets.dataset_export_widget import DatasetExportWidget
 
-        export_container = main_window_with_tabs.tabWidgetMainMode.widget(6)
+        export_container = main_window_with_tabs.tabWidgetMainMode.widget(4)
         assert export_container.objectName() == "tabExport"
         widget = export_container.findChild(DatasetExportWidget)
         assert widget is not None
@@ -313,15 +317,27 @@ class TestTabSwitching:
         assert expected.issubset(sequences)
 
     def test_navigate_menu_action_switches_tab(self, main_window_with_tabs):
-        """移動メニューのアクション発火でメインタブが切り替わる"""
+        """移動メニューのアクション発火でメインタブが切り替わる。
+
+        Ctrl+N は操作プロトタイプ (wireframes.html NUM2KEY) の固定割当で、視覚 index
+        ではなくタブ識別子基準。番号がタブに固定されるため、Ctrl+2 は (視覚順では
+        末尾付近の) マップへ飛ぶ。
+        """
         window = main_window_with_tabs
+        tab_widget = window.tabWidgetMainMode
         action_by_seq = {a.shortcut().toString(): a for a in window.menuNavigate.actions()}
 
+        # Ctrl+4 = ジョブ
         action_by_seq["Ctrl+4"].trigger()
-        assert window.tabWidgetMainMode.currentIndex() == 3
+        assert tab_widget.currentWidget() is window.jobs_tab
 
+        # Ctrl+2 = マップ (番号はタブに固定、視覚位置と非連動)
+        action_by_seq["Ctrl+2"].trigger()
+        assert tab_widget.currentWidget() is window.tabMap
+
+        # Ctrl+1 = 検索
         action_by_seq["Ctrl+1"].trigger()
-        assert window.tabWidgetMainMode.currentIndex() == 0
+        assert tab_widget.currentWidget() is window.tabWorkspace
 
 
 class TestBatchTagWidgetIntegration:
