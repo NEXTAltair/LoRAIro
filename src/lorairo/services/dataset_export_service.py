@@ -18,6 +18,7 @@ from ..database.db_manager import ImageDatabaseManager
 from ..database.filter_criteria import ImageFilterCriteria
 from ..filesystem import FileSystemManager
 from .configuration_service import ConfigurationService
+from .export_overlay import ExportOverlayPlan, apply_overlay
 from .search_criteria_processor import SearchCriteriaProcessor
 
 if TYPE_CHECKING:
@@ -65,6 +66,7 @@ class DatasetExportService:
         resolution: int = 512,
         merge_caption: bool = False,
         tag_format: str = _DEFAULT_EXPORT_TAG_FORMAT,
+        overlay_plan: ExportOverlayPlan | None = None,
     ) -> Path:
         """Export dataset in TXT format compatible with kohya-ss training.
 
@@ -79,6 +81,8 @@ class DatasetExportService:
             tag_format: Target tag format for canonical resolution (default: "danbooru").
                 Tags are resolved to this format's canonical form and ``type=meta``
                 tags are excluded (ADR 0068 Phase 3).
+            overlay_plan: オーバーレイ適用プラン（ADR 0080）。None の場合は従来挙動を完全維持する。
+                画像ごとに effective_for(image_id) で実効 overlay を解決して apply_overlay に渡す。
 
         Returns:
             Path: Path to the exported dataset directory
@@ -122,11 +126,19 @@ class DatasetExportService:
                 # Copy processed image
                 self.file_system_manager.copy_file(processed_image_path, output_image_path)
 
-                # Write tag file
+                # タグ文字列構築: overlay 有無で分岐（ADR 0080）
                 export_tags = self._resolve_export_tags(image_data["tags"])
                 export_caption = self._resolve_export_caption(image_data["captions"])
-                tags = ", ".join([tag_data["tag"] for tag_data in export_tags])
-                tags = self._convert_tags_for_export(tags, tag_format, reader)
+                tag_list = [tag_data["tag"] for tag_data in export_tags]
+                if overlay_plan is not None:
+                    # overlay パイプライン: replace → exclude → convert → add → dedup
+                    effective_overlay = overlay_plan.effective_for(image_id)
+                    tag_list = apply_overlay(tag_list, effective_overlay, reader, tag_format)
+                    tags = ", ".join(tag_list)
+                else:
+                    # 従来挙動: convert のみ（overlay 未指定時のリグレッションなし）
+                    tags = ", ".join(tag_list)
+                    tags = self._convert_tags_for_export(tags, tag_format, reader)
                 if merge_caption and export_caption:
                     captions = export_caption["caption"]
                     tags = f"{tags}, {captions}" if tags else captions
@@ -157,6 +169,7 @@ class DatasetExportService:
         resolution: int = 512,
         metadata_filename: str = "metadata.json",
         tag_format: str = _DEFAULT_EXPORT_TAG_FORMAT,
+        overlay_plan: ExportOverlayPlan | None = None,
     ) -> Path:
         """Export dataset in JSON metadata format compatible with kohya-ss.
 
@@ -171,6 +184,8 @@ class DatasetExportService:
             tag_format: Target tag format for canonical resolution (default: "danbooru").
                 Tags are resolved to this format's canonical form and ``type=meta``
                 tags are excluded (ADR 0068 Phase 3).
+            overlay_plan: オーバーレイ適用プラン（ADR 0080）。None の場合は従来挙動を完全維持する。
+                画像ごとに effective_for(image_id) で実効 overlay を解決して apply_overlay に渡す。
 
         Returns:
             Path: Path to the exported dataset directory
@@ -213,11 +228,19 @@ class DatasetExportService:
                 output_image_path = output_path / processed_image_path.name
                 self.file_system_manager.copy_file(processed_image_path, output_image_path)
 
-                # Build metadata entry
+                # タグ文字列構築: overlay 有無で分岐（ADR 0080）
                 export_tags = self._resolve_export_tags(image_data["tags"])
                 export_caption = self._resolve_export_caption(image_data["captions"])
-                tags = ", ".join([tag_data["tag"] for tag_data in export_tags])
-                tags = self._convert_tags_for_export(tags, tag_format, reader)
+                tag_list = [tag_data["tag"] for tag_data in export_tags]
+                if overlay_plan is not None:
+                    # overlay パイプライン: replace → exclude → convert → add → dedup
+                    effective_overlay = overlay_plan.effective_for(image_id)
+                    tag_list = apply_overlay(tag_list, effective_overlay, reader, tag_format)
+                    tags = ", ".join(tag_list)
+                else:
+                    # 従来挙動: convert のみ（overlay 未指定時のリグレッションなし）
+                    tags = ", ".join(tag_list)
+                    tags = self._convert_tags_for_export(tags, tag_format, reader)
                 captions = export_caption["caption"] if export_caption else ""
                 # ADR 0028: score_labels は {model, label} を主とする JSON-safe な形で埋め込む
                 score_labels = [
