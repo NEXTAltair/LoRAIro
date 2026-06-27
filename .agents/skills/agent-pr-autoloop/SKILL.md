@@ -41,12 +41,39 @@ enter the loop. Do not stop at the PR URL when the PR is reviewable.
 
 Treat maintenance as a self-paced poll loop. One loop cycle:
 
-1. Gather state with `gh` (`gh pr view ... --json number,isDraft,headRefOid,mergeStateStatus,reviewDecision,statusCheckRollup,labels`, `gh pr checks`, reactions/review threads as needed).
+1. Gather state with `gh` — **all four checks are mandatory every cycle; never skip based on CI status**:
+
+   ```bash
+   # (a) PR fields — isDraft, mergeStateStatus, reviewDecision, head SHA
+   gh pr view "$PR" --repo "$REPO" \
+     --json number,isDraft,headRefOid,mergeStateStatus,reviewDecision,statusCheckRollup,labels
+
+   # (b) Check run statuses
+   gh pr checks "$PR" --repo "$REPO" \
+     --json name,state,bucket,link,startedAt,completedAt,workflow
+
+   # (c) Bot reactions on the PR issue (Codex signals: +1=clean, eyes=in-progress)
+   gh api "repos/$REPO/issues/$PR_NUM/reactions"
+
+   # (d) Inline review comments — detect P1/P2 badge findings from Codex
+   gh api "repos/$REPO/pulls/$PR_NUM/comments"
+   ```
+
+   `$REPO` is `owner/repo` (e.g. `NEXTAltair/LoRAIro` or `NEXTAltair/genai-tag-db-tools`).
+   `mergeStateStatus=CLEAN` means GitHub merge preconditions pass; it does **not** mean bot review is complete.
+
 2. Classify the cycle into exactly one outcome:
-   - **continue** — CI still running or bot review not yet posted → schedule the next cycle.
-   - **repair** — CI failed or an actionable review finding exists → fix in the PR worktree, validate, push, reply in Japanese, then continue (count the repair against the limit).
+   - **continue** — any of these: CI checks still running (step b has pending checks); no `chatgpt-codex-connector[bot]` reaction yet on the PR issue (step c is empty or only `eyes`); CI is green but Codex review/reaction has not posted yet → schedule the next cycle.
+   - **repair** — any of these: CI checks failed (step b); Codex review state is `COMMENTED` and step d contains P1/P2 badge findings → fix in the PR worktree, validate, push, reply in Japanese per `agent-pr-maintainer`, then continue (count the repair against the limit).
    - **escalate** — repair limit reached, recurring findings in the same boundary, or a forbidden change is required → open the design issue, comment in Japanese, stop.
-   - **merge** — all merge gates in `agent-pr-maintainer` are satisfied → squash merge, clean up the worktree, stop.
+   - **merge** — **all** of the following are true (verified from step 1 data above):
+     1. CI: all required checks pass (step b — no failed or pending).
+     2. Draft: `isDraft == false` (step a).
+     3. Codex reaction: `chatgpt-codex-connector[bot]` has a `+1` reaction on the PR issue (step c). `eyes` alone → **continue**, not merge.
+     4. No blocking findings: step d has no unaddressed P1/P2 Codex comments.
+
+     ⚠️ `mergeStateStatus=CLEAN` with `reviewDecision=""` alone does **not** satisfy this gate.
+     → squash merge, clean up the worktree, stop.
    - **timeout** — total elapsed reached the polling window with no terminal result → comment in Japanese that CI/review did not complete in the window, stop.
 3. If the outcome is **continue**, wait the poll interval and start the next cycle automatically.
 
