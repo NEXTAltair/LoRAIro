@@ -106,6 +106,7 @@ test-genai-tag: _ensure-submodules
 	@echo "Running genai-tag-db-tools tests (creates local_packages/genai-tag-db-tools/.venv)..."
 	cd local_packages/genai-tag-db-tools && \
 		UV_PROJECT_ENVIRONMENT=$(CURDIR)/local_packages/genai-tag-db-tools/.venv \
+		QT_QPA_PLATFORM=offscreen \
 		uv run pytest
 
 test-all: _ensure-submodules
