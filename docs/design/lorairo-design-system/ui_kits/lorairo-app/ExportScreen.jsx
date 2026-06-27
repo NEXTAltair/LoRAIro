@@ -1,7 +1,7 @@
 // ExportScreen — build a training set from the staging set.
 const DSX = window.LoRAIroDesignSystem_64d8f7;
 
-function ExportScreen() {
+function ExportScreen({ staged }) {
   const { Card, Button, Chip, TypeBadge, SummaryStat, SegmentedControl, Terminal } = DSX;
   const [fmt, setFmt] = React.useState("danbooru");
   const T = Terminal;
@@ -13,7 +13,9 @@ function ExportScreen() {
   ];
 
   return (
-    <div style={{ display: "grid", gridTemplateColumns: "260px 1fr", gap: "var(--gap-4)", alignItems: "start" }}>
+    <div style={{ display: "flex", flexDirection: "column", gap: "var(--gap-4)" }}>
+      <window.StageStrip staged={staged} caption="エクスポート対象 = ステージング集合（明示・有界 MAX 500）" />
+      <div style={{ display: "grid", gridTemplateColumns: "260px 1fr", gap: "var(--gap-4)", alignItems: "start" }}>
       <div style={{ display: "flex", flexDirection: "column", gap: "var(--gap-3)" }}>
         <SummaryStat label="エクスポート対象 export target" value="9 枚" sub="staging set · MAX 500" tone="accent" />
         <Card title="対象 = ステージング集合">
@@ -66,6 +68,7 @@ function ExportScreen() {
           <Button>出力先を選択…</Button>
           <Button variant="primary">9 枚をエクスポート ▶</Button>
         </div>
+      </div>
       </div>
     </div>
   );

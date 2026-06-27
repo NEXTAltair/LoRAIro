@@ -1,7 +1,7 @@
 // ResultsScreen — annotation quality triage for a finished batch.
 const DS_RESULTS = window.LoRAIroDesignSystem_64d8f7;
 
-function ResultsScreen() {
+function ResultsScreen({ staged }) {
   const { Card, Button, Chip, TypeBadge, TagChip, Thumbnail, SummaryStat, Terminal } = DS_RESULTS;
 
   const dist = [
@@ -33,6 +33,8 @@ function ResultsScreen() {
         <span style={{ flex: 1 }} />
         <Button size="small" variant="ghost">↩ Jobs で見る</Button>
       </div>
+
+      <window.StageStrip staged={staged} caption="このバッチ #J-0418 の対象集合 · staged.image_id" />
 
       <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: "var(--gap-3)" }}>
         <SummaryStat label="バッチ枚数 batch size" value="9 枚" />

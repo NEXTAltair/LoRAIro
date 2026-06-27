@@ -32,13 +32,12 @@ const STAGES = [
 const TYPE_OF = { TAGS: "tags", CAPTION: "caption", SCORE: "score", RATING: "rating" };
 const TYPE_LABEL = { tags: "タグ", caption: "キャプション", score: "スコア", rating: "レーティング" };
 const ALL_MODELS = [
-  { name: "gpt-4o-caption", ver: "2024-08-06", provider: "OpenAI", env: "api", types: ["caption", "tags", "score", "rating"], multi: true, chip: ["ok", "API ready"], cost: "$0.005/img", min: 0.50, avg: 0.86, rec: true },
-  { name: "claude-3-5-sonnet", ver: "20241022", provider: "Anthropic", env: "api", types: ["caption", "tags", "score", "rating"], multi: true, chip: ["ok", "API ready"], cost: "$0.012/img", min: 0.50, avg: 0.81, rec: true },
+  { name: "gpt-4o-caption", ver: "2024-08-06", provider: "OpenAI", env: "api", types: ["caption", "tags", "score", "rating"], multi: true, chip: ["ok", "API ready"], cost: "$0.005/img", min: 0.50, rec: true },
+  { name: "claude-3-5-sonnet", ver: "20241022", provider: "Anthropic", env: "api", types: ["caption", "tags", "score", "rating"], multi: true, chip: ["ok", "API ready"], cost: "$0.012/img", min: 0.50, rec: true },
   { name: "gemini-1.5-pro", ver: "latest", provider: "Google", env: "api", types: ["caption", "tags", "score", "rating"], multi: true, chip: ["warn", "needs key →⚙"], cost: "$0.004/img", needsKey: true },
-  { name: "gpt-4-vision-preview", ver: "2023-12", provider: "OpenAI", env: "api", types: ["caption", "tags"], multi: true, chip: ["muted", "discontinued"], cost: "—", disabled: true },
-  { name: "wd-v1-4-tagger", ver: "v1.4", provider: "SmilingWolf", env: "local", types: ["tags"], chip: ["ok", "local"], cost: "GPU ~0.3s", min: 0.35, avg: 0.62, gpu: true, rec: true },
-  { name: "wd-eva02-large-tagger", ver: "v3", provider: "SmilingWolf", env: "local", types: ["tags"], chip: ["ok", "local"], cost: "GPU ~0.5s", min: 0.35, avg: 0.66, gpu: true },
-  { name: "deepdanbooru", ver: "v4", provider: "KichangKim", env: "local", types: ["tags"], chip: ["ok", "local"], cost: "GPU ~0.4s", min: 0.50, avg: 0.58, gpu: true },
+  { name: "wd-v1-4-tagger", ver: "v1.4", provider: "SmilingWolf", env: "local", types: ["tags"], chip: ["ok", "local"], cost: "GPU ~0.3s", min: 0.35, gpu: true, rec: true },
+  { name: "wd-eva02-large-tagger", ver: "v3", provider: "SmilingWolf", env: "local", types: ["tags"], chip: ["ok", "local"], cost: "GPU ~0.5s", min: 0.35, gpu: true },
+  { name: "deepdanbooru", ver: "v4", provider: "KichangKim", env: "local", types: ["tags"], chip: ["ok", "local"], cost: "GPU ~0.4s", min: 0.50, gpu: true },
   { name: "aesthetic-v2", ver: "v2", provider: "LAION", env: "local", types: ["score"], chip: ["ok", "local"], cost: "CPU ~0.1s", rec: true },
   { name: "musiq", ver: "—", provider: "Google", env: "local", types: ["score"], chip: ["ok", "local"], cost: "GPU ~0.2s", gpu: true },
   { name: "wd-rating-v2", ver: "v2", provider: "SmilingWolf", env: "local", types: ["rating"], chip: ["ok", "local"], cost: "GPU ~0.3s", gpu: true, rec: true },
@@ -46,7 +45,7 @@ const ALL_MODELS = [
   { name: "qwen-vl-chat", ver: "7b", provider: "Alibaba", env: "local", types: ["caption"], chip: ["ok", "local"], cost: "GPU ~1.5s", gpu: true },
 ];
 
-function ModelPicker({ stage, onClose }) {
+function ModelPicker({ stage, staged, onClose }) {
   const { Button, Chip, TypeBadge, SegmentedControl } = DS_ANNOTATE;
   const TASK_OF = { TAGS: "Tags", CAPTION: "Caption", SCORE: "Scores", RATING: "Rating" };
   const taskLabel = TASK_OF[stage] || stage;
@@ -94,7 +93,7 @@ function ModelPicker({ stage, onClose }) {
         {/* header */}
         <div style={{ display: "flex", alignItems: "center", gap: "var(--gap-2)", padding: "10px 16px", background: "var(--paper-shade)", borderBottom: "1px solid var(--line)" }}>
           <span style={{ fontWeight: 600 }}>{stage} のモデル選択</span>
-          <span style={{ fontSize: "var(--fs-small)", color: "var(--ink-soft)" }}>実行環境で絞り込み → 推奨/手動で選択 · staged 9枚</span>
+          <span style={{ fontSize: "var(--fs-small)", color: "var(--ink-soft)" }}>実行環境で絞り込み → 推奨/手動で選択 · staged {staged}枚</span>
           <span style={{ flex: 1 }} />
           <span style={{ fontSize: "var(--fs-small)", color: "var(--ink-soft)" }}>フィルタ: <b style={{ color: "var(--ink)" }}>{envLabel} / {atype === "all" ? "全種類" : TYPE_LABEL[atype]}</b></span>
           <button onClick={onClose} style={{ border: "none", background: "transparent", cursor: "pointer", fontSize: 16, color: "var(--ink-soft)" }}>✕</button>
@@ -173,15 +172,13 @@ function ModelPicker({ stage, onClose }) {
                   </div>
                   <div style={{ textAlign: "right", minWidth: 150 }}>
                     <div style={{ fontFamily: "var(--font-mono)", fontSize: "var(--fs-small)" }}>{m.cost}</div>
-                    {m.min != null && !m.disabled && !m.needsKey ? (
+                    {m.types.includes("tags") && m.min != null && !m.needsKey ? (
                       <div style={{ marginTop: 4 }}>
-                        <div style={{ fontFamily: "var(--font-mono)", fontSize: 10, color: "var(--ink-soft)", marginBottom: 2 }}>conf min {m.min.toFixed(2)} · avg {m.avg.toFixed(2)}</div>
+                        <div style={{ fontFamily: "var(--font-mono)", fontSize: 10, color: "var(--ink-soft)", marginBottom: 2 }}>conf min {m.min.toFixed(2)}</div>
                         <input type="range" min="0" max="1" step="0.05" defaultValue={m.min} onClick={(e) => e.stopPropagation()} style={{ width: 140, accentColor: "var(--accent)" }} />
                       </div>
                     ) : m.needsKey ? (
                       <div style={{ fontSize: 10, color: "var(--warn)", marginTop: 4 }}>キー未設定 → ⚙ Settings</div>
-                    ) : m.disabled ? (
-                      <div style={{ fontSize: 10, color: "var(--ink-faint)", marginTop: 4 }}>2025-01-15 廃止 — retired</div>
                     ) : null}
                   </div>
                 </div>
@@ -194,11 +191,11 @@ function ModelPicker({ stage, onClose }) {
 
             {/* footer */}
             <div style={{ display: "flex", alignItems: "center", gap: "var(--gap-2)", padding: "10px 16px", borderTop: "1px solid var(--line)", background: "var(--paper-shade)" }}>
-              <span style={{ fontSize: "var(--fs-small)" }}><b>{stage} に {stageSel.length} モデル選択中</b> · {stageSel.length} × 9 = {stageSel.length * 9} jobs · 全体選択 {selCount}</span>
+              <span style={{ fontSize: "var(--fs-small)" }}><b>{stage} に {stageSel.length} モデル選択中</b> · {staged > 0 ? `${stageSel.length} × ${staged} = ${stageSel.length * staged} jobs` : "ステージング画像なし"} · 全体選択 {selCount}</span>
               <span style={{ flex: 1 }} />
               <Button size="small" onClick={onClose}>キャンセル</Button>
               <Button size="small" onClick={onClose}>適用のみ</Button>
-              <Button size="small" variant="primary" onClick={onClose}>適用して実行 · 9枚</Button>
+              <Button size="small" variant="primary" onClick={onClose}>適用して実行{staged > 0 ? ` · ${staged}枚` : ""}</Button>
             </div>
           </div>
         </div>
@@ -287,6 +284,16 @@ function AnnotateScreen({ staged, onRun }) {
   const [picker, setPicker] = React.useState(null);
   const [advanced, setAdvanced] = React.useState(false);
 
+  // 送信前プリフライト件数は、ステージング集合の既存 rating からの事前見積り
+  // （X/XXX → 保留 held · PG/PG-13/R → 送信可 sendable · rating 無し → 未判定 unrated）。
+  const preflight = (() => {
+    if (!staged) return null;
+    const held = Math.max(1, Math.round(staged * 0.2));
+    const unrated = Math.round(staged * 0.25);
+    const sendable = Math.max(0, staged - held - unrated);
+    return { held, unrated, sendable };
+  })();
+
   const PrimaryChip = ({ name, multi, fills }) => (
     <span style={{ display: "inline-flex", alignItems: "center", gap: 4, background: "var(--card)", border: "1px solid var(--line-strong)", borderRadius: "var(--radius-chip)", padding: "1px 4px 1px 8px", fontSize: "var(--fs-small)", fontFamily: "var(--font-mono)" }}>
       {multi && <span style={{ fontWeight: 700, color: "var(--accent)", fontSize: 10 }}>MULTI</span>}
@@ -308,6 +315,9 @@ function AnnotateScreen({ staged, onRun }) {
         <span style={{ fontSize: "var(--fs-small)", color: "var(--ink-soft)" }}>出力テーブル × ModelType で構成 · マルチモーダルは取得可能な出力を自動で全取得</span>
       </div>
 
+      {/* staged-image thumbnail strip — このパイプラインの対象集合 */}
+      <window.StageStrip staged={staged} caption="このパイプラインの対象集合 · staged.image_id のみに適用" />
+
       {/* presets + legend */}
       <Card>
         <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap", marginBottom: 8 }}>
@@ -315,6 +325,9 @@ function AnnotateScreen({ staged, onRun }) {
           <Chip kind="accent" dot="none">Default 5</Chip>
           {["Tags only 1", "Full caption 3", "Score · rate 3"].map((p) => <Chip key={p} kind="neutral" dot="none">{p}</Chip>)}
           <Button size="small" variant="ghost">+ 現状を保存</Button>
+        </div>
+        <div style={{ fontSize: 10, color: "var(--ink-faint)", marginBottom: 8, lineHeight: 1.5 }}>
+          プリセット選択 = 親パイプライン構成の一括差し替えの起点（その場で個別の割当を変えるのではなく、構成セットを丸ごと切替）。<b style={{ color: "var(--ink-soft)" }}>+ 現状を保存</b> = 現在の構成を新規プリセットとして保存する要求。どちらも要求を出すトリガー。
         </div>
         <div style={{ display: "flex", gap: "var(--gap-4)", flexWrap: "wrap", fontSize: 10, color: "var(--ink-soft)" }}>
           <span>凡例: <b style={{ fontFamily: "var(--font-mono)", color: "var(--accent)" }}>MULTI</b> 主割当（× で外せる）</span>
@@ -341,13 +354,21 @@ function AnnotateScreen({ staged, onRun }) {
       {/* preflight */}
       <Card title={<span>送信前プリフライト — OpenAI Moderations で rating 判定</span>}>
         <div style={{ fontSize: "var(--fs-small)", color: "var(--ink-soft)", marginBottom: 8 }}>
-          API へ送る画像は先に moderation で canonical rating を付与。<b style={{ color: "var(--ink)" }}>X / XXX は annotation API に送らない</b>（PG/PG-13/R は送信）。violence/graphic は R 止まり。
+          API へ送る画像は先に moderation で canonical rating を付与。<b style={{ color: "var(--ink)" }}>X / XXX は annotation API に送らない</b>（PG/PG-13/R は送信）。violence/graphic は R 止まり。<span style={{ color: "var(--ink-faint)" }}>件数はステージング集合の既存 rating からの事前見積り（実 Moderations 呼び出し前）。</span>
         </div>
-        <div style={{ display: "flex", gap: "var(--gap-2)" }}>
-          <Chip kind="ok">7 送信可 sendable</Chip>
-          <Chip kind="warn" dot="open">2 保留 held</Chip>
-          <TypeBadge>task_type=rating_preflight</TypeBadge>
-        </div>
+        {preflight ? (
+          <div style={{ display: "flex", gap: "var(--gap-2)", alignItems: "center", flexWrap: "wrap" }}>
+            <Chip kind="ok">{preflight.sendable} 送信可 sendable</Chip>
+            <Chip kind="warn" dot="open">{preflight.held} 保留 held</Chip>
+            <Chip kind="neutral" dot="open">{preflight.unrated} 未判定 unrated</Chip>
+            <TypeBadge>task_type=rating_preflight</TypeBadge>
+          </div>
+        ) : (
+          <div style={{ display: "flex", gap: "var(--gap-2)", alignItems: "center", flexWrap: "wrap" }}>
+            <span style={{ fontSize: "var(--fs-small)", color: "var(--ink-faint)" }}>ステージング画像なし — 先に検索タブで画像をステージング集合へ追加。</span>
+            <TypeBadge>task_type=rating_preflight</TypeBadge>
+          </div>
+        )}
       </Card>
 
       {/* inference ledger */}
@@ -380,7 +401,7 @@ function AnnotateScreen({ staged, onRun }) {
         <Button variant="primary" onClick={onRun}>▶ パイプライン実行 · {staged}枚 → ⌘↵</Button>
       </div>
 
-      {picker && <ModelPicker stage={picker} onClose={() => setPicker(null)} />}
+      {picker && <ModelPicker stage={picker} staged={staged} onClose={() => setPicker(null)} />}
       {advanced && <RunSettings staged={staged} onClose={() => setAdvanced(false)} onRun={onRun} />}
     </div>
   );

@@ -48,10 +48,14 @@ function TagEditScreen() {
   const trTag = (t) => trTagAt(tagLang, t);
   const hasTr = (t) => hasTrAt(tagLang, t);
 
-  // manual annotations
-  const [rating, setRating] = React.useState("PG-13"); // AI 由来の初期値
+  // AI 推論値（統一尺度）— 不変の基準として併記する
+  const aiRating = "PG-13";
+  const aiScore = 8.2;
+
+  // manual annotations（初期値は AI 値に揃える）
+  const [rating, setRating] = React.useState(aiRating);
   const [ratingEdited, setRatingEdited] = React.useState(false);
-  const [score, setScore] = React.useState(8.2);
+  const [score, setScore] = React.useState(aiScore);
   const [scoreEdited, setScoreEdited] = React.useState(false);
 
   const reject = (t) => { setTags((xs) => xs.filter((x) => x.t !== t)); setRejected((r) => [...r, t]); };
@@ -101,30 +105,67 @@ function TagEditScreen() {
           <Card style={{ borderColor: "var(--accent-border)", borderLeft: "3px solid var(--accent)" }}
             title={<span style={{ color: "var(--accent)", fontWeight: 700 }}>評価・スコア編集</span>}
             aside={<Chip kind="accent" dot="none">✎ 手動入力</Chip>}>
-            {/* Rating */}
+            {/* Rating — AI 統一尺度 と 手動設定を併記 */}
             <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 5 }}>
               <span style={{ fontSize: "var(--fs-small)", fontWeight: 600 }}>Rating</span>
               <span style={{ flex: 1 }} />
               {sourceTag(ratingEdited)}
             </div>
-            <SegmentedControl size="small" value={rating} onChange={setRatingManual}
-              options={RATINGS.map((r) => ({ value: r, label: r }))} />
+            {/* AI 行（基準・読み取り専用） */}
+            <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 5 }}>
+              <span style={{ width: 56, flex: "none", fontFamily: "var(--font-mono)", fontSize: "9px", letterSpacing: "var(--letter-caps)", color: "var(--ink-soft)" }}>AI 統一尺度</span>
+              <div style={{ display: "flex", gap: 4, flexWrap: "wrap" }}>
+                {RATINGS.map((r) => (
+                  <span key={r} style={{
+                    padding: "2px 7px", borderRadius: "var(--radius-chip)", fontSize: "10px",
+                    fontFamily: "var(--font-mono)",
+                    border: "1px solid " + (r === aiRating ? "var(--line-strong)" : "transparent"),
+                    background: r === aiRating ? "var(--paper-shade)" : "transparent",
+                    color: r === aiRating ? "var(--ink)" : "var(--ink-faint)",
+                    fontWeight: r === aiRating ? 600 : 400,
+                  }}>{r}</span>
+                ))}
+              </div>
+            </div>
+            {/* 手動設定（編集可能） */}
+            <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+              <span style={{ width: 56, flex: "none", fontFamily: "var(--font-mono)", fontSize: "9px", letterSpacing: "var(--letter-caps)", color: "var(--accent)" }}>✎ 手動</span>
+              <div style={{ flex: 1 }}>
+                <SegmentedControl size="small" value={rating} onChange={setRatingManual}
+                  options={RATINGS.map((r) => ({ value: r, label: r }))} />
+              </div>
+            </div>
             <div style={{ marginTop: 6, fontFamily: "var(--font-mono)", fontSize: "9px", color: "var(--ink-faint)", lineHeight: 1.5 }}>
-              Rating.normalized_rating — 手動設定は <code>is_edited_manually</code>（AI 値と source 分離）
+              Rating.normalized_rating — AI 統一尺度を基準に併記 · 手動設定は <code>is_edited_manually</code>（source 分離）
             </div>
 
-            {/* Score */}
+            {/* Score — AI 統一尺度 と 手動設定を併記 */}
             <div style={{ display: "flex", alignItems: "center", gap: 6, margin: "var(--gap-3) 0 5px", paddingTop: "var(--gap-3)", borderTop: "1px solid var(--line)" }}>
               <span style={{ fontSize: "var(--fs-small)", fontWeight: 600 }}>スコア</span>
               <span style={{ flex: 1 }} />
               {sourceTag(scoreEdited)}
             </div>
+            {/* AI 行（基準・読み取り専用） */}
+            <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 6 }}>
+              <span style={{ width: 56, flex: "none", fontFamily: "var(--font-mono)", fontSize: "9px", letterSpacing: "var(--letter-caps)", color: "var(--ink-soft)" }}>AI 統一尺度</span>
+              <div style={{ flex: 1, height: 6, borderRadius: 3, background: "var(--paper-shade)", overflow: "hidden" }}>
+                <div style={{ width: aiScore * 10 + "%", height: "100%", background: "var(--ink-faint)" }} />
+              </div>
+              <span style={{ fontFamily: "var(--font-mono)", fontSize: "var(--fs-small)", width: 40, textAlign: "right", color: "var(--ink-soft)" }}>{aiScore.toFixed(2)}</span>
+            </div>
+            {/* 手動設定（編集可能） */}
             <div style={{ display: "flex", alignItems: "center", gap: "var(--gap-2)" }}>
+              <span style={{ width: 56, flex: "none", fontFamily: "var(--font-mono)", fontSize: "9px", letterSpacing: "var(--letter-caps)", color: "var(--accent)" }}>✎ 手動</span>
               <input type="range" min="0" max="10" step="0.1" value={score} onChange={(e) => setScoreManual(parseFloat(e.target.value))} style={{ flex: 1, accentColor: "var(--accent)" }} />
               <span style={{ fontFamily: "var(--font-mono)", fontSize: "var(--fs-small)", width: 40, textAlign: "right" }}>{score.toFixed(2)}</span>
             </div>
             <div style={{ marginTop: 8 }}><ProgressBar value={score * 10} tone="ok" /></div>
-            <div style={{ marginTop: 6, fontFamily: "var(--font-mono)", fontSize: "9px", color: "var(--ink-faint)" }}>quality_score · 0–10（ADR 0029）— 手動補正は <code>is_edited_manually</code></div>
+            {scoreEdited && Math.abs(score - aiScore) > 0.001 && (
+              <div style={{ marginTop: 6, fontFamily: "var(--font-mono)", fontSize: "9px", color: "var(--accent)" }}>
+                Δ {(score - aiScore >= 0 ? "+" : "") + (score - aiScore).toFixed(2)} vs AI 統一尺度
+              </div>
+            )}
+            <div style={{ marginTop: 6, fontFamily: "var(--font-mono)", fontSize: "9px", color: "var(--ink-faint)" }}>quality_score · 0–10（ADR 0029）— AI 統一尺度を基準に併記 · 手動補正は <code>is_edited_manually</code></div>
           </Card>
         </div>
 

@@ -46,6 +46,12 @@ function MapScreen() {
   const [view, setView] = React.useState("network");
   const [hover, setHover] = React.useState(-1);
   const [drill, setDrill] = React.useState(["1girl"]);
+  const [tagLang, setTagLang] = React.useState("en"); // タグ表示言語（SearchScreen と共有の tagI18n）
+
+  // 多言語表示は単一実装 tagI18n.jsx を共有。en = danbooru canonical（保存値）。表示のみ翻訳。
+  const { LANGS, trTag: trTagAt, hasTr: hasTrAt } = window.LoRAIroTagI18n;
+  const trTag = (t) => trTagAt(tagLang, t);
+  const hasTr = (t) => hasTrAt(tagLang, t);
 
   const addDrill = (tag) => setDrill((d) => (d.includes(tag) ? d : [...d, tag]));
   const removeDrill = (tag) => setDrill((d) => d.filter((t) => t !== tag));
@@ -63,6 +69,9 @@ function MapScreen() {
         </span>
         <SegmentedControl size="small" value={view} onChange={setView}
           options={[{ value: "network", label: "ネットワーク" }, { value: "cloud", label: "クラウド" }]} />
+        <select value={tagLang} onChange={(ev) => setTagLang(ev.target.value)} title="表示言語 Translation" style={{ fontFamily: "var(--font-mono)", fontSize: "10px", color: "var(--ink)", background: "var(--card)", border: "1px solid var(--line-strong)", borderRadius: "var(--radius)", padding: "2px 4px", cursor: "pointer" }}>
+          {LANGS.map((l) => <option key={l.value} value={l.value}>{l.label}</option>)}
+        </select>
         <Button size="small">リセット</Button>
         <Button size="small" variant="ghost">↺ 再読込</Button>
       </div>
@@ -75,8 +84,8 @@ function MapScreen() {
             なし — ノードをクリックして絞り込み
           </span>
         ) : drill.map((t) => (
-          <span key={t} style={{ display: "inline-flex", alignItems: "center", gap: 4, background: "var(--accent-soft)", border: "1px solid var(--accent-border)", borderRadius: "var(--radius-chip)", padding: "1px 4px 1px 8px", fontFamily: "var(--font-mono)", fontSize: "var(--fs-small)", color: "var(--accent-hover)" }}>
-            {t}
+          <span key={t} title={tagLang === "en" ? t : t + " → " + trTag(t)} style={{ display: "inline-flex", alignItems: "center", gap: 4, background: "var(--accent-soft)", border: "1px solid var(--accent-border)", borderRadius: "var(--radius-chip)", padding: "1px 4px 1px 8px", fontFamily: "var(--font-mono)", fontSize: "var(--fs-small)", color: "var(--accent-hover)" }}>
+            {trTag(t)}
             <button onClick={() => removeDrill(t)} style={{ border: "none", background: "transparent", color: "var(--accent-hover)", cursor: "pointer", fontSize: 11, padding: 0 }}>✕</button>
           </span>
         ))}
@@ -85,6 +94,7 @@ function MapScreen() {
       {/* status line */}
       <div style={{ fontFamily: "var(--font-mono)", fontSize: "var(--fs-small)", color: "var(--ink-soft)" }}>
         該当 {matched.toLocaleString()}枚 / 全 {total.toLocaleString()}枚 · {NODES.length}タグ · 表示 {NODES.length}ノード / {EDGES.length}共起 · 絞り込み中
+        {tagLang !== "en" && <span style={{ color: "var(--ink-faint)" }}> · 表示のみ翻訳（{tagLang}）· 保存値は danbooru canonical 固定</span>}
       </div>
 
       {/* stage */}
@@ -111,7 +121,7 @@ function MapScreen() {
                       fontFamily="var(--font-mono)" fontSize={10 + 9 * n.w}
                       fontWeight={hover === i || n.w > 0.55 ? 600 : 400}
                       fill={hover === i ? "#26241f" : n.w > 0.55 ? "#3a342e" : "#76706a"}
-                      stroke="rgba(255,255,255,.92)" strokeWidth="3" paintOrder="stroke">{n.tag}</text>
+                      stroke="rgba(255,255,255,.92)" strokeWidth="3" paintOrder="stroke">{trTag(n.tag)}</text>
                   </g>
                 );
               })}
@@ -132,11 +142,11 @@ function MapScreen() {
         ) : (
           <div style={{ display: "flex", flexWrap: "wrap", gap: "8px 16px", alignItems: "center", padding: "var(--gap-4)", minHeight: 340 }}>
             {[...NODES].sort((a, b) => b.w - a.w).map((n) => (
-              <span key={n.tag} onClick={() => addDrill(n.tag)} title={n.tag + " · " + n.count.toLocaleString() + "枚 — クリックで絞り込み"}
+              <span key={n.tag} onClick={() => addDrill(n.tag)} title={(tagLang === "en" ? n.tag : n.tag + " → " + trTag(n.tag)) + " · " + n.count.toLocaleString() + "枚 — クリックで絞り込み"}
                 style={{ fontFamily: "var(--font-mono)", cursor: "pointer", lineHeight: 1.1,
                   fontSize: (13 + 34 * Math.pow(n.w, 0.8)) + "px",
                   fontWeight: n.w > 0.55 ? 600 : 400, color: rampColor(n.w) }}>
-                {n.tag}
+                {trTag(n.tag)}
               </span>
             ))}
           </div>

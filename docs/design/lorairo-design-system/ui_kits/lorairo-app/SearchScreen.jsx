@@ -1,5 +1,5 @@
 // SearchScreen — full filter sidebar (registration summary, query, quality,
-// scorer agreement, rating by source, annotations state, model, date, errors)
+// rating by source, annotations state, model, date, errors)
 // + results grid. Follows Wireframes v12 · Frame 1 · Search.
 const DS_SEARCH = window.LoRAIroDesignSystem_64d8f7;
 
@@ -9,12 +9,29 @@ function SearchScreen({ staged, onStage }) {
   const [regOpen, setRegOpen] = React.useState(true);
   const [showSkips, setShowSkips] = React.useState(false);
   const [noScore, setNoScore] = React.useState("exclude");
-  const [scorer, setScorer] = React.useState("any");
   const [ratingCombine, setRatingCombine] = React.useState("AND");
+  const [aiSel, setAiSel] = React.useState(["PG-13"]);
+  const [manualSel, setManualSel] = React.useState([]);
+  const toggleIn = (setFn) => (v) => setFn((cur) => cur.includes(v) ? cur.filter((x) => x !== v) : [...cur, v]);
   const [errState, setErrState] = React.useState("all");
   const [showMoreModels, setShowMoreModels] = React.useState(false);
-  const [date, setDate] = React.useState("30d");
   const [sel, setSel] = React.useState("img_0001");
+  // 品質スコア・日付は現リポジトリ同様に「範囲選択」（上下限）
+  const [qRange, setQRange] = React.useState([6, 10]); // quality_score 下限・上限
+  const DAYS = 30; // 履歴の取得期間（日）= スライダの全幅
+  const [dateRange, setDateRange] = React.useState([0, DAYS]); // 何日前〜何日前
+  const dayLabel = (back) => { const d = new Date("2025-04-25T00:00:00"); d.setDate(d.getDate() - (DAYS - back)); return d.toISOString().slice(0, 10); };
+  // お気に入りの検索条件
+  const [savedQueries, setSavedQueries] = React.useState([
+    { name: "高品質 PG-13", sub: "q≥7 · PG-13 · 30d" },
+    { name: "手動編集済", sub: "edited · 全期間" },
+  ]);
+  const [savedActive, setSavedActive] = React.useState(0);
+  const saveCurrentQuery = () => {
+    const sub = "q≥" + qRange[0].toFixed(1) + " · " + (aiSel.join("/") || "all") + " · " + (DAYS - dateRange[0]) + "d";
+    setSavedActive(savedQueries.length);
+    setSavedQueries((qs) => [...qs, { name: "検索 " + (qs.length + 1), sub }]);
+  };
 
   // ---- small inline building blocks (screen-specific composition) ----
   const Group = ({ label, sub, children }) => (
@@ -44,6 +61,47 @@ function SearchScreen({ staged, onStage }) {
       {count != null && <span style={{ fontFamily: "var(--font-mono)", color: "var(--ink-soft)", fontSize: "10px" }}>{count}</span>}
     </div>
   );
+
+  // multi-select rating chip (toggleable pill — clearer than a checkbox column)
+  const RatingChip = ({ label, count, on, onClick, dim }) => (
+    <button type="button" onClick={onClick} title={label + " · " + count.toLocaleString()} style={{
+      display: "inline-flex", alignItems: "center", gap: 5,
+      padding: "3px 8px", borderRadius: "var(--radius-chip)", cursor: "pointer",
+      fontFamily: "var(--font-sans)", fontSize: "var(--fs-small)", lineHeight: 1.2,
+      border: "1px solid " + (on ? "var(--accent)" : "var(--line-strong)"),
+      background: on ? "var(--accent-soft)" : "var(--card)",
+      color: on ? "var(--accent-hover)" : (dim ? "var(--ink-faint)" : "var(--ink)"),
+      fontWeight: on ? 600 : 400,
+    }}>
+      <span>{label}</span>
+      <span style={{ fontFamily: "var(--font-mono)", fontSize: "10px", color: on ? "var(--accent-hover)" : "var(--ink-faint)" }}>{count.toLocaleString()}</span>
+    </button>
+  );
+
+  // 二連ハンドルの範囲スライダ（現リポジトリの min–max 選択と同等）
+  const RangeSlider = ({ min, max, step, value, onChange, format }) => {
+    const [lo, hi] = value;
+    const pct = (v) => ((v - min) / (max - min)) * 100;
+    const fmt = format || ((v) => v);
+    const base = { position: "absolute", top: 0, left: 0, width: "100%", height: 22, margin: 0, background: "transparent", pointerEvents: "none", accentColor: "var(--accent)" };
+    return (
+      <div style={{ padding: "0 2px" }}>
+        <style>{".ds-range{-webkit-appearance:none;appearance:none}.ds-range::-webkit-slider-thumb{-webkit-appearance:none;pointer-events:auto;width:14px;height:14px;border-radius:50%;background:var(--accent);border:2px solid var(--card);box-shadow:0 0 0 1px var(--accent);cursor:pointer}.ds-range::-moz-range-thumb{pointer-events:auto;width:14px;height:14px;border-radius:50%;background:var(--accent);border:2px solid var(--card);cursor:pointer}.ds-range::-webkit-slider-runnable-track{background:transparent}.ds-range::-moz-range-track{background:transparent}"}</style>
+        <div style={{ position: "relative", height: 22 }}>
+          <div style={{ position: "absolute", top: 9, left: 0, right: 0, height: 4, borderRadius: 2, background: "var(--paper-shade)" }} />
+          <div style={{ position: "absolute", top: 9, height: 4, borderRadius: 2, background: "var(--accent)", left: pct(lo) + "%", width: (pct(hi) - pct(lo)) + "%" }} />
+          <input type="range" className="ds-range" min={min} max={max} step={step} value={lo}
+            onChange={(e) => { const v = Math.min(parseFloat(e.target.value), hi); onChange([v, hi]); }} style={base} />
+          <input type="range" className="ds-range" min={min} max={max} step={step} value={hi}
+            onChange={(e) => { const v = Math.max(parseFloat(e.target.value), lo); onChange([lo, v]); }} style={base} />
+        </div>
+        <div style={{ display: "flex", justifyContent: "space-between", fontFamily: "var(--font-mono)", fontSize: "10px", color: "var(--ink-soft)", marginTop: 2 }}>
+          <span>{fmt(lo)}</span>
+          <span>{fmt(hi)}</span>
+        </div>
+      </div>
+    );
+  };
 
   const [facets, setFacets] = React.useState({ tags: true, caption: false, fromText: true, edited: false });
   const tgl = (k) => setFacets((f) => ({ ...f, [k]: !f[k] }));
@@ -80,7 +138,15 @@ function SearchScreen({ staged, onStage }) {
   const trTag = (t) => trTagAt(tagLang, t);
   const hasTr = (t) => hasTrAt(tagLang, t);
   const tagsFor = (id) => { const n = parseInt(id.slice(-2), 10) || 1; return TAGPOOL.slice(0, 6 + (n % 5)); };
-  const baseScore = (im) => Math.round(im.score * 100) / 10; // aesthetic 0–1 → quality_score 0–10 の初期値
+  const baseScore = (im) => Math.round(im.score * 100) / 10;
+  // 登録時にリサイズ・拡張子変換されるため、画像情報にはオリジナル画像のメタデータを表示。
+  const aspectOf = (d) => { let [w, h] = d.split(String.fromCharCode(215)).map(Number); const g = (a, b) => b ? g(b, a % b) : a; const k = g(w, h); return (w / k) + ":" + (h / k); };
+  const origMeta = (im) => {
+    const n = parseInt(im.id.slice(-2), 10) || 1;
+    const fmt = ["PNG", "JPEG", "WEBP"][n % 3];
+    const alpha = fmt === "PNG" && n % 2 === 0;
+    return { ext: "." + (fmt === "JPEG" ? "jpg" : fmt.toLowerCase()), fmt, dims: im.dims, aspect: aspectOf(im.dims), alpha };
+  }; // aesthetic 0–1 → quality_score 0–10 の初期値
   const ar = (d) => d.replace("×", " / ");
   const thumbDims = (d) => { const [w, h] = d.split("×").map(Number); const s = 512 / Math.max(w, h); return Math.round(w * s) + "×" + Math.round(h * s); }; // サムネは長辺512px
 
@@ -141,42 +207,55 @@ function SearchScreen({ staged, onStage }) {
               <span style={{ fontFamily: "var(--font-mono)", fontSize: "var(--fs-small)", color: "var(--err)" }}>-lowres</span>
               <span style={{ fontFamily: "var(--font-mono)", fontSize: "var(--fs-small)", color: "var(--ink-soft)" }}>"桜の下"</span>
               <span style={{ fontFamily: "var(--font-mono)", fontSize: "10px", color: "var(--ink-soft)" }}>rating=PG-13</span>
-              <span style={{ fontFamily: "var(--font-mono)", fontSize: "10px", color: "var(--ink-soft)" }}>quality≥7.00</span>
-              <span style={{ fontFamily: "var(--font-mono)", fontSize: "10px", color: "var(--ink-soft)" }}>score(aesthetic)≥0.6</span>
+              <span style={{ fontFamily: "var(--font-mono)", fontSize: "10px", color: "var(--ink-soft)" }}>quality {qRange[0].toFixed(1)}–{qRange[1].toFixed(1)}</span>
               <span style={{ fontSize: "var(--fs-small)", color: "var(--ink-faint)" }}>追加はタイプ…</span>
             </div>
             <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 6 }}>
               <Chip kind="accent" dot="none">247 matches</Chip>
               <span style={{ flex: 1 }} />
-              <Button size="small" variant="ghost">save query</Button>
+              <Button size="small" variant="ghost" onClick={saveCurrentQuery}>☆ お気に入りに保存</Button>
+            </div>
+            {/* お気に入りの検索条件 */}
+            <div style={{ marginTop: 8, display: "flex", flexWrap: "wrap", gap: "var(--gap-2)" }}>
+              {savedQueries.map((q, i) => (
+                <button key={q.name + i} type="button" onClick={() => setSavedActive(i)} title={q.sub} style={{
+                  display: "inline-flex", alignItems: "center", gap: 5, padding: "3px 8px",
+                  borderRadius: "var(--radius-chip)", cursor: "pointer", fontFamily: "var(--font-sans)", fontSize: "var(--fs-small)",
+                  border: "1px solid " + (savedActive === i ? "var(--accent)" : "var(--line-strong)"),
+                  background: savedActive === i ? "var(--accent-soft)" : "var(--card)",
+                  color: savedActive === i ? "var(--accent-hover)" : "var(--ink)", fontWeight: savedActive === i ? 600 : 400,
+                }}>
+                  <span style={{ color: savedActive === i ? "var(--accent)" : "var(--ink-faint)" }}>★</span>
+                  <span>{q.name}</span>
+                  <span style={{ fontFamily: "var(--font-mono)", fontSize: "9px", color: "var(--ink-faint)" }}>{q.sub}</span>
+                  <span onClick={(e) => { e.stopPropagation(); setSavedQueries((qs) => qs.filter((_, j) => j !== i)); }} style={{ color: "var(--ink-faint)", paddingLeft: 2 }}>×</span>
+                </button>
+              ))}
             </div>
           </Group>
 
-          {/* quality score */}
+          {/* quality score — 範囲選択（下限・上限）*/}
           <Group label="品質スコア quality" sub="quality_score 0–10">
-            <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
-              <span style={{ fontSize: "var(--fs-small)", color: "var(--ink-soft)" }}>min</span>
-              <input type="range" min="0" max="10" step="0.5" defaultValue="6" style={{ flex: 1, accentColor: "var(--accent)" }} />
-              <span style={{ fontFamily: "var(--font-mono)", fontSize: "var(--fs-small)" }}>6.00↑</span>
+            <RangeSlider min={0} max={10} step={0.5} value={qRange} onChange={setQRange}
+              format={(v) => v.toFixed(1)} />
+            <div style={{ fontFamily: "var(--font-mono)", fontSize: "10px", color: "var(--ink-soft)", margin: "2px 0 6px" }}>
+              {qRange[0].toFixed(1)} – {qRange[1].toFixed(1)} の範囲
             </div>
             <div style={{ fontSize: "10px", color: "var(--ink-soft)", marginBottom: 4 }}>未採点 no-score:</div>
             <SegmentedControl size="small" value={noScore} onChange={setNoScore}
               options={[{ value: "exclude", label: "除外" }, { value: "include", label: "含める" }, { value: "only", label: "未採点のみ" }]} />
           </Group>
 
-          {/* scorer agreement */}
-          <Group label="scorer 合意" sub="is_unanimous">
-            <Facet type="radio" label="全 scorer 一致 unanimous" count="6,210" checked={scorer === "unanimous"} onToggle={() => setScorer("unanimous")} />
-            <Facet type="radio" label="不一致あり disagree" count="1,540" checked={scorer === "disagree"} onToggle={() => setScorer("disagree")} />
-            <Facet type="radio" label="未採点 no score" count="980" checked={scorer === "none"} onToggle={() => setScorer("none")} />
-          </Group>
-
           {/* rating by source */}
           <Group label="rating" sub="by source">
-            <div style={{ fontSize: "10px", color: "var(--ink-soft)", margin: "0 0 3px" }}>AI レーティング <code style={{ fontFamily: "var(--font-mono)" }}>Model</code></div>
-            {aiRatings.map(([r, n]) => <Facet key={r} label={r} count={n.toLocaleString()} checked={r === "PG-13"} onToggle={() => {}} dim={r.startsWith("未")} />)}
-            <div style={{ fontSize: "10px", color: "var(--ink-soft)", margin: "8px 0 3px" }}>✎ 手動レーティング <code style={{ fontFamily: "var(--font-mono)" }}>MANUAL_EDIT</code></div>
-            {manualRatings.map(([r, n]) => <Facet key={r} label={r} count={n.toLocaleString()} checked={false} onToggle={() => {}} dim={r.startsWith("な")} />)}
+            <div style={{ fontSize: "10px", color: "var(--ink-soft)", margin: "0 0 5px" }}>AI レーティング <code style={{ fontFamily: "var(--font-mono)" }}>Model</code></div>
+            <div style={{ display: "flex", flexWrap: "wrap", gap: "var(--gap-2)" }}>
+              {aiRatings.map(([r, n]) => <RatingChip key={r} label={r} count={n} on={aiSel.includes(r)} onClick={() => toggleIn(setAiSel)(r)} dim={r.startsWith("未")} />)}
+            </div>
+            <div style={{ fontSize: "10px", color: "var(--ink-soft)", margin: "10px 0 5px" }}>✎ 手動レーティング <code style={{ fontFamily: "var(--font-mono)" }}>MANUAL_EDIT</code></div>
+            <div style={{ display: "flex", flexWrap: "wrap", gap: "var(--gap-2)" }}>
+              {manualRatings.map(([r, n]) => <RatingChip key={r} label={r} count={n} on={manualSel.includes(r)} onClick={() => toggleIn(setManualSel)(r)} dim={r.startsWith("な")} />)}
+            </div>
             <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 8 }}>
               <span style={{ fontSize: "10px", color: "var(--ink-soft)" }}>複合 combine:</span>
               <SegmentedControl size="small" value={ratingCombine} onChange={setRatingCombine} options={["AND", "OR"]} />
@@ -218,14 +297,14 @@ function SearchScreen({ staged, onStage }) {
             </div>
           </Group>
 
-          {/* date */}
+          {/* date — スライダーで範囲選択（開始・終了）*/}
           <Group label="date" sub="Image.created_at">
-            <SegmentedControl size="small" value={date} onChange={setDate}
-              options={[{ value: "today", label: "today" }, { value: "7d", label: "7d" }, { value: "30d", label: "30d" }, { value: "90d", label: "90d" }, { value: "all", label: "全期間" }]} />
-            <div style={{ display: "flex", alignItems: "flex-end", gap: 1, height: 30, marginTop: 8 }}>
-              {bars.map((h, i) => <div key={i} style={{ flex: 1, height: (h * 30) + "px", background: i > 14 ? "var(--accent)" : "var(--line-strong)", borderRadius: "1px 1px 0 0" }} />)}
+            <div style={{ display: "flex", alignItems: "flex-end", gap: 1, height: 30, marginBottom: 2 }}>
+              {bars.map((h, i) => { const within = i >= (dateRange[0] / DAYS) * bars.length && i <= (dateRange[1] / DAYS) * bars.length; return <div key={i} style={{ flex: 1, height: (h * 30) + "px", background: within ? "var(--accent)" : "var(--line-strong)", borderRadius: "1px 1px 0 0" }} />; })}
             </div>
-            <div style={{ fontFamily: "var(--font-mono)", fontSize: "10px", color: "var(--ink-soft)", marginTop: 4 }}>2025-04-04 – 2025-04-25</div>
+            <RangeSlider min={0} max={DAYS} step={1} value={dateRange} onChange={setDateRange}
+              format={(v) => dayLabel(v).slice(5)} />
+            <div style={{ fontFamily: "var(--font-mono)", fontSize: "10px", color: "var(--ink-soft)", marginTop: 4 }}>{dayLabel(dateRange[0])} – {dayLabel(dateRange[1])}</div>
           </Group>
 
           {/* error state */}
@@ -258,26 +337,18 @@ function SearchScreen({ staged, onStage }) {
           </span>
         </div>
 
-        {/* ===== STAGE TRAY — preview strip of staged images before Annotate ===== */}
-        <div style={{ marginTop: "var(--gap-3)", border: "1px solid var(--line-strong)", borderRadius: "var(--radius)", background: "var(--card)", overflow: "hidden" }}>
-          <div style={{ display: "flex", alignItems: "center", gap: "var(--gap-2)", padding: "7px 10px", borderBottom: "1px solid var(--line)", background: "var(--paper-shade)" }}>
-            <span style={{ fontWeight: 700, fontSize: "var(--fs-small)" }}>Stage</span>
-            <span style={{ fontFamily: "var(--font-mono)", fontWeight: 700, fontSize: "var(--fs-small)", color: "var(--accent)", background: "var(--accent-soft)", borderRadius: "var(--radius-badge)", padding: "0 7px" }}>{staged}</span>
-            <span style={{ flex: 1, fontFamily: "var(--font-mono)", fontSize: "10px", color: "var(--ink-soft)" }}>3 クエリ · staged.image_id を models.* 経由でバッチ実行 → ErrorRecord に集約</span>
-          </div>
-          <div style={{ display: "flex", alignItems: "center", gap: "var(--gap-2)", padding: "8px 10px" }}>
-            <div style={{ flex: 1, display: "flex", gap: 6, overflowX: "auto", paddingBottom: 2 }}>
-              {Array.from({ length: staged }).map((_, i) => (
-                <div key={i} style={{ flex: "none", width: 44, height: 44, borderRadius: "var(--radius)", background: "linear-gradient(135deg, var(--paper-shade), #e6e2d5)", border: "1px solid var(--accent)" }} />
-              ))}
-              {staged === 0 && <span style={{ fontSize: "var(--fs-small)", color: "var(--ink-faint)" }}>ステージ済みの画像はありません — グリッドから「選択をステージへ」</span>}
-            </div>
+        {/* ===== STAGE TRAY — shared staged-image thumbnail strip (StageStrip) ===== */}
+        <window.StageStrip
+          staged={staged}
+          caption="3 クエリ · staged.image_id を models.* 経由でバッチ実行 → ErrorRecord に集約"
+          style={{ marginTop: "var(--gap-3)" }}
+          action={
             <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 2 }}>
               <Button size="small" variant="primary">▶ Annotate {staged} →</Button>
               <span style={{ fontFamily: "var(--font-mono)", fontSize: "10px", color: "var(--ink-faint)" }}>⌘↵</span>
             </div>
-          </div>
-        </div>
+          }
+        />
       </div>
 
       {/* ===== 選択中画像インスペクタ — プレビュー + タグ情報 + 評価・スコア手動編集（即時） ===== */}
@@ -297,15 +368,20 @@ function SearchScreen({ staged, onStage }) {
           <span style={{ position: "absolute", bottom: 8, right: 8, fontFamily: "var(--font-mono)", fontSize: "10px", background: "var(--card)", border: "1px solid var(--line)", borderRadius: "var(--radius-badge)", padding: "1px 6px", color: "var(--ink-soft)" }}>{thumbDims(cur.dims)} · 512px thumb</span>
         </div>
 
-        {/* 画像情報（metadataGroupBox） */}
-        <Card title="画像情報">
-          <div style={{ display: "grid", gridTemplateColumns: "auto 1fr", columnGap: "var(--gap-2)", rowGap: 4, fontSize: "var(--fs-small)" }}>
-            {[["ファイル名", cur.id + ".webp"], ["解像度", cur.dims], ["フォーマット", "WEBP"], ["aesthetic", cur.score.toFixed(2)]].map(([k, v]) => (
-              <React.Fragment key={k}>
-                <span style={{ color: "var(--ink-soft)", whiteSpace: "nowrap" }}>{k}:</span>
-                <span style={{ fontFamily: "var(--font-mono)", color: "var(--ink)", textAlign: "right", wordBreak: "break-all" }}>{v}</span>
-              </React.Fragment>
-            ))}
+        {/* 画像情報（metadataGroupBox）— 登録時にリサイズ/変換されるためオリジナル画像のメタデータを表示 */}
+        <Card title="画像情報" aside={<span style={{ fontFamily: "var(--font-mono)", fontSize: "9px", letterSpacing: "var(--letter-caps)", color: "var(--ink-faint)" }}>ORIGINAL</span>}>
+          {(() => { const o = origMeta(cur); return (
+            <div style={{ display: "grid", gridTemplateColumns: "auto 1fr", columnGap: "var(--gap-2)", rowGap: 4, fontSize: "var(--fs-small)" }}>
+              {[["ファイル名", cur.id + o.ext], ["拡張子", o.fmt], ["解像度", o.dims + " px"], ["アスペクト比", o.aspect], ["アルファチャンネル", o.alpha ? "あり RGBA" : "なし RGB"]].map(([k, v]) => (
+                <React.Fragment key={k}>
+                  <span style={{ color: "var(--ink-soft)", whiteSpace: "nowrap" }}>{k}:</span>
+                  <span style={{ fontFamily: "var(--font-mono)", color: "var(--ink)", textAlign: "right", wordBreak: "break-all" }}>{v}</span>
+                </React.Fragment>
+              ))}
+            </div>
+          ); })()}
+          <div style={{ marginTop: 6, fontFamily: "var(--font-mono)", fontSize: "9px", color: "var(--ink-faint)", lineHeight: 1.5 }}>
+            オリジナル画像のメタデータ · 登録時にリサイズ・拡張子変換して保存
           </div>
         </Card>
 
@@ -328,27 +404,62 @@ function SearchScreen({ staged, onStage }) {
           )}
         </Card>
 
-        {/* 評価・スコア編集（RatingScoreEditWidget） — 手動編集を即時に */}
+        {/* 評価・スコア編集（RatingScoreEditWidget） — AI と 人間（手動）を分けて表示 */}
         <Card style={{ borderColor: "var(--accent-border)", borderLeft: "3px solid var(--accent)" }}
           title={<span style={{ color: "var(--accent)", fontWeight: 700 }}>評価・スコア編集</span>}>
-          <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 5 }}>
-            <span style={{ fontSize: "var(--fs-small)", fontWeight: 600 }}>Rating</span>
-            <span style={{ flex: 1 }} />
-            {srcTag(e.ratingEdited)}
-          </div>
-          <SegmentedControl size="small" value={curRating} onChange={setImgRating} options={RATINGS_S.map((r) => ({ value: r, label: r }))} />
+          {(() => { const aiRating = cur.rating; const aiScore = baseScore(cur); return (
+          <React.Fragment>
+            {/* ===== AI（読み取り専用）===== */}
+            <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 6 }}>
+              <span style={{ fontFamily: "var(--font-mono)", fontSize: "9px", letterSpacing: "var(--letter-caps)", background: "var(--ink)", color: "var(--paper)", borderRadius: "var(--radius-badge)", padding: "1px 6px" }}>AI</span>
+              <span style={{ fontSize: "var(--fs-small)", color: "var(--ink-soft)" }}>モデル推論値 · 読み取り専用</span>
+            </div>
+            <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 5 }}>
+              <span style={{ width: 44, flex: "none", fontSize: "10px", color: "var(--ink-soft)" }}>Rating</span>
+              <div style={{ display: "flex", gap: 4, flexWrap: "wrap" }}>
+                {RATINGS_S.map((r) => (
+                  <span key={r} style={{ padding: "2px 7px", borderRadius: "var(--radius-chip)", fontSize: "10px", fontFamily: "var(--font-mono)",
+                    border: "1px solid " + (r === aiRating ? "var(--line-strong)" : "transparent"),
+                    background: r === aiRating ? "var(--paper-shade)" : "transparent",
+                    color: r === aiRating ? "var(--ink)" : "var(--ink-faint)", fontWeight: r === aiRating ? 600 : 400 }}>{r}</span>
+                ))}
+              </div>
+            </div>
+            <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+              <span style={{ width: 44, flex: "none", fontSize: "10px", color: "var(--ink-soft)" }}>スコア</span>
+              <div style={{ flex: 1, height: 6, borderRadius: 3, background: "var(--paper-shade)", overflow: "hidden" }}>
+                <div style={{ width: aiScore * 10 + "%", height: "100%", background: "var(--ink-faint)" }} />
+              </div>
+              <span style={{ fontFamily: "var(--font-mono)", fontSize: "var(--fs-small)", width: 40, textAlign: "right", color: "var(--ink-soft)" }}>{aiScore.toFixed(2)}</span>
+            </div>
 
-          <div style={{ display: "flex", alignItems: "center", gap: 6, margin: "var(--gap-3) 0 5px", paddingTop: "var(--gap-3)", borderTop: "1px solid var(--line)" }}>
-            <span style={{ fontSize: "var(--fs-small)", fontWeight: 600 }}>スコア</span>
-            <span style={{ flex: 1 }} />
-            {srcTag(e.scoreEdited)}
-          </div>
-          <div style={{ display: "flex", alignItems: "center", gap: "var(--gap-2)" }}>
-            <input type="range" min="0" max="10" step="0.1" value={curScore} onChange={(ev) => setImgScore(parseFloat(ev.target.value))} style={{ flex: 1, accentColor: "var(--accent)" }} />
-            <span style={{ fontFamily: "var(--font-mono)", fontSize: "var(--fs-small)", width: 40, textAlign: "right" }}>{Number(curScore).toFixed(2)}</span>
-          </div>
-          <div style={{ marginTop: 8 }}><ProgressBar value={curScore * 10} tone="ok" /></div>
-          <div style={{ marginTop: 6, fontFamily: "var(--font-mono)", fontSize: "9px", color: "var(--ink-faint)", lineHeight: 1.5 }}>quality_score 0–10（ADR 0029）· 手動補正は <code>is_edited_manually</code></div>
+            {/* ===== 人間（手動・編集可能）===== */}
+            <div style={{ display: "flex", alignItems: "center", gap: 6, margin: "var(--gap-3) 0 6px", paddingTop: "var(--gap-3)", borderTop: "1px solid var(--line)" }}>
+              <span style={{ fontFamily: "var(--font-mono)", fontSize: "9px", letterSpacing: "var(--letter-caps)", color: "var(--accent)", fontWeight: 700 }}>✎ 人間</span>
+              <span style={{ fontSize: "var(--fs-small)", color: "var(--ink-soft)" }}>手動レーティング・スコア</span>
+              <span style={{ flex: 1 }} />
+              {(e.ratingEdited || e.scoreEdited) && <Chip kind="accent" dot="none">MANUAL_EDIT</Chip>}
+            </div>
+            <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 5 }}>
+              <span style={{ width: 44, flex: "none", fontSize: "10px", color: "var(--ink-soft)" }}>Rating</span>
+              <div style={{ flex: 1 }}>
+                <SegmentedControl size="small" value={curRating} onChange={setImgRating} options={RATINGS_S.map((r) => ({ value: r, label: r }))} />
+              </div>
+            </div>
+            <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+              <span style={{ width: 44, flex: "none", fontSize: "10px", color: "var(--ink-soft)" }}>スコア</span>
+              <input type="range" min="0" max="10" step="0.1" value={curScore} onChange={(ev) => setImgScore(parseFloat(ev.target.value))} style={{ flex: 1, accentColor: "var(--accent)" }} />
+              <span style={{ fontFamily: "var(--font-mono)", fontSize: "var(--fs-small)", width: 40, textAlign: "right" }}>{Number(curScore).toFixed(2)}</span>
+            </div>
+            <div style={{ marginTop: 8 }}><ProgressBar value={curScore * 10} tone="ok" /></div>
+            {(e.scoreEdited && Math.abs(curScore - aiScore) > 0.001) && (
+              <div style={{ marginTop: 6, fontFamily: "var(--font-mono)", fontSize: "9px", color: "var(--accent)" }}>
+                Δ {(curScore - aiScore >= 0 ? "+" : "") + (curScore - aiScore).toFixed(2)} vs AI
+              </div>
+            )}
+            <div style={{ marginTop: 6, fontFamily: "var(--font-mono)", fontSize: "9px", color: "var(--ink-faint)", lineHeight: 1.5 }}>quality_score 0–10（ADR 0029）· AI と source 分離 · 手動補正は <code>is_edited_manually</code></div>
+          </React.Fragment>
+          ); })()}
 
           <div style={{ display: "flex", alignItems: "center", gap: "var(--gap-2)", marginTop: "var(--gap-3)" }}>
             <span style={{ flex: 1 }} />

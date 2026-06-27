@@ -24,6 +24,7 @@
 <script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
 <script src="../_ds_bundle.js"></script>
 <script src="../ui_kits/lorairo-app/tagI18n.jsx"></script>
+<script type="text/babel" src="../ui_kits/lorairo-app/StageStrip.jsx"></script>
 <script type="text/babel" src="../ui_kits/lorairo-app/SearchScreen.jsx"></script>
 <script type="text/babel" src="../ui_kits/lorairo-app/MapScreen.jsx"></script>
 <script type="text/babel" src="../ui_kits/lorairo-app/AnnotateScreen.jsx"></script>
@@ -72,10 +73,10 @@
     if (view === "search") screen = <window.SearchScreen staged={staged} onStage={stage} />;
     else if (view === "map") screen = <window.MapScreen />;
     else if (view === "annotate") screen = <window.AnnotateScreen staged={staged} onRun={run} />;
-    else if (view === "jobs") screen = <window.JobsScreen running={running} />;
-    else if (view === "results") screen = <window.ResultsScreen />;
+    else if (view === "jobs") screen = <window.JobsScreen running={running} staged={staged} />;
+    else if (view === "results") screen = <window.ResultsScreen staged={staged} />;
     else if (view === "errors") screen = <window.ErrorsScreen />;
-    else if (view === "export") screen = <window.ExportScreen />;
+    else if (view === "export") screen = <window.ExportScreen staged={staged} />;
     else if (view === "cli") screen = <window.CLIScreen />;
     else if (view === "tagedit") screen = <window.TagEditScreen />;
     else if (view === "states") screen = <window.StatesScreen />;

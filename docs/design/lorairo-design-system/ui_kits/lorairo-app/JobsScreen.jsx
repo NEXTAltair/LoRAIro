@@ -1,7 +1,7 @@
 // JobsScreen — summary strip, running pipeline (per-stage), queue + history.
 const DS_JOBS = window.LoRAIroDesignSystem_64d8f7;
 
-function JobsScreen({ running }) {
+function JobsScreen({ running, staged }) {
   const { Card, DataTable, Chip, TypeBadge, ProgressBar, SummaryStat, Button } = DS_JOBS;
 
   const stages = [
@@ -22,6 +22,8 @@ function JobsScreen({ running }) {
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: "var(--gap-3)" }}>
       <h2 style={{ margin: 0, fontSize: "var(--fs-h2)", fontWeight: 700 }}>ジョブ</h2>
+
+      <window.StageStrip staged={staged} caption="実行中ジョブの対象集合 · staged.image_id" />
 
       <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: "var(--gap-3)" }}>
         <SummaryStat label="実行中 running" value={running ? "1" : "0"} sub="既定パイプライン · staged 9" tone="info" />
