@@ -25,9 +25,11 @@ from typing import TYPE_CHECKING, Any
 
 from loguru import logger
 from PySide6.QtCore import QSettings, Qt, QThread, Slot
+from PySide6.QtGui import QCloseEvent
 from PySide6.QtWidgets import QFileDialog, QMessageBox, QSplitter, QVBoxLayout, QWidget
 
 from ...database.db_core import resolve_stored_path
+from ...services.export_overlay import ExportOverlayPlan, ScopedOverlayRule
 from ...services.staging_tag_aggregation import StagingTagAggregationService
 from ..state.dataset_state import DatasetStateManager
 from ..state.staging_state import StagingStateManager
@@ -198,6 +200,12 @@ class ExportTabWidget(QWidget):
         if self._aggregation_service is not None:
             self._staging_tag_panel.load_tags(image_ids)
 
+        # 選択中だった画像が新集合に無ければ current image をクリアし、右ペインが
+        # 除外済み画像を表示・編集し続けるのを防ぐ (#961 P2)。db_manager 有無に依らず行う。
+        current_id = self._dataset_state_manager.current_image_id
+        if current_id is not None and current_id not in set(image_ids):
+            self._dataset_state_manager.clear_current_image()
+
         # 中央: サムネグリッド (id→path 解決) + 選択 SSoT へ metadata 供給
         if self._db_manager is None:
             return
@@ -214,8 +222,7 @@ class ExportTabWidget(QWidget):
                 resolved = resolve_stored_path(str(stored_path))
                 path_items.append((str(resolved), image_id))
 
-        if self._dataset_state_manager is not None:
-            self._dataset_state_manager.set_dataset_images(metadata_list)
+        self._dataset_state_manager.set_dataset_images(metadata_list)
         self._thumbnail_selector.load_thumbnails_from_paths(path_items)
 
     # ------------------------------------------------------------------
@@ -275,6 +282,14 @@ class ExportTabWidget(QWidget):
         # ExportOverlayBar は canonical 値 (txt_separate/txt_merged/json) を返す。
         merge_caption = export_format == "txt_merged"
 
+        # 出力 overlay (trigger/exclude/replace) を全 staged 画像へグローバル適用する。
+        # preview と書き出しを一致させるため (#961 P1)。空 overlay は None でレガシー挙動を維持。
+        # scope (全/絞込) の絞り込みは filter 配線が入る後続 PR で対応する。
+        overlay = self._overlay_bar.current_overlay()
+        overlay_plan = (
+            None if overlay.is_noop else ExportOverlayPlan(rules=[ScopedOverlayRule(None, overlay)])
+        )
+
         worker = DatasetExportWorker(
             export_service=self._service_container.dataset_export_service,
             image_ids=list(self._image_ids),
@@ -282,6 +297,7 @@ class ExportTabWidget(QWidget):
             resolution=resolution,
             export_format=export_format,
             merge_caption=merge_caption,
+            overlay_plan=overlay_plan,
         )
         worker.finished.connect(self._on_export_finished)
         worker.error.connect(self._on_export_error)
@@ -316,6 +332,19 @@ class ExportTabWidget(QWidget):
             self._export_thread.wait()
             self._export_thread = None
         self._export_worker = None
+
+    def shutdown(self) -> None:
+        """実行中のエクスポート thread を停止する (ウィンドウ閉鎖時に呼ぶ、#961 P2)。
+
+        埋め込みウィジェットの ``closeEvent`` はウィンドウ閉鎖で必ずしも発火しないため、
+        MainWindow の closeEvent からも本メソッドを呼んで thread の取り残しを防ぐ。
+        """
+        self._teardown_export_thread()
+
+    def closeEvent(self, event: QCloseEvent) -> None:
+        """タブ単体クローズ時にエクスポート thread を後始末する (#961 P2)。"""
+        self.shutdown()
+        super().closeEvent(event)
 
     # ------------------------------------------------------------------
     # アクセサ (タブ内配線・テスト用)

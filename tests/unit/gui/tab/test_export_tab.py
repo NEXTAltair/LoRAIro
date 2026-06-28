@@ -165,6 +165,72 @@ def test_export_requested_runs_worker(
 
 
 @pytest.mark.gui
+def test_export_passes_overlay_plan(
+    qtbot, monkeypatch, service_container: Mock, staging_manager: StagingStateManager
+) -> None:
+    """overlay を追加した状態で export すると ExportOverlayPlan が渡ること (#961 P1)。"""
+    from PySide6.QtWidgets import QFileDialog, QMessageBox
+
+    from lorairo.services.export_overlay import ExportOverlayPlan
+
+    monkeypatch.setattr(QFileDialog, "getExistingDirectory", lambda *a, **k: "/tmp/export_out")
+    monkeypatch.setattr(QMessageBox, "information", lambda *a, **k: QMessageBox.StandardButton.Ok)
+    export_service = service_container.dataset_export_service
+    export_service.export_with_criteria.return_value = "/tmp/export_out"
+
+    widget = ExportTabWidget(service_container=service_container, staging_state_manager=staging_manager)
+    qtbot.addWidget(widget)
+    staging_manager.add_image_ids([1, 2, 3])
+    widget._overlay_bar.add_overlay_exclude("smile")  # overlay 非空にする
+    monkeypatch.setattr(widget, "_start_export_worker", lambda worker: worker.run())
+
+    widget._overlay_bar._export_btn.click()
+
+    _, kwargs = export_service.export_with_criteria.call_args
+    assert isinstance(kwargs.get("overlay_plan"), ExportOverlayPlan)
+
+
+@pytest.mark.gui
+def test_empty_overlay_passes_none_plan(
+    qtbot, monkeypatch, service_container: Mock, staging_manager: StagingStateManager
+) -> None:
+    """overlay が空なら overlay_plan=None でレガシー挙動を維持すること (#955 契約)。"""
+    from PySide6.QtWidgets import QFileDialog, QMessageBox
+
+    monkeypatch.setattr(QFileDialog, "getExistingDirectory", lambda *a, **k: "/tmp/export_out")
+    monkeypatch.setattr(QMessageBox, "information", lambda *a, **k: QMessageBox.StandardButton.Ok)
+    export_service = service_container.dataset_export_service
+    export_service.export_with_criteria.return_value = "/tmp/export_out"
+
+    widget = ExportTabWidget(service_container=service_container, staging_state_manager=staging_manager)
+    qtbot.addWidget(widget)
+    staging_manager.add_image_ids([1, 2, 3])  # overlay 未設定
+    monkeypatch.setattr(widget, "_start_export_worker", lambda worker: worker.run())
+
+    widget._overlay_bar._export_btn.click()
+
+    _, kwargs = export_service.export_with_criteria.call_args
+    assert kwargs.get("overlay_plan") is None
+
+
+@pytest.mark.gui
+def test_populate_clears_stale_current_image(
+    qtbot, service_container: Mock, staging_manager: StagingStateManager
+) -> None:
+    """staging 変更で消えた画像が current image なら clear されること (#961 P2)。"""
+    widget = ExportTabWidget(service_container=service_container, staging_state_manager=staging_manager)
+    qtbot.addWidget(widget)
+    dsm = widget._dataset_state_manager
+    dsm.set_current_image(42)
+    assert dsm.current_image_id == 42
+
+    # 42 を含まない新集合へ更新 (db_manager=None なので metadata は空、画像集合だけ評価)
+    widget.set_image_ids([1, 2, 3])
+
+    assert dsm.current_image_id is None
+
+
+@pytest.mark.gui
 def test_export_requested_without_targets_warns(
     qtbot, monkeypatch, service_container: Mock, staging_manager: StagingStateManager
 ) -> None:

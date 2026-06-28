@@ -1547,6 +1547,10 @@ class MainWindow(QMainWindow, Ui_MainWindow):
             event: クローズイベント
         """
         self._save_window_state()
+        # 実行中のエクスポート thread を停止する (埋め込み widget の closeEvent は
+        # 親ウィンドウ閉鎖で発火しないため明示的に呼ぶ、#949/#961 P2)。
+        if self.export_tab is not None:
+            self.export_tab.shutdown()
         super().closeEvent(event)
 
     def _save_window_state(self) -> None:
@@ -1565,6 +1569,10 @@ class MainWindow(QMainWindow, Ui_MainWindow):
         # スプリッター状態 (SearchTab が所有・#896)
         if self.search_tab is not None:
             self.search_tab.save_layout_state(settings)
+
+        # エクスポートタブの splitter 状態 (ExportTab が所有・#949)
+        if self.export_tab is not None:
+            self.export_tab.save_splitter_state()
 
         # パネル表示状態
         if hasattr(self, "actionToggleFilterPanel"):

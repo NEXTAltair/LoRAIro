@@ -4,9 +4,11 @@ Provides GUI interface for exporting filtered datasets using DatasetExportServic
 with validation, progress tracking, and async processing capabilities.
 """
 
+from __future__ import annotations
+
 from datetime import datetime
 from pathlib import Path
-from typing import Any, cast
+from typing import TYPE_CHECKING, Any, cast
 
 from loguru import logger
 from PySide6.QtCore import QDateTime, QObject, QThread, QTime, Signal
@@ -16,6 +18,9 @@ from PySide6.QtWidgets import QButtonGroup, QFileDialog, QMessageBox, QWidget
 from ...database.filter_criteria import ImageFilterCriteria
 from ...services.service_container import ServiceContainer
 from ..designer.DatasetExportWidget_ui import Ui_DatasetExportWidget
+
+if TYPE_CHECKING:
+    from ...services.export_overlay import ExportOverlayPlan
 
 
 class DatasetExportWorker(QObject):
@@ -34,6 +39,7 @@ class DatasetExportWorker(QObject):
         resolution: int,
         export_format: str,
         merge_caption: bool = False,
+        overlay_plan: ExportOverlayPlan | None = None,
     ) -> None:
         """Initialize export worker.
 
@@ -44,6 +50,7 @@ class DatasetExportWorker(QObject):
             resolution: Image resolution (512, 768, 1024, 1536)
             export_format: Export format ("txt_separate", "txt_merged", "json")
             merge_caption: Whether to merge captions with tags
+            overlay_plan: 出力オーバーレイプラン (ADR 0080)。None で従来挙動を維持する。
         """
         super().__init__()
         self.export_service = export_service
@@ -52,6 +59,7 @@ class DatasetExportWorker(QObject):
         self.resolution = resolution
         self.export_format = export_format
         self.merge_caption = merge_caption
+        self.overlay_plan = overlay_plan
 
     def run(self) -> None:
         """Execute export processing with progress reporting."""
@@ -74,6 +82,7 @@ class DatasetExportWorker(QObject):
                     format_type="json",
                     resolution=self.resolution,
                     criteria=criteria,
+                    overlay_plan=self.overlay_plan,
                 )
                 self.progress.emit(90, "JSON形式でエクスポート中...")
             else:
@@ -84,6 +93,7 @@ class DatasetExportWorker(QObject):
                     resolution=self.resolution,
                     criteria=criteria,
                     merge_caption=merge_option,
+                    overlay_plan=self.overlay_plan,
                 )
                 self.progress.emit(90, "TXT形式でエクスポート中...")
 
