@@ -74,3 +74,18 @@ class TestTriggerVocabRoundTrip:
         entries = service.search("no_such_prefix_xyz")
 
         assert entries == []
+
+    def test_punctuation_variant_triggers_do_not_collide(self, test_tag_db_path) -> None:
+        """正規化すると同一になるリテラル（my_trigger / my trigger）が衝突せず両方残ること。
+
+        リテラルをそのまま tag に格納するため、USER_TAGS の tag 列 dedup でも
+        別行となり、補完は登録したリテラルをそのまま返す（literal trigger 契約）。
+        """
+        service = TriggerVocabService()
+        service.register("my_trigger")
+        service.register("my trigger")
+
+        words = {e.word for e in service.search("my")}
+
+        assert "my_trigger" in words
+        assert "my trigger" in words

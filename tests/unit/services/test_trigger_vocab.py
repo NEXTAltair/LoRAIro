@@ -116,8 +116,8 @@ class TestSearch:
 
         assert entries == [VocabEntry(word="dup", freq=3)]
 
-    def test_search_normalizes_query(self, monkeypatch) -> None:
-        """検索クエリがアンダースコア除去・空白整形で正規化されること。"""
+    def test_search_uses_literal_query(self, monkeypatch) -> None:
+        """検索クエリは strip のみでリテラルを保持する（正規化しない）こと。"""
         captured: dict[str, TagSearchRequest] = {}
 
         def fake_search(reader, request: TagSearchRequest) -> TagSearchResult:
@@ -129,7 +129,40 @@ class TestSearch:
 
         service.search("  long_hair  ")
 
-        assert captured["request"].query == "long hair"
+        assert captured["request"].query == "long_hair"
+
+    def test_search_degrades_on_db_error(self, monkeypatch) -> None:
+        """search_tags が DB 例外（SQLAlchemyError）を投げても空リストで継続すること。"""
+        from sqlalchemy.exc import OperationalError
+
+        def raise_db(reader, request):
+            raise OperationalError("SELECT", {}, Exception("database is locked"))
+
+        monkeypatch.setattr("lorairo.services.trigger_vocab.search_tags", raise_db)
+        service = TriggerVocabService(reader=object())
+
+        assert service.search("x") == []
+
+    def test_reader_init_retries_after_transient_failure(self, monkeypatch) -> None:
+        """reader 初期化が初回失敗しても、後で成功すれば回復すること（失敗をキャッシュしない）。"""
+        calls = {"n": 0}
+
+        def flaky_reader():
+            calls["n"] += 1
+            if calls["n"] == 1:
+                raise RuntimeError("User database is not initialized")
+            return object()
+
+        result = TagSearchResult(items=[_record("late", usage_count=0)], total=1)
+        monkeypatch.setattr("lorairo.services.trigger_vocab.get_user_tag_reader", flaky_reader)
+        monkeypatch.setattr("lorairo.services.trigger_vocab.search_tags", lambda reader, request: result)
+        service = TriggerVocabService()
+
+        # 1回目: reader 初期化失敗 → 空
+        assert service.search("la") == []
+        # 2回目: reader 初期化成功 → 回復
+        assert [e.word for e in service.search("la")] == ["late"]
+        assert calls["n"] == 2
 
     def test_search_returns_empty_when_reader_unavailable(self, monkeypatch) -> None:
         """reader 初期化失敗時は空リストを返すこと（graceful degradation）。"""
@@ -181,8 +214,8 @@ class TestRegister:
         assert req.format_name == _TRIGGER_FORMAT
         assert req.scope == "user"
 
-    def test_register_normalizes_tag_keeps_literal_source(self, monkeypatch) -> None:
-        """tag は正規化形、source_tag はリテラルを保持すること。"""
+    def test_register_stores_literal_verbatim(self, monkeypatch) -> None:
+        """tag / source_tag ともにリテラルを保持し正規化しないこと（衝突回避）。"""
         captured: dict[str, TagRegisterRequest] = {}
 
         def fake_register(service, request: TagRegisterRequest):
@@ -195,7 +228,7 @@ class TestRegister:
         service.register("  my_trigger  ")
 
         req = captured["request"]
-        assert req.tag == "my trigger"
+        assert req.tag == "my_trigger"
         assert req.source_tag == "my_trigger"
 
     def test_register_skips_empty_word(self, monkeypatch) -> None:
