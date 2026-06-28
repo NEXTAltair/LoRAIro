@@ -95,6 +95,14 @@ class TestTriggerAdd:
 
         assert loaded_bar.current_overlay().add == []
 
+    def test_comma_trigger_rejected(self, loaded_bar: ExportOverlayBar) -> None:
+        """カンマを含む trigger は追加しないこと（複数タグ化けを防止）。"""
+        loaded_bar._trigger_edit.setText("foo, bar")
+        loaded_bar._add_trigger_btn.click()
+
+        assert loaded_bar.current_overlay().add == []
+        assert loaded_bar._preview.toPlainText() == "1girl, smile"
+
 
 # ------------------------------------------------------------------
 # 出力除外 / 置換（公開メソッド）
@@ -257,9 +265,24 @@ class TestExportActions:
             bar._export_btn.click()
 
     def test_selected_resolution_and_format(self, bar: ExportOverlayBar) -> None:
-        """解像度・形式の選択値が取得できること。"""
+        """解像度・形式の選択値（canonical 値）が取得できること。"""
         assert bar.selected_resolution() == 512
-        assert bar.selected_format() == "txt"
+        assert bar.selected_format() == "txt_separate"
+
+    def test_resolution_includes_1536(self, bar: ExportOverlayBar) -> None:
+        """高解像度 1536px が選択肢に含まれること（既存 UI と同等）。"""
+        options = [bar._resolution_combo.itemText(i) for i in range(bar._resolution_combo.count())]
+        assert "1536" in options
+        bar._resolution_combo.setCurrentText("1536")
+        assert bar.selected_resolution() == 1536
+
+    def test_format_includes_txt_merged(self, bar: ExportOverlayBar) -> None:
+        """キャプション統合形式 txt_merged が選択可能であること（既存 UI と同等）。"""
+        values = [bar._format_combo.itemData(i) for i in range(bar._format_combo.count())]
+        assert "txt_merged" in values
+        idx = values.index("txt_merged")
+        bar._format_combo.setCurrentIndex(idx)
+        assert bar.selected_format() == "txt_merged"
 
 
 # ------------------------------------------------------------------

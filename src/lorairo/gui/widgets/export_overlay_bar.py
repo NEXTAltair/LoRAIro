@@ -42,10 +42,15 @@ from lorairo.services.trigger_vocab import VocabEntry
 if TYPE_CHECKING:
     from genai_tag_db_tools.db.repository import MergedTagReader
 
-# エクスポート解像度の選択肢（DatasetExportService の processed image 解像度に対応）。
-_RESOLUTION_CHOICES: list[int] = [512, 768, 1024]
-# 出力形式の選択肢（表示用。実書き出しは #949 / DatasetExportWidget が担う）。
-_FORMAT_CHOICES: list[str] = ["txt", "json"]
+# エクスポート解像度の選択肢（image.py の target_resolutions / DatasetExportWidget.ui と一致）。
+_RESOLUTION_CHOICES: list[int] = [512, 768, 1024, 1536]
+# 出力形式の (値, 表示ラベル)。値は既存 DatasetExportWorker の export_format に一致させる
+# （txt_separate / txt_merged / json）。実書き出しは #949 / DatasetExportWidget が担う。
+_FORMAT_CHOICES: list[tuple[str, str]] = [
+    ("txt_separate", "TXT（タグ分離）"),
+    ("txt_merged", "TXT（キャプション統合）"),
+    ("json", "JSON"),
+]
 
 
 class _VocabLike(Protocol):
@@ -197,8 +202,12 @@ class ExportOverlayBar(QWidget):
         return int(self._resolution_combo.currentText())
 
     def selected_format(self) -> str:
-        """選択中の出力形式（"txt" | "json"）を返す。"""
-        return self._format_combo.currentText()
+        """選択中の出力形式値（"txt_separate" | "txt_merged" | "json"）を返す。
+
+        既存 DatasetExportWorker の export_format に渡せる canonical 値を返す
+        （表示ラベルではなく itemData の値）。
+        """
+        return str(self._format_combo.currentData())
 
     # ------------------------------------------------------------------
     # UI construction
@@ -326,8 +335,8 @@ class ExportOverlayBar(QWidget):
         row.addWidget(fmt_label)
         self._format_combo = QComboBox()
         self._format_combo.setObjectName("formatCombo")
-        for fmt in _FORMAT_CHOICES:
-            self._format_combo.addItem(fmt)
+        for value, label in _FORMAT_CHOICES:
+            self._format_combo.addItem(label, value)
         row.addWidget(self._format_combo)
 
         row.addStretch(1)
@@ -371,9 +380,17 @@ class ExportOverlayBar(QWidget):
 
     @Slot()
     def _on_trigger_commit(self) -> None:
-        """入力中の trigger を overlay に追加し、語彙へ登録する。"""
+        """入力中の trigger を overlay に追加し、語彙へ登録する。
+
+        カンマを含む入力は拒否する: trigger は1タグのリテラルであり、
+        プレビュー/出力は ", ".join するため、カンマ混入は1 trigger が複数タグに
+        化けて出力ラベルを壊す（#946 register と同じ方針）。
+        """
         word = self._trigger_edit.text().strip()
         if not word:
+            return
+        if "," in word:
+            logger.debug(f"ExportOverlayBar: trigger にカンマが含まれるため追加しない: {word!r}")
             return
         if word not in self._triggers:
             self._triggers.append(word)
