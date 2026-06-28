@@ -275,7 +275,7 @@ class ExportTabWidget(QWidget):
         # ExportOverlayBar は canonical 値 (txt_separate/txt_merged/json) を返す。
         merge_caption = export_format == "txt_merged"
 
-        self._export_worker = DatasetExportWorker(
+        worker = DatasetExportWorker(
             export_service=self._service_container.dataset_export_service,
             image_ids=list(self._image_ids),
             output_path=Path(directory),
@@ -283,13 +283,19 @@ class ExportTabWidget(QWidget):
             export_format=export_format,
             merge_caption=merge_caption,
         )
-        self._export_thread = QThread()
-        self._export_worker.moveToThread(self._export_thread)
-        self._export_thread.started.connect(self._export_worker.run)
-        self._export_worker.finished.connect(self._on_export_finished)
-        self._export_worker.error.connect(self._on_export_error)
-        self._export_thread.start()
+        worker.finished.connect(self._on_export_finished)
+        worker.error.connect(self._on_export_error)
+        self._export_worker = worker
+        self._start_export_worker(worker)
         logger.info(f"エクスポート開始: {len(self._image_ids)}枚 → {directory} (format={export_format})")
+
+    def _start_export_worker(self, worker: DatasetExportWorker) -> None:
+        """worker を専用 QThread で起動する (テストは本メソッドを差し替えて同期実行する)。"""
+        thread = QThread()
+        self._export_thread = thread
+        worker.moveToThread(thread)
+        thread.started.connect(worker.run)
+        thread.start()
 
     @Slot(str)
     def _on_export_finished(self, export_path: str) -> None:

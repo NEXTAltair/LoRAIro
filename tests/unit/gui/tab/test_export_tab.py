@@ -137,7 +137,11 @@ def test_uses_tab_local_dataset_state_manager(
 def test_export_requested_runs_worker(
     qtbot, monkeypatch, service_container: Mock, staging_manager: StagingStateManager
 ) -> None:
-    """エクスポートボタンが出力先選択 → DatasetExportService 経由で書き出すこと (#961 P1)。"""
+    """エクスポートボタンが出力先選択 → DatasetExportService 経由で書き出すこと (#961 P1)。
+
+    実 QThread を起動すると loguru queued writer + Qt teardown の race で segfault する
+    ため、_start_export_worker を同期実行へ差し替えて配線のみを決定的に検証する。
+    """
     from PySide6.QtWidgets import QFileDialog, QMessageBox
 
     monkeypatch.setattr(QFileDialog, "getExistingDirectory", lambda *a, **k: "/tmp/export_out")
@@ -149,13 +153,15 @@ def test_export_requested_runs_worker(
     widget = ExportTabWidget(service_container=service_container, staging_state_manager=staging_manager)
     qtbot.addWidget(widget)
     staging_manager.add_image_ids([1, 2, 3])
+    # 実スレッドを起動せず worker.run() を同期実行する。
+    monkeypatch.setattr(widget, "_start_export_worker", lambda worker: worker.run())
 
-    with qtbot.waitSignal(widget._overlay_bar.export_requested, timeout=1000):
-        widget._overlay_bar._export_btn.click()
-    # worker は別スレッド。export_service が呼ばれるまで待つ。
-    qtbot.waitUntil(lambda: export_service.export_with_criteria.called, timeout=3000)
+    widget._overlay_bar._export_btn.click()
 
     assert export_service.export_with_criteria.called
+    # 対象 ID が worker (= criteria) へ正しく渡ること
+    _, kwargs = export_service.export_with_criteria.call_args
+    assert kwargs.get("format_type") in {"txt", "json"}
 
 
 @pytest.mark.gui
