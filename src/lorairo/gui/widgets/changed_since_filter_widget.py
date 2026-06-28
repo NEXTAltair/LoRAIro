@@ -5,7 +5,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import cast
 
-from PySide6.QtCore import QDateTime, QTime, Signal, Slot
+from PySide6.QtCore import QDate, QDateTime, QTime, Signal, Slot
 from PySide6.QtWidgets import QCheckBox, QDateTimeEdit, QHBoxLayout, QWidget
 
 
@@ -57,7 +57,12 @@ class ChangedSinceFilterWidget(QWidget):
         """Set filter state for tests and future preset restore paths."""
         self._check_box.setChecked(enabled)
         if since is not None:
-            self._date_time_edit.setDateTime(QDateTime(since))
+            self._date_time_edit.setDateTime(
+                QDateTime(
+                    QDate(since.year, since.month, since.day),
+                    QTime(since.hour, since.minute, since.second),
+                )
+            )
 
     @Slot(bool)
     def _on_toggled(self, checked: bool) -> None:
