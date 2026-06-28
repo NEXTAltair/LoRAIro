@@ -15,7 +15,7 @@ class TestTagManagementService:
     @pytest.fixture
     def service(self) -> TagManagementService:
         """TagManagementService インスタンスを提供"""
-        with patch("lorairo.services.tag_management_service.get_user_tag_reader"):
+        with patch("lorairo.services.tag_management_service.get_tag_reader"):
             with patch("lorairo.services.tag_management_service.get_user_repository"):
                 return TagManagementService()
 

@@ -10,9 +10,9 @@ from genai_tag_db_tools import (
     TagWriterProtocol,
     get_all_type_names,
     get_format_type_names,
+    get_tag_reader,
     get_unknown_type_tags,
     get_user_repository,
-    get_user_tag_reader,
     update_tags_type_batch,
 )
 from genai_tag_db_tools.models import TagRecordPublic, TagTypeUpdate
@@ -27,8 +27,10 @@ class TagManagementService:
     type_name一覧取得、一括type更新を提供します。
 
     Note:
-        user DBのみを対象とします（base DBは対象外）。
-        ユーザーが登録したタグのみが管理対象です。
+        読み込みは base DB + user overlay の merged reader を使用します。
+        アノテーションパスが legacy 書き込みパス（scope なし）を使用している間、
+        TAGS/TAG_STATUS に書き込まれたタグを可視化するために merged reader が必要です。
+        書き込み（type 更新）は get_user_repository() 経由で user DB に行います。
     """
 
     LORAIRO_FORMAT_ID = 1000  # LoRAIro専用format_id（ユーザーDB範囲: 1000-）
@@ -36,12 +38,14 @@ class TagManagementService:
     def __init__(self) -> None:
         """TagManagementServiceを初期化します。
 
-        user DBのみを対象とする OverlayTagReader を使用します。
+        base DB + user overlay を統合した merged reader を使用します。
+        アノテーションパスが legacy 書き込みパス (scope なし) を使う間は
+        merged reader が必要です。
         """
-        self.reader: TagReaderProtocol = get_user_tag_reader()
+        self.reader: TagReaderProtocol = get_tag_reader()
         self.repository: TagWriterProtocol = get_user_repository()
         logger.info(
-            "TagManagementService initialized (user DB only) with format_id={}",
+            "TagManagementService initialized with format_id={}",
             self.LORAIRO_FORMAT_ID,
         )
 
