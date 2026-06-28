@@ -79,17 +79,19 @@ class TestMainWindowTabInitialization:
         assert isinstance(main_window_with_tabs.errors_tab, ErrorsTabWidget)
         assert main_window_with_tabs.errors_tab.triage_widget is viewer
 
-    def test_export_tab_embeds_export_widget(self, main_window_with_tabs):
-        """エクスポートタブが ExportTabWidget で常設され DatasetExportWidget を内包する (#872)"""
+    def test_export_tab_embeds_three_pane_panel(self, main_window_with_tabs):
+        """エクスポートタブが ExportTabWidget で常設され 3ペイン + ExportOverlayBar を内包する (#949)"""
         from lorairo.gui.tab.export_tab import ExportTabWidget
-        from lorairo.gui.widgets.dataset_export_widget import DatasetExportWidget
+        from lorairo.gui.widgets.export_overlay_bar import ExportOverlayBar
+        from lorairo.gui.widgets.staging_tag_panel import StagingTagPanel
 
         export_container = main_window_with_tabs.tabWidgetMainMode.widget(4)
         assert export_container.objectName() == "tabExport"
-        widget = export_container.findChild(DatasetExportWidget)
-        assert widget is not None
-        assert isinstance(main_window_with_tabs.export_tab, ExportTabWidget)
-        assert main_window_with_tabs.export_tab.export_widget is widget
+        export_tab = main_window_with_tabs.export_tab
+        assert isinstance(export_tab, ExportTabWidget)
+        assert isinstance(export_tab.staging_tag_panel, StagingTagPanel)
+        assert isinstance(export_tab.overlay_bar, ExportOverlayBar)
+        assert export_tab.main_splitter.count() == 3
 
     def test_cli_tab_embeds_reference_widget(self, main_window_with_tabs):
         """CLI タブが CliTabWidget で常設され、CliReferenceWidget を内包する (Frame 8, #873)"""
