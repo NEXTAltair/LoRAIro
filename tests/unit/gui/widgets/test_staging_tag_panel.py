@@ -230,6 +230,34 @@ class TestFilterTagChangedSignal:
 
         assert blocker.args[0] == "smile"
 
+    @pytest.mark.gui
+    def test_load_tags_emits_none_when_active_filter_cleared(
+        self, qtbot, loaded_panel: StagingTagPanel
+    ) -> None:
+        """アクティブフィルタ中に load_tags すると filter_tag_changed(None) が emit されること。
+
+        接続先サムネペインが古いタグで絞り込まれたまま取り残されるのを防ぐ。
+        """
+        # まずタグ行をクリックしてフィルタをアクティブにする
+        loaded_panel._list_widget.itemClicked.emit(loaded_panel._list_widget.item(0))
+        assert loaded_panel._active_filter_tag == "long_hair"
+
+        with qtbot.waitSignal(loaded_panel.filter_tag_changed, timeout=1000) as blocker:
+            loaded_panel.load_tags([1, 2, 3])
+
+        assert blocker.args[0] is None
+        assert loaded_panel._active_filter_tag is None
+
+    @pytest.mark.gui
+    def test_load_tags_no_emit_when_no_active_filter(self, qtbot, loaded_panel: StagingTagPanel) -> None:
+        """フィルタ未適用なら load_tags は filter_tag_changed を emit しないこと。"""
+        received: list[object] = []
+        loaded_panel.filter_tag_changed.connect(received.append)
+
+        loaded_panel.load_tags([1, 2, 3])
+
+        assert received == []
+
 
 # ------------------------------------------------------------------
 # シグナル: overlay_exclude_requested
@@ -302,14 +330,17 @@ class TestOverlayReplaceSignal:
 
     @pytest.mark.gui
     def test_replace_btn_emits_signal(self, qtbot, loaded_panel: StagingTagPanel) -> None:
-        """置換先タグを入力してボタンクリックすると overlay_replace_requested が emit されること。"""
+        """置換先タグを入力してボタンクリックすると overlay_replace_requested が emit されること。
+
+        置換先はアンダースコア除去・空白整形で正規化される（new_tag → new tag）。
+        """
         loaded_panel._list_widget.setCurrentRow(0)
         loaded_panel._replace_to_edit.setText("new_tag")
 
         with qtbot.waitSignal(loaded_panel.overlay_replace_requested, timeout=1000) as blocker:
             loaded_panel._replace_btn.click()
 
-        assert blocker.args == ["long_hair", "new_tag"]
+        assert blocker.args == ["long_hair", "new tag"]
 
     @pytest.mark.gui
     def test_replace_btn_no_signal_when_to_empty(self, qtbot, loaded_panel: StagingTagPanel) -> None:
@@ -325,9 +356,12 @@ class TestOverlayReplaceSignal:
 
     @pytest.mark.gui
     def test_replace_btn_no_signal_when_same_tag(self, qtbot, loaded_panel: StagingTagPanel) -> None:
-        """置換先が選択タグと同じときシグナルが emit されないこと。"""
+        """置換先が選択タグと正規化後に等価ならシグナルが emit されないこと。
+
+        long_hair を long_hair（正規化で long hair）に置換しようとしても、
+        選択タグ long_hair の正規化形 long hair と一致するため no-op になる。
+        """
         loaded_panel._list_widget.setCurrentRow(0)
-        # long_hair を long_hair に置換しようとする
         loaded_panel._replace_to_edit.setText("long_hair")
         received: list[tuple[str, str]] = []
         loaded_panel.overlay_replace_requested.connect(lambda f, t: received.append((f, t)))
@@ -349,15 +383,35 @@ class TestOverlayReplaceSignal:
         assert received == []
 
     @pytest.mark.gui
-    def test_replace_strips_whitespace(self, qtbot, loaded_panel: StagingTagPanel) -> None:
-        """置換先タグの前後空白がトリムされること。"""
+    def test_replace_normalizes_underscore_and_whitespace(
+        self, qtbot, loaded_panel: StagingTagPanel
+    ) -> None:
+        """置換先タグの前後空白がトリムされ、アンダースコアが除去されること。"""
         loaded_panel._list_widget.setCurrentRow(0)
         loaded_panel._replace_to_edit.setText("  trimmed_tag  ")
 
         with qtbot.waitSignal(loaded_panel.overlay_replace_requested, timeout=1000) as blocker:
             loaded_panel._replace_btn.click()
 
-        assert blocker.args[1] == "trimmed_tag"
+        assert blocker.args[1] == "trimmed tag"
+
+    @pytest.mark.gui
+    def test_replace_btn_no_signal_when_to_contains_comma(
+        self, qtbot, loaded_panel: StagingTagPanel
+    ) -> None:
+        """置換先にカンマが含まれるとシグナルが emit されないこと。
+
+        apply_overlay は to_tag を convert 前タグとして扱い DatasetExportService が
+        カンマ連結するため、カンマ混入は余分なタグを生む。これを未然に弾く。
+        """
+        loaded_panel._list_widget.setCurrentRow(0)
+        loaded_panel._replace_to_edit.setText("foo, bar")
+        received: list[tuple[str, str]] = []
+        loaded_panel.overlay_replace_requested.connect(lambda f, t: received.append((f, t)))
+
+        loaded_panel._replace_btn.click()
+
+        assert received == []
 
 
 # ------------------------------------------------------------------

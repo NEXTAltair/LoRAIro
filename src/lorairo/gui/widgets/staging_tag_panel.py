@@ -10,6 +10,7 @@ StagingTagAggregationService を消費してタグ×件数を一覧表示し、
 
 from __future__ import annotations
 
+from genai_tag_db_tools.utils.cleanup_str import TagCleaner
 from loguru import logger
 from PySide6.QtCore import Qt, Signal, Slot
 from PySide6.QtWidgets import (
@@ -259,6 +260,9 @@ class StagingTagPanel(QWidget):
         self._search_edit.textChanged.connect(self._on_search_changed)
         self._sort_combo.currentIndexChanged.connect(self._on_sort_changed)
         self._list_widget.currentItemChanged.connect(self._on_item_selection_changed)
+        # 選択解除（clearSelection / 空白クリック）でもアクションバーを更新する。
+        # currentItemChanged は選択解除では発火しないことがあるため両方を繋ぐ。
+        self._list_widget.itemSelectionChanged.connect(self._on_item_selection_changed)
         self._list_widget.itemClicked.connect(self._on_item_clicked)
         self._reset_btn.clicked.connect(self._on_reset_clicked)
         self._exclude_btn.clicked.connect(self._on_exclude_clicked)
@@ -281,10 +285,16 @@ class StagingTagPanel(QWidget):
         self._image_ids = list(image_ids)
         self._all_tags = self._service.aggregate(self._image_ids)
         logger.debug(f"StagingTagPanel.load_tags: images={len(image_ids)}, tags={len(self._all_tags)}")
-        # アクティブフィルタをリセットして再描画
+        # アクティブフィルタをリセットして再描画。
+        # 既にタグ絞り込み中だった場合は filter_tag_changed(None) を emit して、
+        # 接続先サムネペインが古いタグで絞り込まれたまま取り残されるのを防ぐ。
+        had_active_filter = self._active_filter_tag is not None
         self._active_filter_tag = None
         self._reset_btn.setText(f"全 {len(self._image_ids)} 枚に戻す")
         self._refresh_list()
+        if had_active_filter:
+            logger.debug("StagingTagPanel: load_tags がアクティブフィルタを解除 → filter_tag_changed(None)")
+            self.filter_tag_changed.emit(None)
 
     def get_image_ids(self) -> list[int]:
         """現在のステージング画像 ID リストを返す。
@@ -380,12 +390,23 @@ class StagingTagPanel(QWidget):
     # Internal: action bar
     # ------------------------------------------------------------------
 
+    def _selected_item(self) -> QListWidgetItem | None:
+        """実際に選択状態にある行を返す。選択がなければ None。
+
+        currentItem() は clearSelection() や空白部のクリックで選択が外れても
+        古い行を指し続けるため、選択状態の判定には selectedItems() を使う。
+
+        Returns:
+            選択中のリストアイテム。選択なしなら None。
+        """
+        items = self._list_widget.selectedItems()
+        return items[0] if items else None
+
     def _update_action_bar_visibility(self) -> None:
         """選択行があるときだけアクションバーを表示する。"""
-        current = self._list_widget.currentItem()
-        has_selection = current is not None
-        self._action_bar.setVisible(has_selection)
-        if has_selection:
+        current = self._selected_item()
+        self._action_bar.setVisible(current is not None)
+        if current is not None:
             tag_count: TagCount = current.data(Qt.ItemDataRole.UserRole)
             self._action_tag_label.setText(f"操作対象: {tag_count.tag}")
             # 置換入力をクリア（新しい選択ごとにリセット）
@@ -397,7 +418,7 @@ class StagingTagPanel(QWidget):
         Returns:
             選択中のタグ文字列。選択なしなら None。
         """
-        current = self._list_widget.currentItem()
+        current = self._selected_item()
         if current is None:
             return None
         tag_count: TagCount = current.data(Qt.ItemDataRole.UserRole)
@@ -471,11 +492,19 @@ class StagingTagPanel(QWidget):
         from_tag = self._get_selected_tag()
         if from_tag is None:
             return
-        to_tag = self._replace_to_edit.text().strip()
+        # 置換先を正規化する（アンダースコア除去・空白整形）。apply_overlay は to_tag を
+        # convert 前タグとして扱い、DatasetExportService がカンマ連結するため、
+        # 未正規化テキストやカンマ混入は余分なタグ・不正出力の原因になる。
+        to_tag = TagCleaner.clean_format(self._replace_to_edit.text()).strip()
         if not to_tag:
             logger.debug("StagingTagPanel: 置換先タグが空のため overlay_replace_requested を送らない")
             return
-        if from_tag == to_tag:
+        if "," in to_tag:
+            logger.debug(f"StagingTagPanel: 置換先にカンマが含まれるため送らない: {to_tag!r}")
+            return
+        # 正規化後の form が選択タグと等価なら no-op（emit する from_tag は per-image タグと
+        # 突き合わせるため生値のまま、比較だけ正規化して underscore 差を吸収する）。
+        if from_tag == to_tag or TagCleaner.clean_format(from_tag).strip() == to_tag:
             logger.debug("StagingTagPanel: from_tag == to_tag のため overlay_replace_requested を送らない")
             return
         logger.debug(f"StagingTagPanel: overlay_replace_requested emit from={from_tag!r}, to={to_tag!r}")
