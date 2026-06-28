@@ -1,4 +1,9 @@
-"""ExportTabWidget の GUI テスト (Epic #867 / #872 / #896)。"""
+"""ExportTabWidget の GUI テスト (Epic #942 #949 / 旧 #867 #872 #896)。
+
+エクスポート前タグ編集パネルへ再構成 (#949): 3ペイン splitter + ExportOverlayBar。
+本テストは骨格 (PR1) を検証する: レイアウト構成・ステージング集合の自治同期。
+ウィジェット間配線・エクスポート実行の検証は PR2/PR3 で追加する。
+"""
 
 from __future__ import annotations
 
@@ -8,13 +13,17 @@ import pytest
 
 from lorairo.gui.state.staging_state import StagingStateManager
 from lorairo.gui.tab.export_tab import ExportTabWidget
-from lorairo.gui.widgets.dataset_export_widget import DatasetExportWidget
+from lorairo.gui.widgets.export_overlay_bar import ExportOverlayBar
+from lorairo.gui.widgets.staging_tag_panel import StagingTagPanel
 
 
 @pytest.fixture
 def service_container() -> Mock:
     container = Mock()
     container.dataset_export_service = Mock()
+    # MergedTagReader 無し (None) で構築 → 詳細ウィジェットの言語セレクタ初期化を回避し、
+    # ExportOverlayBar は convert スキップで動作する。
+    container.db_manager.annotation_repo.get_merged_reader.return_value = None
     return container
 
 
@@ -43,27 +52,36 @@ def export_tab_with_staging(
 
 
 @pytest.mark.gui
-def test_export_tab_hosts_export_widget(
+def test_export_tab_builds_three_pane_layout(
     qtbot, service_container: Mock, staging_manager: StagingStateManager
 ) -> None:
+    """3ペイン splitter + 下部 ExportOverlayBar が構成されること。"""
     widget = ExportTabWidget(service_container=service_container, staging_state_manager=staging_manager)
     qtbot.addWidget(widget)
 
-    assert isinstance(widget.export_widget, DatasetExportWidget)
-    assert widget.export_widget.parent() is widget
+    # 左/中/右の3ペイン
+    assert widget.main_splitter.count() == 3
+    assert isinstance(widget.staging_tag_panel, StagingTagPanel)
+    assert widget.main_splitter.widget(0) is widget.staging_tag_panel
+    assert widget.main_splitter.widget(1) is widget.thumbnail_selector
+    assert widget.main_splitter.widget(2) is widget.preview_splitter
+    # 右ペインは縦 splitter[プレビュー, 詳細]
+    assert widget.preview_splitter.count() == 2
+    # 下部 overlay バー
+    assert isinstance(widget.overlay_bar, ExportOverlayBar)
 
 
 @pytest.mark.gui
-def test_set_image_ids_delegates_to_export_widget(
+def test_set_image_ids_updates_current_export_ids(
     qtbot, service_container: Mock, staging_manager: StagingStateManager
 ) -> None:
+    """set_image_ids がエクスポート対象 ID を更新すること。"""
     widget = ExportTabWidget(service_container=service_container, staging_state_manager=staging_manager)
     qtbot.addWidget(widget)
-    widget.export_widget.set_image_ids = Mock()
 
     widget.set_image_ids([4, 5, 6])
 
-    widget.export_widget.set_image_ids.assert_called_once_with([4, 5, 6])
+    assert widget.current_export_ids() == [4, 5, 6]
 
 
 @pytest.mark.gui

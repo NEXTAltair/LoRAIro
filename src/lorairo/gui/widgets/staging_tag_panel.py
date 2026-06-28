@@ -65,13 +65,14 @@ class StagingTagPanel(QWidget):
 
     def __init__(
         self,
-        service: StagingTagAggregationService,
+        service: StagingTagAggregationService | None = None,
         parent: QWidget | None = None,
     ) -> None:
         """StagingTagPanel を初期化する。
 
         Args:
             service: タグ集計サービス。画像 ID リストからタグ件数を集計する。
+                None の場合は集計を行わず空表示で動作する (db_manager 不在時の縮退)。
             parent: 親ウィジェット。
         """
         super().__init__(parent)
@@ -283,8 +284,12 @@ class StagingTagPanel(QWidget):
             image_ids: ステージング中の画像 ID リスト。
         """
         self._image_ids = list(image_ids)
-        self._all_tags = self._service.aggregate(self._image_ids)
-        logger.debug(f"StagingTagPanel.load_tags: images={len(image_ids)}, tags={len(self._all_tags)}")
+        if self._service is None:
+            self._all_tags = []
+            logger.debug("StagingTagPanel.load_tags: 集計サービス未設定のため空表示")
+        else:
+            self._all_tags = self._service.aggregate(self._image_ids)
+            logger.debug(f"StagingTagPanel.load_tags: images={len(image_ids)}, tags={len(self._all_tags)}")
         # アクティブフィルタをリセットして再描画。
         # 既にタグ絞り込み中だった場合は filter_tag_changed(None) を emit して、
         # 接続先サムネペインが古いタグで絞り込まれたまま取り残されるのを防ぐ。
