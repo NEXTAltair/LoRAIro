@@ -7,6 +7,7 @@
 
 from __future__ import annotations
 
+from datetime import datetime
 from unittest.mock import Mock
 
 import pytest
@@ -162,6 +163,63 @@ def test_export_requested_runs_worker(
     # 対象 ID が worker (= criteria) へ正しく渡ること
     _, kwargs = export_service.export_with_criteria.call_args
     assert kwargs.get("format_type") in {"txt", "json"}
+
+
+@pytest.mark.gui
+def test_export_applies_changed_since_filter(
+    qtbot, monkeypatch, service_container: Mock, staging_manager: StagingStateManager
+) -> None:
+    """changed-since 有効時は filter_changed_since の結果だけを worker へ渡す (#962)。"""
+    from PySide6.QtWidgets import QFileDialog, QMessageBox
+
+    monkeypatch.setattr(QFileDialog, "getExistingDirectory", lambda *a, **k: "/tmp/export_out")
+    monkeypatch.setattr(QMessageBox, "information", lambda *a, **k: QMessageBox.StandardButton.Ok)
+    monkeypatch.setattr(QMessageBox, "warning", lambda *a, **k: QMessageBox.StandardButton.Ok)
+    export_service = service_container.dataset_export_service
+    export_service.export_with_criteria.return_value = "/tmp/export_out"
+    cutoff = datetime(2026, 6, 28, 10, 30)
+    export_service.filter_changed_since.return_value = [2, 3]
+
+    widget = ExportTabWidget(service_container=service_container, staging_state_manager=staging_manager)
+    qtbot.addWidget(widget)
+    staging_manager.add_image_ids([1, 2, 3])
+    widget._overlay_bar._changed_since_filter.set_filter(True, cutoff)
+    monkeypatch.setattr(widget, "_start_export_worker", lambda worker: worker.run())
+
+    widget._overlay_bar._export_btn.click()
+
+    export_service.filter_changed_since.assert_called_once_with([1, 2, 3], cutoff)
+    _, kwargs = export_service.export_with_criteria.call_args
+    assert kwargs["criteria"].image_ids == [2, 3]
+
+
+@pytest.mark.gui
+def test_export_changed_since_empty_warns_before_directory_dialog(
+    qtbot, monkeypatch, service_container: Mock, staging_manager: StagingStateManager
+) -> None:
+    """changed-since 結果が空なら出力先選択へ進まない (#962)。"""
+    from PySide6.QtWidgets import QFileDialog, QMessageBox
+
+    warned: list[bool] = []
+    monkeypatch.setattr(QMessageBox, "warning", lambda *a, **k: warned.append(True))
+    file_dialog_called: list[bool] = []
+    monkeypatch.setattr(
+        QFileDialog,
+        "getExistingDirectory",
+        lambda *a, **k: file_dialog_called.append(True) or "",
+    )
+    export_service = service_container.dataset_export_service
+    export_service.filter_changed_since.return_value = []
+
+    widget = ExportTabWidget(service_container=service_container, staging_state_manager=staging_manager)
+    qtbot.addWidget(widget)
+    staging_manager.add_image_ids([1, 2, 3])
+    widget._overlay_bar._changed_since_filter.set_filter(True, datetime(2026, 6, 28, 10, 30))
+
+    widget._overlay_bar._export_btn.click()
+
+    assert warned == [True]
+    assert file_dialog_called == []
 
 
 @pytest.mark.gui

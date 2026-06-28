@@ -248,6 +248,20 @@ class ExportTabWidget(QWidget):
         """現在のエクスポート対象 ID を返す (テスト・検証用)。"""
         return list(self._image_ids)
 
+    def _effective_export_ids(self) -> list[int]:
+        """changed-since を反映した実エクスポート対象 ID を返す。
+
+        絞り込み結果はキャッシュしない。validate/export のたびに現在の UI 設定から
+        再計算し、日時変更後の stale な対象で書き出す事故を防ぐ (#962 / #621)。
+        """
+        if not self._overlay_bar.changed_since_enabled():
+            return list(self._image_ids)
+        since = self._overlay_bar.changed_since()
+        return self._service_container.dataset_export_service.filter_changed_since(
+            list(self._image_ids),
+            since,
+        )
+
     # ------------------------------------------------------------------
     # エクスポート実行 (ExportOverlayBar からの要求受け)
     # ------------------------------------------------------------------
@@ -257,9 +271,17 @@ class ExportTabWidget(QWidget):
     @Slot()
     def _on_validate_requested(self) -> None:
         """検証要求: エクスポート対象件数を確認しユーザーへ提示する。"""
-        count = len(self._image_ids)
-        if count == 0:
+        if not self._image_ids:
             QMessageBox.warning(self, "エクスポート検証", "エクスポート対象がありません。")
+            return
+        effective_ids = self._effective_export_ids()
+        count = len(effective_ids)
+        if count == 0:
+            QMessageBox.warning(
+                self,
+                "エクスポート検証",
+                "changed-since 条件に一致するエクスポート対象がありません。",
+            )
             return
         QMessageBox.information(self, "エクスポート検証", f"エクスポート対象: {count} 枚")
 
@@ -271,6 +293,15 @@ class ExportTabWidget(QWidget):
             return
         if self._export_thread is not None and self._export_thread.isRunning():
             QMessageBox.information(self, "エクスポート", "エクスポート処理が実行中です。")
+            return
+
+        effective_ids = self._effective_export_ids()
+        if not effective_ids:
+            QMessageBox.warning(
+                self,
+                "エクスポート",
+                "changed-since 条件に一致するエクスポート対象がありません。",
+            )
             return
 
         directory = QFileDialog.getExistingDirectory(self, "エクスポート先ディレクトリを選択")
@@ -292,7 +323,7 @@ class ExportTabWidget(QWidget):
 
         worker = DatasetExportWorker(
             export_service=self._service_container.dataset_export_service,
-            image_ids=list(self._image_ids),
+            image_ids=effective_ids,
             output_path=Path(directory),
             resolution=resolution,
             export_format=export_format,
@@ -303,7 +334,7 @@ class ExportTabWidget(QWidget):
         worker.error.connect(self._on_export_error)
         self._export_worker = worker
         self._start_export_worker(worker)
-        logger.info(f"エクスポート開始: {len(self._image_ids)}枚 → {directory} (format={export_format})")
+        logger.info(f"エクスポート開始: {len(effective_ids)}枚 → {directory} (format={export_format})")
 
     def _start_export_worker(self, worker: DatasetExportWorker) -> None:
         """worker を専用 QThread で起動する (テストは本メソッドを差し替えて同期実行する)。"""
