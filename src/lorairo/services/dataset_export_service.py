@@ -395,8 +395,10 @@ class DatasetExportService:
     ) -> str:
         """タグリストを overlay または従来変換で文字列化する（ADR 0080）。
 
-        overlay_plan が None、または image_id に対する実効 overlay が空の場合は
-        レガシーパス（_convert_tags_for_export）にフォールバックし、リグレッションを防ぐ。
+        overlay_plan が None の場合はレガシーパス（_convert_tags_for_export）を使用する。
+        overlay_plan が指定された場合は apply_overlay に委譲する。
+        apply_overlay は add/replace が空のとき dedup をスキップするため、
+        空 overlay や exclude-only overlay でもレガシー出力と bit 単位一致が保証される。
 
         Args:
             tag_list: convert 前のタグリスト。
@@ -410,10 +412,9 @@ class DatasetExportService:
         """
         if overlay_plan is not None:
             effective_overlay = overlay_plan.effective_for(image_id)
-            if not effective_overlay.is_noop:
-                # overlay パイプライン: replace → exclude → convert → add → dedup
-                return ", ".join(apply_overlay(tag_list, effective_overlay, reader, tag_format))
-            # 実効 overlay が空（スコープ外画像）→ 従来挙動にフォールバック（リグレッション防止）
+            # apply_overlay 内で add/replace が空のとき dedup をスキップするため
+            # is_noop チェックによる分岐は不要（ADR 0080 §2 改訂）
+            return ", ".join(apply_overlay(tag_list, effective_overlay, reader, tag_format))
         return self._convert_tags_for_export(", ".join(tag_list), tag_format, reader)
 
     def _get_export_reader(self) -> "MergedTagReader | None":
