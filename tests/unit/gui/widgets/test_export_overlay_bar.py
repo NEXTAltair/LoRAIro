@@ -13,6 +13,8 @@
 
 from __future__ import annotations
 
+from datetime import datetime
+
 import pytest
 
 from lorairo.gui.widgets.export_overlay_bar import ExportOverlayBar
@@ -283,6 +285,18 @@ class TestExportActions:
         idx = values.index("txt_merged")
         bar._format_combo.setCurrentIndex(idx)
         assert bar.selected_format() == "txt_merged"
+
+    def test_changed_since_filter_defaults_disabled(self, bar: ExportOverlayBar) -> None:
+        """changed-since フィルタは既定で無効であること。"""
+        assert bar.changed_since_enabled() is False
+
+    def test_changed_since_filter_can_be_enabled(self, bar: ExportOverlayBar) -> None:
+        """changed-since フィルタの cutoff 日時を取得できること。"""
+        cutoff = datetime(2026, 6, 28, 10, 30)
+        bar._changed_since_filter.set_filter(True, cutoff)
+
+        assert bar.changed_since_enabled() is True
+        assert bar.changed_since() == cutoff
 
 
 # ------------------------------------------------------------------
