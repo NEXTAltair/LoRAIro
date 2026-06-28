@@ -135,26 +135,24 @@ class TestOverlayTagE2E:
             f"'{normalized}' should appear in get_unknown_tags(), got: {tag_names}"
         )
 
-    def test_tag_management_service_update_type_persists(self, test_tag_db_path) -> None:
-        """TagManagementService.update_single_tag_type() が type 更新を永続化する (Scenario 4 続き)"""
-        from genai_tag_db_tools import create_tag_register_service
-        from genai_tag_db_tools.models import TagRegisterRequest
+    def test_tag_management_service_update_type_persists(
+        self, test_annotation_repository_with_tag_db
+    ) -> None:
+        """TagManagementService.update_single_tag_type() が type 更新を永続化する (Scenario 4 続き)
 
+        annotation path (scope なし / legacy TAGS) で登録したタグを対象にする。
+        user scope タグ (USER_TAGS) への type 更新は未実装 (別 Issue)。
+        """
         from lorairo.services.tag_management_service import TagManagementService
 
         unique_tag = f"typed_{uuid.uuid4().hex[:8]}"
-        normalized = unique_tag.replace("_", " ")
 
-        svc = create_tag_register_service()
-        req = TagRegisterRequest(
-            tag=normalized,
-            source_tag=unique_tag,
-            format_name="Lorairo",
-            type_name="unknown",
-            scope="user",
-        )
-        result = svc.register_tag(req)
-        tag_id = result.tag_id
+        with test_annotation_repository_with_tag_db.session_factory() as session:
+            tag_id = test_annotation_repository_with_tag_db._get_or_create_tag_id_external(
+                session, unique_tag
+            )
+
+        assert tag_id is not None, f"annotation-path tag_id should be created for '{unique_tag}'"
 
         tms = TagManagementService()
 
