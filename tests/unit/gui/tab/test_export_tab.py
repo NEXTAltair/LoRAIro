@@ -117,3 +117,67 @@ def test_export_tab_refresh_reads_staging_set(qtbot, export_tab_with_staging) ->
     tab.refresh()
 
     assert tab.current_export_ids() == [7, 8]
+
+
+@pytest.mark.gui
+def test_uses_tab_local_dataset_state_manager(
+    qtbot, service_container: Mock, staging_manager: StagingStateManager
+) -> None:
+    """選択 SSoT はタブローカルに生成され、共有 manager を汚染しないこと (#961 P1)。"""
+    from lorairo.gui.state.dataset_state import DatasetStateManager
+
+    widget = ExportTabWidget(service_container=service_container, staging_state_manager=staging_manager)
+    qtbot.addWidget(widget)
+
+    # 内部 DSM は専用インスタンス (検索タブと共有しない)
+    assert isinstance(widget._dataset_state_manager, DatasetStateManager)
+
+
+@pytest.mark.gui
+def test_export_requested_runs_worker(
+    qtbot, monkeypatch, service_container: Mock, staging_manager: StagingStateManager
+) -> None:
+    """エクスポートボタンが出力先選択 → DatasetExportService 経由で書き出すこと (#961 P1)。"""
+    from PySide6.QtWidgets import QFileDialog, QMessageBox
+
+    monkeypatch.setattr(QFileDialog, "getExistingDirectory", lambda *a, **k: "/tmp/export_out")
+    monkeypatch.setattr(QMessageBox, "information", lambda *a, **k: QMessageBox.StandardButton.Ok)
+    monkeypatch.setattr(QMessageBox, "warning", lambda *a, **k: QMessageBox.StandardButton.Ok)
+    export_service = service_container.dataset_export_service
+    export_service.export_with_criteria.return_value = "/tmp/export_out"
+
+    widget = ExportTabWidget(service_container=service_container, staging_state_manager=staging_manager)
+    qtbot.addWidget(widget)
+    staging_manager.add_image_ids([1, 2, 3])
+
+    with qtbot.waitSignal(widget._overlay_bar.export_requested, timeout=1000):
+        widget._overlay_bar._export_btn.click()
+    # worker は別スレッド。export_service が呼ばれるまで待つ。
+    qtbot.waitUntil(lambda: export_service.export_with_criteria.called, timeout=3000)
+
+    assert export_service.export_with_criteria.called
+
+
+@pytest.mark.gui
+def test_export_requested_without_targets_warns(
+    qtbot, monkeypatch, service_container: Mock, staging_manager: StagingStateManager
+) -> None:
+    """対象が空のエクスポート要求は警告し、出力先選択へ進まないこと。"""
+    from PySide6.QtWidgets import QFileDialog, QMessageBox
+
+    warned: list[bool] = []
+    monkeypatch.setattr(QMessageBox, "warning", lambda *a, **k: warned.append(True))
+    file_dialog_called: list[bool] = []
+    monkeypatch.setattr(
+        QFileDialog,
+        "getExistingDirectory",
+        lambda *a, **k: file_dialog_called.append(True) or "",
+    )
+
+    widget = ExportTabWidget(service_container=service_container, staging_state_manager=staging_manager)
+    qtbot.addWidget(widget)  # staging 空
+
+    widget._overlay_bar._export_btn.click()
+
+    assert warned == [True]
+    assert file_dialog_called == []

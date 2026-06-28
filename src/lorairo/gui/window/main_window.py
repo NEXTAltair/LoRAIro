@@ -673,7 +673,6 @@ class MainWindow(QMainWindow, Ui_MainWindow):
         widget = ExportTabWidget(
             service_container=self.service_container,
             db_manager=self.db_manager,
-            dataset_state_manager=self.dataset_state_manager,
             staging_state_manager=self.staging_state_manager,
             parent=container,
         )
