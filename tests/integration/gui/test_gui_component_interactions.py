@@ -164,23 +164,14 @@ class TestGUIComponentInteractions:
         assert current_data["stored_image_path"].endswith("file01.webp")
 
     def test_real_filter_state_propagation(self, dataset_state_manager, test_images_data):
-        """実際のフィルター状態伝播統合テスト"""
-        # 実際のフィルター条件設定
-        filter_conditions = {
-            "tags": ["anime", "girl"],
-            "caption": "beautiful anime girl",
-            "resolution": 2048,
-            "use_and": True,
-            "include_untagged": False,
-        }
-
-        # 実際のフィルタリング適用（anime tagを持つ画像のみ）
+        """実際の検索結果伝播統合テスト (Issue #969: 検索結果でデータ置換)"""
+        # 検索結果適用（anime tagを持つ画像のみ）
         anime_images = [img for img in test_images_data if "anime" in img.get("tags", [])]
-        dataset_state_manager.apply_filter_results(anime_images, filter_conditions)
+        dataset_state_manager.update_from_search_results(anime_images)
 
-        # 実際のフィルター状態確認
-        assert dataset_state_manager.filter_conditions == filter_conditions
+        # 検索結果が表示対象に反映されることを確認
         assert len(dataset_state_manager.filtered_images) == len(anime_images)
+        assert dataset_state_manager.image_count == len(anime_images)
 
     def test_ui_state_coordination(self, dataset_state_manager):
         """UI状態協調テスト"""
@@ -201,11 +192,9 @@ class TestGUIComponentInteractions:
         # 1. 実際のデータセット読み込み
         dataset_state_manager.set_dataset_images(test_images_data)
 
-        # 2. 実際のフィルター適用
-        filter_conditions = {"tags": ["anime"], "use_and": False}
-        # 実際のフィルタリングロジック実行
+        # 2. 検索結果でデータ置換 (Issue #969: 2 層統合後は検索結果が単一データソース)
         filtered_images = [img for img in test_images_data if "anime" in img.get("tags", [])]
-        dataset_state_manager.apply_filter_results(filtered_images, filter_conditions)
+        dataset_state_manager.update_from_search_results(filtered_images)
 
         # 3. 実際の画像選択
         if filtered_images:  # anime画像が存在する場合

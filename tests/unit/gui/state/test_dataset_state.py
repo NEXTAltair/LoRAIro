@@ -138,21 +138,6 @@ class TestDatasetStateManager:
         mock_repository.get_image_metadata.assert_called_once_with(4412)
         data_changed_mock.assert_called_once_with(fetched)
 
-    def test_filter_management(self, state_manager, sample_image_metadata):
-        """フィルター管理テスト"""
-        state_manager.set_dataset_images(sample_image_metadata)
-
-        filter_applied_mock = Mock()
-        state_manager.filter_applied.connect(filter_applied_mock)
-
-        # フィルター適用（apply_filter_results メソッドを使用）
-        filter_conditions = {"tags": ["test"], "caption": "sample"}
-        filtered_images = sample_image_metadata[:2]  # フィルター済み画像をシミュレート
-        state_manager.apply_filter_results(filtered_images, filter_conditions)
-
-        assert state_manager.filter_conditions == filter_conditions
-        filter_applied_mock.assert_called_once_with(filter_conditions)
-
     def test_ui_state_management(self, state_manager):
         """UI状態管理テスト"""
         thumbnail_size_mock = Mock()
@@ -335,19 +320,6 @@ class TestDatasetStateManager:
         state_manager.clear_dataset()
         assert state_manager.get_image_by_id(1) is None
 
-    def test_get_image_by_id_fallback_to_filtered(self, state_manager):
-        """all_images に無く filtered_images にあるIDはフォールバックで取得（同期問題の兆候）"""
-        # 同期不整合を直接構成: all_images は空、filtered_images にのみ存在
-        state_manager._all_images = []
-        state_manager._filtered_images = [
-            {"id": 7, "stored_image_path": "/test/only_filtered.jpg", "width": 50, "height": 50}
-        ]
-        state_manager._invalidate_image_index()
-
-        result = state_manager.get_image_by_id(7)
-        assert result is not None
-        assert result["id"] == 7
-
     # === Issue #965: アノテーション遅延取得 ===
 
     def test_set_current_image_lazy_loads_annotations(self, state_manager):
@@ -422,14 +394,18 @@ class TestDatasetStateManager:
     # === Issue #967: 全件コピーを伴わない軽量アクセサ ===
 
     def test_count_accessors(self, state_manager, sample_image_metadata):
-        """image_count / filtered_count が全件コピーなしで件数を返す"""
+        """image_count / filtered_count が全件コピーなしで件数を返す
+
+        Issue #969: 2 層統合後は両者は常に同値 (単一リスト)。
+        """
         state_manager.set_dataset_images(sample_image_metadata)
         assert state_manager.image_count == 3
         assert state_manager.filtered_count == 3
+        assert state_manager.filtered_count == state_manager.image_count
 
-        # filtered のみ差し替えても両者が独立に件数を返す
-        state_manager.apply_filter_results(sample_image_metadata[:2], {"tags": ["x"]})
-        assert state_manager.image_count == 3
+        # 検索結果で置換しても両者は同値
+        state_manager.update_from_search_results(sample_image_metadata[:2])
+        assert state_manager.image_count == 2
         assert state_manager.filtered_count == 2
 
     def test_get_filtered_image_ids_slice(self, state_manager):
@@ -444,10 +420,12 @@ class TestDatasetStateManager:
 
     def test_get_filtered_image_ids_slice_skips_non_int_ids(self, state_manager):
         """id が int でない要素はスキップする (従来の get_page_image_ids と同じ挙動)"""
-        state_manager._filtered_images = [
-            {"id": 1},
-            {"id": None},
-            {"stored_image_path": "/no_id.jpg"},
-            {"id": 4},
-        ]
+        state_manager.set_dataset_images(
+            [
+                {"id": 1},
+                {"id": None},
+                {"stored_image_path": "/no_id.jpg"},
+                {"id": 4},
+            ]
+        )
         assert state_manager.get_filtered_image_ids_slice(0, 4) == [1, 4]
