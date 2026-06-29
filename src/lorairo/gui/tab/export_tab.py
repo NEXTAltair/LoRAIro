@@ -168,10 +168,15 @@ class ExportTabWidget(QWidget):
         merged_reader = self._resolve_merged_reader()
         if merged_reader is not None:
             self._selected_image_details_widget.set_merged_reader(merged_reader)
-        # refinement リコメンド (#931): 共有 RefinementService を注入
-        self._selected_image_details_widget.set_refinement_service(
-            self._service_container.refinement_service
-        )
+        # refinement リコメンド (#931): 共有 RefinementService を注入。
+        # tagdb 初期化失敗でもタブを巻き込まず degrade する (refinement は付加機能のため非致命)。
+        try:
+            self._selected_image_details_widget.set_refinement_service(
+                self._service_container.refinement_service
+            )
+        except Exception as e:
+            # graceful degradation (#931): どの初期化エラーでもタブを生かす意図で広く捕捉。
+            logger.warning(f"RefinementService 配線をスキップ (tagdb 不可?): {e}")
         if dsm is not None:
             self._selected_image_details_widget.connect_to_dataset_state_manager(dsm)
 

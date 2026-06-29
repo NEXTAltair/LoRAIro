@@ -406,17 +406,36 @@ class SelectedImageDetailsWidget(QWidget):
 
         self._refinement_generation += 1
         worker = RefinementWorker(
-            service, image_id=self.current_image_id, tags=list(self._current_tag_canonicals)
+            service,
+            image_id=self.current_image_id,
+            tags=list(self._current_tag_canonicals),
+            generation=self._refinement_generation,
         )
         worker.finished.connect(self._on_refinement_finished)
         manager.start_worker(f"refinement_{self._refinement_generation}", worker)
 
     @Slot(object)
     def _on_refinement_finished(self, result: "RefinementResult") -> None:
-        """worker 完了: 表示中画像と一致する結果のみ chip に反映する (#931)。"""
+        """worker 完了: 最新世代かつ表示中画像と一致する結果のみ chip に反映する (#931)。
+
+        image_id だけでは A→B→A の再選択で古い worker の結果が新しい結果を上書きしうるため、
+        起動世代 (generation) も照合して superseded な結果を破棄する。
+        """
+        if result.generation != self._refinement_generation:
+            return  # 後続の評価が既に始まっている → 古い結果は破棄
         if result.image_id != self.current_image_id:
             return  # 画像が既に切り替わった → 破棄 (レース対策)
         self.annotation_display.apply_refinements(result.recommendations)
+
+    def shutdown(self) -> None:
+        """実行中の refinement worker をキャンセルする (#931)。
+
+        ウィジェット/ウィンドウ破棄時に呼び、QThread が widget より長生きして Qt teardown
+        警告/クラッシュになるのを防ぐ。MainWindow.closeEvent から呼ばれる。
+        """
+        manager = self._refinement_worker_manager
+        if manager is not None:
+            manager.cancel_all_workers()
 
     @Slot(str, str)
     def _on_refinement_ignored(self, canonical: str, reason_code: str) -> None:

@@ -41,10 +41,14 @@ class _FakeService:
 class _FakeWorkerManager:
     def __init__(self) -> None:
         self.started: list[tuple[str, object]] = []
+        self.cancel_all_calls = 0
 
     def start_worker(self, worker_id, worker, auto_cleanup=True):  # type: ignore[no-untyped-def]
         self.started.append((worker_id, worker))
         return True
+
+    def cancel_all_workers(self, *args, **kwargs):  # type: ignore[no-untyped-def]
+        self.cancel_all_calls += 1
 
 
 def _make_widget(qtbot) -> SelectedImageDetailsWidget:
@@ -56,10 +60,13 @@ def _make_widget(qtbot) -> SelectedImageDetailsWidget:
 def test_finished_applies_when_image_matches(qtbot, monkeypatch) -> None:
     widget = _make_widget(qtbot)
     widget.current_image_id = 5
+    widget._refinement_generation = 3
     applied: list[dict] = []
     monkeypatch.setattr(widget.annotation_display, "apply_refinements", applied.append)
 
-    widget._on_refinement_finished(RefinementResult(image_id=5, recommendations={"flower": _rec("flower")}))
+    widget._on_refinement_finished(
+        RefinementResult(image_id=5, generation=3, recommendations={"flower": _rec("flower")})
+    )
 
     assert len(applied) == 1
     assert set(applied[0].keys()) == {"flower"}
@@ -68,10 +75,29 @@ def test_finished_applies_when_image_matches(qtbot, monkeypatch) -> None:
 def test_finished_discards_on_image_mismatch(qtbot, monkeypatch) -> None:
     widget = _make_widget(qtbot)
     widget.current_image_id = 5
+    widget._refinement_generation = 3
     applied: list[dict] = []
     monkeypatch.setattr(widget.annotation_display, "apply_refinements", applied.append)
 
-    widget._on_refinement_finished(RefinementResult(image_id=9, recommendations={"flower": _rec("flower")}))
+    widget._on_refinement_finished(
+        RefinementResult(image_id=9, generation=3, recommendations={"flower": _rec("flower")})
+    )
+
+    assert applied == []
+
+
+def test_finished_discards_stale_generation(qtbot, monkeypatch) -> None:
+    """同一 image_id でも古い世代の結果は破棄する (A→B→A レース、Codex P2)。"""
+    widget = _make_widget(qtbot)
+    widget.current_image_id = 5
+    widget._refinement_generation = 4  # 現行世代
+    applied: list[dict] = []
+    monkeypatch.setattr(widget.annotation_display, "apply_refinements", applied.append)
+
+    # 古い世代 (2) の結果 — image_id は一致するが世代が古い
+    widget._on_refinement_finished(
+        RefinementResult(image_id=5, generation=2, recommendations={"flower": _rec("flower")})
+    )
 
     assert applied == []
 
@@ -116,3 +142,21 @@ def test_ignored_persists_and_reevaluates(qtbot) -> None:
 
     assert service.ignored == [("flower", "broad_single_word")]
     assert len(manager.started) == 1  # 再評価が起動した
+
+
+def test_shutdown_cancels_workers(qtbot) -> None:
+    """shutdown() で refinement worker manager をキャンセルする (Codex P2 teardown)。"""
+    widget = _make_widget(qtbot)
+    service = _FakeService()
+    manager = _FakeWorkerManager()
+    widget.set_refinement_service(service, worker_manager=manager)
+
+    widget.shutdown()
+
+    assert manager.cancel_all_calls == 1
+
+
+def test_shutdown_without_service_is_noop(qtbot) -> None:
+    """サービス未配線でも shutdown() は例外にならない。"""
+    widget = _make_widget(qtbot)
+    widget.shutdown()  # 例外が出なければ OK

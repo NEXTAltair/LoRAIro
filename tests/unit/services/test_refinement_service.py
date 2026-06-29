@@ -159,6 +159,22 @@ def test_partial_ignore_drops_suggestions() -> None:
     assert result["flower"].suggestions == []
 
 
+def test_clear_cache_forces_reevaluation() -> None:
+    """clear_cache() 後は再評価する (tagdb 編集後の stale 解消、Codex P2)。"""
+    calls: list[str] = []
+
+    def fake_recommend(tag: str, *, repo: object = None, format_name: str = "unknown"):
+        calls.append(tag)
+        return _make_recommendation(tag, reason_codes=["broad_single_word"])
+
+    service = RefinementService(recommend_fn=fake_recommend, ignore_repo=_FakeIgnoreRepo())
+    service.recommend_for_tags(["flower"])
+    service.clear_cache()
+    service.recommend_for_tags(["flower"])
+
+    assert calls == ["flower", "flower"]  # clear 後に再評価
+
+
 def test_different_repo_bypasses_cache() -> None:
     """reader (repo) が違えば別キーとして再評価する (Codex P2)。"""
     calls: list[object] = []

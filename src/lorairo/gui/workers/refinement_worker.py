@@ -26,10 +26,12 @@ class RefinementResult:
 
     Attributes:
         image_id: 評価対象だった画像 ID (受信側のレース照合用)。
+        generation: 起動時の世代番号 (同一 image_id の A→B→A 再選択でも古い結果を弾く)。
         recommendations: needs_refinement=True のタグ → リコメンド。
     """
 
     image_id: int
+    generation: int
     recommendations: dict[str, RefinementRecommendation]
 
 
@@ -45,6 +47,7 @@ class RefinementWorker(LoRAIroWorkerBase[RefinementResult]):
         tags: Iterable[str],
         format_map: Mapping[str, str] | None = None,
         repo: object | None = None,
+        generation: int = 0,
     ) -> None:
         """RefinementWorker を初期化する。
 
@@ -54,6 +57,7 @@ class RefinementWorker(LoRAIroWorkerBase[RefinementResult]):
             tags: 評価対象のタグ文字列。
             format_map: タグ→format_name のマップ。
             repo: lib に渡す DB リーダー。
+            generation: 起動世代 (受信側のレース照合用)。
         """
         super().__init__()
         self._service = refinement_service
@@ -61,6 +65,7 @@ class RefinementWorker(LoRAIroWorkerBase[RefinementResult]):
         self._tags = list(tags)
         self._format_map = format_map
         self._repo = repo
+        self._generation = generation
 
     def execute(self) -> RefinementResult:
         """タグ集合を評価し RefinementResult を返す。"""
@@ -68,7 +73,11 @@ class RefinementWorker(LoRAIroWorkerBase[RefinementResult]):
             self._tags, format_map=self._format_map, repo=self._repo
         )
         logger.debug(
-            f"refinement worker 完了: image_id={self._image_id}, "
+            f"refinement worker 完了: image_id={self._image_id}, gen={self._generation}, "
             f"対象={len(self._tags)}, 表示={len(recommendations)}"
         )
-        return RefinementResult(image_id=self._image_id, recommendations=recommendations)
+        return RefinementResult(
+            image_id=self._image_id,
+            generation=self._generation,
+            recommendations=recommendations,
+        )

@@ -128,6 +128,16 @@ class RefinementService:
         self._cache = {k: v for k, v in self._cache.items() if k[0] != tag}
         logger.debug(f"refinement ignore 追加: tag='{tag}', reason_code='{reason_code}'")
 
+    def clear_cache(self) -> None:
+        """評価キャッシュを全消去する (#931)。
+
+        tagdb のメタデータ (alias/type 等) が同一セッション中に編集された場合
+        (例: TagManagementWidget の type 更新)、キャッシュ済みリコメンドが stale になるため、
+        編集フロー側から本メソッドを呼んで無効化する。
+        """
+        self._cache.clear()
+        logger.debug("refinement キャッシュをクリア")
+
     def is_ignored(self, tag: str, reason_code: str) -> bool:
         """(tag, reason_code) が ignore 済みか返す。"""
         return self._ignore_repo.is_ignored(tag, reason_code)
