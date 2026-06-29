@@ -42,8 +42,10 @@ class DatasetStateManager(QObject):
 
         # === プライベート状態 ===
         self._dataset_path: Path | None = None
+        # Issue #969: 検索結果(全件)とフィルター済みの2層モデルは実 UX で
+        # 分岐せず形骸化していたため _all_images の単一リストに統合した。
+        # filtered_* 系アクセサ・signal は後方互換のため _all_images を参照する。
         self._all_images: list[dict[str, Any]] = []
-        self._filtered_images: list[dict[str, Any]] = []
         # _all_images の id→metadata 遅延インデックス (get_image_by_id を O(1) 化)。
         # _all_images の内容が変わる箇所で _invalidate_image_index() により無効化する。
         self._id_index: dict[int, dict[str, Any]] | None = None
@@ -85,7 +87,8 @@ class DatasetStateManager(QObject):
 
     @property
     def filtered_images(self) -> list[dict[str, Any]]:
-        return self._filtered_images.copy()
+        # Issue #969: 2層統合後は全件と同一。後方互換のため defensive copy を返す。
+        return self._all_images.copy()
 
     @property
     def image_count(self) -> int:
@@ -98,9 +101,9 @@ class DatasetStateManager(QObject):
 
         ``len(self.filtered_images)`` は read-only 用途でも全件 shallow copy を伴うため、
         ページング (PaginationStateManager.total_items / total_pages) のような高頻度経路
-        では件数取得にこのアクセサを使う。
+        では件数取得にこのアクセサを使う。Issue #969 の 2 層統合後は image_count と同値。
         """
-        return len(self._filtered_images)
+        return len(self._all_images)
 
     @property
     def selected_image_ids(self) -> list[int]:
@@ -134,12 +137,11 @@ class DatasetStateManager(QObject):
     def set_dataset_images(self, images: list[dict[str, Any]]) -> None:
         """データセットの全画像リストを設定"""
         self._all_images = images.copy()
-        self._filtered_images = images.copy()  # 初期状態はフィルターなし
         self._invalidate_image_index()
 
         logger.info(f"データセット画像読み込み: {len(images)}件")
         self.images_loaded.emit(self._all_images)
-        self.images_filtered.emit(self._filtered_images)
+        self.images_filtered.emit(self._all_images)
         self.dataset_loaded.emit(len(images))
 
         # 選択状態をクリア
@@ -149,7 +151,6 @@ class DatasetStateManager(QObject):
         """データセット状態をクリア"""
         self._dataset_path = None
         self._all_images = []
-        self._filtered_images = []
         self._filter_conditions = {}
         self._invalidate_image_index()
 
@@ -160,73 +161,13 @@ class DatasetStateManager(QObject):
 
     # === Filter Management ===
 
-    def apply_filter_results(
-        self, filtered_images: list[dict[str, Any]], filter_conditions: dict[str, Any]
-    ) -> None:
-        """
-        データベースからのフィルター結果を適用し、状態を更新します。
-
-        このメソッドは検索・フィルター処理の結果を受け取り、DatasetStateManagerの
-        内部状態を更新します。フィルター適用後、関連するシグナルを発行して
-        UI コンポーネントに変更を通知します。
-
-        Args:
-            filtered_images (list[dict[str, Any]]): フィルター処理後の画像メタデータリスト。
-                各辞書は以下のキーを含む必要があります:
-                - "id": 画像ID (int)
-                - "stored_image_path": 画像ファイルパス (str)
-                - その他の画像メタデータ (width, height, etc.)
-
-            filter_conditions (dict[str, Any]): 適用されたフィルター条件。
-                以下のようなキーを含むことがあります:
-                - "tags": タグフィルター条件 (list[str])
-                - "caption": キャプション検索条件 (str)
-                - "resolution": 解像度フィルター条件 (int)
-                - "use_and": AND/OR検索ロジック (bool)
-                - "date_range": 日付範囲フィルター (tuple)
-                - "include_untagged": 未タグ画像を含むか (bool)
-
-        Returns:
-            None
-
-        Side Effects:
-            - 内部状態 (_filtered_images, _filter_conditions) を更新
-            - filter_applied シグナルを発行 (フィルター条件を通知)
-            - images_filtered シグナルを発行 (フィルター済み画像リストを通知)
-            - 現在選択中の画像がフィルター結果に含まれない場合、選択をクリア
-
-        Example:
-            >>> filtered_images = [
-            ...     {"id": 1, "stored_image_path": "/path/to/image1.jpg", "width": 1024, "height": 768},
-            ...     {"id": 2, "stored_image_path": "/path/to/image2.jpg", "width": 800, "height": 600}
-            ... ]
-            >>> filter_conditions = {
-            ...     "tags": ["landscape", "nature"],
-            ...     "resolution": 1024,
-            ...     "use_and": True
-            ... }
-            >>> state_manager.apply_filter_results(filtered_images, filter_conditions)
-        """
-        self._filter_conditions = filter_conditions.copy()
-        self._filtered_images = filtered_images.copy()
-
-        logger.info(f"フィルター結果適用: {len(self._all_images)}件 → {len(self._filtered_images)}件")
-
-        self.filter_applied.emit(filter_conditions)
-        self.images_filtered.emit(self._filtered_images)
-
-        # 現在の選択が有効でない場合はクリア
-        if self._current_image_id:
-            current_valid = any(img.get("id") == self._current_image_id for img in self._filtered_images)
-            if not current_valid:
-                self.clear_current_image()
-
     def update_from_search_results(self, search_results: list[dict[str, Any]]) -> None:
         """
         検索結果による完全データ更新（クリーンなデータフロー）
 
-        従来のapply_filter_results()とは異なり、検索結果でマスターデータを完全置換し、
-        単一データソースとしての信頼性を確保します。
+        検索結果でマスターデータ (_all_images) を完全置換し、単一データソース
+        (Single Source of Truth) として扱う。Issue #969 で検索結果/フィルターの
+        2 層を統合したため、ここで保持する 1 リストが全件かつ表示対象を兼ねる。
 
         Args:
             search_results: 検索結果の画像メタデータリスト
@@ -236,15 +177,15 @@ class DatasetStateManager(QObject):
                 - その他の画像メタデータ (width, height, etc.)
 
         Side Effects:
-            - _all_images と _filtered_images を同時更新（同期保証）
+            - _all_images を完全置換
             - images_loaded と images_filtered シグナルを発行
             - 現在選択中の画像が結果に含まれない場合、選択をクリア
         """
         logger.info(f"検索結果によるデータ完全更新: {len(search_results)}件")
 
-        # 完全データ置換（Single Source of Truth）
+        # 完全データ置換（Single Source of Truth）。Issue #969: 2 層統合により
+        # コピーは 1 回のみ (呼び出し元が保持する list との別オブジェクト化のため必要)。
         self._all_images = search_results.copy()
-        self._filtered_images = search_results.copy()
         self._invalidate_image_index()
 
         # フィルター条件はクリア（検索結果が新しい基準）
@@ -252,7 +193,7 @@ class DatasetStateManager(QObject):
 
         # シグナル発行で UI コンポーネントに通知
         self.images_loaded.emit(self._all_images)
-        self.images_filtered.emit(self._filtered_images)
+        self.images_filtered.emit(self._all_images)
 
         # 現在の選択状態を検証・クリア
         if self._current_image_id:
@@ -263,18 +204,7 @@ class DatasetStateManager(QObject):
                 )
                 self.clear_current_image()
 
-        logger.debug(
-            f"データ同期完了: all_images={len(self._all_images)}, filtered_images={len(self._filtered_images)}"
-        )
-
-    def clear_filter(self) -> None:
-        """フィルターをクリア"""
-        self._filter_conditions = {}
-        self._filtered_images = self._all_images.copy()
-
-        self.filter_cleared.emit()
-        self.images_filtered.emit(self._filtered_images)
-        logger.info("フィルターをクリアしました")
+        logger.debug(f"データ同期完了: all_images={len(self._all_images)}")
 
     # === Selection Management ===
 
@@ -328,27 +258,17 @@ class DatasetStateManager(QObject):
                 # デバッグ情報を詳細化
                 state_summary = self.get_state_summary()
                 logger.warning(
-                    f"画像データ取得失敗: ID {image_id} | "
-                    f"all_images={state_summary['total_images']}, "
-                    f"filtered_images={state_summary['filtered_images']} | "
-                    f"検索対象: _all_images 優先検索に変更が必要な可能性"
+                    f"画像データ取得失敗: ID {image_id} | all_images={state_summary['total_images']}"
                 )
 
-                # フィルター済み画像からも検索を試行
-                filtered_image_data = self._get_image_from_filtered(image_id)
-                if filtered_image_data:
-                    logger.debug(f"フィルター済み画像で発見: ID {image_id} - データを送信")
-                    self._ensure_annotations_loaded(filtered_image_data)
-                    self.current_image_data_changed.emit(filtered_image_data)
+                # キャッシュ未登録 (登録直後 / 検索結果外) は DB から取得して空表示を防ぐ
+                db_image_data = self._get_image_from_db(image_id)
+                if db_image_data:
+                    logger.debug(f"DB から画像取得: ID {image_id} - データを送信")
+                    self.current_image_data_changed.emit(db_image_data)
                 else:
-                    # キャッシュ未登録 (登録直後 / 検索結果外) は DB から取得して空表示を防ぐ
-                    db_image_data = self._get_image_from_db(image_id)
-                    if db_image_data:
-                        logger.debug(f"DB から画像取得: ID {image_id} - データを送信")
-                        self.current_image_data_changed.emit(db_image_data)
-                    else:
-                        # 取得できない場合のみ空データでシグナルの一貫性を保つ
-                        self.current_image_data_changed.emit({})
+                    # 取得できない場合のみ空データでシグナルの一貫性を保つ
+                    self.current_image_data_changed.emit({})
 
     def clear_current_image(self) -> None:
         """現在の画像選択をクリア"""
@@ -403,10 +323,10 @@ class DatasetStateManager(QObject):
         self._id_index = None
 
     def get_filtered_image_ids_slice(self, start: int, end: int) -> list[int]:
-        """フィルター済み画像の [start:end] ページ分の画像IDだけを返す (Issue #967)。
+        """[start:end] ページ分の画像IDだけを返す (Issue #967)。
 
         ``filtered_images`` プロパティ経由だと全件 shallow copy が発生するが、
-        本メソッドは ``_filtered_images[start:end]`` のスライス (高々 page_size 件) のみ
+        本メソッドは ``_all_images[start:end]`` のスライス (高々 page_size 件) のみ
         を走査して id を抽出するため、ページング経路のコピーコストを O(全件) から
         O(ページ) に下げる。
 
@@ -419,13 +339,13 @@ class DatasetStateManager(QObject):
         """
         return [
             image_id
-            for image in self._filtered_images[start:end]
+            for image in self._all_images[start:end]
             if isinstance((image_id := image.get("id")), int)
         ]
 
     def get_image_by_id(self, image_id: int) -> dict[str, Any] | None:
         """
-        IDで画像メタデータを取得（統一データソース:all_images優先、filtered_imagesフォールバック）
+        IDで画像メタデータを取得（統一データソース: _all_images インデックス）
 
         Args:
             image_id: 検索する画像ID
@@ -433,34 +353,24 @@ class DatasetStateManager(QObject):
         Returns:
             画像メタデータ辞書、見つからない場合はNone
         """
-        # 1. all_images インデックスから O(1) 検索（メインデータソース）
+        # all_images インデックスから O(1) 検索（Issue #969: 2 層統合により単一ソース）
         img = self._get_all_images_index().get(image_id)
         if img is not None:
             return img
-
-        # 2. filtered_images からフォールバック検索（all_images との同期問題の兆候）
-        for fimg in self._filtered_images:
-            if fimg.get("id") == image_id:
-                logger.warning(
-                    f"画像ID {image_id} をfiltered_imagesで発見（all_imagesとの同期問題あり）"
-                    f"- path: {fimg.get('stored_image_path', 'N/A')}"
-                )
-                return fimg
 
         # デバッグ情報の詳細ログ
         logger.debug(
             f"画像ID {image_id} が見つかりません。"
             f"all_images: {len(self._all_images)}件, "
-            f"filtered_images: {len(self._filtered_images)}件, "
-            f"IDサンプル: {[img.get('id') for img in (self._all_images or self._filtered_images)[:3]]}..."
+            f"IDサンプル: {[img.get('id') for img in self._all_images[:3]]}..."
         )
         return None
 
     def update_image_metadata(self, image_id: int, new_metadata: dict[str, Any]) -> None:
         """単一画像のキャッシュメタデータを更新
 
-        _all_images と _filtered_images の両方を更新し、
-        現在選択中の画像ならシグナル発行。
+        _all_images を更新し、現在選択中の画像ならシグナル発行。
+        Issue #969: 2 層統合により更新対象は単一リストのみ。
 
         Args:
             image_id: 更新対象の画像ID
@@ -489,18 +399,6 @@ class DatasetStateManager(QObject):
         else:
             logger.warning(f"画像ID {image_id} が_all_imagesに見つかりません")
 
-        # _filtered_imagesを更新
-        found_in_filtered = False
-        for i, img in enumerate(self._filtered_images):
-            if img.get("id") == image_id:
-                self._filtered_images[i] = new_metadata
-                found_in_filtered = True
-                logger.debug(f"_filtered_images更新: image_id={image_id}")
-                break
-
-        if not found_in_filtered:
-            logger.debug(f"画像ID {image_id} が_filtered_imagesに見つかりません（フィルタ外の可能性）")
-
         # 現在選択中ならシグナル発行
         if self._current_image_id == image_id:
             self.current_image_data_changed.emit(new_metadata)
@@ -517,7 +415,7 @@ class DatasetStateManager(QObject):
 
         Side Effects:
             - DB から最新メタデータを取得
-            - _all_images と _filtered_images のキャッシュを更新
+            - _all_images のキャッシュを更新
             - 現在選択中の画像なら current_image_data_changed シグナル発行
 
         Note:
@@ -555,7 +453,7 @@ class DatasetStateManager(QObject):
 
         Side Effects:
             - DB から最新メタデータを一括取得（1クエリ）
-            - _all_images と _filtered_images のキャッシュを更新
+            - _all_images のキャッシュを更新
             - 現在選択中の画像が含まれれば current_image_data_changed シグナル発行
 
         Note:
@@ -600,13 +498,6 @@ class DatasetStateManager(QObject):
 
         except Exception as e:
             logger.error(f"Error during batch metadata refresh: {e}", exc_info=True)
-
-    def _get_image_from_filtered(self, image_id: int) -> dict[str, Any] | None:
-        """フィルター済み画像からの検索（デバッグ用）"""
-        for img in self._filtered_images:
-            if img.get("id") == image_id:
-                return img
-        return None
 
     def _ensure_annotations_loaded(self, image_data: dict[str, Any]) -> None:
         """検索フェーズで省略されたアノテーションを遅延取得して dict に merge する。
@@ -663,8 +554,8 @@ class DatasetStateManager(QObject):
         return len(self._all_images) > 0
 
     def has_filtered_images(self) -> bool:
-        """フィルター済み画像があるかチェック"""
-        return len(self._filtered_images) > 0
+        """表示対象画像があるかチェック (Issue #969: 2 層統合後は has_images と同値)"""
+        return len(self._all_images) > 0
 
     def is_image_selected(self, image_id: int) -> bool:
         """指定画像IDが選択されているかチェック"""
@@ -677,7 +568,7 @@ class DatasetStateManager(QObject):
         return {
             "dataset_path": str(self._dataset_path) if self._dataset_path else None,
             "total_images": len(self._all_images),
-            "filtered_images": len(self._filtered_images),
+            "filtered_images": len(self._all_images),
             "selected_images": len(self._selected_image_ids),
             "current_image_id": self._current_image_id,
             "has_filter": bool(self._filter_conditions),

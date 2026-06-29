@@ -117,10 +117,9 @@ class TestMainWindowThumbnailIntegration:
         ]
         window.dataset_state.set_dataset_images(test_images)
 
-        # フィルター結果の適用
-        filtered_images = [{"id": 1, "stored_image_path": "test1.jpg"}]
-        filter_conditions = {"tags": ["test"], "resolution": 1024}
-        window.dataset_state.apply_filter_results(filtered_images, filter_conditions)
+        # 検索結果でのデータ置換 (Issue #969: 2 層統合後は検索結果が単一データソース)
+        search_results = [{"id": 1, "stored_image_path": "test1.jpg"}]
+        window.dataset_state.update_from_search_results(search_results)
 
         # 実際の状態管理の結果を確認
         assert len(window.dataset_state.filtered_images) == 1
