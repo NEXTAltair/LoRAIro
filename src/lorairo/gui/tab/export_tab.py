@@ -168,6 +168,10 @@ class ExportTabWidget(QWidget):
         merged_reader = self._resolve_merged_reader()
         if merged_reader is not None:
             self._selected_image_details_widget.set_merged_reader(merged_reader)
+        # refinement リコメンド (#931): 共有 RefinementService を注入
+        self._selected_image_details_widget.set_refinement_service(
+            self._service_container.refinement_service
+        )
         if dsm is not None:
             self._selected_image_details_widget.connect_to_dataset_state_manager(dsm)
 

@@ -45,7 +45,10 @@ from .rating_score_edit_widget import RatingScoreEditWidget
 if TYPE_CHECKING:
     from genai_tag_db_tools.db.repository import MergedTagReader
 
+    from ...services.refinement_service import RefinementService
     from ..state.dataset_state import DatasetStateManager
+    from ..workers.manager import WorkerManager
+    from ..workers.refinement_worker import RefinementResult
 
 
 class SelectedImageDetailsWidget(QWidget):
@@ -116,6 +119,12 @@ class SelectedImageDetailsWidget(QWidget):
         self._summary_layout: QVBoxLayout | None = None
         self._image_info_toggle: QToolButton | None = None
         self._copy_details_button: QToolButton | None = None
+
+        # refinement リコメンド (#931): set_refinement_service で配線。
+        self._refinement_service: RefinementService | None = None
+        self._refinement_worker_manager: WorkerManager | None = None
+        self._refinement_generation: int = 0  # worker_id 一意化 + レース照合の世代
+        self._current_tag_canonicals: list[str] = []
 
         # UI設定
         self.ui = Ui_SelectedImageDetailsWidget()
@@ -362,6 +371,62 @@ class SelectedImageDetailsWidget(QWidget):
         self.annotation_display.tag_add_requested.connect(self._on_tag_add)
         logger.debug("SelectedImageDetailsWidget: soft-reject 編集モードを有効化")
 
+    def set_refinement_service(
+        self, service: "RefinementService", worker_manager: "WorkerManager | None" = None
+    ) -> None:
+        """refinement リコメンドサービスを配線する (#931)。
+
+        検索/エクスポートタブの詳細ペインへ注入される。画像選択時に非同期評価を起動し、
+        chip の「この理由を無視」を受けて ignore を永続化・再評価する。
+
+        Args:
+            service: refinement 評価/ignore を担う Qt-free サービス。
+            worker_manager: 非同期評価用。None なら専用 WorkerManager を生成する。
+        """
+        from ..workers.manager import WorkerManager as _WorkerManager
+
+        self._refinement_service = service
+        self._refinement_worker_manager = worker_manager or _WorkerManager(self)
+        self.annotation_display.refinement_ignored.connect(self._on_refinement_ignored)
+        logger.debug("SelectedImageDetailsWidget: refinement サービスを配線")
+
+    def _trigger_refinement_evaluation(self) -> None:
+        """現在画像のタグを非同期 refinement 評価する (#931)。
+
+        サービス未配線・画像未選択・タグ無しのときは何もしない。worker_id は世代で
+        一意化し、完了時に image_id 照合で古い結果を破棄する (レース対策)。
+        """
+        service = self._refinement_service
+        manager = self._refinement_worker_manager
+        if service is None or manager is None:
+            return
+        if self.current_image_id is None or not self._current_tag_canonicals:
+            return
+        from ..workers.refinement_worker import RefinementWorker
+
+        self._refinement_generation += 1
+        worker = RefinementWorker(
+            service, image_id=self.current_image_id, tags=list(self._current_tag_canonicals)
+        )
+        worker.finished.connect(self._on_refinement_finished)
+        manager.start_worker(f"refinement_{self._refinement_generation}", worker)
+
+    @Slot(object)
+    def _on_refinement_finished(self, result: "RefinementResult") -> None:
+        """worker 完了: 表示中画像と一致する結果のみ chip に反映する (#931)。"""
+        if result.image_id != self.current_image_id:
+            return  # 画像が既に切り替わった → 破棄 (レース対策)
+        self.annotation_display.apply_refinements(result.recommendations)
+
+    @Slot(str, str)
+    def _on_refinement_ignored(self, canonical: str, reason_code: str) -> None:
+        """chip の「この理由を無視」を永続化し、現在画像を再評価する (#931)。"""
+        service = self._refinement_service
+        if service is None:
+            return
+        service.ignore(canonical, reason_code)
+        self._trigger_refinement_evaluation()
+
     def _populate_rejected_tags(self) -> None:
         """現在画像の soft-rejected タグを取得して復活セクションへ反映する (Issue #792)。"""
         db_manager = getattr(self, "_db_manager", None)
@@ -468,6 +533,11 @@ class SelectedImageDetailsWidget(QWidget):
         details = self._build_image_details_from_metadata(image_data)
         self._update_details_display(details)
         self._populate_rejected_tags()
+        # refinement 評価 (#931): 表示中タグの canonical を集めて非同期評価する。
+        self._current_tag_canonicals = [
+            t["tag"] for t in image_data.get("tags", []) if isinstance(t, dict) and t.get("tag")
+        ]
+        self._trigger_refinement_evaluation()
 
     def _build_image_details_from_metadata(self, metadata: dict[str, Any]) -> ImageDetails:
         """

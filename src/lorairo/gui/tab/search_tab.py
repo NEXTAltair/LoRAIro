@@ -154,6 +154,10 @@ class SearchTabWidget(QWidget, Ui_SearchTab):
             self._selected_image_details_widget.set_db_manager(self._db_manager)
         merged_reader = self._service_container.db_manager.annotation_repo.get_merged_reader()
         self._selected_image_details_widget.set_merged_reader(merged_reader)
+        # refinement リコメンド (#931): 共有 RefinementService を注入
+        self._selected_image_details_widget.set_refinement_service(
+            self._service_container.refinement_service
+        )
         if dsm is not None:
             self._selected_image_details_widget.connect_to_dataset_state_manager(dsm)
             logger.debug("SelectedImageDetailsWidget DatasetStateManager接続完了")

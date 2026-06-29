@@ -12,6 +12,7 @@ if TYPE_CHECKING:
     from lorairo.annotation.annotator_adapter import AnnotatorLibraryAdapter
     from lorairo.services.annotation_save_service import AnnotationSaveService
     from lorairo.services.provider_batch_workflow_service import ProviderBatchWorkflowService
+    from lorairo.services.refinement_service import RefinementService
     from lorairo.services.signal_manager_protocol import SignalManagerServiceProtocol
     from lorairo.services.tag_management_service import TagManagementService
 
@@ -80,6 +81,9 @@ class ServiceContainer:
 
         # Tag management service
         self._tag_management_service: TagManagementService | None = None
+
+        # refinement リコメンドサービス (#931)
+        self._refinement_service: RefinementService | None = None
 
         # Phase 4: FavoriteFiltersService統合
         self._favorite_filters_service: Any = None
@@ -229,6 +233,24 @@ class ServiceContainer:
             self._tag_management_service = TagManagementService()
             logger.info("TagManagementService初期化完了")
         return self._tag_management_service
+
+    @property
+    def refinement_service(self) -> "RefinementService":
+        """RefinementService取得（遅延初期化） - #931
+
+        tagdb 窓口は TagManagementService に一本化し、その recommend_manual_refinement を
+        評価関数として注入する。ignore は RefinementIgnoreRepository に永続化する。
+        """
+        if self._refinement_service is None:
+            from ..database.repository.refinement_ignore import RefinementIgnoreRepository
+            from .refinement_service import RefinementService
+
+            self._refinement_service = RefinementService(
+                recommend_fn=self.tag_management_service.recommend_manual_refinement,
+                ignore_repo=RefinementIgnoreRepository(),
+            )
+            logger.info("RefinementService初期化完了")
+        return self._refinement_service
 
     @property
     def favorite_filters_service(self) -> Any:
@@ -420,6 +442,7 @@ class ServiceContainer:
         self._model_registry = None
         self._annotator_library = None
         self._tag_management_service = None
+        self._refinement_service = None
         self._favorite_filters_service = None
         self._signal_manager = None
         self._project_management_service = None
