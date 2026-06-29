@@ -92,7 +92,9 @@ class PaginationStateManager(QObject):
     @property
     def total_items(self) -> int:
         """検索結果の総件数"""
-        return len(self._dataset_state.filtered_images)
+        # Issue #967: filtered_images プロパティは全件 .copy() を伴うため、
+        # 高頻度に呼ばれる件数取得は O(1) の filtered_count を使う。
+        return self._dataset_state.filtered_count
 
     @property
     def total_pages(self) -> int:
@@ -152,16 +154,9 @@ class PaginationStateManager(QObject):
         start_idx = (page - 1) * self._page_size
         end_idx = start_idx + self._page_size
 
-        # DatasetStateManager から filtered_images を取得
-        filtered_images = self._dataset_state.filtered_images
-        page_images = filtered_images[start_idx:end_idx]
-
-        image_ids: list[int] = []
-        for image in page_images:
-            image_id = image.get("id")
-            if isinstance(image_id, int):
-                image_ids.append(image_id)
-        return image_ids
+        # Issue #967: filtered_images プロパティ (全件 .copy()) ではなく、
+        # 該当ページのスライスだけを走査する O(ページ) アクセサを使う。
+        return self._dataset_state.get_filtered_image_ids_slice(start_idx, end_idx)
 
     def get_prefetch_pages(self, page: int | None = None) -> list[int]:
         """

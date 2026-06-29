@@ -399,7 +399,7 @@ class ThumbnailSelectorWidget(QWidget, Ui_ThumbnailSelectorWidget):
         search_result_count = (
             len(self._active_search_result.image_metadata) if self._active_search_result else 0
         )
-        dataset_count = len(self.dataset_state.filtered_images) if self.dataset_state else 0
+        dataset_count = self.dataset_state.filtered_count if self.dataset_state else 0
         logger.debug(
             f"ページ {page} 読み込み要求: image_ids={len(image_ids)}件, "
             f"search_result={search_result_count}件, dataset_state={dataset_count}件"

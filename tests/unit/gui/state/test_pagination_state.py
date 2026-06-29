@@ -8,6 +8,20 @@ import pytest
 from lorairo.gui.state.pagination_state import PaginationStateManager
 
 
+def _configure_dataset_mock(mock, images):
+    """dataset_state モックを画像リストから一貫構成する (Issue #967 の軽量アクセサ対応)。
+
+    PaginationStateManager は total_items で filtered_count、get_page_image_ids で
+    get_filtered_image_ids_slice を使うため、filtered_images だけでなくこれらも
+    同じ images から導出してモックする。
+    """
+    type(mock).filtered_images = PropertyMock(return_value=images)
+    type(mock).filtered_count = PropertyMock(return_value=len(images))
+    mock.get_filtered_image_ids_slice.side_effect = lambda start, end: [
+        img["id"] for img in images[start:end] if isinstance(img.get("id"), int)
+    ]
+
+
 @pytest.fixture
 def mock_dataset_state():
     """DatasetStateManager のモック"""
@@ -28,7 +42,7 @@ def sample_images():
 def pagination_state(mock_dataset_state, sample_images):
     """PaginationStateManager インスタンス"""
     # filtered_images プロパティをモック
-    type(mock_dataset_state).filtered_images = PropertyMock(return_value=sample_images)
+    _configure_dataset_mock(mock_dataset_state, sample_images)
     return PaginationStateManager(mock_dataset_state, page_size=100, max_cached_pages=5)
 
 
@@ -37,7 +51,7 @@ class TestPaginationStateManagerInit:
 
     def test_init_default_values(self, mock_dataset_state, sample_images):
         """デフォルト値で初期化できる"""
-        type(mock_dataset_state).filtered_images = PropertyMock(return_value=sample_images)
+        _configure_dataset_mock(mock_dataset_state, sample_images)
         state = PaginationStateManager(mock_dataset_state)
 
         assert state.current_page == 1
@@ -46,7 +60,7 @@ class TestPaginationStateManagerInit:
 
     def test_init_custom_values(self, mock_dataset_state, sample_images):
         """カスタム値で初期化できる"""
-        type(mock_dataset_state).filtered_images = PropertyMock(return_value=sample_images)
+        _configure_dataset_mock(mock_dataset_state, sample_images)
         state = PaginationStateManager(mock_dataset_state, page_size=50, max_cached_pages=3)
 
         assert state.page_size == 50
@@ -54,7 +68,7 @@ class TestPaginationStateManagerInit:
 
     def test_connects_to_images_filtered_signal(self, mock_dataset_state, sample_images):
         """images_filtered シグナルに接続する"""
-        type(mock_dataset_state).filtered_images = PropertyMock(return_value=sample_images)
+        _configure_dataset_mock(mock_dataset_state, sample_images)
         PaginationStateManager(mock_dataset_state)
 
         mock_dataset_state.images_filtered.connect.assert_called_once()
@@ -73,7 +87,7 @@ class TestPaginationStateManagerProperties:
 
     def test_total_pages_empty(self, mock_dataset_state):
         """0件の場合は1ページ"""
-        type(mock_dataset_state).filtered_images = PropertyMock(return_value=[])
+        _configure_dataset_mock(mock_dataset_state, [])
         state = PaginationStateManager(mock_dataset_state)
 
         assert state.total_pages == 1
@@ -81,7 +95,7 @@ class TestPaginationStateManagerProperties:
     def test_total_pages_exact_division(self, mock_dataset_state):
         """ちょうど割り切れる場合（200件 / 100件 = 2ページ）"""
         images = [{"id": i} for i in range(1, 201)]
-        type(mock_dataset_state).filtered_images = PropertyMock(return_value=images)
+        _configure_dataset_mock(mock_dataset_state, images)
         state = PaginationStateManager(mock_dataset_state, page_size=100)
 
         assert state.total_pages == 2
@@ -208,7 +222,7 @@ class TestGetPrefetchPages:
         """多くのページがある場合のプリフェッチ"""
         # 1000件 = 10ページ
         images = [{"id": i} for i in range(1, 1001)]
-        type(mock_dataset_state).filtered_images = PropertyMock(return_value=images)
+        _configure_dataset_mock(mock_dataset_state, images)
         state = PaginationStateManager(mock_dataset_state, page_size=100, max_cached_pages=5)
 
         # page=5 → [3, 4, 5, 6, 7]
@@ -258,7 +272,7 @@ class TestGetPagesToLoad:
     def test_target_page_prioritized(self, mock_dataset_state):
         """ターゲットページが先頭に来る"""
         images = [{"id": i} for i in range(1, 1001)]
-        type(mock_dataset_state).filtered_images = PropertyMock(return_value=images)
+        _configure_dataset_mock(mock_dataset_state, images)
         state = PaginationStateManager(mock_dataset_state, page_size=100, max_cached_pages=5)
 
         pages = state.get_pages_to_load(5, cached_pages={3, 4})
