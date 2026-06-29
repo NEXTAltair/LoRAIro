@@ -12,10 +12,10 @@ ExportOverlayBar** で構成する (ADR 0080 2層タグ編集モデル)。
 対象 = ステージング集合 (ADR 0055/0019)。対象 ID は ``StagingStateManager``
 (ADR 0074) を SSoT とし、``staged_images_changed`` 購読でライブ更新する (#896)。
 
-本コミット (#949 PR1) は **骨格** を提供する: レイアウト・再利用ウィジェットの
-manager 接続・ステージング集合のサムネ/集計供給・QSettings 永続化まで。
-ウィジェット間のシグナル配線 (タグ絞り込み→サムネ / overlay 受け / DB reject /
-選択→プレビュー / エクスポート実行) は後続 PR2 で行う。
+骨格 (#949 PR1) に続き、ウィジェット間のシグナル配線を行う (#949 follow-up):
+タグ絞り込み→中央サムネ + scope counts / ⊘ 出力除外・⇄ 置換 (橙=一時) → overlay /
+✎ reject(DB) (青=永続) → 全 staged 画像の DB soft-reject / サムネ選択 → ライブ
+プレビュー / スコープ (全/絞込) → エクスポート対象。
 """
 
 from __future__ import annotations
@@ -97,6 +97,12 @@ class ExportTabWidget(QWidget):
         self._image_ids: list[int] = (
             staging_state_manager.get_image_ids() if staging_state_manager is not None else []
         )
+
+        # 左ペインのタグ絞り込み状態 (#949)。None = 絞り込みなし (全 staged 表示)。
+        self._active_filter_tag: str | None = None
+        self._filtered_ids: list[int] = list(self._image_ids)
+        # エクスポート適用スコープ ("all" = 全 staged / "filtered" = 絞り込み結果のみ)。
+        self._scope: str = "all"
 
         # 左ペインのタグ集計サービス (db_manager がある場合のみ)。
         self._aggregation_service: StagingTagAggregationService | None = (
@@ -180,6 +186,26 @@ class ExportTabWidget(QWidget):
         if dsm is not None:
             self._selected_image_details_widget.connect_to_dataset_state_manager(dsm)
 
+        self._connect_panel_signals()
+
+    def _connect_panel_signals(self) -> None:
+        """StagingTagPanel / overlay bar / 選択 のシグナルを配線する (#949 follow-up)。
+
+        - 左ペインのタグ絞り込み → 中央サムネ + scope counts
+        - ⊘ 出力除外 / ⇄ 置換 (橙=一時) → ExportOverlayBar の overlay
+        - ✎ reject(DB) (青=永続) → 全 staged 画像の DB soft-reject
+        - サムネ選択 (DSM 経由) → ExportOverlayBar のライブプレビュー
+        - スコープ切替 → エクスポート対象の全/絞込
+        """
+        panel = self._staging_tag_panel
+        panel.filter_tag_changed.connect(self._on_filter_tag_changed)
+        panel.overlay_exclude_requested.connect(self._overlay_bar.add_overlay_exclude)
+        panel.overlay_replace_requested.connect(self._overlay_bar.add_overlay_replace)
+        panel.db_reject_everywhere_requested.connect(self._on_db_reject_everywhere)
+
+        self._dataset_state_manager.current_image_data_changed.connect(self._on_current_image_data_changed)
+        self._overlay_bar.scope_changed.connect(self._on_scope_changed)
+
     def _apply_initial_sizes(self) -> None:
         """splitter の初期比率を設定する (検索タブと同じ 18/42/40・55/45)。"""
         self._main_splitter.setSizes([216, 504, 480])
@@ -204,18 +230,32 @@ class ExportTabWidget(QWidget):
     # ------------------------------------------------------------------
 
     def _populate(self, image_ids: list[int]) -> None:
-        """ステージング集合をタグ集計・サムネグリッド・選択 SSoT へ反映する。"""
+        """ステージング集合をタグ集計・サムネグリッド・選択 SSoT へ反映する。
+
+        ステージング集合が変わるたびにタグ絞り込みはリセットし (全 staged 表示)、
+        中央サムネと scope counts を全件で再構築する。
+        """
         # 左ペイン: タグ集計
         if self._aggregation_service is not None:
             self._staging_tag_panel.load_tags(image_ids)
 
-        # 選択中だった画像が新集合に無ければ current image をクリアし、右ペインが
-        # 除外済み画像を表示・編集し続けるのを防ぐ (#961 P2)。db_manager 有無に依らず行う。
+        # ステージング集合の変化で絞り込みは解除する (#949)。
+        self._active_filter_tag = None
+        self._filtered_ids = list(image_ids)
+        self._render_thumbnails(image_ids)
+        self._overlay_bar.set_scope_counts(len(image_ids), len(image_ids))
+
+    def _render_thumbnails(self, image_ids: list[int]) -> None:
+        """指定 ID 集合のサムネグリッドと選択 SSoT を再構築する (#949)。
+
+        ``_populate`` (全 staged) とタグ絞り込み (部分集合) の両方から呼ばれる。
+        絞り込みで現在選択画像が表示集合から外れた場合は current image をクリアし、
+        右ペイン/プレビューが非表示画像を表示し続けるのを防ぐ (#961 P2)。
+        """
         current_id = self._dataset_state_manager.current_image_id
         if current_id is not None and current_id not in set(image_ids):
             self._dataset_state_manager.clear_current_image()
 
-        # 中央: サムネグリッド (id→path 解決) + 選択 SSoT へ metadata 供給
         if self._db_manager is None:
             return
         metadata_list: list[dict[str, Any]] = []
@@ -257,17 +297,80 @@ class ExportTabWidget(QWidget):
         """現在のエクスポート対象 ID を返す (テスト・検証用)。"""
         return list(self._image_ids)
 
-    def _effective_export_ids(self) -> list[int]:
-        """changed-since を反映した実エクスポート対象 ID を返す。
+    # ------------------------------------------------------------------
+    # StagingTagPanel / overlay bar / 選択 シグナルハンドラ (#949 follow-up)
+    # ------------------------------------------------------------------
 
-        絞り込み結果はキャッシュしない。validate/export のたびに現在の UI 設定から
-        再計算し、日時変更後の stale な対象で書き出す事故を防ぐ (#962 / #621)。
+    @Slot(object)
+    def _on_filter_tag_changed(self, tag: str | None) -> None:
+        """左ペインのタグ絞り込みを中央サムネへ反映する (#949)。
+
+        tag=None で全 staged を表示、tag 指定でそのタグを持つ staged 画像のみ表示する。
+        絞り込み結果は scope counts と (scope=filtered 時の) エクスポート対象にも使う。
         """
+        if tag is None or self._aggregation_service is None:
+            self._active_filter_tag = None
+            self._filtered_ids = list(self._image_ids)
+        else:
+            self._active_filter_tag = tag
+            self._filtered_ids = self._aggregation_service.images_with_tag(self._image_ids, tag)
+        self._render_thumbnails(self._filtered_ids)
+        self._overlay_bar.set_scope_counts(len(self._image_ids), len(self._filtered_ids))
+
+    @Slot(str)
+    def _on_db_reject_everywhere(self, tag: str) -> None:
+        """選択タグを全 staged 画像で DB soft-reject し、集計/サムネを更新する (#949)。
+
+        青=DB 永続操作。取り消し不可のため確認ダイアログを出す。
+        """
+        if self._db_manager is None or not self._image_ids:
+            return
+        reply = QMessageBox.question(
+            self,
+            "DB reject",
+            f"タグ「{tag}」を staged {len(self._image_ids)} 枚すべてで DB から reject します。\n"
+            "この操作は取り消せません。続行しますか?",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
+        )
+        if reply != QMessageBox.StandardButton.Yes:
+            return
+        rejected = self._db_manager.soft_reject_tag_batch(self._image_ids, tag)
+        logger.info(f"DB reject(全 staged): tag={tag!r}, reject={rejected}枚")
+        # 集計とサムネキャッシュを最新化し、現在の絞り込みを維持して再描画する。
+        if self._aggregation_service is not None:
+            self._staging_tag_panel.load_tags(self._image_ids)
+        self._dataset_state_manager.refresh_images(self._image_ids)
+        self._on_filter_tag_changed(self._active_filter_tag)
+
+    @Slot(dict)
+    def _on_current_image_data_changed(self, image_data: dict[str, Any]) -> None:
+        """選択画像を ExportOverlayBar へ渡しライブプレビューを更新する (#949)。"""
+        if not image_data:
+            self._overlay_bar.set_selected_image(None, [])
+            return
+        image_id = image_data.get("id")
+        db_tags = [t["tag"] for t in image_data.get("tags", []) if isinstance(t, dict) and t.get("tag")]
+        self._overlay_bar.set_selected_image(image_id, db_tags)
+
+    @Slot(str)
+    def _on_scope_changed(self, scope: str) -> None:
+        """エクスポート適用スコープ ("all" | "filtered") を更新する (#949)。"""
+        self._scope = scope
+
+    def _effective_export_ids(self) -> list[int]:
+        """scope と changed-since を反映した実エクスポート対象 ID を返す。
+
+        絞り込み結果はキャッシュした値ではなく、scope=filtered のとき現在のタグ絞り込み
+        結果を基底にする。validate/export のたびに現在の UI 設定から再計算し、日時変更後の
+        stale な対象で書き出す事故を防ぐ (#962 / #621)。
+        """
+        base_ids = list(self._filtered_ids) if self._scope == "filtered" else list(self._image_ids)
         if not self._overlay_bar.changed_since_enabled():
-            return list(self._image_ids)
+            return base_ids
         since = self._overlay_bar.changed_since()
         return self._service_container.dataset_export_service.filter_changed_since(
-            list(self._image_ids),
+            base_ids,
             since,
         )
 

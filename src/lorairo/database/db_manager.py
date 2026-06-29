@@ -1193,6 +1193,25 @@ class ImageDatabaseManager:
         success, per_item = self.annotation_repo.remove_tag_from_images_batch([image_id], tag)
         return success and any(status == "changed" for _, status in per_item)
 
+    def soft_reject_tag_batch(self, image_ids: list[int], tag: str) -> int:
+        """複数画像の 1 タグを一括 soft-reject し、実際に reject した件数を返す (#949)。
+
+        エクスポート前タグ編集パネルの「✎ reject(DB)」(全 staged 画像へ永続 reject) で使う。
+
+        Args:
+            image_ids: 対象画像 ID のリスト。
+            tag: soft-reject するタグ。
+
+        Returns:
+            実際に reject された画像数 (既に無い画像は数えない)。
+        """
+        if not image_ids:
+            return 0
+        success, per_item = self.annotation_repo.remove_tag_from_images_batch(image_ids, tag)
+        if not success:
+            return 0
+        return sum(1 for _, status in per_item if status == "changed")
+
     def restore_tag(self, image_id: int, tag: str) -> bool:
         """soft-reject されたタグを復活する (rejected_at を NULL へ)。
 

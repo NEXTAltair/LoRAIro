@@ -1,8 +1,8 @@
 """ExportTabWidget の GUI テスト (Epic #942 #949 / 旧 #867 #872 #896)。
 
 エクスポート前タグ編集パネルへ再構成 (#949): 3ペイン splitter + ExportOverlayBar。
-本テストは骨格 (PR1) を検証する: レイアウト構成・ステージング集合の自治同期。
-ウィジェット間配線・エクスポート実行の検証は PR2/PR3 で追加する。
+レイアウト構成・ステージング集合の自治同期 (骨格) に加え、ウィジェット間配線
+(タグ絞り込み / overlay 受け / DB reject / 選択→プレビュー / スコープ) を検証する。
 """
 
 from __future__ import annotations
@@ -286,6 +286,141 @@ def test_populate_clears_stale_current_image(
     widget.set_image_ids([1, 2, 3])
 
     assert dsm.current_image_id is None
+
+
+@pytest.fixture
+def wired_tab(qtbot, service_container: Mock, staging_manager: StagingStateManager):
+    """db_manager 付きで配線を有効化したタブ (集計・サムネ I/O はスタブ)。
+
+    StagingTagAggregationService は実 DB セッションを使うため、集計 (panel.load_tags) と
+    サムネ読込 (load_thumbnails_from_paths) をスタブし、シグナル配線ロジックだけを検証する。
+    """
+    db_manager = Mock()
+    db_manager.get_image_metadata.side_effect = lambda image_id: {
+        "id": image_id,
+        "stored_image_path": f"/img/{image_id}.png",
+    }
+    db_manager.soft_reject_tag_batch.return_value = 3
+    # current_image_data_changed の co-connected slot (詳細ペイン) が引く DB 取得を空に。
+    db_manager.get_rejected_tags.return_value = []
+    tab = ExportTabWidget(
+        service_container=service_container,
+        db_manager=db_manager,
+        staging_state_manager=staging_manager,
+    )
+    qtbot.addWidget(tab)
+    # 実 DB / 実ファイル I/O を避けるためスタブ化 (配線のみ検証)。
+    tab._staging_tag_panel.load_tags = Mock()
+    tab._thumbnail_selector.load_thumbnails_from_paths = Mock()
+    tab._aggregation_service = Mock()
+    return tab, db_manager
+
+
+@pytest.mark.gui
+def test_filter_tag_changed_filters_thumbnails_and_scope_counts(qtbot, wired_tab) -> None:
+    """左ペインのタグ絞り込みでサムネ再描画 + scope counts 更新 (#949)。"""
+    tab, _db = wired_tab
+    tab.set_image_ids([1, 2, 3])
+    tab._aggregation_service.images_with_tag.return_value = [2]
+    scope_counts: list[tuple[int, int]] = []
+    tab._overlay_bar.set_scope_counts = lambda a, f: scope_counts.append((a, f))
+
+    tab._staging_tag_panel.filter_tag_changed.emit("smile")
+
+    tab._aggregation_service.images_with_tag.assert_called_once_with([1, 2, 3], "smile")
+    assert tab._filtered_ids == [2]
+    assert scope_counts[-1] == (3, 1)
+
+
+@pytest.mark.gui
+def test_filter_reset_restores_all(qtbot, wired_tab) -> None:
+    """絞り込みリセット (None) で全 staged に戻る (#949)。"""
+    tab, _db = wired_tab
+    tab.set_image_ids([1, 2, 3])
+    tab._aggregation_service.images_with_tag.return_value = [2]
+    tab._staging_tag_panel.filter_tag_changed.emit("smile")
+    assert tab._filtered_ids == [2]
+
+    tab._staging_tag_panel.filter_tag_changed.emit(None)
+
+    assert tab._filtered_ids == [1, 2, 3]
+    assert tab._active_filter_tag is None
+
+
+@pytest.mark.gui
+def test_overlay_exclude_wired_to_bar(qtbot, wired_tab) -> None:
+    """⊘ 出力除外が overlay bar の overlay に反映される (#949)。"""
+    tab, _db = wired_tab
+
+    tab._staging_tag_panel.overlay_exclude_requested.emit("smile")
+
+    assert "smile" in tab._overlay_bar.current_overlay().exclude
+
+
+@pytest.mark.gui
+def test_overlay_replace_wired_to_bar(qtbot, wired_tab) -> None:
+    """⇄ 置換が overlay bar の overlay に反映される (#949)。"""
+    tab, _db = wired_tab
+
+    tab._staging_tag_panel.overlay_replace_requested.emit("girl", "1girl")
+
+    assert tab._overlay_bar.current_overlay().replace.get("girl") == "1girl"
+
+
+@pytest.mark.gui
+def test_db_reject_everywhere_confirmed(qtbot, monkeypatch, wired_tab) -> None:
+    """✎ reject(DB): 確認 Yes で全 staged 画像へ batch soft-reject (#949)。"""
+    from PySide6.QtWidgets import QMessageBox
+
+    tab, db = wired_tab
+    tab.set_image_ids([1, 2, 3])
+    monkeypatch.setattr(QMessageBox, "question", lambda *a, **k: QMessageBox.StandardButton.Yes)
+
+    tab._staging_tag_panel.db_reject_everywhere_requested.emit("smile")
+
+    db.soft_reject_tag_batch.assert_called_once_with([1, 2, 3], "smile")
+
+
+@pytest.mark.gui
+def test_db_reject_everywhere_cancelled(qtbot, monkeypatch, wired_tab) -> None:
+    """✎ reject(DB): 確認 No で DB 操作しない (#949)。"""
+    from PySide6.QtWidgets import QMessageBox
+
+    tab, db = wired_tab
+    tab.set_image_ids([1, 2, 3])
+    monkeypatch.setattr(QMessageBox, "question", lambda *a, **k: QMessageBox.StandardButton.No)
+
+    tab._staging_tag_panel.db_reject_everywhere_requested.emit("smile")
+
+    db.soft_reject_tag_batch.assert_not_called()
+
+
+@pytest.mark.gui
+def test_selection_updates_overlay_bar_preview(qtbot, wired_tab) -> None:
+    """サムネ選択 (DSM 経由) が overlay bar のライブプレビューへ渡る (#949)。"""
+    tab, _db = wired_tab
+    calls: list[tuple] = []
+    tab._overlay_bar.set_selected_image = lambda image_id, db_tags: calls.append((image_id, db_tags))
+
+    tab._dataset_state_manager.current_image_data_changed.emit(
+        {"id": 7, "tags": [{"tag": "flower"}, {"tag": "rose"}]}
+    )
+
+    assert calls == [(7, ["flower", "rose"])]
+
+
+@pytest.mark.gui
+def test_scope_filtered_limits_export_ids(qtbot, wired_tab) -> None:
+    """scope=filtered で実エクスポート対象が絞り込み結果に限定される (#949)。"""
+    tab, _db = wired_tab
+    tab.set_image_ids([1, 2, 3])
+    tab._aggregation_service.images_with_tag.return_value = [2]
+    tab._staging_tag_panel.filter_tag_changed.emit("smile")
+
+    tab._overlay_bar.scope_changed.emit("filtered")
+
+    assert tab._scope == "filtered"
+    assert tab._effective_export_ids() == [2]
 
 
 @pytest.mark.gui
