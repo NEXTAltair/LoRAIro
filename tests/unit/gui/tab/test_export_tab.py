@@ -424,6 +424,55 @@ def test_scope_filtered_limits_export_ids(qtbot, wired_tab) -> None:
 
 
 @pytest.mark.gui
+def test_effective_export_ids_recomputes_filter_fresh(qtbot, wired_tab) -> None:
+    """scope=filtered の対象は export 時に DB から再計算される (詳細編集後の stale 防止, Codex P2)。"""
+    tab, _db = wired_tab
+    tab.set_image_ids([1, 2, 3])
+    tab._aggregation_service.images_with_tag.return_value = [2]
+    tab._staging_tag_panel.filter_tag_changed.emit("smile")
+    tab._overlay_bar.scope_changed.emit("filtered")
+    assert tab._effective_export_ids() == [2]
+
+    # 詳細ペインのタグ編集で image 2 が tag を失った想定 → DB 再計算で対象から外れる
+    tab._aggregation_service.images_with_tag.return_value = []
+
+    assert tab._effective_export_ids() == []
+
+
+@pytest.mark.gui
+def test_current_image_cleared_clears_overlay_preview(qtbot, wired_tab) -> None:
+    """選択クリアで overlay bar のライブプレビューも空になる (Codex P2)。"""
+    tab, _db = wired_tab
+    calls: list[tuple] = []
+    tab._overlay_bar.set_selected_image = lambda image_id, db_tags: calls.append((image_id, db_tags))
+
+    tab._dataset_state_manager.current_image_cleared.emit()
+
+    assert calls == [(None, [])]
+
+
+@pytest.mark.gui
+def test_db_reject_preserves_active_filter(qtbot, monkeypatch, wired_tab) -> None:
+    """DB reject 後もアクティブな絞り込みが維持される (load_tags の filter リセットに耐える, Codex P2)。"""
+    from PySide6.QtWidgets import QMessageBox
+
+    tab, _db = wired_tab
+    tab.set_image_ids([1, 2, 3])
+    tab._aggregation_service.images_with_tag.return_value = [2]
+    tab._staging_tag_panel.filter_tag_changed.emit("smile")
+    assert tab._active_filter_tag == "smile"
+    # 実 StagingTagPanel.load_tags は filter をリセットし filter_tag_changed(None) を同期 emit する。
+    # その挙動を stub で再現し、リセットに耐えて絞り込みが復元されることを検証する。
+    tab._staging_tag_panel.load_tags = lambda ids: tab._staging_tag_panel.filter_tag_changed.emit(None)
+    monkeypatch.setattr(QMessageBox, "question", lambda *a, **k: QMessageBox.StandardButton.Yes)
+
+    tab._staging_tag_panel.db_reject_everywhere_requested.emit("other")
+
+    assert tab._active_filter_tag == "smile"
+    assert tab._filtered_ids == [2]
+
+
+@pytest.mark.gui
 def test_export_requested_without_targets_warns(
     qtbot, monkeypatch, service_container: Mock, staging_manager: StagingStateManager
 ) -> None:

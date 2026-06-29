@@ -204,6 +204,10 @@ class ExportTabWidget(QWidget):
         panel.db_reject_everywhere_requested.connect(self._on_db_reject_everywhere)
 
         self._dataset_state_manager.current_image_data_changed.connect(self._on_current_image_data_changed)
+        # 選択クリア (絞り込み/ステージング変更で対象外になった場合) も overlay プレビューへ伝える。
+        # clear_current_image() は current_image_cleared を emit する (data_changed ではない) ため
+        # 個別に購読する (Codex P2)。
+        self._dataset_state_manager.current_image_cleared.connect(self._on_current_image_cleared)
         self._overlay_bar.scope_changed.connect(self._on_scope_changed)
 
     def _apply_initial_sizes(self) -> None:
@@ -337,11 +341,14 @@ class ExportTabWidget(QWidget):
             return
         rejected = self._db_manager.soft_reject_tag_batch(self._image_ids, tag)
         logger.info(f"DB reject(全 staged): tag={tag!r}, reject={rejected}枚")
-        # 集計とサムネキャッシュを最新化し、現在の絞り込みを維持して再描画する。
+        # load_tags() は内部で絞り込みをリセットし filter_tag_changed(None) を同期 emit して
+        # _active_filter_tag を None に上書きするため、再適用前にアクティブタグを退避する (Codex P2)。
+        active = self._active_filter_tag
+        # 集計とサムネキャッシュを最新化し、退避した絞り込みを維持して再描画する。
         if self._aggregation_service is not None:
             self._staging_tag_panel.load_tags(self._image_ids)
         self._dataset_state_manager.refresh_images(self._image_ids)
-        self._on_filter_tag_changed(self._active_filter_tag)
+        self._on_filter_tag_changed(active)
 
     @Slot(dict)
     def _on_current_image_data_changed(self, image_data: dict[str, Any]) -> None:
@@ -353,6 +360,11 @@ class ExportTabWidget(QWidget):
         db_tags = [t["tag"] for t in image_data.get("tags", []) if isinstance(t, dict) and t.get("tag")]
         self._overlay_bar.set_selected_image(image_id, db_tags)
 
+    @Slot()
+    def _on_current_image_cleared(self) -> None:
+        """選択クリア時に ExportOverlayBar のライブプレビューも空にする (#949, Codex P2)。"""
+        self._overlay_bar.set_selected_image(None, [])
+
     @Slot(str)
     def _on_scope_changed(self, scope: str) -> None:
         """エクスポート適用スコープ ("all" | "filtered") を更新する (#949)。"""
@@ -361,11 +373,19 @@ class ExportTabWidget(QWidget):
     def _effective_export_ids(self) -> list[int]:
         """scope と changed-since を反映した実エクスポート対象 ID を返す。
 
-        絞り込み結果はキャッシュした値ではなく、scope=filtered のとき現在のタグ絞り込み
-        結果を基底にする。validate/export のたびに現在の UI 設定から再計算し、日時変更後の
-        stale な対象で書き出す事故を防ぐ (#962 / #621)。
+        scope=filtered のときは ``_filtered_ids`` のキャッシュではなく、現在のタグ絞り込み
+        条件を **DB から再計算** して基底にする。詳細ペインのタグ編集や DB reject で対象タグの
+        付与状況が変わっても、export 時点の最新状態で書き出す (Codex P2)。validate/export の
+        たびに現在の UI 設定から再計算し、stale な対象で書き出す事故を防ぐ (#962 / #621)。
         """
-        base_ids = list(self._filtered_ids) if self._scope == "filtered" else list(self._image_ids)
+        if (
+            self._scope == "filtered"
+            and self._active_filter_tag is not None
+            and self._aggregation_service is not None
+        ):
+            base_ids = self._aggregation_service.images_with_tag(self._image_ids, self._active_filter_tag)
+        else:
+            base_ids = list(self._image_ids)
         if not self._overlay_bar.changed_since_enabled():
             return base_ids
         since = self._overlay_bar.changed_since()
