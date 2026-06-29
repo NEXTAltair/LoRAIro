@@ -1,3 +1,10 @@
+---
+type: Guide
+title: テスト戦略とベストプラクティス
+status: Accepted
+timestamp: 2026-05-21
+tags: [process, validation]
+---
 # テスト戦略とベストプラクティス
 
 ## 概要

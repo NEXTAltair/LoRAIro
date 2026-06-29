@@ -1,3 +1,11 @@
+---
+type: Guide
+title: Provider Batch API 利用条件と運用ガイド
+status: Accepted
+timestamp: 2026-06-07
+tags: [provider-batch, annotation, webapi]
+depends_on: [openai-api, anthropic-api]
+---
 # Provider Batch API 利用条件と運用ガイド
 
 このガイドは、大量画像アノテーションを Provider Batch API で実行するかどうかを判断し、

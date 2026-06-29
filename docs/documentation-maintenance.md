@@ -1,3 +1,10 @@
+---
+type: Guide
+title: Documentation Maintenance
+status: Accepted
+timestamp: 2026-06-29
+tags: [process]
+---
 # Documentation Maintenance
 
 LoRAIro の3層ドキュメント構造の維持方針。
@@ -24,6 +31,29 @@ LoRAIro の3層ドキュメント構造の維持方針。
 | `docs/lessons-learned.md` | バグパターン・教訓 |
 | `docs/development-workflow.md` | 開発プロセス（このファイルの姉妹）|
 | `docs/plans/` | Plan Mode 計画の共有ディレクトリ |
+
+## Frontmatter (OKF)
+
+ドキュメントには OKF (Open Knowledge Format) の YAML frontmatter を付ける。frontmatter を
+SSoT とし、種別・ドメイン・依存技術を機械可読にして 3 リポジトリ横断で検索・参照しやすくする。
+**規約の SSoT は ADR 0082**（語彙・適用範囲・移行戦略）と ADR 0069（ADR バンドル）。
+
+要点:
+
+- **必須キー**: `type`（`ADR` / `Guide` / `Reference` / `Contract` / `Plan` / `Investigation` / `Report`）。
+- **任意キー**: `title` / `status` / `timestamp`（`YYYY-MM-DD`）/ `tags`（抽象的な機能・責務、技術名は入れない）/
+  `depends_on`（強依存する技術・ライブラリ・外部仕様）。
+- **持たない**: `version`（鮮度は `timestamp` + Git）/ `packages`（パスで判別可）。
+- **適用対象**: `docs/**/*.md`・`local_packages/*/docs/**/*.md`。`docs/decisions/*.md` は ADR 0069 ルール。
+- **対象外**: `README.md` / `CHANGELOG.md` / `CLAUDE.md` / `AGENTS.md` / `GEMINI.md` / `index.md` / `log.md` / 生成物。
+- **移行**: 段階的（lazy）。中核 docs は付与済み、その他は新規作成・実質更新時に付与する。
+
+検証（CI 強制せずエージェント判断で起動。ADR 0069/0039 と同じ思想）:
+
+```bash
+make docs-okf    # 通常 docs を --skip-missing で検証 (未付与は pass、付与済みのみ検証)
+make adr-okf     # ADR バンドルを全件検証
+```
 
 ## When to Update
 

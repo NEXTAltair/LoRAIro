@@ -1,3 +1,11 @@
+---
+type: Reference
+title: LoRAIro Architecture
+status: Accepted
+timestamp: 2026-06-23
+tags: [service-layer, worker]
+depends_on: [pyside6, sqlalchemy, sqlite]
+---
 # LoRAIro Architecture Documentation
 
 ## System Overview

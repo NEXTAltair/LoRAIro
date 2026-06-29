@@ -1,3 +1,10 @@
+---
+type: Reference
+title: Lessons Learned
+status: Accepted
+timestamp: 2026-06-23
+tags: [process]
+---
 # Lessons Learned
 
 LoRAIro 開発で得られた教訓。バグパターン・設計ミス・解決策の本質を記録。

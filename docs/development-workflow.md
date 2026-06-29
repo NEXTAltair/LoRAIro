@@ -1,3 +1,10 @@
+---
+type: Guide
+title: Development Workflow
+status: Accepted
+timestamp: 2026-06-06
+tags: [process]
+---
 # Development Workflow
 
 LoRAIro の開発プロセスと標準的な作業パターン。

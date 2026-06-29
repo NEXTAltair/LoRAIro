@@ -1,3 +1,11 @@
+---
+type: Reference
+title: LoRAIro Technical Specification
+status: Accepted
+timestamp: 2026-04-08
+tags: [service-layer]
+depends_on: [pyside6, sqlalchemy, sqlite, pydantic]
+---
 # LoRAIro Technical Specification
 
 ## Technology Stack
