@@ -89,7 +89,9 @@ depends_on: [pydantic, sqlalchemy, sqlite]
 
 - `README.md` / `CHANGELOG.md` / `CLAUDE.md` / `AGENTS.md` / `GEMINI.md`
 - `index.md` / `log.md` (OKF 予約ファイル名)
-- 生成ドキュメント (generated docs)
+- 生成ドキュメント: **手書きで frontmatter を入れない** (再生成で消える)。索引化したい場合は
+  generator 側から frontmatter を emit する (例: `docs/cli.md` は `scripts/generate_cli_docs.py`
+  が emit するため `--skip-missing` 検証にも残る)。
 - 外部ツールが固有フォーマットを要求するファイル (例: `SKILL.md` は `name`/`description` frontmatter を持つ)
 
 ### 移行戦略 (判断付きバックフィル + lazy)

@@ -177,14 +177,14 @@ docs-okf:
 	@echo "Validating documentation OKF frontmatter (lazy migration, ADR 0082)..."
 	python3 .agents/skills/okf-bundle/scripts/okf_validate.py --bundle-root docs \
 		--skip-missing --exclude $(DOCS_OKF_EXCLUDE)
-	@for d in local_packages/image-annotator-lib/docs local_packages/genai-tag-db-tools/docs; do \
+	@rc=0; for d in local_packages/image-annotator-lib/docs local_packages/genai-tag-db-tools/docs; do \
 		if [ -d "$$d" ]; then \
 			python3 .agents/skills/okf-bundle/scripts/okf_validate.py --bundle-root "$$d" \
-				--skip-missing --exclude $(DOCS_OKF_EXCLUDE); \
+				--skip-missing --exclude $(DOCS_OKF_EXCLUDE) || rc=1; \
 		else \
 			echo "skip (submodule not checked out): $$d"; \
 		fi; \
-	done
+	done; exit $$rc
 
 skills-update:
 	@echo "Restoring skills from skills-lock.json..."
