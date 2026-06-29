@@ -306,6 +306,7 @@ class DatasetStateManager(QObject):
             # 新しいデータシグナルで完全な画像メタデータを送信
             image_data = self.get_image_by_id(image_id)
             if image_data:
+                self._ensure_annotations_loaded(image_data)
                 self.current_image_data_changed.emit(image_data)
                 logger.info(f"✅ 画像選択成功: ID {image_id} - current_image_data_changed シグナル発行")
             else:
@@ -322,6 +323,7 @@ class DatasetStateManager(QObject):
                 filtered_image_data = self._get_image_from_filtered(image_id)
                 if filtered_image_data:
                     logger.debug(f"フィルター済み画像で発見: ID {image_id} - データを送信")
+                    self._ensure_annotations_loaded(filtered_image_data)
                     self.current_image_data_changed.emit(filtered_image_data)
                 else:
                     # キャッシュ未登録 (登録直後 / 検索結果外) は DB から取得して空表示を防ぐ
@@ -569,6 +571,35 @@ class DatasetStateManager(QObject):
             if img.get("id") == image_id:
                 return img
         return None
+
+    def _ensure_annotations_loaded(self, image_data: dict[str, Any]) -> None:
+        """検索フェーズで省略されたアノテーションを遅延取得して dict に merge する。
+
+        Issue #965: 検索 (include_annotations=False) では tags/captions/scores 等を
+        先読みしない。サムネ選択 → プレビュー表示の時点で対象 1 件だけ取得し、
+        キャッシュ dict (live 参照) を in-place 更新することで、以降の同一画像選択は
+        DB 往復なしで即時表示できる。
+
+        Args:
+            image_data: 更新対象のメタデータ辞書 (キャッシュの live 参照)。
+
+        Note:
+            アノテーション済み (検索以外の経路 / 取得済み) の dict は "tags" キーを
+            持つため何もしない。検索フェーズの dict のみ遅延取得の対象になる。
+        """
+        if "tags" in image_data:
+            return  # 既にアノテーション済み
+        image_id = image_data.get("id")
+        if image_id is None or not self._db_manager:
+            return
+        try:
+            annotations = self._db_manager.image_repo.get_image_annotation_metadata(image_id)
+        except Exception as e:
+            logger.error(f"アノテーション遅延取得失敗: ID {image_id}: {e}", exc_info=True)
+            return
+        if annotations:
+            image_data.update(annotations)
+            logger.debug(f"アノテーション遅延取得・merge 完了: ID {image_id}")
 
     def _get_image_from_db(self, image_id: int) -> dict[str, Any] | None:
         """DB から単一画像メタデータを取得する（キャッシュ未登録画像の選択用）。
