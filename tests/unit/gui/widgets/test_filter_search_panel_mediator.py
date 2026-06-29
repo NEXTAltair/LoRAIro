@@ -145,6 +145,37 @@ class TestServiceInjectionMediation:
         assert panel.search_filter_service is mock_service
         assert panel._count_estimate.search_filter_service is mock_service
 
+    def test_set_search_filter_service_uses_annotation_repo_reader_for_tag_suggestions(self, panel):
+        """タグ補完は ImageDatabaseManager.annotation_repo の MergedTagReader を使う。"""
+        merged_reader = object()
+        mock_service = MagicMock()
+        mock_service.create_search_conditions = MagicMock()
+        mock_service.parse_search_input = MagicMock()
+        mock_service.db_manager = MagicMock()
+        mock_service.db_manager.annotation_repo = MagicMock()
+        mock_service.db_manager.annotation_repo.get_merged_reader.return_value = merged_reader
+
+        panel.set_search_filter_service(mock_service)
+
+        assert panel.tag_suggestion_service is not None
+        assert panel.tag_suggestion_service._merged_reader is merged_reader
+        mock_service.db_manager.annotation_repo.get_merged_reader.assert_called_once()
+
+    def test_set_search_filter_service_falls_back_to_legacy_repository_reader(self, panel):
+        """旧経路 repository.merged_reader も互換性として維持する。"""
+        merged_reader = object()
+        mock_service = MagicMock()
+        mock_service.create_search_conditions = MagicMock()
+        mock_service.parse_search_input = MagicMock()
+        mock_service.db_manager = MagicMock()
+        mock_service.db_manager.repository = MagicMock()
+        mock_service.db_manager.repository.merged_reader = merged_reader
+
+        panel.set_search_filter_service(mock_service)
+
+        assert panel.tag_suggestion_service is not None
+        assert panel.tag_suggestion_service._merged_reader is merged_reader
+
     def test_set_tag_suggestion_service_propagates(self, panel):
         """TagSuggestionService 設定が TagSuggestionWidget に伝搬する。"""
         mock_service = MagicMock()

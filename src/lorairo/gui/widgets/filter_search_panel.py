@@ -510,11 +510,7 @@ class FilterSearchPanel(QScrollArea):
         logger.info(f"SearchFilterService set for FilterSearchPanel: {type(service)}")
 
         # TagSuggestionService を SearchFilterService 経由で初期化
-        merged_reader = getattr(
-            getattr(getattr(service, "db_manager", None), "repository", None),
-            "merged_reader",
-            None,
-        )
+        merged_reader = self._resolve_tag_suggestion_reader(service)
         if merged_reader is not None:
             from ...services.tag_suggestion_service import TagSuggestionService
 
@@ -538,6 +534,32 @@ class FilterSearchPanel(QScrollArea):
         if hasattr(service, "get_created_at_histogram"):
             histogram_bins = service.get_created_at_histogram()
             self._search_facets_sidebar.update_histogram(histogram_bins)
+
+    @staticmethod
+    def _resolve_tag_suggestion_reader(service: "SearchFilterService") -> Any:
+        """SearchFilterService からタグ補完用 MergedTagReader を取得する。
+
+        現行の DB manager は external tag DB を AnnotationRepository が所有する。
+        旧テスト/旧経路との互換性のため、最後に repository.merged_reader も参照する。
+        """
+        db_manager = getattr(service, "db_manager", None)
+        if db_manager is None:
+            return None
+
+        db_manager_attrs = getattr(db_manager, "__dict__", {})
+        annotation_repo = db_manager_attrs.get("annotation_repo")
+        get_merged_reader = getattr(annotation_repo, "get_merged_reader", None)
+        if callable(get_merged_reader):
+            try:
+                merged_reader = get_merged_reader()
+            except Exception as e:
+                logger.warning(f"MergedTagReader 取得に失敗: {e}")
+            else:
+                if merged_reader is not None:
+                    return merged_reader
+
+        repository = db_manager_attrs.get("repository")
+        return getattr(repository, "merged_reader", None)
 
     def set_tag_suggestion_service(self, service: "TagSuggestionService | None") -> None:
         """TagSuggestionService を設定する (旧 API 互換)。"""
