@@ -4,6 +4,7 @@
 """
 
 import threading
+from typing import TYPE_CHECKING
 
 from genai_tag_db_tools.models import TagRecordPublic, TagTypeUpdate
 from loguru import logger
@@ -12,6 +13,9 @@ from PySide6.QtWidgets import QCheckBox, QComboBox, QMessageBox, QTableWidgetIte
 
 from ...services.tag_management_service import TagManagementService
 from ..designer.TagManagementWidget_ui import Ui_TagManagementWidget
+
+if TYPE_CHECKING:
+    from ...services.refinement_service import RefinementService
 
 
 class TagManagementWidget(QWidget, Ui_TagManagementWidget):
@@ -39,6 +43,7 @@ class TagManagementWidget(QWidget, Ui_TagManagementWidget):
 
         # 依存注入
         self.tag_service: TagManagementService | None = None
+        self.refinement_service: RefinementService | None = None
 
         # 状態管理
         self.unknown_tags: list[TagRecordPublic] = []
@@ -59,6 +64,34 @@ class TagManagementWidget(QWidget, Ui_TagManagementWidget):
         """
         self.tag_service = service
         logger.info("TagManagementService set for TagManagementWidget")
+
+    def set_refinement_service(self, service: "RefinementService") -> None:
+        """RefinementService を依存注入します (#977)
+
+        tagdb の type 更新後に refinement 評価キャッシュを無効化するために使用します。
+        未注入 (None) の場合はキャッシュ無効化をスキップします。
+
+        Args:
+            service: refinement 評価キャッシュを保持する Qt-free サービス。
+        """
+        self.refinement_service = service
+        logger.info("RefinementService set for TagManagementWidget")
+
+    def _clear_refinement_cache(self) -> None:
+        """refinement 評価キャッシュを無効化します (#977)
+
+        tagdb の type 更新で alias/type メタデータが変わると、キャッシュ済みの
+        refinement リコメンドが stale になるためクリアします。RefinementService 未注入や
+        クリア失敗時もタグ更新フロー / 詳細ペイン表示を巻き込まないよう degrade します。
+        """
+        if self.refinement_service is None:
+            logger.debug("RefinementService 未注入のためキャッシュ無効化をスキップ")
+            return
+        try:
+            self.refinement_service.clear_cache()
+        except (AttributeError, RuntimeError) as e:
+            # graceful degradation (#977): キャッシュ無効化失敗で UI を壊さない。
+            logger.warning(f"refinement キャッシュ無効化に失敗 (継続): {e}")
 
     def _setup_table_properties(self) -> None:
         """テーブルのプロパティを設定します"""
@@ -238,6 +271,9 @@ class TagManagementWidget(QWidget, Ui_TagManagementWidget):
     def _on_update_completed(self) -> None:
         """更新完了時の処理"""
         logger.info("Tag type update completed successfully")
+
+        # tagdb 更新で stale になった refinement 評価キャッシュを無効化 (#977)
+        self._clear_refinement_cache()
 
         QMessageBox.information(
             self,

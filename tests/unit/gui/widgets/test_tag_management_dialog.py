@@ -6,6 +6,7 @@ import pytest
 from PySide6.QtCore import Qt
 
 from lorairo.gui.widgets.tag_management_dialog import TagManagementDialog
+from lorairo.services.refinement_service import RefinementService
 from lorairo.services.tag_management_service import TagManagementService
 
 
@@ -74,6 +75,18 @@ class TestTagManagementDialog:
 
         # Dialog が非表示になること（破棄されない）
         assert not dialog.isVisible()
+
+    def test_refinement_service_injected_into_widget(self, qtbot, mock_service: Mock) -> None:
+        """refinement_service を渡すと埋め込み widget に注入される（#977）"""
+        refinement_service = Mock(spec=RefinementService)
+        dialog = TagManagementDialog(mock_service, refinement_service=refinement_service)
+        qtbot.addWidget(dialog)
+
+        assert dialog.tag_widget.refinement_service is refinement_service
+
+    def test_refinement_service_optional(self, dialog: TagManagementDialog) -> None:
+        """refinement_service 未指定でも埋め込み widget は None で初期化される（#977）"""
+        assert dialog.tag_widget.refinement_service is None
 
     def test_show_event_loads_tags(self, dialog: TagManagementDialog, qtbot, mock_service) -> None:
         """Dialog表示時に load_unknown_tags() が呼ばれること"""

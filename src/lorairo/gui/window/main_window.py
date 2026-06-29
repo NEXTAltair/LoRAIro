@@ -806,9 +806,20 @@ class MainWindow(QMainWindow, Ui_MainWindow):
                     QMessageBox.warning(self, "エラー", "サービス接続が確立されていません")
                     return
 
+                # refinement キャッシュ無効化用に共有 RefinementService を注入 (#977)。
+                # tagdb 初期化失敗でもダイアログを巻き込まず degrade する (付加機能のため非致命)。
+                refinement_service = None
+                try:
+                    refinement_service = self.service_container.refinement_service
+                except Exception as e:
+                    # graceful degradation (#977): RefinementService 初期化エラーでも
+                    # タグ管理ダイアログ自体は使えるようにする。
+                    logger.warning(f"RefinementService 配線をスキップ (tagdb 不可?): {e}")
+
                 self.tag_management_dialog = TagManagementDialog(
                     tag_service=self.service_container.tag_management_service,
                     parent=self,
+                    refinement_service=refinement_service,
                 )
 
                 logger.info("TagManagementDialog created (lazy initialization)")
