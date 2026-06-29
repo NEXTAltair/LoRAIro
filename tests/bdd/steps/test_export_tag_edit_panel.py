@@ -84,8 +84,9 @@ def when_db_reject_everywhere(ctx: dict[str, Any], tag: str, monkeypatch) -> Non
     ctx["tab"]._staging_tag_panel.db_reject_everywhere_requested.emit(tag)
 
 
-@then(parsers.parse("エクスポート対象は絞り込み結果の{n:d}枚になる"))
-def then_export_ids_filtered(ctx: dict[str, Any], n: int) -> None:
+@then(parsers.parse("エクスポート対象は全 staged の{n:d}枚のままになる"))
+def then_export_ids_all_staged(ctx: dict[str, Any], n: int) -> None:
+    # scope=filtered は overlay 適用範囲を限定するだけで、エクスポート対象は削らない (Codex P1)。
     assert len(ctx["tab"]._effective_export_ids()) == n
 
 

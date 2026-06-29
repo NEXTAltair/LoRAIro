@@ -410,8 +410,8 @@ def test_selection_updates_overlay_bar_preview(qtbot, wired_tab) -> None:
 
 
 @pytest.mark.gui
-def test_scope_filtered_limits_export_ids(qtbot, wired_tab) -> None:
-    """scope=filtered で実エクスポート対象が絞り込み結果に限定される (#949)。"""
+def test_scope_filtered_keeps_all_export_ids(qtbot, wired_tab) -> None:
+    """scope=filtered でもエクスポート対象は全 staged のまま (overlay 適用範囲のみ変わる, Codex P1)。"""
     tab, _db = wired_tab
     tab.set_image_ids([1, 2, 3])
     tab._aggregation_service.images_with_tag.return_value = [2]
@@ -420,23 +420,69 @@ def test_scope_filtered_limits_export_ids(qtbot, wired_tab) -> None:
     tab._overlay_bar.scope_changed.emit("filtered")
 
     assert tab._scope == "filtered"
-    assert tab._effective_export_ids() == [2]
+    # 非一致の staged 画像も落とさない
+    assert tab._effective_export_ids() == [1, 2, 3]
 
 
 @pytest.mark.gui
-def test_effective_export_ids_recomputes_filter_fresh(qtbot, wired_tab) -> None:
-    """scope=filtered の対象は export 時に DB から再計算される (詳細編集後の stale 防止, Codex P2)。"""
+def test_overlay_rule_global_when_scope_all(qtbot, wired_tab) -> None:
+    """scope=all の overlay rule は全画像適用 (image_ids=None) (#949)。"""
+    from lorairo.services.export_overlay import ExportTagOverlay
+
+    tab, _db = wired_tab
+    tab.set_image_ids([1, 2, 3])
+    overlay = ExportTagOverlay(add=["trigger"], exclude=set(), replace={})
+
+    rule = tab._overlay_rule(overlay)
+
+    assert rule.image_ids is None
+
+
+@pytest.mark.gui
+def test_overlay_rule_scoped_when_filtered(qtbot, wired_tab) -> None:
+    """scope=filtered の overlay rule は絞り込み一致画像のみへ適用 + export 時 DB 再計算 (Codex P1/P2)。"""
+    from lorairo.services.export_overlay import ExportTagOverlay
+
     tab, _db = wired_tab
     tab.set_image_ids([1, 2, 3])
     tab._aggregation_service.images_with_tag.return_value = [2]
     tab._staging_tag_panel.filter_tag_changed.emit("smile")
     tab._overlay_bar.scope_changed.emit("filtered")
-    assert tab._effective_export_ids() == [2]
+    overlay = ExportTagOverlay(add=["trigger"], exclude=set(), replace={})
 
-    # 詳細ペインのタグ編集で image 2 が tag を失った想定 → DB 再計算で対象から外れる
+    rule = tab._overlay_rule(overlay)
+    assert rule.image_ids == {2}
+
+    # 詳細編集で image 2 が tag を失った想定 → export 時の再計算で scope が空になる
     tab._aggregation_service.images_with_tag.return_value = []
+    assert tab._overlay_rule(overlay).image_ids == set()
 
-    assert tab._effective_export_ids() == []
+
+@pytest.mark.gui
+def test_filter_preserves_staging_order(qtbot, wired_tab) -> None:
+    """絞り込み結果は staging 挿入順を保つ (images_with_tag の set 順崩れに耐える, Codex P3)。"""
+    tab, _db = wired_tab
+    tab.set_image_ids([3, 1, 2])
+    # images_with_tag が順不同 (set 由来) で返しても staging 順 [3,1,2] に整列する
+    tab._aggregation_service.images_with_tag.return_value = [2, 3]
+
+    tab._staging_tag_panel.filter_tag_changed.emit("smile")
+
+    assert tab._filtered_ids == [3, 2]
+
+
+@pytest.mark.gui
+def test_preview_dedupes_duplicate_tags(qtbot, wired_tab) -> None:
+    """ライブプレビューは重複タグ (複数モデル由来) を出現順で unique 化する (Codex P2)。"""
+    tab, _db = wired_tab
+    calls: list[tuple] = []
+    tab._overlay_bar.set_selected_image = lambda image_id, db_tags: calls.append((image_id, db_tags))
+
+    tab._dataset_state_manager.current_image_data_changed.emit(
+        {"id": 7, "tags": [{"tag": "smile"}, {"tag": "rose"}, {"tag": "smile"}]}
+    )
+
+    assert calls == [(7, ["smile", "rose"])]
 
 
 @pytest.mark.gui

@@ -29,7 +29,7 @@ from PySide6.QtGui import QCloseEvent
 from PySide6.QtWidgets import QFileDialog, QMessageBox, QSplitter, QVBoxLayout, QWidget
 
 from ...database.db_core import resolve_stored_path
-from ...services.export_overlay import ExportOverlayPlan, ScopedOverlayRule
+from ...services.export_overlay import ExportOverlayPlan, ExportTagOverlay, ScopedOverlayRule
 from ...services.staging_tag_aggregation import StagingTagAggregationService
 from ..state.dataset_state import DatasetStateManager
 from ..state.staging_state import StagingStateManager
@@ -305,19 +305,30 @@ class ExportTabWidget(QWidget):
     # StagingTagPanel / overlay bar / 選択 シグナルハンドラ (#949 follow-up)
     # ------------------------------------------------------------------
 
+    def _compute_filtered_ids(self, tag: str) -> list[int]:
+        """指定タグを持つ staged 画像 ID を **staging 順を保って** 返す (#949, Codex P3)。
+
+        ``images_with_tag`` は set 経由で順序が崩れるため、``_image_ids`` の挿入順に
+        並べ直してサムネ表示やオーバーレイ scope が staging 順を保つようにする。
+        """
+        if self._aggregation_service is None:
+            return list(self._image_ids)
+        matched = set(self._aggregation_service.images_with_tag(self._image_ids, tag))
+        return [image_id for image_id in self._image_ids if image_id in matched]
+
     @Slot(object)
     def _on_filter_tag_changed(self, tag: str | None) -> None:
         """左ペインのタグ絞り込みを中央サムネへ反映する (#949)。
 
         tag=None で全 staged を表示、tag 指定でそのタグを持つ staged 画像のみ表示する。
-        絞り込み結果は scope counts と (scope=filtered 時の) エクスポート対象にも使う。
+        絞り込み結果は scope counts と (scope=filtered 時の) オーバーレイ適用範囲に使う。
         """
         if tag is None or self._aggregation_service is None:
             self._active_filter_tag = None
             self._filtered_ids = list(self._image_ids)
         else:
             self._active_filter_tag = tag
-            self._filtered_ids = self._aggregation_service.images_with_tag(self._image_ids, tag)
+            self._filtered_ids = self._compute_filtered_ids(tag)
         self._render_thumbnails(self._filtered_ids)
         self._overlay_bar.set_scope_counts(len(self._image_ids), len(self._filtered_ids))
 
@@ -357,7 +368,14 @@ class ExportTabWidget(QWidget):
             self._overlay_bar.set_selected_image(None, [])
             return
         image_id = image_data.get("id")
-        db_tags = [t["tag"] for t in image_data.get("tags", []) if isinstance(t, dict) and t.get("tag")]
+        # 同一タグが複数モデル由来で重複し得るため、export の _resolve_export_tags と同じく
+        # 出現順を保った unique 化を行う。プレビューに "smile, smile" が出るのを防ぐ (Codex P2)。
+        seen: set[str] = set()
+        db_tags: list[str] = []
+        for t in image_data.get("tags", []):
+            if isinstance(t, dict) and t.get("tag") and t["tag"] not in seen:
+                seen.add(t["tag"])
+                db_tags.append(t["tag"])
         self._overlay_bar.set_selected_image(image_id, db_tags)
 
     @Slot()
@@ -371,21 +389,14 @@ class ExportTabWidget(QWidget):
         self._scope = scope
 
     def _effective_export_ids(self) -> list[int]:
-        """scope と changed-since を反映した実エクスポート対象 ID を返す。
+        """changed-since を反映した実エクスポート対象 ID を返す。
 
-        scope=filtered のときは ``_filtered_ids`` のキャッシュではなく、現在のタグ絞り込み
-        条件を **DB から再計算** して基底にする。詳細ペインのタグ編集や DB reject で対象タグの
-        付与状況が変わっても、export 時点の最新状態で書き出す (Codex P2)。validate/export の
-        たびに現在の UI 設定から再計算し、stale な対象で書き出す事故を防ぐ (#962 / #621)。
+        エクスポート対象は **常にステージング集合** (ADR 0019/0055)。"絞込" スコープは
+        オーバーレイの適用範囲であってエクスポート対象を削るものではないため、ここでは
+        scope でフィルタしない (Codex P1)。changed-since のみ反映し、validate/export の
+        たびに再計算して stale な対象で書き出す事故を防ぐ (#962 / #621)。
         """
-        if (
-            self._scope == "filtered"
-            and self._active_filter_tag is not None
-            and self._aggregation_service is not None
-        ):
-            base_ids = self._aggregation_service.images_with_tag(self._image_ids, self._active_filter_tag)
-        else:
-            base_ids = list(self._image_ids)
+        base_ids = list(self._image_ids)
         if not self._overlay_bar.changed_since_enabled():
             return base_ids
         since = self._overlay_bar.changed_since()
@@ -417,6 +428,22 @@ class ExportTabWidget(QWidget):
             return
         QMessageBox.information(self, "エクスポート検証", f"エクスポート対象: {count} 枚")
 
+    def _overlay_rule(self, overlay: ExportTagOverlay) -> ScopedOverlayRule:
+        """scope に応じた overlay 適用ルールを返す (#949, Codex P1)。
+
+        scope="all" は全 staged 画像へ適用 (image_ids=None)。scope="filtered" は現在の
+        タグ絞り込みに一致する画像だけへ適用し、非一致画像は overlay なしで出力する。
+        scope ID は export 時点の DB から再計算し、詳細編集/DB reject 後も最新の対象へ適用する。
+        """
+        if (
+            self._scope == "filtered"
+            and self._active_filter_tag is not None
+            and self._aggregation_service is not None
+        ):
+            scope_ids = set(self._compute_filtered_ids(self._active_filter_tag))
+            return ScopedOverlayRule(scope_ids, overlay)
+        return ScopedOverlayRule(None, overlay)
+
     @Slot()
     def _on_export_requested(self) -> None:
         """エクスポート要求: 出力先を選び、非同期 worker で書き出す。"""
@@ -445,13 +472,12 @@ class ExportTabWidget(QWidget):
         # ExportOverlayBar は canonical 値 (txt_separate/txt_merged/json) を返す。
         merge_caption = export_format == "txt_merged"
 
-        # 出力 overlay (trigger/exclude/replace) を全 staged 画像へグローバル適用する。
-        # preview と書き出しを一致させるため (#961 P1)。空 overlay は None でレガシー挙動を維持。
-        # scope (全/絞込) の絞り込みは filter 配線が入る後続 PR で対応する。
+        # 出力 overlay (trigger/exclude/replace) を組む。空 overlay は None でレガシー挙動を維持。
+        # scope="filtered" のときは overlay を絞り込み一致画像だけに適用する scoped rule にし、
+        # 非一致の staged 画像は overlay なしでそのまま書き出す (エクスポート対象は削らない、Codex P1)。
+        # scope ID は export 時点の DB から再計算し、詳細編集後も最新の対象へ適用する。
         overlay = self._overlay_bar.current_overlay()
-        overlay_plan = (
-            None if overlay.is_noop else ExportOverlayPlan(rules=[ScopedOverlayRule(None, overlay)])
-        )
+        overlay_plan = None if overlay.is_noop else ExportOverlayPlan(rules=[self._overlay_rule(overlay)])
 
         worker = DatasetExportWorker(
             export_service=self._service_container.dataset_export_service,
