@@ -378,8 +378,10 @@ class ExportTabWidget(QWidget):
 
         埋め込みウィジェットの ``closeEvent`` はウィンドウ閉鎖で必ずしも発火しないため、
         MainWindow の closeEvent からも本メソッドを呼んで thread の取り残しを防ぐ。
+        詳細ペインの refinement worker も停止する (タブ単独クローズ経路対策、#931 P2)。
         """
         self._teardown_export_thread()
+        self._selected_image_details_widget.shutdown()
 
     def closeEvent(self, event: QCloseEvent) -> None:
         """タブ単体クローズ時にエクスポート thread を後始末する (#961 P2)。"""
