@@ -72,6 +72,35 @@ uv run pytest -m gui
 uv run pytest --cov=src --cov-report=html
 ```
 
+### Native Dependency Smoke Tests
+
+LoRAIro shares one canonical `.venv` at `/workspaces/LoRAIro/.venv`, including when commands run from
+`.agents/worktree/` checkouts. Treat default-sync `uv run`, `uv sync`, dependency upgrades, and torch/NVIDIA
+wheel repairs as shared environment mutations; do not run them concurrently across workers.
+
+Run a torch/CUDA smoke test after dependency updates, after failures involving local annotators, or when errors
+mention missing native libraries such as `libcudnn.so.9`, `libcusparseLt.so.0`, `libtorch_cuda.so`, or `triton`:
+
+```bash
+uv run --no-sync python -c "import torch, torchvision; print(torch.__version__, torchvision.__version__, torch.cuda.is_available())"
+find .venv/lib/python*/site-packages -name 'libcudnn.so*' -o -name 'libcusparseLt.so*'
+uv pip check
+```
+
+Known failure mode: `uv` can leave NVIDIA/PyTorch packages in an inconsistent state where package metadata and
+`RECORD` say `nvidia-cudnn-cu13` or `nvidia-cusparselt-cu13` is installed, but the actual `.so` files are missing.
+`uv pip check` may not detect this because dependencies are still installed from the resolver's perspective.
+
+Repair order:
+1. Prefer non-mutating checks first (`uv run --no-sync ...`, `find`, `uv pip check`).
+2. If only specific NVIDIA shared objects are missing, force-reinstall the narrow package(s), for example
+   `uv pip install --force-reinstall nvidia-cudnn-cu13 nvidia-cusparselt-cu13`.
+3. Reinstall `torch` / `torchvision` from the configured PyTorch CUDA index only when the narrow repair fails.
+4. If repeated narrow repairs expose more missing native libraries, or installed metadata repeatedly disagrees with
+   actual files, stop repairing piecemeal and tell the user that the shared `.venv` likely needs to be rebuilt.
+5. Do not remove or recreate the shared `.venv` from an agent session unless the user explicitly asks for shared
+   environment maintenance. The user is the authority on whether other sessions are still using the shared `.venv`.
+
 ## Core Patterns
 
 ### 1. Unit Tests
