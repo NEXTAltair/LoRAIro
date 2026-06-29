@@ -242,11 +242,23 @@ class ServiceContainer:
         評価関数として注入する。ignore は RefinementIgnoreRepository に永続化する。
         """
         if self._refinement_service is None:
+            from genai_tag_db_tools.models import RefinementRecommendation
+
             from ..database.repository.refinement_ignore import RefinementIgnoreRepository
             from .refinement_service import RefinementService
 
+            # tag_management_service (tagdb) の構築は重く、widget init 時点では tagdb 未設定の
+            # ことがある (Base DB paths not configured)。recommend_fn を遅延 lambda にし、
+            # 初回の実評価 (画像選択時・tagdb 準備済み) まで TagManagementService 構築を遅らせる。
+            def _recommend(
+                tag: str, *, repo: object | None = None, format_name: str = "unknown"
+            ) -> RefinementRecommendation:
+                return self.tag_management_service.recommend_manual_refinement(
+                    tag, repo=repo, format_name=format_name
+                )
+
             self._refinement_service = RefinementService(
-                recommend_fn=self.tag_management_service.recommend_manual_refinement,
+                recommend_fn=_recommend,
                 ignore_repo=RefinementIgnoreRepository(),
             )
             logger.info("RefinementService初期化完了")
