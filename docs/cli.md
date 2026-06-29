@@ -1,3 +1,9 @@
+---
+type: Reference
+title: LoRAIro CLI ドキュメント
+status: Accepted
+tags: [cli, annotation, dataset-export]
+---
 # LoRAIro CLI ドキュメント
 
 LoRAIro のコマンドラインインターフェース（CLI）。GUI なし環境でのデータセット管理、

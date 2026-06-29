@@ -1,3 +1,11 @@
+---
+type: Guide
+title: 外部パッケージ統合
+status: Accepted
+timestamp: 2026-06-26
+tags: [annotation, tag-normalization]
+depends_on: [transformers, litellm, pydanticai]
+---
 # 外部パッケージ統合
 
 ## 概要

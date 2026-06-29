@@ -1,3 +1,11 @@
+---
+type: Reference
+title: サービス層アーキテクチャ
+status: Accepted
+timestamp: 2026-06-26
+tags: [service-layer]
+depends_on: [pyside6]
+---
 # サービス層アーキテクチャ
 
 ## 概要

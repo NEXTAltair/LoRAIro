@@ -1,7 +1,7 @@
 # LoRAIro Project Makefile
 # Development task automation
 
-.PHONY: help setup test test-iam-lib test-runtime-local test-runtime-webapi test-genai-tag test-all mypy format format-iam-lib format-genai-tag adr-drift adr-index adr-okf install install-dev clean run-gui generate-ui skills-update venv-rebuild worktree-cleanup-merged worktree-cleanup-merged-dry-run _ensure-submodules _ensure-root-venv
+.PHONY: help setup test test-iam-lib test-runtime-local test-runtime-webapi test-genai-tag test-all mypy format format-iam-lib format-genai-tag adr-drift adr-index adr-okf docs-okf install install-dev clean run-gui generate-ui skills-update venv-rebuild worktree-cleanup-merged worktree-cleanup-merged-dry-run _ensure-submodules _ensure-root-venv
 
 WORKTREE_ROOT := /workspaces/LoRAIro/.agents/worktree
 ifeq ($(filter $(WORKTREE_ROOT)/%,$(CURDIR)),)
@@ -34,6 +34,7 @@ help:
 	@echo "  adr-drift    List ADR review candidates (drift detection)"
 	@echo "  adr-index    Regenerate ADR index.md + README from frontmatter (ADR 0069)"
 	@echo "  adr-okf      Validate ADR frontmatter and check index is up to date"
+	@echo "  docs-okf     Validate documentation OKF frontmatter (lazy, ADR 0082)"
 	@echo "  clean        Clean build artifacts"
 	@echo "  venv-rebuild Rebuild .venv from scratch (recovery from corruption)"
 	@echo "  worktree-cleanup-merged Remove clean merged /workspaces/LoRAIro/.agents/worktree entries"
@@ -165,6 +166,25 @@ adr-okf:
 	python3 .agents/skills/okf-bundle/scripts/okf_index.py --bundle-root docs/decisions \
 		--index --index-output docs/decisions/index.md \
 		--index-title "Architecture Decision Records" --exclude README.md --check
+
+# 通常ドキュメント (docs / local_packages docs) の OKF frontmatter を検証する (ADR 0082)。
+# lazy migration: --skip-missing で frontmatter 未付与ファイルは pass、付与済みのみ type/timestamp を検証。
+# docs/decisions は全件必須なので別 target (adr-okf)。
+# DOCS_OKF_EXCLUDE: frontmatter 規約の対象外 (README/メタ系 + 外部ツールが固有形式を要求する SKILL.md)。
+DOCS_OKF_EXCLUDE := README.md,CHANGELOG.md,CLAUDE.md,AGENTS.md,GEMINI.md,SKILL.md
+
+docs-okf:
+	@echo "Validating documentation OKF frontmatter (lazy migration, ADR 0082)..."
+	python3 .agents/skills/okf-bundle/scripts/okf_validate.py --bundle-root docs \
+		--skip-missing --exclude $(DOCS_OKF_EXCLUDE)
+	@rc=0; for d in local_packages/image-annotator-lib/docs local_packages/genai-tag-db-tools/docs; do \
+		if [ -d "$$d" ]; then \
+			python3 .agents/skills/okf-bundle/scripts/okf_validate.py --bundle-root "$$d" \
+				--skip-missing --exclude $(DOCS_OKF_EXCLUDE) || rc=1; \
+		else \
+			echo "skip (submodule not checked out): $$d"; \
+		fi; \
+	done; exit $$rc
 
 skills-update:
 	@echo "Restoring skills from skills-lock.json..."

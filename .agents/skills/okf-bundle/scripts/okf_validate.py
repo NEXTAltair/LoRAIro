@@ -10,9 +10,14 @@ OKF SPEC v0.1 が要求する最小の構造規約を機械チェックする:
 プロジェクト非依存。``--bundle-root`` で対象ディレクトリを受け取り、
 ``--require`` で必須キーを追加できる。違反があれば終了コード 1。
 
+段階的移行 (lazy migration) のため ``--skip-missing`` を用意する。frontmatter が
+無いファイルを違反にせず走査から除外するので、既存ドキュメントへ frontmatter を
+徐々に付与しつつ、付与済みのものだけ規約を強制できる。
+
 使い方:
     python3 okf_validate.py --bundle-root docs/decisions
     python3 okf_validate.py --bundle-root docs/decisions --require type,title --exclude README.md
+    python3 okf_validate.py --bundle-root docs --skip-missing --exclude README.md
 """
 
 from __future__ import annotations
@@ -39,8 +44,22 @@ def _is_iso8601(value: str) -> bool:
     return False
 
 
-def validate(bundle_root: Path, required: tuple[str, ...], excludes: frozenset[str]) -> list[str]:
-    """バンドルを検証し、違反メッセージのリストを返す (空なら合格)。"""
+def validate(
+    bundle_root: Path,
+    required: tuple[str, ...],
+    excludes: frozenset[str],
+    *,
+    skip_missing: bool = False,
+) -> list[str]:
+    """バンドルを検証し、違反メッセージのリストを返す (空なら合格)。
+
+    Args:
+        bundle_root: バンドルのルートディレクトリ。
+        required: 各概念ドキュメントに必須とするキーのタプル。
+        excludes: 走査から除外するファイル名の集合。
+        skip_missing: True なら frontmatter が無いファイルを違反にせず除外する
+            (lazy migration 用)。
+    """
     problems: list[str] = []
     count = 0
     for path in iter_concept_files(bundle_root, extra_excludes=excludes):
@@ -49,7 +68,8 @@ def validate(bundle_root: Path, required: tuple[str, ...], excludes: frozenset[s
         text = path.read_text(encoding="utf-8")
         fm = parse_frontmatter(text)
         if not fm:
-            problems.append(f"{rel}: frontmatter が無い")
+            if not skip_missing:
+                problems.append(f"{rel}: frontmatter が無い")
             continue
         for key in required:
             if not fm.get(key):
@@ -75,6 +95,11 @@ def main() -> int:
         default="",
         help="走査から除外するファイル名のカンマ区切り (例: README.md)。",
     )
+    parser.add_argument(
+        "--skip-missing",
+        action="store_true",
+        help="frontmatter が無いファイルを違反にせず除外する (lazy migration 用)。",
+    )
     args = parser.parse_args()
 
     bundle_root: Path = args.bundle_root
@@ -85,7 +110,7 @@ def main() -> int:
     required = tuple(k.strip() for k in args.require.split(",") if k.strip()) or DEFAULT_REQUIRED
     excludes = frozenset(k.strip() for k in args.exclude.split(",") if k.strip())
 
-    problems = validate(bundle_root, required, excludes)
+    problems = validate(bundle_root, required, excludes, skip_missing=args.skip_missing)
     if problems:
         print(f"OKF 検証 NG: {len(problems)} 件の違反")
         for p in problems:

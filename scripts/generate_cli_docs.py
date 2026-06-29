@@ -70,6 +70,14 @@ def _tool_section(spec: ToolSpec) -> list[str]:
 
 def render() -> str:
     lines = [
+        # OKF frontmatter (ADR 0082)。生成ファイルなので generator から emit し、
+        # 再生成で消えないようにする。鮮度は Git 履歴で追う (timestamp は持たない)。
+        "---",
+        "type: Reference",
+        "title: LoRAIro CLI ドキュメント",
+        "status: Accepted",
+        "tags: [cli, annotation, dataset-export]",
+        "---",
         "# LoRAIro CLI ドキュメント",
         "",
         "LoRAIro のコマンドラインインターフェース（CLI）。GUI なし環境でのデータセット管理、",

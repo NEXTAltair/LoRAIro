@@ -91,6 +91,7 @@ ADR は OKF (Open Knowledge Format) バンドルとして管理する。各 ADR 
 | [0079](0079-jobs-stage-progress-and-summary-band.md) | Jobs ステージ別 progress + サマリ帯 — 実データ表示契約と Qt-free 構築ロジック | 2026-06-27 | Accepted |
 | [0080](0080-export-tag-overlay-two-layer.md) | エクスポート前タグ編集の2層オーバーレイ契約 — DB編集層と出力オーバーレイ層の分離 | 2026-06-27 | Accepted |
 | [0081](0081-export-changed-since-filter.md) | Export Changed-Since Filter Reintroduction | 2026-06-28 | Accepted |
+| [0082](0082-okf-frontmatter-for-documentation.md) | 通常ドキュメントにも OKF frontmatter を付け SSoT 化する | 2026-06-29 | Accepted |
 <!-- OKF-TABLE:END -->
 
 ## ADR テンプレート
