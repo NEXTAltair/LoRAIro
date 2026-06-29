@@ -829,6 +829,49 @@ class ImageRepository(BaseRepository):
                 )
                 raise
 
+    def get_image_annotation_metadata(self, image_id: int) -> dict[str, Any] | None:
+        """単一画像のアノテーションを表示用フォーマットで取得する (Issue #965)。
+
+        検索フェーズ (include_annotations=False) でアノテーションを先読みしない構成に
+        おいて、サムネイル選択 → プレビュー/詳細表示の時点で対象 1 件だけ遅延取得する
+        ために使う。返り値は ``_format_annotations_for_metadata`` と同じキー形状
+        (tags / tags_text / captions / caption_text / scores / score_value /
+        score_labels / ratings / quality_summary 等) で、検索キャッシュ dict へ
+        そのまま merge できる。
+
+        Args:
+            image_id: 取得対象の画像ID。
+
+        Returns:
+            アノテーション辞書。画像が存在しない場合は None。
+
+        Raises:
+            SQLAlchemyError: データベース操作でエラーが発生した場合。
+        """
+        with self.session_factory() as session:
+            try:
+                stmt = (
+                    select(Image)
+                    .where(Image.id == image_id)
+                    .options(
+                        selectinload(Image.tags).selectinload(Tag.model),
+                        selectinload(Image.captions).selectinload(Caption.model),
+                        selectinload(Image.scores).selectinload(Score.model),
+                        selectinload(Image.score_labels).selectinload(ScoreLabel.model),
+                        selectinload(Image.ratings).selectinload(Rating.model),
+                    )
+                )
+                img = session.execute(stmt).scalars().first()
+                if img is None:
+                    return None
+                return self._format_annotations_for_metadata(img)
+            except SQLAlchemyError as e:
+                logger.error(
+                    f"画像アノテーションの遅延取得中にエラーが発生しました: image_id={image_id}: {e}",
+                    exc_info=True,
+                )
+                raise
+
     def get_batch_available_resolutions(self, image_ids: list[int]) -> dict[int, list[int]]:
         """複数画像の利用可能な処理済み解像度を一括取得する。
 
@@ -2190,6 +2233,7 @@ class ImageRepository(BaseRepository):
         self,
         session: Session,
         image_ids: list[int],
+        include_annotations: bool = True,
     ) -> list[dict[str, Any]]:
         """オリジナル画像のメタデータをアノテーション付きで取得する。
 
@@ -2201,23 +2245,25 @@ class ImageRepository(BaseRepository):
             メタデータ辞書のリスト。
 
         """
-        orig_stmt = (
-            select(Image)
-            .where(Image.id.in_(image_ids))
-            .options(
+        # Issue #965: include_annotations=False のとき (検索フェーズ) は
+        # アノテーション 5 リレーションの selectinload と Python 整形を省き、
+        # id + Image カラムのみを取得してサムネイル/プレビュー表示を高速化する。
+        orig_stmt = select(Image).where(Image.id.in_(image_ids))
+        if include_annotations:
+            orig_stmt = orig_stmt.options(
                 selectinload(Image.tags).selectinload(Tag.model),
                 selectinload(Image.captions).selectinload(Caption.model),
                 selectinload(Image.scores).selectinload(Score.model),
                 selectinload(Image.score_labels).selectinload(ScoreLabel.model),
                 selectinload(Image.ratings).selectinload(Rating.model),
             )
-        )
         orig_results: list[Image] = list(session.execute(orig_stmt).scalars().all())
 
         result = []
         for img in orig_results:
             metadata = {c.name: getattr(img, c.name) for c in img.__table__.columns}
-            metadata.update(self._format_annotations_for_metadata(img))
+            if include_annotations:
+                metadata.update(self._format_annotations_for_metadata(img))
             result.append(metadata)
         return result
 
@@ -2226,6 +2272,7 @@ class ImageRepository(BaseRepository):
         session: Session,
         image_ids: list[int],
         resolution: int,
+        include_annotations: bool = True,
     ) -> list[dict[str, Any]]:
         """処理済み画像のメタデータをアノテーション付きで取得する。
 
@@ -2241,22 +2288,25 @@ class ImageRepository(BaseRepository):
         proc_stmt = select(ProcessedImage).where(ProcessedImage.image_id.in_(image_ids))
         all_proc_images = session.execute(proc_stmt).scalars().all()
 
-        # Original Imageのアノテーション情報を一括取得
-        orig_annotations_stmt = (
-            select(Image)
-            .where(Image.id.in_(image_ids))
-            .options(
-                selectinload(Image.tags).selectinload(Tag.model),
-                selectinload(Image.captions).selectinload(Caption.model),
-                selectinload(Image.scores).selectinload(Score.model),
-                selectinload(Image.score_labels).selectinload(ScoreLabel.model),
-                selectinload(Image.ratings).selectinload(Rating.model),
+        # Issue #965: 検索フェーズ (include_annotations=False) ではアノテーション先読みを省く。
+        annotations_by_image_id: dict[int, dict[str, Any]] = {}
+        if include_annotations:
+            # Original Imageのアノテーション情報を一括取得
+            orig_annotations_stmt = (
+                select(Image)
+                .where(Image.id.in_(image_ids))
+                .options(
+                    selectinload(Image.tags).selectinload(Tag.model),
+                    selectinload(Image.captions).selectinload(Caption.model),
+                    selectinload(Image.scores).selectinload(Score.model),
+                    selectinload(Image.score_labels).selectinload(ScoreLabel.model),
+                    selectinload(Image.ratings).selectinload(Rating.model),
+                )
             )
-        )
-        orig_images = session.execute(orig_annotations_stmt).scalars().all()
-        annotations_by_image_id = {
-            img.id: self._format_annotations_for_metadata(img) for img in orig_images
-        }
+            orig_images = session.execute(orig_annotations_stmt).scalars().all()
+            annotations_by_image_id = {
+                img.id: self._format_annotations_for_metadata(img) for img in orig_images
+            }
 
         # image_id ごとにグループ化
         proc_images_by_id: dict[int, list[dict[str, Any]]] = {}
@@ -2286,6 +2336,7 @@ class ImageRepository(BaseRepository):
         session: Session,
         image_ids: list[int],
         resolution: int,
+        include_annotations: bool = True,
     ) -> list[dict[str, Any]]:
         """フィルタリングされたIDリストに基づき、指定解像度のメタデータを取得する。
 
@@ -2293,6 +2344,9 @@ class ImageRepository(BaseRepository):
             session: SQLAlchemyセッション。
             image_ids: 画像IDリスト。
             resolution: 対象解像度(0はオリジナル)。
+            include_annotations: アノテーション (tags/captions/scores/score_labels/
+                ratings) を含めるか。False の場合は id + テーブルカラムのみ取得する
+                (Issue #965: 検索フェーズの高速化)。
 
         Returns:
             メタデータ辞書のリスト。
@@ -2302,8 +2356,12 @@ class ImageRepository(BaseRepository):
             return []
 
         if resolution == 0:
-            return self._fetch_original_image_metadata(session, image_ids)
-        return self._fetch_processed_image_metadata(session, image_ids, resolution)
+            return self._fetch_original_image_metadata(
+                session, image_ids, include_annotations=include_annotations
+            )
+        return self._fetch_processed_image_metadata(
+            session, image_ids, resolution, include_annotations=include_annotations
+        )
 
     def _apply_processed_resolution_filter(
         self,
@@ -2631,7 +2689,10 @@ class ImageRepository(BaseRepository):
                 logger.debug(f"フィルタリングで {len(filtered_image_ids)} 件の候補画像IDを取得しました。")
 
                 final_metadata_list = self._fetch_filtered_metadata(
-                    session, filtered_image_ids, filter_criteria.resolution
+                    session,
+                    filtered_image_ids,
+                    filter_criteria.resolution,
+                    include_annotations=filter_criteria.include_annotations,
                 )
                 list_count = len(final_metadata_list)
                 logger.info(f"最終的な検索結果: {list_count} 件 / 総件数: {total_count} 件")

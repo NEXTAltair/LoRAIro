@@ -1008,3 +1008,73 @@ class TestSetImageReviewed:
     def test_missing_image_returns_false(self, image_repository: ImageRepository) -> None:
         """未登録 image_id では False を返す。"""
         assert image_repository.set_image_reviewed(99999, reviewed=True) is False
+
+
+@pytest.mark.unit
+class TestLazyAnnotationLoading:
+    """Issue #965: 検索フェーズのアノテーション省略 + 遅延取得。"""
+
+    def test_filter_includes_annotations_by_default(
+        self, image_repository: ImageRepository, memory_session_factory
+    ) -> None:
+        """include_annotations 未指定 (=True) では従来通りアノテーションを含む。"""
+        image_id = _insert_image(image_repository, uuid="anno-on", phash="anno-on")
+        with memory_session_factory() as session:
+            session.add(Tag(image_id=image_id, tag="cat", rejected_at=None))
+            session.commit()
+
+        results, _ = image_repository.get_images_by_filter(ImageFilterCriteria(include_nsfw=True))
+
+        assert len(results) == 1
+        assert results[0]["tags_text"] == "cat"
+        assert [t["tag"] for t in results[0]["tags"]] == ["cat"]
+
+    def test_filter_excludes_annotations_when_disabled(
+        self, image_repository: ImageRepository, memory_session_factory
+    ) -> None:
+        """include_annotations=False では id/カラムのみで、アノテーションキーを含まない。"""
+        image_id = _insert_image(image_repository, uuid="anno-off", phash="anno-off")
+        with memory_session_factory() as session:
+            session.add(Tag(image_id=image_id, tag="cat", rejected_at=None))
+            session.commit()
+
+        results, total = image_repository.get_images_by_filter(
+            ImageFilterCriteria(include_nsfw=True, include_annotations=False)
+        )
+
+        assert total == 1
+        assert len(results) == 1
+        record = results[0]
+        # サムネ/プレビューに必要な最小カラムは残る
+        assert record["id"] == image_id
+        assert record["stored_image_path"]
+        # アノテーション関連キーは一切含まれない
+        for key in ("tags", "tags_text", "captions", "caption_text", "scores", "quality_summary"):
+            assert key not in record
+
+    def test_get_image_annotation_metadata_returns_formatted_annotations(
+        self, image_repository: ImageRepository, memory_session_factory
+    ) -> None:
+        """単一画像のアノテーションを表示用フォーマットで遅延取得できる。"""
+        image_id = _insert_image(image_repository, uuid="lazy-1", phash="lazy-1")
+        with memory_session_factory() as session:
+            session.add_all(
+                [
+                    Tag(image_id=image_id, tag="cat", rejected_at=None),
+                    Caption(image_id=image_id, caption="a cat", rejected_at=None),
+                ]
+            )
+            session.commit()
+
+        annotations = image_repository.get_image_annotation_metadata(image_id)
+
+        assert annotations is not None
+        assert annotations["tags_text"] == "cat"
+        assert annotations["caption_text"] == "a cat"
+        assert "quality_summary" in annotations
+
+    def test_get_image_annotation_metadata_missing_image_returns_none(
+        self, image_repository: ImageRepository
+    ) -> None:
+        """未登録 image_id では None を返す。"""
+        assert image_repository.get_image_annotation_metadata(99999) is None

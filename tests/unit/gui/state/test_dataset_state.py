@@ -347,3 +347,74 @@ class TestDatasetStateManager:
         result = state_manager.get_image_by_id(7)
         assert result is not None
         assert result["id"] == 7
+
+    # === Issue #965: アノテーション遅延取得 ===
+
+    def test_set_current_image_lazy_loads_annotations(self, state_manager):
+        """検索キャッシュ dict (アノテーション無し) 選択時に DB から遅延取得して merge する"""
+        # 検索フェーズ相当: アノテーションキーを持たない dict
+        state_manager.update_from_search_results(
+            [{"id": 1, "stored_image_path": "/test/image1.jpg", "width": 1024, "height": 768}]
+        )
+
+        db_manager = Mock()
+        db_manager.image_repo.get_image_annotation_metadata.return_value = {
+            "tags": [{"tag": "cat"}],
+            "tags_text": "cat",
+            "captions": [],
+            "caption_text": "",
+            "scores": [],
+            "score_value": 0.0,
+            "score_labels": [],
+            "ratings": [],
+            "quality_summary": {},
+        }
+        state_manager.set_db_manager(db_manager)
+
+        received = Mock()
+        state_manager.current_image_data_changed.connect(received)
+
+        state_manager.set_current_image(1)
+
+        # 対象1件だけ遅延取得される
+        db_manager.image_repo.get_image_annotation_metadata.assert_called_once_with(1)
+        # 発行された dict にアノテーションが merge されている
+        emitted = received.call_args[0][0]
+        assert emitted["tags_text"] == "cat"
+        assert emitted["stored_image_path"] == "/test/image1.jpg"
+        # キャッシュ (live 参照) も更新され、再選択は DB 往復不要
+        assert state_manager.get_image_by_id(1)["tags_text"] == "cat"
+
+    def test_set_current_image_skips_lazy_load_when_annotations_present(self, state_manager):
+        """既にアノテーション済みの dict は遅延取得しない"""
+        state_manager.update_from_search_results(
+            [
+                {
+                    "id": 1,
+                    "stored_image_path": "/test/image1.jpg",
+                    "tags": [],
+                    "tags_text": "",
+                }
+            ]
+        )
+
+        db_manager = Mock()
+        state_manager.set_db_manager(db_manager)
+
+        state_manager.set_current_image(1)
+
+        db_manager.image_repo.get_image_annotation_metadata.assert_not_called()
+
+    def test_set_current_image_without_db_manager_does_not_crash(self, state_manager):
+        """db_manager 未設定でも遅延取得をスキップして安全に動作する"""
+        state_manager.update_from_search_results([{"id": 1, "stored_image_path": "/test/image1.jpg"}])
+
+        received = Mock()
+        state_manager.current_image_data_changed.connect(received)
+
+        state_manager.set_current_image(1)
+
+        # シグナルは発行され、アノテーション無しのまま (例外なし)
+        emitted = received.call_args[0][0]
+        assert emitted["id"] == 1
+        assert "tags" not in emitted

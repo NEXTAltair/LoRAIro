@@ -85,6 +85,9 @@ class SearchConditions:
             reviewed_at_filter=self.reviewed_at_filter,
             error_state_filter=self.error_state_filter,
             model_filter=self.model_filter,
+            # Issue #965: 検索フェーズではアノテーションを先読みしない。
+            # tags/captions/scores 等はサムネ選択 → プレビュー表示時に遅延取得する。
+            include_annotations=False,
         )
 
     def to_db_filter_args(self) -> dict[str, Any]:

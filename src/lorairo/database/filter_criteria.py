@@ -86,6 +86,10 @@ class ImageFilterCriteria:
     project_id: int | None = None
     limit: int | None = None
     offset: int = 0
+    # Issue #965: 検索フェーズでアノテーション (tags/captions/scores/score_labels/
+    # ratings) を先読みするか。False の場合は id + 各テーブルカラムのみ取得し、
+    # アノテーションは選択 → プレビュー表示時に遅延取得する (検索→レビュー表示の高速化)。
+    include_annotations: bool = True
     # ADR 0055: 指定時は他フィルタを bypass する exact-set selector
     image_ids: list[int] | None = None
     # Issue #697: images search で使用するソート条件
@@ -152,6 +156,7 @@ class ImageFilterCriteria:
             "project_id": self.project_id,
             "limit": self.limit,
             "offset": self.offset,
+            "include_annotations": self.include_annotations,
             "image_ids": self.image_ids,
             "sort_field": self.sort_field,
             "sort_direction": self.sort_direction,
