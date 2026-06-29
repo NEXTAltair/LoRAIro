@@ -455,9 +455,24 @@ class SelectedImageDetailsWidget(QWidget):
         self.annotation_display.set_rejected_tags(rejected)
 
     def _reload_current_image(self) -> None:
-        """編集後に現在画像のメタデータを再取得して表示を更新する (Issue #792)。"""
+        """編集後に現在画像のメタデータを再取得して表示を更新する (Issue #792)。
+
+        DatasetStateManager が接続されている場合は ``refresh_image`` 経由で再取得し、
+        キャッシュ (``_all_images``) も最新化する (#949)。これがないと検索フェーズで
+        遅延ロードされたアノテーションが古いまま残り、別画像→同画像の再選択で編集前の
+        タグが復活して「DB に反映されていない」ように見える回帰になる。DSM 未接続なら
+        詳細ペイン単体で DB から再取得して表示だけ更新する。
+        """
+        if self.current_image_id is None:
+            return
+        dsm = self._dataset_state_manager
+        if dsm is not None:
+            # refresh_image が DB 再取得 + キャッシュ更新 + current_image_data_changed 発行を行い、
+            # 接続済みの _on_image_data_received 経由で表示も更新される。
+            dsm.refresh_image(self.current_image_id)
+            return
         db_manager = getattr(self, "_db_manager", None)
-        if db_manager is None or self.current_image_id is None:
+        if db_manager is None:
             return
         metadata = db_manager.image_repo.get_image_metadata(self.current_image_id)
         if metadata:
