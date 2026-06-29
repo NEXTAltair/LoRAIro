@@ -12,6 +12,7 @@ if TYPE_CHECKING:
     from lorairo.annotation.annotator_adapter import AnnotatorLibraryAdapter
     from lorairo.services.annotation_save_service import AnnotationSaveService
     from lorairo.services.provider_batch_workflow_service import ProviderBatchWorkflowService
+    from lorairo.services.refinement_service import RefinementService
     from lorairo.services.signal_manager_protocol import SignalManagerServiceProtocol
     from lorairo.services.tag_management_service import TagManagementService
 
@@ -80,6 +81,9 @@ class ServiceContainer:
 
         # Tag management service
         self._tag_management_service: TagManagementService | None = None
+
+        # refinement リコメンドサービス (#931)
+        self._refinement_service: RefinementService | None = None
 
         # Phase 4: FavoriteFiltersService統合
         self._favorite_filters_service: Any = None
@@ -231,6 +235,41 @@ class ServiceContainer:
         return self._tag_management_service
 
     @property
+    def refinement_service(self) -> "RefinementService":
+        """RefinementService取得（遅延初期化） - #931
+
+        tagdb 窓口は TagManagementService に一本化し、その recommend_manual_refinement を
+        評価関数として注入する。ignore は RefinementIgnoreRepository に永続化する。
+        """
+        if self._refinement_service is None:
+            from genai_tag_db_tools.models import RefinementRecommendation
+
+            from ..database.repository.refinement_ignore import RefinementIgnoreRepository
+            from .refinement_service import RefinementService
+
+            # tag_management_service (tagdb) の構築は重く、widget init 時点では tagdb 未設定の
+            # ことがある (Base DB paths not configured)。recommend_fn を遅延 lambda にし、
+            # 初回の実評価 (画像選択時・tagdb 準備済み) まで TagManagementService 構築を遅らせる。
+            def _recommend(
+                tag: str, *, repo: object | None = None, format_name: str = "unknown"
+            ) -> RefinementRecommendation:
+                return self.tag_management_service.recommend_manual_refinement(
+                    tag, repo=repo, format_name=format_name
+                )
+
+            # ignore は project ごとの image DB に保存する。default ではなくアクティブ
+            # プロジェクトの session factory を使う (set_active_project で作り直される)
+            # (#931 Codex P2)。
+            self._refinement_service = RefinementService(
+                recommend_fn=_recommend,
+                ignore_repo=RefinementIgnoreRepository(
+                    session_factory=self.image_repository.session_factory
+                ),
+            )
+            logger.info("RefinementService初期化完了")
+        return self._refinement_service
+
+    @property
     def favorite_filters_service(self) -> Any:
         """FavoriteFiltersService取得（遅延初期化） - Phase 4"""
         if self._favorite_filters_service is None:
@@ -368,6 +407,9 @@ class ServiceContainer:
         self._model_sync_service = None
         self._annotation_save_service = None
         self._provider_batch_workflow_service = None
+        # refinement ignore は project DB に保存するため、切替後はアクティブ DB の
+        # session factory で作り直す (#931 Codex P2)。
+        self._refinement_service = None
 
         logger.info(f"アクティブプロジェクト切替: {project_name} -> {db_path}")
 
@@ -420,6 +462,7 @@ class ServiceContainer:
         self._model_registry = None
         self._annotator_library = None
         self._tag_management_service = None
+        self._refinement_service = None
         self._favorite_filters_service = None
         self._signal_manager = None
         self._project_management_service = None

@@ -5,11 +5,13 @@ Annotation Data Display Widget
 タグ・キャプション・スコア情報の統一表示を提供
 """
 
+from __future__ import annotations
+
 from dataclasses import dataclass, field
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from PySide6.QtCore import QPoint, Qt, Signal, Slot
-from PySide6.QtGui import QKeySequence, QMouseEvent, QResizeEvent, QShortcut
+from PySide6.QtGui import QContextMenuEvent, QKeySequence, QMouseEvent, QResizeEvent, QShortcut
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QAbstractScrollArea,
@@ -32,6 +34,9 @@ from ...gui.designer.AnnotationDataDisplayWidget_ui import Ui_AnnotationDataDisp
 from ...utils.log import logger
 from .. import theme
 
+if TYPE_CHECKING:
+    from genai_tag_db_tools.models import RefinementRecommendation
+
 
 class SelectableTagChip(QLabel):
     """選択トグルできるタグ chip (Issue #814)。
@@ -46,12 +51,18 @@ class SelectableTagChip(QLabel):
     """
 
     clicked = Signal()
+    # refinement リコメンドの「この理由を無視」要求 (#931): (canonical, reason_code)
+    refinement_ignore_requested = Signal(str, str)
 
     def __init__(self, display_text: str, canonical: str, parent: QWidget | None = None) -> None:
         super().__init__(display_text, parent)
         self.canonical = canonical
         self.base_qss = ""
         self.selected = False
+        # refinement 表示状態 (#931)。set_refinement で更新する。
+        self._base_text = display_text
+        self._base_tooltip: str | None = None
+        self.refinement: RefinementRecommendation | None = None
         self.setCursor(Qt.CursorShape.PointingHandCursor)
         # Ctrl+C を chip フォーカス中に拾えるようクリックフォーカスを許可する。
         self.setFocusPolicy(Qt.FocusPolicy.ClickFocus)
@@ -61,6 +72,51 @@ class SelectableTagChip(QLabel):
         if event.button() == Qt.MouseButton.LeftButton:
             self.clicked.emit()
         super().mousePressEvent(event)
+
+    def set_refinement(self, recommendation: RefinementRecommendation | None) -> None:
+        """refinement リコメンドを反映する (#931)。
+
+        needs_refinement かつ reason があれば ⚠ マーカーを表示テキストに前置し
+        (高さは1行で不変)、ツールチップに reason message と suggestion を出す。
+        リコメンドが無ければ元の表示・ツールチップへ戻す。
+
+        Args:
+            recommendation: 当該タグのリコメンド。無ければ None。
+        """
+        # 初回呼び出し時に元ツールチップ (翻訳脚注等) を退避する。
+        if self._base_tooltip is None:
+            self._base_tooltip = self.toolTip()
+        self.refinement = recommendation
+        if recommendation is not None and recommendation.needs_refinement and recommendation.reasons:
+            self.setText(f"⚠ {self._base_text}")
+            lines = [r.message for r in recommendation.reasons]
+            suggestions = [s.tag for s in recommendation.suggestions if s.tag]
+            if suggestions:
+                lines.append("提案: " + ", ".join(suggestions))
+            self.setToolTip("\n".join(lines))
+        else:
+            self.setText(self._base_text)
+            self.setToolTip(self._base_tooltip)
+
+    def contextMenuEvent(self, event: QContextMenuEvent) -> None:
+        """refinement がある chip は reason 単位の「無視」メニューを出す (#931)。
+
+        リコメンドが無い chip は event を無視してコンテナ側のコピーメニューへ委ねる。
+        """
+        rec = self.refinement
+        if rec is not None and rec.needs_refinement and rec.reasons:
+            menu = QMenu(self)
+            for reason in rec.reasons:
+                action = menu.addAction(f"この理由を無視: {reason.code}")
+                action.triggered.connect(
+                    lambda _checked=False, code=reason.code: self.refinement_ignore_requested.emit(
+                        self.canonical, code
+                    )
+                )
+            menu.exec(event.globalPos())
+            event.accept()
+        else:
+            event.ignore()
 
 
 @dataclass
@@ -131,6 +187,7 @@ class AnnotationDataDisplayWidget(QWidget, Ui_AnnotationDataDisplayWidget):
     tag_reject_requested = Signal(str)  # × でタグを soft-reject
     tag_restore_requested = Signal(str)  # soft-rejected タグを復活
     tag_add_requested = Signal(str)  # 手動タグ追加
+    refinement_ignored = Signal(str, str)  # refinement リコメンドを無視 (canonical, reason_code) (#931)
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -206,6 +263,8 @@ class AnnotationDataDisplayWidget(QWidget, Ui_AnnotationDataDisplayWidget):
         # 選択コピー導線 (Issue #814): chip クリックで選択、Ctrl+C / 右クリックで
         # 選択タグ (無選択なら全タグ) をカンマ区切りコピーする。
         self._tag_chips: list[SelectableTagChip] = []
+        # refinement リコメンド保持 (#931): chip 再生成をまたいで ⚠ を復元する。
+        self._last_refinements: dict[str, RefinementRecommendation] = {}
         self._tags_chip_container.setFocusPolicy(Qt.FocusPolicy.ClickFocus)
         self._tags_chip_container.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self._tags_chip_container.customContextMenuRequested.connect(self._show_tags_chip_context_menu)
@@ -477,6 +536,10 @@ class AnnotationDataDisplayWidget(QWidget, Ui_AnnotationDataDisplayWidget):
         try:
             self.current_data = data
 
+            # 新しい画像データのため前画像の refinement 結果は破棄する (#931)。
+            # 同一画像内の再描画 (言語切替等) は update_data を経由しないので保持される。
+            self._last_refinements = {}
+
             # タグ表示更新
             self._update_tags_display(data.tags)
 
@@ -663,6 +726,8 @@ class AnnotationDataDisplayWidget(QWidget, Ui_AnnotationDataDisplayWidget):
                     chip.setToolTip(f"{original} → {display}")
             chip.setStyleSheet(chip.base_qss)
             chip.clicked.connect(lambda c=chip: self._on_tag_chip_clicked(c))
+            # refinement「この理由を無視」を上位へ中継 (#931)
+            chip.refinement_ignore_requested.connect(self.refinement_ignored)
             self._tag_chips.append(chip)
             # 編集モードでは × ボタン付きコンテナで soft-reject 可能にする (Issue #792)。
             self._tags_chip_layout.addWidget(self._wrap_editable_chip(chip, original))
@@ -674,6 +739,34 @@ class AnnotationDataDisplayWidget(QWidget, Ui_AnnotationDataDisplayWidget):
             self._tags_translation_note.setVisible(True)
         else:
             self._tags_translation_note.setVisible(False)
+
+        # chip 再生成後、保持中の refinement 結果を再反映する (#931、言語切替/編集モードでも ⚠ 維持)。
+        self._apply_refinements_to_chips()
+
+    def apply_refinements(self, recommendations: dict[str, RefinementRecommendation]) -> None:
+        """各タグ chip に refinement リコメンドを反映する (#931)。
+
+        chip の canonical をキーにマップを引き、該当があれば ⚠ + ツールチップを表示、
+        無ければリコメンド表示を消す。検索/エクスポート両タブの詳細ペインで共用される。
+
+        言語切替や編集モード切替で chip が再生成されても ⚠ を失わないよう、最後に適用した
+        結果を保持し、_render_tag_chips の末尾で自動的に再反映する。
+
+        Args:
+            recommendations: {canonical タグ: RefinementRecommendation}。
+        """
+        self._last_refinements = dict(recommendations)
+        self._apply_refinements_to_chips()
+
+    def _apply_refinements_to_chips(self) -> None:
+        """保持中のリコメンド (_last_refinements) を現在の chip 群へ反映する (#931)。"""
+        applied = 0
+        for chip in self._tag_chips:
+            rec = self._last_refinements.get(chip.canonical)
+            chip.set_refinement(rec)
+            if rec is not None:
+                applied += 1
+        logger.debug(f"refinement 反映: chip={len(self._tag_chips)}, 印付き={applied}")
 
     def _wrap_editable_chip(self, chip: QLabel, original: str) -> QWidget:
         """編集モード時にチップを × ボタン付きコンテナで包む (Issue #792)。
@@ -921,6 +1014,8 @@ class AnnotationDataDisplayWidget(QWidget, Ui_AnnotationDataDisplayWidget):
         try:
             # データリセット
             self.current_data = AnnotationData()
+            # refinement リコメンド保持もクリア (#931)
+            self._last_refinements = {}
 
             # UI要素クリア
             self.tableWidgetTags.setRowCount(0)

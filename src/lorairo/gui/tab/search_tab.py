@@ -154,6 +154,17 @@ class SearchTabWidget(QWidget, Ui_SearchTab):
             self._selected_image_details_widget.set_db_manager(self._db_manager)
         merged_reader = self._service_container.db_manager.annotation_repo.get_merged_reader()
         self._selected_image_details_widget.set_merged_reader(merged_reader)
+        # refinement リコメンド (#931): 共有 RefinementService を注入。
+        # tagdb 初期化失敗 (base DB 欠損/オフライン初回起動等) でもタブ全体を巻き込まず、
+        # merged-reader と同様に degrade する (refinement は付加機能のため非致命)。
+        try:
+            self._selected_image_details_widget.set_refinement_service(
+                self._service_container.refinement_service
+            )
+        except Exception as e:
+            # tagdb 不可時の graceful degradation (#931): refinement は付加機能のため、
+            # どの初期化エラーでもタブを生かす意図で広く捕捉する。
+            logger.warning(f"RefinementService 配線をスキップ (tagdb 不可?): {e}")
         if dsm is not None:
             self._selected_image_details_widget.connect_to_dataset_state_manager(dsm)
             logger.debug("SelectedImageDetailsWidget DatasetStateManager接続完了")

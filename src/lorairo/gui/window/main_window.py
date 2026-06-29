@@ -1551,6 +1551,11 @@ class MainWindow(QMainWindow, Ui_MainWindow):
         # 親ウィンドウ閉鎖で発火しないため明示的に呼ぶ、#949/#961 P2)。
         if self.export_tab is not None:
             self.export_tab.shutdown()
+        # refinement worker を停止する (検索/エクスポート両タブの詳細ペイン、#931 P2)。
+        # QThread が widget より長生きして Qt teardown 警告/クラッシュになるのを防ぐ。
+        for tab in (self.search_tab, self.export_tab):
+            if tab is not None:
+                tab.selected_image_details_widget.shutdown()
         super().closeEvent(event)
 
     def _save_window_state(self) -> None:

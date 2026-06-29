@@ -168,6 +168,15 @@ class ExportTabWidget(QWidget):
         merged_reader = self._resolve_merged_reader()
         if merged_reader is not None:
             self._selected_image_details_widget.set_merged_reader(merged_reader)
+        # refinement リコメンド (#931): 共有 RefinementService を注入。
+        # tagdb 初期化失敗でもタブを巻き込まず degrade する (refinement は付加機能のため非致命)。
+        try:
+            self._selected_image_details_widget.set_refinement_service(
+                self._service_container.refinement_service
+            )
+        except Exception as e:
+            # graceful degradation (#931): どの初期化エラーでもタブを生かす意図で広く捕捉。
+            logger.warning(f"RefinementService 配線をスキップ (tagdb 不可?): {e}")
         if dsm is not None:
             self._selected_image_details_widget.connect_to_dataset_state_manager(dsm)
 
@@ -369,8 +378,10 @@ class ExportTabWidget(QWidget):
 
         埋め込みウィジェットの ``closeEvent`` はウィンドウ閉鎖で必ずしも発火しないため、
         MainWindow の closeEvent からも本メソッドを呼んで thread の取り残しを防ぐ。
+        詳細ペインの refinement worker も停止する (タブ単独クローズ経路対策、#931 P2)。
         """
         self._teardown_export_thread()
+        self._selected_image_details_widget.shutdown()
 
     def closeEvent(self, event: QCloseEvent) -> None:
         """タブ単体クローズ時にエクスポート thread を後始末する (#961 P2)。"""
