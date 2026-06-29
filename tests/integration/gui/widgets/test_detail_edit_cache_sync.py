@@ -45,9 +45,10 @@ class _FakeImageRepo:
         ]
 
     def _metadata(self, image_id: int) -> dict[str, Any]:
+        # get_image_metadata は元 Image 行のパスを返す (processed パスとは別物)
         return {
             "id": image_id,
-            "stored_image_path": "/tmp/x.png",
+            "stored_image_path": "/tmp/original.png",
             "width": 100,
             "height": 100,
             "tags": self._live_tags(),
@@ -105,8 +106,9 @@ def _wire(qtbot) -> tuple[SelectedImageDetailsWidget, DatasetStateManager, _Fake
     db = _FakeDbManager()
     dsm = DatasetStateManager()
     dsm.set_db_manager(db)
-    # 検索フェーズ: アノテーション無しでキャッシュ投入 (Issue #965 の遅延ロード前提)
-    dsm.update_from_search_results([{"id": 1, "stored_image_path": "/tmp/x.png"}])
+    # 検索フェーズ: アノテーション無し + processed 解像度パスでキャッシュ投入
+    # (Issue #965 の遅延ロード前提、processed パスは元 Image 行のパスと別物)
+    dsm.update_from_search_results([{"id": 1, "stored_image_path": "/tmp/processed.png"}])
     # 選択でアノテーションを遅延ロード → キャッシュ dict に tags がマージされる
     dsm.set_current_image(1)
     assert _cached_tag_names(dsm, 1) == {"flower", "rose"}
@@ -127,6 +129,18 @@ def test_reject_updates_dataset_state_cache(qtbot) -> None:
 
     assert "flower" not in _cached_tag_names(dsm, 1)
     assert _cached_tag_names(dsm, 1) == {"rose"}
+
+
+def test_reject_preserves_processed_image_path(qtbot) -> None:
+    """編集後もキャッシュの processed パスが保持される (元画像へ切り替わらない、Codex P2)。"""
+    widget, dsm, _db = _wire(qtbot)
+    assert dsm.get_image_by_id(1)["stored_image_path"] == "/tmp/processed.png"
+
+    widget._on_tag_reject("flower")
+
+    # アノテーションのみ merge するため processed パスは元 Image 行のパスに上書きされない
+    assert dsm.get_image_by_id(1)["stored_image_path"] == "/tmp/processed.png"
+    assert "flower" not in _cached_tag_names(dsm, 1)
 
 
 def test_add_updates_dataset_state_cache(qtbot) -> None:

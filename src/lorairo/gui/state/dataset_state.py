@@ -441,6 +441,52 @@ class DatasetStateManager(QObject):
         except Exception as e:
             logger.error(f"Error refreshing image metadata for image_id {image_id}: {e}", exc_info=True)
 
+    def refresh_image_annotations(self, image_id: int) -> None:
+        """単一画像のアノテーションだけを DB から再取得しキャッシュへ merge する (#980)。
+
+        ``refresh_image()`` と異なり ``stored_image_path`` 等の (processed 解像度を含む)
+        パス/メタフィールドを保持し、tags / captions / scores / score_labels / ratings 等の
+        アノテーションのみ最新化する。個別タグ編集 (soft-reject / 復活 / 手動追加) 後に
+        processed 解像度のプレビューが元画像へ切り替わる回帰を防ぐ。
+
+        Args:
+            image_id: 再取得対象の画像 ID。
+
+        Side Effects:
+            - DB からアノテーションのみ取得 (``get_image_annotation_metadata``)
+            - キャッシュ dict (live 参照) を in-place 更新 (パスフィールドは保持)
+            - 現在選択中の画像なら current_image_data_changed シグナル発行
+
+        Note:
+            - キャッシュ未登録 (検索結果外) の画像は ``refresh_image`` に委譲する。
+            - _db_manager 未設定時は警告ログを出して何もしない。
+        """
+        if not self._db_manager:
+            logger.warning("DB Manager not set, cannot refresh image annotations")
+            return
+
+        cached = self.get_image_by_id(image_id)
+        if cached is None:
+            # キャッシュ未登録 (登録直後 / 検索結果外) は full fetch にフォールバック
+            self.refresh_image(image_id)
+            return
+
+        try:
+            annotations = self._db_manager.image_repo.get_image_annotation_metadata(image_id)
+        except Exception as e:
+            logger.error(f"アノテーション再取得失敗: ID {image_id}: {e}", exc_info=True)
+            return
+
+        if not annotations:
+            return
+
+        # live 参照を in-place 更新するためパス/processed フィールドは保持される
+        cached.update(annotations)
+        logger.debug(f"アノテーションキャッシュ更新: image_id={image_id}")
+
+        if self._current_image_id == image_id:
+            self.current_image_data_changed.emit(cached)
+
     def refresh_images(self, image_ids: list[int]) -> None:
         """
         複数画像のメタデータをDBから再読み込み
