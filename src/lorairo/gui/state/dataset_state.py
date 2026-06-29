@@ -88,6 +88,21 @@ class DatasetStateManager(QObject):
         return self._filtered_images.copy()
 
     @property
+    def image_count(self) -> int:
+        """全画像の件数 (Issue #967: 全件 .copy() を伴わない O(1) アクセサ)。"""
+        return len(self._all_images)
+
+    @property
+    def filtered_count(self) -> int:
+        """フィルター済み画像の件数 (Issue #967: 全件 .copy() を伴わない O(1) アクセサ)。
+
+        ``len(self.filtered_images)`` は read-only 用途でも全件 shallow copy を伴うため、
+        ページング (PaginationStateManager.total_items / total_pages) のような高頻度経路
+        では件数取得にこのアクセサを使う。
+        """
+        return len(self._filtered_images)
+
+    @property
     def selected_image_ids(self) -> list[int]:
         return self._selected_image_ids.copy()
 
@@ -386,6 +401,27 @@ class DatasetStateManager(QObject):
     def _invalidate_image_index(self) -> None:
         """_all_images の内容変更時にインデックスを無効化する。"""
         self._id_index = None
+
+    def get_filtered_image_ids_slice(self, start: int, end: int) -> list[int]:
+        """フィルター済み画像の [start:end] ページ分の画像IDだけを返す (Issue #967)。
+
+        ``filtered_images`` プロパティ経由だと全件 shallow copy が発生するが、
+        本メソッドは ``_filtered_images[start:end]`` のスライス (高々 page_size 件) のみ
+        を走査して id を抽出するため、ページング経路のコピーコストを O(全件) から
+        O(ページ) に下げる。
+
+        Args:
+            start: スライス開始インデックス (0 始まり)。
+            end: スライス終了インデックス (排他)。
+
+        Returns:
+            ページ内画像IDのリスト (int の id を持つ要素のみ)。
+        """
+        return [
+            image_id
+            for image in self._filtered_images[start:end]
+            if isinstance((image_id := image.get("id")), int)
+        ]
 
     def get_image_by_id(self, image_id: int) -> dict[str, Any] | None:
         """

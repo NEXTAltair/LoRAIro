@@ -418,3 +418,36 @@ class TestDatasetStateManager:
         emitted = received.call_args[0][0]
         assert emitted["id"] == 1
         assert "tags" not in emitted
+
+    # === Issue #967: 全件コピーを伴わない軽量アクセサ ===
+
+    def test_count_accessors(self, state_manager, sample_image_metadata):
+        """image_count / filtered_count が全件コピーなしで件数を返す"""
+        state_manager.set_dataset_images(sample_image_metadata)
+        assert state_manager.image_count == 3
+        assert state_manager.filtered_count == 3
+
+        # filtered のみ差し替えても両者が独立に件数を返す
+        state_manager.apply_filter_results(sample_image_metadata[:2], {"tags": ["x"]})
+        assert state_manager.image_count == 3
+        assert state_manager.filtered_count == 2
+
+    def test_get_filtered_image_ids_slice(self, state_manager):
+        """指定ページ範囲のスライスから ID のみを抽出する"""
+        images = [{"id": i, "stored_image_path": f"/test/{i}.jpg"} for i in range(1, 11)]
+        state_manager.set_dataset_images(images)
+
+        assert state_manager.get_filtered_image_ids_slice(0, 3) == [1, 2, 3]
+        assert state_manager.get_filtered_image_ids_slice(3, 6) == [4, 5, 6]
+        # 範囲外は空
+        assert state_manager.get_filtered_image_ids_slice(100, 200) == []
+
+    def test_get_filtered_image_ids_slice_skips_non_int_ids(self, state_manager):
+        """id が int でない要素はスキップする (従来の get_page_image_ids と同じ挙動)"""
+        state_manager._filtered_images = [
+            {"id": 1},
+            {"id": None},
+            {"stored_image_path": "/no_id.jpg"},
+            {"id": 4},
+        ]
+        assert state_manager.get_filtered_image_ids_slice(0, 4) == [1, 4]
