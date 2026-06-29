@@ -13,7 +13,11 @@ from genai_tag_db_tools.models import (
     RefinementSuggestion,
 )
 
-from lorairo.gui.widgets.annotation_data_display_widget import SelectableTagChip
+from lorairo.gui.widgets.annotation_data_display_widget import (
+    AnnotationData,
+    AnnotationDataDisplayWidget,
+    SelectableTagChip,
+)
 
 pytestmark = pytest.mark.gui
 
@@ -85,3 +89,32 @@ def test_ignore_signal_emits_canonical_and_reason(qtbot) -> None:
     chip.refinement_ignore_requested.emit(chip.canonical, "normalization_changes_tag")
 
     assert received == [("blue__eyes", "normalization_changes_tag")]
+
+
+def test_refinements_survive_chip_rerender(qtbot) -> None:
+    """言語切替等で chip 再生成されても ⚠ が維持される (Codex P2)。"""
+    widget = AnnotationDataDisplayWidget()
+    qtbot.addWidget(widget)
+    widget.update_data(AnnotationData(tags=[{"tag": "flower"}]))
+    widget.apply_refinements({"flower": _rec("flower", codes=["broad_single_word"])})
+
+    # 言語切替相当: chip を再生成する (update_data は経由しない)
+    widget._render_tag_chips([("flower", "flower", False)], is_translated=False)
+
+    chips = [c for c in widget._tag_chips if c.canonical == "flower"]
+    assert chips, "flower chip が再生成されていない"
+    assert chips[0].text().startswith("⚠"), "再描画後に ⚠ が失われた"
+
+
+def test_new_image_clears_stale_refinements(qtbot) -> None:
+    """新画像 (update_data) では前画像の refinement が引き継がれない (#931)。"""
+    widget = AnnotationDataDisplayWidget()
+    qtbot.addWidget(widget)
+    widget.update_data(AnnotationData(tags=[{"tag": "flower"}]))
+    widget.apply_refinements({"flower": _rec("flower", codes=["broad_single_word"])})
+
+    # 別画像にも "flower" タグがあるが refinement は未評価の状態で表示する
+    widget.update_data(AnnotationData(tags=[{"tag": "flower"}]))
+
+    chips = [c for c in widget._tag_chips if c.canonical == "flower"]
+    assert chips and chips[0].text() == "flower", "新画像に前画像の ⚠ が漏れている"

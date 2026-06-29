@@ -263,6 +263,8 @@ class AnnotationDataDisplayWidget(QWidget, Ui_AnnotationDataDisplayWidget):
         # 選択コピー導線 (Issue #814): chip クリックで選択、Ctrl+C / 右クリックで
         # 選択タグ (無選択なら全タグ) をカンマ区切りコピーする。
         self._tag_chips: list[SelectableTagChip] = []
+        # refinement リコメンド保持 (#931): chip 再生成をまたいで ⚠ を復元する。
+        self._last_refinements: dict[str, RefinementRecommendation] = {}
         self._tags_chip_container.setFocusPolicy(Qt.FocusPolicy.ClickFocus)
         self._tags_chip_container.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self._tags_chip_container.customContextMenuRequested.connect(self._show_tags_chip_context_menu)
@@ -534,6 +536,10 @@ class AnnotationDataDisplayWidget(QWidget, Ui_AnnotationDataDisplayWidget):
         try:
             self.current_data = data
 
+            # 新しい画像データのため前画像の refinement 結果は破棄する (#931)。
+            # 同一画像内の再描画 (言語切替等) は update_data を経由しないので保持される。
+            self._last_refinements = {}
+
             # タグ表示更新
             self._update_tags_display(data.tags)
 
@@ -734,18 +740,29 @@ class AnnotationDataDisplayWidget(QWidget, Ui_AnnotationDataDisplayWidget):
         else:
             self._tags_translation_note.setVisible(False)
 
+        # chip 再生成後、保持中の refinement 結果を再反映する (#931、言語切替/編集モードでも ⚠ 維持)。
+        self._apply_refinements_to_chips()
+
     def apply_refinements(self, recommendations: dict[str, RefinementRecommendation]) -> None:
         """各タグ chip に refinement リコメンドを反映する (#931)。
 
         chip の canonical をキーにマップを引き、該当があれば ⚠ + ツールチップを表示、
         無ければリコメンド表示を消す。検索/エクスポート両タブの詳細ペインで共用される。
 
+        言語切替や編集モード切替で chip が再生成されても ⚠ を失わないよう、最後に適用した
+        結果を保持し、_render_tag_chips の末尾で自動的に再反映する。
+
         Args:
             recommendations: {canonical タグ: RefinementRecommendation}。
         """
+        self._last_refinements = dict(recommendations)
+        self._apply_refinements_to_chips()
+
+    def _apply_refinements_to_chips(self) -> None:
+        """保持中のリコメンド (_last_refinements) を現在の chip 群へ反映する (#931)。"""
         applied = 0
         for chip in self._tag_chips:
-            rec = recommendations.get(chip.canonical)
+            rec = self._last_refinements.get(chip.canonical)
             chip.set_refinement(rec)
             if rec is not None:
                 applied += 1
@@ -997,6 +1014,8 @@ class AnnotationDataDisplayWidget(QWidget, Ui_AnnotationDataDisplayWidget):
         try:
             # データリセット
             self.current_data = AnnotationData()
+            # refinement リコメンド保持もクリア (#931)
+            self._last_refinements = {}
 
             # UI要素クリア
             self.tableWidgetTags.setRowCount(0)

@@ -45,7 +45,8 @@ class RefinementService:
         """
         self._recommend_fn = recommend_fn
         self._ignore_repo = ignore_repo
-        self._cache: dict[tuple[str, str], RefinementRecommendation] = {}
+        # キー = (tag, format_name, reader 識別子)。reader 違いで結果が変わるため含める。
+        self._cache: dict[tuple[str, str, int], RefinementRecommendation] = {}
 
     def recommend_for_tags(
         self,
@@ -68,13 +69,15 @@ class RefinementService:
         """
         ignored = self._ignore_repo.list_ignored()
         fmap = format_map or {}
+        # reader (repo) が違うと DB 由来の alias/typo 候補が変わるためキー要素に含める。
+        repo_key = id(repo) if repo is not None else 0
         result: dict[str, RefinementRecommendation] = {}
         total = 0
         evaluated = 0
         for tag in tags:
             total += 1
             format_name = fmap.get(tag, "unknown")
-            key = (tag, format_name)
+            key = (tag, format_name, repo_key)
             rec = self._cache.get(key)
             if rec is None:
                 rec = self._recommend_fn(tag, repo=repo, format_name=format_name)
@@ -91,14 +94,32 @@ class RefinementService:
     ) -> RefinementRecommendation:
         """ignore された reason を除外したリコメンドを返す。
 
-        除外で reason が空になったら needs_refinement を False にする。
-        除外が無ければ元オブジェクトをそのまま返す。
+        除外で reason が空になったら needs_refinement を False にする。除外が無ければ
+        元オブジェクトをそのまま返す。
+
+        ignore された reason 由来の修正候補が UI (tooltip) に漏れないよう、部分 ignore 時は:
+        - proposals: `reason_codes` が残存 reason に紐づくものだけ残す (DbFeedbackProposal は
+          reason_codes でひも付くため厳密に除外できる)。
+        - suggestions: モデル上 reason との明示的ひも付けが無いため、どの reason 由来か特定できない。
+          ignore 済み reason の修正が残るのを防ぐ保守側に倒し、部分 ignore 時はクリアする
+          (残存 reason の message は引き続き表示されるので「見直すべき」ことは伝わる)。
         """
         kept = [r for r in rec.reasons if (rec.source_tag, r.code) not in ignored]
         if len(kept) == len(rec.reasons):
             return rec
         needs = rec.needs_refinement and len(kept) > 0
-        return rec.model_copy(update={"reasons": kept, "needs_refinement": needs})
+        kept_codes = {r.code for r in kept}
+        kept_proposals = [
+            p for p in rec.proposals if not p.reason_codes or (set(p.reason_codes) & kept_codes)
+        ]
+        return rec.model_copy(
+            update={
+                "reasons": kept,
+                "needs_refinement": needs,
+                "suggestions": [],
+                "proposals": kept_proposals,
+            }
+        )
 
     def ignore(self, tag: str, reason_code: str) -> None:
         """タグの特定 reason のリコメンドを以後抑制する (永続化)。"""

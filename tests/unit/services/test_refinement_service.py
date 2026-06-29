@@ -140,6 +140,42 @@ def test_recommend_for_tags_uses_format_map() -> None:
     assert seen["flower"] == "danbooru"
 
 
+def test_partial_ignore_drops_suggestions() -> None:
+    """一部 reason を ignore したら suggestions も落とす (ignored reason の修正漏れ防止、Codex P2)。"""
+    rec = _make_recommendation(
+        "flower",
+        reason_codes=["broad_single_word", "normalization_changes_tag"],
+        suggestion_tag="rose",
+    )
+
+    def fake_recommend(tag: str, *, repo: object = None, format_name: str = "unknown"):
+        return rec
+
+    ignore_repo = _FakeIgnoreRepo({("flower", "normalization_changes_tag")})
+    service = RefinementService(recommend_fn=fake_recommend, ignore_repo=ignore_repo)
+    result = service.recommend_for_tags(["flower"])
+
+    assert {r.code for r in result["flower"].reasons} == {"broad_single_word"}
+    assert result["flower"].suggestions == []
+
+
+def test_different_repo_bypasses_cache() -> None:
+    """reader (repo) が違えば別キーとして再評価する (Codex P2)。"""
+    calls: list[object] = []
+
+    def fake_recommend(tag: str, *, repo: object = None, format_name: str = "unknown"):
+        calls.append(repo)
+        return _make_recommendation(tag, reason_codes=["broad_single_word"])
+
+    service = RefinementService(recommend_fn=fake_recommend, ignore_repo=_FakeIgnoreRepo())
+    reader_a = object()
+    reader_b = object()
+    service.recommend_for_tags(["flower"], repo=reader_a)
+    service.recommend_for_tags(["flower"], repo=reader_b)
+
+    assert calls == [reader_a, reader_b]  # reader 違いで2回評価
+
+
 def test_ignore_persists_and_invalidates_cache() -> None:
     """ignore 後はそのタグの該当 reason が以後の結果から消える (キャッシュ無効化)。"""
 
