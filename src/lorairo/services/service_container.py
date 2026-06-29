@@ -257,9 +257,14 @@ class ServiceContainer:
                     tag, repo=repo, format_name=format_name
                 )
 
+            # ignore は project ごとの image DB に保存する。default ではなくアクティブ
+            # プロジェクトの session factory を使う (set_active_project で作り直される)
+            # (#931 Codex P2)。
             self._refinement_service = RefinementService(
                 recommend_fn=_recommend,
-                ignore_repo=RefinementIgnoreRepository(),
+                ignore_repo=RefinementIgnoreRepository(
+                    session_factory=self.image_repository.session_factory
+                ),
             )
             logger.info("RefinementService初期化完了")
         return self._refinement_service
@@ -402,6 +407,9 @@ class ServiceContainer:
         self._model_sync_service = None
         self._annotation_save_service = None
         self._provider_batch_workflow_service = None
+        # refinement ignore は project DB に保存するため、切替後はアクティブ DB の
+        # session factory で作り直す (#931 Codex P2)。
+        self._refinement_service = None
 
         logger.info(f"アクティブプロジェクト切替: {project_name} -> {db_path}")
 
