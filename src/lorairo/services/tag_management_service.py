@@ -13,9 +13,10 @@ from genai_tag_db_tools import (
     get_tag_reader,
     get_unknown_type_tags,
     get_user_repository,
+    recommend_manual_refinement,
     update_tags_type_batch,
 )
-from genai_tag_db_tools.models import TagRecordPublic, TagTypeUpdate
+from genai_tag_db_tools.models import RefinementRecommendation, TagRecordPublic, TagTypeUpdate
 
 from ..utils.log import logger
 
@@ -138,6 +139,25 @@ class TagManagementService:
         except Exception as e:
             logger.error("Error updating tag types: {}", e, exc_info=True)
             raise
+
+    def recommend_manual_refinement(
+        self, tag: str, *, repo: object | None = None, format_name: str = "unknown"
+    ) -> RefinementRecommendation:
+        """タグ1個の refinement リコメンドを取得します (#931)。
+
+        genai-tag-db-tools の判定をラップする単一窓口。repo 未指定時は本サービスの
+        merged reader を渡し、エイリアス/タイポ候補を DB から参照させる (suggestion の品質向上)。
+
+        Args:
+            tag: 評価対象のタグ文字列。
+            repo: lib に渡す DB リーダー。None なら merged reader を使う。
+            format_name: タグの format 名。判定不能時は "unknown"。
+
+        Returns:
+            RefinementRecommendation: 判定結果 (needs_refinement / reasons / suggestions / proposals)。
+        """
+        reader = repo if repo is not None else self.reader
+        return recommend_manual_refinement(tag, reader, format_name=format_name)
 
     def update_single_tag_type(self, tag_id: int, type_name: str) -> None:
         """単一タグのtypeを更新します。

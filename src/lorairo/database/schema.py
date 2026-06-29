@@ -321,6 +321,33 @@ class Tag(Base):
         return f"<Tag(id={self.id}, image_id={self.image_id}, tag='{self.tag}')>"
 
 
+class RefinementIgnore(Base):
+    """タグ refinement リコメンドのローカル無視設定 (#931)。
+
+    特定タグ (`tag`) の特定理由 (`reason_code`) のリコメンドを抑制する。
+    1タグに複数 reason が付くため tag + reason_code 単位で無視できる。
+    画像には紐づかない (タグ語彙単位)。
+    """
+
+    __tablename__ = "refinement_ignores"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    tag: Mapped[str] = mapped_column(String, nullable=False)
+    # genai-tag-db-tools の RefinementReason.code (Literal 23種) の文字列値
+    reason_code: Mapped[str] = mapped_column(String, nullable=False)
+    created_at: Mapped[datetime.datetime] = mapped_column(
+        TIMESTAMP(timezone=True), server_default=func.now()
+    )
+
+    __table_args__ = (
+        UniqueConstraint("tag", "reason_code", name="uix_refinement_ignore_tag_reason"),
+        Index("ix_refinement_ignores_tag", "tag"),
+    )
+
+    def __repr__(self) -> str:
+        return f"<RefinementIgnore(tag='{self.tag}', reason_code='{self.reason_code}')>"
+
+
 class Caption(Base):
     """画像に関連付けられたキャプション情報"""
 
