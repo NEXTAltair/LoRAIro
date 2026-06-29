@@ -103,6 +103,10 @@ class ExportTabWidget(QWidget):
         self._filtered_ids: list[int] = list(self._image_ids)
         # エクスポート適用スコープ ("all" = 全 staged / "filtered" = 絞り込み結果のみ)。
         self._scope: str = "all"
+        # ライブプレビュー直近状態 (#949 Codex P2)。current_image_data_changed が通常選択か
+        # 詳細ペインの in-place タグ編集かを「同一 image_id でタグ集合が変化したか」で判別する。
+        self._last_preview_image_id: int | None = None
+        self._last_preview_tags: frozenset[str] | None = None
 
         # 左ペインのタグ集計サービス (db_manager がある場合のみ)。
         self._aggregation_service: StagingTagAggregationService | None = (
@@ -363,9 +367,16 @@ class ExportTabWidget(QWidget):
 
     @Slot(dict)
     def _on_current_image_data_changed(self, image_data: dict[str, Any]) -> None:
-        """選択画像を ExportOverlayBar へ渡しライブプレビューを更新する (#949)。"""
+        """選択画像を ExportOverlayBar へ渡しライブプレビューを更新する (#949)。
+
+        詳細ペインのタグ編集 (#980 の refresh_image_annotations 経由) でも本シグナルが届く。
+        同一 image_id でタグ集合が変化した場合は in-place 編集とみなし、集計・絞り込み・
+        counts を最新化する (フィルタ中タグを編集した画像が古い表示で残るのを防ぐ、Codex P2)。
+        """
         if not image_data:
             self._overlay_bar.set_selected_image(None, [])
+            self._last_preview_image_id = None
+            self._last_preview_tags = None
             return
         image_id = image_data.get("id")
         # 同一タグが複数モデル由来で重複し得るため、export の _resolve_export_tags と同じく
@@ -377,6 +388,30 @@ class ExportTabWidget(QWidget):
                 seen.add(t["tag"])
                 db_tags.append(t["tag"])
         self._overlay_bar.set_selected_image(image_id, db_tags)
+
+        # in-place 編集判定: 同一画像でタグ集合が変わったとき集計/絞り込みを再計算する (Codex P2)。
+        tags_key = frozenset(db_tags)
+        is_inplace_edit = (
+            image_id is not None
+            and image_id == self._last_preview_image_id
+            and self._last_preview_tags is not None
+            and tags_key != self._last_preview_tags
+        )
+        self._last_preview_image_id = image_id
+        self._last_preview_tags = tags_key
+        if is_inplace_edit:
+            self._refresh_after_annotation_edit()
+
+    def _refresh_after_annotation_edit(self) -> None:
+        """詳細ペイン編集で現在画像のタグが変化したとき集計・絞り込み・counts を最新化する (#949)。
+
+        ``load_tags()`` は絞り込みをリセットし ``filter_tag_changed(None)`` を同期 emit するため、
+        退避したアクティブタグを再適用してサムネ/counts を整合させる。
+        """
+        active = self._active_filter_tag
+        if self._aggregation_service is not None:
+            self._staging_tag_panel.load_tags(self._image_ids)
+        self._on_filter_tag_changed(active)
 
     @Slot()
     def _on_current_image_cleared(self) -> None:

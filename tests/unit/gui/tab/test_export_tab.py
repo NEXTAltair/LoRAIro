@@ -472,6 +472,43 @@ def test_filter_preserves_staging_order(qtbot, wired_tab) -> None:
 
 
 @pytest.mark.gui
+def test_inplace_tag_edit_refreshes_filter(qtbot, wired_tab) -> None:
+    """詳細ペインで現在画像のタグを編集すると集計/絞り込みが再計算される (Codex P2)。"""
+    tab, _db = wired_tab
+    tab.set_image_ids([1, 2, 3])
+    tab._aggregation_service.images_with_tag.return_value = [1, 2]
+    tab._staging_tag_panel.filter_tag_changed.emit("smile")
+    # 画像1を選択 (直近プレビュー状態を確立、タグ smile あり)
+    tab._dataset_state_manager.current_image_data_changed.emit({"id": 1, "tags": [{"tag": "smile"}]})
+    # 実 load_tags の filter リセット副作用を再現
+    tab._staging_tag_panel.load_tags = lambda ids: tab._staging_tag_panel.filter_tag_changed.emit(None)
+
+    # in-place 編集: 画像1が smile を失う (同一 image_id でタグ集合変化)。集計は [2] を返す。
+    tab._aggregation_service.images_with_tag.return_value = [2]
+    tab._dataset_state_manager.current_image_data_changed.emit({"id": 1, "tags": []})
+
+    assert tab._active_filter_tag == "smile"  # 絞り込みは維持
+    assert tab._filtered_ids == [2]  # 編集を反映して再計算
+
+
+@pytest.mark.gui
+def test_mere_selection_does_not_refresh_filter(qtbot, wired_tab) -> None:
+    """通常の画像選択 (別 image_id) では集計/絞り込みを再計算しない (Codex P2 の誤発火防止)。"""
+    tab, _db = wired_tab
+    tab.set_image_ids([1, 2, 3])
+    tab._aggregation_service.images_with_tag.return_value = [1, 2]
+    tab._staging_tag_panel.filter_tag_changed.emit("smile")
+    load_calls: list = []
+    tab._staging_tag_panel.load_tags = lambda ids: load_calls.append(ids)
+
+    # 別画像の選択 → in-place 編集ではないので再集計しない
+    tab._dataset_state_manager.current_image_data_changed.emit({"id": 1, "tags": [{"tag": "smile"}]})
+    tab._dataset_state_manager.current_image_data_changed.emit({"id": 2, "tags": [{"tag": "smile"}]})
+
+    assert load_calls == []
+
+
+@pytest.mark.gui
 def test_preview_dedupes_duplicate_tags(qtbot, wired_tab) -> None:
     """ライブプレビューは重複タグ (複数モデル由来) を出現順で unique 化する (Codex P2)。"""
     tab, _db = wired_tab
