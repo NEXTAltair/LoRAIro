@@ -3,6 +3,10 @@ Annotation Data Display Widget
 
 汎用アノテーション結果表示コンポーネント
 タグ・キャプション・スコア情報の統一表示を提供
+
+タグ欄の責務は ADR 0083 / Issue #987 で ``TagPanelWidget`` へ切り出した。本ウィジェットは
+``groupBoxTags`` 内に ``TagPanelWidget`` を埋め込み、タグ関連の public メソッド / Signal を
+委譲再公開する薄い親として振る舞う (Caption / Score / Rating / QualityTier は本ウィジェットが保持)。
 """
 
 from __future__ import annotations
@@ -11,18 +15,15 @@ from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
 from PySide6.QtCore import QPoint, Qt, Signal, Slot
-from PySide6.QtGui import QContextMenuEvent, QKeySequence, QMouseEvent, QResizeEvent, QShortcut
+from PySide6.QtGui import QKeySequence, QResizeEvent, QShortcut
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QAbstractScrollArea,
     QApplication,
-    QComboBox,
     QGroupBox,
-    QHBoxLayout,
     QHeaderView,
     QLabel,
     QMenu,
-    QScrollArea,
     QSizePolicy,
     QTableWidget,
     QTableWidgetItem,
@@ -33,90 +34,19 @@ from PySide6.QtWidgets import (
 from ...gui.designer.AnnotationDataDisplayWidget_ui import Ui_AnnotationDataDisplayWidget
 from ...utils.log import logger
 from .. import theme
+from .tag_panel_widget import SelectableTagChip, TagPanelWidget
+
+# SelectableTagChip は ADR 0083 で tag_panel_widget へ移設した。後方互換のため本モジュール
+# からも再公開する (既存 import: `from ...annotation_data_display_widget import SelectableTagChip`)。
+__all__ = [
+    "AnnotationData",
+    "AnnotationDataDisplayWidget",
+    "ImageDetails",
+    "SelectableTagChip",
+]
 
 if TYPE_CHECKING:
     from genai_tag_db_tools.models import RefinementRecommendation
-
-
-class SelectableTagChip(QLabel):
-    """選択トグルできるタグ chip (Issue #814)。
-
-    1 タグ 1 chip 表示のうえで、chip クリックで選択状態をトグルし、
-    選択中の chip だけ (無選択なら全 chip) をカンマ区切りでコピーできる。
-
-    ``QLabel.mousePressEvent`` への代入は mypy method-assign 違反になるため、
-    サブクラスで override して ``clicked`` Signal を emit する。コピー対象は
-    表示テキスト (翻訳後) ではなく ``canonical`` (danbooru canonical / 原文) を
-    使う。タグは保存値が SSoT であり、言語切替に依らず一貫したコピー結果にする。
-    """
-
-    clicked = Signal()
-    # refinement リコメンドの「この理由を無視」要求 (#931): (canonical, reason_code)
-    refinement_ignore_requested = Signal(str, str)
-
-    def __init__(self, display_text: str, canonical: str, parent: QWidget | None = None) -> None:
-        super().__init__(display_text, parent)
-        self.canonical = canonical
-        self.base_qss = ""
-        self.selected = False
-        # refinement 表示状態 (#931)。set_refinement で更新する。
-        self._base_text = display_text
-        self._base_tooltip: str | None = None
-        self.refinement: RefinementRecommendation | None = None
-        self.setCursor(Qt.CursorShape.PointingHandCursor)
-        # Ctrl+C を chip フォーカス中に拾えるようクリックフォーカスを許可する。
-        self.setFocusPolicy(Qt.FocusPolicy.ClickFocus)
-
-    def mousePressEvent(self, event: QMouseEvent) -> None:
-        """左クリックで選択トグル用の clicked を emit する。"""
-        if event.button() == Qt.MouseButton.LeftButton:
-            self.clicked.emit()
-        super().mousePressEvent(event)
-
-    def set_refinement(self, recommendation: RefinementRecommendation | None) -> None:
-        """refinement リコメンドを反映する (#931)。
-
-        needs_refinement かつ reason があれば ⚠ マーカーを表示テキストに前置し
-        (高さは1行で不変)、ツールチップに reason message と suggestion を出す。
-        リコメンドが無ければ元の表示・ツールチップへ戻す。
-
-        Args:
-            recommendation: 当該タグのリコメンド。無ければ None。
-        """
-        # 初回呼び出し時に元ツールチップ (翻訳脚注等) を退避する。
-        if self._base_tooltip is None:
-            self._base_tooltip = self.toolTip()
-        self.refinement = recommendation
-        if recommendation is not None and recommendation.needs_refinement and recommendation.reasons:
-            self.setText(f"⚠ {self._base_text}")
-            lines = [r.message for r in recommendation.reasons]
-            suggestions = [s.tag for s in recommendation.suggestions if s.tag]
-            if suggestions:
-                lines.append("提案: " + ", ".join(suggestions))
-            self.setToolTip("\n".join(lines))
-        else:
-            self.setText(self._base_text)
-            self.setToolTip(self._base_tooltip)
-
-    def contextMenuEvent(self, event: QContextMenuEvent) -> None:
-        """refinement がある chip は reason 単位の「無視」メニューを出す (#931)。
-
-        リコメンドが無い chip は event を無視してコンテナ側のコピーメニューへ委ねる。
-        """
-        rec = self.refinement
-        if rec is not None and rec.needs_refinement and rec.reasons:
-            menu = QMenu(self)
-            for reason in rec.reasons:
-                action = menu.addAction(f"この理由を無視: {reason.code}")
-                action.triggered.connect(
-                    lambda _checked=False, code=reason.code: self.refinement_ignore_requested.emit(
-                        self.canonical, code
-                    )
-                )
-            menu.exec(event.globalPos())
-            event.accept()
-        else:
-            event.ignore()
 
 
 @dataclass
@@ -175,7 +105,7 @@ class AnnotationDataDisplayWidget(QWidget, Ui_AnnotationDataDisplayWidget):
     アノテーション結果の汎用表示ウィジェット
 
     機能:
-    - タグ・キャプション・スコア情報の統一表示
+    - タグ (TagPanelWidget へ委譲) / キャプション / スコア情報の統一表示
     - 読み取り専用表示
     - データクリア・更新機能
     """
@@ -183,11 +113,14 @@ class AnnotationDataDisplayWidget(QWidget, Ui_AnnotationDataDisplayWidget):
     # シグナル
     data_loaded = Signal(AnnotationData)  # データロード完了
     data_cleared = Signal()  # データクリア完了
-    # TagEdit soft-reject 導線 (Issue #792)。引数は canonical タグ文字列。
-    tag_reject_requested = Signal(str)  # × でタグを soft-reject
+    # タグ操作 (TagPanelWidget から委譲再公開、ADR 0083 §2)。引数は canonical タグ文字列。
+    tag_reject_requested = Signal(str)  # 無効化・✕ 共通で soft-reject
     tag_restore_requested = Signal(str)  # soft-rejected タグを復活
-    tag_add_requested = Signal(str)  # 手動タグ追加
+    tag_add_requested = Signal(str)  # 手動タグ追加 (生入力)
     refinement_ignored = Signal(str, str)  # refinement リコメンドを無視 (canonical, reason_code) (#931)
+
+    # タグチップ箱の高さ上限 (#835)。TagPanelWidget と同値を持ち、後方互換のため公開する。
+    _TAGS_MAX_HEIGHT = 220
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -195,125 +128,104 @@ class AnnotationDataDisplayWidget(QWidget, Ui_AnnotationDataDisplayWidget):
 
         # 現在のデータ
         self.current_data: AnnotationData = AnnotationData()
-        # TagEdit soft-reject 編集モード (Issue #792、既定は read-only)。
-        self._tag_edit_enabled: bool = False
-        self._rejected_tags: list[str] = []
 
         # UI初期化
+        self._setup_tag_panel()
         self._setup_widget_properties()
-        self._setup_tags_compact_view()
         self._setup_caption_compact_view()
         self._setup_score_labels_compact_view()
         self._setup_quality_tier_badge()
         self._setup_ratings_table_view()
         self._adjust_content_heights()
 
-        # 言語コンボボックスのシグナル接続
-        self._lang_combo.currentTextChanged.connect(self._on_language_changed)
-
         logger.debug("AnnotationDataDisplayWidget initialized")
 
+    # ─── タグ欄 (TagPanelWidget 委譲) ──────────────────────────────────
+
+    def _setup_tag_panel(self) -> None:
+        """タグ欄を ``TagPanelWidget`` に委譲する (ADR 0083 / Issue #987)。
+
+        .ui 由来の ``tableWidgetTags`` は TagPanelWidget が自前で持つため除去し、
+        ``groupBoxTags`` の ``verticalLayoutTags`` に TagPanelWidget を埋め込む。
+        後方互換のためタグ系の内部ウィジェット参照と Signal を本ウィジェットへ橋渡しする。
+        """
+        # .ui の旧タグテーブルを破棄する (TagPanelWidget 側の隠しテーブルへ一本化)。
+        self.verticalLayoutTags.removeWidget(self.tableWidgetTags)
+        self.tableWidgetTags.setParent(None)
+        self.tableWidgetTags.deleteLater()
+
+        self._tag_panel = TagPanelWidget(self.groupBoxTags)
+        self.verticalLayoutTags.addWidget(self._tag_panel)
+
+        # 後方互換: タグ系内部ウィジェットの参照を再公開する (既存テスト / 親が参照)。
+        self.tableWidgetTags = self._tag_panel.tableWidgetTags
+        self._lang_bar = self._tag_panel._lang_bar
+        self._lang_combo = self._tag_panel._lang_combo
+        self._tags_chip_container = self._tag_panel._tags_chip_container
+        self._tags_chip_layout = self._tag_panel._tags_chip_layout
+        self._tags_scroll = self._tag_panel._tags_scroll
+        self._tags_translation_note = self._tag_panel._tags_translation_note
+        self._tags_compact_label = self._tag_panel._tags_compact_label
+        self._tag_add_input = self._tag_panel._tag_add_input
+
+        # タグ操作 Signal を委譲再公開する (親 SelectedImageDetailsWidget の dispatch 維持)。
+        self._tag_panel.tag_reject_requested.connect(self.tag_reject_requested)
+        self._tag_panel.tag_restore_requested.connect(self.tag_restore_requested)
+        self._tag_panel.tag_add_requested.connect(self.tag_add_requested)
+        self._tag_panel.refinement_ignored.connect(self.refinement_ignored)
+
+    @property
+    def _tag_chips(self) -> list[SelectableTagChip]:
+        """現在描画中のタグ chip (TagPanelWidget が再生成のたび差し替える)。"""
+        return self._tag_panel._tag_chips
+
+    @property
+    def _last_refinements(self) -> dict[str, RefinementRecommendation]:
+        """保持中の refinement リコメンド (TagPanelWidget が SSoT)。"""
+        return self._tag_panel._last_refinements
+
+    def initialize_language_selector(self, available_languages: list[str]) -> None:
+        """言語コンボボックスを初期化する (TagPanelWidget へ委譲)。"""
+        self._tag_panel.initialize_language_selector(available_languages)
+
+    def set_tag_edit_enabled(self, enabled: bool) -> None:
+        """タグ soft-reject 編集モードを切り替える (TagPanelWidget へ委譲)。"""
+        self._tag_panel.set_tag_edit_enabled(enabled)
+
+    def set_rejected_tags(self, rejected_tags: list[str]) -> None:
+        """soft-rejected タグ一覧を設定する (TagPanelWidget へ委譲)。"""
+        self._tag_panel.set_rejected_tags(rejected_tags)
+
+    def apply_refinements(self, recommendations: dict[str, RefinementRecommendation]) -> None:
+        """各タグ chip に refinement リコメンドを反映する (TagPanelWidget へ委譲、#931)。"""
+        self._tag_panel.apply_refinements(recommendations)
+
+    def displayed_tags_text(self) -> str:
+        """現在の言語選択で表示されているタグ文字列を返す (TagPanelWidget へ委譲)。"""
+        return self._tag_panel.displayed_tags_text()
+
+    @Slot()
+    def copy_selected_tags_to_clipboard(self) -> bool:
+        """選択中タグ (無選択なら全タグ) をコピーする (TagPanelWidget へ委譲、#814)。"""
+        return self._tag_panel.copy_selected_tags_to_clipboard()
+
+    @Slot()
+    def copy_selected_tag_cells_to_clipboard(self) -> bool:
+        """タグテーブルの選択セルを TSV コピーする (TagPanelWidget へ委譲)。"""
+        return self._tag_panel.copy_selected_tag_cells_to_clipboard()
+
+    def _render_tag_chips(self, chip_items: list[tuple[str, str, bool]], *, is_translated: bool) -> None:
+        """タグチップを再描画する (TagPanelWidget へ委譲、#931 のテスト互換)。"""
+        self._tag_panel._render_tag_chips(chip_items, is_translated=is_translated)
+
+    # ─── ウィジェット共通 ─────────────────────────────────────────────
+
     def _setup_widget_properties(self) -> None:
-        """ウィジェットプロパティ設定"""
-        # tableWidgetTagsは既にNoEditTriggersに設定済み（UIファイルで設定）
-        # テキスト編集を読み取り専用に設定
+        """ウィジェットプロパティ設定 (タグ欄を除く)。"""
         self.textEditCaption.setReadOnly(True)
-        self.tableWidgetTags.setSizeAdjustPolicy(QAbstractScrollArea.SizeAdjustPolicy.AdjustToContents)
-        self.tableWidgetTags.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
-        self.tableWidgetTags.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection)
-        self.tableWidgetTags.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectItems)
-        self.tableWidgetTags.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
-        self.tableWidgetTags.customContextMenuRequested.connect(self._show_tags_table_context_menu)
         self.textEditCaption.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         self._make_label_copyable(self.labelScoreTypeValue)
         self._make_label_copyable(self.labelOverallValue)
-
-    def _setup_tags_compact_view(self) -> None:
-        # 折り返しチップ配置レイアウト (DS wireframe v12 TagChip)。
-        # tag_cloud_service への module-load 連鎖を避けるため遅延 import する。
-        from .tag_cloud_widget import FlowLayout
-
-        # 言語切り替えバー（コンボボックス付き）を先頭に動的追加
-        self._lang_bar = QWidget(self.groupBoxTags)
-        lang_layout = QHBoxLayout(self._lang_bar)
-        lang_layout.setContentsMargins(0, 0, 0, 2)
-        lang_label = QLabel("言語:", self._lang_bar)
-        lang_layout.addWidget(lang_label)
-        self._lang_combo = QComboBox(self._lang_bar)
-        self._lang_combo.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
-        lang_layout.addWidget(self._lang_combo)
-        self._lang_bar.setVisible(False)  # merged_readerがない場合は非表示
-        self.verticalLayoutTags.insertWidget(0, self._lang_bar)
-
-        # チップ表示コンテナ (DS chip 文法・borders-not-shadows)
-        self._tags_chip_container = QWidget(self.groupBoxTags)
-        self._tags_chip_layout = FlowLayout(self._tags_chip_container, spacing=4)
-        self._tags_chip_container.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Minimum)
-        # 高さ上限付きスクロール箱に収める (#835)。FlowLayout の minimumSizeHint は
-        # 「最小幅で全チップ縦積み」の過大値を報告し、放置すると親の高さを膨張させて
-        # スコアカード下に異常な余白 + 不要スクロールを生む。タグ数に依らず本箱で
-        # 高さを上限まで (_TAGS_MAX_HEIGHT) に固定し、超過分は箱内スクロールにする。
-        self._tags_scroll = QScrollArea(self.groupBoxTags)
-        self._tags_scroll.setWidgetResizable(True)
-        self._tags_scroll.setFrameShape(QScrollArea.Shape.NoFrame)
-        self._tags_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
-        self._tags_scroll.setWidget(self._tags_chip_container)
-        self.verticalLayoutTags.insertWidget(1, self._tags_scroll)
-
-        # 選択コピー導線 (Issue #814): chip クリックで選択、Ctrl+C / 右クリックで
-        # 選択タグ (無選択なら全タグ) をカンマ区切りコピーする。
-        self._tag_chips: list[SelectableTagChip] = []
-        # refinement リコメンド保持 (#931): chip 再生成をまたいで ⚠ を復元する。
-        self._last_refinements: dict[str, RefinementRecommendation] = {}
-        self._tags_chip_container.setFocusPolicy(Qt.FocusPolicy.ClickFocus)
-        self._tags_chip_container.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
-        self._tags_chip_container.customContextMenuRequested.connect(self._show_tags_chip_context_menu)
-        self._tags_chip_copy_shortcut = QShortcut(QKeySequence.StandardKey.Copy, self._tags_chip_container)
-        self._tags_chip_copy_shortcut.setContext(Qt.ShortcutContext.WidgetWithChildrenShortcut)
-        self._tags_chip_copy_shortcut.activated.connect(self.copy_selected_tags_to_clipboard)
-
-        # 翻訳脚注 (非英語選択時のみ表示)
-        self._tags_translation_note = QLabel(self.groupBoxTags)
-        self._tags_translation_note.setWordWrap(True)
-        self._tags_translation_note.setStyleSheet(
-            f"color: {theme.INK_FAINT}; font-size: {theme.FONT_SIZE_SMALL - 1}px;"
-        )
-        self._tags_translation_note.setVisible(False)
-        self.verticalLayoutTags.insertWidget(2, self._tags_translation_note)
-
-        # soft-rejected セクション (Issue #792、編集モードのみ表示)。
-        # 取り消し線チップをクリックで復活する。
-        self._rejected_note = QLabel(self.groupBoxTags)
-        self._rejected_note.setStyleSheet(f"color: {theme.INK_SOFT}; font-size: {theme.FONT_SIZE_META}px;")
-        self._rejected_note.setVisible(False)
-        self.verticalLayoutTags.insertWidget(3, self._rejected_note)
-
-        self._rejected_container = QWidget(self.groupBoxTags)
-        self._rejected_layout = FlowLayout(self._rejected_container, spacing=4)
-        self._rejected_container.setVisible(False)
-        self.verticalLayoutTags.insertWidget(4, self._rejected_container)
-
-        # 手動タグ追加入力 (Issue #792、編集モードのみ表示)。
-        from PySide6.QtWidgets import QLineEdit
-
-        self._tag_add_input = QLineEdit(self.groupBoxTags)
-        self._tag_add_input.setObjectName("tagAddInput")
-        self._tag_add_input.setPlaceholderText("手動タグを追加 (Enter で確定)…")
-        self._tag_add_input.returnPressed.connect(self._on_tag_add_submitted)
-        self._tag_add_input.setVisible(False)
-        self.verticalLayoutTags.insertWidget(5, self._tag_add_input)
-
-        # コピー / アクセシビリティ用のテキストバッキング (非表示)。
-        # displayed_tags_text() と詳細コピーが参照する SSoT 文字列を保持する。
-        self._tags_compact_label = QLabel(self.groupBoxTags)
-        self._tags_compact_label.setWordWrap(True)
-        self._tags_compact_label.setText("-")
-        self._tags_compact_label.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Minimum)
-        self._make_label_copyable(self._tags_compact_label)
-        self._tags_compact_label.setVisible(False)
-        self.verticalLayoutTags.insertWidget(3, self._tags_compact_label)
-
-        self.tableWidgetTags.setVisible(False)
 
     def _setup_caption_compact_view(self) -> None:
         self._caption_compact_label = QLabel(self.groupBoxCaption)
@@ -330,6 +242,8 @@ class AnnotationDataDisplayWidget(QWidget, Ui_AnnotationDataDisplayWidget):
         各 scorer model 1 pill で `[model] label` 形式の QLabel を動的に配置する。
         score_labels が空のときは placeholder ("-") のみ表示し、container を hide する。
         """
+        from PySide6.QtWidgets import QHBoxLayout
+
         self._score_labels_container = QWidget(self.groupBoxScoreLabels)
         layout = QHBoxLayout(self._score_labels_container)
         layout.setContentsMargins(0, 0, 0, 0)
@@ -419,68 +333,6 @@ class AnnotationDataDisplayWidget(QWidget, Ui_AnnotationDataDisplayWidget):
         selected_text = label.selectedText()
         return selected_text if selected_text else label.text()
 
-    def displayed_tags_text(self) -> str:
-        """現在の言語選択で表示されているタグ文字列を返す。"""
-        return self._tags_compact_label.text()
-
-    def _on_tag_chip_clicked(self, chip: SelectableTagChip) -> None:
-        """タグ chip クリックで選択状態をトグルし視覚強調を更新する (Issue #814)。"""
-        chip.selected = not chip.selected
-        self._apply_chip_selection_style(chip)
-
-    def _apply_chip_selection_style(self, chip: SelectableTagChip) -> None:
-        """chip の選択状態に応じて QSS を切り替える。
-
-        非選択時は描画時の ``base_qss`` (DS chip 文法) に戻し、選択時は accent
-        トークンで強調する。ハードコード hex/px は使わず theme トークンのみ参照する。
-        """
-        chip.setStyleSheet(self._selected_chip_qss() if chip.selected else chip.base_qss)
-
-    @staticmethod
-    def _selected_chip_qss() -> str:
-        """選択中タグ chip 用の強調 QSS を theme トークンで生成する (Issue #814)。"""
-        return (
-            f"QLabel {{ background-color: {theme.ACCENT}; color: {theme.TEXT_ON_ACCENT};"
-            f" border: {theme.BORDER_WIDTH_ACCENT}px solid {theme.ACCENT};"
-            f" border-radius: {theme.RADIUS_CHIP}px; padding: 1px 9px;"
-            f" font-size: {theme.FONT_SIZE_SMALL}px; font-weight: 600; }}"
-        )
-
-    @Slot()
-    def copy_selected_tags_to_clipboard(self) -> bool:
-        """選択中タグ (無選択なら全タグ) をカンマ区切りでクリップボードへコピーする。
-
-        コピー値は表示テキスト (翻訳後) ではなく canonical 原文を使う。タグは
-        保存値が SSoT であり、言語切替に依らず一貫したコピー結果にするため (Issue #814)。
-
-        Returns:
-            コピー対象が 1 件以上あれば True、タグが無ければ False。
-        """
-        selected = [chip.canonical for chip in self._tag_chips if chip.selected]
-        targets = selected if selected else [chip.canonical for chip in self._tag_chips]
-        targets = [tag for tag in targets if tag]
-        if not targets:
-            return False
-        QApplication.clipboard().setText(", ".join(targets))
-        return True
-
-    @Slot(QPoint)
-    def _show_tags_chip_context_menu(self, position: QPoint) -> None:
-        """タグ chip コンテナの右クリックメニュー (選択タグのカンマ区切りコピー)。"""
-        menu = QMenu(self._tags_chip_container)
-        copy_action = menu.addAction("選択タグをコピー")
-        copy_action.setEnabled(bool(self._tag_chips))
-        copy_action.triggered.connect(self.copy_selected_tags_to_clipboard)
-        menu.exec(self._tags_chip_container.mapToGlobal(position))
-
-    @Slot(QPoint)
-    def _show_tags_table_context_menu(self, position: QPoint) -> None:
-        menu = QMenu(self.tableWidgetTags)
-        copy_action = menu.addAction("選択範囲をコピー")
-        copy_action.setEnabled(bool(self.tableWidgetTags.selectedRanges()))
-        copy_action.triggered.connect(self.copy_selected_tag_cells_to_clipboard)
-        menu.exec(self.tableWidgetTags.viewport().mapToGlobal(position))
-
     @Slot(QPoint)
     def _show_ratings_table_context_menu(self, position: QPoint) -> None:
         menu = QMenu(self.tableWidgetRatings)
@@ -490,23 +342,9 @@ class AnnotationDataDisplayWidget(QWidget, Ui_AnnotationDataDisplayWidget):
         menu.exec(self.tableWidgetRatings.viewport().mapToGlobal(position))
 
     @Slot()
-    def copy_selected_tag_cells_to_clipboard(self) -> bool:
-        """タグテーブルの選択セルを TSV としてクリップボードへコピーする。"""
-        return self._copy_selected_table_cells_to_clipboard(
-            self.tableWidgetTags, self._tag_table_item_clipboard_text
-        )
-
-    @Slot()
     def copy_selected_rating_cells_to_clipboard(self) -> bool:
         """rating 詳細テーブルの選択セルを TSV としてクリップボードへコピーする。"""
-        return self._copy_selected_table_cells_to_clipboard(self.tableWidgetRatings)
-
-    def _copy_selected_table_cells_to_clipboard(
-        self,
-        table: QTableWidget,
-        formatter: Any | None = None,
-    ) -> bool:
-        ranges = table.selectedRanges()
+        ranges = self.tableWidgetRatings.selectedRanges()
         if not ranges:
             return False
 
@@ -515,33 +353,31 @@ class AnnotationDataDisplayWidget(QWidget, Ui_AnnotationDataDisplayWidget):
             for row in range(selected_range.topRow(), selected_range.bottomRow() + 1):
                 values: list[str] = []
                 for column in range(selected_range.leftColumn(), selected_range.rightColumn() + 1):
-                    item = table.item(row, column)
-                    values.append(formatter(item, column) if formatter else (item.text() if item else ""))
+                    item = self.tableWidgetRatings.item(row, column)
+                    values.append(item.text() if item else "")
                 lines.append("\t".join(values))
 
         QApplication.clipboard().setText("\n".join(lines))
         return True
 
-    @staticmethod
-    def _tag_table_item_clipboard_text(item: QTableWidgetItem | None, column: int) -> str:
-        """タグテーブルセルのコピー用文字列を返す。"""
-        if item is None:
-            return ""
-        if column == 4:
-            return "true" if item.checkState() == Qt.CheckState.Checked else "false"
-        return item.text()
+    # ─── データ更新 ──────────────────────────────────────────────────
 
-    def update_data(self, data: AnnotationData) -> None:
-        """アノテーションデータで表示を更新"""
+    def update_data(self, data: AnnotationData, image_id: int | None = None) -> None:
+        """アノテーションデータで表示を更新
+
+        Args:
+            data: 表示するアノテーションデータ。
+            image_id: 表示中画像の識別子。同一画像の reject reload で ✕ の非表示状態を
+                保持するため TagPanelWidget へ伝搬する (PR #992 Codex P2)。
+        """
         try:
             self.current_data = data
 
-            # 新しい画像データのため前画像の refinement 結果は破棄する (#931)。
-            # 同一画像内の再描画 (言語切替等) は update_data を経由しないので保持される。
-            self._last_refinements = {}
-
-            # タグ表示更新
-            self._update_tags_display(data.tags)
+            # タグ表示更新 (TagPanelWidget へ委譲)。image_id が変わったときだけ表示状態を
+            # リセットし、同一画像の reject reload では ✕ の非表示などを保持する。
+            self._tag_panel.set_tags(
+                data.tags, data.tag_translations, data.available_languages, image_id=image_id
+            )
 
             # キャプション表示更新
             self._update_caption_display(data.caption)
@@ -569,294 +405,6 @@ class AnnotationDataDisplayWidget(QWidget, Ui_AnnotationDataDisplayWidget):
 
         except Exception as e:
             logger.error(f"Error updating annotation data: {e}", exc_info=True)
-
-    def _update_tags_display(self, tags: list[dict[str, Any]]) -> None:
-        """タグ表示をテーブルで更新
-
-        Args:
-            tags: タグ詳細情報リスト（Repository層から提供）
-                  [{"tag": "1girl", "model_name": "wd-v1-4", "source": "AI",
-                    "confidence_score": 0.95, "is_edited_manually": False}, ...]
-        """
-        try:
-            self.tableWidgetTags.setRowCount(len(tags))
-            self.tableWidgetTags.setSortingEnabled(False)  # 更新中はソート無効
-
-            for row, tag_dict in enumerate(tags):
-                # Tag列
-                tag_item = QTableWidgetItem(tag_dict["tag"])
-                self.tableWidgetTags.setItem(row, 0, tag_item)
-
-                # Model列
-                model_name = tag_dict.get("model_name", "-")
-                model_item = QTableWidgetItem(model_name)
-                self.tableWidgetTags.setItem(row, 1, model_item)
-
-                # Source列
-                source = tag_dict.get("source", "AI")
-                source_item = QTableWidgetItem(source)
-                self.tableWidgetTags.setItem(row, 2, source_item)
-
-                # Confidence列
-                confidence = tag_dict.get("confidence_score")
-                if confidence is not None:
-                    confidence_text = f"{confidence:.2f}"
-                else:
-                    confidence_text = "-"
-                confidence_item = QTableWidgetItem(confidence_text)
-                # 数値ソート用のデータ設定
-                confidence_item.setData(Qt.ItemDataRole.UserRole, confidence if confidence else -1)
-                self.tableWidgetTags.setItem(row, 3, confidence_item)
-
-                # Edited列（チェックボックス）
-                edited = tag_dict.get("is_edited_manually", False)
-                checkbox_item = QTableWidgetItem()
-                checkbox_item.setCheckState(Qt.CheckState.Checked if edited else Qt.CheckState.Unchecked)
-                checkbox_item.setFlags(Qt.ItemFlag.ItemIsEnabled)  # 読み取り専用
-                self.tableWidgetTags.setItem(row, 4, checkbox_item)
-
-            self.tableWidgetTags.setSortingEnabled(True)  # ソート有効化
-            self.tableWidgetTags.resizeColumnsToContents()
-
-            # チップ表示・コンパクトラベルを現在の表示言語で描画する。
-            # isHidden()で判定（isVisible()は親ウィジェット未表示時にFalseを返すため）
-            current_lang = self._lang_combo.currentText() if not self._lang_bar.isHidden() else "english"
-            self._refresh_tags_for_language(current_lang)
-
-            logger.debug(f"Updated tags display: {len(tags)} rows")
-
-        except Exception as e:
-            logger.error(f"Error updating tags display: {e}")
-
-    def initialize_language_selector(self, available_languages: list[str]) -> None:
-        """言語コンボボックスを初期化する。
-
-        Args:
-            available_languages: 利用可能な言語リスト。空の場合はコンボボックスを非表示にする。
-        """
-        if not available_languages:
-            self._lang_bar.setVisible(False)
-            return
-
-        self._lang_combo.blockSignals(True)
-        self._lang_combo.clear()
-        self._lang_combo.addItem("english")  # 常に先頭（原文）
-        for lang in available_languages:
-            if lang != "english":
-                self._lang_combo.addItem(lang)
-        self._lang_combo.blockSignals(False)
-        self._lang_bar.setVisible(True)
-
-    @Slot(str)
-    def _on_language_changed(self, language: str) -> None:
-        """言語コンボボックス変更時にタグ表示を更新する。"""
-        self._refresh_tags_for_language(language)
-
-    def _refresh_tags_for_language(self, language: str) -> None:
-        """現在のタグデータを指定言語で再描画する。
-
-        Args:
-            language: 表示言語名。"english" または available_languages の要素。
-                      翻訳がないタグは英語原文でフォールバック。
-        """
-        tags = self.current_data.tags
-        translations = self.current_data.tag_translations
-        use_english = language == "english" or not language
-
-        tag_names: list[str] = []
-        # チップ描画用メタ: (表示名, 原文, 翻訳ありか)
-        chip_items: list[tuple[str, str, bool]] = []
-        for row, tag_dict in enumerate(tags):
-            tag_id = tag_dict.get("tag_id")
-            original = tag_dict.get("tag", "")
-            if use_english or tag_id is None:
-                display = original
-                has_translation = True  # 英語表示では翻訳欠落マークを付けない
-            else:
-                translated = translations.get(tag_id, {}).get(language)
-                # 翻訳がなければ英語原文にフォールバック
-                display = translated if translated else original
-                has_translation = translated is not None
-            tag_names.append(display)
-            chip_items.append((display, original, has_translation))
-
-            # テーブルのTag列（列0）も更新
-            item = self.tableWidgetTags.item(row, 0)
-            if item is not None:
-                item.setText(display)
-
-        self._tags_compact_label.setText(", ".join(n for n in tag_names if n) or "-")
-        self._render_tag_chips(chip_items, is_translated=not use_english)
-
-    def _render_tag_chips(self, chip_items: list[tuple[str, str, bool]], *, is_translated: bool) -> None:
-        """タグチップを DS chip 文法で再描画する (borders-not-shadows)。
-
-        Args:
-            chip_items: (表示名, 原文, 翻訳ありか) のタプルリスト。
-            is_translated: 非英語言語で表示中なら True。脚注表示と翻訳欠落の
-                点線マーク (theme.tag_chip_untranslated_qss) の有効/無効を切り替える。
-        """
-        # 既存チップをクリア
-        while self._tags_chip_layout.count():
-            child = self._tags_chip_layout.takeAt(0)
-            if child is None:
-                continue
-            widget = child.widget()
-            if widget is not None:
-                widget.deleteLater()
-        # 再描画で選択状態はリセットする (chip オブジェクトが入れ替わるため)。
-        self._tag_chips = []
-
-        visible_items = [(display, original, has_tr) for display, original, has_tr in chip_items if display]
-        if not visible_items:
-            placeholder = QLabel("-")
-            placeholder.setStyleSheet(f"color: {theme.INK_FAINT};")
-            self._tags_chip_layout.addWidget(placeholder)
-            self._tags_translation_note.setVisible(False)
-            return
-
-        for display, original, has_tr in visible_items:
-            chip = SelectableTagChip(display, original)
-            if is_translated and not has_tr:
-                chip.base_qss = theme.tag_chip_untranslated_qss()
-                chip.setToolTip(f"{original} — 翻訳なし")
-            else:
-                chip.base_qss = theme.chip_qss("accent")
-                if is_translated and display != original:
-                    chip.setToolTip(f"{original} → {display}")
-            chip.setStyleSheet(chip.base_qss)
-            chip.clicked.connect(lambda c=chip: self._on_tag_chip_clicked(c))
-            # refinement「この理由を無視」を上位へ中継 (#931)
-            chip.refinement_ignore_requested.connect(self.refinement_ignored)
-            self._tag_chips.append(chip)
-            # 編集モードでは × ボタン付きコンテナで soft-reject 可能にする (Issue #792)。
-            self._tags_chip_layout.addWidget(self._wrap_editable_chip(chip, original))
-
-        if is_translated:
-            self._tags_translation_note.setText(
-                "表示のみ翻訳 · 保存値は danbooru canonical 固定 · 点線 = 翻訳なし"
-            )
-            self._tags_translation_note.setVisible(True)
-        else:
-            self._tags_translation_note.setVisible(False)
-
-        # chip 再生成後、保持中の refinement 結果を再反映する (#931、言語切替/編集モードでも ⚠ 維持)。
-        self._apply_refinements_to_chips()
-
-    def apply_refinements(self, recommendations: dict[str, RefinementRecommendation]) -> None:
-        """各タグ chip に refinement リコメンドを反映する (#931)。
-
-        chip の canonical をキーにマップを引き、該当があれば ⚠ + ツールチップを表示、
-        無ければリコメンド表示を消す。検索/エクスポート両タブの詳細ペインで共用される。
-
-        言語切替や編集モード切替で chip が再生成されても ⚠ を失わないよう、最後に適用した
-        結果を保持し、_render_tag_chips の末尾で自動的に再反映する。
-
-        Args:
-            recommendations: {canonical タグ: RefinementRecommendation}。
-        """
-        self._last_refinements = dict(recommendations)
-        self._apply_refinements_to_chips()
-
-    def _apply_refinements_to_chips(self) -> None:
-        """保持中のリコメンド (_last_refinements) を現在の chip 群へ反映する (#931)。"""
-        applied = 0
-        for chip in self._tag_chips:
-            rec = self._last_refinements.get(chip.canonical)
-            chip.set_refinement(rec)
-            if rec is not None:
-                applied += 1
-        logger.debug(f"refinement 反映: chip={len(self._tag_chips)}, 印付き={applied}")
-
-    def _wrap_editable_chip(self, chip: QLabel, original: str) -> QWidget:
-        """編集モード時にチップを × ボタン付きコンテナで包む (Issue #792)。
-
-        read-only モードでは chip をそのまま返す。
-
-        Args:
-            chip: タグチップ QLabel。
-            original: canonical タグ文字列 (soft-reject 対象)。
-
-        Returns:
-            編集モードなら × 付きコンテナ、そうでなければ chip。
-        """
-        if not self._tag_edit_enabled:
-            return chip
-        from PySide6.QtWidgets import QToolButton
-
-        container = QWidget()
-        layout = QHBoxLayout(container)
-        layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(1)
-        layout.addWidget(chip)
-        remove = QToolButton(container)
-        remove.setObjectName("tagRejectButton")
-        remove.setText("×")
-        remove.setAutoRaise(True)
-        remove.setToolTip(f"{original} を soft-reject (rejected_at に記録、行は残す)")
-        remove.clicked.connect(lambda _checked=False, tag=original: self.tag_reject_requested.emit(tag))
-        layout.addWidget(remove)
-        return container
-
-    def set_tag_edit_enabled(self, enabled: bool) -> None:
-        """タグ soft-reject 編集モードを切り替える (Issue #792)。
-
-        Args:
-            enabled: True で × / 手動追加 / 復活セクションを表示する。
-        """
-        self._tag_edit_enabled = enabled
-        self._tag_add_input.setVisible(enabled)
-        self._refresh_tags_for_language(self._lang_combo.currentText() or "English")
-        self._render_rejected_tags()
-
-    def set_rejected_tags(self, rejected_tags: list[str]) -> None:
-        """soft-rejected タグ一覧を設定し復活セクションを再描画する (Issue #792)。
-
-        Args:
-            rejected_tags: soft-reject 済み canonical タグ文字列のリスト。
-        """
-        self._rejected_tags = list(rejected_tags)
-        self._render_rejected_tags()
-
-    def _render_rejected_tags(self) -> None:
-        """soft-rejected セクションを再描画する (クリックで復活)。"""
-        while self._rejected_layout.count():
-            child = self._rejected_layout.takeAt(0)
-            if child is None:
-                continue
-            widget = child.widget()
-            if widget is not None:
-                widget.deleteLater()
-
-        show = self._tag_edit_enabled and bool(self._rejected_tags)
-        self._rejected_note.setVisible(show)
-        self._rejected_container.setVisible(show)
-        if not show:
-            return
-
-        from PySide6.QtWidgets import QPushButton
-
-        self._rejected_note.setText(f"soft-rejected · {len(self._rejected_tags)}（クリックで復活）")
-        for tag in self._rejected_tags:
-            # クリックで復活する flat ボタン (取り消し線 chip 風)。
-            # QLabel.mousePressEvent への代入は mypy method-assign 違反になるため
-            # QPushButton.clicked を使う。
-            chip = QPushButton(tag)
-            chip.setObjectName("rejectedTagChip")
-            chip.setFlat(True)
-            chip.setCursor(Qt.CursorShape.PointingHandCursor)
-            chip.setStyleSheet(theme.tag_chip_untranslated_qss().replace("QLabel", "QPushButton"))
-            chip.setToolTip(f"{tag} を復活 (rejected_at を解除)")
-            chip.clicked.connect(lambda _checked=False, t=tag: self.tag_restore_requested.emit(t))
-            self._rejected_layout.addWidget(chip)
-
-    def _on_tag_add_submitted(self) -> None:
-        """手動タグ追加入力の Enter ハンドラ (Issue #792)。"""
-        text = self._tag_add_input.text().strip()
-        if not text:
-            return
-        self._tag_add_input.clear()
-        self.tag_add_requested.emit(text)
 
     def _update_caption_display(self, caption: str) -> None:
         """キャプション表示を更新"""
@@ -1014,11 +562,9 @@ class AnnotationDataDisplayWidget(QWidget, Ui_AnnotationDataDisplayWidget):
         try:
             # データリセット
             self.current_data = AnnotationData()
-            # refinement リコメンド保持もクリア (#931)
-            self._last_refinements = {}
 
-            # UI要素クリア
-            self.tableWidgetTags.setRowCount(0)
+            # タグ欄クリア (TagPanelWidget へ委譲)
+            self._tag_panel.clear()
 
             self.textEditCaption.clear()
             self.textEditCaption.setPlaceholderText("キャプションが表示されます")
@@ -1033,8 +579,6 @@ class AnnotationDataDisplayWidget(QWidget, Ui_AnnotationDataDisplayWidget):
             # 品質 tier badge もクリア (ADR 0029)
             self._update_quality_tier_display({})
 
-            self._tags_compact_label.setText("-")
-            self._render_tag_chips([], is_translated=False)
             self._adjust_content_heights()
 
             self.data_cleared.emit()
@@ -1049,7 +593,6 @@ class AnnotationDataDisplayWidget(QWidget, Ui_AnnotationDataDisplayWidget):
 
     def set_read_only(self, read_only: bool) -> None:
         """読み取り専用モード設定"""
-        # tableWidgetTagsは既にNoEditTriggersに設定済み
         self.textEditCaption.setReadOnly(read_only)
 
     def set_group_box_visibility(
@@ -1067,53 +610,13 @@ class AnnotationDataDisplayWidget(QWidget, Ui_AnnotationDataDisplayWidget):
         self.groupBoxScoreLabels.setVisible(score_labels)
         self.groupBoxRatings.setVisible(ratings)
 
-    # タグチップ箱の高さ上限 (#835)。これを超えるタグは箱内スクロールにし、
-    # annotationDataDisplay 全体の高さがタグ数で膨張しないようにする。
-    _TAGS_MAX_HEIGHT = 220
-
     def resizeEvent(self, event: QResizeEvent) -> None:
         super().resizeEvent(event)
         self._adjust_caption_height()
-        # 幅変化でタグチップの折り返し行数が変わるため箱の高さを追従させる (#835)
-        self._adjust_tags_chip_height()
 
     def _adjust_content_heights(self) -> None:
-        self._adjust_tags_height()
-        self._adjust_tags_chip_height()
         self._adjust_caption_height()
         self._adjust_ratings_height()
-
-    def _adjust_tags_chip_height(self) -> None:
-        """タグチップ箱の高さを min(実幅での必要高さ, 上限) に収める (#835)。
-
-        FlowLayout の minimumSizeHint (最小幅での全チップ縦積み) が親へ伝播して
-        スクロール領域を膨張させるのを防ぐため、箱の高さを実寸ベースで明示する。
-        タグが少なければ内容ぴったり、多ければ上限で頭打ち + 箱内スクロールになる。
-        """
-        if not self._tags_scroll.isVisible():
-            return
-        width = self._tags_scroll.viewport().width()
-        if width <= 0:
-            return
-        # 収まるときに内側スクロールバーが出ないよう僅かな余裕を足す。
-        needed = self._tags_chip_layout.heightForWidth(width) + 8
-        self._tags_scroll.setFixedHeight(min(needed, self._TAGS_MAX_HEIGHT))
-
-    def _adjust_tags_height(self) -> None:
-        if not self.tableWidgetTags.isVisible():
-            return
-        self.tableWidgetTags.resizeRowsToContents()
-        header_height = self.tableWidgetTags.horizontalHeader().height()
-        rows_height = sum(
-            self.tableWidgetTags.rowHeight(row) for row in range(self.tableWidgetTags.rowCount())
-        )
-        frame = self.tableWidgetTags.frameWidth() * 2
-        padding = 6
-        target = header_height + rows_height + frame + padding
-        min_height = header_height + frame + padding
-        if target < min_height:
-            target = min_height
-        self.tableWidgetTags.setFixedHeight(target)
 
     def _adjust_ratings_height(self) -> None:
         if not self.tableWidgetRatings.isVisible():
