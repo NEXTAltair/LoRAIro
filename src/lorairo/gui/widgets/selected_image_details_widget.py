@@ -709,8 +709,9 @@ class SelectedImageDetailsWidget(QWidget):
         # ADR 0029: 統一品質 tier (derived view) を AnnotationData に渡す
         quality_summary = metadata.get("quality_summary", {})
 
-        # 翻訳データ取得（N+1回避のためバッチ取得）
+        # 翻訳・使用頻度データ取得（N+1回避のためバッチ取得）
         tag_translations: dict[int, dict[str, str]] = {}
+        tag_usage_counts: dict[int, dict[str, int]] = {}
         if self._merged_reader is not None:
             valid_tag_ids = [
                 tag_dict["tag_id"] for tag_dict in tags_list if tag_dict.get("tag_id") is not None
@@ -720,6 +721,17 @@ class SelectedImageDetailsWidget(QWidget):
                     for tr in trs:
                         if tr.language and tr.translation:
                             tag_translations.setdefault(tag_id, {})[tr.language] = tr.translation
+                # 使用頻度 第2軸 (#990): format_id 別 count を bulk 取得し format 名へ解決する。
+                # name 解決は format_map の 1 回参照のみで tag 数に対して N+1 にならない。
+                format_map = self._merged_reader.get_format_map()
+                for tag_id, counts_by_fid in self._merged_reader.get_usage_counts_batch(
+                    valid_tag_ids
+                ).items():
+                    named = {
+                        format_map[fid]: count for fid, count in counts_by_fid.items() if fid in format_map
+                    }
+                    if named:
+                        tag_usage_counts[tag_id] = named
 
         annotation_data = AnnotationData(
             tags=tags_list,  # ← list[dict] をそのまま渡す
@@ -731,6 +743,7 @@ class SelectedImageDetailsWidget(QWidget):
             quality_summary=quality_summary,
             tag_translations=tag_translations,
             available_languages=self._available_languages,
+            tag_usage_counts=tag_usage_counts,
         )
 
         details = ImageDetails(

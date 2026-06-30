@@ -44,6 +44,10 @@ from .. import theme
 if TYPE_CHECKING:
     from genai_tag_db_tools.models import RefinementRecommendation
 
+# 使用頻度 第2軸セレクタの「なし」選択肢ラベル (ADR 0083 §5 / #990)。
+# 選択時は metric_source を空にして chip の count 補助表示を消す。
+_METRIC_NONE_LABEL = "なし"
+
 
 class SelectableTagChip(QLabel):
     """選択トグルできるタグ chip (Issue #814 / #931 / #987)。
@@ -321,6 +325,13 @@ class TagPanelWidget(QWidget):
         self._translations: dict[int, dict[str, str]] = {}
         self._available_languages: list[str] = []
 
+        # 使用頻度 第2軸 (metric_source, ADR 0083 §5 / #990)。表示言語とは独立した軸。
+        # 親が bulk 取得した {tag_id: {format_name: count}} を set_usage_counts で受け、
+        # canonical → {format_name: count} へ展開して chip に補助表示する (読み取り専用)。
+        self._usage_counts: dict[int, dict[str, int]] = {}
+        self._counts_by_canonical: dict[str, dict[str, int]] = {}
+        self._metric_source: str = ""  # 空文字 = なし (count 非表示)
+
         # 編集モード (soft-reject 導線。既定 read-only)
         self._tag_edit_enabled: bool = False
 
@@ -340,6 +351,7 @@ class TagPanelWidget(QWidget):
         self._setup_ui()
 
         self._lang_combo.currentTextChanged.connect(self._on_language_changed)
+        self._metric_combo.currentIndexChanged.connect(self._on_metric_changed)
 
     def _setup_ui(self) -> None:
         """タグ欄 UI を構築する (DS chip 文法・borders-not-shadows)。"""
@@ -357,6 +369,19 @@ class TagPanelWidget(QWidget):
         lang_layout.addWidget(self._lang_combo)
         self._lang_bar.setVisible(False)
         root.addWidget(self._lang_bar)
+
+        # 使用頻度の第2軸セレクタ (metric_source, ADR 0083 §5 / #990)。表示言語と独立。
+        # usage count データが無ければ非表示。「なし」選択で chip の count を消す。
+        self._metric_bar = QWidget(self)
+        metric_layout = QHBoxLayout(self._metric_bar)
+        metric_layout.setContentsMargins(0, 0, 0, 2)
+        metric_layout.addWidget(QLabel("頻度:", self._metric_bar))
+        self._metric_combo = QComboBox(self._metric_bar)
+        self._metric_combo.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+        self._metric_combo.addItem(_METRIC_NONE_LABEL)
+        metric_layout.addWidget(self._metric_combo)
+        self._metric_bar.setVisible(False)
+        root.addWidget(self._metric_bar)
 
         # チップ表示コンテナ。高さ上限付きスクロール箱に収める (#835)。FlowLayout の
         # minimumSizeHint は「最小幅で全チップ縦積み」の過大値を報告し、放置すると親の
@@ -437,6 +462,7 @@ class TagPanelWidget(QWidget):
         translations: dict[int, dict[str, str]] | None = None,
         available_languages: list[str] | None = None,
         image_id: int | None = None,
+        usage_counts: dict[int, dict[str, int]] | None = None,
     ) -> None:
         """タグ集合で表示を更新する。
 
@@ -451,6 +477,9 @@ class TagPanelWidget(QWidget):
             available_languages: 利用可能言語リスト (脚注/フォールバック用)。
             image_id: 表示中画像の識別子。省略 (None) 時は常にリセットする
                 (後方互換)。同一 ``image_id`` の再呼び出しは表示状態を保持する。
+            usage_counts: サイト別使用頻度 ``{tag_id: {format_name: count}}`` (#990)。
+                指定時は metric セレクタと chip 表示を 1 度の再描画で同時更新する
+                (set_usage_counts を別途呼ぶと余分な再描画になるため統合する)。
         """
         # ✕ で外したタグは同一画像の reject reload を跨いで非表示を維持する。
         # 親が ✕ → soft-reject → 同画像 reload → set_tags を呼び戻す経路で _hidden を
@@ -460,11 +489,15 @@ class TagPanelWidget(QWidget):
         self._tags = list(tags)
         self._translations = dict(translations) if translations else {}
         self._available_languages = list(available_languages) if available_languages else []
+        if usage_counts is not None:
+            self._usage_counts = dict(usage_counts)
         if image_changed:
             # 別画像なので前画像の操作・refinement を引き継がない。
             self._disabled_display = set()
             self._hidden = set()
             self._last_refinements = {}
+        self._rebuild_counts_by_canonical()
+        self._refresh_metric_selector()
         self._populate_table(self._tags)
         self._refresh_tags_for_language(self._current_language())
 
@@ -474,6 +507,22 @@ class TagPanelWidget(QWidget):
         """翻訳データと利用可能言語を差し替えて再描画する。"""
         self._translations = dict(translations)
         self._available_languages = list(available_languages)
+        self._refresh_tags_for_language(self._current_language())
+
+    def set_usage_counts(self, usage_counts: dict[int, dict[str, int]]) -> None:
+        """サイト別 (format 別) 使用頻度を設定し metric セレクタを更新する (#990)。
+
+        表示言語とは独立した第2軸。``{tag_id: {format_name: count}}`` を受け取り、
+        現在のタグ集合の canonical へ展開する。利用可能な metric (format 名) を
+        セレクタへ反映し、データが無ければ metric バーを隠す。count は読み取り専用で
+        chip への補助表示にのみ使う (DB へは書き込まない)。
+
+        Args:
+            usage_counts: ``{tag_id: {format_name: count}}``。空なら count 非表示。
+        """
+        self._usage_counts = dict(usage_counts)
+        self._rebuild_counts_by_canonical()
+        self._refresh_metric_selector()
         self._refresh_tags_for_language(self._current_language())
 
     def initialize_language_selector(self, available_languages: list[str]) -> None:
@@ -576,6 +625,9 @@ class TagPanelWidget(QWidget):
         self._hidden = set()
         self._rejected_tags = []
         self._last_refinements = {}
+        self._usage_counts = {}
+        self._counts_by_canonical = {}
+        self._refresh_metric_selector()
         self.tableWidgetTags.setRowCount(0)
         self._tags_compact_label.setText("-")
         self._render_tag_chips([], is_translated=False)
@@ -591,6 +643,86 @@ class TagPanelWidget(QWidget):
     def _on_language_changed(self, language: str) -> None:
         """言語コンボボックス変更時にタグ表示を更新する。"""
         self._refresh_tags_for_language(language)
+
+    # ─── 使用頻度 第2軸 (metric_source, #990) ──────────────────────────
+
+    def _rebuild_counts_by_canonical(self) -> None:
+        """``{tag_id: {format: count}}`` を canonical キーへ展開する (#990)。
+
+        chip 描画は canonical (原文) 基準のため、現在のタグ集合の tag_id →
+        usage count を canonical → ``{format: count}`` へ写し替えてキャッシュする。
+        """
+        counts: dict[str, dict[str, int]] = {}
+        for tag_dict in self._tags:
+            tag_id = tag_dict.get("tag_id")
+            canonical = tag_dict.get("tag", "")
+            if tag_id is None or not canonical:
+                continue
+            per_format = self._usage_counts.get(tag_id)
+            if per_format:
+                counts[canonical] = dict(per_format)
+        self._counts_by_canonical = counts
+
+    def _refresh_metric_selector(self) -> None:
+        """利用可能な metric (format 名) で metric セレクタを再構築する (#990)。
+
+        現在のタグ集合に usage count がある format 名を集約して候補にする。
+        データが無ければ metric バーを隠す。可能なら現在の選択を維持する。
+        """
+        available = sorted({fmt for per_format in self._counts_by_canonical.values() for fmt in per_format})
+        if not available:
+            self._metric_bar.setVisible(False)
+            self._metric_combo.blockSignals(True)
+            self._metric_combo.clear()
+            self._metric_combo.addItem(_METRIC_NONE_LABEL)
+            self._metric_combo.blockSignals(False)
+            self._metric_source = ""
+            return
+
+        previous = self._metric_source
+        self._metric_combo.blockSignals(True)
+        self._metric_combo.clear()
+        self._metric_combo.addItem(_METRIC_NONE_LABEL)
+        for fmt in available:
+            self._metric_combo.addItem(fmt)
+        # 直前の選択が候補に残っていれば維持、無ければ「なし」へ戻す。
+        index = self._metric_combo.findText(previous) if previous else 0
+        self._metric_combo.setCurrentIndex(index if index >= 0 else 0)
+        self._metric_combo.blockSignals(False)
+        self._metric_source = self._current_metric()
+        self._metric_bar.setVisible(True)
+
+    def _current_metric(self) -> str:
+        """現在選択中の metric (format 名)。「なし」選択時は空文字を返す。"""
+        text = self._metric_combo.currentText()
+        return "" if text == _METRIC_NONE_LABEL else text
+
+    @Slot(int)
+    def _on_metric_changed(self, _index: int) -> None:
+        """metric セレクタ変更時に chip の count 補助表示を更新する (#990)。"""
+        self._metric_source = self._current_metric()
+        self._refresh_tags_for_language(self._current_language())
+
+    @staticmethod
+    def _format_count(count: int) -> str:
+        """使用回数を ``1.2M`` / ``842k`` 形式へ整形する (ADR 0083 §5 / #990)。"""
+        if count >= 1_000_000:
+            return f"{count / 1_000_000:.1f}M".replace(".0M", "M")
+        if count >= 1_000:
+            return f"{count / 1_000:.1f}k".replace(".0k", "k")
+        return str(count)
+
+    def _count_suffix(self, canonical: str) -> str:
+        """現在の metric における canonical の count サフィックス ``" (1.2k)"`` を返す。
+
+        metric=なし、または当該 format に count が無ければ空文字を返す。
+        """
+        if not self._metric_source:
+            return ""
+        count = self._counts_by_canonical.get(canonical, {}).get(self._metric_source)
+        if count is None:
+            return ""
+        return f" ({self._format_count(count)})"
 
     def _refresh_tags_for_language(self, language: str) -> None:
         """現在のタグデータを指定言語で再描画する。
@@ -691,6 +823,9 @@ class TagPanelWidget(QWidget):
         disabled: bool,
     ) -> None:
         """1 タグ分の chip (編集モードでは ✕ 付き) を生成して配置する。"""
+        # 使用頻度 metric が選択されていれば count を表示名へ付与する (#990)。
+        # canonical (original) は変えずコピー結果へ影響させない。
+        display = f"{display}{self._count_suffix(original)}"
         chip = SelectableTagChip(display, original)
         if is_translated and not has_translation:
             chip.untranslated = True

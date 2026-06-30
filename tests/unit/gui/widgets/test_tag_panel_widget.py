@@ -424,3 +424,92 @@ def test_type_dialog_preselects_known_current_type(qtbot):
     choices = [dialog._type_combo.itemText(i) for i in range(dialog._type_combo.count())]
     assert choices == list(TagTypeEditDialog.TYPE_CHOICES)
     assert dialog.selected_type() == "character"
+
+
+# ⑬ 使用頻度 第2軸 (metric_source, ADR 0083 §5 / #990) -----------------------
+
+
+def test_metric_bar_hidden_without_usage_counts(panel, sample_tags):
+    """usage count が無ければ metric バーは非表示 (受け入れ条件)。"""
+    panel.set_tags(sample_tags)
+    panel.set_usage_counts({})
+    assert panel._metric_bar.isHidden()
+
+
+def test_metric_selector_lists_available_formats(panel, sample_tags):
+    """usage count のある format 名が「なし」に続けて昇順で候補化される。"""
+    panel.set_tags(sample_tags)
+    panel.set_usage_counts({10: {"danbooru": 1234, "e621": 42}, 20: {"danbooru": 800}})
+    options = [panel._metric_combo.itemText(i) for i in range(panel._metric_combo.count())]
+    assert options == [tpw._METRIC_NONE_LABEL, "danbooru", "e621"]
+
+
+def test_metric_none_hides_counts(panel, sample_tags):
+    """metric=なし では chip に count を表示しない (受け入れ条件)。"""
+    panel.set_tags(sample_tags)
+    panel.set_usage_counts({10: {"danbooru": 1234}})
+    # 既定は「なし」
+    assert panel._metric_combo.currentText() == tpw._METRIC_NONE_LABEL
+    chip = next(c for c in panel._tag_chips if c.canonical == "1girl")
+    assert "(" not in chip.text()
+
+
+def test_metric_selection_shows_formatted_count(panel, sample_tags):
+    """metric 選択で chip にサイト別 count が 1.2k 形式で表示される (受け入れ条件)。"""
+    panel.set_tags(sample_tags)
+    panel.set_usage_counts({10: {"danbooru": 1234}, 20: {"danbooru": 842000}})
+    panel._metric_combo.setCurrentText("danbooru")
+    girl = next(c for c in panel._tag_chips if c.canonical == "1girl")
+    flower = next(c for c in panel._tag_chips if c.canonical == "flower")
+    assert girl.text() == "1girl (1.2k)"
+    assert flower.text() == "flower (842k)"
+    # canonical はサフィックスを含まず、コピー結果に影響しない (#814)
+    assert girl.canonical == "1girl"
+
+
+def test_metric_switch_updates_count_display(panel, sample_tags):
+    """metric 切替で count 表示が更新される (受け入れ条件)。"""
+    panel.set_tags(sample_tags)
+    panel.set_usage_counts({10: {"danbooru": 1234, "e621": 5000000}})
+    panel._metric_combo.setCurrentText("danbooru")
+    girl = next(c for c in panel._tag_chips if c.canonical == "1girl")
+    assert girl.text() == "1girl (1.2k)"
+    panel._metric_combo.setCurrentText("e621")
+    girl = next(c for c in panel._tag_chips if c.canonical == "1girl")
+    assert girl.text() == "1girl (5M)"
+    # e621 に count が無い flower はサフィックスなし
+    flower = next(c for c in panel._tag_chips if c.canonical == "flower")
+    assert "(" not in flower.text()
+
+
+def test_metric_independent_of_language(panel, sample_tags):
+    """表示言語と metric を独立に切替できる (受け入れ条件)。"""
+    translations = {10: {"japanese": "少女"}}
+    panel.set_tags(sample_tags, translations, ["japanese"])
+    panel.initialize_language_selector(["japanese"])
+    panel.set_usage_counts({10: {"danbooru": 1234}})
+    panel._metric_combo.setCurrentText("danbooru")
+    panel._lang_combo.setCurrentText("japanese")
+    girl = next(c for c in panel._tag_chips if c.canonical == "1girl")
+    # 翻訳表示 + サイト別 count が両立する
+    assert girl.text() == "少女 (1.2k)"
+
+
+def test_format_count_abbreviation():
+    """K/M 整形: 1.2M / 842k / 小数なし整数。"""
+    fmt = TagPanelWidget._format_count
+    assert fmt(842) == "842"
+    assert fmt(1234) == "1.2k"
+    assert fmt(842000) == "842k"
+    assert fmt(1200000) == "1.2M"
+    assert fmt(5000000) == "5M"
+
+
+def test_clear_resets_metric(panel, sample_tags):
+    """clear で metric セレクタが「なし」のみへ戻り非表示になる。"""
+    panel.set_tags(sample_tags)
+    panel.set_usage_counts({10: {"danbooru": 1234}})
+    panel.clear()
+    options = [panel._metric_combo.itemText(i) for i in range(panel._metric_combo.count())]
+    assert options == [tpw._METRIC_NONE_LABEL]
+    assert panel._metric_bar.isHidden()
