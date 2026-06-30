@@ -635,8 +635,16 @@ class TestTranslationQualityIntegration:
         assert result.needs_refinement is True
         assert {r.code for r in result.reasons} == {"overlong_translation"}
 
-    def test_format_name_filters_search(self, service: TagManagementService) -> None:
-        """既知 format は search に format_names フィルタを通し別 format の翻訳を借用しない (#991 P2)。"""
+    @pytest.mark.parametrize("format_name", ["danbooru", "unknown"])
+    def test_translation_search_is_format_independent(
+        self, service: TagManagementService, format_name: str
+    ) -> None:
+        """翻訳取得は format に依存しないため search を format で絞らない (#993、#991 P2 撤回)。
+
+        tagdb の TAG_TRANSLATIONS は tag_id への FK だけを持ち format_id を持たない。照合キーの
+        TAGS.tag は UNIQUE なので 1 タグ文字列 = 1 tag_id = 1 翻訳セット。format を渡しても返る翻訳は
+        変わらない (CLI 実測で確認)。よって format_name の値に関わらず format_names は常に None。
+        """
         manual = _recommendation("cat", needs=False, score=0.0)
         with (
             patch(
@@ -652,29 +660,7 @@ class TestTranslationQualityIntegration:
                 return_value=_recommendation("cat", needs=False, score=0.0),
             ),
         ):
-            service.recommend_with_translation_quality("cat", format_name="danbooru")
-
-        request = mock_search.call_args.args[1]
-        assert request.format_names == ["danbooru"]
-
-    def test_unknown_format_does_not_filter_search(self, service: TagManagementService) -> None:
-        """format が "unknown" (判定不能) のときは format フィルタを掛けない (#991 P2)。"""
-        manual = _recommendation("cat", needs=False, score=0.0)
-        with (
-            patch(
-                "lorairo.services.tag_management_service.recommend_manual_refinement",
-                return_value=manual,
-            ),
-            patch(
-                "lorairo.services.tag_management_service.search_tags",
-                return_value=_search_result_with_translations("cat", {"ja": ["猫"]}),
-            ) as mock_search,
-            patch(
-                "lorairo.services.tag_management_service.recommend_translation_quality",
-                return_value=_recommendation("cat", needs=False, score=0.0),
-            ),
-        ):
-            service.recommend_with_translation_quality("cat")  # format_name 既定 "unknown"
+            service.recommend_with_translation_quality("cat", format_name=format_name)
 
         request = mock_search.call_args.args[1]
         assert request.format_names is None
@@ -729,3 +715,100 @@ class TestTranslationQualityIntegration:
             result = service.recommend_with_translation_quality("tag")
 
         assert result is manual
+
+    def test_alias_tag_skips_translation_evaluation(self, service: TagManagementService) -> None:
+        """alias タグは manual が preferred へ誘導済みなので翻訳品質評価を skip する (#993)。
+
+        alias 行は preferred タグが訳を持っていても自分は訳を持たないことが多く、評価すると
+        無関係な missing_translation ⚠ が merge され、alias recommendation を ignore/fix した
+        後も残る。manual reasons に alias_tag があれば翻訳取得・評価をどちらも行わない。
+        """
+        manual = _recommendation("aoi_me", reason_codes=["alias_tag"], score=0.9)
+        with (
+            patch(
+                "lorairo.services.tag_management_service.recommend_manual_refinement",
+                return_value=manual,
+            ),
+            patch(
+                "lorairo.services.tag_management_service.search_tags",
+            ) as mock_search,
+            patch(
+                "lorairo.services.tag_management_service.recommend_translation_quality",
+            ) as mock_eval,
+        ):
+            result = service.recommend_with_translation_quality("aoi_me")
+
+        assert result is manual
+        mock_search.assert_not_called()
+        mock_eval.assert_not_called()
+
+    def test_non_preferred_tag_skips_translation_evaluation(self, service: TagManagementService) -> None:
+        """非 preferred タグも翻訳品質評価を skip する (#993)。"""
+        manual = _recommendation("cat", reason_codes=["non_preferred_tag"], score=0.9)
+        with (
+            patch(
+                "lorairo.services.tag_management_service.recommend_manual_refinement",
+                return_value=manual,
+            ),
+            patch(
+                "lorairo.services.tag_management_service.search_tags",
+            ) as mock_search,
+            patch(
+                "lorairo.services.tag_management_service.recommend_translation_quality",
+            ) as mock_eval,
+        ):
+            result = service.recommend_with_translation_quality("cat")
+
+        assert result is manual
+        mock_search.assert_not_called()
+        mock_eval.assert_not_called()
+
+    def test_alias_with_other_reasons_still_skips_translation(self, service: TagManagementService) -> None:
+        """alias_tag と他 reason が併存しても翻訳評価は skip する (alias 由来の偽陽性防止優先)。"""
+        manual = _recommendation("aoi_me", reason_codes=["alias_tag", "broad_single_word"], score=0.9)
+        with (
+            patch(
+                "lorairo.services.tag_management_service.recommend_manual_refinement",
+                return_value=manual,
+            ),
+            patch(
+                "lorairo.services.tag_management_service.search_tags",
+            ) as mock_search,
+            patch(
+                "lorairo.services.tag_management_service.recommend_translation_quality",
+            ) as mock_eval,
+        ):
+            result = service.recommend_with_translation_quality("aoi_me")
+
+        assert result is manual
+        mock_search.assert_not_called()
+        mock_eval.assert_not_called()
+
+    def test_missing_format_status_skips_translation_evaluation(
+        self, service: TagManagementService
+    ) -> None:
+        """指定 format に status が無いタグは翻訳評価を skip する (Codex PR #999)。
+
+        concrete format を渡す caller で、タグ行は存在するが当該 format に status が無いとき
+        manual は missing_format_status を報告する。翻訳取得は format 非依存 (search を絞らない)
+        ため、別 format 行を拾って無関係な missing_translation ⚠ を出しうる。manual signal で
+        gate して評価をスキップする。
+        """
+        manual = _recommendation("e621_only_tag", reason_codes=["missing_format_status"], score=0.5)
+        with (
+            patch(
+                "lorairo.services.tag_management_service.recommend_manual_refinement",
+                return_value=manual,
+            ),
+            patch(
+                "lorairo.services.tag_management_service.search_tags",
+            ) as mock_search,
+            patch(
+                "lorairo.services.tag_management_service.recommend_translation_quality",
+            ) as mock_eval,
+        ):
+            result = service.recommend_with_translation_quality("e621_only_tag", format_name="danbooru")
+
+        assert result is manual
+        mock_search.assert_not_called()
+        mock_eval.assert_not_called()
