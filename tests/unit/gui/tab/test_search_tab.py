@@ -114,6 +114,24 @@ def test_di_retains_injected_dependencies(
 
 
 @pytest.mark.gui
+def test_refinement_ignore_routes_to_injected_db_manager(
+    tab: SearchTabWidget, service_container: Mock, db_manager: Mock
+) -> None:
+    """ignore 保存先が注入 db_manager の session factory に追従する (#978)。
+
+    タブは container プロパティではなく ``create_refinement_service`` を
+    注入 db_manager の session factory で呼び、その戻り値を詳細ペインへ配線する。
+    """
+    service_container.create_refinement_service.assert_called_once_with(
+        db_manager.image_repo.session_factory
+    )
+    assert (
+        tab.selected_image_details_widget._refinement_service
+        is service_container.create_refinement_service.return_value
+    )
+
+
+@pytest.mark.gui
 def test_di_graceful_with_none_state_managers(qtbot, service_container: Mock, db_manager: Mock) -> None:
     """dataset / staging / worker が None でも例外なく構築でき、refresh() も安全。"""
     widget = SearchTabWidget(

@@ -42,6 +42,7 @@ from ..widgets.thumbnail_selector_widget import ThumbnailSelectorWidget
 
 if TYPE_CHECKING:
     from ...database.db_manager import ImageDatabaseManager
+    from ...services.refinement_service import RefinementService
     from ...services.service_container import ServiceContainer
 
 # QSettings 永続化キー (splitter ごとに独立。タブ抽出での取りこぼし防止のため明示)。
@@ -178,12 +179,12 @@ class ExportTabWidget(QWidget):
         merged_reader = self._resolve_merged_reader()
         if merged_reader is not None:
             self._selected_image_details_widget.set_merged_reader(merged_reader)
-        # refinement リコメンド (#931): 共有 RefinementService を注入。
+        # refinement リコメンド (#931): RefinementService を注入。ignore 保存先は注入された
+        # db_manager の session factory に追従させ、「表示 DB」と「ignore 保存 DB」の乖離を防ぐ
+        # (#978)。db_manager 未注入時のみ container のアクティブ DB へフォールバックする。
         # tagdb 初期化失敗でもタブを巻き込まず degrade する (refinement は付加機能のため非致命)。
         try:
-            self._selected_image_details_widget.set_refinement_service(
-                self._service_container.refinement_service
-            )
+            self._selected_image_details_widget.set_refinement_service(self._resolve_refinement_service())
         except Exception as e:
             # graceful degradation (#931): どの初期化エラーでもタブを生かす意図で広く捕捉。
             logger.warning(f"RefinementService 配線をスキップ (tagdb 不可?): {e}")
@@ -191,6 +192,21 @@ class ExportTabWidget(QWidget):
             self._selected_image_details_widget.connect_to_dataset_state_manager(dsm)
 
         self._connect_panel_signals()
+
+    def _resolve_refinement_service(self) -> RefinementService:
+        """注入された db_manager の DB に ignore を保存する RefinementService を解決する (#978)。
+
+        タブに注入された db_manager の session factory へ ignore 保存を追従させる。
+        db_manager 未注入時のみ container のアクティブ DB プロパティへフォールバックする。
+
+        Returns:
+            ignore 保存先が表示 DB と一致した RefinementService。
+        """
+        if self._db_manager is not None:
+            return self._service_container.create_refinement_service(
+                self._db_manager.image_repo.session_factory
+            )
+        return self._service_container.refinement_service
 
     def _connect_panel_signals(self) -> None:
         """StagingTagPanel / overlay bar / 選択 のシグナルを配線する (#949 follow-up)。

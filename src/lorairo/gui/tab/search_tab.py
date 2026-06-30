@@ -42,6 +42,7 @@ from PySide6.QtWidgets import QMessageBox, QSplitter, QWidget
 
 from ...database.db_manager import ImageDatabaseManager
 from ...services.model_selection_service import ModelSelectionService
+from ...services.refinement_service import RefinementService
 from ...services.service_container import ServiceContainer
 from ...utils.log import logger
 from ..designer.SearchTab_ui import Ui_SearchTab
@@ -154,13 +155,13 @@ class SearchTabWidget(QWidget, Ui_SearchTab):
             self._selected_image_details_widget.set_db_manager(self._db_manager)
         merged_reader = self._service_container.db_manager.annotation_repo.get_merged_reader()
         self._selected_image_details_widget.set_merged_reader(merged_reader)
-        # refinement リコメンド (#931): 共有 RefinementService を注入。
+        # refinement リコメンド (#931): RefinementService を注入。ignore 保存先は注入された
+        # db_manager の session factory に追従させ、「表示 DB」と「ignore 保存 DB」の乖離を防ぐ
+        # (#978)。db_manager 未注入時のみ container のアクティブ DB へフォールバックする。
         # tagdb 初期化失敗 (base DB 欠損/オフライン初回起動等) でもタブ全体を巻き込まず、
         # merged-reader と同様に degrade する (refinement は付加機能のため非致命)。
         try:
-            self._selected_image_details_widget.set_refinement_service(
-                self._service_container.refinement_service
-            )
+            self._selected_image_details_widget.set_refinement_service(self._resolve_refinement_service())
         except Exception as e:
             # tagdb 不可時の graceful degradation (#931): refinement は付加機能のため、
             # どの初期化エラーでもタブを生かす意図で広く捕捉する。
@@ -180,6 +181,21 @@ class SearchTabWidget(QWidget, Ui_SearchTab):
         self.splitterPreviewDetails.setStretchFactor(0, 1)
         self.splitterPreviewDetails.setStretchFactor(1, 1)
         logger.debug("検索タブ splitter 初期化完了")
+
+    def _resolve_refinement_service(self) -> RefinementService:
+        """注入された db_manager の DB に ignore を保存する RefinementService を解決する (#978)。
+
+        タブに注入された db_manager の session factory へ ignore 保存を追従させる。
+        db_manager 未注入時のみ container のアクティブ DB プロパティへフォールバックする。
+
+        Returns:
+            ignore 保存先が表示 DB と一致した RefinementService。
+        """
+        if self._db_manager is not None:
+            return self._service_container.create_refinement_service(
+                self._db_manager.image_repo.session_factory
+            )
+        return self._service_container.refinement_service
 
     def _setup_search_filter_integration(self) -> None:
         """filterSearchPanel に SearchFilterService / WorkerService / お気に入りフィルタを注入する。
