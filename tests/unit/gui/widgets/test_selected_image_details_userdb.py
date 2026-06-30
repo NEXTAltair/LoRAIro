@@ -34,13 +34,30 @@ class _FakeTagService:
         self.type_updates.append((tag_id, type_name))
 
 
+class _FakeRefinementService:
+    """clear_cache 呼び出しを記録する fake。"""
+
+    def __init__(self) -> None:
+        self.clear_cache_calls = 0
+
+    def clear_cache(self) -> None:
+        self.clear_cache_calls += 1
+
+
 def _make_widget(qtbot, monkeypatch, service: _FakeTagService) -> SelectedImageDetailsWidget:
     widget = SelectedImageDetailsWidget()
     qtbot.addWidget(widget)
     # DB 再取得・再評価は副作用が重いので無効化し、dispatch のみ検証する。
     monkeypatch.setattr(widget, "_reload_current_image", lambda: None)
-    monkeypatch.setattr(widget, "set_merged_reader", lambda reader: None)
     monkeypatch.setattr(widget, "_trigger_refinement_evaluation", lambda: None)
+    # set_merged_reader は翻訳追加で呼ばれてはいけない (言語リセット回避、#995 P2)。
+    # 呼ばれたら検知できるよう記録する。
+    widget._set_merged_reader_calls = 0  # type: ignore[attr-defined]
+
+    def _track_set_merged_reader(reader):  # type: ignore[no-untyped-def]
+        widget._set_merged_reader_calls += 1  # type: ignore[attr-defined]
+
+    monkeypatch.setattr(widget, "set_merged_reader", _track_set_merged_reader)
     widget.set_tag_management_service(service)
     return widget
 
@@ -56,6 +73,16 @@ def test_translation_add_dispatches_to_service(qtbot, monkeypatch) -> None:
     assert service.translations == [(42, "ja", "少女")]
 
 
+def test_translation_add_does_not_reset_language(qtbot, monkeypatch) -> None:
+    """翻訳追加は set_merged_reader を呼ばない (言語セレクタを english へ戻さない、#995 P2)。"""
+    service = _FakeTagService(resolve_to=42)
+    widget = _make_widget(qtbot, monkeypatch, service)
+
+    widget._on_translation_add("1girl", "ja", "少女")
+
+    assert widget._set_merged_reader_calls == 0  # type: ignore[attr-defined]
+
+
 def test_type_edit_dispatches_to_service(qtbot, monkeypatch) -> None:
     """tag_metadata_edit_requested → resolve_tag_id → update_single_tag_type。"""
     service = _FakeTagService(resolve_to=42)
@@ -65,6 +92,18 @@ def test_type_edit_dispatches_to_service(qtbot, monkeypatch) -> None:
 
     assert service.resolved == ["1girl"]
     assert service.type_updates == [(42, "copyright")]
+
+
+def test_type_edit_clears_refinement_cache_before_reeval(qtbot, monkeypatch) -> None:
+    """type 補正後は再評価前に refinement キャッシュを無効化する (#995 P2)。"""
+    service = _FakeTagService(resolve_to=42)
+    widget = _make_widget(qtbot, monkeypatch, service)
+    refinement = _FakeRefinementService()
+    widget._refinement_service = refinement  # type: ignore[assignment]
+
+    widget._on_tag_metadata_edit("1girl", "copyright")
+
+    assert refinement.clear_cache_calls == 1
 
 
 def test_userdb_write_independent_of_image_id(qtbot, monkeypatch) -> None:

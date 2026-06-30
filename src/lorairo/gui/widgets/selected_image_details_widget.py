@@ -528,8 +528,11 @@ class SelectedImageDetailsWidget(QWidget):
         """翻訳追加要求を user DB へ dispatch し再表示する (#989)。
 
         canonical を tag_id へ解決して user DB overlay へ翻訳を書き込む。保存先は image DB
-        系と独立 (canonical 主キー・画像 ID 非依存)。書き込み後は翻訳を再取得して再描画し、
-        新しい翻訳が display_text に反映されるようにする。
+        系と独立 (canonical 主キー・画像 ID 非依存)。書き込み後は ``_reload_current_image``
+        で現在画像を再描画する。再描画は merged_reader から翻訳を都度引き直すため新しい翻訳が
+        反映される。``set_merged_reader`` は呼ばない: 言語セレクタを再初期化して english に
+        戻してしまい、非英語表示中に追加した翻訳が canonical 表示へ巻き戻る (Codex #995 P2)。
+        現在の言語選択を保ったまま新翻訳を表示する。
         """
         service = self._tag_management_service
         if service is None:
@@ -539,8 +542,6 @@ class SelectedImageDetailsWidget(QWidget):
             logger.warning(f"翻訳追加をスキップ (tag_id 未解決): canonical='{canonical}'")
             return
         service.add_translation(tag_id, language, translation)
-        # merged_reader 経由で翻訳を再取得し、現在画像を再描画する。
-        self.set_merged_reader(self._merged_reader)
         self._reload_current_image()
 
     @Slot(str, str)
@@ -548,7 +549,9 @@ class SelectedImageDetailsWidget(QWidget):
         """タグ種別 (type) 補正要求を user DB へ dispatch し再評価する (#989)。
 
         canonical を tag_id へ解決して user DB overlay の type を補正する。補正後は
-        refinement を再評価し、TYPE_MISMATCH 警告が解消されるようにする。
+        refinement キャッシュを無効化してから再評価し、TYPE_MISMATCH 警告が解消される
+        ようにする。キャッシュを消さないと RefinementService が旧リコメンドを返し続け、
+        補正後も警告が残る (Codex #995 P2、tag_management_widget の type 更新フローと整合)。
         """
         service = self._tag_management_service
         if service is None:
@@ -558,6 +561,8 @@ class SelectedImageDetailsWidget(QWidget):
             logger.warning(f"type 補正をスキップ (tag_id 未解決): canonical='{canonical}'")
             return
         service.update_single_tag_type(tag_id, type_name)
+        if self._refinement_service is not None:
+            self._refinement_service.clear_cache()
         self._reload_current_image()
         self._trigger_refinement_evaluation()
 

@@ -215,8 +215,16 @@ class TagTypeEditDialog(QDialog):
     # 補正候補の type 名 (ADR 0083 §2 / Issue #989)。
     TYPE_CHOICES = ("general", "character", "copyright", "meta", "artist")
 
+    # 既知 type を渡せないとき先頭に置く非選択プレースホルダ。誤って general で確定して
+    # 既存 type を上書きする no-op 事故を防ぐ (Codex #995 P2)。
+    _PLACEHOLDER = "（タグ種別を選択）"
+
     def __init__(
-        self, canonical: str, type_mismatch_hint: str | None = None, parent: QWidget | None = None
+        self,
+        canonical: str,
+        type_mismatch_hint: str | None = None,
+        current_type: str | None = None,
+        parent: QWidget | None = None,
     ) -> None:
         super().__init__(parent)
         self.setWindowTitle("タグ情報を編集")
@@ -237,21 +245,41 @@ class TagTypeEditDialog(QDialog):
         form = QFormLayout()
         form.addRow("タグ (canonical):", QLabel(canonical, self))
         self._type_combo = QComboBox(self)
+        # 現在の type が分かるならそれを初期選択する (無変更確定は同じ type なので無害)。
+        # 不明ならプレースホルダを先頭に置き、ユーザーに明示選択を強制する。
+        self._has_placeholder = current_type not in self.TYPE_CHOICES
+        if self._has_placeholder:
+            self._type_combo.addItem(self._PLACEHOLDER)
         for type_name in self.TYPE_CHOICES:
             self._type_combo.addItem(type_name)
+        if not self._has_placeholder:
+            self._type_combo.setCurrentText(current_type)  # type: ignore[arg-type]
         form.addRow("タグ種別:", self._type_combo)
         layout.addLayout(form)
 
-        buttons = QDialogButtonBox(
+        self._buttons = QDialogButtonBox(
             QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel, self
         )
-        buttons.accepted.connect(self.accept)
-        buttons.rejected.connect(self.reject)
-        layout.addWidget(buttons)
+        self._buttons.accepted.connect(self.accept)
+        self._buttons.rejected.connect(self.reject)
+        layout.addWidget(self._buttons)
+
+        # プレースホルダ選択中は OK を無効化し、明示選択を要求する。
+        if self._has_placeholder:
+            self._type_combo.currentTextChanged.connect(self._update_ok_enabled)
+            self._update_ok_enabled(self._type_combo.currentText())
+
+    @Slot(str)
+    def _update_ok_enabled(self, text: str) -> None:
+        """プレースホルダ以外の type が選ばれているときのみ OK を有効化する。"""
+        ok_button = self._buttons.button(QDialogButtonBox.StandardButton.Ok)
+        if ok_button is not None:
+            ok_button.setEnabled(text in self.TYPE_CHOICES)
 
     def selected_type(self) -> str:
-        """選択された type 名を返す。"""
-        return self._type_combo.currentText()
+        """選択された type 名を返す。プレースホルダ選択時は空文字を返す。"""
+        text = self._type_combo.currentText()
+        return text if text in self.TYPE_CHOICES else ""
 
 
 class TagPanelWidget(QWidget):
@@ -804,10 +832,15 @@ class TagPanelWidget(QWidget):
         Args:
             canonical: 種別を補正する canonical タグ文字列。
         """
-        dialog = TagTypeEditDialog(canonical, self._type_mismatch_hint(canonical), self)
+        dialog = TagTypeEditDialog(canonical, self._type_mismatch_hint(canonical), parent=self)
         if dialog.exec() != QDialog.DialogCode.Accepted:
             return
-        self.tag_metadata_edit_requested.emit(canonical, dialog.selected_type())
+        type_name = dialog.selected_type()
+        if not type_name:
+            # プレースホルダのまま確定 (明示選択なし) → 既存 type を上書きしない (#995 P2)。
+            logger.debug(f"type 補正をスキップ (種別未選択): canonical='{canonical}'")
+            return
+        self.tag_metadata_edit_requested.emit(canonical, type_name)
 
     def _type_mismatch_hint(self, canonical: str) -> str | None:
         """canonical タグの TYPE_MISMATCH refinement reason メッセージを返す (#989)。

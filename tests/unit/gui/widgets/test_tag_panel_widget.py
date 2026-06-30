@@ -378,6 +378,18 @@ def test_type_edit_dialog_emits_signal(panel, sample_tags, qtbot, monkeypatch):
     assert blocker.args == ["1girl", "copyright"]
 
 
+def test_type_edit_placeholder_confirm_skips_emit(panel, sample_tags, monkeypatch):
+    """種別未選択 (プレースホルダのまま) で確定しても既存 type を上書きしない (#995 P2)。"""
+    panel.set_tags(sample_tags, image_id=10)
+
+    # field_setter なし = プレースホルダ選択のまま Accepted を返す。
+    _accept_dialog(monkeypatch, "TagTypeEditDialog", lambda dialog: None)
+    received: list = []
+    panel.tag_metadata_edit_requested.connect(lambda *a: received.append(a))
+    panel._open_type_edit_dialog("1girl")
+    assert received == []
+
+
 def test_translation_dialog_returns_inputs(qtbot):
     """TranslationAddDialog が言語・翻訳の入力値を返す。"""
     dialog = TranslationAddDialog("1girl", ["ja", "english"])
@@ -393,5 +405,22 @@ def test_type_dialog_choices_and_hint(qtbot):
     dialog = TagTypeEditDialog("1girl", type_mismatch_hint="type が一致しません")
     qtbot.addWidget(dialog)
     choices = [dialog._type_combo.itemText(i) for i in range(dialog._type_combo.count())]
+    # current_type 不明時はプレースホルダ先頭 + 全 TYPE_CHOICES
+    assert choices == [TagTypeEditDialog._PLACEHOLDER, *TagTypeEditDialog.TYPE_CHOICES]
+    # 既定はプレースホルダ選択 = 未選択 (空文字)、OK は無効
+    assert dialog.selected_type() == ""
+    ok_button = dialog._buttons.button(dialog._buttons.StandardButton.Ok)
+    assert not ok_button.isEnabled()
+    # 実 type を選ぶと selected_type が返り OK 有効化
+    dialog._type_combo.setCurrentText("copyright")
+    assert dialog.selected_type() == "copyright"
+    assert ok_button.isEnabled()
+
+
+def test_type_dialog_preselects_known_current_type(qtbot):
+    """current_type を渡すとプレースホルダなしで初期選択され OK 有効。"""
+    dialog = TagTypeEditDialog("1girl", current_type="character")
+    qtbot.addWidget(dialog)
+    choices = [dialog._type_combo.itemText(i) for i in range(dialog._type_combo.count())]
     assert choices == list(TagTypeEditDialog.TYPE_CHOICES)
-    assert dialog.selected_type() in TagTypeEditDialog.TYPE_CHOICES
+    assert dialog.selected_type() == "character"

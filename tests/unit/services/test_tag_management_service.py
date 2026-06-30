@@ -274,6 +274,18 @@ class TestTagManagementService:
         ):
             assert service.resolve_tag_id("1girl") is None
 
+    def test_resolve_tag_id_search_is_unscoped(self, service: TagManagementService) -> None:
+        """format を絞らず検索する (Lorairo/unknown 手動タグも解決、Codex #995 P2)。"""
+        result = TagSearchResult(
+            items=[TagRecordPublic(tag="my_oc", tag_id=1_000_000_001, source_tag="my_oc")]
+        )
+        with patch(
+            "lorairo.services.tag_management_service.search_tags", return_value=result
+        ) as mock_search:
+            assert service.resolve_tag_id("my_oc") == 1_000_000_001
+            request = mock_search.call_args[0][1]
+            assert request.format_names is None  # danbooru に絞らない
+
 
 @pytest.mark.unit
 class TestTranslationQualityIntegration:

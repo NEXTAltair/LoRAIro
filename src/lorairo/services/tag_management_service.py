@@ -394,8 +394,12 @@ class TagManagementService:
 
         TagPanelWidget の userdb 操作 Signal は canonical (str) のみを運ぶため、書き込み
         API (翻訳追加 / type 補正) が要求する tag_id を親 dispatch でここから解決する。
-        danbooru format に絞った完全一致検索を行い、`tag` または `source_tag` が casefold
-        一致した行の tag_id を返す (別タグの翻訳経由マッチを採用しない、#991 P2 と同方針)。
+        format は絞らず (全 format 横断) 完全一致検索を行い、`tag` または `source_tag` が
+        casefold 一致した行の tag_id を返す (別タグの翻訳経由マッチは採用しない、#991 P2 と
+        同方針)。danbooru に絞ると手動追加で `format_name="Lorairo"` / `type_name="unknown"`
+        として登録された user タグ (annotation_record._register_new_tag) が解決できず、
+        メタ編集を最も必要とするタグで翻訳追加・type 補正が無言スキップされるため絞らない
+        (Codex #995 P2)。
 
         Args:
             canonical: 解決する canonical タグ文字列。
@@ -409,7 +413,7 @@ class TagManagementService:
             resolve_preferred=False,
             include_aliases=True,
             include_deprecated=True,
-            format_names=["danbooru"],
+            format_names=None,
         )
         try:
             result = search_tags(self.reader, request)
