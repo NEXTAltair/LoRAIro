@@ -505,18 +505,18 @@ class TestAnnotationTagChipSelectionCopy:
         assert all(isinstance(chip, SelectableTagChip) for chip in widget._tag_chips)
         assert [chip.canonical for chip in widget._tag_chips] == ["1girl", "flower", "solo"]
 
-    def test_click_toggles_selection_and_style(self, widget, sample_tags):
-        """chip クリックで選択がトグルし、選択時は base_qss と異なる強調 QSS になる。"""
+    def test_ctrl_click_toggles_selection_and_style(self, widget, sample_tags):
+        """Ctrl+クリックで選択がトグルし、選択時は base_qss と異なる強調 QSS になる (ADR 0083)。"""
         widget.update_data(AnnotationData(tags=sample_tags))
         chip = widget._tag_chips[0]
         assert chip.selected is False
         base = chip.styleSheet()
 
-        chip.clicked.emit()
+        chip.ctrl_clicked.emit()
         assert chip.selected is True
         assert chip.styleSheet() != base
 
-        chip.clicked.emit()
+        chip.ctrl_clicked.emit()
         assert chip.selected is False
         assert chip.styleSheet() == chip.base_qss
 
@@ -529,8 +529,8 @@ class TestAnnotationTagChipSelectionCopy:
     def test_copy_with_selection_copies_only_selected(self, widget, sample_tags):
         """選択時は選択中タグのみをカンマ区切りでコピーすること。"""
         widget.update_data(AnnotationData(tags=sample_tags))
-        widget._tag_chips[0].clicked.emit()  # 1girl を選択
-        widget._tag_chips[2].clicked.emit()  # solo を選択
+        widget._tag_chips[0].ctrl_clicked.emit()  # 1girl を選択
+        widget._tag_chips[2].ctrl_clicked.emit()  # solo を選択
 
         assert widget.copy_selected_tags_to_clipboard() is True
         assert QApplication.clipboard().text() == "1girl, solo"
@@ -561,7 +561,7 @@ class TestAnnotationTagChipSelectionCopy:
     def test_selection_reset_on_re_render(self, widget, sample_tags):
         """再描画 (言語切替等) で選択状態がリセットされること。"""
         widget.update_data(AnnotationData(tags=sample_tags))
-        widget._tag_chips[0].clicked.emit()
+        widget._tag_chips[0].ctrl_clicked.emit()
         assert widget._tag_chips[0].selected is True
 
         widget.update_data(AnnotationData(tags=sample_tags))
@@ -712,21 +712,30 @@ class TestAnnotationDataDisplaySoftRejectEdit:
         assert blocker.args == ["new_tag"]
         assert widget._tag_add_input.text() == ""
 
-    def test_set_rejected_tags_renders_restore_chips(self, widget, qtbot):
-        from PySide6.QtWidgets import QPushButton
+    def test_set_rejected_tags_renders_inline_dashed_restore_chip(self, widget, qtbot):
+        """soft-rejected はインライン破線 chip で表示し、クリックで復活する (ADR 0083 §3)。"""
+        from lorairo.gui import theme
 
         widget.set_tag_edit_enabled(True)
+        widget.update_data(AnnotationData(tags=[{"tag": "1girl", "tag_id": 10}]))
         widget.set_rejected_tags(["bad_tag"])
-        chips = widget.findChildren(QPushButton, "rejectedTagChip")
-        assert len(chips) == 1
-        assert chips[0].text() == "bad_tag"
+        chip = next((c for c in widget._tag_chips if c.canonical == "bad_tag"), None)
+        assert chip is not None
+        assert chip.styleSheet() == theme.tag_chip_untranslated_qss()
         with qtbot.waitSignal(widget.tag_restore_requested, timeout=1000) as blocker:
-            chips[0].click()
+            chip.clicked.emit()
         assert blocker.args == ["bad_tag"]
 
-    def test_rejected_section_hidden_when_edit_off(self, widget):
+    def test_rejected_chip_click_noop_when_edit_off(self, widget):
+        """編集モード無効時は破線 chip クリックで復活を出さない。"""
+        widget.update_data(AnnotationData(tags=[{"tag": "1girl", "tag_id": 10}]))
         widget.set_rejected_tags(["bad_tag"])
-        assert not widget._rejected_container.isVisible()
+        chip = next((c for c in widget._tag_chips if c.canonical == "bad_tag"), None)
+        assert chip is not None
+        received: list[str] = []
+        widget.tag_restore_requested.connect(received.append)
+        chip.clicked.emit()
+        assert received == []
 
 
 class TestMainLayoutTrailingStretch:
