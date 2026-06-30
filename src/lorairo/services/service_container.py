@@ -9,6 +9,10 @@ import os
 from typing import TYPE_CHECKING, Any, Optional
 
 if TYPE_CHECKING:
+    from collections.abc import Callable
+
+    from sqlalchemy.orm import Session
+
     from lorairo.annotation.annotator_adapter import AnnotatorLibraryAdapter
     from lorairo.services.annotation_save_service import AnnotationSaveService
     from lorairo.services.provider_batch_workflow_service import ProviderBatchWorkflowService
@@ -234,38 +238,56 @@ class ServiceContainer:
             logger.info("TagManagementService初期化完了")
         return self._tag_management_service
 
+    def create_refinement_service(self, session_factory: "Callable[[], Session]") -> "RefinementService":
+        """指定の session factory に ignore を保存する RefinementService を生成する - #978
+
+        ignore 保存先を呼び出し側 (タブ/詳細ペインに注入された db_manager) の session factory
+        へ追従させるためのファクトリ。`refinement_service` プロパティはアクティブ project DB
+        (`self.image_repository.session_factory`) でこれを呼ぶ。タブが container と異なる
+        db_manager を注入された場合は、その db_manager の session factory を渡すことで
+        「表示 DB」と「ignore 保存 DB」の乖離を防ぐ (#978)。
+
+        評価関数 (recommend_fn) は本コンテナの TagManagementService を共有する。
+        ignore のみ session factory ごとに分離される。
+
+        Args:
+            session_factory: ignore を永続化する SQLAlchemy セッションファクトリ。
+
+        Returns:
+            recommend 評価関数を共有し、ignore を指定 DB に保存する RefinementService。
+        """
+        from genai_tag_db_tools.models import RefinementRecommendation
+
+        from ..database.repository.refinement_ignore import RefinementIgnoreRepository
+        from .refinement_service import RefinementService
+
+        # tag_management_service (tagdb) の構築は重く、widget init 時点では tagdb 未設定の
+        # ことがある (Base DB paths not configured)。recommend_fn を遅延 lambda にし、
+        # 初回の実評価 (画像選択時・tagdb 準備済み) まで TagManagementService 構築を遅らせる。
+        def _recommend(
+            tag: str, *, repo: object | None = None, format_name: str = "unknown"
+        ) -> RefinementRecommendation:
+            return self.tag_management_service.recommend_manual_refinement(
+                tag, repo=repo, format_name=format_name
+            )
+
+        return RefinementService(
+            recommend_fn=_recommend,
+            ignore_repo=RefinementIgnoreRepository(session_factory=session_factory),
+        )
+
     @property
     def refinement_service(self) -> "RefinementService":
         """RefinementService取得（遅延初期化） - #931
 
         tagdb 窓口は TagManagementService に一本化し、その recommend_manual_refinement を
         評価関数として注入する。ignore は RefinementIgnoreRepository に永続化する。
+
+        ignore は project ごとの image DB に保存する。default ではなくアクティブ
+        プロジェクトの session factory を使う (set_active_project で作り直される) (#931 Codex P2)。
         """
         if self._refinement_service is None:
-            from genai_tag_db_tools.models import RefinementRecommendation
-
-            from ..database.repository.refinement_ignore import RefinementIgnoreRepository
-            from .refinement_service import RefinementService
-
-            # tag_management_service (tagdb) の構築は重く、widget init 時点では tagdb 未設定の
-            # ことがある (Base DB paths not configured)。recommend_fn を遅延 lambda にし、
-            # 初回の実評価 (画像選択時・tagdb 準備済み) まで TagManagementService 構築を遅らせる。
-            def _recommend(
-                tag: str, *, repo: object | None = None, format_name: str = "unknown"
-            ) -> RefinementRecommendation:
-                return self.tag_management_service.recommend_manual_refinement(
-                    tag, repo=repo, format_name=format_name
-                )
-
-            # ignore は project ごとの image DB に保存する。default ではなくアクティブ
-            # プロジェクトの session factory を使う (set_active_project で作り直される)
-            # (#931 Codex P2)。
-            self._refinement_service = RefinementService(
-                recommend_fn=_recommend,
-                ignore_repo=RefinementIgnoreRepository(
-                    session_factory=self.image_repository.session_factory
-                ),
-            )
+            self._refinement_service = self.create_refinement_service(self.image_repository.session_factory)
             logger.info("RefinementService初期化完了")
         return self._refinement_service
 

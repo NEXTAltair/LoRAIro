@@ -53,6 +53,43 @@ def export_tab_with_staging(
 
 
 @pytest.mark.gui
+def test_export_tab_refinement_ignore_routes_to_injected_db_manager(
+    qtbot, service_container: Mock, staging_manager: StagingStateManager
+) -> None:
+    """db_manager 注入時、ignore 保存先がその session factory に追従する (#978)。"""
+    db_manager = Mock()
+    widget = ExportTabWidget(
+        service_container=service_container,
+        db_manager=db_manager,
+        staging_state_manager=staging_manager,
+    )
+    qtbot.addWidget(widget)
+
+    service_container.create_refinement_service.assert_called_once_with(
+        db_manager.image_repo.session_factory
+    )
+    assert (
+        widget._selected_image_details_widget._refinement_service
+        is service_container.create_refinement_service.return_value
+    )
+
+
+@pytest.mark.gui
+def test_export_tab_refinement_falls_back_to_active_db_without_db_manager(
+    qtbot, service_container: Mock, staging_manager: StagingStateManager
+) -> None:
+    """db_manager 未注入時は container のアクティブ DB プロパティへフォールバックする (#978)。"""
+    widget = ExportTabWidget(
+        service_container=service_container,
+        staging_state_manager=staging_manager,
+    )
+    qtbot.addWidget(widget)
+
+    service_container.create_refinement_service.assert_not_called()
+    assert widget._selected_image_details_widget._refinement_service is service_container.refinement_service
+
+
+@pytest.mark.gui
 def test_export_tab_builds_three_pane_layout(
     qtbot, service_container: Mock, staging_manager: StagingStateManager
 ) -> None:
