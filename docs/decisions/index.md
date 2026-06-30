@@ -82,3 +82,4 @@
 * [エクスポート前タグ編集の2層オーバーレイ契約 — DB編集層と出力オーバーレイ層の分離](0080-export-tag-overlay-two-layer.md)
 * [Export Changed-Since Filter Reintroduction](0081-export-changed-since-filter.md)
 * [通常ドキュメントにも OKF frontmatter を付け SSoT 化する](0082-okf-frontmatter-for-documentation.md)
+* [タグ欄の TagPanelWidget 切り出しと soft-reject 一本のタグ操作モデル](0083-tag-panel-widget-extraction.md)
