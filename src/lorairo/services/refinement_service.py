@@ -17,8 +17,10 @@ from genai_tag_db_tools.models import RefinementRecommendation
 
 from ..utils.log import logger
 
-# recommend_manual_refinement 互換のシグネチャ。
-# 本番では TagManagementService.recommend_manual_refinement を注入する。
+# tag1個を評価する callable のシグネチャ `(tag, *, repo, format_name)`。
+# 本番では TagManagementService.recommend_with_translation_quality を注入する
+# (manual refinement + 翻訳品質を統合した RefinementRecommendation を返す、#976)。
+# ignore / フィルタは reason_code 単位で汎用的に効くため、reason の出自 (手動/翻訳) は問わない。
 RecommendFn = Callable[..., RefinementRecommendation]
 
 
@@ -40,7 +42,8 @@ class RefinementService:
 
         Args:
             recommend_fn: タグ1個を評価する callable。
-                `recommend_manual_refinement(tag, *, repo=None, format_name="unknown")` 互換。
+                `(tag, *, repo=None, format_name="unknown") -> RefinementRecommendation` 互換。
+                本番注入は manual refinement + 翻訳品質を統合した結果を返す (#976)。
             ignore_repo: ignore 設定の永続化ストア。
         """
         self._recommend_fn = recommend_fn
