@@ -384,14 +384,17 @@ class AnnotationRepository(BaseRepository):
                         "Saving with tag_id=None.",
                     )
 
-                # dedup は canonical 解決後の値で判定する (既存タグは小文字化済み)
-                dedup_key = resolved_tag.strip().lower()
+                # dedup は canonical 解決後の値で判定する。既存行は書式が揃っていない
+                # ことがある (旧行が `blue sky`、解決後が `blue_sky` 等) ため、両辺を
+                # TagCleaner.clean_format で正規化してから比較する (Codex P2 / PR #994)。
+                dedup_key = self._dedup_key(resolved_tag)
                 existing_tags_by_image = self._build_existing_tags_map(session, image_ids)
 
                 for image_id in image_ids:
                     existing_tags = existing_tags_by_image.get(image_id, set())
+                    existing_dedup_keys = {self._dedup_key(t) for t in existing_tags}
 
-                    if dedup_key in existing_tags:
+                    if dedup_key in existing_dedup_keys:
                         logger.debug(
                             f"Tag '{resolved_tag}' already exists for image_id {image_id}, skipping",
                         )
@@ -753,6 +756,22 @@ class AnnotationRepository(BaseRepository):
             )
             return None  # 検索失敗時は縮退動作（tag_id=None で保存）  # その他のエラーも縮退動作
 
+    @staticmethod
+    def _dedup_key(tag: str) -> str:
+        """タグ重複判定用の正規化キーを返す。
+
+        書式の揺れ (underscore/space 等) を吸収するため TagCleaner.clean_format で
+        正規化し、小文字化する。保存値そのものではなく比較専用のキー (Codex P2 / #994)。
+
+        Args:
+            tag: 正規化前のタグ文字列。
+
+        Returns:
+            clean_format + lower 済みの比較キー。
+        """
+        cleaned: str = TagCleaner.clean_format(tag)
+        return cleaned.strip().lower()
+
     def _resolve_canonical_and_tag_id(self, session: Session, tag_string: str) -> tuple[str, int | None]:
         """手動タグ追加用に外部 tag_db で canonical 解決し、(canonical 文字列, tag_id) を返す。
 
@@ -790,9 +809,13 @@ class AnnotationRepository(BaseRepository):
             return (tag_string, None)
 
         try:
+            # alias→preferred は単一 format スコープ時のみ解決されるため danbooru に絞る
+            # (Codex P2 / PR #994)。format_names 未指定だと alias 行がそのまま返り、
+            # canonical へ解決されず dedup も外れる。ADR 0068 の保存境界 = danbooru。
             request = TagSearchRequest(
                 query=normalized_tag,
                 partial=False,
+                format_names=[_DANBOORU_FORMAT],
                 resolve_preferred=True,
                 include_aliases=True,
                 include_deprecated=False,

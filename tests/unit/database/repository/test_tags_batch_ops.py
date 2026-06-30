@@ -178,6 +178,23 @@ class TestResolveCanonicalAndTagId:
         assert request.resolve_preferred is True
         assert request.partial is False
 
+    def test_search_scoped_to_danbooru_format(self, repo):
+        """検索は danbooru format にスコープする (Codex P2 / PR #994)。
+
+        genai-tag-db-tools は単一 format スコープ時のみ alias→preferred を辿るため、
+        ``format_names`` 未指定では alias が canonical へ解決されない。
+        """
+        repo._get_merged_reader = MagicMock(return_value=MagicMock())
+        item = SimpleNamespace(tag="long_hair", tag_id=7, source_tag="longhair")
+        with patch(
+            "lorairo.database.repository.annotation_record.search_tags",
+            return_value=_search_result([item]),
+        ) as mock_search:
+            repo._resolve_canonical_and_tag_id(MagicMock(), "longhair")
+
+        request = mock_search.call_args.args[1]
+        assert request.format_names == ["danbooru"]
+
     def test_alias_resolves_to_preferred(self, repo):
         """alias 入力 → preferred canonical へ解決される (resolve_preferred=True)。"""
         repo._get_merged_reader = MagicMock(return_value=MagicMock())
@@ -285,6 +302,23 @@ class TestAddTagToImagesBatchCanonical:
         assert repo._resolve_canonical_and_tag_id.call_count == 1
         for call in mock_session.add.call_args_list:
             assert call.args[0].tag == "blue_sky"
+
+    def test_dedup_normalizes_formatting_difference(self, repo, mock_session):
+        """既存行が書式違い (space/underscore) でも canonical dedup で重複を検出する。
+
+        Codex P2 (PR #994): `_build_existing_tags_map` は DB の生値 (小文字) を返すため、
+        旧行が `blue sky` で解決後が `blue_sky` のように書式だけ異なると重複を見逃して
+        二重登録していた。両辺を TagCleaner.clean_format で正規化して比較する。
+        """
+        repo._resolve_canonical_and_tag_id = MagicMock(return_value=("blue_sky", 42))
+        repo._build_existing_tags_map = MagicMock(return_value={1: {"blue sky"}})
+        mock_session.add = MagicMock()
+
+        ok, count = repo.add_tag_to_images_batch([1], "青空", model_id=None)
+
+        assert ok is True
+        assert count == 0
+        mock_session.add.assert_not_called()
 
 
 @pytest.mark.unit
