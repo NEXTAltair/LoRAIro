@@ -60,6 +60,12 @@ ERR_BORDER = "#e8c2ba"
 INFO = "#3d6f9e"  # 実行中・進捗
 INFO_SOFT = "#e1ebf4"
 INFO_BORDER = "#bcd2e5"
+# --- tagdb userdb (タグ情報そのものの編集レイヤー、ADR 0083 §2 / #989) ---
+# image DB 系 (この画像、青 INFO) と保存先を視覚的に分けるためのティール (--udb)。
+# 翻訳追加 / タグ種別補正など canonical 主キーで全画像に反映される操作に使う。
+UDB = "#2f8079"  # タグ情報の編集 (tagdb userdb)
+UDB_SOFT = "#dcebe8"
+UDB_BORDER = "#b6d8d2"
 
 # --- terminal pane (mock .term の構文色) ---
 TERMINAL_FG = "#d8d4c8"

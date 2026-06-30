@@ -8,10 +8,16 @@ refinement ignore の Signal 配線を検証する。
 from __future__ import annotations
 
 import pytest
-from PySide6.QtWidgets import QApplication, QToolButton
+from PySide6.QtWidgets import QApplication, QDialog, QToolButton
 
 from lorairo.gui import theme
-from lorairo.gui.widgets.tag_panel_widget import SelectableTagChip, TagPanelWidget
+from lorairo.gui.widgets import tag_panel_widget as tpw
+from lorairo.gui.widgets.tag_panel_widget import (
+    SelectableTagChip,
+    TagPanelWidget,
+    TagTypeEditDialog,
+    TranslationAddDialog,
+)
 
 pytestmark = pytest.mark.gui
 
@@ -282,3 +288,110 @@ def test_session_state_resets_on_image_change(panel, sample_tags):
     panel.set_tags(sample_tags, image_id=20)
     assert panel._hidden == set()
     assert "1girl" in [chip.canonical for chip in panel._tag_chips]
+
+
+# ⑩ tagdb userdb 系: 翻訳追加 / type 補正 Signal (#989) -----------------------
+
+
+def _accept_dialog(monkeypatch, dialog_attr, field_setter):
+    """指定ダイアログクラスの exec を Accepted に固定し、入力欄を埋める。
+
+    ダイアログは _open_*_dialog 内部で生成されるため、__init__ 直後に field_setter で
+    値を流し込み、exec() は実表示せず Accepted を返すよう差し替える。
+    """
+    original = getattr(tpw, dialog_attr)
+
+    class _AutoAcceptDialog(original):
+        def __init__(self, *args, **kwargs):
+            super().__init__(*args, **kwargs)
+            field_setter(self)
+
+        def exec(self):
+            return int(QDialog.DialogCode.Accepted)
+
+    monkeypatch.setattr(tpw, dialog_attr, _AutoAcceptDialog)
+
+
+def test_chip_right_click_signals_exist(panel):
+    """tagdb userdb 系の panel Signal が定義されていること (ADR 0083 §2)。"""
+    assert hasattr(panel, "translation_add_requested")
+    assert hasattr(panel, "tag_metadata_edit_requested")
+
+
+def test_untranslated_chip_flag_set(panel, sample_tags):
+    """非英語表示で翻訳欠落の chip は untranslated=True になる (#989)。"""
+    panel.set_tags(sample_tags, translations={}, available_languages=["ja"], image_id=10)
+    panel.initialize_language_selector(["ja"])
+    panel._lang_combo.setCurrentText("ja")
+    assert any(chip.untranslated for chip in panel._tag_chips)
+
+
+def test_translation_add_dialog_emits_signal(panel, sample_tags, qtbot, monkeypatch):
+    """翻訳追加ダイアログ確定で translation_add_requested(canonical, lang, tr) を出す。"""
+    panel.set_tags(sample_tags, image_id=10)
+
+    def fill(dialog):
+        dialog._language_combo.setCurrentText("ja")
+        dialog._translation_input.setText("少女")
+
+    _accept_dialog(monkeypatch, "TranslationAddDialog", fill)
+    with qtbot.waitSignal(panel.translation_add_requested, timeout=1000) as blocker:
+        panel._open_translation_dialog("1girl")
+    assert blocker.args == ["1girl", "ja", "少女"]
+
+
+def test_translation_add_dialog_cancel_emits_nothing(panel, sample_tags, monkeypatch):
+    """ダイアログをキャンセルすると Signal を出さない。"""
+    panel.set_tags(sample_tags, image_id=10)
+    monkeypatch.setattr(tpw.TranslationAddDialog, "exec", lambda self: int(QDialog.DialogCode.Rejected))
+    received: list = []
+    panel.translation_add_requested.connect(lambda *a: received.append(a))
+    panel._open_translation_dialog("1girl")
+    assert received == []
+
+
+def test_translation_add_empty_input_skipped(panel, sample_tags, monkeypatch):
+    """空入力 (翻訳テキストなし) では Signal を出さない。"""
+    panel.set_tags(sample_tags, image_id=10)
+
+    def fill(dialog):
+        dialog._language_combo.setCurrentText("ja")
+        dialog._translation_input.setText("")
+
+    _accept_dialog(monkeypatch, "TranslationAddDialog", fill)
+    received: list = []
+    panel.translation_add_requested.connect(lambda *a: received.append(a))
+    panel._open_translation_dialog("1girl")
+    assert received == []
+
+
+def test_type_edit_dialog_emits_signal(panel, sample_tags, qtbot, monkeypatch):
+    """type 補正ダイアログ確定で tag_metadata_edit_requested(canonical, type) を出す。"""
+    panel.set_tags(sample_tags, image_id=10)
+
+    def fill(dialog):
+        dialog._type_combo.setCurrentText("copyright")
+
+    _accept_dialog(monkeypatch, "TagTypeEditDialog", fill)
+    with qtbot.waitSignal(panel.tag_metadata_edit_requested, timeout=1000) as blocker:
+        panel._open_type_edit_dialog("1girl")
+    assert blocker.args == ["1girl", "copyright"]
+
+
+def test_translation_dialog_returns_inputs(qtbot):
+    """TranslationAddDialog が言語・翻訳の入力値を返す。"""
+    dialog = TranslationAddDialog("1girl", ["ja", "english"])
+    qtbot.addWidget(dialog)
+    dialog._language_combo.setCurrentText("ja")
+    dialog._translation_input.setText("少女")
+    assert dialog.language() == "ja"
+    assert dialog.translation() == "少女"
+
+
+def test_type_dialog_choices_and_hint(qtbot):
+    """TagTypeEditDialog が type 候補を持ち TYPE_MISMATCH ヒントを表示する。"""
+    dialog = TagTypeEditDialog("1girl", type_mismatch_hint="type が一致しません")
+    qtbot.addWidget(dialog)
+    choices = [dialog._type_combo.itemText(i) for i in range(dialog._type_combo.count())]
+    assert choices == list(TagTypeEditDialog.TYPE_CHOICES)
+    assert dialog.selected_type() in TagTypeEditDialog.TYPE_CHOICES

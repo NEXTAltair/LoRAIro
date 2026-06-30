@@ -22,6 +22,9 @@ from PySide6.QtWidgets import (
     QAbstractScrollArea,
     QApplication,
     QComboBox,
+    QDialog,
+    QDialogButtonBox,
+    QFormLayout,
     QHBoxLayout,
     QLabel,
     QLineEdit,
@@ -58,12 +61,17 @@ class SelectableTagChip(QLabel):
     ctrl_clicked = Signal()  # Ctrl+クリック: コピー選択 (#814)
     # refinement リコメンドの「この理由を無視」要求 (#931): (canonical, reason_code)
     refinement_ignore_requested = Signal(str, str)
+    # タグ情報メニュー要求 (#989、tagdb userdb 系)。親がダイアログを開く。
+    translation_add_menu_requested = Signal(str)  # canonical — 翻訳を追加
+    type_edit_menu_requested = Signal(str)  # canonical — タグ情報 (種別) を編集
 
     def __init__(self, display_text: str, canonical: str, parent: QWidget | None = None) -> None:
         super().__init__(display_text, parent)
         self.canonical = canonical
         self.base_qss = ""
         self.selected = False
+        # 翻訳欠落 chip か (#989)。未登録なら右クリックメニューで「翻訳を追加」を強調する。
+        self.untranslated = False
         # refinement 表示状態 (#931)。set_refinement で更新する。
         self._base_text = display_text
         self._base_tooltip: str | None = None
@@ -107,13 +115,27 @@ class SelectableTagChip(QLabel):
             self.setToolTip(self._base_tooltip)
 
     def contextMenuEvent(self, event: QContextMenuEvent) -> None:
-        """refinement がある chip は reason 単位の「無視」メニューを出す (#931)。
+        """chip の右クリックで「タグ情報」メニューを出す (ADR 0083 §3 / #989)。
 
-        リコメンドが無い chip は event を無視してコンテナ側のコピーメニューへ委ねる。
+        tagdb userdb 系 (canonical 主キー・全画像反映) の「翻訳を追加」「タグ情報を編集」を
+        常に提示し、refinement リコメンドがあれば reason 単位の「この理由を無視」(#931) を
+        続けて並べる。未翻訳 chip では「翻訳を追加」を強調表示する (#989)。
         """
+        menu = QMenu(self)
+
+        translation_label = "翻訳を追加 (未登録)…" if self.untranslated else "翻訳を追加…"
+        translation_action = menu.addAction(translation_label)
+        translation_action.triggered.connect(
+            lambda _checked=False: self.translation_add_menu_requested.emit(self.canonical)
+        )
+        type_action = menu.addAction("タグ情報を編集…")
+        type_action.triggered.connect(
+            lambda _checked=False: self.type_edit_menu_requested.emit(self.canonical)
+        )
+
         rec = self.refinement
         if rec is not None and rec.needs_refinement and rec.reasons:
-            menu = QMenu(self)
+            menu.addSeparator()
             for reason in rec.reasons:
                 action = menu.addAction(f"この理由を無視: {reason.code}")
                 action.triggered.connect(
@@ -121,10 +143,115 @@ class SelectableTagChip(QLabel):
                         self.canonical, code
                     )
                 )
-            menu.exec(event.globalPos())
-            event.accept()
-        else:
-            event.ignore()
+        menu.exec(event.globalPos())
+        event.accept()
+
+
+# tagdb userdb 系ダイアログのティール「タグ情報」見出し QSS (ADR 0083 §2 / #989)。
+# image DB 系 (青) と保存先を視覚的に分けるため UDB トークンで縁取る。
+_UDB_HEADER_QSS = (
+    f"QLabel#udbHeader {{ background-color: {theme.UDB_SOFT}; color: {theme.UDB};"
+    f" border: 1px solid {theme.UDB_BORDER}; border-radius: {theme.RADIUS_CHIP}px;"
+    f" padding: 4px 8px; font-weight: 600; }}"
+)
+
+
+class TranslationAddDialog(QDialog):
+    """canonical タグへ言語別翻訳を追加する入力ダイアログ (ADR 0083 §2 / #989)。
+
+    DB は知らない。OK 確定で (language, translation) を返すだけで、保存は親が dispatch する。
+    保存先が「タグ情報 (全画像に反映)」であることをティール見出しで明示する。
+    """
+
+    def __init__(self, canonical: str, languages: list[str], parent: QWidget | None = None) -> None:
+        super().__init__(parent)
+        self.setWindowTitle("翻訳を追加")
+        self._canonical = canonical
+
+        layout = QVBoxLayout(self)
+        header = QLabel("タグ情報を編集 · 全画像に反映されます", self)
+        header.setObjectName("udbHeader")
+        header.setStyleSheet(_UDB_HEADER_QSS)
+        layout.addWidget(header)
+
+        form = QFormLayout()
+        form.addRow("タグ (canonical):", QLabel(canonical, self))
+        self._language_combo = QComboBox(self)
+        # 既知言語があれば候補に、無ければ ja を既定にする。編集可で任意の言語コードも入力可。
+        for lang in languages:
+            self._language_combo.addItem(lang)
+        if self._language_combo.count() == 0:
+            self._language_combo.addItem("ja")
+        self._language_combo.setEditable(True)
+        form.addRow("言語:", self._language_combo)
+        self._translation_input = QLineEdit(self)
+        self._translation_input.setPlaceholderText("翻訳テキスト")
+        form.addRow("翻訳:", self._translation_input)
+        layout.addLayout(form)
+
+        buttons = QDialogButtonBox(
+            QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel, self
+        )
+        buttons.accepted.connect(self.accept)
+        buttons.rejected.connect(self.reject)
+        layout.addWidget(buttons)
+
+    def language(self) -> str:
+        """入力された言語コードを返す。"""
+        return self._language_combo.currentText().strip()
+
+    def translation(self) -> str:
+        """入力された翻訳テキストを返す。"""
+        return self._translation_input.text().strip()
+
+
+class TagTypeEditDialog(QDialog):
+    """canonical タグの種別 (type) を補正するダイアログ (ADR 0083 §2 / #989)。
+
+    DB は知らない。OK 確定で選択 type 名を返すだけで、保存は親が dispatch する。
+    refinement の TYPE_MISMATCH 警告があればヒントを表示する。
+    """
+
+    # 補正候補の type 名 (ADR 0083 §2 / Issue #989)。
+    TYPE_CHOICES = ("general", "character", "copyright", "meta", "artist")
+
+    def __init__(
+        self, canonical: str, type_mismatch_hint: str | None = None, parent: QWidget | None = None
+    ) -> None:
+        super().__init__(parent)
+        self.setWindowTitle("タグ情報を編集")
+        self._canonical = canonical
+
+        layout = QVBoxLayout(self)
+        header = QLabel("タグ情報を編集 · 全画像に反映されます", self)
+        header.setObjectName("udbHeader")
+        header.setStyleSheet(_UDB_HEADER_QSS)
+        layout.addWidget(header)
+
+        if type_mismatch_hint:
+            hint = QLabel(f"⚠ {type_mismatch_hint}", self)
+            hint.setWordWrap(True)
+            hint.setStyleSheet(f"color: {theme.WARN};")
+            layout.addWidget(hint)
+
+        form = QFormLayout()
+        form.addRow("タグ (canonical):", QLabel(canonical, self))
+        self._type_combo = QComboBox(self)
+        for type_name in self.TYPE_CHOICES:
+            self._type_combo.addItem(type_name)
+        form.addRow("タグ種別:", self._type_combo)
+        layout.addLayout(form)
+
+        buttons = QDialogButtonBox(
+            QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel, self
+        )
+        buttons.accepted.connect(self.accept)
+        buttons.rejected.connect(self.reject)
+        layout.addWidget(buttons)
+
+    def selected_type(self) -> str:
+        """選択された type 名を返す。"""
+        return self._type_combo.currentText()
 
 
 class TagPanelWidget(QWidget):
@@ -139,7 +266,7 @@ class TagPanelWidget(QWidget):
     - 単クリック = 無効化⇄復活トグル (破線 chip でインライン表示継続)
     - ✕ ボタン = この画像から外す (パネルから当該セッションのみ非表示)
     - Ctrl+クリック = コピー選択 (#814)
-    - ⋯ / 右クリック = タグ情報メニュー (本 Phase は refinement ignore のみ)
+    - 右クリック = タグ情報メニュー (翻訳追加 / タグ情報を編集 #989、refinement ignore #931)
 
     無効化 (破線表示) と ✕ (非表示) の区別は本ウィジェットの表示状態で保持し、
     永続化しない (reject 自体は親が ``rejected_at`` で永続化)。
@@ -151,6 +278,8 @@ class TagPanelWidget(QWidget):
     tag_add_requested = Signal(str)  # 生入力 (親が canonical 解決)
     # tagdb userdb 系 (canonical が主キー / 画像 ID 不要)
     refinement_ignored = Signal(str, str)  # canonical, reason_code (#931)
+    translation_add_requested = Signal(str, str, str)  # canonical, language, translation (#989)
+    tag_metadata_edit_requested = Signal(str, str)  # canonical, type (#989)
 
     # タグチップ箱の高さ上限 (#835)。これを超えるタグは箱内スクロールにし、
     # パネル全体の高さがタグ数で膨張しないようにする。
@@ -536,8 +665,9 @@ class TagPanelWidget(QWidget):
         """1 タグ分の chip (編集モードでは ✕ 付き) を生成して配置する。"""
         chip = SelectableTagChip(display, original)
         if is_translated and not has_translation:
+            chip.untranslated = True
             chip.base_qss = theme.tag_chip_untranslated_qss()
-            chip.setToolTip(f"{original} — 翻訳なし")
+            chip.setToolTip(f"{original} — 翻訳なし · 右クリックで翻訳を追加")
         else:
             chip.base_qss = theme.chip_qss("accent")
             if is_translated and display != original:
@@ -548,6 +678,9 @@ class TagPanelWidget(QWidget):
         chip.ctrl_clicked.connect(lambda c=chip: self._on_chip_ctrl_clicked(c))
         # refinement「この理由を無視」を上位へ中継 (#931)
         chip.refinement_ignore_requested.connect(self.refinement_ignored)
+        # タグ情報メニュー (#989): chip 右クリック → 親がダイアログを開く。
+        chip.translation_add_menu_requested.connect(self._open_translation_dialog)
+        chip.type_edit_menu_requested.connect(self._open_type_edit_dialog)
         self._tag_chips.append(chip)
         self._tags_chip_layout.addWidget(self._wrap_editable_chip(chip, original))
 
@@ -640,6 +773,61 @@ class TagPanelWidget(QWidget):
             return
         self._tag_add_input.clear()
         self.tag_add_requested.emit(text)
+
+    # ─── タグ情報メニュー (#989、tagdb userdb 系) ───────────────────────
+
+    @Slot(str)
+    def _open_translation_dialog(self, canonical: str) -> None:
+        """翻訳追加ダイアログを開き、確定で translation_add_requested を出す (#989)。
+
+        DB は知らない。ダイアログ確定で (canonical, language, translation) を親へ出すだけ。
+
+        Args:
+            canonical: 翻訳を付与する canonical タグ文字列。
+        """
+        dialog = TranslationAddDialog(canonical, list(self._available_languages), self)
+        if dialog.exec() != QDialog.DialogCode.Accepted:
+            return
+        language = dialog.language()
+        translation = dialog.translation()
+        if not language or not translation:
+            logger.debug(f"翻訳追加をスキップ (空入力): canonical='{canonical}'")
+            return
+        self.translation_add_requested.emit(canonical, language, translation)
+
+    @Slot(str)
+    def _open_type_edit_dialog(self, canonical: str) -> None:
+        """タグ種別補正ダイアログを開き、確定で tag_metadata_edit_requested を出す (#989)。
+
+        当該タグに refinement の TYPE_MISMATCH 警告があればヒントとして渡す。
+
+        Args:
+            canonical: 種別を補正する canonical タグ文字列。
+        """
+        dialog = TagTypeEditDialog(canonical, self._type_mismatch_hint(canonical), self)
+        if dialog.exec() != QDialog.DialogCode.Accepted:
+            return
+        self.tag_metadata_edit_requested.emit(canonical, dialog.selected_type())
+
+    def _type_mismatch_hint(self, canonical: str) -> str | None:
+        """canonical タグの TYPE_MISMATCH refinement reason メッセージを返す (#989)。
+
+        保持中の refinement (``_last_refinements``) から code に "TYPE_MISMATCH" を含む
+        reason を探してメッセージを返す。無ければ None。
+
+        Args:
+            canonical: 対象 canonical タグ。
+
+        Returns:
+            TYPE_MISMATCH reason のメッセージ。該当が無ければ None。
+        """
+        rec = self._last_refinements.get(canonical)
+        if rec is None or not rec.reasons:
+            return None
+        for reason in rec.reasons:
+            if "TYPE_MISMATCH" in reason.code.upper():
+                return str(reason.message)
+        return None
 
     # ─── refinement (#931) ──────────────────────────────────────────────
 

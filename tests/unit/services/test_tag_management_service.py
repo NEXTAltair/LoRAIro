@@ -227,6 +227,53 @@ class TestTagManagementService:
             with pytest.raises(ValueError, match="Invalid tag_id"):
                 service.update_single_tag_type(tag_id=999, type_name="invalid")
 
+    def test_add_translation_delegates_to_public_api(self, service: TagManagementService) -> None:
+        """add_translation が公開 API write_user_translation へ委譲する (#989)。"""
+        with patch("lorairo.services.tag_management_service.write_user_translation") as mock_write:
+            service.add_translation(tag_id=42, language="ja", translation="少女")
+
+            mock_write.assert_called_once_with(service.repository, 42, "ja", "少女")
+
+    def test_add_translation_propagates_error(self, service: TagManagementService) -> None:
+        """書き込み失敗は呼び出し元へ伝播する (握りつぶさない)。"""
+        with patch(
+            "lorairo.services.tag_management_service.write_user_translation",
+            side_effect=OperationalError("stmt", {}, Exception("db down")),
+        ):
+            with pytest.raises(OperationalError):
+                service.add_translation(tag_id=42, language="ja", translation="少女")
+
+    def test_resolve_tag_id_exact_match(self, service: TagManagementService) -> None:
+        """canonical 完全一致行の tag_id を返す (#989)。"""
+        result = TagSearchResult(
+            items=[
+                TagRecordPublic(tag="other", tag_id=99, source_tag="other"),
+                TagRecordPublic(tag="1girl", tag_id=10, source_tag="1girl"),
+            ]
+        )
+        with patch("lorairo.services.tag_management_service.search_tags", return_value=result):
+            assert service.resolve_tag_id("1girl") == 10
+
+    def test_resolve_tag_id_source_tag_match(self, service: TagManagementService) -> None:
+        """source_tag 一致でも tag_id を解決する。"""
+        result = TagSearchResult(items=[TagRecordPublic(tag="blue_eyes", tag_id=20, source_tag="aoi_me")])
+        with patch("lorairo.services.tag_management_service.search_tags", return_value=result):
+            assert service.resolve_tag_id("aoi_me") == 20
+
+    def test_resolve_tag_id_no_exact_match_returns_none(self, service: TagManagementService) -> None:
+        """完全一致が無ければ None (別タグの翻訳経由マッチを採用しない)。"""
+        result = TagSearchResult(items=[TagRecordPublic(tag="unrelated", tag_id=5, source_tag="unrelated")])
+        with patch("lorairo.services.tag_management_service.search_tags", return_value=result):
+            assert service.resolve_tag_id("1girl") is None
+
+    def test_resolve_tag_id_search_error_returns_none(self, service: TagManagementService) -> None:
+        """検索失敗時は None で縮退する (非ブロッキング)。"""
+        with patch(
+            "lorairo.services.tag_management_service.search_tags",
+            side_effect=OperationalError("stmt", {}, Exception("db down")),
+        ):
+            assert service.resolve_tag_id("1girl") is None
+
 
 @pytest.mark.unit
 class TestTranslationQualityIntegration:

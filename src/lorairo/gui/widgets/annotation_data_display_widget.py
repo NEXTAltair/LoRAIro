@@ -118,6 +118,8 @@ class AnnotationDataDisplayWidget(QWidget, Ui_AnnotationDataDisplayWidget):
     tag_restore_requested = Signal(str)  # soft-rejected タグを復活
     tag_add_requested = Signal(str)  # 手動タグ追加 (生入力)
     refinement_ignored = Signal(str, str)  # refinement リコメンドを無視 (canonical, reason_code) (#931)
+    translation_add_requested = Signal(str, str, str)  # canonical, language, translation (#989)
+    tag_metadata_edit_requested = Signal(str, str)  # canonical, type (#989)
 
     # タグチップ箱の高さ上限 (#835)。TagPanelWidget と同値を持ち、後方互換のため公開する。
     _TAGS_MAX_HEIGHT = 220
@@ -173,6 +175,8 @@ class AnnotationDataDisplayWidget(QWidget, Ui_AnnotationDataDisplayWidget):
         self._tag_panel.tag_restore_requested.connect(self.tag_restore_requested)
         self._tag_panel.tag_add_requested.connect(self.tag_add_requested)
         self._tag_panel.refinement_ignored.connect(self.refinement_ignored)
+        self._tag_panel.translation_add_requested.connect(self.translation_add_requested)
+        self._tag_panel.tag_metadata_edit_requested.connect(self.tag_metadata_edit_requested)
 
     @property
     def _tag_chips(self) -> list[SelectableTagChip]:
