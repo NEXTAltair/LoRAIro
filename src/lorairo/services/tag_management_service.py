@@ -44,10 +44,15 @@ class TagManagementService:
 
     LORAIRO_FORMAT_ID = 1000  # LoRAIro専用format_id（ユーザーDB範囲: 1000-）
 
-    # 翻訳品質評価の対象言語 (#976)。ja の翻訳候補のみを評価する。
-    # en は元タグ自身 (英語タグ) なので翻訳品質の問題対象にならず、それ以外の言語は
-    # 本 Issue のスコープ外 (多言語拡張は対象外)。
+    # 翻訳品質評価で recommend_translation_quality へ渡す言語コード (#976)。ja のみ評価する
+    # (en は元タグ自身、それ以外は #976 スコープ外)。
     TRANSLATION_QUALITY_LANGUAGE = "ja"
+
+    # tagdb は翻訳の language を verbatim 格納する (正規化しない)。日本語翻訳の格納キーは
+    # "japanese" (LoRAIro 登録 / tagdb register GUI 既定) と ISO code "ja" (一部データ源 /
+    # base patch) が混在しうる。片方しか見ないと有効な日本語訳を「未翻訳」と誤判定し
+    # missing_translation の大量偽陽性 ⚠ になる (#991 P1) ため、両表記を日本語として扱う。
+    _JAPANESE_TRANSLATION_KEYS = ("japanese", "ja")
 
     def __init__(self) -> None:
         """TagManagementServiceを初期化します。
@@ -193,13 +198,13 @@ class TagManagementService:
             manual refinement reason と翻訳品質 reason を統合した RefinementRecommendation。
         """
         manual = self.recommend_manual_refinement(tag, repo=repo, format_name=format_name)
-        translation_recs = self._evaluate_translation_quality(tag, repo=repo)
+        translation_recs = self._evaluate_translation_quality(tag, repo=repo, format_name=format_name)
         if not translation_recs:
             return manual
         return self._merge_recommendations(manual, translation_recs)
 
     def _evaluate_translation_quality(
-        self, tag: str, *, repo: object | None = None
+        self, tag: str, *, repo: object | None = None, format_name: str = "unknown"
     ) -> list[RefinementRecommendation]:
         """タグの ja 翻訳品質を評価し、問題が出たものだけ返す (#976)。
 
@@ -211,18 +216,27 @@ class TagManagementService:
           `missing_translation` を発火させる (search_tags の projection は空翻訳を除外する
           ため、候補ループでは missing を検出できないので明示的に評価する)。
 
+        日本語翻訳の格納キーは "japanese" と "ja" が混在しうるため、両方を集約してから
+        評価する (#991 P1)。
+
         Args:
             tag: 評価対象の canonical タグ文字列。
             repo: lib に渡す DB リーダー。None なら merged reader を使う。
+            format_name: タグの format 名。manual refinement と同じ format で翻訳を引く
+                (判定不能時 "unknown" は format フィルタなし)。
 
         Returns:
             needs_refinement=True だった評価ごとの RefinementRecommendation。
         """
-        translations = self._fetch_exact_match_translations(tag, repo=repo)
+        translations = self._fetch_exact_match_translations(tag, repo=repo, format_name=format_name)
         if translations is None:
             # 完全一致行が無い → 翻訳品質評価をスキップ (素通し)。
             return []
-        candidates = translations.get(self.TRANSLATION_QUALITY_LANGUAGE, [])
+        candidates: list[str] = []
+        for key in self._JAPANESE_TRANSLATION_KEYS:
+            for value in translations.get(key, []):
+                if value not in candidates:
+                    candidates.append(value)
         recommendations: list[RefinementRecommendation] = []
         if not candidates:
             # 実在タグだが ja 翻訳が未登録/空 → missing_translation を発火させる。
@@ -249,7 +263,7 @@ class TagManagementService:
         return recommendations
 
     def _fetch_exact_match_translations(
-        self, tag: str, *, repo: object | None = None
+        self, tag: str, *, repo: object | None = None, format_name: str = "unknown"
     ) -> dict[str, list[str]] | None:
         """入力タグに完全一致する行の言語別翻訳候補を取得する (#976)。
 
@@ -266,24 +280,34 @@ class TagManagementService:
         翻訳品質評価の対象範囲が一致する。複数の完全一致行 (base / user 分割等) は
         言語ごとに翻訳候補をマージする。
 
+        `format_name` が既知 (≠ "unknown") のときは search を当該 format に絞り、同一
+        canonical tag が複数 format に存在する DB で別 format の翻訳を借用しないようにする
+        (#991 P2)。
+
         Args:
             tag: 検索する canonical タグ文字列。
             repo: 検索に使う DB リーダー。None なら merged reader を使う。
+            format_name: 検索を絞る format 名。"unknown" のときは format フィルタなし。
 
         Returns:
             完全一致行が無ければ None、あれば言語コード -> 翻訳候補リストのマップ。
         """
         reader = cast("TagReaderProtocol", repo) if repo is not None else self.reader
+        # format が既知のときだけ絞る ("unknown" は判定不能の sentinel なので絞らない)。
+        format_names = None if format_name == "unknown" else [format_name]
         request = TagSearchRequest(
             query=tag,
             partial=False,
             resolve_preferred=False,
             include_aliases=True,
             include_deprecated=True,
+            format_names=format_names,
         )
         try:
             result = search_tags(reader, request)
-        except SQLAlchemyError as e:
+        except (ValueError, RuntimeError, SQLAlchemyError) as e:
+            # 既存 search_tags 呼び出し箇所 (trigger_vocab) と同じ search-failure クラスを
+            # catch し、翻訳品質評価を非ブロッキングに縮退させる (#991 P2)。
             logger.warning(f"翻訳取得に失敗 (翻訳品質評価をスキップ): tag='{tag}': {e}")
             return None
         # tag / source_tag が casefold 一致した行のみ採用する (Codex #991 P2)。partial=False でも

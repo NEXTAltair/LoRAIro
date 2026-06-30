@@ -522,6 +522,138 @@ class TestTranslationQualityIntegration:
         assert result.needs_refinement is True
         assert {r.code for r in result.reasons} == {"missing_translation"}
 
+    def test_japanese_full_name_key_is_evaluated_not_missing(self, service: TagManagementService) -> None:
+        """日本語訳が "japanese" キーで格納された行も翻訳として認識し missing 誤判定しない (#991 P1)。
+
+        tagdb は language を verbatim 格納し、LoRAIro/register GUI は "japanese" を使う。
+        "ja" だけを見ると "japanese" キーの有効訳を missing と誤判定して大量偽陽性になるため、
+        "japanese" 候補が translation=None ではなく候補値として評価されることを検証する。
+        """
+        manual = _recommendation("tag", needs=False, score=0.0)
+        with (
+            patch(
+                "lorairo.services.tag_management_service.recommend_manual_refinement",
+                return_value=manual,
+            ),
+            patch(
+                "lorairo.services.tag_management_service.search_tags",
+                return_value=_search_result_with_translations("tag", {"japanese": ["長い髪"]}),
+            ),
+            patch(
+                "lorairo.services.tag_management_service.recommend_translation_quality",
+                return_value=_recommendation("tag", needs=False, score=0.0),
+            ) as mock_eval,
+        ):
+            result = service.recommend_with_translation_quality("tag")
+
+        assert result is manual  # 候補は clean → manual 素通し (missing 誤判定なし)
+        mock_eval.assert_called_once()
+        assert mock_eval.call_args.kwargs["translation"] == "長い髪"  # None ではない
+        assert mock_eval.call_args.kwargs["language"] == "ja"
+
+    def test_japanese_full_name_key_flagged_translation_is_reported(
+        self, service: TagManagementService
+    ) -> None:
+        """ "japanese" キーの問題ある訳も翻訳品質 reason として ⚠ 対象になる (#991 P1)。"""
+        manual = _recommendation("tag", needs=False, score=0.0)
+        flagged = _recommendation("tag", reason_codes=["overlong_translation"], score=0.6)
+        with (
+            patch(
+                "lorairo.services.tag_management_service.recommend_manual_refinement",
+                return_value=manual,
+            ),
+            patch(
+                "lorairo.services.tag_management_service.search_tags",
+                return_value=_search_result_with_translations("tag", {"japanese": ["とても長い翻訳文"]}),
+            ),
+            patch(
+                "lorairo.services.tag_management_service.recommend_translation_quality",
+                return_value=flagged,
+            ),
+        ):
+            result = service.recommend_with_translation_quality("tag")
+
+        assert result.needs_refinement is True
+        assert {r.code for r in result.reasons} == {"overlong_translation"}
+
+    def test_format_name_filters_search(self, service: TagManagementService) -> None:
+        """既知 format は search に format_names フィルタを通し別 format の翻訳を借用しない (#991 P2)。"""
+        manual = _recommendation("cat", needs=False, score=0.0)
+        with (
+            patch(
+                "lorairo.services.tag_management_service.recommend_manual_refinement",
+                return_value=manual,
+            ),
+            patch(
+                "lorairo.services.tag_management_service.search_tags",
+                return_value=_search_result_with_translations("cat", {"ja": ["猫"]}),
+            ) as mock_search,
+            patch(
+                "lorairo.services.tag_management_service.recommend_translation_quality",
+                return_value=_recommendation("cat", needs=False, score=0.0),
+            ),
+        ):
+            service.recommend_with_translation_quality("cat", format_name="danbooru")
+
+        request = mock_search.call_args.args[1]
+        assert request.format_names == ["danbooru"]
+
+    def test_unknown_format_does_not_filter_search(self, service: TagManagementService) -> None:
+        """format が "unknown" (判定不能) のときは format フィルタを掛けない (#991 P2)。"""
+        manual = _recommendation("cat", needs=False, score=0.0)
+        with (
+            patch(
+                "lorairo.services.tag_management_service.recommend_manual_refinement",
+                return_value=manual,
+            ),
+            patch(
+                "lorairo.services.tag_management_service.search_tags",
+                return_value=_search_result_with_translations("cat", {"ja": ["猫"]}),
+            ) as mock_search,
+            patch(
+                "lorairo.services.tag_management_service.recommend_translation_quality",
+                return_value=_recommendation("cat", needs=False, score=0.0),
+            ),
+        ):
+            service.recommend_with_translation_quality("cat")  # format_name 既定 "unknown"
+
+        request = mock_search.call_args.args[1]
+        assert request.format_names is None
+
+    def test_search_value_error_degrades_to_manual(self, service: TagManagementService) -> None:
+        """search_tags が ValueError を投げても例外を漏らさず manual へ縮退する (#991 P2)。"""
+        manual = _recommendation("tag", reason_codes=["broad_single_word"], score=0.5)
+        with (
+            patch(
+                "lorairo.services.tag_management_service.recommend_manual_refinement",
+                return_value=manual,
+            ),
+            patch(
+                "lorairo.services.tag_management_service.search_tags",
+                side_effect=ValueError("bad query"),
+            ),
+        ):
+            result = service.recommend_with_translation_quality("tag")
+
+        assert result is manual
+
+    def test_search_runtime_error_degrades_to_manual(self, service: TagManagementService) -> None:
+        """search_tags が RuntimeError を投げても例外を漏らさず manual へ縮退する (#991 P2)。"""
+        manual = _recommendation("tag", reason_codes=["broad_single_word"], score=0.5)
+        with (
+            patch(
+                "lorairo.services.tag_management_service.recommend_manual_refinement",
+                return_value=manual,
+            ),
+            patch(
+                "lorairo.services.tag_management_service.search_tags",
+                side_effect=RuntimeError("reader closed"),
+            ),
+        ):
+            result = service.recommend_with_translation_quality("tag")
+
+        assert result is manual
+
     def test_translation_fetch_failure_degrades_to_manual(self, service: TagManagementService) -> None:
         """翻訳取得 (DB read) 失敗時は例外を伝播させず manual の結果を返す。"""
         manual = _recommendation("tag", reason_codes=["broad_single_word"], score=0.5)
