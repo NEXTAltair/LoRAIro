@@ -242,7 +242,7 @@ class TagManagementService:
             repo: 検索に使う DB リーダー。None なら merged reader を使う。
 
         Returns:
-            言語コード -> 翻訳候補リストのマップ。該当行・翻訳が無ければ空 dict。
+            言語コード -> 翻訳候補リストのマップ。完全一致する行・翻訳が無ければ空 dict。
         """
         reader = cast("TagReaderProtocol", repo) if repo is not None else self.reader
         request = TagSearchRequest(
@@ -257,11 +257,16 @@ class TagManagementService:
         except SQLAlchemyError as e:
             logger.warning(f"翻訳取得に失敗 (翻訳品質評価をスキップ): tag='{tag}': {e}")
             return {}
+        # 完全一致した行の翻訳だけを採用する (Codex #991 P2)。partial=False でも alias/翻訳経由で
+        # 別タグの行がマッチしうるため、その翻訳を借用して入力タグに無関係な偽陽性 ⚠ を出さない。
+        # 一致行が無ければ「翻訳候補なし」へ縮退し、翻訳品質評価をスキップする。
         for item in result.items:
             if item.tag == tag and item.translations:
-                return item.translations
-        if result.items and result.items[0].translations:
-            return result.items[0].translations
+                # 明示的に dict[str, list[str]] を構築し、外部 API 由来の Any 推論を確定させる。
+                normalized: dict[str, list[str]] = {
+                    language: list(values) for language, values in item.translations.items()
+                }
+                return normalized
         return {}
 
     def _merge_recommendations(

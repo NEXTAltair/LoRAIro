@@ -374,6 +374,41 @@ class TestTranslationQualityIntegration:
         assert result is manual
         mock_eval.assert_not_called()
 
+    def test_non_exact_match_row_translations_not_borrowed(self, service: TagManagementService) -> None:
+        """alias/翻訳経由で別タグの行がマッチしても、その翻訳を借用せず素通しする (#991 P2)。"""
+        manual = _recommendation("input_tag", needs=False, score=0.0)
+        # search_tags が item.tag != 要求タグ の行を返すケース (別タグの翻訳に一致した等)。
+        foreign_row = TagSearchResult(
+            items=[
+                TagRecordPublic(
+                    tag="other_tag",
+                    tag_id=2,
+                    source_tag="other_tag",
+                    type_name="general",
+                    format_name="Lorairo",
+                    translations={"ja": ["別タグの翻訳"]},
+                )
+            ],
+            total=1,
+        )
+        with (
+            patch(
+                "lorairo.services.tag_management_service.recommend_manual_refinement",
+                return_value=manual,
+            ),
+            patch(
+                "lorairo.services.tag_management_service.search_tags",
+                return_value=foreign_row,
+            ),
+            patch(
+                "lorairo.services.tag_management_service.recommend_translation_quality",
+            ) as mock_eval,
+        ):
+            result = service.recommend_with_translation_quality("input_tag")
+
+        assert result is manual
+        mock_eval.assert_not_called()
+
     def test_translation_fetch_failure_degrades_to_manual(self, service: TagManagementService) -> None:
         """翻訳取得 (DB read) 失敗時は例外を伝播させず manual の結果を返す。"""
         manual = _recommendation("tag", reason_codes=["broad_single_word"], score=0.5)
