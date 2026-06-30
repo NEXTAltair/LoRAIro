@@ -264,9 +264,10 @@ class TestTranslationQualityIntegration:
         assert result.score == 0.6
 
     def test_combines_manual_and_translation_reasons(self, service: TagManagementService) -> None:
-        """manual reason と翻訳品質 reason を両方保持する。"""
+        """manual reason と (実データ経路の) 翻訳品質 reason を両方保持する。"""
         manual = _recommendation("blue__eyes", reason_codes=["normalization_changes_tag"], score=0.7)
-        translation = _recommendation("blue__eyes", reason_codes=["missing_translation"], score=1.0)
+        # 実在タグ (完全一致行) だが ja 翻訳が未登録 → 実 recommend_translation_quality で
+        # missing_translation が発火する (モックせず実データ経路を検証)。
         with (
             patch(
                 "lorairo.services.tag_management_service.recommend_manual_refinement",
@@ -274,17 +275,13 @@ class TestTranslationQualityIntegration:
             ),
             patch(
                 "lorairo.services.tag_management_service.search_tags",
-                return_value=_search_result_with_translations("blue__eyes", {"ja": [""]}),
-            ),
-            patch(
-                "lorairo.services.tag_management_service.recommend_translation_quality",
-                return_value=translation,
+                return_value=_search_result_with_translations("blue__eyes", {}),
             ),
         ):
             result = service.recommend_with_translation_quality("blue__eyes")
 
         assert {r.code for r in result.reasons} == {"normalization_changes_tag", "missing_translation"}
-        assert result.score == 1.0
+        assert result.score == 1.0  # missing_translation の weight 1.0 が最大
 
     def test_dedups_translation_reason_codes_across_candidates(self, service: TagManagementService) -> None:
         """複数 ja 候補が同じ reason を出しても tooltip 用 reason は1つに重複排除する。"""
@@ -353,8 +350,14 @@ class TestTranslationQualityIntegration:
 
         assert result is manual
 
-    def test_no_ja_candidates_returns_manual_unchanged(self, service: TagManagementService) -> None:
-        """ja 翻訳候補が無いタグは翻訳品質評価を行わず manual をそのまま返す。"""
+    def test_exact_match_without_ja_fires_missing(self, service: TagManagementService) -> None:
+        """実在タグ (完全一致行あり) で ja 翻訳が未登録/空なら missing_translation を発火する。
+
+        search_tags の projection は空翻訳を除外する
+        (repository._build... の `if translation.language and translation.translation`) ため、
+        ja キーが無い行でも実データ経路で missing が発火することを実
+        recommend_translation_quality で検証する (モックで隠さない)。
+        """
         manual = _recommendation("tag", needs=False, score=0.0)
         with (
             patch(
@@ -365,14 +368,11 @@ class TestTranslationQualityIntegration:
                 "lorairo.services.tag_management_service.search_tags",
                 return_value=_search_result_with_translations("tag", {"en": ["tag"]}),
             ),
-            patch(
-                "lorairo.services.tag_management_service.recommend_translation_quality",
-            ) as mock_eval,
         ):
             result = service.recommend_with_translation_quality("tag")
 
-        assert result is manual
-        mock_eval.assert_not_called()
+        assert result.needs_refinement is True
+        assert {r.code for r in result.reasons} == {"missing_translation"}
 
     def test_non_exact_match_row_translations_not_borrowed(self, service: TagManagementService) -> None:
         """alias/翻訳経由で別タグの行がマッチしても、その翻訳を借用せず素通しする (#991 P2)。"""
@@ -387,6 +387,47 @@ class TestTranslationQualityIntegration:
                     type_name="general",
                     format_name="Lorairo",
                     translations={"ja": ["別タグの翻訳"]},
+                )
+            ],
+            total=1,
+        )
+        with (
+            patch(
+                "lorairo.services.tag_management_service.recommend_manual_refinement",
+                return_value=manual,
+            ),
+            patch(
+                "lorairo.services.tag_management_service.search_tags",
+                return_value=foreign_row,
+            ),
+            patch(
+                "lorairo.services.tag_management_service.recommend_translation_quality",
+            ) as mock_eval,
+        ):
+            result = service.recommend_with_translation_quality("input_tag")
+
+        assert result is manual
+        mock_eval.assert_not_called()
+
+    def test_translation_only_match_without_ja_does_not_fire_missing(
+        self, service: TagManagementService
+    ) -> None:
+        """完全一致行が無い (translation-only マッチ) 場合は ja 未登録でも missing を出さない (#991)。
+
+        実在タグの ja 未登録は missing を出すが、別タグの翻訳経由でヒットしただけの行には
+        missing も出さない (偽陽性防止)。test_exact_match_without_ja_fires_missing と対で
+        「exact match 行の有無」による分岐を区別して検証する。
+        """
+        manual = _recommendation("input_tag", needs=False, score=0.0)
+        foreign_row = TagSearchResult(
+            items=[
+                TagRecordPublic(
+                    tag="other_tag",
+                    tag_id=5,
+                    source_tag="other_tag",
+                    type_name="general",
+                    format_name="Lorairo",
+                    translations={"en": ["other"]},
                 )
             ],
             total=1,
@@ -451,8 +492,8 @@ class TestTranslationQualityIntegration:
     def test_case_variant_tag_match_row_is_evaluated(self, service: TagManagementService) -> None:
         """大文字小文字のみ違う canonical 行も casefold 一致で評価対象になる (#991 再 P2)。"""
         manual = _recommendation("blue_eyes", needs=False, score=0.0)
-        translation = _recommendation("blue_eyes", reason_codes=["missing_translation"], score=1.0)
         # 行の tag は "Blue_Eyes" (case 変種)。入力 "blue_eyes" と casefold 一致する。
+        # ja 翻訳は未登録なので実 recommend_translation_quality で missing が発火する。
         case_variant_row = TagSearchResult(
             items=[
                 TagRecordPublic(
@@ -461,7 +502,7 @@ class TestTranslationQualityIntegration:
                     source_tag=None,
                     type_name="general",
                     format_name="Lorairo",
-                    translations={"ja": [""]},
+                    translations={},
                 )
             ],
             total=1,
@@ -475,16 +516,11 @@ class TestTranslationQualityIntegration:
                 "lorairo.services.tag_management_service.search_tags",
                 return_value=case_variant_row,
             ),
-            patch(
-                "lorairo.services.tag_management_service.recommend_translation_quality",
-                return_value=translation,
-            ) as mock_eval,
         ):
             result = service.recommend_with_translation_quality("blue_eyes")
 
         assert result.needs_refinement is True
         assert {r.code for r in result.reasons} == {"missing_translation"}
-        mock_eval.assert_called_once()
 
     def test_translation_fetch_failure_degrades_to_manual(self, service: TagManagementService) -> None:
         """翻訳取得 (DB read) 失敗時は例外を伝播させず manual の結果を返す。"""

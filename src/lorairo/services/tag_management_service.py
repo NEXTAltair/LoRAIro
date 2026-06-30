@@ -201,54 +201,77 @@ class TagManagementService:
     def _evaluate_translation_quality(
         self, tag: str, *, repo: object | None = None
     ) -> list[RefinementRecommendation]:
-        """タグの ja 翻訳候補を全件評価し、問題が出たものだけ返す (#976)。
+        """タグの ja 翻訳品質を評価し、問題が出たものだけ返す (#976)。
 
-        翻訳候補が無いタグは評価対象が無いため空リストを返す (未翻訳タグを一律で
-        ⚠ にはしない)。
+        実在タグ (入力に完全一致する行が存在) の網羅性を優先する (ユーザー判断 #991):
+        - 完全一致行が無い (別タグの翻訳経由マッチ / 行なし / 取得失敗) → 素通し
+          (偽陽性 ⚠ 防止、missing も出さない)。
+        - 完全一致行があり ja 翻訳候補がある → 全候補を評価。
+        - 完全一致行があるが ja 翻訳が未登録/空 → `translation=None` で評価して
+          `missing_translation` を発火させる (search_tags の projection は空翻訳を除外する
+          ため、候補ループでは missing を検出できないので明示的に評価する)。
 
         Args:
             tag: 評価対象の canonical タグ文字列。
             repo: lib に渡す DB リーダー。None なら merged reader を使う。
 
         Returns:
-            needs_refinement=True だった候補ごとの RefinementRecommendation。
+            needs_refinement=True だった評価ごとの RefinementRecommendation。
         """
-        translations = self._fetch_translations(tag, repo=repo)
+        translations = self._fetch_exact_match_translations(tag, repo=repo)
+        if translations is None:
+            # 完全一致行が無い → 翻訳品質評価をスキップ (素通し)。
+            return []
         candidates = translations.get(self.TRANSLATION_QUALITY_LANGUAGE, [])
         recommendations: list[RefinementRecommendation] = []
-        for candidate in candidates:
+        if not candidates:
+            # 実在タグだが ja 翻訳が未登録/空 → missing_translation を発火させる。
             rec = recommend_translation_quality(
                 source_tag=tag,
-                translation=candidate,
+                translation=None,
                 language=self.TRANSLATION_QUALITY_LANGUAGE,
             )
             if rec.needs_refinement:
                 recommendations.append(rec)
+        else:
+            for candidate in candidates:
+                rec = recommend_translation_quality(
+                    source_tag=tag,
+                    translation=candidate,
+                    language=self.TRANSLATION_QUALITY_LANGUAGE,
+                )
+                if rec.needs_refinement:
+                    recommendations.append(rec)
         if recommendations:
             logger.trace(
                 f"翻訳品質の問題を検出: tag='{tag}', 候補数={len(candidates)}, 問題={len(recommendations)}"
             )
         return recommendations
 
-    def _fetch_translations(self, tag: str, *, repo: object | None = None) -> dict[str, list[str]]:
-        """tag の言語別翻訳候補 (language -> 候補リスト) を取得する (#976)。
+    def _fetch_exact_match_translations(
+        self, tag: str, *, repo: object | None = None
+    ) -> dict[str, list[str]] | None:
+        """入力タグに完全一致する行の言語別翻訳候補を取得する (#976)。
 
-        public API `search_tags` の完全一致検索で行を引き、`translations` を返す。
-        翻訳取得は advisory な評価のための補助であり、DB read 失敗時は空 dict へ縮退する
-        (呼び出し元は manual refinement のみを表示できる)。
+        戻り値で「完全一致行の有無」と「翻訳候補の中身」を区別する:
+        - None: 完全一致行が無い (別タグの翻訳経由マッチ / 行なし / DB read 失敗)。
+          呼び出し元は翻訳品質評価をスキップする (偽陽性 ⚠ 防止)。
+        - dict: 完全一致行が存在する。中身が空 ({} や ja キー無し) の場合は ja 翻訳が
+          未登録/空であることを表し、呼び出し元は missing_translation を判定する。
 
         完全一致の判定は tagdb の refinement path
         (`genai_tag_db_tools.core_api._canonical_exact_recommendation_rows`) と同じく、
         行の `tag` または `source_tag` が入力タグへ casefold 一致するかで行う。これにより
         手動保存された source tag や大文字小文字違いの canonical でも、manual refinement と
-        翻訳品質評価の対象範囲が一致する。
+        翻訳品質評価の対象範囲が一致する。複数の完全一致行 (base / user 分割等) は
+        言語ごとに翻訳候補をマージする。
 
         Args:
             tag: 検索する canonical タグ文字列。
             repo: 検索に使う DB リーダー。None なら merged reader を使う。
 
         Returns:
-            言語コード -> 翻訳候補リストのマップ。完全一致する行・翻訳が無ければ空 dict。
+            完全一致行が無ければ None、あれば言語コード -> 翻訳候補リストのマップ。
         """
         reader = cast("TagReaderProtocol", repo) if repo is not None else self.reader
         request = TagSearchRequest(
@@ -262,22 +285,28 @@ class TagManagementService:
             result = search_tags(reader, request)
         except SQLAlchemyError as e:
             logger.warning(f"翻訳取得に失敗 (翻訳品質評価をスキップ): tag='{tag}': {e}")
-            return {}
-        # tag / source_tag が casefold 一致した行の翻訳だけを採用する (Codex #991 P2)。
-        # partial=False でも alias / 別タグの翻訳経由でマッチした行はその翻訳を借用せず、
-        # 入力タグに無関係な偽陽性 ⚠ を出さない。一致行が無ければ「翻訳候補なし」へ縮退する。
+            return None
+        # tag / source_tag が casefold 一致した行のみ採用する (Codex #991 P2)。partial=False でも
+        # alias / 別タグの翻訳経由でマッチした行はその翻訳を借用せず、無関係な偽陽性 ⚠ を防ぐ。
         normalized_query = tag.casefold()
+        merged: dict[str, list[str]] = {}
+        found_exact = False
         for item in result.items:
             is_exact_match = item.tag.casefold() == normalized_query or (
                 item.source_tag is not None and item.source_tag.casefold() == normalized_query
             )
-            if is_exact_match and item.translations:
-                # 明示的に dict[str, list[str]] を構築し、外部 API 由来の Any 推論を確定させる。
-                normalized_translations: dict[str, list[str]] = {
-                    language: list(values) for language, values in item.translations.items()
-                }
-                return normalized_translations
-        return {}
+            if not is_exact_match:
+                continue
+            found_exact = True
+            if not item.translations:
+                continue
+            for language, values in item.translations.items():
+                bucket = merged.setdefault(language, [])
+                for value in values:
+                    if value not in bucket:
+                        bucket.append(value)
+        # 完全一致行があれば翻訳 (空でも可) を返し、無ければ None で素通しさせる。
+        return merged if found_exact else None
 
     def _merge_recommendations(
         self,
