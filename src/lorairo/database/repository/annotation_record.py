@@ -370,33 +370,40 @@ class AnnotationRepository(BaseRepository):
             logger.warning("Empty tag for batch add")
             return (False, 0)
 
-        normalized_tag = tag.strip().lower()
+        input_tag = tag.strip().lower()
         added_count = 0
 
         with self.session_factory() as session:
             try:
+                # canonical 解決を dedup の前に1回だけ行う (日本語→canonical, alias→preferred)。
+                # 保存する tags.tag を解決後の canonical 文字列に置換する (ADR 0083 §4 / #988)。
+                resolved_tag, external_tag_id = self._resolve_canonical_and_tag_id(session, input_tag)
+                if external_tag_id is None:
+                    logger.warning(
+                        f"Tag '{input_tag}' could not be linked to external tag_db. "
+                        "Saving with tag_id=None.",
+                    )
+
+                # dedup は canonical 解決後の値で判定する。既存行は書式が揃っていない
+                # ことがある (旧行が `blue sky`、解決後が `blue_sky` 等) ため、両辺を
+                # TagCleaner.clean_format で正規化してから比較する (Codex P2 / PR #994)。
+                dedup_key = self._dedup_key(resolved_tag)
                 existing_tags_by_image = self._build_existing_tags_map(session, image_ids)
 
                 for image_id in image_ids:
                     existing_tags = existing_tags_by_image.get(image_id, set())
+                    existing_dedup_keys = {self._dedup_key(t) for t in existing_tags}
 
-                    if normalized_tag in existing_tags:
+                    if dedup_key in existing_dedup_keys:
                         logger.debug(
-                            f"Tag '{normalized_tag}' already exists for image_id {image_id}, skipping",
+                            f"Tag '{resolved_tag}' already exists for image_id {image_id}, skipping",
                         )
                         continue
-
-                    external_tag_id = self._get_or_create_tag_id_external(session, normalized_tag)
-                    if external_tag_id is None and normalized_tag:
-                        logger.warning(
-                            f"Tag '{normalized_tag}' could not be linked to external tag_db. "
-                            "Saving with tag_id=None.",
-                        )
 
                     new_tag = Tag(
                         image_id=image_id,
                         model_id=model_id,
-                        tag=normalized_tag,
+                        tag=resolved_tag,
                         tag_id=external_tag_id,
                         confidence_score=None,
                         existing=False,
@@ -408,7 +415,7 @@ class AnnotationRepository(BaseRepository):
                 session.commit()
 
                 logger.info(
-                    f"Atomic batch tag add completed: tag='{normalized_tag}', "
+                    f"Atomic batch tag add completed: tag='{resolved_tag}', "
                     f"processed={len(image_ids)}, added={added_count}",
                 )
                 return (True, added_count)
@@ -748,6 +755,94 @@ class AnnotationRepository(BaseRepository):
                 exc_info=True,
             )
             return None  # 検索失敗時は縮退動作（tag_id=None で保存）  # その他のエラーも縮退動作
+
+    @staticmethod
+    def _dedup_key(tag: str) -> str:
+        """タグ重複判定用の正規化キーを返す。
+
+        書式の揺れ (underscore/space 等) を吸収するため TagCleaner.clean_format で
+        正規化し、小文字化する。保存値そのものではなく比較専用のキー (Codex P2 / #994)。
+
+        Args:
+            tag: 正規化前のタグ文字列。
+
+        Returns:
+            clean_format + lower 済みの比較キー。
+        """
+        cleaned: str = TagCleaner.clean_format(tag)
+        return cleaned.strip().lower()
+
+    def _resolve_canonical_and_tag_id(self, session: Session, tag_string: str) -> tuple[str, int | None]:
+        """手動タグ追加用に外部 tag_db で canonical 解決し、(canonical 文字列, tag_id) を返す。
+
+        日本語入力は `TAG_TRANSLATIONS` 経由で canonical へ、alias は preferred へ
+        解決する (`resolve_preferred=True`)。翻訳テーブルにヒットしない日本語などは
+        正規化した入力をそのまま canonical 扱いで新規登録し、`source_tag` に生入力を
+        保持する (ADR 0083 §4 / #988)。
+
+        `_get_or_create_tag_id_external` との違い:
+          - 戻り値に canonical 文字列を含める (保存する `tags.tag` を canonical へ置換するため)。
+          - `resolve_preferred=True` で alias→preferred を解決する (手動追加経路専用)。
+
+        Args:
+            session: SQLAlchemy セッション (LoRAIro DB 用、tag_db 操作には未使用)。
+            tag_string: 正規化前のタグ文字列 (日本語可)。
+
+        Returns:
+            (保存すべきタグ文字列, 外部 tag_id)。ヒット時は canonical 文字列を、未ヒット/
+            縮退時は入力 `tag_string` をそのまま (ADR 0083 §4 の「そのまま登録」) 返す。
+            tag_id は解決/登録失敗時は None。
+
+        """
+        # 検索・登録には clean_format 正規化を使うが、未ヒット時の保存値は入力をそのまま
+        # 残す (既存挙動を踏襲: tags.tag は入力 verbatim、外部 DB 側のみ正規化形を使う)。
+        normalized_tag = TagCleaner.clean_format(tag_string).strip()
+        if not normalized_tag:
+            logger.warning(f"Tag normalization resulted in empty string: '{tag_string}'")
+            return (tag_string, None)
+
+        merged_reader = self._get_merged_reader()
+        if merged_reader is None:
+            logger.debug(
+                f"MergedTagReader unavailable, storing tag verbatim: '{tag_string}'",
+            )
+            return (tag_string, None)
+
+        try:
+            # alias→preferred は単一 format スコープ時のみ解決されるため danbooru に絞る
+            # (Codex P2 / PR #994)。format_names 未指定だと alias 行がそのまま返り、
+            # canonical へ解決されず dedup も外れる。ADR 0068 の保存境界 = danbooru。
+            request = TagSearchRequest(
+                query=normalized_tag,
+                partial=False,
+                format_names=[_DANBOORU_FORMAT],
+                resolve_preferred=True,
+                include_aliases=True,
+                include_deprecated=False,
+            )
+            result = search_tags(merged_reader, request)
+
+            if result.items:
+                item = result.items[0]
+                canonical: str = item.tag
+                tag_id: int = item.tag_id
+                logger.debug(
+                    f"Resolved tag '{tag_string}' → canonical '{canonical}' (tag_id={tag_id})",
+                )
+                return (canonical, tag_id)
+
+            # 翻訳/エイリアス未ヒット → 入力をそのまま保存しつつ外部 DB へ新規登録
+            # (source_tag に生入力を保持。tags.tag は入力 verbatim を維持)
+            new_tag_id = self._register_new_tag(normalized_tag, tag_string, request)
+            return (tag_string, new_tag_id)
+
+        except Exception as e:
+            # 外部 tag_db 境界の縮退動作 (tag_db は任意依存): 入力をそのまま保存
+            logger.error(
+                f"Error resolving canonical tag in external tag_db: '{normalized_tag}': {e}",
+                exc_info=True,
+            )
+            return (tag_string, None)
 
     def _register_new_tag(
         self,
