@@ -41,6 +41,12 @@ class FakeMergedReader:
     def get_translations_batch(self, tag_ids: list[int]) -> dict[int, list]:
         return {}
 
+    def get_usage_counts_batch(self, tag_ids: list[int]) -> dict[int, dict[int, int]]:
+        return {}
+
+    def get_format_map(self) -> dict[int, str]:
+        return {}
+
     def get_format_id(self, format_name: str) -> int:
         return 1
 
@@ -438,6 +444,8 @@ class TestSelectedImageDetailsWidget:
         tr_mock.language = "japanese"
         tr_mock.translation = "1人の女の子"
         mock_reader.get_translations_batch.return_value = {42: [tr_mock]}
+        mock_reader.get_usage_counts_batch.return_value = {}
+        mock_reader.get_format_map.return_value = {}
         widget.set_merged_reader(mock_reader)
 
         metadata = {
@@ -463,6 +471,42 @@ class TestSelectedImageDetailsWidget:
         assert details.annotation_data is not None
         assert 42 in details.annotation_data.tag_translations
         assert details.annotation_data.tag_translations[42]["japanese"] == "1人の女の子"
+
+    def test_build_metadata_with_usage_counts(self, widget):
+        """使用頻度が bulk 取得され format 名へ解決して AnnotationData に入ること (#990)。"""
+        mock_reader = Mock()
+        mock_reader.get_tag_languages.return_value = []
+        mock_reader.get_format_id.return_value = None
+        mock_reader.get_translations_batch.return_value = {}
+        # format_id 1=danbooru / 2=e621。未知 format_id 99 は format_map に無いので除外される。
+        mock_reader.get_format_map.return_value = {1: "danbooru", 2: "e621"}
+        mock_reader.get_usage_counts_batch.return_value = {42: {1: 1234, 2: 42, 99: 7}}
+        widget.set_merged_reader(mock_reader)
+
+        metadata = {
+            "id": 1,
+            "file_path": "/test/img.jpg",
+            "tags": [
+                {
+                    "tag": "1girl",
+                    "tag_id": 42,
+                    "model_name": "wd",
+                    "source": "AI",
+                    "confidence_score": 0.9,
+                    "is_edited_manually": False,
+                }
+            ],
+            "caption_text": "",
+            "tags_text": "1girl",
+            "score_value": 0,
+            "rating_value": "",
+        }
+        details = widget._build_image_details_from_metadata(metadata)
+
+        mock_reader.get_usage_counts_batch.assert_called_once_with([42])
+        assert details.annotation_data is not None
+        # format_id が format 名へ解決され、map 未掲載の 99 は除外される
+        assert details.annotation_data.tag_usage_counts == {42: {"danbooru": 1234, "e621": 42}}
 
     def test_build_metadata_skips_tag_without_tag_id(self, widget):
         """tag_id=Noneのタグは翻訳取得をスキップすること"""
@@ -503,6 +547,8 @@ class TestSelectedImageDetailsWidget:
         mock_reader.get_tag_languages.return_value = []
         mock_reader.get_format_id.return_value = None
         mock_reader.get_translations_batch.return_value = {}
+        mock_reader.get_usage_counts_batch.return_value = {}
+        mock_reader.get_format_map.return_value = {}
         widget.set_merged_reader(mock_reader)
 
         metadata = {

@@ -68,6 +68,8 @@ class AnnotationData:
     tag_translations: dict[int, dict[str, str]] = field(default_factory=dict)
     # 利用可能な言語リスト（get_tag_languages()から取得）
     available_languages: list[str] = field(default_factory=list)
+    # 使用頻度 第2軸 (metric_source, #990): {tag_id: {format_name: count}}
+    tag_usage_counts: dict[int, dict[str, int]] = field(default_factory=dict)
 
 
 @dataclass
@@ -379,8 +381,13 @@ class AnnotationDataDisplayWidget(QWidget, Ui_AnnotationDataDisplayWidget):
 
             # タグ表示更新 (TagPanelWidget へ委譲)。image_id が変わったときだけ表示状態を
             # リセットし、同一画像の reject reload では ✕ の非表示などを保持する。
+            # 使用頻度の第2軸 (metric_source, #990) は set_tags へ統合して 1 度で描画する。
             self._tag_panel.set_tags(
-                data.tags, data.tag_translations, data.available_languages, image_id=image_id
+                data.tags,
+                data.tag_translations,
+                data.available_languages,
+                image_id=image_id,
+                usage_counts=data.tag_usage_counts,
             )
 
             # キャプション表示更新
