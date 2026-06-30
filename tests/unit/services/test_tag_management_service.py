@@ -409,6 +409,83 @@ class TestTranslationQualityIntegration:
         assert result is manual
         mock_eval.assert_not_called()
 
+    def test_source_tag_match_row_is_evaluated(self, service: TagManagementService) -> None:
+        """source_tag が入力タグに一致する行は翻訳品質評価の対象になる (#991 再 P2)。"""
+        manual = _recommendation("input_tag", needs=False, score=0.0)
+        translation = _recommendation("input_tag", reason_codes=["overlong_translation"], score=0.6)
+        # tag は別の canonical だが source_tag が要求タグに一致する行 (手動保存 source tag 等)。
+        source_match_row = TagSearchResult(
+            items=[
+                TagRecordPublic(
+                    tag="canonical_form",
+                    tag_id=3,
+                    source_tag="input_tag",
+                    type_name="general",
+                    format_name="Lorairo",
+                    translations={"ja": ["とても長い翻訳文"]},
+                )
+            ],
+            total=1,
+        )
+        with (
+            patch(
+                "lorairo.services.tag_management_service.recommend_manual_refinement",
+                return_value=manual,
+            ),
+            patch(
+                "lorairo.services.tag_management_service.search_tags",
+                return_value=source_match_row,
+            ),
+            patch(
+                "lorairo.services.tag_management_service.recommend_translation_quality",
+                return_value=translation,
+            ) as mock_eval,
+        ):
+            result = service.recommend_with_translation_quality("input_tag")
+
+        assert result.needs_refinement is True
+        assert {r.code for r in result.reasons} == {"overlong_translation"}
+        mock_eval.assert_called_once()
+        assert mock_eval.call_args.kwargs["translation"] == "とても長い翻訳文"
+
+    def test_case_variant_tag_match_row_is_evaluated(self, service: TagManagementService) -> None:
+        """大文字小文字のみ違う canonical 行も casefold 一致で評価対象になる (#991 再 P2)。"""
+        manual = _recommendation("blue_eyes", needs=False, score=0.0)
+        translation = _recommendation("blue_eyes", reason_codes=["missing_translation"], score=1.0)
+        # 行の tag は "Blue_Eyes" (case 変種)。入力 "blue_eyes" と casefold 一致する。
+        case_variant_row = TagSearchResult(
+            items=[
+                TagRecordPublic(
+                    tag="Blue_Eyes",
+                    tag_id=4,
+                    source_tag=None,
+                    type_name="general",
+                    format_name="Lorairo",
+                    translations={"ja": [""]},
+                )
+            ],
+            total=1,
+        )
+        with (
+            patch(
+                "lorairo.services.tag_management_service.recommend_manual_refinement",
+                return_value=manual,
+            ),
+            patch(
+                "lorairo.services.tag_management_service.search_tags",
+                return_value=case_variant_row,
+            ),
+            patch(
+                "lorairo.services.tag_management_service.recommend_translation_quality",
+                return_value=translation,
+            ) as mock_eval,
+        ):
+            result = service.recommend_with_translation_quality("blue_eyes")
+
+        assert result.needs_refinement is True
+        assert {r.code for r in result.reasons} == {"missing_translation"}
+        mock_eval.assert_called_once()
+
     def test_translation_fetch_failure_degrades_to_manual(self, service: TagManagementService) -> None:
         """翻訳取得 (DB read) 失敗時は例外を伝播させず manual の結果を返す。"""
         manual = _recommendation("tag", reason_codes=["broad_single_word"], score=0.5)

@@ -237,6 +237,12 @@ class TagManagementService:
         翻訳取得は advisory な評価のための補助であり、DB read 失敗時は空 dict へ縮退する
         (呼び出し元は manual refinement のみを表示できる)。
 
+        完全一致の判定は tagdb の refinement path
+        (`genai_tag_db_tools.core_api._canonical_exact_recommendation_rows`) と同じく、
+        行の `tag` または `source_tag` が入力タグへ casefold 一致するかで行う。これにより
+        手動保存された source tag や大文字小文字違いの canonical でも、manual refinement と
+        翻訳品質評価の対象範囲が一致する。
+
         Args:
             tag: 検索する canonical タグ文字列。
             repo: 検索に使う DB リーダー。None なら merged reader を使う。
@@ -257,16 +263,20 @@ class TagManagementService:
         except SQLAlchemyError as e:
             logger.warning(f"翻訳取得に失敗 (翻訳品質評価をスキップ): tag='{tag}': {e}")
             return {}
-        # 完全一致した行の翻訳だけを採用する (Codex #991 P2)。partial=False でも alias/翻訳経由で
-        # 別タグの行がマッチしうるため、その翻訳を借用して入力タグに無関係な偽陽性 ⚠ を出さない。
-        # 一致行が無ければ「翻訳候補なし」へ縮退し、翻訳品質評価をスキップする。
+        # tag / source_tag が casefold 一致した行の翻訳だけを採用する (Codex #991 P2)。
+        # partial=False でも alias / 別タグの翻訳経由でマッチした行はその翻訳を借用せず、
+        # 入力タグに無関係な偽陽性 ⚠ を出さない。一致行が無ければ「翻訳候補なし」へ縮退する。
+        normalized_query = tag.casefold()
         for item in result.items:
-            if item.tag == tag and item.translations:
+            is_exact_match = item.tag.casefold() == normalized_query or (
+                item.source_tag is not None and item.source_tag.casefold() == normalized_query
+            )
+            if is_exact_match and item.translations:
                 # 明示的に dict[str, list[str]] を構築し、外部 API 由来の Any 推論を確定させる。
-                normalized: dict[str, list[str]] = {
+                normalized_translations: dict[str, list[str]] = {
                     language: list(values) for language, values in item.translations.items()
                 }
-                return normalized
+                return normalized_translations
         return {}
 
     def _merge_recommendations(
