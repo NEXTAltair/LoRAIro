@@ -55,6 +55,11 @@ class TagManagementService:
     # missing_translation の大量偽陽性 ⚠ になる (#991 P1) ため、両表記を日本語として扱う。
     _JAPANESE_TRANSLATION_KEYS = ("japanese", "ja")
 
+    # manual refinement が「preferred タグへ誘導」と判定した reason code (#993)。これらが付いた
+    # 保存タグ (alias / 非 preferred) は alias 行を評価しても preferred の訳を持たず無関係な
+    # missing/wrong translation ⚠ を生むため、翻訳品質評価をスキップする。
+    _ALIAS_REASON_CODES = frozenset({"alias_tag", "non_preferred_tag"})
+
     def __init__(self) -> None:
         """TagManagementServiceを初期化します。
 
@@ -199,13 +204,18 @@ class TagManagementService:
             manual refinement reason と翻訳品質 reason を統合した RefinementRecommendation。
         """
         manual = self.recommend_manual_refinement(tag, repo=repo, format_name=format_name)
-        translation_recs = self._evaluate_translation_quality(tag, repo=repo, format_name=format_name)
+        # alias / 非 preferred タグは manual が既に preferred タグへ誘導している。alias 行の翻訳を
+        # 評価すると無関係な missing/wrong translation 偽陽性 ⚠ が merge され、alias recommendation
+        # を ignore/fix した後も残るため、翻訳品質評価をスキップする (#993)。
+        if self._ALIAS_REASON_CODES.intersection(reason.code for reason in manual.reasons):
+            return manual
+        translation_recs = self._evaluate_translation_quality(tag, repo=repo)
         if not translation_recs:
             return manual
         return self._merge_recommendations(manual, translation_recs)
 
     def _evaluate_translation_quality(
-        self, tag: str, *, repo: object | None = None, format_name: str = "unknown"
+        self, tag: str, *, repo: object | None = None
     ) -> list[RefinementRecommendation]:
         """タグの ja 翻訳品質を評価し、問題が出たものだけ返す (#976)。
 
@@ -223,13 +233,11 @@ class TagManagementService:
         Args:
             tag: 評価対象の canonical タグ文字列。
             repo: lib に渡す DB リーダー。None なら merged reader を使う。
-            format_name: タグの format 名。manual refinement と同じ format で翻訳を引く
-                (判定不能時 "unknown" は format フィルタなし)。
 
         Returns:
             needs_refinement=True だった評価ごとの RefinementRecommendation。
         """
-        translations = self._fetch_exact_match_translations(tag, repo=repo, format_name=format_name)
+        translations = self._fetch_exact_match_translations(tag, repo=repo)
         if translations is None:
             # 完全一致行が無い → 翻訳品質評価をスキップ (素通し)。
             return []
@@ -264,7 +272,7 @@ class TagManagementService:
         return recommendations
 
     def _fetch_exact_match_translations(
-        self, tag: str, *, repo: object | None = None, format_name: str = "unknown"
+        self, tag: str, *, repo: object | None = None
     ) -> dict[str, list[str]] | None:
         """入力タグに完全一致する行の言語別翻訳候補を取得する (#976)。
 
@@ -281,28 +289,27 @@ class TagManagementService:
         翻訳品質評価の対象範囲が一致する。複数の完全一致行 (base / user 分割等) は
         言語ごとに翻訳候補をマージする。
 
-        `format_name` が既知 (≠ "unknown") のときは search を当該 format に絞り、同一
-        canonical tag が複数 format に存在する DB で別 format の翻訳を借用しないようにする
-        (#991 P2)。
+        翻訳は format に依存しない: tagdb の `TAG_TRANSLATIONS` は `tag_id` (タグ文字列の
+        identity) への FK だけを持ち format_id を持たない。照合キーの `TAGS.tag` は UNIQUE
+        なので 1 タグ文字列 = 1 tag_id = 1 翻訳セット。よって search を format で絞っても
+        返る翻訳は変わらず (CLI 実測で format 有無同一を確認)、`format_names` は常に指定しない
+        (#993、当初の format 整合案 #991 P2 は撤回)。
 
         Args:
             tag: 検索する canonical タグ文字列。
             repo: 検索に使う DB リーダー。None なら merged reader を使う。
-            format_name: 検索を絞る format 名。"unknown" のときは format フィルタなし。
 
         Returns:
             完全一致行が無ければ None、あれば言語コード -> 翻訳候補リストのマップ。
         """
         reader = cast("TagReaderProtocol", repo) if repo is not None else self.reader
-        # format が既知のときだけ絞る ("unknown" は判定不能の sentinel なので絞らない)。
-        format_names = None if format_name == "unknown" else [format_name]
         request = TagSearchRequest(
             query=tag,
             partial=False,
             resolve_preferred=False,
             include_aliases=True,
             include_deprecated=True,
-            format_names=format_names,
+            format_names=None,
         )
         try:
             result = search_tags(reader, request)
