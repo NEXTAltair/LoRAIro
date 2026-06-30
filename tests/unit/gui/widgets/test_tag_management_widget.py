@@ -7,6 +7,7 @@ from genai_tag_db_tools.models import TagRecordPublic
 from PySide6.QtWidgets import QCheckBox, QComboBox
 
 from lorairo.gui.widgets.tag_management_widget import TagManagementWidget
+from lorairo.services.refinement_service import RefinementService
 from lorairo.services.tag_management_service import TagManagementService
 
 
@@ -366,6 +367,52 @@ class TestTagManagementWidget:
         assert critical_called
         assert widget.buttonUpdate.isEnabled()
         assert "failed" in widget.labelStatus.text().lower()
+
+    def test_set_refinement_service_stores_instance(self, widget: TagManagementWidget) -> None:
+        """set_refinement_service が RefinementService を保持する（#977）"""
+        assert widget.refinement_service is None
+
+        refinement_service = Mock(spec=RefinementService)
+        widget.set_refinement_service(refinement_service)
+
+        assert widget.refinement_service is refinement_service
+
+    def test_update_completed_clears_refinement_cache(
+        self, widget: TagManagementWidget, mock_service: Mock
+    ) -> None:
+        """tagdb 更新完了時に refinement キャッシュが無効化される（#977）"""
+        refinement_service = Mock(spec=RefinementService)
+        widget.set_refinement_service(refinement_service)
+
+        # _on_update_completed は load_unknown_tags を呼ぶため tag_service の戻り値が必要
+        mock_service.get_unknown_tags.return_value = []
+        mock_service.get_all_available_types.return_value = ["character"]
+
+        widget._on_update_completed()
+
+        refinement_service.clear_cache.assert_called_once()
+
+    def test_update_completed_without_refinement_service_does_not_crash(
+        self, widget: TagManagementWidget, mock_service: Mock
+    ) -> None:
+        """RefinementService 未注入でも更新完了処理がクラッシュしない（#977）"""
+        assert widget.refinement_service is None
+        mock_service.get_unknown_tags.return_value = []
+        mock_service.get_all_available_types.return_value = ["character"]
+
+        # 例外を投げずに完了すること
+        widget._on_update_completed()
+
+    def test_clear_refinement_cache_degrades_on_error(self, widget: TagManagementWidget) -> None:
+        """clear_cache が例外を投げても UI を巻き込まず degrade する（#977）"""
+        refinement_service = Mock(spec=RefinementService)
+        refinement_service.clear_cache.side_effect = RuntimeError("cache error")
+        widget.set_refinement_service(refinement_service)
+
+        # 例外が外へ伝播しないこと
+        widget._clear_refinement_cache()
+
+        refinement_service.clear_cache.assert_called_once()
 
     def test_on_update_thread_emits_failed_on_exception(
         self, widget: TagManagementWidget, mock_service: Mock, monkeypatch, qtbot

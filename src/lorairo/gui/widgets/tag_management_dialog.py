@@ -3,6 +3,8 @@
 TagManagementWidgetをポップアップダイアログとして表示します。
 """
 
+from typing import TYPE_CHECKING
+
 from loguru import logger
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QCloseEvent, QShowEvent
@@ -10,6 +12,9 @@ from PySide6.QtWidgets import QDialog, QHBoxLayout, QPushButton, QVBoxLayout, QW
 
 from ...services.tag_management_service import TagManagementService
 from .tag_management_widget import TagManagementWidget
+
+if TYPE_CHECKING:
+    from ...services.refinement_service import RefinementService
 
 
 class TagManagementDialog(QDialog):
@@ -27,12 +32,16 @@ class TagManagementDialog(QDialog):
         self,
         tag_service: TagManagementService,
         parent: QWidget | None = None,
+        refinement_service: "RefinementService | None" = None,
     ):
         """TagManagementDialogを初期化します
 
         Args:
             tag_service: TagManagementServiceインスタンス
             parent: 親Widget（通常はMainWindow）
+            refinement_service: refinement 評価キャッシュを保持するサービス (#977)。
+                tagdb の type 更新後にキャッシュ無効化するために widget へ注入する。
+                None の場合はキャッシュ無効化をスキップする。
         """
         super().__init__(parent)
 
@@ -52,6 +61,8 @@ class TagManagementDialog(QDialog):
         # TagManagementWidget埋め込み
         self.tag_widget = TagManagementWidget(parent=self)
         self.tag_widget.set_tag_service(tag_service)
+        if refinement_service is not None:
+            self.tag_widget.set_refinement_service(refinement_service)
         main_layout.addWidget(self.tag_widget)
 
         # ボタンエリア
