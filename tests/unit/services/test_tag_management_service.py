@@ -783,3 +783,32 @@ class TestTranslationQualityIntegration:
         assert result is manual
         mock_search.assert_not_called()
         mock_eval.assert_not_called()
+
+    def test_missing_format_status_skips_translation_evaluation(
+        self, service: TagManagementService
+    ) -> None:
+        """指定 format に status が無いタグは翻訳評価を skip する (Codex PR #999)。
+
+        concrete format を渡す caller で、タグ行は存在するが当該 format に status が無いとき
+        manual は missing_format_status を報告する。翻訳取得は format 非依存 (search を絞らない)
+        ため、別 format 行を拾って無関係な missing_translation ⚠ を出しうる。manual signal で
+        gate して評価をスキップする。
+        """
+        manual = _recommendation("e621_only_tag", reason_codes=["missing_format_status"], score=0.5)
+        with (
+            patch(
+                "lorairo.services.tag_management_service.recommend_manual_refinement",
+                return_value=manual,
+            ),
+            patch(
+                "lorairo.services.tag_management_service.search_tags",
+            ) as mock_search,
+            patch(
+                "lorairo.services.tag_management_service.recommend_translation_quality",
+            ) as mock_eval,
+        ):
+            result = service.recommend_with_translation_quality("e621_only_tag", format_name="danbooru")
+
+        assert result is manual
+        mock_search.assert_not_called()
+        mock_eval.assert_not_called()

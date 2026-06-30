@@ -55,10 +55,17 @@ class TagManagementService:
     # missing_translation の大量偽陽性 ⚠ になる (#991 P1) ため、両表記を日本語として扱う。
     _JAPANESE_TRANSLATION_KEYS = ("japanese", "ja")
 
-    # manual refinement が「preferred タグへ誘導」と判定した reason code (#993)。これらが付いた
-    # 保存タグ (alias / 非 preferred) は alias 行を評価しても preferred の訳を持たず無関係な
-    # missing/wrong translation ⚠ を生むため、翻訳品質評価をスキップする。
-    _ALIAS_REASON_CODES = frozenset({"alias_tag", "non_preferred_tag"})
+    # manual refinement が「指定 format でこのタグは直接有効な canonical ではない」と判定した
+    # reason code (#993)。これらが付いた保存タグの翻訳をグローバルに引いて評価すると、manual が
+    # 既に別タグへ誘導/構造問題を flag 済みなのに無関係な missing/wrong translation ⚠ を merge し、
+    # recommendation を ignore/fix した後も残るため、翻訳品質評価をスキップする:
+    #   - alias_tag / non_preferred_tag: manual は preferred タグへ誘導済み。alias 行は preferred が
+    #     訳を持っていても自分は持たないことが多い。
+    #   - missing_format_status: タグ行は存在するが指定 concrete format に status が無い (タグは
+    #     その format のタグではない)。format scoping を外した存在判定が別 format 行を拾って
+    #     missing_translation 偽陽性を出すのを防ぐ (Codex PR #999)。翻訳は tag_id 直下で format
+    #     非依存なので search の format フィルタではなくこの manual signal で gate する。
+    _SKIP_TRANSLATION_REASON_CODES = frozenset({"alias_tag", "non_preferred_tag", "missing_format_status"})
 
     def __init__(self) -> None:
         """TagManagementServiceを初期化します。
@@ -204,10 +211,10 @@ class TagManagementService:
             manual refinement reason と翻訳品質 reason を統合した RefinementRecommendation。
         """
         manual = self.recommend_manual_refinement(tag, repo=repo, format_name=format_name)
-        # alias / 非 preferred タグは manual が既に preferred タグへ誘導している。alias 行の翻訳を
-        # 評価すると無関係な missing/wrong translation 偽陽性 ⚠ が merge され、alias recommendation
-        # を ignore/fix した後も残るため、翻訳品質評価をスキップする (#993)。
-        if self._ALIAS_REASON_CODES.intersection(reason.code for reason in manual.reasons):
+        # 指定 format でこのタグが直接有効な canonical でない (alias / 非 preferred / format status
+        # 無し) と manual が判定した場合、グローバルに引いた翻訳の評価は無関係な偽陽性 ⚠ になるため
+        # スキップする (#993、_SKIP_TRANSLATION_REASON_CODES の docstring 参照)。
+        if self._SKIP_TRANSLATION_REASON_CODES.intersection(reason.code for reason in manual.reasons):
             return manual
         translation_recs = self._evaluate_translation_quality(tag, repo=repo)
         if not translation_recs:
