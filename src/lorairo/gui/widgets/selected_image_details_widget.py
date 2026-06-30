@@ -847,8 +847,10 @@ class SelectedImageDetailsWidget(QWidget):
             self.ui.textEditCaptionsContent.setPlainText(caption_text)
 
         # アノテーションデータ（リッチ表示用）
+        # image_id を渡し、同一画像の reject reload では ✕ の非表示状態を保持する
+        # (別画像へ切り替えたときだけ表示状態がリセットされる。PR #992 Codex P2)。
         if details.annotation_data:
-            self.annotation_display.update_data(details.annotation_data)
+            self.annotation_display.update_data(details.annotation_data, image_id=details.image_id)
 
         logger.info(f"✅ SelectedImageDetailsWidget表示更新完了: image_id={details.image_id}")
         if self._copy_details_button:

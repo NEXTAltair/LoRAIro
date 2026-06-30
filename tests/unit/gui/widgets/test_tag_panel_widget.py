@@ -248,3 +248,37 @@ def test_set_tags_resets_session_state(panel, sample_tags):
     assert panel._disabled_display == set()
     assert panel._hidden == set()
     assert panel._last_refinements == {}
+
+
+def test_x_removed_tag_stays_hidden_after_same_image_reload(panel, sample_tags):
+    """✕ で外したタグは同一画像の reject reload 後も非表示を維持する (PR #992 Codex P2)。
+
+    ✕ → tag_reject_requested が同期で親へ届き、親が同一画像を reload して
+    set_tags / set_rejected_tags を呼び戻す。この同一画像 reload で _hidden が
+    クリアされると、外したタグが破線復活 chip として即座に再出現してしまう。
+    image_id が変わらない限り非表示状態を保持すること。
+    """
+    panel.set_tag_edit_enabled(True)
+    panel.set_tags(sample_tags, image_id=10)
+    panel._on_chip_removed("1girl")
+    assert "1girl" in panel._hidden
+
+    # 同一画像の reject reload: 1girl は active から消え rejected へ移る
+    remaining = [t for t in sample_tags if t["tag"] != "1girl"]
+    panel.set_tags(remaining, image_id=10)
+    panel.set_rejected_tags(["1girl"])
+
+    assert "1girl" in panel._hidden
+    assert "1girl" not in [chip.canonical for chip in panel._tag_chips]
+
+
+def test_session_state_resets_on_image_change(panel, sample_tags):
+    """別画像へ切り替えたら ✕ で外した非表示状態はリセットされる。"""
+    panel.set_tag_edit_enabled(True)
+    panel.set_tags(sample_tags, image_id=10)
+    panel._on_chip_removed("1girl")
+    assert "1girl" in panel._hidden
+
+    panel.set_tags(sample_tags, image_id=20)
+    assert panel._hidden == set()
+    assert "1girl" in [chip.canonical for chip in panel._tag_chips]

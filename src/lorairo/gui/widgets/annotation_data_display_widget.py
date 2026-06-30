@@ -362,13 +362,22 @@ class AnnotationDataDisplayWidget(QWidget, Ui_AnnotationDataDisplayWidget):
 
     # ─── データ更新 ──────────────────────────────────────────────────
 
-    def update_data(self, data: AnnotationData) -> None:
-        """アノテーションデータで表示を更新"""
+    def update_data(self, data: AnnotationData, image_id: int | None = None) -> None:
+        """アノテーションデータで表示を更新
+
+        Args:
+            data: 表示するアノテーションデータ。
+            image_id: 表示中画像の識別子。同一画像の reject reload で ✕ の非表示状態を
+                保持するため TagPanelWidget へ伝搬する (PR #992 Codex P2)。
+        """
         try:
             self.current_data = data
 
-            # タグ表示更新 (TagPanelWidget へ委譲。新画像なので表示状態 / refinement はリセット)。
-            self._tag_panel.set_tags(data.tags, data.tag_translations, data.available_languages)
+            # タグ表示更新 (TagPanelWidget へ委譲)。image_id が変わったときだけ表示状態を
+            # リセットし、同一画像の reject reload では ✕ の非表示などを保持する。
+            self._tag_panel.set_tags(
+                data.tags, data.tag_translations, data.available_languages, image_id=image_id
+            )
 
             # キャプション表示更新
             self._update_caption_display(data.caption)

@@ -171,6 +171,10 @@ class TagPanelWidget(QWidget):
         self._disabled_display: set[str] = set()  # 無効化 (破線でインライン表示継続)
         self._hidden: set[str] = set()  # ✕ で当該セッションのみ非表示
         self._rejected_tags: list[str] = []  # 親 (DB) から渡される soft-rejected canonical
+        # 表示中画像の識別子。set_tags でこれが変わったときだけ表示状態をリセットする。
+        # 同一画像の reject reload (✕ → 親が soft-reject → 同画像 reload → set_tags 呼び戻し)
+        # で _hidden が消え、外したタグが破線で即再出現する回帰を防ぐ (PR #992 Codex P2)。
+        self._image_id: int | None = None
 
         # 描画中の chip 群と refinement 保持 (#931: chip 再生成をまたいで ⚠ を復元)
         self._tag_chips: list[SelectableTagChip] = []
@@ -275,25 +279,35 @@ class TagPanelWidget(QWidget):
         tags: list[dict[str, Any]],
         translations: dict[int, dict[str, str]] | None = None,
         available_languages: list[str] | None = None,
+        image_id: int | None = None,
     ) -> None:
-        """新しい画像のタグ集合で表示を更新する。
+        """タグ集合で表示を更新する。
 
-        新画像の表示として表示状態 (無効化 / 非表示 / 選択 / refinement) をリセットし、
-        現在の言語選択で chip を再描画する。
+        ``image_id`` が前回と変わったとき (= 別画像の表示) だけ表示状態
+        (無効化 / 非表示 / refinement) をリセットする。同一画像の reject reload
+        では非表示などの操作状態を保持し、現在の言語選択で chip を再描画する。
 
         Args:
             tags: タグ詳細情報リスト (Repository 層形式)。
                 ``[{"tag": "1girl", "tag_id": 10, "model_name": ..., ...}, ...]``
             translations: ``{tag_id: {language: translated_text}}``。省略時は空。
             available_languages: 利用可能言語リスト (脚注/フォールバック用)。
+            image_id: 表示中画像の識別子。省略 (None) 時は常にリセットする
+                (後方互換)。同一 ``image_id`` の再呼び出しは表示状態を保持する。
         """
+        # ✕ で外したタグは同一画像の reject reload を跨いで非表示を維持する。
+        # 親が ✕ → soft-reject → 同画像 reload → set_tags を呼び戻す経路で _hidden を
+        # 消すと、外したタグが破線復活 chip として即再出現する (PR #992 Codex P2)。
+        image_changed = image_id is None or image_id != self._image_id
+        self._image_id = image_id
         self._tags = list(tags)
         self._translations = dict(translations) if translations else {}
         self._available_languages = list(available_languages) if available_languages else []
-        # 新画像なので表示状態をリセットする (前画像の操作・refinement を引き継がない)。
-        self._disabled_display = set()
-        self._hidden = set()
-        self._last_refinements = {}
+        if image_changed:
+            # 別画像なので前画像の操作・refinement を引き継がない。
+            self._disabled_display = set()
+            self._hidden = set()
+            self._last_refinements = {}
         self._populate_table(self._tags)
         self._refresh_tags_for_language(self._current_language())
 
