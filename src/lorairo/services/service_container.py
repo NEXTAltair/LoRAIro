@@ -264,10 +264,11 @@ class ServiceContainer:
         # tag_management_service (tagdb) の構築は重く、widget init 時点では tagdb 未設定の
         # ことがある (Base DB paths not configured)。recommend_fn を遅延 lambda にし、
         # 初回の実評価 (画像選択時・tagdb 準備済み) まで TagManagementService 構築を遅らせる。
+        # manual refinement に翻訳品質リコメンドを合流させた統合結果を返す (#976)。
         def _recommend(
             tag: str, *, repo: object | None = None, format_name: str = "unknown"
         ) -> RefinementRecommendation:
-            return self.tag_management_service.recommend_manual_refinement(
+            return self.tag_management_service.recommend_with_translation_quality(
                 tag, repo=repo, format_name=format_name
             )
 

@@ -49,6 +49,22 @@ def test_set_refinement_adds_marker_and_tooltip(qtbot) -> None:
     assert "blue_eyes" in chip.toolTip()
 
 
+def test_set_refinement_renders_translation_quality_reason(qtbot) -> None:
+    """翻訳品質 reason (#976) も既存の ⚠ / tooltip / 無視メニュー経路に乗る。"""
+    chip = SelectableTagChip("blue_eyes", "blue_eyes")
+    qtbot.addWidget(chip)
+
+    chip.set_refinement(_rec("blue_eyes", codes=["overlong_translation"]))
+
+    assert chip.text().startswith("⚠")
+    assert "overlong_translation msg" in chip.toolTip()
+
+    received: list[tuple[str, str]] = []
+    chip.refinement_ignore_requested.connect(lambda c, r: received.append((c, r)))
+    chip.refinement_ignore_requested.emit(chip.canonical, "overlong_translation")
+    assert received == [("blue_eyes", "overlong_translation")]
+
+
 def test_set_refinement_none_restores_base_text(qtbot) -> None:
     chip = SelectableTagChip("flower", "flower")
     qtbot.addWidget(chip)

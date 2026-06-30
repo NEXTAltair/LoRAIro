@@ -36,6 +36,27 @@ def test_refinement_service_property_uses_active_image_repository_factory() -> N
     )
 
 
+def test_recommend_fn_routes_to_translation_quality() -> None:
+    """注入される recommend_fn は recommend_with_translation_quality を呼ぶ (#976)。"""
+    from unittest.mock import MagicMock
+
+    container = ServiceContainer()
+    fake_tms = MagicMock()
+    sentinel = object()
+    fake_tms.recommend_with_translation_quality.return_value = sentinel
+    container._tag_management_service = fake_tms
+
+    service = container.create_refinement_service(object())  # type: ignore[arg-type]
+    repo = object()
+    result = service._recommend_fn("blue_eyes", repo=repo, format_name="danbooru")  # type: ignore[attr-defined]
+
+    assert result is sentinel
+    fake_tms.recommend_with_translation_quality.assert_called_once_with(
+        "blue_eyes", repo=repo, format_name="danbooru"
+    )
+    fake_tms.recommend_manual_refinement.assert_not_called()
+
+
 def test_main_window_path_db_manager_matches_active_db() -> None:
     """MainWindow 経路 (db_manager=container.db_manager) は active DB と同じ factory を指す (#978 回帰)。
 
