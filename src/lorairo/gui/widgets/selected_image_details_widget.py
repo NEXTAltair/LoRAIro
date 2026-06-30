@@ -46,6 +46,7 @@ if TYPE_CHECKING:
     from genai_tag_db_tools.db.repository import MergedTagReader
 
     from ...services.refinement_service import RefinementService
+    from ...services.tag_management_service import TagManagementService
     from ..state.dataset_state import DatasetStateManager
     from ..workers.manager import WorkerManager
     from ..workers.refinement_worker import RefinementResult
@@ -125,6 +126,9 @@ class SelectedImageDetailsWidget(QWidget):
         self._refinement_worker_manager: WorkerManager | None = None
         self._refinement_generation: int = 0  # worker_id 一意化 + レース照合の世代
         self._current_tag_canonicals: list[str] = []
+
+        # tagdb userdb 系書き込み (#989): set_tag_management_service で配線。
+        self._tag_management_service: TagManagementService | None = None
 
         # UI設定
         self.ui = Ui_SelectedImageDetailsWidget()
@@ -390,6 +394,21 @@ class SelectedImageDetailsWidget(QWidget):
         self.annotation_display.refinement_ignored.connect(self._on_refinement_ignored)
         logger.debug("SelectedImageDetailsWidget: refinement サービスを配線")
 
+    def set_tag_management_service(self, service: "TagManagementService") -> None:
+        """tagdb userdb 系書き込みサービスを配線する (#989)。
+
+        翻訳追加 (`translation_add_requested`) と type 補正 (`tag_metadata_edit_requested`)
+        を受けて canonical→tag_id を解決し、user DB overlay へ書き込む。保存先は image DB
+        系 (この画像の soft-reject 等) とは独立で、canonical 主キーで全画像に反映される。
+
+        Args:
+            service: canonical 解決 + user DB 書き込みを担う TagManagementService。
+        """
+        self._tag_management_service = service
+        self.annotation_display.translation_add_requested.connect(self._on_translation_add)
+        self.annotation_display.tag_metadata_edit_requested.connect(self._on_tag_metadata_edit)
+        logger.debug("SelectedImageDetailsWidget: tagdb userdb 書き込みサービスを配線")
+
     def _trigger_refinement_evaluation(self) -> None:
         """現在画像のタグを非同期 refinement 評価する (#931)。
 
@@ -503,6 +522,49 @@ class SelectedImageDetailsWidget(QWidget):
             return
         self._db_manager.add_manual_tag(self.current_image_id, tag)
         self._reload_current_image()
+
+    @Slot(str, str, str)
+    def _on_translation_add(self, canonical: str, language: str, translation: str) -> None:
+        """翻訳追加要求を user DB へ dispatch し再表示する (#989)。
+
+        canonical を tag_id へ解決して user DB overlay へ翻訳を書き込む。保存先は image DB
+        系と独立 (canonical 主キー・画像 ID 非依存)。書き込み後は ``_reload_current_image``
+        で現在画像を再描画する。再描画は merged_reader から翻訳を都度引き直すため新しい翻訳が
+        反映される。``set_merged_reader`` は呼ばない: 言語セレクタを再初期化して english に
+        戻してしまい、非英語表示中に追加した翻訳が canonical 表示へ巻き戻る (Codex #995 P2)。
+        現在の言語選択を保ったまま新翻訳を表示する。
+        """
+        service = self._tag_management_service
+        if service is None:
+            return
+        tag_id = service.resolve_tag_id(canonical)
+        if tag_id is None:
+            logger.warning(f"翻訳追加をスキップ (tag_id 未解決): canonical='{canonical}'")
+            return
+        service.add_translation(tag_id, language, translation)
+        self._reload_current_image()
+
+    @Slot(str, str)
+    def _on_tag_metadata_edit(self, canonical: str, type_name: str) -> None:
+        """タグ種別 (type) 補正要求を user DB へ dispatch し再評価する (#989)。
+
+        canonical を tag_id へ解決して user DB overlay の type を補正する。補正後は
+        refinement キャッシュを無効化してから再評価し、TYPE_MISMATCH 警告が解消される
+        ようにする。キャッシュを消さないと RefinementService が旧リコメンドを返し続け、
+        補正後も警告が残る (Codex #995 P2、tag_management_widget の type 更新フローと整合)。
+        """
+        service = self._tag_management_service
+        if service is None:
+            return
+        tag_id = service.resolve_tag_id(canonical)
+        if tag_id is None:
+            logger.warning(f"type 補正をスキップ (tag_id 未解決): canonical='{canonical}'")
+            return
+        service.update_single_tag_type(tag_id, type_name)
+        if self._refinement_service is not None:
+            self._refinement_service.clear_cache()
+        self._reload_current_image()
+        self._trigger_refinement_evaluation()
 
     def connect_to_dataset_state_manager(self, state_manager: "DatasetStateManager") -> None:
         """DatasetStateManagerの選択画像メタデータシグナルに接続する。

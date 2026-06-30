@@ -166,6 +166,13 @@ class SearchTabWidget(QWidget, Ui_SearchTab):
             # tagdb 不可時の graceful degradation (#931): refinement は付加機能のため、
             # どの初期化エラーでもタブを生かす意図で広く捕捉する。
             logger.warning(f"RefinementService 配線をスキップ (tagdb 不可?): {e}")
+        # tagdb userdb 系書き込み (#989): 翻訳追加 / type 補正。tagdb 不可でも degrade する。
+        try:
+            self._selected_image_details_widget.set_tag_management_service(
+                self._service_container.tag_management_service
+            )
+        except Exception as e:
+            logger.warning(f"TagManagementService 配線をスキップ (tagdb 不可?): {e}")
         if dsm is not None:
             self._selected_image_details_widget.connect_to_dataset_state_manager(dsm)
             logger.debug("SelectedImageDetailsWidget DatasetStateManager接続完了")

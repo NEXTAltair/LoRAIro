@@ -17,6 +17,7 @@ from genai_tag_db_tools import (
     recommend_translation_quality,
     search_tags,
     update_tags_type_batch,
+    write_user_translation,
 )
 from genai_tag_db_tools.models import (
     RefinementRecommendation,
@@ -387,3 +388,74 @@ class TagManagementService:
         """
         update = TagTypeUpdate(tag_id=tag_id, type_name=type_name)
         self.update_tag_types([update])
+
+    def resolve_tag_id(self, canonical: str) -> int | None:
+        """canonical タグ文字列を tag_db の tag_id へ解決します (#989)。
+
+        TagPanelWidget の userdb 操作 Signal は canonical (str) のみを運ぶため、書き込み
+        API (翻訳追加 / type 補正) が要求する tag_id を親 dispatch でここから解決する。
+        format は絞らず (全 format 横断) 完全一致検索を行い、`tag` または `source_tag` が
+        casefold 一致した行の tag_id を返す (別タグの翻訳経由マッチは採用しない、#991 P2 と
+        同方針)。danbooru に絞ると手動追加で `format_name="Lorairo"` / `type_name="unknown"`
+        として登録された user タグ (annotation_record._register_new_tag) が解決できず、
+        メタ編集を最も必要とするタグで翻訳追加・type 補正が無言スキップされるため絞らない
+        (Codex #995 P2)。
+
+        Args:
+            canonical: 解決する canonical タグ文字列。
+
+        Returns:
+            一致した tag_id。未ヒット / 検索失敗時は None。
+        """
+        request = TagSearchRequest(
+            query=canonical,
+            partial=False,
+            resolve_preferred=False,
+            include_aliases=True,
+            include_deprecated=True,
+            format_names=None,
+        )
+        try:
+            result = search_tags(self.reader, request)
+        except (ValueError, RuntimeError, SQLAlchemyError) as e:
+            logger.warning(f"tag_id 解決に失敗: canonical='{canonical}': {e}")
+            return None
+        normalized = canonical.casefold()
+        for item in result.items:
+            if item.tag.casefold() == normalized or (
+                item.source_tag is not None and item.source_tag.casefold() == normalized
+            ):
+                return cast("int", item.tag_id)
+        logger.warning(f"tag_id 解決で完全一致なし: canonical='{canonical}'")
+        return None
+
+    def add_translation(self, tag_id: int, language: str, translation: str) -> None:
+        """タグへ言語別翻訳を user DB overlay として追加します (#989)。
+
+        書き込みは user DB の翻訳 overlay (`USER_TAG_TRANSLATION_PATCH`) にのみ行われ、
+        base DB は書き換えない (公開 API `write_user_translation` が scope を tag_id から導出)。
+
+        Args:
+            tag_id: 翻訳を付与する対象タグの tag_id。
+            language: 言語コード (例: "ja")。
+            translation: 翻訳文字列。
+
+        Raises:
+            Exception: 書き込みに失敗した場合。
+        """
+        try:
+            write_user_translation(self.repository, tag_id, language, translation)
+            logger.info(
+                "Added translation overlay: tag_id={}, language={}",
+                tag_id,
+                language,
+            )
+        except Exception as e:
+            logger.error(
+                "Error adding translation: tag_id={}, language={}: {}",
+                tag_id,
+                language,
+                e,
+                exc_info=True,
+            )
+            raise
