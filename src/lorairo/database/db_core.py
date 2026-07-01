@@ -343,18 +343,35 @@ def create_db_engine(database_url: str | None = None) -> Engine:
 
         cursor = dbapi_connection.cursor()
         try:
-            cursor.execute("PRAGMA foreign_keys=ON")
-            logger.debug("PRAGMA foreign_keys=ON executed.")
-            cursor.execute("PRAGMA journal_mode=WAL")
-            journal_mode = cursor.fetchone()
-            logger.debug(f"PRAGMA journal_mode=WAL executed: {journal_mode}")
-            cursor.execute("PRAGMA synchronous=NORMAL")
-            logger.debug("PRAGMA synchronous=NORMAL executed.")
-            # GUI/CLI 併用時の一時的な書き込みロックを即時失敗させず待機させる (Issue #767)。
-            cursor.execute(f"PRAGMA busy_timeout={BUSY_TIMEOUT_MS}")
-            logger.debug(f"PRAGMA busy_timeout={BUSY_TIMEOUT_MS} executed.")
-        except Exception:
-            logger.opt(exception=True).warning("Failed to configure SQLite PRAGMA settings")
+            try:
+                cursor.execute("PRAGMA foreign_keys=ON")
+                logger.debug("PRAGMA foreign_keys=ON executed.")
+            except Exception:
+                logger.opt(exception=True).warning("Failed to configure PRAGMA foreign_keys")
+
+            try:
+                # busy_timeout は journal_mode/synchronous より先に設定する。QueuePool 化
+                # (Issue #1002) により複数スレッドが同時に新規コネクションを開けるようになった
+                # ため、後続の WAL 系 PRAGMA がロック中の DB に当たって例外になっても、この
+                # コネクションの busy_timeout は既に有効な状態にしておく (Issue #767 の待機が
+                # 個々の PRAGMA 失敗で無効化されるのを防ぐ)。
+                cursor.execute(f"PRAGMA busy_timeout={BUSY_TIMEOUT_MS}")
+                logger.debug(f"PRAGMA busy_timeout={BUSY_TIMEOUT_MS} executed.")
+            except Exception:
+                logger.opt(exception=True).warning("Failed to configure PRAGMA busy_timeout")
+
+            try:
+                cursor.execute("PRAGMA journal_mode=WAL")
+                journal_mode = cursor.fetchone()
+                logger.debug(f"PRAGMA journal_mode=WAL executed: {journal_mode}")
+            except Exception:
+                logger.opt(exception=True).warning("Failed to configure PRAGMA journal_mode")
+
+            try:
+                cursor.execute("PRAGMA synchronous=NORMAL")
+                logger.debug("PRAGMA synchronous=NORMAL executed.")
+            except Exception:
+                logger.opt(exception=True).warning("Failed to configure PRAGMA synchronous")
         finally:
             cursor.close()
 
