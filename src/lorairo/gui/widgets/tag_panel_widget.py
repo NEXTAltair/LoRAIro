@@ -29,6 +29,7 @@ from PySide6.QtWidgets import (
     QLabel,
     QLineEdit,
     QMenu,
+    QPushButton,
     QScrollArea,
     QSizePolicy,
     QTableWidget,
@@ -68,6 +69,8 @@ class SelectableTagChip(QLabel):
     # タグ情報メニュー要求 (#989、tagdb userdb 系)。親がダイアログを開く。
     translation_add_menu_requested = Signal(str)  # canonical — 翻訳を追加
     type_edit_menu_requested = Signal(str)  # canonical — タグ情報 (種別) を編集
+    # 使用頻度を見るメニュー要求 (#997)。read-only で TagPanelWidget 内で完結する。
+    usage_counts_menu_requested = Signal(str)  # canonical
 
     def __init__(self, display_text: str, canonical: str, parent: QWidget | None = None) -> None:
         super().__init__(display_text, parent)
@@ -135,6 +138,10 @@ class SelectableTagChip(QLabel):
         type_action = menu.addAction("タグ情報を編集…")
         type_action.triggered.connect(
             lambda _checked=False: self.type_edit_menu_requested.emit(self.canonical)
+        )
+        freq_action = menu.addAction("使用頻度を見る…")
+        freq_action.triggered.connect(
+            lambda _checked=False: self.usage_counts_menu_requested.emit(self.canonical)
         )
 
         rec = self.refinement
@@ -286,19 +293,55 @@ class TagTypeEditDialog(QDialog):
         return text if text in self.TYPE_CHOICES else ""
 
 
+class UsageCountsDialog(QDialog):
+    """canonical タグの format 別使用頻度を一覧表示する read-only ダイアログ (#997)。
+
+    DB へは書き込まない。表示するデータは親 (`TagPanelWidget`) が既に保持している
+    ``_counts_by_canonical`` (#990 の usage_counts をキャッシュしたもの) をそのまま
+    渡すだけで、追加の DB / Signal は不要。
+    """
+
+    def __init__(self, canonical: str, counts: dict[str, int], parent: QWidget | None = None) -> None:
+        super().__init__(parent)
+        self.setWindowTitle("使用頻度を見る")
+
+        layout = QVBoxLayout(self)
+        header = QLabel("使用頻度を見る · 読み取り専用", self)
+        header.setObjectName("udbHeader")
+        header.setStyleSheet(_UDB_HEADER_QSS)
+        layout.addWidget(header)
+
+        form = QFormLayout()
+        form.addRow("タグ (canonical):", QLabel(canonical, self))
+        if counts:
+            for format_name in sorted(counts):
+                form.addRow(
+                    f"{format_name}:", QLabel(TagPanelWidget._format_count(counts[format_name]), self)
+                )
+        else:
+            form.addRow(QLabel("使用頻度データなし", self))
+        layout.addLayout(form)
+
+        buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Close, self)
+        buttons.rejected.connect(self.reject)
+        layout.addWidget(buttons)
+
+
 class TagPanelWidget(QWidget):
     """タグ表示・操作の DB 非依存ウィジェット (ADR 0083 / Issue #987)。
 
     タグ chip 表示、言語切替・翻訳、選択コピー (#814)、soft-reject 一本のタグ操作
-    (無効化 / ✕ / 復活)、手動タグ追加、refinement 警告・ignore (#931) を担う。
-    操作要求は Signal で親へ出すだけで、DB / service への dispatch は親が行う。
+    (無効化 / ✕ / 復活)、手動タグ追加、refinement 警告・ignore (#931)、複数選択の
+    バッチ操作バーと使用頻度を見るダイアログ (#997) を担う。操作要求は Signal で
+    親へ出すだけで、DB / service への dispatch は親が行う。
 
     タグ操作モデル (ADR 0083 §3、soft-reject 一本):
 
     - 単クリック = 無効化⇄復活トグル (破線 chip でインライン表示継続)
     - ✕ ボタン = この画像から外す (パネルから当該セッションのみ非表示)
-    - Ctrl+クリック = コピー選択 (#814)
-    - 右クリック = タグ情報メニュー (翻訳追加 / タグ情報を編集 #989、refinement ignore #931)
+    - Ctrl+クリック = コピー選択 (#814) / 選択集合が非空ならバッチ操作バーを表示 (#997)
+    - 右クリック = タグ情報メニュー (翻訳追加 / タグ情報を編集 / 使用頻度を見る #989・#997、
+      refinement ignore #931)
 
     無効化 (破線表示) と ✕ (非表示) の区別は本ウィジェットの表示状態で保持し、
     永続化しない (reject 自体は親が ``rejected_at`` で永続化)。
@@ -308,6 +351,13 @@ class TagPanelWidget(QWidget):
     tag_reject_requested = Signal(str)  # canonical — 無効化・✕ 共通で soft-reject
     tag_restore_requested = Signal(str)  # canonical — 復活
     tag_add_requested = Signal(str)  # 生入力 (親が canonical 解決)
+    # 複数選択のバッチ操作 (#997)。親側で「ループして DB 書き込み → 最後に1回だけ reload」
+    # にできるよう、単数 Signal を選択件数分ループ emit するのではなく list をまとめて渡す。
+    tags_reject_requested = Signal(list)  # list[str] canonicals — まとめて外す
+    # 無効化⇄復活トグルは各タグ個別の反転なので混在選択では reject/restore 両方が
+    # 発生し得る。2 Signal に分けると親側で reload が2回走る (Codex #1001 P2) ため、
+    # 1回の Signal で両リストをまとめて渡し、親側で reload を1回に抑える。
+    tags_toggle_requested = Signal(list, list)  # (to_reject, to_restore) canonicals
     # tagdb userdb 系 (canonical が主キー / 画像 ID 不要)
     refinement_ignored = Signal(str, str)  # canonical, reason_code (#931)
     translation_add_requested = Signal(str, str, str)  # canonical, language, translation (#989)
@@ -339,6 +389,9 @@ class TagPanelWidget(QWidget):
         self._disabled_display: set[str] = set()  # 無効化 (破線でインライン表示継続)
         self._hidden: set[str] = set()  # ✕ で当該セッションのみ非表示
         self._rejected_tags: list[str] = []  # 親 (DB) から渡される soft-rejected canonical
+        # Ctrl+クリックで選択された canonical 集合 (#814 のコピー選択 + #997 のバッチ操作起点)。
+        # chip は再描画のたびに新規生成されるため、選択状態はウィジェット側で持って復元する。
+        self._selected_canonicals: set[str] = set()
         # 表示中画像の識別子。set_tags でこれが変わったときだけ表示状態をリセットする。
         # 同一画像の reject reload (✕ → 親が soft-reject → 同画像 reload → set_tags 呼び戻し)
         # で _hidden が消え、外したタグが破線で即再出現する回帰を防ぐ (PR #992 Codex P2)。
@@ -397,6 +450,14 @@ class TagPanelWidget(QWidget):
         self._tags_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         self._tags_scroll.setWidget(self._tags_chip_container)
         root.addWidget(self._tags_scroll)
+
+        # 複数選択バッチ操作バー (#997)。選択 0件では非表示、_update_selection_bar が
+        # 中身を都度作り直す (ボタン数が少ないので都度再構築で十分)。
+        self._selection_bar = QWidget(self)
+        self._selection_bar_layout = QHBoxLayout(self._selection_bar)
+        self._selection_bar_layout.setContentsMargins(0, 2, 0, 2)
+        self._selection_bar.setVisible(False)
+        root.addWidget(self._selection_bar)
 
         # 選択コピー導線 (Issue #814): Ctrl+クリックで選択、Ctrl+C / 右クリックで
         # 選択タグ (無選択なら全タグ) をカンマ区切りコピーする。
@@ -492,10 +553,11 @@ class TagPanelWidget(QWidget):
         if usage_counts is not None:
             self._usage_counts = dict(usage_counts)
         if image_changed:
-            # 別画像なので前画像の操作・refinement を引き継がない。
+            # 別画像なので前画像の操作・refinement・選択を引き継がない。
             self._disabled_display = set()
             self._hidden = set()
             self._last_refinements = {}
+            self._selected_canonicals = set()
         self._rebuild_counts_by_canonical()
         self._refresh_metric_selector()
         self._populate_table(self._tags)
@@ -627,6 +689,7 @@ class TagPanelWidget(QWidget):
         self._last_refinements = {}
         self._usage_counts = {}
         self._counts_by_canonical = {}
+        self._selected_canonicals = set()
         self._refresh_metric_selector()
         self.tableWidgetTags.setRowCount(0)
         self._tags_compact_label.setText("-")
@@ -790,6 +853,7 @@ class TagPanelWidget(QWidget):
             placeholder.setStyleSheet(f"color: {theme.INK_FAINT};")
             self._tags_chip_layout.addWidget(placeholder)
             self._tags_translation_note.setVisible(False)
+            self._update_selection_bar()
             return
 
         for display, original, has_tr in visible_items:
@@ -812,6 +876,7 @@ class TagPanelWidget(QWidget):
         # chip 再生成後、保持中の refinement 結果を再反映する (#931)。
         self._apply_refinements_to_chips()
         self._adjust_tags_chip_height()
+        self._update_selection_bar()
 
     def _add_chip(
         self,
@@ -837,6 +902,10 @@ class TagPanelWidget(QWidget):
                 chip.setToolTip(f"{original} → {display}")
         # 無効化 (破線) 表示の場合は disabled スタイルを適用する。
         chip.setStyleSheet(self._disabled_chip_qss() if disabled else chip.base_qss)
+        # 選択集合 (#814 / #997) を再描画をまたいで復元する。disabled より優先して上書きする。
+        if original in self._selected_canonicals:
+            chip.selected = True
+            chip.setStyleSheet(self._selected_chip_qss())
         chip.clicked.connect(lambda c=chip: self._on_chip_clicked(c))
         chip.ctrl_clicked.connect(lambda c=chip: self._on_chip_ctrl_clicked(c))
         # refinement「この理由を無視」を上位へ中継 (#931)
@@ -844,6 +913,8 @@ class TagPanelWidget(QWidget):
         # タグ情報メニュー (#989): chip 右クリック → 親がダイアログを開く。
         chip.translation_add_menu_requested.connect(self._open_translation_dialog)
         chip.type_edit_menu_requested.connect(self._open_type_edit_dialog)
+        # 使用頻度を見る (#997): read-only、TagPanelWidget 内で完結する。
+        chip.usage_counts_menu_requested.connect(self._open_usage_counts_dialog)
         self._tag_chips.append(chip)
         self._tags_chip_layout.addWidget(self._wrap_editable_chip(chip, original))
 
@@ -919,15 +990,145 @@ class TagPanelWidget(QWidget):
             self.tag_reject_requested.emit(canonical)
 
     def _on_chip_ctrl_clicked(self, chip: SelectableTagChip) -> None:
-        """Ctrl+クリック: コピー選択トグル (#814)。"""
+        """Ctrl+クリック: コピー選択トグル (#814)。バッチ操作バーの起点にもなる (#997)。"""
         chip.selected = not chip.selected
         chip.setStyleSheet(self._selected_chip_qss() if chip.selected else chip.base_qss)
+        if chip.selected:
+            self._selected_canonicals.add(chip.canonical)
+        else:
+            self._selected_canonicals.discard(chip.canonical)
+        self._update_selection_bar()
 
     def _on_chip_removed(self, canonical: str) -> None:
         """✕ ボタン: この画像から外す (soft-reject + 当該セッション非表示)。"""
         self._hidden.add(canonical)
+        self._selected_canonicals.discard(canonical)
         self.tag_reject_requested.emit(canonical)
         self._refresh_tags_for_language(self._current_language())
+
+    # ─── バッチ操作バー (#997) ──────────────────────────────────────────
+
+    def _update_selection_bar(self) -> None:
+        """選択集合に応じてバッチ操作バーの表示・ボタン構成を作り直す (#997)。
+
+        選択 0件では非表示にする。ボタン数が少ないので都度作り直しで十分
+        (chip の全再構築 (`_clear_chip_layout`) と同じ方針)。
+        """
+        while self._selection_bar_layout.count():
+            child = self._selection_bar_layout.takeAt(0)
+            if child is None:
+                continue
+            widget = child.widget()
+            if widget is not None:
+                widget.deleteLater()
+
+        selected = self._selected_canonicals
+        if not selected:
+            self._selection_bar.setVisible(False)
+            return
+
+        count_label = QLabel(f"{len(selected)}件選択中", self._selection_bar)
+        self._selection_bar_layout.addWidget(count_label)
+
+        # 外す/無効化⇄復活は soft-reject を伴うので単一チップ操作 (_on_chip_clicked /
+        # _on_chip_removed) と同じく編集モード時のみ有効にする。
+        remove_button = QPushButton("外す", self._selection_bar)
+        remove_button.setEnabled(self._tag_edit_enabled)
+        remove_button.clicked.connect(self._on_batch_remove)
+        self._selection_bar_layout.addWidget(remove_button)
+
+        toggle_button = QPushButton("無効化⇄復活", self._selection_bar)
+        toggle_button.setEnabled(self._tag_edit_enabled)
+        toggle_button.clicked.connect(self._on_batch_toggle_disable)
+        self._selection_bar_layout.addWidget(toggle_button)
+
+        single = next(iter(selected)) if len(selected) == 1 else None
+
+        translate_button = QPushButton("翻訳", self._selection_bar)
+        translate_button.setEnabled(single is not None)
+        if single is not None:
+            translate_button.clicked.connect(
+                lambda _checked=False, c=single: self._open_translation_dialog(c)
+            )
+        self._selection_bar_layout.addWidget(translate_button)
+
+        edit_button = QPushButton("編集", self._selection_bar)
+        edit_button.setEnabled(single is not None)
+        if single is not None:
+            edit_button.clicked.connect(lambda _checked=False, c=single: self._open_type_edit_dialog(c))
+        self._selection_bar_layout.addWidget(edit_button)
+
+        freq_button = QPushButton("頻度", self._selection_bar)
+        freq_button.setEnabled(single is not None)
+        if single is not None:
+            freq_button.clicked.connect(lambda _checked=False, c=single: self._open_usage_counts_dialog(c))
+        self._selection_bar_layout.addWidget(freq_button)
+
+        clear_button = QPushButton("選択解除", self._selection_bar)
+        clear_button.clicked.connect(self._on_batch_clear_selection)
+        self._selection_bar_layout.addWidget(clear_button)
+
+        self._selection_bar.setVisible(True)
+
+    def _on_batch_remove(self) -> None:
+        """バッチ「外す」: 選択中タグをまとめて非表示にし soft-reject する (#997)。
+
+        既存の単一チップ ✕ (`_on_chip_removed`) の複数版。
+        """
+        canonicals = list(self._selected_canonicals)
+        if not canonicals:
+            return
+        self._hidden.update(canonicals)
+        self._selected_canonicals.clear()
+        self.tags_reject_requested.emit(canonicals)
+        self._refresh_tags_for_language(self._current_language())
+
+    def _on_batch_toggle_disable(self) -> None:
+        """バッチ「無効化⇄復活」: 選択中の各タグを個別に現在状態の反転にする (#997)。
+
+        design の「選択全体を1方向へ揃える」方式ではなく、既存の単一チップクリック
+        (`_on_chip_clicked`) と同じ判定を選択集合の各タグへ独立に適用する
+        (混在選択でも各タグが個別に無効化⇄復活する)。
+        """
+        canonicals = list(self._selected_canonicals)
+        if not canonicals:
+            return
+        to_reject: list[str] = []
+        to_restore: list[str] = []
+        for canonical in canonicals:
+            if canonical in self._disabled_display or canonical in self._rejected_tags:
+                self._disabled_display.discard(canonical)
+                to_restore.append(canonical)
+            else:
+                self._disabled_display.add(canonical)
+                to_reject.append(canonical)
+        self._selected_canonicals.clear()
+        # 混在選択でも reload が1回で済むよう、reject/restore を1回の Signal でまとめて渡す
+        # (Codex #1001 P2)。
+        self.tags_toggle_requested.emit(to_reject, to_restore)
+        self._refresh_tags_for_language(self._current_language())
+
+    def _on_batch_clear_selection(self) -> None:
+        """「選択解除」ボタン: 選択集合をクリアして chip の強調表示を戻す (#997)。"""
+        self._selected_canonicals.clear()
+        for chip in self._tag_chips:
+            if chip.selected:
+                chip.selected = False
+                chip.setStyleSheet(chip.base_qss)
+        self._update_selection_bar()
+
+    @Slot(str)
+    def _open_usage_counts_dialog(self, canonical: str) -> None:
+        """「使用頻度を見る」ダイアログを開く (#997)。read-only、Signal 発火なし。
+
+        必要なデータ (`_counts_by_canonical`) は #990 の usage_counts で既にキャッシュ
+        済みのため、追加の DB 問い合わせや親への dispatch は不要。
+
+        Args:
+            canonical: 使用頻度を表示する canonical タグ文字列。
+        """
+        dialog = UsageCountsDialog(canonical, self._counts_by_canonical.get(canonical, {}), self)
+        dialog.exec()
 
     def _on_tag_add_submitted(self) -> None:
         """手動タグ追加入力の Enter ハンドラ。生入力のまま親へ出す (親が canonical 解決)。"""
