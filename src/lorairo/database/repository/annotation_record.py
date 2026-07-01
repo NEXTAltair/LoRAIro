@@ -58,6 +58,8 @@ from sqlalchemy.orm import Session
 from ...utils.log import logger
 from ..db_core import ensure_tag_db_initialized
 from ..schema import (
+    REJECT_REASON_INCORRECT,
+    REJECT_REASON_REPLACED,
     AnnotationsDict,
     Caption,
     CaptionAnnotationData,
@@ -429,14 +431,20 @@ class AnnotationRepository(BaseRepository):
         self,
         image_ids: list[int],
         tag: str,
+        reason: str = REJECT_REASON_INCORRECT,
     ) -> tuple[bool, list[tuple[int, str]]]:
-        """複数画像から1つのタグを原子的に削除する。
+        """複数画像から1つのタグを原子的に soft-reject する (Issue #1003)。
 
         単一トランザクションで全画像を処理。全件成功 or 全件ロールバック。
+        ``rejected_at`` を立てると同時に ``reject_reason`` へ種別を記録する。
+        既定は ``'incorrect'`` (✕ 相当のバッチ削除)。chip 単クリックの無効化は
+        呼び出し元が ``reason='not_needed'`` を渡す。
 
         Args:
             image_ids: 対象画像のIDリスト
             tag: 削除するタグ
+            reason: soft-reject 種別 (``'not_needed'`` / ``'incorrect'``)。
+                既定は ``'incorrect'``。
 
         Returns:
             (成功フラグ, [(image_id, "changed"|"skipped"), ...])
@@ -483,6 +491,7 @@ class AnnotationRepository(BaseRepository):
                         )
                         .values(
                             rejected_at=datetime.datetime.now(datetime.UTC),
+                            reject_reason=reason,
                             updated_at=datetime.datetime.now(datetime.UTC),
                         )
                     )
@@ -560,6 +569,7 @@ class AnnotationRepository(BaseRepository):
                         )
                         .values(
                             rejected_at=datetime.datetime.now(datetime.UTC),
+                            reject_reason=REJECT_REASON_REPLACED,
                             updated_at=datetime.datetime.now(datetime.UTC),
                         )
                     )
@@ -653,6 +663,7 @@ class AnnotationRepository(BaseRepository):
                         )
                         .values(
                             rejected_at=None,
+                            reject_reason=None,
                             updated_at=datetime.datetime.now(datetime.UTC),
                         )
                     )
@@ -671,16 +682,17 @@ class AnnotationRepository(BaseRepository):
                 raise
 
     def get_rejected_tags(self, image_id: int) -> list[dict[str, Any]]:
-        """画像の soft-reject 済みタグ (rejected_at IS NOT NULL) を返す (Issue #792)。
+        """画像の soft-reject 済みタグ (rejected_at IS NOT NULL) を返す (Issue #792 / #1003)。
 
-        TagEdit の「soft-rejected」復活セクション表示に使う。
+        TagEdit の「soft-rejected」復活セクション表示と、reject_reason に基づく表示種別の
+        再構築 (無効化=打ち消し線 / 除外・置換=非表示) に使う。
 
         Args:
             image_id: 対象画像 ID。
 
         Returns:
-            ``{"tag": str, "tag_id": int | None, "is_edited_manually": bool | None}``
-            の dict リスト (rejected_at 昇順)。
+            ``{"tag": str, "tag_id": int | None, "is_edited_manually": bool | None,
+            "reject_reason": str | None}`` の dict リスト (rejected_at 昇順)。
 
         Raises:
             SQLAlchemyError: データベースエラー時 (再送出)。
@@ -688,7 +700,7 @@ class AnnotationRepository(BaseRepository):
         with self.session_factory() as session:
             try:
                 rows = session.execute(
-                    select(Tag.tag, Tag.tag_id, Tag.is_edited_manually)
+                    select(Tag.tag, Tag.tag_id, Tag.is_edited_manually, Tag.reject_reason)
                     .where(Tag.image_id == image_id, Tag.rejected_at.is_not(None))
                     .order_by(Tag.rejected_at)
                 ).all()
@@ -696,7 +708,12 @@ class AnnotationRepository(BaseRepository):
                 logger.error(f"Failed to fetch rejected tags for image_id={image_id}", exc_info=True)
                 raise
         return [
-            {"tag": row.tag, "tag_id": row.tag_id, "is_edited_manually": row.is_edited_manually}
+            {
+                "tag": row.tag,
+                "tag_id": row.tag_id,
+                "is_edited_manually": row.is_edited_manually,
+                "reject_reason": row.reject_reason,
+            }
             for row in rows
         ]
 

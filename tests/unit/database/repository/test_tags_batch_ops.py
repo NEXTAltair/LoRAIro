@@ -324,12 +324,14 @@ class TestAddTagToImagesBatchCanonical:
 @pytest.mark.unit
 class TestGetRejectedTags:
     def test_returns_rejected_tag_dicts(self, repo, mock_session):
-        row = MagicMock(tag="bad_tag", tag_id=7, is_edited_manually=False)
+        row = MagicMock(tag="bad_tag", tag_id=7, is_edited_manually=False, reject_reason="not_needed")
         mock_session.execute = MagicMock(return_value=MagicMock(all=MagicMock(return_value=[row])))
 
         result = repo.get_rejected_tags(42)
 
-        assert result == [{"tag": "bad_tag", "tag_id": 7, "is_edited_manually": False}]
+        assert result == [
+            {"tag": "bad_tag", "tag_id": 7, "is_edited_manually": False, "reject_reason": "not_needed"}
+        ]
 
     def test_empty_when_no_rejected(self, repo, mock_session):
         mock_session.execute = MagicMock(return_value=MagicMock(all=MagicMock(return_value=[])))

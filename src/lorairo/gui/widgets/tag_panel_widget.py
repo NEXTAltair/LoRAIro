@@ -49,6 +49,11 @@ if TYPE_CHECKING:
 # 選択時は metric_source を空にして chip の count 補助表示を消す。
 _METRIC_NONE_LABEL = "なし"
 
+# soft-reject 種別 (schema.REJECT_REASON_* の SSoT と一致、Issue #1003)。
+# 本ウィジェットは DB 非依存のため schema を import せず値のみ複製する。
+# 'not_needed' のみインライン破線 chip (無効化) で残し、'incorrect'/'replaced' は非表示。
+_REJECT_REASON_NOT_NEEDED = "not_needed"
+
 
 class SelectableTagChip(QLabel):
     """選択トグルできるタグ chip (Issue #814 / #931 / #987)。
@@ -343,21 +348,26 @@ class TagPanelWidget(QWidget):
     - 右クリック = タグ情報メニュー (翻訳追加 / タグ情報を編集 / 使用頻度を見る #989・#997、
       refinement ignore #931)
 
-    無効化 (破線表示) と ✕ (非表示) の区別は本ウィジェットの表示状態で保持し、
-    永続化しない (reject 自体は親が ``rejected_at`` で永続化)。
+    無効化 (破線表示) と ✕ (非表示) の区別は DB の ``reject_reason`` に永続化され
+    (無効化=``not_needed`` / 除外=``incorrect`` / 置換=``replaced``、Issue #1003)、
+    reload のたびに ``set_rejected_tags`` が ``_disabled_display`` / ``_hidden`` を
+    DB 由来で再構築する。別画像へ往復してもメモリ state に頼らず表示が正しく戻る。
     """
 
-    # image DB 系 (current_image_id 必須。親が dispatch)
-    tag_reject_requested = Signal(str)  # canonical — 無効化・✕ 共通で soft-reject
+    # image DB 系 (current_image_id 必須。親が dispatch)。単一操作は種別を名前で明示し、
+    # 受け手の reason 文字列分岐を排除する (Issue #1003 / ADR 0083 §2)。
+    tag_disable_requested = Signal(str)  # canonical — 無効化 (reason='not_needed')
+    tag_exclude_requested = Signal(str)  # canonical — 除外   (reason='incorrect')
     tag_restore_requested = Signal(str)  # canonical — 復活
     tag_add_requested = Signal(str)  # 生入力 (親が canonical 解決)
     # 複数選択のバッチ操作 (#997)。親側で「ループして DB 書き込み → 最後に1回だけ reload」
     # にできるよう、単数 Signal を選択件数分ループ emit するのではなく list をまとめて渡す。
-    tags_reject_requested = Signal(list)  # list[str] canonicals — まとめて外す
-    # 無効化⇄復活トグルは各タグ個別の反転なので混在選択では reject/restore 両方が
+    tags_exclude_requested = Signal(list)  # list[str] canonicals — まとめて除外 (incorrect)
+    # 無効化⇄復活トグルは各タグ個別の反転なので混在選択では disable/restore 両方が
     # 発生し得る。2 Signal に分けると親側で reload が2回走る (Codex #1001 P2) ため、
     # 1回の Signal で両リストをまとめて渡し、親側で reload を1回に抑える。
-    tags_toggle_requested = Signal(list, list)  # (to_reject, to_restore) canonicals
+    # 無効化側は reason='not_needed'。
+    tags_toggle_requested = Signal(list, list)  # (to_disable, to_restore) canonicals
     # tagdb userdb 系 (canonical が主キー / 画像 ID 不要)
     refinement_ignored = Signal(str, str)  # canonical, reason_code (#931)
     translation_add_requested = Signal(str, str, str)  # canonical, language, translation (#989)
@@ -385,9 +395,9 @@ class TagPanelWidget(QWidget):
         # 編集モード (soft-reject 導線。既定 read-only)
         self._tag_edit_enabled: bool = False
 
-        # 操作の表示状態 (永続化しない。ADR 0083 §3)
-        self._disabled_display: set[str] = set()  # 無効化 (破線でインライン表示継続)
-        self._hidden: set[str] = set()  # ✕ で当該セッションのみ非表示
+        # 操作の表示状態 (Issue #1003: DB の reject_reason から reload 毎に再構築される)。
+        self._disabled_display: set[str] = set()  # 無効化 (破線でインライン表示継続、not_needed)
+        self._hidden: set[str] = set()  # 除外/置換 (非表示、incorrect/replaced)
         self._rejected_tags: list[str] = []  # 親 (DB) から渡される soft-rejected canonical
         # Ctrl+クリックで選択された canonical 集合 (#814 のコピー選択 + #997 のバッチ操作起点)。
         # chip は再描画のたびに新規生成されるため、選択状態はウィジェット側で持って復元する。
@@ -553,9 +563,12 @@ class TagPanelWidget(QWidget):
         if usage_counts is not None:
             self._usage_counts = dict(usage_counts)
         if image_changed:
-            # 別画像なので前画像の操作・refinement・選択を引き継がない。
+            # 別画像なので前画像の操作・refinement・選択・reject を引き継がない。
+            # 表示種別 (無効化/除外) は直後の set_rejected_tags が DB の reject_reason から
+            # 再構築する (メモリ state 非依存、Issue #1003)。
             self._disabled_display = set()
             self._hidden = set()
+            self._rejected_tags = []
             self._last_refinements = {}
             self._selected_canonicals = set()
         self._rebuild_counts_by_canonical()
@@ -616,16 +629,30 @@ class TagPanelWidget(QWidget):
         self._tag_add_input.setVisible(enabled)
         self._refresh_tags_for_language(self._current_language())
 
-    def set_rejected_tags(self, rejected_tags: list[str]) -> None:
-        """soft-rejected タグ一覧を設定しインライン破線 chip として再描画する。
+    def set_rejected_tags(self, rejected_tags: list[dict[str, Any]]) -> None:
+        """soft-rejected タグを reject_reason 付きで受け、表示種別を DB から再構築する。
 
-        旧「復活」別枠は廃止し、無効化と同じく破線 chip でインライン表示する
-        (ADR 0083 §3)。クリックで復活できる。
+        現象の根治点 (Issue #1003): 無効化 (``_disabled_display``) と除外 (``_hidden``) の
+        区別をメモリ state ではなく DB 由来の ``reject_reason`` から reload のたびに再構築
+        する。別画像へ往復してもメモリ state に頼らず表示が正しく戻る。
+
+        - ``reject_reason == 'not_needed'`` → 破線 chip でインライン表示 (無効化、クリックで復活)
+        - ``reject_reason in ('incorrect', 'replaced')`` → 非表示
 
         Args:
-            rejected_tags: soft-reject 済み canonical タグ文字列のリスト。
+            rejected_tags: ``{"tag": str, "reject_reason": str | None, ...}`` の dict リスト
+                (``get_rejected_tags`` の戻り値)。
         """
-        self._rejected_tags = list(rejected_tags)
+        rows = [row for row in rejected_tags if row.get("tag")]
+        self._rejected_tags = [row["tag"] for row in rows]
+        # DB reject_reason から表示状態を再構築する (メモリ非依存、Issue #1003)。
+        # reason 不明 (None 等) は安全側に倒し無効化 (破線で残す) 扱いにする。
+        self._disabled_display = {
+            row["tag"] for row in rows if row.get("reject_reason") in (None, _REJECT_REASON_NOT_NEEDED)
+        }
+        self._hidden = {
+            row["tag"] for row in rows if row.get("reject_reason") not in (None, _REJECT_REASON_NOT_NEEDED)
+        }
         self._refresh_tags_for_language(self._current_language())
 
     def apply_refinements(self, recommendations: dict[str, RefinementRecommendation]) -> None:
@@ -984,10 +1011,10 @@ class TagPanelWidget(QWidget):
             chip.setStyleSheet(chip.base_qss)
             self.tag_restore_requested.emit(canonical)
         else:
-            # アクティブ chip クリック = 無効化 (破線でインライン継続)
+            # アクティブ chip クリック = 無効化 (破線でインライン継続、reason='not_needed')
             self._disabled_display.add(canonical)
             chip.setStyleSheet(self._disabled_chip_qss())
-            self.tag_reject_requested.emit(canonical)
+            self.tag_disable_requested.emit(canonical)
 
     def _on_chip_ctrl_clicked(self, chip: SelectableTagChip) -> None:
         """Ctrl+クリック: コピー選択トグル (#814)。バッチ操作バーの起点にもなる (#997)。"""
@@ -1000,10 +1027,10 @@ class TagPanelWidget(QWidget):
         self._update_selection_bar()
 
     def _on_chip_removed(self, canonical: str) -> None:
-        """✕ ボタン: この画像から外す (soft-reject + 当該セッション非表示)。"""
+        """✕ ボタン: この画像から外す (除外 soft-reject + 当該セッション非表示)。"""
         self._hidden.add(canonical)
         self._selected_canonicals.discard(canonical)
-        self.tag_reject_requested.emit(canonical)
+        self.tag_exclude_requested.emit(canonical)
         self._refresh_tags_for_language(self._current_language())
 
     # ─── バッチ操作バー (#997) ──────────────────────────────────────────
@@ -1080,7 +1107,7 @@ class TagPanelWidget(QWidget):
             return
         self._hidden.update(canonicals)
         self._selected_canonicals.clear()
-        self.tags_reject_requested.emit(canonicals)
+        self.tags_exclude_requested.emit(canonicals)
         self._refresh_tags_for_language(self._current_language())
 
     def _on_batch_toggle_disable(self) -> None:
@@ -1093,7 +1120,7 @@ class TagPanelWidget(QWidget):
         canonicals = list(self._selected_canonicals)
         if not canonicals:
             return
-        to_reject: list[str] = []
+        to_disable: list[str] = []
         to_restore: list[str] = []
         for canonical in canonicals:
             if canonical in self._disabled_display or canonical in self._rejected_tags:
@@ -1101,11 +1128,11 @@ class TagPanelWidget(QWidget):
                 to_restore.append(canonical)
             else:
                 self._disabled_display.add(canonical)
-                to_reject.append(canonical)
+                to_disable.append(canonical)
         self._selected_canonicals.clear()
-        # 混在選択でも reload が1回で済むよう、reject/restore を1回の Signal でまとめて渡す
-        # (Codex #1001 P2)。
-        self.tags_toggle_requested.emit(to_reject, to_restore)
+        # 混在選択でも reload が1回で済むよう、disable/restore を1回の Signal でまとめて渡す
+        # (Codex #1001 P2)。無効化側は reason='not_needed' で親が dispatch する。
+        self.tags_toggle_requested.emit(to_disable, to_restore)
         self._refresh_tags_for_language(self._current_language())
 
     def _on_batch_clear_selection(self) -> None:

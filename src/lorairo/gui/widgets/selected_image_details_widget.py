@@ -32,6 +32,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from ...database.schema import REJECT_REASON_INCORRECT, REJECT_REASON_NOT_NEEDED
 from ...gui.designer.SelectedImageDetailsWidget_ui import Ui_SelectedImageDetailsWidget
 from ...services.date_formatter import format_datetime_for_display
 from ...utils.log import logger
@@ -370,10 +371,11 @@ class SelectedImageDetailsWidget(QWidget):
         """
         self._db_manager = db_manager
         self.annotation_display.set_tag_edit_enabled(True)
-        self.annotation_display.tag_reject_requested.connect(self._on_tag_reject)
+        self.annotation_display.tag_disable_requested.connect(self._on_tag_disable)
+        self.annotation_display.tag_exclude_requested.connect(self._on_tag_exclude)
         self.annotation_display.tag_restore_requested.connect(self._on_tag_restore)
         self.annotation_display.tag_add_requested.connect(self._on_tag_add)
-        self.annotation_display.tags_reject_requested.connect(self._on_tags_reject)
+        self.annotation_display.tags_exclude_requested.connect(self._on_tags_exclude)
         self.annotation_display.tags_toggle_requested.connect(self._on_tags_toggle)
         logger.debug("SelectedImageDetailsWidget: soft-reject 編集モードを有効化")
 
@@ -468,11 +470,16 @@ class SelectedImageDetailsWidget(QWidget):
         self._trigger_refinement_evaluation()
 
     def _populate_rejected_tags(self) -> None:
-        """現在画像の soft-rejected タグを取得して復活セクションへ反映する (Issue #792)。"""
+        """現在画像の soft-rejected タグを reject_reason 付きで反映する (Issue #792 / #1003)。
+
+        ``get_rejected_tags`` の dict (``reject_reason`` を含む) をそのまま渡し、
+        TagPanelWidget 側が無効化 (打ち消し線) / 除外・置換 (非表示) を DB 由来で
+        再構築する。メモリ state に依存しないため別画像往復でも表示が保持される。
+        """
         db_manager = getattr(self, "_db_manager", None)
         if db_manager is None or self.current_image_id is None:
             return
-        rejected = [row["tag"] for row in db_manager.get_rejected_tags(self.current_image_id)]
+        rejected = db_manager.get_rejected_tags(self.current_image_id)
         self.annotation_display.set_rejected_tags(rejected)
 
     def _reload_current_image(self) -> None:
@@ -502,11 +509,19 @@ class SelectedImageDetailsWidget(QWidget):
             self._on_image_data_received(metadata)
 
     @Slot(str)
-    def _on_tag_reject(self, tag: str) -> None:
-        """タグ soft-reject 要求を Manager に委譲し再描画する。"""
+    def _on_tag_disable(self, tag: str) -> None:
+        """タグ無効化 (not_needed) 要求を Manager に委譲し再描画する (Issue #1003)。"""
         if self.current_image_id is None:
             return
-        self._db_manager.soft_reject_tag(self.current_image_id, tag)
+        self._db_manager.soft_reject_tag(self.current_image_id, tag, reason=REJECT_REASON_NOT_NEEDED)
+        self._reload_current_image()
+
+    @Slot(str)
+    def _on_tag_exclude(self, tag: str) -> None:
+        """タグ除外 (incorrect) 要求を Manager に委譲し再描画する (Issue #1003)。"""
+        if self.current_image_id is None:
+            return
+        self._db_manager.soft_reject_tag(self.current_image_id, tag, reason=REJECT_REASON_INCORRECT)
         self._reload_current_image()
 
     @Slot(str)
@@ -526,30 +541,31 @@ class SelectedImageDetailsWidget(QWidget):
         self._reload_current_image()
 
     @Slot(list)
-    def _on_tags_reject(self, canonicals: list[str]) -> None:
-        """複数選択のバッチ soft-reject 要求を Manager に委譲し再描画する (#997)。
+    def _on_tags_exclude(self, canonicals: list[str]) -> None:
+        """複数選択のバッチ除外 (incorrect) 要求を Manager に委譲し再描画する (#997 / #1003)。
 
-        `_on_tag_reject` の複数版。選択件数分の reload / refinement 再評価を避けるため、
+        `_on_tag_exclude` の複数版。選択件数分の reload / refinement 再評価を避けるため、
         DB 書き込みをループしたあと `_reload_current_image` は1回だけ呼ぶ。
         """
         if self.current_image_id is None:
             return
         for tag in canonicals:
-            self._db_manager.soft_reject_tag(self.current_image_id, tag)
+            self._db_manager.soft_reject_tag(self.current_image_id, tag, reason=REJECT_REASON_INCORRECT)
         self._reload_current_image()
 
     @Slot(list, list)
-    def _on_tags_toggle(self, to_reject: list[str], to_restore: list[str]) -> None:
-        """バッチ「無効化⇄復活」要求を Manager に委譲し再描画する (#997)。
+    def _on_tags_toggle(self, to_disable: list[str], to_restore: list[str]) -> None:
+        """バッチ「無効化⇄復活」要求を Manager に委譲し再描画する (#997 / #1003)。
 
-        選択中の各タグを個別に現在状態の反転にするため、混在選択では reject/restore が
-        両方発生し得る。両方の DB 書き込みをループしたあと `_reload_current_image` は
-        1回だけ呼ぶ (2 Signal に分けて別々に reload すると2回走ってしまう、Codex #1001 P2)。
+        選択中の各タグを個別に現在状態の反転にするため、混在選択では disable/restore が
+        両方発生し得る。無効化側は reason='not_needed'。両方の DB 書き込みをループした
+        あと `_reload_current_image` は1回だけ呼ぶ (2 Signal に分けて別々に reload すると
+        2回走ってしまう、Codex #1001 P2)。
         """
         if self.current_image_id is None:
             return
-        for tag in to_reject:
-            self._db_manager.soft_reject_tag(self.current_image_id, tag)
+        for tag in to_disable:
+            self._db_manager.soft_reject_tag(self.current_image_id, tag, reason=REJECT_REASON_NOT_NEEDED)
         for tag in to_restore:
             self._db_manager.restore_tag(self.current_image_id, tag)
         self._reload_current_image()

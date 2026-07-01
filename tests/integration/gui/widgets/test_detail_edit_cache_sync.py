@@ -80,7 +80,7 @@ class _FakeDbManager:
     def __init__(self) -> None:
         self.image_repo = _FakeImageRepo()
 
-    def soft_reject_tag(self, image_id: int, tag: str) -> bool:
+    def soft_reject_tag(self, image_id: int, tag: str, reason: str = "incorrect") -> bool:
         self.image_repo.rejected.add(tag)
         return True
 
@@ -93,7 +93,10 @@ class _FakeDbManager:
         return True
 
     def get_rejected_tags(self, image_id: int) -> list[dict[str, Any]]:
-        return [{"tag": t, "tag_id": None, "is_edited_manually": False} for t in self.image_repo.rejected]
+        return [
+            {"tag": t, "tag_id": None, "is_edited_manually": False, "reject_reason": "incorrect"}
+            for t in self.image_repo.rejected
+        ]
 
 
 def _cached_tag_names(dsm: DatasetStateManager, image_id: int) -> set[str]:
@@ -125,7 +128,7 @@ def test_reject_updates_dataset_state_cache(qtbot) -> None:
     """soft-reject 後、DSM キャッシュからも該当タグが消える (再選択で復活しない)。"""
     widget, dsm, _db = _wire(qtbot)
 
-    widget._on_tag_reject("flower")
+    widget._on_tag_exclude("flower")
 
     assert "flower" not in _cached_tag_names(dsm, 1)
     assert _cached_tag_names(dsm, 1) == {"rose"}
@@ -136,7 +139,7 @@ def test_reject_preserves_processed_image_path(qtbot) -> None:
     widget, dsm, _db = _wire(qtbot)
     assert dsm.get_image_by_id(1)["stored_image_path"] == "/tmp/processed.png"
 
-    widget._on_tag_reject("flower")
+    widget._on_tag_exclude("flower")
 
     # アノテーションのみ merge するため processed パスは元 Image 行のパスに上書きされない
     assert dsm.get_image_by_id(1)["stored_image_path"] == "/tmp/processed.png"

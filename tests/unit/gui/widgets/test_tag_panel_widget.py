@@ -62,12 +62,13 @@ def test_set_tags_renders_chips_in_canonical_order(panel, sample_tags):
 # ③ 単クリックで reject 発火 + 破線化 ----------------------------------------
 
 
-def test_single_click_emits_reject_and_dashes_chip(panel, sample_tags, qtbot):
+def test_single_click_emits_disable_and_dashes_chip(panel, sample_tags, qtbot):
+    """単クリックは無効化 (tag_disable_requested, reason='not_needed') を出す (#1003)。"""
     panel.set_tag_edit_enabled(True)
     panel.set_tags(sample_tags)
     chip = panel._tag_chips[0]
 
-    with qtbot.waitSignal(panel.tag_reject_requested, timeout=1000) as blocker:
+    with qtbot.waitSignal(panel.tag_disable_requested, timeout=1000) as blocker:
         chip.clicked.emit()
     assert blocker.args == ["1girl"]
     # 当該 chip は破線スタイル (無効化インライン表示) になる
@@ -76,10 +77,10 @@ def test_single_click_emits_reject_and_dashes_chip(panel, sample_tags, qtbot):
 
 
 def test_single_click_noop_when_edit_disabled(panel, sample_tags):
-    """編集モード無効時は単クリックで reject を出さない (read-only)。"""
+    """編集モード無効時は単クリックで disable を出さない (read-only)。"""
     panel.set_tags(sample_tags)
     received: list[str] = []
-    panel.tag_reject_requested.connect(received.append)
+    panel.tag_disable_requested.connect(received.append)
     panel._tag_chips[0].clicked.emit()
     assert received == []
 
@@ -104,13 +105,14 @@ def test_click_disabled_chip_emits_restore(panel, sample_tags, qtbot):
 # ⑤ ✕ で reject 発火 + 非表示 ------------------------------------------------
 
 
-def test_remove_button_emits_reject_and_hides_chip(panel, sample_tags, qtbot):
+def test_remove_button_emits_exclude_and_hides_chip(panel, sample_tags, qtbot):
+    """✕ は除外 (tag_exclude_requested, reason='incorrect') を出し非表示にする (#1003)。"""
     panel.set_tag_edit_enabled(True)
     panel.set_tags(sample_tags)
     buttons = panel.findChildren(QToolButton, "tagRejectButton")
     assert len(buttons) == 3
 
-    with qtbot.waitSignal(panel.tag_reject_requested, timeout=1000) as blocker:
+    with qtbot.waitSignal(panel.tag_exclude_requested, timeout=1000) as blocker:
         buttons[0].click()
     assert blocker.args == ["1girl"]
     # ✕ したタグはパネルから非表示 (当該セッションのみ)
@@ -125,7 +127,8 @@ def test_remove_button_emits_reject_and_hides_chip(panel, sample_tags, qtbot):
 def test_ctrl_click_selects_and_copies_canonical(panel, sample_tags):
     panel.set_tags(sample_tags)
     rejected: list[str] = []
-    panel.tag_reject_requested.connect(rejected.append)
+    panel.tag_disable_requested.connect(rejected.append)
+    panel.tag_exclude_requested.connect(rejected.append)
 
     panel._tag_chips[0].ctrl_clicked.emit()  # 1girl 選択
     panel._tag_chips[2].ctrl_clicked.emit()  # solo 選択
@@ -213,11 +216,11 @@ def test_translation_note_visible_only_when_translated(panel, sample_tags):
     assert panel._tags_translation_note.isHidden()
 
 
-def test_set_rejected_tags_renders_inline_dashed_restore_chip(panel, qtbot):
-    """soft-rejected はインライン破線 chip で表示し、クリックで復活する。"""
+def test_set_rejected_tags_not_needed_renders_inline_dashed_restore_chip(panel, qtbot):
+    """reject_reason='not_needed' (無効化) はインライン破線 chip で表示し、クリックで復活する。"""
     panel.set_tag_edit_enabled(True)
     panel.set_tags([{"tag": "1girl", "tag_id": 10}])
-    panel.set_rejected_tags(["bad_tag"])
+    panel.set_rejected_tags([{"tag": "bad_tag", "reject_reason": "not_needed"}])
 
     rejected_chip = next((c for c in panel._tag_chips if c.canonical == "bad_tag"), None)
     assert rejected_chip is not None
@@ -225,6 +228,41 @@ def test_set_rejected_tags_renders_inline_dashed_restore_chip(panel, qtbot):
     with qtbot.waitSignal(panel.tag_restore_requested, timeout=1000) as blocker:
         rejected_chip.clicked.emit()
     assert blocker.args == ["bad_tag"]
+
+
+def test_set_rejected_tags_incorrect_and_replaced_are_hidden(panel):
+    """reject_reason='incorrect'/'replaced' (除外/置換) は非表示になる (#1003)。"""
+    panel.set_tag_edit_enabled(True)
+    panel.set_tags([{"tag": "1girl", "tag_id": 10}])
+    panel.set_rejected_tags(
+        [
+            {"tag": "wrong_tag", "reject_reason": "incorrect"},
+            {"tag": "moved_tag", "reject_reason": "replaced"},
+        ]
+    )
+    canonicals = [c.canonical for c in panel._tag_chips]
+    assert "wrong_tag" not in canonicals
+    assert "moved_tag" not in canonicals
+    assert panel._hidden == {"wrong_tag", "moved_tag"}
+    assert panel._disabled_display == set()
+
+
+def test_set_rejected_tags_rebuilds_state_from_db_reason(panel):
+    """別画像往復を模した再 set_rejected_tags で表示種別が DB reason から再構築される (#1003)。
+
+    メモリ state ではなく DB 由来の reject_reason で毎回 _disabled_display / _hidden を
+    作り直すため、逆の種別で呼び直すと表示が入れ替わる (現象の構造的根治)。
+    """
+    panel.set_tag_edit_enabled(True)
+    panel.set_tags([{"tag": "1girl", "tag_id": 10}], image_id=10)
+    # 1回目: not_needed (無効化)
+    panel.set_rejected_tags([{"tag": "t", "reject_reason": "not_needed"}])
+    assert panel._disabled_display == {"t"}
+    assert panel._hidden == set()
+    # 2回目: 同じタグが incorrect (除外) に変わったら非表示へ再構築される
+    panel.set_rejected_tags([{"tag": "t", "reject_reason": "incorrect"}])
+    assert panel._disabled_display == set()
+    assert panel._hidden == {"t"}
 
 
 def test_displayed_tags_text_returns_current_compact_label(panel, sample_tags):
@@ -257,25 +295,47 @@ def test_set_tags_resets_session_state(panel, sample_tags):
 
 
 def test_x_removed_tag_stays_hidden_after_same_image_reload(panel, sample_tags):
-    """✕ で外したタグは同一画像の reject reload 後も非表示を維持する (PR #992 Codex P2)。
+    """✕ で外したタグは同一画像の reject reload 後も非表示を維持する (PR #992 Codex P2 / #1003)。
 
-    ✕ → tag_reject_requested が同期で親へ届き、親が同一画像を reload して
-    set_tags / set_rejected_tags を呼び戻す。この同一画像 reload で _hidden が
-    クリアされると、外したタグが破線復活 chip として即座に再出現してしまう。
-    image_id が変わらない限り非表示状態を保持すること。
+    ✕ → tag_exclude_requested が同期で親へ届き、親が同一画像を reload して
+    set_tags / set_rejected_tags を呼び戻す。reload では set_rejected_tags が DB の
+    reject_reason='incorrect' から _hidden を再構築するため、外したタグは非表示のままになる。
     """
     panel.set_tag_edit_enabled(True)
     panel.set_tags(sample_tags, image_id=10)
     panel._on_chip_removed("1girl")
     assert "1girl" in panel._hidden
 
-    # 同一画像の reject reload: 1girl は active から消え rejected へ移る
+    # 同一画像の reject reload: 1girl は active から消え rejected (incorrect) へ移る
     remaining = [t for t in sample_tags if t["tag"] != "1girl"]
     panel.set_tags(remaining, image_id=10)
-    panel.set_rejected_tags(["1girl"])
+    panel.set_rejected_tags([{"tag": "1girl", "reject_reason": "incorrect"}])
 
     assert "1girl" in panel._hidden
     assert "1girl" not in [chip.canonical for chip in panel._tag_chips]
+
+
+def test_disabled_tag_survives_image_round_trip_via_db_reason(panel, sample_tags):
+    """無効化タグは別画像往復後も DB reason から破線表示が復元される (現象の核、#1003)。
+
+    メモリ state (別画像 set_tags でクリアされる) に頼らず、戻ってきたときの
+    set_rejected_tags(reason='not_needed') で _disabled_display が再構築される。
+    """
+    panel.set_tag_edit_enabled(True)
+    panel.set_tags(sample_tags, image_id=10)
+    panel._tag_chips[0].clicked.emit()  # 1girl 無効化
+    assert "1girl" in panel._disabled_display
+
+    # 別画像へ移動 (メモリ state クリア)
+    panel.set_tags([{"tag": "other", "tag_id": 99}], image_id=20)
+    assert panel._disabled_display == set()
+
+    # 元画像へ戻る: DB から not_needed で復元される
+    panel.set_tags(sample_tags, image_id=10)
+    panel.set_rejected_tags([{"tag": "1girl", "reject_reason": "not_needed"}])
+    assert "1girl" in panel._disabled_display
+    chip = next(c for c in panel._tag_chips if c.canonical == "1girl")
+    assert chip.styleSheet() == theme.tag_chip_untranslated_qss()
 
 
 def test_session_state_resets_on_image_change(panel, sample_tags):
@@ -575,14 +635,14 @@ def test_selection_bar_batch_buttons_disabled_when_edit_disabled(panel, sample_t
 
 
 def test_batch_remove_hides_selected_and_emits_list(panel, sample_tags, qtbot):
-    """バッチ「外す」で選択タグがまとめて非表示になり tags_reject_requested(list) を出す。"""
+    """バッチ「外す」で選択タグがまとめて非表示になり tags_exclude_requested(list) を出す。"""
     panel.set_tag_edit_enabled(True)
     panel.set_tags(sample_tags)
     panel._tag_chips[0].ctrl_clicked.emit()  # 1girl
     panel._tag_chips[2].ctrl_clicked.emit()  # solo
     remove_button = next(b for b in panel._selection_bar.findChildren(QPushButton) if b.text() == "外す")
 
-    with qtbot.waitSignal(panel.tags_reject_requested, timeout=1000) as blocker:
+    with qtbot.waitSignal(panel.tags_exclude_requested, timeout=1000) as blocker:
         remove_button.click()
     assert sorted(blocker.args[0]) == ["1girl", "solo"]
     assert {"1girl", "solo"} <= panel._hidden

@@ -693,14 +693,14 @@ class TestAnnotationDataDisplaySoftRejectEdit:
         widget.update_data(AnnotationData(tags=[{"tag": "1girl", "tag_id": 10}]))
         assert widget.findChildren(QToolButton, "tagRejectButton") == []
 
-    def test_edit_mode_on_adds_reject_button_emitting_canonical_tag(self, widget, qtbot):
+    def test_edit_mode_on_adds_exclude_button_emitting_canonical_tag(self, widget, qtbot):
         from PySide6.QtWidgets import QToolButton
 
         widget.set_tag_edit_enabled(True)
         widget.update_data(AnnotationData(tags=[{"tag": "1girl", "tag_id": 10}]))
         buttons = widget.findChildren(QToolButton, "tagRejectButton")
         assert len(buttons) == 1
-        with qtbot.waitSignal(widget.tag_reject_requested, timeout=1000) as blocker:
+        with qtbot.waitSignal(widget.tag_exclude_requested, timeout=1000) as blocker:
             buttons[0].click()
         assert blocker.args == ["1girl"]
 
@@ -718,7 +718,7 @@ class TestAnnotationDataDisplaySoftRejectEdit:
 
         widget.set_tag_edit_enabled(True)
         widget.update_data(AnnotationData(tags=[{"tag": "1girl", "tag_id": 10}]))
-        widget.set_rejected_tags(["bad_tag"])
+        widget.set_rejected_tags([{"tag": "bad_tag", "reject_reason": "not_needed"}])
         chip = next((c for c in widget._tag_chips if c.canonical == "bad_tag"), None)
         assert chip is not None
         assert chip.styleSheet() == theme.tag_chip_untranslated_qss()
@@ -729,7 +729,7 @@ class TestAnnotationDataDisplaySoftRejectEdit:
     def test_rejected_chip_click_noop_when_edit_off(self, widget):
         """編集モード無効時は破線 chip クリックで復活を出さない。"""
         widget.update_data(AnnotationData(tags=[{"tag": "1girl", "tag_id": 10}]))
-        widget.set_rejected_tags(["bad_tag"])
+        widget.set_rejected_tags([{"tag": "bad_tag", "reject_reason": "not_needed"}])
         chip = next((c for c in widget._tag_chips if c.canonical == "bad_tag"), None)
         assert chip is not None
         received: list[str] = []

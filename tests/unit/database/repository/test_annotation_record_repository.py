@@ -813,3 +813,79 @@ class TestImageDatabaseManagerDIContract:
             annotation_repo=injected,
         )
         assert manager.annotation_repo is injected
+
+
+@pytest.mark.unit
+class TestRejectReasonWritePaths:
+    """soft-reject 各経路が reject_reason を正しく DB へ記録するか検証する (Issue #1003)。"""
+
+    def _add_tag(self, memory_session_factory, image_id: int, tag: str) -> None:
+        with memory_session_factory() as session:
+            session.add(Tag(image_id=image_id, tag=tag, existing=False))
+            session.commit()
+
+    def _reject_reason(self, memory_session_factory, image_id: int, tag: str) -> str | None:
+        with memory_session_factory() as session:
+            return session.execute(
+                select(Tag.reject_reason).where(Tag.image_id == image_id, Tag.tag == tag)
+            ).scalar_one()
+
+    def test_remove_batch_default_reason_incorrect(
+        self, annotation_repository, memory_session_factory, image_id
+    ) -> None:
+        """remove_tag_from_images_batch は既定で reject_reason='incorrect' を記録する。"""
+        self._add_tag(memory_session_factory, image_id, "bad_tag")
+        ok, _ = annotation_repository.remove_tag_from_images_batch([image_id], "bad_tag")
+        assert ok is True
+        assert self._reject_reason(memory_session_factory, image_id, "bad_tag") == "incorrect"
+
+    def test_remove_batch_not_needed_reason(
+        self, annotation_repository, memory_session_factory, image_id
+    ) -> None:
+        """reason='not_needed' を渡すと無効化として記録される (chip 単クリック経路)。"""
+        self._add_tag(memory_session_factory, image_id, "keep_tag")
+        ok, _ = annotation_repository.remove_tag_from_images_batch(
+            [image_id], "keep_tag", reason="not_needed"
+        )
+        assert ok is True
+        assert self._reject_reason(memory_session_factory, image_id, "keep_tag") == "not_needed"
+
+    def test_replace_batch_sets_replaced(
+        self, annotation_repository, memory_session_factory, image_id
+    ) -> None:
+        """replace_tag_for_images_batch は置換元へ reject_reason='replaced' を記録する。"""
+        self._add_tag(memory_session_factory, image_id, "old_tag")
+        ok, _ = annotation_repository.replace_tag_for_images_batch([image_id], "old_tag", "new_tag")
+        assert ok is True
+        assert self._reject_reason(memory_session_factory, image_id, "old_tag") == "replaced"
+
+    def test_restore_batch_clears_reason(
+        self, annotation_repository, memory_session_factory, image_id
+    ) -> None:
+        """restore_tag_for_images_batch は rejected_at と reject_reason を NULL へ戻す。"""
+        self._add_tag(memory_session_factory, image_id, "back_tag")
+        annotation_repository.remove_tag_from_images_batch([image_id], "back_tag", reason="incorrect")
+        ok, _ = annotation_repository.restore_tag_for_images_batch([image_id], "back_tag")
+        assert ok is True
+        assert self._reject_reason(memory_session_factory, image_id, "back_tag") is None
+        with memory_session_factory() as session:
+            rejected_at = session.execute(
+                select(Tag.rejected_at).where(Tag.image_id == image_id, Tag.tag == "back_tag")
+            ).scalar_one()
+        assert rejected_at is None
+
+    def test_get_rejected_tags_includes_reason(
+        self, annotation_repository, memory_session_factory, image_id
+    ) -> None:
+        """get_rejected_tags は reject_reason を含んで返す (表示種別の再構築用)。"""
+        self._add_tag(memory_session_factory, image_id, "shown_tag")
+        annotation_repository.remove_tag_from_images_batch([image_id], "shown_tag", reason="not_needed")
+        rejected = annotation_repository.get_rejected_tags(image_id)
+        assert rejected == [
+            {
+                "tag": "shown_tag",
+                "tag_id": None,
+                "is_edited_manually": None,
+                "reject_reason": "not_needed",
+            }
+        ]
