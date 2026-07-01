@@ -126,6 +126,62 @@ def test_recommend_for_tags_caches_repeated_tags() -> None:
     assert calls == ["flower"]
 
 
+def test_recommend_for_tags_calls_prefetch_once_with_uncached_tags() -> None:
+    """prefetch_fn は per-tag 評価の前に未キャッシュタグ (dedup 済) で 1 回だけ呼ばれる (#998)。"""
+    prefetch_calls: list[list[str]] = []
+    order: list[str] = []
+
+    def fake_prefetch(tags: object, *, repo: object = None) -> None:
+        prefetch_calls.append(list(tags))  # type: ignore[arg-type]
+        order.append("prefetch")
+
+    def fake_recommend(tag: str, *, repo: object = None, format_name: str = "unknown"):
+        order.append(f"eval:{tag}")
+        return _make_recommendation(tag, reason_codes=["broad_single_word"])
+
+    service = RefinementService(
+        recommend_fn=fake_recommend, ignore_repo=_FakeIgnoreRepo(), prefetch_fn=fake_prefetch
+    )
+    service.recommend_for_tags(["a", "b", "a"])
+
+    # dedup 済み・未キャッシュのみ、1 回だけ
+    assert prefetch_calls == [["a", "b"]]
+    # prefetch は全 per-tag 評価より前
+    assert order[0] == "prefetch"
+    assert order.count("prefetch") == 1
+
+
+def test_recommend_for_tags_prefetch_skips_cached_tags() -> None:
+    """2 回目の呼び出しでは既キャッシュタグを prefetch 対象から除く (#998)。"""
+    prefetch_calls: list[list[str]] = []
+
+    def fake_prefetch(tags: object, *, repo: object = None) -> None:
+        prefetch_calls.append(list(tags))  # type: ignore[arg-type]
+
+    def fake_recommend(tag: str, *, repo: object = None, format_name: str = "unknown"):
+        return _make_recommendation(tag, reason_codes=["broad_single_word"])
+
+    service = RefinementService(
+        recommend_fn=fake_recommend, ignore_repo=_FakeIgnoreRepo(), prefetch_fn=fake_prefetch
+    )
+    service.recommend_for_tags(["a", "b"])
+    service.recommend_for_tags(["a", "b", "c"])
+
+    assert prefetch_calls == [["a", "b"], ["c"]]
+
+
+def test_recommend_for_tags_without_prefetch_fn_still_works() -> None:
+    """prefetch_fn 未注入でも従来どおり評価できる (後方互換、#998)。"""
+
+    def fake_recommend(tag: str, *, repo: object = None, format_name: str = "unknown"):
+        return _make_recommendation(tag, reason_codes=["broad_single_word"])
+
+    service = RefinementService(recommend_fn=fake_recommend, ignore_repo=_FakeIgnoreRepo())
+    result = service.recommend_for_tags(["flower"])
+
+    assert "flower" in result
+
+
 def test_recommend_for_tags_uses_format_map() -> None:
     """format_map の値が recommend_fn の format_name に渡る。"""
     seen: dict[str, str] = {}

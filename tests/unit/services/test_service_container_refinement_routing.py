@@ -57,6 +57,23 @@ def test_recommend_fn_routes_to_translation_quality() -> None:
     fake_tms.recommend_manual_refinement.assert_not_called()
 
 
+def test_prefetch_fn_routes_to_prefetch_translations() -> None:
+    """注入される prefetch_fn は TagManagementService.prefetch_translations を呼ぶ (#998)。"""
+    from unittest.mock import MagicMock
+
+    container = ServiceContainer()
+    fake_tms = MagicMock()
+    container._tag_management_service = fake_tms
+
+    service = container.create_refinement_service(object())  # type: ignore[arg-type]
+    assert service._prefetch_fn is not None  # type: ignore[attr-defined]
+    repo = object()
+    tags = ["blue_eyes", "red_eyes"]
+    service._prefetch_fn(tags, repo=repo)  # type: ignore[attr-defined]
+
+    fake_tms.prefetch_translations.assert_called_once_with(tags, repo=repo)
+
+
 def test_main_window_path_db_manager_matches_active_db() -> None:
     """MainWindow 経路 (db_manager=container.db_manager) は active DB と同じ factory を指す (#978 回帰)。
 

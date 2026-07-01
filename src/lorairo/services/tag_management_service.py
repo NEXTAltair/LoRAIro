@@ -3,6 +3,8 @@
 unknown typeタグの検索、type_name選択、一括更新を担当します。
 """
 
+import threading
+from collections.abc import Iterable
 from typing import cast
 
 from genai_tag_db_tools import (
@@ -16,6 +18,7 @@ from genai_tag_db_tools import (
     recommend_manual_refinement,
     recommend_translation_quality,
     search_tags,
+    search_tags_batch,
     update_tags_type_batch,
     write_user_translation,
 )
@@ -23,11 +26,15 @@ from genai_tag_db_tools.models import (
     RefinementRecommendation,
     TagRecordPublic,
     TagSearchRequest,
+    TagSearchResult,
     TagTypeUpdate,
 )
 from sqlalchemy.exc import SQLAlchemyError
 
 from ..utils.log import logger
+
+# prefetch キャッシュの「未命中」を None (完全一致行なし) と区別するための番兵。
+_PREFETCH_MISS = object()
 
 
 class TagManagementService:
@@ -76,10 +83,30 @@ class TagManagementService:
         """
         self.reader: TagReaderProtocol = get_tag_reader()
         self.repository: TagWriterProtocol = get_user_repository()
+        # prefetch_translations が投入する完全一致翻訳キャッシュ (#998)。
+        # キー = タグの casefold、値 = 言語別翻訳候補 (完全一致行なしは None)。
+        # thread-local にする理由: 複数の RefinementWorker が別 QThread で並行実行されると、
+        # 後発 worker の prefetch_translations が先発 worker の投入分を clear() で消してしまい、
+        # N+1 解消が無効化されるレースになる (Codex #999 P2)。スレッドごとに分離することで、
+        # 各 worker の prefetch → 消費が他スレッドに干渉されないようにする。
+        self._prefetch_local = threading.local()
         logger.info(
             "TagManagementService initialized with format_id={}",
             self.LORAIRO_FORMAT_ID,
         )
+
+    @property
+    def _translation_prefetch_cache(self) -> dict[str, dict[str, list[str]] | None]:
+        """呼び出しスレッド専用の prefetch キャッシュ (#998)。
+
+        thread-local にすることで、並行実行される複数 RefinementWorker (別 QThread) の
+        prefetch_translations 呼び出しが互いのキャッシュを clear() で消し合わないようにする。
+        """
+        cache = getattr(self._prefetch_local, "cache", None)
+        if cache is None:
+            cache = {}
+            self._prefetch_local.cache = cache
+        return cache
 
     def get_unknown_tags(self) -> list[TagRecordPublic]:
         """user DBからunknown typeタグ一覧を取得します。
@@ -302,6 +329,11 @@ class TagManagementService:
         返る翻訳は変わらず (CLI 実測で format 有無同一を確認)、`format_names` は常に指定しない
         (#993、当初の format 整合案 #991 P2 は撤回)。
 
+        prefetch_translations で事前一括取得済みならキャッシュを参照し (per-tag の
+        search_tags を N 回呼ぶ N+1 を回避、#998)、未命中なら従来どおり単発 search_tags で
+        fallback する。キャッシュ命中は consume-once (pop) で、prefetch した集合の外での
+        stale 参照を避ける。
+
         Args:
             tag: 検索する canonical タグ文字列。
             repo: 検索に使う DB リーダー。None なら merged reader を使う。
@@ -309,6 +341,9 @@ class TagManagementService:
         Returns:
             完全一致行が無ければ None、あれば言語コード -> 翻訳候補リストのマップ。
         """
+        cached = self._translation_prefetch_cache.pop(tag.casefold(), _PREFETCH_MISS)
+        if cached is not _PREFETCH_MISS:
+            return cast("dict[str, list[str]] | None", cached)
         reader = cast("TagReaderProtocol", repo) if repo is not None else self.reader
         request = TagSearchRequest(
             query=tag,
@@ -325,8 +360,15 @@ class TagManagementService:
             # catch し、翻訳品質評価を非ブロッキングに縮退させる (#991 P2)。
             logger.warning(f"翻訳取得に失敗 (翻訳品質評価をスキップ): tag='{tag}': {e}")
             return None
-        # tag / source_tag が casefold 一致した行のみ採用する (Codex #991 P2)。partial=False でも
-        # alias / 別タグの翻訳経由でマッチした行はその翻訳を借用せず、無関係な偽陽性 ⚠ を防ぐ。
+        return self._extract_exact_translations(result, tag)
+
+    def _extract_exact_translations(self, result: TagSearchResult, tag: str) -> dict[str, list[str]] | None:
+        """search 結果から入力タグに完全一致する行の言語別翻訳をマージする (#976/#998)。
+
+        `tag` / `source_tag` が入力へ casefold 一致した行のみ採用する (Codex #991 P2)。
+        partial=False でも alias / 別タグの翻訳経由でマッチした行はその翻訳を借用せず、
+        無関係な偽陽性 ⚠ を防ぐ。完全一致行があれば翻訳 (空でも可) を、無ければ None を返す。
+        """
         normalized_query = tag.casefold()
         merged: dict[str, list[str]] = {}
         found_exact = False
@@ -344,8 +386,45 @@ class TagManagementService:
                 for value in values:
                     if value not in bucket:
                         bucket.append(value)
-        # 完全一致行があれば翻訳 (空でも可) を返し、無ければ None で素通しさせる。
         return merged if found_exact else None
+
+    def prefetch_translations(self, tags: Iterable[str], *, repo: object | None = None) -> None:
+        """タグ集合の完全一致翻訳を 1〜0 リポ往復で一括取得しキャッシュする (#998)。
+
+        `RefinementService.recommend_for_tags` が per-tag 評価の前に 1 回だけ呼ぶ。以降の
+        `_fetch_exact_match_translations` はキャッシュを参照し、per-tag の `search_tags` を
+        N 回呼ぶ N+1 を解消する。翻訳は format 非依存 (#993) なので `format_names=None` で
+        全タグを 1 回の `search_tags_batch` にまとめる。
+
+        batch 取得が失敗しても例外は伝播させず、キャッシュを空のままにして per-tag fallback
+        (単発 `search_tags`) に委ねる (翻訳品質は advisory な非ブロッキング情報)。
+
+        Args:
+            tags: 事前取得するタグ文字列。
+            repo: 検索に使う DB リーダー。None なら merged reader を使う。
+        """
+        # 再 prefetch 時に前回分の stale entry を残さないようクリアしてから投入する。
+        self._translation_prefetch_cache.clear()
+        # 順序を保ったまま重複除去する。
+        unique = list(dict.fromkeys(t for t in tags if t))
+        if not unique:
+            return
+        reader = cast("TagReaderProtocol", repo) if repo is not None else self.reader
+        try:
+            batch = search_tags_batch(reader, unique, format_names=None, resolve_preferred=False)
+        except (ValueError, RuntimeError, SQLAlchemyError) as e:
+            # batch 失敗は per-tag fallback に委ねる (キャッシュ未投入)。
+            logger.warning(f"翻訳の batch 取得に失敗 (per-tag fallback に委譲): {e}")
+            return
+        cache = self._translation_prefetch_cache
+        for tag in unique:
+            result = batch.get(tag)
+            if result is None:
+                # マッチ無し = 完全一致行なし → None (呼び出し元は素通し)。
+                cache[tag.casefold()] = None
+            else:
+                cache[tag.casefold()] = self._extract_exact_translations(result, tag)
+        logger.debug(f"翻訳 prefetch: 対象={len(unique)}件")
 
     def _merge_recommendations(
         self,

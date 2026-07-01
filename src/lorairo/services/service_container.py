@@ -9,7 +9,7 @@ import os
 from typing import TYPE_CHECKING, Any, Optional
 
 if TYPE_CHECKING:
-    from collections.abc import Callable
+    from collections.abc import Callable, Iterable
 
     from sqlalchemy.orm import Session
 
@@ -272,9 +272,15 @@ class ServiceContainer:
                 tag, repo=repo, format_name=format_name
             )
 
+        # per-tag 評価前に翻訳を一括 prefetch し、search_tags の N+1 を解消する (#998)。
+        # _recommend と同じく遅延 lambda にし、tagdb 準備前の TagManagementService 構築を避ける。
+        def _prefetch(tags: "Iterable[str]", *, repo: object | None = None) -> None:
+            self.tag_management_service.prefetch_translations(tags, repo=repo)
+
         return RefinementService(
             recommend_fn=_recommend,
             ignore_repo=RefinementIgnoreRepository(session_factory=session_factory),
+            prefetch_fn=_prefetch,
         )
 
     @property
