@@ -3,6 +3,7 @@
 unknown typeタグの検索、type_name選択、一括更新を担当します。
 """
 
+import threading
 from collections.abc import Iterable
 from typing import cast
 
@@ -84,11 +85,28 @@ class TagManagementService:
         self.repository: TagWriterProtocol = get_user_repository()
         # prefetch_translations が投入する完全一致翻訳キャッシュ (#998)。
         # キー = タグの casefold、値 = 言語別翻訳候補 (完全一致行なしは None)。
-        self._translation_prefetch_cache: dict[str, dict[str, list[str]] | None] = {}
+        # thread-local にする理由: 複数の RefinementWorker が別 QThread で並行実行されると、
+        # 後発 worker の prefetch_translations が先発 worker の投入分を clear() で消してしまい、
+        # N+1 解消が無効化されるレースになる (Codex #999 P2)。スレッドごとに分離することで、
+        # 各 worker の prefetch → 消費が他スレッドに干渉されないようにする。
+        self._prefetch_local = threading.local()
         logger.info(
             "TagManagementService initialized with format_id={}",
             self.LORAIRO_FORMAT_ID,
         )
+
+    @property
+    def _translation_prefetch_cache(self) -> dict[str, dict[str, list[str]] | None]:
+        """呼び出しスレッド専用の prefetch キャッシュ (#998)。
+
+        thread-local にすることで、並行実行される複数 RefinementWorker (別 QThread) の
+        prefetch_translations 呼び出しが互いのキャッシュを clear() で消し合わないようにする。
+        """
+        cache = getattr(self._prefetch_local, "cache", None)
+        if cache is None:
+            cache = {}
+            self._prefetch_local.cache = cache
+        return cache
 
     def get_unknown_tags(self) -> list[TagRecordPublic]:
         """user DBからunknown typeタグ一覧を取得します。
