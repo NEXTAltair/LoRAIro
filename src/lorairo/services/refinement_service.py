@@ -23,6 +23,11 @@ from ..utils.log import logger
 # ignore / フィルタは reason_code 単位で汎用的に効くため、reason の出自 (手動/翻訳) は問わない。
 RecommendFn = Callable[..., RefinementRecommendation]
 
+# タグ集合の翻訳を per-tag 評価の前に一括取得する callable のシグネチャ `(tags, *, repo)`。
+# 本番では TagManagementService.prefetch_translations を注入し、per-tag の search_tags を
+# N 回呼ぶ N+1 を解消する (#998)。未注入 (None) なら prefetch を行わず従来の per-tag fallback。
+PrefetchFn = Callable[..., None]
+
 
 class RefinementIgnoreStore(Protocol):
     """ignore 永続化の最小インターフェイス (Repository / fake 双方を受ける)。"""
@@ -37,7 +42,12 @@ class RefinementIgnoreStore(Protocol):
 class RefinementService:
     """refinement リコメンドの取得と ignore 管理を担う Qt-free サービス。"""
 
-    def __init__(self, recommend_fn: RecommendFn, ignore_repo: RefinementIgnoreStore) -> None:
+    def __init__(
+        self,
+        recommend_fn: RecommendFn,
+        ignore_repo: RefinementIgnoreStore,
+        prefetch_fn: PrefetchFn | None = None,
+    ) -> None:
         """RefinementService を初期化する。
 
         Args:
@@ -45,9 +55,12 @@ class RefinementService:
                 `(tag, *, repo=None, format_name="unknown") -> RefinementRecommendation` 互換。
                 本番注入は manual refinement + 翻訳品質を統合した結果を返す (#976)。
             ignore_repo: ignore 設定の永続化ストア。
+            prefetch_fn: タグ集合の翻訳を一括取得する callable `(tags, *, repo)` (#998)。
+                None なら prefetch せず per-tag fallback のまま動く (後方互換)。
         """
         self._recommend_fn = recommend_fn
         self._ignore_repo = ignore_repo
+        self._prefetch_fn = prefetch_fn
         # キー = (tag, format_name, reader 識別子)。reader 違いで結果が変わるため含める。
         self._cache: dict[tuple[str, str, int], RefinementRecommendation] = {}
 
@@ -74,10 +87,21 @@ class RefinementService:
         fmap = format_map or {}
         # reader (repo) が違うと DB 由来の alias/typo 候補が変わるためキー要素に含める。
         repo_key = id(repo) if repo is not None else 0
+        tags_list = list(tags)
+        # 未キャッシュのタグだけ翻訳を一括 prefetch し、per-tag の search_tags N+1 を解消する
+        # (#998)。prefetch_fn は失敗時も例外を伝播させず per-tag fallback に委ねる契約。
+        if self._prefetch_fn is not None:
+            uncached = [
+                tag
+                for tag in dict.fromkeys(tags_list)
+                if (tag, fmap.get(tag, "unknown"), repo_key) not in self._cache
+            ]
+            if uncached:
+                self._prefetch_fn(uncached, repo=repo)
         result: dict[str, RefinementRecommendation] = {}
         total = 0
         evaluated = 0
-        for tag in tags:
+        for tag in tags_list:
             total += 1
             format_name = fmap.get(tag, "unknown")
             key = (tag, format_name, repo_key)

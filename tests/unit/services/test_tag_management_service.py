@@ -812,3 +812,95 @@ class TestTranslationQualityIntegration:
         assert result is manual
         mock_search.assert_not_called()
         mock_eval.assert_not_called()
+
+
+@pytest.mark.unit
+class TestTranslationPrefetch:
+    """prefetch_translations と _fetch_exact_match_translations のキャッシュ連携 (#998)。"""
+
+    @pytest.fixture
+    def service(self) -> TagManagementService:
+        with patch("lorairo.services.tag_management_service.get_tag_reader"):
+            with patch("lorairo.services.tag_management_service.get_user_repository"):
+                return TagManagementService()
+
+    def test_prefetch_populates_cache_and_avoids_search_tags(self, service: TagManagementService) -> None:
+        """prefetch 後の完全一致取得はキャッシュから返し search_tags を呼ばない。"""
+        batch = {"blue_eyes": _search_result_with_translations("blue_eyes", {"ja": ["青い目"]})}
+        with patch(
+            "lorairo.services.tag_management_service.search_tags_batch", return_value=batch
+        ) as mock_batch:
+            service.prefetch_translations(["blue_eyes", "missing"])
+
+        mock_batch.assert_called_once()
+        with patch("lorairo.services.tag_management_service.search_tags") as mock_search:
+            hit = service._fetch_exact_match_translations("blue_eyes")
+            miss = service._fetch_exact_match_translations("missing")
+
+        assert hit == {"ja": ["青い目"]}
+        # batch に無い query は「完全一致行なし」= None 扱い (呼び出し元は素通し)
+        assert miss is None
+        mock_search.assert_not_called()
+
+    def test_prefetch_cache_consumed_once(self, service: TagManagementService) -> None:
+        """キャッシュ命中は consume-once。2 回目は単発 search_tags fallback。"""
+        batch = {"tag": _search_result_with_translations("tag", {"ja": ["訳"]})}
+        with patch("lorairo.services.tag_management_service.search_tags_batch", return_value=batch):
+            service.prefetch_translations(["tag"])
+
+        with patch(
+            "lorairo.services.tag_management_service.search_tags",
+            return_value=_search_result_with_translations("tag", {"ja": ["再取得"]}),
+        ) as mock_search:
+            first = service._fetch_exact_match_translations("tag")
+            second = service._fetch_exact_match_translations("tag")
+
+        assert first == {"ja": ["訳"]}
+        assert second == {"ja": ["再取得"]}
+        mock_search.assert_called_once()
+
+    def test_prefetch_batch_failure_falls_back_to_search_tags(self, service: TagManagementService) -> None:
+        """batch 取得失敗は例外を伝播させず、per-tag fallback に委ねる。"""
+        with patch(
+            "lorairo.services.tag_management_service.search_tags_batch",
+            side_effect=ValueError("boom"),
+        ):
+            service.prefetch_translations(["tag"])
+
+        with patch(
+            "lorairo.services.tag_management_service.search_tags",
+            return_value=_search_result_with_translations("tag", {"ja": ["訳"]}),
+        ) as mock_search:
+            result = service._fetch_exact_match_translations("tag")
+
+        assert result == {"ja": ["訳"]}
+        mock_search.assert_called_once()
+
+    def test_reprefetch_clears_stale_entries(self, service: TagManagementService) -> None:
+        """再 prefetch は前回集合の stale entry を残さない。"""
+        with patch(
+            "lorairo.services.tag_management_service.search_tags_batch",
+            return_value={"a": _search_result_with_translations("a", {"ja": ["A訳"]})},
+        ):
+            service.prefetch_translations(["a"])
+        with patch(
+            "lorairo.services.tag_management_service.search_tags_batch",
+            return_value={"b": _search_result_with_translations("b", {"ja": ["B訳"]})},
+        ):
+            service.prefetch_translations(["b"])
+
+        # "a" は再 prefetch でクリアされキャッシュに無い → fallback
+        with patch(
+            "lorairo.services.tag_management_service.search_tags",
+            return_value=_search_result_with_translations("a", {"ja": ["A再"]}),
+        ) as mock_search:
+            result = service._fetch_exact_match_translations("a")
+
+        assert result == {"ja": ["A再"]}
+        mock_search.assert_called_once()
+
+    def test_prefetch_empty_tags_noop(self, service: TagManagementService) -> None:
+        """空入力は search_tags_batch を呼ばない。"""
+        with patch("lorairo.services.tag_management_service.search_tags_batch") as mock_batch:
+            service.prefetch_translations([])
+        mock_batch.assert_not_called()
