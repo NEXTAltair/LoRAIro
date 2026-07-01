@@ -115,13 +115,14 @@ class AnnotationDataDisplayWidget(QWidget, Ui_AnnotationDataDisplayWidget):
     # シグナル
     data_loaded = Signal(AnnotationData)  # データロード完了
     data_cleared = Signal()  # データクリア完了
-    # タグ操作 (TagPanelWidget から委譲再公開、ADR 0083 §2)。引数は canonical タグ文字列。
-    tag_reject_requested = Signal(str)  # 無効化・✕ 共通で soft-reject
+    # タグ操作 (TagPanelWidget から委譲再公開、ADR 0083 §2 / #1003)。引数は canonical。
+    tag_disable_requested = Signal(str)  # 無効化 (reason='not_needed')
+    tag_exclude_requested = Signal(str)  # 除外 (reason='incorrect')
     tag_restore_requested = Signal(str)  # soft-rejected タグを復活
     tag_add_requested = Signal(str)  # 手動タグ追加 (生入力)
     # 複数選択のバッチ操作 (#997)。引数は canonical タグ文字列のリスト。
-    tags_reject_requested = Signal(list)  # まとめて外す
-    tags_toggle_requested = Signal(list, list)  # (to_reject, to_restore) まとめて無効化⇄復活
+    tags_exclude_requested = Signal(list)  # まとめて除外 (incorrect)
+    tags_toggle_requested = Signal(list, list)  # (to_disable, to_restore) まとめて無効化⇄復活
     refinement_ignored = Signal(str, str)  # refinement リコメンドを無視 (canonical, reason_code) (#931)
     translation_add_requested = Signal(str, str, str)  # canonical, language, translation (#989)
     tag_metadata_edit_requested = Signal(str, str)  # canonical, type (#989)
@@ -176,10 +177,11 @@ class AnnotationDataDisplayWidget(QWidget, Ui_AnnotationDataDisplayWidget):
         self._tag_add_input = self._tag_panel._tag_add_input
 
         # タグ操作 Signal を委譲再公開する (親 SelectedImageDetailsWidget の dispatch 維持)。
-        self._tag_panel.tag_reject_requested.connect(self.tag_reject_requested)
+        self._tag_panel.tag_disable_requested.connect(self.tag_disable_requested)
+        self._tag_panel.tag_exclude_requested.connect(self.tag_exclude_requested)
         self._tag_panel.tag_restore_requested.connect(self.tag_restore_requested)
         self._tag_panel.tag_add_requested.connect(self.tag_add_requested)
-        self._tag_panel.tags_reject_requested.connect(self.tags_reject_requested)
+        self._tag_panel.tags_exclude_requested.connect(self.tags_exclude_requested)
         self._tag_panel.tags_toggle_requested.connect(self.tags_toggle_requested)
         self._tag_panel.refinement_ignored.connect(self.refinement_ignored)
         self._tag_panel.translation_add_requested.connect(self.translation_add_requested)
@@ -203,8 +205,8 @@ class AnnotationDataDisplayWidget(QWidget, Ui_AnnotationDataDisplayWidget):
         """タグ soft-reject 編集モードを切り替える (TagPanelWidget へ委譲)。"""
         self._tag_panel.set_tag_edit_enabled(enabled)
 
-    def set_rejected_tags(self, rejected_tags: list[str]) -> None:
-        """soft-rejected タグ一覧を設定する (TagPanelWidget へ委譲)。"""
+    def set_rejected_tags(self, rejected_tags: list[dict[str, Any]]) -> None:
+        """soft-rejected タグを reject_reason 付きで設定する (TagPanelWidget へ委譲、#1003)。"""
         self._tag_panel.set_rejected_tags(rejected_tags)
 
     def apply_refinements(self, recommendations: dict[str, RefinementRecommendation]) -> None:

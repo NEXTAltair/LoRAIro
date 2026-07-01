@@ -23,6 +23,7 @@ from .repository.model import ModelRepository
 from .repository.project import ProjectRepository
 from .repository.provider_batch import ProviderBatchRepository
 from .schema import (
+    REJECT_REASON_INCORRECT,
     AnnotationsDict,
     CaptionAnnotationData,
     RatingAnnotationData,
@@ -1180,20 +1181,26 @@ class ImageDatabaseManager:
 
     # --- TagEdit soft-reject 導線 (Issue #792) ---
 
-    def soft_reject_tag(self, image_id: int, tag: str) -> bool:
-        """画像の 1 タグを soft-reject する (rejected_at に記録、行は残す)。
+    def soft_reject_tag(self, image_id: int, tag: str, reason: str = REJECT_REASON_INCORRECT) -> bool:
+        """画像の 1 タグを soft-reject する (rejected_at + reject_reason を記録、行は残す)。
 
         Args:
             image_id: 対象画像 ID。
             tag: soft-reject するタグ。
+            reason: soft-reject 種別 (``'not_needed'`` 無効化 / ``'incorrect'`` 除外)。
+                既定は ``'incorrect'`` (Issue #1003)。
 
         Returns:
             実際に reject された場合 True (既に無い場合 False)。
         """
-        success, per_item = self.annotation_repo.remove_tag_from_images_batch([image_id], tag)
+        success, per_item = self.annotation_repo.remove_tag_from_images_batch(
+            [image_id], tag, reason=reason
+        )
         return success and any(status == "changed" for _, status in per_item)
 
-    def soft_reject_tag_batch(self, image_ids: list[int], tag: str) -> int:
+    def soft_reject_tag_batch(
+        self, image_ids: list[int], tag: str, reason: str = REJECT_REASON_INCORRECT
+    ) -> int:
         """複数画像の 1 タグを一括 soft-reject し、実際に reject した件数を返す (#949)。
 
         エクスポート前タグ編集パネルの「✎ reject(DB)」(全 staged 画像へ永続 reject) で使う。
@@ -1201,13 +1208,14 @@ class ImageDatabaseManager:
         Args:
             image_ids: 対象画像 ID のリスト。
             tag: soft-reject するタグ。
+            reason: soft-reject 種別。既定は ``'incorrect'`` (Issue #1003)。
 
         Returns:
             実際に reject された画像数 (既に無い画像は数えない)。
         """
         if not image_ids:
             return 0
-        success, per_item = self.annotation_repo.remove_tag_from_images_batch(image_ids, tag)
+        success, per_item = self.annotation_repo.remove_tag_from_images_batch(image_ids, tag, reason=reason)
         if not success:
             return 0
         return sum(1 for _, status in per_item if status == "changed")
@@ -1246,7 +1254,8 @@ class ImageDatabaseManager:
             image_id: 対象画像 ID。
 
         Returns:
-            ``{"tag", "tag_id", "is_edited_manually"}`` の dict リスト。
+            ``{"tag", "tag_id", "is_edited_manually", "reject_reason"}`` の dict リスト
+            (reject_reason は表示種別の再構築に使う、Issue #1003)。
         """
         return self.annotation_repo.get_rejected_tags(image_id)
 

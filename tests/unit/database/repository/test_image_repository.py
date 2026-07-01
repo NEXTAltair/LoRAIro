@@ -1078,3 +1078,57 @@ class TestLazyAnnotationLoading:
     ) -> None:
         """未登録 image_id では None を返す。"""
         assert image_repository.get_image_annotation_metadata(99999) is None
+
+
+@pytest.mark.unit
+class TestExportInvariantRejectReason:
+    """reject_reason 3値すべてが rejected_at IS NULL 抽出から除外されることを検証する (Issue #1003)。
+
+    エクスポート/表示の採用タグ抽出は ``rejected_at IS NULL`` のまま。reject_reason に
+    かかわらず (not_needed / incorrect / replaced)、rejected_at が立つ行は一律除外される。
+    """
+
+    def test_all_reject_reasons_excluded_from_active_tags(
+        self, image_repository: ImageRepository, memory_session_factory
+    ) -> None:
+        image_id = _insert_image(image_repository)
+        now = datetime.datetime.now(datetime.UTC)
+        with memory_session_factory() as session:
+            session.add(Tag(image_id=image_id, tag="active_tag", existing=False))
+            session.add(
+                Tag(
+                    image_id=image_id,
+                    tag="disabled_tag",
+                    existing=False,
+                    rejected_at=now,
+                    reject_reason="not_needed",
+                )
+            )
+            session.add(
+                Tag(
+                    image_id=image_id,
+                    tag="wrong_tag",
+                    existing=False,
+                    rejected_at=now,
+                    reject_reason="incorrect",
+                )
+            )
+            session.add(
+                Tag(
+                    image_id=image_id,
+                    tag="moved_tag",
+                    existing=False,
+                    rejected_at=now,
+                    reject_reason="replaced",
+                )
+            )
+            session.commit()
+
+        annotations = image_repository.get_image_annotations(image_id)
+        active_tags = {t["tag"] for t in annotations["tags"]}
+        assert active_tags == {"active_tag"}
+
+        # include_rejected=True では 3値すべてが見える (記録上は残る)。
+        all_annotations = image_repository.get_image_annotations(image_id, include_rejected=True)
+        all_tags = {t["tag"] for t in all_annotations["tags"]}
+        assert all_tags == {"active_tag", "disabled_tag", "wrong_tag", "moved_tag"}

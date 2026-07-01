@@ -28,6 +28,14 @@ MANUAL_EDIT_NAME = "MANUAL_EDIT"
 MANUAL_EDIT_PROVIDER = "user"
 MANUAL_EDIT_LITELLM_ID = "__manual_edit__"
 
+# タグ/キャプションの soft-reject 種別 (reject_reason 列の値、Issue #1003 / ADR 0065)。
+# rejected_at が非 NULL のときのみ意味を持つ。NULL = 採用中。
+# エクスポート抽出は従来どおり ``rejected_at IS NULL`` で行い、3値すべて除外される
+# (reject_reason は表示復元と記録上の意味のためだけに使う)。
+REJECT_REASON_NOT_NEEDED = "not_needed"  # 無効化: 正しいが今回不要。打ち消し線で残す。
+REJECT_REASON_INCORRECT = "incorrect"  # 除外: 間違い。✕・非表示。
+REJECT_REASON_REPLACED = "replaced"  # 置換により別タグへ移行して不要。非表示。
+
 
 # --- Base Class ---
 class Base(DeclarativeBase):
@@ -300,6 +308,9 @@ class Tag(Base):
     is_edited_manually: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
     confidence_score: Mapped[float | None] = mapped_column(Float)
     rejected_at: Mapped[datetime.datetime | None] = mapped_column(TIMESTAMP(timezone=True))
+    # なぜ soft-reject したか (Issue #1003)。rejected_at が非 NULL のときのみ意味を持つ。
+    # NULL=採用 / 'not_needed'=無効化 / 'incorrect'=除外 / 'replaced'=置換移行。
+    reject_reason: Mapped[str | None] = mapped_column(String)
     created_at: Mapped[datetime.datetime] = mapped_column(
         TIMESTAMP(timezone=True), server_default=func.now()
     )
@@ -361,6 +372,8 @@ class Caption(Base):
     existing: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     is_edited_manually: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
     rejected_at: Mapped[datetime.datetime | None] = mapped_column(TIMESTAMP(timezone=True))
+    # なぜ soft-reject したか (Issue #1003)。tags と対称。既定 'incorrect' (UI 未実装)。
+    reject_reason: Mapped[str | None] = mapped_column(String)
     created_at: Mapped[datetime.datetime] = mapped_column(
         TIMESTAMP(timezone=True), server_default=func.now()
     )
