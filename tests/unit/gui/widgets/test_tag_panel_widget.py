@@ -8,7 +8,7 @@ refinement ignore の Signal 配線を検証する。
 from __future__ import annotations
 
 import pytest
-from PySide6.QtWidgets import QApplication, QDialog, QToolButton
+from PySide6.QtWidgets import QApplication, QDialog, QLabel, QPushButton, QToolButton
 
 from lorairo.gui import theme
 from lorairo.gui.widgets import tag_panel_widget as tpw
@@ -513,3 +513,175 @@ def test_clear_resets_metric(panel, sample_tags):
     options = [panel._metric_combo.itemText(i) for i in range(panel._metric_combo.count())]
     assert options == [tpw._METRIC_NONE_LABEL]
     assert panel._metric_bar.isHidden()
+
+
+# ⑪ バッチ操作バー (#997) -----------------------------------------------------
+
+
+def test_selection_bar_hidden_without_selection(panel, sample_tags):
+    """選択 0件ではバッチ操作バーは非表示。"""
+    panel.set_tags(sample_tags)
+    assert panel._selection_bar.isHidden() is True
+
+
+def test_ctrl_click_shows_selection_bar_with_count(panel, sample_tags):
+    """Ctrl+クリック選択でバッチ操作バーが表示され件数が反映される。"""
+    panel.set_tags(sample_tags)
+    panel._tag_chips[0].ctrl_clicked.emit()
+    panel._tag_chips[2].ctrl_clicked.emit()
+
+    assert panel._selection_bar.isHidden() is False
+    labels = [w.text() for w in panel._selection_bar.findChildren(QLabel)]
+    assert "2件選択中" in labels
+
+
+def test_selection_persists_across_rerender(panel, sample_tags):
+    """言語切替などで chip が再生成されても選択ハイライトは復元される (#997)。"""
+    panel.set_tags(sample_tags, translations={10: {"ja": "女の子"}}, available_languages=["ja"], image_id=1)
+    panel.initialize_language_selector(["ja"])
+    panel._tag_chips[0].ctrl_clicked.emit()  # 1girl 選択
+    assert "1girl" in panel._selected_canonicals
+
+    panel._lang_combo.setCurrentText("ja")  # chip 再生成が走る
+
+    girl_chip = next(c for c in panel._tag_chips if c.canonical == "1girl")
+    assert girl_chip.selected is True
+    assert girl_chip.styleSheet() == panel._selected_chip_qss()
+
+
+def test_selection_bar_tag_info_buttons_enabled_only_for_single_selection(panel, sample_tags):
+    """翻訳/編集/頻度ボタンは単一選択時のみ有効 (design の disabled={!single} 踏襲)。"""
+    panel.set_tags(sample_tags)
+    panel._tag_chips[0].ctrl_clicked.emit()
+    buttons = {b.text(): b for b in panel._selection_bar.findChildren(QPushButton)}
+    assert buttons["翻訳"].isEnabled() is True
+    assert buttons["編集"].isEnabled() is True
+    assert buttons["頻度"].isEnabled() is True
+
+    panel._tag_chips[1].ctrl_clicked.emit()  # 2件選択に
+    buttons = {b.text(): b for b in panel._selection_bar.findChildren(QPushButton)}
+    assert buttons["翻訳"].isEnabled() is False
+    assert buttons["編集"].isEnabled() is False
+    assert buttons["頻度"].isEnabled() is False
+
+
+def test_selection_bar_batch_buttons_disabled_when_edit_disabled(panel, sample_tags):
+    """外す/無効化⇄復活は編集モード無効時は無効化される。"""
+    panel.set_tags(sample_tags)
+    panel._tag_chips[0].ctrl_clicked.emit()
+    buttons = {b.text(): b for b in panel._selection_bar.findChildren(QPushButton)}
+    assert buttons["外す"].isEnabled() is False
+    assert buttons["無効化⇄復活"].isEnabled() is False
+
+
+def test_batch_remove_hides_selected_and_emits_list(panel, sample_tags, qtbot):
+    """バッチ「外す」で選択タグがまとめて非表示になり tags_reject_requested(list) を出す。"""
+    panel.set_tag_edit_enabled(True)
+    panel.set_tags(sample_tags)
+    panel._tag_chips[0].ctrl_clicked.emit()  # 1girl
+    panel._tag_chips[2].ctrl_clicked.emit()  # solo
+    remove_button = next(b for b in panel._selection_bar.findChildren(QPushButton) if b.text() == "外す")
+
+    with qtbot.waitSignal(panel.tags_reject_requested, timeout=1000) as blocker:
+        remove_button.click()
+    assert sorted(blocker.args[0]) == ["1girl", "solo"]
+    assert {"1girl", "solo"} <= panel._hidden
+    assert [c.canonical for c in panel._tag_chips] == ["flower"]
+    assert panel._selected_canonicals == set()
+    assert panel._selection_bar.isHidden() is True
+
+
+def test_batch_toggle_disable_inverts_each_tag_independently(panel, sample_tags, qtbot):
+    """バッチ「無効化⇄復活」は選択中の各タグを個別に現在状態の反転にする (#997)。
+
+    混在選択 (有効な 1girl/solo + 既に無効化済みの flower) でも一方向へ揃えない:
+    有効だったものは無効化、無効化済みだったものは復活へそれぞれ逆転する。
+    """
+    panel.set_tag_edit_enabled(True)
+    panel.set_tags(sample_tags)
+    panel._tag_chips[1].clicked.emit()  # flower を先に無効化しておく
+    assert "flower" in panel._disabled_display
+
+    panel._tag_chips[0].ctrl_clicked.emit()  # 1girl (有効)
+    panel._tag_chips[1].ctrl_clicked.emit()  # flower (無効化済み)
+    toggle_button = next(
+        b for b in panel._selection_bar.findChildren(QPushButton) if b.text() == "無効化⇄復活"
+    )
+
+    reject_received: list[list[str]] = []
+    restore_received: list[list[str]] = []
+    panel.tags_reject_requested.connect(reject_received.append)
+    panel.tags_restore_requested.connect(restore_received.append)
+
+    toggle_button.click()
+
+    assert reject_received == [["1girl"]]
+    assert restore_received == [["flower"]]
+    assert "1girl" in panel._disabled_display
+    assert "flower" not in panel._disabled_display
+    assert panel._selected_canonicals == set()
+
+
+def test_batch_clear_selection_button_resets_highlight(panel, sample_tags):
+    """「選択解除」ボタンで選択集合がクリアされ chip の強調表示が戻る。"""
+    panel.set_tags(sample_tags)
+    panel._tag_chips[0].ctrl_clicked.emit()
+    chip = panel._tag_chips[0]
+    assert chip.selected is True
+
+    clear_button = next(b for b in panel._selection_bar.findChildren(QPushButton) if b.text() == "選択解除")
+    clear_button.click()
+
+    assert panel._selected_canonicals == set()
+    assert chip.selected is False
+    assert chip.styleSheet() == chip.base_qss
+    assert panel._selection_bar.isHidden() is True
+
+
+# ⑫ 使用頻度を見るダイアログ (#997) -------------------------------------------
+
+
+def test_usage_counts_menu_signal_exists(panel):
+    """chip に使用頻度を見るメニュー要求 Signal があること。"""
+    chip = SelectableTagChip("1girl", "1girl")
+    assert hasattr(chip, "usage_counts_menu_requested")
+
+
+def test_open_usage_counts_dialog_passes_cached_counts(panel, sample_tags, monkeypatch):
+    """右クリック「使用頻度を見る」は #990 で既にキャッシュ済みの counts をそのまま渡す。"""
+    panel.set_tags(sample_tags)
+    panel.set_usage_counts({10: {"danbooru": 1234000, "e621": 500}})
+
+    captured: dict[str, object] = {}
+
+    class _CapturingDialog(tpw.UsageCountsDialog):
+        def __init__(self, canonical, counts, parent=None):
+            captured["canonical"] = canonical
+            captured["counts"] = counts
+            super().__init__(canonical, counts, parent)
+
+        def exec(self):
+            return None
+
+    monkeypatch.setattr(tpw, "UsageCountsDialog", _CapturingDialog)
+    panel._open_usage_counts_dialog("1girl")
+
+    assert captured["canonical"] == "1girl"
+    assert captured["counts"] == {"danbooru": 1234000, "e621": 500}
+
+
+def test_usage_counts_dialog_no_data_placeholder(qtbot):
+    """usage count が無い canonical では「使用頻度データなし」を表示する。"""
+    dialog = tpw.UsageCountsDialog("solo", {})
+    qtbot.addWidget(dialog)
+    labels = [w.text() for w in dialog.findChildren(QLabel)]
+    assert "使用頻度データなし" in labels
+
+
+def test_usage_counts_dialog_formats_counts(qtbot):
+    """format 別 count が K/M 整形されて表示される。"""
+    dialog = tpw.UsageCountsDialog("1girl", {"danbooru": 1234000, "e621": 500})
+    qtbot.addWidget(dialog)
+    labels = [w.text() for w in dialog.findChildren(QLabel)]
+    assert "1.2M" in labels
+    assert "500" in labels

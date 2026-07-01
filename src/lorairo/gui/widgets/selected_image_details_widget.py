@@ -373,6 +373,8 @@ class SelectedImageDetailsWidget(QWidget):
         self.annotation_display.tag_reject_requested.connect(self._on_tag_reject)
         self.annotation_display.tag_restore_requested.connect(self._on_tag_restore)
         self.annotation_display.tag_add_requested.connect(self._on_tag_add)
+        self.annotation_display.tags_reject_requested.connect(self._on_tags_reject)
+        self.annotation_display.tags_restore_requested.connect(self._on_tags_restore)
         logger.debug("SelectedImageDetailsWidget: soft-reject 編集モードを有効化")
 
     def set_refinement_service(
@@ -521,6 +523,31 @@ class SelectedImageDetailsWidget(QWidget):
         if self.current_image_id is None:
             return
         self._db_manager.add_manual_tag(self.current_image_id, tag)
+        self._reload_current_image()
+
+    @Slot(list)
+    def _on_tags_reject(self, canonicals: list[str]) -> None:
+        """複数選択のバッチ soft-reject 要求を Manager に委譲し再描画する (#997)。
+
+        `_on_tag_reject` の複数版。選択件数分の reload / refinement 再評価を避けるため、
+        DB 書き込みをループしたあと `_reload_current_image` は1回だけ呼ぶ。
+        """
+        if self.current_image_id is None:
+            return
+        for tag in canonicals:
+            self._db_manager.soft_reject_tag(self.current_image_id, tag)
+        self._reload_current_image()
+
+    @Slot(list)
+    def _on_tags_restore(self, canonicals: list[str]) -> None:
+        """複数選択のバッチ復活要求を Manager に委譲し再描画する (#997)。
+
+        `_on_tag_restore` の複数版。DB 書き込みをループしたあと reload は1回だけ呼ぶ。
+        """
+        if self.current_image_id is None:
+            return
+        for tag in canonicals:
+            self._db_manager.restore_tag(self.current_image_id, tag)
         self._reload_current_image()
 
     @Slot(str, str, str)

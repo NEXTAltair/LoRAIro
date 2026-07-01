@@ -119,6 +119,9 @@ class AnnotationDataDisplayWidget(QWidget, Ui_AnnotationDataDisplayWidget):
     tag_reject_requested = Signal(str)  # 無効化・✕ 共通で soft-reject
     tag_restore_requested = Signal(str)  # soft-rejected タグを復活
     tag_add_requested = Signal(str)  # 手動タグ追加 (生入力)
+    # 複数選択のバッチ操作 (#997)。引数は canonical タグ文字列のリスト。
+    tags_reject_requested = Signal(list)  # まとめて外す/無効化
+    tags_restore_requested = Signal(list)  # まとめて復活
     refinement_ignored = Signal(str, str)  # refinement リコメンドを無視 (canonical, reason_code) (#931)
     translation_add_requested = Signal(str, str, str)  # canonical, language, translation (#989)
     tag_metadata_edit_requested = Signal(str, str)  # canonical, type (#989)
@@ -176,6 +179,8 @@ class AnnotationDataDisplayWidget(QWidget, Ui_AnnotationDataDisplayWidget):
         self._tag_panel.tag_reject_requested.connect(self.tag_reject_requested)
         self._tag_panel.tag_restore_requested.connect(self.tag_restore_requested)
         self._tag_panel.tag_add_requested.connect(self.tag_add_requested)
+        self._tag_panel.tags_reject_requested.connect(self.tags_reject_requested)
+        self._tag_panel.tags_restore_requested.connect(self.tags_restore_requested)
         self._tag_panel.refinement_ignored.connect(self.refinement_ignored)
         self._tag_panel.translation_add_requested.connect(self.translation_add_requested)
         self._tag_panel.tag_metadata_edit_requested.connect(self.tag_metadata_edit_requested)
