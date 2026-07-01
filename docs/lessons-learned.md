@@ -43,6 +43,7 @@ LoRAIro 開発で得られた教訓。バグパターン・設計ミス・解決
 - **`ratings.normalized_rating` は送信判定の唯一参照値**: `ratings.raw_rating_value` は保存元トレース用の補助情報で、`X` / `XXX` フィルタは `normalized_rating` のみで行う。`PG`/`PG-13`/`R`/`UNRATED`/`None` は rating eligibility 通過。
 - **User DB 初期化順序**: Base DBが存在しない環境でもUser DBは単独で動作する必要がある。`init_user_db()` は Base DB の有無に依存しない設計にする。
 - **プロジェクト概念のスキーマ正規化** (ADR 0017): ファイル名から推論する暗黙構造は破綻する。`lorairo_data/<name>_<timestamp>/` ディレクトリ構造だけでプロジェクトを識別していたため、Issue #166 で `repository.get_images_by_filter()` 引数なし全件取得 (21k 件) バグが発生。`projects` テーブル + `Image.project_id` FK 化で `WHERE project_id = ?` インデックス検索に置換し根本解決。DB を第一級エンティティとして設計することで、LIKE 句マッチや全件スキャンを構造的に排除できる。
+- **`StaticPool` + マルチスレッド GUI は危険 — 実ファイル DB は `QueuePool` 一択** (Issue #1002 / genai-tag-db-tools #116): `poolclass=StaticPool` は 1 本の生 SQLite コネクションを全セッションで共有する。`connect_args={"check_same_thread": False}` は Python 側のスレッドチェックを無効化するだけで、根底の `sqlite3.Connection` への真の同時アクセスは防げない。GUI メインスレッドと `RefinementWorker` (QThread) が同一エンジンを共有すると `sqlite3.InterfaceError: bad parameter or other API misuse` が散発し、例外が飛ばないケースでは `_populate_rejected_tags()` 等が古い結果を返して「編集が消えた」ように見えた。`StaticPool` は **接続ごとに別 DB になる `:memory:` テストでのみ必須**（単一コネクション保持が要る）で、実ファイル DB では既定の `QueuePool`（スレッドごとに独立コネクション）を使う。`create_db_engine()` は `":memory:" in database_url` の時だけ `StaticPool` を指定する分岐にする。WAL journal + busy_timeout (Issue #767) は「複数コネクションの安全な共存」設定であり、`StaticPool` 下では実質無意味で、`QueuePool` 化して初めて意味を持つ。同一アンチパターンが LoRAIro `db_core.py` と submodule `genai-tag-db-tools/db/runtime.py` の両方にあり、両方を修正した。
 
 ## Integration
 

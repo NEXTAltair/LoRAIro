@@ -319,12 +319,18 @@ def create_db_engine(database_url: str | None = None) -> Engine:
     if database_url is None:
         database_url = DATABASE_URL
     logger.info(f"Creating SQLAlchemy engine for: {database_url}")
-    engine = create_engine(
-        database_url,
-        connect_args={"check_same_thread": False},  # SQLite に必要
-        poolclass=StaticPool,  # SQLite で推奨
-        echo=False,  # SQL 文のデバッグ用に True に設定
-    )
+    # StaticPool は 1 本の生コネクションを全セッションで共有するため、GUI メインスレッドと
+    # RefinementWorker (QThread) が同一エンジンを共有すると sqlite3 の真の同時アクセスで
+    # "bad parameter or other API misuse" を招く (Issue #1002)。実ファイル DB では
+    # SQLAlchemy 既定の QueuePool (スレッドごとに独立コネクション) に委ね、
+    # 接続ごとに別 DB になる :memory: のときだけ単一コネクション保持の StaticPool を使う。
+    engine_kwargs: dict[str, Any] = {
+        "connect_args": {"check_same_thread": False},  # SQLite に必要
+        "echo": False,  # SQL 文のデバッグ用に True に設定
+    }
+    if ":memory:" in database_url:
+        engine_kwargs["poolclass"] = StaticPool
+    engine = create_engine(database_url, **engine_kwargs)
 
     # --- イベントリスナー設定 ---
     # リスナー関数をエンジン作成時に動的に定義・登録する
