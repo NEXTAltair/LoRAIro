@@ -374,7 +374,7 @@ class SelectedImageDetailsWidget(QWidget):
         self.annotation_display.tag_restore_requested.connect(self._on_tag_restore)
         self.annotation_display.tag_add_requested.connect(self._on_tag_add)
         self.annotation_display.tags_reject_requested.connect(self._on_tags_reject)
-        self.annotation_display.tags_restore_requested.connect(self._on_tags_restore)
+        self.annotation_display.tags_toggle_requested.connect(self._on_tags_toggle)
         logger.debug("SelectedImageDetailsWidget: soft-reject 編集モードを有効化")
 
     def set_refinement_service(
@@ -538,15 +538,19 @@ class SelectedImageDetailsWidget(QWidget):
             self._db_manager.soft_reject_tag(self.current_image_id, tag)
         self._reload_current_image()
 
-    @Slot(list)
-    def _on_tags_restore(self, canonicals: list[str]) -> None:
-        """複数選択のバッチ復活要求を Manager に委譲し再描画する (#997)。
+    @Slot(list, list)
+    def _on_tags_toggle(self, to_reject: list[str], to_restore: list[str]) -> None:
+        """バッチ「無効化⇄復活」要求を Manager に委譲し再描画する (#997)。
 
-        `_on_tag_restore` の複数版。DB 書き込みをループしたあと reload は1回だけ呼ぶ。
+        選択中の各タグを個別に現在状態の反転にするため、混在選択では reject/restore が
+        両方発生し得る。両方の DB 書き込みをループしたあと `_reload_current_image` は
+        1回だけ呼ぶ (2 Signal に分けて別々に reload すると2回走ってしまう、Codex #1001 P2)。
         """
         if self.current_image_id is None:
             return
-        for tag in canonicals:
+        for tag in to_reject:
+            self._db_manager.soft_reject_tag(self.current_image_id, tag)
+        for tag in to_restore:
             self._db_manager.restore_tag(self.current_image_id, tag)
         self._reload_current_image()
 

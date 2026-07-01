@@ -1,9 +1,11 @@
 """SelectedImageDetailsWidget のバッチタグ操作配線テスト (#997, ADR 0083 §3後送り分)。
 
-複数選択のバッチ「外す/無効化」「復活」Signal (``tags_reject_requested`` /
-``tags_restore_requested``) を、DB への書き込みをループしたあと reload は1回だけ
-呼ぶことを fake db_manager で検証する。単数版 (`_on_tag_reject` 等) と異なり、
-選択件数分の reload / refinement 再評価を避けるための設計であることを確認する。
+複数選択のバッチ「外す」Signal (``tags_reject_requested``) と「無効化⇄復活」Signal
+(``tags_toggle_requested``、reject/restore 両リストを1回でまとめて渡す) を、DB への
+書き込みをループしたあと reload は1回だけ呼ぶことを fake db_manager で検証する。
+単数版 (`_on_tag_reject` 等) と異なり、選択件数分の reload / refinement 再評価を
+避けるための設計であること、混在選択 (reject/restore 両方発生) でも reload が
+1回で済むこと (Codex #1001 P2 の指摘反映) を確認する。
 """
 
 from __future__ import annotations
@@ -54,14 +56,27 @@ def test_batch_reject_writes_each_tag_and_reloads_once(qtbot, monkeypatch) -> No
     assert widget.reload_calls == 1  # type: ignore[attr-defined]
 
 
-def test_batch_restore_writes_each_tag_and_reloads_once(qtbot, monkeypatch) -> None:
-    """tags_restore_requested(list) は各タグを restore_tag し reload は1回だけ。"""
+def test_batch_toggle_writes_restore_only_and_reloads_once(qtbot, monkeypatch) -> None:
+    """tags_toggle_requested([], restore) は restore のみ書き込み reload は1回だけ。"""
     db_manager = _FakeDbManager()
     widget = _make_widget(qtbot, monkeypatch, db_manager)
 
-    widget._on_tags_restore(["blurry_background"])
+    widget._on_tags_toggle([], ["blurry_background"])
 
     assert db_manager.restored == [(42, "blurry_background")]
+    assert db_manager.rejected == []
+    assert widget.reload_calls == 1  # type: ignore[attr-defined]
+
+
+def test_batch_toggle_mixed_writes_both_and_reloads_once(qtbot, monkeypatch) -> None:
+    """混在 (reject + restore 両方) でも reload は1回だけ (Codex #1001 P2)。"""
+    db_manager = _FakeDbManager()
+    widget = _make_widget(qtbot, monkeypatch, db_manager)
+
+    widget._on_tags_toggle(["1girl"], ["flower"])
+
+    assert db_manager.rejected == [(42, "1girl")]
+    assert db_manager.restored == [(42, "flower")]
     assert widget.reload_calls == 1  # type: ignore[attr-defined]
 
 

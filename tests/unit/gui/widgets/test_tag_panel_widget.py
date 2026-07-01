@@ -608,15 +608,14 @@ def test_batch_toggle_disable_inverts_each_tag_independently(panel, sample_tags,
         b for b in panel._selection_bar.findChildren(QPushButton) if b.text() == "無効化⇄復活"
     )
 
-    reject_received: list[list[str]] = []
-    restore_received: list[list[str]] = []
-    panel.tags_reject_requested.connect(reject_received.append)
-    panel.tags_restore_requested.connect(restore_received.append)
+    # 混在選択でも reload が1回で済むよう、reject/restore は1回の Signal (2引数) で
+    # まとめて渡す (Codex #1001 P2)。
+    toggle_received: list[tuple[list[str], list[str]]] = []
+    panel.tags_toggle_requested.connect(lambda reject, restore: toggle_received.append((reject, restore)))
 
     toggle_button.click()
 
-    assert reject_received == [["1girl"]]
-    assert restore_received == [["flower"]]
+    assert toggle_received == [(["1girl"], ["flower"])]
     assert "1girl" in panel._disabled_display
     assert "flower" not in panel._disabled_display
     assert panel._selected_canonicals == set()

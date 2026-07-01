@@ -353,8 +353,11 @@ class TagPanelWidget(QWidget):
     tag_add_requested = Signal(str)  # 生入力 (親が canonical 解決)
     # 複数選択のバッチ操作 (#997)。親側で「ループして DB 書き込み → 最後に1回だけ reload」
     # にできるよう、単数 Signal を選択件数分ループ emit するのではなく list をまとめて渡す。
-    tags_reject_requested = Signal(list)  # list[str] canonicals — まとめて外す/無効化
-    tags_restore_requested = Signal(list)  # list[str] canonicals — まとめて復活
+    tags_reject_requested = Signal(list)  # list[str] canonicals — まとめて外す
+    # 無効化⇄復活トグルは各タグ個別の反転なので混在選択では reject/restore 両方が
+    # 発生し得る。2 Signal に分けると親側で reload が2回走る (Codex #1001 P2) ため、
+    # 1回の Signal で両リストをまとめて渡し、親側で reload を1回に抑える。
+    tags_toggle_requested = Signal(list, list)  # (to_reject, to_restore) canonicals
     # tagdb userdb 系 (canonical が主キー / 画像 ID 不要)
     refinement_ignored = Signal(str, str)  # canonical, reason_code (#931)
     translation_add_requested = Signal(str, str, str)  # canonical, language, translation (#989)
@@ -1100,10 +1103,9 @@ class TagPanelWidget(QWidget):
                 self._disabled_display.add(canonical)
                 to_reject.append(canonical)
         self._selected_canonicals.clear()
-        if to_reject:
-            self.tags_reject_requested.emit(to_reject)
-        if to_restore:
-            self.tags_restore_requested.emit(to_restore)
+        # 混在選択でも reload が1回で済むよう、reject/restore を1回の Signal でまとめて渡す
+        # (Codex #1001 P2)。
+        self.tags_toggle_requested.emit(to_reject, to_restore)
         self._refresh_tags_for_language(self._current_language())
 
     def _on_batch_clear_selection(self) -> None:
