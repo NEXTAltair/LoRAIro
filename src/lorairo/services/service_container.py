@@ -275,10 +275,17 @@ class ServiceContainer:
         def _prefetch(tags: "Iterable[str]", *, repo: object | None = None) -> None:
             self.tag_management_service.prefetch_translations(tags, repo=repo)
 
+        # refinement 候補タグのサイト別使用カウントを評価時に一括解決する (#1052)
+        def _candidate_counts(
+            tags: "Iterable[str]", *, repo: object | None = None
+        ) -> dict[str, dict[str, int]]:
+            return self.tag_management_service.resolve_usage_counts_for_tags(tags, repo=repo)
+
         return RefinementService(
             recommend_fn=_recommend,
             ignore_repo=RefinementIgnoreRepository(session_factory=session_factory),
             prefetch_fn=_prefetch,
+            candidate_counts_fn=_candidate_counts,
         )
 
     @property

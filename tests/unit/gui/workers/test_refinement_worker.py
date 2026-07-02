@@ -32,6 +32,9 @@ class _FakeService:
         self.calls: list[tuple[list[str], object, object]] = []
         self.cancel_checks: list[object] = []
 
+    def resolve_candidate_counts(self, recommendations, *, repo=None):  # type: ignore[no-untyped-def]
+        return {}
+
     def recommend_for_tags(self, tags, format_map=None, repo=None, cancel_check=None):  # type: ignore[no-untyped-def]
         self.calls.append((list(tags), format_map, repo))
         self.cancel_checks.append(cancel_check)
@@ -43,6 +46,9 @@ class _CheckpointService:
 
     def __init__(self) -> None:
         self.evaluated: list[str] = []
+
+    def resolve_candidate_counts(self, recommendations, *, repo=None):  # type: ignore[no-untyped-def]
+        return {}
 
     def recommend_for_tags(self, tags, format_map=None, repo=None, cancel_check=None):  # type: ignore[no-untyped-def]
         for tag in tags:
