@@ -35,7 +35,7 @@ class _FakeService:
     def resolve_candidate_counts(self, recommendations, *, repo=None):  # type: ignore[no-untyped-def]
         return {}
 
-    def recommend_for_tags(self, tags, format_map=None, repo=None, cancel_check=None):  # type: ignore[no-untyped-def]
+    def recommend_for_tags(self, tags, format_map=None, repo=None, cancel_check=None, image_id=None):  # type: ignore[no-untyped-def]
         self.calls.append((list(tags), format_map, repo))
         self.cancel_checks.append(cancel_check)
         return self._result
@@ -50,7 +50,7 @@ class _CheckpointService:
     def resolve_candidate_counts(self, recommendations, *, repo=None):  # type: ignore[no-untyped-def]
         return {}
 
-    def recommend_for_tags(self, tags, format_map=None, repo=None, cancel_check=None):  # type: ignore[no-untyped-def]
+    def recommend_for_tags(self, tags, format_map=None, repo=None, cancel_check=None, image_id=None):  # type: ignore[no-untyped-def]
         for tag in tags:
             if cancel_check is not None:
                 cancel_check()

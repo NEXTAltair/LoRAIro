@@ -10,6 +10,7 @@ from genai_tag_db_tools.models import TagRecordPublic, TagTypeUpdate
 from loguru import logger
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import QCheckBox, QComboBox, QMessageBox, QTableWidgetItem, QWidget
+from sqlalchemy.exc import SQLAlchemyError
 
 from ...services.tag_management_service import TagManagementService
 from ..designer.TagManagementWidget_ui import Ui_TagManagementWidget
@@ -52,6 +53,7 @@ class TagManagementWidget(QWidget, Ui_TagManagementWidget):
 
         # UI初期化
         self._setup_table_properties()
+        self._setup_ignore_section()
         self._connect_signals()
 
         logger.info("TagManagementWidget initialized")
@@ -75,7 +77,77 @@ class TagManagementWidget(QWidget, Ui_TagManagementWidget):
             service: refinement 評価キャッシュを保持する Qt-free サービス。
         """
         self.refinement_service = service
+        self.refresh_ignored_entries()
         logger.info("RefinementService set for TagManagementWidget")
+
+    def _setup_ignore_section(self) -> None:
+        """refinement 無視設定の一覧・解除セクションを増設する (#1053)。
+
+        ⚠ メニューの「無視」はスコープ付きで永続化されるが、従来は確認・解除する
+        UI が無かった。.ui は再生成せず、既存レイアウト末尾へ QGroupBox を追加する。
+        """
+        from PySide6.QtWidgets import (
+            QGroupBox,
+            QHeaderView,
+            QPushButton,
+            QTableWidget,
+            QVBoxLayout,
+        )
+
+        self._ignore_group = QGroupBox("refinement 無視設定", self)
+        group_layout = QVBoxLayout(self._ignore_group)
+        self.tableIgnoredEntries = QTableWidget(0, 4, self._ignore_group)
+        self.tableIgnoredEntries.setHorizontalHeaderLabels(["タグ", "理由", "スコープ", ""])
+        self.tableIgnoredEntries.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
+        self.tableIgnoredEntries.verticalHeader().setVisible(False)
+        self.tableIgnoredEntries.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
+        group_layout.addWidget(self.tableIgnoredEntries)
+        self.buttonRefreshIgnores = QPushButton("再読み込み", self._ignore_group)
+        self.buttonRefreshIgnores.clicked.connect(self.refresh_ignored_entries)
+        group_layout.addWidget(self.buttonRefreshIgnores)
+        layout = self.layout()
+        if layout is not None:
+            layout.addWidget(self._ignore_group)
+
+    def refresh_ignored_entries(self) -> None:
+        """無視設定の一覧を再読込して表示する (#1053)。"""
+        from PySide6.QtWidgets import QPushButton, QTableWidgetItem
+
+        service = self.refinement_service
+        if service is None:
+            return
+        try:
+            entries = service.list_ignored_entries()
+        except SQLAlchemyError as e:
+            logger.error(f"無視設定の読込に失敗: {e}", exc_info=True)
+            return
+        self.tableIgnoredEntries.setRowCount(len(entries))
+        for row, entry in enumerate(entries):
+            tag = str(entry.get("tag", ""))
+            reason_code = str(entry.get("reason_code", ""))
+            image_id = entry.get("image_id")
+            scope_text = "全画像" if image_id is None else f"画像 {image_id} のみ"
+            self.tableIgnoredEntries.setItem(row, 0, QTableWidgetItem(tag))
+            self.tableIgnoredEntries.setItem(row, 1, QTableWidgetItem(reason_code))
+            self.tableIgnoredEntries.setItem(row, 2, QTableWidgetItem(scope_text))
+            remove_button = QPushButton("解除", self.tableIgnoredEntries)
+            remove_button.clicked.connect(
+                lambda _checked=False, t=tag, c=reason_code, i=image_id: self._on_unignore(t, c, i)
+            )
+            self.tableIgnoredEntries.setCellWidget(row, 3, remove_button)
+        logger.debug(f"無視設定を表示: {len(entries)}件")
+
+    def _on_unignore(self, tag: str, reason_code: str, image_id: object) -> None:
+        """1行の無視設定を解除し一覧を更新する (#1053)。"""
+        service = self.refinement_service
+        if service is None:
+            return
+        try:
+            service.unignore(tag, reason_code, image_id if isinstance(image_id, int) else None)
+        except SQLAlchemyError as e:
+            logger.error(f"無視設定の解除に失敗: {e}", exc_info=True)
+            return
+        self.refresh_ignored_entries()
 
     def _clear_refinement_cache(self) -> None:
         """refinement 評価キャッシュを無効化します (#977)

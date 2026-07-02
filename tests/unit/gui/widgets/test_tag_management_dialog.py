@@ -79,6 +79,7 @@ class TestTagManagementDialog:
     def test_refinement_service_injected_into_widget(self, qtbot, mock_service: Mock) -> None:
         """refinement_service を渡すと埋め込み widget に注入される（#977）"""
         refinement_service = Mock(spec=RefinementService)
+        refinement_service.list_ignored_entries.return_value = []
         dialog = TagManagementDialog(mock_service, refinement_service=refinement_service)
         qtbot.addWidget(dialog)
 

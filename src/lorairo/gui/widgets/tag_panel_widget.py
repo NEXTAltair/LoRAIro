@@ -71,7 +71,8 @@ class SelectableTagChip(QLabel):
     clicked = Signal()  # 単クリック (修飾なし): 無効化⇄復活トグル
     ctrl_clicked = Signal()  # Ctrl+クリック: コピー選択 (#814)
     # refinement リコメンドの「この理由を無視」要求 (#931): (canonical, reason_code)
-    refinement_ignore_requested = Signal(str, str)
+    # canonical, reason_code, this_image_only (#1053 スコープ選択式)
+    refinement_ignore_requested = Signal(str, str, bool)
     # refinement 修正候補の適用要求 (#1007、image DB 系の置換操作): (canonical, to_tag)
     refinement_apply_requested = Signal(str, str)
     # タグ情報メニュー要求 (#989、tagdb userdb 系)。親がダイアログを開く。
@@ -204,11 +205,19 @@ class SelectableTagChip(QLabel):
                 lambda _checked=False, tag=to_tag: self.refinement_apply_requested.emit(self.canonical, tag)
             )
         if rec is not None and has_ignore:
+            # ワンクリック操作に対して影響 (全画像・恒久) が重すぎたため、
+            # スコープを文言で明示した2アクションに分ける (#1053)
             for reason in rec.reasons:
-                action = menu.addAction(f"この理由を無視: {reason.code}")
-                action.triggered.connect(
+                image_action = menu.addAction(f"この画像でのみ無視: {reason.code}")
+                image_action.triggered.connect(
                     lambda _checked=False, code=reason.code: self.refinement_ignore_requested.emit(
-                        self.canonical, code
+                        self.canonical, code, True
+                    )
+                )
+                global_action = menu.addAction(f"全画像で無視: {reason.code}")
+                global_action.triggered.connect(
+                    lambda _checked=False, code=reason.code: self.refinement_ignore_requested.emit(
+                        self.canonical, code, False
                     )
                 )
         menu.exec(event.globalPos())
@@ -472,7 +481,7 @@ class TagPanelWidget(QWidget):
     # で非表示化し、置換先を手動タグとして採用する (replace_tag_for_images_batch 経路)。
     tag_replace_requested = Signal(str, str)  # (from_canonical, to_tag)
     # tagdb userdb 系 (canonical が主キー / 画像 ID 不要)
-    refinement_ignored = Signal(str, str)  # canonical, reason_code (#931)
+    refinement_ignored = Signal(str, str, bool)  # canonical, reason_code, this_image_only (#931/#1053)
     translation_add_requested = Signal(str, str, str)  # canonical, language, translation (#989)
     tag_metadata_edit_requested = Signal(str, str)  # canonical, type (#989)
 

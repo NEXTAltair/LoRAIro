@@ -373,6 +373,7 @@ class TestTagManagementWidget:
         assert widget.refinement_service is None
 
         refinement_service = Mock(spec=RefinementService)
+        refinement_service.list_ignored_entries.return_value = []
         widget.set_refinement_service(refinement_service)
 
         assert widget.refinement_service is refinement_service
@@ -382,6 +383,7 @@ class TestTagManagementWidget:
     ) -> None:
         """tagdb 更新完了時に refinement キャッシュが無効化される（#977）"""
         refinement_service = Mock(spec=RefinementService)
+        refinement_service.list_ignored_entries.return_value = []
         widget.set_refinement_service(refinement_service)
 
         # _on_update_completed は load_unknown_tags を呼ぶため tag_service の戻り値が必要
@@ -406,6 +408,7 @@ class TestTagManagementWidget:
     def test_clear_refinement_cache_degrades_on_error(self, widget: TagManagementWidget) -> None:
         """clear_cache が例外を投げても UI を巻き込まず degrade する（#977）"""
         refinement_service = Mock(spec=RefinementService)
+        refinement_service.list_ignored_entries.return_value = []
         refinement_service.clear_cache.side_effect = RuntimeError("cache error")
         widget.set_refinement_service(refinement_service)
 
@@ -442,3 +445,46 @@ class TestTagManagementWidget:
 
         with qtbot.waitSignal(widget.update_failed, timeout=3000):
             widget._on_update_clicked()
+
+
+class TestIgnoreManagementSection:
+    """#1053: refinement 無視設定の一覧・解除セクション。"""
+
+    def _make_widget(self, qtbot, entries):
+        from lorairo.gui.widgets.tag_management_widget import TagManagementWidget
+        from lorairo.services.refinement_service import RefinementService
+
+        widget = TagManagementWidget()
+        qtbot.addWidget(widget)
+        service = Mock(spec=RefinementService)
+        service.list_ignored_entries.return_value = entries
+        widget.set_refinement_service(service)
+        return widget, service
+
+    def test_entries_listed_with_scope(self, qtbot):
+        widget, _service = self._make_widget(
+            qtbot,
+            [
+                {"tag": "heart", "reason_code": "alias_tag", "image_id": None, "created_at": None},
+                {"tag": "star", "reason_code": "typo_tag", "image_id": 7, "created_at": None},
+            ],
+        )
+
+        table = widget.tableIgnoredEntries
+        assert table.rowCount() == 2
+        assert table.item(0, 0).text() == "heart"
+        assert table.item(0, 2).text() == "全画像"
+        assert table.item(1, 2).text() == "画像 7 のみ"
+
+    def test_unignore_button_removes_and_refreshes(self, qtbot):
+        widget, service = self._make_widget(
+            qtbot,
+            [{"tag": "heart", "reason_code": "alias_tag", "image_id": 7, "created_at": None}],
+        )
+        # 解除後は空一覧を返す
+        service.list_ignored_entries.return_value = []
+
+        widget._on_unignore("heart", "alias_tag", 7)
+
+        service.unignore.assert_called_once_with("heart", "alias_tag", 7)
+        assert widget.tableIgnoredEntries.rowCount() == 0

@@ -125,7 +125,8 @@ class AnnotationDataDisplayWidget(QWidget, Ui_AnnotationDataDisplayWidget):
     tags_exclude_requested = Signal(list)  # まとめて除外 (incorrect)
     tags_toggle_requested = Signal(list, list)  # (to_disable, to_restore) まとめて無効化⇄復活
     tag_replace_requested = Signal(str, str)  # 修正候補を適用 = 置換 (from, to) (#1007)
-    refinement_ignored = Signal(str, str)  # refinement リコメンドを無視 (canonical, reason_code) (#931)
+    # refinement リコメンドを無視 (canonical, reason_code, this_image_only) (#931/#1053)
+    refinement_ignored = Signal(str, str, bool)
     translation_add_requested = Signal(str, str, str)  # canonical, language, translation (#989)
     tag_metadata_edit_requested = Signal(str, str)  # canonical, type (#989)
 

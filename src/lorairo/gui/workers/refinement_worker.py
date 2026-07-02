@@ -81,6 +81,7 @@ class RefinementWorker(LoRAIroWorkerBase[RefinementResult]):
             format_map=self._format_map,
             repo=self._repo,
             cancel_check=self._check_cancellation,
+            image_id=self._image_id,
         )
         # 候補タグの使用カウントも worker スレッド内で一括解決する
         # (メインスレッドで tag DB を待たない #1046 方針と整合。#1052)。

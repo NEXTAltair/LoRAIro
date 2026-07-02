@@ -36,7 +36,7 @@ class _FakeService:
     def recommend_for_tags(self, tags, format_map=None, repo=None, cancel_check=None):  # type: ignore[no-untyped-def]
         return {t: _rec(t) for t in tags}
 
-    def ignore(self, tag: str, reason_code: str) -> None:
+    def ignore(self, tag: str, reason_code: str, image_id=None) -> None:
         self.ignored.append((tag, reason_code))
 
 
@@ -168,7 +168,7 @@ def test_ignored_persists_and_reevaluates(qtbot) -> None:
     widget.current_image_id = 5
     widget._current_tag_canonicals = ["flower"]
 
-    widget._on_refinement_ignored("flower", "broad_single_word")
+    widget._on_refinement_ignored("flower", "broad_single_word", False)
 
     assert service.ignored == [("flower", "broad_single_word")]
     assert len(manager.started) == 1  # 再評価が起動した

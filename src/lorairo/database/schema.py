@@ -18,6 +18,7 @@ from sqlalchemy import (
     Text,
     UniqueConstraint,
     func,
+    text,
 )
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
@@ -341,11 +342,13 @@ class Tag(Base):
 
 
 class RefinementIgnore(Base):
-    """タグ refinement リコメンドのローカル無視設定 (#931)。
+    """タグ refinement リコメンドのローカル無視設定 (#931 / #1053)。
 
     特定タグ (`tag`) の特定理由 (`reason_code`) のリコメンドを抑制する。
     1タグに複数 reason が付くため tag + reason_code 単位で無視できる。
-    画像には紐づかない (タグ語彙単位)。
+
+    スコープ (#1053): ``image_id IS NULL`` = 全画像 (タグ語彙単位・恒久)、
+    ``image_id`` あり = その画像に限定。既存行は NULL のまま全画像扱い。
     """
 
     __tablename__ = "refinement_ignores"
@@ -354,17 +357,38 @@ class RefinementIgnore(Base):
     tag: Mapped[str] = mapped_column(String, nullable=False)
     # genai-tag-db-tools の RefinementReason.code (Literal 23種) の文字列値
     reason_code: Mapped[str] = mapped_column(String, nullable=False)
+    # NULL = 全画像スコープ / 非 NULL = その画像限定 (#1053)
+    image_id: Mapped[int | None] = mapped_column(ForeignKey("images.id", ondelete="CASCADE"), nullable=True)
     created_at: Mapped[datetime.datetime] = mapped_column(
         TIMESTAMP(timezone=True), server_default=func.now()
     )
 
     __table_args__ = (
-        UniqueConstraint("tag", "reason_code", name="uix_refinement_ignore_tag_reason"),
+        # SQLite の UNIQUE は NULL を別値扱いするため、全画像スコープ (NULL) と
+        # 画像限定スコープを部分 UNIQUE インデックスで分けて一意化する (#1053)
+        Index(
+            "uq_refinement_ignores_global",
+            "tag",
+            "reason_code",
+            unique=True,
+            sqlite_where=text("image_id IS NULL"),
+        ),
+        Index(
+            "uq_refinement_ignores_image",
+            "tag",
+            "reason_code",
+            "image_id",
+            unique=True,
+            sqlite_where=text("image_id IS NOT NULL"),
+        ),
         Index("ix_refinement_ignores_tag", "tag"),
     )
 
     def __repr__(self) -> str:
-        return f"<RefinementIgnore(tag='{self.tag}', reason_code='{self.reason_code}')>"
+        return (
+            f"<RefinementIgnore(tag='{self.tag}', reason_code='{self.reason_code}',"
+            f" image_id={self.image_id})>"
+        )
 
 
 class Caption(Base):

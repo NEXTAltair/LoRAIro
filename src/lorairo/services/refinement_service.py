@@ -36,11 +36,13 @@ CandidateCountsFn = Callable[..., dict[str, dict[str, int]]]
 class RefinementIgnoreStore(Protocol):
     """ignore 永続化の最小インターフェイス (Repository / fake 双方を受ける)。"""
 
-    def add_ignore(self, tag: str, reason_code: str) -> None: ...
+    def add_ignore(self, tag: str, reason_code: str, image_id: int | None = None) -> None: ...
 
-    def is_ignored(self, tag: str, reason_code: str) -> bool: ...
+    def is_ignored(self, tag: str, reason_code: str, image_id: int | None = None) -> bool: ...
 
-    def list_ignored(self) -> set[tuple[str, str]]: ...
+    def list_ignored(self, image_id: int | None = None) -> set[tuple[str, str]]: ...
+
+    def remove_ignore(self, tag: str, reason_code: str, image_id: int | None = None) -> None: ...
 
 
 class RefinementService:
@@ -102,6 +104,7 @@ class RefinementService:
         format_map: Mapping[str, str] | None = None,
         repo: object | None = None,
         cancel_check: Callable[[], None] | None = None,
+        image_id: int | None = None,
     ) -> dict[str, RefinementRecommendation]:
         """タグ集合を評価し、表示すべきリコメンドを tag ごとに返す。
 
@@ -123,7 +126,10 @@ class RefinementService:
         # list_ignored() も DB 読み取りのため、最初の往復前にもチェックする (Codex P2)。
         if cancel_check is not None:
             cancel_check()
-        ignored = self._ignore_repo.list_ignored()
+        # 全画像スコープ + 当該画像限定スコープを合算して除外する (#1053)。
+        # キャッシュは未フィルタのリコメンドを保持し、除外は毎回後段で適用するため
+        # 画像スコープがキャッシュキーに影響しない
+        ignored = self._ignore_repo.list_ignored(image_id)
         fmap = format_map or {}
         # reader (repo) が違うと DB 由来の alias/typo 候補が変わるためキー要素に含める。
         repo_key = id(repo) if repo is not None else 0
@@ -193,12 +199,32 @@ class RefinementService:
             }
         )
 
-    def ignore(self, tag: str, reason_code: str) -> None:
-        """タグの特定 reason のリコメンドを以後抑制する (永続化)。"""
-        self._ignore_repo.add_ignore(tag, reason_code)
+    def ignore(self, tag: str, reason_code: str, image_id: int | None = None) -> None:
+        """タグの特定 reason のリコメンドを以後抑制する (永続化)。
+
+        Args:
+            tag: 対象タグ。
+            reason_code: 抑制する RefinementReason.code。
+            image_id: None なら全画像スコープ、指定時はその画像限定 (#1053)。
+        """
+        self._ignore_repo.add_ignore(tag, reason_code, image_id)
         # 当該タグのキャッシュを無効化 (format 問わず)
         self._cache = {k: v for k, v in self._cache.items() if k[0] != tag}
-        logger.debug(f"refinement ignore 追加: tag='{tag}', reason_code='{reason_code}'")
+
+    def unignore(self, tag: str, reason_code: str, image_id: int | None = None) -> None:
+        """無視設定を解除する (#1053、管理 UI 用)。"""
+        self._ignore_repo.remove_ignore(tag, reason_code, image_id)
+        self._cache = {k: v for k, v in self._cache.items() if k[0] != tag}
+
+    def list_ignored_entries(self) -> list[dict[str, object]]:
+        """無視設定の全行 (スコープ含む) を管理 UI 向けに返す (#1053)。
+
+        store が列挙 API を持たない場合 (fake 等) は空リストを返す。
+        """
+        lister = getattr(self._ignore_repo, "list_ignored_entries", None)
+        if lister is None:
+            return []
+        return list(lister())
 
     def clear_cache(self) -> None:
         """評価キャッシュを全消去する (#931)。
