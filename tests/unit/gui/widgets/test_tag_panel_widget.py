@@ -491,7 +491,7 @@ def test_translation_add_dialog_emits_signal(panel, sample_tags, qtbot, monkeypa
     panel.set_tags(sample_tags, image_id=10)
 
     def fill(dialog):
-        dialog._language_combo.setCurrentText("ja")
+        dialog._language_combo.setCurrentIndex(0)  # 日本語 (保存値 ja、#1050)
         dialog._translation_input.setText("少女")
 
     _accept_dialog(monkeypatch, "TranslationAddDialog", fill)
@@ -515,7 +515,7 @@ def test_translation_add_empty_input_skipped(panel, sample_tags, monkeypatch):
     panel.set_tags(sample_tags, image_id=10)
 
     def fill(dialog):
-        dialog._language_combo.setCurrentText("ja")
+        dialog._language_combo.setCurrentIndex(0)  # 日本語 (保存値 ja、#1050)
         dialog._translation_input.setText("")
 
     _accept_dialog(monkeypatch, "TranslationAddDialog", fill)
@@ -1087,3 +1087,28 @@ def test_set_tags_image_change_without_types_resets_type_map(panel):
 
     assert panel._tag_types == {}
     assert [c.canonical for c in panel._tag_chips] == ["hatsune miku", "zzz tag"]
+
+
+# #1050: 翻訳登録ダイアログの言語選択は固定ドロップダウン --------------------
+
+
+def test_translation_dialog_language_choices_are_fixed(qtbot):
+    """自由入力は廃止し、候補は 日本語/English の固定2択 (Issue #1050)。"""
+    dialog = TranslationAddDialog("1girl", ["japanese", "zh", "whatever"])
+    qtbot.addWidget(dialog)
+
+    assert dialog._language_combo.isEditable() is False
+    labels = [dialog._language_combo.itemText(i) for i in range(dialog._language_combo.count())]
+    assert labels == ["日本語", "English"]
+
+
+def test_translation_dialog_language_returns_normalized_code(qtbot):
+    """表示は人間向けラベル、保存値は ja / en に正規化される (Issue #1050)。"""
+    dialog = TranslationAddDialog("1girl", [])
+    qtbot.addWidget(dialog)
+
+    dialog._language_combo.setCurrentIndex(0)
+    assert dialog.language() == "ja"
+
+    dialog._language_combo.setCurrentIndex(1)
+    assert dialog.language() == "en"

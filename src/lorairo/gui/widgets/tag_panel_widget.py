@@ -216,10 +216,18 @@ class TranslationAddDialog(QDialog):
     保存先が「タグ情報 (全画像に反映)」であることをティール見出しで明示する。
     """
 
+    # 登録可能な言語の固定候補 (表示ラベル, 保存値)。自由入力は廃止し、保存値を
+    # ja / en に正規化する。tagdb の言語キー表記ゆれ ("japanese"/"ja" 混在、
+    # #976 PR #991 Codex P1) を新規登録分で構造的に発生させない (Issue #1050)
+    LANGUAGE_CHOICES: ClassVar[tuple[tuple[str, str], ...]] = (("日本語", "ja"), ("English", "en"))
+
     def __init__(self, canonical: str, languages: list[str], parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self.setWindowTitle("翻訳を追加")
         self._canonical = canonical
+        # languages はタグデータ由来の既知言語 (後方互換で受けるが候補には使わない。
+        # 固定候補 + 正規化保存が本ダイアログの契約。Issue #1050)
+        del languages
 
         layout = QVBoxLayout(self)
         header = QLabel("タグ情報を編集 · 全画像に反映されます", self)
@@ -230,12 +238,8 @@ class TranslationAddDialog(QDialog):
         form = QFormLayout()
         form.addRow("タグ (canonical):", QLabel(canonical, self))
         self._language_combo = QComboBox(self)
-        # 既知言語があれば候補に、無ければ ja を既定にする。編集可で任意の言語コードも入力可。
-        for lang in languages:
-            self._language_combo.addItem(lang)
-        if self._language_combo.count() == 0:
-            self._language_combo.addItem("ja")
-        self._language_combo.setEditable(True)
+        for label, code in self.LANGUAGE_CHOICES:
+            self._language_combo.addItem(label, userData=code)
         form.addRow("言語:", self._language_combo)
         self._translation_input = QLineEdit(self)
         self._translation_input.setPlaceholderText("翻訳テキスト")
@@ -250,8 +254,8 @@ class TranslationAddDialog(QDialog):
         layout.addWidget(buttons)
 
     def language(self) -> str:
-        """入力された言語コードを返す。"""
-        return self._language_combo.currentText().strip()
+        """選択された言語の正規化コード ("ja" / "en") を返す。"""
+        return str(self._language_combo.currentData())
 
     def translation(self) -> str:
         """入力された翻訳テキストを返す。"""
