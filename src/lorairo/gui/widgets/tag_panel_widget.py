@@ -422,6 +422,8 @@ class TagPanelWidget(QWidget):
 
         # 表示データ (DB は知らない。親から set_tags / set_translations 経由で受ける)
         self._tags: list[dict[str, Any]] = []
+        # 畳む前の全タグ行 (モデル別由来)。隠しテーブルの TSV コピー用 (#1055)
+        self._all_tag_rows: list[dict[str, Any]] = []
         self._translations: dict[int, dict[str, str]] = {}
         self._available_languages: list[str] = []
 
@@ -588,6 +590,8 @@ class TagPanelWidget(QWidget):
         Args:
             tags: タグ詳細情報リスト (Repository 層形式)。
                 ``[{"tag": "1girl", "tag_id": 10, "model_name": ..., ...}, ...]``
+                同一 canonical (``tag`` キー) の重複行は初出順で 1 件に畳んで表示する
+                (Issue #1055)。
             translations: ``{tag_id: {language: translated_text}}``。省略時は空。
             available_languages: 利用可能言語リスト (脚注/フォールバック用)。
             image_id: 表示中画像の識別子。省略 (None) 時は常にリセットする
@@ -601,7 +605,29 @@ class TagPanelWidget(QWidget):
         # 消すと、外したタグが破線復活 chip として即再出現する (PR #992 Codex P2)。
         image_changed = image_id is None or image_id != self._image_id
         self._image_id = image_id
-        self._tags = list(tags)
+        # 複数モデルでアノテーションした画像は同一 canonical のタグ行がモデル数ぶん
+        # 重複する (heart x9 等)。チップ表示は canonical 単位で 1 つに畳む (初出順維持、
+        # DB のモデル別由来行は不変。チップ操作はもともと canonical 単位で dispatch
+        # されるため操作意味論は変わらない。Issue #1055 / ADR 0083 §2)。
+        # 隠しテーブル (Model/Source/Confidence の TSV コピー) はモデル別由来を見せる
+        # 場所なので、畳む前の全行を別途保持する (Codex P2)。
+        self._all_tag_rows = list(tags)
+        kept_index_by_canonical: dict[str, int] = {}
+        deduped_tags: list[dict[str, Any]] = []
+        for tag_dict in tags:
+            canonical = str(tag_dict.get("tag", ""))
+            if not canonical:
+                deduped_tags.append(tag_dict)
+                continue
+            kept_index = kept_index_by_canonical.get(canonical)
+            if kept_index is None:
+                kept_index_by_canonical[canonical] = len(deduped_tags)
+                deduped_tags.append(tag_dict)
+            elif deduped_tags[kept_index].get("tag_id") is None and tag_dict.get("tag_id") is not None:
+                # 初出行が legacy (tag_id 無し) の場合は、翻訳/使用頻度を解決できる
+                # tag_id 付きの行で初出位置を差し替える (Codex P2)
+                deduped_tags[kept_index] = tag_dict
+        self._tags = deduped_tags
         self._translations = dict(translations) if translations else {}
         self._available_languages = list(available_languages) if available_languages else []
         if usage_counts is not None:
@@ -617,7 +643,7 @@ class TagPanelWidget(QWidget):
             self._selected_canonicals = set()
         self._rebuild_counts_by_canonical()
         self._refresh_metric_selector()
-        self._populate_table(self._tags)
+        self._populate_table(self._all_tag_rows)
         self._refresh_tags_for_language(self._current_language())
 
     def set_translations(
@@ -858,6 +884,21 @@ class TagPanelWidget(QWidget):
             return ""
         return f" ({self._format_count(count)})"
 
+    def _display_text_for(
+        self, tag_dict: dict[str, Any], language: str, use_english: bool
+    ) -> tuple[str, bool]:
+        """タグ行の表示名と翻訳有無を解決する。
+
+        Returns:
+            (表示名, 翻訳ありか)。英語表示・tag_id 無しは原文 + 翻訳欠落マーク無し。
+        """
+        original = str(tag_dict.get("tag", ""))
+        tag_id = tag_dict.get("tag_id")
+        if use_english or tag_id is None:
+            return original, True
+        translated = self._translations.get(tag_id, {}).get(language)
+        return (translated if translated else original), translated is not None
+
     def _refresh_tags_for_language(self, language: str) -> None:
         """現在のタグデータを指定言語で再描画する。
 
@@ -870,22 +911,17 @@ class TagPanelWidget(QWidget):
         tag_names: list[str] = []
         # チップ描画用メタ: (表示名, 原文, 翻訳ありか)
         chip_items: list[tuple[str, str, bool]] = []
-        for row, tag_dict in enumerate(self._tags):
-            tag_id = tag_dict.get("tag_id")
-            original = tag_dict.get("tag", "")
-            if use_english or tag_id is None:
-                display = original
-                has_translation = True  # 英語表示では翻訳欠落マークを付けない
-            else:
-                translated = self._translations.get(tag_id, {}).get(language)
-                display = translated if translated else original
-                has_translation = translated is not None
+        for tag_dict in self._tags:
+            display, has_translation = self._display_text_for(tag_dict, language, use_english)
             tag_names.append(display)
-            chip_items.append((display, original, has_translation))
+            chip_items.append((display, tag_dict.get("tag", ""), has_translation))
 
-            # 隠しテーブルの Tag 列 (列0) も更新する
+        # 隠しテーブル (全行 = モデル別由来) の Tag 列 (列0) も更新する。
+        # チップは canonical 単位で畳むためテーブルとは行数が異なる (#1055)
+        for row, tag_dict in enumerate(self._all_tag_rows):
             item = self.tableWidgetTags.item(row, 0)
             if item is not None:
+                display, _ = self._display_text_for(tag_dict, language, use_english)
                 item.setText(display)
 
         self._tags_compact_label.setText(", ".join(n for n in tag_names if n) or "-")

@@ -61,6 +61,46 @@ def test_set_tags_renders_chips_in_canonical_order(panel, sample_tags):
     assert [c.canonical for c in panel._tag_chips] == ["1girl", "flower", "solo"]
 
 
+def test_set_tags_dedupes_same_canonical_across_models(panel):
+    """#1055: 複数モデル由来の同一 canonical 行は初出順で 1 チップに畳む (heart x9 対策)。"""
+    rows = [{"tag": "heart", "tag_id": 30, "model_name": f"model{i}", "source": "AI"} for i in range(9)]
+    tags = [
+        {"tag": "1girl", "tag_id": 10, "model_name": "wd", "source": "AI"},
+        *rows,
+        {"tag": "solo", "tag_id": None, "model_name": "wd", "source": "AI"},
+        {"tag": "1girl", "tag_id": 10, "model_name": "e621", "source": "AI"},
+    ]
+
+    panel.set_tags(tags)
+
+    assert [c.canonical for c in panel._tag_chips] == ["1girl", "heart", "solo"]
+
+
+def test_set_tags_keeps_all_provenance_rows_in_table(panel):
+    """#1055 Codex P2: 隠しテーブル (TSV コピー) はモデル別由来の全行を保持する。"""
+    tags = [{"tag": "heart", "tag_id": 30, "model_name": f"model{i}", "source": "AI"} for i in range(3)]
+
+    panel.set_tags(tags)
+
+    assert len(panel._tag_chips) == 1
+    assert panel.tableWidgetTags.rowCount() == 3
+    models = {panel.tableWidgetTags.item(row, 1).text() for row in range(3)}
+    assert models == {"model0", "model1", "model2"}
+
+
+def test_set_tags_dedupe_prefers_row_with_tag_id(panel):
+    """#1055 Codex P2: 初出行が tag_id 無し (legacy) なら tag_id 付き行を採用する。"""
+    tags = [
+        {"tag": "heart", "tag_id": None, "model_name": "legacy", "source": "Manual"},
+        {"tag": "heart", "tag_id": 30, "model_name": "wd", "source": "AI"},
+    ]
+
+    panel.set_tags(tags)
+
+    assert len(panel._tags) == 1
+    assert panel._tags[0]["tag_id"] == 30
+
+
 # ③ 単クリックで reject 発火 + 破線化 ----------------------------------------
 
 
