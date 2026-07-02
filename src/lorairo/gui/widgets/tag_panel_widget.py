@@ -201,6 +201,24 @@ class SelectableTagChip(QLabel):
         event.accept()
 
 
+# tagdb の言語キーは "japanese"/"ja"、"english"/"en" が混在する (#976 PR #991)。
+# 新規登録は ja/en に正規化する (#1050) が、表示 lookup は両表記を同値として引く。
+_LANGUAGE_KEY_ALIASES: dict[str, tuple[str, ...]] = {
+    "ja": ("ja", "japanese"),
+    "japanese": ("japanese", "ja"),
+    "en": ("en", "english"),
+    "english": ("english", "en"),
+}
+
+
+def _translation_for_language(translations: dict[str, str], language: str) -> str | None:
+    """言語キーのエイリアス (ja/japanese, en/english) を同値として翻訳を引く (#1050)。"""
+    for key in _LANGUAGE_KEY_ALIASES.get(language, (language,)):
+        if key in translations:
+            return translations[key]
+    return None
+
+
 # tagdb userdb 系ダイアログのティール「タグ情報」見出し QSS (ADR 0083 §2 / #989)。
 # image DB 系 (青) と保存先を視覚的に分けるため UDB トークンで縁取る。
 _UDB_HEADER_QSS = (
@@ -938,7 +956,7 @@ class TagPanelWidget(QWidget):
         tag_id = tag_dict.get("tag_id")
         if use_english or tag_id is None:
             return original, True
-        translated = self._translations.get(tag_id, {}).get(language)
+        translated = _translation_for_language(self._translations.get(tag_id, {}), language)
         return (translated if translated else original), translated is not None
 
     def _refresh_tags_for_language(self, language: str) -> None:

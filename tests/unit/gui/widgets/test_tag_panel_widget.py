@@ -1112,3 +1112,18 @@ def test_translation_dialog_language_returns_normalized_code(qtbot):
 
     dialog._language_combo.setCurrentIndex(1)
     assert dialog.language() == "en"
+
+
+def test_translation_lookup_bridges_ja_and_japanese_keys(panel, sample_tags):
+    """#1050 Codex P2: 正規化キー "ja" で保存した翻訳は legacy "japanese" 表示でも見える。"""
+    panel.set_tags(
+        sample_tags,
+        translations={10: {"ja": "1人の女の子"}},
+        available_languages=["japanese"],
+        image_id=10,
+    )
+
+    panel._refresh_tags_for_language("japanese")
+
+    chip = next(c for c in panel._tag_chips if c.canonical == "1girl")
+    assert chip.text().strip("⚠ ").strip() == "1人の女の子"
