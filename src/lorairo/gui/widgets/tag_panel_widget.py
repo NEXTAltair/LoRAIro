@@ -493,7 +493,11 @@ class TagPanelWidget(QWidget):
 
         self._tags_chip_container = QWidget(self)
         self._tags_chip_layout = FlowLayout(self._tags_chip_container, spacing=4)
-        self._tags_chip_container.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Minimum)
+        # 縦は Preferred (ShrinkFlag あり) にする (#1025)。Minimum だと FlowLayout の
+        # sizeHint (「sizeHint 幅で全チップ縦積み」した過大値、例: 40チップで996px) が
+        # container の最小高さとして固定され、widgetResizable な QScrollArea が実幅の
+        # 必要高さ (heightForWidth) まで縮められず、チップ下に空白スクロール領域が残る。
+        self._tags_chip_container.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
         self._tags_scroll = QScrollArea(self)
         self._tags_scroll.setWidgetResizable(True)
         self._tags_scroll.setFrameShape(QScrollArea.Shape.NoFrame)
@@ -1376,6 +1380,15 @@ class TagPanelWidget(QWidget):
         width = self._tags_scroll.viewport().width()
         if width <= 0:
             return
+        # chip 再構築直後はレイアウト未 activation で新チップがまだ hidden のことがあり、
+        # QWidgetItem.sizeHint() が (0,0) を返して heightForWidth=0 → 箱が 8px に潰れる
+        # (#1025)。同期計測の前に hidden の chip を明示的に可視化して実寸を得る。
+        layout = self._tags_chip_layout
+        for i in range(layout.count()):
+            item = layout.itemAt(i)
+            widget = item.widget() if item is not None else None
+            if widget is not None and widget.isHidden():
+                widget.setVisible(True)
         # 収まるときに内側スクロールバーが出ないよう僅かな余裕を足す。
-        needed = self._tags_chip_layout.heightForWidth(width) + 8
+        needed = layout.heightForWidth(width) + 8
         self._tags_scroll.setFixedHeight(min(needed, self._TAGS_MAX_HEIGHT))

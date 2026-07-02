@@ -883,3 +883,88 @@ def test_panel_relays_apply_to_tag_replace_requested(panel, sample_tags, qtbot):
     with qtbot.waitSignal(panel.tag_replace_requested, timeout=1000) as blocker:
         chip.refinement_apply_requested.emit("1girl", "1boy")
     assert blocker.args == ["1girl", "1boy"]
+
+
+# チップ箱サイジング (#1025) --------------------------------------------------
+
+
+def _shown_panel(qtbot, width: int = 400) -> TagPanelWidget:
+    """表示済み (レイアウト有効) の TagPanelWidget を返す。"""
+    w = TagPanelWidget()
+    qtbot.addWidget(w)
+    w.resize(width, 600)
+    w.show()
+    qtbot.waitExposed(w)
+    return w
+
+
+def _many_tags(count: int) -> list[dict]:
+    return [
+        {"tag": f"tag_{i}_long_name_example", "tag_id": i + 1, "model_name": "wd", "source": "AI"}
+        for i in range(count)
+    ]
+
+
+def test_chip_box_has_no_empty_scroll_region(qtbot):
+    """チップ実高に箱が収まるとき空白スクロール領域が出ない (#1025)。
+
+    従来は container の縦 SizePolicy Minimum により FlowLayout sizeHint
+    (sizeHint 幅で全チップ縦積みの過大値) が最小高さとして固定され、実チップ高との
+    差が空白スクロールになっていた。
+    """
+    panel = _shown_panel(qtbot)
+    panel.set_tag_edit_enabled(True)
+    panel.set_tags(_many_tags(4), image_id=1)
+    panel.set_rejected_tags([{"tag": "blue flowers", "reject_reason": "not_needed"}])
+
+    vbar = panel._tags_scroll.verticalScrollBar()
+    qtbot.waitUntil(lambda: vbar.maximum() == 0, timeout=2000)
+    width = panel._tags_scroll.viewport().width()
+    hfw = panel._tags_chip_layout.heightForWidth(width)
+    # 箱は実必要高さ+8 (上限内)、container は箱内に収まりスクロール不要
+    assert panel._tags_scroll.height() == hfw + 8
+    assert vbar.maximum() == 0
+
+
+def test_chip_box_not_collapsed_right_after_rerender(qtbot):
+    """chip 再構築直後 (activation 前) でも箱が 8px に潰れない (#1025)。
+
+    新チップが hidden のまま QWidgetItem.sizeHint()=(0,0) となり
+    heightForWidth=0 → setFixedHeight(8) になる timing バグのリグレッション。
+    """
+    panel = _shown_panel(qtbot)
+    panel.set_tag_edit_enabled(True)
+    panel.set_tags(_many_tags(4), image_id=1)
+
+    # set_tags 直後 (イベントループ処理前) の同期計測で潰れていないこと
+    assert panel._tags_scroll.height() > 8
+
+
+def test_chip_box_scroll_range_matches_actual_flowed_height(qtbot):
+    """多数タグで上限 220px に収まるとき、スクロール量は実折り返し高さと一致する (#1025)。"""
+    panel = _shown_panel(qtbot)
+    panel.set_tag_edit_enabled(True)
+    panel.set_tags(_many_tags(40), image_id=1)
+
+    scroll = panel._tags_scroll
+    qtbot.waitUntil(lambda: scroll.height() == TagPanelWidget._TAGS_MAX_HEIGHT, timeout=2000)
+    width = scroll.viewport().width()
+    hfw = panel._tags_chip_layout.heightForWidth(width)
+    container = panel._tags_chip_container
+    qtbot.waitUntil(lambda: container.height() == max(hfw, scroll.viewport().height()), timeout=2000)
+    # container が sizeHint (縦積み過大値) でなく実折り返し高さになっている
+    vbar = scroll.verticalScrollBar()
+    assert vbar.maximum() == container.height() - scroll.viewport().height()
+
+
+def test_chip_box_shrinks_when_tags_decrease(qtbot):
+    """タグ数が減ったら箱の高さも追従して縮む (#1025)。"""
+    panel = _shown_panel(qtbot)
+    panel.set_tag_edit_enabled(True)
+    panel.set_tags(_many_tags(40), image_id=1)
+    qtbot.waitUntil(lambda: panel._tags_scroll.height() == TagPanelWidget._TAGS_MAX_HEIGHT, timeout=2000)
+
+    panel.set_tags(_many_tags(2), image_id=2)
+
+    qtbot.waitUntil(lambda: panel._tags_scroll.height() < 60, timeout=2000)
+    assert panel._tags_scroll.verticalScrollBar().maximum() == 0
