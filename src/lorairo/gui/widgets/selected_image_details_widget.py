@@ -978,13 +978,16 @@ class SelectedImageDetailsWidget(QWidget):
         if item.type_name:
             return str(item.type_name).lower()
         statuses = item.format_statuses or {}
-        danbooru = statuses.get("danbooru") or {}
-        type_name = danbooru.get("type_name")
-        if type_name:
-            return str(type_name).lower()
+        # ユーザーの type 修正 (チップメニュー → update_tag_types) は LoRAIro user
+        # format へ書かれるため danbooru より優先する (Codex P2 第4ラウンド)。
+        # "unknown" はユーザー修正ではなく手動追加時の初期値なので採用しない
+        for format_name in ("Lorairo", "danbooru"):
+            type_name = (statuses.get(format_name) or {}).get("type_name")
+            if type_name and str(type_name).lower() != "unknown":
+                return str(type_name).lower()
         for status in statuses.values():
             candidate = (status or {}).get("type_name")
-            if candidate:
+            if candidate and str(candidate).lower() != "unknown":
                 return str(candidate).lower()
         return None
 

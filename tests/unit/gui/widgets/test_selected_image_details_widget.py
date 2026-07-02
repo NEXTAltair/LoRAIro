@@ -966,3 +966,67 @@ class TestResolveTagTypes:
         result = widget._resolve_tag_types([{"tag": "Verbatim_Tag", "tag_id": 9}])
 
         assert result == {"Verbatim_Tag": "meta"}
+
+    def test_user_format_type_override_wins_over_danbooru(self, widget):
+        """ユーザーの type 修正 (Lorairo format) は danbooru の type より優先する。"""
+
+        class OverrideReader(FakeMergedReader):
+            def search_tags_bulk_all(self, tags, format_name=None, resolve_preferred=False):
+                return {
+                    tag: [
+                        {
+                            "tag": tag,
+                            "source_tag": None,
+                            "tag_id": 1,
+                            "usage_count": 0,
+                            "alias": False,
+                            "deprecated": False,
+                            "type_id": None,
+                            "type_name": "",
+                            "translations": {},
+                            "format_statuses": {
+                                "danbooru": {"type_name": "general"},
+                                "Lorairo": {"type_name": "character"},
+                            },
+                        }
+                    ]
+                    for tag in tags
+                }
+
+        widget.set_merged_reader(OverrideReader({}))
+
+        result = widget._resolve_tag_types([{"tag": "some tag", "tag_id": 1}])
+
+        assert result == {"some tag": "character"}
+
+    def test_unknown_type_initial_value_is_skipped(self, widget):
+        """手動追加初期値の 'unknown' は採用せず danbooru へフォールバックする。"""
+
+        class UnknownReader(FakeMergedReader):
+            def search_tags_bulk_all(self, tags, format_name=None, resolve_preferred=False):
+                return {
+                    tag: [
+                        {
+                            "tag": tag,
+                            "source_tag": None,
+                            "tag_id": 1,
+                            "usage_count": 0,
+                            "alias": False,
+                            "deprecated": False,
+                            "type_id": None,
+                            "type_name": "",
+                            "translations": {},
+                            "format_statuses": {
+                                "Lorairo": {"type_name": "unknown"},
+                                "danbooru": {"type_name": "meta"},
+                            },
+                        }
+                    ]
+                    for tag in tags
+                }
+
+        widget.set_merged_reader(UnknownReader({}))
+
+        result = widget._resolve_tag_types([{"tag": "some tag", "tag_id": 1}])
+
+        assert result == {"some tag": "meta"}
