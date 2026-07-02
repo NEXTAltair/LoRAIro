@@ -188,8 +188,8 @@ class TestGetImagesByFilterAIRating:
 class TestSearchConditionsIntegration:
     """SearchConditions データモデルの統合テスト"""
 
-    def test_search_conditions_to_db_filter_args_includes_ai_rating(self):
-        """SearchConditions.to_db_filter_args() が ai_rating_filter を含むことを確認"""
+    def test_search_conditions_to_filter_criteria_includes_ai_rating(self):
+        """SearchConditions.to_filter_criteria() が ai_rating_filter を含むことを確認"""
         from lorairo.services.search_models import SearchConditions
 
         conditions = SearchConditions(
@@ -200,12 +200,10 @@ class TestSearchConditionsIntegration:
             include_unrated=False,
         )
 
-        db_args = conditions.to_db_filter_args()
+        criteria = conditions.to_filter_criteria()
 
-        assert "ai_rating_filter" in db_args
-        assert db_args["ai_rating_filter"] == "PG"
-        assert "include_unrated" in db_args
-        assert db_args["include_unrated"] is False
+        assert criteria.ai_rating_filter == "PG"
+        assert criteria.include_unrated is False
 
     def test_search_conditions_priority_based_mapping(self):
         """SearchConditions が優先順位ベースのフィルタをサポートすることを確認"""
@@ -219,11 +217,11 @@ class TestSearchConditionsIntegration:
             ai_rating_filter="R",  # AI rating (should be ignored by repository)
         )
 
-        db_args = conditions.to_db_filter_args()
+        criteria = conditions.to_filter_criteria()
 
         # 両方のフィルタがマッピングされる（優先順位はリポジトリ層で処理）
-        assert db_args["manual_rating_filter"] == "PG"
-        assert db_args["ai_rating_filter"] == "R"
+        assert criteria.manual_rating_filter == "PG"
+        assert criteria.ai_rating_filter == "R"
 
 
 class TestSearchFilterServiceIntegration:

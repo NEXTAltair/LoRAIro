@@ -1042,39 +1042,9 @@ class TestExportWithCriteria:
         )
         assert result == tmp_path
 
-    def test_image_ids_path_emits_deprecation_warning(self, dataset_export_service, tmp_path):
-        """image_ids 指定時に DeprecationWarning が発行される"""
-        import warnings
-
-        with patch.object(dataset_export_service, "export_filtered_dataset", return_value=tmp_path):
-            with warnings.catch_warnings(record=True) as w:
-                warnings.simplefilter("always")
-                dataset_export_service.export_with_criteria(
-                    output_path=tmp_path,
-                    image_ids=[1, 2, 3],
-                )
-
-        assert len(w) == 1
-        assert issubclass(w[0].category, DeprecationWarning)
-        assert "image_ids" in str(w[0].message).lower() or "deprecated" in str(w[0].message).lower()
-
-    def test_image_ids_path_skips_db_query(self, dataset_export_service, mock_db_manager, tmp_path):
-        """image_ids 指定時は DB フィルタクエリを実行しない"""
-        import warnings
-
-        with patch.object(dataset_export_service, "export_filtered_dataset", return_value=tmp_path):
-            with warnings.catch_warnings(record=True):
-                warnings.simplefilter("always")
-                dataset_export_service.export_with_criteria(
-                    output_path=tmp_path,
-                    image_ids=[1, 2],
-                )
-
-        mock_db_manager.get_images_by_filter.assert_not_called()
-
     def test_no_args_raises_value_error(self, dataset_export_service, tmp_path):
-        """criteria も image_ids も指定しない場合 ValueError が発生する"""
-        with pytest.raises(ValueError, match="criteria または image_ids"):
+        """criteria を指定しない場合 ValueError が発生する"""
+        with pytest.raises(ValueError, match="criteria"):
             dataset_export_service.export_with_criteria(output_path=tmp_path)
 
     def test_criteria_empty_result_completes_without_error(
@@ -1110,18 +1080,6 @@ class TestExportWithCriteria:
             )
 
         mock_json.assert_called_once()
-
-    def test_both_criteria_and_image_ids_raises_value_error(self, dataset_export_service, tmp_path):
-        """criteria と image_ids を同時に指定すると ValueError が発生する"""
-        from lorairo.database.filter_criteria import ImageFilterCriteria
-
-        criteria = ImageFilterCriteria(tags=["cat"])
-        with pytest.raises(ValueError, match="同時に指定"):
-            dataset_export_service.export_with_criteria(
-                output_path=tmp_path,
-                criteria=criteria,
-                image_ids=[1, 2, 3],
-            )
 
 
 # ---------------------------------------------------------------------------

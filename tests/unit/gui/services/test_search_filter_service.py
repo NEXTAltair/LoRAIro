@@ -71,8 +71,8 @@ class TestSearchConditions:
         assert conditions.rating_filter == "PG"
         assert conditions.include_unrated is False
 
-    def test_to_db_filter_args_with_rating(self):
-        """to_db_filter_args() のRatingフィルター変換テスト"""
+    def test_to_filter_criteria_with_rating(self):
+        """to_filter_criteria() のRatingフィルター変換テスト"""
         conditions = SearchConditions(
             search_type="tags",
             keywords=["tag1", "tag2"],
@@ -82,13 +82,13 @@ class TestSearchConditions:
             rating_filter="PG-13",
         )
 
-        db_args = conditions.to_db_filter_args()
+        criteria = conditions.to_filter_criteria()
 
-        assert db_args["include_nsfw"] is False
-        assert db_args["manual_rating_filter"] == "PG-13"
-        assert db_args["tags"] == ["tag1", "tag2"]
-        assert db_args["excluded_tags"] == ["tag3"]
-        assert db_args["use_and"] is True
+        assert criteria.include_nsfw is False
+        assert criteria.manual_rating_filter == "PG-13"
+        assert criteria.tags == ["tag1", "tag2"]
+        assert criteria.excluded_tags == ["tag3"]
+        assert criteria.use_and is True
 
 
 class TestSearchFilterService:

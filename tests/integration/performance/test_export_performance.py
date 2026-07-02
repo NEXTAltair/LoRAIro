@@ -209,15 +209,12 @@ class TestExportPerformance:
             ),
             patch.object(file_system_manager, "copy_file"),
         ):
-            with warnings.catch_warnings():
-                # DeprecationWarning (image_ids パラメータ) を抑制してクリーンな出力にする
-                warnings.simplefilter("ignore", DeprecationWarning)
-                result_path = service.export_with_criteria(
-                    output_path=output_dir,
-                    format_type="txt",
-                    resolution=512,
-                    criteria=criteria,
-                )
+            result_path = service.export_with_criteria(
+                output_path=output_dir,
+                format_type="txt",
+                resolution=512,
+                criteria=criteria,
+            )
 
         elapsed = time.perf_counter() - start_time
         _, peak = tracemalloc.get_traced_memory()

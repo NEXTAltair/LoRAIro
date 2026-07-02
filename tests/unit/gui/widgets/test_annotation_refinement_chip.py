@@ -16,8 +16,8 @@ from genai_tag_db_tools.models import (
 from lorairo.gui.widgets.annotation_data_display_widget import (
     AnnotationData,
     AnnotationDataDisplayWidget,
-    SelectableTagChip,
 )
+from lorairo.gui.widgets.tag_panel_widget import SelectableTagChip
 
 pytestmark = pytest.mark.gui
 

@@ -1798,32 +1798,6 @@ class ImageDatabaseManager:
         """
         return self.image_repo.get_annotated_image_ids(image_ids)
 
-    def execute_filtered_search(self, conditions: dict[str, Any]) -> tuple[list[dict[str, Any]], int]:
-        """フィルタリング検索実行（データ層の適切な責任）
-
-        検索条件に基づいてデータベース検索を実行し、結果を返します。
-
-        Args:
-            conditions: 検索条件辞書
-
-        Returns:
-            tuple: (検索結果リスト, 総件数)
-
-        Raises:
-            SQLAlchemyError: DB 操作に失敗した場合は呼び出し元に伝播させる。
-
-        """
-        try:
-            # 既存のget_images_by_filterメソッドを活用
-            images, total_count = self.get_images_by_filter(**conditions)
-
-            logger.info(f"フィルタリング検索実行完了: 条件={len(conditions)}項目, 結果={len(images)}件")
-            return images, total_count
-
-        except SQLAlchemyError as e:
-            logger.error(f"フィルタリング検索実行エラー: {e}", exc_info=True)
-            raise
-
     def save_error_record(
         self,
         operation_type: str,

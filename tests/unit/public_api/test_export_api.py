@@ -37,7 +37,6 @@ def mock_export_service(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> Magi
         format_type: str = "txt",
         resolution: int = 512,
         criteria: object = None,
-        image_ids: object = None,
         **kwargs: object,
     ) -> Path:
         output_path.mkdir(parents=True, exist_ok=True)

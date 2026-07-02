@@ -157,8 +157,8 @@ class TestServiceInjectionMediation:
 
         panel.set_search_filter_service(mock_service)
 
-        assert panel.tag_suggestion_service is not None
-        assert panel.tag_suggestion_service._merged_reader is merged_reader
+        assert panel._tag_suggestion.tag_suggestion_service is not None
+        assert panel._tag_suggestion.tag_suggestion_service._merged_reader is merged_reader
         mock_service.db_manager.annotation_repo.get_merged_reader.assert_called_once()
 
     def test_set_search_filter_service_falls_back_to_legacy_repository_reader(self, panel):
@@ -173,8 +173,8 @@ class TestServiceInjectionMediation:
 
         panel.set_search_filter_service(mock_service)
 
-        assert panel.tag_suggestion_service is not None
-        assert panel.tag_suggestion_service._merged_reader is merged_reader
+        assert panel._tag_suggestion.tag_suggestion_service is not None
+        assert panel._tag_suggestion.tag_suggestion_service._merged_reader is merged_reader
 
     def test_set_tag_suggestion_service_propagates(self, panel):
         """TagSuggestionService 設定が TagSuggestionWidget に伝搬する。"""
@@ -360,22 +360,6 @@ class TestPublicAPICompat:
         assert hasattr(panel, "search_progress_updated")
         assert hasattr(panel, "search_completed")
         assert hasattr(panel, "pipeline_state_changed")
-
-    def test_legacy_property_tag_suggestion_service(self, panel):
-        """旧 API: panel.tag_suggestion_service プロパティでアクセス可能。"""
-        mock_service = MagicMock()
-        panel.tag_suggestion_service = mock_service
-        assert panel.tag_suggestion_service is mock_service
-        # 内部実体は TagSuggestionWidget が保持
-        assert panel._tag_suggestion.tag_suggestion_service is mock_service
-
-    def test_legacy_property_favorite_filters_list(self, panel):
-        """旧 API: panel.favorite_filters_list でアクセス可能。"""
-        assert panel.favorite_filters_list is panel._favorite_filter.favorite_filters_list
-
-    def test_legacy_property_estimated_count_label(self, panel):
-        """旧 API: panel._estimated_count_label でアクセス可能。"""
-        assert panel._estimated_count_label is panel._count_estimate.label
 
     def test_legacy_method_extract_last_token(self, panel):
         """旧 API: 静的ヘルパー _extract_last_token が delegation で利用可能。"""

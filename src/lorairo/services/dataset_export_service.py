@@ -5,7 +5,6 @@ compatible with kohya-ss/sd-scripts requirements.
 """
 
 import json
-import warnings
 from datetime import datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -304,44 +303,30 @@ class DatasetExportService:
         format_type: str = "txt",
         resolution: int = 512,
         criteria: ImageFilterCriteria | None = None,
-        image_ids: list[int] | None = None,
         **kwargs: Any,
     ) -> Path:
-        """フィルタ条件または画像 ID リストからデータセットをエクスポートする統合メソッド。
-
-        criteria と image_ids のどちらか一方を指定すること。
-        image_ids は非推奨。将来のバージョンで削除予定。
+        """フィルタ条件からデータセットをエクスポートする統合メソッド。
 
         Args:
             output_path: 出力ディレクトリパス。
             format_type: エクスポート形式 ("txt" または "json")。
             resolution: 処理済み画像の解像度。
-            criteria: DB フィルタ条件。内部で ID 解決を行う。
-            image_ids: エクスポート対象の画像 ID リスト（非推奨）。
+            criteria: DB フィルタ条件。内部で ID 解決を行う。必須。
+                exact-set 選択 (ステージング集合) は
+                ``ImageFilterCriteria(image_ids=...)`` として渡す (ADR 0055)。
             **kwargs: export_filtered_dataset に渡す追加パラメータ。
 
         Returns:
             エクスポート先ディレクトリのパス。
 
         Raises:
-            ValueError: criteria も image_ids も指定されていない場合、または両方同時に指定された場合。
+            ValueError: criteria が指定されていない場合。
         """
-        if criteria is not None and image_ids is not None:
-            raise ValueError(
-                "criteria と image_ids を同時に指定することはできません。どちらか一方を使用してください。"
-            )
-        if image_ids is not None:
-            warnings.warn(
-                "image_ids パラメータは非推奨です。criteria (ImageFilterCriteria) を使用してください。",
-                DeprecationWarning,
-                stacklevel=2,
-            )
-            resolved_ids = image_ids
-        elif criteria is not None:
-            all_images, _ = self.db_manager.get_images_by_filter(criteria)
-            resolved_ids = [img["id"] for img in all_images] if all_images else []
-        else:
-            raise ValueError("criteria または image_ids のどちらかを指定してください")
+        if criteria is None:
+            raise ValueError("criteria (ImageFilterCriteria) を指定してください")
+
+        all_images, _ = self.db_manager.get_images_by_filter(criteria)
+        resolved_ids = [img["id"] for img in all_images] if all_images else []
 
         return self.export_filtered_dataset(
             image_ids=resolved_ids,
