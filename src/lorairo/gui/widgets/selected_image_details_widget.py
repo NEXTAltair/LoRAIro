@@ -642,13 +642,20 @@ class SelectedImageDetailsWidget(QWidget):
         if manager is not None:
             manager.cancel_all_workers()
 
-    @Slot(str, str)
-    def _on_refinement_ignored(self, canonical: str, reason_code: str) -> None:
-        """chip の「この理由を無視」を永続化し、現在画像を再評価する (#931)。"""
+    @Slot(str, str, bool)
+    def _on_refinement_ignored(self, canonical: str, reason_code: str, this_image_only: bool) -> None:
+        """chip の「無視」を選択スコープで永続化し、現在画像を再評価する (#931/#1053)。
+
+        Args:
+            canonical: 対象タグ。
+            reason_code: 抑制する reason。
+            this_image_only: True なら現在画像限定、False なら全画像 (従来挙動)。
+        """
         service = self._refinement_service
         if service is None:
             return
-        service.ignore(canonical, reason_code)
+        image_id = self.current_image_id if this_image_only else None
+        service.ignore(canonical, reason_code, image_id=image_id)
         self._trigger_refinement_evaluation()
 
     def _populate_rejected_tags(self) -> None:

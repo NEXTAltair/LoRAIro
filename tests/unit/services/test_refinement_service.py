@@ -47,19 +47,25 @@ def _make_recommendation(
 
 
 class _FakeIgnoreRepo:
-    """RefinementIgnoreRepository の振る舞いを模した in-memory fake。"""
+    """RefinementIgnoreRepository の振る舞いを模した in-memory fake (スコープ対応 #1053)。"""
 
     def __init__(self, ignored: set[tuple[str, str]] | None = None) -> None:
-        self._ignored: set[tuple[str, str]] = set(ignored or set())
+        # (tag, reason_code, image_id) の集合。旧テスト互換で初期値は全画像スコープ。
+        self._ignored: set[tuple[str, str, int | None]] = {
+            (tag, code, None) for tag, code in (ignored or set())
+        }
 
-    def add_ignore(self, tag: str, reason_code: str) -> None:
-        self._ignored.add((tag, reason_code))
+    def add_ignore(self, tag: str, reason_code: str, image_id: int | None = None) -> None:
+        self._ignored.add((tag, reason_code, image_id))
 
-    def is_ignored(self, tag: str, reason_code: str) -> bool:
-        return (tag, reason_code) in self._ignored
+    def is_ignored(self, tag: str, reason_code: str, image_id: int | None = None) -> bool:
+        return (tag, reason_code, image_id) in self._ignored
 
-    def list_ignored(self) -> set[tuple[str, str]]:
-        return set(self._ignored)
+    def list_ignored(self, image_id: int | None = None) -> set[tuple[str, str]]:
+        return {(tag, code) for tag, code, scope in self._ignored if scope is None or scope == image_id}
+
+    def remove_ignore(self, tag: str, reason_code: str, image_id: int | None = None) -> None:
+        self._ignored.discard((tag, reason_code, image_id))
 
 
 def test_recommend_for_tags_returns_only_needs_refinement() -> None:
@@ -336,3 +342,53 @@ def test_ignore_persists_and_invalidates_cache() -> None:
     second = service.recommend_for_tags(["flower"])
     assert second == {}
     assert ignore_repo.is_ignored("flower", "broad_single_word")
+
+
+# #1053: 画像スコープ ---------------------------------------------------------
+
+
+def _rec(tag: str, code: str):
+    from genai_tag_db_tools.models import RefinementReason, RefinementRecommendation
+
+    return RefinementRecommendation(
+        source_tag=tag,
+        normalized_tag=tag,
+        needs_refinement=True,
+        score=0.9,
+        reasons=[RefinementReason(code=code, message="msg")],
+    )
+
+
+def test_image_scoped_ignore_only_suppresses_that_image():
+    """画像限定 ignore は当該画像の評価だけで効き、他画像では出続ける。"""
+    from lorairo.services.refinement_service import RefinementService
+
+    store = _FakeIgnoreRepo()
+    service = RefinementService(
+        recommend_fn=lambda tag, *, repo=None, format_name="unknown": _rec(tag, "alias_tag"),
+        ignore_repo=store,
+    )
+    service.ignore("heart", "alias_tag", image_id=7)
+
+    suppressed = service.recommend_for_tags(["heart"], image_id=7)
+    visible = service.recommend_for_tags(["heart"], image_id=8)
+
+    assert suppressed == {}
+    assert "heart" in visible
+
+
+def test_unignore_restores_recommendation():
+    """unignore で解除すると再びリコメンドが表示される (#1053 管理 UI 用)。"""
+    from lorairo.services.refinement_service import RefinementService
+
+    store = _FakeIgnoreRepo()
+    service = RefinementService(
+        recommend_fn=lambda tag, *, repo=None, format_name="unknown": _rec(tag, "alias_tag"),
+        ignore_repo=store,
+    )
+    service.ignore("heart", "alias_tag")
+    assert service.recommend_for_tags(["heart"]) == {}
+
+    service.unignore("heart", "alias_tag")
+
+    assert "heart" in service.recommend_for_tags(["heart"])

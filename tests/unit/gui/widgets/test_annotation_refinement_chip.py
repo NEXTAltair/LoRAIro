@@ -61,7 +61,7 @@ def test_set_refinement_renders_translation_quality_reason(qtbot) -> None:
 
     received: list[tuple[str, str]] = []
     chip.refinement_ignore_requested.connect(lambda c, r: received.append((c, r)))
-    chip.refinement_ignore_requested.emit(chip.canonical, "overlong_translation")
+    chip.refinement_ignore_requested.emit(chip.canonical, "overlong_translation", False)
     assert received == [("blue_eyes", "overlong_translation")]
 
 
@@ -102,7 +102,7 @@ def test_ignore_signal_emits_canonical_and_reason(qtbot) -> None:
     received: list[tuple[str, str]] = []
     chip.refinement_ignore_requested.connect(lambda c, r: received.append((c, r)))
     # メニュー経由ではなく Signal を直接 emit して配線を検証する
-    chip.refinement_ignore_requested.emit(chip.canonical, "normalization_changes_tag")
+    chip.refinement_ignore_requested.emit(chip.canonical, "normalization_changes_tag", False)
 
     assert received == [("blue__eyes", "normalization_changes_tag")]
 

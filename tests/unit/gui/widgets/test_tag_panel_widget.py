@@ -287,11 +287,11 @@ def test_refinement_ignore_relays_to_panel_signal(panel, sample_tags, qtbot):
     chip = next(c for c in panel._tag_chips if c.canonical == "1girl")
     assert chip.text().startswith("⚠")  # 警告マーカーが付く
 
-    received: list[tuple[str, str]] = []
-    panel.refinement_ignored.connect(lambda c, r: received.append((c, r)))
-    # chip の「この理由を無視」を発火 → パネル signal へ中継されること
-    chip.refinement_ignore_requested.emit("1girl", "broad_single_word")
-    assert received == [("1girl", "broad_single_word")]
+    received: list[tuple[str, str, bool]] = []
+    panel.refinement_ignored.connect(lambda c, r, s: received.append((c, r, s)))
+    # chip の「無視」(スコープ付き #1053) を発火 → パネル signal へ中継されること
+    chip.refinement_ignore_requested.emit("1girl", "broad_single_word", False)
+    assert received == [("1girl", "broad_single_word", False)]
 
 
 # 言語切替・脚注・soft-rejected インライン表示 -------------------------------
@@ -945,8 +945,9 @@ def test_apply_menu_absent_when_edit_disabled(panel, sample_tags, capture_menu):
 
     actions = _context_menu_actions(chip)
     assert not any(a.startswith("修正候補を適用") for a in actions)
-    # ignore 等の既存メニューは出続ける
-    assert any(a.startswith("この理由を無視") for a in actions)
+    # ignore 等の既存メニューは出続ける (#1053 でスコープ別 2 アクション化)
+    assert any(a.startswith("この画像でのみ無視") for a in actions)
+    assert any(a.startswith("全画像で無視") for a in actions)
 
 
 def test_apply_menu_absent_on_disabled_chip(panel, sample_tags, capture_menu):
@@ -1229,3 +1230,19 @@ def test_update_language_selector_switches_from_original_view_to_saved_language(
     panel.update_language_selector(["japanese", "en"], prefer="en")
 
     assert panel._lang_combo.currentText() == "en"
+
+
+def test_refinement_ignore_menu_emits_scope(panel, sample_tags, qtbot):
+    """#1053: ⚠ メニューは「この画像でのみ無視」(True) と「全画像で無視」(False) を区別して emit する。"""
+    panel.set_tags(sample_tags, image_id=10)
+    rec = _make_refinement("1girl", [])
+    panel.apply_refinements({"1girl": rec})
+    chip = next(c for c in panel._tag_chips if c.canonical == "1girl")
+
+    received: list = []
+    panel.refinement_ignored.connect(lambda *a: received.append(a))
+
+    chip.refinement_ignore_requested.emit("1girl", "alias_tag", True)
+    chip.refinement_ignore_requested.emit("1girl", "alias_tag", False)
+
+    assert received == [("1girl", "alias_tag", True), ("1girl", "alias_tag", False)]
