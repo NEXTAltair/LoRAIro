@@ -88,6 +88,34 @@ def test_project_list_table_output(mock_projects_dir: Path) -> None:
 
 @pytest.mark.unit
 @pytest.mark.cli
+def test_project_list_format_table_still_supported(mock_projects_dir: Path) -> None:
+    """Test: project list --format table - 人間向け既定として維持される (ADR 0058)。"""
+    runner.invoke(app, ["project", "create", "table-flag-test"])
+
+    result = runner.invoke(app, ["project", "list", "--format", "table"])
+
+    assert result.exit_code == 0
+    assert "table-flag-test" in result.stdout
+
+
+@pytest.mark.unit
+@pytest.mark.cli
+def test_project_list_format_json_deprecated(mock_projects_dir: Path) -> None:
+    """Test: project list --format json - 非推奨だがクラッシュせず案内する (ADR 0058)。
+
+    legacy pretty 配列は撤去済みで、機械可読出力は global --json (JSONL) が SSoT。
+    """
+    runner.invoke(app, ["project", "create", "json-deprecated-test"])
+
+    result = runner.invoke(app, ["project", "list", "--format", "json"])
+
+    assert result.exit_code == 0
+    # 非推奨案内が出て、人間向け table にフォールバックする
+    assert "非推奨" in result.stdout
+
+
+@pytest.mark.unit
+@pytest.mark.cli
 def test_project_delete_with_confirmation(mock_projects_dir: Path) -> None:
     """Test: project delete - フォースなしでの削除（確認フロー）。"""
     # プロジェクト作成

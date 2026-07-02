@@ -56,10 +56,19 @@ def create(
 
 
 @app.command("list")
-def list_projects() -> None:
+def list_projects(
+    format: str = typer.Option(
+        "table",
+        "--format",
+        "-f",
+        help="Human-readable format (table)。機械可読出力はグローバル --json を使う (ADR 0057/0058)。",
+    ),
+) -> None:
     """List all projects.
 
-    JSON 出力はグローバル ``--json`` フラグで取得する (ADR 0057/0058、JSONL)。
+    人間向けは rich テーブル (``--format table``、既定)。機械可読出力は
+    グローバル ``--json`` フラグで JSONL (item/result) を取得する (ADR 0057/0058)。
+    legacy な ``--format json`` (pretty 配列) は非推奨 (ADR 0058)。
     """
     with command_boundary():
         projects = api_list_projects()
@@ -75,6 +84,13 @@ def list_projects() -> None:
                 )
             emit_result(f"{len(projects)} project(s) found", count=len(projects))
             return
+
+        if format == "json":
+            # ADR 0058: legacy `--format json` (pretty 配列) は非推奨。機械可読出力の
+            # SSoT はグローバル `--json` (JSONL) に一本化済みのため、案内して table を出す。
+            console.print(
+                "[yellow]--format json は非推奨です。機械可読出力はグローバル --json を使ってください。[/yellow]"
+            )
 
         if not projects:
             console.print("[yellow]No projects found[/yellow]")

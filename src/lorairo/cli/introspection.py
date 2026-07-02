@@ -790,7 +790,16 @@ TOOL_SPECS: dict[str, ToolSpec] = {
         summary="List projects.",
         read_only=True,
         side_effects=("file_read", "db_read"),
-        inputs=(),
+        inputs=(
+            _input(
+                "ProjectListInput",
+                (
+                    # `--format table` は人間向け既定 (ADR 0058)。機械可読出力は
+                    # グローバル --json (JSONL)。legacy `--format json` は非推奨。
+                    _f("format", "table", default="table"),
+                ),
+            ),
+        ),
         outputs=(
             _output(
                 "ProjectListItem",
