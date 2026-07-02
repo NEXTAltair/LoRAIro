@@ -61,6 +61,31 @@ class FakeMergedReader:
                 result[tag] = {"tag": self._mapping[key], "type_name": self._types.get(key)}
         return result
 
+    def search_tags_bulk_all(
+        self, tags: list[str], format_name: str | None = None, resolve_preferred: bool = False
+    ) -> dict[str, list[dict]]:
+        """#1056 の type 解決 (search_tags_batch) 用。TagSearchRow 形の行を返す。"""
+        result: dict[str, list[dict]] = {}
+        for index, tag in enumerate(tags):
+            key = tag.lower()
+            if key not in self._types:
+                continue
+            result[tag] = [
+                {
+                    "tag": tag,
+                    "source_tag": None,
+                    "tag_id": 1000 + index,
+                    "usage_count": 0,
+                    "alias": False,
+                    "deprecated": False,
+                    "type_id": None,
+                    "type_name": self._types[key],
+                    "translations": {},
+                    "format_statuses": {},
+                }
+            ]
+        return result
+
 
 class TestSelectedImageDetailsWidget:
     """SelectedImageDetailsWidget単体テスト（Enhanced Event-Driven Pattern対応）"""
@@ -198,7 +223,8 @@ class TestSelectedImageDetailsWidget:
         assert (
             "Ratings: wd-vit-tagger-v3: R (raw=questionable, confidence=0.91, source=AI)" in clipboard_text
         )
-        assert "Tags: 1girl, long hair, blue eyes" in clipboard_text
+        # #1056: タグはアルファベット順で表示・コピーされる
+        assert "Tags: 1girl, blue eyes, long hair" in clipboard_text
         assert "Caption: A beautiful anime girl with long hair" in clipboard_text
 
     def test_copy_current_details_uses_live_rating_score_widget_values(self, widget, sample_image_details):
@@ -229,8 +255,8 @@ class TestSelectedImageDetailsWidget:
 
         assert widget.copy_current_details_to_clipboard() is True
         clipboard_text = QApplication.clipboard().text()
-        assert "Tags: 1人の女の子, 長い髪, 青い目" in clipboard_text
-        assert "Tags: 1girl, long hair, blue eyes" not in clipboard_text
+        assert "Tags: 1人の女の子, 青い目, 長い髪" in clipboard_text
+        assert "Tags: 1girl, blue eyes, long hair" not in clipboard_text
 
     def test_copy_current_details_without_selection_noops(self, widget):
         """未選択時は詳細全体コピーを行わないこと"""
@@ -426,6 +452,7 @@ class TestSelectedImageDetailsWidget:
     def test_set_merged_reader_with_valid_reader_shows_selector(self, widget):
         """有効なMergedTagReaderでコンボボックスが表示されること"""
         mock_reader = Mock()
+        mock_reader.search_tags_bulk_all.return_value = {}
         mock_reader.get_tag_languages.return_value = ["japanese", "chinese"]
 
         widget.set_merged_reader(mock_reader)
@@ -437,6 +464,7 @@ class TestSelectedImageDetailsWidget:
     def test_build_metadata_with_translations(self, widget):
         """翻訳データが正しくAnnotationData.tag_translationsに入ること"""
         mock_reader = Mock()
+        mock_reader.search_tags_bulk_all.return_value = {}
         mock_reader.get_tag_languages.return_value = ["japanese"]
         # 翻訳検証に集中するため canonical 変換は no-op (format 未解決) にする
         mock_reader.get_format_id.return_value = None
@@ -475,6 +503,7 @@ class TestSelectedImageDetailsWidget:
     def test_build_metadata_with_usage_counts(self, widget):
         """使用頻度が bulk 取得され format 名へ解決して AnnotationData に入ること (#990)。"""
         mock_reader = Mock()
+        mock_reader.search_tags_bulk_all.return_value = {}
         mock_reader.get_tag_languages.return_value = []
         mock_reader.get_format_id.return_value = None
         mock_reader.get_translations_batch.return_value = {}
@@ -511,6 +540,7 @@ class TestSelectedImageDetailsWidget:
     def test_build_metadata_skips_tag_without_tag_id(self, widget):
         """tag_id=Noneのタグは翻訳取得をスキップすること"""
         mock_reader = Mock()
+        mock_reader.search_tags_bulk_all.return_value = {}
         mock_reader.get_tag_languages.return_value = ["japanese"]
         mock_reader.get_format_id.return_value = None
         mock_reader.get_translations_batch.return_value = {}
@@ -544,6 +574,7 @@ class TestSelectedImageDetailsWidget:
     def test_build_metadata_translations_uses_single_batch_call(self, widget):
         """N個タグが存在してもget_translations_batchは1回だけ呼ばれること"""
         mock_reader = Mock()
+        mock_reader.search_tags_bulk_all.return_value = {}
         mock_reader.get_tag_languages.return_value = []
         mock_reader.get_format_id.return_value = None
         mock_reader.get_translations_batch.return_value = {}

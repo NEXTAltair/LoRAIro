@@ -67,6 +67,9 @@ class AnnotationData:
     available_languages: list[str] = field(default_factory=list)
     # 使用頻度 第2軸 (metric_source, #990): {tag_id: {format_name: count}}
     tag_usage_counts: dict[int, dict[str, int]] = field(default_factory=dict)
+    # canonical -> tagdb type 名 ("character"/"general" 等、小文字)。
+    # チップの type 別グループソートに使う (Issue #1056)
+    tag_types: dict[str, str] = field(default_factory=dict)
 
 
 @dataclass
@@ -395,6 +398,7 @@ class AnnotationDataDisplayWidget(QWidget, Ui_AnnotationDataDisplayWidget):
                 data.available_languages,
                 image_id=image_id,
                 usage_counts=data.tag_usage_counts,
+                tag_types=data.tag_types,
             )
 
             # キャプション表示更新

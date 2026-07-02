@@ -870,6 +870,10 @@ class SelectedImageDetailsWidget(QWidget):
                     if named:
                         tag_usage_counts[tag_id] = named
 
+        # type 別グループソート用に canonical -> type 名を batch で解決する (#1056)。
+        # per-tag ループの N+1 は禁止 (#998 教訓)。search_tags_batch は 1 リポ往復。
+        tag_types = self._resolve_tag_types(tags_list)
+
         annotation_data = AnnotationData(
             tags=tags_list,  # ← list[dict] をそのまま渡す
             caption=caption_text,
@@ -881,6 +885,7 @@ class SelectedImageDetailsWidget(QWidget):
             tag_translations=tag_translations,
             available_languages=self._available_languages,
             tag_usage_counts=tag_usage_counts,
+            tag_types=tag_types,
         )
 
         details = ImageDetails(
@@ -911,6 +916,39 @@ class SelectedImageDetailsWidget(QWidget):
         )
 
         return details
+
+    def _resolve_tag_types(self, tags_list: list[dict[str, Any]]) -> dict[str, str]:
+        """表示中タグの canonical -> tagdb type 名 (小文字) を batch で解決する (#1056)。
+
+        format 非依存で完全一致検索し、完全一致行の type_name を採用する。
+        type が引けないタグは辞書に含めない (呼び出し側で「不明」グループ扱い)。
+        """
+        if self._merged_reader is None:
+            return {}
+        canonicals = list(
+            dict.fromkeys(
+                str(tag_dict["tag"])
+                for tag_dict in tags_list
+                if isinstance(tag_dict, dict) and tag_dict.get("tag")
+            )
+        )
+        if not canonicals:
+            return {}
+        # 遅延 import: widget モジュール読込時に tagdb API を引き込まない
+        from genai_tag_db_tools import search_tags_batch
+
+        tag_types: dict[str, str] = {}
+        for query, result in search_tags_batch(
+            self._merged_reader, canonicals, format_names=None, resolve_preferred=False
+        ).items():
+            # 完全一致行を優先し、type_name を持つ最初の行を採用する
+            exact = [item for item in result.items if item.tag == query and item.type_name]
+            candidates = exact or [item for item in result.items if item.type_name]
+            if candidates:
+                type_name = candidates[0].type_name
+                if type_name:
+                    tag_types[query] = type_name.lower()
+        return tag_types
 
     @staticmethod
     def _format_aspect_ratio(width: Any, height: Any) -> str:
