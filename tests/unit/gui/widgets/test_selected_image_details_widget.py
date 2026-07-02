@@ -465,81 +465,69 @@ class TestSelectedImageDetailsWidget:
         # "english" + 2言語 = 3アイテム
         assert widget.annotation_display._lang_combo.count() == 3
 
-    def test_build_metadata_with_translations(self, widget):
-        """翻訳データが正しくAnnotationData.tag_translationsに入ること"""
+    def test_build_metadata_does_not_query_tag_db_synchronously(self, widget):
+        """#1046: 詳細構築はメインスレッドで tag DB を叩かない (worker へ移設)。"""
         mock_reader = Mock()
-        mock_reader.search_tags_bulk_all.return_value = {}
         mock_reader.get_tag_languages.return_value = ["japanese"]
-        # 翻訳検証に集中するため canonical 変換は no-op (format 未解決) にする
-        mock_reader.get_format_id.return_value = None
-        tr_mock = Mock()
-        tr_mock.language = "japanese"
-        tr_mock.translation = "1人の女の子"
-        mock_reader.get_translations_batch.return_value = {42: [tr_mock]}
-        mock_reader.get_usage_counts_batch.return_value = {}
-        mock_reader.get_format_map.return_value = {}
         widget.set_merged_reader(mock_reader)
+        mock_reader.reset_mock()
 
-        metadata = {
-            "id": 1,
-            "file_path": "/test/img.jpg",
-            "tags": [
-                {
-                    "tag": "1girl",
-                    "tag_id": 42,
-                    "model_name": "wd",
-                    "source": "AI",
-                    "confidence_score": 0.9,
-                    "is_edited_manually": False,
-                }
-            ],
-            "caption_text": "",
-            "tags_text": "1girl",
-            "score_value": 0,
-            "rating_value": "",
-        }
-        details = widget._build_image_details_from_metadata(metadata)
+        details = widget._build_image_details_from_metadata(
+            {"id": 1, "file_path": "/t.jpg", "tags": [{"tag": "1girl", "tag_id": 42}]}
+        )
 
-        assert details.annotation_data is not None
-        assert 42 in details.annotation_data.tag_translations
-        assert details.annotation_data.tag_translations[42]["japanese"] == "1人の女の子"
+        mock_reader.get_translations_batch.assert_not_called()
+        mock_reader.get_usage_counts_batch.assert_not_called()
+        mock_reader.search_tags_bulk_all.assert_not_called()
+        # 即時表示は原文のみ (worker 完了で反映される)
+        assert details.annotation_data.tag_translations == {}
+        assert details.annotation_data.tag_usage_counts == {}
+        assert details.annotation_data.tag_types == {}
 
-    def test_build_metadata_with_usage_counts(self, widget):
-        """使用頻度が bulk 取得され format 名へ解決して AnnotationData に入ること (#990)。"""
-        mock_reader = Mock()
-        mock_reader.search_tags_bulk_all.return_value = {}
-        mock_reader.get_tag_languages.return_value = []
-        mock_reader.get_format_id.return_value = None
-        mock_reader.get_translations_batch.return_value = {}
-        # format_id 1=danbooru / 2=e621。未知 format_id 99 は format_map に無いので除外される。
-        mock_reader.get_format_map.return_value = {1: "danbooru", 2: "e621"}
-        mock_reader.get_usage_counts_batch.return_value = {42: {1: 1234, 2: 42, 99: 7}}
-        widget.set_merged_reader(mock_reader)
+    def test_tag_metadata_finished_applies_to_display(self, widget, monkeypatch):
+        """#1046: worker 完了結果が最新世代・同一画像なら表示へ反映される。"""
+        from lorairo.gui.workers.tag_metadata_worker import TagMetadataResult
 
-        metadata = {
-            "id": 1,
-            "file_path": "/test/img.jpg",
-            "tags": [
-                {
-                    "tag": "1girl",
-                    "tag_id": 42,
-                    "model_name": "wd",
-                    "source": "AI",
-                    "confidence_score": 0.9,
-                    "is_edited_manually": False,
-                }
-            ],
-            "caption_text": "",
-            "tags_text": "1girl",
-            "score_value": 0,
-            "rating_value": "",
-        }
-        details = widget._build_image_details_from_metadata(metadata)
+        widget.current_image_id = 7
+        widget._tag_metadata_generation = 3
+        applied: list = []
+        monkeypatch.setattr(
+            widget.annotation_display,
+            "apply_tag_metadata",
+            lambda translations, usage_counts, tag_types: applied.append(
+                (translations, usage_counts, tag_types)
+            ),
+        )
 
-        mock_reader.get_usage_counts_batch.assert_called_once_with([42])
-        assert details.annotation_data is not None
-        # format_id が format 名へ解決され、map 未掲載の 99 は除外される
-        assert details.annotation_data.tag_usage_counts == {42: {"danbooru": 1234, "e621": 42}}
+        widget._on_tag_metadata_finished(
+            TagMetadataResult(
+                image_id=7,
+                generation=3,
+                translations={42: {"ja": "訳"}},
+                usage_counts={42: {"danbooru": 10}},
+                tag_types={"1girl": "general"},
+            )
+        )
+
+        assert applied == [({42: {"ja": "訳"}}, {42: {"danbooru": 10}}, {"1girl": "general"})]
+
+    def test_tag_metadata_finished_discards_stale_result(self, widget, monkeypatch):
+        """#1046: 古い世代/別画像の結果は破棄される (レース対策、refinement と同型)。"""
+        from lorairo.gui.workers.tag_metadata_worker import TagMetadataResult
+
+        widget.current_image_id = 7
+        widget._tag_metadata_generation = 5
+        applied: list = []
+        monkeypatch.setattr(
+            widget.annotation_display,
+            "apply_tag_metadata",
+            lambda *a, **k: applied.append(a),
+        )
+
+        widget._on_tag_metadata_finished(TagMetadataResult(image_id=7, generation=3))
+        widget._on_tag_metadata_finished(TagMetadataResult(image_id=99, generation=5))
+
+        assert applied == []
 
     def test_build_metadata_skips_tag_without_tag_id(self, widget):
         """tag_id=Noneのタグは翻訳取得をスキップすること"""
@@ -574,42 +562,6 @@ class TestSelectedImageDetailsWidget:
         mock_reader.get_translations_batch.assert_not_called()
         assert details.annotation_data is not None
         assert details.annotation_data.tag_translations == {}
-
-    def test_build_metadata_translations_uses_single_batch_call(self, widget):
-        """N個タグが存在してもget_translations_batchは1回だけ呼ばれること"""
-        mock_reader = Mock()
-        mock_reader.search_tags_bulk_all.return_value = {}
-        mock_reader.get_tag_languages.return_value = []
-        mock_reader.get_format_id.return_value = None
-        mock_reader.get_translations_batch.return_value = {}
-        mock_reader.get_usage_counts_batch.return_value = {}
-        mock_reader.get_format_map.return_value = {}
-        widget.set_merged_reader(mock_reader)
-
-        metadata = {
-            "id": 1,
-            "file_path": "/test/img.jpg",
-            "tags": [
-                {
-                    "tag": f"tag{i}",
-                    "tag_id": i,
-                    "model_name": "wd",
-                    "source": "AI",
-                    "confidence_score": 0.9,
-                    "is_edited_manually": False,
-                }
-                for i in range(1, 11)
-            ],
-            "caption_text": "",
-            "tags_text": "",
-            "score_value": 0,
-            "rating_value": "",
-        }
-        widget._build_image_details_from_metadata(metadata)
-
-        mock_reader.get_translations_batch.assert_called_once()
-        call_args = mock_reader.get_translations_batch.call_args[0][0]
-        assert len(call_args) == 10
 
     def test_build_metadata_populates_score_labels(self, widget):
         """metadata の score_labels が AnnotationData に渡されること (ADR 0028)。
@@ -875,158 +827,3 @@ class TestReadableLayoutTopPacking:
         gap = rsw.geometry().y() - (ad.geometry().y() + ad.geometry().height())
         # spacing (4px) 程度。タグが多くても過大な隙間 (>= 40px) が出ないこと。
         assert gap < 40
-
-
-class TestResolveTagTypes:
-    """#1056 Codex P2: type 解決の実挙動 (format_statuses 経由・完全一致限定・非破壊)。"""
-
-    @pytest.fixture
-    def widget(self, qtbot):
-        widget = SelectedImageDetailsWidget()
-        qtbot.addWidget(widget)
-        return widget
-
-    def test_resolves_type_from_format_statuses(self, widget):
-        """format 非依存検索では type_name が空のため format_statuses から解決する。"""
-        widget.set_merged_reader(FakeMergedReader({}, types={"hatsune miku": "character"}))
-
-        result = widget._resolve_tag_types([{"tag": "hatsune miku", "tag_id": 3}])
-
-        assert result == {"hatsune miku": "character"}
-
-    def test_non_exact_match_stays_unknown(self, widget):
-        """完全一致しない検索ヒット (alias 等) の type を割り当てない。"""
-
-        class AliasOnlyReader(FakeMergedReader):
-            def search_tags_bulk_all(self, tags, format_name=None, resolve_preferred=False):
-                # クエリと異なる canonical の行だけ返す (alias ヒットを模擬)
-                return {
-                    tag: [
-                        {
-                            "tag": "different_tag",
-                            "source_tag": None,
-                            "tag_id": 1,
-                            "usage_count": 0,
-                            "alias": True,
-                            "deprecated": False,
-                            "type_id": None,
-                            "type_name": "",
-                            "translations": {},
-                            "format_statuses": {"danbooru": {"type_name": "general"}},
-                        }
-                    ]
-                    for tag in tags
-                }
-
-        widget.set_merged_reader(AliasOnlyReader({}))
-
-        result = widget._resolve_tag_types([{"tag": "unregistered_tag", "tag_id": None}])
-
-        assert result == {}
-
-    def test_lookup_failure_is_non_blocking(self, widget):
-        """tag DB 読み取り失敗は空 dict (未分類扱い) に落とし、詳細パネルを壊さない。"""
-        from sqlalchemy.exc import SQLAlchemyError
-
-        class FailingReader(FakeMergedReader):
-            def search_tags_bulk_all(self, tags, format_name=None, resolve_preferred=False):
-                raise SQLAlchemyError("db down")
-
-        widget.set_merged_reader(FailingReader({}))
-
-        result = widget._resolve_tag_types([{"tag": "1girl", "tag_id": 2}])
-
-        assert result == {}
-
-    def test_source_tag_match_resolves_type(self, widget):
-        """tag=正規形 / source_tag=verbatim で登録された行も同一タグとして type を解決する。"""
-
-        class SourceTagReader(FakeMergedReader):
-            def search_tags_bulk_all(self, tags, format_name=None, resolve_preferred=False):
-                return {
-                    tag: [
-                        {
-                            "tag": "normalized form",
-                            "source_tag": tag,
-                            "tag_id": 1,
-                            "usage_count": 0,
-                            "alias": False,
-                            "deprecated": False,
-                            "type_id": None,
-                            "type_name": "",
-                            "translations": {},
-                            "format_statuses": {"danbooru": {"type_name": "meta"}},
-                        }
-                    ]
-                    for tag in tags
-                }
-
-        widget.set_merged_reader(SourceTagReader({}))
-
-        result = widget._resolve_tag_types([{"tag": "Verbatim_Tag", "tag_id": 9}])
-
-        assert result == {"Verbatim_Tag": "meta"}
-
-    def test_user_format_type_override_wins_over_danbooru(self, widget):
-        """ユーザーの type 修正 (Lorairo format) は danbooru の type より優先する。"""
-
-        class OverrideReader(FakeMergedReader):
-            def search_tags_bulk_all(self, tags, format_name=None, resolve_preferred=False):
-                return {
-                    tag: [
-                        {
-                            "tag": tag,
-                            "source_tag": None,
-                            "tag_id": 1,
-                            "usage_count": 0,
-                            "alias": False,
-                            "deprecated": False,
-                            "type_id": None,
-                            "type_name": "",
-                            "translations": {},
-                            "format_statuses": {
-                                "danbooru": {"type_name": "general"},
-                                "Lorairo": {"type_name": "character"},
-                            },
-                        }
-                    ]
-                    for tag in tags
-                }
-
-        widget.set_merged_reader(OverrideReader({}))
-
-        result = widget._resolve_tag_types([{"tag": "some tag", "tag_id": 1}])
-
-        assert result == {"some tag": "character"}
-
-    def test_unknown_type_initial_value_is_skipped(self, widget):
-        """手動追加初期値の 'unknown' は採用せず danbooru へフォールバックする。"""
-
-        class UnknownReader(FakeMergedReader):
-            def search_tags_bulk_all(self, tags, format_name=None, resolve_preferred=False):
-                return {
-                    tag: [
-                        {
-                            "tag": tag,
-                            "source_tag": None,
-                            "tag_id": 1,
-                            "usage_count": 0,
-                            "alias": False,
-                            "deprecated": False,
-                            "type_id": None,
-                            "type_name": "",
-                            "translations": {},
-                            "format_statuses": {
-                                "Lorairo": {"type_name": "unknown"},
-                                "danbooru": {"type_name": "meta"},
-                            },
-                        }
-                    ]
-                    for tag in tags
-                }
-
-        widget.set_merged_reader(UnknownReader({}))
-
-        result = widget._resolve_tag_types([{"tag": "some tag", "tag_id": 1}])
-
-        assert result == {"some tag": "meta"}
