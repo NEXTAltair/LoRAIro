@@ -429,51 +429,33 @@ batch コマンドのエラーへの当てはめ:
 
 ## GUI 運用
 
-`lorairo` GUI のメインウィンドウ上部 tab pane に **「Provider Batch」** tab (左から 3 つ目、index 2)
-として `ProviderBatchJobWidget` が組み込まれる。同期 annotation の progress dialog とは独立した
-job queue UI である。
+Jobs タブからの submit 撤去 (#884 epic, ADR 0076 §3) により、投入入口と監視は別タブに分かれている。
 
-### 基本手順
+- **投入入口 (作成)**: 「アノテ」タブ (`AnnotateTabWidget`)。ステージング集合 + モデルピッカー
+  (`batch_model_selection`) で対象画像・model を選び、run bar の「詳細設定 ▸」から開く
+  `RunSettingsDialog` で **送信方式 (dispatch_mode)** を `sync` (同期実行) か `batch_api`
+  (async Provider Batch API へ送信) から選ぶ。`batch_api` は batch-capable な選択モデルのみ許可され、
+  非 batch-capable モデルが混在していると拒否される (部分送信はしない、ADR 0076 §2)。
+  run bar の実行ボタンで送信すると、モデル1台につき1件の `provider_batch_jobs` 行が作成される。
+- **監視 (専用)**: 「ジョブ」タブ (`JobsTabWidget`、メインウィンドウの tab pane にタブ名「ジョブ」で
+  挿入される)。中身は `ProviderBatchJobWidget` で、**作成入口 (Submit フォーム・モデルピッカー・
+  ステージング) を持たない監視専用ビュー**。タブ表示のたびにジョブ一覧を自動再読込する。
 
-1. GUI を起動し、**「Provider Batch」** tab を選択する
-2. **`Refresh Models`** ボタンで Model コンボボックスに batch eligible な direct provider model を読み込む
-   - 読み込まれるのは `image-annotator-lib.list_batch_capable_models()` が返す model のうち、
-     provider が `openai` または `anthropic` のもの (現時点では Anthropic のみ実装、OpenAI は lib adapter 完了後)
-   - OpenRouter route と Google は silent excluded
-3. 投入する model を選択する
-4. **`Use Selected`** ボタンでワークスペースタブの選択画像 ID を `Image IDs` 欄に流し込む
-   または `1, 2, 3` 形式で手入力する
-5. **`Prompt`** (default `default`) と **`Description`** (optional) を入力する
-6. **`Submit`** ボタンを押す
-   - 成功すると Jobs テーブルに新規行が追加される
-7. Jobs テーブルで対象行を選択すると Detail / Items 領域が自動更新される
-8. **`Refresh Status`** で provider に問い合わせて status を更新、**`Cancel`** / **`Fetch`** / **`Import`**
-   で各段階を進める
-9. Items テーブル上の Status コンボボックスで `failed` / `expired` / `canceled` のみを抽出できる
+### ジョブタブの操作
 
-### Submit 領域 (左カラム)
+1. 「ジョブ」タブを開くと Jobs テーブルにジョブ一覧が自動表示される
+2. Jobs テーブルで対象行を選択すると Detail / Items 領域が自動更新される
+3. **`状態を確認`** ボタン (`buttonRefreshStatus`) で provider に問い合わせて status を更新
+4. **`キャンセル`** ボタン (`buttonCancel`) で対象ジョブをキャンセル要求 (cancelable な status のみ有効)
+5. Jobs テーブルの右クリック context menu から **`結果を取得`** / **`結果を取り込み`** を実行
+   (ADR 0041 §7 の事故復旧系操作)
+6. Items テーブル上の Status コンボボックスで `all` / `failed` / `expired` / `canceled` を抽出できる
 
-| ラベル | 種別 | 説明 |
-|---|---|---|
-| Model | QComboBox | `provider: litellm_model_id` 形式で表示 |
-| Image IDs | QLineEdit | placeholder `1, 2, 3`、スペース/カンマ区切りで複数 ID |
-| Prompt | QLineEdit | default `default` |
-| Description | QLineEdit | 任意、空文字可 |
-| Use Selected | QPushButton | ワークスペース選択画像 ID を流し込む |
-| Refresh Models | QPushButton | batch eligible model を再取得 |
-| Submit | QPushButton | job 投入 |
+### Jobs 領域
 
-`endpoint` は UI に出さず、選択 model の provider に応じて固定 (`/v1/chat/completions` か
-`/v1/messages`)。
+5 列テーブル: **ID / Provider / Status / Provider Status / Requests**。
 
-### Jobs 領域 (右上)
-
-5 列 Rich-like テーブル: **ID / Provider / Status / Provider Status / Requests**。
-
-操作ボタン: **Refresh** (DB 一覧再取得) / **Refresh Status** (provider 問い合わせ) /
-**Cancel** / **Fetch** / **Import**。
-
-### Detail / Items 領域 (右下)
+### Detail / Items 領域
 
 - **Detail**: read-only TextEdit に CLI と同じ 17 フィールド (id / provider / provider_job_id /
   status / provider_status / endpoint / model_id / request_count / succeeded_count / failed_count /
@@ -484,18 +466,18 @@ job queue UI である。
 
 ### 制限事項 (現状)
 
-- 専用 Worker は無く、`submit` / `refresh` / `fetch` / `import` は GUI thread で同期実行される。
-  数百件規模の job では submit / import 中に短時間 GUI がブロックする可能性がある
+- 専用 Worker は無く、`refresh` / `cancel` / `fetch` / `import` は GUI thread で同期実行される。
+  数百件規模の job では import 中に短時間 GUI がブロックする可能性がある
 - Jobs テーブルには `submitted_at` / `completed_at` / `imported_at` を列として表示していない。
   これらは下の Detail 領域でのみ確認できる
-- Google は GUI から silent excluded、「not configured」表示は出ない
-- メニューバー / ツールバーからの専用エントリは無く、tab pane 経由でのみアクセスする
+- Google は Annotate タブのモデルピッカーで batch 対象から silent excluded
 
 ### 「Batch APIインポート」menu action との混同に注意
 
 GUI のメニューに別途 **「Batch APIインポート」** という menu action があるが、これは legacy/manual
 OpenAI JSONL import (§ Legacy/manual OpenAI JSONL import との違い 参照) のため、Provider Batch
-job queue とは関係しない別機能である。
+job queue とは関係しない別機能である (`JobsTabWidget.start_batch_import()` スロット経由でジョブタブ内の
+インポートフローに委譲される)。
 
 ## Status mapping と retry
 
