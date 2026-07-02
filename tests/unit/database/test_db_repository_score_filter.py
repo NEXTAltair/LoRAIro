@@ -195,12 +195,63 @@ class TestDisplayScoreFilterAggregation:
         assert count_only == count
 
     @pytest.mark.unit
-    def test_no_score_filter_returns_query_unchanged(self, score_repository):
-        """score_min/score_max ともに None のときはクエリを変更しない。"""
+    def test_no_score_filter_returns_none(self, score_repository):
+        """score_min/score_max ともに None のときは None を返す (SQL 完結経路)。"""
         base_query = select(Image.id)
         with score_repository.session_factory() as session:
-            result = score_repository._apply_display_score_filter(session, base_query, None, None)
-        assert result is base_query
+            result = score_repository._resolve_score_filtered_ids(session, base_query, None, None)
+        assert result is None
+
+    @pytest.mark.unit
+    def test_count_page_avoid_unbounded_in(self, memory_session_factory):
+        """スコアフィルタの count/page が全 matched_ids を単一 IN に展開しない (Codex P2)。
+
+        BATCH_CHUNK_SIZE を小さく上書きし、matched 件数がそれを大きく超える状況で
+        実行される全 SQL のうち、単一ステートメントの bind 変数数が matched 総数に
+        達しないことを検証する。旧実装の ``Image.id.in_(matched_ids)`` は count / page
+        クエリで全 matched を 1 文に展開するため、bind 数が matched 総数と一致する。
+        (NSFW/rating フィルタの定数 IN リスト等のノイズはあるが matched 総数より十分小さい。)
+        """
+        from sqlalchemy import event
+
+        repository = ImageRepository(session_factory=memory_session_factory)
+        # チャンク上限を小さくして、id 由来の IN が matched 総数まで膨らまないことを明確にする。
+        repository.BATCH_CHUNK_SIZE = 3
+
+        # 全件が範囲 0.0-10.0 に一致する image を chunk 上限より十分多く作る。
+        image_ids = [
+            _make_image_with_scores(memory_session_factory, [(6.0, "MANUAL_EDIT", True)]) for _ in range(40)
+        ]
+
+        max_bind_params = 0
+
+        def _record_binds(conn, cursor, statement, parameters, context, executemany):
+            nonlocal max_bind_params
+            if executemany:
+                for row in parameters:
+                    max_bind_params = max(max_bind_params, len(row))
+            elif parameters is not None:
+                max_bind_params = max(max_bind_params, len(parameters))
+
+        engine = memory_session_factory.kw["bind"]
+        event.listen(engine, "before_cursor_execute", _record_binds)
+        try:
+            criteria = ImageFilterCriteria(score_min=0.0, score_max=10.0, limit=2)
+            results, count = repository.get_images_by_filter(criteria)
+            count_only = repository.get_images_count_only(criteria)
+            page, list_total = repository.get_image_list_page(criteria)
+        finally:
+            event.remove(engine, "before_cursor_execute", _record_binds)
+
+        # count は全件、page は limit で有界。
+        assert count == len(image_ids)
+        assert count_only == len(image_ids)
+        assert list_total == len(image_ids)
+        assert len(results) == 2
+        assert len(page) == 2
+        # 単一 SQL の bind 変数が matched 総数 (40) に達しない = 全件を 1 つの IN に
+        # 展開していない。旧実装なら count / page クエリで 40 になる。
+        assert max_bind_params < len(image_ids)
 
 
 class TestRepresentativeDisplayScore:
@@ -352,7 +403,6 @@ class TestGetImagesCountOnly:
 
         count_result = Mock()
         count_result.scalar_one = Mock(return_value=3)
-        # _apply_display_score_filter が候補 id を取得する経路も stub する (Issue #1026)。
         count_result.scalars = Mock(return_value=Mock(all=Mock(return_value=[])))
         mock_session.execute = Mock(return_value=count_result)
 
@@ -360,9 +410,14 @@ class TestGetImagesCountOnly:
         return repository
 
     def test_get_images_count_only_returns_count(self, mock_session_and_repository):
+        """スコア未指定時は SQL count 経路で scalar_one をそのまま返す。
+
+        スコア指定時の集約 count (len ベース) は TestDisplayScoreFilterAggregation の
+        実 DB テストで検証する (Issue #1026)。
+        """
         repository = mock_session_and_repository
 
-        count = repository.get_images_count_only(ImageFilterCriteria(score_min=3.0, score_max=7.5))
+        count = repository.get_images_count_only(ImageFilterCriteria())
 
         assert count == 3
 

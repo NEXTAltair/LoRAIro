@@ -1750,14 +1750,14 @@ class ImageRepository(BaseRepository):
             # レーティング情報がない (NULL) 画像は除外しない
         return query
 
-    def _apply_display_score_filter(
+    def _resolve_score_filtered_ids(
         self,
         session: Session,
         query: Select[Any],
         score_min: float | None,
         score_max: float | None,
-    ) -> Select[Any]:
-        """スコア範囲フィルタを詳細パネル表示と同じ集約スコアで適用する (Issue #1026)。
+    ) -> list[int] | None:
+        """スコア範囲フィルタを詳細パネル表示と同じ集約スコアで解決する (Issue #1026)。
 
         詳細パネルが表示する代表スコアは ``_derive_manual_score`` (手動優先) →
         無ければ ``_derive_ai_score`` (複数 AI モデルを ``calibrate_to_display`` +
@@ -1766,11 +1766,12 @@ class ImageRepository(BaseRepository):
         で「どれか 1 行が範囲内」を判定していたため、両者の基準がずれ「フィルタに
         ヒットしたのに詳細パネルの表示スコアは範囲外」という不整合が生じていた。
 
-        本メソッドは他フィルタ (+ 解像度フィルタ) 適用済みの候補 image_id を一括で
-        load し、表示側と同一の導出関数で代表スコアを求め、範囲内の image_id だけに
-        絞った ``select(Image.id)`` を返す。これによりフィルタと表示が同じ集約値を
-        通ることを保証する。件数集計・ページング・limit は呼び出し側の従来経路が
-        この絞り込み済みクエリに対して SQL で完結するため、件数とページングも一貫する。
+        本メソッドは他フィルタ (+ 解像度フィルタ) 適用済みの候補 image_id を
+        ``BATCH_CHUNK_SIZE`` チャンクで一括 load し、表示側と同一の導出関数で
+        代表スコアを求め、範囲内の image_id を昇順で返す。呼び出し側は件数を
+        ``len()`` で、ページングを id リストのスライスで Python 完結させることで、
+        単一 SQL への巨大な ``IN`` 展開 (SQLite bind 変数上限超過) を避けつつ
+        フィルタと表示が同じ集約値を通ることを保証する (Codex PR #1043 P2 対応)。
 
         Args:
             session: SQLAlchemy セッション。
@@ -1780,12 +1781,11 @@ class ImageRepository(BaseRepository):
             score_max: 最大スコア値 (0.0-10.0)。None は上限なし。
 
         Returns:
-            スコア未指定時は ``query`` をそのまま返す。指定時は代表スコアが範囲内の
-            image_id のみに絞った新しい ``select(Image.id)`` クエリを返す
-            (空集合の場合は 0 行を返すクエリ)。
+            スコア未指定時は ``None`` (呼び出し側は従来の SQL 完結経路を使う)。
+            指定時は代表スコアが範囲内の image_id を Image.id 昇順に並べた list。
         """
         if score_min is None and score_max is None:
-            return query
+            return None
 
         # 0.0-10.0 表示尺度で比較 (Issue #626: display_score と同じ尺度)。
         db_min = score_min if score_min is not None else 0.0
@@ -1796,6 +1796,7 @@ class ImageRepository(BaseRepository):
 
         matched_ids: list[int] = []
         # N+1 を避けるため scores (と calibrate に必要な model) をチャンク一括 load する。
+        # チャンクサイズで bind 変数を有界に保つ (SQLite の上限超過を回避)。
         for start in range(0, len(candidate_ids), self.BATCH_CHUNK_SIZE):
             chunk = candidate_ids[start : start + self.BATCH_CHUNK_SIZE]
             images = (
@@ -1815,12 +1816,60 @@ class ImageRepository(BaseRepository):
                 if db_min <= representative <= db_max:
                     matched_ids.append(image.id)
 
+        matched_ids.sort()
         logger.debug(
             f"Score filter applied (aggregate display_score): {db_min:.2f}-{db_max:.2f}, "
             f"候補 {len(candidate_ids)}件 → 一致 {len(matched_ids)}件"
         )
-        # 絞り込んだ image_id 集合のみを返す (空集合なら 0 行の Select となる)。
-        return select(Image.id).where(Image.id.in_(matched_ids))
+        return matched_ids
+
+    def _page_score_filtered_ids(
+        self,
+        session: Session,
+        matched_ids: list[int],
+        sort_field: str,
+        sort_direction: str,
+        offset: int,
+        limit: int | None,
+    ) -> list[int]:
+        """スコアフィルタ済み id 集合を sort/offset/limit でページングし対象ページの id を返す。
+
+        既存 SQL 経路の ``order_by(sort_col).offset().limit()`` と同じページ確定を
+        Python 側で行う。``file_path`` ソート時のみ id→filename を ``BATCH_CHUNK_SIZE``
+        チャンクで bounded に取得してソートキーとし、それ以外は Image.id でソートする。
+        これにより count/page が単一 SQL の巨大 ``IN`` を実行しない (Codex PR #1043 P2)。
+
+        Args:
+            session: SQLAlchemy セッション。
+            matched_ids: スコア範囲を満たす image_id (Image.id 昇順)。
+            sort_field: ソートキー。"file_path" は filename、それ以外は Image.id。
+            sort_direction: "desc" で降順、それ以外は昇順。
+            offset: ページ開始位置。
+            limit: 取得件数上限。None は offset 以降すべて。
+
+        Returns:
+            当該ページの image_id リスト (ソート順)。
+        """
+        if sort_field == "file_path":
+            # filename でソートするため id→filename を chunk 取得 (bind を有界に保つ)。
+            filename_by_id: dict[int, str] = {}
+            for start in range(0, len(matched_ids), self.BATCH_CHUNK_SIZE):
+                chunk = matched_ids[start : start + self.BATCH_CHUNK_SIZE]
+                for row in session.execute(
+                    select(Image.id, Image.filename).where(Image.id.in_(chunk))
+                ).all():
+                    filename_by_id[row.id] = row.filename or ""
+            ordered = sorted(matched_ids, key=lambda i: (filename_by_id.get(i, ""), i))
+        else:
+            ordered = sorted(matched_ids)
+
+        if sort_direction == "desc":
+            ordered.reverse()
+
+        start_at = offset or 0
+        if limit is not None:
+            return ordered[start_at : start_at + limit]
+        return ordered[start_at:]
 
     @staticmethod
     def _representative_display_score(image: Image) -> float | None:
@@ -1841,6 +1890,47 @@ class ImageRepository(BaseRepository):
         if manual is not None:
             return manual
         return ImageRepository._derive_ai_score(image)
+
+    def _fetch_scored_metadata_page(
+        self,
+        session: Session,
+        score_filtered_ids: list[int],
+        filter_criteria: ImageFilterCriteria,
+    ) -> tuple[list[dict[str, Any]], int]:
+        """スコアフィルタ済み id 集合からページの metadata と総件数を返す (Issue #1026)。
+
+        ``get_images_by_filter`` のスコア指定経路。総件数は ``len()``、ページングは
+        id リストのスライスで Python 完結させ、metadata 取得のみ bounded IN で行う。
+
+        Args:
+            session: SQLAlchemy セッション。
+            score_filtered_ids: スコア範囲を満たす image_id (Image.id 昇順)。
+            filter_criteria: 検索条件 (sort / offset / limit / resolution 等)。
+
+        Returns:
+            (ページの metadata リスト, 総件数)。
+        """
+        total_count = len(score_filtered_ids)
+        if total_count == 0:
+            logger.info("指定された条件に一致する画像が見つかりませんでした。")
+            return [], 0
+
+        page_ids = self._page_score_filtered_ids(
+            session,
+            score_filtered_ids,
+            filter_criteria.sort_field,
+            filter_criteria.sort_direction,
+            filter_criteria.offset,
+            filter_criteria.limit,
+        )
+        final_metadata_list = self._fetch_filtered_metadata(
+            session,
+            page_ids,
+            filter_criteria.resolution,
+            include_annotations=filter_criteria.include_annotations,
+        )
+        logger.info(f"最終的な検索結果: {len(final_metadata_list)} 件 / 総件数: {total_count} 件")
+        return final_metadata_list, total_count
 
     def _build_manual_rating_condition(
         self,
@@ -2709,10 +2799,15 @@ class ImageRepository(BaseRepository):
                     rating_combine=filter_criteria.rating_combine,
                 )
                 query = self._apply_processed_resolution_filter(query, filter_criteria.resolution)
+
                 # Score Filter は表示側と同じ集約スコアで Python post-filter する (Issue #1026)。
-                query = self._apply_display_score_filter(
+                # count / ページングは Python で完結させ、単一 SQL への巨大 IN を避ける
+                # (Codex PR #1043 P2 対応)。
+                score_filtered_ids = self._resolve_score_filtered_ids(
                     session, query, filter_criteria.score_min, filter_criteria.score_max
                 )
+                if score_filtered_ids is not None:
+                    return self._fetch_scored_metadata_page(session, score_filtered_ids, filter_criteria)
 
                 count_query = select(func.count()).select_from(query.subquery())
                 total_count = session.execute(count_query).scalar_one()
@@ -2731,7 +2826,7 @@ class ImageRepository(BaseRepository):
                 if filter_criteria.limit is not None:
                     paged_query = paged_query.limit(filter_criteria.limit)
 
-                filtered_image_ids: list[int] = list(session.execute(paged_query).scalars().all())
+                filtered_image_ids = list(session.execute(paged_query).scalars().all())
                 logger.debug(f"フィルタリングで {len(filtered_image_ids)} 件の候補画像IDを取得しました。")
 
                 final_metadata_list = self._fetch_filtered_metadata(
@@ -2806,9 +2901,15 @@ class ImageRepository(BaseRepository):
                     filtered_query, filter_criteria.resolution
                 )
                 # get_images_by_filter と同一の集約スコア絞り込みを通し件数を一致させる (Issue #1026)。
-                filtered_query = self._apply_display_score_filter(
+                # スコア指定時は Python 側で len() 集計し、巨大 IN の count クエリを避ける
+                # (Codex PR #1043 P2 対応)。
+                score_filtered_ids = self._resolve_score_filtered_ids(
                     session, filtered_query, filter_criteria.score_min, filter_criteria.score_max
                 )
+                if score_filtered_ids is not None:
+                    count = len(score_filtered_ids)
+                    logger.debug(f"フィルター件数のみ取得 (集約スコア): {count} 件")
+                    return count
 
                 count_query = select(func.count()).select_from(filtered_query.subquery())
                 count = session.execute(count_query).scalar_one()
@@ -2866,23 +2967,37 @@ class ImageRepository(BaseRepository):
                 filtered_query = self._apply_processed_resolution_filter(
                     filtered_query, filter_criteria.resolution
                 )
+
                 # Score Filter は表示側と同じ集約スコアで Python post-filter する (Issue #1026)。
-                filtered_query = self._apply_display_score_filter(
+                # count / ページングを Python 完結させ、巨大 IN の count クエリを避ける
+                # (Codex PR #1043 P2 対応)。ページ id 取得の IN は limit で有界。
+                score_filtered_ids = self._resolve_score_filtered_ids(
                     session, filtered_query, filter_criteria.score_min, filter_criteria.score_max
                 )
+                if score_filtered_ids is not None:
+                    total_count = len(score_filtered_ids)
+                    if total_count == 0:
+                        return [], 0
+                    # get_image_list_page は Image.id 昇順で並べる (_resolve_score_filtered_ids
+                    # は既に昇順)。offset/limit をスライスで適用する。
+                    start_at = filter_criteria.offset or 0
+                    if filter_criteria.limit is not None:
+                        image_ids = score_filtered_ids[start_at : start_at + filter_criteria.limit]
+                    else:
+                        image_ids = score_filtered_ids[start_at:]
+                else:
+                    count_query = select(func.count()).select_from(filtered_query.subquery())
+                    total_count = session.execute(count_query).scalar_one()
+                    if total_count == 0:
+                        return [], 0
 
-                count_query = select(func.count()).select_from(filtered_query.subquery())
-                total_count = session.execute(count_query).scalar_one()
-                if total_count == 0:
-                    return [], 0
+                    ids_subquery = filtered_query.order_by(Image.id)
+                    if filter_criteria.offset:
+                        ids_subquery = ids_subquery.offset(filter_criteria.offset)
+                    if filter_criteria.limit is not None:
+                        ids_subquery = ids_subquery.limit(filter_criteria.limit)
 
-                ids_subquery = filtered_query.order_by(Image.id)
-                if filter_criteria.offset:
-                    ids_subquery = ids_subquery.offset(filter_criteria.offset)
-                if filter_criteria.limit is not None:
-                    ids_subquery = ids_subquery.limit(filter_criteria.limit)
-
-                image_ids = list(session.execute(ids_subquery).scalars().all())
+                    image_ids = list(session.execute(ids_subquery).scalars().all())
                 if not image_ids:
                     return [], total_count
 
