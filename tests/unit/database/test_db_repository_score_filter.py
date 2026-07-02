@@ -2,82 +2,330 @@
 ImageRepositoryのスコアフィルタ関連メソッドのテスト
 
 このテストモジュールは、スコアフィルタ機能をテストします:
-- _apply_score_filter(): スコア範囲によるフィルタ
-- get_images_by_filter(): スコアフィルタ統合
+- _apply_display_score_filter(): 表示側と同じ集約スコアによる範囲フィルタ (Issue #1026)
+- _representative_display_score(): フィルタ判定用の代表スコア導出
+- get_images_by_filter() / get_images_count_only(): スコアフィルタ統合
 """
 
+import uuid
+from datetime import datetime
 from unittest.mock import Mock
 
 import pytest
-from sqlalchemy import select
+from sqlalchemy import create_engine, select
+from sqlalchemy.orm import sessionmaker
 
 from lorairo.database.filter_criteria import ImageFilterCriteria
 from lorairo.database.repository.image import ImageRepository
 from lorairo.database.schema import Image
 
+# ---------------------------------------------------------------------------
+# Helpers (Issue #1026: 集約スコアフィルタの回帰テスト用 in-memory DB)
+# ---------------------------------------------------------------------------
 
-class TestApplyScoreFilter:
-    """_apply_score_filter() メソッドのテスト"""
 
-    @pytest.fixture
-    def repository(self):
-        """テスト用ImageRepository"""
-        mock_session_factory = Mock()
-        return ImageRepository(session_factory=mock_session_factory)
+@pytest.fixture
+def memory_session_factory():
+    """in-memory SQLite セッションファクトリ（schema 全テーブル）。"""
+    from lorairo.database.schema import Base
 
-    def test_apply_score_filter_with_min_and_max(self, repository):
-        """スコアフィルタが最小値と最大値の両方を適用することを確認"""
+    engine = create_engine("sqlite:///:memory:")
+    Base.metadata.create_all(engine)
+    return sessionmaker(engine)
+
+
+@pytest.fixture
+def score_repository(memory_session_factory):
+    """in-memory DB を使う ImageRepository。"""
+    return ImageRepository(session_factory=memory_session_factory)
+
+
+def _make_model(session, name: str) -> int:
+    """テスト用 Model を1件作成し ID を返す。"""
+    from lorairo.database.schema import Model
+
+    model = Model(name=name, litellm_model_id=f"{name}-{uuid.uuid4().hex[:8]}")
+    session.add(model)
+    session.flush()
+    return model.id
+
+
+def _make_image_with_scores(
+    session_factory,
+    scores: list[tuple[float, str, bool]],
+) -> int:
+    """Image を1件作成し、指定の Score 行 (生値, model 名, is_edited_manually) を紐づける。
+
+    Score.display_score 列には旧 SQL フィルタが参照していた per-row 表示値を入れて
+    おき、集約フィルタが per-row ではなく代表スコアで判定することを検証できるように
+    する (Issue #1026)。生値 → display_score は calibrate_to_display で算出する。
+    """
+    from lorairo.database.schema import Image, Score
+    from lorairo.domain.score_scaler import calibrate_to_display
+
+    with session_factory() as session:
+        uid = uuid.uuid4().hex
+        img = Image(
+            uuid=uid,
+            phash=f"aa{uid[:10]}",
+            original_image_path=f"/tmp/{uid}.png",
+            stored_image_path=f"/tmp/{uid}.png",
+            width=100,
+            height=100,
+            format="PNG",
+            extension="png",
+        )
+        session.add(img)
+        session.flush()
+
+        for i, (raw, model_name, is_manual) in enumerate(scores):
+            model_id = _make_model(session, model_name)
+            display = float(raw) if is_manual else calibrate_to_display(model_name, float(raw))
+            session.add(
+                Score(
+                    image_id=img.id,
+                    model_id=model_id,
+                    score=raw,
+                    display_score=display,
+                    is_edited_manually=is_manual,
+                    created_at=datetime(2025, 1, 1 + i),
+                )
+            )
+        session.commit()
+        return img.id
+
+
+# image_id=838 の実データ (Issue #1026): claude 行の per-row display=10.0 が旧 exists()
+# にヒットしていたが、代表スコアは手動優先で 6.08 (範囲外)。
+_ISSUE_838_SCORES = [
+    (8.75, "claude-3-5-sonnet-20240620", False),  # calibrate → display 10.0
+    (0.958227574825287, "cafe_aesthetic", False),  # calibrate → display ~7.83
+    (6.08, "MANUAL_EDIT", True),  # 手動優先 → 代表 6.08
+]
+
+
+class TestDisplayScoreFilterAggregation:
+    """_apply_display_score_filter() の集約スコア判定テスト (Issue #1026)。"""
+
+    @pytest.mark.unit
+    def test_manual_priority_excludes_out_of_range_per_row_hit(
+        self, score_repository, memory_session_factory
+    ):
+        """手動 6.08 の画像は 9.11-10.0 フィルタにヒットしない (per-row display=10.0 でも除外)。"""
+        image_id = _make_image_with_scores(memory_session_factory, _ISSUE_838_SCORES)
+
+        results, count = score_repository.get_images_by_filter(
+            ImageFilterCriteria(score_min=9.11, score_max=10.0)
+        )
+
+        assert count == 0
+        assert image_id not in [m["id"] for m in results]
+
+    @pytest.mark.unit
+    def test_filter_and_display_use_same_aggregate(self, score_repository, memory_session_factory):
+        """フィルタ判定と詳細パネル表示が同一の集約値 (代表 6.08) を通ることを固定する。"""
+        image_id = _make_image_with_scores(memory_session_factory, _ISSUE_838_SCORES)
+
+        # 表示側の集約スコア (代表値) は manual 優先で 6.08。
+        with memory_session_factory() as session:
+            from sqlalchemy.orm import selectinload
+
+            from lorairo.database.schema import Score
+
+            image = session.execute(
+                select(Image)
+                .where(Image.id == image_id)
+                .options(selectinload(Image.scores).selectinload(Score.model))
+            ).scalar_one()
+            display_score = ImageRepository._derive_display_score(image)
+        assert display_score == pytest.approx(6.08)
+
+        # 表示スコア 6.08 を含む範囲ではヒットし、含まない範囲では除外される。
+        assert (
+            score_repository.get_images_count_only(ImageFilterCriteria(score_min=6.0, score_max=6.5)) == 1
+        )
+        assert (
+            score_repository.get_images_count_only(ImageFilterCriteria(score_min=9.11, score_max=10.0)) == 0
+        )
+
+    @pytest.mark.unit
+    def test_ai_only_uses_weighted_average_not_per_row(self, score_repository, memory_session_factory):
+        """手動なし・複数 AI モデルは重み付き平均で判定する (単独行の 10.0 ではヒットしない)。"""
+        # claude(→10.0) と cafe(→~7.83) の平均 ~8.916。
+        image_id = _make_image_with_scores(
+            memory_session_factory,
+            [
+                (8.75, "claude-3-5-sonnet-20240620", False),
+                (0.958227574825287, "cafe_aesthetic", False),
+            ],
+        )
+
+        # 集約 8.916 を含む範囲ではヒット。
+        assert (
+            score_repository.get_images_count_only(ImageFilterCriteria(score_min=8.5, score_max=9.0)) == 1
+        )
+        # claude 単独行の display=10.0 は範囲内だが、集約 8.916 は範囲外なので除外。
+        assert (
+            score_repository.get_images_count_only(ImageFilterCriteria(score_min=9.11, score_max=10.0)) == 0
+        )
+        _ = image_id
+
+    @pytest.mark.unit
+    def test_image_without_scores_is_excluded(self, score_repository, memory_session_factory):
+        """スコア行が無い画像はどの範囲にもヒットしない (従来の exists() と同じ挙動)。"""
+        _make_image_with_scores(memory_session_factory, [])
+
+        assert (
+            score_repository.get_images_count_only(ImageFilterCriteria(score_min=0.0, score_max=10.0)) == 0
+        )
+
+    @pytest.mark.unit
+    def test_count_matches_results_length(self, score_repository, memory_session_factory):
+        """count と get_images_by_filter の結果件数が一致する (ページング整合)。"""
+        _make_image_with_scores(memory_session_factory, [(6.08, "MANUAL_EDIT", True)])
+        _make_image_with_scores(memory_session_factory, [(3.0, "MANUAL_EDIT", True)])
+        _make_image_with_scores(memory_session_factory, [(9.5, "MANUAL_EDIT", True)])
+
+        criteria = ImageFilterCriteria(score_min=5.0, score_max=7.0)
+        results, count = score_repository.get_images_by_filter(criteria)
+        count_only = score_repository.get_images_count_only(criteria)
+
+        assert count == 1  # 6.08 のみ該当
+        assert len(results) == count
+        assert count_only == count
+
+    @pytest.mark.unit
+    def test_no_score_filter_returns_none(self, score_repository):
+        """score_min/score_max ともに None のときは None を返す (SQL 完結経路)。"""
         base_query = select(Image.id)
+        with score_repository.session_factory() as session:
+            result = score_repository._resolve_score_filtered_ids(session, base_query, None, None)
+        assert result is None
 
-        # スコア範囲 3.0-7.5 でフィルタ適用
-        result_query = repository._apply_score_filter(base_query, score_min=3.0, score_max=7.5)
+    @pytest.mark.unit
+    def test_count_page_avoid_unbounded_in(self, memory_session_factory):
+        """スコアフィルタの count/page が全 matched_ids を単一 IN に展開しない (Codex P2)。
 
-        # クエリが変更されたことを確認
-        assert result_query is not None
-        assert result_query != base_query
+        BATCH_CHUNK_SIZE を小さく上書きし、matched 件数がそれを大きく超える状況で
+        実行される全 SQL のうち、単一ステートメントの bind 変数数が matched 総数に
+        達しないことを検証する。旧実装の ``Image.id.in_(matched_ids)`` は count / page
+        クエリで全 matched を 1 文に展開するため、bind 数が matched 総数と一致する。
+        (NSFW/rating フィルタの定数 IN リスト等のノイズはあるが matched 総数より十分小さい。)
+        """
+        from sqlalchemy import event
 
-    def test_apply_score_filter_with_min_only(self, repository):
-        """最小値のみが指定された場合のフィルタ適用を確認"""
-        base_query = select(Image.id)
+        repository = ImageRepository(session_factory=memory_session_factory)
+        # チャンク上限を小さくして、id 由来の IN が matched 総数まで膨らまないことを明確にする。
+        repository.BATCH_CHUNK_SIZE = 3
 
-        # 最小値のみ指定
-        result_query = repository._apply_score_filter(base_query, score_min=5.0, score_max=None)
+        # 全件が範囲 0.0-10.0 に一致する image を chunk 上限より十分多く作る。
+        image_ids = [
+            _make_image_with_scores(memory_session_factory, [(6.0, "MANUAL_EDIT", True)]) for _ in range(40)
+        ]
 
-        # クエリが変更されたことを確認
-        assert result_query is not None
-        assert result_query != base_query
+        max_bind_params = 0
 
-    def test_apply_score_filter_with_max_only(self, repository):
-        """最大値のみが指定された場合のフィルタ適用を確認"""
-        base_query = select(Image.id)
+        def _record_binds(conn, cursor, statement, parameters, context, executemany):
+            nonlocal max_bind_params
+            if executemany:
+                for row in parameters:
+                    max_bind_params = max(max_bind_params, len(row))
+            elif parameters is not None:
+                max_bind_params = max(max_bind_params, len(parameters))
 
-        # 最大値のみ指定
-        result_query = repository._apply_score_filter(base_query, score_min=None, score_max=8.0)
+        engine = memory_session_factory.kw["bind"]
+        event.listen(engine, "before_cursor_execute", _record_binds)
+        try:
+            criteria = ImageFilterCriteria(score_min=0.0, score_max=10.0, limit=2)
+            results, count = repository.get_images_by_filter(criteria)
+            count_only = repository.get_images_count_only(criteria)
+            page, list_total = repository.get_image_list_page(criteria)
+        finally:
+            event.remove(engine, "before_cursor_execute", _record_binds)
 
-        # クエリが変更されたことを確認
-        assert result_query is not None
-        assert result_query != base_query
+        # count は全件、page は limit で有界。
+        assert count == len(image_ids)
+        assert count_only == len(image_ids)
+        assert list_total == len(image_ids)
+        assert len(results) == 2
+        assert len(page) == 2
+        # 単一 SQL の bind 変数が matched 総数 (40) に達しない = 全件を 1 つの IN に
+        # 展開していない。旧実装なら count / page クエリで 40 になる。
+        assert max_bind_params < len(image_ids)
 
-    def test_apply_score_filter_no_filter(self, repository):
-        """両方Noneの場合、フィルタが適用されないことを確認"""
-        base_query = select(Image.id)
+    @pytest.mark.unit
+    def test_metadata_fetch_chunks_across_boundary(self, memory_session_factory):
+        """limit 無しのスコアフィルタで metadata fetch が chunk 境界をまたいでも欠落/重複しない (Codex P2)。
 
-        # 両方None
-        result_query = repository._apply_score_filter(base_query, score_min=None, score_max=None)
+        BATCH_CHUNK_SIZE を小さく上書きし、matched 件数がそれを大きく超える状況で
+        limit 無し検索を実行する。metadata fetch が全 id を単一 IN で組まず
+        (単一 SQL の bind 変数が matched 総数に達しない)、かつ全件が欠落/重複なく
+        返ることを検証する。
+        """
+        from sqlalchemy import event
 
-        # クエリが変更されていない
-        assert result_query == base_query
+        repository = ImageRepository(session_factory=memory_session_factory)
+        repository.BATCH_CHUNK_SIZE = 3
 
-    def test_apply_score_filter_full_range(self, repository):
-        """全範囲（0.0-10.0）でフィルタが適用可能であることを確認"""
-        base_query = select(Image.id)
+        # 全件一致する image を chunk 上限 (3) より十分多く作る。
+        image_ids = [
+            _make_image_with_scores(memory_session_factory, [(6.0, "MANUAL_EDIT", True)]) for _ in range(20)
+        ]
 
-        # 全範囲でフィルタ適用
-        result_query = repository._apply_score_filter(base_query, score_min=0.0, score_max=10.0)
+        max_bind_params = 0
 
-        # クエリが変更されたことを確認
-        assert result_query is not None
-        assert result_query != base_query
+        def _record_binds(conn, cursor, statement, parameters, context, executemany):
+            nonlocal max_bind_params
+            if executemany:
+                for row in parameters:
+                    max_bind_params = max(max_bind_params, len(row))
+            elif parameters is not None:
+                max_bind_params = max(max_bind_params, len(parameters))
+
+        engine = memory_session_factory.kw["bind"]
+        event.listen(engine, "before_cursor_execute", _record_binds)
+        try:
+            # limit 未指定 (既定 None) → matched 全件が metadata fetch に渡る。
+            results, count = repository.get_images_by_filter(
+                ImageFilterCriteria(score_min=0.0, score_max=10.0)
+            )
+        finally:
+            event.remove(engine, "before_cursor_execute", _record_binds)
+
+        # 全件が欠落/重複なく返る (chunk 境界をまたいで整合)。
+        assert count == len(image_ids)
+        returned_ids = [m["id"] for m in results]
+        assert len(returned_ids) == len(image_ids)
+        assert set(returned_ids) == set(image_ids)
+        # metadata fetch も含め、単一 SQL の bind 変数が matched 総数に達しない。
+        assert max_bind_params < len(image_ids)
+
+
+class TestRepresentativeDisplayScore:
+    """_representative_display_score() の代表スコア導出テスト (Issue #1026)。"""
+
+    @pytest.mark.unit
+    def test_no_scores_returns_none(self):
+        """スコア行が無い場合は None (表示側 0.0 と区別する)。"""
+        image = Mock(spec=Image)
+        image.scores = []
+        assert ImageRepository._representative_display_score(image) is None
+
+    @pytest.mark.unit
+    def test_manual_takes_priority(self):
+        """手動行があれば手動生値を代表値として返す。"""
+        from lorairo.database.schema import Score
+
+        manual = Mock(spec=Score)
+        manual.score = 6.08
+        manual.is_edited_manually = True
+        manual.created_at = datetime(2025, 1, 2)
+        manual.model_id = 1
+        manual.model = Mock()
+        manual.model.name = "MANUAL_EDIT"
+        image = Mock(spec=Image)
+        image.scores = [manual]
+        assert ImageRepository._representative_display_score(image) == pytest.approx(6.08)
 
 
 class TestGetImagesByFilterScoreIntegration:
@@ -202,15 +450,21 @@ class TestGetImagesCountOnly:
 
         count_result = Mock()
         count_result.scalar_one = Mock(return_value=3)
+        count_result.scalars = Mock(return_value=Mock(all=Mock(return_value=[])))
         mock_session.execute = Mock(return_value=count_result)
 
         repository = ImageRepository(session_factory=mock_session_factory)
         return repository
 
     def test_get_images_count_only_returns_count(self, mock_session_and_repository):
+        """スコア未指定時は SQL count 経路で scalar_one をそのまま返す。
+
+        スコア指定時の集約 count (len ベース) は TestDisplayScoreFilterAggregation の
+        実 DB テストで検証する (Issue #1026)。
+        """
         repository = mock_session_and_repository
 
-        count = repository.get_images_count_only(ImageFilterCriteria(score_min=3.0, score_max=7.5))
+        count = repository.get_images_count_only(ImageFilterCriteria())
 
         assert count == 3
 
