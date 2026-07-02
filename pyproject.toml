@@ -50,8 +50,6 @@ dependencies = [
     # Local packages (managed by uv.sources)
     "genai-tag-db-tools",
     "image-annotator-lib",
-    "rembg>=2.0.67",
-    "pymatting>=1.1.15",
     "torchvision>=0.25.0",
     # 2026-05-12: PyPI で `mistralai` パッケージが quarantined され、`pydantic-ai`
     # 1.93.0 までに含まれていた `mistral` extra (= `pydantic-ai-slim[mistral]` →
@@ -208,17 +206,9 @@ markers = [
     "gui: GUIアクセスを含むが表示を必要としないテスト",
     "gui_show: 実際のウィンドウ表示や描画を伴うテスト",
     "slow: Tests that take more time",
-    "webapi: Tests related to Web API based annotators",
-    "scorer: Tests specific to scorer models",
-    "tagger: Tests specific to tagger models",
-    "model_factory: Tests for the model factory (ModelLoad)",
-    "fast: Fast unit tests (no external dependencies, <30s)",
-    "standard: Standard unit tests (light mocking, <3min)",
     "calls_real_webapi: Tests that send real requests using provider API keys (local-only runtime validation)",
     "downloads_and_runs_model: Tests that download and run real local models (local-only runtime validation)",
     "bdd: BDD scenarios (pytest-bdd)",
-    "bdd_core: Core BDD scenarios (SimplifiedAgentWrapper, Factory)",
-    "api_model_discovery: API model discovery tests",
     "cli: CLI tests",
     "e2e: End-to-end tests using deterministic local fixtures or fake backends",
 ]
