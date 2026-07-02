@@ -30,10 +30,26 @@ class _FakeService:
     def __init__(self, result: dict[str, RefinementRecommendation]) -> None:
         self._result = result
         self.calls: list[tuple[list[str], object, object]] = []
+        self.cancel_checks: list[object] = []
 
-    def recommend_for_tags(self, tags, format_map=None, repo=None):  # type: ignore[no-untyped-def]
+    def recommend_for_tags(self, tags, format_map=None, repo=None, cancel_check=None):  # type: ignore[no-untyped-def]
         self.calls.append((list(tags), format_map, repo))
+        self.cancel_checks.append(cancel_check)
         return self._result
+
+
+class _CheckpointService:
+    """評価ループ相当の場所で cancel_check を呼ぶ fake (#1024 協調キャンセル検証用)。"""
+
+    def __init__(self) -> None:
+        self.evaluated: list[str] = []
+
+    def recommend_for_tags(self, tags, format_map=None, repo=None, cancel_check=None):  # type: ignore[no-untyped-def]
+        for tag in tags:
+            if cancel_check is not None:
+                cancel_check()
+            self.evaluated.append(tag)
+        return {}
 
 
 @pytest.mark.unit
@@ -62,6 +78,33 @@ def test_execute_passes_format_map_and_repo() -> None:
     _, format_map, repo = service.calls[0]
     assert format_map == {"flower": "danbooru"}
     assert repo is sentinel_repo
+
+
+@pytest.mark.unit
+def test_execute_passes_cancel_check_to_service() -> None:
+    """execute() は service に協調キャンセル用の cancel_check を渡す (#1024)。"""
+    service = _FakeService({})
+    worker = RefinementWorker(service, image_id=1, tags=["flower"])
+
+    worker.execute()
+
+    assert service.cancel_checks == [worker._check_cancellation]
+
+
+@pytest.mark.gui
+def test_cancel_during_evaluation_emits_canceled_not_finished(qtbot) -> None:
+    """評価途中のキャンセル要求はチェックポイントで中断し canceled で終端する (#1024)。"""
+    service = _CheckpointService()
+    worker = RefinementWorker(service, image_id=1, tags=["a", "b", "c"])
+    worker.cancel()  # 実行前にキャンセル要求 (最初のチェックポイントで中断される)
+
+    finished_results: list[object] = []
+    worker.finished.connect(finished_results.append)
+    with qtbot.waitSignal(worker.canceled, timeout=2000):
+        worker.run()
+
+    assert finished_results == []
+    assert service.evaluated == []  # 1タグも評価せず中断
 
 
 @pytest.mark.gui

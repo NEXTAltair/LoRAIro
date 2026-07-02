@@ -248,6 +248,78 @@ def test_different_repo_bypasses_cache() -> None:
     assert calls == [reader_a, reader_b]  # reader 違いで2回評価
 
 
+class _CancelRequested(Exception):
+    """テスト用の中断シグナル例外 (cancel_check が送出する)。"""
+
+
+def test_cancel_check_called_before_prefetch_and_each_evaluation() -> None:
+    """cancel_check は prefetch 前と per-tag 評価 (DB 往復) の直前に呼ばれる (#1024)。"""
+    order: list[str] = []
+
+    def fake_prefetch(tags: object, *, repo: object = None) -> None:
+        order.append("prefetch")
+
+    def fake_recommend(tag: str, *, repo: object = None, format_name: str = "unknown"):
+        order.append(f"eval:{tag}")
+        return _make_recommendation(tag, reason_codes=["broad_single_word"])
+
+    def cancel_check() -> None:
+        order.append("check")
+
+    service = RefinementService(
+        recommend_fn=fake_recommend, ignore_repo=_FakeIgnoreRepo(), prefetch_fn=fake_prefetch
+    )
+    service.recommend_for_tags(["a", "b"], cancel_check=cancel_check)
+
+    # 先頭の check は list_ignored() (これも DB 読み取り) の前のチェックポイント (Codex P2)
+    assert order == ["check", "check", "prefetch", "check", "eval:a", "check", "eval:b"]
+
+
+def test_cancel_check_aborts_between_evaluations() -> None:
+    """途中でキャンセル要求が入ると残りの評価を行わず例外が伝播する (#1024)。"""
+    calls: list[str] = []
+    checks = 0
+
+    def fake_recommend(tag: str, *, repo: object = None, format_name: str = "unknown"):
+        calls.append(tag)
+        return _make_recommendation(tag, reason_codes=["broad_single_word"])
+
+    def cancel_check() -> None:
+        nonlocal checks
+        checks += 1
+        if checks > 2:  # 先頭 (list_ignored 前) + 1タグ目の直前を通過後にキャンセルされた想定
+            raise _CancelRequested()
+
+    service = RefinementService(recommend_fn=fake_recommend, ignore_repo=_FakeIgnoreRepo())
+    with pytest.raises(_CancelRequested):
+        service.recommend_for_tags(["a", "b", "c"], cancel_check=cancel_check)
+
+    assert calls == ["a"]  # 2タグ目以降は評価しない
+
+
+def test_cached_tags_skip_per_tag_cancel_checks() -> None:
+    """全タグがキャッシュ済みなら per-tag のチェックは走らない (先頭の1回のみ)。
+
+    先頭の1回は list_ignored() (毎回の DB 読み取り) の前のチェックポイントで、
+    キャッシュ状態に依らず常に走る (Codex P2)。
+    """
+    checks = 0
+
+    def fake_recommend(tag: str, *, repo: object = None, format_name: str = "unknown"):
+        return _make_recommendation(tag, reason_codes=["broad_single_word"])
+
+    def counting_check() -> None:
+        nonlocal checks
+        checks += 1
+
+    service = RefinementService(recommend_fn=fake_recommend, ignore_repo=_FakeIgnoreRepo())
+    service.recommend_for_tags(["flower"])  # キャッシュ投入
+
+    result = service.recommend_for_tags(["flower"], cancel_check=counting_check)
+    assert "flower" in result
+    assert checks == 1  # per-tag 評価分のチェックは走らない
+
+
 def test_ignore_persists_and_invalidates_cache() -> None:
     """ignore 後はそのタグの該当 reason が以後の結果から消える (キャッシュ無効化)。"""
 

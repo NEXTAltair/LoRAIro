@@ -24,6 +24,7 @@ class CancelReason(Enum):
     SEARCH_REPLACED = "search_replaced"
     THUMBNAIL_REPLACED = "thumbnail_replaced"
     PREFETCH_REPLACED = "prefetch_replaced"
+    REFINEMENT_REPLACED = "refinement_replaced"
     SHUTDOWN = "shutdown"
     TIMEOUT_FALLBACK = "timeout_fallback"
 

@@ -68,9 +68,17 @@ class RefinementWorker(LoRAIroWorkerBase[RefinementResult]):
         self._generation = generation
 
     def execute(self) -> RefinementResult:
-        """タグ集合を評価し RefinementResult を返す。"""
+        """タグ集合を評価し RefinementResult を返す。
+
+        `cancel_check` として `_check_cancellation` を渡し、prefetch / per-tag 評価の
+        DB 往復の合間で協調キャンセルを効かせる (#1024)。キャンセル時は
+        `CancellationError` が伝播し、`run()` が canceled シグナルで終端する。
+        """
         recommendations = self._service.recommend_for_tags(
-            self._tags, format_map=self._format_map, repo=self._repo
+            self._tags,
+            format_map=self._format_map,
+            repo=self._repo,
+            cancel_check=self._check_cancellation,
         )
         logger.debug(
             f"refinement worker 完了: image_id={self._image_id}, gen={self._generation}, "

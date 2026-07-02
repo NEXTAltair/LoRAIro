@@ -1,5 +1,6 @@
 # src/lorairo/workers/manager.py
 
+import time
 from typing import Any
 
 from PySide6.QtCore import QCoreApplication, QObject, QThread, Signal
@@ -7,6 +8,13 @@ from PySide6.QtCore import QCoreApplication, QObject, QThread, Signal
 from ...utils.log import logger
 from .base import LoRAIroWorkerBase
 from .terminal import CancelReason, WorkerOutcome, WorkerTerminalEvent
+
+# 見捨てた (UNRESPONSIVE) worker の QThread / worker への Python 参照をプロセス寿命で
+# 保持する退避先 (#1024 Codex P1)。widget 所有の WorkerManager と共に参照が消えると、
+# 実行中 QThread の C++ 実体が widget teardown で破棄され "QThread: Destroyed while
+# thread is still running" の abort になり得るため、所有権をプロセスグローバルへ移す。
+# thread が後から終了できた場合は finished シグナルで自動的に登録解除される。
+_ABANDONED_WORKERS: dict[int, tuple[QThread, LoRAIroWorkerBase[Any]]] = {}
 
 
 class WorkerManager(QObject):
@@ -28,6 +36,9 @@ class WorkerManager(QObject):
     _CANCEL_DRAIN_GRACE_MS = 250
     _TERMINATE_WAIT_MS = 1000
     _CLEANUP_GRACE_MS = 1000
+    # cancel_all_workers の全体上限。1本ずつ直列で grace を待つと worker 数に比例して
+    # ブロックする (#1024: 16本 x 約3.3秒 = 53秒) ため、全 worker で共有する。
+    _CANCEL_ALL_TOTAL_GRACE_MS = 5000
 
     # === 全体管理シグナル ===
     all_workers_finished = Signal()
@@ -156,13 +167,98 @@ class WorkerManager(QObject):
         logger.debug(f"ワーカーキャンセル: {worker_id} (理由: {reason.value})")
         return True
 
-    def cancel_all_workers(self, reason: CancelReason = CancelReason.SHUTDOWN) -> None:
-        """全ワーカーをキャンセル"""
-        worker_ids = list(self.active_workers.keys())
-        for worker_id in worker_ids:
-            self.cancel_worker(worker_id, reason=reason)
+    def request_cancel_worker(
+        self,
+        worker_id: str,
+        reason: CancelReason = CancelReason.USER_REQUESTED,
+    ) -> bool:
+        """協調キャンセルを要求して即座に戻る (スレッド終了を待たない)。
 
-        logger.info(f"全ワーカーキャンセル: {len(worker_ids)}個")
+        UI スレッドから旧世代ワーカーを新しい要求で置換するときに使う (#1024)。
+        `cancel_worker` と違い grace 待機を一切行わないため GUI をブロックしない。
+        ワーカーが次のキャンセルチェックポイントで停止すると、通常の canceled →
+        terminal イベント経路で終端・クリーンアップされる。
+
+        Args:
+            worker_id: キャンセルを要求するワーカーID。
+            reason: キャンセル理由 (terminal イベントに載る)。
+
+        Returns:
+            要求を受け付けたら True。ワーカーが見つからなければ False。
+        """
+        worker_info = self.active_workers.get(worker_id)
+        if worker_info is None:
+            logger.debug(f"協調キャンセル要求: ワーカー {worker_id} が見つかりません")
+            return False
+
+        worker_info["cancel_reason"] = reason
+        worker_info["worker"].cancel()
+        logger.debug(f"ワーカーへ協調キャンセルを要求: {worker_id} (理由: {reason.value})")
+        return True
+
+    def cancel_all_workers(
+        self,
+        reason: CancelReason = CancelReason.SHUTDOWN,
+        total_grace_ms: int | None = None,
+    ) -> None:
+        """全ワーカーをキャンセルする (全体で上限時間つき)。
+
+        シャットダウン時に 1 本ずつ直列で grace を待つと停止に worker 数 x 数秒かかる
+        (#1024 実測: 16本 x 約3.3秒 = 53秒のハング)。そのためキャンセル要求と quit を
+        先に全 worker へブロードキャストし、待機は全体で共有する deadline までに制限する。
+        deadline までに停止しない worker は強制終了を試みず UNRESPONSIVE として見捨てる
+        (native の DB 呼び出し中は `QThread.terminate()` が効かないことが実測済み)。
+
+        Args:
+            reason: キャンセル理由。
+            total_grace_ms: 全 worker で共有する待機上限 (ミリ秒)。
+                None なら `_CANCEL_ALL_TOTAL_GRACE_MS`。
+        """
+        worker_ids = list(self.active_workers.keys())
+        if not worker_ids:
+            logger.info("全ワーカーキャンセル: 0個")
+            return
+
+        grace_ms = self._CANCEL_ALL_TOTAL_GRACE_MS if total_grace_ms is None else total_grace_ms
+
+        # 1) 協調キャンセル + quit を全ワーカーへブロードキャスト (待機しない)
+        for worker_id in worker_ids:
+            worker_info = self.active_workers.get(worker_id)
+            if worker_info is None:
+                continue
+            worker_info["cancel_reason"] = reason
+            worker_info["worker"].cancel()
+            thread = worker_info["thread"]
+            if thread.isRunning():
+                thread.quit()
+
+        # 2) 共有 deadline まで停止を待つ。残りは見捨てて終了する。
+        deadline = time.monotonic() + grace_ms / 1000
+        abandoned = 0
+        for worker_id in worker_ids:
+            worker_info = self.active_workers.get(worker_id)
+            if worker_info is None:
+                continue  # queued terminal event 等で既に終端済み
+            thread = worker_info["thread"]
+            remaining_ms = int((deadline - time.monotonic()) * 1000)
+            if not thread.isRunning() or (remaining_ms > 0 and thread.wait(remaining_ms)):
+                self._finalize_canceled_if_no_terminal_signal(worker_id)
+                continue
+            abandoned += 1
+            self._park_abandoned_worker(worker_info)
+            self._mark_worker_unresponsive(
+                worker_id,
+                error=f"シャットダウン期限内に停止しませんでした: {worker_id}",
+                cancel_reason=reason,
+            )
+
+        if abandoned:
+            logger.warning(
+                f"全ワーカーキャンセル: {len(worker_ids)}個中 {abandoned}個が期限 "
+                f"{grace_ms}ms 内に停止せず、見捨てて続行します"
+            )
+        else:
+            logger.info(f"全ワーカーキャンセル: {len(worker_ids)}個")
 
     def is_worker_active(self, worker_id: str) -> bool:
         """ワーカーがアクティブかチェック"""
@@ -336,6 +432,21 @@ class WorkerManager(QObject):
 
         return True
 
+    @staticmethod
+    def _park_abandoned_worker(worker_info: dict[str, Any]) -> None:
+        """見捨てる worker の thread/worker をプロセスグローバル退避先へ移す (#1024)。
+
+        widget teardown 後も Python 参照を生かし、実行中 QThread の C++ 実体が
+        破棄される事故を防ぐ。thread が終了したら registry から自動で外す。
+
+        Args:
+            worker_info: active_workers のエントリ ("thread" / "worker" を含む)。
+        """
+        thread = worker_info["thread"]
+        key = id(thread)
+        _ABANDONED_WORKERS[key] = (thread, worker_info["worker"])
+        thread.finished.connect(lambda k=key: _ABANDONED_WORKERS.pop(k, None))
+
     def _mark_worker_unresponsive(
         self,
         worker_id: str,
@@ -392,7 +503,14 @@ class WorkerManager(QObject):
         return worker_info.get("cancel_reason") if worker_info else None
 
     def _resolve_worker_type(self, worker_id: str) -> str:
-        for prefix in ("batch_reg_", "batch_import_", "annotation_", "search_", "thumbnail_"):
+        for prefix in (
+            "batch_reg_",
+            "batch_import_",
+            "annotation_",
+            "search_",
+            "thumbnail_",
+            "refinement_",
+        ):
             if worker_id.startswith(prefix):
                 return prefix.rstrip("_")
         return "unknown"
