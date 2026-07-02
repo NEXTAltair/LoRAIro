@@ -268,6 +268,51 @@ class TestProjectManagementServiceDefaultPath:
 
         assert service.projects_base_dir == explicit_dir
 
+    def test_old_dir_migration_log_emitted(self, tmp_path: Path) -> None:
+        """~/.lorairo/projects/ が残存する場合に移行案内ログが出力される"""
+        from unittest.mock import MagicMock
+
+        from lorairo.services.project_management_service import ProjectManagementService
+
+        # Path.home() が tmp_path を返すとき、old_dir = tmp_path / ".lorairo" / "projects"
+        old_dir = tmp_path / ".lorairo" / "projects"
+        old_dir.mkdir(parents=True)
+        fake_config = {
+            "directories": {"database_base_dir": str(tmp_path / "new_base")},
+        }
+
+        mock_info = MagicMock()
+        with (
+            patch("lorairo.services.project_management_service.get_config", return_value=fake_config),
+            patch("lorairo.services.project_management_service.Path.home", return_value=tmp_path),
+            patch("lorairo.services.project_management_service.logger.info", mock_info),
+        ):
+            ProjectManagementService()
+
+        called_msgs = [str(call.args[0]) for call in mock_info.call_args_list]
+        assert any("旧プロジェクトディレクトリが検出されました" in msg for msg in called_msgs)
+
+    def test_no_migration_log_when_old_dir_absent(self, tmp_path: Path) -> None:
+        """旧ディレクトリが存在しない場合は移行案内ログが出ない"""
+        from unittest.mock import MagicMock
+
+        from lorairo.services.project_management_service import ProjectManagementService
+
+        fake_config = {
+            "directories": {"database_base_dir": str(tmp_path)},
+        }
+        mock_info = MagicMock()
+        # tmp_path 配下には old ".lorairo/projects" を作らない
+        with (
+            patch("lorairo.services.project_management_service.get_config", return_value=fake_config),
+            patch("lorairo.services.project_management_service.Path.home", return_value=tmp_path),
+            patch("lorairo.services.project_management_service.logger.info", mock_info),
+        ):
+            ProjectManagementService()
+
+        called_msgs = [str(call.args[0]) for call in mock_info.call_args_list]
+        assert not any("旧プロジェクトディレクトリが検出されました" in msg for msg in called_msgs)
+
 
 class TestServiceContainerSetActiveProject:
     """ServiceContainer.set_active_project テスト（ADR 0009 + ADR 0018）"""
