@@ -747,13 +747,13 @@ class SelectedImageDetailsWidget(QWidget):
             - ImageDetails dataclass による型安全な処理
         """
         if not image_data:
-            logger.info("SelectedImageDetailsWidget: 空データ受信 - 表示をクリア")
+            logger.debug("SelectedImageDetailsWidget: 空データ受信 - 表示をクリア")
             self._clear_display()
             return
 
         image_id = image_data.get("id")
         self.current_image_id = image_id
-        logger.info(
+        logger.debug(
             f"SelectedImageDetailsWidget(instance={id(self)}): current_image_data_changed シグナル受信 - image_id: {image_id}"
         )
 
