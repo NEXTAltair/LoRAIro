@@ -368,7 +368,10 @@ class TestBatchTagWidgetIntegration:
 
         add_to_staging.assert_called_once_with([101, 102])
         information.assert_not_called()
-        assert main_window_with_tabs.tabWidgetMainMode.currentWidget() is main_window_with_tabs.tabBatchTag
+        # #1059: ステージング追加でアノテーションタブへ強制遷移しない (検索タブに留まる)
+        assert (
+            main_window_with_tabs.tabWidgetMainMode.currentWidget() is not main_window_with_tabs.tabBatchTag
+        )
 
     def test_batchtagaddwidget_in_batch_tag_tab(self, main_window_with_tabs):
         """BatchTagAddWidgetがアノテーションタブ内に配置されている"""
