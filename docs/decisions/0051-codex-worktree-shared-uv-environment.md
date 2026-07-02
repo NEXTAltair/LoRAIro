@@ -9,7 +9,7 @@ tags: []
 
 ## Context
 
-LoRAIro agents implement issue work in dedicated git worktrees under `/tmp/worktrees/`.
+LoRAIro agents implement issue work in dedicated git worktrees under `.agents/worktree/`.
 Creating a separate `.venv` in each worktree is too expensive for this repository because
 dependency installation and model/cache downloads can consume substantial time and disk space.
 

@@ -58,6 +58,9 @@ git worktree add .agents/worktree/issue-123 -b fix/issue-123 origin/main
 - プロジェクトルートより上流（`../LoRAIro-xxx` 等）には作成しない（エクスプローラに出ず見づらい）
 - `.agents/worktree/` は 9p bind mount 上だが、重い `.venv` は named volume を共有する（worktree 内に作らない）ため、
   source のみの worktree の I/O は実用範囲。`.gitignore` で追跡対象外。
+- ネイティブ `EnterWorktree` ツールはデフォルトで `.claude/worktrees/` 配下に worktree を作るため使用しない。
+  worktree 作成は Agent tool の `isolation: "worktree"`（hook が `.agents/worktree/` に誘導する）か、
+  手動 `git worktree add .agents/worktree/<name>` を使う。
 
 ```bash
 # 正しい

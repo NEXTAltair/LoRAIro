@@ -7,7 +7,7 @@ tools: Read, Grep, Glob, SendMessage, TaskList, TaskGet, TaskUpdate, TaskCreate
 
 ## Repository Rules Reference
 
-Before implementation, mutation, branch, commit, push, or PR work, read [Repository Guidelines](../../AGENTS.md) and [Git Workflow Rules](../rules/git-workflow.md). Issue/feature work must use a dedicated `/tmp/worktrees/` worktree, not the shared `/workspaces/LoRAIro` checkout.
+Before implementation, mutation, branch, commit, push, or PR work, read [Repository Guidelines](../../AGENTS.md) and [Git Workflow Rules](../rules/git-workflow.md). Issue/feature work must use a dedicated `.agents/worktree/` worktree, not the shared `/workspaces/LoRAIro` checkout.
 
 # Security Review Specialist
 
@@ -73,7 +73,7 @@ patterns = [
 ```
 
 ### Step 2: Semantic Analysis
-Use Serena tools to understand code context:
+Use Grep/Glob/Read to understand code context:
 - `Grep` for regex patterns
 - `Grep` (class/def pattern) for function analysis
 - `Glob` + `Read` (first 100 lines) for module structure

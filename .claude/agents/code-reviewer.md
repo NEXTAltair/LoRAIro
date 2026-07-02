@@ -7,7 +7,7 @@ tools: Read, Grep, Glob, Bash, SendMessage, TaskList, TaskGet, TaskUpdate, TaskC
 
 ## Repository Rules Reference
 
-Before implementation, mutation, branch, commit, push, or PR work, read [Repository Guidelines](../../AGENTS.md) and [Git Workflow Rules](../rules/git-workflow.md). Issue/feature work must use a dedicated `/tmp/worktrees/` worktree, not the shared `/workspaces/LoRAIro` checkout.
+Before implementation, mutation, branch, commit, push, or PR work, read [Repository Guidelines](../../AGENTS.md) and [Git Workflow Rules](../rules/git-workflow.md). Issue/feature work must use a dedicated `.agents/worktree/` worktree, not the shared `/workspaces/LoRAIro` checkout.
 
 # Code Review Specialist
 
@@ -54,7 +54,7 @@ uv run mypy [target_path] --output=json
 ```
 
 ### Step 2: Semantic Analysis
-Use Serena tools for deeper inspection:
+Use Grep/Glob/Read for deeper inspection:
 - `Glob` + `Read` (first 100 lines) for module structure
 - `Grep` (class/def pattern) for function signatures
 - `Grep` (symbol name search) for dependency analysis

@@ -1,7 +1,7 @@
 # LoRAIro Project Makefile
 # Development task automation
 
-.PHONY: help setup test test-iam-lib test-runtime-local test-runtime-webapi test-genai-tag test-all mypy format format-iam-lib format-genai-tag adr-drift adr-index adr-okf docs-okf install install-dev clean run-gui generate-ui skills-update venv-rebuild worktree-cleanup-merged worktree-cleanup-merged-dry-run _ensure-submodules _ensure-root-venv
+.PHONY: help setup test test-iam-lib test-runtime-local test-runtime-webapi test-genai-tag test-all mypy format format-iam-lib format-genai-tag adr-drift adr-index adr-okf docs-okf install install-dev clean run-gui generate-ui venv-rebuild worktree-cleanup-merged worktree-cleanup-merged-dry-run _ensure-submodules _ensure-root-venv
 
 WORKTREE_ROOT := /workspaces/LoRAIro/.agents/worktree
 ifeq ($(filter $(WORKTREE_ROOT)/%,$(CURDIR)),)
@@ -39,7 +39,6 @@ help:
 	@echo "  venv-rebuild Rebuild .venv from scratch (recovery from corruption)"
 	@echo "  worktree-cleanup-merged Remove clean merged /workspaces/LoRAIro/.agents/worktree entries"
 	@echo "  worktree-cleanup-merged-dry-run Show clean merged /workspaces/LoRAIro/.agents/worktree entries"
-	@echo "  skills-update Update community skills in .github/skills/"
 
 # Development targets
 # setup: 開発環境セットアップの唯一の人間向け入口。submodule 取得 + dev 依存インストール。
@@ -185,17 +184,6 @@ docs-okf:
 			echo "skip (submodule not checked out): $$d"; \
 		fi; \
 	done; exit $$rc
-
-skills-update:
-	@echo "Restoring skills from skills-lock.json..."
-	npx skills experimental_install --yes
-	@echo "Updating community skills to latest versions..."
-	npx skills update --yes
-	@for skill in $$(ls .agents/skills/ 2>/dev/null); do \
-		cp -r .agents/skills/$$skill/. .github/skills/$$skill/; \
-		echo "Updated: $$skill"; \
-	done
-	@echo "Skills updated. Review changes and commit."
 
 venv-rebuild: _ensure-submodules
 	@echo "Rebuilding .venv from scratch (Issue #222 recovery)..."

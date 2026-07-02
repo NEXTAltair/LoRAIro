@@ -7,7 +7,7 @@ tools: Read, Bash, Grep, Glob, SendMessage, TaskList, TaskGet, TaskUpdate, TaskC
 
 ## Repository Rules Reference
 
-Before implementation, mutation, branch, commit, push, or PR work, read [Repository Guidelines](../../AGENTS.md) and [Git Workflow Rules](../rules/git-workflow.md). Issue/feature work must use a dedicated `/tmp/worktrees/` worktree, not the shared `/workspaces/LoRAIro` checkout.
+Before implementation, mutation, branch, commit, push, or PR work, read [Repository Guidelines](../../AGENTS.md) and [Git Workflow Rules](../rules/git-workflow.md). Issue/feature work must use a dedicated `.agents/worktree/` worktree, not the shared `/workspaces/LoRAIro` checkout.
 
 # Test Runner Specialist
 
