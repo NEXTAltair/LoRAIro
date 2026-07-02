@@ -80,7 +80,11 @@ def test_finished_applies_when_image_matches(qtbot, monkeypatch) -> None:
     widget.current_image_id = 5
     widget._refinement_generation = 3
     applied: list[dict] = []
-    monkeypatch.setattr(widget.annotation_display, "apply_refinements", applied.append)
+    monkeypatch.setattr(
+        widget.annotation_display,
+        "apply_refinements",
+        lambda recommendations, candidate_counts=None: applied.append(recommendations),
+    )
 
     widget._on_refinement_finished(
         RefinementResult(image_id=5, generation=3, recommendations={"flower": _rec("flower")})
@@ -95,7 +99,11 @@ def test_finished_discards_on_image_mismatch(qtbot, monkeypatch) -> None:
     widget.current_image_id = 5
     widget._refinement_generation = 3
     applied: list[dict] = []
-    monkeypatch.setattr(widget.annotation_display, "apply_refinements", applied.append)
+    monkeypatch.setattr(
+        widget.annotation_display,
+        "apply_refinements",
+        lambda recommendations, candidate_counts=None: applied.append(recommendations),
+    )
 
     widget._on_refinement_finished(
         RefinementResult(image_id=9, generation=3, recommendations={"flower": _rec("flower")})
@@ -110,7 +118,11 @@ def test_finished_discards_stale_generation(qtbot, monkeypatch) -> None:
     widget.current_image_id = 5
     widget._refinement_generation = 4  # 現行世代
     applied: list[dict] = []
-    monkeypatch.setattr(widget.annotation_display, "apply_refinements", applied.append)
+    monkeypatch.setattr(
+        widget.annotation_display,
+        "apply_refinements",
+        lambda recommendations, candidate_counts=None: applied.append(recommendations),
+    )
 
     # 古い世代 (2) の結果 — image_id は一致するが世代が古い
     widget._on_refinement_finished(

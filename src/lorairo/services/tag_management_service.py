@@ -388,6 +388,44 @@ class TagManagementService:
                         bucket.append(value)
         return merged if found_exact else None
 
+    def resolve_usage_counts_for_tags(
+        self, tags: "Iterable[str]", *, repo: object | None = None
+    ) -> dict[str, dict[str, int]]:
+        """タグ集合のサイト (format) 別使用カウントを 1 回の batch で解決する (#1052)。
+
+        refinement 候補タグ (表示中タグとは別 canonical) の counts 併記用。
+        per-tag ループの N+1 は禁止 (#998)。取得失敗は空 dict (名前のみ表示) に落とす。
+
+        Returns:
+            ``{タグ: {format_name: usage_count}}``。count が 0 の format は含めない。
+        """
+        unique = list(dict.fromkeys(tag for tag in tags if tag))
+        if not unique:
+            return {}
+        reader = cast("TagReaderProtocol", repo) if repo is not None else self.reader
+        try:
+            batch = search_tags_batch(reader, unique, format_names=None, resolve_preferred=False)
+        except (SQLAlchemyError, ValueError, RuntimeError) as e:
+            logger.warning(f"候補タグの使用カウント解決に失敗 (名前のみ表示): {e}")
+            return {}
+        counts: dict[str, dict[str, int]] = {}
+        for query, result in batch.items():
+            query_key = query.casefold()
+            for item in result.items:
+                if (item.tag or "").casefold() != query_key and (
+                    item.source_tag or ""
+                ).casefold() != query_key:
+                    continue
+                per_format = {
+                    format_name: int(status.get("usage_count") or 0)
+                    for format_name, status in (item.format_statuses or {}).items()
+                    if status and int(status.get("usage_count") or 0) > 0
+                }
+                if per_format:
+                    counts[query] = per_format
+                break
+        return counts
+
     def prefetch_translations(self, tags: Iterable[str], *, repo: object | None = None) -> None:
         """タグ集合の完全一致翻訳を 1〜0 リポ往復で一括取得しキャッシュする (#998)。
 

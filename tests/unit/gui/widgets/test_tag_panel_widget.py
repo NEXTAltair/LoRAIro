@@ -1089,6 +1089,83 @@ def test_set_tags_image_change_without_types_resets_type_map(panel):
     assert [c.canonical for c in panel._tag_chips] == ["hatsune miku", "zzz tag"]
 
 
+# #1052: refinement 候補にサイト別使用カウント併記 ----------------------------
+
+
+def test_format_count_short():
+    from lorairo.gui.widgets.tag_panel_widget import _format_count_short
+
+    assert _format_count_short(1_200_000) == "1.2M"
+    assert _format_count_short(1_000_000) == "1M"
+    assert _format_count_short(800_000) == "800k"
+    assert _format_count_short(1_500) == "1.5k"
+    assert _format_count_short(300) == "300"
+
+
+def test_format_candidate_label_with_and_without_counts():
+    from lorairo.gui.widgets.tag_panel_widget import _format_candidate_label
+
+    # counts は大きい順で併記
+    assert (
+        _format_candidate_label("cat", {"e621": 800_000, "danbooru": 1_200_000})
+        == "cat (danbooru 1.2M / e621 800k)"
+    )
+    # 取得できない候補は名前のみ (欠損で表示を壊さない)
+    assert _format_candidate_label("feline", None) == "feline"
+    assert _format_candidate_label("feline", {}) == "feline"
+
+
+def _make_refinement(canonical: str, candidates: list[str]):
+    from genai_tag_db_tools.models import (
+        RefinementReason,
+        RefinementRecommendation,
+        RefinementSuggestion,
+    )
+
+    return RefinementRecommendation(
+        source_tag=canonical,
+        normalized_tag=canonical,
+        needs_refinement=True,
+        score=0.9,
+        reasons=[RefinementReason(code="alias_tag", message="alias です")],
+        suggestions=[RefinementSuggestion(kind="correction_candidate", tag=tag) for tag in candidates],
+    )
+
+
+def test_refinement_tooltip_includes_candidate_counts(panel, sample_tags):
+    """#1052: ⚠ ツールチップの「提案:」行に候補の使用カウントを併記する。"""
+    panel.set_tags(sample_tags, image_id=10)
+    rec = _make_refinement("1girl", ["cat", "feline"])
+
+    panel.apply_refinements(
+        {"1girl": rec},
+        candidate_counts={"cat": {"danbooru": 1_200_000, "e621": 800_000}},
+    )
+
+    chip = next(c for c in panel._tag_chips if c.canonical == "1girl")
+    tooltip = chip.toolTip()
+    assert "提案: cat (danbooru 1.2M / e621 800k), feline" in tooltip
+
+
+def test_refinement_menu_label_includes_counts_but_emits_raw_tag(panel, sample_tags, qtbot):
+    """#1052: 置換メニューのラベルに counts を併記しつつ、emit 値は raw タグのまま。"""
+    panel.set_tag_edit_enabled(True)
+    panel.set_tags(sample_tags, image_id=10)
+    rec = _make_refinement("1girl", ["cat"])
+    panel.apply_refinements({"1girl": rec}, candidate_counts={"cat": {"danbooru": 500}})
+
+    chip = next(c for c in panel._tag_chips if c.canonical == "1girl")
+    # メニューを実表示せずラベル整形だけ検証する
+    assert chip.replacement_candidates() == ["cat"]
+    from lorairo.gui.widgets.tag_panel_widget import _format_candidate_label
+
+    assert _format_candidate_label("cat", chip._candidate_counts.get("cat")) == "cat (danbooru 500)"
+
+    with qtbot.waitSignal(chip.refinement_apply_requested, timeout=1000) as blocker:
+        chip.refinement_apply_requested.emit("1girl", "cat")
+    assert blocker.args == ["1girl", "cat"]
+
+
 # #1050: 翻訳登録ダイアログの言語選択は固定ドロップダウン --------------------
 
 

@@ -227,9 +227,13 @@ class AnnotationDataDisplayWidget(QWidget, Ui_AnnotationDataDisplayWidget):
         """worker で解決した翻訳/使用頻度/type を反映する (TagPanelWidget へ委譲、#1046)。"""
         self._tag_panel.apply_tag_metadata(translations, usage_counts, tag_types)
 
-    def apply_refinements(self, recommendations: dict[str, RefinementRecommendation]) -> None:
+    def apply_refinements(
+        self,
+        recommendations: dict[str, RefinementRecommendation],
+        candidate_counts: dict[str, dict[str, int]] | None = None,
+    ) -> None:
         """各タグ chip に refinement リコメンドを反映する (TagPanelWidget へ委譲、#931)。"""
-        self._tag_panel.apply_refinements(recommendations)
+        self._tag_panel.apply_refinements(recommendations, candidate_counts=candidate_counts)
 
     def displayed_tags_text(self) -> str:
         """現在の言語選択で表示されているタグ文字列を返す (TagPanelWidget へ委譲)。"""

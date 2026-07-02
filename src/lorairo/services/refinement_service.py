@@ -28,6 +28,10 @@ RecommendFn = Callable[..., RefinementRecommendation]
 # N 回呼ぶ N+1 を解消する (#998)。未注入 (None) なら prefetch を行わず従来の per-tag fallback。
 PrefetchFn = Callable[..., None]
 
+# 候補タグ集合のサイト別使用カウントを一括解決する callable のシグネチャ `(tags, *, repo)`。
+# 本番では TagManagementService.resolve_usage_counts_for_tags を注入する (#1052)。
+CandidateCountsFn = Callable[..., dict[str, dict[str, int]]]
+
 
 class RefinementIgnoreStore(Protocol):
     """ignore 永続化の最小インターフェイス (Repository / fake 双方を受ける)。"""
@@ -47,6 +51,7 @@ class RefinementService:
         recommend_fn: RecommendFn,
         ignore_repo: RefinementIgnoreStore,
         prefetch_fn: PrefetchFn | None = None,
+        candidate_counts_fn: CandidateCountsFn | None = None,
     ) -> None:
         """RefinementService を初期化する。
 
@@ -61,8 +66,35 @@ class RefinementService:
         self._recommend_fn = recommend_fn
         self._ignore_repo = ignore_repo
         self._prefetch_fn = prefetch_fn
+        self._candidate_counts_fn = candidate_counts_fn
         # キー = (tag, format_name, reader 識別子)。reader 違いで結果が変わるため含める。
         self._cache: dict[tuple[str, str, int], RefinementRecommendation] = {}
+
+    def resolve_candidate_counts(
+        self,
+        recommendations: Mapping[str, RefinementRecommendation],
+        *,
+        repo: object | None = None,
+    ) -> dict[str, dict[str, int]]:
+        """リコメンド中の候補タグ全件のサイト別使用カウントを一括解決する (#1052)。
+
+        候補名の羅列だけでは選べないため、ツールチップ/置換メニューに counts を
+        併記する。評価時にまとめて解決し、表示のたびに DB を叩かない。
+
+        Returns:
+            ``{候補タグ: {format_name: usage_count}}``。fn 未注入なら空 dict。
+        """
+        if self._candidate_counts_fn is None:
+            return {}
+        candidates = [
+            suggestion.tag
+            for recommendation in recommendations.values()
+            for suggestion in recommendation.suggestions
+            if suggestion.tag
+        ]
+        if not candidates:
+            return {}
+        return self._candidate_counts_fn(candidates, repo=repo)
 
     def recommend_for_tags(
         self,

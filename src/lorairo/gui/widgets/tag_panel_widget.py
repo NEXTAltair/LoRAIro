@@ -93,6 +93,8 @@ class SelectableTagChip(QLabel):
         # refinement 表示状態 (#931)。set_refinement で更新する。
         self._base_text = display_text
         self._base_tooltip: str | None = None
+        # 候補タグ -> {format: count} (#1052、set_refinement で更新)
+        self._candidate_counts: dict[str, dict[str, int]] = {}
         self.refinement: RefinementRecommendation | None = None
         self.setCursor(Qt.CursorShape.PointingHandCursor)
         # Ctrl+C を chip フォーカス中に拾えるようクリックフォーカスを許可する。
@@ -107,7 +109,11 @@ class SelectableTagChip(QLabel):
                 self.clicked.emit()
         super().mousePressEvent(event)
 
-    def set_refinement(self, recommendation: RefinementRecommendation | None) -> None:
+    def set_refinement(
+        self,
+        recommendation: RefinementRecommendation | None,
+        candidate_counts: dict[str, dict[str, int]] | None = None,
+    ) -> None:
         """refinement リコメンドを反映する (#931)。
 
         needs_refinement かつ reason があれば ⚠ マーカーを表示テキストに前置し
@@ -116,15 +122,22 @@ class SelectableTagChip(QLabel):
 
         Args:
             recommendation: 当該タグのリコメンド。無ければ None。
+            candidate_counts: 候補タグのサイト別使用カウント (#1052)。評価時に
+                一括解決済みの値で、表示のたびに DB は叩かない。
         """
         # 初回呼び出し時に元ツールチップ (翻訳脚注等) を退避する。
         if self._base_tooltip is None:
             self._base_tooltip = self.toolTip()
         self.refinement = recommendation
+        self._candidate_counts = dict(candidate_counts) if candidate_counts else {}
         if recommendation is not None and recommendation.needs_refinement and recommendation.reasons:
             self.setText(f"⚠ {self._base_text}")
             lines = [r.message for r in recommendation.reasons]
-            suggestions = [s.tag for s in recommendation.suggestions if s.tag]
+            suggestions = [
+                _format_candidate_label(s.tag, self._candidate_counts.get(s.tag))
+                for s in recommendation.suggestions
+                if s.tag
+            ]
             if suggestions:
                 lines.append("提案: " + ", ".join(suggestions))
             self.setToolTip("\n".join(lines))
@@ -185,7 +198,8 @@ class SelectableTagChip(QLabel):
         if apply_candidates or has_ignore:
             menu.addSeparator()
         for to_tag in apply_candidates:
-            apply_action = menu.addAction(f"修正候補を適用: {to_tag}")
+            candidate_label = _format_candidate_label(to_tag, self._candidate_counts.get(to_tag))
+            apply_action = menu.addAction(f"修正候補を適用: {candidate_label}")
             apply_action.triggered.connect(
                 lambda _checked=False, tag=to_tag: self.refinement_apply_requested.emit(self.canonical, tag)
             )
@@ -199,6 +213,32 @@ class SelectableTagChip(QLabel):
                 )
         menu.exec(event.globalPos())
         event.accept()
+
+
+def _format_count_short(count: int) -> str:
+    """使用カウントを 1.2M / 800k 形式に略記する (#1052)。"""
+    if count >= 1_000_000:
+        text = f"{count / 1_000_000:.1f}M"
+        return text.replace(".0M", "M")
+    if count >= 1_000:
+        text = f"{count / 1_000:.1f}k"
+        return text.replace(".0k", "k")
+    return str(count)
+
+
+def _format_candidate_label(tag: str, counts: dict[str, int] | None) -> str:
+    """候補タグの表示ラベルを作る (#1052)。
+
+    counts があれば「tag (danbooru 1.2M / e621 800k)」形式で併記し、実際に使われて
+    いる表記がどれか一目で分かるようにする。無い候補は名前のみ (欠損で表示を壊さない)。
+    """
+    if not counts:
+        return tag
+    parts = " / ".join(
+        f"{format_name} {_format_count_short(count)}"
+        for format_name, count in sorted(counts.items(), key=lambda kv: -kv[1])
+    )
+    return f"{tag} ({parts})"
 
 
 # tagdb の言語キーは "japanese"/"ja"、"english"/"en" が混在する (#976 PR #991)。
@@ -477,6 +517,8 @@ class TagPanelWidget(QWidget):
         # 描画中の chip 群と refinement 保持 (#931: chip 再生成をまたいで ⚠ を復元)
         self._tag_chips: list[SelectableTagChip] = []
         self._last_refinements: dict[str, RefinementRecommendation] = {}
+        # 候補タグ -> {format: count} (#1052、apply_refinements で更新)
+        self._last_candidate_counts: dict[str, dict[str, int]] = {}
 
         self._setup_ui()
 
@@ -678,6 +720,7 @@ class TagPanelWidget(QWidget):
             self._hidden = set()
             self._rejected_tags = []
             self._last_refinements = {}
+            self._last_candidate_counts = {}
             self._selected_canonicals = set()
         self._rebuild_counts_by_canonical()
         self._refresh_metric_selector()
@@ -814,7 +857,11 @@ class TagPanelWidget(QWidget):
         self._populate_table(self._all_tag_rows)
         self._refresh_tags_for_language(self._current_language())
 
-    def apply_refinements(self, recommendations: dict[str, RefinementRecommendation]) -> None:
+    def apply_refinements(
+        self,
+        recommendations: dict[str, RefinementRecommendation],
+        candidate_counts: dict[str, dict[str, int]] | None = None,
+    ) -> None:
         """各タグ chip に refinement リコメンドを反映する (#931)。
 
         chip の canonical をキーにマップを引き、該当があれば ⚠ + ツールチップを表示、
@@ -825,6 +872,7 @@ class TagPanelWidget(QWidget):
             recommendations: ``{canonical タグ: RefinementRecommendation}``。
         """
         self._last_refinements = dict(recommendations)
+        self._last_candidate_counts = dict(candidate_counts) if candidate_counts else {}
         self._apply_refinements_to_chips()
 
     def displayed_tags_text(self) -> str:
@@ -873,6 +921,7 @@ class TagPanelWidget(QWidget):
         self._hidden = set()
         self._rejected_tags = []
         self._last_refinements = {}
+        self._last_candidate_counts = {}
         self._usage_counts = {}
         self._counts_by_canonical = {}
         self._selected_canonicals = set()
@@ -1432,7 +1481,7 @@ class TagPanelWidget(QWidget):
         applied = 0
         for chip in self._tag_chips:
             rec = self._last_refinements.get(chip.canonical)
-            chip.set_refinement(rec)
+            chip.set_refinement(rec, candidate_counts=self._last_candidate_counts)
             if rec is not None:
                 applied += 1
         logger.debug(f"refinement 反映: chip={len(self._tag_chips)}, 印付き={applied}")
