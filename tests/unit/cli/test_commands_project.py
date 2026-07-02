@@ -75,35 +75,43 @@ def test_project_list_empty(mock_projects_dir: Path) -> None:
 
 @pytest.mark.unit
 @pytest.mark.cli
-def test_project_list_json_format(mock_projects_dir: Path) -> None:
-    """Test: project list --format json - JSON出力フォーマット。"""
+def test_project_list_table_output(mock_projects_dir: Path) -> None:
+    """Test: project list - デフォルト（人間向けテーブル）出力。"""
     # プロジェクト作成
-    runner.invoke(app, ["project", "create", "json-test"])
+    runner.invoke(app, ["project", "create", "table-test"])
 
-    # JSON形式で一覧取得
-    result = runner.invoke(app, ["project", "list", "--format", "json"])
+    # デフォルト形式で一覧取得
+    result = runner.invoke(app, ["project", "list"])
 
     assert result.exit_code == 0
-
-    # JSON パースが成功することを確認
-    try:
-        data = json.loads(result.stdout)
-        assert isinstance(data, list)
-    except json.JSONDecodeError:
-        pytest.fail(f"Output is not valid JSON: {result.stdout}")
 
 
 @pytest.mark.unit
 @pytest.mark.cli
-def test_project_list_table_format(mock_projects_dir: Path) -> None:
-    """Test: project list --format table - テーブル出力（デフォルト）。"""
-    # プロジェクト作成
-    runner.invoke(app, ["project", "create", "table-test"])
+def test_project_list_format_table_still_supported(mock_projects_dir: Path) -> None:
+    """Test: project list --format table - 人間向け既定として維持される (ADR 0058)。"""
+    runner.invoke(app, ["project", "create", "table-flag-test"])
 
-    # テーブル形式で一覧取得
     result = runner.invoke(app, ["project", "list", "--format", "table"])
 
     assert result.exit_code == 0
+    assert "table-flag-test" in result.stdout
+
+
+@pytest.mark.unit
+@pytest.mark.cli
+def test_project_list_format_json_deprecated(mock_projects_dir: Path) -> None:
+    """Test: project list --format json - 非推奨だがクラッシュせず案内する (ADR 0058)。
+
+    legacy pretty 配列は撤去済みで、機械可読出力は global --json (JSONL) が SSoT。
+    """
+    runner.invoke(app, ["project", "create", "json-deprecated-test"])
+
+    result = runner.invoke(app, ["project", "list", "--format", "json"])
+
+    assert result.exit_code == 0
+    # 非推奨案内が出て、人間向け table にフォールバックする
+    assert "非推奨" in result.stdout
 
 
 @pytest.mark.unit
@@ -286,7 +294,7 @@ def test_project_list_directory_structure(mock_projects_dir: Path) -> None:
 @pytest.mark.unit
 @pytest.mark.cli
 def test_project_list_json_structure(mock_projects_dir: Path) -> None:
-    """Test: project list --format json - JSON形式での複数プロジェクト。"""
+    """Test: --json project list - JSONL item に name/created/path キーが含まれる。"""
     # プロジェクトディレクトリを直接作成
     for i in range(1, 3):
         proj_dir = mock_projects_dir / f"json{i}_20260216_063000"
@@ -297,14 +305,16 @@ def test_project_list_json_structure(mock_projects_dir: Path) -> None:
         (proj_dir / "image_dataset").mkdir()
         (proj_dir / "image_database.db").touch()
 
-    # JSON形式で一覧取得
-    result = runner.invoke(app, ["project", "list", "--format", "json"])
+    # グローバル --json (JSONL) で一覧取得
+    result = runner.invoke(app, ["--json", "project", "list"])
     assert result.exit_code == 0
 
-    # JSON キーが含まれているか確認（形式検証）
-    assert '"name"' in result.stdout
-    assert '"created"' in result.stdout
-    assert '"path"' in result.stdout
+    items = [line for line in _json_lines(result.stdout) if line.get("kind") == "item"]
+    assert len(items) == 2
+    for item in items:
+        assert "name" in item
+        assert "created" in item
+        assert "path" in item
 
 
 @pytest.mark.unit
@@ -346,16 +356,6 @@ def test_project_create_no_arguments() -> None:
 
     # 引数なしの場合は exit code 2（ユーザーエラー）
     assert result.exit_code == 2
-
-
-@pytest.mark.unit
-@pytest.mark.cli
-def test_project_list_format_invalid(mock_projects_dir: Path) -> None:
-    """Test: project list --format invalid - 無効なフォーマット。"""
-    result = runner.invoke(app, ["project", "list", "--format", "yaml"])
-
-    # Invalid format は table または json のみ
-    assert result.exit_code == 0 or result.exit_code == 2
 
 
 # ===== 機械可読 (--json) モード (ADR 0057/0058) =====

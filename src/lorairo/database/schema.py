@@ -159,7 +159,11 @@ class Model(Base):
 
     @property
     def capabilities(self) -> list[str]:
-        """機能リスト取得（model_types互換性プロパティ）"""
+        """モデルの機能名リストを ``model_types`` リレーションから導出して返す。
+
+        annotator_adapter / model_selection_widget / model_checkbox_widget など
+        複数サービスから現役で参照される機能プロパティ。
+        """
         return [model_type.name for model_type in self.model_types]
 
 

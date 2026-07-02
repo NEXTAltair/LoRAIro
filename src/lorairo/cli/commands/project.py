@@ -8,8 +8,6 @@ API層（lorairo.public_api）を経由してService層を利用する。
 に集約し、本モジュールは型付き例外を伝播するだけにする。
 """
 
-import json
-
 import click
 import typer
 from rich.table import Table
@@ -63,10 +61,15 @@ def list_projects(
         "table",
         "--format",
         "-f",
-        help="Output format: table/json (legacy; prefer global --json).",
+        help="Human-readable format (table)。機械可読出力はグローバル --json を使う (ADR 0057/0058)。",
     ),
 ) -> None:
-    """List all projects."""
+    """List all projects.
+
+    人間向けは rich テーブル (``--format table``、既定)。機械可読出力は
+    グローバル ``--json`` フラグで JSONL (item/result) を取得する (ADR 0057/0058)。
+    legacy な ``--format json`` (pretty 配列) は非推奨 (ADR 0058)。
+    """
     with command_boundary():
         projects = api_list_projects()
 
@@ -83,17 +86,11 @@ def list_projects(
             return
 
         if format == "json":
-            # legacy: ``project list --format json`` (global --json への移行を推奨)
-            projects_data = [
-                {
-                    "name": p.name,
-                    "created": p.created.strftime("%Y%m%d_%H%M%S") if p.created else "",
-                    "path": str(p.path),
-                }
-                for p in projects
-            ]
-            console.print(json.dumps(projects_data, indent=2, ensure_ascii=False), soft_wrap=True)
-            return
+            # ADR 0058: legacy `--format json` (pretty 配列) は非推奨。機械可読出力の
+            # SSoT はグローバル `--json` (JSONL) に一本化済みのため、案内して table を出す。
+            console.print(
+                "[yellow]--format json は非推奨です。機械可読出力はグローバル --json を使ってください。[/yellow]"
+            )
 
         if not projects:
             console.print("[yellow]No projects found[/yellow]")
