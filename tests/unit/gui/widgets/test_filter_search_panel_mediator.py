@@ -425,3 +425,90 @@ class TestPlaceholderReplacement:
 
         assert panel.findChild(QWidget, "dateGroup").title() == "登録日"
         assert panel.ui.checkboxDateFilter.text() == "登録日で絞り込む"
+
+
+class TestFavoriteConditionsRoundtrip:
+    """#1060: お気に入りフィルター条件の保存/復元スキーマ往復一致テスト。
+
+    旧実装は保存キーと復元キーが完全不一致 (一致 0 個) で復元が silent no-op
+    だった。save -> clear -> apply -> get で同値になることを固定する。
+    """
+
+    def _set_representative_state(self, panel: FilterSearchPanel) -> None:
+        """UI に代表的な検索条件を設定する。"""
+        panel.ui.lineEditSearch.setText("1girl, -text")
+        panel.ui.checkboxTags.setChecked(True)
+        panel.ui.checkboxCaption.setChecked(True)
+        panel.ui.radioOr.setChecked(True)
+        if panel.ui.comboResolution.count() > 1:
+            panel.ui.comboResolution.setCurrentIndex(1)
+        if panel.ui.comboAspectRatio.count() > 1:
+            panel.ui.comboAspectRatio.setCurrentIndex(1)
+        panel.ui.checkboxDateFilter.setChecked(True)
+        panel.ui.checkboxOnlyUntagged.setChecked(True)
+        panel.ui.checkboxOnlyUncaptioned.setChecked(True)
+        panel.ui.checkboxExcludeDuplicates.setChecked(True)
+        panel.ui.checkboxIncludeUnrated.setChecked(True)
+        panel._rating_chips.set_value("PG")
+        panel._rating_chips.set_value("R")
+        panel._ai_rating_chips.set_value("X")
+        panel._rating_combine_toggle.set_value("or")
+        panel.score_range_slider.slider.setValue((200, 800))
+
+    def test_save_clear_apply_roundtrip(self, panel):
+        """save -> clear -> apply -> get で条件が往復一致する。"""
+        self._set_representative_state(panel)
+
+        saved = panel.get_current_conditions()
+        assert saved["version"] == FilterSearchPanel.CONDITIONS_SCHEMA_VERSION
+
+        panel._clear_all_inputs()
+        # クリアで実際に状態が変わっている (前提確認)
+        assert panel.get_current_conditions() != saved
+
+        panel.apply_conditions(saved)
+        restored = panel.get_current_conditions()
+
+        assert restored == saved
+
+    def test_save_works_without_search_execution(self, panel):
+        """検索を一度も実行していなくても UI の現在状態が保存できる。"""
+        panel.ui.lineEditSearch.setText("solo")
+
+        saved = panel.get_current_conditions()
+
+        assert saved["search_text"] == "solo"
+        # 旧実装は service の「最後に実行した検索」を参照し未検索では {} を返していた
+        assert saved != {}
+
+    def test_apply_legacy_conditions_best_effort(self, panel):
+        """version キー無しの旧形式 (search_type/keywords 系) を best-effort 復元する。"""
+        legacy = {
+            "search_type": "tags",
+            "keywords": ["1girl", "solo"],
+            "excluded_keywords": ["text"],
+            "tag_logic": "or",
+            "resolution_filter": None,
+            "aspect_ratio_filter": None,
+            "date_filter_enabled": False,
+            "date_range_start": None,
+            "date_range_end": None,
+            "only_untagged": True,
+            "only_uncaptioned": False,
+            "exclude_duplicates": False,
+        }
+
+        panel.apply_conditions(legacy)
+
+        assert panel.ui.lineEditSearch.text() == "1girl, solo, -text"
+        assert panel.ui.checkboxTags.isChecked() is True
+        assert panel.ui.radioOr.isChecked() is True
+        assert panel.ui.checkboxOnlyUntagged.isChecked() is True
+
+    def test_apply_empty_conditions_is_noop(self, panel):
+        """空辞書の適用は警告のみで UI を変更しない。"""
+        panel.ui.lineEditSearch.setText("keep me")
+
+        panel.apply_conditions({})
+
+        assert panel.ui.lineEditSearch.text() == "keep me"
