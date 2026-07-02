@@ -7,8 +7,8 @@ from PySide6.QtWidgets import QApplication, QTableWidgetSelectionRange
 from lorairo.gui.widgets.annotation_data_display_widget import (
     AnnotationData,
     AnnotationDataDisplayWidget,
-    SelectableTagChip,
 )
+from lorairo.gui.widgets.tag_panel_widget import SelectableTagChip
 
 
 class TestAnnotationDataDisplayWidget:

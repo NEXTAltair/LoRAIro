@@ -139,8 +139,8 @@ class TestGetImagesByFilterScoreIntegration:
 class TestSearchConditionsIntegration:
     """SearchConditions データモデルのスコアフィルタ統合テスト"""
 
-    def test_search_conditions_to_db_filter_args_includes_score(self):
-        """SearchConditions.to_db_filter_args() が score_min/score_max を含むことを確認"""
+    def test_search_conditions_to_filter_criteria_includes_score(self):
+        """SearchConditions.to_filter_criteria() が score_min/score_max を含むことを確認"""
         from lorairo.services.search_models import SearchConditions
 
         conditions = SearchConditions(
@@ -151,12 +151,10 @@ class TestSearchConditionsIntegration:
             score_max=7.5,
         )
 
-        db_args = conditions.to_db_filter_args()
+        criteria = conditions.to_filter_criteria()
 
-        assert "score_min" in db_args
-        assert db_args["score_min"] == 3.0
-        assert "score_max" in db_args
-        assert db_args["score_max"] == 7.5
+        assert criteria.score_min == 3.0
+        assert criteria.score_max == 7.5
 
 
 class TestSearchFilterServiceIntegration:
@@ -244,8 +242,8 @@ class TestSearchFilterServiceEstimatedCount:
 class TestSearchConditionsExcludedTags:
     """SearchConditions の除外タグ機能テスト"""
 
-    def test_search_conditions_to_db_filter_args_includes_excluded_tags(self):
-        """SearchConditions.to_db_filter_args() が excluded_tags を含むことを確認"""
+    def test_search_conditions_to_filter_criteria_includes_excluded_tags(self):
+        """SearchConditions.to_filter_criteria() が excluded_tags を含むことを確認"""
         from lorairo.services.search_models import SearchConditions
 
         conditions = SearchConditions(
@@ -255,9 +253,9 @@ class TestSearchConditionsExcludedTags:
             excluded_keywords=["1boy"],
         )
 
-        db_args = conditions.to_db_filter_args()
+        criteria = conditions.to_filter_criteria()
 
-        assert db_args["excluded_tags"] == ["1boy"]
+        assert criteria.excluded_tags == ["1boy"]
 
 
 class TestApplyTagFilterExcludeIntegration:

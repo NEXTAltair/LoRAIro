@@ -55,8 +55,8 @@ class TestSearchCriteriaProcessor:
         assert criteria.tags == ["test", "tag"]
         assert criteria.use_and is True
 
-    def test_search_conditions_to_db_filter_args(self, processor):
-        """SearchConditions.to_db_filter_args() のテスト"""
+    def test_search_conditions_to_filter_criteria(self, processor):
+        """SearchConditions.to_filter_criteria() のテスト"""
         conditions = SearchConditions(
             search_type="tags",
             keywords=["tag1", "tag2"],
@@ -65,16 +65,16 @@ class TestSearchCriteriaProcessor:
             only_untagged=False,
         )
 
-        db_args = conditions.to_db_filter_args()
+        criteria = conditions.to_filter_criteria()
 
-        # DB引数の確認
-        assert db_args["tags"] == ["tag1", "tag2"]
-        assert db_args["caption"] is None
-        assert db_args["resolution"] == 1024  # max(1024, 1024)
-        assert db_args["use_and"] is True
-        assert db_args["include_untagged"] is False
-        assert db_args["start_date"] is None
-        assert db_args["end_date"] is None
+        # criteria 属性の確認
+        assert criteria.tags == ["tag1", "tag2"]
+        assert criteria.caption is None
+        assert criteria.resolution == 1024  # max(1024, 1024)
+        assert criteria.use_and is True
+        assert criteria.include_untagged is False
+        assert criteria.start_date is None
+        assert criteria.end_date is None
 
     def test_process_date_filter_with_dates(self, processor):
         """日付フィルター処理テスト"""

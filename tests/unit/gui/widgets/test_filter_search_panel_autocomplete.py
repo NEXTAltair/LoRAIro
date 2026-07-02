@@ -69,19 +69,19 @@ class TestTagSuggestionServiceInjection:
 
     def test_initial_service_is_none(self, panel):
         """初期状態で tag_suggestion_service は None。"""
-        assert panel.tag_suggestion_service is None
+        assert panel._tag_suggestion.tag_suggestion_service is None
 
     def test_set_tag_suggestion_service(self, panel):
         """set_tag_suggestion_service でサービスが設定される。"""
         mock_service = MagicMock()
         panel.set_tag_suggestion_service(mock_service)
 
-        assert panel.tag_suggestion_service is mock_service
+        assert panel._tag_suggestion.tag_suggestion_service is mock_service
 
     def test_set_tag_suggestion_service_none(self, panel):
         """None を設定しても問題ない。"""
         panel.set_tag_suggestion_service(None)
-        assert panel.tag_suggestion_service is None
+        assert panel._tag_suggestion.tag_suggestion_service is None
 
 
 class TestCompleterSetup:
@@ -106,24 +106,24 @@ class TestClearTagSuggestions:
 
     def test_clears_model_string_list(self, panel):
         """_clear_tag_suggestions 呼び出しでモデルのリストが空になる。"""
-        panel._tag_completer_model.setStringList(["1girl", "solo"])
+        panel._tag_suggestion._tag_completer_model.setStringList(["1girl", "solo"])
         panel._clear_tag_suggestions()
 
-        assert panel._tag_completer_model.stringList() == []
+        assert panel._tag_suggestion._tag_completer_model.stringList() == []
 
     def test_stops_timer(self, panel):
         """_clear_tag_suggestions でデバウンスタイマーが停止する。"""
-        panel._tag_suggestion_timer.start(5000)
-        assert panel._tag_suggestion_timer.isActive()
+        panel._tag_suggestion._tag_suggestion_timer.start(5000)
+        assert panel._tag_suggestion._tag_suggestion_timer.isActive()
 
         panel._clear_tag_suggestions()
-        assert not panel._tag_suggestion_timer.isActive()
+        assert not panel._tag_suggestion._tag_suggestion_timer.isActive()
 
     def test_clears_pending_token(self, panel):
         """_clear_tag_suggestions で保留中トークンがクリアされる。"""
-        panel._pending_tag_token = "blue"
+        panel._tag_suggestion._pending_tag_token = "blue"
         panel._clear_tag_suggestions()
-        assert panel._pending_tag_token is None
+        assert panel._tag_suggestion._pending_tag_token is None
 
 
 class TestCacheFirstAutocomplete:
@@ -140,8 +140,8 @@ class TestCacheFirstAutocomplete:
 
         panel._on_search_text_edited("bl")
 
-        assert panel._tag_completer_model.stringList() == ["blue_hair", "blush"]
-        assert not panel._tag_suggestion_timer.isActive()
+        assert panel._tag_suggestion._tag_completer_model.stringList() == ["blue_hair", "blush"]
+        assert not panel._tag_suggestion._tag_suggestion_timer.isActive()
 
     def test_timer_starts_on_cache_miss(self, panel):
         """キャッシュミス時はデバウンスタイマーが起動する。"""
@@ -154,7 +154,7 @@ class TestCacheFirstAutocomplete:
 
         panel._on_search_text_edited("bl")
 
-        assert panel._tag_suggestion_timer.isActive()
+        assert panel._tag_suggestion._tag_suggestion_timer.isActive()
 
 
 class _FakeAsyncSuggestionService:
@@ -184,8 +184,10 @@ class TestAsyncTagLookup:
         )
 
         panel._update_tag_completions()
-        qtbot.waitUntil(lambda: panel._tag_completer_model.stringList() == ["blue_hair"], timeout=2000)
-        assert not panel._tag_lookup_in_flight
+        qtbot.waitUntil(
+            lambda: panel._tag_suggestion._tag_completer_model.stringList() == ["blue_hair"], timeout=2000
+        )
+        assert not panel._tag_suggestion._tag_lookup_in_flight
 
     def test_queues_pending_while_in_flight(self, panel):
         """検索中に新しいリクエストが来ると保留される。"""
@@ -193,12 +195,12 @@ class TestAsyncTagLookup:
         mock_service.min_chars = 2
         mock_service.get_cached_suggestions.return_value = None
         panel.set_tag_suggestion_service(mock_service)
-        panel._tag_lookup_in_flight = True
+        panel._tag_suggestion._tag_lookup_in_flight = True
         panel.ui.lineEditSearch.setText("blue")
 
         panel._update_tag_completions()
 
-        assert panel._pending_tag_token == "blue"
+        assert panel._tag_suggestion._pending_tag_token == "blue"
 
 
 class TestWidgetCloseCleanup:
@@ -206,10 +208,10 @@ class TestWidgetCloseCleanup:
 
     def test_close_event_stops_timer_and_clears_pending(self, panel):
         """close時にタイマー停止と保留トークンクリアが行われる。"""
-        panel._pending_tag_token = "blue"
-        panel._tag_suggestion_timer.start(5000)
+        panel._tag_suggestion._pending_tag_token = "blue"
+        panel._tag_suggestion._tag_suggestion_timer.start(5000)
 
         panel.close()
 
-        assert panel._pending_tag_token is None
-        assert not panel._tag_suggestion_timer.isActive()
+        assert panel._tag_suggestion._pending_tag_token is None
+        assert not panel._tag_suggestion._tag_suggestion_timer.isActive()

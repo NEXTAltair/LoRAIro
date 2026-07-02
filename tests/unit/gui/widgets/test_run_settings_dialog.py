@@ -4,10 +4,10 @@ from __future__ import annotations
 
 import pytest
 
+from lorairo.gui.widgets.ds_segmented_control import DsSegmentedControl
 from lorairo.gui.widgets.run_settings_dialog import (
     RunOptions,
     RunSettingsDialog,
-    SegmentedControl,
 )
 
 pytestmark = [pytest.mark.unit, pytest.mark.gui]
@@ -22,14 +22,14 @@ def dialog(qtbot):
 
 class TestSegmentedControl:
     def test_initial_value_is_selected(self, qtbot):
-        sc = SegmentedControl([("a", "A"), ("b", "B")], value="b")
+        sc = DsSegmentedControl([("a", "A"), ("b", "B")], value="b")
         qtbot.addWidget(sc)
         assert sc.value() == "b"
         assert sc._buttons["b"].isChecked()
         assert not sc._buttons["a"].isChecked()
 
     def test_click_changes_value(self, qtbot):
-        sc = SegmentedControl([("a", "A"), ("b", "B")], value="a")
+        sc = DsSegmentedControl([("a", "A"), ("b", "B")], value="a")
         qtbot.addWidget(sc)
         sc._buttons["b"].click()
         assert sc.value() == "b"

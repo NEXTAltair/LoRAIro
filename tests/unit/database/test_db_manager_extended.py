@@ -20,7 +20,6 @@
 - check_processed_image_exists: 存在する場合 (995)
 - check_image_has_annotation: 各パス (1117-1138)
 - get_annotated_image_ids: (1150)
-- execute_filtered_search: 各パス (1164-1173)
 """
 
 from pathlib import Path
@@ -1118,31 +1117,6 @@ class TestGetAnnotatedImageIds:
         result = manager.get_annotated_image_ids([1, 2, 3])
         assert result == {1, 3}
         mock_image_repo.get_annotated_image_ids.assert_called_once_with([1, 2, 3])
-
-
-# ---------------------------------------------------------------------------
-# execute_filtered_search
-# ---------------------------------------------------------------------------
-
-
-@pytest.mark.unit
-class TestExecuteFilteredSearch:
-    """execute_filtered_search メソッドのテスト"""
-
-    def test_returns_results_on_success(self, manager: ImageDatabaseManager, mock_image_repo: Mock) -> None:
-        """正常系では (images, total_count) を返す。"""
-        mock_image_repo.get_images_by_filter.return_value = ([{"id": 1}], 1)
-
-        result = manager.execute_filtered_search({})
-
-        assert result[1] == 1
-        assert len(result[0]) == 1
-
-    def test_raises_on_sqlalchemy_error(self, manager: ImageDatabaseManager) -> None:
-        """SQLAlchemyError は呼び出し元に伝播 (silent return しない)。"""
-        with patch.object(manager, "get_images_by_filter", side_effect=SQLAlchemyError("err")):
-            with pytest.raises(SQLAlchemyError):
-                manager.execute_filtered_search({})
 
 
 # ---------------------------------------------------------------------------

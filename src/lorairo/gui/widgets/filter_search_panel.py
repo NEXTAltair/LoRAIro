@@ -233,67 +233,6 @@ class FilterSearchPanel(QScrollArea):
         logger.debug("FilterSearchPanel initialized")
 
     # ============================================================
-    # ===  後方互換 properties (旧 instance 変数アクセスへの委譲)
-    # ============================================================
-
-    @property
-    def tag_suggestion_service(self) -> "TagSuggestionService | None":
-        """旧 API 互換: TagSuggestionWidget の保持する service。"""
-        return self._tag_suggestion.tag_suggestion_service
-
-    @tag_suggestion_service.setter
-    def tag_suggestion_service(self, value: "TagSuggestionService | None") -> None:
-        self._tag_suggestion.tag_suggestion_service = value
-
-    @property
-    def favorite_filters_service(self) -> Any:
-        """旧 API 互換: FavoriteFilterPanel の保持する service。"""
-        return self._favorite_filter.favorite_filters_service
-
-    @property
-    def _tag_completer_model(self) -> Any:
-        """旧 API 互換: TagSuggestionWidget の completer model。"""
-        return self._tag_suggestion._tag_completer_model
-
-    @property
-    def _tag_suggestion_timer(self) -> Any:
-        """旧 API 互換: TagSuggestionWidget のデバウンスタイマー。"""
-        return self._tag_suggestion._tag_suggestion_timer
-
-    @property
-    def _tag_lookup_in_flight(self) -> bool:
-        """旧 API 互換: TagSuggestionWidget の非同期検索進行中フラグ。"""
-        return self._tag_suggestion._tag_lookup_in_flight
-
-    @_tag_lookup_in_flight.setter
-    def _tag_lookup_in_flight(self, value: bool) -> None:
-        self._tag_suggestion._tag_lookup_in_flight = value
-
-    @property
-    def _pending_tag_token(self) -> str | None:
-        """旧 API 互換: TagSuggestionWidget の保留中トークン。"""
-        return self._tag_suggestion._pending_tag_token
-
-    @_pending_tag_token.setter
-    def _pending_tag_token(self, value: str | None) -> None:
-        self._tag_suggestion._pending_tag_token = value
-
-    @property
-    def favorite_filters_list(self) -> Any:
-        """旧 API 互換: FavoriteFilterPanel の QListWidget。"""
-        return self._favorite_filter.favorite_filters_list
-
-    @property
-    def favorite_filters_group(self) -> FavoriteFilterPanel:
-        """旧 API 互換: FavoriteFilterPanel の QGroupBox 自体。"""
-        return self._favorite_filter
-
-    @property
-    def _estimated_count_label(self) -> Any:
-        """旧 API 互換: CountEstimateWidget の label。"""
-        return self._count_estimate.label
-
-    # ============================================================
     # ===  UI セットアップ
     # ============================================================
 

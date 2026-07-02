@@ -36,13 +36,10 @@ from ...utils.log import logger
 from .. import theme
 from .tag_panel_widget import SelectableTagChip, TagPanelWidget
 
-# SelectableTagChip は ADR 0083 で tag_panel_widget へ移設した。後方互換のため本モジュール
-# からも再公開する (既存 import: `from ...annotation_data_display_widget import SelectableTagChip`)。
 __all__ = [
     "AnnotationData",
     "AnnotationDataDisplayWidget",
     "ImageDetails",
-    "SelectableTagChip",
 ]
 
 if TYPE_CHECKING:

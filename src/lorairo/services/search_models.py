@@ -90,18 +90,6 @@ class SearchConditions:
             include_annotations=False,
         )
 
-    def to_db_filter_args(self) -> dict[str, Any]:
-        """DB APIの引数に直接変換（非推奨: 後方互換性用）
-
-        Warning:
-            このメソッドは後方互換性のために残されています。
-            新しいコードでは to_filter_criteria() を使用してください。
-
-        Returns:
-            dict[str, Any]: フィルター条件の辞書
-        """
-        return self.to_filter_criteria().to_dict()
-
     def _resolve_resolution(self) -> int:
         """解像度条件を長辺値に変換"""
         if self.resolution_filter and "x" in self.resolution_filter:

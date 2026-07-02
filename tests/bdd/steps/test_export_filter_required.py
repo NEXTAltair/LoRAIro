@@ -1,6 +1,5 @@
 """export_with_criteria の BDD ステップ定義。"""
 
-import warnings
 from pathlib import Path
 from typing import Any
 from unittest.mock import Mock, patch
@@ -22,7 +21,7 @@ scenarios(str(_FEATURE_FILE))
 
 @pytest.fixture
 def export_context() -> dict[str, Any]:
-    return {"result_path": None, "warnings": [], "exception": None}
+    return {"result_path": None, "exception": None}
 
 
 @pytest.fixture
@@ -84,26 +83,6 @@ def when_call_with_criteria(
         export_context["exception"] = e
 
 
-@when("image_ids を指定して export_with_criteria を呼び出す")
-def when_call_with_image_ids(
-    export_service: DatasetExportService,
-    export_context: dict[str, Any],
-    tmp_path: Path,
-) -> None:
-    output = tmp_path / "export_out"
-    try:
-        with patch.object(export_service, "export_filtered_dataset", return_value=output):
-            with warnings.catch_warnings(record=True) as caught:
-                warnings.simplefilter("always")
-                export_context["result_path"] = export_service.export_with_criteria(
-                    output_path=output,
-                    image_ids=[1, 2],
-                )
-                export_context["warnings"] = list(caught)
-    except Exception as e:
-        export_context["exception"] = e
-
-
 @when("引数なしで export_with_criteria を呼び出す")
 def when_call_without_args(
     export_service: DatasetExportService,
@@ -129,12 +108,6 @@ def then_export_completes(export_context: dict[str, Any]) -> None:
 @then("db_manager.get_images_by_filter が呼ばれた")
 def then_db_filter_called(mock_db_manager: Mock) -> None:
     mock_db_manager.get_images_by_filter.assert_called_once()
-
-
-@then("DeprecationWarning が発生する")
-def then_deprecation_warning(export_context: dict[str, Any]) -> None:
-    caught = export_context.get("warnings", [])
-    assert any(issubclass(w.category, DeprecationWarning) for w in caught)
 
 
 @then("ValueError が発生する")
