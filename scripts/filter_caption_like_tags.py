@@ -1,4 +1,26 @@
-"""Find and optionally remove caption-like tags from image DB."""
+"""Find and optionally remove caption-like tags from image DB.
+
+タグとして登録されているが実質キャプション文 (冠詞・句読点・長文など) である
+レコードを画像 DB (`image_database.db`) の `tags` テーブルからヒューリスティック
+スコアで検出する、一次データクレンジング用の手動運用スクリプト。デフォルトは
+dry-run (件数表示のみ)。`--apply` で実際に削除、`--move-to-captions` で
+`captions` テーブルへ移動する。
+
+Makefile / CI からは呼ばれない。手動実行専用 (DB メンテナンス用ワンオフツール)。
+
+Usage:
+    # dry-run (検出のみ、上位50件を表示)
+    uv run python scripts/filter_caption_like_tags.py
+
+    # CSV エクスポート
+    uv run python scripts/filter_caption_like_tags.py --export candidates.csv
+
+    # captions テーブルへ移動 (実施)
+    uv run python scripts/filter_caption_like_tags.py --move-to-captions 3 --apply
+
+    # tags テーブルから削除 (実施、move-to-captions 未指定時)
+    uv run python scripts/filter_caption_like_tags.py --apply
+"""
 
 from __future__ import annotations
 

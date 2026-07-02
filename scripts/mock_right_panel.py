@@ -1,3 +1,15 @@
+"""GUI ワイヤーフレーム検証用の手動デザインツール (右パネル単体モック)。
+
+MainWindow 全体ではなく、画像詳細・評価スコア編集ウィジェットを含む右パネル
+(プレビュー + 画像詳細タブ) だけを単独ウィンドウで描画確認するためのスクリプト。
+実データ・DB 接続なしでダミーデータを使い、レイアウト調整を素早く目視検証する用途。
+
+Makefile / CI からは呼ばれない。手動実行専用。
+
+Usage:
+    uv run python scripts/mock_right_panel.py
+"""
+
 from __future__ import annotations
 
 import sys

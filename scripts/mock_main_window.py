@@ -1,3 +1,15 @@
+"""GUI ワイヤーフレーム検証用の手動デザインツール (MainWindow モック)。
+
+実データ・DB 接続なしで MainWindow 相当のタブ構成 (検索フレーム + プレースホルダー
+タブ群) を Qt Designer 不要で素早く描画確認するためのスクリプト。Wireframes 仕様
+(docs/wireframes/) の Frame レイアウトを実装前に手早く目視検証する用途。
+
+Makefile / CI からは呼ばれない。手動実行専用。
+
+Usage:
+    uv run python scripts/mock_main_window.py
+"""
+
 from __future__ import annotations
 
 import sys
