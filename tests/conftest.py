@@ -772,7 +772,7 @@ def critical_failure_hooks(monkeypatch, request):
 
         # パラメータ指定（他のウィジェット用）
         @pytest.mark.parametrize("critical_failure_hooks", [
-            {"patch_target": "lorairo.gui.widgets.dataset_export_widget"}
+            {"patch_target": "lorairo.gui.widgets.provider_batch_job_widget"}
         ], indirect=True)
         def test_widget_failure(critical_failure_hooks):
             # ...

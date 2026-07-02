@@ -502,58 +502,6 @@ class WorkerService(QObject):
 
     # === Thumbnail ===
 
-    def start_thumbnail_load(self, search_result: SearchResult, thumbnail_size: QSize) -> str:
-        """
-        サムネイル読み込み開始
-
-        Args:
-            search_result: 検索結果オブジェクト（image_metadataを含む）
-            thumbnail_size: サムネイルサイズ（通常128x128）
-
-        Returns:
-            str: ワーカーID
-
-        Raises:
-            RuntimeError: ワーカー開始失敗の場合
-            TypeError: 引数の型が不正な場合
-            ValueError: 引数の値が不正な場合
-        """
-        # 引数バリデーション
-        if not isinstance(search_result, SearchResult):
-            raise TypeError(f"Expected SearchResult, got {type(search_result)}")
-
-        if not search_result.image_metadata:
-            raise ValueError("SearchResult.image_metadata is empty")
-
-        if not isinstance(thumbnail_size, QSize) or thumbnail_size.isEmpty():
-            logger.warning(f"Invalid thumbnail_size: {thumbnail_size}, using default QSize(128, 128)")
-            thumbnail_size = QSize(128, 128)
-
-        # ThumbnailWorker作成 - 正しいパラメータで初期化
-        worker = ThumbnailWorker(search_result, thumbnail_size, self.db_manager)
-        worker_id = f"thumbnail_{uuid.uuid4().hex[:8]}"
-        self._thumbnail_generation += 1
-        self._register_operation(worker_id, OperationType.THUMBNAIL, generation=self._thumbnail_generation)
-        previous_thumbnail_worker_id = self.current_thumbnail_worker_id
-        self.current_thumbnail_worker_id = worker_id
-
-        # 進捗シグナル接続
-        worker.progress_updated.connect(
-            lambda progress: self.worker_progress_updated.emit(worker_id, progress)
-        )
-
-        if self.worker_manager.start_worker(worker_id, worker):
-            logger.info(
-                f"サムネイル読み込み開始: {len(search_result.image_metadata)}件, "
-                f"サイズ={thumbnail_size.width()}x{thumbnail_size.height()} (ID: {worker_id})"
-            )
-            return worker_id
-        else:
-            self._worker_operations.pop(worker_id, None)
-            if self.current_thumbnail_worker_id == worker_id:
-                self.current_thumbnail_worker_id = previous_thumbnail_worker_id
-            raise RuntimeError(f"ワーカー開始失敗: {worker_id}")
-
     def cancel_thumbnail_load(
         self,
         worker_id: str,

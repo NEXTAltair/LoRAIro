@@ -133,7 +133,6 @@ class TestMainWindowThumbnailIntegration:
 
         # ThumbnailSelectorWidgetの責任:表示のみ
         display_methods = [
-            "load_thumbnails_from_result",
             "load_thumbnails_from_paths",
             "clear_thumbnails",
         ]
