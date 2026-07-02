@@ -4,8 +4,9 @@
 from unittest.mock import MagicMock
 
 import pytest
+import shiboken6
 
-from lorairo.gui.widgets.count_estimate import CountEstimateWidget
+from lorairo.gui.widgets.count_estimate import CountEstimateWidget, _CountEstimateTask
 
 
 @pytest.fixture()
@@ -210,3 +211,83 @@ class TestCleanup:
 
         assert not widget._realtime_count_timer.isActive()
         assert widget._pending_count_estimate is None
+
+
+class TestCountEstimateTaskSignalSafety:
+    """`_CountEstimateTask` の emit 安全性テスト (#1047 回帰防止、#1040 と同型)。
+
+    `CountEstimateWidget` 側の Python 参照が破棄されると `task.signals`
+    (親なし QObject) の C++ 実体が GC で解放され、run() 内の emit が
+    `RuntimeError: Signal source has been deleted` を送出しうる。
+    `shiboken6.delete()` で signals の C++ 実体を明示的に破棄し、
+    その状態を再現して run() が例外を漏らさないことを検証する。
+    """
+
+    def test_run_survives_deleted_signals_on_success(self) -> None:
+        task = _CountEstimateTask(1, MagicMock(), _FakeService(count=42))
+        shiboken6.delete(task.signals)
+
+        # 例外が漏れなければ成功 (漏れれば pytest がテスト失敗として検出する)
+        task.run()
+
+    def test_run_survives_deleted_signals_on_failure(self) -> None:
+        task = _CountEstimateTask(1, MagicMock(), _FakeService(should_fail=True))
+        shiboken6.delete(task.signals)
+
+        task.run()
+
+
+class TestInFlightTaskReferenceHolding:
+    """`_inflight_tasks` による task 参照保持テスト (#1047 回帰防止)。"""
+
+    def test_start_task_registers_reference_before_pool_start(
+        self,
+        widget: CountEstimateWidget,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        widget.set_search_filter_service(_FakeService(count=42))
+        captured: list[_CountEstimateTask] = []
+        monkeypatch.setattr(widget._count_estimate_pool, "start", captured.append)
+
+        widget._start_count_estimate_task(1, MagicMock())
+
+        assert len(captured) == 1
+        assert widget._inflight_tasks[1] is captured[0]
+
+    def test_finished_handler_discards_inflight_task(
+        self,
+        widget: CountEstimateWidget,
+        qtbot,
+    ) -> None:
+        widget.set_search_filter_service(_FakeService(count=42))
+        widget.set_conditions_builder(lambda: MagicMock())
+
+        widget._update_realtime_count()
+
+        qtbot.waitUntil(lambda: not widget._inflight_tasks, timeout=2000)
+
+    def test_failed_handler_discards_inflight_task(
+        self,
+        widget: CountEstimateWidget,
+        qtbot,
+    ) -> None:
+        widget.set_search_filter_service(_FakeService(should_fail=True))
+        widget.set_conditions_builder(lambda: MagicMock())
+
+        widget._update_realtime_count()
+
+        qtbot.waitUntil(lambda: not widget._inflight_tasks, timeout=2000)
+
+    def test_cleanup_clears_inflight_tasks(
+        self,
+        widget: CountEstimateWidget,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        widget.set_search_filter_service(_FakeService(count=42))
+        monkeypatch.setattr(widget._count_estimate_pool, "start", lambda _task: None)
+        widget._start_count_estimate_task(1, MagicMock())
+        assert widget._inflight_tasks
+
+        widget.cleanup()
+
+        assert not widget._inflight_tasks
