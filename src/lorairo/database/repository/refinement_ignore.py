@@ -47,9 +47,18 @@ class RefinementIgnoreRepository(BaseRepository):
                 logger.debug(
                     f"refinement ignore 登録: tag='{tag}', reason_code='{reason_code}', image_id={image_id}"
                 )
-            except IntegrityError:
-                # 部分 UNIQUE インデックス違反 = 既に登録済み (正常系)
+            except IntegrityError as e:
                 session.rollback()
+                # 部分 UNIQUE インデックス違反 = 既に登録済み (正常系) のみ握る。
+                # FK 違反 (削除済み画像の image_id 等) まで重複扱いすると、行が無いのに
+                # UI が「保存成功」として進んでしまうため伝播させる (PR #1082 Codex P2)。
+                if "UNIQUE constraint failed" not in str(e.orig):
+                    logger.error(
+                        f"add_ignore 整合性エラー (tag={tag}, reason_code={reason_code}, "
+                        f"image_id={image_id}): {e}",
+                        exc_info=True,
+                    )
+                    raise
             except SQLAlchemyError as e:
                 session.rollback()
                 logger.error(
