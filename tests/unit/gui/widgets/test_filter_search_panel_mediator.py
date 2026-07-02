@@ -129,6 +129,22 @@ class TestSearchPreviewLogging:
             "Large search result warning displayed" not in record["message"] for record in loguru_records
         )
 
+    def test_large_result_shows_ui_warning(self, panel):
+        """#1064: 10000 件超はステータスラベルに警告を表示する (log のみで終わらない)。"""
+        panel.update_search_preview(10001)
+
+        assert not panel._status_label.isHidden()
+        assert "条件を絞り込んでください" in panel._status_label.text()
+        assert "10,001" in panel._status_label.text()
+
+    def test_threshold_result_hides_ui_warning(self, panel):
+        """#1064: 閾値以下に戻ったら警告を消す。"""
+        panel.update_search_preview(10001)
+        panel.update_search_preview(500)
+
+        assert panel._status_label.isHidden()
+        assert panel._status_label.text() == ""
+
 
 class TestServiceInjectionMediation:
     """Service 注入が sub-widget へ正しく伝搬する。"""

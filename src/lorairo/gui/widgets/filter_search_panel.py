@@ -1262,18 +1262,24 @@ class FilterSearchPanel(QScrollArea):
         """条件を適用する。"""
         self._update_ui_from_conditions(conditions)
 
-    def update_search_preview(self, result_count: int, preview_text: str = "") -> None:
-        """検索結果プレビューを更新する。"""
-        LARGE_RESULT_WARNING_THRESHOLD = 10000
+    # 大量検索結果の警告閾値 (#1064)
+    LARGE_RESULT_WARNING_THRESHOLD = 10000
 
-        if result_count > LARGE_RESULT_WARNING_THRESHOLD:
+    def update_search_preview(self, result_count: int) -> None:
+        """検索結果件数に応じた警告表示を更新する (#1064)。
+
+        閾値 (10,000件) を超えた場合、件数表示の下のステータスラベルに
+        「条件を絞ってください」警告を表示する。閾値以下なら警告を消す。
+        """
+        if result_count > self.LARGE_RESULT_WARNING_THRESHOLD:
             logger.info(f"Large search result warning displayed: {result_count} items")
-        del preview_text  # 現在は使われていないが API 互換のため残す
+            self._show_status_message(
+                f"検索結果が {result_count:,} 件と大量です。条件を絞り込んでください",
+                auto_hide_ms=8000,
+            )
+        else:
+            self._hide_status_message()
         logger.debug(f"検索結果プレビュー更新: {result_count}件")
-
-    def clear_search_preview(self) -> None:
-        """検索結果プレビューをクリアする。"""
-        logger.debug("検索結果プレビューをクリア")
 
     def _on_apply_clicked(self) -> None:
         """適用ボタンクリック処理。"""
