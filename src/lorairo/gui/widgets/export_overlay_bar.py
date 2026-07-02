@@ -45,10 +45,10 @@ from .changed_since_filter_widget import ChangedSinceFilterWidget
 if TYPE_CHECKING:
     from genai_tag_db_tools.db.repository import MergedTagReader
 
-# エクスポート解像度の選択肢（image.py の target_resolutions / DatasetExportWidget.ui と一致）。
+# エクスポート解像度の選択肢（image.py の target_resolutions と一致）。
 _RESOLUTION_CHOICES: list[int] = [512, 768, 1024, 1536]
 # 出力形式の (値, 表示ラベル)。値は既存 DatasetExportWorker の export_format に一致させる
-# （txt_separate / txt_merged / json）。実書き出しは #949 / DatasetExportWidget が担う。
+# （txt_separate / txt_merged / json）。実書き出しは #949 / DatasetExportWorker が担う。
 _FORMAT_CHOICES: list[tuple[str, str]] = [
     ("txt_separate", "TXT（タグ分離）"),
     ("txt_merged", "TXT（キャプション統合）"),

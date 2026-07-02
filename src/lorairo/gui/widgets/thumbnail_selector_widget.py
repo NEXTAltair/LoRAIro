@@ -242,13 +242,10 @@ class ThumbnailSelectorWidget(QWidget, Ui_ThumbnailSelectorWidget):
         page_num = getattr(thumbnail_result, "page_num", None)
         request_id = getattr(thumbnail_result, "request_id", None)
 
-        # 旧経路との互換: ページ識別がない結果は既存処理に委譲
-        if page_num is None or request_id is None:
-            self.load_thumbnails_from_result(thumbnail_result)
-            return
-
-        if request_id not in self._request_id_to_page:
-            logger.debug(f"Stale thumbnail result ignored: request_id={request_id}")
+        # ページ識別のない結果 (旧経路) は削除済み。識別子欠落または未知の
+        # request_id は stale として破棄する。
+        if page_num is None or request_id is None or request_id not in self._request_id_to_page:
+            logger.debug(f"Stale thumbnail result ignored: request_id={request_id}, page_num={page_num}")
             return
 
         self._request_id_to_page.pop(request_id, None)
@@ -835,92 +832,6 @@ class ThumbnailSelectorWidget(QWidget, Ui_ThumbnailSelectorWidget):
         self.update_thumbnail_layout()
 
     # === Modern Loading Interface ===
-
-    def _reset_thumbnail_display(self) -> None:
-        """サムネイル表示状態を完全にクリアする。"""
-        self.scene.clear()
-        self.thumbnail_items.clear()
-        self.clear_cache()
-        self._explicit_path_items.clear()
-        if self.pagination_nav:
-            self.pagination_nav.setVisible(False)
-
-    def _sync_dataset_state_from_result(self, thumbnail_result: Any) -> None:
-        """thumbnail_result の画像メタデータを DatasetStateManager に同期する。"""
-        if (
-            self.dataset_state
-            and hasattr(thumbnail_result, "image_metadata")
-            and thumbnail_result.image_metadata
-        ):
-            self.dataset_state.update_from_search_results(thumbnail_result.image_metadata)
-            logger.debug("検索結果をDatasetStateManagerに同期完了")
-
-    def _pixmaps_from_result(self, thumbnail_result: Any) -> list[tuple[int, QPixmap]]:
-        """ThumbnailLoadResultのQImageリストをページキャッシュ用QPixmapリストへ変換する。
-
-        Args:
-            thumbnail_result: ThumbnailLoadResultオブジェクト。
-
-        Returns:
-            (image_id, QPixmap) のリスト。
-        """
-        pixmaps: list[tuple[int, QPixmap]] = []
-        for image_id, qimage in thumbnail_result.loaded_thumbnails:
-            try:
-                qpixmap = QPixmap.fromImage(qimage)
-            except Exception as e:
-                logger.error(f"QImage→QPixmap変換エラー image_id={image_id}: {e}")
-                continue
-
-            if qpixmap.isNull():
-                logger.warning(f"QPixmap変換失敗: image_id={image_id}")
-                continue
-
-            pixmaps.append((image_id, qpixmap))
-        return pixmaps
-
-    def load_thumbnails_from_result(self, thumbnail_result: Any) -> None:
-        """
-        ページ情報を持たないThumbnailLoadResultを1ページ表示としてロードする。
-
-        通常の検索結果表示は initialize_pagination_search() と handle_thumbnail_page_result()
-        を使う。このメソッドはページ情報なしの既存呼び出しを page cache 経路に寄せる。
-
-        Args:
-            thumbnail_result: ThumbnailLoadResultオブジェクト
-                loaded_thumbnails: list[(image_id, QImage)] - プリロード済み画像データ
-                image_metadata: list[dict[str, Any]] - 画像メタデータリスト
-                failed_count: int - 読み込み失敗数
-                total_count: int - 処理対象総数
-        """
-        logger.info(f"サムネイル表示開始: {len(thumbnail_result.loaded_thumbnails)}件")
-
-        self._reset_thumbnail_display()
-
-        if not thumbnail_result.loaded_thumbnails:
-            logger.info("表示する画像がありません")
-            self._update_image_count_display()
-            if hasattr(self, "graphics_view"):
-                self.graphics_view.viewport().update()
-            return
-
-        self._sync_dataset_state_from_result(thumbnail_result)
-        if self.dataset_state:
-            self._ensure_pagination_state()
-
-        pixmaps = self._pixmaps_from_result(thumbnail_result)
-        self.page_cache.set_page(1, pixmaps)
-        self._current_display_page = 1
-        self._display_page(1)
-        self._update_image_count_display()
-        if hasattr(self, "graphics_view"):
-            self.graphics_view.viewport().update()
-
-        logger.info(
-            f"サムネイル表示完了: {len(pixmaps)}件表示, page_cache={self.page_cache.cache_size}ページ"
-        )
-
-        # 選択状態はThumbnailItem.isSelected()で動的取得
 
     def load_thumbnails_from_paths(self, items: list[tuple[str, int]]) -> None:
         """

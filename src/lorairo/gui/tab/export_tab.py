@@ -33,7 +33,7 @@ from ...services.export_overlay import ExportOverlayPlan, ExportTagOverlay, Scop
 from ...services.staging_tag_aggregation import StagingTagAggregationService
 from ..state.dataset_state import DatasetStateManager
 from ..state.staging_state import StagingStateManager
-from ..widgets.dataset_export_widget import DatasetExportWorker
+from ..widgets.dataset_export_worker import DatasetExportWorker
 from ..widgets.export_overlay_bar import ExportOverlayBar
 from ..widgets.image_preview import ImagePreviewWidget
 from ..widgets.selected_image_details_widget import SelectedImageDetailsWidget
@@ -466,7 +466,7 @@ class ExportTabWidget(QWidget):
     # ------------------------------------------------------------------
     # エクスポート実行 (ExportOverlayBar からの要求受け)
     # ------------------------------------------------------------------
-    # PR1 ではステージング集合をそのまま書き出す (旧 DatasetExportWidget と同等の挙動)。
+    # PR1 ではステージング集合をそのまま書き出す (従来のエクスポート挙動と同等)。
     # overlay (trigger/exclude/replace) と scope の適用は PR2 で配線する。
 
     @Slot()

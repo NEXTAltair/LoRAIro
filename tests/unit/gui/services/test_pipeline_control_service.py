@@ -269,20 +269,6 @@ class TestPipelineFlow:
         service.on_search_completed(search_result)
         mock_thumbnail_selector.initialize_pagination_search.assert_not_called()
 
-    def test_on_thumbnail_completed_uses_legacy_handler(self, mock_worker_service, mock_filter_panel):
-        """handle_thumbnail_page_result がなく load_thumbnails_from_result があるとき legacy を使う"""
-        selector = Mock(spec=["load_thumbnails_from_result"])
-        # spec により handle_thumbnail_page_result は hasattr で False になる
-        service = PipelineControlService(
-            worker_service=mock_worker_service,
-            thumbnail_selector=selector,
-            filter_search_panel=mock_filter_panel,
-        )
-        thumbnail_result = Mock()
-        service.on_thumbnail_completed(thumbnail_result)
-        selector.load_thumbnails_from_result.assert_called_once_with(thumbnail_result)
-        mock_filter_panel.hide_progress_after_completion.assert_called_once()
-
     def test_on_thumbnail_completed_no_handler_logs_warning(self, mock_worker_service, mock_filter_panel):
         """どちらのメソッドもないとき warning ログを出して例外なし"""
         selector = Mock(spec=[])  # メソッドなし
