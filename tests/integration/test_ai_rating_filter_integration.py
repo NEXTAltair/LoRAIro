@@ -10,6 +10,7 @@ from unittest.mock import MagicMock, Mock
 import pytest
 
 from lorairo.database.db_manager import ImageDatabaseManager
+from lorairo.database.filter_criteria import ImageFilterCriteria
 from lorairo.database.repository.image import ImageRepository
 from lorairo.services.search_criteria_processor import SearchCriteriaProcessor
 from lorairo.services.search_models import SearchConditions
@@ -157,7 +158,7 @@ class TestManagerLayerParameterForwarding:
     """Manager層のパラメータ転送テスト"""
 
     def test_manager_forwards_all_new_parameters(self, mock_repository):
-        """Manager が新しいパラメータをすべて Repository に転送"""
+        """Manager が criteria をそのまま Repository に転送"""
         # 実際のManager（モックRepositoryを使用）を作成
         from lorairo.services.configuration_service import ConfigurationService
 
@@ -167,17 +168,19 @@ class TestManagerLayerParameterForwarding:
             image_repo=mock_repository,
         )
 
-        # 新しいパラメータを含めて呼び出し（レガシー形式）
+        # criteria を明示構築して呼び出す
         manager.get_images_by_filter(
-            tags=["test"],
-            ai_rating_filter="PG",
-            include_unrated=False,
+            ImageFilterCriteria(
+                tags=["test"],
+                ai_rating_filter="PG",
+                include_unrated=False,
+            )
         )
 
         # Repository が正しいパラメータで呼ばれた
         mock_repository.get_images_by_filter.assert_called_once()
 
-        # ImageFilterCriteria オブジェクトから値を確認（後方互換性）
+        # ImageFilterCriteria オブジェクトから値を確認
         # Managerは位置引数で渡すか、キーワード引数で渡すかを確認
         call_args = mock_repository.get_images_by_filter.call_args
         if call_args.kwargs:

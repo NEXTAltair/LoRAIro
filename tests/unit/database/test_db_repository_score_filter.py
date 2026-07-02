@@ -11,6 +11,7 @@ from unittest.mock import Mock
 import pytest
 from sqlalchemy import select
 
+from lorairo.database.filter_criteria import ImageFilterCriteria
 from lorairo.database.repository.image import ImageRepository
 from lorairo.database.schema import Image
 
@@ -110,7 +111,7 @@ class TestGetImagesByFilterScoreIntegration:
         repository, mock_session = mock_session_and_repository
 
         # スコアフィルタを指定して検索
-        results, count = repository.get_images_by_filter(score_min=3.0, score_max=7.5)
+        results, count = repository.get_images_by_filter(ImageFilterCriteria(score_min=3.0, score_max=7.5))
 
         # クエリが実行されたことを確認
         assert mock_session.execute.called
@@ -121,7 +122,7 @@ class TestGetImagesByFilterScoreIntegration:
         """score_min のみが指定された場合、適用されることを確認"""
         repository, mock_session = mock_session_and_repository
 
-        _results, _count = repository.get_images_by_filter(score_min=5.0)
+        _results, _count = repository.get_images_by_filter(ImageFilterCriteria(score_min=5.0))
 
         # クエリが実行されたことを確認
         assert mock_session.execute.called
@@ -130,7 +131,7 @@ class TestGetImagesByFilterScoreIntegration:
         """score_max のみが指定された場合、適用されることを確認"""
         repository, mock_session = mock_session_and_repository
 
-        _results, _count = repository.get_images_by_filter(score_max=8.0)
+        _results, _count = repository.get_images_by_filter(ImageFilterCriteria(score_max=8.0))
 
         # クエリが実行されたことを確認
         assert mock_session.execute.called
@@ -209,7 +210,7 @@ class TestGetImagesCountOnly:
     def test_get_images_count_only_returns_count(self, mock_session_and_repository):
         repository = mock_session_and_repository
 
-        count = repository.get_images_count_only(score_min=3.0, score_max=7.5)
+        count = repository.get_images_count_only(ImageFilterCriteria(score_min=3.0, score_max=7.5))
 
         assert count == 3
 

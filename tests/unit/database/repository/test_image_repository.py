@@ -874,9 +874,6 @@ class TestImageFilterCriteriaExactSet:
         assert {m["id"] for m in exact} == {img_nsfw}
         assert count == 1
 
-    def test_image_ids_in_to_dict(self) -> None:
-        assert ImageFilterCriteria(image_ids=[1, 2]).to_dict()["image_ids"] == [1, 2]
-
     def test_count_only_honors_image_ids(
         self, image_repository: ImageRepository, memory_session_factory
     ) -> None:

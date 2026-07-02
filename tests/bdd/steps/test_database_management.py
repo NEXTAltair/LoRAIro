@@ -11,6 +11,7 @@ from PIL import Image
 from pytest_bdd import given, parsers, scenarios, then, when
 
 from lorairo.database.db_manager import ImageDatabaseManager
+from lorairo.database.filter_criteria import ImageFilterCriteria
 from lorairo.database.schema import (
     AnnotationsDict,
     Tag,
@@ -666,7 +667,9 @@ def when_search_by_tags(
     #     print(f"--- DEBUG: Error fetching annotations for data check: {e} ---")
     # # --- データ確認用コードここまで --- #
 
-    results, count = test_db_manager.get_images_by_filter(tags=tags, use_and=search_type)
+    results, count = test_db_manager.get_images_by_filter(
+        ImageFilterCriteria(tags=tags, use_and=search_type)
+    )
     search_context.results = results
     search_context.count = count
     print(f"タグ検索実行: tags={tags}, use_and={search_type}, 結果件数={count}")
@@ -698,7 +701,7 @@ def when_search_by_caption(
 ):
     # 完全一致の場合はクオートで囲む想定
     search_term = f'"{caption_str}"' if match_type else caption_str
-    results, count = test_db_manager.get_images_by_filter(caption=search_term)
+    results, count = test_db_manager.get_images_by_filter(ImageFilterCriteria(caption=search_term))
     search_context.results = results
     search_context.count = count
     print(f"キャプション検索実行: caption='{search_term}', 結果件数={count}")
@@ -710,7 +713,9 @@ def when_search_by_tag_and_caption(
     test_db_manager: ImageDatabaseManager, search_context: SearchContext, tags_str: str, caption_str: str
 ):
     tags = [t.strip() for t in tags_str.split("AND")]  # AND で分割
-    results, count = test_db_manager.get_images_by_filter(tags=tags, caption=caption_str, use_and=True)
+    results, count = test_db_manager.get_images_by_filter(
+        ImageFilterCriteria(tags=tags, caption=caption_str, use_and=True)
+    )
     search_context.results = results
     search_context.count = count
     print(f"複合検索実行: tags={tags}, caption='{caption_str}', 結果件数={count}")
@@ -724,7 +729,7 @@ def when_search_by_relative_date(
     now = datetime.now(UTC)
     start_time = now - timedelta(hours=hours)
     start_date_str = start_time.isoformat()
-    results, count = test_db_manager.get_images_by_filter(start_date=start_date_str)
+    results, count = test_db_manager.get_images_by_filter(ImageFilterCriteria(start_date=start_date_str))
     search_context.results = results
     search_context.count = count
     print(f"相対日付検索実行: start_date='{start_date_str}', 結果件数={count}")
@@ -763,7 +768,7 @@ def when_search_by_date_range(
         start_date_str = start_dt.isoformat()
         end_date_str = end_dt.isoformat()
         results, count = test_db_manager.get_images_by_filter(
-            start_date=start_date_str, end_date=end_date_str
+            ImageFilterCriteria(start_date=start_date_str, end_date=end_date_str)
         )
         search_context.results = results
         search_context.count = count
@@ -778,7 +783,7 @@ def when_search_with_nsfw_filter(
     test_db_manager: ImageDatabaseManager, search_context: SearchContext, include_nsfw_str: str
 ):
     include_nsfw = parse_bool(include_nsfw_str)
-    results, count = test_db_manager.get_images_by_filter(include_nsfw=include_nsfw)
+    results, count = test_db_manager.get_images_by_filter(ImageFilterCriteria(include_nsfw=include_nsfw))
     search_context.results = results
     search_context.count = count
     print(f"NSFWフィルター検索実行: include_nsfw={include_nsfw}, 結果件数={count}")
@@ -790,7 +795,9 @@ def when_search_by_manual_edit_flag(
     test_db_manager: ImageDatabaseManager, search_context: SearchContext, edited_flag_str: str
 ):
     manual_edit_filter = parse_bool(edited_flag_str)
-    results, count = test_db_manager.get_images_by_filter(manual_edit_filter=manual_edit_filter)
+    results, count = test_db_manager.get_images_by_filter(
+        ImageFilterCriteria(manual_edit_filter=manual_edit_filter)
+    )
     search_context.results = results
     search_context.count = count
     print(f"手動編集フラグ検索実行: manual_edit_filter={manual_edit_filter}, 結果件数={count}")
@@ -801,7 +808,7 @@ def when_search_by_manual_edit_flag(
 def when_search_by_manual_rating(
     test_db_manager: ImageDatabaseManager, search_context: SearchContext, rating: str
 ):
-    results, count = test_db_manager.get_images_by_filter(manual_rating_filter=rating)
+    results, count = test_db_manager.get_images_by_filter(ImageFilterCriteria(manual_rating_filter=rating))
     search_context.results = results
     search_context.count = count
     print(f"手動レーティング検索実行: manual_rating_filter='{rating}', 結果件数={count}")

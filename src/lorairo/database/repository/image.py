@@ -2604,19 +2604,17 @@ class ImageRepository(BaseRepository):
     def get_images_by_filter(
         self,
         criteria: ImageFilterCriteria | None = None,
-        **kwargs: Any,
     ) -> tuple[list[dict[str, Any]], int]:
         """指定された条件に基づいて画像をフィルタリングし、メタデータと件数を返す。
 
         Args:
-            criteria: ImageFilterCriteria形式のフィルター条件（推奨）
-            **kwargs: レガシー形式のキーワード引数（後方互換性用）
+            criteria: ImageFilterCriteria形式のフィルター条件。None の場合は
+                デフォルト条件 (全件) として扱う。
 
         Returns:
             条件にマッチした画像メタデータのリストとその総数。
         """
-        # criteriaが指定されていればそれを使用、なければkwargsから生成
-        filter_criteria = criteria or ImageFilterCriteria.from_kwargs(**kwargs)
+        filter_criteria = criteria or ImageFilterCriteria()
 
         # 型安全性チェック: resolution が文字列の場合は int に変換
         if isinstance(filter_criteria.resolution, str):
@@ -2706,7 +2704,6 @@ class ImageRepository(BaseRepository):
     def get_images_count_only(
         self,
         criteria: ImageFilterCriteria | None = None,
-        **kwargs: Any,
     ) -> int:
         """指定された条件に基づいて画像件数のみを取得する。
 
@@ -2714,14 +2711,14 @@ class ImageRepository(BaseRepository):
         メタデータ取得を行わない軽量な件数集計を実行する。
 
         Args:
-            criteria: ImageFilterCriteria形式のフィルター条件（推奨）
-            **kwargs: レガシー形式のキーワード引数（後方互換性用）
+            criteria: ImageFilterCriteria形式のフィルター条件。None の場合は
+                デフォルト条件 (全件) として扱う。
 
         Returns:
             条件に一致した画像件数。
 
         """
-        filter_criteria = criteria or ImageFilterCriteria.from_kwargs(**kwargs)
+        filter_criteria = criteria or ImageFilterCriteria()
 
         # ADR 0055: image_ids 指定時は exact-set として他フィルタを bypass する。
         # get_images_by_filter と総件数を一致させるため同一 helper の総件数を返す
@@ -2775,7 +2772,6 @@ class ImageRepository(BaseRepository):
     def get_image_list_page(
         self,
         criteria: ImageFilterCriteria | None = None,
-        **kwargs: Any,
     ) -> tuple[list[dict[str, Any]], int]:
         """画像一覧用の軽量 projection と総件数を取得する。
 
@@ -2784,13 +2780,13 @@ class ImageRepository(BaseRepository):
         pushdown し、タグ・キャプション等の重い annotation metadata は読み込まない。
 
         Args:
-            criteria: ImageFilterCriteria形式のフィルター条件（推奨）
-            **kwargs: レガシー形式のキーワード引数（後方互換性用）
+            criteria: ImageFilterCriteria形式のフィルター条件。None の場合は
+                デフォルト条件 (全件) として扱う。
 
         Returns:
             (一覧行, フィルタ総件数)。一覧行は ``image_id`` / ``file_path`` のみ。
         """
-        filter_criteria = criteria or ImageFilterCriteria.from_kwargs(**kwargs)
+        filter_criteria = criteria or ImageFilterCriteria()
 
         with self.session_factory() as session:
             try:

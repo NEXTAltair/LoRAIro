@@ -13,6 +13,7 @@ import pytest
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from lorairo.database.filter_criteria import ImageFilterCriteria
 from lorairo.database.repository.image import ImageRepository
 from lorairo.database.schema import Image
 
@@ -122,7 +123,7 @@ class TestGetImagesByFilterAIRating:
         repository, mock_session = mock_session_and_repository
 
         # ai_rating_filter を指定して検索
-        results, count = repository.get_images_by_filter(ai_rating_filter="PG")
+        results, count = repository.get_images_by_filter(ImageFilterCriteria(ai_rating_filter="PG"))
 
         # クエリが実行されたことを確認
         assert mock_session.execute.called
@@ -141,7 +142,9 @@ class TestGetImagesByFilterAIRating:
                 mock_ai.return_value = select(Image.id)
 
                 # 両方のフィルタを指定
-                repository.get_images_by_filter(manual_rating_filter="PG", ai_rating_filter="R")
+                repository.get_images_by_filter(
+                    ImageFilterCriteria(manual_rating_filter="PG", ai_rating_filter="R")
+                )
 
                 # manual / AI は排他ではなく両方適用される (Issue #604: 旧実装は AI を無視していた)
                 mock_manual.assert_called()
@@ -157,7 +160,7 @@ class TestGetImagesByFilterAIRating:
             mock_ai.return_value = select(Image.id)
 
             # ai_rating_filter のみを指定
-            repository.get_images_by_filter(ai_rating_filter="PG")
+            repository.get_images_by_filter(ImageFilterCriteria(ai_rating_filter="PG"))
 
             # AI filter が適用される
             mock_ai.assert_called_once()
@@ -167,7 +170,7 @@ class TestGetImagesByFilterAIRating:
         repository, mock_session = mock_session_and_repository
 
         # include_unrated=False を指定して検索
-        _results, _count = repository.get_images_by_filter(include_unrated=False)
+        _results, _count = repository.get_images_by_filter(ImageFilterCriteria(include_unrated=False))
 
         # クエリが実行されたことを確認
         assert mock_session.execute.called
@@ -177,11 +180,15 @@ class TestGetImagesByFilterAIRating:
         repository, mock_session = mock_session_and_repository
 
         # NSFW値を ai_rating_filter に指定した場合、NSFW除外は無効化される
-        _results1, _count1 = repository.get_images_by_filter(ai_rating_filter="R", include_nsfw=False)
+        _results1, _count1 = repository.get_images_by_filter(
+            ImageFilterCriteria(ai_rating_filter="R", include_nsfw=False)
+        )
         assert mock_session.execute.called
 
         # 非NSFW値を ai_rating_filter に指定した場合、NSFW除外が有効
-        _results2, _count2 = repository.get_images_by_filter(ai_rating_filter="PG", include_nsfw=False)
+        _results2, _count2 = repository.get_images_by_filter(
+            ImageFilterCriteria(ai_rating_filter="PG", include_nsfw=False)
+        )
         assert mock_session.execute.called
 
 
@@ -505,7 +512,7 @@ class TestMultiSelectRatingFilter:
             return_value=1,
         ):
             results, count = repository.get_images_by_filter(
-                manual_rating_filter=["PG", "R"], ai_rating_filter=["X"]
+                ImageFilterCriteria(manual_rating_filter=["PG", "R"], ai_rating_filter=["X"])
             )
         assert mock_session.execute.called
         assert results == []
@@ -519,7 +526,9 @@ class TestMultiSelectRatingFilter:
             return_value=1,
         ):
             _results, count = repository.get_images_by_filter(
-                manual_rating_filter=["PG"], ai_rating_filter=["R"], rating_combine="or"
+                ImageFilterCriteria(
+                    manual_rating_filter=["PG"], ai_rating_filter=["R"], rating_combine="or"
+                )
             )
         assert mock_session.execute.called
         assert count == 0
@@ -541,7 +550,7 @@ class TestMultiSelectRatingDataModels:
     """Issue #811: ImageFilterCriteria / SearchConditions の list 受け入れと結合。"""
 
     def test_filter_criteria_accepts_list_and_combine(self):
-        """ImageFilterCriteria が list と rating_combine を保持し to_dict に含める。"""
+        """ImageFilterCriteria が list と rating_combine を保持する。"""
         from lorairo.database.filter_criteria import ImageFilterCriteria
 
         criteria = ImageFilterCriteria(
@@ -551,9 +560,7 @@ class TestMultiSelectRatingDataModels:
         )
         assert criteria.manual_rating_filter == ["PG", "R"]
         assert criteria.rating_combine == "or"
-        d = criteria.to_dict()
-        assert d["ai_rating_filter"] == ["X"]
-        assert d["rating_combine"] == "or"
+        assert criteria.ai_rating_filter == ["X"]
 
     def test_filter_criteria_default_combine_is_and(self):
         """rating_combine の既定は 'and' (後方互換: 従来の AND 挙動)。"""

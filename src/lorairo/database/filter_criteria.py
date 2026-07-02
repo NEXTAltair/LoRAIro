@@ -7,7 +7,6 @@ GUI/ServiceレイヤーのSearchConditionsとは分離され、DB操作の明確
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any
 
 
 @dataclass
@@ -95,69 +94,3 @@ class ImageFilterCriteria:
     # Issue #697: images search で使用するソート条件
     sort_field: str = "image_id"  # "image_id" または "file_path"
     sort_direction: str = "asc"  # "asc" または "desc"
-
-    @classmethod
-    def from_kwargs(cls, **kwargs: Any) -> ImageFilterCriteria:
-        """キーワード引数から ImageFilterCriteria を生成（後方互換性用）
-
-        既存コードで `get_images_by_filter(**conditions)` のように
-        辞書を展開して呼び出している箇所の互換性を維持します。
-
-        Args:
-            **kwargs: フィルター条件のキーワード引数
-
-        Returns:
-            ImageFilterCriteria: 生成されたフィルター条件オブジェクト
-
-        Example:
-            >>> criteria = ImageFilterCriteria.from_kwargs(
-            ...     tags=["anime", "landscape"],
-            ...     resolution=1024,
-            ...     use_and=True
-            ... )
-        """
-        # データクラスの全フィールド名を取得
-        valid_fields = {f.name for f in cls.__dataclass_fields__.values()}
-
-        # 有効なフィールドのみを抽出
-        filtered_kwargs = {k: v for k, v in kwargs.items() if k in valid_fields}
-
-        return cls(**filtered_kwargs)
-
-    def to_dict(self) -> dict[str, Any]:
-        """辞書形式に変換（レガシーコードとの互換性用）
-
-        Returns:
-            dict[str, Any]: フィルター条件の辞書
-        """
-        return {
-            "tags": self.tags,
-            "caption": self.caption,
-            "excluded_tags": self.excluded_tags,
-            "resolution": self.resolution,
-            "use_and": self.use_and,
-            "start_date": self.start_date,
-            "end_date": self.end_date,
-            "include_untagged": self.include_untagged,
-            "include_nsfw": self.include_nsfw,
-            "include_unrated": self.include_unrated,
-            "only_unrated": self.only_unrated,
-            "missing_model_litellm_id": self.missing_model_litellm_id,
-            "manual_rating_filter": self.manual_rating_filter,
-            "ai_rating_filter": self.ai_rating_filter,
-            "rating_combine": self.rating_combine,
-            "manual_edit_filter": self.manual_edit_filter,
-            "score_min": self.score_min,
-            "score_max": self.score_max,
-            "reviewed_at_filter": self.reviewed_at_filter,
-            "error_state_filter": self.error_state_filter,
-            "model_filter": self.model_filter,
-            "project_name": self.project_name,
-            "project_id": self.project_id,
-            "limit": self.limit,
-            "offset": self.offset,
-            "include_annotations": self.include_annotations,
-            "image_ids": self.image_ids,
-            "sort_field": self.sort_field,
-            "sort_direction": self.sort_direction,
-        }
