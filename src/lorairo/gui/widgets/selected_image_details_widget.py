@@ -705,13 +705,13 @@ class SelectedImageDetailsWidget(QWidget):
         Args:
             state_manager: DatasetStateManagerインスタンス
         """
-        logger.info(
-            f"🔌 connect_to_dataset_state_manager() 呼び出し開始 - "
+        logger.debug(
+            f"connect_to_dataset_state_manager() 呼び出し開始 - "
             f"widget instance: {id(self)}, state_manager: {id(state_manager)}"
         )
 
         if not state_manager:
-            logger.error("❌ DatasetStateManager is None - 接続中止")
+            logger.error("DatasetStateManager is None - 接続中止")
             return
 
         self._dataset_state_manager = state_manager
@@ -720,15 +720,14 @@ class SelectedImageDetailsWidget(QWidget):
         connection = state_manager.current_image_data_changed.connect(self._on_image_data_received)
         connection_valid = bool(connection)
 
-        logger.info(f"📊 connect()戻り値: valid={connection_valid}, type={type(connection)}")
+        logger.debug(f"connect()戻り値: valid={connection_valid}, type={type(connection)}")
 
         if not connection_valid:
-            logger.error("❌ Qt接続失敗 - connect()が無効なConnectionを返しました")
+            logger.error("Qt接続失敗 - connect()が無効なConnectionを返しました")
             return
 
-        logger.info(
-            f"✅ current_image_data_changed シグナル接続完了 - from {id(state_manager)} to {id(self)}"
-        )
+        # シグナル配線の完了は接続時1回だけ INFO で残す (logging.md)
+        logger.info(f"current_image_data_changed シグナル接続完了 - from {id(state_manager)} to {id(self)}")
 
     @Slot(dict)
     def _on_image_data_received(self, image_data: dict[str, Any]) -> None:
@@ -755,7 +754,7 @@ class SelectedImageDetailsWidget(QWidget):
         image_id = image_data.get("id")
         self.current_image_id = image_id
         logger.info(
-            f"📨 SelectedImageDetailsWidget(instance={id(self)}): current_image_data_changed シグナル受信 - image_id: {image_id}"
+            f"SelectedImageDetailsWidget(instance={id(self)}): current_image_data_changed シグナル受信 - image_id: {image_id}"
         )
 
         details = self._build_image_details_from_metadata(image_data)
@@ -1057,7 +1056,7 @@ class SelectedImageDetailsWidget(QWidget):
         if details.annotation_data:
             self.annotation_display.update_data(details.annotation_data, image_id=details.image_id)
 
-        logger.info(f"✅ SelectedImageDetailsWidget表示更新完了: image_id={details.image_id}")
+        logger.debug(f"SelectedImageDetailsWidget表示更新完了: image_id={details.image_id}")
         if self._copy_details_button:
             self._copy_details_button.setEnabled(True)
         self.image_details_loaded.emit(details)

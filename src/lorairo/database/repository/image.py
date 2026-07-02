@@ -1291,7 +1291,7 @@ class ImageRepository(BaseRepository):
                     annotations["score_labels"], annotations["scores"]
                 )
 
-                logger.info(
+                logger.debug(
                     f"取得したアノテーション数: tags={len(annotations['tags'])}, "
                     f"captions={len(annotations['captions'])}, scores={len(annotations['scores'])}, "
                     f"score_labels={len(annotations['score_labels'])}, "

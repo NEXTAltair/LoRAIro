@@ -251,7 +251,7 @@ class DatasetStateManager(QObject):
             if image_data:
                 self._ensure_annotations_loaded(image_data)
                 self.current_image_data_changed.emit(image_data)
-                logger.info(f"✅ 画像選択成功: ID {image_id} - current_image_data_changed シグナル発行")
+                logger.debug(f"画像選択成功: ID {image_id} - current_image_data_changed シグナル発行")
             else:
                 # デバッグ情報を詳細化
                 state_summary = self.get_state_summary()
@@ -400,7 +400,7 @@ class DatasetStateManager(QObject):
         # 現在選択中ならシグナル発行
         if self._current_image_id == image_id:
             self.current_image_data_changed.emit(new_metadata)
-            logger.info(f"キャッシュ更新とシグナル発行完了: {image_id}")
+            logger.debug(f"キャッシュ更新とシグナル発行完了: {image_id}")
 
     def refresh_image(self, image_id: int) -> None:
         """
