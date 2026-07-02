@@ -201,6 +201,24 @@ class SelectableTagChip(QLabel):
         event.accept()
 
 
+# tagdb の言語キーは "japanese"/"ja"、"english"/"en" が混在する (#976 PR #991)。
+# 新規登録は ja/en に正規化する (#1050) が、表示 lookup は両表記を同値として引く。
+_LANGUAGE_KEY_ALIASES: dict[str, tuple[str, ...]] = {
+    "ja": ("ja", "japanese"),
+    "japanese": ("japanese", "ja"),
+    "en": ("en", "english"),
+    "english": ("english", "en"),
+}
+
+
+def _translation_for_language(translations: dict[str, str], language: str) -> str | None:
+    """言語キーのエイリアス (ja/japanese, en/english) を同値として翻訳を引く (#1050)。"""
+    for key in _LANGUAGE_KEY_ALIASES.get(language, (language,)):
+        if key in translations:
+            return translations[key]
+    return None
+
+
 # tagdb userdb 系ダイアログのティール「タグ情報」見出し QSS (ADR 0083 §2 / #989)。
 # image DB 系 (青) と保存先を視覚的に分けるため UDB トークンで縁取る。
 _UDB_HEADER_QSS = (
@@ -217,10 +235,18 @@ class TranslationAddDialog(QDialog):
     保存先が「タグ情報 (全画像に反映)」であることをティール見出しで明示する。
     """
 
+    # 登録可能な言語の固定候補 (表示ラベル, 保存値)。自由入力は廃止し、保存値を
+    # ja / en に正規化する。tagdb の言語キー表記ゆれ ("japanese"/"ja" 混在、
+    # #976 PR #991 Codex P1) を新規登録分で構造的に発生させない (Issue #1050)
+    LANGUAGE_CHOICES: ClassVar[tuple[tuple[str, str], ...]] = (("日本語", "ja"), ("English", "en"))
+
     def __init__(self, canonical: str, languages: list[str], parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self.setWindowTitle("翻訳を追加")
         self._canonical = canonical
+        # languages はタグデータ由来の既知言語 (後方互換で受けるが候補には使わない。
+        # 固定候補 + 正規化保存が本ダイアログの契約。Issue #1050)
+        del languages
 
         layout = QVBoxLayout(self)
         header = QLabel("タグ情報を編集 · 全画像に反映されます", self)
@@ -231,12 +257,8 @@ class TranslationAddDialog(QDialog):
         form = QFormLayout()
         form.addRow("タグ (canonical):", QLabel(canonical, self))
         self._language_combo = QComboBox(self)
-        # 既知言語があれば候補に、無ければ ja を既定にする。編集可で任意の言語コードも入力可。
-        for lang in languages:
-            self._language_combo.addItem(lang)
-        if self._language_combo.count() == 0:
-            self._language_combo.addItem("ja")
-        self._language_combo.setEditable(True)
+        for label, code in self.LANGUAGE_CHOICES:
+            self._language_combo.addItem(label, userData=code)
         form.addRow("言語:", self._language_combo)
         self._translation_input = QLineEdit(self)
         self._translation_input.setPlaceholderText("翻訳テキスト")
@@ -251,8 +273,8 @@ class TranslationAddDialog(QDialog):
         layout.addWidget(buttons)
 
     def language(self) -> str:
-        """入力された言語コードを返す。"""
-        return self._language_combo.currentText().strip()
+        """選択された言語の正規化コード ("ja" / "en") を返す。"""
+        return str(self._language_combo.currentData())
 
     def translation(self) -> str:
         """入力された翻訳テキストを返す。"""
@@ -705,6 +727,35 @@ class TagPanelWidget(QWidget):
         self._lang_combo.blockSignals(False)
         self._lang_bar.setVisible(True)
 
+    def update_language_selector(
+        self, available_languages: list[str], *, prefer: str | None = None
+    ) -> None:
+        """言語コンボの候補を選択を保ったまま更新する (#1050)。
+
+        新しい言語 ("en" 等) の翻訳を登録した直後に候補へ反映するために使う。
+        initialize_language_selector と異なり選択を english へ巻き戻さない
+        (Codex #995 P2 の巻き戻り事故を再発させない)。
+
+        Args:
+            available_languages: 利用可能な言語リスト。
+            prefer: 直前に登録した翻訳の言語。原文 (english) 表示中のときだけ
+                この言語へ切り替え、登録結果を即時可視化する (Codex P2)。
+                非英語表示中は現在の選択を保つ。
+        """
+        current = self._current_language()
+        target = prefer if (prefer and current == "english") else current
+        self._lang_combo.blockSignals(True)
+        self._lang_combo.clear()
+        self._lang_combo.addItem("english")  # 常に先頭 (原文)
+        for lang in available_languages:
+            if lang != "english":
+                self._lang_combo.addItem(lang)
+        index = self._lang_combo.findText(target)
+        if index >= 0:
+            self._lang_combo.setCurrentIndex(index)
+        self._lang_combo.blockSignals(False)
+        self._lang_bar.setVisible(self._lang_combo.count() > 1)
+
     def set_tag_edit_enabled(self, enabled: bool) -> None:
         """タグ soft-reject 編集モードを切り替える。
 
@@ -934,7 +985,7 @@ class TagPanelWidget(QWidget):
         tag_id = tag_dict.get("tag_id")
         if use_english or tag_id is None:
             return original, True
-        translated = self._translations.get(tag_id, {}).get(language)
+        translated = _translation_for_language(self._translations.get(tag_id, {}), language)
         return (translated if translated else original), translated is not None
 
     def _refresh_tags_for_language(self, language: str) -> None:
