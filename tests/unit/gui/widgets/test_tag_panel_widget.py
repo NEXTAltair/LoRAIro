@@ -1127,3 +1127,17 @@ def test_translation_lookup_bridges_ja_and_japanese_keys(panel, sample_tags):
 
     chip = next(c for c in panel._tag_chips if c.canonical == "1girl")
     assert chip.text().strip("⚠ ").strip() == "1人の女の子"
+
+
+def test_update_language_selector_preserves_selection_and_adds_new_language(panel, sample_tags):
+    """#1050 Codex P2: 新言語追加後の selector 更新は現在の選択を巻き戻さない。"""
+    panel.set_tags(sample_tags, image_id=10)
+    panel.initialize_language_selector(["japanese"])
+    panel._lang_combo.setCurrentIndex(panel._lang_combo.findText("japanese"))
+
+    panel.update_language_selector(["japanese", "en"])
+
+    labels = [panel._lang_combo.itemText(i) for i in range(panel._lang_combo.count())]
+    assert labels == ["english", "japanese", "en"]
+    # 選択は japanese のまま (english へ巻き戻らない)
+    assert panel._lang_combo.currentText() == "japanese"

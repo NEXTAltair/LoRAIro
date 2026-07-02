@@ -680,6 +680,16 @@ class SelectedImageDetailsWidget(QWidget):
             logger.warning(f"翻訳追加をスキップ (tag_id 未解決): canonical='{canonical}'")
             return
         service.add_translation(tag_id, language, translation)
+        # 新しい言語キー ("en" 等) の初回追加は available_languages (reader 注入時の
+        # 1回取得) に含まれず、reload しても selector に現れない (Codex P2)。言語一覧を
+        # 再取得し、現在の選択を保ったまま selector を更新する (english への巻き戻りを
+        # 起こす set_merged_reader は呼ばない、Codex #995 P2 と両立)。
+        if language not in self._available_languages:
+            if self._merged_reader is not None:
+                self._available_languages = self._merged_reader.get_tag_languages()
+            if language not in self._available_languages:
+                self._available_languages = [*self._available_languages, language]
+            self.annotation_display.update_language_selector(self._available_languages)
         self._reload_current_image()
 
     @Slot(str, str)

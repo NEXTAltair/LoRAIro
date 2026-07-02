@@ -727,6 +727,26 @@ class TagPanelWidget(QWidget):
         self._lang_combo.blockSignals(False)
         self._lang_bar.setVisible(True)
 
+    def update_language_selector(self, available_languages: list[str]) -> None:
+        """言語コンボの候補を現在の選択を保ったまま更新する (#1050)。
+
+        新しい言語 ("en" 等) の翻訳を初めて登録した直後に候補へ反映するために使う。
+        initialize_language_selector と異なり選択を english へ巻き戻さない
+        (Codex #995 P2 の巻き戻り事故を再発させない)。
+        """
+        current = self._current_language()
+        self._lang_combo.blockSignals(True)
+        self._lang_combo.clear()
+        self._lang_combo.addItem("english")  # 常に先頭 (原文)
+        for lang in available_languages:
+            if lang != "english":
+                self._lang_combo.addItem(lang)
+        index = self._lang_combo.findText(current)
+        if index >= 0:
+            self._lang_combo.setCurrentIndex(index)
+        self._lang_combo.blockSignals(False)
+        self._lang_bar.setVisible(self._lang_combo.count() > 1)
+
     def set_tag_edit_enabled(self, enabled: bool) -> None:
         """タグ soft-reject 編集モードを切り替える。
 
