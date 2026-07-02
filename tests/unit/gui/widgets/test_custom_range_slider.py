@@ -380,33 +380,15 @@ class TestFilterSearchPanel:
         filter_panel.checkboxExcludeDuplicates.isChecked.return_value = False
         filter_panel.checkboxIncludeNSFW.isChecked.return_value = False
 
-        # Mock SearchFilterService to return proper SearchConditions
-        from unittest.mock import Mock
-
-        mock_search_conditions = Mock()
-        mock_search_conditions.search_type = "tags"
-        mock_search_conditions.keywords = ["test", "search"]
-        mock_search_conditions.tag_logic = "and"
-        mock_search_conditions.resolution_filter = None
-        mock_search_conditions.custom_width = ""
-        mock_search_conditions.custom_height = ""
-        mock_search_conditions.aspect_ratio_filter = None
-        mock_search_conditions.date_filter_enabled = False
-        mock_search_conditions.date_range_start = None
-        mock_search_conditions.date_range_end = None
-        mock_search_conditions.only_untagged = False
-        mock_search_conditions.only_uncaptioned = False
-        mock_search_conditions.exclude_duplicates = False
-
-        filter_panel.search_filter_service.get_current_conditions.return_value = mock_search_conditions
-
+        # #1060: get_current_conditions は service ではなく UI の現在状態を直列化する
         conditions = filter_panel.get_current_conditions()
 
-        assert conditions["search_type"] == "tags"
-        assert conditions["keywords"] == ["test", "search"]
+        assert conditions["version"] == filter_panel.CONDITIONS_SCHEMA_VERSION
+        assert conditions["search_text"] == "test search"
+        assert conditions["search_tags"] is True
         assert conditions["tag_logic"] == "and"
-        assert conditions["resolution_filter"] is None
-        assert conditions["aspect_ratio_filter"] is None
+        assert conditions["resolution"] == "全て"
+        assert conditions["aspect_ratio"] == "全て"
         assert conditions["date_filter_enabled"] is False
         assert conditions["only_untagged"] is False
         assert conditions["only_uncaptioned"] is False
@@ -430,28 +412,12 @@ class TestFilterSearchPanel:
         filter_panel.checkboxExcludeDuplicates.isChecked.return_value = False
         filter_panel.checkboxIncludeNSFW.isChecked.return_value = False
 
-        # Mock SearchFilterService for caption search
-        mock_search_conditions = Mock()
-        mock_search_conditions.search_type = "caption"
-        mock_search_conditions.keywords = ["beautiful", "landscape"]
-        mock_search_conditions.tag_logic = "or"
-        mock_search_conditions.resolution_filter = None
-        mock_search_conditions.custom_width = ""
-        mock_search_conditions.custom_height = ""
-        mock_search_conditions.aspect_ratio_filter = None
-        mock_search_conditions.date_filter_enabled = False
-        mock_search_conditions.date_range_start = None
-        mock_search_conditions.date_range_end = None
-        mock_search_conditions.only_untagged = False
-        mock_search_conditions.only_uncaptioned = False
-        mock_search_conditions.exclude_duplicates = False
-
-        filter_panel.search_filter_service.get_current_conditions.return_value = mock_search_conditions
-
+        # #1060: UI の現在状態 (キャプション検索 + OR) が直列化される
         conditions = filter_panel.get_current_conditions()
 
-        assert conditions["keywords"] == ["beautiful", "landscape"]
-        assert conditions["search_type"] == "caption"
+        assert conditions["search_text"] == "beautiful landscape"
+        assert conditions["search_tags"] is False
+        assert conditions["search_caption"] is True
         assert conditions["tag_logic"] == "or"
 
     def test_get_filter_conditions_date_range(self, filter_panel):
@@ -470,31 +436,11 @@ class TestFilterSearchPanel:
         filter_panel.checkboxExcludeDuplicates.isChecked.return_value = False
         filter_panel.checkboxIncludeNSFW.isChecked.return_value = False
 
-        # Mock SearchFilterService for date range
-        mock_search_conditions = Mock()
-        mock_search_conditions.search_type = "tags"
-        mock_search_conditions.keywords = []
-        mock_search_conditions.tag_logic = "and"
-        mock_search_conditions.resolution_filter = None
-        mock_search_conditions.custom_width = ""
-        mock_search_conditions.custom_height = ""
-        mock_search_conditions.aspect_ratio_filter = None
-        mock_search_conditions.date_filter_enabled = True
-        mock_search_conditions.date_range_start = 1640995200  # 2022-01-01
-        mock_search_conditions.date_range_end = 1703980800  # 2023-12-30
-        mock_search_conditions.only_untagged = False
-        mock_search_conditions.only_uncaptioned = False
-        mock_search_conditions.exclude_duplicates = False
-
-        filter_panel.search_filter_service.get_current_conditions.return_value = mock_search_conditions
-
+        # #1060: 日付フィルター有効時、slider の範囲が date_range として直列化される
         conditions = filter_panel.get_current_conditions()
 
         assert conditions["date_filter_enabled"] is True
-        assert conditions["date_range_start"] is not None
-        assert conditions["date_range_end"] is not None
-        assert isinstance(conditions["date_range_start"], int)
-        assert isinstance(conditions["date_range_end"], int)
+        assert conditions["date_range"] == [1640995200, 1703980800]
 
     def test_get_filter_conditions_all_options(self, filter_panel):
         """全オプション有効時の条件テスト"""
@@ -512,33 +458,18 @@ class TestFilterSearchPanel:
         filter_panel.checkboxExcludeDuplicates.isChecked.return_value = True
         filter_panel.checkboxIncludeNSFW.isChecked.return_value = True
 
-        # Mock SearchFilterService for all options enabled
-        mock_search_conditions = Mock()
-        mock_search_conditions.search_type = "tags"
-        mock_search_conditions.keywords = ["test"]
-        mock_search_conditions.tag_logic = "and"
-        mock_search_conditions.resolution_filter = "1024x1024"
-        mock_search_conditions.custom_width = ""
-        mock_search_conditions.custom_height = ""
-        mock_search_conditions.aspect_ratio_filter = "正方形 (1:1)"
-        mock_search_conditions.date_filter_enabled = True
-        mock_search_conditions.date_range_start = 1640995200
-        mock_search_conditions.date_range_end = 1703980800
-        mock_search_conditions.only_untagged = True
-        mock_search_conditions.only_uncaptioned = True
-        mock_search_conditions.exclude_duplicates = True
-
-        filter_panel.search_filter_service.get_current_conditions.return_value = mock_search_conditions
-
+        # #1060: 全オプションが UI 状態から直列化される
         conditions = filter_panel.get_current_conditions()
 
-        assert conditions["keywords"] == ["test"]
-        assert conditions["resolution_filter"] == "1024x1024"
-        assert conditions["aspect_ratio_filter"] == "正方形 (1:1)"
+        assert conditions["search_text"] == "test"
+        assert conditions["resolution"] == "1024x1024"
+        assert conditions["aspect_ratio"] == "正方形 (1:1)"
         assert conditions["date_filter_enabled"] is True
         assert conditions["only_untagged"] is True
         assert conditions["only_uncaptioned"] is True
         assert conditions["exclude_duplicates"] is True
+        assert conditions["include_unrated"] is True
+        assert conditions["score_range"] == [0, 1000]
 
     def test_on_clear_filter(self, filter_panel):
         """フィルタークリアテスト（実際の清理動作に合わせたテスト）"""
