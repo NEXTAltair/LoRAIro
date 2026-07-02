@@ -491,7 +491,7 @@ def test_translation_add_dialog_emits_signal(panel, sample_tags, qtbot, monkeypa
     panel.set_tags(sample_tags, image_id=10)
 
     def fill(dialog):
-        dialog._language_combo.setCurrentText("ja")
+        dialog._language_combo.setCurrentIndex(0)  # 日本語 (保存値 ja、#1050)
         dialog._translation_input.setText("少女")
 
     _accept_dialog(monkeypatch, "TranslationAddDialog", fill)
@@ -515,7 +515,7 @@ def test_translation_add_empty_input_skipped(panel, sample_tags, monkeypatch):
     panel.set_tags(sample_tags, image_id=10)
 
     def fill(dialog):
-        dialog._language_combo.setCurrentText("ja")
+        dialog._language_combo.setCurrentIndex(0)  # 日本語 (保存値 ja、#1050)
         dialog._translation_input.setText("")
 
     _accept_dialog(monkeypatch, "TranslationAddDialog", fill)
@@ -1164,3 +1164,68 @@ def test_refinement_menu_label_includes_counts_but_emits_raw_tag(panel, sample_t
     with qtbot.waitSignal(chip.refinement_apply_requested, timeout=1000) as blocker:
         chip.refinement_apply_requested.emit("1girl", "cat")
     assert blocker.args == ["1girl", "cat"]
+
+
+# #1050: 翻訳登録ダイアログの言語選択は固定ドロップダウン --------------------
+
+
+def test_translation_dialog_language_choices_are_fixed(qtbot):
+    """自由入力は廃止し、候補は 日本語/English の固定2択 (Issue #1050)。"""
+    dialog = TranslationAddDialog("1girl", ["japanese", "zh", "whatever"])
+    qtbot.addWidget(dialog)
+
+    assert dialog._language_combo.isEditable() is False
+    labels = [dialog._language_combo.itemText(i) for i in range(dialog._language_combo.count())]
+    assert labels == ["日本語", "English"]
+
+
+def test_translation_dialog_language_returns_normalized_code(qtbot):
+    """表示は人間向けラベル、保存値は ja / en に正規化される (Issue #1050)。"""
+    dialog = TranslationAddDialog("1girl", [])
+    qtbot.addWidget(dialog)
+
+    dialog._language_combo.setCurrentIndex(0)
+    assert dialog.language() == "ja"
+
+    dialog._language_combo.setCurrentIndex(1)
+    assert dialog.language() == "en"
+
+
+def test_translation_lookup_bridges_ja_and_japanese_keys(panel, sample_tags):
+    """#1050 Codex P2: 正規化キー "ja" で保存した翻訳は legacy "japanese" 表示でも見える。"""
+    panel.set_tags(
+        sample_tags,
+        translations={10: {"ja": "1人の女の子"}},
+        available_languages=["japanese"],
+        image_id=10,
+    )
+
+    panel._refresh_tags_for_language("japanese")
+
+    chip = next(c for c in panel._tag_chips if c.canonical == "1girl")
+    assert chip.text().strip("⚠ ").strip() == "1人の女の子"
+
+
+def test_update_language_selector_preserves_selection_and_adds_new_language(panel, sample_tags):
+    """#1050 Codex P2: 新言語追加後の selector 更新は現在の選択を巻き戻さない。"""
+    panel.set_tags(sample_tags, image_id=10)
+    panel.initialize_language_selector(["japanese"])
+    panel._lang_combo.setCurrentIndex(panel._lang_combo.findText("japanese"))
+
+    panel.update_language_selector(["japanese", "en"])
+
+    labels = [panel._lang_combo.itemText(i) for i in range(panel._lang_combo.count())]
+    assert labels == ["english", "japanese", "en"]
+    # 選択は japanese のまま (english へ巻き戻らない)
+    assert panel._lang_combo.currentText() == "japanese"
+
+
+def test_update_language_selector_switches_from_original_view_to_saved_language(panel, sample_tags):
+    """#1050 Codex P2: 原文 (english) 表示中に登録した言語へ自動切替して即可視化する。"""
+    panel.set_tags(sample_tags, image_id=10)
+    panel.initialize_language_selector(["japanese"])
+    assert panel._current_language() == "english"
+
+    panel.update_language_selector(["japanese", "en"], prefer="en")
+
+    assert panel._lang_combo.currentText() == "en"
