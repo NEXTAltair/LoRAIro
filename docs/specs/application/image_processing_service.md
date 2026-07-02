@@ -1,8 +1,13 @@
 # Image Processing Service 仕様書
 
+> **注記**: 実装先パスは `src/lorairo/image_transforms/image_processor.py` です
+> (旧 `src/lorairo/editor/image_processor.py` は #717 のリネームで現行パスに変更されています)。
+> GUI呼び出し元も `ImageEditWidget` (未実装のまま終わった構想) ではなく、
+> 現行の `src/lorairo/gui/tab/` 配下の各タブウィジェットです。
+
 ## 1. 概要
 
-本ドキュメントは、アプリケーション層における画像処理サービス (`ImageProcessingService`) の仕様を定義する。このサービスは、GUI層 (`ImageEditWidget`) からの要求を受け、画像処理のコア機能 (`ImageProcessingManager` など) とデータベース (`ImageDatabaseManager`)、ファイルシステム (`FileSystemManager`) を連携させ、一連の画像処理ワークフローを実行する。
+本ドキュメントは、アプリケーション層における画像処理サービス (`ImageProcessingService`) の仕様を定義する。このサービスは、GUI層 (各タブウィジェット) からの要求を受け、画像処理のコア機能 (`ImageProcessingManager` など) とデータベース (`ImageDatabaseManager`)、ファイルシステム (`FileSystemManager`) を連携させ、一連の画像処理ワークフローを実行する。
 
 ## 2. 責務
 
@@ -29,15 +34,14 @@
 -   `ConfigurationService`: 画像処理設定の取得。
 -   `FileSystemManager`: オリジナル画像のコピー、処理済み画像の保存、画像情報の取得。
 -   `ImageDatabaseManager`: 画像のDB登録・検索、メタデータ管理。
--   `ImageProcessingManager` (`src/lorairo/editor/image_processor.py` 内): 実際の画像処理 (枠除去、正規化、アップスケール、リサイズ) を担当するコアコンポーネント。
+-   `ImageProcessingManager` (`src/lorairo/image_transforms/image_processor.py` 内): 実際の画像処理 (枠除去、正規化、アップスケール、リサイズ) を担当するコアコンポーネント。
 -   `src/lorairo/utils/log.py`: ログ出力用。
 
 ## 5. 注意点
 
--   既存のアノテーションファイルの読み込み・DB登録処理は、元々 `ImageEditWidget` 内にあったが、責務分離の観点から `ImageProcessingService` または別のアノテーション関連サービスに移動することが望ましい (現状は `_process_single_image` 内でコメントアウトされている箇所あり)。
+-   既存のアノテーションファイルの読み込み・DB登録処理を `ImageProcessingService` に持たせるか、別のアノテーション関連サービスに分離するかは責務分離の観点から要検討。
 -   エラーハンドリング: 個別画像の処理でエラーが発生した場合の挙動 (処理を継続するか、全体を中断するか) は要検討。
 
 ## 6. 関連ドキュメント
 
 -   コア画像処理仕様: [image_processing.md](../core/image_processing.md)
--   画像編集UI仕様: [image_edit_widget.md](../interfaces/image_edit_widget.md)

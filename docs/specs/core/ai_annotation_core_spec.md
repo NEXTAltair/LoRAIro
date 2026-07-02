@@ -1,5 +1,12 @@
 # AIアノテーション Core層仕様書（image-annotator-lib連携・全体設計）
 
+> **⚠️ DEPRECATED**: このドキュメントは初期設計構想であり、実装先として記載されている
+> `src/lorairo/gui/widgets/annotation_widget.py` / `src/lorairo/services/annotation_service.py` /
+> `src/lorairo/annotations/ai_annotator.py` はいずれも実在しません。
+> APIキーも `.env` ではなく `config/lorairo.toml` + `ConfigurationService` から読み込まれます。
+> 現行の実装は `src/lorairo/annotation/annotator_adapter.py` / `annotation_runner.py`
+> (`docs/integrations.md` 参照) を参照してください。
+
 ## 1. 目的
 
 AIアノテーション（タグ・キャプション・スコア生成）機能を外部ライブラリ `image-annotator-lib` に委譲し、`lorairo` 本体はデータセット管理・画像処理に集中する。

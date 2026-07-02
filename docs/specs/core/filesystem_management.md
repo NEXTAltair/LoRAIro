@@ -1,6 +1,10 @@
 # ストレージ管理仕様 (Storage Management Specification)
 
-## 1. 概要
+> **⚠️ DEPRECATED**: このドキュメントは `lorairo.storage.*` サブパッケージへの分割案 (未実装) を記述しています。
+> 実際には Issue #717 で逆方向の変更が行われ、ファイルシステム操作は `src/lorairo/filesystem.py` に平坦化されています。
+> 現行の実装は `src/lorairo/filesystem.py` の `FileSystemManager` を参照してください。
+
+## 1. 概要 (歴史的経緯・未実装の分割案)
 
 本ドキュメントは、LoRAiro プロジェクトにおけるファイルシステム操作およびデータストレージ管理機能の設計仕様を定義する。
 現在の `FileSystemManager` クラスは責務が肥大化しているため、リファクタリングにより責務を分離し、保守性、テスト容易性を向上させることを目的とする。

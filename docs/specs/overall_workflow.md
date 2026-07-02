@@ -1,6 +1,10 @@
 # LoRAIro 全体処理フロー概要
 
-本ドキュメントは、LoRAIro アプリケーションにおける主要なデータ処理の流れを、実装の詳細から離れて概観することを目的とする。
+> **⚠️ DEPRECATED**: このドキュメントは初期設計構想であり、`ImageEditWidget` / `ImageTaggerWidget` /
+> `DatasetExportWidget` / `src/lorairo/editor/` / `ai_annotator.py` など、実在しないモジュール・クラスを
+> 前提に記述されています。現行のサービス層構成は `docs/architecture.md` と `docs/services.md` を参照してください。
+
+本ドキュメントは、LoRAIro アプリケーションにおける主要なデータ処理の流れを、実装の詳細から離れて概観することを目的とする (歴史的経緯として保存)。
 
 ## 1. アーキテクチャ概要: サービス層の役割
 

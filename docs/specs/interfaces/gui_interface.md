@@ -1,6 +1,12 @@
 # GUIインターフェース 仕様書
 
-## 1. 概要
+> **⚠️ DEPRECATED**: このドキュメントは Epic #867 (MainWindow タブ分解) 以前の
+> 「3パネル構成の MainWindow」構想を記述しています。現在は `MainWindow` は接着剤として、
+> 各機能は `src/lorairo/gui/tab/` 配下の専用タブウィジェット (`AnnotateTabWidget` 等) に分解されています。
+> `preview_detail_panel.py` / `thumbnail.py` / `tests/gui/test_main_window_qt.py` など本文中の一部パスは
+> 実在しません。現行のGUI構成は `docs/architecture.md` と `docs/services.md` を参照してください。
+
+## 1. 概要 (歴史的経緯・3パネル構成時代の記述)
 
 本ドキュメントは、`lorairo` アプリケーションのグラフィカルユーザーインターフェース (GUI) の仕様を定義する。GUI は `PySide6` ライブラリを用いて構築され、非同期処理にQThreadPool/QRunnableベースのワーカーシステムを採用している。
 
