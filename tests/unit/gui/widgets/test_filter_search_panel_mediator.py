@@ -537,6 +537,30 @@ class TestFavoriteConditionsRoundtrip:
         assert "date_range" not in migrated
         assert migrated["date_filter_enabled"] is True
 
+    def test_apply_legacy_without_score_range_resets_slider(self, panel):
+        """score_range を持たない legacy 条件の適用で旧スライダー値が残留しない (Codex P2)。"""
+        panel.score_range_slider.slider.setValue((200, 800))
+
+        panel.apply_conditions({"search_type": "tags", "keywords": ["1girl"]})
+
+        assert panel.score_range_slider.get_range() == (0, 1000)
+
+    def test_apply_oldest_tags_shape_restores_search_text(self, panel):
+        """旧々形式 (tags/use_and — 旧 _update_ui_from_conditions の入力形) を変換する (Codex P2)。"""
+        panel.apply_conditions({"tags": ["1girl", "solo"], "use_and": False})
+
+        assert panel.ui.lineEditSearch.text() == "1girl, solo"
+        assert panel.ui.checkboxTags.isChecked() is True
+        assert panel.ui.radioOr.isChecked() is True
+
+    def test_apply_oldest_caption_shape_restores_search_text(self, panel):
+        """旧々形式 (caption) を変換する (Codex P2)。"""
+        panel.apply_conditions({"caption": "beautiful landscape"})
+
+        assert panel.ui.lineEditSearch.text() == "beautiful landscape"
+        assert panel.ui.checkboxCaption.isChecked() is True
+        assert panel.ui.checkboxTags.isChecked() is False
+
     def test_apply_empty_conditions_is_noop(self, panel):
         """空辞書の適用は警告のみで UI を変更しない。"""
         panel.ui.lineEditSearch.setText("keep me")

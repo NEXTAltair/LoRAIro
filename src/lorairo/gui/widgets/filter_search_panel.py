@@ -1063,6 +1063,10 @@ class FilterSearchPanel(QScrollArea):
         date_range = conditions.get("date_range")
         if isinstance(date_range, list | tuple) and len(date_range) == 2:
             self.date_range_slider.slider.setValue((int(date_range[0]), int(date_range[1])))
+        else:
+            # 保存条件に無い項目は既定へ戻す。残留した旧スライダー値で
+            # 意図しない絞り込みが効き続けるのを防ぐ (Codex P2)
+            self._reset_range_slider(self.date_range_slider)
 
         self.ui.checkboxOnlyUntagged.setChecked(bool(conditions.get("only_untagged", False)))
         self.ui.checkboxOnlyUncaptioned.setChecked(bool(conditions.get("only_uncaptioned", False)))
@@ -1083,9 +1087,16 @@ class FilterSearchPanel(QScrollArea):
         score_range = conditions.get("score_range")
         if isinstance(score_range, list | tuple) and len(score_range) == 2:
             self.score_range_slider.slider.setValue((int(score_range[0]), int(score_range[1])))
+        else:
+            self._reset_range_slider(self.score_range_slider)
 
         # 復元した条件で件数見積もりを更新する
         self._count_estimate.schedule_update()
+
+    @staticmethod
+    def _reset_range_slider(slider_widget: CustomRangeSlider) -> None:
+        """レンジスライダーを全範囲 (フィルタ無し相当) に戻す。"""
+        slider_widget.slider.setValue((slider_widget.slider.minimum(), slider_widget.slider.maximum()))
 
     @staticmethod
     def _set_combo_text_if_choice(combo: QComboBox, text: Any) -> None:
@@ -1106,15 +1117,7 @@ class FilterSearchPanel(QScrollArea):
         if not conditions:
             return {}
         migrated: dict[str, Any] = {"version": FilterSearchPanel.CONDITIONS_SCHEMA_VERSION}
-        keywords = [str(k) for k in conditions.get("keywords") or []]
-        excluded = [f"-{k}" for k in conditions.get("excluded_keywords") or []]
-        if keywords or excluded:
-            # 除外キーワードは parse_search_input の "-tag" 構文へ戻す
-            migrated["search_text"] = ", ".join(keywords + excluded)
-        search_type = conditions.get("search_type")
-        if search_type:
-            migrated["search_tags"] = search_type == "tags"
-            migrated["search_caption"] = search_type == "caption"
+        FilterSearchPanel._migrate_legacy_search_fields(conditions, migrated)
         for legacy_key, new_key in (
             ("tag_logic", "tag_logic"),
             ("resolution_filter", "resolution"),
@@ -1126,6 +1129,10 @@ class FilterSearchPanel(QScrollArea):
         ):
             if conditions.get(legacy_key) is not None:
                 migrated[new_key] = conditions[legacy_key]
+        if "tag_logic" not in migrated and conditions.get("use_and") is not None:
+            migrated["tag_logic"] = "and" if conditions["use_and"] else "or"
+        if "resolution" not in migrated and conditions.get("resolution"):
+            migrated["resolution"] = conditions["resolution"]
         # 旧形式の日付境界を date_range へ変換する (Codex P2)。変換できない場合は
         # date_range を落とし、有効フラグだけ引き継ぐ (誤った日付での検索を防ぐ)。
         start_ts = FilterSearchPanel._coerce_timestamp(conditions.get("date_range_start"))
@@ -1137,6 +1144,35 @@ class FilterSearchPanel(QScrollArea):
         # ため明示的に True を入れる (Codex P2)。
         migrated["include_unrated"] = True
         return migrated
+
+    @staticmethod
+    def _migrate_legacy_search_fields(conditions: dict[str, Any], migrated: dict[str, Any]) -> None:
+        """旧形式の検索テキスト/検索種別キーを migrated へ写像する (#1060)。
+
+        旧 (keywords/excluded_keywords/search_type) と旧々
+        (tags/caption — 旧 _update_ui_from_conditions が読んでいた形) の両方を
+        best-effort で取り込む (Codex P2)。
+        """
+        keywords = [str(k) for k in conditions.get("keywords") or []]
+        excluded = [f"-{k}" for k in conditions.get("excluded_keywords") or []]
+        if keywords or excluded:
+            # 除外キーワードは parse_search_input の "-tag" 構文へ戻す
+            migrated["search_text"] = ", ".join(keywords + excluded)
+        search_type = conditions.get("search_type")
+        if search_type:
+            migrated["search_tags"] = search_type == "tags"
+            migrated["search_caption"] = search_type == "caption"
+        if "search_text" in migrated:
+            return
+        legacy_tags = conditions.get("tags")
+        legacy_caption = conditions.get("caption")
+        if legacy_tags:
+            migrated["search_text"] = ", ".join(str(tag) for tag in legacy_tags)
+            migrated["search_tags"] = True
+        elif legacy_caption:
+            migrated["search_text"] = str(legacy_caption)
+            migrated["search_tags"] = False
+            migrated["search_caption"] = True
 
     @staticmethod
     def _coerce_timestamp(value: Any) -> int | None:
