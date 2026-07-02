@@ -1,7 +1,5 @@
 # src/lorairo/gui/services/image_db_write_service.py
 
-from pathlib import Path
-
 from ...database.db_manager import ImageDatabaseManager
 from ...database.schema import (
     CaptionAnnotationData,
@@ -9,9 +7,7 @@ from ...database.schema import (
     ScoreAnnotationData,
     TagAnnotationData,
 )
-from ...services.date_formatter import format_datetime_for_display
 from ...utils.log import logger
-from ..widgets.annotation_data_display_widget import AnnotationData, ImageDetails
 
 
 class ImageDBWriteService:
@@ -19,17 +15,15 @@ class ImageDBWriteService:
     画像データベース書き込みサービス（GUI専用）
 
     責任:
-    - 単一画像の詳細情報取得
     - 画像Rating/Score/Tags/Caption情報のデータベース更新
-    - アノテーション情報の取得
     - GUI層でのDB書き込み操作専門化
 
-    Phase 1-2で確立されたSearchFilterServiceパターンを継承し、
-    Read/Write分離による美しい対称性を実現
+    読み取り (詳細パネル表示) は DatasetStateManager 経由のメタデータ投影
+    (ImageRepository._format_annotations_for_metadata) が担う。
+    旧 get_image_details / get_annotation_data は呼び出し元ゼロの dead code
+    だったため削除した (Issue #1061)。
 
     提供メソッド:
-    - get_image_details: 画像詳細情報取得
-    - get_annotation_data: アノテーション情報取得
     - update_rating: Rating更新
     - update_score: Score更新
     - update_tags: Tags更新（カンマ区切り文字列）
@@ -40,103 +34,6 @@ class ImageDBWriteService:
         """ImageDBWriteServiceコンストラクタ（SearchFilterServiceと同一パターン）"""
         self.db_manager = db_manager
         logger.debug("ImageDBWriteService initialized")
-
-    def get_image_details(self, image_id: int) -> ImageDetails:
-        """
-        単一画像の詳細情報取得（SelectedImageDetailsWidget._fetch_image_detailsから移行）
-
-        Args:
-            image_id: 取得対象の画像ID
-
-        Returns:
-            ImageDetails: 画像詳細情報
-        """
-        try:
-            # ImageRepositoryを通じて画像メタデータを取得
-            image_metadata = self.db_manager.image_repo.get_image_metadata(image_id)
-
-            if not image_metadata:
-                logger.warning(f"Image not found for ID: {image_id}")
-                return ImageDetails()
-
-            # ファイル情報作成
-            file_path = Path(image_metadata.get("stored_image_path", ""))
-            file_size_bytes = image_metadata.get("file_size", 0)
-            file_size_mb = file_size_bytes / (1024 * 1024) if file_size_bytes > 0 else 0
-
-            # アノテーション情報取得
-            annotation_data = self.get_annotation_data(image_id)
-
-            # Rating/Score 情報取得（Repository側で整形済み）
-            rating_value = image_metadata.get("rating_value", "")
-            # Score: DB値（0-10）→ UI値（0-1000）に変換
-            db_score_value = image_metadata.get("score_value", 0)
-            score_value = int(db_score_value * 100) if db_score_value else 0
-
-            result = ImageDetails(
-                image_id=image_id,
-                file_name=file_path.name,
-                file_path=str(file_path),
-                image_size=f"{image_metadata.get('width', 0)}x{image_metadata.get('height', 0)}"
-                if image_metadata.get("width")
-                else "-",
-                file_size=f"{file_size_mb:.2f} MB" if file_size_mb > 0 else "-",
-                created_date=format_datetime_for_display(image_metadata.get("created_at")),
-                rating_value=rating_value,
-                score_value=score_value,
-                annotation_data=annotation_data,
-            )
-
-            logger.debug(f"Image details retrieved for ID: {image_id}")
-            return result
-
-        except Exception as e:
-            logger.error(f"Error fetching image details for ID {image_id}: {e}", exc_info=True)
-            return ImageDetails()
-
-    def get_annotation_data(self, image_id: int) -> AnnotationData:
-        """
-        単一画像のアノテーション情報取得（SelectedImageDetailsWidget._fetch_annotation_dataから移行）
-
-        Args:
-            image_id: 取得対象の画像ID
-
-        Returns:
-            AnnotationData: アノテーション情報
-        """
-        try:
-            # ImageRepositoryを通じてアノテーション情報を取得
-            annotations = self.db_manager.image_repo.get_image_annotations(image_id)
-
-            # タグ情報取得
-            tags_data = annotations.get("tags", [])
-            tags = [tag_item.get("content", "") for tag_item in tags_data] if tags_data else []
-
-            # キャプション情報取得（最新のもの）
-            captions_data = annotations.get("captions", [])
-            caption = captions_data[0].get("content", "") if captions_data else ""
-
-            # スコア情報取得（最新のもの）
-            scores_data = annotations.get("scores", [])
-            aesthetic_score = scores_data[0].get("score") if scores_data else None
-
-            result = AnnotationData(
-                tags=tags,
-                caption=caption,
-                aesthetic_score=aesthetic_score,
-                overall_score=0,
-                score_type="Aesthetic",
-                score_labels=annotations.get("score_labels", []),
-                ratings=annotations.get("ratings", []),
-                quality_summary=annotations.get("quality_summary", {}),
-            )
-
-            logger.debug(f"Annotation data retrieved for ID: {image_id}")
-            return result
-
-        except Exception as e:
-            logger.error(f"Error fetching annotation data for ID {image_id}: {e}", exc_info=True)
-            return AnnotationData()
 
     def update_rating(self, image_id: int, rating: str) -> bool:
         """

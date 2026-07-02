@@ -247,6 +247,45 @@ class TestFormatAnnotationsForMetadata:
         assert result["tags"][1]["confidence_score"] == 0.85
         assert result["tags_text"] == "tag1, tag2"
 
+    def test_format_annotations_caption_text_picks_latest(self, repository):
+        """caption_text は挿入順に依らず created_at が最新のキャプションを採用する。
+
+        Image.captions relationship に order_by が無く joinedload の返却順は実質
+        挿入順のため、先頭要素を「最新」と仮定する実装は最古を表示してしまう
+        (Issue #1061)。表示経路の _format_captions が max(created_at) で選択する
+        保証をここで固定する。
+        """
+
+        def make_caption(caption_id: int, text: str, created: datetime) -> Mock:
+            caption = Mock(spec=Caption)
+            caption.id = caption_id
+            caption.caption = text
+            caption.model_id = "test_model"
+            caption.model = Mock()
+            caption.model.name = "test_model"
+            caption.existing = False
+            caption.is_edited_manually = False
+            caption.rejected_at = None
+            caption.created_at = created
+            caption.updated_at = created
+            return caption
+
+        old_caption = make_caption(1, "old caption", datetime(2025, 1, 1, 10, 0, 0))
+        new_caption = make_caption(2, "new caption", datetime(2026, 6, 1, 10, 0, 0))
+
+        # 挿入順 (最古が先頭) と逆順の両方で最新が選ばれること
+        for ordering in ([old_caption, new_caption], [new_caption, old_caption]):
+            image = Mock(spec=Image)
+            image.tags = []
+            image.captions = list(ordering)
+            image.scores = []
+            image.score_labels = []
+            image.ratings = []
+
+            result = repository._format_annotations_for_metadata(image)
+
+            assert result["caption_text"] == "new caption"
+
     def test_format_annotations_includes_quality_summary(self, repository):
         """ADR 0029: score_labels がある場合、quality_summary が derived 計算される。
 
