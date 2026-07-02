@@ -159,15 +159,16 @@ lorairo/
 ├── src/                    # ソースコード
 │   └── lorairo/            # メインパッケージ
 │       ├── main.py         # GUIエントリーポイント
-│       ├── annotations/    # AIアノテーション連携
-│       ├── api/            # Public API
+│       ├── annotation/     # AIアノテーション連携
+│       ├── public_api/     # Public API
 │       ├── cli/            # CLIインターフェース
 │       ├── database/       # データベース操作
-│       ├── editor/         # 画像編集（クロップ・アップスケール）
-│       ├── gui/            # GUIコンポーネント
-│       ├── services/       # ビジネスロジック
-│       ├── storage/        # ファイルシステム管理
-│       └── utils/          # ユーティリティ
+│       ├── domain/         # ドメインロジック（品質評価等）
+│       ├── image_transforms/ # 画像処理（クロップ・アップスケール）
+│       ├── gui/             # GUIコンポーネント
+│       ├── services/        # ビジネスロジック
+│       ├── filesystem.py    # ファイルシステム管理
+│       └── utils/           # ユーティリティ
 ├── tests/                  # テストコード
 ├── docs/                   # ドキュメント
 ├── pyproject.toml          # プロジェクト設定
@@ -195,20 +196,16 @@ lorairo/
 # ヘルプの表示
 make help
 
-# 開発環境のセットアップ
-make install-dev  # uv sync を実行
+# 開発環境のセットアップ（サブモジュール取得 + uv sync --dev、推奨エントリーポイント）
+make setup
 
 # コードの品質チェック
-make lint
-make format
+make format  # ruff format + check --fix
 make mypy
 
 # テストの実行
-make test
-
-# ドキュメントのビルドと公開
-make docs
-make docs-publish
+make test      # LoRAIro 本体テスト（tests/ のみ、ADR 0024）
+make test-all  # local_packages を含む全テストセッションを順次実行
 
 # クリーンアップ
 make clean
