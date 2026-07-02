@@ -28,14 +28,10 @@ class PaginationStateManager(QObject):
 
     Attributes:
         page_changed: ページが変更されたときに発行（新しいページ番号）
-        loading_started: ページ読み込み開始時に発行（ページ番号）
-        loading_completed: ページ読み込み完了時に発行（ページ番号, 画像IDリスト）
     """
 
     # === シグナル ===
     page_changed = Signal(int)  # new_page
-    loading_started = Signal(int)  # page_num
-    loading_completed = Signal(int, list)  # page_num, image_ids
 
     # === 定数 ===
     DEFAULT_PAGE_SIZE = 100

@@ -41,8 +41,6 @@ class ThumbnailSelectorWidget(QWidget, Ui_ThumbnailSelectorWidget):
 
     Signals:
         image_selected (Path): 単一画像が選択された時に発火
-        multiple_images_selected (list[Path]): 複数画像が選択された時に発火
-        selection_cleared (): 選択がクリアされた時に発火
 
     Attributes:
         dataset_state (DatasetStateManager): データセット状態管理オブジェクト
@@ -52,8 +50,6 @@ class ThumbnailSelectorWidget(QWidget, Ui_ThumbnailSelectorWidget):
 
     # === Unified Modern Signals（統一snake_case命名規約） ===
     image_selected = Signal(Path)  # 単一画像選択時
-    multiple_images_selected = Signal(list)  # 複数画像選択時
-    selection_cleared = Signal()  # 選択クリア時
     stage_selected_requested = Signal(list)  # バッチタグのステージング追加要求（visible image_ids）
     quick_tag_requested = Signal(list)  # クイックタグ追加要求（image_ids）
 

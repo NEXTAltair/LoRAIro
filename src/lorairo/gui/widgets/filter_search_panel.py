@@ -196,8 +196,6 @@ class FilterSearchPanel(QScrollArea):
     filter_applied = Signal(dict)  # filter_conditions
     filter_cleared = Signal()
     search_requested = Signal(dict)  # search_conditions
-    search_progress_started = Signal()  # 検索開始
-    search_progress_updated = Signal(int, str)  # 進捗値, メッセージ
     search_completed = Signal(dict)  # 検索結果
 
     # Pipeline State Management

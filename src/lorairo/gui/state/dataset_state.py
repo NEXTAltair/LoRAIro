@@ -17,8 +17,6 @@ class DatasetStateManager(QObject):
     # === コアデータセット状態シグナル ===
     dataset_changed = Signal(str)  # dataset_path
     dataset_loaded = Signal(int)  # total_image_count
-    dataset_loading_started = Signal()
-    dataset_loading_failed = Signal(str)  # error_message
 
     # === 画像リスト・フィルター状態シグナル ===
     images_filtered = Signal(list)  # List[Dict[str, Any]] - filtered image metadata

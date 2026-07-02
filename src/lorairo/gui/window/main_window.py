@@ -68,7 +68,6 @@ class MainWindow(QMainWindow, Ui_MainWindow):
     SETTINGS_VERSION = 5
 
     # シグナル
-    dataset_loaded = Signal(str)  # dataset_path
     database_registration_completed = Signal(int)  # registered_count
 
     # サービス属性の型定義（初期化で設定）
