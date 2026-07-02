@@ -219,6 +219,15 @@ class AnnotationDataDisplayWidget(QWidget, Ui_AnnotationDataDisplayWidget):
         """言語コンボの候補を選択を保ったまま更新する (TagPanelWidget へ委譲、#1050)。"""
         self._tag_panel.update_language_selector(available_languages, prefer=prefer)
 
+    def apply_tag_metadata(
+        self,
+        translations: dict[int, dict[str, str]],
+        usage_counts: dict[int, dict[str, int]],
+        tag_types: dict[str, str],
+    ) -> None:
+        """worker で解決した翻訳/使用頻度/type を反映する (TagPanelWidget へ委譲、#1046)。"""
+        self._tag_panel.apply_tag_metadata(translations, usage_counts, tag_types)
+
     def apply_refinements(
         self,
         recommendations: dict[str, RefinementRecommendation],

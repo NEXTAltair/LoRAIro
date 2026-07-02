@@ -844,6 +844,28 @@ class TagPanelWidget(QWidget):
         }
         self._refresh_tags_for_language(self._current_language())
 
+    def apply_tag_metadata(
+        self,
+        translations: dict[int, dict[str, str]],
+        usage_counts: dict[int, dict[str, int]],
+        tag_types: dict[str, str],
+    ) -> None:
+        """worker で解決した翻訳/使用頻度/type をまとめて反映する (#1046)。
+
+        2段階描画の後段: 原文のみの即時表示に対し、background で解決した
+        メタデータを 1 回の再描画で反映する (#983 の多重再描画の罠を避ける)。
+        言語選択・✕/無効化などの表示状態は保持される。
+        """
+        self._translations = dict(translations)
+        self._usage_counts = dict(usage_counts)
+        self._tag_types = dict(tag_types)
+        # type が届いたのでグループソートを適用し直す (#1056)
+        self._tags = self._sort_tags_by_type(self._tags)
+        self._rebuild_counts_by_canonical()
+        self._refresh_metric_selector()
+        self._populate_table(self._all_tag_rows)
+        self._refresh_tags_for_language(self._current_language())
+
     def apply_refinements(
         self,
         recommendations: dict[str, RefinementRecommendation],

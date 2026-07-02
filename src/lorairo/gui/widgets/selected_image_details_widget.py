@@ -51,6 +51,7 @@ if TYPE_CHECKING:
     from ..state.dataset_state import DatasetStateManager
     from ..workers.manager import WorkerManager
     from ..workers.refinement_worker import RefinementResult
+    from ..workers.tag_metadata_worker import TagMetadataResult
     from ..workers.terminal import WorkerTerminalEvent
 
 
@@ -127,6 +128,10 @@ class SelectedImageDetailsWidget(QWidget):
         self._refinement_service: RefinementService | None = None
         self._refinement_worker_manager: WorkerManager | None = None
         self._refinement_generation: int = 0  # worker_id 一意化 + レース照合の世代
+        # tag metadata worker の single-flight 状態 (#1046、refinement と同型)
+        self._tag_metadata_generation: int = 0
+        self._tag_metadata_inflight_id: str | None = None
+        self._tag_metadata_pending: tuple[int, list[dict[str, Any]], int] | None = None
         self._current_tag_canonicals: list[str] = []
         # single-flight 制御 (#1024): 実行中 worker は常に1本。追加要求は最新1件だけ
         # pending に保持し、実行中 worker には協調キャンセルを要求する。
@@ -405,15 +410,33 @@ class SelectedImageDetailsWidget(QWidget):
             service: refinement 評価/ignore を担う Qt-free サービス。
             worker_manager: 非同期評価用。None なら専用 WorkerManager を生成する。
         """
-        from ..workers.manager import WorkerManager as _WorkerManager
-
         self._refinement_service = service
-        self._refinement_worker_manager = worker_manager or _WorkerManager(self)
-        # worker 終端 (成功/キャンセル/エラー問わず) で in-flight 枠を解放し、
-        # pending の最新要求を起動する (#1024 single-flight)。
-        self._refinement_worker_manager.worker_terminal.connect(self._on_refinement_terminal)
+        if worker_manager is not None and self._refinement_worker_manager is None:
+            self._refinement_worker_manager = worker_manager
+            self._connect_worker_terminal_handlers(worker_manager)
+        else:
+            self._ensure_worker_manager()
         self.annotation_display.refinement_ignored.connect(self._on_refinement_ignored)
         logger.debug("SelectedImageDetailsWidget: refinement サービスを配線")
+
+    def _ensure_worker_manager(self) -> "WorkerManager":
+        """共有 WorkerManager を遅延生成して返す (#1046 Codex P2)。
+
+        tag metadata worker は refinement service 未配線でも動く必要があるため、
+        manager 生成を set_refinement_service から分離する。terminal 接続は
+        生成時に1回だけ行う (#1024 single-flight の枠解放)。
+        """
+        if self._refinement_worker_manager is None:
+            from ..workers.manager import WorkerManager as _WorkerManager
+
+            self._refinement_worker_manager = _WorkerManager(self)
+            self._connect_worker_terminal_handlers(self._refinement_worker_manager)
+        return self._refinement_worker_manager
+
+    def _connect_worker_terminal_handlers(self, manager: "WorkerManager") -> None:
+        """worker 終端 (成功/キャンセル/エラー問わず) で in-flight 枠を解放する接続。"""
+        manager.worker_terminal.connect(self._on_refinement_terminal)
+        manager.worker_terminal.connect(self._on_tag_metadata_terminal)
 
     def set_tag_management_service(self, service: "TagManagementService") -> None:
         """tagdb userdb 系書き込みサービスを配線する (#989)。
@@ -429,6 +452,84 @@ class SelectedImageDetailsWidget(QWidget):
         self.annotation_display.translation_add_requested.connect(self._on_translation_add)
         self.annotation_display.tag_metadata_edit_requested.connect(self._on_tag_metadata_edit)
         logger.debug("SelectedImageDetailsWidget: tagdb userdb 書き込みサービスを配線")
+
+    def _trigger_tag_metadata_fetch(self, tags_list: list[dict[str, Any]]) -> None:
+        """翻訳/使用頻度/type を非同期解決する worker を起動する (#1046)。
+
+        reader 未設定・画像未選択・タグ無しのときは何もしない。実行中 worker は
+        常に1本に制限し (#1024 single-flight)、実行中の新要求は協調キャンセル +
+        pending 上書きで最新だけを保持する (refinement と同型)。
+        """
+        if self._merged_reader is None:
+            return
+        manager = self._ensure_worker_manager()
+        if self.current_image_id is None or not tags_list:
+            # タグ無し画像への切替でも世代を進めて実行中の解決を打ち切り、
+            # 旧画像向けの stale worker が走り続けないようにする (Codex P2)
+            self._tag_metadata_generation += 1
+            self._tag_metadata_pending = None
+            if self._tag_metadata_inflight_id is not None:
+                from ..workers.terminal import CancelReason
+
+                manager.request_cancel_worker(
+                    self._tag_metadata_inflight_id, reason=CancelReason.REFINEMENT_REPLACED
+                )
+            return
+
+        self._tag_metadata_generation += 1
+        request = (self.current_image_id, list(tags_list), self._tag_metadata_generation)
+        if self._tag_metadata_inflight_id is not None:
+            from ..workers.terminal import CancelReason
+
+            manager.request_cancel_worker(
+                self._tag_metadata_inflight_id, reason=CancelReason.REFINEMENT_REPLACED
+            )
+            self._tag_metadata_pending = request  # 常に最新要求で上書き
+            return
+        self._start_tag_metadata_worker(request)
+
+    def _start_tag_metadata_worker(self, request: tuple[int, list[dict[str, Any]], int]) -> None:
+        """tag metadata worker を1本起動し in-flight として記録する (#1046)。"""
+        if self._merged_reader is None:
+            return
+        manager = self._ensure_worker_manager()
+        from ..workers.tag_metadata_worker import TagMetadataWorker
+
+        image_id, tags_list, generation = request
+        worker = TagMetadataWorker(
+            self._merged_reader,
+            image_id=image_id,
+            tags_list=tags_list,
+            generation=generation,
+        )
+        worker.finished.connect(self._on_tag_metadata_finished)
+        worker_id = f"tag_metadata_{generation}"
+        self._tag_metadata_inflight_id = worker_id
+        manager.start_worker(worker_id, worker)
+
+    @Slot(object)
+    def _on_tag_metadata_terminal(self, event: "WorkerTerminalEvent") -> None:
+        """tag metadata worker の終端で in-flight 枠を解放し pending を起動する (#1046)。"""
+        if event.worker_id != self._tag_metadata_inflight_id:
+            return
+        self._tag_metadata_inflight_id = None
+        pending = self._tag_metadata_pending
+        self._tag_metadata_pending = None
+        if pending is None:
+            return
+        if pending[0] != self.current_image_id:
+            return  # 画像切替済みの stale 要求は起動しない
+        self._start_tag_metadata_worker(pending)
+
+    def _on_tag_metadata_finished(self, result: "TagMetadataResult") -> None:
+        """worker 完了: 最新世代かつ表示中画像と一致する結果のみ表示へ反映する (#1046)。"""
+        if result.generation != self._tag_metadata_generation:
+            return  # 後続の解決が既に始まっている → 古い結果は破棄
+        if result.image_id != self.current_image_id:
+            return  # 画像が既に切り替わった → 破棄 (レース対策)
+        self.annotation_display.apply_tag_metadata(
+            result.translations, result.usage_counts, result.tag_types
+        )
 
     def _trigger_refinement_evaluation(self) -> None:
         """現在画像のタグを非同期 refinement 評価する (#931)。
@@ -536,6 +637,7 @@ class SelectedImageDetailsWidget(QWidget):
         起動してしまう再入を防ぐ (#1024)。
         """
         self._refinement_pending = None
+        self._tag_metadata_pending = None
         manager = self._refinement_worker_manager
         if manager is not None:
             manager.cancel_all_workers()
@@ -789,6 +891,8 @@ class SelectedImageDetailsWidget(QWidget):
         details = self._build_image_details_from_metadata(image_data)
         self._update_details_display(details)
         self._populate_rejected_tags()
+        # 翻訳/使用頻度/type を background で解決し、完了時に反映する (#1046)
+        self._trigger_tag_metadata_fetch(image_data.get("tags", []))
         # refinement 評価 (#931): 表示中タグの canonical を集めて非同期評価する。
         self._current_tag_canonicals = [
             t["tag"] for t in image_data.get("tags", []) if isinstance(t, dict) and t.get("tag")
@@ -867,33 +971,12 @@ class SelectedImageDetailsWidget(QWidget):
         # ADR 0029: 統一品質 tier (derived view) を AnnotationData に渡す
         quality_summary = metadata.get("quality_summary", {})
 
-        # 翻訳・使用頻度データ取得（N+1回避のためバッチ取得）
+        # 翻訳・使用頻度・type は TagMetadataWorker が background で解決する (#1046)。
+        # まず原文のみで即時表示し、worker 完了時に apply_tag_metadata で反映する
+        # (メインスレッドで tag DB を待たない。2段階描画)
         tag_translations: dict[int, dict[str, str]] = {}
         tag_usage_counts: dict[int, dict[str, int]] = {}
-        if self._merged_reader is not None:
-            valid_tag_ids = [
-                tag_dict["tag_id"] for tag_dict in tags_list if tag_dict.get("tag_id") is not None
-            ]
-            if valid_tag_ids:
-                for tag_id, trs in self._merged_reader.get_translations_batch(valid_tag_ids).items():
-                    for tr in trs:
-                        if tr.language and tr.translation:
-                            tag_translations.setdefault(tag_id, {})[tr.language] = tr.translation
-                # 使用頻度 第2軸 (#990): format_id 別 count を bulk 取得し format 名へ解決する。
-                # name 解決は format_map の 1 回参照のみで tag 数に対して N+1 にならない。
-                format_map = self._merged_reader.get_format_map()
-                for tag_id, counts_by_fid in self._merged_reader.get_usage_counts_batch(
-                    valid_tag_ids
-                ).items():
-                    named = {
-                        format_map[fid]: count for fid, count in counts_by_fid.items() if fid in format_map
-                    }
-                    if named:
-                        tag_usage_counts[tag_id] = named
-
-        # type 別グループソート用に canonical -> type 名を batch で解決する (#1056)。
-        # per-tag ループの N+1 は禁止 (#998 教訓)。search_tags_batch は 1 リポ往復。
-        tag_types = self._resolve_tag_types(tags_list)
+        tag_types: dict[str, str] = {}
 
         annotation_data = AnnotationData(
             tags=tags_list,  # ← list[dict] をそのまま渡す
@@ -937,80 +1020,6 @@ class SelectedImageDetailsWidget(QWidget):
         )
 
         return details
-
-    def _resolve_tag_types(self, tags_list: list[dict[str, Any]]) -> dict[str, str]:
-        """表示中タグの canonical -> tagdb type 名 (小文字) を batch で解決する (#1056)。
-
-        format 非依存で完全一致検索し、完全一致行の type_name を採用する。
-        type が引けないタグは辞書に含めない (呼び出し側で「不明」グループ扱い)。
-        """
-        if self._merged_reader is None:
-            return {}
-        canonicals = list(
-            dict.fromkeys(
-                str(tag_dict["tag"])
-                for tag_dict in tags_list
-                if isinstance(tag_dict, dict) and tag_dict.get("tag")
-            )
-        )
-        if not canonicals:
-            return {}
-        # 遅延 import: widget モジュール読込時に tagdb API を引き込まない
-        from genai_tag_db_tools import search_tags_batch
-        from sqlalchemy.exc import SQLAlchemyError
-
-        tag_types: dict[str, str] = {}
-        try:
-            batch = search_tags_batch(
-                self._merged_reader, canonicals, format_names=None, resolve_preferred=False
-            )
-        except (SQLAlchemyError, ValueError, RuntimeError) as e:
-            # type はソート用の付加情報。取得失敗で詳細パネル全体を壊さない (Codex P2)。
-            # RuntimeError は既存の batch prefetch 経路 (TagManagementService.
-            # prefetch_translations) と同じく lookup failure として扱う
-            logger.warning(f"タグ type の batch 解決に失敗 (未分類として表示): {e}")
-            return {}
-        for query, result in batch.items():
-            # 完全一致行のみ採用する。alias/翻訳経由の別タグの type を誤って
-            # 割り当てない (一致しなければ「不明」グループのまま。Codex P2)。
-            # tagdb 側が tag=正規形 / source_tag=verbatim で登録している行は
-            # source_tag 一致も同一タグとして扱い、比較は既存 lookup 経路
-            # (resolve_tag_id) と同じ casefold で行う (Codex P2 第2/第3ラウンド)
-            query_key = query.casefold()
-            for item in result.items:
-                tag_match = (item.tag or "").casefold() == query_key
-                source_match = (item.source_tag or "").casefold() == query_key
-                if not tag_match and not source_match:
-                    continue
-                type_name = self._extract_type_name(item)
-                if type_name:
-                    tag_types[query] = type_name
-                    break
-        return tag_types
-
-    @staticmethod
-    def _extract_type_name(item: Any) -> str | None:
-        """TagRecordPublic から type 名 (小文字) を取り出す。
-
-        format 非依存検索では ``type_name`` が空になり、format ごとの type は
-        ``format_statuses`` 側に入る (Codex P2)。canonical は danbooru 焼き込み
-        (ADR 0068) のため danbooru の type を優先し、無ければ他 format の type を使う。
-        """
-        if item.type_name:
-            return str(item.type_name).lower()
-        statuses = item.format_statuses or {}
-        # ユーザーの type 修正 (チップメニュー → update_tag_types) は LoRAIro user
-        # format へ書かれるため danbooru より優先する (Codex P2 第4ラウンド)。
-        # "unknown" はユーザー修正ではなく手動追加時の初期値なので採用しない
-        for format_name in ("Lorairo", "danbooru"):
-            type_name = (statuses.get(format_name) or {}).get("type_name")
-            if type_name and str(type_name).lower() != "unknown":
-                return str(type_name).lower()
-        for status in statuses.values():
-            candidate = (status or {}).get("type_name")
-            if candidate and str(candidate).lower() != "unknown":
-                return str(candidate).lower()
-        return None
 
     @staticmethod
     def _format_aspect_ratio(width: Any, height: Any) -> str:
