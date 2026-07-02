@@ -74,7 +74,7 @@ See `docs/services.md` for the complete service catalog and `docs/decisions/` fo
 ### Service Layer Architecture
 
 The service layer encapsulates business logic with a 2-tier architecture.
-See `docs/services.md` for the full catalog (29 services).
+See `docs/services.md` for the full catalog.
 
 **Business Logic Services** (`src/lorairo/services/`):
 - SearchCriteriaProcessor, ModelFilterService, ImageProcessingService, ConfigurationService
@@ -101,15 +101,18 @@ The data layer provides persistent storage with:
 
 **Design decisions**: `docs/decisions/0002-database-schema-decisions.md`, `docs/decisions/0012-batch-tag-atomic-transaction.md`
 
-### GUI Architecture (Updated: 2025-07-21)
+### GUI Architecture (Updated: Epic #867)
 
-The GUI follows a workflow-centered 3-panel design with PySide6 Worker System architecture.
+The GUI follows a tab-centered design with PySide6 Worker System architecture. Each tab is a dedicated
+composed widget under `src/lorairo/gui/tab/` (`search_tab.py`, `annotate_tab.py`, `results_tab.py`,
+`export_tab.py`, `jobs_tab.py`, `errors_tab.py`, `map_tab.py`, `cli_tab.py`); `MainWindow` acts as glue.
 
 ```mermaid
 graph TD
-    A[MainWindow] --> B[FilterSearchPanel]
-    A --> C[ThumbnailSelectorWidget]
-    A --> D[PreviewDetailPanel]
+    A[MainWindow] --> B[SearchTabWidget]
+    A --> C[AnnotateTabWidget]
+    A --> D[ResultsTabWidget]
+    A --> N[ExportTabWidget]
     A --> E[WorkerService]
     E --> F[WorkerManager]
     F --> G[QThreadPool]
@@ -122,8 +125,8 @@ graph TD
 ```
 
 **Main Components**:
-- **MainWindow** (`src/lorairo/gui/window/main_window.py`): 3-panel workflow design
-- **Panel Widgets**: Filter/Search, Thumbnail Selector, Preview/Detail panels
+- **MainWindow** (`src/lorairo/gui/window/main_window.py`): tab orchestration glue (Epic #867)
+- **Tab Widgets** (`src/lorairo/gui/tab/`): 1 tab = 1 composed widget, each owning its own layout/child widgets/signal wiring
 - **State Management** (`src/lorairo/gui/state/dataset_state.py`): DatasetStateManager
 - **Worker Integration**: Qt QThreadPool-based asynchronous processing
 
@@ -170,7 +173,7 @@ graph TD
 ### Storage Architecture
 
 **Key Components**:
-- **FileSystemManager** (`src/lorairo/storage/file_system.py`): Directory and file management
+- **FileSystemManager** (`src/lorairo/filesystem.py`): Directory and file management
 - **File Organization**: Images with metadata files (.txt/.caption)
 - **Project Structure**: `lorairo_data/project_name_YYYYMMDD_NNN/` format
 

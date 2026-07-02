@@ -22,7 +22,7 @@ LoRAIro の3層ドキュメント構造の維持方針。
 | ファイル | 目的 |
 |---------|------|
 | `docs/architecture.md` | システム設計原則 |
-| `docs/services.md` | 全サービスカタログ (48 services: 40 business + 8 GUI) |
+| `docs/services.md` | 全サービスカタログ (件数は本表に直書きせず services.md 側の注記に従い都度確認する) |
 | `docs/integrations.md` | 外部パッケージ統合パターン |
 | `docs/testing.md` | テスト戦略とベストプラクティス |
 | `docs/technical.md` | 実装仕様 |
