@@ -1,5 +1,7 @@
 # src/lorairo/gui/services/image_db_write_service.py
 
+from sqlalchemy.exc import SQLAlchemyError
+
 from ...database.db_manager import ImageDatabaseManager
 from ...database.schema import (
     CaptionAnnotationData,
@@ -22,6 +24,10 @@ class ImageDBWriteService:
     (ImageRepository._format_annotations_for_metadata) が担う。
     旧 get_image_details / get_annotation_data は呼び出し元ゼロの dead code
     だったため削除した (Issue #1061)。
+
+    エラーハンドリング方針 (Issue #1062, coding-style.md Manager 層準拠):
+    - ValueError (image_id 不存在) / SQLAlchemyError → False を返し呼び出し元が処理
+    - それ以外の予期しない例外 (プログラミングエラー) は握りつぶさず伝播させる
 
     提供メソッド:
     - update_rating: Rating更新
@@ -70,8 +76,12 @@ class ImageDBWriteService:
             logger.info(f"Rating updated successfully for image_id {image_id}: '{rating}'")
             return True
 
-        except Exception as e:
-            logger.error(f"Error updating rating for image_id {image_id}: {e}", exc_info=True)
+        except ValueError:
+            # save_annotations は image_id 不存在で ValueError を送出する (期待されるケース)
+            logger.warning(f"Rating update skipped: image_id {image_id} not found")
+            return False
+        except SQLAlchemyError:
+            logger.error(f"DB error updating rating for image_id {image_id}", exc_info=True)
             return False
 
     def update_score(self, image_id: int, score: int) -> bool:
@@ -110,8 +120,11 @@ class ImageDBWriteService:
             logger.info(f"Score updated successfully for image_id {image_id}: UI={score} -> DB={db_score}")
             return True
 
-        except Exception as e:
-            logger.error(f"Error updating score for image_id {image_id}: {e}", exc_info=True)
+        except ValueError:
+            logger.warning(f"Score update skipped: image_id {image_id} not found")
+            return False
+        except SQLAlchemyError:
+            logger.error(f"DB error updating score for image_id {image_id}", exc_info=True)
             return False
 
     def update_tags(self, image_id: int, tags_text: str) -> bool:
@@ -160,8 +173,11 @@ class ImageDBWriteService:
             logger.info(f"Tags updated successfully for image_id {image_id}: {len(tag_list)} tags")
             return True
 
-        except Exception as e:
-            logger.error(f"Error updating tags for image_id {image_id}: {e}", exc_info=True)
+        except ValueError:
+            logger.warning(f"Tags update skipped: image_id {image_id} not found")
+            return False
+        except SQLAlchemyError:
+            logger.error(f"DB error updating tags for image_id {image_id}", exc_info=True)
             return False
 
     def update_caption(self, image_id: int, caption: str) -> bool:
@@ -197,8 +213,11 @@ class ImageDBWriteService:
             logger.info(f"Caption updated successfully for image_id {image_id}")
             return True
 
-        except Exception as e:
-            logger.error(f"Error updating caption for image_id {image_id}: {e}", exc_info=True)
+        except ValueError:
+            logger.warning(f"Caption update skipped: image_id {image_id} not found")
+            return False
+        except SQLAlchemyError:
+            logger.error(f"DB error updating caption for image_id {image_id}", exc_info=True)
             return False
 
     def add_tag_batch(self, image_ids: list[int], tag: str) -> bool:
@@ -252,8 +271,8 @@ class ImageDBWriteService:
 
             return success
 
-        except Exception as e:
-            logger.error(f"Error in batch tag add: {e}", exc_info=True)
+        except SQLAlchemyError:
+            logger.error("DB error in batch tag add", exc_info=True)
             return False
 
     def update_rating_batch(self, image_ids: list[int], rating: str) -> bool:
@@ -294,8 +313,8 @@ class ImageDBWriteService:
 
             return success
 
-        except Exception as e:
-            logger.error(f"Error in batch rating update: {e}", exc_info=True)
+        except SQLAlchemyError:
+            logger.error("DB error in batch rating update", exc_info=True)
             return False
 
     def update_score_batch(self, image_ids: list[int], score: int) -> bool:
@@ -338,6 +357,6 @@ class ImageDBWriteService:
 
             return success
 
-        except Exception as e:
-            logger.error(f"Error in batch score update: {e}", exc_info=True)
+        except SQLAlchemyError:
+            logger.error("DB error in batch score update", exc_info=True)
             return False

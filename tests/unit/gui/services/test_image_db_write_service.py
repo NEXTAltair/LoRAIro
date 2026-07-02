@@ -138,17 +138,52 @@ class TestImageDBWriteService:
         assert result is False
         mock_db_manager.annotation_repo.add_tag_to_images_batch.assert_not_called()
 
-    def test_add_tag_batch_exception_handling(self, service, mock_db_manager):
-        """例外ハンドリングテスト"""
+    def test_add_tag_batch_db_error_returns_false(self, service, mock_db_manager):
+        """DB エラー (SQLAlchemyError) 時は False を返す (#1062)"""
+        from sqlalchemy.exc import SQLAlchemyError
+
         image_ids = [1, 2]
         tag = "landscape"
 
-        # 例外を発生させる
-        mock_db_manager.annotation_repo.add_tag_to_images_batch.side_effect = Exception("DB Error")
+        mock_db_manager.annotation_repo.add_tag_to_images_batch.side_effect = SQLAlchemyError("DB Error")
         mock_db_manager.get_manual_edit_model_id.return_value = 42
 
-        # 実行
         result = service.add_tag_batch(image_ids, tag)
 
-        # 検証: 例外発生時は False を返す
         assert result is False
+
+    def test_add_tag_batch_unexpected_exception_propagates(self, service, mock_db_manager):
+        """予期しない例外 (プログラミングエラー) は握りつぶさず伝播する (#1062)"""
+        mock_db_manager.annotation_repo.add_tag_to_images_batch.side_effect = TypeError("bug")
+        mock_db_manager.get_manual_edit_model_id.return_value = 42
+
+        with pytest.raises(TypeError):
+            service.add_tag_batch([1, 2], "landscape")
+
+    def test_update_rating_image_not_found_returns_false(self, service, mock_db_manager):
+        """image_id 不存在 (ValueError) は期待されるケースとして False を返す (#1062)"""
+        mock_db_manager.annotation_repo.save_annotations.side_effect = ValueError("image not found")
+        mock_db_manager.get_manual_edit_model_id.return_value = 42
+
+        result = service.update_rating(999, "PG")
+
+        assert result is False
+
+    def test_update_caption_db_error_returns_false(self, service, mock_db_manager):
+        """update_caption の DB エラーも False を返す (#1062)"""
+        from sqlalchemy.exc import SQLAlchemyError
+
+        mock_db_manager.annotation_repo.save_annotations.side_effect = SQLAlchemyError("locked")
+        mock_db_manager.get_manual_edit_model_id.return_value = 42
+
+        result = service.update_caption(1, "a caption")
+
+        assert result is False
+
+    def test_update_score_unexpected_exception_propagates(self, service, mock_db_manager):
+        """update_score の予期しない例外は伝播する (#1062)"""
+        mock_db_manager.annotation_repo.save_annotations.side_effect = AttributeError("bug")
+        mock_db_manager.get_manual_edit_model_id.return_value = 42
+
+        with pytest.raises(AttributeError):
+            service.update_score(1, 500)
