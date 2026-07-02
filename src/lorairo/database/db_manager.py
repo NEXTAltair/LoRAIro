@@ -1280,20 +1280,18 @@ class ImageDatabaseManager:
     def get_images_by_filter(
         self,
         criteria: ImageFilterCriteria | None = None,
-        **kwargs: Any,
     ) -> tuple[list[dict[str, Any]], int]:
         """指定された条件に基づいて画像をフィルタリングし、メタデータと件数を返します。
 
         Args:
-            criteria: ImageFilterCriteria形式のフィルター条件（推奨）
-            **kwargs: レガシー形式のキーワード引数（後方互換性用）
+            criteria: ImageFilterCriteria形式のフィルター条件。None の場合は
+                デフォルト条件 (全件) として扱う。
 
         Returns:
             tuple: (画像メタデータのリスト, 総数)
         """
         try:
-            # criteriaが指定されていればそれを使用、なければkwargsから生成
-            filter_criteria = criteria if criteria else ImageFilterCriteria.from_kwargs(**kwargs)
+            filter_criteria = criteria or ImageFilterCriteria()
             return self.image_repo.get_images_by_filter(filter_criteria)
         except SQLAlchemyError as e:
             logger.error(f"画像フィルタリング検索中にエラーが発生しました: {e}", exc_info=True)
@@ -1353,16 +1351,19 @@ class ImageDatabaseManager:
     def get_images_count_only(
         self,
         criteria: ImageFilterCriteria | None = None,
-        **kwargs: Any,
     ) -> int:
         """指定条件に一致する画像件数のみを取得します。
+
+        Args:
+            criteria: ImageFilterCriteria形式のフィルター条件。None の場合は
+                デフォルト条件 (全件) として扱う。
 
         Raises:
             SQLAlchemyError: DB 操作に失敗した場合は呼び出し元に伝播させる。
 
         """
         try:
-            filter_criteria = criteria if criteria else ImageFilterCriteria.from_kwargs(**kwargs)
+            filter_criteria = criteria or ImageFilterCriteria()
             return self.image_repo.get_images_count_only(filter_criteria)
         except SQLAlchemyError as e:
             logger.error(f"画像件数の取得中にエラーが発生しました: {e}", exc_info=True)

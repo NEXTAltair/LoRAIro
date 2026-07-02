@@ -67,32 +67,10 @@ class TestImageFilterCriteriaProjectFields:
         assert criteria.project_name is None
         assert criteria.project_id is None
 
-    def test_from_kwargs_with_project_name(self):
-        criteria = ImageFilterCriteria.from_kwargs(project_name="foo")
-        assert criteria.project_name == "foo"
-
-    def test_from_kwargs_with_project_id(self):
-        criteria = ImageFilterCriteria.from_kwargs(project_id=7)
-        assert criteria.project_id == 7
-
-    def test_from_kwargs_combined_with_tags(self):
-        criteria = ImageFilterCriteria.from_kwargs(project_name="foo", tags=["landscape", "anime"])
+    def test_construct_combined_with_tags(self):
+        criteria = ImageFilterCriteria(project_name="foo", tags=["landscape", "anime"])
         assert criteria.project_name == "foo"
         assert criteria.tags == ["landscape", "anime"]
-
-    def test_to_dict_includes_project_fields(self):
-        criteria = ImageFilterCriteria(project_name="bar", project_id=99)
-        result = criteria.to_dict()
-        assert "project_name" in result
-        assert result["project_name"] == "bar"
-        assert "project_id" in result
-        assert result["project_id"] == 99
-
-    def test_to_dict_none_by_default(self):
-        criteria = ImageFilterCriteria()
-        result = criteria.to_dict()
-        assert result["project_name"] is None
-        assert result["project_id"] is None
 
 
 # ---------------------------------------------------------------------------

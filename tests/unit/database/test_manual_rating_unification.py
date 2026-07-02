@@ -9,6 +9,7 @@ TDD RED フェーズ:
 import pytest
 from sqlalchemy.orm import sessionmaker
 
+from lorairo.database.filter_criteria import ImageFilterCriteria
 from lorairo.database.repository.annotation_record import AnnotationRepository
 from lorairo.database.schema import (
     MANUAL_EDIT_LITELLM_ID,
@@ -171,7 +172,9 @@ class TestApplyManualFiltersWithRatingTable:
         img1_id, _img2_id = two_images
         test_annotation_repository.update_manual_rating(img1_id, "PG")
 
-        results, count = test_repository.get_images_by_filter(manual_rating_filter="PG")
+        results, count = test_repository.get_images_by_filter(
+            ImageFilterCriteria(manual_rating_filter="PG")
+        )
 
         assert count == 1, f"PG の画像は 1 件のはずが {count} 件"
         assert len(results) == 1
@@ -187,7 +190,7 @@ class TestApplyManualFiltersWithRatingTable:
         img1_id, _img2_id = two_images
         test_annotation_repository.update_manual_rating(img1_id, "PG")
 
-        results, count = test_repository.get_images_by_filter(manual_rating_filter="X")
+        results, count = test_repository.get_images_by_filter(ImageFilterCriteria(manual_rating_filter="X"))
 
         assert count == 0
         assert len(results) == 0
