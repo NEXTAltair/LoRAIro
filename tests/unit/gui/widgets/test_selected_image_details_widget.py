@@ -61,6 +61,35 @@ class FakeMergedReader:
                 result[tag] = {"tag": self._mapping[key], "type_name": self._types.get(key)}
         return result
 
+    def search_tags_bulk_all(
+        self, tags: list[str], format_name: str | None = None, resolve_preferred: bool = False
+    ) -> dict[str, list[dict]]:
+        """#1056 の type 解決 (search_tags_batch) 用。TagSearchRow 形の行を返す。
+
+        実 repository は format 非依存検索で type_name を空にし、format ごとの type を
+        format_statuses に入れる (Codex P2 で判明した実挙動を再現する)。
+        """
+        result: dict[str, list[dict]] = {}
+        for index, tag in enumerate(tags):
+            key = tag.lower()
+            if key not in self._types:
+                continue
+            result[tag] = [
+                {
+                    "tag": tag,
+                    "source_tag": None,
+                    "tag_id": 1000 + index,
+                    "usage_count": 0,
+                    "alias": False,
+                    "deprecated": False,
+                    "type_id": None,
+                    "type_name": "",
+                    "translations": {},
+                    "format_statuses": {"danbooru": {"type_name": self._types[key]}},
+                }
+            ]
+        return result
+
 
 class TestSelectedImageDetailsWidget:
     """SelectedImageDetailsWidget単体テスト（Enhanced Event-Driven Pattern対応）"""
@@ -198,7 +227,8 @@ class TestSelectedImageDetailsWidget:
         assert (
             "Ratings: wd-vit-tagger-v3: R (raw=questionable, confidence=0.91, source=AI)" in clipboard_text
         )
-        assert "Tags: 1girl, long hair, blue eyes" in clipboard_text
+        # #1056: タグはアルファベット順で表示・コピーされる
+        assert "Tags: 1girl, blue eyes, long hair" in clipboard_text
         assert "Caption: A beautiful anime girl with long hair" in clipboard_text
 
     def test_copy_current_details_uses_live_rating_score_widget_values(self, widget, sample_image_details):
@@ -229,8 +259,8 @@ class TestSelectedImageDetailsWidget:
 
         assert widget.copy_current_details_to_clipboard() is True
         clipboard_text = QApplication.clipboard().text()
-        assert "Tags: 1人の女の子, 長い髪, 青い目" in clipboard_text
-        assert "Tags: 1girl, long hair, blue eyes" not in clipboard_text
+        assert "Tags: 1人の女の子, 青い目, 長い髪" in clipboard_text
+        assert "Tags: 1girl, blue eyes, long hair" not in clipboard_text
 
     def test_copy_current_details_without_selection_noops(self, widget):
         """未選択時は詳細全体コピーを行わないこと"""
@@ -426,6 +456,7 @@ class TestSelectedImageDetailsWidget:
     def test_set_merged_reader_with_valid_reader_shows_selector(self, widget):
         """有効なMergedTagReaderでコンボボックスが表示されること"""
         mock_reader = Mock()
+        mock_reader.search_tags_bulk_all.return_value = {}
         mock_reader.get_tag_languages.return_value = ["japanese", "chinese"]
 
         widget.set_merged_reader(mock_reader)
@@ -437,6 +468,7 @@ class TestSelectedImageDetailsWidget:
     def test_build_metadata_with_translations(self, widget):
         """翻訳データが正しくAnnotationData.tag_translationsに入ること"""
         mock_reader = Mock()
+        mock_reader.search_tags_bulk_all.return_value = {}
         mock_reader.get_tag_languages.return_value = ["japanese"]
         # 翻訳検証に集中するため canonical 変換は no-op (format 未解決) にする
         mock_reader.get_format_id.return_value = None
@@ -475,6 +507,7 @@ class TestSelectedImageDetailsWidget:
     def test_build_metadata_with_usage_counts(self, widget):
         """使用頻度が bulk 取得され format 名へ解決して AnnotationData に入ること (#990)。"""
         mock_reader = Mock()
+        mock_reader.search_tags_bulk_all.return_value = {}
         mock_reader.get_tag_languages.return_value = []
         mock_reader.get_format_id.return_value = None
         mock_reader.get_translations_batch.return_value = {}
@@ -511,6 +544,7 @@ class TestSelectedImageDetailsWidget:
     def test_build_metadata_skips_tag_without_tag_id(self, widget):
         """tag_id=Noneのタグは翻訳取得をスキップすること"""
         mock_reader = Mock()
+        mock_reader.search_tags_bulk_all.return_value = {}
         mock_reader.get_tag_languages.return_value = ["japanese"]
         mock_reader.get_format_id.return_value = None
         mock_reader.get_translations_batch.return_value = {}
@@ -544,6 +578,7 @@ class TestSelectedImageDetailsWidget:
     def test_build_metadata_translations_uses_single_batch_call(self, widget):
         """N個タグが存在してもget_translations_batchは1回だけ呼ばれること"""
         mock_reader = Mock()
+        mock_reader.search_tags_bulk_all.return_value = {}
         mock_reader.get_tag_languages.return_value = []
         mock_reader.get_format_id.return_value = None
         mock_reader.get_translations_batch.return_value = {}
@@ -840,3 +875,158 @@ class TestReadableLayoutTopPacking:
         gap = rsw.geometry().y() - (ad.geometry().y() + ad.geometry().height())
         # spacing (4px) 程度。タグが多くても過大な隙間 (>= 40px) が出ないこと。
         assert gap < 40
+
+
+class TestResolveTagTypes:
+    """#1056 Codex P2: type 解決の実挙動 (format_statuses 経由・完全一致限定・非破壊)。"""
+
+    @pytest.fixture
+    def widget(self, qtbot):
+        widget = SelectedImageDetailsWidget()
+        qtbot.addWidget(widget)
+        return widget
+
+    def test_resolves_type_from_format_statuses(self, widget):
+        """format 非依存検索では type_name が空のため format_statuses から解決する。"""
+        widget.set_merged_reader(FakeMergedReader({}, types={"hatsune miku": "character"}))
+
+        result = widget._resolve_tag_types([{"tag": "hatsune miku", "tag_id": 3}])
+
+        assert result == {"hatsune miku": "character"}
+
+    def test_non_exact_match_stays_unknown(self, widget):
+        """完全一致しない検索ヒット (alias 等) の type を割り当てない。"""
+
+        class AliasOnlyReader(FakeMergedReader):
+            def search_tags_bulk_all(self, tags, format_name=None, resolve_preferred=False):
+                # クエリと異なる canonical の行だけ返す (alias ヒットを模擬)
+                return {
+                    tag: [
+                        {
+                            "tag": "different_tag",
+                            "source_tag": None,
+                            "tag_id": 1,
+                            "usage_count": 0,
+                            "alias": True,
+                            "deprecated": False,
+                            "type_id": None,
+                            "type_name": "",
+                            "translations": {},
+                            "format_statuses": {"danbooru": {"type_name": "general"}},
+                        }
+                    ]
+                    for tag in tags
+                }
+
+        widget.set_merged_reader(AliasOnlyReader({}))
+
+        result = widget._resolve_tag_types([{"tag": "unregistered_tag", "tag_id": None}])
+
+        assert result == {}
+
+    def test_lookup_failure_is_non_blocking(self, widget):
+        """tag DB 読み取り失敗は空 dict (未分類扱い) に落とし、詳細パネルを壊さない。"""
+        from sqlalchemy.exc import SQLAlchemyError
+
+        class FailingReader(FakeMergedReader):
+            def search_tags_bulk_all(self, tags, format_name=None, resolve_preferred=False):
+                raise SQLAlchemyError("db down")
+
+        widget.set_merged_reader(FailingReader({}))
+
+        result = widget._resolve_tag_types([{"tag": "1girl", "tag_id": 2}])
+
+        assert result == {}
+
+    def test_source_tag_match_resolves_type(self, widget):
+        """tag=正規形 / source_tag=verbatim で登録された行も同一タグとして type を解決する。"""
+
+        class SourceTagReader(FakeMergedReader):
+            def search_tags_bulk_all(self, tags, format_name=None, resolve_preferred=False):
+                return {
+                    tag: [
+                        {
+                            "tag": "normalized form",
+                            "source_tag": tag,
+                            "tag_id": 1,
+                            "usage_count": 0,
+                            "alias": False,
+                            "deprecated": False,
+                            "type_id": None,
+                            "type_name": "",
+                            "translations": {},
+                            "format_statuses": {"danbooru": {"type_name": "meta"}},
+                        }
+                    ]
+                    for tag in tags
+                }
+
+        widget.set_merged_reader(SourceTagReader({}))
+
+        result = widget._resolve_tag_types([{"tag": "Verbatim_Tag", "tag_id": 9}])
+
+        assert result == {"Verbatim_Tag": "meta"}
+
+    def test_user_format_type_override_wins_over_danbooru(self, widget):
+        """ユーザーの type 修正 (Lorairo format) は danbooru の type より優先する。"""
+
+        class OverrideReader(FakeMergedReader):
+            def search_tags_bulk_all(self, tags, format_name=None, resolve_preferred=False):
+                return {
+                    tag: [
+                        {
+                            "tag": tag,
+                            "source_tag": None,
+                            "tag_id": 1,
+                            "usage_count": 0,
+                            "alias": False,
+                            "deprecated": False,
+                            "type_id": None,
+                            "type_name": "",
+                            "translations": {},
+                            "format_statuses": {
+                                "danbooru": {"type_name": "general"},
+                                "Lorairo": {"type_name": "character"},
+                            },
+                        }
+                    ]
+                    for tag in tags
+                }
+
+        widget.set_merged_reader(OverrideReader({}))
+
+        result = widget._resolve_tag_types([{"tag": "some tag", "tag_id": 1}])
+
+        assert result == {"some tag": "character"}
+
+    def test_unknown_type_initial_value_is_skipped(self, widget):
+        """手動追加初期値の 'unknown' は採用せず danbooru へフォールバックする。"""
+
+        class UnknownReader(FakeMergedReader):
+            def search_tags_bulk_all(self, tags, format_name=None, resolve_preferred=False):
+                return {
+                    tag: [
+                        {
+                            "tag": tag,
+                            "source_tag": None,
+                            "tag_id": 1,
+                            "usage_count": 0,
+                            "alias": False,
+                            "deprecated": False,
+                            "type_id": None,
+                            "type_name": "",
+                            "translations": {},
+                            "format_statuses": {
+                                "Lorairo": {"type_name": "unknown"},
+                                "danbooru": {"type_name": "meta"},
+                            },
+                        }
+                    ]
+                    for tag in tags
+                }
+
+        widget.set_merged_reader(UnknownReader({}))
+
+        result = widget._resolve_tag_types([{"tag": "some tag", "tag_id": 1}])
+
+        assert result == {"some tag": "meta"}
