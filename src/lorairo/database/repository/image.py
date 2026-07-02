@@ -1750,48 +1750,97 @@ class ImageRepository(BaseRepository):
             # レーティング情報がない (NULL) 画像は除外しない
         return query
 
-    def _apply_score_filter(
+    def _apply_display_score_filter(
         self,
+        session: Session,
         query: Select[Any],
         score_min: float | None,
         score_max: float | None,
     ) -> Select[Any]:
-        """クエリにスコア範囲フィルタを適用します。
+        """スコア範囲フィルタを詳細パネル表示と同じ集約スコアで適用する (Issue #1026)。
+
+        詳細パネルが表示する代表スコアは ``_derive_manual_score`` (手動優先) →
+        無ければ ``_derive_ai_score`` (複数 AI モデルを ``calibrate_to_display`` +
+        ``display_weight_for`` で重み付き平均した集約値) で導出される。一方、従来の
+        スコアフィルタは Score 行単位の ``display_score`` 列に対する SQL ``exists()``
+        で「どれか 1 行が範囲内」を判定していたため、両者の基準がずれ「フィルタに
+        ヒットしたのに詳細パネルの表示スコアは範囲外」という不整合が生じていた。
+
+        本メソッドは他フィルタ (+ 解像度フィルタ) 適用済みの候補 image_id を一括で
+        load し、表示側と同一の導出関数で代表スコアを求め、範囲内の image_id だけに
+        絞った ``select(Image.id)`` を返す。これによりフィルタと表示が同じ集約値を
+        通ることを保証する。件数集計・ページング・limit は呼び出し側の従来経路が
+        この絞り込み済みクエリに対して SQL で完結するため、件数とページングも一貫する。
 
         Args:
-            query: 適用対象のクエリ
-            score_min: 最小スコア値（0.0-10.0）
-            score_max: 最大スコア値（0.0-10.0）
+            session: SQLAlchemy セッション。
+            query: スコア以外のフィルタ (解像度フィルタ含む) を適用済みの
+                ``select(Image.id)`` クエリ。
+            score_min: 最小スコア値 (0.0-10.0)。None は下限なし。
+            score_max: 最大スコア値 (0.0-10.0)。None は上限なし。
 
         Returns:
-            フィルタ適用済みのクエリ
-
+            スコア未指定時は ``query`` をそのまま返す。指定時は代表スコアが範囲内の
+            image_id のみに絞った新しい ``select(Image.id)`` クエリを返す
+            (空集合の場合は 0 行を返すクエリ)。
         """
         if score_min is None and score_max is None:
             return query
 
-        # 0.0-10.0 表示スコアで比較 (Issue #626: display_score 使用)
+        # 0.0-10.0 表示尺度で比較 (Issue #626: display_score と同じ尺度)。
         db_min = score_min if score_min is not None else 0.0
         db_max = score_max if score_max is not None else 10.0
 
-        # display_score が存在する行のみ対象にし、表示スコアで範囲フィルタ
-        score_condition = (
-            exists()
-            .where(
-                Score.image_id == Image.id,
-                Score.display_score.isnot(None),
-                Score.display_score >= db_min,
-                Score.display_score <= db_max,
+        # 他フィルタ・解像度フィルタを通過した候補 image_id を取得する。
+        candidate_ids: list[int] = list(session.execute(query).scalars().all())
+
+        matched_ids: list[int] = []
+        # N+1 を避けるため scores (と calibrate に必要な model) をチャンク一括 load する。
+        for start in range(0, len(candidate_ids), self.BATCH_CHUNK_SIZE):
+            chunk = candidate_ids[start : start + self.BATCH_CHUNK_SIZE]
+            images = (
+                session.execute(
+                    select(Image)
+                    .where(Image.id.in_(chunk))
+                    .options(selectinload(Image.scores).selectinload(Score.model))
+                )
+                .scalars()
+                .all()
             )
-            .correlate(Image)
-        )
+            for image in images:
+                representative = self._representative_display_score(image)
+                # スコアが無い画像は従来の exists() と同じくフィルタ対象外 (除外) にする。
+                if representative is None:
+                    continue
+                if db_min <= representative <= db_max:
+                    matched_ids.append(image.id)
 
-        query = query.where(score_condition)
         logger.debug(
-            f"Score filter applied (display_score): {db_min:.2f} - {db_max:.2f}",
+            f"Score filter applied (aggregate display_score): {db_min:.2f}-{db_max:.2f}, "
+            f"候補 {len(candidate_ids)}件 → 一致 {len(matched_ids)}件"
         )
+        # 絞り込んだ image_id 集合のみを返す (空集合なら 0 行の Select となる)。
+        return select(Image.id).where(Image.id.in_(matched_ids))
 
-        return query
+    @staticmethod
+    def _representative_display_score(image: Image) -> float | None:
+        """スコアフィルタ判定用の代表スコアを返す (Issue #1026)。
+
+        ``_derive_display_score`` と同じ「手動優先 → 無ければ AI 集約」の合成だが、
+        スコアが 1 件も無い画像は ``0.0`` ではなく ``None`` を返す点だけが異なる。
+        フィルタでは「スコア未設定の画像を範囲 0.0-x にヒットさせない」ため、
+        表示 (未設定は 0.0 表示) と区別してスコアの有無を明示する必要がある。
+
+        Args:
+            image: scores リレーションを load 済みの Image。
+
+        Returns:
+            代表スコア (0.0-10.0)。スコア行が 1 件も無ければ None。
+        """
+        manual = ImageRepository._derive_manual_score(image)
+        if manual is not None:
+            return manual
+        return ImageRepository._derive_ai_score(image)
 
     def _build_manual_rating_condition(
         self,
@@ -2432,8 +2481,6 @@ class ImageRepository(BaseRepository):
         manual_rating_filter: str | list[str] | None,
         ai_rating_filter: str | list[str] | None,
         manual_edit_filter: bool | None,
-        score_min: float | None = None,
-        score_max: float | None = None,
         project_name: str | None = None,
         project_id: int | None = None,
         reviewed_at_filter: str | None = None,
@@ -2459,8 +2506,6 @@ class ImageRepository(BaseRepository):
             manual_rating_filter: 手動レーティングフィルタ。
             ai_rating_filter: AI評価フィルタ。
             manual_edit_filter: 手動編集フラグフィルタ。
-            score_min: 最小スコア値（0.0-10.0）。
-            score_max: 最大スコア値（0.0-10.0）。
             project_name: プロジェクト名フィルタ（Phase C完了後に有効化）。
             project_id: プロジェクトIDフィルタ（Phase C完了後に有効化）。
             reviewed_at_filter: レビュー状態フィルタ。"unreviewed" | "reviewed" | None=全て。
@@ -2524,8 +2569,9 @@ class ImageRepository(BaseRepository):
         elif include_nsfw:
             query = self._apply_nsfw_filter(query, include_nsfw=True, session=session)
 
-        # Score Filter
-        query = self._apply_score_filter(query, score_min, score_max)
+        # Score Filter は SQL では適用しない。詳細パネル表示と同じ集約スコアで
+        # 絞り込むため、呼び出し側が解像度フィルタ適用後に
+        # _apply_display_score_filter() で Python post-filter する (Issue #1026)。
 
         # Project Filter (Phase C完了後に有効化)
         query = self._apply_project_filter(query, project_name, project_id)
@@ -2655,8 +2701,6 @@ class ImageRepository(BaseRepository):
                     manual_rating_filter=filter_criteria.manual_rating_filter,
                     ai_rating_filter=filter_criteria.ai_rating_filter,
                     manual_edit_filter=filter_criteria.manual_edit_filter,
-                    score_min=filter_criteria.score_min,
-                    score_max=filter_criteria.score_max,
                     project_name=filter_criteria.project_name,
                     project_id=filter_criteria.project_id,
                     reviewed_at_filter=filter_criteria.reviewed_at_filter,
@@ -2665,6 +2709,10 @@ class ImageRepository(BaseRepository):
                     rating_combine=filter_criteria.rating_combine,
                 )
                 query = self._apply_processed_resolution_filter(query, filter_criteria.resolution)
+                # Score Filter は表示側と同じ集約スコアで Python post-filter する (Issue #1026)。
+                query = self._apply_display_score_filter(
+                    session, query, filter_criteria.score_min, filter_criteria.score_max
+                )
 
                 count_query = select(func.count()).select_from(query.subquery())
                 total_count = session.execute(count_query).scalar_one()
@@ -2747,8 +2795,6 @@ class ImageRepository(BaseRepository):
                     manual_rating_filter=filter_criteria.manual_rating_filter,
                     ai_rating_filter=filter_criteria.ai_rating_filter,
                     manual_edit_filter=filter_criteria.manual_edit_filter,
-                    score_min=filter_criteria.score_min,
-                    score_max=filter_criteria.score_max,
                     project_name=filter_criteria.project_name,
                     project_id=filter_criteria.project_id,
                     reviewed_at_filter=filter_criteria.reviewed_at_filter,
@@ -2758,6 +2804,10 @@ class ImageRepository(BaseRepository):
                 )
                 filtered_query = self._apply_processed_resolution_filter(
                     filtered_query, filter_criteria.resolution
+                )
+                # get_images_by_filter と同一の集約スコア絞り込みを通し件数を一致させる (Issue #1026)。
+                filtered_query = self._apply_display_score_filter(
+                    session, filtered_query, filter_criteria.score_min, filter_criteria.score_max
                 )
 
                 count_query = select(func.count()).select_from(filtered_query.subquery())
@@ -2806,8 +2856,6 @@ class ImageRepository(BaseRepository):
                     manual_rating_filter=filter_criteria.manual_rating_filter,
                     ai_rating_filter=filter_criteria.ai_rating_filter,
                     manual_edit_filter=filter_criteria.manual_edit_filter,
-                    score_min=filter_criteria.score_min,
-                    score_max=filter_criteria.score_max,
                     project_name=filter_criteria.project_name,
                     project_id=filter_criteria.project_id,
                     reviewed_at_filter=filter_criteria.reviewed_at_filter,
@@ -2817,6 +2865,10 @@ class ImageRepository(BaseRepository):
                 )
                 filtered_query = self._apply_processed_resolution_filter(
                     filtered_query, filter_criteria.resolution
+                )
+                # Score Filter は表示側と同じ集約スコアで Python post-filter する (Issue #1026)。
+                filtered_query = self._apply_display_score_filter(
+                    session, filtered_query, filter_criteria.score_min, filter_criteria.score_max
                 )
 
                 count_query = select(func.count()).select_from(filtered_query.subquery())
