@@ -53,8 +53,9 @@ self.projects_base_dir = projects_base_dir or Path(get_config().directories.data
 
 2. 旧 `~/.lorairo/projects/` の扱い
    - 自動移行は**しない** (ユーザーがデータ配置を把握できる状態を保つ)
-   - 初回起動時に旧ディレクトリが存在すれば検出
-   - 移行案内ログを出力 (INFO レベル): 「旧ディレクトリが検出されました。`lorairo_data/` への移動を検討してください」
+   - ~~初回起動時に旧ディレクトリが存在すれば検出~~
+   - ~~移行案内ログを出力 (INFO レベル): 「旧ディレクトリが検出されました。`lorairo_data/` への移動を検討してください」~~
+   - **2026-07-02 改訂**: 移行案内 (検出 + INFO ログ) は役目を終えたため撤去 (下記 Amendment 参照)
 
 3. `config/lorairo.toml` のコメント更新
    - `database_base_dir` が GUI/CLI 共通のプロジェクト保存場所であることを明記
@@ -109,9 +110,22 @@ self.projects_base_dir = projects_base_dir or Path(get_config().directories.data
 - `lorairo_data/` 相対パス解決は `get_config().directories.database_base_dir` で一元化 (`Path.resolve()` で絶対化)
 - README / CHANGELOG に CLI の保存場所変更を明記
 
+## Amendment (2026-07-02): 移行案内ログの撤去
+
+Decision 2 の移行案内 (旧 `~/.lorairo/projects/` の検出 + INFO ログ) は撤去した。
+
+- 統一 (2026-04-25 Implemented) から 2 か月以上経過し、旧ディレクトリの実残存を確認したところ
+  テスト残骸 (`test_project_20260422_063231`) のみで、実プロジェクトの legacy 利用は無かった
+- 案内ログは一度も本来の目的 (実ユーザーの移行誘導) で発火しておらず、恒久コードとして残す価値がない
+- 「自動移行はしない」「保存場所は `database_base_dir` に統一」という本 ADR の核心 Decision は変更なし
+
+対応 Issue: #1022 (item 3)。撤去時に Consequences の「初回起動時の移行案内ログでユーザーに明示」
+軽減策も失効している。
+
 ## Related
 
 - Issue #166 (エピック): CLI export create リファクタリング
+- Issue #1022: 小粒互換残骸の整理 (移行案内ログ撤去の Amendment)
 - Issue #177 [F]: このADRを実装するサブIssue (`ProjectManagementService` 改修)
 - ADR 0008: CLAUDE.md Resilience Architecture (絶対パス解決)
 - ADR 0009: Qt Decoupling Design (CLI 環境のサービス独立性)
