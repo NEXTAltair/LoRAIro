@@ -155,10 +155,11 @@ class SelectedImageDetailsWidget(QWidget):
         logger.debug("SelectedImageDetailsWidget initialized")
 
     def _setup_original_meta_rows(self) -> None:
-        """画像情報グリッドにオリジナルメタ行 (拡張子/アスペクト比/アルファ) を追加する。
+        """画像情報グリッドにメタ行 (拡張子/アスペクト比/アルファ/画像ID/pHash) を追加する。
 
         登録時にリサイズ・拡張子変換されるため、オリジナル画像のメタデータを表示する
-        (Issue #813)。.ui は再生成せず、既存 gridLayoutImageInfo に行を増設する。
+        (Issue #813)。画像ID と pHash は DB 調査・重複確認用 (Issue #1058)。
+        .ui は再生成せず、既存 gridLayoutImageInfo に行を増設する。
         """
         grid = self.ui.gridLayoutImageInfo
         group = self.ui.groupBoxImageInfo
@@ -166,10 +167,15 @@ class SelectedImageDetailsWidget(QWidget):
         self.labelExtensionValue = QLabel("-", group)
         self.labelAspectValue = QLabel("-", group)
         self.labelAlphaValue = QLabel("-", group)
+        # DB 調査・Issue 報告・重複確認用の識別子 (Issue #1058)
+        self.labelImageIdValue = QLabel("-", group)
+        self.labelPhashValue = QLabel("-", group)
         rows = (
             ("拡張子", self.labelExtensionValue),
             ("アスペクト比", self.labelAspectValue),
             ("アルファ", self.labelAlphaValue),
+            ("画像ID", self.labelImageIdValue),
+            ("pHash", self.labelPhashValue),
         )
         for offset, (caption, value_label) in enumerate(rows):
             key_label = QLabel(caption, group)
@@ -293,6 +299,8 @@ class SelectedImageDetailsWidget(QWidget):
             self.ui.labelFileSizeValue,
             self.ui.labelCreatedDateValue,
             self.ui.labelTagsContent,
+            self.labelImageIdValue,
+            self.labelPhashValue,
         ):
             self._make_label_copyable(label)
 
@@ -893,6 +901,7 @@ class SelectedImageDetailsWidget(QWidget):
             original_extension=original_extension,
             aspect_ratio=aspect_ratio,
             alpha_text=alpha_text,
+            phash=str(metadata.get("phash") or ""),
             annotation_data=annotation_data,
         )
 
@@ -1037,6 +1046,8 @@ class SelectedImageDetailsWidget(QWidget):
         self.labelExtensionValue.setText(details.original_extension or "-")
         self.labelAspectValue.setText(details.aspect_ratio or "-")
         self.labelAlphaValue.setText(details.alpha_text or "-")
+        self.labelImageIdValue.setText(str(details.image_id) if details.image_id is not None else "-")
+        self.labelPhashValue.setText(details.phash or "-")
 
         # Rating / Score
         self._update_rating_score_display(details)
@@ -1120,6 +1131,8 @@ class SelectedImageDetailsWidget(QWidget):
         self.labelExtensionValue.setText("-")
         self.labelAspectValue.setText("-")
         self.labelAlphaValue.setText("-")
+        self.labelImageIdValue.setText("-")
+        self.labelPhashValue.setText("-")
         self.ui.labelCreatedDateValue.setText("-")
         if self.ui.tabWidgetDetails.indexOf(self.ui.tabTags) != -1:
             self.ui.labelTagsContent.setText("-")
