@@ -41,6 +41,7 @@ from PySide6.QtWidgets import (
 
 from ...utils.log import logger
 from .. import theme
+from .ds_no_scroll_combo_box import DsNoScrollComboBox
 
 if TYPE_CHECKING:
     from genai_tag_db_tools.models import RefinementRecommendation
@@ -469,7 +470,8 @@ class TagPanelWidget(QWidget):
         lang_layout = QHBoxLayout(self._lang_bar)
         lang_layout.setContentsMargins(0, 0, 0, 2)
         lang_layout.addWidget(QLabel("言語:", self._lang_bar))
-        self._lang_combo = QComboBox(self._lang_bar)
+        # スクロール領域内のためホイール通過で値が変わらない DS 部品を使う (#1051)
+        self._lang_combo = DsNoScrollComboBox(self._lang_bar)
         self._lang_combo.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
         lang_layout.addWidget(self._lang_combo)
         self._lang_bar.setVisible(False)
@@ -481,7 +483,7 @@ class TagPanelWidget(QWidget):
         metric_layout = QHBoxLayout(self._metric_bar)
         metric_layout.setContentsMargins(0, 0, 0, 2)
         metric_layout.addWidget(QLabel("頻度:", self._metric_bar))
-        self._metric_combo = QComboBox(self._metric_bar)
+        self._metric_combo = DsNoScrollComboBox(self._metric_bar)
         self._metric_combo.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
         self._metric_combo.addItem(_METRIC_NONE_LABEL)
         metric_layout.addWidget(self._metric_combo)
