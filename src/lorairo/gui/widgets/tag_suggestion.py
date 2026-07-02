@@ -45,9 +45,43 @@ class _TagSuggestionTask(QRunnable):
         """バックグラウンドで候補取得して UI スレッドへ通知する。"""
         try:
             suggestions = self._service.get_suggestions(self._query)
-            self.signals.finished.emit(self._request_id, self._query, suggestions)
         except Exception as e:
-            self.signals.failed.emit(self._request_id, self._query, str(e))
+            self._emit_failed_safely(str(e))
+            return
+        self._emit_finished_safely(suggestions)
+
+    def _emit_finished_safely(self, suggestions: list[str]) -> None:
+        """finished シグナルを安全に emit する。
+
+        呼び出し元 (`TagSuggestionWidget`) 側の参照が既に破棄され、
+        `signals` (親なし QObject) の C++ 実体が GC で解放済みの場合、
+        `emit()` は `RuntimeError: Signal source has been deleted` を送出する。
+        バックグラウンドスレッドでの通知漏れは無視して構わないため握り潰す。
+
+        Args:
+            suggestions: 取得したタグ候補のリスト。
+        """
+        try:
+            self.signals.finished.emit(self._request_id, self._query, suggestions)
+        except RuntimeError:
+            logger.debug(
+                "タグ候補取得完了通知をスキップ: signal source が既に破棄済み (request_id={})",
+                self._request_id,
+            )
+
+    def _emit_failed_safely(self, error_message: str) -> None:
+        """failed シグナルを安全に emit する (`_emit_finished_safely` と同様の保護)。
+
+        Args:
+            error_message: 発生した例外のメッセージ。
+        """
+        try:
+            self.signals.failed.emit(self._request_id, self._query, error_message)
+        except RuntimeError:
+            logger.debug(
+                "タグ候補取得失敗通知をスキップ: signal source が既に破棄済み (request_id={})",
+                self._request_id,
+            )
 
 
 class TagSuggestionWidget(QWidget):
@@ -84,6 +118,11 @@ class TagSuggestionWidget(QWidget):
         self._tag_request_seq = 0
         self._latest_tag_request_id = 0
         self._pending_tag_token: str | None = None
+        # 実行中タスクへの Python 側参照を保持する (request_id -> task)。
+        # QRunnable は autoDelete で C++ 側に所有権が移るが、属性の
+        # `task.signals` (親なし QObject) は Python 参照が切れると GC 対象になり、
+        # run() 内の emit で `RuntimeError: Signal source has been deleted` を招く。
+        self._inflight_tasks: dict[int, _TagSuggestionTask] = {}
 
         self._tag_completer.activated.connect(self._on_tag_completion_activated)
 
@@ -121,6 +160,7 @@ class TagSuggestionWidget(QWidget):
         self._pending_tag_token = None
         self._tag_lookup_pool.clear()
         self._tag_lookup_pool.waitForDone(1000)
+        self._inflight_tasks.clear()
 
     # === Static helpers ===
 
@@ -193,11 +233,15 @@ class TagSuggestionWidget(QWidget):
         task = _TagSuggestionTask(request_id, token, self.tag_suggestion_service)
         task.signals.finished.connect(self._on_tag_lookup_finished)
         task.signals.failed.connect(self._on_tag_lookup_failed)
+        # 完了/失敗ハンドラで discard するまで Python 側参照を保持し、
+        # 実行中の task が GC されて signals が破棄されるのを防ぐ。
+        self._inflight_tasks[request_id] = task
         self._tag_lookup_pool.start(task)
 
     def _on_tag_lookup_finished(self, request_id: int, token: str, suggestions: list[str]) -> None:
         """非同期タグ候補取得の完了ハンドラ。"""
         self._tag_lookup_in_flight = False
+        self._inflight_tasks.pop(request_id, None)
 
         if request_id == self._latest_tag_request_id and self._line_edit is not None:
             current_token = self._extract_last_token(self._line_edit.text())
@@ -209,6 +253,7 @@ class TagSuggestionWidget(QWidget):
     def _on_tag_lookup_failed(self, request_id: int, token: str, error_message: str) -> None:
         """非同期タグ候補取得のエラーハンドラ。"""
         self._tag_lookup_in_flight = False
+        self._inflight_tasks.pop(request_id, None)
         if request_id == self._latest_tag_request_id:
             logger.warning(
                 "タグ候補非同期取得に失敗: request_id={}, token='{}', error={}",

@@ -4,10 +4,11 @@
 from unittest.mock import MagicMock
 
 import pytest
+import shiboken6
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QCompleter, QLineEdit
 
-from lorairo.gui.widgets.tag_suggestion import TagSuggestionWidget
+from lorairo.gui.widgets.tag_suggestion import TagSuggestionWidget, _TagSuggestionTask
 
 
 @pytest.fixture()
@@ -235,6 +236,110 @@ class TestAsyncTagLookup:
         widget._update_tag_completions()
 
         assert widget._pending_tag_token == "blue"
+
+
+class _FakeFailingSuggestionService:
+    """get_suggestions が必ず例外送出する fake service (失敗系テスト用)。"""
+
+    def __init__(self) -> None:
+        self.min_chars = 2
+
+    def get_cached_suggestions(self, _query: str) -> list[str] | None:
+        return None
+
+    def get_suggestions(self, _query: str) -> list[str]:
+        raise ValueError("boom")
+
+
+class TestTagSuggestionTaskSignalSafety:
+    """`_TagSuggestionTask` の emit 安全性テスト (#1040 回帰防止)。
+
+    `TagSuggestionWidget` 側の Python 参照が破棄されると `task.signals`
+    (親なし QObject) の C++ 実体が GC で解放され、run() 内の emit が
+    `RuntimeError: Signal source has been deleted` を送出しうる。
+    `shiboken6.delete()` で signals の C++ 実体を明示的に破棄し、
+    その状態を再現して run() が例外を漏らさないことを検証する。
+    """
+
+    def test_run_survives_deleted_signals_on_success(self) -> None:
+        service = _FakeAsyncSuggestionService(cached=None, async_result=["blue_hair"])
+        task = _TagSuggestionTask(1, "bl", service)
+        shiboken6.delete(task.signals)
+
+        # 例外が漏れなければ成功 (漏れれば pytest がテスト失敗として検出する)
+        task.run()
+
+    def test_run_survives_deleted_signals_on_failure(self) -> None:
+        task = _TagSuggestionTask(1, "bl", _FakeFailingSuggestionService())
+        shiboken6.delete(task.signals)
+
+        task.run()
+
+
+class TestInFlightTaskReferenceHolding:
+    """`_inflight_tasks` による task 参照保持テスト (#1040 回帰防止)。"""
+
+    def test_start_tag_lookup_registers_task_before_pool_start(
+        self,
+        attached_widget: tuple[TagSuggestionWidget, QLineEdit],
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        widget, _line_edit = attached_widget
+        widget.set_tag_suggestion_service(
+            _FakeAsyncSuggestionService(cached=None, async_result=["blue_hair"])
+        )
+        captured: list[_TagSuggestionTask] = []
+        monkeypatch.setattr(widget._tag_lookup_pool, "start", captured.append)
+
+        widget._start_tag_lookup("bl")
+
+        assert len(captured) == 1
+        assert widget._inflight_tasks[widget._latest_tag_request_id] is captured[0]
+
+    def test_finished_handler_discards_inflight_task(
+        self,
+        attached_widget: tuple[TagSuggestionWidget, QLineEdit],
+        qtbot,
+    ) -> None:
+        widget, line_edit = attached_widget
+        line_edit.setText("blue")
+        widget.set_tag_suggestion_service(
+            _FakeAsyncSuggestionService(cached=None, async_result=["blue_hair"])
+        )
+
+        widget._update_tag_completions()
+
+        qtbot.waitUntil(lambda: not widget._inflight_tasks, timeout=2000)
+
+    def test_failed_handler_discards_inflight_task(
+        self,
+        attached_widget: tuple[TagSuggestionWidget, QLineEdit],
+        qtbot,
+    ) -> None:
+        widget, line_edit = attached_widget
+        line_edit.setText("blue")
+        widget.set_tag_suggestion_service(_FakeFailingSuggestionService())
+
+        widget._update_tag_completions()
+
+        qtbot.waitUntil(lambda: not widget._inflight_tasks, timeout=2000)
+
+    def test_cleanup_clears_inflight_tasks(
+        self,
+        attached_widget: tuple[TagSuggestionWidget, QLineEdit],
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        widget, _line_edit = attached_widget
+        widget.set_tag_suggestion_service(
+            _FakeAsyncSuggestionService(cached=None, async_result=["blue_hair"])
+        )
+        monkeypatch.setattr(widget._tag_lookup_pool, "start", lambda _task: None)
+        widget._start_tag_lookup("bl")
+        assert widget._inflight_tasks
+
+        widget.cleanup()
+
+        assert not widget._inflight_tasks
 
 
 class TestEnabledProvider:
