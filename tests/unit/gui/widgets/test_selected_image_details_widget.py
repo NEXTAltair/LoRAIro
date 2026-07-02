@@ -64,7 +64,11 @@ class FakeMergedReader:
     def search_tags_bulk_all(
         self, tags: list[str], format_name: str | None = None, resolve_preferred: bool = False
     ) -> dict[str, list[dict]]:
-        """#1056 の type 解決 (search_tags_batch) 用。TagSearchRow 形の行を返す。"""
+        """#1056 の type 解決 (search_tags_batch) 用。TagSearchRow 形の行を返す。
+
+        実 repository は format 非依存検索で type_name を空にし、format ごとの type を
+        format_statuses に入れる (Codex P2 で判明した実挙動を再現する)。
+        """
         result: dict[str, list[dict]] = {}
         for index, tag in enumerate(tags):
             key = tag.lower()
@@ -79,9 +83,9 @@ class FakeMergedReader:
                     "alias": False,
                     "deprecated": False,
                     "type_id": None,
-                    "type_name": self._types[key],
+                    "type_name": "",
                     "translations": {},
-                    "format_statuses": {},
+                    "format_statuses": {"danbooru": {"type_name": self._types[key]}},
                 }
             ]
         return result
@@ -871,3 +875,65 @@ class TestReadableLayoutTopPacking:
         gap = rsw.geometry().y() - (ad.geometry().y() + ad.geometry().height())
         # spacing (4px) 程度。タグが多くても過大な隙間 (>= 40px) が出ないこと。
         assert gap < 40
+
+
+class TestResolveTagTypes:
+    """#1056 Codex P2: type 解決の実挙動 (format_statuses 経由・完全一致限定・非破壊)。"""
+
+    @pytest.fixture
+    def widget(self, qtbot):
+        widget = SelectedImageDetailsWidget()
+        qtbot.addWidget(widget)
+        return widget
+
+    def test_resolves_type_from_format_statuses(self, widget):
+        """format 非依存検索では type_name が空のため format_statuses から解決する。"""
+        widget.set_merged_reader(FakeMergedReader({}, types={"hatsune miku": "character"}))
+
+        result = widget._resolve_tag_types([{"tag": "hatsune miku", "tag_id": 3}])
+
+        assert result == {"hatsune miku": "character"}
+
+    def test_non_exact_match_stays_unknown(self, widget):
+        """完全一致しない検索ヒット (alias 等) の type を割り当てない。"""
+
+        class AliasOnlyReader(FakeMergedReader):
+            def search_tags_bulk_all(self, tags, format_name=None, resolve_preferred=False):
+                # クエリと異なる canonical の行だけ返す (alias ヒットを模擬)
+                return {
+                    tag: [
+                        {
+                            "tag": "different_tag",
+                            "source_tag": None,
+                            "tag_id": 1,
+                            "usage_count": 0,
+                            "alias": True,
+                            "deprecated": False,
+                            "type_id": None,
+                            "type_name": "",
+                            "translations": {},
+                            "format_statuses": {"danbooru": {"type_name": "general"}},
+                        }
+                    ]
+                    for tag in tags
+                }
+
+        widget.set_merged_reader(AliasOnlyReader({}))
+
+        result = widget._resolve_tag_types([{"tag": "unregistered_tag", "tag_id": None}])
+
+        assert result == {}
+
+    def test_lookup_failure_is_non_blocking(self, widget):
+        """tag DB 読み取り失敗は空 dict (未分類扱い) に落とし、詳細パネルを壊さない。"""
+        from sqlalchemy.exc import SQLAlchemyError
+
+        class FailingReader(FakeMergedReader):
+            def search_tags_bulk_all(self, tags, format_name=None, resolve_preferred=False):
+                raise SQLAlchemyError("db down")
+
+        widget.set_merged_reader(FailingReader({}))
+
+        result = widget._resolve_tag_types([{"tag": "1girl", "tag_id": 2}])
+
+        assert result == {}

@@ -936,19 +936,49 @@ class SelectedImageDetailsWidget(QWidget):
             return {}
         # 遅延 import: widget モジュール読込時に tagdb API を引き込まない
         from genai_tag_db_tools import search_tags_batch
+        from sqlalchemy.exc import SQLAlchemyError
 
         tag_types: dict[str, str] = {}
-        for query, result in search_tags_batch(
-            self._merged_reader, canonicals, format_names=None, resolve_preferred=False
-        ).items():
-            # 完全一致行を優先し、type_name を持つ最初の行を採用する
-            exact = [item for item in result.items if item.tag == query and item.type_name]
-            candidates = exact or [item for item in result.items if item.type_name]
-            if candidates:
-                type_name = candidates[0].type_name
+        try:
+            batch = search_tags_batch(
+                self._merged_reader, canonicals, format_names=None, resolve_preferred=False
+            )
+        except (SQLAlchemyError, ValueError) as e:
+            # type はソート用の付加情報。取得失敗で詳細パネル全体を壊さない (Codex P2)
+            logger.warning(f"タグ type の batch 解決に失敗 (未分類として表示): {e}")
+            return {}
+        for query, result in batch.items():
+            # 完全一致行のみ採用する。alias/翻訳経由の別タグの type を誤って
+            # 割り当てない (一致しなければ「不明」グループのまま。Codex P2)
+            for item in result.items:
+                if item.tag != query:
+                    continue
+                type_name = self._extract_type_name(item)
                 if type_name:
-                    tag_types[query] = type_name.lower()
+                    tag_types[query] = type_name
+                    break
         return tag_types
+
+    @staticmethod
+    def _extract_type_name(item: Any) -> str | None:
+        """TagRecordPublic から type 名 (小文字) を取り出す。
+
+        format 非依存検索では ``type_name`` が空になり、format ごとの type は
+        ``format_statuses`` 側に入る (Codex P2)。canonical は danbooru 焼き込み
+        (ADR 0068) のため danbooru の type を優先し、無ければ他 format の type を使う。
+        """
+        if item.type_name:
+            return str(item.type_name).lower()
+        statuses = item.format_statuses or {}
+        danbooru = statuses.get("danbooru") or {}
+        type_name = danbooru.get("type_name")
+        if type_name:
+            return str(type_name).lower()
+        for status in statuses.values():
+            candidate = (status or {}).get("type_name")
+            if candidate:
+                return str(candidate).lower()
+        return None
 
     @staticmethod
     def _format_aspect_ratio(width: Any, height: Any) -> str:
