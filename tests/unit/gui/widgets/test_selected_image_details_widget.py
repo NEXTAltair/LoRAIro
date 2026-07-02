@@ -764,6 +764,26 @@ class TestOriginalImageMetaDisplay:
         assert widget.labelAspectValue.text() == "16:9"
         assert "あり" in widget.labelAlphaValue.text()
 
+    def test_display_populates_image_id_and_phash(self, widget):
+        """#1058: 画像情報グループに画像IDと pHash が表示される。"""
+        widget._on_image_data_received({"id": 42, "width": 100, "height": 100, "phash": "a1b2c3d4e5f60789"})
+        assert widget.labelImageIdValue.text() == "42"
+        assert widget.labelPhashValue.text() == "a1b2c3d4e5f60789"
+
+    def test_image_id_and_phash_rows_reset_on_clear(self, widget):
+        """#1058: クリア時は画像ID/pHash 行も '-' に戻る。"""
+        widget._on_image_data_received({"id": 42, "width": 100, "height": 100, "phash": "a1b2c3d4e5f60789"})
+        widget._clear_display()
+        assert widget.labelImageIdValue.text() == "-"
+        assert widget.labelPhashValue.text() == "-"
+
+    def test_image_id_and_phash_labels_are_copyable(self, widget):
+        """#1058: 画像ID/pHash はクリック選択でクリップボードコピーできる。"""
+        from PySide6.QtCore import Qt
+
+        for label in (widget.labelImageIdValue, widget.labelPhashValue):
+            assert label.textInteractionFlags() & Qt.TextInteractionFlag.TextSelectableByMouse
+
 
 class TestReadableLayoutTopPacking:
     """#827: 詳細ペインをトップ詰めにし、レーティング詳細と評価スコア編集の間に

@@ -92,6 +92,7 @@ class ImageDetails:
     original_extension: str = ""  # ".png" / ".jpg" 等 (Image.extension 由来)
     aspect_ratio: str = ""  # "16:9" 等 (original width:height の既約比)
     alpha_text: str = ""  # "あり (RGBA)" / "なし (RGB)" / "不明"
+    phash: str = ""  # Image.phash (重複検出の突き合わせ用、Issue #1058)
     annotation_data: AnnotationData | None = field(default=None)
 
     def __post_init__(self) -> None:
