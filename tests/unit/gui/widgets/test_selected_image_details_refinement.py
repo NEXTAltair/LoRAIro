@@ -241,6 +241,33 @@ def test_terminal_without_pending_frees_slot_for_next_trigger(qtbot) -> None:
     assert manager.cancel_requests == []  # キャンセルは発生しない
 
 
+def test_terminal_drops_stale_pending_when_selection_cleared(qtbot) -> None:
+    """選択解除後の終端イベントでは stale pending を起動しない (Codex P2)。"""
+    widget, manager = _make_wired_widget(qtbot)
+
+    widget._trigger_refinement_evaluation()
+    widget._trigger_refinement_evaluation()  # pending を作る (image 5)
+
+    widget.current_image_id = None  # 選択解除 (無タグ画像への移動も同型)
+    manager.emit_terminal(manager.started[0][0], WorkerOutcome.CANCELED)
+
+    assert len(manager.started) == 1  # stale pending は起動されない
+    assert widget._refinement_pending is None
+
+
+def test_terminal_drops_stale_pending_when_tags_emptied(qtbot) -> None:
+    """タグ無し状態になった後の終端イベントでも pending を起動しない (Codex P2)。"""
+    widget, manager = _make_wired_widget(qtbot)
+
+    widget._trigger_refinement_evaluation()
+    widget._trigger_refinement_evaluation()  # pending を作る
+
+    widget._current_tag_canonicals = []
+    manager.emit_terminal(manager.started[0][0], WorkerOutcome.CANCELED)
+
+    assert len(manager.started) == 1
+
+
 def test_shutdown_clears_pending_before_cancel(qtbot) -> None:
     """shutdown() は pending をクリアし、terminal イベントでの再起動を防ぐ (#1024)。"""
     widget, manager = _make_wired_widget(qtbot)

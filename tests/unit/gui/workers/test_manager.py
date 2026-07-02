@@ -318,6 +318,14 @@ class TestRequestCancelWorker:
 class TestCancelAllWorkersDeadline:
     """#1024: cancel_all_workers は全体 deadline で待機し、残りは見捨てる。"""
 
+    @pytest.fixture(autouse=True)
+    def _clean_abandoned_registry(self):
+        """テストで park された Mock thread がプロセスグローバル registry に残らないようにする。"""
+        from lorairo.gui.workers import manager as manager_mod
+
+        yield
+        manager_mod._ABANDONED_WORKERS.clear()
+
     def _add_worker(self, manager, worker_id: str, *, running: bool, wait_result: bool):
         worker = Mock()
         thread = Mock()
@@ -362,6 +370,26 @@ class TestCancelAllWorkersDeadline:
         event = terminal_mock.call_args.args[0]
         assert event.outcome is WorkerOutcome.UNRESPONSIVE
         assert manager.active_workers["worker-1"]["unresponsive"] is True
+
+    def test_abandoned_worker_is_parked_in_process_global_registry(self, manager):
+        """見捨てた worker の thread は widget 所有を離れた退避先に参照が残る (Codex P1)。
+
+        widget teardown で WorkerManager ごと参照が消えても、実行中 QThread の
+        C++ 実体が破棄されて "QThread: Destroyed while thread is still running"
+        にならないよう、プロセスグローバル registry が参照を保持する。
+        """
+        from lorairo.gui.workers import manager as manager_mod
+
+        worker, thread = self._add_worker(manager, "worker-1", running=True, wait_result=False)
+
+        manager.cancel_all_workers(total_grace_ms=100)
+
+        key = id(thread)
+        assert manager_mod._ABANDONED_WORKERS[key] == (thread, worker)
+        # thread が後から終了できたら finished シグナルで登録解除される
+        unregister = thread.finished.connect.call_args.args[0]
+        unregister()
+        assert key not in manager_mod._ABANDONED_WORKERS
 
     def test_total_wait_is_bounded_by_shared_deadline(self, manager):
         """停止しない worker が何本あっても待機は全体 deadline で打ち切られる (#1024: 53秒ハング)。"""

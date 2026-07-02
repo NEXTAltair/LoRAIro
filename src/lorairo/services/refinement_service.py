@@ -88,6 +88,9 @@ class RefinementService:
         Returns:
             needs_refinement=True のタグだけを含む {tag: RefinementRecommendation}。
         """
+        # list_ignored() も DB 読み取りのため、最初の往復前にもチェックする (Codex P2)。
+        if cancel_check is not None:
+            cancel_check()
         ignored = self._ignore_repo.list_ignored()
         fmap = format_map or {}
         # reader (repo) が違うと DB 由来の alias/typo 候補が変わるためキー要素に含める。

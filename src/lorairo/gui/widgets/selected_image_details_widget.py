@@ -495,8 +495,13 @@ class SelectedImageDetailsWidget(QWidget):
         self._refinement_inflight_id = None
         pending = self._refinement_pending
         self._refinement_pending = None
-        if pending is not None:
-            self._start_refinement_worker(pending)
+        if pending is None:
+            return
+        # 選択解除や無タグ画像への移動で要求が stale になっていたら起動しない (Codex P2)。
+        # 別のタグあり画像へ移った場合は新しい trigger が pending を上書き済みで整合する。
+        if pending[0] != self.current_image_id or not self._current_tag_canonicals:
+            return
+        self._start_refinement_worker(pending)
 
     @Slot(object)
     def _on_refinement_finished(self, result: "RefinementResult") -> None:

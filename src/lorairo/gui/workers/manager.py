@@ -9,6 +9,13 @@ from ...utils.log import logger
 from .base import LoRAIroWorkerBase
 from .terminal import CancelReason, WorkerOutcome, WorkerTerminalEvent
 
+# 見捨てた (UNRESPONSIVE) worker の QThread / worker への Python 参照をプロセス寿命で
+# 保持する退避先 (#1024 Codex P1)。widget 所有の WorkerManager と共に参照が消えると、
+# 実行中 QThread の C++ 実体が widget teardown で破棄され "QThread: Destroyed while
+# thread is still running" の abort になり得るため、所有権をプロセスグローバルへ移す。
+# thread が後から終了できた場合は finished シグナルで自動的に登録解除される。
+_ABANDONED_WORKERS: dict[int, tuple[QThread, LoRAIroWorkerBase[Any]]] = {}
+
 
 class WorkerManager(QObject):
     """
@@ -238,6 +245,7 @@ class WorkerManager(QObject):
                 self._finalize_canceled_if_no_terminal_signal(worker_id)
                 continue
             abandoned += 1
+            self._park_abandoned_worker(worker_info)
             self._mark_worker_unresponsive(
                 worker_id,
                 error=f"シャットダウン期限内に停止しませんでした: {worker_id}",
@@ -423,6 +431,21 @@ class WorkerManager(QObject):
         self._emit_compat_terminal_signal(event)
 
         return True
+
+    @staticmethod
+    def _park_abandoned_worker(worker_info: dict[str, Any]) -> None:
+        """見捨てる worker の thread/worker をプロセスグローバル退避先へ移す (#1024)。
+
+        widget teardown 後も Python 参照を生かし、実行中 QThread の C++ 実体が
+        破棄される事故を防ぐ。thread が終了したら registry から自動で外す。
+
+        Args:
+            worker_info: active_workers のエントリ ("thread" / "worker" を含む)。
+        """
+        thread = worker_info["thread"]
+        key = id(thread)
+        _ABANDONED_WORKERS[key] = (thread, worker_info["worker"])
+        thread.finished.connect(lambda k=key: _ABANDONED_WORKERS.pop(k, None))
 
     def _mark_worker_unresponsive(
         self,

@@ -271,7 +271,8 @@ def test_cancel_check_called_before_prefetch_and_each_evaluation() -> None:
     )
     service.recommend_for_tags(["a", "b"], cancel_check=cancel_check)
 
-    assert order == ["check", "prefetch", "check", "eval:a", "check", "eval:b"]
+    # 先頭の check は list_ignored() (これも DB 読み取り) の前のチェックポイント (Codex P2)
+    assert order == ["check", "check", "prefetch", "check", "eval:a", "check", "eval:b"]
 
 
 def test_cancel_check_aborts_between_evaluations() -> None:
@@ -286,7 +287,7 @@ def test_cancel_check_aborts_between_evaluations() -> None:
     def cancel_check() -> None:
         nonlocal checks
         checks += 1
-        if checks > 1:  # 1タグ目の評価後にキャンセルされた想定
+        if checks > 2:  # 先頭 (list_ignored 前) + 1タグ目の直前を通過後にキャンセルされた想定
             raise _CancelRequested()
 
     service = RefinementService(recommend_fn=fake_recommend, ignore_repo=_FakeIgnoreRepo())
@@ -296,20 +297,27 @@ def test_cancel_check_aborts_between_evaluations() -> None:
     assert calls == ["a"]  # 2タグ目以降は評価しない
 
 
-def test_cancel_check_not_called_for_cached_tags() -> None:
-    """全タグがキャッシュ済みなら cancel_check は呼ばれない (DB 往復が無いため)。"""
+def test_cached_tags_skip_per_tag_cancel_checks() -> None:
+    """全タグがキャッシュ済みなら per-tag のチェックは走らない (先頭の1回のみ)。
+
+    先頭の1回は list_ignored() (毎回の DB 読み取り) の前のチェックポイントで、
+    キャッシュ状態に依らず常に走る (Codex P2)。
+    """
+    checks = 0
 
     def fake_recommend(tag: str, *, repo: object = None, format_name: str = "unknown"):
         return _make_recommendation(tag, reason_codes=["broad_single_word"])
 
-    def raising_check() -> None:
-        raise _CancelRequested()
+    def counting_check() -> None:
+        nonlocal checks
+        checks += 1
 
     service = RefinementService(recommend_fn=fake_recommend, ignore_repo=_FakeIgnoreRepo())
     service.recommend_for_tags(["flower"])  # キャッシュ投入
 
-    result = service.recommend_for_tags(["flower"], cancel_check=raising_check)
-    assert "flower" in result  # 例外にならず返る
+    result = service.recommend_for_tags(["flower"], cancel_check=counting_check)
+    assert "flower" in result
+    assert checks == 1  # per-tag 評価分のチェックは走らない
 
 
 def test_ignore_persists_and_invalidates_cache() -> None:
