@@ -47,9 +47,43 @@ class _CountEstimateTask(QRunnable):
         """バックグラウンドで件数を取得して UI スレッドへ通知する。"""
         try:
             estimated_count = self._service.get_estimated_count(self._conditions)
-            self.signals.finished.emit(self._request_id, estimated_count)
         except Exception as e:
-            self.signals.failed.emit(self._request_id, str(e))
+            self._emit_failed_safely(str(e))
+            return
+        self._emit_finished_safely(estimated_count)
+
+    def _emit_finished_safely(self, estimated_count: int) -> None:
+        """finished シグナルを安全に emit する。
+
+        呼び出し元 (`CountEstimateWidget`) 側の参照が既に破棄され、
+        `signals` (親なし QObject) の C++ 実体が GC で解放済みの場合、
+        `emit()` は `RuntimeError: Signal source has been deleted` を送出する。
+        バックグラウンドスレッドでの通知漏れは無視して構わないため握り潰す。
+
+        Args:
+            estimated_count: 取得した推定件数。
+        """
+        try:
+            self.signals.finished.emit(self._request_id, estimated_count)
+        except RuntimeError:
+            logger.debug(
+                "件数見積もり完了通知をスキップ: signal source が既に破棄済み (request_id={})",
+                self._request_id,
+            )
+
+    def _emit_failed_safely(self, error_message: str) -> None:
+        """failed シグナルを安全に emit する (`_emit_finished_safely` と同様の保護)。
+
+        Args:
+            error_message: 発生した例外のメッセージ。
+        """
+        try:
+            self.signals.failed.emit(self._request_id, error_message)
+        except RuntimeError:
+            logger.debug(
+                "件数見積もり失敗通知をスキップ: signal source が既に破棄済み (request_id={})",
+                self._request_id,
+            )
 
 
 ConditionsBuilder = Callable[[], "SearchConditions | None"]
@@ -95,6 +129,11 @@ class CountEstimateWidget(QWidget):
         self._active_count_estimate_request_id = 0
         self._count_estimate_in_flight = False
         self._pending_count_estimate: tuple[int, SearchConditions] | None = None
+        # 実行中タスクへの Python 側参照を保持する (request_id -> task)。
+        # QRunnable は autoDelete で C++ 側に所有権が移るが、属性の
+        # `task.signals` (親なし QObject) は Python 参照が切れると GC 対象になり、
+        # run() 内の emit で `RuntimeError: Signal source has been deleted` を招く。
+        self._inflight_tasks: dict[int, _CountEstimateTask] = {}
 
     # === Public API ===
 
@@ -137,6 +176,7 @@ class CountEstimateWidget(QWidget):
         self._pending_count_estimate = None
         self._count_estimate_pool.clear()
         self._count_estimate_pool.waitForDone(1000)
+        self._inflight_tasks.clear()
 
     # === Internal ===
 
@@ -190,10 +230,14 @@ class CountEstimateWidget(QWidget):
         task = _CountEstimateTask(request_id, conditions, self.search_filter_service)
         task.signals.finished.connect(self._on_count_estimate_finished)
         task.signals.failed.connect(self._on_count_estimate_failed)
+        # 完了/失敗ハンドラで discard するまで Python 側参照を保持し、
+        # 実行中の task が GC されて signals が破棄されるのを防ぐ。
+        self._inflight_tasks[request_id] = task
         self._count_estimate_pool.start(task)
 
     def _on_count_estimate_finished(self, request_id: int, estimated_count: int) -> None:
         """件数見積もり完了時、最新リクエストだけ UI に反映する。"""
+        self._inflight_tasks.pop(request_id, None)
         if request_id == self._latest_count_estimate_request_id:
             self._estimated_count_label.setText(f"該当件数: {estimated_count:,}件")
             self.count_updated.emit(estimated_count)
@@ -202,6 +246,7 @@ class CountEstimateWidget(QWidget):
 
     def _on_count_estimate_failed(self, request_id: int, error_message: str) -> None:
         """件数見積もり失敗時、最新リクエストだけ UI に反映する。"""
+        self._inflight_tasks.pop(request_id, None)
         logger.debug(f"推定件数更新に失敗: {error_message}")
         if request_id == self._latest_count_estimate_request_id:
             self._estimated_count_label.setText("該当件数: -")
