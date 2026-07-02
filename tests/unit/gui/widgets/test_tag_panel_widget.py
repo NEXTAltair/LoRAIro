@@ -88,6 +88,64 @@ def test_set_tags_keeps_all_provenance_rows_in_table(panel):
     assert models == {"model0", "model1", "model2"}
 
 
+def test_set_tags_sorts_by_type_group_then_alphabetical(panel):
+    """#1056: character→copyright→artist→general→meta のグループ順 + グループ内アルファベット順。"""
+    tags = [
+        {"tag": "zzz effect", "tag_id": 1, "model_name": "wd", "source": "AI"},
+        {"tag": "1girl", "tag_id": 2, "model_name": "wd", "source": "AI"},
+        {"tag": "hatsune miku", "tag_id": 3, "model_name": "wd", "source": "AI"},
+        {"tag": "vocaloid", "tag_id": 4, "model_name": "wd", "source": "AI"},
+        {"tag": "absurdres", "tag_id": 5, "model_name": "wd", "source": "AI"},
+        {"tag": "aaa artist", "tag_id": 6, "model_name": "wd", "source": "AI"},
+    ]
+    tag_types = {
+        "1girl": "general",
+        "zzz effect": "general",
+        "hatsune miku": "character",
+        "vocaloid": "copyright",
+        "absurdres": "meta",
+        "aaa artist": "artist",
+    }
+
+    panel.set_tags(tags, tag_types=tag_types)
+
+    assert [c.canonical for c in panel._tag_chips] == [
+        "hatsune miku",  # character
+        "vocaloid",  # copyright
+        "aaa artist",  # artist
+        "1girl",  # general (アルファベット順)
+        "zzz effect",  # general
+        "absurdres",  # meta
+    ]
+
+
+def test_set_tags_unknown_type_goes_to_trailing_group(panel):
+    """#1056: type が引けないタグ (tagdb 未登録等) は末尾グループに寄せる (ユーザー決定)。"""
+    tags = [
+        {"tag": "aaa unknown", "tag_id": None, "model_name": "wd", "source": "AI"},
+        {"tag": "zzz meta", "tag_id": 5, "model_name": "wd", "source": "AI"},
+        {"tag": "1girl", "tag_id": 2, "model_name": "wd", "source": "AI"},
+    ]
+    tag_types = {"1girl": "general", "zzz meta": "meta"}
+
+    panel.set_tags(tags, tag_types=tag_types)
+
+    assert [c.canonical for c in panel._tag_chips] == ["1girl", "zzz meta", "aaa unknown"]
+
+
+def test_set_tags_without_types_sorts_alphabetically(panel):
+    """#1056: type 情報が無い呼び出し元 (staging 等) でもアルファベット順で規則性を持つ。"""
+    tags = [
+        {"tag": "solo", "tag_id": 1, "model_name": "wd", "source": "AI"},
+        {"tag": "1girl", "tag_id": 2, "model_name": "wd", "source": "AI"},
+        {"tag": "flower", "tag_id": 3, "model_name": "wd", "source": "AI"},
+    ]
+
+    panel.set_tags(tags)
+
+    assert [c.canonical for c in panel._tag_chips] == ["1girl", "flower", "solo"]
+
+
 def test_set_tags_dedupe_prefers_row_with_tag_id(panel):
     """#1055 Codex P2: 初出行が tag_id 無し (legacy) なら tag_id 付き行を採用する。"""
     tags = [
@@ -1008,3 +1066,24 @@ def test_chip_box_shrinks_when_tags_decrease(qtbot):
 
     qtbot.waitUntil(lambda: panel._tags_scroll.height() < 60, timeout=2000)
     assert panel._tags_scroll.verticalScrollBar().maximum() == 0
+
+
+def test_set_tags_image_change_without_types_resets_type_map(panel):
+    """#1056 Codex P2: 別画像で tag_types 省略時は前画像の type map を引き継がない。"""
+    panel.set_tags(
+        [{"tag": "hatsune miku", "tag_id": 3, "model_name": "wd", "source": "AI"}],
+        image_id=1,
+        tag_types={"hatsune miku": "character"},
+    )
+
+    # 別画像 (image_id=2) では type 情報無し → 全タグ末尾グループ = 純アルファベット順
+    panel.set_tags(
+        [
+            {"tag": "zzz tag", "tag_id": 5, "model_name": "wd", "source": "AI"},
+            {"tag": "hatsune miku", "tag_id": 3, "model_name": "wd", "source": "AI"},
+        ],
+        image_id=2,
+    )
+
+    assert panel._tag_types == {}
+    assert [c.canonical for c in panel._tag_chips] == ["hatsune miku", "zzz tag"]

@@ -13,7 +13,7 @@ dispatch は親 (`SelectedImageDetailsWidget`) が担う。これにより保存
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, ClassVar
 
 from PySide6.QtCore import QPoint, Qt, Signal, Slot
 from PySide6.QtGui import QContextMenuEvent, QKeySequence, QMouseEvent, QResizeEvent, QShortcut
@@ -425,6 +425,8 @@ class TagPanelWidget(QWidget):
         self._tags: list[dict[str, Any]] = []
         # 畳む前の全タグ行 (モデル別由来)。隠しテーブルの TSV コピー用 (#1055)
         self._all_tag_rows: list[dict[str, Any]] = []
+        # canonical -> tagdb type 名 (小文字)。type 別グループソート用 (#1056)
+        self._tag_types: dict[str, str] = {}
         self._translations: dict[int, dict[str, str]] = {}
         self._available_languages: list[str] = []
 
@@ -582,6 +584,7 @@ class TagPanelWidget(QWidget):
         available_languages: list[str] | None = None,
         image_id: int | None = None,
         usage_counts: dict[int, dict[str, int]] | None = None,
+        tag_types: dict[str, str] | None = None,
     ) -> None:
         """タグ集合で表示を更新する。
 
@@ -601,12 +604,21 @@ class TagPanelWidget(QWidget):
             usage_counts: サイト別使用頻度 ``{tag_id: {format_name: count}}`` (#990)。
                 指定時は metric セレクタと chip 表示を 1 度の再描画で同時更新する
                 (set_usage_counts を別途呼ぶと余分な再描画になるため統合する)。
+            tag_types: ``{canonical: type名(小文字)}`` (#1056)。チップの type 別
+                グループソートに使う。引けないタグは「不明」として末尾グループ。
         """
         # ✕ で外したタグは同一画像の reject reload を跨いで非表示を維持する。
         # 親が ✕ → soft-reject → 同画像 reload → set_tags を呼び戻す経路で _hidden を
         # 消すと、外したタグが破線復活 chip として即再出現する (PR #992 Codex P2)。
         image_changed = image_id is None or image_id != self._image_id
         self._image_id = image_id
+        # type map はソート (_sort_tags_by_type) より先に確定させる (#1056)。
+        # 別画像で type 情報が来ていない場合は前画像の map を引き継がない
+        # (無関係な canonical が前画像の type でグループ化される。Codex P2)
+        if tag_types is not None:
+            self._tag_types = dict(tag_types)
+        elif image_changed:
+            self._tag_types = {}
         # 複数モデルでアノテーションした画像は同一 canonical のタグ行がモデル数ぶん
         # 重複する (heart x9 等)。チップ表示は canonical 単位で 1 つに畳む (初出順維持、
         # DB のモデル別由来行は不変。チップ操作はもともと canonical 単位で dispatch
@@ -629,7 +641,9 @@ class TagPanelWidget(QWidget):
                 # 初出行が legacy (tag_id 無し) の場合は、翻訳/使用頻度を解決できる
                 # tag_id 付きの行で初出位置を差し替える (Codex P2)
                 deduped_tags[kept_index] = tag_dict
-        self._tags = deduped_tags
+        # type 別グループ + グループ内アルファベット順で表示する (#1056)。
+        # 表示のみの並べ替えで DB の行順は不変。type 不明 (tagdb 未登録等) は末尾。
+        self._tags = self._sort_tags_by_type(deduped_tags)
         self._translations = dict(translations) if translations else {}
         self._available_languages = list(available_languages) if available_languages else []
         if usage_counts is not None:
@@ -885,6 +899,28 @@ class TagPanelWidget(QWidget):
         if count is None:
             return ""
         return f" ({self._format_count(count)})"
+
+    # type 別グループの表示順 (#1056)。語彙は TagTypeEditDialog.TYPE_CHOICES と同一。
+    # 未知 type / type 不明は末尾グループ (ユーザー確認済み)
+    _TYPE_GROUP_ORDER: ClassVar[dict[str, int]] = {
+        "character": 0,
+        "copyright": 1,
+        "artist": 2,
+        "general": 3,
+        "meta": 4,
+    }
+    _UNKNOWN_TYPE_GROUP = 5
+
+    def _sort_tags_by_type(self, tags: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        """タグ行を type 別グループ + グループ内 canonical アルファベット順に並べる (#1056)。"""
+
+        def sort_key(tag_dict: dict[str, Any]) -> tuple[int, str]:
+            canonical = str(tag_dict.get("tag", ""))
+            type_name = self._tag_types.get(canonical, "")
+            group = self._TYPE_GROUP_ORDER.get(type_name, self._UNKNOWN_TYPE_GROUP)
+            return (group, canonical.lower())
+
+        return sorted(tags, key=sort_key)
 
     def _display_text_for(
         self, tag_dict: dict[str, Any], language: str, use_english: bool
