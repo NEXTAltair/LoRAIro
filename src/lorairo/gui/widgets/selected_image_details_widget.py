@@ -410,16 +410,33 @@ class SelectedImageDetailsWidget(QWidget):
             service: refinement 評価/ignore を担う Qt-free サービス。
             worker_manager: 非同期評価用。None なら専用 WorkerManager を生成する。
         """
-        from ..workers.manager import WorkerManager as _WorkerManager
-
         self._refinement_service = service
-        self._refinement_worker_manager = worker_manager or _WorkerManager(self)
-        # worker 終端 (成功/キャンセル/エラー問わず) で in-flight 枠を解放し、
-        # pending の最新要求を起動する (#1024 single-flight)。
-        self._refinement_worker_manager.worker_terminal.connect(self._on_refinement_terminal)
-        self._refinement_worker_manager.worker_terminal.connect(self._on_tag_metadata_terminal)
+        if worker_manager is not None and self._refinement_worker_manager is None:
+            self._refinement_worker_manager = worker_manager
+            self._connect_worker_terminal_handlers(worker_manager)
+        else:
+            self._ensure_worker_manager()
         self.annotation_display.refinement_ignored.connect(self._on_refinement_ignored)
         logger.debug("SelectedImageDetailsWidget: refinement サービスを配線")
+
+    def _ensure_worker_manager(self) -> "WorkerManager":
+        """共有 WorkerManager を遅延生成して返す (#1046 Codex P2)。
+
+        tag metadata worker は refinement service 未配線でも動く必要があるため、
+        manager 生成を set_refinement_service から分離する。terminal 接続は
+        生成時に1回だけ行う (#1024 single-flight の枠解放)。
+        """
+        if self._refinement_worker_manager is None:
+            from ..workers.manager import WorkerManager as _WorkerManager
+
+            self._refinement_worker_manager = _WorkerManager(self)
+            self._connect_worker_terminal_handlers(self._refinement_worker_manager)
+        return self._refinement_worker_manager
+
+    def _connect_worker_terminal_handlers(self, manager: "WorkerManager") -> None:
+        """worker 終端 (成功/キャンセル/エラー問わず) で in-flight 枠を解放する接続。"""
+        manager.worker_terminal.connect(self._on_refinement_terminal)
+        manager.worker_terminal.connect(self._on_tag_metadata_terminal)
 
     def set_tag_management_service(self, service: "TagManagementService") -> None:
         """tagdb userdb 系書き込みサービスを配線する (#989)。
@@ -443,10 +460,20 @@ class SelectedImageDetailsWidget(QWidget):
         常に1本に制限し (#1024 single-flight)、実行中の新要求は協調キャンセル +
         pending 上書きで最新だけを保持する (refinement と同型)。
         """
-        manager = self._refinement_worker_manager
-        if self._merged_reader is None or manager is None:
+        if self._merged_reader is None:
             return
+        manager = self._ensure_worker_manager()
         if self.current_image_id is None or not tags_list:
+            # タグ無し画像への切替でも世代を進めて実行中の解決を打ち切り、
+            # 旧画像向けの stale worker が走り続けないようにする (Codex P2)
+            self._tag_metadata_generation += 1
+            self._tag_metadata_pending = None
+            if self._tag_metadata_inflight_id is not None:
+                from ..workers.terminal import CancelReason
+
+                manager.request_cancel_worker(
+                    self._tag_metadata_inflight_id, reason=CancelReason.REFINEMENT_REPLACED
+                )
             return
 
         self._tag_metadata_generation += 1
@@ -463,9 +490,9 @@ class SelectedImageDetailsWidget(QWidget):
 
     def _start_tag_metadata_worker(self, request: tuple[int, list[dict[str, Any]], int]) -> None:
         """tag metadata worker を1本起動し in-flight として記録する (#1046)。"""
-        manager = self._refinement_worker_manager
-        if self._merged_reader is None or manager is None:
+        if self._merged_reader is None:
             return
+        manager = self._ensure_worker_manager()
         from ..workers.tag_metadata_worker import TagMetadataWorker
 
         image_id, tags_list, generation = request
@@ -610,6 +637,7 @@ class SelectedImageDetailsWidget(QWidget):
         起動してしまう再入を防ぐ (#1024)。
         """
         self._refinement_pending = None
+        self._tag_metadata_pending = None
         manager = self._refinement_worker_manager
         if manager is not None:
             manager.cancel_all_workers()
