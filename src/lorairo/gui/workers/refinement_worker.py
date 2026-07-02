@@ -83,7 +83,10 @@ class RefinementWorker(LoRAIroWorkerBase[RefinementResult]):
             cancel_check=self._check_cancellation,
         )
         # 候補タグの使用カウントも worker スレッド内で一括解決する
-        # (メインスレッドで tag DB を待たない #1046 方針と整合。#1052)
+        # (メインスレッドで tag DB を待たない #1046 方針と整合。#1052)。
+        # 評価完了後に supersede された場合は counts 解決前に協調キャンセルで
+        # 終端し、pending の新要求へ枠を早く譲る (Codex P2)
+        self._check_cancellation()
         candidate_counts = self._service.resolve_candidate_counts(recommendations, repo=self._repo)
         logger.debug(
             f"refinement worker 完了: image_id={self._image_id}, gen={self._generation}, "
