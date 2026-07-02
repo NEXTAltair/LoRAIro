@@ -588,6 +588,8 @@ class TagPanelWidget(QWidget):
         Args:
             tags: タグ詳細情報リスト (Repository 層形式)。
                 ``[{"tag": "1girl", "tag_id": 10, "model_name": ..., ...}, ...]``
+                同一 canonical (``tag`` キー) の重複行は初出順で 1 件に畳んで表示する
+                (Issue #1055)。
             translations: ``{tag_id: {language: translated_text}}``。省略時は空。
             available_languages: 利用可能言語リスト (脚注/フォールバック用)。
             image_id: 表示中画像の識別子。省略 (None) 時は常にリセットする
@@ -601,7 +603,20 @@ class TagPanelWidget(QWidget):
         # 消すと、外したタグが破線復活 chip として即再出現する (PR #992 Codex P2)。
         image_changed = image_id is None or image_id != self._image_id
         self._image_id = image_id
-        self._tags = list(tags)
+        # 複数モデルでアノテーションした画像は同一 canonical のタグ行がモデル数ぶん
+        # 重複する (heart x9 等)。表示は canonical 単位で 1 チップに畳む (初出順維持、
+        # DB のモデル別由来行は不変。チップ操作はもともと canonical 単位で dispatch
+        # されるため操作意味論は変わらない。Issue #1055 / ADR 0083 §2)
+        seen_canonicals: set[str] = set()
+        deduped_tags: list[dict[str, Any]] = []
+        for tag_dict in tags:
+            canonical = str(tag_dict.get("tag", ""))
+            if canonical:
+                if canonical in seen_canonicals:
+                    continue
+                seen_canonicals.add(canonical)
+            deduped_tags.append(tag_dict)
+        self._tags = deduped_tags
         self._translations = dict(translations) if translations else {}
         self._available_languages = list(available_languages) if available_languages else []
         if usage_counts is not None:
