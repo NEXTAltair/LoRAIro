@@ -1141,3 +1141,14 @@ def test_update_language_selector_preserves_selection_and_adds_new_language(pane
     assert labels == ["english", "japanese", "en"]
     # 選択は japanese のまま (english へ巻き戻らない)
     assert panel._lang_combo.currentText() == "japanese"
+
+
+def test_update_language_selector_switches_from_original_view_to_saved_language(panel, sample_tags):
+    """#1050 Codex P2: 原文 (english) 表示中に登録した言語へ自動切替して即可視化する。"""
+    panel.set_tags(sample_tags, image_id=10)
+    panel.initialize_language_selector(["japanese"])
+    assert panel._current_language() == "english"
+
+    panel.update_language_selector(["japanese", "en"], prefer="en")
+
+    assert panel._lang_combo.currentText() == "en"

@@ -727,21 +727,30 @@ class TagPanelWidget(QWidget):
         self._lang_combo.blockSignals(False)
         self._lang_bar.setVisible(True)
 
-    def update_language_selector(self, available_languages: list[str]) -> None:
-        """言語コンボの候補を現在の選択を保ったまま更新する (#1050)。
+    def update_language_selector(
+        self, available_languages: list[str], *, prefer: str | None = None
+    ) -> None:
+        """言語コンボの候補を選択を保ったまま更新する (#1050)。
 
-        新しい言語 ("en" 等) の翻訳を初めて登録した直後に候補へ反映するために使う。
+        新しい言語 ("en" 等) の翻訳を登録した直後に候補へ反映するために使う。
         initialize_language_selector と異なり選択を english へ巻き戻さない
         (Codex #995 P2 の巻き戻り事故を再発させない)。
+
+        Args:
+            available_languages: 利用可能な言語リスト。
+            prefer: 直前に登録した翻訳の言語。原文 (english) 表示中のときだけ
+                この言語へ切り替え、登録結果を即時可視化する (Codex P2)。
+                非英語表示中は現在の選択を保つ。
         """
         current = self._current_language()
+        target = prefer if (prefer and current == "english") else current
         self._lang_combo.blockSignals(True)
         self._lang_combo.clear()
         self._lang_combo.addItem("english")  # 常に先頭 (原文)
         for lang in available_languages:
             if lang != "english":
                 self._lang_combo.addItem(lang)
-        index = self._lang_combo.findText(current)
+        index = self._lang_combo.findText(target)
         if index >= 0:
             self._lang_combo.setCurrentIndex(index)
         self._lang_combo.blockSignals(False)

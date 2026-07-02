@@ -689,7 +689,9 @@ class SelectedImageDetailsWidget(QWidget):
                 self._available_languages = self._merged_reader.get_tag_languages()
             if language not in self._available_languages:
                 self._available_languages = [*self._available_languages, language]
-            self.annotation_display.update_language_selector(self._available_languages)
+        # 原文 (english) 表示中なら保存言語へ切り替え、登録結果を即時可視化する
+        # (原文モードは翻訳を表示しないため。非英語表示中は選択を保つ。Codex P2)
+        self.annotation_display.update_language_selector(self._available_languages, prefer=language)
         self._reload_current_image()
 
     @Slot(str, str)
