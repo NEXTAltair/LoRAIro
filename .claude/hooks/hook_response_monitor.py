@@ -95,13 +95,21 @@ def check_ng_words(message: str, rules: dict[str, Any], log_file: Path) -> tuple
 
         log_debug(log_file, f"Checking rule '{rule_name}' with {len(keywords)} keywords (threshold={threshold})")
 
+        # exclude_patterns に一致する部分文字列（ルール名の自己言及・譲歩構文等）を
+        # このルールの判定対象からのみ除去する。他ルールの判定には影響しない。
+        rule_message_text = check_message
+        for pattern in exclude_patterns:
+            if not isinstance(pattern, str) or not pattern:
+                continue
+            rule_message_text = re.sub(pattern, "", rule_message_text, flags=re.IGNORECASE)
+
         # threshold > 1 のルールは「連打」検知: グループ内キーワードの総出現回数で判定
         if isinstance(threshold, int) and threshold > 1:
             total = 0
             for keyword in keywords:
                 if not isinstance(keyword, str) or not keyword:
                     continue
-                total += len(re.findall(re.escape(keyword), check_message, re.IGNORECASE))
+                total += len(re.findall(re.escape(keyword), rule_message_text, re.IGNORECASE))
 
             if total >= threshold:
                 violation_detail = (
@@ -115,8 +123,8 @@ def check_ng_words(message: str, rules: dict[str, Any], log_file: Path) -> tuple
             if not isinstance(keyword, str) or not keyword:
                 continue
 
-            # 大文字小文字を区別しない検索（引用符除去済みテキストで）
-            if re.search(re.escape(keyword), check_message, re.IGNORECASE):
+            # 大文字小文字を区別しない検索（引用符・除外パターン除去済みテキストで）
+            if re.search(re.escape(keyword), rule_message_text, re.IGNORECASE):
                 violation_detail = f"🚫 [{rule_name}] キーワード「{keyword}」検出\n   → {rule_message}"
                 violations.append(violation_detail)
 
