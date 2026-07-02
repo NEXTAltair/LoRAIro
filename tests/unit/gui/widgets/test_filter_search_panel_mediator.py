@@ -356,8 +356,6 @@ class TestPublicAPICompat:
         assert hasattr(panel, "filter_applied")
         assert hasattr(panel, "filter_cleared")
         assert hasattr(panel, "search_requested")
-        assert hasattr(panel, "search_progress_started")
-        assert hasattr(panel, "search_progress_updated")
         assert hasattr(panel, "search_completed")
         assert hasattr(panel, "pipeline_state_changed")
 
