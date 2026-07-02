@@ -949,9 +949,11 @@ class SelectedImageDetailsWidget(QWidget):
             return {}
         for query, result in batch.items():
             # 完全一致行のみ採用する。alias/翻訳経由の別タグの type を誤って
-            # 割り当てない (一致しなければ「不明」グループのまま。Codex P2)
+            # 割り当てない (一致しなければ「不明」グループのまま。Codex P2)。
+            # tagdb 側が tag=正規形 / source_tag=verbatim で登録している行は
+            # source_tag 一致も同一タグとして扱う (Codex P2 第2ラウンド)
             for item in result.items:
-                if item.tag != query:
+                if item.tag != query and item.source_tag != query:
                     continue
                 type_name = self._extract_type_name(item)
                 if type_name:

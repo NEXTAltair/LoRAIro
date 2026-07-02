@@ -937,3 +937,32 @@ class TestResolveTagTypes:
         result = widget._resolve_tag_types([{"tag": "1girl", "tag_id": 2}])
 
         assert result == {}
+
+    def test_source_tag_match_resolves_type(self, widget):
+        """tag=正規形 / source_tag=verbatim で登録された行も同一タグとして type を解決する。"""
+
+        class SourceTagReader(FakeMergedReader):
+            def search_tags_bulk_all(self, tags, format_name=None, resolve_preferred=False):
+                return {
+                    tag: [
+                        {
+                            "tag": "normalized form",
+                            "source_tag": tag,
+                            "tag_id": 1,
+                            "usage_count": 0,
+                            "alias": False,
+                            "deprecated": False,
+                            "type_id": None,
+                            "type_name": "",
+                            "translations": {},
+                            "format_statuses": {"danbooru": {"type_name": "meta"}},
+                        }
+                    ]
+                    for tag in tags
+                }
+
+        widget.set_merged_reader(SourceTagReader({}))
+
+        result = widget._resolve_tag_types([{"tag": "Verbatim_Tag", "tag_id": 9}])
+
+        assert result == {"Verbatim_Tag": "meta"}
