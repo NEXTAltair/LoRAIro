@@ -47,7 +47,7 @@ LoRAIro 開発で得られた教訓。バグパターン・設計ミス・解決
 
 ## Integration
 
-- **Annotator Lib との境界**: annotation_logic.py でアダプターパターンを使い、image-annotator-lib の内部型 (`PHashAnnotationResults`) をLoRAIro内部型に変換する。Lib の型変更がLoRAIro全体に波及しない設計が重要。
+- **Annotator Lib との境界**: annotation_runner.py (`AnnotationRunner`) でアダプターパターンを使い、image-annotator-lib の内部型 (`PHashAnnotationResults`) をLoRAIro内部型に変換する。Lib の型変更がLoRAIro全体に波及しない設計が重要。
 - **Torch インポートの遅延**: Torch を起動時にインポートするとGUI表示が数秒遅延する。`importlib.import_module()` による遅延インポートで起動時間を短縮する（ADR 0010参照）。
 - **アノテーターWorker のコード崩壊インシデント（2026-02-09）**: 大規模リファクタリング中にWorker実装が意図せず削除された。原因: `replace_symbol_body` ツールの適用範囲が予期以上に広かった。対策: シンボル置換後は必ずdiffで変更範囲を確認する。
 - **フィルタ必須化による構造的誤操作防止** (ADR 0019): LoRA 学習データ作成用途の `export create` では「全件エクスポート」が正常ケースとして存在しない。フィルタなし呼び出しを `exit_code=2` で即座に拒否することで、21k 件の誤エクスポートを設計レベルで防止した。ランタイム警告やドライラン強制より「そもそも呼べない設計」の方がシンプルで一貫性がある。非対話環境 (CI/cron) でも安全に機能する。

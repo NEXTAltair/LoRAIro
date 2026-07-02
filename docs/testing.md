@@ -67,7 +67,7 @@ tests/
 ├── unit/                    # Unit tests (Qt-free)
 │   ├── services/            # Business logic services
 │   ├── database/            # Database layer
-│   └── annotations/         # Annotation logic
+│   └── annotation/          # Annotation logic
 ├── integration/             # Integration tests
 │   ├── gui/                 # GUI services + widgets
 │   │   ├── services/        # GUI services

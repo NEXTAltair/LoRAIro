@@ -458,6 +458,131 @@ Structured error payload emitted as kind=error by the CLI boundary.
 - `hint`: `str?` (optional)
 - `details`: `dict?` (optional)
 
+### `errors get`
+
+Get a single error record by ID (full detail).
+
+`list` は error_message を切り詰め stack_trace / file_path / image_id を省くため、
+1 件の全容を確認するには本コマンドを使う。
+
+- Read only: `true`
+- Side effects: `db_read`
+
+> **Note**: 本コマンドは `lorairo.cli.introspection` に `ToolSpec` が未登録のため、
+> `lorairo-cli --json list-commands` / `describe` の machine-readable introspection には現れない。
+
+```bash
+lorairo-cli errors get 42 --project proj
+```
+
+**Input**
+
+- `error_id`: `int` (required, positional) - Error record ID to retrieve
+- `project` / `-p`: `str` (required)
+
+**Output**: `id` / `image_id` / `operation_type` / `error_type` / `error_message` /
+`stack_trace` / `file_path` / `model_name` / `resolved_at` / `created_at`
+
+### `errors list`
+
+List error records.
+
+デフォルトは未解決のみ。`--all` で解決済みを含む全レコードを返す。
+
+- Read only: `true`
+- Side effects: `db_read`
+
+#### Compact Introspection
+
+```bash
+lorairo-cli --json describe "errors list"
+```
+
+#### Models
+
+**Input `ErrorsListInput`**
+
+- `project`: `str` (required)
+- `operation`: `str?` (optional) - Filter by operation_type (search/registration/annotation)
+- `error_type`: `str?` (optional) - Filter by error_type
+- `message_contains`: `str?` (optional) - Partial match on error_message
+- `all`: `bool` (optional, default `False`) - Include resolved records
+- `limit`: `int` (optional, default `50`) - Max records (max 500)
+- `offset`: `int` (optional, default `0`)
+
+**Output `ErrorRecordItem`**
+
+- `id`: `int` (optional)
+- `operation_type`: `str` (optional)
+- `error_type`: `str` (optional)
+- `error_message`: `str` (optional)
+- `model_name`: `str?` (optional)
+- `resolved_at`: `str?` (optional)
+- `created_at`: `str?` (optional)
+
+**Output `ErrorListResult`**
+
+- `count`: `int` (optional)
+
+**Error `CliErrorResponse`**
+
+Structured error payload emitted as kind=error by the CLI boundary.
+
+- `kind`: `error` (required)
+- `ok`: `false` (required)
+- `code`: `str` (required)
+- `message`: `str` (required)
+- `retryable`: `bool` (required)
+- `user_action_required`: `bool` (required)
+- `hint`: `str?` (optional)
+- `details`: `dict?` (optional)
+
+### `errors resolve`
+
+Mark error records as resolved. Use --dry-run to preview.
+
+`--ids` でレコード ID を指定するか、`--operation` / `--error-type` / `--message-contains`
+でフィルターして一括解決する。
+
+- Read only: `false`
+- Side effects: `db_read`, `db_write`
+
+#### Compact Introspection
+
+```bash
+lorairo-cli --json describe "errors resolve"
+```
+
+#### Models
+
+**Input `ErrorsResolveInput`**
+
+- `project`: `str` (required)
+- `ids`: `csv[int]?` (optional) - Comma-separated error record IDs
+- `operation`: `str?` (optional) - Bulk-resolve by operation_type
+- `error_type`: `str?` (optional) - Bulk-resolve by error_type
+- `message_contains`: `str?` (optional) - Bulk-resolve by partial message match
+- `dry_run`: `bool` (optional, default `False`) - Preview count without writing
+
+**Output `ErrorsResolveResult`**
+
+- `ok`: `bool` (optional)
+- `resolved`: `int` (optional)
+- `dry_run`: `bool` (optional)
+
+**Error `CliErrorResponse`**
+
+Structured error payload emitted as kind=error by the CLI boundary.
+
+- `kind`: `error` (required)
+- `ok`: `false` (required)
+- `code`: `str` (required)
+- `message`: `str` (required)
+- `retryable`: `bool` (required)
+- `user_action_required`: `bool` (required)
+- `hint`: `str?` (optional)
+- `details`: `dict?` (optional)
+
 ### `export create`
 
 Export a dataset from a list of image IDs. Use 'images search' to resolve IDs first.

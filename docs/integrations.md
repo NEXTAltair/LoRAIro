@@ -331,12 +331,17 @@ result = annotate(request)
 
 #### バッチアノテーション
 
+複数画像・複数モデルの同期アノテーションは `annotate()` に画像リストとモデルリストをまとめて渡す
+(pHash をキーとする結果辞書 `PHashAnnotationResults` を返す)。
+
 ```python
 from lorairo.annotation.annotator_adapter import AnnotatorLibraryAdapter
 
 adapter = AnnotatorLibraryAdapter(config_service)
-results = adapter.annotate_batch(
-    image_paths=["img1.jpg", "img2.jpg", ...],
+results = adapter.annotate(
+    images=[image1, image2],  # PIL.Image のリスト
+    litellm_model_ids=["openai/gpt-4o", "anthropic/claude-3-5-sonnet"],
+    phash_list=None,  # 省略時はライブラリ内部で自動計算
 )
 ```
 
@@ -386,28 +391,21 @@ job / item / artifact state を保存し、library から返る `BatchFetchResul
 
 ### エラーハンドリング
 
-#### リトライ戦略
+#### エラートリアージ (自動retryなし、ADR 0033)
+
+LoRAIro はアノテーションエラーを自動 retry しない設計 (ADR 0033) を採用している。
+`annotate()` の結果に含まれる `retryable` フラグはエラーレコードとして保存され、
+`ErrorTriageService` (`src/lorairo/services/error_triage_service.py`) が
+`(operation_type, error_type, model_name)` 単位で同一原因グルーピング・サマリ・
+フィルタリングを提供する。ユーザーは Errors タブでエラーを確認し、必要なら
+条件を修正した上で別ジョブとして再送信する。アクションは resolve / bulk resolve のみ。
 
 ```python
-from lorairo.annotation.annotator_adapter import AnnotatorLibraryAdapter
+from lorairo.services.error_triage_service import ErrorTriageService
 
-adapter = AnnotatorLibraryAdapter(config)
-result = adapter.annotate_with_retry(
-    image_path="image.jpg",
-    max_retries=3,
-    backoff_factor=2.0
-)
+triage = ErrorTriageService()
+summary = triage.summarize(rows)  # ErrorRow のリストを同一原因でグルーピングしたサマリを返す
 ```
-
-**Retry Conditions:**
-- Network timeout
-- Rate limit (429)
-- Transient API errors (5xx)
-
-**Non-Retry:**
-- Invalid API key (401)
-- Unsupported image format
-- Image too large
 
 #### フォールバックチェーン
 

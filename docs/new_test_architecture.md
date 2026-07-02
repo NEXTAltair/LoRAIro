@@ -1,4 +1,18 @@
+---
+type: Plan
+title: LoRAIro 新テストアーキテクチャ設計
+status: Superseded (Archived)
+timestamp: 2026-02-10
+tags: [testing, process]
+---
+
 # LoRAIro 新テストアーキテクチャ設計
+
+> **⚠️ アーカイブ**: [migration_roadmap.md](migration_roadmap.md) と対の設計ドキュメント。
+> unit/integration/bdd の conftest 分割自体は完了しているが、本ドキュメントが目標としていた
+> root `tests/conftest.py` の縮小は達成されておらず 1018行 (2026-07 時点) まで増加している。
+> 実行時間の見積もり (「推定5-10分」) も現状 (約83秒、`docs/testing.md` 参照) と乖離している。
+> 現行のテスト構造・方針は `docs/testing.md` を SSoT とする。
 
 **作成日**: 2026-02-10
 **対象**: テスト構成リファクタリング

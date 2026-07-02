@@ -1,4 +1,22 @@
+---
+type: Plan
+title: LoRAIro テストリファクタリング移行ロードマップ
+status: Superseded (Archived)
+timestamp: 2026-02-10
+tags: [testing, process]
+---
+
 # LoRAIro テストリファクタリング移行ロードマップ
+
+> **⚠️ アーカイブ**: 本計画は 2026-02-10 作成のまま更新が止まっており、Phase 1 の
+> ディレクトリ整理 (`tests/gui/` 等の空ディレクトリ削除、`tests/bdd/` への移動) は
+> 完了済みで `tests/unit/conftest.py` / `tests/integration/conftest.py` / `tests/bdd/conftest.py`
+> も既に存在するが、本計画が掲げていた「root `tests/conftest.py` を120行以下に分割」という
+> 目標は達成されておらず、むしろ 826行 → 1018行 (2026-07 時点) へ悪化している。
+> Phase 2 以降の具体的なファイル名・行番号 (`test_thumbnail_selector_widget.py` 等) も
+> 現在のコードベースと照合していないため、そのまま実行すると齟齬が出る可能性が高い。
+> 再開する場合は現状の `tests/conftest.py` を棚卸しした上で計画を作り直すこと。
+> 現行のテスト構造・方針は `docs/testing.md` を参照。
 
 **作成日**: 2026-02-10
 **設計ドキュメント**: [new_test_architecture.md](new_test_architecture.md)
