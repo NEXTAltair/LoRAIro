@@ -1015,6 +1015,94 @@ def test_refresh_pipeline_panel_sources_from_state_manager(
     )
 
 
+def _make_mutable_checkbox(selected_ids: list[str], litellm_model_id: str) -> Mock:
+    """checkbox.set_selected() で ``selected_ids`` を実際に書き換える Mock を返す。
+
+    Codex review (#1034 PR#1048): get_selected_models を静的スタブにすると、
+    ハンドラが checkbox.set_selected() より前に _sync_widget_selection_to_state()
+    を呼ぶ回帰があってもテストが検知できない。checkbox 操作と get_selected_models
+    の戻り値を連動させることで、sync が widget 状態変化の後に読むことを保証する。
+    """
+
+    def _set_selected(value: bool) -> None:
+        if value:
+            if litellm_model_id not in selected_ids:
+                selected_ids.append(litellm_model_id)
+        elif litellm_model_id in selected_ids:
+            selected_ids.remove(litellm_model_id)
+
+    checkbox = Mock()
+    checkbox.set_selected.side_effect = _set_selected
+    return checkbox
+
+
+@pytest.mark.gui
+def test_add_model_handler_syncs_state_manager(
+    annotate_tab_with_state: tuple[AnnotateTabWidget, ModelSelectionStateManager],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """「+ 追加」ハンドラが実 manager (SSoT) へ選択を同期する (#1034)。
+
+    ``TestPipelineAddModelHandler`` は ``_batch_model_selection`` を丸ごと Mock 化するため
+    manager=None 前提の tab fixture では ``_sync_widget_selection_to_state`` が no-op になり
+    manager 同期経路が未検証だった。ここでは実 manager 注入下で end-to-end に検証する。
+    """
+    from lorairo.gui.tab import annotate_tab as annotate_tab_module
+
+    widget, state_manager = annotate_tab_with_state
+    selected_ids: list[str] = []
+    checkbox = _make_mutable_checkbox(selected_ids, "openai/gpt-4o")
+    monkeypatch.setattr(widget.batch_model_selection, "model_checkbox_widgets", {"openai/gpt-4o": checkbox})
+    monkeypatch.setattr(widget.batch_model_selection, "get_selected_models", lambda: list(selected_ids))
+    widget._build_stage_model_infos = lambda ids: [GPT4O_INFO]
+    widget._refresh_pipeline_panel = Mock()
+    widget._available_api_providers = lambda: set()
+    stub_cls, _captured = _make_stub_dialog(QDialog.DialogCode.Accepted, ["openai/gpt-4o"])
+    monkeypatch.setattr(annotate_tab_module, "StageModelPickerDialog", stub_cls)
+
+    widget._on_pipeline_add_model_requested("tags")
+
+    checkbox.set_selected.assert_called_once_with(True)
+    # manager が ["openai/gpt-4o"] になるのは sync が checkbox 更新後の
+    # get_selected_models() を読んだ場合のみ (更新前に読めば [] のまま)。
+    assert state_manager.get_selected() == ["openai/gpt-4o"]
+    widget._refresh_pipeline_panel.assert_called_once_with()
+
+
+@pytest.mark.gui
+def test_remove_model_handler_syncs_state_manager(
+    annotate_tab_with_state: tuple[AnnotateTabWidget, ModelSelectionStateManager],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Primary × ハンドラが実 manager (SSoT) へ選択解除を同期する (#1034)。
+
+    ``TestPipelineRemoveModelHandler`` は ``_batch_model_selection`` を丸ごと Mock 化するため
+    manager=None 前提の tab fixture では ``_sync_widget_selection_to_state`` が no-op になり
+    manager 同期経路が未検証だった。ここでは実 manager 注入下で end-to-end に検証する。
+    """
+    widget, state_manager = annotate_tab_with_state
+    widget._refresh_pipeline_panel = Mock()
+    selected_ids: list[str] = []
+    checkbox = _make_mutable_checkbox(selected_ids, "openai/gpt-4o")
+    monkeypatch.setattr(widget.batch_model_selection, "model_checkbox_widgets", {"openai/gpt-4o": checkbox})
+    monkeypatch.setattr(widget.batch_model_selection, "get_selected_models", lambda: list(selected_ids))
+
+    # 事前状態: manager に選択済みモデルをセット。real set_selected_models 経由で
+    # checkbox.set_selected(True) も呼ばれ selected_ids へ反映される (ハンドラ呼び出し
+    # 前に call 記録だけ reset する)。
+    state_manager.set_selected(["openai/gpt-4o"])
+    widget._refresh_pipeline_panel.reset_mock()
+    checkbox.set_selected.reset_mock()
+
+    widget._on_pipeline_remove_model_requested("tags", "openai/gpt-4o")
+
+    checkbox.set_selected.assert_called_once_with(False)
+    # manager が [] になるのは sync が checkbox 更新 (selected_ids から除去) 後の
+    # get_selected_models() を読んだ場合のみ (更新前に読めば ["openai/gpt-4o"] のまま)。
+    assert state_manager.get_selected() == []
+    widget._refresh_pipeline_panel.assert_called_once_with()
+
+
 # == バッチタグ書込 (#896 PR3: MainWindow から移送) ===========================
 
 
