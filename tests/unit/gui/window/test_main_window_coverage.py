@@ -606,6 +606,8 @@ class TestSendSelectedToBatchTag:
         MainWindow.send_selected_to_batch_tag(mock_window, False)
 
         mock_window.annotate_tab.add_image_ids_to_staging.assert_called_once_with([7])
+        # #1059: ステージング追加でタブは移動しない
+        mock_window.tabWidgetMainMode.setCurrentWidget.assert_not_called()
 
     def test_send_selected_explicit_empty_ids_does_not_fallback(self):
         from lorairo.gui.window.main_window import MainWindow
@@ -630,6 +632,11 @@ class TestSendSelectedToBatchTag:
         mock_window.tabWidgetMainMode = Mock()
         MainWindow.send_selected_to_batch_tag(mock_window, [1, 2, 3])
         mock_window.annotate_tab.add_image_ids_to_staging.assert_called_once_with([1, 2, 3])
+        # #1059: タブは移動せず、ステータスバー通知でフィードバックする
+        mock_window.tabWidgetMainMode.setCurrentWidget.assert_not_called()
+        mock_window.statusBar.return_value.showMessage.assert_called_once_with(
+            "3件をステージングに追加しました", 5000
+        )
 
 
 class TestErrorHandlers:

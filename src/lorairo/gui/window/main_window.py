@@ -1450,12 +1450,12 @@ class MainWindow(QMainWindow, Ui_MainWindow):
             QMessageBox.information(self, "選択なし", "バッチタグに追加する画像が選択されていません。")
             return
 
-        # アノテーションタブへ移動 (#844: サブタブ廃止、単一縦カラム)
-        if hasattr(self, "tabWidgetMainMode") and self.tabWidgetMainMode:
-            self.tabWidgetMainMode.setCurrentWidget(self.tabBatchTag)
-
         # ステージングへ追加する導線はタブへ委譲 (#868)
         self.annotate_tab.add_image_ids_to_staging(list(target_ids))
+
+        # #1059: タブは移動しない (検索条件を変えながら連続ステージングする使い方を
+        # 妨げないため)。フィードバックはステータスバー通知に留める。
+        self.statusBar().showMessage(f"{len(target_ids)}件をステージングに追加しました", 5000)
 
     def _setup_main_tab_connections(self) -> None:
         """
