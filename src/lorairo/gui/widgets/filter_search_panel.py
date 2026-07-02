@@ -1076,7 +1076,9 @@ class FilterSearchPanel(QScrollArea):
         for value in conditions.get("ai_rating_filter") or []:
             self._ai_rating_chips.set_value(str(value))
         self._rating_combine_toggle.set_value(str(conditions.get("rating_combine", "and")))
-        self.ui.checkboxIncludeUnrated.setChecked(bool(conditions.get("include_unrated", False)))
+        # include_unrated の既定は True (UI 既定・SearchConditions 既定と一致)。
+        # False に倒すと未評価画像が全件除外される (Codex P2)。
+        self.ui.checkboxIncludeUnrated.setChecked(bool(conditions.get("include_unrated", True)))
 
         score_range = conditions.get("score_range")
         if isinstance(score_range, list | tuple) and len(score_range) == 2:
@@ -1124,7 +1126,33 @@ class FilterSearchPanel(QScrollArea):
         ):
             if conditions.get(legacy_key) is not None:
                 migrated[new_key] = conditions[legacy_key]
+        # 旧形式の日付境界を date_range へ変換する (Codex P2)。変換できない場合は
+        # date_range を落とし、有効フラグだけ引き継ぐ (誤った日付での検索を防ぐ)。
+        start_ts = FilterSearchPanel._coerce_timestamp(conditions.get("date_range_start"))
+        end_ts = FilterSearchPanel._coerce_timestamp(conditions.get("date_range_end"))
+        if start_ts is not None and end_ts is not None:
+            migrated["date_range"] = [start_ts, end_ts]
+        # 旧スキーマは include_unrated を保存しておらず、歴史的既定は True
+        # (SearchConditions 既定)。欠落を False 化すると未評価画像が全件除外される
+        # ため明示的に True を入れる (Codex P2)。
+        migrated["include_unrated"] = True
         return migrated
+
+    @staticmethod
+    def _coerce_timestamp(value: Any) -> int | None:
+        """旧形式の日付境界値 (epoch 秒 / ISO 文字列 / datetime) を epoch 秒へ変換する。"""
+        if isinstance(value, bool) or value is None:
+            return None
+        if isinstance(value, int | float):
+            return int(value)
+        if isinstance(value, datetime):
+            return int(value.timestamp())
+        if isinstance(value, str):
+            try:
+                return int(datetime.fromisoformat(value).timestamp())
+            except ValueError:
+                return None
+        return None
 
     def _clear_all_inputs(self) -> None:
         """全入力をクリアする。"""

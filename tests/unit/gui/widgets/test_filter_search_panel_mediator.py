@@ -504,6 +504,38 @@ class TestFavoriteConditionsRoundtrip:
         assert panel.ui.checkboxTags.isChecked() is True
         assert panel.ui.radioOr.isChecked() is True
         assert panel.ui.checkboxOnlyUntagged.isChecked() is True
+        # 旧スキーマは include_unrated を保存していない。歴史的既定 True を維持し
+        # 未評価画像が全件除外される回帰を防ぐ (Codex P2)
+        assert panel.ui.checkboxIncludeUnrated.isChecked() is True
+
+    def test_migrate_legacy_converts_date_bounds(self, panel):
+        """旧形式の date_range_start/end (epoch秒/ISO文字列) を date_range へ変換する (Codex P2)。"""
+        migrated = FilterSearchPanel._migrate_legacy_conditions(
+            {
+                "date_filter_enabled": True,
+                "date_range_start": 1700000000,
+                "date_range_end": "2024-01-15T10:30:00",
+            }
+        )
+
+        assert migrated["date_filter_enabled"] is True
+        start_ts, end_ts = migrated["date_range"]
+        assert start_ts == 1700000000
+        # ISO 文字列は fromisoformat で epoch 秒へ変換される (TZ はローカル解釈)
+        assert isinstance(end_ts, int) and end_ts > start_ts
+
+    def test_migrate_legacy_drops_unconvertible_date_bounds(self, panel):
+        """変換できない日付境界は date_range を落とす (誤った日付での検索を防ぐ)。"""
+        migrated = FilterSearchPanel._migrate_legacy_conditions(
+            {
+                "date_filter_enabled": True,
+                "date_range_start": "not-a-date",
+                "date_range_end": 1700000000,
+            }
+        )
+
+        assert "date_range" not in migrated
+        assert migrated["date_filter_enabled"] is True
 
     def test_apply_empty_conditions_is_noop(self, panel):
         """空辞書の適用は警告のみで UI を変更しない。"""
