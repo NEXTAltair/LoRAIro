@@ -392,6 +392,21 @@ class AnnotationRepository(BaseRepository):
                 dedup_key = self._dedup_key(resolved_tag)
                 existing_tags_by_image = self._build_existing_tags_map(session, image_ids)
 
+                # 同一 (image, model) の soft-reject 済み行を取得する。手動再追加は
+                # ユーザーの明示的な復活操作なので reject を解除して同じ行を再利用する。
+                # uq_tags_image_model_tag (Issue #1065) 下で新規 INSERT すると
+                # IntegrityError になるため、INSERT 経路には乗せない。
+                rejected_rows_stmt = select(Tag).where(
+                    Tag.image_id.in_(image_ids),
+                    Tag.rejected_at.is_not(None),
+                    (Tag.model_id == model_id) if model_id is not None else Tag.model_id.is_(None),
+                )
+                rejected_by_image: dict[int, dict[str, Tag]] = {}
+                for row in session.execute(rejected_rows_stmt).scalars():
+                    if row.image_id is None:
+                        continue
+                    rejected_by_image.setdefault(row.image_id, {}).setdefault(self._dedup_key(row.tag), row)
+
                 for image_id in image_ids:
                     existing_tags = existing_tags_by_image.get(image_id, set())
                     existing_dedup_keys = {self._dedup_key(t) for t in existing_tags}
@@ -399,6 +414,18 @@ class AnnotationRepository(BaseRepository):
                     if dedup_key in existing_dedup_keys:
                         logger.debug(
                             f"Tag '{resolved_tag}' already exists for image_id {image_id}, skipping",
+                        )
+                        continue
+
+                    rejected_row = rejected_by_image.get(image_id, {}).get(dedup_key)
+                    if rejected_row is not None:
+                        rejected_row.rejected_at = None
+                        rejected_row.reject_reason = None
+                        rejected_row.is_edited_manually = True
+                        rejected_row.updated_at = func.now()
+                        added_count += 1
+                        logger.debug(
+                            f"Revived soft-rejected tag '{resolved_tag}' for image_id {image_id}",
                         )
                         continue
 
@@ -1190,13 +1217,18 @@ class AnnotationRepository(BaseRepository):
             existing_record = existing_tags_map.get((tag_string, model_id))
 
             if existing_record:
-                # 更新 (旧 raw 行は整形後の値へ揃える)
+                # 更新 (旧 raw 行は整形後の値へ揃える)。
+                # 同一モデルの再付与は「最終付与日時」として updated_at を必ず更新する
+                # (他カラム無変更だと onupdate が発火しないため明示。Issue #1065)。
+                # rejected_at / reject_reason は触らない: soft-reject はユーザー判断を
+                # 優先して維持する (Issue #1065 ユーザー確認済みポリシー / ADR 0065)。
                 logger.debug(f"Updating existing tag: id={existing_record.id}, tag='{tag_string}'")
                 existing_record.tag = tag_string
                 existing_record.tag_id = external_tag_id
                 existing_record.confidence_score = confidence
                 existing_record.existing = is_existing_tag
                 existing_record.is_edited_manually = tag_info.get("is_edited_manually")
+                existing_record.updated_at = func.now()
             else:
                 # 新規作成
                 logger.debug(f"Adding new tag: tag='{tag_string}'")

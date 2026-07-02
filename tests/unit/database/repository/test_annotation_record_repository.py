@@ -889,3 +889,184 @@ class TestRejectReasonWritePaths:
                 "reject_reason": "not_needed",
             }
         ]
+
+
+class TestTagResaveUpsert:
+    """#1065: 同一 (image, model, tag) の再付与は新規行を作らず upsert する。"""
+
+    def _tag_payload(self, model_id: int) -> dict:
+        return {"tag": "cat", "model_id": model_id, "tag_id": None, "existing": False}
+
+    def test_resave_same_tag_same_model_does_not_add_row(
+        self,
+        annotation_repository: AnnotationRepository,
+        image_id: int,
+        manual_edit_model_id: int,
+        memory_session_factory,
+    ) -> None:
+        for _ in range(3):
+            annotation_repository.save_annotations(
+                image_id=image_id,
+                annotations={"tags": [self._tag_payload(manual_edit_model_id)]},
+            )
+
+        with memory_session_factory() as session:
+            rows = session.execute(select(Tag).where(Tag.image_id == image_id)).scalars().all()
+            assert len(rows) == 1
+
+    def test_resave_bumps_updated_at(
+        self,
+        annotation_repository: AnnotationRepository,
+        image_id: int,
+        manual_edit_model_id: int,
+        memory_session_factory,
+    ) -> None:
+        """再付与は「最終付与日時」として updated_at を必ず更新する (他カラム無変更でも)。"""
+        from sqlalchemy import text
+
+        annotation_repository.save_annotations(
+            image_id=image_id,
+            annotations={"tags": [self._tag_payload(manual_edit_model_id)]},
+        )
+        with memory_session_factory() as session:
+            session.execute(text("UPDATE tags SET updated_at = '2020-01-01 00:00:00'"))
+            session.commit()
+
+        annotation_repository.save_annotations(
+            image_id=image_id,
+            annotations={"tags": [self._tag_payload(manual_edit_model_id)]},
+        )
+
+        with memory_session_factory() as session:
+            row = session.execute(select(Tag).where(Tag.image_id == image_id)).scalars().one()
+            assert str(row.updated_at) != "2020-01-01 00:00:00"
+
+    def test_resave_preserves_soft_reject(
+        self,
+        annotation_repository: AnnotationRepository,
+        image_id: int,
+        manual_edit_model_id: int,
+        memory_session_factory,
+    ) -> None:
+        """soft-reject 済みタグへの再付与は reject を維持する (ユーザー確認済みポリシー)。"""
+        from sqlalchemy import text
+
+        annotation_repository.save_annotations(
+            image_id=image_id,
+            annotations={"tags": [self._tag_payload(manual_edit_model_id)]},
+        )
+        with memory_session_factory() as session:
+            session.execute(
+                text("UPDATE tags SET rejected_at = '2026-06-10 00:00:00', reject_reason = 'not_needed'")
+            )
+            session.commit()
+
+        annotation_repository.save_annotations(
+            image_id=image_id,
+            annotations={"tags": [self._tag_payload(manual_edit_model_id)]},
+        )
+
+        with memory_session_factory() as session:
+            row = session.execute(select(Tag).where(Tag.image_id == image_id)).scalars().one()
+            assert row.rejected_at is not None
+            assert row.reject_reason == "not_needed"
+
+    def test_resave_canonical_tag_with_parentheses_is_idempotent(
+        self,
+        annotation_repository: AnnotationRepository,
+        image_id: int,
+        manual_edit_model_id: int,
+        memory_session_factory,
+    ) -> None:
+        """括弧を含むタグの再付与でも clean_format の冪等性が保たれ行が増えない
+        (db-schema-reviewer P2: 冪等性が崩れると UNIQUE 制約でクラッシュに変わる)。"""
+        payload = {
+            "tag": "hair ornament (band)",
+            "model_id": manual_edit_model_id,
+            "tag_id": None,
+            "existing": False,
+        }
+        for _ in range(3):
+            annotation_repository.save_annotations(image_id=image_id, annotations={"tags": [payload]})
+
+        with memory_session_factory() as session:
+            rows = session.execute(select(Tag).where(Tag.image_id == image_id)).scalars().all()
+            assert len(rows) == 1
+
+
+class TestManualReAddRevivesSoftReject:
+    """#1065 P1 (db-schema-reviewer 指摘): soft-reject 済みタグの手動再追加は
+    UNIQUE 制約下で IntegrityError にならず、同じ行を revive する。"""
+
+    def test_re_add_after_soft_reject_revives_row(
+        self,
+        annotation_repository: AnnotationRepository,
+        image_id: int,
+        manual_edit_model_id: int,
+        memory_session_factory,
+    ) -> None:
+        from sqlalchemy import text
+
+        # 追加 → soft-reject
+        annotation_repository.add_tag_to_images_batch(
+            image_ids=[image_id], tag="cat", model_id=manual_edit_model_id
+        )
+        with memory_session_factory() as session:
+            session.execute(
+                text("UPDATE tags SET rejected_at = '2026-06-10 00:00:00', reject_reason = 'not_needed'")
+            )
+            session.commit()
+
+        # 同じタグを再追加: クラッシュせず revive される
+        success, added = annotation_repository.add_tag_to_images_batch(
+            image_ids=[image_id], tag="cat", model_id=manual_edit_model_id
+        )
+
+        assert success is True
+        assert added == 1
+        with memory_session_factory() as session:
+            rows = session.execute(select(Tag).where(Tag.image_id == image_id)).scalars().all()
+            assert len(rows) == 1
+            assert rows[0].rejected_at is None
+            assert rows[0].reject_reason is None
+            assert rows[0].is_edited_manually is True
+
+    def test_re_add_does_not_revive_other_model_rejects(
+        self,
+        annotation_repository: AnnotationRepository,
+        image_id: int,
+        manual_edit_model_id: int,
+        memory_session_factory,
+    ) -> None:
+        """別モデル由来の soft-reject 行は維持したまま、手動行を新規追加できる。"""
+        from sqlalchemy import text
+
+        from lorairo.database.schema import Model
+
+        with memory_session_factory() as session:
+            other = Model(name="wd-other", provider="test", litellm_model_id="test/wd-other")
+            session.add(other)
+            session.flush()
+            other_id = other.id
+            session.execute(
+                text(
+                    "INSERT INTO tags (image_id, model_id, tag, existing, rejected_at, reject_reason)"
+                    f" VALUES ({image_id}, {other_id}, 'cat', 0, '2026-06-10 00:00:00', 'not_needed')"
+                )
+            )
+            session.commit()
+
+        success, added = annotation_repository.add_tag_to_images_batch(
+            image_ids=[image_id], tag="cat", model_id=manual_edit_model_id
+        )
+
+        assert success is True
+        assert added == 1
+        with memory_session_factory() as session:
+            rows = session.execute(select(Tag).where(Tag.image_id == image_id)).scalars().all()
+            by_model = {row.model_id: row for row in rows}
+            assert len(rows) == 2
+            # AI モデル行の reject はユーザー判断として維持 (Issue #1065 ポリシー)
+            assert by_model[other_id].rejected_at is not None
+            # 手動行は active
+            assert by_model[manual_edit_model_id].rejected_at is None

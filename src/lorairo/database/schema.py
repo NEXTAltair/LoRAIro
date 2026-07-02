@@ -330,6 +330,10 @@ class Tag(Base):
         Index("ix_tags_image_id", "image_id"),
         Index("ix_tags_tag", "tag"),
         Index("ix_tags_rejected_at", "rejected_at"),
+        # (image, model, tag) 単位で一意 (Issue #1065)。同一モデルの再付与は
+        # upsert (updated_at 更新) になり、異なるモデルの同一タグは別行のまま。
+        # SQLite は NULL model_id 同士を別値扱いするため NULL 重複は制約外。
+        Index("uq_tags_image_model_tag", "image_id", "model_id", "tag", unique=True),
     )
 
     def __repr__(self) -> str:
