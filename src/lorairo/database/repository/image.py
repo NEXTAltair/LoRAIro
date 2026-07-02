@@ -2479,6 +2479,12 @@ class ImageRepository(BaseRepository):
     ) -> list[dict[str, Any]]:
         """フィルタリングされたIDリストに基づき、指定解像度のメタデータを取得する。
 
+        ``image_ids`` は ``BATCH_CHUNK_SIZE`` チャンクに分割して取得し連結する。
+        original/processed fetcher とその selectinload は ``...in_(image_ids)`` を
+        組むため、limit 無しで大量 id が渡る経路 (スコアフィルタ全件等) でも単一 SQL
+        の bind 変数が SQLite の上限を超えないようにする (Codex PR #1043 P2)。入力順は
+        チャンク境界をまたいでも保持される。
+
         Args:
             session: SQLAlchemyセッション。
             image_ids: 画像IDリスト。
@@ -2494,6 +2500,35 @@ class ImageRepository(BaseRepository):
         if not image_ids:
             return []
 
+        if len(image_ids) <= self.BATCH_CHUNK_SIZE:
+            return self._fetch_metadata_chunk(session, image_ids, resolution, include_annotations)
+
+        result: list[dict[str, Any]] = []
+        for start in range(0, len(image_ids), self.BATCH_CHUNK_SIZE):
+            chunk = image_ids[start : start + self.BATCH_CHUNK_SIZE]
+            result.extend(self._fetch_metadata_chunk(session, chunk, resolution, include_annotations))
+        return result
+
+    def _fetch_metadata_chunk(
+        self,
+        session: Session,
+        image_ids: list[int],
+        resolution: int,
+        include_annotations: bool = True,
+    ) -> list[dict[str, Any]]:
+        """``_fetch_filtered_metadata`` の 1 チャンク分を取得する (resolution で分岐)。
+
+        ``image_ids`` は呼び出し側で ``BATCH_CHUNK_SIZE`` 以下に分割済み。
+
+        Args:
+            session: SQLAlchemyセッション。
+            image_ids: 画像IDリスト (BATCH_CHUNK_SIZE 以下)。
+            resolution: 対象解像度(0はオリジナル)。
+            include_annotations: アノテーションを含めるか。
+
+        Returns:
+            メタデータ辞書のリスト。
+        """
         if resolution == 0:
             return self._fetch_original_image_metadata(
                 session, image_ids, include_annotations=include_annotations

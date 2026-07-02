@@ -253,6 +253,53 @@ class TestDisplayScoreFilterAggregation:
         # 展開していない。旧実装なら count / page クエリで 40 になる。
         assert max_bind_params < len(image_ids)
 
+    @pytest.mark.unit
+    def test_metadata_fetch_chunks_across_boundary(self, memory_session_factory):
+        """limit 無しのスコアフィルタで metadata fetch が chunk 境界をまたいでも欠落/重複しない (Codex P2)。
+
+        BATCH_CHUNK_SIZE を小さく上書きし、matched 件数がそれを大きく超える状況で
+        limit 無し検索を実行する。metadata fetch が全 id を単一 IN で組まず
+        (単一 SQL の bind 変数が matched 総数に達しない)、かつ全件が欠落/重複なく
+        返ることを検証する。
+        """
+        from sqlalchemy import event
+
+        repository = ImageRepository(session_factory=memory_session_factory)
+        repository.BATCH_CHUNK_SIZE = 3
+
+        # 全件一致する image を chunk 上限 (3) より十分多く作る。
+        image_ids = [
+            _make_image_with_scores(memory_session_factory, [(6.0, "MANUAL_EDIT", True)]) for _ in range(20)
+        ]
+
+        max_bind_params = 0
+
+        def _record_binds(conn, cursor, statement, parameters, context, executemany):
+            nonlocal max_bind_params
+            if executemany:
+                for row in parameters:
+                    max_bind_params = max(max_bind_params, len(row))
+            elif parameters is not None:
+                max_bind_params = max(max_bind_params, len(parameters))
+
+        engine = memory_session_factory.kw["bind"]
+        event.listen(engine, "before_cursor_execute", _record_binds)
+        try:
+            # limit 未指定 (既定 None) → matched 全件が metadata fetch に渡る。
+            results, count = repository.get_images_by_filter(
+                ImageFilterCriteria(score_min=0.0, score_max=10.0)
+            )
+        finally:
+            event.remove(engine, "before_cursor_execute", _record_binds)
+
+        # 全件が欠落/重複なく返る (chunk 境界をまたいで整合)。
+        assert count == len(image_ids)
+        returned_ids = [m["id"] for m in results]
+        assert len(returned_ids) == len(image_ids)
+        assert set(returned_ids) == set(image_ids)
+        # metadata fetch も含め、単一 SQL の bind 変数が matched 総数に達しない。
+        assert max_bind_params < len(image_ids)
+
 
 class TestRepresentativeDisplayScore:
     """_representative_display_score() の代表スコア導出テスト (Issue #1026)。"""
