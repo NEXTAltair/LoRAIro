@@ -212,9 +212,13 @@ class AnnotationDataDisplayWidget(QWidget, Ui_AnnotationDataDisplayWidget):
         """soft-rejected タグを reject_reason 付きで設定する (TagPanelWidget へ委譲、#1003)。"""
         self._tag_panel.set_rejected_tags(rejected_tags)
 
-    def apply_refinements(self, recommendations: dict[str, RefinementRecommendation]) -> None:
+    def apply_refinements(
+        self,
+        recommendations: dict[str, RefinementRecommendation],
+        candidate_counts: dict[str, dict[str, int]] | None = None,
+    ) -> None:
         """各タグ chip に refinement リコメンドを反映する (TagPanelWidget へ委譲、#931)。"""
-        self._tag_panel.apply_refinements(recommendations)
+        self._tag_panel.apply_refinements(recommendations, candidate_counts=candidate_counts)
 
     def displayed_tags_text(self) -> str:
         """現在の言語選択で表示されているタグ文字列を返す (TagPanelWidget へ委譲)。"""

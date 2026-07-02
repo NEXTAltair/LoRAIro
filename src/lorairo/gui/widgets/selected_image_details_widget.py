@@ -522,7 +522,9 @@ class SelectedImageDetailsWidget(QWidget):
             return  # 後続の評価が既に始まっている → 古い結果は破棄
         if result.image_id != self.current_image_id:
             return  # 画像が既に切り替わった → 破棄 (レース対策)
-        self.annotation_display.apply_refinements(result.recommendations)
+        self.annotation_display.apply_refinements(
+            result.recommendations, candidate_counts=result.candidate_counts
+        )
 
     def shutdown(self) -> None:
         """実行中の refinement worker をキャンセルする (#931)。
