@@ -69,6 +69,7 @@ class RefinementService:
         tags: Iterable[str],
         format_map: Mapping[str, str] | None = None,
         repo: object | None = None,
+        cancel_check: Callable[[], None] | None = None,
     ) -> dict[str, RefinementRecommendation]:
         """タグ集合を評価し、表示すべきリコメンドを tag ごとに返す。
 
@@ -79,6 +80,10 @@ class RefinementService:
             tags: 評価対象のタグ文字列。
             format_map: タグ→format_name のマップ。未指定タグは "unknown"。
             repo: lib に渡す DB リーダー (エイリアス/タイポ候補の参照に使う)。
+            cancel_check: 中断要求を確認する callable (#1024)。中断すべきときに例外を
+                送出する契約 (例外型は呼び出し元が決め、本サービスは素通しする)。
+                DB 往復 (prefetch / per-tag 評価) の合間に呼び、DB 呼び出し中に殺せない
+                ワーカーへ協調キャンセルを効かせるチェックポイント。None なら無効。
 
         Returns:
             needs_refinement=True のタグだけを含む {tag: RefinementRecommendation}。
@@ -97,6 +102,8 @@ class RefinementService:
                 if (tag, fmap.get(tag, "unknown"), repo_key) not in self._cache
             ]
             if uncached:
+                if cancel_check is not None:
+                    cancel_check()
                 self._prefetch_fn(uncached, repo=repo)
         result: dict[str, RefinementRecommendation] = {}
         total = 0
@@ -107,6 +114,9 @@ class RefinementService:
             key = (tag, format_name, repo_key)
             rec = self._cache.get(key)
             if rec is None:
+                # DB 往復を伴う評価の直前だけチェックする (キャッシュヒット時は呼ばない)。
+                if cancel_check is not None:
+                    cancel_check()
                 rec = self._recommend_fn(tag, repo=repo, format_name=format_name)
                 self._cache[key] = rec
                 evaluated += 1

@@ -8,9 +8,11 @@ from __future__ import annotations
 
 import pytest
 from genai_tag_db_tools.models import RefinementReason, RefinementRecommendation
+from PySide6.QtCore import QObject, Signal
 
 from lorairo.gui.widgets.selected_image_details_widget import SelectedImageDetailsWidget
 from lorairo.gui.workers.refinement_worker import RefinementResult
+from lorairo.gui.workers.terminal import CancelReason, WorkerOutcome, WorkerTerminalEvent
 
 pytestmark = pytest.mark.gui
 
@@ -31,17 +33,23 @@ class _FakeService:
     def __init__(self) -> None:
         self.ignored: list[tuple[str, str]] = []
 
-    def recommend_for_tags(self, tags, format_map=None, repo=None):  # type: ignore[no-untyped-def]
+    def recommend_for_tags(self, tags, format_map=None, repo=None, cancel_check=None):  # type: ignore[no-untyped-def]
         return {t: _rec(t) for t in tags}
 
     def ignore(self, tag: str, reason_code: str) -> None:
         self.ignored.append((tag, reason_code))
 
 
-class _FakeWorkerManager:
+class _FakeWorkerManager(QObject):
+    """worker_terminal Signal を持つ fake (#1024 single-flight 配線用に QObject 化)。"""
+
+    worker_terminal = Signal(object)
+
     def __init__(self) -> None:
+        super().__init__()
         self.started: list[tuple[str, object]] = []
         self.cancel_all_calls = 0
+        self.cancel_requests: list[tuple[str, object]] = []
 
     def start_worker(self, worker_id, worker, auto_cleanup=True):  # type: ignore[no-untyped-def]
         self.started.append((worker_id, worker))
@@ -49,6 +57,16 @@ class _FakeWorkerManager:
 
     def cancel_all_workers(self, *args, **kwargs):  # type: ignore[no-untyped-def]
         self.cancel_all_calls += 1
+
+    def request_cancel_worker(self, worker_id, reason=None):  # type: ignore[no-untyped-def]
+        self.cancel_requests.append((worker_id, reason))
+        return True
+
+    def emit_terminal(self, worker_id: str, outcome: WorkerOutcome = WorkerOutcome.SUCCEEDED) -> None:
+        """テストから worker 終端イベントを流すヘルパー。"""
+        self.worker_terminal.emit(
+            WorkerTerminalEvent(worker_id=worker_id, worker_type="refinement", outcome=outcome)
+        )
 
 
 def _make_widget(qtbot) -> SelectedImageDetailsWidget:
@@ -142,6 +160,100 @@ def test_ignored_persists_and_reevaluates(qtbot) -> None:
 
     assert service.ignored == [("flower", "broad_single_word")]
     assert len(manager.started) == 1  # 再評価が起動した
+
+
+def _make_wired_widget(qtbot) -> tuple[SelectedImageDetailsWidget, _FakeWorkerManager]:
+    widget = _make_widget(qtbot)
+    manager = _FakeWorkerManager()
+    widget.set_refinement_service(_FakeService(), worker_manager=manager)
+    widget.current_image_id = 5
+    widget._current_tag_canonicals = ["flower"]
+    return widget, manager
+
+
+def test_second_trigger_while_inflight_defers_and_cancels_old(qtbot) -> None:
+    """実行中に再トリガーすると旧 worker へ協調キャンセル + 最新要求を pending 保持 (#1024)。"""
+    widget, manager = _make_wired_widget(qtbot)
+
+    widget._trigger_refinement_evaluation()  # 1本目 (in-flight)
+    widget._current_tag_canonicals = ["flower", "roses"]
+    widget._trigger_refinement_evaluation()  # 2本目は起動されず pending へ
+
+    assert len(manager.started) == 1
+    inflight_id = manager.started[0][0]
+    assert manager.cancel_requests == [(inflight_id, CancelReason.REFINEMENT_REPLACED)]
+    assert widget._refinement_pending is not None
+    assert widget._refinement_pending[1] == ["flower", "roses"]
+
+
+def test_pending_keeps_only_latest_request(qtbot) -> None:
+    """連打しても pending は最新1件だけ保持され、worker は積み上がらない (#1024)。"""
+    widget, manager = _make_wired_widget(qtbot)
+
+    widget._trigger_refinement_evaluation()
+    for tags in (["a"], ["b"], ["c"]):
+        widget._current_tag_canonicals = tags
+        widget._trigger_refinement_evaluation()
+
+    assert len(manager.started) == 1  # in-flight は常に1本
+    assert widget._refinement_pending is not None
+    assert widget._refinement_pending[1] == ["c"]  # 最新のみ
+
+
+def test_terminal_event_starts_pending_request(qtbot) -> None:
+    """worker 終端イベントで pending の最新要求が起動される (#1024)。"""
+    widget, manager = _make_wired_widget(qtbot)
+
+    widget._trigger_refinement_evaluation()
+    widget._current_tag_canonicals = ["roses"]
+    widget._trigger_refinement_evaluation()
+
+    inflight_id = manager.started[0][0]
+    manager.emit_terminal(inflight_id, WorkerOutcome.CANCELED)
+
+    assert len(manager.started) == 2
+    assert widget._refinement_pending is None
+    assert widget._refinement_inflight_id == manager.started[1][0]
+
+
+def test_terminal_event_for_other_worker_is_ignored(qtbot) -> None:
+    """共有 manager 経由の他 worker の終端イベントでは枠を解放しない (#1024)。"""
+    widget, manager = _make_wired_widget(qtbot)
+
+    widget._trigger_refinement_evaluation()
+    inflight_id = widget._refinement_inflight_id
+
+    manager.emit_terminal("search_1", WorkerOutcome.SUCCEEDED)
+
+    assert widget._refinement_inflight_id == inflight_id  # 解放されない
+
+
+def test_terminal_without_pending_frees_slot_for_next_trigger(qtbot) -> None:
+    """pending 無しで終端したら次のトリガーは即起動される (#1024)。"""
+    widget, manager = _make_wired_widget(qtbot)
+
+    widget._trigger_refinement_evaluation()
+    manager.emit_terminal(manager.started[0][0])
+
+    widget._trigger_refinement_evaluation()
+
+    assert len(manager.started) == 2
+    assert manager.cancel_requests == []  # キャンセルは発生しない
+
+
+def test_shutdown_clears_pending_before_cancel(qtbot) -> None:
+    """shutdown() は pending をクリアし、terminal イベントでの再起動を防ぐ (#1024)。"""
+    widget, manager = _make_wired_widget(qtbot)
+
+    widget._trigger_refinement_evaluation()
+    widget._current_tag_canonicals = ["roses"]
+    widget._trigger_refinement_evaluation()  # pending を作る
+
+    widget.shutdown()
+    manager.emit_terminal(manager.started[0][0], WorkerOutcome.CANCELED)
+
+    assert widget._refinement_pending is None
+    assert len(manager.started) == 1  # pending は起動されない
 
 
 def test_shutdown_cancels_workers(qtbot) -> None:

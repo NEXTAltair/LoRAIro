@@ -51,6 +51,7 @@ if TYPE_CHECKING:
     from ..state.dataset_state import DatasetStateManager
     from ..workers.manager import WorkerManager
     from ..workers.refinement_worker import RefinementResult
+    from ..workers.terminal import WorkerTerminalEvent
 
 
 class SelectedImageDetailsWidget(QWidget):
@@ -127,6 +128,10 @@ class SelectedImageDetailsWidget(QWidget):
         self._refinement_worker_manager: WorkerManager | None = None
         self._refinement_generation: int = 0  # worker_id 一意化 + レース照合の世代
         self._current_tag_canonicals: list[str] = []
+        # single-flight 制御 (#1024): 実行中 worker は常に1本。追加要求は最新1件だけ
+        # pending に保持し、実行中 worker には協調キャンセルを要求する。
+        self._refinement_inflight_id: str | None = None
+        self._refinement_pending: tuple[int, list[str], int] | None = None
 
         # tagdb userdb 系書き込み (#989): set_tag_management_service で配線。
         self._tag_management_service: TagManagementService | None = None
@@ -396,6 +401,9 @@ class SelectedImageDetailsWidget(QWidget):
 
         self._refinement_service = service
         self._refinement_worker_manager = worker_manager or _WorkerManager(self)
+        # worker 終端 (成功/キャンセル/エラー問わず) で in-flight 枠を解放し、
+        # pending の最新要求を起動する (#1024 single-flight)。
+        self._refinement_worker_manager.worker_terminal.connect(self._on_refinement_terminal)
         self.annotation_display.refinement_ignored.connect(self._on_refinement_ignored)
         logger.debug("SelectedImageDetailsWidget: refinement サービスを配線")
 
@@ -419,6 +427,11 @@ class SelectedImageDetailsWidget(QWidget):
 
         サービス未配線・画像未選択・タグ無しのときは何もしない。worker_id は世代で
         一意化し、完了時に image_id 照合で古い結果を破棄する (レース対策)。
+
+        実行中 worker は常に1本に制限する (#1024 single-flight)。実行中に新しい要求が
+        来たら旧 worker へ協調キャンセルを要求し (待機せず GUI をブロックしない)、
+        最新要求だけを pending に保持して worker 終端時に起動する。タグ操作の連打で
+        worker が無制限に積み上がり tag DB を取り合う渋滞を防ぐ。
         """
         service = self._refinement_service
         manager = self._refinement_worker_manager
@@ -426,17 +439,64 @@ class SelectedImageDetailsWidget(QWidget):
             return
         if self.current_image_id is None or not self._current_tag_canonicals:
             return
-        from ..workers.refinement_worker import RefinementWorker
 
         self._refinement_generation += 1
+        request = (
+            self.current_image_id,
+            list(self._current_tag_canonicals),
+            self._refinement_generation,
+        )
+        if self._refinement_inflight_id is not None:
+            from ..workers.terminal import CancelReason
+
+            manager.request_cancel_worker(
+                self._refinement_inflight_id, reason=CancelReason.REFINEMENT_REPLACED
+            )
+            self._refinement_pending = request  # 常に最新要求で上書き
+            return
+        self._start_refinement_worker(request)
+
+    def _start_refinement_worker(self, request: tuple[int, list[str], int]) -> None:
+        """refinement worker を1本起動し in-flight として記録する (#1024)。
+
+        Args:
+            request: (image_id, tags, generation) の評価要求。
+        """
+        service = self._refinement_service
+        manager = self._refinement_worker_manager
+        if service is None or manager is None:
+            return
+        from ..workers.refinement_worker import RefinementWorker
+
+        image_id, tags, generation = request
         worker = RefinementWorker(
             service,
-            image_id=self.current_image_id,
-            tags=list(self._current_tag_canonicals),
-            generation=self._refinement_generation,
+            image_id=image_id,
+            tags=tags,
+            generation=generation,
         )
         worker.finished.connect(self._on_refinement_finished)
-        manager.start_worker(f"refinement_{self._refinement_generation}", worker)
+        worker_id = f"refinement_{generation}"
+        self._refinement_inflight_id = worker_id
+        manager.start_worker(worker_id, worker)
+
+    @Slot(object)
+    def _on_refinement_terminal(self, event: "WorkerTerminalEvent") -> None:
+        """refinement worker の終端で in-flight 枠を解放し pending を起動する (#1024)。
+
+        成功/キャンセル/エラーのどの終端でも枠を解放する。共有 WorkerManager 経由で
+        他種 worker のイベントも流れてくるため worker_id で照合する。
+
+        Args:
+            event: WorkerManager が発行する終端イベント。
+        """
+        if event.worker_id != self._refinement_inflight_id:
+            return
+        self._refinement_inflight_id = None
+        pending = self._refinement_pending
+        self._refinement_pending = None
+        if pending is not None:
+            self._start_refinement_worker(pending)
 
     @Slot(object)
     def _on_refinement_finished(self, result: "RefinementResult") -> None:
@@ -456,7 +516,11 @@ class SelectedImageDetailsWidget(QWidget):
 
         ウィジェット/ウィンドウ破棄時に呼び、QThread が widget より長生きして Qt teardown
         警告/クラッシュになるのを防ぐ。MainWindow.closeEvent から呼ばれる。
+
+        pending を先にクリアし、キャンセルの terminal イベントが pending worker を
+        起動してしまう再入を防ぐ (#1024)。
         """
+        self._refinement_pending = None
         manager = self._refinement_worker_manager
         if manager is not None:
             manager.cancel_all_workers()
