@@ -1066,3 +1066,24 @@ def test_chip_box_shrinks_when_tags_decrease(qtbot):
 
     qtbot.waitUntil(lambda: panel._tags_scroll.height() < 60, timeout=2000)
     assert panel._tags_scroll.verticalScrollBar().maximum() == 0
+
+
+def test_set_tags_image_change_without_types_resets_type_map(panel):
+    """#1056 Codex P2: 別画像で tag_types 省略時は前画像の type map を引き継がない。"""
+    panel.set_tags(
+        [{"tag": "hatsune miku", "tag_id": 3, "model_name": "wd", "source": "AI"}],
+        image_id=1,
+        tag_types={"hatsune miku": "character"},
+    )
+
+    # 別画像 (image_id=2) では type 情報無し → 全タグ末尾グループ = 純アルファベット順
+    panel.set_tags(
+        [
+            {"tag": "zzz tag", "tag_id": 5, "model_name": "wd", "source": "AI"},
+            {"tag": "hatsune miku", "tag_id": 3, "model_name": "wd", "source": "AI"},
+        ],
+        image_id=2,
+    )
+
+    assert panel._tag_types == {}
+    assert [c.canonical for c in panel._tag_chips] == ["hatsune miku", "zzz tag"]

@@ -943,17 +943,23 @@ class SelectedImageDetailsWidget(QWidget):
             batch = search_tags_batch(
                 self._merged_reader, canonicals, format_names=None, resolve_preferred=False
             )
-        except (SQLAlchemyError, ValueError) as e:
-            # type はソート用の付加情報。取得失敗で詳細パネル全体を壊さない (Codex P2)
+        except (SQLAlchemyError, ValueError, RuntimeError) as e:
+            # type はソート用の付加情報。取得失敗で詳細パネル全体を壊さない (Codex P2)。
+            # RuntimeError は既存の batch prefetch 経路 (TagManagementService.
+            # prefetch_translations) と同じく lookup failure として扱う
             logger.warning(f"タグ type の batch 解決に失敗 (未分類として表示): {e}")
             return {}
         for query, result in batch.items():
             # 完全一致行のみ採用する。alias/翻訳経由の別タグの type を誤って
             # 割り当てない (一致しなければ「不明」グループのまま。Codex P2)。
             # tagdb 側が tag=正規形 / source_tag=verbatim で登録している行は
-            # source_tag 一致も同一タグとして扱う (Codex P2 第2ラウンド)
+            # source_tag 一致も同一タグとして扱い、比較は既存 lookup 経路
+            # (resolve_tag_id) と同じ casefold で行う (Codex P2 第2/第3ラウンド)
+            query_key = query.casefold()
             for item in result.items:
-                if item.tag != query and item.source_tag != query:
+                tag_match = (item.tag or "").casefold() == query_key
+                source_match = (item.source_tag or "").casefold() == query_key
+                if not tag_match and not source_match:
                     continue
                 type_name = self._extract_type_name(item)
                 if type_name:

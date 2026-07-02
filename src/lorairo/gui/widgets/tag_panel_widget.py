@@ -610,9 +610,13 @@ class TagPanelWidget(QWidget):
         # 消すと、外したタグが破線復活 chip として即再出現する (PR #992 Codex P2)。
         image_changed = image_id is None or image_id != self._image_id
         self._image_id = image_id
-        # type map はソート (_sort_tags_by_type) より先に確定させる (#1056)
+        # type map はソート (_sort_tags_by_type) より先に確定させる (#1056)。
+        # 別画像で type 情報が来ていない場合は前画像の map を引き継がない
+        # (無関係な canonical が前画像の type でグループ化される。Codex P2)
         if tag_types is not None:
             self._tag_types = dict(tag_types)
+        elif image_changed:
+            self._tag_types = {}
         # 複数モデルでアノテーションした画像は同一 canonical のタグ行がモデル数ぶん
         # 重複する (heart x9 等)。チップ表示は canonical 単位で 1 つに畳む (初出順維持、
         # DB のモデル別由来行は不変。チップ操作はもともと canonical 単位で dispatch
