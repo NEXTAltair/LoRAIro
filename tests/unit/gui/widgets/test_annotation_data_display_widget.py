@@ -737,6 +737,12 @@ class TestAnnotationDataDisplaySoftRejectEdit:
         chip.clicked.emit()
         assert received == []
 
+    def test_tag_replace_requested_relayed_from_tag_panel(self, widget, qtbot):
+        """TagPanelWidget の tag_replace_requested が委譲再公開されること (#1007)。"""
+        with qtbot.waitSignal(widget.tag_replace_requested, timeout=1000) as blocker:
+            widget._tag_panel.tag_replace_requested.emit("1girl", "1boy")
+        assert blocker.args == ["1girl", "1boy"]
+
 
 class TestMainLayoutTrailingStretch:
     """#823: 主レイアウト末尾の stretch で最下部グループの過大化を防ぐ。"""

@@ -1233,6 +1233,24 @@ class ImageDatabaseManager:
         success, per_item = self.annotation_repo.restore_tag_for_images_batch([image_id], tag)
         return success and any(status == "changed" for _, status in per_item)
 
+    def replace_tag(self, image_id: int, from_tag: str, to_tag: str) -> bool:
+        """画像の 1 タグを置換する (refinement 修正候補の適用、Issue #1007)。
+
+        置換元は ``reject_reason='replaced'`` で soft-reject し (非表示)、置換先を手動タグ
+        として追加する。原子的置換は ``replace_tag_for_images_batch`` (Issue #1003) に
+        委譲する。
+
+        Args:
+            image_id: 対象画像 ID。
+            from_tag: 置換元タグ (警告対象の canonical)。
+            to_tag: 置換先タグ (修正候補)。
+
+        Returns:
+            実際に置換された場合 True (置換元タグが画像に無ければ False)。
+        """
+        success, per_item = self.annotation_repo.replace_tag_for_images_batch([image_id], from_tag, to_tag)
+        return success and any(status == "changed" for _, status in per_item)
+
     def add_manual_tag(self, image_id: int, tag: str) -> bool:
         """画像に手動タグを追加する (is_edited_manually=True)。
 

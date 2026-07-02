@@ -19,17 +19,22 @@ pytestmark = pytest.mark.gui
 
 
 class _FakeDbManager:
-    """soft_reject_tag / restore_tag 呼び出しを (image_id, tag, reason) で記録する fake。"""
+    """soft_reject_tag / restore_tag / replace_tag 呼び出しを記録する fake。"""
 
     def __init__(self) -> None:
         self.rejected: list[tuple[int, str, str]] = []
         self.restored: list[tuple[int, str]] = []
+        self.replaced: list[tuple[int, str, str]] = []
 
     def soft_reject_tag(self, image_id: int, tag: str, reason: str = "incorrect") -> None:
         self.rejected.append((image_id, tag, reason))
 
     def restore_tag(self, image_id: int, tag: str) -> None:
         self.restored.append((image_id, tag))
+
+    def replace_tag(self, image_id: int, from_tag: str, to_tag: str) -> bool:
+        self.replaced.append((image_id, from_tag, to_tag))
+        return True
 
 
 def _make_widget(qtbot, monkeypatch, db_manager: _FakeDbManager) -> SelectedImageDetailsWidget:
@@ -103,3 +108,40 @@ def test_tag_panel_batch_signals_connected_after_set_db_manager(qtbot, monkeypat
     widget.annotation_display.tags_exclude_requested.emit(["1girl"])
 
     assert db_manager.rejected == [(7, "1girl", "incorrect")]
+
+
+# refinement 修正候補を適用 (タグ置換, #1007) ----------------------------------
+
+
+def test_tag_replace_writes_once_and_reloads_once(qtbot, monkeypatch) -> None:
+    """tag_replace_requested(from, to) は replace_tag を1回呼び reload は1回だけ (#1007)。"""
+    db_manager = _FakeDbManager()
+    widget = _make_widget(qtbot, monkeypatch, db_manager)
+
+    widget._on_tag_replace("1girl", "1boy")
+
+    assert db_manager.replaced == [(42, "1girl", "1boy")]
+    assert widget.reload_calls == 1  # type: ignore[attr-defined]
+
+
+def test_tag_replace_noop_without_current_image(qtbot, monkeypatch) -> None:
+    """画像未選択では置換の DB 書き込み・reload とも行わない (#1007)。"""
+    db_manager = _FakeDbManager()
+    widget = _make_widget(qtbot, monkeypatch, db_manager)
+    widget.current_image_id = None
+
+    widget._on_tag_replace("1girl", "1boy")
+
+    assert db_manager.replaced == []
+    assert widget.reload_calls == 0  # type: ignore[attr-defined]
+
+
+def test_tag_replace_signal_connected_after_set_db_manager(qtbot, monkeypatch) -> None:
+    """set_db_manager 後に tag_replace_requested が dispatch へ配線されていること (#1007)。"""
+    db_manager = _FakeDbManager()
+    widget = _make_widget(qtbot, monkeypatch, db_manager)
+    widget.current_image_id = 7
+
+    widget.annotation_display.tag_replace_requested.emit("1girl", "1boy")
+
+    assert db_manager.replaced == [(7, "1girl", "1boy")]

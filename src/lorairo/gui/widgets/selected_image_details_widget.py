@@ -377,6 +377,7 @@ class SelectedImageDetailsWidget(QWidget):
         self.annotation_display.tag_add_requested.connect(self._on_tag_add)
         self.annotation_display.tags_exclude_requested.connect(self._on_tags_exclude)
         self.annotation_display.tags_toggle_requested.connect(self._on_tags_toggle)
+        self.annotation_display.tag_replace_requested.connect(self._on_tag_replace)
         logger.debug("SelectedImageDetailsWidget: soft-reject 編集モードを有効化")
 
     def set_refinement_service(
@@ -568,6 +569,19 @@ class SelectedImageDetailsWidget(QWidget):
             self._db_manager.soft_reject_tag(self.current_image_id, tag, reason=REJECT_REASON_NOT_NEEDED)
         for tag in to_restore:
             self._db_manager.restore_tag(self.current_image_id, tag)
+        self._reload_current_image()
+
+    @Slot(str, str)
+    def _on_tag_replace(self, from_tag: str, to_tag: str) -> None:
+        """refinement 修正候補の適用 (タグ置換) を Manager に委譲し再描画する (#1007)。
+
+        置換元タグは reject_reason='replaced' で非表示になり、置換先タグが手動タグとして
+        採用される (既存の ``replace_tag_for_images_batch`` 経路を再利用、Issue #1003)。
+        reload は1回だけ呼び、reload 経由で refinement も再評価される。
+        """
+        if self.current_image_id is None:
+            return
+        self._db_manager.replace_tag(self.current_image_id, from_tag, to_tag)
         self._reload_current_image()
 
     @Slot(str, str, str)

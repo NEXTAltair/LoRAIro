@@ -7,6 +7,8 @@ refinement ignore の Signal 配線を検証する。
 
 from __future__ import annotations
 
+from typing import ClassVar
+
 import pytest
 from PySide6.QtWidgets import QApplication, QDialog, QLabel, QPushButton, QToolButton
 
@@ -744,3 +746,140 @@ def test_usage_counts_dialog_formats_counts(qtbot):
     labels = [w.text() for w in dialog.findChildren(QLabel)]
     assert "1.2M" in labels
     assert "500" in labels
+
+
+# ⑭ refinement 修正候補を適用 (タグ置換 / refine.suggest, #1007) ----------------
+
+
+def _make_recommendation(source_tag: str, suggestion_tags: list[str | None], kinds: list[str]):
+    """correction_candidate / review_only を混在させた RefinementRecommendation を作る。"""
+    from genai_tag_db_tools.models import (
+        RefinementReason,
+        RefinementRecommendation,
+        RefinementSuggestion,
+    )
+
+    return RefinementRecommendation(
+        source_tag=source_tag,
+        normalized_tag=source_tag,
+        needs_refinement=True,
+        score=0.8,
+        reasons=[RefinementReason(code="alias_tag", message="alias です")],  # type: ignore[arg-type]
+        suggestions=[
+            RefinementSuggestion(kind=kind, tag=tag)  # type: ignore[arg-type]
+            for kind, tag in zip(kinds, suggestion_tags, strict=True)
+        ],
+        proposals=[],
+    )
+
+
+class _CapturingMenu(tpw.QMenu):
+    """exec をブロックせず、生成されたメニューを検査できるようにする。"""
+
+    instances: ClassVar[list[_CapturingMenu]] = []
+
+    def __init__(self, parent=None) -> None:
+        super().__init__(parent)
+        _CapturingMenu.instances.append(self)
+
+    def exec(self, *args, **kwargs):
+        return None
+
+
+@pytest.fixture
+def capture_menu(monkeypatch):
+    _CapturingMenu.instances = []
+    monkeypatch.setattr(tpw, "QMenu", _CapturingMenu)
+    return _CapturingMenu
+
+
+def _context_menu_actions(chip) -> list[str]:
+    """chip の contextMenuEvent を発火し、生成されたメニューのアクション文言を返す。"""
+    from PySide6.QtCore import QPoint
+    from PySide6.QtGui import QContextMenuEvent
+
+    event = QContextMenuEvent(QContextMenuEvent.Reason.Mouse, QPoint(0, 0), QPoint(0, 0))
+    chip.contextMenuEvent(event)
+    menu = _CapturingMenu.instances[-1]
+    return [action.text() for action in menu.actions() if action.text()]
+
+
+def test_chip_replacement_candidates_dedup_and_exclude_self():
+    """correction_candidate の tag を重複排除し、自分自身と None を除外する (#1007)。"""
+    chip = SelectableTagChip("1girl", "1girl")
+    rec = _make_recommendation(
+        "1girl",
+        ["1boy", None, "1boy", "1girl", "solo"],
+        [
+            "correction_candidate",
+            "review_only",
+            "correction_candidate",
+            "correction_candidate",
+            "correction_candidate",
+        ],
+    )
+    chip.set_refinement(rec)
+    assert chip.replacement_candidates() == ["1boy", "solo"]
+
+
+def test_apply_menu_action_emits_refinement_apply_requested(panel, sample_tags, capture_menu, qtbot):
+    """編集モード時、右クリックメニューの「修正候補を適用」で (canonical, to_tag) を出す。"""
+    panel.set_tag_edit_enabled(True)
+    panel.set_tags(sample_tags, image_id=1)
+    panel.apply_refinements({"1girl": _make_recommendation("1girl", ["1boy"], ["correction_candidate"])})
+    chip = next(c for c in panel._tag_chips if c.canonical == "1girl")
+
+    actions = _context_menu_actions(chip)
+    assert "修正候補を適用: 1boy" in actions
+
+    menu = capture_menu.instances[-1]
+    apply_action = next(a for a in menu.actions() if a.text() == "修正候補を適用: 1boy")
+    with qtbot.waitSignal(chip.refinement_apply_requested, timeout=1000) as blocker:
+        apply_action.trigger()
+    assert blocker.args == ["1girl", "1boy"]
+
+
+def test_apply_menu_absent_when_edit_disabled(panel, sample_tags, capture_menu):
+    """read-only モードでは「修正候補を適用」をメニューに出さない (image DB 書き込みのため)。"""
+    panel.set_tags(sample_tags, image_id=1)
+    panel.apply_refinements({"1girl": _make_recommendation("1girl", ["1boy"], ["correction_candidate"])})
+    chip = next(c for c in panel._tag_chips if c.canonical == "1girl")
+
+    actions = _context_menu_actions(chip)
+    assert not any(a.startswith("修正候補を適用") for a in actions)
+    # ignore 等の既存メニューは出続ける
+    assert any(a.startswith("この理由を無視") for a in actions)
+
+
+def test_apply_menu_absent_on_disabled_chip(panel, sample_tags, capture_menu):
+    """無効化 (破線) 済み chip では適用を出さない (置換経路は rejected 行を対象にしない)。"""
+    panel.set_tag_edit_enabled(True)
+    panel.set_tags(sample_tags, image_id=1)
+    panel._tag_chips[0].clicked.emit()  # 1girl を無効化
+    panel.apply_refinements({"1girl": _make_recommendation("1girl", ["1boy"], ["correction_candidate"])})
+    chip = next(c for c in panel._tag_chips if c.canonical == "1girl")
+
+    actions = _context_menu_actions(chip)
+    assert not any(a.startswith("修正候補を適用") for a in actions)
+
+
+def test_apply_menu_absent_without_correction_candidate(panel, sample_tags, capture_menu):
+    """review_only のみの警告では適用メニューを出さない。"""
+    panel.set_tag_edit_enabled(True)
+    panel.set_tags(sample_tags, image_id=1)
+    panel.apply_refinements({"1girl": _make_recommendation("1girl", [None], ["review_only"])})
+    chip = next(c for c in panel._tag_chips if c.canonical == "1girl")
+
+    actions = _context_menu_actions(chip)
+    assert not any(a.startswith("修正候補を適用") for a in actions)
+
+
+def test_panel_relays_apply_to_tag_replace_requested(panel, sample_tags, qtbot):
+    """chip の適用要求が panel の tag_replace_requested(from, to) へ中継される (#1007)。"""
+    panel.set_tag_edit_enabled(True)
+    panel.set_tags(sample_tags, image_id=1)
+    chip = next(c for c in panel._tag_chips if c.canonical == "1girl")
+
+    with qtbot.waitSignal(panel.tag_replace_requested, timeout=1000) as blocker:
+        chip.refinement_apply_requested.emit("1girl", "1boy")
+    assert blocker.args == ["1girl", "1boy"]

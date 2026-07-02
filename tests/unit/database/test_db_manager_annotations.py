@@ -376,3 +376,26 @@ class TestFilterRecentAnnotations:
 
         # 閾値と同じ時刻は >= で判定されるため含まれるはず
         assert len(result["tags"]) == 1
+
+
+class TestReplaceTag:
+    """replace_tag ラッパー (#1007): repository へ委譲し changed 有無を bool で返す。"""
+
+    def test_replace_tag_delegates_and_returns_true_on_change(self, manager: ImageDatabaseManager) -> None:
+        from unittest.mock import MagicMock
+
+        repo = MagicMock()
+        repo.replace_tag_for_images_batch.return_value = (True, [(42, "changed")])
+        manager.annotation_repo = repo
+
+        assert manager.replace_tag(42, "1girl", "1boy") is True
+        repo.replace_tag_for_images_batch.assert_called_once_with([42], "1girl", "1boy")
+
+    def test_replace_tag_returns_false_when_skipped(self, manager: ImageDatabaseManager) -> None:
+        from unittest.mock import MagicMock
+
+        repo = MagicMock()
+        repo.replace_tag_for_images_batch.return_value = (True, [(42, "skipped")])
+        manager.annotation_repo = repo
+
+        assert manager.replace_tag(42, "1girl", "1boy") is False
