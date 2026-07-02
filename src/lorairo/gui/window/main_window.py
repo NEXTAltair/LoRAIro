@@ -36,7 +36,6 @@ from ..controllers.settings_controller import SettingsController
 from ..services.pipeline_control_service import PipelineControlService
 from ..services.progress_state_service import ProgressStateService
 from ..services.result_handler_service import ResultHandlerService
-from ..services.tab_reorganization_service import TabReorganizationService
 from ..services.worker_service import WorkerService
 from ..state.dataset_state import DatasetStateManager
 from ..state.model_selection_state import ModelSelectionStateManager
@@ -1462,8 +1461,7 @@ class MainWindow(QMainWindow, Ui_MainWindow):
         """
         タブウィジェットのSignal接続（UIで定義済みのタブを使用）
 
-        MainWindow.ui で定義された tabWidgetMainMode の Signal 接続を設定し、
-        タブ構造の検証を行う。
+        MainWindow.ui で定義された tabWidgetMainMode の Signal 接続を設定する。
 
         Note:
             バッチタグ機能はバッチタグタブに移動済み。
@@ -1473,10 +1471,6 @@ class MainWindow(QMainWindow, Ui_MainWindow):
         if not hasattr(self, "tabWidgetMainMode") or not self.tabWidgetMainMode:
             logger.error("tabWidgetMainMode not found in UI - check MainWindow.ui")
             return
-
-        # タブ構造の検証
-        if not TabReorganizationService.validate_tab_structure(self):
-            logger.warning("Tab structure validation failed - some widgets may be missing")
 
         # タブ切り替えSignal接続
         self.tabWidgetMainMode.currentChanged.connect(self._on_main_tab_changed)
