@@ -186,28 +186,27 @@ class ImagePreviewWidget(QWidget, Ui_ImagePreviewWidget):
         Args:
             state_manager: DatasetStateManagerインスタンス
         """
-        logger.info(
-            f"🔌 connect_to_data_signals() 呼び出し開始 - "
+        logger.debug(
+            f"connect_to_data_signals() 呼び出し開始 - "
             f"widget instance: {id(self)}, state_manager: {id(state_manager)}"
         )
 
         if not state_manager:
-            logger.error("❌ DatasetStateManager is None - 接続中止")
+            logger.error("DatasetStateManager is None - 接続中止")
             return
 
         # シグナル接続（戻り値を確認）
         connection = state_manager.current_image_data_changed.connect(self._on_image_data_received)
         connection_valid = bool(connection)
 
-        logger.info(f"📊 connect()戻り値: valid={connection_valid}, type={type(connection)}")
+        logger.debug(f"connect()戻り値: valid={connection_valid}, type={type(connection)}")
 
         if not connection_valid:
-            logger.error("❌ Qt接続失敗 - connect()が無効なConnectionを返しました")
+            logger.error("Qt接続失敗 - connect()が無効なConnectionを返しました")
             return
 
-        logger.info(
-            f"✅ current_image_data_changed シグナル接続完了 - from {id(state_manager)} to {id(self)}"
-        )
+        # シグナル配線の完了は接続時1回だけ INFO で残す (logging.md)
+        logger.info(f"current_image_data_changed シグナル接続完了 - from {id(state_manager)} to {id(self)}")
 
     @Slot(dict)
     def _on_image_data_received(self, image_data: dict[str, Any]) -> None:
@@ -218,8 +217,8 @@ class ImagePreviewWidget(QWidget, Ui_ImagePreviewWidget):
         プレビュー表示を更新します。検索機能への依存を完全に排除。
         """
         try:
-            logger.info(
-                f"📨 ImagePreviewWidget: current_image_data_changed シグナル受信 - データサイズ: {len(image_data) if image_data else 0}"
+            logger.debug(
+                f"ImagePreviewWidget: current_image_data_changed シグナル受信 - データサイズ: {len(image_data) if image_data else 0}"
             )
 
             # 空データの場合はプレビューをクリア
@@ -230,7 +229,7 @@ class ImagePreviewWidget(QWidget, Ui_ImagePreviewWidget):
 
             # 画像IDを取得（ログ用）
             image_id = image_data.get("id", "Unknown")
-            logger.debug(f"🔍 画像データ受信: ID={image_id}")
+            logger.debug(f"画像データ受信: ID={image_id}")
 
             # ファイルパスを取得
             image_path_str = image_data.get("stored_image_path")
@@ -250,9 +249,7 @@ class ImagePreviewWidget(QWidget, Ui_ImagePreviewWidget):
 
             self.load_image(image_path)
 
-            logger.info(
-                f"✅ プレビュー表示成功: ID={image_id}, path={image_path.name} - Enhanced Event-Driven Pattern 完全動作"
-            )
+            logger.debug(f"プレビュー表示成功: ID={image_id}, path={image_path.name}")
 
         except Exception as e:
             logger.error(
