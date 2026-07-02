@@ -790,7 +790,7 @@ TOOL_SPECS: dict[str, ToolSpec] = {
         summary="List projects.",
         read_only=True,
         side_effects=("file_read", "db_read"),
-        inputs=(_input("ProjectListInput", (_f("format", "table|json", default="table"),)),),
+        inputs=(),
         outputs=(
             _output(
                 "ProjectListItem",

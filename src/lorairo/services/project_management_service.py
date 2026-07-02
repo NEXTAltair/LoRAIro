@@ -40,14 +40,6 @@ class ProjectManagementService:
             config = get_config()
             base_dir_str = config.get("directories", {}).get("database_base_dir", "lorairo_data")
             self.projects_base_dir = Path(base_dir_str).resolve()
-
-            # 旧ディレクトリ残存チェック（移行案内）
-            old_dir = Path.home() / ".lorairo" / "projects"
-            if old_dir.exists():
-                logger.info(
-                    f"旧プロジェクトディレクトリが検出されました: {old_dir}"
-                    f" → {self.projects_base_dir} への移動を検討してください"
-                )
         logger.debug(f"ProjectManagementService 初期化: {self.projects_base_dir}")
 
     def create_project(self, name: str, description: str = "") -> ProjectInfo:

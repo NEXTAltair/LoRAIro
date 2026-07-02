@@ -8,8 +8,6 @@ API層（lorairo.public_api）を経由してService層を利用する。
 に集約し、本モジュールは型付き例外を伝播するだけにする。
 """
 
-import json
-
 import click
 import typer
 from rich.table import Table
@@ -58,15 +56,11 @@ def create(
 
 
 @app.command("list")
-def list_projects(
-    format: str = typer.Option(
-        "table",
-        "--format",
-        "-f",
-        help="Output format: table/json (legacy; prefer global --json).",
-    ),
-) -> None:
-    """List all projects."""
+def list_projects() -> None:
+    """List all projects.
+
+    JSON 出力はグローバル ``--json`` フラグで取得する (ADR 0057/0058、JSONL)。
+    """
     with command_boundary():
         projects = api_list_projects()
 
@@ -80,19 +74,6 @@ def list_projects(
                     }
                 )
             emit_result(f"{len(projects)} project(s) found", count=len(projects))
-            return
-
-        if format == "json":
-            # legacy: ``project list --format json`` (global --json への移行を推奨)
-            projects_data = [
-                {
-                    "name": p.name,
-                    "created": p.created.strftime("%Y%m%d_%H%M%S") if p.created else "",
-                    "path": str(p.path),
-                }
-                for p in projects
-            ]
-            console.print(json.dumps(projects_data, indent=2, ensure_ascii=False), soft_wrap=True)
             return
 
         if not projects:
