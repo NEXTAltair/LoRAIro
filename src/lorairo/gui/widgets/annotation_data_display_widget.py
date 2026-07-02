@@ -123,6 +123,7 @@ class AnnotationDataDisplayWidget(QWidget, Ui_AnnotationDataDisplayWidget):
     # 複数選択のバッチ操作 (#997)。引数は canonical タグ文字列のリスト。
     tags_exclude_requested = Signal(list)  # まとめて除外 (incorrect)
     tags_toggle_requested = Signal(list, list)  # (to_disable, to_restore) まとめて無効化⇄復活
+    tag_replace_requested = Signal(str, str)  # 修正候補を適用 = 置換 (from, to) (#1007)
     refinement_ignored = Signal(str, str)  # refinement リコメンドを無視 (canonical, reason_code) (#931)
     translation_add_requested = Signal(str, str, str)  # canonical, language, translation (#989)
     tag_metadata_edit_requested = Signal(str, str)  # canonical, type (#989)
@@ -183,6 +184,7 @@ class AnnotationDataDisplayWidget(QWidget, Ui_AnnotationDataDisplayWidget):
         self._tag_panel.tag_add_requested.connect(self.tag_add_requested)
         self._tag_panel.tags_exclude_requested.connect(self.tags_exclude_requested)
         self._tag_panel.tags_toggle_requested.connect(self.tags_toggle_requested)
+        self._tag_panel.tag_replace_requested.connect(self.tag_replace_requested)
         self._tag_panel.refinement_ignored.connect(self.refinement_ignored)
         self._tag_panel.translation_add_requested.connect(self.translation_add_requested)
         self._tag_panel.tag_metadata_edit_requested.connect(self.tag_metadata_edit_requested)

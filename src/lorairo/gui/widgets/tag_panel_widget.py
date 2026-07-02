@@ -71,6 +71,8 @@ class SelectableTagChip(QLabel):
     ctrl_clicked = Signal()  # Ctrl+クリック: コピー選択 (#814)
     # refinement リコメンドの「この理由を無視」要求 (#931): (canonical, reason_code)
     refinement_ignore_requested = Signal(str, str)
+    # refinement 修正候補の適用要求 (#1007、image DB 系の置換操作): (canonical, to_tag)
+    refinement_apply_requested = Signal(str, str)
     # タグ情報メニュー要求 (#989、tagdb userdb 系)。親がダイアログを開く。
     translation_add_menu_requested = Signal(str)  # canonical — 翻訳を追加
     type_edit_menu_requested = Signal(str)  # canonical — タグ情報 (種別) を編集
@@ -84,6 +86,9 @@ class SelectableTagChip(QLabel):
         self.selected = False
         # 翻訳欠落 chip か (#989)。未登録なら右クリックメニューで「翻訳を追加」を強調する。
         self.untranslated = False
+        # 修正候補の適用 (置換) を提示してよいか (#1007)。image DB 書き込みを伴うため
+        # 編集モードかつアクティブ (非 rejected) chip のみ親 (_add_chip) が True にする。
+        self.replace_enabled = False
         # refinement 表示状態 (#931)。set_refinement で更新する。
         self._base_text = display_text
         self._base_tooltip: str | None = None
@@ -126,12 +131,35 @@ class SelectableTagChip(QLabel):
             self.setText(self._base_text)
             self.setToolTip(self._base_tooltip)
 
+    def replacement_candidates(self) -> list[str]:
+        """refinement の適用可能な修正候補タグを返す (#1007)。
+
+        ``correction_candidate`` の suggestion だけを対象に、空・自分自身 (canonical と
+        同一) を除外し、出現順を保って重複排除する。``review_only`` は人による確認のみ
+        なので適用対象にしない。
+
+        Returns:
+            置換先候補の canonical タグ文字列リスト。無ければ空リスト。
+        """
+        rec = self.refinement
+        if rec is None or not rec.needs_refinement:
+            return []
+        candidates: list[str] = []
+        for suggestion in rec.suggestions:
+            tag = suggestion.tag
+            if suggestion.kind != "correction_candidate" or not tag or tag == self.canonical:
+                continue
+            if tag not in candidates:
+                candidates.append(tag)
+        return candidates
+
     def contextMenuEvent(self, event: QContextMenuEvent) -> None:
         """chip の右クリックで「タグ情報」メニューを出す (ADR 0083 §3 / #989)。
 
         tagdb userdb 系 (canonical 主キー・全画像反映) の「翻訳を追加」「タグ情報を編集」を
-        常に提示し、refinement リコメンドがあれば reason 単位の「この理由を無視」(#931) を
-        続けて並べる。未翻訳 chip では「翻訳を追加」を強調表示する (#989)。
+        常に提示し、refinement リコメンドがあれば「修正候補を適用」(#1007、編集モードのみ)
+        と reason 単位の「この理由を無視」(#931) を続けて並べる。未翻訳 chip では
+        「翻訳を追加」を強調表示する (#989)。
         """
         menu = QMenu(self)
 
@@ -150,8 +178,17 @@ class SelectableTagChip(QLabel):
         )
 
         rec = self.refinement
-        if rec is not None and rec.needs_refinement and rec.reasons:
+        # 適用は image DB 書き込み (置換) のため replace_enabled (編集モード) 時のみ提示する。
+        apply_candidates = self.replacement_candidates() if self.replace_enabled else []
+        has_ignore = rec is not None and rec.needs_refinement and rec.reasons
+        if apply_candidates or has_ignore:
             menu.addSeparator()
+        for to_tag in apply_candidates:
+            apply_action = menu.addAction(f"修正候補を適用: {to_tag}")
+            apply_action.triggered.connect(
+                lambda _checked=False, tag=to_tag: self.refinement_apply_requested.emit(self.canonical, tag)
+            )
+        if rec is not None and has_ignore:
             for reason in rec.reasons:
                 action = menu.addAction(f"この理由を無視: {reason.code}")
                 action.triggered.connect(
@@ -346,7 +383,7 @@ class TagPanelWidget(QWidget):
     - ✕ ボタン = この画像から外す (パネルから当該セッションのみ非表示)
     - Ctrl+クリック = コピー選択 (#814) / 選択集合が非空ならバッチ操作バーを表示 (#997)
     - 右クリック = タグ情報メニュー (翻訳追加 / タグ情報を編集 / 使用頻度を見る #989・#997、
-      refinement ignore #931)
+      refinement ignore #931 / 修正候補を適用 = タグ置換 #1007)
 
     無効化 (破線表示) と ✕ (非表示) の区別は DB の ``reject_reason`` に永続化され
     (無効化=``not_needed`` / 除外=``incorrect`` / 置換=``replaced``、Issue #1003)、
@@ -368,6 +405,9 @@ class TagPanelWidget(QWidget):
     # 1回の Signal で両リストをまとめて渡し、親側で reload を1回に抑える。
     # 無効化側は reason='not_needed'。
     tags_toggle_requested = Signal(list, list)  # (to_disable, to_restore) canonicals
+    # refinement 修正候補の適用 = タグ置換 (#1007)。置換元は親が reject_reason='replaced'
+    # で非表示化し、置換先を手動タグとして採用する (replace_tag_for_images_batch 経路)。
+    tag_replace_requested = Signal(str, str)  # (from_canonical, to_tag)
     # tagdb userdb 系 (canonical が主キー / 画像 ID 不要)
     refinement_ignored = Signal(str, str)  # canonical, reason_code (#931)
     translation_add_requested = Signal(str, str, str)  # canonical, language, translation (#989)
@@ -937,6 +977,11 @@ class TagPanelWidget(QWidget):
         chip.ctrl_clicked.connect(lambda c=chip: self._on_chip_ctrl_clicked(c))
         # refinement「この理由を無視」を上位へ中継 (#931)
         chip.refinement_ignore_requested.connect(self.refinement_ignored)
+        # refinement「修正候補を適用」(#1007): image DB 書き込み (置換) を伴うため編集モード
+        # かつアクティブ chip のみ有効。rejected 行は置換経路の対象外 (rejected_at IS NULL
+        # フィルタ) なので破線 chip では提示しない。
+        chip.replace_enabled = self._tag_edit_enabled and not disabled
+        chip.refinement_apply_requested.connect(self.tag_replace_requested)
         # タグ情報メニュー (#989): chip 右クリック → 親がダイアログを開く。
         chip.translation_add_menu_requested.connect(self._open_translation_dialog)
         chip.type_edit_menu_requested.connect(self._open_type_edit_dialog)
@@ -1009,11 +1054,15 @@ class TagPanelWidget(QWidget):
             # 破線 chip クリック = 復活
             self._disabled_display.discard(canonical)
             chip.setStyleSheet(chip.base_qss)
+            chip.replace_enabled = True
             self.tag_restore_requested.emit(canonical)
         else:
             # アクティブ chip クリック = 無効化 (破線でインライン継続、reason='not_needed')
             self._disabled_display.add(canonical)
             chip.setStyleSheet(self._disabled_chip_qss())
+            # rejected 行は置換経路 (rejected_at IS NULL フィルタ) の対象外なので、
+            # reload を待たず「修正候補を適用」の提示も止める (#1007)。
+            chip.replace_enabled = False
             self.tag_disable_requested.emit(canonical)
 
     def _on_chip_ctrl_clicked(self, chip: SelectableTagChip) -> None:
