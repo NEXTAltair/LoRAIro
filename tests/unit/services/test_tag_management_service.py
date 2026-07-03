@@ -384,6 +384,20 @@ class TestTagManagementService:
 class TestTranslationQualityIntegration:
     """recommend_with_translation_quality の統合ロジックのテスト (#976)。"""
 
+    @pytest.fixture(autouse=True)
+    def _neutralize_tag_record(self):
+        """tag-record refinement を無効化して翻訳品質統合を分離する (#1123)。
+
+        本クラスは Mock reader を使うため recommend_tag_record_refinement が幻の signal を
+        出しうる。翻訳品質統合の検証に集中するため no-op に固定する (実挙動は
+        TestTagRecordRefinementIntegration で検証)。
+        """
+        with patch(
+            "lorairo.services.tag_management_service.recommend_tag_record_refinement",
+            return_value=_recommendation("_", needs=False, score=0.0),
+        ):
+            yield
+
     @pytest.fixture
     def service(self) -> TagManagementService:
         """TagManagementService インスタンスを提供"""
@@ -905,6 +919,142 @@ class TestTranslationQualityIntegration:
         assert result is manual
         mock_search.assert_not_called()
         mock_eval.assert_not_called()
+
+
+@pytest.mark.unit
+class TestTagRecordRefinementIntegration:
+    """recommend_tag_record_refinement をタグ管理フローへ合流する (#1123)。"""
+
+    @pytest.fixture(autouse=True)
+    def _neutralize_translation(self):
+        """翻訳品質評価を no-op に固定し、tag-record 合流のみを検証する。"""
+        with patch(
+            "lorairo.services.tag_management_service.recommend_translation_quality",
+            return_value=_recommendation("_", needs=False, score=0.0),
+        ):
+            yield
+
+    @pytest.fixture
+    def service(self) -> TagManagementService:
+        with patch("lorairo.services.tag_management_service.get_tag_reader"):
+            with patch("lorairo.services.tag_management_service.get_user_repository"):
+                return TagManagementService()
+
+    def test_merges_tag_record_reason_into_clean_manual(self, service: TagManagementService) -> None:
+        """manual が clean でも tag-record の status/type 問題を ⚠ 対象へ合流する。"""
+        manual = _recommendation("dog", needs=False, score=0.0)
+        record = _recommendation("dog", reason_codes=["deprecated_tag"], score=0.9)
+        with (
+            patch(
+                "lorairo.services.tag_management_service.recommend_manual_refinement",
+                return_value=manual,
+            ),
+            patch(
+                "lorairo.services.tag_management_service.search_tags",
+                return_value=_search_result_with_translations("dog", {"ja": ["犬"]}),
+            ),
+            patch(
+                "lorairo.services.tag_management_service.recommend_tag_record_refinement",
+                return_value=record,
+            ),
+        ):
+            result = service.recommend_with_translation_quality("dog")
+
+        assert result.needs_refinement is True
+        assert "deprecated_tag" in {r.code for r in result.reasons}
+
+    def test_allowlist_filters_non_display_codes(self, service: TagManagementService) -> None:
+        """allowlist 外の tag-record reason (status_type_conflict) は ⚠ 表示しない (#993 の教訓)。"""
+        manual = _recommendation("dog", needs=False, score=0.0)
+        record = _recommendation("dog", reason_codes=["deprecated_tag", "status_type_conflict"], score=0.9)
+        with (
+            patch(
+                "lorairo.services.tag_management_service.recommend_manual_refinement",
+                return_value=manual,
+            ),
+            patch(
+                "lorairo.services.tag_management_service.search_tags",
+                return_value=_search_result_with_translations("dog", {"ja": ["犬"]}),
+            ),
+            patch(
+                "lorairo.services.tag_management_service.recommend_tag_record_refinement",
+                return_value=record,
+            ),
+        ):
+            result = service.recommend_with_translation_quality("dog")
+
+        codes = {r.code for r in result.reasons}
+        assert "deprecated_tag" in codes
+        assert "status_type_conflict" not in codes
+
+    def test_skip_codes_short_circuit_tag_record(self, service: TagManagementService) -> None:
+        """manual が alias/非preferred/missing-format を出したら tag-record 評価もスキップする。"""
+        manual = _recommendation("dog", reason_codes=["alias_tag"], score=0.5)
+        with (
+            patch(
+                "lorairo.services.tag_management_service.recommend_manual_refinement",
+                return_value=manual,
+            ),
+            patch("lorairo.services.tag_management_service.recommend_tag_record_refinement") as mock_record,
+        ):
+            result = service.recommend_with_translation_quality("dog")
+
+        assert result is manual
+        mock_record.assert_not_called()
+
+    def test_no_exact_row_skips_tag_record(self, service: TagManagementService) -> None:
+        """完全一致行が無ければ tag-record を評価しない (row None)。"""
+        manual = _recommendation("dog", needs=False, score=0.0)
+        no_match = TagSearchResult(items=[TagRecordPublic(tag="other", tag_id=9, source_tag="other")])
+        with (
+            patch(
+                "lorairo.services.tag_management_service.recommend_manual_refinement",
+                return_value=manual,
+            ),
+            patch(
+                "lorairo.services.tag_management_service.search_tags",
+                return_value=no_match,
+            ),
+            patch("lorairo.services.tag_management_service.recommend_tag_record_refinement") as mock_record,
+        ):
+            result = service.recommend_with_translation_quality("dog")
+
+        assert result is manual
+        mock_record.assert_not_called()
+
+    def test_prefers_user_overlay_row_for_record(self, service: TagManagementService) -> None:
+        """base + user-overlay 完全一致行では overlay 行 (tag_id 高位) を record 評価に渡す (#1123 Codex P2)。"""
+        manual = _recommendation("dog", needs=False, score=0.0)
+        # base 行を先に、user overlay 行 (USER_TAG_ID_OFFSET=1e9 以上) を後に置く
+        base_row = TagRecordPublic(
+            tag="dog", tag_id=5, source_tag="dog", type_name="general", format_name="Lorairo"
+        )
+        overlay_row = TagRecordPublic(
+            tag="dog",
+            tag_id=1_000_000_005,
+            source_tag="dog",
+            type_name="general",
+            format_name="Lorairo",
+        )
+        result_rows = TagSearchResult(items=[base_row, overlay_row], total=2)
+        with (
+            patch(
+                "lorairo.services.tag_management_service.recommend_manual_refinement",
+                return_value=manual,
+            ),
+            patch(
+                "lorairo.services.tag_management_service.search_tags",
+                return_value=result_rows,
+            ),
+            patch(
+                "lorairo.services.tag_management_service.recommend_tag_record_refinement",
+                return_value=_recommendation("_", needs=False, score=0.0),
+            ) as mock_record,
+        ):
+            service.recommend_with_translation_quality("dog")
+
+        # record 評価には base 行ではなく overlay 行 (tag_id 高位) が渡る
+        assert mock_record.call_args.args[0].tag_id == 1_000_000_005
 
 
 @pytest.mark.unit
