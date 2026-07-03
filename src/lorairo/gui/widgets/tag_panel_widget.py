@@ -677,6 +677,8 @@ class TagPanelWidget(QWidget):
             usage_counts: サイト別使用頻度 ``{tag_id: {format_name: count}}`` (#990)。
                 指定時は metric セレクタと chip 表示を 1 度の再描画で同時更新する
                 (set_usage_counts を別途呼ぶと余分な再描画になるため統合する)。
+                非空ならセッション内キャッシュへ merge、空/None ならキャッシュ保持
+                (#1083: 2段階描画の phase 1 で metric バーを消さない)。
             tag_types: ``{canonical: type名(小文字)}`` (#1056)。チップの type 別
                 グループソートに使う。引けないタグは「不明」として末尾グループ。
         """
@@ -719,8 +721,14 @@ class TagPanelWidget(QWidget):
         self._tags = self._sort_tags_by_type(deduped_tags)
         self._translations = dict(translations) if translations else {}
         self._available_languages = list(available_languages) if available_languages else []
-        if usage_counts is not None:
-            self._usage_counts = dict(usage_counts)
+        # usage counts は tag DB 由来の画像非依存データ ({tag_id: {format: count}}) なので、
+        # 画像切替で破棄せずセッション内キャッシュへ merge する (#1083)。2段階描画の
+        # phase 1 (即時描画) は空 dict を渡してくるが、ここでクリアすると metadata worker
+        # 完了までの数秒間 metric バー (頻度ドロップダウン) が消える。空は「未解決」と
+        # みなしキャッシュを保持し、既出タグは選択直後から count を表示できるようにする。
+        # 非空 map は表示中タグ分の正とみなす (map に無い表示中 tag_id は退避、Codex P2)。
+        if usage_counts:
+            self._merge_usage_counts_for_current_tags(usage_counts)
         if image_changed:
             # 別画像なので前画像の操作・refinement・選択・reject を引き継がない。
             # 表示種別 (無効化/除外) は直後の set_rejected_tags が DB の reject_reason から
@@ -855,9 +863,16 @@ class TagPanelWidget(QWidget):
         2段階描画の後段: 原文のみの即時表示に対し、background で解決した
         メタデータを 1 回の再描画で反映する (#983 の多重再描画の罠を避ける)。
         言語選択・✕/無効化などの表示状態は保持される。
+
+        usage counts は画像非依存のセッション内キャッシュへ merge する (#1083)。
+        置換にすると別画像で貯めた既出タグの count が消え、次の画像切替の phase 1
+        で metric バーが再び空白になる。ただし表示中タグの tag_id は今回の解決結果が
+        正であり、結果に無い id は「count なし」が確定しているためキャッシュから
+        退避する (セッション中の usage 行削除や tag DB 差し替えで stale な count を
+        表示し続けない、Codex P2)。
         """
         self._translations = dict(translations)
-        self._usage_counts = dict(usage_counts)
+        self._merge_usage_counts_for_current_tags(usage_counts)
         self._tag_types = dict(tag_types)
         # type が届いたのでグループソートを適用し直す (#1056)
         self._tags = self._sort_tags_by_type(self._tags)
@@ -923,7 +938,11 @@ class TagPanelWidget(QWidget):
         return True
 
     def clear(self) -> None:
-        """表示データと表示状態をクリアする。"""
+        """表示データと表示状態をクリアする。
+
+        usage counts のセッション内キャッシュ (#1083) は画像非依存の参照データなので
+        破棄しない (タグが無いので metric バーは自然に隠れる)。
+        """
         self._tags = []
         self._translations = {}
         self._disabled_display = set()
@@ -931,7 +950,6 @@ class TagPanelWidget(QWidget):
         self._rejected_tags = []
         self._last_refinements = {}
         self._last_candidate_counts = {}
-        self._usage_counts = {}
         self._counts_by_canonical = {}
         self._selected_canonicals = set()
         self._refresh_metric_selector()
@@ -952,6 +970,26 @@ class TagPanelWidget(QWidget):
         self._refresh_tags_for_language(language)
 
     # ─── 使用頻度 第2軸 (metric_source, #990) ──────────────────────────
+
+    def _merge_usage_counts_for_current_tags(self, usage_counts: dict[int, dict[str, int]]) -> None:
+        """表示中タグ分を正として usage counts をセッション内キャッシュへ merge する (#1083)。
+
+        表示中タグの tag_id は与えられた解決結果が正であり、結果に無い id は
+        「count なし」が確定しているため merge 前にキャッシュから退避する
+        (セッション中の usage 行削除や tag DB 差し替えで stale な count を
+        表示し続けない、Codex P2)。表示外の tag_id (他画像で貯めた分) は保持する。
+
+        Args:
+            usage_counts: 表示中タグ集合に対する解決結果 ``{tag_id: {format: count}}``。
+        """
+        current_tag_ids = {
+            tag_id
+            for tag_dict in self._tags
+            if isinstance(tag_dict, dict) and isinstance(tag_id := tag_dict.get("tag_id"), int)
+        }
+        for tag_id in current_tag_ids - usage_counts.keys():
+            self._usage_counts.pop(tag_id, None)
+        self._usage_counts.update(usage_counts)
 
     def _rebuild_counts_by_canonical(self) -> None:
         """``{tag_id: {format: count}}`` を canonical キーへ展開する (#990)。
