@@ -16,7 +16,6 @@ from PySide6.QtWidgets import (
     QAbstractItemView,
     QFrame,
     QGridLayout,
-    QGroupBox,
     QHBoxLayout,
     QLabel,
     QProgressBar,
@@ -34,6 +33,9 @@ from lorairo.services.job_ledger_service import (
     JobStatus,
     StageProgress,
 )
+
+from .ds_card import DsCard
+from .ds_chip import DsChip
 
 _COLUMNS = ("種別", "タイトル", "状態", "開始", "終了", "サマリー", "操作")
 _STATUS_LABELS = {
@@ -114,13 +116,18 @@ class _SummaryStatCard(QFrame):
         self._value_label.setStyleSheet(f"color: {color};")
 
 
-class SyncJobLedgerWidget(QGroupBox):
-    """実行中 / 履歴（同期ジョブ）セクション (session-scoped ledger view)."""
+class SyncJobLedgerWidget(DsCard):
+    """実行中 / 履歴（同期ジョブ）セクション (session-scoped ledger view).
+
+    セクション面は DS の Card surface (``DsCard``) を使う (Issue #1105 項目6:
+    QGroupBox の自作カード面を公式部品へ寄せる)。見出しはカードタイトルとして
+    描画され、QGroupBox のタイトル枠 (notched border) には依存しない。
+    """
 
     cancel_requested = Signal(str)  # job_id (= worker_id)
 
     def __init__(self, parent: QWidget | None = None) -> None:
-        super().__init__("実行中 / 履歴（同期ジョブ）", parent)
+        super().__init__(title="実行中 / 履歴（同期ジョブ）", parent=parent)
         self.setObjectName("syncJobLedgerSection")
 
         # DS JobsScreen サマリ帯 (Issue #805): running / queued / done(7d) / API使用
@@ -151,11 +158,15 @@ class SyncJobLedgerWidget(QGroupBox):
         self.tableSyncJobs.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
         self.tableSyncJobs.verticalHeader().setVisible(False)
 
-        layout = QVBoxLayout(self)
-        layout.setContentsMargins(4, 4, 4, 4)
-        layout.addWidget(self._summary_strip)
-        layout.addWidget(self._running_container)
-        layout.addWidget(self.tableSyncJobs)
+        # DsCard の本体エリアにサマリ帯 / 実行中パイプライン / 台帳テーブルを載せる。
+        # 外余白は DsCard 側 (SPACE_3) が持つため body 側は 0 にする。
+        body = QWidget(self)
+        body_layout = QVBoxLayout(body)
+        body_layout.setContentsMargins(0, 0, 0, 0)
+        body_layout.addWidget(self._summary_strip)
+        body_layout.addWidget(self._running_container)
+        body_layout.addWidget(self.tableSyncJobs)
+        self.set_body(body)
 
         # 初期表示は空集計 (データなしを正直に出す)
         self.set_summary(JobsSummary(running=0, queued=0, done_7d=0, failed_7d=0))
@@ -211,13 +222,22 @@ class SyncJobLedgerWidget(QGroupBox):
         label.setStyleSheet(theme.badge_qss())
         return label
 
-    def _build_status_chip(self, text: str, status: JobStatus) -> QLabel:
-        """状態 chip (DS status chip 文法、tone は JobStatus 由来) を生成する。"""
-        label = QLabel(text, self.tableSyncJobs)
-        label.setObjectName("jobStatusChip")
-        label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        label.setStyleSheet(theme.chip_qss(_STATUS_CHIP_KINDS.get(status, "neutral")))
-        return label
+    def _build_status_chip(self, text: str, status: JobStatus) -> DsChip:
+        """状態 chip (DS status chip 文法、tone は JobStatus 由来) を生成する。
+
+        公式部品 ``DsChip`` へ寄せる (Issue #1105 項目1)。現状の見た目を変えないため
+        ドットは付けない (``dot="none"``)。テキストはドット無しのまま (台帳セルの
+        表示テキストを変えない)。
+        """
+        chip = DsChip(
+            text,
+            _STATUS_CHIP_KINDS.get(status, "neutral"),
+            dot="none",
+            parent=self.tableSyncJobs,
+        )
+        chip.setObjectName("jobStatusChip")
+        chip.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        return chip
 
     def _build_summary_item(self, summary: str, status: JobStatus) -> QTableWidgetItem:
         """結果サマリーセル (mono、失敗は err 色) を生成する。"""
@@ -270,11 +290,16 @@ class SyncJobLedgerWidget(QGroupBox):
                 widget.setParent(None)
                 widget.deleteLater()
 
-    def _build_stage_card(self, entry: JobEntry) -> QGroupBox:
-        """1 ジョブ分のステージ別進捗カードを生成する。"""
-        card = QGroupBox(f"▶ 実行中 — {entry.title}", self._running_container)
+    def _build_stage_card(self, entry: JobEntry) -> DsCard:
+        """1 ジョブ分のステージ別進捗カードを生成する。
+
+        公式部品 ``DsCard`` へ寄せる (Issue #1105 項目6)。見出しはカードタイトルとして
+        描画し、本体グリッドに per-stage 行を並べる。
+        """
+        card = DsCard(title=f"▶ 実行中 — {entry.title}", parent=self._running_container)
         card.setObjectName(f"jobStageCard_{entry.job_id}")
-        grid = QGridLayout(card)
+        body = QWidget(card)
+        grid = QGridLayout(body)
         grid.setContentsMargins(6, 6, 6, 6)
         grid.setHorizontalSpacing(8)
         grid.setVerticalSpacing(3)
@@ -284,6 +309,7 @@ class SyncJobLedgerWidget(QGroupBox):
             grid.addWidget(self._build_model_label(stage), row, 1)
             grid.addWidget(self._build_stage_bar(stage), row, 2)
             grid.addWidget(self._build_detail_label(stage), row, 3)
+        card.set_body(body)
         return card
 
     def _build_stage_label(self, stage: str) -> QLabel:
@@ -312,8 +338,14 @@ class SyncJobLedgerWidget(QGroupBox):
         bar.setValue(stage.percentage)
         bar.setTextVisible(False)
         bar.setFixedHeight(10)
-        chunk_color = _STAGE_TONE_COLORS.get(stage.tone, theme.INFO)
-        bar.setStyleSheet(f"QProgressBar::chunk {{ background-color: {chunk_color}; }}")
+        # ok tone は theme の共有定数を使う (Issue #1105 項目7)。info/err は対応する
+        # theme 定数が未整備 (theme.py は teammate-theme が拡張中で本 PR では触らない)
+        # ため、現状の手書き QSS を維持する。
+        if stage.tone == "ok":
+            bar.setStyleSheet(theme.PROGRESS_CHUNK_OK_QSS)
+        else:
+            chunk_color = _STAGE_TONE_COLORS.get(stage.tone, theme.INFO)
+            bar.setStyleSheet(f"QProgressBar::chunk {{ background-color: {chunk_color}; }}")
         return bar
 
     def _build_detail_label(self, stage: StageProgress) -> QLabel:

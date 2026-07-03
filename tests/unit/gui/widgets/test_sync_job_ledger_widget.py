@@ -5,8 +5,9 @@ from __future__ import annotations
 from datetime import datetime
 
 import pytest
-from PySide6.QtWidgets import QGroupBox, QProgressBar, QPushButton
+from PySide6.QtWidgets import QProgressBar, QPushButton
 
+from lorairo.gui.widgets.ds_card import DsCard
 from lorairo.gui.widgets.sync_job_ledger_widget import SyncJobLedgerWidget
 from lorairo.services.job_ledger_service import (
     JobEntry,
@@ -47,7 +48,9 @@ class TestSyncJobLedgerWidget:
         assert widget.tableSyncJobs.isVisibleTo(widget)
         assert widget.tableSyncJobs.columnCount() == 7
         assert widget.tableSyncJobs.rowCount() == 0
-        assert widget.title() == "実行中 / 履歴（同期ジョブ）"
+        # DsCard 化に伴い見出しはタイトルラベルとして描画される (QGroupBox.title() 依存を除去)。
+        assert widget._title_label is not None
+        assert widget._title_label.text() == "実行中 / 履歴（同期ジョブ）"
 
     def test_set_entries_renders_rows(self, widget):
         entries = [
@@ -172,7 +175,7 @@ class TestSyncJobLedgerRunningStages:
         entry = _entry(stage_progress=[_stage(), _stage(stage="CAPTION", percentage=33, detail="3 / 9")])
         widget.set_entries([entry])
 
-        card = widget.findChild(QGroupBox, f"jobStageCard_{entry.job_id}")
+        card = widget.findChild(DsCard, f"jobStageCard_{entry.job_id}")
         assert card is not None
         bars = card.findChildren(QProgressBar)
         assert len(bars) == 2
@@ -195,12 +198,12 @@ class TestSyncJobLedgerRunningStages:
         )
         widget.set_entries([entry])
 
-        assert widget.findChild(QGroupBox, "jobStageCard_finished_job") is None
+        assert widget.findChild(DsCard, "jobStageCard_finished_job") is None
         assert not widget._running_container.isVisibleTo(widget)
 
     def test_set_entries_clears_previous_stage_cards(self, widget):
         widget.set_entries([_entry(job_id="job_a", stage_progress=[_stage()])])
         widget.set_entries([_entry(job_id="job_b", stage_progress=[_stage()])])
 
-        assert widget.findChild(QGroupBox, "jobStageCard_job_a") is None
-        assert widget.findChild(QGroupBox, "jobStageCard_job_b") is not None
+        assert widget.findChild(DsCard, "jobStageCard_job_a") is None
+        assert widget.findChild(DsCard, "jobStageCard_job_b") is not None
