@@ -18,6 +18,7 @@ pytestmark = pytest.mark.unit
 def _make_reader(**overrides) -> Mock:
     reader = Mock()
     reader.get_translations_batch.return_value = {}
+    reader.get_preferred_translations_batch.return_value = {}
     reader.get_usage_counts_batch.return_value = {}
     reader.get_format_map.return_value = {}
     reader.search_tags_bulk_all.return_value = {}
@@ -82,6 +83,43 @@ class TestExecute:
 
         assert reader.get_translations_batch.call_count == 1
         assert reader.get_usage_counts_batch.call_count == 1
+
+    def test_preferred_translation_overrides_all_alias_keys(self):
+        """主訳は当該言語の全エイリアスキー ("ja"/"japanese") を上書きする (#1084)。"""
+        tr = Mock()
+        tr.language = "japanese"
+        tr.translation = "青目"  # DB 行順の後勝ちで決まる従来訳
+        reader = _make_reader(
+            get_translations_batch={42: [tr]},
+            get_preferred_translations_batch={42: {"ja": "青い目"}},
+        )
+
+        result = TagMetadataWorker(
+            reader, image_id=1, tags_list=[{"tag": "blue_eyes", "tag_id": 42}]
+        ).execute()
+
+        # 主訳 "青い目" が japanese / ja の両キーへ書き込まれ、表示側がどのエイリアス順でも拾える。
+        assert result.translations == {42: {"japanese": "青い目", "ja": "青い目"}}
+
+    def test_preferred_translation_added_when_no_base_translation(self):
+        """base 訳が無い tag_id でも主訳だけで翻訳が入る (#1084)。"""
+        reader = _make_reader(get_preferred_translations_batch={42: {"en": "girl"}})
+
+        result = TagMetadataWorker(reader, image_id=1, tags_list=[{"tag": "1girl", "tag_id": 42}]).execute()
+
+        assert result.translations == {42: {"en": "girl", "english": "girl"}}
+
+    def test_preferred_translation_fetch_failure_is_advisory(self):
+        """主訳取得が失敗しても従来訳で続行する (advisory、#1084)。"""
+        tr = Mock()
+        tr.language = "ja"
+        tr.translation = "少女"
+        reader = _make_reader(get_translations_batch={42: [tr]})
+        reader.get_preferred_translations_batch.side_effect = SQLAlchemyError("db down")
+
+        result = TagMetadataWorker(reader, image_id=1, tags_list=[{"tag": "1girl", "tag_id": 42}]).execute()
+
+        assert result.translations == {42: {"ja": "少女"}}
 
 
 class TestResolveTagTypes:

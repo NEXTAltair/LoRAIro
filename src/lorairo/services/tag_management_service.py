@@ -12,6 +12,7 @@ from genai_tag_db_tools import (
     TagWriterProtocol,
     get_all_type_names,
     get_format_type_names,
+    get_preferred_translations_batch,
     get_tag_reader,
     get_unknown_type_tags,
     get_user_repository,
@@ -19,6 +20,7 @@ from genai_tag_db_tools import (
     recommend_translation_quality,
     search_tags,
     search_tags_batch,
+    set_preferred_translation,
     update_tags_type_batch,
     write_user_translation,
 )
@@ -31,6 +33,7 @@ from genai_tag_db_tools.models import (
 )
 from sqlalchemy.exc import SQLAlchemyError
 
+from ..utils.language_keys import language_alias_keys, translation_for_language
 from ..utils.log import logger
 
 # prefetch キャッシュの「未命中」を None (完全一致行なし) と区別するための番兵。
@@ -632,10 +635,15 @@ class TagManagementService:
         return None
 
     def add_translation(self, tag_id: int, language: str, translation: str) -> None:
-        """タグへ言語別翻訳を user DB overlay として追加します (#989)。
+        """タグへ言語別翻訳を user DB overlay として追加し、主訳にします (#989 / #1084)。
 
         書き込みは user DB の翻訳 overlay (`USER_TAG_TRANSLATION_PATCH`) にのみ行われ、
         base DB は書き換えない (公開 API `write_user_translation` が scope を tag_id から導出)。
+
+        追加した訳はその言語の主訳 (優先翻訳) にする (#1084)。主訳化しないと、同一言語に
+        既存訳があるとき TagMetadataWorker の畳み込みが従来訳を採用し、追加した訳が chip に
+        現れず「追加したのに見えない」問題が残るため。tag_id は解決済み (二重解決を避ける)
+        なので、主訳設定も同じ tag_id を渡す。
 
         Args:
             tag_id: 翻訳を付与する対象タグの tag_id。
@@ -647,8 +655,11 @@ class TagManagementService:
         """
         try:
             write_user_translation(self.repository, tag_id, language, translation)
+            # 追加した訳を自動的にその言語の主訳にする (#1084)。free function を呼ぶ
+            # (同名の service メソッドではなく lib 公開 API、self. 無しで module global 解決)。
+            set_preferred_translation(self.repository, tag_id, language, translation)
             logger.info(
-                "Added translation overlay: tag_id={}, language={}",
+                "Added translation overlay + set preferred: tag_id={}, language={}",
                 tag_id,
                 language,
             )
@@ -661,3 +672,104 @@ class TagManagementService:
                 exc_info=True,
             )
             raise
+
+    def list_translation_candidates(self, canonical: str, language: str) -> tuple[list[str], str | None]:
+        """canonical タグの指定言語の候補訳一覧と現在の主訳を返す (#1084)。
+
+        翻訳管理ダイアログのラジオ一覧を組み立てるための読み取り窓口。1 回の
+        `search_tags` (安定公開 API) で完全一致行の tag_id と全候補訳を取り、当該言語
+        (エイリアス両表記) の候補訳を出現順で dedupe する。現在の主訳は
+        `get_preferred_translations_batch` で引く。完全一致行なし (tag_id 未解決) なら
+        ([], None)。翻訳読み出しは reader の内部メソッド `get_translations_batch`
+        (安定 `TagReaderProtocol` 非公開) ではなく、翻訳品質評価と同じ search_tags 経路を
+        使い型安全にする。
+
+        取得失敗は空側へ縮退させる (ダイアログを開けなくしない): search 失敗は ([], None)、
+        主訳取得の失敗は候補のみ + None。
+
+        Args:
+            canonical: 候補を列挙する canonical タグ文字列。
+            language: 言語コード ("ja" / "en")。
+
+        Returns:
+            (候補訳リスト (順序保持・重複排除), 現在の主訳 or None)。
+        """
+        request = TagSearchRequest(
+            query=canonical,
+            partial=False,
+            resolve_preferred=False,
+            include_aliases=True,
+            include_deprecated=True,
+            format_names=None,
+        )
+        try:
+            result = search_tags(self.reader, request)
+        except (ValueError, RuntimeError, SQLAlchemyError) as e:
+            logger.warning(f"翻訳候補の取得に失敗 (候補なし): canonical='{canonical}': {e}")
+            return [], None
+        # 完全一致行の言語別翻訳と tag_id を集約する (#1052 リファクタ後の共通ヘルパー)。
+        translations_map, tag_ids = self._extract_exact_entry(result, canonical)
+        if not tag_ids:
+            return [], None
+        tag_id = tag_ids[0]
+        # 当該言語のエイリアス両表記を順序保持で dedupe する。
+        translations = translations_map or {}
+        candidates: list[str] = []
+        for key in language_alias_keys(language):
+            for value in translations.get(key, []):
+                if value not in candidates:
+                    candidates.append(value)
+        current: str | None = None
+        try:
+            preferred = get_preferred_translations_batch(self.reader, [tag_id])
+            current = translation_for_language(preferred.get(tag_id, {}), language)
+        except (SQLAlchemyError, ValueError, RuntimeError) as e:
+            # worker 側の advisory 読みと同じ縮退契約 (Codex P2): 主訳読み取りの一時失敗で
+            # ダイアログ自体を開けなくしない。候補一覧 + 未設定 (None) で続行する。
+            logger.warning(f"主訳の取得に失敗 (未設定として続行): canonical='{canonical}': {e}")
+        return candidates, current
+
+    def set_preferred_translation(self, canonical: str, language: str, translation: str) -> bool:
+        """canonical タグの指定言語の主訳 (優先翻訳) を設定します (#1084)。
+
+        canonical→tag_id を解決して lib 公開 API へ委譲する。候補一覧から選ばれた既存訳を
+        主訳へ切り替える用途 (追加時の自動主訳化は `add_translation` が担う)。
+
+        Args:
+            canonical: 対象 canonical タグ文字列。
+            language: 言語コード ("ja" / "en")。
+            translation: 主訳にする翻訳文字列。
+
+        Returns:
+            設定できたら True。canonical→tag_id が未解決なら False (書き込みなし)。
+
+        Raises:
+            Exception: 書き込みに失敗した場合 (予期しない DB エラーは伝播させる)。
+        """
+        tag_id = self.resolve_tag_id(canonical)
+        if tag_id is None:
+            logger.warning(f"主訳設定をスキップ (tag_id 未解決): canonical='{canonical}'")
+            return False
+        try:
+            # free function (lib 公開 API)。同名の service メソッドではなく module global。
+            set_preferred_translation(self.repository, tag_id, language, translation)
+            # 選んだ訳を正規化キー ("ja"/"en") の翻訳行としても保証する (Codex P2)。
+            # legacy キー ("english" 等) の行しか無い候補を主訳にした場合、正規化キーの
+            # 行が無いと get_tag_languages() が当該言語を広告せず、再起動後のセレクタに
+            # 言語項目が現れない。write_user_translation は同一行の重複を無視するため冪等。
+            write_user_translation(self.repository, tag_id, language, translation)
+            logger.info(
+                "Set preferred translation: tag_id={}, language={}",
+                tag_id,
+                language,
+            )
+        except Exception as e:
+            logger.error(
+                "Error setting preferred translation: tag_id={}, language={}: {}",
+                tag_id,
+                language,
+                e,
+                exc_info=True,
+            )
+            raise
+        return True

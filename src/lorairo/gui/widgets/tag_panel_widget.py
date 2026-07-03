@@ -13,6 +13,7 @@ dispatch は親 (`SelectedImageDetailsWidget`) が担う。これにより保存
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from typing import TYPE_CHECKING, Any, ClassVar
 
 from PySide6.QtCore import QPoint, Qt, Signal, Slot
@@ -21,6 +22,7 @@ from PySide6.QtWidgets import (
     QAbstractItemView,
     QAbstractScrollArea,
     QApplication,
+    QButtonGroup,
     QComboBox,
     QDialog,
     QDialogButtonBox,
@@ -31,6 +33,7 @@ from PySide6.QtWidgets import (
     QMenu,
     QMessageBox,
     QPushButton,
+    QRadioButton,
     QScrollArea,
     QSizePolicy,
     QTableWidget,
@@ -40,6 +43,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from ...utils.language_keys import language_alias_keys, translation_for_language
 from ...utils.log import logger
 from .. import theme
 from .ds_no_scroll_combo_box import DsNoScrollComboBox
@@ -275,22 +279,9 @@ def _format_candidate_label(tag: str, counts: dict[str, int] | None) -> str:
     return f"{tag} ({parts})"
 
 
-# tagdb の言語キーは "japanese"/"ja"、"english"/"en" が混在する (#976 PR #991)。
-# 新規登録は ja/en に正規化する (#1050) が、表示 lookup は両表記を同値として引く。
-_LANGUAGE_KEY_ALIASES: dict[str, tuple[str, ...]] = {
-    "ja": ("ja", "japanese"),
-    "japanese": ("japanese", "ja"),
-    "en": ("en", "english"),
-    "english": ("english", "en"),
-}
-
-
-def _translation_for_language(translations: dict[str, str], language: str) -> str | None:
-    """言語キーのエイリアス (ja/japanese, en/english) を同値として翻訳を引く (#1050)。"""
-    for key in _LANGUAGE_KEY_ALIASES.get(language, (language,)):
-        if key in translations:
-            return translations[key]
-    return None
+# tagdb の言語キー表記ゆれ (ja/japanese, en/english) の同値解決は共有ヘルパー
+# (utils.language_keys) へ集約した (#1084)。widget / worker / service で二重定義しない。
+_translation_for_language = translation_for_language
 
 
 # tagdb userdb 系ダイアログのティール「タグ情報」見出し QSS (ADR 0083 §2 / #989)。
@@ -303,24 +294,45 @@ _UDB_HEADER_QSS = (
 
 
 class TranslationAddDialog(QDialog):
-    """canonical タグへ言語別翻訳を追加する入力ダイアログ (ADR 0083 §2 / #989)。
+    """canonical タグの翻訳を管理するダイアログ (ADR 0083 §2 / #989 / #1084)。
 
-    DB は知らない。OK 確定で (language, translation) を返すだけで、保存は親が dispatch する。
-    保存先が「タグ情報 (全画像に反映)」であることをティール見出しで明示する。
+    「翻訳を追加」から「翻訳の管理」へ拡張した (#1084)。選択言語の全候補訳をラジオ一覧で
+    表示し、現在の主訳を選択済み + 「(主訳)」で明示する。ここから主訳の切り替えと新規訳の
+    追加を 1 つのダイアログで行える。
+
+    DB は知らない。候補は親から注入された ``candidates_provider`` (language を渡すと
+    ``(候補訳リスト, 現在の主訳)`` を返す callback) で取得し、OK 確定の結果は親が dispatch
+    する。保存先が「タグ情報 (全画像に反映)」であることをティール見出しで明示する。
+
+    OK 確定時の解釈 (親が判定):
+    - 新規入力があれば「追加」(追加した訳は親側で自動的にその言語の主訳になる、#1084)
+    - 新規入力が無く、ラジオ選択が現在の主訳と異なれば「主訳変更」
+    - どちらも無ければ no-op
     """
+
+    # language を渡すと (候補訳リスト, 現在の主訳) を返す callback の型。
+    CandidatesProvider = Callable[[str], "tuple[list[str], str | None]"]
 
     # 登録可能な言語の固定候補 (表示ラベル, 保存値)。自由入力は廃止し、保存値を
     # ja / en に正規化する。tagdb の言語キー表記ゆれ ("japanese"/"ja" 混在、
     # #976 PR #991 Codex P1) を新規登録分で構造的に発生させない (Issue #1050)
     LANGUAGE_CHOICES: ClassVar[tuple[tuple[str, str], ...]] = (("日本語", "ja"), ("English", "en"))
 
-    def __init__(self, canonical: str, languages: list[str], parent: QWidget | None = None) -> None:
+    def __init__(
+        self,
+        canonical: str,
+        candidates_provider: TranslationAddDialog.CandidatesProvider | None = None,
+        parent: QWidget | None = None,
+    ) -> None:
         super().__init__(parent)
-        self.setWindowTitle("翻訳を追加")
+        self.setWindowTitle("翻訳の管理")
         self._canonical = canonical
-        # languages はタグデータ由来の既知言語 (後方互換で受けるが候補には使わない。
-        # 固定候補 + 正規化保存が本ダイアログの契約。Issue #1050)
-        del languages
+        self._candidates_provider = candidates_provider
+        # 現在の言語の主訳 (候補再読込のたびに更新)。OK 判定で「変更されたか」に使う。
+        self._current_preferred: str | None = None
+        # ラジオボタン -> 候補訳文字列。選択中の候補訳を引くために保持する。
+        self._radio_group = QButtonGroup(self)
+        self._radio_values: dict[QRadioButton, str] = {}
 
         layout = QVBoxLayout(self)
         header = QLabel("タグ情報を編集 · 全画像に反映されます", self)
@@ -334,10 +346,22 @@ class TranslationAddDialog(QDialog):
         for label, code in self.LANGUAGE_CHOICES:
             self._language_combo.addItem(label, userData=code)
         form.addRow("言語:", self._language_combo)
-        self._translation_input = QLineEdit(self)
-        self._translation_input.setPlaceholderText("翻訳テキスト")
-        form.addRow("翻訳:", self._translation_input)
         layout.addLayout(form)
+
+        # 候補訳ラジオ一覧 (言語切替のたび作り直す)。
+        self._candidates_label = QLabel("主訳を選択:", self)
+        layout.addWidget(self._candidates_label)
+        self._candidates_container = QWidget(self)
+        self._candidates_layout = QVBoxLayout(self._candidates_container)
+        self._candidates_layout.setContentsMargins(0, 0, 0, 0)
+        self._candidates_layout.setSpacing(2)
+        layout.addWidget(self._candidates_container)
+
+        add_form = QFormLayout()
+        self._translation_input = QLineEdit(self)
+        self._translation_input.setPlaceholderText("新しい訳を追加 (追加すると主訳になります)")
+        add_form.addRow("翻訳を追加:", self._translation_input)
+        layout.addLayout(add_form)
 
         buttons = QDialogButtonBox(
             QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel, self
@@ -346,13 +370,70 @@ class TranslationAddDialog(QDialog):
         buttons.rejected.connect(self.reject)
         layout.addWidget(buttons)
 
+        # 言語切替で候補を引き直す。初期言語の候補も描画する。
+        self._language_combo.currentIndexChanged.connect(self._reload_candidates)
+        self._reload_candidates()
+
+    @Slot()
+    def _reload_candidates(self) -> None:
+        """選択言語の候補訳を provider から引き直しラジオ一覧を再構築する (#1084)。"""
+        # 既存ラジオを破棄する。
+        for radio in list(self._radio_values):
+            self._radio_group.removeButton(radio)
+        self._radio_values.clear()
+        while self._candidates_layout.count():
+            item = self._candidates_layout.takeAt(0)
+            if item is None:
+                continue
+            widget = item.widget()
+            if widget is not None:
+                widget.deleteLater()
+
+        language = self.language()
+        candidates: list[str] = []
+        current: str | None = None
+        if self._candidates_provider is not None:
+            candidates, current = self._candidates_provider(language)
+        self._current_preferred = current
+
+        # 現在の主訳が候補に無くても選択できるよう一覧へ含める (主訳は任意文字列可)。
+        display_candidates = list(candidates)
+        if current and current not in display_candidates:
+            display_candidates.append(current)
+
+        if not display_candidates:
+            self._candidates_layout.addWidget(
+                QLabel("この言語の翻訳候補はありません", self._candidates_container)
+            )
+            return
+
+        for value in display_candidates:
+            label = f"{value}（主訳）" if value == current else value
+            radio = QRadioButton(label, self._candidates_container)
+            if value == current:
+                radio.setChecked(True)
+            self._radio_group.addButton(radio)
+            self._radio_values[radio] = value
+            self._candidates_layout.addWidget(radio)
+
     def language(self) -> str:
         """選択された言語の正規化コード ("ja" / "en") を返す。"""
         return str(self._language_combo.currentData())
 
     def translation(self) -> str:
-        """入力された翻訳テキストを返す。"""
+        """「翻訳を追加」入力欄のテキストを返す (新規追加用、無ければ空文字)。"""
         return self._translation_input.text().strip()
+
+    def selected_candidate(self) -> str | None:
+        """ラジオで選択中の候補訳を返す。未選択なら None。"""
+        for radio, value in self._radio_values.items():
+            if radio.isChecked():
+                return value
+        return None
+
+    def current_preferred(self) -> str | None:
+        """現在の言語の主訳を返す (候補読込時に取得済み)。未設定なら None。"""
+        return self._current_preferred
 
 
 class TranslationFixDialog(QDialog):
@@ -596,6 +677,8 @@ class TagPanelWidget(QWidget):
     # tagdb userdb 系 (canonical が主キー / 画像 ID 不要)
     refinement_ignored = Signal(str, str, bool)  # canonical, reason_code, this_image_only (#931/#1053)
     translation_add_requested = Signal(str, str, str)  # canonical, language, translation (#989)
+    # 主訳 (優先翻訳) 変更 (canonical, language, translation) (#1084)。既存訳から主訳を切替える。
+    translation_preferred_requested = Signal(str, str, str)
     tag_metadata_edit_requested = Signal(str, str)  # canonical, type (#989)
 
     # タグチップ箱の高さ上限 (#835)。これを超えるタグは箱内スクロールにし、
@@ -617,6 +700,11 @@ class TagPanelWidget(QWidget):
         # を開くと空の _translations を「翻訳なし」と誤認して追加ダイアログへ落ち、legacy
         # 言語キー ("japanese") の誤訳を "ja" で上書きできない (PR #1086 Codex P2)。
         self._tag_metadata_pending: bool = False
+        # 翻訳管理ダイアログの候補訳 provider (#1084)。language を渡すと
+        # (候補訳リスト, 現在の主訳) を返す callback。DB 非依存を保つため親から注入する。
+        self._translation_candidates_provider: Callable[[str, str], tuple[list[str], str | None]] | None = (
+            None
+        )
 
         # 使用頻度 第2軸 (metric_source, ADR 0083 §5 / #990)。表示言語とは独立した軸。
         # 親が bulk 取得した {tag_id: {format_name: count}} を set_usage_counts で受け、
@@ -861,6 +949,20 @@ class TagPanelWidget(QWidget):
         self._populate_table(self._all_tag_rows)
         self._refresh_tags_for_language(self._current_language())
 
+    def set_translation_candidates_provider(
+        self, provider: Callable[[str, str], tuple[list[str], str | None]] | None
+    ) -> None:
+        """翻訳管理ダイアログの候補訳 provider を注入する (#1084)。
+
+        provider は ``(canonical, language)`` を受け、``(候補訳リスト, 現在の主訳)`` を返す。
+        DB 非依存を保つため親 (`SelectedImageDetailsWidget`) が TagManagementService の
+        候補列挙メソッドを渡す。未注入 (None) のときダイアログは候補なしで開く。
+
+        Args:
+            provider: 候補訳を返す callback。None で解除。
+        """
+        self._translation_candidates_provider = provider
+
     def set_translations(
         self, translations: dict[int, dict[str, str]], available_languages: list[str]
     ) -> None:
@@ -905,7 +1007,11 @@ class TagPanelWidget(QWidget):
         self._lang_bar.setVisible(True)
 
     def update_language_selector(
-        self, available_languages: list[str], *, prefer: str | None = None
+        self,
+        available_languages: list[str],
+        *,
+        prefer: str | None = None,
+        force_prefer: bool = False,
     ) -> None:
         """言語コンボの候補を選択を保ったまま更新する (#1050)。
 
@@ -918,9 +1024,12 @@ class TagPanelWidget(QWidget):
             prefer: 直前に登録した翻訳の言語。原文 (english) 表示中のときだけ
                 この言語へ切り替え、登録結果を即時可視化する (Codex P2)。
                 非英語表示中は現在の選択を保つ。
+            force_prefer: True なら現在の表示言語に関わらず prefer へ切り替える
+                (Codex P2: 主訳変更は非英語表示中でも編集した言語を見せないと
+                変更が可視化されない)。
         """
         current = self._current_language()
-        target = prefer if (prefer and current == "english") else current
+        target = prefer if (prefer and (force_prefer or current == "english")) else current
         self._lang_combo.blockSignals(True)
         self._lang_combo.clear()
         self._lang_combo.addItem("english")  # 常に先頭 (原文)
@@ -928,6 +1037,14 @@ class TagPanelWidget(QWidget):
             if lang != "english":
                 self._lang_combo.addItem(lang)
         index = self._lang_combo.findText(target)
+        if index < 0:
+            # 正規化キー ("ja") と legacy キー ("japanese") の混在に対応 (Codex P2):
+            # 保存は ja/en 正規化だが、既存 DB 由来の候補は "japanese" だけのことがある。
+            # エイリアスで探し、主訳変更直後の切替が「何も起きない」ように見えるのを防ぐ。
+            for alias in language_alias_keys(target):
+                index = self._lang_combo.findText(alias)
+                if index >= 0:
+                    break
         if index >= 0:
             self._lang_combo.setCurrentIndex(index)
         self._lang_combo.blockSignals(False)
@@ -1597,22 +1714,53 @@ class TagPanelWidget(QWidget):
 
     @Slot(str)
     def _open_translation_dialog(self, canonical: str) -> None:
-        """翻訳追加ダイアログを開き、確定で translation_add_requested を出す (#989)。
+        """翻訳管理ダイアログを開き、確定内容に応じて Signal を出す (#989 / #1084)。
 
-        DB は知らない。ダイアログ確定で (canonical, language, translation) を親へ出すだけ。
+        DB は知らない。候補訳は provider (親注入) から引き、確定結果を親へ dispatch する:
+
+        - 新規入力があれば ``translation_add_requested`` (追加、親側で自動的に主訳化)。
+        - 新規入力が無く、ラジオ選択が現在の主訳と異なれば ``translation_preferred_requested``
+          (主訳変更)。
+        - どちらでもなければ何も出さない (no-op)。
 
         Args:
-            canonical: 翻訳を付与する canonical タグ文字列。
+            canonical: 翻訳を管理する canonical タグ文字列。
         """
-        dialog = TranslationAddDialog(canonical, list(self._available_languages), self)
+        provider = self._dialog_candidates_provider(canonical)
+        dialog = TranslationAddDialog(canonical, provider, self)
         if dialog.exec() != QDialog.DialogCode.Accepted:
             return
         language = dialog.language()
-        translation = dialog.translation()
-        if not language or not translation:
-            logger.debug(f"翻訳追加をスキップ (空入力): canonical='{canonical}'")
+        if not language:
             return
-        self.translation_add_requested.emit(canonical, language, translation)
+        new_translation = dialog.translation()
+        if new_translation:
+            # 新規追加。追加した訳はその言語の主訳になる (親の add_translation が担保、#1084)。
+            self.translation_add_requested.emit(canonical, language, new_translation)
+            return
+        selected = dialog.selected_candidate()
+        current = dialog.current_preferred()
+        if selected and selected != current:
+            self.translation_preferred_requested.emit(canonical, language, selected)
+        else:
+            logger.debug(f"翻訳管理: 変更なし (no-op): canonical='{canonical}'")
+
+    def _dialog_candidates_provider(
+        self, canonical: str
+    ) -> Callable[[str], tuple[list[str], str | None]] | None:
+        """翻訳管理ダイアログへ渡す language→候補訳 の callback を作る (#1084)。
+
+        親から注入された ``(canonical, language)`` provider を canonical で束ね、
+        ダイアログが要求する ``language`` のみの callback にする。未注入なら None。
+        """
+        provider = self._translation_candidates_provider
+        if provider is None:
+            return None
+
+        def bound(language: str) -> tuple[list[str], str | None]:
+            return provider(canonical, language)
+
+        return bound
 
     @Slot(str)
     def _open_translation_fix_dialog(self, canonical: str) -> None:

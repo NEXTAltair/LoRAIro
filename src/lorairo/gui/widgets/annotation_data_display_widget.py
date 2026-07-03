@@ -11,6 +11,7 @@ Annotation Data Display Widget
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
@@ -128,6 +129,8 @@ class AnnotationDataDisplayWidget(QWidget, Ui_AnnotationDataDisplayWidget):
     # refinement リコメンドを無視 (canonical, reason_code, this_image_only) (#931/#1053)
     refinement_ignored = Signal(str, str, bool)
     translation_add_requested = Signal(str, str, str)  # canonical, language, translation (#989)
+    # 主訳 (優先翻訳) 変更 (canonical, language, translation) (#1084)
+    translation_preferred_requested = Signal(str, str, str)
     tag_metadata_edit_requested = Signal(str, str)  # canonical, type (#989)
 
     # タグチップ箱の高さ上限 (#835)。TagPanelWidget と同値を持ち、後方互換のため公開する。
@@ -189,6 +192,7 @@ class AnnotationDataDisplayWidget(QWidget, Ui_AnnotationDataDisplayWidget):
         self._tag_panel.tag_replace_requested.connect(self.tag_replace_requested)
         self._tag_panel.refinement_ignored.connect(self.refinement_ignored)
         self._tag_panel.translation_add_requested.connect(self.translation_add_requested)
+        self._tag_panel.translation_preferred_requested.connect(self.translation_preferred_requested)
         self._tag_panel.tag_metadata_edit_requested.connect(self.tag_metadata_edit_requested)
 
     @property
@@ -214,10 +218,22 @@ class AnnotationDataDisplayWidget(QWidget, Ui_AnnotationDataDisplayWidget):
         self._tag_panel.set_rejected_tags(rejected_tags)
 
     def update_language_selector(
-        self, available_languages: list[str], *, prefer: str | None = None
+        self,
+        available_languages: list[str],
+        *,
+        prefer: str | None = None,
+        force_prefer: bool = False,
     ) -> None:
         """言語コンボの候補を選択を保ったまま更新する (TagPanelWidget へ委譲、#1050)。"""
-        self._tag_panel.update_language_selector(available_languages, prefer=prefer)
+        self._tag_panel.update_language_selector(
+            available_languages, prefer=prefer, force_prefer=force_prefer
+        )
+
+    def set_translation_candidates_provider(
+        self, provider: Callable[[str, str], tuple[list[str], str | None]] | None
+    ) -> None:
+        """翻訳管理ダイアログの候補訳 provider を設定する (TagPanelWidget へ委譲、#1084)。"""
+        self._tag_panel.set_translation_candidates_provider(provider)
 
     def apply_tag_metadata(
         self,

@@ -525,6 +525,92 @@ def test_translation_add_empty_input_skipped(panel, sample_tags, monkeypatch):
     assert received == []
 
 
+def test_translation_manage_dialog_lists_candidates_and_marks_preferred(qtbot):
+    """候補訳をラジオ表示し、現在の主訳を選択済み + 「(主訳)」で明示する (#1084)。"""
+    dialog = TranslationAddDialog("blue_eyes", lambda language: (["青い目", "青目"], "青目"))
+    qtbot.addWidget(dialog)
+    assert dialog.current_preferred() == "青目"
+    assert dialog.selected_candidate() == "青目"
+    labels = [radio.text() for radio in dialog._radio_values]
+    assert "青目（主訳）" in labels
+    assert "青い目" in labels
+
+
+def test_translation_manage_dialog_includes_preferred_outside_candidates(qtbot):
+    """主訳が候補一覧に無くても選択肢へ含め、選択済みにする (#1084)。"""
+    dialog = TranslationAddDialog("tag", lambda language: (["a"], "b"))
+    qtbot.addWidget(dialog)
+    assert "b" in dialog._radio_values.values()
+    assert dialog.selected_candidate() == "b"
+
+
+def test_translation_manage_dialog_reloads_on_language_change(qtbot):
+    """言語切替で provider を引き直し候補・主訳を作り直す (#1084)。"""
+    calls: list[str] = []
+
+    def provider(language: str) -> tuple[list[str], str | None]:
+        calls.append(language)
+        return {"ja": (["日本語訳"], "日本語訳"), "en": (["english_tr"], None)}[language]
+
+    dialog = TranslationAddDialog("tag", provider)
+    qtbot.addWidget(dialog)
+    assert dialog.current_preferred() == "日本語訳"
+    dialog._language_combo.setCurrentIndex(1)  # English
+    assert dialog.language() == "en"
+    assert dialog.current_preferred() is None
+    assert calls == ["ja", "en"]
+
+
+def test_translation_manage_dialog_no_provider_shows_no_candidates(qtbot):
+    """provider 未注入なら候補なしで開ける (#1084)。"""
+    dialog = TranslationAddDialog("tag")
+    qtbot.addWidget(dialog)
+    assert dialog._radio_values == {}
+    assert dialog.selected_candidate() is None
+
+
+def test_translation_preferred_emitted_on_radio_change(panel, sample_tags, qtbot, monkeypatch):
+    """新規入力なし + ラジオ選択が現主訳と異なる → translation_preferred_requested (#1084)。"""
+    panel.set_tags(sample_tags, image_id=10)
+    panel.set_translation_candidates_provider(lambda canonical, language: (["青い目", "青目"], "青目"))
+
+    def choose(dialog):
+        for radio, value in dialog._radio_values.items():
+            if value == "青い目":
+                radio.setChecked(True)
+
+    _accept_dialog(monkeypatch, "TranslationAddDialog", choose)
+    with qtbot.waitSignal(panel.translation_preferred_requested, timeout=1000) as blocker:
+        panel._open_translation_dialog("1girl")
+    assert blocker.args == ["1girl", "ja", "青い目"]
+
+
+def test_translation_manage_no_op_when_radio_unchanged(panel, sample_tags, monkeypatch):
+    """主訳を変えず新規入力もなければ何も emit しない (#1084)。"""
+    panel.set_tags(sample_tags, image_id=10)
+    panel.set_translation_candidates_provider(lambda canonical, language: (["青い目", "青目"], "青目"))
+    _accept_dialog(monkeypatch, "TranslationAddDialog", lambda dialog: None)  # 現主訳のまま
+    received: list = []
+    panel.translation_preferred_requested.connect(lambda *a: received.append(("pref", *a)))
+    panel.translation_add_requested.connect(lambda *a: received.append(("add", *a)))
+    panel._open_translation_dialog("1girl")
+    assert received == []
+
+
+def test_translation_add_takes_priority_over_radio(panel, sample_tags, qtbot, monkeypatch):
+    """新規入力があれば主訳選択より優先して translation_add_requested を出す (#1084)。"""
+    panel.set_tags(sample_tags, image_id=10)
+    panel.set_translation_candidates_provider(lambda canonical, language: (["青い目"], "青い目"))
+
+    def fill(dialog):
+        dialog._translation_input.setText("新訳")
+
+    _accept_dialog(monkeypatch, "TranslationAddDialog", fill)
+    with qtbot.waitSignal(panel.translation_add_requested, timeout=1000) as blocker:
+        panel._open_translation_dialog("1girl")
+    assert blocker.args == ["1girl", "ja", "新訳"]
+
+
 def test_type_edit_dialog_emits_signal(panel, sample_tags, qtbot, monkeypatch):
     """type 補正ダイアログ確定で tag_metadata_edit_requested(canonical, type) を出す。"""
     panel.set_tags(sample_tags, image_id=10)
@@ -552,9 +638,9 @@ def test_type_edit_placeholder_confirm_skips_emit(panel, sample_tags, monkeypatc
 
 def test_translation_dialog_returns_inputs(qtbot):
     """TranslationAddDialog が言語・翻訳の入力値を返す。"""
-    dialog = TranslationAddDialog("1girl", ["ja", "english"])
+    dialog = TranslationAddDialog("1girl")
     qtbot.addWidget(dialog)
-    dialog._language_combo.setCurrentText("ja")
+    dialog._language_combo.setCurrentText("日本語")
     dialog._translation_input.setText("少女")
     assert dialog.language() == "ja"
     assert dialog.translation() == "少女"
@@ -1172,7 +1258,7 @@ def test_refinement_menu_label_includes_counts_but_emits_raw_tag(panel, sample_t
 
 def test_translation_dialog_language_choices_are_fixed(qtbot):
     """自由入力は廃止し、候補は 日本語/English の固定2択 (Issue #1050)。"""
-    dialog = TranslationAddDialog("1girl", ["japanese", "zh", "whatever"])
+    dialog = TranslationAddDialog("1girl")
     qtbot.addWidget(dialog)
 
     assert dialog._language_combo.isEditable() is False
@@ -1182,7 +1268,7 @@ def test_translation_dialog_language_choices_are_fixed(qtbot):
 
 def test_translation_dialog_language_returns_normalized_code(qtbot):
     """表示は人間向けラベル、保存値は ja / en に正規化される (Issue #1050)。"""
-    dialog = TranslationAddDialog("1girl", [])
+    dialog = TranslationAddDialog("1girl")
     qtbot.addWidget(dialog)
 
     dialog._language_combo.setCurrentIndex(0)
@@ -1488,3 +1574,28 @@ def test_set_tags_explicit_counts_evict_missing_current_tags(panel, sample_tags)
     assert 10 not in panel._usage_counts  # 表示中で map に無い分は退避
     assert panel._usage_counts.get(20) == {"danbooru": 800}
     assert panel._usage_counts.get(999) == {"danbooru": 5}  # 表示外は保持
+
+
+def test_update_language_selector_prefer_resolves_legacy_alias(panel):
+    """prefer が正規化キー ("ja") で候補が legacy キー ("japanese") だけでも切り替わる (Codex P2)。
+
+    主訳は ja/en 正規化で保存されるため、既存 DB の候補が "japanese" しか無い場合に
+    prefer="ja" が不一致で english のまま残ると、主訳変更が「何も起きない」ように見える。
+    """
+    panel.update_language_selector(["japanese"], prefer=None)
+    assert panel._current_language() == "english"
+
+    panel.update_language_selector(["japanese"], prefer="ja")
+
+    assert panel._current_language() == "japanese"
+
+
+def test_update_language_selector_force_prefer_switches_from_non_english(panel):
+    """force_prefer=True なら非英語表示中でも prefer の言語へ切り替える (Codex P2)。"""
+    panel.update_language_selector(["japanese", "en"], prefer="japanese", force_prefer=True)
+    assert panel._current_language() == "japanese"
+
+    # 非英語 (japanese) 表示中に en の主訳を変更した想定
+    panel.update_language_selector(["japanese", "en"], prefer="en", force_prefer=True)
+
+    assert panel._current_language() == "en"

@@ -35,6 +35,7 @@ from PySide6.QtWidgets import (
 from ...database.schema import REJECT_REASON_INCORRECT, REJECT_REASON_NOT_NEEDED
 from ...gui.designer.SelectedImageDetailsWidget_ui import Ui_SelectedImageDetailsWidget
 from ...services.date_formatter import format_datetime_for_display
+from ...utils.language_keys import language_alias_keys
 from ...utils.log import logger
 from .annotation_data_display_widget import (
     AnnotationData,
@@ -450,7 +451,11 @@ class SelectedImageDetailsWidget(QWidget):
         """
         self._tag_management_service = service
         self.annotation_display.translation_add_requested.connect(self._on_translation_add)
+        self.annotation_display.translation_preferred_requested.connect(self._on_translation_preferred)
         self.annotation_display.tag_metadata_edit_requested.connect(self._on_tag_metadata_edit)
+        # 翻訳管理ダイアログの候補訳 provider を注入する (#1084)。canonical+language で
+        # 候補訳と現在の主訳を返す。ダイアログは DB 非依存のまま候補を表示できる。
+        self.annotation_display.set_translation_candidates_provider(service.list_translation_candidates)
         logger.debug("SelectedImageDetailsWidget: tagdb userdb 書き込みサービスを配線")
 
     def _trigger_tag_metadata_fetch(self, tags_list: list[dict[str, Any]]) -> None:
@@ -817,6 +822,39 @@ class SelectedImageDetailsWidget(QWidget):
         # 原文 (english) 表示中なら保存言語へ切り替え、登録結果を即時可視化する
         # (原文モードは翻訳を表示しないため。非英語表示中は選択を保つ。Codex P2)
         self.annotation_display.update_language_selector(self._available_languages, prefer=language)
+        self._reload_current_image()
+
+    @Slot(str, str, str)
+    def _on_translation_preferred(self, canonical: str, language: str, translation: str) -> None:
+        """主訳 (優先翻訳) 変更要求を user DB へ dispatch し再表示する (#1084)。
+
+        canonical→tag_id 解決と主訳の永続化は TagManagementService が担う。書き込み後は
+        当該言語へ切り替えて (`update_language_selector`) から現在画像を再取得し、
+        TagMetadataWorker の畳み込みが新しい主訳を優先して chip へ反映する。保存先は
+        image DB 系と独立 (canonical 主キー・画像 ID 非依存)。
+        """
+        service = self._tag_management_service
+        if service is None:
+            return
+        if not service.set_preferred_translation(canonical, language, translation):
+            logger.warning(f"主訳変更をスキップ (tag_id 未解決): canonical='{canonical}'")
+            return
+        # 翻訳追加パスと同様に、保存言語がセレクタ候補へ出せる状態にしてから切り替える
+        # (Codex P2)。"english" は原文表示の sentinel なので同値扱いから除外する:
+        # legacy キーが "english" しか無い場合に "en" を alias fallback で原文へ寄せると、
+        # 主訳変更後も原文表示のままで「何も起きない」ように見える。ja↔japanese のような
+        # 非 sentinel の同値キーが既にあれば追加しない (重複項目を作らない)。
+        non_sentinel_aliases = set(language_alias_keys(language)) - {"english"}
+        if not (non_sentinel_aliases & set(self._available_languages)):
+            if self._merged_reader is not None:
+                self._available_languages = self._merged_reader.get_tag_languages()
+            if not (non_sentinel_aliases & set(self._available_languages)):
+                self._available_languages = [*self._available_languages, language]
+        # 主訳を変えた言語を表示中にして変更を即時可視化する。非英語表示中でも
+        # 編集した言語へ強制的に切り替える (Codex P2: 切り替えないと変更が見えない)。
+        self.annotation_display.update_language_selector(
+            self._available_languages, prefer=language, force_prefer=True
+        )
         self._reload_current_image()
 
     @Slot(str, str)
