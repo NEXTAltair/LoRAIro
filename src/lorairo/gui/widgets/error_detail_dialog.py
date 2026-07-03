@@ -6,13 +6,13 @@
 from pathlib import Path
 
 from loguru import logger
-from PySide6.QtCore import Qt
 from PySide6.QtGui import QPixmap
 from PySide6.QtWidgets import QDialog, QMessageBox, QWidget
 
 from ...database.db_manager import ImageDatabaseManager
 from ...database.schema import ErrorRecord
 from ..designer.ErrorDetailDialog_ui import Ui_ErrorDetailDialog
+from .image_preview import ImagePreviewWidget
 
 
 class ErrorDetailDialog(QDialog, Ui_ErrorDetailDialog):
@@ -45,6 +45,13 @@ class ErrorDetailDialog(QDialog, Ui_ErrorDetailDialog):
         self.error_id = error_id
         self.error_record: ErrorRecord | None = None
         self.was_resolved: bool = False
+
+        # 画像プレビューは ImagePreviewWidget へ委譲する (#1105)。QGraphicsView ベースで
+        # スムーススケール・null/例外フォールバックを内包する。パス不正時のテキスト表示は
+        # 従来どおり labelImagePreview が担い、実画像描画時のみ preview widget を出す。
+        self._image_preview = ImagePreviewWidget(self.groupBoxImagePreview)
+        self.verticalLayoutImagePreview.addWidget(self._image_preview)
+        self._image_preview.setVisible(False)
 
         # エラー詳細読み込み
         self._load_error_detail()
@@ -127,36 +134,36 @@ class ErrorDetailDialog(QDialog, Ui_ErrorDetailDialog):
         self._load_image_preview()
 
     def _load_image_preview(self) -> None:
-        """画像プレビューを読み込みます"""
+        """画像プレビューを読み込みます (#1105: 実描画は ImagePreviewWidget へ委譲)。"""
         if not self.error_record or not self.error_record.file_path:
-            self.labelImagePreview.setText("画像パスが設定されていません")
+            self._show_preview_message("画像パスが設定されていません")
             return
 
         file_path = Path(self.error_record.file_path)
 
         if not file_path.exists():
-            self.labelImagePreview.setText(f"画像ファイルが見つかりません:\n{file_path.name}")
+            self._show_preview_message(f"画像ファイルが見つかりません:\n{file_path.name}")
             return
 
-        try:
-            # QPixmap読み込み
-            pixmap = QPixmap(str(file_path))
+        # デコード可否を事前判定する (破損 / 非対応形式 / 画像でないファイル)。
+        # ImagePreviewWidget はデコード失敗時にログ + clear するだけで、ユーザーには
+        # 空白のプレビューしか残らず理由が分からない。dialog 側でテキストヒントへ
+        # フォールバックする (#1105 Codex P2)。
+        if QPixmap(str(file_path)).isNull():
+            self._show_preview_message(f"画像を読み込めません:\n{file_path.name}")
+            return
 
-            if pixmap.isNull():
-                self.labelImagePreview.setText(f"画像の読み込みに失敗しました:\n{file_path.name}")
-                return
+        # ImagePreviewWidget へ委譲する。QGraphicsView ベースのスムーススケール表示。
+        self.labelImagePreview.setVisible(False)
+        self._image_preview.setVisible(True)
+        self._image_preview.load_image(file_path)
+        logger.debug(f"Image preview delegated to ImagePreviewWidget: {file_path.name}")
 
-            # スケール表示（アスペクト比維持）
-            scaled_pixmap = pixmap.scaled(
-                400, 400, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation
-            )
-            self.labelImagePreview.setPixmap(scaled_pixmap)
-
-            logger.debug(f"Image preview loaded: {file_path.name}")
-
-        except Exception as e:
-            logger.error(f"画像プレビュー読み込みエラー: {e}", exc_info=True)
-            self.labelImagePreview.setText(f"画像プレビューエラー:\n{e}")
+    def _show_preview_message(self, message: str) -> None:
+        """画像を出さないケース (パス未設定 / ファイル無し) のテキスト表示 (#1105)。"""
+        self._image_preview.setVisible(False)
+        self.labelImagePreview.setVisible(True)
+        self.labelImagePreview.setText(message)
 
     def _on_mark_resolved_clicked(self) -> None:
         """解決済みマークボタンクリック処理"""

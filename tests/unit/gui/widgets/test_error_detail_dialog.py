@@ -242,3 +242,68 @@ class TestErrorDetailDialogImagePreview:
 
         # 実際のファイルが存在しないため、エラーメッセージが表示される
         assert "画像ファイルが見つかりません" in dialog.labelImagePreview.text()
+        # #1105: メッセージ表示時は ImagePreviewWidget を隠す
+        assert dialog._image_preview.isVisibleTo(dialog) is False
+        assert dialog.labelImagePreview.isVisibleTo(dialog) is True
+
+    def test_load_image_preview_delegates_to_image_preview_widget(
+        self, qtbot, mock_db_manager, tmp_path, monkeypatch
+    ):
+        """#1105: デコード可能な実画像は ImagePreviewWidget に委譲し、テキストラベルは隠す。"""
+        from pathlib import Path
+
+        from PIL import Image
+
+        from lorairo.gui.widgets.image_preview import ImagePreviewWidget
+
+        image_path = tmp_path / "err.png"
+        Image.new("RGB", (8, 8), color=(10, 20, 30)).save(image_path)  # デコード可能な実 PNG
+
+        # ImagePreviewWidget の実描画 (QGraphicsView + 遅延サイズ調整) は本テストの対象外。
+        # dialog の委譲判断のみを検証するため load_image を差し替える。
+        load_calls: list[Path] = []
+        monkeypatch.setattr(ImagePreviewWidget, "load_image", lambda self, p: load_calls.append(p))
+
+        record = ErrorRecord(
+            id=7,
+            operation_type="test",
+            error_type="TestError",
+            error_message="delegate",
+            file_path=str(image_path),
+            model_name=None,
+            resolved_at=None,
+            created_at=datetime.datetime(2025, 11, 24, 12, 0, 0),
+        )
+        mock_db_manager.error_record_repo.get_error_records.return_value = [record]
+
+        dialog = ErrorDetailDialog(mock_db_manager, error_id=7)
+        qtbot.addWidget(dialog)
+
+        # 実描画は ImagePreviewWidget へ委譲され (load_image 呼び出し)、label は隠れる
+        assert load_calls == [image_path]
+        assert dialog._image_preview.isVisibleTo(dialog) is True
+        assert dialog.labelImagePreview.isVisibleTo(dialog) is False
+
+    def test_load_image_preview_decode_failure_shows_message(self, qtbot, mock_db_manager, tmp_path):
+        """#1105 Codex P2: 存在するがデコード不能なファイルはテキストヒントへフォールバックする。"""
+        broken_path = tmp_path / "broken.png"
+        broken_path.write_bytes(b"not-a-real-image")  # 存在するが画像としてデコード不能
+        record = ErrorRecord(
+            id=8,
+            operation_type="test",
+            error_type="TestError",
+            error_message="decode fail",
+            file_path=str(broken_path),
+            model_name=None,
+            resolved_at=None,
+            created_at=datetime.datetime(2025, 11, 24, 12, 0, 0),
+        )
+        mock_db_manager.error_record_repo.get_error_records.return_value = [record]
+
+        dialog = ErrorDetailDialog(mock_db_manager, error_id=8)
+        qtbot.addWidget(dialog)
+
+        # 空白プレビューではなく理由を伝えるテキストヒントを出す
+        assert "画像を読み込めません" in dialog.labelImagePreview.text()
+        assert dialog.labelImagePreview.isVisibleTo(dialog) is True
+        assert dialog._image_preview.isVisibleTo(dialog) is False
