@@ -22,6 +22,10 @@ from lorairo.services.dispatch_projection_service import (
     project_async_batch_dispatch,
 )
 from lorairo.services.model_route_service import validate_api_keys_for_models
+from lorairo.services.provider_batch_capability import (
+    MixedBatchTaskTypeError,
+    resolve_batch_task_type,
+)
 from lorairo.services.provider_batch_service import ProviderBatchError
 from lorairo.services.selection_state_service import SelectionStateService
 from lorairo.services.service_container import get_service_container
@@ -36,6 +40,119 @@ if TYPE_CHECKING:
 # async batch dispatch worker thread の GC 防止用 (ProviderBatchJobWidget と同方式)。
 # 受け手 (controller) は QObject なので worker → slot は queued 接続でメインスレッド実行。
 _ACTIVE_DISPATCH_THREADS: set[QThread] = set()
+
+
+def _resolve_dispatch_task_type(
+    parent_widget: QWidget | None,
+    selected_litellm_model_ids: list[str],
+    db_manager: "ImageDatabaseManager",
+) -> str | None:
+    """選択モデル種別から async batch dispatch の task_type を決める (#1098)。
+
+    全モデルが moderation (omni-moderation-*) なら ``"rating_preflight"``、
+    通常モデルのみなら ``"annotation"``。moderation + 通常モデルの混在は
+    「非 batch 混在拒否」原則 (ADR 0076 §2) で拒否し、warning を表示して None を返す。
+
+    Args:
+        parent_widget: warning ダイアログの親ウィジェット。
+        selected_litellm_model_ids: Annotate の選択モデル集合 (SSoT)。
+        db_manager: litellm_model_id → DB Model 解決に使う。
+
+    Returns:
+        "annotation" / "rating_preflight"。混在で拒否した場合は None。
+    """
+    selected_models = [
+        model
+        for litellm_id in selected_litellm_model_ids
+        if (model := db_manager.model_repo.get_model_by_litellm_id(litellm_id)) is not None
+    ]
+    try:
+        return resolve_batch_task_type(selected_models)
+    except MixedBatchTaskTypeError as e:
+        QMessageBox.warning(parent_widget, "Batch API 送信", str(e))
+        return None
+
+
+def _moderation_gate_blocks(
+    parent_widget: QWidget | None,
+    task_type: str,
+    image_ids: list[int],
+    db_manager: "ImageDatabaseManager",
+) -> bool:
+    """fail-closed moderation gate。送信不可なら warning を出して True を返す (ADR 0070)。
+
+    送信可 (sendable) でない rating (保留 / 未判定) を含む画像があれば dispatch を
+    拒否する。#1098: rating_preflight (moderation モデル自体で rating を確定する送信)
+    は gate の対象外。まさに rating を付ける操作なので「先に rating 確定を」は本末転倒。
+
+    Args:
+        parent_widget: warning ダイアログの親ウィジェット。
+        task_type: :func:`_resolve_dispatch_task_type` が決めた task_type。
+        image_ids: 送信対象の image_id。
+        db_manager: rating 取得に使う。
+
+    Returns:
+        gate がブロックしたら True (warning 表示済み)、送信可なら False。
+    """
+    if task_type == "rating_preflight":
+        return False
+    ratings_by_id = db_manager.image_repo.get_latest_normalized_ratings_by_image_ids(image_ids)
+    preflight = classify_preflight_counts(ratings_by_id, image_ids)
+    if preflight.held > 0 or preflight.unrated > 0:
+        QMessageBox.warning(
+            parent_widget,
+            "Batch API 送信",
+            "送信前 moderation が未完了の画像があります "
+            f"(保留 {preflight.held} 件 / 未判定 {preflight.unrated} 件)。\n"
+            "Batch API の自動 preflight は未対応のため、先に rating を確定してください。",
+        )
+        return True
+    return False
+
+
+def _build_batch_projection(
+    parent_widget: QWidget | None,
+    *,
+    workflow_service: Any,
+    db_manager: "ImageDatabaseManager",
+    selected_litellm_model_ids: list[str],
+    image_ids: list[int],
+    prompt_profile: str,
+    description: str | None,
+    processed_paths: dict[int, str],
+    task_type: str,
+) -> "DispatchProjection | None":
+    """batch-capable discovery → dispatch 射影を行う。失敗時は warning を出し None を返す。
+
+    discovery / 射影の recoverable な失敗 (ProviderBatchError / DispatchProjectionError 等)
+    は warning を表示して None を返し、呼び出し側の dispatch を中止させる。
+
+    Returns:
+        成功時は :class:`DispatchProjection`、失敗時は None (warning 表示済み)。
+    """
+    try:
+        batch_capable_models = workflow_service.list_batch_capable_models()
+    except (ProviderBatchError, RuntimeError, OSError) as e:
+        logger.error(f"Batch API モデル discovery 失敗: {e}", exc_info=True)
+        QMessageBox.warning(
+            parent_widget, "Batch API 送信", f"Batch API 対応モデルの取得に失敗しました:\n{e}"
+        )
+        return None
+
+    try:
+        return project_async_batch_dispatch(
+            selected_litellm_model_ids=selected_litellm_model_ids,
+            batch_capable_models=batch_capable_models,
+            model_resolver=db_manager.model_repo.get_model_by_litellm_id,
+            image_ids=image_ids,
+            prompt_profile=prompt_profile,
+            description=description,
+            image_paths=processed_paths,
+            task_type=task_type,
+        )
+    except DispatchProjectionError as e:
+        QMessageBox.warning(parent_widget, "Batch API 送信", str(e))
+        return None
 
 
 class AnnotationWorkflowController(QObject):
@@ -523,6 +640,12 @@ class AnnotationWorkflowController(QObject):
         非 batch-capable 混在は射影が拒否する ((a))。送信前 moderation が未完了の
         画像 (保留 / 未判定) がある場合は fail-closed で拒否する (ADR 0070、自動2段は
         deferral)。
+
+        #1098: 選択モデルが全て omni-moderation-* (rating確定用途) なら
+        ``task_type="rating_preflight"`` で射影し (OpenAI 公式 Batch API の
+        ``/v1/moderations`` へ送信)、fail-closed moderation gate は適用しない
+        (rating を付ける操作自体なので「先に rating 確定を」は本末転倒)。
+        moderation モデルと通常モデルの混在は「非 batch 混在拒否」原則で弾く。
         """
         if self._annotate_tab is None:
             return
@@ -559,19 +682,15 @@ class AnnotationWorkflowController(QObject):
             )
             return
 
-        # fail-closed moderation gate (ADR 0070)。自動 preflight は未対応のため、
-        # 送信可 (sendable) でない画像が含まれる場合は dispatch を拒否する。
-        ratings_by_id = db_manager.image_repo.get_latest_normalized_ratings_by_image_ids(image_ids)
-        preflight = classify_preflight_counts(ratings_by_id, image_ids)
-        if preflight.held > 0 or preflight.unrated > 0:
-            QMessageBox.warning(
-                self._parent_widget,
-                "Batch API 送信",
-                "送信前 moderation が未完了の画像があります "
-                f"(保留 {preflight.held} 件 / 未判定 {preflight.unrated} 件)。\n"
-                "Batch API の自動 preflight は未対応のため、先に rating を確定してください。",
-            )
-            return
+        # #1098: 選択モデル種別から task_type を決定する。混在は helper 内で弾く。
+        selected_litellm_model_ids = self._annotate_tab.selected_litellm_model_ids()
+        task_type = _resolve_dispatch_task_type(self._parent_widget, selected_litellm_model_ids, db_manager)
+        if task_type is None:
+            return  # moderation + 通常モデル混在で拒否 (warning は helper 内で表示済み)
+
+        # fail-closed moderation gate (ADR 0070)。rating_preflight は対象外 (#1098)。
+        if _moderation_gate_blocks(self._parent_widget, task_type, image_ids, db_manager):
+            return  # warning は helper 内で表示済み
 
         # ADR 0064: original でなく processed/resized パスを送信する。staging の
         # stored_path は original を指し得るため、低解像度 processed 版を解決する。
@@ -579,33 +698,23 @@ class AnnotationWorkflowController(QObject):
         if processed_paths is None:
             return  # 解決失敗 (warning は helper 内で表示済み)
 
-        # batch-capable discovery (失敗は recoverable warning として slot 内で処理)
-        try:
-            batch_capable_models = workflow_service.list_batch_capable_models()
-        except (ProviderBatchError, RuntimeError, OSError) as e:
-            logger.error(f"Batch API モデル discovery 失敗: {e}", exc_info=True)
-            QMessageBox.warning(
-                self._parent_widget, "Batch API 送信", f"Batch API 対応モデルの取得に失敗しました:\n{e}"
-            )
-            return
-
-        try:
-            projection = project_async_batch_dispatch(
-                selected_litellm_model_ids=self._annotate_tab.selected_litellm_model_ids(),
-                batch_capable_models=batch_capable_models,
-                model_resolver=db_manager.model_repo.get_model_by_litellm_id,
-                image_ids=image_ids,
-                prompt_profile=run_options.prompt_profile,
-                description=run_options.description,
-                image_paths=processed_paths,
-            )
-        except DispatchProjectionError as e:
-            QMessageBox.warning(self._parent_widget, "Batch API 送信", str(e))
-            return
+        projection = _build_batch_projection(
+            self._parent_widget,
+            workflow_service=workflow_service,
+            db_manager=db_manager,
+            selected_litellm_model_ids=selected_litellm_model_ids,
+            image_ids=image_ids,
+            prompt_profile=run_options.prompt_profile,
+            description=run_options.description,
+            processed_paths=processed_paths,
+            task_type=task_type,
+        )
+        if projection is None:
+            return  # discovery / 射影の失敗 (warning は helper 内で表示済み)
 
         logger.info(
             f"Batch API dispatch 開始: {projection.job_count} ジョブ / {len(image_ids)} 枚 "
-            f"(dispatch_mode={run_options.dispatch_mode})"
+            f"(dispatch_mode={run_options.dispatch_mode}, task_type={task_type})"
         )
         self._async_dispatch_in_progress = True
         self._async_dispatch_image_ids = image_ids
