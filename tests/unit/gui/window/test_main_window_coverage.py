@@ -638,6 +638,33 @@ class TestSendSelectedToBatchTag:
             "3件をステージングに追加しました", 5000
         )
 
+    def test_send_selected_clears_selection_after_staging(self):
+        """#1096: ステージング送信後は選択状態を解除する (accent border 残留の解消)。"""
+        from lorairo.gui.window.main_window import MainWindow
+
+        mock_window = Mock()
+        mock_window.dataset_state_manager = Mock()
+        mock_window.annotate_tab = Mock()
+        mock_window.tabWidgetMainMode = Mock()
+
+        MainWindow.send_selected_to_batch_tag(mock_window, [1, 2, 3])
+
+        mock_window.dataset_state_manager.clear_selection.assert_called_once_with()
+
+    def test_send_selected_no_ids_does_not_clear_selection(self):
+        """#1096: 送信対象が無い場合は選択解除しない (誤操作で選択を失わない)。"""
+        from lorairo.gui.window.main_window import MainWindow
+
+        mock_window = Mock()
+        mock_window.dataset_state_manager = Mock()
+        mock_window.dataset_state_manager.selected_image_ids = []
+        mock_window.annotate_tab = Mock()
+
+        with patch("lorairo.gui.window.main_window.QMessageBox"):
+            MainWindow.send_selected_to_batch_tag(mock_window, [])
+
+        mock_window.dataset_state_manager.clear_selection.assert_not_called()
+
 
 class TestErrorHandlers:
     """エラーハンドラのテスト"""
