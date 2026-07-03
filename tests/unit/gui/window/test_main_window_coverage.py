@@ -628,6 +628,7 @@ class TestSendSelectedToBatchTag:
 
         mock_window = Mock()
         mock_window.dataset_state_manager = Mock()
+        mock_window.dataset_state_manager.selected_image_ids = [1, 2, 3]
         mock_window.annotate_tab = Mock()
         mock_window.tabWidgetMainMode = Mock()
         MainWindow.send_selected_to_batch_tag(mock_window, [1, 2, 3])
@@ -637,6 +638,38 @@ class TestSendSelectedToBatchTag:
         mock_window.statusBar.return_value.showMessage.assert_called_once_with(
             "3件をステージングに追加しました", 5000
         )
+
+    def test_send_selected_deselects_only_staged_ids(self):
+        """#1096/#1112: 送った画像だけ選択解除し、他ページの選択は保持する (Codex P2)。"""
+        from lorairo.gui.window.main_window import MainWindow
+
+        mock_window = Mock()
+        mock_window.dataset_state_manager = Mock()
+        # 他ページ選択 (99) を含む全選択。payload は可視ページの [1, 2, 3] のみ。
+        mock_window.dataset_state_manager.selected_image_ids = [1, 2, 3, 99]
+        mock_window.annotate_tab = Mock()
+        mock_window.tabWidgetMainMode = Mock()
+
+        MainWindow.send_selected_to_batch_tag(mock_window, [1, 2, 3])
+
+        # 全 clear ではなく、送った 1/2/3 を除いた残り (他ページ 99) を set し直す
+        mock_window.dataset_state_manager.clear_selection.assert_not_called()
+        mock_window.dataset_state_manager.set_selected_images.assert_called_once_with([99])
+
+    def test_send_selected_no_ids_does_not_change_selection(self):
+        """#1096: 送信対象が無い場合は選択を変更しない (誤操作で選択を失わない)。"""
+        from lorairo.gui.window.main_window import MainWindow
+
+        mock_window = Mock()
+        mock_window.dataset_state_manager = Mock()
+        mock_window.dataset_state_manager.selected_image_ids = []
+        mock_window.annotate_tab = Mock()
+
+        with patch("lorairo.gui.window.main_window.QMessageBox"):
+            MainWindow.send_selected_to_batch_tag(mock_window, [])
+
+        mock_window.dataset_state_manager.set_selected_images.assert_not_called()
+        mock_window.dataset_state_manager.clear_selection.assert_not_called()
 
 
 class TestErrorHandlers:
@@ -797,17 +830,38 @@ class TestAnnotationExecuteWrapper:
     警告することを検証する (旧 MainWindow.start_annotation の UX を保全)。
     """
 
-    def test_delegates_to_controller_when_present(self) -> None:
+    def test_delegates_and_navigates_when_started(self) -> None:
         from unittest.mock import Mock
 
         from lorairo.gui.window.main_window import MainWindow
 
         mock_window = Mock()
         mock_window.annotation_workflow_controller = Mock()
+        # 実行が実際に開始できた場合
+        mock_window.annotation_workflow_controller.start_annotation.return_value = True
 
-        MainWindow._on_annotation_execute_requested(mock_window)
+        MainWindow._on_annotation_execute_requested(mock_window, "batch_api")
 
-        mock_window.annotation_workflow_controller.start_annotation.assert_called_once()
+        # #1099: 実行ボタンが渡す dispatch_mode を controller へ伝搬する
+        mock_window.annotation_workflow_controller.start_annotation.assert_called_once_with("batch_api")
+        # #1102: 開始成功時は Jobs タブへ遷移する
+        mock_window._navigate_to_jobs_tab.assert_called_once_with()
+
+    def test_no_navigation_when_start_rejected(self) -> None:
+        """#1102 Codex P2: 実行が開始前に拒否された場合は Jobs へ遷移しない。"""
+        from unittest.mock import Mock
+
+        from lorairo.gui.window.main_window import MainWindow
+
+        mock_window = Mock()
+        mock_window.annotation_workflow_controller = Mock()
+        # ステージング空・モデル未選択・射影失敗等で開始前に拒否
+        mock_window.annotation_workflow_controller.start_annotation.return_value = False
+
+        MainWindow._on_annotation_execute_requested(mock_window, "sync")
+
+        mock_window.annotation_workflow_controller.start_annotation.assert_called_once_with("sync")
+        mock_window._navigate_to_jobs_tab.assert_not_called()
 
     def test_warns_when_controller_missing(self) -> None:
         from unittest.mock import Mock, patch
@@ -818,8 +872,50 @@ class TestAnnotationExecuteWrapper:
         mock_window.annotation_workflow_controller = None
 
         with patch("lorairo.gui.window.main_window.QMessageBox") as mock_qmb:
-            MainWindow._on_annotation_execute_requested(mock_window)
+            MainWindow._on_annotation_execute_requested(mock_window, "sync")
             mock_qmb.warning.assert_called_once()
+        # controller 未初期化なら Jobs 遷移もしない
+        mock_window._navigate_to_jobs_tab.assert_not_called()
+
+
+class TestNavigateToJobsTab:
+    """#1102: アノテーション実行後の Jobs タブ遷移。"""
+
+    def test_navigates_to_jobs_tab_when_present(self) -> None:
+        from unittest.mock import Mock
+
+        from lorairo.gui.window.main_window import MainWindow
+
+        mock_window = Mock()
+        mock_window.tabWidgetMainMode.indexOf.return_value = 3
+
+        MainWindow._navigate_to_jobs_tab(mock_window)
+
+        mock_window.tabWidgetMainMode.setCurrentWidget.assert_called_once_with(mock_window.jobs_tab)
+
+    def test_no_navigation_when_jobs_tab_missing(self) -> None:
+        from unittest.mock import Mock
+
+        from lorairo.gui.window.main_window import MainWindow
+
+        mock_window = Mock()
+        mock_window.jobs_tab = None
+
+        MainWindow._navigate_to_jobs_tab(mock_window)
+
+        mock_window.tabWidgetMainMode.setCurrentWidget.assert_not_called()
+
+    def test_no_navigation_when_jobs_tab_not_inserted(self) -> None:
+        from unittest.mock import Mock
+
+        from lorairo.gui.window.main_window import MainWindow
+
+        mock_window = Mock()
+        mock_window.tabWidgetMainMode.indexOf.return_value = -1
+
+        MainWindow._navigate_to_jobs_tab(mock_window)
+
+        mock_window.tabWidgetMainMode.setCurrentWidget.assert_not_called()
 
 
 if __name__ == "__main__":

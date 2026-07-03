@@ -131,21 +131,32 @@ class AnnotationWorkflowController(QObject):
         self._status_callback = status_callback
         self._is_annotate_tab_active = is_annotate_tab_active
 
-    def start_annotation(self) -> None:
-        """アノテーション実行エントリ。dispatch mode で分岐する (#896 PR4c)。
+    def start_annotation(self, dispatch_mode: str | None = None) -> bool:
+        """アノテーション実行エントリ。dispatch mode で分岐する (#896 PR4c, #1099)。
 
         AnnotateTabWidget の run bar 実行ボタン (``annotation_execute_requested``)
         から呼ばれる。``dispatch_mode`` (ADR 0076 §1) が ``batch_api`` なら async
         Provider Batch dispatch へ、それ以外は同期バッチアノテーション
         (:meth:`start_annotation_workflow`) へ分岐する。
+
+        Args:
+            dispatch_mode: 実行ボタンが指定した送信方式 ("sync" / "batch_api"、#1099)。
+                None の場合は ``run_options().dispatch_mode`` を使う (後方互換)。
+
+        Returns:
+            実行が実際に開始できたら True、開始前に拒否した場合 (ステージング空 /
+            モデル未選択 / 射影・preflight 失敗等) は False (#1102: 遷移可否の判定に使う)。
         """
         annotate_tab = self._annotate_tab
 
-        # 送信方式 (dispatch mode) 判定 (#884 Phase 2c, ADR 0076 §1)。
+        # 送信方式 (dispatch mode) 判定 (#884 Phase 2c, ADR 0076 §1, #1099)。
+        # 実行ボタン (#1099) が明示指定する dispatch_mode を優先し、無ければ RunOptions を読む。
+        effective_mode = dispatch_mode
+        if effective_mode is None and annotate_tab is not None:
+            effective_mode = annotate_tab.run_options().dispatch_mode
         # batch_api (async) は dispatch 射影 → worker thread へ分岐する。
-        if annotate_tab is not None and annotate_tab.run_options().dispatch_mode == "batch_api":
-            self.dispatch_async_batch()
-            return
+        if effective_mode == "batch_api":
+            return self.dispatch_async_batch()
 
         # アノテーションタブの選択モデルを取得 (Issue #245: litellm_model_id ベース、#868)
         selected_litellm_model_ids: list[str] = []
@@ -166,13 +177,13 @@ class AnnotationWorkflowController(QObject):
                     "ステージングリストに画像がありません。\n"
                     "画像を選択してからアノテーションを実行してください。",
                 )
-                return
+                return False
 
         # 実行詳細設定 (RunOptions) を同期アノテフローへ伝搬する (Issue #803)。
         run_options = annotate_tab.run_options() if annotate_tab is not None else None
 
         # チェックボックスから選択されたモデルを優先し、無ければダイアログ callback へ
-        self.start_annotation_workflow(
+        return self.start_annotation_workflow(
             selected_litellm_model_ids=selected_litellm_model_ids if selected_litellm_model_ids else None,
             model_selection_callback=annotate_tab.show_model_selection_dialog
             if not selected_litellm_model_ids and annotate_tab is not None
@@ -187,7 +198,7 @@ class AnnotationWorkflowController(QObject):
         model_selection_callback: Callable[[list[str]], str | None] | None = None,
         image_paths: list[str] | None = None,
         run_options: "RunOptions | None" = None,
-    ) -> None:
+    ) -> bool:
         """アノテーションワークフロー実行
 
         ワークフロー:
@@ -209,11 +220,15 @@ class AnnotationWorkflowController(QObject):
                 指定時はSelectionStateServiceをバイパスしてこのリストを使用。
             run_options: 実行詳細設定 (Issue #803)。``dry_run`` / ``rating_gate`` を
                 worker_service 経由で AnnotationWorker に伝搬する。``None`` の場合は従来挙動。
+
+        Returns:
+            バッチアノテーションを実際に開始できたら True、開始前に拒否した場合
+            (画像/モデル未選択、API key 不足、例外等) は False (#1102)。
         """
         try:
             # Step 1: サービス検証（image_paths指定時はSelectionStateService不要）
             if not image_paths and not self._validate_services():
-                return
+                return False
 
             # Step 2: 選択画像取得（image_paths指定時はそれを使用）
             if image_paths:
@@ -222,7 +237,7 @@ class AnnotationWorkflowController(QObject):
             else:
                 paths_to_use = self._get_selected_image_paths()
                 if not paths_to_use:
-                    return
+                    return False
             image_paths = paths_to_use
 
             # Step 3: モデル選択（selected_litellm_model_ids優先）
@@ -230,20 +245,20 @@ class AnnotationWorkflowController(QObject):
                 selected_litellm_model_ids, model_selection_callback
             )
             if not models_to_use:
-                return
+                return False
 
             if self._warn_deprecated_models(models_to_use) is False:
-                return
+                return False
 
             # Issue #241: 実行直前に API key 不足を検出する。
             # 旧実装は WorkerService 内で library 呼び出し時に MissingApiKeyError が
             # 出るまで失敗を検出できなかった。直接プロバイダー key のみ持つ環境で
             # `openrouter/...` モデルを誤選択した場合などをここで止める。
             if self._validate_api_keys_for_models(models_to_use) is False:
-                return
+                return False
 
             # Step 4: バッチアノテーション開始
-            self._start_batch_annotation(image_paths, models_to_use, run_options=run_options)
+            return self._start_batch_annotation(image_paths, models_to_use, run_options=run_options)
 
         except Exception as e:
             error_msg = f"アノテーション処理の開始に失敗しました: {e}"
@@ -254,6 +269,7 @@ class AnnotationWorkflowController(QObject):
                     "アノテーション開始エラー",
                     error_msg,
                 )
+            return False
 
     def _resolve_models_to_use(
         self,
@@ -469,13 +485,17 @@ class AnnotationWorkflowController(QObject):
         image_paths: list[str],
         litellm_model_ids: list[str],
         run_options: "RunOptions | None" = None,
-    ) -> None:
+    ) -> bool:
         """バッチアノテーション開始
 
         Args:
             image_paths: 画像パスリスト
             litellm_model_ids: モデルの `litellm_model_id` リスト
             run_options: 実行詳細設定 (Issue #803)。worker_service へ伝搬する。
+
+        Returns:
+            worker を起動できたら True (#1102)。例外時は False を返さず re-raise する
+            (呼び出し元 :meth:`start_annotation_workflow` の except が集約処理する)。
         """
         try:
             logger.info(
@@ -493,6 +513,7 @@ class AnnotationWorkflowController(QObject):
             # 非ブロッキング通知
             status_msg = f"アノテーション処理を開始: {len(image_paths)}画像, モデル: {litellm_model_ids[0]}"
             logger.info(status_msg)
+            return True
 
         except Exception as e:
             error_msg = f"バッチアノテーション開始に失敗: {e}"
@@ -507,7 +528,7 @@ class AnnotationWorkflowController(QObject):
 
     # == async Provider Batch dispatch (#896 PR4b, ADR 0076 §2) ================
 
-    def dispatch_async_batch(self) -> None:
+    def dispatch_async_batch(self) -> bool:
         """選択モデル集合を async Provider Batch dispatch へ射影して送信する。
 
         ADR 0076 §2: 選択モデル集合 → dispatch 射影 (batch-capable ∩ discovery) →
@@ -515,11 +536,16 @@ class AnnotationWorkflowController(QObject):
         非 batch-capable 混在は射影が拒否する ((a))。送信前 moderation が未完了の
         画像 (保留 / 未判定) がある場合は fail-closed で拒否する (ADR 0070、自動2段は
         deferral)。
+
+        Returns:
+            worker を起動して送信を開始できたら True、開始前に拒否した場合
+            (サービス不可 / ステージング空 / dry-run / moderation gate / 射影失敗等) は
+            False (#1102: 遷移可否の判定に使う)。
         """
         if self._annotate_tab is None:
-            return
+            return False
         if self._async_dispatch_in_progress:
-            return
+            return False
 
         container = self._service_container
         workflow_service = getattr(container, "provider_batch_workflow_service", None)
@@ -529,7 +555,7 @@ class AnnotationWorkflowController(QObject):
             QMessageBox.warning(
                 self._parent_widget, "Batch API 送信", "Batch API サービスを利用できません。"
             )
-            return
+            return False
 
         run_options = self._annotate_tab.run_options()
         image_ids = list(self._annotate_tab.get_staged_items().keys())
@@ -540,7 +566,7 @@ class AnnotationWorkflowController(QObject):
                 "ステージングリストに画像がありません。\n"
                 "画像を選択してからアノテーションを実行してください。",
             )
-            return
+            return False
 
         # dry-run: 実送信せず件数プレビューのみ (RunSettings の dry-run 契約)
         if run_options.dry_run:
@@ -549,7 +575,7 @@ class AnnotationWorkflowController(QObject):
                 "Batch API 送信 (dry-run)",
                 f"dry-run: {len(image_ids)} 枚を Batch API へ送信予定です。\n実際の送信・推論は行いません。",
             )
-            return
+            return False
 
         # fail-closed moderation gate (ADR 0070)。自動 preflight は未対応のため、
         # 送信可 (sendable) でない画像が含まれる場合は dispatch を拒否する。
@@ -563,13 +589,13 @@ class AnnotationWorkflowController(QObject):
                 f"(保留 {preflight.held} 件 / 未判定 {preflight.unrated} 件)。\n"
                 "Batch API の自動 preflight は未対応のため、先に rating を確定してください。",
             )
-            return
+            return False
 
         # ADR 0064: original でなく processed/resized パスを送信する。staging の
         # stored_path は original を指し得るため、低解像度 processed 版を解決する。
         processed_paths = self._resolve_processed_paths_for_batch(image_ids)
         if processed_paths is None:
-            return  # 解決失敗 (warning は helper 内で表示済み)
+            return False  # 解決失敗 (warning は helper 内で表示済み)
 
         # batch-capable discovery (失敗は recoverable warning として slot 内で処理)
         try:
@@ -579,7 +605,7 @@ class AnnotationWorkflowController(QObject):
             QMessageBox.warning(
                 self._parent_widget, "Batch API 送信", f"Batch API 対応モデルの取得に失敗しました:\n{e}"
             )
-            return
+            return False
 
         try:
             projection = project_async_batch_dispatch(
@@ -593,7 +619,7 @@ class AnnotationWorkflowController(QObject):
             )
         except DispatchProjectionError as e:
             QMessageBox.warning(self._parent_widget, "Batch API 送信", str(e))
-            return
+            return False
 
         logger.info(
             f"Batch API dispatch 開始: {projection.job_count} ジョブ / {len(image_ids)} 枚 "
@@ -602,6 +628,7 @@ class AnnotationWorkflowController(QObject):
         self._async_dispatch_in_progress = True
         self._async_dispatch_image_ids = image_ids
         self._start_async_dispatch_worker(workflow_service, projection)
+        return True
 
     def _resolve_processed_paths_for_batch(self, image_ids: list[int]) -> dict[int, str] | None:
         """各 image_id の低解像度 processed パスを解決する (ADR 0064)。

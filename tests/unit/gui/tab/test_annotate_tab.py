@@ -645,35 +645,64 @@ class TestRunBar:
     def test_scope_text_zero(self):
         assert "0" in AnnotateTabWidget._run_bar_scope_text(0)
 
-    def test_execute_text_contains_count(self):
-        assert "7" in AnnotateTabWidget._run_bar_execute_text(7)
+    def test_sync_execute_text_contains_count(self):
+        assert "7" in AnnotateTabWidget._run_bar_sync_execute_text(7)
 
-    def test_execute_text_contains_枚(self):
-        assert "枚" in AnnotateTabWidget._run_bar_execute_text(3)
+    def test_batch_execute_text_contains_count(self):
+        assert "7" in AnnotateTabWidget._run_bar_batch_execute_text(7)
 
-    def test_update_target_ui_enables_execute_with_staging(self, tab):
+    def test_sync_execute_text_contains_枚(self):
+        assert "枚" in AnnotateTabWidget._run_bar_sync_execute_text(3)
+
+    def test_batch_execute_text_contains_枚(self):
+        assert "枚" in AnnotateTabWidget._run_bar_batch_execute_text(3)
+
+    def test_execute_texts_are_distinct(self):
+        # #1099: 2ボタンは同期 / Batch API を明確に区別する
+        assert "同期" in AnnotateTabWidget._run_bar_sync_execute_text(1)
+        assert "Batch API" in AnnotateTabWidget._run_bar_batch_execute_text(1)
+
+    def test_update_target_ui_enables_both_execute_buttons_with_staging(self, tab):
         tab._update_annotation_target_ui(5)
 
-        assert tab._btn_pipeline_execute.isEnabled() is True
-        assert "5" in tab._btn_pipeline_execute.text()
+        assert tab._btn_sync_execute.isEnabled() is True
+        assert tab._btn_batch_api_execute.isEnabled() is True
+        assert "5" in tab._btn_sync_execute.text()
+        assert "5" in tab._btn_batch_api_execute.text()
         assert "5" in tab._run_bar_scope_label.text()
 
-    def test_update_target_ui_disables_execute_when_empty(self, tab):
+    def test_update_target_ui_disables_both_execute_buttons_when_empty(self, tab):
         tab._update_annotation_target_ui(0)
 
-        assert tab._btn_pipeline_execute.isEnabled() is False
+        assert tab._btn_sync_execute.isEnabled() is False
+        assert tab._btn_batch_api_execute.isEnabled() is False
 
 
 # == 8. トップレベル Signal ===================================================
 
 
 @pytest.mark.gui
-def test_execute_button_emits_annotation_execute_requested(tab, qtbot):
-    """run bar 実行ボタンクリックで annotation_execute_requested が emit される。"""
+def test_sync_execute_button_emits_sync_mode(tab, qtbot):
+    """同期実行ボタンクリックで dispatch_mode="sync" を載せて emit される (#1099)。"""
     tab._update_annotation_target_ui(2)  # ボタンを有効化
 
-    with qtbot.waitSignal(tab.annotation_execute_requested, timeout=1000):
-        tab._btn_pipeline_execute.click()
+    with qtbot.waitSignal(tab.annotation_execute_requested, timeout=1000) as blocker:
+        tab._btn_sync_execute.click()
+
+    assert blocker.args == ["sync"]
+    assert tab.run_options().dispatch_mode == "sync"
+
+
+@pytest.mark.gui
+def test_batch_api_execute_button_emits_batch_mode(tab, qtbot):
+    """Batch API 実行ボタンクリックで dispatch_mode="batch_api" を載せて emit される (#1099)。"""
+    tab._update_annotation_target_ui(2)  # ボタンを有効化
+
+    with qtbot.waitSignal(tab.annotation_execute_requested, timeout=1000) as blocker:
+        tab._btn_batch_api_execute.click()
+
+    assert blocker.args == ["batch_api"]
+    assert tab.run_options().dispatch_mode == "batch_api"
 
 
 @pytest.mark.gui
