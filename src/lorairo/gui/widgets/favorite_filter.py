@@ -50,7 +50,6 @@ class FavoriteFilterPanel(QGroupBox):
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__("お気に入りフィルター", parent)
         self.setCheckable(True)
-        self.setChecked(False)  # 初期状態は折りたたみ
 
         self.favorite_filters_service: Any = None
         self._conditions_getter: ConditionsGetter | None = None
@@ -82,12 +81,28 @@ class FavoriteFilterPanel(QGroupBox):
         button_layout.addWidget(self.button_load_filter)
         button_layout.addWidget(self.button_delete_filter)
 
-        group_layout = QVBoxLayout()
+        # 中身はコンテナに集約し、toggled で表示/非表示を切り替える (#1088)。
+        # checkable QGroupBox は unchecked のとき子を disable するだけで隠さないため、
+        # 従来の setChecked(False) だけの「折りたたみ」は保存ボタンが常時グレーで
+        # 押せない壊れた見た目になっていた (レーティングのみ等の条件が保存できない
+        # ように見える)。unchecked では中身を非表示にして真の折りたたみにする。
+        self._content = QWidget(self)
+        group_layout = QVBoxLayout(self._content)
+        group_layout.setContentsMargins(0, 0, 0, 0)
         group_layout.addWidget(self._empty_label)
         group_layout.addWidget(self._chip_container)
         group_layout.addWidget(self.favorite_filters_list)
         group_layout.addLayout(button_layout)
-        self.setLayout(group_layout)
+
+        outer_layout = QVBoxLayout()
+        outer_layout.addWidget(self._content)
+        self.setLayout(outer_layout)
+
+        self.toggled.connect(self._content.setVisible)
+        # 初期状態は折りたたみ。setChecked(False) は状態変化が無いと toggled を
+        # 発火しないため、中身の非表示も明示する。
+        self.setChecked(False)
+        self._content.setVisible(False)
 
         # シグナル接続 (内部完結)
         self.button_save_filter.clicked.connect(self._on_save_clicked)

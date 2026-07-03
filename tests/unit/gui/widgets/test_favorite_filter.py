@@ -290,3 +290,41 @@ class TestServiceMissingGuards:
 
     def test_delete_when_service_missing(self, panel: FavoriteFilterPanel) -> None:
         panel._on_delete_clicked()
+
+
+# 折りたたみの実挙動 (#1088) ---------------------------------------------------
+
+
+class TestCollapseBehavior:
+    """checkable QGroupBox の折りたたみが「グレー表示」でなく「非表示」になる (#1088)。"""
+
+    def test_collapsed_by_default_hides_content(self, qtbot):
+        """初期状態 (unchecked) では中身が非表示 (グレーの保存ボタンを見せない)。"""
+        panel = FavoriteFilterPanel()
+        qtbot.addWidget(panel)
+        panel.show()
+
+        assert panel.isChecked() is False
+        assert not panel._content.isVisibleTo(panel)
+
+    def test_expand_shows_content_and_enables_save(self, qtbot):
+        """展開 (checked) すると中身が表示され、保存ボタンが有効になる。"""
+        panel = FavoriteFilterPanel()
+        qtbot.addWidget(panel)
+        panel.show()
+
+        panel.setChecked(True)
+
+        assert panel._content.isVisibleTo(panel)
+        assert panel.button_save_filter.isEnabledTo(panel)
+
+    def test_collapse_again_hides_content(self, qtbot):
+        """再度折りたたむと中身が非表示に戻る。"""
+        panel = FavoriteFilterPanel()
+        qtbot.addWidget(panel)
+        panel.show()
+        panel.setChecked(True)
+
+        panel.setChecked(False)
+
+        assert not panel._content.isVisibleTo(panel)
