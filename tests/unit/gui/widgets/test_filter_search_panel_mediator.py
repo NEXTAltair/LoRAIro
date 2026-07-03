@@ -6,7 +6,7 @@ FilterSearchPanel が以下を満たすかを検証する:
 - 4 sub-widget (Tag/Count/Favorite/Pipeline) を composition で保持する
 - Sub-widget 同士が直接接続されていない (ADR 0036 §3)
 - Sub-widget からのコールバック / signal を Parent (mediator) が受けて他へ流通させる
-- Pipeline state listener が pipeline_state_changed シグナルを emit する
+- Pipeline state listener が state に応じた UI 更新を行う
 """
 
 from unittest.mock import MagicMock
@@ -64,13 +64,7 @@ class TestCompositionStructure:
 
 
 class TestPipelineStateMediation:
-    """Pipeline state machine の遷移を mediator が pipeline_state_changed として emit する。"""
-
-    def test_pipeline_state_emit_on_transition(self, panel, qtbot):
-        """PipelineStateMachine が遷移すると panel.pipeline_state_changed が emit される。"""
-        with qtbot.waitSignal(panel.pipeline_state_changed, timeout=1000) as blocker:
-            panel._pipeline.transition_to(PipelineState.SEARCHING)
-        assert blocker.args == [PipelineState.SEARCHING]
+    """Pipeline state machine の遷移を mediator が受けて state に応じた UI 更新を行う。"""
 
     def test_pipeline_state_idle_calls_set_visible_false(self, panel):
         """IDLE 遷移で progress_bar.setVisible(False) が呼ばれる (要 SEARCHING → IDLE)。"""
@@ -368,12 +362,15 @@ class TestPublicAPICompat:
     """既存 public API の互換維持を確認する。"""
 
     def test_public_signals_exist(self, panel):
-        """既存の public signal が引き続き定義されている。"""
-        assert hasattr(panel, "filter_applied")
+        """使用中の public signal が引き続き定義されている。"""
         assert hasattr(panel, "filter_cleared")
         assert hasattr(panel, "search_requested")
-        assert hasattr(panel, "search_completed")
-        assert hasattr(panel, "pipeline_state_changed")
+
+    def test_dead_signals_removed(self, panel):
+        """購読者不在の死シグナルは削除されている (Issue #1106 項目6,7)。"""
+        assert not hasattr(panel, "filter_applied")
+        assert not hasattr(panel, "search_completed")
+        assert not hasattr(panel, "pipeline_state_changed")
 
     def test_legacy_method_extract_last_token(self, panel):
         """旧 API: 静的ヘルパー _extract_last_token が delegation で利用可能。"""

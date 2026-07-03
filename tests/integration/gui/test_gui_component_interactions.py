@@ -75,40 +75,6 @@ class TestGUIComponentInteractions:
             for i in range(5)  # file01.webp から file05.webp まで
         ]
 
-    def test_real_filter_to_thumbnail_signal_flow(
-        self, real_filter_panel, real_thumbnail_widget, test_images_data
-    ):
-        """実際のフィルター→サムネイル シグナルフロー統合テスト"""
-        # 実際のシグナル受信確認
-        signal_received = []
-
-        def on_filter_applied(conditions):
-            signal_received.append(conditions)
-
-        # 実際のシグナル接続
-        real_filter_panel.filter_applied.connect(on_filter_applied)
-
-        # 実際のフィルター条件
-        test_conditions = {
-            "tags": ["test", "sample"],
-            "caption": "",
-            "resolution": None,
-            "use_and": False,
-            "include_untagged": True,
-            "date_range": (None, None),
-        }
-
-        # 実際のシグナル発行
-        real_filter_panel.filter_applied.emit(test_conditions)
-
-        # 実際のシグナル伝播確認
-        assert len(signal_received) == 1
-        # PySide6 バージョンによって Signal(dict) 経由の tuple が list に変換される場合があるため、
-        # date_range のみ tuple に正規化してから比較する (#979)
-        received = dict(signal_received[0])
-        received["date_range"] = tuple(received["date_range"])
-        assert received == test_conditions
-
     def test_real_image_selection_to_preview_flow(
         self, real_thumbnail_widget, real_preview_widget, test_images_data
     ):
