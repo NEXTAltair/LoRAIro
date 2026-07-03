@@ -175,7 +175,9 @@ class StagingWidget(QWidget):
         widget.graphics_view.setDragMode(QGraphicsView.DragMode.NoDrag)
         widget.graphics_view.setContextMenuPolicy(Qt.ContextMenuPolicy.NoContextMenu)
         widget.scrollAreaThumbnails.setFrameShape(QFrame.Shape.NoFrame)
-        widget.setMinimumHeight(150)
+        # サムネイル数に応じて枠の高さを自動調整する (最大3行、#1097)。
+        # QSplitter 手動リサイズは維持される。
+        widget.enable_content_height(max_rows=3)
 
         insert_index = layout.indexOf(list_widget)
         if insert_index != -1:

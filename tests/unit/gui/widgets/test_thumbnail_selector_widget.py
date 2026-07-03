@@ -717,3 +717,64 @@ class TestThumbnailSelectorWidgetPagination:
 
 if __name__ == "__main__":
     pytest.main([__file__])
+
+
+class TestThumbnailSelectorContentHeight:
+    """#1097: staging 用のコンテンツ準拠推奨高さ (opt-in)。"""
+
+    @pytest.fixture
+    def widget(self, qtbot):
+        from PySide6.QtCore import QSize
+
+        w = ThumbnailSelectorWidget()
+        qtbot.addWidget(w)
+        w.thumbnail_size = QSize(96, 96)
+        return w
+
+    def _paths(self, n: int) -> list[tuple[str, int]]:
+        # 空パスでもグレープレースホルダで表示され、行数計算に載る。
+        return [("", i) for i in range(1, n + 1)]
+
+    def test_content_height_disabled_by_default(self, widget):
+        assert widget._content_height_enabled is False
+
+    def test_enable_sets_flag_policy_and_max_rows(self, widget):
+        from PySide6.QtWidgets import QSizePolicy
+
+        widget.enable_content_height(max_rows=3)
+        assert widget._content_height_enabled is True
+        assert widget._content_height_max_rows == 3
+        assert widget.sizePolicy().verticalPolicy() == QSizePolicy.Policy.Preferred
+
+    def test_empty_hint_is_single_row(self, widget):
+        widget.enable_content_height(max_rows=3)
+        widget.load_thumbnails_from_paths([])
+        chrome = widget._content_height_chrome()
+        assert widget.sizeHint().height() == 96 + chrome
+
+    def test_hint_grows_with_row_count(self, widget, monkeypatch):
+        monkeypatch.setattr(widget, "_current_column_count", lambda: 1)
+        widget.enable_content_height(max_rows=3)
+        widget.load_thumbnails_from_paths(self._paths(2))
+        chrome = widget._content_height_chrome()
+        assert widget.sizeHint().height() == 2 * 96 + chrome
+
+    def test_hint_clamped_to_max_rows(self, widget, monkeypatch):
+        monkeypatch.setattr(widget, "_current_column_count", lambda: 1)
+        widget.enable_content_height(max_rows=3)
+        widget.load_thumbnails_from_paths(self._paths(10))
+        chrome = widget._content_height_chrome()
+        # 10 行必要でも最大 3 行でクランプ (残りは内部スクロール)
+        assert widget.sizeHint().height() == 3 * 96 + chrome
+
+    def test_disabled_hint_ignores_content(self, widget, monkeypatch):
+        monkeypatch.setattr(widget, "_current_column_count", lambda: 1)
+        widget.load_thumbnails_from_paths(self._paths(10))
+        chrome = widget._content_height_chrome()
+        # 無効時はコンテンツ式の高さ (3*96+chrome) にはならない
+        assert widget.sizeHint().height() != 3 * 96 + chrome
+
+    def test_minimum_height_allows_shrink_below_legacy_150(self, widget):
+        widget.enable_content_height(max_rows=3)
+        # 旧実装の固定 150px 下限を撤廃し、1 行相当まで縮められる
+        assert widget.minimumHeight() < 150

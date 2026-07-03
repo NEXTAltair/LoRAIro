@@ -38,6 +38,19 @@ class TestStagingWidgetInitialization:
         assert widget._dataset_state_manager is None
 
     @pytest.mark.gui
+    def test_staging_thumbnail_uses_content_height(self, qtbot):
+        """#1097: staging のサムネ枠はコンテンツ準拠高さ (最大3行) を有効化する。"""
+        widget = StagingWidget()
+        qtbot.addWidget(widget)
+
+        thumb = widget._staging_thumbnail_widget
+        assert thumb is not None
+        assert thumb._content_height_enabled is True
+        assert thumb._content_height_max_rows == 3
+        # 旧実装の固定 150px 下限は撤廃され 1 行相当まで縮む
+        assert thumb.minimumHeight() < 150
+
+    @pytest.mark.gui
     def test_ui_components_present(self, qtbot):
         """UI コンポーネントが存在すること"""
         widget = StagingWidget()

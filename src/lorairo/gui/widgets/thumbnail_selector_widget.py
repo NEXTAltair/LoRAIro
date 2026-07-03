@@ -9,7 +9,15 @@ from typing import TYPE_CHECKING, Any, cast
 
 from PySide6.QtCore import QPoint, QSize, Qt, QTimer, Signal, Slot
 from PySide6.QtGui import QPixmap, QResizeEvent
-from PySide6.QtWidgets import QGraphicsScene, QGraphicsView, QLabel, QMenu, QVBoxLayout, QWidget
+from PySide6.QtWidgets import (
+    QGraphicsScene,
+    QGraphicsView,
+    QLabel,
+    QMenu,
+    QSizePolicy,
+    QVBoxLayout,
+    QWidget,
+)
 
 from ...gui.designer.ThumbnailSelectorWidget_ui import Ui_ThumbnailSelectorWidget
 from ...utils.log import logger
@@ -113,6 +121,11 @@ class ThumbnailSelectorWidget(QWidget, Ui_ThumbnailSelectorWidget):
         self.thumbnail_items: list[ThumbnailItem] = []  # ThumbnailItem のリスト
         self._explicit_path_items: list[tuple[Path, int]] = []  # stagingなど小規模明示パス表示用
         self.last_selected_item: ThumbnailItem | None = None
+
+        # コンテンツ準拠の推奨高さ (staging 用途のオプトイン、#1097)。
+        # 既定は無効で、検索タブ等の Expanding 挙動は変えない。
+        self._content_height_enabled: bool = False
+        self._content_height_max_rows: int = 3
 
         # ページロード中オーバーレイ（新ページ確定まで旧ページ表示維持）
         self.loading_overlay = QLabel("読み込み中...", self.graphics_view.viewport())
@@ -649,6 +662,8 @@ class ThumbnailSelectorWidget(QWidget, Ui_ThumbnailSelectorWidget):
 
         if not self._explicit_path_items:
             self._update_image_count_display()
+            if self._content_height_enabled:
+                self.updateGeometry()
             return
 
         button_width = self.thumbnail_size.width()
@@ -671,6 +686,9 @@ class ThumbnailSelectorWidget(QWidget, Ui_ThumbnailSelectorWidget):
         scene_height = row_count * self.thumbnail_size.height()
         self.scene.setSceneRect(0, 0, grid_width, scene_height)
         self._update_image_count_display()
+        if self._content_height_enabled:
+            # 行数変化を QSplitter へ通知し推奨高さを更新する (#1097)。
+            self.updateGeometry()
 
     def _add_thumbnail_item_from_cache(
         self, image_path: Path, image_id: int, index: int, column_count: int, pixmap: QPixmap
@@ -828,6 +846,60 @@ class ThumbnailSelectorWidget(QWidget, Ui_ThumbnailSelectorWidget):
         self.update_thumbnail_layout()
 
     # === Modern Loading Interface ===
+
+    def enable_content_height(self, max_rows: int = 3) -> None:
+        """コンテンツ準拠の推奨高さを有効化する (staging 用途、#1097)。
+
+        有効時は ``sizeHint().height()`` をサムネイル行数から算出し、``max_rows``
+        でクランプする。行数が変わるたび ``updateGeometry()`` で QSplitter に推奨
+        サイズ変更を通知する。垂直 ``sizePolicy`` を ``Preferred`` にしてコンテンツを
+        ハグさせつつ、QSplitter による手動リサイズは維持する。検索タブ等の他用途は
+        既定 (Expanding) のままなので影響しない。
+
+        Args:
+            max_rows: 自動で伸びる最大行数。これを超える分は内部スクロールで吸収する。
+        """
+        self._content_height_enabled = True
+        self._content_height_max_rows = max(1, max_rows)
+        policy = self.sizePolicy()
+        policy.setVerticalPolicy(QSizePolicy.Policy.Preferred)
+        self.setSizePolicy(policy)
+        # 空でも 1 行分は確保する下限 (QSplitter で 0 に潰れないように)。
+        self.setMinimumHeight(self.thumbnail_size.height() + self._content_height_chrome())
+        self.updateGeometry()
+
+    def _content_height_chrome(self) -> int:
+        """サムネイル行以外に必要な高さ (ヘッダ・枠・スクロールバー余裕) を返す。"""
+        chrome = 8  # scroll area 枠 + 余白
+        if hasattr(self, "frameThumbnailHeader") and self.frameThumbnailHeader.isVisible():
+            chrome += self.frameThumbnailHeader.sizeHint().height()
+        return chrome
+
+    def _current_column_count(self) -> int:
+        """現在のビューポート幅から 1 行あたりのサムネイル列数を推定する。"""
+        button_width = max(self.thumbnail_size.width(), 1)
+        viewport_width = self.scrollAreaThumbnails.viewport().width()
+        grid_width = max(viewport_width, button_width)
+        return max(grid_width // button_width, 1)
+
+    def _recommended_content_height(self) -> int:
+        """明示パスアイテム数と列数からクランプ済みの推奨高さ (px) を算出する。"""
+        thumb_height = self.thumbnail_size.height()
+        count = len(self._explicit_path_items)
+        if count <= 0:
+            rows = 1  # 空でも 1 行分は残す (spec: 1行+ヘッダまで縮む)
+        else:
+            column_count = self._current_column_count()
+            rows = (count + column_count - 1) // column_count
+            rows = min(max(rows, 1), self._content_height_max_rows)
+        return rows * thumb_height + self._content_height_chrome()
+
+    def sizeHint(self) -> QSize:
+        """コンテンツ準拠モードでは行数に応じた推奨高さを返す (#1097)。"""
+        hint = super().sizeHint()
+        if self._content_height_enabled:
+            hint.setHeight(self._recommended_content_height())
+        return hint
 
     def load_thumbnails_from_paths(self, items: list[tuple[str, int]]) -> None:
         """
