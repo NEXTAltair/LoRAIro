@@ -155,7 +155,7 @@ class _FakeService:
 class TestAsyncCountEstimate:
     """非同期件数見積もりのテスト。"""
 
-    def test_count_emit_and_label_update(
+    def test_count_label_update(
         self,
         widget: CountEstimateWidget,
         qtbot,
@@ -165,11 +165,10 @@ class TestAsyncCountEstimate:
         conditions = MagicMock()
         widget.set_conditions_builder(lambda: conditions)
 
-        with qtbot.waitSignal(widget.count_updated, timeout=2000) as blocker:
-            widget._update_realtime_count()
+        widget._update_realtime_count()
 
-        assert blocker.args == [123]
-        assert widget.label.text() == "該当件数: 123件"
+        # 非同期 task 完了で label が更新されるまで待機する (count_updated シグナルは #1106 で撤去)
+        qtbot.waitUntil(lambda: widget.label.text() == "該当件数: 123件", timeout=2000)
 
     def test_failed_emits_error_signal(
         self,

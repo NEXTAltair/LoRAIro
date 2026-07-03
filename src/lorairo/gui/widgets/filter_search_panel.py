@@ -198,13 +198,8 @@ class FilterSearchPanel(QScrollArea):
     CONDITIONS_SCHEMA_VERSION = 2
 
     # シグナル
-    filter_applied = Signal(dict)  # filter_conditions
     filter_cleared = Signal()
     search_requested = Signal(dict)  # search_conditions
-    search_completed = Signal(dict)  # 検索結果
-
-    # Pipeline State Management
-    pipeline_state_changed = Signal(object)  # PipelineState
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -590,14 +585,6 @@ class FilterSearchPanel(QScrollArea):
                     self._pipeline.transition_to(PipelineState.DISPLAYING)
 
                 self.update_search_preview(count)
-
-                self.search_completed.emit(
-                    {
-                        "results": result.image_metadata,
-                        "count": count,
-                        "conditions": getattr(result, "filter_conditions", {}),
-                    },
-                )
                 logger.info(f"検索結果: {count}件")
             else:
                 logger.error(f"無効な検索結果: {result}")
@@ -613,14 +600,12 @@ class FilterSearchPanel(QScrollArea):
         logger.error(f"検索エラー: {error}")
         self._current_search_worker_id = None
         self._pipeline.transition_to(PipelineState.ERROR)
-        self.search_completed.emit({"results": [], "count": 0, "error": error})
 
     def _on_search_canceled(self, worker_id: str) -> None:
         """検索キャンセルイベント処理。"""
         logger.info(f"検索キャンセル: {worker_id}")
         self._current_search_worker_id = None
         self._pipeline.transition_to(PipelineState.CANCELED)
-        self.search_completed.emit({"results": [], "count": 0, "canceled": True})
 
     def _on_worker_batch_progress(self, worker_id: str, current: int, total: int, filename: str) -> None:
         """ワーカーのバッチ進捗処理 (動的進捗計算)。"""
@@ -656,7 +641,6 @@ class FilterSearchPanel(QScrollArea):
         """PipelineStateMachine の state 変更通知ハンドラ。"""
         del old_state  # signature 一致のため受け取るが未使用 (logger 出力は machine 側)
         self._update_ui_for_state(new_state)
-        self.pipeline_state_changed.emit(new_state)
 
     def _update_ui_for_state(self, state: PipelineState) -> None:
         """状態に応じた UI 更新。"""
@@ -1020,11 +1004,9 @@ class FilterSearchPanel(QScrollArea):
 
             result_data = {"results": results, "count": count, "conditions": conditions}
             self.search_requested.emit(result_data)
-            self.search_completed.emit(result_data)
             logger.info(f"同期検索完了: {count}件")
         except Exception as e:
             logger.error(f"同期検索実行エラー: {e}", exc_info=True)
-            self.search_completed.emit({"results": [], "count": 0, "error": str(e)})
 
     def _on_clear_requested(self) -> None:
         """クリア要求処理。"""
@@ -1306,9 +1288,6 @@ class FilterSearchPanel(QScrollArea):
             self._pipeline.transition_to(PipelineState.ERROR)
             error_message = error_info.get("message", "Unknown error")
             logger.error(f"Pipeline {phase} error: {error_message}")
-
-            if hasattr(self, "search_completed"):
-                self.search_completed.emit({"success": False, "phase": phase, "error": error_message})
         except Exception as e:
             logger.error(f"Failed to handle pipeline error: {e}")
 

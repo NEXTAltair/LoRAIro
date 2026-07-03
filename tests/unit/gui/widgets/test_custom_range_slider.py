@@ -350,19 +350,16 @@ class TestFilterSearchPanel:
         assert hasattr(filter_panel, "lineEditSearch")
         assert hasattr(filter_panel, "date_range_slider")
         assert hasattr(filter_panel, "logic_button_group")  # 新機能
-        assert hasattr(filter_panel, "filter_applied")
+        assert hasattr(filter_panel, "search_requested")
 
-    def test_on_search_canceled_emits_terminal_result(self, filter_panel):
-        """検索キャンセル時にUI状態と検索完了通知が終端することを確認"""
-        results = []
-        filter_panel.search_completed.connect(results.append)
+    def test_on_search_canceled_terminates_pipeline_state(self, filter_panel):
+        """検索キャンセル時にUI状態が終端 (CANCELED) することを確認"""
         filter_panel._current_search_worker_id = "search-123"
 
         filter_panel._on_search_canceled("search-123")
 
         assert filter_panel._current_search_worker_id is None
         assert filter_panel.get_current_pipeline_state() == PipelineState.CANCELED
-        assert results == [{"results": [], "count": 0, "canceled": True}]
 
     def test_get_filter_conditions_basic_search(self, filter_panel):
         """基本検索条件取得テスト"""
