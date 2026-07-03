@@ -872,9 +872,9 @@ class TagPanelWidget(QWidget):
         """
         self._translations = dict(translations)
         current_tag_ids = {
-            tag_dict.get("tag_id")
+            tag_id
             for tag_dict in self._tags
-            if isinstance(tag_dict, dict) and tag_dict.get("tag_id") is not None
+            if isinstance(tag_dict, dict) and isinstance(tag_id := tag_dict.get("tag_id"), int)
         }
         for tag_id in current_tag_ids - usage_counts.keys():
             self._usage_counts.pop(tag_id, None)
