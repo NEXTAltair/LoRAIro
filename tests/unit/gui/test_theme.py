@@ -209,6 +209,10 @@ class TestChipQss:
             ("neutral", theme.PAPER_SHADE, theme.INK_SOFT),
             ("muted", theme.PAPER_SHADE, theme.INK_FAINT),
             ("accent", theme.ACCENT_SOFT, theme.ACCENT_HOVER),
+            # #1105: pipeline chip 定数から移植した色
+            ("primary", theme.CARD, theme.INK),
+            ("multi", theme.CARD, theme.ACCENT_HOVER),
+            ("derived", "transparent", theme.INK_SOFT),
         ],
     )
     def test_chip_kind_maps_to_tokens(self, kind, bg, fg):
@@ -217,11 +221,27 @@ class TestChipQss:
         assert f"color: {fg}" in qss
         assert f"border-radius: {theme.RADIUS_CHIP}px" in qss
 
+    def test_new_chip_kinds_use_expected_borders(self):
+        # #1105: 移植 kind の border 色が手書き定数と一致すること
+        assert f"solid {theme.LINE_STRONG}" in theme.chip_qss("primary")
+        assert f"solid {theme.ACCENT_BORDER}" in theme.chip_qss("multi")
+        assert f"solid {theme.LINE_STRONG}" in theme.chip_qss("derived")
+
     def test_badge_qss_uses_neutral_tokens(self):
         qss = theme.badge_qss()
         assert theme.PAPER_SHADE in qss
         assert theme.INK_SOFT in qss
         assert theme.LINE in qss
+
+    def test_badge_qss_with_kind_recolors(self):
+        # #1105: DsBadge 用に kind で recolor できる (geometry は共通)
+        accent_badge = theme.badge_qss("accent")
+        assert f"background-color: {theme.ACCENT_SOFT}" in accent_badge
+        assert f"color: {theme.ACCENT_HOVER}" in accent_badge
+        # badge geometry (小角丸) は維持
+        assert f"border-radius: {theme.RADIUS_BADGE}px" in accent_badge
+        # neutral (kind=None) とは異なる
+        assert accent_badge != theme.badge_qss()
 
 
 class TestJobStatusColor:

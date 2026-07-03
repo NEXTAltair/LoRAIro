@@ -136,7 +136,18 @@ BORDER_WIDTH_ACCENT = 2  # アクティブタブ下線・選択サムネ枠
 # チップ / バッジ (チップ文法: ● = 利用可 ok / ○ = 要対応 warn or 無効 faint)
 # ---------------------------------------------------------------------------
 
-ChipKind = Literal["ok", "warn", "err", "info", "neutral", "muted", "accent"]
+ChipKind = Literal[
+    "ok",
+    "warn",
+    "err",
+    "info",
+    "neutral",
+    "muted",
+    "accent",
+    "primary",
+    "multi",
+    "derived",
+]
 
 _CHIP_PALETTE: dict[str, tuple[str, str, str]] = {
     # kind: (背景, 文字, border) — soft 地 + 同系 border
@@ -144,9 +155,14 @@ _CHIP_PALETTE: dict[str, tuple[str, str, str]] = {
     "warn": (WARN_SOFT, WARN, WARN_BORDER),  # needs key / 要対応
     "err": (ERR_SOFT, ERR, ERR_BORDER),  # failed
     "info": (INFO_SOFT, INFO, INFO_BORDER),  # 実行中
-    "neutral": (PAPER_SHADE, INK_SOFT, LINE),  # 待機 / queued
-    "muted": (PAPER_SHADE, INK_FAINT, LINE),  # 無効 / discontinued / 中止
-    "accent": (ACCENT_SOFT, ACCENT_HOVER, ACCENT_BORDER),  # タグチップ / multi バッジ
+    "neutral": (PAPER_SHADE, INK_SOFT, LINE),  # 待機 / queued / ledger entry
+    "muted": (PAPER_SHADE, INK_FAINT, LINE),  # 無効 / discontinued / 中止 / route=local
+    "accent": (ACCENT_SOFT, ACCENT_HOVER, ACCENT_BORDER),  # タグチップ / multi バッジ / route=api
+    # #1105: pipeline_stage_table_widget の手書き chip 定数から色を移植 (新色は発明しない)。
+    # 構造差 (mono / dashed / italic) は各利用側の helper が担い、色だけを SSoT 化する。
+    "primary": (CARD, INK, LINE_STRONG),  # 主割当ステージ (card 地 + strong border)
+    "multi": (CARD, ACCENT_HOVER, ACCENT_BORDER),  # multimodal 強調 (card 地 + accent border)
+    "derived": ("transparent", INK_SOFT, LINE_STRONG),  # 派生ステージ (地なし + strong border)
 }
 
 
@@ -169,17 +185,27 @@ def chip_qss(kind: ChipKind) -> str:
     )
 
 
-def badge_qss() -> str:
+def badge_qss(kind: ChipKind | None = None) -> str:
     """種別バッジ (mock .badge-type) 用の QLabel QSS を返す。
 
-    provider 名や job 種別などの中立的なメタ情報表示に使う。
+    provider 名や job 種別などの中立的なメタ情報表示に使う。chip より小角丸
+    (RADIUS_BADGE) で控えめな地色のバッジ。
+
+    Args:
+        kind: None (既定) は中立の type バッジ (paper-shade 地 + line border)。
+            ``ChipKind`` を渡すと ``_CHIP_PALETTE`` の色で recolor する
+            (バッジの geometry・font は共通のまま、色だけ差し替える)。
 
     Returns:
-        paper-shade 地 + line border + 小角丸の QLabel スタイル文字列。
+        指定色の地 + 同系 border + 小角丸の QLabel スタイル文字列。
     """
+    if kind is None:
+        bg, fg, border = PAPER_SHADE, INK_SOFT, LINE
+    else:
+        bg, fg, border = _CHIP_PALETTE[kind]
     return (
-        f"QLabel {{ background-color: {PAPER_SHADE}; color: {INK_SOFT};"
-        f" border: {BORDER_WIDTH}px solid {LINE}; border-radius: {RADIUS_BADGE}px; padding: 1px 6px;"
+        f"QLabel {{ background-color: {bg}; color: {fg};"
+        f" border: {BORDER_WIDTH}px solid {border}; border-radius: {RADIUS_BADGE}px; padding: 1px 6px;"
         f" font-size: {FONT_SIZE_SMALL}px; font-weight: {FONT_WEIGHT_MEDIUM}; }}"
     )
 
