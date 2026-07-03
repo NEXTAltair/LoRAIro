@@ -96,7 +96,7 @@ class TagManagementService:
         )
 
     @property
-    def _translation_prefetch_cache(self) -> dict[str, dict[str, list[str]] | None]:
+    def _translation_prefetch_cache(self) -> dict[str, tuple[dict[str, list[str]] | None, list[int]]]:
         """呼び出しスレッド専用の prefetch キャッシュ (#998)。
 
         thread-local にすることで、並行実行される複数 RefinementWorker (別 QThread) の
@@ -271,15 +271,11 @@ class TagManagementService:
         Returns:
             needs_refinement=True だった評価ごとの RefinementRecommendation。
         """
-        translations = self._fetch_exact_match_translations(tag, repo=repo)
+        translations, tag_ids = self._fetch_exact_match_entry(tag, repo=repo)
         if translations is None:
             # 完全一致行が無い → 翻訳品質評価をスキップ (素通し)。
             return []
-        candidates: list[str] = []
-        for key in self._JAPANESE_TRANSLATION_KEYS:
-            for value in translations.get(key, []):
-                if value not in candidates:
-                    candidates.append(value)
+        candidates = self._collect_ja_candidates(translations)
         recommendations: list[RefinementRecommendation] = []
         if not candidates:
             # 実在タグだが ja 翻訳が未登録/空 → missing_translation を発火させる。
@@ -291,26 +287,94 @@ class TagManagementService:
             if rec.needs_refinement:
                 recommendations.append(rec)
         else:
-            for candidate in candidates:
-                rec = recommend_translation_quality(
-                    source_tag=tag,
-                    translation=candidate,
-                    language=self.TRANSLATION_QUALITY_LANGUAGE,
-                )
-                if rec.needs_refinement:
-                    recommendations.append(rec)
+            recommendations = self._evaluate_ja_candidates(tag, candidates)
+            if recommendations:
+                # ユーザーが「翻訳を修正」(#1054) で登録した user overlay の値は、同一言語
+                # キーの base 誤訳候補を supersede する。overlay は追加専用のため base の
+                # 誤訳行は消せず、全候補評価のままだと修正直後も同じ ⚠ が再発し続ける
+                # (PR #1086 Codex P2)。警告が出たタグに限り overlay を引いて再評価する。
+                overrides = self._user_translation_overrides(tag_ids, repo=repo)
+                if overrides:
+                    superseded: dict[str, list[str]] = {
+                        key: [overrides[key]] if key in overrides else translations.get(key, [])
+                        for key in self._JAPANESE_TRANSLATION_KEYS
+                    }
+                    recommendations = self._evaluate_ja_candidates(
+                        tag, self._collect_ja_candidates(superseded)
+                    )
         if recommendations:
             logger.trace(
                 f"翻訳品質の問題を検出: tag='{tag}', 候補数={len(candidates)}, 問題={len(recommendations)}"
             )
         return recommendations
 
+    def _collect_ja_candidates(self, translations: dict[str, list[str]]) -> list[str]:
+        """ja 系言語キー ("ja"/"japanese") の翻訳候補を順序保持で重複排除して集める (#976)。"""
+        candidates: list[str] = []
+        for key in self._JAPANESE_TRANSLATION_KEYS:
+            for value in translations.get(key, []):
+                if value not in candidates:
+                    candidates.append(value)
+        return candidates
+
+    def _evaluate_ja_candidates(self, tag: str, candidates: list[str]) -> list[RefinementRecommendation]:
+        """ja 翻訳候補を全評価し、問題が出たものだけ返す (#976)。"""
+        recommendations: list[RefinementRecommendation] = []
+        for candidate in candidates:
+            rec = recommend_translation_quality(
+                source_tag=tag,
+                translation=candidate,
+                language=self.TRANSLATION_QUALITY_LANGUAGE,
+            )
+            if rec.needs_refinement:
+                recommendations.append(rec)
+        return recommendations
+
+    def _user_translation_overrides(
+        self, tag_ids: list[int], *, repo: object | None = None
+    ) -> dict[str, str]:
+        """user overlay に登録済みの ja 系翻訳 (言語キーごとの最新値) を返す (#1054)。
+
+        「翻訳を修正」で登録した値は、同一言語キーの base 候補を品質評価で supersede する
+        ための provenance。overlay (`USER_TAG_TRANSLATION_PATCH`) は追加専用のため、同一
+        言語キーに複数 patch がある場合は最新 (translation_id = patch_id 最大) を採用する。
+
+        Args:
+            tag_ids: 完全一致行の tag_id 集合。
+            repo: user overlay を持つ merged reader。None なら self.reader。
+
+        Returns:
+            ``{言語キー: 最新のユーザー翻訳}``。overlay 未使用/取得失敗は空 dict
+            (呼び出し元は全候補評価に fallback)。
+        """
+        reader = repo if repo is not None else self.reader
+        user_repo = getattr(reader, "user_repo", None)
+        if user_repo is None or not tag_ids:
+            return {}
+        latest: dict[str, str] = {}
+        try:
+            for tag_id in tag_ids:
+                rows = sorted(user_repo.get_translations(tag_id), key=lambda r: r.translation_id)
+                for row in rows:
+                    if row.language in self._JAPANESE_TRANSLATION_KEYS and row.translation:
+                        latest[row.language] = row.translation
+        except (SQLAlchemyError, ValueError, RuntimeError) as e:
+            logger.warning(f"user overlay 翻訳の取得に失敗 (全候補評価に fallback): {e}")
+            return {}
+        return latest
+
     def _fetch_exact_match_translations(
         self, tag: str, *, repo: object | None = None
     ) -> dict[str, list[str]] | None:
+        """入力タグに完全一致する行の言語別翻訳候補のみ返す互換ラッパー (#976/#1054)。"""
+        return self._fetch_exact_match_entry(tag, repo=repo)[0]
+
+    def _fetch_exact_match_entry(
+        self, tag: str, *, repo: object | None = None
+    ) -> tuple[dict[str, list[str]] | None, list[int]]:
         """入力タグに完全一致する行の言語別翻訳候補を取得する (#976)。
 
-        戻り値で「完全一致行の有無」と「翻訳候補の中身」を区別する:
+        戻り値の第1要素で「完全一致行の有無」と「翻訳候補の中身」を区別する:
         - None: 完全一致行が無い (別タグの翻訳経由マッチ / 行なし / DB read 失敗)。
           呼び出し元は翻訳品質評価をスキップする (偽陽性 ⚠ 防止)。
         - dict: 完全一致行が存在する。中身が空 ({} や ja キー無し) の場合は ja 翻訳が
@@ -339,11 +403,12 @@ class TagManagementService:
             repo: 検索に使う DB リーダー。None なら merged reader を使う。
 
         Returns:
-            完全一致行が無ければ None、あれば言語コード -> 翻訳候補リストのマップ。
+            (翻訳マップ, 完全一致行の tag_id リスト)。完全一致行が無ければ (None, [])。
+            tag_id は user overlay の provenance 照合 (#1054) に使う。
         """
         cached = self._translation_prefetch_cache.pop(tag.casefold(), _PREFETCH_MISS)
         if cached is not _PREFETCH_MISS:
-            return cast("dict[str, list[str]] | None", cached)
+            return cast("tuple[dict[str, list[str]] | None, list[int]]", cached)
         reader = cast("TagReaderProtocol", repo) if repo is not None else self.reader
         request = TagSearchRequest(
             query=tag,
@@ -359,18 +424,22 @@ class TagManagementService:
             # 既存 search_tags 呼び出し箇所 (trigger_vocab) と同じ search-failure クラスを
             # catch し、翻訳品質評価を非ブロッキングに縮退させる (#991 P2)。
             logger.warning(f"翻訳取得に失敗 (翻訳品質評価をスキップ): tag='{tag}': {e}")
-            return None
-        return self._extract_exact_translations(result, tag)
+            return None, []
+        return self._extract_exact_entry(result, tag)
 
-    def _extract_exact_translations(self, result: TagSearchResult, tag: str) -> dict[str, list[str]] | None:
-        """search 結果から入力タグに完全一致する行の言語別翻訳をマージする (#976/#998)。
+    def _extract_exact_entry(
+        self, result: TagSearchResult, tag: str
+    ) -> tuple[dict[str, list[str]] | None, list[int]]:
+        """search 結果から入力タグに完全一致する行の言語別翻訳と tag_id をマージする (#976/#998)。
 
         `tag` / `source_tag` が入力へ casefold 一致した行のみ採用する (Codex #991 P2)。
         partial=False でも alias / 別タグの翻訳経由でマッチした行はその翻訳を借用せず、
-        無関係な偽陽性 ⚠ を防ぐ。完全一致行があれば翻訳 (空でも可) を、無ければ None を返す。
+        無関係な偽陽性 ⚠ を防ぐ。完全一致行があれば (翻訳マップ, tag_id リスト) を、
+        無ければ (None, []) を返す。
         """
         normalized_query = tag.casefold()
         merged: dict[str, list[str]] = {}
+        tag_ids: list[int] = []
         found_exact = False
         for item in result.items:
             is_exact_match = item.tag.casefold() == normalized_query or (
@@ -379,6 +448,8 @@ class TagManagementService:
             if not is_exact_match:
                 continue
             found_exact = True
+            if item.tag_id is not None and item.tag_id not in tag_ids:
+                tag_ids.append(item.tag_id)
             if not item.translations:
                 continue
             for language, values in item.translations.items():
@@ -386,7 +457,7 @@ class TagManagementService:
                 for value in values:
                     if value not in bucket:
                         bucket.append(value)
-        return merged if found_exact else None
+        return (merged, tag_ids) if found_exact else (None, [])
 
     def resolve_usage_counts_for_tags(
         self, tags: "Iterable[str]", *, repo: object | None = None
@@ -458,10 +529,10 @@ class TagManagementService:
         for tag in unique:
             result = batch.get(tag)
             if result is None:
-                # マッチ無し = 完全一致行なし → None (呼び出し元は素通し)。
-                cache[tag.casefold()] = None
+                # マッチ無し = 完全一致行なし → (None, []) (呼び出し元は素通し)。
+                cache[tag.casefold()] = (None, [])
             else:
-                cache[tag.casefold()] = self._extract_exact_translations(result, tag)
+                cache[tag.casefold()] = self._extract_exact_entry(result, tag)
         logger.debug(f"翻訳 prefetch: 対象={len(unique)}件")
 
     def _merge_recommendations(
