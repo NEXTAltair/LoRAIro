@@ -4,7 +4,7 @@ import pytest
 from PySide6.QtCore import Qt
 
 from lorairo.gui import theme
-from lorairo.gui.widgets.model_checkbox_widget import PROVIDER_STYLES, ModelCheckboxWidget, ModelInfo
+from lorairo.gui.widgets.model_checkbox_widget import ModelCheckboxWidget, ModelInfo
 
 
 class TestModelCheckboxWidget:
@@ -376,36 +376,36 @@ class TestModelCheckboxWidget:
         assert "Model ID: openrouter/qwen/qwen3.7-max" in widget.labelModelName.toolTip()
 
 
-class TestProviderStylesConstant:
-    """PROVIDER_STYLES定数のテスト"""
+class TestProviderBadgeIsDsBadge:
+    """#1105: labelProvider が DsBadge へ差し替えられていることを確認。"""
 
-    def test_all_providers_defined(self):
-        """全プロバイダーのスタイルが定義されていることを確認"""
-        required_providers = ["local", "openai", "anthropic", "google", "default"]
-        for provider in required_providers:
-            assert provider in PROVIDER_STYLES
+    @pytest.fixture
+    def widget(self, qtbot):
+        info = ModelInfo(
+            name="gpt-4o",
+            provider="openai",
+            capabilities=["tags"],
+            litellm_model_id="openai/gpt-4o",
+            is_local=False,
+            requires_api_key=True,
+            available=True,
+        )
+        widget = ModelCheckboxWidget(info)
+        qtbot.addWidget(widget)
+        return widget
 
-    def test_styles_are_valid_qss(self):
-        """スタイル文字列が有効なQSS形式であることを確認"""
-        for _provider, style in PROVIDER_STYLES.items():
-            # 基本的なQSS構文チェック
-            assert "QLabel" in style
-            assert "{" in style
-            assert "}" in style
-            assert "background-color" in style
-            assert "color" in style
+    def test_provider_label_is_ds_badge(self, widget):
+        from lorairo.gui.widgets.ds_badge import DsBadge
 
-    def test_styles_contain_required_properties(self):
-        """各スタイルに必須プロパティが含まれることを確認"""
-        required_properties = [
-            "background-color",
-            "color",
-            "border",
-            "border-radius",
-            "padding",
-            "font-weight",
-        ]
+        assert isinstance(widget.labelProvider, DsBadge)
 
-        for provider, style in PROVIDER_STYLES.items():
-            for prop in required_properties:
-                assert prop in style, f"{provider} style missing {prop}"
+    def test_provider_badge_uses_neutral_badge_tokens(self, widget):
+        # DsBadge が中立 type バッジ (badge_qss) を供給する
+        style = widget.labelProvider.styleSheet()
+        assert theme.PAPER_SHADE in style
+        assert theme.INK_SOFT in style
+        assert theme.LINE in style
+
+    def test_provider_dynamic_property_preserved(self, widget):
+        # 将来の差別化用 dynamic property は維持する
+        assert widget.labelProvider.property("provider") == "openai"

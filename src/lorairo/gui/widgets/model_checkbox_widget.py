@@ -19,6 +19,7 @@ from PySide6.QtWidgets import QWidget
 from ...gui import theme
 from ...gui.designer.ModelCheckboxWidget_ui import Ui_ModelCheckboxWidget
 from ...utils.log import logger
+from .ds_badge import DsBadge
 from .ds_chip import DsChip
 
 
@@ -53,15 +54,8 @@ class ModelInfo:
     available: bool = True
 
 
-# プロバイダー別スタイル定義 (Theme v1: mock .badge-type の中立バッジに統一。
-# キー構成は従来 API 互換のため維持し、dynamic property "provider" で将来の差別化に備える)
-PROVIDER_STYLES = {
-    "local": theme.badge_qss(),
-    "openai": theme.badge_qss(),
-    "anthropic": theme.badge_qss(),
-    "google": theme.badge_qss(),
-    "default": theme.badge_qss(),
-}
+# プロバイダーバッジのサイズ (旧 .ui labelProvider の固定 geometry を踏襲、#1105)
+_PROVIDER_BADGE_SIZE = (60, 18)
 
 # Issue #755: Wireframes v11 のモデルステータス表現 (● installed / ● API ready / ○ needs key)
 # #1105: DsChip へ寄せる。ドット文字は表示文字列側に含めるため dot="none" で描画し、
@@ -100,6 +94,10 @@ class ModelCheckboxWidget(QWidget, Ui_ModelCheckboxWidget):
         self.labelStatus = DsChip("", kind="neutral", dot="none", parent=self)
         self.labelStatus.setObjectName("labelStatus")
         self.mainLayout.addWidget(self.labelStatus)
+
+        # #1105: .ui の labelProvider (QLabel + badge_qss 直書き) を DsBadge へ差し替える。
+        # geometry (固定 60x18・中央寄せ) は据え置き、配色は DsBadge の中立 type バッジに統一。
+        self._swap_provider_badge()
 
         # UI初期化
         self._setup_model_display()
@@ -179,20 +177,36 @@ class ModelCheckboxWidget(QWidget, Ui_ModelCheckboxWidget):
             return "openrouter via OpenRouter"
         return route
 
+    def _swap_provider_badge(self) -> None:
+        """.ui の ``labelProvider`` QLabel を DsBadge へ差し替える (#1105)。
+
+        全 provider が同一の中立 type バッジ (badge_qss) だったため、配色は DsBadge が
+        供給する。geometry (固定サイズ・中央寄せ) は旧 .ui labelProvider を踏襲する。
+        """
+        old_provider = self.labelProvider
+        badge = DsBadge("", parent=self)
+        badge.setObjectName("labelProvider")
+        badge.setFixedSize(*_PROVIDER_BADGE_SIZE)
+        badge.setAlignment(Qt.AlignmentFlag.AlignCenter)
+
+        index = self.mainLayout.indexOf(old_provider)
+        self.mainLayout.insertWidget(index, badge)
+        self.mainLayout.removeWidget(old_provider)
+        old_provider.deleteLater()
+        self.labelProvider = badge
+
     def _apply_provider_styling(self, provider_display: str) -> None:
-        """プロバイダー別スタイリング適用（辞書ベース）"""
+        """プロバイダー別の dynamic property を設定する (#1105: 配色は DsBadge が供給)。
+
+        配色は全 provider 共通の中立 type バッジ (DsBadge) に統一済みのため、
+        ここでは将来の QSS 差別化に備えた dynamic property "provider" のみ付与する。
+        """
         try:
             # プロバイダー表示名をキーに変換
             provider_key = "local" if provider_display == "ローカル" else provider_display.lower()
 
-            # スタイル辞書から取得（存在しない場合はデフォルト）
-            style = PROVIDER_STYLES.get(provider_key, PROVIDER_STYLES["default"])
-
             # Dynamic Property設定（将来的なQSS対応のため）
             self.labelProvider.setProperty("provider", provider_key)
-
-            # スタイルシート適用
-            self.labelProvider.setStyleSheet(style)
 
         except Exception as e:
             logger.error(f"Error applying provider styling: {e}", exc_info=True)
