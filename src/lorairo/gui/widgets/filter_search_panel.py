@@ -43,6 +43,7 @@ from ...utils.log import logger
 from .. import theme
 from .count_estimate import CountEstimateWidget
 from .custom_range_slider import CustomRangeSlider
+from .ds_segmented_control import DsSegmentedControl
 from .favorite_filter import FavoriteFilterPanel
 from .pipeline_state import PipelineState, PipelineStateMachine
 from .search_facets_sidebar import SearchFacetsSidebar
@@ -322,9 +323,9 @@ class FilterSearchPanel(QScrollArea):
         """
         self._rating_chips = RatingChipToggleRow(_MANUAL_RATING_OPTIONS, exclusive=False)
         self._ai_rating_chips = RatingChipToggleRow(_AI_RATING_OPTIONS, exclusive=False)
-        self._rating_combine_toggle = RatingChipToggleRow(
-            _RATING_COMBINE_OPTIONS, exclusive=True, default="and"
-        )
+        # AND/OR 結合トグルは排他 (単一選択) のため DS 公式部品 DsSegmentedControl へ統一 (#1105)。
+        # 複数選択の手動/AI chip 行は RatingChipToggleRow のまま (排他部品では表現できない)。
+        self._rating_combine_toggle = DsSegmentedControl(_RATING_COMBINE_OPTIONS, value="and", size="small")
 
         self._replace_placeholder(self.ui.ratingChipPlaceholder, self._rating_chips)
         self._replace_placeholder(self.ui.aiRatingChipPlaceholder, self._ai_rating_chips)
@@ -413,7 +414,7 @@ class FilterSearchPanel(QScrollArea):
         self.ui.checkboxDateFilter.toggled.connect(self._on_filter_value_changed)
         self._rating_chips.changed.connect(self._on_filter_value_changed)
         self._ai_rating_chips.changed.connect(self._on_filter_value_changed)
-        self._rating_combine_toggle.changed.connect(self._on_filter_value_changed)
+        self._rating_combine_toggle.value_changed.connect(self._on_filter_value_changed)
         self.ui.checkboxIncludeUnrated.toggled.connect(self._on_filter_value_changed)
         self.ui.checkboxOnlyUntagged.toggled.connect(self._on_filter_value_changed)
         self.ui.checkboxOnlyUncaptioned.toggled.connect(self._on_filter_value_changed)
