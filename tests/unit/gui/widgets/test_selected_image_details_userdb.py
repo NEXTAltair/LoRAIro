@@ -185,6 +185,7 @@ def test_translation_add_clears_refinement_cache_before_reeval(qtbot, monkeypatc
 
     assert refinement.clear_cache_calls == 1
 
+
 def test_preferred_en_adds_selector_entry_when_only_legacy_english(qtbot, monkeypatch) -> None:
     """en の主訳変更時、候補が legacy "english" しか無くても "en" 項目を追加する (Codex P2)。
 
