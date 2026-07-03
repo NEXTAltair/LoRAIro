@@ -25,7 +25,6 @@ from PySide6.QtCore import Qt, Signal, Slot
 from PySide6.QtWidgets import (
     QButtonGroup,
     QComboBox,
-    QFrame,
     QHBoxLayout,
     QLabel,
     QLineEdit,
@@ -37,6 +36,7 @@ from PySide6.QtWidgets import (
 )
 
 from lorairo.gui import theme
+from lorairo.gui.widgets.ds_removable_chip import RemovableChip
 from lorairo.services.export_overlay import ExportTagOverlay, apply_overlay
 from lorairo.services.trigger_vocab import VocabEntry
 
@@ -505,35 +505,12 @@ class ExportOverlayBar(QWidget):
             )
 
     def _make_chip(self, text: str, on_remove: Callable[[], None]) -> QWidget:
-        """× で削除可能な overlay chip（橙系）を生成する。"""
-        chip = QFrame()
-        chip.setObjectName("overlayChip")
-        chip.setStyleSheet(
-            f"QFrame#overlayChip {{ background: {theme.ACCENT_SOFT}; border: 1px solid {theme.ACCENT_BORDER};"
-            f" border-radius: {theme.RADIUS}px; }}"
-        )
-        lay = QHBoxLayout(chip)
-        lay.setContentsMargins(6, 2, 4, 2)
-        lay.setSpacing(4)
+        """× で削除可能な overlay chip（橙系）を生成する。
 
-        label = QLabel(text)
-        label.setStyleSheet(
-            f"color: {theme.ACCENT_HOVER}; font-size: {theme.FONT_SIZE_SMALL}px; border: none; background: transparent;"
-        )
-        lay.addWidget(label)
-
-        remove_btn = QPushButton("✕")
-        remove_btn.setObjectName("chipRemoveBtn")
-        remove_btn.setFixedSize(16, 16)
-        remove_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        remove_btn.setStyleSheet(
-            f"QPushButton {{ border: none; background: transparent; color: {theme.ACCENT_HOVER};"
-            f" font-size: {theme.FONT_SIZE_META}px; }}"
-            f" QPushButton:hover {{ color: {theme.ERR}; }}"
-        )
-        remove_btn.clicked.connect(on_remove)
-        lay.addWidget(remove_btn)
-
+        DS 共通部品 RemovableChip へ統一 (#1105、既存と同一の accent-soft 地 + ✕ 削除)。
+        """
+        chip = RemovableChip(text)
+        chip.removed.connect(on_remove)
         return chip
 
     # ------------------------------------------------------------------

@@ -13,7 +13,6 @@ condition の取得・適用は Parent コールバックで委ねる。
 from collections.abc import Callable
 from typing import Any
 
-from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
     QGroupBox,
     QHBoxLayout,
@@ -23,13 +22,13 @@ from PySide6.QtWidgets import (
     QListWidgetItem,
     QMessageBox,
     QPushButton,
-    QToolButton,
     QVBoxLayout,
     QWidget,
 )
 
 from ...gui import theme
 from ...utils.log import logger
+from .ds_removable_chip import RemovableChip
 
 ConditionsGetter = Callable[[], dict[str, Any]]
 ConditionsApplier = Callable[[dict[str, Any]], None]
@@ -177,36 +176,18 @@ class FavoriteFilterPanel(QGroupBox):
             self._chip_layout.addWidget(self._build_query_chip(name, conditions_map.get(name)))
 
     def _build_query_chip(self, name: str, conditions: dict[str, Any] | None) -> QWidget:
-        """保存クエリ 1 件分の chip (名前 + サマリ + × 削除、クリックで適用)。"""
-        container = QWidget()
-        layout = QHBoxLayout(container)
-        layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(1)
+        """保存クエリ 1 件分の chip (名前 + サマリ + × 削除、クリックで適用)。
 
+        DS 共通部品 RemovableChip へ統一 (#1105)。本文クリックで適用 (clicked)、
+        × で削除 (removed)。タグ寄りの丸みは radius=RADIUS_CHIP で維持する。
+        """
         summary = self._summarize_conditions(conditions)
         label = f"★ {name}" + (f"  {summary}" if summary else "")
-        chip = QPushButton(label, container)
-        chip.setObjectName("favoriteQueryChip")
-        chip.setCursor(Qt.CursorShape.PointingHandCursor)
+        chip = RemovableChip(label, clickable=True, radius=theme.RADIUS_CHIP)
         chip.setToolTip(f"{name} を適用" + (f" ({summary})" if summary else ""))
-        chip.setStyleSheet(
-            f"QPushButton {{ background-color: {theme.ACCENT_SOFT}; color: {theme.ACCENT_HOVER};"
-            f" border: {theme.BORDER_WIDTH}px solid {theme.ACCENT_BORDER};"
-            f" border-radius: {theme.RADIUS_CHIP}px; padding: 2px 9px;"
-            f" font-size: {theme.FONT_SIZE_SMALL}px; }}"
-            f" QPushButton:hover {{ border-color: {theme.ACCENT}; }}"
-        )
-        chip.clicked.connect(lambda _checked=False, n=name: self._load_by_name(n))
-        layout.addWidget(chip)
-
-        remove = QToolButton(container)
-        remove.setObjectName("favoriteQueryChipRemove")
-        remove.setText("×")
-        remove.setAutoRaise(True)
-        remove.setToolTip(f"{name} を削除")
-        remove.clicked.connect(lambda _checked=False, n=name: self._delete_by_name(n))
-        layout.addWidget(remove)
-        return container
+        chip.clicked.connect(lambda n=name: self._load_by_name(n))
+        chip.removed.connect(lambda n=name: self._delete_by_name(n))
+        return chip
 
     def _summarize_conditions(self, conditions: dict[str, Any] | None) -> str:
         """保存フィルタ条件の短い mono サマリを返す (#815、chip sub 用)。"""

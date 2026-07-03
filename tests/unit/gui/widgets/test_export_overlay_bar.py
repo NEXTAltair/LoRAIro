@@ -181,6 +181,21 @@ class TestChips:
 
         assert loaded_bar._chip_layout.count() == 3
 
+    def test_chip_remove_button_removes_trigger(self, loaded_bar: ExportOverlayBar) -> None:
+        """chip の × (RemovableChip.removed) 押下で trigger が削除されること (#1105)。"""
+        from PySide6.QtWidgets import QPushButton
+
+        loaded_bar._trigger_edit.setText("magic")
+        loaded_bar._add_trigger_btn.click()
+
+        chip = loaded_bar._chip_layout.itemAt(0).widget()
+        remove_btn = chip.findChild(QPushButton, "dsRemovableChipRemove")
+        assert remove_btn is not None
+        remove_btn.click()
+
+        assert loaded_bar.current_overlay().add == []
+        assert loaded_bar._chip_layout.count() == 0
+
 
 # ------------------------------------------------------------------
 # scope
