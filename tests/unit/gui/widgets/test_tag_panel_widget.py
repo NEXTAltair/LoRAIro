@@ -1386,3 +1386,105 @@ def test_translation_fix_pending_metadata_blocks_add_fallback(panel, sample_tags
     panel.apply_tag_metadata({}, {}, {})
     panel._open_translation_fix_dialog("1girl")
     assert opened == ["1girl"]
+
+
+# usage counts のセッション内キャッシュ (#1083) ---------------------------------
+
+
+def test_metric_bar_survives_image_switch_during_phase1(panel, sample_tags):
+    """画像切替の phase 1 (usage 空) で metric バーが消えない (#1083)。
+
+    #1046 の2段階描画では選択直後の set_tags が usage_counts={} を渡すため、
+    従来はキャッシュがクリアされ metadata worker 完了までバーが消えていた。
+    """
+    panel.set_tags(sample_tags, image_id=1)
+    panel.apply_tag_metadata({}, {10: {"danbooru": 1234}, 20: {"danbooru": 800}}, {})
+    assert panel._metric_bar.isVisibleTo(panel)
+
+    # 画像2へ切替: 既出 tag_id を含むタグ集合、usage は phase 1 なので空
+    image2_tags = [
+        {"tag": "1girl", "tag_id": 10, "model_name": "wd", "source": "AI", "confidence_score": 0.9},
+        {"tag": "smile", "tag_id": 99, "model_name": "wd", "source": "AI", "confidence_score": 0.8},
+    ]
+    panel.set_tags(image2_tags, image_id=2, usage_counts={})
+
+    assert panel._metric_bar.isVisibleTo(panel)  # 既出 tag_id=10 の count で表示継続
+    assert panel._counts_by_canonical.get("1girl") == {"danbooru": 1234}
+
+
+def test_metric_selection_preserved_across_image_switch(panel, sample_tags):
+    """metric の選択 (danbooru 等) が画像切替をまたいで維持される (#1083)。"""
+    panel.set_tags(sample_tags, image_id=1)
+    panel.apply_tag_metadata({}, {10: {"danbooru": 1234}}, {})
+    index = panel._metric_combo.findText("danbooru")
+    panel._metric_combo.setCurrentIndex(index)
+    assert panel._metric_source == "danbooru"
+
+    panel.set_tags(sample_tags, image_id=2, usage_counts={})
+
+    assert panel._metric_source == "danbooru"
+
+
+def test_apply_tag_metadata_merges_usage_counts(panel, sample_tags):
+    """apply_tag_metadata は他画像で貯めた counts を消さず merge する (#1083)。
+
+    表示中タグ (tag_id 10, 20) の counts は今回の解決結果が正 (無ければ退避、
+    Codex P2) だが、表示外の tag_id (別画像で貯めた 999) は保持される。
+    """
+    panel.set_tags(sample_tags, image_id=1)
+    panel.apply_tag_metadata({}, {999: {"danbooru": 5}}, {})  # 別画像分のキャッシュ相当
+    panel.apply_tag_metadata({}, {10: {"danbooru": 1234}, 20: {"danbooru": 800}}, {})
+
+    assert panel._usage_counts == {
+        999: {"danbooru": 5},
+        10: {"danbooru": 1234},
+        20: {"danbooru": 800},
+    }
+
+
+def test_clear_keeps_usage_cache_but_hides_metric_bar(panel, sample_tags):
+    """clear() はキャッシュを保持しつつ、タグ無しなので metric バーは隠れる (#1083)。"""
+    panel.set_tags(sample_tags, image_id=1)
+    panel.apply_tag_metadata({}, {10: {"danbooru": 1234}}, {})
+
+    panel.clear()
+
+    assert not panel._metric_bar.isVisibleTo(panel)  # タグが無いので非表示
+    assert panel._usage_counts == {10: {"danbooru": 1234}}  # キャッシュは残る
+
+    # 再選択で即座に復活する
+    panel.set_tags(sample_tags, image_id=3, usage_counts={})
+    assert panel._metric_bar.isVisibleTo(panel)
+
+
+def test_apply_tag_metadata_evicts_stale_counts_for_current_tags(panel, sample_tags):
+    """表示中タグで解決結果に無い tag_id の stale キャッシュは退避する (Codex P2)。
+
+    セッション中に usage 行が削除された / tag DB が差し替えられたタグの古い count を
+    phase 2 以降も表示し続けないこと。他画像で貯めた無関係な tag_id は保持する。
+    """
+    panel.set_tags(sample_tags, image_id=1)  # tag_id 10, 20 を含む
+    panel.apply_tag_metadata({}, {10: {"danbooru": 1234}, 999: {"danbooru": 5}}, {})
+
+    # 2回目の解決で tag_id=10 の count が消えた (usage 行削除相当)
+    panel.apply_tag_metadata({}, {20: {"danbooru": 800}}, {})
+
+    assert 10 not in panel._usage_counts  # 表示中タグの stale は退避
+    assert panel._usage_counts.get(20) == {"danbooru": 800}
+    assert panel._usage_counts.get(999) == {"danbooru": 5}  # 他画像分は保持
+
+
+def test_set_tags_explicit_counts_evict_missing_current_tags(panel, sample_tags):
+    """set_tags の明示的な非空 usage_counts は表示中タグ分の正として扱う (Codex P2)。
+
+    map に無い表示中 tag_id の古いキャッシュは退避し、phase 1 の空 map では保持する。
+    """
+    panel.set_tags(sample_tags, image_id=1)
+    panel.apply_tag_metadata({}, {10: {"danbooru": 1234}, 999: {"danbooru": 5}}, {})
+
+    # tag_id 10, 20 を含むタグ集合へ、20 だけの明示 counts を渡す
+    panel.set_tags(sample_tags, image_id=2, usage_counts={20: {"danbooru": 800}})
+
+    assert 10 not in panel._usage_counts  # 表示中で map に無い分は退避
+    assert panel._usage_counts.get(20) == {"danbooru": 800}
+    assert panel._usage_counts.get(999) == {"danbooru": 5}  # 表示外は保持
