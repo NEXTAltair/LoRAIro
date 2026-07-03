@@ -136,3 +136,19 @@ def test_type_edit_skipped_without_service(qtbot, monkeypatch) -> None:
     monkeypatch.setattr(widget, "_trigger_refinement_evaluation", lambda: None)
     # set_tag_management_service を呼ばない = _tag_management_service is None
     widget._on_tag_metadata_edit("1girl", "copyright")  # 例外を出さないこと
+
+
+def test_translation_add_clears_refinement_cache_before_reeval(qtbot, monkeypatch) -> None:
+    """翻訳追加/修正後は refinement キャッシュを無効化する (PR #1086 Codex P2)。
+
+    キャッシュが残ると、⚠ → 翻訳修正で正しい値を書いても stale な翻訳品質警告が
+    再表示され続ける。type 補正フローと同じ扱いにする。
+    """
+    service = _FakeTagService(resolve_to=42)
+    widget = _make_widget(qtbot, monkeypatch, service)
+    refinement = _FakeRefinementService()
+    widget._refinement_service = refinement  # type: ignore[assignment]
+
+    widget._on_translation_add("1girl", "ja", "少女")
+
+    assert refinement.clear_cache_calls == 1

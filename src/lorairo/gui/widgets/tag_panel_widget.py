@@ -29,6 +29,7 @@ from PySide6.QtWidgets import (
     QLabel,
     QLineEdit,
     QMenu,
+    QMessageBox,
     QPushButton,
     QScrollArea,
     QSizePolicy,
@@ -55,6 +56,19 @@ _METRIC_NONE_LABEL = "なし"
 # 'not_needed' のみインライン破線 chip (無効化) で残し、'incorrect'/'replaced' は非表示。
 _REJECT_REASON_NOT_NEEDED = "not_needed"
 
+# 翻訳品質系の RefinementReason.code (lib の _detect_translation_quality_reasons が返す集合、#1054)。
+# これらが付いた chip は「翻訳を修正…」を ⚠ 付きラベルにして修正 UI への直行導線にする。
+# missing_translation は既存翻訳が無い (修正対象なし) ため対象外で、「翻訳を追加…」が導線。
+_TRANSLATION_FIX_REASON_CODES: frozenset[str] = frozenset(
+    {
+        "wrong_language_translation",
+        "overlong_translation",
+        "description_like_translation",
+        "translation_mismatch",
+        "low_quality_translation",
+    }
+)
+
 
 class SelectableTagChip(QLabel):
     """選択トグルできるタグ chip (Issue #814 / #931 / #987)。
@@ -77,6 +91,7 @@ class SelectableTagChip(QLabel):
     refinement_apply_requested = Signal(str, str)
     # タグ情報メニュー要求 (#989、tagdb userdb 系)。親がダイアログを開く。
     translation_add_menu_requested = Signal(str)  # canonical — 翻訳を追加
+    translation_fix_menu_requested = Signal(str)  # canonical — 翻訳を修正 (#1054)
     type_edit_menu_requested = Signal(str)  # canonical — タグ情報 (種別) を編集
     # 使用頻度を見るメニュー要求 (#997)。read-only で TagPanelWidget 内で完結する。
     usage_counts_menu_requested = Signal(str)  # canonical
@@ -182,6 +197,16 @@ class SelectableTagChip(QLabel):
         translation_action = menu.addAction(translation_label)
         translation_action.triggered.connect(
             lambda _checked=False: self.translation_add_menu_requested.emit(self.canonical)
+        )
+        # 誤翻訳の修正導線 (#1054)。翻訳品質系 reason が付いた chip では ⚠ 付きラベルにして
+        # 直行導線であることを明示する (reason の詳細はツールチップに出ている)。
+        has_translation_reason = self.refinement is not None and any(
+            reason.code in _TRANSLATION_FIX_REASON_CODES for reason in self.refinement.reasons
+        )
+        fix_label = "翻訳を修正 (⚠ 翻訳品質)…" if has_translation_reason else "翻訳を修正…"
+        fix_action = menu.addAction(fix_label)
+        fix_action.triggered.connect(
+            lambda _checked=False: self.translation_fix_menu_requested.emit(self.canonical)
         )
         type_action = menu.addAction("タグ情報を編集…")
         type_action.triggered.connect(
@@ -327,6 +352,94 @@ class TranslationAddDialog(QDialog):
 
     def translation(self) -> str:
         """入力された翻訳テキストを返す。"""
+        return self._translation_input.text().strip()
+
+
+class TranslationFixDialog(QDialog):
+    """canonical タグの既存翻訳を上書き修正するダイアログ (#1054)。
+
+    DB は知らない。言語別の既存翻訳一覧から1行選び、修正テキストを入力して OK 確定で
+    (language, translation) を返すだけで、保存は親が dispatch する。保存は選択行と同一の
+    言語キーで user overlay へ追加され、merged reader が user patch を後勝ちで返すため
+    表示上は置換になる (base DB は変更しない)。翻訳の削除・言語の付け替えは tagdb 側の
+    overlay API (削除 / tombstone) が無いため未対応 (genai-tag-db-tools#121)。
+    """
+
+    def __init__(self, canonical: str, translations: dict[str, str], parent: QWidget | None = None) -> None:
+        super().__init__(parent)
+        self.setWindowTitle("翻訳を修正")
+        self._canonical = canonical
+        # 行順 = translations の挿入順。language() は選択行の言語キーを verbatim で返す
+        # ("japanese"/"ja" 等の表記ゆれをそのまま使い、同一キー上書きを保証する)。
+        self._languages: list[str] = list(translations.keys())
+
+        layout = QVBoxLayout(self)
+        header = QLabel("タグ情報を編集 · 全画像に反映されます", self)
+        header.setObjectName("udbHeader")
+        header.setStyleSheet(_UDB_HEADER_QSS)
+        layout.addWidget(header)
+        layout.addWidget(QLabel(f"タグ (canonical): {canonical}", self))
+
+        self._table = QTableWidget(len(self._languages), 2, self)
+        self._table.setHorizontalHeaderLabels(["言語", "現在の翻訳"])
+        self._table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
+        self._table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
+        self._table.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
+        self._table.verticalHeader().setVisible(False)
+        for row, language in enumerate(self._languages):
+            self._table.setItem(row, 0, QTableWidgetItem(language))
+            self._table.setItem(row, 1, QTableWidgetItem(translations[language]))
+        self._table.itemSelectionChanged.connect(self._on_row_selected)
+        layout.addWidget(self._table)
+
+        form = QFormLayout()
+        self._translation_input = QLineEdit(self)
+        self._translation_input.setPlaceholderText("修正後の翻訳テキスト")
+        self._translation_input.textChanged.connect(self._update_ok_enabled)
+        form.addRow("修正後:", self._translation_input)
+        layout.addLayout(form)
+
+        note = QLabel(
+            "修正はタグ情報 (user overlay) への上書き登録で、base DB は変更しません。"
+            "翻訳の削除・言語の付け替えは tagdb 側 API 対応後に追加予定 (genai-tag-db-tools#121)。",
+            self,
+        )
+        note.setWordWrap(True)
+        layout.addWidget(note)
+
+        self._buttons = QDialogButtonBox(
+            QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel, self
+        )
+        self._buttons.accepted.connect(self.accept)
+        self._buttons.rejected.connect(self.reject)
+        layout.addWidget(self._buttons)
+        self._update_ok_enabled()
+
+    def _selected_row(self) -> int:
+        """選択中の行番号を返す (未選択は -1)。"""
+        indexes = self._table.selectionModel().selectedRows()
+        return indexes[0].row() if indexes else -1
+
+    def _on_row_selected(self) -> None:
+        """行選択で現在の翻訳を修正入力欄へプリフィルする。"""
+        row = self._selected_row()
+        if row >= 0:
+            item = self._table.item(row, 1)
+            self._translation_input.setText(item.text() if item is not None else "")
+        self._update_ok_enabled()
+
+    def _update_ok_enabled(self) -> None:
+        """OK ボタンを「行選択済み + 修正テキスト非空」のときだけ有効化する。"""
+        ok = self._buttons.button(QDialogButtonBox.StandardButton.Ok)
+        ok.setEnabled(self._selected_row() >= 0 and bool(self._translation_input.text().strip()))
+
+    def language(self) -> str:
+        """選択行の言語キーを verbatim で返す (未選択は空文字)。"""
+        row = self._selected_row()
+        return self._languages[row] if 0 <= row < len(self._languages) else ""
+
+    def translation(self) -> str:
+        """入力された修正後テキストを返す。"""
         return self._translation_input.text().strip()
 
 
@@ -500,6 +613,10 @@ class TagPanelWidget(QWidget):
         self._tag_types: dict[str, str] = {}
         self._translations: dict[int, dict[str, str]] = {}
         self._available_languages: list[str] = []
+        # 翻訳メタデータが background worker (#1046) で解決中か。読み込み中に「翻訳を修正」
+        # を開くと空の _translations を「翻訳なし」と誤認して追加ダイアログへ落ち、legacy
+        # 言語キー ("japanese") の誤訳を "ja" で上書きできない (PR #1086 Codex P2)。
+        self._tag_metadata_pending: bool = False
 
         # 使用頻度 第2軸 (metric_source, ADR 0083 §5 / #990)。表示言語とは独立した軸。
         # 親が bulk 取得した {tag_id: {format_name: count}} を set_usage_counts で受け、
@@ -852,6 +969,18 @@ class TagPanelWidget(QWidget):
         }
         self._refresh_tags_for_language(self._current_language())
 
+    def set_tag_metadata_pending(self, pending: bool) -> None:
+        """翻訳メタデータの background 解決中フラグを設定する (#1054)。
+
+        親が TagMetadataWorker (#1046) を起動するとき True にする。`apply_tag_metadata`
+        の反映で自動的に False へ戻る。読み込み中は「翻訳を修正」が空の `_translations`
+        を「翻訳なし」と誤認して追加ダイアログへフォールバックしないようにする。
+
+        Args:
+            pending: True = 解決中 (worker 起動済みで未反映)。
+        """
+        self._tag_metadata_pending = pending
+
     def apply_tag_metadata(
         self,
         translations: dict[int, dict[str, str]],
@@ -874,6 +1003,8 @@ class TagPanelWidget(QWidget):
         self._translations = dict(translations)
         self._merge_usage_counts_for_current_tags(usage_counts)
         self._tag_types = dict(tag_types)
+        # メタデータが届いたので「翻訳を修正」の追加フォールバックを解禁する (#1054)
+        self._tag_metadata_pending = False
         # type が届いたのでグループソートを適用し直す (#1056)
         self._tags = self._sort_tags_by_type(self._tags)
         self._rebuild_counts_by_canonical()
@@ -1231,6 +1362,7 @@ class TagPanelWidget(QWidget):
         chip.refinement_apply_requested.connect(self.tag_replace_requested)
         # タグ情報メニュー (#989): chip 右クリック → 親がダイアログを開く。
         chip.translation_add_menu_requested.connect(self._open_translation_dialog)
+        chip.translation_fix_menu_requested.connect(self._open_translation_fix_dialog)
         chip.type_edit_menu_requested.connect(self._open_type_edit_dialog)
         # 使用頻度を見る (#997): read-only、TagPanelWidget 内で完結する。
         chip.usage_counts_menu_requested.connect(self._open_usage_counts_dialog)
@@ -1479,6 +1611,45 @@ class TagPanelWidget(QWidget):
         translation = dialog.translation()
         if not language or not translation:
             logger.debug(f"翻訳追加をスキップ (空入力): canonical='{canonical}'")
+            return
+        self.translation_add_requested.emit(canonical, language, translation)
+
+    @Slot(str)
+    def _open_translation_fix_dialog(self, canonical: str) -> None:
+        """翻訳修正ダイアログを開き、確定で translation_add_requested を出す (#1054)。
+
+        修正は選択行と同一の言語キーで user overlay へ登録する。merged reader は user patch
+        を後勝ちで返し、表示 dict が language ごとに上書きするため実質置換になる (dispatch
+        経路は翻訳追加と共通)。既存翻訳が無いタグは修正対象が無いため、翻訳追加ダイアログへ
+        フォールバックする。
+
+        Args:
+            canonical: 翻訳を修正する canonical タグ文字列。
+        """
+        tag_id = next(
+            (t.get("tag_id") for t in self._tags if t.get("tag") == canonical and t.get("tag_id")),
+            None,
+        )
+        translations = self._translations.get(tag_id, {}) if tag_id is not None else {}
+        if not translations:
+            if self._tag_metadata_pending:
+                # 読み込み中/取得失敗を「翻訳なし」と誤認すると追加ダイアログへ落ち、
+                # legacy 言語キーの誤訳を上書きできない (PR #1086 Codex P2)
+                QMessageBox.information(
+                    self,
+                    "翻訳を修正",
+                    "翻訳情報を読み込み中です。数秒待ってからもう一度お試しください。",
+                )
+                return
+            self._open_translation_dialog(canonical)
+            return
+        dialog = TranslationFixDialog(canonical, dict(translations), self)
+        if dialog.exec() != QDialog.DialogCode.Accepted:
+            return
+        language = dialog.language()
+        translation = dialog.translation()
+        if not language or not translation:
+            logger.debug(f"翻訳修正をスキップ (空入力): canonical='{canonical}'")
             return
         self.translation_add_requested.emit(canonical, language, translation)
 

@@ -228,6 +228,10 @@ class AnnotationDataDisplayWidget(QWidget, Ui_AnnotationDataDisplayWidget):
         """worker で解決した翻訳/使用頻度/type を反映する (TagPanelWidget へ委譲、#1046)。"""
         self._tag_panel.apply_tag_metadata(translations, usage_counts, tag_types)
 
+    def set_tag_metadata_pending(self, pending: bool) -> None:
+        """翻訳メタデータの background 解決中フラグを設定する (TagPanelWidget へ委譲、#1054)。"""
+        self._tag_panel.set_tag_metadata_pending(pending)
+
     def apply_refinements(
         self,
         recommendations: dict[str, RefinementRecommendation],

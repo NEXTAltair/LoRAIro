@@ -904,3 +904,82 @@ class TestTranslationPrefetch:
         with patch("lorairo.services.tag_management_service.search_tags_batch") as mock_batch:
             service.prefetch_translations([])
         mock_batch.assert_not_called()
+
+
+@pytest.mark.unit
+class TestUserTranslationOverrides:
+    """user overlay の修正値が base 誤訳候補を supersede する (#1054, PR #1086 Codex P2)。"""
+
+    class _FakePatchRow:
+        def __init__(self, translation_id: int, language: str, translation: str) -> None:
+            self.translation_id = translation_id
+            self.language = language
+            self.translation = translation
+
+    class _FakeUserRepo:
+        def __init__(self, rows: list) -> None:
+            self._rows = rows
+
+        def get_translations(self, tag_id: int) -> list:
+            return list(self._rows)
+
+    class _FakeReaderWithUser:
+        def __init__(self, user_repo) -> None:
+            self.user_repo = user_repo
+
+    @pytest.fixture
+    def service(self) -> TagManagementService:
+        with patch("lorairo.services.tag_management_service.get_tag_reader"):
+            with patch("lorairo.services.tag_management_service.get_user_repository"):
+                return TagManagementService()
+
+    def _reader(self, rows: list):
+        return self._FakeReaderWithUser(self._FakeUserRepo(rows))
+
+    def test_fix_supersedes_bad_base_candidate(self, service: TagManagementService) -> None:
+        """修正済み言語キーの base 誤訳候補は評価されず ⚠ が再発しない。"""
+        # base の "japanese" に低品質訳 (記号のみ) が残っているが、user overlay が同一キーで
+        # 修正済み → 評価は user 値のみになり警告ゼロ
+        reader = self._reader([self._FakePatchRow(1, "japanese", "ドレス")])
+        result = _search_result_with_translations("dress", {"japanese": ["???", "ドレス"]})
+        with patch("lorairo.services.tag_management_service.search_tags", return_value=result):
+            recs = service._evaluate_translation_quality("dress", repo=reader)
+
+        assert recs == []
+
+    def test_unfixed_language_key_still_warns(self, service: TagManagementService) -> None:
+        """user 修正が無い言語キーの誤訳候補は従来どおり警告する (キー単位 supersede)。"""
+        # "japanese" は修正済みだが "ja" キーに別の低品質訳が残っている
+        reader = self._reader([self._FakePatchRow(1, "japanese", "ドレス")])
+        result = _search_result_with_translations("dress", {"japanese": ["???"], "ja": ["!!!"]})
+        with patch("lorairo.services.tag_management_service.search_tags", return_value=result):
+            recs = service._evaluate_translation_quality("dress", repo=reader)
+
+        assert len(recs) == 1
+
+    def test_latest_user_patch_wins_per_language(self, service: TagManagementService) -> None:
+        """同一言語キーに複数 patch がある場合は最新 (patch_id 最大) を採用する。"""
+        # 1回目の修正も低品質、2回目で正しい値 → 最新のみ評価され警告ゼロ
+        reader = self._reader(
+            [
+                self._FakePatchRow(2, "japanese", "ドレス"),
+                self._FakePatchRow(1, "japanese", "???"),
+            ]
+        )
+        result = _search_result_with_translations("dress", {"japanese": ["???"]})
+        with patch("lorairo.services.tag_management_service.search_tags", return_value=result):
+            recs = service._evaluate_translation_quality("dress", repo=reader)
+
+        assert recs == []
+
+    def test_no_user_repo_keeps_all_candidate_evaluation(self, service: TagManagementService) -> None:
+        """user_repo を持たない reader では従来の全候補評価のまま (後方互換)。"""
+
+        class _PlainReader:
+            pass
+
+        result = _search_result_with_translations("dress", {"japanese": ["???"]})
+        with patch("lorairo.services.tag_management_service.search_tags", return_value=result):
+            recs = service._evaluate_translation_quality("dress", repo=_PlainReader())
+
+        assert len(recs) == 1

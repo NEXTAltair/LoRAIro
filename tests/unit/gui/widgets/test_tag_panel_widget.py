@@ -1248,6 +1248,146 @@ def test_refinement_ignore_menu_emits_scope(panel, sample_tags, qtbot):
     assert received == [("1girl", "alias_tag", True), ("1girl", "alias_tag", False)]
 
 
+# ⑯ 誤翻訳の修正導線 (#1054) ----------------------------------------------------
+
+
+def _make_translation_reason_rec(canonical: str, codes: list[str]):
+    from genai_tag_db_tools.models import RefinementReason, RefinementRecommendation
+
+    return RefinementRecommendation(
+        source_tag=canonical,
+        normalized_tag=canonical,
+        needs_refinement=True,
+        score=0.5,
+        reasons=[RefinementReason(code=code, message=code) for code in codes],
+        suggestions=[],
+        proposals=[],
+    )
+
+
+def test_translation_fix_dialog_lists_and_prefills(qtbot):
+    """既存翻訳を一覧表示し、行選択で修正入力欄へプリフィルする。"""
+    dialog = tpw.TranslationFixDialog("dress", {"ja": "连衣裙", "en": "dress"})
+    qtbot.addWidget(dialog)
+
+    assert dialog._table.rowCount() == 2
+    dialog._table.selectRow(0)
+
+    assert dialog.language() == "ja"
+    assert dialog._translation_input.text() == "连衣裙"
+
+
+def test_translation_fix_dialog_ok_requires_selection_and_text(qtbot):
+    """OK は行選択 + 修正テキスト非空のときだけ有効。"""
+    from PySide6.QtWidgets import QDialogButtonBox
+
+    dialog = tpw.TranslationFixDialog("dress", {"ja": "连衣裙"})
+    qtbot.addWidget(dialog)
+    ok = dialog._buttons.button(QDialogButtonBox.StandardButton.Ok)
+
+    assert not ok.isEnabled()  # 未選択
+    dialog._table.selectRow(0)
+    assert ok.isEnabled()  # プリフィル済みで非空
+    dialog._translation_input.setText("  ")
+    assert not ok.isEnabled()  # 空白のみ
+    dialog._translation_input.setText("ドレス")
+    assert ok.isEnabled()
+
+
+def test_translation_fix_menu_action_emits(capture_menu, qtbot):
+    """右クリックメニュー「翻訳を修正…」で translation_fix_menu_requested(canonical) を出す。
+
+    panel 経由の chip は signal が実ダイアログを開く slot に接続済みのため、
+    単体 chip で trigger する (modal exec のハング防止)。
+    """
+    chip = SelectableTagChip("1girl", "1girl")
+    qtbot.addWidget(chip)
+
+    actions = _context_menu_actions(chip)
+    assert "翻訳を修正…" in actions
+
+    menu = capture_menu.instances[-1]
+    fix_action = next(a for a in menu.actions() if a.text() == "翻訳を修正…")
+    with qtbot.waitSignal(chip.translation_fix_menu_requested, timeout=1000) as blocker:
+        fix_action.trigger()
+    assert blocker.args == ["1girl"]
+
+
+def test_translation_fix_menu_emphasized_on_translation_quality_reason(panel, sample_tags, capture_menu):
+    """⚠ 翻訳品質 reason 付き chip では「翻訳を修正…」を ⚠ 付きラベルで直行導線にする。"""
+    panel.set_tags(sample_tags, image_id=1)
+    panel.apply_refinements(
+        {"1girl": _make_translation_reason_rec("1girl", ["wrong_language_translation"])}
+    )
+    chip = next(c for c in panel._tag_chips if c.canonical == "1girl")
+
+    actions = _context_menu_actions(chip)
+    assert "翻訳を修正 (⚠ 翻訳品質)…" in actions
+    assert "翻訳を修正…" not in actions
+
+
+def test_translation_fix_dialog_emits_translation_add_requested(panel, sample_tags, qtbot, monkeypatch):
+    """修正確定で選択行と同一言語キーの translation_add_requested を出す (上書き登録)。"""
+    panel.set_tags(sample_tags, translations={10: {"ja": "连衣裙"}}, available_languages=["ja"], image_id=1)
+
+    def fill(dialog):
+        dialog._table.selectRow(0)
+        dialog._translation_input.setText("ドレス")
+
+    _accept_dialog(monkeypatch, "TranslationFixDialog", fill)
+    with qtbot.waitSignal(panel.translation_add_requested, timeout=1000) as blocker:
+        panel._open_translation_fix_dialog("1girl")
+    assert blocker.args == ["1girl", "ja", "ドレス"]
+
+
+def test_translation_fix_without_existing_falls_back_to_add_dialog(panel, sample_tags, qtbot, monkeypatch):
+    """既存翻訳が無いタグの修正要求は翻訳追加ダイアログへフォールバックする。"""
+    panel.set_tags(sample_tags, image_id=1)
+
+    def fill(dialog):
+        dialog._language_combo.setCurrentIndex(0)  # 日本語 (保存値 ja)
+        dialog._translation_input.setText("少女")
+
+    _accept_dialog(monkeypatch, "TranslationAddDialog", fill)
+    with qtbot.waitSignal(panel.translation_add_requested, timeout=1000) as blocker:
+        panel._open_translation_fix_dialog("1girl")
+    assert blocker.args == ["1girl", "ja", "少女"]
+
+
+def test_translation_fix_dialog_cancel_emits_nothing(panel, sample_tags, monkeypatch):
+    """修正ダイアログのキャンセルでは Signal を出さない。"""
+    panel.set_tags(sample_tags, translations={10: {"ja": "连衣裙"}}, available_languages=["ja"], image_id=1)
+    monkeypatch.setattr(tpw.TranslationFixDialog, "exec", lambda self: int(QDialog.DialogCode.Rejected))
+    received: list = []
+    panel.translation_add_requested.connect(lambda *a: received.append(a))
+    panel._open_translation_fix_dialog("1girl")
+    assert received == []
+
+
+def test_translation_fix_pending_metadata_blocks_add_fallback(panel, sample_tags, monkeypatch):
+    """メタデータ解決中は空翻訳を「翻訳なし」と誤認せず追加ダイアログへ落とさない (Codex P2)。
+
+    読み込み中に追加ダイアログへ落ちると正規化キー "ja" で書いてしまい、legacy
+    "japanese" キーの誤訳を上書きできない。apply_tag_metadata の反映で解禁される。
+    """
+    panel.set_tags(sample_tags, image_id=1)
+    panel.set_tag_metadata_pending(True)
+    infos: list = []
+    monkeypatch.setattr(tpw.QMessageBox, "information", lambda *a, **k: infos.append(a))
+    opened: list = []
+    monkeypatch.setattr(panel, "_open_translation_dialog", lambda c: opened.append(c))
+
+    panel._open_translation_fix_dialog("1girl")
+
+    assert opened == []
+    assert len(infos) == 1
+
+    # メタデータ反映後は通常の追加フォールバックが効く
+    panel.apply_tag_metadata({}, {}, {})
+    panel._open_translation_fix_dialog("1girl")
+    assert opened == ["1girl"]
+
+
 # usage counts のセッション内キャッシュ (#1083) ---------------------------------
 
 
