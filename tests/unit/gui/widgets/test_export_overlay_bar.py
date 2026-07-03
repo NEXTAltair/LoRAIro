@@ -335,3 +335,29 @@ class TestVocabStub:
 
         suggestions = [bar._suggest_combo.itemText(i) for i in range(bar._suggest_combo.count())]
         assert suggestions == ["魔法少女"]
+
+
+class TestAvailableResolutions:
+    """#1106: set_available_resolutions で解像度候補を実在値に置き換える。"""
+
+    def _resolutions(self, bar: ExportOverlayBar) -> list[str]:
+        return [bar._resolution_combo.itemText(i) for i in range(bar._resolution_combo.count())]
+
+    def test_replaces_choices_with_real_resolutions(self, bar: ExportOverlayBar) -> None:
+        bar.set_available_resolutions([1024, 512])
+        assert self._resolutions(bar) == ["512", "1024"]
+
+    def test_empty_falls_back_to_defaults(self, bar: ExportOverlayBar) -> None:
+        bar.set_available_resolutions([768])
+        bar.set_available_resolutions([])  # 対象未確定 → 既定候補へ戻る
+        assert self._resolutions(bar) == ["512", "768", "1024", "1536"]
+
+    def test_preserves_current_selection_when_still_available(self, bar: ExportOverlayBar) -> None:
+        bar.set_available_resolutions([512, 768, 1024])
+        bar._resolution_combo.setCurrentText("768")
+        bar.set_available_resolutions([768, 1024, 1536])
+        assert bar.selected_resolution() == 768
+
+    def test_dedupes_and_sorts(self, bar: ExportOverlayBar) -> None:
+        bar.set_available_resolutions([1024, 512, 1024, 512])
+        assert self._resolutions(bar) == ["512", "1024"]
