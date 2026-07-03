@@ -602,6 +602,7 @@ class TestSendSelectedToBatchTag:
         mock_window.dataset_state_manager.selected_image_ids = [7]
         mock_window.annotate_tab = Mock()
         mock_window.tabWidgetMainMode = Mock()
+        mock_window.staging_state_manager.get_image_ids.return_value = [7]
 
         MainWindow.send_selected_to_batch_tag(mock_window, False)
 
@@ -631,6 +632,8 @@ class TestSendSelectedToBatchTag:
         mock_window.dataset_state_manager.selected_image_ids = [1, 2, 3]
         mock_window.annotate_tab = Mock()
         mock_window.tabWidgetMainMode = Mock()
+        # 全件がステージングに受理された
+        mock_window.staging_state_manager.get_image_ids.return_value = [1, 2, 3]
         MainWindow.send_selected_to_batch_tag(mock_window, [1, 2, 3])
         mock_window.annotate_tab.add_image_ids_to_staging.assert_called_once_with([1, 2, 3])
         # #1059: タブは移動せず、ステータスバー通知でフィードバックする
@@ -649,12 +652,55 @@ class TestSendSelectedToBatchTag:
         mock_window.dataset_state_manager.selected_image_ids = [1, 2, 3, 99]
         mock_window.annotate_tab = Mock()
         mock_window.tabWidgetMainMode = Mock()
+        # 1, 2, 3 は受理された (99 は payload 外なので staging には無い)
+        mock_window.staging_state_manager.get_image_ids.return_value = [1, 2, 3]
 
         MainWindow.send_selected_to_batch_tag(mock_window, [1, 2, 3])
 
         # 全 clear ではなく、送った 1/2/3 を除いた残り (他ページ 99) を set し直す
         mock_window.dataset_state_manager.clear_selection.assert_not_called()
         mock_window.dataset_state_manager.set_selected_images.assert_called_once_with([99])
+
+    def test_send_selected_keeps_selection_for_rejected_ids(self):
+        """#1112 (2巡目): 上限/解決失敗で受理されなかった ID は選択を残す (Codex P2)。"""
+        from lorairo.gui.window.main_window import MainWindow
+
+        mock_window = Mock()
+        mock_window.dataset_state_manager = Mock()
+        mock_window.dataset_state_manager.selected_image_ids = [1, 2, 3]
+        mock_window.annotate_tab = Mock()
+        mock_window.tabWidgetMainMode = Mock()
+        # 上限到達で 1, 2 のみ受理、3 は拒否された
+        mock_window.staging_state_manager.get_image_ids.return_value = [1, 2]
+
+        MainWindow.send_selected_to_batch_tag(mock_window, [1, 2, 3])
+
+        # 受理された 1/2 だけ解除し、拒否された 3 は選択を残す
+        mock_window.dataset_state_manager.set_selected_images.assert_called_once_with([3])
+        # 受理件数でフィードバックする (target 件数 3 ではなく 2)
+        mock_window.statusBar.return_value.showMessage.assert_called_once_with(
+            "2件をステージングに追加しました", 5000
+        )
+
+    def test_send_selected_none_accepted_keeps_all_selection(self):
+        """#1112 (2巡目): 1件も受理されなければ選択を一切変更しない (Codex P2)。"""
+        from lorairo.gui.window.main_window import MainWindow
+
+        mock_window = Mock()
+        mock_window.dataset_state_manager = Mock()
+        mock_window.dataset_state_manager.selected_image_ids = [1, 2, 3]
+        mock_window.annotate_tab = Mock()
+        mock_window.tabWidgetMainMode = Mock()
+        # 上限到達で 1 件も受理されなかった (staging は無関係な既存分のみ)
+        mock_window.staging_state_manager.get_image_ids.return_value = [50, 51]
+
+        MainWindow.send_selected_to_batch_tag(mock_window, [1, 2, 3])
+
+        mock_window.dataset_state_manager.set_selected_images.assert_not_called()
+        mock_window.dataset_state_manager.clear_selection.assert_not_called()
+        mock_window.statusBar.return_value.showMessage.assert_called_once_with(
+            "0件をステージングに追加しました", 5000
+        )
 
     def test_send_selected_no_ids_does_not_change_selection(self):
         """#1096: 送信対象が無い場合は選択を変更しない (誤操作で選択を失わない)。"""
