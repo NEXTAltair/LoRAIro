@@ -198,13 +198,8 @@ class FilterSearchPanel(QScrollArea):
     CONDITIONS_SCHEMA_VERSION = 2
 
     # シグナル
-    filter_applied = Signal(dict)  # filter_conditions
     filter_cleared = Signal()
     search_requested = Signal(dict)  # search_conditions
-    search_completed = Signal(dict)  # 検索結果
-
-    # Pipeline State Management
-    pipeline_state_changed = Signal(object)  # PipelineState
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -305,20 +300,19 @@ class FilterSearchPanel(QScrollArea):
         # レーティング chip トグル群 (Issue #811: dropdown → マルチセレクト chip)
         self._setup_rating_chips()
 
-        # 廃止フラグ (登録時 pHash 重複防止により不要)
-        self.ui.checkboxExcludeDuplicates.setChecked(False)
-        self.ui.checkboxExcludeDuplicates.setVisible(False)
         # 廃止フラグ (レーティング選択から自動判定)
         self.ui.checkboxIncludeNSFW.setChecked(False)
         self.ui.checkboxIncludeNSFW.setVisible(False)
 
         # お気に入りフィルター UI をメインレイアウトに追加
         # Phase 4: Search サイドバー（フィルター UI の最後に追加）
+        # 末尾の Expanding spacer (verticalSpacer) が余剰スペースを最下部で吸収するよう、
+        # favorite_filter / search_facets_sidebar は spacer の手前に挿入して spacer を最後尾に留める (Issue #1095)
         contents_layout = self.ui.scrollAreaWidgetContents.layout()
         if isinstance(contents_layout, QBoxLayout):
-            insert_index = contents_layout.count() - 1
-            contents_layout.insertWidget(insert_index, self._favorite_filter)
-            contents_layout.addWidget(self._search_facets_sidebar)
+            spacer_index = contents_layout.count() - 1
+            contents_layout.insertWidget(spacer_index, self._favorite_filter)
+            contents_layout.insertWidget(spacer_index + 1, self._search_facets_sidebar)
 
     def _setup_rating_chips(self) -> None:
         """レーティング dropdown を chip トグル群へ置き換える (Issue #811)。
@@ -590,14 +584,6 @@ class FilterSearchPanel(QScrollArea):
                     self._pipeline.transition_to(PipelineState.DISPLAYING)
 
                 self.update_search_preview(count)
-
-                self.search_completed.emit(
-                    {
-                        "results": result.image_metadata,
-                        "count": count,
-                        "conditions": getattr(result, "filter_conditions", {}),
-                    },
-                )
                 logger.info(f"検索結果: {count}件")
             else:
                 logger.error(f"無効な検索結果: {result}")
@@ -613,14 +599,12 @@ class FilterSearchPanel(QScrollArea):
         logger.error(f"検索エラー: {error}")
         self._current_search_worker_id = None
         self._pipeline.transition_to(PipelineState.ERROR)
-        self.search_completed.emit({"results": [], "count": 0, "error": error})
 
     def _on_search_canceled(self, worker_id: str) -> None:
         """検索キャンセルイベント処理。"""
         logger.info(f"検索キャンセル: {worker_id}")
         self._current_search_worker_id = None
         self._pipeline.transition_to(PipelineState.CANCELED)
-        self.search_completed.emit({"results": [], "count": 0, "canceled": True})
 
     def _on_worker_batch_progress(self, worker_id: str, current: int, total: int, filename: str) -> None:
         """ワーカーのバッチ進捗処理 (動的進捗計算)。"""
@@ -656,7 +640,6 @@ class FilterSearchPanel(QScrollArea):
         """PipelineStateMachine の state 変更通知ハンドラ。"""
         del old_state  # signature 一致のため受け取るが未使用 (logger 出力は machine 側)
         self._update_ui_for_state(new_state)
-        self.pipeline_state_changed.emit(new_state)
 
     def _update_ui_for_state(self, state: PipelineState) -> None:
         """状態に応じた UI 更新。"""
@@ -907,6 +890,8 @@ class FilterSearchPanel(QScrollArea):
                 bool(self._get_ai_rating_filter_value()),
                 has_score_filter,
                 has_facet_filter,
+                # 重複除外は単独フィルタとして成立する (SearchCriteriaProcessor が対応, #1106)
+                self.ui.checkboxExcludeDuplicates.isChecked(),
             ],
         ):
             logger.debug("検索条件が未指定のため検索をスキップ")
@@ -938,7 +923,7 @@ class FilterSearchPanel(QScrollArea):
             date_range_end=date_range_end,
             only_untagged=self.ui.checkboxOnlyUntagged.isChecked(),
             only_uncaptioned=self.ui.checkboxOnlyUncaptioned.isChecked(),
-            exclude_duplicates=False,
+            exclude_duplicates=self.ui.checkboxExcludeDuplicates.isChecked(),
             include_nsfw=include_nsfw,
             rating_filter=rating_filter,
             ai_rating_filter=ai_rating_filter,
@@ -1020,11 +1005,9 @@ class FilterSearchPanel(QScrollArea):
 
             result_data = {"results": results, "count": count, "conditions": conditions}
             self.search_requested.emit(result_data)
-            self.search_completed.emit(result_data)
             logger.info(f"同期検索完了: {count}件")
         except Exception as e:
             logger.error(f"同期検索実行エラー: {e}", exc_info=True)
-            self.search_completed.emit({"results": [], "count": 0, "error": str(e)})
 
     def _on_clear_requested(self) -> None:
         """クリア要求処理。"""
@@ -1306,9 +1289,6 @@ class FilterSearchPanel(QScrollArea):
             self._pipeline.transition_to(PipelineState.ERROR)
             error_message = error_info.get("message", "Unknown error")
             logger.error(f"Pipeline {phase} error: {error_message}")
-
-            if hasattr(self, "search_completed"):
-                self.search_completed.emit({"success": False, "phase": phase, "error": error_message})
         except Exception as e:
             logger.error(f"Failed to handle pipeline error: {e}")
 

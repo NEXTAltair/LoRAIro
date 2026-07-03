@@ -5,13 +5,18 @@
 描画する。検出ロジックは持たず表示に専念する (MVC の View)。
 """
 
-from PySide6.QtCore import Qt, Signal
+from pathlib import Path
+
+from PySide6.QtCore import Qt, QTimer, Signal
+from PySide6.QtGui import QPixmap, QResizeEvent, QShowEvent
 from PySide6.QtWidgets import (
+    QApplication,
     QFrame,
     QHBoxLayout,
     QLabel,
     QPushButton,
     QScrollArea,
+    QSizePolicy,
     QVBoxLayout,
     QWidget,
 )
@@ -28,6 +33,9 @@ from lorairo.services.quality_issue_detection_service import (
     TagView,
 )
 from lorairo.utils.log import logger
+
+from .tag_cloud_widget import FlowLayout
+from .tag_panel_widget import SelectableTagChip
 
 # issue 種別の user-facing ラベル。
 _ISSUE_LABELS: dict[IssueType, str] = {
@@ -52,10 +60,130 @@ _ISSUE_CHIP_KINDS: dict[IssueType, theme.ChipKind] = {
 }
 
 
+class _FlowChipRow(QWidget):
+    """chip / ラベルを ``FlowLayout`` で折り返し配置する自己完結の行ウィジェット。
+
+    ``FlowLayout`` を素の ``QWidget`` に載せると、その ``minimumSizeHint``
+    (最小幅で全アイテムを縦積みした過大値) が親へ伝播し、``widgetResizable`` な
+    ``QScrollArea`` を膨張させて末尾に異常な余白を生む
+    (docs/lessons-learned.md 「FlowLayout in widgetResizable scroll inflates
+    minimumSizeHint」/ Issue #835 / #1025)。
+
+    ここでは縦 ``SizePolicy`` を ``Fixed`` にし、``resizeEvent`` / ``showEvent`` で
+    実幅の ``heightForWidth`` を ``setFixedHeight`` に反映することで高さをこの
+    ウィジェット内に閉じ、過大な最小サイズが親へ漏れないようにする。
+    """
+
+    def __init__(self, parent: QWidget | None = None, spacing: int = 8) -> None:
+        super().__init__(parent)
+        self._flow = FlowLayout(self, spacing=spacing)
+        # 高さは resizeEvent で実幅ベースに固定する。横は親幅まで伸ばす。
+        self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+
+    def add_widget(self, widget: QWidget) -> None:
+        """chip / ラベルを行末に追加する。"""
+        self._flow.addWidget(widget)
+
+    def _adjust_height(self) -> None:
+        """実幅での折り返し必要高さを ``setFixedHeight`` で確定する。"""
+        width = self.width()
+        if width <= 0:
+            return
+        # chip 追加直後はレイアウト未 activation で子が hidden のことがあり、
+        # QWidgetItem.sizeHint() が (0,0) を返して heightForWidth=0 → 潰れる
+        # (#1025)。同期計測の前に hidden の子を明示的に可視化して実寸を得る。
+        for i in range(self._flow.count()):
+            item = self._flow.itemAt(i)
+            child = item.widget() if item is not None else None
+            if child is not None and child.isHidden():
+                child.setVisible(True)
+        self.setFixedHeight(self._flow.heightForWidth(width))
+
+    def resizeEvent(self, event: QResizeEvent) -> None:
+        super().resizeEvent(event)
+        self._adjust_height()
+
+    def showEvent(self, event: QShowEvent) -> None:
+        super().showEvent(event)
+        self._adjust_height()
+
+
+class _RowThumbnail(QLabel):
+    """結果行の小サムネイル (Issue #1104)。
+
+    viewport に実際に見えている行だけを遅延デコードする (``maybe_load``)。
+    ``showEvent`` はウィジェット階層の表示時に全行で発火してしまうため、それだけを
+    トリガにすると大きな staged セットで Results を開いた瞬間に全行を同期デコードして
+    UI が固まる。``visibleRegion`` の交差判定でスクロール可視域に入った行のみ読み込み、
+    親 (``ResultsWidget``) がスクロール時に ``maybe_load`` を再評価する。
+
+    パスが無い・ファイル欠落・デコード失敗のいずれでもクラッシュせずプレースホルダ
+    文言を出す。
+    """
+
+    _SIZE = 56
+
+    def __init__(self, image_id: int, path: str | None, parent: QWidget | None = None) -> None:
+        super().__init__(parent)
+        self._path = path
+        self._loaded = False
+        self.setObjectName(f"resultsRowThumb_{image_id}")
+        self.setFixedSize(self._SIZE, self._SIZE)
+        self.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        # DS: hairline border の枠。読み込み前/失敗時はプレースホルダ文言をこの枠内に出す。
+        self.setStyleSheet(
+            f"QLabel {{ border: {theme.BORDER_WIDTH}px solid {theme.LINE};"
+            f" border-radius: {theme.RADIUS}px; color: {theme.INK_FAINT}; }}"
+        )
+        self.setText("…")
+
+    def maybe_load(self) -> None:
+        """viewport に見えていれば (まだなら) デコードする。見えていなければ何もしない。"""
+        if self._loaded:
+            return
+        # スクロールで viewport 外にクリップされている行は visibleRegion が空になる。
+        if self.visibleRegion().isEmpty():
+            return
+        self._loaded = True
+        self._load()
+
+    def showEvent(self, event: QShowEvent) -> None:
+        super().showEvent(event)
+        # 表示直後はレイアウト未確定で visibleRegion が不正確なことがあるため、
+        # イベントループ復帰後に可視判定する (先頭スクリーン分の初期ロード)。
+        QTimer.singleShot(0, self.maybe_load)
+
+    def _load(self) -> None:
+        """パスから QPixmap を読み込む。失敗時はプレースホルダ文言を残す。"""
+        if not self._path:
+            self.setText("no img")
+            self.setToolTip("プレビュー画像がありません")
+            return
+        path = Path(self._path)
+        if not path.exists():
+            self.setText("欠落")
+            self.setToolTip(f"画像ファイルが見つかりません: {self._path}")
+            return
+        pixmap = QPixmap(str(path))
+        if pixmap.isNull():
+            self.setText("不可")
+            self.setToolTip(f"画像を読み込めません: {self._path}")
+            return
+        self.setText("")
+        self.setToolTip(self._path)
+        self.setPixmap(
+            pixmap.scaled(
+                self._SIZE,
+                self._SIZE,
+                Qt.AspectRatioMode.KeepAspectRatio,
+                Qt.TransformationMode.SmoothTransformation,
+            )
+        )
+
+
 class ResultsWidget(QWidget):
     """Frame 5 · Results 読み取り専用トリアージ表示。objectName = "resultsWidget"。"""
 
-    review_requested = Signal(int)  # image_id (Annotate へ遷移要求。Phase 6 で接続)
     accept_requested = Signal(int)  # image_id (この画像を accept = reviewed_at 設定)
     unaccept_requested = Signal(int)  # image_id (accept を取り消す = reviewed_at 解除)
     accept_clean_requested = Signal(list)  # list[int] (問題なし画像を一括 accept)
@@ -70,21 +198,34 @@ class ResultsWidget(QWidget):
         self._summary_cache: BatchTriageSummary | None = None
         self._results_cache: list[ImageTriageResult] = []
         self._clean_plan: CleanAuditPlan | None = None
+        # image_id -> 行内サムネイルの画像パス (#1104)。display で受け取る。
+        self._image_paths: dict[int, str] = {}
+        # 遅延ロード対象のサムネイル一覧 (可視域だけデコードするため保持する。#1104)。
+        self._row_thumbnails: list[_RowThumbnail] = []
         self.clear()
 
     # ------------------------------------------------------------------
     # 公開 API
     # ------------------------------------------------------------------
-    def display(self, summary: BatchTriageSummary, results: list[ImageTriageResult]) -> None:
+    def display(
+        self,
+        summary: BatchTriageSummary,
+        results: list[ImageTriageResult],
+        image_paths: dict[int, str] | None = None,
+    ) -> None:
         """サマリ band・issue カード・per-image 行を再描画する。
 
         Args:
             summary: バッチ全体のサマリ。
             results: 画像別トリアージ結果。``needs_review`` を優先して縦に並べる。
+            image_paths: image_id -> 行内サムネイル用の画像パス (#1104)。省略時は
+                サムネイルをプレースホルダ表示にする (View は DB を持たないため、
+                パス解決は呼び出し元 ``ResultsTabWidget`` が担う)。
         """
         self._reset()
         self._summary_cache = summary
         self._results_cache = list(results)
+        self._image_paths = dict(image_paths) if image_paths else {}
 
         if not results:
             self._clean_plan = None
@@ -113,17 +254,27 @@ class ResultsWidget(QWidget):
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
         scroll.setWidget(rows_container)
+        # スクロールで新たに可視域へ入った行のサムネイルを追ってデコードする (#1104)。
+        scroll.verticalScrollBar().valueChanged.connect(self._load_visible_thumbnails)
         self._root.addWidget(scroll, stretch=1)
 
         band = self._build_clean_audit_band(ordered)
         if band is not None:
             self._root.addWidget(band)
 
+        # 先頭スクリーン分のサムネイルをレイアウト確定後にロードする (可視域のみ)。
+        QTimer.singleShot(0, self._load_visible_thumbnails)
+
+    def _load_visible_thumbnails(self) -> None:
+        """viewport に見えているサムネイルだけを (まだなら) デコードする (#1104)。"""
+        for thumb in self._row_thumbnails:
+            thumb.maybe_load()
+
     def _build_clean_audit_band(self, results: list[ImageTriageResult]) -> QWidget | None:
         """CLEAN 監査 (OK箱) バンドを構築する (clean が無ければ None)。
 
         無確認で一括 accept される clean 集合の手前に「ランダム抽出を目視 → 一括 accept」
-        のゲートを挟む。抽出行の「▸ レビュー」がそのまま「これはダメ → Annotate」導線。
+        のゲートを挟む。抽出行を目視して問題があれば引き直す / 個別 accept を見送る。
         """
         plan = self._clean_plan
         if plan is None or not plan.clean_image_ids:
@@ -150,7 +301,7 @@ class ResultsWidget(QWidget):
         resample.clicked.connect(self._resample_clean)
         layout.addWidget(resample)
 
-        # 抽出された clean 画像のアノテーションを行表示する (「▸ レビュー」が bad-path)。
+        # 抽出された clean 画像のアノテーションを行表示する (目視して bad-path を拾う)。
         by_id = {r.image_id: r for r in results}
         for image_id in plan.sample_image_ids:
             result = by_id.get(image_id)
@@ -170,7 +321,8 @@ class ResultsWidget(QWidget):
     def _resample_clean(self) -> None:
         """抜き取りサンプルを引き直す (直近の入力で再描画する)。"""
         if self._summary_cache is not None and self._results_cache:
-            self.display(self._summary_cache, self._results_cache)
+            # サムネイルのパスは display で消える前に退避してから再描画する (#1104)。
+            self.display(self._summary_cache, self._results_cache, self._image_paths)
 
     def _on_clean_accept(self, clean_ids: list[int], sample_ids: list[int]) -> None:
         """CLEAN 監査の確認後一括 accept。監査ログを残してから accept を要求する。"""
@@ -200,6 +352,9 @@ class ResultsWidget(QWidget):
         self._summary_cache = None
         self._results_cache = []
         self._clean_plan = None
+        self._image_paths = {}
+        # 破棄されるサムネイル参照を先に手放す (スクロール再評価が stale を触らないよう)。
+        self._row_thumbnails = []
         while self._root.count():
             item = self._root.takeAt(0)
             if item is None:
@@ -227,7 +382,10 @@ class ResultsWidget(QWidget):
             f"QFrame#resultsSummaryBand {{ background-color: {theme.PAPER_SHADE};"
             f" border: {theme.BORDER_WIDTH}px solid {theme.LINE}; border-radius: {theme.RADIUS}px; }}"
         )
-        layout = QHBoxLayout(band)
+        outer = QVBoxLayout(band)
+        # 狭幅でサマリ項目が折り返せるよう FlowLayout 化する (#1105)。
+        flow = _FlowChipRow()
+        outer.addWidget(flow)
 
         issue_total = sum(summary.issue_counts.values())
         tier_text = self._format_tier_distribution(summary)
@@ -243,8 +401,7 @@ class ResultsWidget(QWidget):
         for text, color in parts:
             label = QLabel(text)
             label.setStyleSheet(f"color: {color}; font-weight: {theme.FONT_WEIGHT_SEMIBOLD};")
-            layout.addWidget(label)
-        layout.addStretch(1)
+            flow.add_widget(label)
         return band
 
     def _format_tier_distribution(self, summary: BatchTriageSummary) -> str:
@@ -266,10 +423,13 @@ class ResultsWidget(QWidget):
 
         band = QFrame()
         band.setObjectName("resultsIssueBand")
-        layout = QHBoxLayout(band)
+        outer = QVBoxLayout(band)
+        outer.setContentsMargins(0, 0, 0, 0)
+        # 狭幅で issue カードが折り返せるよう FlowLayout 化する (#1105)。
+        flow = _FlowChipRow()
+        outer.addWidget(flow)
         for issue, count in active.items():
-            layout.addWidget(self._build_issue_card(issue, count, results))
-        layout.addStretch(1)
+            flow.add_widget(self._build_issue_card(issue, count, results))
         return band
 
     def _build_issue_card(self, issue: IssueType, count: int, results: list[ImageTriageResult]) -> QWidget:
@@ -309,8 +469,16 @@ class ResultsWidget(QWidget):
                 f" border: {theme.BORDER_WIDTH}px solid {theme.WARN_BORDER};"
                 f" background-color: {theme.WARN_SOFT}; border-radius: {theme.RADIUS}px; }}"
             )
-        layout = QVBoxLayout(row)
+        # 行は [サムネイル | アノテーション縦積み] の横並び (#1104)。
+        outer = QHBoxLayout(row)
+        thumb = _RowThumbnail(result.image_id, self._image_paths.get(result.image_id))
+        # 可視域だけ遅延ロードするためスクロール再評価の対象に登録する。
+        self._row_thumbnails.append(thumb)
+        outer.addWidget(thumb, alignment=Qt.AlignmentFlag.AlignTop)
 
+        content = QWidget()
+        layout = QVBoxLayout(content)
+        layout.setContentsMargins(0, 0, 0, 0)
         layout.addWidget(self._build_row_header(result))
         layout.addWidget(self._build_tags_line(result.tags))
         layout.addWidget(self._build_caption_line(result))
@@ -318,10 +486,11 @@ class ResultsWidget(QWidget):
         layout.addWidget(self._build_rating_line(result))
         if result.issues:
             layout.addWidget(self._build_issue_badges(result.issues))
+        outer.addWidget(content, stretch=1)
         return row
 
     def _build_row_header(self, result: ImageTriageResult) -> QWidget:
-        """image_id / uuid 短縮 / WxH + レビューボタンの行を構築する。"""
+        """image_id / uuid 短縮 / WxH + accept ボタンの行を構築する。"""
         header = QWidget()
         layout = QHBoxLayout(header)
         layout.setContentsMargins(0, 0, 0, 0)
@@ -332,14 +501,6 @@ class ResultsWidget(QWidget):
         ident.setObjectName(f"resultsRowIdent_{result.image_id}")
         layout.addWidget(ident)
         layout.addStretch(1)
-
-        button = QPushButton("▸ レビュー")  # "▸ レビュー"
-        button.setObjectName(f"resultsReviewButton_{result.image_id}")
-        # closure に image_id を束縛 (ループ変数キャプチャ問題を defaultarg で回避)。
-        button.clicked.connect(
-            lambda _checked=False, image_id=result.image_id: self.review_requested.emit(image_id)
-        )
-        layout.addWidget(button)
 
         # accept 済みなら undo、未 accept なら accept ボタンを出す。
         if result.reviewed:
@@ -365,31 +526,42 @@ class ResultsWidget(QWidget):
         return f"{w}×{h}"
 
     def _build_tags_line(self, tags: list[TagView]) -> QWidget:
-        """タグ行を構築する (低 conf は dim プロパティ付与)。"""
-        line = QWidget()
-        layout = QHBoxLayout(line)
-        layout.setContentsMargins(0, 0, 0, 0)
+        """タグ行を構築する (低 conf は dim プロパティ付与)。
 
-        prefix = QLabel("tags:")
-        layout.addWidget(prefix)
+        タグ chip 列は狭幅で折り返せるよう ``FlowLayout`` で並べる (#1105)。
+        """
+        line = _FlowChipRow()
+        line.add_widget(QLabel("tags:"))
         if not tags:
-            layout.addWidget(QLabel("(なし)"))
+            line.add_widget(QLabel("(なし)"))
         for tag_view in tags:
-            layout.addWidget(self._build_tag_chip(tag_view))
-        layout.addStretch(1)
+            line.add_widget(self._build_tag_chip(tag_view))
         return line
 
     def _build_tag_chip(self, tag_view: TagView) -> QWidget:
-        """1 タグの chip。confidence 付き、低 conf は dim 表示。"""
+        """1 タグの chip。confidence 付き、低 conf は dim 表示。
+
+        検索/エクスポートタブと視覚統一するため、独自 QLabel ではなく共通の
+        ``SelectableTagChip`` (ADR 0083 / #987) を read-only で使う (#1104)。表示名は
+        confidence 付き、コピー対象 (Ctrl+C / Ctrl+クリック) は canonical タグを渡す。
+        結果タブは DB 非依存の View なので、編集系の右クリックメニューは
+        ``PreventContextMenu`` で抑止し、``clicked`` (soft-reject トグル) も接続しない。
+        """
         if tag_view.confidence_score is not None:
             text = f"{tag_view.tag} ({tag_view.confidence_score:.2f})"
         else:
             text = tag_view.tag
-        chip = QLabel(text)
+        # 結果タブの TagView は canonical を別持ちしない (タグ文字列自体が canonical)。
+        chip = SelectableTagChip(text, tag_view.tag)
         is_dim = tag_view.confidence_score is not None and tag_view.confidence_score < _DIM_CONFIDENCE
         chip.setProperty("dim", is_dim)
-        # DS: タグは accent chip 文法、低 conf は muted で弱める
-        chip.setStyleSheet(theme.chip_qss("muted" if is_dim else "accent"))
+        # DS: タグは accent chip 文法、低 conf は muted で弱める (base_qss = 共通部品の既定)
+        chip.base_qss = theme.chip_qss("muted" if is_dim else "accent")
+        chip.setStyleSheet(chip.base_qss)
+        # 編集系メニュー (翻訳/種別/refinement) は DB 配線が要るため read-only では抑止する。
+        chip.setContextMenuPolicy(Qt.ContextMenuPolicy.PreventContextMenu)
+        # Ctrl+クリックで canonical をクリップボードへコピー (検索/エクスポートと同じ導線)。
+        chip.ctrl_clicked.connect(lambda c=chip: QApplication.clipboard().setText(c.canonical))
         return chip
 
     def _build_caption_line(self, result: ImageTriageResult) -> QWidget:

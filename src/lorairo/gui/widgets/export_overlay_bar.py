@@ -204,6 +204,27 @@ class ExportOverlayBar(QWidget):
         """選択中のエクスポート解像度を返す。"""
         return int(self._resolution_combo.currentText())
 
+    def set_available_resolutions(self, resolutions: list[int]) -> None:
+        """解像度の選択肢を、対象画像に実在する解像度で置き換える (#1106)。
+
+        ``resolutions`` が空 (対象未確定 / 実在解像度なし) のときは既定の
+        ``_RESOLUTION_CHOICES`` を提示し、UI の成立性を保つ。現在の選択値が
+        新しい選択肢に残っていれば選択を維持する。
+
+        Args:
+            resolutions: 対象画像に実在する解像度の一覧。
+        """
+        choices = sorted({int(res) for res in resolutions if res > 0}) or list(_RESOLUTION_CHOICES)
+        previous = self._resolution_combo.currentText()
+        self._resolution_combo.blockSignals(True)
+        self._resolution_combo.clear()
+        for res in choices:
+            self._resolution_combo.addItem(str(res))
+        restored = self._resolution_combo.findText(previous)
+        if restored >= 0:
+            self._resolution_combo.setCurrentIndex(restored)
+        self._resolution_combo.blockSignals(False)
+
     def selected_format(self) -> str:
         """選択中の出力形式値（"txt_separate" | "txt_merged" | "json"）を返す。
 

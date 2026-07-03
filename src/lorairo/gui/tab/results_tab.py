@@ -9,6 +9,7 @@ MainWindow は本ウィジェットを配置し依存を注入するだけ (glue
 from PySide6.QtCore import Slot
 from PySide6.QtWidgets import QVBoxLayout, QWidget
 
+from ...database.db_core import resolve_stored_path
 from ...database.db_manager import ImageDatabaseManager
 from ...services.quality_issue_detection_service import QualityIssueDetectionService
 from ...utils.log import logger
@@ -91,6 +92,7 @@ class ResultsTabWidget(QWidget):
             return
 
         results = []
+        image_paths: dict[int, str] = {}
         for image_id in image_ids:
             metadata = self._db_manager.get_image_metadata(image_id)
             if metadata is None:
@@ -103,10 +105,39 @@ class ResultsTabWidget(QWidget):
                 "reviewed_at": metadata.get("reviewed_at"),
             }
             results.append(self._quality_service.detect_image(image_id, image_meta, annotations))
+            # 行内サムネイル用のパスを解決する (#1104)。低解像度処理済み画像を優先し、
+            # 無ければオリジナルの stored path にフォールバックする。View は DB を持た
+            # ないため、パス解決はこのタブ (glue) が担って display に渡す。
+            path = self._resolve_thumbnail_path(image_id, metadata)
+            if path is not None:
+                image_paths[image_id] = path
 
         if not results:
             self._results_widget.clear()
             return
 
         summary = self._quality_service.summarize(results)
-        self._results_widget.display(summary, results)
+        self._results_widget.display(summary, results, image_paths)
+
+    def _resolve_thumbnail_path(self, image_id: int, metadata: dict[str, object]) -> str | None:
+        """行内サムネイル用の画像パスを解決する (#1104)。
+
+        低解像度処理済み画像 (512px サムネイル) を優先し、無ければオリジナルの
+        ``stored_image_path`` にフォールバックする。いずれも無ければ None。
+
+        DB の格納パスはプロジェクトルート相対のことがあるため、View へ渡す前に
+        ``resolve_stored_path`` でプロジェクトルート基準の絶対パスへ解決する
+        (相対のままだとサムネイル読込がプロセスの cwd 基準になり外れる。#961 P2 と同型)。
+        """
+        candidate: str | None = None
+        if self._db_manager is not None:
+            low_res = self._db_manager.get_low_res_image_path(image_id)
+            if isinstance(low_res, str) and low_res:
+                candidate = low_res
+        if candidate is None:
+            stored = metadata.get("stored_image_path")
+            if isinstance(stored, str) and stored:
+                candidate = stored
+        if candidate is None:
+            return None
+        return str(resolve_stored_path(candidate))

@@ -275,6 +275,21 @@ class ExportTabWidget(QWidget):
         self._filtered_ids = list(image_ids)
         self._render_thumbnails(image_ids)
         self._overlay_bar.set_scope_counts(len(image_ids), len(image_ids))
+        self._update_available_resolutions(image_ids)
+
+    def _update_available_resolutions(self, image_ids: list[int]) -> None:
+        """対象画像に実在する解像度で overlay bar の選択肢を更新する (#1106)。
+
+        ハードコードの候補ではなく ``get_available_resolutions`` の union を提示し、
+        処理されていない解像度を選べてしまう不整合を防ぐ。対象未確定 (空) の
+        ときは overlay bar 側で既定候補にフォールバックする。
+        """
+        resolutions: set[int] = set()
+        if image_ids:
+            mapping = self._service_container.dataset_export_service.get_available_resolutions(image_ids)
+            for res_list in mapping.values():
+                resolutions.update(int(res) for res in res_list)
+        self._overlay_bar.set_available_resolutions(sorted(resolutions))
 
     def _render_thumbnails(self, image_ids: list[int]) -> None:
         """指定 ID 集合のサムネグリッドと選択 SSoT を再構築する (#949)。
@@ -521,12 +536,15 @@ class ExportTabWidget(QWidget):
             )
             return
 
+        resolution = self._overlay_bar.selected_resolution()
+        if not self._validate_export_resolution(effective_ids, resolution):
+            return
+
         directory = QFileDialog.getExistingDirectory(self, "エクスポート先ディレクトリを選択")
         if not directory:
             return
 
         export_format = self._overlay_bar.selected_format()
-        resolution = self._overlay_bar.selected_resolution()
         # ExportOverlayBar は canonical 値 (txt_separate/txt_merged/json) を返す。
         merge_caption = export_format == "txt_merged"
 
@@ -551,6 +569,46 @@ class ExportTabWidget(QWidget):
         self._export_worker = worker
         self._start_export_worker(worker)
         logger.info(f"エクスポート開始: {len(effective_ids)}枚 → {directory} (format={export_format})")
+
+    def _validate_export_resolution(self, image_ids: list[int], resolution: int) -> bool:
+        """指定解像度の処理済み画像が揃っているか事前検証する (#1106)。
+
+        1 枚も無ければ警告してエクスポートを中止し、一部欠落なら続行確認する。
+
+        Args:
+            image_ids: エクスポート対象の image_id。
+            resolution: エクスポートする解像度 (px)。
+
+        Returns:
+            エクスポートを続行してよいなら True。
+        """
+        report = self._service_container.dataset_export_service.validate_export_requirements(
+            image_ids, resolution
+        )
+        valid_images = report.get("valid_images", 0)
+        missing_processed = report.get("missing_processed", 0)
+
+        if valid_images == 0:
+            QMessageBox.warning(
+                self,
+                "エクスポート",
+                f"{resolution}px の処理済み画像が 1 枚も見つかりません。\n"
+                "解像度を変更するか、対象画像の画像処理を実行してください。",
+            )
+            return False
+
+        if missing_processed:
+            reply = QMessageBox.question(
+                self,
+                "エクスポート",
+                f"{resolution}px の処理済み画像が無い画像が {missing_processed} 枚あります。\n"
+                "これらを除いてエクスポートを続行しますか?",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                QMessageBox.StandardButton.No,
+            )
+            return reply == QMessageBox.StandardButton.Yes
+
+        return True
 
     def _start_export_worker(self, worker: DatasetExportWorker) -> None:
         """worker を専用 QThread で起動する (テストは本メソッドを差し替えて同期実行する)。"""

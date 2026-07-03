@@ -98,7 +98,6 @@ class CountEstimateWidget(QWidget):
     """
 
     # シグナル
-    count_updated = Signal(int)  # estimated_count
     estimation_failed = Signal(str)  # error_message
 
     def __init__(self, parent: QWidget | None = None) -> None:
@@ -240,7 +239,6 @@ class CountEstimateWidget(QWidget):
         self._inflight_tasks.pop(request_id, None)
         if request_id == self._latest_count_estimate_request_id:
             self._estimated_count_label.setText(f"該当件数: {estimated_count:,}件")
-            self.count_updated.emit(estimated_count)
 
         self._finish_count_estimate_request(request_id)
 

@@ -6,7 +6,7 @@ FilterSearchPanel が以下を満たすかを検証する:
 - 4 sub-widget (Tag/Count/Favorite/Pipeline) を composition で保持する
 - Sub-widget 同士が直接接続されていない (ADR 0036 §3)
 - Sub-widget からのコールバック / signal を Parent (mediator) が受けて他へ流通させる
-- Pipeline state listener が pipeline_state_changed シグナルを emit する
+- Pipeline state listener が state に応じた UI 更新を行う
 """
 
 from unittest.mock import MagicMock
@@ -64,13 +64,7 @@ class TestCompositionStructure:
 
 
 class TestPipelineStateMediation:
-    """Pipeline state machine の遷移を mediator が pipeline_state_changed として emit する。"""
-
-    def test_pipeline_state_emit_on_transition(self, panel, qtbot):
-        """PipelineStateMachine が遷移すると panel.pipeline_state_changed が emit される。"""
-        with qtbot.waitSignal(panel.pipeline_state_changed, timeout=1000) as blocker:
-            panel._pipeline.transition_to(PipelineState.SEARCHING)
-        assert blocker.args == [PipelineState.SEARCHING]
+    """Pipeline state machine の遷移を mediator が受けて state に応じた UI 更新を行う。"""
 
     def test_pipeline_state_idle_calls_set_visible_false(self, panel):
         """IDLE 遷移で progress_bar.setVisible(False) が呼ばれる (要 SEARCHING → IDLE)。"""
@@ -328,6 +322,19 @@ class TestRatingFilterOptions:
         assert kwargs["ai_rating_filter"] == ["R"]
         assert kwargs["rating_combine"] == "or"
 
+    def test_exclude_duplicates_checkbox_propagated(self, panel_with_service):
+        """checkboxExcludeDuplicates の実値が create_search_conditions へ伝播する (Issue #1106 項目1)。"""
+        panel = panel_with_service
+        panel._rating_chips.set_value("PG")  # 検索をブロックしないよう条件を1つ立てる
+        panel.ui.checkboxExcludeDuplicates.setChecked(True)
+        assert panel._build_search_conditions_from_ui() is panel._sentinel
+        _, kwargs = panel.search_filter_service.create_search_conditions.call_args
+        assert kwargs["exclude_duplicates"] is True
+
+    def test_exclude_duplicates_checkbox_visible(self, panel):
+        """checkboxExcludeDuplicates が非表示化されず利用可能である (Issue #1106 項目1)。"""
+        assert not panel.ui.checkboxExcludeDuplicates.isHidden()
+
     def test_nsfw_resolution_accepts_list_and_str(self, panel):
         """_resolve_include_nsfw は単一値(後方互換)と複数値の両方を解決する。"""
         # 後方互換: 単一 str の RATED / None
@@ -353,6 +360,14 @@ class TestRatingFilterOptions:
         assert panel._build_search_conditions_from_ui() is None
         panel.search_filter_service.create_search_conditions.assert_not_called()
 
+    def test_exclude_duplicates_only_is_valid_search(self, panel_with_service):
+        """重複除外チェックのみでも単独フィルタとして検索が成立する (Issue #1106 Codex P2)。"""
+        panel = panel_with_service
+        panel.ui.checkboxExcludeDuplicates.setChecked(True)
+        assert panel._build_search_conditions_from_ui() is panel._sentinel
+        _, kwargs = panel.search_filter_service.create_search_conditions.call_args
+        assert kwargs["exclude_duplicates"] is True
+
     def test_clear_resets_chips_and_combine(self, panel):
         """クリアで chip 全解除・組合せトグルが AND に戻る。"""
         panel._rating_chips.set_value("PG")
@@ -368,12 +383,15 @@ class TestPublicAPICompat:
     """既存 public API の互換維持を確認する。"""
 
     def test_public_signals_exist(self, panel):
-        """既存の public signal が引き続き定義されている。"""
-        assert hasattr(panel, "filter_applied")
+        """使用中の public signal が引き続き定義されている。"""
         assert hasattr(panel, "filter_cleared")
         assert hasattr(panel, "search_requested")
-        assert hasattr(panel, "search_completed")
-        assert hasattr(panel, "pipeline_state_changed")
+
+    def test_dead_signals_removed(self, panel):
+        """購読者不在の死シグナルは削除されている (Issue #1106 項目6,7)。"""
+        assert not hasattr(panel, "filter_applied")
+        assert not hasattr(panel, "search_completed")
+        assert not hasattr(panel, "pipeline_state_changed")
 
     def test_legacy_method_extract_last_token(self, panel):
         """旧 API: 静的ヘルパー _extract_last_token が delegation で利用可能。"""

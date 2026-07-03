@@ -562,12 +562,14 @@ class TestDispatchAsyncBatch:
         )
 
         with patch("lorairo.gui.controllers.annotation_workflow_controller.QMessageBox") as mock_qmb:
-            AnnotationWorkflowController.dispatch_async_batch(ctrl)
+            started = AnnotationWorkflowController.dispatch_async_batch(ctrl)
             mock_qmb.warning.assert_not_called()
             mock_qmb.critical.assert_not_called()
 
         ctrl._start_async_dispatch_worker.assert_called_once()
         assert ctrl._async_dispatch_in_progress is True
+        # #1102: 送信を開始できたら True を返す (遷移判定に使う)
+        assert started is True
 
     def test_run_settings_prompt_profile_and_description_forwarded(self) -> None:
         # #902: run settings の prompt_profile / description を射影へ配線する。ADR 0076 §1。
@@ -612,10 +614,12 @@ class TestDispatchAsyncBatch:
         )
 
         with patch("lorairo.gui.controllers.annotation_workflow_controller.QMessageBox") as mock_qmb:
-            AnnotationWorkflowController.dispatch_async_batch(ctrl)
+            started = AnnotationWorkflowController.dispatch_async_batch(ctrl)
             mock_qmb.warning.assert_called_once()
 
         ctrl._start_async_dispatch_worker.assert_not_called()
+        # #1102: 開始前に拒否したら False を返す (遷移しない)
+        assert started is False
 
     def test_non_batch_capable_model_rejected(self) -> None:
         from lorairo.gui.controllers.annotation_workflow_controller import AnnotationWorkflowController
@@ -800,6 +804,35 @@ class TestStartAnnotationEntry:
         ctrl._is_annotate_tab_active.return_value = False
 
         AnnotationWorkflowController.start_annotation(ctrl)
+
+        ctrl.start_annotation_workflow.assert_called_once()
+        ctrl.dispatch_async_batch.assert_not_called()
+
+    def test_explicit_batch_mode_arg_overrides_run_options(self) -> None:
+        """#1099: 実行ボタンが渡す dispatch_mode 引数が RunOptions より優先される。"""
+        from lorairo.gui.controllers.annotation_workflow_controller import AnnotationWorkflowController
+        from lorairo.gui.widgets.run_settings_dialog import RunOptions
+
+        ctrl = Mock()
+        # RunOptions は sync だが、ボタン引数 batch_api が優先されるべき
+        ctrl._annotate_tab.run_options.return_value = RunOptions(dispatch_mode="sync")
+
+        AnnotationWorkflowController.start_annotation(ctrl, "batch_api")
+
+        ctrl.dispatch_async_batch.assert_called_once()
+        ctrl.start_annotation_workflow.assert_not_called()
+
+    def test_explicit_sync_mode_arg_overrides_run_options(self) -> None:
+        """#1099: dispatch_mode="sync" 引数は async dispatch へ行かず同期 workflow を起動する。"""
+        from lorairo.gui.controllers.annotation_workflow_controller import AnnotationWorkflowController
+        from lorairo.gui.widgets.run_settings_dialog import RunOptions
+
+        ctrl = Mock()
+        ctrl._annotate_tab.run_options.return_value = RunOptions(dispatch_mode="batch_api")
+        ctrl._annotate_tab.selected_litellm_model_ids.return_value = ["openai/gpt-4o"]
+        ctrl._is_annotate_tab_active.return_value = False
+
+        AnnotationWorkflowController.start_annotation(ctrl, "sync")
 
         ctrl.start_annotation_workflow.assert_called_once()
         ctrl.dispatch_async_batch.assert_not_called()

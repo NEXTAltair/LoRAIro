@@ -261,6 +261,45 @@ class ImageRepository(BaseRepository):
                 logger.error(f"pHash 候補検索中にエラーが発生しました: {e}", exc_info=True)
                 raise
 
+    def get_phash_classification_by_ids(self, image_ids: list[int]) -> dict[int, dict[str, Any]]:
+        """指定 image_id のオリジナル画像の pHash + 分類属性を返す (重複除外用, #1106)。
+
+        解像度フィルタ検索では返却メタデータが ``processed_images`` 由来となり、
+        ``phash`` やオリジナルの分類属性 (width/height/has_alpha/is_grayscale_like) を
+        欠く。重複除外フィルタが元画像単位で判定できるよう、``images`` テーブルから
+        直接取得して補完する。
+
+        Args:
+            image_ids: 対象の image_id リスト。
+
+        Returns:
+            ``{image_id: {"phash", "width", "height", "has_alpha", "is_grayscale_like"}}``。
+            見つからない id は結果に含めない。
+        """
+        if not image_ids:
+            return {}
+        result: dict[int, dict[str, Any]] = {}
+        with self.session_factory() as session:
+            for start in range(0, len(image_ids), self.BATCH_CHUNK_SIZE):
+                chunk = image_ids[start : start + self.BATCH_CHUNK_SIZE]
+                stmt = select(
+                    Image.id,
+                    Image.phash,
+                    Image.width,
+                    Image.height,
+                    Image.has_alpha,
+                    Image.is_grayscale_like,
+                ).where(Image.id.in_(chunk))
+                for row in session.execute(stmt).all():
+                    result[row.id] = {
+                        "phash": row.phash,
+                        "width": row.width,
+                        "height": row.height,
+                        "has_alpha": row.has_alpha,
+                        "is_grayscale_like": row.is_grayscale_like,
+                    }
+        return result
+
     @classmethod
     def _candidate_attr_matches(cls, new_value: Any, candidate_value: Any) -> bool:
         """1 属性について登録対象と候補が「一致」とみなせるか判定する。
