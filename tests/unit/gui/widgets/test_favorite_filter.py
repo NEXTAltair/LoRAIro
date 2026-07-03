@@ -54,8 +54,11 @@ class TestInitialState:
 
     def test_buttons_exist(self, panel: FavoriteFilterPanel) -> None:
         assert panel.button_save_filter is not None
-        assert panel.button_load_filter is not None
         assert panel.button_delete_filter is not None
+
+    def test_no_dedicated_load_button(self, panel: FavoriteFilterPanel) -> None:
+        """読込は chip クリックのみで行い、専用ボタンは持たない (#1088 follow-up)。"""
+        assert not hasattr(panel, "button_load_filter")
 
 
 class TestSetFavoriteFiltersService:
@@ -131,23 +134,7 @@ class TestSaveFlow:
 
 
 class TestLoadFlow:
-    """ロードフローのテスト。"""
-
-    def test_load_invokes_applier(
-        self,
-        panel: FavoriteFilterPanel,
-        mock_service: MagicMock,
-    ) -> None:
-        applier = MagicMock()
-        mock_service.list_filters.return_value = ["my_filter"]
-        panel.set_favorite_filters_service(mock_service)
-        panel.set_conditions_applier(applier)
-        panel.favorite_filters_list.setCurrentRow(0)
-
-        panel._on_load_clicked()
-
-        mock_service.load_filter.assert_called_once_with("my_filter")
-        applier.assert_called_once_with({"some": "conditions"})
+    """ロードフローのテスト。読込は chip クリック / ダブルクリックのみで行う。"""
 
     def test_load_via_double_click(
         self,
@@ -163,17 +150,6 @@ class TestLoadFlow:
         panel._on_filter_double_clicked(item)
 
         applier.assert_called_once_with({"some": "conditions"})
-
-    def test_load_skipped_when_nothing_selected(
-        self,
-        panel: FavoriteFilterPanel,
-        mock_service: MagicMock,
-    ) -> None:
-        panel.set_favorite_filters_service(mock_service)
-
-        panel._on_load_clicked()
-
-        mock_service.load_filter.assert_not_called()
 
 
 class TestDeleteFlow:
@@ -284,9 +260,6 @@ class TestServiceMissingGuards:
     def test_save_when_service_missing(self, panel: FavoriteFilterPanel) -> None:
         # service 未設定でも例外を投げない
         panel._on_save_clicked()
-
-    def test_load_when_service_missing(self, panel: FavoriteFilterPanel) -> None:
-        panel._on_load_clicked()
 
     def test_delete_when_service_missing(self, panel: FavoriteFilterPanel) -> None:
         panel._on_delete_clicked()
