@@ -234,12 +234,33 @@ class TestChipRendering:
 
         chip_item = panel._chip_layout.itemAt(0)
         assert chip_item is not None
-        chip_button = chip_item.widget().findChild(QPushButton, "favoriteQueryChip")
+        # RemovableChip へ統一 (#1105): 本文ボタンは objectName "dsRemovableChipBody"
+        chip_button = chip_item.widget().findChild(QPushButton, "dsRemovableChipBody")
         assert chip_button is not None
         chip_button.click()
 
         mock_service.load_filter.assert_called_once_with("q1")
         applier.assert_called_once_with({"some": "conditions"})
+
+    def test_chip_remove_invokes_delete(
+        self,
+        panel: FavoriteFilterPanel,
+        mock_service: MagicMock,
+    ) -> None:
+        """chip の × (RemovableChip.removed) で delete_filter が呼ばれること (#1105)。"""
+        from PySide6.QtWidgets import QPushButton
+
+        mock_service.list_filters.return_value = ["q1"]
+        mock_service.get_all_filters.return_value = {"q1": {"keywords": ["1girl"]}}
+        panel.setChecked(True)
+        panel.set_favorite_filters_service(mock_service)
+
+        chip = panel._chip_layout.itemAt(0).widget()
+        remove_btn = chip.findChild(QPushButton, "dsRemovableChipRemove")
+        assert remove_btn is not None
+        remove_btn.click()  # QMessageBox.question は autouse で Yes に mock 済み
+
+        mock_service.delete_filter.assert_called_once_with("q1")
 
     def test_chip_summary_reflects_conditions(
         self,
