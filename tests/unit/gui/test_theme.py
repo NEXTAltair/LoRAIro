@@ -136,8 +136,26 @@ class TestBuildGlobalQss:
             "QToolTip",
             "QMenu",
             "QProgressBar::chunk",
+            "QCheckBox::indicator",
         ):
             assert selector in qss, f"missing selector: {selector}"
+
+    def test_checkbox_indicator_has_visible_border_states(self):
+        # Issue #1092: QCheckBox の枠線がテーマ QSS 未定義で見えなかった回帰防止。
+        # unchecked は LINE_STRONG 枠 + CARD 地、checked は ACCENT 塗りでコントラストを確保。
+        qss = theme.build_global_qss()
+        unchecked = qss.split("QCheckBox::indicator:unchecked {")[1].split("}")[0]
+        assert f"1px solid {theme.LINE_STRONG}" in unchecked
+        assert f"background: {theme.CARD}" in unchecked
+        checked = qss.split("QCheckBox::indicator:checked {")[1].split("}")[0]
+        assert f"background: {theme.ACCENT}" in checked
+        assert theme.CHECK_MARK_ICON_URI in checked
+
+    def test_checkbox_indicator_hover_uses_accent(self):
+        qss = theme.build_global_qss()
+        assert "QCheckBox::indicator:unchecked:hover" in qss
+        hover = qss.split("QCheckBox::indicator:unchecked:hover {")[1].split("}")[0]
+        assert f"border-color: {theme.ACCENT}" in hover
 
     def test_active_tab_uses_accent_underline_and_bold(self):
         qss = theme.build_global_qss()

@@ -238,6 +238,15 @@ LOADING_OVERLAY_QSS = "background-color: rgba(26, 26, 26, 120); color: white; fo
 # 完了状態のプログレスバー chunk を ok 色へ切り替える追加 QSS
 PROGRESS_CHUNK_OK_QSS = f"QProgressBar::chunk {{ background-color: {OK}; }}"
 
+# チェック済み QCheckBox の白チェックマーク (ACCENT 塗りの上に描画する SVG data URI)
+CHECK_MARK_ICON_URI = (
+    "data:image/svg+xml;base64,"
+    "PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIxMyIgaGVpZ2h0PSIxMyIg"
+    "dmlld0JveD0iMCAwIDEzIDEzIj48cGF0aCBkPSJNMi41IDYuOEw1LjIgOS40TDEwLjUgMy40IiBmaWxsPSJu"
+    "b25lIiBzdHJva2U9IiNmZmZmZmYiIHN0cm9rZS13aWR0aD0iMS44IiBzdHJva2UtbGluZWNhcD0icm91bmQi"
+    "IHN0cm9rZS1saW5lam9pbj0icm91bmQiLz48L3N2Zz4="
+)
+
 # ---------------------------------------------------------------------------
 # グローバル QSS
 # ---------------------------------------------------------------------------
@@ -333,6 +342,41 @@ QToolButton {{
 QToolButton:hover {{
     background-color: {PAPER_SHADE};
     border-color: {LINE_STRONG};
+}}
+
+/* --- チェックボックス (選択系: search_facets_sidebar の radio とトーン統一) --- */
+QCheckBox {{
+    spacing: 7px;
+    background: transparent;
+}}
+QCheckBox::indicator {{
+    width: 13px;
+    height: 13px;
+}}
+QCheckBox::indicator:unchecked {{
+    border: 1px solid {LINE_STRONG};
+    border-radius: 3px;
+    background: {CARD};
+}}
+QCheckBox::indicator:unchecked:hover {{
+    border-color: {ACCENT};
+}}
+QCheckBox::indicator:checked {{
+    border: 1px solid {ACCENT};
+    border-radius: 3px;
+    background: {ACCENT};
+    image: url({CHECK_MARK_ICON_URI});
+}}
+QCheckBox::indicator:checked:hover {{
+    border-color: {ACCENT_HOVER};
+    background: {ACCENT_HOVER};
+}}
+QCheckBox:disabled {{
+    color: {INK_FAINT};
+}}
+QCheckBox::indicator:disabled {{
+    border-color: {LINE};
+    background: {PAPER_SHADE};
 }}
 
 /* --- 入力欄 (mock .input) --- */
