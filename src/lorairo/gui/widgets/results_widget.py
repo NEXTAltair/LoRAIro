@@ -7,7 +7,7 @@
 
 from pathlib import Path
 
-from PySide6.QtCore import Qt, Signal
+from PySide6.QtCore import Qt, QTimer, Signal
 from PySide6.QtGui import QPixmap, QResizeEvent, QShowEvent
 from PySide6.QtWidgets import (
     QApplication,
@@ -111,8 +111,14 @@ class _FlowChipRow(QWidget):
 class _RowThumbnail(QLabel):
     """結果行の小サムネイル (Issue #1104)。
 
-    ``show`` された時点で初めて画像を読み込む遅延ロード方式。パスが無い・ファイル
-    欠落・デコード失敗のいずれでもクラッシュせずプレースホルダ文言を出す。
+    viewport に実際に見えている行だけを遅延デコードする (``maybe_load``)。
+    ``showEvent`` はウィジェット階層の表示時に全行で発火してしまうため、それだけを
+    トリガにすると大きな staged セットで Results を開いた瞬間に全行を同期デコードして
+    UI が固まる。``visibleRegion`` の交差判定でスクロール可視域に入った行のみ読み込み、
+    親 (``ResultsWidget``) がスクロール時に ``maybe_load`` を再評価する。
+
+    パスが無い・ファイル欠落・デコード失敗のいずれでもクラッシュせずプレースホルダ
+    文言を出す。
     """
 
     _SIZE = 56
@@ -131,11 +137,21 @@ class _RowThumbnail(QLabel):
         )
         self.setText("…")
 
+    def maybe_load(self) -> None:
+        """viewport に見えていれば (まだなら) デコードする。見えていなければ何もしない。"""
+        if self._loaded:
+            return
+        # スクロールで viewport 外にクリップされている行は visibleRegion が空になる。
+        if self.visibleRegion().isEmpty():
+            return
+        self._loaded = True
+        self._load()
+
     def showEvent(self, event: QShowEvent) -> None:
         super().showEvent(event)
-        if not self._loaded:
-            self._loaded = True
-            self._load()
+        # 表示直後はレイアウト未確定で visibleRegion が不正確なことがあるため、
+        # イベントループ復帰後に可視判定する (先頭スクリーン分の初期ロード)。
+        QTimer.singleShot(0, self.maybe_load)
 
     def _load(self) -> None:
         """パスから QPixmap を読み込む。失敗時はプレースホルダ文言を残す。"""
@@ -184,6 +200,8 @@ class ResultsWidget(QWidget):
         self._clean_plan: CleanAuditPlan | None = None
         # image_id -> 行内サムネイルの画像パス (#1104)。display で受け取る。
         self._image_paths: dict[int, str] = {}
+        # 遅延ロード対象のサムネイル一覧 (可視域だけデコードするため保持する。#1104)。
+        self._row_thumbnails: list[_RowThumbnail] = []
         self.clear()
 
     # ------------------------------------------------------------------
@@ -236,11 +254,21 @@ class ResultsWidget(QWidget):
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
         scroll.setWidget(rows_container)
+        # スクロールで新たに可視域へ入った行のサムネイルを追ってデコードする (#1104)。
+        scroll.verticalScrollBar().valueChanged.connect(self._load_visible_thumbnails)
         self._root.addWidget(scroll, stretch=1)
 
         band = self._build_clean_audit_band(ordered)
         if band is not None:
             self._root.addWidget(band)
+
+        # 先頭スクリーン分のサムネイルをレイアウト確定後にロードする (可視域のみ)。
+        QTimer.singleShot(0, self._load_visible_thumbnails)
+
+    def _load_visible_thumbnails(self) -> None:
+        """viewport に見えているサムネイルだけを (まだなら) デコードする (#1104)。"""
+        for thumb in self._row_thumbnails:
+            thumb.maybe_load()
 
     def _build_clean_audit_band(self, results: list[ImageTriageResult]) -> QWidget | None:
         """CLEAN 監査 (OK箱) バンドを構築する (clean が無ければ None)。
@@ -325,6 +353,8 @@ class ResultsWidget(QWidget):
         self._results_cache = []
         self._clean_plan = None
         self._image_paths = {}
+        # 破棄されるサムネイル参照を先に手放す (スクロール再評価が stale を触らないよう)。
+        self._row_thumbnails = []
         while self._root.count():
             item = self._root.takeAt(0)
             if item is None:
@@ -442,6 +472,8 @@ class ResultsWidget(QWidget):
         # 行は [サムネイル | アノテーション縦積み] の横並び (#1104)。
         outer = QHBoxLayout(row)
         thumb = _RowThumbnail(result.image_id, self._image_paths.get(result.image_id))
+        # 可視域だけ遅延ロードするためスクロール再評価の対象に登録する。
+        self._row_thumbnails.append(thumb)
         outer.addWidget(thumb, alignment=Qt.AlignmentFlag.AlignTop)
 
         content = QWidget()

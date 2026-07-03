@@ -9,6 +9,7 @@ MainWindow は本ウィジェットを配置し依存を注入するだけ (glue
 from PySide6.QtCore import Slot
 from PySide6.QtWidgets import QVBoxLayout, QWidget
 
+from ...database.db_core import resolve_stored_path
 from ...database.db_manager import ImageDatabaseManager
 from ...services.quality_issue_detection_service import QualityIssueDetectionService
 from ...utils.log import logger
@@ -123,12 +124,20 @@ class ResultsTabWidget(QWidget):
 
         低解像度処理済み画像 (512px サムネイル) を優先し、無ければオリジナルの
         ``stored_image_path`` にフォールバックする。いずれも無ければ None。
+
+        DB の格納パスはプロジェクトルート相対のことがあるため、View へ渡す前に
+        ``resolve_stored_path`` でプロジェクトルート基準の絶対パスへ解決する
+        (相対のままだとサムネイル読込がプロセスの cwd 基準になり外れる。#961 P2 と同型)。
         """
+        candidate: str | None = None
         if self._db_manager is not None:
             low_res = self._db_manager.get_low_res_image_path(image_id)
             if isinstance(low_res, str) and low_res:
-                return low_res
-        stored = metadata.get("stored_image_path")
-        if isinstance(stored, str) and stored:
-            return stored
-        return None
+                candidate = low_res
+        if candidate is None:
+            stored = metadata.get("stored_image_path")
+            if isinstance(stored, str) and stored:
+                candidate = stored
+        if candidate is None:
+            return None
+        return str(resolve_stored_path(candidate))

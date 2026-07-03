@@ -251,6 +251,23 @@ def test_thumbnail_loads_valid_image(qapp, tmp_path):
     assert not thumb.pixmap().isNull()
 
 
+def test_thumbnail_maybe_load_skips_when_not_visible(qapp, tmp_path):
+    """未表示 (viewport 外) のサムネイルは maybe_load でデコードしない (Issue #1104 P2)。
+
+    有効なパスでも viewport に見えるまでは同期デコードを走らせず、開いた瞬間に全行を
+    デコードして固まるのを防ぐ。
+    """
+    img_path = tmp_path / "thumb.png"
+    source = QPixmap(16, 16)
+    source.fill(Qt.GlobalColor.white)
+    assert source.save(str(img_path))
+    thumb = _RowThumbnail(10, str(img_path))
+    # 一度も show されていない → visibleRegion は空 → ロードされない。
+    thumb.maybe_load()
+    assert not thumb._loaded
+    assert thumb.pixmap().isNull()
+
+
 # ─── #1104: タグ chip の共通部品化 ────────────────────────────────────
 
 
