@@ -34,7 +34,7 @@ from PySide6.QtWidgets import (
 
 from ...gui.designer.AnnotationDataDisplayWidget_ui import Ui_AnnotationDataDisplayWidget
 from ...utils.log import logger
-from .. import theme
+from .ds_badge import DsBadge
 from .tag_panel_widget import SelectableTagChip, TagPanelWidget
 
 __all__ = [
@@ -536,9 +536,9 @@ class AnnotationDataDisplayWidget(QWidget, Ui_AnnotationDataDisplayWidget):
             for entry in score_labels:
                 model = entry.get("model", "Unknown")
                 label = entry.get("label", "-")
-                pill = QLabel(f"[{model}] {label}", self._score_labels_container)
+                # #1105: badge_qss 直書き → DsBadge へ統一
+                pill = DsBadge(f"[{model}] {label}", parent=self._score_labels_container)
                 self._make_label_copyable(pill)
-                pill.setStyleSheet(theme.badge_qss())
                 # stretch の前 (= layout 末尾) に挿入
                 layout.insertWidget(layout.count() - 1, pill)
 
