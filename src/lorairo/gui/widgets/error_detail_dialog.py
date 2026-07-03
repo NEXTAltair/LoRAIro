@@ -6,6 +6,7 @@
 from pathlib import Path
 
 from loguru import logger
+from PySide6.QtGui import QPixmap
 from PySide6.QtWidgets import QDialog, QMessageBox, QWidget
 
 from ...database.db_manager import ImageDatabaseManager
@@ -144,8 +145,15 @@ class ErrorDetailDialog(QDialog, Ui_ErrorDetailDialog):
             self._show_preview_message(f"画像ファイルが見つかりません:\n{file_path.name}")
             return
 
-        # ImagePreviewWidget へ委譲する。QGraphicsView ベースのスムーススケール表示で、
-        # null pixmap / 読み込み例外は widget 側が内部でログ + クリアして吸収する。
+        # デコード可否を事前判定する (破損 / 非対応形式 / 画像でないファイル)。
+        # ImagePreviewWidget はデコード失敗時にログ + clear するだけで、ユーザーには
+        # 空白のプレビューしか残らず理由が分からない。dialog 側でテキストヒントへ
+        # フォールバックする (#1105 Codex P2)。
+        if QPixmap(str(file_path)).isNull():
+            self._show_preview_message(f"画像を読み込めません:\n{file_path.name}")
+            return
+
+        # ImagePreviewWidget へ委譲する。QGraphicsView ベースのスムーススケール表示。
         self.labelImagePreview.setVisible(False)
         self._image_preview.setVisible(True)
         self._image_preview.load_image(file_path)
