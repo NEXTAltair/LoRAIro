@@ -869,10 +869,39 @@ class ThumbnailSelectorWidget(QWidget, Ui_ThumbnailSelectorWidget):
         self.updateGeometry()
 
     def _content_height_chrome(self) -> int:
-        """サムネイル行以外に必要な高さ (ヘッダ・枠・スクロールバー余裕) を返す。"""
-        chrome = 8  # scroll area 枠 + 余白
-        if hasattr(self, "frameThumbnailHeader") and self.frameThumbnailHeader.isVisible():
+        """サムネイル行以外に必要な高さを実レイアウトから算出する (px)。
+
+        固定値ではなく、外側/内側レイアウトの上下 contentsMargins・スクロール
+        エリア/グラフィックスビューのフレーム幅・(表示中の) ヘッダ高さを実測して
+        合算する。環境ごとのスタイル差 (既定マージン) に追従し、高さの数px 不足/
+        超過による不要スクロールや余白を防ぐ (#1097 Codex P2)。
+        """
+        chrome = 0
+
+        # 外側レイアウト (verticalLayout) の上下マージン
+        outer_layout = self.layout()
+        if outer_layout is not None:
+            outer_margins = outer_layout.contentsMargins()
+            chrome += outer_margins.top() + outer_margins.bottom()
+
+        # スクロールエリア内コンテンツ (graphics_view を載せた widget) の上下マージン
+        content_layout = self.widgetThumbnailsContent.layout()
+        if content_layout is not None:
+            content_margins = content_layout.contentsMargins()
+            chrome += content_margins.top() + content_margins.bottom()
+
+        # スクロールエリア枠・グラフィックスビュー枠 (上下)
+        chrome += 2 * self.scrollAreaThumbnails.frameWidth()
+        chrome += 2 * self.graphics_view.frameWidth()
+
+        # 表示中のヘッダ (+ 外側レイアウトの spacing 1 段分)。
+        # isVisibleTo(self) は top-level 未表示でも hide() の有無を正しく反映するため、
+        # sizeHint 算出タイミング (表示前) でも正確に判定できる。
+        if hasattr(self, "frameThumbnailHeader") and self.frameThumbnailHeader.isVisibleTo(self):
             chrome += self.frameThumbnailHeader.sizeHint().height()
+            if outer_layout is not None:
+                chrome += outer_layout.spacing()
+
         return chrome
 
     def _current_column_count(self) -> int:

@@ -774,7 +774,33 @@ class TestThumbnailSelectorContentHeight:
         # 無効時はコンテンツ式の高さ (3*96+chrome) にはならない
         assert widget.sizeHint().height() != 3 * 96 + chrome
 
-    def test_minimum_height_allows_shrink_below_legacy_150(self, widget):
+    def test_minimum_height_matches_one_row_plus_chrome(self, widget):
+        widget.frameThumbnailHeader.hide()  # staging と同じ構成 (ヘッダ非表示)
         widget.enable_content_height(max_rows=3)
-        # 旧実装の固定 150px 下限を撤廃し、1 行相当まで縮められる
+        # 下限 = 1 行 + 実測 chrome。旧実装の固定 150px 下限を撤廃し縮められる。
+        assert widget.minimumHeight() == 96 + widget._content_height_chrome()
         assert widget.minimumHeight() < 150
+
+    def test_chrome_derived_from_real_layout_margins(self, widget):
+        # Codex P2 (#1097): chrome は固定値ではなく実レイアウトの margins/frame から算出する。
+        widget.frameThumbnailHeader.hide()
+        outer = widget.layout().contentsMargins()
+        content_layout = widget.widgetThumbnailsContent.layout()
+        content = content_layout.contentsMargins()
+        expected = (
+            outer.top()
+            + outer.bottom()
+            + content.top()
+            + content.bottom()
+            + 2 * widget.scrollAreaThumbnails.frameWidth()
+            + 2 * widget.graphics_view.frameWidth()
+        )
+        assert widget._content_height_chrome() == expected
+
+    def test_chrome_includes_header_when_visible(self, widget):
+        # ヘッダ表示時はその高さ + spacing が chrome に加算される。
+        widget.frameThumbnailHeader.hide()
+        without_header = widget._content_height_chrome()
+        widget.frameThumbnailHeader.show()
+        with_header = widget._content_height_chrome()
+        assert with_header > without_header
