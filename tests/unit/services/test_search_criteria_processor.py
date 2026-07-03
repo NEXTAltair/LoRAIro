@@ -18,6 +18,8 @@ class TestSearchCriteriaProcessor:
         mock_db = Mock()
         mock_db.get_images_by_filter.return_value = ([], 0)
         mock_db.check_image_has_annotation.return_value = False
+        # #1106: 重複除外の phash 補完はデフォルト「補完なし」(空 dict) で決定論的にする
+        mock_db.image_repo.get_phash_classification_by_ids.return_value = {}
         return mock_db
 
     @pytest.fixture
@@ -652,6 +654,51 @@ class TestSearchCriteriaProcessorErrorPaths:
         result = processor._filter_by_duplicate_exclusion(images)
 
         assert [img["id"] for img in result] == [1]
+
+    def test_filter_by_duplicate_exclusion_backfills_phash_for_resolution_search(
+        self, processor, mock_db_manager
+    ) -> None:
+        """解像度検索で phash を欠く processed メタでも、オリジナル画像から補完して重複除外する (#1106 Codex P2)。"""
+        # processed メタは phash / オリジナル分類属性を持たない (resized 幅高のみ)
+        images = [
+            {"id": 1, "width": 512, "height": 512},
+            {"id": 2, "width": 512, "height": 512},
+        ]
+        # Image テーブル由来の重複判定フィールド: 両者は同一 pHash・同一属性の真の重複
+        original = {
+            "phash": "dup",
+            "width": 1024,
+            "height": 1024,
+            "has_alpha": False,
+            "is_grayscale_like": False,
+        }
+        mock_db_manager.image_repo.get_phash_classification_by_ids.return_value = {
+            1: dict(original),
+            2: dict(original),
+        }
+
+        result = processor._filter_by_duplicate_exclusion(images)
+
+        # 補完した phash + オリジナル属性で真の重複と判定し 1 件に畳む
+        assert [img["id"] for img in result] == [1]
+        mock_db_manager.image_repo.get_phash_classification_by_ids.assert_called_once_with([1, 2])
+
+    def test_filter_by_duplicate_exclusion_no_backfill_when_phash_present(
+        self, processor, mock_db_manager
+    ) -> None:
+        """メタに phash があれば (resolution=0 検索) 補完 fetch は発生しない (#1106)。"""
+        images = [
+            {
+                "id": 1,
+                "phash": "a",
+                "width": 64,
+                "height": 64,
+                "has_alpha": False,
+                "is_grayscale_like": False,
+            },
+        ]
+        processor._filter_by_duplicate_exclusion(images)
+        mock_db_manager.image_repo.get_phash_classification_by_ids.assert_not_called()
 
     @patch("lorairo.services.search_criteria_processor.logger")
     def test_filter_by_duplicate_exclusion_exception_returns_original_images(

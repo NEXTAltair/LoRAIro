@@ -1129,3 +1129,41 @@ class TestExportInvariantRejectReason:
         all_annotations = image_repository.get_image_annotations(image_id, include_rejected=True)
         all_tags = {t["tag"] for t in all_annotations["tags"]}
         assert all_tags == {"active_tag", "disabled_tag", "wrong_tag", "moved_tag"}
+
+
+@pytest.mark.unit
+class TestGetPhashClassificationByIds:
+    """get_phash_classification_by_ids のオリジナル重複判定フィールド取得 (#1106)。"""
+
+    def test_returns_phash_and_classification_attrs(self, image_repository: ImageRepository) -> None:
+        """指定 id のオリジナル phash + 分類属性を返す。"""
+        a = _insert_image(
+            image_repository,
+            uuid="pc-a",
+            phash="phash-a",
+            filename="a.png",
+            width=1024,
+            height=768,
+            has_alpha=True,
+            is_grayscale_like=False,
+        )
+        b = _insert_image(image_repository, uuid="pc-b", phash="phash-b", filename="b.png")
+
+        result = image_repository.get_phash_classification_by_ids([a, b])
+
+        assert set(result.keys()) == {a, b}
+        assert result[a]["phash"] == "phash-a"
+        assert result[a]["width"] == 1024
+        assert result[a]["height"] == 768
+        assert result[a]["has_alpha"] is True
+        assert result[a]["is_grayscale_like"] is False
+
+    def test_empty_input_returns_empty_dict(self, image_repository: ImageRepository) -> None:
+        """空リストは空 dict を返す (fetch なし)。"""
+        assert image_repository.get_phash_classification_by_ids([]) == {}
+
+    def test_missing_ids_excluded(self, image_repository: ImageRepository) -> None:
+        """存在しない id は結果に含めない。"""
+        a = _insert_image(image_repository, uuid="pc-only", phash="phash-only", filename="a.png")
+        result = image_repository.get_phash_classification_by_ids([a, 99999])
+        assert set(result.keys()) == {a}

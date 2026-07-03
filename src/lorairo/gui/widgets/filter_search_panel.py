@@ -300,9 +300,6 @@ class FilterSearchPanel(QScrollArea):
         # レーティング chip トグル群 (Issue #811: dropdown → マルチセレクト chip)
         self._setup_rating_chips()
 
-        # 廃止フラグ (登録時 pHash 重複防止により不要)
-        self.ui.checkboxExcludeDuplicates.setChecked(False)
-        self.ui.checkboxExcludeDuplicates.setVisible(False)
         # 廃止フラグ (レーティング選択から自動判定)
         self.ui.checkboxIncludeNSFW.setChecked(False)
         self.ui.checkboxIncludeNSFW.setVisible(False)
@@ -893,6 +890,8 @@ class FilterSearchPanel(QScrollArea):
                 bool(self._get_ai_rating_filter_value()),
                 has_score_filter,
                 has_facet_filter,
+                # 重複除外は単独フィルタとして成立する (SearchCriteriaProcessor が対応, #1106)
+                self.ui.checkboxExcludeDuplicates.isChecked(),
             ],
         ):
             logger.debug("検索条件が未指定のため検索をスキップ")
@@ -924,7 +923,7 @@ class FilterSearchPanel(QScrollArea):
             date_range_end=date_range_end,
             only_untagged=self.ui.checkboxOnlyUntagged.isChecked(),
             only_uncaptioned=self.ui.checkboxOnlyUncaptioned.isChecked(),
-            exclude_duplicates=False,
+            exclude_duplicates=self.ui.checkboxExcludeDuplicates.isChecked(),
             include_nsfw=include_nsfw,
             rating_filter=rating_filter,
             ai_rating_filter=ai_rating_filter,
