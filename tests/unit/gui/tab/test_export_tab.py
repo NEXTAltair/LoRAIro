@@ -25,6 +25,16 @@ def service_container() -> Mock:
     # MergedTagReader 無し (None) で構築 → 詳細ウィジェットの言語セレクタ初期化を回避し、
     # ExportOverlayBar は convert スキップで動作する。
     container.db_manager.annotation_repo.get_merged_reader.return_value = None
+    # #1106: エクスポート前検証・実在解像度取得はデフォルトで「全て有効」を返す
+    # (個別テストで欠落ケースを上書きする)。
+    container.dataset_export_service.validate_export_requirements.return_value = {
+        "total_images": 0,
+        "valid_images": 1,
+        "missing_processed": 0,
+        "missing_metadata": 0,
+        "issues": [],
+    }
+    container.dataset_export_service.get_available_resolutions.return_value = {}
     return container
 
 
@@ -615,3 +625,109 @@ def test_export_requested_without_targets_warns(
 
     assert warned == [True]
     assert file_dialog_called == []
+
+
+@pytest.mark.gui
+def test_export_blocks_when_no_valid_processed_images(
+    qtbot, monkeypatch, service_container: Mock, staging_manager: StagingStateManager
+) -> None:
+    """#1106: 指定解像度の処理済み画像が 0 枚なら警告して出力先選択へ進まない。"""
+    from PySide6.QtWidgets import QFileDialog, QMessageBox
+
+    warned: list[bool] = []
+    monkeypatch.setattr(QMessageBox, "warning", lambda *a, **k: warned.append(True))
+    file_dialog_called: list[bool] = []
+    monkeypatch.setattr(
+        QFileDialog, "getExistingDirectory", lambda *a, **k: file_dialog_called.append(True) or ""
+    )
+    export_service = service_container.dataset_export_service
+    export_service.validate_export_requirements.return_value = {
+        "total_images": 3,
+        "valid_images": 0,
+        "missing_processed": 3,
+        "missing_metadata": 0,
+        "issues": [],
+    }
+
+    widget = ExportTabWidget(service_container=service_container, staging_state_manager=staging_manager)
+    qtbot.addWidget(widget)
+    staging_manager.add_image_ids([1, 2, 3])
+
+    widget._overlay_bar._export_btn.click()
+
+    assert warned == [True]
+    assert file_dialog_called == []
+    assert not export_service.export_with_criteria.called
+
+
+@pytest.mark.gui
+def test_export_confirms_when_some_processed_images_missing(
+    qtbot, monkeypatch, service_container: Mock, staging_manager: StagingStateManager
+) -> None:
+    """#1106: 一部の解像度欠落は続行確認 (No なら中止)。"""
+    from PySide6.QtWidgets import QFileDialog, QMessageBox
+
+    monkeypatch.setattr(QMessageBox, "question", lambda *a, **k: QMessageBox.StandardButton.No)
+    file_dialog_called: list[bool] = []
+    monkeypatch.setattr(
+        QFileDialog, "getExistingDirectory", lambda *a, **k: file_dialog_called.append(True) or ""
+    )
+    export_service = service_container.dataset_export_service
+    export_service.validate_export_requirements.return_value = {
+        "total_images": 3,
+        "valid_images": 2,
+        "missing_processed": 1,
+        "missing_metadata": 0,
+        "issues": [],
+    }
+
+    widget = ExportTabWidget(service_container=service_container, staging_state_manager=staging_manager)
+    qtbot.addWidget(widget)
+    staging_manager.add_image_ids([1, 2, 3])
+
+    widget._overlay_bar._export_btn.click()
+
+    assert file_dialog_called == []  # No 選択で中止
+    assert not export_service.export_with_criteria.called
+
+
+@pytest.mark.gui
+def test_export_validates_effective_ids_and_resolution(
+    qtbot, monkeypatch, service_container: Mock, staging_manager: StagingStateManager
+) -> None:
+    """#1106: 検証は effective_ids と選択解像度で呼ばれ、全 valid なら続行する。"""
+    from PySide6.QtWidgets import QFileDialog, QMessageBox
+
+    monkeypatch.setattr(QFileDialog, "getExistingDirectory", lambda *a, **k: "/tmp/export_out")
+    monkeypatch.setattr(QMessageBox, "information", lambda *a, **k: QMessageBox.StandardButton.Ok)
+    export_service = service_container.dataset_export_service
+    export_service.export_with_criteria.return_value = "/tmp/export_out"
+
+    widget = ExportTabWidget(service_container=service_container, staging_state_manager=staging_manager)
+    qtbot.addWidget(widget)
+    staging_manager.add_image_ids([1, 2, 3])
+    monkeypatch.setattr(widget, "_start_export_worker", lambda worker: worker.run())
+
+    widget._overlay_bar._export_btn.click()
+
+    resolution = widget._overlay_bar.selected_resolution()
+    export_service.validate_export_requirements.assert_called_with([1, 2, 3], resolution)
+    assert export_service.export_with_criteria.called
+
+
+@pytest.mark.gui
+def test_populate_updates_available_resolutions_from_service(
+    qtbot, service_container: Mock, staging_manager: StagingStateManager
+) -> None:
+    """#1106: staging 更新で実在解像度の union が overlay bar に反映される。"""
+    export_service = service_container.dataset_export_service
+    export_service.get_available_resolutions.return_value = {1: [512, 1024], 2: [1024, 1536]}
+
+    widget = ExportTabWidget(service_container=service_container, staging_state_manager=staging_manager)
+    qtbot.addWidget(widget)
+    staging_manager.add_image_ids([1, 2])
+
+    combo = widget._overlay_bar._resolution_combo
+    choices = [combo.itemText(i) for i in range(combo.count())]
+    assert choices == ["512", "1024", "1536"]
+    export_service.get_available_resolutions.assert_called_with([1, 2])
