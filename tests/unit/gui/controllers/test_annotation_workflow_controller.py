@@ -804,6 +804,35 @@ class TestStartAnnotationEntry:
         ctrl.start_annotation_workflow.assert_called_once()
         ctrl.dispatch_async_batch.assert_not_called()
 
+    def test_explicit_batch_mode_arg_overrides_run_options(self) -> None:
+        """#1099: 実行ボタンが渡す dispatch_mode 引数が RunOptions より優先される。"""
+        from lorairo.gui.controllers.annotation_workflow_controller import AnnotationWorkflowController
+        from lorairo.gui.widgets.run_settings_dialog import RunOptions
+
+        ctrl = Mock()
+        # RunOptions は sync だが、ボタン引数 batch_api が優先されるべき
+        ctrl._annotate_tab.run_options.return_value = RunOptions(dispatch_mode="sync")
+
+        AnnotationWorkflowController.start_annotation(ctrl, "batch_api")
+
+        ctrl.dispatch_async_batch.assert_called_once()
+        ctrl.start_annotation_workflow.assert_not_called()
+
+    def test_explicit_sync_mode_arg_overrides_run_options(self) -> None:
+        """#1099: dispatch_mode="sync" 引数は async dispatch へ行かず同期 workflow を起動する。"""
+        from lorairo.gui.controllers.annotation_workflow_controller import AnnotationWorkflowController
+        from lorairo.gui.widgets.run_settings_dialog import RunOptions
+
+        ctrl = Mock()
+        ctrl._annotate_tab.run_options.return_value = RunOptions(dispatch_mode="batch_api")
+        ctrl._annotate_tab.selected_litellm_model_ids.return_value = ["openai/gpt-4o"]
+        ctrl._is_annotate_tab_active.return_value = False
+
+        AnnotationWorkflowController.start_annotation(ctrl, "sync")
+
+        ctrl.start_annotation_workflow.assert_called_once()
+        ctrl.dispatch_async_batch.assert_not_called()
+
     def test_annotate_tab_active_with_empty_staging_aborts(self) -> None:
         """アノテーションタブがアクティブでステージング空なら info 表示し中止する (#896 PR4c)。"""
         from lorairo.gui.controllers.annotation_workflow_controller import AnnotationWorkflowController

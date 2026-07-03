@@ -85,15 +85,15 @@ class TestRunSettingsDialogDispatchMode:
     def test_dispatch_mode_defaults_to_sync(self, dialog):
         assert dialog.run_options().dispatch_mode == "sync"
 
-    def test_dispatch_mode_control_is_enabled(self, dialog):
-        # Phase 2c で Batch API 経路を配線済みのため操作可能。
-        assert dialog._dispatch_mode.isEnabled()
-        assert dialog._dispatch_mode.toolTip() != ""
+    def test_dispatch_mode_segment_control_removed(self, dialog):
+        # #1099: dispatch_mode は run bar のボタンが所有するためダイアログから撤去。
+        assert not hasattr(dialog, "_dispatch_mode")
 
-    def test_dispatch_mode_value_reflected_in_run_options(self, dialog):
-        # control を操作すると run_options に載る。
-        dialog._dispatch_mode.set_value("batch_api")
-        assert dialog.run_options().dispatch_mode == "batch_api"
+    def test_dispatch_mode_preserved_from_current(self, qtbot):
+        # #1099: ボタンが確定した dispatch_mode は再オープンしても保持される。
+        d = RunSettingsDialog(3, current=RunOptions(dispatch_mode="batch_api"))
+        qtbot.addWidget(d)
+        assert d.run_options().dispatch_mode == "batch_api"
 
 
 class TestRunSettingsDialogPromptMetadata:

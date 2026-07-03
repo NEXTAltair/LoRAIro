@@ -883,11 +883,16 @@ class MainWindow(QMainWindow, Ui_MainWindow):
         except Exception as e:
             logger.error(f"    ❌ AnnotateTabWidget シグナル接続失敗: {e}")
 
-    def _on_annotation_execute_requested(self) -> None:
-        """run bar 実行ボタン → AnnotationWorkflowController へ委譲する (#896 PR4c)。
+    def _on_annotation_execute_requested(self, dispatch_mode: str) -> None:
+        """run bar 実行ボタン → AnnotationWorkflowController へ委譲する (#896 PR4c, #1099)。
 
         controller 初期化が縮退した起動 (``_setup_other_custom_widgets`` の except 経路)
         でも実行ボタンが無反応にならないよう、薄い wrapper で受けて未初期化を警告する。
+        実行後は sync / batch_api どちらも Jobs タブへ遷移し、進捗を確認しやすくする
+        (#1102: 同期は SyncJobLedger、batch は Provider Batch セクションで監視)。
+
+        Args:
+            dispatch_mode: 押下した実行ボタンが指定する送信方式 ("sync" / "batch_api")。
         """
         if self.annotation_workflow_controller is None:
             QMessageBox.warning(
@@ -896,7 +901,20 @@ class MainWindow(QMainWindow, Ui_MainWindow):
                 "AnnotationWorkflowControllerが初期化されていないため、アノテーション処理を開始できません。",
             )
             return
-        self.annotation_workflow_controller.start_annotation()
+        self.annotation_workflow_controller.start_annotation(dispatch_mode)
+        self._navigate_to_jobs_tab()
+
+    def _navigate_to_jobs_tab(self) -> None:
+        """アノテーション実行後に Jobs タブへ遷移する (#1102)。
+
+        Jobs タブが縮退起動で未生成 (None) / 未挿入の場合は何もしない。
+        """
+        tab_widget = getattr(self, "tabWidgetMainMode", None)
+        if tab_widget is None or self.jobs_tab is None:
+            return
+        if tab_widget.indexOf(self.jobs_tab) < 0:
+            return
+        tab_widget.setCurrentWidget(self.jobs_tab)
 
     def _on_annotate_configure_key_requested(self, provider: str) -> None:
         """アノテタブの ``○ needs key`` チップ → 設定の該当プロバイダ欄へ誘導する (#755/#868)。

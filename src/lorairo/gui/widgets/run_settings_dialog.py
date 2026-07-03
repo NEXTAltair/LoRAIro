@@ -36,10 +36,6 @@ from .ds_segmented_control import DsSegmentedControl
 
 _UNIMPLEMENTED_TOOLTIP = "バックエンド未実装 — 後続 issue で worker に配線予定"
 _DEDUPE_TOOLTIP = "multimodal は常時 dedupe (同一推論を 1 回に集約)。常に ON。"
-_DISPATCH_MODE_TOOLTIP = (
-    "Batch API は batch-capable な選択モデルのみ async 送信できる。"
-    "非対応モデルが混在する場合は dispatch を拒否する (ADR 0076)。"
-)
 
 
 @dataclass(frozen=True)
@@ -162,16 +158,9 @@ class RunSettingsDialog(QDialog):
             tooltip=_DEDUPE_TOOLTIP,
         )
 
-        # 送信方式 dispatch mode (Batch API 配線済み, #884 Phase 2c)
-        self._dispatch_mode = self._add_segment_row(
-            layout,
-            "送信方式 dispatch mode",
-            "同期 = その場で推論。Batch API = Provider の非同期バッチへ送信 (大量・低コスト)。",
-            [("sync", "同期"), ("batch_api", "Batch API")],
-            "sync",
-            enabled=True,
-            tooltip=_DISPATCH_MODE_TOOLTIP,
-        )
+        # 送信方式 dispatch mode は run bar の「同期実行 / Batch API 実行」ボタンが
+        # 所有する (#1099)。ダイアログでは選択せず、現在値を保持して run_options で返す。
+        self._dispatch_mode_value = "sync"
 
         # Batch API job metadata (prompt profile / description, #902 ADR 0076 §1)
         self._prompt_profile = self._add_text_row(
@@ -219,7 +208,8 @@ class RunSettingsDialog(QDialog):
         self._rating_gate.set_value("on" if current.rating_gate else "off")
         self._overwrite.set_value("on" if current.overwrite else "off")
         self._dedupe.set_value("on" if current.dedupe else "off")
-        self._dispatch_mode.set_value(current.dispatch_mode)
+        # dispatch_mode は run bar のボタンが所有するため保持のみ (#1099)
+        self._dispatch_mode_value = current.dispatch_mode
         self._dry_run.setChecked(current.dry_run)
         self._prompt_profile.setText(current.prompt_profile)
         self._description.setText(current.description or "")
@@ -307,7 +297,7 @@ class RunSettingsDialog(QDialog):
             overwrite=self._overwrite.value() == "on",
             dedupe=self._dedupe.value() == "on",
             dry_run=self._dry_run.isChecked(),
-            dispatch_mode=self._dispatch_mode.value(),
+            dispatch_mode=self._dispatch_mode_value,
             prompt_profile=prompt_profile,
             description=description,
         )

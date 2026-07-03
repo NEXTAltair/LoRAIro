@@ -131,19 +131,27 @@ class AnnotationWorkflowController(QObject):
         self._status_callback = status_callback
         self._is_annotate_tab_active = is_annotate_tab_active
 
-    def start_annotation(self) -> None:
-        """アノテーション実行エントリ。dispatch mode で分岐する (#896 PR4c)。
+    def start_annotation(self, dispatch_mode: str | None = None) -> None:
+        """アノテーション実行エントリ。dispatch mode で分岐する (#896 PR4c, #1099)。
 
         AnnotateTabWidget の run bar 実行ボタン (``annotation_execute_requested``)
         から呼ばれる。``dispatch_mode`` (ADR 0076 §1) が ``batch_api`` なら async
         Provider Batch dispatch へ、それ以外は同期バッチアノテーション
         (:meth:`start_annotation_workflow`) へ分岐する。
+
+        Args:
+            dispatch_mode: 実行ボタンが指定した送信方式 ("sync" / "batch_api"、#1099)。
+                None の場合は ``run_options().dispatch_mode`` を使う (後方互換)。
         """
         annotate_tab = self._annotate_tab
 
-        # 送信方式 (dispatch mode) 判定 (#884 Phase 2c, ADR 0076 §1)。
+        # 送信方式 (dispatch mode) 判定 (#884 Phase 2c, ADR 0076 §1, #1099)。
+        # 実行ボタン (#1099) が明示指定する dispatch_mode を優先し、無ければ RunOptions を読む。
+        effective_mode = dispatch_mode
+        if effective_mode is None and annotate_tab is not None:
+            effective_mode = annotate_tab.run_options().dispatch_mode
         # batch_api (async) は dispatch 射影 → worker thread へ分岐する。
-        if annotate_tab is not None and annotate_tab.run_options().dispatch_mode == "batch_api":
+        if effective_mode == "batch_api":
             self.dispatch_async_batch()
             return
 

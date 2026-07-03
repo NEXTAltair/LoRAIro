@@ -16,7 +16,8 @@ MainWindow rewire (Track B) はこの契約に対してコードを書く。
   model_selection_state_manager=None, parent=None)``
   (#884: model_selection_state_manager を追加、後方互換のため既定値 None)
 - Signal (タブ → MainWindow glue):
-    - ``annotation_execute_requested = Signal()`` — run bar 実行ボタン
+    - ``annotation_execute_requested = Signal(str)`` — run bar 実行ボタン。
+      引数は dispatch_mode ("sync" / "batch_api"、#1099: 実行ボタン自体がモードを持つ)
     - ``configure_key_requested = Signal(str)`` — picker の needs key → 設定導線 (provider)
     - ``status_message = Signal(str)`` — statusBar 表示要求 (batch tag 書込結果など、#896)
     - ``staged_images_changed = Signal(list)`` — 内包 BatchTagAddWidget から再公開
@@ -34,6 +35,8 @@ MainWindow rewire (Track B) はこの契約に対してコードを書く。
     - ``batch_model_selection`` / ``pipeline_stage_table`` / ``preflight_summary_widget``
       / ``inference_ledger_widget`` / ``batch_tag_add_widget``
 """
+
+from dataclasses import replace
 
 from PySide6.QtCore import Signal, Slot
 from PySide6.QtWidgets import (
@@ -80,7 +83,7 @@ class AnnotateTabWidget(QWidget, Ui_AnnotateTab):
     その fan-out を :meth:`set_staging_target` で受けて UI を再計算する。
     """
 
-    annotation_execute_requested = Signal()
+    annotation_execute_requested = Signal(str)  # dispatch_mode ("sync" / "batch_api")、#1099
     configure_key_requested = Signal(str)
     status_message = Signal(str)  # statusBar 表示要求 (image_ids バッチタグ書込結果など、#896)
     staged_images_changed = Signal(list)
@@ -284,11 +287,12 @@ class AnnotateTabWidget(QWidget, Ui_AnnotateTab):
             )
 
     def _build_pipeline_run_bar(self) -> QWidget:
-        """パイプライン実行バーウィジェットを構築する (Issue #849)。
+        """パイプライン実行バーウィジェットを構築する (Issue #849, #1099)。
 
-        左側にスコープ表示ラベル、右側に詳細設定ボタンと実行ボタンを横並びに配置する。
-        実行ボタンは :data:`annotation_execute_requested` を発火し、MainWindow glue が
-        実 run flow へ委譲する。
+        左側にスコープ表示ラベル、右側に詳細設定ボタンと2つの実行ボタン
+        (「同期実行」「Batch API 実行」) を横並びに配置する。各実行ボタンは押下時の
+        dispatch_mode を :data:`annotation_execute_requested` に載せて発火し、MainWindow
+        glue が実 run flow へ委譲する (#1099: モードはダイアログでなくボタンが持つ)。
 
         Returns:
             run bar ウィジェット。
@@ -310,15 +314,36 @@ class AnnotateTabWidget(QWidget, Ui_AnnotateTab):
         # 詳細設定ボタン (btnPipelineRunSettings を run bar へ再配置)
         bar_layout.addWidget(self._btn_run_settings)
 
-        # パイプライン実行ボタン (primary action、Issue #849)
-        execute_btn = QPushButton(self._run_bar_execute_text(0), bar)
-        execute_btn.setObjectName("btnPipelineExecute")
-        execute_btn.setEnabled(False)
-        execute_btn.clicked.connect(self.annotation_execute_requested)
-        self._btn_pipeline_execute = execute_btn
-        bar_layout.addWidget(execute_btn)
+        # 同期実行ボタン (#1099: dispatch_mode="sync")
+        sync_btn = QPushButton(self._run_bar_sync_execute_text(0), bar)
+        sync_btn.setObjectName("btnPipelineExecuteSync")
+        sync_btn.setEnabled(False)
+        sync_btn.clicked.connect(lambda: self._on_execute_clicked("sync"))
+        self._btn_sync_execute = sync_btn
+        bar_layout.addWidget(sync_btn)
+
+        # Batch API 実行ボタン (#1099: dispatch_mode="batch_api")
+        batch_btn = QPushButton(self._run_bar_batch_execute_text(0), bar)
+        batch_btn.setObjectName("btnPipelineExecuteBatchApi")
+        batch_btn.setEnabled(False)
+        batch_btn.clicked.connect(lambda: self._on_execute_clicked("batch_api"))
+        self._btn_batch_api_execute = batch_btn
+        bar_layout.addWidget(batch_btn)
 
         return bar
+
+    def _on_execute_clicked(self, dispatch_mode: str) -> None:
+        """実行ボタン押下で dispatch_mode を確定して実行要求を発火する (#1099)。
+
+        押下したボタンが持つ dispatch_mode を確定値 (RunOptions) へ反映し、
+        :data:`annotation_execute_requested` に載せて MainWindow glue へ委譲する。
+        詳細設定ダイアログの dispatch_mode UI は撤去済みで、モードはボタンが SSoT。
+
+        Args:
+            dispatch_mode: "sync" (同期実行) または "batch_api" (Batch API 実行)。
+        """
+        self._pipeline_run_options = replace(self._pipeline_run_options, dispatch_mode=dispatch_mode)
+        self.annotation_execute_requested.emit(dispatch_mode)
 
     @staticmethod
     def _run_bar_scope_text(count: int) -> str:
@@ -326,9 +351,14 @@ class AnnotateTabWidget(QWidget, Ui_AnnotateTab):
         return f"ステージング集合のみ · staged {count} · 実行 → Jobs タブへ"
 
     @staticmethod
-    def _run_bar_execute_text(count: int) -> str:
-        """run bar の実行ボタンテキストを生成する。"""
-        return f"▶ パイプライン実行 · {count}枚"
+    def _run_bar_sync_execute_text(count: int) -> str:
+        """run bar の同期実行ボタンテキストを生成する (#1099)。"""
+        return f"▶ 同期実行 · {count}枚"
+
+    @staticmethod
+    def _run_bar_batch_execute_text(count: int) -> str:
+        """run bar の Batch API 実行ボタンテキストを生成する (#1099)。"""
+        return f"▶ Batch API 実行 · {count}枚"
 
     def _wire_batch_tag_add_widget(self) -> None:
         """BatchTagAddWidget へ共有 SSoT を注入し、各 Signal を上方向へ再公開する。
@@ -942,7 +972,10 @@ class AnnotateTabWidget(QWidget, Ui_AnnotateTab):
         # .ui 由来ボタン (非表示だが互換性のため更新を維持)
         self.btnAnnotationExecute.setEnabled(staging_count > 0)
 
-        # run bar スコープラベル / 実行ボタンを更新 (Issue #849)
+        # run bar スコープラベル / 実行ボタンを更新 (Issue #849, #1099: 2ボタン)
         self._run_bar_scope_label.setText(self._run_bar_scope_text(staging_count))
-        self._btn_pipeline_execute.setEnabled(staging_count > 0)
-        self._btn_pipeline_execute.setText(self._run_bar_execute_text(staging_count))
+        has_staging = staging_count > 0
+        self._btn_sync_execute.setEnabled(has_staging)
+        self._btn_sync_execute.setText(self._run_bar_sync_execute_text(staging_count))
+        self._btn_batch_api_execute.setEnabled(has_staging)
+        self._btn_batch_api_execute.setText(self._run_bar_batch_execute_text(staging_count))
