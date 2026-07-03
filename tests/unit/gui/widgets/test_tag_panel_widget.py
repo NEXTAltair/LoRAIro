@@ -1575,6 +1575,7 @@ def test_set_tags_explicit_counts_evict_missing_current_tags(panel, sample_tags)
     assert panel._usage_counts.get(20) == {"danbooru": 800}
     assert panel._usage_counts.get(999) == {"danbooru": 5}  # 表示外は保持
 
+
 def test_update_language_selector_prefer_resolves_legacy_alias(panel):
     """prefer が正規化キー ("ja") で候補が legacy キー ("japanese") だけでも切り替わる (Codex P2)。
 

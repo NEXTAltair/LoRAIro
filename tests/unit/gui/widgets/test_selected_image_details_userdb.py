@@ -184,3 +184,30 @@ def test_translation_add_clears_refinement_cache_before_reeval(qtbot, monkeypatc
     widget._on_translation_add("1girl", "ja", "少女")
 
     assert refinement.clear_cache_calls == 1
+
+def test_preferred_en_adds_selector_entry_when_only_legacy_english(qtbot, monkeypatch) -> None:
+    """en の主訳変更時、候補が legacy "english" しか無くても "en" 項目を追加する (Codex P2)。
+
+    "english" は原文表示の sentinel なので alias fallback で寄せてはならない
+    (原文表示のままになり主訳変更が見えない)。
+    """
+    service = _FakeTagService()
+    widget = _make_widget(qtbot, monkeypatch, service)
+    widget._available_languages = []
+    widget._merged_reader = None  # 再取得なしで append 経路を検証
+
+    widget._on_translation_preferred("blue_eyes", "en", "blue eyes trans")
+
+    assert "en" in widget._available_languages
+
+
+def test_preferred_ja_reuses_legacy_japanese_entry(qtbot, monkeypatch) -> None:
+    """ja の主訳変更時、legacy "japanese" 候補があれば重複項目を追加しない (Codex P2)。"""
+    service = _FakeTagService()
+    widget = _make_widget(qtbot, monkeypatch, service)
+    widget._available_languages = ["japanese"]
+    widget._merged_reader = None
+
+    widget._on_translation_preferred("blue_eyes", "ja", "青い目")
+
+    assert widget._available_languages == ["japanese"]  # alias fallback で japanese へ切替

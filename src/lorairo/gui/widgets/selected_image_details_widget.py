@@ -35,6 +35,7 @@ from PySide6.QtWidgets import (
 from ...database.schema import REJECT_REASON_INCORRECT, REJECT_REASON_NOT_NEEDED
 from ...gui.designer.SelectedImageDetailsWidget_ui import Ui_SelectedImageDetailsWidget
 from ...services.date_formatter import format_datetime_for_display
+from ...utils.language_keys import language_alias_keys
 from ...utils.log import logger
 from .annotation_data_display_widget import (
     AnnotationData,
@@ -838,6 +839,17 @@ class SelectedImageDetailsWidget(QWidget):
         if not service.set_preferred_translation(canonical, language, translation):
             logger.warning(f"主訳変更をスキップ (tag_id 未解決): canonical='{canonical}'")
             return
+        # 翻訳追加パスと同様に、保存言語がセレクタ候補へ出せる状態にしてから切り替える
+        # (Codex P2)。"english" は原文表示の sentinel なので同値扱いから除外する:
+        # legacy キーが "english" しか無い場合に "en" を alias fallback で原文へ寄せると、
+        # 主訳変更後も原文表示のままで「何も起きない」ように見える。ja↔japanese のような
+        # 非 sentinel の同値キーが既にあれば追加しない (重複項目を作らない)。
+        non_sentinel_aliases = set(language_alias_keys(language)) - {"english"}
+        if not (non_sentinel_aliases & set(self._available_languages)):
+            if self._merged_reader is not None:
+                self._available_languages = self._merged_reader.get_tag_languages()
+            if not (non_sentinel_aliases & set(self._available_languages)):
+                self._available_languages = [*self._available_languages, language]
         # 主訳を変えた言語を表示中にして変更を即時可視化する (原文表示中でも切替える)。
         self.annotation_display.update_language_selector(self._available_languages, prefer=language)
         self._reload_current_image()
