@@ -56,6 +56,16 @@ class TestRunSettingsDialogDefaults:
         assert len(headers) == 1
         assert "9 枚" in headers[0].text()
 
+    def test_ok_button_label_is_save_only(self, dialog):
+        """OK ボタンは保存のみを示す文言 (#1101、実行はしない)。"""
+        from PySide6.QtWidgets import QDialogButtonBox
+
+        box = dialog.findChild(QDialogButtonBox)
+        assert box is not None
+        ok_button = box.button(QDialogButtonBox.StandardButton.Ok)
+        assert ok_button is not None
+        assert ok_button.text() == "保存"
+
 
 class TestRunSettingsDialogEnabledControls:
     def test_dry_run_toggle_reflected(self, dialog):
