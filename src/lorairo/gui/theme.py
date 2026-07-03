@@ -166,23 +166,62 @@ _CHIP_PALETTE: dict[str, tuple[str, str, str]] = {
 }
 
 
-def chip_qss(kind: ChipKind) -> str:
+def chip_qss(
+    kind: ChipKind,
+    *,
+    mono: bool = False,
+    radius: int | None = None,
+    border_style: str = "solid",
+    italic: bool = False,
+    weight: int | None = 600,
+    size: int | None = None,
+    padding: str = "1px 9px",
+) -> str:
     """ステータスチップ用の QLabel QSS を返す。
 
+    既定 (キーワード引数なし) は soft 地 + 同系 border + 角丸 10px の
+    標準ステータスチップ。構造パラメータで mono フォント・角丸・border 種別・
+    斜体・font-weight・font-size・padding を差し替えられる (#1105: 各画面が
+    自作していた mono/badge/dashed chip 意匠を色 SSoT を共有したまま再現する)。
+
     Args:
-        kind: チップ種別。利用可 = "ok"、要対応 = "warn"、失敗 = "err"、
-            実行中 = "info"、待機 = "neutral"、無効/中止 = "muted"、
-            タグ/マルチ強調 = "accent"。
+        kind: チップ種別 (色の SSoT)。利用可 = "ok"、要対応 = "warn"、失敗 = "err"、
+            実行中 = "info"、待機/entry = "neutral"、無効/route-local = "muted"、
+            タグ/multi/route-api = "accent"、主割当 = "primary"、multimodal = "multi"、
+            派生 = "derived"。
+        mono: True で mono フォント (font-family) を付与する。
+        radius: 角丸半径 (px)。None (既定) は ``RADIUS_CHIP``。バッジ調は ``RADIUS_BADGE``。
+        border_style: border の線種 ("solid" 既定 / "dashed" 等)。
+        italic: True で font-style: italic を付与する。
+        weight: font-weight。既定 600。None で font-weight 宣言を省略 (Qt 既定 = 通常)。
+        size: font-size (px)。None (既定) は ``FONT_SIZE_SMALL``。
+        padding: padding 指定。既定 "1px 9px"。
 
     Returns:
-        soft 地 + 同系 border + 角丸 10px の QLabel スタイル文字列。
+        指定意匠の QLabel スタイル文字列。``background-color`` が transparent の
+        kind (derived) は宣言を省略する (QLabel の既定地と等価)。
     """
     bg, fg, border = _CHIP_PALETTE[kind]
-    return (
-        f"QLabel {{ background-color: {bg}; color: {fg}; border: 1px solid {border};"
-        f" border-radius: {RADIUS_CHIP}px; padding: 1px 9px;"
-        f" font-size: {FONT_SIZE_SMALL}px; font-weight: 600; }}"
-    )
+    chip_radius = RADIUS_CHIP if radius is None else radius
+    font_size = FONT_SIZE_SMALL if size is None else size
+
+    declarations: list[str] = []
+    if mono:
+        declarations.append(f"font-family: {FONT_MONO_CSS}")
+    if bg != "transparent":
+        declarations.append(f"background-color: {bg}")
+    declarations.append(f"color: {fg}")
+    declarations.append(f"border: 1px {border_style} {border}")
+    declarations.append(f"border-radius: {chip_radius}px")
+    declarations.append(f"padding: {padding}")
+    declarations.append(f"font-size: {font_size}px")
+    if italic:
+        declarations.append("font-style: italic")
+    if weight is not None:
+        declarations.append(f"font-weight: {weight}")
+
+    body = "; ".join(declarations)
+    return f"QLabel {{ {body}; }}"
 
 
 def badge_qss(kind: ChipKind | None = None) -> str:

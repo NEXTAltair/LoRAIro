@@ -287,3 +287,68 @@ class TestInferenceLedgerWidgetPlaceholder:
         assert widget._stats_widget.isHidden()
         assert widget.findChildren(QLabel, "ledgerChip") == []
         assert widget.findChildren(QLabel, "ledgerMultiBadge") == []
+
+
+def _badge_declarations(qss: str) -> dict[str, str]:
+    """QLabel QSS の { ... } 本文を property:value の dict に正規化する (順不同比較用)。"""
+    body = qss[qss.index("{") + 1 : qss.rindex("}")].strip()
+    result: dict[str, str] = {}
+    for part in body.split(";"):
+        part = part.strip()
+        if not part:
+            continue
+        key, value = part.split(":", 1)
+        result[key.strip()] = value.strip()
+    return result
+
+
+class TestLedgerBadgeStyleVisualParity:
+    """#1105: 手書きバッジ定数を theme.chip_qss へ置換しても見た目不変であること。"""
+
+    def test_entry_chip_style_unchanged(self):
+        from lorairo.gui import theme
+        from lorairo.gui.widgets import inference_ledger_widget as mod
+
+        baseline = (
+            f"QLabel {{ font-family: {theme.FONT_MONO_CSS}; background-color: {theme.PAPER_SHADE};"
+            f" color: {theme.INK_SOFT}; border: {theme.BORDER_WIDTH}px solid {theme.LINE};"
+            f" border-radius: {theme.RADIUS_BADGE}px; padding: 1px 6px;"
+            f" font-size: {theme.FONT_SIZE_META}px; }}"
+        )
+        assert _badge_declarations(mod._ENTRY_CHIP_STYLE) == _badge_declarations(baseline)
+
+    def test_multi_badge_style_unchanged(self):
+        from lorairo.gui import theme
+        from lorairo.gui.widgets import inference_ledger_widget as mod
+
+        baseline = (
+            f"QLabel {{ font-family: {theme.FONT_MONO_CSS}; background-color: {theme.ACCENT_SOFT};"
+            f" color: {theme.ACCENT_HOVER}; border: {theme.BORDER_WIDTH}px solid {theme.ACCENT_BORDER};"
+            f" border-radius: {theme.RADIUS_BADGE}px; padding: 1px 6px;"
+            f" font-size: {theme.FONT_SIZE_META}px; font-weight: {theme.FONT_WEIGHT_SEMIBOLD}; }}"
+        )
+        assert _badge_declarations(mod._MULTI_BADGE_STYLE) == _badge_declarations(baseline)
+
+    def test_route_local_badge_style_unchanged(self):
+        from lorairo.gui import theme
+        from lorairo.gui.widgets import inference_ledger_widget as mod
+
+        baseline = (
+            f"QLabel {{ font-family: {theme.FONT_MONO_CSS}; background-color: {theme.PAPER_SHADE};"
+            f" color: {theme.INK_FAINT}; border: {theme.BORDER_WIDTH}px solid {theme.LINE};"
+            f" border-radius: {theme.RADIUS_BADGE}px; padding: 1px 6px;"
+            f" font-size: {theme.FONT_SIZE_META}px; }}"
+        )
+        assert _badge_declarations(mod._ROUTE_BADGE_STYLE_LOCAL) == _badge_declarations(baseline)
+
+    def test_route_api_badge_style_unchanged(self):
+        from lorairo.gui import theme
+        from lorairo.gui.widgets import inference_ledger_widget as mod
+
+        baseline = (
+            f"QLabel {{ font-family: {theme.FONT_MONO_CSS}; background-color: {theme.ACCENT_SOFT};"
+            f" color: {theme.ACCENT_HOVER}; border: {theme.BORDER_WIDTH}px solid {theme.ACCENT_BORDER};"
+            f" border-radius: {theme.RADIUS_BADGE}px; padding: 1px 6px;"
+            f" font-size: {theme.FONT_SIZE_META}px; }}"
+        )
+        assert _badge_declarations(mod._ROUTE_BADGE_STYLE_API) == _badge_declarations(baseline)

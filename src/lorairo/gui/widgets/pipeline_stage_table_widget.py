@@ -110,25 +110,12 @@ _ADD_BUTTON_TEXT = "+ 追加"
 # DS v12 AnnotateScreen (Issue #787): chip 文法 = borders-not-shadows / mono。
 # 主割当 = card 地 + line-strong border の mono チップ、multimodal は accent border で強調、
 # 派生 = 点線 border + 斜体 mono (操作不可)。
-_PRIMARY_CHIP_STYLE = (
-    f"QLabel {{ font-family: {theme.FONT_MONO_CSS}; background-color: {theme.CARD};"
-    f" border: {theme.BORDER_WIDTH}px solid {theme.LINE_STRONG};"
-    f" border-radius: {theme.RADIUS_CHIP}px; padding: 1px 9px;"
-    f" color: {theme.INK}; font-size: {theme.FONT_SIZE_SMALL}px; }}"
-)
-_MULTI_CHIP_STYLE = (
-    f"QLabel {{ font-family: {theme.FONT_MONO_CSS}; background-color: {theme.CARD};"
-    f" border: {theme.BORDER_WIDTH}px solid {theme.ACCENT_BORDER};"
-    f" border-radius: {theme.RADIUS_CHIP}px; padding: 1px 9px;"
-    f" color: {theme.ACCENT_HOVER}; font-size: {theme.FONT_SIZE_SMALL}px;"
-    f" font-weight: {theme.FONT_WEIGHT_SEMIBOLD}; }}"
-)
-_DERIVED_CHIP_STYLE = (
-    f"QLabel {{ font-family: {theme.FONT_MONO_CSS};"
-    f" border: {theme.BORDER_WIDTH}px dashed {theme.LINE_STRONG};"
-    f" border-radius: {theme.RADIUS_CHIP}px; padding: 1px 9px;"
-    f" color: {theme.INK_SOFT}; font-style: italic; font-size: {theme.FONT_SIZE_SMALL}px; }}"
-)
+# #1105: 手書き QSS 定数を theme.chip_qss(kind, ...) の構造パラメータへ置換。
+# 色は theme の palette (primary/multi/derived) が SSoT、意匠 (mono/dashed/italic) は
+# 引数で再現する (見た目不変)。
+_PRIMARY_CHIP_STYLE = theme.chip_qss("primary", mono=True, weight=None)
+_MULTI_CHIP_STYLE = theme.chip_qss("multi", mono=True, weight=theme.FONT_WEIGHT_SEMIBOLD)
+_DERIVED_CHIP_STYLE = theme.chip_qss("derived", mono=True, border_style="dashed", italic=True, weight=None)
 
 
 class PipelineStageTableWidget(QWidget):
