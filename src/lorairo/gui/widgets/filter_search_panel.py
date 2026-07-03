@@ -314,11 +314,13 @@ class FilterSearchPanel(QScrollArea):
 
         # お気に入りフィルター UI をメインレイアウトに追加
         # Phase 4: Search サイドバー（フィルター UI の最後に追加）
+        # 末尾の Expanding spacer (verticalSpacer) が余剰スペースを最下部で吸収するよう、
+        # favorite_filter / search_facets_sidebar は spacer の手前に挿入して spacer を最後尾に留める (Issue #1095)
         contents_layout = self.ui.scrollAreaWidgetContents.layout()
         if isinstance(contents_layout, QBoxLayout):
-            insert_index = contents_layout.count() - 1
-            contents_layout.insertWidget(insert_index, self._favorite_filter)
-            contents_layout.addWidget(self._search_facets_sidebar)
+            spacer_index = contents_layout.count() - 1
+            contents_layout.insertWidget(spacer_index, self._favorite_filter)
+            contents_layout.insertWidget(spacer_index + 1, self._search_facets_sidebar)
 
     def _setup_rating_chips(self) -> None:
         """レーティング dropdown を chip トグル群へ置き換える (Issue #811)。
