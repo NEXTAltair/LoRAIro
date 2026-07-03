@@ -195,6 +195,38 @@ class TestInferenceLedgerWidgetBands:
         assert widget._batch_band.isHidden()
 
 
+class TestInferenceLedgerWidgetFlow:
+    """#1100: entries は FlowLayout で折り返し、狭幅で縦長崩れしない。"""
+
+    def test_entries_use_flow_layout(self, widget):
+        from lorairo.gui.widgets.tag_cloud_widget import FlowLayout
+
+        assert isinstance(widget._sync_entries_layout, FlowLayout)
+        assert isinstance(widget._batch_entries_layout, FlowLayout)
+
+    def test_entries_wrap_when_width_is_narrow(self, widget):
+        # 多数エントリを並べ、狭幅では heightForWidth が増える (=折り返す) ことを確認。
+        entries = tuple(
+            LedgerEntry(model=_local_model(f"model-{i}", "tags"), stage_count=1) for i in range(12)
+        )
+        widget.display(InferenceLedger(entries=entries, staged_count=3))
+        flow = widget._sync_entries_layout
+        wide = flow.heightForWidth(2000)  # 全チップ 1 行に収まる
+        narrow = flow.heightForWidth(120)  # 1 行に 1〜2 個 → 複数行に折り返す
+        assert narrow > wide, f"折り返しが効いていない (narrow={narrow}, wide={wide})"
+
+    def test_container_min_height_stays_bounded(self, widget):
+        # FlowLayout の minimumSize は「単一エントリ幅」で、全チップ縦積みには
+        # ならない。widgetResizable スクロール内で最小高さが暴れない回帰防止。
+        entries = tuple(
+            LedgerEntry(model=_local_model(f"model-{i}", "tags"), stage_count=1) for i in range(12)
+        )
+        widget.display(InferenceLedger(entries=entries, staged_count=3))
+        container = widget._sync_entries_layout.parentWidget()
+        # 12 エントリでも最小高さは 1〜2 行相当 (≪ 全縦積み) に収まる
+        assert container.minimumSizeHint().height() < 80
+
+
 class TestInferenceLedgerWidgetEstimate:
     """DsSummaryStat 推定 stat の値検証。"""
 

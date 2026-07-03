@@ -69,6 +69,24 @@ class TestSearchFacetsSidebarComposition:
             current = parent
         assert found, "_search_facets_sidebar の ancestor に FilterSearchPanel が含まれない"
 
+    def test_expanding_spacer_remains_last(self, panel):
+        """末尾の Expanding spacer がレイアウト最後尾に留まる (Issue #1095)。
+
+        favorite_filter / search_facets_sidebar は spacer の手前に挿入され、
+        spacer が両ウィジェットの間に挟まって余分な空白を生じさせないことを検証する。
+        """
+        contents_layout = panel.ui.scrollAreaWidgetContents.layout()
+        last_index = contents_layout.count() - 1
+        assert contents_layout.itemAt(last_index).spacerItem() is not None, (
+            "レイアウト最後尾が spacer ではない"
+        )
+        favorite_index = contents_layout.indexOf(panel._favorite_filter)
+        sidebar_index = contents_layout.indexOf(panel._search_facets_sidebar)
+        assert favorite_index < last_index
+        assert sidebar_index < last_index
+        # favorite_filter の直後に sidebar が並び、両者の間に spacer が挟まらない
+        assert sidebar_index == favorite_index + 1
+
 
 @pytest.mark.unit
 @pytest.mark.gui

@@ -7,11 +7,12 @@ DsCard 面で描画する。
 
 from __future__ import annotations
 
-from PySide6.QtWidgets import QHBoxLayout, QLabel, QVBoxLayout, QWidget
+from PySide6.QtWidgets import QHBoxLayout, QLabel, QSizePolicy, QVBoxLayout, QWidget
 
 from lorairo.gui import theme
 from lorairo.gui.widgets.ds_card import DsCard
 from lorairo.gui.widgets.ds_summary_stat import DsSummaryStat
+from lorairo.gui.widgets.tag_cloud_widget import FlowLayout
 from lorairo.services.cost_estimation_service import (
     CostEstimationService,
     format_duration,
@@ -114,6 +115,7 @@ class InferenceLedgerWidget(DsCard):
         body_layout.addWidget(self._stats_widget)
 
         # ---- SYNC / PROVIDER BATCH 2バンド (#884 Phase 4b) ----
+        # entries は FlowLayout で折り返す (#1100: 狭幅で縦長崩れを防ぐ)。
         self._sync_band, self._sync_entries_layout = self._build_band(body, _SYNC_BAND_TITLE)
         self._sync_band.setObjectName("ledgerSyncBand")
         body_layout.addWidget(self._sync_band)
@@ -141,8 +143,15 @@ class InferenceLedgerWidget(DsCard):
 
         self.clear()
 
-    def _build_band(self, body: QWidget, title: str) -> tuple[QWidget, QHBoxLayout]:
-        """見出し付きバンド (header + エントリ行) を構築して返す。"""
+    def _build_band(self, body: QWidget, title: str) -> tuple[QWidget, FlowLayout]:
+        """見出し付きバンド (header + 折り返しエントリ行) を構築して返す。
+
+        エントリ行は自作 ``FlowLayout`` を載せた専用コンテナ widget に閉じる。
+        FlowLayout は ``hasHeightForWidth`` を持ち、``minimumSize`` は
+        「単一エントリ幅」なので、``widgetResizable=True`` の QScrollArea 内でも
+        最小高さが暴れず、実幅に応じてチップが折り返す (#1100、
+        docs/lessons-learned.md「FlowLayout in widgetResizable...」参照)。
+        """
         band = QWidget(body)
         band_layout = QVBoxLayout(band)
         band_layout.setContentsMargins(0, 0, 0, 0)
@@ -152,10 +161,13 @@ class InferenceLedgerWidget(DsCard):
         header.setStyleSheet(_BAND_HEADER_STYLE)
         band_layout.addWidget(header)
 
-        entries_layout = QHBoxLayout()
-        entries_layout.setContentsMargins(0, 0, 0, 0)
-        entries_layout.setSpacing(theme.SPACE_1)
-        band_layout.addLayout(entries_layout)
+        entries_container = QWidget(band)
+        entries_container.setObjectName("ledgerEntriesContainer")
+        # 縦は Preferred (heightForWidth で必要行数に応じて伸びる。Minimum だと
+        # 過大 sizeHint に固定されスクロール空白が出る — lessons #1025)。
+        entries_container.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Preferred)
+        entries_layout = FlowLayout(entries_container, spacing=theme.SPACE_1)
+        band_layout.addWidget(entries_container)
         return band, entries_layout
 
     def display(self, ledger: InferenceLedger) -> None:
@@ -197,14 +209,12 @@ class InferenceLedgerWidget(DsCard):
         sync_entries = ledger.sync_entries
         for entry in sync_entries:
             self._add_entry_chip(entry, ledger.staged_count, self._sync_entries_layout)
-        self._sync_entries_layout.addStretch(1)
         self._sync_band.setVisible(True)
 
         # ---- PROVIDER BATCH バンド (batch エントリがある時のみ表示) ----
         batch_entries = ledger.batch_entries
         for entry in batch_entries:
             self._add_entry_chip(entry, ledger.staged_count, self._batch_entries_layout)
-        self._batch_entries_layout.addStretch(1)
         self._batch_band.setVisible(bool(batch_entries))
 
         # multimodal エントリが 1 件以上のとき dedupe 注記を表示
@@ -238,14 +248,24 @@ class InferenceLedgerWidget(DsCard):
                     widget.setParent(None)
                     widget.deleteLater()
 
-    def _add_entry_chip(self, entry: LedgerEntry, staged_count: int, entries_layout: QHBoxLayout) -> None:
+    def _add_entry_chip(self, entry: LedgerEntry, staged_count: int, entries_layout: FlowLayout) -> None:
         """エントリチップ (+ route / multimodal バッジ) を 1 つ追加する。
+
+        route バッジ・チップ・multimodal バッジは 1 モデル分をまとめた
+        コンテナ widget に閉じ、それを FlowLayout に載せる。折り返しは
+        モデル境界で起き、バッジとチップが行をまたいで分断されない (#1100)。
 
         Args:
             entry: 台帳エントリ (モデル情報 + ステージ数 + route)。
             staged_count: ステージング枚数。
-            entries_layout: 追加先バンドのエントリ行 layout。
+            entries_layout: 追加先バンドのエントリ行 FlowLayout。
         """
+        group = QWidget(self)
+        group.setObjectName("ledgerEntryGroup")
+        group_layout = QHBoxLayout(group)
+        group_layout.setContentsMargins(0, 0, 0, 0)
+        group_layout.setSpacing(theme.SPACE_1)
+
         # route バッジ: batch route = "batch·api" (#884 Phase 4b)、
         # sync route = local/api (#884 Phase 4a、is_api が canonical 判定)。
         is_api = entry.model.is_api
@@ -255,19 +275,21 @@ class InferenceLedgerWidget(DsCard):
         else:
             badge_text = "api" if is_api else "local"
             badge_style = _ROUTE_BADGE_STYLE_API if is_api else _ROUTE_BADGE_STYLE_LOCAL
-        route_badge = QLabel(badge_text, self)
+        route_badge = QLabel(badge_text, group)
         route_badge.setObjectName("ledgerRouteBadge")
         route_badge.setStyleSheet(badge_style)
-        entries_layout.addWidget(route_badge)
+        group_layout.addWidget(route_badge)
 
-        chip = QLabel(f"{entry.model.display_name} ×{staged_count}枚", self)
+        chip = QLabel(f"{entry.model.display_name} ×{staged_count}枚", group)
         chip.setObjectName("ledgerChip")
         chip.setStyleSheet(_ENTRY_CHIP_STYLE)
-        entries_layout.addWidget(chip)
+        group_layout.addWidget(chip)
 
         if entry.model.is_multimodal:
-            badge = QLabel(f"{entry.stage_count}枠 → 1推論", self)
+            badge = QLabel(f"{entry.stage_count}枠 → 1推論", group)
             badge.setObjectName("ledgerMultiBadge")
             badge.setStyleSheet(_MULTI_BADGE_STYLE)
             badge.setToolTip("multimodal モデルは複数ステージに出力しても 1 推論として課金されます")
-            entries_layout.addWidget(badge)
+            group_layout.addWidget(badge)
+
+        entries_layout.addWidget(group)

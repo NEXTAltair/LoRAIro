@@ -358,12 +358,33 @@ class SearchCriteriaProcessor:
         from lorairo.database.repository.image import ImageRepository, PhashClassification
 
         try:
+            # 解像度フィルタ検索では返却メタが processed_images 由来で phash / オリジナル
+            # 分類属性を欠くため、pHash 不在の画像だけ Image テーブルから重複判定フィールドを
+            # 補完する (#1106)。resolution=0 検索は phash を持つため fetch は発生しない。
+            missing_ids = [
+                img["id"] for img in images if img.get("id") is not None and not img.get("phash")
+            ]
+            original_by_id: dict[int, dict[str, Any]] = (
+                self.db_manager.image_repo.get_phash_classification_by_ids(missing_ids)
+                if missing_ids
+                else {}
+            )
+
             # pHash → 保持済み画像の分類属性リスト (NULL-as-wildcard 比較の候補)
             kept_candidates_by_phash: dict[str, list[dict[str, Any]]] = {}
             filtered_images: list[dict[str, Any]] = []
 
             for image in images:
-                phash = image.get("phash")
+                # 重複判定はオリジナル画像の phash / 分類属性で行う。processed メタで phash が
+                # 欠ける場合は補完済みの original_by_id を参照する (#1106)。
+                dedup_view = image
+                image_id = image.get("id")
+                if not image.get("phash") and image_id is not None:
+                    original = original_by_id.get(image_id)
+                    if original is not None:
+                        dedup_view = original
+
+                phash = dedup_view.get("phash")
 
                 if not isinstance(phash, str) or not phash:
                     # pHashがない場合は重複判定不能のため、そのまま保持する
@@ -372,16 +393,17 @@ class SearchCriteriaProcessor:
 
                 candidates = kept_candidates_by_phash.setdefault(phash, [])
                 # 既に保持済みの同 pHash 画像と分類比較。DUPLICATE なら真の重複として除外。
-                classification, _ = ImageRepository.classify_phash_candidate(image, candidates)
+                classification, _ = ImageRepository.classify_phash_candidate(dedup_view, candidates)
                 if classification is PhashClassification.DUPLICATE:
                     continue  # 属性まで一致する真の重複 (NULL は一致扱い) → スキップ
 
-                # 新規 / 別版は保持し、以降の比較候補に加える。
+                # 新規 / 別版は保持し、以降の比較候補に加える。表示用には元の image (processed
+                # メタ) を残しつつ、比較候補にはオリジナル分類属性を積む。
                 # classify_phash_candidate は DUPLICATE 時 candidate["id"] を参照するため
                 # id も候補に含める (本フィルタでは戻り値の id は使わない)。
                 filtered_images.append(image)
                 candidate_attrs: dict[str, Any] = {
-                    attr: image.get(attr) for attr in ImageRepository.CLASSIFICATION_ATTRS
+                    attr: dedup_view.get(attr) for attr in ImageRepository.CLASSIFICATION_ATTRS
                 }
                 candidate_attrs["id"] = image.get("id")
                 candidates.append(candidate_attrs)

@@ -21,7 +21,6 @@ class DatasetStateManager(QObject):
     # === 画像リスト・フィルター状態シグナル ===
     images_filtered = Signal(list)  # List[Dict[str, Any]] - filtered image metadata
     images_loaded = Signal(list)  # List[Dict[str, Any]] - all image metadata
-    filter_applied = Signal(dict)  # filter_conditions
     filter_cleared = Signal()
 
     # === 選択状態シグナル ===

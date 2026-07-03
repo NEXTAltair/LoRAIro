@@ -136,8 +136,39 @@ class TestBuildGlobalQss:
             "QToolTip",
             "QMenu",
             "QProgressBar::chunk",
+            "QCheckBox::indicator",
         ):
             assert selector in qss, f"missing selector: {selector}"
+
+    def test_checkbox_indicator_has_visible_border_states(self):
+        # Issue #1092: QCheckBox の枠線がテーマ QSS 未定義で見えなかった回帰防止。
+        # unchecked は LINE_STRONG 枠 + CARD 地、checked は ACCENT 塗りでコントラストを確保。
+        qss = theme.build_global_qss()
+        unchecked = qss.split("QCheckBox::indicator:unchecked {")[1].split("}")[0]
+        assert f"1px solid {theme.LINE_STRONG}" in unchecked
+        assert f"background: {theme.CARD}" in unchecked
+        checked = qss.split("QCheckBox::indicator:checked {")[1].split("}")[0]
+        assert f"background: {theme.ACCENT}" in checked
+
+    def test_checkbox_indicator_hover_uses_accent(self):
+        qss = theme.build_global_qss()
+        assert "QCheckBox::indicator:unchecked:hover" in qss
+        hover = qss.split("QCheckBox::indicator:unchecked:hover {")[1].split("}")[0]
+        assert f"border-color: {theme.ACCENT}" in hover
+
+    def test_checkbox_checked_disabled_stays_filled(self):
+        # Codex P2 (#1092): checked のまま disabled でも unchecked と区別できるよう
+        # 塗り (accent 減光) を残す。汎用 :disabled ルールに上書きされないこと。
+        qss = theme.build_global_qss()
+        assert "QCheckBox::indicator:checked:disabled" in qss
+        checked_disabled = qss.split("QCheckBox::indicator:checked:disabled {")[1].split("}")[0]
+        assert f"background: {theme.ACCENT_SOFT}" in checked_disabled
+
+    def test_checkbox_indicator_uses_no_image_url(self):
+        # Codex P2 (#1092): Qt QSS は image: url() の CSS data URI をデコードしないため、
+        # チェックマーク画像は使わず塗りのみで表現する (radio と同流儀)。
+        qss = theme.build_global_qss()
+        assert "image: url(" not in qss
 
     def test_active_tab_uses_accent_underline_and_bold(self):
         qss = theme.build_global_qss()
