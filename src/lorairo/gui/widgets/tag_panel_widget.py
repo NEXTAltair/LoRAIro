@@ -865,9 +865,19 @@ class TagPanelWidget(QWidget):
 
         usage counts は画像非依存のセッション内キャッシュへ merge する (#1083)。
         置換にすると別画像で貯めた既出タグの count が消え、次の画像切替の phase 1
-        で metric バーが再び空白になる。
+        で metric バーが再び空白になる。ただし表示中タグの tag_id は今回の解決結果が
+        正であり、結果に無い id は「count なし」が確定しているためキャッシュから
+        退避する (セッション中の usage 行削除や tag DB 差し替えで stale な count を
+        表示し続けない、Codex P2)。
         """
         self._translations = dict(translations)
+        current_tag_ids = {
+            tag_dict.get("tag_id")
+            for tag_dict in self._tags
+            if isinstance(tag_dict, dict) and tag_dict.get("tag_id") is not None
+        }
+        for tag_id in current_tag_ids - usage_counts.keys():
+            self._usage_counts.pop(tag_id, None)
         self._usage_counts.update(usage_counts)
         self._tag_types = dict(tag_types)
         # type が届いたのでグループソートを適用し直す (#1056)

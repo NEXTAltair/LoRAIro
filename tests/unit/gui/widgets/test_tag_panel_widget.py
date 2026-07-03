@@ -1286,12 +1286,20 @@ def test_metric_selection_preserved_across_image_switch(panel, sample_tags):
 
 
 def test_apply_tag_metadata_merges_usage_counts(panel, sample_tags):
-    """apply_tag_metadata は usage counts を置換でなく merge する (#1083)。"""
-    panel.set_tags(sample_tags, image_id=1)
-    panel.apply_tag_metadata({}, {10: {"danbooru": 1234}}, {})
-    panel.apply_tag_metadata({}, {20: {"danbooru": 800}}, {})
+    """apply_tag_metadata は他画像で貯めた counts を消さず merge する (#1083)。
 
-    assert panel._usage_counts == {10: {"danbooru": 1234}, 20: {"danbooru": 800}}
+    表示中タグ (tag_id 10, 20) の counts は今回の解決結果が正 (無ければ退避、
+    Codex P2) だが、表示外の tag_id (別画像で貯めた 999) は保持される。
+    """
+    panel.set_tags(sample_tags, image_id=1)
+    panel.apply_tag_metadata({}, {999: {"danbooru": 5}}, {})  # 別画像分のキャッシュ相当
+    panel.apply_tag_metadata({}, {10: {"danbooru": 1234}, 20: {"danbooru": 800}}, {})
+
+    assert panel._usage_counts == {
+        999: {"danbooru": 5},
+        10: {"danbooru": 1234},
+        20: {"danbooru": 800},
+    }
 
 
 def test_clear_keeps_usage_cache_but_hides_metric_bar(panel, sample_tags):
@@ -1307,3 +1315,20 @@ def test_clear_keeps_usage_cache_but_hides_metric_bar(panel, sample_tags):
     # 再選択で即座に復活する
     panel.set_tags(sample_tags, image_id=3, usage_counts={})
     assert panel._metric_bar.isVisibleTo(panel)
+
+
+def test_apply_tag_metadata_evicts_stale_counts_for_current_tags(panel, sample_tags):
+    """表示中タグで解決結果に無い tag_id の stale キャッシュは退避する (Codex P2)。
+
+    セッション中に usage 行が削除された / tag DB が差し替えられたタグの古い count を
+    phase 2 以降も表示し続けないこと。他画像で貯めた無関係な tag_id は保持する。
+    """
+    panel.set_tags(sample_tags, image_id=1)  # tag_id 10, 20 を含む
+    panel.apply_tag_metadata({}, {10: {"danbooru": 1234}, 999: {"danbooru": 5}}, {})
+
+    # 2回目の解決で tag_id=10 の count が消えた (usage 行削除相当)
+    panel.apply_tag_metadata({}, {20: {"danbooru": 800}}, {})
+
+    assert 10 not in panel._usage_counts  # 表示中タグの stale は退避
+    assert panel._usage_counts.get(20) == {"danbooru": 800}
+    assert panel._usage_counts.get(999) == {"danbooru": 5}  # 他画像分は保持
