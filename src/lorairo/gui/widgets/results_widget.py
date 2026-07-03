@@ -6,12 +6,14 @@
 """
 
 from PySide6.QtCore import Qt, Signal
+from PySide6.QtGui import QResizeEvent, QShowEvent
 from PySide6.QtWidgets import (
     QFrame,
     QHBoxLayout,
     QLabel,
     QPushButton,
     QScrollArea,
+    QSizePolicy,
     QVBoxLayout,
     QWidget,
 )
@@ -28,6 +30,8 @@ from lorairo.services.quality_issue_detection_service import (
     TagView,
 )
 from lorairo.utils.log import logger
+
+from .tag_cloud_widget import FlowLayout
 
 # issue 種別の user-facing ラベル。
 _ISSUE_LABELS: dict[IssueType, str] = {
@@ -50,6 +54,54 @@ _ISSUE_CHIP_KINDS: dict[IssueType, theme.ChipKind] = {
     IssueType.RATING_DISAGREEMENT: "warn",
     IssueType.SCORER_DISAGREEMENT: "warn",
 }
+
+
+class _FlowChipRow(QWidget):
+    """chip / ラベルを ``FlowLayout`` で折り返し配置する自己完結の行ウィジェット。
+
+    ``FlowLayout`` を素の ``QWidget`` に載せると、その ``minimumSizeHint``
+    (最小幅で全アイテムを縦積みした過大値) が親へ伝播し、``widgetResizable`` な
+    ``QScrollArea`` を膨張させて末尾に異常な余白を生む
+    (docs/lessons-learned.md 「FlowLayout in widgetResizable scroll inflates
+    minimumSizeHint」/ Issue #835 / #1025)。
+
+    ここでは縦 ``SizePolicy`` を ``Fixed`` にし、``resizeEvent`` / ``showEvent`` で
+    実幅の ``heightForWidth`` を ``setFixedHeight`` に反映することで高さをこの
+    ウィジェット内に閉じ、過大な最小サイズが親へ漏れないようにする。
+    """
+
+    def __init__(self, parent: QWidget | None = None, spacing: int = 8) -> None:
+        super().__init__(parent)
+        self._flow = FlowLayout(self, spacing=spacing)
+        # 高さは resizeEvent で実幅ベースに固定する。横は親幅まで伸ばす。
+        self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+
+    def add_widget(self, widget: QWidget) -> None:
+        """chip / ラベルを行末に追加する。"""
+        self._flow.addWidget(widget)
+
+    def _adjust_height(self) -> None:
+        """実幅での折り返し必要高さを ``setFixedHeight`` で確定する。"""
+        width = self.width()
+        if width <= 0:
+            return
+        # chip 追加直後はレイアウト未 activation で子が hidden のことがあり、
+        # QWidgetItem.sizeHint() が (0,0) を返して heightForWidth=0 → 潰れる
+        # (#1025)。同期計測の前に hidden の子を明示的に可視化して実寸を得る。
+        for i in range(self._flow.count()):
+            item = self._flow.itemAt(i)
+            child = item.widget() if item is not None else None
+            if child is not None and child.isHidden():
+                child.setVisible(True)
+        self.setFixedHeight(self._flow.heightForWidth(width))
+
+    def resizeEvent(self, event: QResizeEvent) -> None:
+        super().resizeEvent(event)
+        self._adjust_height()
+
+    def showEvent(self, event: QShowEvent) -> None:
+        super().showEvent(event)
+        self._adjust_height()
 
 
 class ResultsWidget(QWidget):
@@ -226,7 +278,10 @@ class ResultsWidget(QWidget):
             f"QFrame#resultsSummaryBand {{ background-color: {theme.PAPER_SHADE};"
             f" border: {theme.BORDER_WIDTH}px solid {theme.LINE}; border-radius: {theme.RADIUS}px; }}"
         )
-        layout = QHBoxLayout(band)
+        outer = QVBoxLayout(band)
+        # 狭幅でサマリ項目が折り返せるよう FlowLayout 化する (#1105)。
+        flow = _FlowChipRow()
+        outer.addWidget(flow)
 
         issue_total = sum(summary.issue_counts.values())
         tier_text = self._format_tier_distribution(summary)
@@ -242,8 +297,7 @@ class ResultsWidget(QWidget):
         for text, color in parts:
             label = QLabel(text)
             label.setStyleSheet(f"color: {color}; font-weight: {theme.FONT_WEIGHT_SEMIBOLD};")
-            layout.addWidget(label)
-        layout.addStretch(1)
+            flow.add_widget(label)
         return band
 
     def _format_tier_distribution(self, summary: BatchTriageSummary) -> str:
@@ -265,10 +319,13 @@ class ResultsWidget(QWidget):
 
         band = QFrame()
         band.setObjectName("resultsIssueBand")
-        layout = QHBoxLayout(band)
+        outer = QVBoxLayout(band)
+        outer.setContentsMargins(0, 0, 0, 0)
+        # 狭幅で issue カードが折り返せるよう FlowLayout 化する (#1105)。
+        flow = _FlowChipRow()
+        outer.addWidget(flow)
         for issue, count in active.items():
-            layout.addWidget(self._build_issue_card(issue, count, results))
-        layout.addStretch(1)
+            flow.add_widget(self._build_issue_card(issue, count, results))
         return band
 
     def _build_issue_card(self, issue: IssueType, count: int, results: list[ImageTriageResult]) -> QWidget:
@@ -356,18 +413,16 @@ class ResultsWidget(QWidget):
         return f"{w}×{h}"
 
     def _build_tags_line(self, tags: list[TagView]) -> QWidget:
-        """タグ行を構築する (低 conf は dim プロパティ付与)。"""
-        line = QWidget()
-        layout = QHBoxLayout(line)
-        layout.setContentsMargins(0, 0, 0, 0)
+        """タグ行を構築する (低 conf は dim プロパティ付与)。
 
-        prefix = QLabel("tags:")
-        layout.addWidget(prefix)
+        タグ chip 列は狭幅で折り返せるよう ``FlowLayout`` で並べる (#1105)。
+        """
+        line = _FlowChipRow()
+        line.add_widget(QLabel("tags:"))
         if not tags:
-            layout.addWidget(QLabel("(なし)"))
+            line.add_widget(QLabel("(なし)"))
         for tag_view in tags:
-            layout.addWidget(self._build_tag_chip(tag_view))
-        layout.addStretch(1)
+            line.add_widget(self._build_tag_chip(tag_view))
         return line
 
     def _build_tag_chip(self, tag_view: TagView) -> QWidget:
