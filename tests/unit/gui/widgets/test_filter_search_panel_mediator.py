@@ -438,8 +438,11 @@ class TestPlaceholderReplacement:
         """各レーティング chip 行が [ラベル, chip, ...] の順で同じ行に並ぶ。"""
         from PySide6.QtWidgets import QBoxLayout, QLabel, QWidget
 
+        from lorairo.gui.widgets.ds_segmented_control import DsSegmentedControl
         from lorairo.gui.widgets.filter_search_panel import RatingChipToggleRow
 
+        # 手動/AI は複数選択 RatingChipToggleRow、組合せ (AND/OR) は排他 DsSegmentedControl (#1105)
+        rating_controls = (RatingChipToggleRow, DsSegmentedControl)
         rating_group = panel.findChild(QWidget, "ratingGroup")
         rating_layout = rating_group.layout()
 
@@ -451,22 +454,31 @@ class TestPlaceholderReplacement:
             widget_types = [
                 type(sub.itemAt(j).widget()) for j in range(sub.count()) if sub.itemAt(j).widget()
             ]
-            if any(t is RatingChipToggleRow for t in widget_types):
+            if any(issubclass(t, rating_controls) for t in widget_types):
                 chip_rows.append(widget_types)
 
         # 手動 / AI / 組合せ の 3 行それぞれにラベルと chip が同居している
         assert len(chip_rows) == 3
         for types in chip_rows:
             assert QLabel in types
-            assert RatingChipToggleRow in types
+            assert any(issubclass(t, rating_controls) for t in types)
 
-        # ratingGroup 直下に RatingChipToggleRow が裸で append されていない (ズレ防止)
+        # ratingGroup 直下に rating chip 部品が裸で append されていない (ズレ防止)
         direct_widgets = [
             rating_layout.itemAt(i).widget()
             for i in range(rating_layout.count())
             if rating_layout.itemAt(i).widget() is not None
         ]
-        assert not any(isinstance(w, RatingChipToggleRow) for w in direct_widgets)
+        assert not any(isinstance(w, rating_controls) for w in direct_widgets)
+
+    def test_combine_toggle_is_segmented_control(self, panel):
+        """AND/OR 結合トグルは排他のため DsSegmentedControl へ統一されている (#1105)。"""
+        from lorairo.gui.widgets.ds_segmented_control import DsSegmentedControl
+
+        assert isinstance(panel._rating_combine_toggle, DsSegmentedControl)
+        assert panel._rating_combine_toggle.value() == "and"
+        panel._rating_combine_toggle.set_value("or")
+        assert panel._rating_combine_toggle.value() == "or"
 
     def test_date_slider_replaces_placeholder(self, panel):
         """日付スライダー placeholder が CustomRangeSlider に差し替えられる。"""
