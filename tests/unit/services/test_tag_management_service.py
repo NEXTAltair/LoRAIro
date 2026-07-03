@@ -1022,6 +1022,40 @@ class TestTagRecordRefinementIntegration:
         assert result is manual
         mock_record.assert_not_called()
 
+    def test_prefers_user_overlay_row_for_record(self, service: TagManagementService) -> None:
+        """base + user-overlay 完全一致行では overlay 行 (tag_id 高位) を record 評価に渡す (#1123 Codex P2)。"""
+        manual = _recommendation("dog", needs=False, score=0.0)
+        # base 行を先に、user overlay 行 (USER_TAG_ID_OFFSET=1e9 以上) を後に置く
+        base_row = TagRecordPublic(
+            tag="dog", tag_id=5, source_tag="dog", type_name="general", format_name="Lorairo"
+        )
+        overlay_row = TagRecordPublic(
+            tag="dog",
+            tag_id=1_000_000_005,
+            source_tag="dog",
+            type_name="general",
+            format_name="Lorairo",
+        )
+        result_rows = TagSearchResult(items=[base_row, overlay_row], total=2)
+        with (
+            patch(
+                "lorairo.services.tag_management_service.recommend_manual_refinement",
+                return_value=manual,
+            ),
+            patch(
+                "lorairo.services.tag_management_service.search_tags",
+                return_value=result_rows,
+            ),
+            patch(
+                "lorairo.services.tag_management_service.recommend_tag_record_refinement",
+                return_value=_recommendation("_", needs=False, score=0.0),
+            ) as mock_record,
+        ):
+            service.recommend_with_translation_quality("dog")
+
+        # record 評価には base 行ではなく overlay 行 (tag_id 高位) が渡る
+        assert mock_record.call_args.args[0].tag_id == 1_000_000_005
+
 
 @pytest.mark.unit
 class TestTranslationPrefetch:

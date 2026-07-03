@@ -526,13 +526,20 @@ class TagManagementService:
 
         `tag` / `source_tag` が入力へ casefold 一致した行のみ採用する (Codex #991 P2)。
         partial=False でも alias / 別タグの翻訳経由でマッチした行はその翻訳を借用せず、
-        無関係な偽陽性 ⚠ を防ぐ。翻訳は言語ごとにマージし、tag-record refinement 用の行は
-        最初の完全一致行を採る。完全一致行が無ければ (None, [], None) を返す。
+        無関係な偽陽性 ⚠ を防ぐ。翻訳は言語ごとにマージする。
+
+        tag-record refinement 用の行は **user overlay 行を優先** して採る (#1123 Codex P2):
+        同一タグで base 行 + user overlay 行が返る場合、ユーザーが overlay で修正済みでも
+        base 行が先に来ると偽陽性の ⚠ が出る。user overlay タグは tag_id が高位レンジ
+        (genai-tag-db-tools の USER_TAG_ID_OFFSET 以上、base とは range が分離) を占めるため、
+        完全一致行のうち tag_id 最大のものを採ることで overlay 行を優先する。tag_id を持たない
+        行しか無い場合は最初の完全一致行を fallback とする。完全一致行が無ければ (None, [], None)。
         """
         normalized_query = tag.casefold()
         merged: dict[str, list[str]] = {}
         tag_ids: list[int] = []
         exact_row: TagRecordPublic | None = None
+        exact_row_tag_id: int | None = None
         found_exact = False
         for item in result.items:
             is_exact_match = item.tag.casefold() == normalized_query or (
@@ -541,20 +548,31 @@ class TagManagementService:
             if not is_exact_match:
                 continue
             found_exact = True
-            if exact_row is None:
+            # tag_id 最大 (= user overlay 行) を優先。tag_id 無し行しか無いときは最初の1件を採る。
+            if item.tag_id is not None and (exact_row_tag_id is None or item.tag_id > exact_row_tag_id):
+                exact_row = item
+                exact_row_tag_id = item.tag_id
+            elif exact_row is None:
                 exact_row = item
             if item.tag_id is not None and item.tag_id not in tag_ids:
                 tag_ids.append(item.tag_id)
-            if not item.translations:
-                continue
-            for language, values in item.translations.items():
-                bucket = merged.setdefault(language, [])
-                for value in values:
-                    if value not in bucket:
-                        bucket.append(value)
+            self._merge_item_translations(merged, item.translations)
         if not found_exact:
             return _ExactMatchEntry(None, [], None)
         return _ExactMatchEntry(merged, tag_ids, exact_row)
+
+    @staticmethod
+    def _merge_item_translations(
+        merged: dict[str, list[str]], translations: dict[str, list[str]] | None
+    ) -> None:
+        """1 行分の言語別翻訳を merged へ順序保持・重複排除で取り込む (#976)。"""
+        if not translations:
+            return
+        for language, values in translations.items():
+            bucket = merged.setdefault(language, [])
+            for value in values:
+                if value not in bucket:
+                    bucket.append(value)
 
     def resolve_usage_counts_for_tags(
         self, tags: "Iterable[str]", *, repo: object | None = None
