@@ -299,6 +299,28 @@ class TestRatingFilterOptions:
         """手動×AI の組合せトグルは既定で AND。"""
         assert panel._rating_combine_toggle.value() == "and"
 
+    def test_search_target_checkboxes_passed_to_service(self, panel_with_service):
+        """checkboxTags / checkboxCaption の状態が create_search_conditions へ伝播する (#1093)。"""
+        panel = panel_with_service
+        panel.search_filter_service.parse_search_input.return_value = (["dog"], [])
+        panel.ui.lineEditSearch.setText("dog")
+        panel.ui.checkboxTags.setChecked(True)
+        panel.ui.checkboxCaption.setChecked(True)
+        assert panel._build_search_conditions_from_ui() is panel._sentinel
+        _, kwargs = panel.search_filter_service.create_search_conditions.call_args
+        assert kwargs["search_tags"] is True
+        assert kwargs["search_caption"] is True
+
+    def test_keyword_with_no_target_selected_is_rejected(self, panel_with_service):
+        """両ターゲット OFF + キーワード入力は全件返却せず拒否する (#1122 Codex P2)。"""
+        panel = panel_with_service
+        panel.search_filter_service.parse_search_input.return_value = (["dog"], [])
+        panel.ui.lineEditSearch.setText("dog")
+        panel.ui.checkboxTags.setChecked(False)
+        panel.ui.checkboxCaption.setChecked(False)
+        assert panel._build_search_conditions_from_ui() is None
+        panel.search_filter_service.create_search_conditions.assert_not_called()
+
     def test_ai_multi_builds_conditions_without_keyword(self, panel_with_service):
         """AI レーティング複数選択のみ(キーワード無し)で検索条件を返し list で渡す。"""
         panel = panel_with_service

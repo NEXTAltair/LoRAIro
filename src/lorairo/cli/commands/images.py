@@ -433,7 +433,8 @@ def search_images(
             image_ids=q.image_ids,
             tags=q.tags,
             excluded_tags=q.excluded_tags,
-            caption=q.caption,
+            # ImageFilterCriteria.caption はキーワードリスト (#1093)。単一キャプション文字列を包む
+            caption=[q.caption] if q.caption else None,
             manual_rating_filter=q.manual_rating,
             ai_rating_filter=q.ai_rating,
             score_min=q.score_min,

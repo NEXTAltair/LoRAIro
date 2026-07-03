@@ -29,7 +29,7 @@ from sqlalchemy import create_engine, select
 from sqlalchemy.orm import sessionmaker
 
 from lorairo.database.db_manager import ImageDatabaseManager
-from lorairo.database.filter_criteria import ImageFilterCriteria
+from lorairo.database.filter_criteria import ImageFilterCriteria, KeywordSearchGroup
 from lorairo.database.repository.base import BaseRepository
 from lorairo.database.repository.image import ImageRepository
 from lorairo.database.schema import (
@@ -1167,3 +1167,146 @@ class TestGetPhashClassificationByIds:
         a = _insert_image(image_repository, uuid="pc-only", phash="phash-only", filename="a.png")
         result = image_repository.get_phash_classification_by_ids([a, 99999])
         assert set(result.keys()) == {a}
+
+
+@pytest.mark.unit
+class TestTagCaptionSearchCombination:
+    """タグ / キャプション検索の OR 結合と複数キーワード対応 (#1093)。"""
+
+    def _setup_images(self, repo: ImageRepository, session_factory) -> tuple[int, int, int]:
+        """A: タグ cat + キャプション, B: キャプションのみ dog, C: 無関係 を作成する。"""
+        a = _insert_image(repo, uuid="combo-a", phash="combo-a", filename="a.png")
+        b = _insert_image(repo, uuid="combo-b", phash="combo-b", filename="b.png")
+        c = _insert_image(repo, uuid="combo-c", phash="combo-c", filename="c.png")
+        with session_factory() as session:
+            session.add_all(
+                [
+                    Tag(image_id=a, tag="cat", rejected_at=None),
+                    Caption(image_id=a, caption="a fluffy cat", rejected_at=None),
+                    Caption(image_id=b, caption="a dog running", rejected_at=None),
+                    Tag(image_id=c, tag="bird", rejected_at=None),
+                    Caption(image_id=c, caption="sky", rejected_at=None),
+                ]
+            )
+            session.commit()
+        return a, b, c
+
+    def test_tags_or_caption_returns_union(
+        self, image_repository: ImageRepository, memory_session_factory
+    ) -> None:
+        """タグ + キャプション同時指定は OR 結合 (どちらかにヒットで表示) する (#1093)。"""
+        a, b, _c = self._setup_images(image_repository, memory_session_factory)
+        results, _total = image_repository.get_images_by_filter(
+            ImageFilterCriteria(tags=["cat"], caption=["dog"], include_nsfw=True)
+        )
+        assert {r["id"] for r in results} == {a, b}
+
+    def test_caption_multiple_keywords_or(
+        self, image_repository: ImageRepository, memory_session_factory
+    ) -> None:
+        """キャプション複数キーワードは全語を対象にする (OR、#1093)。"""
+        a, b, _c = self._setup_images(image_repository, memory_session_factory)
+        results, _total = image_repository.get_images_by_filter(
+            ImageFilterCriteria(caption=["cat", "dog"], use_and=False, include_nsfw=True)
+        )
+        assert {r["id"] for r in results} == {a, b}
+
+    def test_caption_multiple_keywords_and(
+        self, image_repository: ImageRepository, memory_session_factory
+    ) -> None:
+        """キャプション複数キーワードの AND は全語を含む画像のみ返す (#1093)。"""
+        a, _b, _c = self._setup_images(image_repository, memory_session_factory)
+        results, _total = image_repository.get_images_by_filter(
+            ImageFilterCriteria(caption=["fluffy", "cat"], use_and=True, include_nsfw=True)
+        )
+        assert {r["id"] for r in results} == {a}
+
+
+@pytest.mark.unit
+class TestKeywordGroupSearch:
+    """keyword_groups による per-keyword エイリアス OR + ターゲット横断 + untagged 併用 (#1093/#1094/#1122)。"""
+
+    def test_alias_group_or_under_and_search(
+        self, image_repository: ImageRepository, memory_session_factory
+    ) -> None:
+        """AND 検索でも翻訳エイリアスはキーワード内 OR。dog タグのみの画像が「犬」検索でヒット (#1122 P1)。"""
+        dog = _insert_image(image_repository, uuid="kg-dog", phash="kg-dog", filename="dog.png")
+        cat = _insert_image(image_repository, uuid="kg-cat", phash="kg-cat", filename="cat.png")
+        with memory_session_factory() as session:
+            session.add_all(
+                [
+                    Tag(image_id=dog, tag="dog", rejected_at=None),
+                    Tag(image_id=cat, tag="cat", rejected_at=None),
+                ]
+            )
+            session.commit()
+
+        # 「犬」→ エイリアス群 ["犬", "dog"]、tag_logic=and
+        results, _total = image_repository.get_images_by_filter(
+            ImageFilterCriteria(
+                keyword_groups=[KeywordSearchGroup(tag_terms=["犬", "dog"], caption_terms=[])],
+                use_and=True,
+                include_nsfw=True,
+            )
+        )
+        assert {r["id"] for r in results} == {dog}
+
+    def test_and_keywords_distributed_across_targets(
+        self, image_repository: ImageRepository, memory_session_factory
+    ) -> None:
+        """AND 検索で各キーワードがどちらかのターゲットにマッチすればよい (#1122 #5)。"""
+        img1 = _insert_image(image_repository, uuid="kg-1", phash="kg-1", filename="1.png")
+        img2 = _insert_image(image_repository, uuid="kg-2", phash="kg-2", filename="2.png")
+        with memory_session_factory() as session:
+            session.add_all(
+                [
+                    Tag(image_id=img1, tag="cat", rejected_at=None),
+                    Caption(image_id=img1, caption="a photo outdoor", rejected_at=None),
+                    Tag(image_id=img2, tag="dog", rejected_at=None),
+                    Caption(image_id=img2, caption="indoor scene", rejected_at=None),
+                ]
+            )
+            session.commit()
+
+        # cat, outdoor を tags+caption 両ターゲットへ、tag_logic=and
+        results, _total = image_repository.get_images_by_filter(
+            ImageFilterCriteria(
+                keyword_groups=[
+                    KeywordSearchGroup(tag_terms=["cat"], caption_terms=["cat"]),
+                    KeywordSearchGroup(tag_terms=["outdoor"], caption_terms=["outdoor"]),
+                ],
+                use_and=True,
+                include_nsfw=True,
+            )
+        )
+        # img1: cat はタグ, outdoor はキャプションにあり両方満たす
+        assert {r["id"] for r in results} == {img1}
+
+    def test_caption_search_with_untagged(
+        self, image_repository: ImageRepository, memory_session_factory
+    ) -> None:
+        """untagged-only + キャプション検索は untagged 画像の caption を維持する (#1122 P2)。"""
+        untagged_hit = _insert_image(image_repository, uuid="kg-uh", phash="kg-uh", filename="uh.png")
+        untagged_miss = _insert_image(image_repository, uuid="kg-um", phash="kg-um", filename="um.png")
+        tagged = _insert_image(image_repository, uuid="kg-tg", phash="kg-tg", filename="tg.png")
+        with memory_session_factory() as session:
+            session.add_all(
+                [
+                    Caption(image_id=untagged_hit, caption="hello world", rejected_at=None),
+                    Caption(image_id=untagged_miss, caption="goodbye", rejected_at=None),
+                    Tag(image_id=tagged, tag="x", rejected_at=None),
+                    Caption(image_id=tagged, caption="hello world", rejected_at=None),
+                ]
+            )
+            session.commit()
+
+        results, _total = image_repository.get_images_by_filter(
+            ImageFilterCriteria(
+                keyword_groups=[KeywordSearchGroup(tag_terms=[], caption_terms=["hello"])],
+                include_untagged=True,
+                use_and=True,
+                include_nsfw=True,
+            )
+        )
+        # untagged かつ caption に hello を含む画像のみ (tagged は untagged filter で除外)
+        assert {r["id"] for r in results} == {untagged_hit}

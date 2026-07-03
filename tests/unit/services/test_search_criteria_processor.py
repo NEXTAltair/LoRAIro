@@ -54,7 +54,9 @@ class TestSearchCriteriaProcessor:
         call_kwargs = mock_db_manager.get_images_by_filter.call_args.kwargs
         criteria = call_kwargs.get("criteria")
         assert criteria is not None
-        assert criteria.tags == ["test", "tag"]
+        # #1093/#1094: タグ検索は per-keyword の keyword_groups に組まれる
+        assert criteria.keyword_groups is not None
+        assert [g.tag_terms for g in criteria.keyword_groups] == [["test"], ["tag"]]
         assert criteria.use_and is True
 
     def test_search_conditions_to_filter_criteria(self, processor):
@@ -69,8 +71,10 @@ class TestSearchCriteriaProcessor:
 
         criteria = conditions.to_filter_criteria()
 
-        # criteria 属性の確認
-        assert criteria.tags == ["tag1", "tag2"]
+        # criteria 属性の確認 (#1093/#1094: タグ検索は keyword_groups に組まれる)
+        assert criteria.keyword_groups is not None
+        assert [g.tag_terms for g in criteria.keyword_groups] == [["tag1"], ["tag2"]]
+        assert all(g.caption_terms == [] for g in criteria.keyword_groups)
         assert criteria.caption is None
         assert criteria.resolution == 1024  # max(1024, 1024)
         assert criteria.use_and is True
@@ -384,7 +388,8 @@ class TestSearchCriteriaProcessorIntegration:
         call_kwargs = mock_db_manager.get_images_by_filter.call_args.kwargs
         criteria = call_kwargs.get("criteria")
         assert criteria is not None
-        assert criteria.tags == ["anime", "girl"]
+        assert criteria.keyword_groups is not None
+        assert [g.tag_terms for g in criteria.keyword_groups] == [["anime"], ["girl"]]
         assert criteria.use_and is True
         assert criteria.resolution == 1024
 
@@ -847,3 +852,115 @@ class TestDuplicateExclusionFilter:
 
         # 性能要件検証
         assert elapsed < 500, f"Performance requirement failed: {elapsed:.2f}ms > 500ms"
+
+
+class TestSearchTargetRedesign:
+    """タグ / キャプション独立検索対象と翻訳解決の再設計テスト (#1093 / #1094)。"""
+
+    def test_dual_target_group_has_tag_and_caption_terms(self):
+        """タグ + キャプション同時 ON で各 keyword_group が両ターゲット語を持つ (#1093)。"""
+        conditions = SearchConditions(
+            search_type="tags",
+            keywords=["alpha", "beta"],
+            tag_logic="or",
+            search_tags=True,
+            search_caption=True,
+        )
+        criteria = conditions.to_filter_criteria()
+        assert criteria.tags is None and criteria.caption is None
+        assert criteria.keyword_groups is not None
+        assert [g.tag_terms for g in criteria.keyword_groups] == [["alpha"], ["beta"]]
+        assert [g.caption_terms for g in criteria.keyword_groups] == [["alpha"], ["beta"]]
+
+    def test_caption_only_group_has_no_tag_terms(self):
+        """キャプションのみ ON で keyword_group のタグ語は空、全キーワードが caption 語になる (#1093)。"""
+        conditions = SearchConditions(
+            search_type="tags",  # 旧主タイプは tags だが flag が優先される
+            keywords=["cat", "dog"],
+            tag_logic="and",
+            search_tags=False,
+            search_caption=True,
+        )
+        criteria = conditions.to_filter_criteria()
+        assert criteria.keyword_groups is not None
+        assert [g.tag_terms for g in criteria.keyword_groups] == [[], []]
+        assert [g.caption_terms for g in criteria.keyword_groups] == [["cat"], ["dog"]]
+
+    def test_backward_compat_search_type_caption(self):
+        """flag 未指定時は search_type から導出し、caption 検索で全キーワードを使う。"""
+        conditions = SearchConditions(search_type="caption", keywords=["k1", "k2"], tag_logic="and")
+        criteria = conditions.to_filter_criteria()
+        assert criteria.keyword_groups is not None
+        assert [g.tag_terms for g in criteria.keyword_groups] == [[], []]
+        assert [g.caption_terms for g in criteria.keyword_groups] == [["k1"], ["k2"]]
+
+    def test_flag_precedence_over_search_type(self):
+        """search_tags/search_caption が指定されていれば search_type より優先される。"""
+        conditions = SearchConditions(
+            search_type="caption",
+            keywords=["x"],
+            tag_logic="and",
+            search_tags=True,
+            search_caption=False,
+        )
+        assert conditions.is_tag_search_enabled() is True
+        assert conditions.is_caption_search_enabled() is False
+
+    def test_tag_resolver_expands_translations_within_keyword(self):
+        """tag_resolver がキーワード内のタグエイリアス群として翻訳解決を展開する (#1094)。"""
+        conditions = SearchConditions(
+            search_type="tags",
+            keywords=["犬"],
+            tag_logic="or",
+            search_tags=True,
+        )
+        criteria = conditions.to_filter_criteria(tag_resolver=lambda kws: [*kws, "dog"])
+        assert criteria.keyword_groups is not None
+        # 1 キーワードのエイリアス群として ["犬", "dog"] が入る (キーワード内 OR)
+        assert criteria.keyword_groups[0].tag_terms == ["犬", "dog"]
+
+    def test_tag_resolver_not_applied_to_caption(self):
+        """tag_resolver はキャプション検索対象には適用されない (#1094)。"""
+        conditions = SearchConditions(
+            search_type="tags",
+            keywords=["犬"],
+            tag_logic="or",
+            search_tags=False,
+            search_caption=True,
+        )
+        criteria = conditions.to_filter_criteria(tag_resolver=lambda kws: [*kws, "dog"])
+        assert criteria.keyword_groups is not None
+        assert criteria.keyword_groups[0].tag_terms == []
+        assert criteria.keyword_groups[0].caption_terms == ["犬"]
+
+
+class TestResolveTagSearchTargets:
+    """resolve_tag_search_targets の翻訳解決ユニットテスト (#1094)。"""
+
+    def test_none_reader_returns_keywords_unchanged(self):
+        """merged_reader が None のとき元キーワードをそのまま返す (グレースフルデグラデーション)。"""
+        from lorairo.services.search_criteria_processor import resolve_tag_search_targets
+
+        assert resolve_tag_search_targets(None, ["犬", "cat"]) == ["犬", "cat"]
+
+    def test_adds_canonical_tags_from_search(self):
+        """search_tags のヒット正規タグ名を元キーワードに重複排除して追加する。"""
+        from types import SimpleNamespace
+
+        from lorairo.services import search_criteria_processor
+
+        reader = Mock()
+        result = SimpleNamespace(items=[SimpleNamespace(tag="dog"), SimpleNamespace(tag="dog")])
+        with patch("genai_tag_db_tools.search_tags", return_value=result):
+            resolved = search_criteria_processor.resolve_tag_search_targets(reader, ["犬"])
+        # 元キーワード維持 + 翻訳ヒット追加 + 重複排除
+        assert resolved == ["犬", "dog"]
+
+    def test_search_failure_degrades_to_keywords(self):
+        """search_tags が例外を投げても元キーワードで検索継続する。"""
+        from lorairo.services import search_criteria_processor
+
+        reader = Mock()
+        with patch("genai_tag_db_tools.search_tags", side_effect=RuntimeError("boom")):
+            resolved = search_criteria_processor.resolve_tag_search_targets(reader, ["犬"])
+        assert resolved == ["犬"]

@@ -701,24 +701,25 @@ def when_search_by_caption(
 ):
     # 完全一致の場合はクオートで囲む想定
     search_term = f'"{caption_str}"' if match_type else caption_str
-    results, count = test_db_manager.get_images_by_filter(ImageFilterCriteria(caption=search_term))
+    results, count = test_db_manager.get_images_by_filter(ImageFilterCriteria(caption=[search_term]))
     search_context.results = results
     search_context.count = count
     print(f"キャプション検索実行: caption='{search_term}', 結果件数={count}")
 
 
-# タグとキャプションの複合検索
-@when(parsers.cfparse("タグ {tags_str} AND キャプション {caption_str} で検索する"))
-def when_search_by_tag_and_caption(
+# タグとキャプションの複合検索 (#1093: 両方指定は OR 結合)
+@when(parsers.cfparse("タグ {tags_str} または キャプション {caption_str} で検索する"))
+def when_search_by_tag_or_caption(
     test_db_manager: ImageDatabaseManager, search_context: SearchContext, tags_str: str, caption_str: str
 ):
-    tags = [t.strip() for t in tags_str.split("AND")]  # AND で分割
+    tags = [t.strip() for t in tags_str.split("AND")]  # 複数タグは AND で分割
+    # #1093: タグ + キャプション同時指定は OR 結合 (どちらかにヒットで表示)
     results, count = test_db_manager.get_images_by_filter(
-        ImageFilterCriteria(tags=tags, caption=caption_str, use_and=True)
+        ImageFilterCriteria(tags=tags, caption=[caption_str], use_and=True)
     )
     search_context.results = results
     search_context.count = count
-    print(f"複合検索実行: tags={tags}, caption='{caption_str}', 結果件数={count}")
+    print(f"複合検索(OR)実行: tags={tags}, caption='{caption_str}', 結果件数={count}")
 
 
 # 日付検索 (相対時間)

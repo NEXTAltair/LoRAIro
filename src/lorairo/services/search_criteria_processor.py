@@ -8,13 +8,91 @@ SearchCriteriaProcessor - 検索・フィルタリングビジネスロジック
 from __future__ import annotations
 
 import re
+from collections.abc import Callable
 from datetime import datetime
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from loguru import logger
 
 from ..database.db_manager import ImageDatabaseManager
 from .search_models import SearchConditions
+
+if TYPE_CHECKING:
+    from genai_tag_db_tools.db.repository import MergedTagReader
+
+
+def resolve_tag_search_targets(
+    merged_reader: MergedTagReader | None,
+    keywords: list[str],
+    *,
+    limit_per_keyword: int = 20,
+) -> list[str]:
+    """入力キーワードを翻訳解決し、元キーワード + 翻訳ヒットした正規タグ名を返す (#1094)。
+
+    日本語などの入力キーワードを genai_tag_db_tools の ``search_tags()`` に通し、
+    翻訳テーブル経由でヒットした正規タグ名を検索対象に追加する。英語直接マッチは
+    元キーワードをそのまま残すことで維持する。``merged_reader`` が None (tag DB 不在)
+    の場合は元キーワードのみを返してグレースフルデグラデーションする。
+
+    Args:
+        merged_reader: genai-tag-db-tools の MergedTagReader。None 可。
+        keywords: 検索入力キーワード。
+        limit_per_keyword: 1 キーワードあたりの翻訳解決取得上限。
+
+    Returns:
+        元キーワードと翻訳ヒット正規タグ名を重複排除して結合したリスト。
+    """
+    resolved: list[str] = list(keywords)
+    if merged_reader is None or not keywords:
+        return resolved
+
+    from genai_tag_db_tools import search_tags
+    from genai_tag_db_tools.models import TagSearchRequest
+
+    seen = {kw.lower() for kw in resolved}
+    for keyword in keywords:
+        try:
+            request = TagSearchRequest(
+                query=keyword,
+                partial=True,
+                resolve_preferred=True,
+                include_aliases=True,
+                include_deprecated=False,
+                limit=limit_per_keyword,
+            )
+            result = search_tags(merged_reader, request)
+        except Exception as e:
+            # tag DB 障害は検索全体を止めず縮退させる (元キーワードのみで検索継続)
+            logger.debug(f"タグ翻訳解決に失敗 (keyword='{keyword}'): {e}")
+            continue
+        for item in result.items:
+            canonical = item.tag
+            if canonical and canonical.lower() not in seen:
+                resolved.append(canonical)
+                seen.add(canonical.lower())
+
+    if len(resolved) > len(keywords):
+        logger.debug(f"タグ翻訳解決: {keywords} -> {resolved}")
+    return resolved
+
+
+def build_tag_resolver(db_manager: ImageDatabaseManager) -> Callable[[list[str]], list[str]]:
+    """db_manager の MergedTagReader を束縛したタグ翻訳解決コールバックを返す (#1094)。
+
+    検索結果と件数見積もりの両経路で同一の翻訳解決を使うための共通ファクトリ。
+    tag DB 不在時は元キーワードをそのまま返すコールバックになる。
+    """
+    merged_reader = None
+    annotation_repo = getattr(db_manager, "annotation_repo", None)
+    get_merged_reader = getattr(annotation_repo, "get_merged_reader", None)
+    if callable(get_merged_reader):
+        try:
+            merged_reader = get_merged_reader()
+        except Exception as e:
+            logger.debug(f"MergedTagReader 取得に失敗、翻訳解決なしで検索: {e}")
+            merged_reader = None
+
+    return lambda keywords: resolve_tag_search_targets(merged_reader, keywords)
 
 
 class SearchCriteriaProcessor:
@@ -59,7 +137,8 @@ class SearchCriteriaProcessor:
             }
 
             # DB検索実行（ImageFilterCriteria使用）
-            filter_criteria = conditions.to_filter_criteria()
+            # #1094: タグ検索は入力キーワードを翻訳解決してから DB へ渡す
+            filter_criteria = conditions.to_filter_criteria(tag_resolver=self._build_tag_resolver())
             images, total_count = self.db_manager.get_images_by_filter(criteria=filter_criteria)
 
             # フロントエンドフィルター適用（必要時のみ）
@@ -80,6 +159,10 @@ class SearchCriteriaProcessor:
         except Exception as e:
             logger.error(f"検索実行中にエラーが発生しました: {e}", exc_info=True)
             raise
+
+    def _build_tag_resolver(self) -> Callable[[list[str]], list[str]]:
+        """db_manager の MergedTagReader を束縛したタグ翻訳解決コールバックを返す (#1094)。"""
+        return build_tag_resolver(self.db_manager)
 
     def process_date_filter(self, conditions: SearchConditions) -> dict[str, Any]:
         """
@@ -153,7 +236,7 @@ class SearchCriteriaProcessor:
         try:
             tag_conditions: dict[str, Any] = {}
 
-            if conditions.keywords and conditions.search_type == "tags":
+            if conditions.keywords and conditions.is_tag_search_enabled():
                 tag_conditions["tags"] = conditions.keywords
                 tag_conditions["tag_operator"] = conditions.tag_logic
 

@@ -875,6 +875,16 @@ class FilterSearchPanel(QScrollArea):
             self.search_filter_service.parse_search_input(search_text) if search_text else ([], [])
         )
 
+        # #1122 Codex P2: キーワードがあるのに検索対象 (タグ/キャプション) が未選択だと、
+        # 明示的な False が search_type フォールバックを上書きし全件返却してしまう。拒否して明示する。
+        if keywords and not (self.ui.checkboxTags.isChecked() or self.ui.checkboxCaption.isChecked()):
+            logger.debug("検索対象 (タグ/キャプション) 未選択でキーワードあり: 検索をスキップ")
+            if show_status:
+                self._show_status_message(
+                    "検索対象 (タグ / キャプション) を選択してください", auto_hide_ms=3000
+                )
+            return None
+
         score_min_internal, score_max_internal = self.score_range_slider.get_range()
         has_score_filter = score_min_internal != 0 or score_max_internal != 1000
         has_facet_filter = any(v is not None for v in self._facet_values.values())
@@ -914,6 +924,9 @@ class FilterSearchPanel(QScrollArea):
         return self.search_filter_service.create_search_conditions(
             search_type=self._get_primary_search_type(),
             keywords=keywords,
+            # #1093: タグ / キャプションを独立した検索対象として渡す。両方 ON は OR 結合。
+            search_tags=self.ui.checkboxTags.isChecked(),
+            search_caption=self.ui.checkboxCaption.isChecked(),
             excluded_keywords=excluded_keywords,
             tag_logic="and" if self.ui.radioAnd.isChecked() else "or",
             resolution_filter=self.ui.comboResolution.currentText(),
