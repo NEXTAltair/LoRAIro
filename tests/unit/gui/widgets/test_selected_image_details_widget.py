@@ -529,6 +529,31 @@ class TestSelectedImageDetailsWidget:
 
         assert applied == []
 
+    def test_tag_metadata_terminal_failure_clears_pending_flag(self, widget, monkeypatch):
+        """PR #1086 Codex P2: 失敗終端 (finished 未発火) でも読み込み中フラグを解除する。
+
+        解除しないと「翻訳を修正」が読み込み中案内で固まり続け、追加/修正の
+        フォールバックへ永久に到達できない。
+        """
+        from lorairo.gui.workers.terminal import WorkerOutcome, WorkerTerminalEvent
+
+        widget._tag_metadata_inflight_id = "tag_metadata_3"
+        widget._tag_metadata_pending = None
+        pending_calls: list = []
+        monkeypatch.setattr(widget.annotation_display, "set_tag_metadata_pending", pending_calls.append)
+
+        widget._on_tag_metadata_terminal(
+            WorkerTerminalEvent(
+                worker_id="tag_metadata_3",
+                worker_type="tag_metadata",
+                outcome=WorkerOutcome.FAILED,
+                error="tag DB read error",
+            )
+        )
+
+        assert widget._tag_metadata_inflight_id is None
+        assert pending_calls == [False]
+
     def test_build_metadata_skips_tag_without_tag_id(self, widget):
         """tag_id=Noneのタグは翻訳取得をスキップすること"""
         mock_reader = Mock()

@@ -520,9 +520,14 @@ class SelectedImageDetailsWidget(QWidget):
         pending = self._tag_metadata_pending
         self._tag_metadata_pending = None
         if pending is None:
+            # 後続要求が無ければ「読み込み中」フラグを解除する。失敗/キャンセル終端では
+            # apply_tag_metadata が呼ばれず、解除しないと「翻訳を修正」が読み込み中案内で
+            # 固まり続ける (PR #1086 Codex P2)。成功終端では finished (キュー順で先着) →
+            # apply_tag_metadata が解除済みのため冪等。
+            self.annotation_display.set_tag_metadata_pending(False)
             return
         if pending[0] != self.current_image_id:
-            return  # 画像切替済みの stale 要求は起動しない
+            return  # 画像切替済みの stale 要求は起動しない (フラグは新画像側の trigger が管理)
         self._start_tag_metadata_worker(pending)
 
     def _on_tag_metadata_finished(self, result: "TagMetadataResult") -> None:
