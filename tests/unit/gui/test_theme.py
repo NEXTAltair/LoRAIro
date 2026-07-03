@@ -209,10 +209,9 @@ class TestChipQss:
             ("neutral", theme.PAPER_SHADE, theme.INK_SOFT),
             ("muted", theme.PAPER_SHADE, theme.INK_FAINT),
             ("accent", theme.ACCENT_SOFT, theme.ACCENT_HOVER),
-            # #1105: pipeline chip 定数から移植した色
+            # #1105: pipeline chip 定数から移植した色 (derived は transparent bg のため別テスト)
             ("primary", theme.CARD, theme.INK),
             ("multi", theme.CARD, theme.ACCENT_HOVER),
-            ("derived", "transparent", theme.INK_SOFT),
         ],
     )
     def test_chip_kind_maps_to_tokens(self, kind, bg, fg):
@@ -226,6 +225,42 @@ class TestChipQss:
         assert f"solid {theme.LINE_STRONG}" in theme.chip_qss("primary")
         assert f"solid {theme.ACCENT_BORDER}" in theme.chip_qss("multi")
         assert f"solid {theme.LINE_STRONG}" in theme.chip_qss("derived")
+
+    def test_chip_qss_default_output_unchanged(self):
+        # #1105: 構造パラメータ追加後も、既定 (キーワードなし) 出力は従来と byte 一致。
+        for kind in ("ok", "warn", "err", "info", "neutral", "muted", "accent"):
+            bg, fg, border = theme._CHIP_PALETTE[kind]
+            expected = (
+                f"QLabel {{ background-color: {bg}; color: {fg}; border: 1px solid {border};"
+                f" border-radius: {theme.RADIUS_CHIP}px; padding: 1px 9px;"
+                f" font-size: {theme.FONT_SIZE_SMALL}px; font-weight: 600; }}"
+            )
+            assert theme.chip_qss(kind) == expected
+
+    def test_chip_qss_mono_adds_font_family(self):
+        assert f"font-family: {theme.FONT_MONO_CSS}" in theme.chip_qss("primary", mono=True)
+        assert "font-family" not in theme.chip_qss("primary")
+
+    def test_chip_qss_weight_none_omits_font_weight(self):
+        assert "font-weight" not in theme.chip_qss("primary", weight=None)
+        assert "font-weight: 600" in theme.chip_qss("primary")
+
+    def test_chip_qss_border_style_and_italic(self):
+        qss = theme.chip_qss("derived", border_style="dashed", italic=True)
+        assert f"border: 1px dashed {theme.LINE_STRONG}" in qss
+        assert "font-style: italic" in qss
+
+    def test_chip_qss_transparent_bg_is_omitted(self):
+        # derived の bg は transparent → background-color 宣言を出さない (QLabel 既定と等価)
+        assert "background-color" not in theme.chip_qss("derived")
+
+    def test_chip_qss_radius_size_padding_overrides(self):
+        qss = theme.chip_qss(
+            "neutral", radius=theme.RADIUS_BADGE, size=theme.FONT_SIZE_META, padding="1px 6px"
+        )
+        assert f"border-radius: {theme.RADIUS_BADGE}px" in qss
+        assert f"font-size: {theme.FONT_SIZE_META}px" in qss
+        assert "padding: 1px 6px" in qss
 
     def test_badge_qss_uses_neutral_tokens(self):
         qss = theme.badge_qss()

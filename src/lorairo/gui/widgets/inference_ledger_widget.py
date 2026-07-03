@@ -29,32 +29,38 @@ _BATCH_ROUTE_BADGE_TEXT = "batch·api"
 
 # DS v12 AnnotateScreen ledger (Issue #787): エントリ = TypeBadge 文法 (paper-shade 地 +
 # line border の mono バッジ)、multimodal 集約バッジ = accent-soft の mono バッジ。
-_ENTRY_CHIP_STYLE = (
-    f"QLabel {{ font-family: {theme.FONT_MONO_CSS}; background-color: {theme.PAPER_SHADE};"
-    f" color: {theme.INK_SOFT}; border: {theme.BORDER_WIDTH}px solid {theme.LINE};"
-    f" border-radius: {theme.RADIUS_BADGE}px; padding: 1px 6px;"
-    f" font-size: {theme.FONT_SIZE_META}px; }}"
+# #1105: 手書き QSS 定数を theme.chip_qss(kind, ...) の構造パラメータへ置換。
+# 色は palette (entry=neutral / multi・route-api=accent / route-local=muted) が SSoT、
+# バッジ意匠 (mono / RADIUS_BADGE / FONT_SIZE_META / padding 1px 6px) は引数で再現する。
+_ENTRY_CHIP_STYLE = theme.chip_qss(
+    "neutral",
+    mono=True,
+    radius=theme.RADIUS_BADGE,
+    size=theme.FONT_SIZE_META,
+    padding="1px 6px",
+    weight=None,
 )
-_MULTI_BADGE_STYLE = (
-    f"QLabel {{ font-family: {theme.FONT_MONO_CSS}; background-color: {theme.ACCENT_SOFT};"
-    f" color: {theme.ACCENT_HOVER}; border: {theme.BORDER_WIDTH}px solid {theme.ACCENT_BORDER};"
-    f" border-radius: {theme.RADIUS_BADGE}px; padding: 1px 6px;"
-    f" font-size: {theme.FONT_SIZE_META}px; font-weight: {theme.FONT_WEIGHT_SEMIBOLD}; }}"
+_MULTI_BADGE_STYLE = theme.chip_qss(
+    "accent",
+    mono=True,
+    radius=theme.RADIUS_BADGE,
+    size=theme.FONT_SIZE_META,
+    padding="1px 6px",
+    weight=theme.FONT_WEIGHT_SEMIBOLD,
 )
 
 # #884 Phase 4a: route バッジ。local = 中立 (paper-shade / ink-faint)、
 # api = accent-soft の mono バッジ。dispatch の sync/batch 区別は Phase 4b で足す。
-_ROUTE_BADGE_STYLE_LOCAL = (
-    f"QLabel {{ font-family: {theme.FONT_MONO_CSS}; background-color: {theme.PAPER_SHADE};"
-    f" color: {theme.INK_FAINT}; border: {theme.BORDER_WIDTH}px solid {theme.LINE};"
-    f" border-radius: {theme.RADIUS_BADGE}px; padding: 1px 6px;"
-    f" font-size: {theme.FONT_SIZE_META}px; }}"
+_ROUTE_BADGE_STYLE_LOCAL = theme.chip_qss(
+    "muted", mono=True, radius=theme.RADIUS_BADGE, size=theme.FONT_SIZE_META, padding="1px 6px", weight=None
 )
-_ROUTE_BADGE_STYLE_API = (
-    f"QLabel {{ font-family: {theme.FONT_MONO_CSS}; background-color: {theme.ACCENT_SOFT};"
-    f" color: {theme.ACCENT_HOVER}; border: {theme.BORDER_WIDTH}px solid {theme.ACCENT_BORDER};"
-    f" border-radius: {theme.RADIUS_BADGE}px; padding: 1px 6px;"
-    f" font-size: {theme.FONT_SIZE_META}px; }}"
+_ROUTE_BADGE_STYLE_API = theme.chip_qss(
+    "accent",
+    mono=True,
+    radius=theme.RADIUS_BADGE,
+    size=theme.FONT_SIZE_META,
+    padding="1px 6px",
+    weight=None,
 )
 
 # #884 Phase 4b: バンド見出し (SYNC / PROVIDER BATCH)

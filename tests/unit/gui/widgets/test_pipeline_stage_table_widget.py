@@ -306,3 +306,61 @@ class TestPipelineStageTableWidgetDsCardStructure:
         for stage in ("TAGS", "CAPTION", "SCORE", "RATING"):
             card = widget.findChildren(DsCard, f"stageRow_{stage}")[0]
             assert len(card.findChildren(QToolButton, "stageAddModelButton")) == 1
+
+
+def _chip_declarations(qss: str) -> dict[str, str]:
+    """QLabel QSS の { ... } 本文を property:value の dict に正規化する (順不同比較用)。"""
+    body = qss[qss.index("{") + 1 : qss.rindex("}")].strip()
+    result: dict[str, str] = {}
+    for part in body.split(";"):
+        part = part.strip()
+        if not part:
+            continue
+        key, value = part.split(":", 1)
+        result[key.strip()] = value.strip()
+    return result
+
+
+class TestChipStyleVisualParity:
+    """#1105: 手書き chip 定数を theme.chip_qss へ置換しても見た目不変であること。
+
+    置換前の QSS 文字列 (frozen baseline) と現行モジュール定数の宣言セットが
+    一致することを assert する (QSS は宣言順に非依存なので順不同 dict で比較)。
+    """
+
+    def test_primary_chip_style_unchanged(self):
+        from lorairo.gui import theme
+        from lorairo.gui.widgets import pipeline_stage_table_widget as mod
+
+        baseline = (
+            f"QLabel {{ font-family: {theme.FONT_MONO_CSS}; background-color: {theme.CARD};"
+            f" border: {theme.BORDER_WIDTH}px solid {theme.LINE_STRONG};"
+            f" border-radius: {theme.RADIUS_CHIP}px; padding: 1px 9px;"
+            f" color: {theme.INK}; font-size: {theme.FONT_SIZE_SMALL}px; }}"
+        )
+        assert _chip_declarations(mod._PRIMARY_CHIP_STYLE) == _chip_declarations(baseline)
+
+    def test_multi_chip_style_unchanged(self):
+        from lorairo.gui import theme
+        from lorairo.gui.widgets import pipeline_stage_table_widget as mod
+
+        baseline = (
+            f"QLabel {{ font-family: {theme.FONT_MONO_CSS}; background-color: {theme.CARD};"
+            f" border: {theme.BORDER_WIDTH}px solid {theme.ACCENT_BORDER};"
+            f" border-radius: {theme.RADIUS_CHIP}px; padding: 1px 9px;"
+            f" color: {theme.ACCENT_HOVER}; font-size: {theme.FONT_SIZE_SMALL}px;"
+            f" font-weight: {theme.FONT_WEIGHT_SEMIBOLD}; }}"
+        )
+        assert _chip_declarations(mod._MULTI_CHIP_STYLE) == _chip_declarations(baseline)
+
+    def test_derived_chip_style_unchanged(self):
+        from lorairo.gui import theme
+        from lorairo.gui.widgets import pipeline_stage_table_widget as mod
+
+        baseline = (
+            f"QLabel {{ font-family: {theme.FONT_MONO_CSS};"
+            f" border: {theme.BORDER_WIDTH}px dashed {theme.LINE_STRONG};"
+            f" border-radius: {theme.RADIUS_CHIP}px; padding: 1px 9px;"
+            f" color: {theme.INK_SOFT}; font-style: italic; font-size: {theme.FONT_SIZE_SMALL}px; }}"
+        )
+        assert _chip_declarations(mod._DERIVED_CHIP_STYLE) == _chip_declarations(baseline)
