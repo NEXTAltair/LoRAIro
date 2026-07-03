@@ -964,3 +964,30 @@ class TestResolveTagSearchTargets:
         with patch("genai_tag_db_tools.search_tags", side_effect=RuntimeError("boom")):
             resolved = search_criteria_processor.resolve_tag_search_targets(reader, ["犬"])
         assert resolved == ["犬"]
+
+
+class TestBuildTagResolverLazyReader:
+    """build_tag_resolver は MergedTagReader を遅延取得する (#1122 Codex P2)。"""
+
+    def test_reader_not_fetched_until_tag_keywords_resolved(self):
+        """構築時・空キーワード解決では reader を取得せず、実際のタグ語解決で初回取得しキャッシュする。"""
+        from lorairo.services.search_criteria_processor import build_tag_resolver
+
+        db = Mock()
+        db.annotation_repo.get_merged_reader.return_value = None  # reader 不在で縮退
+
+        resolver = build_tag_resolver(db)
+        # 構築時点では get_merged_reader は呼ばれない (caption-only 等では resolver 自体が未使用)
+        db.annotation_repo.get_merged_reader.assert_not_called()
+
+        # 空キーワード解決でも取得しない
+        assert resolver([]) == []
+        db.annotation_repo.get_merged_reader.assert_not_called()
+
+        # 実際のタグ語解決で初めて reader を取得する
+        assert resolver(["犬"]) == ["犬"]  # reader None のため縮退
+        db.annotation_repo.get_merged_reader.assert_called_once()
+
+        # 2 回目以降はキャッシュし再取得しない
+        resolver(["cat"])
+        db.annotation_repo.get_merged_reader.assert_called_once()

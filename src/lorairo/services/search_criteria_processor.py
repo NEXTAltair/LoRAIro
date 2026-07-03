@@ -76,23 +76,38 @@ def resolve_tag_search_targets(
     return resolved
 
 
-def build_tag_resolver(db_manager: ImageDatabaseManager) -> Callable[[list[str]], list[str]]:
-    """db_manager の MergedTagReader を束縛したタグ翻訳解決コールバックを返す (#1094)。
-
-    検索結果と件数見積もりの両経路で同一の翻訳解決を使うための共通ファクトリ。
-    tag DB 不在時は元キーワードをそのまま返すコールバックになる。
-    """
-    merged_reader = None
+def _fetch_merged_reader(db_manager: ImageDatabaseManager) -> MergedTagReader | None:
+    """db_manager から MergedTagReader を取得する。取得不能時は None (縮退)。"""
     annotation_repo = getattr(db_manager, "annotation_repo", None)
     get_merged_reader = getattr(annotation_repo, "get_merged_reader", None)
-    if callable(get_merged_reader):
-        try:
-            merged_reader = get_merged_reader()
-        except Exception as e:
-            logger.debug(f"MergedTagReader 取得に失敗、翻訳解決なしで検索: {e}")
-            merged_reader = None
+    if not callable(get_merged_reader):
+        return None
+    try:
+        return get_merged_reader()
+    except Exception as e:
+        logger.debug(f"MergedTagReader 取得に失敗、翻訳解決なしで検索: {e}")
+        return None
 
-    return lambda keywords: resolve_tag_search_targets(merged_reader, keywords)
+
+def build_tag_resolver(db_manager: ImageDatabaseManager) -> Callable[[list[str]], list[str]]:
+    """db_manager の MergedTagReader を遅延取得するタグ翻訳解決コールバックを返す (#1094)。
+
+    検索結果と件数見積もりの両経路で同一の翻訳解決を使うための共通ファクトリ。
+    #1122 Codex P2: caption-only / rating-only / date-only / 空キーワード検索では
+    タグ翻訳解決が不要なため、``get_merged_reader()`` を eager に呼ばず、実際にタグ語解決が
+    必要になった初回呼び出し時にだけ reader を取得してキャッシュする。tag DB 不在時は
+    元キーワードをそのまま返す。
+    """
+    reader_holder: dict[str, MergedTagReader | None] = {}
+
+    def resolver(keywords: list[str]) -> list[str]:
+        if not keywords:
+            return list(keywords)
+        if "reader" not in reader_holder:
+            reader_holder["reader"] = _fetch_merged_reader(db_manager)
+        return resolve_tag_search_targets(reader_holder["reader"], keywords)
+
+    return resolver
 
 
 class SearchCriteriaProcessor:
