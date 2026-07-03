@@ -888,8 +888,11 @@ class MainWindow(QMainWindow, Ui_MainWindow):
 
         controller 初期化が縮退した起動 (``_setup_other_custom_widgets`` の except 経路)
         でも実行ボタンが無反応にならないよう、薄い wrapper で受けて未初期化を警告する。
-        実行後は sync / batch_api どちらも Jobs タブへ遷移し、進捗を確認しやすくする
-        (#1102: 同期は SyncJobLedger、batch は Provider Batch セクションで監視)。
+        実行が実際に開始できた場合のみ sync / batch_api どちらも Jobs タブへ遷移し、
+        進捗を確認しやすくする (#1102: 同期は SyncJobLedger、batch は Provider Batch
+        セクションで監視)。開始前に拒否された場合 (ステージング空・モデル未選択・
+        射影/preflight 失敗等) は遷移しない (Codex P2: 「Jobs に飛んだが何も動いていない」
+        を防ぐ)。
 
         Args:
             dispatch_mode: 押下した実行ボタンが指定する送信方式 ("sync" / "batch_api")。
@@ -901,8 +904,9 @@ class MainWindow(QMainWindow, Ui_MainWindow):
                 "AnnotationWorkflowControllerが初期化されていないため、アノテーション処理を開始できません。",
             )
             return
-        self.annotation_workflow_controller.start_annotation(dispatch_mode)
-        self._navigate_to_jobs_tab()
+        started = self.annotation_workflow_controller.start_annotation(dispatch_mode)
+        if started:
+            self._navigate_to_jobs_tab()
 
     def _navigate_to_jobs_tab(self) -> None:
         """アノテーション実行後に Jobs タブへ遷移する (#1102)。
