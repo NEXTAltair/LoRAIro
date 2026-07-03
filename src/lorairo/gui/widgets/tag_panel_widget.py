@@ -43,7 +43,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from ...utils.language_keys import translation_for_language
+from ...utils.language_keys import language_alias_keys, translation_for_language
 from ...utils.log import logger
 from .. import theme
 from .ds_no_scroll_combo_box import DsNoScrollComboBox
@@ -1030,6 +1030,14 @@ class TagPanelWidget(QWidget):
             if lang != "english":
                 self._lang_combo.addItem(lang)
         index = self._lang_combo.findText(target)
+        if index < 0:
+            # 正規化キー ("ja") と legacy キー ("japanese") の混在に対応 (Codex P2):
+            # 保存は ja/en 正規化だが、既存 DB 由来の候補は "japanese" だけのことがある。
+            # エイリアスで探し、主訳変更直後の切替が「何も起きない」ように見えるのを防ぐ。
+            for alias in language_alias_keys(target):
+                index = self._lang_combo.findText(alias)
+                if index >= 0:
+                    break
         if index >= 0:
             self._lang_combo.setCurrentIndex(index)
         self._lang_combo.blockSignals(False)

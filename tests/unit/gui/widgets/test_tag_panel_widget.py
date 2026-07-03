@@ -1574,3 +1574,16 @@ def test_set_tags_explicit_counts_evict_missing_current_tags(panel, sample_tags)
     assert 10 not in panel._usage_counts  # 表示中で map に無い分は退避
     assert panel._usage_counts.get(20) == {"danbooru": 800}
     assert panel._usage_counts.get(999) == {"danbooru": 5}  # 表示外は保持
+
+def test_update_language_selector_prefer_resolves_legacy_alias(panel):
+    """prefer が正規化キー ("ja") で候補が legacy キー ("japanese") だけでも切り替わる (Codex P2)。
+
+    主訳は ja/en 正規化で保存されるため、既存 DB の候補が "japanese" しか無い場合に
+    prefer="ja" が不一致で english のまま残ると、主訳変更が「何も起きない」ように見える。
+    """
+    panel.update_language_selector(["japanese"], prefer=None)
+    assert panel._current_language() == "english"
+
+    panel.update_language_selector(["japanese"], prefer="ja")
+
+    assert panel._current_language() == "japanese"
