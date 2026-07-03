@@ -628,6 +628,7 @@ class TestSendSelectedToBatchTag:
 
         mock_window = Mock()
         mock_window.dataset_state_manager = Mock()
+        mock_window.dataset_state_manager.selected_image_ids = [1, 2, 3]
         mock_window.annotate_tab = Mock()
         mock_window.tabWidgetMainMode = Mock()
         MainWindow.send_selected_to_batch_tag(mock_window, [1, 2, 3])
@@ -638,21 +639,25 @@ class TestSendSelectedToBatchTag:
             "3件をステージングに追加しました", 5000
         )
 
-    def test_send_selected_clears_selection_after_staging(self):
-        """#1096: ステージング送信後は選択状態を解除する (accent border 残留の解消)。"""
+    def test_send_selected_deselects_only_staged_ids(self):
+        """#1096/#1112: 送った画像だけ選択解除し、他ページの選択は保持する (Codex P2)。"""
         from lorairo.gui.window.main_window import MainWindow
 
         mock_window = Mock()
         mock_window.dataset_state_manager = Mock()
+        # 他ページ選択 (99) を含む全選択。payload は可視ページの [1, 2, 3] のみ。
+        mock_window.dataset_state_manager.selected_image_ids = [1, 2, 3, 99]
         mock_window.annotate_tab = Mock()
         mock_window.tabWidgetMainMode = Mock()
 
         MainWindow.send_selected_to_batch_tag(mock_window, [1, 2, 3])
 
-        mock_window.dataset_state_manager.clear_selection.assert_called_once_with()
+        # 全 clear ではなく、送った 1/2/3 を除いた残り (他ページ 99) を set し直す
+        mock_window.dataset_state_manager.clear_selection.assert_not_called()
+        mock_window.dataset_state_manager.set_selected_images.assert_called_once_with([99])
 
-    def test_send_selected_no_ids_does_not_clear_selection(self):
-        """#1096: 送信対象が無い場合は選択解除しない (誤操作で選択を失わない)。"""
+    def test_send_selected_no_ids_does_not_change_selection(self):
+        """#1096: 送信対象が無い場合は選択を変更しない (誤操作で選択を失わない)。"""
         from lorairo.gui.window.main_window import MainWindow
 
         mock_window = Mock()
@@ -663,6 +668,7 @@ class TestSendSelectedToBatchTag:
         with patch("lorairo.gui.window.main_window.QMessageBox"):
             MainWindow.send_selected_to_batch_tag(mock_window, [])
 
+        mock_window.dataset_state_manager.set_selected_images.assert_not_called()
         mock_window.dataset_state_manager.clear_selection.assert_not_called()
 
 

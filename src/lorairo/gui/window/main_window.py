@@ -1475,10 +1475,18 @@ class MainWindow(QMainWindow, Ui_MainWindow):
         # ステージングへ追加する導線はタブへ委譲 (#868)
         self.annotate_tab.add_image_ids_to_staging(list(target_ids))
 
-        # #1096: ステージング送信後は選択状態を解除する。検索グリッドの accent border
-        # が残り続けると「まだ選択中なのか送信済みなのか」が判別できないため。
-        # (#1059 のタブ非遷移設計とは独立した選択枠クリア)
-        self.dataset_state_manager.clear_selection()
+        # #1096: ステージング送信後は「送った画像だけ」選択解除する。検索グリッドの
+        # accent border が残り続けると「まだ選択中なのか送信済みなのか」が判別できない。
+        # clear_selection() で全消しすると、サムネのコンテキストメニュー経由 (payload は
+        # 可視ページの selected_ids のみ) の場合に他ページの未送信選択まで消えるため、
+        # target_ids の差集合を set し直して部分解除する (Codex P2, #1112)。
+        staged_ids = set(target_ids)
+        remaining = [
+            image_id
+            for image_id in self.dataset_state_manager.selected_image_ids
+            if image_id not in staged_ids
+        ]
+        self.dataset_state_manager.set_selected_images(remaining)
 
         # #1059: タブは移動しない (検索条件を変えながら連続ステージングする使い方を
         # 妨げないため)。フィードバックはステータスバー通知に留める。
