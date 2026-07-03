@@ -726,8 +726,9 @@ class TagPanelWidget(QWidget):
         # phase 1 (即時描画) は空 dict を渡してくるが、ここでクリアすると metadata worker
         # 完了までの数秒間 metric バー (頻度ドロップダウン) が消える。空は「未解決」と
         # みなしキャッシュを保持し、既出タグは選択直後から count を表示できるようにする。
+        # 非空 map は表示中タグ分の正とみなす (map に無い表示中 tag_id は退避、Codex P2)。
         if usage_counts:
-            self._usage_counts.update(usage_counts)
+            self._merge_usage_counts_for_current_tags(usage_counts)
         if image_changed:
             # 別画像なので前画像の操作・refinement・選択・reject を引き継がない。
             # 表示種別 (無効化/除外) は直後の set_rejected_tags が DB の reject_reason から
@@ -871,14 +872,7 @@ class TagPanelWidget(QWidget):
         表示し続けない、Codex P2)。
         """
         self._translations = dict(translations)
-        current_tag_ids = {
-            tag_id
-            for tag_dict in self._tags
-            if isinstance(tag_dict, dict) and isinstance(tag_id := tag_dict.get("tag_id"), int)
-        }
-        for tag_id in current_tag_ids - usage_counts.keys():
-            self._usage_counts.pop(tag_id, None)
-        self._usage_counts.update(usage_counts)
+        self._merge_usage_counts_for_current_tags(usage_counts)
         self._tag_types = dict(tag_types)
         # type が届いたのでグループソートを適用し直す (#1056)
         self._tags = self._sort_tags_by_type(self._tags)
@@ -976,6 +970,26 @@ class TagPanelWidget(QWidget):
         self._refresh_tags_for_language(language)
 
     # ─── 使用頻度 第2軸 (metric_source, #990) ──────────────────────────
+
+    def _merge_usage_counts_for_current_tags(self, usage_counts: dict[int, dict[str, int]]) -> None:
+        """表示中タグ分を正として usage counts をセッション内キャッシュへ merge する (#1083)。
+
+        表示中タグの tag_id は与えられた解決結果が正であり、結果に無い id は
+        「count なし」が確定しているため merge 前にキャッシュから退避する
+        (セッション中の usage 行削除や tag DB 差し替えで stale な count を
+        表示し続けない、Codex P2)。表示外の tag_id (他画像で貯めた分) は保持する。
+
+        Args:
+            usage_counts: 表示中タグ集合に対する解決結果 ``{tag_id: {format: count}}``。
+        """
+        current_tag_ids = {
+            tag_id
+            for tag_dict in self._tags
+            if isinstance(tag_dict, dict) and isinstance(tag_id := tag_dict.get("tag_id"), int)
+        }
+        for tag_id in current_tag_ids - usage_counts.keys():
+            self._usage_counts.pop(tag_id, None)
+        self._usage_counts.update(usage_counts)
 
     def _rebuild_counts_by_canonical(self) -> None:
         """``{tag_id: {format: count}}`` を canonical キーへ展開する (#990)。

@@ -1332,3 +1332,19 @@ def test_apply_tag_metadata_evicts_stale_counts_for_current_tags(panel, sample_t
     assert 10 not in panel._usage_counts  # 表示中タグの stale は退避
     assert panel._usage_counts.get(20) == {"danbooru": 800}
     assert panel._usage_counts.get(999) == {"danbooru": 5}  # 他画像分は保持
+
+
+def test_set_tags_explicit_counts_evict_missing_current_tags(panel, sample_tags):
+    """set_tags の明示的な非空 usage_counts は表示中タグ分の正として扱う (Codex P2)。
+
+    map に無い表示中 tag_id の古いキャッシュは退避し、phase 1 の空 map では保持する。
+    """
+    panel.set_tags(sample_tags, image_id=1)
+    panel.apply_tag_metadata({}, {10: {"danbooru": 1234}, 999: {"danbooru": 5}}, {})
+
+    # tag_id 10, 20 を含むタグ集合へ、20 だけの明示 counts を渡す
+    panel.set_tags(sample_tags, image_id=2, usage_counts={20: {"danbooru": 800}})
+
+    assert 10 not in panel._usage_counts  # 表示中で map に無い分は退避
+    assert panel._usage_counts.get(20) == {"danbooru": 800}
+    assert panel._usage_counts.get(999) == {"danbooru": 5}  # 表示外は保持
