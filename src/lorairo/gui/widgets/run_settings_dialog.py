@@ -199,7 +199,7 @@ class RunSettingsDialog(QDialog):
         )
         ok_button = button_box.button(QDialogButtonBox.StandardButton.Ok)
         if ok_button is not None:
-            ok_button.setText("保存して実行")
+            ok_button.setText("保存")
         button_box.accepted.connect(self.accept)
         button_box.rejected.connect(self.reject)
         layout.addWidget(button_box)
