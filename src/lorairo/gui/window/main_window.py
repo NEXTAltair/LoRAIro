@@ -888,8 +888,11 @@ class MainWindow(QMainWindow, Ui_MainWindow):
 
         controller 初期化が縮退した起動 (``_setup_other_custom_widgets`` の except 経路)
         でも実行ボタンが無反応にならないよう、薄い wrapper で受けて未初期化を警告する。
-        実行後は sync / batch_api どちらも Jobs タブへ遷移し、進捗を確認しやすくする
-        (#1102: 同期は SyncJobLedger、batch は Provider Batch セクションで監視)。
+        実行が実際に開始できた場合のみ sync / batch_api どちらも Jobs タブへ遷移し、
+        進捗を確認しやすくする (#1102: 同期は SyncJobLedger、batch は Provider Batch
+        セクションで監視)。開始前に拒否された場合 (ステージング空・モデル未選択・
+        射影/preflight 失敗等) は遷移しない (Codex P2: 「Jobs に飛んだが何も動いていない」
+        を防ぐ)。
 
         Args:
             dispatch_mode: 押下した実行ボタンが指定する送信方式 ("sync" / "batch_api")。
@@ -901,8 +904,9 @@ class MainWindow(QMainWindow, Ui_MainWindow):
                 "AnnotationWorkflowControllerが初期化されていないため、アノテーション処理を開始できません。",
             )
             return
-        self.annotation_workflow_controller.start_annotation(dispatch_mode)
-        self._navigate_to_jobs_tab()
+        started = self.annotation_workflow_controller.start_annotation(dispatch_mode)
+        if started:
+            self._navigate_to_jobs_tab()
 
     def _navigate_to_jobs_tab(self) -> None:
         """アノテーション実行後に Jobs タブへ遷移する (#1102)。
@@ -1471,10 +1475,18 @@ class MainWindow(QMainWindow, Ui_MainWindow):
         # ステージングへ追加する導線はタブへ委譲 (#868)
         self.annotate_tab.add_image_ids_to_staging(list(target_ids))
 
-        # #1096: ステージング送信後は選択状態を解除する。検索グリッドの accent border
-        # が残り続けると「まだ選択中なのか送信済みなのか」が判別できないため。
-        # (#1059 のタブ非遷移設計とは独立した選択枠クリア)
-        self.dataset_state_manager.clear_selection()
+        # #1096: ステージング送信後は「送った画像だけ」選択解除する。検索グリッドの
+        # accent border が残り続けると「まだ選択中なのか送信済みなのか」が判別できない。
+        # clear_selection() で全消しすると、サムネのコンテキストメニュー経由 (payload は
+        # 可視ページの selected_ids のみ) の場合に他ページの未送信選択まで消えるため、
+        # target_ids の差集合を set し直して部分解除する (Codex P2, #1112)。
+        staged_ids = set(target_ids)
+        remaining = [
+            image_id
+            for image_id in self.dataset_state_manager.selected_image_ids
+            if image_id not in staged_ids
+        ]
+        self.dataset_state_manager.set_selected_images(remaining)
 
         # #1059: タブは移動しない (検索条件を変えながら連続ステージングする使い方を
         # 妨げないため)。フィードバックはステータスバー通知に留める。
