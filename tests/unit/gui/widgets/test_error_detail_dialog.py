@@ -242,3 +242,29 @@ class TestErrorDetailDialogImagePreview:
 
         # 実際のファイルが存在しないため、エラーメッセージが表示される
         assert "画像ファイルが見つかりません" in dialog.labelImagePreview.text()
+        # #1105: メッセージ表示時は ImagePreviewWidget を隠す
+        assert dialog._image_preview.isVisibleTo(dialog) is False
+        assert dialog.labelImagePreview.isVisibleTo(dialog) is True
+
+    def test_load_image_preview_delegates_to_image_preview_widget(self, qtbot, mock_db_manager, tmp_path):
+        """#1105: 実在ファイルは ImagePreviewWidget に委譲し、テキストラベルは隠す。"""
+        image_path = tmp_path / "err.png"
+        image_path.write_bytes(b"stub")  # 存在すれば delegation は起きる (実描画は widget 側)
+        record = ErrorRecord(
+            id=7,
+            operation_type="test",
+            error_type="TestError",
+            error_message="delegate",
+            file_path=str(image_path),
+            model_name=None,
+            resolved_at=None,
+            created_at=datetime.datetime(2025, 11, 24, 12, 0, 0),
+        )
+        mock_db_manager.error_record_repo.get_error_records.return_value = [record]
+
+        dialog = ErrorDetailDialog(mock_db_manager, error_id=7)
+        qtbot.addWidget(dialog)
+
+        # 実描画は ImagePreviewWidget へ委譲され、label は隠れる
+        assert dialog._image_preview.isVisibleTo(dialog) is True
+        assert dialog.labelImagePreview.isVisibleTo(dialog) is False
