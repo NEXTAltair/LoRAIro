@@ -15,6 +15,7 @@ from typing import Any
 
 from sqlalchemy.exc import SQLAlchemyError
 
+from ...utils.language_keys import language_alias_keys
 from ...utils.log import logger
 from .base import LoRAIroWorkerBase
 
@@ -116,6 +117,38 @@ class TagMetadataWorker(LoRAIroWorkerBase[TagMetadataResult]):
         self._tags_list = list(tags_list)
         self._generation = generation
 
+    def _apply_preferred_translations(
+        self, valid_tag_ids: list[int], translations: dict[int, dict[str, str]]
+    ) -> None:
+        """主訳 (優先翻訳) を畳み込み済み翻訳へ上書き適用する (#1084)。
+
+        ユーザーが選んだ言語別の主訳を、DB 行順の後勝ちで決まる従来訳より優先させる。
+        preference は "ja"/"en" 正規化キーで保存されるが、既存 DB 行の翻訳は
+        "japanese"/"ja" 混在なので、当該言語の全エイリアスキーを上書きしないと表示側
+        (`_translation_for_language`) がエイリアス順で古い訳を拾ってしまう。よって
+        `language_alias_keys` の全キーへ主訳を書き込む。
+
+        preference は advisory: 取得に失敗 (SQLAlchemyError 等) しても preference なしで
+        続行し、従来の畳み込み結果をそのまま使う。
+
+        Args:
+            valid_tag_ids: 主訳を問い合わせる tag_id リスト。
+            translations: 畳み込み済みの ``{tag_id: {language: translation}}`` (in-place 更新)。
+        """
+        try:
+            preferred = self._reader.get_preferred_translations_batch(valid_tag_ids)
+        except (SQLAlchemyError, ValueError, RuntimeError) as e:
+            logger.warning(f"主訳の取得に失敗 (優先適用をスキップ): {e}")
+            return
+        for tag_id, prefs in preferred.items():
+            bucket = translations.setdefault(tag_id, {})
+            for language, translation in prefs.items():
+                if not translation:
+                    continue
+                # 当該言語の全エイリアスキーへ主訳を書き込み、表示側が古い訳を拾わないようにする。
+                for key in language_alias_keys(language):
+                    bucket[key] = translation
+
     def execute(self) -> TagMetadataResult:
         """3 つの batch クエリを実行し TagMetadataResult を返す。
 
@@ -139,6 +172,8 @@ class TagMetadataWorker(LoRAIroWorkerBase[TagMetadataResult]):
                 for tr in trs:
                     if tr.language and tr.translation:
                         translations.setdefault(tag_id, {})[tr.language] = tr.translation
+            self._check_cancellation()
+            self._apply_preferred_translations(valid_tag_ids, translations)
             self._check_cancellation()
             # format 名解決は format_map の 1 回参照のみで N+1 にならない (#990)
             format_map = self._reader.get_format_map()

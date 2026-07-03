@@ -243,6 +243,99 @@ class TestTagManagementService:
             with pytest.raises(OperationalError):
                 service.add_translation(tag_id=42, language="ja", translation="少女")
 
+    def test_add_translation_auto_sets_preferred(self, service: TagManagementService) -> None:
+        """add_translation は追加後にその訳を主訳へ自動設定する (#1084)。"""
+        with (
+            patch("lorairo.services.tag_management_service.write_user_translation") as mock_write,
+            patch("lorairo.services.tag_management_service.set_preferred_translation") as mock_pref,
+        ):
+            service.add_translation(tag_id=42, language="ja", translation="少女")
+
+            mock_write.assert_called_once_with(service.repository, 42, "ja", "少女")
+            mock_pref.assert_called_once_with(service.repository, 42, "ja", "少女")
+
+    def test_list_translation_candidates_returns_candidates_and_preferred(
+        self, service: TagManagementService
+    ) -> None:
+        """当該言語の候補訳 (エイリアス両表記) と現在の主訳を返す (#1084)。"""
+        result = TagSearchResult(
+            items=[
+                TagRecordPublic(
+                    tag="blue_eyes",
+                    tag_id=5,
+                    source_tag="blue_eyes",
+                    translations={"japanese": ["青目", "青い目"], "en": ["blue eyes"]},
+                )
+            ]
+        )
+        with (
+            patch("lorairo.services.tag_management_service.search_tags", return_value=result),
+            patch(
+                "lorairo.services.tag_management_service.get_preferred_translations_batch",
+                return_value={5: {"ja": "青い目"}},
+            ),
+        ):
+            candidates, current = service.list_translation_candidates("blue_eyes", "ja")
+
+        assert candidates == ["青目", "青い目"]
+        assert current == "青い目"
+
+    def test_list_translation_candidates_unresolved_returns_empty(
+        self, service: TagManagementService
+    ) -> None:
+        """完全一致行が無ければ ([], None) (#1084)。"""
+        result = TagSearchResult(items=[TagRecordPublic(tag="other", tag_id=9, source_tag="other")])
+        with patch("lorairo.services.tag_management_service.search_tags", return_value=result):
+            assert service.list_translation_candidates("blue_eyes", "ja") == ([], None)
+
+    def test_list_translation_candidates_preferred_failure_degrades(
+        self, service: TagManagementService
+    ) -> None:
+        """主訳取得が失敗しても候補 + None へ縮退する (#1084)。"""
+        result = TagSearchResult(
+            items=[
+                TagRecordPublic(
+                    tag="blue_eyes",
+                    tag_id=5,
+                    source_tag="blue_eyes",
+                    translations={"ja": ["青い目"]},
+                )
+            ]
+        )
+        with (
+            patch("lorairo.services.tag_management_service.search_tags", return_value=result),
+            patch(
+                "lorairo.services.tag_management_service.get_preferred_translations_batch",
+                side_effect=OperationalError("stmt", {}, Exception("db down")),
+            ),
+        ):
+            candidates, current = service.list_translation_candidates("blue_eyes", "ja")
+
+        assert candidates == ["青い目"]
+        assert current is None
+
+    def test_set_preferred_translation_success(self, service: TagManagementService) -> None:
+        """canonical→tag_id 解決の上で主訳を設定し True を返す (#1084)。"""
+        result = TagSearchResult(items=[TagRecordPublic(tag="1girl", tag_id=10, source_tag="1girl")])
+        with (
+            patch("lorairo.services.tag_management_service.search_tags", return_value=result),
+            patch("lorairo.services.tag_management_service.set_preferred_translation") as mock_pref,
+        ):
+            assert service.set_preferred_translation("1girl", "ja", "少女") is True
+            mock_pref.assert_called_once_with(service.repository, 10, "ja", "少女")
+
+    def test_set_preferred_translation_unresolved_returns_false(
+        self, service: TagManagementService
+    ) -> None:
+        """tag_id 未解決なら書き込まず False を返す (#1084)。"""
+        result = TagSearchResult(items=[TagRecordPublic(tag="other", tag_id=9, source_tag="other")])
+        with (
+            patch("lorairo.services.tag_management_service.search_tags", return_value=result),
+            patch("lorairo.services.tag_management_service.set_preferred_translation") as mock_pref,
+        ):
+            assert service.set_preferred_translation("1girl", "ja", "少女") is False
+            mock_pref.assert_not_called()
+
     def test_resolve_tag_id_exact_match(self, service: TagManagementService) -> None:
         """canonical 完全一致行の tag_id を返す (#989)。"""
         result = TagSearchResult(

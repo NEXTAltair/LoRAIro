@@ -22,6 +22,8 @@ class _FakeTagService:
         self.resolved: list[str] = []
         self.translations: list[tuple[int, str, str]] = []
         self.type_updates: list[tuple[int, str]] = []
+        # 主訳変更 (canonical, language, translation) の記録 (#1084)。
+        self.preferred: list[tuple[str, str, str]] = []
 
     def resolve_tag_id(self, canonical: str) -> int | None:
         self.resolved.append(canonical)
@@ -32,6 +34,13 @@ class _FakeTagService:
 
     def update_single_tag_type(self, tag_id: int, type_name: str) -> None:
         self.type_updates.append((tag_id, type_name))
+
+    def list_translation_candidates(self, canonical: str, language: str) -> tuple[list[str], str | None]:
+        return [], None
+
+    def set_preferred_translation(self, canonical: str, language: str, translation: str) -> bool:
+        self.preferred.append((canonical, language, translation))
+        return self._resolve_to is not None
 
 
 class _FakeRefinementService:
@@ -81,6 +90,29 @@ def test_translation_add_does_not_reset_language(qtbot, monkeypatch) -> None:
     widget._on_translation_add("1girl", "ja", "少女")
 
     assert widget._set_merged_reader_calls == 0  # type: ignore[attr-defined]
+
+
+def test_translation_preferred_dispatches_to_service(qtbot, monkeypatch) -> None:
+    """translation_preferred_requested → set_preferred_translation (#1084)。"""
+    service = _FakeTagService(resolve_to=42)
+    widget = _make_widget(qtbot, monkeypatch, service)
+
+    widget._on_translation_preferred("blue_eyes", "ja", "青い目")
+
+    assert service.preferred == [("blue_eyes", "ja", "青い目")]
+
+
+def test_translation_preferred_skipped_when_unresolved(qtbot, monkeypatch) -> None:
+    """主訳設定が失敗 (未解決) しても例外を出さず reload しない (#1084)。"""
+    service = _FakeTagService(resolve_to=None)
+    widget = _make_widget(qtbot, monkeypatch, service)
+    reloaded: list[int] = []
+    monkeypatch.setattr(widget, "_reload_current_image", lambda: reloaded.append(1))
+
+    widget._on_translation_preferred("unknown_tag", "ja", "未知")
+
+    assert service.preferred == [("unknown_tag", "ja", "未知")]
+    assert reloaded == []  # set_preferred_translation が False → reload しない
 
 
 def test_type_edit_dispatches_to_service(qtbot, monkeypatch) -> None:
