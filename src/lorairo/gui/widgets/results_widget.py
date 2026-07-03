@@ -55,7 +55,6 @@ _ISSUE_CHIP_KINDS: dict[IssueType, theme.ChipKind] = {
 class ResultsWidget(QWidget):
     """Frame 5 · Results 読み取り専用トリアージ表示。objectName = "resultsWidget"。"""
 
-    review_requested = Signal(int)  # image_id (Annotate へ遷移要求。Phase 6 で接続)
     accept_requested = Signal(int)  # image_id (この画像を accept = reviewed_at 設定)
     unaccept_requested = Signal(int)  # image_id (accept を取り消す = reviewed_at 解除)
     accept_clean_requested = Signal(list)  # list[int] (問題なし画像を一括 accept)
@@ -123,7 +122,7 @@ class ResultsWidget(QWidget):
         """CLEAN 監査 (OK箱) バンドを構築する (clean が無ければ None)。
 
         無確認で一括 accept される clean 集合の手前に「ランダム抽出を目視 → 一括 accept」
-        のゲートを挟む。抽出行の「▸ レビュー」がそのまま「これはダメ → Annotate」導線。
+        のゲートを挟む。抽出行を目視して問題があれば引き直す / 個別 accept を見送る。
         """
         plan = self._clean_plan
         if plan is None or not plan.clean_image_ids:
@@ -150,7 +149,7 @@ class ResultsWidget(QWidget):
         resample.clicked.connect(self._resample_clean)
         layout.addWidget(resample)
 
-        # 抽出された clean 画像のアノテーションを行表示する (「▸ レビュー」が bad-path)。
+        # 抽出された clean 画像のアノテーションを行表示する (目視して bad-path を拾う)。
         by_id = {r.image_id: r for r in results}
         for image_id in plan.sample_image_ids:
             result = by_id.get(image_id)
@@ -321,7 +320,7 @@ class ResultsWidget(QWidget):
         return row
 
     def _build_row_header(self, result: ImageTriageResult) -> QWidget:
-        """image_id / uuid 短縮 / WxH + レビューボタンの行を構築する。"""
+        """image_id / uuid 短縮 / WxH + accept ボタンの行を構築する。"""
         header = QWidget()
         layout = QHBoxLayout(header)
         layout.setContentsMargins(0, 0, 0, 0)
@@ -332,14 +331,6 @@ class ResultsWidget(QWidget):
         ident.setObjectName(f"resultsRowIdent_{result.image_id}")
         layout.addWidget(ident)
         layout.addStretch(1)
-
-        button = QPushButton("▸ レビュー")  # "▸ レビュー"
-        button.setObjectName(f"resultsReviewButton_{result.image_id}")
-        # closure に image_id を束縛 (ループ変数キャプチャ問題を defaultarg で回避)。
-        button.clicked.connect(
-            lambda _checked=False, image_id=result.image_id: self.review_requested.emit(image_id)
-        )
-        layout.addWidget(button)
 
         # accept 済みなら undo、未 accept なら accept ボタンを出す。
         if result.reviewed:
