@@ -1076,3 +1076,44 @@ class TestUserTranslationOverrides:
             recs = service._evaluate_translation_quality("dress", repo=_PlainReader())
 
         assert len(recs) == 1
+
+
+class TestPreferredTranslationCodexFollowups:
+    """Codex P2 対応: 主訳設定の翻訳行保証 / provider の例外縮退 (#1084)。"""
+
+    @pytest.fixture
+    def service(self) -> TagManagementService:
+        """TagManagementService インスタンスを提供"""
+        with patch("lorairo.services.tag_management_service.get_tag_reader"):
+            with patch("lorairo.services.tag_management_service.get_user_repository"):
+                return TagManagementService()
+
+    def test_set_preferred_also_writes_normalized_translation_row(
+        self, service: TagManagementService
+    ) -> None:
+        """主訳設定時に正規化キーの翻訳行も書く (再起動後もセレクタに言語が現れる)。"""
+        with (
+            patch.object(service, "resolve_tag_id", return_value=42),
+            patch("lorairo.services.tag_management_service.set_preferred_translation") as mock_pref,
+            patch("lorairo.services.tag_management_service.write_user_translation") as mock_write,
+        ):
+            assert service.set_preferred_translation("blue eyes", "en", "blue eyes trans") is True
+            mock_pref.assert_called_once_with(service.repository, 42, "en", "blue eyes trans")
+            mock_write.assert_called_once_with(service.repository, 42, "en", "blue eyes trans")
+
+    def test_candidates_degrade_when_preference_read_raises_value_error(
+        self, service: TagManagementService
+    ) -> None:
+        """主訳読み取りの ValueError/RuntimeError でもダイアログ候補は返す (worker と同契約)。"""
+        search_result = _search_result_with_translations("blue eyes", {"en": ["blue eyes trans"]})
+        with (
+            patch("lorairo.services.tag_management_service.search_tags", return_value=search_result),
+            patch(
+                "lorairo.services.tag_management_service.get_preferred_translations_batch",
+                side_effect=ValueError("boom"),
+            ),
+        ):
+            candidates, current = service.list_translation_candidates("blue eyes", "en")
+
+        assert candidates == ["blue eyes trans"]
+        assert current is None

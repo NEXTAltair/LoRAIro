@@ -1588,3 +1588,14 @@ def test_update_language_selector_prefer_resolves_legacy_alias(panel):
     panel.update_language_selector(["japanese"], prefer="ja")
 
     assert panel._current_language() == "japanese"
+
+
+def test_update_language_selector_force_prefer_switches_from_non_english(panel):
+    """force_prefer=True なら非英語表示中でも prefer の言語へ切り替える (Codex P2)。"""
+    panel.update_language_selector(["japanese", "en"], prefer="japanese", force_prefer=True)
+    assert panel._current_language() == "japanese"
+
+    # 非英語 (japanese) 表示中に en の主訳を変更した想定
+    panel.update_language_selector(["japanese", "en"], prefer="en", force_prefer=True)
+
+    assert panel._current_language() == "en"

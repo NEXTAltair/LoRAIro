@@ -707,11 +707,13 @@ class TagManagementService:
         except (ValueError, RuntimeError, SQLAlchemyError) as e:
             logger.warning(f"翻訳候補の取得に失敗 (候補なし): canonical='{canonical}': {e}")
             return [], None
-        tag_id = self._resolve_exact_tag_id(result, canonical)
-        if tag_id is None:
+        # 完全一致行の言語別翻訳と tag_id を集約する (#1052 リファクタ後の共通ヘルパー)。
+        translations_map, tag_ids = self._extract_exact_entry(result, canonical)
+        if not tag_ids:
             return [], None
-        # 完全一致行の言語別翻訳を集約し、当該言語のエイリアス両表記を順序保持で dedupe する。
-        translations = self._extract_exact_translations(result, canonical) or {}
+        tag_id = tag_ids[0]
+        # 当該言語のエイリアス両表記を順序保持で dedupe する。
+        translations = translations_map or {}
         candidates: list[str] = []
         for key in language_alias_keys(language):
             for value in translations.get(key, []):
@@ -721,24 +723,11 @@ class TagManagementService:
         try:
             preferred = get_preferred_translations_batch(self.reader, [tag_id])
             current = translation_for_language(preferred.get(tag_id, {}), language)
-        except SQLAlchemyError as e:
+        except (SQLAlchemyError, ValueError, RuntimeError) as e:
+            # worker 側の advisory 読みと同じ縮退契約 (Codex P2): 主訳読み取りの一時失敗で
+            # ダイアログ自体を開けなくしない。候補一覧 + 未設定 (None) で続行する。
             logger.warning(f"主訳の取得に失敗 (未設定として続行): canonical='{canonical}': {e}")
         return candidates, current
-
-    @staticmethod
-    def _resolve_exact_tag_id(result: TagSearchResult, canonical: str) -> int | None:
-        """search 結果から canonical に完全一致する行の tag_id を返す (#1084)。
-
-        `tag` または `source_tag` が casefold 一致した行を採用する (resolve_tag_id と同方針、
-        別タグの翻訳経由マッチは採らない)。
-        """
-        normalized = canonical.casefold()
-        for item in result.items:
-            if item.tag.casefold() == normalized or (
-                item.source_tag is not None and item.source_tag.casefold() == normalized
-            ):
-                return cast("int", item.tag_id)
-        return None
 
     def set_preferred_translation(self, canonical: str, language: str, translation: str) -> bool:
         """canonical タグの指定言語の主訳 (優先翻訳) を設定します (#1084)。
@@ -764,6 +753,11 @@ class TagManagementService:
         try:
             # free function (lib 公開 API)。同名の service メソッドではなく module global。
             set_preferred_translation(self.repository, tag_id, language, translation)
+            # 選んだ訳を正規化キー ("ja"/"en") の翻訳行としても保証する (Codex P2)。
+            # legacy キー ("english" 等) の行しか無い候補を主訳にした場合、正規化キーの
+            # 行が無いと get_tag_languages() が当該言語を広告せず、再起動後のセレクタに
+            # 言語項目が現れない。write_user_translation は同一行の重複を無視するため冪等。
+            write_user_translation(self.repository, tag_id, language, translation)
             logger.info(
                 "Set preferred translation: tag_id={}, language={}",
                 tag_id,

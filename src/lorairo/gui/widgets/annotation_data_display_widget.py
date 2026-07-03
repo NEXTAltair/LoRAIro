@@ -218,10 +218,16 @@ class AnnotationDataDisplayWidget(QWidget, Ui_AnnotationDataDisplayWidget):
         self._tag_panel.set_rejected_tags(rejected_tags)
 
     def update_language_selector(
-        self, available_languages: list[str], *, prefer: str | None = None
+        self,
+        available_languages: list[str],
+        *,
+        prefer: str | None = None,
+        force_prefer: bool = False,
     ) -> None:
         """言語コンボの候補を選択を保ったまま更新する (TagPanelWidget へ委譲、#1050)。"""
-        self._tag_panel.update_language_selector(available_languages, prefer=prefer)
+        self._tag_panel.update_language_selector(
+            available_languages, prefer=prefer, force_prefer=force_prefer
+        )
 
     def set_translation_candidates_provider(
         self, provider: Callable[[str, str], tuple[list[str], str | None]] | None

@@ -850,8 +850,11 @@ class SelectedImageDetailsWidget(QWidget):
                 self._available_languages = self._merged_reader.get_tag_languages()
             if not (non_sentinel_aliases & set(self._available_languages)):
                 self._available_languages = [*self._available_languages, language]
-        # 主訳を変えた言語を表示中にして変更を即時可視化する (原文表示中でも切替える)。
-        self.annotation_display.update_language_selector(self._available_languages, prefer=language)
+        # 主訳を変えた言語を表示中にして変更を即時可視化する。非英語表示中でも
+        # 編集した言語へ強制的に切り替える (Codex P2: 切り替えないと変更が見えない)。
+        self.annotation_display.update_language_selector(
+            self._available_languages, prefer=language, force_prefer=True
+        )
         self._reload_current_image()
 
     @Slot(str, str)
