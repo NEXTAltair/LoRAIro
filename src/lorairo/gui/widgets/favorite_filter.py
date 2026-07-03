@@ -1,12 +1,10 @@
 # src/lorairo/gui/widgets/favorite_filter.py
 """お気に入りフィルタ Panel (ADR 0036 §6)。
 
-保存・読込・削除ボタンと QListWidget を内包し、FavoriteFiltersService を
-依存注入で受け取る。Parent (FilterSearchPanel) は以下のシグナルを購読する:
-
-- `save_requested`: 保存ボタンクリック (現在条件を要求するためのリクエスト)
-- `load_requested(str)`: 名前指定でロード要求
-- `delete_requested(str)`: 名前指定で削除要求
+保存ボタンと chip 一覧 (名前クリックで適用・× で削除) を内包し、
+FavoriteFiltersService を依存注入で受け取る。読込は chip クリックのみで行い、
+専用の読込ボタン/選択操作は持たない (#1088 の折りたたみ修正で見た目が
+直った際、chip クリックと機能重複する読込ボタンは冗長と判断し撤去)。
 
 実体の I/O (FavoriteFiltersService 呼び出し) はこのウィジェット内で完結する。
 condition の取得・適用は Parent コールバックで委ねる。
@@ -71,14 +69,14 @@ class FavoriteFilterPanel(QGroupBox):
 
         # ☆ お気に入りに保存 (DS の保存導線)
         self.button_save_filter = QPushButton("☆ お気に入りに保存")
-        # back-compat: 読込/削除は chip クリック・× に集約したが、既存テスト・
-        # アクセシビリティ用に残す。
-        self.button_load_filter = QPushButton("読込")
+        # back-compat: 削除は chip の × に集約したが、既存テスト・アクセシビリティ
+        # 用に残す。読込は chip クリックで完全に代替されるため専用ボタンは持たない
+        # (#1088 で折りたたみを直した際、常時グレーだったボタンの一つが読込ボタンで、
+        # chip クリックと機能重複するため撤去)。
         self.button_delete_filter = QPushButton("削除")
 
         button_layout = QHBoxLayout()
         button_layout.addWidget(self.button_save_filter)
-        button_layout.addWidget(self.button_load_filter)
         button_layout.addWidget(self.button_delete_filter)
 
         # 中身はコンテナに集約し、toggled で表示/非表示を切り替える (#1088)。
@@ -106,7 +104,6 @@ class FavoriteFilterPanel(QGroupBox):
 
         # シグナル接続 (内部完結)
         self.button_save_filter.clicked.connect(self._on_save_clicked)
-        self.button_load_filter.clicked.connect(self._on_load_clicked)
         self.button_delete_filter.clicked.connect(self._on_delete_clicked)
         self.favorite_filters_list.itemDoubleClicked.connect(self._on_filter_double_clicked)
 
@@ -274,19 +271,6 @@ class FavoriteFilterPanel(QGroupBox):
         except Exception as e:
             logger.error("Failed to save filter: {}", e, exc_info=True)
             QMessageBox.critical(self, "エラー", f"フィルターの保存中にエラーが発生しました:\n{e}")
-
-    def _on_load_clicked(self) -> None:
-        """読込ボタンクリックハンドラ。"""
-        if not self.favorite_filters_service:
-            QMessageBox.warning(self, "エラー", "お気に入りフィルターサービスが利用できません。")
-            return
-
-        selected_items = self.favorite_filters_list.selectedItems()
-        if not selected_items:
-            QMessageBox.warning(self, "読込失敗", "読み込むフィルターを選択してください。")
-            return
-
-        self._load_by_name(selected_items[0].text())
 
     def _on_filter_double_clicked(self, item: QListWidgetItem) -> None:
         """フィルターダブルクリックハンドラ。"""
