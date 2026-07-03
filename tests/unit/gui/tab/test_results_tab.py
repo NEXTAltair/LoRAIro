@@ -57,3 +57,36 @@ def test_refresh_without_staging_items_clears(qtbot, staging: StagingStateManage
 
     widget.refresh()  # 例外なし
     assert staging.count() == 0
+
+
+@pytest.mark.gui
+def test_resolve_thumbnail_path_prefers_low_res(qtbot, staging: StagingStateManager) -> None:
+    """低解像度処理済み画像パスがあればそれを優先する (Issue #1104)。"""
+    db = MagicMock()
+    db.get_low_res_image_path.return_value = "/low.png"
+    widget = ResultsTabWidget(db_manager=db, staging_state_manager=staging)
+    qtbot.addWidget(widget)
+
+    assert widget._resolve_thumbnail_path(5, {"stored_image_path": "/orig.png"}) == "/low.png"
+
+
+@pytest.mark.gui
+def test_resolve_thumbnail_path_falls_back_to_stored(qtbot, staging: StagingStateManager) -> None:
+    """低解像度画像が無ければオリジナルの stored path にフォールバックする (Issue #1104)。"""
+    db = MagicMock()
+    db.get_low_res_image_path.return_value = None
+    widget = ResultsTabWidget(db_manager=db, staging_state_manager=staging)
+    qtbot.addWidget(widget)
+
+    assert widget._resolve_thumbnail_path(5, {"stored_image_path": "/orig.png"}) == "/orig.png"
+
+
+@pytest.mark.gui
+def test_resolve_thumbnail_path_none_when_absent(qtbot, staging: StagingStateManager) -> None:
+    """低解像度も stored path も無ければ None を返す (Issue #1104)。"""
+    db = MagicMock()
+    db.get_low_res_image_path.return_value = None
+    widget = ResultsTabWidget(db_manager=db, staging_state_manager=staging)
+    qtbot.addWidget(widget)
+
+    assert widget._resolve_thumbnail_path(5, {}) is None
