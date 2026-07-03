@@ -14,11 +14,12 @@ ModelSelectionWidgetから分離された機能を提供
 from dataclasses import dataclass, field
 
 from PySide6.QtCore import Qt, Signal, Slot
-from PySide6.QtWidgets import QLabel, QWidget
+from PySide6.QtWidgets import QWidget
 
 from ...gui import theme
 from ...gui.designer.ModelCheckboxWidget_ui import Ui_ModelCheckboxWidget
 from ...utils.log import logger
+from .ds_chip import DsChip
 
 
 @dataclass
@@ -63,11 +64,13 @@ PROVIDER_STYLES = {
 }
 
 # Issue #755: Wireframes v11 のモデルステータス表現 (● installed / ● API ready / ○ needs key)
+# #1105: DsChip へ寄せる。ドット文字は表示文字列側に含めるため dot="none" で描画し、
+# 配色のみ ChipKind (ok / warn) で切り替える (見た目・文字列は従来どおり)。
 STATUS_INSTALLED = "● installed"
 STATUS_API_READY = "● API ready"
 STATUS_NEEDS_KEY = "○ needs key"
-_STATUS_READY_STYLE = theme.chip_qss("ok")
-_STATUS_NEEDS_KEY_STYLE = theme.chip_qss("warn")
+_STATUS_READY_KIND: theme.ChipKind = "ok"
+_STATUS_NEEDS_KEY_KIND: theme.ChipKind = "warn"
 _NEEDS_KEY_TOOLTIP = "API キー未設定のため実行できません。⚙ 設定の該当プロバイダ欄でキーを保存すると ● API ready になります。"
 
 
@@ -93,7 +96,8 @@ class ModelCheckboxWidget(QWidget, Ui_ModelCheckboxWidget):
         self.model_info = model_info
 
         # Issue #755: ステータスラベル (.ui には無いためプログラム的に追加)
-        self.labelStatus = QLabel(self)
+        # #1105: DsChip へ統一。ドットは STATUS_* 文字列側に含めるため dot="none"。
+        self.labelStatus = DsChip("", kind="neutral", dot="none", parent=self)
         self.labelStatus.setObjectName("labelStatus")
         self.mainLayout.addWidget(self.labelStatus)
 
@@ -151,18 +155,18 @@ class ModelCheckboxWidget(QWidget, Ui_ModelCheckboxWidget):
         で可視化し、⚙ 設定での解消を tooltip で案内する。
         """
         if self.model_info.is_local:
-            self.labelStatus.setText(STATUS_INSTALLED)
-            self.labelStatus.setStyleSheet(_STATUS_READY_STYLE)
+            self.labelStatus.set_text(STATUS_INSTALLED)
+            self.labelStatus.set_kind(_STATUS_READY_KIND)
             self.labelStatus.setToolTip("")
             self.checkboxModel.setEnabled(True)
         elif self.model_info.available:
-            self.labelStatus.setText(STATUS_API_READY)
-            self.labelStatus.setStyleSheet(_STATUS_READY_STYLE)
+            self.labelStatus.set_text(STATUS_API_READY)
+            self.labelStatus.set_kind(_STATUS_READY_KIND)
             self.labelStatus.setToolTip("")
             self.checkboxModel.setEnabled(True)
         else:
-            self.labelStatus.setText(STATUS_NEEDS_KEY)
-            self.labelStatus.setStyleSheet(_STATUS_NEEDS_KEY_STYLE)
+            self.labelStatus.set_text(STATUS_NEEDS_KEY)
+            self.labelStatus.set_kind(_STATUS_NEEDS_KEY_KIND)
             self.labelStatus.setToolTip(_NEEDS_KEY_TOOLTIP)
             # Codex review (PR #757): 実行不能モデルの選択を入口で防ぐ
             # (選択後の _validate_api_keys_for_models での実行時失敗より UX が良い)

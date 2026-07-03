@@ -49,6 +49,8 @@ from PySide6.QtWidgets import (
 )
 
 from lorairo.gui import theme
+from lorairo.gui.widgets.ds_badge import DsBadge
+from lorairo.gui.widgets.ds_chip import DsChip
 from lorairo.services.cost_estimation_service import (
     CostEstimationService,
     format_per_image_cost,
@@ -186,11 +188,12 @@ class _ModelRow(QFrame):
 
         badge_text = _badge_text(info)
         if badge_text:
-            type_badge = QLabel(badge_text, self)
-            type_badge.setStyleSheet(theme.badge_qss())
+            # #1105: badge_qss 直書き → DsBadge へ統一
+            type_badge = DsBadge(badge_text, parent=self)
             head_layout.addWidget(type_badge)
 
-        self._status_label = QLabel("", self)
+        # #1105: status chip を DsChip へ統一。ドットは status 文字列側に含めるため dot="none"。
+        self._status_label = DsChip("", kind="neutral", dot="none", parent=self)
         head_layout.addWidget(self._status_label)
         head_layout.addStretch(1)
         meta_layout.addLayout(head_layout)
@@ -253,8 +256,8 @@ class _ModelRow(QFrame):
 
     def set_status(self, text: str, kind: theme.ChipKind) -> None:
         """status chip のテキストと配色を設定する。"""
-        self._status_label.setText(text)
-        self._status_label.setStyleSheet(theme.chip_qss(kind))
+        self._status_label.set_text(text)
+        self._status_label.set_kind(kind)
 
     def _refresh_style(self) -> None:
         """選択 / needs key 状態に応じて行の枠と背景を更新する。"""

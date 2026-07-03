@@ -245,8 +245,11 @@ class TestRatingScoreEditWidgetAiSection:
         assert widget.ui.comboBoxRating.currentText() == "XXX"
 
     def test_segmented_click_highlights_chip(self, widget):
-        """#829: クリックしたチップが選択ハイライト (active QSS) される。"""
-        from lorairo.gui.widgets.rating_score_edit_widget import _segment_button_qss
+        """#829: クリックしたチップが選択ハイライト (active QSS) される。
+
+        #1105: QSS は DsSegmentedControl (base サイズ) が供給する。
+        """
+        from lorairo.gui.widgets.ds_segmented_control import _segment_button_qss
 
         widget.populate_from_image_data({"id": 9, "rating": "----", "score_value": None})
         btn = widget._rating_segmented._buttons["R"]
@@ -256,6 +259,15 @@ class TestRatingScoreEditWidgetAiSection:
         # 他のチップは非選択スタイルのまま
         other = widget._rating_segmented._buttons["PG"]
         assert other.styleSheet() == _segment_button_qss(False)
+
+    def test_segmented_deselects_all_when_no_rating(self, widget):
+        """#1105: rating 未設定 (----) では全セグメントが非選択に戻る。"""
+        # 一度 R を選択してから未設定データで再描画する
+        widget.populate_from_image_data({"id": 3, "rating": "R", "score_value": 5.0})
+        assert widget._rating_segmented._buttons["R"].isChecked() is True
+
+        widget.populate_from_image_data({"id": 4, "rating": "----", "score_value": None})
+        assert all(not button.isChecked() for button in widget._rating_segmented._buttons.values())
 
     def test_manual_edit_chip_hidden_when_equal_to_ai(self, widget):
         """手動値が AI と一致する初期状態では MANUAL_EDIT chip は非表示"""

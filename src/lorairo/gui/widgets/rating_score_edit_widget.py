@@ -25,12 +25,10 @@ from typing import Any, ClassVar
 
 from PySide6.QtCore import Qt, Signal, Slot
 from PySide6.QtWidgets import (
-    QButtonGroup,
     QFrame,
     QHBoxLayout,
     QLabel,
     QProgressBar,
-    QPushButton,
     QSizePolicy,
     QVBoxLayout,
     QWidget,
@@ -39,34 +37,10 @@ from PySide6.QtWidgets import (
 from ...gui.designer.RatingScoreEditWidget_ui import Ui_RatingScoreEditWidget
 from ...utils.log import logger
 from .. import theme
+from .ds_segmented_control import DsSegmentedControl
 
 # Rating の正準順序 (PG が最も穏当、XXX が最も露骨)
 _RATING_ORDER: tuple[str, ...] = ("PG", "PG-13", "R", "X", "XXX")
-
-
-def _segment_button_qss(active: bool) -> str:
-    """人間レーティング SegmentedControl のセグメント 1 個分 QSS (ADR 0073)。
-
-    active セグメントは accent-soft 塗り + accent border、非 active は CARD 地。
-
-    Args:
-        active: そのセグメントが選択中なら True。
-
-    Returns:
-        QPushButton に適用する QSS 文字列。
-    """
-    if active:
-        return (
-            f"QPushButton {{ background-color: {theme.ACCENT_SOFT}; color: {theme.ACCENT_HOVER};"
-            f" border: {theme.BORDER_WIDTH}px solid {theme.ACCENT_BORDER};"
-            f" border-radius: {theme.RADIUS_BADGE}px; padding: 2px 10px;"
-            f" font-size: {theme.FONT_SIZE_SMALL}px; font-weight: {theme.FONT_WEIGHT_SEMIBOLD}; }}"
-        )
-    return (
-        f"QPushButton {{ background-color: {theme.CARD}; color: {theme.INK_SOFT};"
-        f" border: {theme.BORDER_WIDTH}px solid {theme.LINE}; border-radius: {theme.RADIUS_BADGE}px;"
-        f" padding: 2px 10px; font-size: {theme.FONT_SIZE_SMALL}px; }}"
-    )
 
 
 def _ai_rating_chip_qss(active: bool) -> str:
@@ -134,15 +108,16 @@ def _footnote_qss() -> str:
     )
 
 
-class _RatingSegmentedControl(QWidget):
-    """人間レーティング用 SegmentedControl (ADR 0073)。
+class _RatingSegmentedControl(DsSegmentedControl):
+    """人間レーティング用 SegmentedControl (#1105: DS 公式部品へ寄せる)。
 
-    PG/PG-13/R/X/XXX を排他選択する checkable ``QPushButton`` 行。内部状態を
-    持たず、選択変更を ``rating_selected`` シグナルで通知する。SSoT は呼び出し側
-    (RatingScoreEditWidget の comboBoxRating) に委ねる。
+    ADR 0073 の自作 checkable ``QPushButton`` 行 (+ 独自 QSS) を DS 公式部品
+    :class:`DsSegmentedControl` へ置換した薄い adapter。PG/PG-13/R/X/XXX を排他
+    選択する。SSoT は呼び出し側 (RatingScoreEditWidget の comboBoxRating) に委ねる
+    ため未選択 (None) 状態も扱える。旧シグナル名 ``rating_selected`` を保つ。
     """
 
-    rating_selected = Signal(str)  # ユーザーがセグメントを選択した
+    rating_selected = Signal(str)  # ユーザーがセグメントを選択した (value_changed の別名)
 
     def __init__(self, ratings: tuple[str, ...], parent: QWidget | None = None) -> None:
         """セグメント行を構築する。
@@ -151,24 +126,12 @@ class _RatingSegmentedControl(QWidget):
             ratings: セグメントに並べるレーティング値の順序付きタプル。
             parent: 親ウィジェット。
         """
-        super().__init__(parent)
-        layout = QHBoxLayout(self)
-        layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(2)
-
-        self._group = QButtonGroup(self)
-        self._group.setExclusive(True)
-        self._buttons: dict[str, QPushButton] = {}
-        for rating in ratings:
-            button = QPushButton(rating, self)
-            button.setCheckable(True)
-            button.setCursor(Qt.CursorShape.PointingHandCursor)
-            button.setStyleSheet(_segment_button_qss(False))
-            button.clicked.connect(lambda _checked=False, value=rating: self.rating_selected.emit(value))
-            self._group.addButton(button)
-            self._buttons[rating] = button
-            layout.addWidget(button)
-        layout.addStretch(1)
+        # value="" で初期は未選択 (どのセグメントも checked=False)
+        super().__init__([(rating, rating) for rating in ratings], value="", parent=parent)
+        # 旧実装と同じく右端に stretch を入れてボタンを左詰めで維持する (見た目不変)
+        self._layout.addStretch(1)
+        # DsSegmentedControl の value_changed を旧シグナル名へ橋渡しする
+        self.value_changed.connect(self.rating_selected)
 
     def set_active(self, rating: str | None) -> None:
         """選択状態を更新する (シグナルは発行しない)。
@@ -176,12 +139,15 @@ class _RatingSegmentedControl(QWidget):
         Args:
             rating: 強調するレーティング値。None なら全て非選択。
         """
-        for value, button in self._buttons.items():
-            active = value == rating
-            blocked = button.blockSignals(True)
-            button.setChecked(active)
-            button.blockSignals(blocked)
-            button.setStyleSheet(_segment_button_qss(active))
+        if rating is None:
+            # 未選択状態へ: 排他グループを一時解除して全ボタンを非選択に戻す
+            self._group.setExclusive(False)
+            for button in self._buttons.values():
+                button.setChecked(False)
+            self._group.setExclusive(True)
+            self._select("")  # value="" で全セグメントを非 active スタイルへ
+            return
+        self.set_value(rating)
 
 
 class RatingScoreEditWidget(QWidget):
