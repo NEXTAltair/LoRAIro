@@ -1472,25 +1472,35 @@ class MainWindow(QMainWindow, Ui_MainWindow):
             QMessageBox.information(self, "選択なし", "バッチタグに追加する画像が選択されていません。")
             return
 
-        # ステージングへ追加する導線はタブへ委譲 (#868)
+        # ステージングへ追加する導線はタブへ委譲 (#868)。add_image_ids は上限
+        # (MAX_STAGING_IMAGES) 到達やメタデータ解決不能時に一部/全部を受理せず return
+        # するため (staging_state.py)、受理集合は送信後の staging 集合から読む。
         self.annotate_tab.add_image_ids_to_staging(list(target_ids))
+        staged_now = (
+            set(self.staging_state_manager.get_image_ids())
+            if self.staging_state_manager is not None
+            else set()
+        )
 
-        # #1096: ステージング送信後は「送った画像だけ」選択解除する。検索グリッドの
-        # accent border が残り続けると「まだ選択中なのか送信済みなのか」が判別できない。
-        # clear_selection() で全消しすると、サムネのコンテキストメニュー経由 (payload は
-        # 可視ページの selected_ids のみ) の場合に他ページの未送信選択まで消えるため、
-        # target_ids の差集合を set し直して部分解除する (Codex P2, #1112)。
-        staged_ids = set(target_ids)
-        remaining = [
-            image_id
-            for image_id in self.dataset_state_manager.selected_image_ids
-            if image_id not in staged_ids
-        ]
-        self.dataset_state_manager.set_selected_images(remaining)
+        # #1096/#1112: 実際にステージングへ受理された target_id だけを選択解除する。
+        # 受理されなかった ID (上限到達 / メタデータ解決失敗) は選択を残し、「送信済み」と
+        # 誤認させない。clear_selection() の全消しは、サムネのコンテキストメニュー経由
+        # (payload が可視ページの selected_ids のみ) の場合に他ページの未送信選択まで
+        # 消すため、差集合を set し直して部分解除する (Codex P2: 1巡目=部分解除 /
+        # 2巡目=受理 ID のみ, #1112)。
+        accepted_ids = {image_id for image_id in target_ids if image_id in staged_now}
+        if accepted_ids:
+            remaining = [
+                image_id
+                for image_id in self.dataset_state_manager.selected_image_ids
+                if image_id not in accepted_ids
+            ]
+            self.dataset_state_manager.set_selected_images(remaining)
 
         # #1059: タブは移動しない (検索条件を変えながら連続ステージングする使い方を
-        # 妨げないため)。フィードバックはステータスバー通知に留める。
-        self.statusBar().showMessage(f"{len(target_ids)}件をステージングに追加しました", 5000)
+        # 妨げないため)。フィードバックはステータスバー通知に留める。実際に受理された
+        # 件数を報告する (上限/解決失敗で一部拒否され得るため target 件数と異なり得る)。
+        self.statusBar().showMessage(f"{len(accepted_ids)}件をステージングに追加しました", 5000)
 
     def _setup_main_tab_connections(self) -> None:
         """

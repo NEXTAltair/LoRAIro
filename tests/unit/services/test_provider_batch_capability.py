@@ -10,10 +10,13 @@ from types import SimpleNamespace
 import pytest
 
 from lorairo.services.provider_batch_capability import (
+    MixedBatchTaskTypeError,
     direct_provider_for_model,
     endpoint_for_task,
+    is_omni_moderation_model,
     litellm_id_from_batch_model,
     model_supports_task_type,
+    resolve_batch_task_type,
 )
 
 
@@ -188,3 +191,47 @@ class TestModelSupportsTaskType:
     def test_unknown_task_type_returns_false(self) -> None:
         model = _model()
         assert model_supports_task_type(model, "openai", "unknown_task") is False
+
+
+# ---------------------------------------------------------------------------
+# is_omni_moderation_model / resolve_batch_task_type (#1098)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.unit
+class TestIsOmniModerationModel:
+    def test_omni_moderation_model_is_true(self) -> None:
+        model = _model(litellm_model_id="openai/omni-moderation-latest")
+        assert is_omni_moderation_model(model) is True
+
+    def test_normal_model_is_false(self) -> None:
+        model = _model(litellm_model_id="openai/gpt-4o")
+        assert is_omni_moderation_model(model) is False
+
+
+@pytest.mark.unit
+class TestResolveBatchTaskType:
+    def test_all_moderation_returns_rating_preflight(self) -> None:
+        models = [
+            _model(litellm_model_id="openai/omni-moderation-latest"),
+            _model(litellm_model_id="openai/omni-moderation-2024-09-26"),
+        ]
+        assert resolve_batch_task_type(models) == "rating_preflight"
+
+    def test_all_normal_returns_annotation(self) -> None:
+        models = [
+            _model(litellm_model_id="openai/gpt-4o"),
+            _model(litellm_model_id="anthropic/claude-sonnet-4"),
+        ]
+        assert resolve_batch_task_type(models) == "annotation"
+
+    def test_empty_returns_annotation(self) -> None:
+        assert resolve_batch_task_type([]) == "annotation"
+
+    def test_mixed_raises(self) -> None:
+        models = [
+            _model(litellm_model_id="openai/omni-moderation-latest"),
+            _model(litellm_model_id="openai/gpt-4o"),
+        ]
+        with pytest.raises(MixedBatchTaskTypeError):
+            resolve_batch_task_type(models)

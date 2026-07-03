@@ -707,6 +707,78 @@ class TestDispatchAsyncBatch:
 
         ctrl._start_async_dispatch_worker.assert_not_called()
 
+    def test_moderation_only_uses_rating_preflight_and_skips_gate(self) -> None:
+        # #1098: moderation 専用モデルのみ選択 → task_type=rating_preflight。
+        # 未判定 rating があっても fail-closed gate は適用せず送信できる。
+        from lorairo.gui.controllers.annotation_workflow_controller import AnnotationWorkflowController
+
+        model = _StubModel(id=5, provider="openai", litellm_model_id="openai/omni-moderation-latest")
+        ctrl = self._build_controller(
+            ratings={},  # 未判定 (通常は gate がブロックする状態)
+            selected=["openai/omni-moderation-latest"],
+            discovery=["openai/omni-moderation-latest"],
+            model=model,
+        )
+
+        with (
+            patch("lorairo.gui.controllers.annotation_workflow_controller.QMessageBox") as mock_qmb,
+            patch(
+                "lorairo.gui.controllers.annotation_workflow_controller.project_async_batch_dispatch"
+            ) as mock_project,
+        ):
+            AnnotationWorkflowController.dispatch_async_batch(ctrl)
+            mock_qmb.warning.assert_not_called()
+
+        # gate (rating 取得) は呼ばれない = moderation gate をスキップした
+        ctrl._db_manager.image_repo.get_latest_normalized_ratings_by_image_ids.assert_not_called()
+        assert mock_project.call_args.kwargs["task_type"] == "rating_preflight"
+        ctrl._start_async_dispatch_worker.assert_called_once()
+
+    def test_normal_model_keeps_annotation_task_type(self) -> None:
+        # #1098: 通常モデルのみなら task_type=annotation のまま (回帰防止)。
+        from lorairo.gui.controllers.annotation_workflow_controller import AnnotationWorkflowController
+
+        model = _StubModel(id=1, provider="openai", litellm_model_id="openai/gpt-4o")
+        ctrl = self._build_controller(
+            ratings={10: "PG"},
+            selected=["openai/gpt-4o"],
+            discovery=["openai/gpt-4o"],
+            model=model,
+        )
+
+        with (
+            patch("lorairo.gui.controllers.annotation_workflow_controller.QMessageBox"),
+            patch(
+                "lorairo.gui.controllers.annotation_workflow_controller.project_async_batch_dispatch"
+            ) as mock_project,
+        ):
+            AnnotationWorkflowController.dispatch_async_batch(ctrl)
+
+        # 通常モデルは gate 対象 (rating 取得が走る)
+        ctrl._db_manager.image_repo.get_latest_normalized_ratings_by_image_ids.assert_called_once()
+        assert mock_project.call_args.kwargs["task_type"] == "annotation"
+
+    def test_mixed_moderation_and_normal_rejected(self) -> None:
+        # #1098: moderation + 通常モデル混在は「非 batch 混在拒否」原則で弾く。
+        from lorairo.gui.controllers.annotation_workflow_controller import AnnotationWorkflowController
+
+        mod = _StubModel(id=5, provider="openai", litellm_model_id="openai/omni-moderation-latest")
+        normal = _StubModel(id=1, provider="openai", litellm_model_id="openai/gpt-4o")
+        ctrl = self._build_controller(
+            ratings={10: "PG"},
+            selected=["openai/omni-moderation-latest", "openai/gpt-4o"],
+            discovery=["openai/omni-moderation-latest", "openai/gpt-4o"],
+            model=None,
+        )
+        resolved = {"openai/omni-moderation-latest": mod, "openai/gpt-4o": normal}
+        ctrl._db_manager.model_repo.get_model_by_litellm_id.side_effect = resolved.get
+
+        with patch("lorairo.gui.controllers.annotation_workflow_controller.QMessageBox") as mock_qmb:
+            AnnotationWorkflowController.dispatch_async_batch(ctrl)
+            mock_qmb.warning.assert_called_once()
+
+        ctrl._start_async_dispatch_worker.assert_not_called()
+
 
 class TestFinalizeSubmittedJobs:
     """_finalize_submitted_jobs / _on_async_dispatch_* の二重送信防止テスト。
