@@ -791,6 +791,11 @@ class SelectedImageDetailsWidget(QWidget):
             logger.warning(f"翻訳追加をスキップ (tag_id 未解決): canonical='{canonical}'")
             return
         service.add_translation(tag_id, language, translation)
+        # 翻訳修正 (#1054) 後に stale な翻訳品質 ⚠ が残らないよう refinement キャッシュを
+        # 無効化する。recommend_for_tags は (tag, format) 単位でキャッシュするため、reload
+        # だけでは旧リコメンドが再表示され続ける (type 補正フローと同じ扱い。PR #1086 Codex P2)。
+        if self._refinement_service is not None:
+            self._refinement_service.clear_cache()
         # 新しい言語キー ("en" 等) の初回追加は available_languages (reader 注入時の
         # 1回取得) に含まれず、reload しても selector に現れない (Codex P2)。言語一覧を
         # 再取得し、現在の選択を保ったまま selector を更新する (english への巻き戻りを
