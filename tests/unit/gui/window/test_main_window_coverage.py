@@ -830,20 +830,38 @@ class TestAnnotationExecuteWrapper:
     警告することを検証する (旧 MainWindow.start_annotation の UX を保全)。
     """
 
-    def test_delegates_to_controller_with_dispatch_mode(self) -> None:
+    def test_delegates_and_navigates_when_started(self) -> None:
         from unittest.mock import Mock
 
         from lorairo.gui.window.main_window import MainWindow
 
         mock_window = Mock()
         mock_window.annotation_workflow_controller = Mock()
+        # 実行が実際に開始できた場合
+        mock_window.annotation_workflow_controller.start_annotation.return_value = True
 
         MainWindow._on_annotation_execute_requested(mock_window, "batch_api")
 
         # #1099: 実行ボタンが渡す dispatch_mode を controller へ伝搬する
         mock_window.annotation_workflow_controller.start_annotation.assert_called_once_with("batch_api")
-        # #1102: 実行後は Jobs タブへ遷移する
+        # #1102: 開始成功時は Jobs タブへ遷移する
         mock_window._navigate_to_jobs_tab.assert_called_once_with()
+
+    def test_no_navigation_when_start_rejected(self) -> None:
+        """#1102 Codex P2: 実行が開始前に拒否された場合は Jobs へ遷移しない。"""
+        from unittest.mock import Mock
+
+        from lorairo.gui.window.main_window import MainWindow
+
+        mock_window = Mock()
+        mock_window.annotation_workflow_controller = Mock()
+        # ステージング空・モデル未選択・射影失敗等で開始前に拒否
+        mock_window.annotation_workflow_controller.start_annotation.return_value = False
+
+        MainWindow._on_annotation_execute_requested(mock_window, "sync")
+
+        mock_window.annotation_workflow_controller.start_annotation.assert_called_once_with("sync")
+        mock_window._navigate_to_jobs_tab.assert_not_called()
 
     def test_warns_when_controller_missing(self) -> None:
         from unittest.mock import Mock, patch
