@@ -56,14 +56,11 @@ def test_display_renders_rows(qapp):
     assert widget.findChild(object, "resultsRow_11") is not None
 
 
-def test_review_requested_signal_emitted(qapp, qtbot):
+def test_review_button_removed(qapp):
+    """▸ レビューボタンは撤去済み (Issue #1106): 行ヘッダに存在しない。"""
     widget = ResultsWidget()
     widget.display(_summary(), [_result(10, [IssueType.EMPTY_TAGS])])
-    button = widget.findChild(object, "resultsReviewButton_10")
-    assert button is not None
-    with qtbot.waitSignal(widget.review_requested, timeout=1000) as blocker:
-        button.click()
-    assert blocker.args == [10]
+    assert widget.findChild(object, "resultsReviewButton_10") is None
 
 
 def test_needs_review_sorted_first(qapp):
