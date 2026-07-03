@@ -103,7 +103,8 @@ def export_dataset(
             project_name=project_name,
             tags=criteria.tag_filter,
             excluded_tags=criteria.excluded_tags,
-            caption=criteria.caption,
+            # ImageFilterCriteria.caption はキーワードリスト (#1093)。単一キャプション文字列を包む
+            caption=[criteria.caption] if criteria.caption else None,
             manual_rating_filter=criteria.manual_rating,
             ai_rating_filter=criteria.ai_rating,
             include_nsfw=criteria.include_nsfw,

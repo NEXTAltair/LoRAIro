@@ -12,6 +12,7 @@ from ...services.model_registry_protocol import (
     NullModelRegistry,
 )
 from ...services.model_selection_service import ModelSelectionCriteria, ModelSelectionService
+from ...services.search_criteria_processor import build_tag_resolver
 from ...services.search_models import SearchConditions, ValidationResult
 from ...utils.log import logger
 
@@ -104,6 +105,8 @@ class SearchFilterService:
         keywords: list[str],
         excluded_keywords: list[str] | None = None,
         tag_logic: str = "and",
+        search_tags: bool | None = None,
+        search_caption: bool | None = None,
         resolution_filter: str | None = None,
         aspect_ratio_filter: str | None = None,
         date_filter_enabled: bool = False,
@@ -139,6 +142,8 @@ class SearchFilterService:
         conditions = SearchConditions(
             search_type=search_type,
             keywords=keywords,
+            search_tags=search_tags,
+            search_caption=search_caption,
             excluded_keywords=excluded_keywords,
             tag_logic=tag_logic,
             resolution_filter=resolution_filter,
@@ -174,7 +179,13 @@ class SearchFilterService:
         parts: list[str] = []
         if conditions.keywords:
             keyword_text = f" {conditions.tag_logic.upper()} ".join(conditions.keywords)
-            parts.append(f"キーワード: {keyword_text} ({conditions.search_type})")
+            targets = []
+            if conditions.is_tag_search_enabled():
+                targets.append("tags")
+            if conditions.is_caption_search_enabled():
+                targets.append("caption")
+            target_text = " OR ".join(targets) if targets else conditions.search_type
+            parts.append(f"キーワード: {keyword_text} ({target_text})")
         if conditions.excluded_keywords:
             parts.append(f"除外キーワード: {', '.join(conditions.excluded_keywords)}")
         return parts
@@ -384,7 +395,10 @@ class SearchFilterService:
     def get_estimated_count(self, conditions: SearchConditions) -> int:
         """現在の検索条件に対する概算件数を取得する。"""
         try:
-            return self.db_manager.get_images_count_only(criteria=conditions.to_filter_criteria())
+            # #1094: 件数見積もりも検索本体と同じタグ翻訳解決を適用して整合させる
+            tag_resolver = build_tag_resolver(self.db_manager)
+            criteria = conditions.to_filter_criteria(tag_resolver=tag_resolver)
+            return self.db_manager.get_images_count_only(criteria=criteria)
         except Exception as e:
             logger.error(f"概算件数の取得中にエラーが発生しました: {e}", exc_info=True)
             return 0

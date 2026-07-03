@@ -6,7 +6,27 @@ GUI/ServiceレイヤーのSearchConditionsとは分離され、DB操作の明確
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+
+
+@dataclass
+class KeywordSearchGroup:
+    """1 つの入力キーワードに対する検索対象語群 (#1093/#1094)。
+
+    タグ / キャプションを独立した検索対象として持ち、翻訳エイリアスを保持する。
+    SQL では ``tag_terms`` 内 (エイリアス群) は OR、``caption_terms`` 内も OR、
+    そして 1 キーワードとして ``(tag_terms のいずれか OR caption_terms のいずれか)`` で
+    マッチ判定する。キーワード間は ``ImageFilterCriteria.use_and`` に従い AND / OR で結合する。
+
+    Attributes:
+        tag_terms: このキーワードのタグ検索対象 (元語 + 翻訳エイリアス、OR 判定)。
+            タグが検索対象でない場合は空リスト。
+        caption_terms: このキーワードのキャプション検索対象 (OR 判定)。
+            キャプションが検索対象でない場合は空リスト。
+    """
+
+    tag_terms: list[str] = field(default_factory=list)
+    caption_terms: list[str] = field(default_factory=list)
 
 
 @dataclass
@@ -18,7 +38,7 @@ class ImageFilterCriteria:
 
     Attributes:
         tags: 検索するタグのリスト
-        caption: 検索するキャプション文字列
+        caption: 検索するキャプションキーワードのリスト (全語を対象、#1093)
         excluded_tags: 除外するタグのリスト（NOT検索）
         resolution: 検索対象の解像度(長辺)、0の場合はオリジナル画像
         use_and: 複数タグ指定時の検索方法 (True: AND, False: OR)
@@ -58,8 +78,14 @@ class ImageFilterCriteria:
     """
 
     tags: list[str] | None = None
-    caption: str | None = None
+    caption: list[str] | None = None
     excluded_tags: list[str] | None = None
+    # #1093/#1094: per-keyword の検索対象語群。指定時は tags / caption のフラットな
+    # positive マッチを置き換え、各キーワードが (tag OR caption) にマッチする条件を
+    # use_and で結合する (タグの翻訳エイリアスはキーワード内 OR)。excluded_tags は
+    # 従来どおり別途 NOT EXISTS で AND 適用する。GUI 検索フローが使用し、export / CLI 等の
+    # フラット検索は None のまま従来経路を通る。
+    keyword_groups: list[KeywordSearchGroup] | None = None
     resolution: int = 0
     use_and: bool = True
     start_date: str | None = None

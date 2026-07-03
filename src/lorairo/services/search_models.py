@@ -6,6 +6,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import datetime
 from typing import TYPE_CHECKING, Any
@@ -20,9 +21,13 @@ if TYPE_CHECKING:
 class SearchConditions:
     """検索条件データクラス"""
 
-    search_type: str  # "tags" or "caption"
+    search_type: str  # 後方互換の主検索タイプ ("tags" or "caption")。search_tags/search_caption 未指定時のフォールバック。
     keywords: list[str]
     tag_logic: str  # "and" or "or"
+    # Issue #1093: タグ / キャプションを独立した検索対象として ON/OFF する。
+    # 両方 ON の場合は OR 結合 (どちらかにヒットで表示)。None のときは search_type から導出する。
+    search_tags: bool | None = None
+    search_caption: bool | None = None
     excluded_keywords: list[str] | None = None
     resolution_filter: str | None = None
     aspect_ratio_filter: str | None = None
@@ -57,18 +62,62 @@ class SearchConditions:
     error_state_filter: str | None = None  # "has_error" | "no_error" | None=全て
     model_filter: list[str] | None = None  # litellm_id リスト。None=全モデル
 
-    def to_filter_criteria(self) -> ImageFilterCriteria:
+    def is_tag_search_enabled(self) -> bool:
+        """タグを検索対象にするか。search_tags 未指定時は search_type から導出 (後方互換)。"""
+        if self.search_tags is not None:
+            return self.search_tags
+        return self.search_type == "tags"
+
+    def is_caption_search_enabled(self) -> bool:
+        """キャプションを検索対象にするか。search_caption 未指定時は search_type から導出。"""
+        if self.search_caption is not None:
+            return self.search_caption
+        return self.search_type == "caption"
+
+    def to_filter_criteria(
+        self,
+        tag_resolver: Callable[[list[str]], list[str]] | None = None,
+    ) -> ImageFilterCriteria:
         """DB層のImageFilterCriteriaオブジェクトに変換
+
+        Args:
+            tag_resolver: 入力タグキーワードを翻訳解決して検索対象タグ名へ拡張する
+                コールバック (#1094)。1 キーワードずつ渡され、翻訳ヒットした正規タグ名を
+                含む「エイリアス群」を返す。指定なしなら元キーワードのみを対象にする。
 
         Returns:
             ImageFilterCriteria: データベース層のフィルター条件オブジェクト
+
+        Note:
+            #1093/#1094: タグ / キャプションを独立検索対象として per-keyword の
+            ``keyword_groups`` に組む。各キーワードは (自身のタグエイリアス群のいずれか
+            OR キャプション語のいずれか) にマッチすればよく (ターゲット横断 OR)、
+            キーワード間は ``tag_logic`` で AND / OR 結合する。翻訳エイリアスは
+            キーワード内 OR に閉じるため、AND 検索でも「元語 AND 翻訳語」を要求しない。
         """
-        from ..database.filter_criteria import ImageFilterCriteria
+        from ..database.filter_criteria import ImageFilterCriteria, KeywordSearchGroup
+
+        tag_search = self.is_tag_search_enabled()
+        caption_search = self.is_caption_search_enabled()
+
+        keyword_groups: list[KeywordSearchGroup] | None = None
+        if self.keywords and (tag_search or caption_search):
+            groups: list[KeywordSearchGroup] = []
+            for keyword in self.keywords:
+                # タグ検索対象語 = 元キーワード + 翻訳エイリアス (キーワード内 OR)
+                if tag_search:
+                    tag_terms = tag_resolver([keyword]) if tag_resolver is not None else [keyword]
+                else:
+                    tag_terms = []
+                caption_terms = [keyword] if caption_search else []
+                groups.append(KeywordSearchGroup(tag_terms=tag_terms, caption_terms=caption_terms))
+            keyword_groups = groups
 
         return ImageFilterCriteria(
-            tags=self.keywords if self.search_type == "tags" else None,
-            excluded_tags=self.excluded_keywords if self.search_type == "tags" else None,
-            caption=self.keywords[0] if self.search_type == "caption" and self.keywords else None,
+            tags=None,
+            excluded_tags=self.excluded_keywords if tag_search else None,
+            caption=None,
+            keyword_groups=keyword_groups,
             resolution=self._resolve_resolution(),
             use_and=self.tag_logic == "and",
             include_untagged=self.only_untagged,

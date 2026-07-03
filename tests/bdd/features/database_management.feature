@@ -68,14 +68,15 @@ Feature: 画像データベース管理機能
     When キャプション person で部分一致検索する
     Then 2件の画像が返される
 
-  Scenario: タグとキャプションの複合検索
+  Scenario: タグとキャプションの複合検索 (OR結合)
+    # #1093: タグ検索とキャプション検索を同時指定した場合はどちらかにヒットで表示する
     Given 以下の画像とアノテーションが登録されている:
       | image_file       | tags                    | caption                             |
       | file01.webp      | person, outdoor, sunny  | a person walking outdoor in the park |
       | file02.webp      | person, indoor         | person sitting indoor               |
       | file03.webp      | cat, outdoor           | cat sleeping outdoor                |
-    When タグ person AND キャプション outdoor で検索する
-    Then 1件の画像が返される
+    When タグ person または キャプション outdoor で検索する
+    Then 3件の画像が返される
 
   Scenario: 日付範囲による検索
     Given 以下の画像とアノテーションが登録されている:

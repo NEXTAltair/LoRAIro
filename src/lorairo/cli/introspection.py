@@ -28,7 +28,9 @@ class ImageFilterCriteriaSchema(BaseModel):
     """
 
     tags: list[str] | None = Field(default=None, description="Tags to include in image search.")
-    caption: str | None = Field(default=None, description="Caption text filter.")
+    caption: list[str] | None = Field(
+        default=None, description="Caption keyword filters (all keywords targeted)."
+    )
     excluded_tags: list[str] | None = Field(default=None, description="Tags to exclude.")
     resolution: int = Field(default=0, ge=0, description="Target long-edge resolution; 0 means original.")
     use_and: bool = Field(default=True, description="Use AND semantics for multiple tags.")
@@ -712,7 +714,7 @@ def _search_input(name: str, fields: tuple[FieldSpec, ...], description: str = "
             description="Public search filter contract shared by search-driven commands.",
             fields=(
                 _f("tags", "list[str]?"),
-                _f("caption", "str?"),
+                _f("caption", "list[str]?"),
                 _f("excluded_tags", "list[str]?"),
                 _f("ratings", "manual_rating_filter | ai_rating_filter"),
                 _f("scores", "score_min/score_max"),

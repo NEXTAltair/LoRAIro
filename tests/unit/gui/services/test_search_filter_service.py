@@ -86,7 +86,9 @@ class TestSearchConditions:
 
         assert criteria.include_nsfw is False
         assert criteria.manual_rating_filter == "PG-13"
-        assert criteria.tags == ["tag1", "tag2"]
+        # #1093/#1094: タグ検索は keyword_groups に組まれる。excluded_tags は従来どおりフラット
+        assert criteria.keyword_groups is not None
+        assert [g.tag_terms for g in criteria.keyword_groups] == [["tag1"], ["tag2"]]
         assert criteria.excluded_tags == ["tag3"]
         assert criteria.use_and is True
 
@@ -446,7 +448,9 @@ class TestSearchFilterServiceGetEstimatedCount:
 
         _, kwargs = mock_db_manager.get_images_count_only.call_args
         criteria = kwargs["criteria"]
-        assert criteria.tags == ["cat"]
+        # #1093/#1094: 件数見積もりも keyword_groups + tag_resolver を経由する
+        assert criteria.keyword_groups is not None
+        assert criteria.keyword_groups[0].tag_terms == ["cat"]
         assert criteria.excluded_tags == ["dog"]
 
     def test_get_estimated_count_returns_zero_on_error(self):

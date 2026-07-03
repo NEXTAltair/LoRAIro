@@ -47,7 +47,7 @@ from sqlalchemy.orm import Session, joinedload, selectinload
 from ...domain.quality_tier import compute_quality_summary
 from ...domain.score_scaler import calibrate_to_display, display_weight_for
 from ...utils.log import logger
-from ..filter_criteria import ImageFilterCriteria
+from ..filter_criteria import ImageFilterCriteria, KeywordSearchGroup
 from ..schema import (
     MANUAL_EDIT_LITELLM_ID,
     MANUAL_EDIT_NAME,
@@ -1432,6 +1432,190 @@ class ImageRepository(BaseRepository):
 
         return query
 
+    def _build_tag_match_condition(
+        self, tags: list[str] | None, use_and: bool
+    ) -> ColumnElement[bool] | None:
+        """タグ一致条件を EXISTS ベースの真偽式として構築する。
+
+        複数タグは ``use_and`` に従い AND (タグごとの EXISTS を結合) / OR
+        (単一 EXISTS 内で OR) で合成する。該当タグが無ければ ``None`` を返す。
+        query を変更せず式のみ返すことで、tags OR caption 結合 (#1093) に利用できる。
+
+        Args:
+            tags: 検索タグリスト。
+            use_and: 複数タグの AND/OR 指定。
+
+        Returns:
+            EXISTS ベースの真偽式。タグが無ければ ``None``。
+        """
+        if not tags:
+            return None
+        if use_and:
+            conditions: list[ColumnElement[bool]] = []
+            for tag_term in tags:
+                pattern, is_exact = self._prepare_like_pattern(tag_term)
+                subquery_condition = (Tag.tag == pattern) if is_exact else Tag.tag.like(pattern)
+                conditions.append(
+                    select(Tag.id)
+                    .where(Tag.image_id == Image.id, Tag.rejected_at.is_(None), subquery_condition)
+                    .correlate(Image)
+                    .exists()
+                )
+            return and_(*conditions)
+
+        tag_criteria: list[ColumnElement[bool]] = []
+        for tag_term in tags:
+            pattern, is_exact = self._prepare_like_pattern(tag_term)
+            tag_criteria.append((Tag.tag == pattern) if is_exact else Tag.tag.like(pattern))
+        return (
+            select(Tag.id)
+            .where(Tag.image_id == Image.id, Tag.rejected_at.is_(None), or_(*tag_criteria))
+            .correlate(Image)
+            .exists()
+        )
+
+    def _build_caption_match_condition(
+        self, captions: list[str] | None, use_and: bool
+    ) -> ColumnElement[bool] | None:
+        """キャプション一致条件を EXISTS ベースの真偽式として構築する (#1093)。
+
+        カンマ区切り複数キーワードは全語を対象とし (``keywords[0]`` 限定を撤廃)、
+        ``use_and`` に従い AND / OR で合成する。該当キーワードが無ければ ``None`` を返す。
+
+        Args:
+            captions: 検索キャプションキーワードのリスト。
+            use_and: 複数キーワードの AND/OR 指定。
+
+        Returns:
+            EXISTS ベースの真偽式。キーワードが無ければ ``None``。
+        """
+        if not captions:
+            return None
+        exists_conditions: list[ColumnElement[bool]] = []
+        for caption_term in captions:
+            pattern, is_exact = self._prepare_like_pattern(caption_term)
+            caption_filter = (Caption.caption == pattern) if is_exact else Caption.caption.like(pattern)
+            exists_conditions.append(
+                select(Caption.id)
+                .where(Caption.image_id == Image.id, Caption.rejected_at.is_(None), caption_filter)
+                .correlate(Image)
+                .exists()
+            )
+        if len(exists_conditions) == 1:
+            return exists_conditions[0]
+        return and_(*exists_conditions) if use_and else or_(*exists_conditions)
+
+    def _build_excluded_tag_conditions(self, excluded_tags: list[str] | None) -> list[ColumnElement[bool]]:
+        """除外タグごとの EXISTS 式リストを返す (呼び出し側で ``not_()`` を適用する)。"""
+        conditions: list[ColumnElement[bool]] = []
+        if not excluded_tags:
+            return conditions
+        for excluded_tag in excluded_tags:
+            pattern, is_exact = self._prepare_like_pattern(excluded_tag)
+            excluded_condition = (Tag.tag == pattern) if is_exact else Tag.tag.like(pattern)
+            conditions.append(
+                select(Tag.id)
+                .where(Tag.image_id == Image.id, Tag.rejected_at.is_(None), excluded_condition)
+                .correlate(Image)
+                .exists()
+            )
+        return conditions
+
+    def _build_keyword_group_condition(
+        self, keyword_groups: list[KeywordSearchGroup], use_and: bool
+    ) -> ColumnElement[bool] | None:
+        """per-keyword の検索対象語群を真偽式に組み立てる (#1093/#1094)。
+
+        各キーワードは ``(タグエイリアス群のいずれか OR キャプション語のいずれか)`` で
+        マッチする (ターゲット横断 OR)。翻訳エイリアスはキーワード内 OR に閉じるため、
+        AND 検索でも「元語 AND 翻訳語」を要求しない (#1122 Codex P1)。キーワード間は
+        ``use_and`` に従い AND / OR で結合する (#1122 Codex #5)。
+
+        Args:
+            keyword_groups: 入力キーワードごとの検索対象語群。
+            use_and: キーワード間の AND/OR 指定。
+
+        Returns:
+            結合済みの真偽式。マッチ対象語が無ければ ``None``。
+        """
+        match_conditions: list[ColumnElement[bool]] = []
+        for group in keyword_groups:
+            target_conditions: list[ColumnElement[bool]] = []
+            # タグエイリアス群 / キャプション語群はいずれもキーワード内 OR
+            tag_condition = self._build_tag_match_condition(group.tag_terms, use_and=False)
+            if tag_condition is not None:
+                target_conditions.append(tag_condition)
+            caption_condition = self._build_caption_match_condition(group.caption_terms, use_and=False)
+            if caption_condition is not None:
+                target_conditions.append(caption_condition)
+            if not target_conditions:
+                continue
+            match_conditions.append(
+                target_conditions[0] if len(target_conditions) == 1 else or_(*target_conditions)
+            )
+
+        if not match_conditions:
+            return None
+        if len(match_conditions) == 1:
+            return match_conditions[0]
+        return and_(*match_conditions) if use_and else or_(*match_conditions)
+
+    @staticmethod
+    def _collect_caption_terms(
+        caption: list[str] | None, keyword_groups: list[KeywordSearchGroup] | None
+    ) -> list[str] | None:
+        """フラット caption / keyword_groups からキャプション検索語を集約する。"""
+        if keyword_groups is not None:
+            terms = [term for group in keyword_groups for term in group.caption_terms]
+            return terms or None
+        return caption
+
+    def _apply_search_term_filters(
+        self,
+        query: Select[Any],
+        tags: list[str] | None,
+        caption: list[str] | None,
+        excluded_tags: list[str] | None,
+        use_and: bool,
+        include_untagged: bool,
+        keyword_groups: list[KeywordSearchGroup] | None = None,
+    ) -> Select[Any]:
+        """タグ / キャプション検索語句フィルタをまとめて適用する (#1093)。
+
+        ``keyword_groups`` 指定時は per-keyword の (タグ OR キャプション) を ``use_and`` で
+        結合する (GUI 検索フロー)。未指定時はフラットな tags / caption を扱い、両方指定時は
+        OR 結合する (export / CLI)。除外タグは検索対象に関わらず常に AND (NOT EXISTS) で適用する。
+        include_untagged 指定時はタグ無し画像フィルタ (outerjoin) にフォールバックし、
+        キャプション検索が併用されていれば untagged 絞り込み後に caption EXISTS を適用する
+        (#1122 Codex P2)。
+        """
+        if include_untagged:
+            query = self._apply_tag_filter(query, tags, excluded_tags, use_and, include_untagged)
+            # untagged と caption 検索は併用可能。untagged 絞り込み後に caption 条件を適用する
+            caption_terms = self._collect_caption_terms(caption, keyword_groups)
+            caption_condition = self._build_caption_match_condition(caption_terms, use_and)
+            if caption_condition is not None:
+                query = query.where(caption_condition)
+            return query
+
+        if keyword_groups is not None:
+            positive = self._build_keyword_group_condition(keyword_groups, use_and)
+            if positive is not None:
+                query = query.where(positive)
+        else:
+            tag_condition = self._build_tag_match_condition(tags, use_and)
+            caption_condition = self._build_caption_match_condition(caption, use_and)
+            positive_conditions = [c for c in (tag_condition, caption_condition) if c is not None]
+            if len(positive_conditions) == 2:
+                logger.debug("タグ + キャプション条件を OR 結合で適用 (#1093)")
+                query = query.where(or_(*positive_conditions))
+            elif positive_conditions:
+                query = query.where(positive_conditions[0])
+
+        for excluded_condition in self._build_excluded_tag_conditions(excluded_tags):
+            query = query.where(not_(excluded_condition))
+        return query
+
     def _apply_tag_filter(
         self,
         query: Select[Any],
@@ -1448,84 +1632,17 @@ class ImageRepository(BaseRepository):
                 Tag,
                 and_(Image.id == Tag.image_id, Tag.rejected_at.is_(None)),
             ).where(Tag.id.is_(None))
-        elif tags:
-            # use_and (AND検索) の場合、タグごとにJOIN条件を追加する
-            if use_and:
-                logger.debug(f"Applying AND tag filter (EXISTS) for tags: {tags}")
-                for _i, tag_term in enumerate(tags):
-                    pattern, is_exact = self._prepare_like_pattern(tag_term)
-                    # is_exact フラグに基づいて条件を選択
-                    subquery_condition = (Tag.tag == pattern) if is_exact else Tag.tag.like(pattern)
-                    # EXISTS サブクエリを作成
-                    exists_subquery = (
-                        select(Tag.id)  # SELECT句は何でもよい (通常は 1 や PK)
-                        .where(
-                            Tag.image_id == Image.id,  # WHERE句に明示的な相関条件は残す
-                            Tag.rejected_at.is_(None),
-                            subquery_condition,
-                        )
-                        .correlate(Image)  # 明示的に相関させる
-                        .exists()
-                    )
-                    # メインクエリに EXISTS 条件を追加
-                    query = query.where(exists_subquery)
-            else:
-                # use_and=False (OR検索) の場合、単一のJOINとOR条件
-                logger.debug(f"Applying OR tag filter for tags: {tags}")
-                tag_criteria = []
-                for t in tags:
-                    pattern, is_exact = self._prepare_like_pattern(t)
-                    if is_exact:
-                        tag_criteria.append(Tag.tag == pattern)
-                    else:
-                        tag_criteria.append(Tag.tag.like(pattern))
-                if tag_criteria:
-                    query = query.join(Tag, Image.id == Tag.image_id).where(
-                        Tag.rejected_at.is_(None),
-                        or_(*tag_criteria),
-                    )
-                    # logger.debug(f"Query after OR tag join: {query}") # クエリ確認用
+        else:
+            tag_condition = self._build_tag_match_condition(tags, use_and)
+            if tag_condition is not None:
+                logger.debug(f"Applying tag filter (EXISTS, use_and={use_and}) for tags: {tags}")
+                query = query.where(tag_condition)
 
         if excluded_tags and not include_untagged:
             logger.debug(f"Applying excluded tag filter (NOT EXISTS) for tags: {excluded_tags}")
-            for excluded_tag in excluded_tags:
-                pattern, is_exact = self._prepare_like_pattern(excluded_tag)
-                excluded_condition = (Tag.tag == pattern) if is_exact else Tag.tag.like(pattern)
-                not_exists_subquery = (
-                    select(Tag.id)
-                    .where(
-                        Tag.image_id == Image.id,
-                        Tag.rejected_at.is_(None),
-                        excluded_condition,
-                    )
-                    .correlate(Image)
-                    .exists()
-                )
-                query = query.where(not_(not_exists_subquery))
+            for excluded_condition in self._build_excluded_tag_conditions(excluded_tags):
+                query = query.where(not_(excluded_condition))
 
-        return query
-
-    def _apply_caption_filter(self, query: Select[Any], caption: str | None) -> Select[Any]:
-        """クエリにキャプションフィルタを適用します (EXISTSを使用)。"""
-        if caption:
-            logger.debug(f"Applying caption filter (EXISTS) for caption: '{caption}'")
-            pattern, is_exact = self._prepare_like_pattern(caption)
-
-            caption_filter = (Caption.caption == pattern) if is_exact else (Caption.caption.like(pattern))
-
-            # EXISTS サブクエリを作成
-            exists_subquery = (
-                select(Caption.id)
-                .where(
-                    Caption.image_id == Image.id,  # メインクエリの Image と相関させる
-                    Caption.rejected_at.is_(None),
-                    caption_filter,
-                )
-                .correlate(Image)  # 明示的に相関させる
-                .exists()
-            )
-            # メインクエリに EXISTS 条件を追加
-            query = query.where(exists_subquery)
         return query
 
     @staticmethod
@@ -2633,7 +2750,7 @@ class ImageRepository(BaseRepository):
         session: Session,
         tags: list[str] | None,
         excluded_tags: list[str] | None,
-        caption: str | None,
+        caption: list[str] | None,
         use_and: bool,
         start_date: str | None,
         end_date: str | None,
@@ -2651,6 +2768,7 @@ class ImageRepository(BaseRepository):
         error_state_filter: str | None = None,
         model_filter: list[str] | None = None,
         rating_combine: str = "and",
+        keyword_groups: list[KeywordSearchGroup] | None = None,
     ) -> Select[Any]:
         """画像フィルタ条件を適用したクエリを構築する。
 
@@ -2658,7 +2776,7 @@ class ImageRepository(BaseRepository):
             session: SQLAlchemyセッション。
             tags: 検索タグリスト。
             excluded_tags: 除外検索タグリスト。
-            caption: 検索キャプション文字列。
+            caption: 検索キャプションキーワードのリスト (全語を対象、#1093)。
             use_and: 複数タグのAND/OR指定。
             start_date: 検索開始日時(ISO 8601)。
             end_date: 検索終了日時(ISO 8601)。
@@ -2688,11 +2806,18 @@ class ImageRepository(BaseRepository):
         end_dt = self._parse_datetime_str(end_date)
         query = self._apply_date_filter(query, start_dt, end_dt)
 
-        if include_untagged and (tags or caption):
-            logger.warning("検索語句と include_untagged が同時に指定されたため、検索語句は無視されます。")
+        has_tag_terms = bool(tags) or (
+            keyword_groups is not None and any(group.tag_terms for group in keyword_groups)
+        )
+        if include_untagged and has_tag_terms:
+            logger.warning(
+                "タグ検索語と include_untagged が同時に指定されたため、タグ検索語は無視されます "
+                "(キャプション検索は適用)。"
+            )
 
-        query = self._apply_tag_filter(query, tags, excluded_tags, use_and, include_untagged)
-        query = self._apply_caption_filter(query, caption)
+        query = self._apply_search_term_filters(
+            query, tags, caption, excluded_tags, use_and, include_untagged, keyword_groups
+        )
 
         # Rating Filters (Issue #604 / #811):
         # - 既定 (rating_combine="and"): manual / AI を独立に AND 適用する。
@@ -2871,6 +2996,7 @@ class ImageRepository(BaseRepository):
                     error_state_filter=filter_criteria.error_state_filter,
                     model_filter=filter_criteria.model_filter,
                     rating_combine=filter_criteria.rating_combine,
+                    keyword_groups=filter_criteria.keyword_groups,
                 )
                 query = self._apply_processed_resolution_filter(query, filter_criteria.resolution)
 
@@ -2970,6 +3096,7 @@ class ImageRepository(BaseRepository):
                     error_state_filter=filter_criteria.error_state_filter,
                     model_filter=filter_criteria.model_filter,
                     rating_combine=filter_criteria.rating_combine,
+                    keyword_groups=filter_criteria.keyword_groups,
                 )
                 filtered_query = self._apply_processed_resolution_filter(
                     filtered_query, filter_criteria.resolution
@@ -3037,6 +3164,7 @@ class ImageRepository(BaseRepository):
                     error_state_filter=filter_criteria.error_state_filter,
                     model_filter=filter_criteria.model_filter,
                     rating_combine=filter_criteria.rating_combine,
+                    keyword_groups=filter_criteria.keyword_groups,
                 )
                 filtered_query = self._apply_processed_resolution_filter(
                     filtered_query, filter_criteria.resolution
