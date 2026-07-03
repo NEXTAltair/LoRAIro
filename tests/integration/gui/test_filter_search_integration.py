@@ -99,7 +99,8 @@ class TestFilterSearchIntegration:
         assert filter_panel.search_filter_service is not None
         assert filter_panel.date_range_slider is not None
         assert isinstance(filter_panel.date_range_slider, CustomRangeSlider)
-        assert filter_panel.ui.checkboxExcludeDuplicates.isHidden() is True
+        # Issue #1106 項目1: 重複除外フィルタは配線復活し表示される
+        assert filter_panel.ui.checkboxExcludeDuplicates.isHidden() is False
         assert filter_panel.ui.checkboxIncludeNSFW.isHidden() is True
 
     def test_service_layer_integration(self, integrated_services, mock_dependencies):

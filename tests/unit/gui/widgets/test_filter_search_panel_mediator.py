@@ -328,6 +328,19 @@ class TestRatingFilterOptions:
         assert kwargs["ai_rating_filter"] == ["R"]
         assert kwargs["rating_combine"] == "or"
 
+    def test_exclude_duplicates_checkbox_propagated(self, panel_with_service):
+        """checkboxExcludeDuplicates の実値が create_search_conditions へ伝播する (Issue #1106 項目1)。"""
+        panel = panel_with_service
+        panel._rating_chips.set_value("PG")  # 検索をブロックしないよう条件を1つ立てる
+        panel.ui.checkboxExcludeDuplicates.setChecked(True)
+        assert panel._build_search_conditions_from_ui() is panel._sentinel
+        _, kwargs = panel.search_filter_service.create_search_conditions.call_args
+        assert kwargs["exclude_duplicates"] is True
+
+    def test_exclude_duplicates_checkbox_visible(self, panel):
+        """checkboxExcludeDuplicates が非表示化されず利用可能である (Issue #1106 項目1)。"""
+        assert not panel.ui.checkboxExcludeDuplicates.isHidden()
+
     def test_nsfw_resolution_accepts_list_and_str(self, panel):
         """_resolve_include_nsfw は単一値(後方互換)と複数値の両方を解決する。"""
         # 後方互換: 単一 str の RATED / None
