@@ -468,6 +468,7 @@ class SelectedImageDetailsWidget(QWidget):
             # 旧画像向けの stale worker が走り続けないようにする (Codex P2)
             self._tag_metadata_generation += 1
             self._tag_metadata_pending = None
+            self.annotation_display.set_tag_metadata_pending(False)
             if self._tag_metadata_inflight_id is not None:
                 from ..workers.terminal import CancelReason
 
@@ -477,6 +478,9 @@ class SelectedImageDetailsWidget(QWidget):
             return
 
         self._tag_metadata_generation += 1
+        # 解決が反映される (apply_tag_metadata) まで「翻訳を修正」の空翻訳フォールバックを
+        # 保留する。読み込み中を「翻訳なし」と誤認させない (PR #1086 Codex P2)
+        self.annotation_display.set_tag_metadata_pending(True)
         request = (self.current_image_id, list(tags_list), self._tag_metadata_generation)
         if self._tag_metadata_inflight_id is not None:
             from ..workers.terminal import CancelReason

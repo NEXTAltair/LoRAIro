@@ -1362,3 +1362,27 @@ def test_translation_fix_dialog_cancel_emits_nothing(panel, sample_tags, monkeyp
     panel.translation_add_requested.connect(lambda *a: received.append(a))
     panel._open_translation_fix_dialog("1girl")
     assert received == []
+
+
+def test_translation_fix_pending_metadata_blocks_add_fallback(panel, sample_tags, monkeypatch):
+    """メタデータ解決中は空翻訳を「翻訳なし」と誤認せず追加ダイアログへ落とさない (Codex P2)。
+
+    読み込み中に追加ダイアログへ落ちると正規化キー "ja" で書いてしまい、legacy
+    "japanese" キーの誤訳を上書きできない。apply_tag_metadata の反映で解禁される。
+    """
+    panel.set_tags(sample_tags, image_id=1)
+    panel.set_tag_metadata_pending(True)
+    infos: list = []
+    monkeypatch.setattr(tpw.QMessageBox, "information", lambda *a, **k: infos.append(a))
+    opened: list = []
+    monkeypatch.setattr(panel, "_open_translation_dialog", lambda c: opened.append(c))
+
+    panel._open_translation_fix_dialog("1girl")
+
+    assert opened == []
+    assert len(infos) == 1
+
+    # メタデータ反映後は通常の追加フォールバックが効く
+    panel.apply_tag_metadata({}, {}, {})
+    panel._open_translation_fix_dialog("1girl")
+    assert opened == ["1girl"]

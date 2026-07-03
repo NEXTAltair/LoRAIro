@@ -29,6 +29,7 @@ from PySide6.QtWidgets import (
     QLabel,
     QLineEdit,
     QMenu,
+    QMessageBox,
     QPushButton,
     QScrollArea,
     QSizePolicy,
@@ -612,6 +613,10 @@ class TagPanelWidget(QWidget):
         self._tag_types: dict[str, str] = {}
         self._translations: dict[int, dict[str, str]] = {}
         self._available_languages: list[str] = []
+        # 翻訳メタデータが background worker (#1046) で解決中か。読み込み中に「翻訳を修正」
+        # を開くと空の _translations を「翻訳なし」と誤認して追加ダイアログへ落ち、legacy
+        # 言語キー ("japanese") の誤訳を "ja" で上書きできない (PR #1086 Codex P2)。
+        self._tag_metadata_pending: bool = False
 
         # 使用頻度 第2軸 (metric_source, ADR 0083 §5 / #990)。表示言語とは独立した軸。
         # 親が bulk 取得した {tag_id: {format_name: count}} を set_usage_counts で受け、
@@ -956,6 +961,18 @@ class TagPanelWidget(QWidget):
         }
         self._refresh_tags_for_language(self._current_language())
 
+    def set_tag_metadata_pending(self, pending: bool) -> None:
+        """翻訳メタデータの background 解決中フラグを設定する (#1054)。
+
+        親が TagMetadataWorker (#1046) を起動するとき True にする。`apply_tag_metadata`
+        の反映で自動的に False へ戻る。読み込み中は「翻訳を修正」が空の `_translations`
+        を「翻訳なし」と誤認して追加ダイアログへフォールバックしないようにする。
+
+        Args:
+            pending: True = 解決中 (worker 起動済みで未反映)。
+        """
+        self._tag_metadata_pending = pending
+
     def apply_tag_metadata(
         self,
         translations: dict[int, dict[str, str]],
@@ -971,6 +988,8 @@ class TagPanelWidget(QWidget):
         self._translations = dict(translations)
         self._usage_counts = dict(usage_counts)
         self._tag_types = dict(tag_types)
+        # メタデータが届いたので「翻訳を修正」の追加フォールバックを解禁する (#1054)
+        self._tag_metadata_pending = False
         # type が届いたのでグループソートを適用し直す (#1056)
         self._tags = self._sort_tags_by_type(self._tags)
         self._rebuild_counts_by_canonical()
@@ -1575,6 +1594,15 @@ class TagPanelWidget(QWidget):
         )
         translations = self._translations.get(tag_id, {}) if tag_id is not None else {}
         if not translations:
+            if self._tag_metadata_pending:
+                # 読み込み中/取得失敗を「翻訳なし」と誤認すると追加ダイアログへ落ち、
+                # legacy 言語キーの誤訳を上書きできない (PR #1086 Codex P2)
+                QMessageBox.information(
+                    self,
+                    "翻訳を修正",
+                    "翻訳情報を読み込み中です。数秒待ってからもう一度お試しください。",
+                )
+                return
             self._open_translation_dialog(canonical)
             return
         dialog = TranslationFixDialog(canonical, dict(translations), self)
