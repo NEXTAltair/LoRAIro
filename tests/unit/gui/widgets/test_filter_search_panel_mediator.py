@@ -366,6 +366,14 @@ class TestRatingFilterOptions:
         assert panel._build_search_conditions_from_ui() is None
         panel.search_filter_service.create_search_conditions.assert_not_called()
 
+    def test_exclude_duplicates_only_is_valid_search(self, panel_with_service):
+        """重複除外チェックのみでも単独フィルタとして検索が成立する (Issue #1106 Codex P2)。"""
+        panel = panel_with_service
+        panel.ui.checkboxExcludeDuplicates.setChecked(True)
+        assert panel._build_search_conditions_from_ui() is panel._sentinel
+        _, kwargs = panel.search_filter_service.create_search_conditions.call_args
+        assert kwargs["exclude_duplicates"] is True
+
     def test_clear_resets_chips_and_combine(self, panel):
         """クリアで chip 全解除・組合せトグルが AND に戻る。"""
         panel._rating_chips.set_value("PG")

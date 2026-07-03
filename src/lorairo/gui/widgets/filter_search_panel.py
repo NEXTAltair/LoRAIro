@@ -904,6 +904,8 @@ class FilterSearchPanel(QScrollArea):
                 bool(self._get_ai_rating_filter_value()),
                 has_score_filter,
                 has_facet_filter,
+                # 重複除外は単独フィルタとして成立する (SearchCriteriaProcessor が対応, #1106)
+                self.ui.checkboxExcludeDuplicates.isChecked(),
             ],
         ):
             logger.debug("検索条件が未指定のため検索をスキップ")
