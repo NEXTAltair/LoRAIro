@@ -23,7 +23,6 @@ from typing import TYPE_CHECKING, Protocol
 from loguru import logger
 from PySide6.QtCore import Qt, Signal, Slot
 from PySide6.QtWidgets import (
-    QButtonGroup,
     QComboBox,
     QHBoxLayout,
     QLabel,
@@ -37,6 +36,7 @@ from PySide6.QtWidgets import (
 
 from lorairo.gui import theme
 from lorairo.gui.widgets.ds_removable_chip import RemovableChip
+from lorairo.gui.widgets.ds_segmented_control import DsSegmentedControl
 from lorairo.services.export_overlay import ExportTagOverlay, apply_overlay
 from lorairo.services.trigger_vocab import VocabEntry
 
@@ -197,8 +197,8 @@ class ExportOverlayBar(QWidget):
         """
         self._all_count = all_count
         self._filtered_count = filtered_count
-        self._all_btn.setText(f"全 {all_count} 枚")
-        self._filtered_btn.setText(f"絞込 {filtered_count} 枚")
+        # 現在の選択 (value) を維持したままラベルを作り替える (set_options は value_changed を emit しない)
+        self._scope_control.set_options(self._scope_options(), value=self._scope)
 
     def selected_resolution(self) -> int:
         """選択中のエクスポート解像度を返す。"""
@@ -315,24 +315,22 @@ class ExportOverlayBar(QWidget):
         label.setStyleSheet(f"color: {theme.INK_SOFT}; font-size: {theme.FONT_SIZE_SMALL}px;")
         row.addWidget(label)
 
-        self._scope_group = QButtonGroup(self)
-        self._all_btn = QPushButton(f"全 {self._all_count} 枚")
-        self._all_btn.setObjectName("scopeAllBtn")
-        self._all_btn.setCheckable(True)
-        self._all_btn.setChecked(True)
-        self._filtered_btn = QPushButton(f"絞込 {self._filtered_count} 枚")
-        self._filtered_btn.setObjectName("scopeFilteredBtn")
-        self._filtered_btn.setCheckable(True)
-        for btn in (self._all_btn, self._filtered_btn):
-            btn.setCursor(Qt.CursorShape.PointingHandCursor)
-            btn.setStyleSheet(self._segment_button_qss())
-            self._scope_group.addButton(btn)
-            row.addWidget(btn)
-        self._all_btn.clicked.connect(lambda: self._on_scope_clicked("all"))
-        self._filtered_btn.clicked.connect(lambda: self._on_scope_clicked("filtered"))
+        # DS SegmentedControl へ統一 (#1105)。ラベルは "全 N 枚" 形式を維持するため
+        # count バッジではなく整形済みラベルを使い、件数更新時は set_options で作り替える。
+        self._scope_control = DsSegmentedControl(self._scope_options(), value=self._scope)
+        self._scope_control.setObjectName("scopeControl")
+        self._scope_control.value_changed.connect(self._on_scope_clicked)
+        row.addWidget(self._scope_control)
 
         row.addStretch(1)
         return row
+
+    def _scope_options(self) -> list[tuple[str, str]]:
+        """スコープセグメントの (value, ラベル) を現在の件数から生成する。"""
+        return [
+            ("all", f"全 {self._all_count} 枚"),
+            ("filtered", f"絞込 {self._filtered_count} 枚"),
+        ]
 
     def _build_preview(self) -> QWidget:
         """ライブ出力プレビュー（等幅）を構築する。"""
@@ -382,7 +380,7 @@ class ExportOverlayBar(QWidget):
         self._validate_btn = QPushButton("検証")
         self._validate_btn.setObjectName("validateBtn")
         self._validate_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        self._validate_btn.setStyleSheet(self._segment_button_qss())
+        self._validate_btn.setStyleSheet(self._secondary_button_qss())
         self._validate_btn.clicked.connect(self.validate_requested.emit)
         row.addWidget(self._validate_btn)
 
@@ -544,13 +542,15 @@ class ExportOverlayBar(QWidget):
             f" QPushButton:hover {{ background: {theme.ACCENT_HOVER}; }}"
         )
 
-    def _segment_button_qss(self) -> str:
-        """セグメント/補助ボタンの QSS を返す。"""
+    def _secondary_button_qss(self) -> str:
+        """補助アクションボタン (検証など、非 checkable) の QSS を返す。
+
+        スコープセグメントは DsSegmentedControl へ移管したため (#1105)、本 QSS は
+        単独の補助ボタン専用となり checkable 用の ``:checked`` 節は持たない。
+        """
         return (
             f"QPushButton {{ background: {theme.PAPER_SHADE}; color: {theme.INK_SOFT};"
             f" border: 1px solid {theme.LINE}; border-radius: {theme.RADIUS}px;"
             f" padding: 4px 10px; font-size: {theme.FONT_SIZE_SMALL}px; }}"
-            f" QPushButton:checked {{ background: {theme.ACCENT_SOFT}; color: {theme.ACCENT_HOVER};"
-            f" border-color: {theme.ACCENT_BORDER}; }}"
             f" QPushButton:hover {{ background: {theme.LINE}; }}"
         )

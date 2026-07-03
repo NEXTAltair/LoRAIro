@@ -208,16 +208,16 @@ class TestScope:
     def test_scope_change_emits_filtered(self, qtbot, bar: ExportOverlayBar) -> None:
         """絞込ボタンで scope_changed('filtered') が emit されること。"""
         with qtbot.waitSignal(bar.scope_changed, timeout=1000) as blocker:
-            bar._filtered_btn.click()
+            bar._scope_control._buttons["filtered"].click()
 
         assert blocker.args[0] == "filtered"
 
     def test_scope_change_back_to_all(self, qtbot, bar: ExportOverlayBar) -> None:
         """全ボタンで scope_changed('all') が emit されること。"""
-        bar._filtered_btn.click()
+        bar._scope_control._buttons["filtered"].click()
 
         with qtbot.waitSignal(bar.scope_changed, timeout=1000) as blocker:
-            bar._all_btn.click()
+            bar._scope_control._buttons["all"].click()
 
         assert blocker.args[0] == "all"
 
@@ -226,7 +226,7 @@ class TestScope:
         received: list[str] = []
         bar.scope_changed.connect(received.append)
 
-        bar._all_btn.click()  # 既定で all 選択済み
+        bar._scope_control._buttons["all"].click()  # 既定で all 選択済み
 
         assert received == []
 
@@ -234,8 +234,21 @@ class TestScope:
         """set_scope_counts でセグメントの件数表示が更新されること。"""
         bar.set_scope_counts(all_count=10, filtered_count=3)
 
-        assert "10" in bar._all_btn.text()
-        assert "3" in bar._filtered_btn.text()
+        assert "10" in bar._scope_control._buttons["all"].text()
+        assert "3" in bar._scope_control._buttons["filtered"].text()
+
+    def test_set_scope_counts_preserves_selection(self, qtbot, bar: ExportOverlayBar) -> None:
+        """件数更新でセグメントを作り替えても選択スコープが維持されること (#1105)。"""
+        bar._scope_control._buttons["filtered"].click()
+        received: list[str] = []
+        bar.scope_changed.connect(received.append)
+
+        bar.set_scope_counts(all_count=10, filtered_count=3)
+
+        assert bar._scope_control.value() == "filtered"
+        assert bar._scope_control._buttons["filtered"].isChecked()
+        # 作り替えは value_changed を emit しない → scope_changed も出ない
+        assert received == []
 
 
 # ------------------------------------------------------------------
