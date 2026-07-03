@@ -30,6 +30,8 @@ from lorairo.services.error_triage_service import (
     ErrorTriageSummary,
 )
 
+from .ds_chip import DsChip
+
 # status セグメントの並びと表示ラベル
 _STATUS_ORDER: list[tuple[ErrorStatusFilter, str]] = [
     (ErrorStatusFilter.ALL, "すべて"),
@@ -286,10 +288,15 @@ class ErrorsTriageWidget(QWidget):
         )
         layout.addWidget(header)
 
-        # DS: 件数バッジは未解決ありなら warn chip、全解決なら ok chip
-        badge = QLabel(f"件数 {group.count} · 未解決 {group.unresolved_count}", card)
+        # DS: 件数バッジは未解決ありなら warn chip、全解決なら ok chip。
+        # DS 公式 chip 部品へ寄せる (Issue #1105 項目1)。見た目維持のためドット無し。
+        badge = DsChip(
+            f"件数 {group.count} · 未解決 {group.unresolved_count}",
+            "warn" if group.unresolved_count > 0 else "ok",
+            dot="none",
+            parent=card,
+        )
         badge.setObjectName("errorGroupCountBadge")
-        badge.setStyleSheet(theme.chip_qss("warn" if group.unresolved_count > 0 else "ok"))
         layout.addWidget(badge)
 
         sample = QLabel(group.sample_message, card)

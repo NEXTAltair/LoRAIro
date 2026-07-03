@@ -21,7 +21,8 @@ from PySide6.QtWidgets import (
 )
 
 from lorairo.database.db_manager import RegistrationOutcome
-from lorairo.gui import theme
+
+from .ds_chip import DsChip
 
 if TYPE_CHECKING:
     from lorairo.gui.workers.registration_worker import (
@@ -145,8 +146,13 @@ class RegistrationSummaryWidget(QWidget):
         filename = QLabel(entry.filename, row)
         filename.setObjectName("registrationSummaryDetailFilename")
 
-        badge = QLabel("VARIANT" if is_variant else "DUPLICATE", row)
-        badge.setStyleSheet(theme.chip_qss("accent" if is_variant else "info"))
+        # DS 公式 chip 部品へ寄せる (Issue #1105 項目1)。見た目維持のためドット無し。
+        badge = DsChip(
+            "VARIANT" if is_variant else "DUPLICATE",
+            "accent" if is_variant else "info",
+            dot="none",
+            parent=row,
+        )
 
         reason = QLabel(
             "同一 pHash でも属性差 → 別版として新規登録"
