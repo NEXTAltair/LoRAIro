@@ -335,6 +335,45 @@ QToolButton:hover {{
     border-color: {LINE_STRONG};
 }}
 
+/* --- チェックボックス (選択系: search_facets_sidebar の radio とトーン統一) --- */
+QCheckBox {{
+    spacing: 7px;
+    background: transparent;
+}}
+QCheckBox::indicator {{
+    width: 13px;
+    height: 13px;
+}}
+QCheckBox::indicator:unchecked {{
+    border: 1px solid {LINE_STRONG};
+    border-radius: 3px;
+    background: {CARD};
+}}
+QCheckBox::indicator:unchecked:hover {{
+    border-color: {ACCENT};
+}}
+QCheckBox::indicator:checked {{
+    border: 1px solid {ACCENT};
+    border-radius: 3px;
+    background: {ACCENT};
+}}
+QCheckBox::indicator:checked:hover {{
+    border-color: {ACCENT_HOVER};
+    background: {ACCENT_HOVER};
+}}
+QCheckBox:disabled {{
+    color: {INK_FAINT};
+}}
+QCheckBox::indicator:disabled {{
+    border-color: {LINE};
+    background: {PAPER_SHADE};
+}}
+/* checked のまま disabled でも「塗り」を残し unchecked と区別する (accent 減光) */
+QCheckBox::indicator:checked:disabled {{
+    border-color: {LINE_STRONG};
+    background: {ACCENT_SOFT};
+}}
+
 /* --- 入力欄 (mock .input) --- */
 QLineEdit, QTextEdit, QPlainTextEdit, QComboBox, QSpinBox, QDoubleSpinBox,
 QDateEdit, QDateTimeEdit, QTimeEdit {{
