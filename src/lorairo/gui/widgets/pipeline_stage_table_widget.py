@@ -14,11 +14,12 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from PySide6.QtCore import Signal
-from PySide6.QtWidgets import QHBoxLayout, QLabel, QToolButton, QVBoxLayout, QWidget
+from PySide6.QtCore import Qt, Signal
+from PySide6.QtWidgets import QHBoxLayout, QLabel, QSizePolicy, QToolButton, QVBoxLayout, QWidget
 
 from lorairo.gui import theme
 from lorairo.gui.widgets.ds_card import DsCard
+from lorairo.gui.widgets.tag_cloud_widget import FlowLayout
 from lorairo.services.pipeline_composition import DerivedChip, PipelineStage, StageModelInfo, StageRow
 
 # 表示順 (Wireframes v11 Frame 2A の行順)
@@ -172,12 +173,13 @@ class PipelineStageTableWidget(QWidget):
         body_layout.setContentsMargins(0, 0, 0, 0)
         body_layout.setSpacing(theme.SPACE_1)
 
-        # ─── プリセット chip 行 ───
+        # ─── プリセット chip 行 (FlowLayout で折り返す) ───
+        # ラベル + preset chip 群 + 保存ボタンを 1 行に固定すると ~574px の最小幅を握り、
+        # 狭幅で横スクロールの一因になっていた (#1100 再オープン)。
         chip_row = QWidget(body)
         chip_row.setObjectName("presetChipRow")
-        row_layout = QHBoxLayout(chip_row)
-        row_layout.setContentsMargins(0, 0, 0, 0)
-        row_layout.setSpacing(6)
+        chip_row.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Preferred)
+        row_layout = FlowLayout(chip_row, spacing=6)
 
         label = QLabel(_PRESET_ROW_LABEL_TEXT, chip_row)
         label.setObjectName("presetRowLabel")
@@ -201,8 +203,6 @@ class PipelineStageTableWidget(QWidget):
             self._preset_buttons[preset.preset_id] = button
             row_layout.addWidget(button)
 
-        row_layout.addStretch(1)
-
         save_button = QToolButton(chip_row)
         save_button.setObjectName("savePresetButton")
         save_button.setText(_SAVE_PRESET_TEXT)
@@ -216,6 +216,9 @@ class PipelineStageTableWidget(QWidget):
         # ─── 凡例ラベル (カード内下部) ───
         legend = QLabel(_LEGEND_TEXT, body)
         legend.setObjectName("pipelineLegendLabel")
+        # 長い凡例文は折り返す。折り返さないと ~594px の最小幅を握り、狭幅で横スクロールの
+        # 一因になっていた (#1100 再オープン: 最小幅を握る子の排除)。
+        legend.setWordWrap(True)
         legend.setStyleSheet(f"color: {theme.INK_SOFT}; font-size: {theme.FONT_SIZE_META}px; border: none;")
         body_layout.addWidget(legend)
 
@@ -301,6 +304,8 @@ class PipelineStageTableWidget(QWidget):
             f" font-size: {theme.FONT_SIZE_SMALL}px; border: none;"
         )
         row_layout.addWidget(name_label)
+        # ステージ名は固定左列。折り返すチップ群に対して上揃えにする。
+        row_layout.setAlignment(name_label, Qt.AlignmentFlag.AlignTop)
 
         primary_models = row.primary_models if row is not None else ()
         derived_chips = row.derived_chips if row is not None else ()
@@ -316,28 +321,39 @@ class PipelineStageTableWidget(QWidget):
             f" font-size: {theme.FONT_SIZE_META}px; border: none;"
         )
         row_layout.addWidget(count_label)
+        row_layout.setAlignment(count_label, Qt.AlignmentFlag.AlignTop)
+
+        # チップ群 (primary / derived / rating note / 「+ 追加」) は FlowLayout で折り返す。
+        # 1 行のままだとウィンドウ幅を超えて親コンテンツの最小幅を押し広げ、横スクロールと
+        # 兄弟 (LEDGER) の折り返し無効化を招いていた (#1100 再オープン)。FlowLayout の
+        # minimumSize は単一チップ幅なので、widgetResizable スクロール内でも最小幅を握らない。
+        chips_container = QWidget(body)
+        chips_container.setObjectName(f"stageChips_{stage.name}")
+        chips_container.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Preferred)
+        chips_flow = FlowLayout(chips_container, spacing=theme.SPACE_1)
 
         for model in primary_models:
-            row_layout.addWidget(self._build_primary_chip(model, stage, body))
+            chips_flow.addWidget(self._build_primary_chip(model, stage, chips_container))
         for derived in derived_chips:
-            row_layout.addWidget(self._build_derived_chip(derived, body))
+            chips_flow.addWidget(self._build_derived_chip(derived, chips_container))
 
         if stage is PipelineStage.RATING:
-            note = QLabel(_RATING_NOTE_TEXT, body)
+            note = QLabel(_RATING_NOTE_TEXT, chips_container)
             note.setObjectName("ratingNoDerivedNote")
             note.setToolTip(_RATING_NOTE_TOOLTIP)
-            row_layout.addWidget(note)
+            chips_flow.addWidget(note)
 
-        add_button = QToolButton(body)
+        add_button = QToolButton(chips_container)
         add_button.setObjectName("stageAddModelButton")
         add_button.setText(_ADD_BUTTON_TEXT)
         add_button.setToolTip(f"{stage.name} に出力を届けられるモデルを選択して追加します")
         add_button.clicked.connect(
             lambda _checked=False, value=stage.value: self.add_model_requested.emit(value)
         )
-        row_layout.addWidget(add_button)
+        chips_flow.addWidget(add_button)
 
-        row_layout.addStretch(1)
+        # チップ列が残り幅を占有して折り返す (stretch=1)。addStretch は使わない。
+        row_layout.addWidget(chips_container, 1)
 
         card.set_body(body)
         return card
