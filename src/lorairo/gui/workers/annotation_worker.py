@@ -222,8 +222,8 @@ class AnnotationWorker(LoRAIroWorkerBase["AnnotationExecutionResult"]):
         try:
             path_to_phash = self.db_manager.image_repo.get_phashes_by_filepaths(self.image_paths)
         except Exception as exc:
-            logger.warning(
-                f"pHash 一括取得に失敗しました。lib 側自動計算に委任します: {exc}", exc_info=True
+            logger.opt(exception=True).warning(
+                f"pHash 一括取得に失敗しました。lib 側自動計算に委任します: {exc}"
             )
             path_to_phash = {}
         self._path_to_phash = path_to_phash if isinstance(path_to_phash, dict) else {}
@@ -489,9 +489,8 @@ class AnnotationWorker(LoRAIroWorkerBase["AnnotationExecutionResult"]):
             logger.info("モデル一括アノテーション処理がキャンセルされました")
             raise
         except Exception as bulk_error:
-            logger.warning(
-                f"モデル一括実行に失敗したためモデル単位 fallback に切り替えます: {bulk_error}",
-                exc_info=True,
+            logger.opt(exception=True).warning(
+                f"モデル一括実行に失敗したためモデル単位 fallback に切り替えます: {bulk_error}"
             )
             return self._run_annotation_per_model_fallback(phash_list)
 
@@ -567,7 +566,7 @@ class AnnotationWorker(LoRAIroWorkerBase["AnnotationExecutionResult"]):
 
             except Exception as e:
                 errored_keys.add(litellm_model_id)
-                logger.error(f"モデル {litellm_model_id} でエラー: {e}", exc_info=True)
+                logger.opt(exception=True).error(f"モデル {litellm_model_id} でエラー: {e}")
                 self._save_error_records(
                     e,
                     self.image_paths,
@@ -710,7 +709,7 @@ class AnnotationWorker(LoRAIroWorkerBase["AnnotationExecutionResult"]):
             raise
 
         except Exception as e:
-            logger.error(f"アノテーション処理エラー: {e}", exc_info=True)
+            logger.opt(exception=True).error(f"アノテーション処理エラー: {e}")
             self._save_error_records(e, self.image_paths, model_name=None, error_type=self._ERROR_TYPE_L3)
             self._error_already_recorded = True
             raise
@@ -729,9 +728,8 @@ class AnnotationWorker(LoRAIroWorkerBase["AnnotationExecutionResult"]):
         try:
             should_filter = selection_includes_webapi_model(self.litellm_model_ids, self.model_registry)
         except Exception as exc:
-            logger.warning(
-                f"Model registry lookup failed; refusal prefilter を skip して annotation 続行: {exc}",
-                exc_info=True,
+            logger.opt(exception=True).warning(
+                f"Model registry lookup failed; refusal prefilter を skip して annotation 続行: {exc}"
             )
             should_filter = False
 
@@ -783,9 +781,8 @@ class AnnotationWorker(LoRAIroWorkerBase["AnnotationExecutionResult"]):
             preflight_result = preflight_service.apply(rating_filtered_paths)
             self.image_paths = preflight_result.allowed_paths
         except Exception as exc:
-            logger.warning(
-                f"refusal filter 実行失敗; filter skip して annotation 続行: {exc}",
-                exc_info=True,
+            logger.opt(exception=True).warning(
+                f"refusal filter 実行失敗; filter skip して annotation 続行: {exc}"
             )
             return []
 

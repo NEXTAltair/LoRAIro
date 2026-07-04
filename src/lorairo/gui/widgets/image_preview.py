@@ -252,9 +252,8 @@ class ImagePreviewWidget(QWidget, Ui_ImagePreviewWidget):
             logger.debug(f"プレビュー表示成功: ID={image_id}, path={image_path.name}")
 
         except Exception as e:
-            logger.error(
-                f"プレビュー更新エラー データ:{image_data.get('id', 'Unknown')} | エラー: {e}",
-                exc_info=True,
+            logger.opt(exception=True).error(
+                f"プレビュー更新エラー データ:{image_data.get('id', 'Unknown')} | エラー: {e}"
             )
             self._clear_preview()
 
@@ -272,7 +271,7 @@ class ImagePreviewWidget(QWidget, Ui_ImagePreviewWidget):
             logger.debug("Preview cleared and memory optimized")
 
         except Exception as e:
-            logger.error(f"Error clearing preview: {e}", exc_info=True)
+            logger.opt(exception=True).error(f"Error clearing preview: {e}")
 
 
 if __name__ == "__main__":

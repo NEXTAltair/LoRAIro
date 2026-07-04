@@ -95,7 +95,7 @@ class AnnotatorLibraryAdapter:
             logger.debug(f"image-annotator-lib から AnnotatorInfo を {len(infos)} 件取得")
             return infos
         except Exception:
-            logger.error("image-annotator-lib AnnotatorInfo 取得エラー", exc_info=True)
+            logger.opt(exception=True).error("image-annotator-lib AnnotatorInfo 取得エラー")
             raise
 
     def get_available_models(self) -> list[ModelInfo]:
@@ -140,7 +140,7 @@ class AnnotatorLibraryAdapter:
             logger.info(f"image-annotator-libモデル一覧取得完了: {len(models)}件")
             return models
         except Exception:
-            logger.error("image-annotator-libモデル一覧取得エラー", exc_info=True)
+            logger.opt(exception=True).error("image-annotator-libモデル一覧取得エラー")
             raise
 
     def list_available_models(self, include_deprecated: bool = False) -> list[str]:
@@ -269,7 +269,7 @@ class AnnotatorLibraryAdapter:
 
         except Exception as e:
             error_msg = f"アノテーション実行エラー: {e}"
-            logger.error(error_msg, exc_info=True)
+            logger.opt(exception=True).error(error_msg)
             raise
 
     def submit_batch(self, request: BatchSubmitRequest) -> ProviderBatchSubmission:

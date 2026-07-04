@@ -31,7 +31,7 @@ class ConfigurationService:
                 self._config = ensure_config_file(self._config_path)
                 logger.info("設定ファイルを読み込みました: {}", self._config_path)
             except Exception:
-                logger.error("設定ファイルの読み込み中に予期せぬエラーが発生しました。", exc_info=True)
+                logger.opt(exception=True).error("設定ファイルの読み込み中に予期せぬエラーが発生しました。")
                 raise
 
     def get_setting(self, section: str, key: str, default: Any | None = None) -> Any:
@@ -96,10 +96,10 @@ class ConfigurationService:
             logger.info("設定をファイルに保存しました: {}", save_path)
             return True
         except OSError:
-            logger.error("設定ファイルの保存中にIOエラーが発生しました: {}", save_path, exc_info=True)
+            logger.opt(exception=True).error("設定ファイルの保存中にIOエラーが発生しました: {}", save_path)
             return False
         except Exception:
-            logger.error("設定ファイルの保存中に予期せぬエラーが発生しました。", exc_info=True)
+            logger.opt(exception=True).error("設定ファイルの保存中に予期せぬエラーが発生しました。")
             return False
 
     def get_image_processing_config(self) -> dict[str, Any]:
@@ -176,7 +176,7 @@ class ConfigurationService:
                 path = resolved
             return path
         except Exception as e:
-            logger.error(f"Failed to resolve database_dir: {e}", exc_info=True)
+            logger.opt(exception=True).error(f"Failed to resolve database_dir: {e}")
             fallback = Path.cwd() / "database"
             logger.warning(f"Using fallback database directory: {fallback}")
             return fallback
@@ -255,7 +255,7 @@ class ConfigurationService:
             logger.error(f"image-annotator-libのインポートに失敗しました: {e}")
             return []
         except Exception as e:
-            logger.error(f"モデルリスト取得中にエラーが発生しました: {e}", exc_info=True)
+            logger.opt(exception=True).error(f"モデルリスト取得中にエラーが発生しました: {e}")
             return []
 
     def get_default_annotation_model(self) -> str | None:

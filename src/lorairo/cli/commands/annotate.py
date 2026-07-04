@@ -172,7 +172,7 @@ def _load_batch_images(
             if action is LoadFailureAction.FATAL:
                 for opened in pil_images:
                     opened.close()
-                logger.error(f"Fatal image load failure on {image_path.name}: {exc}", exc_info=True)
+                logger.opt(exception=True).error(f"Fatal image load failure on {image_path.name}: {exc}")
                 raise ImageLoadMemoryError(
                     f"Memory/resource exhaustion while loading {image_path.name}: {exc}"
                 ) from exc
@@ -530,7 +530,7 @@ def _annotate_and_save_chunk(
             phash_list=phash_list if phash_list else None,
         )
     except Exception as e:
-        logger.error(f"Annotation error: {e}", exc_info=True)
+        logger.opt(exception=True).error(f"Annotation error: {e}")
         raise AnnotationFailedError(", ".join(resolved_litellm_ids), len(images), str(e)) from e
 
     if not results:
@@ -1025,8 +1025,8 @@ def run(
         try:
             should_preflight = selection_includes_webapi_model(resolved_litellm_ids, annotator)
         except Exception as e:
-            logger.warning(
-                f"WebAPI model detection failed; moderation preflight skipped: {e}", exc_info=True
+            logger.opt(exception=True).warning(
+                f"WebAPI model detection failed; moderation preflight skipped: {e}"
             )
             should_preflight = False
 

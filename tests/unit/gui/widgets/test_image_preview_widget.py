@@ -55,6 +55,7 @@ class TestImagePreviewWidget:
         widget._current_pixmap = Mock()
 
         with patch("lorairo.gui.widgets.image_preview.logger") as mock_logger:
+            mock_logger.opt.return_value = mock_logger
             widget._clear_preview()
 
             # GraphicsSceneがクリアされる
@@ -73,10 +74,11 @@ class TestImagePreviewWidget:
         widget.graphics_scene.clear = Mock(side_effect=Exception("Clear error"))
 
         with patch("lorairo.gui.widgets.image_preview.logger") as mock_logger:
+            mock_logger.opt.return_value = mock_logger  # opt(exception=True).error 経路を捕捉 (#1153)
             widget._clear_preview()
 
-            # エラーログが出力される
-            mock_logger.error.assert_called_with("Error clearing preview: Clear error", exc_info=True)
+            # エラーログが出力される (loguru では opt(exception=True).error、#1153)
+            mock_logger.error.assert_called_with("Error clearing preview: Clear error")
 
     def test_connect_to_data_signals(self, widget):
         """DatasetStateManagerのシグナル接続テスト"""
@@ -94,6 +96,7 @@ class TestImagePreviewWidget:
     def test_connect_to_data_signals_none_manager(self, widget):
         """DatasetStateManagerがNoneの場合のテスト"""
         with patch("lorairo.gui.widgets.image_preview.logger") as mock_logger:
+            mock_logger.opt.return_value = mock_logger
             widget.connect_to_data_signals(None)
 
             mock_logger.error.assert_called()
@@ -267,6 +270,7 @@ class TestImagePreviewWidget:
 
         with patch("lorairo.gui.widgets.image_preview.QPixmap", side_effect=Exception("Load error")):
             with patch("lorairo.gui.widgets.image_preview.logger") as mock_logger:
+                mock_logger.opt.return_value = mock_logger
                 widget.load_image(test_path)
 
                 # エラーログが出力される
@@ -504,6 +508,7 @@ class TestImagePreviewWidgetShowEvent:
         mock_state_manager.current_image_data_changed.connect = Mock(return_value=False)
 
         with patch("lorairo.gui.widgets.image_preview.logger") as mock_logger:
+            mock_logger.opt.return_value = mock_logger
             widget.connect_to_data_signals(mock_state_manager)
 
         mock_logger.error.assert_called()

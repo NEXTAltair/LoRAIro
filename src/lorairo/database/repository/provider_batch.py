@@ -101,7 +101,7 @@ class ProviderBatchRepository(BaseRepository):
                 return job_id
             except SQLAlchemyError as e:
                 session.rollback()
-                logger.error(f"Provider batch job 作成中にエラーが発生しました: {e}", exc_info=True)
+                logger.opt(exception=True).error(f"Provider batch job 作成中にエラーが発生しました: {e}")
                 raise
 
     def create_provider_batch_job_with_items(
@@ -128,7 +128,9 @@ class ProviderBatchRepository(BaseRepository):
                 return job_id
             except SQLAlchemyError as e:
                 session.rollback()
-                logger.error(f"Provider batch job/items 作成中にエラーが発生しました: {e}", exc_info=True)
+                logger.opt(exception=True).error(
+                    f"Provider batch job/items 作成中にエラーが発生しました: {e}"
+                )
                 raise
 
     def get_provider_batch_job(self, job_id: int) -> ProviderBatchJob | None:
@@ -146,7 +148,7 @@ class ProviderBatchRepository(BaseRepository):
                 )
                 return session.execute(stmt).scalar_one_or_none()
             except SQLAlchemyError as e:
-                logger.error(f"Provider batch job 取得中にエラーが発生しました: {e}", exc_info=True)
+                logger.opt(exception=True).error(f"Provider batch job 取得中にエラーが発生しました: {e}")
                 raise
 
     def get_provider_batch_job_by_provider_id(
@@ -163,8 +165,8 @@ class ProviderBatchRepository(BaseRepository):
                 )
                 return session.execute(stmt).scalar_one_or_none()
             except SQLAlchemyError as e:
-                logger.error(
-                    f"Provider batch job provider ID 取得中にエラーが発生しました: {e}", exc_info=True
+                logger.opt(exception=True).error(
+                    f"Provider batch job provider ID 取得中にエラーが発生しました: {e}"
                 )
                 raise
 
@@ -186,7 +188,9 @@ class ProviderBatchRepository(BaseRepository):
                 stmt = stmt.limit(limit).offset(offset)
                 return list(session.execute(stmt).scalars().all())
             except SQLAlchemyError as e:
-                logger.error(f"Provider batch job 一覧取得中にエラーが発生しました: {e}", exc_info=True)
+                logger.opt(exception=True).error(
+                    f"Provider batch job 一覧取得中にエラーが発生しました: {e}"
+                )
                 raise
 
     def update_provider_batch_job(self, job_id: int, updates: dict[str, Any]) -> bool:
@@ -209,7 +213,7 @@ class ProviderBatchRepository(BaseRepository):
                 return bool(result.rowcount)
             except SQLAlchemyError as e:
                 session.rollback()
-                logger.error(f"Provider batch job 更新中にエラーが発生しました: {e}", exc_info=True)
+                logger.opt(exception=True).error(f"Provider batch job 更新中にエラーが発生しました: {e}")
                 raise
 
     def delete_provider_batch_job(self, job_id: int) -> bool:
@@ -224,7 +228,7 @@ class ProviderBatchRepository(BaseRepository):
                 return bool(result.rowcount)
             except SQLAlchemyError as e:
                 session.rollback()
-                logger.error(f"Provider batch job 削除中にエラーが発生しました: {e}", exc_info=True)
+                logger.opt(exception=True).error(f"Provider batch job 削除中にエラーが発生しました: {e}")
                 raise
 
     # --- Provider Batch Item CRUD ---
@@ -241,7 +245,7 @@ class ProviderBatchRepository(BaseRepository):
                 return item_id
             except SQLAlchemyError as e:
                 session.rollback()
-                logger.error(f"Provider batch item 作成中にエラーが発生しました: {e}", exc_info=True)
+                logger.opt(exception=True).error(f"Provider batch item 作成中にエラーが発生しました: {e}")
                 raise
 
     def list_provider_batch_items(
@@ -264,7 +268,9 @@ class ProviderBatchRepository(BaseRepository):
                 stmt = stmt.limit(limit).offset(offset)
                 return list(session.execute(stmt).scalars().all())
             except SQLAlchemyError as e:
-                logger.error(f"Provider batch item 一覧取得中にエラーが発生しました: {e}", exc_info=True)
+                logger.opt(exception=True).error(
+                    f"Provider batch item 一覧取得中にエラーが発生しました: {e}"
+                )
                 raise
 
     def update_provider_batch_item_by_custom_id(
@@ -295,7 +301,7 @@ class ProviderBatchRepository(BaseRepository):
                 return bool(result.rowcount)
             except SQLAlchemyError as e:
                 session.rollback()
-                logger.error(f"Provider batch item 更新中にエラーが発生しました: {e}", exc_info=True)
+                logger.opt(exception=True).error(f"Provider batch item 更新中にエラーが発生しました: {e}")
                 raise
 
     def update_provider_batch_items_by_custom_id(
@@ -332,7 +338,9 @@ class ProviderBatchRepository(BaseRepository):
                 return updated_custom_ids
             except SQLAlchemyError as e:
                 session.rollback()
-                logger.error(f"Provider batch item 一括更新中にエラーが発生しました: {e}", exc_info=True)
+                logger.opt(exception=True).error(
+                    f"Provider batch item 一括更新中にエラーが発生しました: {e}"
+                )
                 raise
 
     # --- Provider Batch Artifact CRUD ---
@@ -349,7 +357,9 @@ class ProviderBatchRepository(BaseRepository):
                 return artifact_id
             except SQLAlchemyError as e:
                 session.rollback()
-                logger.error(f"Provider batch artifact 作成中にエラーが発生しました: {e}", exc_info=True)
+                logger.opt(exception=True).error(
+                    f"Provider batch artifact 作成中にエラーが発生しました: {e}"
+                )
                 raise
 
     def list_provider_batch_artifacts(
@@ -369,7 +379,7 @@ class ProviderBatchRepository(BaseRepository):
                     stmt = stmt.where(ProviderBatchArtifact.artifact_type == artifact_type)
                 return list(session.execute(stmt).scalars().all())
             except SQLAlchemyError as e:
-                logger.error(
-                    f"Provider batch artifact 一覧取得中にエラーが発生しました: {e}", exc_info=True
+                logger.opt(exception=True).error(
+                    f"Provider batch artifact 一覧取得中にエラーが発生しました: {e}"
                 )
                 raise

@@ -79,6 +79,7 @@ class TestImageDBWriteService:
         invalid_score = 1500  # 0-1000範囲外
 
         with patch("lorairo.gui.services.image_db_write_service.logger") as mock_logger:
+            mock_logger.opt.return_value = mock_logger
             result = service.update_score(image_id, invalid_score)
 
             assert result is False

@@ -192,7 +192,7 @@ class ModerationPreflightService:
             phash_list = self._build_phash_list(image_paths)
         except Exception as exc:
             message = f"moderation preflight setup failed: {exc}"
-            logger.warning(message, exc_info=True)
+            logger.opt(exception=True).warning(message)
             skipped = [
                 self._record_skip(
                     image_path=path,
@@ -231,9 +231,8 @@ class ModerationPreflightService:
             )
             save_result = self._annotation_save_service.save_annotation_results(results)
         except Exception as exc:
-            logger.warning(
-                f"moderation preflight batch failed; retrying per image: {exc}",
-                exc_info=True,
+            logger.opt(exception=True).warning(
+                f"moderation preflight batch failed; retrying per image: {exc}"
             )
             return self._moderate_unrated_paths_individually(
                 image_paths=image_paths,
@@ -277,7 +276,7 @@ class ModerationPreflightService:
                 )
             except Exception as exc:
                 message = f"moderation preflight failed: {exc}"
-                logger.warning(message, exc_info=True)
+                logger.opt(exception=True).warning(message)
                 skipped.append(
                     self._record_skip(
                         image_path=image_path,
@@ -399,9 +398,8 @@ class ModerationPreflightService:
                 model_name=MODERATION_LITELLM_MODEL_ID,
             )
         except Exception:
-            logger.warning(
-                f"moderation preflight skip reason could not be saved: path={image_path}",
-                exc_info=True,
+            logger.opt(exception=True).warning(
+                f"moderation preflight skip reason could not be saved: path={image_path}"
             )
         return ModerationPreflightSkip(
             image_path=image_path,

@@ -97,7 +97,7 @@ class SettingsController:
             self._show_simple_settings_dialog()
             return False
         except Exception as e:
-            logger.error(f"設定ダイアログの表示に失敗しました: {e}", exc_info=True)
+            logger.opt(exception=True).error(f"設定ダイアログの表示に失敗しました: {e}")
             from PySide6.QtWidgets import QMessageBox
 
             QMessageBox.critical(

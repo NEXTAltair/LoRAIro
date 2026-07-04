@@ -28,6 +28,7 @@ class TestNullModelRegistry:
     def test_get_available_models_logs_info(self) -> None:
         registry = NullModelRegistry()
         with patch("lorairo.services.model_registry_protocol.logger") as mock_logger:
+            mock_logger.opt.return_value = mock_logger
             registry.get_available_models()
             mock_logger.info.assert_called_once()
 
@@ -38,6 +39,7 @@ class TestNullModelRegistry:
     def test_get_available_models_with_metadata_logs_info(self) -> None:
         registry = NullModelRegistry()
         with patch("lorairo.services.model_registry_protocol.logger") as mock_logger:
+            mock_logger.opt.return_value = mock_logger
             registry.get_available_models_with_metadata()
             mock_logger.info.assert_called_once()
 

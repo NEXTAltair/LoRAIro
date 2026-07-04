@@ -93,7 +93,7 @@ class ResultHandlerService:
 
         except Exception as e:
             # Proper error logging instead of silent failure
-            logger.error(f"バッチ登録完了処理中にエラー: {e}", exc_info=True)
+            logger.opt(exception=True).error(f"バッチ登録完了処理中にエラー: {e}")
             # 非ブロッキング通知でUIクラッシュを防止
             if status_bar:
                 status_bar.showMessage(f"バッチ登録完了（結果表示エラー: {str(e)[:50]}）", 5000)
@@ -145,7 +145,7 @@ class ResultHandlerService:
                     )
 
         except Exception as e:
-            logger.error(f"バッチ完了ハンドラエラー: {e}", exc_info=True)
+            logger.opt(exception=True).error(f"バッチ完了ハンドラエラー: {e}")
             if self.parent:
                 QMessageBox.critical(self.parent, "処理エラー", f"結果処理中にエラーが発生しました:\n{e}")
 
@@ -162,7 +162,7 @@ class ResultHandlerService:
                 status_bar.showMessage("アノテーション処理が完了しました", 5000)
 
         except Exception as e:
-            logger.error(f"アノテーション完了ハンドラエラー: {e}", exc_info=True)
+            logger.opt(exception=True).error(f"アノテーション完了ハンドラエラー: {e}")
 
     def handle_annotation_error(self, error_msg: str, status_bar: Any | None = None) -> None:
         """アノテーションエラー処理
@@ -186,7 +186,7 @@ class ResultHandlerService:
                 )
 
         except Exception as e:
-            logger.error(f"エラーハンドラで予期しない例外: {e}", exc_info=True)
+            logger.opt(exception=True).error(f"エラーハンドラで予期しない例外: {e}")
 
     def handle_model_sync_completed(self, sync_result: Any, status_bar: Any | None = None) -> None:
         """モデル同期完了処理
@@ -212,4 +212,4 @@ class ResultHandlerService:
                 logger.error(f"モデル同期エラー: {error_msg}")
 
         except Exception as e:
-            logger.error(f"モデル同期完了ハンドラエラー: {e}", exc_info=True)
+            logger.opt(exception=True).error(f"モデル同期完了ハンドラエラー: {e}")

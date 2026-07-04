@@ -144,7 +144,9 @@ class ModelCheckboxWidget(QWidget, Ui_ModelCheckboxWidget):
             self._update_status_display()
 
         except Exception as e:
-            logger.error(f"Error setting up model display for {self.model_info.name}: {e}", exc_info=True)
+            logger.opt(exception=True).error(
+                f"Error setting up model display for {self.model_info.name}: {e}"
+            )
 
     def _update_status_display(self) -> None:
         """API キー設定状況に応じたモデルステータスを表示する (Issue #755)。
@@ -209,7 +211,7 @@ class ModelCheckboxWidget(QWidget, Ui_ModelCheckboxWidget):
             self.labelProvider.setProperty("provider", provider_key)
 
         except Exception as e:
-            logger.error(f"Error applying provider styling: {e}", exc_info=True)
+            logger.opt(exception=True).error(f"Error applying provider styling: {e}")
 
     def _setup_connections(self) -> None:
         """シグナル・スロット接続設定"""

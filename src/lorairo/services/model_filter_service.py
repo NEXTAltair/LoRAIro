@@ -82,7 +82,7 @@ class ModelFilterService:
             return models_list
 
         except Exception as e:
-            logger.error(f"モデル一覧取得エラー: {e}", exc_info=True)
+            logger.opt(exception=True).error(f"モデル一覧取得エラー: {e}")
             return []
 
     def filter_models_by_criteria(self, criteria: dict[str, Any]) -> list[dict[str, Any]]:
@@ -109,7 +109,7 @@ class ModelFilterService:
             return filtered_models
 
         except Exception as e:
-            logger.error(f"モデルフィルタリング中にエラー: {e}", exc_info=True)
+            logger.opt(exception=True).error(f"モデルフィルタリング中にエラー: {e}")
             return []
 
     def infer_model_capabilities(self, model_data: dict[str, Any]) -> list[str]:
@@ -161,7 +161,7 @@ class ModelFilterService:
             return capabilities
 
         except Exception as e:
-            logger.error(f"モデル能力推定中にエラー: {e}", exc_info=True)
+            logger.opt(exception=True).error(f"モデル能力推定中にエラー: {e}")
             return []
 
     def validate_annotation_settings(self, settings: dict[str, Any]) -> ValidationResult:
@@ -219,7 +219,7 @@ class ModelFilterService:
             return result
 
         except Exception as e:
-            logger.error(f"アノテーション設定検証中にエラー: {e}", exc_info=True)
+            logger.opt(exception=True).error(f"アノテーション設定検証中にエラー: {e}")
             return ValidationResult(
                 is_valid=False, errors=[f"検証中にエラーが発生しました: {e!s}"], warnings=[]
             )
@@ -253,7 +253,7 @@ class ModelFilterService:
             return filtered_images
 
         except Exception as e:
-            logger.error(f"高度なモデルフィルター適用中にエラー: {e}", exc_info=True)
+            logger.opt(exception=True).error(f"高度なモデルフィルター適用中にエラー: {e}")
             return images
 
     def optimize_advanced_filtering_performance(
@@ -289,7 +289,7 @@ class ModelFilterService:
             return filtered_images
 
         except Exception as e:
-            logger.error(f"高度フィルタリング最適化中にエラー: {e}", exc_info=True)
+            logger.opt(exception=True).error(f"高度フィルタリング最適化中にエラー: {e}")
             return images
 
     def _model_matches_criteria(self, model: dict[str, Any], criteria: dict[str, Any]) -> bool:
@@ -325,7 +325,7 @@ class ModelFilterService:
             return True
 
         except Exception as e:
-            logger.error(f"モデル条件一致チェック中にエラー: {e}", exc_info=True)
+            logger.opt(exception=True).error(f"モデル条件一致チェック中にエラー: {e}")
             return False
 
     def _model_matches_provider_filter(self, model: dict[str, Any], criteria: dict[str, Any]) -> bool:
@@ -354,7 +354,7 @@ class ModelFilterService:
             return True
 
         except Exception as e:
-            logger.error(f"プロバイダーフィルターチェック中にエラー: {e}", exc_info=True)
+            logger.opt(exception=True).error(f"プロバイダーフィルターチェック中にエラー: {e}")
             return True
 
     def _model_matches_function_filter(self, model: dict[str, Any], criteria: dict[str, Any]) -> bool:
@@ -389,7 +389,7 @@ class ModelFilterService:
             return True
 
         except Exception as e:
-            logger.error(f"機能フィルターチェック中にエラー: {e}", exc_info=True)
+            logger.opt(exception=True).error(f"機能フィルターチェック中にエラー: {e}")
             return True
 
     def _has_advanced_model_filters(self, conditions: SearchConditions) -> bool:
@@ -413,7 +413,7 @@ class ModelFilterService:
             return False
 
         except Exception as e:
-            logger.error(f"高度フィルター確認中にエラー: {e}", exc_info=True)
+            logger.opt(exception=True).error(f"高度フィルター確認中にエラー: {e}")
             return False
 
     def _image_matches_advanced_model_criteria(
@@ -452,5 +452,5 @@ class ModelFilterService:
             return True
 
         except Exception as e:
-            logger.error(f"高度モデル条件チェック中にエラー: {e}", exc_info=True)
+            logger.opt(exception=True).error(f"高度モデル条件チェック中にエラー: {e}")
             return True

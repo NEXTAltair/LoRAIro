@@ -540,6 +540,7 @@ class TestAutoCropMarginLogic:
         test_img[48:51, 100:1100] = [255, 255, 255]  # 3h x 1000w
 
         with patch("lorairo.image_transforms.autocrop.logger") as mock_logger:
+            mock_logger.opt.return_value = mock_logger
             crop_area = self.autocrop._get_crop_area(test_img)
 
             if crop_area is not None:
@@ -560,6 +561,7 @@ class TestAutoCropMarginLogic:
         test_img[100:1100, 48:51] = [255, 255, 255]  # 1000h x 3w
 
         with patch("lorairo.image_transforms.autocrop.logger") as mock_logger:
+            mock_logger.opt.return_value = mock_logger
             crop_area = self.autocrop._get_crop_area(test_img)
 
             if crop_area is not None:
@@ -589,6 +591,7 @@ class TestAutoCropMarginLogic:
         # margin_y = max(2, int(400 * 0.005)) = 2px (sufficient)
 
         with patch("lorairo.image_transforms.autocrop.logger") as mock_logger:
+            mock_logger.opt.return_value = mock_logger
             crop_area = self.autocrop._get_crop_area(test_img)
 
             if crop_area is not None:

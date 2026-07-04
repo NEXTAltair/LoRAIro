@@ -81,7 +81,7 @@ class ImageDBWriteService:
             logger.warning(f"Rating update skipped: image_id {image_id} not found")
             return False
         except SQLAlchemyError:
-            logger.error(f"DB error updating rating for image_id {image_id}", exc_info=True)
+            logger.opt(exception=True).error(f"DB error updating rating for image_id {image_id}")
             return False
 
     def update_score(self, image_id: int, score: int) -> bool:
@@ -124,7 +124,7 @@ class ImageDBWriteService:
             logger.warning(f"Score update skipped: image_id {image_id} not found")
             return False
         except SQLAlchemyError:
-            logger.error(f"DB error updating score for image_id {image_id}", exc_info=True)
+            logger.opt(exception=True).error(f"DB error updating score for image_id {image_id}")
             return False
 
     def update_tags(self, image_id: int, tags_text: str) -> bool:
@@ -177,7 +177,7 @@ class ImageDBWriteService:
             logger.warning(f"Tags update skipped: image_id {image_id} not found")
             return False
         except SQLAlchemyError:
-            logger.error(f"DB error updating tags for image_id {image_id}", exc_info=True)
+            logger.opt(exception=True).error(f"DB error updating tags for image_id {image_id}")
             return False
 
     def update_caption(self, image_id: int, caption: str) -> bool:
@@ -217,7 +217,7 @@ class ImageDBWriteService:
             logger.warning(f"Caption update skipped: image_id {image_id} not found")
             return False
         except SQLAlchemyError:
-            logger.error(f"DB error updating caption for image_id {image_id}", exc_info=True)
+            logger.opt(exception=True).error(f"DB error updating caption for image_id {image_id}")
             return False
 
     def add_tag_batch(self, image_ids: list[int], tag: str) -> bool:
@@ -272,7 +272,7 @@ class ImageDBWriteService:
             return success
 
         except SQLAlchemyError:
-            logger.error("DB error in batch tag add", exc_info=True)
+            logger.opt(exception=True).error("DB error in batch tag add")
             return False
 
     def update_rating_batch(self, image_ids: list[int], rating: str) -> bool:
@@ -314,7 +314,7 @@ class ImageDBWriteService:
             return success
 
         except SQLAlchemyError:
-            logger.error("DB error in batch rating update", exc_info=True)
+            logger.opt(exception=True).error("DB error in batch rating update")
             return False
 
     def update_score_batch(self, image_ids: list[int], score: int) -> bool:
@@ -358,5 +358,5 @@ class ImageDBWriteService:
             return success
 
         except SQLAlchemyError:
-            logger.error("DB error in batch score update", exc_info=True)
+            logger.opt(exception=True).error("DB error in batch score update")
             return False

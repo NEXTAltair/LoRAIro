@@ -153,7 +153,7 @@ def initialize_logging(log_config: dict[str, Any]) -> None:
         format=LOG_FORMAT,
         colorize=True,  # コンソール出力に色を付ける
         backtrace=True,  # 例外発生時のトレースバックを強化
-        diagnose=True,  # 例外発生時に変数情報を表示
+        diagnose=False,  # 変数値 (APIキー等の機密) を traceback に展開しない (#1153 Codex P1, rules/security.md)
     )
 
     # ファイルシンク (設定があれば)
@@ -169,7 +169,7 @@ def initialize_logging(log_config: dict[str, Any]) -> None:
                 encoding="utf-8",
                 enqueue=True,  # ファイルI/Oを呼び出しスレッドから分離する
                 backtrace=True,  # 例外発生時のトレースバックを強化
-                diagnose=True,  # 例外発生時に変数情報を表示
+                diagnose=False,  # 変数値 (APIキー等の機密) を traceback に展開しない (#1153 Codex P1, rules/security.md)
             )
             logger.info(f"Logging to file: {file_path}")
         except Exception as e:

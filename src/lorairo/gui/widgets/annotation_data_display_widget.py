@@ -466,7 +466,7 @@ class AnnotationDataDisplayWidget(QWidget, Ui_AnnotationDataDisplayWidget):
             )
 
         except Exception as e:
-            logger.error(f"Error updating annotation data: {e}", exc_info=True)
+            logger.opt(exception=True).error(f"Error updating annotation data: {e}")
 
     def _update_caption_display(self, caption: str) -> None:
         """キャプション表示を更新"""
@@ -647,7 +647,7 @@ class AnnotationDataDisplayWidget(QWidget, Ui_AnnotationDataDisplayWidget):
             logger.debug("Annotation data display cleared")
 
         except Exception as e:
-            logger.error(f"Error clearing annotation data: {e}", exc_info=True)
+            logger.opt(exception=True).error(f"Error clearing annotation data: {e}")
 
     def get_current_data(self) -> AnnotationData:
         """現在表示中のデータを取得"""

@@ -349,6 +349,7 @@ class TestConfigurationService:
     def test_api_key_masking_in_logs(self, mock_logger):
         """ログ出力でのAPIキーマスキングテスト"""
         # Given: ConfigurationService
+        mock_logger.opt.return_value = mock_logger
         config_service = ConfigurationService(shared_config={})
 
         # When: APIキーを更新
@@ -363,6 +364,7 @@ class TestConfigurationService:
     def test_huggingface_token_masking_in_logs(self, mock_logger):
         """ログ出力でのHugging Faceトークンマスキングテスト"""
         # Given: ConfigurationService
+        mock_logger.opt.return_value = mock_logger
         config_service = ConfigurationService(shared_config={})
 
         # When: Hugging Faceトークンを更新
@@ -416,6 +418,7 @@ class TestConfigurationService:
     def test_get_database_directory_resolution_logging(self, mock_logger):
         """相対パス解決時のログ出力確認"""
         # Given: 相対パス設定
+        mock_logger.opt.return_value = mock_logger
         config = {"directories": {"database_dir": "relative_path"}}
         config_service = ConfigurationService(shared_config=config)
 
@@ -432,6 +435,7 @@ class TestConfigurationService:
     def test_get_database_directory_error_handling(self, mock_logger):
         """エラー時のフォールバック処理確認"""
         # Given: get_setting でエラーが発生する状況
+        mock_logger.opt.return_value = mock_logger
         config_service = ConfigurationService(shared_config={})
 
         # get_setting メソッドを失敗させる

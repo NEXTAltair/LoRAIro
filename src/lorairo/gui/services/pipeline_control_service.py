@@ -123,7 +123,7 @@ class PipelineControlService:
                 logger.warning(f"Invalid search_result type: {type(search_result)}")
 
         except Exception as e:
-            logger.error(f"Failed to start thumbnail loading after search: {e}", exc_info=True)
+            logger.opt(exception=True).error(f"Failed to start thumbnail loading after search: {e}")
 
     def on_thumbnail_completed(self, thumbnail_result: Any) -> None:
         """ThumbnailWorker完了時にThumbnailSelectorWidget更新
@@ -151,7 +151,7 @@ class PipelineControlService:
                 self.filter_search_panel.hide_progress_after_completion()
 
         except Exception as e:
-            logger.error(f"Failed to update ThumbnailSelectorWidget: {e}", exc_info=True)
+            logger.opt(exception=True).error(f"Failed to update ThumbnailSelectorWidget: {e}")
 
     # ============================================================
     # エラーハンドリング統合
@@ -352,4 +352,4 @@ class PipelineControlService:
             logger.info("Pipeline cancellation completed")
 
         except Exception as e:
-            logger.error(f"Pipeline cancellation failed: {e}", exc_info=True)
+            logger.opt(exception=True).error(f"Pipeline cancellation failed: {e}")

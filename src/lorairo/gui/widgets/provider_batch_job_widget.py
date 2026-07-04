@@ -325,7 +325,9 @@ class ProviderBatchJobWidget(QWidget):
     # -- lifecycle / 復旧操作 (カード footer 帰属) --------------------------------
 
     def _handle_action_error(self, action: str, error: Exception) -> None:
-        logger.error(f"バッチAPI {action} failed: {error}", exc_info=True)
+        # slot は except 節外で後から実行されるため sys.exc_info() は空。emit された例外
+        # オブジェクトを exception= に直接渡して traceback を記録する (#1153 Codex P2)。
+        logger.opt(exception=error).error(f"バッチAPI {action} failed: {error}")
         QMessageBox.critical(self, "バッチAPI", str(error))
         self.labelStatus.setText(f"{action} に失敗しました")
 

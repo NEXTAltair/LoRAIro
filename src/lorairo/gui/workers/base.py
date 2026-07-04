@@ -169,7 +169,7 @@ class LoRAIroWorkerBase[T](QObject):
         except Exception as e:
             self._set_status(WorkerStatus.FAILED)
             error_msg = self._format_worker_error(e)
-            logger.error(error_msg, exc_info=True)
+            logger.opt(exception=True).error(error_msg)
             self._record_unhandled_error(e)
             self.error_occurred.emit(error_msg)
 

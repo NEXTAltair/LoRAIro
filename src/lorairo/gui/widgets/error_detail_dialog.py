@@ -94,7 +94,7 @@ class ErrorDetailDialog(QDialog, Ui_ErrorDetailDialog):
             self._update_ui()
 
         except Exception as e:
-            logger.error(f"エラー詳細読み込みエラー: {e}", exc_info=True)
+            logger.opt(exception=True).error(f"エラー詳細読み込みエラー: {e}")
             QMessageBox.critical(self, "エラー", f"エラー詳細の読み込みに失敗しました:\n{e}")
             self.reject()
 
@@ -189,5 +189,5 @@ class ErrorDetailDialog(QDialog, Ui_ErrorDetailDialog):
                 self.accept()
 
             except Exception as e:
-                logger.error(f"解決マーク失敗: {e}", exc_info=True)
+                logger.opt(exception=True).error(f"解決マーク失敗: {e}")
                 QMessageBox.critical(self, "エラー", f"解決マークに失敗しました:\n{e}")

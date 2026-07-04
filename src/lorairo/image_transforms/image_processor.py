@@ -103,10 +103,9 @@ class ImageProcessingManager:
                 return resized_img, processing_metadata
 
         except Exception as e:
-            logger.error(
+            logger.opt(exception=True).error(
                 f"画像処理中にエラーが発生しました: {db_stored_original_path}, "
-                f"タイプ: {type(e).__name__}, 詳細: {e}",
-                exc_info=True,
+                f"タイプ: {type(e).__name__}, 詳細: {e}"
             )
             return None, processing_metadata
 

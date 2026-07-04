@@ -69,7 +69,7 @@ class ModelRepository(BaseRepository):
                     )
                 return result
             except SQLAlchemyError as e:
-                logger.error(f"モデルIDの取得中にエラーが発生しました: {e}", exc_info=True)
+                logger.opt(exception=True).error(f"モデルIDの取得中にエラーが発生しました: {e}")
                 raise
 
     def get_model_by_litellm_id(self, litellm_model_id: str) -> Model | None:
@@ -102,9 +102,8 @@ class ModelRepository(BaseRepository):
                     logger.debug(f"モデル '{litellm_model_id}' は登録されていません")
                 return result
             except SQLAlchemyError as e:
-                logger.error(
-                    f"モデル取得エラー (litellm_model_id={litellm_model_id}): {e}",
-                    exc_info=True,
+                logger.opt(exception=True).error(
+                    f"モデル取得エラー (litellm_model_id={litellm_model_id}): {e}"
                 )
                 raise
 
@@ -132,7 +131,7 @@ class ModelRepository(BaseRepository):
                 logger.debug(f"name='{name}' に一致するモデル: {len(results)}件")
                 return list(results)
             except SQLAlchemyError as e:
-                logger.error(f"モデル取得エラー (name={name}): {e}", exc_info=True)
+                logger.opt(exception=True).error(f"モデル取得エラー (name={name}): {e}")
                 raise
 
     def get_models_by_litellm_ids(self, litellm_model_ids: set[str]) -> dict[str, Model]:
@@ -164,7 +163,7 @@ class ModelRepository(BaseRepository):
                 logger.debug(f"モデル一括取得: {len(models_map)}/{len(litellm_model_ids)}件見つかりました")
                 return models_map
             except SQLAlchemyError as e:
-                logger.error(f"モデル一括取得エラー: {e}", exc_info=True)
+                logger.opt(exception=True).error(f"モデル一括取得エラー: {e}")
                 raise
 
     @staticmethod
@@ -208,7 +207,7 @@ class ModelRepository(BaseRepository):
             return manual_edit_model.id
 
         except SQLAlchemyError as e:
-            logger.error(f"MANUAL_EDITモデルの取得/作成中にエラーが発生しました: {e}", exc_info=True)
+            logger.opt(exception=True).error(f"MANUAL_EDITモデルの取得/作成中にエラーが発生しました: {e}")
             raise
 
     def insert_model(
@@ -283,7 +282,7 @@ class ModelRepository(BaseRepository):
                 raise
             except SQLAlchemyError as e:
                 session.rollback()
-                logger.error(f"モデル登録エラー: {e}", exc_info=True)
+                logger.opt(exception=True).error(f"モデル登録エラー: {e}")
                 raise
 
     @staticmethod
@@ -423,7 +422,7 @@ class ModelRepository(BaseRepository):
 
             except SQLAlchemyError as e:
                 session.rollback()
-                logger.error(f"モデル更新エラー: {e}", exc_info=True)
+                logger.opt(exception=True).error(f"モデル更新エラー: {e}")
                 raise
 
     def get_models(self) -> list[dict[str, Any]]:
@@ -462,7 +461,7 @@ class ModelRepository(BaseRepository):
                 return model_list
 
             except SQLAlchemyError as e:
-                logger.error(f"全モデル情報の取得中にエラーが発生しました: {e}", exc_info=True)
+                logger.opt(exception=True).error(f"全モデル情報の取得中にエラーが発生しました: {e}")
                 raise
 
     def get_model_objects(self) -> list[Model]:
@@ -482,7 +481,7 @@ class ModelRepository(BaseRepository):
                 return model_list
 
         except SQLAlchemyError as e:
-            logger.error(f"DB Modelオブジェクトの取得中にエラーが発生しました: {e}", exc_info=True)
+            logger.opt(exception=True).error(f"DB Modelオブジェクトの取得中にエラーが発生しました: {e}")
             raise
 
     def reconcile_api_model_availability(
@@ -539,7 +538,7 @@ class ModelRepository(BaseRepository):
                     )
                 return delisted, reactivated
             except SQLAlchemyError as e:
-                logger.error(f"WebAPI モデルの availability reconcile 中にエラー: {e}", exc_info=True)
+                logger.opt(exception=True).error(f"WebAPI モデルの availability reconcile 中にエラー: {e}")
                 raise
 
     def get_models_by_type(self, model_type_name: str) -> list[dict[str, Any]]:
@@ -588,8 +587,7 @@ class ModelRepository(BaseRepository):
                 return model_list
 
             except SQLAlchemyError as e:
-                logger.error(
-                    f"タイプ '{model_type_name}' のモデル情報取得中にエラーが発生しました: {e}",
-                    exc_info=True,
+                logger.opt(exception=True).error(
+                    f"タイプ '{model_type_name}' のモデル情報取得中にエラーが発生しました: {e}"
                 )
                 raise

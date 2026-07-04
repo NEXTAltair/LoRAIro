@@ -130,7 +130,7 @@ def _build_batch_projection(
     try:
         batch_capable_models = workflow_service.list_batch_capable_models()
     except (ProviderBatchError, RuntimeError, OSError) as e:
-        logger.error(f"Batch API モデル discovery 失敗: {e}", exc_info=True)
+        logger.opt(exception=True).error(f"Batch API モデル discovery 失敗: {e}")
         QMessageBox.warning(
             parent_widget, "Batch API 送信", f"Batch API 対応モデルの取得に失敗しました:\n{e}"
         )
@@ -610,7 +610,7 @@ class AnnotationWorkflowController(QObject):
 
         except Exception as e:
             error_msg = f"アノテーション処理の開始に失敗しました: {e}"
-            logger.error(error_msg, exc_info=True)
+            logger.opt(exception=True).error(error_msg)
             if self._parent_widget:
                 QMessageBox.critical(
                     self._parent_widget,
@@ -712,7 +712,7 @@ class AnnotationWorkflowController(QObject):
             return []
 
         except Exception as e:
-            logger.error(f"画像パス取得中にエラー: {e}", exc_info=True)
+            logger.opt(exception=True).error(f"画像パス取得中にエラー: {e}")
             if self._parent_widget:
                 QMessageBox.warning(
                     self._parent_widget,
@@ -865,7 +865,7 @@ class AnnotationWorkflowController(QObject):
 
         except Exception as e:
             error_msg = f"バッチアノテーション開始に失敗: {e}"
-            logger.error(error_msg, exc_info=True)
+            logger.opt(exception=True).error(error_msg)
             if self._parent_widget:
                 QMessageBox.critical(
                     self._parent_widget,
@@ -1067,7 +1067,11 @@ class AnnotationWorkflowController(QObject):
             self._finalize_submitted_jobs(job_ids)
             message = f"Batch API 送信が途中で失敗しました ({len(job_ids)} ジョブ送信済み):\n{error}"
         else:
-            logger.error(f"Batch API dispatch 失敗: {error}", exc_info=isinstance(error, Exception))
+            # slot は except 節外で後から実行されるため sys.exc_info() は空。emit された例外
+            # オブジェクトを exception= に直接渡して traceback を記録する (#1153 Codex P2)。
+            logger.opt(exception=error if isinstance(error, Exception) else None).error(
+                f"Batch API dispatch 失敗: {error}"
+            )
             message = f"Batch API 送信に失敗しました:\n{error}"
         QMessageBox.critical(self._parent_widget, "Batch API 送信", message)
 

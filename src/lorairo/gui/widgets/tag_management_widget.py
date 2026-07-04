@@ -119,7 +119,7 @@ class TagManagementWidget(QWidget, Ui_TagManagementWidget):
         try:
             entries = service.list_ignored_entries()
         except SQLAlchemyError as e:
-            logger.error(f"無視設定の読込に失敗: {e}", exc_info=True)
+            logger.opt(exception=True).error(f"無視設定の読込に失敗: {e}")
             return
         self.tableIgnoredEntries.setRowCount(len(entries))
         for row, entry in enumerate(entries):
@@ -145,7 +145,7 @@ class TagManagementWidget(QWidget, Ui_TagManagementWidget):
         try:
             service.unignore(tag, reason_code, image_id if isinstance(image_id, int) else None)
         except SQLAlchemyError as e:
-            logger.error(f"無視設定の解除に失敗: {e}", exc_info=True)
+            logger.opt(exception=True).error(f"無視設定の解除に失敗: {e}")
             return
         self.refresh_ignored_entries()
 
@@ -204,7 +204,7 @@ class TagManagementWidget(QWidget, Ui_TagManagementWidget):
             self.labelStatus.setText(f"Status: {len(self.unknown_tags)} unknown type tags found")
 
         except Exception as e:
-            logger.error(f"Error loading unknown tags: {e}", exc_info=True)
+            logger.opt(exception=True).error(f"Error loading unknown tags: {e}")
             QMessageBox.critical(
                 self,
                 "エラー",
@@ -332,7 +332,7 @@ class TagManagementWidget(QWidget, Ui_TagManagementWidget):
                 tag_service.update_tag_types(updates)
                 self.update_completed.emit()
             except Exception as e:
-                logger.error(f"Error updating tag types: {e}", exc_info=True)
+                logger.opt(exception=True).error(f"Error updating tag types: {e}")
                 self.update_failed.emit(str(e))
 
         thread = threading.Thread(target=run_update, daemon=True)

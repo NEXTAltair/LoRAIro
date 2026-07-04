@@ -63,10 +63,10 @@ class FavoriteFiltersService:
             return True
 
         except (TypeError, ValueError) as e:
-            logger.error("Failed to serialize filter '{}': {}", name, e, exc_info=True)
+            logger.opt(exception=True).error("Failed to serialize filter '{}': {}", name, e)
             return False
         except Exception as e:
-            logger.error("Failed to save filter '{}': {}", name, e, exc_info=True)
+            logger.opt(exception=True).error("Failed to save filter '{}': {}", name, e)
             return False
 
     def load_filter(self, name: str) -> dict[str, Any] | None:
@@ -99,10 +99,10 @@ class FavoriteFiltersService:
             return filter_dict
 
         except (TypeError, ValueError, json.JSONDecodeError) as e:
-            logger.error("Failed to deserialize filter '{}': {}", name, e, exc_info=True)
+            logger.opt(exception=True).error("Failed to deserialize filter '{}': {}", name, e)
             return None
         except Exception as e:
-            logger.error("Failed to load filter '{}': {}", name, e, exc_info=True)
+            logger.opt(exception=True).error("Failed to load filter '{}': {}", name, e)
             return None
 
     def list_filters(self) -> list[str]:
@@ -119,7 +119,7 @@ class FavoriteFiltersService:
             return sorted_names
 
         except Exception as e:
-            logger.error("Failed to list filters: {}", e, exc_info=True)
+            logger.opt(exception=True).error("Failed to list filters: {}", e)
             return []
 
     def get_all_filters(self) -> dict[str, dict[str, Any]]:
@@ -135,7 +135,7 @@ class FavoriteFiltersService:
             filters = self._load_all_filters()
             return {name: cond for name, cond in filters.items() if isinstance(cond, dict)}
         except Exception as e:
-            logger.error("Failed to get all filters: {}", e, exc_info=True)
+            logger.opt(exception=True).error("Failed to get all filters: {}", e)
             return {}
 
     def delete_filter(self, name: str) -> bool:
@@ -171,7 +171,7 @@ class FavoriteFiltersService:
             return True
 
         except Exception as e:
-            logger.error("Failed to delete filter '{}': {}", name, e, exc_info=True)
+            logger.opt(exception=True).error("Failed to delete filter '{}': {}", name, e)
             return False
 
     def filter_exists(self, name: str) -> bool:
@@ -190,7 +190,7 @@ class FavoriteFiltersService:
             filters = self._load_all_filters()
             return name in filters
         except Exception as e:
-            logger.error("Failed to check filter existence '{}': {}", name, e, exc_info=True)
+            logger.opt(exception=True).error("Failed to check filter existence '{}': {}", name, e)
             return False
 
     def clear_all_filters(self) -> bool:
@@ -207,7 +207,7 @@ class FavoriteFiltersService:
             return True
 
         except Exception as e:
-            logger.error("Failed to clear all filters: {}", e, exc_info=True)
+            logger.opt(exception=True).error("Failed to clear all filters: {}", e)
             return False
 
     def _load_all_filters(self) -> dict[str, Any]:
@@ -226,5 +226,5 @@ class FavoriteFiltersService:
             content = self._filters_file.read_text(encoding="utf-8")
             return json.loads(content) if content else {}
         except json.JSONDecodeError as e:
-            logger.error("Failed to parse filters file: {}", e, exc_info=True)
+            logger.opt(exception=True).error("Failed to parse filters file: {}", e)
             raise
