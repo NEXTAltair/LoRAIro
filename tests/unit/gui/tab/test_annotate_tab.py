@@ -626,6 +626,42 @@ class TestPipelinePanelRefresh:
 
         assert capable == {"openai/gpt-4o"}
 
+    def test_resolve_batch_capable_ids_with_real_service_no_attribute_error(self, tab):
+        """#1147: 実 ProviderBatchWorkflowService でも AttributeError を出さず LEDGER 判定できる。
+
+        実機クラッシュ (workflow service に list_batch_capable_models が無い) の GUI 経路 regression。
+        MagicMock でなく **実サービス** (adapter stub 注入) を container に差し込んで検証する。
+        """
+        from types import SimpleNamespace
+        from unittest.mock import Mock
+
+        from lorairo.services.provider_batch_workflow_service import ProviderBatchWorkflowService
+
+        class _StubAdapter:
+            provider = "openai"
+
+            def list_batch_capable_models(self):
+                return ("openai/gpt-4o",)
+
+        real_service = ProviderBatchWorkflowService(
+            provider_batch_repo=Mock(),
+            image_repo=Mock(),
+            annotation_repo=Mock(),
+            config_service=Mock(),
+            adapters={"openai": _StubAdapter()},
+            job_service=Mock(),
+            annotation_save_service=Mock(),
+        )
+        tab._service_container.provider_batch_workflow_service = real_service
+        tab._db_manager.model_repo.get_model_by_litellm_id.return_value = SimpleNamespace(
+            id=1, provider="openai", litellm_model_id="openai/gpt-4o"
+        )
+
+        # 実サービス経由でも AttributeError なく batch-capable 集合を得られる
+        capable = tab._resolve_batch_capable_ids(["openai/gpt-4o"])
+
+        assert capable == {"openai/gpt-4o"}
+
     def test_sync_dispatch_does_not_query_batch_models(self, tab):
         from lorairo.gui.widgets.run_settings_dialog import RunOptions
 

@@ -195,10 +195,35 @@ class ProviderBatchWorkflowService:
         self._config_service = config_service
         self._job_service = job_service or ProviderBatchJobService(provider_batch_repo, adapters)
         self._annotation_save_service = annotation_save_service or AnnotationSaveService(annotation_repo)
+        # #1147: list_batch_capable_models() は adapter 層 (ProviderBatchLibraryAdapter) にある。
+        # GUI (LEDGER preview / 自動振り分け) は facade へ呼ぶため、委譲用に adapter を保持する。
+        self._model_listing_adapters: list[ProviderBatchAdapter] = list((adapters or {}).values())
 
     def register_adapter(self, adapter: ProviderBatchAdapter) -> None:
         """Register a provider adapter with the underlying job service."""
         self._job_service.register_adapter(adapter)
+        # #1147: model listing も委譲できるよう保持集合へ追加する。
+        self._model_listing_adapters.append(adapter)
+
+    def list_batch_capable_models(self) -> tuple[Any, ...]:
+        """Batch API 対応モデル情報を取得する (facade → adapter へ委譲、#1147)。
+
+        実処理 (image-annotator-lib への問い合わせ) は adapter 層にあるが、GUI は workflow
+        service に対してこのメソッドを呼ぶため facade として委譲する。provider 非依存
+        (annotator_library 全体を問い合わせる) なので、対応 adapter のうち最初の 1 つへ委譲する。
+
+        Returns:
+            image-annotator-lib の Provider Batch モデルメタデータのタプル。
+
+        Raises:
+            ProviderBatchError: model listing に対応する adapter が 1 つも無い場合。
+        """
+        for adapter in self._model_listing_adapters:
+            method = getattr(adapter, "list_batch_capable_models", None)
+            if callable(method):
+                models: tuple[Any, ...] = tuple(method())
+                return models
+        raise ProviderBatchError("Batch API 対応モデル一覧を取得できる adapter が登録されていません。")
 
     def build_submit_request(
         self,
