@@ -5,6 +5,7 @@
 描画する。検出ロジックは持たず表示に専念する (MVC の View)。
 """
 
+from collections.abc import Callable
 from pathlib import Path
 
 from PySide6.QtCore import Qt, QTimer, Signal
@@ -37,14 +38,86 @@ from lorairo.utils.log import logger
 from .tag_cloud_widget import FlowLayout
 from .tag_panel_widget import SelectableTagChip
 
-# issue 種別の user-facing ラベル。
+# issue 種別の user-facing ラベル (per-row バッジ用の短縮形。#1139)。
 _ISSUE_LABELS: dict[IssueType, str] = {
     IssueType.EMPTY_TAGS: "タグ無し",
     IssueType.NO_SCORE: "スコア無し",
-    IssueType.UNKNOWN_TIER: "未知の tier",
-    IssueType.RATING_DISAGREEMENT: "rating 不一致",
-    IssueType.SCORER_DISAGREEMENT: "scorer 不一致",
+    IssueType.UNKNOWN_TIER: "品質ラベル未対応",
+    IssueType.RATING_DISAGREEMENT: "レーティング不一致",
+    IssueType.SCORER_DISAGREEMENT: "品質スコア不一致",
 }
+
+# issue カード見出し用の説明的ラベル (初見でも意味が分かる日本語。#1139)。
+_ISSUE_CARD_LABELS: dict[IssueType, str] = {
+    IssueType.EMPTY_TAGS: "タグがありません",
+    IssueType.NO_SCORE: "品質スコアがありません",
+    IssueType.UNKNOWN_TIER: "品質ラベルを段階に変換できません",
+    IssueType.RATING_DISAGREEMENT: "レーティング判定が割れています",
+    IssueType.SCORER_DISAGREEMENT: "品質スコアの判定が割れています",
+}
+
+# 対処ガイド (カードの1行アクション文 + バッジ/見出しのツールチップ。#1139)。
+_ISSUE_GUIDANCE: dict[IssueType, str] = {
+    IssueType.EMPTY_TAGS: "タグを付与するか、アノテーションをやり直してください。",
+    IssueType.NO_SCORE: "品質スコアラーを実行してください。",
+    IssueType.UNKNOWN_TIER: (
+        "このモデルのラベルは品質段階マップに未登録です (ADR 0028)。"
+        "画像を確認して手動で品質を確定してください。"
+    ),
+    IssueType.RATING_DISAGREEMENT: (
+        "複数の AI モデルでレーティング判定が割れています。"
+        "画像を確認し、正しいレーティングを手動で確定してください。"
+    ),
+    IssueType.SCORER_DISAGREEMENT: (
+        "複数の AI モデルで品質スコアの判定が割れています。画像を確認し、品質を手動で確定してください。"
+    ),
+}
+
+
+def _rating_evidence(result: ImageTriageResult) -> str:
+    """rating 不一致の実値サマリ (``wd-rating=PG / moderation=R``) を組み立てる (#1139)。"""
+    parts = [f"{r.model}={r.normalized_rating}" for r in result.ratings if r.normalized_rating]
+    return " / ".join(parts)
+
+
+def _scorer_evidence(result: ImageTriageResult) -> str:
+    """scorer 不一致の実値サマリ (``aesthetic=最高品質 / technical=良品質``) を組み立てる (#1139)。"""
+    parts: list[str] = []
+    for scorer in result.scorers:
+        value = scorer.tier.label if scorer.tier is not None else (scorer.label or "?")
+        parts.append(f"{scorer.model}={value}")
+    return " / ".join(parts)
+
+
+def _unknown_tier_evidence(result: ImageTriageResult) -> str:
+    """tier 変換不能な scorer の実値サマリ (``model=label(未対応)``) を組み立てる (#1139)。"""
+    parts = [f"{s.model}={s.label or '?'}(未対応)" for s in result.scorers if s.tier is None]
+    return " / ".join(parts)
+
+
+# issue 種別 → 実値サマリ builder (該当画像の row データから組み立てる。#1139)。
+_EVIDENCE_BUILDERS: dict[IssueType, Callable[[ImageTriageResult], str]] = {
+    IssueType.RATING_DISAGREEMENT: _rating_evidence,
+    IssueType.SCORER_DISAGREEMENT: _scorer_evidence,
+    IssueType.UNKNOWN_TIER: _unknown_tier_evidence,
+}
+
+
+def _issue_evidence(issue: IssueType, results: list[ImageTriageResult]) -> str | None:
+    """当該 issue の代表例 (先頭該当画像) の実値サマリを ``例: #id ...`` 形式で返す (#1139)。
+
+    実値を持たない issue (タグ無し / スコア無し) は None。
+    """
+    builder = _EVIDENCE_BUILDERS.get(issue)
+    if builder is None:
+        return None
+    for result in results:
+        if issue in result.issues:
+            body = builder(result)
+            if body:
+                return f"例: #{result.image_id} {body}"
+    return None
+
 
 # 低信頼度タグを視覚的に弱める閾値 (表示上の dim 判定のみ。issue 化はしない)。
 _DIM_CONFIDENCE: float = 0.5
@@ -513,18 +586,39 @@ class ResultsWidget(QWidget):
         return band
 
     def _build_issue_card(self, issue: IssueType, count: int, results: list[ImageTriageResult]) -> QWidget:
-        """1 issue 種別のカード (ラベル + 件数 + 該当 image_id) を構築する。"""
+        """1 issue 種別のカードを構築する (#1139: 説明的見出し + 実値 + 対処ガイド)。"""
         card = QFrame()
         card.setObjectName(f"resultsIssueCard_{issue.value}")
         card.setFrameShape(QFrame.Shape.StyledPanel)
         layout = QVBoxLayout(card)
 
-        label = _ISSUE_LABELS.get(issue, issue.value)
-        header = QLabel(f"{label} ({count})")
+        # 見出しは初見でも意味が分かる説明的ラベル (#1139)。対処ガイドは tooltip にも出す。
+        heading = _ISSUE_CARD_LABELS.get(issue, _ISSUE_LABELS.get(issue, issue.value))
+        guidance = _ISSUE_GUIDANCE.get(issue)
+        header = QLabel(f"{heading} ({count})")
         header.setObjectName("resultsIssueCardHeader")
         # DS: issue 種別は重大度で色分けした chip 文法
         header.setStyleSheet(theme.chip_qss(_ISSUE_CHIP_KINDS.get(issue, "warn")))
+        if guidance:
+            header.setToolTip(guidance)
         layout.addWidget(header)
+
+        # 実値サマリ (どのモデルが何と判定したか) を1行添える (#1139)。
+        evidence = _issue_evidence(issue, results)
+        if evidence:
+            evidence_label = QLabel(evidence)
+            evidence_label.setObjectName("resultsIssueCardEvidence")
+            evidence_label.setWordWrap(True)
+            evidence_label.setStyleSheet(f"color: {theme.INK_FAINT}; font-family: {theme.FONT_MONO_CSS};")
+            layout.addWidget(evidence_label)
+
+        # 対処ガイド (1行アクション文) を添える (#1139)。
+        if guidance:
+            guidance_label = QLabel(guidance)
+            guidance_label.setObjectName("resultsIssueCardGuidance")
+            guidance_label.setWordWrap(True)
+            guidance_label.setStyleSheet(f"color: {theme.INK_SOFT};")
+            layout.addWidget(guidance_label)
 
         image_ids = [r.image_id for r in results if issue in r.issues]
         id_text = ", ".join(f"#{image_id}" for image_id in image_ids)
@@ -718,6 +812,10 @@ class ResultsWidget(QWidget):
             badge.setProperty("issueBadge", True)
             # DS: 行内 issue バッジも重大度の chip 文法
             badge.setStyleSheet(theme.chip_qss(_ISSUE_CHIP_KINDS.get(issue, "warn")))
+            # バッジは短縮形なので、意味と対処を tooltip で補う (#1139)。
+            guidance = _ISSUE_GUIDANCE.get(issue)
+            if guidance:
+                badge.setToolTip(guidance)
             layout.addWidget(badge)
         layout.addStretch(1)
         return line
