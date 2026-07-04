@@ -408,7 +408,16 @@ class ProviderBatchJobWidget(QWidget):
             # 既に回収中: 連打・二重回収 (二重 import) を防ぐ (#1158)。
             return
         # 保存済み判定は 1 行読みなので GUI スレッドで即答し、worker 起動を省く。
-        current_job = self._get_job(job_id)
+        # transient な OperationalError / database is locked で初回読みが raise しても
+        # 未処理例外にせず (皮肉にも #1158 が直したい経路)、最適化を諦めて worker 経路へ
+        # 回す。永続的な失敗なら worker の refresh が改めて拾い failed で報告する (Codex P2)。
+        try:
+            current_job = self._get_job(job_id)
+        except Exception as e:
+            logger.opt(exception=True).warning(
+                f"バッチAPI 保存済み判定の初回読みに失敗、worker 経路へ回します (job {job_id}): {e}"
+            )
+            current_job = None
         if current_job is not None and self._job_imported(current_job):
             self.labelStatus.setText(f"バッチAPIジョブ {job_id} は保存済みです")
             return
@@ -446,6 +455,24 @@ class ProviderBatchJobWidget(QWidget):
         self._collecting_job_ids.discard(job_id)
         _ACTIVE_COLLECT_THREADS.discard(thread)
         self._collect_runners.pop(job_id, None)
+
+    def shutdown(self) -> None:
+        """実行中の結果回収 worker thread を停止して待つ (#1158 Codex P2)。
+
+        親ウィンドウ閉鎖時、埋め込み widget の closeEvent は発火しないため MainWindow の
+        closeEvent から明示的に呼ぶ (#931/#949 と同流儀)。実行中の QThread が widget より
+        長生きして Qt teardown でクラッシュするのを防ぐ。import の DB 書き込みは
+        commit_chunk 単位の atomic transaction なので、途中終了しても未コミット分は
+        ロールバックされ半端保存にならない (#1158 ②)。ネットワーク停滞での無限ハングを
+        避けるため wait は有界にし、間に合わなければ close を優先する。
+        """
+        for thread, _worker in list(self._collect_runners.values()):
+            thread.quit()
+            if not thread.wait(5000):
+                logger.warning("結果回収 worker が時間内に停止しませんでした (close を優先します)")
+        self._collect_runners.clear()
+        self._collecting_job_ids.clear()
+        _ACTIVE_COLLECT_THREADS.clear()
 
     @Slot(int, object)
     def _on_collect_succeeded(self, job_id: int, outcome: ProviderBatchCollectOutcome) -> None:
