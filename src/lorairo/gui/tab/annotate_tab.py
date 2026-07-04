@@ -906,14 +906,27 @@ class AnnotateTabWidget(QWidget, Ui_AnnotateTab):
         self._refresh_pipeline_panel()
 
     def _on_pipeline_remove_model_requested(self, stage_value: str, litellm_model_id: str) -> None:
-        """Primary チップの × でモデルを選択集合から外す (Phase 6b)。
+        """Primary チップの × でモデルを選択集合から外す (Phase 6b, #1134)。
 
         実行粒度はモデル単位のため、チェック OFF = 全ステージから外れる。
+
+        #1134: SSoT (ModelSelectionStateManager) を直接更新する。従来は checkbox
+        ウィジェット経由でしか外せず、該当 checkbox が未表示 (フィルタ絞り込み中・
+        一覧未構築・ID キー不一致) だと警告ログのみの silent no-op になり、チップも
+        LEDGER も残っていた。SSoT を直接更新すれば checkbox 未表示でも除外が成立し、
+        view (checkbox) 追従と panel/LEDGER 再描画は ``selection_changed`` →
+        :meth:`_on_state_model_selection_changed` の既存配線に任せられる。
 
         Args:
             stage_value: × が押されたステージの value (シグナル形状の都合で受けるが未使用)。
             litellm_model_id: 集合から外すモデルの litellm_model_id。
         """
+        if self._model_selection_state_manager is not None:
+            # SSoT-first (ADR 0076)。checkbox 未表示でも除外が成立する。
+            self._model_selection_state_manager.set_model_selected(litellm_model_id, False)
+            return
+
+        # 後方互換: state manager 未注入時のみ従来どおり checkbox 経由で外す。
         checkbox_widget = self._batch_model_selection.model_checkbox_widgets.get(litellm_model_id)
         if checkbox_widget is None:
             logger.warning(f"チェックボックス未表示のため除外をスキップ: {litellm_model_id}")
