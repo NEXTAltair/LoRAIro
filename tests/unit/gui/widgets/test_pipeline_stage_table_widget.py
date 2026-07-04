@@ -364,3 +364,104 @@ class TestChipStyleVisualParity:
             f" color: {theme.INK_SOFT}; font-style: italic; font-size: {theme.FONT_SIZE_SMALL}px; }}"
         )
         assert _chip_declarations(mod._DERIVED_CHIP_STYLE) == _chip_declarations(baseline)
+
+
+def _many_rating_models(count: int) -> tuple[StageModelInfo, ...]:
+    return tuple(
+        StageModelInfo(
+            litellm_model_id=f"rating-model-{i:02d}",
+            display_name=f"rating-model-{i:02d}",
+            provider=None,
+            is_api=False,
+            capabilities=frozenset({"ratings"}),
+        )
+        for i in range(count)
+    )
+
+
+def _chip_rows(chips_container: QWidget) -> int:
+    """FlowLayout 内チップの distinct y (= 行数) を返す。"""
+    layout = chips_container.layout()
+    ys = set()
+    for i in range(layout.count()):
+        item = layout.itemAt(i)
+        if item is not None and item.widget() is not None:
+            ys.add(item.widget().y())
+    return len(ys)
+
+
+class TestStageRowChipWrap:
+    """#1100 再オープン: ステージ行チップが折り返し、横スクロールを起こさない runtime 検証。"""
+
+    @pytest.mark.parametrize("window_width", [800, 500])
+    def test_content_fits_viewport_and_chips_wrap(self, qtbot, window_width):
+        from PySide6.QtWidgets import QScrollArea
+
+        widget = PipelineStageTableWidget()
+        widget.display(
+            [StageRow(stage=PipelineStage.RATING, primary_models=_many_rating_models(14), derived_chips=())]
+        )
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setWidget(widget)
+        qtbot.addWidget(scroll)
+        scroll.resize(window_width, 600)
+        scroll.show()
+        qtbot.waitExposed(scroll)
+
+        viewport_width = scroll.viewport().width()
+        # (a) コンテンツ実幅がビューポート幅以下 (横スクロール不要)
+        assert widget.width() <= viewport_width
+        assert widget.minimumSizeHint().width() <= viewport_width
+        # (b) ステージ行チップが複数行に折り返されている
+        chips = widget.findChild(QWidget, "stageChips_RATING")
+        assert chips is not None
+        assert _chip_rows(chips) >= 2
+
+    def test_narrower_window_wraps_more_rows(self, qtbot):
+        from PySide6.QtWidgets import QScrollArea
+
+        def rows_at(width: int) -> int:
+            widget = PipelineStageTableWidget()
+            widget.display(
+                [
+                    StageRow(
+                        stage=PipelineStage.RATING, primary_models=_many_rating_models(14), derived_chips=()
+                    )
+                ]
+            )
+            scroll = QScrollArea()
+            scroll.setWidgetResizable(True)
+            scroll.setWidget(widget)
+            qtbot.addWidget(scroll)
+            scroll.resize(width, 600)
+            scroll.show()
+            qtbot.waitExposed(scroll)
+            return _chip_rows(widget.findChild(QWidget, "stageChips_RATING"))
+
+        assert rows_at(400) > rows_at(900)
+
+    def test_stage_chips_use_flow_layout(self, qtbot):
+        from lorairo.gui.widgets.tag_cloud_widget import FlowLayout
+
+        widget = PipelineStageTableWidget()
+        widget.display(
+            [StageRow(stage=PipelineStage.RATING, primary_models=_many_rating_models(6), derived_chips=())]
+        )
+        qtbot.addWidget(widget)
+        chips = widget.findChild(QWidget, "stageChips_RATING")
+        assert isinstance(chips.layout(), FlowLayout)
+
+    def test_preset_row_uses_flow_layout(self, qtbot):
+        from lorairo.gui.widgets.tag_cloud_widget import FlowLayout
+
+        widget = PipelineStageTableWidget()
+        qtbot.addWidget(widget)
+        preset_row = widget.findChild(QWidget, "presetChipRow")
+        assert isinstance(preset_row.layout(), FlowLayout)
+
+    def test_legend_wraps(self, qtbot):
+        widget = PipelineStageTableWidget()
+        qtbot.addWidget(widget)
+        legend = widget.findChild(QLabel, "pipelineLegendLabel")
+        assert legend.wordWrap() is True
