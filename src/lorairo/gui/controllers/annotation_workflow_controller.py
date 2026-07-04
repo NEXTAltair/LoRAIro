@@ -1067,7 +1067,11 @@ class AnnotationWorkflowController(QObject):
             self._finalize_submitted_jobs(job_ids)
             message = f"Batch API 送信が途中で失敗しました ({len(job_ids)} ジョブ送信済み):\n{error}"
         else:
-            logger.opt(exception=isinstance(error, Exception)).error(f"Batch API dispatch 失敗: {error}")
+            # slot は except 節外で後から実行されるため sys.exc_info() は空。emit された例外
+            # オブジェクトを exception= に直接渡して traceback を記録する (#1153 Codex P2)。
+            logger.opt(exception=error if isinstance(error, Exception) else None).error(
+                f"Batch API dispatch 失敗: {error}"
+            )
             message = f"Batch API 送信に失敗しました:\n{error}"
         QMessageBox.critical(self._parent_widget, "Batch API 送信", message)
 
