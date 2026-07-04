@@ -73,10 +73,15 @@ logger.warning(f"pHashが一致する画像が既に存在: ID {existing_id}")
 - DB操作の例外
 - ファイルI/Oの失敗
 - 外部API呼び出しの失敗
-- 必ず`exc_info=True`を付与する
+- except 節では必ず traceback を残す。**loguru に `exc_info=True` は無効**（黙って無視され、メッセージに波括弧が含まれると `.format()` が走り KeyError でログ自体がクラッシュする — #1153）。`logger.opt(exception=True)` を使う
 
 ```python
-logger.error(f"画像登録に失敗: {path}", exc_info=True)
+# 正しい: loguru の例外記録
+logger.opt(exception=True).error(f"画像登録に失敗: {path}")
+logger.opt(exception=True).error(f"DB接続エラー: {e}")
+
+# 禁止: std logging のイディオム (loguru では traceback が記録されず、
+# メッセージに {'key': ...} 等の波括弧が入ると KeyError でクラッシュ)
 logger.error(f"DB接続エラー: {e}", exc_info=True)
 ```
 
