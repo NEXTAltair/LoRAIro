@@ -49,6 +49,14 @@ _ISSUE_LABELS: dict[IssueType, str] = {
 # 低信頼度タグを視覚的に弱める閾値 (表示上の dim 判定のみ。issue 化はしない)。
 _DIM_CONFIDENCE: float = 0.5
 
+# #1140 フリーズ対策。全行 + タグ chip を一括構築すると 100 枚 × 数十 chip で GUI
+# スレッドが数分ブロックするため、行はチャンク分割して構築し chip 数も行内で上限を設ける。
+_ROW_CHUNK_SIZE: int = 15  # 1 タイマーティックで構築する行数 (初回チャンクは同期構築)
+_MAX_TAG_CHIPS_PER_ROW: int = 15  # 1 行に出すタグ chip の上限 (超過は「他 N件」ラベルへ畳む)
+# これ以上の件数では per-row 描画を諦め、サマリ + issue 集約のみ表示へ degrade する
+# (wireframes v12 Results@500: 仮想スクロール + 同種 issue 集約)。
+_VIRTUALIZE_THRESHOLD: int = 500
+
 # DS v12 ResultsScreen (Issue #791): 構造的 issue 種別 → chip 文法の kind。
 # 空タグは欠落 = err、その他の不一致/欠落は warn。
 _ISSUE_CHIP_KINDS: dict[IssueType, theme.ChipKind] = {
@@ -151,7 +159,8 @@ class _RowThumbnail(QLabel):
         super().showEvent(event)
         # 表示直後はレイアウト未確定で visibleRegion が不正確なことがあるため、
         # イベントループ復帰後に可視判定する (先頭スクリーン分の初期ロード)。
-        QTimer.singleShot(0, self.maybe_load)
+        # context に self を渡し破棄後の stale コールバックを防ぐ (#1140)。
+        QTimer.singleShot(0, self, self.maybe_load)
 
     def _load(self) -> None:
         """パスから QPixmap を読み込む。失敗時はプレースホルダ文言を残す。"""
@@ -202,6 +211,10 @@ class ResultsWidget(QWidget):
         self._image_paths: dict[int, str] = {}
         # 遅延ロード対象のサムネイル一覧 (可視域だけデコードするため保持する。#1104)。
         self._row_thumbnails: list[_RowThumbnail] = []
+        # 行のチャンク分割構築の状態 (#1140)。世代トークンで stale コールバックを弾く。
+        self._render_generation: int = 0
+        self._pending_results: list[ImageTriageResult] = []
+        self._rows_layout: QVBoxLayout | None = None
         self.clear()
 
     # ------------------------------------------------------------------
@@ -244,12 +257,17 @@ class ResultsWidget(QWidget):
         if issue_band is not None:
             self._root.addWidget(issue_band)
 
+        # 大規模時は per-row 描画を諦め、サマリ + issue 集約のみ表示する (#1140)。
+        # 数千 chip の一括構築を避け、絞り込みへ誘導する (wireframes Results@500)。
+        if len(ordered) >= _VIRTUALIZE_THRESHOLD:
+            self._root.addWidget(self._build_scale_notice(len(ordered)))
+            self._root.addStretch(1)
+            return
+
         rows_container = QWidget()
         rows_layout = QVBoxLayout(rows_container)
         rows_layout.setContentsMargins(0, 0, 0, 0)
-        for result in ordered:
-            rows_layout.addWidget(self._build_row(result))
-        rows_layout.addStretch(1)
+        rows_layout.addStretch(1)  # 末尾 stretch。行はこの前に挿入していく。
 
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
@@ -262,8 +280,47 @@ class ResultsWidget(QWidget):
         if band is not None:
             self._root.addWidget(band)
 
-        # 先頭スクリーン分のサムネイルをレイアウト確定後にロードする (可視域のみ)。
-        QTimer.singleShot(0, self._load_visible_thumbnails)
+        # 行はチャンク分割で構築し、GUI スレッドを長時間ブロックしない (#1140)。
+        # 初回チャンクは同期構築して初期表示を出し、残りはイベントループ復帰後に足す。
+        self._rows_layout = rows_layout
+        self._pending_results = list(ordered)
+        self._build_next_row_chunk(self._render_generation)
+        # 先頭スクリーン分のサムネイルをレイアウト確定後にロードする (可視域のみ、#1104)。
+        QTimer.singleShot(0, self, self._load_visible_thumbnails)
+
+    def _build_next_row_chunk(self, generation: int) -> None:
+        """pending から最大 ``_ROW_CHUNK_SIZE`` 行を構築し、残があれば次を予約する (#1140)。"""
+        # 別の display / clear で作り直された後の stale コールバックは破棄する。
+        if generation != self._render_generation:
+            return
+        layout = self._rows_layout
+        if layout is None:
+            return
+        built = 0
+        while self._pending_results and built < _ROW_CHUNK_SIZE:
+            result = self._pending_results.pop(0)
+            # 末尾 stretch の手前に挿入する (行の順序を保つ)。
+            layout.insertWidget(layout.count() - 1, self._build_row(result))
+            built += 1
+        if self._pending_results:
+            # context に self を渡し、ウィジェット破棄後に stale コールバックが
+            # 発火して削除済み C++ オブジェクトへ触れるのを防ぐ (#1140)。
+            QTimer.singleShot(0, self, lambda g=generation: self._build_next_row_chunk(g))
+        else:
+            # 全行構築完了。可視域のサムネイルをロードする。
+            self._load_visible_thumbnails()
+
+    def _build_scale_notice(self, count: int) -> QWidget:
+        """大規模件数での per-row 省略を知らせる集約ノーティスを構築する (#1140)。"""
+        notice = QLabel(
+            f"対象 {count} 件は多いため、行ごとの表示を省略しています "
+            f"(≥ {_VIRTUALIZE_THRESHOLD} 件)。上のサマリと issue バンドで全体の傾向を確認し、"
+            "検索・フィルタで絞り込んでから個別の結果を確認してください。"
+        )
+        notice.setObjectName("resultsScaleNotice")
+        notice.setWordWrap(True)
+        notice.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        return notice
 
     def _load_visible_thumbnails(self) -> None:
         """viewport に見えているサムネイルだけを (まだなら) デコードする (#1104)。"""
@@ -355,6 +412,10 @@ class ResultsWidget(QWidget):
         self._image_paths = {}
         # 破棄されるサムネイル参照を先に手放す (スクロール再評価が stale を触らないよう)。
         self._row_thumbnails = []
+        # 世代を進めて進行中のチャンク構築コールバックを無効化し、pending をクリアする (#1140)。
+        self._render_generation += 1
+        self._pending_results = []
+        self._rows_layout = None
         while self._root.count():
             item = self._root.takeAt(0)
             if item is None:
@@ -534,8 +595,18 @@ class ResultsWidget(QWidget):
         line.add_widget(QLabel("tags:"))
         if not tags:
             line.add_widget(QLabel("(なし)"))
-        for tag_view in tags:
+            return line
+        # 1 行のタグ数は上限で切り、超過は「他 N件」へ畳む (#1140: 数十 chip/行の
+        # 一括生成 + FlowLayout 再レイアウト嵐を抑える)。
+        shown = tags[:_MAX_TAG_CHIPS_PER_ROW]
+        for tag_view in shown:
             line.add_widget(self._build_tag_chip(tag_view))
+        overflow = len(tags) - len(shown)
+        if overflow > 0:
+            more = QLabel(f"他 {overflow}件")
+            more.setObjectName("resultsTagsOverflow")
+            more.setStyleSheet(theme.chip_qss("muted"))
+            line.add_widget(more)
         return line
 
     def _build_tag_chip(self, tag_view: TagView) -> QWidget:

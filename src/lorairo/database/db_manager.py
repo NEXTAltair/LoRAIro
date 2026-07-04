@@ -1079,6 +1079,66 @@ class ImageDatabaseManager:
             logger.error(f"画像ID {image_id} のアノテーション取得中にエラー: {e}", exc_info=True)
             raise
 
+    def get_image_annotations_batch(
+        self,
+        image_ids: list[int],
+        *,
+        include_rejected: bool = False,
+    ) -> dict[int, dict[str, Any]]:
+        """複数画像のアノテーションを一括取得する (#1140 N+1 解消)。
+
+        ``get_image_annotations`` と同じ 6-key dict を image_id ごとに返す。存在しない
+        image_id は空スケルトンを返す。
+
+        Args:
+            image_ids: 対象画像 ID リスト。
+            include_rejected: True の場合、soft-rejected Tag/Caption も返す。
+
+        Raises:
+            SQLAlchemyError: DB 操作に失敗した場合は呼び出し元に伝播させる。
+        """
+        try:
+            return self.image_repo.get_image_annotations_batch(image_ids, include_rejected=include_rejected)
+        except SQLAlchemyError as e:
+            logger.error(f"アノテーション一括取得中にエラー (count={len(image_ids)}): {e}", exc_info=True)
+            raise
+
+    def get_low_res_image_paths_batch(self, image_ids: list[int]) -> dict[int, str]:
+        """複数画像の最低解像度処理済み画像パスを一括取得する (#1140 N+1 解消)。
+
+        ``get_low_res_image_path`` と同じ「面積最小」選択を image_id ごとに行う。
+        処理済み画像が無い image_id は結果に含めない。
+
+        Args:
+            image_ids: 対象画像 ID リスト。
+
+        Raises:
+            SQLAlchemyError: DB 操作に失敗した場合は呼び出し元に伝播させる。
+        """
+        try:
+            return self.image_repo.get_low_res_image_paths_batch(image_ids)
+        except SQLAlchemyError as e:
+            logger.error(f"最低解像度パス一括取得中にエラー (count={len(image_ids)}): {e}", exc_info=True)
+            raise
+
+    def get_images_metadata_batch(self, image_ids: list[int]) -> list[dict[str, Any]]:
+        """複数画像のオリジナルメタデータを一括取得する (#1140 N+1 解消)。
+
+        ``get_image_metadata`` と同じ列集合の dict を返す (キーは images.id = ``id``)。
+        見つからなかった ID は結果に含まれない。
+
+        Args:
+            image_ids: 対象画像 ID リスト。
+
+        Raises:
+            SQLAlchemyError: DB 操作に失敗した場合は呼び出し元に伝播させる。
+        """
+        try:
+            return self.image_repo.get_images_metadata_batch(image_ids)
+        except SQLAlchemyError as e:
+            logger.error(f"メタデータ一括取得中にエラー (count={len(image_ids)}): {e}", exc_info=True)
+            raise
+
     def get_models(self) -> list[dict[str, Any]]:
         """データベースに登録されている全てのモデル情報を取得します。
 

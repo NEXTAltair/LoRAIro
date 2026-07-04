@@ -91,13 +91,20 @@ class ResultsTabWidget(QWidget):
             self._results_widget.clear()
             return
 
+        # DB 取得は N+1 を避けるため一括で行う (#1140)。ステージング全画像分の
+        # metadata / annotations / 最低解像度パスを 3 回のバッチクエリでまとめて引く
+        # (旧実装は 1 画像 4 クエリの直列ループで GUI スレッドが数分ブロックしていた)。
+        metadata_by_id = {m["id"]: m for m in self._db_manager.get_images_metadata_batch(image_ids)}
+        annotations_by_id = self._db_manager.get_image_annotations_batch(image_ids)
+        low_res_by_id = self._db_manager.get_low_res_image_paths_batch(image_ids)
+
         results = []
         image_paths: dict[int, str] = {}
         for image_id in image_ids:
-            metadata = self._db_manager.get_image_metadata(image_id)
+            metadata = metadata_by_id.get(image_id)
             if metadata is None:
                 continue
-            annotations = self._db_manager.get_image_annotations(image_id)
+            annotations = annotations_by_id.get(image_id, {})
             image_meta = {
                 "uuid": metadata.get("uuid"),
                 "width": metadata.get("width"),
@@ -105,10 +112,9 @@ class ResultsTabWidget(QWidget):
                 "reviewed_at": metadata.get("reviewed_at"),
             }
             results.append(self._quality_service.detect_image(image_id, image_meta, annotations))
-            # 行内サムネイル用のパスを解決する (#1104)。低解像度処理済み画像を優先し、
-            # 無ければオリジナルの stored path にフォールバックする。View は DB を持た
-            # ないため、パス解決はこのタブ (glue) が担って display に渡す。
-            path = self._resolve_thumbnail_path(image_id, metadata)
+            # 行内サムネイル用のパスを解決する (#1104)。View は DB を持たないため、
+            # パス解決はこのタブ (glue) が担って display に渡す。
+            path = self._resolve_thumbnail_path(metadata, low_res_by_id.get(image_id))
             if path is not None:
                 image_paths[image_id] = path
 
@@ -119,8 +125,8 @@ class ResultsTabWidget(QWidget):
         summary = self._quality_service.summarize(results)
         self._results_widget.display(summary, results, image_paths)
 
-    def _resolve_thumbnail_path(self, image_id: int, metadata: dict[str, object]) -> str | None:
-        """行内サムネイル用の画像パスを解決する (#1104)。
+    def _resolve_thumbnail_path(self, metadata: dict[str, object], low_res_path: str | None) -> str | None:
+        """行内サムネイル用の画像パスを解決する (#1104 / バッチ化 #1140)。
 
         低解像度処理済み画像 (512px サムネイル) を優先し、無ければオリジナルの
         ``stored_image_path`` にフォールバックする。いずれも無ければ None。
@@ -128,12 +134,14 @@ class ResultsTabWidget(QWidget):
         DB の格納パスはプロジェクトルート相対のことがあるため、View へ渡す前に
         ``resolve_stored_path`` でプロジェクトルート基準の絶対パスへ解決する
         (相対のままだとサムネイル読込がプロセスの cwd 基準になり外れる。#961 P2 と同型)。
+
+        Args:
+            metadata: 対象画像の metadata dict (``stored_image_path`` フォールバック用)。
+            low_res_path: バッチ取得済みの最低解像度パス (無ければ None)。
         """
         candidate: str | None = None
-        if self._db_manager is not None:
-            low_res = self._db_manager.get_low_res_image_path(image_id)
-            if isinstance(low_res, str) and low_res:
-                candidate = low_res
+        if isinstance(low_res_path, str) and low_res_path:
+            candidate = low_res_path
         if candidate is None:
             stored = metadata.get("stored_image_path")
             if isinstance(stored, str) and stored:

@@ -1306,31 +1306,7 @@ class ImageRepository(BaseRepository):
                     logger.warning(f"画像が見つかりません: image_id={image_id}")
                     return annotations
 
-                if image.tags:
-                    tags = (
-                        image.tags if include_rejected else [t for t in image.tags if t.rejected_at is None]
-                    )
-                    annotations["tags"] = [self._format_tag_annotation(t) for t in tags]
-                if image.captions:
-                    captions = (
-                        image.captions
-                        if include_rejected
-                        else [c for c in image.captions if c.rejected_at is None]
-                    )
-                    annotations["captions"] = [self._format_caption_annotation(c) for c in captions]
-                if image.scores:
-                    annotations["scores"] = [self._format_score_annotation(s) for s in image.scores]
-                if image.score_labels:
-                    annotations["score_labels"] = [
-                        self._format_score_label_annotation(sl) for sl in image.score_labels
-                    ]
-                if image.ratings:
-                    annotations["ratings"] = [self._format_rating_annotation(r) for r in image.ratings]
-
-                # ADR 0029: derived view、永続化しない。raw annotation から毎回計算する。
-                annotations["quality_summary"] = compute_quality_summary(
-                    annotations["score_labels"], annotations["scores"]
-                )
+                annotations = self._assemble_annotations(image, include_rejected=include_rejected)
 
                 logger.debug(
                     f"取得したアノテーション数: tags={len(annotations['tags'])}, "
@@ -1343,6 +1319,149 @@ class ImageRepository(BaseRepository):
             except SQLAlchemyError as e:
                 logger.error(
                     f"画像ID {image_id} のアノテーション取得中にエラーが発生しました: {e}",
+                    exc_info=True,
+                )
+                raise
+
+    def _assemble_annotations(self, image: Image, *, include_rejected: bool) -> dict[str, Any]:
+        """eager-load 済み ``Image`` から 6-key アノテーション dict を組み立てる。
+
+        ``get_image_annotations`` と ``get_image_annotations_batch`` で共有し、単一/一括で
+        返り値の形状が完全一致することを保証する (#1140)。soft-reject フィルタは
+        tags/captions のみに適用する (scores/score_labels/ratings は非対象)。
+        """
+        annotations: dict[str, Any] = {
+            "tags": [],
+            "captions": [],
+            "scores": [],
+            "score_labels": [],
+            "ratings": [],
+            "quality_summary": {},
+        }
+        if image.tags:
+            tags = image.tags if include_rejected else [t for t in image.tags if t.rejected_at is None]
+            annotations["tags"] = [self._format_tag_annotation(t) for t in tags]
+        if image.captions:
+            captions = (
+                image.captions if include_rejected else [c for c in image.captions if c.rejected_at is None]
+            )
+            annotations["captions"] = [self._format_caption_annotation(c) for c in captions]
+        if image.scores:
+            annotations["scores"] = [self._format_score_annotation(s) for s in image.scores]
+        if image.score_labels:
+            annotations["score_labels"] = [
+                self._format_score_label_annotation(sl) for sl in image.score_labels
+            ]
+        if image.ratings:
+            annotations["ratings"] = [self._format_rating_annotation(r) for r in image.ratings]
+        # ADR 0029: derived view、永続化しない。raw annotation から毎回計算する。
+        annotations["quality_summary"] = compute_quality_summary(
+            annotations["score_labels"], annotations["scores"]
+        )
+        return annotations
+
+    def get_image_annotations_batch(
+        self, image_ids: list[int], *, include_rejected: bool = False
+    ) -> dict[int, dict[str, Any]]:
+        """複数画像のアノテーションを 1 クエリで一括取得する (#1140 N+1 解消)。
+
+        ``get_image_annotations`` と同じ 6-key dict を image_id ごとに返す。
+        ``joinedload`` による行増殖を避けるため ``selectinload`` を使う (tag/caption/
+        score は ``.model`` を参照しないので relation のみ、rating/score_label は
+        ``.model`` も先読みする)。存在しない image_id は空スケルトンを返す (単一版と
+        同じ振る舞い)。
+
+        Args:
+            image_ids: 取得対象の画像 ID リスト。
+            include_rejected: True の場合 soft-rejected Tag/Caption も含める。
+
+        Returns:
+            ``{image_id: {tags/captions/scores/score_labels/ratings/quality_summary}}``。
+
+        Raises:
+            SQLAlchemyError: データベース操作でエラーが発生した場合。
+        """
+        result: dict[int, dict[str, Any]] = {
+            image_id: {
+                "tags": [],
+                "captions": [],
+                "scores": [],
+                "score_labels": [],
+                "ratings": [],
+                "quality_summary": {},
+            }
+            for image_id in image_ids
+        }
+        if not image_ids:
+            return result
+
+        with self.session_factory() as session:
+            try:
+                # チャンク分割で SQLite バインド変数上限を回避 (数百件なら 1 チャンク)。
+                for i in range(0, len(image_ids), self.BATCH_CHUNK_SIZE):
+                    chunk = image_ids[i : i + self.BATCH_CHUNK_SIZE]
+                    stmt = (
+                        select(Image)
+                        .where(Image.id.in_(chunk))
+                        .options(
+                            selectinload(Image.tags),
+                            selectinload(Image.captions),
+                            selectinload(Image.scores),
+                            selectinload(Image.score_labels).selectinload(ScoreLabel.model),
+                            selectinload(Image.ratings).selectinload(Rating.model),
+                        )
+                    )
+                    for image in session.execute(stmt).unique().scalars():
+                        result[image.id] = self._assemble_annotations(
+                            image, include_rejected=include_rejected
+                        )
+                return result
+            except SQLAlchemyError as e:
+                logger.error(
+                    f"アノテーションの一括取得中にエラーが発生しました (count={len(image_ids)}): {e}",
+                    exc_info=True,
+                )
+                raise
+
+    def get_low_res_image_paths_batch(self, image_ids: list[int]) -> dict[int, str]:
+        """複数画像の最低解像度処理済み画像パスを 1 クエリで一括取得する (#1140)。
+
+        ``get_processed_image(resolution=0)`` と同じ「面積最小」選択を image_id ごとに
+        行い、``{image_id: stored_image_path}`` を返す。処理済み画像が無い image_id は
+        結果に含めない (単一版の ``get_low_res_image_path`` が None を返すのと整合)。
+
+        Args:
+            image_ids: 取得対象の画像 ID リスト。
+
+        Returns:
+            ``{image_id: 最低解像度の stored_image_path}``。
+
+        Raises:
+            SQLAlchemyError: データベース操作でエラーが発生した場合。
+        """
+        if not image_ids:
+            return {}
+
+        with self.session_factory() as session:
+            try:
+                grouped: dict[int, list[ProcessedImage]] = {}
+                for i in range(0, len(image_ids), self.BATCH_CHUNK_SIZE):
+                    chunk = image_ids[i : i + self.BATCH_CHUNK_SIZE]
+                    stmt = select(ProcessedImage).where(ProcessedImage.image_id.in_(chunk))
+                    for processed in session.execute(stmt).scalars():
+                        grouped.setdefault(processed.image_id, []).append(processed)
+
+                paths: dict[int, str] = {}
+                for image_id, processed_list in grouped.items():
+                    # 面積最小 (最低解像度) を選ぶ (get_processed_image の resolution==0 と同一基準)。
+                    lowest = min(processed_list, key=lambda p: p.width * p.height)
+                    stored_path = lowest.stored_image_path
+                    if isinstance(stored_path, str) and stored_path:
+                        paths[image_id] = stored_path
+                return paths
+            except SQLAlchemyError as e:
+                logger.error(
+                    f"最低解像度パスの一括取得中にエラーが発生しました (count={len(image_ids)}): {e}",
                     exc_info=True,
                 )
                 raise
