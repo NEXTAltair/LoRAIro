@@ -49,6 +49,16 @@ def auto_mock_qmessagebox(monkeypatch):
     monkeypatch.setattr(QMessageBox, "information", mock_information)
     monkeypatch.setattr(QMessageBox, "critical", mock_critical)
 
+    # コピー可能ダイアログのヘルパー (message_box) も抑止する (#1160)。show_warning/
+    # show_critical/show_information は build_message_box(...).exec() を呼ぶため、
+    # build_message_box を neutralize すれば実ダイアログの exec ブロックを防げる。
+    def mock_build_message_box(*args, **kwargs):
+        box = Mock()
+        box.exec.return_value = QMessageBox.StandardButton.Ok
+        return box
+
+    monkeypatch.setattr("lorairo.gui.message_box.build_message_box", mock_build_message_box)
+
 
 @pytest.fixture(autouse=True)
 def auto_mock_qfiledialog(monkeypatch):
