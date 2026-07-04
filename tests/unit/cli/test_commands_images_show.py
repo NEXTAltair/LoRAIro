@@ -39,8 +39,8 @@ def _make_container(image_ids: list[int]) -> MagicMock:
     container = MagicMock()
     records = [{"id": i} for i in image_ids]
     container.db_manager.image_repo.get_images_by_filter.return_value = (records, len(records))
-    container.db_manager.image_repo.get_image_annotations.side_effect = (
-        lambda image_id, include_rejected=False: _annotations_for(image_id)
+    container.db_manager.image_repo.get_image_annotations_batch.side_effect = (
+        lambda image_ids, include_rejected=False: {i: _annotations_for(i) for i in image_ids}
     )
     return container
 
@@ -100,8 +100,8 @@ class TestImagesShow:
                 "--include-rejected",
             ],
         )
-        mock_show_context.db_manager.image_repo.get_image_annotations.assert_any_call(
-            42, include_rejected=True
+        mock_show_context.db_manager.image_repo.get_image_annotations_batch.assert_any_call(
+            [42], include_rejected=True
         )
 
     def test_show_missing_image_id_errors(self, mock_show_context: MagicMock) -> None:

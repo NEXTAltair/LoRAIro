@@ -509,10 +509,9 @@ def show(
         validate_image_ids_exist(container, image_ids)
 
         image_repo = container.db_manager.image_repo
-        annotations_by_id = {
-            image_id: image_repo.get_image_annotations(image_id, include_rejected=include_rejected)
-            for image_id in image_ids
-        }
+        annotations_by_id = image_repo.get_image_annotations_batch(
+            image_ids, include_rejected=include_rejected
+        )
 
         if is_json_mode():
             for image_id in image_ids:
