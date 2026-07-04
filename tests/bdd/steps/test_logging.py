@@ -95,7 +95,7 @@ def when_logger_initialized(log_config: dict, console_capture: io.StringIO) -> N
         format="{level} | {name} | {message}",
         colorize=False,
         backtrace=True,
-        diagnose=True,
+        diagnose=False,  # 実 sink 設定に合わせる (#1153 Codex P1: 機密の traceback 展開を防ぐ)
     )
 
 

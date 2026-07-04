@@ -42,3 +42,23 @@ def test_no_loguru_exc_info_in_src() -> None:
         "loguru では exc_info= を使わず logger.opt(exception=True).<level>(msg) を使うこと (#1153):\n"
         + "\n".join(offenders)
     )
+
+
+@pytest.mark.unit
+def test_log_sinks_disable_diagnose() -> None:
+    """utils/log.py の sink 設定に diagnose=True が無いことを保証する (#1153 Codex P1)。
+
+    loguru の diagnose=True は例外 traceback にフレームのローカル変数を展開するため、
+    API キー等の機密がログファイル/コンソールに漏れる。opt(exception=True) で traceback
+    記録が復活した今、sink は diagnose=False (backtrace=True は維持) でなければならない。
+    """
+    log_module = _SRC_ROOT / "utils" / "log.py"
+    offenders = [
+        f"{lineno}: {line.strip()}"
+        for lineno, line in enumerate(log_module.read_text(encoding="utf-8").splitlines(), start=1)
+        if re.search(r"\bdiagnose\s*=\s*True\b", line)
+    ]
+    assert not offenders, (
+        "logger.add の sink は diagnose=False にすること (機密の traceback 展開防止、#1153):\n"
+        + "\n".join(offenders)
+    )
