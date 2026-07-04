@@ -903,12 +903,21 @@ class MainWindow(QMainWindow, Ui_MainWindow):
                 "コントローラー未初期化",
                 "AnnotationWorkflowControllerが初期化されていないため、アノテーション処理を開始できません。",
             )
+            # #1156 (Codex P2): controller 未初期化でも連打ガードを解除する。解除しないと
+            # _execute_in_flight が立ちっぱなしで以後実行ボタンが永久に無反応になる。
+            if self.annotate_tab is not None:
+                self.annotate_tab.set_execution_running(False)
             return
-        started = self.annotation_workflow_controller.start_annotation(dispatch_mode)
-        # #1156: 開始成功なら実行ボタンを無効化 (連打多重投入防止)、開始前拒否なら有効のまま。
-        # 再有効化は worker 終端シグナル / async dispatch thread 終了で行う。
-        if self.annotate_tab is not None:
-            self.annotate_tab.set_execution_running(started)
+        # #1156 (Codex P2): start_annotation が例外で抜けても連打ガードを必ず解除する。
+        # try/finally で set_execution_running(started) を保証し永久ロックを防ぐ。
+        # 開始成功なら無効化 (連打多重投入防止)、拒否/例外なら有効のまま (started=False)。
+        # 開始成功時の再有効化は worker 終端シグナル / async dispatch thread 終了で行う。
+        started = False
+        try:
+            started = self.annotation_workflow_controller.start_annotation(dispatch_mode)
+        finally:
+            if self.annotate_tab is not None:
+                self.annotate_tab.set_execution_running(started)
         if started:
             self._navigate_to_jobs_tab()
 
@@ -1267,12 +1276,18 @@ class MainWindow(QMainWindow, Ui_MainWindow):
         self._delegate_to_progress_state("on_batch_annotation_canceled", worker_id)
 
     def _reset_annotation_execute_buttons(self) -> None:
-        """アノテ実行ボタンの実行中ロックを解除する (#1156)。
+        """同期アノテの終端でアノテ実行ボタンのロック解除を試みる (#1156)。
 
-        同期アノテの終端シグナル (finished/error/canceled) で呼ぶ。annotate_tab 未生成の
-        縮退起動では no-op。batch_api の再有効化は controller の dispatch thread 終了で行う。
+        同期アノテの終端シグナル (finished/error/canceled) で呼ぶ。自動振り分け
+        (batch_api の split) では async batch dispatch と同期アノテが並行するため、
+        同期側の終端が先に来ても controller 側で async dispatch の in-flight を確認し、
+        双方が idle になるまでロックを維持する (Codex P2: 早期解除で batch submit 中に
+        ボタンが復活するのを防ぐ)。controller 未初期化の縮退起動では直接再有効化する。
         """
-        if self.annotate_tab is not None:
+        controller = self.annotation_workflow_controller
+        if controller is not None:
+            controller.on_sync_annotation_finished()
+        elif self.annotate_tab is not None:
             self.annotate_tab.set_execution_running(False)
 
     def _on_batch_annotation_finished(self, result: Any) -> None:

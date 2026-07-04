@@ -141,6 +141,8 @@ class TestStartAnnotationWorkflow:
             "/path/to/image2.jpg",
         ]
         assert call_args[1]["litellm_model_ids"] == ["gpt-4o-mini"]
+        # #1156 (Codex P2): 同期 worker 起動で in-flight フラグが立つ (ロック解除条件に使う)
+        assert controller._sync_annotation_in_progress is True
 
     def test_start_annotation_workflow_no_images_selected(
         self,
@@ -1094,27 +1096,101 @@ class TestFinalizeSubmittedJobs:
         ctrl._staging_state_manager.remove_image_ids.assert_not_called()
         ctrl._jobs_refresh.assert_not_called()
 
-    def test_thread_finished_reenables_execute_buttons(self) -> None:
-        """#1156: Batch dispatch thread 終了で実行ボタンロックを解除する。"""
+    def test_thread_finished_clears_flag_and_tries_release(self) -> None:
+        """#1156: Batch dispatch thread 終了で in-flight を下げ、ロック解除を試みる。"""
+        from lorairo.gui.controllers.annotation_workflow_controller import AnnotationWorkflowController
+
+        ctrl = Mock()
+
+        AnnotationWorkflowController._on_async_dispatch_thread_finished(ctrl)
+
+        assert ctrl._async_dispatch_in_progress is False
+        # 直接ボタンは触らず、同期側との AND 判定を _maybe_release_execute_lock に委ねる
+        ctrl._maybe_release_execute_lock.assert_called_once_with()
+
+    def test_maybe_release_reenables_when_both_idle(self) -> None:
+        """#1156 (Codex P2): 同期・async dispatch 双方 idle なら再有効化する。"""
+        from lorairo.gui.controllers.annotation_workflow_controller import AnnotationWorkflowController
+
+        ctrl = Mock()
+        ctrl._async_dispatch_in_progress = False
+        ctrl._sync_annotation_in_progress = False
+        ctrl._annotate_tab = Mock()
+
+        AnnotationWorkflowController._maybe_release_execute_lock(ctrl)
+
+        ctrl._annotate_tab.set_execution_running.assert_called_once_with(False)
+
+    def test_maybe_release_keeps_lock_while_async_dispatch_in_flight(self) -> None:
+        """#1156 (Codex P2): 同期終端が先でも async dispatch 中はロック維持する。"""
+        from lorairo.gui.controllers.annotation_workflow_controller import AnnotationWorkflowController
+
+        ctrl = Mock()
+        ctrl._async_dispatch_in_progress = True
+        ctrl._sync_annotation_in_progress = False
+        ctrl._annotate_tab = Mock()
+
+        AnnotationWorkflowController._maybe_release_execute_lock(ctrl)
+
+        ctrl._annotate_tab.set_execution_running.assert_not_called()
+
+    def test_maybe_release_keeps_lock_while_sync_in_flight(self) -> None:
+        """#1156 (Codex P2): async dispatch 終了が先でも同期実行中はロック維持する。"""
+        from lorairo.gui.controllers.annotation_workflow_controller import AnnotationWorkflowController
+
+        ctrl = Mock()
+        ctrl._async_dispatch_in_progress = False
+        ctrl._sync_annotation_in_progress = True
+        ctrl._annotate_tab = Mock()
+
+        AnnotationWorkflowController._maybe_release_execute_lock(ctrl)
+
+        ctrl._annotate_tab.set_execution_running.assert_not_called()
+
+    def test_maybe_release_noop_when_no_annotate_tab(self) -> None:
+        from lorairo.gui.controllers.annotation_workflow_controller import AnnotationWorkflowController
+
+        ctrl = Mock()
+        ctrl._async_dispatch_in_progress = False
+        ctrl._sync_annotation_in_progress = False
+        ctrl._annotate_tab = None
+
+        # annotate_tab 未注入でも例外を出さない
+        AnnotationWorkflowController._maybe_release_execute_lock(ctrl)
+
+    def test_on_sync_finished_clears_flag_and_tries_release(self) -> None:
+        """#1156 (Codex P2): 同期終端で in-flight を下げ、ロック解除を試みる。"""
+        from lorairo.gui.controllers.annotation_workflow_controller import AnnotationWorkflowController
+
+        ctrl = Mock()
+
+        AnnotationWorkflowController.on_sync_annotation_finished(ctrl)
+
+        assert ctrl._sync_annotation_in_progress is False
+        ctrl._maybe_release_execute_lock.assert_called_once_with()
+
+    def test_split_release_only_after_both_terminals(self) -> None:
+        """#1156 (Codex P2): split で片方の終端だけではロックせず、両方揃うと解除する。"""
         from lorairo.gui.controllers.annotation_workflow_controller import AnnotationWorkflowController
 
         ctrl = Mock()
         ctrl._annotate_tab = Mock()
+        # split 直後: 同期・async dispatch 双方 in-flight
+        ctrl._sync_annotation_in_progress = True
+        ctrl._async_dispatch_in_progress = True
+        # 実際の AND 判定を通すため coordination は本物の unbound method を噛ませる
+        ctrl._maybe_release_execute_lock = lambda: AnnotationWorkflowController._maybe_release_execute_lock(
+            ctrl
+        )
 
+        # 同期側の終端が先に来る → まだ async dispatch 中なので解除しない
+        AnnotationWorkflowController.on_sync_annotation_finished(ctrl)
+        ctrl._annotate_tab.set_execution_running.assert_not_called()
+        assert ctrl._sync_annotation_in_progress is False
+
+        # async dispatch thread 終了 → 双方 idle になり再有効化
         AnnotationWorkflowController._on_async_dispatch_thread_finished(ctrl)
-
-        assert ctrl._async_dispatch_in_progress is False
         ctrl._annotate_tab.set_execution_running.assert_called_once_with(False)
-
-    def test_thread_finished_noop_when_no_annotate_tab(self) -> None:
-        from lorairo.gui.controllers.annotation_workflow_controller import AnnotationWorkflowController
-
-        ctrl = Mock()
-        ctrl._annotate_tab = None
-
-        # annotate_tab 未注入でも例外を出さない
-        AnnotationWorkflowController._on_async_dispatch_thread_finished(ctrl)
-        assert ctrl._async_dispatch_in_progress is False
 
     def test_succeeded_finalizes_and_reports_status(self) -> None:
         from lorairo.gui.controllers.annotation_workflow_controller import AnnotationWorkflowController
