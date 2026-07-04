@@ -19,9 +19,9 @@ from collections import OrderedDict
 from collections.abc import Callable
 from typing import TYPE_CHECKING, cast
 
-from PySide6.QtCore import QSize, Qt, Signal, Slot
-from PySide6.QtGui import QPixmap
-from PySide6.QtWidgets import QFrame, QGraphicsView, QWidget
+from PySide6.QtCore import QSize, Qt, QTimer, Signal, Slot
+from PySide6.QtGui import QPixmap, QResizeEvent, QShowEvent
+from PySide6.QtWidgets import QFrame, QGraphicsView, QSplitter, QWidget
 
 from ...gui.designer.StagingWidget_ui import Ui_StagingWidget
 from ...utils.log import logger
@@ -93,6 +93,14 @@ class StagingWidget(QWidget):
         self.ui = Ui_StagingWidget()
         setup_ui = cast(Callable[[QWidget], None], self.ui.setupUi)
         setup_ui(self)
+
+        # splitter クランプの再入ガード (setSizes/setMaximumHeight が resizeEvent を誘発するため)
+        self._fitting = False
+        # 幅変化時のクランプ再計算はサムネ viewport 幅の反映後 (次イベントループ) に遅延する。
+        # 連続 resize を合体させるため single-shot タイマで coalesce する (#1097 Codex P2-1)。
+        self._fit_timer = QTimer(self)
+        self._fit_timer.setSingleShot(True)
+        self._fit_timer.timeout.connect(lambda: self._fit_enclosing_splitter_pane(redistribute=True))
 
         self._staging_thumbnail_widget: ThumbnailSelectorWidget | None = None
         self._setup_staging_thumbnail_widget()
@@ -269,6 +277,122 @@ class StagingWidget(QWidget):
             self._staging_thumbnail_widget.load_thumbnails_from_paths(staging_paths)
 
         self._update_staging_count_label()
+        # 枚数変化 = 行数変化。拡大方向も含めて再配分する (#1097)。
+        self._fit_enclosing_splitter_pane(redistribute=True)
+
+    def showEvent(self, event: QShowEvent) -> None:
+        """表示時に splitter ペイン高さをコンテンツ準拠へ合わせ直す (#1097)。
+
+        初期化時の refresh は splitter へ parent される前に走るため、空状態の
+        クランプが効かない。表示時に祖先 splitter が確定してから再クランプする。
+        """
+        super().showEvent(event)
+        self._fit_enclosing_splitter_pane(redistribute=True)
+
+    def resizeEvent(self, event: QResizeEvent) -> None:
+        """幅変化時にクランプを再計算する (#1097 Codex P2-1)。
+
+        推奨高さはサムネ列数 = ビューポート幅依存なので、ウィンドウ/横スプリッタの
+        幅が変わると行数が変わり cap が stale になる。幅が変わったときだけ再計算する
+        (高さのみの変化 = ユーザーの縦ハンドル操作は尊重し、再配分で潰さない)。
+        """
+        super().resizeEvent(event)
+        if event.oldSize().width() != event.size().width():
+            # サムネ viewport 幅の反映後に再計算する (この時点では列数が stale)。
+            self._fit_timer.start(0)
+
+    def _fit_enclosing_splitter_pane(self, *, redistribute: bool = False) -> None:
+        """縦 QSplitter 内のステージングペイン高さをコンテンツ準拠に合わせる (#1097)。
+
+        ``enable_content_height`` はサムネ枠自身の sizeHint を縮めるが、パネルの
+        実高さは縦 QSplitter (splitterBatchTagMain) の配分で決まり、QSplitter は子の
+        sizeHint 変化を自動反映しない。そこで:
+
+        - ペイン widget に ``maximumHeight`` を張り、コンテンツ超の拡大 (= 空白) を抑止。
+        - ``redistribute=True`` のとき ``setSizes`` で推奨高さへ明示再配分し、行数増で
+          ペインが実際に広がるようにする (Codex P2-3)。
+
+        cap はペイン自身の ``sizeHint`` から取る。実ツリーではペインは StagingWidget
+        ではなく BatchTagAddWidget (staging は横 splitter に入れ子) であり、ペインの
+        レイアウトマージンや兄弟 (tag 入力) の高さを含めないとサムネが切れるため
+        (Codex P2-2)。
+
+        手動リサイズとの共存: 縮小方向は max クランプ内で許可、拡大方向は行数/幅変化
+        時のみ setSizes。高さのみの変化 (縦ハンドル操作) では再配分しない。縦 splitter
+        の祖先が無い文脈では no-op。
+        """
+        if self._fitting:
+            return
+        splitter, pane = self._find_vertical_splitter_pane()
+        if splitter is None or pane is None:
+            return
+        self._fitting = True
+        try:
+            # サムネ枚数/幅変化直後は入れ子 layout が未 activation で sizeHint が stale。
+            # サムネ枠からペインまでの各 layout を内側から activate して最新化する。
+            self._activate_layouts_up_to(pane)
+            # ペイン自身の推奨高さ = staging コンテンツ + ペインのマージン/兄弟高さ。
+            desired = max(pane.sizeHint().height(), pane.minimumSizeHint().height())
+            pane.setMaximumHeight(desired)
+            if redistribute:
+                self._redistribute_splitter(splitter, pane, desired)
+        finally:
+            self._fitting = False
+
+    def _activate_layouts_up_to(self, ancestor: QWidget) -> None:
+        """サムネ枠から ancestor までの sizeHint を最新化する。
+
+        幅変化直後はサムネ枠の再レイアウトが debounce 待ちで、親 layout が旧 sizeHint
+        (旧行数) をキャッシュしている。各 widget に ``updateGeometry`` でキャッシュを
+        無効化し、``layout.activate`` で再計算させてから読む。
+        """
+        widget: QWidget | None = self._staging_thumbnail_widget
+        while widget is not None:
+            widget.updateGeometry()
+            layout = widget.layout()
+            if layout is not None:
+                layout.activate()
+            if widget is ancestor:
+                break
+            widget = widget.parentWidget()
+
+    def _redistribute_splitter(self, splitter: QSplitter, pane: QWidget, desired: int) -> None:
+        """縦 splitter でペインへ ``desired`` を割り当て、余剰を兄弟へ比例配分する (#1097)。"""
+        sizes = splitter.sizes()
+        index = splitter.indexOf(pane)
+        if index < 0 or not sizes:
+            return
+        total = sum(sizes)
+        if total <= 0:
+            return
+        others = [i for i in range(len(sizes)) if i != index]
+        # 兄弟ペインを最小サイズ未満に潰さないよう desired を上限側で制限する。
+        min_others = 0
+        for i in others:
+            widget = splitter.widget(i)
+            if widget is not None:
+                min_others += max(widget.minimumSizeHint().height(), 0)
+        target = min(desired, max(0, total - min_others))
+        if abs(sizes[index] - target) <= 2:
+            return  # 既に目標付近なら何もしない (手動リサイズを尊重)
+        remaining = max(0, total - target)
+        old_others_total = sum(sizes[i] for i in others) or 1
+        new_sizes = list(sizes)
+        new_sizes[index] = target
+        for i in others:
+            new_sizes[i] = round(remaining * sizes[i] / old_others_total)
+        splitter.setSizes(new_sizes)
+
+    def _find_vertical_splitter_pane(self) -> tuple[QSplitter | None, QWidget | None]:
+        """自身を内包する最も近い縦 QSplitter と、その直下のペイン widget を返す。"""
+        child: QWidget = self
+        parent = self.parentWidget()
+        while parent is not None:
+            if isinstance(parent, QSplitter) and parent.orientation() == Qt.Orientation.Vertical:
+                return parent, child
+            child = parent
+            parent = parent.parentWidget()
+        return None, None
 
     @Slot()
     def _on_clear_staging_clicked(self) -> None:
