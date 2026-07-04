@@ -20,8 +20,8 @@ from collections.abc import Callable
 from typing import TYPE_CHECKING, cast
 
 from PySide6.QtCore import QSize, Qt, Signal, Slot
-from PySide6.QtGui import QPixmap
-from PySide6.QtWidgets import QFrame, QGraphicsView, QWidget
+from PySide6.QtGui import QPixmap, QShowEvent
+from PySide6.QtWidgets import QFrame, QGraphicsView, QSplitter, QWidget
 
 from ...gui.designer.StagingWidget_ui import Ui_StagingWidget
 from ...utils.log import logger
@@ -269,6 +269,62 @@ class StagingWidget(QWidget):
             self._staging_thumbnail_widget.load_thumbnails_from_paths(staging_paths)
 
         self._update_staging_count_label()
+        self._fit_enclosing_splitter_pane()
+
+    def showEvent(self, event: QShowEvent) -> None:
+        """表示時に splitter ペイン高さをコンテンツ準拠へ合わせ直す (#1097)。
+
+        初期化時の refresh は splitter へ parent される前に走るため、空状態の
+        クランプが効かない。表示時に祖先 splitter が確定してから再クランプする。
+        """
+        super().showEvent(event)
+        self._fit_enclosing_splitter_pane()
+
+    def _fit_enclosing_splitter_pane(self) -> None:
+        """縦 QSplitter 内のステージングペイン高さをコンテンツ準拠でクランプする (#1097)。
+
+        ``enable_content_height`` はサムネ枠自身の sizeHint を縮めるが、パネルの
+        実高さは縦 QSplitter (splitterBatchTagMain) の配分で決まり、QSplitter は子の
+        sizeHint 変化を自動反映しないため空白が残る。そこでステージングを含む縦
+        splitter のペイン widget に ``maximumHeight`` を張り、余剰を隣接ペインへ
+        再配分させる。
+
+        手動リサイズとの共存: クランプは上限のみを設定するため、ユーザーはハンドルで
+        ペインを「縮める」操作は引き続き可能。コンテンツ高さを超える拡大 (= 空白の
+        発生) だけを抑止する。縦 splitter の祖先が無い文脈では no-op。
+        """
+        splitter, pane = self._find_vertical_splitter_pane()
+        if splitter is None or pane is None:
+            return
+        # サムネ枚数変化直後は入れ子 layout が未 activation で sizeHint が stale (旧行数) を
+        # 返すため、サムネ枠から自身までの各 layout を内側から activate して最新化する (#1097)。
+        self._activate_content_layouts()
+        # ペインは tag 入力等も含むため、ペイン自身の最小サイズを下回らないよう floor を取る。
+        preferred = self.sizeHint().height()
+        floor = pane.minimumSizeHint().height()
+        pane.setMaximumHeight(max(preferred, floor))
+
+    def _activate_content_layouts(self) -> None:
+        """サムネ枠から自身までの入れ子 layout を内側から activate し sizeHint を最新化する。"""
+        widget: QWidget | None = self._staging_thumbnail_widget
+        while widget is not None:
+            layout = widget.layout()
+            if layout is not None:
+                layout.activate()
+            if widget is self:
+                break
+            widget = widget.parentWidget()
+
+    def _find_vertical_splitter_pane(self) -> tuple[QSplitter | None, QWidget | None]:
+        """自身を内包する最も近い縦 QSplitter と、その直下のペイン widget を返す。"""
+        child: QWidget = self
+        parent = self.parentWidget()
+        while parent is not None:
+            if isinstance(parent, QSplitter) and parent.orientation() == Qt.Orientation.Vertical:
+                return parent, child
+            child = parent
+            parent = parent.parentWidget()
+        return None, None
 
     @Slot()
     def _on_clear_staging_clicked(self) -> None:
