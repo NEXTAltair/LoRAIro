@@ -619,3 +619,81 @@ class TestGetBatchAvailableResolutions:
 
         repository.get_batch_available_resolutions([1, 2, 3, 4, 5])
         assert mock_session.execute.call_count == 1
+
+
+class TestGetBatchAvailableResolutionsRealDb:
+    """#1141: 実 DB でのクエリ回数と per-item ログ抑止の runtime 検証。
+
+    mock ベースの test_single_db_query_for_all_images を、実 in-memory エンジン +
+    実チャンク処理で裏取りする。100 画像でも DB クエリは O(1) であること、
+    per-item の解像度マッチログが DEBUG に漏れないこと (logging.md, TRACE 降格) を確認。
+    """
+
+    @pytest.fixture
+    def repo_with_data(self):
+        from sqlalchemy import create_engine
+        from sqlalchemy.orm import sessionmaker
+
+        from lorairo.database.schema import Base, Image, ProcessedImage
+
+        engine = create_engine("sqlite:///:memory:")
+        Base.metadata.create_all(engine)
+        session_factory = sessionmaker(bind=engine)
+        with session_factory() as session:
+            for i in range(1, 101):
+                image = Image(
+                    uuid=f"u{i}",
+                    phash=f"p{i}",
+                    original_image_path=f"/o/{i}",
+                    stored_image_path=f"/s/{i}",
+                    width=2000,
+                    height=2000,
+                    format="PNG",
+                    extension=".png",
+                )
+                session.add(image)
+                session.flush()
+                for res in (512, 768, 1024, 1536):
+                    session.add(
+                        ProcessedImage(
+                            image_id=image.id,
+                            stored_image_path=f"/p/{i}_{res}.webp",
+                            width=res,
+                            height=res,
+                            has_alpha=False,
+                        )
+                    )
+            session.commit()
+        return ImageRepository(session_factory=session_factory), engine
+
+    def test_query_count_is_constant_for_100_images(self, repo_with_data):
+        from sqlalchemy import event
+
+        repository, engine = repo_with_data
+        counter = {"n": 0}
+
+        @event.listens_for(engine, "after_cursor_execute")
+        def _count(conn, cursor, statement, parameters, context, executemany):
+            counter["n"] += 1
+
+        result = repository.get_batch_available_resolutions(list(range(1, 101)))
+
+        # 100 画像 × 4 解像度でも DB クエリは O(1) (チャンク境界の安全側で ≤ 2)
+        assert counter["n"] <= 2, f"クエリが {counter['n']} 回発行された (N+1 退行)"
+        assert len(result) == 100
+        assert result[1] == [512, 768, 1024, 1536]
+
+    def test_no_per_item_debug_log_flood(self, repo_with_data):
+        from loguru import logger
+
+        repository, _engine = repo_with_data
+        captured: list[str] = []
+        sink_id = logger.add(lambda message: captured.append(message.record["message"]), level="DEBUG")
+        try:
+            repository.get_batch_available_resolutions(list(range(1, 101)))
+        finally:
+            logger.remove(sink_id)
+
+        # per-item の解像度マッチログ (旧 DEBUG) は TRACE へ落ちたので DEBUG では出ない
+        per_item = [m for m in captured if "resolution match" in m or "No suitable processed image" in m]
+        assert per_item == [], f"per-item ログが DEBUG に漏れている: {len(per_item)} 件"

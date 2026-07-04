@@ -1106,7 +1106,8 @@ class ImageRepository(BaseRepository):
             # 1. Check for exact match on the longer side
             long_side = max(width, height)
             if long_side == resolution:
-                logger.debug(f"Exact resolution match found: {metadata['id']}")
+                # per-item firehose (1 操作で 画像数×解像度数 出る) → TRACE (#1141, logging.md)
+                logger.trace(f"Exact resolution match found: {metadata['id']}")
                 return metadata  # Exact match found, return immediately
 
             # 2. Calculate area ratio difference if no exact match yet
@@ -1125,12 +1126,13 @@ class ImageRepository(BaseRepository):
                 min_error_ratio = error_ratio
                 best_match = metadata
 
+        # per-item firehose (1 操作で 画像数×解像度数 出る) → TRACE (#1141, logging.md)
         if best_match:
-            logger.debug(
+            logger.trace(
                 f"Closest resolution match found (error: {min_error_ratio:.2f}): {best_match['id']}",
             )
         else:
-            logger.debug(f"No suitable processed image found for resolution {resolution}")
+            logger.trace(f"No suitable processed image found for resolution {resolution}")
 
         return best_match  # Return the best match found within tolerance, or None
 
