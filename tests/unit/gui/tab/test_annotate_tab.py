@@ -1099,37 +1099,70 @@ def test_add_model_handler_syncs_state_manager(
 
 
 @pytest.mark.gui
-def test_remove_model_handler_syncs_state_manager(
+def test_remove_model_handler_updates_state_manager_directly(
     annotate_tab_with_state: tuple[AnnotateTabWidget, ModelSelectionStateManager],
-    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Primary × ハンドラが実 manager (SSoT) へ選択解除を同期する (#1034)。
+    """#1134: × ハンドラは SSoT (manager) を直接更新し、view/panel は既存配線に任せる。
 
-    ``TestPipelineRemoveModelHandler`` は ``_batch_model_selection`` を丸ごと Mock 化するため
-    manager=None 前提の tab fixture では ``_sync_widget_selection_to_state`` が no-op になり
-    manager 同期経路が未検証だった。ここでは実 manager 注入下で end-to-end に検証する。
+    旧実装は checkbox ウィジェット経由でしか外せず、未表示だと silent no-op だった。
+    SSoT-first に変更し、``set_model_selected(id, False)`` で除外 → ``selection_changed`` →
+    ``_on_state_model_selection_changed`` で view 追従 + panel 再描画が走る。
     """
     widget, state_manager = annotate_tab_with_state
     widget._refresh_pipeline_panel = Mock()
-    selected_ids: list[str] = []
-    checkbox = _make_mutable_checkbox(selected_ids, "openai/gpt-4o")
-    monkeypatch.setattr(widget.batch_model_selection, "model_checkbox_widgets", {"openai/gpt-4o": checkbox})
-    monkeypatch.setattr(widget.batch_model_selection, "get_selected_models", lambda: list(selected_ids))
-
-    # 事前状態: manager に選択済みモデルをセット。real set_selected_models 経由で
-    # checkbox.set_selected(True) も呼ばれ selected_ids へ反映される (ハンドラ呼び出し
-    # 前に call 記録だけ reset する)。
-    state_manager.set_selected(["openai/gpt-4o"])
+    state_manager.set_selected(["openai/gpt-4o", "wd-v1-4-tagger"])
     widget._refresh_pipeline_panel.reset_mock()
-    checkbox.set_selected.reset_mock()
 
     widget._on_pipeline_remove_model_requested("tags", "openai/gpt-4o")
 
-    checkbox.set_selected.assert_called_once_with(False)
-    # manager が [] になるのは sync が checkbox 更新 (selected_ids から除去) 後の
-    # get_selected_models() を読んだ場合のみ (更新前に読めば ["openai/gpt-4o"] のまま)。
-    assert state_manager.get_selected() == []
-    widget._refresh_pipeline_panel.assert_called_once_with()
+    # SSoT から該当モデルが外れる
+    assert state_manager.get_selected() == ["wd-v1-4-tagger"]
+    # selection_changed 経由で panel 再描画が新しい選択集合で走る
+    widget._refresh_pipeline_panel.assert_called_once_with(["wd-v1-4-tagger"])
+
+
+@pytest.mark.gui
+def test_remove_model_works_when_checkbox_not_displayed(
+    annotate_tab_with_state: tuple[AnnotateTabWidget, ModelSelectionStateManager],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """#1134: checkbox 未表示でも SSoT 直接更新で除外が成立する (warning + no-op 廃止)。"""
+    widget, state_manager = annotate_tab_with_state
+    # 該当モデルの checkbox が一覧に無い (フィルタ絞り込み中・未構築) 状態を再現
+    monkeypatch.setattr(widget.batch_model_selection, "model_checkbox_widgets", {})
+    widget._refresh_pipeline_panel = Mock()
+    state_manager.set_selected(["openai/gpt-4o", "wd-v1-4-tagger"])
+    widget._refresh_pipeline_panel.reset_mock()
+
+    widget._on_pipeline_remove_model_requested("tags", "openai/gpt-4o")
+
+    # checkbox が無くても SSoT から外れる (旧実装は warning のみで残っていた)
+    assert state_manager.get_selected() == ["wd-v1-4-tagger"]
+    widget._refresh_pipeline_panel.assert_called_once_with(["wd-v1-4-tagger"])
+
+
+@pytest.mark.gui
+def test_remove_model_drops_from_inference_ledger(
+    annotate_tab_with_state: tuple[AnnotateTabWidget, ModelSelectionStateManager],
+) -> None:
+    """#1134: × でモデルを外すと INFERENCE LEDGER の unique model 数・合計が減る (runtime)。"""
+    widget, state_manager = annotate_tab_with_state
+    infos = {"openai/gpt-4o": GPT4O_INFO, "wd-v1-4-tagger": WD_TAGGER_INFO}
+    widget._build_stage_model_infos = lambda ids: [infos[i] for i in ids if i in infos]
+    widget._pipeline_staged_count = 9
+    widget._inference_ledger_widget = Mock()
+
+    # 2 件選択 → LEDGER は unique 2 件
+    state_manager.set_selected(["openai/gpt-4o", "wd-v1-4-tagger"])
+    ledger_before = widget._inference_ledger_widget.display.call_args[0][0]
+    assert ledger_before.unique_model_count == 2
+
+    # × で 1 件除外 → LEDGER の unique 数・合計が減る
+    widget._on_pipeline_remove_model_requested("tags", "openai/gpt-4o")
+
+    ledger_after = widget._inference_ledger_widget.display.call_args[0][0]
+    assert ledger_after.unique_model_count == 1
+    assert ledger_after.total_jobs < ledger_before.total_jobs
 
 
 # == バッチタグ書込 (#896 PR3: MainWindow から移送) ===========================
