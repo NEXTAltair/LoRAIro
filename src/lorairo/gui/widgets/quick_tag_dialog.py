@@ -8,13 +8,13 @@ from PySide6.QtWidgets import (
     QHBoxLayout,
     QLabel,
     QLineEdit,
-    QMessageBox,
     QPushButton,
     QVBoxLayout,
     QWidget,
 )
 
 from ...utils.log import logger
+from ..message_box import show_warning
 from .batch_tag_add_widget import normalize_tag
 
 
@@ -93,14 +93,14 @@ class QuickTagDialog(QDialog):
         tag = self._tag_input.text().strip()
         if not tag:
             logger.warning("Empty tag input")
-            QMessageBox.warning(self, "タグ追加エラー", "タグを入力してください。")
+            show_warning(self, "タグ追加エラー", "タグを入力してください。")
             return
 
         # タグ正規化（BatchTagAddWidgetと同じロジック）
         normalized_tag = self._normalize_tag(tag)
         if not normalized_tag:
             logger.warning(f"Tag normalization failed for: {tag}")
-            QMessageBox.warning(self, "タグエラー", f"タグ '{tag}' の正規化に失敗しました。")
+            show_warning(self, "タグエラー", f"タグ '{tag}' の正規化に失敗しました。")
             return
 
         logger.info(f"Quick tag add: {normalized_tag} to {len(self._image_ids)} images")

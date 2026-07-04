@@ -22,6 +22,8 @@ from PySide6.QtWidgets import QLabel, QMessageBox, QProgressBar, QPushButton, QW
 
 from lorairo.gui import theme
 
+from ..message_box import show_warning
+
 # DS v12 AnnotateScreen ModelPicker (Issue #788): プロバイダーグループ見出しは
 # emoji を使わず (DS no-emoji)、ink-soft + letter-caps + bold の DS group ヘッダ文法。
 _GROUP_HEADER_QSS = (
@@ -247,7 +249,7 @@ if not __name__ == "__main__":
         def closeEvent(self, event: QCloseEvent) -> None:
             """Widget終了時に実行中の更新Threadを安全に停止する。"""
             if not self._stop_refresh_thread():
-                QMessageBox.warning(
+                show_warning(
                     self,
                     "モデル一覧更新中",
                     "モデル一覧の更新処理がまだ終了していないため、ウィンドウを閉じられません。",
@@ -338,7 +340,7 @@ if not __name__ == "__main__":
             logger.warning(f"モデル一覧更新失敗: {error_message}")
             if self._refresh_is_automatic:
                 return
-            QMessageBox.warning(
+            show_warning(
                 self,
                 "モデル一覧更新エラー",
                 f"モデル一覧の更新に失敗しました。\n{error_message}",

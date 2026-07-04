@@ -23,10 +23,11 @@ from typing import TYPE_CHECKING, cast
 
 from genai_tag_db_tools.utils.cleanup_str import TagCleaner
 from PySide6.QtCore import Signal, Slot
-from PySide6.QtWidgets import QMessageBox, QVBoxLayout, QWidget
+from PySide6.QtWidgets import QVBoxLayout, QWidget
 
 from ...gui.designer.BatchTagAddWidget_ui import Ui_BatchTagAddWidget
 from ...utils.log import logger
+from ..message_box import show_warning
 from .staging_widget import StagingWidget
 
 if TYPE_CHECKING:
@@ -251,7 +252,7 @@ class BatchTagAddWidget(QWidget):
         staged = self._staging_widget.get_staged_items()
         if not staged:
             logger.warning("No images in staging list")
-            QMessageBox.warning(
+            show_warning(
                 self,
                 "タグ追加エラー",
                 "ステージングリストに画像がありません。\n画像を選択してからタグを追加してください。",
@@ -264,7 +265,7 @@ class BatchTagAddWidget(QWidget):
         # 空タグチェック
         if not tag_input.strip():
             logger.warning("Empty tag input")
-            QMessageBox.warning(self, "タグ追加エラー", "タグを入力してください。")
+            show_warning(self, "タグ追加エラー", "タグを入力してください。")
             return
 
         # タグ正規化
@@ -272,7 +273,7 @@ class BatchTagAddWidget(QWidget):
 
         if not normalized_tag:
             logger.warning("Tag normalization resulted in empty string")
-            QMessageBox.warning(
+            show_warning(
                 self,
                 "タグ追加エラー",
                 f"タグ '{tag_input.strip()}' の正規化に失敗しました。",

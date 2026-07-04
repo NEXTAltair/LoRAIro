@@ -12,6 +12,7 @@ from PySide6.QtWidgets import QDialog, QMessageBox, QWidget
 from ...database.db_manager import ImageDatabaseManager
 from ...database.schema import ErrorRecord
 from ..designer.ErrorDetailDialog_ui import Ui_ErrorDetailDialog
+from ..message_box import show_critical
 from .image_preview import ImagePreviewWidget
 
 
@@ -82,9 +83,7 @@ class ErrorDetailDialog(QDialog, Ui_ErrorDetailDialog):
 
             if not matching_records:
                 logger.error(f"Error record not found: error_id={self.error_id}")
-                QMessageBox.critical(
-                    self, "エラー", f"エラーレコード（ID: {self.error_id}）が見つかりません"
-                )
+                show_critical(self, "エラー", f"エラーレコード（ID: {self.error_id}）が見つかりません")
                 self.reject()
                 return
 
@@ -95,7 +94,7 @@ class ErrorDetailDialog(QDialog, Ui_ErrorDetailDialog):
 
         except Exception as e:
             logger.opt(exception=True).error(f"エラー詳細読み込みエラー: {e}")
-            QMessageBox.critical(self, "エラー", f"エラー詳細の読み込みに失敗しました:\n{e}")
+            show_critical(self, "エラー", f"エラー詳細の読み込みに失敗しました:\n{e}")
             self.reject()
 
     def _update_ui(self) -> None:
@@ -190,4 +189,4 @@ class ErrorDetailDialog(QDialog, Ui_ErrorDetailDialog):
 
             except Exception as e:
                 logger.opt(exception=True).error(f"解決マーク失敗: {e}")
-                QMessageBox.critical(self, "エラー", f"解決マークに失敗しました:\n{e}")
+                show_critical(self, "エラー", f"解決マークに失敗しました:\n{e}")

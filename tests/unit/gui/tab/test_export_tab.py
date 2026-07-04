@@ -194,7 +194,9 @@ def test_export_requested_runs_worker(
 
     monkeypatch.setattr(QFileDialog, "getExistingDirectory", lambda *a, **k: "/tmp/export_out")
     monkeypatch.setattr(QMessageBox, "information", lambda *a, **k: QMessageBox.StandardButton.Ok)
-    monkeypatch.setattr(QMessageBox, "warning", lambda *a, **k: QMessageBox.StandardButton.Ok)
+    monkeypatch.setattr(
+        "lorairo.gui.tab.export_tab.show_warning", lambda *a, **k: QMessageBox.StandardButton.Ok
+    )
     export_service = service_container.dataset_export_service
     export_service.export_with_criteria.return_value = "/tmp/export_out"
 
@@ -221,7 +223,9 @@ def test_export_applies_changed_since_filter(
 
     monkeypatch.setattr(QFileDialog, "getExistingDirectory", lambda *a, **k: "/tmp/export_out")
     monkeypatch.setattr(QMessageBox, "information", lambda *a, **k: QMessageBox.StandardButton.Ok)
-    monkeypatch.setattr(QMessageBox, "warning", lambda *a, **k: QMessageBox.StandardButton.Ok)
+    monkeypatch.setattr(
+        "lorairo.gui.tab.export_tab.show_warning", lambda *a, **k: QMessageBox.StandardButton.Ok
+    )
     export_service = service_container.dataset_export_service
     export_service.export_with_criteria.return_value = "/tmp/export_out"
     cutoff = datetime(2026, 6, 28, 10, 30)
@@ -245,10 +249,10 @@ def test_export_changed_since_empty_warns_before_directory_dialog(
     qtbot, monkeypatch, service_container: Mock, staging_manager: StagingStateManager
 ) -> None:
     """changed-since 結果が空なら出力先選択へ進まない (#962)。"""
-    from PySide6.QtWidgets import QFileDialog, QMessageBox
+    from PySide6.QtWidgets import QFileDialog
 
     warned: list[bool] = []
-    monkeypatch.setattr(QMessageBox, "warning", lambda *a, **k: warned.append(True))
+    monkeypatch.setattr("lorairo.gui.tab.export_tab.show_warning", lambda *a, **k: warned.append(True))
     file_dialog_called: list[bool] = []
     monkeypatch.setattr(
         QFileDialog,
@@ -607,10 +611,10 @@ def test_export_requested_without_targets_warns(
     qtbot, monkeypatch, service_container: Mock, staging_manager: StagingStateManager
 ) -> None:
     """対象が空のエクスポート要求は警告し、出力先選択へ進まないこと。"""
-    from PySide6.QtWidgets import QFileDialog, QMessageBox
+    from PySide6.QtWidgets import QFileDialog
 
     warned: list[bool] = []
-    monkeypatch.setattr(QMessageBox, "warning", lambda *a, **k: warned.append(True))
+    monkeypatch.setattr("lorairo.gui.tab.export_tab.show_warning", lambda *a, **k: warned.append(True))
     file_dialog_called: list[bool] = []
     monkeypatch.setattr(
         QFileDialog,
@@ -632,10 +636,10 @@ def test_export_blocks_when_no_valid_processed_images(
     qtbot, monkeypatch, service_container: Mock, staging_manager: StagingStateManager
 ) -> None:
     """#1106: 指定解像度の処理済み画像が 0 枚なら警告して出力先選択へ進まない。"""
-    from PySide6.QtWidgets import QFileDialog, QMessageBox
+    from PySide6.QtWidgets import QFileDialog
 
     warned: list[bool] = []
-    monkeypatch.setattr(QMessageBox, "warning", lambda *a, **k: warned.append(True))
+    monkeypatch.setattr("lorairo.gui.tab.export_tab.show_warning", lambda *a, **k: warned.append(True))
     file_dialog_called: list[bool] = []
     monkeypatch.setattr(
         QFileDialog, "getExistingDirectory", lambda *a, **k: file_dialog_called.append(True) or ""

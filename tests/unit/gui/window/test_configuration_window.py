@@ -8,7 +8,7 @@ from io import StringIO
 from unittest.mock import MagicMock, patch
 
 import pytest
-from PySide6.QtWidgets import QComboBox, QLabel, QLineEdit, QMessageBox, QTabWidget
+from PySide6.QtWidgets import QComboBox, QLabel, QLineEdit, QTabWidget
 
 from lorairo.gui import theme
 from lorairo.gui.window.configuration_window import ConfigurationWindow
@@ -213,8 +213,7 @@ class TestConfigurationWindow:
         config_service.save_settings.return_value = False
         called = []
         monkeypatch.setattr(
-            QMessageBox,
-            "critical",
+            "lorairo.gui.window.configuration_window.show_critical",
             lambda *args, **kwargs: called.append(True),
         )
         dialog._on_accepted()

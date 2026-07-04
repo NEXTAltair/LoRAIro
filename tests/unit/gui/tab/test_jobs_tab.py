@@ -18,7 +18,7 @@ from unittest.mock import MagicMock, Mock
 
 import pytest
 from PySide6.QtCore import Signal
-from PySide6.QtWidgets import QMessageBox, QWidget
+from PySide6.QtWidgets import QWidget
 
 import lorairo.gui.tab.jobs_tab as jobs_tab_module
 from lorairo.gui.tab.jobs_tab import JobsTabWidget
@@ -220,7 +220,7 @@ def test_start_batch_import_no_worker_service_warns(qtbot, service_container: Mo
     )
     qtbot.addWidget(widget)
     warn_mock = Mock()
-    monkeypatch.setattr(QMessageBox, "warning", warn_mock)
+    monkeypatch.setattr("lorairo.gui.tab.jobs_tab.show_warning", warn_mock)
     widget.start_batch_import()
     warn_mock.assert_called_once()
 

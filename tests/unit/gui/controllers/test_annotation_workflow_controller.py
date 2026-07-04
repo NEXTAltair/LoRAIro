@@ -441,9 +441,11 @@ class TestStartAnnotationWorkflow:
         monkeypatch,
     ):
         """selected_modelsなし、callbackなしの場合は警告表示"""
-        # Setup - QMessageBoxをモック
+        # Setup - コピー可能ダイアログヘルパー (show_warning) をモック (#1160)
         mock_warning = Mock()
-        monkeypatch.setattr("PySide6.QtWidgets.QMessageBox.warning", mock_warning)
+        monkeypatch.setattr(
+            "lorairo.gui.controllers.annotation_workflow_controller.show_warning", mock_warning
+        )
 
         # Execute - 両方なし
         controller.start_annotation_workflow()
@@ -633,9 +635,9 @@ class TestDispatchAsyncBatch:
             model=model,
         )
 
-        with patch("lorairo.gui.controllers.annotation_workflow_controller.QMessageBox") as mock_qmb:
+        with patch("lorairo.gui.controllers.annotation_workflow_controller.show_warning") as mock_warning:
             started = AnnotationWorkflowController.dispatch_async_batch(ctrl)
-            mock_qmb.warning.assert_called_once()
+            mock_warning.assert_called_once()
 
         ctrl._start_async_dispatch_worker.assert_not_called()
         # #1102: 開始前に拒否したら False を返す (遷移しない)
@@ -1207,9 +1209,9 @@ class TestFinalizeSubmittedJobs:
 
         ctrl = Mock()
 
-        with patch("lorairo.gui.controllers.annotation_workflow_controller.QMessageBox") as mock_qmb:
+        with patch("lorairo.gui.controllers.annotation_workflow_controller.show_critical") as mock_critical:
             AnnotationWorkflowController._on_async_dispatch_failed(ctrl, ValueError("boom"), [101])
-            mock_qmb.critical.assert_called_once()
+            mock_critical.assert_called_once()
 
         ctrl._finalize_submitted_jobs.assert_called_once_with([101])
 
@@ -1218,9 +1220,9 @@ class TestFinalizeSubmittedJobs:
 
         ctrl = Mock()
 
-        with patch("lorairo.gui.controllers.annotation_workflow_controller.QMessageBox") as mock_qmb:
+        with patch("lorairo.gui.controllers.annotation_workflow_controller.show_critical") as mock_critical:
             AnnotationWorkflowController._on_async_dispatch_failed(ctrl, ValueError("boom"), [])
-            mock_qmb.critical.assert_called_once()
+            mock_critical.assert_called_once()
 
         ctrl._finalize_submitted_jobs.assert_not_called()
 

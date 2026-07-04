@@ -305,7 +305,7 @@ class TestModelSelectionWidgetRefreshThread:
         monkeypatch.setattr(widget, "_stop_refresh_thread", Mock(return_value=False))
         mock_warning = Mock()
         monkeypatch.setattr(
-            "lorairo.gui.widgets.model_selection_widget.QMessageBox.warning",
+            "lorairo.gui.widgets.model_selection_widget.show_warning",
             mock_warning,
         )
         event = QCloseEvent()
@@ -668,7 +668,7 @@ class TestModelSelectionWidgetRefreshRegistry:
         """失敗時に警告ダイアログが表示される（line 265-272）"""
         warning_called = []
         monkeypatch.setattr(
-            "lorairo.gui.widgets.model_selection_widget.QMessageBox.warning",
+            "lorairo.gui.widgets.model_selection_widget.show_warning",
             lambda *a: warning_called.append(True),
         )
 
@@ -682,7 +682,7 @@ class TestModelSelectionWidgetRefreshRegistry:
         """自動 refresh 失敗時は warning ログのみでモーダルを出さない。"""
         warning_called = []
         monkeypatch.setattr(
-            "lorairo.gui.widgets.model_selection_widget.QMessageBox.warning",
+            "lorairo.gui.widgets.model_selection_widget.show_warning",
             lambda *a: warning_called.append(True),
         )
         widget._refresh_is_automatic = True

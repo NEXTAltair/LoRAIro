@@ -6,8 +6,6 @@
 
 from unittest.mock import MagicMock
 
-from PySide6.QtWidgets import QMessageBox
-
 from lorairo.gui.widgets.quick_tag_dialog import QuickTagDialog
 
 
@@ -41,7 +39,7 @@ class TestQuickTagDialogAddClicked:
         qtbot.addWidget(dialog)
 
         mock_warning = MagicMock()
-        monkeypatch.setattr(QMessageBox, "warning", mock_warning)
+        monkeypatch.setattr("lorairo.gui.widgets.quick_tag_dialog.show_warning", mock_warning)
 
         dialog._tag_input.setText("")
         dialog._on_add_clicked()
@@ -54,7 +52,7 @@ class TestQuickTagDialogAddClicked:
         qtbot.addWidget(dialog)
 
         mock_warning = MagicMock()
-        monkeypatch.setattr(QMessageBox, "warning", mock_warning)
+        monkeypatch.setattr("lorairo.gui.widgets.quick_tag_dialog.show_warning", mock_warning)
 
         dialog._tag_input.setText("   ")
         dialog._on_add_clicked()
@@ -70,7 +68,9 @@ class TestQuickTagDialogAddClicked:
         monkeypatch.setattr(QuickTagDialog, "_normalize_tag", staticmethod(lambda tag: ""))
 
         warning_called = []
-        monkeypatch.setattr(QMessageBox, "warning", lambda *args: warning_called.append(args))
+        monkeypatch.setattr(
+            "lorairo.gui.widgets.quick_tag_dialog.show_warning", lambda *args: warning_called.append(args)
+        )
 
         dialog._tag_input.setText("invalid_tag")
         dialog._on_add_clicked()

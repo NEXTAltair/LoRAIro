@@ -15,7 +15,6 @@ from PySide6.QtWidgets import (
     QHBoxLayout,
     QLabel,
     QLineEdit,
-    QMessageBox,
     QPlainTextEdit,
     QTabWidget,
     QVBoxLayout,
@@ -26,6 +25,7 @@ from ...services.configuration_service import ConfigurationService
 from ...services.model_route_service import parse_route_preference
 from ...utils.log import build_gui_log_config, initialize_logging, logger
 from .. import theme
+from ..message_box import show_critical
 from ..widgets.directory_picker import DirectoryPickerWidget
 
 # ログレベル選択肢
@@ -375,4 +375,4 @@ class ConfigurationWindow(QDialog):
             logger.info("設定を保存しました")
             self.accept()
         else:
-            QMessageBox.critical(self, "保存失敗", "設定ファイルの保存に失敗しました。")
+            show_critical(self, "保存失敗", "設定ファイルの保存に失敗しました。")

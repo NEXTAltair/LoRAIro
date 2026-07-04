@@ -31,6 +31,7 @@ from PySide6.QtWidgets import QFileDialog, QMessageBox, QSplitter, QVBoxLayout, 
 from ...database.db_core import resolve_stored_path
 from ...services.export_overlay import ExportOverlayPlan, ExportTagOverlay, ScopedOverlayRule
 from ...services.staging_tag_aggregation import StagingTagAggregationService
+from ..message_box import show_critical, show_warning
 from ..state.dataset_state import DatasetStateManager
 from ..state.staging_state import StagingStateManager
 from ..widgets.dataset_export_worker import DatasetExportWorker
@@ -488,12 +489,12 @@ class ExportTabWidget(QWidget):
     def _on_validate_requested(self) -> None:
         """検証要求: エクスポート対象件数を確認しユーザーへ提示する。"""
         if not self._image_ids:
-            QMessageBox.warning(self, "エクスポート検証", "エクスポート対象がありません。")
+            show_warning(self, "エクスポート検証", "エクスポート対象がありません。")
             return
         effective_ids = self._effective_export_ids()
         count = len(effective_ids)
         if count == 0:
-            QMessageBox.warning(
+            show_warning(
                 self,
                 "エクスポート検証",
                 "changed-since 条件に一致するエクスポート対象がありません。",
@@ -521,7 +522,7 @@ class ExportTabWidget(QWidget):
     def _on_export_requested(self) -> None:
         """エクスポート要求: 出力先を選び、非同期 worker で書き出す。"""
         if not self._image_ids:
-            QMessageBox.warning(self, "エクスポート", "エクスポート対象がありません。")
+            show_warning(self, "エクスポート", "エクスポート対象がありません。")
             return
         if self._export_thread is not None and self._export_thread.isRunning():
             QMessageBox.information(self, "エクスポート", "エクスポート処理が実行中です。")
@@ -529,7 +530,7 @@ class ExportTabWidget(QWidget):
 
         effective_ids = self._effective_export_ids()
         if not effective_ids:
-            QMessageBox.warning(
+            show_warning(
                 self,
                 "エクスポート",
                 "changed-since 条件に一致するエクスポート対象がありません。",
@@ -589,7 +590,7 @@ class ExportTabWidget(QWidget):
         missing_processed = report.get("missing_processed", 0)
 
         if valid_images == 0:
-            QMessageBox.warning(
+            show_warning(
                 self,
                 "エクスポート",
                 f"{resolution}px の処理済み画像が 1 枚も見つかりません。\n"
@@ -628,7 +629,7 @@ class ExportTabWidget(QWidget):
     def _on_export_error(self, message: str) -> None:
         """エクスポート失敗: スレッドを後始末しエラーを提示する。"""
         self._teardown_export_thread()
-        QMessageBox.critical(self, "エクスポート失敗", f"エクスポートに失敗しました:\n{message}")
+        show_critical(self, "エクスポート失敗", f"エクスポートに失敗しました:\n{message}")
 
     def _teardown_export_thread(self) -> None:
         """エクスポート worker/thread を停止・破棄する。"""

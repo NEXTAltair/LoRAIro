@@ -84,7 +84,7 @@ class TestErrorDetailDialogInitialization:
         # reject() はインスタンス作成後にモック不可（__init__中に呼ばれる）ため、
         # エラーレコード未発見時のフロー検証のみ行う
         mock_critical = Mock()
-        monkeypatch.setattr(QMessageBox, "critical", mock_critical)
+        monkeypatch.setattr("lorairo.gui.widgets.error_detail_dialog.show_critical", mock_critical)
 
         dialog = ErrorDetailDialog(mock_db_manager, error_id=999)
         qtbot.addWidget(dialog)
@@ -198,7 +198,7 @@ class TestErrorDetailDialogActions:
         # QMessageBox をモック（question → Yes、critical を記録）
         monkeypatch.setattr(QMessageBox, "question", lambda *a, **kw: QMessageBox.StandardButton.Yes)
         mock_critical = Mock()
-        monkeypatch.setattr(QMessageBox, "critical", mock_critical)
+        monkeypatch.setattr("lorairo.gui.widgets.error_detail_dialog.show_critical", mock_critical)
 
         dialog._on_mark_resolved_clicked()
 

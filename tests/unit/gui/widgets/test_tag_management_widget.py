@@ -143,7 +143,7 @@ class TestTagManagementWidget:
         """update_failed Signal 発火確認"""
         # QMessageBoxをmockしてモーダルブロックを回避
         mock_msgbox = Mock(return_value=None)
-        monkeypatch.setattr("lorairo.gui.widgets.tag_management_widget.QMessageBox.critical", mock_msgbox)
+        monkeypatch.setattr("lorairo.gui.widgets.tag_management_widget.show_critical", mock_msgbox)
 
         # waitSignalでシグナル発火を待機（引数検証も可能）
         with qtbot.waitSignal(widget.update_failed, timeout=2000):
@@ -183,7 +183,7 @@ class TestTagManagementWidget:
 
         warning_called = []
         monkeypatch.setattr(
-            "lorairo.gui.widgets.tag_management_widget.QMessageBox.warning",
+            "lorairo.gui.widgets.tag_management_widget.show_warning",
             lambda *a: warning_called.append(True),
         )
 
@@ -199,7 +199,7 @@ class TestTagManagementWidget:
 
         critical_called = []
         monkeypatch.setattr(
-            "lorairo.gui.widgets.tag_management_widget.QMessageBox.critical",
+            "lorairo.gui.widgets.tag_management_widget.show_critical",
             lambda *a: critical_called.append(True),
         )
 
@@ -264,7 +264,7 @@ class TestTagManagementWidget:
 
         warning_called = []
         monkeypatch.setattr(
-            "lorairo.gui.widgets.tag_management_widget.QMessageBox.warning",
+            "lorairo.gui.widgets.tag_management_widget.show_warning",
             lambda *a: warning_called.append(True),
         )
 
@@ -355,7 +355,7 @@ class TestTagManagementWidget:
         """_on_update_failed がボタンを再有効化しステータスを更新する（line 251-263）"""
         critical_called = []
         monkeypatch.setattr(
-            "lorairo.gui.widgets.tag_management_widget.QMessageBox.critical",
+            "lorairo.gui.widgets.tag_management_widget.show_critical",
             lambda *a: critical_called.append(True),
         )
 

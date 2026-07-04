@@ -14,6 +14,7 @@ from sqlalchemy.exc import SQLAlchemyError
 
 from ...services.tag_management_service import TagManagementService
 from ..designer.TagManagementWidget_ui import Ui_TagManagementWidget
+from ..message_box import show_critical, show_warning
 
 if TYPE_CHECKING:
     from ...services.refinement_service import RefinementService
@@ -187,7 +188,7 @@ class TagManagementWidget(QWidget, Ui_TagManagementWidget):
         """
         if not self.tag_service:
             logger.error("TagManagementService not set")
-            QMessageBox.warning(self, "エラー", "サービス接続が設定されていません。")
+            show_warning(self, "エラー", "サービス接続が設定されていません。")
             return
 
         try:
@@ -205,7 +206,7 @@ class TagManagementWidget(QWidget, Ui_TagManagementWidget):
 
         except Exception as e:
             logger.opt(exception=True).error(f"Error loading unknown tags: {e}")
-            QMessageBox.critical(
+            show_critical(
                 self,
                 "エラー",
                 f"unknown typeタグの読み込みに失敗しました:\n{e}",
@@ -301,7 +302,7 @@ class TagManagementWidget(QWidget, Ui_TagManagementWidget):
                     updates.append(TagTypeUpdate(tag_id=tag_id, type_name=new_type))
 
         if not updates:
-            QMessageBox.warning(
+            show_warning(
                 self,
                 "警告",
                 "更新するタグが選択されていません。\nタグを選択し、新しいtypeを指定してください。",
@@ -360,7 +361,7 @@ class TagManagementWidget(QWidget, Ui_TagManagementWidget):
         """更新失敗時の処理"""
         logger.error(f"Tag type update failed: {error_message}")
 
-        QMessageBox.critical(
+        show_critical(
             self,
             "エラー",
             f"タグのtype更新に失敗しました:\n{error_message}",

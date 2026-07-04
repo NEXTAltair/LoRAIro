@@ -10,6 +10,8 @@ from loguru import logger
 from PySide6.QtCore import SignalInstance
 from PySide6.QtWidgets import QMessageBox, QWidget
 
+from ..message_box import show_critical, show_warning
+
 
 class ResultHandlerService:
     """結果処理サービス
@@ -133,7 +135,7 @@ class ResultHandlerService:
                     )
                 else:
                     # 一部失敗
-                    QMessageBox.warning(
+                    show_warning(
                         self.parent,
                         "アノテーション完了（一部エラー）",
                         f"アノテーション処理が完了しましたが、一部にエラーがありました。\n\n"
@@ -147,7 +149,7 @@ class ResultHandlerService:
         except Exception as e:
             logger.opt(exception=True).error(f"バッチ完了ハンドラエラー: {e}")
             if self.parent:
-                QMessageBox.critical(self.parent, "処理エラー", f"結果処理中にエラーが発生しました:\n{e}")
+                show_critical(self.parent, "処理エラー", f"結果処理中にエラーが発生しました:\n{e}")
 
     def handle_annotation_finished(self, result: Any, status_bar: Any | None = None) -> None:
         """単発アノテーション完了処理
@@ -178,7 +180,7 @@ class ResultHandlerService:
 
             # ユーザーへの詳細エラー通知
             if self.parent:
-                QMessageBox.warning(
+                show_warning(
                     self.parent,
                     "アノテーション処理エラー",
                     f"アノテーション処理中にエラーが発生しました:\n\n{error_msg}\n\n"
