@@ -14,7 +14,7 @@ from ...database.db_manager import ImageDatabaseManager
 from ...services.quality_issue_detection_service import QualityIssueDetectionService
 from ...utils.log import logger
 from ..state.staging_state import StagingStateManager
-from ..widgets.results_widget import ResultsWidget
+from ..widgets.results_widget import _VIRTUALIZE_THRESHOLD, ResultsWidget
 
 
 class ResultsTabWidget(QWidget):
@@ -91,13 +91,24 @@ class ResultsTabWidget(QWidget):
             self._results_widget.clear()
             return
 
+        # DB 取得は N+1 を避けるため一括で行う (#1140)。ステージング全画像分の
+        # metadata / annotations をバッチクエリでまとめて引く (旧実装は 1 画像 4 クエリの
+        # 直列ループで GUI スレッドが数分ブロックしていた)。
+        # metadata はアノテーションを別バッチで取るため include_annotations=False にして
+        # 二重フェッチを避ける (Codex #1143 P2-1)。
+        metadata_by_id = {
+            m["id"]: m
+            for m in self._db_manager.get_images_metadata_batch(image_ids, include_annotations=False)
+        }
+        annotations_by_id = self._db_manager.get_image_annotations_batch(image_ids)
+
         results = []
-        image_paths: dict[int, str] = {}
+        valid_ids: list[int] = []
         for image_id in image_ids:
-            metadata = self._db_manager.get_image_metadata(image_id)
+            metadata = metadata_by_id.get(image_id)
             if metadata is None:
                 continue
-            annotations = self._db_manager.get_image_annotations(image_id)
+            annotations = annotations_by_id.get(image_id, {})
             image_meta = {
                 "uuid": metadata.get("uuid"),
                 "width": metadata.get("width"),
@@ -105,22 +116,32 @@ class ResultsTabWidget(QWidget):
                 "reviewed_at": metadata.get("reviewed_at"),
             }
             results.append(self._quality_service.detect_image(image_id, image_meta, annotations))
-            # 行内サムネイル用のパスを解決する (#1104)。低解像度処理済み画像を優先し、
-            # 無ければオリジナルの stored path にフォールバックする。View は DB を持た
-            # ないため、パス解決はこのタブ (glue) が担って display に渡す。
-            path = self._resolve_thumbnail_path(image_id, metadata)
-            if path is not None:
-                image_paths[image_id] = path
+            valid_ids.append(image_id)
 
         if not results:
             self._results_widget.clear()
             return
 
+        # 大規模時 (ResultsWidget が per-row 描画を諦める degrade 域) は行サムネイルを
+        # ほぼ描かないため、最低解像度パスの一括取得をスキップする (Codex #1143 P2-3)。
+        # degrade でも残る clean-audit の抜き取り行 (少数) は metadata の stored_image_path
+        # フォールバックでサムネイルを賄う。
+        degrade = len(results) >= _VIRTUALIZE_THRESHOLD
+        low_res_by_id = {} if degrade else self._db_manager.get_low_res_image_paths_batch(valid_ids)
+
+        # 行内サムネイル用のパスを解決する (#1104)。View は DB を持たないため、パス解決は
+        # このタブ (glue) が担って display に渡す。
+        image_paths: dict[int, str] = {}
+        for image_id in valid_ids:
+            path = self._resolve_thumbnail_path(metadata_by_id[image_id], low_res_by_id.get(image_id))
+            if path is not None:
+                image_paths[image_id] = path
+
         summary = self._quality_service.summarize(results)
         self._results_widget.display(summary, results, image_paths)
 
-    def _resolve_thumbnail_path(self, image_id: int, metadata: dict[str, object]) -> str | None:
-        """行内サムネイル用の画像パスを解決する (#1104)。
+    def _resolve_thumbnail_path(self, metadata: dict[str, object], low_res_path: str | None) -> str | None:
+        """行内サムネイル用の画像パスを解決する (#1104 / バッチ化 #1140)。
 
         低解像度処理済み画像 (512px サムネイル) を優先し、無ければオリジナルの
         ``stored_image_path`` にフォールバックする。いずれも無ければ None。
@@ -128,12 +149,14 @@ class ResultsTabWidget(QWidget):
         DB の格納パスはプロジェクトルート相対のことがあるため、View へ渡す前に
         ``resolve_stored_path`` でプロジェクトルート基準の絶対パスへ解決する
         (相対のままだとサムネイル読込がプロセスの cwd 基準になり外れる。#961 P2 と同型)。
+
+        Args:
+            metadata: 対象画像の metadata dict (``stored_image_path`` フォールバック用)。
+            low_res_path: バッチ取得済みの最低解像度パス (無ければ None)。
         """
         candidate: str | None = None
-        if self._db_manager is not None:
-            low_res = self._db_manager.get_low_res_image_path(image_id)
-            if isinstance(low_res, str) and low_res:
-                candidate = low_res
+        if isinstance(low_res_path, str) and low_res_path:
+            candidate = low_res_path
         if candidate is None:
             stored = metadata.get("stored_image_path")
             if isinstance(stored, str) and stored:

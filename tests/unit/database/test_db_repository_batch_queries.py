@@ -36,7 +36,7 @@ class TestGetImagesMetadataBatch:
         with patch.object(repository, "_fetch_filtered_metadata", return_value=expected) as mock_fetch:
             result = repository.get_images_metadata_batch([1, 2])
 
-        mock_fetch.assert_called_once_with(mock_session, [1, 2], resolution=0)
+        mock_fetch.assert_called_once_with(mock_session, [1, 2], resolution=0, include_annotations=True)
         assert result == expected
 
     def test_chunking_splits_large_input(self, repository):
@@ -73,7 +73,7 @@ class TestGetImagesMetadataBatch:
         ) as mock_fetch:
             result = repository.get_images_metadata_batch([1, 2, 3])
 
-        mock_fetch.assert_called_once_with(mock_session, [1, 2, 3], resolution=0)
+        mock_fetch.assert_called_once_with(mock_session, [1, 2, 3], resolution=0, include_annotations=True)
         assert len(result) == 3
 
     def test_chunking_boundary_plus_one(self, repository):
@@ -95,8 +95,8 @@ class TestGetImagesMetadataBatch:
 
         assert mock_fetch.call_count == 2
         # 第1チャンク: [1,2,3], 第2チャンク: [4]
-        mock_fetch.assert_any_call(mock_session, [1, 2, 3], resolution=0)
-        mock_fetch.assert_any_call(mock_session, [4], resolution=0)
+        mock_fetch.assert_any_call(mock_session, [1, 2, 3], resolution=0, include_annotations=True)
+        mock_fetch.assert_any_call(mock_session, [4], resolution=0, include_annotations=True)
         assert len(result) == 4
 
     def test_chunking_single_element(self, repository):
@@ -113,7 +113,7 @@ class TestGetImagesMetadataBatch:
         ) as mock_fetch:
             result = repository.get_images_metadata_batch([99])
 
-        mock_fetch.assert_called_once_with(mock_session, [99], resolution=0)
+        mock_fetch.assert_called_once_with(mock_session, [99], resolution=0, include_annotations=True)
         assert result == [{"id": 99}]
 
     def test_chunking_exact_multiple(self, repository):
@@ -697,3 +697,80 @@ class TestGetBatchAvailableResolutionsRealDb:
         # per-item の解像度マッチログ (旧 DEBUG) は TRACE へ落ちたので DEBUG では出ない
         per_item = [m for m in captured if "resolution match" in m or "No suitable processed image" in m]
         assert per_item == [], f"per-item ログが DEBUG に漏れている: {len(per_item)} 件"
+
+
+class TestGetImageAnnotationsBatch:
+    """get_image_annotations_batch メソッドのテスト (#1140 N+1 解消)。"""
+
+    @pytest.fixture
+    def repository(self):
+        return ImageRepository(session_factory=Mock())
+
+    def test_empty_list_returns_empty_dict(self, repository):
+        assert repository.get_image_annotations_batch([]) == {}
+
+    def test_missing_ids_get_empty_skeleton(self, repository):
+        """取得できた id は組み立て結果、取得できない id は空スケルトンを返す。"""
+        mock_session = MagicMock()
+        repository.session_factory.return_value.__enter__ = Mock(return_value=mock_session)
+        repository.session_factory.return_value.__exit__ = Mock(return_value=False)
+
+        img = Mock()
+        img.id = 1
+        mock_session.execute.return_value.unique.return_value.scalars.return_value = [img]
+
+        assembled = {
+            "tags": [{"tag": "dog"}],
+            "captions": [],
+            "scores": [],
+            "score_labels": [],
+            "ratings": [],
+            "quality_summary": {"x": 1},
+        }
+        with patch.object(repository, "_assemble_annotations", return_value=assembled) as mock_assemble:
+            result = repository.get_image_annotations_batch([1, 2])
+
+        mock_assemble.assert_called_once_with(img, include_rejected=False)
+        assert result[1] == assembled
+        # 未取得の image_id=2 は空スケルトン (6 キー、全て空)。
+        assert result[2] == {
+            "tags": [],
+            "captions": [],
+            "scores": [],
+            "score_labels": [],
+            "ratings": [],
+            "quality_summary": {},
+        }
+
+
+class TestGetLowResImagePathsBatch:
+    """get_low_res_image_paths_batch メソッドのテスト (#1140 N+1 解消)。"""
+
+    @pytest.fixture
+    def repository(self):
+        return ImageRepository(session_factory=Mock())
+
+    def test_empty_list_returns_empty_dict(self, repository):
+        assert repository.get_low_res_image_paths_batch([]) == {}
+
+    def test_picks_min_area_path_per_image(self, repository):
+        """image_id ごとに面積最小 (最低解像度) の stored_image_path を返す。"""
+        mock_session = MagicMock()
+        repository.session_factory.return_value.__enter__ = Mock(return_value=mock_session)
+        repository.session_factory.return_value.__exit__ = Mock(return_value=False)
+
+        class _PI:
+            def __init__(self, image_id, width, height, path):
+                self.image_id = image_id
+                self.width = width
+                self.height = height
+                self.stored_image_path = path
+
+        mock_session.execute.return_value.scalars.return_value = [
+            _PI(1, 512, 512, "/big1.png"),
+            _PI(1, 128, 128, "/small1.png"),
+            _PI(2, 256, 256, "/only2.png"),
+        ]
+
+        result = repository.get_low_res_image_paths_batch([1, 2])
+        assert result == {1: "/small1.png", 2: "/only2.png"}
