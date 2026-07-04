@@ -584,3 +584,49 @@ def test_describe_errors_resolve_exposes_required_fields() -> None:
     assert result.exit_code == 0
     rows = _jsonl(result.stdout)
     assert rows[0]["path"] == "errors resolve"
+
+
+def test_list_commands_includes_images_show() -> None:
+    """images show が list-commands に現れ read-only である。"""
+    result = runner.invoke(app, ["--json", "list-commands"])
+
+    assert result.exit_code == 0
+    items = [row for row in _jsonl(result.stdout) if row["kind"] == "item"]
+    by_path = {row["path"]: row for row in items}
+
+    assert "images show" in by_path
+    assert by_path["images show"]["read_only"] is True
+    assert by_path["images show"]["side_effects"] == ["db_read"]
+
+
+def test_describe_images_show_exposes_required_fields() -> None:
+    """describe images show が project / image_ids 必須フィールドを返す。"""
+    result = runner.invoke(app, ["--json", "describe", "images show"])
+
+    assert result.exit_code == 0
+    rows = _jsonl(result.stdout)
+    assert rows[0]["path"] == "images show"
+
+    input_row = next(row for row in rows if row.get("type") == "model" and row["name"] == "ImagesShowInput")
+    fields = {f["name"]: f for f in input_row["fields"]}
+    assert fields["project"]["required"] is True
+    assert fields["image_ids"]["required"] is True
+    assert fields["include_rejected"]["default"] is False
+
+
+def test_describe_images_show_json_schema_includes_item_and_result() -> None:
+    """images show --schema json_schema が Input/Item/Result スキーマを返す。"""
+    result = runner.invoke(app, ["--json", "describe", "images show", "--schema", "json_schema"])
+
+    assert result.exit_code == 0
+    rows = _jsonl(result.stdout)
+    schema_names = {row["name"] for row in rows if row.get("type") == "schema"}
+    assert "ImagesShowInput" in schema_names
+    assert "ImagesShowItem" in schema_names
+    assert "ImagesShowResult" in schema_names
+
+    item_schema = next(row for row in rows if row.get("name") == "ImagesShowItem")
+    item_props = set(item_schema["schema"]["properties"])
+    assert {"image_id", "tags", "captions", "scores", "score_labels", "ratings", "quality_summary"} <= (
+        item_props
+    )

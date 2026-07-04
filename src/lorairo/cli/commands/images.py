@@ -22,6 +22,7 @@ from lorairo.cli._boundary import command_boundary
 from lorairo.cli._console import make_console
 from lorairo.cli._emit import emit_item, emit_result
 from lorairo.cli._glyphs import OK
+from lorairo.cli._image_ids import MAX_IMAGE_IDS, parse_image_ids, validate_image_ids_exist
 from lorairo.cli._output_mode import is_json_mode
 from lorairo.database.filter_criteria import ImageFilterCriteria
 from lorairo.database.repository.annotation_record import AnnotationRepository
@@ -475,3 +476,63 @@ def search_images(
         else:
             for record in records:
                 print(f"{record.get('id') or record.get('image_id')}\t{record.get('file_path')}")
+
+
+@app.command("show")
+def show(
+    project: str = typer.Option(..., "--project", "-p", help="Project name"),
+    image_ids_csv: str = typer.Option(..., "--image-ids", help="Comma-separated image IDs"),
+    include_rejected: bool = typer.Option(
+        False,
+        "--include-rejected",
+        help="Include soft-rejected tags/captions in the output.",
+    ),
+) -> None:
+    """Show current tags, captions, scores, and ratings for images (read-only).
+
+    指定した image_ids の現行アノテーション（タグ/キャプション/スコア/レーティング）を
+    表示します。タグ修正の判断材料として使うためのコマンドで、書き込みは行いません。
+
+    Example:
+        lorairo-cli images show --project proj --image-ids 42,57 --json
+    """
+    with command_boundary():
+        api_get_project(project)
+        image_ids = parse_image_ids(image_ids_csv)
+        if not image_ids:
+            raise click.UsageError("--image-ids に有効な値がありません。")
+        if len(image_ids) > MAX_IMAGE_IDS:
+            raise click.UsageError(f"--image-ids は最大 {MAX_IMAGE_IDS} 件まで。")
+
+        container = get_service_container()
+        container.set_active_project(project)
+        validate_image_ids_exist(container, image_ids)
+
+        image_repo = container.db_manager.image_repo
+        annotations_by_id = image_repo.get_image_annotations_batch(
+            image_ids, include_rejected=include_rejected
+        )
+
+        if is_json_mode():
+            for image_id in image_ids:
+                annotations = annotations_by_id[image_id]
+                emit_item(
+                    {
+                        "image_id": image_id,
+                        "tags": annotations["tags"],
+                        "captions": annotations["captions"],
+                        "scores": annotations["scores"],
+                        "score_labels": annotations["score_labels"],
+                        "ratings": annotations["ratings"],
+                        "quality_summary": annotations["quality_summary"],
+                    }
+                )
+            emit_result(f"{len(image_ids)} image(s)", target_images=len(image_ids))
+        else:
+            for image_id in image_ids:
+                annotations = annotations_by_id[image_id]
+                tag_names = [t["tag"] for t in annotations["tags"]]
+                caption_texts = [c["caption"] for c in annotations["captions"]]
+                console.print(f"\n[bold]Image {image_id}[/bold]")
+                console.print(f"  tags: {', '.join(tag_names) if tag_names else '(none)'}")
+                console.print(f"  captions: {' | '.join(caption_texts) if caption_texts else '(none)'}")

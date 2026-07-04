@@ -15,52 +15,13 @@ from lorairo.cli._boundary import command_boundary
 from lorairo.cli._console import make_console
 from lorairo.cli._emit import emit_item, emit_result
 from lorairo.cli._glyphs import OK
+from lorairo.cli._image_ids import MAX_IMAGE_IDS, parse_image_ids, validate_image_ids_exist
 from lorairo.cli._output_mode import is_json_mode
-from lorairo.database.filter_criteria import ImageFilterCriteria
-from lorairo.public_api.exceptions import ImageNotFoundError
 from lorairo.public_api.project import get_project as api_get_project
-from lorairo.services.service_container import ServiceContainer, get_service_container
+from lorairo.services.service_container import get_service_container
 
 app = typer.Typer(help="Tag editing commands (agent-friendly)")
 console = make_console()
-
-MAX_IMAGE_IDS = 500
-
-
-def _parse_image_ids(image_ids_csv: str) -> list[int]:
-    """カンマ区切り文字列を int リストに変換。不正値は UsageError。
-
-    Args:
-        image_ids_csv: カンマ区切りの画像 ID 文字列。
-
-    Returns:
-        画像 ID の整数リスト。
-
-    Raises:
-        click.UsageError: 整数に変換できない値が含まれていた場合。
-    """
-    try:
-        return [int(x.strip()) for x in image_ids_csv.split(",") if x.strip()]
-    except ValueError as e:
-        raise click.UsageError(f"--image-ids には整数のみ指定可: {e}") from e
-
-
-def _validate_image_ids_exist(container: ServiceContainer, image_ids: list[int]) -> None:
-    """全 image_id が DB に存在するか確認。存在しなければ ImageNotFoundError。
-
-    Args:
-        container: サービスコンテナ。
-        image_ids: 存在確認する画像 ID のリスト。
-
-    Raises:
-        ImageNotFoundError: リスト内に存在しない画像 ID があった場合。
-    """
-    criteria = ImageFilterCriteria(image_ids=image_ids, include_nsfw=True)
-    records, _ = container.db_manager.image_repo.get_images_by_filter(criteria)
-    found_ids = {int(r["id"]) for r in records}
-    missing = [i for i in image_ids if i not in found_ids]
-    if missing:
-        raise ImageNotFoundError(missing[0])
 
 
 @app.command("add")
@@ -80,7 +41,7 @@ def add(
     """
     with command_boundary():
         api_get_project(project)
-        image_ids = _parse_image_ids(image_ids_csv)
+        image_ids = parse_image_ids(image_ids_csv)
         if not image_ids:
             raise click.UsageError("--image-ids に有効な値がありません。")
         if len(image_ids) > MAX_IMAGE_IDS:
@@ -92,7 +53,7 @@ def add(
 
         container = get_service_container()
         container.set_active_project(project)
-        _validate_image_ids_exist(container, image_ids)
+        validate_image_ids_exist(container, image_ids)
 
         dry_run = not apply
         total_added = 0
@@ -146,7 +107,7 @@ def remove(
     """
     with command_boundary():
         api_get_project(project)
-        image_ids = _parse_image_ids(image_ids_csv)
+        image_ids = parse_image_ids(image_ids_csv)
         if not image_ids:
             raise click.UsageError("--image-ids に有効な値がありません。")
         if len(image_ids) > MAX_IMAGE_IDS:
@@ -158,7 +119,7 @@ def remove(
 
         container = get_service_container()
         container.set_active_project(project)
-        _validate_image_ids_exist(container, image_ids)
+        validate_image_ids_exist(container, image_ids)
 
         dry_run = not apply
         per_item_results: list[tuple[int, str]] = []
@@ -224,7 +185,7 @@ def replace(
     """
     with command_boundary():
         api_get_project(project)
-        image_ids = _parse_image_ids(image_ids_csv)
+        image_ids = parse_image_ids(image_ids_csv)
         if not image_ids:
             raise click.UsageError("--image-ids に有効な値がありません。")
         if len(image_ids) > MAX_IMAGE_IDS:
@@ -236,7 +197,7 @@ def replace(
 
         container = get_service_container()
         container.set_active_project(project)
-        _validate_image_ids_exist(container, image_ids)
+        validate_image_ids_exist(container, image_ids)
 
         dry_run = not apply
         per_item_results: list[tuple[int, str]] = []

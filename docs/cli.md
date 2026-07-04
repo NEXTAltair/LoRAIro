@@ -485,9 +485,7 @@ lorairo-cli errors get 42 --project proj
 
 ### `errors list`
 
-List error records.
-
-デフォルトは未解決のみ。`--all` で解決済みを含む全レコードを返す。
+List error records. Default: unresolved only.
 
 - Read only: `true`
 - Side effects: `db_read`
@@ -540,9 +538,6 @@ Structured error payload emitted as kind=error by the CLI boundary.
 ### `errors resolve`
 
 Mark error records as resolved. Use --dry-run to preview.
-
-`--ids` でレコード ID を指定するか、`--operation` / `--error-type` / `--message-contains`
-でフィルターして一括解決する。
 
 - Read only: `false`
 - Side effects: `db_read`, `db_write`
@@ -782,6 +777,54 @@ Structured error payload emitted as kind=error by the CLI boundary.
 - `hint`: `str?` (optional)
 - `details`: `dict?` (optional)
 
+### `images show`
+
+Show current tags, captions, scores, and ratings for images (read-only). Use as judgment material before tags add/remove/replace.
+
+- Read only: `true`
+- Side effects: `db_read`
+
+#### Compact Introspection
+
+```bash
+lorairo-cli --json describe "images show"
+```
+
+#### Models
+
+**Input `ImagesShowInput`**
+
+- `project`: `str` (required)
+- `image_ids`: `csv[int]` (required) - Comma-separated image IDs, max 500.
+- `include_rejected`: `bool` (optional, default `False`) - Include soft-rejected tags/captions in the output.
+
+**Output `ImagesShowItem`**
+
+- `image_id`: `int` (optional)
+- `tags`: `list[dict]` (optional)
+- `captions`: `list[dict]` (optional)
+- `scores`: `list[dict]` (optional)
+- `score_labels`: `list[dict]` (optional)
+- `ratings`: `list[dict]` (optional)
+- `quality_summary`: `dict` (optional)
+
+**Output `ImagesShowResult`**
+
+- `target_images`: `int` (optional)
+
+**Error `CliErrorResponse`**
+
+Structured error payload emitted as kind=error by the CLI boundary.
+
+- `kind`: `error` (required)
+- `ok`: `false` (required)
+- `code`: `str` (required)
+- `message`: `str` (required)
+- `retryable`: `bool` (required)
+- `user_action_required`: `bool` (required)
+- `hint`: `str?` (optional)
+- `details`: `dict?` (optional)
+
 ### `images update`
 
 Add tags to images in a project.
@@ -1000,7 +1043,7 @@ lorairo-cli --json describe "project list"
 
 **Input `ProjectListInput`**
 
-- `format`: `table|json` (optional, default `table`)
+- `format`: `table` (optional, default `table`)
 
 **Output `ProjectListItem`**
 
