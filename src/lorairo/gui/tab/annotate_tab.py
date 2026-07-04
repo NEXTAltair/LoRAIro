@@ -124,6 +124,9 @@ class AnnotateTabWidget(QWidget, Ui_AnnotateTab):
 
         self.setupUi(self)
 
+        # #1156: 実行ボタン連打による多重投入を防ぐ再入ガード。実行開始〜終端シグナルの間 True。
+        self._execute_in_flight = False
+
         # パイプライン構成サービスと送信前プリフライト・推論台帳の集計状態
         self._pipeline_composition_service = PipelineCompositionService()
         self._pipeline_staged_count = 0
@@ -343,8 +346,28 @@ class AnnotateTabWidget(QWidget, Ui_AnnotateTab):
         Args:
             dispatch_mode: "sync" (同期実行) または "batch_api" (Batch API 実行)。
         """
+        # #1156: 実行中 / 開始判定中 (start_annotation のダイアログ表示でイベントループが
+        # 回る間を含む) の再クリックを塞ぎ、連打による同一ジョブの多重投入を防ぐ。
+        if self._execute_in_flight:
+            return
+        self._execute_in_flight = True
         self._pipeline_run_options = replace(self._pipeline_run_options, dispatch_mode=dispatch_mode)
         self.annotation_execute_requested.emit(dispatch_mode)
+
+    def set_execution_running(self, running: bool) -> None:
+        """実行中は両実行ボタンを無効化し「実行中…」表示、終端で再有効化する (#1156)。
+
+        MainWindow glue が ``start_annotation`` の成否と worker 終端シグナル
+        (enhanced_annotation_finished/error/canceled)・async dispatch thread 終了に応じて
+        呼ぶ。``running=True`` で多重投入を防ぎ、``False`` で staging 件数に応じて再有効化する。
+        開始前に拒否された場合 (start_annotation=False) は False で即再有効化する。
+
+        Args:
+            running: 実行中なら True (無効化)、終了/拒否なら False (再有効化)。
+        """
+        self._execute_in_flight = running
+        # ボタン状態は _update_annotation_target_ui が _execute_in_flight を見て決める。
+        self._update_annotation_target_ui(self._pipeline_staged_count)
 
     @staticmethod
     def _run_bar_scope_text(count: int) -> str:
@@ -1011,8 +1034,15 @@ class AnnotateTabWidget(QWidget, Ui_AnnotateTab):
 
         # run bar スコープラベル / 実行ボタンを更新 (Issue #849, #1099: 2ボタン)
         self._run_bar_scope_label.setText(self._run_bar_scope_text(staging_count))
-        has_staging = staging_count > 0
-        self._btn_sync_execute.setEnabled(has_staging)
-        self._btn_sync_execute.setText(self._run_bar_sync_execute_text(staging_count))
-        self._btn_batch_api_execute.setEnabled(has_staging)
-        self._btn_batch_api_execute.setText(self._run_bar_batch_execute_text(staging_count))
+        if self._execute_in_flight:
+            # #1156: 実行中は staging 変化があっても両ボタンを無効・「実行中…」のまま維持する。
+            self._btn_sync_execute.setEnabled(False)
+            self._btn_batch_api_execute.setEnabled(False)
+            self._btn_sync_execute.setText("実行中…")
+            self._btn_batch_api_execute.setText("実行中…")
+        else:
+            has_staging = staging_count > 0
+            self._btn_sync_execute.setEnabled(has_staging)
+            self._btn_sync_execute.setText(self._run_bar_sync_execute_text(staging_count))
+            self._btn_batch_api_execute.setEnabled(has_staging)
+            self._btn_batch_api_execute.setText(self._run_bar_batch_execute_text(staging_count))

@@ -905,6 +905,10 @@ class MainWindow(QMainWindow, Ui_MainWindow):
             )
             return
         started = self.annotation_workflow_controller.start_annotation(dispatch_mode)
+        # #1156: 開始成功なら実行ボタンを無効化 (連打多重投入防止)、開始前拒否なら有効のまま。
+        # 再有効化は worker 終端シグナル / async dispatch thread 終了で行う。
+        if self.annotate_tab is not None:
+            self.annotate_tab.set_execution_running(started)
         if started:
             self._navigate_to_jobs_tab()
 
@@ -1209,6 +1213,9 @@ class MainWindow(QMainWindow, Ui_MainWindow):
         from lorairo.gui.widgets.annotation_summary_dialog import AnnotationSummaryDialog
         from lorairo.gui.workers.annotation_worker import AnnotationExecutionResult
 
+        # #1156: 同期アノテ完了で実行ボタンを再有効化する (連打ガード解除)
+        self._reset_annotation_execute_buttons()
+
         # Phase 1: サマリーダイアログ表示
         raw_results: PHashAnnotationResults | None = None
         if isinstance(result, AnnotationExecutionResult):
@@ -1246,6 +1253,8 @@ class MainWindow(QMainWindow, Ui_MainWindow):
                 logger.opt(exception=True).error(f"アノテーション完了後のキャッシュ更新失敗: {e}")
 
     def _on_annotation_error(self, error_msg: str) -> None:
+        # #1156: 同期アノテ失敗で実行ボタンを再有効化する
+        self._reset_annotation_execute_buttons()
         self._delegate_to_result_handler("handle_annotation_error", error_msg, status_bar=self.statusBar())
         # エラー通知Widget更新
         if self.error_notification_widget:
@@ -1253,7 +1262,18 @@ class MainWindow(QMainWindow, Ui_MainWindow):
 
     def _on_annotation_canceled(self, worker_id: str) -> None:
         """Annotation canceled signal handler（エラー通知は出さない）"""
+        # #1156: 同期アノテ中断で実行ボタンを再有効化する
+        self._reset_annotation_execute_buttons()
         self._delegate_to_progress_state("on_batch_annotation_canceled", worker_id)
+
+    def _reset_annotation_execute_buttons(self) -> None:
+        """アノテ実行ボタンの実行中ロックを解除する (#1156)。
+
+        同期アノテの終端シグナル (finished/error/canceled) で呼ぶ。annotate_tab 未生成の
+        縮退起動では no-op。batch_api の再有効化は controller の dispatch thread 終了で行う。
+        """
+        if self.annotate_tab is not None:
+            self.annotate_tab.set_execution_running(False)
 
     def _on_batch_annotation_finished(self, result: Any) -> None:
         self._delegate_to_result_handler(

@@ -1080,3 +1080,6 @@ class AnnotationWorkflowController(QObject):
         self._async_dispatch_in_progress = False
         self._async_dispatch_worker = None
         self._async_dispatch_thread = None
+        # #1156: Batch API dispatch (submit) 完了で実行ボタンを再有効化する (連打ガード解除)。
+        if self._annotate_tab is not None:
+            self._annotate_tab.set_execution_running(False)

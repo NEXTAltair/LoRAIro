@@ -1094,6 +1094,28 @@ class TestFinalizeSubmittedJobs:
         ctrl._staging_state_manager.remove_image_ids.assert_not_called()
         ctrl._jobs_refresh.assert_not_called()
 
+    def test_thread_finished_reenables_execute_buttons(self) -> None:
+        """#1156: Batch dispatch thread 終了で実行ボタンロックを解除する。"""
+        from lorairo.gui.controllers.annotation_workflow_controller import AnnotationWorkflowController
+
+        ctrl = Mock()
+        ctrl._annotate_tab = Mock()
+
+        AnnotationWorkflowController._on_async_dispatch_thread_finished(ctrl)
+
+        assert ctrl._async_dispatch_in_progress is False
+        ctrl._annotate_tab.set_execution_running.assert_called_once_with(False)
+
+    def test_thread_finished_noop_when_no_annotate_tab(self) -> None:
+        from lorairo.gui.controllers.annotation_workflow_controller import AnnotationWorkflowController
+
+        ctrl = Mock()
+        ctrl._annotate_tab = None
+
+        # annotate_tab 未注入でも例外を出さない
+        AnnotationWorkflowController._on_async_dispatch_thread_finished(ctrl)
+        assert ctrl._async_dispatch_in_progress is False
+
     def test_succeeded_finalizes_and_reports_status(self) -> None:
         from lorairo.gui.controllers.annotation_workflow_controller import AnnotationWorkflowController
 
