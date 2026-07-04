@@ -6,6 +6,8 @@
 - QMessageBox 自動モック（ヘッドレス環境でネイティブダイアログを防止）
 """
 
+from unittest.mock import Mock
+
 import pytest
 from PySide6.QtWidgets import QMessageBox
 
@@ -21,3 +23,11 @@ def auto_mock_qmessagebox(monkeypatch):
     monkeypatch.setattr(QMessageBox, "warning", lambda *a, **kw: QMessageBox.StandardButton.Ok)
     monkeypatch.setattr(QMessageBox, "information", lambda *a, **kw: QMessageBox.StandardButton.Ok)
     monkeypatch.setattr(QMessageBox, "critical", lambda *a, **kw: QMessageBox.StandardButton.Ok)
+
+    # コピー可能ダイアログのヘルパー (message_box) も抑止する (#1160)。
+    def mock_build_message_box(*args, **kwargs):
+        box = Mock()
+        box.exec.return_value = QMessageBox.StandardButton.Ok
+        return box
+
+    monkeypatch.setattr("lorairo.gui.message_box.build_message_box", mock_build_message_box)

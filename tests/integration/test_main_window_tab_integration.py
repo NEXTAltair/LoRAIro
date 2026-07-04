@@ -19,6 +19,8 @@ def main_window_with_tabs(qapp, monkeypatch):
     """タブ統合済みMainWindowフィクスチャ"""
     # QMessageBox.criticalをモック（初期化エラーダイアログ抑制）
     monkeypatch.setattr("PySide6.QtWidgets.QMessageBox.critical", lambda *args: None)
+    # コピー可能ダイアログのヘルパー (message_box) 経由の critical も抑止する (#1160)。
+    monkeypatch.setattr("lorairo.gui.message_box.build_message_box", lambda *a, **k: Mock())
 
     window = MainWindow()
     yield window

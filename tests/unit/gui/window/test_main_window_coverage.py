@@ -188,9 +188,9 @@ class TestBatchRegistrationHandlers:
         mock_window = Mock()
         mock_window.progress_state_service = Mock()
         mock_window.error_notification_widget = Mock()
-        with patch("lorairo.gui.window.main_window.QMessageBox") as mock_qmb:
+        with patch("lorairo.gui.window.main_window.show_critical") as mock_critical:
             MainWindow._on_batch_registration_error(mock_window, "登録エラー")
-            mock_qmb.critical.assert_called_once()
+            mock_critical.assert_called_once()
 
     def test_on_batch_registration_error_updates_notification_widget(self):
         from lorairo.gui.window.main_window import MainWindow
@@ -338,9 +338,9 @@ class TestDatasetRegistration:
 
         mock_window = Mock()
         mock_window.dataset_controller = None
-        with patch("lorairo.gui.window.main_window.QMessageBox") as mock_qmb:
+        with patch("lorairo.gui.window.main_window.show_warning") as mock_warning:
             MainWindow._execute_dataset_registration(mock_window)
-            mock_qmb.warning.assert_called_once()
+            mock_warning.assert_called_once()
 
     def test_load_images_from_db_delegates_to_search_tab(self):
         """#869: 検索起動ロジックは SearchTabWidget が所有するため委譲する。"""
@@ -422,9 +422,9 @@ class TestOpenDialogs:
 
         mock_window = Mock()
         mock_window.settings_controller = None
-        with patch("lorairo.gui.window.main_window.QMessageBox") as mock_qmb:
+        with patch("lorairo.gui.window.main_window.show_warning") as mock_warning:
             MainWindow.open_settings(mock_window)
-            mock_qmb.warning.assert_called_once()
+            mock_warning.assert_called_once()
 
     def test_export_data_switches_to_export_tab(self):
         """Phase 5/#896: export_data は ExportTab.refresh() でステージング再読込し遷移する。"""
@@ -441,9 +441,9 @@ class TestOpenDialogs:
 
         mock_window = Mock()
         mock_window.export_tab = None
-        with patch("lorairo.gui.window.main_window.QMessageBox") as mock_qmb:
+        with patch("lorairo.gui.window.main_window.show_warning") as mock_warning:
             MainWindow.export_data(mock_window)
-            mock_qmb.warning.assert_called_once()
+            mock_warning.assert_called_once()
         mock_window.tabWidgetMainMode.setCurrentWidget.assert_not_called()
 
 
@@ -573,9 +573,9 @@ class TestSendSelectedToBatchTag:
 
         mock_window = Mock()
         mock_window.dataset_state_manager = None
-        with patch("lorairo.gui.window.main_window.QMessageBox") as mock_qmb:
+        with patch("lorairo.gui.window.main_window.show_warning") as mock_warning:
             MainWindow.send_selected_to_batch_tag(mock_window)
-            mock_qmb.warning.assert_called_once()
+            mock_warning.assert_called_once()
 
     def test_send_selected_no_annotate_tab_shows_warning(self):
         from lorairo.gui.window.main_window import MainWindow
@@ -583,9 +583,9 @@ class TestSendSelectedToBatchTag:
         mock_window = Mock()
         mock_window.dataset_state_manager = Mock()
         mock_window.annotate_tab = None
-        with patch("lorairo.gui.window.main_window.QMessageBox") as mock_qmb:
+        with patch("lorairo.gui.window.main_window.show_warning") as mock_warning:
             MainWindow.send_selected_to_batch_tag(mock_window)
-            mock_qmb.warning.assert_called_once()
+            mock_warning.assert_called_once()
 
     def test_send_selected_no_target_ids_shows_information(self):
         from lorairo.gui.window.main_window import MainWindow
@@ -734,9 +734,9 @@ class TestErrorHandlers:
 
         mock_window = Mock()
         mock_window.error_notification_widget = Mock()
-        with patch("lorairo.gui.window.main_window.QMessageBox") as mock_qmb:
+        with patch("lorairo.gui.window.main_window.show_critical") as mock_critical:
             MainWindow._on_batch_import_error(mock_window, "インポートエラー")
-            mock_qmb.critical.assert_called_once()
+            mock_critical.assert_called_once()
         mock_window.error_notification_widget.update_error_count.assert_called_once()
 
     def test_on_batch_import_error_no_notification_widget(self):
@@ -923,9 +923,9 @@ class TestAnnotationExecuteWrapper:
         mock_window = Mock()
         mock_window.annotation_workflow_controller = None
 
-        with patch("lorairo.gui.window.main_window.QMessageBox") as mock_qmb:
+        with patch("lorairo.gui.window.main_window.show_warning") as mock_warning:
             MainWindow._on_annotation_execute_requested(mock_window, "sync")
-            mock_qmb.warning.assert_called_once()
+            mock_warning.assert_called_once()
         # controller 未初期化なら Jobs 遷移もしない
         mock_window._navigate_to_jobs_tab.assert_not_called()
         # #1156 (Codex P2): controller 未初期化でも連打ガードを解除する (永久ロック防止)

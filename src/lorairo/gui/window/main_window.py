@@ -8,11 +8,13 @@ from typing import Any, cast
 
 from PySide6.QtCore import (
     QSettings,
+    Qt,
     Signal,
 )
 from PySide6.QtGui import QAction, QCloseEvent, QKeySequence
 from PySide6.QtWidgets import (
     QFileDialog,
+    QLabel,
     QMainWindow,
     QMenu,
     QMessageBox,
@@ -33,6 +35,7 @@ from ...utils.log import logger
 from ..controllers.annotation_workflow_controller import AnnotationWorkflowController
 from ..controllers.dataset_controller import DatasetController
 from ..controllers.settings_controller import SettingsController
+from ..message_box import show_critical, show_warning
 from ..services.pipeline_control_service import PipelineControlService
 from ..services.progress_state_service import ProgressStateService
 from ..services.result_handler_service import ResultHandlerService
@@ -302,12 +305,21 @@ class MainWindow(QMainWindow, Ui_MainWindow):
 
         logger.critical(f"Critical initialization failure - {component_name}: {error}")
 
-        # ユーザーへの通知（GUI利用可能なら）
+        # ユーザーへの通知（GUI利用可能なら）。本文はコピー可能にする (#1160)。
+        # 致命的初期化失敗の検証基盤 (critical_failure_hooks) が main_window.QMessageBox を
+        # patch して setText/exec を追跡するため、ここは共通ヘルパーではなく素の QMessageBox
+        # を構築し、本文ラベルだけ選択可能にする。
         try:
             msg_box = QMessageBox()
             msg_box.setIcon(QMessageBox.Icon.Critical)
             msg_box.setWindowTitle("LoRAIro - 致命的エラー")
             msg_box.setText(error_message)
+            label = msg_box.findChild(QLabel, "qt_msgbox_label")
+            if label is not None:
+                label.setTextInteractionFlags(
+                    Qt.TextInteractionFlag.TextSelectableByMouse
+                    | Qt.TextInteractionFlag.TextSelectableByKeyboard
+                )
             msg_box.exec()
         except Exception:
             # GUI不可の場合はコンソール出力
@@ -801,7 +813,7 @@ class MainWindow(QMainWindow, Ui_MainWindow):
             if self.tag_management_dialog is None:
                 if not self.service_container:
                     logger.error("ServiceContainer not available")
-                    QMessageBox.warning(self, "エラー", "サービス接続が確立されていません")
+                    show_warning(self, "エラー", "サービス接続が確立されていません")
                     return
 
                 # refinement キャッシュ無効化用に共有 RefinementService を注入 (#977)。
@@ -829,7 +841,7 @@ class MainWindow(QMainWindow, Ui_MainWindow):
 
         except Exception as e:
             logger.opt(exception=True).error(f"Failed to show tag management dialog: {e}")
-            QMessageBox.critical(self, "エラー", f"タグ管理の表示に失敗しました:\n{e}")
+            show_critical(self, "エラー", f"タグ管理の表示に失敗しました:\n{e}")
 
     def _connect_menu_actions(self) -> None:
         """ファイル/編集/ヘルプメニューのアクション Signal 接続を行う。
@@ -898,7 +910,7 @@ class MainWindow(QMainWindow, Ui_MainWindow):
             dispatch_mode: 押下した実行ボタンが指定する送信方式 ("sync" / "batch_api")。
         """
         if self.annotation_workflow_controller is None:
-            QMessageBox.warning(
+            show_warning(
                 self,
                 "コントローラー未初期化",
                 "AnnotationWorkflowControllerが初期化されていないため、アノテーション処理を開始できません。",
@@ -1167,9 +1179,7 @@ class MainWindow(QMainWindow, Ui_MainWindow):
             self.progress_state_service.on_batch_registration_error(error_message)
 
         # QMessageBoxはMainWindowで表示（UI要素のため）
-        QMessageBox.critical(
-            self, "バッチ登録エラー", f"バッチ登録中にエラーが発生しました:\n\n{error_message}"
-        )
+        show_critical(self, "バッチ登録エラー", f"バッチ登録中にエラーが発生しました:\n\n{error_message}")
 
         # エラー通知Widget更新
         if self.error_notification_widget:
@@ -1330,7 +1340,7 @@ class MainWindow(QMainWindow, Ui_MainWindow):
             )
         else:
             logger.error("DatasetControllerが初期化されていません")
-            QMessageBox.warning(
+            show_warning(
                 self,
                 "エラー",
                 "DatasetControllerが初期化されていないため、データセット登録を開始できません。",
@@ -1457,7 +1467,7 @@ class MainWindow(QMainWindow, Ui_MainWindow):
                 self._reload_model_widget_after_settings()
         else:
             logger.error("SettingsControllerが初期化されていません")
-            QMessageBox.warning(
+            show_warning(
                 self, "設定エラー", "SettingsControllerが初期化されていないため、設定を開けません。"
             )
 
@@ -1471,7 +1481,7 @@ class MainWindow(QMainWindow, Ui_MainWindow):
         export_tab = getattr(self, "export_tab", None)
         if export_tab is None or not hasattr(self, "tabExport"):
             logger.error("エクスポートタブが初期化されていません")
-            QMessageBox.warning(
+            show_warning(
                 self, "エラー", "エクスポートタブが初期化されていないため、エクスポートを開けません。"
             )
             return
@@ -1483,12 +1493,12 @@ class MainWindow(QMainWindow, Ui_MainWindow):
         """ワークスペースの選択画像をアノテーションタブのステージングに追加 (#868)。"""
         if not self.dataset_state_manager:
             logger.warning("DatasetStateManager not available")
-            QMessageBox.warning(self, "エラー", "データセットが初期化されていません。")
+            show_warning(self, "エラー", "データセットが初期化されていません。")
             return
 
         if self.annotate_tab is None:
             logger.warning("AnnotateTabWidget not found")
-            QMessageBox.warning(self, "エラー", "アノテーション機能が初期化されていません。")
+            show_warning(self, "エラー", "アノテーション機能が初期化されていません。")
             return
 
         target_ids = (
@@ -1746,13 +1756,13 @@ class MainWindow(QMainWindow, Ui_MainWindow):
         jobs_tab が存在する場合のみ委譲する。
         """
         if self.jobs_tab is None:
-            QMessageBox.warning(self, "エラー", "ジョブタブが初期化されていません")
+            show_warning(self, "エラー", "ジョブタブが初期化されていません")
             return
         self.jobs_tab.start_batch_import()
 
     def _on_batch_import_error(self, error_message: str) -> None:
         """バッチインポートエラーハンドラ (JobsTabWidget からの glue, #874)。"""
-        QMessageBox.critical(
+        show_critical(
             self, "バッチインポートエラー", f"インポート中にエラーが発生しました:\n\n{error_message}"
         )
         if self.error_notification_widget:
