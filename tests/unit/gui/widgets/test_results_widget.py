@@ -8,7 +8,7 @@ import time
 import pytest
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QPixmap
-from PySide6.QtWidgets import QApplication
+from PySide6.QtWidgets import QApplication, QScrollArea
 
 from lorairo.domain.quality_tier import QualityTier
 from lorairo.gui.widgets.results_widget import (
@@ -417,3 +417,9 @@ def test_degrade_keeps_clean_audit_band(qapp):
     assert widget.findChild(object, "resultsScaleNotice") is not None
     assert widget.findChild(object, "resultsCleanAuditBand") is not None
     assert widget.findChild(object, "resultsAcceptCleanButton") is not None
+    # degrade のノーティス + clean-audit はスクロール領域に収まる (Codex #1143 2巡目 P2)。
+    scroll = widget.findChild(QScrollArea)
+    assert scroll is not None
+    notice = widget.findChild(object, "resultsScaleNotice")
+    # ノーティスがスクロール領域の子孫であること (ルート直付けでないこと)。
+    assert scroll.isAncestorOf(notice)

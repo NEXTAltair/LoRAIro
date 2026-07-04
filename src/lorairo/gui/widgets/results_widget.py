@@ -262,12 +262,24 @@ class ResultsWidget(QWidget):
         # ただし clean-audit の抜き取り監査バンド (少数行 + 一括 accept) は残す
         # (degrade でも「確認して accept」導線を失わない。Codex #1143 P2-2)。
         if len(ordered) >= _VIRTUALIZE_THRESHOLD:
-            self._root.addWidget(self._build_scale_notice(len(ordered)))
+            # ノーティス + clean-audit バンドは QScrollArea に収める。ルート直付けだと
+            # 抜き取り行 (最大 30) がウィンドウ高を超えたときにスクロールできない
+            # (Codex #1143 2巡目 P2)。
+            degrade_container = QWidget()
+            degrade_layout = QVBoxLayout(degrade_container)
+            degrade_layout.setContentsMargins(0, 0, 0, 0)
+            degrade_layout.addWidget(self._build_scale_notice(len(ordered)))
             band = self._build_clean_audit_band(ordered)
             if band is not None:
-                self._root.addWidget(band)
-            self._root.addStretch(1)
-            # clean-audit の抜き取り行サムネイルを可視域ロード対象として評価する。
+                degrade_layout.addWidget(band)
+            degrade_layout.addStretch(1)
+
+            scroll = QScrollArea()
+            scroll.setWidgetResizable(True)
+            scroll.setWidget(degrade_container)
+            # clean-audit の抜き取り行サムネイルをスクロールで可視域に入った時にロードする。
+            scroll.verticalScrollBar().valueChanged.connect(self._load_visible_thumbnails)
+            self._root.addWidget(scroll, stretch=1)
             QTimer.singleShot(0, self, self._load_visible_thumbnails)
             return
 
