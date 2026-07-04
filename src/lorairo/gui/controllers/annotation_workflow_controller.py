@@ -115,7 +115,7 @@ def _build_batch_projection(
     image_ids: list[int],
     prompt_profile: str,
     description: str | None,
-    processed_paths: dict[int, str],
+    processed_paths: dict[int, str] | None,
     task_type: str,
 ) -> "DispatchProjection | None":
     """batch-capable discovery → dispatch 射影を行う。失敗時は warning を出し None を返す。
