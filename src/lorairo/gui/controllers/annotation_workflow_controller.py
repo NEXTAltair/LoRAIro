@@ -430,6 +430,10 @@ class AnnotationWorkflowController(QObject):
         # -- async batch dispatch (#896 PR4b: MainWindow から移送, ADR 0076 §2) --
         # 再入/busy ガード (#884 Phase 2c, ADR 0044)
         self._async_dispatch_in_progress = False
+        # 同期アノテ (WorkerService) が実行中か (#1156 Codex P2)。
+        # 自動振り分け (batch_api の split) で async batch dispatch と同期アノテが
+        # 並行するため、双方が idle になるまで実行ボタンのロックを維持する。
+        self._sync_annotation_in_progress = False
         self._async_dispatch_thread: QThread | None = None
         self._async_dispatch_worker: AsyncBatchDispatchWorker | None = None
         # 送信済み画像 (成功/部分失敗時に staging から外し二重送信を防ぐ)
@@ -861,6 +865,10 @@ class AnnotationWorkflowController(QObject):
             # 非ブロッキング通知
             status_msg = f"アノテーション処理を開始: {len(image_paths)}画像, モデル: {litellm_model_ids[0]}"
             logger.info(status_msg)
+            # #1156 (Codex P2): 同期 worker を実際に起動した時点で in-flight を立てる。
+            # 終端シグナル (on_sync_annotation_finished) で解除し、実行ボタンの
+            # ロック解除条件 (async dispatch との AND) に使う。
+            self._sync_annotation_in_progress = True
             return True
 
         except Exception as e:
@@ -1080,3 +1088,27 @@ class AnnotationWorkflowController(QObject):
         self._async_dispatch_in_progress = False
         self._async_dispatch_worker = None
         self._async_dispatch_thread = None
+        # #1156: Batch API dispatch (submit) 完了。同期側も idle なら実行ボタンを再有効化する。
+        self._maybe_release_execute_lock()
+
+    def on_sync_annotation_finished(self) -> None:
+        """同期アノテの終端 (finished/error/canceled) を受けて in-flight を解除する (#1156)。
+
+        MainWindow の worker 終端ハンドラから呼ばれる。async batch dispatch が
+        まだ in-flight (自動振り分けの split) なら実行ボタンのロックは維持され、
+        両者が揃った時点で再有効化される (Codex P2: 早期解除防止)。
+        """
+        self._sync_annotation_in_progress = False
+        self._maybe_release_execute_lock()
+
+    def _maybe_release_execute_lock(self) -> None:
+        """同期アノテと async batch dispatch が双方 idle になったら実行ボタンを再有効化する (#1156)。
+
+        自動振り分け (batch_api の split) では両フローが並行するため、一方の終端が
+        先に来ても他方が in-flight なら連打ガードを維持する (Codex P2)。annotate_tab
+        未生成の縮退起動では no-op。
+        """
+        if self._async_dispatch_in_progress or self._sync_annotation_in_progress:
+            return
+        if self._annotate_tab is not None:
+            self._annotate_tab.set_execution_running(False)

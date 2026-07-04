@@ -928,6 +928,115 @@ class TestAnnotationExecuteWrapper:
             mock_qmb.warning.assert_called_once()
         # controller 未初期化なら Jobs 遷移もしない
         mock_window._navigate_to_jobs_tab.assert_not_called()
+        # #1156 (Codex P2): controller 未初期化でも連打ガードを解除する (永久ロック防止)
+        mock_window.annotate_tab.set_execution_running.assert_called_once_with(False)
+
+    def test_releases_guard_when_start_raises(self) -> None:
+        """#1156 (Codex P2): start_annotation が例外で抜けても連打ガードを解除する。"""
+        from unittest.mock import Mock
+
+        import pytest
+
+        from lorairo.gui.window.main_window import MainWindow
+
+        mock_window = Mock()
+        mock_window.annotation_workflow_controller = Mock()
+        mock_window.annotation_workflow_controller.start_annotation.side_effect = RuntimeError("boom")
+
+        with pytest.raises(RuntimeError):
+            MainWindow._on_annotation_execute_requested(mock_window, "sync")
+
+        # try/finally で started=False として再有効化される (永久ロック防止)
+        mock_window.annotate_tab.set_execution_running.assert_called_once_with(False)
+        mock_window._navigate_to_jobs_tab.assert_not_called()
+
+    def test_locks_execute_buttons_when_started(self) -> None:
+        """#1156: 開始成功で実行ボタンをロック (連打多重投入防止)。"""
+        from unittest.mock import Mock
+
+        from lorairo.gui.window.main_window import MainWindow
+
+        mock_window = Mock()
+        mock_window.annotation_workflow_controller = Mock()
+        mock_window.annotation_workflow_controller.start_annotation.return_value = True
+
+        MainWindow._on_annotation_execute_requested(mock_window, "sync")
+
+        mock_window.annotate_tab.set_execution_running.assert_called_once_with(True)
+
+    def test_keeps_execute_buttons_enabled_when_rejected(self) -> None:
+        """#1156: 開始前拒否ならボタンは有効のまま (set_execution_running(False))。"""
+        from unittest.mock import Mock
+
+        from lorairo.gui.window.main_window import MainWindow
+
+        mock_window = Mock()
+        mock_window.annotation_workflow_controller = Mock()
+        mock_window.annotation_workflow_controller.start_annotation.return_value = False
+
+        MainWindow._on_annotation_execute_requested(mock_window, "sync")
+
+        mock_window.annotate_tab.set_execution_running.assert_called_once_with(False)
+
+
+class TestExecuteButtonReset:
+    """#1156: 同期アノテ終端で実行ボタンロックを解除する。"""
+
+    def test_reset_delegates_to_controller_coordination(self) -> None:
+        """#1156 (Codex P2): controller ありなら on_sync_annotation_finished へ委譲する。
+
+        自動振り分け (split) で async dispatch が in-flight なら controller 側で
+        ロックを維持するため、MainWindow は直接ボタンを触らず終端を通知するだけ。
+        """
+        from unittest.mock import Mock
+
+        from lorairo.gui.window.main_window import MainWindow
+
+        mock_window = Mock()
+        MainWindow._reset_annotation_execute_buttons(mock_window)
+        mock_window.annotation_workflow_controller.on_sync_annotation_finished.assert_called_once_with()
+        # MainWindow は直接ボタンを再有効化しない (controller が AND 条件で判断)
+        mock_window.annotate_tab.set_execution_running.assert_not_called()
+
+    def test_reset_direct_reenable_when_controller_missing(self) -> None:
+        """#1156 (Codex P2): controller 未初期化の縮退起動では直接再有効化する。"""
+        from unittest.mock import Mock
+
+        from lorairo.gui.window.main_window import MainWindow
+
+        mock_window = Mock()
+        mock_window.annotation_workflow_controller = None
+        MainWindow._reset_annotation_execute_buttons(mock_window)
+        mock_window.annotate_tab.set_execution_running.assert_called_once_with(False)
+
+    def test_reset_noop_when_no_controller_and_no_annotate_tab(self) -> None:
+        from unittest.mock import Mock
+
+        from lorairo.gui.window.main_window import MainWindow
+
+        mock_window = Mock()
+        mock_window.annotation_workflow_controller = None
+        mock_window.annotate_tab = None
+        # controller も annotate_tab も無い縮退状態でも例外を出さない
+        MainWindow._reset_annotation_execute_buttons(mock_window)
+
+    def test_annotation_error_resets_buttons(self) -> None:
+        from unittest.mock import Mock
+
+        from lorairo.gui.window.main_window import MainWindow
+
+        mock_window = Mock()
+        MainWindow._on_annotation_error(mock_window, "boom")
+        mock_window._reset_annotation_execute_buttons.assert_called_once_with()
+
+    def test_annotation_canceled_resets_buttons(self) -> None:
+        from unittest.mock import Mock
+
+        from lorairo.gui.window.main_window import MainWindow
+
+        mock_window = Mock()
+        MainWindow._on_annotation_canceled(mock_window, "worker-1")
+        mock_window._reset_annotation_execute_buttons.assert_called_once_with()
 
 
 class TestNavigateToJobsTab:

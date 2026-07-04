@@ -756,6 +756,38 @@ class TestRunBar:
         assert tab._btn_sync_execute.isEnabled() is False
         assert tab._btn_batch_api_execute.isEnabled() is False
 
+    def test_set_execution_running_disables_buttons_and_shows_running(self, tab):
+        """#1156: 実行中は両ボタン無効 + 「実行中…」表示。"""
+        tab._pipeline_staged_count = 5
+        tab.set_execution_running(True)
+
+        assert tab._execute_in_flight is True
+        assert tab._btn_sync_execute.isEnabled() is False
+        assert tab._btn_batch_api_execute.isEnabled() is False
+        assert "実行中" in tab._btn_sync_execute.text()
+        assert "実行中" in tab._btn_batch_api_execute.text()
+
+    def test_set_execution_running_false_re_enables_by_staging(self, tab):
+        """#1156: 終端で staging 件数に応じて再有効化する。"""
+        tab._pipeline_staged_count = 5
+        tab.set_execution_running(True)
+        tab.set_execution_running(False)
+
+        assert tab._execute_in_flight is False
+        assert tab._btn_sync_execute.isEnabled() is True
+        assert tab._btn_batch_api_execute.isEnabled() is True
+        assert "5" in tab._btn_sync_execute.text()
+
+    def test_staging_change_keeps_buttons_disabled_while_running(self, tab):
+        """#1156: 実行中に staging が変化してもボタンは無効・「実行中…」のまま。"""
+        tab.set_execution_running(True)
+
+        tab._update_annotation_target_ui(9)  # staging 変化
+
+        assert tab._btn_sync_execute.isEnabled() is False
+        assert tab._btn_batch_api_execute.isEnabled() is False
+        assert "実行中" in tab._btn_sync_execute.text()
+
 
 # == 8. トップレベル Signal ===================================================
 
@@ -770,6 +802,37 @@ def test_sync_execute_button_emits_sync_mode(tab, qtbot):
 
     assert blocker.args == ["sync"]
     assert tab.run_options().dispatch_mode == "sync"
+
+
+@pytest.mark.gui
+def test_execute_reentry_guard_emits_only_once_on_rapid_clicks(tab, qtbot):
+    """#1156: 連打しても _execute_in_flight ガードで実行要求は 1 回だけ emit される。"""
+    tab._update_annotation_target_ui(3)  # ボタン有効化
+    emitted: list[str] = []
+    tab.annotation_execute_requested.connect(emitted.append)
+
+    # glue が set_execution_running を呼ぶ前に高速連打 → 2 回目以降は in-flight で塞がれる
+    tab._btn_sync_execute.click()
+    tab._btn_sync_execute.click()
+    tab._btn_sync_execute.click()
+
+    assert emitted == ["sync"]
+    assert tab._execute_in_flight is True
+
+
+@pytest.mark.gui
+def test_execute_reentry_guard_clears_when_running_reset(tab, qtbot):
+    """#1156: 開始前拒否 (set_execution_running(False)) で再度実行できる。"""
+    tab._pipeline_staged_count = 3  # 再有効化は staging 件数を見るため設定
+    tab._update_annotation_target_ui(3)
+    emitted: list[str] = []
+    tab.annotation_execute_requested.connect(emitted.append)
+
+    tab._btn_sync_execute.click()
+    tab.set_execution_running(False)  # 拒否 → 再有効化
+    tab._btn_batch_api_execute.click()
+
+    assert emitted == ["sync", "batch_api"]
 
 
 @pytest.mark.gui
