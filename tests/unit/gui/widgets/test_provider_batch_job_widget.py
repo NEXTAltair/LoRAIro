@@ -415,6 +415,48 @@ def test_cancel_job_calls_workflow(widget, dependencies):
     assert "キャンセルを要求しました" in widget.labelStatus.text()
 
 
+def _capture_warnings(func) -> list[str]:
+    """loguru の WARNING 以上を捕捉して func 実行中のメッセージを返す (#1150)。"""
+    from lorairo.utils.log import logger
+
+    messages: list[str] = []
+    sink_id = logger.add(lambda m: messages.append(m.record["message"]), level="WARNING")
+    try:
+        func()
+    finally:
+        logger.remove(sink_id)
+    return messages
+
+
+def test_check_job_status_provider_error_logs_warning(widget, dependencies):
+    """#1150: check_job_status の ProviderBatchError が WARNING ログに残る (事後診断可能)。"""
+    from lorairo.services.provider_batch_service import ProviderBatchError
+
+    workflow, repository = dependencies
+    workflow.refresh.side_effect = ProviderBatchError("adapter 未登録")
+    widget.set_dependencies(workflow, repository)
+
+    messages = _capture_warnings(lambda: widget.check_job_status(42))
+
+    assert any("status check failed (job 42)" in m and "adapter 未登録" in m for m in messages)
+    # ダイアログ / labelStatus のフィードバックは維持
+    assert "adapter 未登録" in widget.labelStatus.text()
+
+
+def test_cancel_job_provider_error_logs_warning(widget, dependencies):
+    """#1150: cancel_job の ProviderBatchError が WARNING ログに残る。"""
+    from lorairo.services.provider_batch_service import ProviderBatchError
+
+    workflow, repository = dependencies
+    workflow.cancel.side_effect = ProviderBatchError("ジョブは既に完了しています")
+    widget.set_dependencies(workflow, repository)
+
+    messages = _capture_warnings(lambda: widget.cancel_job(42))
+
+    assert any("cancel failed (job 42)" in m and "既に完了" in m for m in messages)
+    assert "既に完了" in widget.labelStatus.text()
+
+
 @pytest.mark.unit
 @pytest.mark.gui
 def test_cancel_via_card_button_click(widget, dependencies):
