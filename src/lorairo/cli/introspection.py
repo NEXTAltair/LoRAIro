@@ -232,6 +232,41 @@ class ImagesUpdateResult(BaseModel):
     model_config = ConfigDict(title="ImagesUpdateResult")
 
 
+class ImagesShowInputSchema(BaseModel):
+    """Implemented options surface accepted by ``images show``."""
+
+    project: str
+    image_ids: str = Field(description="Comma-separated image IDs, max 500.")
+    include_rejected: bool = False
+
+    model_config = ConfigDict(title="ImagesShowInput")
+
+
+class ImagesShowItem(BaseModel):
+    """JSONL item payload emitted per image by ``images show --json``."""
+
+    image_id: int
+    tags: list[dict[str, Any]]
+    captions: list[dict[str, Any]]
+    scores: list[dict[str, Any]]
+    score_labels: list[dict[str, Any]]
+    ratings: list[dict[str, Any]]
+    quality_summary: dict[str, Any]
+
+    model_config = ConfigDict(title="ImagesShowItem")
+
+
+class ImagesShowResult(BaseModel):
+    """JSONL result payload emitted by ``images show --json``."""
+
+    kind: Literal["result"] = "result"
+    ok: Literal[True] = True
+    message: str
+    target_images: int
+
+    model_config = ConfigDict(title="ImagesShowResult")
+
+
 class ExportCreateInputSchema(BaseModel):
     """Implemented options surface accepted by ``export create``.
 
@@ -1142,6 +1177,58 @@ TOOL_SPECS: dict[str, ToolSpec] = {
                     _f("has_more", "bool?"),
                 ),
                 schema=ImagesListResult,
+            ),
+        ),
+        errors=(ERROR_MODEL,),
+    ),
+    "images show": ToolSpec(
+        name="images show",
+        path="images show",
+        summary=(
+            "Show current tags, captions, scores, and ratings for images (read-only). "
+            "Use as judgment material before tags add/remove/replace."
+        ),
+        read_only=True,
+        side_effects=("db_read",),
+        inputs=(
+            _input(
+                "ImagesShowInput",
+                (
+                    _f("project", "str", required=True),
+                    _f(
+                        "image_ids",
+                        "csv[int]",
+                        required=True,
+                        description="Comma-separated image IDs, max 500.",
+                    ),
+                    _f(
+                        "include_rejected",
+                        "bool",
+                        default=False,
+                        description="Include soft-rejected tags/captions in the output.",
+                    ),
+                ),
+                schema=ImagesShowInputSchema,
+            ),
+        ),
+        outputs=(
+            _output(
+                "ImagesShowItem",
+                (
+                    _f("image_id", "int"),
+                    _f("tags", "list[dict]"),
+                    _f("captions", "list[dict]"),
+                    _f("scores", "list[dict]"),
+                    _f("score_labels", "list[dict]"),
+                    _f("ratings", "list[dict]"),
+                    _f("quality_summary", "dict"),
+                ),
+                schema=ImagesShowItem,
+            ),
+            _output(
+                "ImagesShowResult",
+                (_f("target_images", "int"),),
+                schema=ImagesShowResult,
             ),
         ),
         errors=(ERROR_MODEL,),
