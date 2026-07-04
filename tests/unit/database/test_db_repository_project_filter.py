@@ -136,6 +136,7 @@ class TestApplyProjectFilterPhaseC:
 
         base_query = select(Image.id)
         with patch("lorairo.database.repository.image.logger") as mock_logger:
+            mock_logger.opt.return_value = mock_logger
             repository._apply_project_filter(base_query, None, 42)
         mock_logger.warning.assert_not_called()
 
@@ -145,6 +146,7 @@ class TestApplyProjectFilterPhaseC:
 
         base_query = select(Image.id)
         with patch("lorairo.database.repository.image.logger") as mock_logger:
+            mock_logger.opt.return_value = mock_logger
             repository._apply_project_filter(base_query, "foo", None)
         mock_logger.warning.assert_not_called()
 

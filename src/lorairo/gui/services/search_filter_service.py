@@ -400,7 +400,7 @@ class SearchFilterService:
             criteria = conditions.to_filter_criteria(tag_resolver=tag_resolver)
             return self.db_manager.get_images_count_only(criteria=criteria)
         except Exception as e:
-            logger.error(f"概算件数の取得中にエラーが発生しました: {e}", exc_info=True)
+            logger.opt(exception=True).error(f"概算件数の取得中にエラーが発生しました: {e}")
             return 0
 
     def filter_models_by_criteria(
@@ -451,7 +451,7 @@ class SearchFilterService:
             )
 
         except Exception as e:
-            logger.error(f"状態カウント取得エラー: {e}", exc_info=True)
+            logger.opt(exception=True).error(f"状態カウント取得エラー: {e}")
             return AnnotationStatusCounts()  # デフォルト値（全て0）
 
     def get_recently_used_model_ids(self, limit: int = 10) -> list[str]:
@@ -466,7 +466,7 @@ class SearchFilterService:
         try:
             return self.db_manager.get_recently_used_model_ids(limit=limit)
         except SQLAlchemyError as e:
-            logger.error(f"最近使用モデル取得エラー: {e}", exc_info=True)
+            logger.opt(exception=True).error(f"最近使用モデル取得エラー: {e}")
             return []
 
     def get_created_at_histogram(self, bins: int = 20) -> list[tuple[datetime, datetime, int]]:
@@ -481,5 +481,5 @@ class SearchFilterService:
         try:
             return self.db_manager.get_created_at_histogram(bins=bins)
         except SQLAlchemyError as e:
-            logger.error(f"ヒストグラム取得エラー: {e}", exc_info=True)
+            logger.opt(exception=True).error(f"ヒストグラム取得エラー: {e}")
             return []

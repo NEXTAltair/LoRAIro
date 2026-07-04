@@ -272,6 +272,7 @@ class TestSelectedImageDetailsWidget:
     def test_annotation_data_loaded_slot(self, widget):
         """アノテーションデータ読み込み完了スロットテスト"""
         with patch("lorairo.gui.widgets.selected_image_details_widget.logger") as mock_logger:
+            mock_logger.opt.return_value = mock_logger
             widget._on_annotation_data_loaded()
 
             # ログが出力される

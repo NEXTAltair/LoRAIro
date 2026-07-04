@@ -82,7 +82,7 @@ if not __name__ == "__main__":
 
                 self.succeeded.emit(len(models), sync_result.summary)
             except Exception as e:
-                logger.error(f"モデル一覧更新に失敗: {e}", exc_info=True)
+                logger.opt(exception=True).error(f"モデル一覧更新に失敗: {e}")
                 self.failed.emit(str(e))
             finally:
                 self.finished.emit()

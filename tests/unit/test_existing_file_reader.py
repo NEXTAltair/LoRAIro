@@ -174,6 +174,7 @@ class TestSidecarAnnotationReader:
         mock_exists.return_value = True
 
         with patch("lorairo.annotation.sidecar_reader.logger") as mock_logger:
+            mock_logger.opt.return_value = mock_logger
             result = reader.get_existing_annotations(image_path)
 
         # エラーログが出力されることを確認
@@ -190,6 +191,7 @@ class TestSidecarAnnotationReader:
         mock_exists.return_value = True
 
         with patch("lorairo.annotation.sidecar_reader.logger") as mock_logger:
+            mock_logger.opt.return_value = mock_logger
             result = reader.get_existing_annotations(image_path)
 
         # エラーログが出力されることを確認

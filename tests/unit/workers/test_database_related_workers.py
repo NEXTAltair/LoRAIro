@@ -650,6 +650,7 @@ class TestBuildRegistrationResult:
             patch("time.time", return_value=2.0),
             patch("lorairo.gui.workers.registration_worker.logger") as mock_logger,
         ):
+            mock_logger.opt.return_value = mock_logger
             worker._build_registration_result(stats, processed_paths, [], start_time)
 
             # INFO ログが呼ばれたことを確認
@@ -673,6 +674,7 @@ class TestBuildRegistrationResult:
             patch("time.time", return_value=1.5),
             patch("lorairo.gui.workers.registration_worker.logger") as mock_logger,
         ):
+            mock_logger.opt.return_value = mock_logger
             worker._build_registration_result(stats, processed_paths, [], start_time)
 
             # DEBUG ログが呼ばれていないことを確認
@@ -845,6 +847,7 @@ class TestRegistrationErrorHandling:
             patch.object(real_db_manager, "save_error_record") as mock_save_error,
             patch("lorairo.gui.workers.registration_worker.logger") as mock_logger,
         ):
+            mock_logger.opt.return_value = mock_logger
             mock_register.side_effect = ValueError("登録エラー")
             mock_save_error.side_effect = Exception("エラー保存失敗")
 

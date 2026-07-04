@@ -107,6 +107,7 @@ class TestTagDatabaseDuplicateHandling:
             side_effect=Exception("Database error"),
         ):
             with patch("lorairo.database.repository.annotation_record.logger") as mock_logger:
+                mock_logger.opt.return_value = mock_logger  # opt(exception=True).error 経路を捕捉 (#1153)
                 # テスト実行
                 result = repository._get_or_create_tag_id_external(mock_session, tag_string)
 

@@ -94,6 +94,7 @@ class TestModelFilterService:
     def test_get_annotation_models_list_error(self, mock_logger, service, mock_model_selection_service):
         """アノテーションモデル一覧取得エラーテスト"""
         # ModelSelectionServiceでエラーを発生させる
+        mock_logger.opt.return_value = mock_logger
         mock_model_selection_service.load_models.side_effect = Exception("Service error")
 
         models = service.get_annotation_models_list()
@@ -148,6 +149,7 @@ class TestModelFilterService:
     def test_filter_models_by_criteria_error(self, mock_logger, service, mock_model_selection_service):
         """モデルフィルタリングエラーテスト"""
         # get_annotation_models_listでエラーを発生させる
+        mock_logger.opt.return_value = mock_logger
         mock_model_selection_service.load_models.side_effect = Exception("Filter error")
 
         criteria = {"provider_filter": "openai"}
@@ -218,6 +220,7 @@ class TestModelFilterService:
     def test_infer_model_capabilities_error(self, mock_logger, service):
         """モデル能力推定エラーテスト"""
         # 不正なモデルデータ
+        mock_logger.opt.return_value = mock_logger
         invalid_model_data = None
 
         capabilities = service.infer_model_capabilities(invalid_model_data)
@@ -318,6 +321,7 @@ class TestModelFilterService:
         validate_annotation_settingsは「モデルが利用できない」エラーとして処理する。
         """
         # get_annotation_models_listでエラーを発生させる
+        mock_logger.opt.return_value = mock_logger
         mock_model_selection_service.load_models.side_effect = Exception("Validation error")
 
         settings = {"selected_models": ["any-model"]}
@@ -735,6 +739,7 @@ class TestModelFilterServiceExceptionPaths:
         self, mock_logger, service
     ) -> None:
         """filter_models_by_criteria の except ブロックをカバー: _model_matches_criteria が例外を投げる。"""
+        mock_logger.opt.return_value = mock_logger
         with patch.object(service, "_model_matches_criteria", side_effect=RuntimeError("crash")):
             result = service.filter_models_by_criteria({"provider_filter": "openai"})
 
@@ -750,6 +755,7 @@ class TestModelFilterServiceExceptionPaths:
         selected_models が空でない場合、available_models が定義されるが、
         settings.get が例外を投げることで except に到達する。
         """
+        mock_logger.opt.return_value = mock_logger
         bad_settings = Mock()
         # selected_models アクセスで例外を投げる (インスタンス属性を使い Mock クラスを汚染しない)
         bad_settings.get.side_effect = RuntimeError("settings broken")
@@ -765,6 +771,7 @@ class TestModelFilterServiceExceptionPaths:
         self, mock_logger, service
     ) -> None:
         """apply_advanced_model_filters の except ブロック (255-257) をカバー。"""
+        mock_logger.opt.return_value = mock_logger
         images = [{"id": 1}]
         conditions = SearchConditions(search_type="tags", keywords=["test"], tag_logic="and")
 
@@ -779,6 +786,7 @@ class TestModelFilterServiceExceptionPaths:
         self, mock_logger, service
     ) -> None:
         """optimize_advanced_filtering_performance の except ブロック (291-293) をカバー。"""
+        mock_logger.opt.return_value = mock_logger
         images = [{"id": i} for i in range(10)]
         conditions = SearchConditions(search_type="tags", keywords=["test"], tag_logic="and")
 
@@ -791,6 +799,7 @@ class TestModelFilterServiceExceptionPaths:
     @patch("lorairo.services.model_filter_service.logger")
     def test_model_matches_criteria_exception_returns_false(self, mock_logger, service) -> None:
         """_model_matches_criteria の except ブロック (327-329) をカバー。"""
+        mock_logger.opt.return_value = mock_logger
         model = {"provider": "openai", "capabilities": []}
         with patch.object(
             service, "_model_matches_provider_filter", side_effect=RuntimeError("provider err")
@@ -804,6 +813,7 @@ class TestModelFilterServiceExceptionPaths:
     def test_model_matches_provider_filter_exception_returns_true(self, mock_logger, service) -> None:
         """_model_matches_provider_filter の except ブロック (356-358) をカバー。"""
         # provider_filter が str でも list でもない値 + str() が例外を投げるよう model を壊す
+        mock_logger.opt.return_value = mock_logger
         model = Mock()
         model.get.side_effect = RuntimeError("model get error")
         criteria = {"provider_filter": "openai"}
@@ -817,6 +827,7 @@ class TestModelFilterServiceExceptionPaths:
     @patch("lorairo.services.model_filter_service.logger")
     def test_model_matches_function_filter_exception_returns_true(self, mock_logger, service) -> None:
         """_model_matches_function_filter の except ブロック (391-393) をカバー。"""
+        mock_logger.opt.return_value = mock_logger
         model = {"capabilities": ["img"], "provider": "openai", "name": "test"}
         with patch.object(service, "infer_model_capabilities", side_effect=RuntimeError("infer err")):
             result = service._model_matches_function_filter(model, {"function_filter": "img"})
@@ -827,6 +838,7 @@ class TestModelFilterServiceExceptionPaths:
     @patch("lorairo.services.model_filter_service.logger")
     def test_has_advanced_model_filters_exception_returns_false(self, mock_logger, service) -> None:
         """_has_advanced_model_filters の except ブロック (415-417) をカバー。"""
+        mock_logger.opt.return_value = mock_logger
         bad_conditions = Mock()
         # hasattr が RuntimeError を送出
         with patch("builtins.hasattr", side_effect=RuntimeError("hasattr broken")):
@@ -840,6 +852,7 @@ class TestModelFilterServiceExceptionPaths:
         self, mock_logger, service
     ) -> None:
         """_image_matches_advanced_model_criteria の except ブロック (454-456) をカバー。"""
+        mock_logger.opt.return_value = mock_logger
         image = {"id": 1}
         bad_conditions = Mock()
         # hasattr が例外を送出してエラーになる

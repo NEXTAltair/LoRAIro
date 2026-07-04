@@ -856,7 +856,9 @@ class AnnotateTabWidget(QWidget, Ui_AnnotateTab):
                     info.output_cost_per_token,
                 )
         except (TypeError, AttributeError, RuntimeError):
-            logger.warning("コスト概算用の AnnotatorInfo 取得に失敗。コスト表示なしで続行", exc_info=True)
+            logger.opt(exception=True).warning(
+                "コスト概算用の AnnotatorInfo 取得に失敗。コスト表示なしで続行"
+            )
             return {}
         return cost_map
 
@@ -878,7 +880,7 @@ class AnnotateTabWidget(QWidget, Ui_AnnotateTab):
                 "openrouter": config_service.get_setting("api", "openrouter_key", ""),
             }
         except (AttributeError, KeyError, TypeError):
-            logger.warning("API キー設定の取得に失敗 (全 provider を needs key 扱い)", exc_info=True)
+            logger.opt(exception=True).warning("API キー設定の取得に失敗 (全 provider を needs key 扱い)")
             return set()
         return build_available_providers(api_keys)
 

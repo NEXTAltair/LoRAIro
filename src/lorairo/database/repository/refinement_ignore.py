@@ -53,16 +53,15 @@ class RefinementIgnoreRepository(BaseRepository):
                 # FK 違反 (削除済み画像の image_id 等) まで重複扱いすると、行が無いのに
                 # UI が「保存成功」として進んでしまうため伝播させる (PR #1082 Codex P2)。
                 if "UNIQUE constraint failed" not in str(e.orig):
-                    logger.error(
+                    logger.opt(exception=True).error(
                         f"add_ignore 整合性エラー (tag={tag}, reason_code={reason_code}, "
-                        f"image_id={image_id}): {e}",
-                        exc_info=True,
+                        f"image_id={image_id}): {e}"
                     )
                     raise
             except SQLAlchemyError as e:
                 session.rollback()
-                logger.error(
-                    f"add_ignore エラー (tag={tag}, reason_code={reason_code}): {e}", exc_info=True
+                logger.opt(exception=True).error(
+                    f"add_ignore エラー (tag={tag}, reason_code={reason_code}): {e}"
                 )
                 raise
 
@@ -89,7 +88,7 @@ class RefinementIgnoreRepository(BaseRepository):
                 )
                 return session.execute(stmt).scalar_one_or_none() is not None
             except SQLAlchemyError as e:
-                logger.error(f"is_ignored エラー (tag={tag}): {e}", exc_info=True)
+                logger.opt(exception=True).error(f"is_ignored エラー (tag={tag}): {e}")
                 raise
 
     def list_ignored(self, image_id: int | None = None) -> set[tuple[str, str]]:
@@ -116,7 +115,7 @@ class RefinementIgnoreRepository(BaseRepository):
                 )
                 return {(row[0], row[1]) for row in session.execute(stmt).all()}
             except SQLAlchemyError as e:
-                logger.error(f"list_ignored エラー: {e}", exc_info=True)
+                logger.opt(exception=True).error(f"list_ignored エラー: {e}")
                 raise
 
     def list_ignored_entries(self) -> list[dict[str, Any]]:
@@ -141,7 +140,7 @@ class RefinementIgnoreRepository(BaseRepository):
                     for row in rows
                 ]
             except SQLAlchemyError as e:
-                logger.error(f"list_ignored_entries エラー: {e}", exc_info=True)
+                logger.opt(exception=True).error(f"list_ignored_entries エラー: {e}")
                 raise
 
     def remove_ignore(self, tag: str, reason_code: str, image_id: int | None = None) -> None:
@@ -173,5 +172,5 @@ class RefinementIgnoreRepository(BaseRepository):
                     )
             except SQLAlchemyError as e:
                 session.rollback()
-                logger.error(f"remove_ignore エラー (tag={tag}): {e}", exc_info=True)
+                logger.opt(exception=True).error(f"remove_ignore エラー (tag={tag}): {e}")
                 raise

@@ -27,6 +27,7 @@ class TestDelegateMethods:
         mock_window = Mock()
         mock_window.pipeline_control_service = None
         with patch("lorairo.gui.window.main_window.logger") as mock_logger:
+            mock_logger.opt.return_value = mock_logger
             MainWindow._delegate_to_pipeline_control(mock_window, "on_search_started", "w1")
             mock_logger.error.assert_called_once()
             assert "PipelineControlService" in mock_logger.error.call_args[0][0]
@@ -45,6 +46,7 @@ class TestDelegateMethods:
         mock_window = Mock()
         mock_window.result_handler_service = None
         with patch("lorairo.gui.window.main_window.logger") as mock_logger:
+            mock_logger.opt.return_value = mock_logger
             MainWindow._delegate_to_result_handler(mock_window, "handle_annotation_error", "err")
             mock_logger.warning.assert_called_once()
 
@@ -62,6 +64,7 @@ class TestDelegateMethods:
         mock_window = Mock()
         mock_window.progress_state_service = None
         with patch("lorairo.gui.window.main_window.logger") as mock_logger:
+            mock_logger.opt.return_value = mock_logger
             MainWindow._delegate_to_progress_state(mock_window, "on_batch_registration_started", "w1")
             mock_logger.warning.assert_called_once()
 
@@ -307,6 +310,7 @@ class TestCancelPipeline:
         mock_window = Mock()
         mock_window.pipeline_control_service = None
         with patch("lorairo.gui.window.main_window.logger") as mock_logger:
+            mock_logger.opt.return_value = mock_logger
             MainWindow.cancel_current_pipeline(mock_window)
             mock_logger.warning.assert_called_once()
 
@@ -512,6 +516,7 @@ class TestRefreshBatchTagStaging:
         mock_window = Mock()
         mock_window.annotate_tab = None
         with patch("lorairo.gui.window.main_window.logger") as mock_logger:
+            mock_logger.opt.return_value = mock_logger
             MainWindow._refresh_batch_tag_staging(mock_window)
             mock_logger.warning.assert_called_once()
 
@@ -797,6 +802,7 @@ class TestDatabaseStatusLabel:
             "lorairo.gui.window.main_window.get_current_project_root", side_effect=RuntimeError("DB error")
         ):
             with patch("lorairo.gui.window.main_window.logger") as mock_logger:
+                mock_logger.opt.return_value = mock_logger
                 MainWindow._update_database_status_label(mock_window)
                 mock_logger.warning.assert_called_once()
 

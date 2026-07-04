@@ -251,6 +251,6 @@ class TagCloudService:
                     if image_id in result:
                         result[image_id].append(tag.lower())
         except Exception as exc:
-            logger.error(f"タグ読込エラー: {exc}", exc_info=True)
+            logger.opt(exception=True).error(f"タグ読込エラー: {exc}")
             raise
         return result

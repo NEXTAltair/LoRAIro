@@ -436,7 +436,9 @@ class DatasetStateManager(QObject):
             logger.debug(f"Successfully refreshed metadata for image_id {image_id}")
 
         except Exception as e:
-            logger.error(f"Error refreshing image metadata for image_id {image_id}: {e}", exc_info=True)
+            logger.opt(exception=True).error(
+                f"Error refreshing image metadata for image_id {image_id}: {e}"
+            )
 
     def refresh_image_annotations(self, image_id: int) -> None:
         """単一画像のアノテーションだけを DB から再取得しキャッシュへ merge する (#980)。
@@ -471,7 +473,7 @@ class DatasetStateManager(QObject):
         try:
             annotations = self._db_manager.image_repo.get_image_annotation_metadata(image_id)
         except Exception as e:
-            logger.error(f"アノテーション再取得失敗: ID {image_id}: {e}", exc_info=True)
+            logger.opt(exception=True).error(f"アノテーション再取得失敗: ID {image_id}: {e}")
             return
 
         if not annotations:
@@ -540,7 +542,7 @@ class DatasetStateManager(QObject):
             logger.info(f"Metadata refresh completed: {success_count}/{len(image_ids)} successful")
 
         except Exception as e:
-            logger.error(f"Error during batch metadata refresh: {e}", exc_info=True)
+            logger.opt(exception=True).error(f"Error during batch metadata refresh: {e}")
 
     def _ensure_annotations_loaded(self, image_data: dict[str, Any]) -> None:
         """検索フェーズで省略されたアノテーションを遅延取得して dict に merge する。
@@ -565,7 +567,7 @@ class DatasetStateManager(QObject):
         try:
             annotations = self._db_manager.image_repo.get_image_annotation_metadata(image_id)
         except Exception as e:
-            logger.error(f"アノテーション遅延取得失敗: ID {image_id}: {e}", exc_info=True)
+            logger.opt(exception=True).error(f"アノテーション遅延取得失敗: ID {image_id}: {e}")
             return
         if annotations:
             image_data.update(annotations)
@@ -583,7 +585,7 @@ class DatasetStateManager(QObject):
             metadata: dict[str, Any] | None = self._db_manager.image_repo.get_image_metadata(image_id)
             return metadata
         except Exception as e:
-            logger.error(f"DB からの画像取得失敗: ID {image_id}: {e}", exc_info=True)
+            logger.opt(exception=True).error(f"DB からの画像取得失敗: ID {image_id}: {e}")
             return None
 
     def get_current_image_data(self) -> dict[str, Any] | None:

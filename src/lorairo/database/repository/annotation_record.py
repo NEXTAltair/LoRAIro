@@ -193,7 +193,7 @@ class AnnotationRepository(BaseRepository):
         try:
             return TagRegisterService(reader=merged_reader)
         except Exception as e:
-            logger.warning(f"Failed to initialize TagRegisterService: {e}", exc_info=True)
+            logger.opt(exception=True).warning(f"Failed to initialize TagRegisterService: {e}")
             return None  # エラー時はNoneで継続
 
     # --- save_annotations + helpers (Upsert) ---
@@ -240,9 +240,8 @@ class AnnotationRepository(BaseRepository):
 
             except SQLAlchemyError as e:
                 session.rollback()
-                logger.error(
-                    f"画像ID {image_id} のアノテーション保存中にエラーが発生しました: {e}",
-                    exc_info=True,
+                logger.opt(exception=True).error(
+                    f"画像ID {image_id} のアノテーション保存中にエラーが発生しました: {e}"
                 )
                 raise
 
@@ -282,10 +281,9 @@ class AnnotationRepository(BaseRepository):
                     )
                 except Exception as e:
                     session.rollback()
-                    logger.error(
+                    logger.opt(exception=True).error(
                         f"アノテーションのバッチ保存に失敗しました: chunk_start={start}, "
-                        f"chunk_size={len(chunk)}, error={e}",
-                        exc_info=True,
+                        f"chunk_size={len(chunk)}, error={e}"
                     )
                     raise
 
@@ -451,7 +449,7 @@ class AnnotationRepository(BaseRepository):
 
             except SQLAlchemyError as e:
                 session.rollback()
-                logger.error(f"Atomic batch tag add failed, rolled back: {e}", exc_info=True)
+                logger.opt(exception=True).error(f"Atomic batch tag add failed, rolled back: {e}")
                 raise
 
     def remove_tag_from_images_batch(
@@ -533,7 +531,7 @@ class AnnotationRepository(BaseRepository):
 
             except SQLAlchemyError as e:
                 session.rollback()
-                logger.error(f"Atomic batch tag remove failed, rolled back: {e}", exc_info=True)
+                logger.opt(exception=True).error(f"Atomic batch tag remove failed, rolled back: {e}")
                 raise
 
     def replace_tag_for_images_batch(
@@ -631,7 +629,7 @@ class AnnotationRepository(BaseRepository):
 
             except SQLAlchemyError as e:
                 session.rollback()
-                logger.error(f"Atomic batch tag replace failed, rolled back: {e}", exc_info=True)
+                logger.opt(exception=True).error(f"Atomic batch tag replace failed, rolled back: {e}")
                 raise
 
     def restore_tag_for_images_batch(
@@ -705,7 +703,7 @@ class AnnotationRepository(BaseRepository):
 
             except SQLAlchemyError as e:
                 session.rollback()
-                logger.error(f"Atomic batch tag restore failed, rolled back: {e}", exc_info=True)
+                logger.opt(exception=True).error(f"Atomic batch tag restore failed, rolled back: {e}")
                 raise
 
     def get_rejected_tags(self, image_id: int) -> list[dict[str, Any]]:
@@ -732,7 +730,7 @@ class AnnotationRepository(BaseRepository):
                     .order_by(Tag.rejected_at)
                 ).all()
             except SQLAlchemyError:
-                logger.error(f"Failed to fetch rejected tags for image_id={image_id}", exc_info=True)
+                logger.opt(exception=True).error(f"Failed to fetch rejected tags for image_id={image_id}")
                 raise
         return [
             {
@@ -794,9 +792,8 @@ class AnnotationRepository(BaseRepository):
             return self._register_new_tag(normalized_tag, tag_string, request)
 
         except Exception as e:
-            logger.error(
-                f"Error searching tag in external tag_db: '{normalized_tag}': {e}",
-                exc_info=True,
+            logger.opt(exception=True).error(
+                f"Error searching tag in external tag_db: '{normalized_tag}': {e}"
             )
             return None  # 検索失敗時は縮退動作（tag_id=None で保存）  # その他のエラーも縮退動作
 
@@ -882,9 +879,8 @@ class AnnotationRepository(BaseRepository):
 
         except Exception as e:
             # 外部 tag_db 境界の縮退動作 (tag_db は任意依存): 入力をそのまま保存
-            logger.error(
-                f"Error resolving canonical tag in external tag_db: '{normalized_tag}': {e}",
-                exc_info=True,
+            logger.opt(exception=True).error(
+                f"Error resolving canonical tag in external tag_db: '{normalized_tag}': {e}"
             )
             return (tag_string, None)
 
@@ -942,10 +938,10 @@ class AnnotationRepository(BaseRepository):
                     logger.debug(f"Found tag_id {tag_id} on retry for '{normalized_tag}'")
                     return cast("int | None", tag_id)
             except Exception as retry_error:
-                logger.error(f"Retry search failed: {retry_error}", exc_info=True)
+                logger.opt(exception=True).error(f"Retry search failed: {retry_error}")
             return None
         except Exception as reg_error:
-            logger.error(f"Unexpected error during tag registration: {reg_error}", exc_info=True)
+            logger.opt(exception=True).error(f"Unexpected error during tag registration: {reg_error}")
             return None
 
     def batch_resolve_tag_ids(self, normalized_tags: set[str]) -> dict[str, int | None]:
@@ -978,7 +974,7 @@ class AnnotationRepository(BaseRepository):
                 resolve_preferred=False,
             )
         except Exception as e:
-            logger.error(f"search_tags_bulk failed: {e}", exc_info=True)
+            logger.opt(exception=True).error(f"search_tags_bulk failed: {e}")
             return dict.fromkeys(normalized_tags)
 
         # deprecated除外フィルタ適用（現行 include_deprecated=False と同等）
@@ -1116,7 +1112,7 @@ class AnnotationRepository(BaseRepository):
             )
         except Exception as e:
             # tag_db は任意依存 (ADR 0068): 解決失敗時は整形済みのまま保存へ縮退する。
-            logger.error(f"danbooru canonical の一括解決に失敗: {e}", exc_info=True)
+            logger.opt(exception=True).error(f"danbooru canonical の一括解決に失敗: {e}")
             return {}
 
         result: dict[str, CanonicalTag] = {}
@@ -1460,9 +1456,8 @@ class AnnotationRepository(BaseRepository):
                 return True
             except SQLAlchemyError as e:
                 session.rollback()
-                logger.error(
-                    f"Manual rating の更新中にエラーが発生しました (ID: {image_id}): {e}",
-                    exc_info=True,
+                logger.opt(exception=True).error(
+                    f"Manual rating の更新中にエラーが発生しました (ID: {image_id}): {e}"
                 )
                 raise
 
@@ -1514,9 +1509,8 @@ class AnnotationRepository(BaseRepository):
                 return True
             except SQLAlchemyError as e:
                 session.rollback()
-                logger.error(
-                    f"手動編集フラグの更新中にエラーが発生しました (Type: {annotation_type}, ID: {annotation_id}): {e}",
-                    exc_info=True,
+                logger.opt(exception=True).error(
+                    f"手動編集フラグの更新中にエラーが発生しました (Type: {annotation_type}, ID: {annotation_id}): {e}"
                 )
                 raise
 
@@ -1594,10 +1588,9 @@ class AnnotationRepository(BaseRepository):
 
             except SQLAlchemyError as e:
                 session.rollback()
-                logger.error(
+                logger.opt(exception=True).error(
                     f"Batch rating update failed: rating='{normalized_rating}', "
-                    f"image_ids={len(image_ids)}, error={e}",
-                    exc_info=True,
+                    f"image_ids={len(image_ids)}, error={e}"
                 )
                 raise
 
@@ -1701,8 +1694,7 @@ class AnnotationRepository(BaseRepository):
 
             except SQLAlchemyError as e:
                 session.rollback()
-                logger.error(
-                    f"Batch score update failed: score={score:.2f}, image_ids={len(image_ids)}, error={e}",
-                    exc_info=True,
+                logger.opt(exception=True).error(
+                    f"Batch score update failed: score={score:.2f}, image_ids={len(image_ids)}, error={e}"
                 )
                 raise

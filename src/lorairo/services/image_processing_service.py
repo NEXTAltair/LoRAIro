@@ -62,7 +62,7 @@ class ImageProcessingService:
             )
             return ipm
         except Exception as e:
-            logger.error(f"ImageProcessingManager の作成に失敗しました: {e}", exc_info=True)
+            logger.opt(exception=True).error(f"ImageProcessingManager の作成に失敗しました: {e}")
             raise ValueError(f"ImageProcessingManager の作成に失敗しました: {e}") from e
 
     def process_images_in_list(
@@ -109,7 +109,7 @@ class ImageProcessingService:
                 # 個別画像の処理を実行
                 self._process_single_image(image_path, upscaler_override, ipm)
             except Exception as e:
-                logger.error(f"{image_path.name} の処理中にエラーが発生しました: {e}", exc_info=True)
+                logger.opt(exception=True).error(f"{image_path.name} の処理中にエラーが発生しました: {e}")
                 # PENDING: エラーハンドリング戦略の決定
                 # 理由: ユーザー要件次第（バッチ処理の堅牢性 vs 即座なエラー通知）
                 # トリガー条件: ユーザーフィードバック or 本番運用での挙動確認後

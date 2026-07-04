@@ -172,7 +172,7 @@ class SearchCriteriaProcessor:
             return images, reported_count
 
         except Exception as e:
-            logger.error(f"検索実行中にエラーが発生しました: {e}", exc_info=True)
+            logger.opt(exception=True).error(f"検索実行中にエラーが発生しました: {e}")
             raise
 
     def _build_tag_resolver(self) -> Callable[[list[str]], list[str]]:
@@ -204,7 +204,7 @@ class SearchCriteriaProcessor:
             return date_conditions
 
         except Exception as e:
-            logger.error(f"日付フィルター処理中にエラー: {e}", exc_info=True)
+            logger.opt(exception=True).error(f"日付フィルター処理中にエラー: {e}")
             return {}
 
     def apply_untagged_filter(self, conditions: SearchConditions) -> dict[str, Any]:
@@ -233,7 +233,7 @@ class SearchCriteriaProcessor:
             return untagged_conditions
 
         except Exception as e:
-            logger.error(f"未タグ付きフィルター処理中にエラー: {e}", exc_info=True)
+            logger.opt(exception=True).error(f"未タグ付きフィルター処理中にエラー: {e}")
             return {}
 
     def apply_tagged_filter_logic(self, conditions: SearchConditions) -> dict[str, Any]:
@@ -259,7 +259,7 @@ class SearchCriteriaProcessor:
             return tag_conditions
 
         except Exception as e:
-            logger.error(f"タグフィルターロジック処理中にエラー: {e}", exc_info=True)
+            logger.opt(exception=True).error(f"タグフィルターロジック処理中にエラー: {e}")
             return {}
 
     def _apply_simple_frontend_filters(
@@ -294,7 +294,7 @@ class SearchCriteriaProcessor:
             return filtered_images
 
         except Exception as e:
-            logger.error(f"フロントエンドフィルター適用中にエラー: {e}", exc_info=True)
+            logger.opt(exception=True).error(f"フロントエンドフィルター適用中にエラー: {e}")
             return images
 
     def _resolve_target_aspect_ratio(self, aspect_ratio_filter: str) -> float:
@@ -373,7 +373,7 @@ class SearchCriteriaProcessor:
             return filtered_images
 
         except Exception as e:
-            logger.error(f"アスペクト比フィルター中にエラー: {e}", exc_info=True)
+            logger.opt(exception=True).error(f"アスペクト比フィルター中にエラー: {e}")
             return images
 
     def _filter_by_date_range(
@@ -431,7 +431,7 @@ class SearchCriteriaProcessor:
             return filtered_images
 
         except Exception as e:
-            logger.error(f"日付範囲フィルター中にエラー: {e}", exc_info=True)
+            logger.opt(exception=True).error(f"日付範囲フィルター中にエラー: {e}")
             return images
 
     def _filter_by_duplicate_exclusion(self, images: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -513,7 +513,7 @@ class SearchCriteriaProcessor:
             return filtered_images
 
         except Exception as e:
-            logger.error(f"重複除外フィルター中にエラー: {e}", exc_info=True)
+            logger.opt(exception=True).error(f"重複除外フィルター中にエラー: {e}")
             return images
 
     def filter_images_by_annotation_status(
@@ -549,7 +549,7 @@ class SearchCriteriaProcessor:
             return filtered_images
 
         except Exception as e:
-            logger.error(f"アノテーション状態フィルター中にエラー: {e}", exc_info=True)
+            logger.opt(exception=True).error(f"アノテーション状態フィルター中にエラー: {e}")
             return images
 
     def _parse_resolution_value(self, resolution_str: str) -> tuple[int | None, int | None]:
@@ -576,5 +576,5 @@ class SearchCriteriaProcessor:
             return None, None
 
         except Exception as e:
-            logger.error(f"解像度文字列パース中にエラー: {e}", exc_info=True)
+            logger.opt(exception=True).error(f"解像度文字列パース中にエラー: {e}")
             return None, None

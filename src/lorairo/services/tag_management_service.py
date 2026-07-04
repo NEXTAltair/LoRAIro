@@ -161,7 +161,7 @@ class TagManagementService:
             logger.info("Found {} unknown type tags for format_id={}", len(tags), self.LORAIRO_FORMAT_ID)
             return cast("list[TagRecordPublic]", tags)
         except Exception as e:
-            logger.error("Error getting unknown type tags: {}", e, exc_info=True)
+            logger.opt(exception=True).error("Error getting unknown type tags: {}", e)
             raise
 
     def get_all_available_types(self) -> list[str]:
@@ -181,7 +181,7 @@ class TagManagementService:
             logger.debug("Retrieved {} type names", len(types))
             return cast("list[str]", types)
         except Exception as e:
-            logger.error("Error getting all type names: {}", e, exc_info=True)
+            logger.opt(exception=True).error("Error getting all type names: {}", e)
             raise
 
     def get_format_specific_types(self) -> list[str]:
@@ -205,7 +205,7 @@ class TagManagementService:
             )
             return cast("list[str]", types)
         except Exception as e:
-            logger.error("Error getting format-specific type names: {}", e, exc_info=True)
+            logger.opt(exception=True).error("Error getting format-specific type names: {}", e)
             raise
 
     def update_tag_types(self, updates: list[TagTypeUpdate]) -> None:
@@ -231,7 +231,7 @@ class TagManagementService:
             logger.error("Invalid tag update request: {}", e)
             raise
         except Exception as e:
-            logger.error("Error updating tag types: {}", e, exc_info=True)
+            logger.opt(exception=True).error("Error updating tag types: {}", e)
             raise
 
     def recommend_manual_refinement(
@@ -776,12 +776,8 @@ class TagManagementService:
                 language,
             )
         except Exception as e:
-            logger.error(
-                "Error adding translation: tag_id={}, language={}: {}",
-                tag_id,
-                language,
-                e,
-                exc_info=True,
+            logger.opt(exception=True).error(
+                "Error adding translation: tag_id={}, language={}: {}", tag_id, language, e
             )
             raise
 
@@ -877,12 +873,8 @@ class TagManagementService:
                 language,
             )
         except Exception as e:
-            logger.error(
-                "Error setting preferred translation: tag_id={}, language={}: {}",
-                tag_id,
-                language,
-                e,
-                exc_info=True,
+            logger.opt(exception=True).error(
+                "Error setting preferred translation: tag_id={}, language={}: {}", tag_id, language, e
             )
             raise
         return True

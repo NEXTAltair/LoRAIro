@@ -102,6 +102,7 @@ class TestMainWindowAnnotationCompletion:
         mock_window_with_annotation._delegate_to_result_handler = Mock()
 
         with patch("lorairo.gui.window.main_window.logger") as mock_logger:
+            mock_logger.opt.return_value = mock_logger  # opt(exception=True).error 経路を捕捉 (#1153)
             MainWindow._on_annotation_finished(mock_window_with_annotation, result)
 
             # エラーログが出力される

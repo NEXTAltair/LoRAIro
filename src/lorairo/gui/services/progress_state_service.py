@@ -188,7 +188,7 @@ class ProgressStateService:
                 self.status_bar.showMessage(f"アノテーション処理開始: {total_images}画像を処理中...", 10000)
 
         except Exception as e:
-            logger.error(f"バッチ開始ハンドラエラー: {e}", exc_info=True)
+            logger.opt(exception=True).error(f"バッチ開始ハンドラエラー: {e}")
 
     def on_batch_annotation_progress(self, processed: int, total: int) -> None:
         """バッチアノテーション進捗更新時のステータスバー表示
@@ -211,4 +211,4 @@ class ProgressStateService:
             logger.info(f"バッチアノテーション進捗: {processed}/{total} ({percentage}%)")
 
         except Exception as e:
-            logger.error(f"バッチ進捗ハンドラエラー: {e}", exc_info=True)
+            logger.opt(exception=True).error(f"バッチ進捗ハンドラエラー: {e}")

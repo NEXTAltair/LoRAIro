@@ -69,7 +69,7 @@ class ProjectRepository(BaseRepository):
                 return session.execute(select(Project.id).where(Project.name == name)).scalar_one()
             except SQLAlchemyError as e:
                 session.rollback()
-                logger.error(f"ensure_project エラー (name={name}): {e}", exc_info=True)
+                logger.opt(exception=True).error(f"ensure_project エラー (name={name}): {e}")
                 raise
 
     def get_image_ids_by_project(self, project_name: str) -> list[int]:
@@ -95,7 +95,7 @@ class ProjectRepository(BaseRepository):
                 logger.debug(f"get_image_ids_by_project: name='{project_name}', count={len(result)}")
                 return result
             except SQLAlchemyError as e:
-                logger.error(f"get_image_ids_by_project エラー: {e}", exc_info=True)
+                logger.opt(exception=True).error(f"get_image_ids_by_project エラー: {e}")
                 raise
 
     def get_image_ids_by_project_id(self, project_id: int) -> list[int]:
@@ -117,7 +117,7 @@ class ProjectRepository(BaseRepository):
                 logger.debug(f"get_image_ids_by_project_id: id={project_id}, count={len(result)}")
                 return result
             except SQLAlchemyError as e:
-                logger.error(f"get_image_ids_by_project_id エラー: {e}", exc_info=True)
+                logger.opt(exception=True).error(f"get_image_ids_by_project_id エラー: {e}")
                 raise
 
     def assign_images_to_project(self, image_ids: list[int], project_id: int) -> int:
@@ -151,5 +151,5 @@ class ProjectRepository(BaseRepository):
                 return total_updated
             except SQLAlchemyError as e:
                 session.rollback()
-                logger.error(f"assign_images_to_project エラー: {e}", exc_info=True)
+                logger.opt(exception=True).error(f"assign_images_to_project エラー: {e}")
                 raise

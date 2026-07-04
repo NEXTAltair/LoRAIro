@@ -76,7 +76,7 @@ class SearchWorker(LoRAIroWorkerBase[SearchResult]):
             raise
 
         except Exception as e:
-            logger.error(f"検索処理エラー: {e}", exc_info=True)
+            logger.opt(exception=True).error(f"検索処理エラー: {e}")
 
             # エラーレコード保存（二次エラー対策付き）
             try:

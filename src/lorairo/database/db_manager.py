@@ -187,8 +187,8 @@ class ImageDatabaseManager:
             project_root = get_current_project_root()
         except (RuntimeError, OSError, ValueError):
             # project root が未設定 / 解決不能の場合は project_id なしで挿入を続行
-            logger.debug(
-                "プロジェクト root 解決に失敗 — project_id は未設定のまま挿入します", exc_info=True
+            logger.opt(exception=True).debug(
+                "プロジェクト root 解決に失敗 — project_id は未設定のまま挿入します"
             )
             return None
 
@@ -204,9 +204,8 @@ class ImageDatabaseManager:
             # ADR 0035 段階 2 (#423): injected project_repo 経由で呼び出し DI contract を維持。
             self._cached_project_id = self.project_repo.ensure_project(project_name, project_root)
         except SQLAlchemyError:
-            logger.error(
-                f"ensure_project 失敗 (project_name={project_name}) — project_id 未設定で続行",
-                exc_info=True,
+            logger.opt(exception=True).error(
+                f"ensure_project 失敗 (project_name={project_name}) — project_id 未設定で続行"
             )
             return None
 
@@ -674,9 +673,8 @@ class ImageDatabaseManager:
                 )
 
         except (SQLAlchemyError, OSError, ValueError, RuntimeError) as e:
-            logger.error(
-                f"512px サムネイル生成中にエラーが発生しました: 元画像ID={image_id}, Error: {e}",
-                exc_info=True,
+            logger.opt(exception=True).error(
+                f"512px サムネイル生成中にエラーが発生しました: 元画像ID={image_id}, Error: {e}"
             )
             raise
 
@@ -839,7 +837,7 @@ class ImageDatabaseManager:
             self.annotation_repo.save_annotations(image_id, annotations_to_save)
             logger.debug(f"画像 ID {image_id} のタグ {len(tags_data)} 件を保存しました。")
         except (SQLAlchemyError, ValueError) as e:
-            logger.error(f"画像 ID {image_id} のタグ保存中にエラー: {e}", exc_info=True)
+            logger.opt(exception=True).error(f"画像 ID {image_id} のタグ保存中にエラー: {e}")
             raise
 
     def save_captions(self, image_id: int, captions_data: list[CaptionAnnotationData]) -> None:
@@ -860,7 +858,7 @@ class ImageDatabaseManager:
             self.annotation_repo.save_annotations(image_id, annotations_to_save)
             logger.info(f"画像 ID {image_id} のキャプション {len(captions_data)} 件を保存しました。")
         except (SQLAlchemyError, ValueError) as e:
-            logger.error(f"画像 ID {image_id} のキャプション保存中にエラー: {e}", exc_info=True)
+            logger.opt(exception=True).error(f"画像 ID {image_id} のキャプション保存中にエラー: {e}")
             raise
 
     def save_scores(self, image_id: int, scores_data: list[ScoreAnnotationData]) -> None:
@@ -881,7 +879,7 @@ class ImageDatabaseManager:
             self.annotation_repo.save_annotations(image_id, annotations_to_save)
             logger.info(f"画像 ID {image_id} のスコア {len(scores_data)} 件を保存しました。")
         except (SQLAlchemyError, ValueError) as e:
-            logger.error(f"画像 ID {image_id} のスコア保存中にエラー: {e}", exc_info=True)
+            logger.opt(exception=True).error(f"画像 ID {image_id} のスコア保存中にエラー: {e}")
             raise
 
     def save_ratings(self, image_id: int, ratings_data: list[RatingAnnotationData]) -> None:
@@ -902,7 +900,7 @@ class ImageDatabaseManager:
             self.annotation_repo.save_annotations(image_id, annotations_to_save)
             logger.info(f"画像 ID {image_id} のレーティング {len(ratings_data)} 件を保存しました。")
         except (SQLAlchemyError, ValueError) as e:
-            logger.error(f"画像 ID {image_id} のレーティング保存中にエラー: {e}", exc_info=True)
+            logger.opt(exception=True).error(f"画像 ID {image_id} のレーティング保存中にエラー: {e}")
             raise
 
     def register_prompt_tags(self, image_id: int, tags: list[str]) -> None:
@@ -1004,7 +1002,7 @@ class ImageDatabaseManager:
                 logger.info(f"ID {image_id} の画像メタデータが見つかりません。")
             return metadata
         except SQLAlchemyError as e:
-            logger.error(f"画像メタデータ取得中にエラーが発生しました: {e}", exc_info=True)
+            logger.opt(exception=True).error(f"画像メタデータ取得中にエラーが発生しました: {e}")
             raise  # Repositoryでエラーが発生したら上に伝える
 
     def mark_image_reviewed(self, image_id: int, *, reviewed: bool = True) -> bool:
@@ -1025,7 +1023,7 @@ class ImageDatabaseManager:
         try:
             return self.image_repo.set_image_reviewed(image_id, reviewed=reviewed)
         except SQLAlchemyError as e:
-            logger.error(f"画像レビュー状態の更新中にエラー (ID: {image_id}): {e}", exc_info=True)
+            logger.opt(exception=True).error(f"画像レビュー状態の更新中にエラー (ID: {image_id}): {e}")
             raise
 
     def get_processed_metadata(self, image_id: int) -> list[dict[str, Any]] | None:
@@ -1054,7 +1052,7 @@ class ImageDatabaseManager:
             )
             return []
         except SQLAlchemyError as e:
-            logger.error(f"処理済み画像メタデータ取得中にエラーが発生しました: {e}", exc_info=True)
+            logger.opt(exception=True).error(f"処理済み画像メタデータ取得中にエラーが発生しました: {e}")
             raise
 
     def get_image_annotations(
@@ -1076,7 +1074,7 @@ class ImageDatabaseManager:
         try:
             return self.image_repo.get_image_annotations(image_id, include_rejected=include_rejected)
         except SQLAlchemyError as e:
-            logger.error(f"画像ID {image_id} のアノテーション取得中にエラー: {e}", exc_info=True)
+            logger.opt(exception=True).error(f"画像ID {image_id} のアノテーション取得中にエラー: {e}")
             raise
 
     def get_image_annotations_batch(
@@ -1100,7 +1098,9 @@ class ImageDatabaseManager:
         try:
             return self.image_repo.get_image_annotations_batch(image_ids, include_rejected=include_rejected)
         except SQLAlchemyError as e:
-            logger.error(f"アノテーション一括取得中にエラー (count={len(image_ids)}): {e}", exc_info=True)
+            logger.opt(exception=True).error(
+                f"アノテーション一括取得中にエラー (count={len(image_ids)}): {e}"
+            )
             raise
 
     def get_low_res_image_paths_batch(self, image_ids: list[int]) -> dict[int, str]:
@@ -1118,7 +1118,9 @@ class ImageDatabaseManager:
         try:
             return self.image_repo.get_low_res_image_paths_batch(image_ids)
         except SQLAlchemyError as e:
-            logger.error(f"最低解像度パス一括取得中にエラー (count={len(image_ids)}): {e}", exc_info=True)
+            logger.opt(exception=True).error(
+                f"最低解像度パス一括取得中にエラー (count={len(image_ids)}): {e}"
+            )
             raise
 
     def get_images_metadata_batch(
@@ -1142,7 +1144,7 @@ class ImageDatabaseManager:
                 image_ids, include_annotations=include_annotations
             )
         except SQLAlchemyError as e:
-            logger.error(f"メタデータ一括取得中にエラー (count={len(image_ids)}): {e}", exc_info=True)
+            logger.opt(exception=True).error(f"メタデータ一括取得中にエラー (count={len(image_ids)}): {e}")
             raise
 
     def get_models(self) -> list[dict[str, Any]]:
@@ -1155,7 +1157,7 @@ class ImageDatabaseManager:
         try:
             return self.model_repo.get_models()
         except SQLAlchemyError as e:
-            logger.error(f"全モデル情報の取得中にエラー: {e}", exc_info=True)
+            logger.opt(exception=True).error(f"全モデル情報の取得中にエラー: {e}")
             raise
 
     def get_tagger_models(self) -> list[dict[str, Any]]:
@@ -1168,7 +1170,7 @@ class ImageDatabaseManager:
         try:
             return self.model_repo.get_models_by_type("tags")
         except SQLAlchemyError as e:
-            logger.error(f"Taggerモデル情報の取得中にエラー: {e}", exc_info=True)
+            logger.opt(exception=True).error(f"Taggerモデル情報の取得中にエラー: {e}")
             raise
 
     def get_score_models(self) -> list[dict[str, Any]]:
@@ -1181,7 +1183,7 @@ class ImageDatabaseManager:
         try:
             return self.model_repo.get_models_by_type("scores")
         except SQLAlchemyError as e:
-            logger.error(f"Scoreモデル情報の取得中にエラー: {e}", exc_info=True)
+            logger.opt(exception=True).error(f"Scoreモデル情報の取得中にエラー: {e}")
             raise
 
     def get_captioner_models(self) -> list[dict[str, Any]]:
@@ -1194,7 +1196,7 @@ class ImageDatabaseManager:
         try:
             return self.model_repo.get_models_by_type("caption")
         except SQLAlchemyError as e:
-            logger.error(f"Captionerモデル情報の取得中にエラー: {e}", exc_info=True)
+            logger.opt(exception=True).error(f"Captionerモデル情報の取得中にエラー: {e}")
             raise
 
     def get_upscaler_models(self) -> list[dict[str, Any]]:
@@ -1207,7 +1209,7 @@ class ImageDatabaseManager:
         try:
             return self.model_repo.get_models_by_type("upscaler")
         except SQLAlchemyError as e:
-            logger.error(f"Upscalerモデル情報の取得中にエラー: {e}", exc_info=True)
+            logger.opt(exception=True).error(f"Upscalerモデル情報の取得中にエラー: {e}")
             raise
 
     def get_llm_models(self) -> list[dict[str, Any]]:
@@ -1220,7 +1222,7 @@ class ImageDatabaseManager:
         try:
             return self.model_repo.get_models_by_type("multimodal")
         except SQLAlchemyError as e:
-            logger.error(f"LLMモデル情報の取得中にエラー: {e}", exc_info=True)
+            logger.opt(exception=True).error(f"LLMモデル情報の取得中にエラー: {e}")
             raise
 
     def get_manual_edit_model_id(self) -> int:
@@ -1360,7 +1362,7 @@ class ImageDatabaseManager:
             filter_criteria = criteria or ImageFilterCriteria()
             return self.image_repo.get_images_by_filter(filter_criteria)
         except SQLAlchemyError as e:
-            logger.error(f"画像フィルタリング検索中にエラーが発生しました: {e}", exc_info=True)
+            logger.opt(exception=True).error(f"画像フィルタリング検索中にエラーが発生しました: {e}")
             raise
 
     def detect_duplicate_image(self, image_path: Path) -> int | None:
@@ -1432,7 +1434,7 @@ class ImageDatabaseManager:
             filter_criteria = criteria or ImageFilterCriteria()
             return self.image_repo.get_images_count_only(filter_criteria)
         except SQLAlchemyError as e:
-            logger.error(f"画像件数の取得中にエラーが発生しました: {e}", exc_info=True)
+            logger.opt(exception=True).error(f"画像件数の取得中にエラーが発生しました: {e}")
             raise
 
     def get_total_image_count(self) -> int:
@@ -1446,7 +1448,7 @@ class ImageDatabaseManager:
             count = self.image_repo.get_total_image_count()
             return count
         except SQLAlchemyError as e:
-            logger.error(f"総画像数の取得中にエラーが発生しました: {e}", exc_info=True)
+            logger.opt(exception=True).error(f"総画像数の取得中にエラーが発生しました: {e}")
             raise
 
     def get_image_ids_from_directory(self, directory_path: Path) -> list[int]:
@@ -1484,9 +1486,8 @@ class ImageDatabaseManager:
             return image_ids
 
         except (SQLAlchemyError, OSError) as e:
-            logger.error(
-                f"ディレクトリからの画像ID取得中にエラー: {directory_path}, Error: {e}",
-                exc_info=True,
+            logger.opt(exception=True).error(
+                f"ディレクトリからの画像ID取得中にエラー: {directory_path}, Error: {e}"
             )
             raise
 
@@ -1504,7 +1505,7 @@ class ImageDatabaseManager:
         try:
             total_count = self.get_total_image_count()
         except SQLAlchemyError as e:
-            logger.error(f"データセット状態取得エラー: {e}", exc_info=True)
+            logger.opt(exception=True).error(f"データセット状態取得エラー: {e}")
             return {"total_images": 0, "status": "error"}
         return {"total_images": total_count, "status": "ready" if total_count > 0 else "empty"}
 
@@ -1553,7 +1554,7 @@ class ImageDatabaseManager:
                 }
 
         except SQLAlchemyError as e:
-            logger.error(f"アノテーション状態カウント取得エラー: {e}", exc_info=True)
+            logger.opt(exception=True).error(f"アノテーション状態カウント取得エラー: {e}")
             raise
 
     def filter_by_annotation_status(
@@ -1604,7 +1605,7 @@ class ImageDatabaseManager:
                 return [dict(row._mapping) for row in result.fetchall()]
 
         except SQLAlchemyError as e:
-            logger.error(f"アノテーション状態フィルタリングエラー: {e}", exc_info=True)
+            logger.opt(exception=True).error(f"アノテーション状態フィルタリングエラー: {e}")
             raise
 
     def get_directory_images_metadata(self, directory_path: Path) -> list[dict[str, Any]]:
@@ -1639,7 +1640,7 @@ class ImageDatabaseManager:
             return images
 
         except (SQLAlchemyError, OSError) as e:
-            logger.error(f"ディレクトリ画像メタデータ取得エラー: {directory_path}, {e}", exc_info=True)
+            logger.opt(exception=True).error(f"ディレクトリ画像メタデータ取得エラー: {directory_path}, {e}")
             raise
 
     def check_processed_image_exists(self, image_id: int, target_resolution: int) -> dict[str, Any] | None:
@@ -1674,9 +1675,8 @@ class ImageDatabaseManager:
             )
             return None
         except SQLAlchemyError as e:
-            logger.error(
-                f"処理済み画像の存在チェック中にエラーが発生しました: 元画像ID={image_id}, 解像度={target_resolution}, Error: {e}",
-                exc_info=True,
+            logger.opt(exception=True).error(
+                f"処理済み画像の存在チェック中にエラーが発生しました: 元画像ID={image_id}, 解像度={target_resolution}, Error: {e}"
             )
             raise
 
@@ -1850,7 +1850,9 @@ class ImageDatabaseManager:
                 return has_annotation
 
         except SQLAlchemyError as e:
-            logger.error(f"アノテーション存在確認エラー: image_id={image_id}, error={e}", exc_info=True)
+            logger.opt(exception=True).error(
+                f"アノテーション存在確認エラー: image_id={image_id}, error={e}"
+            )
             raise
 
     def get_annotated_image_ids(self, image_ids: list[int]) -> set[int]:
@@ -1919,7 +1921,7 @@ class ImageDatabaseManager:
             # 二次エラー防止 (sentinel return): ここで畳まないと error handling 経路が再失敗する。
             # 本メソッドの本来の責務がエラー保存なので、保存自体の失敗は致命的に扱わず
             # sentinel `-1` で返し、上位の error handling を止めない。
-            logger.error(f"エラーレコード保存中にエラー（二次エラー）: {e}", exc_info=True)
+            logger.opt(exception=True).error(f"エラーレコード保存中にエラー（二次エラー）: {e}")
             return -1
 
     def mark_errors_resolved_batch(self, error_ids: list[int]) -> tuple[bool, int]:
@@ -1939,7 +1941,7 @@ class ImageDatabaseManager:
             # ADR 0035 段階 3 (#423): injected error_record_repo 経由で呼び出し DI contract を維持。
             return self.error_record_repo.mark_errors_resolved_batch(error_ids)
         except SQLAlchemyError as e:
-            logger.error(f"一括解決マーク失敗（Manager）: {e}", exc_info=True)
+            logger.opt(exception=True).error(f"一括解決マーク失敗（Manager）: {e}")
             raise
 
     def get_image_id_by_filepath(self, filepath: str) -> int | None:
@@ -1958,7 +1960,7 @@ class ImageDatabaseManager:
         try:
             return self.image_repo.get_image_id_by_filepath(filepath)
         except SQLAlchemyError as e:
-            logger.error(f"ファイルパスからの画像ID取得エラー: {e}", exc_info=True)
+            logger.opt(exception=True).error(f"ファイルパスからの画像ID取得エラー: {e}")
             raise
 
     def get_created_at_histogram(self, bins: int = 20) -> list[tuple[datetime, datetime, int]]:

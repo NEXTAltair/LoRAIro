@@ -601,7 +601,7 @@ class AnnotationSaveService:
                     error_msg = error_message(item, e)
                     error_details.append(error_msg)
                     error_count += 1
-                    logger.error(log_message(item, e), exc_info=True)
+                    logger.opt(exception=True).error(log_message(item, e))
 
         return (success_count, error_count, error_details)
 
@@ -714,7 +714,7 @@ class AnnotationSaveService:
                 error_msg = f"phash={phash[:8]}...: {e}"
                 error_details.append(error_msg)
                 error_count += 1
-                logger.error(f"保存失敗 phash={phash[:8]}...: {e}", exc_info=True)
+                logger.opt(exception=True).error(f"保存失敗 phash={phash[:8]}...: {e}")
 
         success_count, batch_error_count, batch_error_details = self._save_prepared_batch(
             prepared_items,
@@ -791,7 +791,7 @@ class AnnotationSaveService:
                 error_msg = f"image_id={image_id}: {e}"
                 error_details.append(error_msg)
                 error_count += 1
-                logger.error(f"Provider Batch result 保存失敗 image_id={image_id}: {e}", exc_info=True)
+                logger.opt(exception=True).error(f"Provider Batch result 保存失敗 image_id={image_id}: {e}")
 
         success_count, batch_error_count, batch_error_details = self._save_prepared_batch(
             prepared_items,
@@ -907,7 +907,7 @@ class AnnotationSaveService:
         try:
             latest_rating_map = self._image_repo.get_latest_normalized_ratings_by_image_ids(image_ids)
         except Exception as e:
-            logger.warning(f"rating prefilter 取得失敗: {e}", exc_info=True)
+            logger.opt(exception=True).warning(f"rating prefilter 取得失敗: {e}")
             return list(image_paths)
 
         excluded_image_ids = {

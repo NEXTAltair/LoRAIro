@@ -333,6 +333,7 @@ class TestSearchCriteriaProcessor:
     def test_execute_search_with_filters_error_handling(self, mock_logger, processor, mock_db_manager):
         """検索実行エラーハンドリングテスト"""
         # データベースエラーを発生させる
+        mock_logger.opt.return_value = mock_logger
         mock_db_manager.get_images_by_filter.side_effect = Exception("Database error")
 
         conditions = SearchConditions(search_type="tags", keywords=["test"], tag_logic="and")
@@ -417,6 +418,8 @@ class TestSearchCriteriaProcessorErrorPaths:
     def test_process_date_filter_exception_returns_empty_dict(self, mock_logger, processor) -> None:
         """process_date_filter で例外が起きた場合、空辞書を返してエラーログを出す。"""
 
+        mock_logger.opt.return_value = mock_logger
+
         class _BrokenConditions:
             @property
             def date_filter_enabled(self) -> bool:
@@ -431,6 +434,8 @@ class TestSearchCriteriaProcessorErrorPaths:
     def test_apply_untagged_filter_exception_returns_empty_dict(self, mock_logger, processor) -> None:
         """apply_untagged_filter で例外が起きた場合、空辞書を返してエラーログを出す。"""
 
+        mock_logger.opt.return_value = mock_logger
+
         class _BrokenConditions:
             @property
             def only_untagged(self) -> bool:
@@ -444,6 +449,8 @@ class TestSearchCriteriaProcessorErrorPaths:
     @patch("lorairo.services.search_criteria_processor.logger")
     def test_apply_tagged_filter_logic_exception_returns_empty_dict(self, mock_logger, processor) -> None:
         """apply_tagged_filter_logic で例外が起きた場合、空辞書を返してエラーログを出す。"""
+
+        mock_logger.opt.return_value = mock_logger
 
         class _BrokenConditions:
             @property
@@ -460,6 +467,7 @@ class TestSearchCriteriaProcessorErrorPaths:
         self, mock_logger, processor
     ) -> None:
         """_apply_simple_frontend_filters で例外が起きた場合、元リストを返してエラーログを出す。"""
+        mock_logger.opt.return_value = mock_logger
         images = [{"id": 1}, {"id": 2}]
 
         class _BrokenConditions:
@@ -498,6 +506,7 @@ class TestSearchCriteriaProcessorErrorPaths:
     @patch("lorairo.services.search_criteria_processor.logger")
     def test_filter_by_aspect_ratio_exception_returns_original_images(self, mock_logger, processor) -> None:
         """_filter_by_aspect_ratio で例外が起きた場合、元リストを返してエラーログを出す。"""
+        mock_logger.opt.return_value = mock_logger
         images = [{"id": 1}]
         # _resolve_target_aspect_ratio が例外を投げるようにする
         with patch.object(processor, "_resolve_target_aspect_ratio", side_effect=RuntimeError("bad")):
@@ -535,6 +544,7 @@ class TestSearchCriteriaProcessorErrorPaths:
     @patch("lorairo.services.search_criteria_processor.logger")
     def test_filter_by_date_range_exception_returns_original_images(self, mock_logger, processor) -> None:
         """_filter_by_date_range で例外が起きた場合、元リストを返してエラーログを出す。"""
+        mock_logger.opt.return_value = mock_logger
         images = [{"id": 1, "created_at": "2023-06-15T00:00:00Z"}]
         # start_date が tzinfo 属性アクセス時に例外を起こすオブジェクト
         bad_start_date = Mock()
@@ -712,6 +722,8 @@ class TestSearchCriteriaProcessorErrorPaths:
         """_filter_by_duplicate_exclusion で例外が起きた場合、元リストを返してエラーログを出す。"""
 
         # list の iteration で例外を発生させる
+        mock_logger.opt.return_value = mock_logger
+
         class BrokenList(list):
             def __iter__(self):
                 raise RuntimeError("iteration failed")
@@ -728,6 +740,7 @@ class TestSearchCriteriaProcessorErrorPaths:
     def test_parse_resolution_value_exception_returns_none_tuple(self, mock_logger, processor) -> None:
         """_parse_resolution_value で例外が起きた場合、(None, None) を返してエラーログを出す。"""
         # re.match が例外を投げるようにする
+        mock_logger.opt.return_value = mock_logger
         with patch("lorairo.services.search_criteria_processor.re") as mock_re:
             mock_re.match.side_effect = RuntimeError("re error")
             result = processor._parse_resolution_value("1920x1080")

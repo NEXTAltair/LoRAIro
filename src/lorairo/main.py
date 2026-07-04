@@ -295,7 +295,7 @@ def main() -> int:
         return exit_code
 
     except Exception as e:
-        logger.error(f"アプリケーション起動エラー: {e}", exc_info=True)
+        logger.opt(exception=True).error(f"アプリケーション起動エラー: {e}")
         return 1
 
 

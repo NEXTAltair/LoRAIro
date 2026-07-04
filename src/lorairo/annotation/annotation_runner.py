@@ -91,7 +91,7 @@ class AnnotationRunner:
 
         except Exception as e:
             error_msg = f"アノテーション処理エラー: {e}"
-            logger.error(error_msg, exc_info=True)
+            logger.opt(exception=True).error(error_msg)
             raise
 
     def _load_images(self, image_paths: list[str]) -> list[Image.Image]:
@@ -124,7 +124,7 @@ class AnnotationRunner:
 
             except Exception as e:
                 error_msg = f"画像読み込みエラー: {path}, {e}"
-                logger.error(error_msg, exc_info=True)
+                logger.opt(exception=True).error(error_msg)
                 raise ValueError(error_msg) from e
 
         logger.debug(f"画像読み込み完了: {len(images)}枚")

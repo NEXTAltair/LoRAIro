@@ -127,7 +127,7 @@ class ImageRepository(BaseRepository):
 
                 return index
             except SQLAlchemyError as e:
-                logger.error(f"ファイル名インデックス構築エラー: {e}", exc_info=True)
+                logger.opt(exception=True).error(f"ファイル名インデックス構築エラー: {e}")
                 raise
 
     def add_filename_alias(self, image_id: int, stem: str) -> None:
@@ -151,7 +151,7 @@ class ImageRepository(BaseRepository):
                 logger.debug(f"エイリアス既存のためスキップ: {stem}")
             except SQLAlchemyError as e:
                 session.rollback()
-                logger.error(f"エイリアス登録エラー: {e}", exc_info=True)
+                logger.opt(exception=True).error(f"エイリアス登録エラー: {e}")
                 raise
 
     # --- Image CRUD ---
@@ -173,9 +173,8 @@ class ImageRepository(BaseRepository):
                 result = session.execute(stmt).scalar_one_or_none()
                 return result is not None
             except SQLAlchemyError as e:
-                logger.error(
-                    f"画像存在チェック中にエラーが発生しました (ID: {image_id}): {e}",
-                    exc_info=True,
+                logger.opt(exception=True).error(
+                    f"画像存在チェック中にエラーが発生しました (ID: {image_id}): {e}"
                 )
                 raise
 
@@ -201,7 +200,7 @@ class ImageRepository(BaseRepository):
                     logger.debug(f"pHashによる重複画像が見つかりました: ID {image_id}, pHash {phash}")
                 return image_id
             except SQLAlchemyError as e:
-                logger.error(f"pHashによる重複画像の検索中にエラーが発生しました: {e}", exc_info=True)
+                logger.opt(exception=True).error(f"pHashによる重複画像の検索中にエラーが発生しました: {e}")
                 raise
 
     # 分類に用いる属性キー (ADR 0061 §2)。width / height / has_alpha /
@@ -258,7 +257,7 @@ class ImageRepository(BaseRepository):
                 logger.debug(f"pHash 候補検索: {len(candidates)}件 (pHash={phash})")
                 return candidates
             except SQLAlchemyError as e:
-                logger.error(f"pHash 候補検索中にエラーが発生しました: {e}", exc_info=True)
+                logger.opt(exception=True).error(f"pHash 候補検索中にエラーが発生しました: {e}")
                 raise
 
     def get_phash_classification_by_ids(self, image_ids: list[int]) -> dict[int, dict[str, Any]]:
@@ -392,7 +391,7 @@ class ImageRepository(BaseRepository):
                 logger.debug(f"pHash一括検索: {len(phash_to_id)}/{len(phashes)}件見つかりました")
                 return phash_to_id
             except SQLAlchemyError as e:
-                logger.error(f"pHash一括検索中にエラー: {e}", exc_info=True)
+                logger.opt(exception=True).error(f"pHash一括検索中にエラー: {e}")
                 raise
 
     def find_image_ids_by_phashes_multi(self, phashes: set[str]) -> dict[str, list[int]]:
@@ -433,7 +432,7 @@ class ImageRepository(BaseRepository):
                 )
                 return phash_to_ids
             except SQLAlchemyError as e:
-                logger.error(f"pHash一括検索 (multi) 中にエラー: {e}", exc_info=True)
+                logger.opt(exception=True).error(f"pHash一括検索 (multi) 中にエラー: {e}")
                 raise
 
     def find_image_ids_by_phash_long_edge(self, phashes: set[str]) -> dict[tuple[str, int], list[int]]:
@@ -473,7 +472,7 @@ class ImageRepository(BaseRepository):
                 logger.debug(f"pHash+長辺一括検索: {len(result)}キー (対象pHash {len(phashes)}件)")
                 return result
             except SQLAlchemyError as e:
-                logger.error(f"pHash+長辺一括検索中にエラー: {e}", exc_info=True)
+                logger.opt(exception=True).error(f"pHash+長辺一括検索中にエラー: {e}")
                 raise
 
     def get_annotated_image_ids(self, image_ids: list[int]) -> set[int]:
@@ -525,10 +524,7 @@ class ImageRepository(BaseRepository):
                 )
                 return annotated_ids
             except SQLAlchemyError as e:
-                logger.error(
-                    f"アノテーション存在一括チェック中にエラー: {e}",
-                    exc_info=True,
-                )
+                logger.opt(exception=True).error(f"アノテーション存在一括チェック中にエラー: {e}")
                 raise
 
     def add_original_image(self, info: dict[str, Any]) -> tuple[int, bool]:
@@ -618,15 +614,14 @@ class ImageRepository(BaseRepository):
             except IntegrityError as e:
                 # uuid の UNIQUE 制約違反など
                 session.rollback()
-                logger.error(f"オリジナル画像の追加中に整合性エラーが発生しました: {e}", exc_info=True)
+                logger.opt(exception=True).error(f"オリジナル画像の追加中に整合性エラーが発生しました: {e}")
                 # uuid重複の場合、既存IDを探して返すか、あるいは単にエラーとするか?
                 # ここではエラーを再発生させる
                 raise
             except SQLAlchemyError as e:
                 session.rollback()
-                logger.error(
-                    f"オリジナル画像の追加中にデータベースエラーが発生しました: {e}",
-                    exc_info=True,
+                logger.opt(exception=True).error(
+                    f"オリジナル画像の追加中にデータベースエラーが発生しました: {e}"
                 )
                 raise
 
@@ -664,7 +659,7 @@ class ImageRepository(BaseRepository):
                 existing_id = session.execute(stmt).scalar_one_or_none()
                 return existing_id
             except SQLAlchemyError as e:
-                logger.error(f"既存の処理済み画像ID検索中にエラー: {e}", exc_info=True)
+                logger.opt(exception=True).error(f"既存の処理済み画像ID検索中にエラー: {e}")
                 # この検索自体が失敗した場合は None を返すか、エラーを再発生させるか検討
                 return None  # ここでは None を返す
 
@@ -746,9 +741,8 @@ class ImageRepository(BaseRepository):
                 return existing_id  # None の可能性もある
             except SQLAlchemyError as e:
                 session.rollback()
-                logger.error(
-                    f"処理済み画像の追加中に予期せぬデータベースエラーが発生しました: {e}",
-                    exc_info=True,
+                logger.opt(exception=True).error(
+                    f"処理済み画像の追加中に予期せぬデータベースエラーが発生しました: {e}"
                 )
                 raise  # IntegrityError 以外の DB エラーは再発生させる
 
@@ -798,9 +792,8 @@ class ImageRepository(BaseRepository):
                 return metadata
 
             except SQLAlchemyError as e:
-                logger.error(
-                    f"画像メタデータの取得中にエラーが発生しました (ID: {image_id}): {e}",
-                    exc_info=True,
+                logger.opt(exception=True).error(
+                    f"画像メタデータの取得中にエラーが発生しました (ID: {image_id}): {e}"
                 )
                 raise
 
@@ -831,7 +824,7 @@ class ImageRepository(BaseRepository):
                 return True
             except SQLAlchemyError as e:
                 session.rollback()
-                logger.error(f"レビュー状態の設定に失敗しました (ID: {image_id}): {e}", exc_info=True)
+                logger.opt(exception=True).error(f"レビュー状態の設定に失敗しました (ID: {image_id}): {e}")
                 raise
 
     def get_images_metadata_batch(
@@ -872,10 +865,7 @@ class ImageRepository(BaseRepository):
                     )
                 return result
             except SQLAlchemyError as e:
-                logger.error(
-                    f"画像メタデータの一括取得中にエラーが発生しました: {e}",
-                    exc_info=True,
-                )
+                logger.opt(exception=True).error(f"画像メタデータの一括取得中にエラーが発生しました: {e}")
                 raise
 
     def get_image_annotation_metadata(self, image_id: int) -> dict[str, Any] | None:
@@ -915,9 +905,8 @@ class ImageRepository(BaseRepository):
                     return None
                 return self._format_annotations_for_metadata(img)
             except SQLAlchemyError as e:
-                logger.error(
-                    f"画像アノテーションの遅延取得中にエラーが発生しました: image_id={image_id}: {e}",
-                    exc_info=True,
+                logger.opt(exception=True).error(
+                    f"画像アノテーションの遅延取得中にエラーが発生しました: image_id={image_id}: {e}"
                 )
                 raise
 
@@ -1036,9 +1025,8 @@ class ImageRepository(BaseRepository):
                     return selected_metadata
 
             except SQLAlchemyError as e:
-                logger.error(
-                    f"処理済み画像の取得中にエラーが発生しました (ID: {image_id}): {e}",
-                    exc_info=True,
+                logger.opt(exception=True).error(
+                    f"処理済み画像の取得中にエラーが発生しました (ID: {image_id}): {e}"
                 )
                 raise
 
@@ -1327,9 +1315,8 @@ class ImageRepository(BaseRepository):
                 return annotations
 
             except SQLAlchemyError as e:
-                logger.error(
-                    f"画像ID {image_id} のアノテーション取得中にエラーが発生しました: {e}",
-                    exc_info=True,
+                logger.opt(exception=True).error(
+                    f"画像ID {image_id} のアノテーション取得中にエラーが発生しました: {e}"
                 )
                 raise
 
@@ -1427,9 +1414,8 @@ class ImageRepository(BaseRepository):
                         )
                 return result
             except SQLAlchemyError as e:
-                logger.error(
-                    f"アノテーションの一括取得中にエラーが発生しました (count={len(image_ids)}): {e}",
-                    exc_info=True,
+                logger.opt(exception=True).error(
+                    f"アノテーションの一括取得中にエラーが発生しました (count={len(image_ids)}): {e}"
                 )
                 raise
 
@@ -1470,9 +1456,8 @@ class ImageRepository(BaseRepository):
                         paths[image_id] = stored_path
                 return paths
             except SQLAlchemyError as e:
-                logger.error(
-                    f"最低解像度パスの一括取得中にエラーが発生しました (count={len(image_ids)}): {e}",
-                    exc_info=True,
+                logger.opt(exception=True).error(
+                    f"最低解像度パスの一括取得中にエラーが発生しました (count={len(image_ids)}): {e}"
                 )
                 raise
 
@@ -3064,7 +3049,7 @@ class ImageRepository(BaseRepository):
                 )
                 return paged, total_count
             except SQLAlchemyError as e:
-                logger.error(f"image_ids exact-set 取得エラー: {e}", exc_info=True)
+                logger.opt(exception=True).error(f"image_ids exact-set 取得エラー: {e}")
                 raise
 
     def get_images_by_filter(
@@ -3172,7 +3157,7 @@ class ImageRepository(BaseRepository):
                 return final_metadata_list, total_count
 
             except SQLAlchemyError as e:
-                logger.error(f"画像フィルタリング検索中にエラーが発生しました: {e}", exc_info=True)
+                logger.opt(exception=True).error(f"画像フィルタリング検索中にエラーが発生しました: {e}")
                 raise
 
     def get_images_count_only(
@@ -3249,7 +3234,7 @@ class ImageRepository(BaseRepository):
                 return count
 
             except SQLAlchemyError as e:
-                logger.error(f"画像件数取得中にエラーが発生しました: {e}", exc_info=True)
+                logger.opt(exception=True).error(f"画像件数取得中にエラーが発生しました: {e}")
                 raise
 
     def get_image_list_page(
@@ -3349,7 +3334,7 @@ class ImageRepository(BaseRepository):
                 return page, total_count
 
             except SQLAlchemyError as e:
-                logger.error(f"画像一覧ページ取得中にエラーが発生しました: {e}", exc_info=True)
+                logger.opt(exception=True).error(f"画像一覧ページ取得中にエラーが発生しました: {e}")
                 raise
 
     # --- Count ---
@@ -3362,7 +3347,7 @@ class ImageRepository(BaseRepository):
                 count = session.execute(stmt).scalar_one()
                 return count
             except SQLAlchemyError as e:
-                logger.error(f"総画像数の取得中にエラーが発生しました: {e}", exc_info=True)
+                logger.opt(exception=True).error(f"総画像数の取得中にエラーが発生しました: {e}")
                 raise  # または、目的のエラー処理に応じて0を返します
 
     # --- By IDs (alternative entry, used by error workflow) ---
@@ -3414,7 +3399,7 @@ class ImageRepository(BaseRepository):
                 logger.debug(f"画像メタデータを取得: {len(metadata_list)}件")
                 return metadata_list
             except SQLAlchemyError as e:
-                logger.error(f"画像メタデータの取得中にエラーが発生しました: {e}", exc_info=True)
+                logger.opt(exception=True).error(f"画像メタデータの取得中にエラーが発生しました: {e}")
                 raise
 
     # --- File Path Resolution ---
@@ -3574,7 +3559,7 @@ class ImageRepository(BaseRepository):
                 )
                 return result
             except Exception as e:
-                logger.error(f"バッチ画像 ID 解決エラー: {e}", exc_info=True)
+                logger.opt(exception=True).error(f"バッチ画像 ID 解決エラー: {e}")
                 return result
 
     def get_latest_normalized_ratings_by_image_ids(self, image_ids: list[int]) -> dict[int, str | None]:
@@ -3615,7 +3600,7 @@ class ImageRepository(BaseRepository):
                 )
                 return latest_ratings
             except Exception as e:
-                logger.error(f"最新 normalized_rating 取得エラー: {e}", exc_info=True)
+                logger.opt(exception=True).error(f"最新 normalized_rating 取得エラー: {e}")
                 return {}
 
     def filter_image_ids_with_tag_changes_since(
@@ -3668,7 +3653,7 @@ class ImageRepository(BaseRepository):
                 )
                 return [image_id for image_id in requested_ids if image_id in changed_ids]
             except SQLAlchemyError as e:
-                logger.error(f"changed-since 絞り込みエラー: {e}", exc_info=True)
+                logger.opt(exception=True).error(f"changed-since 絞り込みエラー: {e}")
                 raise
 
     def get_phashes_by_filepaths(self, filepaths: list[str]) -> dict[str, str | None]:
@@ -3706,7 +3691,7 @@ class ImageRepository(BaseRepository):
                 )
                 return result
             except Exception as e:
-                logger.error(f"バッチ pHash 解決エラー: {e}", exc_info=True)
+                logger.opt(exception=True).error(f"バッチ pHash 解決エラー: {e}")
                 return result
 
     def get_created_at_histogram(

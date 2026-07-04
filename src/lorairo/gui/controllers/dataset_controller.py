@@ -126,6 +126,6 @@ class DatasetController:
 
         except Exception as e:
             error_msg = f"データセット登録の開始に失敗しました: {e}"
-            logger.error(error_msg, exc_info=True)
+            logger.opt(exception=True).error(error_msg)
             if self.parent:
                 QMessageBox.critical(self.parent, "バッチ登録エラー", error_msg)

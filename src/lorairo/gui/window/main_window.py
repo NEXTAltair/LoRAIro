@@ -174,7 +174,7 @@ class MainWindow(QMainWindow, Ui_MainWindow):
         except Exception as e:
             self._initialization_failed = True
             self._initialization_error = f"初期化エラー: {e}"
-            logger.error(f"MainWindow初期化失敗: {e}", exc_info=True)
+            logger.opt(exception=True).error(f"MainWindow初期化失敗: {e}")
 
     def _initialize_services(self) -> None:
         """サービスを段階的に初期化し、致命的コンポーネントは強制終了"""
@@ -258,7 +258,7 @@ class MainWindow(QMainWindow, Ui_MainWindow):
             self.model_selection_state_manager = ModelSelectionStateManager()
             logger.info("✅ ModelSelectionStateManager初期化成功")
         except RuntimeError as e:
-            logger.error(f"❌ ModelSelectionStateManager初期化失敗: {e}", exc_info=True)
+            logger.opt(exception=True).error(f"❌ ModelSelectionStateManager初期化失敗: {e}")
             self.model_selection_state_manager = None
 
     def _update_database_status_label(self) -> None:
@@ -443,7 +443,7 @@ class MainWindow(QMainWindow, Ui_MainWindow):
             logger.info("マップタブ (MapTabWidget) initialized")
         except Exception as e:
             self.map_tab = None
-            logger.error(f"マップタブ initialization failed: {e}", exc_info=True)
+            logger.opt(exception=True).error(f"マップタブ initialization failed: {e}")
 
     def _setup_registration_summary_panel(self) -> None:
         """登録完了サマリパネルを Search タブ上部 (qbar の上) へ常設する。
@@ -504,7 +504,7 @@ class MainWindow(QMainWindow, Ui_MainWindow):
             logger.info("✅ ジョブタブ (JobsTabWidget) initialized")
         except Exception as e:
             self.jobs_tab = None
-            logger.error(f"❌ ジョブタブ initialization failed: {e}", exc_info=True)
+            logger.opt(exception=True).error(f"❌ ジョブタブ initialization failed: {e}")
 
     def _connect_jobs_tab_signals(self) -> None:
         """JobsTabWidget の glue シグナル接続を行う (#874)。
@@ -542,7 +542,7 @@ class MainWindow(QMainWindow, Ui_MainWindow):
             self.tag_management_dialog = None
 
         except Exception as e:
-            logger.error(f"❌ ErrorNotificationWidget初期化失敗: {e}", exc_info=True)
+            logger.opt(exception=True).error(f"❌ ErrorNotificationWidget初期化失敗: {e}")
             self.error_notification_widget = None
 
     def _setup_tab_widget(self) -> None:
@@ -828,7 +828,7 @@ class MainWindow(QMainWindow, Ui_MainWindow):
             self.tag_management_dialog.activateWindow()  # アクティブ化
 
         except Exception as e:
-            logger.error(f"Failed to show tag management dialog: {e}", exc_info=True)
+            logger.opt(exception=True).error(f"Failed to show tag management dialog: {e}")
             QMessageBox.critical(self, "エラー", f"タグ管理の表示に失敗しました:\n{e}")
 
     def _connect_menu_actions(self) -> None:
@@ -961,7 +961,7 @@ class MainWindow(QMainWindow, Ui_MainWindow):
             self._connect_panel_toggle_actions()
             logger.info("  ✅ イベント接続完了")
         except Exception as e:
-            logger.error(f"イベント接続で予期しないエラー: {e}", exc_info=True)
+            logger.opt(exception=True).error(f"イベント接続で予期しないエラー: {e}")
 
     def _connect_panel_toggle_actions(self) -> None:
         """パネル表示切替アクションを接続する。
@@ -1243,7 +1243,7 @@ class MainWindow(QMainWindow, Ui_MainWindow):
                     logger.info(f"アノテーション完了: {len(image_ids)}件の画像キャッシュを更新")
 
             except Exception as e:
-                logger.error(f"アノテーション完了後のキャッシュ更新失敗: {e}", exc_info=True)
+                logger.opt(exception=True).error(f"アノテーション完了後のキャッシュ更新失敗: {e}")
 
     def _on_annotation_error(self, error_msg: str) -> None:
         self._delegate_to_result_handler("handle_annotation_error", error_msg, status_bar=self.statusBar())
@@ -1384,7 +1384,7 @@ class MainWindow(QMainWindow, Ui_MainWindow):
             logger.info("Service層統合完了")
 
         except Exception as e:
-            logger.error(f"Service層統合失敗: {e}", exc_info=True)
+            logger.opt(exception=True).error(f"Service層統合失敗: {e}")
             logger.warning("一部のService機能は利用できませんが、その他の機能は正常に動作します")
             self.result_handler_service = None
             self.pipeline_control_service = None

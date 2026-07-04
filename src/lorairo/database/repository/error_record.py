@@ -85,7 +85,7 @@ class ErrorRecordRepository(BaseRepository):
                 return error_id
             except SQLAlchemyError as e:
                 session.rollback()
-                logger.error(f"エラーレコードの保存中にエラーが発生しました: {e}", exc_info=True)
+                logger.opt(exception=True).error(f"エラーレコードの保存中にエラーが発生しました: {e}")
                 raise
 
     def get_error_count_unresolved(self, operation_type: str | None = None) -> int:
@@ -111,7 +111,7 @@ class ErrorRecordRepository(BaseRepository):
                 )
                 return count
             except SQLAlchemyError as e:
-                logger.error(f"未解決エラー件数の取得中にエラーが発生しました: {e}", exc_info=True)
+                logger.opt(exception=True).error(f"未解決エラー件数の取得中にエラーが発生しました: {e}")
                 raise
 
     def get_error_image_ids(
@@ -157,7 +157,7 @@ class ErrorRecordRepository(BaseRepository):
                 )
                 return image_ids
             except SQLAlchemyError as e:
-                logger.error(f"エラー画像ID一覧の取得中にエラーが発生しました: {e}", exc_info=True)
+                logger.opt(exception=True).error(f"エラー画像ID一覧の取得中にエラーが発生しました: {e}")
                 raise
 
     def get_error_records(
@@ -210,7 +210,7 @@ class ErrorRecordRepository(BaseRepository):
                 )
                 return records
             except SQLAlchemyError as e:
-                logger.error(f"エラーレコードの取得中にエラーが発生しました: {e}", exc_info=True)
+                logger.opt(exception=True).error(f"エラーレコードの取得中にエラーが発生しました: {e}")
                 raise
 
     def get_error_record(self, error_id: int) -> ErrorRecord | None:
@@ -235,8 +235,8 @@ class ErrorRecordRepository(BaseRepository):
                 session.expunge(record)
                 return record
             except SQLAlchemyError as e:
-                logger.error(
-                    f"エラーレコードの取得中にエラーが発生しました (ID={error_id}): {e}", exc_info=True
+                logger.opt(exception=True).error(
+                    f"エラーレコードの取得中にエラーが発生しました (ID={error_id}): {e}"
                 )
                 raise
 
@@ -260,7 +260,7 @@ class ErrorRecordRepository(BaseRepository):
                     logger.warning(f"エラーレコードが見つかりません: ID={error_id}")
             except SQLAlchemyError as e:
                 session.rollback()
-                logger.error(f"エラーレコードの解決マーク中にエラーが発生しました: {e}", exc_info=True)
+                logger.opt(exception=True).error(f"エラーレコードの解決マーク中にエラーが発生しました: {e}")
                 raise
 
     def mark_errors_resolved_batch(self, error_ids: list[int]) -> tuple[bool, int]:
@@ -302,7 +302,7 @@ class ErrorRecordRepository(BaseRepository):
 
             except SQLAlchemyError as e:
                 session.rollback()
-                logger.error(f"エラーレコード一括解決失敗: {e}", exc_info=True)
+                logger.opt(exception=True).error(f"エラーレコード一括解決失敗: {e}")
                 raise
 
     def count_error_records(
@@ -344,7 +344,7 @@ class ErrorRecordRepository(BaseRepository):
                 logger.debug(f"エラーレコード件数を集計: {count}件")
                 return count
             except SQLAlchemyError as e:
-                logger.error(f"エラーレコード件数集計中にエラーが発生しました: {e}", exc_info=True)
+                logger.opt(exception=True).error(f"エラーレコード件数集計中にエラーが発生しました: {e}")
                 raise
 
     def get_error_ids_by_filter(
@@ -381,5 +381,5 @@ class ErrorRecordRepository(BaseRepository):
                 logger.debug(f"一括 resolve 対象 ID: {len(ids)}件")
                 return ids
             except SQLAlchemyError as e:
-                logger.error(f"エラーレコード ID 取得中にエラーが発生しました: {e}", exc_info=True)
+                logger.opt(exception=True).error(f"エラーレコード ID 取得中にエラーが発生しました: {e}")
                 raise

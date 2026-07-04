@@ -118,7 +118,7 @@ class ProjectManagementService:
         except ProjectAlreadyExistsError:
             raise
         except Exception as e:
-            logger.error(f"プロジェクト作成失敗: {name}", exc_info=True)
+            logger.opt(exception=True).error(f"プロジェクト作成失敗: {name}")
             raise ProjectOperationError(name, "作成", str(e)) from e
 
     def list_projects(self) -> list[ProjectInfo]:
@@ -146,7 +146,7 @@ class ProjectManagementService:
             return projects
 
         except Exception as e:
-            logger.error("プロジェクト一覧取得失敗", exc_info=True)
+            logger.opt(exception=True).error("プロジェクト一覧取得失敗")
             raise ProjectOperationError("", "一覧取得", str(e)) from e
 
     def get_project(self, name: str) -> ProjectInfo:
@@ -175,7 +175,7 @@ class ProjectManagementService:
         except ProjectNotFoundError:
             raise
         except Exception as e:
-            logger.error(f"プロジェクト取得失敗: {name}", exc_info=True)
+            logger.opt(exception=True).error(f"プロジェクト取得失敗: {name}")
             raise ProjectOperationError(name, "取得", str(e)) from e
 
     def delete_project(self, name: str) -> None:
@@ -203,7 +203,7 @@ class ProjectManagementService:
         except ProjectNotFoundError:
             raise
         except Exception as e:
-            logger.error(f"プロジェクト削除失敗: {name}", exc_info=True)
+            logger.opt(exception=True).error(f"プロジェクト削除失敗: {name}")
             raise ProjectOperationError(name, "削除", str(e)) from e
 
     def update_project(self, name: str, description: str) -> ProjectInfo:
@@ -242,7 +242,7 @@ class ProjectManagementService:
         except ProjectNotFoundError:
             raise
         except Exception as e:
-            logger.error(f"プロジェクト更新失敗: {name}", exc_info=True)
+            logger.opt(exception=True).error(f"プロジェクト更新失敗: {name}")
             raise ProjectOperationError(name, "更新", str(e)) from e
 
     # ==================== プライベートメソッド ====================
@@ -294,7 +294,7 @@ class ProjectManagementService:
             return None
 
         except Exception:
-            logger.warning(f"プロジェクト検索エラー: {name}", exc_info=True)
+            logger.opt(exception=True).warning(f"プロジェクト検索エラー: {name}")
             return None
 
     def _read_project_info(self, project_dir: Path) -> ProjectInfo | None:
@@ -342,8 +342,5 @@ class ProjectManagementService:
             )
 
         except Exception:
-            logger.error(
-                f"プロジェクト情報読み込み失敗: {project_dir}",
-                exc_info=True,
-            )
+            logger.opt(exception=True).error(f"プロジェクト情報読み込み失敗: {project_dir}")
             return None

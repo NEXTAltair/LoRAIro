@@ -79,7 +79,7 @@ class ErrorNotificationWidget(QLabel):
             logger.debug(f"Error notification updated: {count} unresolved errors")
 
         except Exception as e:
-            logger.error(f"Failed to update error count: {e}", exc_info=True)
+            logger.opt(exception=True).error(f"Failed to update error count: {e}")
             self.setText("エラー: 取得失敗")
             self.setStyleSheet(f"QLabel {{ color: {theme.INK_FAINT}; }}")
 

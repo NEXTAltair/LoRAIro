@@ -293,7 +293,7 @@ class ModelSyncService:
             return result
 
         except Exception as e:
-            logger.error(f"モデル同期処理中にエラーが発生しました: {e}", exc_info=True)
+            logger.opt(exception=True).error(f"モデル同期処理中にエラーが発生しました: {e}")
             return ModelSyncResult(
                 total_library_models=0, new_models_registered=0, existing_models_updated=0, errors=[str(e)]
             )

@@ -590,7 +590,7 @@ class FilterSearchPanel(QScrollArea):
                 logger.error(f"無効な検索結果: {result}")
                 self._pipeline.transition_to(PipelineState.ERROR)
         except Exception as e:
-            logger.error(f"検索完了処理エラー: {e}", exc_info=True)
+            logger.opt(exception=True).error(f"検索完了処理エラー: {e}")
             self._pipeline.transition_to(PipelineState.ERROR)
         finally:
             self._current_search_worker_id = None
@@ -743,7 +743,7 @@ class FilterSearchPanel(QScrollArea):
             logger.error(f"日付範囲変換エラー (タイムスタンプ無効): {e}")
             return None, None
         except Exception as e:
-            logger.error(f"予期しない日付範囲変換エラー: {e}", exc_info=True)
+            logger.opt(exception=True).error(f"予期しない日付範囲変換エラー: {e}")
             return None, None
 
     def _get_selected_search_types(self) -> list[str]:
@@ -990,13 +990,13 @@ class FilterSearchPanel(QScrollArea):
                 self._pipeline.transition_to(PipelineState.ERROR)
 
         except AttributeError as e:
-            logger.error(f"UI AttributeError: {e}", exc_info=True)
+            logger.opt(exception=True).error(f"UI AttributeError: {e}")
             self._pipeline.transition_to(PipelineState.ERROR)
         except ValueError as e:
             logger.error(f"検索入力値エラー: {e}")
             self._pipeline.transition_to(PipelineState.ERROR)
         except Exception as e:
-            logger.error(f"検索実行エラー: {e}", exc_info=True)
+            logger.opt(exception=True).error(f"検索実行エラー: {e}")
             self._pipeline.transition_to(PipelineState.ERROR)
 
     def _execute_synchronous_search(self) -> None:
@@ -1021,7 +1021,7 @@ class FilterSearchPanel(QScrollArea):
             self.search_requested.emit(result_data)
             logger.info(f"同期検索完了: {count}件")
         except Exception as e:
-            logger.error(f"同期検索実行エラー: {e}", exc_info=True)
+            logger.opt(exception=True).error(f"同期検索実行エラー: {e}")
 
     def _on_clear_requested(self) -> None:
         """クリア要求処理。"""

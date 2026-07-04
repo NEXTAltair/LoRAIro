@@ -151,7 +151,7 @@ class FavoriteFilterPanel(QGroupBox):
             self._render_chips(filter_names, conditions_map)
             logger.debug("Refreshed favorite filters list: {} items", len(filter_names))
         except Exception as e:
-            logger.error("Failed to refresh favorite filters list: {}", e, exc_info=True)
+            logger.opt(exception=True).error("Failed to refresh favorite filters list: {}", e)
 
     def _render_chips(self, filter_names: list[str], conditions_map: dict[str, Any]) -> None:
         """保存クエリを DS chip で再描画する (#815)。
@@ -250,7 +250,7 @@ class FavoriteFilterPanel(QGroupBox):
             else:
                 QMessageBox.warning(self, "保存失敗", "フィルターの保存に失敗しました。")
         except Exception as e:
-            logger.error("Failed to save filter: {}", e, exc_info=True)
+            logger.opt(exception=True).error("Failed to save filter: {}", e)
             QMessageBox.critical(self, "エラー", f"フィルターの保存中にエラーが発生しました:\n{e}")
 
     def _on_filter_double_clicked(self, item: QListWidgetItem) -> None:
@@ -275,7 +275,7 @@ class FavoriteFilterPanel(QGroupBox):
                     f"フィルター '{filter_name}' の読み込みに失敗しました。",
                 )
         except Exception as e:
-            logger.error("Failed to load filter '{}': {}", filter_name, e, exc_info=True)
+            logger.opt(exception=True).error("Failed to load filter '{}': {}", filter_name, e)
             QMessageBox.critical(self, "エラー", f"フィルターの読み込み中にエラーが発生しました:\n{e}")
 
     def _on_delete_clicked(self) -> None:
@@ -315,5 +315,5 @@ class FavoriteFilterPanel(QGroupBox):
             else:
                 QMessageBox.warning(self, "削除失敗", "フィルターの削除に失敗しました。")
         except Exception as e:
-            logger.error("Failed to delete filter '{}': {}", filter_name, e, exc_info=True)
+            logger.opt(exception=True).error("Failed to delete filter '{}': {}", filter_name, e)
             QMessageBox.critical(self, "エラー", f"フィルターの削除中にエラーが発生しました:\n{e}")
