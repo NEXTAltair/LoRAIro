@@ -12,6 +12,7 @@ import pytest
 
 from lorairo.services.dispatch_projection_service import (
     DispatchProjectionError,
+    batch_eligible_litellm_ids,
     project_async_batch_dispatch,
 )
 
@@ -150,3 +151,49 @@ class TestProjectAsyncBatchDispatch:
             prompt_profile="default",
         )
         assert proj.job_count == 1
+
+
+@pytest.mark.unit
+class TestBatchEligibleLitellmIds:
+    """#1136: LEDGER preview と実振り分けが共有する eligibility 判定。"""
+
+    def test_returns_task_type_supporting_models(self) -> None:
+        m1 = _StubModel(id=1, provider="openai", litellm_model_id="openai/gpt-4o")
+        eligible = batch_eligible_litellm_ids(
+            selected_litellm_model_ids=["openai/gpt-4o"],
+            batch_capable_models=["openai/gpt-4o"],
+            model_resolver=_resolver([m1]),
+            task_type="annotation",
+        )
+        assert eligible == ["openai/gpt-4o"]
+
+    def test_excludes_non_discovery_and_task_mismatch(self) -> None:
+        gpt = _StubModel(id=1, provider="openai", litellm_model_id="openai/gpt-4o")
+        mod = _StubModel(id=5, provider="openai", litellm_model_id="openai/omni-moderation-latest")
+        # rating_preflight では通常モデルは非対応 → moderation のみ eligible
+        eligible = batch_eligible_litellm_ids(
+            selected_litellm_model_ids=["openai/gpt-4o", "openai/omni-moderation-latest"],
+            batch_capable_models=["openai/gpt-4o", "openai/omni-moderation-latest"],
+            model_resolver=_resolver([gpt, mod]),
+            task_type="rating_preflight",
+        )
+        assert eligible == ["openai/omni-moderation-latest"]
+
+    def test_matches_projection_entries(self) -> None:
+        # project_async_batch_dispatch の entries と同じ集合を返す (drift 防止)。
+        gpt = _StubModel(id=1, provider="openai", litellm_model_id="openai/gpt-4o")
+        local = _StubModel(id=9, provider="local", litellm_model_id="local/wd-tagger")
+        proj = project_async_batch_dispatch(
+            selected_litellm_model_ids=["openai/gpt-4o", "local/wd-tagger"],
+            batch_capable_models=["openai/gpt-4o"],
+            model_resolver=_resolver([gpt, local]),
+            image_ids=[10],
+            prompt_profile="default",
+        )
+        eligible = batch_eligible_litellm_ids(
+            selected_litellm_model_ids=["openai/gpt-4o", "local/wd-tagger"],
+            batch_capable_models=["openai/gpt-4o"],
+            model_resolver=_resolver([gpt, local]),
+            task_type="annotation",
+        )
+        assert eligible == [e.litellm_model_id for e in proj.entries]

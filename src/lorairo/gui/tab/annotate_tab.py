@@ -51,10 +51,11 @@ from PySide6.QtWidgets import (
 
 from ...database.db_core import resolve_stored_path
 from ...database.db_manager import ImageDatabaseManager
+from ...services.dispatch_projection_service import batch_eligible_litellm_ids
 from ...services.model_route_service import build_available_providers
 from ...services.model_selection_service import ModelSelectionService
 from ...services.pipeline_composition import PipelineCompositionService, PipelineStage, StageModelInfo
-from ...services.provider_batch_capability import litellm_id_from_batch_model
+from ...services.provider_batch_capability import is_omni_moderation_model
 from ...services.provider_batch_service import ProviderBatchError
 from ...services.service_container import ServiceContainer
 from ...utils.log import logger
@@ -726,7 +727,9 @@ class AnnotateTabWidget(QWidget, Ui_AnnotateTab):
         # #884 Phase 4b: dispatch_mode=batch_api のとき batch 対応モデルを別レーンへ。
         # batch-capable 判定は lib が SSoT (ADR 0038 / ADR 0005) → 都度問い合わせて消費する。
         dispatch_mode = self._pipeline_run_options.dispatch_mode
-        batch_capable_ids = self._resolve_batch_capable_ids() if dispatch_mode == "batch_api" else None
+        batch_capable_ids = (
+            self._resolve_batch_capable_ids(selected_ids) if dispatch_mode == "batch_api" else None
+        )
         self._inference_ledger_widget.display(
             self._pipeline_composition_service.ledger(
                 self._pipeline_staged_count,
@@ -735,27 +738,46 @@ class AnnotateTabWidget(QWidget, Ui_AnnotateTab):
             )
         )
 
-    def _resolve_batch_capable_ids(self) -> set[str]:
-        """lib の ``list_batch_capable_models()`` から batch 対応 litellm_model_id 集合を得る。
+    def _resolve_batch_capable_ids(self, selected_ids: list[str]) -> set[str]:
+        """選択のうち Batch API へ実際に流れる litellm_model_id 集合を返す (#1136 Codex P2)。
 
-        batch-capable の SSoT は lib (ADR 0038 / ADR 0005)。LEDGER の preview 用に都度問い合わせる。
-        discovery 失敗時は warning を出して空集合を返し、全エントリを sync レーン扱いにする
-        (preview の degrade、実送信時は dispatch 射影が厳密判定する)。
+        LEDGER レーンプレビューを controller の実振り分け (dispatch 射影) と一致させる。
+        moderation を含めば ``rating_preflight``、無ければ ``annotation`` を選び、射影と同じ
+        eligibility 判定 (:func:`batch_eligible_litellm_ids`) を適用する。従来は discovery 全体を
+        batch レーンに出していたため、moderation+通常モデル混在時に通常モデル (実際は sync 行き)
+        が batch レーンに表示される不整合があった。discovery 失敗時は空集合へ degrade する。
+
+        Args:
+            selected_ids: 現在選択中の litellm_model_id。
 
         Returns:
-            batch 対応 litellm_model_id 集合。
+            batch レーンへ表示すべき litellm_model_id 集合。
         """
         workflow_service = getattr(self._service_container, "provider_batch_workflow_service", None)
-        if workflow_service is None:
+        if workflow_service is None or self._db_manager is None:
             return set()
         try:
             raw_models = workflow_service.list_batch_capable_models()
         except (ProviderBatchError, RuntimeError, OSError) as e:
             logger.warning(f"Batch API 対応モデルの取得に失敗 (LEDGER は sync 表示に degrade): {e}")
             return set()
-        return {
-            resolved for raw in raw_models if (resolved := litellm_id_from_batch_model(raw)) is not None
-        }
+
+        resolver = self._db_manager.model_repo.get_model_by_litellm_id
+        # task_type 判定は controller の _resolve_dispatch_task_type と一致させる。
+        task_type = "annotation"
+        for litellm_id in selected_ids:
+            model = resolver(litellm_id)
+            if model is not None and is_omni_moderation_model(model):
+                task_type = "rating_preflight"
+                break
+        return set(
+            batch_eligible_litellm_ids(
+                selected_litellm_model_ids=selected_ids,
+                batch_capable_models=raw_models,
+                model_resolver=resolver,
+                task_type=task_type,
+            )
+        )
 
     def _refresh_preflight_summary(self) -> None:
         """送信前プリフライト card をステージング集合の既存 rating で再描画する (Issue #837)。

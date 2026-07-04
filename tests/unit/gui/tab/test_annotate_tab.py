@@ -565,6 +565,8 @@ class TestPipelinePanelRefresh:
 
     def test_batch_api_dispatch_splits_batch_capable_to_batch_lane(self, tab):
         """#884 Phase 4b: dispatch_mode=batch_api で lib の batch 対応集合を消費しレーン分割。"""
+        from types import SimpleNamespace
+
         from lorairo.gui.widgets.run_settings_dialog import RunOptions
 
         tab._pipeline_composition_service = PipelineCompositionService()
@@ -576,12 +578,53 @@ class TestPipelinePanelRefresh:
         tab._service_container.provider_batch_workflow_service.list_batch_capable_models.return_value = [
             "openai/gpt-4o"
         ]
+        # #1136: LEDGER レーン判定が実振り分けと同じ eligibility (DB 解決 + task_type) を使うため
+        # gpt-4o を解決可能な直 openai モデルとして返す。
+        tab._db_manager.model_repo.get_model_by_litellm_id.return_value = SimpleNamespace(
+            id=1, provider="openai", litellm_model_id="openai/gpt-4o"
+        )
 
         tab._refresh_pipeline_panel(["openai/gpt-4o"])
 
         ledger = tab._inference_ledger_widget.display.call_args[0][0]
         assert len(ledger.batch_entries) == 1
         assert ledger.batch_entries[0].model.litellm_model_id == "openai/gpt-4o"
+
+    def test_batch_capable_ids_task_type_aware_excludes_normal_with_moderation(self, tab):
+        """#1136 Codex P2 #3: moderation 混在時、通常モデルは batch レーンから外れ実振り分けと一致。"""
+        from types import SimpleNamespace
+
+        tab._service_container.provider_batch_workflow_service.list_batch_capable_models.return_value = [
+            "openai/omni-moderation-latest",
+            "openai/gpt-4o",
+        ]
+        models = {
+            "openai/omni-moderation-latest": SimpleNamespace(
+                id=5, provider="openai", litellm_model_id="openai/omni-moderation-latest"
+            ),
+            "openai/gpt-4o": SimpleNamespace(id=1, provider="openai", litellm_model_id="openai/gpt-4o"),
+        }
+        tab._db_manager.model_repo.get_model_by_litellm_id.side_effect = models.get
+
+        capable = tab._resolve_batch_capable_ids(["openai/omni-moderation-latest", "openai/gpt-4o"])
+
+        # moderation → rating_preflight で batch、通常 gpt-4o は rating_preflight 非対応 → sync
+        assert capable == {"openai/omni-moderation-latest"}
+
+    def test_batch_capable_ids_annotation_includes_normal(self, tab):
+        """#1136: moderation 無しなら通常モデルは annotation で batch レーンに乗る。"""
+        from types import SimpleNamespace
+
+        tab._service_container.provider_batch_workflow_service.list_batch_capable_models.return_value = [
+            "openai/gpt-4o"
+        ]
+        tab._db_manager.model_repo.get_model_by_litellm_id.return_value = SimpleNamespace(
+            id=1, provider="openai", litellm_model_id="openai/gpt-4o"
+        )
+
+        capable = tab._resolve_batch_capable_ids(["openai/gpt-4o"])
+
+        assert capable == {"openai/gpt-4o"}
 
     def test_sync_dispatch_does_not_query_batch_models(self, tab):
         from lorairo.gui.widgets.run_settings_dialog import RunOptions

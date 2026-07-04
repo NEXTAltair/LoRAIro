@@ -88,6 +88,72 @@ class DispatchProjection:
         return len(self.entries)
 
 
+def _partition_batch_eligibility(
+    selected: Sequence[str],
+    batch_capable_models: Sequence[Any],
+    model_resolver: Callable[[str], Any | None],
+    task_type: str,
+) -> tuple[list[tuple[str, Any, str]], list[str]]:
+    """選択モデルを batch 適格 (id, model, provider) と非適格 id へ分ける (SSoT ロジック)。
+
+    ``project_async_batch_dispatch`` と LEDGER preview (:func:`batch_eligible_litellm_ids`)
+    が同じ eligibility 判定を共有するための内部ヘルパー (#1136: 実振り分けと preview の
+    不整合を防ぐ)。判定: discovery に含まれ、DB 解決でき、direct provider を持ち、
+    指定 task_type を support するモデルのみ適格。
+
+    Returns:
+        (resolved_models=[(litellm_id, model, provider)], ineligible=[litellm_id])。
+    """
+    discovery_ids = {
+        resolved
+        for raw in batch_capable_models
+        if (resolved := litellm_id_from_batch_model(raw)) is not None
+    }
+    resolved_models: list[tuple[str, Any, str]] = []
+    ineligible: list[str] = []
+    for litellm_id in dict.fromkeys(selected):
+        if litellm_id not in discovery_ids:
+            ineligible.append(litellm_id)
+            continue
+        model = model_resolver(litellm_id)
+        if model is None or getattr(model, "id", None) is None:
+            ineligible.append(litellm_id)
+            continue
+        provider = direct_provider_for_model(model)
+        if provider is None or not model_supports_task_type(model, provider, task_type):
+            ineligible.append(litellm_id)
+            continue
+        resolved_models.append((litellm_id, model, provider))
+    return resolved_models, ineligible
+
+
+def batch_eligible_litellm_ids(
+    *,
+    selected_litellm_model_ids: Sequence[str],
+    batch_capable_models: Sequence[Any],
+    model_resolver: Callable[[str], Any | None],
+    task_type: str,
+) -> list[str]:
+    """選択のうち task_type で batch 対応する litellm_model_id を返す (順序保持、#1136)。
+
+    ``project_async_batch_dispatch`` と同じ eligibility 判定を共有し、Annotate の LEDGER
+    レーンプレビュー (batch/sync 表示) を実際の振り分けと一致させる (Codex P2)。
+
+    Args:
+        selected_litellm_model_ids: 選択モデル集合。
+        batch_capable_models: ``list_batch_capable_models()`` の discovery 結果。
+        model_resolver: litellm_model_id → DB Model 解決 callable。
+        task_type: "annotation" / "rating_preflight"。
+
+    Returns:
+        batch 対応する litellm_model_id のリスト (順序保持)。
+    """
+    resolved_models, _ = _partition_batch_eligibility(
+        list(selected_litellm_model_ids), batch_capable_models, model_resolver, task_type
+    )
+    return [litellm_id for litellm_id, _model, _provider in resolved_models]
+
+
 def project_async_batch_dispatch(
     *,
     selected_litellm_model_ids: Sequence[str],
@@ -130,27 +196,9 @@ def project_async_batch_dispatch(
     if not ids:
         raise DispatchProjectionError("対象画像がありません。")
 
-    discovery_ids = {
-        resolved
-        for raw in batch_capable_models
-        if (resolved := litellm_id_from_batch_model(raw)) is not None
-    }
-
-    resolved_models: list[tuple[str, Any, str]] = []
-    ineligible: list[str] = []
-    for litellm_id in selected:
-        if litellm_id not in discovery_ids:
-            ineligible.append(litellm_id)
-            continue
-        model = model_resolver(litellm_id)
-        if model is None or getattr(model, "id", None) is None:
-            ineligible.append(litellm_id)
-            continue
-        provider = direct_provider_for_model(model)
-        if provider is None or not model_supports_task_type(model, provider, task_type):
-            ineligible.append(litellm_id)
-            continue
-        resolved_models.append((litellm_id, model, provider))
+    resolved_models, ineligible = _partition_batch_eligibility(
+        selected, batch_capable_models, model_resolver, task_type
+    )
 
     # #1133: 非対応モデルは拒否せず ineligible として返す。呼び出し側が同期へ振り分ける。
     paths = dict(image_paths) if image_paths is not None else None

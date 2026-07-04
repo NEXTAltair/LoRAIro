@@ -463,6 +463,24 @@ class _StubModel:
         self.model_types: tuple[object, ...] = ()
 
 
+def _stub_projection(litellm_id: str, model_id: int, task_type: str, ineligible: tuple = ()):
+    """project_async_batch_dispatch のパッチ差し替え用に実 DispatchProjection を作る。"""
+    from lorairo.services.dispatch_projection_service import DispatchEntry, DispatchProjection
+
+    entry = DispatchEntry(
+        provider="openai",
+        endpoint="/v1/x",
+        litellm_model_id=litellm_id,
+        model_id=model_id,
+        prompt_profile="default",
+        description=None,
+        task_type=task_type,
+        image_ids=(10,),
+        image_paths=None,
+    )
+    return DispatchProjection(entries=(entry,), ineligible_litellm_model_ids=ineligible)
+
+
 class TestConfigureAsyncDispatch:
     """async batch dispatch の DI 足場テスト (#896 PR4b, Task 4.2)。"""
 
@@ -734,6 +752,9 @@ class TestDispatchAsyncBatch:
                 "lorairo.gui.controllers.annotation_workflow_controller.project_async_batch_dispatch"
             ) as mock_project,
         ):
+            mock_project.return_value = _stub_projection(
+                "openai/omni-moderation-latest", 5, "rating_preflight"
+            )
             AnnotationWorkflowController.dispatch_async_batch(ctrl)
             mock_qmb.warning.assert_not_called()
 
@@ -760,6 +781,7 @@ class TestDispatchAsyncBatch:
                 "lorairo.gui.controllers.annotation_workflow_controller.project_async_batch_dispatch"
             ) as mock_project,
         ):
+            mock_project.return_value = _stub_projection("openai/gpt-4o", 1, "annotation")
             AnnotationWorkflowController.dispatch_async_batch(ctrl)
 
         # 通常モデルは gate 対象 (rating 取得が走る)
@@ -840,8 +862,80 @@ class TestDispatchAsyncBatch:
         AnnotationWorkflowController.dispatch_async_batch(ctrl)
 
         ctrl._start_async_dispatch_worker.assert_not_called()
+        ctrl.start_annotation_workflow.assert_called_once()
         message = ctrl._status_callback.call_args.args[0]
-        assert "同期" in message and "Batch API 対応モデルなし" in message
+        assert "1 モデルを同期で実行します" in message
+
+    def test_no_batch_service_runs_sync_only(self) -> None:
+        # #1136 Codex P2 #2: Batch サービス不在でも同期対象は同期で起動する。
+        from lorairo.gui.controllers.annotation_workflow_controller import AnnotationWorkflowController
+
+        local = _StubModel(id=9, provider="local", litellm_model_id="local/wd-tagger")
+        ctrl = self._build_controller(
+            ratings={10: "PG"},
+            selected=["local/wd-tagger"],
+            discovery=["openai/gpt-4o"],
+            model=local,
+        )
+        ctrl._service_container.provider_batch_workflow_service = None  # Batch サービス不在
+        ctrl.start_annotation_workflow.return_value = True
+
+        started = AnnotationWorkflowController.dispatch_async_batch(ctrl)
+
+        ctrl._start_async_dispatch_worker.assert_not_called()
+        ctrl.start_annotation_workflow.assert_called_once()
+        assert ctrl.start_annotation_workflow.call_args.kwargs["selected_litellm_model_ids"] == [
+            "local/wd-tagger"
+        ]
+        assert started is True
+
+    def test_batch_path_failure_still_runs_sync(self) -> None:
+        # #1136 Codex P2 #1: batch の processed パス解決が失敗しても同期対象は独立起動する。
+        from lorairo.gui.controllers.annotation_workflow_controller import AnnotationWorkflowController
+
+        gpt = _StubModel(id=1, provider="openai", litellm_model_id="openai/gpt-4o")
+        local = _StubModel(id=9, provider="local", litellm_model_id="local/wd-tagger")
+        ctrl = self._build_controller(
+            ratings={10: "PG"},
+            selected=["openai/gpt-4o", "local/wd-tagger"],
+            discovery=["openai/gpt-4o"],
+            model=None,
+        )
+        resolved = {"openai/gpt-4o": gpt, "local/wd-tagger": local}
+        ctrl._db_manager.model_repo.get_model_by_litellm_id.side_effect = resolved.get
+        ctrl._resolve_processed_paths_for_batch.return_value = None  # batch のパス解決失敗
+        ctrl.start_annotation_workflow.return_value = True
+
+        started = AnnotationWorkflowController.dispatch_async_batch(ctrl)
+
+        # batch (openai) はパス失敗で起動せず、同期 (local) は独立して起動する
+        ctrl._start_async_dispatch_worker.assert_not_called()
+        ctrl.start_annotation_workflow.assert_called_once()
+        assert ctrl.start_annotation_workflow.call_args.kwargs["selected_litellm_model_ids"] == [
+            "local/wd-tagger"
+        ]
+        assert started is True
+
+    def test_moderation_not_in_discovery_is_unsupported_not_synced(self) -> None:
+        # #1136 Codex P2 #4: batch に乗れない moderation は同期へ流さず実行対象外で明示。
+        from lorairo.gui.controllers.annotation_workflow_controller import AnnotationWorkflowController
+
+        mod = _StubModel(id=5, provider="openai", litellm_model_id="openai/omni-moderation-latest")
+        ctrl = self._build_controller(
+            ratings={10: "PG"},
+            selected=["openai/omni-moderation-latest"],
+            discovery=[],  # moderation が discovery に無い = batch に乗れない
+            model=mod,
+        )
+
+        started = AnnotationWorkflowController.dispatch_async_batch(ctrl)
+
+        # 同期にも batch にも流さない (moderation は同期実行不可)
+        ctrl._start_async_dispatch_worker.assert_not_called()
+        ctrl.start_annotation_workflow.assert_not_called()
+        message = ctrl._status_callback.call_args.args[0]
+        assert "Batch API のみ対応" in message
+        assert started is False
 
 
 class TestNotifyDispatchSplit:
@@ -874,7 +968,24 @@ class TestNotifyDispatchSplit:
         ctrl = self._ctrl()
         _notify_dispatch_split(ctrl, 0, 3)
         msg = ctrl._status_callback.call_args.args[0]
-        assert "同期" in msg and "Batch API 対応モデルなし" in msg
+        assert "3 モデルを同期で実行します" in msg
+
+    def test_unsupported_moderation_note(self) -> None:
+        # #1136: moderation を同期へ流さず実行対象外として明示する
+        from lorairo.gui.controllers.annotation_workflow_controller import _notify_dispatch_split
+
+        ctrl = self._ctrl()
+        _notify_dispatch_split(ctrl, 1, 0, unsupported_count=2)
+        msg = ctrl._status_callback.call_args.args[0]
+        assert "moderation 2 件" in msg and "Batch API のみ対応" in msg
+
+    def test_all_unsupported_message(self) -> None:
+        from lorairo.gui.controllers.annotation_workflow_controller import _notify_dispatch_split
+
+        ctrl = self._ctrl()
+        _notify_dispatch_split(ctrl, 0, 0, unsupported_count=1)
+        msg = ctrl._status_callback.call_args.args[0]
+        assert "実行できるモデルがありません" in msg
 
 
 class TestFinalizeSubmittedJobs:
