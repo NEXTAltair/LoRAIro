@@ -25,6 +25,7 @@ from lorairo.services.dispatch_projection_service import (
 )
 from lorairo.services.model_route_service import validate_api_keys_for_models
 from lorairo.services.provider_batch_capability import (
+    direct_provider_for_model,
     is_omni_moderation_model,
 )
 from lorairo.services.provider_batch_service import ProviderBatchError
@@ -178,6 +179,109 @@ def _partition_moderation_from_sync(
     return sync_ids, unsupported_ids
 
 
+def _partition_batch_unavailable(
+    selected_ids: Sequence[str], db_manager: "ImageDatabaseManager"
+) -> tuple[list[str], list[str], list[str]]:
+    """Batch が使えないとき選択を「同期 / batch のみ(実行不可) / unsupported」へ 3 分割する (#1136 2巡目)。
+
+    Batch サービス不在・discovery 失敗で batch 射影ができないケース。API モデル
+    (direct openai/anthropic) はユーザーが Batch API を選んだ対象なので黙って同期実行せず
+    「実行されない」ものとして分ける。moderation は Batch 専用で unsupported。
+    local などの同期専用モデルだけを同期起動対象にする。
+
+    Args:
+        selected_ids: 選択モデル集合。
+        db_manager: litellm_model_id → DB Model 解決に使う。
+
+    Returns:
+        (sync_ids, blocked_api_ids, unsupported_moderation_ids)。
+    """
+    sync_ids: list[str] = []
+    blocked_api_ids: list[str] = []
+    unsupported_ids: list[str] = []
+    for litellm_id in selected_ids:
+        model = db_manager.model_repo.get_model_by_litellm_id(litellm_id)
+        if model is not None and is_omni_moderation_model(model):
+            unsupported_ids.append(litellm_id)
+        elif model is not None and direct_provider_for_model(model) is not None:
+            # direct API モデル = batch 候補。batch 不可時は同期へ流さず実行しない。
+            blocked_api_ids.append(litellm_id)
+        else:
+            sync_ids.append(litellm_id)
+    return sync_ids, blocked_api_ids, unsupported_ids
+
+
+def _start_sync_workflow(
+    controller: "AnnotationWorkflowController",
+    sync_ids: list[str],
+    run_options: "RunOptions",
+) -> bool:
+    """同期対象モデルを ステージング画像で同期ワークフロー起動する (空パスガード付き、#1136 2巡目 P2)。
+
+    staged 画像はあってもパスが 1 件も解決できない (ファイル削除等) 場合、空リストを渡すと
+    ``start_annotation_workflow`` が「override なし」とみなし SelectionStateService の別集合へ
+    フォールバックしてしまう。空パスは明示エラーにして同期を起動しない。
+
+    Returns:
+        同期ワークフローを開始できたら True。
+    """
+    if not sync_ids or controller._annotate_tab is None:
+        return False
+    staged_paths = controller._annotate_tab.staged_image_paths()
+    if not staged_paths:
+        QMessageBox.information(
+            controller._parent_widget,
+            "ステージング画像なし",
+            "ステージング画像のパスを解決できませんでした。\n"
+            "画像ファイルが存在するか確認してから再実行してください。",
+        )
+        return False
+    logger.info(f"同期専用モデルを起動: {len(sync_ids)} モデル")
+    return controller.start_annotation_workflow(
+        selected_litellm_model_ids=sync_ids,
+        image_paths=staged_paths,
+        run_options=run_options,
+    )
+
+
+def _notify_batch_unavailable(
+    controller: "AnnotationWorkflowController",
+    sync_count: int,
+    blocked_api_count: int,
+    unsupported_count: int,
+) -> None:
+    """Batch 不可時の振り分け結果 (API モデルは実行されない旨) を明示する (#1136 2巡目 P2)。"""
+    parts: list[str] = []
+    if blocked_api_count:
+        parts.append(f"Batch API が利用できないため API モデル {blocked_api_count} 件は実行されません")
+    if sync_count:
+        parts.append(f"同期専用 {sync_count} 件を同期実行します")
+    message = "。".join(parts) if parts else "実行できるモデルがありません"
+    if unsupported_count:
+        message += f" (moderation {unsupported_count} 件は Batch API のみ対応のため実行対象外)"
+    logger.info(message)
+    controller._status_callback(message, 5000)
+
+
+def _dispatch_batch_unavailable(
+    controller: "AnnotationWorkflowController",
+    selected_ids: list[str],
+    run_options: "RunOptions",
+    db_manager: "ImageDatabaseManager",
+) -> bool:
+    """Batch サービス不在 / discovery 失敗時の同期フォールバック (#1136 2巡目 P2 #1/#3)。
+
+    batch 射影が一切できないため、API モデルは実行せず (Batch API 前提)、同期専用モデル
+    (local 等) だけを同期起動する。moderation は unsupported。振り分けはステータスへ明示。
+
+    Returns:
+        同期を開始できたら True。
+    """
+    sync_ids, blocked_api_ids, unsupported_ids = _partition_batch_unavailable(selected_ids, db_manager)
+    _notify_batch_unavailable(controller, len(sync_ids), len(blocked_api_ids), len(unsupported_ids))
+    return _start_sync_workflow(controller, sync_ids, run_options)
+
+
 def _resolve_batch_entries(
     controller: "AnnotationWorkflowController",
     projection: "DispatchProjection",
@@ -276,14 +380,8 @@ def _run_dispatch_split(
         controller._start_async_dispatch_worker(workflow_service, projection)
         started_batch = True
 
-    started_sync = False
-    if sync_ids and controller._annotate_tab is not None:
-        logger.info(f"同期専用モデルを並行起動: {len(sync_ids)} モデル")
-        started_sync = controller.start_annotation_workflow(
-            selected_litellm_model_ids=sync_ids,
-            image_paths=controller._annotate_tab.staged_image_paths(),
-            run_options=run_options,
-        )
+    # 同期は空パスガード付き helper へ委譲 (#1136 2巡目 P2)
+    started_sync = _start_sync_workflow(controller, sync_ids, run_options)
 
     return started_batch or started_sync
 
@@ -838,13 +936,10 @@ class AnnotationWorkflowController(QObject):
         workflow_service = getattr(container, "provider_batch_workflow_service", None)
         model_source = getattr(container, "annotator_library", None)
 
-        # #1136 Codex P2: Batch サービス不在なら batch 射影不能。全モデルを同期 / 実行対象外へ
-        # 振り分けて同期だけ起動する (sync-only fallback を batch 前処理から独立させる)。
+        # #1136 2巡目 P2: Batch サービス不在なら batch 射影不能。API モデルは同期へ流さず、
+        # 同期専用モデルだけを同期起動する (batch 前処理から独立)。
         if workflow_service is None or model_source is None:
-            sync_ids, unsupported_ids = _partition_moderation_from_sync(
-                selected_litellm_model_ids, db_manager
-            )
-            return _run_dispatch_split(self, None, (), sync_ids, unsupported_ids, image_ids, run_options)
+            return _dispatch_batch_unavailable(self, selected_litellm_model_ids, run_options, db_manager)
 
         # 射影で eligible / ineligible を確定 (processed パスは実 batch 起動時のみ解決)。
         projection = _build_batch_projection(
@@ -859,7 +954,8 @@ class AnnotationWorkflowController(QObject):
             task_type=task_type,
         )
         if projection is None:
-            return False  # discovery / 射影の失敗 (warning は helper 内で表示済み)
+            # #1136 2巡目 P2 #1: discovery 失敗でも同期は discovery 不要 → 同期専用へフォールバック。
+            return _dispatch_batch_unavailable(self, selected_litellm_model_ids, run_options, db_manager)
 
         # #1136 Codex P2: ineligible を「同期対象 (通常)」と「実行対象外 (moderation)」へ分離。
         sync_ids, unsupported_ids = _partition_moderation_from_sync(

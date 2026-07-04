@@ -937,6 +937,81 @@ class TestDispatchAsyncBatch:
         assert "Batch API のみ対応" in message
         assert started is False
 
+    def test_no_batch_service_blocks_api_models_syncs_local(self) -> None:
+        # #1136 2巡目 P2 #3: Batch サービス不在時、API モデルは同期へ流さず、local のみ同期。
+        from lorairo.gui.controllers.annotation_workflow_controller import AnnotationWorkflowController
+
+        gpt = _StubModel(id=1, provider="openai", litellm_model_id="openai/gpt-4o")
+        local = _StubModel(id=9, provider="local", litellm_model_id="local/wd-tagger")
+        ctrl = self._build_controller(
+            ratings={10: "PG"},
+            selected=["openai/gpt-4o", "local/wd-tagger"],
+            discovery=["openai/gpt-4o"],
+            model=None,
+        )
+        ctrl._service_container.provider_batch_workflow_service = None  # Batch サービス不在
+        resolved = {"openai/gpt-4o": gpt, "local/wd-tagger": local}
+        ctrl._db_manager.model_repo.get_model_by_litellm_id.side_effect = resolved.get
+        ctrl.start_annotation_workflow.return_value = True
+
+        started = AnnotationWorkflowController.dispatch_async_batch(ctrl)
+
+        # local のみ同期、API モデル (gpt-4o) は黙って同期実行しない
+        ctrl.start_annotation_workflow.assert_called_once()
+        assert ctrl.start_annotation_workflow.call_args.kwargs["selected_litellm_model_ids"] == [
+            "local/wd-tagger"
+        ]
+        message = ctrl._status_callback.call_args.args[0]
+        assert "API モデル 1 件は実行されません" in message
+        assert started is True
+
+    def test_discovery_failure_runs_sync_fallback(self) -> None:
+        # #1136 2巡目 P2 #1: discovery 失敗でも同期専用モデルは同期起動する。
+        from lorairo.gui.controllers.annotation_workflow_controller import AnnotationWorkflowController
+        from lorairo.services.provider_batch_service import ProviderBatchError
+
+        local = _StubModel(id=9, provider="local", litellm_model_id="local/wd-tagger")
+        ctrl = self._build_controller(
+            ratings={10: "PG"},
+            selected=["local/wd-tagger"],
+            discovery=["openai/gpt-4o"],
+            model=local,
+        )
+        ctrl._service_container.provider_batch_workflow_service.list_batch_capable_models.side_effect = (
+            ProviderBatchError("discovery down")
+        )
+        ctrl.start_annotation_workflow.return_value = True
+
+        with patch("lorairo.gui.controllers.annotation_workflow_controller.QMessageBox"):
+            started = AnnotationWorkflowController.dispatch_async_batch(ctrl)
+
+        # discovery 失敗でも local は同期起動する
+        ctrl._start_async_dispatch_worker.assert_not_called()
+        ctrl.start_annotation_workflow.assert_called_once()
+        assert started is True
+
+    def test_empty_staged_paths_guards_sync(self) -> None:
+        # #1136 2巡目 P2 #2: staged パスが全滅なら空パス同期を起動せず明示エラー。
+        from lorairo.gui.controllers.annotation_workflow_controller import AnnotationWorkflowController
+
+        local = _StubModel(id=9, provider="local", litellm_model_id="local/wd-tagger")
+        ctrl = self._build_controller(
+            ratings={10: "PG"},
+            selected=["local/wd-tagger"],
+            discovery=["openai/gpt-4o"],
+            model=local,
+        )
+        ctrl._service_container.provider_batch_workflow_service = None  # 同期経路へ
+        ctrl._annotate_tab.staged_image_paths.return_value = []  # パス全滅
+
+        with patch("lorairo.gui.controllers.annotation_workflow_controller.QMessageBox") as mock_qmb:
+            started = AnnotationWorkflowController.dispatch_async_batch(ctrl)
+            mock_qmb.information.assert_called()
+
+        # 空パスでは同期を起動しない (SelectionStateService への誤フォールバック防止)
+        ctrl.start_annotation_workflow.assert_not_called()
+        assert started is False
+
 
 class TestNotifyDispatchSplit:
     """#1133: 振り分け結果メッセージの生成。"""
