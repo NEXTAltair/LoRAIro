@@ -14,12 +14,18 @@ SSoT は ``docs/design/theme-v1/hifi-mock.html``。トークン hex を変更す
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Literal
 
 from PySide6.QtGui import QColor, QPalette
 from PySide6.QtWidgets import QApplication, QStyleFactory
 
 from ..utils.log import logger
+
+# checked QCheckBox の白 ✓ アイコン (実ファイル SVG)。Qt QSS の image: url() は
+# CSS data URI をデコードしないため、パッケージ同梱の実ファイルを絶対パスで参照する
+# (#1092)。QSS の url() は forward slash 前提なので as_posix() で正規化する。
+CHECK_ICON_PATH: str = (Path(__file__).parent / "assets" / "check.svg").resolve().as_posix()
 
 # ---------------------------------------------------------------------------
 # カラートークン (hifi-mock.html :root と 1:1 対応)
@@ -406,21 +412,25 @@ QCheckBox {{
     background: transparent;
 }}
 QCheckBox::indicator {{
-    width: 13px;
-    height: 13px;
+    width: 16px;
+    height: 16px;
 }}
+/* 未チェック枠は INK_SOFT (背景 PAPER に対し ~7:1 と十分なコントラスト、#1092)。
+   LINE_STRONG (~1.4:1) では枠が視認できなかった。 */
 QCheckBox::indicator:unchecked {{
-    border: 1px solid {LINE_STRONG};
+    border: 1px solid {INK_SOFT};
     border-radius: 3px;
     background: {CARD};
 }}
 QCheckBox::indicator:unchecked:hover {{
     border-color: {ACCENT};
 }}
+/* checked は ACCENT 塗り + 白 ✓ (実ファイル SVG、#1092)。 */
 QCheckBox::indicator:checked {{
     border: 1px solid {ACCENT};
     border-radius: 3px;
     background: {ACCENT};
+    image: url({CHECK_ICON_PATH});
 }}
 QCheckBox::indicator:checked:hover {{
     border-color: {ACCENT_HOVER};
@@ -433,10 +443,11 @@ QCheckBox::indicator:disabled {{
     border-color: {LINE};
     background: {PAPER_SHADE};
 }}
-/* checked のまま disabled でも「塗り」を残し unchecked と区別する (accent 減光) */
+/* checked のまま disabled でも「塗り + ✓」を残し unchecked と区別する (accent 減光) */
 QCheckBox::indicator:checked:disabled {{
     border-color: {LINE_STRONG};
     background: {ACCENT_SOFT};
+    image: url({CHECK_ICON_PATH});
 }}
 
 /* --- 入力欄 (mock .input) --- */
