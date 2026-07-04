@@ -8,15 +8,21 @@ import time
 import pytest
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QPixmap
-from PySide6.QtWidgets import QApplication, QScrollArea
+from PySide6.QtWidgets import QApplication, QLabel, QScrollArea
 
 from lorairo.domain.quality_tier import QualityTier
 from lorairo.gui.widgets.results_widget import (
+    _ISSUE_GUIDANCE,
+    _ISSUE_LABELS,
     _MAX_TAG_CHIPS_PER_ROW,
     _VIRTUALIZE_THRESHOLD,
     ResultsWidget,
     _FlowChipRow,
+    _issue_evidence,
+    _rating_evidence,
     _RowThumbnail,
+    _scorer_evidence,
+    _unknown_tier_evidence,
 )
 from lorairo.gui.widgets.tag_cloud_widget import FlowLayout
 from lorairo.gui.widgets.tag_panel_widget import SelectableTagChip
@@ -423,3 +429,138 @@ def test_degrade_keeps_clean_audit_band(qapp):
     notice = widget.findChild(object, "resultsScaleNotice")
     # ノーティスがスクロール領域の子孫であること (ルート直付けでないこと)。
     assert scroll.isAncestorOf(notice)
+
+
+# ─── #1139: 不一致文言の平易化・実値サマリ・対処ガイド ─────────────────
+
+
+def _disagreement_result(
+    image_id: int,
+    issue: IssueType,
+    *,
+    ratings: list[RatingView] | None = None,
+    scorers: list[ScorerView] | None = None,
+) -> ImageTriageResult:
+    """rating/scorer 不一致などの evidence 検証用の結果を組み立てる。"""
+    return ImageTriageResult(
+        image_id=image_id,
+        uuid="abcd1234",
+        width=1024,
+        height=1024,
+        tags=[],
+        caption=None,
+        caption_word_count=0,
+        canonical_rating=None,
+        ratings=ratings or [],
+        canonical_tier=None,
+        scorers=scorers or [],
+        issues=[issue],
+    )
+
+
+def _summary_with(issue: IssueType) -> BatchTriageSummary:
+    return BatchTriageSummary(
+        batch_size=1,
+        needs_review_count=1,
+        clean_count=0,
+        issue_counts={issue: 1},
+        tier_distribution={},
+        no_tier_count=1,
+    )
+
+
+def test_rating_evidence_builds_model_value_pairs():
+    """rating 実値サマリは model=判定 を並べる (#1139)。"""
+    result = _disagreement_result(
+        5,
+        IssueType.RATING_DISAGREEMENT,
+        ratings=[
+            RatingView(model="wd-rating", normalized_rating="PG", confidence_score=0.9),
+            RatingView(model="moderation", normalized_rating="R", confidence_score=0.8),
+        ],
+    )
+    assert _rating_evidence(result) == "wd-rating=PG / moderation=R"
+    assert _issue_evidence(IssueType.RATING_DISAGREEMENT, [result]) == "例: #5 wd-rating=PG / moderation=R"
+
+
+def test_scorer_evidence_uses_tier_labels():
+    """scorer 実値サマリは model=tier ラベル を並べる (#1139)。"""
+    result = _disagreement_result(
+        7,
+        IssueType.SCORER_DISAGREEMENT,
+        scorers=[
+            ScorerView(model="aesthetic", label="a", tier=QualityTier.BEST_QUALITY),
+            ScorerView(model="technical", label="t", tier=QualityTier.GOOD_QUALITY),
+        ],
+    )
+    expected = f"aesthetic={QualityTier.BEST_QUALITY.label} / technical={QualityTier.GOOD_QUALITY.label}"
+    assert _scorer_evidence(result) == expected
+
+
+def test_unknown_tier_evidence_marks_unmapped_labels():
+    """tier 変換不能な scorer は label(未対応) で示す (#1139)。"""
+    result = _disagreement_result(
+        9,
+        IssueType.UNKNOWN_TIER,
+        scorers=[ScorerView(model="aesthetic", label="weird_label", tier=None)],
+    )
+    assert _unknown_tier_evidence(result) == "aesthetic=weird_label(未対応)"
+
+
+def test_issue_evidence_none_for_absence_issues():
+    """タグ無し/スコア無しは実値サマリを持たない (#1139)。"""
+    result = _disagreement_result(1, IssueType.EMPTY_TAGS)
+    assert _issue_evidence(IssueType.EMPTY_TAGS, [result]) is None
+    assert _issue_evidence(IssueType.NO_SCORE, [result]) is None
+
+
+def test_issue_card_shows_descriptive_heading_guidance_and_evidence(qapp):
+    """issue カードは説明的見出し + 対処ガイド + 実値サマリ + tooltip を出す (#1139)。"""
+    widget = ResultsWidget()
+    result = _disagreement_result(
+        5,
+        IssueType.RATING_DISAGREEMENT,
+        ratings=[
+            RatingView(model="wd-rating", normalized_rating="PG", confidence_score=0.9),
+            RatingView(model="moderation", normalized_rating="R", confidence_score=0.8),
+        ],
+    )
+    widget.display(_summary_with(IssueType.RATING_DISAGREEMENT), [result])
+
+    header = widget.findChild(object, "resultsIssueCardHeader")
+    assert header is not None
+    assert "レーティング判定が割れています" in header.text()
+    assert header.toolTip() == _ISSUE_GUIDANCE[IssueType.RATING_DISAGREEMENT]
+
+    guidance = widget.findChild(object, "resultsIssueCardGuidance")
+    assert guidance is not None
+    assert guidance.text() == _ISSUE_GUIDANCE[IssueType.RATING_DISAGREEMENT]
+
+    evidence = widget.findChild(object, "resultsIssueCardEvidence")
+    assert evidence is not None
+    assert "wd-rating=PG" in evidence.text()
+    assert "moderation=R" in evidence.text()
+
+
+def test_issue_card_no_evidence_line_for_empty_tags(qapp):
+    """タグ無しカードは実値サマリ行を出さない (対処ガイドのみ) (#1139)。"""
+    widget = ResultsWidget()
+    result = _disagreement_result(3, IssueType.EMPTY_TAGS)
+    widget.display(_summary_with(IssueType.EMPTY_TAGS), [result])
+    assert widget.findChild(object, "resultsIssueCardEvidence") is None
+    assert widget.findChild(object, "resultsIssueCardGuidance") is not None
+
+
+def test_issue_badge_has_short_label_and_guidance_tooltip(qapp):
+    """per-row バッジは短縮ラベル + 対処ガイドの tooltip を持つ (#1139)。"""
+    widget = ResultsWidget()
+    result = _disagreement_result(
+        5,
+        IssueType.RATING_DISAGREEMENT,
+        ratings=[RatingView(model="wd-rating", normalized_rating="PG", confidence_score=0.9)],
+    )
+    widget.display(_summary_with(IssueType.RATING_DISAGREEMENT), [result])
+    badges = [w for w in widget.findChildren(QLabel) if w.property("issueBadge")]
+    assert badges, "issue バッジが生成されていない"
+    badge = next(b for b in badges if b.text() == _ISSUE_LABELS[IssueType.RATING_DISAGREEMENT])
+    assert badge.toolTip() == _ISSUE_GUIDANCE[IssueType.RATING_DISAGREEMENT]
