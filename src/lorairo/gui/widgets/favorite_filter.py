@@ -28,6 +28,7 @@ from PySide6.QtWidgets import (
 
 from ...gui import theme
 from ...utils.log import logger
+from ..message_box import show_critical, show_warning
 from .ds_removable_chip import RemovableChip
 
 ConditionsGetter = Callable[[], dict[str, Any]]
@@ -210,16 +211,16 @@ class FavoriteFilterPanel(QGroupBox):
     def _on_save_clicked(self) -> None:
         """保存ボタンクリックハンドラ。"""
         if not self.favorite_filters_service:
-            QMessageBox.warning(self, "エラー", "お気に入りフィルターサービスが利用できません。")
+            show_warning(self, "エラー", "お気に入りフィルターサービスが利用できません。")
             return
 
         if self._conditions_getter is None:
-            QMessageBox.warning(self, "エラー", "条件取得コールバックが設定されていません。")
+            show_warning(self, "エラー", "条件取得コールバックが設定されていません。")
             return
 
         conditions = self._conditions_getter()
         if not conditions:
-            QMessageBox.warning(self, "保存失敗", "保存する条件がありません。")
+            show_warning(self, "保存失敗", "保存する条件がありません。")
             return
 
         filter_name, ok = QInputDialog.getText(
@@ -248,10 +249,10 @@ class FavoriteFilterPanel(QGroupBox):
                 QMessageBox.information(self, "保存完了", f"フィルター '{filter_name}' を保存しました。")
                 self._refresh_list()
             else:
-                QMessageBox.warning(self, "保存失敗", "フィルターの保存に失敗しました。")
+                show_warning(self, "保存失敗", "フィルターの保存に失敗しました。")
         except Exception as e:
             logger.opt(exception=True).error("Failed to save filter: {}", e)
-            QMessageBox.critical(self, "エラー", f"フィルターの保存中にエラーが発生しました:\n{e}")
+            show_critical(self, "エラー", f"フィルターの保存中にエラーが発生しました:\n{e}")
 
     def _on_filter_double_clicked(self, item: QListWidgetItem) -> None:
         """フィルターダブルクリックハンドラ。"""
@@ -269,24 +270,24 @@ class FavoriteFilterPanel(QGroupBox):
                 QMessageBox.information(self, "読込完了", f"フィルター '{filter_name}' を適用しました。")
                 logger.info("Loaded and applied favorite filter: {}", filter_name)
             else:
-                QMessageBox.warning(
+                show_warning(
                     self,
                     "読込失敗",
                     f"フィルター '{filter_name}' の読み込みに失敗しました。",
                 )
         except Exception as e:
             logger.opt(exception=True).error("Failed to load filter '{}': {}", filter_name, e)
-            QMessageBox.critical(self, "エラー", f"フィルターの読み込み中にエラーが発生しました:\n{e}")
+            show_critical(self, "エラー", f"フィルターの読み込み中にエラーが発生しました:\n{e}")
 
     def _on_delete_clicked(self) -> None:
         """削除ボタンクリックハンドラ。"""
         if not self.favorite_filters_service:
-            QMessageBox.warning(self, "エラー", "お気に入りフィルターサービスが利用できません。")
+            show_warning(self, "エラー", "お気に入りフィルターサービスが利用できません。")
             return
 
         selected_items = self.favorite_filters_list.selectedItems()
         if not selected_items:
-            QMessageBox.warning(self, "削除失敗", "削除するフィルターを選択してください。")
+            show_warning(self, "削除失敗", "削除するフィルターを選択してください。")
             return
 
         self._delete_by_name(selected_items[0].text())
@@ -294,7 +295,7 @@ class FavoriteFilterPanel(QGroupBox):
     def _delete_by_name(self, filter_name: str) -> None:
         """フィルター名から削除する (chip × / 削除ボタン 共通、#815)。"""
         if not self.favorite_filters_service:
-            QMessageBox.warning(self, "エラー", "お気に入りフィルターサービスが利用できません。")
+            show_warning(self, "エラー", "お気に入りフィルターサービスが利用できません。")
             return
 
         reply = QMessageBox.question(
@@ -313,7 +314,7 @@ class FavoriteFilterPanel(QGroupBox):
                 QMessageBox.information(self, "削除完了", f"フィルター '{filter_name}' を削除しました。")
                 self._refresh_list()
             else:
-                QMessageBox.warning(self, "削除失敗", "フィルターの削除に失敗しました。")
+                show_warning(self, "削除失敗", "フィルターの削除に失敗しました。")
         except Exception as e:
             logger.opt(exception=True).error("Failed to delete filter '{}': {}", filter_name, e)
-            QMessageBox.critical(self, "エラー", f"フィルターの削除中にエラーが発生しました:\n{e}")
+            show_critical(self, "エラー", f"フィルターの削除中にエラーが発生しました:\n{e}")

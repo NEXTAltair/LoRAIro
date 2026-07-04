@@ -117,7 +117,7 @@ class TestDatasetController:
         controller.file_system_manager.initialize_from_dataset_selection.assert_not_called()
         controller.worker_service.start_batch_registration_with_fsm.assert_not_called()
 
-    @patch("lorairo.gui.controllers.dataset_controller.QMessageBox")
+    @patch("lorairo.gui.controllers.dataset_controller.show_warning")
     def test_select_and_register_images_no_worker_service(self, mock_msgbox, mock_parent):
         """WorkerServiceがない場合は警告表示"""
         # Arrange
@@ -134,12 +134,12 @@ class TestDatasetController:
         controller.select_and_register_images(mock_dialog_callback)
 
         # Assert: 警告メッセージが表示される
-        mock_msgbox.warning.assert_called_once()
-        call_args = mock_msgbox.warning.call_args
+        mock_msgbox.assert_called_once()
+        call_args = mock_msgbox.call_args
         assert call_args[0][0] == mock_parent
         assert "WorkerService" in call_args[0][2]
 
-    @patch("lorairo.gui.controllers.dataset_controller.QMessageBox")
+    @patch("lorairo.gui.controllers.dataset_controller.show_warning")
     def test_select_and_register_images_no_filesystem_manager(self, mock_msgbox, mock_parent):
         """FileSystemManagerがない場合はエラー表示"""
         # Arrange
@@ -156,8 +156,8 @@ class TestDatasetController:
         controller.select_and_register_images(mock_dialog_callback)
 
         # Assert: 警告メッセージが表示される
-        mock_msgbox.warning.assert_called_once()
-        call_args = mock_msgbox.warning.call_args
+        mock_msgbox.assert_called_once()
+        call_args = mock_msgbox.call_args
         assert call_args[0][0] == mock_parent
         assert "FileSystemManager" in call_args[0][2]
 
@@ -199,7 +199,7 @@ class TestDatasetController:
         # Assert: エラーログが出力される（例外は発生しない）
         mock_worker_service.start_batch_registration_with_fsm.assert_called_once()
 
-    @patch("lorairo.gui.controllers.dataset_controller.QMessageBox")
+    @patch("lorairo.gui.controllers.dataset_controller.show_critical")
     def test_select_and_register_images_exception_handling(
         self,
         mock_msgbox,
@@ -216,8 +216,8 @@ class TestDatasetController:
         controller.select_and_register_images(mock_dialog_callback)
 
         # Assert: エラーメッセージが表示される
-        mock_msgbox.critical.assert_called_once()
-        call_args = mock_msgbox.critical.call_args
+        mock_msgbox.assert_called_once()
+        call_args = mock_msgbox.call_args
         assert call_args[0][0] == controller.parent
         assert "Test error" in call_args[0][2]
 

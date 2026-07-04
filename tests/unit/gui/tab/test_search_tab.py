@@ -16,7 +16,7 @@ from unittest.mock import Mock
 
 import pytest
 from PySide6.QtCore import Qt
-from PySide6.QtWidgets import QMessageBox, QSplitter, QWidget
+from PySide6.QtWidgets import QSplitter, QWidget
 
 from lorairo.gui.state.dataset_state import DatasetStateManager
 from lorairo.gui.state.staging_state import StagingStateManager
@@ -308,7 +308,7 @@ def test_handle_quick_tag_add_failure_shows_critical(tab: SearchTabWidget, monke
     tab._image_db_write_service = Mock()
     tab._image_db_write_service.add_tag_batch.return_value = False
     calls: list[bool] = []
-    monkeypatch.setattr(QMessageBox, "critical", lambda *a, **k: calls.append(True))
+    monkeypatch.setattr("lorairo.gui.tab.search_tab.show_critical", lambda *a, **k: calls.append(True))
 
     tab._handle_quick_tag_add([1], "x")
 

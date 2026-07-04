@@ -32,6 +32,8 @@ from lorairo.services.provider_batch_service import ProviderBatchError
 from lorairo.services.selection_state_service import SelectionStateService
 from lorairo.services.service_container import get_service_container
 
+from ..message_box import show_critical, show_warning
+
 if TYPE_CHECKING:
     from lorairo.database.db_manager import ImageDatabaseManager
     from lorairo.gui.state.staging_state import StagingStateManager
@@ -96,7 +98,7 @@ def _moderation_gate_blocks(
     ratings_by_id = db_manager.image_repo.get_latest_normalized_ratings_by_image_ids(image_ids)
     preflight = classify_preflight_counts(ratings_by_id, image_ids)
     if preflight.held > 0 or preflight.unrated > 0:
-        QMessageBox.warning(
+        show_warning(
             parent_widget,
             "Batch API 送信",
             "送信前 moderation が未完了の画像があります "
@@ -131,9 +133,7 @@ def _build_batch_projection(
         batch_capable_models = workflow_service.list_batch_capable_models()
     except (ProviderBatchError, RuntimeError, OSError) as e:
         logger.opt(exception=True).error(f"Batch API モデル discovery 失敗: {e}")
-        QMessageBox.warning(
-            parent_widget, "Batch API 送信", f"Batch API 対応モデルの取得に失敗しました:\n{e}"
-        )
+        show_warning(parent_widget, "Batch API 送信", f"Batch API 対応モデルの取得に失敗しました:\n{e}")
         return None
 
     try:
@@ -148,7 +148,7 @@ def _build_batch_projection(
             task_type=task_type,
         )
     except DispatchProjectionError as e:
-        QMessageBox.warning(parent_widget, "Batch API 送信", str(e))
+        show_warning(parent_widget, "Batch API 送信", str(e))
         return None
 
 
@@ -616,7 +616,7 @@ class AnnotationWorkflowController(QObject):
             error_msg = f"アノテーション処理の開始に失敗しました: {e}"
             logger.opt(exception=True).error(error_msg)
             if self._parent_widget:
-                QMessageBox.critical(
+                show_critical(
                     self._parent_widget,
                     "アノテーション開始エラー",
                     error_msg,
@@ -646,7 +646,7 @@ class AnnotationWorkflowController(QObject):
 
         logger.warning("モデルが選択されていません")
         if self._parent_widget:
-            QMessageBox.warning(
+            show_warning(
                 self._parent_widget,
                 "モデル未選択",
                 "アノテーションに使用するモデルを選択してください。",
@@ -662,7 +662,7 @@ class AnnotationWorkflowController(QObject):
         if not self.worker_service:
             logger.warning("WorkerServiceが初期化されていません")
             if self._parent_widget:
-                QMessageBox.warning(
+                show_warning(
                     self._parent_widget,
                     "サービス未初期化",
                     "WorkerServiceが初期化されていないため、アノテーション処理を実行できません。",
@@ -672,7 +672,7 @@ class AnnotationWorkflowController(QObject):
         if not self.selection_state_service:
             logger.warning("SelectionStateServiceが初期化されていません")
             if self._parent_widget:
-                QMessageBox.warning(
+                show_warning(
                     self._parent_widget,
                     "サービス未初期化",
                     "SelectionStateServiceが初期化されていないため、画像を選択できません。",
@@ -718,7 +718,7 @@ class AnnotationWorkflowController(QObject):
         except Exception as e:
             logger.opt(exception=True).error(f"画像パス取得中にエラー: {e}")
             if self._parent_widget:
-                QMessageBox.warning(
+                show_warning(
                     self._parent_widget,
                     "画像データ取得エラー",
                     f"画像パスの取得中にエラーが発生しました: {e}",
@@ -770,6 +770,7 @@ class AnnotationWorkflowController(QObject):
         if not self._parent_widget:
             return True
 
+        # 確認ダイアログ (Ok/Cancel の応答を使う) のためヘルパーではなく QMessageBox を使う。
         reply = QMessageBox.warning(
             self._parent_widget,
             "廃止済みモデル",
@@ -825,7 +826,7 @@ class AnnotationWorkflowController(QObject):
         logger.warning(f"API key 不足 (実行中止): {missing}")
 
         if self._parent_widget is not None:
-            QMessageBox.warning(
+            show_warning(
                 self._parent_widget,
                 "API キー未設定",
                 message,
@@ -875,7 +876,7 @@ class AnnotationWorkflowController(QObject):
             error_msg = f"バッチアノテーション開始に失敗: {e}"
             logger.opt(exception=True).error(error_msg)
             if self._parent_widget:
-                QMessageBox.critical(
+                show_critical(
                     self._parent_widget,
                     "アノテーション実行エラー",
                     error_msg,
@@ -913,7 +914,7 @@ class AnnotationWorkflowController(QObject):
 
         db_manager = self._db_manager
         if db_manager is None:
-            QMessageBox.warning(self._parent_widget, "Batch API 送信", "サービスを利用できません。")
+            show_warning(self._parent_widget, "Batch API 送信", "サービスを利用できません。")
             return False
 
         run_options = self._annotate_tab.run_options()
@@ -1002,7 +1003,7 @@ class AnnotationWorkflowController(QObject):
             else:
                 missing.append(image_id)
         if missing:
-            QMessageBox.warning(
+            show_warning(
                 self._parent_widget,
                 "Batch API 送信",
                 f"processed 版が無い画像が {len(missing)} 件あります。\n"
@@ -1081,7 +1082,7 @@ class AnnotationWorkflowController(QObject):
                 f"Batch API dispatch 失敗: {error}"
             )
             message = f"Batch API 送信に失敗しました:\n{error}"
-        QMessageBox.critical(self._parent_widget, "Batch API 送信", message)
+        show_critical(self._parent_widget, "Batch API 送信", message)
 
     def _on_async_dispatch_thread_finished(self) -> None:
         """worker thread 終了時に busy/再入ガードを解除する。"""

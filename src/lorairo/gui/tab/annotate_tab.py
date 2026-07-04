@@ -44,7 +44,6 @@ from PySide6.QtWidgets import (
     QHBoxLayout,
     QInputDialog,
     QLabel,
-    QMessageBox,
     QPushButton,
     QWidget,
 )
@@ -61,6 +60,7 @@ from ...services.service_container import ServiceContainer
 from ...utils.log import logger
 from .. import theme
 from ..designer.AnnotateTab_ui import Ui_AnnotateTab
+from ..message_box import show_critical
 from ..services.image_db_write_service import ImageDBWriteService
 from ..state.dataset_state import DatasetStateManager
 from ..state.model_selection_state import ModelSelectionStateManager
@@ -446,7 +446,7 @@ class AnnotateTabWidget(QWidget, Ui_AnnotateTab):
                 f"Batch tag add completed successfully: tag='{tag}', {len(image_ids)} images updated"
             )
         else:
-            QMessageBox.critical(self, "タグ追加失敗", f"タグ '{tag}' の追加に失敗しました。")
+            show_critical(self, "タグ追加失敗", f"タグ '{tag}' の追加に失敗しました。")
             logger.error(f"Failed to add tag in batch: tag='{tag}', image_count={len(image_ids)}")
 
     # -- プロパティ (タブ内配線・テスト用) -----------------------------------

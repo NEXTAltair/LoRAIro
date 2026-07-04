@@ -37,9 +37,13 @@ def mock_service() -> MagicMock:
 @pytest.fixture(autouse=True)
 def mock_message_box(monkeypatch) -> None:
     """全 QMessageBox 呼び出しを自動 mock (テスト中のダイアログ表示防止)。"""
-    monkeypatch.setattr(QMessageBox, "warning", lambda *a, **kw: QMessageBox.StandardButton.Ok)
+    monkeypatch.setattr(
+        "lorairo.gui.widgets.favorite_filter.show_warning", lambda *a, **kw: QMessageBox.StandardButton.Ok
+    )
     monkeypatch.setattr(QMessageBox, "information", lambda *a, **kw: QMessageBox.StandardButton.Ok)
-    monkeypatch.setattr(QMessageBox, "critical", lambda *a, **kw: QMessageBox.StandardButton.Ok)
+    monkeypatch.setattr(
+        "lorairo.gui.widgets.favorite_filter.show_critical", lambda *a, **kw: QMessageBox.StandardButton.Ok
+    )
     monkeypatch.setattr(QMessageBox, "question", lambda *a, **kw: QMessageBox.StandardButton.Yes)
 
 

@@ -11,9 +11,10 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from PySide6.QtWidgets import QMessageBox, QWidget
+from PySide6.QtWidgets import QWidget
 
 from ...utils.log import logger
+from ..message_box import show_critical, show_warning
 
 if TYPE_CHECKING:
     from ...database.db_manager import ImageDatabaseManager
@@ -77,7 +78,7 @@ class DatasetController:
         if not self.worker_service:
             logger.warning("WorkerServiceが初期化されていません")
             if self.parent:
-                QMessageBox.warning(
+                show_warning(
                     self.parent,
                     "サービス未初期化",
                     "WorkerServiceが初期化されていないため、バッチ登録を開始できません。",
@@ -87,7 +88,7 @@ class DatasetController:
         if not self.file_system_manager:
             logger.warning("FileSystemManagerが初期化されていません")
             if self.parent:
-                QMessageBox.warning(
+                show_warning(
                     self.parent,
                     "サービス未初期化",
                     "FileSystemManagerが初期化されていないため、バッチ登録処理を実行できません。",
@@ -128,4 +129,4 @@ class DatasetController:
             error_msg = f"データセット登録の開始に失敗しました: {e}"
             logger.opt(exception=True).error(error_msg)
             if self.parent:
-                QMessageBox.critical(self.parent, "バッチ登録エラー", error_msg)
+                show_critical(self.parent, "バッチ登録エラー", error_msg)

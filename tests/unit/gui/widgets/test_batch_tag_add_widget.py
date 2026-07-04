@@ -264,7 +264,6 @@ class TestTagAddRequest:
 
     def test_tag_add_request_empty_staging(self, qtbot, monkeypatch):
         """Test tag add request with empty staging list shows warning"""
-        from PySide6.QtWidgets import QMessageBox
 
         widget = BatchTagAddWidget()
         qtbot.addWidget(widget)
@@ -273,7 +272,10 @@ class TestTagAddRequest:
 
         # QMessageBox.warningをモック
         warning_called = []
-        monkeypatch.setattr(QMessageBox, "warning", lambda *args: warning_called.append(args))
+        monkeypatch.setattr(
+            "lorairo.gui.widgets.batch_tag_add_widget.show_warning",
+            lambda *args: warning_called.append(args),
+        )
 
         widget._on_add_tag_clicked()
 
@@ -284,13 +286,15 @@ class TestTagAddRequest:
 
     def test_tag_add_request_empty_tag(self, qtbot, widget_with_staging, monkeypatch):
         """Test tag add request with empty tag shows warning"""
-        from PySide6.QtWidgets import QMessageBox
 
         widget = widget_with_staging
 
         # QMessageBox.warningをモック
         warning_called = []
-        monkeypatch.setattr(QMessageBox, "warning", lambda *args: warning_called.append(args))
+        monkeypatch.setattr(
+            "lorairo.gui.widgets.batch_tag_add_widget.show_warning",
+            lambda *args: warning_called.append(args),
+        )
 
         # Leave tag input empty
         widget.ui.lineEditTag.setText("")
@@ -303,13 +307,15 @@ class TestTagAddRequest:
 
     def test_tag_add_request_whitespace_only_tag(self, qtbot, widget_with_staging, monkeypatch):
         """Test tag add request with whitespace-only tag shows warning"""
-        from PySide6.QtWidgets import QMessageBox
 
         widget = widget_with_staging
 
         # QMessageBox.warningをモック
         warning_called = []
-        monkeypatch.setattr(QMessageBox, "warning", lambda *args: warning_called.append(args))
+        monkeypatch.setattr(
+            "lorairo.gui.widgets.batch_tag_add_widget.show_warning",
+            lambda *args: warning_called.append(args),
+        )
 
         # Enter whitespace only
         widget.ui.lineEditTag.setText("   ")

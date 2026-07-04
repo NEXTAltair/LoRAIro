@@ -26,7 +26,6 @@ from PySide6.QtWidgets import (
     QFrame,
     QHBoxLayout,
     QLabel,
-    QMessageBox,
     QPushButton,
     QScrollArea,
     QSplitter,
@@ -44,6 +43,8 @@ from lorairo.gui.workers.provider_batch_import_worker import (
 from lorairo.services.job_ledger_service import JobLedgerService
 from lorairo.services.provider_batch_service import ProviderBatchError
 from lorairo.utils.log import logger
+
+from ..message_box import show_critical, show_warning
 
 _COMPLETED_STATUS = "completed"
 _IMPORTED_STATUS = "imported"
@@ -352,7 +353,7 @@ class ProviderBatchJobWidget(QWidget):
         # slot は except 節外で後から実行されるため sys.exc_info() は空。emit された例外
         # オブジェクトを exception= に直接渡して traceback を記録する (#1153 Codex P2)。
         logger.opt(exception=error).error(f"バッチAPI {action} failed: {error}")
-        QMessageBox.critical(self, "バッチAPI", str(error))
+        show_critical(self, "バッチAPI", str(error))
         self.labelStatus.setText(f"{action} に失敗しました")
 
     def _get_job(self, job_id: int) -> Any | None:
@@ -522,7 +523,7 @@ class ProviderBatchJobWidget(QWidget):
             # #1150: 想定内の業務エラーでも事後診断できるよう WARNING で記録する
             # (従来はダイアログ + labelStatus のみでログ痕跡ゼロだった)。
             logger.warning(f"バッチAPI status check failed (job {job_id}): {error}")
-            QMessageBox.warning(self, "バッチAPI", str(error))
+            show_warning(self, "バッチAPI", str(error))
             self.labelStatus.setText(str(error))
         else:
             self._handle_action_error("refresh", error)
@@ -540,7 +541,7 @@ class ProviderBatchJobWidget(QWidget):
         except ProviderBatchError as e:
             # #1150: 想定内の業務エラーでも事後診断できるよう WARNING で記録する。
             logger.warning(f"バッチAPI cancel failed (job {job_id}): {e}")
-            QMessageBox.warning(self, "バッチAPI", str(e))
+            show_warning(self, "バッチAPI", str(e))
             self.labelStatus.setText(str(e))
         except Exception as e:
             self._handle_action_error("cancel", e)

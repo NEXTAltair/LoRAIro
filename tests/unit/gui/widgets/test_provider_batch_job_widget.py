@@ -672,7 +672,7 @@ def test_action_handlers_catch_unexpected_errors(widget, dependencies, monkeypat
     widget.set_dependencies(workflow, repository)
     workflow.cancel.side_effect = RuntimeError("adapter exploded")
     critical = MagicMock()
-    monkeypatch.setattr(widget_module.QMessageBox, "critical", critical)
+    monkeypatch.setattr(widget_module, "show_critical", critical)
 
     widget.cancel_job(42)
 

@@ -12,6 +12,7 @@ from typing import TYPE_CHECKING
 from PySide6.QtWidgets import QDialog, QWidget
 
 from ...utils.log import logger
+from ..message_box import show_critical, show_warning
 
 if TYPE_CHECKING:
     from ...services.configuration_service import ConfigurationService
@@ -42,9 +43,7 @@ class SettingsController:
         if not self.config_service:
             logger.warning("ConfigurationServiceが初期化されていません")
             if self.parent:
-                from PySide6.QtWidgets import QMessageBox
-
-                QMessageBox.warning(
+                show_warning(
                     self.parent,
                     "サービス未初期化",
                     "ConfigurationServiceが初期化されていないため、設定を開けません。",
@@ -98,11 +97,8 @@ class SettingsController:
             return False
         except Exception as e:
             logger.opt(exception=True).error(f"設定ダイアログの表示に失敗しました: {e}")
-            from PySide6.QtWidgets import QMessageBox
 
-            QMessageBox.critical(
-                self.parent, "エラー", f"設定ダイアログの表示中にエラーが発生しました:\n\n{e}"
-            )
+            show_critical(self.parent, "エラー", f"設定ダイアログの表示中にエラーが発生しました:\n\n{e}")
             return False
 
     def _show_simple_settings_dialog(self) -> None:

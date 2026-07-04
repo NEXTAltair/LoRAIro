@@ -102,6 +102,11 @@ def _run_workflow(ctx: AnnotationFlowContext, model: str, reply: object) -> None
     廃止モデル警告 / API キー警告の QMessageBox は ``parent`` が None だと
     そもそも表示されない (Controller の早期 return)。reply を効かせるため
     parent をモックで注入する (#896 PR4b で属性名が ``_parent_widget`` に変更)。
+
+    廃止モデル警告は reply (押されたボタン) を使うため引き続き
+    ``QMessageBox.warning`` を直接パッチする。API キー未設定の警告は
+    コピー可能ダイアログヘルパー ``show_warning`` (Issue #1160) 経由になった
+    ため、実ダイアログの exec() ブロックを避けるためこちらもパッチする。
     """
     ctx.controller._parent_widget = Mock()
     container = Mock()
@@ -119,6 +124,7 @@ def _run_workflow(ctx: AnnotationFlowContext, model: str, reply: object) -> None
             "lorairo.gui.controllers.annotation_workflow_controller.QMessageBox.warning",
             return_value=reply,
         ),
+        patch("lorairo.gui.controllers.annotation_workflow_controller.show_warning"),
     ):
         ctx.controller.start_annotation_workflow(selected_litellm_model_ids=[model])
 

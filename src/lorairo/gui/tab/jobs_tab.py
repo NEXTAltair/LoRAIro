@@ -47,6 +47,7 @@ from PySide6.QtWidgets import (
 from ...database.db_manager import ImageDatabaseManager
 from ...services.service_container import ServiceContainer
 from ...utils.log import logger
+from ..message_box import show_warning
 from ..services.worker_service import WorkerService
 from ..widgets.provider_batch_job_widget import ProviderBatchJobWidget
 
@@ -164,7 +165,7 @@ class JobsTabWidget(QWidget):
     def start_batch_import(self) -> None:
         """Batch APIインポートダイアログを開いてワーカーを起動する。"""
         if self._worker_service is None:
-            QMessageBox.warning(self, "エラー", "WorkerServiceが初期化されていません")
+            show_warning(self, "エラー", "WorkerServiceが初期化されていません")
             return
 
         # JSONLファイル選択（複数可）

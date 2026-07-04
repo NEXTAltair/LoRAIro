@@ -12,7 +12,7 @@ from types import SimpleNamespace
 from unittest.mock import Mock
 
 import pytest
-from PySide6.QtWidgets import QDialog, QMessageBox
+from PySide6.QtWidgets import QDialog
 
 from lorairo.gui.state.dataset_state import DatasetStateManager
 from lorairo.gui.state.model_selection_state import ModelSelectionStateManager
@@ -1355,7 +1355,7 @@ def test_handle_batch_tag_add_failure_shows_critical(tab: AnnotateTabWidget, mon
     tab._image_db_write_service = Mock()
     tab._image_db_write_service.add_tag_batch.return_value = False
     calls: list[bool] = []
-    monkeypatch.setattr(QMessageBox, "critical", lambda *a, **k: calls.append(True))
+    monkeypatch.setattr("lorairo.gui.tab.annotate_tab.show_critical", lambda *a, **k: calls.append(True))
 
     tab._handle_batch_tag_add([1], "x")
 

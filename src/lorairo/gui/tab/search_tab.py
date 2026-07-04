@@ -38,7 +38,7 @@ worker dispatch・PipelineControlService 所有・staging fan-out・タブ間遷
 from typing import Any
 
 from PySide6.QtCore import QSettings, Qt, Signal, Slot
-from PySide6.QtWidgets import QMessageBox, QSplitter, QWidget
+from PySide6.QtWidgets import QSplitter, QWidget
 
 from ...database.db_manager import ImageDatabaseManager
 from ...services.model_selection_service import ModelSelectionService
@@ -46,6 +46,7 @@ from ...services.refinement_service import RefinementService
 from ...services.service_container import ServiceContainer
 from ...utils.log import logger
 from ..designer.SearchTab_ui import Ui_SearchTab
+from ..message_box import show_critical
 from ..services.image_db_write_service import ImageDBWriteService
 from ..services.search_filter_service import SearchFilterService
 from ..services.worker_service import WorkerService
@@ -317,7 +318,7 @@ class SearchTabWidget(QWidget, Ui_SearchTab):
             self.status_message.emit(f"クイックタグ '{tag}' を追加しました")
             logger.info(f"Quick tag add completed: tag='{tag}', {len(image_ids)} images updated")
         else:
-            QMessageBox.critical(self, "タグ追加失敗", f"クイックタグ '{tag}' の追加に失敗しました。")
+            show_critical(self, "タグ追加失敗", f"クイックタグ '{tag}' の追加に失敗しました。")
             logger.error(f"Failed quick tag add: tag='{tag}', image_count={len(image_ids)}")
 
     def _connect_details_widget_signals(self) -> None:

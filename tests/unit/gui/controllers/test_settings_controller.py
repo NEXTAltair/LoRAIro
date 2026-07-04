@@ -31,7 +31,10 @@ class TestSettingsControllerValidation:
         controller = SettingsController(config_service=None, parent=parent)
 
         warning_called = []
-        monkeypatch.setattr(QMessageBox, "warning", lambda *args: warning_called.append(args))
+        monkeypatch.setattr(
+            "lorairo.gui.controllers.settings_controller.show_warning",
+            lambda *args: warning_called.append(args),
+        )
 
         assert controller._validate_services() is False
         assert len(warning_called) == 1
@@ -55,7 +58,10 @@ class TestSettingsControllerDialog:
         controller = SettingsController(config_service=None, parent=parent)
 
         warning_called = []
-        monkeypatch.setattr(QMessageBox, "warning", lambda *args: warning_called.append(args))
+        monkeypatch.setattr(
+            "lorairo.gui.controllers.settings_controller.show_warning",
+            lambda *args: warning_called.append(args),
+        )
 
         controller.open_settings_dialog()
 
@@ -215,7 +221,10 @@ class TestSettingsControllerDialog:
         controller = SettingsController(config_service=mock_config, parent=parent)
 
         critical_called = []
-        monkeypatch.setattr(QMessageBox, "critical", lambda *args: critical_called.append(args))
+        monkeypatch.setattr(
+            "lorairo.gui.controllers.settings_controller.show_critical",
+            lambda *args: critical_called.append(args),
+        )
 
         mock_dialog = Mock()
         mock_dialog.exec.side_effect = RuntimeError("Unexpected error")
