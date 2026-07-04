@@ -99,3 +99,77 @@ class TestStagingSplitterFitSafety:
         staging.add_image_ids([1, 2, 3])
         # maximumHeight は既定 (無制限) のまま
         assert staging.maximumHeight() >= 16777215 - 1
+
+
+def _build_nested_splitter(
+    qtbot, *, window_width: int = 900, sibling_min_height: int = 60
+) -> tuple[QSplitter, QWidget, StagingWidget, QLabel]:
+    """実ツリー相当: 縦 splitter → ペイン(margins) → 横 splitter[staging, tag入力] → 下ペイン。
+
+    staging は横 splitter に入れ子で、ペイン widget は staging ではなくその祖先。
+    tag 入力の高さ (sibling_min_height) がクランプ計算に含まれるかを検証できる。
+    """
+    vsplit = QSplitter(Qt.Orientation.Vertical)
+    pane = QWidget()
+    pane_layout = QVBoxLayout(pane)
+    pane_layout.setContentsMargins(6, 6, 6, 6)
+    hsplit = QSplitter(Qt.Orientation.Horizontal)
+    staging = StagingWidget()
+    dsm = Mock()
+    dsm.get_image_by_id.side_effect = lambda image_id: {"stored_image_path": f"/x/{image_id}.png"}
+    staging.set_dataset_state_manager(dsm)
+    tag_input = QLabel("tag input")
+    tag_input.setMinimumHeight(sibling_min_height)
+    hsplit.addWidget(staging)
+    hsplit.addWidget(tag_input)
+    pane_layout.addWidget(hsplit)
+    bottom = QLabel("bottom")
+    bottom.setMinimumHeight(60)
+    vsplit.addWidget(pane)
+    vsplit.addWidget(bottom)
+    qtbot.addWidget(vsplit)
+    vsplit.resize(window_width, 820)
+    vsplit.setSizes([700, 120])
+    vsplit.show()
+    qtbot.waitExposed(vsplit)
+    return vsplit, pane, staging, tag_input
+
+
+class TestStagingSplitterFitCodexRegressions:
+    """#1097 Codex P2×3: 幅変化再クランプ / ラッパー chrome / 行数増でペイン拡大。"""
+
+    def test_grows_when_staging_needs_more_rows(self, qtbot):
+        # P2-3: 少数 (1 行) → 多数 (複数行) で実際にペインが広がる
+        # (max 緩和だけでは QSplitter が広げないため setSizes 再配分が要る)。
+        _vsplit, pane, staging, _tag = _build_nested_splitter(qtbot, sibling_min_height=60)
+        staging.add_image_ids([1])
+        qtbot.waitUntil(lambda: staging.count() == 1, timeout=2000)
+        one_row_height = pane.height()
+        staging.add_image_ids(list(range(2, 13)))
+        qtbot.waitUntil(lambda: staging.count() == 12, timeout=2000)
+        assert pane.height() > one_row_height + 40, (
+            f"ペインが広がっていない ({one_row_height} -> {pane.height()})"
+        )
+
+    def test_recomputes_clamp_on_width_change(self, qtbot):
+        # P2-1: 幅変化で列数=行数が変わったとき cap を再計算する。
+        vsplit, pane, staging, _tag = _build_nested_splitter(
+            qtbot, window_width=1600, sibling_min_height=50
+        )
+        staging.add_image_ids(list(range(1, 7)))
+        qtbot.waitUntil(lambda: staging.count() == 6, timeout=2000)
+        wide_cap = pane.maximumHeight()
+        vsplit.resize(360, 820)  # 狭幅 → 行数増
+        qtbot.waitUntil(lambda: pane.maximumHeight() > wide_cap + 40, timeout=2000)
+        assert pane.maximumHeight() > wide_cap
+
+    def test_pane_chrome_not_clipping_thumbnails(self, qtbot):
+        # P2-2: ペインは staging ではなく祖先。兄弟 (tag入力) が高くてもサムネが切れない。
+        _vsplit, pane, staging, _tag = _build_nested_splitter(qtbot, sibling_min_height=320)
+        staging.add_image_ids([1, 2, 3])
+        qtbot.waitUntil(lambda: staging.count() == 3, timeout=2000)
+        thumb = staging._staging_thumbnail_widget
+        # サムネ枠の実高さが推奨コンテンツ高さ以上 = 切れていない
+        assert thumb.height() >= thumb._recommended_content_height()
+        # ペインは兄弟 (320) を収める高さになっている
+        assert pane.height() >= 320
