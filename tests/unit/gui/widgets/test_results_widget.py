@@ -405,3 +405,15 @@ def test_redisplay_cancels_pending_chunk_build(qtbot):
     # 前回集合の行は残っていない。
     assert widget.findChild(object, "resultsRow_0") is None
     assert widget.findChild(object, "resultsRow_99") is None
+
+
+def test_degrade_keeps_clean_audit_band(qapp):
+    """degrade 域でも clean-audit の一括 accept 導線は残す (Codex #1143 P2-2)。"""
+    widget = ResultsWidget()
+    # 閾値件数すべて clean (issue 無し・未 reviewed) → degrade だが一括 accept 対象あり。
+    results = [_result_full(i, 3, []) for i in range(_VIRTUALIZE_THRESHOLD)]
+    widget.display(_summary(), results)
+    # 集約ノーティスに加え、clean-audit バンドと「確認して accept」ボタンが残る。
+    assert widget.findChild(object, "resultsScaleNotice") is not None
+    assert widget.findChild(object, "resultsCleanAuditBand") is not None
+    assert widget.findChild(object, "resultsAcceptCleanButton") is not None

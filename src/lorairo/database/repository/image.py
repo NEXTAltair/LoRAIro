@@ -834,7 +834,9 @@ class ImageRepository(BaseRepository):
                 logger.error(f"レビュー状態の設定に失敗しました (ID: {image_id}): {e}", exc_info=True)
                 raise
 
-    def get_images_metadata_batch(self, image_ids: list[int]) -> list[dict[str, Any]]:
+    def get_images_metadata_batch(
+        self, image_ids: list[int], *, include_annotations: bool = True
+    ) -> list[dict[str, Any]]:
         """指定された複数IDのオリジナル画像メタデータを一括取得する。
 
         内部的に _fetch_filtered_metadata() を使用し、joinedloadで取得する。
@@ -842,6 +844,10 @@ class ImageRepository(BaseRepository):
 
         Args:
             image_ids: 取得する画像IDのリスト。
+            include_annotations: アノテーション (tags/captions/scores/score_labels/
+                ratings) を先読みするか。アノテーションを別経路で取得済みで metadata の
+                列 (uuid/寸法/reviewed_at/path 等) だけ欲しい場合は False にして二重
+                フェッチを避ける (Issue #1140 / #965)。
 
         Returns:
             画像メタデータ辞書のリスト。見つからなかったIDは結果に含まれない。
@@ -859,7 +865,11 @@ class ImageRepository(BaseRepository):
                 result: list[dict[str, Any]] = []
                 for i in range(0, len(image_ids), self.BATCH_CHUNK_SIZE):
                     chunk = image_ids[i : i + self.BATCH_CHUNK_SIZE]
-                    result.extend(self._fetch_filtered_metadata(session, chunk, resolution=0))
+                    result.extend(
+                        self._fetch_filtered_metadata(
+                            session, chunk, resolution=0, include_annotations=include_annotations
+                        )
+                    )
                 return result
             except SQLAlchemyError as e:
                 logger.error(

@@ -36,7 +36,7 @@ class TestGetImagesMetadataBatch:
         with patch.object(repository, "_fetch_filtered_metadata", return_value=expected) as mock_fetch:
             result = repository.get_images_metadata_batch([1, 2])
 
-        mock_fetch.assert_called_once_with(mock_session, [1, 2], resolution=0)
+        mock_fetch.assert_called_once_with(mock_session, [1, 2], resolution=0, include_annotations=True)
         assert result == expected
 
     def test_chunking_splits_large_input(self, repository):
@@ -73,7 +73,7 @@ class TestGetImagesMetadataBatch:
         ) as mock_fetch:
             result = repository.get_images_metadata_batch([1, 2, 3])
 
-        mock_fetch.assert_called_once_with(mock_session, [1, 2, 3], resolution=0)
+        mock_fetch.assert_called_once_with(mock_session, [1, 2, 3], resolution=0, include_annotations=True)
         assert len(result) == 3
 
     def test_chunking_boundary_plus_one(self, repository):
@@ -95,8 +95,8 @@ class TestGetImagesMetadataBatch:
 
         assert mock_fetch.call_count == 2
         # 第1チャンク: [1,2,3], 第2チャンク: [4]
-        mock_fetch.assert_any_call(mock_session, [1, 2, 3], resolution=0)
-        mock_fetch.assert_any_call(mock_session, [4], resolution=0)
+        mock_fetch.assert_any_call(mock_session, [1, 2, 3], resolution=0, include_annotations=True)
+        mock_fetch.assert_any_call(mock_session, [4], resolution=0, include_annotations=True)
         assert len(result) == 4
 
     def test_chunking_single_element(self, repository):
@@ -113,7 +113,7 @@ class TestGetImagesMetadataBatch:
         ) as mock_fetch:
             result = repository.get_images_metadata_batch([99])
 
-        mock_fetch.assert_called_once_with(mock_session, [99], resolution=0)
+        mock_fetch.assert_called_once_with(mock_session, [99], resolution=0, include_annotations=True)
         assert result == [{"id": 99}]
 
     def test_chunking_exact_multiple(self, repository):

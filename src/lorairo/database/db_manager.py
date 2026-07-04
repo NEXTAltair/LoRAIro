@@ -1121,7 +1121,9 @@ class ImageDatabaseManager:
             logger.error(f"最低解像度パス一括取得中にエラー (count={len(image_ids)}): {e}", exc_info=True)
             raise
 
-    def get_images_metadata_batch(self, image_ids: list[int]) -> list[dict[str, Any]]:
+    def get_images_metadata_batch(
+        self, image_ids: list[int], *, include_annotations: bool = True
+    ) -> list[dict[str, Any]]:
         """複数画像のオリジナルメタデータを一括取得する (#1140 N+1 解消)。
 
         ``get_image_metadata`` と同じ列集合の dict を返す (キーは images.id = ``id``)。
@@ -1129,12 +1131,16 @@ class ImageDatabaseManager:
 
         Args:
             image_ids: 対象画像 ID リスト。
+            include_annotations: アノテーションを先読みするか。別経路で取得済みなら
+                False にして二重フェッチを避ける (Issue #1140)。
 
         Raises:
             SQLAlchemyError: DB 操作に失敗した場合は呼び出し元に伝播させる。
         """
         try:
-            return self.image_repo.get_images_metadata_batch(image_ids)
+            return self.image_repo.get_images_metadata_batch(
+                image_ids, include_annotations=include_annotations
+            )
         except SQLAlchemyError as e:
             logger.error(f"メタデータ一括取得中にエラー (count={len(image_ids)}): {e}", exc_info=True)
             raise

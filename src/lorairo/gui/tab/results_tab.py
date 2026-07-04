@@ -14,7 +14,7 @@ from ...database.db_manager import ImageDatabaseManager
 from ...services.quality_issue_detection_service import QualityIssueDetectionService
 from ...utils.log import logger
 from ..state.staging_state import StagingStateManager
-from ..widgets.results_widget import ResultsWidget
+from ..widgets.results_widget import _VIRTUALIZE_THRESHOLD, ResultsWidget
 
 
 class ResultsTabWidget(QWidget):
@@ -92,14 +92,18 @@ class ResultsTabWidget(QWidget):
             return
 
         # DB 取得は N+1 を避けるため一括で行う (#1140)。ステージング全画像分の
-        # metadata / annotations / 最低解像度パスを 3 回のバッチクエリでまとめて引く
-        # (旧実装は 1 画像 4 クエリの直列ループで GUI スレッドが数分ブロックしていた)。
-        metadata_by_id = {m["id"]: m for m in self._db_manager.get_images_metadata_batch(image_ids)}
+        # metadata / annotations をバッチクエリでまとめて引く (旧実装は 1 画像 4 クエリの
+        # 直列ループで GUI スレッドが数分ブロックしていた)。
+        # metadata はアノテーションを別バッチで取るため include_annotations=False にして
+        # 二重フェッチを避ける (Codex #1143 P2-1)。
+        metadata_by_id = {
+            m["id"]: m
+            for m in self._db_manager.get_images_metadata_batch(image_ids, include_annotations=False)
+        }
         annotations_by_id = self._db_manager.get_image_annotations_batch(image_ids)
-        low_res_by_id = self._db_manager.get_low_res_image_paths_batch(image_ids)
 
         results = []
-        image_paths: dict[int, str] = {}
+        valid_ids: list[int] = []
         for image_id in image_ids:
             metadata = metadata_by_id.get(image_id)
             if metadata is None:
@@ -112,15 +116,26 @@ class ResultsTabWidget(QWidget):
                 "reviewed_at": metadata.get("reviewed_at"),
             }
             results.append(self._quality_service.detect_image(image_id, image_meta, annotations))
-            # 行内サムネイル用のパスを解決する (#1104)。View は DB を持たないため、
-            # パス解決はこのタブ (glue) が担って display に渡す。
-            path = self._resolve_thumbnail_path(metadata, low_res_by_id.get(image_id))
-            if path is not None:
-                image_paths[image_id] = path
+            valid_ids.append(image_id)
 
         if not results:
             self._results_widget.clear()
             return
+
+        # 大規模時 (ResultsWidget が per-row 描画を諦める degrade 域) は行サムネイルを
+        # ほぼ描かないため、最低解像度パスの一括取得をスキップする (Codex #1143 P2-3)。
+        # degrade でも残る clean-audit の抜き取り行 (少数) は metadata の stored_image_path
+        # フォールバックでサムネイルを賄う。
+        degrade = len(results) >= _VIRTUALIZE_THRESHOLD
+        low_res_by_id = {} if degrade else self._db_manager.get_low_res_image_paths_batch(valid_ids)
+
+        # 行内サムネイル用のパスを解決する (#1104)。View は DB を持たないため、パス解決は
+        # このタブ (glue) が担って display に渡す。
+        image_paths: dict[int, str] = {}
+        for image_id in valid_ids:
+            path = self._resolve_thumbnail_path(metadata_by_id[image_id], low_res_by_id.get(image_id))
+            if path is not None:
+                image_paths[image_id] = path
 
         summary = self._quality_service.summarize(results)
         self._results_widget.display(summary, results, image_paths)

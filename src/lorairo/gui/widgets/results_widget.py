@@ -257,11 +257,18 @@ class ResultsWidget(QWidget):
         if issue_band is not None:
             self._root.addWidget(issue_band)
 
-        # 大規模時は per-row 描画を諦め、サマリ + issue 集約のみ表示する (#1140)。
-        # 数千 chip の一括構築を避け、絞り込みへ誘導する (wireframes Results@500)。
+        # 大規模時は per-row 描画を諦め、サマリ + issue 集約 + 集約ノーティスを表示する
+        # (#1140、数千 chip の一括構築を避け絞り込みへ誘導。wireframes Results@500)。
+        # ただし clean-audit の抜き取り監査バンド (少数行 + 一括 accept) は残す
+        # (degrade でも「確認して accept」導線を失わない。Codex #1143 P2-2)。
         if len(ordered) >= _VIRTUALIZE_THRESHOLD:
             self._root.addWidget(self._build_scale_notice(len(ordered)))
+            band = self._build_clean_audit_band(ordered)
+            if band is not None:
+                self._root.addWidget(band)
             self._root.addStretch(1)
+            # clean-audit の抜き取り行サムネイルを可視域ロード対象として評価する。
+            QTimer.singleShot(0, self, self._load_visible_thumbnails)
             return
 
         rows_container = QWidget()
