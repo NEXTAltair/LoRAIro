@@ -636,3 +636,123 @@ class TestProviderBatchJobService:
 
         with pytest.raises(ProviderBatchAdapterNotFoundError):
             service.submit_batch(make_submit_request())
+
+
+class BatchJobError(Exception):
+    """image-annotator-lib の BatchJobError を模した stub (型名で判定されるため同名、#1152)。"""
+
+    def __init__(self, *, code: str, message: str, provider: str = "openai") -> None:
+        super().__init__(message)
+        self.phase = "download"
+        self.provider = provider
+        self.provider_job_id = "batch_123"
+        self.code = code
+        self.message = message
+        self.retryable = False
+
+
+class _FetchRaisingAdapter(FakeProviderBatchAdapter):
+    """fetch_batch_results / retrieve_batch で BatchJobError を raise する adapter。"""
+
+    def __init__(self, error: Exception) -> None:
+        super().__init__()
+        self._error = error
+
+    def fetch_batch_results(self, handle, destination_dir):  # type: ignore[override]
+        raise self._error
+
+    def retrieve_batch(self, handle):  # type: ignore[override]
+        raise self._error
+
+
+class TestBatchJobErrorConversion:
+    """#1152: lib の BatchJobError を境界で ProviderBatchError へ変換する。"""
+
+    def test_result_file_gone_404_converts_with_dedicated_message(
+        self, test_provider_batch_repository: ProviderBatchRepository
+    ) -> None:
+        error = BatchJobError(
+            code="result_file_download_failed",
+            message="Error code: 404 - No such File object: file-abc",
+        )
+        adapter = _FetchRaisingAdapter(error)
+        service = ProviderBatchJobService(test_provider_batch_repository, {"openai": adapter})
+        job_id = service.submit_batch(make_submit_request())
+
+        # 未処理例外にならず ProviderBatchError へ変換され、専用メッセージが出る
+        with pytest.raises(ProviderBatchError, match="削除済み") as exc:
+            service.fetch_results(job_id, Path("/tmp/batch_results"))
+        assert "回収できません" in str(exc.value)
+        # 原因は from e で連鎖する
+        assert isinstance(exc.value.__cause__, BatchJobError)
+
+    def test_result_file_missing_code_converts_with_dedicated_message(
+        self, test_provider_batch_repository: ProviderBatchRepository
+    ) -> None:
+        error = BatchJobError(
+            code="result_file_missing",
+            message="OpenAI batch completed but did not provide output/error file IDs",
+        )
+        adapter = _FetchRaisingAdapter(error)
+        service = ProviderBatchJobService(test_provider_batch_repository, {"openai": adapter})
+        job_id = service.submit_batch(make_submit_request())
+
+        with pytest.raises(ProviderBatchError, match="削除済み"):
+            service.fetch_results(job_id, Path("/tmp/batch_results"))
+
+    def test_other_batch_job_error_converts_with_generic_message(
+        self, test_provider_batch_repository: ProviderBatchRepository
+    ) -> None:
+        error = BatchJobError(code="download_failed", message="transient network error")
+        adapter = _FetchRaisingAdapter(error)
+        service = ProviderBatchJobService(test_provider_batch_repository, {"openai": adapter})
+        job_id = service.submit_batch(make_submit_request())
+
+        with pytest.raises(ProviderBatchError, match="結果取得に失敗") as exc:
+            service.fetch_results(job_id, Path("/tmp/batch_results"))
+        assert "download_failed" in str(exc.value)
+        assert "削除済み" not in str(exc.value)
+
+    def test_refresh_also_converts_batch_job_error(
+        self, test_provider_batch_repository: ProviderBatchRepository
+    ) -> None:
+        error = BatchJobError(code="retrieve_failed", message="Error code: 404 - not found")
+        adapter = _FetchRaisingAdapter(error)
+        service = ProviderBatchJobService(test_provider_batch_repository, {"openai": adapter})
+        job_id = service.submit_batch(make_submit_request())
+
+        with pytest.raises(ProviderBatchError):
+            service.refresh(job_id)
+
+    def test_unexpected_exception_is_not_swallowed(
+        self, test_provider_batch_repository: ProviderBatchRepository
+    ) -> None:
+        # BatchJobError でない想定外例外は変換せずそのまま伝播する
+        adapter = _FetchRaisingAdapter(ValueError("unexpected"))
+        service = ProviderBatchJobService(test_provider_batch_repository, {"openai": adapter})
+        job_id = service.submit_batch(make_submit_request())
+
+        with pytest.raises(ValueError):
+            service.fetch_results(job_id, Path("/tmp/batch_results"))
+
+
+class TestBatchJobErrorHelpers:
+    """#1152: BatchJobError 判定・変換の pure ヘルパー。"""
+
+    def test_is_result_file_gone_by_download_404(self) -> None:
+        from lorairo.services.provider_batch_service import _is_result_file_gone
+
+        err = BatchJobError(code="result_file_download_failed", message="404 - No such File object")
+        assert _is_result_file_gone(err) is True
+
+    def test_is_result_file_gone_false_for_transient(self) -> None:
+        from lorairo.services.provider_batch_service import _is_result_file_gone
+
+        err = BatchJobError(code="result_file_download_failed", message="connection reset")
+        assert _is_result_file_gone(err) is False
+
+    def test_is_batch_job_error_by_type_name(self) -> None:
+        from lorairo.services.provider_batch_service import _is_batch_job_error
+
+        assert _is_batch_job_error(BatchJobError(code="x", message="y")) is True
+        assert _is_batch_job_error(ValueError("z")) is False

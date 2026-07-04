@@ -339,6 +339,26 @@ def test_check_status_for_completed_job_fetches_and_imports(widget, dependencies
     assert "DB保存が完了" in widget.labelStatus.text()
 
 
+def test_check_status_result_file_gone_is_handled_not_crash(widget, dependencies):
+    """#1152: 結果ファイル削除済み(404)→ProviderBatchError を widget が処理し未処理例外にしない。"""
+    from lorairo.services.provider_batch_service import ProviderBatchError
+
+    workflow, repository = dependencies
+    workflow.refresh.return_value = _job(status="completed", provider_status="completed")
+    workflow.fetch_results.side_effect = ProviderBatchError(
+        "結果ファイルは provider 側で削除済みです（保存期限切れの可能性）。"
+        "このジョブの結果は回収できません。再送は Annotate から行ってください。"
+    )
+    widget.set_dependencies(workflow, repository)
+
+    # 未処理例外を出さず (catch されている)、専用メッセージ表示 + WARNING ログ (#1150)
+    messages = _capture_warnings(lambda: widget.check_job_status(42))
+
+    assert "削除済み" in widget.labelStatus.text()
+    assert "回収できません" in widget.labelStatus.text()
+    assert any("status check failed (job 42)" in m and "削除済み" in m for m in messages)
+
+
 @pytest.mark.unit
 @pytest.mark.gui
 def test_check_status_for_imported_job_does_not_save_again(widget, dependencies):

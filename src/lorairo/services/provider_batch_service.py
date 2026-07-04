@@ -8,11 +8,11 @@ from __future__ import annotations
 
 import json
 import re
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field, replace
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Protocol
+from typing import Any, Protocol, TypeVar
 
 from lorairo.database.repository.provider_batch import ProviderBatchRepository
 from lorairo.database.schema import ProviderBatchJob
@@ -30,6 +30,49 @@ _PHASH_CUSTOM_ID_PATTERN = re.compile(r"^ph:(?P<phash>[A-Za-z0-9_-]+):le:(?P<lon
 
 class ProviderBatchError(RuntimeError):
     """Provider Batch service の基底例外。"""
+
+
+_T = TypeVar("_T")
+
+# #1152: 結果ファイルが provider 側で削除済み (保存期限切れ 404) を示す BatchJobError.code。
+_RESULT_FILE_MISSING_CODES = frozenset({"result_file_missing"})
+_RESULT_FILE_DOWNLOAD_CODE = "result_file_download_failed"
+_NOT_FOUND_HINTS = ("no such file", "not found", "notfound", "404")
+
+
+def _is_batch_job_error(error: BaseException) -> bool:
+    """例外が image-annotator-lib の ``BatchJobError`` か型名で判定する (#1152)。
+
+    image_annotator_lib を import すると torch/tensorflow の重い初期化が走り、テストでは
+    モックされるため ``except BatchJobError`` が使えない。型名 + 構造化属性で duck-typing する。
+    """
+    return type(error).__name__ == "BatchJobError" or (
+        hasattr(error, "code") and hasattr(error, "phase") and hasattr(error, "provider")
+    )
+
+
+def _is_result_file_gone(error: BaseException) -> bool:
+    """BatchJobError が「結果ファイルが provider 側で削除済み (404/期限切れ)」かを判定する (#1152)。"""
+    code = str(getattr(error, "code", "") or "")
+    if code in _RESULT_FILE_MISSING_CODES:
+        return True
+    message = str(getattr(error, "message", "") or error).lower()
+    return code == _RESULT_FILE_DOWNLOAD_CODE and any(hint in message for hint in _NOT_FOUND_HINTS)
+
+
+def _batch_job_error_to_provider_error(error: BaseException) -> ProviderBatchError:
+    """lib の ``BatchJobError`` を境界で :class:`ProviderBatchError` へ変換する (#1152)。
+
+    結果ファイル削除済み (保存期限切れ 404) は専用メッセージで回収不能を明示する。
+    それ以外は code 付きの一般メッセージにして widget の想定内ハンドリングへ載せる。
+    """
+    if _is_result_file_gone(error):
+        return ProviderBatchError(
+            "結果ファイルは provider 側で削除済みです（保存期限切れの可能性）。"
+            "このジョブの結果は回収できません。再送は Annotate から行ってください。"
+        )
+    code = str(getattr(error, "code", "") or "error")
+    return ProviderBatchError(f"Batch API の結果取得に失敗しました ({code}): {error}")
 
 
 class ProviderBatchAdapterNotFoundError(ProviderBatchError):
@@ -452,9 +495,13 @@ class ProviderBatchJobService:
 
         adapter = self._get_adapter(job.provider)
         if hasattr(adapter, "retrieve_batch"):
-            provider_status = adapter.retrieve_batch(self._build_handle(job, api_keys))
+            provider_status = self._run_adapter(
+                lambda: adapter.retrieve_batch(self._build_handle(job, api_keys))
+            )
         else:
-            provider_status = adapter.retrieve(job.provider_job_id)  # type: ignore[attr-defined]
+            provider_status = self._run_adapter(
+                lambda: adapter.retrieve(job.provider_job_id)  # type: ignore[attr-defined]
+            )
         return self._apply_status(job, provider_status)
 
     def cancel(self, job_id: int, api_keys: Mapping[str, str] | None = None) -> ProviderBatchJob:
@@ -466,9 +513,13 @@ class ProviderBatchJobService:
 
         adapter = self._get_adapter(job.provider)
         if hasattr(adapter, "cancel_batch"):
-            provider_status = adapter.cancel_batch(self._build_handle(job, api_keys))
+            provider_status = self._run_adapter(
+                lambda: adapter.cancel_batch(self._build_handle(job, api_keys))
+            )
         else:
-            provider_status = adapter.cancel(job.provider_job_id)  # type: ignore[attr-defined]
+            provider_status = self._run_adapter(
+                lambda: adapter.cancel(job.provider_job_id)  # type: ignore[attr-defined]
+            )
         return self._apply_status(job, provider_status)
 
     def download_results(
@@ -511,6 +562,22 @@ class ProviderBatchJobService:
 
         return fetch_result
 
+    def _run_adapter(self, operation: Callable[[], _T]) -> _T:
+        """adapter 呼び出しを実行し、lib の ``BatchJobError`` を ``ProviderBatchError`` へ変換する (#1152)。
+
+        想定内の provider batch エラー (結果ファイル削除済み等) を widget の
+        ``except ProviderBatchError`` に載せる。既に ``ProviderBatchError`` なら素通し、
+        それ以外の想定外例外はそのまま伝播させる。
+        """
+        try:
+            return operation()
+        except ProviderBatchError:
+            raise
+        except Exception as e:
+            if not _is_batch_job_error(e):
+                raise
+            raise _batch_job_error_to_provider_error(e) from e
+
     def _fetch_from_adapter(
         self,
         job: ProviderBatchJob,
@@ -519,11 +586,15 @@ class ProviderBatchJobService:
     ) -> ProviderBatchFetchResult:
         adapter = self._get_adapter(job.provider)
         if hasattr(adapter, "fetch_batch_results"):
-            raw_result = adapter.fetch_batch_results(self._build_handle(job, api_keys), destination_dir)
+            raw_result = self._run_adapter(
+                lambda: adapter.fetch_batch_results(self._build_handle(job, api_keys), destination_dir)
+            )
         else:
-            raw_result = adapter.download_results(  # type: ignore[attr-defined]
-                job.provider_job_id,
-                destination_dir,
+            raw_result = self._run_adapter(
+                lambda: adapter.download_results(  # type: ignore[attr-defined]
+                    job.provider_job_id,
+                    destination_dir,
+                )
             )
         return self._coerce_fetch_result(raw_result, job.provider_job_id or "")
 
