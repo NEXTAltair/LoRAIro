@@ -213,6 +213,63 @@ def test_save_provider_batch_results_by_image_id_saves_without_phash_lookup(
 
 
 @pytest.mark.unit
+def test_provider_batch_import_commits_in_small_chunks(
+    service: AnnotationSaveService,
+    mock_repository: MagicMock,
+) -> None:
+    """#1158: provider-batch import は少数画像ごとに commit しロックを解放する。
+
+    ``save_annotations_batch`` は呼び出しごとに独立セッション + commit なので、複数回
+    呼ばれること = チャンク間で書き込みロックが解放されること。巨大単一トランザクション
+    が >30s ロックを保持して並行 writer を ``database is locked`` にする回帰を防ぐ。
+    """
+    mock_repository.batch_resolve_tag_ids.return_value = {}
+    # 120 画像 → commit_chunk=50 で 50 / 50 / 20 の 3 コミットに分割される
+    results = {i: _make_success_result(tags=[f"t{i}"]) for i in range(1, 121)}
+
+    service.save_provider_batch_results_by_image_id(results, model_id=10, model_name="m")
+
+    assert mock_repository.save_annotations_batch.call_count == 3
+    sizes = [len(call.args[0]) for call in mock_repository.save_annotations_batch.call_args_list]
+    assert sizes == [50, 50, 20]
+    # 1 コミットあたりの画像数は commit_chunk (50) を超えない = ロング・トランザクション回避
+    assert all(size <= 50 for size in sizes)
+    # 各バッチは自身のサイズを内側 chunk_size に渡す (チャンク内は all-or-nothing)
+    for call in mock_repository.save_annotations_batch.call_args_list:
+        assert call.kwargs["chunk_size"] == len(call.args[0])
+
+
+@pytest.mark.unit
+def test_sync_path_keeps_single_commit_by_default(
+    service: AnnotationSaveService,
+    mock_repository: MagicMock,
+) -> None:
+    """#1158: 既定 (sync/通常アノテ経路) は従来通り単一トランザクションで commit する。
+
+    commit_chunk のオプトインは provider-batch のみ。既定引数を変えていないことを保証し、
+    既存書き込み経路の意味論 (単一トランザクション) 不変を回帰テストする。
+    """
+    from lorairo.services.annotation_save_service import _PreparedAnnotationSave
+
+    items = [
+        _PreparedAnnotationSave(source_key=str(i), image_id=i, annotations={"tags": [{"tag": "x"}]})
+        for i in range(1, 121)
+    ]
+
+    # 既定 (commit_chunk 未指定) で呼ぶ
+    service._save_prepared_batch(
+        items,
+        tag_id_cache={},
+        error_message=lambda item, e: "",
+        log_message=lambda item, e: "",
+    )
+
+    # 120 画像でも 1 コミットに集約される (BATCH_CHUNK_SIZE=15000 の従来挙動)
+    mock_repository.save_annotations_batch.assert_called_once()
+    assert len(mock_repository.save_annotations_batch.call_args.args[0]) == 120
+
+
+@pytest.mark.unit
 def test_save_provider_batch_results_by_image_id_records_refusal(
     service: AnnotationSaveService,
     mock_repository: MagicMock,

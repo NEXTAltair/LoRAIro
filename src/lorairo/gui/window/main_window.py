@@ -1640,6 +1640,10 @@ class MainWindow(QMainWindow, Ui_MainWindow):
         for tab in (self.search_tab, self.export_tab):
             if tab is not None:
                 tab.selected_image_details_widget.shutdown()
+        # Provider Batch 結果回収 worker を停止する (#1158 Codex P2)。埋め込み widget の
+        # closeEvent は親閉鎖で発火しないため、Jobs タブ経由で明示的に停止して待つ。
+        if self.jobs_tab is not None:
+            self.jobs_tab.provider_batch_job_widget.shutdown()
         super().closeEvent(event)
 
     def _save_window_state(self) -> None:

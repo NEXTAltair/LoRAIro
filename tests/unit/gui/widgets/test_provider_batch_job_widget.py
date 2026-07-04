@@ -9,6 +9,7 @@ Issue #1103 でフラットテーブルを追跡カード (ProviderBatchJobCard)
 
 from __future__ import annotations
 
+import threading
 from datetime import UTC, datetime
 from types import SimpleNamespace
 from unittest.mock import MagicMock
@@ -92,6 +93,43 @@ def _card(widget, job_id: int = 42) -> ProviderBatchJobCard:
     card = widget.cards().get(job_id)
     assert card is not None, f"card for job {job_id} not found"
     return card
+
+
+def _wait_collect(widget, qtbot, job_id: int = 42, timeout: int = 5000) -> None:
+    """#1158: check_job_status を起動し、結果回収 worker の完了まで待つ。
+
+    worker 化で refresh→fetch→import は QThread で非同期実行される。保存済みの
+    即答パス (worker 未起動) はそのまま同期完了するため、``_collecting_job_ids`` が
+    空になるまで待てば両パスとも決着する。
+    """
+    widget.check_job_status(job_id)
+    qtbot.waitUntil(lambda: job_id not in widget._collecting_job_ids, timeout=timeout)
+
+
+class _BlockingWorkflow:
+    """worker の refresh を Event で保留し、in-flight 状態を決定的にする (#1158 Codex P2)。
+
+    モック workflow は worker が即完走して finished を emit するため、in-flight 状態を
+    そのまま assert するとレースする。refresh を release されるまで block させることで、
+    「worker 実行中」の assert を確実に成立させる。
+    """
+
+    def __init__(self, base: MagicMock) -> None:
+        self._base = base
+        self.release = threading.Event()
+        self.refresh_started = threading.Event()
+
+    def refresh(self, job_id: int):
+        self.refresh_started.set()
+        # release されるまで worker スレッドを保留 (in-flight を確定させる)
+        self.release.wait(5)
+        return self._base.refresh(job_id)
+
+    def fetch_results(self, *args, **kwargs):
+        return self._base.fetch_results(*args, **kwargs)
+
+    def import_results(self, *args, **kwargs):
+        return self._base.import_results(*args, **kwargs)
 
 
 # === 監視台帳の基本 UI (Issue #1103 — カード台帳) ===
@@ -293,11 +331,11 @@ def test_card_shows_shortened_batch_id_and_request_count(widget, dependencies):
 
 @pytest.mark.unit
 @pytest.mark.gui
-def test_check_status_for_incomplete_job_only_refreshes_status(widget, dependencies):
+def test_check_status_for_incomplete_job_only_refreshes_status(widget, dependencies, qtbot):
     workflow, repository = dependencies
     widget.set_dependencies(workflow, repository)
 
-    widget.check_job_status(42)
+    _wait_collect(widget, qtbot)
 
     workflow.refresh.assert_called_once_with(42)
     workflow.fetch_results.assert_not_called()
@@ -315,13 +353,15 @@ def test_check_status_via_card_button_click(widget, dependencies, qtbot):
     card = _card(widget)
     assert card.check_button is not None
     card.check_button.click()
+    # #1158: 「状態を確認」は worker 化されたため完了まで待つ (未完了ジョブは refresh のみ)
+    qtbot.waitUntil(lambda: 42 not in widget._collecting_job_ids, timeout=5000)
 
     workflow.refresh.assert_called_once_with(42)
 
 
 @pytest.mark.unit
 @pytest.mark.gui
-def test_check_status_for_completed_job_fetches_and_imports(widget, dependencies):
+def test_check_status_for_completed_job_fetches_and_imports(widget, dependencies, qtbot):
     workflow, repository = dependencies
     workflow.refresh.return_value = _job(status="completed", provider_status="completed")
     fetch_result = SimpleNamespace(items=(_item(),))
@@ -330,7 +370,7 @@ def test_check_status_for_completed_job_fetches_and_imports(widget, dependencies
     workflow.import_results.return_value = import_result
     widget.set_dependencies(workflow, repository)
 
-    widget.check_job_status(42)
+    _wait_collect(widget, qtbot)
 
     workflow.refresh.assert_called_once_with(42)
     workflow.fetch_results.assert_called_once_with(42)
@@ -339,7 +379,7 @@ def test_check_status_for_completed_job_fetches_and_imports(widget, dependencies
     assert "DB保存が完了" in widget.labelStatus.text()
 
 
-def test_check_status_result_file_gone_is_handled_not_crash(widget, dependencies):
+def test_check_status_result_file_gone_is_handled_not_crash(widget, dependencies, qtbot):
     """#1152: 結果ファイル削除済み(404)→ProviderBatchError を widget が処理し未処理例外にしない。"""
     from lorairo.services.provider_batch_service import ProviderBatchError
 
@@ -352,11 +392,144 @@ def test_check_status_result_file_gone_is_handled_not_crash(widget, dependencies
     widget.set_dependencies(workflow, repository)
 
     # 未処理例外を出さず (catch されている)、専用メッセージ表示 + WARNING ログ (#1150)
-    messages = _capture_warnings(lambda: widget.check_job_status(42))
+    # #1158: worker 化で例外は failed シグナル経由。完了まで待って捕捉する。
+    messages = _capture_warnings(lambda: _wait_collect(widget, qtbot))
 
     assert "削除済み" in widget.labelStatus.text()
     assert "回収できません" in widget.labelStatus.text()
     assert any("status check failed (job 42)" in m and "削除済み" in m for m in messages)
+
+
+@pytest.mark.unit
+@pytest.mark.gui
+def test_check_status_runs_off_gui_thread_via_worker(widget, dependencies, qtbot):
+    """#1158: 結果回収は worker thread で実行され GUI スレッドをブロックしない。
+
+    refresh は worker スレッドで呼ばれるため、check_job_status が即座に return した
+    直後 (worker 完了前) は GUI スレッドから見て refresh はまだ呼ばれておらず、
+    回収中フラグが立っている。完了後に refresh が呼ばれ、フラグが下りる。
+    """
+    workflow, repository = dependencies
+    workflow.refresh.return_value = _job(status="completed", provider_status="completed")
+    blocking = _BlockingWorkflow(workflow)
+    widget.set_dependencies(blocking, repository)
+
+    try:
+        widget.check_job_status(42)
+        # worker が refresh で保留中 = 確実に in-flight。GUI スレッドはブロックされていない
+        qtbot.waitUntil(blocking.refresh_started.is_set, timeout=5000)
+        assert 42 in widget._collecting_job_ids
+        assert widget.labelStatus.text() == "バッチAPIジョブ 42 の結果を取得中…"
+    finally:
+        blocking.release.set()
+
+    qtbot.waitUntil(lambda: 42 not in widget._collecting_job_ids, timeout=5000)
+    workflow.refresh.assert_called_once_with(42)
+
+
+@pytest.mark.unit
+@pytest.mark.gui
+def test_check_status_reentry_guarded_while_collecting(widget, dependencies):
+    """#1158: 回収中の同一ジョブへの再要求は弾く (連打・二重 import 防止)。"""
+    workflow, repository = dependencies
+    widget.set_dependencies(workflow, repository)
+    workflow.refresh.reset_mock()
+
+    # 回収中を模擬 (worker 実行中相当)
+    widget._collecting_job_ids.add(42)
+    widget.check_job_status(42)
+
+    # 既に回収中なので新規 worker を起動しない
+    workflow.refresh.assert_not_called()
+    assert 42 not in widget._collect_runners
+
+
+@pytest.mark.unit
+@pytest.mark.gui
+def test_collect_worker_reference_retained_until_thread_finished(widget, dependencies, qtbot):
+    """#1158: 実行中は (thread, worker) を保持し GC-during-run クラッシュを防ぐ。"""
+    workflow, repository = dependencies
+    blocking = _BlockingWorkflow(workflow)
+    widget.set_dependencies(blocking, repository)
+
+    try:
+        widget.check_job_status(42)
+        # worker を保留させ、実行中に runner を保持していることを確定的に検証する
+        qtbot.waitUntil(blocking.refresh_started.is_set, timeout=5000)
+        assert 42 in widget._collect_runners
+    finally:
+        blocking.release.set()
+
+    qtbot.waitUntil(lambda: 42 not in widget._collecting_job_ids, timeout=5000)
+    # 完了後は解放される (リーク防止)
+    assert 42 not in widget._collect_runners
+
+
+@pytest.mark.unit
+@pytest.mark.gui
+def test_check_status_initial_read_failure_falls_through_to_worker(widget, dependencies, qtbot):
+    """#1158 Codex P2: 保存済み判定の初回読みが transient エラーで raise しても未処理に
+    せず、最適化を諦めて worker 経路へ回す (皮肉にも #1158 が直す経路を再発させない)。"""
+    workflow, repository = dependencies
+    workflow.refresh.return_value = _job(status="completed", provider_status="completed")
+    widget.set_dependencies(workflow, repository)
+    # 初回読み (get_provider_batch_job) が locked 相当で失敗する状況
+    repository.get_provider_batch_job.side_effect = RuntimeError("database is locked")
+
+    # 未処理例外を出さず、worker が起動して回収まで到達する
+    _wait_collect(widget, qtbot)
+
+    workflow.refresh.assert_called_once_with(42)
+
+
+@pytest.mark.unit
+@pytest.mark.gui
+def test_shutdown_stops_active_collect_workers(widget, dependencies, qtbot):
+    """#1158 Codex P2: shutdown() は実行中の worker thread を停止し runner を解放する。"""
+    workflow, repository = dependencies
+    blocking = _BlockingWorkflow(workflow)
+    widget.set_dependencies(blocking, repository)
+
+    widget.check_job_status(42)
+    qtbot.waitUntil(blocking.refresh_started.is_set, timeout=5000)
+    assert 42 in widget._collect_runners
+
+    # worker が完走できるよう解放してから shutdown (quit + wait) を呼ぶ
+    blocking.release.set()
+    widget.shutdown()
+
+    assert widget._collect_runners == {}
+    assert widget._collecting_job_ids == set()
+
+
+@pytest.mark.unit
+@pytest.mark.gui
+def test_shutdown_retains_reference_when_worker_exceeds_timeout(widget, dependencies, qtbot, monkeypatch):
+    """#1159 Codex P2 (2巡目): wait timeout で実行中スレッドの参照を落とさない。
+
+    ``thread.quit()`` は run() を中断しないため、timeout 時にスレッドはまだ生きている。
+    参照を切ると実行中スレッドが解放済みオブジェクトに触ってクラッシュする。timeout 後も
+    (thread, worker) を保持し、実際の finished で解放されることを検証する。
+    """
+    # wait を短くして timeout を即発生させる (worker は release 待ちで停止中)
+    monkeypatch.setattr(widget_module, "_COLLECT_SHUTDOWN_WAIT_MS", 50)
+    workflow, repository = dependencies
+    blocking = _BlockingWorkflow(workflow)
+    widget.set_dependencies(blocking, repository)
+
+    widget.check_job_status(42)
+    qtbot.waitUntil(blocking.refresh_started.is_set, timeout=5000)
+    runner = widget._collect_runners[42]
+
+    # worker は refresh で保留中 → wait(50) が timeout → 参照は保持されたまま
+    widget.shutdown()
+    assert 42 in widget._collect_runners
+    assert runner in widget_module._ACTIVE_COLLECT_RUNNERS
+
+    # worker を解放して完走させると finished で参照が解放される
+    blocking.release.set()
+    qtbot.waitUntil(lambda: 42 not in widget._collect_runners, timeout=5000)
+    assert runner not in widget_module._ACTIVE_COLLECT_RUNNERS
 
 
 @pytest.mark.unit
@@ -378,7 +551,7 @@ def test_check_status_for_imported_job_does_not_save_again(widget, dependencies)
 
 @pytest.mark.unit
 @pytest.mark.gui
-def test_check_status_for_partial_import_shows_summary(widget, dependencies):
+def test_check_status_for_partial_import_shows_summary(widget, dependencies, qtbot):
     workflow, repository = dependencies
     workflow.refresh.return_value = _job(status="completed", provider_status="completed")
     workflow.import_results.return_value = SimpleNamespace(
@@ -389,7 +562,7 @@ def test_check_status_for_partial_import_shows_summary(widget, dependencies):
     )
     widget.set_dependencies(workflow, repository)
 
-    widget.check_job_status(42)
+    _wait_collect(widget, qtbot)
 
     assert "保存 1/3 件" in widget.labelStatus.text()
     assert "スキップ 1 件" in widget.labelStatus.text()
@@ -407,13 +580,13 @@ def test_check_status_for_partial_import_shows_summary(widget, dependencies):
     ],
 )
 def test_check_status_for_terminal_non_importable_jobs_shows_distinct_status(
-    widget, dependencies, status, expected
+    widget, dependencies, status, expected, qtbot
 ):
     workflow, repository = dependencies
     workflow.refresh.return_value = _job(status=status, provider_status=status)
     widget.set_dependencies(workflow, repository)
 
-    widget.check_job_status(42)
+    _wait_collect(widget, qtbot)
 
     workflow.fetch_results.assert_not_called()
     workflow.import_results.assert_not_called()
@@ -448,7 +621,7 @@ def _capture_warnings(func) -> list[str]:
     return messages
 
 
-def test_check_job_status_provider_error_logs_warning(widget, dependencies):
+def test_check_job_status_provider_error_logs_warning(widget, dependencies, qtbot):
     """#1150: check_job_status の ProviderBatchError が WARNING ログに残る (事後診断可能)。"""
     from lorairo.services.provider_batch_service import ProviderBatchError
 
@@ -456,7 +629,8 @@ def test_check_job_status_provider_error_logs_warning(widget, dependencies):
     workflow.refresh.side_effect = ProviderBatchError("adapter 未登録")
     widget.set_dependencies(workflow, repository)
 
-    messages = _capture_warnings(lambda: widget.check_job_status(42))
+    # #1158: worker 化で例外は failed シグナル経由。完了まで待って WARNING を捕捉する。
+    messages = _capture_warnings(lambda: _wait_collect(widget, qtbot))
 
     assert any("status check failed (job 42)" in m and "adapter 未登録" in m for m in messages)
     # ダイアログ / labelStatus のフィードバックは維持

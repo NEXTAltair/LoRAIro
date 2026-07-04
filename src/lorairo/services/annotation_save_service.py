@@ -21,6 +21,14 @@ from lorairo.utils.log import logger
 if TYPE_CHECKING:
     from lorairo.database.schema import AnnotationsDict, RatingAnnotationData
 
+# Provider Batch import 1 コミットあたりの画像数 (#1158)。
+# import は画像ごとに数百タグ + レーティングを書き込むため、既定 (BATCH_CHUNK_SIZE=15000
+# を1トランザクションで commit) だと SQLite の書き込みロックを長時間 (>30s の busy_timeout)
+# 保持し、並行 writer が ``database is locked`` になる。少数画像ごとに commit し、チャンク間で
+# ロックを解放して並行 writer を通す。sync/通常アノテ経路の単一トランザクション挙動は
+# 変えず (既定は据え置き)、provider-batch import 経路からのみオプトインで渡す。
+_PROVIDER_BATCH_COMMIT_CHUNK = 50
+
 
 @dataclass(frozen=True)
 class AnnotationSaveResult:
@@ -558,8 +566,18 @@ class AnnotationSaveService:
         tag_id_cache: dict[str, int | None],
         error_message: Callable[[_PreparedAnnotationSave, Exception], str],
         log_message: Callable[[_PreparedAnnotationSave, Exception], str],
+        commit_chunk: int | None = None,
     ) -> tuple[int, int, list[str]]:
-        """準備済み annotation を chunked batch 保存し、失敗 chunk は per-image retry する。"""
+        """準備済み annotation を chunked batch 保存し、失敗 chunk は per-image retry する。
+
+        Args:
+            commit_chunk: 1 コミットあたりの最大画像数 (#1158)。``None`` (既定) は従来通り
+                ``BATCH_CHUNK_SIZE`` (=15000) を 1 トランザクションで commit する
+                (sync/通常アノテ経路の挙動を維持)。provider-batch import のように書き込み
+                ロックの長時間保持で ``database is locked`` を招く経路のみ小さい値を渡すと、
+                その粒度ごとに commit してチャンク間でロックを解放する。all-or-nothing +
+                per-image fallback の意味論はチャンク単位で保たれる。
+        """
         if not prepared_items:
             return (0, 0, [])
 
@@ -567,6 +585,9 @@ class AnnotationSaveService:
         error_count = 0
         error_details: list[str] = []
         chunk_size = self._annotation_save_chunk_size()
+        if commit_chunk is not None and commit_chunk > 0:
+            # SQLite バインド変数上限のマージン (BATCH_CHUNK_SIZE) は超えないよう抑える。
+            chunk_size = min(commit_chunk, chunk_size)
 
         for chunk in self._iter_chunks(prepared_items, chunk_size):
             repo_items = [
@@ -798,6 +819,8 @@ class AnnotationSaveService:
             tag_id_cache=tag_id_cache,
             error_message=lambda item, e: f"image_id={item.image_id}: {e}",
             log_message=lambda item, e: f"Provider Batch result 保存失敗 image_id={item.image_id}: {e}",
+            # #1158: 少数画像ごとに commit しロックを解放 (並行 writer の database is locked を防ぐ)
+            commit_chunk=_PROVIDER_BATCH_COMMIT_CHUNK,
         )
         error_count += batch_error_count
         error_details.extend(batch_error_details)
