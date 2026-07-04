@@ -141,11 +141,11 @@ class TestBuildGlobalQss:
             assert selector in qss, f"missing selector: {selector}"
 
     def test_checkbox_indicator_has_visible_border_states(self):
-        # Issue #1092: QCheckBox の枠線がテーマ QSS 未定義で見えなかった回帰防止。
-        # unchecked は LINE_STRONG 枠 + CARD 地、checked は ACCENT 塗りでコントラストを確保。
+        # Issue #1092 (再オープン): 未チェック枠は背景に対し高コントラストな INK_SOFT、
+        # checked は ACCENT 塗りでコントラストを確保する。LINE_STRONG は ~1.4:1 で不可視だった。
         qss = theme.build_global_qss()
         unchecked = qss.split("QCheckBox::indicator:unchecked {")[1].split("}")[0]
-        assert f"1px solid {theme.LINE_STRONG}" in unchecked
+        assert f"1px solid {theme.INK_SOFT}" in unchecked
         assert f"background: {theme.CARD}" in unchecked
         checked = qss.split("QCheckBox::indicator:checked {")[1].split("}")[0]
         assert f"background: {theme.ACCENT}" in checked
@@ -164,11 +164,16 @@ class TestBuildGlobalQss:
         checked_disabled = qss.split("QCheckBox::indicator:checked:disabled {")[1].split("}")[0]
         assert f"background: {theme.ACCENT_SOFT}" in checked_disabled
 
-    def test_checkbox_indicator_uses_no_image_url(self):
-        # Codex P2 (#1092): Qt QSS は image: url() の CSS data URI をデコードしないため、
-        # チェックマーク画像は使わず塗りのみで表現する (radio と同流儀)。
+    def test_checkbox_checked_references_real_svg_not_data_uri(self):
+        # Issue #1092 (再オープン): Qt QSS は data URI をデコードしないため、実ファイルの
+        # SVG アセットを絶対パスで参照する。checked に白 ✓ を復活させる。
         qss = theme.build_global_qss()
-        assert "image: url(" not in qss
+        checked = qss.split("QCheckBox::indicator:checked {")[1].split("}")[0]
+        assert f"image: url({theme.CHECK_ICON_PATH})" in checked
+        assert "data:image" not in qss
+        from pathlib import Path
+
+        assert Path(theme.CHECK_ICON_PATH).is_file()
 
     def test_active_tab_uses_accent_underline_and_bold(self):
         qss = theme.build_global_qss()
