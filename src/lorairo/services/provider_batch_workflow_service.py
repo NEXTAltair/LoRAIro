@@ -436,6 +436,7 @@ class ProviderBatchWorkflowService:
 
     def refresh(self, job_id: int) -> ProviderBatchJob:
         """Refresh a provider batch job using configured API keys."""
+        logger.debug(f"ProviderBatch refresh: job_id={job_id}")  # #1150: 操作突合用
         return self._job_service.refresh(job_id, api_keys=self._config_service.get_api_keys())
 
     def cancel(self, job_id: int) -> ProviderBatchJob:
@@ -461,6 +462,7 @@ class ProviderBatchWorkflowService:
         destination_dir: str | Path | None = None,
     ) -> ProviderBatchFetchResult:
         """Fetch normalized provider results and apply per-item result state."""
+        logger.debug(f"ProviderBatch fetch_results: job_id={job_id}")  # #1150: 操作突合用
         resolved_destination = (
             Path(destination_dir)
             if destination_dir is not None
@@ -482,6 +484,7 @@ class ProviderBatchWorkflowService:
         destination_dir: str | Path | None = None,
     ) -> ProviderBatchImportResult:
         """Import normalized provider batch results using custom_id as the mapping SSoT."""
+        logger.debug(f"ProviderBatch import_results: job_id={job_id}")  # #1150: 操作突合用
         job = self._require_job(job_id)
         if job.status == "imported" or job.imported_at is not None:
             raise ProviderBatchError(f"Provider batch job は import 済みです: job_id={job_id}")

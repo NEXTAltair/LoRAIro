@@ -400,6 +400,9 @@ class ProviderBatchJobWidget(QWidget):
             self.select_job(job_id)
             self.labelStatus.setText(message)
         except ProviderBatchError as e:
+            # #1150: 想定内の業務エラーでも事後診断できるよう WARNING で記録する
+            # (従来はダイアログ + labelStatus のみでログ痕跡ゼロだった)。
+            logger.warning(f"バッチAPI status check failed (job {job_id}): {e}")
             QMessageBox.warning(self, "バッチAPI", str(e))
             self.labelStatus.setText(str(e))
         except Exception as e:
@@ -416,6 +419,8 @@ class ProviderBatchJobWidget(QWidget):
             self.select_job(job_id)
             self.labelStatus.setText(f"バッチAPIジョブ {job_id} のキャンセルを要求しました")
         except ProviderBatchError as e:
+            # #1150: 想定内の業務エラーでも事後診断できるよう WARNING で記録する。
+            logger.warning(f"バッチAPI cancel failed (job {job_id}): {e}")
             QMessageBox.warning(self, "バッチAPI", str(e))
             self.labelStatus.setText(str(e))
         except Exception as e:
