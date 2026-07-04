@@ -162,11 +162,75 @@ class TestCheckboxQssStatic:
 
     def test_unchecked_border_uses_ink_soft(self):
         qss = theme.build_global_qss()
-        unchecked = qss.split("QCheckBox::indicator:unchecked {")[1].split("}")[0]
+        unchecked = qss.split("QCheckBox::indicator:unchecked, QGroupBox::indicator:unchecked {")[1].split(
+            "}"
+        )[0]
         assert f"1px solid {theme.INK_SOFT}" in unchecked
 
     def test_indicator_is_enlarged(self):
         qss = theme.build_global_qss()
-        indicator = qss.split("QCheckBox::indicator {")[1].split("}")[0]
+        indicator = qss.split("QCheckBox::indicator, QGroupBox::indicator {")[1].split("}")[0]
         assert "width: 16px" in indicator
         assert "height: 16px" in indicator
+
+
+def _render_groupbox(qtbot, *, checked: bool) -> tuple[QRect, QImage]:
+    """PAPER 地に checkable QGroupBox を描画し、(indicator 矩形, host画像) を返す (#1146)。
+
+    折りたたみチェックは QGroupBox::indicator で描画される。indicator 矩形は QStyle の
+    SC_GroupBoxCheckBox から取得して host 座標系へ写す。
+    """
+    from PySide6.QtWidgets import QGroupBox, QStyleOptionGroupBox
+
+    host = QWidget()
+    host.setStyleSheet(f"background: {theme.PAPER};")
+    layout = QVBoxLayout(host)
+    layout.setContentsMargins(20, 20, 20, 20)
+    group = QGroupBox("お気に入り")
+    group.setCheckable(True)
+    group.setChecked(checked)
+    layout.addWidget(group)
+    qtbot.addWidget(host)
+    host.resize(200, 120)
+    host.show()
+    qtbot.waitExposed(host)
+    QApplication.sendEvent(group, QEvent(QEvent.Type.Leave))
+    QApplication.processEvents()
+
+    option = QStyleOptionGroupBox()
+    group.initStyleOption(option)
+    indicator = group.style().subControlRect(
+        QStyle.ComplexControl.CC_GroupBox, option, QStyle.SubControl.SC_GroupBoxCheckBox, group
+    )
+    origin = group.mapTo(host, indicator.topLeft())
+    host_rect = QRect(origin.x(), origin.y(), indicator.width(), indicator.height())
+    return host_rect, host.grab().toImage()
+
+
+class TestGroupBoxIndicator:
+    """#1146: checkable QGroupBox 折りたたみチェックも QCheckBox と同トーンで視認できる。"""
+
+    def test_unchecked_border_is_dark(self, qtbot):
+        rect, image = _render_groupbox(qtbot, checked=False)
+        darkest = (255, 255, 255)
+        for x in range(rect.x() - 1, rect.x() + rect.width() + 1):
+            for y in range(rect.y() - 1, rect.y() + rect.height() + 1):
+                color = QColor(image.pixel(x, y))
+                rgb = (color.red(), color.green(), color.blue())
+                if sum(rgb) < sum(darkest):
+                    darkest = rgb
+        assert _contrast(darkest, _PAPER_RGB) >= 3.0
+
+    def test_checked_has_white_check_over_accent_fill(self, qtbot):
+        rect, image = _render_groupbox(qtbot, checked=True)
+        orange, white = _count_interior(image, rect)
+        assert orange > 20, f"ACCENT 塗りが描画されていない (orange={orange})"
+        assert white >= 5, f"白チェックマークが描画されていない (white={white})"
+
+    def test_qss_shares_checkbox_indicator_rules(self):
+        qss = theme.build_global_qss()
+        # QGroupBox::indicator が QCheckBox::indicator と併記で定義されている
+        assert "QGroupBox::indicator:unchecked" in qss
+        assert "QGroupBox::indicator:checked" in qss
+        unchecked = qss.split("QGroupBox::indicator:unchecked")[1].split("{")[1].split("}")[0]
+        assert f"1px solid {theme.INK_SOFT}" in unchecked

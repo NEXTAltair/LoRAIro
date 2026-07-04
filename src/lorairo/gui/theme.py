@@ -406,45 +406,47 @@ QToolButton:hover {{
     border-color: {LINE_STRONG};
 }}
 
-/* --- チェックボックス (選択系: search_facets_sidebar の radio とトーン統一) --- */
+/* --- チェックボックス / checkable QGroupBox 折りたたみ (選択系: radio とトーン統一) --- */
+/* checkable QGroupBox の見出しチェックは QGroupBox::indicator で描画されるため、
+   QCheckBox::indicator と同一ルールをセレクタ併記で共有する (#1092 / #1146)。 */
 QCheckBox {{
     spacing: 7px;
     background: transparent;
 }}
-QCheckBox::indicator {{
+QCheckBox::indicator, QGroupBox::indicator {{
     width: 16px;
     height: 16px;
 }}
 /* 未チェック枠は INK_SOFT (背景 PAPER に対し ~7:1 と十分なコントラスト、#1092)。
    LINE_STRONG (~1.4:1) では枠が視認できなかった。 */
-QCheckBox::indicator:unchecked {{
+QCheckBox::indicator:unchecked, QGroupBox::indicator:unchecked {{
     border: 1px solid {INK_SOFT};
     border-radius: 3px;
     background: {CARD};
 }}
-QCheckBox::indicator:unchecked:hover {{
+QCheckBox::indicator:unchecked:hover, QGroupBox::indicator:unchecked:hover {{
     border-color: {ACCENT};
 }}
 /* checked は ACCENT 塗り + 白 ✓ (実ファイル SVG、#1092)。 */
-QCheckBox::indicator:checked {{
+QCheckBox::indicator:checked, QGroupBox::indicator:checked {{
     border: 1px solid {ACCENT};
     border-radius: 3px;
     background: {ACCENT};
     image: url({CHECK_ICON_PATH});
 }}
-QCheckBox::indicator:checked:hover {{
+QCheckBox::indicator:checked:hover, QGroupBox::indicator:checked:hover {{
     border-color: {ACCENT_HOVER};
     background: {ACCENT_HOVER};
 }}
 QCheckBox:disabled {{
     color: {INK_FAINT};
 }}
-QCheckBox::indicator:disabled {{
+QCheckBox::indicator:disabled, QGroupBox::indicator:disabled {{
     border-color: {LINE};
     background: {PAPER_SHADE};
 }}
 /* checked のまま disabled でも「塗り + ✓」を残し unchecked と区別する (accent 減光) */
-QCheckBox::indicator:checked:disabled {{
+QCheckBox::indicator:checked:disabled, QGroupBox::indicator:checked:disabled {{
     border-color: {LINE_STRONG};
     background: {ACCENT_SOFT};
     image: url({CHECK_ICON_PATH});

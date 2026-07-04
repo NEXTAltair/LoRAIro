@@ -144,16 +144,20 @@ class TestBuildGlobalQss:
         # Issue #1092 (再オープン): 未チェック枠は背景に対し高コントラストな INK_SOFT、
         # checked は ACCENT 塗りでコントラストを確保する。LINE_STRONG は ~1.4:1 で不可視だった。
         qss = theme.build_global_qss()
-        unchecked = qss.split("QCheckBox::indicator:unchecked {")[1].split("}")[0]
+        unchecked = qss.split("QCheckBox::indicator:unchecked, QGroupBox::indicator:unchecked {")[1].split(
+            "}"
+        )[0]
         assert f"1px solid {theme.INK_SOFT}" in unchecked
         assert f"background: {theme.CARD}" in unchecked
-        checked = qss.split("QCheckBox::indicator:checked {")[1].split("}")[0]
+        checked = qss.split("QCheckBox::indicator:checked, QGroupBox::indicator:checked {")[1].split("}")[0]
         assert f"background: {theme.ACCENT}" in checked
 
     def test_checkbox_indicator_hover_uses_accent(self):
         qss = theme.build_global_qss()
         assert "QCheckBox::indicator:unchecked:hover" in qss
-        hover = qss.split("QCheckBox::indicator:unchecked:hover {")[1].split("}")[0]
+        hover = qss.split("QCheckBox::indicator:unchecked:hover, QGroupBox::indicator:unchecked:hover {")[
+            1
+        ].split("}")[0]
         assert f"border-color: {theme.ACCENT}" in hover
 
     def test_checkbox_checked_disabled_stays_filled(self):
@@ -161,14 +165,16 @@ class TestBuildGlobalQss:
         # 塗り (accent 減光) を残す。汎用 :disabled ルールに上書きされないこと。
         qss = theme.build_global_qss()
         assert "QCheckBox::indicator:checked:disabled" in qss
-        checked_disabled = qss.split("QCheckBox::indicator:checked:disabled {")[1].split("}")[0]
+        checked_disabled = qss.split(
+            "QCheckBox::indicator:checked:disabled, QGroupBox::indicator:checked:disabled {"
+        )[1].split("}")[0]
         assert f"background: {theme.ACCENT_SOFT}" in checked_disabled
 
     def test_checkbox_checked_references_real_svg_not_data_uri(self):
         # Issue #1092 (再オープン): Qt QSS は data URI をデコードしないため、実ファイルの
         # SVG アセットを絶対パスで参照する。checked に白 ✓ を復活させる。
         qss = theme.build_global_qss()
-        checked = qss.split("QCheckBox::indicator:checked {")[1].split("}")[0]
+        checked = qss.split("QCheckBox::indicator:checked, QGroupBox::indicator:checked {")[1].split("}")[0]
         assert f"image: url({theme.CHECK_ICON_PATH})" in checked
         assert "data:image" not in qss
         from pathlib import Path
