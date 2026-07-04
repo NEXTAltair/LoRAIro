@@ -48,10 +48,18 @@ from lorairo.utils.log import logger
 _COMPLETED_STATUS = "completed"
 _IMPORTED_STATUS = "imported"
 
-# 結果回収 worker thread の GC 防止用 (#1158, controller の _ACTIVE_DISPATCH_THREADS と同方式)。
+# 実行中の結果回収 (QThread, worker) を GC から守る module-level 保持 (#1158)。
 # 受け手 (本 widget = QObject) は worker (専用 QThread) と別スレッドなので queued 接続で
-# slot はメインスレッド実行。set で保持しないと worker 即 GC でクラッシュする。
-_ACTIVE_COLLECT_THREADS: set[QThread] = set()
+# slot はメインスレッド実行。ここで保持しないと worker/thread が即 GC されクラッシュする。
+# widget インスタンスの _collect_runners とは別に module-level でも持つのは、アプリ終了時に
+# import が停止 timeout で走り続けたまま widget が破棄されても、実行中スレッドと worker を
+# 生かし続けるため (#1159 Codex P2 2巡目: timeout で参照を落とすと実行中スレッドが解放済み
+# オブジェクトに触ってクラッシュする)。thread.finished で初めて解放する。
+_ACTIVE_COLLECT_RUNNERS: set[tuple[QThread, ProviderBatchImportWorker]] = set()
+
+# shutdown() が実行中 worker の停止を待つ上限 (ms)。ネットワーク停滞での無限ハングを避ける。
+# timeout してもスレッド参照は落とさず (module 保持) 完了時の finished で解放する (#1159 P2)。
+_COLLECT_SHUTDOWN_WAIT_MS = 5000
 
 
 class ProviderBatchJobWidget(QWidget):
@@ -428,8 +436,8 @@ class ProviderBatchJobWidget(QWidget):
 
         worker → slot の connect は受け手 (本 widget = QObject、メインスレッド affinity)
         と worker (専用 QThread) が別スレッドのため queued 接続となり、slot はメイン
-        スレッドで実行される。``_ACTIVE_COLLECT_THREADS`` で thread を GC から守り、
-        終了時に discard する (忘れると worker 即 GC でクラッシュ)。
+        スレッドで実行される。``_ACTIVE_COLLECT_RUNNERS`` で (thread, worker) を GC から
+        守り、終了時に discard する (忘れると即 GC でクラッシュ)。
         """
         self._collecting_job_ids.add(job_id)
         self.labelStatus.setText(f"バッチAPIジョブ {job_id} の結果を取得中…")
@@ -437,24 +445,32 @@ class ProviderBatchJobWidget(QWidget):
         thread = QThread()
         worker = ProviderBatchImportWorker(self._workflow_service, job_id)
         worker.moveToThread(thread)
-        _ACTIVE_COLLECT_THREADS.add(thread)
-        self._collect_runners[job_id] = (thread, worker)
+        runner = (thread, worker)
+        _ACTIVE_COLLECT_RUNNERS.add(runner)
+        self._collect_runners[job_id] = runner
 
         thread.started.connect(worker.run)
         worker.succeeded.connect(self._on_collect_succeeded)
         worker.failed.connect(self._on_collect_failed)
         worker.finished.connect(thread.quit)
         worker.finished.connect(worker.deleteLater)
-        thread.finished.connect(lambda: self._on_collect_thread_finished(job_id, thread))
+        thread.finished.connect(lambda: self._on_collect_thread_finished(job_id, runner))
         thread.finished.connect(thread.deleteLater)
 
         thread.start()
 
-    def _on_collect_thread_finished(self, job_id: int, thread: QThread) -> None:
-        """worker thread 終了時に再入ガードと GC 保護を解除する (#1158)。"""
+    def _on_collect_thread_finished(
+        self, job_id: int, runner: tuple[QThread, ProviderBatchImportWorker]
+    ) -> None:
+        """worker thread 終了時に再入ガードと GC 保護を解除する (#1158)。
+
+        Python コンテナ操作のみで C++ メソッドを呼ばないため、widget の C++ 部が先に
+        破棄されていても安全 (アプリ終了 + shutdown timeout 後に thread が完走して本 slot が
+        走るケース、#1159 Codex P2 2巡目)。
+        """
         self._collecting_job_ids.discard(job_id)
-        _ACTIVE_COLLECT_THREADS.discard(thread)
         self._collect_runners.pop(job_id, None)
+        _ACTIVE_COLLECT_RUNNERS.discard(runner)
 
     def shutdown(self) -> None:
         """実行中の結果回収 worker thread を停止して待つ (#1158 Codex P2)。
@@ -463,16 +479,28 @@ class ProviderBatchJobWidget(QWidget):
         closeEvent から明示的に呼ぶ (#931/#949 と同流儀)。実行中の QThread が widget より
         長生きして Qt teardown でクラッシュするのを防ぐ。import の DB 書き込みは
         commit_chunk 単位の atomic transaction なので、途中終了しても未コミット分は
-        ロールバックされ半端保存にならない (#1158 ②)。ネットワーク停滞での無限ハングを
-        避けるため wait は有界にし、間に合わなければ close を優先する。
+        ロールバックされ半端保存にならない (#1158 ②)。
+
+        wait は有界にし無限ハングを避けるが、**timeout しても参照は落とさない** (#1159 Codex
+        P2 2巡目)。``thread.quit()`` は実行中の ``run()`` を中断しないため、5 秒超の遅い DL /
+        大量 import では wait が False を返してもスレッドはまだ生きている。ここで参照を切ると
+        実行中スレッドが解放済みオブジェクトに触ってクラッシュする。module-level
+        ``_ACTIVE_COLLECT_RUNNERS`` が widget 破棄後も (thread, worker) を生かし、実際の
+        ``thread.finished`` で :meth:`_on_collect_thread_finished` が解放する。
         """
-        for thread, _worker in list(self._collect_runners.values()):
+        for job_id, runner in list(self._collect_runners.items()):
+            thread, _worker = runner
             thread.quit()
-            if not thread.wait(5000):
-                logger.warning("結果回収 worker が時間内に停止しませんでした (close を優先します)")
-        self._collect_runners.clear()
-        self._collecting_job_ids.clear()
-        _ACTIVE_COLLECT_THREADS.clear()
+            if thread.wait(_COLLECT_SHUTDOWN_WAIT_MS):
+                # 正常終了した runner のみ参照解放 (finished slot 未発火の close 経路でも片付く)
+                self._collecting_job_ids.discard(job_id)
+                self._collect_runners.pop(job_id, None)
+                _ACTIVE_COLLECT_RUNNERS.discard(runner)
+            else:
+                # timeout: run() は実行中。参照を保持し続け、完了時の finished で解放する。
+                logger.warning(
+                    f"結果回収 worker が時間内に停止しませんでした。完了まで参照を保持します (job {job_id})"
+                )
 
     @Slot(int, object)
     def _on_collect_succeeded(self, job_id: int, outcome: ProviderBatchCollectOutcome) -> None:

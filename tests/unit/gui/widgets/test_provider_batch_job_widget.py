@@ -504,6 +504,36 @@ def test_shutdown_stops_active_collect_workers(widget, dependencies, qtbot):
 
 @pytest.mark.unit
 @pytest.mark.gui
+def test_shutdown_retains_reference_when_worker_exceeds_timeout(widget, dependencies, qtbot, monkeypatch):
+    """#1159 Codex P2 (2巡目): wait timeout で実行中スレッドの参照を落とさない。
+
+    ``thread.quit()`` は run() を中断しないため、timeout 時にスレッドはまだ生きている。
+    参照を切ると実行中スレッドが解放済みオブジェクトに触ってクラッシュする。timeout 後も
+    (thread, worker) を保持し、実際の finished で解放されることを検証する。
+    """
+    # wait を短くして timeout を即発生させる (worker は release 待ちで停止中)
+    monkeypatch.setattr(widget_module, "_COLLECT_SHUTDOWN_WAIT_MS", 50)
+    workflow, repository = dependencies
+    blocking = _BlockingWorkflow(workflow)
+    widget.set_dependencies(blocking, repository)
+
+    widget.check_job_status(42)
+    qtbot.waitUntil(blocking.refresh_started.is_set, timeout=5000)
+    runner = widget._collect_runners[42]
+
+    # worker は refresh で保留中 → wait(50) が timeout → 参照は保持されたまま
+    widget.shutdown()
+    assert 42 in widget._collect_runners
+    assert runner in widget_module._ACTIVE_COLLECT_RUNNERS
+
+    # worker を解放して完走させると finished で参照が解放される
+    blocking.release.set()
+    qtbot.waitUntil(lambda: 42 not in widget._collect_runners, timeout=5000)
+    assert runner not in widget_module._ACTIVE_COLLECT_RUNNERS
+
+
+@pytest.mark.unit
+@pytest.mark.gui
 def test_check_status_for_imported_job_does_not_save_again(widget, dependencies):
     workflow, repository = dependencies
     repository.get_provider_batch_job.return_value = _job(
