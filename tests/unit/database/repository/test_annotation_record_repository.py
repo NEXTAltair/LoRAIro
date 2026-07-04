@@ -294,6 +294,70 @@ class TestSaveAnnotations:
             rows = session.execute(select(Tag).where(Tag.image_id.in_(image_ids))).scalars().all()
             assert {row.tag for row in rows} == {"cat", "dog"}
 
+    def test_save_annotations_batch_commits_per_chunk_releasing_lock(
+        self,
+        memory_session_factory,
+    ) -> None:
+        """#1158: chunk_size 指定時は chunk ごとに commit し、間で書き込みロックを解放する。
+
+        provider-batch import が巨大単一トランザクションで >30s ロックを保持し並行 writer を
+        ``database is locked`` にする回帰を防ぐ。commit 回数 = ロック解放回数なので、4 画像を
+        chunk_size=2 で保存すると 2 回 commit されること (= 途中でロックが解放されること) を
+        real DB で検証する。
+        """
+        image_ids: list[int] = []
+        with memory_session_factory() as session:
+            for index in range(4):
+                image = Image(
+                    uuid=f"chunk-anno-uuid-{index}",
+                    phash=f"chunk-anno-phash-{index}",
+                    original_image_path=f"/tmp/chunk-anno-{index}.png",
+                    stored_image_path=f"/tmp/chunk-anno-{index}.png",
+                    width=64,
+                    height=64,
+                    format="PNG",
+                    extension=".png",
+                    filename=f"chunk-anno-{index}.png",
+                )
+                session.add(image)
+                session.flush()
+                image_ids.append(image.id)
+            session.commit()
+
+        commit_count = 0
+
+        def counting_session_factory():
+            nonlocal commit_count
+            session = memory_session_factory()
+            original_commit = session.commit
+
+            def commit() -> None:
+                nonlocal commit_count
+                commit_count += 1
+                original_commit()
+
+            session.commit = commit  # type: ignore[method-assign]
+            return session
+
+        repository = AnnotationRepository(session_factory=counting_session_factory)
+        saved = repository.save_annotations_batch(
+            [
+                AnnotationSaveItem(
+                    image_id=image_id,
+                    annotations={"tags": [{"tag": f"t{image_id}", "model_id": None, "tag_id": None}]},
+                )
+                for image_id in image_ids
+            ],
+            chunk_size=2,
+        )
+
+        assert saved == 4
+        # 4 画像 / chunk_size 2 = 2 コミット (単一巨大トランザクションではない)
+        assert commit_count == 2
+        with memory_session_factory() as session:
+            rows = session.execute(select(Tag).where(Tag.image_id.in_(image_ids))).scalars().all()
+            assert {row.tag for row in rows} == {f"t{i}" for i in image_ids}
+
     def test_save_annotations_batch_rolls_back_chunk_on_failure(
         self,
         annotation_repository: AnnotationRepository,

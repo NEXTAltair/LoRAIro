@@ -21,7 +21,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from PySide6.QtCore import Qt, Signal, Slot
+from PySide6.QtCore import Qt, QThread, Signal, Slot
 from PySide6.QtWidgets import (
     QFrame,
     QHBoxLayout,
@@ -37,12 +37,21 @@ from PySide6.QtWidgets import (
 from lorairo.gui import theme
 from lorairo.gui.widgets.provider_batch_job_card import ProviderBatchJobCard
 from lorairo.gui.widgets.sync_job_ledger_widget import SyncJobLedgerWidget
+from lorairo.gui.workers.provider_batch_import_worker import (
+    ProviderBatchCollectOutcome,
+    ProviderBatchImportWorker,
+)
 from lorairo.services.job_ledger_service import JobLedgerService
 from lorairo.services.provider_batch_service import ProviderBatchError
 from lorairo.utils.log import logger
 
 _COMPLETED_STATUS = "completed"
 _IMPORTED_STATUS = "imported"
+
+# 結果回収 worker thread の GC 防止用 (#1158, controller の _ACTIVE_DISPATCH_THREADS と同方式)。
+# 受け手 (本 widget = QObject) は worker (専用 QThread) と別スレッドなので queued 接続で
+# slot はメインスレッド実行。set で保持しないと worker 即 GC でクラッシュする。
+_ACTIVE_COLLECT_THREADS: set[QThread] = set()
 
 
 class ProviderBatchJobWidget(QWidget):
@@ -58,6 +67,13 @@ class ProviderBatchJobWidget(QWidget):
         self._repository: Any = None
         self._cards: dict[int, ProviderBatchJobCard] = {}
         self._expanded_job_ids: set[int] = set()
+        # 結果回収 (refresh→fetch→import) を実行中のジョブ (#1158)。
+        # worker 化に伴い連打・二重回収を防ぐ再入ガードに使う。
+        self._collecting_job_ids: set[int] = set()
+        # 実行中の (QThread, worker) を job_id ごとに保持し GC を防ぐ (#1158)。
+        # worker への Python 参照が切れると実行中に GC され「QThread: Destroyed while
+        # thread is still running」でクラッシュする。thread 終了時に pop する。
+        self._collect_runners: dict[int, tuple[QThread, ProviderBatchImportWorker]] = {}
 
         root = QVBoxLayout(self)
         root.setContentsMargins(8, 8, 8, 8)
@@ -381,34 +397,80 @@ class ProviderBatchJobWidget(QWidget):
         進行中カードの「↻ 状態を確認」と完了・未回収カードの「↓ 結果を取得」は
         同じ経路 (refresh → completed なら fetch + import)。fetch 済みで import が
         失敗した事故復旧も、status が completed のまま残るため再実行で回収できる。
+
+        #1158: refresh→fetch→import は network I/O + 画像ごと数百タグの DB 書き込みで
+        重く、GUI スレッドで直列実行すると実機フリーズを起こす。専用 worker thread へ
+        移し、GUI をブロックしない。同一ジョブの連打は ``_collecting_job_ids`` で弾く。
         """
         if self._workflow_service is None:
             return
-        try:
-            current_job = self._get_job(job_id)
-            if current_job is not None and self._job_imported(current_job):
-                self.labelStatus.setText(f"バッチAPIジョブ {job_id} は保存済みです")
-                return
-            job = self._workflow_service.refresh(job_id)
-            if self._job_imported(job):
-                message = f"バッチAPIジョブ {job_id} は保存済みです"
-            elif self._job_status(job) == _COMPLETED_STATUS:
-                fetch_result = self._workflow_service.fetch_results(job_id)
-                import_result = self._workflow_service.import_results(job_id, fetch_result)
-                message = self._import_result_message(job_id, import_result)
-            else:
-                message = self._status_message_for_job(job_id, job)
-            self.refresh_jobs(update_label=False)
-            self.select_job(job_id)
-            self.labelStatus.setText(message)
-        except ProviderBatchError as e:
+        if job_id in self._collecting_job_ids:
+            # 既に回収中: 連打・二重回収 (二重 import) を防ぐ (#1158)。
+            return
+        # 保存済み判定は 1 行読みなので GUI スレッドで即答し、worker 起動を省く。
+        current_job = self._get_job(job_id)
+        if current_job is not None and self._job_imported(current_job):
+            self.labelStatus.setText(f"バッチAPIジョブ {job_id} は保存済みです")
+            return
+        self._start_collect_worker(job_id)
+
+    def _start_collect_worker(self, job_id: int) -> None:
+        """結果回収 (refresh→fetch→import) を専用 QThread で実行する (#1158, ADR 0044)。
+
+        worker → slot の connect は受け手 (本 widget = QObject、メインスレッド affinity)
+        と worker (専用 QThread) が別スレッドのため queued 接続となり、slot はメイン
+        スレッドで実行される。``_ACTIVE_COLLECT_THREADS`` で thread を GC から守り、
+        終了時に discard する (忘れると worker 即 GC でクラッシュ)。
+        """
+        self._collecting_job_ids.add(job_id)
+        self.labelStatus.setText(f"バッチAPIジョブ {job_id} の結果を取得中…")
+
+        thread = QThread()
+        worker = ProviderBatchImportWorker(self._workflow_service, job_id)
+        worker.moveToThread(thread)
+        _ACTIVE_COLLECT_THREADS.add(thread)
+        self._collect_runners[job_id] = (thread, worker)
+
+        thread.started.connect(worker.run)
+        worker.succeeded.connect(self._on_collect_succeeded)
+        worker.failed.connect(self._on_collect_failed)
+        worker.finished.connect(thread.quit)
+        worker.finished.connect(worker.deleteLater)
+        thread.finished.connect(lambda: self._on_collect_thread_finished(job_id, thread))
+        thread.finished.connect(thread.deleteLater)
+
+        thread.start()
+
+    def _on_collect_thread_finished(self, job_id: int, thread: QThread) -> None:
+        """worker thread 終了時に再入ガードと GC 保護を解除する (#1158)。"""
+        self._collecting_job_ids.discard(job_id)
+        _ACTIVE_COLLECT_THREADS.discard(thread)
+        self._collect_runners.pop(job_id, None)
+
+    @Slot(int, object)
+    def _on_collect_succeeded(self, job_id: int, outcome: ProviderBatchCollectOutcome) -> None:
+        """結果回収成功: 台帳を再描画しステータス文言を表示する (#1158)。"""
+        if outcome.kind == "imported":
+            message = f"バッチAPIジョブ {job_id} は保存済みです"
+        elif outcome.kind == "collected":
+            message = self._import_result_message(job_id, outcome.import_result)
+        else:
+            message = self._status_message_for_job(job_id, outcome.job)
+        self.refresh_jobs(update_label=False)
+        self.select_job(job_id)
+        self.labelStatus.setText(message)
+
+    @Slot(int, object)
+    def _on_collect_failed(self, job_id: int, error: Exception) -> None:
+        """結果回収失敗: 業務エラーは WARNING、想定外は _handle_action_error (#1158)。"""
+        if isinstance(error, ProviderBatchError):
             # #1150: 想定内の業務エラーでも事後診断できるよう WARNING で記録する
             # (従来はダイアログ + labelStatus のみでログ痕跡ゼロだった)。
-            logger.warning(f"バッチAPI status check failed (job {job_id}): {e}")
-            QMessageBox.warning(self, "バッチAPI", str(e))
-            self.labelStatus.setText(str(e))
-        except Exception as e:
-            self._handle_action_error("refresh", e)
+            logger.warning(f"バッチAPI status check failed (job {job_id}): {error}")
+            QMessageBox.warning(self, "バッチAPI", str(error))
+            self.labelStatus.setText(str(error))
+        else:
+            self._handle_action_error("refresh", error)
 
     @Slot(int)
     def cancel_job(self, job_id: int) -> None:
