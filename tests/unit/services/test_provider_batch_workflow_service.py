@@ -1612,3 +1612,86 @@ class TestProviderBatchLibraryAdapter:
         assert job is not None
         assert job.status == "completed"
         assert job.imported_at is None
+
+
+class _StubModelListingAdapter:
+    """list_batch_capable_models だけ持つ最小 adapter stub (#1147)。"""
+
+    provider = "openai"
+
+    def __init__(self, models: tuple[object, ...]) -> None:
+        self._models = models
+        self.calls = 0
+
+    def list_batch_capable_models(self) -> tuple[object, ...]:
+        self.calls += 1
+        return self._models
+
+
+@pytest.mark.unit
+class TestListBatchCapableModelsFacade:
+    """#1147: workflow service facade が adapter へ委譲する契約テスト。
+
+    実機クラッシュ (AttributeError: ProviderBatchWorkflowService に list_batch_capable_models
+    が無い) の再発防止。MagicMock は任意属性が常に存在するため検出できなかったので、
+    **実 ProviderBatchWorkflowService** (adapter stub 注入) で公開メソッド実在と委譲を assert する。
+    """
+
+    def _service(self, adapters: dict[str, object]) -> ProviderBatchWorkflowService:
+        return ProviderBatchWorkflowService(
+            provider_batch_repo=Mock(),
+            image_repo=Mock(),
+            annotation_repo=Mock(),
+            config_service=Mock(),
+            adapters=adapters,  # type: ignore[arg-type]
+            job_service=Mock(),
+            annotation_save_service=Mock(),
+        )
+
+    def test_delegates_to_adapter(self) -> None:
+        stub = _StubModelListingAdapter(("openai/gpt-4o",))
+        service = self._service({"openai": stub})
+
+        assert service.list_batch_capable_models() == ("openai/gpt-4o",)
+        assert stub.calls == 1
+
+    def test_real_library_adapter_delegation_no_attribute_error(self) -> None:
+        # 実 ProviderBatchLibraryAdapter + stub client でも facade 経由で AttributeError を出さない
+        class _Client:
+            def list_batch_capable_models(self) -> tuple[object, ...]:
+                return ()
+
+        adapter = ProviderBatchLibraryAdapter("openai", _Client())
+        service = self._service({"openai": adapter})
+
+        assert service.list_batch_capable_models() == ()
+
+    def test_raises_provider_batch_error_when_no_listing_adapter(self) -> None:
+        class _BareAdapter:
+            provider = "x"
+
+        service = self._service({"x": _BareAdapter()})
+        with pytest.raises(ProviderBatchError):
+            service.list_batch_capable_models()
+
+    def test_registered_adapter_is_usable_for_listing(self) -> None:
+        # register_adapter で後付けした adapter でも listing に使える
+        service = self._service({})
+        stub = _StubModelListingAdapter(("openai/gpt-4o",))
+        service.register_adapter(stub)  # type: ignore[arg-type]
+
+        assert service.list_batch_capable_models() == ("openai/gpt-4o",)
+
+    def test_gui_expected_public_methods_exist(self) -> None:
+        # GUI (LEDGER preview / 自動振り分け / Jobs) が使う公開メソッドが実サービスに実在する。
+        service = self._service({"openai": _StubModelListingAdapter(())})
+        for name in (
+            "list_batch_capable_models",
+            "submit_images",
+            "refresh",
+            "cancel",
+            "download_results",
+            "fetch_results",
+            "import_results",
+        ):
+            assert callable(getattr(service, name, None)), f"公開メソッド欠落: {name}"
