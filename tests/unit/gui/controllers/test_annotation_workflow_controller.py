@@ -621,7 +621,8 @@ class TestDispatchAsyncBatch:
         # #1102: 開始前に拒否したら False を返す (遷移しない)
         assert started is False
 
-    def test_non_batch_capable_model_rejected(self) -> None:
+    def test_non_batch_capable_model_routed_to_sync(self) -> None:
+        # #1133: batch 非対応モデルは拒否せず同期ワークフローへ振り分ける。
         from lorairo.gui.controllers.annotation_workflow_controller import AnnotationWorkflowController
 
         model = _StubModel(id=9, provider="local", litellm_model_id="local/wd-tagger")
@@ -631,12 +632,19 @@ class TestDispatchAsyncBatch:
             discovery=["openai/gpt-4o"],  # local は discovery に無い
             model=model,
         )
+        ctrl.start_annotation_workflow.return_value = True
 
         with patch("lorairo.gui.controllers.annotation_workflow_controller.QMessageBox") as mock_qmb:
-            AnnotationWorkflowController.dispatch_async_batch(ctrl)
-            mock_qmb.warning.assert_called_once()
+            started = AnnotationWorkflowController.dispatch_async_batch(ctrl)
+            mock_qmb.warning.assert_not_called()
 
+        # batch worker は起動せず、同期ワークフローへ振り分ける
         ctrl._start_async_dispatch_worker.assert_not_called()
+        ctrl.start_annotation_workflow.assert_called_once()
+        assert ctrl.start_annotation_workflow.call_args.kwargs["selected_litellm_model_ids"] == [
+            "local/wd-tagger"
+        ]
+        assert started is True
 
     def test_no_staged_images_shows_info(self) -> None:
         from lorairo.gui.controllers.annotation_workflow_controller import AnnotationWorkflowController
@@ -758,8 +766,9 @@ class TestDispatchAsyncBatch:
         ctrl._db_manager.image_repo.get_latest_normalized_ratings_by_image_ids.assert_called_once()
         assert mock_project.call_args.kwargs["task_type"] == "annotation"
 
-    def test_mixed_moderation_and_normal_rejected(self) -> None:
-        # #1098: moderation + 通常モデル混在は「非 batch 混在拒否」原則で弾く。
+    def test_mixed_moderation_and_normal_auto_split(self) -> None:
+        # #1133: moderation + 通常モデル混在は拒否せず自動振り分け。
+        # moderation → rating_preflight で batch、通常モデル → 同期へ。
         from lorairo.gui.controllers.annotation_workflow_controller import AnnotationWorkflowController
 
         mod = _StubModel(id=5, provider="openai", litellm_model_id="openai/omni-moderation-latest")
@@ -772,12 +781,100 @@ class TestDispatchAsyncBatch:
         )
         resolved = {"openai/omni-moderation-latest": mod, "openai/gpt-4o": normal}
         ctrl._db_manager.model_repo.get_model_by_litellm_id.side_effect = resolved.get
+        ctrl.start_annotation_workflow.return_value = True
 
         with patch("lorairo.gui.controllers.annotation_workflow_controller.QMessageBox") as mock_qmb:
-            AnnotationWorkflowController.dispatch_async_batch(ctrl)
-            mock_qmb.warning.assert_called_once()
+            started = AnnotationWorkflowController.dispatch_async_batch(ctrl)
+            mock_qmb.warning.assert_not_called()
+
+        # moderation は Batch API worker へ、通常モデルは同期ワークフローへ
+        ctrl._start_async_dispatch_worker.assert_called_once()
+        ctrl.start_annotation_workflow.assert_called_once()
+        assert ctrl.start_annotation_workflow.call_args.kwargs["selected_litellm_model_ids"] == [
+            "openai/gpt-4o"
+        ]
+        assert started is True
+
+    def test_mixed_batch_and_sync_only_split(self) -> None:
+        # #1133: batch 対応 (openai) + 同期専用 (local) 混在 → openai=batch、local=sync。
+        from lorairo.gui.controllers.annotation_workflow_controller import AnnotationWorkflowController
+
+        gpt = _StubModel(id=1, provider="openai", litellm_model_id="openai/gpt-4o")
+        local = _StubModel(id=9, provider="local", litellm_model_id="local/wd-tagger")
+        ctrl = self._build_controller(
+            ratings={10: "PG"},
+            selected=["openai/gpt-4o", "local/wd-tagger"],
+            discovery=["openai/gpt-4o"],  # local は discovery に無い = batch 非対応
+            model=None,
+        )
+        resolved = {"openai/gpt-4o": gpt, "local/wd-tagger": local}
+        ctrl._db_manager.model_repo.get_model_by_litellm_id.side_effect = resolved.get
+        ctrl.start_annotation_workflow.return_value = True
+
+        with patch("lorairo.gui.controllers.annotation_workflow_controller.QMessageBox") as mock_qmb:
+            started = AnnotationWorkflowController.dispatch_async_batch(ctrl)
+            mock_qmb.warning.assert_not_called()
+
+        ctrl._start_async_dispatch_worker.assert_called_once()  # openai → batch
+        ctrl.start_annotation_workflow.assert_called_once()  # local → sync
+        assert ctrl.start_annotation_workflow.call_args.kwargs["selected_litellm_model_ids"] == [
+            "local/wd-tagger"
+        ]
+        # 振り分け結果をステータスへ明示 (黙って振り分けない)
+        assert ctrl._status_callback.called
+        assert started is True
+
+    def test_all_sync_only_notifies_and_no_batch(self) -> None:
+        # #1133: 全て同期専用 + Batch API実行 → 全て同期、案内メッセージを出す。
+        from lorairo.gui.controllers.annotation_workflow_controller import AnnotationWorkflowController
+
+        local = _StubModel(id=9, provider="local", litellm_model_id="local/wd-tagger")
+        ctrl = self._build_controller(
+            ratings={10: "PG"},
+            selected=["local/wd-tagger"],
+            discovery=["openai/gpt-4o"],
+            model=local,
+        )
+        ctrl.start_annotation_workflow.return_value = True
+
+        AnnotationWorkflowController.dispatch_async_batch(ctrl)
 
         ctrl._start_async_dispatch_worker.assert_not_called()
+        message = ctrl._status_callback.call_args.args[0]
+        assert "同期" in message and "Batch API 対応モデルなし" in message
+
+
+class TestNotifyDispatchSplit:
+    """#1133: 振り分け結果メッセージの生成。"""
+
+    def _ctrl(self):
+        ctrl = Mock()
+        return ctrl
+
+    def test_mixed_message(self) -> None:
+        from lorairo.gui.controllers.annotation_workflow_controller import _notify_dispatch_split
+
+        ctrl = self._ctrl()
+        _notify_dispatch_split(ctrl, 2, 3)
+        msg = ctrl._status_callback.call_args.args[0]
+        assert "2 モデルを Batch API へ" in msg
+        assert "3 モデルを同期で" in msg
+
+    def test_batch_only_message(self) -> None:
+        from lorairo.gui.controllers.annotation_workflow_controller import _notify_dispatch_split
+
+        ctrl = self._ctrl()
+        _notify_dispatch_split(ctrl, 2, 0)
+        msg = ctrl._status_callback.call_args.args[0]
+        assert "Batch API" in msg and "同期" not in msg
+
+    def test_sync_only_message(self) -> None:
+        from lorairo.gui.controllers.annotation_workflow_controller import _notify_dispatch_split
+
+        ctrl = self._ctrl()
+        _notify_dispatch_split(ctrl, 0, 3)
+        msg = ctrl._status_callback.call_args.args[0]
+        assert "同期" in msg and "Batch API 対応モデルなし" in msg
 
 
 class TestFinalizeSubmittedJobs:

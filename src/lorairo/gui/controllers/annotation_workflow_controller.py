@@ -23,8 +23,7 @@ from lorairo.services.dispatch_projection_service import (
 )
 from lorairo.services.model_route_service import validate_api_keys_for_models
 from lorairo.services.provider_batch_capability import (
-    MixedBatchTaskTypeError,
-    resolve_batch_task_type,
+    is_omni_moderation_model,
 )
 from lorairo.services.provider_batch_service import ProviderBatchError
 from lorairo.services.selection_state_service import SelectionStateService
@@ -43,34 +42,29 @@ _ACTIVE_DISPATCH_THREADS: set[QThread] = set()
 
 
 def _resolve_dispatch_task_type(
-    parent_widget: QWidget | None,
     selected_litellm_model_ids: list[str],
     db_manager: "ImageDatabaseManager",
-) -> str | None:
-    """選択モデル種別から async batch dispatch の task_type を決める (#1098)。
+) -> str:
+    """Batch API 側の task_type を決める (#1098 + #1133)。
 
-    全モデルが moderation (omni-moderation-*) なら ``"rating_preflight"``、
-    通常モデルのみなら ``"annotation"``。moderation + 通常モデルの混在は
-    「非 batch 混在拒否」原則 (ADR 0076 §2) で拒否し、warning を表示して None を返す。
+    選択に omni-moderation-* が 1 つでも含まれれば ``"rating_preflight"``、無ければ
+    ``"annotation"``。#1133 で混在は拒否しない: 選んだ task_type に対応しないモデル
+    (例: rating_preflight での通常モデル、annotation での moderation モデル) は射影で
+    ineligible になり、呼び出し側が同期ワークフローへ振り分ける。moderation は
+    ``rating_preflight`` で batch へ流し、混在する通常モデルは同期へ回る (仕様例)。
 
     Args:
-        parent_widget: warning ダイアログの親ウィジェット。
         selected_litellm_model_ids: Annotate の選択モデル集合 (SSoT)。
         db_manager: litellm_model_id → DB Model 解決に使う。
 
     Returns:
-        "annotation" / "rating_preflight"。混在で拒否した場合は None。
+        "annotation" または "rating_preflight" (拒否・None は返さない)。
     """
-    selected_models = [
-        model
-        for litellm_id in selected_litellm_model_ids
-        if (model := db_manager.model_repo.get_model_by_litellm_id(litellm_id)) is not None
-    ]
-    try:
-        return resolve_batch_task_type(selected_models)
-    except MixedBatchTaskTypeError as e:
-        QMessageBox.warning(parent_widget, "Batch API 送信", str(e))
-        return None
+    for litellm_id in selected_litellm_model_ids:
+        model = db_manager.model_repo.get_model_by_litellm_id(litellm_id)
+        if model is not None and is_omni_moderation_model(model):
+            return "rating_preflight"
+    return "annotation"
 
 
 def _moderation_gate_blocks(
@@ -153,6 +147,78 @@ def _build_batch_projection(
     except DispatchProjectionError as e:
         QMessageBox.warning(parent_widget, "Batch API 送信", str(e))
         return None
+
+
+def _notify_dispatch_split(
+    controller: "AnnotationWorkflowController", batch_count: int, sync_count: int
+) -> None:
+    """振り分け結果 (N を Batch API へ / M を同期で) をステータスへ明示する (#1133)。
+
+    Args:
+        controller: status callback を持つ AnnotationWorkflowController。
+        batch_count: Batch API へ射影したモデル数。
+        sync_count: 同期へ振り分けたモデル数。
+    """
+    if batch_count and sync_count:
+        message = f"{batch_count} モデルを Batch API へ、{sync_count} モデルを同期で実行します"
+    elif batch_count:
+        message = f"{batch_count} モデルを Batch API へ送信します"
+    else:
+        message = f"{sync_count} モデルを同期で実行します (Batch API 対応モデルなし)"
+    logger.info(message)
+    controller._status_callback(message, 5000)
+
+
+def _run_dispatch_split(
+    controller: "AnnotationWorkflowController",
+    workflow_service: Any,
+    projection: "DispatchProjection",
+    image_ids: list[int],
+    run_options: "RunOptions",
+) -> bool:
+    """射影結果を batch (eligible) / 同期 (ineligible) へ並行起動する (#1133)。
+
+    batch 対応モデルは Batch API worker へ、非対応 (同期専用) モデルは同期ワークフローへ
+    並行起動する。振り分け結果はステータスへ明示する。module-level 関数にしているのは
+    Mock-self の unbound-call 統合テスト互換のため (instance method だと Mock に潰れる)。
+
+    Args:
+        controller: dispatch を所有する AnnotationWorkflowController。
+        workflow_service: Provider Batch workflow service。
+        projection: eligible entries + ineligible ids を持つ射影結果。
+        image_ids: 送信対象の image_id。
+        run_options: 実行詳細設定 (同期側へ伝搬)。
+
+    Returns:
+        batch / 同期のいずれか一方でも開始できたら True。
+    """
+    eligible_entries = projection.entries
+    ineligible_ids = list(projection.ineligible_litellm_model_ids)
+
+    # #1133: 振り分け結果を明示する (黙って振り分けない)
+    _notify_dispatch_split(controller, len(eligible_entries), len(ineligible_ids))
+
+    started_batch = False
+    if eligible_entries:
+        logger.info(
+            f"Batch API dispatch 開始: {projection.job_count} ジョブ / {len(image_ids)} 枚 "
+            f"(dispatch_mode={run_options.dispatch_mode}, sync_fallback={len(ineligible_ids)} モデル)"
+        )
+        controller._async_dispatch_in_progress = True
+        controller._async_dispatch_image_ids = image_ids
+        controller._start_async_dispatch_worker(workflow_service, projection)
+        started_batch = True
+
+    started_sync = False
+    if ineligible_ids and controller._annotate_tab is not None:
+        logger.info(f"同期専用モデルを並行起動: {len(ineligible_ids)} モデル")
+        started_sync = controller.start_annotation_workflow(
+            selected_litellm_model_ids=ineligible_ids,
+            image_paths=controller._annotate_tab.staged_image_paths(),
+            run_options=run_options,
+        )
+
+    return started_batch or started_sync
 
 
 class AnnotationWorkflowController(QObject):
@@ -646,24 +712,25 @@ class AnnotationWorkflowController(QObject):
     # == async Provider Batch dispatch (#896 PR4b, ADR 0076 §2) ================
 
     def dispatch_async_batch(self) -> bool:
-        """選択モデル集合を async Provider Batch dispatch へ射影して送信する。
+        """「Batch API 実行」を batch 対応 / 同期専用へ自動振り分けして起動する (#1133)。
 
         ADR 0076 §2: 選択モデル集合 → dispatch 射影 (batch-capable ∩ discovery) →
         worker thread で ``submit_images`` をモデルごとにループ呼び出しする。
-        非 batch-capable 混在は射影が拒否する ((a))。送信前 moderation が未完了の
-        画像 (保留 / 未判定) がある場合は fail-closed で拒否する (ADR 0070、自動2段は
-        deferral)。
 
-        #1098: 選択モデルが全て omni-moderation-* (rating確定用途) なら
-        ``task_type="rating_preflight"`` で射影し (OpenAI 公式 Batch API の
-        ``/v1/moderations`` へ送信)、fail-closed moderation gate は適用しない
-        (rating を付ける操作自体なので「先に rating 確定を」は本末転倒)。
-        moderation モデルと通常モデルの混在は「非 batch 混在拒否」原則で弾く。
+        #1133 (2026-07-04 ユーザー決定で #884 の混在拒否を上書き): batch 非対応モデルが
+        混在しても拒否せず、batch 対応モデルは Batch API へ射影・送信し、非対応
+        (同期専用) モデルは同期ワークフロー (:meth:`start_annotation_workflow`) へ
+        並行起動する。振り分け結果はステータスへ明示する (黙って振り分けない)。
+
+        #1098: moderation (omni-moderation-*) を含む選択は ``task_type="rating_preflight"``
+        で射影し (OpenAI 公式 Batch API の ``/v1/moderations``)、その通常モデルは同期へ
+        回る。rating_preflight は fail-closed moderation gate の対象外。annotation batch
+        entry がある場合のみ、送信前 moderation 未完了の画像を gate で拒否する (ADR 0070)。
 
         Returns:
-            worker を起動して送信を開始できたら True、開始前に拒否した場合
-            (サービス不可 / ステージング空 / dry-run / moderation gate / 混在拒否 /
-            射影失敗等) は False (#1102: 遷移可否の判定に使う)。
+            batch / 同期のいずれか一方でも開始できたら True、開始前に全て拒否された
+            (サービス不可 / ステージング空 / dry-run / gate / 射影失敗) 場合は False
+            (#1102: 遷移可否の判定に使う。どちらか開始成功で Jobs 遷移)。
         """
         if self._annotate_tab is None:
             return False
@@ -700,15 +767,10 @@ class AnnotationWorkflowController(QObject):
             )
             return False
 
-        # #1098: 選択モデル種別から task_type を決定する。混在は helper 内で弾く。
+        # #1098/#1133: moderation を含めば rating_preflight、無ければ annotation。
+        # task_type に対応しないモデルは射影で ineligible になり同期へ振り分けられる。
         selected_litellm_model_ids = self._annotate_tab.selected_litellm_model_ids()
-        task_type = _resolve_dispatch_task_type(self._parent_widget, selected_litellm_model_ids, db_manager)
-        if task_type is None:
-            return False  # moderation + 通常モデル混在で拒否 (warning は helper 内で表示済み)
-
-        # fail-closed moderation gate (ADR 0070)。rating_preflight は対象外 (#1098)。
-        if _moderation_gate_blocks(self._parent_widget, task_type, image_ids, db_manager):
-            return False  # warning は helper 内で表示済み
+        task_type = _resolve_dispatch_task_type(selected_litellm_model_ids, db_manager)
 
         # ADR 0064: original でなく processed/resized パスを送信する。staging の
         # stored_path は original を指し得るため、低解像度 processed 版を解決する。
@@ -730,14 +792,15 @@ class AnnotationWorkflowController(QObject):
         if projection is None:
             return False  # discovery / 射影の失敗 (warning は helper 内で表示済み)
 
-        logger.info(
-            f"Batch API dispatch 開始: {projection.job_count} ジョブ / {len(image_ids)} 枚 "
-            f"(dispatch_mode={run_options.dispatch_mode}, task_type={task_type})"
-        )
-        self._async_dispatch_in_progress = True
-        self._async_dispatch_image_ids = image_ids
-        self._start_async_dispatch_worker(workflow_service, projection)
-        return True
+        # fail-closed moderation gate (ADR 0070)。annotation batch entry がある場合のみ。
+        # rating_preflight (moderation 送信) は gate 内で自動スキップ。同期専用モデルしか
+        # 無い (eligible 空) 場合は batch gate を適用せず同期へ流す。
+        if projection.entries and _moderation_gate_blocks(
+            self._parent_widget, task_type, image_ids, db_manager
+        ):
+            return False  # warning は helper 内で表示済み
+
+        return _run_dispatch_split(self, workflow_service, projection, image_ids, run_options)
 
     def _resolve_processed_paths_for_batch(self, image_ids: list[int]) -> dict[int, str] | None:
         """各 image_id の低解像度 processed パスを解決する (ADR 0064)。

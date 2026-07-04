@@ -61,30 +61,33 @@ class TestProjectAsyncBatchDispatch:
         assert e2.model_id == 2
         assert e2.provider == "anthropic"
 
-    def test_rejects_when_non_batch_capable_model_mixed(self) -> None:
-        # ADR 0076 §2: 非 batch-capable 混在は (a) 拒否 (部分射影しない)。
+    def test_partial_projection_routes_non_batch_to_ineligible(self) -> None:
+        # #1133: 非 batch-capable 混在は拒否せず ineligible として返す (部分射影を許可)。
         m1 = _StubModel(id=1, provider="openai", litellm_model_id="openai/gpt-4o")
         m_local = _StubModel(id=9, provider="local", litellm_model_id="local/wd-tagger")
-        with pytest.raises(DispatchProjectionError) as exc:
-            project_async_batch_dispatch(
-                selected_litellm_model_ids=["openai/gpt-4o", "local/wd-tagger"],
-                batch_capable_models=["openai/gpt-4o"],
-                model_resolver=_resolver([m1, m_local]),
-                image_ids=[10],
-                prompt_profile="default",
-            )
-        assert "local/wd-tagger" in str(exc.value)
+        proj = project_async_batch_dispatch(
+            selected_litellm_model_ids=["openai/gpt-4o", "local/wd-tagger"],
+            batch_capable_models=["openai/gpt-4o"],
+            model_resolver=_resolver([m1, m_local]),
+            image_ids=[10],
+            prompt_profile="default",
+        )
+        assert proj.job_count == 1
+        assert proj.entries[0].litellm_model_id == "openai/gpt-4o"
+        assert proj.ineligible_litellm_model_ids == ("local/wd-tagger",)
 
-    def test_rejects_when_model_unresolved(self) -> None:
+    def test_unresolved_model_becomes_ineligible(self) -> None:
+        # #1133: DB 解決できないモデルも拒否せず ineligible へ (呼び出し側が同期で扱う)。
         m1 = _StubModel(id=1, provider="openai", litellm_model_id="openai/gpt-4o")
-        with pytest.raises(DispatchProjectionError):
-            project_async_batch_dispatch(
-                selected_litellm_model_ids=["openai/gpt-4o", "openai/unknown"],
-                batch_capable_models=["openai/gpt-4o", "openai/unknown"],
-                model_resolver=_resolver([m1]),
-                image_ids=[10],
-                prompt_profile="default",
-            )
+        proj = project_async_batch_dispatch(
+            selected_litellm_model_ids=["openai/gpt-4o", "openai/unknown"],
+            batch_capable_models=["openai/gpt-4o", "openai/unknown"],
+            model_resolver=_resolver([m1]),
+            image_ids=[10],
+            prompt_profile="default",
+        )
+        assert proj.job_count == 1
+        assert proj.ineligible_litellm_model_ids == ("openai/unknown",)
 
     def test_empty_selection_raises(self) -> None:
         with pytest.raises(DispatchProjectionError):
@@ -124,17 +127,18 @@ class TestProjectAsyncBatchDispatch:
         assert e.description == "my batch"
         assert e.image_paths == {10: "/data/p10.webp", 11: "/data/p11.webp"}
 
-    def test_moderation_only_model_rejected_for_annotation(self) -> None:
-        # omni-moderation は /v1/chat/completions の annotation route では使えない。
+    def test_moderation_model_ineligible_for_annotation(self) -> None:
+        # #1133: omni-moderation は annotation route 非対応 → 拒否せず ineligible。
         m_mod = _StubModel(id=5, provider="openai", litellm_model_id="openai/omni-moderation-latest")
-        with pytest.raises(DispatchProjectionError):
-            project_async_batch_dispatch(
-                selected_litellm_model_ids=["openai/omni-moderation-latest"],
-                batch_capable_models=["openai/omni-moderation-latest"],
-                model_resolver=_resolver([m_mod]),
-                image_ids=[10],
-                prompt_profile="default",
-            )
+        proj = project_async_batch_dispatch(
+            selected_litellm_model_ids=["openai/omni-moderation-latest"],
+            batch_capable_models=["openai/omni-moderation-latest"],
+            model_resolver=_resolver([m_mod]),
+            image_ids=[10],
+            prompt_profile="default",
+        )
+        assert proj.entries == ()
+        assert proj.ineligible_litellm_model_ids == ("openai/omni-moderation-latest",)
 
     def test_deduplicates_selected_ids_preserving_order(self) -> None:
         m1 = _StubModel(id=1, provider="openai", litellm_model_id="openai/gpt-4o")
