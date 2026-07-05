@@ -183,15 +183,17 @@ def main() -> int:
         return 0
 
     if shutil.which("npx") is None:
-        # devcontainer 以外 (Node 無しホスト) では skill 復元をスキップして続行する
+        # 復元が必要と判定済みなのに実行できない状態を成功扱いにしない
+        # (validate_harness が lock との不整合を報告し続けるため、ここで明示的に失敗させる)
         save_state(state)
         ensure_claude_symlinks()
         print(
-            f"WARNING: npx が見つからないため外部 skill {len(targets)} 件を復元できません: "
-            + ", ".join(name for name, _, _ in targets),
+            f"ERROR: npx が見つからないため必要な外部 skill {len(targets)} 件を復元できません: "
+            + ", ".join(name for name, _, _ in targets)
+            + "\n  Node.js (npx) を導入して `make skills-install` を再実行してください",
             file=sys.stderr,
         )
-        return 0
+        return 1
 
     failed: list[str] = []
     succeeded: list[str] = []
@@ -207,7 +209,9 @@ def main() -> int:
             ["npx", "--yes", "skills", "add", src, "--skill", name, "--agent", "codex", "-y"],
             cwd=PROJECT_ROOT,
         )
-        if result.returncode == 0:
+        # CLI は per-agent の書き込み失敗をログに出しつつ exit 0 で終えることがあるため、
+        # returncode だけでなく実体 (SKILL.md) が書かれたことを成功条件にする
+        if result.returncode == 0 and (SKILLS_DIR / name / "SKILL.md").exists():
             succeeded.append(name)
             if backup is not None:
                 # バックアップの破棄は drift 照合の通過後まで遅延する
