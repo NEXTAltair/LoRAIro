@@ -979,16 +979,9 @@ def pytest_collection_modifyitems(config, items):
 
 ### 次のステップ
 
-**Phase 4 - pytest-qt 改善**:
-- qtbot.wait() → qtbot.waitUntil() への移行
-- 25 箇所の固定待機を条件待機に変更
-- 推定 1-2 秒のテスト実行時間削減
-
-**実行方法**:
-```bash
-python3 scripts/migrate_to_waituntil.py --dir tests/ --analyze
-python3 scripts/migrate_to_waituntil.py --dir tests/ --suggest
-```
+**Phase 4 - pytest-qt 改善** (残作業):
+- `qtbot.wait()` → `qtbot.waitUntil()` への移行 (2026-07-05 時点で固定待機 9 箇所残存)
+- 対象の洗い出しは `grep -rn "qtbot\.wait(" tests/` で行い、手動で条件待機へ書き換える
 
 ## 関連ドキュメント
 

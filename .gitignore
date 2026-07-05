@@ -110,7 +110,6 @@ tmp/
 # プロジェクトデータ
 lorairo_data/
 config/*
-!config/lorairo.toml.template
 
 
 # モデルファイル・推論結果
