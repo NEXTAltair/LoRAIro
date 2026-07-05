@@ -581,6 +581,51 @@ class TestCustomPresetPersistence:
         assert len(warnings) == 1
         assert tab._load_custom_presets() == {}
 
+    def test_save_preset_reads_selection_from_ssot_manager(self, tab, isolated_settings, monkeypatch):
+        """保存は checkbox widget でなく選択 SSoT (state manager) を読む (Codex P2)。
+
+        アノテーションフィルタで checkbox 行が隠れていても、SSoT が保持する
+        選択集合の全量が保存されること。
+        """
+        self._fake_input_dialog(monkeypatch, "ssot", True)
+        manager = Mock()
+        manager.get_selected.return_value = ["hidden/model", "visible/model"]
+        tab._model_selection_state_manager = manager
+        tab._batch_model_selection = Mock()
+        # widget はフィルタで描画中の行しか列挙できない想定
+        tab._batch_model_selection.get_selected_models.return_value = ["visible/model"]
+        tab._pipeline_stage_table = Mock()
+
+        tab._on_pipeline_save_preset_requested()
+
+        assert tab._load_custom_presets() == {"ssot": ["hidden/model", "visible/model"]}
+
+    def test_custom_preset_apply_pushes_resolved_set_to_ssot(self, tab, isolated_settings):
+        """適用は widget 読み戻しでなく解決済み集合を SSoT へ直接反映する (Codex P2)。"""
+        info = StageModelInfo(
+            litellm_model_id="wd/tagger",
+            display_name="wd-tagger",
+            provider=None,
+            is_api=False,
+            capabilities=frozenset({"tags"}),
+        )
+        tab._save_custom_presets({"mine": ["wd/tagger"]})
+        manager = Mock()
+        tab._model_selection_state_manager = manager
+        tab._batch_model_selection = Mock()
+        tab._batch_model_selection.model_selection_service.load_models.return_value = [
+            SimpleNamespace(litellm_model_id="wd/tagger")
+        ]
+        # widget 読み戻しはフィルタで欠けている想定 (これを SSoT へ書いてはいけない)
+        tab._batch_model_selection.get_selected_models.return_value = []
+        tab._build_stage_model_infos = lambda ids: [info]
+        tab._pipeline_stage_table = Mock()
+        tab._refresh_pipeline_panel = Mock()
+
+        tab._on_pipeline_preset_selected("custom:mine")
+
+        manager.set_selected.assert_called_once_with(["wd/tagger"])
+
     def test_custom_preset_selected_applies_stored_models(self, tab, isolated_settings):
         """保存済みプリセット選択で、現在利用可能なモデルに絞って適用される。"""
         info = StageModelInfo(

@@ -519,20 +519,26 @@ class AnnotateTabWidget(QWidget, Ui_AnnotateTab):
 
     # -- 実行系 getter (MainWindow.start_annotation が読む) --------------------
 
-    def _sync_widget_selection_to_state(self) -> None:
+    def _sync_widget_selection_to_state(self, selected: list[str] | None = None) -> None:
         """widget の programmatic な選択変更を state manager (SSoT) へ反映する (#884)。
 
         ``ModelCheckboxWidget.set_selected`` / ``ModelSelectionWidget.set_selected_models``
         は checkbox signal を抑制するため ``model_selection_changed`` 経由の同期
         (:meth:`_on_widget_model_selection_changed`) が走らない。picker / preset / × など
         の programmatic 変更後に本メソッドで checkbox の ground-truth を SSoT へ押し出す。
+
+        Args:
+            selected: SSoT へ反映する選択集合の明示指定。checkbox widget はフィルタで
+                隠れた行を列挙できないため、プリセット適用など「意図した集合」が
+                確定している経路では widget 読み戻しでなくこちらを渡す (#1186 Codex P2)。
+                None なら従来どおり widget の ground-truth を読む。
         """
         if self._model_selection_state_manager is None or self._syncing_model_selection:
             return
         self._syncing_model_selection = True
         try:
             self._model_selection_state_manager.set_selected(
-                self._batch_model_selection.get_selected_models()
+                self._batch_model_selection.get_selected_models() if selected is None else list(selected)
             )
         finally:
             self._syncing_model_selection = False
@@ -685,7 +691,9 @@ class AnnotateTabWidget(QWidget, Ui_AnnotateTab):
         else:
             preset_ids = self._filter_model_ids_for_preset(preset_id, all_infos)
         self._batch_model_selection.set_selected_models(preset_ids)
-        self._sync_widget_selection_to_state()
+        # プリセットの意図した集合を SSoT へ直接反映する。widget 読み戻しだと
+        # アノテーションフィルタで隠れた行が黙って脱落する (#1186 Codex P2)
+        self._sync_widget_selection_to_state(preset_ids)
 
         # アクティブプリセット表示を同期 (Signal emit なし)
         self._pipeline_stage_table.set_active_preset(preset_id)
@@ -738,8 +746,12 @@ class AnnotateTabWidget(QWidget, Ui_AnnotateTab):
 
         QSettings へ {名前: litellm_model_id リスト} を JSON で永続化し、
         プリセット chip 行へ保存済みプリセットとして追加する (同名は上書き)。
+
+        選択集合は checkbox widget でなく選択 SSoT (`selected_litellm_model_ids`)
+        から読む。widget はアノテーションフィルタで隠れた行を列挙できず、
+        「現状の保存」が不完全なプリセットになる (Codex P2)。
         """
-        selected_ids = self._batch_model_selection.get_selected_models()
+        selected_ids = self.selected_litellm_model_ids()
         if not selected_ids:
             show_warning(self, "プリセット保存", "モデルが選択されていないため保存できません。")
             return
