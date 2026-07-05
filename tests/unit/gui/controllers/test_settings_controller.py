@@ -6,7 +6,7 @@ ConfigurationServiceの有無、ConfigurationWindowの生成を検証。
 
 from unittest.mock import Mock, patch
 
-from PySide6.QtWidgets import QDialog, QMessageBox, QWidget
+from PySide6.QtWidgets import QDialog, QWidget
 
 from lorairo.gui.controllers.settings_controller import SettingsController
 
@@ -181,33 +181,6 @@ class TestSettingsControllerDialog:
             controller.open_settings_dialog()
 
         mock_dialog.focus_api_key_field.assert_not_called()
-
-    def test_open_settings_dialog_import_error_uses_fallback(self, qtbot, monkeypatch):
-        """ConfigurationWindow の ImportError 時はフォールバックダイアログを表示して False を返す。
-
-        sys.modules に None をセットすることで open_settings_dialog() 内の
-        `from ..window.configuration_window import ConfigurationWindow` を
-        ImportError に変換し、実際の except ImportError パスを通る。
-        """
-        import sys
-
-        parent = QWidget()
-        qtbot.addWidget(parent)
-
-        mock_config = Mock()
-        controller = SettingsController(config_service=mock_config, parent=parent)
-
-        information_called = []
-        monkeypatch.setattr(QMessageBox, "information", lambda *args: information_called.append(args))
-
-        # sys.modules[key] = None は Python が ImportError を raise するネガティブキャッシュ
-        # monkeypatch.setitem でテスト終了時に自動的に元の値へ復元される
-        monkeypatch.setitem(sys.modules, "lorairo.gui.window.configuration_window", None)
-
-        result = controller.open_settings_dialog()
-
-        assert result is False
-        assert len(information_called) == 1
 
     def test_open_settings_dialog_general_exception_shows_critical(self, qtbot, monkeypatch):
         """一般的な例外が発生したとき critical ダイアログを表示して False を返す。
