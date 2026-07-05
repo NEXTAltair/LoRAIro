@@ -32,6 +32,10 @@ ENV/
 # Agent worktree チェックアウト (.agents/worktree/<branch>。git worktree の実体、追跡しない)
 .agents/worktree/
 
+# 外部 skill の導入状態・退避先 (scripts/install_agent_skills.py が管理)
+.agents/skills/.installed-lock-hashes.json
+.agents/skills/.pending-replace/
+
 # テスト関連
 .pytest_cache/
 .coverage
