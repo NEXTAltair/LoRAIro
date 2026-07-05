@@ -91,10 +91,15 @@ make worktree-cleanup-merged
 
 - 原則としてワークツリー内に `.venv` を作らない（共有 `/workspaces/LoRAIro/.venv` を使う、named volume で高速）
 - `.agents/worktree/` 配下で `uv` を実行する場合は、共有実行環境 `/workspaces/LoRAIro/.venv` を使う。
-- **共有 `.venv` の指定はツール側の環境設定で常設し、コマンドには毎回 env prefix を付けない**のが標準運用。
-  - **Claude Code**: `.claude/settings.json` の `env` に `UV_PROJECT_ENVIRONMENT = "/workspaces/LoRAIro/.venv"` を設定済み。
+- **共有 `.venv` の指定は OS ローカルな環境設定で常設し、コマンドには毎回 env prefix を付けない**のが標準運用。
+  **git 追跡される共有ファイル（`.claude/settings.json` 等）には OS 固有絶対パスを置かない**
+  （Windows + Git Bash では `/workspaces/...` が `C:/Program Files/Git/workspaces/...` に化けて uv が死ぬ、Issue #1175）。
+  - **devcontainer**: `.devcontainer/devcontainer.json` の `remoteEnv` に
+    `UV_PROJECT_ENVIRONMENT = "/workspaces/LoRAIro/.venv"` を設定済み（コンテナ専用ファイルなので Linux パス可）。
     worktree からでも素の `uv run ...` で共有 `.venv` を使える（許可は `Bash(uv *)` で済み、env prefix の個別 allowlist は不要）。
     PreToolUse Hook (`hook_pre_commands.py`) の worktree gate も `os.environ` の `UV_PROJECT_ENVIRONMENT` を見るため、素の `uv run` を通す。
+  - **Windows ネイティブ**: 未設定（uv 既定の `.venv` 解決）でよい。明示したい場合は自分の
+    `.claude/settings.local.json`（gitignore 済）の `env` に `C:\\LoRAIro\\.venv` 等を設定する。
   - **Codex**: `.codex/config.toml` の `[shell_environment_policy.set]` に
     `UV_PROJECT_ENVIRONMENT = "/workspaces/LoRAIro/.venv"` を設定し、`uv run ruff ...` のように env prefix なしで実行する。
 - その環境設定が効かない shell（手動端末など）では `UV_PROJECT_ENVIRONMENT=/workspaces/LoRAIro/.venv uv ...` を明示する。
@@ -108,7 +113,8 @@ make worktree-cleanup-merged
 
 | | 共有 `.venv` 常設方法 | コマンド記法 |
 |---|---|---|
-| Claude Code | `.claude/settings.json` の `env` | `uv run ...`（env prefix 不要） |
+| Claude Code (devcontainer) | `.devcontainer/devcontainer.json` の `remoteEnv` | `uv run ...`（env prefix 不要） |
+| Claude Code (Windows ネイティブ) | 未設定 or `.claude/settings.local.json` の `env` | `uv run ...` |
 | Codex | `.codex/config.toml` の `[shell_environment_policy.set]` | `uv run ...`（env prefix 不要） |
 
 どちらも常設設定が効かない shell では `UV_PROJECT_ENVIRONMENT=/workspaces/LoRAIro/.venv uv ...` を明示する。

@@ -123,3 +123,42 @@ class TestImagesShow:
             ["images", "show", "--project", "proj", "--image-ids", csv_ids],
         )
         assert result.exit_code != 0
+
+    def test_show_positional_ids_json(self, mock_show_context: MagicMock) -> None:
+        """位置引数でも画像 ID を指定できる (Issue #1175)。"""
+        result = runner.invoke(
+            app,
+            ["--json", "images", "show", "42", "57", "--project", "proj"],
+        )
+        assert result.exit_code == 0
+        lines = [
+            json.loads(line) for line in result.output.strip().splitlines() if line.strip().startswith("{")
+        ]
+        items = [row for row in lines if row.get("kind") == "item"]
+        assert [row["image_id"] for row in items] == [42, 57]
+
+    def test_show_positional_csv_mixed(self, mock_show_context: MagicMock) -> None:
+        """位置引数のカンマ区切りと --image-ids の併用をマージする (Issue #1175)。"""
+        result = runner.invoke(
+            app,
+            ["--json", "images", "show", "42,57", "--project", "proj"],
+        )
+        assert result.exit_code == 0
+        lines = [
+            json.loads(line) for line in result.output.strip().splitlines() if line.strip().startswith("{")
+        ]
+        items = [row for row in lines if row.get("kind") == "item"]
+        assert [row["image_id"] for row in items] == [42, 57]
+
+    def test_show_without_any_ids_errors(self, mock_show_context: MagicMock) -> None:
+        """位置引数も --image-ids も無い場合は INVALID_INPUT で exit 2 (Issue #1175)。"""
+        result = runner.invoke(
+            app,
+            ["--json", "images", "show", "--project", "proj"],
+        )
+        assert result.exit_code == 2
+        lines = [
+            json.loads(line) for line in result.output.strip().splitlines() if line.strip().startswith("{")
+        ]
+        error_row = next(r for r in lines if r.get("kind") == "error")
+        assert error_row["code"] == "INVALID_INPUT"

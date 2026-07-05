@@ -51,3 +51,24 @@ def is_sqlite_lock_error(exc: BaseException) -> bool:
         if any(fragment in message for fragment in _LOCK_MESSAGE_FRAGMENTS):
             return True
     return False
+
+
+def is_sqlite_disk_io_error(exc: BaseException) -> bool:
+    """例外 (または cause chain) が SQLite の ``disk I/O error`` かを判定する。
+
+    WAL の ``-shm`` 共有メモリは OS 境界 (Windows GUI × コンテナ CLI の 9p 越し等) では
+    mmap 共有できず、読み取りでも ``disk I/O error`` になる (Issue #1169)。CLI はこの
+    判定で「実行環境を揃える」案内を出す (Issue #1175)。
+
+    Args:
+        exc: 判定対象の例外。
+
+    Returns:
+        ``disk I/O error`` を示す ``OperationalError`` がチェーン上に存在すれば ``True``。
+    """
+    for item in _iter_exception_chain(exc):
+        if type(item).__name__ != "OperationalError":
+            continue
+        if "disk i/o error" in str(item).lower():
+            return True
+    return False

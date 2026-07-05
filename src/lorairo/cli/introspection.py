@@ -236,7 +236,9 @@ class ImagesShowInputSchema(BaseModel):
     """Implemented options surface accepted by ``images show``."""
 
     project: str
-    image_ids: str = Field(description="Comma-separated image IDs, max 500.")
+    image_ids: str = Field(
+        description="Comma-separated image IDs, max 500. Positional form `images show 42 57` also works."
+    )
     include_rejected: bool = False
 
     model_config = ConfigDict(title="ImagesShowInput")
