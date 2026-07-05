@@ -7,14 +7,22 @@ import pytest
 from typer.testing import CliRunner
 
 from lorairo.cli.main import app
+from lorairo.database.repository.annotation_record import ManualTagClassification
 
 runner = CliRunner()
+
+
+def _exact_classification(tag: str) -> ManualTagClassification:
+    return ManualTagClassification(tag, tag, "exact", tag, 10, [])
 
 
 def _make_container(*, image_exists: bool = True) -> MagicMock:
     container = MagicMock()
     mock_records = [{"id": 1}, {"id": 2}] if image_exists else []
     container.db_manager.image_repo.get_images_by_filter.return_value = (mock_records, len(mock_records))
+    # classify は実 dataclass を返す (分類結果が JSON 出力に載るため MagicMock 不可、Issue #1174)
+    container.db_manager.annotation_repo.classify_manual_tag.side_effect = _exact_classification
+    container.db_manager.annotation_repo.register_user_tag.return_value = 111
     container.db_manager.annotation_repo.add_tag_to_images_batch.return_value = (True, 2)
     container.db_manager.annotation_repo.remove_tag_from_images_batch.return_value = (
         True,
@@ -76,6 +84,135 @@ class TestTagsAdd:
         result_row = next(r for r in lines if r.get("kind") == "result")
         assert result_row["ok"] is True
         assert result_row["dry_run"] is False
+
+
+def _json_result_row(output: str) -> dict:
+    lines = [json.loads(line) for line in output.strip().splitlines() if line.strip().startswith("{")]
+    return next(r for r in lines if r.get("kind") == "result")
+
+
+@pytest.mark.unit
+class TestTagsAddClassification:
+    """tags add の refinement 分類 surface (Issue #1174)。"""
+
+    def test_dry_run_emits_tag_resolutions_without_registration(self, mock_project_and_container):
+        repo = mock_project_and_container.db_manager.annotation_repo
+        result = runner.invoke(
+            app,
+            ["--json", "tags", "add", "--project", "proj", "--image-ids", "1,2", "--tags", "cat"],
+        )
+        assert result.exit_code == 0
+        row = _json_result_row(result.stdout)
+        assert row["tag_resolutions"] == [
+            {
+                "tag": "cat",
+                "classification": "exact",
+                "canonical_tag": "cat",
+                "tag_id": 10,
+                "candidates": [],
+            }
+        ]
+        repo.register_user_tag.assert_not_called()
+        repo.add_tag_to_images_batch.assert_not_called()
+
+    def test_apply_registers_unregistered_tag_to_user_db(self, mock_project_and_container):
+        repo = mock_project_and_container.db_manager.annotation_repo
+        repo.classify_manual_tag.side_effect = lambda tag: ManualTagClassification(
+            tag, tag, "unregistered", tag, None, []
+        )
+        result = runner.invoke(
+            app,
+            [
+                "--json",
+                "tags",
+                "add",
+                "--project",
+                "proj",
+                "--image-ids",
+                "1,2",
+                "--tags",
+                "brand_new_tag",
+                "--apply",
+            ],
+        )
+        assert result.exit_code == 0
+        repo.register_user_tag.assert_called_once_with("brand_new_tag")
+        repo.add_tag_to_images_batch.assert_called_once_with(
+            [1, 2], "brand_new_tag", None, resolved=("brand_new_tag", 111)
+        )
+        row = _json_result_row(result.stdout)
+        assert row["tag_resolutions"][0]["tag_id"] == 111
+        assert row["unresolved_tag_count"] == 0
+
+    def test_apply_surfaces_typo_candidates_without_auto_alias(self, mock_project_and_container):
+        repo = mock_project_and_container.db_manager.annotation_repo
+        repo.classify_manual_tag.side_effect = lambda tag: ManualTagClassification(
+            tag, tag, "typo_candidate", tag, None, ["european architecture"]
+        )
+        result = runner.invoke(
+            app,
+            [
+                "--json",
+                "tags",
+                "add",
+                "--project",
+                "proj",
+                "--image-ids",
+                "1,2",
+                "--tags",
+                "europian architecture",
+                "--apply",
+            ],
+        )
+        assert result.exit_code == 0
+        # typo 候補は user DB 登録しない (自動 alias 化しない)
+        repo.register_user_tag.assert_not_called()
+        repo.add_tag_to_images_batch.assert_called_once_with(
+            [1, 2], "europian architecture", None, resolved=("europian architecture", None)
+        )
+        row = _json_result_row(result.stdout)
+        resolution = row["tag_resolutions"][0]
+        assert resolution["classification"] == "typo_candidate"
+        assert resolution["candidates"] == ["european architecture"]
+        assert resolution["tag_id"] is None
+        assert row["unresolved_tag_count"] == 1
+
+    def test_alias_resolved_uses_canonical_for_storage(self, mock_project_and_container):
+        repo = mock_project_and_container.db_manager.annotation_repo
+        repo.classify_manual_tag.side_effect = lambda tag: ManualTagClassification(
+            tag, tag, "alias_resolved", "preferred_tag", 42, []
+        )
+        result = runner.invoke(
+            app,
+            [
+                "--json",
+                "tags",
+                "add",
+                "--project",
+                "proj",
+                "--image-ids",
+                "1,2",
+                "--tags",
+                "old_alias",
+                "--apply",
+            ],
+        )
+        assert result.exit_code == 0
+        repo.register_user_tag.assert_not_called()
+        repo.add_tag_to_images_batch.assert_called_once_with(
+            [1, 2], "old_alias", None, resolved=("preferred_tag", 42)
+        )
+
+    def test_all_invalid_tags_rejected_as_input_error(self, mock_project_and_container):
+        repo = mock_project_and_container.db_manager.annotation_repo
+        repo.classify_manual_tag.side_effect = lambda tag: ManualTagClassification(
+            tag, "", "invalid", tag, None, []
+        )
+        result = runner.invoke(
+            app,
+            ["--json", "tags", "add", "--project", "proj", "--image-ids", "1,2", "--tags", "###"],
+        )
+        assert result.exit_code == 2
 
 
 @pytest.mark.unit

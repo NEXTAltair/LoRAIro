@@ -44,7 +44,7 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import Any, cast
 
-from genai_tag_db_tools import search_tags
+from genai_tag_db_tools import recommend_manual_refinement, search_tags
 from genai_tag_db_tools.db.repository import MergedTagReader, get_default_reader
 from genai_tag_db_tools.models import TagRegisterRequest, TagSearchRequest
 from genai_tag_db_tools.services.tag_register import TagRegisterService
@@ -79,6 +79,33 @@ from .model import ModelRepository
 # ADR 0068 (改訂): 保存境界で焼き込む基準フォーマット。非手動タグはこの format の
 # preferred (canonical) へ解決して保存し、表示は verbatim にする。
 _DANBOORU_FORMAT = "danbooru"
+
+
+@dataclass(frozen=True)
+class ManualTagClassification:
+    """手動タグ追加時の外部 tag_db 分類結果 (Issue #1174)。
+
+    Attributes:
+        input_tag: 入力タグ文字列 (verbatim)。
+        normalized_tag: TagCleaner.clean_format 正規化後 (空文字なら invalid)。
+        classification: 分類コード。
+            "invalid": 正規化後が空 (登録・追加の対象外)
+            "exact": tag_db 完全一致
+            "alias_resolved": 既知 alias → preferred へ自動解決
+            "typo_candidate": typo 候補あり (自動適用しない、候補を surface)
+            "ambiguous": 複数候補 (決め打ちしない、候補を surface)
+            "unregistered": tag_db 未登録 (真の新タグ)
+        canonical_tag: 保存すべきタグ文字列 (exact/alias は canonical、他は入力 verbatim)。
+        tag_id: 解決済み外部 tag_id (未解決は None)。
+        candidates: typo/ambiguous の候補タグ文字列。
+    """
+
+    input_tag: str
+    normalized_tag: str
+    classification: str
+    canonical_tag: str
+    tag_id: int | None
+    candidates: list[str]
 
 
 @dataclass(frozen=True, slots=True)
@@ -345,6 +372,7 @@ class AnnotationRepository(BaseRepository):
         image_ids: list[int],
         tag: str,
         model_id: int | None,
+        resolved: tuple[str, int | None] | None = None,
     ) -> tuple[bool, int]:
         """複数画像に1つのタグを原子的に追加(既存タグに追加、重複スキップ)
 
@@ -354,6 +382,9 @@ class AnnotationRepository(BaseRepository):
             image_ids: 対象画像のIDリスト
             tag: 追加するタグ(正規化済み前提: lower + strip)
             model_id: モデルID(手動編集の場合はマニュアルモデルID)
+            resolved: 呼び出し元が事前解決済みの (保存タグ文字列, 外部 tag_id)。
+                CLI の分類経路 (Issue #1174) が classify_manual_tag / register_user_tag の
+                結果を渡し、内部の再解決 (danbooru スコープ検索 + base DB 登録) をスキップする。
 
         Returns:
             (成功フラグ, 追加件数)
@@ -377,7 +408,7 @@ class AnnotationRepository(BaseRepository):
             try:
                 # canonical 解決を dedup の前に1回だけ行う (日本語→canonical, alias→preferred)。
                 # 保存する tags.tag を解決後の canonical 文字列に置換する (ADR 0083 §4 / #988)。
-                resolved_tag, external_tag_id = self._resolve_canonical_and_tag_id(session, input_tag)
+                resolved_tag, external_tag_id = self._resolution_for_batch_add(session, input_tag, resolved)
                 if external_tag_id is None:
                     logger.warning(
                         f"Tag '{input_tag}' could not be linked to external tag_db. "
@@ -883,6 +914,132 @@ class AnnotationRepository(BaseRepository):
                 f"Error resolving canonical tag in external tag_db: '{normalized_tag}': {e}"
             )
             return (tag_string, None)
+
+    def _resolution_for_batch_add(
+        self, session: Session, input_tag: str, resolved: tuple[str, int | None] | None
+    ) -> tuple[str, int | None]:
+        """batch add 用の (保存タグ, tag_id)。事前解決があればそれを優先する (Issue #1174)。"""
+        if resolved is not None:
+            return resolved
+        return self._resolve_canonical_and_tag_id(session, input_tag)
+
+    def classify_manual_tag(self, tag_string: str) -> ManualTagClassification:
+        """手動追加タグを外部 tag_db の refinement 検索で分類する (読み取り専用、Issue #1174)。
+
+        書き込み経路 (`_resolve_canonical_and_tag_id`) と同じ danbooru スコープの
+        exact 検索で解決し、ミス時は `recommend_manual_refinement` で typo / 曖昧
+        候補を分類する。tag_db への登録は行わない (dry-run で安全に呼べる)。
+
+        Args:
+            tag_string: 入力タグ文字列 (正規化前、日本語可)。
+
+        Returns:
+            ManualTagClassification: 分類結果。tag_db 不通時は unregistered に縮退。
+        """
+        normalized = TagCleaner.clean_format(tag_string).strip()
+        if not normalized:
+            return ManualTagClassification(tag_string, "", "invalid", tag_string, None, [])
+
+        merged_reader = self._get_merged_reader()
+        if merged_reader is None:
+            return ManualTagClassification(tag_string, normalized, "unregistered", tag_string, None, [])
+
+        try:
+            request = TagSearchRequest(
+                query=normalized,
+                partial=False,
+                format_names=[_DANBOORU_FORMAT],
+                resolve_preferred=True,
+                include_aliases=True,
+                include_deprecated=False,
+            )
+            result = search_tags(merged_reader, request)
+        except (ValueError, RuntimeError, SQLAlchemyError) as e:
+            logger.warning(f"タグ分類検索に失敗 (unregistered へ縮退): '{normalized}': {e}")
+            return ManualTagClassification(tag_string, normalized, "unregistered", tag_string, None, [])
+
+        if result.items:
+            item = result.items[0]
+            # resolve_preferred=True なので alias はここで preferred に置換済み。
+            # 入力と canonical の正規化キーが同じなら完全一致、異なれば alias 解決。
+            classification = (
+                "exact" if self._dedup_key(item.tag) == self._dedup_key(normalized) else "alias_resolved"
+            )
+            return ManualTagClassification(
+                tag_string, normalized, classification, item.tag, item.tag_id, []
+            )
+
+        # exact ミス → refinement 分類で typo / 曖昧候補を拾う (自動適用はしない)
+        try:
+            recommendation = recommend_manual_refinement(
+                normalized, merged_reader, format_name=_DANBOORU_FORMAT
+            )
+        except (ValueError, RuntimeError, SQLAlchemyError) as e:
+            logger.warning(f"refinement 分類に失敗 (unregistered へ縮退): '{normalized}': {e}")
+            recommendation = None
+
+        if recommendation is not None and recommendation.reasons:
+            codes = {reason.code for reason in recommendation.reasons}
+            candidates = [s.tag for s in recommendation.suggestions if s.tag]
+            if "ambiguous_alias_candidates" in codes:
+                return ManualTagClassification(
+                    tag_string, normalized, "ambiguous", tag_string, None, candidates
+                )
+            if "typo_alias_candidate" in codes:
+                return ManualTagClassification(
+                    tag_string, normalized, "typo_candidate", tag_string, None, candidates
+                )
+
+        return ManualTagClassification(tag_string, normalized, "unregistered", tag_string, None, [])
+
+    def register_user_tag(self, tag_string: str) -> int | None:
+        """真の新タグを user DB (scope="user", format 1000+) へ登録する (Issue #1174)。
+
+        登録失敗 (format 未定義 / tagdb #124 の読み戻し失敗等) は警告ログを残して
+        None を返す縮退 (呼び出し元が tag_id=None を surface する)。
+
+        Args:
+            tag_string: 入力タグ文字列 (正規化前)。
+
+        Returns:
+            登録された tag_id。空正規化・登録失敗時は None。
+        """
+        normalized = TagCleaner.clean_format(tag_string).strip()
+        if not normalized:
+            # 空/無効に正規化されるトークンは登録しない (#124 回避・user DB 汚染防止)
+            logger.warning(f"空正規化のため user DB 登録をスキップ: '{tag_string}'")
+            return None
+
+        if self.tag_register_service is None:
+            self.tag_register_service = self._initialize_tag_register_service()
+            if self.tag_register_service is None:
+                logger.warning("TagRegisterService 初期化失敗のため user DB 登録をスキップ")
+                return None
+
+        register_request = TagRegisterRequest(
+            tag=normalized,
+            source_tag=tag_string,
+            format_name="Lorairo",
+            type_name="unknown",
+            scope="user",
+        )
+        try:
+            register_result = self.tag_register_service.register_tag(register_request)
+            logger.debug(
+                f"user DB へタグ登録: '{normalized}' tag_id={register_result.tag_id} "
+                f"created={register_result.created}"
+            )
+            return cast("int | None", register_result.tag_id)
+        except IntegrityError:
+            # 競合 (他プロセスが同時登録) → 全 format exact でリトライ検索 (既存 helper 再利用)
+            retry = self._retry_tag_search(normalized)
+            if retry is None:
+                logger.warning(f"user DB 登録競合後のリトライ検索でも未解決: '{normalized}'")
+            return retry
+        except (ValueError, RuntimeError, SQLAlchemyError) as e:
+            # tagdb #124 (TAG_ID_NOT_FOUND_AFTER_INSERT) 等は tag_id=None + 警告で縮退
+            logger.warning(f"user DB へのタグ登録に失敗 (tag_id=None で継続): '{normalized}': {e}")
+            return None
 
     def _register_new_tag(
         self,
