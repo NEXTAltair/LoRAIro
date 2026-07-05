@@ -30,7 +30,19 @@ LoRAIro の3層ドキュメント構造の維持方針。
 | `docs/decisions/README.md` | ADR インデックス |
 | `docs/lessons-learned.md` | バグパターン・教訓 |
 | `docs/development-workflow.md` | 開発プロセス（このファイルの姉妹）|
-| `docs/plans/` | Plan Mode 計画の共有ディレクトリ |
+| `docs/cli.md` | lorairo-cli コマンドリファレンス |
+| `docs/cli-rating-preflight.md` | CLI rating 事前確認手順 |
+| `docs/product_requirement_docs.md` | プロダクト要求 (PRD) |
+| `docs/DEPRECATIONS.md` | 廃止機能一覧 |
+| `docs/release-checklist.md` | リリース手順チェックリスト |
+| `docs/plans/` | ネイティブ Plan Mode 計画の共有ディレクトリ |
+| `docs/superpowers/` | superpowers skill (`writing-plans` / `brainstorming`) の計画・設計出力先。skill のデフォルト出力パスなので変更しない。`docs/plans/` とは出所で使い分ける |
+| `docs/specs/` | 機能仕様 (application / core / interfaces) |
+| `docs/design/` | デザインバンドル (DesignSync 同期対象) |
+| `docs/investigations/` | 調査レポート |
+| `docs/migration/` | データ移行ガイド |
+| `docs/technical/` | 詳細技術ガイド (PySide6 等) |
+| `docs/skill-evaluations/` | skill 評価シナリオ |
 
 ## Frontmatter (OKF)
 
@@ -125,6 +137,11 @@ ls -la docs/plans/
 - 2026-01-01: 3層ドキュメントアーキテクチャ実装
   - 30+ のパスエラー・欠損サービスを修正
   - `docs/services.md`, `docs/integrations.md`, `docs/testing.md` を新規作成
+- 2026-07-05: docs/ 棚卸し
+  - Superseded 済み旧テスト移行計画 (`new_test_architecture.md` / `migration_roadmap.md` /
+    `conftest_template.py`) と `archived_ui/` を削除 (git 履歴で参照可)
+  - PRD を現行製品の実態に合わせて全面書き直し
+  - 本ファイルの docs/ 一覧表を実態に同期 (`superpowers/` の役割分担を明記)
 - 2026-04-07: Serena Memory 廃止 (Issue #64)
   - `docs/decisions/` ADR フレームワーク追加
   - `docs/lessons-learned.md` 新規作成
