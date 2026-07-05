@@ -486,6 +486,53 @@ class DatasetStateManager(QObject):
         if self._current_image_id == image_id:
             self.current_image_data_changed.emit(cached)
 
+    # _ensure_annotations_loaded がキャッシュへ merge するアノテーションキー。
+    # invalidate_annotations はこれらを落として "tags" センチネルを外し、遅延ロードを再武装する。
+    _ANNOTATION_CACHE_KEYS = (
+        "tags",
+        "tags_text",
+        "captions",
+        "caption_text",
+        "scores",
+        "score_value",
+        "score_labels",
+        "ratings",
+        "quality_summary",
+    )
+
+    def invalidate_annotations(self, image_ids: list[int]) -> None:
+        """指定画像のアノテーションキャッシュを無効化し、次回選択時に DB を再照会させる (Issue #1171)。
+
+        外部プロセス (CLI) の DB 書き込みは GUI のメモリキャッシュへ自動反映されない
+        (ADR 0067 §4: 手動リロード)。本 API はユーザーの明示的な再読込操作から呼ばれ、
+        キャッシュ dict からアノテーションキーを落として ``"tags"`` センチネルを外し、
+        ``_ensure_annotations_loaded`` の遅延ロード (#965) を再武装する。
+
+        現在表示中の画像が対象に含まれる場合は ``refresh_image_annotations`` で即時
+        DB 再取得し、``current_image_data_changed`` を再発行して表示を更新する。
+
+        Args:
+            image_ids: 無効化対象の画像 ID リスト (キャッシュ未登録 ID は無視)。
+        """
+        if not image_ids:
+            return
+
+        invalidated = 0
+        for image_id in image_ids:
+            cached = self.get_image_by_id(image_id)
+            if cached is None:
+                continue
+            for key in self._ANNOTATION_CACHE_KEYS:
+                cached.pop(key, None)
+            invalidated += 1
+
+        logger.debug(f"アノテーションキャッシュ無効化: {invalidated}/{len(image_ids)} 件")
+
+        # 現在表示中の画像は即時再取得して表示を最新化する
+        # (refresh_image_annotations はキャッシュ未登録なら refresh_image へフォールバック)
+        if self._current_image_id is not None and self._current_image_id in set(image_ids):
+            self.refresh_image_annotations(self._current_image_id)
+
     def refresh_images(self, image_ids: list[int]) -> None:
         """
         複数画像のメタデータをDBから再読み込み

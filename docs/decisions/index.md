@@ -83,3 +83,4 @@
 * [Export Changed-Since Filter Reintroduction](0081-export-changed-since-filter.md)
 * [通常ドキュメントにも OKF frontmatter を付け SSoT 化する](0082-okf-frontmatter-for-documentation.md)
 * [タグ欄の TagPanelWidget 切り出しと soft-reject 一本のタグ操作モデル](0083-tag-panel-widget-extraction.md)
+* [GUI アノテーションキャッシュの明示無効化 (再読込操作 + 対象指定 API)](0084-annotation-cache-explicit-invalidation.md)

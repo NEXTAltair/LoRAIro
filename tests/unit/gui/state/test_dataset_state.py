@@ -391,6 +391,78 @@ class TestDatasetStateManager:
         assert emitted["id"] == 1
         assert "tags" not in emitted
 
+    # === Issue #1171: アノテーションキャッシュの明示無効化 (ADR 0084) ===
+
+    def test_invalidate_annotations_rearms_lazy_load_for_non_current_image(self, state_manager):
+        """無効化後の再選択で DB を再照会し最新アノテーションが入る (Issue #1171)"""
+        state_manager.update_from_search_results(
+            [
+                {"id": 1, "stored_image_path": "/test/image1.jpg"},
+                {"id": 2, "stored_image_path": "/test/image2.jpg"},
+            ]
+        )
+        db_manager = Mock()
+        annotations_v1 = {
+            "tags": [{"tag": "old_tag"}],
+            "tags_text": "old_tag",
+        }
+        annotations_v2 = {
+            "tags": [{"tag": "cli_added_tag"}],
+            "tags_text": "cli_added_tag",
+        }
+        db_manager.image_repo.get_image_annotation_metadata.return_value = annotations_v1
+        state_manager.set_db_manager(db_manager)
+
+        # 1回目の選択で遅延ロード → 別画像へ移動 (画像1は非 current)
+        state_manager.set_current_image(1)
+        state_manager.set_current_image(2)
+        assert state_manager.get_image_by_id(1)["tags_text"] == "old_tag"
+
+        # CLI が DB を書き換えた想定で無効化 → キャッシュからアノテーションキーが落ちる
+        db_manager.image_repo.get_image_annotation_metadata.return_value = annotations_v2
+        state_manager.invalidate_annotations([1])
+        assert "tags" not in state_manager.get_image_by_id(1)
+        assert state_manager.get_image_by_id(1)["stored_image_path"] == "/test/image1.jpg"
+
+        # 再選択で DB 再照会され最新値が入る
+        state_manager.set_current_image(1)
+        assert state_manager.get_image_by_id(1)["tags_text"] == "cli_added_tag"
+
+    def test_invalidate_annotations_refreshes_current_image_immediately(self, state_manager):
+        """現在表示中の画像は即時 DB 再取得 + current_image_data_changed 再発行 (Issue #1171)"""
+        state_manager.update_from_search_results([{"id": 1, "stored_image_path": "/test/image1.jpg"}])
+        db_manager = Mock()
+        db_manager.image_repo.get_image_annotation_metadata.return_value = {
+            "tags": [{"tag": "old_tag"}],
+            "tags_text": "old_tag",
+        }
+        state_manager.set_db_manager(db_manager)
+        state_manager.set_current_image(1)
+
+        received = Mock()
+        state_manager.current_image_data_changed.connect(received)
+        db_manager.image_repo.get_image_annotation_metadata.return_value = {
+            "tags": [{"tag": "cli_added_tag"}],
+            "tags_text": "cli_added_tag",
+        }
+
+        state_manager.invalidate_annotations([1])
+
+        emitted = received.call_args[0][0]
+        assert emitted["tags_text"] == "cli_added_tag"
+        assert emitted["stored_image_path"] == "/test/image1.jpg"
+
+    def test_invalidate_annotations_ignores_uncached_and_empty(self, state_manager):
+        """キャッシュ未登録 ID / 空リストは安全に無視する (Issue #1171)"""
+        state_manager.update_from_search_results([{"id": 1, "stored_image_path": "/test/image1.jpg"}])
+        db_manager = Mock()
+        state_manager.set_db_manager(db_manager)
+
+        state_manager.invalidate_annotations([])
+        state_manager.invalidate_annotations([999])
+
+        db_manager.image_repo.get_image_annotation_metadata.assert_not_called()
+
     # === Issue #967: 全件コピーを伴わない軽量アクセサ ===
 
     def test_count_accessors(self, state_manager, sample_image_metadata):
