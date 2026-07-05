@@ -480,8 +480,13 @@ def search_images(
 
 @app.command("show")
 def show(
+    image_ids_positional: list[str] | None = typer.Argument(
+        None,
+        metavar="[IMAGE_IDS]...",
+        help="Image IDs (space or comma separated). Alternative to --image-ids.",
+    ),
     project: str = typer.Option(..., "--project", "-p", help="Project name"),
-    image_ids_csv: str = typer.Option(..., "--image-ids", help="Comma-separated image IDs"),
+    image_ids_csv: str | None = typer.Option(None, "--image-ids", help="Comma-separated image IDs"),
     include_rejected: bool = typer.Option(
         False,
         "--include-rejected",
@@ -492,15 +497,24 @@ def show(
 
     指定した image_ids の現行アノテーション（タグ/キャプション/スコア/レーティング）を
     表示します。タグ修正の判断材料として使うためのコマンドで、書き込みは行いません。
+    画像 ID は位置引数 (`images show 42 57`) と `--image-ids 42,57` のどちらでも指定できます。
 
     Example:
         lorairo-cli images show --project proj --image-ids 42,57 --json
+        lorairo-cli images show 42 57 --project proj --json
     """
     with command_boundary():
         api_get_project(project)
-        image_ids = parse_image_ids(image_ids_csv)
+        id_sources = list(image_ids_positional or [])
+        if image_ids_csv:
+            id_sources.append(image_ids_csv)
+        if not id_sources:
+            raise click.UsageError(
+                "画像 ID を指定してください: `images show 42 57` または `--image-ids 42,57`。"
+            )
+        image_ids = parse_image_ids(",".join(id_sources))
         if not image_ids:
-            raise click.UsageError("--image-ids に有効な値がありません。")
+            raise click.UsageError("画像 ID に有効な値がありません。")
         if len(image_ids) > MAX_IMAGE_IDS:
             raise click.UsageError(f"--image-ids は最大 {MAX_IMAGE_IDS} 件まで。")
 

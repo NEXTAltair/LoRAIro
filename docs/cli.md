@@ -795,7 +795,7 @@ lorairo-cli --json describe "images show"
 **Input `ImagesShowInput`**
 
 - `project`: `str` (required)
-- `image_ids`: `csv[int]` (required) - Comma-separated image IDs, max 500.
+- `image_ids`: `csv[int]` (required) - Comma-separated image IDs, max 500. Positional form `images show 42 57` also works.
 - `include_rejected`: `bool` (optional, default `False`) - Include soft-rejected tags/captions in the output.
 
 **Output `ImagesShowItem`**

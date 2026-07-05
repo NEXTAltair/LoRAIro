@@ -42,19 +42,27 @@ def _error_details(exc: BaseException | None) -> dict[str, object] | None:
     return details if isinstance(details, dict) else None
 
 
-def _report(message: str, info: ErrorInfo, details: dict[str, object] | None = None) -> None:
+def _report(
+    message: str,
+    info: ErrorInfo,
+    details: dict[str, object] | None = None,
+    exc: BaseException | None = None,
+) -> None:
     """分類結果を出力モードに応じて出す (JSONL or rich/stderr)。"""
+    hint = hint_for(info.code, exc)
     if is_json_mode():
         emit_error(
             info.code,
             message,
             retryable=info.retryable,
             user_action_required=info.user_action_required,
-            hint=hint_for(info.code),
+            hint=hint,
             details=details,
         )
     else:
         _console_err.print(f"[red]Error:[/red] {message}")
+        if hint:
+            _console_err.print(f"[yellow]Hint:[/yellow] {hint}")
 
 
 @contextmanager
@@ -80,10 +88,10 @@ def command_boundary() -> Iterator[None]:
         # 入力エラーとして INVALID_INPUT + exit 2 に統一する (ADR 0057 §6/§7)。
         info = ErrorInfo(ErrorCode.INVALID_INPUT, retryable=False, user_action_required=True)
         message = exc.format_message() if hasattr(exc, "format_message") else str(exc)
-        _report(message, info, details=_error_details(exc))
+        _report(message, info, details=_error_details(exc), exc=exc)
         raise typer.Exit(code=info.exit_code) from exc
     except Exception as exc:
         info = classify_exception(exc)
         message = str(exc) or type(exc).__name__
-        _report(message, info, details=_error_details(exc))
+        _report(message, info, details=_error_details(exc), exc=exc)
         raise typer.Exit(code=info.exit_code) from exc

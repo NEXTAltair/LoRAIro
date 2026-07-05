@@ -26,11 +26,18 @@ class ProjectNotFoundError(ProjectError):
 
     Args:
         project_name: 見つからないプロジェクト名。
+        available: 利用可能なプロジェクト名の候補 (エラーメッセージ/details に含める)。
     """
 
-    def __init__(self, project_name: str) -> None:
+    def __init__(self, project_name: str, available: list[str] | None = None) -> None:
         self.project_name = project_name
-        super().__init__(f"プロジェクト '{project_name}' が見つかりません")
+        self.available = available or []
+        message = f"プロジェクト '{project_name}' が見つかりません"
+        if self.available:
+            message += f"。利用可能なプロジェクト: {', '.join(self.available)}"
+            # CLI 境界 (_boundary._error_details) が JSON details に載せる
+            self.details: dict[str, object] = {"available_projects": self.available}
+        super().__init__(message)
 
 
 class ProjectAlreadyExistsError(ProjectError):

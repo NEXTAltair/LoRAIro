@@ -58,8 +58,7 @@
   },
   "env": {
     "CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS": "1",
-    "BASH_DEFAULT_TIMEOUT_MS": "5000000",
-    "UV_PROJECT_ENVIRONMENT": "/workspaces/LoRAIro/.venv"
+    "BASH_DEFAULT_TIMEOUT_MS": "5000000"
   },
   "hooks": {
     "PreToolUse": [

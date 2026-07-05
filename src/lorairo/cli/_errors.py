@@ -91,8 +91,28 @@ class ErrorInfo:
         return EXIT_INPUT_ERROR if self.code in _INPUT_CODES else EXIT_RUNTIME_ERROR
 
 
-def hint_for(code: ErrorCode) -> str | None:
-    """コードに対する短い対処ヒントを返す (定義がなければ ``None``)。"""
+_DISK_IO_HINT = (
+    "SQLite の disk I/O error です。GUI と CLI を別 OS (Windows GUI × コンテナ CLI 等) から"
+    "同じ DB に向けていないか確認し、GUI と同一 OS で CLI を実行するか GUI を閉じてください。"
+)
+
+
+def hint_for(code: ErrorCode, exc: BaseException | None = None) -> str | None:
+    """コードに対する短い対処ヒントを返す (定義がなければ ``None``)。
+
+    Args:
+        code: 分類済みエラーコード。
+        exc: 元の例外 (渡されると例外固有のヒントを優先する)。
+
+    Returns:
+        対処ヒント文字列、定義がなければ ``None``。
+    """
+    if exc is not None and code is ErrorCode.IO_ERROR:
+        from lorairo.database.db_errors import is_sqlite_disk_io_error
+
+        # クロス OS の WAL -shm 問題 (Issue #1169/#1175) は実行環境の指示を返す
+        if is_sqlite_disk_io_error(exc):
+            return _DISK_IO_HINT
     return _HINTS.get(code)
 
 
@@ -162,6 +182,13 @@ def _is_sqlite_lock(exc: BaseException) -> bool:
     from lorairo.database.db_errors import is_sqlite_lock_error
 
     return is_sqlite_lock_error(exc)
+
+
+def _is_sqlite_disk_io(exc: BaseException) -> bool:
+    """SQLite の ``disk I/O error`` (クロス OS WAL -shm 問題等) かを判定する。"""
+    from lorairo.database.db_errors import is_sqlite_disk_io_error
+
+    return is_sqlite_disk_io_error(exc)
 
 
 def _is_auth_error(exc: BaseException) -> bool:
@@ -239,6 +266,12 @@ _CHAIN_CLASSIFIERS: tuple[tuple[Callable[[BaseException], bool], ErrorInfo], ...
     (_is_rate_limited, ErrorInfo(ErrorCode.RATE_LIMITED, retryable=True, user_action_required=False)),
     (_is_network_error, ErrorInfo(ErrorCode.NETWORK_ERROR, retryable=True, user_action_required=False)),
     (_is_sqlite_lock, ErrorInfo(ErrorCode.CONFLICT, retryable=True, user_action_required=False)),
+    # disk I/O error は実行環境の問題 (Issue #1169/#1175) なので DB_ERROR より先に
+    # IO_ERROR + user_action_required で分類し、環境ヒント (_DISK_IO_HINT) に繋ぐ
+    (
+        _is_sqlite_disk_io,
+        ErrorInfo(ErrorCode.IO_ERROR, retryable=False, user_action_required=True),
+    ),
     (_is_db_error, ErrorInfo(ErrorCode.DB_ERROR, retryable=False, user_action_required=False)),
 )
 

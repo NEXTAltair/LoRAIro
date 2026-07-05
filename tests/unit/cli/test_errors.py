@@ -160,3 +160,40 @@ def test_hint_for_known_codes() -> None:
     assert hint_for(ErrorCode.AUTH_ERROR) is not None
     assert hint_for(ErrorCode.CONFLICT) is not None
     assert hint_for(ErrorCode.INTERNAL_ERROR) is None
+
+
+@pytest.mark.unit
+@pytest.mark.cli
+def test_classify_sqlite_disk_io_as_io_error() -> None:
+    """SQLite の disk I/O error は環境問題として IO_ERROR に分類する (Issue #1175)。"""
+    disk_io = type("OperationalError", (Exception,), {"__module__": "sqlalchemy.exc"})(
+        "(sqlite3.OperationalError) disk I/O error"
+    )
+    info = classify_exception(disk_io)
+    assert info.code == ErrorCode.IO_ERROR
+    assert info.user_action_required is True
+
+
+@pytest.mark.unit
+@pytest.mark.cli
+def test_classify_sqlite_disk_io_wrapped_in_cause_chain() -> None:
+    """cause chain 下層の disk I/O error も IO_ERROR として拾う (Issue #1175)。"""
+    orig = type("OperationalError", (Exception,), {"__module__": "sqlite3"})("disk I/O error")
+    try:
+        raise RuntimeError("query failed") from orig
+    except RuntimeError as exc:
+        assert classify_exception(exc).code == ErrorCode.IO_ERROR
+
+
+@pytest.mark.unit
+@pytest.mark.cli
+def test_hint_for_disk_io_error_returns_environment_guidance() -> None:
+    """disk I/O error には実行環境 (同一 OS / GUI 停止) の案内を返す (Issue #1175)。"""
+    disk_io = type("OperationalError", (Exception,), {"__module__": "sqlite3"})("disk I/O error")
+    hint = hint_for(ErrorCode.IO_ERROR, disk_io)
+    assert hint is not None
+    assert "同一 OS" in hint
+
+    # 通常の IO_ERROR (FileNotFoundError 等) には環境案内を出さない
+    assert hint_for(ErrorCode.IO_ERROR, FileNotFoundError("missing")) is None
+    assert hint_for(ErrorCode.IO_ERROR) is None

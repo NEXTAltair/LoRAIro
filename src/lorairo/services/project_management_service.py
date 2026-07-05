@@ -134,6 +134,7 @@ class ProjectManagementService:
             return projects
 
         try:
+            skipped = 0
             for proj_dir in sorted(self.projects_base_dir.iterdir()):
                 if not proj_dir.is_dir():
                     continue
@@ -141,7 +142,12 @@ class ProjectManagementService:
                 project_info = self._read_project_info(proj_dir)
                 if project_info:
                     projects.append(project_info)
+                else:
+                    skipped += 1
 
+            if skipped:
+                # ディレクトリごとの WARNING は出さず 1 行サマリーに集約 (Issue #1175)
+                logger.warning(f"メタデータなし/読込不可のディレクトリ {skipped} 件をスキップしました")
             logger.debug(f"プロジェクト一覧取得: {len(projects)}件")
             return projects
 
@@ -164,11 +170,11 @@ class ProjectManagementService:
         try:
             project_dir = self._find_project_directory(name)
             if not project_dir:
-                raise ProjectNotFoundError(name)
+                raise ProjectNotFoundError(name, available=self._available_project_names())
 
             project_info = self._read_project_info(project_dir)
             if not project_info:
-                raise ProjectNotFoundError(name)
+                raise ProjectNotFoundError(name, available=self._available_project_names())
 
             return project_info
 
@@ -258,6 +264,30 @@ class ProjectManagementService:
         """
         return self._find_project_directory(name) is not None
 
+    def _available_project_names(self) -> list[str]:
+        """メタデータを持つプロジェクト名の一覧を返す (NOT_FOUND エラーの候補提示用)。
+
+        Returns:
+            list[str]: メタデータの ``name`` フィールド一覧 (列挙失敗時は空リスト)。
+        """
+        names: list[str] = []
+        try:
+            if not self.projects_base_dir.exists():
+                return names
+            for proj_dir in sorted(self.projects_base_dir.iterdir()):
+                metadata_file = proj_dir / ".lorairo-project"
+                if not proj_dir.is_dir() or not metadata_file.exists():
+                    continue
+                try:
+                    name = json.loads(metadata_file.read_text()).get("name")
+                except (json.JSONDecodeError, OSError):
+                    continue
+                if name and name not in names:
+                    names.append(name)
+        except OSError:
+            logger.debug("プロジェクト候補の列挙に失敗しました (候補なしで続行)")
+        return names
+
     def _find_project_directory(self, name: str) -> Path | None:
         """プロジェクト名からディレクトリパスを検索。
 
@@ -310,7 +340,8 @@ class ProjectManagementService:
         try:
             metadata_file = project_dir / ".lorairo-project"
             if not metadata_file.exists():
-                logger.warning(f"メタデータファイルが見つかりません: {metadata_file}")
+                # 呼び出し元 (list_projects) が件数サマリーを WARNING で出す (Issue #1175)
+                logger.debug(f"メタデータファイルが見つかりません: {metadata_file}")
                 return None
 
             metadata = json.loads(metadata_file.read_text())

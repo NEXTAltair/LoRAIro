@@ -371,3 +371,42 @@ class TestProjectCrud:
                 service.update_project("to_fail_update", "new desc")
 
         assert exc_info.value.operation == "更新"
+
+    # ---------- Issue #1175: NOT_FOUND 候補提示 / WARNING スパム集約 ----------
+
+    def test_get_project_not_found_includes_available_candidates(
+        self, service: ProjectManagementService
+    ) -> None:
+        """get_project: NOT_FOUND エラーに利用可能なプロジェクト名候補が入る (Issue #1175)。"""
+        service.create_project("alpha")
+        service.create_project("beta")
+
+        with pytest.raises(ProjectNotFoundError) as exc_info:
+            service.get_project("missing")
+
+        assert exc_info.value.available == ["alpha", "beta"]
+        assert "alpha" in str(exc_info.value)
+        # CLI 境界が JSON details に載せる属性
+        assert exc_info.value.details == {"available_projects": ["alpha", "beta"]}
+
+    def test_get_project_not_found_without_projects_has_plain_message(
+        self, service: ProjectManagementService
+    ) -> None:
+        """get_project: 候補ゼロなら従来どおりのメッセージのみ (Issue #1175)。"""
+        with pytest.raises(ProjectNotFoundError) as exc_info:
+            service.get_project("missing")
+
+        assert exc_info.value.available == []
+        assert not hasattr(exc_info.value, "details")
+
+    def test_list_projects_skips_metadata_less_dirs_without_per_dir_warning(
+        self, service: ProjectManagementService
+    ) -> None:
+        """list_projects: メタデータなしディレクトリはスキップされ一覧に出ない (Issue #1175)。"""
+        service.create_project("alpha")
+        (service.projects_base_dir / "no_metadata_dir").mkdir()
+        (service.projects_base_dir / "no_metadata_dir2").mkdir()
+
+        projects = service.list_projects()
+
+        assert [p.name for p in projects] == ["alpha"]
