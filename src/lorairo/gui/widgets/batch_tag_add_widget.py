@@ -65,9 +65,6 @@ class BatchTagAddWidget(QWidget):
     5. MainWindow が ImageDBWriteService.add_tag_batch() で DB 更新
 
     後方互換性:
-    - _staged_images プロパティ: StagingWidget.get_staged_items() へ委譲
-      main_window._get_staged_image_paths_for_annotation() が
-      `._staged_images.items()` で参照するため、互換プロパティで維持する（Wave 2 で移行）
     - _on_clear_staging_clicked(): main_window._handle_batch_tag_add() が直接呼び出す
     - _refresh_staging_list_ui(): main_window が hasattr 確認後呼び出す
     - add_selected_images_to_staging(): main_window から呼ばれる公開 API
@@ -178,20 +175,6 @@ class BatchTagAddWidget(QWidget):
         共有するための公開アクセサ。
         """
         return self._staging_widget
-
-    # ------------------------------------------------------------------
-    # 後方互換プロパティ（Wave 2 で main_window.py 移行後に削除予定）
-    # ------------------------------------------------------------------
-
-    @property
-    def _staged_images(self) -> "OrderedDict[int, tuple[str, str]]":
-        """ステージング画像メタデータへの後方互換アクセサ。
-
-        ADR 0041 (#550 D) で main_window は公開 get_staged_items() 経由へ移行済み。
-        本プロパティは BatchTagAddWidget の既存テスト (`widget._staged_images`) が
-        参照するため StagingWidget.get_staged_items() へ委譲して維持する。
-        """
-        return self._staging_widget.get_staged_items()
 
     # ------------------------------------------------------------------
     # 内部スロット（main_window から直接呼ばれるものを含む）

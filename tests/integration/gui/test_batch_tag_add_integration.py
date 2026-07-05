@@ -106,8 +106,8 @@ class TestBatchTagAddIntegration:
             batch_tag_widget.add_selected_images_to_staging()
 
         # 4. ステージングリストに画像が追加されたことを確認
-        assert len(batch_tag_widget._staged_images) == 3
-        assert set(batch_tag_widget._staged_images.keys()) == {1, 2, 3}
+        assert len(batch_tag_widget.get_staged_items()) == 3
+        assert set(batch_tag_widget.get_staged_items().keys()) == {1, 2, 3}
 
         # 5. シグナルが発行されたことを確認
         assert blocker.signal_triggered
@@ -160,7 +160,7 @@ class TestBatchTagAddIntegration:
             batch_tag_widget.add_selected_images_to_staging()
 
         # 3. ステージングリストに追加されたことを確認
-        assert len(batch_tag_widget._staged_images) == 2
+        assert len(batch_tag_widget.get_staged_items()) == 2
 
         # 4. staging_cleared シグナルをキャプチャ
         signal_emitted = False
@@ -176,7 +176,7 @@ class TestBatchTagAddIntegration:
             batch_tag_widget.ui.stagingWidget.ui.pushButtonClearStaging.click()
 
         # 6. ステージングリストがクリアされたことを確認
-        assert len(batch_tag_widget._staged_images) == 0
+        assert len(batch_tag_widget.get_staged_items()) == 0
         assert signal_emitted is True
 
     def test_duplicate_staging_prevention(
@@ -198,7 +198,7 @@ class TestBatchTagAddIntegration:
             batch_tag_widget.add_selected_images_to_staging()
 
         # 3. ステージングリストに2枚追加されたことを確認
-        assert len(batch_tag_widget._staged_images) == 2
+        assert len(batch_tag_widget.get_staged_items()) == 2
 
         # 4. 同じ画像を再度選択してステージングに追加（2回目）
         dataset_state_manager.set_selected_images([1, 3])
@@ -207,8 +207,8 @@ class TestBatchTagAddIntegration:
             batch_tag_widget.add_selected_images_to_staging()
 
         # 5. 重複が防止され、ID 3のみが追加されたことを確認
-        assert len(batch_tag_widget._staged_images) == 3
-        assert set(batch_tag_widget._staged_images.keys()) == {1, 2, 3}
+        assert len(batch_tag_widget.get_staged_items()) == 3
+        assert set(batch_tag_widget.get_staged_items().keys()) == {1, 2, 3}
 
     def test_staging_limit_enforcement(self, batch_tag_widget, dataset_state_manager, qtbot):
         """
@@ -234,7 +234,7 @@ class TestBatchTagAddIntegration:
         batch_tag_widget.add_selected_images_to_staging()
 
         # 4. 500枚でストップしていることを確認（上限まで）
-        assert len(batch_tag_widget._staged_images) == 500
+        assert len(batch_tag_widget.get_staged_items()) == 500
 
     def test_empty_tag_validation(self, batch_tag_widget, dataset_state_manager, test_images_data, qtbot):
         """
@@ -396,7 +396,7 @@ class TestBatchTagAddIntegration:
         # タグ入力フィールドのみクリアされる
 
         # ステージングリストはそのまま残る
-        assert len(batch_tag_widget._staged_images) == 2
+        assert len(batch_tag_widget.get_staged_items()) == 2
 
         # タグ入力フィールドがクリアされたことを確認
         assert batch_tag_widget.ui.lineEditTag.text() == ""
@@ -452,7 +452,7 @@ class TestBatchTagAddIntegration:
         with qtbot.waitSignal(batch_tag_widget.staged_images_changed, timeout=1000):
             batch_tag_widget.add_selected_images_to_staging()
 
-        assert len(batch_tag_widget._staged_images) == 2
+        assert len(batch_tag_widget.get_staged_items()) == 2
 
         # 3. さらに2枚を追加
         dataset_state_manager.set_selected_images([3, 4])
@@ -460,7 +460,7 @@ class TestBatchTagAddIntegration:
         with qtbot.waitSignal(batch_tag_widget.staged_images_changed, timeout=1000):
             batch_tag_widget.add_selected_images_to_staging()
 
-        assert len(batch_tag_widget._staged_images) == 4
+        assert len(batch_tag_widget.get_staged_items()) == 4
 
         # 5. タグ追加
         batch_tag_widget.ui.lineEditTag.setText("final_tag")

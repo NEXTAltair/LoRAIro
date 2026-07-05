@@ -30,7 +30,7 @@ class TestBatchTagAddWidgetInitialization:
 
         assert widget is not None
         assert hasattr(widget, "ui")
-        assert widget._staged_images == {}
+        assert widget.get_staged_items() == {}
         assert widget._dataset_state_manager is None
 
     def test_ui_components_present(self, qtbot):
@@ -77,7 +77,7 @@ class TestDatasetStateManagerIntegration:
         widget._on_add_selected_clicked()
 
         # Verify no images added
-        assert len(widget._staged_images) == 0
+        assert len(widget.get_staged_items()) == 0
 
     def test_add_selected_with_empty_selection(self, qtbot):
         """Test adding selected images when no images are selected"""
@@ -91,7 +91,7 @@ class TestDatasetStateManagerIntegration:
         widget._on_add_selected_clicked()
 
         # Verify no images added
-        assert len(widget._staged_images) == 0
+        assert len(widget.get_staged_items()) == 0
 
 
 class TestStagingListManagement:
@@ -127,9 +127,9 @@ class TestStagingListManagement:
         assert blocker.args == [[1, 2]]
 
         # Verify internal state
-        assert len(widget._staged_images) == 2
-        assert 1 in widget._staged_images
-        assert 2 in widget._staged_images
+        assert len(widget.get_staged_items()) == 2
+        assert 1 in widget.get_staged_items()
+        assert 2 in widget.get_staged_items()
 
         # Verify UI update (labelStagingCount は StagingWidget 内に委譲)
         assert widget.ui.stagingWidget.ui.labelStagingCount.text() == f"2 / {widget.MAX_STAGING_IMAGES} 枚"
@@ -142,7 +142,7 @@ class TestStagingListManagement:
             widget.add_image_ids_to_staging([2, 3])
 
         assert blocker.args == [[2, 3]]
-        assert list(widget._staged_images.keys()) == [2, 3]
+        assert list(widget.get_staged_items().keys()) == [2, 3]
 
     def test_add_duplicate_images_skipped(self, qtbot, widget_with_state):
         """Test duplicate images are skipped when adding to staging"""
@@ -150,13 +150,13 @@ class TestStagingListManagement:
 
         # Add images first time
         widget._on_add_selected_clicked()
-        assert len(widget._staged_images) == 2
+        assert len(widget.get_staged_items()) == 2
 
         # Try to add same images again
         widget._on_add_selected_clicked()
 
         # Should still have 2 images (no duplicates)
-        assert len(widget._staged_images) == 2
+        assert len(widget.get_staged_items()) == 2
 
     def test_staging_limit_enforcement(self, qtbot):
         """Test staging list enforces 500 image limit"""
@@ -175,7 +175,7 @@ class TestStagingListManagement:
             widget._on_add_selected_clicked()
 
         # Should only have 500 images (limit enforced)
-        assert len(widget._staged_images) == widget.MAX_STAGING_IMAGES
+        assert len(widget.get_staged_items()) == widget.MAX_STAGING_IMAGES
 
     def test_clear_staging_list(self, qtbot, widget_with_state):
         """Test clearing staging list"""
@@ -183,7 +183,7 @@ class TestStagingListManagement:
 
         # Add images first
         widget._on_add_selected_clicked()
-        assert len(widget._staged_images) == 2
+        assert len(widget.get_staged_items()) == 2
 
         # Clear staging
         with qtbot.waitSignal(widget.staging_cleared, timeout=1000):
@@ -194,7 +194,7 @@ class TestStagingListManagement:
         assert blocker.args == [[]]
 
         # Verify internal state cleared
-        assert len(widget._staged_images) == 0
+        assert len(widget.get_staged_items()) == 0
 
         # Verify UI updated (labelStagingCount は StagingWidget 内に委譲)
         assert widget.ui.stagingWidget.ui.labelStagingCount.text() == f"0 / {widget.MAX_STAGING_IMAGES} 枚"
@@ -391,7 +391,7 @@ class TestEdgeCases:
         widget._on_add_selected_clicked()
 
         # Should handle gracefully (no crash)
-        assert len(widget._staged_images) == 0
+        assert len(widget.get_staged_items()) == 0
 
     def test_multiple_add_operations_maintain_order(self, qtbot):
         """Test multiple add operations maintain insertion order"""
@@ -419,5 +419,5 @@ class TestEdgeCases:
         widget._on_add_selected_clicked()
 
         # Order should be [1, 3, 2] (insertion order preserved)
-        staged_ids = list(widget._staged_images.keys())
+        staged_ids = list(widget.get_staged_items().keys())
         assert staged_ids == [1, 3, 2]
