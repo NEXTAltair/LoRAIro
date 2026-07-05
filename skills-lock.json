@@ -17,9 +17,10 @@
       "computedHash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
     },
     "claude-md-progressive-disclosurer": {
-      "source": "/workspaces/LoRAIro/.agents/skills",
-      "sourceType": "local",
-      "computedHash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      "source": "NEXTAltair/altairs-agent-dev-kit",
+      "sourceType": "github",
+      "skillPath": "skills/claude-md-progressive-disclosurer/SKILL.md",
+      "computedHash": "8f0566962ebf75147b72ca4f3f71ca8f86ae6c5bf8fd7be5db9318c3fdfd1e82"
     },
     "context7-openclaw-research": {
       "source": "/workspaces/LoRAIro/.agents/skills",
@@ -30,7 +31,7 @@
       "source": "wshobson/agents",
       "sourceType": "github",
       "skillPath": "plugins/framework-migration/skills/database-migration/SKILL.md",
-      "computedHash": "3a6d0247e741eb8822fa05dc50cdb71a56d717bfacd265262e506d710ff5afc4"
+      "computedHash": "fad57306773041a544fe3487e84d3dfa953dbd5a8ecbce84c977484365c323c2"
     },
     "deploy-to-vercel": {
       "source": "vercel-labs/agent-skills",
@@ -39,9 +40,10 @@
       "computedHash": "03e0eaaa9bf13ba1e7ffa387f5893de6f324c0868c627001f179395a8feaa7c9"
     },
     "github-ops": {
-      "source": "/workspaces/LoRAIro/.agents/skills",
-      "sourceType": "local",
-      "computedHash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      "source": "NEXTAltair/altairs-agent-dev-kit",
+      "sourceType": "github",
+      "skillPath": "skills/github-ops/SKILL.md",
+      "computedHash": "dd7a0d9230aec35bb817d7e9c74e838e0049270bfdafb93ec75f0a79d629b522"
     },
     "goal-prompt-crafter": {
       "source": "NEXTAltair/altairs-agent-dev-kit",
@@ -95,49 +97,52 @@
       "computedHash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
     },
     "prompt-optimizer": {
-      "source": "/workspaces/LoRAIro/.agents/skills",
-      "sourceType": "local",
-      "computedHash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      "source": "NEXTAltair/altairs-agent-dev-kit",
+      "sourceType": "github",
+      "skillPath": "skills/prompt-optimizer/SKILL.md",
+      "computedHash": "e3cb618d531fadf55c4ffe1f8c1402ca7b43b941482273002943c987213eae34"
     },
     "python-error-handling": {
       "source": "wshobson/agents",
       "sourceType": "github",
       "skillPath": "plugins/python-development/skills/python-error-handling/SKILL.md",
-      "computedHash": "c82529570288890c2af08bb197239e74ce56caec6576ccbfab5973dc24941dcc"
+      "computedHash": "f584c575cae258110b6ab249fdce5301eed101d7001caa21510c99fb36f23e9c"
     },
     "python-performance-optimization": {
       "source": "wshobson/agents",
       "sourceType": "github",
       "skillPath": "plugins/python-development/skills/python-performance-optimization/SKILL.md",
-      "computedHash": "6390615b25e5922057b15eb900d69a90db563c5f2d6bd3182be707592fc25f09"
+      "computedHash": "393407ad12fa7c847db0e77935783908f394b883efc05442e886ad70f9fa34f5"
     },
     "python-testing-patterns": {
       "source": "wshobson/agents",
       "sourceType": "github",
       "skillPath": "plugins/python-development/skills/python-testing-patterns/SKILL.md",
-      "computedHash": "a16a6d7d7e0a5154a5058fd9aacf8e675368b2a4a0dc5edf0fee775169c6abe0"
+      "computedHash": "f4de9bdbf2db1c1f8e8211e6af463ad49956f15aa604e2f08ae716c71e71f64b"
     },
     "python-type-safety": {
       "source": "wshobson/agents",
       "sourceType": "github",
       "skillPath": "plugins/python-development/skills/python-type-safety/SKILL.md",
-      "computedHash": "76e08740199869de7af1224f1c3e69b0dd1d8f46e82276ba20530e657234fb73"
+      "computedHash": "6162b7a7f1c86888a818833eb4801e348a85fc59a5f15125542ae2d89db67b5a"
     },
     "qa-expert": {
-      "source": "/workspaces/LoRAIro/.agents/skills",
-      "sourceType": "local",
-      "computedHash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      "source": "NEXTAltair/altairs-agent-dev-kit",
+      "sourceType": "github",
+      "skillPath": "skills/qa-expert/SKILL.md",
+      "computedHash": "e9d446bf86b3ff18dcde6351e2699d9fcbb8b18b54b48f6e976196f76643e6a7"
     },
     "skill-creator": {
-      "source": "/workspaces/LoRAIro/.agents/skills",
-      "sourceType": "local",
-      "computedHash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      "source": "NEXTAltair/altairs-agent-dev-kit",
+      "sourceType": "github",
+      "skillPath": "skills/skill-creator/SKILL.md",
+      "computedHash": "a8a5bf3e95e93b0bd3bcca1123e06da8f677dacb1b9d5852c4b6db68164791d0"
     },
     "sql-optimization-patterns": {
       "source": "wshobson/agents",
       "sourceType": "github",
       "skillPath": "plugins/developer-essentials/skills/sql-optimization-patterns/SKILL.md",
-      "computedHash": "7d20c24c6f52da9697d3e1c7d2f25cc560150de643d044a5f45e300bb78884fd"
+      "computedHash": "6f9779817c6f1b077347687c2b16e884506a519d0c2a3eaa2c320709bf273139"
     },
     "sqlalchemy-query-patterns": {
       "source": "/workspaces/LoRAIro/.agents/skills",
