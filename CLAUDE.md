@@ -142,7 +142,7 @@ make clean                 # Remove build artifacts and caches
 
 - **Repository Pattern**: Data access abstracted through repository layer
 - **Service Layer**: Business logic separated from GUI and data access
-- **Worker Pattern**: Asynchronous operations using Qt QRunnable/QThreadPool
+- **Worker Pattern**: Asynchronous operations using Qt QThread + `QObject.moveToThread()`
 - **Qt-Free Core Pattern**: Core services have no Qt dependencies; GUI wrappers use composition
 - **Dependency Injection**: Services injected into GUI components
 

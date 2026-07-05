@@ -17,16 +17,16 @@ LoRAIro is an AI-powered image annotation and dataset management application bui
 ### Clean Architecture
 The application follows clean architecture principles with clear separation of concerns:
 
-- **Presentation Layer**: PySide6-based GUI components with QThreadPool worker system
+- **Presentation Layer**: PySide6-based GUI components with QThread worker system
 - **Application Layer**: Business logic services and use cases
 - **Domain Layer**: Core business entities and rules
 - **Infrastructure Layer**: Database, file system, and external APIs
 
-### PySide6 Worker Architecture (Updated: 2025-07-21)
-The system uses Qt's QThreadPool and QRunnable for asynchronous operations:
+### PySide6 Worker Architecture (Updated: 2026-07-05)
+The system uses `QThread` + `QObject.moveToThread()` for asynchronous operations:
 
-- **WorkerManager**: QThreadPool-based task execution coordination (`src/lorairo/gui/workers/manager.py`)
-- **BaseWorker**: Standardized QRunnable implementation with progress reporting (`src/lorairo/gui/workers/base.py`)
+- **WorkerManager**: creates a `QThread` per task and moves the worker onto it (`src/lorairo/gui/workers/manager.py`)
+- **LoRAIroWorkerBase**: standardized `QObject` + Signal based worker with progress reporting and cancellation (`src/lorairo/gui/workers/base.py`)
 - **Specialized Workers**: Database, annotation, search, and thumbnail workers in `src/lorairo/gui/workers/`
 - **WorkerService**: Qt service layer for worker coordination and GUI integration (`src/lorairo/gui/services/worker_service.py`)
 - **DatasetStateManager**: Centralized state management with Qt signals (`src/lorairo/gui/state/dataset_state.py`)
@@ -115,7 +115,7 @@ graph TD
     A --> N[ExportTabWidget]
     A --> E[WorkerService]
     E --> F[WorkerManager]
-    F --> G[QThreadPool]
+    F --> G[QThread per task]
     G --> H[DatabaseRegistrationWorker]
     G --> I[AnnotationWorker]
     G --> J[SearchWorker]
@@ -128,7 +128,7 @@ graph TD
 - **MainWindow** (`src/lorairo/gui/window/main_window.py`): tab orchestration glue (Epic #867)
 - **Tab Widgets** (`src/lorairo/gui/tab/`): 1 tab = 1 composed widget, each owning its own layout/child widgets/signal wiring
 - **State Management** (`src/lorairo/gui/state/dataset_state.py`): DatasetStateManager
-- **Worker Integration**: Qt QThreadPool-based asynchronous processing
+- **Worker Integration**: `QThread` + `moveToThread()` based asynchronous processing
 
 **Widget composition principle (MUST)**:
 - **各タブ / 画面は専用の composed ウィジェットに分ける。** 1 タブ = 1 ウィジェット (例: 検索タブ / アノテタブ / 結果タブ …) が、自身のレイアウト・子ウィジェット・Signal 配線・そのタブ固有の振る舞いを所有する。
@@ -139,14 +139,16 @@ graph TD
 
 **Design decisions**: `docs/decisions/0011-mainwindow-ui-redesign.md`
 
-### Worker Architecture (PySide6 QThreadPool System)
+### Worker Architecture (PySide6 QThread System)
 
-**Core Architecture**: Qt QRunnable and QThreadPool-based asynchronous processing
+**Core Architecture**: `QThread` + `QObject.moveToThread()` based asynchronous processing.
+`QRunnable`/`QThreadPool` is not the main worker system — it appears only in two auxiliary
+widget-local debounce helpers (`widgets/count_estimate.py`, `widgets/tag_suggestion.py`).
 
 **Key Components**:
 - **WorkerService** (`src/lorairo/gui/services/worker_service.py`): High-level API
-- **WorkerManager** (`src/lorairo/gui/workers/manager.py`): QThreadPool coordination
-- **BaseWorker** (`src/lorairo/gui/workers/base.py`): Standardized QRunnable implementation
+- **WorkerManager** (`src/lorairo/gui/workers/manager.py`): QThread lifecycle coordination
+- **LoRAIroWorkerBase** (`src/lorairo/gui/workers/base.py`): Standardized `QObject` + Signal worker
 - **Specialized Workers**: Database, Annotation, Search, Thumbnail workers
 
 **Features**: Progress reporting, cancellation support, error handling, state management integration
