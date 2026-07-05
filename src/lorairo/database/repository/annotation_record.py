@@ -79,6 +79,9 @@ from .model import ModelRepository
 # ADR 0068 (改訂): 保存境界で焼き込む基準フォーマット。非手動タグはこの format の
 # preferred (canonical) へ解決して保存し、表示は verbatim にする。
 _DANBOORU_FORMAT = "danbooru"
+# LoRAIro が登録するタグ/alias の format 名 (register_user_tag / register_user_alias /
+# _register_new_tag が共有)。classify_manual_tag の第2検索スコープもこれに揃える。
+_LORAIRO_FORMAT = "Lorairo"
 
 
 @dataclass(frozen=True)
@@ -954,6 +957,20 @@ class AnnotationRepository(BaseRepository):
                 include_deprecated=False,
             )
             result = search_tags(merged_reader, request)
+            # alias→preferred 解決は単一 format スコープ時のみ働くため、danbooru ミス時は
+            # user 登録タグ/alias の登録先 format ("Lorairo": register_user_tag /
+            # register_user_alias) でも exact 検索する (Codex P1 / PR #1183)。これが無いと
+            # `tags alias` で確定した typo が再実行時も未解決のまま報告される。
+            if not result.items:
+                request = TagSearchRequest(
+                    query=normalized,
+                    partial=False,
+                    format_names=[_LORAIRO_FORMAT],
+                    resolve_preferred=True,
+                    include_aliases=True,
+                    include_deprecated=False,
+                )
+                result = search_tags(merged_reader, request)
         except (ValueError, RuntimeError, SQLAlchemyError) as e:
             logger.warning(f"タグ分類検索に失敗 (unregistered へ縮退): '{normalized}': {e}")
             return ManualTagClassification(tag_string, normalized, "unregistered", tag_string, None, [])
@@ -1019,7 +1036,7 @@ class AnnotationRepository(BaseRepository):
         register_request = TagRegisterRequest(
             tag=normalized,
             source_tag=tag_string,
-            format_name="Lorairo",
+            format_name=_LORAIRO_FORMAT,
             type_name="unknown",
             scope="user",
         )
@@ -1068,7 +1085,7 @@ class AnnotationRepository(BaseRepository):
         register_request = TagRegisterRequest(
             tag=normalized,
             source_tag=tag_string,
-            format_name="Lorairo",
+            format_name=_LORAIRO_FORMAT,
             type_name="unknown",
             alias=True,
             preferred_tag=preferred_tag,
@@ -1121,7 +1138,7 @@ class AnnotationRepository(BaseRepository):
         register_request = TagRegisterRequest(
             tag=normalized_tag,
             source_tag=source_tag,
-            format_name="Lorairo",
+            format_name=_LORAIRO_FORMAT,
             type_name="unknown",
         )
 
@@ -1245,7 +1262,7 @@ class AnnotationRepository(BaseRepository):
             register_request = TagRegisterRequest(
                 tag=tag_str,
                 source_tag=tag_str,
-                format_name="Lorairo",
+                format_name=_LORAIRO_FORMAT,
                 type_name="unknown",
             )
             register_result = self.tag_register_service.register_tag(register_request)
