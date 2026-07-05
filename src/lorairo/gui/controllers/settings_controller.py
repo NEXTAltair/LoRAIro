@@ -64,7 +64,7 @@ class SettingsController:
 
         Returns:
             bool: ユーザーが OK で確定し設定が保存された場合 True、
-                Cancel・ImportError・例外で確定しなかった場合 False。
+                Cancel・例外で確定しなかった場合 False。
                 Issue #249: 呼び出し元 (MainWindow) が True 時に依存ウィジェット
                 (ModelSelectionWidget 等) を reload するための戻り値。
         """
@@ -91,26 +91,8 @@ class SettingsController:
             logger.info("設定ダイアログがキャンセルされました")
             return False
 
-        except ImportError:
-            logger.warning("ConfigurationWindowが見つかりません - 代替実装を使用します")
-            self._show_simple_settings_dialog()
-            return False
         except Exception as e:
             logger.opt(exception=True).error(f"設定ダイアログの表示に失敗しました: {e}")
 
             show_critical(self.parent, "エラー", f"設定ダイアログの表示中にエラーが発生しました:\n\n{e}")
             return False
-
-    def _show_simple_settings_dialog(self) -> None:
-        """シンプルな設定ダイアログを表示（フォールバック）
-
-        ConfigurationWindowが利用できない場合の代替実装。
-        """
-        from PySide6.QtWidgets import QMessageBox
-
-        QMessageBox.information(
-            self.parent,
-            "設定",
-            "設定画面は開発中です。\n現在は config/lorairo.toml ファイルを直接編集してください。",
-        )
-        logger.info("シンプルな設定ダイアログを表示しました")
