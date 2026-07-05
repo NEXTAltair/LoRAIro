@@ -21,7 +21,7 @@
       "ref": "v0.1.0",
       "sourceType": "github",
       "skillPath": "skills/claude-md-progressive-disclosurer/SKILL.md",
-      "computedHash": "8f0566962ebf75147b72ca4f3f71ca8f86ae6c5bf8fd7be5db9318c3fdfd1e82"
+      "computedHash": "c5a214cd6dbb9715cb0b6acace50707e5ae48df76cdc715aa12c5c1d8409b39d"
     },
     "context7-openclaw-research": {
       "source": "/workspaces/LoRAIro/.agents/skills",
@@ -32,7 +32,7 @@
       "source": "wshobson/agents",
       "sourceType": "github",
       "skillPath": "plugins/framework-migration/skills/database-migration/SKILL.md",
-      "computedHash": "fad57306773041a544fe3487e84d3dfa953dbd5a8ecbce84c977484365c323c2"
+      "computedHash": "1ad0f4a5b20a21e2114a4f32e014bc9f4fe528fda612c39433fe82ed245ee0df"
     },
     "deploy-to-vercel": {
       "source": "vercel-labs/agent-skills",
@@ -45,14 +45,14 @@
       "ref": "v0.1.0",
       "sourceType": "github",
       "skillPath": "skills/github-ops/SKILL.md",
-      "computedHash": "dd7a0d9230aec35bb817d7e9c74e838e0049270bfdafb93ec75f0a79d629b522"
+      "computedHash": "86544cf60f6d33548aa81556b539083c341b9c3893b80fe826ed5a004848be1e"
     },
     "goal-prompt-crafter": {
       "source": "NEXTAltair/altairs-agent-dev-kit",
       "ref": "v0.1.0",
       "sourceType": "github",
       "skillPath": "skills/goal-prompt-crafter/SKILL.md",
-      "computedHash": "164348209696cd89fbae36dc14e89382dbb46982f31285bd2ba153eb04931ff8"
+      "computedHash": "c5c5dea9152b9d7cdd511fadef7cd299ebe0740acf6f2fc6cb5228213151517f"
     },
     "interface-design": {
       "source": "/workspaces/LoRAIro/.agents/skills",
@@ -104,51 +104,51 @@
       "ref": "v0.1.0",
       "sourceType": "github",
       "skillPath": "skills/prompt-optimizer/SKILL.md",
-      "computedHash": "e3cb618d531fadf55c4ffe1f8c1402ca7b43b941482273002943c987213eae34"
+      "computedHash": "f8961641c9db7443233b4f3a37c8775bcc79f05065d790239632229e65f7f0d5"
     },
     "python-error-handling": {
       "source": "wshobson/agents",
       "sourceType": "github",
       "skillPath": "plugins/python-development/skills/python-error-handling/SKILL.md",
-      "computedHash": "f584c575cae258110b6ab249fdce5301eed101d7001caa21510c99fb36f23e9c"
+      "computedHash": "b7bf403c928c5646329a0e0f686abe93dd2b353b23ababfd5ef79578f3082067"
     },
     "python-performance-optimization": {
       "source": "wshobson/agents",
       "sourceType": "github",
       "skillPath": "plugins/python-development/skills/python-performance-optimization/SKILL.md",
-      "computedHash": "393407ad12fa7c847db0e77935783908f394b883efc05442e886ad70f9fa34f5"
+      "computedHash": "5a0e5ccd00cd8e850e1068707e042339e182190eb89f8a300f58c18f53876059"
     },
     "python-testing-patterns": {
       "source": "wshobson/agents",
       "sourceType": "github",
       "skillPath": "plugins/python-development/skills/python-testing-patterns/SKILL.md",
-      "computedHash": "f4de9bdbf2db1c1f8e8211e6af463ad49956f15aa604e2f08ae716c71e71f64b"
+      "computedHash": "1306eea409e7eff2288d7658806cb508f18339a0ee9a686d324a0fd2570eae55"
     },
     "python-type-safety": {
       "source": "wshobson/agents",
       "sourceType": "github",
       "skillPath": "plugins/python-development/skills/python-type-safety/SKILL.md",
-      "computedHash": "6162b7a7f1c86888a818833eb4801e348a85fc59a5f15125542ae2d89db67b5a"
+      "computedHash": "16314aa8a4a465773be809c517f62f8ef704f5ab1bb237e8c9b8a759689fcb21"
     },
     "qa-expert": {
       "source": "NEXTAltair/altairs-agent-dev-kit",
       "ref": "v0.1.0",
       "sourceType": "github",
       "skillPath": "skills/qa-expert/SKILL.md",
-      "computedHash": "e9d446bf86b3ff18dcde6351e2699d9fcbb8b18b54b48f6e976196f76643e6a7"
+      "computedHash": "35187ffd66faf9002054a6451cecbd8d0ffda6f264c065ea5025a21ee93c8f43"
     },
     "skill-creator": {
       "source": "NEXTAltair/altairs-agent-dev-kit",
       "ref": "v0.1.0",
       "sourceType": "github",
       "skillPath": "skills/skill-creator/SKILL.md",
-      "computedHash": "a8a5bf3e95e93b0bd3bcca1123e06da8f677dacb1b9d5852c4b6db68164791d0"
+      "computedHash": "b70e98017f4520872415513baefdfc443af29978a7e8077ee37fd9228cc76405"
     },
     "sql-optimization-patterns": {
       "source": "wshobson/agents",
       "sourceType": "github",
       "skillPath": "plugins/developer-essentials/skills/sql-optimization-patterns/SKILL.md",
-      "computedHash": "6f9779817c6f1b077347687c2b16e884506a519d0c2a3eaa2c320709bf273139"
+      "computedHash": "19ff8ce86d20aa39cace441e15d23feb9b91be5fbed95526b5bd9ee3bffb6411"
     },
     "sqlalchemy-query-patterns": {
       "source": "/workspaces/LoRAIro/.agents/skills",
