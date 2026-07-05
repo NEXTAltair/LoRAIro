@@ -1,17 +1,27 @@
 {
   "version": 1,
   "skills": {
+    "agent-pr-autoloop": {
+      "source": "/workspaces/LoRAIro/.agents/skills",
+      "sourceType": "local",
+      "computedHash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
     "agent-pr-maintainer": {
       "source": "/workspaces/LoRAIro/.agents/skills",
       "sourceType": "local",
       "computedHash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
     },
-    "context7-openclaw-research": {
+    "check-existing": {
       "source": "/workspaces/LoRAIro/.agents/skills",
       "sourceType": "local",
       "computedHash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
     },
     "claude-md-progressive-disclosurer": {
+      "source": "/workspaces/LoRAIro/.agents/skills",
+      "sourceType": "local",
+      "computedHash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "context7-openclaw-research": {
       "source": "/workspaces/LoRAIro/.agents/skills",
       "sourceType": "local",
       "computedHash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
@@ -33,12 +43,28 @@
       "sourceType": "local",
       "computedHash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
     },
+    "goal-prompt-crafter": {
+      "source": "NEXTAltair/altairs-agent-dev-kit",
+      "sourceType": "github",
+      "skillPath": "skills/goal-prompt-crafter/SKILL.md",
+      "computedHash": "164348209696cd89fbae36dc14e89382dbb46982f31285bd2ba153eb04931ff8"
+    },
     "interface-design": {
       "source": "/workspaces/LoRAIro/.agents/skills",
       "sourceType": "local",
       "computedHash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
     },
     "lazy-import-refactor": {
+      "source": "/workspaces/LoRAIro/.agents/skills",
+      "sourceType": "local",
+      "computedHash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "lorairo-cli-db-access": {
+      "source": "/workspaces/LoRAIro/.agents/skills",
+      "sourceType": "local",
+      "computedHash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "lorairo-design-capture": {
       "source": "/workspaces/LoRAIro/.agents/skills",
       "sourceType": "local",
       "computedHash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
@@ -59,6 +85,11 @@
       "computedHash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
     },
     "lorairo-test-generator": {
+      "source": "/workspaces/LoRAIro/.agents/skills",
+      "sourceType": "local",
+      "computedHash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "okf-bundle": {
       "source": "/workspaces/LoRAIro/.agents/skills",
       "sourceType": "local",
       "computedHash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
@@ -148,31 +179,6 @@
       "sourceType": "github",
       "skillPath": "skills/web-design-guidelines/SKILL.md",
       "computedHash": "f3bc47f890f42a44db1007ab390709ec368e4b8c089baee6b0007182236ac474"
-    },
-    "check-existing": {
-      "source": "/workspaces/LoRAIro/.agents/skills",
-      "sourceType": "local",
-      "computedHash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
-    },
-    "agent-pr-autoloop": {
-      "source": "/workspaces/LoRAIro/.agents/skills",
-      "sourceType": "local",
-      "computedHash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
-    },
-    "okf-bundle": {
-      "source": "/workspaces/LoRAIro/.agents/skills",
-      "sourceType": "local",
-      "computedHash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
-    },
-    "lorairo-design-capture": {
-      "source": "/workspaces/LoRAIro/.agents/skills",
-      "sourceType": "local",
-      "computedHash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
-    },
-    "lorairo-cli-db-access": {
-      "source": "/workspaces/LoRAIro/.agents/skills",
-      "sourceType": "local",
-      "computedHash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
     }
   }
 }
