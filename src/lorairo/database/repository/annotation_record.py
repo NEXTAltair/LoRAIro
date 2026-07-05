@@ -1041,6 +1041,57 @@ class AnnotationRepository(BaseRepository):
             logger.warning(f"user DB へのタグ登録に失敗 (tag_id=None で継続): '{normalized}': {e}")
             return None
 
+    def register_user_alias(self, tag_string: str, preferred_tag: str) -> int | None:
+        """typo 等の別表記を preferred タグへの alias として user DB に登録する (Issue #1173)。
+
+        `tags alias` コマンド用。#1174 の分類で surface された typo 候補を人間/エージェント
+        が確定させる導線 (typo の自動 alias 化はしない)。
+
+        Args:
+            tag_string: alias 元のタグ文字列 (正規化前)。
+            preferred_tag: 解決先の preferred タグ文字列 (tag DB に存在すること)。
+
+        Returns:
+            登録された alias 行の tag_id。空正規化・登録失敗時は None。
+        """
+        normalized = TagCleaner.clean_format(tag_string).strip()
+        if not normalized:
+            logger.warning(f"空正規化のため alias 登録をスキップ: '{tag_string}'")
+            return None
+
+        if self.tag_register_service is None:
+            self.tag_register_service = self._initialize_tag_register_service()
+            if self.tag_register_service is None:
+                logger.warning("TagRegisterService 初期化失敗のため alias 登録をスキップ")
+                return None
+
+        register_request = TagRegisterRequest(
+            tag=normalized,
+            source_tag=tag_string,
+            format_name="Lorairo",
+            type_name="unknown",
+            alias=True,
+            preferred_tag=preferred_tag,
+            scope="user",
+        )
+        try:
+            register_result = self.tag_register_service.register_tag(register_request)
+            logger.debug(
+                f"user DB へ alias 登録: '{normalized}' → '{preferred_tag}' "
+                f"tag_id={register_result.tag_id} created={register_result.created}"
+            )
+            return cast("int | None", register_result.tag_id)
+        except IntegrityError:
+            retry = self._retry_tag_search(normalized)
+            if retry is None:
+                logger.warning(f"alias 登録競合後のリトライ検索でも未解決: '{normalized}'")
+            return retry
+        except (ValueError, RuntimeError, SQLAlchemyError) as e:
+            logger.warning(
+                f"user DB への alias 登録に失敗 (None で継続): '{normalized}' → '{preferred_tag}': {e}"
+            )
+            return None
+
     def _register_new_tag(
         self,
         normalized_tag: str,

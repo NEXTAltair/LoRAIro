@@ -1253,6 +1253,72 @@ Structured error payload emitted as kind=error by the CLI boundary.
 - `hint`: `str?` (optional)
 - `details`: `dict?` (optional)
 
+### `tags translations show`
+
+Show ja/en translation status for tags (read-only). Issue #1173 / ADR 0085.
+
+- Read only: `true`
+- Side effects: `db_read`
+
+> **Note**: 本コマンド群 (`tags translations show/add`, `tags alias`) は `lorairo.cli.introspection` に
+> `ToolSpec` が未登録のため、`list-commands` / `describe` の machine-readable introspection には現れない
+> (`errors get` と同じ扱い)。
+
+```bash
+lorairo-cli --json tags translations show -p proj --image-ids 1052,1082
+lorairo-cli --json tags translations show -p proj --tags "cat,dog"
+```
+
+**Input**
+
+- `project` / `-p`: `str` (required)
+- `image_ids`: `csv[int]` (optional) - Show translation status of these images' tags. Mutually exclusive with `--tags`.
+- `tags`: `csv[str]` (optional) - Tags to inspect, max 100. Mutually exclusive with `--image-ids`.
+
+**Output** (item): `--tags` 指定時は `tag` / `tag_id` (null = 未解決) / `translations` (`{ja,en: {candidates, preferred}}`、読みは ja/japanese・en/english を集約) / `missing` (訳が無い言語)。`--image-ids` 指定時は `image_id` + `tags` (同形式の配列)。
+
+### `tags translations add`
+
+Add a translation to a tag (user DB overlay). Dry-run by default; `--apply` to write.
+
+- Read only: `false`
+- Side effects: `db_read`, `db_write` (user DB overlay のみ、base DB は不変)
+
+```bash
+lorairo-cli tags translations add -p proj --tag "european architecture" --lang ja --text "ヨーロッパ建築" --preferred --apply
+```
+
+**Input**
+
+- `project` / `-p`: `str` (required)
+- `tag`: `str` (required) - Target tag. tag_id 解決は `tags add` (Issue #1174) と同経路: exact/alias は解決、真の新タグは `--apply` 時に user DB 登録、typo/曖昧候補は候補提示でエラー (先に `tags alias` で確定)。
+- `lang`: `ja | en` (required) - 書き込みは ja/en の一貫形。
+- `text`: `str` (required)
+- `preferred`: `bool` (optional, default `False`) - その言語の主訳にする。
+- `apply`: `bool` (optional, default `False`)
+
+**Output** (item): `tag` / `canonical_tag` / `classification` / `tag_id` / `language` / `translation` / `preferred` / `registered_new_tag` / `status` (`dry_run` | `changed`)。タグ登録失敗 (tagdb #124 edge) は `DB_ERROR` で明示。
+
+### `tags alias`
+
+Record a typo → preferred-tag alias in the user DB. Dry-run by default.
+
+- Read only: `false`
+- Side effects: `db_read`, `db_write` (user DB overlay のみ)
+
+```bash
+lorairo-cli tags alias -p proj --from "europian architecture" --to "european architecture" --apply
+```
+
+**Input**
+
+- `project` / `-p`: `str` (required)
+- `from`: `str` (required) - Alias source (typo 等)。既存タグの付け替えは拒否。既に同じ preferred へ解決される場合は no-op。
+- `to`: `str` (required) - 解決先 preferred タグ (tag DB に存在必須)。
+- `apply`: `bool` (optional, default `False`)
+
+**Output** (result): `from_tag` / `to_tag` / `alias_tag_id` / `status` (`dry_run` | `changed` | `noop`)。
+
 ### `version`
 
 Show version information.
