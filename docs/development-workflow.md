@@ -103,11 +103,16 @@ symlink、導入元の SSoT は `skills-lock.json`）。
 手動での操作:
 
 ```bash
-make skills-install     # 欠落した外部スキルのみ復元（要 Node.js/npx）
+make skills-install     # 欠落・stale な外部スキルのみ復元（要 Node.js/npx）
 
 # devkit から新しいスキルを追加 / 既存スキルを更新する場合
 npx skills add github:NEXTAltair/altairs-agent-dev-kit --skill <skill-name> -y
 ```
+
+導入状態は `.agents/skills/.installed-lock-hashes.json`（git 追跡外）に記録されます。
+このファイルが壊れた・消えた場合の手動復旧は不要です — 状態の無い外部スキルは
+信用せず再導入する設計のため、次回 `make skills-install`（または `make setup`）で
+全外部スキルが lock から再導入され、状態が再構築されます。
 
 `npx skills add` を再実行すると実体が上書きされ `skills-lock.json` のハッシュも更新されるので、
 devkit 側の更新へ追従する場合は lock の diff もあわせてコミットしてください。
