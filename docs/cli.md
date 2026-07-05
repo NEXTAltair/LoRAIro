@@ -470,28 +470,49 @@ Structured error payload emitted as kind=error by the CLI boundary.
 
 ### `errors get`
 
-Get a single error record by ID (full detail).
-
-`list` は error_message を切り詰め stack_trace / file_path / image_id を省くため、
-1 件の全容を確認するには本コマンドを使う。
+Get a single error record by ID (full detail). `list` は error_message を切り詰め stack_trace / file_path / image_id を省くため、1 件の全容を確認するには本コマンドを使う。
 
 - Read only: `true`
 - Side effects: `db_read`
 
-> **Note**: 本コマンドは `lorairo.cli.introspection` に `ToolSpec` が未登録のため、
-> `lorairo-cli --json list-commands` / `describe` の machine-readable introspection には現れない。
+#### Compact Introspection
 
 ```bash
-lorairo-cli errors get 42 --project proj
+lorairo-cli --json describe "errors get"
 ```
 
-**Input**
+#### Models
 
-- `error_id`: `int` (required, positional) - Error record ID to retrieve
-- `project` / `-p`: `str` (required)
+**Input `ErrorsGetInput`**
 
-**Output**: `id` / `image_id` / `operation_type` / `error_type` / `error_message` /
-`stack_trace` / `file_path` / `model_name` / `resolved_at` / `created_at`
+- `error_id`: `int` (required) - Error record ID to retrieve (positional).
+- `project`: `str` (required)
+
+**Output `ErrorRecordDetailItem`**
+
+- `id`: `int` (optional)
+- `image_id`: `int?` (optional)
+- `operation_type`: `str` (optional)
+- `error_type`: `str` (optional)
+- `error_message`: `str` (optional)
+- `stack_trace`: `str?` (optional)
+- `file_path`: `str?` (optional)
+- `model_name`: `str?` (optional)
+- `resolved_at`: `str?` (optional)
+- `created_at`: `str?` (optional)
+
+**Error `CliErrorResponse`**
+
+Structured error payload emitted as kind=error by the CLI boundary.
+
+- `kind`: `error` (required)
+- `ok`: `false` (required)
+- `code`: `str` (required)
+- `message`: `str` (required)
+- `retryable`: `bool` (required)
+- `user_action_required`: `bool` (required)
+- `hint`: `str?` (optional)
+- `details`: `dict?` (optional)
 
 ### `errors list`
 
@@ -1162,6 +1183,50 @@ Structured error payload emitted as kind=error by the CLI boundary.
 - `hint`: `str?` (optional)
 - `details`: `dict?` (optional)
 
+### `tags alias`
+
+Record a typo → preferred-tag alias in the user DB. Dry-run by default.
+
+- Read only: `false`
+- Side effects: `db_read`, `db_write`
+
+#### Compact Introspection
+
+```bash
+lorairo-cli --json describe "tags alias"
+```
+
+#### Models
+
+**Input `TagsAliasInput`**
+
+- `project`: `str` (required)
+- `from`: `str` (required) - Alias source (typo 等)。既存タグの付け替えは拒否。既に同じ preferred へ解決される場合は no-op。
+- `to`: `str` (required) - 解決先 preferred タグ (tag DB に存在必須)。
+- `apply`: `bool` (optional, default `False`) - Write to DB. Default is dry-run.
+
+**Output `TagsAliasResult`**
+
+書き込みは user DB overlay のみ。
+
+- `from_tag`: `str` (optional)
+- `to_tag`: `str` (optional)
+- `alias_tag_id`: `int?` (optional)
+- `status`: `dry_run | changed | noop` (optional)
+
+**Error `CliErrorResponse`**
+
+Structured error payload emitted as kind=error by the CLI boundary.
+
+- `kind`: `error` (required)
+- `ok`: `false` (required)
+- `code`: `str` (required)
+- `message`: `str` (required)
+- `retryable`: `bool` (required)
+- `user_action_required`: `bool` (required)
+- `hint`: `str?` (optional)
+- `details`: `dict?` (optional)
+
 ### `tags remove`
 
 Remove tags from images. Default dry-run; use --apply to write.
@@ -1263,6 +1328,57 @@ Structured error payload emitted as kind=error by the CLI boundary.
 - `hint`: `str?` (optional)
 - `details`: `dict?` (optional)
 
+### `tags translations add`
+
+Add a translation to a tag (user DB overlay). Dry-run by default; --apply to write.
+
+- Read only: `false`
+- Side effects: `db_read`, `db_write`
+
+#### Compact Introspection
+
+```bash
+lorairo-cli --json describe "tags translations add"
+```
+
+#### Models
+
+**Input `TagsTranslationsAddInput`**
+
+- `project`: `str` (required)
+- `tag`: `str` (required) - Target tag. tag_id 解決は tags add (Issue #1174) と同経路: exact/alias は解決、真の新タグは --apply 時に user DB 登録、typo/曖昧候補は候補提示でエラー (先に tags alias で確定)。
+- `lang`: `ja | en` (required) - 書き込みは ja/en の一貫形。
+- `text`: `str` (required)
+- `preferred`: `bool` (optional, default `False`) - その言語の主訳にする。
+- `apply`: `bool` (optional, default `False`) - Write to DB. Default is dry-run.
+
+**Output `TagsTranslationsAddItem`**
+
+書き込みは user DB overlay のみ (base DB は不変)。タグ登録失敗 (tagdb #124 edge) は DB_ERROR で明示。
+
+- `tag`: `str` (optional)
+- `canonical_tag`: `str?` (optional)
+- `classification`: `str` (optional)
+- `tag_id`: `int?` (optional)
+- `language`: `str` (optional)
+- `translation`: `str` (optional)
+- `preferred`: `bool` (optional)
+- `registered_new_tag`: `bool` (optional)
+- `status`: `dry_run | changed` (optional)
+
+**Error `CliErrorResponse`**
+
+Structured error payload emitted as kind=error by the CLI boundary.
+
+- `kind`: `error` (required)
+- `ok`: `false` (required)
+- `code`: `str` (required)
+- `message`: `str` (required)
+- `retryable`: `bool` (required)
+- `user_action_required`: `bool` (required)
+- `hint`: `str?` (optional)
+- `details`: `dict?` (optional)
+
 ### `tags translations show`
 
 Show ja/en translation status for tags (read-only). Issue #1173 / ADR 0085.
@@ -1270,64 +1386,41 @@ Show ja/en translation status for tags (read-only). Issue #1173 / ADR 0085.
 - Read only: `true`
 - Side effects: `db_read`
 
-> **Note**: 本コマンド群 (`tags translations show/add`, `tags alias`) は `lorairo.cli.introspection` に
-> `ToolSpec` が未登録のため、`list-commands` / `describe` の machine-readable introspection には現れない
-> (`errors get` と同じ扱い)。
+#### Compact Introspection
 
 ```bash
-lorairo-cli --json tags translations show -p proj --image-ids 1052,1082
-lorairo-cli --json tags translations show -p proj --tags "cat,dog"
+lorairo-cli --json describe "tags translations show"
 ```
 
-**Input**
+#### Models
 
-- `project` / `-p`: `str` (required)
-- `image_ids`: `csv[int]` (optional) - Show translation status of these images' tags. Mutually exclusive with `--tags`.
-- `tags`: `csv[str]` (optional) - Tags to inspect, max 100. Mutually exclusive with `--image-ids`.
+**Input `TagsTranslationsShowInput`**
 
-**Output** (item): `--tags` 指定時は `tag` / `tag_id` (null = 未解決) / `translations` (`{ja,en: {candidates, preferred}}`、読みは ja/japanese・en/english を集約) / `missing` (訳が無い言語)。`--image-ids` 指定時は `image_id` + `tags` (同形式の配列)。
+- `project`: `str` (required)
+- `image_ids`: `csv[int]` (optional) - Show translation status of these images' tags. Mutually exclusive with --tags.
+- `tags`: `csv[str]` (optional) - Tags to inspect, max 100. Mutually exclusive with --image-ids.
 
-### `tags translations add`
+**Output `TagTranslationStatusItem`**
 
-Add a translation to a tag (user DB overlay). Dry-run by default; `--apply` to write.
+--tags 指定時は tag 単位。--image-ids 指定時は image_id + tags (同形式の配列)。
 
-- Read only: `false`
-- Side effects: `db_read`, `db_write` (user DB overlay のみ、base DB は不変)
+- `tag`: `str` (optional)
+- `tag_id`: `int?` (optional) - null = 未解決 (tag DB 未登録)。
+- `translations`: `dict` (optional) - `{ja,en: {candidates, preferred}}`。読みは ja/japanese・en/english を集約。
+- `missing`: `list[str]` (optional) - 訳が無い言語。
 
-```bash
-lorairo-cli tags translations add -p proj --tag "european architecture" --lang ja --text "ヨーロッパ建築" --preferred --apply
-```
+**Error `CliErrorResponse`**
 
-**Input**
+Structured error payload emitted as kind=error by the CLI boundary.
 
-- `project` / `-p`: `str` (required)
-- `tag`: `str` (required) - Target tag. tag_id 解決は `tags add` (Issue #1174) と同経路: exact/alias は解決、真の新タグは `--apply` 時に user DB 登録、typo/曖昧候補は候補提示でエラー (先に `tags alias` で確定)。
-- `lang`: `ja | en` (required) - 書き込みは ja/en の一貫形。
-- `text`: `str` (required)
-- `preferred`: `bool` (optional, default `False`) - その言語の主訳にする。
-- `apply`: `bool` (optional, default `False`)
-
-**Output** (item): `tag` / `canonical_tag` / `classification` / `tag_id` / `language` / `translation` / `preferred` / `registered_new_tag` / `status` (`dry_run` | `changed`)。タグ登録失敗 (tagdb #124 edge) は `DB_ERROR` で明示。
-
-### `tags alias`
-
-Record a typo → preferred-tag alias in the user DB. Dry-run by default.
-
-- Read only: `false`
-- Side effects: `db_read`, `db_write` (user DB overlay のみ)
-
-```bash
-lorairo-cli tags alias -p proj --from "europian architecture" --to "european architecture" --apply
-```
-
-**Input**
-
-- `project` / `-p`: `str` (required)
-- `from`: `str` (required) - Alias source (typo 等)。既存タグの付け替えは拒否。既に同じ preferred へ解決される場合は no-op。
-- `to`: `str` (required) - 解決先 preferred タグ (tag DB に存在必須)。
-- `apply`: `bool` (optional, default `False`)
-
-**Output** (result): `from_tag` / `to_tag` / `alias_tag_id` / `status` (`dry_run` | `changed` | `noop`)。
+- `kind`: `error` (required)
+- `ok`: `false` (required)
+- `code`: `str` (required)
+- `message`: `str` (required)
+- `retryable`: `bool` (required)
+- `user_action_required`: `bool` (required)
+- `hint`: `str?` (optional)
+- `details`: `dict?` (optional)
 
 ### `version`
 
