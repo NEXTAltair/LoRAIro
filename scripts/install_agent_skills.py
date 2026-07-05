@@ -65,9 +65,18 @@ def source_arg(entry: dict) -> str:
     return f"{src}#{ref}" if ref else src
 
 
-def remove_legacy_markers() -> None:
-    """旧方式の dir 内マーカーを除去する (CLI の hash 計算に混入させない)。"""
+def migrate_legacy_markers(state: dict[str, str]) -> None:
+    """旧方式の dir 内マーカーを状態ファイルへ移行してから除去する。
+
+    値を読まずに消すと、マーカー記録後に lock が更新されていた場合に stale な dir が
+    「状態なし = lock どおり」と誤認されて lock-updated 再導入がスキップされるため、
+    状態に未登録の skill はマーカー値を引き継ぐ。dir 内にマーカーを残さないのは
+    CLI の computedHash 計算 (dir 内全ファイル再帰) に混入させないため。
+    """
     for marker in SKILLS_DIR.glob(f"*/{LEGACY_MARKER_NAME}"):
+        name = marker.parent.name
+        if name not in state:
+            state[name] = marker.read_text(encoding="utf-8").strip()
         marker.unlink()
 
 
@@ -129,7 +138,7 @@ def ensure_claude_symlinks() -> None:
 
 
 def backup_existing(name: str) -> Path | None:
-    """lock-updated 再導入前に旧実体を退避する。add 失敗時に復元するため。"""
+    """lock-updated 再導入前に旧実体を退避する。add 失敗・drift 却下時に復元するため。"""
     skill_dir = SKILLS_DIR / name
     if not skill_dir.exists():
         return None
@@ -141,13 +150,21 @@ def backup_existing(name: str) -> Path | None:
     return backup
 
 
+def restore_backup(name: str, backup: Path) -> None:
+    """退避しておいた旧実体を skill dir へ戻す。"""
+    skill_dir = SKILLS_DIR / name
+    if skill_dir.exists():
+        shutil.rmtree(skill_dir)
+    shutil.move(str(backup), str(skill_dir))
+
+
 def main() -> int:
     lock_path = PROJECT_ROOT / "skills-lock.json"
     lock_text_before = lock_path.read_text(encoding="utf-8")
     lock_before = json.loads(lock_text_before)
 
-    remove_legacy_markers()
     state = load_state()
+    migrate_legacy_markers(state)
     targets = collect_targets(lock_before, state)
     pruned = prune_removed_skills(lock_before, state)
     if pruned:
@@ -172,6 +189,7 @@ def main() -> int:
 
     failed: list[str] = []
     succeeded: list[str] = []
+    backups: dict[str, Path] = {}
     for name, entry, reason in targets:
         src = source_arg(entry)
         print(f"install: {name} <- {src} ({reason})")
@@ -183,17 +201,14 @@ def main() -> int:
         if result.returncode == 0:
             succeeded.append(name)
             if backup is not None:
-                shutil.rmtree(backup)
+                # バックアップの破棄は drift 照合の通過後まで遅延する
+                # (add 成功でも drift 却下されると新旧両方を失うため)
+                backups[name] = backup
         else:
             failed.append(name)
             if backup is not None:
                 # 失敗時は手元で動いていた旧実体へ戻す (次回また lock-updated として再試行)
-                new_dir = SKILLS_DIR / name
-                if new_dir.exists():
-                    shutil.rmtree(new_dir)
-                shutil.move(str(backup), str(new_dir))
-    if PENDING_DIR.exists() and not any(PENDING_DIR.iterdir()):
-        PENDING_DIR.rmdir()
+                restore_backup(name, backup)
 
     # 復元内容が lock 記録時と同一かを computedHash で照合する。`npx skills add` は
     # 取得内容の hash を lock に書き戻すため、hash が変わった = upstream drift。
@@ -210,19 +225,29 @@ def main() -> int:
 
     if drifted:
         # 導入を受け入れない: drift した実体を除去し、lock を実行前の内容へ戻す。
-        # 状態にも記録しないため、再実行しても必ず再検出されて失敗し続ける
+        # lock-updated 由来でバックアップがある場合は旧実体 (最後に動いていた copy) を復元する。
+        # 状態は更新しないため、再実行しても必ず再検出されて失敗し続ける
         for name in drifted:
             skill_dir = SKILLS_DIR / name
             if skill_dir.exists():
                 shutil.rmtree(skill_dir)
+            if name in backups:
+                restore_backup(name, backups.pop(name))
         lock_path.write_text(lock_text_before, encoding="utf-8")
+
+    # drift 照合を通過した分のバックアップだけをここで破棄する
+    for backup in backups.values():
+        shutil.rmtree(backup)
+    if PENDING_DIR.exists() and not any(PENDING_DIR.iterdir()):
+        PENDING_DIR.rmdir()
 
     save_state(state)
     ensure_claude_symlinks()
 
     if drifted:
         print(
-            "ERROR: 復元した skill が lock 記録時と異なる内容 (upstream drift) のため除去しました: "
+            "ERROR: 復元した skill が lock 記録時と異なる内容 (upstream drift) のため除去しました"
+            " (旧実体があれば復元済み): "
             + ", ".join(drifted)
             + "\n  取り込む場合: `npx skills add github:<source> --skill <name> -y` を手動実行し、"
             + "skills-lock.json の diff を確認して commit する"
