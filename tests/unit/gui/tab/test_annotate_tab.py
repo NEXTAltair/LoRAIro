@@ -484,14 +484,146 @@ class TestPresetSignalWiring:
 
         tab._refresh_pipeline_panel.assert_called_once_with()
 
-    def test_save_preset_reads_selected_models(self, tab):
-        tab._batch_model_selection = Mock()
-        tab._batch_model_selection.get_selected_models.return_value = ["wd/tagger"]
 
-        # 永続化は未実装 (TODO #847) だがクラッシュせず選択を読み出す
+@pytest.mark.gui
+class TestCustomPresetPersistence:
+    """プリセット永続化 (保存/一覧/適用) の検証 (Issue #1186)。"""
+
+    @pytest.fixture
+    def isolated_settings(self, tab, tmp_path, monkeypatch):
+        """QSettings を一時 INI ファイルへ隔離する。"""
+        from PySide6.QtCore import QSettings
+
+        settings_file = tmp_path / "presets.ini"
+
+        def _settings() -> QSettings:
+            return QSettings(str(settings_file), QSettings.Format.IniFormat)
+
+        monkeypatch.setattr(tab, "_preset_settings", _settings)
+        return _settings
+
+    @staticmethod
+    def _fake_input_dialog(monkeypatch, name: str, ok: bool) -> None:
+        from lorairo.gui.tab import annotate_tab as annotate_tab_module
+
+        class _FakeInputDialog:
+            @staticmethod
+            def getText(*args, **kwargs):
+                return (name, ok)
+
+        monkeypatch.setattr(annotate_tab_module, "QInputDialog", _FakeInputDialog)
+
+    def test_save_preset_persists_and_adds_chip(self, tab, isolated_settings, monkeypatch):
+        """保存確定でプリセットが永続化され、chip 行へ反映・アクティブ化される。"""
+        self._fake_input_dialog(monkeypatch, "My preset", True)
+        tab._batch_model_selection = Mock()
+        tab._batch_model_selection.get_selected_models.return_value = ["openai/gpt-4o", "wd/tagger"]
+        tab._pipeline_stage_table = Mock()
+
         tab._on_pipeline_save_preset_requested()
 
-        tab._batch_model_selection.get_selected_models.assert_called_once_with()
+        assert tab._load_custom_presets() == {"My preset": ["openai/gpt-4o", "wd/tagger"]}
+        chips = tab._pipeline_stage_table.set_custom_presets.call_args[0][0]
+        assert [(c.preset_id, c.label, c.model_count) for c in chips] == [
+            ("custom:My preset", "My preset", 2)
+        ]
+        tab._pipeline_stage_table.set_active_preset.assert_called_once_with("custom:My preset")
+
+    def test_save_preset_overwrites_same_name(self, tab, isolated_settings, monkeypatch):
+        """同名プリセットは上書きされる。"""
+        self._fake_input_dialog(monkeypatch, "mine", True)
+        tab._save_custom_presets({"mine": ["old/model"]})
+        tab._batch_model_selection = Mock()
+        tab._batch_model_selection.get_selected_models.return_value = ["new/model"]
+        tab._pipeline_stage_table = Mock()
+
+        tab._on_pipeline_save_preset_requested()
+
+        assert tab._load_custom_presets() == {"mine": ["new/model"]}
+
+    def test_save_preset_canceled_does_not_persist(self, tab, isolated_settings, monkeypatch):
+        """名前入力キャンセル時は何も保存しない。"""
+        self._fake_input_dialog(monkeypatch, "mine", False)
+        tab._batch_model_selection = Mock()
+        tab._batch_model_selection.get_selected_models.return_value = ["wd/tagger"]
+        tab._pipeline_stage_table = Mock()
+
+        tab._on_pipeline_save_preset_requested()
+
+        assert tab._load_custom_presets() == {}
+        tab._pipeline_stage_table.set_custom_presets.assert_not_called()
+
+    def test_save_preset_blank_name_does_not_persist(self, tab, isolated_settings, monkeypatch):
+        """空白のみの名前は保存しない。"""
+        self._fake_input_dialog(monkeypatch, "   ", True)
+        tab._batch_model_selection = Mock()
+        tab._batch_model_selection.get_selected_models.return_value = ["wd/tagger"]
+        tab._pipeline_stage_table = Mock()
+
+        tab._on_pipeline_save_preset_requested()
+
+        assert tab._load_custom_presets() == {}
+
+    def test_save_preset_empty_selection_warns(self, tab, isolated_settings, monkeypatch):
+        """選択モデルゼロでは警告して保存しない。"""
+        from lorairo.gui.tab import annotate_tab as annotate_tab_module
+
+        warnings: list[tuple] = []
+        monkeypatch.setattr(
+            annotate_tab_module, "show_warning", lambda *args, **kwargs: warnings.append(args)
+        )
+        tab._batch_model_selection = Mock()
+        tab._batch_model_selection.get_selected_models.return_value = []
+        tab._pipeline_stage_table = Mock()
+
+        tab._on_pipeline_save_preset_requested()
+
+        assert len(warnings) == 1
+        assert tab._load_custom_presets() == {}
+
+    def test_custom_preset_selected_applies_stored_models(self, tab, isolated_settings):
+        """保存済みプリセット選択で、現在利用可能なモデルに絞って適用される。"""
+        info = StageModelInfo(
+            litellm_model_id="wd/tagger",
+            display_name="wd-tagger",
+            provider=None,
+            is_api=False,
+            capabilities=frozenset({"tags"}),
+        )
+        # "gone/model" は保存後に利用不能になった想定
+        tab._save_custom_presets({"mine": ["wd/tagger", "gone/model"]})
+        tab._batch_model_selection = Mock()
+        tab._batch_model_selection.model_selection_service.load_models.return_value = [
+            SimpleNamespace(litellm_model_id="wd/tagger")
+        ]
+        tab._build_stage_model_infos = lambda ids: [info]
+        tab._pipeline_stage_table = Mock()
+        tab._refresh_pipeline_panel = Mock()
+
+        tab._on_pipeline_preset_selected("custom:mine")
+
+        tab._batch_model_selection.set_selected_models.assert_called_once_with(["wd/tagger"])
+        tab._pipeline_stage_table.set_active_preset.assert_called_once_with("custom:mine")
+
+    def test_custom_preset_missing_is_skipped(self, tab, isolated_settings):
+        """存在しない保存済みプリセットの選択は適用せずスキップする。"""
+        tab._batch_model_selection = Mock()
+        tab._batch_model_selection.model_selection_service.load_models.return_value = []
+        tab._build_stage_model_infos = lambda ids: []
+        tab._pipeline_stage_table = Mock()
+        tab._refresh_pipeline_panel = Mock()
+
+        tab._on_pipeline_preset_selected("custom:nothere")
+
+        tab._batch_model_selection.set_selected_models.assert_not_called()
+
+    def test_load_custom_presets_tolerates_broken_json(self, tab, isolated_settings):
+        """破損 JSON は空として扱いクラッシュしない。"""
+        settings = tab._preset_settings()
+        settings.setValue("annotate_tab/custom_presets", "{broken json")
+        settings.sync()
+
+        assert tab._load_custom_presets() == {}
 
 
 # == 6. 送信前プリフライト ====================================================

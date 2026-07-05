@@ -139,6 +139,8 @@ class PipelineStageTableWidget(QWidget):
         super().__init__(parent)
 
         self._preset_buttons: dict[str, QToolButton] = {}
+        # 保存済みカスタムプリセットの chip (#1186)。再構築時に除去するため別管理する
+        self._custom_preset_buttons: dict[str, QToolButton] = {}
         self._active_preset_id: str | None = None
 
         layout = QVBoxLayout(self)
@@ -189,16 +191,13 @@ class PipelineStageTableWidget(QWidget):
         )
         row_layout.addWidget(label)
 
+        self._preset_row_layout = row_layout
+        self._preset_chip_row = chip_row
+
         for preset in _BUILTIN_PRESETS:
-            button = QToolButton(chip_row)
-            button.setObjectName("presetChip")
-            button.setText(f"{preset.label} {preset.model_count}")
-            button.setCheckable(True)
-            button.setToolTip(
-                f"プリセット「{preset.label}」を適用 (モデル {preset.model_count} 件をステージへ割当)"
-            )
-            button.clicked.connect(
-                lambda _checked=False, pid=preset.preset_id: self._on_preset_clicked(pid)
+            button = self._make_preset_chip(
+                preset,
+                tooltip=f"プリセット「{preset.label}」を適用 (モデル {preset.model_count} 件をステージへ割当)",
             )
             self._preset_buttons[preset.preset_id] = button
             row_layout.addWidget(button)
@@ -209,6 +208,7 @@ class PipelineStageTableWidget(QWidget):
         save_button.setToolTip(_SAVE_PRESET_TOOLTIP)
         save_button.setStyleSheet(_SAVE_PRESET_STYLE)
         save_button.clicked.connect(lambda _checked=False: self.save_preset_requested.emit())
+        self._save_preset_button = save_button
         row_layout.addWidget(save_button)
 
         body_layout.addWidget(chip_row)
@@ -224,6 +224,48 @@ class PipelineStageTableWidget(QWidget):
 
         card.set_body(body)
         return card
+
+    def _make_preset_chip(self, preset: PipelinePreset, tooltip: str) -> QToolButton:
+        """preset chip ボタンを 1 つ構築する (組込み/カスタム共通)。"""
+        button = QToolButton(self._preset_chip_row)
+        button.setObjectName("presetChip")
+        button.setText(f"{preset.label} {preset.model_count}")
+        button.setCheckable(True)
+        button.setToolTip(tooltip)
+        button.clicked.connect(lambda _checked=False, pid=preset.preset_id: self._on_preset_clicked(pid))
+        return button
+
+    def set_custom_presets(self, presets: list[PipelinePreset]) -> None:
+        """保存済みカスタムプリセットの chip 群を再構築する (#1186)。
+
+        組込み chip の後ろ・「+ 現状を保存」ボタンの前にカスタム chip を並べる。
+        呼び出しのたびに旧カスタム chip を除去して作り直す (冪等)。
+
+        Args:
+            presets: 表示するカスタムプリセット。preset_id は組込みと衝突しない
+                一意キー (呼び出し元が ``custom:`` 等で名前空間を分ける)。
+        """
+        for pid, button in list(self._custom_preset_buttons.items()):
+            self._preset_row_layout.removeWidget(button)
+            button.setParent(None)
+            button.deleteLater()
+            self._preset_buttons.pop(pid, None)
+        self._custom_preset_buttons.clear()
+
+        # 保存ボタンを一旦外し、カスタム chip → 保存ボタンの順で末尾を維持する
+        self._preset_row_layout.removeWidget(self._save_preset_button)
+        for preset in presets:
+            button = self._make_preset_chip(
+                preset,
+                tooltip=f"保存済みプリセット「{preset.label}」を適用 (モデル {preset.model_count} 件)",
+            )
+            self._custom_preset_buttons[preset.preset_id] = button
+            self._preset_buttons[preset.preset_id] = button
+            self._preset_row_layout.addWidget(button)
+        self._preset_row_layout.addWidget(self._save_preset_button)
+
+        # chip 再構築でアクティブ表示が失われるため再適用する
+        self.set_active_preset(self._active_preset_id)
 
     def _on_preset_clicked(self, preset_id: str) -> None:
         """preset chip クリック: アクティブ表示を更新し選択を通知する。"""

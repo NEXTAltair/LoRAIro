@@ -9,6 +9,7 @@ from lorairo.gui.widgets.ds_card import DsCard
 from lorairo.gui.widgets.pipeline_stage_table_widget import (
     _BUILTIN_PRESETS,
     _DEFAULT_PRESET_ID,
+    PipelinePreset,
     PipelineStageTableWidget,
 )
 from lorairo.services.pipeline_composition import (
@@ -237,6 +238,59 @@ class TestPipelineStageTableWidgetPresetRow:
         save_button = widget.findChildren(QToolButton, "savePresetButton")[0]
         with qtbot.waitSignal(widget.save_preset_requested, timeout=1000):
             save_button.click()
+
+
+class TestPipelineStageTableWidgetCustomPresets:
+    """Issue #1186: 保存済みカスタムプリセット chip の検証。"""
+
+    def test_set_custom_presets_adds_chips_after_builtins(self, widget):
+        widget.set_custom_presets([PipelinePreset("custom:mine", "mine", 2)])
+
+        chips = widget.findChildren(QToolButton, "presetChip")
+        assert len(chips) == len(_BUILTIN_PRESETS) + 1
+        assert chips[-1].text() == "mine 2"
+
+    def test_custom_chip_click_emits_custom_preset_id(self, widget, qtbot):
+        widget.set_custom_presets([PipelinePreset("custom:mine", "mine", 1)])
+        chip = next(c for c in widget.findChildren(QToolButton, "presetChip") if c.text() == "mine 1")
+
+        with qtbot.waitSignal(widget.preset_selected, timeout=1000) as blocker:
+            chip.click()
+
+        assert blocker.args == ["custom:mine"]
+
+    def test_set_custom_presets_is_idempotent(self, widget):
+        widget.set_custom_presets([PipelinePreset("custom:a", "a", 1)])
+        widget.set_custom_presets([PipelinePreset("custom:b", "b", 1)])
+
+        texts = [c.text() for c in widget.findChildren(QToolButton, "presetChip")]
+        assert "a 1" not in texts
+        assert texts.count("b 1") == 1
+        assert len(texts) == len(_BUILTIN_PRESETS) + 1
+
+    def test_save_button_stays_last_in_layout(self, widget):
+        widget.set_custom_presets([PipelinePreset("custom:mine", "mine", 1)])
+
+        layout = widget._preset_row_layout
+        last_widget = layout.itemAt(layout.count() - 1).widget()
+        assert last_widget.objectName() == "savePresetButton"
+
+    def test_set_active_preset_works_for_custom_chip(self, widget):
+        widget.set_custom_presets([PipelinePreset("custom:mine", "mine", 1)])
+        widget.set_active_preset("custom:mine")
+
+        chip = next(c for c in widget.findChildren(QToolButton, "presetChip") if c.text() == "mine 1")
+        assert chip.isChecked()
+
+    def test_rebuild_preserves_active_builtin(self, widget):
+        widget.set_active_preset("tags_only")
+        widget.set_custom_presets([PipelinePreset("custom:mine", "mine", 1)])
+
+        chips = {c.text(): c for c in widget.findChildren(QToolButton, "presetChip")}
+        active = [t for t, c in chips.items() if c.isChecked()]
+        assert active == [
+            next(f"{p.label} {p.model_count}" for p in _BUILTIN_PRESETS if p.preset_id == "tags_only")
+        ]
 
 
 class TestPipelineStageTableWidgetRedisplay:

@@ -36,9 +36,10 @@ MainWindow rewire (Track B) はこの契約に対してコードを書く。
       / ``inference_ledger_widget`` / ``batch_tag_add_widget``
 """
 
+import json
 from dataclasses import replace
 
-from PySide6.QtCore import Signal, Slot
+from PySide6.QtCore import QSettings, Signal, Slot
 from PySide6.QtWidgets import (
     QDialog,
     QHBoxLayout,
@@ -60,7 +61,7 @@ from ...services.service_container import ServiceContainer
 from ...utils.log import logger
 from .. import theme
 from ..designer.AnnotateTab_ui import Ui_AnnotateTab
-from ..message_box import show_critical
+from ..message_box import show_critical, show_warning
 from ..services.image_db_write_service import ImageDBWriteService
 from ..state.dataset_state import DatasetStateManager
 from ..state.model_selection_state import ModelSelectionStateManager
@@ -69,10 +70,14 @@ from ..widgets.annotation_filter_widget import AnnotationFilterWidget
 from ..widgets.batch_tag_add_widget import BatchTagAddWidget
 from ..widgets.inference_ledger_widget import InferenceLedgerWidget
 from ..widgets.model_selection_widget import ModelSelectionWidget
-from ..widgets.pipeline_stage_table_widget import PipelineStageTableWidget
+from ..widgets.pipeline_stage_table_widget import PipelinePreset, PipelineStageTableWidget
 from ..widgets.preflight_summary_widget import PreflightSummaryWidget
 from ..widgets.run_settings_dialog import RunOptions, RunSettingsDialog
 from ..widgets.stage_model_picker_dialog import StageModelPickerDialog
+
+# 保存済みプリセット (#1186): QSettings キーと、組込みプリセットと衝突しない preset_id 名前空間
+_CUSTOM_PRESETS_SETTINGS_KEY = "annotate_tab/custom_presets"
+_CUSTOM_PRESET_PREFIX = "custom:"
 
 
 class AnnotateTabWidget(QWidget, Ui_AnnotateTab):
@@ -280,6 +285,8 @@ class AnnotateTabWidget(QWidget, Ui_AnnotateTab):
         # preset 配線 (Issue #847): preset chip 選択 / 保存要求をハンドラへ接続
         self._pipeline_stage_table.preset_selected.connect(self._on_pipeline_preset_selected)
         self._pipeline_stage_table.save_preset_requested.connect(self._on_pipeline_save_preset_requested)
+        # 保存済みカスタムプリセットを chip 行へ復元する (#1186)
+        self._refresh_custom_preset_chips(self._load_custom_presets())
 
         # モデル選択 SSoT を gui/state/ へ hoist (#884, ADR 0076)
         if self._model_selection_state_manager is not None:
@@ -670,7 +677,13 @@ class AnnotateTabWidget(QWidget, Ui_AnnotateTab):
         all_infos = self._build_stage_model_infos([m.litellm_model_id for m in all_models])
 
         # プリセットに対応する litellm_model_id を絞り込んで一括セット
-        preset_ids = self._filter_model_ids_for_preset(preset_id, all_infos)
+        if preset_id.startswith(_CUSTOM_PRESET_PREFIX):
+            resolved = self._resolve_custom_preset_model_ids(preset_id, all_infos)
+            if resolved is None:
+                return
+            preset_ids = resolved
+        else:
+            preset_ids = self._filter_model_ids_for_preset(preset_id, all_infos)
         self._batch_model_selection.set_selected_models(preset_ids)
         self._sync_widget_selection_to_state()
 
@@ -721,13 +734,92 @@ class AnnotateTabWidget(QWidget, Ui_AnnotateTab):
         return [info.litellm_model_id for info in all_infos]
 
     def _on_pipeline_save_preset_requested(self) -> None:
-        """現在のモデル構成を名前付きプリセットとして保存する要求を処理する (Issue #847)。
+        """現在のモデル構成を名前付きプリセットとして保存する (Issue #1186)。
 
-        最小実装: 保存要求をログに記録する。永続化の本実装は後続 Issue で行う。
+        QSettings へ {名前: litellm_model_id リスト} を JSON で永続化し、
+        プリセット chip 行へ保存済みプリセットとして追加する (同名は上書き)。
         """
-        # TODO: Issue #847 - プリセット永続化の実装 (QSettings 等への名前付き保存)
         selected_ids = self._batch_model_selection.get_selected_models()
-        logger.info(f"プリセット保存要求: 現在の選択モデル = {selected_ids}")
+        if not selected_ids:
+            show_warning(self, "プリセット保存", "モデルが選択されていないため保存できません。")
+            return
+
+        name, ok = QInputDialog.getText(self, "プリセットを保存", "プリセット名:")
+        name = name.strip()
+        if not ok or not name:
+            return
+
+        presets = self._load_custom_presets()
+        presets[name] = list(selected_ids)
+        self._save_custom_presets(presets)
+        self._refresh_custom_preset_chips(presets)
+        self._pipeline_stage_table.set_active_preset(f"{_CUSTOM_PRESET_PREFIX}{name}")
+        logger.info(f"プリセット '{name}' を保存: モデル {len(selected_ids)} 件")
+
+    def _resolve_custom_preset_model_ids(
+        self, preset_id: str, all_infos: list[StageModelInfo]
+    ) -> list[str] | None:
+        """保存済みプリセットの litellm_model_id を現在利用可能なモデルに絞って返す (#1186)。
+
+        Args:
+            preset_id: ``custom:`` 前置きの preset_id。
+            all_infos: 全モデルの StageModelInfo リスト。
+
+        Returns:
+            適用するモデル ID リスト。プリセットが見つからない場合は None。
+        """
+        name = preset_id.removeprefix(_CUSTOM_PRESET_PREFIX)
+        stored = self._load_custom_presets().get(name)
+        if stored is None:
+            logger.warning(f"保存済みプリセット '{name}' が見つかりません — 適用をスキップします")
+            return None
+        available = {info.litellm_model_id for info in all_infos}
+        resolved = [model_id for model_id in stored if model_id in available]
+        if len(resolved) < len(stored):
+            logger.info(
+                f"プリセット '{name}': 保存時の {len(stored)} 件中 {len(resolved)} 件が現在利用可能"
+            )
+        return resolved
+
+    def _preset_settings(self) -> QSettings:
+        """カスタムプリセット永続化用の QSettings を返す (テストで差し替え可能な継ぎ目)。"""
+        return QSettings()
+
+    def _load_custom_presets(self) -> dict[str, list[str]]:
+        """QSettings から保存済みプリセットを読み出す (#1186)。
+
+        Returns:
+            {プリセット名: litellm_model_id リスト}。未保存・破損時は空 dict。
+        """
+        raw = self._preset_settings().value(_CUSTOM_PRESETS_SETTINGS_KEY, "")
+        if not raw:
+            return {}
+        try:
+            data = json.loads(str(raw))
+        except json.JSONDecodeError:
+            logger.warning("保存済みプリセットの読み込みに失敗しました (JSON 不正) — 空として扱います")
+            return {}
+        if not isinstance(data, dict):
+            return {}
+        presets: dict[str, list[str]] = {}
+        for name, model_ids in data.items():
+            if isinstance(name, str) and isinstance(model_ids, list):
+                presets[name] = [model_id for model_id in model_ids if isinstance(model_id, str)]
+        return presets
+
+    def _save_custom_presets(self, presets: dict[str, list[str]]) -> None:
+        """保存済みプリセットを QSettings へ JSON で書き込む (#1186)。"""
+        settings = self._preset_settings()
+        settings.setValue(_CUSTOM_PRESETS_SETTINGS_KEY, json.dumps(presets, ensure_ascii=False))
+        settings.sync()
+
+    def _refresh_custom_preset_chips(self, presets: dict[str, list[str]]) -> None:
+        """保存済みプリセットをステージテーブルの chip 行へ反映する (#1186)。"""
+        chips = [
+            PipelinePreset(f"{_CUSTOM_PRESET_PREFIX}{name}", name, len(model_ids))
+            for name, model_ids in sorted(presets.items())
+        ]
+        self._pipeline_stage_table.set_custom_presets(chips)
 
     def _refresh_pipeline_panel(self, selected_ids: list[str] | None = None) -> None:
         """ステージテーブルと推論台帳を現在の選択・ステージング件数で再描画する。
