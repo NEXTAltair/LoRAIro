@@ -32,6 +32,9 @@ ENV/
 # Agent worktree チェックアウト (.agents/worktree/<branch>。git worktree の実体、追跡しない)
 .agents/worktree/
 
+# 外部 skill の導入時 lock hash マーカー (scripts/install_agent_skills.py が管理)
+.agents/skills/*/.installed-lock-hash
+
 # テスト関連
 .pytest_cache/
 .coverage

@@ -16,7 +16,8 @@ help:
 	@echo "LoRAIro Project - Available Commands:"
 	@echo ""
 	@echo "Development:"
-	@echo "  setup        Fetch submodules + install dev dependencies (recommended entry point)"
+	@echo "  setup        Fetch submodules + install dev dependencies + restore external skills (recommended entry point)"
+	@echo "  skills-install Restore external agent skills from skills-lock.json (requires Node.js/npx)"
 	@echo "  install      Install project dependencies"
 	@echo "  install-dev  Install development dependencies"
 	@echo "  run-gui      Run LoRAIro GUI application"
@@ -41,11 +42,18 @@ help:
 	@echo "  worktree-cleanup-merged-dry-run Show clean merged /workspaces/LoRAIro/.agents/worktree entries"
 
 # Development targets
-# setup: 開発環境セットアップの唯一の人間向け入口。submodule 取得 + dev 依存インストール。
-# devcontainer の postCreateCommand.sh もコンテナ固有処理の後にこの target を呼ぶ。
+# setup: 開発環境セットアップの唯一の人間向け入口。submodule 取得 + dev 依存インストール +
+# 外部ソース skill の復元。devcontainer の postCreateCommand.sh もコンテナ固有処理の後にこの target を呼ぶ。
 setup: _ensure-submodules
 	@echo "Setting up LoRAIro development environment..."
 	uv sync --dev
+	$(MAKE) skills-install
+
+# skills-install: 外部ソース由来の agent skills を skills-lock.json から復元する。
+# 外部 skill (altairs-agent-dev-kit / サードパーティ) は git 追跡しないため、
+# fresh clone / まっさらな devcontainer ではこの target が実体を再導入する (要 Node.js/npx)。
+skills-install:
+	python3 scripts/install_agent_skills.py
 
 install: _ensure-submodules
 	@echo "Installing project dependencies..."
