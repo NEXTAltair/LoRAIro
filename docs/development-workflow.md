@@ -79,7 +79,38 @@ uv run python scripts/generate_ui.py  # .ui ファイル変更後は必須
 
 ## Claude Skills
 
-`.agents/skills/` に LoRAIro 開発パターンが定義されています（`npx skills` 管理、`.claude/skills/<name>` は symlink）。
+`.agents/skills/` に開発用スキルが配置されています（`npx skills` 管理、`.claude/skills/<name>` は
+symlink、導入元の SSoT は `skills-lock.json`）。
+
+スキルは2系統に分かれます:
+
+- **LoRAIro 固有スキル（git 追跡する）**: `lorairo-*` 系・`agent-pr-*` 系と、汎用スキルを
+  LoRAIro 固有値（lorairo-mem 連携、local_packages、make target 等）で特化させたもの
+  （check-existing / context7-openclaw-research / interface-design / lazy-import-refactor /
+  okf-bundle / sqlalchemy-query-patterns）
+- **外部ソーススキル（git 追跡しない）**: [altairs-agent-dev-kit](https://github.com/NEXTAltair/altairs-agent-dev-kit)
+  由来（goal-prompt-crafter / skill-creator / github-ops / prompt-optimizer / qa-expert /
+  claude-md-progressive-disclosurer）とサードパーティ（wshobson/agents, vercel-labs/agent-skills）。
+  実体は `.gitignore` で追跡対象外で、`skills-lock.json` の記録から復元する
+
+### 外部スキルのインストール（altairs-agent-dev-kit を含む）
+
+`make setup`（devcontainer の postCreateCommand からも呼ばれる）が
+`scripts/install_agent_skills.py` を実行し、`skills-lock.json` に記録された外部スキルのうち
+実体が欠落しているものを `npx skills add` で自動導入します。まっさらな devcontainer を
+立ち上げた場合でも手動操作は不要です。
+
+手動での操作:
+
+```bash
+make skills-install     # 欠落した外部スキルのみ復元（要 Node.js/npx）
+
+# devkit から新しいスキルを追加 / 既存スキルを更新する場合
+npx skills add github:NEXTAltair/altairs-agent-dev-kit --skill <skill-name> -y
+```
+
+`npx skills add` を再実行すると実体が上書きされ `skills-lock.json` のハッシュも更新されるので、
+devkit 側の更新へ追従する場合は lock の diff もあわせてコミットしてください。
 
 **LoRAIro Development Skills:**
 - `check-existing` — 実装前の要件ヒアリング + 既存解調査

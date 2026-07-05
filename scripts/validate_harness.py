@@ -128,6 +128,10 @@ def validate_skills_lock(project_root: Path) -> list[str]:
     for name in sorted(installed_skill_names - locked_skill_names):
         errors.append(f"Skills lock: installed skill missing from lock: {name}")
     for name in sorted(locked_skill_names - installed_skill_names):
+        # 外部ソース (github) の skill は git 追跡外で、fresh checkout では実体が無い。
+        # make setup (scripts/install_agent_skills.py) が lock から復元する運用のため許容する
+        if lock_skills[name].get("sourceType") == "github":
+            continue
         errors.append(f"Skills lock: lock entry has no installed skill: {name}")
 
     return errors

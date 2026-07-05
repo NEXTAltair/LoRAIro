@@ -17,9 +17,10 @@
       "computedHash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
     },
     "claude-md-progressive-disclosurer": {
-      "source": "/workspaces/LoRAIro/.agents/skills",
-      "sourceType": "local",
-      "computedHash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      "source": "NEXTAltair/altairs-agent-dev-kit",
+      "sourceType": "github",
+      "skillPath": "skills/claude-md-progressive-disclosurer/SKILL.md",
+      "computedHash": "8f0566962ebf75147b72ca4f3f71ca8f86ae6c5bf8fd7be5db9318c3fdfd1e82"
     },
     "context7-openclaw-research": {
       "source": "/workspaces/LoRAIro/.agents/skills",
@@ -39,9 +40,10 @@
       "computedHash": "03e0eaaa9bf13ba1e7ffa387f5893de6f324c0868c627001f179395a8feaa7c9"
     },
     "github-ops": {
-      "source": "/workspaces/LoRAIro/.agents/skills",
-      "sourceType": "local",
-      "computedHash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      "source": "NEXTAltair/altairs-agent-dev-kit",
+      "sourceType": "github",
+      "skillPath": "skills/github-ops/SKILL.md",
+      "computedHash": "dd7a0d9230aec35bb817d7e9c74e838e0049270bfdafb93ec75f0a79d629b522"
     },
     "goal-prompt-crafter": {
       "source": "NEXTAltair/altairs-agent-dev-kit",
@@ -95,9 +97,10 @@
       "computedHash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
     },
     "prompt-optimizer": {
-      "source": "/workspaces/LoRAIro/.agents/skills",
-      "sourceType": "local",
-      "computedHash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      "source": "NEXTAltair/altairs-agent-dev-kit",
+      "sourceType": "github",
+      "skillPath": "skills/prompt-optimizer/SKILL.md",
+      "computedHash": "e3cb618d531fadf55c4ffe1f8c1402ca7b43b941482273002943c987213eae34"
     },
     "python-error-handling": {
       "source": "wshobson/agents",
@@ -124,14 +127,16 @@
       "computedHash": "76e08740199869de7af1224f1c3e69b0dd1d8f46e82276ba20530e657234fb73"
     },
     "qa-expert": {
-      "source": "/workspaces/LoRAIro/.agents/skills",
-      "sourceType": "local",
-      "computedHash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      "source": "NEXTAltair/altairs-agent-dev-kit",
+      "sourceType": "github",
+      "skillPath": "skills/qa-expert/SKILL.md",
+      "computedHash": "e9d446bf86b3ff18dcde6351e2699d9fcbb8b18b54b48f6e976196f76643e6a7"
     },
     "skill-creator": {
-      "source": "/workspaces/LoRAIro/.agents/skills",
-      "sourceType": "local",
-      "computedHash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      "source": "NEXTAltair/altairs-agent-dev-kit",
+      "sourceType": "github",
+      "skillPath": "skills/skill-creator/SKILL.md",
+      "computedHash": "a8a5bf3e95e93b0bd3bcca1123e06da8f677dacb1b9d5852c4b6db68164791d0"
     },
     "sql-optimization-patterns": {
       "source": "wshobson/agents",
