@@ -39,7 +39,6 @@ LoRAIro の3層ドキュメント構造の維持方針。
 | `docs/superpowers/` | superpowers skill (`writing-plans` / `brainstorming`) の計画・設計出力先。skill のデフォルト出力パスなので変更しない。`docs/plans/` とは出所で使い分ける |
 | `docs/specs/` | 機能仕様 (application / core / interfaces) |
 | `docs/design/` | デザインバンドル (DesignSync 同期対象) |
-| `docs/investigations/` | 調査レポート |
 | `docs/migration/` | データ移行ガイド |
 | `docs/technical/` | 詳細技術ガイド (PySide6 等) |
 | `docs/skill-evaluations/` | skill 評価シナリオ |
