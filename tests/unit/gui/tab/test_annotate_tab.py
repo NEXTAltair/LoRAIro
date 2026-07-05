@@ -681,6 +681,31 @@ class TestCustomPresetPersistence:
 
         tab._batch_model_selection.set_selected_models.assert_called_once_with(["wd/tagger"])
 
+    def test_custom_preset_normalizes_unknown_provider_before_key_check(
+        self, tab, isolated_settings, monkeypatch
+    ):
+        """DB provider が unknown でも litellm id から provider を導出して key 判定する (Codex P2)。"""
+        api_info = StageModelInfo(
+            litellm_model_id="google/gemini-2.5-pro",
+            display_name="gemini-2.5-pro",
+            provider="unknown",
+            is_api=True,
+            capabilities=frozenset({"caption"}),
+        )
+        tab._save_custom_presets({"mine": ["google/gemini-2.5-pro"]})
+        tab._batch_model_selection = Mock()
+        tab._batch_model_selection.model_selection_service.load_models.return_value = [
+            SimpleNamespace(litellm_model_id="google/gemini-2.5-pro")
+        ]
+        tab._build_stage_model_infos = lambda ids: [api_info]
+        tab._pipeline_stage_table = Mock()
+        tab._refresh_pipeline_panel = Mock()
+        monkeypatch.setattr(tab, "_available_api_providers", lambda: {"google"})
+
+        tab._on_pipeline_preset_selected("custom:mine")
+
+        tab._batch_model_selection.set_selected_models.assert_called_once_with(["google/gemini-2.5-pro"])
+
     def test_custom_preset_missing_is_skipped(self, tab, isolated_settings):
         """存在しない保存済みプリセットの選択は適用せずスキップする。"""
         tab._batch_model_selection = Mock()

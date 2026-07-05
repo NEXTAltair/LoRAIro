@@ -52,7 +52,7 @@ from PySide6.QtWidgets import (
 from ...database.db_core import resolve_stored_path
 from ...database.db_manager import ImageDatabaseManager
 from ...services.dispatch_projection_service import batch_eligible_litellm_ids
-from ...services.model_route_service import build_available_providers
+from ...services.model_route_service import build_available_providers, required_provider_for
 from ...services.model_selection_service import ModelSelectionService
 from ...services.pipeline_composition import PipelineCompositionService, PipelineStage, StageModelInfo
 from ...services.provider_batch_capability import is_omni_moderation_model
@@ -787,12 +787,15 @@ class AnnotateTabWidget(QWidget, Ui_AnnotateTab):
             return None
         # DB に存在しても API key 未設定の WebAPI モデルは選択不能 (needs key) なので除外する。
         # membership だけで通すと set_selected_models が disabled 行を強制チェックし、
-        # 実行不能なモデルが選択集合に混入する (Codex P2)
+        # 実行不能なモデルが選択集合に混入する (Codex P2)。provider は picker の
+        # needs-key 判定と同じ required_provider_for で正規化する (unknown/alias/大文字
+        # の DB provider 値でも key 設定済みモデルを黙って落とさない、Codex P2)
         available_providers = self._available_api_providers()
         available = {
             info.litellm_model_id
             for info in all_infos
-            if not info.is_api or (info.provider or "") in available_providers
+            if not info.is_api
+            or required_provider_for(info.litellm_model_id, info.provider) in available_providers
         }
         resolved = [model_id for model_id in stored if model_id in available]
         if len(resolved) < len(stored):
