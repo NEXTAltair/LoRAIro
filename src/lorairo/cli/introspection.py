@@ -1196,7 +1196,10 @@ TOOL_SPECS: dict[str, ToolSpec] = {
                         "image_ids",
                         "csv[int]",
                         required=True,
-                        description="Comma-separated image IDs, max 500.",
+                        description=(
+                            "Comma-separated image IDs, max 500. "
+                            "Positional form `images show 42 57` also works."
+                        ),
                     ),
                     _f(
                         "include_rejected",
@@ -1271,6 +1274,26 @@ TOOL_SPECS: dict[str, ToolSpec] = {
                     _f("tags", "list[str]"),
                     _f("added", "int"),
                     _f("dry_run", "bool"),
+                    _f(
+                        "tag_resolutions",
+                        "list[dict]",
+                        description=(
+                            "Per-tag classification (Issue #1174): `tag` / `classification` "
+                            "(`exact` | `alias_resolved` | `typo_candidate` | `ambiguous` | "
+                            "`unregistered`) / `canonical_tag` / `tag_id` (null = unresolved) / "
+                            "`candidates` (typo/ambiguous suggestions, never auto-applied)."
+                        ),
+                    ),
+                    _f(
+                        "skipped_invalid_tags",
+                        "list[str]",
+                        description="Tags that normalized to empty (not added, not registered).",
+                    ),
+                    _f(
+                        "unresolved_tag_count",
+                        "int?",
+                        description="Count of applied tags left with `tag_id=null` (apply mode only).",
+                    ),
                 ),
                 schema=TagsAddResult,
             ),
@@ -1370,6 +1393,172 @@ TOOL_SPECS: dict[str, ToolSpec] = {
                     _f("dry_run", "bool"),
                 ),
                 schema=TagsReplaceResult,
+            ),
+        ),
+        errors=(ERROR_MODEL,),
+    ),
+    "tags translations show": ToolSpec(
+        name="tags translations show",
+        path="tags translations show",
+        summary="Show ja/en translation status for tags (read-only). Issue #1173 / ADR 0085.",
+        read_only=True,
+        side_effects=("db_read",),
+        inputs=(
+            _input(
+                "TagsTranslationsShowInput",
+                (
+                    _f("project", "str", required=True),
+                    _f(
+                        "image_ids",
+                        "csv[int]",
+                        description=(
+                            "Show translation status of these images' tags. Mutually exclusive with --tags."
+                        ),
+                    ),
+                    _f(
+                        "tags",
+                        "csv[str]",
+                        description="Tags to inspect, max 100. Mutually exclusive with --image-ids.",
+                    ),
+                ),
+            ),
+        ),
+        outputs=(
+            _output(
+                "TagTranslationStatusItem",
+                (
+                    _f("tag", "str"),
+                    _f("tag_id", "int?", description="null = 未解決 (tag DB 未登録)。"),
+                    _f(
+                        "translations",
+                        "dict",
+                        description=(
+                            "`{ja,en: {candidates, preferred}}`。読みは ja/japanese・en/english を集約。"
+                        ),
+                    ),
+                    _f("missing", "list[str]", description="訳が無い言語。"),
+                ),
+                description="--tags 指定時の item 行 (tag 単位)。",
+            ),
+            _output(
+                "ImageTagTranslationStatusItem",
+                (
+                    _f("image_id", "int"),
+                    _f(
+                        "tags",
+                        "list[dict]",
+                        description="その画像のタグごとの TagTranslationStatusItem と同形式の配列。",
+                    ),
+                ),
+                description="--image-ids 指定時の item 行 (画像単位のラッパー)。",
+            ),
+            _output(
+                "TagsTranslationsShowResult",
+                (
+                    _f("target_tags", "int", description="対象タグ数。"),
+                    _f("target_images", "int?", description="--image-ids 指定時のみ: 対象画像数。"),
+                ),
+            ),
+        ),
+        errors=(ERROR_MODEL,),
+    ),
+    "tags translations add": ToolSpec(
+        name="tags translations add",
+        path="tags translations add",
+        summary="Add a translation to a tag (user DB overlay). Dry-run by default; --apply to write.",
+        read_only=False,
+        side_effects=("db_read", "db_write"),
+        inputs=(
+            _input(
+                "TagsTranslationsAddInput",
+                (
+                    _f("project", "str", required=True),
+                    _f(
+                        "tag",
+                        "str",
+                        required=True,
+                        description=(
+                            "Target tag. tag_id 解決は tags add (Issue #1174) と同経路: "
+                            "exact/alias は解決、真の新タグは --apply 時に user DB 登録、"
+                            "typo/曖昧候補は候補提示でエラー (先に tags alias で確定)。"
+                        ),
+                    ),
+                    _f("lang", "ja | en", required=True, description="書き込みは ja/en の一貫形。"),
+                    _f("text", "str", required=True),
+                    _f("preferred", "bool", default=False, description="その言語の主訳にする。"),
+                    _f("apply", "bool", default=False, description="Write to DB. Default is dry-run."),
+                ),
+            ),
+        ),
+        outputs=(
+            _output(
+                "TagsTranslationsAddItem",
+                (
+                    _f("tag", "str"),
+                    _f("canonical_tag", "str?"),
+                    _f("classification", "str"),
+                    _f("tag_id", "int?"),
+                    _f("language", "str"),
+                    _f("translation", "str"),
+                    _f("preferred", "bool"),
+                    _f("registered_new_tag", "bool"),
+                    _f("status", "dry_run | changed"),
+                ),
+                description="書き込みは user DB overlay のみ (base DB は不変)。タグ登録失敗 (tagdb #124 edge) は DB_ERROR で明示。",
+            ),
+            _output(
+                "TagsTranslationsAddResult",
+                (
+                    _f("dry_run", "bool"),
+                    _f("tag_id", "int?"),
+                    _f("language", "str"),
+                ),
+                description="終端 result 行。既定は dry-run (dry_run=true) で書き込みなし。",
+            ),
+        ),
+        errors=(ERROR_MODEL,),
+    ),
+    "tags alias": ToolSpec(
+        name="tags alias",
+        path="tags alias",
+        summary="Record a typo → preferred-tag alias in the user DB. Dry-run by default.",
+        read_only=False,
+        side_effects=("db_read", "db_write"),
+        inputs=(
+            _input(
+                "TagsAliasInput",
+                (
+                    _f("project", "str", required=True),
+                    _f(
+                        "from",
+                        "str",
+                        required=True,
+                        description=(
+                            "Alias source (typo 等)。既存タグの付け替えは拒否。"
+                            "既に同じ preferred へ解決される場合は no-op。"
+                        ),
+                    ),
+                    _f(
+                        "to",
+                        "str",
+                        required=True,
+                        description="解決先 preferred タグ (tag DB に存在必須)。",
+                    ),
+                    _f("apply", "bool", default=False, description="Write to DB. Default is dry-run."),
+                ),
+            ),
+        ),
+        outputs=(
+            _output(
+                "TagsAliasResult",
+                (
+                    _f("dry_run", "bool", description="既定は dry-run (true) で書き込みなし。"),
+                    _f("from_tag", "str"),
+                    _f("to_tag", "str"),
+                    _f("alias_tag_id", "int?"),
+                    _f("status", "dry_run | changed | noop"),
+                ),
+                description="書き込みは user DB overlay のみ。no-op 経路 (既に同じ preferred へ解決) も同形。",
             ),
         ),
         errors=(ERROR_MODEL,),
@@ -1705,6 +1894,49 @@ TOOL_SPECS: dict[str, ToolSpec] = {
                 "ErrorListResult",
                 (_f("count", "int"),),
                 schema=ErrorListResult,
+            ),
+        ),
+        errors=(ERROR_MODEL,),
+    ),
+    "errors get": ToolSpec(
+        name="errors get",
+        path="errors get",
+        summary=(
+            "Get a single error record by ID (full detail). "
+            "`list` は error_message を切り詰め stack_trace / file_path / image_id を省くため、"
+            "1 件の全容を確認するには本コマンドを使う。"
+        ),
+        read_only=True,
+        side_effects=("db_read",),
+        inputs=(
+            _input(
+                "ErrorsGetInput",
+                (
+                    _f(
+                        "error_id",
+                        "int",
+                        required=True,
+                        description="Error record ID to retrieve (positional).",
+                    ),
+                    _f("project", "str", required=True),
+                ),
+            ),
+        ),
+        outputs=(
+            _output(
+                "ErrorRecordDetailItem",
+                (
+                    _f("id", "int"),
+                    _f("image_id", "int?"),
+                    _f("operation_type", "str"),
+                    _f("error_type", "str"),
+                    _f("error_message", "str"),
+                    _f("stack_trace", "str?"),
+                    _f("file_path", "str?"),
+                    _f("model_name", "str?"),
+                    _f("resolved_at", "str?"),
+                    _f("created_at", "str?"),
+                ),
             ),
         ),
         errors=(ERROR_MODEL,),
