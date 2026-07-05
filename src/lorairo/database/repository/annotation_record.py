@@ -79,6 +79,9 @@ from .model import ModelRepository
 # ADR 0068 (改訂): 保存境界で焼き込む基準フォーマット。非手動タグはこの format の
 # preferred (canonical) へ解決して保存し、表示は verbatim にする。
 _DANBOORU_FORMAT = "danbooru"
+# LoRAIro が登録するタグ/alias の format 名 (register_user_tag / register_user_alias /
+# _register_new_tag が共有)。classify_manual_tag の第2検索スコープもこれに揃える。
+_LORAIRO_FORMAT = "Lorairo"
 
 
 @dataclass(frozen=True)
@@ -894,6 +897,21 @@ class AnnotationRepository(BaseRepository):
             )
             result = search_tags(merged_reader, request)
 
+            # danbooru ミス時は user 登録タグ/alias の format (_LORAIRO_FORMAT) でも
+            # 解決する (Codex P2 / PR #1183)。`tags alias` で確定した typo を GUI /
+            # images update の手動追加経路でも preferred へ解決し、typo を別 user タグ
+            # として二重登録しない。
+            if not result.items:
+                request = TagSearchRequest(
+                    query=normalized_tag,
+                    partial=False,
+                    format_names=[_LORAIRO_FORMAT],
+                    resolve_preferred=True,
+                    include_aliases=True,
+                    include_deprecated=False,
+                )
+                result = search_tags(merged_reader, request)
+
             if result.items:
                 item = result.items[0]
                 canonical: str = item.tag
@@ -954,6 +972,20 @@ class AnnotationRepository(BaseRepository):
                 include_deprecated=False,
             )
             result = search_tags(merged_reader, request)
+            # alias→preferred 解決は単一 format スコープ時のみ働くため、danbooru ミス時は
+            # user 登録タグ/alias の登録先 format ("Lorairo": register_user_tag /
+            # register_user_alias) でも exact 検索する (Codex P1 / PR #1183)。これが無いと
+            # `tags alias` で確定した typo が再実行時も未解決のまま報告される。
+            if not result.items:
+                request = TagSearchRequest(
+                    query=normalized,
+                    partial=False,
+                    format_names=[_LORAIRO_FORMAT],
+                    resolve_preferred=True,
+                    include_aliases=True,
+                    include_deprecated=False,
+                )
+                result = search_tags(merged_reader, request)
         except (ValueError, RuntimeError, SQLAlchemyError) as e:
             logger.warning(f"タグ分類検索に失敗 (unregistered へ縮退): '{normalized}': {e}")
             return ManualTagClassification(tag_string, normalized, "unregistered", tag_string, None, [])
@@ -1019,7 +1051,7 @@ class AnnotationRepository(BaseRepository):
         register_request = TagRegisterRequest(
             tag=normalized,
             source_tag=tag_string,
-            format_name="Lorairo",
+            format_name=_LORAIRO_FORMAT,
             type_name="unknown",
             scope="user",
         )
@@ -1039,6 +1071,57 @@ class AnnotationRepository(BaseRepository):
         except (ValueError, RuntimeError, SQLAlchemyError) as e:
             # tagdb #124 (TAG_ID_NOT_FOUND_AFTER_INSERT) 等は tag_id=None + 警告で縮退
             logger.warning(f"user DB へのタグ登録に失敗 (tag_id=None で継続): '{normalized}': {e}")
+            return None
+
+    def register_user_alias(self, tag_string: str, preferred_tag: str) -> int | None:
+        """typo 等の別表記を preferred タグへの alias として user DB に登録する (Issue #1173)。
+
+        `tags alias` コマンド用。#1174 の分類で surface された typo 候補を人間/エージェント
+        が確定させる導線 (typo の自動 alias 化はしない)。
+
+        Args:
+            tag_string: alias 元のタグ文字列 (正規化前)。
+            preferred_tag: 解決先の preferred タグ文字列 (tag DB に存在すること)。
+
+        Returns:
+            登録された alias 行の tag_id。空正規化・登録失敗時は None。
+        """
+        normalized = TagCleaner.clean_format(tag_string).strip()
+        if not normalized:
+            logger.warning(f"空正規化のため alias 登録をスキップ: '{tag_string}'")
+            return None
+
+        if self.tag_register_service is None:
+            self.tag_register_service = self._initialize_tag_register_service()
+            if self.tag_register_service is None:
+                logger.warning("TagRegisterService 初期化失敗のため alias 登録をスキップ")
+                return None
+
+        register_request = TagRegisterRequest(
+            tag=normalized,
+            source_tag=tag_string,
+            format_name=_LORAIRO_FORMAT,
+            type_name="unknown",
+            alias=True,
+            preferred_tag=preferred_tag,
+            scope="user",
+        )
+        try:
+            register_result = self.tag_register_service.register_tag(register_request)
+            logger.debug(
+                f"user DB へ alias 登録: '{normalized}' → '{preferred_tag}' "
+                f"tag_id={register_result.tag_id} created={register_result.created}"
+            )
+            return cast("int | None", register_result.tag_id)
+        except IntegrityError:
+            retry = self._retry_tag_search(normalized)
+            if retry is None:
+                logger.warning(f"alias 登録競合後のリトライ検索でも未解決: '{normalized}'")
+            return retry
+        except (ValueError, RuntimeError, SQLAlchemyError) as e:
+            logger.warning(
+                f"user DB への alias 登録に失敗 (None で継続): '{normalized}' → '{preferred_tag}': {e}"
+            )
             return None
 
     def _register_new_tag(
@@ -1070,7 +1153,7 @@ class AnnotationRepository(BaseRepository):
         register_request = TagRegisterRequest(
             tag=normalized_tag,
             source_tag=source_tag,
-            format_name="Lorairo",
+            format_name=_LORAIRO_FORMAT,
             type_name="unknown",
         )
 
@@ -1194,7 +1277,7 @@ class AnnotationRepository(BaseRepository):
             register_request = TagRegisterRequest(
                 tag=tag_str,
                 source_tag=tag_str,
-                format_name="Lorairo",
+                format_name=_LORAIRO_FORMAT,
                 type_name="unknown",
             )
             register_result = self.tag_register_service.register_tag(register_request)

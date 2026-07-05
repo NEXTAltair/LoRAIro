@@ -69,6 +69,25 @@ class TestClassifyManualTag:
         assert result.canonical_tag == "preferred name"
         assert result.tag_id == 42
 
+    def test_user_format_alias_resolved_after_danbooru_miss(self, repo, monkeypatch):
+        """danbooru ミス後に Lorairo format で user 登録 alias を解決する (Codex P1 / #1173)。
+
+        `tags alias` で user DB に確定した typo が、再実行時の分類で preferred へ
+        解決されることを保証する (これが無いと alias 確定の導線が閉じない)。
+        """
+
+        def fake_search(reader, request):
+            if request.format_names == ["danbooru"]:
+                return _search_result()
+            assert request.format_names == ["Lorairo"]
+            return _search_result(TagRecordPublic(tag="european architecture", tag_id=88))
+
+        monkeypatch.setattr(ar_module, "search_tags", fake_search)
+        result = repo.classify_manual_tag("europian architecture")
+        assert result.classification == "alias_resolved"
+        assert result.canonical_tag == "european architecture"
+        assert result.tag_id == 88
+
     def test_typo_candidate_surfaced_not_applied(self, repo, monkeypatch):
         monkeypatch.setattr(ar_module, "search_tags", lambda reader, request: _search_result())
         monkeypatch.setattr(

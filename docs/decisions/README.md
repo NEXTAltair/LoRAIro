@@ -94,6 +94,7 @@ ADR は OKF (Open Knowledge Format) バンドルとして管理する。各 ADR 
 | [0082](0082-okf-frontmatter-for-documentation.md) | 通常ドキュメントにも OKF frontmatter を付け SSoT 化する | 2026-06-29 | Accepted |
 | [0083](0083-tag-panel-widget-extraction.md) | タグ欄の TagPanelWidget 切り出しと soft-reject 一本のタグ操作モデル | 2026-06-30 | Accepted |
 | [0084](0084-annotation-cache-explicit-invalidation.md) | GUI アノテーションキャッシュの明示無効化 (再読込操作 + 対象指定 API) | 2026-07-05 | Accepted |
+| [0085](0085-translation-cli-interface.md) | 翻訳 CLI インターフェース (tags translations show/add + tags alias) | 2026-07-05 | Accepted |
 <!-- OKF-TABLE:END -->
 
 ## ADR テンプレート

@@ -18,6 +18,8 @@ if TYPE_CHECKING:
         AnnotationRepository,
         ManualTagClassification,
     )
+    from lorairo.services.service_container import ServiceContainer
+    from lorairo.services.tag_management_service import TagManagementService
 
 from lorairo.cli._boundary import command_boundary
 from lorairo.cli._console import make_console
@@ -25,6 +27,7 @@ from lorairo.cli._emit import emit_item, emit_result
 from lorairo.cli._glyphs import OK
 from lorairo.cli._image_ids import MAX_IMAGE_IDS, parse_image_ids, validate_image_ids_exist
 from lorairo.cli._output_mode import is_json_mode
+from lorairo.public_api.exceptions import DatabaseError
 from lorairo.public_api.project import get_project as api_get_project
 from lorairo.services.service_container import get_service_container
 
@@ -326,4 +329,292 @@ def replace(
             console.print(
                 f"{prefix}{OK} {len(image_ids)} 件対象: '{from_tag}' -> '{to_tag}' "
                 f"({'予定' if dry_run else f'変更={changed}, スキップ={skipped}'})"
+            )
+
+
+# ===== translations サブコマンド (Issue #1173 / ADR 0085) =====
+
+trans_app = typer.Typer(help="Tag translation commands (read/write user DB overlay)")
+app.add_typer(trans_app, name="translations")
+
+# 言語キーは入力を ja/en に限定し、書き込みも ja/en の一貫形にする (#1050 / ADR 0085)。
+# 読みはエイリアス両表記 (ja/japanese, en/english) を service 層が集約する。
+_SUPPORTED_LANGS = ("ja", "en")
+MAX_TRANSLATION_TAGS = 100
+
+
+def _translation_status_entries(
+    service: TagManagementService, tag_names: list[str]
+) -> list[dict[str, object]]:
+    """タグごとの翻訳状況 (ja/en の候補・主訳・missing) を組み立てる。
+
+    読み出しは ja/japanese・en/english のエイリアス両表記を service 側で集約する。
+    """
+    entries: list[dict[str, object]] = []
+    for tag in tag_names:
+        tag_id = service.resolve_tag_id(tag)
+        translations: dict[str, object] = {}
+        missing: list[str] = []
+        if tag_id is None:
+            missing = list(_SUPPORTED_LANGS)
+        else:
+            for lang in _SUPPORTED_LANGS:
+                candidates, preferred = service.list_translation_candidates(tag, lang)
+                translations[lang] = {"candidates": candidates, "preferred": preferred}
+                if not candidates:
+                    missing.append(lang)
+        entries.append({"tag": tag, "tag_id": tag_id, "translations": translations, "missing": missing})
+    return entries
+
+
+@trans_app.command("show")
+def translations_show(
+    project: str = typer.Option(..., "--project", "-p", help="Project name"),
+    image_ids_csv: str | None = typer.Option(
+        None, "--image-ids", help="Comma-separated image IDs (show translations of their tags)"
+    ),
+    tags_csv: str | None = typer.Option(None, "--tags", help="Comma-separated tags"),
+) -> None:
+    """Show ja/en translation status for tags (read-only).
+
+    画像のタグ (--image-ids) または指定タグ (--tags) の翻訳状況 (候補・主訳・missing) を
+    表示します。読みは ja/japanese・en/english の表記ゆれを集約します。
+
+    Example:
+        lorairo-cli --json tags translations show -p proj --image-ids 1052,1082
+        lorairo-cli --json tags translations show -p proj --tags "cat,dog"
+    """
+    with command_boundary():
+        if bool(image_ids_csv) == bool(tags_csv):
+            raise click.UsageError("--image-ids か --tags のどちらか一方を指定してください。")
+        api_get_project(project)
+        container = get_service_container()
+        container.set_active_project(project)
+        service = container.tag_management_service
+
+        if tags_csv:
+            _show_translations_for_tags(service, tags_csv)
+        else:
+            _show_translations_for_images(container, service, image_ids_csv or "")
+
+
+def _show_translations_for_tags(service: TagManagementService, tags_csv: str) -> None:
+    """--tags 指定の翻訳状況表示 (translations show の下請け)。"""
+    tag_names = [t.strip() for t in tags_csv.split(",") if t.strip()]
+    if not tag_names:
+        raise click.UsageError("--tags に有効な値がありません。")
+    if len(tag_names) > MAX_TRANSLATION_TAGS:
+        raise click.UsageError(f"--tags は最大 {MAX_TRANSLATION_TAGS} 件まで。")
+    entries = _translation_status_entries(service, tag_names)
+    if is_json_mode():
+        for entry in entries:
+            emit_item(entry)
+        emit_result(f"{len(entries)} tag(s)", target_tags=len(entries))
+    else:
+        for entry in entries:
+            console.print(f"{entry['tag']} (tag_id={entry['tag_id']}) missing={entry['missing']}")
+
+
+def _show_translations_for_images(
+    container: ServiceContainer, service: TagManagementService, image_ids_csv: str
+) -> None:
+    """--image-ids 指定の翻訳状況表示 (translations show の下請け)。"""
+    image_ids = parse_image_ids(image_ids_csv)
+    if not image_ids:
+        raise click.UsageError("--image-ids に有効な値がありません。")
+    if len(image_ids) > MAX_IMAGE_IDS:
+        raise click.UsageError(f"--image-ids は最大 {MAX_IMAGE_IDS} 件まで。")
+    validate_image_ids_exist(container, image_ids)
+
+    annotations_by_id = container.db_manager.image_repo.get_image_annotations_batch(image_ids)
+    total_tags = 0
+    for image_id in image_ids:
+        tag_rows = annotations_by_id.get(image_id, {}).get("tags", [])
+        # 同一画像内の重複タグ文字列は初出優先で畳む
+        seen: set[str] = set()
+        tag_names = []
+        for row in tag_rows:
+            name = row.get("tag")
+            if name and name not in seen:
+                seen.add(name)
+                tag_names.append(name)
+        entries = _translation_status_entries(service, tag_names)
+        total_tags += len(entries)
+        if is_json_mode():
+            emit_item({"image_id": image_id, "tags": entries})
+        else:
+            console.print(f"[bold]Image {image_id}[/bold]")
+            for entry in entries:
+                console.print(f"  {entry['tag']} (tag_id={entry['tag_id']}) missing={entry['missing']}")
+    if is_json_mode():
+        emit_result(
+            f"{len(image_ids)} image(s), {total_tags} tag(s)",
+            target_images=len(image_ids),
+            target_tags=total_tags,
+        )
+
+
+@trans_app.command("add")
+def translations_add(
+    project: str = typer.Option(..., "--project", "-p", help="Project name"),
+    tag: str = typer.Option(..., "--tag", help="Target tag (canonical or new)"),
+    lang: str = typer.Option(..., "--lang", help="Language key: ja | en"),
+    text: str = typer.Option(..., "--text", help="Translation text"),
+    preferred: bool = typer.Option(
+        False, "--preferred", help="Set this translation as the preferred one for the language"
+    ),
+    apply: bool = typer.Option(False, "--apply", help="Write to user DB (default: dry-run)"),
+) -> None:
+    """Add a translation to a tag (user DB overlay, dry-run by default).
+
+    tag_id の解決は `tags add` (Issue #1174) と同じ経路: 完全一致/既知 alias は解決、
+    真の新タグは --apply 時に user DB へ登録します。typo/曖昧候補があるタグは登録せず
+    候補を提示します (`tags alias` で確定してから再実行)。
+
+    Example:
+        lorairo-cli tags translations add -p proj --tag "european architecture" \\
+            --lang ja --text "ヨーロッパ建築" --preferred --apply
+    """
+    with command_boundary():
+        if lang not in _SUPPORTED_LANGS:
+            raise click.UsageError(f"--lang は {'/'.join(_SUPPORTED_LANGS)} のみ対応です。")
+        text_value = text.strip()
+        if not text_value:
+            raise click.UsageError("--text に有効な値がありません。")
+        api_get_project(project)
+        container = get_service_container()
+        container.set_active_project(project)
+        annotation_repo = container.db_manager.annotation_repo
+
+        classification = annotation_repo.classify_manual_tag(tag)
+        if classification.classification == "invalid":
+            raise click.UsageError(f"--tag '{tag}' は正規化後に空になるため対象にできません。")
+        if classification.tag_id is None and classification.classification in (
+            "typo_candidate",
+            "ambiguous",
+        ):
+            raise click.UsageError(
+                f"--tag '{tag}' は未登録で類似候補があります: {classification.candidates}。"
+                "正タグへ翻訳を付けるか、`tags alias` で確定してから再実行してください。"
+            )
+
+        dry_run = not apply
+        tag_id = classification.tag_id
+        registered = False
+        if not dry_run:
+            if tag_id is None:
+                # 真の新タグは #1174 と同経路で user DB (format 1000+) へ登録
+                tag_id = annotation_repo.register_user_tag(tag)
+                registered = tag_id is not None
+                if tag_id is None:
+                    # tagdb #124 edge 等: 静かに落とさず DB_ERROR で明示する
+                    raise DatabaseError(
+                        f"タグ '{tag}' の user DB 登録に失敗したため翻訳を追加できません (tag_id=null)。"
+                    )
+            service = container.tag_management_service
+            if preferred:
+                # 書き込み + 主訳化 (write_user_translation + set_preferred_translation)
+                service.add_translation(tag_id, lang, text_value)
+            else:
+                from genai_tag_db_tools import write_user_translation
+
+                write_user_translation(service.repository, tag_id, lang, text_value)
+
+        payload = {
+            "tag": tag,
+            "canonical_tag": classification.canonical_tag,
+            "classification": classification.classification,
+            "tag_id": tag_id,
+            "language": lang,
+            "translation": text_value,
+            "preferred": preferred,
+            "registered_new_tag": registered,
+            "status": "dry_run" if dry_run else "changed",
+        }
+        if is_json_mode():
+            emit_item(payload)
+            emit_result(
+                f"{'[dry-run] ' if dry_run else ''}Translation {'planned' if dry_run else 'added'}",
+                dry_run=dry_run,
+                tag_id=tag_id,
+                language=lang,
+            )
+        else:
+            prefix = "[dry-run] " if dry_run else ""
+            console.print(
+                f"{prefix}{OK} '{classification.canonical_tag}' ({lang}) ← '{text_value}'"
+                f"{' [主訳]' if preferred else ''}{'を追加予定' if dry_run else ' を追加完了'}"
+            )
+
+
+@app.command("alias")
+def alias_tag(
+    project: str = typer.Option(..., "--project", "-p", help="Project name"),
+    from_tag: str = typer.Option(..., "--from", help="Alias source (e.g. typo spelling)"),
+    to_tag: str = typer.Option(..., "--to", help="Preferred tag to resolve to (must exist)"),
+    apply: bool = typer.Option(False, "--apply", help="Write to user DB (default: dry-run)"),
+) -> None:
+    """Record an alias (typo → preferred tag) in the user DB (dry-run by default).
+
+    `tags add` の分類 (Issue #1174) で surface された typo 候補を人間/エージェントが
+    確定させる導線です。typo の自動 alias 化はしません。
+
+    Example:
+        lorairo-cli tags alias -p proj --from "europian architecture" \\
+            --to "european architecture" --apply
+    """
+    with command_boundary():
+        api_get_project(project)
+        container = get_service_container()
+        container.set_active_project(project)
+        annotation_repo = container.db_manager.annotation_repo
+
+        to_cls = annotation_repo.classify_manual_tag(to_tag)
+        if to_cls.tag_id is None:
+            raise click.UsageError(
+                f"--to '{to_tag}' が tag DB に見つかりません。alias 先は既存タグを指定してください。"
+            )
+        from_cls = annotation_repo.classify_manual_tag(from_tag)
+        if from_cls.classification == "invalid":
+            raise click.UsageError(f"--from '{from_tag}' は正規化後に空になるため登録できません。")
+        if from_cls.tag_id is not None:
+            if from_cls.canonical_tag == to_cls.canonical_tag:
+                # 既に同じ preferred へ解決される → 冪等 no-op
+                if is_json_mode():
+                    emit_result(
+                        "Alias already resolves to the preferred tag (no-op)",
+                        dry_run=not apply,
+                        from_tag=from_tag,
+                        to_tag=to_cls.canonical_tag,
+                        status="noop",
+                    )
+                else:
+                    console.print(f"{OK} '{from_tag}' は既に '{to_cls.canonical_tag}' へ解決されます")
+                return
+            raise click.UsageError(
+                f"--from '{from_tag}' は既存タグ (tag_id={from_cls.tag_id}, "
+                f"canonical='{from_cls.canonical_tag}') です。既存タグの付け替えは CLI では行いません。"
+            )
+
+        dry_run = not apply
+        alias_tag_id: int | None = None
+        if not dry_run:
+            alias_tag_id = annotation_repo.register_user_alias(from_tag, to_cls.canonical_tag)
+            if alias_tag_id is None:
+                raise DatabaseError(f"alias 登録に失敗しました: '{from_tag}' → '{to_cls.canonical_tag}'")
+
+        if is_json_mode():
+            emit_result(
+                f"{'[dry-run] ' if dry_run else ''}Alias {'planned' if dry_run else 'recorded'}",
+                dry_run=dry_run,
+                from_tag=from_tag,
+                to_tag=to_cls.canonical_tag,
+                alias_tag_id=alias_tag_id,
+                status="dry_run" if dry_run else "changed",
+            )
+        else:
+            prefix = "[dry-run] " if dry_run else ""
+            console.print(
+                f"{prefix}{OK} alias '{from_tag}' → '{to_cls.canonical_tag}' を"
+                f"{'登録予定' if dry_run else '登録完了'}"
             )
