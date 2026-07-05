@@ -897,6 +897,21 @@ class AnnotationRepository(BaseRepository):
             )
             result = search_tags(merged_reader, request)
 
+            # danbooru ミス時は user 登録タグ/alias の format (_LORAIRO_FORMAT) でも
+            # 解決する (Codex P2 / PR #1183)。`tags alias` で確定した typo を GUI /
+            # images update の手動追加経路でも preferred へ解決し、typo を別 user タグ
+            # として二重登録しない。
+            if not result.items:
+                request = TagSearchRequest(
+                    query=normalized_tag,
+                    partial=False,
+                    format_names=[_LORAIRO_FORMAT],
+                    resolve_preferred=True,
+                    include_aliases=True,
+                    include_deprecated=False,
+                )
+                result = search_tags(merged_reader, request)
+
             if result.items:
                 item = result.items[0]
                 canonical: str = item.tag
