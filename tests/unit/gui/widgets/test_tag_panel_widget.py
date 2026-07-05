@@ -316,6 +316,67 @@ def test_translation_note_visible_only_when_translated(panel, sample_tags):
     assert panel._tags_translation_note.isHidden()
 
 
+# 翻訳キャッシュ + 解決中表示 (#1191) ----------------------------------------
+
+
+def test_translations_survive_image_switch_phase1(panel, sample_tags):
+    """phase 1 (translations 未解決) の画像切替でも既出タグの訳を保持する (#1191)。"""
+    translations = {10: {"japanese": "1人の女の子"}, 20: {"japanese": "花"}}
+    panel.set_tags(sample_tags, translations, ["japanese"], image_id=1)
+    panel.initialize_language_selector(["japanese"])
+    panel._lang_combo.setCurrentText("japanese")
+
+    # 別画像の phase 1: translations 未解決 (None) で set_tags されても英語へ巻き戻らない
+    panel.set_tags(sample_tags, None, ["japanese"], image_id=2)
+
+    assert [c.text() for c in panel._tag_chips] == ["1人の女の子", "花", "solo"]
+
+
+def test_apply_tag_metadata_removes_stale_translation_for_current_tags(panel, sample_tags):
+    """worker 結果に無い表示中 tag_id の訳はキャッシュから退避する (#1191)。"""
+    panel.set_tags(sample_tags, {10: {"japanese": "1人の女の子"}}, ["japanese"], image_id=1)
+    panel.initialize_language_selector(["japanese"])
+    panel._lang_combo.setCurrentText("japanese")
+
+    panel.apply_tag_metadata({20: {"japanese": "花"}}, {}, {})
+
+    assert 10 not in panel._translations
+    assert panel._translations[20] == {"japanese": "花"}
+
+
+def test_pending_untranslated_chip_shows_resolving_not_missing(panel, sample_tags):
+    """解決中は未訳 chip を「翻訳なし」(点線) でなく「解決中」として表示する (#1191)。"""
+    panel.set_tags(sample_tags, None, ["japanese"], image_id=1)
+    panel.initialize_language_selector(["japanese"])
+    panel._lang_combo.setCurrentText("japanese")
+    panel.set_tag_metadata_pending(True)
+
+    chip = panel._tag_chips[0]
+    assert not getattr(chip, "untranslated", False)
+    assert "翻訳解決中" in chip.toolTip()
+    assert "翻訳解決中" in panel._tags_translation_note.text()
+
+    # worker 完了 (訳なし確定) で通常の「翻訳なし」点線表示へ戻る
+    panel.apply_tag_metadata({}, {}, {})
+    chip = panel._tag_chips[0]
+    assert getattr(chip, "untranslated", False)
+    assert "翻訳なし" in chip.toolTip()
+    assert "点線 = 翻訳なし" in panel._tags_translation_note.text()
+
+
+def test_pending_false_on_failure_restores_missing_style(panel, sample_tags):
+    """失敗/キャンセル終端の pending 解除で「翻訳なし」確定表示へ戻す (#1191)。"""
+    panel.set_tags(sample_tags, None, ["japanese"], image_id=1)
+    panel.initialize_language_selector(["japanese"])
+    panel._lang_combo.setCurrentText("japanese")
+    panel.set_tag_metadata_pending(True)
+    panel.set_tag_metadata_pending(False)
+
+    chip = panel._tag_chips[0]
+    assert getattr(chip, "untranslated", False)
+    assert "翻訳なし" in chip.toolTip()
+
+
 def test_set_rejected_tags_not_needed_renders_inline_dashed_restore_chip(panel, qtbot):
     """reject_reason='not_needed' (無効化) はインライン破線 chip で表示し、クリックで復活する。"""
     panel.set_tag_edit_enabled(True)

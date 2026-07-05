@@ -924,7 +924,14 @@ class TagPanelWidget(QWidget):
         # type 別グループ + グループ内アルファベット順で表示する (#1056)。
         # 表示のみの並べ替えで DB の行順は不変。type 不明 (tagdb 未登録等) は末尾。
         self._tags = self._sort_tags_by_type(deduped_tags)
-        self._translations = dict(translations) if translations else {}
+        # 翻訳も usage counts (#1083) と同じく tag DB 由来の画像非依存データ
+        # ({tag_id: {language: text}}) なので、画像切替で破棄せずセッション内キャッシュへ
+        # merge する (#1191)。2段階描画の phase 1 (即時描画) は空を渡してくるが、ここで
+        # クリアすると metadata worker 完了までの数秒間、既訳タグまで「英語 + 点線
+        # (翻訳なし)」へ巻き戻り、翻訳の反映失敗と誤認される (#1172 の偽陽性の原因)。
+        # 空は「未解決」とみなしキャッシュを保持し、既出タグは選択直後から訳を表示する。
+        if translations:
+            self._merge_translations_for_current_tags(translations)
         self._available_languages = list(available_languages) if available_languages else []
         # usage counts は tag DB 由来の画像非依存データ ({tag_id: {format: count}}) なので、
         # 画像切替で破棄せずセッション内キャッシュへ merge する (#1083)。2段階描画の
@@ -1096,7 +1103,13 @@ class TagPanelWidget(QWidget):
         Args:
             pending: True = 解決中 (worker 起動済みで未反映)。
         """
+        if pending == self._tag_metadata_pending:
+            return
         self._tag_metadata_pending = pending
+        # 「解決中」と「翻訳なし」を chip / 脚注で区別するため再描画する (#1191)。
+        # True: phase 1 描画直後に親が呼び、未訳 chip を「解決中」表示へ切り替える。
+        # False: 失敗/キャンセル終端 (apply_tag_metadata を経ない) で「翻訳なし」確定表示へ戻す。
+        self._refresh_tags_for_language(self._current_language())
 
     def apply_tag_metadata(
         self,
@@ -1115,9 +1128,9 @@ class TagPanelWidget(QWidget):
         で metric バーが再び空白になる。ただし表示中タグの tag_id は今回の解決結果が
         正であり、結果に無い id は「count なし」が確定しているためキャッシュから
         退避する (セッション中の usage 行削除や tag DB 差し替えで stale な count を
-        表示し続けない、Codex P2)。
+        表示し続けない、Codex P2)。翻訳も同じ理由で merge する (#1191)。
         """
-        self._translations = dict(translations)
+        self._merge_translations_for_current_tags(translations)
         self._merge_usage_counts_for_current_tags(usage_counts)
         self._tag_types = dict(tag_types)
         # メタデータが届いたので「翻訳を修正」の追加フォールバックを解禁する (#1054)
@@ -1218,6 +1231,26 @@ class TagPanelWidget(QWidget):
         self._refresh_tags_for_language(language)
 
     # ─── 使用頻度 第2軸 (metric_source, #990) ──────────────────────────
+
+    def _merge_translations_for_current_tags(self, translations: dict[int, dict[str, str]]) -> None:
+        """表示中タグ分を正として翻訳をセッション内キャッシュへ merge する (#1191)。
+
+        表示中タグの tag_id は与えられた解決結果が正であり、結果に無い id は
+        「翻訳なし」が確定しているため merge 前にキャッシュから退避する
+        (セッション中の翻訳削除や tag DB 差し替えで stale な訳を表示し続けない)。
+        表示外の tag_id (他画像で貯めた分) は保持し、再選択時に選択直後から訳を出す。
+
+        Args:
+            translations: 表示中タグ集合に対する解決結果 ``{tag_id: {language: text}}``。
+        """
+        current_tag_ids = {
+            tag_id
+            for tag_dict in self._tags
+            if isinstance(tag_dict, dict) and isinstance(tag_id := tag_dict.get("tag_id"), int)
+        }
+        for tag_id in current_tag_ids - translations.keys():
+            self._translations.pop(tag_id, None)
+        self._translations.update({tag_id: dict(langs) for tag_id, langs in translations.items()})
 
     def _merge_usage_counts_for_current_tags(self, usage_counts: dict[int, dict[str, int]]) -> None:
         """表示中タグ分を正として usage counts をセッション内キャッシュへ merge する (#1083)。
@@ -1428,9 +1461,15 @@ class TagPanelWidget(QWidget):
             self._add_chip(original, original, has_translation=True, is_translated=False, disabled=True)
 
         if is_translated:
-            self._tags_translation_note.setText(
-                "表示のみ翻訳 · 保存値は danbooru canonical 固定 · 点線 = 翻訳なし"
-            )
+            # 解決中は脚注でも状態を明示する (#1191: 過渡状態を「翻訳なし」と誤認させない)
+            if self._tag_metadata_pending:
+                self._tags_translation_note.setText(
+                    "翻訳解決中… · 表示のみ翻訳 · 保存値は danbooru canonical 固定"
+                )
+            else:
+                self._tags_translation_note.setText(
+                    "表示のみ翻訳 · 保存値は danbooru canonical 固定 · 点線 = 翻訳なし"
+                )
             self._tags_translation_note.setVisible(True)
         else:
             self._tags_translation_note.setVisible(False)
@@ -1454,7 +1493,11 @@ class TagPanelWidget(QWidget):
         # canonical (original) は変えずコピー結果へ影響させない。
         display = f"{display}{self._count_suffix(original)}"
         chip = SelectableTagChip(display, original)
-        if is_translated and not has_translation:
+        if is_translated and not has_translation and self._tag_metadata_pending:
+            # 翻訳解決中 (#1191): 「翻訳なし」の点線と区別し、反映失敗との誤認を防ぐ。
+            chip.base_qss = theme.chip_qss("accent")
+            chip.setToolTip(f"{original} — 翻訳解決中…")
+        elif is_translated and not has_translation:
             chip.untranslated = True
             chip.base_qss = theme.tag_chip_untranslated_qss()
             chip.setToolTip(f"{original} — 翻訳なし · 右クリックで翻訳を追加")
