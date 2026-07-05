@@ -1402,12 +1402,19 @@ lorairo-cli --json describe "tags translations show"
 
 **Output `TagTranslationStatusItem`**
 
---tags 指定時は tag 単位。--image-ids 指定時は image_id + tags (同形式の配列)。
+--tags 指定時の item 行 (tag 単位)。
 
 - `tag`: `str` (optional)
 - `tag_id`: `int?` (optional) - null = 未解決 (tag DB 未登録)。
 - `translations`: `dict` (optional) - `{ja,en: {candidates, preferred}}`。読みは ja/japanese・en/english を集約。
 - `missing`: `list[str]` (optional) - 訳が無い言語。
+
+**Output `ImageTagTranslationStatusItem`**
+
+--image-ids 指定時の item 行 (画像単位のラッパー)。
+
+- `image_id`: `int` (optional)
+- `tags`: `list[dict]` (optional) - その画像のタグごとの TagTranslationStatusItem と同形式の配列。
 
 **Error `CliErrorResponse`**
 
