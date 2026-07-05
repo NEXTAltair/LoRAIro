@@ -4,7 +4,7 @@
 外部ソース (sourceType: "github") の skill は git 追跡しない (.gitignore 参照) ため、
 fresh clone / まっさらな devcontainer では .agents/skills/ に実体が存在しない。
 このスクリプトが skills-lock.json を読み、欠落 or lock 更新で stale になった skill を
-`npx skills add` で再導入する。
+`npx skills add` で再導入し、lock から削除された外部 skill の実体を除去する。
 
 再導入の判定は skill dir 内のマーカーファイル (.installed-lock-hash) と lock の
 computedHash の照合で行う。マーカーが無い既存導入分は「lock 記録時の内容のまま」
@@ -13,14 +13,16 @@ computedHash の照合で行う。マーカーが無い既存導入分は「lock
 
 `npx skills add` は upstream の現行 default branch を取得するため、lock 記録時から
 upstream が変わっていると異なる内容が入りうる。復元後に lock の computedHash が
-書き換わっていないかを照合し、drift を検出したら exit 1 で明示的に失敗させる
-(黙って別内容を「lock どおり」として受け入れない)。drift 時は CLI が書き換えた
-skills-lock.json が git diff に残るので、取り込むか戻すかを判断して解消する。
+書き換わっていないかを照合し、drift を検出したら該当 skill の実体を除去し
+skills-lock.json を実行前の内容へ戻して exit 1 で失敗させる (導入を受け入れない)。
+再実行しても欠落 → 再導入 → drift 再検出で決定的に失敗し続けるため、マーカー無し
+分岐で汚れた lock hash が黙って正当化されることはない。取り込む場合は手動で
+`npx skills add` を実行し、lock diff を確認して commit する。
 
 また、`.claude/skills/<name>` symlink は復元分だけでなく全 skill (LoRAIro 固有の
-local skill 含む) について保証する。CLI 任せだと復元した skill の symlink だけが
-作られ、validate_harness.py の「全 shared skill に symlink があること」チェックが
-fresh make setup 後に落ちるため。
+local skill 含む) について保証し、実体を失った broken symlink は除去する。
+CLI 任せだと復元した skill の symlink だけが作られ、validate_harness.py の
+「全 shared skill に symlink があること」チェックが fresh make setup 後に落ちるため。
 
 呼び出し元: `make setup` (devcontainer postCreateCommand.sh も make setup 経由で実行)。
 """
@@ -68,11 +70,35 @@ def collect_targets(lock: dict) -> list[tuple[str, str, str]]:
     return targets
 
 
+def prune_removed_skills(lock: dict) -> list[str]:
+    """lock から削除された外部 skill の実体を除去する。
+
+    マーカーファイルを持つ dir (= このスクリプト管理下で導入された外部 skill) のうち、
+    lock の github エントリに存在しないものだけを対象にする。マーカーの無い dir
+    (git 追跡の local skill 等) には触れない。
+    """
+    if not SKILLS_DIR.exists():
+        return []
+    github_names = {n for n, e in lock["skills"].items() if e.get("sourceType") == "github"}
+    pruned: list[str] = []
+    for skill_dir in sorted(SKILLS_DIR.iterdir()):
+        if not skill_dir.is_dir() or not (skill_dir / MARKER_NAME).exists():
+            continue
+        if skill_dir.name in github_names:
+            continue
+        shutil.rmtree(skill_dir)
+        pruned.append(skill_dir.name)
+    return pruned
+
+
 def ensure_claude_symlinks() -> None:
-    """全 shared skill (.agents/skills/*) の .claude/skills symlink を保証する。"""
+    """全 shared skill の .claude/skills symlink を保証し、broken symlink を除去する。"""
     if not SKILLS_DIR.exists():
         return
     CLAUDE_SKILLS_DIR.mkdir(parents=True, exist_ok=True)
+    for link in sorted(CLAUDE_SKILLS_DIR.iterdir()):
+        if link.is_symlink() and not link.resolve().exists():
+            link.unlink()  # prune 済み skill などの実体を失ったリンクを掃除
     for skill_dir in sorted(SKILLS_DIR.iterdir()):
         if not (skill_dir / "SKILL.md").exists():
             continue
@@ -84,9 +110,13 @@ def ensure_claude_symlinks() -> None:
 
 def main() -> int:
     lock_path = PROJECT_ROOT / "skills-lock.json"
-    lock_before = json.loads(lock_path.read_text(encoding="utf-8"))
+    lock_text_before = lock_path.read_text(encoding="utf-8")
+    lock_before = json.loads(lock_text_before)
 
     targets = collect_targets(lock_before)
+    pruned = prune_removed_skills(lock_before)
+    if pruned:
+        print(f"prune: lock から削除された外部 skill を除去: {', '.join(pruned)}")
 
     if not targets:
         ensure_claude_symlinks()
@@ -116,9 +146,8 @@ def main() -> int:
         if result.returncode != 0:
             failed.append(name)
 
-    ensure_claude_symlinks()
-
     if failed:
+        ensure_claude_symlinks()
         print(f"FAILED: 復元に失敗した skill: {', '.join(failed)}", file=sys.stderr)
         return 1
 
@@ -135,15 +164,25 @@ def main() -> int:
             write_marker(SKILLS_DIR / name, expected or "")
 
     if drifted:
+        # 導入を受け入れない: drift した実体を除去し、lock を実行前の内容へ戻す。
+        # マーカーも書かないため、再実行しても必ず再検出されて失敗し続ける
+        for name in drifted:
+            skill_dir = SKILLS_DIR / name
+            if skill_dir.exists():
+                shutil.rmtree(skill_dir)
+        lock_path.write_text(lock_text_before, encoding="utf-8")
+        ensure_claude_symlinks()
         print(
-            "ERROR: 復元した skill が lock 記録時と異なる内容 (upstream drift): "
+            "ERROR: 復元した skill が lock 記録時と異なる内容 (upstream drift) のため除去しました: "
             + ", ".join(drifted)
-            + "\n  取り込む場合: skills-lock.json の diff を確認して commit する"
-            + "\n  固定する場合: 該当 skill を lock 記録時の revision へ戻す",
+            + "\n  取り込む場合: `npx skills add github:<source> --skill <name> -y` を手動実行し、"
+            + "skills-lock.json の diff を確認して commit する"
+            + "\n  固定する場合: upstream を lock 記録時の revision へ戻す",
             file=sys.stderr,
         )
         return 1
 
+    ensure_claude_symlinks()
     print(f"OK: 外部ソース skill を {len(targets)} 件復元 (lock hash 一致)")
     return 0
 
