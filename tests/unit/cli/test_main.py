@@ -253,6 +253,8 @@ def test_callback_configures_logging_default_info(monkeypatch: pytest.MonkeyPatc
     """Test: @app.callback が CLI モードで専用ログファイルを既定 INFO レベルに設定する (#539)。"""
     spy = MagicMock()
     monkeypatch.setattr("lorairo.cli.main.initialize_logging", spy)
+    # 既定パスの検証なので conftest の隔離用 env 上書き (Issue #1176) を外す
+    monkeypatch.delenv("LORAIRO_CLI_LOG_PATH", raising=False)
 
     result = runner.invoke(app, ["version"])
 

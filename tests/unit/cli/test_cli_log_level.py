@@ -91,6 +91,8 @@ def test_log_config_preserves_path_and_rotation(monkeypatch: pytest.MonkeyPatch)
     """Test: file_path と rotation が従来どおり維持される。"""
     spy = MagicMock()
     monkeypatch.setattr("lorairo.cli.main.initialize_logging", spy)
+    # 既定パスの検証なので conftest の隔離用 env 上書き (Issue #1176) を外す
+    monkeypatch.delenv("LORAIRO_CLI_LOG_PATH", raising=False)
 
     result = runner.invoke(app, ["version"])
 
