@@ -40,12 +40,6 @@ Qt依存のないビジネスロジックサービス群。CLI、GUI、API全て
 - **Purpose**: アプリケーション設定の読み込み、更新、保存
 - **Config**: `config/lorairo.toml` の管理
 
-#### SignalManagerService
-- **Path**: `src/lorairo/services/signal_manager_service.py`
-- **Class**: `SignalManagerService`
-- **Purpose**: アプリケーション全体のSignal通信管理
-- **Protocol**: `signal_manager_protocol.py` でインターフェース定義
-
 ### タグ管理
 
 #### TagManagementService
@@ -176,15 +170,6 @@ Qt依存のないビジネスロジックサービス群。CLI、GUI、API全て
 - **Path**: `src/lorairo/services/tag_suggestion_service.py`
 - **Purpose**: タグオートコンプリート候補の取得とキャッシュ管理（TTL + LRU、スレッドセーフ）
 - **Integration**: genai-tag-db-tools `search_tags()` API
-
-#### NoOpSignalManager
-- **Path**: `src/lorairo/services/noop_signal_manager.py`
-- **Class**: `NoOpSignalManager`
-- **Purpose**: CLI環境向けNo-OperationなSignal Manager実装（Qt不要）
-
-#### SignalManagerProtocol
-- **Path**: `src/lorairo/services/signal_manager_protocol.py`
-- **Purpose**: Signal管理サービスのProtocol（インターフェース）定義
 
 ### バッチインポート
 
