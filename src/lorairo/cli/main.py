@@ -132,10 +132,13 @@ def _configure(
         set_json_mode(resolve_output_mode([]))
 
     os.environ.setdefault("LORAIRO_CLI_MODE", "true")
+    # CLI ログパスは env で上書き可能にする (Issue #1176: テストや別環境が
+    # 本番 logs/lorairo-cli.log を汚染しないための隔離ポイント)
+    cli_log_path = os.environ.get("LORAIRO_CLI_LOG_PATH") or str(DEFAULT_CLI_LOG_PATH)
     initialize_logging(
         {
             "level": log_level.value,
-            "file_path": str(DEFAULT_CLI_LOG_PATH),
+            "file_path": cli_log_path,
             "rotation": "25 MB",
             "levels": {},
         }

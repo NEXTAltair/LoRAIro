@@ -991,27 +991,39 @@ from pathlib import Path
 
 @pytest.fixture(scope="session", autouse=True)
 def _redirect_real_log_sink(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Path]:
-    """実 logs/lorairo.log 宛の loguru file sink を session tmp へ転送する (Issue #578)。
+    """実 logs/lorairo(-cli).log 宛の loguru file sink を session tmp へ転送する。
+
+    GUI アプリログ (Issue #578) に加えて CLI ログ (Issue #1176) も対象にする。
+    CLI e2e テストが ``main()`` / callback 経由で ``initialize_logging`` を呼んでも、
+    本番 ``logs/lorairo-cli.log`` にテストログが混ざらない。
 
     Yields:
-        転送先の session tmp ログパス。
+        転送先の session tmp ログパス (GUI 側)。
     """
     from loguru import logger
 
     from lorairo.utils import config as lorairo_config
 
-    tmp_log = tmp_path_factory.mktemp("loguru") / "lorairo-test.log"
-    real_norm = str(lorairo_config.DEFAULT_LOG_PATH).replace("\\", "/")
+    tmp_dir = tmp_path_factory.mktemp("loguru")
+    tmp_log = tmp_dir / "lorairo-test.log"
+    tmp_cli_log = tmp_dir / "lorairo-cli-test.log"
+    # 実ログパス → tmp 転送先のマップ (GUI: #578, CLI: #1176)
+    redirect_map = {
+        str(lorairo_config.DEFAULT_LOG_PATH).replace("\\", "/"): str(tmp_log),
+        str(lorairo_config.DEFAULT_CLI_LOG_PATH).replace("\\", "/"): str(tmp_cli_log),
+    }
     original_add = logger.add
 
     def guarded_add(sink: object, *args: object, **kwargs: object) -> int:
-        # 実アプリ本体ログ宛の file sink だけを tmp へ差し替える
-        if isinstance(sink, str | Path) and str(sink).replace("\\", "/") == real_norm:
-            sink = str(tmp_log)
+        # 実アプリ本体/CLI ログ宛の file sink だけを tmp へ差し替える
+        if isinstance(sink, str | Path):
+            sink = redirect_map.get(str(sink).replace("\\", "/"), sink)
         return original_add(sink, *args, **kwargs)
 
     mp = pytest.MonkeyPatch()
     mp.setattr(logger, "add", guarded_add)
+    # CLI の env 上書き経路 (Issue #1176) でも tmp へ向ける (guarded_add の保険と二重化)
+    mp.setenv("LORAIRO_CLI_LOG_PATH", str(tmp_cli_log))
     try:
         yield tmp_log
     finally:
