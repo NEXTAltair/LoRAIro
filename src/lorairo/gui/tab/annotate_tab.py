@@ -773,7 +773,15 @@ class AnnotateTabWidget(QWidget, Ui_AnnotateTab):
         if stored is None:
             logger.warning(f"保存済みプリセット '{name}' が見つかりません — 適用をスキップします")
             return None
-        available = {info.litellm_model_id for info in all_infos}
+        # DB に存在しても API key 未設定の WebAPI モデルは選択不能 (needs key) なので除外する。
+        # membership だけで通すと set_selected_models が disabled 行を強制チェックし、
+        # 実行不能なモデルが選択集合に混入する (Codex P2)
+        available_providers = self._available_api_providers()
+        available = {
+            info.litellm_model_id
+            for info in all_infos
+            if not info.is_api or (info.provider or "") in available_providers
+        }
         resolved = [model_id for model_id in stored if model_id in available]
         if len(resolved) < len(stored):
             logger.info(

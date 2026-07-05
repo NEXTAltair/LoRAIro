@@ -605,6 +605,37 @@ class TestCustomPresetPersistence:
         tab._batch_model_selection.set_selected_models.assert_called_once_with(["wd/tagger"])
         tab._pipeline_stage_table.set_active_preset.assert_called_once_with("custom:mine")
 
+    def test_custom_preset_excludes_needs_key_api_models(self, tab, isolated_settings, monkeypatch):
+        """API key 未設定 provider の WebAPI モデルは復元プリセットから除外する (Codex P2)。"""
+        api_info = StageModelInfo(
+            litellm_model_id="openai/gpt-4o",
+            display_name="gpt-4o",
+            provider="openai",
+            is_api=True,
+            capabilities=frozenset({"caption"}),
+        )
+        local_info = StageModelInfo(
+            litellm_model_id="wd/tagger",
+            display_name="wd-tagger",
+            provider=None,
+            is_api=False,
+            capabilities=frozenset({"tags"}),
+        )
+        tab._save_custom_presets({"mine": ["openai/gpt-4o", "wd/tagger"]})
+        tab._batch_model_selection = Mock()
+        tab._batch_model_selection.model_selection_service.load_models.return_value = [
+            SimpleNamespace(litellm_model_id="openai/gpt-4o"),
+            SimpleNamespace(litellm_model_id="wd/tagger"),
+        ]
+        tab._build_stage_model_infos = lambda ids: [api_info, local_info]
+        tab._pipeline_stage_table = Mock()
+        tab._refresh_pipeline_panel = Mock()
+        monkeypatch.setattr(tab, "_available_api_providers", lambda: set())
+
+        tab._on_pipeline_preset_selected("custom:mine")
+
+        tab._batch_model_selection.set_selected_models.assert_called_once_with(["wd/tagger"])
+
     def test_custom_preset_missing_is_skipped(self, tab, isolated_settings):
         """存在しない保存済みプリセットの選択は適用せずスキップする。"""
         tab._batch_model_selection = Mock()
