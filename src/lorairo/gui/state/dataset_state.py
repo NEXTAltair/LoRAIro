@@ -486,8 +486,11 @@ class DatasetStateManager(QObject):
         if self._current_image_id == image_id:
             self.current_image_data_changed.emit(cached)
 
-    # _ensure_annotations_loaded がキャッシュへ merge するアノテーションキー。
+    # _ensure_annotations_loaded がキャッシュへ merge するアノテーションキー
+    # (= get_image_annotation_metadata / _format_annotations_for_metadata の全キー)。
     # invalidate_annotations はこれらを落として "tags" センチネルを外し、遅延ロードを再武装する。
+    # 派生値 (rating_value / ai_*_value / manual_*_value) も落とさないとサムネイル
+    # オーバーレイ等が stale 値を描画し続ける (Codex P2 / PR #1184)。
     _ANNOTATION_CACHE_KEYS = (
         "tags",
         "tags_text",
@@ -495,8 +498,13 @@ class DatasetStateManager(QObject):
         "caption_text",
         "scores",
         "score_value",
+        "ai_score_value",
+        "manual_score_value",
         "score_labels",
         "ratings",
+        "rating_value",
+        "ai_rating_value",
+        "manual_rating_value",
         "quality_summary",
     )
 
