@@ -151,21 +151,6 @@ class ResultHandlerService:
             if self.parent:
                 show_critical(self.parent, "処理エラー", f"結果処理中にエラーが発生しました:\n{e}")
 
-    def handle_annotation_finished(self, result: Any, status_bar: Any | None = None) -> None:
-        """単発アノテーション完了処理
-
-        Args:
-            result: アノテーション結果
-            status_bar: ステータスバー（showMessage()メソッドを持つ）
-        """
-        try:
-            logger.info(f"アノテーション完了: {result}")
-            if status_bar:
-                status_bar.showMessage("アノテーション処理が完了しました", 5000)
-
-        except Exception as e:
-            logger.opt(exception=True).error(f"アノテーション完了ハンドラエラー: {e}")
-
     def handle_annotation_error(self, error_msg: str, status_bar: Any | None = None) -> None:
         """アノテーションエラー処理
 

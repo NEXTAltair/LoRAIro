@@ -35,15 +35,27 @@ class TestMainWindowAnnotationCompletion:
         window.statusBar = Mock(return_value=Mock())
         return window
 
+    @staticmethod
+    def _make_execution_result(results):
+        """AnnotationWorker.execute() が返す現行形式の結果を構築する (#1187)"""
+        from lorairo.gui.workers.annotation_worker import AnnotationExecutionResult
+
+        return AnnotationExecutionResult(
+            results=results,
+            total_images=len(results),
+            models_used=["model1"],
+        )
+
     def test_on_annotation_finished_updates_cache(self, mock_window_with_annotation):
-        """アノテーション完了時に画像キャッシュが更新される"""
+        """アノテーション完了時にサマリーダイアログ表示後、画像キャッシュが更新される"""
         from lorairo.gui.window.main_window import MainWindow
 
-        # PHashAnnotationResults形式のモック結果
-        result = {
-            "abc123def456": {"model1": Mock()},
-            "xyz789ghi012": {"model1": Mock()},
-        }
+        result = self._make_execution_result(
+            {
+                "abc123def456": {"model1": Mock()},
+                "xyz789ghi012": {"model1": Mock()},
+            }
+        )
 
         # find_image_ids_by_phashes_multi のモック (#633: 別版で複数 image_id になり得る)
         mock_window_with_annotation.db_manager.image_repo.find_image_ids_by_phashes_multi.return_value = {
@@ -51,13 +63,14 @@ class TestMainWindowAnnotationCompletion:
             "xyz789ghi012": [102],
         }
 
-        # _delegate_to_result_handlerをモック化
-        mock_window_with_annotation._delegate_to_result_handler = Mock()
+        with patch(
+            "lorairo.gui.widgets.annotation_summary_dialog.AnnotationSummaryDialog"
+        ) as mock_dialog_class:
+            MainWindow._on_annotation_finished(mock_window_with_annotation, result)
 
-        MainWindow._on_annotation_finished(mock_window_with_annotation, result)
-
-        # ResultHandlerServiceに委譲される
-        mock_window_with_annotation._delegate_to_result_handler.assert_called_once()
+        # サマリーダイアログが実行結果とともに表示される
+        mock_dialog_class.assert_called_once_with(result, parent=mock_window_with_annotation)
+        mock_dialog_class.return_value.exec.assert_called_once()
 
         # pHashから画像IDを検索 (multi)
         mock_window_with_annotation.db_manager.image_repo.find_image_ids_by_phashes_multi.assert_called_once()
@@ -66,28 +79,36 @@ class TestMainWindowAnnotationCompletion:
         mock_window_with_annotation.dataset_state_manager.refresh_images.assert_called_once_with([101, 102])
 
     def test_on_annotation_finished_handles_empty_result(self, mock_window_with_annotation):
-        """空の結果でもエラーが発生しない"""
+        """空の結果でもダイアログ表示のみでエラーが発生しない"""
         from lorairo.gui.window.main_window import MainWindow
 
-        result = {}
-        mock_window_with_annotation._delegate_to_result_handler = Mock()
+        result = self._make_execution_result({})
 
-        # エラーが発生しないことを確認
-        MainWindow._on_annotation_finished(mock_window_with_annotation, result)
+        with patch(
+            "lorairo.gui.widgets.annotation_summary_dialog.AnnotationSummaryDialog"
+        ) as mock_dialog_class:
+            MainWindow._on_annotation_finished(mock_window_with_annotation, result)
+
+        mock_dialog_class.return_value.exec.assert_called_once()
+        # 結果が空なら pHash 検索は行わない
+        assert not mock_window_with_annotation.db_manager.image_repo.find_image_ids_by_phashes_multi.called
 
     def test_on_annotation_finished_handles_missing_dependencies(self):
-        """依存関係なし時は早期リターン"""
+        """依存関係なし時はダイアログ表示後に早期リターン"""
         from lorairo.gui.window.main_window import MainWindow
 
         mock_window = Mock()
         mock_window.dataset_state_manager = None
         mock_window.db_manager = Mock()
-        mock_window._delegate_to_result_handler = Mock()
 
-        result = {"abc": {"model": Mock()}}
+        result = self._make_execution_result({"abc": {"model1": Mock()}})
 
-        MainWindow._on_annotation_finished(mock_window, result)
+        with patch(
+            "lorairo.gui.widgets.annotation_summary_dialog.AnnotationSummaryDialog"
+        ) as mock_dialog_class:
+            MainWindow._on_annotation_finished(mock_window, result)
 
+        mock_dialog_class.return_value.exec.assert_called_once()
         # find_image_ids_by_phashes_multi は呼ばれない
         assert not mock_window.db_manager.image_repo.find_image_ids_by_phashes_multi.called
 
@@ -95,13 +116,15 @@ class TestMainWindowAnnotationCompletion:
         """pHash検索失敗時にエラーログを出力する"""
         from lorairo.gui.window.main_window import MainWindow
 
-        result = {"abc123": {"model1": Mock()}}
+        result = self._make_execution_result({"abc123": {"model1": Mock()}})
         mock_window_with_annotation.db_manager.image_repo.find_image_ids_by_phashes_multi.side_effect = (
             Exception("DB error")
         )
-        mock_window_with_annotation._delegate_to_result_handler = Mock()
 
-        with patch("lorairo.gui.window.main_window.logger") as mock_logger:
+        with (
+            patch("lorairo.gui.widgets.annotation_summary_dialog.AnnotationSummaryDialog"),
+            patch("lorairo.gui.window.main_window.logger") as mock_logger,
+        ):
             mock_logger.opt.return_value = mock_logger  # opt(exception=True).error 経路を捕捉 (#1153)
             MainWindow._on_annotation_finished(mock_window_with_annotation, result)
 
