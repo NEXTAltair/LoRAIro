@@ -43,7 +43,6 @@ ENV/
 !.agents/skills/agent-pr-autoloop
 !.agents/skills/agent-pr-maintainer
 !.agents/skills/check-existing
-!.agents/skills/context7-openclaw-research
 !.agents/skills/interface-design
 !.agents/skills/lazy-import-refactor
 !.agents/skills/lorairo-cli-db-access

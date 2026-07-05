@@ -23,11 +23,6 @@
       "skillPath": "skills/claude-md-progressive-disclosurer/SKILL.md",
       "computedHash": "c5a214cd6dbb9715cb0b6acace50707e5ae48df76cdc715aa12c5c1d8409b39d"
     },
-    "context7-openclaw-research": {
-      "source": "/workspaces/LoRAIro/.agents/skills",
-      "sourceType": "local",
-      "computedHash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
-    },
     "database-migration": {
       "source": "wshobson/agents",
       "sourceType": "github",

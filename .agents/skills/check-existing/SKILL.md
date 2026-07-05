@@ -5,7 +5,6 @@ description: "Before implementing a feature in LoRAIro, hear out the requirement
 metadata:
   short-description: 実装前の要件ヒアリング＋既存ライブラリ/ツール/local_packages 調査（build-vs-reuse 判断）。
 dependencies:
-  - context7-openclaw-research
   - lorairo-mem
 ---
 
@@ -67,7 +66,7 @@ dependencies:
    - 第1段: PyPI / GitHub Topics / 標準ライブラリ（`WebSearch`）
    - 第2段: 実装例・比較記事・Stack Overflow（`WebSearch` / `WebFetch`）
    - 第3段: 最新動向・トレンド（`WebSearch`、現在年を明示）
-   - ライブラリの一次ドキュメントは [[context7-openclaw-research]] / Context7 MCP で取得
+   - ライブラリの一次ドキュメントは Context7 MCP で取得
 3. **候補の評価**
    - `solutions` agent で複数候補を生成・比較（適合度・実装コスト・リスク）
 
