@@ -1207,8 +1207,9 @@ lorairo-cli --json describe "tags alias"
 
 **Output `TagsAliasResult`**
 
-書き込みは user DB overlay のみ。
+書き込みは user DB overlay のみ。no-op 経路 (既に同じ preferred へ解決) も同形。
 
+- `dry_run`: `bool` (optional) - 既定は dry-run (true) で書き込みなし。
 - `from_tag`: `str` (optional)
 - `to_tag`: `str` (optional)
 - `alias_tag_id`: `int?` (optional)

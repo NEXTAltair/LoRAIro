@@ -1552,12 +1552,13 @@ TOOL_SPECS: dict[str, ToolSpec] = {
             _output(
                 "TagsAliasResult",
                 (
+                    _f("dry_run", "bool", description="既定は dry-run (true) で書き込みなし。"),
                     _f("from_tag", "str"),
                     _f("to_tag", "str"),
                     _f("alias_tag_id", "int?"),
                     _f("status", "dry_run | changed | noop"),
                 ),
-                description="書き込みは user DB overlay のみ。",
+                description="書き込みは user DB overlay のみ。no-op 経路 (既に同じ preferred へ解決) も同形。",
             ),
         ),
         errors=(ERROR_MODEL,),
