@@ -6,6 +6,7 @@
 # These mocks prevent heavy ML library loading and external DB initialization
 # that would otherwise hang or fail during test collection.
 
+import gc
 import os
 import sys
 import types
@@ -1018,6 +1019,12 @@ def _redirect_real_log_sink(tmp_path_factory: pytest.TempPathFactory) -> Iterato
         # 実アプリ本体/CLI ログ宛の file sink だけを tmp へ差し替える
         if isinstance(sink, str | Path):
             sink = redirect_map.get(str(sink).replace("\\", "/"), sink)
+        # enqueue=True (queued writer) はテストプロセスでは常に無効化する (#1077/#1090)。
+        # queued writer スレッド上のアロケーションを契機に Python GC が走ると、
+        # Qt ラッパーの回収 (C++ QObject の削除) が GUI スレッド外で発生し、
+        # pytest-qt の teardown (_process_events) と競合して CI runner で散発
+        # segfault する。テストでは同期書き込みで十分であり、スレッドを持ち込まない。
+        kwargs.pop("enqueue", None)
         return original_add(sink, *args, **kwargs)
 
     mp = pytest.MonkeyPatch()
@@ -1028,3 +1035,23 @@ def _redirect_real_log_sink(tmp_path_factory: pytest.TempPathFactory) -> Iterato
         yield tmp_log
     finally:
         mp.undo()
+
+
+# =============================================================================
+# Issue #1077/#1090: Qt ラッパーの GC をテスト境界のメインスレッドへ固定する
+# =============================================================================
+# CI (Ubuntu runner) の Integration/GUI テストで、テスト自体は PASSED した直後の
+# モジュール境界でプロセスが segfault する散発 flaky があった。Qt ラッパー
+# (QObject/QWidget) の循環参照が任意スレッド (worker QThread やライブラリの
+# background スレッド) のアロケーションを契機に回収されると、C++ 側 QObject の
+# 削除が GUI スレッド外で走り、pytest-qt teardown の _process_events と競合する。
+# モジュールごとにメインスレッドで回収し切り、境界での GC 嵐を防ぐ。
+# (per-test 収集は suite 全体で分単位の追い足しになるため、クラッシュ signature が
+#  「モジュール境界」であることに合わせて module スコープで収集する)
+
+
+@pytest.fixture(scope="module", autouse=True)
+def _collect_qt_wrappers_on_main_thread() -> Iterator[None]:
+    """モジュール終端ごとにメインスレッドで gc.collect() を実行する (#1077/#1090)。"""
+    yield
+    gc.collect()
