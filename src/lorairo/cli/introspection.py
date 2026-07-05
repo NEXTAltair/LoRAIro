@@ -757,26 +757,6 @@ def _output(
     return ModelSpec(name=name, role="output", fields=fields, description=description, schema_model=schema)
 
 
-def _search_input(name: str, fields: tuple[FieldSpec, ...], description: str = "") -> tuple[ModelSpec, ...]:
-    return (
-        _input(name, fields, description),
-        ModelSpec(
-            name="ImageFilterCriteria",
-            role="input",
-            description="Public search filter contract shared by search-driven commands.",
-            fields=(
-                _f("tags", "list[str]?"),
-                _f("caption", "list[str]?"),
-                _f("excluded_tags", "list[str]?"),
-                _f("ratings", "manual_rating_filter | ai_rating_filter"),
-                _f("scores", "score_min/score_max"),
-                _f("image_ids", "list[int]?<=500"),
-            ),
-            schema_model=ImageFilterCriteriaSchema,
-        ),
-    )
-
-
 TOOL_SPECS: dict[str, ToolSpec] = {
     "version": ToolSpec(
         name="version",

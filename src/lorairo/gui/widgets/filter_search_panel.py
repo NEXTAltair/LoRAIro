@@ -18,7 +18,6 @@ Signal/Slot 流通ルール (ADR 0036 §3):
 - Sub-widget → Parent はコールバック / シグナル経由
 - Parent (mediator) が他 sub-widget や Service を呼ぶ
 
-import 互換性: `PipelineState` Enum は本モジュールから引き続き export する。
 """
 
 from datetime import datetime
@@ -49,8 +48,7 @@ from .pipeline_state import PipelineState, PipelineStateMachine
 from .search_facets_sidebar import SearchFacetsSidebar
 from .tag_suggestion import TagSuggestionWidget
 
-# 後方互換性: 旧 import path から PipelineState を export する
-__all__ = ["FilterSearchPanel", "PipelineState"]
+__all__ = ["FilterSearchPanel"]
 
 if TYPE_CHECKING:
     from collections.abc import Callable
