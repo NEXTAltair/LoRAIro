@@ -94,7 +94,13 @@ make adr-okf     # ADR バンドルを全件検証
 - [ ] 新テストパターンなら `docs/testing.md` 更新
 - [ ] 重要な設計判断なら `docs/decisions/` に ADR 追加
 
+**月次レビュー (dependency review と同枠、毎月1日近辺):**
+- [ ] `docs-freshness-audit` skill の **軽監査** (Phase 1 機械スキャンのみ) を実行
+      — 死パス参照 / 死リンク / バナー残置 / ignored 残骸 / 消し忘れ計画の検出
+
 **四半期レビュー:**
+- [ ] `docs-freshness-audit` skill の **深監査** (Phase 1+2+3 フルセット) を実行
+      — 並列 agent での実装照合と「更新 / 削除 / ADR 移送」の処遇まで
 - [ ] CLAUDE.md の陳腐化セクションを削除
 - [ ] `docs/*.md` の正確性を確認
 - [ ] ファイルパスとサービス数の検証
