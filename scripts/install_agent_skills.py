@@ -119,8 +119,14 @@ def ensure_claude_symlinks() -> None:
         return
     CLAUDE_SKILLS_DIR.mkdir(parents=True, exist_ok=True)
     for link in sorted(CLAUDE_SKILLS_DIR.iterdir()):
-        if link.is_symlink() and not link.resolve().exists():
-            link.unlink()  # prune 済み skill などの実体を失ったリンクを掃除
+        # shared 実体を失ったエントリは種別 (symlink / copy 化した実 dir / ファイル) を
+        # 問わず掃除する。lock から削除された skill の copy を Claude が読み続けないため
+        if (SKILLS_DIR / link.name / "SKILL.md").exists():
+            continue
+        if link.is_symlink() or link.is_file():
+            link.unlink()
+        elif link.is_dir():
+            shutil.rmtree(link)
     for skill_dir in sorted(SKILLS_DIR.iterdir()):
         if not (skill_dir / "SKILL.md").exists():
             continue
@@ -194,8 +200,11 @@ def main() -> int:
         src = source_arg(entry)
         print(f"install: {name} <- {src} ({reason})")
         backup = backup_existing(name)
+        # --agent codex で universal 配置 (.agents/skills) のみに限定する。agent 未検出の
+        # ホストで -y が全 agent へ展開するのを防ぐ (実測: .codex/ 等への書き込みは無し)。
+        # Claude Code 用 symlink は後段の ensure_claude_symlinks() が作る
         result = subprocess.run(
-            ["npx", "--yes", "skills", "add", src, "--skill", name, "-y"],
+            ["npx", "--yes", "skills", "add", src, "--skill", name, "--agent", "codex", "-y"],
             cwd=PROJECT_ROOT,
         )
         if result.returncode == 0:
