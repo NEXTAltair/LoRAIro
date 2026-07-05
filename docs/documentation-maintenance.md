@@ -40,7 +40,6 @@ LoRAIro の3層ドキュメント構造の維持方針。
 | `docs/specs/` | 機能仕様 (application / core / interfaces) |
 | `docs/design/` | デザインバンドル (DesignSync 同期対象) |
 | `docs/migration/` | データ移行ガイド |
-| `docs/technical/` | 詳細技術ガイド (PySide6 等) |
 | `docs/skill-evaluations/` | skill 評価シナリオ |
 
 ## Frontmatter (OKF)
@@ -136,6 +135,12 @@ ls -la docs/plans/
 - 2026-01-01: 3層ドキュメントアーキテクチャ実装
   - 30+ のパスエラー・欠損サービスを修正
   - `docs/services.md`, `docs/integrations.md`, `docs/testing.md` を新規作成
+- 2026-07-05: docs/ 棚卸し (第2弾)
+  - 陳腐化ドキュメント削除: DEPRECATED 宣言済み `ai_annotation_application_spec.md`、
+    二世代前の GUI 再設計分析 `gui_redesign_before_after_analysis.md`、
+    2025-08 の `technical/pyside6-comprehensive-guide.md`、未参照テンプレ spec 4本、
+    Serena 時代の `investigations/windows-display-issue-analysis.md`
+  - ADR へ移送する価値のある内容はなし (設計判断は現行 ADR / lessons-learned で記録済み)
 - 2026-07-05: docs/ 棚卸し
   - Superseded 済み旧テスト移行計画 (`new_test_architecture.md` / `migration_roadmap.md` /
     `conftest_template.py`) と `archived_ui/` を削除 (git 履歴で参照可)
