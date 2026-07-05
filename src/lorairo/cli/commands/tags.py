@@ -51,7 +51,13 @@ def _apply_classified_tags(
         if not dry_run:
             if c.classification == "unregistered":
                 tag_id = annotation_repo.register_user_tag(c.input_tag)
-            store_tag = c.canonical_tag if tag_id is not None else c.input_tag
+            # exact/alias は tag DB の canonical を保存し、それ以外 (新規登録・未解決) は
+            # 旧経路と同じ strip().lower() 正規化で保存する (Codex P2: 大文字混じり入力が
+            # verbatim 保存されると tags remove の小文字照合で削除できなくなる)
+            if c.classification in ("exact", "alias_resolved") and tag_id is not None:
+                store_tag = c.canonical_tag
+            else:
+                store_tag = c.input_tag.strip().lower()
             _, added = annotation_repo.add_tag_to_images_batch(
                 image_ids, c.input_tag, None, resolved=(store_tag, tag_id)
             )
