@@ -1,14 +1,26 @@
 {
   "version": 1,
   "skills": {
+    "agent-pr-autoloop": {
+      "source": "/workspaces/LoRAIro/.agents/skills",
+      "sourceType": "local",
+      "computedHash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "agent-pr-maintainer": {
+      "source": "/workspaces/LoRAIro/.agents/skills",
+      "sourceType": "local",
+      "computedHash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
     "check-existing": {
       "source": "/workspaces/altairs-agent-dev-kit",
       "sourceType": "local",
       "computedHash": "a4354295942a3f959bcecbb2004afb7dd3ec706ada26acf6677fc42932c5cb67"
     },
     "claude-md-progressive-disclosurer": {
-      "source": "/workspaces/altairs-agent-dev-kit",
-      "sourceType": "local",
+      "source": "NEXTAltair/altairs-agent-dev-kit",
+      "ref": "v0.2.0",
+      "sourceType": "github",
+      "skillPath": "skills/claude-md-progressive-disclosurer/SKILL.md",
       "computedHash": "a844ef79edbd792e0b2ccbfb2e495b67fd71051db262326648a07cf424bceae9"
     },
     "database-migration": {
@@ -31,13 +43,17 @@
       "computedHash": "69f026f7a23f604e441c65837a2be21c71cb5d9b39c4d8caea7411e864a3a6b9"
     },
     "github-ops": {
-      "source": "/workspaces/altairs-agent-dev-kit",
-      "sourceType": "local",
+      "source": "NEXTAltair/altairs-agent-dev-kit",
+      "ref": "v0.2.0",
+      "sourceType": "github",
+      "skillPath": "skills/github-ops/SKILL.md",
       "computedHash": "29ae1a10622048f1eea898185e0613ee7f36facf87a333bebc99434c7cb90fc3"
     },
     "goal-prompt-crafter": {
-      "source": "/workspaces/altairs-agent-dev-kit",
-      "sourceType": "local",
+      "source": "NEXTAltair/altairs-agent-dev-kit",
+      "ref": "v0.2.0",
+      "sourceType": "github",
+      "skillPath": "skills/goal-prompt-crafter/SKILL.md",
       "computedHash": "1f88d7694c4cc61759f4781ba0a7f08a8d06108493663f835e1392162fa39c2d"
     },
     "interface-design": {
@@ -85,19 +101,11 @@
       "sourceType": "local",
       "computedHash": "3d59c6ec260ae55a1756813a515db01d1382faa3eec311a71d45a553c2c7be3b"
     },
-    "pr-autoloop": {
-      "source": "/workspaces/altairs-agent-dev-kit",
-      "sourceType": "local",
-      "computedHash": "91a978335bceb7fb7c68134fe268d97565261b47ed2d2f5822ae3d20e784305f"
-    },
-    "pr-maintainer": {
-      "source": "/workspaces/altairs-agent-dev-kit",
-      "sourceType": "local",
-      "computedHash": "fdc5c77348c5ea666d3d78fb6996bcb952c5cf876d153c506285ff41ecfb42ab"
-    },
     "prompt-optimizer": {
-      "source": "/workspaces/altairs-agent-dev-kit",
-      "sourceType": "local",
+      "source": "NEXTAltair/altairs-agent-dev-kit",
+      "ref": "v0.2.0",
+      "sourceType": "github",
+      "skillPath": "skills/prompt-optimizer/SKILL.md",
       "computedHash": "1c2f86686adfcbdc5a243bf2734e59f09bbd2b30133e34813166e955f947dd4e"
     },
     "python-error-handling": {
@@ -125,13 +133,17 @@
       "computedHash": "16314aa8a4a465773be809c517f62f8ef704f5ab1bb237e8c9b8a759689fcb21"
     },
     "qa-expert": {
-      "source": "/workspaces/altairs-agent-dev-kit",
-      "sourceType": "local",
+      "source": "NEXTAltair/altairs-agent-dev-kit",
+      "ref": "v0.2.0",
+      "sourceType": "github",
+      "skillPath": "skills/qa-expert/SKILL.md",
       "computedHash": "4fa9417ab24fec29b358f60b30269e8792ed9f611c92aa2fb2db629d343c07e0"
     },
     "skill-creator": {
-      "source": "/workspaces/altairs-agent-dev-kit",
-      "sourceType": "local",
+      "source": "NEXTAltair/altairs-agent-dev-kit",
+      "ref": "v0.2.0",
+      "sourceType": "github",
+      "skillPath": "skills/skill-creator/SKILL.md",
       "computedHash": "34ab06440951a367815f8e5cc10b989fbb496dce1b3d126a77287a205676c052"
     },
     "sql-optimization-patterns": {
