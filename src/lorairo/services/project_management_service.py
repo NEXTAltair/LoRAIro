@@ -279,9 +279,11 @@ class ProjectManagementService:
                 if not proj_dir.is_dir() or not metadata_file.exists():
                     continue
                 try:
-                    name = json.loads(metadata_file.read_text()).get("name")
+                    metadata = json.loads(metadata_file.read_text())
                 except (json.JSONDecodeError, OSError):
                     continue
+                # JSON として妥当でも dict でない場合 ([] / null 等) は候補にしない (Codex P2)
+                name = metadata.get("name") if isinstance(metadata, dict) else None
                 if name and name not in names:
                     names.append(name)
         except OSError:
