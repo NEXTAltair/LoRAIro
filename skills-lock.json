@@ -18,6 +18,7 @@
     },
     "claude-md-progressive-disclosurer": {
       "source": "NEXTAltair/altairs-agent-dev-kit",
+      "ref": "v0.1.0",
       "sourceType": "github",
       "skillPath": "skills/claude-md-progressive-disclosurer/SKILL.md",
       "computedHash": "8f0566962ebf75147b72ca4f3f71ca8f86ae6c5bf8fd7be5db9318c3fdfd1e82"
@@ -41,12 +42,14 @@
     },
     "github-ops": {
       "source": "NEXTAltair/altairs-agent-dev-kit",
+      "ref": "v0.1.0",
       "sourceType": "github",
       "skillPath": "skills/github-ops/SKILL.md",
       "computedHash": "dd7a0d9230aec35bb817d7e9c74e838e0049270bfdafb93ec75f0a79d629b522"
     },
     "goal-prompt-crafter": {
       "source": "NEXTAltair/altairs-agent-dev-kit",
+      "ref": "v0.1.0",
       "sourceType": "github",
       "skillPath": "skills/goal-prompt-crafter/SKILL.md",
       "computedHash": "164348209696cd89fbae36dc14e89382dbb46982f31285bd2ba153eb04931ff8"
@@ -98,6 +101,7 @@
     },
     "prompt-optimizer": {
       "source": "NEXTAltair/altairs-agent-dev-kit",
+      "ref": "v0.1.0",
       "sourceType": "github",
       "skillPath": "skills/prompt-optimizer/SKILL.md",
       "computedHash": "e3cb618d531fadf55c4ffe1f8c1402ca7b43b941482273002943c987213eae34"
@@ -128,12 +132,14 @@
     },
     "qa-expert": {
       "source": "NEXTAltair/altairs-agent-dev-kit",
+      "ref": "v0.1.0",
       "sourceType": "github",
       "skillPath": "skills/qa-expert/SKILL.md",
       "computedHash": "e9d446bf86b3ff18dcde6351e2699d9fcbb8b18b54b48f6e976196f76643e6a7"
     },
     "skill-creator": {
       "source": "NEXTAltair/altairs-agent-dev-kit",
+      "ref": "v0.1.0",
       "sourceType": "github",
       "skillPath": "skills/skill-creator/SKILL.md",
       "computedHash": "a8a5bf3e95e93b0bd3bcca1123e06da8f677dacb1b9d5852c4b6db68164791d0"

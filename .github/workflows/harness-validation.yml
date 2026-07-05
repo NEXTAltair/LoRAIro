@@ -31,6 +31,18 @@ jobs:
         with:
           python-version: "3.12"
 
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      # 外部ソース skill は git 追跡しないため、fresh checkout で skills-lock.json から
+      # 実際に復元できること (source/skillPath/hash の整合) を CI で検証する。
+      # 復元後の computedHash 照合まで scripts/install_agent_skills.py が行う
+      - name: Restore external skills from lock
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: python scripts/install_agent_skills.py
+
       - name: Validate harness (skills, hooks, settings)
         run: python scripts/validate_harness.py
 
