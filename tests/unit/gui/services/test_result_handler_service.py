@@ -209,29 +209,6 @@ class TestHandleBatchAnnotationFinished:
 
 
 @pytest.mark.gui
-class TestHandleAnnotationFinished:
-    """handle_annotation_finished()テスト"""
-
-    def test_handle_annotation_finished(self, service, mock_status_bar):
-        """正常な単発アノテーション完了"""
-        result = {"status": "success"}
-
-        # Execute
-        service.handle_annotation_finished(result, status_bar=mock_status_bar)
-
-        # Assert
-        mock_status_bar.showMessage.assert_called_once()
-        assert "完了" in mock_status_bar.showMessage.call_args[0][0]
-
-    def test_handle_annotation_finished_without_status_bar(self, service):
-        """ステータスバー無し"""
-        result = {"status": "success"}
-
-        # Execute - エラーなく完了すること
-        service.handle_annotation_finished(result, status_bar=None)
-
-
-@pytest.mark.gui
 class TestHandleAnnotationError:
     """handle_annotation_error()テスト"""
 

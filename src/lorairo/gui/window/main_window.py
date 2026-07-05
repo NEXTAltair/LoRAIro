@@ -4,7 +4,7 @@ import sys
 from collections.abc import Callable
 from functools import partial
 from pathlib import Path
-from typing import Any, cast
+from typing import TYPE_CHECKING, Any, cast
 
 from PySide6.QtCore import (
     QSettings,
@@ -54,6 +54,9 @@ from ..tab.search_tab import SearchTabWidget
 from ..widgets.error_notification_widget import ErrorNotificationWidget
 from ..widgets.registration_summary_widget import RegistrationSummaryWidget
 from ..widgets.tag_management_dialog import TagManagementDialog
+
+if TYPE_CHECKING:
+    from ..workers.annotation_worker import AnnotationExecutionResult
 
 
 class MainWindow(QMainWindow, Ui_MainWindow):
@@ -1217,36 +1220,25 @@ class MainWindow(QMainWindow, Ui_MainWindow):
         else:
             logger.warning(f"ResultHandlerService未初期化 - {method_name}スキップ")
 
-    def _on_annotation_finished(self, result: Any) -> None:
+    def _on_annotation_finished(self, result: "AnnotationExecutionResult") -> None:
         """アノテーション完了ハンドラ（サマリーダイアログ + キャッシュ更新）
 
         Args:
-            result: AnnotationExecutionResult または PHashAnnotationResults（後方互換）
+            result: AnnotationWorker.execute() が返す実行結果サマリー。
 
         Note:
             - Phase 1: サマリーダイアログ表示
             - Phase 2: 検索結果キャッシュ更新（選択中画像の詳細パネル反映）
         """
-        from image_annotator_lib import PHashAnnotationResults
-
         from lorairo.gui.widgets.annotation_summary_dialog import AnnotationSummaryDialog
-        from lorairo.gui.workers.annotation_worker import AnnotationExecutionResult
 
         # #1156: 同期アノテ完了で実行ボタンを再有効化する (連打ガード解除)
         self._reset_annotation_execute_buttons()
 
         # Phase 1: サマリーダイアログ表示
-        raw_results: PHashAnnotationResults | None = None
-        if isinstance(result, AnnotationExecutionResult):
-            dialog = AnnotationSummaryDialog(result, parent=self)
-            dialog.exec()
-            raw_results = result.results
-        else:
-            # 後方互換: 旧形式の生dict（PHashAnnotationResults は dict サブクラス）
-            self._delegate_to_result_handler(
-                "handle_annotation_finished", result, status_bar=self.statusBar()
-            )
-            raw_results = cast(PHashAnnotationResults, result) if isinstance(result, dict) else None
+        dialog = AnnotationSummaryDialog(result, parent=self)
+        dialog.exec()
+        raw_results = result.results
 
         # Phase 2: 検索結果キャッシュ更新
         # ワークスペースタブで選択中の画像がアノテーション対象に含まれていた場合、
@@ -1254,7 +1246,7 @@ class MainWindow(QMainWindow, Ui_MainWindow):
         if not self.dataset_state_manager or not self.db_manager:
             return
 
-        if raw_results and isinstance(raw_results, dict):
+        if raw_results:
             try:
                 # #633: 同一 pHash に別版 (複数 image_id) が紐づき得るため、全 image_id を更新する。
                 phash_to_image_ids = self.db_manager.image_repo.find_image_ids_by_phashes_multi(
