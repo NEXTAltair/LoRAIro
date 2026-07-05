@@ -28,37 +28,6 @@ lorairo-cli version
 lorairo-cli status
 ```
 
-## GUI との同時利用 (DB ロックの制約)
-
-LoRAIro の画像 DB は SQLite です。SQLite は同時読み取りは可能ですが、**同時書き込みは
-1 プロセスのみ**に制限されます (ADR 0067)。GUI を開いたまま CLI を併用する場合、次の点に
-注意してください。
-
-- **検索・一覧 (read) は併用しやすい**: WAL モードのため、GUI の書き込み中でも CLI の
-  読み取りはブロックされにくいです。
-- **書き込みの同時実行は避ける**: GUI と CLI が同時に同じプロジェクト DB へ書き込む
-  (アノテーション保存・画像登録・タグ編集など) と一時的に競合します。`PRAGMA busy_timeout`
-  (既定 30 秒、`config/lorairo.toml` の `[database] busy_timeout_ms`) により短時間の競合は
-  自動で待機・再試行されますが、長時間の書き込みを両側で同時に走らせるのは推奨しません。
-- **ロック競合時の表示**: 待機時間を超えてロックが解放されない場合、CLI は `CONFLICT`
-  エラー (`retryable=true`) と「他プロセスの書き込み完了を待って再試行」のヒントを返します。
-  GUI も同様の日本語メッセージを表示します。いずれも入力を変えずに再試行すれば成功し得ます。
-- **CLI で書き換えた後の GUI 表示**: CLI が DB を更新しても、GUI のメモリ上の検索結果・
-  件数表示は自動更新されません。CLI 併用後は GUI 側で **再検索 / 再読み込み**してください。
-
-大量アノテーションを GUI と CLI で同時実行するようなワークロードは現状の想定外です。本格的な
-複数 writer 対応が必要になった場合は PostgreSQL 等への移行を別途検討します。
-
-## Exit Code
-
-exit code はエラーコードから機械的に導出されます (`src/lorairo/cli/_errors.py`):
-
-| exit code | 意味 |
-|---|---|
-| 0 | 成功 |
-| 2 | 入力・検証エラー (引数不正、フィルタ未指定等) |
-| 1 | その他の実行時エラー |
-
 ## Machine-Readable Introspection
 
 ADR 0059 に従い、introspection は既存 JSONL kind の `item` / `result` / `error`
@@ -468,31 +437,6 @@ Structured error payload emitted as kind=error by the CLI boundary.
 - `hint`: `str?` (optional)
 - `details`: `dict?` (optional)
 
-### `errors get`
-
-Get a single error record by ID (full detail).
-
-`list` は error_message を切り詰め stack_trace / file_path / image_id を省くため、
-1 件の全容を確認するには本コマンドを使う。
-
-- Read only: `true`
-- Side effects: `db_read`
-
-> **Note**: 本コマンドは `lorairo.cli.introspection` に `ToolSpec` が未登録のため、
-> `lorairo-cli --json list-commands` / `describe` の machine-readable introspection には現れない。
-
-```bash
-lorairo-cli errors get 42 --project proj
-```
-
-**Input**
-
-- `error_id`: `int` (required, positional) - Error record ID to retrieve
-- `project` / `-p`: `str` (required)
-
-**Output**: `id` / `image_id` / `operation_type` / `error_type` / `error_message` /
-`stack_trace` / `file_path` / `model_name` / `resolved_at` / `created_at`
-
 ### `errors list`
 
 List error records. Default: unresolved only.
@@ -805,7 +749,7 @@ lorairo-cli --json describe "images show"
 **Input `ImagesShowInput`**
 
 - `project`: `str` (required)
-- `image_ids`: `csv[int]` (required) - Comma-separated image IDs, max 500. Positional form `images show 42 57` also works.
+- `image_ids`: `csv[int]` (required) - Comma-separated image IDs, max 500.
 - `include_rejected`: `bool` (optional, default `False`) - Include soft-rejected tags/captions in the output.
 
 **Output `ImagesShowItem`**
@@ -1145,9 +1089,6 @@ lorairo-cli --json describe "tags add"
 - `tags`: `list[str]` (optional)
 - `added`: `int` (optional)
 - `dry_run`: `bool` (optional)
-- `tag_resolutions`: `list[dict]` (optional) - Per-tag classification (Issue #1174): `tag` / `classification` (`exact` | `alias_resolved` | `typo_candidate` | `ambiguous` | `unregistered`) / `canonical_tag` / `tag_id` (null = unresolved) / `candidates` (typo/ambiguous suggestions, never auto-applied).
-- `skipped_invalid_tags`: `list[str]` (optional) - Tags that normalized to empty (not added, not registered).
-- `unresolved_tag_count`: `int?` (optional) - Count of applied tags left with `tag_id=null` (apply mode only).
 
 **Error `CliErrorResponse`**
 
@@ -1262,72 +1203,6 @@ Structured error payload emitted as kind=error by the CLI boundary.
 - `user_action_required`: `bool` (required)
 - `hint`: `str?` (optional)
 - `details`: `dict?` (optional)
-
-### `tags translations show`
-
-Show ja/en translation status for tags (read-only). Issue #1173 / ADR 0085.
-
-- Read only: `true`
-- Side effects: `db_read`
-
-> **Note**: 本コマンド群 (`tags translations show/add`, `tags alias`) は `lorairo.cli.introspection` に
-> `ToolSpec` が未登録のため、`list-commands` / `describe` の machine-readable introspection には現れない
-> (`errors get` と同じ扱い)。
-
-```bash
-lorairo-cli --json tags translations show -p proj --image-ids 1052,1082
-lorairo-cli --json tags translations show -p proj --tags "cat,dog"
-```
-
-**Input**
-
-- `project` / `-p`: `str` (required)
-- `image_ids`: `csv[int]` (optional) - Show translation status of these images' tags. Mutually exclusive with `--tags`.
-- `tags`: `csv[str]` (optional) - Tags to inspect, max 100. Mutually exclusive with `--image-ids`.
-
-**Output** (item): `--tags` 指定時は `tag` / `tag_id` (null = 未解決) / `translations` (`{ja,en: {candidates, preferred}}`、読みは ja/japanese・en/english を集約) / `missing` (訳が無い言語)。`--image-ids` 指定時は `image_id` + `tags` (同形式の配列)。
-
-### `tags translations add`
-
-Add a translation to a tag (user DB overlay). Dry-run by default; `--apply` to write.
-
-- Read only: `false`
-- Side effects: `db_read`, `db_write` (user DB overlay のみ、base DB は不変)
-
-```bash
-lorairo-cli tags translations add -p proj --tag "european architecture" --lang ja --text "ヨーロッパ建築" --preferred --apply
-```
-
-**Input**
-
-- `project` / `-p`: `str` (required)
-- `tag`: `str` (required) - Target tag. tag_id 解決は `tags add` (Issue #1174) と同経路: exact/alias は解決、真の新タグは `--apply` 時に user DB 登録、typo/曖昧候補は候補提示でエラー (先に `tags alias` で確定)。
-- `lang`: `ja | en` (required) - 書き込みは ja/en の一貫形。
-- `text`: `str` (required)
-- `preferred`: `bool` (optional, default `False`) - その言語の主訳にする。
-- `apply`: `bool` (optional, default `False`)
-
-**Output** (item): `tag` / `canonical_tag` / `classification` / `tag_id` / `language` / `translation` / `preferred` / `registered_new_tag` / `status` (`dry_run` | `changed`)。タグ登録失敗 (tagdb #124 edge) は `DB_ERROR` で明示。
-
-### `tags alias`
-
-Record a typo → preferred-tag alias in the user DB. Dry-run by default.
-
-- Read only: `false`
-- Side effects: `db_read`, `db_write` (user DB overlay のみ)
-
-```bash
-lorairo-cli tags alias -p proj --from "europian architecture" --to "european architecture" --apply
-```
-
-**Input**
-
-- `project` / `-p`: `str` (required)
-- `from`: `str` (required) - Alias source (typo 等)。既存タグの付け替えは拒否。既に同じ preferred へ解決される場合は no-op。
-- `to`: `str` (required) - 解決先 preferred タグ (tag DB に存在必須)。
-- `apply`: `bool` (optional, default `False`)
-
-**Output** (result): `from_tag` / `to_tag` / `alias_tag_id` / `status` (`dry_run` | `changed` | `noop`)。
 
 ### `version`
 
