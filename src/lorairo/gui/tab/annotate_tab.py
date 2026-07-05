@@ -680,7 +680,10 @@ class AnnotateTabWidget(QWidget, Ui_AnnotateTab):
         """
         service = self._batch_model_selection.model_selection_service
         all_models = service.load_models() if service is not None else []
-        all_infos = self._build_stage_model_infos([m.litellm_model_id for m in all_models])
+        # ADR 0038: 廃止 (discontinued_at 設定済み = available False) モデルは UI の
+        # モデル一覧に出ないため、プリセット適用でも候補から除外する (Codex P2)
+        active_models = [m for m in all_models if m.available]
+        all_infos = self._build_stage_model_infos([m.litellm_model_id for m in active_models])
 
         # プリセットに対応する litellm_model_id を絞り込んで一括セット
         if preset_id.startswith(_CUSTOM_PRESET_PREFIX):

@@ -251,7 +251,7 @@ def _wire_model_selection(
     model_widget.model_checkbox_widgets = checkbox_widgets
     model_widget.get_selected_models.return_value = selected_ids
     model_widget.model_selection_service.load_models.return_value = [
-        SimpleNamespace(litellm_model_id=info.litellm_model_id) for info in infos
+        SimpleNamespace(litellm_model_id=info.litellm_model_id, available=True) for info in infos
     ]
     tab._batch_model_selection = model_widget
     tab._build_stage_model_infos = lambda ids: infos
@@ -449,7 +449,7 @@ class TestPresetSignalWiring:
         )
         tab._batch_model_selection = Mock()
         tab._batch_model_selection.model_selection_service.load_models.return_value = [
-            SimpleNamespace(litellm_model_id="wd/tagger")
+            SimpleNamespace(litellm_model_id="wd/tagger", available=True)
         ]
         tab._build_stage_model_infos = lambda ids: [info]
         tab._filter_model_ids_for_preset = lambda pid, infos: ["wd/tagger"]
@@ -614,7 +614,7 @@ class TestCustomPresetPersistence:
         tab._model_selection_state_manager = manager
         tab._batch_model_selection = Mock()
         tab._batch_model_selection.model_selection_service.load_models.return_value = [
-            SimpleNamespace(litellm_model_id="wd/tagger")
+            SimpleNamespace(litellm_model_id="wd/tagger", available=True)
         ]
         # widget 読み戻しはフィルタで欠けている想定 (これを SSoT へ書いてはいけない)
         tab._batch_model_selection.get_selected_models.return_value = []
@@ -639,7 +639,7 @@ class TestCustomPresetPersistence:
         tab._save_custom_presets({"mine": ["wd/tagger", "gone/model"]})
         tab._batch_model_selection = Mock()
         tab._batch_model_selection.model_selection_service.load_models.return_value = [
-            SimpleNamespace(litellm_model_id="wd/tagger")
+            SimpleNamespace(litellm_model_id="wd/tagger", available=True)
         ]
         tab._build_stage_model_infos = lambda ids: [info]
         tab._pipeline_stage_table = Mock()
@@ -669,8 +669,8 @@ class TestCustomPresetPersistence:
         tab._save_custom_presets({"mine": ["openai/gpt-4o", "wd/tagger"]})
         tab._batch_model_selection = Mock()
         tab._batch_model_selection.model_selection_service.load_models.return_value = [
-            SimpleNamespace(litellm_model_id="openai/gpt-4o"),
-            SimpleNamespace(litellm_model_id="wd/tagger"),
+            SimpleNamespace(litellm_model_id="openai/gpt-4o", available=True),
+            SimpleNamespace(litellm_model_id="wd/tagger", available=True),
         ]
         tab._build_stage_model_infos = lambda ids: [api_info, local_info]
         tab._pipeline_stage_table = Mock()
@@ -695,7 +695,7 @@ class TestCustomPresetPersistence:
         tab._save_custom_presets({"mine": ["google/gemini-2.5-pro"]})
         tab._batch_model_selection = Mock()
         tab._batch_model_selection.model_selection_service.load_models.return_value = [
-            SimpleNamespace(litellm_model_id="google/gemini-2.5-pro")
+            SimpleNamespace(litellm_model_id="google/gemini-2.5-pro", available=True)
         ]
         tab._build_stage_model_infos = lambda ids: [api_info]
         tab._pipeline_stage_table = Mock()
@@ -705,6 +705,37 @@ class TestCustomPresetPersistence:
         tab._on_pipeline_preset_selected("custom:mine")
 
         tab._batch_model_selection.set_selected_models.assert_called_once_with(["google/gemini-2.5-pro"])
+
+    def test_custom_preset_excludes_discontinued_models(self, tab, isolated_settings):
+        """model sync で廃止 (available=False) になったモデルは復元プリセットから除外する (Codex P2)。"""
+        info = StageModelInfo(
+            litellm_model_id="wd/tagger",
+            display_name="wd-tagger",
+            provider=None,
+            is_api=False,
+            capabilities=frozenset({"tags"}),
+        )
+        tab._save_custom_presets({"mine": ["wd/tagger", "old/discontinued"]})
+        tab._batch_model_selection = Mock()
+        tab._batch_model_selection.model_selection_service.load_models.return_value = [
+            SimpleNamespace(litellm_model_id="wd/tagger", available=True),
+            SimpleNamespace(litellm_model_id="old/discontinued", available=False),
+        ]
+        captured_ids: list[list[str]] = []
+
+        def _fake_build_infos(ids):
+            captured_ids.append(list(ids))
+            return [info]
+
+        tab._build_stage_model_infos = _fake_build_infos
+        tab._pipeline_stage_table = Mock()
+        tab._refresh_pipeline_panel = Mock()
+
+        tab._on_pipeline_preset_selected("custom:mine")
+
+        # 廃止モデルは info 構築の候補にも適用集合にも入らない
+        assert captured_ids == [["wd/tagger"]]
+        tab._batch_model_selection.set_selected_models.assert_called_once_with(["wd/tagger"])
 
     def test_custom_preset_missing_is_skipped(self, tab, isolated_settings):
         """存在しない保存済みプリセットの選択は適用せずスキップする。"""
