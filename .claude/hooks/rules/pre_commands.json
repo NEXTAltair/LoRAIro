@@ -1,0 +1,38 @@
+{
+  "description": "LoRAIro 固有の pre_commands override (旧 hook_pre_commands_rules.json から移行。git 破壊系は kit デフォルトが担うため重複エントリは除去)",
+  "blocked_commands": [
+    {
+      "pattern": "^pip ",
+      "reason": "Use 'uv' instead of pip",
+      "suggestion": "uv add <package>"
+    },
+    {
+      "pattern": "uv\\s+run\\s+(--[\\w-]+\\s+)*--active",
+      "reason": "並列実行時に .venv を破損させる原因（Issue #222）。--active は単一プロセスかつ VIRTUAL_ENV と pyproject.toml の Python が完全一致する場合のみ安全",
+      "suggestion": "通常は --active を外して `uv run` を使用（uv-managed venv で並列セーフ）。意図的に使う場合は .venv/bin/python を直接呼ぶか .claude/rules/parallel-execution.md を参照"
+    }
+  ],
+  "uv_transforms": [
+    {
+      "pattern": "^pytest\\s+local_packages/",
+      "transform": "s/^pytest/uv run pytest/",
+      "description": "Local package tests need uv run"
+    },
+    {
+      "pattern": "^python\\s+",
+      "transform": "s/^python/uv run python/",
+      "description": "Use uv run for python"
+    },
+    {
+      "pattern": "^ruff\\s+(check|format)(?!.*src/.*tests/)",
+      "transform": "s/^ruff/uv run ruff/",
+      "description": "Single file ruff needs uv run"
+    },
+    {
+      "pattern": "^mypy(?! -p lorairo)",
+      "transform": "s/^mypy/uv run mypy/",
+      "description": "Custom mypy needs uv run"
+    }
+  ],
+  "worktree_uv_guard": true
+}

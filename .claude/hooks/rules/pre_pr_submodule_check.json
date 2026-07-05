@@ -1,0 +1,8 @@
+{
+  "description": "LoRAIro 固有の pre_pr_submodule_check override (旧 hook_pre_pr_submodule_check_rules.json から移行)。CI-equivalent filter の実体: image-annotator-lib は -m \"not downloads_and_runs_model and not calls_real_webapi\"、genai-tag-db-tools は -m \"not slow and not network\" (.github/workflows/ci.yml と対で更新する。詳細は .claude/rules/testing.md / docs/testing.md を参照)",
+  "submodule_globs": [
+    "local_packages/image-annotator-lib/*",
+    "local_packages/genai-tag-db-tools/*"
+  ],
+  "bypass_marker": "CI-EQUIV-TESTED"
+}

@@ -1,27 +1,15 @@
 {
   "version": 1,
   "skills": {
-    "agent-pr-autoloop": {
-      "source": "/workspaces/LoRAIro/.agents/skills",
-      "sourceType": "local",
-      "computedHash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
-    },
-    "agent-pr-maintainer": {
-      "source": "/workspaces/LoRAIro/.agents/skills",
-      "sourceType": "local",
-      "computedHash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
-    },
     "check-existing": {
-      "source": "/workspaces/LoRAIro/.agents/skills",
+      "source": "/workspaces/altairs-agent-dev-kit",
       "sourceType": "local",
-      "computedHash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      "computedHash": "a4354295942a3f959bcecbb2004afb7dd3ec706ada26acf6677fc42932c5cb67"
     },
     "claude-md-progressive-disclosurer": {
-      "source": "NEXTAltair/altairs-agent-dev-kit",
-      "ref": "v0.1.0",
-      "sourceType": "github",
-      "skillPath": "skills/claude-md-progressive-disclosurer/SKILL.md",
-      "computedHash": "c5a214cd6dbb9715cb0b6acace50707e5ae48df76cdc715aa12c5c1d8409b39d"
+      "source": "/workspaces/altairs-agent-dev-kit",
+      "sourceType": "local",
+      "computedHash": "a844ef79edbd792e0b2ccbfb2e495b67fd71051db262326648a07cf424bceae9"
     },
     "database-migration": {
       "source": "wshobson/agents",
@@ -36,28 +24,24 @@
       "computedHash": "03e0eaaa9bf13ba1e7ffa387f5893de6f324c0868c627001f179395a8feaa7c9"
     },
     "github-ops": {
-      "source": "NEXTAltair/altairs-agent-dev-kit",
-      "ref": "v0.1.0",
-      "sourceType": "github",
-      "skillPath": "skills/github-ops/SKILL.md",
-      "computedHash": "86544cf60f6d33548aa81556b539083c341b9c3893b80fe826ed5a004848be1e"
+      "source": "/workspaces/altairs-agent-dev-kit",
+      "sourceType": "local",
+      "computedHash": "29ae1a10622048f1eea898185e0613ee7f36facf87a333bebc99434c7cb90fc3"
     },
     "goal-prompt-crafter": {
-      "source": "NEXTAltair/altairs-agent-dev-kit",
-      "ref": "v0.1.0",
-      "sourceType": "github",
-      "skillPath": "skills/goal-prompt-crafter/SKILL.md",
-      "computedHash": "c5c5dea9152b9d7cdd511fadef7cd299ebe0740acf6f2fc6cb5228213151517f"
+      "source": "/workspaces/altairs-agent-dev-kit",
+      "sourceType": "local",
+      "computedHash": "1f88d7694c4cc61759f4781ba0a7f08a8d06108493663f835e1392162fa39c2d"
     },
     "interface-design": {
-      "source": "/workspaces/LoRAIro/.agents/skills",
+      "source": "/workspaces/altairs-agent-dev-kit",
       "sourceType": "local",
-      "computedHash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      "computedHash": "2af43574bdf10594218a0d19b62443a753856ccacbb87a67f5beadd44ef29e5f"
     },
     "lazy-import-refactor": {
-      "source": "/workspaces/LoRAIro/.agents/skills",
+      "source": "/workspaces/altairs-agent-dev-kit",
       "sourceType": "local",
-      "computedHash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      "computedHash": "f9046376071d9e41bd7bc5ac75505a6b9dc23bf9ff2a9e667752c446fe88c91b"
     },
     "lorairo-cli-db-access": {
       "source": "/workspaces/LoRAIro/.agents/skills",
@@ -90,16 +74,24 @@
       "computedHash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
     },
     "okf-bundle": {
-      "source": "/workspaces/LoRAIro/.agents/skills",
+      "source": "/workspaces/altairs-agent-dev-kit",
       "sourceType": "local",
-      "computedHash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      "computedHash": "3d59c6ec260ae55a1756813a515db01d1382faa3eec311a71d45a553c2c7be3b"
+    },
+    "pr-autoloop": {
+      "source": "/workspaces/altairs-agent-dev-kit",
+      "sourceType": "local",
+      "computedHash": "91a978335bceb7fb7c68134fe268d97565261b47ed2d2f5822ae3d20e784305f"
+    },
+    "pr-maintainer": {
+      "source": "/workspaces/altairs-agent-dev-kit",
+      "sourceType": "local",
+      "computedHash": "fdc5c77348c5ea666d3d78fb6996bcb952c5cf876d153c506285ff41ecfb42ab"
     },
     "prompt-optimizer": {
-      "source": "NEXTAltair/altairs-agent-dev-kit",
-      "ref": "v0.1.0",
-      "sourceType": "github",
-      "skillPath": "skills/prompt-optimizer/SKILL.md",
-      "computedHash": "f8961641c9db7443233b4f3a37c8775bcc79f05065d790239632229e65f7f0d5"
+      "source": "/workspaces/altairs-agent-dev-kit",
+      "sourceType": "local",
+      "computedHash": "1c2f86686adfcbdc5a243bf2734e59f09bbd2b30133e34813166e955f947dd4e"
     },
     "python-error-handling": {
       "source": "wshobson/agents",
@@ -126,18 +118,14 @@
       "computedHash": "16314aa8a4a465773be809c517f62f8ef704f5ab1bb237e8c9b8a759689fcb21"
     },
     "qa-expert": {
-      "source": "NEXTAltair/altairs-agent-dev-kit",
-      "ref": "v0.1.0",
-      "sourceType": "github",
-      "skillPath": "skills/qa-expert/SKILL.md",
-      "computedHash": "35187ffd66faf9002054a6451cecbd8d0ffda6f264c065ea5025a21ee93c8f43"
+      "source": "/workspaces/altairs-agent-dev-kit",
+      "sourceType": "local",
+      "computedHash": "4fa9417ab24fec29b358f60b30269e8792ed9f611c92aa2fb2db629d343c07e0"
     },
     "skill-creator": {
-      "source": "NEXTAltair/altairs-agent-dev-kit",
-      "ref": "v0.1.0",
-      "sourceType": "github",
-      "skillPath": "skills/skill-creator/SKILL.md",
-      "computedHash": "b70e98017f4520872415513baefdfc443af29978a7e8077ee37fd9228cc76405"
+      "source": "/workspaces/altairs-agent-dev-kit",
+      "sourceType": "local",
+      "computedHash": "34ab06440951a367815f8e5cc10b989fbb496dce1b3d126a77287a205676c052"
     },
     "sql-optimization-patterns": {
       "source": "wshobson/agents",
@@ -146,9 +134,9 @@
       "computedHash": "19ff8ce86d20aa39cace441e15d23feb9b91be5fbed95526b5bd9ee3bffb6411"
     },
     "sqlalchemy-query-patterns": {
-      "source": "/workspaces/LoRAIro/.agents/skills",
+      "source": "/workspaces/altairs-agent-dev-kit",
       "sourceType": "local",
-      "computedHash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      "computedHash": "3534988afa5f399d7285163d79267445e822ee190f6f6b9b73b0b11ccaa979c4"
     },
     "vercel-cli-with-tokens": {
       "source": "vercel-labs/agent-skills",

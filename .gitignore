@@ -172,3 +172,17 @@ data/
 
 # superpowers visual companion (brainstorm mockups)
 .superpowers/
+
+# altairs-agent-dev-kit が配布・上書きする kit 管理ファイル (install.sh --all で再導入)
+# プロジェクト層 (.claude/hooks/rules/*.json override, hook_teammate_monitor.py,
+# CLAUDE.md, AGENTS.md) は従来どおり追跡する
+.claude/rules/
+.claude/agents/
+.claude/hooks/hook_common.py
+.claude/hooks/hook_pre_commands.py
+.claude/hooks/hook_pre_edit_worktree.py
+.claude/hooks/hook_pre_pr_submodule_check.py
+.claude/hooks/hook_response_monitor.py
+.claude/hooks/hook_worktree_create.py
+.claude/hooks/rules/*.default.json
+.codex/agents/
