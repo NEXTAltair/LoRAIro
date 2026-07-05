@@ -124,6 +124,7 @@ class SelectedImageDetailsWidget(QWidget):
         self._summary_layout: QVBoxLayout | None = None
         self._image_info_toggle: QToolButton | None = None
         self._copy_details_button: QToolButton | None = None
+        self._reload_from_db_button: QToolButton | None = None
 
         # refinement リコメンド (#931): set_refinement_service で配線。
         self._refinement_service: RefinementService | None = None
@@ -230,11 +231,22 @@ class SelectedImageDetailsWidget(QWidget):
         self._copy_details_button.setEnabled(False)
         self._copy_details_button.clicked.connect(self.copy_current_details_to_clipboard)
 
+        # CLI 等の外部プロセスの DB 書き込みを明示リロードで反映する (Issue #1171 / ADR 0067 §4)
+        self._reload_from_db_button = QToolButton(container)
+        self._reload_from_db_button.setText("DBから再読込")
+        self._reload_from_db_button.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextOnly)
+        self._reload_from_db_button.setToolTip(
+            "選択画像のアノテーションキャッシュを破棄して DB から再取得します (CLI 書き込みの反映用)"
+        )
+        self._reload_from_db_button.setEnabled(False)
+        self._reload_from_db_button.clicked.connect(self._on_reload_from_db_requested)
+
         self.ui.groupBoxImageInfo.setTitle("")
         self.ui.groupBoxImageInfo.setVisible(False)
 
         layout.addWidget(self._image_info_toggle)
         layout.addWidget(self._copy_details_button)
+        layout.addWidget(self._reload_from_db_button)
         layout.addWidget(self.ui.groupBoxImageInfo)
         # annotationDataDisplay は内容相応の高さに収める (Expanding だと余剰を吸い込み
         # レーティング詳細と評価スコア編集の間に隙間が残るため縦は Preferred、#827)。
@@ -684,6 +696,23 @@ class SelectedImageDetailsWidget(QWidget):
             return
         rejected = db_manager.get_rejected_tags(self.current_image_id)
         self.annotation_display.set_rejected_tags(rejected)
+
+    def _on_reload_from_db_requested(self) -> None:
+        """「DBから再読込」ボタン: 選択画像のキャッシュを無効化して DB から再取得する (Issue #1171)。
+
+        CLI 等の外部プロセスが DB を書き換えても GUI のメモリキャッシュには自動反映
+        されない (ADR 0067 §4: 手動リロード方針)。本操作は DatasetStateManager の
+        ``invalidate_annotations`` で現在画像のアノテーションキャッシュを破棄し、即時
+        DB 再取得 + ``current_image_data_changed`` 再発行で表示を最新化する。
+        DSM 未接続時は従来の ``_reload_current_image`` (詳細ペイン単体再取得) に委譲する。
+        """
+        if self.current_image_id is None:
+            return
+        dsm = self._dataset_state_manager
+        if dsm is not None:
+            dsm.invalidate_annotations([self.current_image_id])
+            return
+        self._reload_current_image()
 
     def _reload_current_image(self) -> None:
         """編集後に現在画像のメタデータを再取得して表示を更新する (Issue #792)。
@@ -1231,6 +1260,8 @@ class SelectedImageDetailsWidget(QWidget):
         logger.debug(f"SelectedImageDetailsWidget表示更新完了: image_id={details.image_id}")
         if self._copy_details_button:
             self._copy_details_button.setEnabled(True)
+        if self._reload_from_db_button:
+            self._reload_from_db_button.setEnabled(True)
         self.image_details_loaded.emit(details)
 
     def _update_rating_score_display(self, details: ImageDetails) -> None:
@@ -1313,6 +1344,8 @@ class SelectedImageDetailsWidget(QWidget):
         self.annotation_display.clear_data()
         if self._copy_details_button:
             self._copy_details_button.setEnabled(False)
+        if self._reload_from_db_button:
+            self._reload_from_db_button.setEnabled(False)
 
         logger.debug("SelectedImageDetailsWidget display cleared")
 
