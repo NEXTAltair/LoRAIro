@@ -13,6 +13,7 @@ from typing import Any
 # SQLAlchemy imports
 from sqlalchemy import StaticPool, create_engine, event, inspect
 from sqlalchemy.engine import Engine
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session, sessionmaker
 
 from ..utils.config import get_config
@@ -350,22 +351,19 @@ def create_db_engine(database_url: str | None = None) -> Engine:
                 logger.opt(exception=True).warning("Failed to configure PRAGMA foreign_keys")
 
             try:
-                # busy_timeout は journal_mode/synchronous より先に設定する。QueuePool 化
-                # (Issue #1002) により複数スレッドが同時に新規コネクションを開けるようになった
-                # ため、後続の WAL 系 PRAGMA がロック中の DB に当たって例外になっても、この
-                # コネクションの busy_timeout は既に有効な状態にしておく (Issue #767 の待機が
-                # 個々の PRAGMA 失敗で無効化されるのを防ぐ)。
+                # busy_timeout は synchronous より先に、かつ単独の try/except で設定する
+                # (Issue #767 の待機が他 PRAGMA の失敗で無効化されるのを防ぐ、Issue #1002)。
                 cursor.execute(f"PRAGMA busy_timeout={BUSY_TIMEOUT_MS}")
                 logger.debug(f"PRAGMA busy_timeout={BUSY_TIMEOUT_MS} executed.")
             except Exception:
                 logger.opt(exception=True).warning("Failed to configure PRAGMA busy_timeout")
 
-            try:
-                cursor.execute("PRAGMA journal_mode=WAL")
-                journal_mode = cursor.fetchone()
-                logger.debug(f"PRAGMA journal_mode=WAL executed: {journal_mode}")
-            except Exception:
-                logger.opt(exception=True).warning("Failed to configure PRAGMA journal_mode")
+            # Note: journal_mode=WAL は per-connection では設定しない (Issue #1165)。
+            # WAL は DB ヘッダに永続化されるため、接続ごとに再設定する必要はない。毎接続で
+            # PRAGMA journal_mode=WAL を実行すると、GUI/CLI 併用時 (9p bind mount) にその
+            # 一瞬の排他取得が busy_timeout の効かないまま database is locked / disk I/O error
+            # になり、接続セットアップ自体がクラッシュしていた。WAL の設定は DB 準備時に
+            # 1 回だけ _ensure_wal_journal_mode() で行う。
 
             try:
                 cursor.execute("PRAGMA synchronous=NORMAL")
@@ -386,6 +384,31 @@ def create_session_factory(engine: Engine) -> sessionmaker[Session]:
     """指定されたエンジンにバインドされたセッションファクトリを作成します。"""
     logger.info("Creating SQLAlchemy session factory.")
     return sessionmaker(autocommit=False, autoflush=False, bind=engine)
+
+
+def _ensure_wal_journal_mode(engine: Engine) -> None:
+    """file-backed な project DB に WAL journal mode を 1 回だけ永続化する (Issue #1165)。
+
+    journal_mode=WAL は DB ヘッダに永続化されるため、接続ごとに設定する必要はない。
+    毎接続で ``PRAGMA journal_mode=WAL`` を実行すると、GUI/CLI 併用時 (9p bind mount) に
+    その一瞬の排他取得が busy_timeout の効かないまま ``database is locked`` /
+    ``disk I/O error`` になり接続セットアップがクラッシュする。そこで DB 準備時に一度だけ
+    設定し、かつ既に WAL の場合は書き換え (ロック取得) を避けて読み取りだけで済ませる。
+
+    Args:
+        engine: 対象の SQLAlchemy エンジン。``:memory:`` DB では何もしない。
+    """
+    if ":memory:" in str(engine.url):
+        return
+    try:
+        with engine.connect() as connection:
+            current = connection.exec_driver_sql("PRAGMA journal_mode").scalar()
+            if current is not None and str(current).lower() == "wal":
+                return
+            result = connection.exec_driver_sql("PRAGMA journal_mode=WAL").scalar()
+            logger.debug(f"journal_mode set to WAL at DB preparation: {result}")
+    except SQLAlchemyError:
+        logger.opt(exception=True).warning("Failed to set WAL journal mode at DB preparation")
 
 
 def _ensure_model_types_seeded(engine: Engine) -> None:
@@ -465,6 +488,8 @@ def _prepare_project_database(project_db_path: Path) -> Engine:
     project_db_path.parent.mkdir(parents=True, exist_ok=True)
     db_url = f"sqlite:///{project_db_path.resolve()}?check_same_thread=False"
     engine = create_db_engine(db_url)
+    # WAL は接続ごとではなく DB 準備時に 1 回だけ永続化する (Issue #1165)。
+    _ensure_wal_journal_mode(engine)
 
     if not _user_table_names(engine):
         Base.metadata.create_all(engine)
