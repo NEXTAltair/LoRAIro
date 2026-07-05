@@ -135,6 +135,15 @@ ls -la docs/plans/
 - 2026-01-01: 3層ドキュメントアーキテクチャ実装
   - 30+ のパスエラー・欠損サービスを修正
   - `docs/services.md`, `docs/integrations.md`, `docs/testing.md` を新規作成
+- 2026-07-05: docs/specs/ 実装照合監査 (第3弾)
+  - 並列監査で実装と突き合わせ、live docs がカバー済みの stale spec 4本を削除
+    (`overall_workflow.md` / `ai_annotation_core_spec.md` / `filesystem_management.md` /
+    `gui_interface.md` — いずれも DEPRECATED バナー付きだった)
+  - `specs/core/image_processing.md` を現行実装に同期 (AutoCrop 補色差分法、
+    確認事項3件の解消、ImageProcessingService 追記、#717 パッケージ構成)
+  - `specs/interfaces/configuration_window.md` を全面書き直し (2025-04 の旧 UI 記述 →
+    現行のタブ構成・pure Python UI・OK 時一括保存)
+  - `specs/application/image_processing_service.md` は実装一致を監査確認、注記を追記して維持
 - 2026-07-05: docs/ 棚卸し (第2弾)
   - 陳腐化ドキュメント削除: DEPRECATED 宣言済み `ai_annotation_application_spec.md`、
     二世代前の GUI 再設計分析 `gui_redesign_before_after_analysis.md`、

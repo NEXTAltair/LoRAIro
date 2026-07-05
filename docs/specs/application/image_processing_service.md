@@ -4,6 +4,12 @@
 > (旧 `src/lorairo/editor/image_processor.py` は #717 のリネームで現行パスに変更されています)。
 > GUI呼び出し元も `ImageEditWidget` (未実装のまま終わった構想) ではなく、
 > 現行の `src/lorairo/gui/tab/` 配下の各タブウィジェットです。
+>
+> 2026-07-05 監査: 本文の `process_images_in_list()` シグネチャ
+> (`progress_callback` / `status_callback` / `is_canceled` / `upscaler_override`) と
+> `ImageDatabaseManager` メソッド群 (`register_original_image` / `get_image_metadata` /
+> `check_processed_image_exists` / `register_processed_image`) が現行実装と一致することを
+> 確認済み。生きた仕様書として維持する。
 
 ## 1. 概要
 
