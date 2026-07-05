@@ -13,6 +13,10 @@ LoRAIro のテスト設計 4 段階構成の最終層。自動化が困難な領
   「リリース前チェックリスト全項目 ✓」と記載する。
 - **Issue 起票**: リリース毎に `.github/ISSUE_TEMPLATE/release-checklist.md` から
   「[Release vX.Y.Z] Pre-release Checklist」Issue を起票し、本ファイルの写しとして使う。
+- **リリースノート**: 手書き CHANGELOG.md は廃止済み (2026-07-05、71日/895 commits 乖離で
+  維持不能と判断)。リリース時に conventional commits から生成する
+  (GitHub Releases の auto-generated notes または git-cliff)。
+  破壊的変更・廃止機能の SSoT は [DEPRECATIONS.md](DEPRECATIONS.md)。
 
 ## 前提: 自動テスト (Tier 1〜3) の完走
 
