@@ -1452,6 +1452,13 @@ TOOL_SPECS: dict[str, ToolSpec] = {
                 ),
                 description="--image-ids 指定時の item 行 (画像単位のラッパー)。",
             ),
+            _output(
+                "TagsTranslationsShowResult",
+                (
+                    _f("target_tags", "int", description="対象タグ数。"),
+                    _f("target_images", "int?", description="--image-ids 指定時のみ: 対象画像数。"),
+                ),
+            ),
         ),
         errors=(ERROR_MODEL,),
     ),
@@ -1498,6 +1505,15 @@ TOOL_SPECS: dict[str, ToolSpec] = {
                     _f("status", "dry_run | changed"),
                 ),
                 description="書き込みは user DB overlay のみ (base DB は不変)。タグ登録失敗 (tagdb #124 edge) は DB_ERROR で明示。",
+            ),
+            _output(
+                "TagsTranslationsAddResult",
+                (
+                    _f("dry_run", "bool"),
+                    _f("tag_id", "int?"),
+                    _f("language", "str"),
+                ),
+                description="終端 result 行。既定は dry-run (dry_run=true) で書き込みなし。",
             ),
         ),
         errors=(ERROR_MODEL,),

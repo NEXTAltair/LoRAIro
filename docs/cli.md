@@ -1366,6 +1366,14 @@ lorairo-cli --json describe "tags translations add"
 - `registered_new_tag`: `bool` (optional)
 - `status`: `dry_run | changed` (optional)
 
+**Output `TagsTranslationsAddResult`**
+
+終端 result 行。既定は dry-run (dry_run=true) で書き込みなし。
+
+- `dry_run`: `bool` (optional)
+- `tag_id`: `int?` (optional)
+- `language`: `str` (optional)
+
 **Error `CliErrorResponse`**
 
 Structured error payload emitted as kind=error by the CLI boundary.
@@ -1415,6 +1423,11 @@ lorairo-cli --json describe "tags translations show"
 
 - `image_id`: `int` (optional)
 - `tags`: `list[dict]` (optional) - その画像のタグごとの TagTranslationStatusItem と同形式の配列。
+
+**Output `TagsTranslationsShowResult`**
+
+- `target_tags`: `int` (optional) - 対象タグ数。
+- `target_images`: `int?` (optional) - --image-ids 指定時のみ: 対象画像数。
 
 **Error `CliErrorResponse`**
 
