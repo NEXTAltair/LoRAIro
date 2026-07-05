@@ -36,6 +36,25 @@ ENV/
 .agents/skills/.installed-lock-hashes.json
 .agents/skills/.pending-replace/
 
+# 外部ソース由来の skills は追跡しない (導入元は skills-lock.json が SSoT、
+# 復元は scripts/install_agent_skills.py / make setup が行う)。
+# LoRAIro 固有 skill のみ whitelist で追跡する
+.agents/skills/*
+!.agents/skills/agent-pr-autoloop
+!.agents/skills/agent-pr-maintainer
+!.agents/skills/check-existing
+!.agents/skills/context7-openclaw-research
+!.agents/skills/interface-design
+!.agents/skills/lazy-import-refactor
+!.agents/skills/lorairo-cli-db-access
+!.agents/skills/lorairo-design-capture
+!.agents/skills/lorairo-mem
+!.agents/skills/lorairo-qt-widget
+!.agents/skills/lorairo-repository-pattern
+!.agents/skills/lorairo-test-generator
+!.agents/skills/okf-bundle
+!.agents/skills/sqlalchemy-query-patterns
+
 # テスト関連
 .pytest_cache/
 .coverage

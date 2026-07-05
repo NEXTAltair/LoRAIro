@@ -34,6 +34,7 @@ local skill 含む) について保証する。実体を失った broken symlink
 """
 
 import json
+import os
 import shutil
 import subprocess
 import sys
@@ -56,6 +57,21 @@ def load_state() -> dict[str, str]:
 def save_state(state: dict[str, str]) -> None:
     STATE_FILE.parent.mkdir(parents=True, exist_ok=True)
     STATE_FILE.write_text(json.dumps(state, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+
+
+def npx_env() -> dict[str, str]:
+    """npx (内部で git clone) 用の環境変数。
+
+    computedHash は取得ファイルの内容から計算されるため、ホストの git 設定
+    (core.autocrlf=true 等) で checkout 内容が CRLF 化すると hash が環境依存になる
+    (devcontainer で記録した lock hash が CI の LF 内容と不一致 → 偽 drift)。
+    GIT_CONFIG 環境変数で autocrlf を無効化し、どの環境でも同一内容を取得させる。
+    """
+    env = os.environ.copy()
+    env["GIT_CONFIG_COUNT"] = "1"
+    env["GIT_CONFIG_KEY_0"] = "core.autocrlf"
+    env["GIT_CONFIG_VALUE_0"] = "false"
+    return env
 
 
 def source_arg(entry: dict) -> str:
@@ -208,6 +224,7 @@ def main() -> int:
         result = subprocess.run(
             ["npx", "--yes", "skills", "add", src, "--skill", name, "--agent", "codex", "-y"],
             cwd=PROJECT_ROOT,
+            env=npx_env(),
         )
         # CLI は per-agent の書き込み失敗をログに出しつつ exit 0 で終えることがあるため、
         # returncode だけでなく実体 (SKILL.md) が書かれたことを成功条件にする
