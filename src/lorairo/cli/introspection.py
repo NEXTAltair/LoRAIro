@@ -320,6 +320,18 @@ class TagsEditItem(BaseModel):
     model_config = ConfigDict(title="TagsEditItem", populate_by_name=True)
 
 
+class TagResolutionEntry(BaseModel):
+    """Per-tag classification entry surfaced by ``tags add --json`` (Issue #1174)."""
+
+    tag: str
+    classification: Literal["exact", "alias_resolved", "typo_candidate", "ambiguous", "unregistered"]
+    canonical_tag: str
+    tag_id: int | None
+    candidates: list[str]
+
+    model_config = ConfigDict(title="TagResolutionEntry")
+
+
 class TagsAddResult(BaseModel):
     """JSONL result payload emitted by ``tags add --json``."""
 
@@ -330,6 +342,9 @@ class TagsAddResult(BaseModel):
     tags: list[str]
     added: int
     dry_run: bool
+    tag_resolutions: list[TagResolutionEntry]
+    skipped_invalid_tags: list[str]
+    unresolved_tag_count: int | None
 
     model_config = ConfigDict(title="TagsAddResult")
 

@@ -1135,6 +1135,9 @@ lorairo-cli --json describe "tags add"
 - `tags`: `list[str]` (optional)
 - `added`: `int` (optional)
 - `dry_run`: `bool` (optional)
+- `tag_resolutions`: `list[dict]` (optional) - Per-tag classification (Issue #1174): `tag` / `classification` (`exact` | `alias_resolved` | `typo_candidate` | `ambiguous` | `unregistered`) / `canonical_tag` / `tag_id` (null = unresolved) / `candidates` (typo/ambiguous suggestions, never auto-applied).
+- `skipped_invalid_tags`: `list[str]` (optional) - Tags that normalized to empty (not added, not registered).
+- `unresolved_tag_count`: `int?` (optional) - Count of applied tags left with `tag_id=null` (apply mode only).
 
 **Error `CliErrorResponse`**
 
