@@ -10,22 +10,13 @@ to be the most effective approach for letterbox detection compared to
 alternative methods like rembg and border shape detection.
 """
 
-from typing import Any, Optional, cast
+from typing import Any, Optional
 
 import cv2
 import numpy as np
 from PIL import Image
 
 from ..utils.log import logger
-
-# Handle optional scipy dependency
-try:
-    from scipy import ndimage
-
-    HAS_SCIPY = True
-except ImportError:
-    HAS_SCIPY = False
-    logger.warning("scipy.ndimage not available. Some edge detection features may be limited.")
 
 
 class AutoCrop:
@@ -103,168 +94,6 @@ class AutoCrop:
         if image.shape[2] == 4:
             return cv2.cvtColor(cv2.cvtColor(image, cv2.COLOR_RGBA2RGB), cv2.COLOR_RGB2GRAY)
         raise ValueError(f"サポートされていない画像形式です。形状: {image.shape}")
-
-    @staticmethod
-    def _calculate_edge_strength(gray_image: np.ndarray[Any, Any]) -> np.ndarray[Any, Any]:
-        """
-        Calculate edge strength using Sobel filter.
-
-        Args:
-            gray_image: Grayscale image array
-
-        Returns:
-            Edge strength array with same shape as input
-        """
-        if HAS_SCIPY:
-            return cast(np.ndarray[Any, Any], ndimage.sobel(gray_image))
-        else:
-            # Fallback to OpenCV Sobel if scipy not available
-            return cv2.Sobel(gray_image, cv2.CV_64F, 1, 1, ksize=3)
-
-    @staticmethod
-    def _get_slices(height: int, width: int) -> list[tuple[slice, slice]]:
-        """
-        Define slice regions for border detection analysis.
-
-        Creates slices for top, bottom, left, right borders and center region
-        used in statistical analysis for border detection.
-
-        Args:
-            height: Image height in pixels
-            width: Image width in pixels
-
-        Returns:
-            List of slice tuples for (top, bottom, left, right, center) regions
-        """
-        return [
-            (slice(0, height // 20), slice(None)),  # top
-            (slice(-height // 20, None), slice(None)),  # bottom
-            (slice(None), slice(0, width // 20)),  # left
-            (slice(None), slice(-width // 20, None)),  # right
-            (slice(height // 5, 4 * height // 5), slice(width // 5, 4 * width // 5)),  # center
-        ]
-
-    @staticmethod
-    def _calculate_region_statistics(
-        gray_image: np.ndarray[Any, Any], edges: np.ndarray[Any, Any], slices: list[tuple[slice, slice]]
-    ) -> tuple[list[float], list[float], list[float]]:
-        """
-        Calculate statistical measures for image regions.
-
-        Args:
-            gray_image: Grayscale image array
-            edges: Edge strength array
-            slices: List of slice tuples defining regions
-
-        Returns:
-            Tuple of (means, standard_deviations, edge_strengths) for each region
-        """
-        means = [np.mean(gray_image[s]) for s in slices]
-        stds = [np.std(gray_image[s]) for s in slices]
-        edge_strengths = [np.mean(edges[s]) for s in slices]
-        return means, stds, edge_strengths
-
-    @staticmethod
-    def _evaluate_edge(
-        means: list[float],
-        stds: list[float],
-        edge_strengths: list[float],
-        edge_index: int,
-        center_index: int,
-        color_threshold: float,
-        std_threshold: float,
-        edge_threshold: float,
-    ) -> bool:
-        """
-        Evaluate whether a border edge should be considered for cropping.
-
-        Args:
-            means: Mean intensity values for regions
-            stds: Standard deviation values for regions
-            edge_strengths: Edge strength values for regions
-            edge_index: Index of the edge region to evaluate
-            center_index: Index of the center region for comparison
-            color_threshold: Minimum color difference threshold
-            std_threshold: Maximum standard deviation threshold for uniformity
-            edge_threshold: Minimum edge strength threshold
-
-        Returns:
-            True if edge qualifies for cropping, False otherwise
-        """
-        color_diff = abs(means[edge_index] - means[center_index]) / 255
-        is_uniform = stds[edge_index] < std_threshold * 255
-        has_strong_edge = edge_strengths[edge_index] > edge_threshold * 255
-        return color_diff > color_threshold and (is_uniform or has_strong_edge)
-
-    @staticmethod
-    def _detect_gradient(means: list[float], gradient_threshold: float) -> bool:
-        """
-        Detect gradients that indicate the image should not be cropped.
-
-        Args:
-            means: Mean intensity values for border regions
-            gradient_threshold: Threshold for gradient detection
-
-        Returns:
-            True if gradient detected (should not crop), False otherwise
-        """
-        vertical_gradient = abs(means[0] - means[1]) / 255
-        horizontal_gradient = abs(means[2] - means[3]) / 255
-        return vertical_gradient > gradient_threshold or horizontal_gradient > gradient_threshold
-
-    @staticmethod
-    def _detect_border_shape(
-        image: np.ndarray[Any, Any],
-        color_threshold: float = 0.15,
-        std_threshold: float = 0.05,
-        edge_threshold: float = 0.1,
-        gradient_threshold: float = 0.5,
-    ) -> list[str]:
-        """
-        Detect border shapes using statistical analysis.
-
-        This method analyzes image regions to detect uniform borders that
-        can be safely cropped. It's primarily used for legacy compatibility
-        but the main cropping algorithm uses complementary color analysis.
-
-        Args:
-            image: Input image array
-            color_threshold: Minimum color difference for border detection
-            std_threshold: Maximum standard deviation for uniformity
-            edge_threshold: Minimum edge strength threshold
-            gradient_threshold: Threshold for gradient detection
-
-        Returns:
-            List of detected border names: ["TOP", "BOTTOM", "LEFT", "RIGHT"]
-        """
-        height, width = image.shape[:2]
-        gray_image = AutoCrop._convert_to_gray(image)
-        edges = AutoCrop._calculate_edge_strength(gray_image)
-        slices = AutoCrop._get_slices(height, width)
-        means, stds, edge_strengths = AutoCrop._calculate_region_statistics(gray_image, edges, slices)
-
-        detected_borders = []
-        if AutoCrop._evaluate_edge(
-            means, stds, edge_strengths, 0, 4, color_threshold, std_threshold, edge_threshold
-        ):
-            detected_borders.append("TOP")
-        if AutoCrop._evaluate_edge(
-            means, stds, edge_strengths, 1, 4, color_threshold, std_threshold, edge_threshold
-        ):
-            detected_borders.append("BOTTOM")
-        if AutoCrop._evaluate_edge(
-            means, stds, edge_strengths, 2, 4, color_threshold, std_threshold, edge_threshold
-        ):
-            detected_borders.append("LEFT")
-        if AutoCrop._evaluate_edge(
-            means, stds, edge_strengths, 3, 4, color_threshold, std_threshold, edge_threshold
-        ):
-            detected_borders.append("RIGHT")
-
-        if AutoCrop._detect_gradient(means, gradient_threshold):
-            return []  # グラデーションが検出された場合は境界なしとする
-
-        return detected_borders
 
     def _normalize_to_rgb(self, np_image: np.ndarray[Any, Any]) -> np.ndarray[Any, Any]:
         """グレースケール・RGBA・LA 画像を RGB 3ch 配列に正規化する。
