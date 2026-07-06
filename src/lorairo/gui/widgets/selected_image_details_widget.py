@@ -777,7 +777,21 @@ class SelectedImageDetailsWidget(QWidget):
             return
         self._refresh_rate_limiter.start()
         logger.debug(f"タグメタデータ再取得: image_id={self.current_image_id} (#1205)")
+        # 外部書き込みが新しい言語キーの初回翻訳だった場合、available_languages (reader
+        # 注入時の 1 回取得) に現れず selector から選べない (Codex P2)。言語一覧を再取得し、
+        # 現在の選択を保ったまま selector を更新する (翻訳追加フローと同型、prefer なし)。
+        if self._merged_reader is not None:
+            languages = self._merged_reader.get_tag_languages()
+            if languages != self._available_languages:
+                self._available_languages = languages
+                self.annotation_display.update_language_selector(self._available_languages)
         self._trigger_tag_metadata_fetch(self._current_tags_list)
+        # 外部編集で翻訳/type が直っても refinement のキャッシュ済み ⚠ (翻訳品質 /
+        # TYPE_MISMATCH) は残るため、GUI 内の翻訳修正フローと同様にキャッシュを破棄して
+        # 再評価する (Codex P2)。
+        if self._refinement_service is not None:
+            self._refinement_service.clear_cache()
+        self._trigger_refinement_evaluation()
 
     def showEvent(self, event: "QShowEvent") -> None:
         """表示時にトップレベルウィンドウの WindowActivate 監視を張る (#1205 案2)。

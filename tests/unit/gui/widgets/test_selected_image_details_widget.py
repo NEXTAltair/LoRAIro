@@ -969,6 +969,58 @@ class TestTagMetadataRefreshTriggers:
 
         assert refreshed == []
 
+    def test_refresh_reevaluates_refinement_with_cache_clear(self, widget, monkeypatch):
+        """外部編集で直った翻訳/type の stale ⚠ が残らないよう refinement を再評価する (Codex P2)。"""
+        triggered: list = []
+        monkeypatch.setattr(widget, "_trigger_tag_metadata_fetch", lambda tags: None)
+        monkeypatch.setattr(widget, "_trigger_refinement_evaluation", lambda: triggered.append(True))
+        refinement_service = Mock()
+        widget._refinement_service = refinement_service
+
+        widget.refresh_tag_metadata()
+
+        refinement_service.clear_cache.assert_called_once()
+        assert triggered == [True]
+
+    def test_refresh_updates_language_selector_on_new_language(self, widget, monkeypatch):
+        """外部追加された新言語が selector に現れる (現在の選択は保つ、Codex P2)。"""
+        monkeypatch.setattr(widget, "_trigger_tag_metadata_fetch", lambda tags: None)
+        monkeypatch.setattr(widget, "_trigger_refinement_evaluation", lambda: None)
+        reader = Mock()
+        reader.get_tag_languages.return_value = ["english", "japanese", "zh"]
+        widget._merged_reader = reader
+        widget._available_languages = ["english", "japanese"]
+        updated: list = []
+        monkeypatch.setattr(
+            widget.annotation_display,
+            "update_language_selector",
+            lambda languages, **kwargs: updated.append((languages, kwargs)),
+        )
+
+        widget.refresh_tag_metadata()
+
+        assert widget._available_languages == ["english", "japanese", "zh"]
+        assert updated == [(["english", "japanese", "zh"], {})]
+
+    def test_refresh_keeps_selector_untouched_when_languages_unchanged(self, widget, monkeypatch):
+        """言語一覧に変化が無ければ selector を触らない (不要な再構築を避ける)。"""
+        monkeypatch.setattr(widget, "_trigger_tag_metadata_fetch", lambda tags: None)
+        monkeypatch.setattr(widget, "_trigger_refinement_evaluation", lambda: None)
+        reader = Mock()
+        reader.get_tag_languages.return_value = ["english", "japanese"]
+        widget._merged_reader = reader
+        widget._available_languages = ["english", "japanese"]
+        updated: list = []
+        monkeypatch.setattr(
+            widget.annotation_display,
+            "update_language_selector",
+            lambda languages, **kwargs: updated.append(languages),
+        )
+
+        widget.refresh_tag_metadata()
+
+        assert updated == []
+
     def test_shutdown_stops_poll_timer_and_event_filter(self, widget):
         """shutdown で polling タイマーが止まり、event filter が外れる。"""
         widget.show()
