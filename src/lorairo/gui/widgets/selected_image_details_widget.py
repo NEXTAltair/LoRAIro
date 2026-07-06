@@ -244,8 +244,11 @@ class SelectedImageDetailsWidget(QWidget):
 
         # コピー/再読込は低頻度の補助操作なので、専用行を占有せず「画像情報」見出し行の
         # 右端にアイコンボタンとして相乗りさせる (#1210 案A: 縦の占有 3 行 → 0 行)。
+        # QToolButton は既定でアイコンのみ表示。グリフ文字をラベルとして出すため TextOnly 必須
+        # (未指定だと一部 Qt スタイルで空ボタンに見える、Codex #1224 P2)。
         self._copy_details_button = QToolButton(container)
         self._copy_details_button.setText("📋")
+        self._copy_details_button.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextOnly)
         self._copy_details_button.setToolTip("詳細をコピー")
         self._copy_details_button.setCursor(Qt.CursorShape.PointingHandCursor)
         self._copy_details_button.setStyleSheet(ACTION_TOOL_BUTTON_QSS)
@@ -255,6 +258,7 @@ class SelectedImageDetailsWidget(QWidget):
         # CLI 等の外部プロセスの DB 書き込みを明示リロードで反映する (Issue #1171 / ADR 0067 §4)
         self._reload_from_db_button = QToolButton(container)
         self._reload_from_db_button.setText("⟳")
+        self._reload_from_db_button.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextOnly)
         self._reload_from_db_button.setToolTip(
             "DBから再読込: 選択画像のアノテーションキャッシュを破棄して DB から再取得します"
             " (CLI 書き込みの反映用)"

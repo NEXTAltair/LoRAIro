@@ -784,6 +784,9 @@ class TagPanelWidget(QWidget):
         # 有効化は親が set_translation_refresh_enabled で行う (DB 非依存を維持)。
         self._translation_refresh_button = QToolButton(self._lang_bar)
         self._translation_refresh_button.setText("🔄")
+        # QToolButton は既定でアイコンのみ表示。グリフ文字をラベルとして出すため TextOnly 必須
+        # (未指定だと一部 Qt スタイルで空ボタンに見える、Codex #1224 P2)。
+        self._translation_refresh_button.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextOnly)
         self._translation_refresh_button.setToolTip(
             "表示中画像のタグ翻訳/使用頻度/type を tag DB から再取得します (CLI で追加した翻訳の反映用)"
         )
@@ -1060,6 +1063,12 @@ class TagPanelWidget(QWidget):
                 (翻訳再取得ボタンが有効なら言語バー自体は残る、#1210)
         """
         if not available_languages:
+            # 直前にリーダーがあり言語が入っていた場合、clear しないと combo に古い言語が
+            # 残り、_update_lang_bar_visibility が count()>1 で誤って表示継続する
+            # (set_merged_reader(None) / 言語なしリーダー再注入の回帰、Codex #1224 P2)。
+            self._lang_combo.blockSignals(True)
+            self._lang_combo.clear()
+            self._lang_combo.blockSignals(False)
             self._update_lang_bar_visibility()
             return
 

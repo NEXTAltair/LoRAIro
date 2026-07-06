@@ -1717,3 +1717,26 @@ def test_lang_combo_shown_when_languages_present(panel):
     assert not panel._lang_bar.isHidden()
     assert not panel._lang_combo.isHidden()
     assert panel._lang_combo.count() > 1
+
+
+def test_reinit_with_no_languages_clears_stale_combo(panel):
+    """言語ありの後に空リストで再初期化すると古い言語が残らない (Codex #1224 P2)。
+
+    clear しないと combo に古い言語が残り、可視性判定が count()>1 で誤って
+    表示継続する (set_merged_reader(None) 相当の回帰)。
+    """
+    panel.initialize_language_selector(["japanese", "en"])
+    assert panel._lang_combo.count() > 1
+
+    panel.initialize_language_selector([])  # リーダー消失 / 言語なしリーダー再注入
+
+    assert panel._lang_combo.count() == 0
+    assert panel._lang_combo.isHidden()
+    assert panel._lang_bar.isHidden()  # 再取得も無効なのでバーごと隠れる
+
+
+def test_action_buttons_use_text_only_style(panel):
+    """グリフ文字ボタンは TextOnly スタイルでラベルを表示する (Codex #1224 P2)。"""
+    from PySide6.QtCore import Qt
+
+    assert panel._translation_refresh_button.toolButtonStyle() == Qt.ToolButtonStyle.ToolButtonTextOnly
