@@ -213,7 +213,7 @@ def test_pending_keeps_only_latest_request(qtbot) -> None:
 
 
 def test_terminal_event_starts_pending_request(qtbot) -> None:
-    """worker 終端イベントで pending の最新要求が起動される (#1024)。"""
+    """worker 終端イベントで pending の最新要求が遅延起動される (#1024/#1206)。"""
     widget, manager = _make_wired_widget(qtbot)
 
     widget._trigger_refinement_evaluation()
@@ -223,9 +223,34 @@ def test_terminal_event_starts_pending_request(qtbot) -> None:
     inflight_id = manager.started[0][0]
     manager.emit_terminal(inflight_id, WorkerOutcome.CANCELED)
 
-    assert len(manager.started) == 2
+    # シグナル配送中の同期 start_worker 再入を断つため、起動はイベントループ1巡後 (#1206)
     assert widget._refinement_pending is None
+    qtbot.waitUntil(lambda: len(manager.started) == 2, timeout=5000)
     assert widget._refinement_inflight_id == manager.started[1][0]
+
+
+def test_deferred_start_drops_request_when_new_worker_already_inflight(qtbot) -> None:
+    """遅延起動の発火時点で新 worker が起動済みなら stale 要求を破棄する (#1206)。"""
+    widget, manager = _make_wired_widget(qtbot)
+
+    widget._trigger_refinement_evaluation()  # in-flight を作る
+    request = (5, ["flower"], widget._refinement_generation)
+
+    widget._start_refinement_worker_deferred(request)
+
+    assert len(manager.started) == 1  # 追加起動されない
+
+
+def test_deferred_start_skipped_after_shutdown(qtbot) -> None:
+    """shutdown 後に発火した遅延起動は worker を再起動しない (#1206)。"""
+    widget, manager = _make_wired_widget(qtbot)
+
+    request = (5, ["flower"], 1)
+    widget.shutdown()
+
+    widget._start_refinement_worker_deferred(request)
+
+    assert manager.started == []
 
 
 def test_terminal_event_for_other_worker_is_ignored(qtbot) -> None:

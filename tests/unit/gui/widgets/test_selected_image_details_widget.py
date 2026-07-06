@@ -555,6 +555,39 @@ class TestSelectedImageDetailsWidget:
         assert widget._tag_metadata_inflight_id is None
         assert pending_calls == [False]
 
+    def test_tag_metadata_terminal_defers_pending_start(self, widget, monkeypatch, qtbot):
+        """#1206: 終端イベント中は同期起動せず、イベントループ1巡後に pending を起動する。"""
+        from lorairo.gui.workers.terminal import WorkerOutcome, WorkerTerminalEvent
+
+        widget.current_image_id = 7
+        pending = (7, [{"tag": "cat", "tag_id": 1}], 4)
+        widget._tag_metadata_inflight_id = "tag_metadata_3"
+        widget._tag_metadata_pending = pending
+        started: list = []
+        monkeypatch.setattr(widget, "_start_tag_metadata_worker", started.append)
+
+        widget._on_tag_metadata_terminal(
+            WorkerTerminalEvent(
+                worker_id="tag_metadata_3",
+                worker_type="tag_metadata",
+                outcome=WorkerOutcome.CANCELED,
+            )
+        )
+
+        assert started == []  # シグナル配送中の同期 start_worker 再入を断つ (#1206)
+        qtbot.waitUntil(lambda: started == [pending], timeout=5000)
+
+    def test_tag_metadata_deferred_start_skipped_after_shutdown(self, widget, monkeypatch):
+        """#1206: shutdown 後に発火した遅延起動は worker を再起動しない。"""
+        widget.current_image_id = 7
+        started: list = []
+        monkeypatch.setattr(widget, "_start_tag_metadata_worker", started.append)
+
+        widget.shutdown()
+        widget._start_tag_metadata_worker_deferred((7, [{"tag": "cat", "tag_id": 1}], 4))
+
+        assert started == []
+
     def test_build_metadata_skips_tag_without_tag_id(self, widget):
         """tag_id=Noneのタグは翻訳取得をスキップすること"""
         mock_reader = Mock()
