@@ -345,6 +345,13 @@ class TagsAddResult(BaseModel):
     tag_resolutions: list[TagResolutionEntry]
     skipped_invalid_tags: list[str]
     unresolved_tag_count: int | None
+    would_add: int | None = Field(
+        default=None,
+        description=(
+            "Estimated additions if --apply were run (dry-run only, Issue #1217). "
+            "Accounts for existing-duplicate skips. Absent on apply runs."
+        ),
+    )
 
     model_config = ConfigDict(title="TagsAddResult")
 
@@ -359,6 +366,20 @@ class TagsRemoveResult(BaseModel):
     tags: list[str]
     removed: int
     dry_run: bool
+    mode: Literal["soft_reject"] = Field(
+        default="soft_reject",
+        description=(
+            "Removal mode (Issue #1217). soft_reject marks rejected_at and is reversible "
+            "via tags restore / re-add."
+        ),
+    )
+    would_remove: int | None = Field(
+        default=None,
+        description=(
+            "Estimated soft-reject count if --apply were run (dry-run only, Issue #1217). "
+            "Absent on apply runs."
+        ),
+    )
 
     model_config = ConfigDict(title="TagsRemoveResult")
 
@@ -1294,6 +1315,14 @@ TOOL_SPECS: dict[str, ToolSpec] = {
                         "int?",
                         description="Count of applied tags left with `tag_id=null` (apply mode only).",
                     ),
+                    _f(
+                        "would_add",
+                        "int?",
+                        description=(
+                            "Estimated additions if --apply were run (dry-run only, Issue #1217). "
+                            "Accounts for existing-duplicate skips."
+                        ),
+                    ),
                 ),
                 schema=TagsAddResult,
             ),
@@ -1341,6 +1370,21 @@ TOOL_SPECS: dict[str, ToolSpec] = {
                     _f("tags", "list[str]"),
                     _f("removed", "int"),
                     _f("dry_run", "bool"),
+                    _f(
+                        "mode",
+                        "str",
+                        description=(
+                            "Removal mode (Issue #1217): `soft_reject` marks rejected_at and is "
+                            "reversible via tags restore / re-add."
+                        ),
+                    ),
+                    _f(
+                        "would_remove",
+                        "int?",
+                        description=(
+                            "Estimated soft-reject count if --apply were run (dry-run only, Issue #1217)."
+                        ),
+                    ),
                 ),
                 schema=TagsRemoveResult,
             ),
