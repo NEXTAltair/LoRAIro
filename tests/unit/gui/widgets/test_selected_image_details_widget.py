@@ -886,3 +886,95 @@ class TestReadableLayoutTopPacking:
         gap = rsw.geometry().y() - (ad.geometry().y() + ad.geometry().height())
         # spacing (4px) 程度。タグが多くても過大な隙間 (>= 40px) が出ないこと。
         assert gap < 40
+
+
+class TestTagMetadataRefreshTriggers:
+    """#1205: 翻訳/メタデータ再取得トリガー 3 方式のテスト"""
+
+    @pytest.fixture
+    def widget(self, qtbot):
+        widget = SelectedImageDetailsWidget()
+        qtbot.addWidget(widget)
+        widget.current_image_id = 7
+        widget._current_tags_list = [{"tag": "cat", "tag_id": 1}]
+        return widget
+
+    def test_manual_refresh_retriggers_worker(self, widget, monkeypatch):
+        """refresh_tag_metadata は保持中の tags_list で worker を再起動する (案1)。"""
+        triggered: list = []
+        monkeypatch.setattr(widget, "_trigger_tag_metadata_fetch", triggered.append)
+
+        widget.refresh_tag_metadata()
+
+        assert triggered == [[{"tag": "cat", "tag_id": 1}]]
+
+    def test_refresh_is_rate_limited(self, widget, monkeypatch):
+        """1 秒未満の連続トリガーは 1 回に合流する。"""
+        triggered: list = []
+        monkeypatch.setattr(widget, "_trigger_tag_metadata_fetch", triggered.append)
+
+        widget.refresh_tag_metadata()
+        widget.refresh_tag_metadata()
+
+        assert len(triggered) == 1
+
+    def test_refresh_skipped_without_image(self, widget, monkeypatch):
+        """画像未選択・タグ無しでは何もしない。"""
+        triggered: list = []
+        monkeypatch.setattr(widget, "_trigger_tag_metadata_fetch", triggered.append)
+        widget.current_image_id = None
+
+        widget.refresh_tag_metadata()
+
+        assert triggered == []
+
+    def test_window_activate_triggers_refresh(self, widget, monkeypatch):
+        """監視対象ウィンドウの WindowActivate で再取得する (案2)。"""
+        from PySide6.QtCore import QEvent
+
+        refreshed: list = []
+        monkeypatch.setattr(widget, "refresh_tag_metadata", lambda: refreshed.append(True))
+        widget.show()  # showEvent で window() に event filter が張られる
+        assert widget._watched_window is not None
+
+        widget.eventFilter(widget._watched_window, QEvent(QEvent.Type.WindowActivate))
+
+        assert refreshed == [True]
+
+    def test_user_db_poll_detects_change(self, widget, monkeypatch, tmp_path):
+        """user_tags.sqlite の署名変化で再取得する (案3)。初回観測はベースラインのみ。"""
+        db_file = tmp_path / "user_tags.sqlite"
+        db_file.write_bytes(b"v1")
+        monkeypatch.setattr("lorairo.database.db_core.get_user_tag_db_path", lambda: db_file)
+        refreshed: list = []
+        monkeypatch.setattr(widget, "refresh_tag_metadata", lambda: refreshed.append(True))
+
+        widget._poll_user_db_change()  # 初回 = ベースライン記録のみ
+        assert refreshed == []
+
+        widget._poll_user_db_change()  # 変化なし
+        assert refreshed == []
+
+        db_file.write_bytes(b"v2-changed")
+        widget._poll_user_db_change()
+        assert refreshed == [True]
+
+    def test_user_db_poll_skips_when_uninitialized(self, widget, monkeypatch):
+        """tag DB 未初期化 (path=None) では黙ってスキップする。"""
+        monkeypatch.setattr("lorairo.database.db_core.get_user_tag_db_path", lambda: None)
+        refreshed: list = []
+        monkeypatch.setattr(widget, "refresh_tag_metadata", lambda: refreshed.append(True))
+
+        widget._poll_user_db_change()
+
+        assert refreshed == []
+
+    def test_shutdown_stops_poll_timer_and_event_filter(self, widget):
+        """shutdown で polling タイマーが止まり、event filter が外れる。"""
+        widget.show()
+        assert widget._user_db_poll_timer.isActive()
+
+        widget.shutdown()
+
+        assert not widget._user_db_poll_timer.isActive()
+        assert widget._watched_window is None
