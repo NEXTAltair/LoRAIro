@@ -1685,3 +1685,35 @@ def test_set_translation_refresh_enabled_toggles(panel):
     assert panel._translation_refresh_button.isEnabled()
     panel.set_translation_refresh_enabled(False)
     assert not panel._translation_refresh_button.isEnabled()
+
+
+def test_refresh_button_stays_visible_when_no_languages(panel):
+    """翻訳言語 0 件でも再取得ボタンは残る (Codex #1224 P2)。
+
+    未翻訳画像で言語コンボが隠れても、CLI で最初の翻訳を追加した直後に
+    画像再選択なしで取得できるよう、ボタンとバーは可視を保つ
+    (ヘッドレス親非表示のため isHidden() で明示可視フラグを検証)。
+    """
+    panel.initialize_language_selector([])  # 言語なし → コンボ非表示
+    panel.set_translation_refresh_enabled(True)
+
+    assert panel._lang_combo.isHidden()  # 言語コンボは隠れる
+    assert not panel._translation_refresh_button.isHidden()  # ボタンは残る
+    assert not panel._lang_bar.isHidden()  # バーも残る
+
+
+def test_lang_bar_hidden_when_no_languages_and_refresh_disabled(panel):
+    """言語 0 件かつ再取得ボタン無効ならバー全体を隠す (既存挙動を維持)。"""
+    panel.initialize_language_selector([])
+    panel.set_translation_refresh_enabled(False)
+
+    assert panel._lang_bar.isHidden()
+
+
+def test_lang_combo_shown_when_languages_present(panel):
+    """翻訳言語ありなら言語コンボとバーを表示する。"""
+    panel.initialize_language_selector(["japanese"])
+
+    assert not panel._lang_bar.isHidden()
+    assert not panel._lang_combo.isHidden()
+    assert panel._lang_combo.count() > 1
