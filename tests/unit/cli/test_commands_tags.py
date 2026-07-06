@@ -32,6 +32,12 @@ def _make_container(*, image_exists: bool = True) -> MagicMock:
         True,
         [(1, "changed"), (2, "skipped")],
     )
+    # dry-run 見積り用の読み取り専用 preview (Issue #1217)
+    container.db_manager.annotation_repo.preview_add_tag_to_images_batch.return_value = 2
+    container.db_manager.annotation_repo.preview_remove_tag_from_images_batch.return_value = [
+        (1, "changed"),
+        (2, "skipped"),
+    ]
     return container
 
 
@@ -62,6 +68,43 @@ class TestTagsAdd:
         )
         assert result.exit_code == 0
         mock_project_and_container.db_manager.annotation_repo.add_tag_to_images_batch.assert_called()
+
+    def test_add_dry_run_result_has_would_add(self, mock_project_and_container):
+        """dry-run 出力に追加見込み件数 (既存重複スキップ込み) が載る (Issue #1217)。"""
+        repo = mock_project_and_container.db_manager.annotation_repo
+        result = runner.invoke(
+            app,
+            ["--json", "tags", "add", "--project", "proj", "--image-ids", "1,2", "--tags", "cat"],
+        )
+        assert result.exit_code == 0
+        row = _json_result_row(result.stdout)
+        assert row["dry_run"] is True
+        assert row["would_add"] == 2
+        repo.preview_add_tag_to_images_batch.assert_called_once_with([1, 2], "cat")
+        repo.add_tag_to_images_batch.assert_not_called()
+
+    def test_add_apply_result_has_no_would_add(self, mock_project_and_container):
+        """would_add は dry-run 専用フィールド (Issue #1217)。"""
+        result = runner.invoke(
+            app,
+            [
+                "--json",
+                "tags",
+                "add",
+                "--project",
+                "proj",
+                "--image-ids",
+                "1,2",
+                "--tags",
+                "cat",
+                "--apply",
+            ],
+        )
+        assert result.exit_code == 0
+        row = _json_result_row(result.stdout)
+        assert row["dry_run"] is False
+        assert "would_add" not in row
+        assert row["added"] == 2
 
     def test_add_json_output_has_result_row(self, mock_project_and_container):
         result = runner.invoke(
@@ -232,6 +275,44 @@ class TestTagsRemove:
         )
         assert result.exit_code == 0
         mock_project_and_container.db_manager.annotation_repo.remove_tag_from_images_batch.assert_called()
+
+    def test_remove_dry_run_result_has_would_remove_and_mode(self, mock_project_and_container):
+        """dry-run 出力に予定件数と soft-reject である旨が載る (Issue #1217)。"""
+        result = runner.invoke(
+            app,
+            ["--json", "tags", "remove", "--project", "proj", "--image-ids", "1,2", "--tags", "bad_tag"],
+        )
+        assert result.exit_code == 0
+        row = _json_result_row(result.stdout)
+        assert row["dry_run"] is True
+        assert row["would_remove"] == 1  # preview で changed=1 (image 2 は skipped)
+        assert row["mode"] == "soft_reject"
+        assert row["removed"] == 0
+        mock_project_and_container.db_manager.annotation_repo.remove_tag_from_images_batch.assert_not_called()
+
+    def test_remove_apply_result_has_mode_without_would_remove(self, mock_project_and_container):
+        """apply 出力にも mode は載るが、would_remove は dry-run 専用 (Issue #1217)。"""
+        result = runner.invoke(
+            app,
+            [
+                "--json",
+                "tags",
+                "remove",
+                "--project",
+                "proj",
+                "--image-ids",
+                "1,2",
+                "--tags",
+                "bad_tag",
+                "--apply",
+            ],
+        )
+        assert result.exit_code == 0
+        row = _json_result_row(result.stdout)
+        assert row["dry_run"] is False
+        assert row["mode"] == "soft_reject"
+        assert row["removed"] == 2
+        assert "would_remove" not in row
 
 
 @pytest.mark.unit

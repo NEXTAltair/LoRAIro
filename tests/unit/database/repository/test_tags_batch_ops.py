@@ -24,6 +24,37 @@ def repo(mock_session):
 
 
 @pytest.mark.unit
+class TestPreviewTagBatchOps:
+    """preview_* の dry-run 見積り (Issue #1217)。書き込み経路と同じ判定で読み取り専用。"""
+
+    def test_preview_remove_returns_plan_without_write(self, repo, mock_session):
+        repo._build_existing_tags_map = MagicMock(return_value={1: {"bad_tag"}, 2: {"other"}})
+
+        plan = repo.preview_remove_tag_from_images_batch([1, 2], "bad_tag")
+
+        assert plan == [(1, "changed"), (2, "skipped")]
+        mock_session.commit.assert_not_called()
+
+    def test_preview_remove_empty_inputs_return_empty(self, repo):
+        assert repo.preview_remove_tag_from_images_batch([], "tag") == []
+        assert repo.preview_remove_tag_from_images_batch([1], "   ") == []
+
+    def test_preview_add_counts_insert_and_skips_existing_without_write(self, repo, mock_session):
+        repo._build_existing_tags_map = MagicMock(return_value={1: {"cat"}})
+        mock_session.add = MagicMock()
+
+        count = repo.preview_add_tag_to_images_batch([1, 2, 3], "cat")
+
+        assert count == 2  # image 1 は既存タグでスキップ
+        mock_session.add.assert_not_called()
+        mock_session.commit.assert_not_called()
+
+    def test_preview_add_empty_inputs_return_zero(self, repo):
+        assert repo.preview_add_tag_to_images_batch([], "cat") == 0
+        assert repo.preview_add_tag_to_images_batch([1], "   ") == 0
+
+
+@pytest.mark.unit
 class TestRemoveTagFromImagesBatch:
     def test_removes_existing_tag_returns_per_item_results(self, repo, mock_session):
         repo._build_existing_tags_map = MagicMock(return_value={123: {"bad_tag"}, 456: {"bad_tag"}})

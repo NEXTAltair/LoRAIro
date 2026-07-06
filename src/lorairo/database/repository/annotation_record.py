@@ -370,6 +370,95 @@ class AnnotationRepository(BaseRepository):
             existing_tags_by_image[tag_obj.image_id].add(tag_obj.tag.lower())
         return existing_tags_by_image
 
+    def _plan_tag_addition(
+        self,
+        session: Session,
+        image_ids: list[int],
+        resolved_tag: str,
+        model_id: int | None,
+    ) -> tuple[list[int], dict[int, Tag]]:
+        """タグ追加の適用計画を読み取り専用で組み立てる (書き込み/preview 共有、Issue #1217)。
+
+        dedup は canonical 解決後の値で判定する。既存行は書式が揃っていない
+        ことがある (旧行が `blue sky`、解決後が `blue_sky` 等) ため、両辺を
+        TagCleaner.clean_format で正規化してから比較する (Codex P2 / PR #994)。
+
+        同一 (image, model) の soft-reject 済み行は復活対象として分離する。
+        uq_tags_image_model_tag (Issue #1065) 下で新規 INSERT すると
+        IntegrityError になるため、INSERT 経路には乗せない。
+
+        Args:
+            session: SQLAlchemy セッション。
+            image_ids: 対象画像 ID リスト。
+            resolved_tag: canonical 解決済みの保存タグ文字列。
+            model_id: モデル ID (手動編集は None)。
+
+        Returns:
+            (新規 INSERT 対象の image_id リスト, 復活対象の image_id -> soft-reject 済み Tag 行)。
+            既にタグを持つ画像はどちらにも含まれない。
+        """
+        dedup_key = self._dedup_key(resolved_tag)
+        existing_tags_by_image = self._build_existing_tags_map(session, image_ids)
+
+        rejected_rows_stmt = select(Tag).where(
+            Tag.image_id.in_(image_ids),
+            Tag.rejected_at.is_not(None),
+            (Tag.model_id == model_id) if model_id is not None else Tag.model_id.is_(None),
+        )
+        rejected_by_image: dict[int, dict[str, Tag]] = {}
+        for row in session.execute(rejected_rows_stmt).scalars():
+            if row.image_id is None:
+                continue
+            rejected_by_image.setdefault(row.image_id, {}).setdefault(self._dedup_key(row.tag), row)
+
+        to_insert: list[int] = []
+        to_revive: dict[int, Tag] = {}
+        for image_id in image_ids:
+            existing_tags = existing_tags_by_image.get(image_id, set())
+            existing_dedup_keys = {self._dedup_key(t) for t in existing_tags}
+
+            if dedup_key in existing_dedup_keys:
+                logger.debug(
+                    f"Tag '{resolved_tag}' already exists for image_id {image_id}, skipping",
+                )
+                continue
+
+            rejected_row = rejected_by_image.get(image_id, {}).get(dedup_key)
+            if rejected_row is not None:
+                to_revive[image_id] = rejected_row
+            else:
+                to_insert.append(image_id)
+        return to_insert, to_revive
+
+    def preview_add_tag_to_images_batch(
+        self,
+        image_ids: list[int],
+        resolved_tag: str,
+        model_id: int | None = None,
+    ) -> int:
+        """タグ追加の dry-run 見積り件数 (would_add) を返す (読み取り専用、Issue #1217)。
+
+        `add_tag_to_images_batch` と同じ計画ロジック (`_plan_tag_addition`) で
+        「新規 INSERT + soft-reject 復活」の件数を数える。DB へは書き込まない。
+
+        Args:
+            image_ids: 対象画像 ID リスト。
+            resolved_tag: canonical 解決済みの保存タグ文字列 (呼び出し元が
+                classify_manual_tag の結果から組み立てる。未解決タグの外部 DB
+                登録が走らないよう、本メソッドは canonical 解決を行わない)。
+            model_id: モデル ID (手動編集は None)。
+
+        Returns:
+            --apply 時に追加される見込みの件数。
+        """
+        if not image_ids or not resolved_tag.strip():
+            return 0
+        with self.session_factory() as session:
+            to_insert, to_revive = self._plan_tag_addition(
+                session, image_ids, resolved_tag.strip().lower(), model_id
+            )
+        return len(to_insert) + len(to_revive)
+
     def add_tag_to_images_batch(
         self,
         image_ids: list[int],
@@ -418,49 +507,19 @@ class AnnotationRepository(BaseRepository):
                         "Saving with tag_id=None.",
                     )
 
-                # dedup は canonical 解決後の値で判定する。既存行は書式が揃っていない
-                # ことがある (旧行が `blue sky`、解決後が `blue_sky` 等) ため、両辺を
-                # TagCleaner.clean_format で正規化してから比較する (Codex P2 / PR #994)。
-                dedup_key = self._dedup_key(resolved_tag)
-                existing_tags_by_image = self._build_existing_tags_map(session, image_ids)
+                to_insert, to_revive = self._plan_tag_addition(session, image_ids, resolved_tag, model_id)
 
-                # 同一 (image, model) の soft-reject 済み行を取得する。手動再追加は
-                # ユーザーの明示的な復活操作なので reject を解除して同じ行を再利用する。
-                # uq_tags_image_model_tag (Issue #1065) 下で新規 INSERT すると
-                # IntegrityError になるため、INSERT 経路には乗せない。
-                rejected_rows_stmt = select(Tag).where(
-                    Tag.image_id.in_(image_ids),
-                    Tag.rejected_at.is_not(None),
-                    (Tag.model_id == model_id) if model_id is not None else Tag.model_id.is_(None),
-                )
-                rejected_by_image: dict[int, dict[str, Tag]] = {}
-                for row in session.execute(rejected_rows_stmt).scalars():
-                    if row.image_id is None:
-                        continue
-                    rejected_by_image.setdefault(row.image_id, {}).setdefault(self._dedup_key(row.tag), row)
+                for image_id, rejected_row in to_revive.items():
+                    rejected_row.rejected_at = None
+                    rejected_row.reject_reason = None
+                    rejected_row.is_edited_manually = True
+                    rejected_row.updated_at = func.now()
+                    added_count += 1
+                    logger.debug(
+                        f"Revived soft-rejected tag '{resolved_tag}' for image_id {image_id}",
+                    )
 
-                for image_id in image_ids:
-                    existing_tags = existing_tags_by_image.get(image_id, set())
-                    existing_dedup_keys = {self._dedup_key(t) for t in existing_tags}
-
-                    if dedup_key in existing_dedup_keys:
-                        logger.debug(
-                            f"Tag '{resolved_tag}' already exists for image_id {image_id}, skipping",
-                        )
-                        continue
-
-                    rejected_row = rejected_by_image.get(image_id, {}).get(dedup_key)
-                    if rejected_row is not None:
-                        rejected_row.rejected_at = None
-                        rejected_row.reject_reason = None
-                        rejected_row.is_edited_manually = True
-                        rejected_row.updated_at = func.now()
-                        added_count += 1
-                        logger.debug(
-                            f"Revived soft-rejected tag '{resolved_tag}' for image_id {image_id}",
-                        )
-                        continue
-
+                for image_id in to_insert:
                     new_tag = Tag(
                         image_id=image_id,
                         model_id=model_id,
@@ -485,6 +544,53 @@ class AnnotationRepository(BaseRepository):
                 session.rollback()
                 logger.opt(exception=True).error(f"Atomic batch tag add failed, rolled back: {e}")
                 raise
+
+    def _plan_tag_removal(
+        self, session: Session, image_ids: list[int], normalized_tag: str
+    ) -> list[tuple[int, str]]:
+        """タグ削除の適用計画 (image_id ごとの changed/skipped) を読み取り専用で組み立てる。
+
+        `remove_tag_from_images_batch` と `preview_remove_tag_from_images_batch` が
+        共有する (Issue #1217: dry-run 見積りと実適用の判定ロジックをドリフトさせない)。
+
+        Args:
+            session: SQLAlchemy セッション。
+            image_ids: 対象画像 ID リスト。
+            normalized_tag: strip + lower 済みタグ文字列。
+
+        Returns:
+            [(image_id, "changed"|"skipped"), ...] (タグを持たない画像は skipped)。
+        """
+        existing_tags_by_image = self._build_existing_tags_map(session, image_ids)
+        per_item: list[tuple[int, str]] = []
+        for image_id in image_ids:
+            existing_tags = existing_tags_by_image.get(image_id, set())
+            if normalized_tag not in existing_tags:
+                logger.debug(
+                    f"Tag '{normalized_tag}' not found for image_id {image_id}, skipping",
+                )
+                per_item.append((image_id, "skipped"))
+            else:
+                per_item.append((image_id, "changed"))
+        return per_item
+
+    def preview_remove_tag_from_images_batch(self, image_ids: list[int], tag: str) -> list[tuple[int, str]]:
+        """タグ削除の dry-run 見積り (would_remove の根拠) を返す (読み取り専用、Issue #1217)。
+
+        `remove_tag_from_images_batch` と同じ判定 (`_plan_tag_removal`) で
+        image_id ごとの changed/skipped を返す。DB へは書き込まない。
+
+        Args:
+            image_ids: 対象画像 ID リスト。
+            tag: 削除予定のタグ (正規化前可)。
+
+        Returns:
+            [(image_id, "changed"|"skipped"), ...]。入力が空の場合は空リスト。
+        """
+        if not image_ids or not tag.strip():
+            return []
+        with self.session_factory() as session:
+            return self._plan_tag_removal(session, image_ids, tag.strip().lower())
 
     def remove_tag_from_images_batch(
         self,
@@ -521,22 +627,10 @@ class AnnotationRepository(BaseRepository):
             return (False, [])
 
         normalized_tag = tag.strip().lower()
-        per_item: list[tuple[int, str]] = []
 
         with self.session_factory() as session:
             try:
-                existing_tags_by_image = self._build_existing_tags_map(session, image_ids)
-
-                # per_item リストを先に構築
-                for image_id in image_ids:
-                    existing_tags = existing_tags_by_image.get(image_id, set())
-                    if normalized_tag not in existing_tags:
-                        logger.debug(
-                            f"Tag '{normalized_tag}' not found for image_id {image_id}, skipping",
-                        )
-                        per_item.append((image_id, "skipped"))
-                    else:
-                        per_item.append((image_id, "changed"))
+                per_item = self._plan_tag_removal(session, image_ids, normalized_tag)
 
                 # bulk soft-reject (1回のみ)
                 images_to_reject = [iid for iid, s in per_item if s == "changed"]

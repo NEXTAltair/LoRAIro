@@ -40,27 +40,31 @@ def _apply_classified_tags(
     addable: list[ManualTagClassification],
     image_ids: list[int],
     dry_run: bool,
-) -> tuple[list[dict[str, object]], int]:
-    """分類済みタグを画像へ適用し、(per-tag 解決結果, 追加件数) を返す。
+) -> tuple[list[dict[str, object]], int, int]:
+    """分類済みタグを画像へ適用し、(per-tag 解決結果, 追加件数, 追加見込み件数) を返す。
 
-    dry-run では書き込みも user DB 登録も行わず分類結果のみを返す。
+    dry-run では書き込みも user DB 登録も行わず、読み取り専用 preview で
+    追加見込み件数 (would_add) を見積もる (Issue #1217)。
     apply では未登録の新タグのみ user DB へ登録し、typo/曖昧候補は自動 alias 化せず
     verbatim + tag_id=null で追加する (Issue #1174)。
     """
     resolutions: list[dict[str, object]] = []
     total_added = 0
+    total_would_add = 0
     for c in addable:
         tag_id = c.tag_id
-        if not dry_run:
-            if c.classification == "unregistered":
-                tag_id = annotation_repo.register_user_tag(c.input_tag)
-            # exact/alias は tag DB の canonical を保存し、それ以外 (新規登録・未解決) は
-            # 旧経路と同じ strip().lower() 正規化で保存する (Codex P2: 大文字混じり入力が
-            # verbatim 保存されると tags remove の小文字照合で削除できなくなる)
-            if c.classification in ("exact", "alias_resolved") and tag_id is not None:
-                store_tag = c.canonical_tag
-            else:
-                store_tag = c.input_tag.strip().lower()
+        if not dry_run and c.classification == "unregistered":
+            tag_id = annotation_repo.register_user_tag(c.input_tag)
+        # exact/alias は tag DB の canonical を保存し、それ以外 (新規登録・未解決) は
+        # 旧経路と同じ strip().lower() 正規化で保存する (Codex P2: 大文字混じり入力が
+        # verbatim 保存されると tags remove の小文字照合で削除できなくなる)
+        if c.classification in ("exact", "alias_resolved") and tag_id is not None:
+            store_tag = c.canonical_tag
+        else:
+            store_tag = c.input_tag.strip().lower()
+        if dry_run:
+            total_would_add += annotation_repo.preview_add_tag_to_images_batch(image_ids, store_tag)
+        else:
             _, added = annotation_repo.add_tag_to_images_batch(
                 image_ids, c.input_tag, None, resolved=(store_tag, tag_id)
             )
@@ -74,7 +78,7 @@ def _apply_classified_tags(
                 "candidates": c.candidates,
             }
         )
-    return resolutions, total_added
+    return resolutions, total_added, total_would_add
 
 
 def _print_add_summary(
@@ -149,7 +153,9 @@ def add(
         if not addable:
             raise click.UsageError("--tags の全タグが正規化後に空になりました (追加対象なし)。")
 
-        resolutions, total_added = _apply_classified_tags(annotation_repo, addable, image_ids, dry_run)
+        resolutions, total_added, total_would_add = _apply_classified_tags(
+            annotation_repo, addable, image_ids, dry_run
+        )
         applied_tags = [c.input_tag for c in addable]
         invalid_tags = [c.input_tag for c in classifications if c.classification == "invalid"]
         unresolved = [r for r in resolutions if r["tag_id"] is None]
@@ -164,18 +170,27 @@ def add(
                         "status": "dry_run" if dry_run else "changed",
                     }
                 )
+            result_fields: dict[str, object] = {
+                "target_images": len(image_ids),
+                "tags": applied_tags,
+                "added": total_added,
+                "dry_run": dry_run,
+                "tag_resolutions": resolutions,
+                "skipped_invalid_tags": invalid_tags,
+                "unresolved_tag_count": len(unresolved) if not dry_run else None,
+            }
+            if dry_run:
+                # dry-run の存在意義は差分の事前確認 (Issue #1217)。既存重複スキップを
+                # 織り込んだ「--apply したら追加される件数」を明示する。
+                result_fields["would_add"] = total_would_add
             emit_result(
                 f"{'[dry-run] ' if dry_run else ''}Added tags to {len(image_ids)} image(s)",
-                target_images=len(image_ids),
-                tags=applied_tags,
-                added=total_added,
-                dry_run=dry_run,
-                tag_resolutions=resolutions,
-                skipped_invalid_tags=invalid_tags,
-                unresolved_tag_count=len(unresolved) if not dry_run else None,
+                **result_fields,
             )
         else:
             _print_add_summary(applied_tags, resolutions, invalid_tags, unresolved, image_ids, dry_run)
+            if dry_run:
+                console.print(f"追加見込み: {total_would_add} 件 (既存重複はスキップ)")
 
 
 @app.command("remove")
@@ -211,14 +226,20 @@ def remove(
         validate_image_ids_exist(container, image_ids)
 
         dry_run = not apply
+        annotation_repo = container.db_manager.annotation_repo
         per_item_results: list[tuple[int, str]] = []
         total_removed = 0
+        would_remove = 0
 
-        if not dry_run:
+        if dry_run:
+            # 見積りは読み取り専用 preview で行う (would_remove、Issue #1217)。
+            # 実適用と同じ判定 (_plan_tag_removal) なので dry-run と apply が乖離しない。
             for tag in tag_list:
-                _, item_results = container.db_manager.annotation_repo.remove_tag_from_images_batch(
-                    image_ids, tag
-                )
+                plan = annotation_repo.preview_remove_tag_from_images_batch(image_ids, tag)
+                would_remove += sum(1 for _, s in plan if s == "changed")
+        else:
+            for tag in tag_list:
+                _, item_results = annotation_repo.remove_tag_from_images_batch(image_ids, tag)
                 per_item_results = item_results
                 total_removed += sum(1 for _, s in item_results if s == "changed")
 
@@ -237,18 +258,26 @@ def remove(
                         "status": status,
                     }
                 )
+            result_fields: dict[str, object] = {
+                "target_images": len(image_ids),
+                "tags": tag_list,
+                "removed": total_removed,
+                "dry_run": dry_run,
+                # 削除は rejected_at を立てる soft-reject (可逆)。復元手段があることを
+                # 機械可読にする (Issue #1217)。
+                "mode": "soft_reject",
+            }
+            if dry_run:
+                result_fields["would_remove"] = would_remove
             emit_result(
                 f"{'[dry-run] ' if dry_run else ''}Removed tags from {len(image_ids)} image(s)",
-                target_images=len(image_ids),
-                tags=tag_list,
-                removed=total_removed,
-                dry_run=dry_run,
+                **result_fields,
             )
         else:
             prefix = "[dry-run] " if dry_run else ""
             console.print(
                 f"{prefix}{OK} {len(image_ids)} 件の画像から {tag_list} を削除"
-                f"{'予定' if dry_run else '完了'}"
+                f"{f'予定 (削除見込み {would_remove} 件, soft-reject)' if dry_run else '完了 (soft-reject)'}"
             )
 
 
