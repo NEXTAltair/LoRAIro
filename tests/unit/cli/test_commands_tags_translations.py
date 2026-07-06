@@ -450,6 +450,39 @@ class TestTranslationsAddBatch:
         assert result_row["would_add"] == 2
         assert result_row["changed"] == 0
 
+    def test_batch_preferred_promotes_existing_non_preferred(
+        self, mock_env: MagicMock, tmp_path, monkeypatch
+    ) -> None:
+        """preferred=true で既存訳だが未主訳のものは promote する (skip しない、Codex P2)。"""
+        from lorairo.services.tag_management_service import TranslationStatus
+
+        # ja 候補 ["猫", "ネコ"]、主訳は "猫"。"ネコ" は既存だが未主訳。
+        mock_env.tag_management_service.translation_status_batch.side_effect = (
+            lambda tags, languages=("ja", "en"): {
+                tag: TranslationStatus(
+                    tag_id=10, by_language={"ja": (["猫", "ネコ"], "猫"), "en": ([], None)}
+                )
+                for tag in tags
+            }
+        )
+        path = self._write_jsonl(
+            tmp_path,
+            [
+                {"tag": "cat", "lang": "ja", "text": "ネコ", "preferred": True},  # 既存だが未主訳 → promote
+                {"tag": "cat", "lang": "ja", "text": "猫", "preferred": True},  # 既に主訳 → skip
+            ],
+        )
+        result = runner.invoke(
+            app,
+            ["--json", "tags", "translations", "add", "-p", "proj", "--file", path, "--apply"],
+        )
+        assert result.exit_code == 0
+        rows = _rows(result.stdout)
+        items = [r for r in rows if r.get("kind") == "item"]
+        assert [i["status"] for i in items] == ["changed", "skipped_existing"]
+        # 未主訳の "ネコ" は add_translation (write + set_preferred) で promote
+        mock_env.tag_management_service.add_translation.assert_called_once_with(10, "ja", "ネコ")
+
     def test_batch_apply_writes_and_skips_existing(
         self, mock_env: MagicMock, tmp_path, monkeypatch
     ) -> None:

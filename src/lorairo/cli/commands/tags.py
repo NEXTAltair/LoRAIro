@@ -685,8 +685,14 @@ def _add_translations_batch(
             counts["skipped_candidates"] += 1
         else:
             status = statuses.get(tag)
-            existing = status.by_language.get(lang, ([], None))[0] if status is not None else []
-            if text_value in existing:
+            existing, current_preferred = (
+                status.by_language.get(lang, ([], None)) if status is not None else ([], None)
+            )
+            already_exists = text_value in existing
+            # preferred=true で既存訳だが未だ主訳でないなら promote する (単発 --preferred と
+            # 同じ挙動、Codex P2)。skip すると主訳昇格が無言で無視される。
+            needs_promotion = preferred and already_exists and text_value != current_preferred
+            if already_exists and not needs_promotion:
                 payload["status"] = "skipped_existing"
                 counts["skipped_existing"] += 1
             elif dry_run:
