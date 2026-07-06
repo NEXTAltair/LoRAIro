@@ -46,7 +46,7 @@ from typing import Any, cast
 
 from genai_tag_db_tools import recommend_manual_refinement, search_tags
 from genai_tag_db_tools.db.repository import MergedTagReader, get_default_reader
-from genai_tag_db_tools.models import TagRegisterRequest, TagSearchRequest
+from genai_tag_db_tools.models import TagRegisterRequest, TagSearchRequest, TagSearchResult
 from genai_tag_db_tools.services.tag_register import TagRegisterService
 from genai_tag_db_tools.utils.cleanup_str import TagCleaner
 from sqlalchemy import delete, func, update
@@ -847,6 +847,49 @@ class AnnotationRepository(BaseRepository):
         cleaned: str = TagCleaner.clean_format(tag)
         return cleaned.strip().lower()
 
+    def _search_exact_resolved(
+        self, merged_reader: MergedTagReader, normalized_tag: str
+    ) -> TagSearchResult:
+        """手動タグの exact 検索を 3 段フォールバックで行い、preferred 解決済み結果を返す。
+
+        1. danbooru スコープ: alias→preferred は単一 format スコープ時のみ解決される
+           ため danbooru に絞る (Codex P2 / PR #994)。ADR 0068 の保存境界 = danbooru。
+        2. Lorairo スコープ: user 登録タグ/alias (`tags alias` で確定した typo 等) を
+           解決する (Codex P2 / PR #1183)。
+        3. danbooru スコープ deprecated 込み (Issue #1212): `sparkles` のように
+           deprecated な alias 行しか持たない実在タグを preferred へ解決する。
+           これが無いと実在タグが unregistered 扱いになり、重複 user タグ +
+           GUI から見えない孤立翻訳が無言で作られる。
+
+        Args:
+            merged_reader: マージ済みタグリーダー。
+            normalized_tag: clean_format 済みタグ文字列。
+
+        Returns:
+            最初にヒットした段の TagSearchResult。全段ミス時は空の結果。
+
+        Raises:
+            search_tags 由来の例外はそのまま伝播する (縮退判断は呼び出し元が行う)。
+        """
+        result = TagSearchResult(items=[], total=0)
+        for format_name, include_deprecated in (
+            (_DANBOORU_FORMAT, False),
+            (_LORAIRO_FORMAT, False),
+            (_DANBOORU_FORMAT, True),
+        ):
+            request = TagSearchRequest(
+                query=normalized_tag,
+                partial=False,
+                format_names=[format_name],
+                resolve_preferred=True,
+                include_aliases=True,
+                include_deprecated=include_deprecated,
+            )
+            result = search_tags(merged_reader, request)
+            if result.items:
+                return result
+        return result
+
     def _resolve_canonical_and_tag_id(self, session: Session, tag_string: str) -> tuple[str, int | None]:
         """手動タグ追加用に外部 tag_db で canonical 解決し、(canonical 文字列, tag_id) を返す。
 
@@ -884,33 +927,7 @@ class AnnotationRepository(BaseRepository):
             return (tag_string, None)
 
         try:
-            # alias→preferred は単一 format スコープ時のみ解決されるため danbooru に絞る
-            # (Codex P2 / PR #994)。format_names 未指定だと alias 行がそのまま返り、
-            # canonical へ解決されず dedup も外れる。ADR 0068 の保存境界 = danbooru。
-            request = TagSearchRequest(
-                query=normalized_tag,
-                partial=False,
-                format_names=[_DANBOORU_FORMAT],
-                resolve_preferred=True,
-                include_aliases=True,
-                include_deprecated=False,
-            )
-            result = search_tags(merged_reader, request)
-
-            # danbooru ミス時は user 登録タグ/alias の format (_LORAIRO_FORMAT) でも
-            # 解決する (Codex P2 / PR #1183)。`tags alias` で確定した typo を GUI /
-            # images update の手動追加経路でも preferred へ解決し、typo を別 user タグ
-            # として二重登録しない。
-            if not result.items:
-                request = TagSearchRequest(
-                    query=normalized_tag,
-                    partial=False,
-                    format_names=[_LORAIRO_FORMAT],
-                    resolve_preferred=True,
-                    include_aliases=True,
-                    include_deprecated=False,
-                )
-                result = search_tags(merged_reader, request)
+            result = self._search_exact_resolved(merged_reader, normalized_tag)
 
             if result.items:
                 item = result.items[0]
@@ -923,7 +940,15 @@ class AnnotationRepository(BaseRepository):
 
             # 翻訳/エイリアス未ヒット → 入力をそのまま保存しつつ外部 DB へ新規登録
             # (source_tag に生入力を保持。tags.tag は入力 verbatim を維持)
-            new_tag_id = self._register_new_tag(normalized_tag, tag_string, request)
+            retry_request = TagSearchRequest(
+                query=normalized_tag,
+                partial=False,
+                format_names=[_LORAIRO_FORMAT],
+                resolve_preferred=True,
+                include_aliases=True,
+                include_deprecated=False,
+            )
+            new_tag_id = self._register_new_tag(normalized_tag, tag_string, retry_request)
             return (tag_string, new_tag_id)
 
         except Exception as e:
@@ -944,9 +969,9 @@ class AnnotationRepository(BaseRepository):
     def classify_manual_tag(self, tag_string: str) -> ManualTagClassification:
         """手動追加タグを外部 tag_db の refinement 検索で分類する (読み取り専用、Issue #1174)。
 
-        書き込み経路 (`_resolve_canonical_and_tag_id`) と同じ danbooru スコープの
-        exact 検索で解決し、ミス時は `recommend_manual_refinement` で typo / 曖昧
-        候補を分類する。tag_db への登録は行わない (dry-run で安全に呼べる)。
+        書き込み経路 (`_resolve_canonical_and_tag_id`) と同じ 3 段 exact 検索
+        (`_search_exact_resolved`) で解決し、ミス時は `recommend_manual_refinement`
+        で typo / 曖昧候補を分類する。tag_db への登録は行わない (dry-run で安全に呼べる)。
 
         Args:
             tag_string: 入力タグ文字列 (正規化前、日本語可)。
@@ -963,29 +988,7 @@ class AnnotationRepository(BaseRepository):
             return ManualTagClassification(tag_string, normalized, "unregistered", tag_string, None, [])
 
         try:
-            request = TagSearchRequest(
-                query=normalized,
-                partial=False,
-                format_names=[_DANBOORU_FORMAT],
-                resolve_preferred=True,
-                include_aliases=True,
-                include_deprecated=False,
-            )
-            result = search_tags(merged_reader, request)
-            # alias→preferred 解決は単一 format スコープ時のみ働くため、danbooru ミス時は
-            # user 登録タグ/alias の登録先 format ("Lorairo": register_user_tag /
-            # register_user_alias) でも exact 検索する (Codex P1 / PR #1183)。これが無いと
-            # `tags alias` で確定した typo が再実行時も未解決のまま報告される。
-            if not result.items:
-                request = TagSearchRequest(
-                    query=normalized,
-                    partial=False,
-                    format_names=[_LORAIRO_FORMAT],
-                    resolve_preferred=True,
-                    include_aliases=True,
-                    include_deprecated=False,
-                )
-                result = search_tags(merged_reader, request)
+            result = self._search_exact_resolved(merged_reader, normalized)
         except (ValueError, RuntimeError, SQLAlchemyError) as e:
             logger.warning(f"タグ分類検索に失敗 (unregistered へ縮退): '{normalized}': {e}")
             return ManualTagClassification(tag_string, normalized, "unregistered", tag_string, None, [])

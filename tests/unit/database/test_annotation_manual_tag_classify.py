@@ -88,6 +88,30 @@ class TestClassifyManualTag:
         assert result.canonical_tag == "european architecture"
         assert result.tag_id == 88
 
+    def test_deprecated_alias_resolved_after_active_scope_miss(self, repo, monkeypatch):
+        """deprecated=1 の alias 行しか無い実在タグを preferred へ解決する (Issue #1212)。
+
+        danbooru で `sparkles` は deprecated な alias (→ sparkle) のため、
+        include_deprecated=False の 2 段検索では 0 件になり unregistered へ誤分類
+        されていた。deprecated 込みの再検索で preferred へ解決することを保証する。
+        """
+        calls: list[tuple[list[str] | None, bool]] = []
+
+        def fake_search(reader, request):
+            calls.append((request.format_names, request.include_deprecated))
+            if request.include_deprecated:
+                assert request.format_names == ["danbooru"]
+                return _search_result(TagRecordPublic(tag="sparkle", tag_id=5800, deprecated=True))
+            return _search_result()
+
+        monkeypatch.setattr(ar_module, "search_tags", fake_search)
+        result = repo.classify_manual_tag("sparkles")
+        assert result.classification == "alias_resolved"
+        assert result.canonical_tag == "sparkle"
+        assert result.tag_id == 5800
+        # 非 deprecated スコープ (danbooru → Lorairo) ミス後にのみ deprecated 込み再検索
+        assert calls == [(["danbooru"], False), (["Lorairo"], False), (["danbooru"], True)]
+
     def test_typo_candidate_surfaced_not_applied(self, repo, monkeypatch):
         monkeypatch.setattr(ar_module, "search_tags", lambda reader, request: _search_result())
         monkeypatch.setattr(

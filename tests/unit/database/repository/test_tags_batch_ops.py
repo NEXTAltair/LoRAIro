@@ -237,6 +237,27 @@ class TestResolveCanonicalAndTagId:
         assert canonical == "blue_sky"
         assert tag_id == 5
 
+    def test_deprecated_alias_resolved_without_new_registration(self, repo):
+        """deprecated alias しか無い実在タグ → preferred へ解決し新規登録しない (Issue #1212)。"""
+        repo._get_merged_reader = MagicMock(return_value=MagicMock())
+        repo._register_new_tag = MagicMock()
+        item = SimpleNamespace(tag="sparkle", tag_id=5800, source_tag="sparkles")
+
+        def fake_search(reader, request):
+            if request.include_deprecated:
+                return _search_result([item])
+            return _search_result([])
+
+        with patch(
+            "lorairo.database.repository.annotation_record.search_tags",
+            side_effect=fake_search,
+        ):
+            canonical, tag_id = repo._resolve_canonical_and_tag_id(MagicMock(), "sparkles")
+
+        assert canonical == "sparkle"
+        assert tag_id == 5800
+        repo._register_new_tag.assert_not_called()
+
     def test_merged_reader_unavailable_returns_normalized_none(self, repo):
         """外部 tag_db 未初期化 → 正規化入力 + tag_id=None で縮退。"""
         repo._get_merged_reader = MagicMock(return_value=None)
