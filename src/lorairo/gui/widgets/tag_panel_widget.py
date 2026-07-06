@@ -55,6 +55,23 @@ if TYPE_CHECKING:
 # 選択時は metric_source を空にして chip の count 補助表示を消す。
 _METRIC_NONE_LABEL = "なし"
 
+# アイコン系アクションボタンの affordance (#1210)。テキストのみだとクリック可能に
+# 見えないため、hover 背景 + ボーダーでボタンらしさを付与する (palette 追従)。
+ACTION_TOOL_BUTTON_QSS = """
+QToolButton {
+    border: 1px solid transparent;
+    border-radius: 4px;
+    padding: 2px 6px;
+}
+QToolButton:hover {
+    background: palette(midlight);
+    border-color: palette(mid);
+}
+QToolButton:pressed {
+    background: palette(mid);
+}
+"""
+
 # soft-reject 種別 (schema.REJECT_REASON_* の SSoT と一致、Issue #1003)。
 # 本ウィジェットは DB 非依存のため schema を import せず値のみ複製する。
 # 'not_needed' のみインライン破線 chip (無効化) で残し、'incorrect'/'replaced' は非表示。
@@ -680,6 +697,10 @@ class TagPanelWidget(QWidget):
     # 主訳 (優先翻訳) 変更 (canonical, language, translation) (#1084)。既存訳から主訳を切替える。
     translation_preferred_requested = Signal(str, str, str)
     tag_metadata_edit_requested = Signal(str, str)  # canonical, type (#989)
+    # 翻訳/使用頻度/type の再取得要求 (#1210 案A)。翻訳表示 (言語バー) に対する操作
+    # なので言語バー右端のアイコンボタンから emit する。DB 非依存を保つため処理は
+    # 親 (SelectedImageDetailsWidget.refresh_tag_metadata) に委ねる。
+    translation_refresh_requested = Signal()
 
     # タグチップ箱の高さ上限 (#835)。これを超えるタグは箱内スクロールにし、
     # パネル全体の高さがタグ数で膨張しないようにする。
@@ -754,6 +775,18 @@ class TagPanelWidget(QWidget):
         self._lang_combo = DsNoScrollComboBox(self._lang_bar)
         self._lang_combo.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
         lang_layout.addWidget(self._lang_combo)
+        # 翻訳再取得 (#1210 案A): 翻訳表示に対する操作なので言語バー右端に近接配置する。
+        # 有効化は親が set_translation_refresh_enabled で行う (DB 非依存を維持)。
+        self._translation_refresh_button = QToolButton(self._lang_bar)
+        self._translation_refresh_button.setText("🔄")
+        self._translation_refresh_button.setToolTip(
+            "表示中画像のタグ翻訳/使用頻度/type を tag DB から再取得します (CLI で追加した翻訳の反映用)"
+        )
+        self._translation_refresh_button.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._translation_refresh_button.setStyleSheet(ACTION_TOOL_BUTTON_QSS)
+        self._translation_refresh_button.setEnabled(False)
+        self._translation_refresh_button.clicked.connect(self.translation_refresh_requested)
+        lang_layout.addWidget(self._translation_refresh_button)
         self._lang_bar.setVisible(False)
         root.addWidget(self._lang_bar)
 
@@ -1066,6 +1099,17 @@ class TagPanelWidget(QWidget):
         self._tag_edit_enabled = enabled
         self._tag_add_input.setVisible(enabled)
         self._refresh_tags_for_language(self._current_language())
+
+    def set_translation_refresh_enabled(self, enabled: bool) -> None:
+        """言語バー右端の翻訳再取得ボタンの有効/無効を切り替える (#1210 案A)。
+
+        親 (画像詳細側) が画像ロード完了時に有効化する。ボタン押下は
+        ``translation_refresh_requested`` Signal で親へ委譲される。
+
+        Args:
+            enabled: True で翻訳再取得ボタンをクリック可能にする。
+        """
+        self._translation_refresh_button.setEnabled(enabled)
 
     def set_rejected_tags(self, rejected_tags: list[dict[str, Any]]) -> None:
         """soft-rejected タグを reject_reason 付きで受け、表示種別を DB から再構築する。

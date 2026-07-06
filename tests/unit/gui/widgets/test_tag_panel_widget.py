@@ -1660,3 +1660,28 @@ def test_update_language_selector_force_prefer_switches_from_non_english(panel):
     panel.update_language_selector(["japanese", "en"], prefer="en", force_prefer=True)
 
     assert panel._current_language() == "en"
+
+
+# 翻訳再取得ボタン (言語バー右端、#1210 案A) ---------------------------------
+
+
+def test_translation_refresh_button_lives_in_lang_bar(panel):
+    """翻訳再取得ボタンは言語バー右端に配置され、既定では無効 (#1210)。"""
+    button = panel._translation_refresh_button
+    assert button.parent() is panel._lang_bar
+    assert not button.isEnabled()
+
+
+def test_translation_refresh_button_emits_signal(panel, qtbot):
+    """ボタン押下で translation_refresh_requested が emit される (#1210)。"""
+    panel.set_translation_refresh_enabled(True)
+    assert panel._translation_refresh_button.isEnabled()
+    with qtbot.waitSignal(panel.translation_refresh_requested, timeout=1000):
+        panel._translation_refresh_button.click()
+
+
+def test_set_translation_refresh_enabled_toggles(panel):
+    panel.set_translation_refresh_enabled(True)
+    assert panel._translation_refresh_button.isEnabled()
+    panel.set_translation_refresh_enabled(False)
+    assert not panel._translation_refresh_button.isEnabled()
