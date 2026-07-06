@@ -145,7 +145,14 @@ class LoRAIroWorkerBase[T](QObject):
     def run(self) -> None:
         """
         QThread.started に接続される実行メソッド
+
+        実行中は現在スレッドのキャンセル状態を SQL 中断レジストリへ公開し (#1206)、
+        協調キャンセルが tag DB の実行中クエリを SQLite progress handler 経由で
+        打ち切れるようにする。
         """
+        from . import sql_abort
+
+        sql_abort.register_current_thread(self.cancellation)
         try:
             self._set_status(WorkerStatus.RUNNING)
             logger.debug(f"ワーカー実行開始: {self.__class__.__name__}")
@@ -167,11 +174,27 @@ class LoRAIroWorkerBase[T](QObject):
             self.canceled.emit()
 
         except Exception as e:
+            if self.cancellation.is_canceled() and self._is_query_interrupt_error(e):
+                # 協調キャンセルによる SQL 中断 (progress handler 経由) は正常なキャンセル
+                # 終端として扱う (#1206)。エラー記録・エラーシグナルにしない。
+                logger.debug(f"ワーカーの実行中 SQL をキャンセルで中断: {self.__class__.__name__}: {e}")
+                self._set_status(WorkerStatus.CANCELED)
+                self.canceled.emit()
+                return
             self._set_status(WorkerStatus.FAILED)
             error_msg = self._format_worker_error(e)
             logger.opt(exception=True).error(error_msg)
             self._record_unhandled_error(e)
             self.error_occurred.emit(error_msg)
+        finally:
+            sql_abort.unregister_current_thread()
+
+    @staticmethod
+    def _is_query_interrupt_error(e: Exception) -> bool:
+        """SQLite progress handler による中断 (interrupted) 由来の例外か判定する (#1206)。"""
+        from sqlalchemy.exc import OperationalError
+
+        return isinstance(e, OperationalError) and "interrupt" in str(e).lower()
 
     @staticmethod
     def _format_worker_error(e: Exception) -> str:

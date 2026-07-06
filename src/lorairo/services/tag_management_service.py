@@ -41,6 +41,18 @@ from ..utils.log import logger
 _PREFETCH_MISS = object()
 
 
+class TranslationStatus(NamedTuple):
+    """タグ 1 件の翻訳状況 (tag_id と言語別の候補・主訳) (#1203)。
+
+    Attributes:
+        tag_id: 完全一致で解決した tag_id。未解決なら None。
+        by_language: 言語コード -> (候補訳リスト, 主訳 or None)。tag_id 未解決なら空。
+    """
+
+    tag_id: int | None
+    by_language: dict[str, tuple[list[str], str | None]]
+
+
 class _ExactMatchEntry(NamedTuple):
     """入力タグに完全一致する検索行から抽出した評価用データ (#976/#1123)。
 
@@ -837,6 +849,81 @@ class TagManagementService:
             # ダイアログ自体を開けなくしない。候補一覧 + 未設定 (None) で続行する。
             logger.warning(f"主訳の取得に失敗 (未設定として続行): canonical='{canonical}': {e}")
         return candidates, current
+
+    def translation_status_batch(
+        self, canonicals: list[str], languages: tuple[str, ...] = ("ja", "en")
+    ) -> dict[str, "TranslationStatus"]:
+        """複数タグの翻訳状況 (tag_id / 言語別候補・主訳) を 2 クエリで一括解決する (#1203)。
+
+        CLI `tags translations show` は従来タグごとに `resolve_tag_id` +
+        `list_translation_candidates` x 言語数 (計 3 回/タグ) の `search_tags` を
+        呼んでおり、70 タグで 210 回の tag DB 検索 (実測約 5 分) になっていた。
+        本メソッドは 1 回の `search_tags_batch` + 1 回の
+        `get_preferred_translations_batch` に畳む。
+
+        取得失敗は `list_translation_candidates` と同じ縮退契約: search 失敗は全タグ
+        未解決 (tag_id=None) 扱い、主訳取得の失敗は候補のみ + preferred=None で続行する。
+
+        Args:
+            canonicals: 照会する canonical タグ文字列のリスト (重複可、順序保持)。
+            languages: 候補・主訳を組み立てる言語コード。
+
+        Returns:
+            canonical -> :class:`TranslationStatus`。入力の全 canonical をキーに含む。
+        """
+        unique = list(dict.fromkeys(c for c in canonicals if c))
+        if not unique:
+            return {}
+        try:
+            batch = search_tags_batch(self.reader, unique, format_names=None, resolve_preferred=False)
+        except (ValueError, RuntimeError, SQLAlchemyError) as e:
+            logger.warning(f"翻訳状況の batch 取得に失敗 (全タグ未解決として続行): {e}")
+            batch = {}
+
+        entries: dict[str, _ExactMatchEntry] = {}
+        for canonical in unique:
+            result = batch.get(canonical)
+            entries[canonical] = (
+                self._extract_exact_entry(result, canonical)
+                if result is not None
+                else _ExactMatchEntry(None, [], None)
+            )
+
+        all_tag_ids = [entry.tag_ids[0] for entry in entries.values() if entry.tag_ids]
+        preferred_by_tag_id: dict[int, dict[str, str]] = {}
+        if all_tag_ids:
+            try:
+                preferred_by_tag_id = get_preferred_translations_batch(self.reader, all_tag_ids)
+            except (SQLAlchemyError, ValueError, RuntimeError) as e:
+                logger.warning(f"主訳の batch 取得に失敗 (未設定として続行): {e}")
+
+        return {
+            canonical: self._build_translation_status(entries[canonical], preferred_by_tag_id, languages)
+            for canonical in unique
+        }
+
+    @staticmethod
+    def _build_translation_status(
+        entry: _ExactMatchEntry,
+        preferred_by_tag_id: dict[int, dict[str, str]],
+        languages: tuple[str, ...],
+    ) -> "TranslationStatus":
+        """1 タグ分の :class:`TranslationStatus` を組み立てる (#1203 の下請け)。"""
+        tag_id = entry.tag_ids[0] if entry.tag_ids else None
+        if tag_id is None:
+            return TranslationStatus(tag_id=None, by_language={})
+        translations = entry.translations or {}
+        prefs = preferred_by_tag_id.get(tag_id, {})
+        by_language: dict[str, tuple[list[str], str | None]] = {}
+        for language in languages:
+            # `list_translation_candidates` と同じエイリアス両表記の順序保持 dedupe
+            candidates: list[str] = []
+            for key in language_alias_keys(language):
+                for value in translations.get(key, []):
+                    if value not in candidates:
+                        candidates.append(value)
+            by_language[language] = (candidates, translation_for_language(prefs, language))
+        return TranslationStatus(tag_id=tag_id, by_language=by_language)
 
     def set_preferred_translation(self, canonical: str, language: str, translation: str) -> bool:
         """canonical タグの指定言語の主訳 (優先翻訳) を設定します (#1084)。

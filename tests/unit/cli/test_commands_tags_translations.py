@@ -8,6 +8,7 @@ from typer.testing import CliRunner
 
 from lorairo.cli.main import app
 from lorairo.database.repository.annotation_record import ManualTagClassification
+from lorairo.services.tag_management_service import TranslationStatus
 
 runner = CliRunner()
 
@@ -34,6 +35,11 @@ def mock_env(monkeypatch: pytest.MonkeyPatch) -> MagicMock:
     service.list_translation_candidates.side_effect = lambda tag, lang: (
         (["猫"], "猫") if lang == "ja" else ([], None)
     )
+    # translations show は batch API を使う (#1203)。tag ごとに ja のみ翻訳ありの状態を返す。
+    service.translation_status_batch.side_effect = lambda tags, languages=("ja", "en"): {
+        tag: TranslationStatus(tag_id=10, by_language={"ja": (["猫"], "猫"), "en": ([], None)})
+        for tag in tags
+    }
     monkeypatch.setattr("lorairo.cli.commands.tags.api_get_project", MagicMock(return_value=MagicMock()))
     monkeypatch.setattr(
         "lorairo.cli.commands.tags.get_service_container", MagicMock(return_value=container)
@@ -83,7 +89,11 @@ class TestTranslationsShow:
         assert result.exit_code == 2
 
     def test_show_unresolved_tag_marks_all_missing(self, mock_env: MagicMock) -> None:
-        mock_env.tag_management_service.resolve_tag_id.return_value = None
+        mock_env.tag_management_service.translation_status_batch.side_effect = (
+            lambda tags, languages=("ja", "en"): {
+                tag: TranslationStatus(tag_id=None, by_language={}) for tag in tags
+            }
+        )
         result = runner.invoke(
             app,
             ["--json", "tags", "translations", "show", "-p", "proj", "--tags", "unknown_tag"],

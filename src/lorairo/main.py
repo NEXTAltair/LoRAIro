@@ -215,6 +215,14 @@ def main() -> int:
     # ログ初期化
     initialize_logging(build_gui_log_config(config))
 
+    # tag DB の実行中クエリを worker の協調キャンセルで中断できるようにする (#1206)。
+    # 判定関数はクエリ実行スレッド上で呼ばれ、worker スレッドのキャンセル状態を返す。
+    from genai_tag_db_tools import set_query_abort_check
+
+    from .gui.workers.sql_abort import current_thread_cancel_requested
+
+    set_query_abort_check(current_thread_cancel_requested)
+
     logger.info("=" * 60)
     logger.info("LoRAIro ワークスペースGUI 起動")
     logger.info("ワークフロー中心のインターフェースを使用")

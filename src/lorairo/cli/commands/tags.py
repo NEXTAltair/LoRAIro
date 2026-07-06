@@ -349,17 +349,21 @@ def _translation_status_entries(
     """タグごとの翻訳状況 (ja/en の候補・主訳・missing) を組み立てる。
 
     読み出しは ja/japanese・en/english のエイリアス両表記を service 側で集約する。
+    タグごとに search_tags を 3 回 (tag_id 解決 + 言語別候補 x2) 呼ぶ N+1 は、
+    `translation_status_batch` の 2 クエリに畳む (#1203: 70 タグで約 5 分 -> 秒台)。
     """
+    statuses = service.translation_status_batch(tag_names, languages=_SUPPORTED_LANGS)
     entries: list[dict[str, object]] = []
     for tag in tag_names:
-        tag_id = service.resolve_tag_id(tag)
+        status = statuses.get(tag)
+        tag_id = status.tag_id if status is not None else None
         translations: dict[str, object] = {}
         missing: list[str] = []
-        if tag_id is None:
+        if tag_id is None or status is None:
             missing = list(_SUPPORTED_LANGS)
         else:
             for lang in _SUPPORTED_LANGS:
-                candidates, preferred = service.list_translation_candidates(tag, lang)
+                candidates, preferred = status.by_language.get(lang, ([], None))
                 translations[lang] = {"candidates": candidates, "preferred": preferred}
                 if not candidates:
                     missing.append(lang)
