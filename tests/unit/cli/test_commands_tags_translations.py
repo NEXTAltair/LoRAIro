@@ -405,6 +405,42 @@ class TestTranslationsShowMissingOnly:
         result_row = next(r for r in rows if r.get("kind") == "result")
         assert result_row["missing_pairs"] == 2
 
+    def test_missing_only_dedupes_shared_tag_across_images(self, mock_env: MagicMock) -> None:
+        """複数画像が同じ未翻訳タグを共有しても (tag, lang) は 1 回だけ出す (Codex P2)。"""
+        # 存在検証を 1,2,3 すべて通す
+        mock_env.db_manager.image_repo.get_images_by_filter.side_effect = lambda criteria: (
+            [{"id": i} for i in (criteria.image_ids or [])],
+            len(criteria.image_ids or []),
+        )
+        mock_env.db_manager.image_repo.get_image_annotations_batch.return_value = {
+            1: {"tags": [{"tag": "cat"}]},
+            2: {"tags": [{"tag": "cat"}]},  # 同じタグを別画像が共有
+            3: {"tags": [{"tag": "cat"}, {"tag": "dog"}]},
+        }
+        result = runner.invoke(
+            app,
+            [
+                "--json",
+                "tags",
+                "translations",
+                "show",
+                "-p",
+                "proj",
+                "--image-ids",
+                "1,2,3",
+                "--missing-only",
+            ],
+        )
+        assert result.exit_code == 0
+        rows = _rows(result.stdout)
+        items = [r for r in rows if r.get("kind") == "item"]
+        # cat/en と dog/en の 2 ペアのみ (3 画像分の重複は畳まれる)
+        pairs = {(i["tag"], i["lang"]) for i in items}
+        assert pairs == {("cat", "en"), ("dog", "en")}
+        assert len(items) == 2
+        result_row = next(r for r in rows if r.get("kind") == "result")
+        assert result_row["missing_pairs"] == 2
+
 
 @pytest.mark.unit
 class TestTranslationsAddBatch:
@@ -449,6 +485,44 @@ class TestTranslationsAddBatch:
         assert result_row["dry_run"] is True
         assert result_row["would_add"] == 2
         assert result_row["changed"] == 0
+
+    def test_file_preferred_flag_defaults_rows_without_preferred(
+        self, mock_env: MagicMock, tmp_path, monkeypatch
+    ) -> None:
+        """--file と --preferred 併用時、preferred を省いた行は主訳化される (Codex P2)。"""
+        # dog は未翻訳 (en なし) → 新規書き込み + 主訳化
+        path = self._write_jsonl(
+            tmp_path,
+            [
+                {"tag": "dog", "lang": "en", "text": "canine"},  # preferred 省略
+                {"tag": "cat", "lang": "en", "text": "feline", "preferred": False},  # 明示 False は尊重
+            ],
+        )
+        result = runner.invoke(
+            app,
+            [
+                "--json",
+                "tags",
+                "translations",
+                "add",
+                "-p",
+                "proj",
+                "--file",
+                path,
+                "--preferred",
+                "--apply",
+            ],
+        )
+        assert result.exit_code == 0
+        rows = _rows(result.stdout)
+        items = [r for r in rows if r.get("kind") == "item"]
+        # preferred 省略行 (dog) は --preferred 既定で True → add_translation で主訳化
+        dog_item = next(i for i in items if i["tag"] == "dog")
+        assert dog_item["preferred"] is True
+        # 明示 False の行 (cat) は尊重される
+        cat_item = next(i for i in items if i["tag"] == "cat")
+        assert cat_item["preferred"] is False
+        mock_env.tag_management_service.add_translation.assert_called_once_with(10, "en", "canine")
 
     def test_batch_preferred_promotes_existing_non_preferred(
         self, mock_env: MagicMock, tmp_path, monkeypatch

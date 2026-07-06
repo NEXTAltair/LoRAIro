@@ -489,15 +489,43 @@ def _emit_image_translation_entries(image_id: int, entries: list[dict[str, objec
             console.print(f"  {entry['tag']} (tag_id={entry['tag_id']}) missing={entry['missing']}")
 
 
-def _emit_image_missing_pairs(image_id: int, items: list[dict[str, object]]) -> None:
-    """--missing-only 表示の 1 画像分 (未翻訳ペア) を出力する。"""
+def _show_missing_pairs_for_images(
+    service: TagManagementService,
+    image_ids: list[int],
+    annotations_by_id: dict[int, dict[str, object]],
+) -> None:
+    """--image-ids + --missing-only の未翻訳ペア出力 (全画像横断で (tag, lang) 重複排除)。
+
+    翻訳はタグ単位 (画像非依存) で `add --file` も image_id を無視するため、複数画像が
+    同じ未翻訳タグを共有しても (tag, lang) は 1 回だけ出す (Codex P2)。重複を出すと
+    101 画像で同一タグを共有した場合に 100 行のバッチ上限を超え、同一翻訳に複数の
+    changed が出て round-trip が壊れる。初出の image_id を参照として残す。
+    """
+    seen_pairs: set[tuple[object, object]] = set()
+    deduped: list[dict[str, object]] = []
+    total_tags = 0
+    for image_id in image_ids:
+        tag_rows = annotations_by_id.get(image_id, {}).get("tags", [])
+        tag_names = _dedup_image_tag_names(tag_rows if isinstance(tag_rows, list) else [])
+        entries = _translation_status_entries(service, tag_names)
+        total_tags += len(entries)
+        for item in _missing_pair_items(entries, image_id=image_id):
+            key = (item["tag"], item["lang"])
+            if key not in seen_pairs:
+                seen_pairs.add(key)
+                deduped.append(item)
     if is_json_mode():
-        for item in items:
+        for item in deduped:
             emit_item(item)
+        emit_result(
+            f"{len(image_ids)} image(s), {total_tags} tag(s), {len(deduped)} missing pair(s)",
+            target_images=len(image_ids),
+            target_tags=total_tags,
+            missing_pairs=len(deduped),
+        )
     else:
-        console.print(f"[bold]Image {image_id}[/bold]")
-        for item in items:
-            console.print(f"  {item['tag']} (tag_id={item['tag_id']}) missing={item['lang']}")
+        for item in deduped:
+            console.print(f"{item['tag']} (tag_id={item['tag_id']}) missing={item['lang']}")
 
 
 def _show_translations_for_images(
@@ -515,29 +543,22 @@ def _show_translations_for_images(
     validate_image_ids_exist(container, image_ids)
 
     annotations_by_id = container.db_manager.image_repo.get_image_annotations_batch(image_ids)
+    if missing_only:
+        _show_missing_pairs_for_images(service, image_ids, annotations_by_id)
+        return
+
     total_tags = 0
-    total_missing_pairs = 0
     for image_id in image_ids:
         tag_rows = annotations_by_id.get(image_id, {}).get("tags", [])
         tag_names = _dedup_image_tag_names(tag_rows)
         entries = _translation_status_entries(service, tag_names)
         total_tags += len(entries)
-        if missing_only:
-            items = _missing_pair_items(entries, image_id=image_id)
-            total_missing_pairs += len(items)
-            _emit_image_missing_pairs(image_id, items)
-        else:
-            _emit_image_translation_entries(image_id, entries)
+        _emit_image_translation_entries(image_id, entries)
     if is_json_mode():
-        result_fields: dict[str, object] = {
-            "target_images": len(image_ids),
-            "target_tags": total_tags,
-        }
-        if missing_only:
-            result_fields["missing_pairs"] = total_missing_pairs
         emit_result(
             f"{len(image_ids)} image(s), {total_tags} tag(s)",
-            **result_fields,
+            target_images=len(image_ids),
+            target_tags=total_tags,
         )
 
 
@@ -579,12 +600,18 @@ def _write_translation(
     return tag_id, registered
 
 
-def _parse_translation_line(line: str, line_no: int) -> dict[str, object] | None:
+def _parse_translation_line(
+    line: str, line_no: int, default_preferred: bool = False
+) -> dict[str, object] | None:
     """`translations add --file` の JSONL 1 行を検証済み request へ変換する (Issue #1211)。
 
     `show --missing-only --json` の出力をそのまま保存すると、item 行の後に
     `kind=result` (終端サマリ) 行も含まれる。これを request と誤解しないよう、
     `kind` が item 以外 (result/error) の行はスキップする (None を返す、Codex P2)。
+
+    `preferred` を省いた行は、コマンドの `--preferred` フラグ (default_preferred) を
+    既定とする (Codex P2: --file と --preferred を併用しても行に preferred が無いと
+    無視されるのは驚き)。
 
     Returns:
         検証済み request。スキップ対象 (kind=result/error) の行は None。
@@ -613,15 +640,21 @@ def _parse_translation_line(line: str, line_no: int) -> dict[str, object] | None
         )
     if not text:
         raise click.UsageError(f"--file {line_no} 行目: 'text' が空です (翻訳を埋めてください)。")
-    return {"tag": tag, "lang": lang, "text": text, "preferred": bool(row.get("preferred", False))}
+    return {
+        "tag": tag,
+        "lang": lang,
+        "text": text,
+        "preferred": bool(row.get("preferred", default_preferred)),
+    }
 
 
-def _parse_translation_file(file_path: str) -> list[dict[str, object]]:
+def _parse_translation_file(file_path: str, default_preferred: bool = False) -> list[dict[str, object]]:
     """`translations add --file` の JSONL 入力を読み込み検証する (Issue #1211)。
 
     各行は ``{"tag": str, "lang": "ja"|"en", "text": str}`` (+任意 ``"preferred": bool``)。
     `translations show --missing-only` の出力行 (余分な ``tag_id`` / ``image_id`` キー付き)
-    をそのまま text だけ埋めて渡せる。
+    をそのまま text だけ埋めて渡せる。``preferred`` を省いた行は default_preferred
+    (コマンドの --preferred フラグ) を既定にする (Codex P2)。
 
     Raises:
         click.UsageError: JSON 不正・必須キー欠落・非対応言語・空 text・件数超過。
@@ -634,7 +667,7 @@ def _parse_translation_file(file_path: str) -> list[dict[str, object]]:
         line = raw_line.strip()
         if not line:
             continue
-        parsed = _parse_translation_line(line, line_no)
+        parsed = _parse_translation_line(line, line_no, default_preferred)
         if parsed is not None:  # kind=result/error 行はスキップ
             requests.append(parsed)
     if not requests:
@@ -778,7 +811,8 @@ def translations_add(
         dry_run = not apply
 
         if file is not None:
-            requests = _parse_translation_file(file)
+            # --preferred は preferred を省いた行の既定にする (Codex P2)。
+            requests = _parse_translation_file(file, default_preferred=preferred)
             api_get_project(project)
             container = get_service_container()
             container.set_active_project(project)
