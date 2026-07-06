@@ -38,6 +38,9 @@ app = typer.Typer(help="Image management commands")
 
 # Rich console (Issue #254: Windows では safe_box=True で ASCII 罫線)
 console = make_console()
+# 診断/警告用 stderr console。emit_ids の非 JSON 出力は stdout を機械可読 (ID のみ) に
+# 保つため、警告は stderr へ回す (Issue #1216 / Codex P2)。
+err_console = make_console(stderr=True)
 
 MAX_IMAGE_LIST_FETCH = 500
 
@@ -521,7 +524,10 @@ def _emit_all_matching_ids(container: object, criteria: ImageFilterCriteria) -> 
             truncated=truncated,
         )
     elif truncated:
-        console.print(f"[yellow]警告:[/yellow] {total} 件中 {emitted} 件で打ち切り (上限 {_EMIT_IDS_MAX})")
+        # stdout は ID のみ (--image-ids-file へ pipe 可能) に保ち、警告は stderr へ (Codex P2)。
+        err_console.print(
+            f"[yellow]警告:[/yellow] {total} 件中 {emitted} 件で打ち切り (上限 {_EMIT_IDS_MAX})"
+        )
 
 
 @app.command("search")

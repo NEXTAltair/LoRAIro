@@ -166,6 +166,25 @@ class TestImagesSearch:
         assert result_row["total"] == 600
         assert result_row["truncated"] is False
 
+    def test_emit_ids_non_json_stdout_is_integer_only(self, mock_search_context: tuple, tmp_path) -> None:
+        """非 JSON emit_ids の stdout は整数 ID のみ (--image-ids-file へ pipe 可能、Codex P2)。"""
+        container, _ = mock_search_context
+        container.db_manager.image_repo.get_images_count_only.return_value = 3
+        container.db_manager.image_repo.get_images_by_filter.side_effect = [
+            ([{"id": 1, "image_id": 1}, {"id": 2, "image_id": 2}, {"id": 3, "image_id": 3}], 3),
+            ([], 3),
+        ]
+        query_file = tmp_path / "emit.json"
+        query_file.write_text(json.dumps({"tags": ["absurdres"], "emit_ids": True}))
+        result = runner.invoke(
+            app,
+            ["images", "search", "--project", "proj", "--query-file", str(query_file)],  # 非 JSON
+        )
+        assert result.exit_code == 0
+        # stdout は各行が整数のみ (警告等の混入なし)
+        lines = [x for x in result.stdout.strip().splitlines() if x.strip()]
+        assert lines == ["1", "2", "3"]
+
     def test_search_no_options_returns_exit2(self, mock_search_context: tuple) -> None:
         """--query-file も --query も指定しない場合は UsageError (exit 2)。"""
         result = runner.invoke(
