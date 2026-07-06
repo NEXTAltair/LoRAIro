@@ -1481,10 +1481,30 @@ TOOL_SPECS: dict[str, ToolSpec] = {
                         "csv[str]",
                         description="Tags to inspect, max 100. Mutually exclusive with --image-ids.",
                     ),
+                    _f(
+                        "missing_only",
+                        "bool",
+                        default=False,
+                        description=(
+                            "未翻訳 (tag, lang) ペアだけを 1 行 1 件で出力する (Issue #1211)。"
+                            "出力行は text を埋めるだけで `translations add --file` に渡せる。"
+                        ),
+                    ),
                 ),
             ),
         ),
         outputs=(
+            _output(
+                "MissingTranslationPairItem",
+                (
+                    _f("tag", "str"),
+                    _f("tag_id", "int?"),
+                    _f("lang", "ja | en"),
+                    _f("text", "str", description="常に空文字。翻訳を埋めて add --file へ渡す。"),
+                    _f("image_id", "int?", description="--image-ids 指定時のみ。"),
+                ),
+                description="--missing-only 指定時の item 行 (未翻訳ペア単位、Issue #1211)。",
+            ),
             _output(
                 "TagTranslationStatusItem",
                 (
@@ -1518,6 +1538,11 @@ TOOL_SPECS: dict[str, ToolSpec] = {
                 (
                     _f("target_tags", "int", description="対象タグ数。"),
                     _f("target_images", "int?", description="--image-ids 指定時のみ: 対象画像数。"),
+                    _f(
+                        "missing_pairs",
+                        "int?",
+                        description="--missing-only 指定時のみ: 未翻訳 (tag, lang) ペア数。",
+                    ),
                 ),
             ),
         ),
@@ -1526,9 +1551,9 @@ TOOL_SPECS: dict[str, ToolSpec] = {
     "tags translations add": ToolSpec(
         name="tags translations add",
         path="tags translations add",
-        summary="Add a translation to a tag (user DB overlay). Dry-run by default; --apply to write.",
+        summary="Add translations to tags (user DB overlay). Dry-run by default; --apply to write.",
         read_only=False,
-        side_effects=("db_read", "db_write"),
+        side_effects=("db_read", "db_write", "file_read"),
         inputs=(
             _input(
                 "TagsTranslationsAddInput",
@@ -1537,15 +1562,25 @@ TOOL_SPECS: dict[str, ToolSpec] = {
                     _f(
                         "tag",
                         "str",
-                        required=True,
                         description=(
-                            "Target tag. tag_id 解決は tags add (Issue #1174) と同経路: "
+                            "Target tag (--file と排他、単発時は --lang/--text と3点セット必須)。"
+                            "tag_id 解決は tags add (Issue #1174) と同経路: "
                             "exact/alias は解決、真の新タグは --apply 時に user DB 登録、"
                             "typo/曖昧候補は候補提示でエラー (先に tags alias で確定)。"
                         ),
                     ),
-                    _f("lang", "ja | en", required=True, description="書き込みは ja/en の一貫形。"),
-                    _f("text", "str", required=True),
+                    _f("lang", "ja | en", description="書き込みは ja/en の一貫形。"),
+                    _f("text", "str"),
+                    _f(
+                        "file",
+                        "path",
+                        description=(
+                            "JSONL バッチ入力 (Issue #1211): 1 行 = "
+                            '{"tag", "lang", "text"[, "preferred"]}。最大 100 行。'
+                            "`translations show --missing-only` の出力行に text を埋めた形を受ける。"
+                            "typo/曖昧・既存訳・登録失敗は per-item status で報告して続行する。"
+                        ),
+                    ),
                     _f("preferred", "bool", default=False, description="その言語の主訳にする。"),
                     _f("apply", "bool", default=False, description="Write to DB. Default is dry-run."),
                 ),
@@ -1563,16 +1598,35 @@ TOOL_SPECS: dict[str, ToolSpec] = {
                     _f("translation", "str"),
                     _f("preferred", "bool"),
                     _f("registered_new_tag", "bool"),
-                    _f("status", "dry_run | changed"),
+                    _f(
+                        "status",
+                        "dry_run | changed | skipped_existing | skipped_candidates | skipped_invalid | error",
+                        description=(
+                            "skipped_* / error は --file バッチのみ (Issue #1211)。"
+                            "skipped_existing = 同一訳が既に存在 (再実行が冪等)。"
+                        ),
+                    ),
+                    _f("candidates", "list[str]?", description="skipped_candidates 時のみ: 類似候補。"),
+                    _f("error", "str?", description="error 時のみ: 失敗理由。"),
                 ),
-                description="書き込みは user DB overlay のみ (base DB は不変)。タグ登録失敗 (tagdb #124 edge) は DB_ERROR で明示。",
+                description="書き込みは user DB overlay のみ (base DB は不変)。タグ登録失敗 (tagdb #124 edge) は単発は DB_ERROR、バッチは per-item error で明示。",
             ),
             _output(
                 "TagsTranslationsAddResult",
                 (
                     _f("dry_run", "bool"),
-                    _f("tag_id", "int?"),
-                    _f("language", "str"),
+                    _f("tag_id", "int?", description="単発 --tag 時のみ。"),
+                    _f("language", "str?", description="単発 --tag 時のみ。"),
+                    _f("total", "int?", description="--file バッチ時のみ: 入力行数。"),
+                    _f("changed", "int?", description="--file バッチ時のみ: 書き込み件数。"),
+                    _f(
+                        "would_add",
+                        "int?",
+                        description="--file バッチ dry-run 時のみ: 書き込み見込み件数。",
+                    ),
+                    _f("skipped_existing", "int?", description="--file バッチ時のみ。"),
+                    _f("skipped_candidates", "int?", description="--file バッチ時のみ。"),
+                    _f("errors", "int?", description="--file バッチ時のみ。"),
                 ),
                 description="終端 result 行。既定は dry-run (dry_run=true) で書き込みなし。",
             ),
