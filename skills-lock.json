@@ -51,10 +51,10 @@
     },
     "goal-prompt-crafter": {
       "source": "NEXTAltair/altairs-agent-dev-kit",
-      "ref": "v0.2.0",
+      "ref": "v0.2.1",
       "sourceType": "github",
       "skillPath": "skills/goal-prompt-crafter/SKILL.md",
-      "computedHash": "1f88d7694c4cc61759f4781ba0a7f08a8d06108493663f835e1392162fa39c2d"
+      "computedHash": "908c9cbd1a30feccaac0366c2aa2639351f56f0db71206c1b4511f2df55e4e5e"
     },
     "interface-design": {
       "source": "/workspaces/altairs-agent-dev-kit",
