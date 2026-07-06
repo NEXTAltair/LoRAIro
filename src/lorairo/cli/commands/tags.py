@@ -8,6 +8,8 @@
 
 from __future__ import annotations
 
+import json
+from pathlib import Path
 from typing import TYPE_CHECKING
 
 import click
@@ -378,15 +380,27 @@ def translations_show(
         None, "--image-ids", help="Comma-separated image IDs (show translations of their tags)"
     ),
     tags_csv: str | None = typer.Option(None, "--tags", help="Comma-separated tags"),
+    missing_only: bool = typer.Option(
+        False,
+        "--missing-only",
+        help=(
+            "Emit only untranslated (tag, lang) pairs, one JSONL row each, in the shape "
+            "accepted by `translations add --file` (fill in `text` and feed back)."
+        ),
+    ),
 ) -> None:
     """Show ja/en translation status for tags (read-only).
 
     画像のタグ (--image-ids) または指定タグ (--tags) の翻訳状況 (候補・主訳・missing) を
     表示します。読みは ja/japanese・en/english の表記ゆれを集約します。
 
+    --missing-only (Issue #1211) は未翻訳の (tag, lang) ペアだけを 1 行 1 件で出力します。
+    出力行は `text` を埋めるだけで `translations add --file` の入力に使えます。
+
     Example:
         lorairo-cli --json tags translations show -p proj --image-ids 1052,1082
         lorairo-cli --json tags translations show -p proj --tags "cat,dog"
+        lorairo-cli --json tags translations show -p proj --image-ids 1033 --missing-only
     """
     with command_boundary():
         if bool(image_ids_csv) == bool(tags_csv):
@@ -397,12 +411,36 @@ def translations_show(
         service = container.tag_management_service
 
         if tags_csv:
-            _show_translations_for_tags(service, tags_csv)
+            _show_translations_for_tags(service, tags_csv, missing_only)
         else:
-            _show_translations_for_images(container, service, image_ids_csv or "")
+            _show_translations_for_images(container, service, image_ids_csv or "", missing_only)
 
 
-def _show_translations_for_tags(service: TagManagementService, tags_csv: str) -> None:
+def _missing_pair_items(
+    entries: list[dict[str, object]], image_id: int | None = None
+) -> list[dict[str, object]]:
+    """未翻訳 (tag, lang) ペアを add --file round-trip 形式へ展開する (Issue #1211)。"""
+    items: list[dict[str, object]] = []
+    for entry in entries:
+        missing = entry.get("missing", [])
+        if not isinstance(missing, list):
+            continue
+        for lang in missing:
+            item: dict[str, object] = {
+                "tag": entry["tag"],
+                "tag_id": entry["tag_id"],
+                "lang": lang,
+                "text": "",
+            }
+            if image_id is not None:
+                item["image_id"] = image_id
+            items.append(item)
+    return items
+
+
+def _show_translations_for_tags(
+    service: TagManagementService, tags_csv: str, missing_only: bool = False
+) -> None:
     """--tags 指定の翻訳状況表示 (translations show の下請け)。"""
     tag_names = [t.strip() for t in tags_csv.split(",") if t.strip()]
     if not tag_names:
@@ -410,6 +448,16 @@ def _show_translations_for_tags(service: TagManagementService, tags_csv: str) ->
     if len(tag_names) > MAX_TRANSLATION_TAGS:
         raise click.UsageError(f"--tags は最大 {MAX_TRANSLATION_TAGS} 件まで。")
     entries = _translation_status_entries(service, tag_names)
+    if missing_only:
+        items = _missing_pair_items(entries)
+        if is_json_mode():
+            for item in items:
+                emit_item(item)
+            emit_result(f"{len(items)} missing pair(s)", target_tags=len(entries), missing_pairs=len(items))
+        else:
+            for item in items:
+                console.print(f"{item['tag']} (tag_id={item['tag_id']}) missing={item['lang']}")
+        return
     if is_json_mode():
         for entry in entries:
             emit_item(entry)
@@ -419,8 +467,44 @@ def _show_translations_for_tags(service: TagManagementService, tags_csv: str) ->
             console.print(f"{entry['tag']} (tag_id={entry['tag_id']}) missing={entry['missing']}")
 
 
+def _dedup_image_tag_names(tag_rows: list[dict[str, object]]) -> list[str]:
+    """画像 1 件の tag 行から重複タグ文字列を初出優先で畳んだ tag 名リストを返す。"""
+    seen: set[str] = set()
+    tag_names: list[str] = []
+    for row in tag_rows:
+        name = row.get("tag")
+        if isinstance(name, str) and name and name not in seen:
+            seen.add(name)
+            tag_names.append(name)
+    return tag_names
+
+
+def _emit_image_translation_entries(image_id: int, entries: list[dict[str, object]]) -> None:
+    """通常表示 (画像単位ラッパー) の 1 画像分を出力する。"""
+    if is_json_mode():
+        emit_item({"image_id": image_id, "tags": entries})
+    else:
+        console.print(f"[bold]Image {image_id}[/bold]")
+        for entry in entries:
+            console.print(f"  {entry['tag']} (tag_id={entry['tag_id']}) missing={entry['missing']}")
+
+
+def _emit_image_missing_pairs(image_id: int, items: list[dict[str, object]]) -> None:
+    """--missing-only 表示の 1 画像分 (未翻訳ペア) を出力する。"""
+    if is_json_mode():
+        for item in items:
+            emit_item(item)
+    else:
+        console.print(f"[bold]Image {image_id}[/bold]")
+        for item in items:
+            console.print(f"  {item['tag']} (tag_id={item['tag_id']}) missing={item['lang']}")
+
+
 def _show_translations_for_images(
-    container: ServiceContainer, service: TagManagementService, image_ids_csv: str
+    container: ServiceContainer,
+    service: TagManagementService,
+    image_ids_csv: str,
+    missing_only: bool = False,
 ) -> None:
     """--image-ids 指定の翻訳状況表示 (translations show の下請け)。"""
     image_ids = parse_image_ids(image_ids_csv)
@@ -432,54 +516,257 @@ def _show_translations_for_images(
 
     annotations_by_id = container.db_manager.image_repo.get_image_annotations_batch(image_ids)
     total_tags = 0
+    total_missing_pairs = 0
     for image_id in image_ids:
         tag_rows = annotations_by_id.get(image_id, {}).get("tags", [])
-        # 同一画像内の重複タグ文字列は初出優先で畳む
-        seen: set[str] = set()
-        tag_names = []
-        for row in tag_rows:
-            name = row.get("tag")
-            if name and name not in seen:
-                seen.add(name)
-                tag_names.append(name)
+        tag_names = _dedup_image_tag_names(tag_rows)
         entries = _translation_status_entries(service, tag_names)
         total_tags += len(entries)
-        if is_json_mode():
-            emit_item({"image_id": image_id, "tags": entries})
+        if missing_only:
+            items = _missing_pair_items(entries, image_id=image_id)
+            total_missing_pairs += len(items)
+            _emit_image_missing_pairs(image_id, items)
         else:
-            console.print(f"[bold]Image {image_id}[/bold]")
-            for entry in entries:
-                console.print(f"  {entry['tag']} (tag_id={entry['tag_id']}) missing={entry['missing']}")
+            _emit_image_translation_entries(image_id, entries)
     if is_json_mode():
+        result_fields: dict[str, object] = {
+            "target_images": len(image_ids),
+            "target_tags": total_tags,
+        }
+        if missing_only:
+            result_fields["missing_pairs"] = total_missing_pairs
         emit_result(
             f"{len(image_ids)} image(s), {total_tags} tag(s)",
-            target_images=len(image_ids),
-            target_tags=total_tags,
+            **result_fields,
         )
+
+
+def _write_translation(
+    container: ServiceContainer,
+    tag: str,
+    tag_id: int | None,
+    lang: str,
+    text_value: str,
+    preferred: bool,
+) -> tuple[int, bool]:
+    """翻訳 1 件を user DB へ書き込む (apply 時の下請け、Issue #1211 でバッチと共有)。
+
+    Returns:
+        (書き込んだ tag_id, 新規 user タグを登録したか)。
+
+    Raises:
+        DatabaseError: 未登録タグの user DB 登録に失敗した場合。
+    """
+    annotation_repo = container.db_manager.annotation_repo
+    registered = False
+    if tag_id is None:
+        # 真の新タグは #1174 と同経路で user DB (format 1000+) へ登録
+        tag_id = annotation_repo.register_user_tag(tag)
+        registered = tag_id is not None
+        if tag_id is None:
+            # tagdb #124 edge 等: 静かに落とさず DB_ERROR で明示する
+            raise DatabaseError(
+                f"タグ '{tag}' の user DB 登録に失敗したため翻訳を追加できません (tag_id=null)。"
+            )
+    service = container.tag_management_service
+    if preferred:
+        # 書き込み + 主訳化 (write_user_translation + set_preferred_translation)
+        service.add_translation(tag_id, lang, text_value)
+    else:
+        from genai_tag_db_tools import write_user_translation
+
+        write_user_translation(service.repository, tag_id, lang, text_value)
+    return tag_id, registered
+
+
+def _parse_translation_line(line: str, line_no: int) -> dict[str, object]:
+    """`translations add --file` の JSONL 1 行を検証済み request へ変換する (Issue #1211)。
+
+    Raises:
+        click.UsageError: JSON 不正・object 以外・必須キー欠落・非対応言語・空 text。
+    """
+    try:
+        row = json.loads(line)
+    except json.JSONDecodeError as e:
+        raise click.UsageError(f"--file {line_no} 行目が JSON として不正です: {e}") from e
+    if not isinstance(row, dict):
+        raise click.UsageError(f"--file {line_no} 行目は JSON object ではありません。")
+    tag = str(row.get("tag") or "").strip()
+    lang = str(row.get("lang") or "").strip()
+    text = str(row.get("text") or "").strip()
+    if not tag:
+        raise click.UsageError(f"--file {line_no} 行目: 'tag' がありません。")
+    if lang not in _SUPPORTED_LANGS:
+        raise click.UsageError(
+            f"--file {line_no} 行目: 'lang' は {'/'.join(_SUPPORTED_LANGS)} のみ対応です。"
+        )
+    if not text:
+        raise click.UsageError(f"--file {line_no} 行目: 'text' が空です (翻訳を埋めてください)。")
+    return {"tag": tag, "lang": lang, "text": text, "preferred": bool(row.get("preferred", False))}
+
+
+def _parse_translation_file(file_path: str) -> list[dict[str, object]]:
+    """`translations add --file` の JSONL 入力を読み込み検証する (Issue #1211)。
+
+    各行は ``{"tag": str, "lang": "ja"|"en", "text": str}`` (+任意 ``"preferred": bool``)。
+    `translations show --missing-only` の出力行 (余分な ``tag_id`` / ``image_id`` キー付き)
+    をそのまま text だけ埋めて渡せる。
+
+    Raises:
+        click.UsageError: JSON 不正・必須キー欠落・非対応言語・空 text・件数超過。
+    """
+    path = Path(file_path)
+    if not path.is_file():
+        raise click.UsageError(f"--file '{file_path}' が見つかりません。")
+    requests: list[dict[str, object]] = []
+    for line_no, raw_line in enumerate(path.read_text(encoding="utf-8").splitlines(), start=1):
+        line = raw_line.strip()
+        if not line:
+            continue
+        requests.append(_parse_translation_line(line, line_no))
+    if not requests:
+        raise click.UsageError("--file に有効な行がありません。")
+    if len(requests) > MAX_TRANSLATION_TAGS:
+        raise click.UsageError(f"--file は最大 {MAX_TRANSLATION_TAGS} 行まで。")
+    return requests
+
+
+def _add_translations_batch(
+    container: ServiceContainer, requests: list[dict[str, object]], dry_run: bool
+) -> None:
+    """--file バッチ入力の翻訳追加 (translations add の下請け、Issue #1211)。
+
+    単発 (--tag) と違い typo/曖昧/登録失敗で全体を中断せず、per-item の status で
+    surface して続行する。既に同一訳が存在する行はスキップする (再実行が冪等)。
+    """
+    annotation_repo = container.db_manager.annotation_repo
+    service = container.tag_management_service
+
+    unique_tags = list({str(r["tag"]): None for r in requests})
+    statuses = service.translation_status_batch(unique_tags, languages=_SUPPORTED_LANGS)
+    classifications = {t: annotation_repo.classify_manual_tag(t) for t in unique_tags}
+
+    counts = {"changed": 0, "dry_run": 0, "skipped_existing": 0, "skipped_candidates": 0, "error": 0}
+    for req in requests:
+        tag = str(req["tag"])
+        lang = str(req["lang"])
+        text_value = str(req["text"])
+        preferred = bool(req["preferred"])
+        c = classifications[tag]
+        payload: dict[str, object] = {
+            "tag": tag,
+            "canonical_tag": c.canonical_tag,
+            "classification": c.classification,
+            "tag_id": c.tag_id,
+            "language": lang,
+            "translation": text_value,
+            "preferred": preferred,
+            "registered_new_tag": False,
+        }
+        if c.classification == "invalid":
+            payload["status"] = "skipped_invalid"
+            counts["error"] += 1
+        elif c.tag_id is None and c.classification in ("typo_candidate", "ambiguous"):
+            payload["status"] = "skipped_candidates"
+            payload["candidates"] = c.candidates
+            counts["skipped_candidates"] += 1
+        else:
+            status = statuses.get(tag)
+            existing = status.by_language.get(lang, ([], None))[0] if status is not None else []
+            if text_value in existing:
+                payload["status"] = "skipped_existing"
+                counts["skipped_existing"] += 1
+            elif dry_run:
+                payload["status"] = "dry_run"
+                counts["dry_run"] += 1
+            else:
+                try:
+                    tag_id, registered = _write_translation(
+                        container, tag, c.tag_id, lang, text_value, preferred
+                    )
+                    payload["tag_id"] = tag_id
+                    payload["registered_new_tag"] = registered
+                    payload["status"] = "changed"
+                    counts["changed"] += 1
+                except DatabaseError as e:
+                    payload["status"] = "error"
+                    payload["error"] = str(e)
+                    counts["error"] += 1
+        if is_json_mode():
+            emit_item(payload)
+        else:
+            console.print(f"[{payload['status']}] {tag} ({lang}) ← '{text_value}'")
+
+    message = (
+        f"{'[dry-run] ' if dry_run else ''}Batch translations "
+        f"{'planned' if dry_run else 'processed'}: {len(requests)} request(s)"
+    )
+    if is_json_mode():
+        emit_result(
+            message,
+            dry_run=dry_run,
+            total=len(requests),
+            changed=counts["changed"],
+            would_add=counts["dry_run"] if dry_run else None,
+            skipped_existing=counts["skipped_existing"],
+            skipped_candidates=counts["skipped_candidates"],
+            errors=counts["error"],
+        )
+    else:
+        console.print(f"{'[dry-run] ' if dry_run else ''}{OK} {len(requests)} 件処理: {counts}")
 
 
 @trans_app.command("add")
 def translations_add(
     project: str = typer.Option(..., "--project", "-p", help="Project name"),
-    tag: str = typer.Option(..., "--tag", help="Target tag (canonical or new)"),
-    lang: str = typer.Option(..., "--lang", help="Language key: ja | en"),
-    text: str = typer.Option(..., "--text", help="Translation text"),
+    tag: str | None = typer.Option(None, "--tag", help="Target tag (canonical or new)"),
+    lang: str | None = typer.Option(None, "--lang", help="Language key: ja | en"),
+    text: str | None = typer.Option(None, "--text", help="Translation text"),
+    file: str | None = typer.Option(
+        None,
+        "--file",
+        help=(
+            'JSONL batch input: one {"tag", "lang", "text"[, "preferred"]} per line '
+            "(accepts `translations show --missing-only` rows with `text` filled in)."
+        ),
+    ),
     preferred: bool = typer.Option(
         False, "--preferred", help="Set this translation as the preferred one for the language"
     ),
     apply: bool = typer.Option(False, "--apply", help="Write to user DB (default: dry-run)"),
 ) -> None:
-    """Add a translation to a tag (user DB overlay, dry-run by default).
+    """Add translations to tags (user DB overlay, dry-run by default).
 
     tag_id の解決は `tags add` (Issue #1174) と同じ経路: 完全一致/既知 alias は解決、
     真の新タグは --apply 時に user DB へ登録します。typo/曖昧候補があるタグは登録せず
     候補を提示します (`tags alias` で確定してから再実行)。
 
+    --file (Issue #1211) は JSONL バッチ入力で 1 プロセス N 件を書き込みます。
+    typo/曖昧・既存訳・登録失敗の行は per-item status でスキップ/報告して続行します
+    (単発 --tag はこれまで通りエラーで中断)。
+
     Example:
         lorairo-cli tags translations add -p proj --tag "european architecture" \\
             --lang ja --text "ヨーロッパ建築" --preferred --apply
+        lorairo-cli --json tags translations add -p proj --file translations.jsonl --apply
     """
     with command_boundary():
+        if file is not None and (tag is not None or lang is not None or text is not None):
+            raise click.UsageError("--file と --tag/--lang/--text は同時に指定できません。")
+        if file is None and (tag is None or lang is None or text is None):
+            raise click.UsageError("--tag/--lang/--text の3つ、または --file を指定してください。")
+
+        dry_run = not apply
+
+        if file is not None:
+            requests = _parse_translation_file(file)
+            api_get_project(project)
+            container = get_service_container()
+            container.set_active_project(project)
+            _add_translations_batch(container, requests, dry_run)
+            return
+
+        assert tag is not None and lang is not None and text is not None
         if lang not in _SUPPORTED_LANGS:
             raise click.UsageError(f"--lang は {'/'.join(_SUPPORTED_LANGS)} のみ対応です。")
         text_value = text.strip()
@@ -502,27 +789,10 @@ def translations_add(
                 "正タグへ翻訳を付けるか、`tags alias` で確定してから再実行してください。"
             )
 
-        dry_run = not apply
         tag_id = classification.tag_id
         registered = False
         if not dry_run:
-            if tag_id is None:
-                # 真の新タグは #1174 と同経路で user DB (format 1000+) へ登録
-                tag_id = annotation_repo.register_user_tag(tag)
-                registered = tag_id is not None
-                if tag_id is None:
-                    # tagdb #124 edge 等: 静かに落とさず DB_ERROR で明示する
-                    raise DatabaseError(
-                        f"タグ '{tag}' の user DB 登録に失敗したため翻訳を追加できません (tag_id=null)。"
-                    )
-            service = container.tag_management_service
-            if preferred:
-                # 書き込み + 主訳化 (write_user_translation + set_preferred_translation)
-                service.add_translation(tag_id, lang, text_value)
-            else:
-                from genai_tag_db_tools import write_user_translation
-
-                write_user_translation(service.repository, tag_id, lang, text_value)
+            tag_id, registered = _write_translation(container, tag, tag_id, lang, text_value, preferred)
 
         payload = {
             "tag": tag,

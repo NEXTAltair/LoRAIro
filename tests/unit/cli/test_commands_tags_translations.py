@@ -355,3 +355,183 @@ class TestTagsAlias:
         repo.register_user_alias.assert_not_called()
         row = next(r for r in _rows(result.stdout) if r.get("kind") == "result")
         assert row["status"] == "noop"
+
+
+@pytest.mark.unit
+class TestTranslationsShowMissingOnly:
+    """translations show --missing-only (Issue #1211)。"""
+
+    def test_missing_only_emits_round_trip_pairs(self, mock_env: MagicMock) -> None:
+        """未翻訳 (tag, lang) ペアを add --file round-trip 形式で 1 行 1 件出力する。"""
+        result = runner.invoke(
+            app,
+            ["--json", "tags", "translations", "show", "-p", "proj", "--tags", "cat", "--missing-only"],
+        )
+        assert result.exit_code == 0
+        rows = _rows(result.stdout)
+        items = [r for r in rows if r.get("kind") == "item"]
+        # mock は ja 翻訳あり・en なし → en の 1 ペアのみ
+        assert len(items) == 1
+        assert items[0]["tag"] == "cat"
+        assert items[0]["tag_id"] == 10
+        assert items[0]["lang"] == "en"
+        assert items[0]["text"] == ""
+        result_row = next(r for r in rows if r.get("kind") == "result")
+        assert result_row["missing_pairs"] == 1
+
+    def test_missing_only_by_image_ids_includes_image_id(self, mock_env: MagicMock) -> None:
+        mock_env.db_manager.image_repo.get_image_annotations_batch.return_value = {
+            1: {"tags": [{"tag": "cat"}, {"tag": "dog"}]}
+        }
+        result = runner.invoke(
+            app,
+            [
+                "--json",
+                "tags",
+                "translations",
+                "show",
+                "-p",
+                "proj",
+                "--image-ids",
+                "1",
+                "--missing-only",
+            ],
+        )
+        assert result.exit_code == 0
+        rows = _rows(result.stdout)
+        items = [r for r in rows if r.get("kind") == "item"]
+        assert len(items) == 2  # cat/dog とも en が missing
+        assert all(i["image_id"] == 1 and i["lang"] == "en" and i["text"] == "" for i in items)
+        result_row = next(r for r in rows if r.get("kind") == "result")
+        assert result_row["missing_pairs"] == 2
+
+
+@pytest.mark.unit
+class TestTranslationsAddBatch:
+    """translations add --file の JSONL バッチ入力 (Issue #1211)。"""
+
+    def _write_jsonl(self, tmp_path, rows: list[dict]) -> str:
+        path = tmp_path / "translations.jsonl"
+        path.write_text("\n".join(json.dumps(r, ensure_ascii=False) for r in rows), encoding="utf-8")
+        return str(path)
+
+    def test_file_and_tag_are_mutually_exclusive(self, mock_env: MagicMock, tmp_path) -> None:
+        path = self._write_jsonl(tmp_path, [{"tag": "cat", "lang": "en", "text": "cat"}])
+        result = runner.invoke(
+            app,
+            ["tags", "translations", "add", "-p", "proj", "--file", path, "--tag", "cat"],
+        )
+        assert result.exit_code != 0
+
+    def test_missing_all_inputs_rejected(self, mock_env: MagicMock) -> None:
+        result = runner.invoke(app, ["tags", "translations", "add", "-p", "proj"])
+        assert result.exit_code != 0
+
+    def test_batch_dry_run_reports_would_add_without_write(self, mock_env: MagicMock, tmp_path) -> None:
+        path = self._write_jsonl(
+            tmp_path,
+            [
+                {"tag": "sparkles", "lang": "en", "text": "sparkle"},
+                {"tag": "dog", "lang": "en", "text": "dog trans"},
+            ],
+        )
+        result = runner.invoke(
+            app,
+            ["--json", "tags", "translations", "add", "-p", "proj", "--file", path],
+        )
+        assert result.exit_code == 0
+        mock_env.tag_management_service.add_translation.assert_not_called()
+        mock_env.db_manager.annotation_repo.register_user_tag.assert_not_called()
+        rows = _rows(result.stdout)
+        items = [r for r in rows if r.get("kind") == "item"]
+        assert [i["status"] for i in items] == ["dry_run", "dry_run"]
+        result_row = next(r for r in rows if r.get("kind") == "result")
+        assert result_row["dry_run"] is True
+        assert result_row["would_add"] == 2
+        assert result_row["changed"] == 0
+
+    def test_batch_apply_writes_and_skips_existing(
+        self, mock_env: MagicMock, tmp_path, monkeypatch
+    ) -> None:
+        """既存訳 (ja 猫) はスキップし、新規のみ書き込む (冪等)。"""
+        written: list = []
+        monkeypatch.setattr(
+            "genai_tag_db_tools.write_user_translation",
+            lambda repo, tag_id, lang, text: written.append((tag_id, lang, text)),
+        )
+        path = self._write_jsonl(
+            tmp_path,
+            [
+                {"tag": "cat", "lang": "ja", "text": "猫"},  # 既存 (mock の candidates に一致)
+                {"tag": "cat", "lang": "en", "text": "feline"},
+                {"tag": "dog", "lang": "ja", "text": "犬", "preferred": True},
+            ],
+        )
+        result = runner.invoke(
+            app,
+            ["--json", "tags", "translations", "add", "-p", "proj", "--file", path, "--apply"],
+        )
+        assert result.exit_code == 0
+        rows = _rows(result.stdout)
+        items = [r for r in rows if r.get("kind") == "item"]
+        assert [i["status"] for i in items] == ["skipped_existing", "changed", "changed"]
+        assert written == [(10, "en", "feline")]
+        mock_env.tag_management_service.add_translation.assert_called_once_with(10, "ja", "犬")
+        result_row = next(r for r in rows if r.get("kind") == "result")
+        assert result_row["changed"] == 2
+        assert result_row["skipped_existing"] == 1
+
+    def test_batch_surfaces_typo_candidates_and_continues(
+        self, mock_env: MagicMock, tmp_path, monkeypatch
+    ) -> None:
+        """typo/曖昧はエラー中断せず per-item status で報告して続行する。"""
+        written: list = []
+        monkeypatch.setattr(
+            "genai_tag_db_tools.write_user_translation",
+            lambda repo, tag_id, lang, text: written.append((tag_id, lang, text)),
+        )
+
+        def classify(tag: str):
+            if tag == "typo tag":
+                return _cls(tag, "typo_candidate", tag_id=None, candidates=["real tag"])
+            return _cls(tag)
+
+        mock_env.db_manager.annotation_repo.classify_manual_tag.side_effect = classify
+        path = self._write_jsonl(
+            tmp_path,
+            [
+                {"tag": "typo tag", "lang": "en", "text": "x"},
+                {"tag": "cat", "lang": "en", "text": "feline"},
+            ],
+        )
+        result = runner.invoke(
+            app,
+            ["--json", "tags", "translations", "add", "-p", "proj", "--file", path, "--apply"],
+        )
+        assert result.exit_code == 0
+        rows = _rows(result.stdout)
+        items = [r for r in rows if r.get("kind") == "item"]
+        assert items[0]["status"] == "skipped_candidates"
+        assert items[0]["candidates"] == ["real tag"]
+        assert items[1]["status"] == "changed"
+        assert written == [(10, "en", "feline")]
+        result_row = next(r for r in rows if r.get("kind") == "result")
+        assert result_row["skipped_candidates"] == 1
+
+    def test_invalid_jsonl_line_rejected(self, mock_env: MagicMock, tmp_path) -> None:
+        path = tmp_path / "bad.jsonl"
+        path.write_text('{"tag": "cat", "lang": "xx", "text": "y"}', encoding="utf-8")
+        result = runner.invoke(
+            app,
+            ["--json", "tags", "translations", "add", "-p", "proj", "--file", str(path)],
+        )
+        assert result.exit_code != 0
+
+    def test_empty_text_rejected_with_fill_hint(self, mock_env: MagicMock, tmp_path) -> None:
+        """--missing-only の出力 (text 空) をそのまま渡した場合は行番号付きで弾く。"""
+        path = self._write_jsonl(tmp_path, [{"tag": "cat", "lang": "en", "text": ""}])
+        result = runner.invoke(
+            app,
+            ["--json", "tags", "translations", "add", "-p", "proj", "--file", path],
+        )
+        assert result.exit_code != 0
