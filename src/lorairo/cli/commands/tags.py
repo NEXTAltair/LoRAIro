@@ -644,12 +644,14 @@ def _parse_translation_line(
         )
     if not text:
         raise click.UsageError(f"--file {line_no} 行目: 'text' が空です (翻訳を埋めてください)。")
-    return {
-        "tag": tag,
-        "lang": lang,
-        "text": text,
-        "preferred": bool(row.get("preferred", default_preferred)),
-    }
+    # preferred は JSON boolean のみ許容する (Codex P2)。"false" 等の文字列を bool() で
+    # 強制すると非空文字列が True 扱いになり、行が false でも主訳化されてしまう。
+    if "preferred" in row and not isinstance(row["preferred"], bool):
+        raise click.UsageError(
+            f"--file {line_no} 行目: 'preferred' は true/false (JSON boolean) で指定してください。"
+        )
+    preferred = bool(row["preferred"]) if "preferred" in row else default_preferred
+    return {"tag": tag, "lang": lang, "text": text, "preferred": preferred}
 
 
 def _parse_translation_file(file_path: str, default_preferred: bool = False) -> list[dict[str, object]]:
@@ -693,8 +695,12 @@ def _add_translations_batch(
     service = container.tag_management_service
 
     unique_tags = list({str(r["tag"]): None for r in requests})
-    statuses = service.translation_status_batch(unique_tags, languages=_SUPPORTED_LANGS)
     classifications = {t: annotation_repo.classify_manual_tag(t) for t in unique_tags}
+    # 既存訳チェックは解決後の canonical tag で行う (Codex P2)。alias 行は preferred タグへ
+    # 書き込むため、raw タグの翻訳を見ると preferred 側の既存訳を取りこぼし、再実行で
+    # skipped_existing にならず changed を出し続ける。canonical で status を引く。
+    canonical_tags = list({c.canonical_tag for c in classifications.values()})
+    statuses = service.translation_status_batch(canonical_tags, languages=_SUPPORTED_LANGS)
 
     counts = {"changed": 0, "dry_run": 0, "skipped_existing": 0, "skipped_candidates": 0, "error": 0}
     for req in requests:
@@ -721,7 +727,7 @@ def _add_translations_batch(
             payload["candidates"] = c.candidates
             counts["skipped_candidates"] += 1
         else:
-            status = statuses.get(tag)
+            status = statuses.get(c.canonical_tag)
             existing, current_preferred = (
                 status.by_language.get(lang, ([], None)) if status is not None else ([], None)
             )

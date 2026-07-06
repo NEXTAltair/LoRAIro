@@ -694,6 +694,50 @@ class TestTranslationsAddBatch:
         assert items[0]["status"] == "changed"
         assert written == [(10, "en", "feline")]
 
+    def test_batch_status_lookup_uses_canonical_for_alias(
+        self, mock_env: MagicMock, tmp_path, monkeypatch
+    ) -> None:
+        """alias 行の既存訳チェックは preferred(canonical) タグで行う (Codex P2)。"""
+        from lorairo.services.tag_management_service import TranslationStatus
+
+        # "kitty" は alias で canonical "cat" (tag_id=10) へ解決。
+        mock_env.db_manager.annotation_repo.classify_manual_tag.side_effect = lambda t: (
+            _cls(t, "alias_resolved", canonical="cat", tag_id=10) if t == "kitty" else _cls(t)
+        )
+
+        # canonical "cat" の en には既に "feline" がある。raw "kitty" には無い。
+        def status_batch(tags, languages=("ja", "en")):
+            return {
+                tag: TranslationStatus(
+                    tag_id=10,
+                    by_language={"en": (["feline"], "feline"), "ja": ([], None)}
+                    if tag == "cat"
+                    else {"en": ([], None), "ja": ([], None)},
+                )
+                for tag in tags
+            }
+
+        mock_env.tag_management_service.translation_status_batch.side_effect = status_batch
+        path = self._write_jsonl(tmp_path, [{"tag": "kitty", "lang": "en", "text": "feline"}])
+        result = runner.invoke(
+            app,
+            ["--json", "tags", "translations", "add", "-p", "proj", "--file", path, "--apply"],
+        )
+        assert result.exit_code == 0
+        # canonical "cat" の en に "feline" が既存 → skipped_existing (raw "kitty" 基準だと誤って changed)
+        items = [r for r in _rows(result.stdout) if r.get("kind") == "item"]
+        assert items[0]["status"] == "skipped_existing"
+
+    def test_batch_rejects_non_boolean_preferred(self, mock_env: MagicMock, tmp_path) -> None:
+        """preferred が JSON boolean でない ("false" 文字列等) 場合は弾く (Codex P2)。"""
+        path = tmp_path / "badpref.jsonl"
+        path.write_text(json.dumps({"tag": "cat", "lang": "en", "text": "feline", "preferred": "false"}))
+        result = runner.invoke(
+            app,
+            ["--json", "tags", "translations", "add", "-p", "proj", "--file", str(path), "--apply"],
+        )
+        assert result.exit_code != 0
+
     def test_invalid_jsonl_line_rejected(self, mock_env: MagicMock, tmp_path) -> None:
         path = tmp_path / "bad.jsonl"
         path.write_text('{"tag": "cat", "lang": "xx", "text": "y"}', encoding="utf-8")
