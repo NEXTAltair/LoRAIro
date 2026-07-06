@@ -579,8 +579,15 @@ def _write_translation(
     return tag_id, registered
 
 
-def _parse_translation_line(line: str, line_no: int) -> dict[str, object]:
+def _parse_translation_line(line: str, line_no: int) -> dict[str, object] | None:
     """`translations add --file` の JSONL 1 行を検証済み request へ変換する (Issue #1211)。
+
+    `show --missing-only --json` の出力をそのまま保存すると、item 行の後に
+    `kind=result` (終端サマリ) 行も含まれる。これを request と誤解しないよう、
+    `kind` が item 以外 (result/error) の行はスキップする (None を返す、Codex P2)。
+
+    Returns:
+        検証済み request。スキップ対象 (kind=result/error) の行は None。
 
     Raises:
         click.UsageError: JSON 不正・object 以外・必須キー欠落・非対応言語・空 text。
@@ -591,6 +598,10 @@ def _parse_translation_line(line: str, line_no: int) -> dict[str, object]:
         raise click.UsageError(f"--file {line_no} 行目が JSON として不正です: {e}") from e
     if not isinstance(row, dict):
         raise click.UsageError(f"--file {line_no} 行目は JSON object ではありません。")
+    # show --missing-only --json の終端 result 行 (や error 行) はスキップする。
+    kind = row.get("kind")
+    if kind in ("result", "error"):
+        return None
     tag = str(row.get("tag") or "").strip()
     lang = str(row.get("lang") or "").strip()
     text = str(row.get("text") or "").strip()
@@ -623,7 +634,9 @@ def _parse_translation_file(file_path: str) -> list[dict[str, object]]:
         line = raw_line.strip()
         if not line:
             continue
-        requests.append(_parse_translation_line(line, line_no))
+        parsed = _parse_translation_line(line, line_no)
+        if parsed is not None:  # kind=result/error 行はスキップ
+            requests.append(parsed)
     if not requests:
         raise click.UsageError("--file に有効な行がありません。")
     if len(requests) > MAX_TRANSLATION_TAGS:

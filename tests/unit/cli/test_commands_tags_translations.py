@@ -518,6 +518,44 @@ class TestTranslationsAddBatch:
         result_row = next(r for r in rows if r.get("kind") == "result")
         assert result_row["skipped_candidates"] == 1
 
+    def test_show_missing_only_output_round_trips_with_result_row(
+        self, mock_env: MagicMock, tmp_path, monkeypatch
+    ) -> None:
+        """show --missing-only --json の出力 (kind=result 行込み) をそのまま渡せる (Codex P2)。
+
+        item 行に text を埋めた形 + 終端 result 行を含むファイルを add --file へ渡しても、
+        result 行はスキップされ item 行のみ処理される。
+        """
+        written: list = []
+        monkeypatch.setattr(
+            "genai_tag_db_tools.write_user_translation",
+            lambda repo, tag_id, lang, text: written.append((tag_id, lang, text)),
+        )
+        path = tmp_path / "roundtrip.jsonl"
+        path.write_text(
+            "\n".join(
+                [
+                    json.dumps(
+                        {"kind": "item", "tag": "cat", "tag_id": 10, "lang": "en", "text": "feline"}
+                    ),
+                    json.dumps(
+                        {"kind": "result", "ok": True, "message": "1 missing pair(s)", "missing_pairs": 1}
+                    ),
+                ]
+            ),
+            encoding="utf-8",
+        )
+        result = runner.invoke(
+            app,
+            ["--json", "tags", "translations", "add", "-p", "proj", "--file", str(path), "--apply"],
+        )
+        assert result.exit_code == 0
+        rows = _rows(result.stdout)
+        items = [r for r in rows if r.get("kind") == "item"]
+        assert len(items) == 1  # result 行はスキップ、item 行のみ処理
+        assert items[0]["status"] == "changed"
+        assert written == [(10, "en", "feline")]
+
     def test_invalid_jsonl_line_rejected(self, mock_env: MagicMock, tmp_path) -> None:
         path = tmp_path / "bad.jsonl"
         path.write_text('{"tag": "cat", "lang": "xx", "text": "y"}', encoding="utf-8")
