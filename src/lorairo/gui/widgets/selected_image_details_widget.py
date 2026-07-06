@@ -23,6 +23,7 @@ from PySide6.QtCore import QElapsedTimer, QEvent, QObject, QPoint, Qt, QTimer, S
 from PySide6.QtWidgets import (
     QApplication,
     QFrame,
+    QHBoxLayout,
     QLabel,
     QMenu,
     QScrollArea,
@@ -43,6 +44,7 @@ from .annotation_data_display_widget import (
     ImageDetails,
 )
 from .rating_score_edit_widget import RatingScoreEditWidget
+from .tag_panel_widget import ACTION_TOOL_BUTTON_QSS
 
 if TYPE_CHECKING:
     from genai_tag_db_tools.db.repository import MergedTagReader
@@ -126,7 +128,6 @@ class SelectedImageDetailsWidget(QWidget):
         self._image_info_toggle: QToolButton | None = None
         self._copy_details_button: QToolButton | None = None
         self._reload_from_db_button: QToolButton | None = None
-        self._refresh_translations_button: QToolButton | None = None
 
         # refinement リコメンド (#931): set_refinement_service で配線。
         self._refinement_service: RefinementService | None = None
@@ -241,39 +242,46 @@ class SelectedImageDetailsWidget(QWidget):
         self._image_info_toggle.setStyleSheet("text-align: left;")
         self._image_info_toggle.toggled.connect(self._toggle_image_info_section)
 
+        # コピー/再読込は低頻度の補助操作なので、専用行を占有せず「画像情報」見出し行の
+        # 右端にアイコンボタンとして相乗りさせる (#1210 案A: 縦の占有 3 行 → 0 行)。
+        # QToolButton は既定でアイコンのみ表示。グリフ文字をラベルとして出すため TextOnly 必須
+        # (未指定だと一部 Qt スタイルで空ボタンに見える、Codex #1224 P2)。
         self._copy_details_button = QToolButton(container)
-        self._copy_details_button.setText("詳細をコピー")
+        self._copy_details_button.setText("📋")
         self._copy_details_button.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextOnly)
+        self._copy_details_button.setToolTip("詳細をコピー")
+        self._copy_details_button.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._copy_details_button.setStyleSheet(ACTION_TOOL_BUTTON_QSS)
         self._copy_details_button.setEnabled(False)
         self._copy_details_button.clicked.connect(self.copy_current_details_to_clipboard)
 
         # CLI 等の外部プロセスの DB 書き込みを明示リロードで反映する (Issue #1171 / ADR 0067 §4)
         self._reload_from_db_button = QToolButton(container)
-        self._reload_from_db_button.setText("DBから再読込")
+        self._reload_from_db_button.setText("⟳")
         self._reload_from_db_button.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextOnly)
         self._reload_from_db_button.setToolTip(
-            "選択画像のアノテーションキャッシュを破棄して DB から再取得します (CLI 書き込みの反映用)"
+            "DBから再読込: 選択画像のアノテーションキャッシュを破棄して DB から再取得します"
+            " (CLI 書き込みの反映用)"
         )
+        self._reload_from_db_button.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._reload_from_db_button.setStyleSheet(ACTION_TOOL_BUTTON_QSS)
         self._reload_from_db_button.setEnabled(False)
         self._reload_from_db_button.clicked.connect(self._on_reload_from_db_requested)
 
-        # 外部プロセス (CLI) で追加した翻訳を画像再選択なしで反映する (#1205 案1)
-        self._refresh_translations_button = QToolButton(container)
-        self._refresh_translations_button.setText("翻訳を再取得")
-        self._refresh_translations_button.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextOnly)
-        self._refresh_translations_button.setToolTip(
-            "表示中画像のタグ翻訳/使用頻度/type を tag DB から再取得します (CLI で追加した翻訳の反映用)"
-        )
-        self._refresh_translations_button.setEnabled(False)
-        self._refresh_translations_button.clicked.connect(self.refresh_tag_metadata)
+        # 「翻訳を再取得」(#1205 案1) は翻訳表示に対する操作なので、タグ欄の「言語:」バー
+        # 右端へ移設した (#1210 案A)。ボタン実体は TagPanelWidget が持ち、押下は
+        # translation_refresh_requested Signal で届く (接続は _setup_connections)。
 
         self.ui.groupBoxImageInfo.setTitle("")
         self.ui.groupBoxImageInfo.setVisible(False)
 
-        layout.addWidget(self._image_info_toggle)
-        layout.addWidget(self._copy_details_button)
-        layout.addWidget(self._reload_from_db_button)
-        layout.addWidget(self._refresh_translations_button)
+        header_row = QHBoxLayout()
+        header_row.setContentsMargins(0, 0, 0, 0)
+        header_row.setSpacing(2)
+        header_row.addWidget(self._image_info_toggle, 1)
+        header_row.addWidget(self._copy_details_button)
+        header_row.addWidget(self._reload_from_db_button)
+        layout.addLayout(header_row)
         layout.addWidget(self.ui.groupBoxImageInfo)
         # annotationDataDisplay は内容相応の高さに収める (Expanding だと余剰を吸い込み
         # レーティング詳細と評価スコア編集の間に隙間が残るため縦は Preferred、#827)。
@@ -391,6 +399,8 @@ class SelectedImageDetailsWidget(QWidget):
         """
         # AnnotationDataDisplayWidgetからのシグナル接続
         self.annotation_display.data_loaded.connect(self._on_annotation_data_loaded)
+        # 言語バー右端の翻訳再取得ボタン (#1210 案A、実体は TagPanelWidget)
+        self.annotation_display.translation_refresh_requested.connect(self.refresh_tag_metadata)
 
         # RatingScoreEditWidgetのシグナルを外部に転送
         self._rating_score_widget.rating_changed.connect(self.rating_changed.emit)
@@ -1405,8 +1415,8 @@ class SelectedImageDetailsWidget(QWidget):
             self._copy_details_button.setEnabled(True)
         if self._reload_from_db_button:
             self._reload_from_db_button.setEnabled(True)
-        if self._refresh_translations_button:
-            self._refresh_translations_button.setEnabled(True)
+        # 翻訳再取得ボタンは言語バーへ移設済み (#1210)。有効化も委譲する。
+        self.annotation_display.set_translation_refresh_enabled(True)
         self.image_details_loaded.emit(details)
 
     def _update_rating_score_display(self, details: ImageDetails) -> None:

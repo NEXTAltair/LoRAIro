@@ -55,6 +55,23 @@ if TYPE_CHECKING:
 # 選択時は metric_source を空にして chip の count 補助表示を消す。
 _METRIC_NONE_LABEL = "なし"
 
+# アイコン系アクションボタンの affordance (#1210)。テキストのみだとクリック可能に
+# 見えないため、hover 背景 + ボーダーでボタンらしさを付与する (palette 追従)。
+ACTION_TOOL_BUTTON_QSS = """
+QToolButton {
+    border: 1px solid transparent;
+    border-radius: 4px;
+    padding: 2px 6px;
+}
+QToolButton:hover {
+    background: palette(midlight);
+    border-color: palette(mid);
+}
+QToolButton:pressed {
+    background: palette(mid);
+}
+"""
+
 # soft-reject 種別 (schema.REJECT_REASON_* の SSoT と一致、Issue #1003)。
 # 本ウィジェットは DB 非依存のため schema を import せず値のみ複製する。
 # 'not_needed' のみインライン破線 chip (無効化) で残し、'incorrect'/'replaced' は非表示。
@@ -680,6 +697,10 @@ class TagPanelWidget(QWidget):
     # 主訳 (優先翻訳) 変更 (canonical, language, translation) (#1084)。既存訳から主訳を切替える。
     translation_preferred_requested = Signal(str, str, str)
     tag_metadata_edit_requested = Signal(str, str)  # canonical, type (#989)
+    # 翻訳/使用頻度/type の再取得要求 (#1210 案A)。翻訳表示 (言語バー) に対する操作
+    # なので言語バー右端のアイコンボタンから emit する。DB 非依存を保つため処理は
+    # 親 (SelectedImageDetailsWidget.refresh_tag_metadata) に委ねる。
+    translation_refresh_requested = Signal()
 
     # タグチップ箱の高さ上限 (#835)。これを超えるタグは箱内スクロールにし、
     # パネル全体の高さがタグ数で膨張しないようにする。
@@ -747,13 +768,34 @@ class TagPanelWidget(QWidget):
 
         # 言語切り替えバー (コンボボックス付き)。merged_reader がなければ非表示。
         self._lang_bar = QWidget(self)
-        lang_layout = QHBoxLayout(self._lang_bar)
-        lang_layout.setContentsMargins(0, 0, 0, 2)
-        lang_layout.addWidget(QLabel("言語:", self._lang_bar))
+        self._lang_layout = QHBoxLayout(self._lang_bar)
+        self._lang_layout.setContentsMargins(0, 0, 0, 2)
+        self._lang_label = QLabel("言語:", self._lang_bar)
+        self._lang_layout.addWidget(self._lang_label)
         # スクロール領域内のためホイール通過で値が変わらない DS 部品を使う (#1051)
         self._lang_combo = DsNoScrollComboBox(self._lang_bar)
         self._lang_combo.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
-        lang_layout.addWidget(self._lang_combo)
+        # コンボは layout stretch 1 で full-width に伸ばしボタンを右端へ押す。コンボ/ラベル
+        # 非表示 (翻訳言語 0 件) 時は下の spacer stretch を 1 へ上げてボタンを右端に保つ
+        # (_update_lang_bar_visibility が制御、#1210)。spacer は index 2。
+        self._lang_layout.addWidget(self._lang_combo, 1)
+        self._lang_layout.addStretch(0)
+        # 翻訳再取得 (#1210 案A): 翻訳表示に対する操作なので言語バー右端に近接配置する。
+        # 有効化は親が set_translation_refresh_enabled で行う (DB 非依存を維持)。
+        self._translation_refresh_button = QToolButton(self._lang_bar)
+        self._translation_refresh_button.setText("🔄")
+        # QToolButton は既定でアイコンのみ表示。グリフ文字をラベルとして出すため TextOnly 必須
+        # (未指定だと一部 Qt スタイルで空ボタンに見える、Codex #1224 P2)。
+        self._translation_refresh_button.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextOnly)
+        self._translation_refresh_button.setToolTip(
+            "表示中画像のタグ翻訳/使用頻度/type を tag DB から再取得します (CLI で追加した翻訳の反映用)"
+        )
+        self._translation_refresh_button.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._translation_refresh_button.setStyleSheet(ACTION_TOOL_BUTTON_QSS)
+        self._translation_refresh_button.setEnabled(False)
+        self._translation_refresh_button.setVisible(False)
+        self._translation_refresh_button.clicked.connect(self.translation_refresh_requested)
+        self._lang_layout.addWidget(self._translation_refresh_button)
         self._lang_bar.setVisible(False)
         root.addWidget(self._lang_bar)
 
@@ -994,14 +1036,40 @@ class TagPanelWidget(QWidget):
         self._refresh_metric_selector()
         self._refresh_tags_for_language(self._current_language())
 
+    def _update_lang_bar_visibility(self) -> None:
+        """言語バー内の各要素と bar 自体の可視性を state から再計算する (#1210)。
+
+        言語コンボは翻訳言語が 1 つ以上ある (english + 1) ときだけ表示する。翻訳再取得
+        ボタンは画像ロード後 (enabled) に表示する。バーは「言語あり or 再取得可能」なら表示。
+
+        これにより、未翻訳画像 (言語 0 件で言語コンボ非表示) でも再取得ボタンが残り、
+        CLI で最初の翻訳を追加した直後に画像再選択なしで取得できる (Codex #1224 P2)。
+        コンボ非表示時は spacer stretch を上げてボタンを右端に保つ。
+        """
+        has_languages = self._lang_combo.count() > 1
+        refresh_available = self._translation_refresh_button.isEnabled()
+        self._lang_label.setVisible(has_languages)
+        self._lang_combo.setVisible(has_languages)
+        self._translation_refresh_button.setVisible(refresh_available)
+        # spacer (index 2) はコンボ非表示時のみ伸ばす (可視時はコンボが full-width で押す)。
+        self._lang_layout.setStretch(2, 0 if has_languages else 1)
+        self._lang_bar.setVisible(has_languages or refresh_available)
+
     def initialize_language_selector(self, available_languages: list[str]) -> None:
         """言語コンボボックスを初期化する。
 
         Args:
             available_languages: 利用可能な言語リスト。空の場合はコンボボックスを非表示にする。
+                (翻訳再取得ボタンが有効なら言語バー自体は残る、#1210)
         """
         if not available_languages:
-            self._lang_bar.setVisible(False)
+            # 直前にリーダーがあり言語が入っていた場合、clear しないと combo に古い言語が
+            # 残り、_update_lang_bar_visibility が count()>1 で誤って表示継続する
+            # (set_merged_reader(None) / 言語なしリーダー再注入の回帰、Codex #1224 P2)。
+            self._lang_combo.blockSignals(True)
+            self._lang_combo.clear()
+            self._lang_combo.blockSignals(False)
+            self._update_lang_bar_visibility()
             return
 
         self._lang_combo.blockSignals(True)
@@ -1011,7 +1079,7 @@ class TagPanelWidget(QWidget):
             if lang != "english":
                 self._lang_combo.addItem(lang)
         self._lang_combo.blockSignals(False)
-        self._lang_bar.setVisible(True)
+        self._update_lang_bar_visibility()
 
     def update_language_selector(
         self,
@@ -1055,7 +1123,7 @@ class TagPanelWidget(QWidget):
         if index >= 0:
             self._lang_combo.setCurrentIndex(index)
         self._lang_combo.blockSignals(False)
-        self._lang_bar.setVisible(self._lang_combo.count() > 1)
+        self._update_lang_bar_visibility()
 
     def set_tag_edit_enabled(self, enabled: bool) -> None:
         """タグ soft-reject 編集モードを切り替える。
@@ -1066,6 +1134,19 @@ class TagPanelWidget(QWidget):
         self._tag_edit_enabled = enabled
         self._tag_add_input.setVisible(enabled)
         self._refresh_tags_for_language(self._current_language())
+
+    def set_translation_refresh_enabled(self, enabled: bool) -> None:
+        """言語バー右端の翻訳再取得ボタンの有効/無効を切り替える (#1210 案A)。
+
+        親 (画像詳細側) が画像ロード完了時に有効化する。ボタン押下は
+        ``translation_refresh_requested`` Signal で親へ委譲される。
+
+        Args:
+            enabled: True で翻訳再取得ボタンをクリック可能にする。
+        """
+        self._translation_refresh_button.setEnabled(enabled)
+        # 言語 0 件の画像でもボタンを可視に保つ (Codex #1224 P2): バーの可視性を再計算する。
+        self._update_lang_bar_visibility()
 
     def set_rejected_tags(self, rejected_tags: list[dict[str, Any]]) -> None:
         """soft-rejected タグを reject_reason 付きで受け、表示種別を DB から再構築する。
@@ -1222,8 +1303,15 @@ class TagPanelWidget(QWidget):
     # ─── 言語・描画 ─────────────────────────────────────────────────────
 
     def _current_language(self) -> str:
-        """現在の表示言語を返す (言語バー非表示時は english)。"""
-        return self._lang_combo.currentText() if not self._lang_bar.isHidden() else "english"
+        """現在の表示言語を返す (言語コンボが空/未表示なら原文 english)。
+
+        言語 0 件でも再取得ボタンのため言語バーは表示され得る (#1210)。その場合
+        コンボは空なので、bar の表示状態ではなくコンボ内容で判定する (Codex #1224 P2)。
+        コンボが空だと _current_language が "" を返し、翻訳追加後の
+        update_language_selector(prefer=...) が english 判定にならず表示切替が効かない。
+        """
+        text = self._lang_combo.currentText()
+        return text if text else "english"
 
     @Slot(str)
     def _on_language_changed(self, language: str) -> None:

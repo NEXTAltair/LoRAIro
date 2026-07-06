@@ -1030,3 +1030,52 @@ class TestTagMetadataRefreshTriggers:
 
         assert not widget._user_db_poll_timer.isActive()
         assert widget._watched_window is None
+
+
+class TestTranslationRefreshButtonRelocation:
+    """#1210 案A: 翻訳再取得ボタンの言語バー移設と配線のテスト"""
+
+    @pytest.fixture
+    def widget(self, qtbot):
+        widget = SelectedImageDetailsWidget()
+        qtbot.addWidget(widget)
+        widget.current_image_id = 7
+        widget._current_tags_list = [{"tag": "cat", "tag_id": 1}]
+        return widget
+
+    def test_refresh_button_removed_from_summary_layout(self, widget):
+        """全幅テキストボタン3段積みは解消され、翻訳再取得は詳細パネル直下に無い。"""
+        assert not hasattr(widget, "_refresh_translations_button")
+        # コピー/再読込はアイコンボタンとして残る (見出し行右端)
+        assert widget._copy_details_button is not None
+        assert widget._reload_from_db_button is not None
+        assert widget._copy_details_button.toolTip() == "詳細をコピー"
+
+    def test_header_row_hosts_copy_and_reload_buttons(self, widget):
+        """コピー/再読込は「画像情報」トグルと同じ行に相乗りする (縦占有 0 行)。"""
+        widget.show()
+        widget.resize(400, 600)
+        toggle_pos = widget._image_info_toggle.geometry()
+        copy_pos = widget._copy_details_button.geometry()
+        reload_pos = widget._reload_from_db_button.geometry()
+        # 同一行 (縦レンジが重なる)。HBox の縦センタリングで y は数 px ずれ得る
+        for rect in (copy_pos, reload_pos):
+            assert rect.top() < toggle_pos.bottom() and rect.bottom() > toggle_pos.top()
+        # トグルの右側に横並び
+        assert toggle_pos.x() < copy_pos.x() < reload_pos.x()
+
+    def test_lang_bar_refresh_signal_triggers_metadata_fetch(self, widget, monkeypatch):
+        """言語バーの再取得要求 Signal が refresh_tag_metadata へ配線されている。"""
+        triggered: list = []
+        monkeypatch.setattr(widget, "_trigger_tag_metadata_fetch", triggered.append)
+
+        widget.annotation_display.translation_refresh_requested.emit()
+
+        assert triggered == [[{"tag": "cat", "tag_id": 1}]]
+
+    def test_details_load_enables_lang_bar_refresh_button(self, widget, qtbot):
+        """画像詳細ロード完了で言語バーの再取得ボタンが有効化される。"""
+        panel = widget.annotation_display._tag_panel
+        assert not panel._translation_refresh_button.isEnabled()
+        widget.annotation_display.set_translation_refresh_enabled(True)
+        assert panel._translation_refresh_button.isEnabled()

@@ -1660,3 +1660,90 @@ def test_update_language_selector_force_prefer_switches_from_non_english(panel):
     panel.update_language_selector(["japanese", "en"], prefer="en", force_prefer=True)
 
     assert panel._current_language() == "en"
+
+
+# 翻訳再取得ボタン (言語バー右端、#1210 案A) ---------------------------------
+
+
+def test_translation_refresh_button_lives_in_lang_bar(panel):
+    """翻訳再取得ボタンは言語バー右端に配置され、既定では無効 (#1210)。"""
+    button = panel._translation_refresh_button
+    assert button.parent() is panel._lang_bar
+    assert not button.isEnabled()
+
+
+def test_translation_refresh_button_emits_signal(panel, qtbot):
+    """ボタン押下で translation_refresh_requested が emit される (#1210)。"""
+    panel.set_translation_refresh_enabled(True)
+    assert panel._translation_refresh_button.isEnabled()
+    with qtbot.waitSignal(panel.translation_refresh_requested, timeout=1000):
+        panel._translation_refresh_button.click()
+
+
+def test_set_translation_refresh_enabled_toggles(panel):
+    panel.set_translation_refresh_enabled(True)
+    assert panel._translation_refresh_button.isEnabled()
+    panel.set_translation_refresh_enabled(False)
+    assert not panel._translation_refresh_button.isEnabled()
+
+
+def test_refresh_button_stays_visible_when_no_languages(panel):
+    """翻訳言語 0 件でも再取得ボタンは残る (Codex #1224 P2)。
+
+    未翻訳画像で言語コンボが隠れても、CLI で最初の翻訳を追加した直後に
+    画像再選択なしで取得できるよう、ボタンとバーは可視を保つ
+    (ヘッドレス親非表示のため isHidden() で明示可視フラグを検証)。
+    """
+    panel.initialize_language_selector([])  # 言語なし → コンボ非表示
+    panel.set_translation_refresh_enabled(True)
+
+    assert panel._lang_combo.isHidden()  # 言語コンボは隠れる
+    assert not panel._translation_refresh_button.isHidden()  # ボタンは残る
+    assert not panel._lang_bar.isHidden()  # バーも残る
+
+
+def test_lang_bar_hidden_when_no_languages_and_refresh_disabled(panel):
+    """言語 0 件かつ再取得ボタン無効ならバー全体を隠す (既存挙動を維持)。"""
+    panel.initialize_language_selector([])
+    panel.set_translation_refresh_enabled(False)
+
+    assert panel._lang_bar.isHidden()
+
+
+def test_lang_combo_shown_when_languages_present(panel):
+    """翻訳言語ありなら言語コンボとバーを表示する。"""
+    panel.initialize_language_selector(["japanese"])
+
+    assert not panel._lang_bar.isHidden()
+    assert not panel._lang_combo.isHidden()
+    assert panel._lang_combo.count() > 1
+
+
+def test_reinit_with_no_languages_clears_stale_combo(panel):
+    """言語ありの後に空リストで再初期化すると古い言語が残らない (Codex #1224 P2)。
+
+    clear しないと combo に古い言語が残り、可視性判定が count()>1 で誤って
+    表示継続する (set_merged_reader(None) 相当の回帰)。
+    """
+    panel.initialize_language_selector(["japanese", "en"])
+    assert panel._lang_combo.count() > 1
+
+    panel.initialize_language_selector([])  # リーダー消失 / 言語なしリーダー再注入
+
+    assert panel._lang_combo.count() == 0
+    assert panel._lang_combo.isHidden()
+    assert panel._lang_bar.isHidden()  # 再取得も無効なのでバーごと隠れる
+
+
+def test_action_buttons_use_text_only_style(panel):
+    """グリフ文字ボタンは TextOnly スタイルでラベルを表示する (Codex #1224 P2)。"""
+    from PySide6.QtCore import Qt
+
+    assert panel._translation_refresh_button.toolButtonStyle() == Qt.ToolButtonStyle.ToolButtonTextOnly
+
+
+def test_current_language_is_english_when_combo_empty(panel):
+    """言語 0 件で bar が (再取得ボタンのため) 表示されても english 判定 (Codex #1224 P2)。"""
+    panel.initialize_language_selector([])
+    panel.set_translation_refresh_enabled(True)  # bar 表示・combo 空
+    assert panel._current_language() == "english"

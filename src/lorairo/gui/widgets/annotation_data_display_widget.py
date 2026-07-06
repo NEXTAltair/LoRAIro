@@ -132,6 +132,8 @@ class AnnotationDataDisplayWidget(QWidget, Ui_AnnotationDataDisplayWidget):
     # 主訳 (優先翻訳) 変更 (canonical, language, translation) (#1084)
     translation_preferred_requested = Signal(str, str, str)
     tag_metadata_edit_requested = Signal(str, str)  # canonical, type (#989)
+    # 翻訳/使用頻度/type の再取得要求 (TagPanelWidget から委譲再公開、#1210 案A)
+    translation_refresh_requested = Signal()
 
     # タグチップ箱の高さ上限 (#835)。TagPanelWidget と同値を持ち、後方互換のため公開する。
     _TAGS_MAX_HEIGHT = 220
@@ -194,6 +196,7 @@ class AnnotationDataDisplayWidget(QWidget, Ui_AnnotationDataDisplayWidget):
         self._tag_panel.translation_add_requested.connect(self.translation_add_requested)
         self._tag_panel.translation_preferred_requested.connect(self.translation_preferred_requested)
         self._tag_panel.tag_metadata_edit_requested.connect(self.tag_metadata_edit_requested)
+        self._tag_panel.translation_refresh_requested.connect(self.translation_refresh_requested)
 
     @property
     def _tag_chips(self) -> list[SelectableTagChip]:
@@ -212,6 +215,10 @@ class AnnotationDataDisplayWidget(QWidget, Ui_AnnotationDataDisplayWidget):
     def set_tag_edit_enabled(self, enabled: bool) -> None:
         """タグ soft-reject 編集モードを切り替える (TagPanelWidget へ委譲)。"""
         self._tag_panel.set_tag_edit_enabled(enabled)
+
+    def set_translation_refresh_enabled(self, enabled: bool) -> None:
+        """翻訳再取得ボタンの有効/無効を切り替える (TagPanelWidget へ委譲、#1210)。"""
+        self._tag_panel.set_translation_refresh_enabled(enabled)
 
     def set_rejected_tags(self, rejected_tags: list[dict[str, Any]]) -> None:
         """soft-rejected タグを reject_reason 付きで設定する (TagPanelWidget へ委譲、#1003)。"""
