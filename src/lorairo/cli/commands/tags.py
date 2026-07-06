@@ -497,30 +497,34 @@ def _show_missing_pairs_for_images(
     """--image-ids + --missing-only の未翻訳ペア出力 (全画像横断で (tag, lang) 重複排除)。
 
     翻訳はタグ単位 (画像非依存) で `add --file` も image_id を無視するため、複数画像が
-    同じ未翻訳タグを共有しても (tag, lang) は 1 回だけ出す (Codex P2)。重複を出すと
-    101 画像で同一タグを共有した場合に 100 行のバッチ上限を超え、同一翻訳に複数の
-    changed が出て round-trip が壊れる。初出の image_id を参照として残す。
+    同じ未翻訳タグを共有しても (tag, lang) は 1 回だけ出す (Codex P2)。
+
+    全画像の unique tag を先に集約し、翻訳解決 (`_translation_status_entries` =
+    translation_status_batch) を **1 回だけ**行う (Codex P2)。画像ごとに解決すると、
+    同じタグを共有する数百画像で数百回の tag DB 検索が走り、本 workflow が回避したい
+    多分単位の検索経路を再現してしまう。各タグの初出 image_id を参照として残す。
     """
-    seen_pairs: set[tuple[object, object]] = set()
-    deduped: list[dict[str, object]] = []
-    total_tags = 0
+    # 全画像の unique tag を集約し、初出 image_id を記録する。
+    tag_first_image: dict[str, int] = {}
     for image_id in image_ids:
         tag_rows = annotations_by_id.get(image_id, {}).get("tags", [])
-        tag_names = _dedup_image_tag_names(tag_rows if isinstance(tag_rows, list) else [])
-        entries = _translation_status_entries(service, tag_names)
-        total_tags += len(entries)
-        for item in _missing_pair_items(entries, image_id=image_id):
-            key = (item["tag"], item["lang"])
-            if key not in seen_pairs:
-                seen_pairs.add(key)
-                deduped.append(item)
+        for name in _dedup_image_tag_names(tag_rows if isinstance(tag_rows, list) else []):
+            tag_first_image.setdefault(name, image_id)
+
+    # 解決は 1 回だけ。entries は tag 単位で一意なので (tag, lang) の重複は構造的に無い。
+    entries = _translation_status_entries(service, list(tag_first_image))
+    deduped: list[dict[str, object]] = []
+    for entry in entries:
+        first_image = tag_first_image.get(str(entry["tag"]))
+        deduped.extend(_missing_pair_items([entry], image_id=first_image))
+
     if is_json_mode():
         for item in deduped:
             emit_item(item)
         emit_result(
-            f"{len(image_ids)} image(s), {total_tags} tag(s), {len(deduped)} missing pair(s)",
+            f"{len(image_ids)} image(s), {len(entries)} tag(s), {len(deduped)} missing pair(s)",
             target_images=len(image_ids),
-            target_tags=total_tags,
+            target_tags=len(entries),
             missing_pairs=len(deduped),
         )
     else:

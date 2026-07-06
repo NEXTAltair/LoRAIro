@@ -405,6 +405,37 @@ class TestTranslationsShowMissingOnly:
         result_row = next(r for r in rows if r.get("kind") == "result")
         assert result_row["missing_pairs"] == 2
 
+    def test_missing_only_resolves_tags_once_across_images(self, mock_env: MagicMock) -> None:
+        """複数画像で同じタグを共有しても翻訳解決は 1 回だけ (Codex P2 性能)。"""
+        mock_env.db_manager.image_repo.get_images_by_filter.side_effect = lambda criteria: (
+            [{"id": i} for i in (criteria.image_ids or [])],
+            len(criteria.image_ids or []),
+        )
+        mock_env.db_manager.image_repo.get_image_annotations_batch.return_value = {
+            1: {"tags": [{"tag": "cat"}]},
+            2: {"tags": [{"tag": "cat"}]},
+            3: {"tags": [{"tag": "cat"}, {"tag": "dog"}]},
+        }
+        result = runner.invoke(
+            app,
+            [
+                "--json",
+                "tags",
+                "translations",
+                "show",
+                "-p",
+                "proj",
+                "--image-ids",
+                "1,2,3",
+                "--missing-only",
+            ],
+        )
+        assert result.exit_code == 0
+        # translation_status_batch は 1 回だけ (画像数分でなく unique tag の union で 1 回)
+        assert mock_env.tag_management_service.translation_status_batch.call_count == 1
+        called_tags = mock_env.tag_management_service.translation_status_batch.call_args.args[0]
+        assert set(called_tags) == {"cat", "dog"}
+
     def test_missing_only_dedupes_shared_tag_across_images(self, mock_env: MagicMock) -> None:
         """複数画像が同じ未翻訳タグを共有しても (tag, lang) は 1 回だけ出す (Codex P2)。"""
         # 存在検証を 1,2,3 すべて通す
