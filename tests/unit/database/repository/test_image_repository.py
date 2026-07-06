@@ -147,6 +147,41 @@ class TestGetImagesByFilterPaging:
         assert total_count == 3
         assert [record["id"] for record in results] == [first]
 
+    def test_metadata_width_height_filter(self, image_repository: ImageRepository) -> None:
+        """width/height 範囲条件で絞り込む (Issue #1216)。"""
+        small = _insert_image(image_repository, uuid="u-m-s", phash="p-m-s", width=100, height=100)
+        _insert_image(image_repository, uuid="u-m-l", phash="p-m-l", width=2000, height=2000)
+
+        results, total = image_repository.get_images_by_filter(
+            ImageFilterCriteria(include_nsfw=True, width_max=999, height_max=999)
+        )
+        assert total == 1
+        assert [r["id"] for r in results] == [small]
+
+    def test_metadata_filename_pattern_filter(self, image_repository: ImageRepository) -> None:
+        """filename の LIKE パターンで絞り込む (大小無視、Issue #1216)。"""
+        hit = _insert_image(image_repository, uuid="u-fn-1", phash="p-fn-1", filename="sample_abc.png")
+        _insert_image(image_repository, uuid="u-fn-2", phash="p-fn-2", filename="other.png")
+
+        results, total = image_repository.get_images_by_filter(
+            ImageFilterCriteria(include_nsfw=True, filename_pattern="SAMPLE_%")
+        )
+        assert total == 1
+        assert [r["id"] for r in results] == [hit]
+
+    def test_metadata_format_filter(self, image_repository: ImageRepository) -> None:
+        """format の完全一致 (大小無視) で絞り込む (Issue #1216)。"""
+        _insert_image(image_repository, uuid="u-fmt-1", phash="p-fmt-1")  # format=PNG
+        _, total = image_repository.get_images_by_filter(
+            ImageFilterCriteria(include_nsfw=True, format_name="png")
+        )
+        assert total == 1
+        # 一致しない format は 0 件
+        _, none_total = image_repository.get_images_by_filter(
+            ImageFilterCriteria(include_nsfw=True, format_name="jpeg")
+        )
+        assert none_total == 0
+
     def test_resolution_filter_restricts_count_before_limit(
         self, image_repository: ImageRepository
     ) -> None:

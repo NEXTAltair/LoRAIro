@@ -52,6 +52,14 @@ class ImageFilterCriteriaSchema(BaseModel):
     )
     score_min: float | None = Field(default=None, ge=0.0, le=10.0, description="Minimum score.")
     score_max: float | None = Field(default=None, ge=0.0, le=10.0, description="Maximum score.")
+    width_min: int | None = Field(default=None, ge=1, description="Minimum original width in px (#1216).")
+    width_max: int | None = Field(default=None, ge=1, description="Maximum original width in px.")
+    height_min: int | None = Field(default=None, ge=1, description="Minimum original height in px.")
+    height_max: int | None = Field(default=None, ge=1, description="Maximum original height in px.")
+    filename_pattern: str | None = Field(
+        default=None, description="Case-insensitive SQL LIKE pattern on filename."
+    )
+    format_name: str | None = Field(default=None, description="Case-insensitive exact image format.")
     project_name: str | None = Field(default=None, description="Project name scope.")
     project_id: int | None = Field(default=None, description="Project ID scope.")
     limit: int | None = Field(default=None, ge=1, description="Maximum result count.")
@@ -1182,6 +1190,24 @@ TOOL_SPECS: dict[str, ToolSpec] = {
                     _f("only_unrated", "bool", default=False),
                     _f("missing_model", "str?"),
                     _f("include_nsfw", "bool", default=False),
+                    _f(
+                        "width_min",
+                        "int?",
+                        description="Minimum original image width in px (Issue #1216).",
+                    ),
+                    _f("width_max", "int?", description="Maximum original image width in px."),
+                    _f("height_min", "int?", description="Minimum original image height in px."),
+                    _f("height_max", "int?", description="Maximum original image height in px."),
+                    _f(
+                        "filename_pattern",
+                        "str?",
+                        description="Case-insensitive SQL LIKE pattern on filename ('%'/'_' wildcards).",
+                    ),
+                    _f(
+                        "format",
+                        "str?",
+                        description="Case-insensitive exact match on image format (e.g. 'jpeg', 'png').",
+                    ),
                     _f("limit", "int[1,500]", default=500),
                     _f("offset", "int>=0", default=0),
                 ),

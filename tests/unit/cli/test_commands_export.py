@@ -144,3 +144,50 @@ class TestExportCreate:
         json_args = call_args_json[0]
         assert 1024 in txt_args or call_args_txt[1].get("resolution") == 1024
         assert 1024 in json_args or call_args_json[1].get("resolution") == 1024
+
+
+@pytest.mark.unit
+class TestExportCreateImageIdsFile:
+    """export create の --image-ids-file 入力 (Issue #1216)。"""
+
+    def test_create_with_image_ids_file(self, mock_export_context, tmp_path):
+        container, _ = mock_export_context
+        ids_file = tmp_path / "ids.txt"
+        ids_file.write_text("1\n2, 3\n")
+        result = runner.invoke(
+            app,
+            [
+                "--json",
+                "export",
+                "create",
+                "--project",
+                "proj",
+                "--image-ids-file",
+                str(ids_file),
+                "--output",
+                str(tmp_path / "out"),
+            ],
+        )
+        assert result.exit_code == 0
+        called_ids = container.dataset_export_service.export_dataset_txt_format.call_args.args[0]
+        assert called_ids == [1, 2, 3]
+
+    def test_create_both_ids_inputs_rejected(self, mock_export_context, tmp_path):
+        ids_file = tmp_path / "ids.txt"
+        ids_file.write_text("1")
+        result = runner.invoke(
+            app,
+            [
+                "export",
+                "create",
+                "--project",
+                "proj",
+                "--image-ids",
+                "1,2",
+                "--image-ids-file",
+                str(ids_file),
+                "--output",
+                str(tmp_path / "out"),
+            ],
+        )
+        assert result.exit_code == 2

@@ -74,11 +74,17 @@ install の entry point 再生成で `lorairo.exe` の削除に失敗して sync
 読み取り専用で sqlite3 を使う。稼働中の実体ファイルには絶対に直接触れない:
 
 ```bash
-cp lorairo_data/<project>/image_database.db /tmp/.../scratchpad/db_copy.db
+# WAL 併用時は -wal / -shm も併せてコピーする (Issue #1216)。.db だけコピーすると
+# 直近書き込み (未 checkpoint 分) が欠け、除去直後の検証等で未反映に見える誤検出が起きる。
+cp lorairo_data/<project>/image_database.db     /tmp/.../scratchpad/db_copy.db
+cp lorairo_data/<project>/image_database.db-wal /tmp/.../scratchpad/db_copy.db-wal 2>/dev/null || true
+cp lorairo_data/<project>/image_database.db-shm /tmp/.../scratchpad/db_copy.db-shm 2>/dev/null || true
 sqlite3 /tmp/.../scratchpad/db_copy.db "SELECT tag, COUNT(*) FROM tags GROUP BY tag ..."
 ```
 
 コピーは点時点スナップショットであり、GUI の最新状態とはずれ得ることを結果に明記する。
+CLI 読み取り (`lorairo-cli images search/show`) は WAL 込みで正しく見えるため、直近書き込みの
+反映確認は CLI を優先する。
 
 ## 参照
 

@@ -7,13 +7,13 @@ image_ids を受け取り、タグ txt / キャプション txt / JSON の全形
 
 from pathlib import Path
 
-import click
 import typer
 from rich.table import Table
 
 from lorairo.cli._boundary import command_boundary
 from lorairo.cli._console import make_console
 from lorairo.cli._emit import emit_result
+from lorairo.cli._image_ids import resolve_image_ids_input
 from lorairo.cli._output_mode import is_json_mode
 from lorairo.public_api.project import get_project as api_get_project
 from lorairo.services.service_container import get_service_container
@@ -25,24 +25,6 @@ app = typer.Typer(help="Dataset export commands")
 console = make_console()
 
 
-def _parse_image_ids(image_ids_csv: str) -> list[int]:
-    """カンマ区切り文字列を int リストに変換。不正値は UsageError。
-
-    Args:
-        image_ids_csv: カンマ区切りの画像 ID 文字列。
-
-    Returns:
-        int のリスト。
-
-    Raises:
-        click.UsageError: 整数に変換できない値が含まれる場合（exit_code=2）。
-    """
-    try:
-        return [int(x.strip()) for x in image_ids_csv.split(",") if x.strip()]
-    except ValueError as e:
-        raise click.UsageError(f"--image-ids には整数のみ指定可: {e}") from e
-
-
 @app.command("create")
 def create(
     project: str = typer.Option(
@@ -51,10 +33,15 @@ def create(
         "-p",
         help="Project name",
     ),
-    image_ids_csv: str = typer.Option(
-        ...,
+    image_ids_csv: str | None = typer.Option(
+        None,
         "--image-ids",
-        help="Comma-separated image IDs to export",
+        help="Comma-separated image IDs to export (max 500)",
+    ),
+    image_ids_file: str | None = typer.Option(
+        None,
+        "--image-ids-file",
+        help="Path to a newline/comma-separated image ID list (bulk export, Issue #1216).",
     ),
     output: str = typer.Option(
         ...,
@@ -89,10 +76,9 @@ def create(
         # API層経由でプロジェクト確認 (未存在は ProjectNotFoundError → NOT_FOUND で伝播)
         api_get_project(project)
 
-        # image_ids パース・検証 (click.UsageError → 境界が INVALID_INPUT exit 2)
-        image_ids = _parse_image_ids(image_ids_csv)
-        if not image_ids:
-            raise click.UsageError("--image-ids に有効な値がありません。")
+        # image_ids パース・検証 (--image-ids / --image-ids-file 排他、Issue #1216)。
+        # click.UsageError → 境界が INVALID_INPUT exit 2
+        image_ids, _is_file = resolve_image_ids_input(image_ids_csv, image_ids_file)
 
         # ServiceContainer を取得してプロジェクト DB に切り替え
         container = get_service_container()

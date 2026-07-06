@@ -15,7 +15,7 @@ from typing import Literal
 
 import click
 import typer
-from pydantic import BaseModel, Field, ValidationError
+from pydantic import BaseModel, ConfigDict, Field, ValidationError
 from rich.table import Table
 
 from lorairo.cli._boundary import command_boundary
@@ -62,9 +62,18 @@ class ImageSearchQuery(BaseModel):
     only_unrated: bool = False
     missing_model: str | None = None
     include_nsfw: bool = False
+    # Issue #1216: オリジナル画像メタデータ条件 (解像度タグ監査等の DB 直読回避)
+    width_min: int | None = Field(default=None, ge=1)
+    width_max: int | None = Field(default=None, ge=1)
+    height_min: int | None = Field(default=None, ge=1)
+    height_max: int | None = Field(default=None, ge=1)
+    filename_pattern: str | None = None
+    format_name: str | None = Field(default=None, alias="format")
     limit: int = Field(default=500, ge=1, le=500)
     offset: int = Field(default=0, ge=0)
     sort: list[_SortSpec] = Field(default_factory=lambda: [_SortSpec()])
+
+    model_config = ConfigDict(populate_by_name=True)
 
 
 def _print_registration_summary(result: RegistrationResult, project: str) -> None:
@@ -443,6 +452,13 @@ def search_images(
             only_unrated=q.only_unrated,
             missing_model_litellm_id=q.missing_model,
             include_nsfw=q.include_nsfw,
+            # Issue #1216: 画像メタデータ条件 (width/height/filename/format)
+            width_min=q.width_min,
+            width_max=q.width_max,
+            height_min=q.height_min,
+            height_max=q.height_max,
+            filename_pattern=q.filename_pattern,
+            format_name=q.format_name,
             limit=q.limit,
             offset=q.offset,
             sort_field=sort_spec.field,

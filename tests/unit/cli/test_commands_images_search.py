@@ -110,6 +110,34 @@ class TestImagesSearch:
         )
         assert result.exit_code == 0
 
+    def test_search_metadata_conditions_flow_to_criteria(
+        self, mock_search_context: tuple, tmp_path: pytest.FixtureDef
+    ) -> None:
+        """width/height/filename/format 条件が ImageFilterCriteria へ渡る (Issue #1216)。"""
+        container, _ = mock_search_context
+        query_file = tmp_path / "meta.json"
+        query_file.write_text(
+            json.dumps(
+                {
+                    "width_max": 999,
+                    "height_min": 100,
+                    "filename_pattern": "sample_%",
+                    "format": "jpeg",
+                    "tags": ["absurdres"],
+                }
+            )
+        )
+        result = runner.invoke(
+            app,
+            ["--json", "images", "search", "--project", "proj", "--query-file", str(query_file)],
+        )
+        assert result.exit_code == 0
+        criteria = container.db_manager.image_repo.get_images_by_filter.call_args.args[0]
+        assert criteria.width_max == 999
+        assert criteria.height_min == 100
+        assert criteria.filename_pattern == "sample_%"
+        assert criteria.format_name == "jpeg"
+
     def test_search_no_options_returns_exit2(self, mock_search_context: tuple) -> None:
         """--query-file も --query も指定しない場合は UsageError (exit 2)。"""
         result = runner.invoke(
