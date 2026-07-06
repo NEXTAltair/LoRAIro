@@ -472,9 +472,11 @@ def test_describe_tags_add_exposes_required_fields() -> None:
     input_row = next(row for row in rows if row.get("type") == "model" and row["name"] == "TagsAddInput")
     fields = {f["name"]: f for f in input_row["fields"]}
     assert fields["project"]["required"] is True
-    assert fields["image_ids"]["required"] is True
     assert fields["tags"]["required"] is True
     assert fields["apply"]["default"] is False
+    # image_ids / image_ids_file は「どちらか一方」で単独必須ではない (Issue #1216)
+    assert fields["image_ids"]["required"] is False
+    assert "image_ids_file" in fields
 
 
 def test_describe_tags_remove_exposes_required_fields() -> None:
@@ -487,8 +489,10 @@ def test_describe_tags_remove_exposes_required_fields() -> None:
 
     input_row = next(row for row in rows if row.get("type") == "model" and row["name"] == "TagsRemoveInput")
     fields = {f["name"]: f for f in input_row["fields"]}
-    assert fields["image_ids"]["required"] is True
     assert fields["tags"]["required"] is True
+    # image_ids / image_ids_file は「どちらか一方」で単独必須ではない (Issue #1216)
+    assert fields["image_ids"]["required"] is False
+    assert "image_ids_file" in fields
 
 
 def test_describe_tags_replace_exposes_from_to_fields() -> None:

@@ -337,6 +337,31 @@ class TagsEditItem(BaseModel):
     model_config = ConfigDict(title="TagsEditItem", populate_by_name=True)
 
 
+class TagsBulkProgressItem(BaseModel):
+    """JSONL item emitted per chunk by ``tags add/remove/replace --image-ids-file --json``.
+
+    ``--image-ids-file`` (bulk) 経路は per-image の ``TagsEditItem`` ではなく、チャンク
+    単位の進捗行を出す (数千画像で per-image 行が過大になるため、Issue #1216)。
+    フィールドはアクションにより異なる (add: ``added``/``would_add`` / remove:
+    ``removed``/``would_remove`` / replace: ``changed``/``skipped``)。
+    """
+
+    action: Literal["add", "remove", "replace"]
+    chunk_images: int = Field(description="Number of image IDs processed in this chunk.")
+    processed: int = Field(description="Cumulative image IDs processed so far.")
+    status: Literal["dry_run", "changed"]
+    added: int | None = None
+    would_add: int | None = None
+    removed: int | None = None
+    would_remove: int | None = None
+    changed: int | None = None
+    skipped: int | None = None
+    from_tag: str | None = Field(default=None, alias="from")
+    to_tag: str | None = Field(default=None, alias="to")
+
+    model_config = ConfigDict(title="TagsBulkProgressItem", populate_by_name=True)
+
+
 class TagResolutionEntry(BaseModel):
     """Per-tag classification entry surfaced by ``tags add --json`` (Issue #1174)."""
 
@@ -416,11 +441,19 @@ class TagsReplaceResult(BaseModel):
     model_config = ConfigDict(title="TagsReplaceResult")
 
 
+_IMAGE_IDS_FILE_DESC = (
+    "Path to a newline/comma-separated image ID list for bulk operations "
+    "(chunked internally, max 100,000; mutually exclusive with image_ids, Issue #1216). "
+    "Bulk mode emits TagsBulkProgressItem chunk-progress rows instead of per-image TagsEditItem."
+)
+
+
 class TagsAddInputSchema(BaseModel):
     """Implemented options surface accepted by ``tags add``."""
 
     project: str
-    image_ids: str = Field(description="Comma-separated image IDs, max 500.")
+    image_ids: str | None = Field(default=None, description="Comma-separated image IDs, max 500.")
+    image_ids_file: str | None = Field(default=None, description=_IMAGE_IDS_FILE_DESC)
     tags: str = Field(description="Comma-separated tags to add.")
     apply: bool = False
 
@@ -431,7 +464,8 @@ class TagsRemoveInputSchema(BaseModel):
     """Implemented options surface accepted by ``tags remove``."""
 
     project: str
-    image_ids: str = Field(description="Comma-separated image IDs, max 500.")
+    image_ids: str | None = Field(default=None, description="Comma-separated image IDs, max 500.")
+    image_ids_file: str | None = Field(default=None, description=_IMAGE_IDS_FILE_DESC)
     tags: str = Field(description="Comma-separated tags to remove.")
     apply: bool = False
 
@@ -442,7 +476,8 @@ class TagsReplaceInputSchema(BaseModel):
     """Implemented options surface accepted by ``tags replace``."""
 
     project: str
-    image_ids: str = Field(description="Comma-separated image IDs, max 500.")
+    image_ids: str | None = Field(default=None, description="Comma-separated image IDs, max 500.")
+    image_ids_file: str | None = Field(default=None, description=_IMAGE_IDS_FILE_DESC)
     from_tag: str = Field(description="Tag to replace.")
     to_tag: str = Field(description="Replacement tag.")
     apply: bool = False
@@ -1320,10 +1355,10 @@ TOOL_SPECS: dict[str, ToolSpec] = {
                     _f("project", "str", required=True),
                     _f(
                         "image_ids",
-                        "csv[int]",
-                        required=True,
-                        description="Comma-separated image IDs, max 500.",
+                        "csv[int]?",
+                        description="Comma-separated image IDs, max 500 (or use image_ids_file).",
                     ),
+                    _f("image_ids_file", "path?", description=_IMAGE_IDS_FILE_DESC),
                     _f("tags", "csv[str]", required=True, description="Comma-separated tags to add."),
                     _f("apply", "bool", default=False, description="Write to DB. Default is dry-run."),
                 ),
@@ -1340,6 +1375,20 @@ TOOL_SPECS: dict[str, ToolSpec] = {
                     _f("status", "str"),
                 ),
                 schema=TagsEditItem,
+            ),
+            _output(
+                "TagsBulkProgressItem",
+                (
+                    _f("action", "str"),
+                    _f("chunk_images", "int"),
+                    _f("processed", "int"),
+                    _f("status", "str"),
+                ),
+                description=(
+                    "Chunk-progress row emitted by --image-ids-file (bulk) instead of per-image "
+                    "TagsEditItem (Issue #1216). Count fields vary by action."
+                ),
+                schema=TagsBulkProgressItem,
             ),
             _output(
                 "TagsAddResult",
@@ -1395,10 +1444,10 @@ TOOL_SPECS: dict[str, ToolSpec] = {
                     _f("project", "str", required=True),
                     _f(
                         "image_ids",
-                        "csv[int]",
-                        required=True,
-                        description="Comma-separated image IDs, max 500.",
+                        "csv[int]?",
+                        description="Comma-separated image IDs, max 500 (or use image_ids_file).",
                     ),
+                    _f("image_ids_file", "path?", description=_IMAGE_IDS_FILE_DESC),
                     _f("tags", "csv[str]", required=True, description="Comma-separated tags to remove."),
                     _f("apply", "bool", default=False, description="Write to DB. Default is dry-run."),
                 ),
@@ -1415,6 +1464,20 @@ TOOL_SPECS: dict[str, ToolSpec] = {
                     _f("status", "str"),
                 ),
                 schema=TagsEditItem,
+            ),
+            _output(
+                "TagsBulkProgressItem",
+                (
+                    _f("action", "str"),
+                    _f("chunk_images", "int"),
+                    _f("processed", "int"),
+                    _f("status", "str"),
+                ),
+                description=(
+                    "Chunk-progress row emitted by --image-ids-file (bulk) instead of per-image "
+                    "TagsEditItem (Issue #1216). Count fields vary by action."
+                ),
+                schema=TagsBulkProgressItem,
             ),
             _output(
                 "TagsRemoveResult",
@@ -1457,10 +1520,10 @@ TOOL_SPECS: dict[str, ToolSpec] = {
                     _f("project", "str", required=True),
                     _f(
                         "image_ids",
-                        "csv[int]",
-                        required=True,
-                        description="Comma-separated image IDs, max 500.",
+                        "csv[int]?",
+                        description="Comma-separated image IDs, max 500 (or use image_ids_file).",
                     ),
+                    _f("image_ids_file", "path?", description=_IMAGE_IDS_FILE_DESC),
                     _f("from_tag", "str", required=True, description="Tag to replace."),
                     _f("to_tag", "str", required=True, description="Replacement tag."),
                     _f("apply", "bool", default=False, description="Write to DB. Default is dry-run."),
@@ -1479,6 +1542,20 @@ TOOL_SPECS: dict[str, ToolSpec] = {
                     _f("status", "str"),
                 ),
                 schema=TagsEditItem,
+            ),
+            _output(
+                "TagsBulkProgressItem",
+                (
+                    _f("action", "str"),
+                    _f("chunk_images", "int"),
+                    _f("processed", "int"),
+                    _f("status", "str"),
+                ),
+                description=(
+                    "Chunk-progress row emitted by --image-ids-file (bulk) instead of per-image "
+                    "TagsEditItem (Issue #1216). Count fields vary by action."
+                ),
+                schema=TagsBulkProgressItem,
             ),
             _output(
                 "TagsReplaceResult",
