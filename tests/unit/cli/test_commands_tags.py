@@ -83,6 +83,22 @@ class TestTagsAdd:
         repo.preview_add_tag_to_images_batch.assert_called_once_with([1, 2], "cat")
         repo.add_tag_to_images_batch.assert_not_called()
 
+    def test_add_dry_run_dedupes_same_store_tag_in_one_invocation(self, mock_project_and_container):
+        """同一起動内で同じ保存タグへ解決される入力は would_add に重複計上しない (Codex P2)。
+
+        apply では 1 回目の commit 後に 2 回目が dedup スキップされるため、
+        preview も 2 回目以降を見積りから除外する。
+        """
+        repo = mock_project_and_container.db_manager.annotation_repo
+        result = runner.invoke(
+            app,
+            ["--json", "tags", "add", "--project", "proj", "--image-ids", "1,2", "--tags", "cat,Cat"],
+        )
+        assert result.exit_code == 0
+        row = _json_result_row(result.stdout)
+        assert row["would_add"] == 2  # preview は 1 回のみ (2 回目は planned 済みでスキップ)
+        repo.preview_add_tag_to_images_batch.assert_called_once()
+
     def test_add_apply_result_has_no_would_add(self, mock_project_and_container):
         """would_add は dry-run 専用フィールド (Issue #1217)。"""
         result = runner.invoke(
@@ -289,6 +305,32 @@ class TestTagsRemove:
         assert row["mode"] == "soft_reject"
         assert row["removed"] == 0
         mock_project_and_container.db_manager.annotation_repo.remove_tag_from_images_batch.assert_not_called()
+
+    def test_remove_dry_run_dedupes_normalized_duplicate_tags(self, mock_project_and_container):
+        """正規化後に同一となる重複入力は would_remove に重複計上しない (Codex P2)。
+
+        apply では 1 回目の soft-reject 後に 2 回目がスキップされるため、
+        preview も正規化タグ単位で 1 回だけ見積もる。
+        """
+        repo = mock_project_and_container.db_manager.annotation_repo
+        result = runner.invoke(
+            app,
+            [
+                "--json",
+                "tags",
+                "remove",
+                "--project",
+                "proj",
+                "--image-ids",
+                "1,2",
+                "--tags",
+                "bad_tag,BAD_TAG",
+            ],
+        )
+        assert result.exit_code == 0
+        row = _json_result_row(result.stdout)
+        assert row["would_remove"] == 1  # preview 1 回分のみ (changed=1)
+        repo.preview_remove_tag_from_images_batch.assert_called_once()
 
     def test_remove_apply_result_has_mode_without_would_remove(self, mock_project_and_container):
         """apply 出力にも mode は載るが、would_remove は dry-run 専用 (Issue #1217)。"""

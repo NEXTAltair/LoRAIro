@@ -12,6 +12,7 @@ from typing import TYPE_CHECKING
 
 import click
 import typer
+from genai_tag_db_tools.utils.cleanup_str import TagCleaner
 
 if TYPE_CHECKING:
     from lorairo.database.repository.annotation_record import (
@@ -51,6 +52,10 @@ def _apply_classified_tags(
     resolutions: list[dict[str, object]] = []
     total_added = 0
     total_would_add = 0
+    # 同一起動内で同じ保存タグへ解決される入力 (`cat,Cat` / alias+canonical) は、apply では
+    # 1 回目の commit 後に 2 回目が dedup スキップされる。preview は毎回未変更 DB を読む
+    # ため、保存タグの dedup キー単位で 2 回目以降を見積りから除外する (Codex P2 / #1217)。
+    planned_store_keys: set[str] = set()
     for c in addable:
         tag_id = c.tag_id
         if not dry_run and c.classification == "unregistered":
@@ -63,7 +68,11 @@ def _apply_classified_tags(
         else:
             store_tag = c.input_tag.strip().lower()
         if dry_run:
-            total_would_add += annotation_repo.preview_add_tag_to_images_batch(image_ids, store_tag)
+            # dedup キーは書き込み経路 (_dedup_key) と同じ clean_format + lower
+            store_key = TagCleaner.clean_format(store_tag).strip().lower()
+            if store_key not in planned_store_keys:
+                planned_store_keys.add(store_key)
+                total_would_add += annotation_repo.preview_add_tag_to_images_batch(image_ids, store_tag)
         else:
             _, added = annotation_repo.add_tag_to_images_batch(
                 image_ids, c.input_tag, None, resolved=(store_tag, tag_id)
@@ -193,6 +202,28 @@ def add(
                 console.print(f"追加見込み: {total_would_add} 件 (既存重複はスキップ)")
 
 
+def _estimate_removals(
+    annotation_repo: AnnotationRepository, image_ids: list[int], tag_list: list[str]
+) -> int:
+    """dry-run の削除見込み件数 (would_remove) を読み取り専用で見積もる (Issue #1217)。
+
+    実適用と同じ判定 (_plan_tag_removal) を使う preview なので dry-run と apply が
+    乖離しない。正規化後に同じタグへ畳まれる重複入力 (`bad_tag,BAD_TAG`) は、apply
+    では 1 回目の soft-reject 後に 2 回目がスキップされるため、preview でも 2 回目
+    以降を見積りから除外する (Codex P2)。
+    """
+    planned_tags: set[str] = set()
+    would_remove = 0
+    for tag in tag_list:
+        normalized = tag.strip().lower()
+        if normalized in planned_tags:
+            continue
+        planned_tags.add(normalized)
+        plan = annotation_repo.preview_remove_tag_from_images_batch(image_ids, tag)
+        would_remove += sum(1 for _, s in plan if s == "changed")
+    return would_remove
+
+
 @app.command("remove")
 def remove(
     project: str = typer.Option(..., "--project", "-p", help="Project name"),
@@ -232,11 +263,7 @@ def remove(
         would_remove = 0
 
         if dry_run:
-            # 見積りは読み取り専用 preview で行う (would_remove、Issue #1217)。
-            # 実適用と同じ判定 (_plan_tag_removal) なので dry-run と apply が乖離しない。
-            for tag in tag_list:
-                plan = annotation_repo.preview_remove_tag_from_images_batch(image_ids, tag)
-                would_remove += sum(1 for _, s in plan if s == "changed")
+            would_remove = _estimate_removals(annotation_repo, image_ids, tag_list)
         else:
             for tag in tag_list:
                 _, item_results = annotation_repo.remove_tag_from_images_batch(image_ids, tag)
