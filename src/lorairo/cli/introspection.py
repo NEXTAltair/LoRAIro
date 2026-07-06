@@ -248,6 +248,15 @@ class ImagesShowItem(BaseModel):
     """JSONL item payload emitted per image by ``images show --json``."""
 
     image_id: int
+    metadata: dict[str, Any] | None = Field(
+        default=None,
+        description=(
+            "Image file metadata for cross-checking annotations against the actual file "
+            "(Issue #1215): stored_image_path / original_image_path / width / height / "
+            "format / filename / extension / phash / uuid. Null when the metadata row "
+            "is unavailable."
+        ),
+    )
     tags: list[dict[str, Any]]
     captions: list[dict[str, Any]]
     scores: list[dict[str, Any]]
@@ -1216,6 +1225,14 @@ TOOL_SPECS: dict[str, ToolSpec] = {
                 "ImagesShowItem",
                 (
                     _f("image_id", "int"),
+                    _f(
+                        "metadata",
+                        "dict | None",
+                        description=(
+                            "Image file metadata (stored_image_path/original_image_path/width/"
+                            "height/format/filename/extension/phash/uuid). Null when unavailable."
+                        ),
+                    ),
                     _f("tags", "list[dict]"),
                     _f("captions", "list[dict]"),
                     _f("scores", "list[dict]"),
