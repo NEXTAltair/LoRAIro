@@ -544,3 +544,66 @@ class TestSearchWorkerCancellation:
         error_mock.assert_not_called()
         canceled_mock.assert_called_once()
         mock_db.save_error_record.assert_not_called()
+
+
+class TestSqlAbortIntegration:
+    """協調キャンセルによる実行中 SQL 中断 (#1206) のテスト"""
+
+    def test_interrupted_query_during_cancel_emits_canceled(self):
+        """キャンセル要求中の OperationalError (interrupted) はキャンセル終端になる"""
+        from sqlalchemy.exc import OperationalError
+
+        class InterruptedWorker(LoRAIroWorkerBase[str]):
+            def execute(self) -> str:
+                # 実行中に協調キャンセルが来て progress handler がクエリを中断した状況
+                self.cancellation.cancel()
+                raise OperationalError("stmt", {}, Exception("interrupted"))
+
+        worker = InterruptedWorker()
+        canceled_signals: list[bool] = []
+        error_signals: list[str] = []
+        worker.canceled.connect(lambda: canceled_signals.append(True))
+        worker.error_occurred.connect(error_signals.append)
+
+        worker.run()
+
+        assert canceled_signals == [True]
+        assert error_signals == []
+        assert worker.status == WorkerStatus.CANCELED
+
+    def test_interrupted_query_without_cancel_is_error(self):
+        """キャンセル要求なしの OperationalError は従来どおりエラー終端"""
+        from sqlalchemy.exc import OperationalError
+
+        class FailingWorker(LoRAIroWorkerBase[str]):
+            def execute(self) -> str:
+                raise OperationalError("stmt", {}, Exception("interrupted"))
+
+        worker = FailingWorker()
+        error_signals: list[str] = []
+        worker.error_occurred.connect(error_signals.append)
+
+        worker.run()
+
+        assert len(error_signals) == 1
+        assert worker.status == WorkerStatus.FAILED
+
+    def test_run_registers_thread_for_sql_abort_during_execute(self):
+        """run() 実行中は現在スレッドのキャンセル状態が SQL 中断判定に公開される"""
+        from lorairo.gui.workers import sql_abort
+
+        observed: list[bool] = []
+
+        class ProbeWorker(LoRAIroWorkerBase[str]):
+            def execute(self) -> str:
+                observed.append(sql_abort.current_thread_cancel_requested())
+                self.cancellation.cancel()
+                observed.append(sql_abort.current_thread_cancel_requested())
+                return "done"
+
+        worker = ProbeWorker()
+        worker.run()
+
+        assert observed == [False, True]
+        # run() 終了後は登録解除され、以降の判定は False
+        assert sql_abort.current_thread_cancel_requested() is False

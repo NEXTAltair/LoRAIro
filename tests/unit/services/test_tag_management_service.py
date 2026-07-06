@@ -314,6 +314,94 @@ class TestTagManagementService:
         assert candidates == ["青い目"]
         assert current is None
 
+    def test_translation_status_batch_resolves_all_tags_in_two_queries(
+        self, service: TagManagementService
+    ) -> None:
+        """複数タグの翻訳状況を search_tags_batch 1 回 + preferred batch 1 回で解決する (#1203)。"""
+        batch = {
+            "blue_eyes": TagSearchResult(
+                items=[
+                    TagRecordPublic(
+                        tag="blue_eyes",
+                        tag_id=5,
+                        source_tag="blue_eyes",
+                        translations={"japanese": ["青目", "青い目"], "en": ["blue eyes"]},
+                    )
+                ]
+            ),
+            "1girl": TagSearchResult(
+                items=[
+                    TagRecordPublic(
+                        tag="1girl",
+                        tag_id=10,
+                        source_tag="1girl",
+                        translations={"ja": ["少女"]},
+                    )
+                ]
+            ),
+        }
+        with (
+            patch(
+                "lorairo.services.tag_management_service.search_tags_batch", return_value=batch
+            ) as mock_batch,
+            patch(
+                "lorairo.services.tag_management_service.get_preferred_translations_batch",
+                return_value={5: {"ja": "青い目"}},
+            ) as mock_pref,
+        ):
+            statuses = service.translation_status_batch(["blue_eyes", "1girl", "missing_tag"])
+
+        assert mock_batch.call_count == 1
+        assert mock_pref.call_count == 1
+        assert statuses["blue_eyes"].tag_id == 5
+        assert statuses["blue_eyes"].by_language["ja"] == (["青目", "青い目"], "青い目")
+        assert statuses["blue_eyes"].by_language["en"] == (["blue eyes"], None)
+        assert statuses["1girl"].tag_id == 10
+        assert statuses["1girl"].by_language["ja"] == (["少女"], None)
+        assert statuses["missing_tag"].tag_id is None
+        assert statuses["missing_tag"].by_language == {}
+
+    def test_translation_status_batch_search_failure_degrades_to_unresolved(
+        self, service: TagManagementService
+    ) -> None:
+        """batch 検索失敗は全タグ未解決 (tag_id=None) へ縮退する (#1203)。"""
+        with patch(
+            "lorairo.services.tag_management_service.search_tags_batch",
+            side_effect=OperationalError("stmt", {}, Exception("db down")),
+        ):
+            statuses = service.translation_status_batch(["blue_eyes"])
+
+        assert statuses["blue_eyes"].tag_id is None
+        assert statuses["blue_eyes"].by_language == {}
+
+    def test_translation_status_batch_preferred_failure_keeps_candidates(
+        self, service: TagManagementService
+    ) -> None:
+        """主訳 batch 取得の失敗は候補のみ + preferred=None で続行する (#1203)。"""
+        batch = {
+            "blue_eyes": TagSearchResult(
+                items=[
+                    TagRecordPublic(
+                        tag="blue_eyes",
+                        tag_id=5,
+                        source_tag="blue_eyes",
+                        translations={"ja": ["青い目"]},
+                    )
+                ]
+            )
+        }
+        with (
+            patch("lorairo.services.tag_management_service.search_tags_batch", return_value=batch),
+            patch(
+                "lorairo.services.tag_management_service.get_preferred_translations_batch",
+                side_effect=OperationalError("stmt", {}, Exception("db down")),
+            ),
+        ):
+            statuses = service.translation_status_batch(["blue_eyes"])
+
+        assert statuses["blue_eyes"].tag_id == 5
+        assert statuses["blue_eyes"].by_language["ja"] == (["青い目"], None)
+
     def test_set_preferred_translation_success(self, service: TagManagementService) -> None:
         """canonical→tag_id 解決の上で主訳を設定し True を返す (#1084)。"""
         result = TagSearchResult(items=[TagRecordPublic(tag="1girl", tag_id=10, source_tag="1girl")])
