@@ -35,6 +35,9 @@ from lorairo.services.service_container import get_service_container
 
 app = typer.Typer(help="Tag editing commands (agent-friendly)")
 console = make_console()
+# 診断/警告用 stderr console。show --missing-only の stdout (add --file 入力) を
+# 機械可読に保つため、打ち切り警告等は stderr へ回す (Issue #1211 / Codex P2)。
+err_console = make_console(stderr=True)
 
 
 def _apply_classified_tags(
@@ -438,6 +441,40 @@ def _missing_pair_items(
     return items
 
 
+def _emit_capped_missing_pairs(
+    items: list[dict[str, object]], target_tags: int, extra_result: dict[str, object] | None = None
+) -> None:
+    """未翻訳ペアを `add --file` の上限 (MAX_TRANSLATION_TAGS) で cap して出力する (Codex P2)。
+
+    show --missing-only の出力は 1 タグ最大 2 ペア (ja/en) 出るため、タグ数が上限近くだと
+    ペア数が MAX_TRANSLATION_TAGS を超え、そのまま add --file に渡すと import が拒否する。
+    上限で cap し、超過時は truncated=true + stderr 警告で明示する (silent 打ち切り回避)。
+    残りは絞り込んで再実行する。
+    """
+    truncated = len(items) > MAX_TRANSLATION_TAGS
+    capped = items[:MAX_TRANSLATION_TAGS]
+    result_extra = dict(extra_result or {})
+    if is_json_mode():
+        for item in capped:
+            emit_item(item)
+        emit_result(
+            f"{len(capped)} missing pair(s)" + (f" (truncated from {len(items)})" if truncated else ""),
+            target_tags=target_tags,
+            missing_pairs=len(capped),
+            truncated=truncated,
+            **result_extra,
+        )
+    else:
+        for item in capped:
+            console.print(f"{item['tag']} (tag_id={item['tag_id']}) missing={item['lang']}")
+    if truncated:
+        # stdout (add --file 入力) を汚さないよう警告は stderr へ。
+        err_console.print(
+            f"[yellow]警告:[/yellow] 未翻訳ペア {len(items)} 件を "
+            f"add --file 上限 {MAX_TRANSLATION_TAGS} 件で打ち切り。絞り込んで再実行してください。"
+        )
+
+
 def _show_translations_for_tags(
     service: TagManagementService, tags_csv: str, missing_only: bool = False
 ) -> None:
@@ -449,14 +486,7 @@ def _show_translations_for_tags(
         raise click.UsageError(f"--tags は最大 {MAX_TRANSLATION_TAGS} 件まで。")
     entries = _translation_status_entries(service, tag_names)
     if missing_only:
-        items = _missing_pair_items(entries)
-        if is_json_mode():
-            for item in items:
-                emit_item(item)
-            emit_result(f"{len(items)} missing pair(s)", target_tags=len(entries), missing_pairs=len(items))
-        else:
-            for item in items:
-                console.print(f"{item['tag']} (tag_id={item['tag_id']}) missing={item['lang']}")
+        _emit_capped_missing_pairs(_missing_pair_items(entries), target_tags=len(entries))
         return
     if is_json_mode():
         for entry in entries:
@@ -517,19 +547,10 @@ def _show_missing_pairs_for_images(
     for entry in entries:
         first_image = tag_first_image.get(str(entry["tag"]))
         deduped.extend(_missing_pair_items([entry], image_id=first_image))
-
-    if is_json_mode():
-        for item in deduped:
-            emit_item(item)
-        emit_result(
-            f"{len(image_ids)} image(s), {len(entries)} tag(s), {len(deduped)} missing pair(s)",
-            target_images=len(image_ids),
-            target_tags=len(entries),
-            missing_pairs=len(deduped),
-        )
-    else:
-        for item in deduped:
-            console.print(f"{item['tag']} (tag_id={item['tag_id']}) missing={item['lang']}")
+    # add --file 上限で cap する (Codex P2)。超過時は truncated=true + stderr 警告。
+    _emit_capped_missing_pairs(
+        deduped, target_tags=len(entries), extra_result={"target_images": len(image_ids)}
+    )
 
 
 def _show_translations_for_images(

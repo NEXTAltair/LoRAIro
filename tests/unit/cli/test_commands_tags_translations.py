@@ -379,6 +379,30 @@ class TestTranslationsShowMissingOnly:
         result_row = next(r for r in rows if r.get("kind") == "result")
         assert result_row["missing_pairs"] == 1
 
+    def test_missing_only_caps_at_import_limit_with_truncated_flag(self, mock_env: MagicMock) -> None:
+        """未翻訳ペアが add --file 上限を超えたら cap + truncated=true (Codex P2)。"""
+        from lorairo.services.tag_management_service import TranslationStatus
+
+        # 全タグ ja/en とも未翻訳 → 1 タグ 2 ペア。60 タグ → 120 ペア (>100 上限)。
+        mock_env.tag_management_service.translation_status_batch.side_effect = (
+            lambda tags, languages=("ja", "en"): {
+                tag: TranslationStatus(tag_id=1, by_language={"ja": ([], None), "en": ([], None)})
+                for tag in tags
+            }
+        )
+        tags_csv = ",".join(f"tag{i}" for i in range(60))
+        result = runner.invoke(
+            app,
+            ["--json", "tags", "translations", "show", "-p", "proj", "--tags", tags_csv, "--missing-only"],
+        )
+        assert result.exit_code == 0
+        rows = _rows(result.stdout)
+        items = [r for r in rows if r.get("kind") == "item"]
+        assert len(items) == 100  # MAX_TRANSLATION_TAGS で cap
+        result_row = next(r for r in rows if r.get("kind") == "result")
+        assert result_row["truncated"] is True
+        assert result_row["missing_pairs"] == 100
+
     def test_missing_only_by_image_ids_includes_image_id(self, mock_env: MagicMock) -> None:
         mock_env.db_manager.image_repo.get_image_annotations_batch.return_value = {
             1: {"tags": [{"tag": "cat"}, {"tag": "dog"}]}
