@@ -1740,3 +1740,10 @@ def test_action_buttons_use_text_only_style(panel):
     from PySide6.QtCore import Qt
 
     assert panel._translation_refresh_button.toolButtonStyle() == Qt.ToolButtonStyle.ToolButtonTextOnly
+
+
+def test_current_language_is_english_when_combo_empty(panel):
+    """言語 0 件で bar が (再取得ボタンのため) 表示されても english 判定 (Codex #1224 P2)。"""
+    panel.initialize_language_selector([])
+    panel.set_translation_refresh_enabled(True)  # bar 表示・combo 空
+    assert panel._current_language() == "english"

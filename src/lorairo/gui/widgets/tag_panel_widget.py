@@ -1303,8 +1303,15 @@ class TagPanelWidget(QWidget):
     # ─── 言語・描画 ─────────────────────────────────────────────────────
 
     def _current_language(self) -> str:
-        """現在の表示言語を返す (言語バー非表示時は english)。"""
-        return self._lang_combo.currentText() if not self._lang_bar.isHidden() else "english"
+        """現在の表示言語を返す (言語コンボが空/未表示なら原文 english)。
+
+        言語 0 件でも再取得ボタンのため言語バーは表示され得る (#1210)。その場合
+        コンボは空なので、bar の表示状態ではなくコンボ内容で判定する (Codex #1224 P2)。
+        コンボが空だと _current_language が "" を返し、翻訳追加後の
+        update_language_selector(prefer=...) が english 判定にならず表示切替が効かない。
+        """
+        text = self._lang_combo.currentText()
+        return text if text else "english"
 
     @Slot(str)
     def _on_language_changed(self, language: str) -> None:
