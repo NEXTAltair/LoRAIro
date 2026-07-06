@@ -28,7 +28,13 @@ from lorairo.cli._boundary import command_boundary
 from lorairo.cli._console import make_console
 from lorairo.cli._emit import emit_item, emit_result
 from lorairo.cli._glyphs import OK
-from lorairo.cli._image_ids import MAX_IMAGE_IDS, parse_image_ids, validate_image_ids_exist
+from lorairo.cli._image_ids import (
+    BULK_CHUNK_SIZE,
+    MAX_IMAGE_IDS,
+    parse_image_ids,
+    resolve_image_ids_input,
+    validate_image_ids_exist,
+)
 from lorairo.cli._output_mode import is_json_mode
 from lorairo.public_api.exceptions import DatabaseError
 from lorairo.public_api.project import get_project as api_get_project
@@ -122,10 +128,97 @@ def _print_add_summary(
         console.print(f"[yellow]警告:[/yellow] {len(unresolved)} 件がタグ DB 未解決 (tag_id=null) です")
 
 
+def _validate_all_image_ids(container: ServiceContainer, image_ids: list[int]) -> None:
+    """書き込み前に全 ID の存在を read-only で事前検証する (Issue #1216 / Codex P2)。
+
+    チャンク書き込みの途中で不正/欠落 ID に当たると partial-apply を残すため、
+    最初のチャンクを書き込む前に全チャンクを検証しきる。validate_image_ids_exist は
+    exact-set 上限 (500) があるためチャンク単位で回す。最初に見つかった欠落 ID で
+    ImageNotFoundError を送出する。
+    """
+    for chunk in _iter_id_chunks(image_ids):
+        validate_image_ids_exist(container, chunk)
+
+
+def _bulk_add(
+    container: ServiceContainer, image_ids: list[int], tag_list: list[str], dry_run: bool
+) -> None:
+    """--image-ids-file 由来の大量 ID へタグ追加をチャンク処理する (Issue #1216)。
+
+    分類は 1 回だけ行い (未登録タグの user DB 登録も 1 回)、チャンクごとに適用して
+    進捗を逐次出力する。per-image 行は出さず、チャンク進捗行 + 集約 result に集約する。
+    書き込み前に全 ID を事前検証し、partial-apply を防ぐ (Codex P2)。
+    """
+    annotation_repo = container.db_manager.annotation_repo
+    classifications = [annotation_repo.classify_manual_tag(tag) for tag in tag_list]
+    addable = [c for c in classifications if c.classification != "invalid"]
+    if not addable:
+        raise click.UsageError("--tags の全タグが正規化後に空になりました (追加対象なし)。")
+    invalid_tags = [c.input_tag for c in classifications if c.classification == "invalid"]
+    applied_tags = [c.input_tag for c in addable]
+
+    _validate_all_image_ids(container, image_ids)
+
+    total_added = 0
+    total_would_add = 0
+    resolutions: list[dict[str, object]] = []
+    processed = 0
+    for idx, chunk in enumerate(_iter_id_chunks(image_ids)):
+        chunk_resolutions, chunk_added, chunk_would = _apply_classified_tags(
+            annotation_repo, addable, chunk, dry_run
+        )
+        total_added += chunk_added
+        total_would_add += chunk_would
+        # 分類/解決はチャンク間で同一。最初のチャンクの解決結果を代表として保持する。
+        if idx == 0:
+            resolutions = chunk_resolutions
+        processed += len(chunk)
+        if is_json_mode():
+            emit_item(
+                {
+                    "action": "add",
+                    "chunk_images": len(chunk),
+                    "processed": processed,
+                    ("would_add" if dry_run else "added"): chunk_would if dry_run else chunk_added,
+                    "status": "dry_run" if dry_run else "changed",
+                }
+            )
+        else:
+            console.print(
+                f"[{processed}/{len(image_ids)}] "
+                f"{'追加見込み' if dry_run else '追加'} {chunk_would if dry_run else chunk_added} 件"
+            )
+
+    unresolved = [r for r in resolutions if r["tag_id"] is None]
+    result_fields: dict[str, object] = {
+        "target_images": len(image_ids),
+        "tags": applied_tags,
+        "added": total_added,
+        "dry_run": dry_run,
+        "tag_resolutions": resolutions,
+        "skipped_invalid_tags": invalid_tags,
+        "unresolved_tag_count": len(unresolved) if not dry_run else None,
+    }
+    if dry_run:
+        result_fields["would_add"] = total_would_add
+    if is_json_mode():
+        emit_result(
+            f"{'[dry-run] ' if dry_run else ''}Added tags to {len(image_ids)} image(s)",
+            **result_fields,
+        )
+    else:
+        _print_add_summary(applied_tags, resolutions, invalid_tags, unresolved, image_ids, dry_run)
+
+
 @app.command("add")
 def add(
     project: str = typer.Option(..., "--project", "-p", help="Project name"),
-    image_ids_csv: str = typer.Option(..., "--image-ids", help="Comma-separated image IDs"),
+    image_ids_csv: str | None = typer.Option(None, "--image-ids", help="Comma-separated image IDs"),
+    image_ids_file: str | None = typer.Option(
+        None,
+        "--image-ids-file",
+        help="Path to a newline/comma-separated image ID list (bulk; chunked internally, Issue #1216).",
+    ),
     tags_csv: str = typer.Option(..., "--tags", help="Comma-separated tags to add"),
     apply: bool = typer.Option(False, "--apply", help="Write to DB (default: dry-run)"),
 ) -> None:
@@ -139,27 +232,32 @@ def add(
     (自動適用しない)、未登録の新タグは --apply 時に user DB へ登録します。
     解決できなかったタグは tag_id=null として明示されます。
 
+    ID は --image-ids (カンマ区切り、最大 500) か --image-ids-file (数千規模のリスト
+    ファイル、CLI 内部でチャンク分割 + 進捗逐次出力、Issue #1216) のどちらかで指定します。
+
     Example:
         lorairo-cli tags add --project proj --image-ids 1,2,3 --tags "cat,dog" --apply
+        lorairo-cli tags add --project proj --image-ids-file ids.txt --tags "masterpiece" --apply
     """
     with command_boundary():
-        api_get_project(project)
-        image_ids = parse_image_ids(image_ids_csv)
-        if not image_ids:
-            raise click.UsageError("--image-ids に有効な値がありません。")
-        if len(image_ids) > MAX_IMAGE_IDS:
-            raise click.UsageError(f"--image-ids は最大 {MAX_IMAGE_IDS} 件まで。")
+        image_ids, is_file = resolve_image_ids_input(image_ids_csv, image_ids_file)
 
         tag_list = [t.strip() for t in tags_csv.split(",") if t.strip()]
         if not tag_list:
             raise click.UsageError("--tags に有効な値がありません。")
 
+        api_get_project(project)
         container = get_service_container()
         container.set_active_project(project)
-        validate_image_ids_exist(container, image_ids)
 
         annotation_repo = container.db_manager.annotation_repo
         dry_run = not apply
+
+        if is_file:
+            _bulk_add(container, image_ids, tag_list, dry_run)
+            return
+
+        validate_image_ids_exist(container, image_ids)
 
         # 分類 (読み取り専用、dry-run/apply 共通)。invalid は追加対象から除外する
         classifications = [annotation_repo.classify_manual_tag(tag) for tag in tag_list]
@@ -229,10 +327,80 @@ def _estimate_removals(
     return would_remove
 
 
+def _iter_id_chunks(image_ids: list[int]) -> list[list[int]]:
+    """画像 ID リストを BULK_CHUNK_SIZE 単位のチャンクへ分割する (Issue #1216)。"""
+    return [image_ids[i : i + BULK_CHUNK_SIZE] for i in range(0, len(image_ids), BULK_CHUNK_SIZE)]
+
+
+def _bulk_remove(
+    container: ServiceContainer, image_ids: list[int], tag_list: list[str], dry_run: bool
+) -> None:
+    """--image-ids-file 由来の大量 ID をチャンク処理し進捗を逐次出力する (Issue #1216)。
+
+    per-image 行は数千規模で出力過大になるため、チャンクごとの進捗行に集約する
+    (CSV 直接指定の per-image 出力とは別経路)。
+    """
+    annotation_repo = container.db_manager.annotation_repo
+    _validate_all_image_ids(container, image_ids)
+    total_removed = 0
+    would_remove = 0
+    processed = 0
+    for chunk in _iter_id_chunks(image_ids):
+        chunk_count = 0
+        if dry_run:
+            chunk_count = _estimate_removals(annotation_repo, chunk, tag_list)
+            would_remove += chunk_count
+        else:
+            for tag in tag_list:
+                _, results = annotation_repo.remove_tag_from_images_batch(chunk, tag)
+                chunk_count += sum(1 for _, s in results if s == "changed")
+            total_removed += chunk_count
+        processed += len(chunk)
+        if is_json_mode():
+            emit_item(
+                {
+                    "action": "remove",
+                    "chunk_images": len(chunk),
+                    "processed": processed,
+                    ("would_remove" if dry_run else "removed"): chunk_count,
+                    "status": "dry_run" if dry_run else "changed",
+                }
+            )
+        else:
+            console.print(
+                f"[{processed}/{len(image_ids)}] {'削除見込み' if dry_run else '削除'} {chunk_count} 件"
+            )
+    result_fields: dict[str, object] = {
+        "target_images": len(image_ids),
+        "tags": tag_list,
+        "removed": total_removed,
+        "dry_run": dry_run,
+        "mode": "soft_reject",
+    }
+    if dry_run:
+        result_fields["would_remove"] = would_remove
+    if is_json_mode():
+        emit_result(
+            f"{'[dry-run] ' if dry_run else ''}Removed tags from {len(image_ids)} image(s)",
+            **result_fields,
+        )
+    else:
+        prefix = "[dry-run] " if dry_run else ""
+        console.print(
+            f"{prefix}{OK} {len(image_ids)} 件の画像から {tag_list} を削除"
+            f"{f'予定 (削除見込み {would_remove} 件, soft-reject)' if dry_run else '完了 (soft-reject)'}"
+        )
+
+
 @app.command("remove")
 def remove(
     project: str = typer.Option(..., "--project", "-p", help="Project name"),
-    image_ids_csv: str = typer.Option(..., "--image-ids", help="Comma-separated image IDs"),
+    image_ids_csv: str | None = typer.Option(None, "--image-ids", help="Comma-separated image IDs"),
+    image_ids_file: str | None = typer.Option(
+        None,
+        "--image-ids-file",
+        help="Path to a newline/comma-separated image ID list (bulk; chunked internally, Issue #1216).",
+    ),
     tags_csv: str = typer.Option(..., "--tags", help="Comma-separated tags to remove"),
     apply: bool = typer.Option(False, "--apply", help="Write to DB (default: dry-run)"),
 ) -> None:
@@ -242,26 +410,31 @@ def remove(
     対象タグが存在しない画像はスキップします（エラーにしません）。
     デフォルトは dry-run です。--apply を付けると DB に書き込みます。
 
+    ID は --image-ids (カンマ区切り、最大 500) か --image-ids-file (数千規模のリスト
+    ファイル、CLI 内部でチャンク分割 + 進捗逐次出力、Issue #1216) のどちらかで指定します。
+
     Example:
         lorairo-cli tags remove --project proj --image-ids 1,2,3 --tags "bad_tag" --apply
+        lorairo-cli tags remove --project proj --image-ids-file ids.txt --tags "absurdres" --apply
     """
     with command_boundary():
-        api_get_project(project)
-        image_ids = parse_image_ids(image_ids_csv)
-        if not image_ids:
-            raise click.UsageError("--image-ids に有効な値がありません。")
-        if len(image_ids) > MAX_IMAGE_IDS:
-            raise click.UsageError(f"--image-ids は最大 {MAX_IMAGE_IDS} 件まで。")
+        image_ids, is_file = resolve_image_ids_input(image_ids_csv, image_ids_file)
 
         tag_list = [t.strip() for t in tags_csv.split(",") if t.strip()]
         if not tag_list:
             raise click.UsageError("--tags に有効な値がありません。")
 
+        api_get_project(project)
         container = get_service_container()
         container.set_active_project(project)
-        validate_image_ids_exist(container, image_ids)
 
         dry_run = not apply
+
+        if is_file:
+            _bulk_remove(container, image_ids, tag_list, dry_run)
+            return
+
+        validate_image_ids_exist(container, image_ids)
         annotation_repo = container.db_manager.annotation_repo
         per_item_results: list[tuple[int, str]] = []
         total_removed = 0
@@ -313,10 +486,69 @@ def remove(
             )
 
 
+def _bulk_replace(
+    container: ServiceContainer, image_ids: list[int], from_tag: str, to_tag: str, dry_run: bool
+) -> None:
+    """--image-ids-file 由来の大量 ID へタグ置換をチャンク処理する (Issue #1216)。
+
+    書き込み前に全 ID を事前検証し、partial-apply を防ぐ (Codex P2)。
+    """
+    annotation_repo = container.db_manager.annotation_repo
+    _validate_all_image_ids(container, image_ids)
+    total_changed = 0
+    total_skipped = 0
+    processed = 0
+    for chunk in _iter_id_chunks(image_ids):
+        chunk_changed = 0
+        chunk_skipped = 0
+        if not dry_run:
+            _, results = annotation_repo.replace_tag_for_images_batch(chunk, from_tag, to_tag)
+            chunk_changed = sum(1 for _, s in results if s == "changed")
+            chunk_skipped = sum(1 for _, s in results if s == "skipped")
+        total_changed += chunk_changed
+        total_skipped += chunk_skipped
+        processed += len(chunk)
+        if is_json_mode():
+            emit_item(
+                {
+                    "action": "replace",
+                    "from": from_tag.strip().lower(),
+                    "to": to_tag.strip().lower(),
+                    "chunk_images": len(chunk),
+                    "processed": processed,
+                    "changed": chunk_changed,
+                    "skipped": chunk_skipped,
+                    "status": "dry_run" if dry_run else "changed",
+                }
+            )
+        else:
+            console.print(f"[{processed}/{len(image_ids)}] 変更={chunk_changed}, スキップ={chunk_skipped}")
+    if is_json_mode():
+        emit_result(
+            f"{'[dry-run] ' if dry_run else ''}Replaced tags in {len(image_ids)} image(s)",
+            target_images=len(image_ids),
+            changed=total_changed,
+            skipped=total_skipped,
+            errors=0,
+            dry_run=dry_run,
+        )
+    else:
+        prefix = "[dry-run] " if dry_run else ""
+        console.print(
+            f"{prefix}{OK} {len(image_ids)} 件対象: '{from_tag}' -> '{to_tag}' "
+            f"({'予定' if dry_run else f'変更={total_changed}, スキップ={total_skipped}'})"
+        )
+
+
 @app.command("replace")
 def replace(
     project: str = typer.Option(..., "--project", "-p", help="Project name"),
-    image_ids_csv: str = typer.Option(..., "--image-ids", help="Comma-separated image IDs"),
+    image_ids_csv: str | None = typer.Option(None, "--image-ids", help="Comma-separated image IDs"),
+    image_ids_file: str | None = typer.Option(
+        None,
+        "--image-ids-file",
+        help="Path to a newline/comma-separated image ID list (bulk; chunked internally, Issue #1216).",
+    ),
     from_tag: str = typer.Option(..., "--from", help="Tag to replace (変換元)"),
     to_tag: str = typer.Option(..., "--to", help="Replacement tag (変換先)"),
     apply: bool = typer.Option(False, "--apply", help="Write to DB (default: dry-run)"),
@@ -329,27 +561,30 @@ def replace(
     - 変換先タグが既に存在する場合は変換元のみ削除します（重複しません）。
 
     デフォルトは dry-run です。--apply を付けると DB に書き込みます。
+    ID は --image-ids (最大 500) か --image-ids-file (bulk、Issue #1216) で指定します。
 
     Example:
         lorairo-cli tags replace --project proj --image-ids 1,2,3 --from "bad tag" --to "good_tag" --apply
+        lorairo-cli tags replace --project proj --image-ids-file ids.txt --from "bad tag" --to "good_tag" --apply
     """
     with command_boundary():
-        api_get_project(project)
-        image_ids = parse_image_ids(image_ids_csv)
-        if not image_ids:
-            raise click.UsageError("--image-ids に有効な値がありません。")
-        if len(image_ids) > MAX_IMAGE_IDS:
-            raise click.UsageError(f"--image-ids は最大 {MAX_IMAGE_IDS} 件まで。")
+        image_ids, is_file = resolve_image_ids_input(image_ids_csv, image_ids_file)
         if not from_tag.strip():
             raise click.UsageError("--from に有効な値がありません。")
         if not to_tag.strip():
             raise click.UsageError("--to に有効な値がありません。")
 
+        api_get_project(project)
         container = get_service_container()
         container.set_active_project(project)
-        validate_image_ids_exist(container, image_ids)
 
         dry_run = not apply
+
+        if is_file:
+            _bulk_replace(container, image_ids, from_tag, to_tag, dry_run)
+            return
+
+        validate_image_ids_exist(container, image_ids)
         per_item_results: list[tuple[int, str]] = []
 
         if not dry_run:

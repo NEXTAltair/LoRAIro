@@ -18,6 +18,14 @@ from lorairo.public_api.types import ProjectCreateRequest
 SideEffect = Literal["db_read", "db_write", "file_read", "file_write", "network"]
 SchemaMode = Literal["compact", "json_schema"]
 
+# --image-ids-file (bulk) 入力の共通説明 (tags add/remove/replace + export create、Issue #1216)。
+_IMAGE_IDS_FILE_DESC = (
+    "Path to a newline/comma-separated image ID list for bulk operations "
+    "(chunked internally, max 100,000; mutually exclusive with image_ids, Issue #1216). "
+    "For tags commands, bulk mode emits TagsBulkProgressItem chunk-progress rows "
+    "instead of per-image TagsEditItem."
+)
+
 
 class ImageFilterCriteriaSchema(BaseModel):
     """Public JSON Schema mirror for ImageFilterCriteria.
@@ -52,6 +60,14 @@ class ImageFilterCriteriaSchema(BaseModel):
     )
     score_min: float | None = Field(default=None, ge=0.0, le=10.0, description="Minimum score.")
     score_max: float | None = Field(default=None, ge=0.0, le=10.0, description="Maximum score.")
+    width_min: int | None = Field(default=None, ge=1, description="Minimum original width in px (#1216).")
+    width_max: int | None = Field(default=None, ge=1, description="Maximum original width in px.")
+    height_min: int | None = Field(default=None, ge=1, description="Minimum original height in px.")
+    height_max: int | None = Field(default=None, ge=1, description="Maximum original height in px.")
+    filename_pattern: str | None = Field(
+        default=None, description="Case-insensitive SQL LIKE pattern on filename."
+    )
+    format_name: str | None = Field(default=None, description="Case-insensitive exact image format.")
     project_name: str | None = Field(default=None, description="Project name scope.")
     project_id: int | None = Field(default=None, description="Project ID scope.")
     limit: int | None = Field(default=None, ge=1, description="Maximum result count.")
@@ -281,12 +297,15 @@ class ImagesShowResult(BaseModel):
 class ExportCreateInputSchema(BaseModel):
     """Implemented options surface accepted by ``export create``.
 
-    export create requires --image-ids (comma-separated IDs).
+    export create takes one of --image-ids / --image-ids-file (mutually exclusive).
     Use ``images search`` to resolve IDs, then pass them here.
     """
 
     project: str
-    image_ids: str = Field(description="Comma-separated image IDs to export, e.g. '1,2,3'.")
+    image_ids: str | None = Field(
+        default=None, description="Comma-separated image IDs to export, e.g. '1,2,3' (max 500)."
+    )
+    image_ids_file: str | None = Field(default=None, description=_IMAGE_IDS_FILE_DESC)
     output: str
     resolution: int = 512
 
@@ -327,6 +346,31 @@ class TagsEditItem(BaseModel):
     reason: str | None = None
 
     model_config = ConfigDict(title="TagsEditItem", populate_by_name=True)
+
+
+class TagsBulkProgressItem(BaseModel):
+    """JSONL item emitted per chunk by ``tags add/remove/replace --image-ids-file --json``.
+
+    ``--image-ids-file`` (bulk) 経路は per-image の ``TagsEditItem`` ではなく、チャンク
+    単位の進捗行を出す (数千画像で per-image 行が過大になるため、Issue #1216)。
+    フィールドはアクションにより異なる (add: ``added``/``would_add`` / remove:
+    ``removed``/``would_remove`` / replace: ``changed``/``skipped``)。
+    """
+
+    action: Literal["add", "remove", "replace"]
+    chunk_images: int = Field(description="Number of image IDs processed in this chunk.")
+    processed: int = Field(description="Cumulative image IDs processed so far.")
+    status: Literal["dry_run", "changed"]
+    added: int | None = None
+    would_add: int | None = None
+    removed: int | None = None
+    would_remove: int | None = None
+    changed: int | None = None
+    skipped: int | None = None
+    from_tag: str | None = Field(default=None, alias="from")
+    to_tag: str | None = Field(default=None, alias="to")
+
+    model_config = ConfigDict(title="TagsBulkProgressItem", populate_by_name=True)
 
 
 class TagResolutionEntry(BaseModel):
@@ -412,7 +456,8 @@ class TagsAddInputSchema(BaseModel):
     """Implemented options surface accepted by ``tags add``."""
 
     project: str
-    image_ids: str = Field(description="Comma-separated image IDs, max 500.")
+    image_ids: str | None = Field(default=None, description="Comma-separated image IDs, max 500.")
+    image_ids_file: str | None = Field(default=None, description=_IMAGE_IDS_FILE_DESC)
     tags: str = Field(description="Comma-separated tags to add.")
     apply: bool = False
 
@@ -423,7 +468,8 @@ class TagsRemoveInputSchema(BaseModel):
     """Implemented options surface accepted by ``tags remove``."""
 
     project: str
-    image_ids: str = Field(description="Comma-separated image IDs, max 500.")
+    image_ids: str | None = Field(default=None, description="Comma-separated image IDs, max 500.")
+    image_ids_file: str | None = Field(default=None, description=_IMAGE_IDS_FILE_DESC)
     tags: str = Field(description="Comma-separated tags to remove.")
     apply: bool = False
 
@@ -434,7 +480,8 @@ class TagsReplaceInputSchema(BaseModel):
     """Implemented options surface accepted by ``tags replace``."""
 
     project: str
-    image_ids: str = Field(description="Comma-separated image IDs, max 500.")
+    image_ids: str | None = Field(default=None, description="Comma-separated image IDs, max 500.")
+    image_ids_file: str | None = Field(default=None, description=_IMAGE_IDS_FILE_DESC)
     from_tag: str = Field(description="Tag to replace.")
     to_tag: str = Field(description="Replacement tag.")
     apply: bool = False
@@ -1118,10 +1165,13 @@ TOOL_SPECS: dict[str, ToolSpec] = {
                     _f("project", "str", required=True),
                     _f(
                         "image_ids",
-                        "csv[int]",
-                        required=True,
-                        description="Comma-separated image IDs, e.g. '1,2,3'. Use images search to resolve IDs.",
+                        "csv[int]?",
+                        description=(
+                            "Comma-separated image IDs, max 500 (or use image_ids_file). "
+                            "Use images search to resolve IDs."
+                        ),
                     ),
+                    _f("image_ids_file", "path?", description=_IMAGE_IDS_FILE_DESC),
                     _f("output", "path", required=True),
                     _f("resolution", "int", default=512),
                 ),
@@ -1182,8 +1232,36 @@ TOOL_SPECS: dict[str, ToolSpec] = {
                     _f("only_unrated", "bool", default=False),
                     _f("missing_model", "str?"),
                     _f("include_nsfw", "bool", default=False),
+                    _f(
+                        "width_min",
+                        "int?",
+                        description="Minimum original image width in px (Issue #1216).",
+                    ),
+                    _f("width_max", "int?", description="Maximum original image width in px."),
+                    _f("height_min", "int?", description="Minimum original image height in px."),
+                    _f("height_max", "int?", description="Maximum original image height in px."),
+                    _f(
+                        "filename_pattern",
+                        "str?",
+                        description="Case-insensitive SQL LIKE pattern on filename ('%'/'_' wildcards).",
+                    ),
+                    _f(
+                        "format",
+                        "str?",
+                        description="Case-insensitive exact match on image format (e.g. 'jpeg', 'png').",
+                    ),
                     _f("limit", "int[1,500]", default=500),
                     _f("offset", "int>=0", default=0),
+                    _f(
+                        "emit_ids",
+                        "bool",
+                        default=False,
+                        description=(
+                            "Emit ALL matching image_ids (paged internally), bypassing the "
+                            "count-first ResultSetTooLargeError guard, for piping into "
+                            "tags --image-ids-file (Issue #1216). Capped at 100,000."
+                        ),
+                    ),
                 ),
                 schema_model=ImageSearchQuery,
             ),
@@ -1284,10 +1362,10 @@ TOOL_SPECS: dict[str, ToolSpec] = {
                     _f("project", "str", required=True),
                     _f(
                         "image_ids",
-                        "csv[int]",
-                        required=True,
-                        description="Comma-separated image IDs, max 500.",
+                        "csv[int]?",
+                        description="Comma-separated image IDs, max 500 (or use image_ids_file).",
                     ),
+                    _f("image_ids_file", "path?", description=_IMAGE_IDS_FILE_DESC),
                     _f("tags", "csv[str]", required=True, description="Comma-separated tags to add."),
                     _f("apply", "bool", default=False, description="Write to DB. Default is dry-run."),
                 ),
@@ -1304,6 +1382,20 @@ TOOL_SPECS: dict[str, ToolSpec] = {
                     _f("status", "str"),
                 ),
                 schema=TagsEditItem,
+            ),
+            _output(
+                "TagsBulkProgressItem",
+                (
+                    _f("action", "str"),
+                    _f("chunk_images", "int"),
+                    _f("processed", "int"),
+                    _f("status", "str"),
+                ),
+                description=(
+                    "Chunk-progress row emitted by --image-ids-file (bulk) instead of per-image "
+                    "TagsEditItem (Issue #1216). Count fields vary by action."
+                ),
+                schema=TagsBulkProgressItem,
             ),
             _output(
                 "TagsAddResult",
@@ -1359,10 +1451,10 @@ TOOL_SPECS: dict[str, ToolSpec] = {
                     _f("project", "str", required=True),
                     _f(
                         "image_ids",
-                        "csv[int]",
-                        required=True,
-                        description="Comma-separated image IDs, max 500.",
+                        "csv[int]?",
+                        description="Comma-separated image IDs, max 500 (or use image_ids_file).",
                     ),
+                    _f("image_ids_file", "path?", description=_IMAGE_IDS_FILE_DESC),
                     _f("tags", "csv[str]", required=True, description="Comma-separated tags to remove."),
                     _f("apply", "bool", default=False, description="Write to DB. Default is dry-run."),
                 ),
@@ -1379,6 +1471,20 @@ TOOL_SPECS: dict[str, ToolSpec] = {
                     _f("status", "str"),
                 ),
                 schema=TagsEditItem,
+            ),
+            _output(
+                "TagsBulkProgressItem",
+                (
+                    _f("action", "str"),
+                    _f("chunk_images", "int"),
+                    _f("processed", "int"),
+                    _f("status", "str"),
+                ),
+                description=(
+                    "Chunk-progress row emitted by --image-ids-file (bulk) instead of per-image "
+                    "TagsEditItem (Issue #1216). Count fields vary by action."
+                ),
+                schema=TagsBulkProgressItem,
             ),
             _output(
                 "TagsRemoveResult",
@@ -1421,10 +1527,10 @@ TOOL_SPECS: dict[str, ToolSpec] = {
                     _f("project", "str", required=True),
                     _f(
                         "image_ids",
-                        "csv[int]",
-                        required=True,
-                        description="Comma-separated image IDs, max 500.",
+                        "csv[int]?",
+                        description="Comma-separated image IDs, max 500 (or use image_ids_file).",
                     ),
+                    _f("image_ids_file", "path?", description=_IMAGE_IDS_FILE_DESC),
                     _f("from_tag", "str", required=True, description="Tag to replace."),
                     _f("to_tag", "str", required=True, description="Replacement tag."),
                     _f("apply", "bool", default=False, description="Write to DB. Default is dry-run."),
@@ -1443,6 +1549,20 @@ TOOL_SPECS: dict[str, ToolSpec] = {
                     _f("status", "str"),
                 ),
                 schema=TagsEditItem,
+            ),
+            _output(
+                "TagsBulkProgressItem",
+                (
+                    _f("action", "str"),
+                    _f("chunk_images", "int"),
+                    _f("processed", "int"),
+                    _f("status", "str"),
+                ),
+                description=(
+                    "Chunk-progress row emitted by --image-ids-file (bulk) instead of per-image "
+                    "TagsEditItem (Issue #1216). Count fields vary by action."
+                ),
+                schema=TagsBulkProgressItem,
             ),
             _output(
                 "TagsReplaceResult",

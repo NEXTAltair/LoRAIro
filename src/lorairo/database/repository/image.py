@@ -3052,6 +3052,37 @@ class ImageRepository(BaseRepository):
                 logger.opt(exception=True).error(f"image_ids exact-set 取得エラー: {e}")
                 raise
 
+    def _apply_image_metadata_filter(
+        self, query: Select[Any], criteria: ImageFilterCriteria
+    ) -> Select[Any]:
+        """オリジナル画像メタデータ条件 (width/height/filename/format) を適用する (Issue #1216)。
+
+        ``Image`` テーブルの基本カラムに対する単純な範囲/パターン/完全一致条件。
+        解像度タグ監査等で image DB を直読せず CLI 検索で不適合画像を抽出するために使う。
+        いずれも None は無指定 (フィルタなし)。filename / format は大小無視で照合する。
+
+        Args:
+            query: ``select(Image.id)`` ベースのクエリ。
+            criteria: フィルタ条件。
+
+        Returns:
+            メタデータ条件を AND 追加したクエリ。
+        """
+        if criteria.width_min is not None:
+            query = query.where(Image.width >= criteria.width_min)
+        if criteria.width_max is not None:
+            query = query.where(Image.width <= criteria.width_max)
+        if criteria.height_min is not None:
+            query = query.where(Image.height >= criteria.height_min)
+        if criteria.height_max is not None:
+            query = query.where(Image.height <= criteria.height_max)
+        if criteria.filename_pattern:
+            # COLLATE NOCASE で大小無視。呼び出し元が '%'/'_' ワイルドカードを含められる。
+            query = query.where(Image.filename.ilike(criteria.filename_pattern))
+        if criteria.format_name:
+            query = query.where(func.lower(Image.format) == criteria.format_name.strip().lower())
+        return query
+
     def get_images_by_filter(
         self,
         criteria: ImageFilterCriteria | None = None,
@@ -3114,6 +3145,7 @@ class ImageRepository(BaseRepository):
                     rating_combine=filter_criteria.rating_combine,
                     keyword_groups=filter_criteria.keyword_groups,
                 )
+                query = self._apply_image_metadata_filter(query, filter_criteria)
                 query = self._apply_processed_resolution_filter(query, filter_criteria.resolution)
 
                 # Score Filter は表示側と同じ集約スコアで Python post-filter する (Issue #1026)。
@@ -3214,6 +3246,7 @@ class ImageRepository(BaseRepository):
                     rating_combine=filter_criteria.rating_combine,
                     keyword_groups=filter_criteria.keyword_groups,
                 )
+                filtered_query = self._apply_image_metadata_filter(filtered_query, filter_criteria)
                 filtered_query = self._apply_processed_resolution_filter(
                     filtered_query, filter_criteria.resolution
                 )
@@ -3282,6 +3315,7 @@ class ImageRepository(BaseRepository):
                     rating_combine=filter_criteria.rating_combine,
                     keyword_groups=filter_criteria.keyword_groups,
                 )
+                filtered_query = self._apply_image_metadata_filter(filtered_query, filter_criteria)
                 filtered_query = self._apply_processed_resolution_filter(
                     filtered_query, filter_criteria.resolution
                 )

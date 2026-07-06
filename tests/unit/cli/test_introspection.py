@@ -143,10 +143,11 @@ def test_describe_json_schema_wraps_cli_input_schema_in_item_payload() -> None:
     assert "sql" not in json.dumps(input_schema["schema"]).lower()
 
 
-def test_export_create_image_ids_is_required_and_no_filter_anyof() -> None:
-    """export create は --image-ids 必須、旧フィルタ anyOf は削除済み (Issue #702)。
+def test_export_create_image_ids_inputs_and_no_filter_anyof() -> None:
+    """export create は image_ids / image_ids_file を受け、旧フィルタ anyOf は削除済み。
 
-    新 API は image_ids (CSV) を必須とし、tags/score/caption フィルタを受け付けない。
+    新 API は image_ids (CSV) または image_ids_file (bulk、Issue #1216) を受け付け、
+    tags/score/caption フィルタは受け付けない。
     """
     result = runner.invoke(app, ["--json", "describe", "export create", "--schema", "json_schema"])
     assert result.exit_code == 0
@@ -155,12 +156,14 @@ def test_export_create_image_ids_is_required_and_no_filter_anyof() -> None:
         row for row in rows if row.get("type") == "schema" and row["name"] == "ExportCreateInput"
     )
     schema = input_schema["schema"]
-    # image_ids は required に含まれる
-    assert "image_ids" in schema.get("required", [])
+    properties = schema.get("properties", {})
+    # image_ids / image_ids_file は「どちらか一方」で単独必須ではない (Issue #1216)
+    assert "image_ids" not in schema.get("required", [])
+    assert "image_ids" in properties
+    assert "image_ids_file" in properties
     # 旧フィルタ anyOf は削除済み
     assert "anyOf" not in schema
     # 旧フィルタフィールドは存在しない
-    properties = schema.get("properties", {})
     for old_field in ("tags", "excluded_tags", "caption", "score_min", "score_max"):
         assert old_field not in properties
 
@@ -472,9 +475,11 @@ def test_describe_tags_add_exposes_required_fields() -> None:
     input_row = next(row for row in rows if row.get("type") == "model" and row["name"] == "TagsAddInput")
     fields = {f["name"]: f for f in input_row["fields"]}
     assert fields["project"]["required"] is True
-    assert fields["image_ids"]["required"] is True
     assert fields["tags"]["required"] is True
     assert fields["apply"]["default"] is False
+    # image_ids / image_ids_file は「どちらか一方」で単独必須ではない (Issue #1216)
+    assert fields["image_ids"]["required"] is False
+    assert "image_ids_file" in fields
 
 
 def test_describe_tags_remove_exposes_required_fields() -> None:
@@ -487,8 +492,10 @@ def test_describe_tags_remove_exposes_required_fields() -> None:
 
     input_row = next(row for row in rows if row.get("type") == "model" and row["name"] == "TagsRemoveInput")
     fields = {f["name"]: f for f in input_row["fields"]}
-    assert fields["image_ids"]["required"] is True
     assert fields["tags"]["required"] is True
+    # image_ids / image_ids_file は「どちらか一方」で単独必須ではない (Issue #1216)
+    assert fields["image_ids"]["required"] is False
+    assert "image_ids_file" in fields
 
 
 def test_describe_tags_replace_exposes_from_to_fields() -> None:

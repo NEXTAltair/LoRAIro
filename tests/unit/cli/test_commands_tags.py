@@ -423,3 +423,167 @@ class TestTagsReplace:
         assert len(items) == 2
         assert result_row["ok"] is True
         assert result_row["dry_run"] is False
+
+
+@pytest.mark.unit
+class TestBulkImageIdsFile:
+    """--image-ids-file による大量 ID のチャンク処理 (Issue #1216)。"""
+
+    @pytest.fixture
+    def bulk_container(self, monkeypatch):
+        container = _make_container()
+        # 存在検証はどの ID も存在扱いにする (チャンクごとに呼ばれる)
+        container.db_manager.image_repo.get_images_by_filter.side_effect = lambda criteria: (
+            [{"id": i} for i in (criteria.image_ids or [])],
+            len(criteria.image_ids or []),
+        )
+        # remove/replace はチャンク内全件 changed 扱い
+        container.db_manager.annotation_repo.remove_tag_from_images_batch.side_effect = lambda ids, tag: (
+            True,
+            [(i, "changed") for i in ids],
+        )
+        container.db_manager.annotation_repo.add_tag_to_images_batch.side_effect = (
+            lambda ids, tag, model, resolved=None: (True, len(ids))
+        )
+        monkeypatch.setattr(
+            "lorairo.cli.commands.tags.api_get_project", MagicMock(return_value=MagicMock())
+        )
+        monkeypatch.setattr(
+            "lorairo.cli.commands.tags.get_service_container", MagicMock(return_value=container)
+        )
+        return container
+
+    def _ids_file(self, tmp_path, count: int):
+        f = tmp_path / "ids.txt"
+        f.write_text("\n".join(str(i) for i in range(1, count + 1)))
+        return str(f)
+
+    def test_bulk_prevalidates_before_any_write(self, bulk_container, tmp_path):
+        """後半チャンクに欠落 ID があれば書き込み前にエラー、partial-apply しない (Codex P2)。"""
+        from lorairo.public_api.exceptions import ImageNotFoundError
+
+        # 存在しない ID (501〜) を含む: 2 番目のチャンクに欠落を仕込む
+        def validate(criteria):
+            ids = criteria.image_ids or []
+            # 501 以降を欠落扱い (get_images_by_filter が返さない)
+            existing = [{"id": i} for i in ids if i <= 500]
+            return (existing, len(existing))
+
+        bulk_container.db_manager.image_repo.get_images_by_filter.side_effect = validate
+        repo = bulk_container.db_manager.annotation_repo
+        ids_file = self._ids_file(tmp_path, 600)  # 1..600 (501..600 が欠落)
+        result = runner.invoke(
+            app,
+            [
+                "--json",
+                "tags",
+                "remove",
+                "--project",
+                "proj",
+                "--image-ids-file",
+                ids_file,
+                "--tags",
+                "bad",
+                "--apply",
+            ],
+        )
+        assert result.exit_code != 0
+        # 事前検証で弾かれ、1 件も soft-reject されていない (partial-apply なし)
+        repo.remove_tag_from_images_batch.assert_not_called()
+
+    def test_remove_file_chunks_and_aggregates(self, bulk_container, tmp_path):
+        """600 ID を BULK_CHUNK_SIZE (500) 単位でチャンク処理し集約 result を返す。"""
+        ids_file = self._ids_file(tmp_path, 600)
+        result = runner.invoke(
+            app,
+            [
+                "--json",
+                "tags",
+                "remove",
+                "--project",
+                "proj",
+                "--image-ids-file",
+                ids_file,
+                "--tags",
+                "bad",
+                "--apply",
+            ],
+        )
+        assert result.exit_code == 0
+        lines = [
+            json.loads(line) for line in result.stdout.strip().splitlines() if line.strip().startswith("{")
+        ]
+        chunks = [r for r in lines if r.get("kind") == "item"]
+        row = next(r for r in lines if r.get("kind") == "result")
+        assert len(chunks) == 2  # 500 + 100
+        assert row["target_images"] == 600
+        assert row["removed"] == 600  # 全件 changed
+        assert row["mode"] == "soft_reject"
+        # チャンク進捗行は per-image でなく集約
+        assert chunks[0]["processed"] == 500
+        assert chunks[1]["processed"] == 600
+
+    def test_remove_file_and_csv_mutually_exclusive(self, bulk_container, tmp_path):
+        ids_file = self._ids_file(tmp_path, 3)
+        result = runner.invoke(
+            app,
+            [
+                "tags",
+                "remove",
+                "--project",
+                "proj",
+                "--image-ids",
+                "1,2",
+                "--image-ids-file",
+                ids_file,
+                "--tags",
+                "bad",
+            ],
+        )
+        assert result.exit_code == 2
+
+    def test_add_file_dry_run_reports_would_add(self, bulk_container, tmp_path):
+        ids_file = self._ids_file(tmp_path, 600)
+        result = runner.invoke(
+            app,
+            ["--json", "tags", "add", "--project", "proj", "--image-ids-file", ids_file, "--tags", "cat"],
+        )
+        assert result.exit_code == 0
+        lines = [
+            json.loads(line) for line in result.stdout.strip().splitlines() if line.strip().startswith("{")
+        ]
+        row = next(r for r in lines if r.get("kind") == "result")
+        assert row["dry_run"] is True
+        assert "would_add" in row
+        # apply しない
+        bulk_container.db_manager.annotation_repo.add_tag_to_images_batch.assert_not_called()
+
+    def test_replace_file_apply_aggregates(self, bulk_container, tmp_path):
+        bulk_container.db_manager.annotation_repo.replace_tag_for_images_batch.side_effect = (
+            lambda ids, f, t: (True, [(i, "changed") for i in ids])
+        )
+        ids_file = self._ids_file(tmp_path, 600)
+        result = runner.invoke(
+            app,
+            [
+                "--json",
+                "tags",
+                "replace",
+                "--project",
+                "proj",
+                "--image-ids-file",
+                ids_file,
+                "--from",
+                "a",
+                "--to",
+                "b",
+                "--apply",
+            ],
+        )
+        assert result.exit_code == 0
+        lines = [
+            json.loads(line) for line in result.stdout.strip().splitlines() if line.strip().startswith("{")
+        ]
+        row = next(r for r in lines if r.get("kind") == "result")
+        assert row["changed"] == 600
+        assert row["target_images"] == 600

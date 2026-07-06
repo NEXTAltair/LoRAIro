@@ -110,6 +110,81 @@ class TestImagesSearch:
         )
         assert result.exit_code == 0
 
+    def test_search_metadata_conditions_flow_to_criteria(
+        self, mock_search_context: tuple, tmp_path: pytest.FixtureDef
+    ) -> None:
+        """width/height/filename/format 条件が ImageFilterCriteria へ渡る (Issue #1216)。"""
+        container, _ = mock_search_context
+        query_file = tmp_path / "meta.json"
+        query_file.write_text(
+            json.dumps(
+                {
+                    "width_max": 999,
+                    "height_min": 100,
+                    "filename_pattern": "sample_%",
+                    "format": "jpeg",
+                    "tags": ["absurdres"],
+                }
+            )
+        )
+        result = runner.invoke(
+            app,
+            ["--json", "images", "search", "--project", "proj", "--query-file", str(query_file)],
+        )
+        assert result.exit_code == 0
+        criteria = container.db_manager.image_repo.get_images_by_filter.call_args.args[0]
+        assert criteria.width_max == 999
+        assert criteria.height_min == 100
+        assert criteria.filename_pattern == "sample_%"
+        assert criteria.format_name == "jpeg"
+
+    def test_emit_ids_pages_all_matching_bypassing_guard(
+        self, mock_search_context: tuple, tmp_path
+    ) -> None:
+        """emit_ids は 500 超でも count-first ガードをバイパスし全 ID をページ出力する (Issue #1216)。"""
+        container, _ = mock_search_context
+        # 総数 600 (>500 でガード発火域)。500 件 → 100 件の 2 ページで返す。
+        container.db_manager.image_repo.get_images_count_only.return_value = 600
+        pages = [
+            ([{"id": i, "image_id": i, "file_path": f"{i}.webp"} for i in range(1, 501)], 600),
+            ([{"id": i, "image_id": i, "file_path": f"{i}.webp"} for i in range(501, 601)], 600),
+            ([], 600),
+        ]
+        container.db_manager.image_repo.get_images_by_filter.side_effect = pages
+        query_file = tmp_path / "emit.json"
+        query_file.write_text(json.dumps({"tags": ["absurdres"], "emit_ids": True}))
+        result = runner.invoke(
+            app,
+            ["--json", "images", "search", "--project", "proj", "--query-file", str(query_file)],
+        )
+        assert result.exit_code == 0  # ResultSetTooLargeError にならない
+        rows = [json.loads(x) for x in result.stdout.strip().splitlines() if x.strip().startswith("{")]
+        items = [r for r in rows if r.get("kind") == "item"]
+        assert len(items) == 600  # 全件 ID 出力
+        result_row = next(r for r in rows if r.get("kind") == "result")
+        assert result_row["count"] == 600
+        assert result_row["total"] == 600
+        assert result_row["truncated"] is False
+
+    def test_emit_ids_non_json_stdout_is_integer_only(self, mock_search_context: tuple, tmp_path) -> None:
+        """非 JSON emit_ids の stdout は整数 ID のみ (--image-ids-file へ pipe 可能、Codex P2)。"""
+        container, _ = mock_search_context
+        container.db_manager.image_repo.get_images_count_only.return_value = 3
+        container.db_manager.image_repo.get_images_by_filter.side_effect = [
+            ([{"id": 1, "image_id": 1}, {"id": 2, "image_id": 2}, {"id": 3, "image_id": 3}], 3),
+            ([], 3),
+        ]
+        query_file = tmp_path / "emit.json"
+        query_file.write_text(json.dumps({"tags": ["absurdres"], "emit_ids": True}))
+        result = runner.invoke(
+            app,
+            ["images", "search", "--project", "proj", "--query-file", str(query_file)],  # 非 JSON
+        )
+        assert result.exit_code == 0
+        # stdout は各行が整数のみ (警告等の混入なし)
+        lines = [x for x in result.stdout.strip().splitlines() if x.strip()]
+        assert lines == ["1", "2", "3"]
+
     def test_search_no_options_returns_exit2(self, mock_search_context: tuple) -> None:
         """--query-file も --query も指定しない場合は UsageError (exit 2)。"""
         result = runner.invoke(

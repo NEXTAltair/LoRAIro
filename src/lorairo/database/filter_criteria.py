@@ -115,6 +115,14 @@ class ImageFilterCriteria:
     # ratings) を先読みするか。False の場合は id + 各テーブルカラムのみ取得し、
     # アノテーションは選択 → プレビュー表示時に遅延取得する (検索→レビュー表示の高速化)。
     include_annotations: bool = True
+    # Issue #1216: オリジナル画像メタデータ条件 (width/height/filename/format)。
+    # 解像度タグ監査等で DB 直読を回避するための CLI 検索条件。None は無指定。
+    width_min: int | None = None
+    width_max: int | None = None
+    height_min: int | None = None
+    height_max: int | None = None
+    filename_pattern: str | None = None  # SQL LIKE パターン (大小無視)。'%' / '_' ワイルドカード可
+    format_name: str | None = None  # Image.format 完全一致 (大小無視)。例: "jpeg" / "png"
     # ADR 0055: 指定時は他フィルタを bypass する exact-set selector
     image_ids: list[int] | None = None
     # Issue #697: images search で使用するソート条件
