@@ -478,6 +478,34 @@ def search_images(
                 print(f"{record.get('id') or record.get('image_id')}\t{record.get('file_path')}")
 
 
+def _image_metadata_payload(metadata_row: dict[str, object] | None) -> dict[str, object] | None:
+    """images show の item 出力に載せる画像基本メタデータを組み立てる (Issue #1215)。
+
+    「アノテーションと画像実物の突き合わせ」に必要な最小集合 (パス・寸法・形式・
+    識別子) に絞る。パスは DB 保存値 (project root 相対) をスラッシュ区切りへ正規化
+    して返し、エージェントがそのまま Read で開ける形にする。
+
+    Args:
+        metadata_row: `get_images_metadata_batch` の 1 行。見つからない場合は None。
+
+    Returns:
+        メタデータ辞書。row が None の場合は None。
+    """
+    if metadata_row is None:
+        return None
+    return {
+        "stored_image_path": str(metadata_row.get("stored_image_path", "")).replace("\\", "/"),
+        "original_image_path": str(metadata_row.get("original_image_path", "")).replace("\\", "/"),
+        "width": metadata_row.get("width"),
+        "height": metadata_row.get("height"),
+        "format": metadata_row.get("format"),
+        "filename": metadata_row.get("filename"),
+        "extension": metadata_row.get("extension"),
+        "phash": metadata_row.get("phash"),
+        "uuid": metadata_row.get("uuid"),
+    }
+
+
 @app.command("show")
 def show(
     image_ids_positional: list[str] | None = typer.Argument(
@@ -493,10 +521,11 @@ def show(
         help="Include soft-rejected tags/captions in the output.",
     ),
 ) -> None:
-    """Show current tags, captions, scores, and ratings for images (read-only).
+    """Show current annotations and image metadata for images (read-only).
 
-    指定した image_ids の現行アノテーション（タグ/キャプション/スコア/レーティング）を
-    表示します。タグ修正の判断材料として使うためのコマンドで、書き込みは行いません。
+    指定した image_ids の現行アノテーション（タグ/キャプション/スコア/レーティング）と
+    画像基本メタデータ (パス/寸法/形式、Issue #1215) を表示します。タグ修正や画像実物
+    との突き合わせの判断材料として使うためのコマンドで、書き込みは行いません。
     画像 ID は位置引数 (`images show 42 57`) と `--image-ids 42,57` のどちらでも指定できます。
 
     Example:
@@ -528,6 +557,10 @@ def show(
         annotations_by_id = image_repo.get_image_annotations_batch(
             image_ids, include_rejected=include_rejected
         )
+        # 画像実物との突き合わせ用メタデータ (パス・寸法等) を一括取得する (Issue #1215)。
+        # アノテーションは上で取得済みなので include_annotations=False で二重フェッチを避ける。
+        metadata_rows = image_repo.get_images_metadata_batch(image_ids, include_annotations=False)
+        metadata_by_id = {row.get("id", row.get("image_id")): row for row in metadata_rows}
 
         if is_json_mode():
             for image_id in image_ids:
@@ -535,6 +568,7 @@ def show(
                 emit_item(
                     {
                         "image_id": image_id,
+                        "metadata": _image_metadata_payload(metadata_by_id.get(image_id)),
                         "tags": annotations["tags"],
                         "captions": annotations["captions"],
                         "scores": annotations["scores"],
@@ -549,6 +583,12 @@ def show(
                 annotations = annotations_by_id[image_id]
                 tag_names = [t["tag"] for t in annotations["tags"]]
                 caption_texts = [c["caption"] for c in annotations["captions"]]
+                metadata = _image_metadata_payload(metadata_by_id.get(image_id))
                 console.print(f"\n[bold]Image {image_id}[/bold]")
+                if metadata is not None:
+                    console.print(
+                        f"  path: {metadata['stored_image_path']}"
+                        f" ({metadata['width']}x{metadata['height']}, {metadata['format']})"
+                    )
                 console.print(f"  tags: {', '.join(tag_names) if tag_names else '(none)'}")
                 console.print(f"  captions: {' | '.join(caption_texts) if caption_texts else '(none)'}")
