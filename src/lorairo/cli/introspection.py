@@ -1210,6 +1210,16 @@ TOOL_SPECS: dict[str, ToolSpec] = {
                     ),
                     _f("limit", "int[1,500]", default=500),
                     _f("offset", "int>=0", default=0),
+                    _f(
+                        "emit_ids",
+                        "bool",
+                        default=False,
+                        description=(
+                            "Emit ALL matching image_ids (paged internally), bypassing the "
+                            "count-first ResultSetTooLargeError guard, for piping into "
+                            "tags --image-ids-file (Issue #1216). Capped at 100,000."
+                        ),
+                    ),
                 ),
                 schema_model=ImageSearchQuery,
             ),

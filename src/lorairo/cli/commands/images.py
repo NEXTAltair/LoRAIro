@@ -8,6 +8,7 @@ API層（lorairo.public_api）を経由してService層を利用する。
 に集約する。
 """
 
+import dataclasses
 import json
 import sys
 from pathlib import Path
@@ -71,6 +72,10 @@ class ImageSearchQuery(BaseModel):
     format_name: str | None = Field(default=None, alias="format")
     limit: int = Field(default=500, ge=1, le=500)
     offset: int = Field(default=0, ge=0)
+    # Issue #1216: bulk workflow 用に全マッチ ID を出力する opt-in。count-first の
+    # ResultSetTooLargeError ガード (ADR 0060) を明示的にバイパスし、500 超も内部
+    # ページングで image_id 行を全件出す (tags --image-ids-file へ pipe する用途)。
+    emit_ids: bool = False
     sort: list[_SortSpec] = Field(default_factory=lambda: [_SortSpec()])
 
     model_config = ConfigDict(populate_by_name=True)
@@ -398,6 +403,127 @@ def update(
             raise typer.Exit(code=1)
 
 
+def _load_search_query(query_file: str | None, query: str | None) -> ImageSearchQuery:
+    """--query-file / --query (or stdin) を読み込み ImageSearchQuery へ検証する。"""
+    if query_file is None and query is None:
+        raise click.UsageError("--query-file または --query - のいずれかを指定してください。")
+    if query_file is not None and query is not None:
+        raise click.UsageError("--query-file と --query は同時に指定できません。")
+    try:
+        if query_file is not None:
+            raw = Path(query_file).read_text(encoding="utf-8")
+        else:
+            raw = sys.stdin.read() if query == "-" else (query or "")
+        parsed = json.loads(raw)
+    except (OSError, json.JSONDecodeError) as e:
+        raise click.UsageError(f"JSON 読み込みエラー: {e}") from e
+    try:
+        return ImageSearchQuery.model_validate(parsed)
+    except ValidationError as e:
+        raise click.UsageError(f"検索スキーマが無効です: {e}") from e
+
+
+def _emit_search_page(records: list[dict[str, object]], total: int, q: ImageSearchQuery) -> None:
+    """通常検索 (count-first ページ) の結果を出力する。"""
+    count = len(records)
+    if is_json_mode():
+        for record in records:
+            emit_item(
+                {
+                    "image_id": record.get("id") or record.get("image_id"),
+                    "file_path": record.get("file_path"),
+                }
+            )
+        emit_result(
+            f"{count} image(s)",
+            count=count,
+            total=total,
+            limit=q.limit,
+            offset=q.offset,
+            has_more=q.offset + count < total,
+        )
+    else:
+        for record in records:
+            print(f"{record.get('id') or record.get('image_id')}\t{record.get('file_path')}")
+
+
+def _search_query_to_criteria(q: ImageSearchQuery) -> ImageFilterCriteria:
+    """ImageSearchQuery を ImageFilterCriteria へ変換する (search コマンドの下請け)。"""
+    sort_spec = q.sort[0] if q.sort else _SortSpec()
+    return ImageFilterCriteria(
+        image_ids=q.image_ids,
+        tags=q.tags,
+        excluded_tags=q.excluded_tags,
+        # ImageFilterCriteria.caption はキーワードリスト (#1093)。単一キャプション文字列を包む
+        caption=[q.caption] if q.caption else None,
+        manual_rating_filter=q.manual_rating,
+        ai_rating_filter=q.ai_rating,
+        score_min=q.score_min,
+        score_max=q.score_max,
+        only_unrated=q.only_unrated,
+        missing_model_litellm_id=q.missing_model,
+        include_nsfw=q.include_nsfw,
+        # Issue #1216: 画像メタデータ条件 (width/height/filename/format)
+        width_min=q.width_min,
+        width_max=q.width_max,
+        height_min=q.height_min,
+        height_max=q.height_max,
+        filename_pattern=q.filename_pattern,
+        format_name=q.format_name,
+        limit=q.limit,
+        offset=q.offset,
+        sort_field=sort_spec.field,
+        sort_direction=sort_spec.direction,
+    )
+
+
+# emit_ids 全件出力のページサイズ。DB 側チャンクサイズと揃える。
+_EMIT_IDS_PAGE_SIZE = 500
+# emit_ids の総出力上限。tags --image-ids-file の上限 (MAX_IMAGE_IDS_FILE) と揃える。
+_EMIT_IDS_MAX = 100_000
+
+
+def _emit_all_matching_ids(container: object, criteria: ImageFilterCriteria) -> None:
+    """全マッチ image_id をページングで出力する (Issue #1216 emit_ids opt-in)。
+
+    count-first の ResultSetTooLargeError ガードを明示バイパスして呼ばれる。500 件
+    ずつ offset ページングし、image_id のみの item 行を全件出力する。tags
+    --image-ids-file へ pipe する用途。_EMIT_IDS_MAX を超える場合は上限で打ち切り、
+    result に truncated=true を明示する (silent 打ち切りを避ける)。
+    """
+    repo = container.db_manager.image_repo  # type: ignore[attr-defined]
+    total = repo.get_images_count_only(criteria)
+    emitted = 0
+    offset = 0
+    truncated = False
+    while emitted < min(total, _EMIT_IDS_MAX):
+        page_criteria = dataclasses.replace(criteria, limit=_EMIT_IDS_PAGE_SIZE, offset=offset)
+        records, _ = repo.get_images_by_filter(page_criteria)
+        if not records:
+            break
+        for record in records:
+            image_id = record.get("id") or record.get("image_id")
+            if is_json_mode():
+                emit_item({"image_id": image_id})
+            else:
+                print(image_id)
+            emitted += 1
+            if emitted >= _EMIT_IDS_MAX:
+                truncated = emitted < total
+                break
+        offset += len(records)
+    if is_json_mode():
+        emit_result(
+            f"{emitted} image id(s)",
+            count=emitted,
+            total=total,
+            emit_ids=True,
+            truncated=truncated,
+        )
+    elif truncated:
+        console.print(f"[yellow]警告:[/yellow] {total} 件中 {emitted} 件で打ち切り (上限 {_EMIT_IDS_MAX})")
+
+
 @app.command("search")
 def search_images(
     project: str = typer.Option(..., "--project", "-p", help="Project name"),
@@ -415,83 +541,26 @@ def search_images(
         echo '{"tags":["cat"]}' | lorairo-cli images search --project proj --query - --json
     """
     with command_boundary():
-        if query_file is None and query is None:
-            raise click.UsageError("--query-file または --query - のいずれかを指定してください。")
-        if query_file is not None and query is not None:
-            raise click.UsageError("--query-file と --query は同時に指定できません。")
-
-        try:
-            if query_file is not None:
-                raw = Path(query_file).read_text(encoding="utf-8")
-            else:
-                raw = sys.stdin.read() if query == "-" else (query or "")
-            parsed = json.loads(raw)
-        except (OSError, json.JSONDecodeError) as e:
-            raise click.UsageError(f"JSON 読み込みエラー: {e}") from e
-
-        try:
-            q = ImageSearchQuery.model_validate(parsed)
-        except ValidationError as e:
-            raise click.UsageError(f"検索スキーマが無効です: {e}") from e
+        q = _load_search_query(query_file, query)
 
         api_get_project(project)
         container = get_service_container()
         container.set_active_project(project)
 
-        sort_spec = q.sort[0] if q.sort else _SortSpec()
-        criteria = ImageFilterCriteria(
-            image_ids=q.image_ids,
-            tags=q.tags,
-            excluded_tags=q.excluded_tags,
-            # ImageFilterCriteria.caption はキーワードリスト (#1093)。単一キャプション文字列を包む
-            caption=[q.caption] if q.caption else None,
-            manual_rating_filter=q.manual_rating,
-            ai_rating_filter=q.ai_rating,
-            score_min=q.score_min,
-            score_max=q.score_max,
-            only_unrated=q.only_unrated,
-            missing_model_litellm_id=q.missing_model,
-            include_nsfw=q.include_nsfw,
-            # Issue #1216: 画像メタデータ条件 (width/height/filename/format)
-            width_min=q.width_min,
-            width_max=q.width_max,
-            height_min=q.height_min,
-            height_max=q.height_max,
-            filename_pattern=q.filename_pattern,
-            format_name=q.format_name,
-            limit=q.limit,
-            offset=q.offset,
-            sort_field=sort_spec.field,
-            sort_direction=sort_spec.direction,
-        )
+        criteria = _search_query_to_criteria(q)
+
+        if q.emit_ids:
+            # bulk workflow 用の全件 ID 出力 (Issue #1216)。count-first ガードを明示バイパスし、
+            # 内部ページングで全マッチ image_id を出す (tags --image-ids-file へ pipe する用途)。
+            _emit_all_matching_ids(container, criteria)
+            return
 
         total_count = container.db_manager.image_repo.get_images_count_only(criteria)
         if total_count > MAX_IMAGE_LIST_FETCH and criteria.image_ids is None:
             raise ResultSetTooLargeError(matched=total_count, limit=MAX_IMAGE_LIST_FETCH)
 
         records, total = container.db_manager.image_repo.get_images_by_filter(criteria)
-        count = len(records)
-        has_more = q.offset + count < total
-
-        if is_json_mode():
-            for record in records:
-                emit_item(
-                    {
-                        "image_id": record.get("id") or record.get("image_id"),
-                        "file_path": record.get("file_path"),
-                    }
-                )
-            emit_result(
-                f"{count} image(s)",
-                count=count,
-                total=total,
-                limit=q.limit,
-                offset=q.offset,
-                has_more=has_more,
-            )
-        else:
-            for record in records:
-                print(f"{record.get('id') or record.get('image_id')}\t{record.get('file_path')}")
+        _emit_search_page(records, total, q)
 
 
 def _image_metadata_payload(metadata_row: dict[str, object] | None) -> dict[str, object] | None:

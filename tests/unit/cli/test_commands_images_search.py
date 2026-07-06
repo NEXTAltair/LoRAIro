@@ -138,6 +138,34 @@ class TestImagesSearch:
         assert criteria.filename_pattern == "sample_%"
         assert criteria.format_name == "jpeg"
 
+    def test_emit_ids_pages_all_matching_bypassing_guard(
+        self, mock_search_context: tuple, tmp_path
+    ) -> None:
+        """emit_ids は 500 超でも count-first ガードをバイパスし全 ID をページ出力する (Issue #1216)。"""
+        container, _ = mock_search_context
+        # 総数 600 (>500 でガード発火域)。500 件 → 100 件の 2 ページで返す。
+        container.db_manager.image_repo.get_images_count_only.return_value = 600
+        pages = [
+            ([{"id": i, "image_id": i, "file_path": f"{i}.webp"} for i in range(1, 501)], 600),
+            ([{"id": i, "image_id": i, "file_path": f"{i}.webp"} for i in range(501, 601)], 600),
+            ([], 600),
+        ]
+        container.db_manager.image_repo.get_images_by_filter.side_effect = pages
+        query_file = tmp_path / "emit.json"
+        query_file.write_text(json.dumps({"tags": ["absurdres"], "emit_ids": True}))
+        result = runner.invoke(
+            app,
+            ["--json", "images", "search", "--project", "proj", "--query-file", str(query_file)],
+        )
+        assert result.exit_code == 0  # ResultSetTooLargeError にならない
+        rows = [json.loads(x) for x in result.stdout.strip().splitlines() if x.strip().startswith("{")]
+        items = [r for r in rows if r.get("kind") == "item"]
+        assert len(items) == 600  # 全件 ID 出力
+        result_row = next(r for r in rows if r.get("kind") == "result")
+        assert result_row["count"] == 600
+        assert result_row["total"] == 600
+        assert result_row["truncated"] is False
+
     def test_search_no_options_returns_exit2(self, mock_search_context: tuple) -> None:
         """--query-file も --query も指定しない場合は UsageError (exit 2)。"""
         result = runner.invoke(
