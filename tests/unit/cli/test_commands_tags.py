@@ -458,6 +458,39 @@ class TestBulkImageIdsFile:
         f.write_text("\n".join(str(i) for i in range(1, count + 1)))
         return str(f)
 
+    def test_bulk_prevalidates_before_any_write(self, bulk_container, tmp_path):
+        """後半チャンクに欠落 ID があれば書き込み前にエラー、partial-apply しない (Codex P2)。"""
+        from lorairo.public_api.exceptions import ImageNotFoundError
+
+        # 存在しない ID (501〜) を含む: 2 番目のチャンクに欠落を仕込む
+        def validate(criteria):
+            ids = criteria.image_ids or []
+            # 501 以降を欠落扱い (get_images_by_filter が返さない)
+            existing = [{"id": i} for i in ids if i <= 500]
+            return (existing, len(existing))
+
+        bulk_container.db_manager.image_repo.get_images_by_filter.side_effect = validate
+        repo = bulk_container.db_manager.annotation_repo
+        ids_file = self._ids_file(tmp_path, 600)  # 1..600 (501..600 が欠落)
+        result = runner.invoke(
+            app,
+            [
+                "--json",
+                "tags",
+                "remove",
+                "--project",
+                "proj",
+                "--image-ids-file",
+                ids_file,
+                "--tags",
+                "bad",
+                "--apply",
+            ],
+        )
+        assert result.exit_code != 0
+        # 事前検証で弾かれ、1 件も soft-reject されていない (partial-apply なし)
+        repo.remove_tag_from_images_batch.assert_not_called()
+
     def test_remove_file_chunks_and_aggregates(self, bulk_container, tmp_path):
         """600 ID を BULK_CHUNK_SIZE (500) 単位でチャンク処理し集約 result を返す。"""
         ids_file = self._ids_file(tmp_path, 600)

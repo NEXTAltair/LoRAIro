@@ -123,6 +123,18 @@ def _print_add_summary(
         console.print(f"[yellow]警告:[/yellow] {len(unresolved)} 件がタグ DB 未解決 (tag_id=null) です")
 
 
+def _validate_all_image_ids(container: ServiceContainer, image_ids: list[int]) -> None:
+    """書き込み前に全 ID の存在を read-only で事前検証する (Issue #1216 / Codex P2)。
+
+    チャンク書き込みの途中で不正/欠落 ID に当たると partial-apply を残すため、
+    最初のチャンクを書き込む前に全チャンクを検証しきる。validate_image_ids_exist は
+    exact-set 上限 (500) があるためチャンク単位で回す。最初に見つかった欠落 ID で
+    ImageNotFoundError を送出する。
+    """
+    for chunk in _iter_id_chunks(image_ids):
+        validate_image_ids_exist(container, chunk)
+
+
 def _bulk_add(
     container: ServiceContainer, image_ids: list[int], tag_list: list[str], dry_run: bool
 ) -> None:
@@ -130,6 +142,7 @@ def _bulk_add(
 
     分類は 1 回だけ行い (未登録タグの user DB 登録も 1 回)、チャンクごとに適用して
     進捗を逐次出力する。per-image 行は出さず、チャンク進捗行 + 集約 result に集約する。
+    書き込み前に全 ID を事前検証し、partial-apply を防ぐ (Codex P2)。
     """
     annotation_repo = container.db_manager.annotation_repo
     classifications = [annotation_repo.classify_manual_tag(tag) for tag in tag_list]
@@ -139,12 +152,13 @@ def _bulk_add(
     invalid_tags = [c.input_tag for c in classifications if c.classification == "invalid"]
     applied_tags = [c.input_tag for c in addable]
 
+    _validate_all_image_ids(container, image_ids)
+
     total_added = 0
     total_would_add = 0
     resolutions: list[dict[str, object]] = []
     processed = 0
     for idx, chunk in enumerate(_iter_id_chunks(image_ids)):
-        validate_image_ids_exist(container, chunk)
         chunk_resolutions, chunk_added, chunk_would = _apply_classified_tags(
             annotation_repo, addable, chunk, dry_run
         )
@@ -322,11 +336,11 @@ def _bulk_remove(
     (CSV 直接指定の per-image 出力とは別経路)。
     """
     annotation_repo = container.db_manager.annotation_repo
+    _validate_all_image_ids(container, image_ids)
     total_removed = 0
     would_remove = 0
     processed = 0
     for chunk in _iter_id_chunks(image_ids):
-        validate_image_ids_exist(container, chunk)
         chunk_count = 0
         if dry_run:
             chunk_count = _estimate_removals(annotation_repo, chunk, tag_list)
@@ -470,13 +484,16 @@ def remove(
 def _bulk_replace(
     container: ServiceContainer, image_ids: list[int], from_tag: str, to_tag: str, dry_run: bool
 ) -> None:
-    """--image-ids-file 由来の大量 ID へタグ置換をチャンク処理する (Issue #1216)。"""
+    """--image-ids-file 由来の大量 ID へタグ置換をチャンク処理する (Issue #1216)。
+
+    書き込み前に全 ID を事前検証し、partial-apply を防ぐ (Codex P2)。
+    """
     annotation_repo = container.db_manager.annotation_repo
+    _validate_all_image_ids(container, image_ids)
     total_changed = 0
     total_skipped = 0
     processed = 0
     for chunk in _iter_id_chunks(image_ids):
-        validate_image_ids_exist(container, chunk)
         chunk_changed = 0
         chunk_skipped = 0
         if not dry_run:
