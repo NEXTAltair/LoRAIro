@@ -18,6 +18,14 @@ from lorairo.public_api.types import ProjectCreateRequest
 SideEffect = Literal["db_read", "db_write", "file_read", "file_write", "network"]
 SchemaMode = Literal["compact", "json_schema"]
 
+# --image-ids-file (bulk) 入力の共通説明 (tags add/remove/replace + export create、Issue #1216)。
+_IMAGE_IDS_FILE_DESC = (
+    "Path to a newline/comma-separated image ID list for bulk operations "
+    "(chunked internally, max 100,000; mutually exclusive with image_ids, Issue #1216). "
+    "For tags commands, bulk mode emits TagsBulkProgressItem chunk-progress rows "
+    "instead of per-image TagsEditItem."
+)
+
 
 class ImageFilterCriteriaSchema(BaseModel):
     """Public JSON Schema mirror for ImageFilterCriteria.
@@ -289,12 +297,15 @@ class ImagesShowResult(BaseModel):
 class ExportCreateInputSchema(BaseModel):
     """Implemented options surface accepted by ``export create``.
 
-    export create requires --image-ids (comma-separated IDs).
+    export create takes one of --image-ids / --image-ids-file (mutually exclusive).
     Use ``images search`` to resolve IDs, then pass them here.
     """
 
     project: str
-    image_ids: str = Field(description="Comma-separated image IDs to export, e.g. '1,2,3'.")
+    image_ids: str | None = Field(
+        default=None, description="Comma-separated image IDs to export, e.g. '1,2,3' (max 500)."
+    )
+    image_ids_file: str | None = Field(default=None, description=_IMAGE_IDS_FILE_DESC)
     output: str
     resolution: int = 512
 
@@ -439,13 +450,6 @@ class TagsReplaceResult(BaseModel):
     dry_run: bool
 
     model_config = ConfigDict(title="TagsReplaceResult")
-
-
-_IMAGE_IDS_FILE_DESC = (
-    "Path to a newline/comma-separated image ID list for bulk operations "
-    "(chunked internally, max 100,000; mutually exclusive with image_ids, Issue #1216). "
-    "Bulk mode emits TagsBulkProgressItem chunk-progress rows instead of per-image TagsEditItem."
-)
 
 
 class TagsAddInputSchema(BaseModel):
@@ -1161,10 +1165,13 @@ TOOL_SPECS: dict[str, ToolSpec] = {
                     _f("project", "str", required=True),
                     _f(
                         "image_ids",
-                        "csv[int]",
-                        required=True,
-                        description="Comma-separated image IDs, e.g. '1,2,3'. Use images search to resolve IDs.",
+                        "csv[int]?",
+                        description=(
+                            "Comma-separated image IDs, max 500 (or use image_ids_file). "
+                            "Use images search to resolve IDs."
+                        ),
                     ),
+                    _f("image_ids_file", "path?", description=_IMAGE_IDS_FILE_DESC),
                     _f("output", "path", required=True),
                     _f("resolution", "int", default=512),
                 ),
