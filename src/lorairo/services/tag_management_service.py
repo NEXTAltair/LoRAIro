@@ -816,7 +816,7 @@ class TagManagementService:
             ValueError: tag_id がどの scope にも存在しない場合。
         """
         try:
-            deleted = delete_user_translation(self.repository, tag_id, language, translation)
+            deleted: bool = delete_user_translation(self.repository, tag_id, language, translation)
             logger.info(
                 "Deleted translation overlay: tag_id={}, language={}, deleted={}",
                 tag_id,
@@ -873,7 +873,7 @@ class TagManagementService:
             ValueError: tag_id がどの scope にも存在しない場合。
         """
         try:
-            removed = unsuppress_translation(self.repository, tag_id, language, translation)
+            removed: bool = unsuppress_translation(self.repository, tag_id, language, translation)
             logger.info(
                 "Unsuppressed translation: tag_id={}, language={}, removed={}",
                 tag_id,
