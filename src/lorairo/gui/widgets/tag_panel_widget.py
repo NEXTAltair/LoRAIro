@@ -327,8 +327,12 @@ class TranslationAddDialog(QDialog):
     - どちらも無ければ no-op
     """
 
-    # language を渡すと (候補訳リスト, 現在の主訳) を返す callback の型。
+    # language を渡すと (候補訳リスト, 現在の主訳) を返す callback の型 (同期取得)。
     CandidatesProvider = Callable[[str], "tuple[list[str], str | None]"]
+
+    # language と結果コールバックを渡すと非同期で候補を取得し、完了時に GUI スレッドで
+    # ``on_result(候補訳, 主訳)`` を呼ぶ callback の型 (#1232 非同期取得)。
+    AsyncCandidatesProvider = Callable[[str, "Callable[[list[str], str | None], None]"], None]
 
     # 登録可能な言語の固定候補 (表示ラベル, 保存値)。自由入力は廃止し、保存値を
     # ja / en に正規化する。tagdb の言語キー表記ゆれ ("japanese"/"ja" 混在、
@@ -340,11 +344,17 @@ class TranslationAddDialog(QDialog):
         canonical: str,
         candidates_provider: TranslationAddDialog.CandidatesProvider | None = None,
         parent: QWidget | None = None,
+        async_candidates_provider: TranslationAddDialog.AsyncCandidatesProvider | None = None,
     ) -> None:
         super().__init__(parent)
         self.setWindowTitle("翻訳の管理")
         self._canonical = canonical
         self._candidates_provider = candidates_provider
+        # 非同期候補取得 (#1232)。注入されていれば同期 provider より優先し、GUI スレッドを
+        # ブロックせずに候補を読み込む。未注入 (テスト等) なら従来の同期取得へフォールバック。
+        self._async_candidates_provider = async_candidates_provider
+        # 候補取得の世代番号。言語切替や再読込ごとに増やし、古い非同期結果を弾く。
+        self._fetch_generation = 0
         # 現在の言語の主訳 (候補再読込のたびに更新)。OK 判定で「変更されたか」に使う。
         self._current_preferred: str | None = None
         # ラジオボタン -> 候補訳文字列。選択中の候補訳を引くために保持する。
@@ -391,10 +401,8 @@ class TranslationAddDialog(QDialog):
         self._language_combo.currentIndexChanged.connect(self._reload_candidates)
         self._reload_candidates()
 
-    @Slot()
-    def _reload_candidates(self) -> None:
-        """選択言語の候補訳を provider から引き直しラジオ一覧を再構築する (#1084)。"""
-        # 既存ラジオを破棄する。
+    def _clear_candidates(self) -> None:
+        """候補ラジオ一覧 (ローディング表示含む) を破棄する。"""
         for radio in list(self._radio_values):
             self._radio_group.removeButton(radio)
         self._radio_values.clear()
@@ -406,11 +414,46 @@ class TranslationAddDialog(QDialog):
             if widget is not None:
                 widget.deleteLater()
 
+    @Slot()
+    def _reload_candidates(self) -> None:
+        """選択言語の候補訳を引き直しラジオ一覧を再構築する (#1084 / 非同期化 #1232)。
+
+        非同期 provider があれば「読み込み中…」を出して background 取得を起動し、GUI
+        スレッドをブロックしない。完了時に `_on_async_candidates` が一覧を差し替える。
+        言語切替のたびに世代を進め、古い取得結果を弾く (single-flight)。
+        未注入なら従来どおり同期取得する。
+        """
+        self._clear_candidates()
+        # 読み込み中は主訳未確定。OK 判定 (主訳変更) が stale 値を拾わないよう None に戻す。
+        self._current_preferred = None
+        self._fetch_generation += 1
+        generation = self._fetch_generation
         language = self.language()
+
+        if self._async_candidates_provider is not None:
+            self._candidates_layout.addWidget(QLabel("読み込み中…", self._candidates_container))
+            self._async_candidates_provider(
+                language,
+                lambda candidates, current: self._on_async_candidates(generation, candidates, current),
+            )
+            return
+
         candidates: list[str] = []
         current: str | None = None
         if self._candidates_provider is not None:
             candidates, current = self._candidates_provider(language)
+        self._apply_candidates(candidates, current)
+
+    def _on_async_candidates(self, generation: int, candidates: list[str], current: str | None) -> None:
+        """非同期取得の完了ハンドラ。世代が最新のときだけ一覧を差し替える (#1232)。"""
+        if generation != self._fetch_generation:
+            # 言語切替や再読込で世代が進んでいる = stale な結果なので捨てる。
+            return
+        self._apply_candidates(candidates, current)
+
+    def _apply_candidates(self, candidates: list[str], current: str | None) -> None:
+        """候補訳リストからラジオ一覧を構築する (ローディング表示を置き換える)。"""
+        self._clear_candidates()
         self._current_preferred = current
 
         # 現在の主訳が候補に無くても選択できるよう一覧へ含める (主訳は任意文字列可)。
@@ -726,6 +769,12 @@ class TagPanelWidget(QWidget):
         self._translation_candidates_provider: Callable[[str, str], tuple[list[str], str | None]] | None = (
             None
         )
+        # 翻訳候補の非同期 provider (#1232)。(canonical, language, on_result) を渡すと
+        # background で候補を取得し、完了時に GUI スレッドで on_result(候補, 主訳) を呼ぶ。
+        # 注入されていれば同期 provider より優先し、ポップアップ表示のブロックを避ける。
+        self._translation_candidates_async_provider: (
+            Callable[[str, str, Callable[[list[str], str | None], None]], None] | None
+        ) = None
 
         # 使用頻度 第2軸 (metric_source, ADR 0083 §5 / #990)。表示言語とは独立した軸。
         # 親が bulk 取得した {tag_id: {format_name: count}} を set_usage_counts で受け、
@@ -1014,6 +1063,23 @@ class TagPanelWidget(QWidget):
             provider: 候補訳を返す callback。None で解除。
         """
         self._translation_candidates_provider = provider
+
+    def set_translation_candidates_async_provider(
+        self,
+        provider: Callable[[str, str, Callable[[list[str], str | None], None]], None] | None,
+    ) -> None:
+        """翻訳候補の非同期 provider を注入する (#1232)。
+
+        provider は ``(canonical, language, on_result)`` を受け、background で候補を取得して
+        完了時に GUI スレッドで ``on_result(候補訳リスト, 現在の主訳)`` を呼ぶ。注入されて
+        いれば翻訳管理ダイアログは同期 provider を使わず、候補取得でメインスレッドを
+        ブロックしない (ポップアップ表示が固まる #1232 を解消)。親
+        (`SelectedImageDetailsWidget`) が WorkerManager 経由の起動関数を渡す。
+
+        Args:
+            provider: 非同期候補取得の起動 callback。None で解除。
+        """
+        self._translation_candidates_async_provider = provider
 
     def set_translations(
         self, translations: dict[int, dict[str, str]], available_languages: list[str]
@@ -1866,7 +1932,8 @@ class TagPanelWidget(QWidget):
             canonical: 翻訳を管理する canonical タグ文字列。
         """
         provider = self._dialog_candidates_provider(canonical)
-        dialog = TranslationAddDialog(canonical, provider, self)
+        async_provider = self._dialog_async_candidates_provider(canonical)
+        dialog = TranslationAddDialog(canonical, provider, self, async_candidates_provider=async_provider)
         if dialog.exec() != QDialog.DialogCode.Accepted:
             return
         language = dialog.language()
@@ -1898,6 +1965,24 @@ class TagPanelWidget(QWidget):
 
         def bound(language: str) -> tuple[list[str], str | None]:
             return provider(canonical, language)
+
+        return bound
+
+    def _dialog_async_candidates_provider(
+        self, canonical: str
+    ) -> Callable[[str, Callable[[list[str], str | None], None]], None] | None:
+        """翻訳管理ダイアログへ渡す非同期候補取得 callback を作る (#1232)。
+
+        親注入の ``(canonical, language, on_result)`` provider を canonical で束ね、
+        ダイアログが要求する ``(language, on_result)`` の callback にする。未注入なら None
+        (ダイアログは同期 provider にフォールバック)。
+        """
+        provider = self._translation_candidates_async_provider
+        if provider is None:
+            return None
+
+        def bound(language: str, on_result: Callable[[list[str], str | None], None]) -> None:
+            provider(canonical, language, on_result)
 
         return bound
 
