@@ -1047,6 +1047,14 @@ class SelectedImageDetailsWidget(QWidget):
             return
         # widget 自身の user DB 書き込みを poll が外部変更と誤検知してカスケードするのを防ぐ (#1225)
         self._rebaseline_user_db_signature()
+        # 主訳変更で翻訳品質 (誤翻訳等) の refinement 判定が変わり得るため、stale な ⚠ を
+        # 残さないよう refinement キャッシュを無効化する (#1229 Codex P2)。以前は poll 経由の
+        # refresh_tag_metadata がこの無効化を担っていたが、#1225 の再ベースラインで poll が
+        # 抑止されたため、翻訳追加 / type 補正パスと同様にこのパスでも明示的にクリアする。
+        # 再評価は _reload_current_image → _on_image_data_received → _trigger_refinement_evaluation
+        # 経由で走る。
+        if self._refinement_service is not None:
+            self._refinement_service.clear_cache()
         # 翻訳追加パスと同様に、保存言語がセレクタ候補へ出せる状態にしてから切り替える
         # (Codex P2)。"english" は原文表示の sentinel なので同値扱いから除外する:
         # legacy キーが "english" しか無い場合に "en" を alias fallback で原文へ寄せると、

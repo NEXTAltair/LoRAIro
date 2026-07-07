@@ -138,6 +138,23 @@ def test_type_edit_clears_refinement_cache_before_reeval(qtbot, monkeypatch) -> 
     assert refinement.clear_cache_calls == 1
 
 
+def test_preferred_translation_clears_refinement_cache(qtbot, monkeypatch) -> None:
+    """主訳変更後は refinement キャッシュを無効化して stale な翻訳品質 ⚠ を残さない (#1229 Codex P2)。
+
+    #1225 の poll 再ベースラインで、以前は poll 経由の refresh_tag_metadata が担っていた
+    refinement キャッシュ無効化が主訳変更パスから失われ、翻訳品質警告が更新されなくなる
+    回帰があった。翻訳追加 / type 補正パスと同様にこのパスでも明示的に clear_cache する。
+    """
+    service = _FakeTagService(resolve_to=42)
+    widget = _make_widget(qtbot, monkeypatch, service)
+    refinement = _FakeRefinementService()
+    widget._refinement_service = refinement  # type: ignore[assignment]
+
+    widget._on_translation_preferred("blue_eyes", "ja", "青い目")
+
+    assert refinement.clear_cache_calls == 1
+
+
 def test_userdb_write_independent_of_image_id(qtbot, monkeypatch) -> None:
     """userdb 書き込みは canonical 主キーで current_image_id に依存しない (#989)。"""
     service = _FakeTagService(resolve_to=7)
