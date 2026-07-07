@@ -20,7 +20,7 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-from PySide6.QtCore import QElapsedTimer, QEvent, QObject, QPoint, Qt, QTimer, Signal, Slot
+from PySide6.QtCore import QElapsedTimer, QPoint, Qt, QTimer, Signal, Slot
 from PySide6.QtWidgets import (
     QApplication,
     QFrame,
@@ -51,7 +51,6 @@ from .tag_panel_widget import ACTION_TOOL_BUTTON_QSS
 
 if TYPE_CHECKING:
     from genai_tag_db_tools.db.repository import MergedTagReader
-    from PySide6.QtGui import QShowEvent
 
     from ...services.refinement_service import RefinementService
     from ...services.tag_management_service import TagManagementService
@@ -158,11 +157,12 @@ class SelectedImageDetailsWidget(QWidget):
         # shutdown 後に遅延起動 (QTimer.singleShot) が worker を再起動しないためのフラグ (#1206)
         self._closing: bool = False
 
-        # 翻訳/メタデータ再取得トリガー (#1205): 手動ボタン・フォーカス復帰・user DB 変更検知の
-        # 3 経路を refresh_tag_metadata() に集約する。
+        # 翻訳/メタデータ再取得トリガー (#1205): 手動ボタン・user DB 変更検知 (poll) の
+        # 2 経路を refresh_tag_metadata() に集約する。WindowActivate 監視 (旧 #1205 案2) は
+        # アプリ内モーダルダイアログの close でも誤発火し 1 タグ編集ごとに全タグ再評価を
+        # 誘発したため撤去した (#1257 原因B)。外部 CLI 編集の反映は poll (案3) に委ねる。
         self._current_tags_list: list[dict[str, Any]] = []
         self._refresh_rate_limiter = QElapsedTimer()  # 連続トリガーの合流 (1 秒未満は無視)
-        self._watched_window: QWidget | None = None  # WindowActivate 監視対象 (#1205 案2)
         self._user_db_signature: tuple[int, int] | None = None  # (mtime_ns, size) (#1205 案3)
         self._user_db_poll_timer = QTimer(self)
         self._user_db_poll_timer.setInterval(2000)
@@ -821,9 +821,6 @@ class SelectedImageDetailsWidget(QWidget):
         """
         self._closing = True
         self._user_db_poll_timer.stop()
-        if self._watched_window is not None:
-            self._watched_window.removeEventFilter(self)
-            self._watched_window = None
         self._refinement_pending = None
         self._tag_metadata_pending = None
         manager = self._refinement_worker_manager
@@ -891,27 +888,6 @@ class SelectedImageDetailsWidget(QWidget):
             self._refinement_service.clear_cache()
         self._trigger_refinement_evaluation()
 
-    def showEvent(self, event: "QShowEvent") -> None:
-        """表示時にトップレベルウィンドウの WindowActivate 監視を張る (#1205 案2)。
-
-        CLI 操作は別ウィンドウで行われる前提のため、メインウィンドウへフォーカスが
-        戻った瞬間に翻訳を再取得すれば操作ゼロで反映される。reparent で window() が
-        変わることがあるため showEvent ごとに監視対象を確認する。
-        """
-        super().showEvent(event)
-        window = self.window()
-        if window is not None and window is not self._watched_window:
-            if self._watched_window is not None:
-                self._watched_window.removeEventFilter(self)
-            window.installEventFilter(self)
-            self._watched_window = window
-
-    def eventFilter(self, watched: QObject, event: QEvent) -> bool:
-        """監視対象ウィンドウのアクティブ化で翻訳を再取得する (#1205 案2)。"""
-        if watched is self._watched_window and event.type() == QEvent.Type.WindowActivate:
-            self.refresh_tag_metadata()
-        return super().eventFilter(watched, event)
-
     def _poll_user_db_change(self) -> None:
         """user_tags.sqlite の変更を mtime/size で軽量検知し、変化時に再取得する (#1205 case3)。
 
@@ -935,6 +911,10 @@ class SelectedImageDetailsWidget(QWidget):
         if signature != self._user_db_signature:
             self._user_db_signature = signature
             logger.debug("user_tags.sqlite の変更を検知: タグメタデータを再取得 (#1205)")
+            # 外部プロセス (CLI) が新しい custom type を登録した可能性があるため、type 名
+            # キャッシュを無効化して次回の type 編集ダイアログに反映させる (#1257 原因C)。
+            if self._tag_management_service is not None:
+                self._tag_management_service.invalidate_format_type_cache()
             self.refresh_tag_metadata()
 
     def _rebaseline_user_db_signature(self) -> None:
@@ -1099,11 +1079,12 @@ class SelectedImageDetailsWidget(QWidget):
         service.add_translation(tag_id, language, translation)
         # widget 自身の user DB 書き込みを poll が外部変更と誤検知してカスケードするのを防ぐ (#1225)
         self._rebaseline_user_db_signature()
-        # 翻訳修正 (#1054) 後に stale な翻訳品質 ⚠ が残らないよう refinement キャッシュを
-        # 無効化する。recommend_for_tags は (tag, format) 単位でキャッシュするため、reload
-        # だけでは旧リコメンドが再表示され続ける (type 補正フローと同じ扱い。PR #1086 Codex P2)。
+        # 翻訳修正 (#1054) 後に stale な翻訳品質 ⚠ が残らないよう、編集した 1 タグ分の
+        # refinement キャッシュだけを無効化する。recommend_for_tags は (tag, format) 単位で
+        # キャッシュするため、reload だけでは旧リコメンドが再表示され続ける。全消去 (#1257
+        # 原因A) は他タグまで再評価を誘発するため canonical スコープに絞る。
         if self._refinement_service is not None:
-            self._refinement_service.clear_cache()
+            self._refinement_service.invalidate_tag(canonical)
         # 新しい言語キー ("en" 等) の初回追加は available_languages (reader 注入時の
         # 1回取得) に含まれず、reload しても selector に現れない (Codex P2)。言語一覧を
         # 再取得し、現在の選択を保ったまま selector を更新する (english への巻き戻りを
@@ -1136,13 +1117,13 @@ class SelectedImageDetailsWidget(QWidget):
         # widget 自身の user DB 書き込みを poll が外部変更と誤検知してカスケードするのを防ぐ (#1225)
         self._rebaseline_user_db_signature()
         # 主訳変更で翻訳品質 (誤翻訳等) の refinement 判定が変わり得るため、stale な ⚠ を
-        # 残さないよう refinement キャッシュを無効化する (#1229 Codex P2)。以前は poll 経由の
-        # refresh_tag_metadata がこの無効化を担っていたが、#1225 の再ベースラインで poll が
-        # 抑止されたため、翻訳追加 / type 補正パスと同様にこのパスでも明示的にクリアする。
-        # 再評価は _reload_current_image → _on_image_data_received → _trigger_refinement_evaluation
-        # 経由で走る。
+        # 残さないよう、編集した 1 タグ分の refinement キャッシュだけを無効化する (#1229 Codex P2)。
+        # 以前は poll 経由の refresh_tag_metadata がこの無効化を担っていたが、#1225 の再ベースライン
+        # で poll が抑止されたため、翻訳追加 / type 補正パスと同様にこのパスでも明示的に無効化する。
+        # 全消去 (#1257 原因A) は避け canonical スコープに絞る。再評価は _reload_current_image →
+        # _on_image_data_received → _trigger_refinement_evaluation 経由で走る。
         if self._refinement_service is not None:
-            self._refinement_service.clear_cache()
+            self._refinement_service.invalidate_tag(canonical)
         # 翻訳追加パスと同様に、保存言語がセレクタ候補へ出せる状態にしてから切り替える
         # (Codex P2)。"english" は原文表示の sentinel なので同値扱いから除外する:
         # legacy キーが "english" しか無い場合に "en" を alias fallback で原文へ寄せると、
@@ -1201,9 +1182,10 @@ class SelectedImageDetailsWidget(QWidget):
         # widget 自身の user DB 書き込みを poll が外部変更と誤検知してカスケードするのを防ぐ (#1225)
         self._rebaseline_user_db_signature()
         # 削除で翻訳品質 (missing 等) の refinement 判定が変わり得るため、stale な表示が
-        # 残らないよう refinement キャッシュを無効化する (翻訳追加/主訳変更パスと同方針)。
+        # 残らないよう、編集した 1 タグ分の refinement キャッシュだけを無効化する
+        # (翻訳追加/主訳変更パスと同方針、#1257 原因A で全消去から canonical スコープへ)。
         if self._refinement_service is not None:
-            self._refinement_service.clear_cache()
+            self._refinement_service.invalidate_tag(canonical)
         # 当該言語の翻訳が全て消えて available_languages から落ちている可能性があるため
         # 再取得する。選択中の言語は変えない (prefer 未指定で現在の選択を保つ)。
         if self._merged_reader is not None:
@@ -1232,9 +1214,10 @@ class SelectedImageDetailsWidget(QWidget):
         # widget 自身の user DB 書き込みを poll が外部変更と誤検知してカスケードするのを防ぐ (#1225)
         self._rebaseline_user_db_signature()
         # 抑制で翻訳品質 (missing 等) の refinement 判定が変わり得るため、stale な表示が
-        # 残らないよう refinement キャッシュを無効化する (翻訳削除/追加と同方針)。
+        # 残らないよう、編集した 1 タグ分の refinement キャッシュだけを無効化する
+        # (翻訳削除/追加と同方針、#1257 原因A で全消去から canonical スコープへ)。
         if self._refinement_service is not None:
-            self._refinement_service.clear_cache()
+            self._refinement_service.invalidate_tag(canonical)
         # 当該言語の翻訳が merged 表示から全て消えて available_languages から落ちている
         # 可能性があるため再取得する。選択中の言語は変えない (prefer 未指定で選択を保つ)。
         if self._merged_reader is not None:
@@ -1261,8 +1244,10 @@ class SelectedImageDetailsWidget(QWidget):
         service.update_single_tag_type(tag_id, type_name)
         # widget 自身の user DB 書き込みを poll が外部変更と誤検知してカスケードするのを防ぐ (#1225)
         self._rebaseline_user_db_signature()
+        # type 補正で TYPE_MISMATCH 判定が変わるため、編集した 1 タグ分の refinement キャッシュ
+        # だけを無効化する (全消去 #1257 原因A を避け canonical スコープに絞る)。
         if self._refinement_service is not None:
-            self._refinement_service.clear_cache()
+            self._refinement_service.invalidate_tag(canonical)
         self._reload_current_image()
         self._trigger_refinement_evaluation()
 

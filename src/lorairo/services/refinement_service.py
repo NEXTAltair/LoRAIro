@@ -226,6 +226,18 @@ class RefinementService:
             return []
         return list(lister())
 
+    def invalidate_tag(self, tag: str) -> None:
+        """特定タグの評価キャッシュだけを無効化する (#1257)。
+
+        キャッシュは (tag, format_name, reader) 単位でキーが分かれているため、
+        1 タグの編集 (翻訳追加/主訳変更/翻訳削除/翻訳抑制/type 補正) では、その
+        タグのエントリだけを捨てれば足りる。`clear_cache()` で全消去すると他画像・
+        他タグ分まで再評価が走り、1 タグ編集ごとに全タグ (数十件) の再評価が起きて
+        体感が悪化する (#1257 原因A)。``ignore``/``unignore`` と同じ狭い無効化を使う。
+        """
+        self._cache = {k: v for k, v in self._cache.items() if k[0] != tag}
+        logger.debug(f"refinement キャッシュを無効化: tag='{tag}'")
+
     def clear_cache(self) -> None:
         """評価キャッシュを全消去する (#931)。
 

@@ -141,6 +141,12 @@ class TagManagementService:
         # N+1 解消が無効化されるレースになる (Codex #999 P2)。スレッドごとに分離することで、
         # 各 worker の prefetch → 消費が他スレッドに干渉されないようにする。
         self._prefetch_local = threading.local()
+        # LoRAIro format 固有の type 名一覧キャッシュ (#1257 原因C)。type 編集ダイアログを
+        # 開くたびに get_format_type_names が user_repo + 全 base_repos を走査するのを避ける。
+        # GUI スレッド専用 (呼び出し元は _get_custom_type_choices の 1 箇所) なのでロック不要。
+        # None = 未取得。無効化タイミング: 自己書き込み (update_tag_types) と外部書き込み検知
+        # (widget の poll → invalidate_format_type_cache)。
+        self._format_type_cache: list[str] | None = None
         logger.info(
             "TagManagementService initialized with format_id={}",
             self.LORAIRO_FORMAT_ID,
@@ -204,13 +210,21 @@ class TagManagementService:
 
         Note:
             format_id=1000でuser DBに登録されているtype_nameのみが返されます。
+            結果はインスタンスキャッシュされ (#1257 原因C)、type 編集ダイアログを開く
+            たびの user_repo + 全 base_repos フルスキャンを避けます。キャッシュは
+            自己書き込み (``update_tag_types``) と外部書き込み検知
+            (``invalidate_format_type_cache``) で無効化されます。呼び出し元 (
+            ``_get_custom_type_choices``) は GUI スレッド専用のためロックは不要です。
 
         Returns:
-            list[str]: format_id=1000で使用中のtype_name一覧（user DBのみ）
+            list[str]: format_id=1000で使用中のtype_name一覧（user DBのみ）。呼び出し元の
+                破壊的操作からキャッシュを守るため毎回コピーを返します。
 
         Raises:
             Exception: format固有type_name取得中にエラーが発生した場合
         """
+        if self._format_type_cache is not None:
+            return list(self._format_type_cache)
         try:
             types = get_format_type_names(self.reader, format_id=self.LORAIRO_FORMAT_ID)
             logger.debug(
@@ -218,10 +232,21 @@ class TagManagementService:
                 len(types),
                 self.LORAIRO_FORMAT_ID,
             )
-            return cast("list[str]", types)
+            self._format_type_cache = list(cast("list[str]", types))
+            return list(self._format_type_cache)
         except Exception as e:
             logger.opt(exception=True).error("Error getting format-specific type names: {}", e)
             raise
+
+    def invalidate_format_type_cache(self) -> None:
+        """format 固有 type 名キャッシュを無効化します (#1257 原因C)。
+
+        外部プロセス (CLI) が user DB に新しい custom type を登録した場合、GUI 内では
+        書き込みを検知できないため、widget の user DB 変更 poll (#1205 案3) が変化を
+        検知したときに本メソッドを呼んで stale なキャッシュを捨てます。次回取得で
+        再スキャンされます。
+        """
+        self._format_type_cache = None
 
     def update_tag_types(self, updates: list[TagTypeUpdate]) -> None:
         """タグのtypeを一括更新します。
@@ -239,6 +264,9 @@ class TagManagementService:
 
         try:
             update_tags_type_batch(self.repository, updates, format_id=self.LORAIRO_FORMAT_ID)
+            # 自己書き込みで新規 custom type が自動作成されうるため type 名キャッシュを
+            # 無効化する (#1257 原因C)。次回取得で再スキャンされる。
+            self._format_type_cache = None
             logger.info(
                 "Successfully updated {} tags for format_id={}", len(updates), self.LORAIRO_FORMAT_ID
             )
