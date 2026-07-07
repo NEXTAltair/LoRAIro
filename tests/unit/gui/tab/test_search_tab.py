@@ -340,15 +340,27 @@ class TestSelectionToDetails:
         (_clear_display → current_image_id=None) は tag_metadata/refinement worker の結果を
         image_id 照合で破棄させ、タグ/キャプションが空のまま復旧しなくなる。判定は詳細ウィジェット
         自身の current_image_id で行う (DSM の _all_images キャッシュ外から DB 直読みした表示画像も
-        保持するため、#1228 Codex P2)。
+        保持するため、#1228 Codex P2)。加えて rating エディタは batch モードから single モードへ
+        戻す (deselect 後の Save が stale なバッチ選択に効かないように、#1228 Codex P2)。
         """
         widget = Mock()
         widget.current_image_id = 1033  # 詳細ウィジェットが画像表示中
+        widget.current_details = Mock(
+            image_id=1033,
+            manual_rating_value="PG",
+            manual_score_value=6,
+            ai_rating_value="PG",
+            ai_score_value=7,
+        )
         tab._selected_image_details_widget = widget
 
         tab._handle_selection_changed_for_rating([])
 
         widget._clear_display.assert_not_called()
+        # rating エディタを表示中画像で single モードへ戻す (batch モード残留を防ぐ)
+        widget._rating_score_widget.populate_from_image_data.assert_called_once()
+        called_arg = widget._rating_score_widget.populate_from_image_data.call_args[0][0]
+        assert called_arg["id"] == 1033
 
     def test_single_selection_populates_from_image_data(self, tab: SearchTabWidget) -> None:
         widget = Mock()
