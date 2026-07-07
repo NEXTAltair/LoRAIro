@@ -4,8 +4,6 @@ version: "1.0.0"
 description: "Capture LoRAIro design from the wireframes operation prototype or claude.ai/design recreations correctly. Use when syncing/mirroring design, reconciling Qt (.ui) or the DS AppShell with the design, or when nav/tab order, layout, or grouping looks off between the app and the prototype. The prototype's effective state is produced by render-time JS (e.g. restructureNav), so static-HTML grep alone misses it."
 metadata:
   short-description: 操作プロトタイプ/claude.ai/design からの design 取り込みは render 時 JS 変換後の実効状態を正とする（静的HTMLだけで判断しない）。
-dependencies:
-  - lorairo-mem
 ---
 
 # LoRAIro Design Capture

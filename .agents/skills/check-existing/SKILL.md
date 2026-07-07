@@ -4,8 +4,6 @@ version: "1.0.0"
 description: "Before implementing a feature in LoRAIro, hear out the requirement, then research existing libraries / tools / local_packages that already solve it. Use when scoping a new feature, evaluating build-vs-reuse, or asked to find existing solutions before writing code."
 metadata:
   short-description: 実装前の要件ヒアリング＋既存ライブラリ/ツール/local_packages 調査（build-vs-reuse 判断）。
-dependencies:
-  - lorairo-mem
 ---
 
 # Check Existing Solutions
@@ -29,7 +27,6 @@ dependencies:
 
 - `docs/decisions/` の ADR インデックス（`docs/decisions/README.md`）
 - `docs/lessons-learned.md` の関連ドメイン
-- 長期記憶: [[lorairo-mem]] の `ltm_search.py` で類似調査履歴を検索
 
 ### Phase 2: 要件明確化ヒアリング（1問ずつ）
 
@@ -96,7 +93,7 @@ dependencies:
 ```
 
 調査結論のうち再利用価値のあるもの（ライブラリ評価、build-vs-reuse の判断根拠）は
-[[lorairo-mem]] に `type: reference` / `decision` で保存する。
+`docs/decisions/` の ADR や `docs/lessons-learned.md` に記録する。
 
 ## Next Step
 
