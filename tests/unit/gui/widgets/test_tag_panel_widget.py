@@ -880,6 +880,37 @@ def test_type_edit_placeholder_confirm_skips_emit(panel, sample_tags, monkeypatc
     assert received == []
 
 
+def test_type_edit_unchanged_type_skips_emit(panel, sample_tags, monkeypatch):
+    """現在 type を初期選択したまま無変更確定しても emit しない (#1255 バグ1 回帰防止)。
+
+    バグ1 修正で current_type を初期選択するようにしたため、無変更確定でも emit すると
+    冗長な userdb 書き込み + refinement 再実行が走る (Codex P2)。値が変わらなければ skip。
+    """
+    panel.set_tags(sample_tags, image_id=10)
+    panel._tag_types["1girl"] = "character"
+
+    # field_setter なし = 初期選択 (current_type="character") のまま Accepted。
+    _accept_dialog(monkeypatch, "TagTypeEditDialog", lambda dialog: None)
+    received: list = []
+    panel.tag_metadata_edit_requested.connect(lambda *a: received.append(a))
+    panel._open_type_edit_dialog("1girl")
+    assert received == []
+
+
+def test_type_edit_changed_type_emits(panel, sample_tags, qtbot, monkeypatch):
+    """現在 type から別 type に変更して確定すれば emit する (#1255 バグ1)。"""
+    panel.set_tags(sample_tags, image_id=10)
+    panel._tag_types["1girl"] = "character"
+
+    def fill(dialog):
+        dialog._type_combo.setCurrentText("copyright")
+
+    _accept_dialog(monkeypatch, "TagTypeEditDialog", fill)
+    with qtbot.waitSignal(panel.tag_metadata_edit_requested, timeout=1000) as blocker:
+        panel._open_type_edit_dialog("1girl")
+    assert blocker.args == ["1girl", "copyright"]
+
+
 def test_type_edit_dialog_receives_current_type(panel, sample_tags, monkeypatch):
     """既存タグの type 補正時、現在の type が current_type として渡る (#1255 バグ1)。
 

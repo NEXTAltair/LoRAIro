@@ -2506,11 +2506,12 @@ class TagPanelWidget(QWidget):
             canonical: 種別を補正する canonical タグ文字列。
         """
         custom_type_names = self._type_choices_provider() if self._type_choices_provider is not None else []
+        current_type = self._tag_types.get(canonical)
         dialog = TagTypeEditDialog(
             canonical,
             self._type_mismatch_hint(canonical),
             custom_type_names=custom_type_names,
-            current_type=self._tag_types.get(canonical),
+            current_type=current_type,
             parent=self,
         )
         if dialog.exec() != QDialog.DialogCode.Accepted:
@@ -2519,6 +2520,11 @@ class TagPanelWidget(QWidget):
         if not type_name:
             # プレースホルダのまま確定 (明示選択なし) → 既存 type を上書きしない (#995 P2)。
             logger.debug(f"type 補正をスキップ (種別未選択): canonical='{canonical}'")
+            return
+        if type_name == current_type:
+            # 現在 type を初期選択 (#1255 バグ1) したことで、無変更確定でも emit すると
+            # 冗長な userdb 書き込み + refinement 再実行が走る。値が変わらなければ skip する。
+            logger.debug(f"type 補正をスキップ (無変更): canonical='{canonical}', type='{type_name}'")
             return
         self.tag_metadata_edit_requested.emit(canonical, type_name)
 
