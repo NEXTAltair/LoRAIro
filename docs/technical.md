@@ -41,10 +41,10 @@ See `docs/integrations.md` for detailed integration patterns.
 
 ## Development Tooling
 
-**Development Agents**: OpenClaw (long-term memory via Notion)
+**Development Agents**: Claude Code / Codex (agent skills + subagents; see `.agents/skills/` and `docs/development-workflow.md`)
 
 **Documentation**: `docs/decisions/` for design decisions, `docs/plans/` for planning records
-**Long-Term Memory**: Notion LTM via OpenClaw
+**Long-Term Memory**: `docs/decisions/` (ADR) + `docs/lessons-learned.md`
 
 **Development-only tools that enhance the coding workflow.**
 
