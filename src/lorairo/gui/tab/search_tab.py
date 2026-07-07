@@ -633,29 +633,24 @@ class SearchTabWidget(QWidget, Ui_SearchTab):
         rating_widget = widget._rating_score_widget
 
         if len(image_ids) == 0:
-            # selected_image_ids (バッチ選択) と current_image_id (詳細表示中の単一画像) は
-            # DatasetStateManager 内で独立した状態 (clear_selection / set_selected_images は
-            # current_image_id を触らない)。バッチ選択解除で selection_changed([]) が来ても、
-            # 詳細パネルに表示中の単一画像がデータセットに現存する間は full clear しない (#1222):
-            # _clear_display は current_image_id=None にするため、直後に完了する tag_metadata /
-            # refinement worker の結果が image_id 照合で破棄され、タグ / キャプションが空のまま
-            # 復旧しなくなる。ここでは rating/score 表示だけを表示中画像に追従させる。
+            # 詳細パネルの表示ライフサイクルは current_image_data_changed 経由の単一画像選択
+            # (SelectedImageDetailsWidget._on_image_data_received) が SSoT で、バッチ選択
+            # (selected_image_ids) とは独立している。selection_changed([]) が来ても詳細ウィジェットが
+            # 画像を表示中 (widget.current_image_id is not None) なら full clear しない (#1222):
+            # _clear_display は current_image_id=None にし、直後に完了する tag_metadata /
+            # refinement worker の結果を image_id 照合で破棄させ、タグ / キャプションが空のまま
+            # 復旧しなくなる。
             #
-            # ただし clear_dataset は _all_images を空にした後 selection_changed([]) を emit し、
-            # current_image_id を後から None にするだけで current_image_data_changed({}) を送らない
-            # (Codex #1228 P2)。この場合 current_image_id が (emit 時点で) 残っていても
-            # get_image_by_id は None を返すため、その時は詳細を full clear して旧画像を残さない。
-            dsm = self._dataset_state_manager
-            current_id = dsm.current_image_id if dsm is not None else None
-            image_data = (
-                dsm.get_image_by_id(current_id) if (dsm is not None and current_id is not None) else None
-            )
-            if image_data:
-                rating_widget.populate_from_image_data(image_data)
-                logger.debug(f"選択リスト空だが表示中画像 {current_id} を保持 - full clear 抑止 (#1222)")
+            # 判定は DSM の _all_images ではなく詳細ウィジェット自身の current_image_id で行う:
+            # set_current_image の cache-miss 経路 (登録ビューからの表示要求等) で DSM キャッシュ外の
+            # 画像を DB 直読みして表示している場合、DSM.get_image_by_id は None を返すが表示は有効で、
+            # ここで消すと表示中画像を誤ってクリアしてしまう (#1228 Codex P2)。詳細表示の全クリアは
+            # current_image_data_changed({}) 経由 (dataset reset 等) が担当する。
+            if widget.current_image_id is not None:
+                logger.debug("選択リスト空だが詳細パネルが画像表示中 - full clear 抑止 (#1222)")
                 return
             widget._clear_display()
-            logger.debug("選択なし / 表示中画像がデータセットから消失 - 詳細表示をクリア")
+            logger.debug("選択なし・表示画像なし - 詳細表示をクリア")
         elif len(image_ids) == 1:
             if self._dataset_state_manager is not None:
                 image_data = self._dataset_state_manager.get_image_by_id(image_ids[0])

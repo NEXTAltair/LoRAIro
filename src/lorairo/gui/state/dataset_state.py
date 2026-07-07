@@ -151,8 +151,16 @@ class DatasetStateManager(QObject):
         self._filter_conditions = {}
         self._invalidate_image_index()
 
+        had_current = self._current_image_id is not None
         self.clear_selection()
         self._current_image_id = None
+        # 現在画像があった場合は詳細/プレビュー等へ空データを通知してクリアさせる (#1228 Codex P2)。
+        # selection_changed([]) は詳細パネルの full clear を担当しなくなった (search_tab は
+        # widget.current_image_id で表示中画像を保持するようになった) ため、dataset reset 時の
+        # 詳細クリアは current-image チャネルで明示的に行う。current_image_data_changed({}) は
+        # set_current_image の cache-miss 経路で既に使われている安全な空通知。
+        if had_current:
+            self.current_image_data_changed.emit({})
         self.filter_cleared.emit()
         logger.info("データセット状態をクリアしました")
 

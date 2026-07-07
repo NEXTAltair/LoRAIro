@@ -214,9 +214,11 @@ class TestDatasetStateManager:
         state_manager.set_selected_images([1])
         state_manager.set_current_image(1)
 
-        # クリア実行
+        # クリア実行 (set_current_image より後に接続し、clear_dataset の emit だけ捕捉する)
         filter_cleared_mock = Mock()
         state_manager.filter_cleared.connect(filter_cleared_mock)
+        current_data_mock = Mock()
+        state_manager.current_image_data_changed.connect(current_data_mock)
 
         state_manager.clear_dataset()
 
@@ -228,6 +230,20 @@ class TestDatasetStateManager:
         assert state_manager.current_image_id is None
 
         filter_cleared_mock.assert_called_once()
+        # 現在画像があったので詳細/プレビューへ空データ通知でクリアさせる (#1228 Codex P2)
+        current_data_mock.assert_called_once_with({})
+
+    def test_clear_dataset_without_current_image_skips_empty_notify(
+        self, state_manager, sample_image_metadata
+    ):
+        """現在画像が無い状態の clear_dataset は空データ通知を出さない (#1228 Codex P2)。"""
+        state_manager.set_dataset_images(sample_image_metadata)
+        current_data_mock = Mock()
+        state_manager.current_image_data_changed.connect(current_data_mock)
+
+        state_manager.clear_dataset()
+
+        current_data_mock.assert_not_called()
 
     def test_refresh_images_uses_batch_query(self, state_manager, sample_image_metadata):
         """refresh_images が get_images_metadata_batch を1回呼ぶこと"""
