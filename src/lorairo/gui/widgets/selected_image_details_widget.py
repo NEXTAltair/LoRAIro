@@ -34,6 +34,7 @@ from PySide6.QtWidgets import (
     QVBoxLayout,
     QWidget,
 )
+from sqlalchemy.exc import SQLAlchemyError
 
 from ...database.schema import REJECT_REASON_INCORRECT, REJECT_REASON_NOT_NEEDED
 from ...gui.designer.SelectedImageDetailsWidget_ui import Ui_SelectedImageDetailsWidget
@@ -521,7 +522,28 @@ class SelectedImageDetailsWidget(QWidget):
         self.annotation_display.set_translation_candidates_async_provider(
             self._start_translation_candidates_fetch
         )
+        # タグ種別編集ダイアログへユーザー登録済みカスタム type 一覧を注入する (#1242)。
+        self.annotation_display.set_type_choices_provider(self._get_custom_type_choices)
         logger.debug("SelectedImageDetailsWidget: tagdb userdb 書き込みサービスを配線")
+
+    def _get_custom_type_choices(self) -> list[str]:
+        """タグ種別編集ダイアログへ渡すカスタム type 名一覧を取得する (#1242)。
+
+        LoRAIro format (format_id=1000) で user DB に登録済みの type 名を都度取得する。
+        ダイアログを開く導線から毎回呼ばれるため新規登録した type も次回オープンから
+        反映される。取得失敗はダイアログを開けなくしないため空リストへ縮退する。
+
+        Returns:
+            user DB 登録済みのカスタム type 名一覧。未配線 / 取得失敗時は空リスト。
+        """
+        service = self._tag_management_service
+        if service is None:
+            return []
+        try:
+            return service.get_format_specific_types()
+        except (SQLAlchemyError, ValueError, RuntimeError) as e:
+            logger.warning(f"カスタム type 一覧の取得に失敗 (候補なしで続行): {e}")
+            return []
 
     def _start_translation_candidates_fetch(
         self,

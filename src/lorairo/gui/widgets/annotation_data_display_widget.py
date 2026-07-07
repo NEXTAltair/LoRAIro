@@ -255,6 +255,10 @@ class AnnotationDataDisplayWidget(QWidget, Ui_AnnotationDataDisplayWidget):
         """翻訳候補の非同期 provider を設定する (TagPanelWidget へ委譲、#1232)。"""
         self._tag_panel.set_translation_candidates_async_provider(provider)
 
+    def set_type_choices_provider(self, provider: Callable[[], list[str]] | None) -> None:
+        """タグ種別編集ダイアログのカスタム type 一覧 provider を設定する (TagPanelWidget へ委譲、#1242)。"""
+        self._tag_panel.set_type_choices_provider(provider)
+
     def apply_tag_metadata(
         self,
         translations: dict[int, dict[str, str]],

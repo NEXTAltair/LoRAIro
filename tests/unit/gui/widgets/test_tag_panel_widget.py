@@ -957,6 +957,152 @@ def test_type_edit_dialog_emits_custom_type(panel, sample_tags, qtbot, monkeypat
     assert blocker.args == ["1girl", "my_custom_type"]
 
 
+# #1242 検索付き + 既存型グルーピング + 新規作成抑制 --------------------------
+
+
+def test_type_dialog_groups_tagdb_and_custom_types(qtbot):
+    """カスタム type 注入時、From tagdb / Your types の 2 グループで提示する (#1242)。"""
+    dialog = TagTypeEditDialog("1girl", custom_type_names=["circle", "series"])
+    qtbot.addWidget(dialog)
+    choices = [dialog._type_combo.itemText(i) for i in range(dialog._type_combo.count())]
+    assert choices == [
+        TagTypeEditDialog._PLACEHOLDER,
+        TagTypeEditDialog._FROM_TAGDB_HEADER,
+        *TagTypeEditDialog.TYPE_CHOICES,
+        TagTypeEditDialog._CUSTOM_HEADER,
+        "circle",
+        "series",
+    ]
+    # 見出し行は選択不可 (グループヘッダとして機能する)。
+    model = dialog._type_combo.model()
+    header_index = choices.index(TagTypeEditDialog._FROM_TAGDB_HEADER)
+    header_item = model.item(header_index)
+    assert not (header_item.flags() & Qt.ItemFlag.ItemIsSelectable)
+    # custom type 行はバッジ描画用の role が立っている。
+    custom_index = choices.index("circle")
+    assert bool(model.item(custom_index).data(TagTypeEditDialog._CUSTOM_TYPE_ROLE))
+    # tagdb 標準行はバッジ role が立たない。
+    tagdb_index = choices.index("character")
+    assert not bool(model.item(tagdb_index).data(TagTypeEditDialog._CUSTOM_TYPE_ROLE))
+
+
+def test_type_dialog_no_custom_types_has_no_group_headers(qtbot):
+    """カスタム type 未注入時は見出し無しの単一リストのまま (#1234 以前と同じ並び)。"""
+    dialog = TagTypeEditDialog("1girl", custom_type_names=[])
+    qtbot.addWidget(dialog)
+    choices = [dialog._type_combo.itemText(i) for i in range(dialog._type_combo.count())]
+    assert TagTypeEditDialog._FROM_TAGDB_HEADER not in choices
+    assert TagTypeEditDialog._CUSTOM_HEADER not in choices
+    assert choices == [TagTypeEditDialog._PLACEHOLDER, *TagTypeEditDialog.TYPE_CHOICES]
+
+
+def test_type_dialog_custom_types_dedup_against_tagdb_case_insensitive(qtbot):
+    """tagdb 標準と大小文字違いで重複するカスタム type は Your types に出さない (#1242)。"""
+    dialog = TagTypeEditDialog("1girl", custom_type_names=["General", "circle", "circle"])
+    qtbot.addWidget(dialog)
+    choices = [dialog._type_combo.itemText(i) for i in range(dialog._type_combo.count())]
+    # "General" (tagdb の "general" と case-insensitive 一致) は除外され、"circle" は1回だけ。
+    assert choices.count("General") == 0
+    assert choices.count("circle") == 1
+
+
+def test_type_dialog_new_type_hint_shown_only_for_unknown_input(qtbot):
+    """一致する既存 type が無い入力のときだけ新規作成ヒントを表示する (#1242)。"""
+    dialog = TagTypeEditDialog("1girl", custom_type_names=["circle"])
+    qtbot.addWidget(dialog)
+
+    # 既知の tagdb 標準 type → ヒント非表示。
+    dialog._type_combo.setCurrentText("character")
+    assert not dialog._new_type_hint.isVisibleTo(dialog)
+
+    # 既知のカスタム type → ヒント非表示。
+    dialog._type_combo.setCurrentText("circle")
+    assert not dialog._new_type_hint.isVisibleTo(dialog)
+
+    # 大小文字違いでも既存一致とみなしヒント非表示 (case-insensitive)。
+    dialog._type_combo.setCurrentText("Circle")
+    assert not dialog._new_type_hint.isVisibleTo(dialog)
+
+    # 未知の type → ヒント表示 + 対象 type 名を含む。
+    dialog._type_combo.setCurrentText("brand_new_type")
+    assert dialog._new_type_hint.isVisibleTo(dialog)
+    assert "brand_new_type" in dialog._new_type_hint.text()
+
+    # 空入力 (プレースホルダに戻す) → ヒント非表示。
+    dialog._type_combo.setCurrentText(TagTypeEditDialog._PLACEHOLDER)
+    assert not dialog._new_type_hint.isVisibleTo(dialog)
+
+
+def test_type_dialog_completer_uses_contains_match_over_tagdb_and_custom(qtbot):
+    """検索補完 (QCompleter) は tagdb 標準 + カスタム type から contains マッチする (#1242)。"""
+    dialog = TagTypeEditDialog("1girl", custom_type_names=["circle"])
+    qtbot.addWidget(dialog)
+    completer = dialog._type_combo.completer()
+    assert completer is not None
+    assert completer.filterMode() == Qt.MatchFlag.MatchContains
+    assert completer.caseSensitivity() == Qt.CaseSensitivity.CaseInsensitive
+    completer.setCompletionPrefix("irc")
+    completions = [
+        completer.completionModel().data(completer.completionModel().index(i, 0))
+        for i in range(completer.completionCount())
+    ]
+    assert "circle" in completions
+
+
+def test_type_dialog_no_db_dependency(qtbot):
+    """ダイアログは DB / service_container を一切持たない (ADR 0083 / #1242)。"""
+    dialog = TagTypeEditDialog("1girl", custom_type_names=["circle"])
+    qtbot.addWidget(dialog)
+    assert not hasattr(dialog, "_reader")
+    assert not hasattr(dialog, "_repo")
+    assert not hasattr(dialog, "_service")
+    assert not hasattr(dialog, "_db_manager")
+    assert not hasattr(dialog, "_service_container")
+
+
+def test_panel_type_choices_provider_injects_custom_types_into_dialog(panel, sample_tags, monkeypatch):
+    """set_type_choices_provider で注入した候補が dialog の Your types へ反映される (#1242)。"""
+    panel.set_tags(sample_tags, image_id=10)
+    panel.set_type_choices_provider(lambda: ["circle", "series"])
+
+    captured: list[TagTypeEditDialog] = []
+
+    def fill(dialog):
+        captured.append(dialog)
+
+    monkeypatch.setattr(tpw.TagTypeEditDialog, "exec", lambda self: int(QDialog.DialogCode.Rejected))
+    original_init = tpw.TagTypeEditDialog.__init__
+
+    def capturing_init(self, *args, **kwargs):
+        original_init(self, *args, **kwargs)
+        captured.append(self)
+
+    monkeypatch.setattr(tpw.TagTypeEditDialog, "__init__", capturing_init)
+    panel._open_type_edit_dialog("1girl")
+    assert len(captured) == 1
+    choices = [captured[0]._type_combo.itemText(i) for i in range(captured[0]._type_combo.count())]
+    assert "circle" in choices
+    assert "series" in choices
+
+
+def test_panel_type_choices_provider_unset_opens_without_custom_types(panel, sample_tags, monkeypatch):
+    """provider 未注入時は tagdb 標準のみ (Your types グループなし) で開く (#1242)。"""
+    panel.set_tags(sample_tags, image_id=10)
+    monkeypatch.setattr(tpw.TagTypeEditDialog, "exec", lambda self: int(QDialog.DialogCode.Rejected))
+    captured: list[TagTypeEditDialog] = []
+    original_init = tpw.TagTypeEditDialog.__init__
+
+    def capturing_init(self, *args, **kwargs):
+        original_init(self, *args, **kwargs)
+        captured.append(self)
+
+    monkeypatch.setattr(tpw.TagTypeEditDialog, "__init__", capturing_init)
+    panel._open_type_edit_dialog("1girl")
+    assert len(captured) == 1
+    choices = [captured[0]._type_combo.itemText(i) for i in range(captured[0]._type_combo.count())]
+    assert TagTypeEditDialog._CUSTOM_HEADER not in choices
+
+
 # ⑬ 使用頻度 第2軸 (metric_source, ADR 0083 §5 / #990) -----------------------
 
 
