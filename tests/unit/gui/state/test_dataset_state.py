@@ -214,9 +214,11 @@ class TestDatasetStateManager:
         state_manager.set_selected_images([1])
         state_manager.set_current_image(1)
 
-        # クリア実行
+        # クリア実行 (set_current_image より後に接続し、clear_dataset の emit だけ捕捉する)
         filter_cleared_mock = Mock()
         state_manager.filter_cleared.connect(filter_cleared_mock)
+        current_data_mock = Mock()
+        state_manager.current_image_data_changed.connect(current_data_mock)
 
         state_manager.clear_dataset()
 
@@ -228,6 +230,51 @@ class TestDatasetStateManager:
         assert state_manager.current_image_id is None
 
         filter_cleared_mock.assert_called_once()
+        # 現在画像があったので詳細/プレビューへ空データ通知でクリアさせる (#1228 Codex P2)
+        current_data_mock.assert_called_once_with({})
+
+    def test_clear_dataset_without_current_image_skips_empty_notify(
+        self, state_manager, sample_image_metadata
+    ):
+        """現在画像が無い状態の clear_dataset は空データ通知を出さない (#1228 Codex P2)。"""
+        state_manager.set_dataset_images(sample_image_metadata)
+        current_data_mock = Mock()
+        state_manager.current_image_data_changed.connect(current_data_mock)
+
+        state_manager.clear_dataset()
+
+        current_data_mock.assert_not_called()
+
+    def test_clear_current_image_emits_empty_data_notify(self, state_manager, sample_image_metadata):
+        """clear_current_image は current_image_cleared と current_image_data_changed({}) を出す (#1228 Codex P2)。
+
+        詳細パネルは current_image_data_changed を購読するため、現在画像クリア時に空データ通知を
+        出さないと stale な表示が残る (current_image_cleared のみでは詳細パネルが購読していない)。
+        ExportTab のタグ絞り込みで現在画像が表示集合から外れる経路等で顕在化する。
+        """
+        state_manager.set_dataset_images(sample_image_metadata)
+        state_manager.set_current_image(1)
+        cleared_mock = Mock()
+        data_mock = Mock()
+        state_manager.current_image_cleared.connect(cleared_mock)
+        state_manager.current_image_data_changed.connect(data_mock)
+
+        state_manager.clear_current_image()
+
+        cleared_mock.assert_called_once()
+        data_mock.assert_called_once_with({})
+
+    def test_clear_current_image_noop_when_already_cleared(self, state_manager):
+        """現在画像が無ければ clear_current_image は何も emit しない (#1228)。"""
+        cleared_mock = Mock()
+        data_mock = Mock()
+        state_manager.current_image_cleared.connect(cleared_mock)
+        state_manager.current_image_data_changed.connect(data_mock)
+
+        state_manager.clear_current_image()
+
+        cleared_mock.assert_not_called()
+        data_mock.assert_not_called()
 
     def test_refresh_images_uses_batch_query(self, state_manager, sample_image_metadata):
         """refresh_images が get_images_metadata_batch を1回呼ぶこと"""

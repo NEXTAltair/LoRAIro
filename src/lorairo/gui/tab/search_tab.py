@@ -633,8 +633,43 @@ class SearchTabWidget(QWidget, Ui_SearchTab):
         rating_widget = widget._rating_score_widget
 
         if len(image_ids) == 0:
+            # 詳細パネルの表示ライフサイクルは current_image_data_changed 経由の単一画像選択
+            # (SelectedImageDetailsWidget._on_image_data_received) が SSoT で、バッチ選択
+            # (selected_image_ids) とは独立している。selection_changed([]) が来ても詳細ウィジェットが
+            # 画像を表示中 (widget.current_image_id is not None) なら full clear しない (#1222):
+            # _clear_display は current_image_id=None にし、直後に完了する tag_metadata /
+            # refinement worker の結果を image_id 照合で破棄させ、タグ / キャプションが空のまま
+            # 復旧しなくなる。
+            #
+            # 判定は DSM の _all_images ではなく詳細ウィジェット自身の current_image_id で行う:
+            # set_current_image の cache-miss 経路 (登録ビューからの表示要求等) で DSM キャッシュ外の
+            # 画像を DB 直読みして表示している場合、DSM.get_image_by_id は None を返すが表示は有効で、
+            # ここで消すと表示中画像を誤ってクリアしてしまう (#1228 Codex P2)。詳細表示の全クリアは
+            # current_image_data_changed({}) 経由 (dataset reset 等) が担当する。
+            if widget.current_image_id is not None:
+                # rating エディタが直前のバッチ選択 (populate_from_selection) で batch モードの
+                # ままだと、deselect 後に Save すると stale な複数選択へバッチ書き込みしてしまう
+                # (#1228 Codex P2)。表示中画像の詳細から rating を single モードへ戻す
+                # (populate_from_image_data が _is_batch_mode を False にする)。current_details は
+                # 表示時に設定済みで、DSM キャッシュ外から DB 直読みした表示画像でも有効。
+                details = widget.current_details
+                if details is not None:
+                    # dict 形状は SelectedImageDetailsWidget._update_details_display と揃える。
+                    rating_widget.populate_from_image_data(
+                        {
+                            "id": details.image_id,
+                            "rating": details.manual_rating_value or "----",
+                            "score_value": details.manual_score_value,
+                            "ai_rating": details.ai_rating_value or "----",
+                            "ai_score_value": details.ai_score_value,
+                        }
+                    )
+                logger.debug(
+                    "選択リスト空だが詳細パネルが画像表示中 - full clear 抑止 + rating 単一化 (#1222/#1228)"
+                )
+                return
             widget._clear_display()
-            logger.debug("選択なし - 詳細表示をクリア")
+            logger.debug("選択なし・表示画像なし - 詳細表示をクリア")
         elif len(image_ids) == 1:
             if self._dataset_state_manager is not None:
                 image_data = self._dataset_state_manager.get_image_by_id(image_ids[0])

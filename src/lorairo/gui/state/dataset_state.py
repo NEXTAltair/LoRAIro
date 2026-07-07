@@ -152,7 +152,11 @@ class DatasetStateManager(QObject):
         self._invalidate_image_index()
 
         self.clear_selection()
-        self._current_image_id = None
+        # 現在画像のクリアは clear_current_image に一本化する (#1228 Codex P2)。
+        # selection_changed([]) は詳細パネルの full clear を担当しなくなった (search_tab は
+        # widget.current_image_id で表示中画像を保持するようになった) ため、current image を
+        # None にする経路が詳細/プレビューへ空データ通知を出す責務を持つ。
+        self.clear_current_image()
         self.filter_cleared.emit()
         logger.info("データセット状態をクリアしました")
 
@@ -268,10 +272,18 @@ class DatasetStateManager(QObject):
                     self.current_image_data_changed.emit({})
 
     def clear_current_image(self) -> None:
-        """現在の画像選択をクリア"""
+        """現在の画像選択をクリア。
+
+        `_current_image_id` を None にする唯一の経路 (clear_dataset もここへ委譲する)。
+        current_image_cleared に加えて current_image_data_changed({}) も emit し、
+        current-image チャネルを購読する詳細パネル / プレビューを確実にクリアする
+        (#1228 Codex P2)。current_image_cleared のみでは詳細パネルが購読しておらず
+        stale な表示が残る。ExportTab は両シグナルを購読するが空クリアは冪等。
+        """
         if self._current_image_id is not None:
             self._current_image_id = None
             self.current_image_cleared.emit()
+            self.current_image_data_changed.emit({})
 
     # === UI State Management ===
 
