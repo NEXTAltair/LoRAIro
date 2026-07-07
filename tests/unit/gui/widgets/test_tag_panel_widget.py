@@ -90,7 +90,9 @@ def test_set_tags_keeps_all_provenance_rows_in_table(panel):
 
 
 def test_set_tags_sorts_by_type_group_then_alphabetical(panel):
-    """#1056: character→copyright→artist→general→meta のグループ順 + グループ内アルファベット順。"""
+    """#1056/#1233/#1241: character→copyright→artist→meta→general のグループ順
+    (Issue #1233/#1241 デザイン確定 SSoT) + グループ内 canonical アルファベット順。
+    """
     tags = [
         {"tag": "zzz effect", "tag_id": 1, "model_name": "wd", "source": "AI"},
         {"tag": "1girl", "tag_id": 2, "model_name": "wd", "source": "AI"},
@@ -114,14 +116,17 @@ def test_set_tags_sorts_by_type_group_then_alphabetical(panel):
         "hatsune miku",  # character
         "vocaloid",  # copyright
         "aaa artist",  # artist
+        "absurdres",  # meta
         "1girl",  # general (アルファベット順)
         "zzz effect",  # general
-        "absurdres",  # meta
     ]
 
 
 def test_set_tags_unknown_type_goes_to_trailing_group(panel):
-    """#1056: type が引けないタグ (tagdb 未登録等) は末尾グループに寄せる (ユーザー決定)。"""
+    """#1056: type が引けないタグ (tagdb 未登録等) は末尾グループに寄せる (ユーザー決定)。
+
+    #1233/#1241 で meta→general の順に統一したため、meta は general より先に並ぶ。
+    """
     tags = [
         {"tag": "aaa unknown", "tag_id": None, "model_name": "wd", "source": "AI"},
         {"tag": "zzz meta", "tag_id": 5, "model_name": "wd", "source": "AI"},
@@ -131,7 +136,7 @@ def test_set_tags_unknown_type_goes_to_trailing_group(panel):
 
     panel.set_tags(tags, tag_types=tag_types)
 
-    assert [c.canonical for c in panel._tag_chips] == ["1girl", "zzz meta", "aaa unknown"]
+    assert [c.canonical for c in panel._tag_chips] == ["zzz meta", "1girl", "aaa unknown"]
 
 
 def test_set_tags_without_types_sorts_alphabetically(panel):
@@ -2137,3 +2142,175 @@ def test_current_language_is_english_when_combo_empty(panel):
     panel.initialize_language_selector([])
     panel.set_translation_refresh_enabled(True)  # bar 表示・combo 空
     assert panel._current_language() == "english"
+
+
+# ⑰ 種別インジケータ (グリフ + ストライプ + 色分け) と「種別で分ける」トグル (#1233 / #1241) --
+
+
+def test_chip_shows_glyph_for_known_type_and_blank_for_general(panel):
+    """既知種別 (character 等) はグリフ付き、general は無印 (ノイズを増やさない)。"""
+    tags = [
+        {"tag": "hatsune miku", "tag_id": 1, "model_name": "wd", "source": "AI"},
+        {"tag": "1girl", "tag_id": 2, "model_name": "wd", "source": "AI"},
+    ]
+    tag_types = {"hatsune miku": "character", "1girl": "general"}
+
+    panel.set_tags(tags, tag_types=tag_types)
+
+    miku = next(c for c in panel._tag_chips if c.canonical == "hatsune miku")
+    girl = next(c for c in panel._tag_chips if c.canonical == "1girl")
+    assert miku.type_glyph == "C"
+    assert miku.text().startswith("C ")
+    assert girl.type_glyph == ""
+    assert girl.text() == "1girl"
+
+
+def test_chip_stripe_color_matches_type_palette(panel):
+    """種別ストライプ色は theme.TAG_TYPE_PALETTE の色と一致し、QSS にも反映される (#1241)。"""
+    tags = [{"tag": "hatsune miku", "tag_id": 1, "model_name": "wd", "source": "AI"}]
+    panel.set_tags(tags, tag_types={"hatsune miku": "character"})
+
+    chip = panel._tag_chips[0]
+    _bg, fg, _border = theme.TAG_TYPE_PALETTE["character"]
+    assert chip.stripe_color == fg
+    assert f"border-left: 4px solid {fg}" in chip.styleSheet()
+
+
+def test_chip_recolors_by_type_palette_when_active(panel):
+    """アクティブ (翻訳解決済み・非無効化) chip の背景色が種別パレットで recolor される (#1233)。"""
+    tags = [{"tag": "hatsune miku", "tag_id": 1, "model_name": "wd", "source": "AI"}]
+    panel.set_tags(tags, tag_types={"hatsune miku": "character"})
+
+    chip = panel._tag_chips[0]
+    assert chip.base_qss == theme.tag_type_chip_qss("character")
+    assert chip.base_qss != theme.chip_qss("accent")
+
+
+def test_chip_general_and_unknown_type_keep_accent(panel):
+    """general / 型不明は現行の accent chip (無色分け) を据え置く (#1233)。"""
+    tags = [
+        {"tag": "1girl", "tag_id": 1, "model_name": "wd", "source": "AI"},
+        {"tag": "unregistered", "tag_id": None, "model_name": "wd", "source": "AI"},
+    ]
+    panel.set_tags(tags, tag_types={"1girl": "general"})
+
+    girl = next(c for c in panel._tag_chips if c.canonical == "1girl")
+    unknown = next(c for c in panel._tag_chips if c.canonical == "unregistered")
+    assert girl.base_qss == theme.chip_qss("accent")
+    assert unknown.base_qss == theme.chip_qss("accent")
+    assert girl.stripe_color is None
+    assert unknown.stripe_color is None
+
+
+def test_group_by_type_toggle_disabled_with_single_type(panel):
+    """種別が 1 つしかない画像ではトグルを無効化する (#1241)。"""
+    tags = [
+        {"tag": "1girl", "tag_id": 1, "model_name": "wd", "source": "AI"},
+        {"tag": "solo", "tag_id": 2, "model_name": "wd", "source": "AI"},
+    ]
+    panel.set_tags(tags, tag_types={"1girl": "general", "solo": "general"})
+
+    assert panel._group_by_type_checkbox.isEnabled() is False
+
+
+def test_group_by_type_toggle_enabled_with_multiple_types(panel):
+    """2 種別以上あればトグルを有効化する (#1241)。"""
+    tags = [
+        {"tag": "hatsune miku", "tag_id": 1, "model_name": "wd", "source": "AI"},
+        {"tag": "1girl", "tag_id": 2, "model_name": "wd", "source": "AI"},
+    ]
+    panel.set_tags(tags, tag_types={"hatsune miku": "character", "1girl": "general"})
+
+    assert panel._group_by_type_checkbox.isEnabled() is True
+
+
+def test_group_by_type_toggle_on_creates_sections_with_headers(panel):
+    """トグル ON でヘッダ (グリフ+ラベル+件数) 付きセクションへ分割する (#1241)。"""
+    tags = [
+        {"tag": "hatsune miku", "tag_id": 1, "model_name": "wd", "source": "AI"},
+        {"tag": "vocaloid", "tag_id": 2, "model_name": "wd", "source": "AI"},
+        {"tag": "1girl", "tag_id": 3, "model_name": "wd", "source": "AI"},
+    ]
+    tag_types = {"hatsune miku": "character", "vocaloid": "copyright", "1girl": "general"}
+    panel.set_tags(tags, tag_types=tag_types)
+
+    panel._group_by_type_checkbox.setChecked(True)
+
+    # 3 種別 (character/copyright/general) それぞれヘッダ + FlowLayout の 2 要素 = 6 セクション
+    sections = panel._tags_chip_sections_layout
+    assert sections.count() == 6
+    headers = [
+        sections.itemAt(i).widget()
+        for i in range(sections.count())
+        if isinstance(sections.itemAt(i).widget(), QLabel)
+    ]
+    header_texts = [h.text() for h in headers]
+    assert any("キャラクター" in t for t in header_texts)
+    assert any("版権" in t for t in header_texts)
+    assert any("一般" in t for t in header_texts)
+    # chip 自体は変わらず全件描画される (グループ化は表示上の分割のみ)
+    assert len(panel._tag_chips) == 3
+
+
+def test_group_by_type_toggle_off_is_flat(panel):
+    """トグル OFF (既定) はフラット表示 (単一セクション) を維持する (#1241)。"""
+    tags = [
+        {"tag": "hatsune miku", "tag_id": 1, "model_name": "wd", "source": "AI"},
+        {"tag": "1girl", "tag_id": 2, "model_name": "wd", "source": "AI"},
+    ]
+    panel.set_tags(tags, tag_types={"hatsune miku": "character", "1girl": "general"})
+
+    assert panel._tags_chip_sections_layout.count() == 1
+    assert len(panel._tag_chips) == 2
+
+
+def test_group_by_type_toggle_back_off_restores_flat(panel):
+    """トグルを ON→OFF に戻すとフラット表示へ戻る (#1241)。"""
+    tags = [
+        {"tag": "hatsune miku", "tag_id": 1, "model_name": "wd", "source": "AI"},
+        {"tag": "1girl", "tag_id": 2, "model_name": "wd", "source": "AI"},
+    ]
+    panel.set_tags(tags, tag_types={"hatsune miku": "character", "1girl": "general"})
+    panel._group_by_type_checkbox.setChecked(True)
+    assert panel._tags_chip_sections_layout.count() > 1
+
+    panel._group_by_type_checkbox.setChecked(False)
+    assert panel._tags_chip_sections_layout.count() == 1
+    assert len(panel._tag_chips) == 2
+
+
+def test_click_model_unaffected_by_type_indicator(panel, qtbot):
+    """無効化⇄復活 / Ctrl+コピーの既存クリックモデルは種別インジケータ付きでも非回帰 (#1233/#1241)。"""
+    tags = [{"tag": "hatsune miku", "tag_id": 1, "model_name": "wd", "source": "AI"}]
+    panel.set_tag_edit_enabled(True)
+    panel.set_tags(tags, tag_types={"hatsune miku": "character"})
+    chip = panel._tag_chips[0]
+
+    with qtbot.waitSignal(panel.tag_disable_requested, timeout=1000) as blocker:
+        chip.clicked.emit()
+    assert blocker.args == ["hatsune miku"]
+    # 破線 (無効化) スタイルでも種別ストライプは維持される (状態と独立、#1233/#1241)
+    assert "border-left: 4px solid" in chip.styleSheet()
+
+    with qtbot.waitSignal(panel.tag_restore_requested, timeout=1000) as blocker:
+        chip.clicked.emit()
+    assert blocker.args == ["hatsune miku"]
+
+    chip.ctrl_clicked.emit()
+    assert chip.selected is True
+    assert "border-left: 4px solid" in chip.styleSheet()
+
+
+def test_remove_button_still_hides_chip_with_type_indicator(panel, qtbot):
+    """✕ (除外) の既存挙動は種別インジケータ付きでも非回帰 (#1233/#1241)。"""
+    tags = [{"tag": "hatsune miku", "tag_id": 1, "model_name": "wd", "source": "AI"}]
+    panel.set_tag_edit_enabled(True)
+    panel.set_tags(tags, tag_types={"hatsune miku": "character"})
+    buttons = panel.findChildren(QToolButton, "tagRejectButton")
+    assert len(buttons) == 1
+
+    with qtbot.waitSignal(panel.tag_exclude_requested, timeout=1000) as blocker:
+        buttons[0].click()
+    assert blocker.args == ["hatsune miku"]
+    assert "hatsune miku" in panel._hidden
+    assert panel._tag_chips == []

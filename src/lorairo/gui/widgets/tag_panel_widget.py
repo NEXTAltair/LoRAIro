@@ -23,6 +23,7 @@ from PySide6.QtWidgets import (
     QAbstractScrollArea,
     QApplication,
     QButtonGroup,
+    QCheckBox,
     QComboBox,
     QDialog,
     QDialogButtonBox,
@@ -53,6 +54,7 @@ from ...utils.language_keys import (
 from ...utils.log import logger
 from .. import theme
 from .ds_no_scroll_combo_box import DsNoScrollComboBox
+from .tag_cloud_widget import FlowLayout
 
 if TYPE_CHECKING:
     from genai_tag_db_tools.models import RefinementRecommendation
@@ -95,6 +97,26 @@ _TRANSLATION_FIX_REASON_CODES: frozenset[str] = frozenset(
         "low_quality_translation",
     }
 )
+
+# タグ種別の表示メタデータ (グリフ + 日本語ラベル) と表示順の SSoT (Issue #1233 / #1241
+# 本文で確定)。旧 `TagPanelWidget._TYPE_GROUP_ORDER` (#1056) は character→copyright→
+# artist→general→meta の順だったが、本 SSoT (meta が general より前) に統一する
+# (デザイン確定が新しい SSoT)。general は無印 (グリフなし、ノイズを増やさない)。
+_TYPE_ORDER: tuple[str, ...] = ("character", "copyright", "artist", "meta", "general")
+_TYPE_GLYPHS: dict[str, str] = {
+    "character": "C",
+    "copyright": "©",
+    "artist": "A",
+    "meta": "M",
+    "general": "",
+}
+_TYPE_LABELS_JA: dict[str, str] = {
+    "character": "キャラクター",
+    "copyright": "版権",
+    "artist": "絵師",
+    "meta": "メタ",
+    "general": "一般",
+}
 
 
 class SelectableTagChip(QLabel):
@@ -139,9 +161,40 @@ class SelectableTagChip(QLabel):
         # 候補タグ -> {format: count} (#1052、set_refinement で更新)
         self._candidate_counts: dict[str, dict[str, int]] = {}
         self.refinement: RefinementRecommendation | None = None
+        # 種別インジケータ (Issue #1233 / #1241)。set_type_indicator で更新される。
+        # 左端ストライプ色 (None = 無印) と表示用グリフ文字を保持する。
+        self.stripe_color: str | None = None
+        self.type_glyph: str = ""
         self.setCursor(Qt.CursorShape.PointingHandCursor)
         # Ctrl+C を chip フォーカス中に拾えるようクリックフォーカスを許可する。
         self.setFocusPolicy(Qt.FocusPolicy.ClickFocus)
+
+    def set_type_indicator(self, type_name: str | None) -> None:
+        """タグ種別インジケータ (左端ストライプ + グリフ) を設定する (#1233 / #1241)。
+
+        ``theme.TAG_TYPE_PALETTE`` に無い種別 (general・不明・None) はストライプ・
+        グリフとも無印にする (ノイズを増やさない)。ここで設定したストライプ色は、
+        以後 ``setStyleSheet`` で切り替わる翻訳解決中/翻訳なし/選択中/無効化の
+        どの状態スタイルにも独立して重畳される (状態と種別表示を分離する)。
+
+        Args:
+            type_name: tagdb type 名 (小文字)。None / 未登録は無印。
+        """
+        palette = theme.TAG_TYPE_PALETTE.get(type_name) if type_name else None
+        self.stripe_color = palette[1] if palette is not None else None
+        self.type_glyph = _TYPE_GLYPHS.get(type_name, "") if type_name else ""
+
+    def setStyleSheet(self, style_sheet: str) -> None:
+        """状態スタイルに種別ストライプ (#1233 / #1241) を重ねて適用する。
+
+        左端ストライプは翻訳解決中/翻訳なし/選択中/無効化のどの状態スタイルとも
+        独立した装飾のため、呼び出し側 (``_add_chip`` / クリックハンドラ等) が渡す
+        スタイルに関わらず常に維持する。
+        """
+        stripe_color = getattr(self, "stripe_color", None)
+        if stripe_color:
+            style_sheet = f"{style_sheet}\nQLabel {{ border-left: 4px solid {stripe_color}; }}"
+        super().setStyleSheet(style_sheet)
 
     def mousePressEvent(self, event: QMouseEvent) -> None:
         """左クリックで clicked / Ctrl+左クリックで ctrl_clicked を emit する。"""
@@ -871,6 +924,10 @@ class TagPanelWidget(QWidget):
         # 編集モード (soft-reject 導線。既定 read-only)
         self._tag_edit_enabled: bool = False
 
+        # 「種別で分ける」トグル状態 (Issue #1241)。widget ローカルで非永続。
+        # 2 種別以上存在するときのみチェックボックスを有効化する (_render_tag_chips)。
+        self._group_by_type: bool = False
+
         # 操作の表示状態 (Issue #1003: DB の reject_reason から reload 毎に再構築される)。
         self._disabled_display: set[str] = set()  # 無効化 (破線でインライン表示継続、not_needed)
         self._hidden: set[str] = set()  # 除外/置換 (非表示、incorrect/replaced)
@@ -949,18 +1006,37 @@ class TagPanelWidget(QWidget):
         self._metric_bar.setVisible(False)
         root.addWidget(self._metric_bar)
 
+        # 「種別で分ける」トグル (#1241)。2 種別以上存在する画像でのみ有効化する
+        # (_render_tag_chips が都度再計算)。ON でヘッダ付きセクション分割、OFF で
+        # 現状同様のフラット表示 (type 順ソートは #1056 のまま維持)。
+        self._group_by_type_checkbox = QCheckBox("種別で分ける", self)
+        self._group_by_type_checkbox.setToolTip(
+            "タグ chip を種別 (キャラクター/版権/絵師/メタ/一般) ごとにグループ表示します。"
+            "種別が1つしかない画像では無効化されます。"
+        )
+        self._group_by_type_checkbox.setEnabled(False)
+        self._group_by_type_checkbox.toggled.connect(self._on_group_by_type_toggled)
+        root.addWidget(self._group_by_type_checkbox)
+
         # チップ表示コンテナ。高さ上限付きスクロール箱に収める (#835)。FlowLayout の
         # minimumSizeHint は「最小幅で全チップ縦積み」の過大値を報告し、放置すると親の
         # 高さを膨張させてスコアカード下に異常な余白 + 不要スクロールを生む。
-        from .tag_cloud_widget import FlowLayout
-
+        # コンテナ自体は QVBoxLayout (セクション列) を持ち、フラット表示時は単一の
+        # FlowLayout セクションを、種別分割時はヘッダ付き複数セクションを積む
+        # (#1241: chip 再構築のたびに _render_flat_chips / _render_grouped_chips が
+        # セクションを作り直す。既存の使い捨て再構築方針 (_clear_chip_layout 等) と統一)。
         self._tags_chip_container = QWidget(self)
-        self._tags_chip_layout = FlowLayout(self._tags_chip_container, spacing=4)
+        self._tags_chip_sections_layout = QVBoxLayout(self._tags_chip_container)
+        self._tags_chip_sections_layout.setContentsMargins(0, 0, 0, 0)
+        self._tags_chip_sections_layout.setSpacing(6)
         # 縦は Preferred (ShrinkFlag あり) にする (#1025)。Minimum だと FlowLayout の
         # sizeHint (「sizeHint 幅で全チップ縦積み」した過大値、例: 40チップで996px) が
         # container の最小高さとして固定され、widgetResizable な QScrollArea が実幅の
         # 必要高さ (heightForWidth) まで縮められず、チップ下に空白スクロール領域が残る。
         self._tags_chip_container.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
+        # フラット表示時の FlowLayout (直近に生成したもの)。テスト/後方互換のため保持する。
+        # 実体は _render_flat_chips / _render_grouped_chips が再構築のたびに差し替える。
+        self._tags_chip_layout: FlowLayout = self._new_chip_flow_section()
         self._tags_scroll = QScrollArea(self)
         self._tags_scroll.setWidgetResizable(True)
         self._tags_scroll.setFrameShape(QScrollArea.Shape.NoFrame)
@@ -1596,16 +1672,11 @@ class TagPanelWidget(QWidget):
             return ""
         return f" ({self._format_count(count)})"
 
-    # type 別グループの表示順 (#1056)。語彙は TagTypeEditDialog.TYPE_CHOICES と同一。
+    # type 別グループの表示順 (#1056)。モジュール定数 _TYPE_ORDER (#1233 / #1241 の
+    # デザイン確定 SSoT: character→copyright→artist→meta→general) から生成する。
     # 未知 type / type 不明は末尾グループ (ユーザー確認済み)
-    _TYPE_GROUP_ORDER: ClassVar[dict[str, int]] = {
-        "character": 0,
-        "copyright": 1,
-        "artist": 2,
-        "general": 3,
-        "meta": 4,
-    }
-    _UNKNOWN_TYPE_GROUP = 5
+    _TYPE_GROUP_ORDER: ClassVar[dict[str, int]] = {name: i for i, name in enumerate(_TYPE_ORDER)}
+    _UNKNOWN_TYPE_GROUP = len(_TYPE_ORDER)
 
     def _sort_tags_by_type(self, tags: list[dict[str, Any]]) -> list[dict[str, Any]]:
         """タグ行を type 別グループ + グループ内 canonical アルファベット順に並べる (#1056)。"""
@@ -1666,7 +1737,8 @@ class TagPanelWidget(QWidget):
 
         ✕ で非表示にしたタグ (``_hidden``) は描画しない。soft-rejected (DB 由来) は
         破線 chip としてインライン追記する。無効化 (``_disabled_display``) と翻訳欠落は
-        破線スタイルで示す。
+        破線スタイルで示す。「種別で分ける」トグル (#1241) が ON かつ 2 種別以上あれば
+        ヘッダ付きセクションへ分割し、それ以外は現状同様のフラット表示にする。
 
         Args:
             chip_items: (表示名, 原文, 翻訳ありか) のタプルリスト (アクティブタグ)。
@@ -1693,21 +1765,39 @@ class TagPanelWidget(QWidget):
         ]
 
         if not visible_items and not rejected_only:
+            # _clear_chip_layout() が旧セクション (FlowLayout 付きコンテナ) を丸ごと
+            # deleteLater 済みのため、既存の self._tags_chip_layout は使い回せない
+            # (dangling 参照)。新規セクションを作ってから追加する。
+            flow = self._new_chip_flow_section()
+            self._tags_chip_layout = flow
             placeholder = QLabel("-")
             placeholder.setStyleSheet(f"color: {theme.INK_FAINT};")
-            self._tags_chip_layout.addWidget(placeholder)
+            flow.addWidget(placeholder)
             self._tags_translation_note.setVisible(False)
+            self._group_by_type_checkbox.setEnabled(False)
             self._update_selection_bar()
             return
 
-        for display, original, has_tr in visible_items:
-            disabled = original in self._disabled_display or original in self._rejected_tags
-            self._add_chip(
-                display, original, has_translation=has_tr, is_translated=is_translated, disabled=disabled
+        # 描画対象を統一形式 (表示名, 原文, 翻訳ありか, 無効化) へまとめる。
+        render_items: list[tuple[str, str, bool, bool]] = [
+            (
+                display,
+                original,
+                has_tr,
+                original in self._disabled_display or original in self._rejected_tags,
             )
+            for display, original, has_tr in visible_items
+        ]
+        render_items.extend((original, original, True, True) for original in rejected_only)
 
-        for original in rejected_only:
-            self._add_chip(original, original, has_translation=True, is_translated=False, disabled=True)
+        # 「種別で分ける」トグル (#1241): 2 種別以上あるときだけ有効化する。
+        distinct_types = {self._tag_types.get(original, "") for _d, original, _h, _dis in render_items}
+        self._group_by_type_checkbox.setEnabled(len(distinct_types) > 1)
+
+        if self._group_by_type and len(distinct_types) > 1:
+            self._render_grouped_chips(render_items, is_translated=is_translated)
+        else:
+            self._render_flat_chips(render_items, is_translated=is_translated)
 
         if is_translated:
             # 解決中は脚注でも状態を明示する (#1191: 過渡状態を「翻訳なし」と誤認させない)
@@ -1728,6 +1818,84 @@ class TagPanelWidget(QWidget):
         self._adjust_tags_chip_height()
         self._update_selection_bar()
 
+    def _on_group_by_type_toggled(self, checked: bool) -> None:
+        """「種別で分ける」トグル切替: chip 表示をグループ分割⇄フラットで再描画する (#1241)。"""
+        self._group_by_type = checked
+        self._refresh_tags_for_language(self._current_language())
+
+    def _render_flat_chips(
+        self, render_items: list[tuple[str, str, bool, bool]], *, is_translated: bool
+    ) -> None:
+        """種別分割なしの現状互換フラット表示 (#1241 トグル OFF / 単一種別時)。"""
+        flow = self._new_chip_flow_section()
+        self._tags_chip_layout = flow
+        for display, original, has_tr, disabled in render_items:
+            self._add_chip(
+                display,
+                original,
+                has_translation=has_tr,
+                is_translated=is_translated,
+                disabled=disabled,
+                target_layout=flow,
+            )
+
+    def _render_grouped_chips(
+        self, render_items: list[tuple[str, str, bool, bool]], *, is_translated: bool
+    ) -> None:
+        """種別ごとにヘッダ + FlowLayout のセクションへ分割する (#1241)。
+
+        ``render_items`` はアクティブタグ分が type グループ順 (#1056 ``_sort_tags_by_type``)
+        済みの ``self._tags`` 由来なので、type の変化点でセクションを区切るだけで再ソート
+        不要。soft-rejected 分 (末尾追記、type ソート対象外) も同じ判定で直前セクションと
+        type が一致すれば合流し、異なれば新セクションを開く。
+        """
+        counts: dict[str, int] = {}
+        for _display, original, _has_tr, _disabled in render_items:
+            type_name = self._tag_types.get(original, "")
+            counts[type_name] = counts.get(type_name, 0) + 1
+
+        # render_items は呼び出し元 (_render_tag_chips) で非空を保証済み。先頭の type で
+        # 最初のセクション (ヘッダ→FlowLayout の順) を開く。
+        current_type = self._tag_types.get(render_items[0][1], "")
+        self._add_type_section_header(current_type, counts[current_type])
+        flow = self._new_chip_flow_section()
+        for display, original, has_tr, disabled in render_items:
+            type_name = self._tag_types.get(original, "")
+            if type_name != current_type:
+                current_type = type_name
+                self._add_type_section_header(type_name, counts[type_name])
+                flow = self._new_chip_flow_section()
+            self._tags_chip_layout = flow
+            self._add_chip(
+                display,
+                original,
+                has_translation=has_tr,
+                is_translated=is_translated,
+                disabled=disabled,
+                target_layout=flow,
+            )
+
+    def _new_chip_flow_section(self) -> FlowLayout:
+        """chip 用の FlowLayout セクション (専用コンテナ付き) を新規生成して追加する。
+
+        Returns:
+            新規セクションの FlowLayout。呼び出し側が chip を addWidget していく。
+        """
+        container = QWidget(self._tags_chip_container)
+        flow = FlowLayout(container, spacing=4)
+        container.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
+        self._tags_chip_sections_layout.addWidget(container)
+        return flow
+
+    def _add_type_section_header(self, type_name: str, count: int) -> None:
+        """種別グループヘッダ (グリフ + 日本語ラベル + 件数) を追加する (#1241)。"""
+        label = _TYPE_LABELS_JA.get(type_name, "不明")
+        glyph = _TYPE_GLYPHS.get(type_name, "")
+        text = f"{glyph} {label} ({count})" if glyph else f"{label} ({count})"
+        header = QLabel(text, self._tags_chip_container)
+        header.setStyleSheet(theme.tag_type_badge_qss(type_name))
+        self._tags_chip_sections_layout.addWidget(header)
+
     def _add_chip(
         self,
         display: str,
@@ -1736,12 +1904,17 @@ class TagPanelWidget(QWidget):
         has_translation: bool,
         is_translated: bool,
         disabled: bool,
+        target_layout: FlowLayout,
     ) -> None:
         """1 タグ分の chip (編集モードでは ✕ 付き) を生成して配置する。"""
         # 使用頻度 metric が選択されていれば count を表示名へ付与する (#990)。
         # canonical (original) は変えずコピー結果へ影響させない。
         display = f"{display}{self._count_suffix(original)}"
-        chip = SelectableTagChip(display, original)
+        type_name = self._tag_types.get(original)
+        # 種別グリフを表示名に前置する (#1241)。general/不明は無印 (ノイズを増やさない)。
+        glyph = _TYPE_GLYPHS.get(type_name, "") if type_name else ""
+        chip = SelectableTagChip(f"{glyph} {display}" if glyph else display, original)
+        chip.set_type_indicator(type_name)
         if is_translated and not has_translation and self._tag_metadata_pending:
             # 翻訳解決中 (#1191): 「翻訳なし」の点線と区別し、反映失敗との誤認を防ぐ。
             chip.base_qss = theme.chip_qss("accent")
@@ -1751,11 +1924,20 @@ class TagPanelWidget(QWidget):
             chip.base_qss = theme.tag_chip_untranslated_qss()
             chip.setToolTip(f"{original} — 翻訳なし · 右クリックで翻訳を追加")
         else:
-            chip.base_qss = theme.chip_qss("accent")
+            # type 別の色分け (#1233)。既知種別 (character/copyright/artist/meta) のみ
+            # 専用パレットで recolor し、general / 不明は現行の accent を据え置く。
+            chip.base_qss = theme.tag_type_chip_qss(type_name) or theme.chip_qss("accent")
             if is_translated and display != original:
                 # 翻訳済み chip にも右クリックの導線を明示する (#1223 / #1225): 主訳選択
                 # (翻訳管理ダイアログ) の入口が右クリックしかなく視覚的手がかりが無かった。
                 chip.setToolTip(f"{original} → {display} · 右クリックで翻訳を選択/編集")
+        if type_name and type_name != "general" and type_name in _TYPE_LABELS_JA:
+            # 種別ラベルをツールチップへ追記する (#1241)。翻訳系ツールチップと共存させる。
+            type_label = _TYPE_LABELS_JA[type_name]
+            existing_tip = chip.toolTip()
+            chip.setToolTip(
+                f"{existing_tip}\n種別: {type_label}" if existing_tip else f"種別: {type_label}"
+            )
         # 無効化 (破線) 表示の場合は disabled スタイルを適用する。
         chip.setStyleSheet(self._disabled_chip_qss() if disabled else chip.base_qss)
         # 選択集合 (#814 / #997) を再描画をまたいで復元する。disabled より優先して上書きする。
@@ -1778,12 +1960,12 @@ class TagPanelWidget(QWidget):
         # 使用頻度を見る (#997): read-only、TagPanelWidget 内で完結する。
         chip.usage_counts_menu_requested.connect(self._open_usage_counts_dialog)
         self._tag_chips.append(chip)
-        self._tags_chip_layout.addWidget(self._wrap_editable_chip(chip, original))
+        target_layout.addWidget(self._wrap_editable_chip(chip, original))
 
     def _clear_chip_layout(self) -> None:
-        """chip レイアウトの既存ウィジェットを破棄する。"""
-        while self._tags_chip_layout.count():
-            child = self._tags_chip_layout.takeAt(0)
+        """chip セクション群 (ヘッダ + FlowLayout コンテナ) を破棄する。"""
+        while self._tags_chip_sections_layout.count():
+            child = self._tags_chip_sections_layout.takeAt(0)
             if child is None:
                 continue
             widget = child.widget()
@@ -2298,21 +2480,41 @@ class TagPanelWidget(QWidget):
 
         FlowLayout の minimumSizeHint (最小幅での全チップ縦積み) が親へ伝播して
         スクロール領域を膨張させるのを防ぐため、箱の高さを実寸ベースで明示する。
+        「種別で分ける」(#1241) でセクションが複数になった場合も、各セクション
+        (ヘッダ QLabel または FlowLayout コンテナ) の実寸を合算して箱の高さを求める。
         """
         if not self._tags_scroll.isVisible():
             return
         width = self._tags_scroll.viewport().width()
         if width <= 0:
             return
-        # chip 再構築直後はレイアウト未 activation で新チップがまだ hidden のことがあり、
-        # QWidgetItem.sizeHint() が (0,0) を返して heightForWidth=0 → 箱が 8px に潰れる
-        # (#1025)。同期計測の前に hidden の chip を明示的に可視化して実寸を得る。
-        layout = self._tags_chip_layout
-        for i in range(layout.count()):
-            item = layout.itemAt(i)
+        sections_layout = self._tags_chip_sections_layout
+        needed = 0
+        section_count = 0
+        for i in range(sections_layout.count()):
+            item = sections_layout.itemAt(i)
             widget = item.widget() if item is not None else None
-            if widget is not None and widget.isHidden():
-                widget.setVisible(True)
+            if widget is None:
+                continue
+            section_count += 1
+            flow = widget.layout()
+            if isinstance(flow, FlowLayout):
+                # chip 再構築直後はレイアウト未 activation で新チップがまだ hidden の
+                # ことがあり、QWidgetItem.sizeHint() が (0,0) を返して heightForWidth=0
+                # → 箱が 8px に潰れる (#1025)。同期計測の前に hidden の chip を明示的に
+                # 可視化して実寸を得る。
+                for j in range(flow.count()):
+                    child_item = flow.itemAt(j)
+                    child_widget = child_item.widget() if child_item is not None else None
+                    if child_widget is not None and child_widget.isHidden():
+                        child_widget.setVisible(True)
+                needed += flow.heightForWidth(width)
+            else:
+                # 種別ヘッダ QLabel (#1241)。プレーンな sizeHint を積み上げる。
+                if widget.isHidden():
+                    widget.setVisible(True)
+                needed += widget.sizeHint().height()
+        if section_count > 1:
+            needed += sections_layout.spacing() * (section_count - 1)
         # 収まるときに内側スクロールバーが出ないよう僅かな余裕を足す。
-        needed = layout.heightForWidth(width) + 8
-        self._tags_scroll.setFixedHeight(min(needed, self._TAGS_MAX_HEIGHT))
+        self._tags_scroll.setFixedHeight(min(needed + 8, self._TAGS_MAX_HEIGHT))

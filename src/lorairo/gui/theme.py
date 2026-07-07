@@ -271,6 +271,74 @@ def tag_chip_untranslated_qss() -> str:
     )
 
 
+# ---------------------------------------------------------------------------
+# タグ種別カラーパレット (Issue #1233 / #1241)
+# ---------------------------------------------------------------------------
+
+# タグ chip の種別 (character/copyright/artist/meta) 色分け専用パレット。
+# ChipKind (ok/warn/err 等の状態意味論、_CHIP_PALETTE) とは別語彙にして混同を避ける
+# (installed/failed 等の状態色をタグ種別へ転用すると、緑チップ=成功 のような既存の
+# 意味と衝突する)。既存の状態色相 (OK=緑/WARN=琥珀/ERR=赤/INFO=青/UDB=ティール/
+# ACCENT=橙赤) から外れた紫・褐色・薔薇・スレートを、既存トークンと同じ
+# soft地+濃色文字+同系borderの構成で選定する。general (無印) はエントリを持たず、
+# 呼び出し側は既存の accent 表示を据え置く。
+TAG_TYPE_PALETTE: dict[str, tuple[str, str, str]] = {
+    # 種別名: (soft背景, 濃色文字 / ストライプ, soft border) — _CHIP_PALETTE と同型
+    "character": ("#efe7f6", "#7b5aa6", "#dccbea"),  # 紫 — 画像の主役
+    "copyright": ("#f1e6da", "#8a5a3c", "#ddc4a8"),  # 褐色 — 版権 / 作品
+    "artist": ("#f5e2ec", "#a34a72", "#e6c1d5"),  # 薔薇 — 絵師
+    "meta": ("#e8ecef", "#5b6b7a", "#ccd5db"),  # スレート — メタ情報
+}
+
+
+def tag_type_chip_qss(type_name: str | None) -> str | None:
+    """タグ種別 chip 用の QLabel QSS を返す (#1233)。
+
+    ``TAG_TYPE_PALETTE`` に無い種別 (general・不明・None) は None を返し、
+    呼び出し側は既存の accent chip 表示 (``chip_qss("accent")``) を据え置く。
+
+    Args:
+        type_name: tagdb type 名 (小文字)。None なら不明扱い。
+
+    Returns:
+        該当種別の soft 地 + 同系 border の QLabel スタイル文字列。未知種別は None。
+    """
+    if not type_name:
+        return None
+    palette = TAG_TYPE_PALETTE.get(type_name)
+    if palette is None:
+        return None
+    bg, fg, border = palette
+    return (
+        f"QLabel {{ background-color: {bg}; color: {fg};"
+        f" border: 1px solid {border}; border-radius: {RADIUS_CHIP}px; padding: 1px 9px;"
+        f" font-size: {FONT_SIZE_SMALL}px; font-weight: 600; }}"
+    )
+
+
+def tag_type_badge_qss(type_name: str | None) -> str:
+    """種別グループヘッダ用のバッジ QSS を返す (#1241)。
+
+    ``TAG_TYPE_PALETTE`` に無い種別 (general・不明) は中立バッジ (``badge_qss(None)``
+    相当) にフォールバックする。
+
+    Args:
+        type_name: tagdb type 名 (小文字)。None なら不明扱い。
+
+    Returns:
+        該当種別の soft 地 + 同系 border の小角丸 QLabel スタイル文字列。
+    """
+    palette = TAG_TYPE_PALETTE.get(type_name) if type_name else None
+    if palette is None:
+        return badge_qss(None)
+    bg, fg, border = palette
+    return (
+        f"QLabel {{ background-color: {bg}; color: {fg};"
+        f" border: {BORDER_WIDTH}px solid {border}; border-radius: {RADIUS_BADGE}px; padding: 1px 6px;"
+        f" font-size: {FONT_SIZE_SMALL}px; font-weight: {FONT_WEIGHT_MEDIUM}; }}"
+    )
+
+
 # ジョブ状態 → トークン色 (実行中=info / 待機=灰 / 完了=ok / 失敗=err / 中止=灰)
 _JOB_STATUS_COLORS: dict[str, str] = {
     "submitted": INFO,

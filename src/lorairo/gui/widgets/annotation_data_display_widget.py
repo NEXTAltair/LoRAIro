@@ -46,6 +46,8 @@ __all__ = [
 if TYPE_CHECKING:
     from genai_tag_db_tools.models import RefinementRecommendation
 
+    from .tag_cloud_widget import FlowLayout
+
 
 @dataclass
 class AnnotationData:
@@ -178,11 +180,13 @@ class AnnotationDataDisplayWidget(QWidget, Ui_AnnotationDataDisplayWidget):
         self.verticalLayoutTags.addWidget(self._tag_panel)
 
         # 後方互換: タグ系内部ウィジェットの参照を再公開する (既存テスト / 親が参照)。
+        # _tags_chip_layout はここで一度だけ挟まない (プロパティとして下に定義): #1241 で
+        # TagPanelWidget が再描画のたび FlowLayout を差し替えるようになったため、
+        # 一度きりの代入だと古い (破棄済み) FlowLayout を握ったままになる。
         self.tableWidgetTags = self._tag_panel.tableWidgetTags
         self._lang_bar = self._tag_panel._lang_bar
         self._lang_combo = self._tag_panel._lang_combo
         self._tags_chip_container = self._tag_panel._tags_chip_container
-        self._tags_chip_layout = self._tag_panel._tags_chip_layout
         self._tags_scroll = self._tag_panel._tags_scroll
         self._tags_translation_note = self._tag_panel._tags_translation_note
         self._tags_compact_label = self._tag_panel._tags_compact_label
@@ -208,6 +212,11 @@ class AnnotationDataDisplayWidget(QWidget, Ui_AnnotationDataDisplayWidget):
     def _tag_chips(self) -> list[SelectableTagChip]:
         """現在描画中のタグ chip (TagPanelWidget が再生成のたび差し替える)。"""
         return self._tag_panel._tag_chips
+
+    @property
+    def _tags_chip_layout(self) -> FlowLayout:
+        """フラット表示時の直近 FlowLayout (#1241: TagPanelWidget が再描画のたび差し替える)。"""
+        return self._tag_panel._tags_chip_layout
 
     @property
     def _last_refinements(self) -> dict[str, RefinementRecommendation]:
