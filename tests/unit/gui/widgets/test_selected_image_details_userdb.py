@@ -187,6 +187,57 @@ def test_type_edit_skipped_without_service(qtbot, monkeypatch) -> None:
     widget._on_tag_metadata_edit("1girl", "copyright")  # 例外を出さないこと
 
 
+def test_async_translation_candidates_routes_result(qtbot, monkeypatch) -> None:
+    """#1232: 非同期候補取得が worker 経由で結果を callback へ渡す。"""
+    service = _FakeTagService()
+    service.list_translation_candidates = lambda canonical, language: (["青い目", "青目"], "青目")  # type: ignore[method-assign]
+    widget = _make_widget(qtbot, monkeypatch, service)
+    manager = widget._ensure_worker_manager()
+    # start_worker を同期実行に差し替え、スレッドを使わず決定的に完了させる。
+    monkeypatch.setattr(manager, "start_worker", lambda wid, worker, **kw: bool(worker.run()) or True)
+
+    results: list[tuple[list[str], str | None]] = []
+    widget._start_translation_candidates_fetch(
+        "blue_eyes", "ja", lambda cands, cur: results.append((cands, cur))
+    )
+
+    assert results == [(["青い目", "青目"], "青目")]
+
+
+def test_async_translation_candidates_no_service_returns_empty(qtbot, monkeypatch) -> None:
+    """#1232: service 未配線なら即座に空候補で応答する (ダイアログを開けなくしない)。"""
+    service = _FakeTagService()
+    widget = _make_widget(qtbot, monkeypatch, service)
+    widget._tag_management_service = None  # type: ignore[assignment]
+
+    results: list[tuple[list[str], str | None]] = []
+    widget._start_translation_candidates_fetch("tag", "ja", lambda cands, cur: results.append((cands, cur)))
+
+    assert results == [([], None)]
+
+
+def test_async_translation_candidates_stale_generation_ignored(qtbot, monkeypatch) -> None:
+    """#1232: 古い世代の worker 完了は捨てる (single-flight)。"""
+    service = _FakeTagService()
+    widget = _make_widget(qtbot, monkeypatch, service)
+
+    from lorairo.gui.workers.translation_candidates_worker import TranslationCandidatesResult
+
+    received: list[str] = []
+    widget._trans_candidates_generation = 5
+    widget._trans_candidates_callback = lambda cands, cur: received.append("called")
+    # 世代 3 の (古い) 結果は無視される。
+    widget._on_translation_candidates_finished(
+        TranslationCandidatesResult("tag", "ja", 3, ["stale"], "stale")
+    )
+    assert received == []
+    # 世代 5 の結果は反映される。
+    widget._on_translation_candidates_finished(
+        TranslationCandidatesResult("tag", "ja", 5, ["fresh"], "fresh")
+    )
+    assert received == ["called"]
+
+
 def test_translation_add_clears_refinement_cache_before_reeval(qtbot, monkeypatch) -> None:
     """翻訳追加/修正後は refinement キャッシュを無効化する (PR #1086 Codex P2)。
 

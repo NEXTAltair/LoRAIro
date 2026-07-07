@@ -745,6 +745,69 @@ def test_translation_manage_dialog_no_provider_shows_no_candidates(qtbot):
     assert dialog.selected_candidate() is None
 
 
+def test_translation_manage_dialog_async_provider_loads_without_blocking(qtbot):
+    """#1232: 非同期 provider があると構築時に同期呼びせず、完了 callback で候補が埋まる。"""
+    pending: dict[str, object] = {}
+
+    def async_provider(language, on_result):
+        # 即座に候補を返さず callback を保持 = 構築時にブロックしない (読み込み中状態)。
+        pending["language"] = language
+        pending["cb"] = on_result
+
+    dialog = TranslationAddDialog("blue_eyes", None, async_candidates_provider=async_provider)
+    qtbot.addWidget(dialog)
+    # 完了前は候補ラジオ未生成 (読み込み中プレースホルダのみ)。
+    assert dialog._radio_values == {}
+    assert pending["language"] == "ja"
+
+    # worker 完了を模して callback を呼ぶと候補が反映される。
+    pending["cb"](["青い目", "青目"], "青目")
+    assert dialog.selected_candidate() == "青目"
+    labels = [radio.text() for radio in dialog._radio_values]
+    assert "青目（主訳）" in labels
+    assert "青い目" in labels
+
+
+def test_translation_manage_dialog_async_takes_precedence_over_sync(qtbot):
+    """#1232: 非同期 provider があれば同期 provider は呼ばれない。"""
+    sync_calls: list[str] = []
+
+    def sync_provider(language):
+        sync_calls.append(language)
+        return (["sync"], "sync")
+
+    def async_provider(language, on_result):
+        on_result(["async"], "async")  # 即時完了を模す
+
+    dialog = TranslationAddDialog("tag", sync_provider, async_candidates_provider=async_provider)
+    qtbot.addWidget(dialog)
+    assert sync_calls == []
+    assert dialog.selected_candidate() == "async"
+
+
+def test_translation_manage_dialog_async_stale_result_ignored(qtbot):
+    """#1232: 言語切替で世代が進むと、古い非同期結果は反映しない (single-flight)。"""
+    captured: list[tuple[str, object]] = []
+
+    def async_provider(language, on_result):
+        captured.append((language, on_result))
+
+    dialog = TranslationAddDialog("tag", None, async_candidates_provider=async_provider)
+    qtbot.addWidget(dialog)
+    _, first_cb = captured[0]
+
+    dialog._language_combo.setCurrentIndex(1)  # 言語切替で新しい取得 (世代 +1)
+
+    # 古い取得の結果が後から来ても無視される。
+    first_cb(["stale"], "stale")
+    assert dialog.selected_candidate() is None
+
+    # 新しい取得の結果は反映される。
+    _, second_cb = captured[1]
+    second_cb(["新訳"], "新訳")
+    assert dialog.selected_candidate() == "新訳"
+
+
 def test_translation_preferred_emitted_on_radio_change(panel, sample_tags, qtbot, monkeypatch):
     """新規入力なし + ラジオ選択が現主訳と異なる → translation_preferred_requested (#1084)。"""
     panel.set_tags(sample_tags, image_id=10)

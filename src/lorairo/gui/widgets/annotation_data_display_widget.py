@@ -242,6 +242,13 @@ class AnnotationDataDisplayWidget(QWidget, Ui_AnnotationDataDisplayWidget):
         """翻訳管理ダイアログの候補訳 provider を設定する (TagPanelWidget へ委譲、#1084)。"""
         self._tag_panel.set_translation_candidates_provider(provider)
 
+    def set_translation_candidates_async_provider(
+        self,
+        provider: Callable[[str, str, Callable[[list[str], str | None], None]], None] | None,
+    ) -> None:
+        """翻訳候補の非同期 provider を設定する (TagPanelWidget へ委譲、#1232)。"""
+        self._tag_panel.set_translation_candidates_async_provider(provider)
+
     def apply_tag_metadata(
         self,
         translations: dict[int, dict[str, str]],
