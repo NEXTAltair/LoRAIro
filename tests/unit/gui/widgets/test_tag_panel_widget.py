@@ -2252,6 +2252,46 @@ def test_group_by_type_toggle_on_creates_sections_with_headers(panel):
     assert len(panel._tag_chips) == 3
 
 
+def test_group_by_type_with_rejected_tags_no_duplicate_headers(panel):
+    """soft-rejected タグが複数種別に跨っても種別ヘッダが重複しない (Codex P1 回帰)。
+
+    rejected 分は type ソート対象外で末尾追記されるため、隣接判定だけだと同一 type が
+    非連続になり重複ヘッダ + 誤った件数が出る。_render_grouped_chips が type グループ順に
+    stable-sort してから区切ることで、active/rejected を問わず 1 種別 1 セクションになる。
+    """
+    tags = [
+        {"tag": "hatsune miku", "tag_id": 1, "model_name": "wd", "source": "AI"},
+        {"tag": "vocaloid", "tag_id": 2, "model_name": "wd", "source": "AI"},
+    ]
+    panel.set_tags(tags, tag_types={"hatsune miku": "character", "vocaloid": "copyright"})
+    panel.set_rejected_tags(
+        [
+            {"tag": "old_meta_tag", "reject_reason": "not_needed"},
+            {"tag": "old_character_tag", "reject_reason": "not_needed"},
+        ]
+    )
+    # rejected タグの type を注入 (character が active の character と非隣接になる並び)
+    panel._tag_types["old_meta_tag"] = "meta"
+    panel._tag_types["old_character_tag"] = "character"
+    panel._refresh_tags_for_language(panel._current_language())
+
+    panel._group_by_type_checkbox.setChecked(True)
+
+    sections = panel._tags_chip_sections_layout
+    headers = [
+        sections.itemAt(i).widget().text()
+        for i in range(sections.count())
+        if isinstance(sections.itemAt(i).widget(), QLabel)
+    ]
+    # 各種別ヘッダは 1 回だけ (重複しない)
+    assert sum("キャラクター" in t for t in headers) == 1
+    assert sum("版権" in t for t in headers) == 1
+    assert sum("メタ" in t for t in headers) == 1
+    # character セクションは active miku + rejected old_character_tag の 2 件
+    character_header = next(t for t in headers if "キャラクター" in t)
+    assert "(2)" in character_header
+
+
 def test_group_by_type_toggle_off_is_flat(panel):
     """トグル OFF (既定) はフラット表示 (単一セクション) を維持する (#1241)。"""
     tags = [

@@ -1844,11 +1844,19 @@ class TagPanelWidget(QWidget):
     ) -> None:
         """種別ごとにヘッダ + FlowLayout のセクションへ分割する (#1241)。
 
-        ``render_items`` はアクティブタグ分が type グループ順 (#1056 ``_sort_tags_by_type``)
-        済みの ``self._tags`` 由来なので、type の変化点でセクションを区切るだけで再ソート
-        不要。soft-rejected 分 (末尾追記、type ソート対象外) も同じ判定で直前セクションと
-        type が一致すれば合流し、異なれば新セクションを開く。
+        アクティブタグ分は #1056 ``_sort_tags_by_type`` 済みだが、soft-rejected 分は
+        末尾に DB 行順で追記され type ソート対象外。隣接判定だけで区切ると同一 type が
+        非連続になり、重複ヘッダ + 総数を各セクションに二重表示する不具合が出る
+        (Codex P1)。ここで type グループ順に stable-sort し、active/rejected を問わず
+        全同一 type を連続させてから変化点で区切る。
         """
+        render_items = sorted(
+            render_items,
+            key=lambda item: self._TYPE_GROUP_ORDER.get(
+                self._tag_types.get(item[1], ""), self._UNKNOWN_TYPE_GROUP
+            ),
+        )
+
         counts: dict[str, int] = {}
         for _display, original, _has_tr, _disabled in render_items:
             type_name = self._tag_types.get(original, "")
