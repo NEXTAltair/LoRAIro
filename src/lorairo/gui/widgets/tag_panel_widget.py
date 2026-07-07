@@ -2510,6 +2510,7 @@ class TagPanelWidget(QWidget):
             canonical,
             self._type_mismatch_hint(canonical),
             custom_type_names=custom_type_names,
+            current_type=self._tag_types.get(canonical),
             parent=self,
         )
         if dialog.exec() != QDialog.DialogCode.Accepted:
