@@ -633,6 +633,22 @@ class SearchTabWidget(QWidget, Ui_SearchTab):
         rating_widget = widget._rating_score_widget
 
         if len(image_ids) == 0:
+            # selected_image_ids (バッチ選択) と current_image_id (詳細表示中の単一画像) は
+            # DatasetStateManager 内で独立した状態 (clear_selection / set_selected_images は
+            # current_image_id を触らない)。選択リストが空でも表示中の単一画像があるうちは
+            # 詳細パネルを full clear しない (#1222): _clear_display は current_image_id=None に
+            # するため、直後に完了する tag_metadata / refinement worker の結果が image_id 照合で
+            # 破棄され、タグ / キャプションが空のまま復旧しなくなる。詳細表示の全クリアは
+            # current_image_data_changed 経由 (SelectedImageDetailsWidget._on_image_data_received)
+            # が担当する。ここでは rating/score 表示だけを表示中画像に追従させる。
+            dsm = self._dataset_state_manager
+            current_id = dsm.current_image_id if dsm is not None else None
+            if current_id is not None:
+                image_data = dsm.get_image_by_id(current_id) if dsm is not None else None
+                if image_data:
+                    rating_widget.populate_from_image_data(image_data)
+                logger.debug(f"選択リスト空だが表示中画像 {current_id} を保持 - full clear 抑止 (#1222)")
+                return
             widget._clear_display()
             logger.debug("選択なし - 詳細表示をクリア")
         elif len(image_ids) == 1:

@@ -322,13 +322,39 @@ def test_handle_quick_tag_add_failure_shows_critical(tab: SearchTabWidget, monke
 class TestSelectionToDetails:
     """選択件数に応じた詳細パネル表示更新 (0 件 / 1 件 / 複数件) の分岐検証。"""
 
-    def test_no_selection_clears_display(self, tab: SearchTabWidget) -> None:
+    def test_no_selection_clears_display_when_no_current_image(self, tab: SearchTabWidget) -> None:
+        """選択リストも表示中の単一画像も無い場合のみ詳細を full clear する (#1222)。"""
         widget = Mock()
         tab._selected_image_details_widget = widget
+        dsm = Mock()
+        dsm.current_image_id = None
+        tab._dataset_state_manager = dsm
 
         tab._handle_selection_changed_for_rating([])
 
         widget._clear_display.assert_called_once_with()
+
+    def test_no_selection_keeps_display_when_current_image_set(self, tab: SearchTabWidget) -> None:
+        """選択リストが空でも表示中の単一画像があれば詳細を full clear しない (#1222)。
+
+        selected_image_ids (バッチ選択) と current_image_id (詳細表示中の単一画像) は
+        独立した状態。バッチ選択解除で selection_changed([]) が来ても、full clear
+        (_clear_display → current_image_id=None) は tag_metadata/refinement worker の
+        結果を image_id 照合で破棄させ、タグ/キャプションが空のまま復旧しなくなる。
+        """
+        widget = Mock()
+        tab._selected_image_details_widget = widget
+        dsm = Mock()
+        dsm.current_image_id = 1033
+        dsm.get_image_by_id.return_value = {"id": 1033, "rating": "PG"}
+        tab._dataset_state_manager = dsm
+
+        tab._handle_selection_changed_for_rating([])
+
+        widget._clear_display.assert_not_called()
+        widget._rating_score_widget.populate_from_image_data.assert_called_once_with(
+            {"id": 1033, "rating": "PG"}
+        )
 
     def test_single_selection_populates_from_image_data(self, tab: SearchTabWidget) -> None:
         widget = Mock()
