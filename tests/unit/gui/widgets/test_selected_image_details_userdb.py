@@ -138,6 +138,23 @@ def test_type_edit_clears_refinement_cache_before_reeval(qtbot, monkeypatch) -> 
     assert refinement.clear_cache_calls == 1
 
 
+def test_preferred_translation_clears_refinement_cache(qtbot, monkeypatch) -> None:
+    """主訳変更後は refinement キャッシュを無効化して stale な翻訳品質 ⚠ を残さない (#1229 Codex P2)。
+
+    #1225 の poll 再ベースラインで、以前は poll 経由の refresh_tag_metadata が担っていた
+    refinement キャッシュ無効化が主訳変更パスから失われ、翻訳品質警告が更新されなくなる
+    回帰があった。翻訳追加 / type 補正パスと同様にこのパスでも明示的に clear_cache する。
+    """
+    service = _FakeTagService(resolve_to=42)
+    widget = _make_widget(qtbot, monkeypatch, service)
+    refinement = _FakeRefinementService()
+    widget._refinement_service = refinement  # type: ignore[assignment]
+
+    widget._on_translation_preferred("blue_eyes", "ja", "青い目")
+
+    assert refinement.clear_cache_calls == 1
+
+
 def test_userdb_write_independent_of_image_id(qtbot, monkeypatch) -> None:
     """userdb 書き込みは canonical 主キーで current_image_id に依存しない (#989)。"""
     service = _FakeTagService(resolve_to=7)
@@ -212,3 +229,58 @@ def test_preferred_ja_reuses_legacy_japanese_entry(qtbot, monkeypatch) -> None:
     widget._on_translation_preferred("blue_eyes", "ja", "青い目")
 
     assert widget._available_languages == ["japanese"]  # alias fallback で japanese へ切替
+
+
+# == #1225: widget 自身の user DB 書き込みは poll 署名を再ベースラインする ==========
+
+
+def test_preferred_translation_rebaselines_poll_signature(qtbot, monkeypatch, tmp_path) -> None:
+    """主訳変更後、poll がその書き込みを外部変更として再取得しない (#1225)。
+
+    _poll_user_db_change (2秒間隔) は user_tags.sqlite の (mtime_ns, size) 変化を
+    「外部 (CLI) 書き込み」とみなして refresh_tag_metadata の重い worker 再起動
+    カスケードを誘発する。widget 自身の主訳変更は _reload_current_image で表示へ
+    反映済みなので、書き込み直後に署名を再ベースラインして自分の書き込みを
+    誤検知しないようにする。
+    """
+    service = _FakeTagService(resolve_to=42)
+    widget = _make_widget(qtbot, monkeypatch, service)
+
+    db_file = tmp_path / "user_tags.sqlite"
+    db_file.write_bytes(b"initial")
+    monkeypatch.setattr("lorairo.database.db_core.get_user_tag_db_path", lambda: db_file)
+    widget._user_db_signature = (0, 0)  # 古いベースライン
+
+    refresh_calls: list[int] = []
+    monkeypatch.setattr(widget, "refresh_tag_metadata", lambda: refresh_calls.append(1))
+
+    widget._on_translation_preferred("blue_eyes", "ja", "青い目")
+
+    # 書き込み直後、署名は現在のファイル署名へ再ベースラインされている
+    stat = db_file.stat()
+    assert widget._user_db_signature == (stat.st_mtime_ns, stat.st_size)
+
+    # → 直後の poll は「変化なし」なので refresh_tag_metadata を呼ばない (カスケード抑止)
+    widget._poll_user_db_change()
+    assert refresh_calls == []
+
+
+def test_external_write_still_triggers_refresh_after_rebaseline(qtbot, monkeypatch, tmp_path) -> None:
+    """再ベースラインしても外部 (CLI) 書き込みは従来どおり検知して再取得する (#1225 過剰抑止回避)。"""
+    service = _FakeTagService(resolve_to=42)
+    widget = _make_widget(qtbot, monkeypatch, service)
+
+    db_file = tmp_path / "user_tags.sqlite"
+    db_file.write_bytes(b"initial")
+    monkeypatch.setattr("lorairo.database.db_core.get_user_tag_db_path", lambda: db_file)
+    widget._user_db_signature = (0, 0)
+
+    refresh_calls: list[int] = []
+    monkeypatch.setattr(widget, "refresh_tag_metadata", lambda: refresh_calls.append(1))
+
+    widget._on_translation_preferred("blue_eyes", "ja", "青い目")
+    # 外部プロセスがファイルを書き換える
+    db_file.write_bytes(b"external change from CLI")
+
+    widget._poll_user_db_change()
+    assert refresh_calls == [1]

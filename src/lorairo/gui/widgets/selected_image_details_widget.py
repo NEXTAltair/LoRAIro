@@ -849,6 +849,29 @@ class SelectedImageDetailsWidget(QWidget):
             logger.debug("user_tags.sqlite の変更を検知: タグメタデータを再取得 (#1205)")
             self.refresh_tag_metadata()
 
+    def _rebaseline_user_db_signature(self) -> None:
+        """widget 自身の user DB 書き込み後、poll のベースライン署名を進める (#1225)。
+
+        ``_poll_user_db_change`` は user_tags.sqlite の (mtime_ns, size) 変化を「外部
+        (CLI) 書き込み」とみなして ``refresh_tag_metadata`` の重い worker 再起動カスケード
+        (選択ごと 2〜3 秒) を誘発する。widget 自身の書き込み (主訳変更 / 翻訳追加 /
+        type 補正) は ``_reload_current_image`` で表示へ即時反映済みなので、書き込み直後に
+        ベースラインを現在のファイル署名へ進め、自分の書き込みを外部変更として誤検知させない。
+        user_tags.sqlite は rollback-journal モード (image DB と違い WAL ではない) のため、
+        commit 直後にファイル本体の mtime/size が確定し os.stat で新署名を観測できる。外部
+        プロセスの後続書き込みは署名が再び変わるため、従来どおり次回 poll で検知される。
+        """
+        from ...database.db_core import get_user_tag_db_path
+
+        db_path = get_user_tag_db_path()
+        if db_path is None:
+            return
+        try:
+            stat = db_path.stat()
+        except OSError:
+            return
+        self._user_db_signature = (stat.st_mtime_ns, stat.st_size)
+
     def _on_reload_from_db_requested(self) -> None:
         """「DBから再読込」ボタン: 選択画像のキャッシュを無効化して DB から再取得する (Issue #1171)。
 
@@ -986,6 +1009,8 @@ class SelectedImageDetailsWidget(QWidget):
             logger.warning(f"翻訳追加をスキップ (tag_id 未解決): canonical='{canonical}'")
             return
         service.add_translation(tag_id, language, translation)
+        # widget 自身の user DB 書き込みを poll が外部変更と誤検知してカスケードするのを防ぐ (#1225)
+        self._rebaseline_user_db_signature()
         # 翻訳修正 (#1054) 後に stale な翻訳品質 ⚠ が残らないよう refinement キャッシュを
         # 無効化する。recommend_for_tags は (tag, format) 単位でキャッシュするため、reload
         # だけでは旧リコメンドが再表示され続ける (type 補正フローと同じ扱い。PR #1086 Codex P2)。
@@ -1020,6 +1045,16 @@ class SelectedImageDetailsWidget(QWidget):
         if not service.set_preferred_translation(canonical, language, translation):
             logger.warning(f"主訳変更をスキップ (tag_id 未解決): canonical='{canonical}'")
             return
+        # widget 自身の user DB 書き込みを poll が外部変更と誤検知してカスケードするのを防ぐ (#1225)
+        self._rebaseline_user_db_signature()
+        # 主訳変更で翻訳品質 (誤翻訳等) の refinement 判定が変わり得るため、stale な ⚠ を
+        # 残さないよう refinement キャッシュを無効化する (#1229 Codex P2)。以前は poll 経由の
+        # refresh_tag_metadata がこの無効化を担っていたが、#1225 の再ベースラインで poll が
+        # 抑止されたため、翻訳追加 / type 補正パスと同様にこのパスでも明示的にクリアする。
+        # 再評価は _reload_current_image → _on_image_data_received → _trigger_refinement_evaluation
+        # 経由で走る。
+        if self._refinement_service is not None:
+            self._refinement_service.clear_cache()
         # 翻訳追加パスと同様に、保存言語がセレクタ候補へ出せる状態にしてから切り替える
         # (Codex P2)。"english" は原文表示の sentinel なので同値扱いから除外する:
         # legacy キーが "english" しか無い場合に "en" を alias fallback で原文へ寄せると、
@@ -1055,6 +1090,8 @@ class SelectedImageDetailsWidget(QWidget):
             logger.warning(f"type 補正をスキップ (tag_id 未解決): canonical='{canonical}'")
             return
         service.update_single_tag_type(tag_id, type_name)
+        # widget 自身の user DB 書き込みを poll が外部変更と誤検知してカスケードするのを防ぐ (#1225)
+        self._rebaseline_user_db_signature()
         if self._refinement_service is not None:
             self._refinement_service.clear_cache()
         self._reload_current_image()
