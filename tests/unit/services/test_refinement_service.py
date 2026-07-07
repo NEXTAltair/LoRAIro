@@ -237,6 +237,46 @@ def test_clear_cache_forces_reevaluation() -> None:
     assert calls == ["flower", "flower"]  # clear 後に再評価
 
 
+def test_invalidate_tag_only_reevaluates_that_tag() -> None:
+    """invalidate_tag(tag) は当該タグだけを再評価し、他タグのキャッシュは温存する (#1257 原因A)。"""
+    calls: list[str] = []
+
+    def fake_recommend(tag: str, *, repo: object = None, format_name: str = "unknown"):
+        calls.append(tag)
+        return _make_recommendation(tag, reason_codes=["broad_single_word"])
+
+    service = RefinementService(recommend_fn=fake_recommend, ignore_repo=_FakeIgnoreRepo())
+    service.recommend_for_tags(["flower", "cat", "dog"])
+    assert calls == ["flower", "cat", "dog"]  # 初回は全評価
+
+    service.invalidate_tag("cat")
+    service.recommend_for_tags(["flower", "cat", "dog"])
+
+    # cat のみ再評価。flower / dog はキャッシュヒットで lib を呼ばない。
+    assert calls == ["flower", "cat", "dog", "cat"]
+
+
+def test_invalidate_tag_covers_all_formats_of_tag() -> None:
+    """invalidate_tag は format 違いの同一タグエントリもまとめて無効化する (#1257 原因A)。"""
+    calls: list[tuple[str, str]] = []
+
+    def fake_recommend(tag: str, *, repo: object = None, format_name: str = "unknown"):
+        calls.append((tag, format_name))
+        return _make_recommendation(tag, reason_codes=["broad_single_word"])
+
+    service = RefinementService(recommend_fn=fake_recommend, ignore_repo=_FakeIgnoreRepo())
+    fmap = {"cat": "danbooru"}
+    service.recommend_for_tags(["cat"], format_map=fmap)
+    service.recommend_for_tags(["cat"], format_map={"cat": "e621"})
+    assert calls == [("cat", "danbooru"), ("cat", "e621")]
+
+    service.invalidate_tag("cat")
+    service.recommend_for_tags(["cat"], format_map=fmap)
+
+    # 両 format のエントリが消えているので danbooru 分が再評価される。
+    assert calls == [("cat", "danbooru"), ("cat", "e621"), ("cat", "danbooru")]
+
+
 def test_different_repo_bypasses_cache() -> None:
     """reader (repo) が違えば別キーとして再評価する (Codex P2)。"""
     calls: list[object] = []

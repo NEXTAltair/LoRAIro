@@ -160,6 +160,55 @@ class TestTagManagementService:
             with pytest.raises(Exception, match="Format error"):
                 service.get_format_specific_types()
 
+    def test_get_format_specific_types_cached_on_second_call(self, service: TagManagementService) -> None:
+        """2 回目の取得はキャッシュヒットで DB 走査 (get_format_type_names) をスキップする (#1257 原因C)。"""
+        with patch(
+            "lorairo.services.tag_management_service.get_format_type_names",
+            return_value=["unknown", "character"],
+        ) as mock_get:
+            first = service.get_format_specific_types()
+            second = service.get_format_specific_types()
+
+            assert first == ["unknown", "character"]
+            assert second == ["unknown", "character"]
+            mock_get.assert_called_once()  # 2 回目はキャッシュ
+
+    def test_get_format_specific_types_returns_copy(self, service: TagManagementService) -> None:
+        """返り値を破壊してもキャッシュは汚染されない (防御的コピー、#1257 原因C)。"""
+        with patch(
+            "lorairo.services.tag_management_service.get_format_type_names",
+            return_value=["unknown"],
+        ):
+            first = service.get_format_specific_types()
+            first.append("mutated")
+            second = service.get_format_specific_types()
+
+            assert second == ["unknown"]
+
+    def test_update_tag_types_invalidates_type_cache(self, service: TagManagementService) -> None:
+        """自己書き込み (update_tag_types) 後は type 名キャッシュが再取得される (#1257 原因C)。"""
+        with patch(
+            "lorairo.services.tag_management_service.get_format_type_names",
+            side_effect=[["unknown"], ["unknown", "character"]],
+        ) as mock_get:
+            assert service.get_format_specific_types() == ["unknown"]
+            with patch("lorairo.services.tag_management_service.update_tags_type_batch"):
+                service.update_tag_types([TagTypeUpdate(tag_id=1, type_name="character")])
+            # 更新でキャッシュが捨てられ、再スキャンで新 type が現れる。
+            assert service.get_format_specific_types() == ["unknown", "character"]
+            assert mock_get.call_count == 2
+
+    def test_invalidate_format_type_cache_forces_refetch(self, service: TagManagementService) -> None:
+        """外部書き込み検知用の invalidate_format_type_cache で再取得が起きる (#1257 原因C)。"""
+        with patch(
+            "lorairo.services.tag_management_service.get_format_type_names",
+            side_effect=[["unknown"], ["unknown", "meta"]],
+        ) as mock_get:
+            assert service.get_format_specific_types() == ["unknown"]
+            service.invalidate_format_type_cache()
+            assert service.get_format_specific_types() == ["unknown", "meta"]
+            assert mock_get.call_count == 2
+
     def test_update_tag_types_success(self, service: TagManagementService) -> None:
         """タグtype一括更新成功"""
         updates = [

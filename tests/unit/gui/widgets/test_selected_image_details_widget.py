@@ -5,7 +5,7 @@ from unittest.mock import Mock, patch
 
 import pytest
 from PySide6.QtCore import QObject, Qt, Signal
-from PySide6.QtWidgets import QApplication
+from PySide6.QtWidgets import QApplication, QWidget
 
 from lorairo.gui.widgets.annotation_data_display_widget import AnnotationData, ImageDetails
 from lorairo.gui.widgets.selected_image_details_widget import SelectedImageDetailsWidget
@@ -889,7 +889,10 @@ class TestReadableLayoutTopPacking:
 
 
 class TestTagMetadataRefreshTriggers:
-    """#1205: 翻訳/メタデータ再取得トリガー 3 方式のテスト"""
+    """#1205: 翻訳/メタデータ再取得トリガー 2 方式 (手動ボタン / poll) のテスト。
+
+    WindowActivate 監視 (旧案2) は #1257 原因B で撤去した。
+    """
 
     @pytest.fixture
     def widget(self, qtbot):
@@ -928,18 +931,24 @@ class TestTagMetadataRefreshTriggers:
 
         assert triggered == []
 
-    def test_window_activate_triggers_refresh(self, widget, monkeypatch):
-        """監視対象ウィンドウの WindowActivate で再取得する (案2)。"""
-        from PySide6.QtCore import QEvent
+    def test_window_activate_mechanism_removed(self, widget, monkeypatch):
+        """WindowActivate 監視 (旧案2) は撤去され、show() で誤発火経路を張らない (#1257 原因B)。
 
+        旧実装は showEvent でトップレベルウィンドウに eventFilter を張り、モーダル
+        ダイアログの close でも発火する WindowActivate で refresh_tag_metadata を呼んで
+        いた。1 タグ編集ごとに全タグ再評価を誘発したため丸ごと撤去した。
+        """
         refreshed: list = []
         monkeypatch.setattr(widget, "refresh_tag_metadata", lambda: refreshed.append(True))
-        widget.show()  # showEvent で window() に event filter が張られる
-        assert widget._watched_window is not None
 
-        widget.eventFilter(widget._watched_window, QEvent(QEvent.Type.WindowActivate))
+        widget.show()
 
-        assert refreshed == [True]
+        # 監視属性もオーバーライドも残っていないこと
+        assert not hasattr(widget, "_watched_window")
+        assert type(widget).showEvent is QWidget.showEvent
+        assert type(widget).eventFilter is QWidget.eventFilter
+        # show() が翻訳再取得を誘発しないこと
+        assert refreshed == []
 
     def test_user_db_poll_detects_change(self, widget, monkeypatch, tmp_path):
         """user_tags.sqlite の署名変化で再取得する (案3)。初回観測はベースラインのみ。"""
@@ -958,6 +967,22 @@ class TestTagMetadataRefreshTriggers:
         db_file.write_bytes(b"v2-changed")
         widget._poll_user_db_change()
         assert refreshed == [True]
+
+    def test_user_db_poll_invalidates_type_cache_on_change(self, widget, monkeypatch, tmp_path):
+        """外部書き込み検知時に type 名キャッシュを無効化する (#1257 原因C)。"""
+        db_file = tmp_path / "user_tags.sqlite"
+        db_file.write_bytes(b"v1")
+        monkeypatch.setattr("lorairo.database.db_core.get_user_tag_db_path", lambda: db_file)
+        monkeypatch.setattr(widget, "refresh_tag_metadata", lambda: None)
+        service = Mock()
+        widget._tag_management_service = service
+
+        widget._poll_user_db_change()  # 初回 = ベースラインのみ
+        service.invalidate_format_type_cache.assert_not_called()
+
+        db_file.write_bytes(b"v2-changed")
+        widget._poll_user_db_change()
+        service.invalidate_format_type_cache.assert_called_once()
 
     def test_user_db_poll_skips_when_uninitialized(self, widget, monkeypatch):
         """tag DB 未初期化 (path=None) では黙ってスキップする。"""
@@ -1021,15 +1046,14 @@ class TestTagMetadataRefreshTriggers:
 
         assert updated == []
 
-    def test_shutdown_stops_poll_timer_and_event_filter(self, widget):
-        """shutdown で polling タイマーが止まり、event filter が外れる。"""
+    def test_shutdown_stops_poll_timer(self, widget):
+        """shutdown で polling タイマーが止まる (#1205 案3)。"""
         widget.show()
         assert widget._user_db_poll_timer.isActive()
 
         widget.shutdown()
 
         assert not widget._user_db_poll_timer.isActive()
-        assert widget._watched_window is None
 
 
 class TestTranslationRefreshButtonRelocation:

@@ -40,6 +40,8 @@ class _FakeTagService:
         self.deleted: list[tuple[int, str, str]] = []
         # 翻訳抑制 (tag_id, language, translation) の記録 (#1237)。
         self.suppressed: list[tuple[int, str, str]] = []
+        # invalidate_format_type_cache 呼び出し回数 (#1257 原因C)。
+        self.type_cache_invalidations = 0
 
     def resolve_tag_id(self, canonical: str) -> int | None:
         self.resolved.append(canonical)
@@ -70,15 +72,22 @@ class _FakeTagService:
             raise self._get_types_raises
         return self._custom_types
 
+    def invalidate_format_type_cache(self) -> None:
+        self.type_cache_invalidations += 1
+
 
 class _FakeRefinementService:
-    """clear_cache 呼び出しを記録する fake。"""
+    """invalidate_tag / clear_cache 呼び出しを記録する fake (#1257)。"""
 
     def __init__(self) -> None:
         self.clear_cache_calls = 0
+        self.invalidated_tags: list[str] = []
 
     def clear_cache(self) -> None:
         self.clear_cache_calls += 1
+
+    def invalidate_tag(self, tag: str) -> None:
+        self.invalidated_tags.append(tag)
 
 
 def _make_widget(qtbot, monkeypatch, service: _FakeTagService) -> SelectedImageDetailsWidget:
@@ -155,7 +164,7 @@ def test_type_edit_dispatches_to_service(qtbot, monkeypatch) -> None:
 
 
 def test_type_edit_clears_refinement_cache_before_reeval(qtbot, monkeypatch) -> None:
-    """type 補正後は再評価前に refinement キャッシュを無効化する (#995 P2)。"""
+    """type 補正後は再評価前に編集タグ分だけ refinement キャッシュを無効化する (#995 P2 / #1257 原因A)。"""
     service = _FakeTagService(resolve_to=42)
     widget = _make_widget(qtbot, monkeypatch, service)
     refinement = _FakeRefinementService()
@@ -163,7 +172,9 @@ def test_type_edit_clears_refinement_cache_before_reeval(qtbot, monkeypatch) -> 
 
     widget._on_tag_metadata_edit("1girl", "copyright")
 
-    assert refinement.clear_cache_calls == 1
+    # 全消去ではなく編集した canonical だけを無効化する (#1257 原因A)。
+    assert refinement.invalidated_tags == ["1girl"]
+    assert refinement.clear_cache_calls == 0
 
 
 def test_preferred_translation_clears_refinement_cache(qtbot, monkeypatch) -> None:
@@ -180,7 +191,9 @@ def test_preferred_translation_clears_refinement_cache(qtbot, monkeypatch) -> No
 
     widget._on_translation_preferred("blue_eyes", "ja", "青い目")
 
-    assert refinement.clear_cache_calls == 1
+    # #1257 原因A: 全消去ではなく編集した canonical だけを無効化する。
+    assert refinement.invalidated_tags == ["blue_eyes"]
+    assert refinement.clear_cache_calls == 0
 
 
 def test_userdb_write_independent_of_image_id(qtbot, monkeypatch) -> None:
@@ -236,7 +249,9 @@ def test_translation_delete_clears_refinement_cache_before_reeval(qtbot, monkeyp
 
     widget._on_translation_delete("1girl", "ja", "误訳")
 
-    assert refinement.clear_cache_calls == 1
+    # #1257 原因A: 全消去ではなく編集した canonical だけを無効化する。
+    assert refinement.invalidated_tags == ["1girl"]
+    assert refinement.clear_cache_calls == 0
 
 
 def test_translation_delete_independent_of_image_id(qtbot, monkeypatch) -> None:
@@ -268,7 +283,9 @@ def test_translation_delete_false_shows_information_and_skips_reload(qtbot, monk
     assert service.deleted == [(42, "ja", "误訳")]
     assert len(infos) == 1
     assert reloaded == []
+    # no-op 削除では再評価も無効化も一切走らない (#1237 / #1257 原因A)。
     assert refinement.clear_cache_calls == 0
+    assert refinement.invalidated_tags == []
 
 
 def test_translation_suppress_dispatches_to_service(qtbot, monkeypatch) -> None:
@@ -302,7 +319,9 @@ def test_translation_suppress_clears_refinement_cache_before_reeval(qtbot, monke
 
     widget._on_translation_suppress("1girl", "ja", "误訳")
 
-    assert refinement.clear_cache_calls == 1
+    # #1257 原因A: 全消去ではなく編集した canonical だけを無効化する。
+    assert refinement.invalidated_tags == ["1girl"]
+    assert refinement.clear_cache_calls == 0
 
 
 def test_translation_suppress_independent_of_image_id(qtbot, monkeypatch) -> None:
@@ -487,7 +506,9 @@ def test_translation_add_clears_refinement_cache_before_reeval(qtbot, monkeypatc
 
     widget._on_translation_add("1girl", "ja", "少女")
 
-    assert refinement.clear_cache_calls == 1
+    # #1257 原因A: 全消去ではなく編集した canonical だけを無効化する。
+    assert refinement.invalidated_tags == ["1girl"]
+    assert refinement.clear_cache_calls == 0
 
 
 def test_preferred_en_adds_selector_entry_when_only_legacy_english(qtbot, monkeypatch) -> None:
