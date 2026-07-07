@@ -512,3 +512,49 @@ class TestImagePreviewWidgetShowEvent:
             widget.connect_to_data_signals(mock_state_manager)
 
         mock_logger.error.assert_called()
+
+
+class TestDecodePreviewPixmap:
+    """_decode_preview_pixmap の縮小デコード検証 (#1221)。"""
+
+    @pytest.fixture
+    def widget(self, qtbot):
+        widget = ImagePreviewWidget()
+        qtbot.addWidget(widget)
+        return widget
+
+    def test_large_image_scaled_within_limit(self, widget, tmp_path):
+        """上限を超える画像は最大辺が _PREVIEW_MAX_EDGE 以内へ縮小される (#1221)。"""
+        from PIL import Image
+
+        max_edge = widget._PREVIEW_MAX_EDGE
+        source = tmp_path / "large.png"
+        # 上限の 2 倍サイズ (アスペクト比 2:1) の画像を用意する。
+        Image.new("RGB", (max_edge * 2, max_edge), color=(120, 80, 40)).save(source)
+
+        pixmap = widget._decode_preview_pixmap(source)
+
+        assert not pixmap.isNull()
+        assert pixmap.width() <= max_edge
+        assert pixmap.height() <= max_edge
+        # 実寸より小さくデコードされている (フル解像度デコードを回避)。
+        assert pixmap.width() < max_edge * 2
+
+    def test_small_image_not_upscaled(self, widget, tmp_path):
+        """上限以下の画像は原寸のままデコードされる (拡大しない, #1221)。"""
+        from PIL import Image
+
+        source = tmp_path / "small.png"
+        Image.new("RGB", (320, 200), color=(10, 20, 30)).save(source)
+
+        pixmap = widget._decode_preview_pixmap(source)
+
+        assert not pixmap.isNull()
+        assert pixmap.width() == 320
+        assert pixmap.height() == 200
+
+    def test_missing_file_returns_null_pixmap(self, widget, tmp_path):
+        """読み込み失敗時は null QPixmap を返す (#1221)。"""
+        pixmap = widget._decode_preview_pixmap(tmp_path / "does_not_exist.png")
+
+        assert pixmap.isNull()

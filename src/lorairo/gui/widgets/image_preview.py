@@ -3,7 +3,7 @@ from typing import TYPE_CHECKING, Any
 
 from PIL import Image
 from PySide6.QtCore import QPoint, Qt, QTimer, Slot
-from PySide6.QtGui import QAction, QPainter, QPixmap, QResizeEvent, QShowEvent
+from PySide6.QtGui import QAction, QImageReader, QPainter, QPixmap, QResizeEvent, QShowEvent
 from PySide6.QtWidgets import QApplication, QGraphicsPixmapItem, QGraphicsScene, QMenu, QWidget
 
 from ...gui.designer.ImagePreviewWidget_ui import Ui_ImagePreviewWidget
@@ -15,6 +15,10 @@ if TYPE_CHECKING:
 
 class ImagePreviewWidget(QWidget, Ui_ImagePreviewWidget):
     """DatasetStateManager統合対応プレビューウィジェット"""
+
+    # プレビュー表示に使う最大辺 (px)。オリジナルがこれを超える場合はデコード時に
+    # 縮小し、選択のたびのフル解像度デコード CPU を抑える (#1221)。
+    _PREVIEW_MAX_EDGE = 2048
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -46,8 +50,8 @@ class ImagePreviewWidget(QWidget, Ui_ImagePreviewWidget):
         self._clear_preview()
 
         try:
-            # 画像を読み込み
-            pixmap = QPixmap(str(image_path))
+            # 画像を読み込み (プレビューは上限サイズへ縮小デコード、#1221)
+            pixmap = self._decode_preview_pixmap(image_path)
             if pixmap.isNull():
                 logger.warning(f"画像の読み込みに失敗しました（null pixmap）: {image_path}")
                 return
@@ -113,6 +117,35 @@ class ImagePreviewWidget(QWidget, Ui_ImagePreviewWidget):
         pixmap = QPixmap()
         pixmap.loadFromData(byte_array.getvalue())
         return pixmap
+
+    def _decode_preview_pixmap(self, image_path: Path) -> QPixmap:
+        """プレビュー表示用に、上限サイズへ縮小デコードした QPixmap を返す (#1221)。
+
+        オリジナル解像度をフルデコードせず、QImageReader.setScaledSize でデコード時点で
+        縮小することで、選択のたびの CPU コストを抑える。読み込み失敗時は null QPixmap を返す。
+
+        Args:
+            image_path: 読み込む画像ファイルのパス。
+
+        Returns:
+            上限 _PREVIEW_MAX_EDGE に収まるよう縮小した QPixmap。失敗時は null QPixmap。
+        """
+        reader = QImageReader(str(image_path))
+        reader.setAutoTransform(True)
+        size = reader.size()
+        if size.isValid() and (
+            size.width() > self._PREVIEW_MAX_EDGE or size.height() > self._PREVIEW_MAX_EDGE
+        ):
+            bounded = size.scaled(
+                self._PREVIEW_MAX_EDGE,
+                self._PREVIEW_MAX_EDGE,
+                Qt.AspectRatioMode.KeepAspectRatio,
+            )
+            reader.setScaledSize(bounded)
+        image = reader.read()
+        if image.isNull():
+            return QPixmap()
+        return QPixmap.fromImage(image)
 
     def _adjust_view_size(self) -> None:
         # pixmap_item が None の場合はスキップ（sceneRect が (0,0,0,0) の状態での縮小を防ぐ）
