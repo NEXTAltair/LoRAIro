@@ -1475,10 +1475,12 @@ def test_update_language_selector_preserves_selection_and_adds_new_language(pane
     panel.initialize_language_selector(["japanese"])
     panel._lang_combo.setCurrentIndex(panel._lang_combo.findText("japanese"))
 
-    panel.update_language_selector(["japanese", "en"])
+    # 新言語 ko を追加 (#1235: en/english 族は sentinel と重複するため combo に出さない
+    # ので、追加検証には別族の言語を使う)。
+    panel.update_language_selector(["japanese", "ko"])
 
     labels = [panel._lang_combo.itemText(i) for i in range(panel._lang_combo.count())]
-    assert labels == ["english", "japanese", "en"]
+    assert labels == ["english", "japanese", "ko"]
     # 選択は japanese のまま (english へ巻き戻らない)
     assert panel._lang_combo.currentText() == "japanese"
 
@@ -1489,9 +1491,31 @@ def test_update_language_selector_switches_from_original_view_to_saved_language(
     panel.initialize_language_selector(["japanese"])
     assert panel._current_language() == "english"
 
-    panel.update_language_selector(["japanese", "en"], prefer="en")
+    # 原文 (english) 表示中に登録した ko へ自動切替 (#1235: en 族は sentinel に畳むため
+    # 自動切替の検証には別族の言語を使う)。
+    panel.update_language_selector(["japanese", "ko"], prefer="ko")
 
-    assert panel._lang_combo.currentText() == "en"
+    assert panel._lang_combo.currentText() == "ko"
+
+
+def test_language_selector_dedupes_alias_families(panel, sample_tags):
+    """#1235: en/english 族は sentinel と重複、ja/japanese 族は 1 項目へ畳む。"""
+    panel.set_tags(sample_tags, image_id=10)
+    # DB 由来の distinct 値に en (english と衝突) と ja/japanese の混在があるケース。
+    panel.initialize_language_selector(["en", "ja", "japanese", "ko"])
+
+    labels = [panel._lang_combo.itemText(i) for i in range(panel._lang_combo.count())]
+    # english sentinel + ja (japanese 族の代表短形) + ko。en は sentinel に畳む。
+    assert labels == ["english", "ja", "ko"]
+
+
+def test_language_selector_dedupes_via_update(panel, sample_tags):
+    """#1235: update_language_selector 経路でも alias 族を畳む。"""
+    panel.set_tags(sample_tags, image_id=10)
+    panel.update_language_selector(["english", "en", "japanese"])
+
+    labels = [panel._lang_combo.itemText(i) for i in range(panel._lang_combo.count())]
+    assert labels == ["english", "japanese"]
 
 
 def test_refinement_ignore_menu_emits_scope(panel, sample_tags, qtbot):
@@ -1537,6 +1561,35 @@ def test_translation_fix_dialog_lists_and_prefills(qtbot):
 
     assert dialog.language() == "ja"
     assert dialog._translation_input.text() == "连衣裙"
+
+
+def test_translation_fix_dialog_dedupes_alias_family_rows(panel, sample_tags, qtbot, monkeypatch):
+    """#1236: 主訳 fan-out で ja/japanese 両キーに入った翻訳を 1 行へ畳んで表示する。
+
+    _open_translation_fix_dialog は _translations dict を dedupe してから
+    TranslationFixDialog へ渡すため、実データに無い 'japanese' の幻の行が出ない。
+    """
+    panel.set_tags(sample_tags, image_id=10)
+    tag_id = sample_tags[0]["tag_id"]
+    # fan-out された ja/japanese 両キー (同値) + en を投入。
+    panel._translations = {tag_id: {"en": "dress", "ja": "ドレス", "japanese": "ドレス"}}
+
+    captured: dict[str, list[str]] = {}
+
+    class _StubDialog:
+        def __init__(self, canonical, translations, parent=None):
+            captured["languages"] = list(translations.keys())
+
+        def exec(self):
+            from PySide6.QtWidgets import QDialog
+
+            return QDialog.DialogCode.Rejected
+
+    monkeypatch.setattr(tpw, "TranslationFixDialog", _StubDialog)
+    panel._open_translation_fix_dialog(sample_tags[0]["tag"])
+
+    # japanese は ja へ畳まれ、en/ja の 2 行のみ。
+    assert captured["languages"] == ["en", "ja"]
 
 
 def test_translation_fix_dialog_ok_requires_selection_and_text(qtbot):
@@ -1768,13 +1821,14 @@ def test_update_language_selector_prefer_resolves_legacy_alias(panel):
 
 def test_update_language_selector_force_prefer_switches_from_non_english(panel):
     """force_prefer=True なら非英語表示中でも prefer の言語へ切り替える (Codex P2)。"""
-    panel.update_language_selector(["japanese", "en"], prefer="japanese", force_prefer=True)
+    panel.update_language_selector(["japanese", "ko"], prefer="japanese", force_prefer=True)
     assert panel._current_language() == "japanese"
 
-    # 非英語 (japanese) 表示中に en の主訳を変更した想定
-    panel.update_language_selector(["japanese", "en"], prefer="en", force_prefer=True)
+    # 非英語 (japanese) 表示中に ko の主訳を変更した想定 (#1235: en 族は sentinel に
+    # 畳むため force_prefer 検証には別族の言語を使う)
+    panel.update_language_selector(["japanese", "ko"], prefer="ko", force_prefer=True)
 
-    assert panel._current_language() == "en"
+    assert panel._current_language() == "ko"
 
 
 # 翻訳再取得ボタン (言語バー右端、#1210 案A) ---------------------------------

@@ -43,7 +43,13 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from ...utils.language_keys import language_alias_keys, translation_for_language
+from ...utils.language_keys import (
+    canonical_language_key,
+    dedupe_languages_by_family,
+    dedupe_translations_by_family,
+    language_alias_keys,
+    translation_for_language,
+)
 from ...utils.log import logger
 from .. import theme
 from .ds_no_scroll_combo_box import DsNoScrollComboBox
@@ -1078,8 +1084,10 @@ class TagPanelWidget(QWidget):
         self._lang_combo.blockSignals(True)
         self._lang_combo.clear()
         self._lang_combo.addItem("english")  # 常に先頭 (原文)
-        for lang in available_languages:
-            if lang != "english":
+        for lang in dedupe_languages_by_family(available_languages):
+            # ja/japanese の族重複を畳み、en/english 族は sentinel と重複するため
+            # 丸ごと除外する (#1235: alias が両表記で二重に出るのを防ぐ)。
+            if canonical_language_key(lang) != "en":
                 self._lang_combo.addItem(lang)
         self._lang_combo.blockSignals(False)
         self._update_lang_bar_visibility()
@@ -1111,8 +1119,10 @@ class TagPanelWidget(QWidget):
         self._lang_combo.blockSignals(True)
         self._lang_combo.clear()
         self._lang_combo.addItem("english")  # 常に先頭 (原文)
-        for lang in available_languages:
-            if lang != "english":
+        for lang in dedupe_languages_by_family(available_languages):
+            # ja/japanese の族重複を畳み、en/english 族は sentinel と重複するため
+            # 丸ごと除外する (#1235: alias が両表記で二重に出るのを防ぐ)。
+            if canonical_language_key(lang) != "en":
                 self._lang_combo.addItem(lang)
         index = self._lang_combo.findText(target)
         if index < 0:
@@ -1930,7 +1940,9 @@ class TagPanelWidget(QWidget):
                 return
             self._open_translation_dialog(canonical)
             return
-        dialog = TranslationFixDialog(canonical, dict(translations), self)
+        # 主訳 fan-out や legacy/正規表記の混在で同一言語が ja/japanese 両キーに入りうる。
+        # 族ごとに 1 行へ畳んでから渡し、幻の重複行を防ぐ (#1236)。
+        dialog = TranslationFixDialog(canonical, dedupe_translations_by_family(dict(translations)), self)
         if dialog.exec() != QDialog.DialogCode.Accepted:
             return
         language = dialog.language()
