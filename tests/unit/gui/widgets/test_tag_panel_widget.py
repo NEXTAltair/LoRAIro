@@ -880,6 +880,51 @@ def test_type_edit_placeholder_confirm_skips_emit(panel, sample_tags, monkeypatc
     assert received == []
 
 
+def test_type_edit_dialog_receives_current_type(panel, sample_tags, monkeypatch):
+    """既存タグの type 補正時、現在の type が current_type として渡る (#1255 バグ1)。
+
+    以前は _open_type_edit_dialog が current_type を渡さず常にプレースホルダ表示となり、
+    既存タグの現在の種別が絶対に見えなかった。self._tag_types から引いて渡すことを検証する。
+    """
+    panel.set_tags(sample_tags, image_id=10)
+    panel._tag_types["1girl"] = "character"
+
+    captured: dict[str, str | None] = {}
+    original = tpw.TagTypeEditDialog
+
+    class _CapturingDialog(original):
+        def __init__(self, *args, current_type=None, **kwargs):
+            captured["current_type"] = current_type
+            super().__init__(*args, current_type=current_type, **kwargs)
+
+        def exec(self):
+            return int(QDialog.DialogCode.Rejected)
+
+    monkeypatch.setattr(tpw, "TagTypeEditDialog", _CapturingDialog)
+    panel._open_type_edit_dialog("1girl")
+    assert captured["current_type"] == "character"
+
+
+def test_type_edit_dialog_current_type_none_when_unknown(panel, sample_tags, monkeypatch):
+    """_tag_types に無い canonical は current_type=None で渡る (#1255 バグ1)。"""
+    panel.set_tags(sample_tags, image_id=10)
+
+    captured: dict[str, str | None] = {}
+    original = tpw.TagTypeEditDialog
+
+    class _CapturingDialog(original):
+        def __init__(self, *args, current_type=None, **kwargs):
+            captured["current_type"] = current_type
+            super().__init__(*args, current_type=current_type, **kwargs)
+
+        def exec(self):
+            return int(QDialog.DialogCode.Rejected)
+
+    monkeypatch.setattr(tpw, "TagTypeEditDialog", _CapturingDialog)
+    panel._open_type_edit_dialog("1girl")
+    assert captured["current_type"] is None
+
+
 def test_translation_dialog_returns_inputs(qtbot):
     """TranslationAddDialog が言語・翻訳の入力値を返す。"""
     dialog = TranslationAddDialog("1girl")

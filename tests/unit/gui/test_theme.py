@@ -181,6 +181,19 @@ class TestBuildGlobalQss:
 
         assert Path(theme.CHECK_ICON_PATH).is_file()
 
+    def test_combobox_down_arrow_references_real_arrow_svg(self):
+        # Issue #1255 (バグ2): QComboBox::drop-down を QSS でスタイルすると
+        # ネイティブのデフォルト矢印描画が失われる。矢印マークは ::drop-down (ボタン
+        # 領域) ではなく ::down-arrow サブコントロールに実ファイル SVG を image: url()
+        # で指定して復活させる (Qt 公式 stylesheet 例に準拠)。
+        qss = theme.build_global_qss()
+        down_arrow = qss.split("QComboBox::down-arrow {")[1].split("}")[0]
+        assert f"image: url({theme.DROPDOWN_ARROW_ICON_PATH})" in down_arrow
+        assert "data:image" not in qss
+        from pathlib import Path
+
+        assert Path(theme.DROPDOWN_ARROW_ICON_PATH).is_file()
+
     def test_active_tab_uses_accent_underline_and_bold(self):
         qss = theme.build_global_qss()
         selected = qss.split("QTabBar::tab:selected")[1].split("}")[0]
