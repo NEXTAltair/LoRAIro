@@ -23,7 +23,7 @@ def register_images(
 ) -> RegistrationResult:
     """ディレクトリから画像を登録。
 
-    サポート形式: JPG, JPEG, PNG, GIF, BMP, WEBP
+    サポート形式: JPG, JPEG, PNG, GIF, BMP, TIF, TIFF, WEBP
 
     Args:
         directory: 画像ファイルのディレクトリパス。

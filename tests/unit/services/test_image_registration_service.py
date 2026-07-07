@@ -89,6 +89,29 @@ class TestRegisterImagesNormal:
         assert result.failed == 0
         assert result.error_details is None
 
+    def test_register_images_with_directory_recurses_into_subdirectories(
+        self, service: ImageRegistrationService, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """親ディレクトリ指定でもサブディレクトリ内の画像を登録対象に含める (#1267)。"""
+        root_image = _make_image(tmp_path / "root.png")
+        char_a = tmp_path / "char_a"
+        char_b = tmp_path / "char_b"
+        char_a.mkdir()
+        char_b.mkdir()
+        nested_images = [
+            _make_image(char_a / "a.png", color=(0, 255, 0)),
+            _make_image(char_b / "b.jpg", color=(0, 0, 255)),
+        ]
+        monkeypatch.setattr(service, "_calculate_phash", lambda p: str(p.relative_to(tmp_path)))
+
+        result = service.register_images(tmp_path, skip_duplicates=True)
+
+        assert result.total == 1 + len(nested_images)
+        assert result.successful == 1 + len(nested_images)
+        assert result.failed == 0
+        assert result.skipped == 0
+        assert root_image in service.get_image_files(tmp_path)
+
     def test_register_images_with_empty_directory_returns_zero_counts(
         self, service: ImageRegistrationService, tmp_path: Path
     ) -> None:
@@ -278,6 +301,33 @@ class TestRegisterImagesProjectDir:
             assert (dest_dir / src_path.name).is_file()
         assert result.successful == 2
 
+    def test_register_images_with_project_dir_preserves_nested_relative_paths_for_same_basename(
+        self,
+        service: ImageRegistrationService,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """再帰登録時、別サブディレクトリの同名ファイルを上書き・欠落させない (#1267)。"""
+        source_dir = tmp_path / "src"
+        char_a = source_dir / "char_a"
+        char_b = source_dir / "char_b"
+        char_a.mkdir(parents=True)
+        char_b.mkdir(parents=True)
+        _make_image(char_a / "0001.png")
+        _make_image(char_b / "0001.png", color=(0, 255, 0))
+        project_dir = tmp_path / "project"
+        monkeypatch.setattr(service, "_calculate_phash", lambda p: str(p.relative_to(source_dir)))
+
+        result = service.register_images(source_dir, project_dir=project_dir)
+
+        dest_dir = project_dir / "image_dataset" / "original_images"
+        assert (dest_dir / "char_a" / "0001.png").is_file()
+        assert (dest_dir / "char_b" / "0001.png").is_file()
+        assert not (dest_dir / "0001.png").exists()
+        assert result.total == 2
+        assert result.successful == 2
+        assert result.failed == 0
+
     def test_register_images_with_project_dir_does_not_overwrite_existing_destination(
         self, service: ImageRegistrationService, tmp_path: Path
     ) -> None:
@@ -330,6 +380,23 @@ class TestDetectDuplicateImages:
 
         assert list(duplicates.keys()) == ["deadbeef"]
         assert sorted(duplicates["deadbeef"]) == sorted(str(p) for p in paths)
+
+    def test_detect_duplicate_images_recurses_into_subdirectories(
+        self,
+        service: ImageRegistrationService,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """重複検出もサブディレクトリ内の画像を対象に含める (#1267)。"""
+        root_path = _make_image(tmp_path / "root.png")
+        nested_dir = tmp_path / "nested"
+        nested_dir.mkdir()
+        nested_path = _make_image(nested_dir / "nested.png", color=(0, 255, 0))
+        monkeypatch.setattr(service, "_calculate_phash", lambda p: "deadbeef")
+
+        duplicates = service.detect_duplicate_images(tmp_path)
+
+        assert duplicates == {"deadbeef": sorted([str(root_path), str(nested_path)])}
 
     def test_detect_duplicate_images_with_nonexistent_path_raises_image_registration_error(
         self, service: ImageRegistrationService, tmp_path: Path
@@ -384,6 +451,26 @@ class TestGetImageFiles:
         assert "note.txt" not in names
         assert "data.csv" not in names
         assert len(files) == 3
+
+    def test_get_image_files_with_directory_recurses_and_uses_gui_extensions(
+        self, service: ImageRegistrationService, tmp_path: Path
+    ) -> None:
+        """GUI と同じ再帰走査・拡張子定義で tif/tiff も返す (#1267)。"""
+        nested = tmp_path / "nested"
+        nested.mkdir()
+        _make_image(tmp_path / "root.tif")
+        _make_image(nested / "child.TIFF")
+        _make_image(nested / "child.webp")
+        (nested / "note.txt").write_text("ignored", encoding="utf-8")
+
+        files = service.get_image_files(tmp_path)
+
+        assert files == sorted(files)
+        assert [p.relative_to(tmp_path) for p in files] == [
+            Path("nested/child.TIFF"),
+            Path("nested/child.webp"),
+            Path("root.tif"),
+        ]
 
     def test_get_image_files_with_supported_single_file_returns_one_element_list(
         self, service: ImageRegistrationService, tmp_path: Path
