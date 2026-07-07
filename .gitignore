@@ -42,9 +42,7 @@ ENV/
 .agents/skills/*
 !.agents/skills/agent-pr-autoloop
 !.agents/skills/agent-pr-maintainer
-!.agents/skills/check-existing
 !.agents/skills/interface-design
-!.agents/skills/lazy-import-refactor
 !.agents/skills/lorairo-cli-db-access
 !.agents/skills/lorairo-design-capture
 !.agents/skills/lorairo-qt-widget
