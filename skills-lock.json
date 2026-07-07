@@ -96,11 +96,9 @@
       "computedHash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
     },
     "okf-bundle": {
-      "source": "NEXTAltair/altairs-agent-dev-kit",
-      "ref": "v0.2.2",
-      "sourceType": "github",
-      "skillPath": "skills/okf-bundle/SKILL.md",
-      "computedHash": "3d59c6ec260ae55a1756813a515db01d1382faa3eec311a71d45a553c2c7be3b"
+      "source": "/workspaces/LoRAIro/.agents/skills",
+      "sourceType": "local",
+      "computedHash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
     },
     "prompt-optimizer": {
       "source": "NEXTAltair/altairs-agent-dev-kit",

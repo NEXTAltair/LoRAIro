@@ -48,6 +48,7 @@ ENV/
 !.agents/skills/lorairo-qt-widget
 !.agents/skills/lorairo-repository-pattern
 !.agents/skills/lorairo-test-generator
+!.agents/skills/okf-bundle
 !.agents/skills/sqlalchemy-query-patterns
 
 # テスト関連
