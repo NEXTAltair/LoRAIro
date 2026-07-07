@@ -13,17 +13,26 @@ dispatch は親 (`SelectedImageDetailsWidget`) が担う。これにより保存
 
 from __future__ import annotations
 
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from typing import TYPE_CHECKING, Any, ClassVar
 
-from PySide6.QtCore import QPoint, Qt, Signal, Slot
-from PySide6.QtGui import QContextMenuEvent, QKeySequence, QMouseEvent, QResizeEvent, QShortcut
+from PySide6.QtCore import QModelIndex, QPersistentModelIndex, QPoint, QRect, Qt, Signal, Slot
+from PySide6.QtGui import (
+    QContextMenuEvent,
+    QKeySequence,
+    QMouseEvent,
+    QPainter,
+    QResizeEvent,
+    QShortcut,
+    QStandardItemModel,
+)
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QAbstractScrollArea,
     QApplication,
     QButtonGroup,
     QComboBox,
+    QCompleter,
     QDialog,
     QDialogButtonBox,
     QFormLayout,
@@ -36,6 +45,8 @@ from PySide6.QtWidgets import (
     QRadioButton,
     QScrollArea,
     QSizePolicy,
+    QStyledItemDelegate,
+    QStyleOptionViewItem,
     QTableWidget,
     QTableWidgetItem,
     QToolButton,
@@ -644,11 +655,45 @@ class TranslationFixDialog(QDialog):
         return item.text() if item is not None else ""
 
 
+class _TypeBadgeDelegate(QStyledItemDelegate):
+    """type combo のカスタム type 行に "ユーザー" バッジを描画する delegate (#1242)。
+
+    item の text (= EditRole/DisplayRole) はそのまま type 名を保つ (currentText() /
+    itemText() が汚れず、選択時に combo の lineEdit へバッジ文字列が紛れ込まない)。
+    バッジは ``TagTypeEditDialog._CUSTOM_TYPE_ROLE`` のデータを見て描画のみで付与する。
+    """
+
+    _BADGE_TEXT = "ユーザー"
+
+    def paint(
+        self, painter: QPainter, option: QStyleOptionViewItem, index: QModelIndex | QPersistentModelIndex
+    ) -> None:
+        super().paint(painter, option, index)
+        if not bool(index.data(TagTypeEditDialog._CUSTOM_TYPE_ROLE)):
+            return
+        painter.save()
+        metrics = painter.fontMetrics()
+        badge_width = metrics.horizontalAdvance(self._BADGE_TEXT) + 8
+        badge_rect = QRect(option.rect)
+        badge_rect.setLeft(max(badge_rect.left(), badge_rect.right() - badge_width))
+        painter.setPen(theme.UDB)
+        painter.drawText(
+            badge_rect,
+            int(Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignRight),
+            self._BADGE_TEXT,
+        )
+        painter.restore()
+
+
 class TagTypeEditDialog(QDialog):
     """canonical タグの種別 (type) を補正するダイアログ (ADR 0083 §2 / #989)。
 
     DB は知らない。OK 確定で選択 type 名を返すだけで、保存は親が dispatch する。
     refinement の TYPE_MISMATCH 警告があればヒントを表示する。
+
+    combo は検索補完付き (#1242): tagdb 標準 5 種 ("From tagdb") とユーザー登録済み
+    カスタム type ("Your types"、親から注入) を 2 グループで提示し、一致する既存 type
+    が無い入力のときだけ新規作成ヒントを表示して同義の重複登録を抑止する。
     """
 
     # 補正候補の type 名 (ADR 0083 §2 / Issue #989)。combo の editable 化 (#1234) 後は
@@ -659,16 +704,26 @@ class TagTypeEditDialog(QDialog):
     # 既存 type を上書きする no-op 事故を防ぐ (Codex #995 P2)。
     _PLACEHOLDER = "（タグ種別を選択）"
 
+    # グループ見出し (非選択アイテム、#1242)。2 グループ以上あるときのみ挿入する。
+    _FROM_TAGDB_HEADER = "── From tagdb ──"
+    _CUSTOM_HEADER = "── Your types ──"
+
+    # カスタム type 行を示す item data role (#1242、_TypeBadgeDelegate が描画に使う)。
+    _CUSTOM_TYPE_ROLE = Qt.ItemDataRole.UserRole + 1
+
     def __init__(
         self,
         canonical: str,
         type_mismatch_hint: str | None = None,
         current_type: str | None = None,
+        custom_type_names: Sequence[str] | None = None,
         parent: QWidget | None = None,
     ) -> None:
         super().__init__(parent)
         self.setWindowTitle("タグ情報を編集")
         self._canonical = canonical
+        # tagdb 標準 (TYPE_CHOICES) と重複 (case-insensitive) しないカスタム type のみ残す。
+        self._custom_type_names = self._dedupe_custom_types(custom_type_names or ())
 
         layout = QVBoxLayout(self)
         header = QLabel("タグ情報を編集 · 全画像に反映されます", self)
@@ -690,21 +745,48 @@ class TagTypeEditDialog(QDialog):
         # サジェスト候補として残す。
         self._type_combo.setEditable(True)
         self._type_combo.setInsertPolicy(QComboBox.InsertPolicy.NoInsert)
+        self._type_combo.setItemDelegate(_TypeBadgeDelegate(self._type_combo))
         # 現在の type が分かるならそれを初期選択する (無変更確定は同じ type なので無害)。
         # 不明ならプレースホルダを先頭に置き、ユーザーに明示入力を促す。
-        current_is_known = current_type in self.TYPE_CHOICES
+        current_is_known = bool(current_type) and self._is_known_type(current_type or "")
         self._has_placeholder = not current_type
         if self._has_placeholder:
             self._type_combo.addItem(self._PLACEHOLDER)
+        # カスタム type が無ければ見出し無しの単一リスト (#1234 以前と同じ並び) のまま。
+        # 2 グループ以上あるときだけ見出しでグルーピングする (#1242)。
+        if self._custom_type_names:
+            self._add_group_header(self._FROM_TAGDB_HEADER)
         for type_name in self.TYPE_CHOICES:
             self._type_combo.addItem(type_name)
+        if self._custom_type_names:
+            self._add_group_header(self._CUSTOM_HEADER)
+            for type_name in self._custom_type_names:
+                self._add_custom_item(type_name)
         if current_type and not current_is_known:
-            # 既知 5 種に無い既存の独自 type はサジェスト候補に加えて初期選択する。
-            self._type_combo.addItem(current_type)
+            # 既知 (tagdb 標準 + 注入済みカスタム) に無い既存 type はサジェスト候補に
+            # 加えて初期選択する (#1234)。注入漏れのカスタム type もここで拾える。
+            self._add_custom_item(current_type)
         if current_type:
             self._type_combo.setCurrentText(current_type)
         form.addRow("タグ種別:", self._type_combo)
         layout.addLayout(form)
+
+        # 検索補完 (#1242): グループ見出しを含まないフラットな候補一覧から contains
+        # マッチで補完する (前方一致のみの既定 completer より探しやすくする)。
+        completion_source = [*self.TYPE_CHOICES, *self._custom_type_names]
+        completer = QCompleter(completion_source, self._type_combo)
+        completer.setCaseSensitivity(Qt.CaseSensitivity.CaseInsensitive)
+        completer.setFilterMode(Qt.MatchFlag.MatchContains)
+        completer.setCompletionMode(QCompleter.CompletionMode.PopupCompletion)
+        self._type_combo.setCompleter(completer)
+
+        # 一致する既存 type が無い入力のときだけ表示する新規作成ヒント (#1242)。同音異義の
+        # 重複登録 (例: 大小文字違いの別 type) を防ぐため、既存表記への意識づけを兼ねる。
+        self._new_type_hint = QLabel("", self)
+        self._new_type_hint.setWordWrap(True)
+        self._new_type_hint.setStyleSheet(f"color: {theme.UDB};")
+        self._new_type_hint.setVisible(False)
+        layout.addWidget(self._new_type_hint)
 
         self._buttons = QDialogButtonBox(
             QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel, self
@@ -717,7 +799,51 @@ class TagTypeEditDialog(QDialog):
         # 空入力のまま OK 確定して既存 type を空文字で上書きする事故を防ぐため常時接続する
         # (旧実装は has_placeholder 時のみ接続で、editable 化後は空入力を検知できない)。
         self._type_combo.currentTextChanged.connect(self._update_ok_enabled)
+        self._type_combo.currentTextChanged.connect(self._update_new_type_hint)
         self._update_ok_enabled(self._type_combo.currentText())
+        self._update_new_type_hint(self._type_combo.currentText())
+
+    @staticmethod
+    def _dedupe_custom_types(names: Sequence[str]) -> list[str]:
+        """TYPE_CHOICES と重複 (case-insensitive) する名前を除いた順序保持 dedupe (#1242)。"""
+        known_lower = {t.lower() for t in TagTypeEditDialog.TYPE_CHOICES}
+        seen: set[str] = set()
+        result: list[str] = []
+        for name in names:
+            stripped = name.strip()
+            if not stripped:
+                continue
+            lowered = stripped.lower()
+            if lowered in known_lower or lowered in seen:
+                continue
+            seen.add(lowered)
+            result.append(stripped)
+        return result
+
+    def _is_known_type(self, type_name: str) -> bool:
+        """type_name が tagdb 標準または注入済みカスタム type に (case-insensitive) 一致するか。"""
+        lowered = type_name.strip().lower()
+        if not lowered:
+            return False
+        return any(lowered == known.lower() for known in (*self.TYPE_CHOICES, *self._custom_type_names))
+
+    def _add_group_header(self, label: str) -> None:
+        """選択不可のグループ見出し行を combo に追加する (#1242)。"""
+        self._type_combo.addItem(label)
+        model = self._type_combo.model()
+        if isinstance(model, QStandardItemModel):
+            item = model.item(self._type_combo.count() - 1)
+            if item is not None:
+                item.setFlags(item.flags() & ~(Qt.ItemFlag.ItemIsEnabled | Qt.ItemFlag.ItemIsSelectable))
+
+    def _add_custom_item(self, type_name: str) -> None:
+        """カスタム type 行を combo に追加し、バッジ描画用のデータを付与する (#1242)。"""
+        self._type_combo.addItem(type_name)
+        model = self._type_combo.model()
+        if isinstance(model, QStandardItemModel):
+            item = model.item(self._type_combo.count() - 1)
+            if item is not None:
+                item.setData(True, self._CUSTOM_TYPE_ROLE)
 
     def _normalized_type(self, text: str) -> str:
         """入力を正規化する。プレースホルダ / 空白のみは空文字扱い。"""
@@ -730,6 +856,17 @@ class TagTypeEditDialog(QDialog):
         ok_button = self._buttons.button(QDialogButtonBox.StandardButton.Ok)
         if ok_button is not None:
             ok_button.setEnabled(bool(self._normalized_type(text)))
+
+    @Slot(str)
+    def _update_new_type_hint(self, text: str) -> None:
+        """一致する既存 type が無い入力のときだけ新規作成ヒントを表示する (#1242)。"""
+        normalized = self._normalized_type(text)
+        if not normalized or self._is_known_type(normalized):
+            self._new_type_hint.setVisible(False)
+            self._new_type_hint.setText("")
+            return
+        self._new_type_hint.setText(f'+ "{normalized}" を新規作成 (ユーザーDBへ)')
+        self._new_type_hint.setVisible(True)
 
     def selected_type(self) -> str:
         """入力された type 名を返す。プレースホルダ / 空白のみは空文字を返す。
@@ -854,6 +991,10 @@ class TagPanelWidget(QWidget):
         self._translation_candidates_provider: Callable[[str, str], tuple[list[str], str | None]] | None = (
             None
         )
+        # タグ種別編集ダイアログへ渡すカスタム type 一覧 provider (#1242)。呼び出す毎に
+        # user DB 登録済みカスタム type 名一覧を返す callback。DB 非依存を保つため親から
+        # 注入する。未注入 (None) ならダイアログは tagdb 標準 5 種のみで開く。
+        self._type_choices_provider: Callable[[], list[str]] | None = None
         # 翻訳候補の非同期 provider (#1232)。(canonical, language, on_result) を渡すと
         # background で候補を取得し、完了時に GUI スレッドで on_result(候補, 主訳) を呼ぶ。
         # 注入されていれば同期 provider より優先し、ポップアップ表示のブロックを避ける。
@@ -1148,6 +1289,19 @@ class TagPanelWidget(QWidget):
             provider: 候補訳を返す callback。None で解除。
         """
         self._translation_candidates_provider = provider
+
+    def set_type_choices_provider(self, provider: Callable[[], list[str]] | None) -> None:
+        """タグ種別編集ダイアログへ渡すカスタム type 一覧 provider を注入する (#1242)。
+
+        provider は引数なしで呼ばれ、user DB 登録済みのカスタム type 名一覧を返す。
+        DB 非依存を保つため親 (`SelectedImageDetailsWidget`) が TagManagementService の
+        type 列挙メソッドを渡す。未注入 (None) のときダイアログは tagdb 標準 5 種
+        ("From tagdb") のみで開き、カスタム type ("Your types") のグループは表示されない。
+
+        Args:
+            provider: カスタム type 名一覧を返す callback。None で解除。
+        """
+        self._type_choices_provider = provider
 
     def set_translation_candidates_async_provider(
         self,
@@ -2161,7 +2315,13 @@ class TagPanelWidget(QWidget):
         Args:
             canonical: 種別を補正する canonical タグ文字列。
         """
-        dialog = TagTypeEditDialog(canonical, self._type_mismatch_hint(canonical), parent=self)
+        custom_type_names = self._type_choices_provider() if self._type_choices_provider is not None else []
+        dialog = TagTypeEditDialog(
+            canonical,
+            self._type_mismatch_hint(canonical),
+            custom_type_names=custom_type_names,
+            parent=self,
+        )
         if dialog.exec() != QDialog.DialogCode.Accepted:
             return
         type_name = dialog.selected_type()

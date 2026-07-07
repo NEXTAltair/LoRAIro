@@ -18,10 +18,19 @@ pytestmark = pytest.mark.gui
 class _FakeTagService:
     """TagManagementService の userdb 書き込み窓口だけを模した fake。"""
 
-    def __init__(self, resolve_to: int | None = 42, delete_returns: bool = True) -> None:
+    def __init__(
+        self,
+        resolve_to: int | None = 42,
+        delete_returns: bool = True,
+        custom_types: list[str] | None = None,
+        get_types_raises: Exception | None = None,
+    ) -> None:
         self._resolve_to = resolve_to
         # delete_translation の戻り値 (False = user overlay に無し、base DB 由来の可能性、#1237)。
         self._delete_returns = delete_returns
+        # get_format_specific_types の戻り値 / 例外 (#1242)。
+        self._custom_types = custom_types if custom_types is not None else []
+        self._get_types_raises = get_types_raises
         self.resolved: list[str] = []
         self.translations: list[tuple[int, str, str]] = []
         self.type_updates: list[tuple[int, str]] = []
@@ -55,6 +64,11 @@ class _FakeTagService:
     def set_preferred_translation(self, canonical: str, language: str, translation: str) -> bool:
         self.preferred.append((canonical, language, translation))
         return self._resolve_to is not None
+
+    def get_format_specific_types(self) -> list[str]:
+        if self._get_types_raises is not None:
+            raise self._get_types_raises
+        return self._custom_types
 
 
 class _FakeRefinementService:
@@ -460,3 +474,29 @@ def test_external_write_still_triggers_refresh_after_rebaseline(qtbot, monkeypat
 
     widget._poll_user_db_change()
     assert refresh_calls == [1]
+
+
+def test_type_choices_provider_wired_to_service(qtbot, monkeypatch) -> None:
+    """set_tag_management_service で type 一覧 provider が配線され service を呼ぶ (#1242)。"""
+    service = _FakeTagService(resolve_to=42, custom_types=["circle", "series"])
+    widget = _make_widget(qtbot, monkeypatch, service)
+
+    assert widget._get_custom_type_choices() == ["circle", "series"]
+
+
+def test_type_choices_provider_returns_empty_without_service(qtbot) -> None:
+    """service 未配線なら空リストへ縮退し、ダイアログを開けなくしない (#1242)。"""
+    widget = SelectedImageDetailsWidget()
+    qtbot.addWidget(widget)
+
+    assert widget._get_custom_type_choices() == []
+
+
+def test_type_choices_provider_degrades_on_service_error(qtbot, monkeypatch) -> None:
+    """カスタム type 取得が失敗しても空リストへ縮退する (ダイアログを開けなくしない、#1242)。"""
+    from sqlalchemy.exc import SQLAlchemyError
+
+    service = _FakeTagService(resolve_to=42, get_types_raises=SQLAlchemyError("boom"))
+    widget = _make_widget(qtbot, monkeypatch, service)
+
+    assert widget._get_custom_type_choices() == []
