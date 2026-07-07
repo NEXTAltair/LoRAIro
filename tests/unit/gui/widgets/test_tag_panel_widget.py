@@ -295,6 +295,86 @@ def test_refinement_ignore_relays_to_panel_signal(panel, sample_tags, qtbot):
     assert received == [("1girl", "broad_single_word", False)]
 
 
+# refinement 適用の重複排除 (#1221) --------------------------------------------
+
+
+def _broad_rec(tag: str):
+    """needs_refinement=True の最小 RefinementRecommendation を作る (#1221)。"""
+    from genai_tag_db_tools.models import RefinementReason, RefinementRecommendation
+
+    return RefinementRecommendation(
+        source_tag=tag,
+        normalized_tag=tag,
+        needs_refinement=True,
+        score=0.7,
+        reasons=[RefinementReason(code="broad_single_word", message="broad")],  # type: ignore[arg-type]
+        suggestions=[],
+        proposals=[],
+    )
+
+
+def test_selection_burst_skips_empty_refinement_reapply(panel, sample_tags, monkeypatch):
+    """refinement 未確定の選択バーストでは chip への適用ループを走らせない (#1221)。
+
+    親は 1 選択で set_tags / set_rejected_tags / set_tag_metadata_pending を順に呼び、
+    各々が chip を再生成する。refinement が未確定 (空) の間は「印なし」を無印 chip へ
+    適用するだけの no-op なので、1 回も set_refinement しないことを検証する。
+    """
+    calls: list[str] = []
+    original = SelectableTagChip.set_refinement
+
+    def spy(self, recommendation, candidate_counts=None):
+        calls.append(self.canonical)
+        original(self, recommendation, candidate_counts)
+
+    monkeypatch.setattr(SelectableTagChip, "set_refinement", spy)
+
+    panel.set_tags(sample_tags)
+    panel.set_rejected_tags([])
+    panel.set_tag_metadata_pending(True)
+
+    assert calls == []
+
+
+def test_refinement_confirmed_applies_once_and_survives_rerender(panel, sample_tags, monkeypatch):
+    """refinement 確定時は 1 回だけ全 chip へ適用し、再描画後も ⚠ が保持される (#1221)。"""
+    panel.set_tags(sample_tags)
+    panel.set_tag_metadata_pending(True)  # 未確定バースト (適用は走らない)
+
+    calls: list[str] = []
+    original = SelectableTagChip.set_refinement
+
+    def spy(self, recommendation, candidate_counts=None):
+        calls.append(self.canonical)
+        original(self, recommendation, candidate_counts)
+
+    monkeypatch.setattr(SelectableTagChip, "set_refinement", spy)
+
+    panel.apply_refinements({"1girl": _broad_rec("1girl")})
+    # 確定した refinements を全 chip へ 1 巡だけ適用する。
+    assert calls == ["1girl", "flower", "solo"]
+
+    chip = next(c for c in panel._tag_chips if c.canonical == "1girl")
+    assert chip.text().startswith("⚠")
+
+    # chip を再生成する経路 (metadata 反映) でも fresh chip へ ⚠ が復元される。
+    panel.apply_tag_metadata({}, {}, {})
+    chip = next(c for c in panel._tag_chips if c.canonical == "1girl")
+    assert chip.text().startswith("⚠")
+
+
+def test_clearing_refinements_removes_marker(panel, sample_tags):
+    """確定済み ⚠ を空 refinements で消す再適用は従来どおり実行される (#1221)。"""
+    panel.set_tags(sample_tags)
+    panel.apply_refinements({"1girl": _broad_rec("1girl")})
+    chip = next(c for c in panel._tag_chips if c.canonical == "1girl")
+    assert chip.text().startswith("⚠")
+
+    panel.apply_refinements({})
+    chip = next(c for c in panel._tag_chips if c.canonical == "1girl")
+    assert not chip.text().startswith("⚠")
+
+
 # 言語切替・脚注・soft-rejected インライン表示 -------------------------------
 
 
