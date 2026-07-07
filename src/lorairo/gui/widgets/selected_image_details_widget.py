@@ -60,7 +60,6 @@ if TYPE_CHECKING:
     from ..workers.refinement_worker import RefinementResult
     from ..workers.tag_metadata_worker import TagMetadataResult
     from ..workers.terminal import WorkerTerminalEvent
-    from ..workers.translation_candidates_worker import TranslationCandidatesResult
 
 
 class SelectedImageDetailsWidget(QWidget):
@@ -496,6 +495,7 @@ class SelectedImageDetailsWidget(QWidget):
         """worker 終端 (成功/キャンセル/エラー問わず) で in-flight 枠を解放する接続。"""
         manager.worker_terminal.connect(self._on_refinement_terminal)
         manager.worker_terminal.connect(self._on_tag_metadata_terminal)
+        manager.worker_terminal.connect(self._on_translation_candidates_terminal)
 
     def set_tag_management_service(self, service: "TagManagementService") -> None:
         """tagdb userdb 系書き込みサービスを配線する (#989 / #1237)。
@@ -581,19 +581,41 @@ class SelectedImageDetailsWidget(QWidget):
         worker = TranslationCandidatesWorker(
             service.list_translation_candidates, canonical, language, generation
         )
-        worker.finished.connect(self._on_translation_candidates_finished)
         worker_id = f"trans_candidates_{generation}"
         self._trans_candidates_inflight_id = worker_id
+        # 終端 (成功/失敗/キャンセル) は worker_terminal 経由で一本化して受ける (#1247)。
+        # worker.finished だけを直接購読すると error_occurred / canceled を拾えず、
+        # 想定外例外時にダイアログが「読み込み中…」のまま固着する。
         manager.start_worker(worker_id, worker)
 
-    def _on_translation_candidates_finished(self, result: "TranslationCandidatesResult") -> None:
-        """翻訳候補 worker の完了ハンドラ。最新世代なら候補をダイアログへ渡す (#1232)。"""
-        if result.generation != self._trans_candidates_generation:
-            return  # 言語切替済み = stale な結果なので捨てる
+    @Slot(object)
+    def _on_translation_candidates_terminal(self, event: "WorkerTerminalEvent") -> None:
+        """翻訳候補 worker の終端 (成功/失敗/キャンセル) を一本化して処理する (#1247)。
+
+        成功時は候補をダイアログへ渡し、失敗/キャンセル終端では空候補で応答して
+        「読み込み中…」プレースホルダを解除する (固着回避)。共有 WorkerManager 経由で
+        他種 worker の終端も流れてくるため worker_id で照合し、いずれの終端でも
+        ``_trans_candidates_inflight_id`` を確実に解放する。
+
+        Args:
+            event: WorkerManager が発行する終端イベント。
+        """
+        if event.worker_id != self._trans_candidates_inflight_id:
+            return  # 別 worker / 言語切替済みの stale 終端は無視 (worker_id が最新を指す)
+        from ..workers.terminal import WorkerOutcome
+        from ..workers.translation_candidates_worker import TranslationCandidatesResult
+
         self._trans_candidates_inflight_id = None
         callback = self._trans_candidates_callback
-        if callback is not None:
+        if callback is None:
+            return
+        result = event.result
+        if event.outcome is WorkerOutcome.SUCCEEDED and isinstance(result, TranslationCandidatesResult):
             callback(result.candidates, result.preferred)
+        else:
+            # 失敗/キャンセル終端では候補が得られない。空候補で応答してダイアログの
+            # 「読み込み中…」プレースホルダを解除し、固着させない (#1232 follow-up)。
+            callback([], None)
 
     def _trigger_tag_metadata_fetch(self, tags_list: list[dict[str, Any]]) -> None:
         """翻訳/使用頻度/type を非同期解決する worker を起動する (#1046)。

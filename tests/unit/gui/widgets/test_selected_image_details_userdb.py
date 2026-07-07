@@ -326,21 +326,42 @@ def test_type_edit_skipped_without_service(qtbot, monkeypatch) -> None:
     widget._on_tag_metadata_edit("1girl", "copyright")  # 例外を出さないこと
 
 
-def test_async_translation_candidates_routes_result(qtbot, monkeypatch) -> None:
-    """#1232: 非同期候補取得が worker 経由で結果を callback へ渡す。"""
-    service = _FakeTagService()
-    service.list_translation_candidates = lambda canonical, language: (["青い目", "青目"], "青目")  # type: ignore[method-assign]
-    widget = _make_widget(qtbot, monkeypatch, service)
+def _stub_start_worker(widget, monkeypatch):
+    """start_worker を no-op に差し替え、in-flight 記録だけを残す (終端は別途注入する)。"""
     manager = widget._ensure_worker_manager()
-    # start_worker を同期実行に差し替え、スレッドを使わず決定的に完了させる。
-    monkeypatch.setattr(manager, "start_worker", lambda wid, worker, **kw: bool(worker.run()) or True)
+    monkeypatch.setattr(manager, "start_worker", lambda wid, worker, **kw: None)
+    return manager
+
+
+def test_async_translation_candidates_routes_result(qtbot, monkeypatch) -> None:
+    """#1247: 成功終端 (worker_terminal) が候補を callback へ渡し in-flight を解放する。"""
+    from lorairo.gui.workers.terminal import WorkerOutcome, WorkerTerminalEvent
+    from lorairo.gui.workers.translation_candidates_worker import TranslationCandidatesResult
+
+    service = _FakeTagService()
+    widget = _make_widget(qtbot, monkeypatch, service)
+    _stub_start_worker(widget, monkeypatch)
 
     results: list[tuple[list[str], str | None]] = []
     widget._start_translation_candidates_fetch(
         "blue_eyes", "ja", lambda cands, cur: results.append((cands, cur))
     )
+    worker_id = widget._trans_candidates_inflight_id
+    assert worker_id is not None
+
+    widget._on_translation_candidates_terminal(
+        WorkerTerminalEvent(
+            worker_id=worker_id,
+            worker_type="translation_candidates",
+            outcome=WorkerOutcome.SUCCEEDED,
+            result=TranslationCandidatesResult(
+                "blue_eyes", "ja", widget._trans_candidates_generation, ["青い目", "青目"], "青目"
+            ),
+        )
+    )
 
     assert results == [(["青い目", "青目"], "青目")]
+    assert widget._trans_candidates_inflight_id is None
 
 
 def test_async_translation_candidates_no_service_returns_empty(qtbot, monkeypatch) -> None:
@@ -355,26 +376,102 @@ def test_async_translation_candidates_no_service_returns_empty(qtbot, monkeypatc
     assert results == [([], None)]
 
 
-def test_async_translation_candidates_stale_generation_ignored(qtbot, monkeypatch) -> None:
-    """#1232: 古い世代の worker 完了は捨てる (single-flight)。"""
+def test_async_translation_candidates_stale_terminal_ignored(qtbot, monkeypatch) -> None:
+    """#1247: in-flight と一致しない終端 (言語切替済み) は無視する (single-flight)。"""
+    from lorairo.gui.workers.terminal import WorkerOutcome, WorkerTerminalEvent
+    from lorairo.gui.workers.translation_candidates_worker import TranslationCandidatesResult
+
     service = _FakeTagService()
     widget = _make_widget(qtbot, monkeypatch, service)
 
-    from lorairo.gui.workers.translation_candidates_worker import TranslationCandidatesResult
-
     received: list[str] = []
-    widget._trans_candidates_generation = 5
+    widget._trans_candidates_inflight_id = "trans_candidates_5"
     widget._trans_candidates_callback = lambda cands, cur: received.append("called")
-    # 世代 3 の (古い) 結果は無視される。
-    widget._on_translation_candidates_finished(
-        TranslationCandidatesResult("tag", "ja", 3, ["stale"], "stale")
+
+    # 別 worker (世代 3) の終端は inflight_id と不一致 → 無視 (callback 不発、枠も保持)。
+    widget._on_translation_candidates_terminal(
+        WorkerTerminalEvent(
+            worker_id="trans_candidates_3",
+            worker_type="translation_candidates",
+            outcome=WorkerOutcome.SUCCEEDED,
+            result=TranslationCandidatesResult("tag", "ja", 3, ["stale"], "stale"),
+        )
     )
     assert received == []
-    # 世代 5 の結果は反映される。
-    widget._on_translation_candidates_finished(
-        TranslationCandidatesResult("tag", "ja", 5, ["fresh"], "fresh")
+    assert widget._trans_candidates_inflight_id == "trans_candidates_5"
+
+    # 最新 worker (世代 5) の終端は反映される。
+    widget._on_translation_candidates_terminal(
+        WorkerTerminalEvent(
+            worker_id="trans_candidates_5",
+            worker_type="translation_candidates",
+            outcome=WorkerOutcome.SUCCEEDED,
+            result=TranslationCandidatesResult("tag", "ja", 5, ["fresh"], "fresh"),
+        )
     )
     assert received == ["called"]
+    assert widget._trans_candidates_inflight_id is None
+
+
+def test_async_translation_candidates_error_terminal_clears_placeholder(qtbot, monkeypatch) -> None:
+    """#1247: 想定外例外による失敗終端でも空候補で応答し「読み込み中…」を解除する。
+
+    ``worker.finished`` のみ購読していた旧実装では ``error_occurred`` を拾えず、
+    ダイアログが「読み込み中…」のまま永久固着し in-flight もリセットされなかった。
+    """
+    from lorairo.gui.workers.terminal import WorkerOutcome, WorkerTerminalEvent
+
+    service = _FakeTagService()
+    widget = _make_widget(qtbot, monkeypatch, service)
+    _stub_start_worker(widget, monkeypatch)
+
+    results: list[tuple[list[str], str | None]] = []
+    widget._start_translation_candidates_fetch(
+        "blue_eyes", "ja", lambda cands, cur: results.append((cands, cur))
+    )
+    worker_id = widget._trans_candidates_inflight_id
+    assert worker_id is not None
+
+    widget._on_translation_candidates_terminal(
+        WorkerTerminalEvent(
+            worker_id=worker_id,
+            worker_type="translation_candidates",
+            outcome=WorkerOutcome.FAILED,
+            error="unexpected AttributeError",
+        )
+    )
+
+    # 空候補で応答 = ダイアログの「読み込み中…」プレースホルダが解除される。
+    assert results == [([], None)]
+    assert widget._trans_candidates_inflight_id is None
+
+
+def test_async_translation_candidates_canceled_terminal_clears_placeholder(qtbot, monkeypatch) -> None:
+    """#1247: キャンセル終端でも空候補で応答し in-flight をリセットする。"""
+    from lorairo.gui.workers.terminal import CancelReason, WorkerOutcome, WorkerTerminalEvent
+
+    service = _FakeTagService()
+    widget = _make_widget(qtbot, monkeypatch, service)
+    _stub_start_worker(widget, monkeypatch)
+
+    results: list[tuple[list[str], str | None]] = []
+    widget._start_translation_candidates_fetch(
+        "blue_eyes", "ja", lambda cands, cur: results.append((cands, cur))
+    )
+    worker_id = widget._trans_candidates_inflight_id
+    assert worker_id is not None
+
+    widget._on_translation_candidates_terminal(
+        WorkerTerminalEvent(
+            worker_id=worker_id,
+            worker_type="translation_candidates",
+            outcome=WorkerOutcome.CANCELED,
+            cancel_reason=CancelReason.SEARCH_REPLACED,
+        )
+    )
+
+    assert results == [([], None)]
+    assert widget._trans_candidates_inflight_id is None
 
 
 def test_translation_add_clears_refinement_cache_before_reeval(qtbot, monkeypatch) -> None:
