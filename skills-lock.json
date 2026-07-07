@@ -12,8 +12,10 @@
       "computedHash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
     },
     "check-existing": {
-      "source": "/workspaces/altairs-agent-dev-kit",
-      "sourceType": "local",
+      "source": "NEXTAltair/altairs-agent-dev-kit",
+      "ref": "v0.2.2",
+      "sourceType": "github",
+      "skillPath": "skills/check-existing/SKILL.md",
       "computedHash": "a4354295942a3f959bcecbb2004afb7dd3ec706ada26acf6677fc42932c5cb67"
     },
     "claude-md-progressive-disclosurer": {
@@ -57,13 +59,15 @@
       "computedHash": "04fbd26c508595c33b7866cdcb073f26cdd0ad6a3ffa78d2eaed763edf28d795"
     },
     "interface-design": {
-      "source": "/workspaces/altairs-agent-dev-kit",
+      "source": "/workspaces/LoRAIro/.agents/skills",
       "sourceType": "local",
-      "computedHash": "2af43574bdf10594218a0d19b62443a753856ccacbb87a67f5beadd44ef29e5f"
+      "computedHash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
     },
     "lazy-import-refactor": {
-      "source": "/workspaces/altairs-agent-dev-kit",
-      "sourceType": "local",
+      "source": "NEXTAltair/altairs-agent-dev-kit",
+      "ref": "v0.2.2",
+      "sourceType": "github",
+      "skillPath": "skills/lazy-import-refactor/SKILL.md",
       "computedHash": "f9046376071d9e41bd7bc5ac75505a6b9dc23bf9ff2a9e667752c446fe88c91b"
     },
     "lorairo-cli-db-access": {
@@ -92,8 +96,10 @@
       "computedHash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
     },
     "okf-bundle": {
-      "source": "/workspaces/altairs-agent-dev-kit",
-      "sourceType": "local",
+      "source": "NEXTAltair/altairs-agent-dev-kit",
+      "ref": "v0.2.2",
+      "sourceType": "github",
+      "skillPath": "skills/okf-bundle/SKILL.md",
       "computedHash": "3d59c6ec260ae55a1756813a515db01d1382faa3eec311a71d45a553c2c7be3b"
     },
     "prompt-optimizer": {
@@ -148,9 +154,9 @@
       "computedHash": "19ff8ce86d20aa39cace441e15d23feb9b91be5fbed95526b5bd9ee3bffb6411"
     },
     "sqlalchemy-query-patterns": {
-      "source": "/workspaces/altairs-agent-dev-kit",
+      "source": "/workspaces/LoRAIro/.agents/skills",
       "sourceType": "local",
-      "computedHash": "3534988afa5f399d7285163d79267445e822ee190f6f6b9b73b0b11ccaa979c4"
+      "computedHash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
     },
     "vercel-cli-with-tokens": {
       "source": "vercel-labs/agent-skills",

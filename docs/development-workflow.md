@@ -86,12 +86,12 @@ symlink、導入元の SSoT は `skills-lock.json`）。
 
 - **LoRAIro 固有スキル（git 追跡する）**: `lorairo-*` 系・`agent-pr-*` 系と、汎用スキルを
   LoRAIro 固有値（local_packages、make target 等）で特化させたもの
-  （check-existing / interface-design / lazy-import-refactor /
-  okf-bundle / sqlalchemy-query-patterns）
+  （interface-design / sqlalchemy-query-patterns）
 - **外部ソーススキル（git 追跡しない）**: [altairs-agent-dev-kit](https://github.com/NEXTAltair/altairs-agent-dev-kit)
-  由来（goal-prompt-crafter / skill-creator / github-ops / prompt-optimizer / qa-expert /
-  claude-md-progressive-disclosurer）とサードパーティ（wshobson/agents, vercel-labs/agent-skills）。
-  実体は `.gitignore` で追跡対象外で、`skills-lock.json` の記録から復元する
+  由来（check-existing / lazy-import-refactor / okf-bundle / goal-prompt-crafter / skill-creator /
+  github-ops / prompt-optimizer / qa-expert / claude-md-progressive-disclosurer）とサードパーティ
+  （wshobson/agents, vercel-labs/agent-skills）。
+  実体は `.gitignore` で追跡対象外で、`skills-lock.json` の記録から `github@ref` で復元する
 
 ### 外部スキルのインストール（altairs-agent-dev-kit を含む）
 
