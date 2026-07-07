@@ -546,10 +546,18 @@ QSpinBox:disabled, QDoubleSpinBox:disabled {{
     color: {INK_FAINT};
 }}
 QComboBox::drop-down {{
+    subcontrol-origin: padding;
+    subcontrol-position: center right;
     border: none;
     width: 18px;
+}}
+/* 矢印マークは ::drop-down (ボタン領域) ではなく ::down-arrow サブコントロールで
+   描画する。::drop-down に image を置くとボタン地の描画になり矢印が復活しない
+   (Qt 公式 stylesheet 例に準拠、#1255)。 */
+QComboBox::down-arrow {{
     image: url({DROPDOWN_ARROW_ICON_PATH});
-    padding-right: 3px;
+    width: 12px;
+    height: 12px;
 }}
 QComboBox QAbstractItemView {{
     background-color: {CARD};
