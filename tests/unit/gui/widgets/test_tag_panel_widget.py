@@ -10,7 +10,8 @@ from __future__ import annotations
 from typing import ClassVar
 
 import pytest
-from PySide6.QtWidgets import QApplication, QDialog, QLabel, QPushButton, QToolButton
+from PySide6.QtCore import Qt
+from PySide6.QtWidgets import QApplication, QDialog, QLabel, QMenu, QPushButton, QToolButton
 
 from lorairo.gui import theme
 from lorairo.gui.widgets import tag_panel_widget as tpw
@@ -537,6 +538,40 @@ def test_chip_right_click_signals_exist(panel):
     """tagdb userdb 系の panel Signal が定義されていること (ADR 0083 §2)。"""
     assert hasattr(panel, "translation_add_requested")
     assert hasattr(panel, "tag_metadata_edit_requested")
+
+
+def test_chip_right_click_does_not_emit_clicked(qtbot, monkeypatch):
+    """右クリックは clicked / ctrl_clicked を emit しない (#1223 バグA 回帰防止)。
+
+    chip の左クリック = 無効化トグル (soft-reject 誘発)。右クリックが誤って clicked を
+    出すと「コンテキストメニュー狙いの右クリックでタグが消える」データ破壊的誤操作になる。
+    従来テストは chip.clicked.emit() の直接呼び出し / contextMenuEvent の直接呼び出しのみで、
+    実クリック経由の button 振り分け配線 (mousePressEvent が LeftButton のみ clicked を出す)
+    の regression を検出できなかった。menu.exec() のネストループはテストをブロックするため
+    monkeypatch で無効化する。
+    """
+    monkeypatch.setattr(QMenu, "exec", lambda self, *a, **k: None)
+    chip = SelectableTagChip("display", "canonical")
+    qtbot.addWidget(chip)
+    fired: list[str] = []
+    chip.clicked.connect(lambda: fired.append("clicked"))
+    chip.ctrl_clicked.connect(lambda: fired.append("ctrl"))
+
+    qtbot.mouseClick(chip, Qt.MouseButton.RightButton)
+
+    assert fired == []
+
+
+def test_chip_left_click_emits_clicked(qtbot):
+    """左クリックは clicked を emit する (右クリックとの対比、#1223 バグA)。"""
+    chip = SelectableTagChip("display", "canonical")
+    qtbot.addWidget(chip)
+    fired: list[str] = []
+    chip.clicked.connect(lambda: fired.append("clicked"))
+
+    qtbot.mouseClick(chip, Qt.MouseButton.LeftButton)
+
+    assert fired == ["clicked"]
 
 
 def test_untranslated_chip_flag_set(panel, sample_tags):

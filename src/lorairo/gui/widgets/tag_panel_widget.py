@@ -1592,7 +1592,9 @@ class TagPanelWidget(QWidget):
         else:
             chip.base_qss = theme.chip_qss("accent")
             if is_translated and display != original:
-                chip.setToolTip(f"{original} → {display}")
+                # 翻訳済み chip にも右クリックの導線を明示する (#1223 / #1225): 主訳選択
+                # (翻訳管理ダイアログ) の入口が右クリックしかなく視覚的手がかりが無かった。
+                chip.setToolTip(f"{original} → {display} · 右クリックで翻訳を選択/編集")
         # 無効化 (破線) 表示の場合は disabled スタイルを適用する。
         chip.setStyleSheet(self._disabled_chip_qss() if disabled else chip.base_qss)
         # 選択集合 (#814 / #997) を再描画をまたいで復元する。disabled より優先して上書きする。
