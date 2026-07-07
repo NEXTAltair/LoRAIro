@@ -92,6 +92,57 @@ class TestImageRepositoryTagRegistration:
 
                 assert tag_id is None
 
+    def test_tag_registration_fk_wrapped_value_error_retries(self, repository, mock_session):
+        """submodule が FK IntegrityError を ValueError に包んで返しても retry する (#1239)。
+
+        genai-tag-db-tools は sqlite3/SQLAlchemy IntegrityError を DB_OPERATION_FAILED
+        ("データベース操作に失敗しました: ... FOREIGN KEY constraint failed") の ValueError に
+        変換して返すため、except IntegrityError では捕捉できない。FK 由来 ValueError も
+        競合として retry 検索に回すことを検証する。
+        """
+        search_result_empty = TagSearchResult(items=[])
+        search_result_retry = TagSearchResult(
+            items=[TagRecordPublic(tag="fk_tag", tag_id=321, source_tag="fk_tag")]
+        )
+
+        with patch("lorairo.database.repository.annotation_record.search_tags") as mock_search:
+            mock_search.side_effect = [search_result_empty, search_result_retry]
+            with patch.object(repository, "_initialize_tag_register_service") as mock_init_service:
+                mock_service = Mock()
+                mock_service.register_tag.side_effect = ValueError(
+                    "データベース操作に失敗しました: (sqlite3.IntegrityError) FOREIGN KEY constraint failed"
+                )
+                mock_init_service.return_value = mock_service
+                repository.tag_register_service = None
+
+                tag_id = repository._get_or_create_tag_id_external(mock_session, "fk_tag")
+
+                assert tag_id == 321
+                assert mock_search.call_count == 2  # 初回 + retry 検索
+
+    def test_tag_registration_normalization_value_error_not_retried(self, repository, mock_session):
+        """正規化後空文字の ValueError は競合ではないので retry せず None を返す (#1239)。
+
+        全 ValueError を握って retry すると、正当な入力エラーまで無駄な retry 検索に回る。
+        FK/DB 操作失敗の message pattern に一致しない ValueError は retry しないことを検証する。
+        """
+        search_result_empty = TagSearchResult(items=[])
+
+        with patch("lorairo.database.repository.annotation_record.search_tags") as mock_search:
+            mock_search.side_effect = [search_result_empty]
+            with patch.object(repository, "_initialize_tag_register_service") as mock_init_service:
+                mock_service = Mock()
+                mock_service.register_tag.side_effect = ValueError(
+                    "正規化後のタグが空です。空文字・空白のみのタグは登録できません: '___'"
+                )
+                mock_init_service.return_value = mock_service
+                repository.tag_register_service = None
+
+                tag_id = repository._get_or_create_tag_id_external(mock_session, "value_err_tag")
+
+                assert tag_id is None
+                assert mock_search.call_count == 1  # retry 検索が発火していない
+
     def test_tag_registration_service_initialization_failure(self, repository, mock_session):
         """TagRegisterService 初期化失敗"""
         search_result = TagSearchResult(items=[])
