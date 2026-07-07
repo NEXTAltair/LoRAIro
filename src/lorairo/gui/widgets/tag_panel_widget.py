@@ -454,14 +454,21 @@ class TranslationAddDialog(QDialog):
 
 
 class TranslationFixDialog(QDialog):
-    """canonical タグの既存翻訳を上書き修正 / 削除するダイアログ (#1054 / #1237)。
+    """canonical タグの既存翻訳を上書き修正 / 削除 / 抑制するダイアログ (#1054 / #1237)。
 
     DB は知らない。言語別の既存翻訳一覧から1行選び、修正テキストを入力して OK 確定で
-    (language, translation) を返すか、「この翻訳を削除」で選択行の (language, translation)
-    を削除対象として返すだけで、保存 (追加/削除) は親が dispatch する。修正確定は選択行と
-    同一の言語キーで user overlay へ追加され、merged reader が user patch を後勝ちで返す
-    ため表示上は置換になる (base DB は変更しない)。言語の付け替えは「削除 → 追加」の
-    2ステップで表現する (genai-tag-db-tools#121)。
+    (language, translation) を返すか、「この翻訳を削除」/「表示から隠す (抑制)」で選択行の
+    (language, translation) を削除/抑制対象として返すだけで、保存は親が dispatch する。
+    修正確定は選択行と同一の言語キーで user overlay へ追加され、merged reader が user
+    patch を後勝ちで返すため表示上は置換になる (base DB は変更しない)。
+
+    削除できるのは自分 (user overlay) が追加した訳のみ: merged reader は base DB 由来の
+    行と user 由来の行を区別せず返すため、このダイアログ自身は行の origin を判別できない。
+    base DB 由来の行を削除しようとすると親の dispatch 側で失敗が判明し、案内を出す
+    (`SelectedImageDetailsWidget._on_translation_delete`)。base DB 由来の誤訳は削除でなく
+    「表示から隠す (抑制)」(tombstone) で対処する。言語の付け替えは、追加した訳なら
+    「削除 → 追加」、base DB 由来の訳なら「抑制 → 追加」の2ステップで表現する
+    (genai-tag-db-tools#121)。
     """
 
     def __init__(self, canonical: str, translations: dict[str, str], parent: QWidget | None = None) -> None:
@@ -471,7 +478,7 @@ class TranslationFixDialog(QDialog):
         # 行順 = translations の挿入順。language() は選択行の言語キーを verbatim で返す
         # ("japanese"/"ja" 等の表記ゆれをそのまま使い、同一キー上書きを保証する)。
         self._languages: list[str] = list(translations.keys())
-        # 確定操作種別。既定は「修正」で、削除ボタン押下時のみ "delete" に切り替わる。
+        # 確定操作種別。既定は「修正」で、削除/抑制ボタン押下時のみ切り替わる。
         self._action: str = "fix"
 
         layout = QVBoxLayout(self)
@@ -502,8 +509,11 @@ class TranslationFixDialog(QDialog):
 
         note = QLabel(
             "修正はタグ情報 (user overlay) への上書き登録で、base DB は変更しません。"
-            "「この翻訳を削除」は選択行の翻訳を削除します (誤登録の取り消し用、#1237)。"
-            "言語の付け替えは削除後にこのダイアログの追加フローで正しい言語に登録してください。",
+            "「この翻訳を削除」で消せるのは自分で追加した訳のみです (誤登録の取り消し用、#1237)。"
+            "元データベース由来の訳は削除できないため、隠したい場合は「表示から隠す (抑制)」を"
+            "使ってください (元データベースの値自体は変更しません)。言語の付け替えは、"
+            "追加した訳なら削除、元データベース由来の訳なら抑制のうえで、正しい言語で"
+            "改めて翻訳を追加してください。",
             self,
         )
         note.setWordWrap(True)
@@ -516,6 +526,13 @@ class TranslationFixDialog(QDialog):
         self._delete_button.setEnabled(False)
         self._delete_button.clicked.connect(self._on_delete_clicked)
         self._buttons.addButton(self._delete_button, QDialogButtonBox.ButtonRole.DestructiveRole)
+        self._suppress_button = QPushButton("表示から隠す (抑制)", self)
+        self._suppress_button.setEnabled(False)
+        self._suppress_button.setToolTip(
+            "元データベースは変更せず、この訳を検索/表示結果から隠します (取り消し可能)。"
+        )
+        self._suppress_button.clicked.connect(self._on_suppress_clicked)
+        self._buttons.addButton(self._suppress_button, QDialogButtonBox.ButtonRole.DestructiveRole)
         self._buttons.accepted.connect(self.accept)
         self._buttons.rejected.connect(self.reject)
         layout.addWidget(self._buttons)
@@ -535,11 +552,12 @@ class TranslationFixDialog(QDialog):
         self._update_ok_enabled()
 
     def _update_ok_enabled(self) -> None:
-        """OK は「行選択済み + 修正テキスト非空」、削除は「行選択済み」のときだけ有効化する。"""
+        """OK は「行選択済み + 修正テキスト非空」、削除/抑制は「行選択済み」のときだけ有効化する。"""
         row_selected = self._selected_row() >= 0
         ok = self._buttons.button(QDialogButtonBox.StandardButton.Ok)
         ok.setEnabled(row_selected and bool(self._translation_input.text().strip()))
         self._delete_button.setEnabled(row_selected)
+        self._suppress_button.setEnabled(row_selected)
 
     def _on_delete_clicked(self) -> None:
         """「この翻訳を削除」押下: 操作種別を delete にして選択行の内容で accept する。"""
@@ -548,8 +566,15 @@ class TranslationFixDialog(QDialog):
         self._action = "delete"
         self.accept()
 
+    def _on_suppress_clicked(self) -> None:
+        """「表示から隠す (抑制)」押下: 操作種別を suppress にして選択行の内容で accept する。"""
+        if self._selected_row() < 0:
+            return
+        self._action = "suppress"
+        self.accept()
+
     def action(self) -> str:
-        """確定した操作種別を返す ("fix": 修正/追加、"delete": 削除)。"""
+        """確定した操作種別を返す ("fix": 修正/追加、"delete": 削除、"suppress": 抑制)。"""
         return self._action
 
     def language(self) -> str:
@@ -562,7 +587,7 @@ class TranslationFixDialog(QDialog):
         return self._translation_input.text().strip()
 
     def original_translation(self) -> str:
-        """選択行の削除前 (元) の翻訳文字列を返す (action="delete" 用、未選択は空文字)。"""
+        """選択行の元の翻訳文字列を返す (action="delete"/"suppress" 用、未選択は空文字)。"""
         row = self._selected_row()
         if row < 0:
             return ""
@@ -728,6 +753,10 @@ class TagPanelWidget(QWidget):
     # 誤登録翻訳の削除 (canonical, language, translation) (#1237)。破壊的操作なので親側で
     # 実行前に確認ダイアログを出す想定 (TranslationFixDialog 側では確認済み)。
     translation_delete_requested = Signal(str, str, str)
+    # base DB 由来の誤訳を merged 表示から隠す抑制 (tombstone) 要求 (canonical, language,
+    # translation) (#1237)。削除と異なり base DB 自体は変更しない。確認は削除と同様
+    # TranslationFixDialog 側で確認済み。
+    translation_suppress_requested = Signal(str, str, str)
     tag_metadata_edit_requested = Signal(str, str)  # canonical, type (#989)
     # 翻訳/使用頻度/type の再取得要求 (#1210 案A)。翻訳表示 (言語バー) に対する操作
     # なので言語バー右端のアイコンボタンから emit する。DB 非依存を保つため処理は
@@ -1935,17 +1964,17 @@ class TagPanelWidget(QWidget):
 
     @Slot(str)
     def _open_translation_fix_dialog(self, canonical: str) -> None:
-        """翻訳修正ダイアログを開き、確定で translation_add_requested / translation_delete_requested
-        を出す (#1054 / #1237)。
+        """翻訳修正ダイアログを開き、確定で translation_add_requested /
+        translation_delete_requested / translation_suppress_requested を出す (#1054 / #1237)。
 
         修正は選択行と同一の言語キーで user overlay へ登録する。merged reader は user patch
         を後勝ちで返し、表示 dict が language ごとに上書きするため実質置換になる (dispatch
         経路は翻訳追加と共通)。既存翻訳が無いタグは修正対象が無いため、翻訳追加ダイアログへ
-        フォールバックする。「この翻訳を削除」で確定した場合は破壊的操作のため、実行前に
-        `QMessageBox.question` で確認を取ってから `translation_delete_requested` を出す。
+        フォールバックする。「この翻訳を削除」/「表示から隠す (抑制)」で確定した場合は破壊的
+        操作のため、実行前に `QMessageBox.question` で確認を取ってから対応する Signal を出す。
 
         Args:
-            canonical: 翻訳を修正/削除する canonical タグ文字列。
+            canonical: 翻訳を修正/削除/抑制する canonical タグ文字列。
         """
         tag_id = next(
             (t.get("tag_id") for t in self._tags if t.get("tag") == canonical and t.get("tag_id")),
@@ -1968,22 +1997,39 @@ class TagPanelWidget(QWidget):
         if dialog.exec() != QDialog.DialogCode.Accepted:
             return
         language = dialog.language()
-        if dialog.action() == "delete":
+        action = dialog.action()
+        if action in ("delete", "suppress"):
             original = dialog.original_translation()
             if not language or not original:
-                logger.debug(f"翻訳削除をスキップ (空入力): canonical='{canonical}'")
+                logger.debug(
+                    f"翻訳{'削除' if action == 'delete' else '抑制'}をスキップ (空入力): canonical='{canonical}'"
+                )
                 return
-            reply = QMessageBox.question(
-                self,
-                "この翻訳を削除",
-                f"'{canonical}' ({language}) の翻訳 '{original}' を削除しますか?\n"
-                "この操作は取り消せません。",
-                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
-                QMessageBox.StandardButton.No,
-            )
-            if reply != QMessageBox.StandardButton.Yes:
-                return
-            self.translation_delete_requested.emit(canonical, language, original)
+            if action == "delete":
+                reply = QMessageBox.question(
+                    self,
+                    "この翻訳を削除",
+                    f"'{canonical}' ({language}) の翻訳 '{original}' を削除しますか?\n"
+                    "自分で追加した訳のみ削除できます。元データベース由来の訳はこの操作では"
+                    "削除されません (その場合は「表示から隠す (抑制)」を使ってください)。",
+                    QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                    QMessageBox.StandardButton.No,
+                )
+                if reply != QMessageBox.StandardButton.Yes:
+                    return
+                self.translation_delete_requested.emit(canonical, language, original)
+            else:
+                reply = QMessageBox.question(
+                    self,
+                    "表示から隠す (抑制)",
+                    f"'{canonical}' ({language}) の翻訳 '{original}' を表示/検索結果から"
+                    "隠しますか?\n元データベースの値自体は変更されません。",
+                    QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                    QMessageBox.StandardButton.No,
+                )
+                if reply != QMessageBox.StandardButton.Yes:
+                    return
+                self.translation_suppress_requested.emit(canonical, language, original)
             return
         translation = dialog.translation()
         if not language or not translation:

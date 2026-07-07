@@ -133,6 +133,8 @@ class AnnotationDataDisplayWidget(QWidget, Ui_AnnotationDataDisplayWidget):
     translation_preferred_requested = Signal(str, str, str)
     # 誤登録翻訳の削除 (canonical, language, translation) (#1237)
     translation_delete_requested = Signal(str, str, str)
+    # base DB 由来の誤訳を merged 表示から隠す抑制 (canonical, language, translation) (#1237)
+    translation_suppress_requested = Signal(str, str, str)
     tag_metadata_edit_requested = Signal(str, str)  # canonical, type (#989)
     # 翻訳/使用頻度/type の再取得要求 (TagPanelWidget から委譲再公開、#1210 案A)
     translation_refresh_requested = Signal()
@@ -198,6 +200,7 @@ class AnnotationDataDisplayWidget(QWidget, Ui_AnnotationDataDisplayWidget):
         self._tag_panel.translation_add_requested.connect(self.translation_add_requested)
         self._tag_panel.translation_preferred_requested.connect(self.translation_preferred_requested)
         self._tag_panel.translation_delete_requested.connect(self.translation_delete_requested)
+        self._tag_panel.translation_suppress_requested.connect(self.translation_suppress_requested)
         self._tag_panel.tag_metadata_edit_requested.connect(self.tag_metadata_edit_requested)
         self._tag_panel.translation_refresh_requested.connect(self.translation_refresh_requested)
 

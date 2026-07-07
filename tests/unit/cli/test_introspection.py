@@ -637,3 +637,51 @@ def test_describe_images_show_json_schema_includes_item_and_result() -> None:
     assert {"image_id", "tags", "captions", "scores", "score_labels", "ratings", "quality_summary"} <= (
         item_props
     )
+
+
+def test_list_commands_includes_translations_delete_suppress_unsuppress() -> None:
+    """tags translations delete/suppress/unsuppress が list-commands に載る (Issue #1237)。"""
+    result = runner.invoke(app, ["--json", "list-commands"])
+
+    assert result.exit_code == 0
+    items = [row for row in _jsonl(result.stdout) if row["kind"] == "item"]
+    by_path = {row["path"]: row for row in items}
+
+    for path in ("tags translations delete", "tags translations suppress", "tags translations unsuppress"):
+        assert path in by_path
+        assert by_path[path]["read_only"] is False
+        assert "db_write" in by_path[path]["side_effects"]
+
+
+def test_describe_translations_delete_documents_not_found_status() -> None:
+    """describe tags translations delete が base DB 由来行の not_found 挙動を明示する。"""
+    result = runner.invoke(app, ["--json", "describe", "tags translations delete"])
+
+    assert result.exit_code == 0
+    rows = _jsonl(result.stdout)
+    input_row = next(
+        row for row in rows if row.get("type") == "model" and row["name"] == "TagsTranslationsDeleteInput"
+    )
+    field_names = {f["name"] for f in input_row["fields"]}
+    assert {"tag", "lang", "text", "project", "apply"} <= field_names
+
+    item_row = next(
+        row for row in rows if row.get("type") == "model" and row["name"] == "TagsTranslationsDeleteItem"
+    )
+    status_field = next(f for f in item_row["fields"] if f["name"] == "status")
+    assert "not_found" in status_field["type"]
+    assert "suppress" in status_field["description"]
+
+
+def test_describe_translations_suppress_and_unsuppress_expose_apply_field() -> None:
+    """describe tags translations suppress/unsuppress が dry-run既定の --apply フィールドを返す。"""
+    for command, input_name in (
+        ("tags translations suppress", "TagsTranslationsSuppressInput"),
+        ("tags translations unsuppress", "TagsTranslationsUnsuppressInput"),
+    ):
+        result = runner.invoke(app, ["--json", "describe", command])
+        assert result.exit_code == 0
+        rows = _jsonl(result.stdout)
+        input_row = next(row for row in rows if row.get("type") == "model" and row["name"] == input_name)
+        apply_field = next(f for f in input_row["fields"] if f["name"] == "apply")
+        assert apply_field["default"] is False

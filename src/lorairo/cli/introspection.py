@@ -1753,6 +1753,163 @@ TOOL_SPECS: dict[str, ToolSpec] = {
         ),
         errors=(ERROR_MODEL,),
     ),
+    "tags translations delete": ToolSpec(
+        name="tags translations delete",
+        path="tags translations delete",
+        summary=(
+            "Delete a user DB overlay translation (dry-run by default). Issue #1237. "
+            "Only removes translations added via `translations add`; base-DB rows return not_found."
+        ),
+        read_only=False,
+        side_effects=("db_read", "db_write"),
+        inputs=(
+            _input(
+                "TagsTranslationsDeleteInput",
+                (
+                    _f("tag", "str", required=True, description="Target canonical tag (positional)."),
+                    _f("lang", "ja | en", required=True, description="Positional."),
+                    _f(
+                        "text",
+                        "str",
+                        required=True,
+                        description="Exact translation text to delete (positional).",
+                    ),
+                    _f("project", "str", required=True),
+                    _f("apply", "bool", default=False, description="Write to DB. Default is dry-run."),
+                ),
+            ),
+        ),
+        outputs=(
+            _output(
+                "TagsTranslationsDeleteItem",
+                (
+                    _f("tag", "str"),
+                    _f("tag_id", "int"),
+                    _f("language", "str"),
+                    _f("translation", "str"),
+                    _f(
+                        "status",
+                        "dry_run | changed | not_found",
+                        description=(
+                            "not_found = user overlay に該当行が無かった (base DB 由来、または"
+                            "既に無い)。base DB 由来の訳は削除できない (`translations suppress` を使う)。"
+                        ),
+                    ),
+                ),
+            ),
+            _output(
+                "TagsTranslationsDeleteResult",
+                (
+                    _f("dry_run", "bool"),
+                    _f("tag_id", "int"),
+                    _f("language", "str"),
+                    _f("deleted", "bool", description="実際に削除できたか (dry-run 時は常に false)。"),
+                ),
+                description="既定は dry-run (dry_run=true) で書き込みなし。",
+            ),
+        ),
+        errors=(ERROR_MODEL,),
+    ),
+    "tags translations suppress": ToolSpec(
+        name="tags translations suppress",
+        path="tags translations suppress",
+        summary=(
+            "Hide a translation from merged display via tombstone (dry-run by default). Issue #1237. "
+            "Base DB is not modified; use for base-DB-origin mistranslations that cannot be deleted."
+        ),
+        read_only=False,
+        side_effects=("db_read", "db_write"),
+        inputs=(
+            _input(
+                "TagsTranslationsSuppressInput",
+                (
+                    _f("tag", "str", required=True, description="Target canonical tag (positional)."),
+                    _f("lang", "ja | en", required=True, description="Positional."),
+                    _f(
+                        "text",
+                        "str",
+                        required=True,
+                        description="Exact translation text to suppress (positional).",
+                    ),
+                    _f("project", "str", required=True),
+                    _f("apply", "bool", default=False, description="Write to DB. Default is dry-run."),
+                ),
+            ),
+        ),
+        outputs=(
+            _output(
+                "TagsTranslationsSuppressItem",
+                (
+                    _f("tag", "str"),
+                    _f("tag_id", "int"),
+                    _f("language", "str"),
+                    _f("translation", "str"),
+                    _f("status", "dry_run | changed"),
+                ),
+            ),
+            _output(
+                "TagsTranslationsSuppressResult",
+                (
+                    _f("dry_run", "bool"),
+                    _f("tag_id", "int"),
+                    _f("language", "str"),
+                ),
+                description="既定は dry-run (dry_run=true) で書き込みなし。重複 suppress は冪等。",
+            ),
+        ),
+        errors=(ERROR_MODEL,),
+    ),
+    "tags translations unsuppress": ToolSpec(
+        name="tags translations unsuppress",
+        path="tags translations unsuppress",
+        summary="Remove a suppress tombstone (dry-run by default). Issue #1237.",
+        read_only=False,
+        side_effects=("db_read", "db_write"),
+        inputs=(
+            _input(
+                "TagsTranslationsUnsuppressInput",
+                (
+                    _f("tag", "str", required=True, description="Target canonical tag (positional)."),
+                    _f("lang", "ja | en", required=True, description="Positional."),
+                    _f(
+                        "text",
+                        "str",
+                        required=True,
+                        description="Exact translation text to unsuppress (positional).",
+                    ),
+                    _f("project", "str", required=True),
+                    _f("apply", "bool", default=False, description="Write to DB. Default is dry-run."),
+                ),
+            ),
+        ),
+        outputs=(
+            _output(
+                "TagsTranslationsUnsuppressItem",
+                (
+                    _f("tag", "str"),
+                    _f("tag_id", "int"),
+                    _f("language", "str"),
+                    _f("translation", "str"),
+                    _f(
+                        "status",
+                        "dry_run | changed | not_found",
+                        description="not_found = tombstone が元々無かった。",
+                    ),
+                ),
+            ),
+            _output(
+                "TagsTranslationsUnsuppressResult",
+                (
+                    _f("dry_run", "bool"),
+                    _f("tag_id", "int"),
+                    _f("language", "str"),
+                    _f("removed", "bool", description="実際に tombstone を削除できたか。"),
+                ),
+                description="既定は dry-run (dry_run=true) で書き込みなし。",
+            ),
+        ),
+        errors=(ERROR_MODEL,),
+    ),
     "tags alias": ToolSpec(
         name="tags alias",
         path="tags alias",

@@ -633,7 +633,8 @@ lorairo-cli --json describe "export create"
 **Input `ExportCreateInput`**
 
 - `project`: `str` (required)
-- `image_ids`: `csv[int]` (required) - Comma-separated image IDs, e.g. '1,2,3'. Use images search to resolve IDs.
+- `image_ids`: `csv[int]?` (optional) - Comma-separated image IDs, max 500 (or use image_ids_file). Use images search to resolve IDs.
+- `image_ids_file`: `path?` (optional) - Path to a newline/comma-separated image ID list for bulk operations (chunked internally, max 100,000; mutually exclusive with image_ids, Issue #1216). For tags commands, bulk mode emits TagsBulkProgressItem chunk-progress rows instead of per-image TagsEditItem.
 - `output`: `path` (required)
 - `resolution`: `int` (optional, default `512`)
 
@@ -785,8 +786,15 @@ JSON body schema passed via --query or --query-file.
 - `only_unrated`: `bool` (optional, default `False`)
 - `missing_model`: `str?` (optional)
 - `include_nsfw`: `bool` (optional, default `False`)
+- `width_min`: `int?` (optional) - Minimum original image width in px (Issue #1216).
+- `width_max`: `int?` (optional) - Maximum original image width in px.
+- `height_min`: `int?` (optional) - Minimum original image height in px.
+- `height_max`: `int?` (optional) - Maximum original image height in px.
+- `filename_pattern`: `str?` (optional) - Case-insensitive SQL LIKE pattern on filename ('%'/'_' wildcards).
+- `format`: `str?` (optional) - Case-insensitive exact match on image format (e.g. 'jpeg', 'png').
 - `limit`: `int[1,500]` (optional, default `500`)
 - `offset`: `int>=0` (optional, default `0`)
+- `emit_ids`: `bool` (optional, default `False`) - Emit ALL matching image_ids (paged internally), bypassing the count-first ResultSetTooLargeError guard, for piping into tags --image-ids-file (Issue #1216). Capped at 100,000.
 
 **Output `ImagesListItem`**
 
@@ -838,6 +846,7 @@ lorairo-cli --json describe "images show"
 **Output `ImagesShowItem`**
 
 - `image_id`: `int` (optional)
+- `metadata`: `dict | None` (optional) - Image file metadata (stored_image_path/original_image_path/width/height/format/filename/extension/phash/uuid). Null when unavailable.
 - `tags`: `list[dict]` (optional)
 - `captions`: `list[dict]` (optional)
 - `scores`: `list[dict]` (optional)
@@ -1155,7 +1164,8 @@ lorairo-cli --json describe "tags add"
 **Input `TagsAddInput`**
 
 - `project`: `str` (required)
-- `image_ids`: `csv[int]` (required) - Comma-separated image IDs, max 500.
+- `image_ids`: `csv[int]?` (optional) - Comma-separated image IDs, max 500 (or use image_ids_file).
+- `image_ids_file`: `path?` (optional) - Path to a newline/comma-separated image ID list for bulk operations (chunked internally, max 100,000; mutually exclusive with image_ids, Issue #1216). For tags commands, bulk mode emits TagsBulkProgressItem chunk-progress rows instead of per-image TagsEditItem.
 - `tags`: `csv[str]` (required) - Comma-separated tags to add.
 - `apply`: `bool` (optional, default `False`) - Write to DB. Default is dry-run.
 
@@ -1164,6 +1174,15 @@ lorairo-cli --json describe "tags add"
 - `image_id`: `int` (optional)
 - `action`: `add` (optional)
 - `tags`: `list[str]` (optional)
+- `status`: `str` (optional)
+
+**Output `TagsBulkProgressItem`**
+
+Chunk-progress row emitted by --image-ids-file (bulk) instead of per-image TagsEditItem (Issue #1216). Count fields vary by action.
+
+- `action`: `str` (optional)
+- `chunk_images`: `int` (optional)
+- `processed`: `int` (optional)
 - `status`: `str` (optional)
 
 **Output `TagsAddResult`**
@@ -1175,6 +1194,7 @@ lorairo-cli --json describe "tags add"
 - `tag_resolutions`: `list[dict]` (optional) - Per-tag classification (Issue #1174): `tag` / `classification` (`exact` | `alias_resolved` | `typo_candidate` | `ambiguous` | `unregistered`) / `canonical_tag` / `tag_id` (null = unresolved) / `candidates` (typo/ambiguous suggestions, never auto-applied).
 - `skipped_invalid_tags`: `list[str]` (optional) - Tags that normalized to empty (not added, not registered).
 - `unresolved_tag_count`: `int?` (optional) - Count of applied tags left with `tag_id=null` (apply mode only).
+- `would_add`: `int?` (optional) - Estimated additions if --apply were run (dry-run only, Issue #1217). Accounts for existing-duplicate skips.
 
 **Error `CliErrorResponse`**
 
@@ -1252,7 +1272,8 @@ lorairo-cli --json describe "tags remove"
 **Input `TagsRemoveInput`**
 
 - `project`: `str` (required)
-- `image_ids`: `csv[int]` (required) - Comma-separated image IDs, max 500.
+- `image_ids`: `csv[int]?` (optional) - Comma-separated image IDs, max 500 (or use image_ids_file).
+- `image_ids_file`: `path?` (optional) - Path to a newline/comma-separated image ID list for bulk operations (chunked internally, max 100,000; mutually exclusive with image_ids, Issue #1216). For tags commands, bulk mode emits TagsBulkProgressItem chunk-progress rows instead of per-image TagsEditItem.
 - `tags`: `csv[str]` (required) - Comma-separated tags to remove.
 - `apply`: `bool` (optional, default `False`) - Write to DB. Default is dry-run.
 
@@ -1263,12 +1284,23 @@ lorairo-cli --json describe "tags remove"
 - `tags`: `list[str]` (optional)
 - `status`: `str` (optional)
 
+**Output `TagsBulkProgressItem`**
+
+Chunk-progress row emitted by --image-ids-file (bulk) instead of per-image TagsEditItem (Issue #1216). Count fields vary by action.
+
+- `action`: `str` (optional)
+- `chunk_images`: `int` (optional)
+- `processed`: `int` (optional)
+- `status`: `str` (optional)
+
 **Output `TagsRemoveResult`**
 
 - `target_images`: `int` (optional)
 - `tags`: `list[str]` (optional)
 - `removed`: `int` (optional)
 - `dry_run`: `bool` (optional)
+- `mode`: `str` (optional) - Removal mode (Issue #1217): `soft_reject` marks rejected_at and is reversible via tags restore / re-add.
+- `would_remove`: `int?` (optional) - Estimated soft-reject count if --apply were run (dry-run only, Issue #1217).
 
 **Error `CliErrorResponse`**
 
@@ -1301,7 +1333,8 @@ lorairo-cli --json describe "tags replace"
 **Input `TagsReplaceInput`**
 
 - `project`: `str` (required)
-- `image_ids`: `csv[int]` (required) - Comma-separated image IDs, max 500.
+- `image_ids`: `csv[int]?` (optional) - Comma-separated image IDs, max 500 (or use image_ids_file).
+- `image_ids_file`: `path?` (optional) - Path to a newline/comma-separated image ID list for bulk operations (chunked internally, max 100,000; mutually exclusive with image_ids, Issue #1216). For tags commands, bulk mode emits TagsBulkProgressItem chunk-progress rows instead of per-image TagsEditItem.
 - `from_tag`: `str` (required) - Tag to replace.
 - `to_tag`: `str` (required) - Replacement tag.
 - `apply`: `bool` (optional, default `False`) - Write to DB. Default is dry-run.
@@ -1312,6 +1345,15 @@ lorairo-cli --json describe "tags replace"
 - `action`: `replace` (optional)
 - `from`: `str` (optional)
 - `to`: `str` (optional)
+- `status`: `str` (optional)
+
+**Output `TagsBulkProgressItem`**
+
+Chunk-progress row emitted by --image-ids-file (bulk) instead of per-image TagsEditItem (Issue #1216). Count fields vary by action.
+
+- `action`: `str` (optional)
+- `chunk_images`: `int` (optional)
+- `processed`: `int` (optional)
 - `status`: `str` (optional)
 
 **Output `TagsReplaceResult`**
@@ -1337,10 +1379,10 @@ Structured error payload emitted as kind=error by the CLI boundary.
 
 ### `tags translations add`
 
-Add a translation to a tag (user DB overlay). Dry-run by default; --apply to write.
+Add translations to tags (user DB overlay). Dry-run by default; --apply to write.
 
 - Read only: `false`
-- Side effects: `db_read`, `db_write`
+- Side effects: `db_read`, `db_write`, `file_read`
 
 #### Compact Introspection
 
@@ -1353,15 +1395,16 @@ lorairo-cli --json describe "tags translations add"
 **Input `TagsTranslationsAddInput`**
 
 - `project`: `str` (required)
-- `tag`: `str` (required) - Target tag. tag_id 解決は tags add (Issue #1174) と同経路: exact/alias は解決、真の新タグは --apply 時に user DB 登録、typo/曖昧候補は候補提示でエラー (先に tags alias で確定)。
-- `lang`: `ja | en` (required) - 書き込みは ja/en の一貫形。
-- `text`: `str` (required)
+- `tag`: `str` (optional) - Target tag (--file と排他、単発時は --lang/--text と3点セット必須)。tag_id 解決は tags add (Issue #1174) と同経路: exact/alias は解決、真の新タグは --apply 時に user DB 登録、typo/曖昧候補は候補提示でエラー (先に tags alias で確定)。
+- `lang`: `ja | en` (optional) - 書き込みは ja/en の一貫形。
+- `text`: `str` (optional)
+- `file`: `path` (optional) - JSONL バッチ入力 (Issue #1211): 1 行 = {"tag", "lang", "text"[, "preferred"]}。最大 100 行。`translations show --missing-only` の出力行に text を埋めた形を受ける。typo/曖昧・既存訳・登録失敗は per-item status で報告して続行する。
 - `preferred`: `bool` (optional, default `False`) - その言語の主訳にする。
 - `apply`: `bool` (optional, default `False`) - Write to DB. Default is dry-run.
 
 **Output `TagsTranslationsAddItem`**
 
-書き込みは user DB overlay のみ (base DB は不変)。タグ登録失敗 (tagdb #124 edge) は DB_ERROR で明示。
+書き込みは user DB overlay のみ (base DB は不変)。タグ登録失敗 (tagdb #124 edge) は単発は DB_ERROR、バッチは per-item error で明示。
 
 - `tag`: `str` (optional)
 - `canonical_tag`: `str?` (optional)
@@ -1371,15 +1414,76 @@ lorairo-cli --json describe "tags translations add"
 - `translation`: `str` (optional)
 - `preferred`: `bool` (optional)
 - `registered_new_tag`: `bool` (optional)
-- `status`: `dry_run | changed` (optional)
+- `status`: `dry_run | changed | skipped_existing | skipped_candidates | skipped_invalid | error` (optional) - skipped_* / error は --file バッチのみ (Issue #1211)。skipped_existing = 同一訳が既に存在 (再実行が冪等)。
+- `candidates`: `list[str]?` (optional) - skipped_candidates 時のみ: 類似候補。
+- `error`: `str?` (optional) - error 時のみ: 失敗理由。
 
 **Output `TagsTranslationsAddResult`**
 
 終端 result 行。既定は dry-run (dry_run=true) で書き込みなし。
 
 - `dry_run`: `bool` (optional)
-- `tag_id`: `int?` (optional)
+- `tag_id`: `int?` (optional) - 単発 --tag 時のみ。
+- `language`: `str?` (optional) - 単発 --tag 時のみ。
+- `total`: `int?` (optional) - --file バッチ時のみ: 入力行数。
+- `changed`: `int?` (optional) - --file バッチ時のみ: 書き込み件数。
+- `would_add`: `int?` (optional) - --file バッチ dry-run 時のみ: 書き込み見込み件数。
+- `skipped_existing`: `int?` (optional) - --file バッチ時のみ。
+- `skipped_candidates`: `int?` (optional) - --file バッチ時のみ。
+- `errors`: `int?` (optional) - --file バッチ時のみ。
+
+**Error `CliErrorResponse`**
+
+Structured error payload emitted as kind=error by the CLI boundary.
+
+- `kind`: `error` (required)
+- `ok`: `false` (required)
+- `code`: `str` (required)
+- `message`: `str` (required)
+- `retryable`: `bool` (required)
+- `user_action_required`: `bool` (required)
+- `hint`: `str?` (optional)
+- `details`: `dict?` (optional)
+
+### `tags translations delete`
+
+Delete a user DB overlay translation (dry-run by default). Issue #1237. Only removes translations added via `translations add`; base-DB rows return not_found.
+
+- Read only: `false`
+- Side effects: `db_read`, `db_write`
+
+#### Compact Introspection
+
+```bash
+lorairo-cli --json describe "tags translations delete"
+```
+
+#### Models
+
+**Input `TagsTranslationsDeleteInput`**
+
+- `tag`: `str` (required) - Target canonical tag (positional).
+- `lang`: `ja | en` (required) - Positional.
+- `text`: `str` (required) - Exact translation text to delete (positional).
+- `project`: `str` (required)
+- `apply`: `bool` (optional, default `False`) - Write to DB. Default is dry-run.
+
+**Output `TagsTranslationsDeleteItem`**
+
+- `tag`: `str` (optional)
+- `tag_id`: `int` (optional)
 - `language`: `str` (optional)
+- `translation`: `str` (optional)
+- `status`: `dry_run | changed | not_found` (optional) - not_found = user overlay に該当行が無かった (base DB 由来、または既に無い)。base DB 由来の訳は削除できない (`translations suppress` を使う)。
+
+**Output `TagsTranslationsDeleteResult`**
+
+既定は dry-run (dry_run=true) で書き込みなし。
+
+- `dry_run`: `bool` (optional)
+- `tag_id`: `int` (optional)
+- `language`: `str` (optional)
+- `deleted`: `bool` (optional) - 実際に削除できたか (dry-run 時は常に false)。
 
 **Error `CliErrorResponse`**
 
@@ -1414,6 +1518,17 @@ lorairo-cli --json describe "tags translations show"
 - `project`: `str` (required)
 - `image_ids`: `csv[int]` (optional) - Show translation status of these images' tags. Mutually exclusive with --tags.
 - `tags`: `csv[str]` (optional) - Tags to inspect, max 100. Mutually exclusive with --image-ids.
+- `missing_only`: `bool` (optional, default `False`) - 未翻訳 (tag, lang) ペアだけを 1 行 1 件で出力する (Issue #1211)。出力行は text を埋めるだけで `translations add --file` に渡せる。
+
+**Output `MissingTranslationPairItem`**
+
+--missing-only 指定時の item 行 (未翻訳ペア単位、Issue #1211)。
+
+- `tag`: `str` (optional)
+- `tag_id`: `int?` (optional)
+- `lang`: `ja | en` (optional)
+- `text`: `str` (optional) - 常に空文字。翻訳を埋めて add --file へ渡す。
+- `image_id`: `int?` (optional) - --image-ids 指定時のみ。
 
 **Output `TagTranslationStatusItem`**
 
@@ -1435,6 +1550,112 @@ lorairo-cli --json describe "tags translations show"
 
 - `target_tags`: `int` (optional) - 対象タグ数。
 - `target_images`: `int?` (optional) - --image-ids 指定時のみ: 対象画像数。
+- `missing_pairs`: `int?` (optional) - --missing-only 指定時のみ: 未翻訳 (tag, lang) ペア数。
+
+**Error `CliErrorResponse`**
+
+Structured error payload emitted as kind=error by the CLI boundary.
+
+- `kind`: `error` (required)
+- `ok`: `false` (required)
+- `code`: `str` (required)
+- `message`: `str` (required)
+- `retryable`: `bool` (required)
+- `user_action_required`: `bool` (required)
+- `hint`: `str?` (optional)
+- `details`: `dict?` (optional)
+
+### `tags translations suppress`
+
+Hide a translation from merged display via tombstone (dry-run by default). Issue #1237. Base DB is not modified; use for base-DB-origin mistranslations that cannot be deleted.
+
+- Read only: `false`
+- Side effects: `db_read`, `db_write`
+
+#### Compact Introspection
+
+```bash
+lorairo-cli --json describe "tags translations suppress"
+```
+
+#### Models
+
+**Input `TagsTranslationsSuppressInput`**
+
+- `tag`: `str` (required) - Target canonical tag (positional).
+- `lang`: `ja | en` (required) - Positional.
+- `text`: `str` (required) - Exact translation text to suppress (positional).
+- `project`: `str` (required)
+- `apply`: `bool` (optional, default `False`) - Write to DB. Default is dry-run.
+
+**Output `TagsTranslationsSuppressItem`**
+
+- `tag`: `str` (optional)
+- `tag_id`: `int` (optional)
+- `language`: `str` (optional)
+- `translation`: `str` (optional)
+- `status`: `dry_run | changed` (optional)
+
+**Output `TagsTranslationsSuppressResult`**
+
+既定は dry-run (dry_run=true) で書き込みなし。重複 suppress は冪等。
+
+- `dry_run`: `bool` (optional)
+- `tag_id`: `int` (optional)
+- `language`: `str` (optional)
+
+**Error `CliErrorResponse`**
+
+Structured error payload emitted as kind=error by the CLI boundary.
+
+- `kind`: `error` (required)
+- `ok`: `false` (required)
+- `code`: `str` (required)
+- `message`: `str` (required)
+- `retryable`: `bool` (required)
+- `user_action_required`: `bool` (required)
+- `hint`: `str?` (optional)
+- `details`: `dict?` (optional)
+
+### `tags translations unsuppress`
+
+Remove a suppress tombstone (dry-run by default). Issue #1237.
+
+- Read only: `false`
+- Side effects: `db_read`, `db_write`
+
+#### Compact Introspection
+
+```bash
+lorairo-cli --json describe "tags translations unsuppress"
+```
+
+#### Models
+
+**Input `TagsTranslationsUnsuppressInput`**
+
+- `tag`: `str` (required) - Target canonical tag (positional).
+- `lang`: `ja | en` (required) - Positional.
+- `text`: `str` (required) - Exact translation text to unsuppress (positional).
+- `project`: `str` (required)
+- `apply`: `bool` (optional, default `False`) - Write to DB. Default is dry-run.
+
+**Output `TagsTranslationsUnsuppressItem`**
+
+- `tag`: `str` (optional)
+- `tag_id`: `int` (optional)
+- `language`: `str` (optional)
+- `translation`: `str` (optional)
+- `status`: `dry_run | changed | not_found` (optional) - not_found = tombstone が元々無かった。
+
+**Output `TagsTranslationsUnsuppressResult`**
+
+既定は dry-run (dry_run=true) で書き込みなし。
+
+- `dry_run`: `bool` (optional)
+- `tag_id`: `int` (optional)
+- `language`: `str` (optional)
+- `removed`: `bool` (optional) - 実際に tombstone を削除できたか。
 
 **Error `CliErrorResponse`**
 
