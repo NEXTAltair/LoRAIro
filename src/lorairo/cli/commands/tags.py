@@ -1196,6 +1196,189 @@ def translations_add(
             )
 
 
+def _resolve_translation_target_tag_id(service: TagManagementService, tag: str) -> int:
+    """delete/suppress/unsuppress 対象タグの tag_id を解決する (Issue #1237)。
+
+    既存の翻訳を対象にする操作 (新規登録は伴わない) なので、`tags add` 系が使う
+    typo/曖昧判定込みの `classify_manual_tag` ではなく、`list_translation_candidates` /
+    `set_preferred_translation` と同じ完全一致解決 (`resolve_tag_id`) を使う。
+
+    Raises:
+        click.UsageError: canonical が tag DB で解決できない場合。
+    """
+    tag_id = service.resolve_tag_id(tag)
+    if tag_id is None:
+        raise click.UsageError(f"--tag '{tag}' が tag DB に見つかりません。")
+    return tag_id
+
+
+@trans_app.command("delete")
+def translations_delete(
+    tag: str = typer.Argument(..., help="Target canonical tag"),
+    lang: str = typer.Argument(..., help="Language key: ja | en"),
+    text: str = typer.Argument(..., help="Translation text to delete"),
+    project: str = typer.Option(..., "--project", "-p", help="Project name"),
+    apply: bool = typer.Option(False, "--apply", help="Write to user DB (default: dry-run)"),
+) -> None:
+    """Delete a user DB overlay translation (dry-run by default, Issue #1237).
+
+    `translations add` で追加した user 由来の誤登録翻訳を取り消します。base DB 由来の
+    翻訳行は削除できません (隠すには `translations suppress` を使ってください)。
+
+    Example:
+        lorairo-cli tags translations delete "cat" ja "誤った訳" -p proj --apply
+    """
+    with command_boundary():
+        if lang not in _SUPPORTED_LANGS:
+            raise click.UsageError(f"lang は {'/'.join(_SUPPORTED_LANGS)} のみ対応です。")
+        text_value = text.strip()
+        if not text_value:
+            raise click.UsageError("text に有効な値がありません。")
+        api_get_project(project)
+        container = get_service_container()
+        container.set_active_project(project)
+        service = container.tag_management_service
+
+        tag_id = _resolve_translation_target_tag_id(service, tag)
+        dry_run = not apply
+        deleted = False if dry_run else service.delete_translation(tag_id, lang, text_value)
+
+        payload = {
+            "tag": tag,
+            "tag_id": tag_id,
+            "language": lang,
+            "translation": text_value,
+            "status": "dry_run" if dry_run else ("changed" if deleted else "not_found"),
+        }
+        if is_json_mode():
+            emit_item(payload)
+            emit_result(
+                f"{'[dry-run] ' if dry_run else ''}Translation {'planned for delete' if dry_run else 'delete processed'}",
+                dry_run=dry_run,
+                tag_id=tag_id,
+                language=lang,
+                deleted=deleted,
+            )
+        else:
+            prefix = "[dry-run] " if dry_run else ""
+            if dry_run:
+                console.print(f"{prefix}{OK} '{tag}' ({lang}) '{text_value}' を削除予定")
+            else:
+                console.print(
+                    f"{OK} '{tag}' ({lang}) '{text_value}' を{'削除完了' if deleted else '削除対象なし'}"
+                )
+
+
+@trans_app.command("suppress")
+def translations_suppress(
+    tag: str = typer.Argument(..., help="Target canonical tag"),
+    lang: str = typer.Argument(..., help="Language key: ja | en"),
+    text: str = typer.Argument(..., help="Translation text to suppress"),
+    project: str = typer.Option(..., "--project", "-p", help="Project name"),
+    apply: bool = typer.Option(False, "--apply", help="Write to user DB (default: dry-run)"),
+) -> None:
+    """Suppress a translation from merged display via tombstone (dry-run by default, Issue #1237).
+
+    base DB 由来の誤訳を隠す (base DB 自体は書き換えない)。言語の付け替えは
+    「旧言語行を suppress + 新言語で `translations add`」で行います。
+
+    Example:
+        lorairo-cli tags translations suppress "cat" en "wrong translation" -p proj --apply
+    """
+    with command_boundary():
+        if lang not in _SUPPORTED_LANGS:
+            raise click.UsageError(f"lang は {'/'.join(_SUPPORTED_LANGS)} のみ対応です。")
+        text_value = text.strip()
+        if not text_value:
+            raise click.UsageError("text に有効な値がありません。")
+        api_get_project(project)
+        container = get_service_container()
+        container.set_active_project(project)
+        service = container.tag_management_service
+
+        tag_id = _resolve_translation_target_tag_id(service, tag)
+        dry_run = not apply
+        if not dry_run:
+            service.suppress_translation(tag_id, lang, text_value)
+
+        payload = {
+            "tag": tag,
+            "tag_id": tag_id,
+            "language": lang,
+            "translation": text_value,
+            "status": "dry_run" if dry_run else "changed",
+        }
+        if is_json_mode():
+            emit_item(payload)
+            emit_result(
+                f"{'[dry-run] ' if dry_run else ''}Translation {'planned for suppress' if dry_run else 'suppressed'}",
+                dry_run=dry_run,
+                tag_id=tag_id,
+                language=lang,
+            )
+        else:
+            prefix = "[dry-run] " if dry_run else ""
+            console.print(
+                f"{prefix}{OK} '{tag}' ({lang}) '{text_value}' を{'抑制予定' if dry_run else '抑制完了'}"
+            )
+
+
+@trans_app.command("unsuppress")
+def translations_unsuppress(
+    tag: str = typer.Argument(..., help="Target canonical tag"),
+    lang: str = typer.Argument(..., help="Language key: ja | en"),
+    text: str = typer.Argument(..., help="Translation text to unsuppress"),
+    project: str = typer.Option(..., "--project", "-p", help="Project name"),
+    apply: bool = typer.Option(False, "--apply", help="Write to user DB (default: dry-run)"),
+) -> None:
+    """Remove a suppress tombstone (dry-run by default, Issue #1237).
+
+    `translations suppress` で隠した翻訳を merged 表示へ戻します。
+
+    Example:
+        lorairo-cli tags translations unsuppress "cat" en "wrong translation" -p proj --apply
+    """
+    with command_boundary():
+        if lang not in _SUPPORTED_LANGS:
+            raise click.UsageError(f"lang は {'/'.join(_SUPPORTED_LANGS)} のみ対応です。")
+        text_value = text.strip()
+        if not text_value:
+            raise click.UsageError("text に有効な値がありません。")
+        api_get_project(project)
+        container = get_service_container()
+        container.set_active_project(project)
+        service = container.tag_management_service
+
+        tag_id = _resolve_translation_target_tag_id(service, tag)
+        dry_run = not apply
+        removed = False if dry_run else service.unsuppress_translation(tag_id, lang, text_value)
+
+        payload = {
+            "tag": tag,
+            "tag_id": tag_id,
+            "language": lang,
+            "translation": text_value,
+            "status": "dry_run" if dry_run else ("changed" if removed else "not_found"),
+        }
+        if is_json_mode():
+            emit_item(payload)
+            emit_result(
+                f"{'[dry-run] ' if dry_run else ''}Tombstone {'planned for removal' if dry_run else 'removal processed'}",
+                dry_run=dry_run,
+                tag_id=tag_id,
+                language=lang,
+                removed=removed,
+            )
+        else:
+            prefix = "[dry-run] " if dry_run else ""
+            if dry_run:
+                console.print(f"{prefix}{OK} '{tag}' ({lang}) '{text_value}' の抑制解除を予定")
+            else:
+                console.print(
+                    f"{OK} '{tag}' ({lang}) '{text_value}' の抑制解除を{'完了' if removed else '対象なし'}"
+                )
+
+
 @app.command("alias")
 def alias_tag(
     project: str = typer.Option(..., "--project", "-p", help="Project name"),

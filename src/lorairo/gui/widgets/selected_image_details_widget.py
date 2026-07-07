@@ -27,6 +27,7 @@ from PySide6.QtWidgets import (
     QHBoxLayout,
     QLabel,
     QMenu,
+    QMessageBox,
     QScrollArea,
     QSizePolicy,
     QToolButton,
@@ -496,11 +497,12 @@ class SelectedImageDetailsWidget(QWidget):
         manager.worker_terminal.connect(self._on_tag_metadata_terminal)
 
     def set_tag_management_service(self, service: "TagManagementService") -> None:
-        """tagdb userdb 系書き込みサービスを配線する (#989)。
+        """tagdb userdb 系書き込みサービスを配線する (#989 / #1237)。
 
-        翻訳追加 (`translation_add_requested`) と type 補正 (`tag_metadata_edit_requested`)
-        を受けて canonical→tag_id を解決し、user DB overlay へ書き込む。保存先は image DB
-        系 (この画像の soft-reject 等) とは独立で、canonical 主キーで全画像に反映される。
+        翻訳追加 (`translation_add_requested`)、翻訳削除 (`translation_delete_requested`)、
+        翻訳抑制 (`translation_suppress_requested`)、type 補正 (`tag_metadata_edit_requested`)
+        を受けて canonical→tag_id を解決し、user DB overlay へ書き込む。保存先は image DB 系
+        (この画像の soft-reject 等) とは独立で、canonical 主キーで全画像に反映される。
 
         Args:
             service: canonical 解決 + user DB 書き込みを担う TagManagementService。
@@ -508,6 +510,8 @@ class SelectedImageDetailsWidget(QWidget):
         self._tag_management_service = service
         self.annotation_display.translation_add_requested.connect(self._on_translation_add)
         self.annotation_display.translation_preferred_requested.connect(self._on_translation_preferred)
+        self.annotation_display.translation_delete_requested.connect(self._on_translation_delete)
+        self.annotation_display.translation_suppress_requested.connect(self._on_translation_suppress)
         self.annotation_display.tag_metadata_edit_requested.connect(self._on_tag_metadata_edit)
         # 翻訳管理ダイアログの候補訳 provider を注入する (#1084)。canonical+language で
         # 候補訳と現在の主訳を返す。ダイアログは DB 非依存のまま候補を表示できる。
@@ -1133,6 +1137,87 @@ class SelectedImageDetailsWidget(QWidget):
         self.annotation_display.update_language_selector(
             self._available_languages, prefer=language, force_prefer=True
         )
+        self._reload_current_image()
+
+    @Slot(str, str, str)
+    def _on_translation_delete(self, canonical: str, language: str, translation: str) -> None:
+        """誤登録翻訳の削除要求を user DB へ dispatch し再表示する (#1237)。
+
+        canonical を tag_id へ解決して user DB overlay から翻訳 patch 行を削除する。
+        削除は確認済み (TagPanelWidget 側で `QMessageBox.question` 済み) の破壊的操作。
+        保存先は image DB 系と独立 (canonical 主キー・画像 ID 非依存)。
+
+        `delete_translation` は user overlay に無い行 (base DB 由来、または未登録)
+        に対して `False` を返し何も変更しない。base DB 由来の訳はこの経路では削除
+        できないため、確認済みで実行しても無言で何も起きないと「削除したのに戻る」ように
+        見える (code-reviewer 指摘)。`False` のときは書き込み系の後処理 (再ベースライン/
+        キャッシュ無効化/reload) を一切行わず、`QMessageBox.information` で代替手段
+        (`translation_suppress_requested`) を案内する。
+        """
+        service = self._tag_management_service
+        if service is None:
+            return
+        tag_id = service.resolve_tag_id(canonical)
+        if tag_id is None:
+            logger.warning(f"翻訳削除をスキップ (tag_id 未解決): canonical='{canonical}'")
+            return
+        if not service.delete_translation(tag_id, language, translation):
+            logger.info(
+                "翻訳削除は no-op (user overlay に無し、元データベース由来の可能性): "
+                "canonical='{}', language={}",
+                canonical,
+                language,
+            )
+            QMessageBox.information(
+                self,
+                "この翻訳は削除できません",
+                f"'{canonical}' ({language}) の翻訳 '{translation}' は元データベース由来のため"
+                "削除できません。\n表示から隠すには、翻訳を修正ダイアログの"
+                "「表示から隠す (抑制)」を使ってください。",
+            )
+            return
+        # widget 自身の user DB 書き込みを poll が外部変更と誤検知してカスケードするのを防ぐ (#1225)
+        self._rebaseline_user_db_signature()
+        # 削除で翻訳品質 (missing 等) の refinement 判定が変わり得るため、stale な表示が
+        # 残らないよう refinement キャッシュを無効化する (翻訳追加/主訳変更パスと同方針)。
+        if self._refinement_service is not None:
+            self._refinement_service.clear_cache()
+        # 当該言語の翻訳が全て消えて available_languages から落ちている可能性があるため
+        # 再取得する。選択中の言語は変えない (prefer 未指定で現在の選択を保つ)。
+        if self._merged_reader is not None:
+            self._available_languages = self._merged_reader.get_tag_languages()
+        self.annotation_display.update_language_selector(self._available_languages)
+        self._reload_current_image()
+
+    @Slot(str, str, str)
+    def _on_translation_suppress(self, canonical: str, language: str, translation: str) -> None:
+        """base DB 由来の誤訳を merged 表示から隠す抑制要求を dispatch する (#1237)。
+
+        canonical を tag_id へ解決して tombstone を書き込む (base DB 自体は変更しない)。
+        抑制は確認済み (TagPanelWidget 側で `QMessageBox.question` 済み) の破壊的操作。
+        `delete_translation` が `False` を返す base DB 由来の誤訳を隠す代替手段として使う。
+        書き込み後は翻訳削除/追加と同じ後処理 (再ベースライン + refinement キャッシュ
+        無効化 + 言語一覧再取得 + reload) を行う。
+        """
+        service = self._tag_management_service
+        if service is None:
+            return
+        tag_id = service.resolve_tag_id(canonical)
+        if tag_id is None:
+            logger.warning(f"翻訳抑制をスキップ (tag_id 未解決): canonical='{canonical}'")
+            return
+        service.suppress_translation(tag_id, language, translation)
+        # widget 自身の user DB 書き込みを poll が外部変更と誤検知してカスケードするのを防ぐ (#1225)
+        self._rebaseline_user_db_signature()
+        # 抑制で翻訳品質 (missing 等) の refinement 判定が変わり得るため、stale な表示が
+        # 残らないよう refinement キャッシュを無効化する (翻訳削除/追加と同方針)。
+        if self._refinement_service is not None:
+            self._refinement_service.clear_cache()
+        # 当該言語の翻訳が merged 表示から全て消えて available_languages から落ちている
+        # 可能性があるため再取得する。選択中の言語は変えない (prefer 未指定で選択を保つ)。
+        if self._merged_reader is not None:
+            self._available_languages = self._merged_reader.get_tag_languages()
+        self.annotation_display.update_language_selector(self._available_languages)
         self._reload_current_image()
 
     @Slot(str, str)

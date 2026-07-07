@@ -10,6 +10,7 @@ from typing import NamedTuple, cast
 from genai_tag_db_tools import (
     TagReaderProtocol,
     TagWriterProtocol,
+    delete_user_translation,
     get_all_type_names,
     get_format_type_names,
     get_preferred_translations_batch,
@@ -22,6 +23,8 @@ from genai_tag_db_tools import (
     search_tags,
     search_tags_batch,
     set_preferred_translation,
+    suppress_translation,
+    unsuppress_translation,
     update_tags_type_batch,
     write_user_translation,
 )
@@ -792,6 +795,97 @@ class TagManagementService:
                 "Error adding translation: tag_id={}, language={}: {}", tag_id, language, e
             )
             raise
+
+    def delete_translation(self, tag_id: int, language: str, translation: str) -> bool:
+        """user DB overlay の翻訳 patch 行を削除します (#1237)。
+
+        誤登録された翻訳の取り消しに使う。`write_user_translation` で追加した user 由来の
+        翻訳のみ削除可能で、base DB 由来の翻訳行は削除できない (隠すには
+        `suppress_translation` を使う)。free function を呼ぶ (同名の service メソッドでは
+        なく lib 公開 API、self. 無しで module global 解決)。
+
+        Args:
+            tag_id: 削除対象タグの tag_id。
+            language: 言語コード (例: "ja")。
+            translation: 削除する翻訳文字列。
+
+        Returns:
+            patch 行を削除できたら True。元々無ければ False。
+
+        Raises:
+            ValueError: tag_id がどの scope にも存在しない場合。
+        """
+        try:
+            deleted: bool = delete_user_translation(self.repository, tag_id, language, translation)
+            logger.info(
+                "Deleted translation overlay: tag_id={}, language={}, deleted={}",
+                tag_id,
+                language,
+                deleted,
+            )
+        except ValueError as e:
+            logger.opt(exception=True).error(
+                "Error deleting translation: tag_id={}, language={}: {}", tag_id, language, e
+            )
+            raise
+        return deleted
+
+    def suppress_translation(self, tag_id: int, language: str, translation: str) -> None:
+        """指定した翻訳を merged 表示から隠す tombstone を書きます (#1237)。
+
+        base DB 由来の誤訳は削除できないため、言語の付け替えは「旧言語行の suppress +
+        新言語での `add_translation`」で表現する。free function を呼ぶ (同名の service
+        メソッドではなく lib 公開 API、self. 無しで module global 解決)。
+
+        Args:
+            tag_id: 対象タグの tag_id。
+            language: 隠す翻訳の言語コード。
+            translation: 隠す翻訳文字列。
+
+        Raises:
+            ValueError: tag_id がどの scope にも存在しない場合。
+        """
+        try:
+            suppress_translation(self.repository, tag_id, language, translation)
+            logger.info(
+                "Suppressed translation: tag_id={}, language={}",
+                tag_id,
+                language,
+            )
+        except ValueError as e:
+            logger.opt(exception=True).error(
+                "Error suppressing translation: tag_id={}, language={}: {}", tag_id, language, e
+            )
+            raise
+
+    def unsuppress_translation(self, tag_id: int, language: str, translation: str) -> bool:
+        """`suppress_translation` の tombstone を取り消します (#1237)。
+
+        Args:
+            tag_id: 対象タグの tag_id。
+            language: 言語コード。
+            translation: 抑制を解除する翻訳文字列。
+
+        Returns:
+            tombstone を削除できたら True。元々無ければ False。
+
+        Raises:
+            ValueError: tag_id がどの scope にも存在しない場合。
+        """
+        try:
+            removed: bool = unsuppress_translation(self.repository, tag_id, language, translation)
+            logger.info(
+                "Unsuppressed translation: tag_id={}, language={}, removed={}",
+                tag_id,
+                language,
+                removed,
+            )
+        except ValueError as e:
+            logger.opt(exception=True).error(
+                "Error unsuppressing translation: tag_id={}, language={}: {}", tag_id, language, e
+            )
+            raise
+        return removed
 
     def list_translation_candidates(self, canonical: str, language: str) -> tuple[list[str], str | None]:
         """canonical タグの指定言語の候補訳一覧と現在の主訳を返す (#1084)。

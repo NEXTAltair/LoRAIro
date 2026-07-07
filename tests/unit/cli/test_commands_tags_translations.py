@@ -779,3 +779,138 @@ class TestTranslationsAddBatch:
             ["--json", "tags", "translations", "add", "-p", "proj", "--file", path],
         )
         assert result.exit_code != 0
+
+
+@pytest.mark.unit
+class TestTranslationsDelete:
+    def test_dry_run_does_not_write(self, mock_env: MagicMock) -> None:
+        result = runner.invoke(
+            app,
+            ["--json", "tags", "translations", "delete", "cat", "ja", "誤訳", "-p", "proj"],
+        )
+        assert result.exit_code == 0
+        mock_env.tag_management_service.delete_translation.assert_not_called()
+        row = next(r for r in _rows(result.stdout) if r.get("kind") == "result")
+        assert row["dry_run"] is True
+
+    def test_apply_deletes_translation(self, mock_env: MagicMock) -> None:
+        mock_env.tag_management_service.delete_translation.return_value = True
+        result = runner.invoke(
+            app,
+            ["--json", "tags", "translations", "delete", "cat", "ja", "誤訳", "-p", "proj", "--apply"],
+        )
+        assert result.exit_code == 0
+        mock_env.tag_management_service.resolve_tag_id.assert_called_once_with("cat")
+        mock_env.tag_management_service.delete_translation.assert_called_once_with(10, "ja", "誤訳")
+        item = next(r for r in _rows(result.stdout) if r.get("kind") == "item")
+        assert item["status"] == "changed"
+
+    def test_apply_reports_not_found_when_nothing_deleted(self, mock_env: MagicMock) -> None:
+        mock_env.tag_management_service.delete_translation.return_value = False
+        result = runner.invoke(
+            app,
+            ["--json", "tags", "translations", "delete", "cat", "ja", "誤訳", "-p", "proj", "--apply"],
+        )
+        assert result.exit_code == 0
+        item = next(r for r in _rows(result.stdout) if r.get("kind") == "item")
+        assert item["status"] == "not_found"
+
+    def test_unresolved_tag_rejected(self, mock_env: MagicMock) -> None:
+        mock_env.tag_management_service.resolve_tag_id.return_value = None
+        result = runner.invoke(
+            app,
+            ["--json", "tags", "translations", "delete", "unknown", "ja", "誤訳", "-p", "proj"],
+        )
+        assert result.exit_code == 2
+        mock_env.tag_management_service.delete_translation.assert_not_called()
+
+    def test_invalid_lang_rejected(self, mock_env: MagicMock) -> None:
+        result = runner.invoke(
+            app,
+            ["tags", "translations", "delete", "cat", "fr", "chat", "-p", "proj"],
+        )
+        assert result.exit_code == 2
+
+    def test_empty_text_rejected(self, mock_env: MagicMock) -> None:
+        result = runner.invoke(
+            app,
+            ["tags", "translations", "delete", "cat", "ja", "  ", "-p", "proj"],
+        )
+        assert result.exit_code == 2
+
+
+@pytest.mark.unit
+class TestTranslationsSuppress:
+    def test_dry_run_does_not_write(self, mock_env: MagicMock) -> None:
+        result = runner.invoke(
+            app,
+            ["--json", "tags", "translations", "suppress", "cat", "en", "wrong", "-p", "proj"],
+        )
+        assert result.exit_code == 0
+        mock_env.tag_management_service.suppress_translation.assert_not_called()
+        row = next(r for r in _rows(result.stdout) if r.get("kind") == "result")
+        assert row["dry_run"] is True
+
+    def test_apply_suppresses_translation(self, mock_env: MagicMock) -> None:
+        result = runner.invoke(
+            app,
+            ["--json", "tags", "translations", "suppress", "cat", "en", "wrong", "-p", "proj", "--apply"],
+        )
+        assert result.exit_code == 0
+        mock_env.tag_management_service.resolve_tag_id.assert_called_once_with("cat")
+        mock_env.tag_management_service.suppress_translation.assert_called_once_with(10, "en", "wrong")
+        item = next(r for r in _rows(result.stdout) if r.get("kind") == "item")
+        assert item["status"] == "changed"
+
+    def test_unresolved_tag_rejected(self, mock_env: MagicMock) -> None:
+        mock_env.tag_management_service.resolve_tag_id.return_value = None
+        result = runner.invoke(
+            app,
+            ["--json", "tags", "translations", "suppress", "unknown", "en", "wrong", "-p", "proj"],
+        )
+        assert result.exit_code == 2
+        mock_env.tag_management_service.suppress_translation.assert_not_called()
+
+
+@pytest.mark.unit
+class TestTranslationsUnsuppress:
+    def test_dry_run_does_not_write(self, mock_env: MagicMock) -> None:
+        result = runner.invoke(
+            app,
+            ["--json", "tags", "translations", "unsuppress", "cat", "en", "wrong", "-p", "proj"],
+        )
+        assert result.exit_code == 0
+        mock_env.tag_management_service.unsuppress_translation.assert_not_called()
+        row = next(r for r in _rows(result.stdout) if r.get("kind") == "result")
+        assert row["dry_run"] is True
+
+    def test_apply_removes_tombstone(self, mock_env: MagicMock) -> None:
+        mock_env.tag_management_service.unsuppress_translation.return_value = True
+        result = runner.invoke(
+            app,
+            ["--json", "tags", "translations", "unsuppress", "cat", "en", "wrong", "-p", "proj", "--apply"],
+        )
+        assert result.exit_code == 0
+        mock_env.tag_management_service.resolve_tag_id.assert_called_once_with("cat")
+        mock_env.tag_management_service.unsuppress_translation.assert_called_once_with(10, "en", "wrong")
+        item = next(r for r in _rows(result.stdout) if r.get("kind") == "item")
+        assert item["status"] == "changed"
+
+    def test_apply_reports_not_found_when_nothing_removed(self, mock_env: MagicMock) -> None:
+        mock_env.tag_management_service.unsuppress_translation.return_value = False
+        result = runner.invoke(
+            app,
+            ["--json", "tags", "translations", "unsuppress", "cat", "en", "wrong", "-p", "proj", "--apply"],
+        )
+        assert result.exit_code == 0
+        item = next(r for r in _rows(result.stdout) if r.get("kind") == "item")
+        assert item["status"] == "not_found"
+
+    def test_unresolved_tag_rejected(self, mock_env: MagicMock) -> None:
+        mock_env.tag_management_service.resolve_tag_id.return_value = None
+        result = runner.invoke(
+            app,
+            ["--json", "tags", "translations", "unsuppress", "unknown", "en", "wrong", "-p", "proj"],
+        )
+        assert result.exit_code == 2
+        mock_env.tag_management_service.unsuppress_translation.assert_not_called()
