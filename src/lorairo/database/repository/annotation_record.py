@@ -1259,27 +1259,45 @@ class AnnotationRepository(BaseRepository):
             tag_id = register_result.tag_id
             logger.debug(f"Registered new tag_id {tag_id} for '{normalized_tag}'")
             return cast("int | None", tag_id)
-        except ValueError as ve:
-            logger.error(f"Tag registration failed (invalid format/type): {ve}")
-            return None
         except IntegrityError:
             # 競合検出（他のプロセスが同時に登録）→ リトライ
             logger.warning("Race condition detected during tag registration, retrying search...")
-            try:
-                merged_reader = self._get_merged_reader()
-                if merged_reader is None:
-                    return None
-                retry_result = search_tags(merged_reader, search_request)
-                if retry_result.items and len(retry_result.items) > 0:
-                    tag_id = retry_result.items[0].tag_id
-                    logger.debug(f"Found tag_id {tag_id} on retry for '{normalized_tag}'")
-                    return cast("int | None", tag_id)
-            except Exception as retry_error:
-                logger.opt(exception=True).error(f"Retry search failed: {retry_error}")
+            return self._retry_new_tag_search(normalized_tag, search_request)
+        except ValueError as ve:
+            # genai-tag-db-tools は FK IntegrityError を ValueError に包んで返す (#1239)。
+            # FK/DB 操作失敗由来なら競合として retry し、無効な format/type 等はそのまま
+            # None 縮退させる。
+            if self._is_retryable_db_error(ve):
+                logger.warning("Race condition (wrapped) during tag registration, retrying search...")
+                return self._retry_new_tag_search(normalized_tag, search_request)
+            logger.error(f"Tag registration failed (invalid format/type): {ve}")
             return None
         except Exception as reg_error:
             logger.opt(exception=True).error(f"Unexpected error during tag registration: {reg_error}")
             return None
+
+    def _retry_new_tag_search(self, normalized_tag: str, search_request: TagSearchRequest) -> int | None:
+        """競合検出後、merged reader で全 format exact リトライ検索する。
+
+        Args:
+            normalized_tag: 正規化済みタグ文字列（ログ用）。
+            search_request: リトライ検索用のリクエストオブジェクト。
+
+        Returns:
+            見つかった tag_id。失敗時は None。
+        """
+        try:
+            merged_reader = self._get_merged_reader()
+            if merged_reader is None:
+                return None
+            retry_result = search_tags(merged_reader, search_request)
+            if retry_result.items and len(retry_result.items) > 0:
+                tag_id = retry_result.items[0].tag_id
+                logger.debug(f"Found tag_id {tag_id} on retry for '{normalized_tag}'")
+                return cast("int | None", tag_id)
+        except Exception as retry_error:
+            logger.opt(exception=True).error(f"Retry search failed: {retry_error}")
+        return None
 
     def batch_resolve_tag_ids(self, normalized_tags: set[str]) -> dict[str, int | None]:
         """正規化済みタグ文字列の集合に対して外部タグDBのtag_idを一括解決する。
@@ -1356,6 +1374,30 @@ class AnnotationRepository(BaseRepository):
         for tag_str in missing_tags:
             result[tag_str] = self._register_single_tag(tag_str)
 
+    @staticmethod
+    def _is_retryable_db_error(error: Exception) -> bool:
+        """genai-tag-db-tools が ValueError に包んだ FK / DB 操作失敗を retry 対象と判定する。
+
+        submodule は sqlite3/SQLAlchemy の IntegrityError を ValueError
+        (``データベース操作に失敗しました: ...`` / ``DB operation failed: ...``) に変換して
+        返すため、LoRAIro 側の ``except IntegrityError`` では捕捉できない (#1239)。
+        並行登録由来の FK 制約失敗・DB 操作失敗のみ retry し、正規化後空文字などの正当な
+        入力エラーは message pattern に一致しないため retry しない。
+
+        Args:
+            error: register_tag が送出した例外。
+
+        Returns:
+            競合として retry すべきなら True。
+        """
+        message = str(error)
+        retryable_markers = (
+            "FOREIGN KEY constraint failed",
+            "データベース操作に失敗しました",
+            "DB operation failed",
+        )
+        return any(marker in message for marker in retryable_markers)
+
     def _register_single_tag(self, tag_str: str) -> int | None:
         """単一タグを外部DBに登録し、tag_idを返す。
 
@@ -1385,6 +1427,17 @@ class AnnotationRepository(BaseRepository):
             # 競合検出 → リトライ検索
             logger.warning(f"Race condition for '{tag_str}', retrying search...")
             return self._retry_tag_search(tag_str)
+        except ValueError as value_error:
+            # genai-tag-db-tools は sqlite3/SQLAlchemy IntegrityError を ValueError に包んで
+            # 返す (repository.py の DB_OPERATION_FAILED / "DB operation failed") ため、
+            # 上の except IntegrityError では FK 制約由来の競合を捕捉できない (#1239)。
+            # FK / DB 操作失敗由来の ValueError のみ競合として retry し、正規化空文字などの
+            # 正当な入力エラー (message pattern 非一致) は retry せず None を返す。
+            if self._is_retryable_db_error(value_error):
+                logger.warning(f"Race condition (wrapped) for '{tag_str}', retrying search...")
+                return self._retry_tag_search(tag_str)
+            logger.error(f"Tag registration failed for '{tag_str}': {value_error}")
+            return None
         except Exception as reg_error:
             logger.error(f"Tag registration failed for '{tag_str}': {reg_error}")
             return None
