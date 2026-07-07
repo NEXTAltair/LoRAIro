@@ -24,6 +24,8 @@ class _FakeTagService:
         self.type_updates: list[tuple[int, str]] = []
         # 主訳変更 (canonical, language, translation) の記録 (#1084)。
         self.preferred: list[tuple[str, str, str]] = []
+        # 翻訳削除 (tag_id, language, translation) の記録 (#1237)。
+        self.deleted: list[tuple[int, str, str]] = []
 
     def resolve_tag_id(self, canonical: str) -> int | None:
         self.resolved.append(canonical)
@@ -31,6 +33,10 @@ class _FakeTagService:
 
     def add_translation(self, tag_id: int, language: str, translation: str) -> None:
         self.translations.append((tag_id, language, translation))
+
+    def delete_translation(self, tag_id: int, language: str, translation: str) -> bool:
+        self.deleted.append((tag_id, language, translation))
+        return True
 
     def update_single_tag_type(self, tag_id: int, type_name: str) -> None:
         self.type_updates.append((tag_id, type_name))
@@ -175,6 +181,51 @@ def test_translation_add_skipped_when_tag_id_unresolved(qtbot, monkeypatch) -> N
 
     assert service.resolved == ["unknown_tag"]
     assert service.translations == []
+
+
+def test_translation_delete_dispatches_to_service(qtbot, monkeypatch) -> None:
+    """translation_delete_requested → resolve_tag_id → delete_translation (#1237)。"""
+    service = _FakeTagService(resolve_to=42)
+    widget = _make_widget(qtbot, monkeypatch, service)
+
+    widget._on_translation_delete("1girl", "ja", "误訳")
+
+    assert service.resolved == ["1girl"]
+    assert service.deleted == [(42, "ja", "误訳")]
+
+
+def test_translation_delete_skipped_when_tag_id_unresolved(qtbot, monkeypatch) -> None:
+    """canonical→tag_id が解決できなければ削除しない。"""
+    service = _FakeTagService(resolve_to=None)
+    widget = _make_widget(qtbot, monkeypatch, service)
+
+    widget._on_translation_delete("unknown_tag", "ja", "误訳")
+
+    assert service.resolved == ["unknown_tag"]
+    assert service.deleted == []
+
+
+def test_translation_delete_clears_refinement_cache_before_reeval(qtbot, monkeypatch) -> None:
+    """翻訳削除後は再評価前に refinement キャッシュを無効化する (翻訳追加/type補正と同方針)。"""
+    service = _FakeTagService(resolve_to=42)
+    widget = _make_widget(qtbot, monkeypatch, service)
+    refinement = _FakeRefinementService()
+    widget._refinement_service = refinement  # type: ignore[assignment]
+
+    widget._on_translation_delete("1girl", "ja", "误訳")
+
+    assert refinement.clear_cache_calls == 1
+
+
+def test_translation_delete_independent_of_image_id(qtbot, monkeypatch) -> None:
+    """翻訳削除は canonical 主キーで current_image_id に依存しない (#1237)。"""
+    service = _FakeTagService(resolve_to=7)
+    widget = _make_widget(qtbot, monkeypatch, service)
+    widget.current_image_id = None  # 画像未選択でも削除できる
+
+    widget._on_translation_delete("flower", "ja", "花(誤)")
+
+    assert service.deleted == [(7, "ja", "花(誤)")]
 
 
 def test_type_edit_skipped_without_service(qtbot, monkeypatch) -> None:

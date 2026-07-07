@@ -1626,6 +1626,60 @@ def test_translation_fix_dialog_cancel_emits_nothing(panel, sample_tags, monkeyp
     assert received == []
 
 
+def test_translation_fix_dialog_delete_button_requires_selection(qtbot):
+    """「この翻訳を削除」ボタンは行選択済みのときだけ有効。"""
+    dialog = tpw.TranslationFixDialog("dress", {"ja": "连衣裙", "en": "dress"})
+    qtbot.addWidget(dialog)
+
+    assert not dialog._delete_button.isEnabled()  # 未選択
+    dialog._table.selectRow(0)
+    assert dialog._delete_button.isEnabled()
+
+
+def test_translation_fix_dialog_delete_click_sets_delete_action(qtbot):
+    """削除ボタン押下で action()="delete" になり、選択行の元翻訳を返す。"""
+    dialog = tpw.TranslationFixDialog("dress", {"ja": "连衣裙", "en": "dress"})
+    qtbot.addWidget(dialog)
+    dialog._table.selectRow(0)
+
+    dialog._on_delete_clicked()
+
+    assert dialog.action() == "delete"
+    assert dialog.language() == "ja"
+    assert dialog.original_translation() == "连衣裙"
+
+
+def test_translation_fix_dialog_emits_translation_delete_requested(panel, sample_tags, qtbot, monkeypatch):
+    """削除確定 (確認ダイアログ Yes) で translation_delete_requested(canonical, lang, tr) を出す。"""
+    panel.set_tags(sample_tags, translations={10: {"ja": "连衣裙"}}, available_languages=["ja"], image_id=1)
+
+    def fill(dialog):
+        dialog._table.selectRow(0)
+        dialog._on_delete_clicked()
+
+    _accept_dialog(monkeypatch, "TranslationFixDialog", fill)
+    monkeypatch.setattr(tpw.QMessageBox, "question", lambda *a, **k: tpw.QMessageBox.StandardButton.Yes)
+    with qtbot.waitSignal(panel.translation_delete_requested, timeout=1000) as blocker:
+        panel._open_translation_fix_dialog("1girl")
+    assert blocker.args == ["1girl", "ja", "连衣裙"]
+
+
+def test_translation_fix_dialog_delete_confirmation_declined_emits_nothing(panel, sample_tags, monkeypatch):
+    """削除確認ダイアログで No を選ぶと translation_delete_requested を出さない。"""
+    panel.set_tags(sample_tags, translations={10: {"ja": "连衣裙"}}, available_languages=["ja"], image_id=1)
+
+    def fill(dialog):
+        dialog._table.selectRow(0)
+        dialog._on_delete_clicked()
+
+    _accept_dialog(monkeypatch, "TranslationFixDialog", fill)
+    monkeypatch.setattr(tpw.QMessageBox, "question", lambda *a, **k: tpw.QMessageBox.StandardButton.No)
+    received: list = []
+    panel.translation_delete_requested.connect(lambda *a: received.append(a))
+    panel._open_translation_fix_dialog("1girl")
+    assert received == []
+
+
 def test_translation_fix_pending_metadata_blocks_add_fallback(panel, sample_tags, monkeypatch):
     """メタデータ解決中は空翻訳を「翻訳なし」と誤認せず追加ダイアログへ落とさない (Codex P2)。
 
