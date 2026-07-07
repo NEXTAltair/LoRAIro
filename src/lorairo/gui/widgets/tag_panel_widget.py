@@ -548,7 +548,8 @@ class TagTypeEditDialog(QDialog):
     refinement の TYPE_MISMATCH 警告があればヒントを表示する。
     """
 
-    # 補正候補の type 名 (ADR 0083 §2 / Issue #989)。
+    # 補正候補の type 名 (ADR 0083 §2 / Issue #989)。combo の editable 化 (#1234) 後は
+    # 候補サジェストとして機能し、ユーザーは任意の独自 type 名も入力できる。
     TYPE_CHOICES = ("general", "character", "copyright", "meta", "artist")
 
     # 既知 type を渡せないとき先頭に置く非選択プレースホルダ。誤って general で確定して
@@ -581,15 +582,24 @@ class TagTypeEditDialog(QDialog):
         form = QFormLayout()
         form.addRow("タグ (canonical):", QLabel(canonical, self))
         self._type_combo = QComboBox(self)
+        # editable にして danbooru 標準 5 種以外の独自 type 名も入力可能にする (#1234)。
+        # backend (update_tags_type_batch) は未知 type を auto-create する。TYPE_CHOICES は
+        # サジェスト候補として残す。
+        self._type_combo.setEditable(True)
+        self._type_combo.setInsertPolicy(QComboBox.InsertPolicy.NoInsert)
         # 現在の type が分かるならそれを初期選択する (無変更確定は同じ type なので無害)。
-        # 不明ならプレースホルダを先頭に置き、ユーザーに明示選択を強制する。
-        self._has_placeholder = current_type not in self.TYPE_CHOICES
+        # 不明ならプレースホルダを先頭に置き、ユーザーに明示入力を促す。
+        current_is_known = current_type in self.TYPE_CHOICES
+        self._has_placeholder = not current_type
         if self._has_placeholder:
             self._type_combo.addItem(self._PLACEHOLDER)
         for type_name in self.TYPE_CHOICES:
             self._type_combo.addItem(type_name)
-        if not self._has_placeholder:
-            self._type_combo.setCurrentText(current_type)  # type: ignore[arg-type]
+        if current_type and not current_is_known:
+            # 既知 5 種に無い既存の独自 type はサジェスト候補に加えて初期選択する。
+            self._type_combo.addItem(current_type)
+        if current_type:
+            self._type_combo.setCurrentText(current_type)
         form.addRow("タグ種別:", self._type_combo)
         layout.addLayout(form)
 
@@ -600,22 +610,30 @@ class TagTypeEditDialog(QDialog):
         self._buttons.rejected.connect(self.reject)
         layout.addWidget(self._buttons)
 
-        # プレースホルダ選択中は OK を無効化し、明示選択を要求する。
-        if self._has_placeholder:
-            self._type_combo.currentTextChanged.connect(self._update_ok_enabled)
-            self._update_ok_enabled(self._type_combo.currentText())
+        # editable では選択・打鍵の双方で currentTextChanged が飛ぶ。プレースホルダや
+        # 空入力のまま OK 確定して既存 type を空文字で上書きする事故を防ぐため常時接続する
+        # (旧実装は has_placeholder 時のみ接続で、editable 化後は空入力を検知できない)。
+        self._type_combo.currentTextChanged.connect(self._update_ok_enabled)
+        self._update_ok_enabled(self._type_combo.currentText())
+
+    def _normalized_type(self, text: str) -> str:
+        """入力を正規化する。プレースホルダ / 空白のみは空文字扱い。"""
+        stripped = text.strip()
+        return "" if stripped == self._PLACEHOLDER else stripped
 
     @Slot(str)
     def _update_ok_enabled(self, text: str) -> None:
-        """プレースホルダ以外の type が選ばれているときのみ OK を有効化する。"""
+        """非空の type 名 (プレースホルダ・空白のみを除く) のときだけ OK を有効化する。"""
         ok_button = self._buttons.button(QDialogButtonBox.StandardButton.Ok)
         if ok_button is not None:
-            ok_button.setEnabled(text in self.TYPE_CHOICES)
+            ok_button.setEnabled(bool(self._normalized_type(text)))
 
     def selected_type(self) -> str:
-        """選択された type 名を返す。プレースホルダ選択時は空文字を返す。"""
-        text = self._type_combo.currentText()
-        return text if text in self.TYPE_CHOICES else ""
+        """入力された type 名を返す。プレースホルダ / 空白のみは空文字を返す。
+
+        独自 type 名 (TYPE_CHOICES 外) もそのまま返し、backend の auto-create に委ねる (#1234)。
+        """
+        return self._normalized_type(self._type_combo.currentText())
 
 
 class UsageCountsDialog(QDialog):

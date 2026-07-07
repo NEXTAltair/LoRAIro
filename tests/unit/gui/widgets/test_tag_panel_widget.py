@@ -848,6 +848,52 @@ def test_type_dialog_preselects_known_current_type(qtbot):
     assert dialog.selected_type() == "character"
 
 
+def test_type_dialog_accepts_custom_type(qtbot):
+    """#1234: combo は editable で、danbooru 標準 5 種以外の独自 type も入力できる。"""
+    dialog = TagTypeEditDialog("1girl")
+    qtbot.addWidget(dialog)
+    assert dialog._type_combo.isEditable()
+
+    dialog._type_combo.setCurrentText("my_custom_type")
+    assert dialog.selected_type() == "my_custom_type"
+    ok_button = dialog._buttons.button(dialog._buttons.StandardButton.Ok)
+    assert ok_button.isEnabled()
+
+
+def test_type_dialog_custom_type_whitespace_is_rejected(qtbot):
+    """#1234: 空白のみの入力は未選択扱いで OK 無効・selected_type 空文字。"""
+    dialog = TagTypeEditDialog("1girl")
+    qtbot.addWidget(dialog)
+    dialog._type_combo.setCurrentText("   ")
+    assert dialog.selected_type() == ""
+    ok_button = dialog._buttons.button(dialog._buttons.StandardButton.Ok)
+    assert not ok_button.isEnabled()
+
+
+def test_type_dialog_preselects_existing_custom_type(qtbot):
+    """#1234: 既存の独自 type (5 種外) を current_type に渡すとサジェスト+初期選択される。"""
+    dialog = TagTypeEditDialog("1girl", current_type="my_custom_type")
+    qtbot.addWidget(dialog)
+    assert dialog.selected_type() == "my_custom_type"
+    choices = [dialog._type_combo.itemText(i) for i in range(dialog._type_combo.count())]
+    assert "my_custom_type" in choices
+    # プレースホルダは付かない (current_type があるため)。
+    assert TagTypeEditDialog._PLACEHOLDER not in choices
+
+
+def test_type_edit_dialog_emits_custom_type(panel, sample_tags, qtbot, monkeypatch):
+    """#1234: 独自 type 入力で確定すると tag_metadata_edit_requested(canonical, custom) を出す。"""
+    panel.set_tags(sample_tags, image_id=10)
+
+    def fill(dialog):
+        dialog._type_combo.setCurrentText("my_custom_type")
+
+    _accept_dialog(monkeypatch, "TagTypeEditDialog", fill)
+    with qtbot.waitSignal(panel.tag_metadata_edit_requested, timeout=1000) as blocker:
+        panel._open_type_edit_dialog("1girl")
+    assert blocker.args == ["1girl", "my_custom_type"]
+
+
 # ⑬ 使用頻度 第2軸 (metric_source, ADR 0083 §5 / #990) -----------------------
 
 
