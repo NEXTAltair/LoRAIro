@@ -754,6 +754,9 @@ class TagPanelWidget(QWidget):
         self._last_refinements: dict[str, RefinementRecommendation] = {}
         # 候補タグ -> {format: count} (#1052、apply_refinements で更新)
         self._last_candidate_counts: dict[str, dict[str, int]] = {}
+        # 現在の chip 群が refinement (⚠) マークを持つか (#1221)。chip 再生成 (無印) と
+        # 空 refinements の組み合わせで重複 no-op 適用をスキップする判定に使う。
+        self._chips_carry_refinements: bool = False
 
         self._setup_ui()
 
@@ -1516,6 +1519,9 @@ class TagPanelWidget(QWidget):
         """
         self._clear_chip_layout()
         self._tag_chips = []
+        # 旧 chip を破棄した。以後 _add_chip で生成される chip は無印なので、
+        # refinement 保持フラグをリセットする (#1221)。末尾の再反映で必要なら再度立つ。
+        self._chips_carry_refinements = False
 
         # アクティブタグ (✕ 非表示は除外)
         visible_items = [
@@ -1976,13 +1982,24 @@ class TagPanelWidget(QWidget):
     # ─── refinement (#931) ──────────────────────────────────────────────
 
     def _apply_refinements_to_chips(self) -> None:
-        """保持中のリコメンド (_last_refinements) を現在の chip 群へ反映する (#931)。"""
+        """保持中のリコメンド (_last_refinements) を現在の chip 群へ反映する (#931)。
+
+        1 回の画像選択で set_tags / set_rejected_tags / set_tag_metadata_pending 等が
+        各々 chip を再生成し本メソッドを誘発する。refinement が未確定 (空) の間は、
+        再生成直後の無印 chip へ「印なし」を適用するだけの no-op が選択のたびに数回
+        重なり CPU を浪費する (#1221)。適用すべき refinement が無く、かつ現在の chip も
+        無印なら丸ごとスキップする。refinement 確定後や、確定済み ⚠ を消す再適用は
+        従来どおり実行する (⚠ 表示の正しさは不変)。
+        """
+        if not self._last_refinements and not self._chips_carry_refinements:
+            return
         applied = 0
         for chip in self._tag_chips:
             rec = self._last_refinements.get(chip.canonical)
             chip.set_refinement(rec, candidate_counts=self._last_candidate_counts)
             if rec is not None:
                 applied += 1
+        self._chips_carry_refinements = applied > 0
         logger.debug(f"refinement 反映: chip={len(self._tag_chips)}, 印付き={applied}")
 
     # ─── テーブル (TSV コピーバッキング) ────────────────────────────────
