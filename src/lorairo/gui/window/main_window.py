@@ -51,6 +51,7 @@ from ..tab.jobs_tab import JobsTabWidget
 from ..tab.map_tab import MapTabWidget
 from ..tab.results_tab import ResultsTabWidget
 from ..tab.search_tab import SearchTabWidget
+from ..watchdog import MainThreadWatchdog
 from ..widgets.error_notification_widget import ErrorNotificationWidget
 from ..widgets.registration_summary_widget import RegistrationSummaryWidget
 from ..widgets.tag_management_dialog import TagManagementDialog
@@ -174,6 +175,11 @@ class MainWindow(QMainWindow, Ui_MainWindow):
             # Phase 5: ウィンドウ状態の復元（QSettings）
             logger.info("Phase 5: ウィンドウ状態復元開始")
             self._restore_window_state()
+
+            # メインスレッド停滞 watchdog を開始する (#1221)。GUI が「応答なし」に
+            # なった際、どの操作でイベントループが止まったかをログで追えるようにする。
+            self._main_thread_watchdog = MainThreadWatchdog(self)
+            self._main_thread_watchdog.start()
 
             logger.info("MainWindow初期化完了")
 
@@ -1633,6 +1639,10 @@ class MainWindow(QMainWindow, Ui_MainWindow):
             event: クローズイベント
         """
         self._save_window_state()
+        # メインスレッド watchdog を停止する (#1221)。
+        watchdog = getattr(self, "_main_thread_watchdog", None)
+        if watchdog is not None:
+            watchdog.stop()
         # 実行中のエクスポート thread を停止する (埋め込み widget の closeEvent は
         # 親ウィンドウ閉鎖で発火しないため明示的に呼ぶ、#949/#961 P2)。
         if self.export_tab is not None:
