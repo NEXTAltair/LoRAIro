@@ -635,22 +635,27 @@ class SearchTabWidget(QWidget, Ui_SearchTab):
         if len(image_ids) == 0:
             # selected_image_ids (バッチ選択) と current_image_id (詳細表示中の単一画像) は
             # DatasetStateManager 内で独立した状態 (clear_selection / set_selected_images は
-            # current_image_id を触らない)。選択リストが空でも表示中の単一画像があるうちは
-            # 詳細パネルを full clear しない (#1222): _clear_display は current_image_id=None に
-            # するため、直後に完了する tag_metadata / refinement worker の結果が image_id 照合で
-            # 破棄され、タグ / キャプションが空のまま復旧しなくなる。詳細表示の全クリアは
-            # current_image_data_changed 経由 (SelectedImageDetailsWidget._on_image_data_received)
-            # が担当する。ここでは rating/score 表示だけを表示中画像に追従させる。
+            # current_image_id を触らない)。バッチ選択解除で selection_changed([]) が来ても、
+            # 詳細パネルに表示中の単一画像がデータセットに現存する間は full clear しない (#1222):
+            # _clear_display は current_image_id=None にするため、直後に完了する tag_metadata /
+            # refinement worker の結果が image_id 照合で破棄され、タグ / キャプションが空のまま
+            # 復旧しなくなる。ここでは rating/score 表示だけを表示中画像に追従させる。
+            #
+            # ただし clear_dataset は _all_images を空にした後 selection_changed([]) を emit し、
+            # current_image_id を後から None にするだけで current_image_data_changed({}) を送らない
+            # (Codex #1228 P2)。この場合 current_image_id が (emit 時点で) 残っていても
+            # get_image_by_id は None を返すため、その時は詳細を full clear して旧画像を残さない。
             dsm = self._dataset_state_manager
             current_id = dsm.current_image_id if dsm is not None else None
-            if current_id is not None:
-                image_data = dsm.get_image_by_id(current_id) if dsm is not None else None
-                if image_data:
-                    rating_widget.populate_from_image_data(image_data)
+            image_data = (
+                dsm.get_image_by_id(current_id) if (dsm is not None and current_id is not None) else None
+            )
+            if image_data:
+                rating_widget.populate_from_image_data(image_data)
                 logger.debug(f"選択リスト空だが表示中画像 {current_id} を保持 - full clear 抑止 (#1222)")
                 return
             widget._clear_display()
-            logger.debug("選択なし - 詳細表示をクリア")
+            logger.debug("選択なし / 表示中画像がデータセットから消失 - 詳細表示をクリア")
         elif len(image_ids) == 1:
             if self._dataset_state_manager is not None:
                 image_data = self._dataset_state_manager.get_image_by_id(image_ids[0])

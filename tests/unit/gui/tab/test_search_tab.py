@@ -356,6 +356,27 @@ class TestSelectionToDetails:
             {"id": 1033, "rating": "PG"}
         )
 
+    def test_no_selection_clears_display_when_current_image_gone_from_dataset(
+        self, tab: SearchTabWidget
+    ) -> None:
+        """clear_dataset 等で表示中画像がデータセットから消えたら full clear する (#1222 Codex P2)。
+
+        clear_dataset は _all_images を空にした後 selection_changed([]) を emit し、
+        current_image_id を後から None にするだけで current_image_data_changed({}) を
+        送らない。current_image_id が残っていても get_image_by_id が None を返す
+        (データセットから消えた) 場合は詳細を full clear しないと旧画像が残る。
+        """
+        widget = Mock()
+        tab._selected_image_details_widget = widget
+        dsm = Mock()
+        dsm.current_image_id = 1033
+        dsm.get_image_by_id.return_value = None  # データセットクリアで _all_images から消えた
+        tab._dataset_state_manager = dsm
+
+        tab._handle_selection_changed_for_rating([])
+
+        widget._clear_display.assert_called_once_with()
+
     def test_single_selection_populates_from_image_data(self, tab: SearchTabWidget) -> None:
         widget = Mock()
         tab._selected_image_details_widget = widget
