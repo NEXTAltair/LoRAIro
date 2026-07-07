@@ -12,6 +12,7 @@ from typing import Any, ClassVar
 from loguru import logger
 from PIL import Image
 
+from lorairo.filesystem import FileSystemManager
 from lorairo.public_api.exceptions import ImageRegistrationError
 from lorairo.public_api.types import RegistrationResult
 
@@ -39,21 +40,8 @@ class ImageRegistrationService:
     画像ファイルのスキャン、pHash計算、重複検出、プロジェクトへの登録を担当。
     """
 
-    # サポートする画像形式
-    SUPPORTED_EXTENSIONS: ClassVar[set[str]] = {
-        ".jpg",
-        ".jpeg",
-        ".png",
-        ".gif",
-        ".bmp",
-        ".webp",
-        ".JPG",
-        ".JPEG",
-        ".PNG",
-        ".GIF",
-        ".BMP",
-        ".WEBP",
-    }
+    # サポートする画像形式。GUI と同じ FileSystemManager の定義を SSoT とする。
+    SUPPORTED_EXTENSIONS: ClassVar[set[str]] = {ext.lower() for ext in FileSystemManager.image_extensions}
 
     def __init__(self) -> None:
         """初期化。"""
@@ -81,7 +69,7 @@ class ImageRegistrationService:
         """
         if not source.exists():
             raise ImageRegistrationError(f"パスが見つかりません: {source}", 0)
-        if source.is_file() and source.suffix not in self.SUPPORTED_EXTENSIONS:
+        if source.is_file() and source.suffix.lower() not in self.SUPPORTED_EXTENSIONS:
             raise ImageRegistrationError(f"サポートされていない画像形式: {source}", 0)
 
         image_files = self.get_image_files(source)
@@ -230,7 +218,7 @@ class ImageRegistrationService:
         if not directory.is_dir():
             raise ImageRegistrationError(f"ディレクトリではありません: {directory}", 0)
 
-        image_files = self._get_image_files(directory)
+        image_files = self.get_image_files(directory)
         logger.debug(f"重複検出対象: {len(image_files)}個の画像ファイル")
 
         # pHash -> ファイルパスのマッピング
@@ -266,29 +254,12 @@ class ImageRegistrationService:
             list[Path]: 画像ファイルパスのリスト（ソート済み）。
         """
         if source.is_file():
-            if source.suffix in self.SUPPORTED_EXTENSIONS:
+            if source.suffix.lower() in self.SUPPORTED_EXTENSIONS:
                 return [source]
             return []
-        return self._get_image_files(source)
+        return sorted(FileSystemManager.get_image_files(source))
 
     # ==================== プライベートメソッド ====================
-
-    def _get_image_files(self, directory: Path) -> list[Path]:
-        """ディレクトリから画像ファイルを取得。
-
-        Args:
-            directory: 検索対象ディレクトリ。
-
-        Returns:
-            list[Path]: 画像ファイルパスのリスト（ソート済み）。
-        """
-        image_files: list[Path] = []
-
-        for ext in self.SUPPORTED_EXTENSIONS:
-            image_files.extend(directory.glob(f"*{ext}"))
-
-        # 重複排除してソート
-        return sorted(set(image_files))
 
     def _calculate_phash(self, image_path: Path) -> str | None:
         """画像のpHashを計算。
