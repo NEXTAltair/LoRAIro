@@ -79,6 +79,7 @@ class ImageRegistrationService:
         if project_dir:
             dest_dir = project_dir / "image_dataset" / "original_images"
             dest_dir.mkdir(parents=True, exist_ok=True)
+        source_root = source if source.is_dir() else None
 
         logger.info(f"スキャン完了: {len(image_files)}個の画像ファイル")
 
@@ -86,7 +87,7 @@ class ImageRegistrationService:
         tally = _DirectRegistrationTally()
         for image_file in image_files:
             try:
-                self._register_one_direct(image_file, skip_duplicates, dest_dir, tally)
+                self._register_one_direct(image_file, skip_duplicates, dest_dir, source_root, tally)
             except Exception as e:
                 tally.failed += 1
                 error_msg = f"{image_file.name}: {e!s}"
@@ -114,6 +115,7 @@ class ImageRegistrationService:
         image_file: Path,
         skip_duplicates: bool,
         dest_dir: Path | None,
+        source_root: Path | None,
         tally: "_DirectRegistrationTally",
     ) -> None:
         """direct 経路で 1 ファイルを分類・コピーし、tally を in-place 更新する (#633)。
@@ -125,6 +127,7 @@ class ImageRegistrationService:
             image_file: 処理対象の画像ファイル。
             skip_duplicates: 重複をスキップするか。
             dest_dir: コピー先ディレクトリ (None ならコピーしない)。
+            source_root: ディレクトリ登録時のコピー元ルート。指定時は相対パスを保持する。
             tally: 集計カウンタ (in-place 更新)。
         """
         phash = self._calculate_phash(image_file)
@@ -144,7 +147,7 @@ class ImageRegistrationService:
 
         # プロジェクトディレクトリにコピー
         if dest_dir:
-            dest_file = dest_dir / image_file.name
+            dest_file = self._resolve_destination_file(image_file, dest_dir, source_root)
             if not dest_file.exists():
                 shutil.copy2(image_file, dest_file)
 
@@ -164,6 +167,24 @@ class ImageRegistrationService:
         tally.phashs_seen.add(phash)
         if signature is not None:
             tally.signatures_seen.add(signature)
+
+    def _resolve_destination_file(self, image_file: Path, dest_dir: Path, source_root: Path | None) -> Path:
+        """project_dir コピー先を決定する。
+
+        ディレクトリ登録では再帰走査で同名ファイルが複数あり得るため、source_root からの
+        相対パスを保持する。単一ファイル登録や root 外パスでは従来どおり basename に畳む。
+        """
+        if source_root is None:
+            return dest_dir / image_file.name
+
+        try:
+            relative_path = image_file.relative_to(source_root)
+        except ValueError:
+            relative_path = Path(image_file.name)
+
+        dest_file = dest_dir / relative_path
+        dest_file.parent.mkdir(parents=True, exist_ok=True)
+        return dest_file
 
     def _build_dedup_signature(self, image_path: Path, phash: str) -> tuple[str, tuple[Any, ...]] | None:
         """pHash + 分類属性から dedup 署名を構築する (ADR 0061 §4, #633)。

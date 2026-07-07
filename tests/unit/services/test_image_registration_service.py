@@ -301,6 +301,33 @@ class TestRegisterImagesProjectDir:
             assert (dest_dir / src_path.name).is_file()
         assert result.successful == 2
 
+    def test_register_images_with_project_dir_preserves_nested_relative_paths_for_same_basename(
+        self,
+        service: ImageRegistrationService,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """再帰登録時、別サブディレクトリの同名ファイルを上書き・欠落させない (#1267)。"""
+        source_dir = tmp_path / "src"
+        char_a = source_dir / "char_a"
+        char_b = source_dir / "char_b"
+        char_a.mkdir(parents=True)
+        char_b.mkdir(parents=True)
+        _make_image(char_a / "0001.png")
+        _make_image(char_b / "0001.png", color=(0, 255, 0))
+        project_dir = tmp_path / "project"
+        monkeypatch.setattr(service, "_calculate_phash", lambda p: str(p.relative_to(source_dir)))
+
+        result = service.register_images(source_dir, project_dir=project_dir)
+
+        dest_dir = project_dir / "image_dataset" / "original_images"
+        assert (dest_dir / "char_a" / "0001.png").is_file()
+        assert (dest_dir / "char_b" / "0001.png").is_file()
+        assert not (dest_dir / "0001.png").exists()
+        assert result.total == 2
+        assert result.successful == 2
+        assert result.failed == 0
+
     def test_register_images_with_project_dir_does_not_overwrite_existing_destination(
         self, service: ImageRegistrationService, tmp_path: Path
     ) -> None:
