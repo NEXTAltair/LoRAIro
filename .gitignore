@@ -47,7 +47,6 @@ ENV/
 !.agents/skills/lazy-import-refactor
 !.agents/skills/lorairo-cli-db-access
 !.agents/skills/lorairo-design-capture
-!.agents/skills/lorairo-mem
 !.agents/skills/lorairo-qt-widget
 !.agents/skills/lorairo-repository-pattern
 !.agents/skills/lorairo-test-generator

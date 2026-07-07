@@ -15,8 +15,6 @@ allowed-tools:
   - Read
   - Write
   - Bash
-dependencies:
-  - lorairo-mem
 ---
 
 # Test Generation for LoRAIro
@@ -272,14 +270,9 @@ tests/
 クイック品質チェック（Ruff/mypy/pytest）は `make format` / `make mypy` / `uv run pytest` で直接実行する（専用コマンドは不要）。
 エラー診断は superpowers `systematic-debugging` + `build-error-resolver` agent に委ねる。
 
-## Memory Integration
+## Before Writing Tests
 
-**Before writing tests:**
-1. 類似のテストパターン・既存 fixture を確認する（`tests/conftest.py`、近接する `test_*.py`）。
-2. 長期記憶に該当知見があれば [[lorairo-mem]] の `ltm_search.py` で参照する。
-
-**After writing tests:**
-- 再利用価値のあるテスト戦略・モック方針は [[lorairo-mem]] に `type: howto` で保存する。
+類似のテストパターン・既存 fixture を確認する（`tests/conftest.py`、近接する `test_*.py`）。再利用価値のあるテスト戦略・モック方針は `docs/lessons-learned.md` に記録する。
 
 ## Examples
 

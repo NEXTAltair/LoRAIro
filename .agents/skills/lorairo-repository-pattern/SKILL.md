@@ -17,7 +17,6 @@ allowed-tools:
   - Edit
   - Bash
 dependencies:
-  - lorairo-mem
   - sqlalchemy-query-patterns
 ---
 
@@ -205,46 +204,6 @@ SQLite Database
 - **Repository:** Pure data access (CRUD, queries)
 - **Service:** Business logic (validation, workflows, coordination)
 - **Manager:** High-level operations (migrations, initialization)
-
-## Memory-First Workflow
-
-### Before Implementation
-1. **Search past patterns (OpenClaw LTM):**
-   - `python3 .agents/skills/lorairo-mem/scripts/ltm_search.py <<< '{"filters":{"tags":["repository-pattern","sqlalchemy"]}}'` → Past repository implementations
-2. **Check project status (Serena):**
-   3. **Explore existing repositories (Serena):**
-   
-### During Implementation
-**Track progress (Serena):**
-```markdown
-Grep(
-  memory_name="active-development-tasks",
-  content="## Implementing {Entity}Repository
-  - [x] Basic CRUD operations
-  - [ ] Complex queries
-  - [ ] Error handling
-  - [ ] Unit tests"
-)
-```
-
-### After Implementation
-**Store knowledge (OpenClaw LTM):**
-```bash
-curl -sS -X POST http://host.docker.internal:18789/hooks/lorairo-memory \
-  -H "Authorization: Bearer $HOOK_TOKEN" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "title": "LoRAIro {Entity}Repository Implementation",
-    "summary": "Session management via context manager, type-safe search criteria using dataclass",
-    "body": "# Implementation Details\n\n- Session management via context manager\n- Type-safe search criteria using dataclass\n- Transaction safety for batch operations\n- Comprehensive error handling with logging",
-    "type": "decision",
-    "importance": "Medium",
-    "tags": ["repository-pattern", "sqlalchemy", "database"],
-    "source": "Container"
-  }'
-```
-
-See [](..//SKILL.md) for complete workflow.
 
 ## Best Practices Checklist
 

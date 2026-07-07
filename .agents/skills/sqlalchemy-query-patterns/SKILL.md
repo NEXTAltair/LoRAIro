@@ -19,7 +19,6 @@ allowed-tools:
   - Bash
 dependencies:
   - lorairo-repository-pattern
-  - lorairo-mem
 ---
 
 # SQLAlchemy Efficient Query Patterns

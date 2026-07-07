@@ -22,19 +22,14 @@
    - Analyze structure, methods, session handling
    - Identify common patterns to follow
 
-   **Phase 2: Check Memory for Patterns**
-   - `lorairo-mem ltm_search.py` for "repository pattern"
-   - Look for past repository implementations
-   - Review design decisions
-
-   **Phase 3: Implement Following Pattern**
+   **Phase 2: Implement Following Pattern**
    - Create ExportConfigRepository class
    - Implement CRUD methods (create, get_by_id, update, delete)
    - Add session management
    - Type hints for all methods
    - Proper error handling
 
-   **Phase 4: Test Creation**
+   **Phase 3: Test Creation**
    - Suggest creating tests following pattern
    - Reference pytest fixtures from existing repository tests
 
@@ -53,7 +48,6 @@
 ## Success Criteria
 - [x] Correct skill invoked (lorairo-repository-pattern)
 - [x] Explores existing repositories before implementing
-- [x] Checks memory for past patterns
 - [x] Implementation follows LoRAIro conventions
 - [x] All CRUD methods included
 - [x] Type hints present
@@ -71,10 +65,7 @@ After running this scenario:
 2. Check exploration phase:
    - Used `find_symbol` to examine ImageRepository or TagRepository
    - Analyzed existing patterns before implementing
-3. Check memory integration:
-   - Searched OpenClaw for repository patterns
-   - Applied past knowledge to new implementation
-4. Verify repository structure:
+3. Verify repository structure:
    ```python
    class ExportConfigRepository:
        def __init__(self, session: Session): ...
