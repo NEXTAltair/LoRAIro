@@ -375,7 +375,7 @@ class RatingScoreEditWidget(QWidget):
         header.addWidget(human_badge)
         header.addWidget(human_caption)
         header.addStretch(1)
-        self._manual_edit_chip = QLabel("MANUAL_EDIT", self)
+        self._manual_edit_chip = QLabel("手動補正あり", self)
         self._manual_edit_chip.setStyleSheet(theme.chip_qss("accent"))
         self._manual_edit_chip.setVisible(False)
         header.addWidget(self._manual_edit_chip)
@@ -407,7 +407,7 @@ class RatingScoreEditWidget(QWidget):
     def _build_footnote(self) -> QLabel:
         """カード末尾の注記ラベルを構築して返す。"""
         footnote = QLabel(
-            "quality_score 0-10（ADR 0029）· AI と source 分離 · 手動補正は is_edited_manually",
+            "スコアは 0〜10。AI 評価と手動補正は別々に記録されます。",
             self,
         )
         footnote.setStyleSheet(_footnote_qss())
@@ -435,7 +435,7 @@ class RatingScoreEditWidget(QWidget):
             self._ai_score_value.setText("--")
 
     def _update_manual_edit_state(self) -> None:
-        """手動値が AI と異なるかを判定し MANUAL_EDIT chip と Δ 表示を更新する。"""
+        """手動値が AI と異なるかを判定し手動補正 chip と Δ 表示を更新する。"""
         manual_rating = self.ui.comboBoxRating.currentText()
         manual_score_ui = self.ui.sliderScore.value()
 
