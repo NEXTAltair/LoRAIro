@@ -694,6 +694,18 @@ class TestThumbnailSelectorWidgetPagination:
         assert widget.pagination_state is not old_pagination_state
         assert getattr(widget.pagination_state, "_dataset_state", None) is new_state
 
+    def test_set_dataset_state_connects_selection_sync_without_prior_disconnect_warning(self, qtbot):
+        widget = ThumbnailSelectorWidget()
+        qtbot.addWidget(widget)
+
+        assert widget.dataset_state is None
+        assert widget._selection_sync_connected is False
+
+        widget.set_dataset_state(DatasetStateManager())
+
+        assert widget.dataset_state is not None
+        assert widget._selection_sync_connected is True
+
     def test_display_or_request_page_cancels_pending_request(self, widget_with_state):
         widget, _ = widget_with_state
         worker_service = Mock()
