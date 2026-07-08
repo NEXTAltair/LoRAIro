@@ -137,6 +137,7 @@ class ThumbnailSelectorWidget(QWidget, Ui_ThumbnailSelectorWidget):
         self.resize_timer = QTimer(self)
         self.resize_timer.setSingleShot(True)
         self.resize_timer.timeout.connect(self.update_thumbnail_layout)
+        self._selection_sync_connected = False
 
         # ヘッダー部分の接続設定
         self._setup_header_connections()
@@ -146,7 +147,7 @@ class ThumbnailSelectorWidget(QWidget, Ui_ThumbnailSelectorWidget):
         if self.dataset_state:
             self._connect_dataset_state()
             # ドラッグ選択の同期（scene → DatasetStateManager）
-            self.scene.selectionChanged.connect(self._sync_selection_to_state)
+            self._connect_selection_sync()
             self._ensure_pagination_state()
 
     def _setup_header_connections(self) -> None:
@@ -739,11 +740,22 @@ class ThumbnailSelectorWidget(QWidget, Ui_ThumbnailSelectorWidget):
         self._ensure_pagination_state()
 
         # scene.selectionChanged は多重接続を避けて再接続
-        try:
-            self.scene.selectionChanged.disconnect(self._sync_selection_to_state)
-        except Exception:
-            pass
+        self._disconnect_selection_sync()
+        self._connect_selection_sync()
+
+    def _connect_selection_sync(self) -> None:
+        """scene.selectionChanged から DatasetState への同期を一度だけ接続する。"""
+        if self._selection_sync_connected:
+            return
         self.scene.selectionChanged.connect(self._sync_selection_to_state)
+        self._selection_sync_connected = True
+
+    def _disconnect_selection_sync(self) -> None:
+        """接続済みの場合だけ scene.selectionChanged の同期を切断する。"""
+        if not self._selection_sync_connected:
+            return
+        self.scene.selectionChanged.disconnect(self._sync_selection_to_state)
+        self._selection_sync_connected = False
 
     def _connect_dataset_state(self) -> None:
         """
