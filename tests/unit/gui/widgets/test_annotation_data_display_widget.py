@@ -105,6 +105,23 @@ class TestAnnotationDataDisplayWidget:
         assert widget._tags_compact_label.focusPolicy() == Qt.FocusPolicy.StrongFocus
         assert widget._caption_compact_label.focusPolicy() == Qt.FocusPolicy.StrongFocus
 
+    def test_caption_placeholder_is_visually_distinct_from_real_caption(self, widget):
+        """未設定 placeholder は本文と見分けられる style で表示する。"""
+        widget.update_data(AnnotationData(caption=""))
+
+        assert widget._caption_compact_label.text() == "キャプションが表示されます"
+        assert "font-style: italic" in widget._caption_compact_label.styleSheet()
+
+        widget.update_data(AnnotationData(caption="real caption"))
+
+        assert widget._caption_compact_label.text() == "real caption"
+        assert widget._caption_compact_label.styleSheet() == ""
+
+        widget.clear_data()
+
+        assert widget._caption_compact_label.text() == "キャプションが表示されます"
+        assert "font-style: italic" in widget._caption_compact_label.styleSheet()
+
     def test_label_clipboard_text_prefers_selected_text(self, widget):
         """QLabelのcontext copyは選択範囲を優先すること"""
         widget._tags_compact_label.setText("1girl, flower, solo")
