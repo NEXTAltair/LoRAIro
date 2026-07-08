@@ -123,13 +123,48 @@ def test_export_tab_builds_three_pane_layout(
 def test_set_image_ids_updates_current_export_ids(
     qtbot, service_container: Mock, staging_manager: StagingStateManager
 ) -> None:
-    """set_image_ids がエクスポート対象 ID を更新すること。"""
+    """非表示時の set_image_ids は ID だけ更新し、重い再描画は遅延する。"""
     widget = ExportTabWidget(service_container=service_container, staging_state_manager=staging_manager)
     qtbot.addWidget(widget)
+    widget._populate = Mock()
 
     widget.set_image_ids([4, 5, 6])
 
     assert widget.current_export_ids() == [4, 5, 6]
+    widget._populate.assert_not_called()
+    assert widget._staging_refresh_pending is True
+
+
+@pytest.mark.gui
+def test_hidden_staging_change_populates_once_when_shown(qtbot, export_tab_with_staging) -> None:
+    """非表示中に受けた staging 変更は表示時に 1 回だけ反映する (#1272)。"""
+    tab, staging = export_tab_with_staging
+    tab._populate = Mock()
+
+    staging.add_image_ids([1, 2, 3])
+
+    assert tab.current_export_ids() == [1, 2, 3]
+    tab._populate.assert_not_called()
+
+    tab.show()
+    qtbot.waitUntil(lambda: tab.isVisible(), timeout=1000)
+
+    tab._populate.assert_called_once_with([1, 2, 3])
+    assert tab._staging_refresh_pending is False
+
+
+@pytest.mark.gui
+def test_visible_staging_change_populates_immediately(qtbot, export_tab_with_staging) -> None:
+    """表示中の staging 変更は従来通り即時反映する。"""
+    tab, staging = export_tab_with_staging
+    tab.show()
+    qtbot.waitUntil(lambda: tab.isVisible(), timeout=1000)
+    tab._populate = Mock()
+
+    staging.add_image_ids([1, 2, 3])
+
+    tab._populate.assert_called_once_with([1, 2, 3])
+    assert tab._staging_refresh_pending is False
 
 
 @pytest.mark.gui
@@ -333,8 +368,8 @@ def test_populate_clears_stale_current_image(
     dsm.set_current_image(42)
     assert dsm.current_image_id == 42
 
-    # 42 を含まない新集合へ更新 (db_manager=None なので metadata は空、画像集合だけ評価)
-    widget.set_image_ids([1, 2, 3])
+    # 42 を含まない新集合で populate (db_manager=None なので metadata は空、画像集合だけ評価)
+    widget._populate([1, 2, 3])
 
     assert dsm.current_image_id is None
 
@@ -729,6 +764,8 @@ def test_populate_updates_available_resolutions_from_service(
 
     widget = ExportTabWidget(service_container=service_container, staging_state_manager=staging_manager)
     qtbot.addWidget(widget)
+    widget.show()
+    qtbot.waitUntil(lambda: widget.isVisible(), timeout=1000)
     staging_manager.add_image_ids([1, 2])
 
     combo = widget._overlay_bar._resolution_combo

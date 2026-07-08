@@ -25,7 +25,7 @@ from typing import TYPE_CHECKING, Any
 
 from loguru import logger
 from PySide6.QtCore import QSettings, Qt, QThread, Slot
-from PySide6.QtGui import QCloseEvent
+from PySide6.QtGui import QCloseEvent, QShowEvent
 from PySide6.QtWidgets import QFileDialog, QMessageBox, QSplitter, QVBoxLayout, QWidget
 
 from ...database.db_core import resolve_stored_path
@@ -99,6 +99,7 @@ class ExportTabWidget(QWidget):
         self._image_ids: list[int] = (
             staging_state_manager.get_image_ids() if staging_state_manager is not None else []
         )
+        self._staging_refresh_pending = False
 
         # 左ペインのタグ絞り込み状態 (#949)。None = 絞り込みなし (全 staged 表示)。
         self._active_filter_tag: str | None = None
@@ -329,6 +330,18 @@ class ExportTabWidget(QWidget):
     def set_image_ids(self, image_ids: list[int]) -> None:
         """エクスポート対象の画像 ID を更新し、サムネ・集計へ反映する。"""
         self._image_ids = list(image_ids)
+        if not self.isVisible():
+            self._staging_refresh_pending = True
+            return
+        self._staging_refresh_pending = False
+        self._populate(self._image_ids)
+
+    def showEvent(self, event: QShowEvent) -> None:
+        """非表示中に溜めた staging 更新を表示時に一度だけ反映する。"""
+        super().showEvent(event)
+        if not self._staging_refresh_pending:
+            return
+        self._staging_refresh_pending = False
         self._populate(self._image_ids)
 
     def refresh(self) -> None:
