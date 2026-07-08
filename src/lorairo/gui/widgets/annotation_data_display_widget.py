@@ -48,6 +48,9 @@ if TYPE_CHECKING:
 
     from .tag_cloud_widget import FlowLayout
 
+_CAPTION_PLACEHOLDER_TEXT = "キャプションが表示されます"
+_CAPTION_PLACEHOLDER_QSS = "QLabel { color: #7f8c8d; font-style: italic; }"
+
 
 @dataclass
 class AnnotationData:
@@ -319,11 +322,20 @@ class AnnotationDataDisplayWidget(QWidget, Ui_AnnotationDataDisplayWidget):
     def _setup_caption_compact_view(self) -> None:
         self._caption_compact_label = QLabel(self.groupBoxCaption)
         self._caption_compact_label.setWordWrap(True)
-        self._caption_compact_label.setText("キャプションが表示されます")
+        self._set_caption_compact_text("", is_placeholder=True)
         self._caption_compact_label.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Minimum)
         self._make_label_copyable(self._caption_compact_label)
         self.verticalLayoutCaption.insertWidget(0, self._caption_compact_label)
         self.textEditCaption.setVisible(False)
+
+    def _set_caption_compact_text(self, caption: str, *, is_placeholder: bool) -> None:
+        """compact caption label に本文または placeholder を区別して表示する。"""
+        if is_placeholder:
+            self._caption_compact_label.setText(_CAPTION_PLACEHOLDER_TEXT)
+            self._caption_compact_label.setStyleSheet(_CAPTION_PLACEHOLDER_QSS)
+            return
+        self._caption_compact_label.setText(caption)
+        self._caption_compact_label.setStyleSheet("")
 
     def _setup_score_labels_compact_view(self) -> None:
         """スコアラベル compact pill コンテナの初期化 (ADR 0028)。
@@ -505,13 +517,12 @@ class AnnotationDataDisplayWidget(QWidget, Ui_AnnotationDataDisplayWidget):
         """キャプション表示を更新"""
         try:
             if caption:
-                self._caption_compact_label.setText(caption)
+                self._set_caption_compact_text(caption, is_placeholder=False)
                 self.textEditCaption.setText(caption)
             else:
-                placeholder = "キャプションが表示されます"
-                self._caption_compact_label.setText(placeholder)
+                self._set_caption_compact_text("", is_placeholder=True)
                 self.textEditCaption.setText("")
-                self.textEditCaption.setPlaceholderText(placeholder)
+                self.textEditCaption.setPlaceholderText(_CAPTION_PLACEHOLDER_TEXT)
 
         except Exception as e:
             logger.error(f"Error updating caption display: {e}")
@@ -662,8 +673,8 @@ class AnnotationDataDisplayWidget(QWidget, Ui_AnnotationDataDisplayWidget):
             self._tag_panel.clear()
 
             self.textEditCaption.clear()
-            self.textEditCaption.setPlaceholderText("キャプションが表示されます")
-            self._caption_compact_label.setText("キャプションが表示されます")
+            self.textEditCaption.setPlaceholderText(_CAPTION_PLACEHOLDER_TEXT)
+            self._set_caption_compact_text("", is_placeholder=True)
 
             self.labelScoreTypeValue.setText("-")
             self.labelOverallValue.setText("0")
