@@ -152,6 +152,10 @@ def test_hidden_staging_change_populates_once_when_shown(qtbot, export_tab_with_
     tab._populate.assert_called_once_with([1, 2, 3])
     assert tab._staging_refresh_pending is False
 
+    tab.refresh()
+
+    tab._populate.assert_called_once_with([1, 2, 3])
+
 
 @pytest.mark.gui
 def test_visible_staging_change_populates_immediately(qtbot, export_tab_with_staging) -> None:

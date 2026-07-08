@@ -351,7 +351,10 @@ class ExportTabWidget(QWidget):
         ``StagingStateManager`` を読み直して対象件数の整合を取る (#896)。
         """
         if self._staging_state_manager is not None:
-            self.set_image_ids(self._staging_state_manager.get_image_ids())
+            image_ids = self._staging_state_manager.get_image_ids()
+            if self.isVisible() and not self._staging_refresh_pending and image_ids == self._image_ids:
+                return
+            self.set_image_ids(image_ids)
 
     def current_export_ids(self) -> list[int]:
         """現在のエクスポート対象 ID を返す (テスト・検証用)。"""
