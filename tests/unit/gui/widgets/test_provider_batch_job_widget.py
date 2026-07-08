@@ -15,6 +15,7 @@ from types import SimpleNamespace
 from unittest.mock import MagicMock
 
 import pytest
+from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QLabel
 
 import lorairo.gui.widgets.provider_batch_job_widget as widget_module
@@ -324,6 +325,12 @@ def test_card_shows_shortened_batch_id_and_request_count(widget, dependencies):
     labels = [w.text() for w in card.findChildren(QLabel)]
     assert any("batch_68a…9f2c" in text for text in labels)
     assert any("512 requests" in text for text in labels)
+    batch_id_label = card.findChild(QLabel, "labelCardBatchId")
+    assert batch_id_label is not None
+    assert batch_id_label.toolTip() == "batch_68a41f0e2c9f2c"
+    flags = batch_id_label.textInteractionFlags()
+    assert flags & Qt.TextInteractionFlag.TextSelectableByMouse
+    assert flags & Qt.TextInteractionFlag.TextSelectableByKeyboard
 
 
 # === 状態確認 (refresh → fetch → import) ===
@@ -702,6 +709,10 @@ def test_card_expansion_loads_detail_and_items(widget, dependencies, qtbot):
     labels = [w.text() for w in card._expansion.findChildren(QLabel)]
     assert any("batch_42" in text for text in labels)
     assert any("validating" in text for text in labels)
+    provider_id_label = next(w for w in card._expansion.findChildren(QLabel) if w.text() == "batch_42")
+    flags = provider_id_label.textInteractionFlags()
+    assert flags & Qt.TextInteractionFlag.TextSelectableByMouse
+    assert flags & Qt.TextInteractionFlag.TextSelectableByKeyboard
 
 
 @pytest.mark.unit

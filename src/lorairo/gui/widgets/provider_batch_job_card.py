@@ -300,6 +300,10 @@ class ProviderBatchJobCard(QFrame):
         bid_color = theme.INK_SOFT if self._is_terminal() else theme.INK
         bid = QLabel(_shorten_batch_id(self._job))
         bid.setObjectName("labelCardBatchId")
+        bid.setTextInteractionFlags(
+            Qt.TextInteractionFlag.TextSelectableByMouse | Qt.TextInteractionFlag.TextSelectableByKeyboard
+        )
+        bid.setToolTip(str(getattr(self._job, "provider_job_id", "") or ""))
         bid.setStyleSheet(
             f"QLabel {{ color: {bid_color}; font-weight: 700;"
             f" font-family: {theme.FONT_MONO_CSS}; font-size: {theme.FONT_SIZE_BASE}px; }}"
@@ -662,6 +666,10 @@ class ProviderBatchJobCard(QFrame):
                 f" font-family: {theme.FONT_MONO_CSS}; border: none; }}"
             )
             value_label = QLabel(value)
+            value_label.setTextInteractionFlags(
+                Qt.TextInteractionFlag.TextSelectableByMouse
+                | Qt.TextInteractionFlag.TextSelectableByKeyboard
+            )
             value_label.setStyleSheet(
                 f"QLabel {{ color: {theme.INK}; font-size: {theme.FONT_SIZE_SMALL}px;"
                 f" font-family: {theme.FONT_MONO_CSS}; border: none; }}"
