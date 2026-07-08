@@ -3,6 +3,7 @@
 from unittest.mock import Mock
 
 import pytest
+from PySide6.QtWidgets import QLabel
 
 from lorairo.gui.widgets.rating_score_edit_widget import RatingScoreEditWidget
 
@@ -205,6 +206,16 @@ class TestRatingScoreEditWidgetAiSection:
         assert hasattr(widget, "_manual_edit_chip")
         assert hasattr(widget, "_delta_label")
 
+    def test_card_labels_do_not_expose_developer_notes(self, widget):
+        """ユーザー向けカードに ADR 番号や DB カラム名を表示しない。"""
+        visible_text = "\n".join(
+            label.text() for label in widget.findChildren(QLabel) if label.text() and not label.isHidden()
+        )
+
+        for developer_term in ("ADR", "quality_score", "source 分離", "is_edited_manually", "MANUAL_EDIT"):
+            assert developer_term not in visible_text
+        assert "AI 評価と手動補正" in visible_text
+
     def test_ai_section_renders_ai_values(self, widget):
         """ai_rating / ai_score_value が AI セクションに描画される"""
         widget.populate_from_image_data(
@@ -270,7 +281,7 @@ class TestRatingScoreEditWidgetAiSection:
         assert all(not button.isChecked() for button in widget._rating_segmented._buttons.values())
 
     def test_manual_edit_chip_hidden_when_equal_to_ai(self, widget):
-        """手動値が AI と一致する初期状態では MANUAL_EDIT chip は非表示"""
+        """手動値が AI と一致する初期状態では手動補正 chip は非表示"""
         widget.populate_from_image_data(
             {"id": 6, "rating": "R", "score_value": 6.0, "ai_rating": "R", "ai_score_value": 6.0}
         )
@@ -278,22 +289,24 @@ class TestRatingScoreEditWidgetAiSection:
         assert widget._delta_label.isVisibleTo(widget) is False
 
     def test_manual_edit_chip_shown_when_score_differs(self, widget):
-        """手動スコアを AI から変更すると MANUAL_EDIT chip と Δ が表示される"""
+        """手動スコアを AI から変更すると手動補正 chip と Δ が表示される"""
         widget.populate_from_image_data(
             {"id": 7, "rating": "R", "score_value": 6.0, "ai_rating": "R", "ai_score_value": 6.0}
         )
         widget.ui.sliderScore.setValue(650)
         assert widget._manual_edit_chip.isVisibleTo(widget) is True
+        assert widget._manual_edit_chip.text() == "手動補正あり"
         assert widget._delta_label.isVisibleTo(widget) is True
         assert widget._delta_label.text() == "Δ +0.50 vs AI"
 
     def test_manual_edit_chip_shown_when_rating_differs(self, widget):
-        """手動レーティングを AI から変更すると MANUAL_EDIT chip が表示される"""
+        """手動レーティングを AI から変更すると手動補正 chip が表示される"""
         widget.populate_from_image_data(
             {"id": 8, "rating": "R", "score_value": 6.0, "ai_rating": "R", "ai_score_value": 6.0}
         )
         widget._rating_segmented._buttons["X"].click()
         assert widget._manual_edit_chip.isVisibleTo(widget) is True
+        assert widget._manual_edit_chip.text() == "手動補正あり"
 
     def test_combo_box_hidden_in_two_tier_card(self, widget):
         """comboBoxRating は SegmentedControl の裏で非表示の SSoT として保持される"""
