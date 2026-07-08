@@ -17,6 +17,7 @@ from PySide6.QtWidgets import (
     QFrame,
     QGridLayout,
     QHBoxLayout,
+    QHeaderView,
     QLabel,
     QProgressBar,
     QPushButton,
@@ -154,6 +155,11 @@ class SyncJobLedgerWidget(DsCard):
         self.tableSyncJobs.setObjectName("tableSyncJobs")
         self.tableSyncJobs.setColumnCount(len(_COLUMNS))
         self.tableSyncJobs.setHorizontalHeaderLabels(list(_COLUMNS))
+        header = self.tableSyncJobs.horizontalHeader()
+        for column in (0, 2, 3, 4, 6):
+            header.setSectionResizeMode(column, QHeaderView.ResizeMode.ResizeToContents)
+        for column in (1, 5):
+            header.setSectionResizeMode(column, QHeaderView.ResizeMode.Stretch)
         self.tableSyncJobs.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
         self.tableSyncJobs.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
         self.tableSyncJobs.verticalHeader().setVisible(False)

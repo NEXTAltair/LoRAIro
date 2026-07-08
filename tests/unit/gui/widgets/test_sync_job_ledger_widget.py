@@ -5,7 +5,7 @@ from __future__ import annotations
 from datetime import datetime
 
 import pytest
-from PySide6.QtWidgets import QProgressBar, QPushButton
+from PySide6.QtWidgets import QHeaderView, QProgressBar, QPushButton
 
 from lorairo.gui.widgets.ds_card import DsCard
 from lorairo.gui.widgets.sync_job_ledger_widget import SyncJobLedgerWidget
@@ -51,6 +51,15 @@ class TestSyncJobLedgerWidget:
         # DsCard 化に伴い見出しはタイトルラベルとして描画される (QGroupBox.title() 依存を除去)。
         assert widget._title_label is not None
         assert widget._title_label.text() == "実行中 / 履歴（同期ジョブ）"
+
+    def test_table_columns_use_wide_window_space(self, widget):
+        """タイトルとサマリー列を伸縮させ、広い Jobs タブの余白を活用する。"""
+        header = widget.tableSyncJobs.horizontalHeader()
+
+        assert header.sectionResizeMode(1) == QHeaderView.ResizeMode.Stretch
+        assert header.sectionResizeMode(5) == QHeaderView.ResizeMode.Stretch
+        for column in (0, 2, 3, 4, 6):
+            assert header.sectionResizeMode(column) == QHeaderView.ResizeMode.ResizeToContents
 
     def test_set_entries_renders_rows(self, widget):
         entries = [
