@@ -203,14 +203,27 @@ class TestStagingListManagement:
 class TestTagNormalization:
     """Tag normalization and validation tests"""
 
+    def test_normalize_tag_preserves_case(self, qtbot):
+        """大文字小文字を保持する (#1288)。
+
+        翻訳は大小を区別して照合されるため (genai-tag-db-tools#139)、
+        入口で小文字化すると `Uの字口` のような大文字混じり翻訳へ到達できなくなる。
+        """
+        widget = BatchTagAddWidget()
+        qtbot.addWidget(widget)
+
+        assert widget._normalize_tag("  Uの字口  ") == "Uの字口"
+        assert widget._normalize_tag("Aiki") == "Aiki"
+        assert widget._normalize_tag("Cat_Ears") == "Cat Ears"
+
     def test_normalize_tag_basic(self, qtbot):
         """Test basic tag normalization (lowercase + strip)"""
         widget = BatchTagAddWidget()
         qtbot.addWidget(widget)
 
-        assert widget._normalize_tag("LANDSCAPE") == "landscape"
-        assert widget._normalize_tag("  Nature  ") == "nature"
-        assert widget._normalize_tag("  Urban SCENE  ") == "urban scene"
+        assert widget._normalize_tag("landscape") == "landscape"
+        assert widget._normalize_tag("  nature  ") == "nature"
+        assert widget._normalize_tag("  urban_scene  ") == "urban scene"
 
     def test_normalize_tag_empty(self, qtbot):
         """Test empty tag normalization"""
@@ -248,7 +261,7 @@ class TestTagAddRequest:
         widget = widget_with_staging
 
         # Enter tag
-        widget.ui.lineEditTag.setText("  LANDSCAPE  ")
+        widget.ui.lineEditTag.setText("  Cat_Ears  ")
 
         # Click add button
         with qtbot.waitSignal(widget.tag_add_requested, timeout=1000) as blocker:
@@ -257,7 +270,7 @@ class TestTagAddRequest:
         # Verify signal emission with normalized tag
         image_ids, tag = blocker.args
         assert image_ids == [1, 2]
-        assert tag == "landscape"  # Normalized
+        assert tag == "Cat Ears"  # clean_format + strip (大小は保持、#1288)
 
         # Verify tag input cleared
         assert widget.ui.lineEditTag.text() == ""

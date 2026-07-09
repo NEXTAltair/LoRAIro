@@ -493,7 +493,10 @@ class AnnotationRepository(BaseRepository):
             logger.warning("Empty tag for batch add")
             return (False, 0)
 
-        input_tag = tag.strip().lower()
+        # 外部 tag_db の翻訳は case-sensitive に照合されるため、検索キーは大小を保持する
+        # (genai-tag-db-tools#139 / #1288)。小文字化は保存値の fallback と dedup キー
+        # (`_dedup_key`) に限定する。
+        input_tag = tag.strip()
         added_count = 0
 
         with self.session_factory() as session:

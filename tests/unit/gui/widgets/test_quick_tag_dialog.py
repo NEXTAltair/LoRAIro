@@ -83,14 +83,14 @@ class TestQuickTagDialogAddClicked:
         dialog = QuickTagDialog(image_ids=[1, 2])
         qtbot.addWidget(dialog)
 
-        dialog._tag_input.setText("  LANDSCAPE  ")
+        dialog._tag_input.setText("  Cat_Ears  ")
 
         with qtbot.waitSignal(dialog.tag_add_requested, timeout=1000) as blocker:
             dialog._on_add_clicked()
 
         image_ids, tag = blocker.args
         assert image_ids == [1, 2]
-        assert tag == "landscape"
+        assert tag == "Cat Ears"
 
 
 class TestQuickTagDialogNormalization:
@@ -101,8 +101,15 @@ class TestQuickTagDialogNormalization:
         dialog = QuickTagDialog(image_ids=[1])
         qtbot.addWidget(dialog)
 
-        result = dialog._normalize_tag("  LANDSCAPE  ")
+        result = dialog._normalize_tag("  landscape  ")
         assert result == "landscape"
+
+    def test_normalize_tag_preserves_case(self, qtbot):
+        """大文字小文字を保持する (#1288)。"""
+        dialog = QuickTagDialog(image_ids=[1])
+        qtbot.addWidget(dialog)
+
+        assert dialog._normalize_tag("  Uの字口  ") == "Uの字口"
 
     def test_normalize_tag_empty(self, qtbot):
         """空文字の正規化"""

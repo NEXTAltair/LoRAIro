@@ -36,7 +36,12 @@ if TYPE_CHECKING:
 
 
 def normalize_tag(tag: str) -> str:
-    """タグを正規化する（TagCleaner.clean_format() + lower + strip）。
+    """タグを正規化する（TagCleaner.clean_format() + strip）。
+
+    大文字小文字は保持する。外部 tag_db の翻訳は case-sensitive に照合されるため
+    (genai-tag-db-tools#139)、ここで小文字化すると `Uの字口` のような大文字混じり
+    翻訳へ到達できず、既存タグが「未登録」と誤判定される (#1288)。
+    保存時の重複判定は Repository 層が小文字化キーで行う。
 
     Args:
         tag: 入力タグ文字列
@@ -47,7 +52,7 @@ def normalize_tag(tag: str) -> str:
     cleaned: str | None = TagCleaner.clean_format(tag)
     if cleaned is None:
         return ""
-    return cleaned.strip().lower()
+    return cleaned.strip()
 
 
 class BatchTagAddWidget(QWidget):
@@ -60,7 +65,7 @@ class BatchTagAddWidget(QWidget):
     データフロー:
     1. "選択中の画像を追加" -> StagingWidget.add_selected_images() 経由でステージングに追加
     2. ステージングリストに追加（最大500枚、重複なし）
-    3. タグ入力 -> 正規化（lower + strip）
+    3. タグ入力 -> 正規化（clean_format + strip、大小は保持）
     4. "追加" -> tag_add_requested シグナル発行
     5. MainWindow が ImageDBWriteService.add_tag_batch() で DB 更新
 
@@ -216,7 +221,7 @@ class BatchTagAddWidget(QWidget):
             tag: 入力タグ文字列
 
         Returns:
-            正規化されたタグ（TagCleaner.clean_format() + lower + strip）
+            正規化されたタグ（TagCleaner.clean_format() + strip、大小は保持）
         """
         return normalize_tag(tag)
 

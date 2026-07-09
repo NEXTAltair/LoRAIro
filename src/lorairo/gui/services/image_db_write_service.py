@@ -230,8 +230,8 @@ class ImageDBWriteService:
 
         Args:
             image_ids: 対象画像のIDリスト
-            tag: 追加するタグ（Widget側で TagCleaner.clean_format() + lower + strip 済み前提）
-                 Service側では防御的に strip().lower() を再適用
+            tag: 追加するタグ（Widget側で TagCleaner.clean_format() + strip 済み前提）
+                 大小は保持する (外部 tag_db の翻訳照合が case-sensitive のため、#1288)
 
         Returns:
             bool: 成功した場合 True、失敗した場合 False
@@ -242,8 +242,8 @@ class ImageDBWriteService:
             3. 全件成功 or 全件ロールバック（原子性保証）
 
         Note:
-            タグ正規化は主に呼び出し元（BatchTagAddWidget）で実施。
-            Service側は防御的に追加の strip().lower() を適用。
+            タグ正規化は呼び出し元（BatchTagAddWidget / QuickTagDialog）で実施。
+            重複判定用の小文字化は Repository 層 (`_dedup_key`) が行う。
         """
         try:
             if not image_ids:
