@@ -113,6 +113,9 @@ class DatasetExportService:
         )
 
         reader = self._get_export_reader()
+        translation_cache_by_language: dict[str, dict[str, str]] = {
+            language: {} for language, _ in language_roots
+        }
         exported_count = 0
         for image_id in image_ids:
             try:
@@ -149,7 +152,14 @@ class DatasetExportService:
                     # Copy processed image
                     self.file_system_manager.copy_file(processed_image_path, output_image_path)
 
-                    tags = ", ".join(self._translate_export_tag_list(canonical_tags, tag_language, reader))
+                    tags = ", ".join(
+                        self._translate_export_tag_list(
+                            canonical_tags,
+                            tag_language,
+                            reader,
+                            translation_cache_by_language[tag_language],
+                        )
+                    )
                     if merge_caption and captions:
                         tags = f"{tags}, {captions}" if tags else captions
 
@@ -222,6 +232,9 @@ class DatasetExportService:
         )
 
         reader = self._get_export_reader()
+        translation_cache_by_language: dict[str, dict[str, str]] = {
+            language: {} for language, _ in language_roots
+        }
         metadata_by_language: dict[str, dict[str, dict[str, Any]]] = {
             language: {} for language, _ in language_roots
         }
@@ -266,7 +279,12 @@ class DatasetExportService:
                     self.file_system_manager.copy_file(processed_image_path, output_image_path)
                     metadata_by_language[tag_language][str(output_image_path)] = {
                         "tags": ", ".join(
-                            self._translate_export_tag_list(canonical_tags, tag_language, reader)
+                            self._translate_export_tag_list(
+                                canonical_tags,
+                                tag_language,
+                                reader,
+                                translation_cache_by_language[tag_language],
+                            )
                         ),
                         "caption": captions,
                         "score_labels": score_labels,
@@ -451,15 +469,23 @@ class DatasetExportService:
         tag_list: list[str],
         tag_language: str,
         reader: "MergedTagReader | None",
+        translation_cache: dict[str, str] | None = None,
     ) -> list[str]:
         """canonical タグリストを指定言語の主訳で置換する（訳なしは fallback）。"""
         if tag_language == _CANONICAL_TAG_LANGUAGE or not tag_list or reader is None:
             return tag_list
 
         unique_tags = list(dict.fromkeys(tag_list))
+        if translation_cache is not None:
+            missing_tags = [tag for tag in unique_tags if tag not in translation_cache]
+            if not missing_tags:
+                return [translation_cache.get(tag, tag) for tag in tag_list]
+        else:
+            missing_tags = unique_tags
+
         try:
             search_results = search_tags_batch(
-                reader, unique_tags, format_names=None, resolve_preferred=False
+                reader, missing_tags, format_names=None, resolve_preferred=False
             )
             tag_ids_by_tag = {
                 tag: tag_ids
@@ -476,6 +502,8 @@ class DatasetExportService:
                 tag_language,
                 e,
             )
+            if translation_cache is not None:
+                translation_cache.update({tag: tag for tag in missing_tags})
             return tag_list
 
         translations_by_tag = {
@@ -492,7 +520,11 @@ class DatasetExportService:
                 )
             )
         }
-        return [translations_by_tag.get(tag, tag) for tag in tag_list]
+        resolved_missing_tags = {tag: translations_by_tag.get(tag, tag) for tag in missing_tags}
+        if translation_cache is not None:
+            translation_cache.update(resolved_missing_tags)
+            return [translation_cache.get(tag, tag) for tag in tag_list]
+        return [resolved_missing_tags.get(tag, tag) for tag in tag_list]
 
     @staticmethod
     def _extract_exact_search_tag_ids(items: list[Any], tag: str) -> list[int]:

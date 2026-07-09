@@ -418,6 +418,46 @@ class TestDatasetExportIntegration:
                 "アニメ修正版, 少女"
             )
 
+    def test_txt_export_translation_cache_reuses_repeated_tags(
+        self, dataset_export_service, mock_db_manager
+    ):
+        """同一 export 内で繰り返す canonical tag の翻訳 lookup は再利用する。"""
+        reader = object()
+        mock_db_manager.annotation_repo.get_merged_reader.return_value = reader
+        search_result = {
+            "anime": SimpleNamespace(items=[SimpleNamespace(tag="anime", source_tag=None, tag_id=1001)]),
+            "girl": SimpleNamespace(items=[SimpleNamespace(tag="girl", source_tag=None, tag_id=1002)]),
+        }
+        preferred = {1001: {"ja": "アニメ"}, 1002: {"ja": "少女"}}
+
+        with (
+            tempfile.TemporaryDirectory() as export_temp,
+            patch(
+                "lorairo.services.dataset_export_service.convert_tags",
+                side_effect=lambda _r, tags, *_a, **_k: tags,
+            ),
+            patch(
+                "lorairo.services.dataset_export_service.search_tags_batch",
+                return_value=search_result,
+            ) as search_batch,
+            patch(
+                "lorairo.services.dataset_export_service.get_preferred_translations_batch",
+                return_value=preferred,
+            ) as preferred_batch,
+        ):
+            export_path = Path(export_temp) / "dataset_export"
+
+            dataset_export_service.export_dataset_txt_format(
+                image_ids=[1, 1],
+                output_path=export_path,
+                resolution=512,
+                tag_languages=["ja"],
+            )
+
+            search_batch.assert_called_once()
+            preferred_batch.assert_called_once()
+            assert search_batch.call_args.args[1] == ["anime", "girl"]
+
     def test_json_format_export_with_real_files(self, dataset_export_service, temp_project_dir):
         """実ファイルを使用したJSON形式エクスポート統合テスト"""
         with tempfile.TemporaryDirectory() as export_temp:
