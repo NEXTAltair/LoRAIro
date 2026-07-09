@@ -39,3 +39,24 @@ caption 文字列を渡す。
 
 caption 側はまだ chip 化されていないため、今回の移動はタグから caption への片方向だけにする。
 将来 caption 複数表示 UI が入った場合は、caption 側の per-item 操作として逆方向の移動を追加できる。
+
+## Implementation Notes
+
+実装は Issue #1240 / PR #1285 で行った。
+
+右クリックメニューで新規追加した操作は「別のタグに置換…」と「キャプションに移動」のみである。
+削除は新規メニュー項目としては追加せず、既存のタグ chip `×` ボタンとクリックによる
+soft-reject 導線を使う。
+
+caption への結合区切りは `, ` とする。移動処理は結合済み caption を先に保存し、
+caption 保存が成功した場合だけ移動元タグを soft-reject する。これにより caption 保存失敗時に
+タグだけが消えることを避ける。
+
+関連テストは以下で扱う。
+
+- `tests/unit/gui/widgets/test_tag_panel_widget.py`: 右クリックメニュー項目と任意置換入力。
+- `tests/unit/gui/widgets/test_annotation_data_display_widget.py`: `TagPanelWidget` からの signal 再公開。
+- `tests/unit/gui/widgets/test_selected_image_details_batch_tags.py`: caption 保存後の元タグ soft-reject。
+
+caption からタグへの逆方向移動は本 ADR の対象外であり、#1238 などで caption の複数表示 /
+per-item 操作 UI が整った後に追加する。
