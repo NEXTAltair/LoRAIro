@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from genai_tag_db_tools import convert_tags, get_preferred_translations_batch, search_tags_batch
+from genai_tag_db_tools.db.schema import USER_TAG_ID_OFFSET
 from loguru import logger
 from sqlalchemy.exc import SQLAlchemyError
 
@@ -484,7 +485,7 @@ class DatasetExportService:
                 translation := next(
                     (
                         candidate
-                        for tag_id in tag_ids
+                        for tag_id in self._prioritize_translation_tag_ids(tag_ids)
                         if (candidate := translation_for_language(preferred.get(tag_id, {}), tag_language))
                     ),
                     None,
@@ -509,6 +510,16 @@ class DatasetExportService:
                 if tag_id not in tag_ids:
                     tag_ids.append(tag_id)
         return tag_ids
+
+    @staticmethod
+    def _prioritize_translation_tag_ids(tag_ids: list[int]) -> list[int]:
+        """user overlay の翻訳を base より優先し、未翻訳なら base へ fallback する。"""
+        user_tag_ids = sorted(
+            (tag_id for tag_id in tag_ids if tag_id >= USER_TAG_ID_OFFSET),
+            reverse=True,
+        )
+        base_tag_ids = [tag_id for tag_id in tag_ids if tag_id < USER_TAG_ID_OFFSET]
+        return user_tag_ids + base_tag_ids
 
     def _resolve_language_output_roots(
         self, output_path: Path, tag_languages: list[str] | None
