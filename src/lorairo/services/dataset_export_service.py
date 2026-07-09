@@ -461,9 +461,9 @@ class DatasetExportService:
                 reader, unique_tags, format_names=None, resolve_preferred=False
             )
             tag_ids_by_tag = {
-                tag: result.items[0].tag_id
+                tag: tag_id
                 for tag, result in search_results.items()
-                if result.items and result.items[0].tag == tag
+                if (tag_id := self._extract_exact_search_tag_id(result.items, tag)) is not None
             }
             preferred = get_preferred_translations_batch(reader, list(tag_ids_by_tag.values()))
         except (SQLAlchemyError, ValueError, RuntimeError) as e:
@@ -480,6 +480,24 @@ class DatasetExportService:
             if (translation := translation_for_language(preferred.get(tag_id, {}), tag_language))
         }
         return [translations_by_tag.get(tag, tag) for tag in tag_list]
+
+    @staticmethod
+    def _extract_exact_search_tag_id(items: list[Any], tag: str) -> int | None:
+        """search_tags_batch の結果から tag/source_tag が完全一致する行の tag_id を選ぶ。"""
+        normalized_query = tag.casefold()
+        tag_ids: list[int] = []
+        for item in items:
+            tag_id = getattr(item, "tag_id", None)
+            if not isinstance(tag_id, int):
+                continue
+            source_tag = getattr(item, "source_tag", None)
+            if item.tag.casefold() == normalized_query or (
+                source_tag is not None and source_tag.casefold() == normalized_query
+            ):
+                tag_ids.append(tag_id)
+        if not tag_ids:
+            return None
+        return max(tag_ids)
 
     def _resolve_language_output_roots(
         self, output_path: Path, tag_languages: list[str] | None

@@ -124,7 +124,7 @@ def export_dataset(
         result_path.mkdir(parents=True, exist_ok=True)
 
         # エクスポート結果の集計
-        file_count = sum(1 for _ in result_path.iterdir())
+        file_count = sum(1 for f in result_path.rglob("*") if f.is_file())
         total_size = sum(f.stat().st_size for f in result_path.rglob("*") if f.is_file())
 
         return ExportResult(

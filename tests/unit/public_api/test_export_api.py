@@ -294,6 +294,35 @@ class TestExportDataset:
 
         assert captured["tag_languages"] == ["canonical", "ja"]
 
+    def test_file_count_counts_files_under_language_dirs(
+        self, mock_export_service: MagicMock, tmp_path: Path
+    ) -> None:
+        """複数 tag_languages の言語別ディレクトリ配下にある実ファイル数を返す。"""
+
+        def export_language_dirs(
+            output_path: Path,
+            format_type: str = "txt",
+            resolution: int = 512,
+            criteria: ImageFilterCriteria | None = None,
+            **kwargs: object,
+        ) -> Path:
+            for language in ("canonical", "ja"):
+                language_dir = output_path / language
+                language_dir.mkdir(parents=True, exist_ok=True)
+                (language_dir / "image.webp").write_bytes(b"fake")
+                (language_dir / "image.txt").write_text("tag", encoding="utf-8")
+            return output_path
+
+        mock_export_service.export_with_criteria.side_effect = export_language_dirs
+
+        result = export_dataset(
+            "my_project",
+            tmp_path / "output",
+            ExportCriteria(tag_filter=["cat"], tag_languages=["canonical", "ja"]),
+        )
+
+        assert result.file_count == 4
+
 
 @pytest.mark.unit
 class TestExportCriteria:
