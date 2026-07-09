@@ -461,11 +461,14 @@ class DatasetExportService:
                 reader, unique_tags, format_names=None, resolve_preferred=False
             )
             tag_ids_by_tag = {
-                tag: tag_id
+                tag: tag_ids
                 for tag, result in search_results.items()
-                if (tag_id := self._extract_exact_search_tag_id(result.items, tag)) is not None
+                if (tag_ids := self._extract_exact_search_tag_ids(result.items, tag))
             }
-            preferred = get_preferred_translations_batch(reader, list(tag_ids_by_tag.values()))
+            unique_tag_ids = list(
+                dict.fromkeys(tag_id for ids in tag_ids_by_tag.values() for tag_id in ids)
+            )
+            preferred = get_preferred_translations_batch(reader, unique_tag_ids)
         except (SQLAlchemyError, ValueError, RuntimeError) as e:
             logger.warning(
                 "Tag translation lookup failed; falling back to canonical tags: language={}, error={}",
@@ -476,14 +479,23 @@ class DatasetExportService:
 
         translations_by_tag = {
             tag: translation
-            for tag, tag_id in tag_ids_by_tag.items()
-            if (translation := translation_for_language(preferred.get(tag_id, {}), tag_language))
+            for tag, tag_ids in tag_ids_by_tag.items()
+            if (
+                translation := next(
+                    (
+                        candidate
+                        for tag_id in tag_ids
+                        if (candidate := translation_for_language(preferred.get(tag_id, {}), tag_language))
+                    ),
+                    None,
+                )
+            )
         }
         return [translations_by_tag.get(tag, tag) for tag in tag_list]
 
     @staticmethod
-    def _extract_exact_search_tag_id(items: list[Any], tag: str) -> int | None:
-        """search_tags_batch の結果から tag/source_tag が完全一致する行の tag_id を選ぶ。"""
+    def _extract_exact_search_tag_ids(items: list[Any], tag: str) -> list[int]:
+        """search_tags_batch の結果から tag/source_tag が完全一致する行の tag_id を順序保持で返す。"""
         normalized_query = tag.casefold()
         tag_ids: list[int] = []
         for item in items:
@@ -494,10 +506,9 @@ class DatasetExportService:
             if item.tag.casefold() == normalized_query or (
                 source_tag is not None and source_tag.casefold() == normalized_query
             ):
-                tag_ids.append(tag_id)
-        if not tag_ids:
-            return None
-        return max(tag_ids)
+                if tag_id not in tag_ids:
+                    tag_ids.append(tag_id)
+        return tag_ids
 
     def _resolve_language_output_roots(
         self, output_path: Path, tag_languages: list[str] | None
