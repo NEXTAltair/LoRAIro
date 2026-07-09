@@ -38,6 +38,7 @@ from PySide6.QtWidgets import (
     QDialogButtonBox,
     QFormLayout,
     QHBoxLayout,
+    QInputDialog,
     QLabel,
     QLineEdit,
     QMenu,
@@ -155,6 +156,9 @@ class SelectableTagChip(QLabel):
     type_edit_menu_requested = Signal(str)  # canonical — タグ情報 (種別) を編集
     # 使用頻度を見るメニュー要求 (#997)。read-only で TagPanelWidget 内で完結する。
     usage_counts_menu_requested = Signal(str)  # canonical
+    # image DB 系編集要求 (#1240)。親が入力/保存先 dispatch を担う。
+    tag_replace_menu_requested = Signal(str)  # canonical — 任意タグへ置換
+    tag_move_to_caption_requested = Signal(str)  # canonical — キャプションへ移動
 
     def __init__(self, display_text: str, canonical: str, parent: QWidget | None = None) -> None:
         super().__init__(display_text, parent)
@@ -312,8 +316,17 @@ class SelectableTagChip(QLabel):
         # 適用は image DB 書き込み (置換) のため replace_enabled (編集モード) 時のみ提示する。
         apply_candidates = self.replacement_candidates() if self.replace_enabled else []
         has_ignore = rec is not None and rec.needs_refinement and rec.reasons
-        if apply_candidates or has_ignore:
+        if self.replace_enabled or apply_candidates or has_ignore:
             menu.addSeparator()
+        if self.replace_enabled:
+            replace_action = menu.addAction("別のタグに置換…")
+            replace_action.triggered.connect(
+                lambda _checked=False: self.tag_replace_menu_requested.emit(self.canonical)
+            )
+            move_caption_action = menu.addAction("キャプションに移動")
+            move_caption_action.triggered.connect(
+                lambda _checked=False: self.tag_move_to_caption_requested.emit(self.canonical)
+            )
         for to_tag in apply_candidates:
             candidate_label = _format_candidate_label(to_tag, self._candidate_counts.get(to_tag))
             apply_action = menu.addAction(f"修正候補を適用: {candidate_label}")
@@ -1002,6 +1015,8 @@ class TagPanelWidget(QWidget):
     # refinement 修正候補の適用 = タグ置換 (#1007)。置換元は親が reject_reason='replaced'
     # で非表示化し、置換先を手動タグとして採用する (replace_tag_for_images_batch 経路)。
     tag_replace_requested = Signal(str, str)  # (from_canonical, to_tag)
+    # タグ文字列を現在 caption へ移し、元タグを除外 soft-reject する要求 (#1240)。
+    tag_move_to_caption_requested = Signal(str)  # canonical
     # tagdb userdb 系 (canonical が主キー / 画像 ID 不要)
     refinement_ignored = Signal(str, str, bool)  # canonical, reason_code, this_image_only (#931/#1053)
     translation_add_requested = Signal(str, str, str)  # canonical, language, translation (#989)
@@ -2115,6 +2130,8 @@ class TagPanelWidget(QWidget):
         # フィルタ) なので破線 chip では提示しない。
         chip.replace_enabled = self._tag_edit_enabled and not disabled
         chip.refinement_apply_requested.connect(self.tag_replace_requested)
+        chip.tag_replace_menu_requested.connect(self._open_tag_replace_dialog)
+        chip.tag_move_to_caption_requested.connect(self.tag_move_to_caption_requested)
         # タグ情報メニュー (#989): chip 右クリック → 親がダイアログを開く。
         chip.translation_add_menu_requested.connect(self._open_translation_dialog)
         chip.translation_fix_menu_requested.connect(self._open_translation_fix_dialog)
@@ -2347,6 +2364,22 @@ class TagPanelWidget(QWidget):
             return
         self._tag_add_input.clear()
         self.tag_add_requested.emit(text)
+
+    @Slot(str)
+    def _open_tag_replace_dialog(self, canonical: str) -> None:
+        """任意タグへの置換先を入力し、既存の置換 Signal へ流す (#1240)。"""
+        to_tag, ok = QInputDialog.getText(
+            self,
+            "別のタグに置換",
+            "置換先タグ:",
+            text=canonical,
+        )
+        if not ok:
+            return
+        replacement = to_tag.strip()
+        if not replacement or replacement == canonical:
+            return
+        self.tag_replace_requested.emit(canonical, replacement)
 
     # ─── タグ情報メニュー (#989、tagdb userdb 系) ───────────────────────
 

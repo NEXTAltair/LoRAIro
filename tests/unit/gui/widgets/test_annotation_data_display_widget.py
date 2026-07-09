@@ -760,6 +760,12 @@ class TestAnnotationDataDisplaySoftRejectEdit:
             widget._tag_panel.tag_replace_requested.emit("1girl", "1boy")
         assert blocker.args == ["1girl", "1boy"]
 
+    def test_tag_move_to_caption_requested_relayed_from_tag_panel(self, widget, qtbot):
+        """TagPanelWidget の tag_move_to_caption_requested が委譲再公開されること (#1240)。"""
+        with qtbot.waitSignal(widget.tag_move_to_caption_requested, timeout=1000) as blocker:
+            widget._tag_panel.tag_move_to_caption_requested.emit("caption candidate")
+        assert blocker.args == ["caption candidate"]
+
 
 class TestMainLayoutTrailingStretch:
     """#823: 主レイアウト末尾の stretch で最下部グループの過大化を防ぐ。"""
