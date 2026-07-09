@@ -221,7 +221,9 @@ class DatasetExportService:
         )
 
         reader = self._get_export_reader()
-        metadata_by_language = {language: {} for language, _ in language_roots}
+        metadata_by_language: dict[str, dict[str, dict[str, Any]]] = {
+            language: {} for language, _ in language_roots
+        }
         exported_count = 0
 
         for image_id in image_ids:
