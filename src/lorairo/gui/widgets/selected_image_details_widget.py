@@ -41,6 +41,7 @@ from ...gui.designer.SelectedImageDetailsWidget_ui import Ui_SelectedImageDetail
 from ...services.date_formatter import format_datetime_for_display
 from ...utils.language_keys import language_alias_keys
 from ...utils.log import logger
+from ..services.image_db_write_service import ImageDBWriteService
 from .annotation_data_display_widget import (
     AnnotationData,
     AnnotationDataDisplayWidget,
@@ -152,6 +153,7 @@ class SelectedImageDetailsWidget(QWidget):
 
         # tagdb userdb 系書き込み (#989): set_tag_management_service で配線。
         self._tag_management_service: TagManagementService | None = None
+        self._image_db_write_service: ImageDBWriteService | None = None
 
         # shutdown 後に遅延起動 (QTimer.singleShot) が worker を再起動しないためのフラグ (#1206)
         self._closing: bool = False
@@ -454,6 +456,8 @@ class SelectedImageDetailsWidget(QWidget):
         self.annotation_display.tags_exclude_requested.connect(self._on_tags_exclude)
         self.annotation_display.tags_toggle_requested.connect(self._on_tags_toggle)
         self.annotation_display.tag_replace_requested.connect(self._on_tag_replace)
+        self.annotation_display.tag_move_to_caption_requested.connect(self._on_tag_move_to_caption)
+        self._image_db_write_service = ImageDBWriteService(db_manager)
         logger.debug("SelectedImageDetailsWidget: soft-reject 編集モードを有効化")
 
     def set_refinement_service(
@@ -1078,6 +1082,24 @@ class SelectedImageDetailsWidget(QWidget):
         if self.current_image_id is None:
             return
         self._db_manager.replace_tag(self.current_image_id, from_tag, to_tag)
+        self._reload_current_image()
+
+    @Slot(str)
+    def _on_tag_move_to_caption(self, tag: str) -> None:
+        """タグ文字列を caption に追記し、元タグを除外 soft-reject する (#1240)。"""
+        if self.current_image_id is None or self._image_db_write_service is None:
+            return
+        moved_tag = tag.strip()
+        if not moved_tag:
+            return
+        current_caption = self.annotation_display.current_data.caption.strip()
+        new_caption = f"{current_caption}, {moved_tag}" if current_caption else moved_tag
+        if not self._image_db_write_service.update_caption(self.current_image_id, new_caption):
+            logger.warning(
+                f"タグのキャプション移動をスキップ: caption 保存に失敗 image_id={self.current_image_id}, tag='{tag}'"
+            )
+            return
+        self._db_manager.soft_reject_tag(self.current_image_id, moved_tag, reason=REJECT_REASON_INCORRECT)
         self._reload_current_image()
 
     @Slot(str, str, str)

@@ -1535,6 +1535,31 @@ def test_apply_menu_action_emits_refinement_apply_requested(panel, sample_tags, 
     assert blocker.args == ["1girl", "1boy"]
 
 
+def test_edit_menu_actions_emit_replace_and_move_to_caption(
+    panel, sample_tags, capture_menu, monkeypatch, qtbot
+):
+    """編集モード時、任意置換とキャプション移動の右クリック操作を出す (#1240)。"""
+    panel.set_tag_edit_enabled(True)
+    panel.set_tags(sample_tags, image_id=1)
+    monkeypatch.setattr(tpw.QInputDialog, "getText", lambda *args, **kwargs: ("1boy", True))
+    chip = next(c for c in panel._tag_chips if c.canonical == "1girl")
+
+    actions = _context_menu_actions(chip)
+    assert "別のタグに置換…" in actions
+    assert "キャプションに移動" in actions
+
+    menu = capture_menu.instances[-1]
+    replace_action = next(a for a in menu.actions() if a.text() == "別のタグに置換…")
+    with qtbot.waitSignal(panel.tag_replace_requested, timeout=1000) as blocker:
+        replace_action.trigger()
+    assert blocker.args == ["1girl", "1boy"]
+
+    move_action = next(a for a in menu.actions() if a.text() == "キャプションに移動")
+    with qtbot.waitSignal(chip.tag_move_to_caption_requested, timeout=1000) as blocker:
+        move_action.trigger()
+    assert blocker.args == ["1girl"]
+
+
 def test_apply_menu_absent_when_edit_disabled(panel, sample_tags, capture_menu):
     """read-only モードでは「修正候補を適用」をメニューに出さない (image DB 書き込みのため)。"""
     panel.set_tags(sample_tags, image_id=1)
@@ -1543,6 +1568,8 @@ def test_apply_menu_absent_when_edit_disabled(panel, sample_tags, capture_menu):
 
     actions = _context_menu_actions(chip)
     assert not any(a.startswith("修正候補を適用") for a in actions)
+    assert "別のタグに置換…" not in actions
+    assert "キャプションに移動" not in actions
     # ignore 等の既存メニューは出続ける (#1053 でスコープ別 2 アクション化)
     assert any(a.startswith("この画像でのみ無視") for a in actions)
     assert any(a.startswith("全画像で無視") for a in actions)
@@ -1580,6 +1607,28 @@ def test_panel_relays_apply_to_tag_replace_requested(panel, sample_tags, qtbot):
     with qtbot.waitSignal(panel.tag_replace_requested, timeout=1000) as blocker:
         chip.refinement_apply_requested.emit("1girl", "1boy")
     assert blocker.args == ["1girl", "1boy"]
+
+
+def test_panel_opens_arbitrary_replace_dialog(panel, sample_tags, monkeypatch, qtbot):
+    """右クリックの任意置換入力を既存 tag_replace_requested(from, to) へ流す (#1240)。"""
+    panel.set_tag_edit_enabled(True)
+    panel.set_tags(sample_tags, image_id=1)
+    monkeypatch.setattr(tpw.QInputDialog, "getText", lambda *args, **kwargs: ("1boy", True))
+
+    with qtbot.waitSignal(panel.tag_replace_requested, timeout=1000) as blocker:
+        panel._open_tag_replace_dialog("1girl")
+    assert blocker.args == ["1girl", "1boy"]
+
+
+def test_panel_relays_move_to_caption_requested(panel, sample_tags, qtbot):
+    """chip の caption 移動要求が panel の signal として再公開される (#1240)。"""
+    panel.set_tag_edit_enabled(True)
+    panel.set_tags(sample_tags, image_id=1)
+    chip = next(c for c in panel._tag_chips if c.canonical == "1girl")
+
+    with qtbot.waitSignal(panel.tag_move_to_caption_requested, timeout=1000) as blocker:
+        chip.tag_move_to_caption_requested.emit("1girl")
+    assert blocker.args == ["1girl"]
 
 
 # チップ箱サイジング (#1025) --------------------------------------------------

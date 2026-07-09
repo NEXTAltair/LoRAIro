@@ -37,6 +37,18 @@ class _FakeDbManager:
         return True
 
 
+class _FakeCaptionWriteService:
+    """update_caption 呼び出しを記録する fake。"""
+
+    def __init__(self, *, result: bool = True) -> None:
+        self.result = result
+        self.updated: list[tuple[int, str]] = []
+
+    def update_caption(self, image_id: int, caption: str) -> bool:
+        self.updated.append((image_id, caption))
+        return self.result
+
+
 def _make_widget(qtbot, monkeypatch, db_manager: _FakeDbManager) -> SelectedImageDetailsWidget:
     widget = SelectedImageDetailsWidget()
     qtbot.addWidget(widget)
@@ -145,3 +157,66 @@ def test_tag_replace_signal_connected_after_set_db_manager(qtbot, monkeypatch) -
     widget.annotation_display.tag_replace_requested.emit("1girl", "1boy")
 
     assert db_manager.replaced == [(7, "1girl", "1boy")]
+
+
+# タグ → キャプション移動 (#1240) --------------------------------------------
+
+
+def test_tag_move_to_caption_appends_caption_rejects_tag_and_reloads_once(qtbot, monkeypatch) -> None:
+    """caption 保存成功時だけ、元タグを incorrect soft-reject して reload する (#1240)。"""
+    db_manager = _FakeDbManager()
+    widget = _make_widget(qtbot, monkeypatch, db_manager)
+    caption_service = _FakeCaptionWriteService()
+    widget._image_db_write_service = caption_service
+    widget.annotation_display.current_data.caption = "existing caption"
+
+    widget._on_tag_move_to_caption("long sentence tag")
+
+    assert caption_service.updated == [(42, "existing caption, long sentence tag")]
+    assert db_manager.rejected == [(42, "long sentence tag", "incorrect")]
+    assert widget.reload_calls == 1  # type: ignore[attr-defined]
+
+
+def test_tag_move_to_caption_uses_tag_as_caption_when_empty(qtbot, monkeypatch) -> None:
+    """既存 caption が空なら、タグ文字列そのものを caption として保存する (#1240)。"""
+    db_manager = _FakeDbManager()
+    widget = _make_widget(qtbot, monkeypatch, db_manager)
+    caption_service = _FakeCaptionWriteService()
+    widget._image_db_write_service = caption_service
+    widget.annotation_display.current_data.caption = ""
+
+    widget._on_tag_move_to_caption("trigger phrase")
+
+    assert caption_service.updated == [(42, "trigger phrase")]
+    assert db_manager.rejected == [(42, "trigger phrase", "incorrect")]
+    assert widget.reload_calls == 1  # type: ignore[attr-defined]
+
+
+def test_tag_move_to_caption_does_not_reject_when_caption_save_fails(qtbot, monkeypatch) -> None:
+    """caption 保存に失敗したら、タグだけを消さない (#1240)。"""
+    db_manager = _FakeDbManager()
+    widget = _make_widget(qtbot, monkeypatch, db_manager)
+    caption_service = _FakeCaptionWriteService(result=False)
+    widget._image_db_write_service = caption_service
+    widget.annotation_display.current_data.caption = "existing"
+
+    widget._on_tag_move_to_caption("caption candidate")
+
+    assert caption_service.updated == [(42, "existing, caption candidate")]
+    assert db_manager.rejected == []
+    assert widget.reload_calls == 0  # type: ignore[attr-defined]
+
+
+def test_tag_move_to_caption_signal_connected_after_set_db_manager(qtbot, monkeypatch) -> None:
+    """set_db_manager 後に caption 移動 signal が dispatch へ配線されていること (#1240)。"""
+    db_manager = _FakeDbManager()
+    widget = _make_widget(qtbot, monkeypatch, db_manager)
+    caption_service = _FakeCaptionWriteService()
+    widget._image_db_write_service = caption_service
+    widget.current_image_id = 7
+    widget.annotation_display.current_data.caption = "base"
+
+    widget.annotation_display.tag_move_to_caption_requested.emit("caption candidate")
+
+    assert caption_service.updated == [(7, "base, caption candidate")]
+    assert db_manager.rejected == [(7, "caption candidate", "incorrect")]

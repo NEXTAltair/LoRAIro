@@ -131,6 +131,7 @@ class AnnotationDataDisplayWidget(QWidget, Ui_AnnotationDataDisplayWidget):
     tags_exclude_requested = Signal(list)  # まとめて除外 (incorrect)
     tags_toggle_requested = Signal(list, list)  # (to_disable, to_restore) まとめて無効化⇄復活
     tag_replace_requested = Signal(str, str)  # 修正候補を適用 = 置換 (from, to) (#1007)
+    tag_move_to_caption_requested = Signal(str)  # タグをキャプションへ移動 (#1240)
     # refinement リコメンドを無視 (canonical, reason_code, this_image_only) (#931/#1053)
     refinement_ignored = Signal(str, str, bool)
     translation_add_requested = Signal(str, str, str)  # canonical, language, translation (#989)
@@ -203,6 +204,7 @@ class AnnotationDataDisplayWidget(QWidget, Ui_AnnotationDataDisplayWidget):
         self._tag_panel.tags_exclude_requested.connect(self.tags_exclude_requested)
         self._tag_panel.tags_toggle_requested.connect(self.tags_toggle_requested)
         self._tag_panel.tag_replace_requested.connect(self.tag_replace_requested)
+        self._tag_panel.tag_move_to_caption_requested.connect(self.tag_move_to_caption_requested)
         self._tag_panel.refinement_ignored.connect(self.refinement_ignored)
         self._tag_panel.translation_add_requested.connect(self.translation_add_requested)
         self._tag_panel.translation_preferred_requested.connect(self.translation_preferred_requested)

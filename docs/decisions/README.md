@@ -96,6 +96,7 @@ ADR は OKF (Open Knowledge Format) バンドルとして管理する。各 ADR 
 | [0084](0084-annotation-cache-explicit-invalidation.md) | GUI アノテーションキャッシュの明示無効化 (再読込操作 + 対象指定 API) | 2026-07-05 | Accepted |
 | [0085](0085-translation-cli-interface.md) | 翻訳 CLI インターフェース (tags translations show/add + tags alias) | 2026-07-05 | Accepted |
 | [0086](0086-image-scan-filesystem-manager-ssot.md) | 画像登録スキャンを FileSystemManager に集約 | 2026-07-07 | Accepted |
+| [0087](0087-tag-chip-caption-move-menu.md) | タグ chip 右クリックをキャプション移動の操作ハブにする | 2026-07-09 | Accepted |
 <!-- OKF-TABLE:END -->
 
 ## ADR テンプレート
