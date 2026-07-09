@@ -241,6 +241,7 @@ class ExportCriteria(BaseModel):
         include_nsfw: NSFWコンテンツを含めるかどうか。
         score_min: 最小スコア値（0.0-10.0）。
         score_max: 最大スコア値（0.0-10.0）。
+        tag_languages: 出力タグ言語。複数指定時は言語ごとの dataset ディレクトリを作る。
     """
 
     format_type: str = Field(default="txt", pattern="^(txt|json)$")
@@ -255,6 +256,7 @@ class ExportCriteria(BaseModel):
     include_nsfw: bool = False
     score_min: float | None = Field(default=None, ge=0.0, le=10.0)
     score_max: float | None = Field(default=None, ge=0.0, le=10.0)
+    tag_languages: list[str] | None = None
 
     @field_validator("tag_filter", "excluded_tags", mode="after")
     @classmethod
@@ -267,6 +269,15 @@ class ExportCriteria(BaseModel):
         境界で正規化しておき、下位レイヤに空要素を渡さない。
         """
         if value is None:  # pragma: no cover - Pydantic v2 の Optional default では validator が走らない
+            return None
+        cleaned = [item.strip() for item in value if item and item.strip()]
+        return cleaned or None
+
+    @field_validator("tag_languages", mode="after")
+    @classmethod
+    def _normalize_tag_languages(cls, value: list[str] | None) -> list[str] | None:
+        """空白のみの tag language を除外し、空リストは None 扱いにする。"""
+        if value is None:
             return None
         cleaned = [item.strip() for item in value if item and item.strip()]
         return cleaned or None

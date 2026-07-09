@@ -117,13 +117,14 @@ def export_dataset(
             format_type=criteria.format_type,
             resolution=criteria.resolution,
             criteria=filter_criteria,
+            tag_languages=criteria.tag_languages,
         )
 
         # 零件マッチ時はサービス側でディレクトリを作成しない場合があるため確保する
         result_path.mkdir(parents=True, exist_ok=True)
 
         # エクスポート結果の集計
-        file_count = sum(1 for _ in result_path.iterdir())
+        file_count = sum(1 for f in result_path.rglob("*") if f.is_file())
         total_size = sum(f.stat().st_size for f in result_path.rglob("*") if f.is_file())
 
         return ExportResult(

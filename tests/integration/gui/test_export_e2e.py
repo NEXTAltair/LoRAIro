@@ -105,6 +105,7 @@ class TestExportE2E:
         mock.get_image_annotations.side_effect = get_annotations_side_effect
         mock.get_batch_available_resolutions.side_effect = get_batch_available_resolutions_side_effect
         mock.get_images_by_filter.side_effect = get_images_by_filter_side_effect
+        mock.annotation_repo.get_merged_reader.return_value = None
         return mock
 
     @pytest.fixture
