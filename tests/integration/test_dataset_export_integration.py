@@ -7,6 +7,7 @@ kohya-ss/sd-scripts互換性の確認を含む
 import json
 import tempfile
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import Mock, patch
 
 import pytest
@@ -208,6 +209,88 @@ class TestDatasetExportIntegration:
             # 画像ファイルが正しくコピーされているか確認
             assert exported_image.read_bytes() == b"fake_webp_data"
 
+    def test_txt_export_multiple_tag_languages_creates_complete_dataset_dirs(
+        self, dataset_export_service, mock_db_manager
+    ):
+        """複数タグ言語指定時は言語ごとに画像 + .txt を含む完全 dataset を作る。"""
+        reader = object()
+        mock_db_manager.annotation_repo.get_merged_reader.return_value = reader
+        search_result = {
+            "anime": SimpleNamespace(items=[SimpleNamespace(tag="anime", tag_id=1001)]),
+            "girl": SimpleNamespace(items=[SimpleNamespace(tag="girl", tag_id=1002)]),
+        }
+        preferred = {1001: {"ja": "アニメ"}, 1002: {"ja": "少女"}}
+
+        with (
+            tempfile.TemporaryDirectory() as export_temp,
+            patch(
+                "lorairo.services.dataset_export_service.convert_tags",
+                side_effect=lambda _r, tags, *_a, **_k: tags,
+            ),
+            patch("lorairo.services.dataset_export_service.search_tags_batch", return_value=search_result),
+            patch(
+                "lorairo.services.dataset_export_service.get_preferred_translations_batch",
+                return_value=preferred,
+            ),
+        ):
+            export_path = Path(export_temp) / "dataset_export"
+
+            result_path = dataset_export_service.export_dataset_txt_format(
+                image_ids=[1],
+                output_path=export_path,
+                resolution=512,
+                tag_languages=["canonical", "ja"],
+            )
+
+            assert result_path == export_path
+            canonical_dir = export_path / "canonical"
+            ja_dir = export_path / "ja"
+
+            assert (canonical_dir / "test_project_00001.webp").exists()
+            assert (canonical_dir / "test_project_00001.txt").read_text(encoding="utf-8") == ("anime, girl")
+            assert (ja_dir / "test_project_00001.webp").exists()
+            assert (ja_dir / "test_project_00001.txt").read_text(encoding="utf-8") == "アニメ, 少女"
+            assert (ja_dir / "test_project_00001.caption").read_text(encoding="utf-8") == (
+                "Anime girl character"
+            )
+
+    def test_txt_export_single_translated_language_keeps_root_shape(
+        self, dataset_export_service, mock_db_manager
+    ):
+        """単一タグ言語指定時は従来と同じ root 直下構造を保つ。"""
+        reader = object()
+        mock_db_manager.annotation_repo.get_merged_reader.return_value = reader
+        search_result = {
+            "anime": SimpleNamespace(items=[SimpleNamespace(tag="anime", tag_id=1001)]),
+            "girl": SimpleNamespace(items=[SimpleNamespace(tag="girl", tag_id=1002)]),
+        }
+        preferred = {1001: {"ja": "アニメ"}}
+
+        with (
+            tempfile.TemporaryDirectory() as export_temp,
+            patch(
+                "lorairo.services.dataset_export_service.convert_tags",
+                side_effect=lambda _r, tags, *_a, **_k: tags,
+            ),
+            patch("lorairo.services.dataset_export_service.search_tags_batch", return_value=search_result),
+            patch(
+                "lorairo.services.dataset_export_service.get_preferred_translations_batch",
+                return_value=preferred,
+            ),
+        ):
+            export_path = Path(export_temp) / "dataset_export"
+
+            dataset_export_service.export_dataset_txt_format(
+                image_ids=[1],
+                output_path=export_path,
+                resolution=512,
+                tag_languages=["ja"],
+            )
+
+            assert (export_path / "test_project_00001.webp").exists()
+            assert (export_path / "test_project_00001.txt").read_text(encoding="utf-8") == ("アニメ, girl")
+            assert not (export_path / "ja").exists()
+
     def test_json_format_export_with_real_files(self, dataset_export_service, temp_project_dir):
         """実ファイルを使用したJSON形式エクスポート統合テスト"""
         with tempfile.TemporaryDirectory() as export_temp:
@@ -241,6 +324,49 @@ class TestDatasetExportIntegration:
             # 画像1がコピーされている確認
             exported_image1 = export_path / "test_project_00001.webp"
             assert exported_image1.exists()
+
+    def test_json_export_multiple_tag_languages_creates_metadata_per_language(
+        self, dataset_export_service, mock_db_manager
+    ):
+        """複数タグ言語指定時は各言語ディレクトリに metadata.json を作る。"""
+        reader = object()
+        mock_db_manager.annotation_repo.get_merged_reader.return_value = reader
+        search_result = {
+            "anime": SimpleNamespace(items=[SimpleNamespace(tag="anime", tag_id=1001)]),
+            "girl": SimpleNamespace(items=[SimpleNamespace(tag="girl", tag_id=1002)]),
+        }
+        preferred = {1001: {"ja": "アニメ"}, 1002: {"ja": "少女"}}
+
+        with (
+            tempfile.TemporaryDirectory() as export_temp,
+            patch(
+                "lorairo.services.dataset_export_service.convert_tags",
+                side_effect=lambda _r, tags, *_a, **_k: tags,
+            ),
+            patch("lorairo.services.dataset_export_service.search_tags_batch", return_value=search_result),
+            patch(
+                "lorairo.services.dataset_export_service.get_preferred_translations_batch",
+                return_value=preferred,
+            ),
+        ):
+            export_path = Path(export_temp) / "dataset_export"
+
+            dataset_export_service.export_dataset_json_format(
+                image_ids=[1],
+                output_path=export_path,
+                resolution=512,
+                tag_languages=["canonical", "ja"],
+            )
+
+            canonical_metadata = json.loads(
+                (export_path / "canonical" / "metadata.json").read_text(encoding="utf-8")
+            )
+            ja_metadata = json.loads((export_path / "ja" / "metadata.json").read_text(encoding="utf-8"))
+
+            canonical_image_path = str(export_path / "canonical" / "test_project_00001.webp")
+            ja_image_path = str(export_path / "ja" / "test_project_00001.webp")
+            assert canonical_metadata[canonical_image_path]["tags"] == "anime, girl"
+            assert ja_metadata[ja_image_path]["tags"] == "アニメ, 少女"
 
     def test_multiple_images_different_resolutions(self, dataset_export_service, temp_project_dir):
         """異なる解像度の複数画像エクスポートテスト"""

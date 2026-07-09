@@ -55,6 +55,14 @@ def create(
         "-r",
         help="Target resolution for processed images",
     ),
+    tag_languages: list[str] | None = typer.Option(
+        None,
+        "--tag-language",
+        help=(
+            "Tag language to export. Use 'canonical' for existing tag output; repeat for multiple "
+            "language-specific dataset directories."
+        ),
+    ),
 ) -> None:
     """Create a dataset export from a list of image IDs.
 
@@ -92,9 +100,13 @@ def create(
             console.print(f"Exporting {len(image_ids)} image(s) to {output}")
 
         # タグ txt + キャプション txt
-        txt_path = export_service.export_dataset_txt_format(image_ids, output_path, resolution)
+        txt_path = export_service.export_dataset_txt_format(
+            image_ids, output_path, resolution, tag_languages=tag_languages
+        )
         # JSON メタデータ
-        export_service.export_dataset_json_format(image_ids, output_path, resolution)
+        export_service.export_dataset_json_format(
+            image_ids, output_path, resolution, tag_languages=tag_languages
+        )
 
         if is_json_mode():
             emit_result(
@@ -102,6 +114,7 @@ def create(
                 output_path=str(txt_path),
                 total_images=len(image_ids),
                 resolution=resolution,
+                tag_languages=tag_languages or ["canonical"],
             )
         else:
             table = Table()
@@ -109,6 +122,7 @@ def create(
             table.add_column("Value", style="green")
             table.add_row("Total Images", str(len(image_ids)))
             table.add_row("Resolution", f"{resolution}px")
+            table.add_row("Tag Languages", ", ".join(tag_languages or ["canonical"]))
             table.add_row("Output Path", str(txt_path))
             console.print(table)
             console.print("\nExport completed successfully!")

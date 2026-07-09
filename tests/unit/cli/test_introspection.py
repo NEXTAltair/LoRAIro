@@ -135,7 +135,9 @@ def test_describe_json_schema_wraps_cli_input_schema_in_item_payload() -> None:
 
     input_schema = next(row for row in schema_rows if row["name"] == "ExportCreateInput")
     assert "properties" in input_schema["schema"]
-    assert {"project", "output", "image_ids", "resolution"} <= set(input_schema["schema"]["properties"])
+    assert {"project", "output", "image_ids", "resolution", "tag_languages"} <= set(
+        input_schema["schema"]["properties"]
+    )
     # 旧フィルタ API は削除済み
     for old_field in ("tags", "excluded_tags", "caption", "score_min", "score_max"):
         assert old_field not in input_schema["schema"]["properties"]

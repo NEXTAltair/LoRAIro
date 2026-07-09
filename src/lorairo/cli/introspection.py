@@ -308,6 +308,13 @@ class ExportCreateInputSchema(BaseModel):
     image_ids_file: str | None = Field(default=None, description=_IMAGE_IDS_FILE_DESC)
     output: str
     resolution: int = 512
+    tag_languages: list[str] | None = Field(
+        default=None,
+        description=(
+            "Tag languages to export. Omit or use ['canonical'] for existing tag output; "
+            "multiple values create language-specific dataset directories."
+        ),
+    )
 
     model_config = ConfigDict(title="ExportCreateInput")
 
@@ -321,6 +328,7 @@ class ExportCreateResult(BaseModel):
     output_path: str | None = None
     total_images: int | None = None
     resolution: int | None = None
+    tag_languages: list[str] | None = None
     count: int | None = None
 
     model_config = ConfigDict(title="ExportCreateResult")
@@ -1174,6 +1182,14 @@ TOOL_SPECS: dict[str, ToolSpec] = {
                     _f("image_ids_file", "path?", description=_IMAGE_IDS_FILE_DESC),
                     _f("output", "path", required=True),
                     _f("resolution", "int", default=512),
+                    _f(
+                        "tag_languages",
+                        "list[str]?",
+                        description=(
+                            "Tag languages to export. 'canonical' keeps existing tag output; "
+                            "multiple values create language-specific dataset directories."
+                        ),
+                    ),
                 ),
                 schema=ExportCreateInputSchema,
             ),
@@ -1185,6 +1201,7 @@ TOOL_SPECS: dict[str, ToolSpec] = {
                     _f("output_path", "path?"),
                     _f("total_images", "int?"),
                     _f("resolution", "int?"),
+                    _f("tag_languages", "list[str]?"),
                     _f("count", "int?"),
                 ),
                 schema=ExportCreateResult,

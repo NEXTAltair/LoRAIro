@@ -9,13 +9,15 @@ from datetime import datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-from genai_tag_db_tools import convert_tags
+from genai_tag_db_tools import convert_tags, get_preferred_translations_batch, search_tags_batch
 from loguru import logger
+from sqlalchemy.exc import SQLAlchemyError
 
 from ..database.db_core import resolve_stored_path
 from ..database.db_manager import ImageDatabaseManager
 from ..database.filter_criteria import ImageFilterCriteria
 from ..filesystem import FileSystemManager
+from ..utils.language_keys import canonical_language_key, translation_for_language
 from .configuration_service import ConfigurationService
 from .export_overlay import ExportOverlayPlan, apply_overlay
 from .search_criteria_processor import SearchCriteriaProcessor
@@ -25,6 +27,7 @@ if TYPE_CHECKING:
 
 # ADR 0068 Phase 3: 学習 export のデフォルト target format
 _DEFAULT_EXPORT_TAG_FORMAT = "danbooru"
+_CANONICAL_TAG_LANGUAGE = "canonical"
 
 
 class DatasetExportService:
@@ -66,6 +69,7 @@ class DatasetExportService:
         merge_caption: bool = False,
         tag_format: str = _DEFAULT_EXPORT_TAG_FORMAT,
         overlay_plan: ExportOverlayPlan | None = None,
+        tag_languages: list[str] | None = None,
     ) -> Path:
         """Export dataset in TXT format compatible with kohya-ss training.
 
@@ -82,6 +86,9 @@ class DatasetExportService:
                 tags are excluded (ADR 0068 Phase 3).
             overlay_plan: オーバーレイ適用プラン（ADR 0080）。None の場合は従来挙動を完全維持する。
                 画像ごとに effective_for(image_id) で実効 overlay を解決して apply_overlay に渡す。
+            tag_languages: 出力するタグ言語。None / ["canonical"] は従来の canonical 出力。
+                1 言語なら output_path 直下へ、複数言語なら ``output_path/<language>/`` ごとに
+                完全な dataset を出力する (ADR 0088)。
 
         Returns:
             Path: Path to the exported dataset directory
@@ -93,10 +100,16 @@ class DatasetExportService:
         if not image_ids:
             raise ValueError("image_ids list cannot be empty")
 
-        if not output_path.exists():
-            output_path.mkdir(parents=True, exist_ok=True)
+        language_roots = self._resolve_language_output_roots(output_path, tag_languages)
+        for _, language_output_path in language_roots:
+            language_output_path.mkdir(parents=True, exist_ok=True)
 
-        logger.info(f"Starting TXT format dataset export: {len(image_ids)} images, resolution={resolution}")
+        logger.info(
+            "Starting TXT format dataset export: {} images, resolution={}, tag_languages={}",
+            len(image_ids),
+            resolution,
+            [language for language, _ in language_roots],
+        )
 
         reader = self._get_export_reader()
         exported_count = 0
@@ -116,32 +129,36 @@ class DatasetExportService:
                     logger.warning(f"No export data found for image ID {image_id}")
                     continue
 
-                # Generate output filenames
                 base_filename = processed_image_path.stem
-                txt_file = output_path / f"{base_filename}.txt"
-                caption_file = output_path / f"{base_filename}.caption"
-                output_image_path = output_path / processed_image_path.name
-
-                # Copy processed image
-                self.file_system_manager.copy_file(processed_image_path, output_image_path)
 
                 # タグ文字列構築: overlay 有無で分岐（ADR 0080）
                 export_tags = self._resolve_export_tags(image_data["tags"])
                 export_caption = self._resolve_export_caption(image_data["captions"])
                 tag_list = [tag_data["tag"] for tag_data in export_tags]
-                tags = self._build_export_tags_str(tag_list, image_id, tag_format, reader, overlay_plan)
-                if merge_caption and export_caption:
-                    captions = export_caption["caption"]
-                    tags = f"{tags}, {captions}" if tags else captions
+                canonical_tags = self._build_export_tag_list(
+                    tag_list, image_id, tag_format, reader, overlay_plan
+                )
+                captions = export_caption["caption"] if export_caption else ""
 
-                with open(txt_file, "w", encoding="utf-8") as f:
-                    f.write(tags)
+                for tag_language, language_output_path in language_roots:
+                    txt_file = language_output_path / f"{base_filename}.txt"
+                    caption_file = language_output_path / f"{base_filename}.caption"
+                    output_image_path = language_output_path / processed_image_path.name
 
-                # Write caption file
-                if export_caption:
-                    captions = export_caption["caption"]
-                    with open(caption_file, "w", encoding="utf-8") as f:
-                        f.write(captions)
+                    # Copy processed image
+                    self.file_system_manager.copy_file(processed_image_path, output_image_path)
+
+                    tags = ", ".join(self._translate_export_tag_list(canonical_tags, tag_language, reader))
+                    if merge_caption and captions:
+                        tags = f"{tags}, {captions}" if tags else captions
+
+                    with open(txt_file, "w", encoding="utf-8") as f:
+                        f.write(tags)
+
+                    # Write caption file
+                    if captions:
+                        with open(caption_file, "w", encoding="utf-8") as f:
+                            f.write(captions)
 
                 exported_count += 1
                 logger.debug(f"Exported image {image_id}: {base_filename}")
@@ -161,6 +178,7 @@ class DatasetExportService:
         metadata_filename: str = "metadata.json",
         tag_format: str = _DEFAULT_EXPORT_TAG_FORMAT,
         overlay_plan: ExportOverlayPlan | None = None,
+        tag_languages: list[str] | None = None,
     ) -> Path:
         """Export dataset in JSON metadata format compatible with kohya-ss.
 
@@ -177,6 +195,9 @@ class DatasetExportService:
                 tags are excluded (ADR 0068 Phase 3).
             overlay_plan: オーバーレイ適用プラン（ADR 0080）。None の場合は従来挙動を完全維持する。
                 画像ごとに effective_for(image_id) で実効 overlay を解決して apply_overlay に渡す。
+            tag_languages: 出力するタグ言語。None / ["canonical"] は従来の canonical 出力。
+                1 言語なら output_path 直下へ、複数言語なら ``output_path/<language>/`` ごとに
+                完全な dataset を出力する (ADR 0088)。
 
         Returns:
             Path: Path to the exported dataset directory
@@ -188,15 +209,19 @@ class DatasetExportService:
         if not image_ids:
             raise ValueError("image_ids list cannot be empty")
 
-        if not output_path.exists():
-            output_path.mkdir(parents=True, exist_ok=True)
+        language_roots = self._resolve_language_output_roots(output_path, tag_languages)
+        for _, language_output_path in language_roots:
+            language_output_path.mkdir(parents=True, exist_ok=True)
 
         logger.info(
-            f"Starting JSON format dataset export: {len(image_ids)} images, resolution={resolution}"
+            "Starting JSON format dataset export: {} images, resolution={}, tag_languages={}",
+            len(image_ids),
+            resolution,
+            [language for language, _ in language_roots],
         )
 
         reader = self._get_export_reader()
-        metadata = {}
+        metadata_by_language = {language: {} for language, _ in language_roots}
         exported_count = 0
 
         for image_id in image_ids:
@@ -215,15 +240,13 @@ class DatasetExportService:
                     logger.warning(f"No export data found for image ID {image_id}")
                     continue
 
-                # Copy processed image
-                output_image_path = output_path / processed_image_path.name
-                self.file_system_manager.copy_file(processed_image_path, output_image_path)
-
                 # タグ文字列構築: overlay 有無で分岐（ADR 0080）
                 export_tags = self._resolve_export_tags(image_data["tags"])
                 export_caption = self._resolve_export_caption(image_data["captions"])
                 tag_list = [tag_data["tag"] for tag_data in export_tags]
-                tags = self._build_export_tags_str(tag_list, image_id, tag_format, reader, overlay_plan)
+                canonical_tags = self._build_export_tag_list(
+                    tag_list, image_id, tag_format, reader, overlay_plan
+                )
                 captions = export_caption["caption"] if export_caption else ""
                 # ADR 0028: score_labels は {model, label} を主とする JSON-safe な形で埋め込む
                 score_labels = [
@@ -235,13 +258,18 @@ class DatasetExportService:
                     for sl in image_data.get("score_labels", [])
                 ]
 
-                metadata[str(output_image_path)] = {
-                    "tags": tags,
-                    "caption": captions,
-                    "score_labels": score_labels,
-                    # ADR 0029: 統一品質 tier (derived view)
-                    "quality_summary": image_data.get("quality_summary", {}),
-                }
+                for tag_language, language_output_path in language_roots:
+                    output_image_path = language_output_path / processed_image_path.name
+                    self.file_system_manager.copy_file(processed_image_path, output_image_path)
+                    metadata_by_language[tag_language][str(output_image_path)] = {
+                        "tags": ", ".join(
+                            self._translate_export_tag_list(canonical_tags, tag_language, reader)
+                        ),
+                        "caption": captions,
+                        "score_labels": score_labels,
+                        # ADR 0029: 統一品質 tier (derived view)
+                        "quality_summary": image_data.get("quality_summary", {}),
+                    }
 
                 exported_count += 1
                 logger.debug(f"Exported image {image_id}: {processed_image_path.name}")
@@ -251,9 +279,10 @@ class DatasetExportService:
                 continue
 
         # Write metadata JSON file (proper JSON format, not append mode)
-        metadata_path = output_path / metadata_filename
-        with open(metadata_path, "w", encoding="utf-8") as f:
-            json.dump(metadata, f, indent=2, ensure_ascii=False)
+        for tag_language, language_output_path in language_roots:
+            metadata_path = language_output_path / metadata_filename
+            with open(metadata_path, "w", encoding="utf-8") as f:
+                json.dump(metadata_by_language[tag_language], f, indent=2, ensure_ascii=False)
 
         logger.info(f"JSON format export completed: {exported_count}/{len(image_ids)} images exported")
         return output_path
@@ -395,12 +424,90 @@ class DatasetExportService:
         Returns:
             カンマ区切りのタグ文字列。
         """
+        return ", ".join(self._build_export_tag_list(tag_list, image_id, tag_format, reader, overlay_plan))
+
+    def _build_export_tag_list(
+        self,
+        tag_list: list[str],
+        image_id: int,
+        tag_format: str,
+        reader: "MergedTagReader | None",
+        overlay_plan: ExportOverlayPlan | None,
+    ) -> list[str]:
+        """タグリストを overlay または従来変換で list 化する（ADR 0080 / ADR 0088）。"""
         if overlay_plan is not None:
             effective_overlay = overlay_plan.effective_for(image_id)
             # apply_overlay 内で add/replace が空のとき dedup をスキップするため
             # is_noop チェックによる分岐は不要（ADR 0080 §2 改訂）
-            return ", ".join(apply_overlay(tag_list, effective_overlay, reader, tag_format))
-        return self._convert_tags_for_export(", ".join(tag_list), tag_format, reader)
+            return apply_overlay(tag_list, effective_overlay, reader, tag_format)
+        converted = self._convert_tags_for_export(", ".join(tag_list), tag_format, reader)
+        return [tag.strip() for tag in converted.split(",") if tag.strip()]
+
+    def _translate_export_tag_list(
+        self,
+        tag_list: list[str],
+        tag_language: str,
+        reader: "MergedTagReader | None",
+    ) -> list[str]:
+        """canonical タグリストを指定言語の主訳で置換する（訳なしは fallback）。"""
+        if tag_language == _CANONICAL_TAG_LANGUAGE or not tag_list or reader is None:
+            return tag_list
+
+        unique_tags = list(dict.fromkeys(tag_list))
+        try:
+            search_results = search_tags_batch(
+                reader, unique_tags, format_names=None, resolve_preferred=False
+            )
+            tag_ids_by_tag = {
+                tag: result.items[0].tag_id
+                for tag, result in search_results.items()
+                if result.items and result.items[0].tag == tag
+            }
+            preferred = get_preferred_translations_batch(reader, list(tag_ids_by_tag.values()))
+        except (SQLAlchemyError, ValueError, RuntimeError) as e:
+            logger.warning(
+                "Tag translation lookup failed; falling back to canonical tags: language={}, error={}",
+                tag_language,
+                e,
+            )
+            return tag_list
+
+        translations_by_tag = {
+            tag: translation
+            for tag, tag_id in tag_ids_by_tag.items()
+            if (translation := translation_for_language(preferred.get(tag_id, {}), tag_language))
+        }
+        return [translations_by_tag.get(tag, tag) for tag in tag_list]
+
+    def _resolve_language_output_roots(
+        self, output_path: Path, tag_languages: list[str] | None
+    ) -> list[tuple[str, Path]]:
+        """出力言語と実際の出力 root を解決する（ADR 0088）。"""
+        languages = self._normalize_tag_languages(tag_languages)
+        if len(languages) == 1:
+            return [(languages[0], output_path)]
+        return [(language, output_path / language) for language in languages]
+
+    @staticmethod
+    def _normalize_tag_languages(tag_languages: list[str] | None) -> list[str]:
+        """tag language 指定を正規化・検証する。"""
+        if tag_languages is None:
+            return [_CANONICAL_TAG_LANGUAGE]
+
+        normalized: list[str] = []
+        seen: set[str] = set()
+        for raw_language in tag_languages:
+            language = canonical_language_key(raw_language.strip().lower())
+            if not language:
+                continue
+            if language in {".", ".."} or any(separator in language for separator in ("/", "\\")):
+                raise ValueError(f"Invalid tag language path segment: {raw_language!r}")
+            if any(not (char.isalnum() or char in {"-", "_"}) for char in language):
+                raise ValueError(f"Invalid tag language: {raw_language!r}")
+            if language not in seen:
+                seen.add(language)
+                normalized.append(language)
+        return normalized or [_CANONICAL_TAG_LANGUAGE]
 
     def _get_export_reader(self) -> "MergedTagReader | None":
         """外部 tag_db reader を取得する。

@@ -637,12 +637,14 @@ lorairo-cli --json describe "export create"
 - `image_ids_file`: `path?` (optional) - Path to a newline/comma-separated image ID list for bulk operations (chunked internally, max 100,000; mutually exclusive with image_ids, Issue #1216). For tags commands, bulk mode emits TagsBulkProgressItem chunk-progress rows instead of per-image TagsEditItem.
 - `output`: `path` (required)
 - `resolution`: `int` (optional, default `512`)
+- `tag_languages`: `list[str]?` (optional) - Tag languages to export. 'canonical' keeps existing tag output; multiple values create language-specific dataset directories.
 
 **Output `ExportCreateResult`**
 
 - `output_path`: `path?` (optional)
 - `total_images`: `int?` (optional)
 - `resolution`: `int?` (optional)
+- `tag_languages`: `list[str]?` (optional)
 - `count`: `int?` (optional)
 
 **Error `CliErrorResponse`**

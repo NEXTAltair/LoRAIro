@@ -87,3 +87,4 @@
 * [翻訳 CLI インターフェース (tags translations show/add + tags alias)](0085-translation-cli-interface.md)
 * [画像登録スキャンを FileSystemManager に集約](0086-image-scan-filesystem-manager-ssot.md)
 * [タグ chip 右クリックをキャプション移動の操作ハブにする](0087-tag-chip-caption-move-menu.md)
+* [Export tag language directories for Kohya-compatible datasets](0088-export-tag-language-directories.md)

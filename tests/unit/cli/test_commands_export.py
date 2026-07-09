@@ -145,6 +145,32 @@ class TestExportCreate:
         assert 1024 in txt_args or call_args_txt[1].get("resolution") == 1024
         assert 1024 in json_args or call_args_json[1].get("resolution") == 1024
 
+    def test_create_tag_languages_passed_to_exporters(self, mock_export_context, tmp_path):
+        """--tag-language の複数指定が両エクスポーターに渡される。"""
+        container, _ = mock_export_context
+        result = runner.invoke(
+            app,
+            [
+                "export",
+                "create",
+                "--project",
+                "proj",
+                "--image-ids",
+                "1",
+                "--output",
+                str(tmp_path / "out"),
+                "--tag-language",
+                "canonical",
+                "--tag-language",
+                "ja",
+            ],
+        )
+        assert result.exit_code == 0
+        txt_kwargs = container.dataset_export_service.export_dataset_txt_format.call_args.kwargs
+        json_kwargs = container.dataset_export_service.export_dataset_json_format.call_args.kwargs
+        assert txt_kwargs["tag_languages"] == ["canonical", "ja"]
+        assert json_kwargs["tag_languages"] == ["canonical", "ja"]
+
 
 @pytest.mark.unit
 class TestExportCreateImageIdsFile:

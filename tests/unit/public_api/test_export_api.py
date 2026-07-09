@@ -270,6 +270,30 @@ class TestExportDataset:
 
         assert captured["project_name"] == "my_project"
 
+    def test_tag_languages_passed_to_export_service(
+        self, mock_export_service: MagicMock, tmp_path: Path
+    ) -> None:
+        """ExportCriteria.tag_languages が DatasetExportService へ渡される。"""
+        captured: dict[str, object] = {}
+
+        def capture_export(
+            output_path: Path,
+            format_type: str = "txt",
+            resolution: int = 512,
+            criteria: ImageFilterCriteria | None = None,
+            **kwargs: object,
+        ) -> Path:
+            captured["tag_languages"] = kwargs.get("tag_languages")
+            output_path.mkdir(parents=True, exist_ok=True)
+            return output_path
+
+        mock_export_service.export_with_criteria.side_effect = capture_export
+
+        export_criteria = ExportCriteria(tag_filter=["cat"], tag_languages=["canonical", "ja"])
+        export_dataset("my_project", tmp_path / "output", export_criteria)
+
+        assert captured["tag_languages"] == ["canonical", "ja"]
+
 
 @pytest.mark.unit
 class TestExportCriteria:
@@ -286,3 +310,8 @@ class TestExportCriteria:
         criteria = ExportCriteria(format_type="json", resolution=1024)
         assert criteria.format_type == "json"
         assert criteria.resolution == 1024
+
+    def test_tag_languages_blank_stripped(self) -> None:
+        """tag_languages の空白要素は除外される。"""
+        criteria = ExportCriteria(tag_languages=["canonical", "", "  ", "ja"])
+        assert criteria.tag_languages == ["canonical", "ja"]
