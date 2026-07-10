@@ -312,9 +312,9 @@ class TestBatchTagAddIntegration:
             batch_tag_widget.ui.pushButtonAddTag.click()
 
         # 6. 正規化されたタグが発行されたことを確認
-        # TagCleaner.clean_format() は underscores → spaces, lowercase
+        # TagCleaner.clean_format() は underscores → spaces。大小は保持する (#1288)
         assert signal_emitted is True
-        assert received_tag == "test landscape"  # 正規化後のタグ
+        assert received_tag == "Test LANDSCAPE"  # 正規化後のタグ
 
     def test_mainwindow_signal_connection_simulation(
         self, batch_tag_widget, dataset_state_manager, mock_db_write_service, test_images_data, qtbot

@@ -115,7 +115,7 @@ class QuickTagDialog(QDialog):
             tag: 入力タグ文字列
 
         Returns:
-            正規化されたタグ（TagCleaner.clean_format() + lower + strip）
+            正規化されたタグ（TagCleaner.clean_format() + strip、大小は保持）
         """
         return normalize_tag(tag)
 

@@ -493,7 +493,10 @@ class AnnotationRepository(BaseRepository):
             logger.warning("Empty tag for batch add")
             return (False, 0)
 
-        input_tag = tag.strip().lower()
+        # 外部 tag_db の翻訳は case-sensitive に照合されるため、検索キーは大小を保持する
+        # (genai-tag-db-tools#139 / #1288)。小文字化は保存値の fallback と dedup キー
+        # (`_dedup_key`) に限定する。
+        input_tag = tag.strip()
         added_count = 0
 
         with self.session_factory() as session:
@@ -639,7 +642,10 @@ class AnnotationRepository(BaseRepository):
                         update(Tag)
                         .where(
                             Tag.image_id.in_(images_to_reject),
-                            Tag.tag == normalized_tag,
+                            # 保存値は大小混在しうる (canonical 解決結果 / 未解決タグ)。
+                            # 計画側 (`_plan_tag_removal`) が小文字化して判定するため、
+                            # 更新側も揃えないと「成功報告 + 0 行更新」になる (#1288)。
+                            func.lower(Tag.tag) == normalized_tag,
                             Tag.rejected_at.is_(None),
                         )
                         .values(
@@ -717,7 +723,8 @@ class AnnotationRepository(BaseRepository):
                         update(Tag)
                         .where(
                             Tag.image_id.in_(images_to_change),
-                            Tag.tag == normalized_from,
+                            # 保存値の大小混在に追従する (#1288)
+                            func.lower(Tag.tag) == normalized_from,
                             Tag.rejected_at.is_(None),
                         )
                         .values(
@@ -796,7 +803,8 @@ class AnnotationRepository(BaseRepository):
                     select(Tag.image_id)
                     .where(
                         Tag.image_id.in_(image_ids),
-                        Tag.tag == normalized_tag,
+                        # 保存値の大小混在に追従する (#1288)
+                        func.lower(Tag.tag) == normalized_tag,
                         Tag.rejected_at.is_not(None),
                     )
                     .distinct()
@@ -811,7 +819,8 @@ class AnnotationRepository(BaseRepository):
                         update(Tag)
                         .where(
                             Tag.image_id.in_(rejected_image_ids),
-                            Tag.tag == normalized_tag,
+                            # 保存値の大小混在に追従する (#1288)
+                            func.lower(Tag.tag) == normalized_tag,
                             Tag.rejected_at.is_not(None),
                         )
                         .values(

@@ -189,6 +189,36 @@ def _search_result(items: list[SimpleNamespace]) -> SimpleNamespace:
 
 
 @pytest.mark.unit
+class TestBatchAddSearchKeyCase:
+    """外部 tag_db への検索キーは大文字小文字を保持する (#1288)。
+
+    翻訳は case-sensitive に照合されるため (genai-tag-db-tools#139)、
+    小文字化した検索キーを渡すと大文字混じり翻訳へ到達できない。
+    """
+
+    def test_search_key_is_not_lowercased(self, repo, mock_session):
+        repo._resolution_for_batch_add = MagicMock(return_value=("Uの字口", 7))
+        repo._plan_tag_addition = MagicMock(return_value=([], {}))
+
+        success, _ = repo.add_tag_to_images_batch([1], "  Uの字口  ", model_id=None)
+
+        assert success is True
+        # strip はするが lower はしない
+        assert repo._resolution_for_batch_add.call_args.args[1] == "Uの字口"
+
+    def test_unresolved_tag_is_stored_verbatim(self, repo, mock_session):
+        """未解決タグは入力の表記のまま保存する (ADR 0083 §4)。"""
+        repo._resolution_for_batch_add = MagicMock(return_value=("Mixed Case", None))
+        repo._plan_tag_addition = MagicMock(return_value=([1], {}))
+
+        success, added = repo.add_tag_to_images_batch([1], "Mixed Case", model_id=None)
+
+        assert (success, added) == (True, 1)
+        added_row = mock_session.add.call_args.args[0]
+        assert added_row.tag == "Mixed Case"
+
+
+@pytest.mark.unit
 class TestResolveCanonicalAndTagId:
     """`_resolve_canonical_and_tag_id` の canonical 解決動作 (#988)。"""
 
