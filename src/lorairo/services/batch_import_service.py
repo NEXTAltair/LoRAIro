@@ -9,6 +9,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, cast
 
+from genai_tag_db_tools.utils.cleanup_str import TagCleaner
+
 from lorairo.database.repository.annotation_record import AnnotationRepository, AnnotationSaveItem
 from lorairo.database.repository.image import ImageRepository
 from lorairo.database.repository.model import ModelRepository
@@ -207,10 +209,16 @@ class BatchImportService:
         model_id = self._resolve_model_id(model_name)
 
         # 5. タグID一括解決（N+1回避）
+        # `batch_resolve_tag_ids` は clean_format + strip 済みキーを要求する。
+        # 小文字化すると外部 tag_db の大文字混じり base タグ (`A.P:D` 等) に到達できず
+        # user DB へ重複登録される (genai-tag-db-tools#142)。underscore を残すと
+        # 下流の cache 参照キー (`clean_format` 済み) と噛み合わない。
         all_tags: set[str] = set()
         for parsed_content in parsed.values():
             for tag in parsed_content.tags:
-                all_tags.add(tag.strip().lower())
+                normalized = TagCleaner.clean_format(tag).strip()
+                if normalized:
+                    all_tags.add(normalized)
 
         tag_id_cache = self._annotation_repository.batch_resolve_tag_ids(all_tags)
 
