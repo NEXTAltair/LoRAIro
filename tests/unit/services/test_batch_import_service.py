@@ -278,3 +278,26 @@ class TestBuildAnnotations:
 
         assert len(result["tags"]) == 1
         assert result["captions"] == []
+
+
+class TestBatchImportTagResolutionKeys:
+    """`batch_resolve_tag_ids` へ渡すキーの正規化 (#1275 / Codex P2)。"""
+
+    def test_resolution_keys_are_clean_format_not_lowercased(
+        self, tmp_path: Path, mock_repository: MagicMock
+    ) -> None:
+        """検索キーは clean_format + strip。小文字化しない。
+
+        外部 tag_db の完全一致はキー側だけを畳むため (genai-tag-db-tools#142)、
+        ここで小文字化すると `Xd` のような大文字混じり base タグに到達できず、
+        user DB へ重複登録される。underscore を残すと下流の `clean_tag`
+        (clean_format 済み) と噛み合わず cache が常に miss する。
+        """
+        records = [_make_batch_record("0262_1227", "Tags: Long_Hair, Xd\n\nCaption: x")]
+        jsonl_path = _create_jsonl_file(tmp_path, records)
+        service = _make_service(mock_repository)
+
+        service.import_from_jsonl(jsonl_path)
+
+        passed_keys = mock_repository.batch_resolve_tag_ids.call_args[0][0]
+        assert passed_keys == {"Long Hair", "Xd"}
