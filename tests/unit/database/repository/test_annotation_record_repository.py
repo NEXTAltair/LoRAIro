@@ -1134,3 +1134,59 @@ class TestManualReAddRevivesSoftReject:
             assert by_model[other_id].rejected_at is not None
             # 手動行は active
             assert by_model[manual_edit_model_id].rejected_at is None
+
+
+@pytest.mark.unit
+class TestMixedCaseStoredTagWritePaths:
+    """大小混在で保存されたタグに対する remove/replace/restore の追従 (#1288)。
+
+    保存値は canonical 解決結果や未解決タグの verbatim 保存によって大小混在しうる。
+    計画側は小文字化して判定するため、更新側の完全一致比較を揃えないと
+    「成功を報告するが 0 行しか更新しない」状態になる (Codex P2)。
+    """
+
+    def _add_tag(self, session_factory, image_id: int, tag: str) -> None:
+        with session_factory() as session:
+            session.add(Tag(image_id=image_id, tag=tag, tag_id=None, is_edited_manually=True))
+            session.commit()
+
+    def _tag_row(self, session_factory, image_id: int) -> Tag:
+        with session_factory() as session:
+            return session.execute(select(Tag).where(Tag.image_id == image_id)).scalar_one()
+
+    def test_remove_soft_rejects_mixed_case_stored_tag(
+        self, annotation_repository, memory_session_factory, image_id
+    ) -> None:
+        self._add_tag(memory_session_factory, image_id, "Mixed Case")
+
+        ok, per_item = annotation_repository.remove_tag_from_images_batch([image_id], "Mixed Case")
+
+        assert (ok, per_item) == (True, [(image_id, "changed")])
+        assert self._tag_row(memory_session_factory, image_id).rejected_at is not None
+
+    def test_restore_revives_mixed_case_stored_tag(
+        self, annotation_repository, memory_session_factory, image_id
+    ) -> None:
+        self._add_tag(memory_session_factory, image_id, "Mixed Case")
+        annotation_repository.remove_tag_from_images_batch([image_id], "Mixed Case")
+
+        ok, per_item = annotation_repository.restore_tag_for_images_batch([image_id], "Mixed Case")
+
+        assert (ok, per_item) == (True, [(image_id, "changed")])
+        assert self._tag_row(memory_session_factory, image_id).rejected_at is None
+
+    def test_replace_soft_rejects_mixed_case_source_tag(
+        self, annotation_repository, memory_session_factory, image_id
+    ) -> None:
+        self._add_tag(memory_session_factory, image_id, "Mixed Case")
+
+        ok, per_item = annotation_repository.replace_tag_for_images_batch(
+            [image_id], "Mixed Case", "other tag"
+        )
+
+        assert (ok, per_item) == (True, [(image_id, "changed")])
+        with memory_session_factory() as session:
+            rows = session.execute(select(Tag).where(Tag.image_id == image_id)).scalars().all()
+        by_tag = {row.tag: row for row in rows}
+        assert by_tag["Mixed Case"].rejected_at is not None
+        assert by_tag["other tag"].rejected_at is None
