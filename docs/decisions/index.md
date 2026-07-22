@@ -89,3 +89,4 @@
 * [タグ chip 右クリックをキャプション移動の操作ハブにする](0087-tag-chip-caption-move-menu.md)
 * [Export tag language directories for Kohya-compatible datasets](0088-export-tag-language-directories.md)
 * [Pillow セキュリティ修正版を uv.lock の正準バージョンとする](0089-pillow-security-lock-update.md)
+* [transitive依存のセキュリティ更新と環境別torch境界](0090-transitive-security-update-boundary.md)
