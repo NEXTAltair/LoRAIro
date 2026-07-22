@@ -98,6 +98,7 @@ ADR は OKF (Open Knowledge Format) バンドルとして管理する。各 ADR 
 | [0086](0086-image-scan-filesystem-manager-ssot.md) | 画像登録スキャンを FileSystemManager に集約 | 2026-07-07 | Accepted |
 | [0087](0087-tag-chip-caption-move-menu.md) | タグ chip 右クリックをキャプション移動の操作ハブにする | 2026-07-09 | Accepted |
 | [0088](0088-export-tag-language-directories.md) | Export tag language directories for Kohya-compatible datasets | 2026-07-09 | Accepted |
+| [0089](0089-pillow-security-lock-update.md) | Pillow セキュリティ修正版を uv.lock の正準バージョンとする | 2026-07-22 | Accepted |
 <!-- OKF-TABLE:END -->
 
 ## ADR テンプレート
