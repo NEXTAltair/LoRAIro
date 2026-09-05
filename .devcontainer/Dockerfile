@@ -11,10 +11,8 @@ RUN rm -f /home/vscode/.npmrc /root/.npmrc || true
 # Set environment variables
 ENV PYTHONDONTWRITEBYTECODE=1
 ENV PYTHONUNBUFFERED=1
-ENV DISPLAY=host.docker.internal:0
-ENV QT_QPA_PLATFORM=xcb
-ENV QT_X11_NO_MITSHM=1
-ENV LIBGL_ALWAYS_INDIRECT=1
+# Container tests are headless; interactive GUI execution belongs to Windows.
+ENV QT_QPA_PLATFORM=offscreen
 ENV DEBIAN_FRONTEND=noninteractive
 ENV LANG=C.UTF-8
 ENV LC_ALL=C.UTF-8

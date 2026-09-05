@@ -13,13 +13,13 @@ nvm use 20 >/dev/null || true
 # 1) venv ownership
 sudo chown -R vscode:vscode /workspaces/LoRAIro/.venv || true
 
-# 2) remove nested venvs (if any)
-find /workspaces/LoRAIro/local_packages -type d -name .venv -exec rm -rf {} + || true
+# 2) Keep any nested virtual environments from the Windows workspace.
+# The host checkout is also used to run LoRAIro directly on Windows, so its
+# environments must not be removed during Dev Container initialization.
 
 # 3) fetch submodules + install python deps (single source of truth: `make setup`)
 make setup
 
-# 4) install Gemini CLI (Claude Code is pre-installed in Dockerfile)
-npm i -g @google/gemini-cli
+# Claude Code is pre-installed in Dockerfile. Do not reinstall retired agent CLIs.
 
 echo "[postCreate] done"
