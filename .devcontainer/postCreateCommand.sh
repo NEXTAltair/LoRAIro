@@ -26,8 +26,14 @@ fi
 # 1) venv ownership
 sudo chown -R vscode:vscode /workspaces/LoRAIro/.venv || true
 
+# Docker Desktop exposes the Windows checkout with a different owner. Trust
+# this exact mount before make setup invokes Git; do not trust arbitrary paths.
+if ! git config --global --get-all safe.directory | grep -Fxq "$WORKSPACE"; then
+    git config --global --add safe.directory "$WORKSPACE"
+fi
+
 # 2) Keep any nested virtual environments from the Windows workspace.
-# The host checkout is also used to run LoRAIro directly on Windows, so its
+# The H: checkout is also used to run LoRAIro directly on Windows, so its
 # environments must not be removed during Dev Container initialization.
 
 # 3) fetch submodules + install python deps (single source of truth: `make setup`)
