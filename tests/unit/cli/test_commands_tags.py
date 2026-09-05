@@ -460,7 +460,6 @@ class TestBulkImageIdsFile:
 
     def test_bulk_prevalidates_before_any_write(self, bulk_container, tmp_path):
         """後半チャンクに欠落 ID があれば書き込み前にエラー、partial-apply しない (Codex P2)。"""
-        from lorairo.public_api.exceptions import ImageNotFoundError
 
         # 存在しない ID (501〜) を含む: 2 番目のチャンクに欠落を仕込む
         def validate(criteria):
