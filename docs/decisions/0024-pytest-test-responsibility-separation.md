@@ -111,6 +111,28 @@ Issue #247 で、ルート `/workspaces/LoRAIro` から引数なしの `uv run p
 
 ## Related
 
+### 2026-09-05 amendment: portable shared-environment tasks
+
+上記の genai-tag 独立 `.venv` 維持と、テスト prerequisite での暗黙 sync を更新する。
+Windows / Dev Container の開発タスクは `scripts/dev_tasks.py` から実行し、
+Git common directory で検出した共有 checkout の `.venv` を全3パッケージで使う。
+現在の全 workspace member は Python 3.13 に対応する。
+
+- 依存導入は共有 checkout で明示的に `install-dev` を実行する。
+  `uv sync --all-packages --all-groups` で member の dev 依存も導入する。
+- 通常のテスト・整形・型検査は `--no-sync`。worktree 内への環境作成や
+  実行のたびの共有環境更新を行わない。更新と他の検証を並行実行しない。
+- ソースは対象 worktree の `PYTHONPATH` を優先する。pytest は各 package root で
+  別プロセスとして起動し、conftest・coverage の境界は従来どおり維持する。
+- 別OSの絶対パス、worktree-local venv、未導入の環境はエラーとし、復元方法を示す。
+- Windows ホストとコンテナの `.venv` 自体は別実体とする。既存 named volume を維持する。
+
+既存 uv と Python 標準ライブラリを再利用する。新しいタスク管理依存は増やさない。
+根拠: https://docs.astral.sh/uv/concepts/projects/config/#project-environment-path
+および https://docs.astral.sh/uv/reference/cli/#uv-sync 。
+
+### Links
+
 - **Issue**: #247 (uv run pytest 全 testpaths 実行が collection error で停止する)
 - **更新する ADR**: 0016 (Coverage Threshold Policy) — `genai-tag-db-tools` の `source` 包含判断を更新
 - **前提となる ADR**: 0016 (`image-annotator-lib` の `source` 除外判断)

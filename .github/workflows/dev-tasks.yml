@@ -1,0 +1,36 @@
+name: Portable development tasks
+
+on:
+  pull_request:
+    paths:
+      - Makefile
+      - scripts/dev_tasks.py
+      - scripts/tests/test_dev_tasks.py
+      - .github/workflows/dev-tasks.yml
+  push:
+    branches: [main]
+    paths:
+      - Makefile
+      - scripts/dev_tasks.py
+      - scripts/tests/test_dev_tasks.py
+      - .github/workflows/dev-tasks.yml
+
+permissions:
+  contents: read
+
+jobs:
+  portable-tasks:
+    strategy:
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - name: Test task planning and worktree isolation without syncing environments
+        run: |
+          python -m pip install pytest
+          python -X utf8 -m pytest scripts/tests/test_dev_tasks.py -q -o addopts=''

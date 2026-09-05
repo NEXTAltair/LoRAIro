@@ -13,16 +13,18 @@ uv run --no-sync ruff check src/ tests/ --no-fix
 uv run --no-sync ruff format src/ tests/ --check
 ```
 
-These commands work in Windows and Linux shells. `make lint` is an alias for the
-same two commands where Make is installed. Checks do not fix files. Automatic
+These commands work in Windows and Linux shells. `make lint` delegates to
+`python scripts/dev_tasks.py lint`, which validates the shared environment and
+runs the same two checks where Make is installed. Checks do not fix files. Automatic
 formatting remains available through `make format`, editor save actions and the
 existing pre-commit formatter; those paths explicitly request formatting/fixes.
 
 Use the main checkout's actual shared environment when invoking commands from
 a worktree. The remaining Makefile tasks still contain Linux-specific paths and
 shell constructs; this change does not claim full Makefile portability. Do not
-run `clean` or `venv-rebuild` as part of verification. Shared-environment routing
-and safe cleanup are separate follow-up work, independent of the agent-kit.
+run `clean` or `venv-rebuild` as part of verification. See [DEV_TASKS.md](DEV_TASKS.md)
+for migrated commands and shared-environment routing. Safe cleanup remains separate
+follow-up work, independent of the agent-kit.
 
 References:
 

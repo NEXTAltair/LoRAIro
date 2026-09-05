@@ -131,3 +131,10 @@ def test_failure_propagates_and_stops_later_sessions(checkout, monkeypatch):
     assert tasks.main(["test-all"]) == 7
     assert runner.call_count == 1
     assert runner.call_args.kwargs["env"]["QT_QPA_PLATFORM"] == "offscreen"
+
+
+def test_gui_entrypoint_preserves_exit_code(checkout):
+    _, linked, _ = checkout
+    command = tasks.build_plan("run-gui", linked, {})[0]
+    assert "sys.exit(main())" in command["argv"][-1]
+    assert "QT_QPA_PLATFORM" not in command["env"]

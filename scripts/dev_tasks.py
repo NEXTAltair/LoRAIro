@@ -138,7 +138,7 @@ def runtime_plan(task: str, root: Path, overlay: dict[str, str], interpreter: Pa
     elif task == "test-runtime-webapi":
         add(["scripts/run_runtime_webapi_tests.py"])
     elif task == "run-gui":
-        add(["-c", "from lorairo.main import main; main()"])
+        add(["-c", "import sys; from lorairo.main import main; sys.exit(main())"])
     elif task == "mypy":
         add(["-m", "mypy", "-p", "lorairo"])
     elif task == "lint":

@@ -15,11 +15,12 @@ from typing import Any
 
 from lorairo.services.configuration_service import ConfigurationService
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from dev_tasks import resolve_shared_environment
+
 REPO_ROOT = Path(__file__).resolve().parents[1]
 IAM_LIB_DIR = REPO_ROOT / "local_packages" / "image-annotator-lib"
 RUNTIME_TEST_PATH = "tests/runtime_validation/test_real_webapi_runtime.py"
-WORKTREE_ROOT = Path("/workspaces/LoRAIro/.agents/worktree")
-SHARED_UV_PROJECT_ENVIRONMENT = Path("/workspaces/LoRAIro/.venv")
 
 PROVIDER_CONFIG_KEYS = {
     "openai": "openai_key",
@@ -52,18 +53,6 @@ def load_api_keys(config_service: ConfigurationService | None = None) -> dict[st
     }
 
 
-def resolve_uv_project_environment(repo_root: Path) -> Path:
-    """Use the shared LoRAIro venv for /workspaces/LoRAIro/.agents/worktree checkouts."""
-    try:
-        if repo_root.resolve().is_relative_to(WORKTREE_ROOT):
-            return SHARED_UV_PROJECT_ENVIRONMENT
-    except (OSError, RuntimeError):
-        if str(repo_root).startswith(f"{WORKTREE_ROOT}/"):
-            return SHARED_UV_PROJECT_ENVIRONMENT
-
-    return repo_root / ".venv"
-
-
 def build_child_env(
     api_keys: Mapping[str, str],
     *,
@@ -71,7 +60,7 @@ def build_child_env(
     repo_root: Path = REPO_ROOT,
 ) -> dict[str, str]:
     """Build subprocess env, keeping API keys sourced only from LoRAIro config."""
-    env = dict(base_env or os.environ)
+    env = dict(os.environ if base_env is None else base_env)
     for env_key in PROVIDER_ENV_KEYS.values():
         env.pop(env_key, None)
 
@@ -80,7 +69,7 @@ def build_child_env(
         if api_key:
             env[env_key] = api_key
 
-    env["UV_PROJECT_ENVIRONMENT"] = str(resolve_uv_project_environment(repo_root))
+    env["UV_PROJECT_ENVIRONMENT"] = str(resolve_shared_environment(repo_root, env))
     return env
 
 
@@ -90,6 +79,10 @@ def build_pytest_command() -> list[str]:
         "uv",
         "run",
         "--no-sync",
+        "--python",
+        sys.executable,
+        "python",
+        "-m",
         "pytest",
         RUNTIME_TEST_PATH,
         "-m",
