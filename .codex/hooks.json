@@ -2,15 +2,15 @@
   "hooks": {
     "PreToolUse": [
       {
-        "matcher": "Bash|PowerShell",
         "hooks": [
           {
             "type": "command",
-            "command": "python3 -X utf8 -c \"import pathlib,runpy,subprocess,sys; p=pathlib.Path(subprocess.check_output(['git','rev-parse','--show-toplevel'],text=True,encoding='utf-8').strip())/'.codex/hooks/hook_pre_commands.py'; sys.path.insert(0,str(p.parent)); runpy.run_path(str(p),run_name='__main__')\"",
-            "commandWindows": "python -X utf8 -c \"import pathlib,runpy,subprocess,sys; p=pathlib.Path(subprocess.check_output(['git','rev-parse','--show-toplevel'],text=True,encoding='utf-8').strip())/'.codex/hooks/hook_pre_commands.py'; sys.path.insert(0,str(p.parent)); runpy.run_path(str(p),run_name='__main__')\"",
+            "command": "python3 -X utf8 -c \"import os,pathlib,runpy,subprocess,sys; r=pathlib.Path(subprocess.check_output(['git','rev-parse','--show-toplevel'],text=True,encoding='utf-8').strip()); os.environ['AGENT_KIT_PROJECT_DIR']=str(r); p=r/'.codex/hooks/hook_pre_commands.py'; p=p if p.is_file() else pathlib.Path(subprocess.check_output(['git','rev-parse','--path-format=absolute','--git-common-dir'],text=True,encoding='utf-8').strip()).parent/'.codex/hooks/hook_pre_commands.py'; sys.path.insert(0,str(p.parent)); runpy.run_path(str(p),run_name='__main__')\"",
+            "commandWindows": "python -X utf8 -c \"import os,pathlib,runpy,subprocess,sys; r=pathlib.Path(subprocess.check_output(['git','rev-parse','--show-toplevel'],text=True,encoding='utf-8').strip()); os.environ['AGENT_KIT_PROJECT_DIR']=str(r); p=r/'.codex/hooks/hook_pre_commands.py'; p=p if p.is_file() else pathlib.Path(subprocess.check_output(['git','rev-parse','--path-format=absolute','--git-common-dir'],text=True,encoding='utf-8').strip()).parent/'.codex/hooks/hook_pre_commands.py'; sys.path.insert(0,str(p.parent)); runpy.run_path(str(p),run_name='__main__')\"",
             "timeout": 5
           }
-        ]
+        ],
+        "matcher": "Bash|PowerShell"
       }
     ],
     "Stop": [
@@ -18,8 +18,8 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python3 -X utf8 -c \"import pathlib,runpy,subprocess,sys; p=pathlib.Path(subprocess.check_output(['git','rev-parse','--show-toplevel'],text=True,encoding='utf-8').strip())/'.codex/hooks/hook_response_monitor.py'; sys.path.insert(0,str(p.parent)); runpy.run_path(str(p),run_name='__main__')\"",
-            "commandWindows": "python -X utf8 -c \"import pathlib,runpy,subprocess,sys; p=pathlib.Path(subprocess.check_output(['git','rev-parse','--show-toplevel'],text=True,encoding='utf-8').strip())/'.codex/hooks/hook_response_monitor.py'; sys.path.insert(0,str(p.parent)); runpy.run_path(str(p),run_name='__main__')\"",
+            "command": "python3 -X utf8 -c \"import os,pathlib,runpy,subprocess,sys; r=pathlib.Path(subprocess.check_output(['git','rev-parse','--show-toplevel'],text=True,encoding='utf-8').strip()); os.environ['AGENT_KIT_PROJECT_DIR']=str(r); p=r/'.codex/hooks/hook_response_monitor.py'; p=p if p.is_file() else pathlib.Path(subprocess.check_output(['git','rev-parse','--path-format=absolute','--git-common-dir'],text=True,encoding='utf-8').strip()).parent/'.codex/hooks/hook_response_monitor.py'; sys.path.insert(0,str(p.parent)); runpy.run_path(str(p),run_name='__main__')\"",
+            "commandWindows": "python -X utf8 -c \"import os,pathlib,runpy,subprocess,sys; r=pathlib.Path(subprocess.check_output(['git','rev-parse','--show-toplevel'],text=True,encoding='utf-8').strip()); os.environ['AGENT_KIT_PROJECT_DIR']=str(r); p=r/'.codex/hooks/hook_response_monitor.py'; p=p if p.is_file() else pathlib.Path(subprocess.check_output(['git','rev-parse','--path-format=absolute','--git-common-dir'],text=True,encoding='utf-8').strip()).parent/'.codex/hooks/hook_response_monitor.py'; sys.path.insert(0,str(p.parent)); runpy.run_path(str(p),run_name='__main__')\"",
             "timeout": 5
           }
         ]

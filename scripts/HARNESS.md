@@ -18,9 +18,13 @@ Windowsとコンテナは別の共有 `.venv` を使う。Codexのローカル�
 `.codex/config.toml` の `[shell_environment_policy.set]` に、Windowsでは
 `UV_PROJECT_ENVIRONMENT = "H:/LoRAIro/.venv"`、コンテナでは
 `UV_PROJECT_ENVIRONMENT = "/workspaces/LoRAIro/.venv"` を設定する。
-Windowsの実パスが異なる場合は読み替える。フック起動にはPATH上のPythonとGitのみ必要。
+Windowsの実パスが異なる場合は読み替える。同じ設定ファイルをbind mountで共有する場合は
+一方の絶対パスを他方でも使わないこと。環境別設定の分離はDev Container再整備で扱う。
+フック起動には両環境のPATH上に `python` とGitが必要（汎用Linux kitの既定は `python3`）。
 
 Claudeはexec形式、CodexはGitルート解決とWindows用コマンドを使う。
+新規worktreeに共通ランタイムがなければ共有checkoutへフォールバックする。
+固有のルールは作業中のworktreeから読み、共有checkoutのルールにすり替えない。
 GNU timeoutは不要。Codexの未対応WorktreeCreate登録は撤去し、worktree作成は既存のGit運用に従う。
 `.ui` の生成は既存画面のため維持し、対象worktreeのソースと共有Pythonを使って同期なしで実行する。
 

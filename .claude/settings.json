@@ -68,13 +68,23 @@
           {
             "type": "command",
             "command": "python",
-            "args": ["-X", "utf8", "${CLAUDE_PROJECT_DIR}/.claude/hooks/hook_pre_commands.py"],
+            "args": [
+              "-X",
+              "utf8",
+              "-c",
+              "import os,pathlib,runpy,subprocess,sys; r=pathlib.Path(subprocess.check_output(['git','rev-parse','--show-toplevel'],text=True,encoding='utf-8').strip()); os.environ['AGENT_KIT_PROJECT_DIR']=str(r); p=r/'.claude/hooks/hook_pre_commands.py'; p=p if p.is_file() else pathlib.Path(subprocess.check_output(['git','rev-parse','--path-format=absolute','--git-common-dir'],text=True,encoding='utf-8').strip()).parent/'.claude/hooks/hook_pre_commands.py'; sys.path.insert(0,str(p.parent)); runpy.run_path(str(p),run_name='__main__')"
+            ],
             "timeout": 5
           },
           {
             "type": "command",
             "command": "python",
-            "args": ["-X", "utf8", "${CLAUDE_PROJECT_DIR}/.claude/hooks/hook_pre_pr_submodule_check.py"],
+            "args": [
+              "-X",
+              "utf8",
+              "-c",
+              "import os,pathlib,runpy,subprocess,sys; r=pathlib.Path(subprocess.check_output(['git','rev-parse','--show-toplevel'],text=True,encoding='utf-8').strip()); os.environ['AGENT_KIT_PROJECT_DIR']=str(r); p=r/'.claude/hooks/hook_pre_pr_submodule_check.py'; p=p if p.is_file() else pathlib.Path(subprocess.check_output(['git','rev-parse','--path-format=absolute','--git-common-dir'],text=True,encoding='utf-8').strip()).parent/'.claude/hooks/hook_pre_pr_submodule_check.py'; sys.path.insert(0,str(p.parent)); runpy.run_path(str(p),run_name='__main__')"
+            ],
             "timeout": 15
           }
         ]
@@ -85,7 +95,12 @@
           {
             "type": "command",
             "command": "python",
-            "args": ["-X", "utf8", "${CLAUDE_PROJECT_DIR}/.claude/hooks/hook_pre_edit_worktree.py"],
+            "args": [
+              "-X",
+              "utf8",
+              "-c",
+              "import os,pathlib,runpy,subprocess,sys; r=pathlib.Path(subprocess.check_output(['git','rev-parse','--show-toplevel'],text=True,encoding='utf-8').strip()); os.environ['AGENT_KIT_PROJECT_DIR']=str(r); p=r/'.claude/hooks/hook_pre_edit_worktree.py'; p=p if p.is_file() else pathlib.Path(subprocess.check_output(['git','rev-parse','--path-format=absolute','--git-common-dir'],text=True,encoding='utf-8').strip()).parent/'.claude/hooks/hook_pre_edit_worktree.py'; sys.path.insert(0,str(p.parent)); runpy.run_path(str(p),run_name='__main__')"
+            ],
             "timeout": 5
           }
         ]
@@ -93,12 +108,16 @@
     ],
     "Stop": [
       {
-        "matcher": "*",
         "hooks": [
           {
             "type": "command",
             "command": "python",
-            "args": ["-X", "utf8", "${CLAUDE_PROJECT_DIR}/.claude/hooks/hook_response_monitor.py"],
+            "args": [
+              "-X",
+              "utf8",
+              "-c",
+              "import os,pathlib,runpy,subprocess,sys; r=pathlib.Path(subprocess.check_output(['git','rev-parse','--show-toplevel'],text=True,encoding='utf-8').strip()); os.environ['AGENT_KIT_PROJECT_DIR']=str(r); p=r/'.claude/hooks/hook_response_monitor.py'; p=p if p.is_file() else pathlib.Path(subprocess.check_output(['git','rev-parse','--path-format=absolute','--git-common-dir'],text=True,encoding='utf-8').strip()).parent/'.claude/hooks/hook_response_monitor.py'; sys.path.insert(0,str(p.parent)); runpy.run_path(str(p),run_name='__main__')"
+            ],
             "timeout": 5
           }
         ]
@@ -111,7 +130,11 @@
           {
             "type": "command",
             "command": "python",
-            "args": ["-X", "utf8", "${CLAUDE_PROJECT_DIR}/scripts/hook_generate_ui.py"],
+            "args": [
+              "-X",
+              "utf8",
+              "${CLAUDE_PROJECT_DIR}/scripts/hook_generate_ui.py"
+            ],
             "timeout": 120
           }
         ]
@@ -119,12 +142,16 @@
     ],
     "WorktreeCreate": [
       {
-        "matcher": "*",
         "hooks": [
           {
             "type": "command",
             "command": "python",
-            "args": ["-X", "utf8", "${CLAUDE_PROJECT_DIR}/.claude/hooks/hook_worktree_create.py"],
+            "args": [
+              "-X",
+              "utf8",
+              "-c",
+              "import os,pathlib,runpy,subprocess,sys; r=pathlib.Path(subprocess.check_output(['git','rev-parse','--show-toplevel'],text=True,encoding='utf-8').strip()); os.environ['AGENT_KIT_PROJECT_DIR']=str(r); p=r/'.claude/hooks/hook_worktree_create.py'; p=p if p.is_file() else pathlib.Path(subprocess.check_output(['git','rev-parse','--path-format=absolute','--git-common-dir'],text=True,encoding='utf-8').strip()).parent/'.claude/hooks/hook_worktree_create.py'; sys.path.insert(0,str(p.parent)); runpy.run_path(str(p),run_name='__main__')"
+            ],
             "timeout": 120
           }
         ]
@@ -136,7 +163,11 @@
           {
             "type": "command",
             "command": "python",
-            "args": ["-X", "utf8", "${CLAUDE_PROJECT_DIR}/.claude/hooks/hook_teammate_monitor.py"],
+            "args": [
+              "-X",
+              "utf8",
+              "${CLAUDE_PROJECT_DIR}/.claude/hooks/hook_teammate_monitor.py"
+            ],
             "timeout": 90
           }
         ]
@@ -148,7 +179,11 @@
           {
             "type": "command",
             "command": "python",
-            "args": ["-X", "utf8", "${CLAUDE_PROJECT_DIR}/.claude/hooks/hook_teammate_monitor.py"],
+            "args": [
+              "-X",
+              "utf8",
+              "${CLAUDE_PROJECT_DIR}/.claude/hooks/hook_teammate_monitor.py"
+            ],
             "timeout": 10
           }
         ]
@@ -160,7 +195,11 @@
           {
             "type": "command",
             "command": "python",
-            "args": ["-X", "utf8", "${CLAUDE_PROJECT_DIR}/.claude/hooks/hook_teammate_monitor.py"],
+            "args": [
+              "-X",
+              "utf8",
+              "${CLAUDE_PROJECT_DIR}/.claude/hooks/hook_teammate_monitor.py"
+            ],
             "timeout": 90
           }
         ]
