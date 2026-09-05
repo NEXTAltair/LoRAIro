@@ -111,7 +111,8 @@ url = "https://download.pytorch.org/whl/cu132"
 explicit = true
 
 [tool.ruff]
-fix = true
+# Checks are read-only; formatting commands/editor actions explicitly opt in.
+fix = false
 line-length = 108
 target-version = "py312"
 exclude = [
@@ -120,12 +121,14 @@ exclude = [
 ]
 
 [tool.ruff.lint]
+fixable = ["ALL"]
 select = [
     "E",   # pycodestyle errors
     "W",   # pycodestyle warnings
     "F",   # pyflakes
     "I",   # isort
-    "C",   # flake8-comprehensions
+    "C4",  # flake8-comprehensions
+    "C90", # McCabe complexity (previously included by the broad C prefix)
     "B",   # flake8-bugbear
     "UP",  # pyupgrade
     "RUF", # Ruff-specific rules
@@ -149,8 +152,6 @@ allowed-confusables = ["ノ", "（", "）", "×"]
 # 実行する必要があるため、function call と import の混在 (E402) は意図的
 "src/lorairo/cli/main.py" = ["E402"]
 "*/database/migrations/versions/*" = ["C901"]
-fixable = ["ALL"]
-
 [tool.ruff.format]
 quote-style = "double"
 indent-style = "space"
@@ -271,15 +272,11 @@ dev = [
     "pytest-mock",
     "pytest-xdist",
     "pytest-qt",
-    "pytest-bdd",
     "pytest-timeout>=2.4.0",
-    "types-requests",
     "pytest-bdd>=8.1.0",
     "types-requests>=2.32.0",
     "types-Pillow",
     "types-toml",
-    "radon>=6.0.1",
-    "lizard>=1.21.0",
     "pre-commit>=4.5.1",
 ]
 

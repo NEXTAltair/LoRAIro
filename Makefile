@@ -12,6 +12,8 @@ export UV_PROJECT_ENVIRONMENT := $(LORAIRO_UV_PROJECT_ENVIRONMENT)
 endif
 
 # Default target
+.PHONY: lint
+
 help:
 	@echo "LoRAIro Project - Available Commands:"
 	@echo ""
@@ -29,6 +31,7 @@ help:
 	@echo "  test-genai-tag Run genai-tag-db-tools tests in its package root"
 	@echo "  test-all     Run all 3 package test sessions sequentially"
 	@echo "  mypy         Run code check (mypy)"
+	@echo "  lint         Read-only Ruff lint and formatting checks"
 	@echo "  format       Format LoRAIro main code (ruff format + check --fix on src/ tests/)"
 	@echo "  format-iam-lib Format image-annotator-lib in its package root"
 	@echo "  format-genai-tag Format genai-tag-db-tools in its package root"
@@ -126,6 +129,10 @@ test-all: _ensure-submodules
 mypy: _ensure-submodules
 	@echo "Running mypy..."
 	uv run mypy -p lorairo
+
+lint:
+	uv run --no-sync ruff check src/ tests/ --no-fix
+	uv run --no-sync ruff format src/ tests/ --check
 
 format: _ensure-submodules
 	@echo "Formatting code..."
