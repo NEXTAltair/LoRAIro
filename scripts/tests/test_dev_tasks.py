@@ -138,3 +138,17 @@ def test_gui_entrypoint_preserves_exit_code(checkout):
     command = tasks.build_plan("run-gui", linked, {})[0]
     assert "sys.exit(main())" in command["argv"][-1]
     assert "QT_QPA_PLATFORM" not in command["env"]
+
+
+def test_docs_okf_validates_root_without_initialized_submodules(checkout):
+    _, linked, _ = checkout
+    for package in tasks.PACKAGES:
+        (linked / "local_packages" / package / "pyproject.toml").unlink()
+    plan = tasks.build_plan("docs-okf", linked, {})
+    assert len(plan) == 1
+    assert plan[0]["argv"][-4:] == [
+        "docs",
+        "--skip-missing",
+        "--exclude",
+        "README.md,CHANGELOG.md,CLAUDE.md,AGENTS.md,GEMINI.md,SKILL.md",
+    ]

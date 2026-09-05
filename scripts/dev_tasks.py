@@ -92,7 +92,8 @@ def build_plan(task: str, root: Path, base_env: Mapping[str, str]) -> list[dict]
     if installing and root != shared_root(root):
         raise ValueError("Dependency installation is only allowed from the main checkout, not a worktree.")
     venv = resolve_shared_environment(root, base_env, require_python=not installing)
-    check_submodules(root)
+    if task != "docs-okf":
+        check_submodules(root)
     overlay = {
         "UV_PROJECT_ENVIRONMENT": str(venv),
         "PYTHONPATH": os.pathsep.join(
