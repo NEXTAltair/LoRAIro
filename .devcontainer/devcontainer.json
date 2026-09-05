@@ -25,9 +25,7 @@
                 "ms-python.vscode-pylance",
                 "ms-python.mypy-type-checker",
                 "charliermarsh.ruff",
-                "njpwerner.autodocstring",
                 "kawamataryo.copy-python-dotted-path",
-                "seanwu.vscode-qt-for-python",
                 "qwtel.sqlite-viewer",
                 "tamasfe.even-better-toml",
                 "mechatroner.rainbow-csv",
@@ -50,10 +48,7 @@
     "remoteEnv": {
         "CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS": "1",
         "UV_PROJECT_ENVIRONMENT": "/workspaces/LoRAIro/.venv",
-        "DISPLAY": "host.docker.internal:0",
-        "QT_QPA_PLATFORM": "xcb",
-        "QT_X11_NO_MITSHM": "1",
-        "LIBGL_ALWAYS_INDIRECT": "1",
+        "QT_QPA_PLATFORM": "offscreen",
         "CLAUDE_CONFIG_DIR": "/home/vscode/.claude"
     },
     "mounts": [
