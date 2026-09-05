@@ -54,6 +54,11 @@ setup:
 	git submodule update --init --recursive
 	$(PYTHON) scripts/dev_tasks.py install-dev
 	$(MAKE) skills-install
+	$(MAKE) harness-install
+
+.PHONY: harness-install skills-install
+harness-install:
+	$(PYTHON) -X utf8 scripts/install_agent_harness.py
 
 skills-install:
 	$(PYTHON) scripts/install_agent_skills.py

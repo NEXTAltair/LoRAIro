@@ -25,8 +25,8 @@ UI_DESIGNER_DIR = PROJECT_ROOT / "src" / "lorairo" / "gui" / "designer"
 
 
 def uic_command() -> list[str]:
-    """Use PySide6 from the active interpreter without a shell or nested uv sync."""
-    return [sys.executable, "-c", "from PySide6.scripts.pyside_tool import uic; uic()"]
+    """Use PySide's entrypoint in this interpreter, without shell or dependency sync."""
+    return [sys.executable, "-X", "utf8", "-c", "from PySide6.scripts.pyside_tool import uic; uic()"]
 
 
 def check_pyside6_uic() -> bool:
@@ -36,6 +36,9 @@ def check_pyside6_uic() -> bool:
             [*uic_command(), "--version"],
             capture_output=True,
             text=True,
+            encoding="utf-8",
+            errors="replace",
+            timeout=30,
             check=False,
         )
         return result.returncode == 0
@@ -89,7 +92,15 @@ def generate_python_from_ui(ui_file: Path) -> bool:
         # Run pyside6-uic to convert .ui to .py
         cmd = [*uic_command(), str(ui_file), "-o", str(py_file)]
 
-        result = subprocess.run(cmd, check=False, capture_output=True, text=True)
+        result = subprocess.run(
+            cmd,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            timeout=90,
+            check=False,
+        )
 
         if result.returncode == 0:
             add_type_hints_to_ui(py_file)

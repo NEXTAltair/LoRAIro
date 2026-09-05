@@ -17,6 +17,8 @@ import re
 import sys
 from pathlib import Path
 
+from validate_hook_settings import validate_hook_settings
+
 SHARED_SKILLS_DIR = ".agents/skills"
 CLAUDE_SKILLS_DIR = ".claude/skills"
 
@@ -78,7 +80,7 @@ def validate_claude_skill_links(project_root: Path) -> list[str]:
     claude_skill_names = {
         skill_link.name
         for skill_link in claude_skills_dir.iterdir()
-        if skill_link.is_dir() or skill_link.is_symlink()
+        if skill_link.is_dir() or skill_link.is_symlink() or skill_link.is_junction()
     }
 
     missing_links = sorted(shared_skill_names - claude_skill_names)
@@ -89,8 +91,10 @@ def validate_claude_skill_links(project_root: Path) -> list[str]:
         errors.append(f"Claude skills: symlink has no shared skill target: {name}")
 
     for skill_link in sorted(claude_skills_dir.iterdir()):
-        if not skill_link.is_symlink():
-            errors.append(f"Claude skills: expected symlink, found real path: {skill_link.name}")
+        if not (skill_link.is_symlink() or skill_link.is_junction()):
+            errors.append(
+                f"Claude skills: expected symlink or junction, found real path: {skill_link.name}"
+            )
             continue
         target = skill_link.resolve()
         expected = (shared_skills_dir / skill_link.name).resolve()
@@ -137,56 +141,9 @@ def validate_skills_lock(project_root: Path) -> list[str]:
     return errors
 
 
-def validate_hooks(project_root: Path) -> list[str]:  # noqa: C901
-    """Validate that hook scripts referenced in settings.local.json exist.
-
-    Args:
-        project_root: Project root directory.
-
-    Returns:
-        List of error messages (empty if all pass).
-    """
-    errors: list[str] = []
-    settings_path = project_root / ".claude" / "settings.local.json"
-
-    if not settings_path.exists():
-        return []
-
-    try:
-        settings = json.loads(settings_path.read_text(encoding="utf-8"))
-    except json.JSONDecodeError as e:
-        return [f"Settings: settings.local.json is invalid JSON: {e}"]
-
-    hooks_section = settings.get("hooks", {})
-    for event, hook_entries in hooks_section.items():
-        if not isinstance(hook_entries, list):
-            continue
-        for entry in hook_entries:
-            for hook in entry.get("hooks", []):
-                cmd = hook.get("command", "")
-                if not cmd:
-                    continue
-                # Complex shell expressions (containing spaces, &&, |, ;) are not file paths.
-                # Only validate simple direct-path commands like /path/to/hook.py
-                if any(c in cmd for c in (" ", "&&", "|", ";")):
-                    continue
-                # Commands may be absolute paths like /workspaces/LoRAIro/.claude/hooks/foo.py
-                # Resolve relative to project root if not absolute
-                cmd_path = Path(cmd)
-                if not cmd_path.is_absolute():
-                    cmd_path = project_root / cmd_path
-                else:
-                    # Replace /workspaces/LoRAIro prefix with actual project root
-                    try:
-                        rel = cmd_path.relative_to("/workspaces/LoRAIro")
-                        cmd_path = project_root / rel
-                    except ValueError:
-                        pass
-
-                if not cmd_path.exists():
-                    errors.append(f"Hooks: {event} hook script not found: {cmd}")
-
-    return errors
+def validate_hooks(project_root: Path) -> list[str]:
+    """Validate tracked and local Claude settings plus Codex hook settings."""
+    return validate_hook_settings(project_root)
 
 
 def validate_settings_structure(project_root: Path) -> list[str]:

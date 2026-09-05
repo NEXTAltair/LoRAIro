@@ -19,7 +19,8 @@ computedHash のアルゴリズムは CLI 内部実装でスクリプト側か�
 「ディスク上の実内容と lock の直接照合」はできない。本スクリプトの保証は
 「復元時に CLI が書き戻す hash と lock の照合」+「導入時 hash の状態記録」の範囲。
 
-`npx skills add` は lock エントリに ref があれば `source#ref` で固定し、無ければ
+full SHA の ref は archive を一時領域へ取得し、CLI の hash 照合後に公開する。
+branch/tag の ref は `npx skills add source#ref` で固定し、無ければ
 upstream の現行 default branch を取得する。後者は lock 記録時から upstream が変わって
 いると異なる内容が入りうるため、復元後に lock の computedHash が書き換わっていないか
 を照合し、drift を検出したら該当 skill の実体を除去し skills-lock.json を実行前の
@@ -39,11 +40,16 @@ local skill 含む) について保証する。実体を失った broken symlink
 呼び出し元: `make setup` (devcontainer postCreateCommand.sh も make setup 経由で実行)。
 """
 
+import hashlib
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
+import tarfile
+import tempfile
+import urllib.request
 from pathlib import Path
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
@@ -87,6 +93,132 @@ def source_arg(entry: dict) -> str:
     return f"{src}#{ref}" if ref else src
 
 
+def download_exact_source(source: str, revision: str, cache: Path) -> Path:
+    """Fetch each repository revision once per invocation; never reuse external mutable state."""
+    cache.mkdir(parents=True, exist_ok=True)
+    key = hashlib.sha256(f"{source}@{revision}".encode()).hexdigest()
+    destination = cache / key
+    if destination.is_dir():
+        return destination
+    with tempfile.TemporaryDirectory(prefix="download-", dir=cache) as temporary:
+        stage = Path(temporary)
+        archive_path = stage / "source.tar.gz"
+        url = f"https://codeload.github.com/{source}/tar.gz/{revision}"
+        with urllib.request.urlopen(url, timeout=60) as response, archive_path.open("wb") as output:
+            shutil.copyfileobj(response, output)
+        extracted = stage / "source"
+        with tarfile.open(archive_path, "r:gz") as archive:
+            archive.extractall(extracted, filter="data")
+        repository = extracted / f"{source.split('/')[1]}-{revision}"
+        repository.rename(destination)
+    return destination
+
+
+def restore_exact_ref(name: str, entry: dict, source_cache: Path | None = None) -> Path | None:
+    """Verify an exact GitHub revision in staging before publishing the skill.
+
+    The skills CLI treats #SHA as a branch name on its clone fallback. Fetch a
+    GitHub archive ourselves, but let the CLI compute its own directory hash in
+    an isolated project. The consumer lock retains GitHub provenance verbatim.
+    """
+    source, revision = entry["source"], entry["ref"].lower()
+    if not re.fullmatch(r"[0-9a-f]{64}", entry.get("computedHash", "")):
+        raise ValueError("exact revision requires a SHA-256 computedHash")
+    if not re.fullmatch(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+", source):
+        raise ValueError("invalid GitHub repository")
+    if not re.fullmatch(r"[0-9a-fA-F]{40}", revision):
+        raise ValueError("exact revision must be a full commit SHA")
+    if not re.fullmatch(r"[A-Za-z0-9_-]+", name):
+        raise ValueError("invalid skill name")
+    skill_path = Path(entry.get("skillPath", ""))
+    if skill_path.is_absolute() or ".." in skill_path.parts or skill_path.name != "SKILL.md":
+        raise ValueError("exact revision requires a repository-relative skillPath ending in SKILL.md")
+    with tempfile.TemporaryDirectory(prefix="lorairo-skill-restore-") as temporary:
+        stage = Path(temporary)
+        repository = download_exact_source(source, revision, source_cache or stage / "repositories")
+        manifest = repository / skill_path
+        if not manifest.resolve().is_relative_to(repository.resolve()) or not manifest.is_file():
+            raise ValueError("skillPath is missing from the pinned archive")
+        project = stage / "project"
+        project.mkdir()
+        subprocess.run(
+            [
+                shutil.which("npx") or "npx",
+                "--yes",
+                "skills",
+                "add",
+                str(manifest.parent),
+                "--skill",
+                name,
+                "--agent",
+                "codex",
+                "--copy",
+                "-y",
+            ],
+            cwd=project,
+            env=npx_env(),
+            check=True,
+        )
+        installed = project / ".agents/skills" / name
+        measured = json.loads((project / "skills-lock.json").read_text(encoding="utf-8"))
+        actual = measured.get("skills", {}).get(name, {}).get("computedHash")
+        if actual != entry.get("computedHash") or not (installed / "SKILL.md").is_file():
+            raise ValueError(f"pinned skill hash mismatch for {name}: {actual}")
+        # No project lock writes: local staging provenance must never replace GitHub provenance.
+        return publish_verified_skill(name, installed)
+
+
+def publish_verified_skill(name: str, installed: Path) -> Path | None:
+    """Retain the last working copy if publishing a verified replacement fails."""
+    backup = backup_existing(name)
+    try:
+        shutil.copytree(installed, SKILLS_DIR / name)
+    except OSError:
+        if backup is not None:
+            restore_backup(name, backup)
+        elif (SKILLS_DIR / name).exists():
+            shutil.rmtree(SKILLS_DIR / name)
+        raise
+    return backup
+
+
+def install_skill(
+    name: str, entry: dict, source_cache: Path | None = None
+) -> tuple[subprocess.CompletedProcess, Path | None]:
+    """Run one restore, retaining existing backup behavior for branch and tag refs."""
+    src = source_arg(entry)
+    backup = None
+    # --agent codex で universal 配置 (.agents/skills) のみに限定する。agent 未検出の
+    # ホストで -y が全 agent へ展開するのを防ぐ (実測: .codex/ 等への書き込みは無し)。
+    # Claude Code 用 symlink は後段の ensure_claude_symlinks() が作る
+    try:
+        if re.fullmatch(r"[0-9a-fA-F]{40}", entry.get("ref", "")):
+            backup = restore_exact_ref(name, entry, source_cache)
+            result = subprocess.CompletedProcess(args=[src], returncode=0)
+        else:
+            backup = backup_existing(name)
+            result = subprocess.run(
+                [
+                    shutil.which("npx") or "npx",
+                    "--yes",
+                    "skills",
+                    "add",
+                    src,
+                    "--skill",
+                    name,
+                    "--agent",
+                    "codex",
+                    "-y",
+                ],
+                cwd=PROJECT_ROOT,
+                env=npx_env(),
+            )
+    except (OSError, ValueError, tarfile.TarError, subprocess.SubprocessError) as error:
+        print(f"ERROR: {name}: {error}", file=sys.stderr)
+        result = subprocess.CompletedProcess(args=[src], returncode=1)
+    return result, backup
+
+
 def collect_targets(lock: dict, state: dict[str, str]) -> list[tuple[str, dict, str]]:
     """再導入が必要な (name, entry, reason) を列挙する。
 
@@ -111,9 +243,7 @@ def collect_targets(lock: dict, state: dict[str, str]) -> list[tuple[str, dict, 
 def unknown_source_entries(lock: dict) -> list[str]:
     """未知の sourceType を持つ lock エントリを列挙する (黙って復元対象外にしない)。"""
     return sorted(
-        name
-        for name, entry in lock["skills"].items()
-        if entry.get("sourceType") not in KNOWN_SOURCE_TYPES
+        name for name, entry in lock["skills"].items() if entry.get("sourceType") not in KNOWN_SOURCE_TYPES
     )
 
 
@@ -168,34 +298,60 @@ def prune_removed_skills(lock: dict, state: dict[str, str]) -> tuple[list[str], 
     return pruned, unknown_orphans
 
 
+def remove_claude_entry(link: Path) -> None:
+    """Remove an entry without traversing a Windows junction into its target."""
+    if link.is_junction():
+        link.rmdir()
+    elif link.is_symlink() or link.is_file():
+        link.unlink()
+    elif link.is_dir():
+        shutil.rmtree(link)
+
+
+def create_claude_skill_link(link: Path, target: Path) -> None:
+    """Use a directory junction when Windows disallows unprivileged symlinks."""
+    relative = Path("..") / ".." / ".agents" / "skills" / target.name
+    try:
+        link.symlink_to(relative, target_is_directory=True)
+    except OSError as error:
+        if os.name != "nt" or getattr(error, "winerror", None) != 1314:
+            raise
+        subprocess.run(
+            [
+                "powershell",
+                "-NoProfile",
+                "-NonInteractive",
+                "-Command",
+                "New-Item -ItemType Junction -Path $env:AGENT_SKILL_LINK "
+                "-Value $env:AGENT_SKILL_TARGET -ErrorAction Stop | Out-Null",
+            ],
+            env=dict(os.environ, AGENT_SKILL_LINK=str(link), AGENT_SKILL_TARGET=str(target.resolve())),
+            check=True,
+            capture_output=True,
+            text=True,
+            timeout=15,
+            creationflags=subprocess.CREATE_NO_WINDOW,
+        )
+        if not link.is_junction() or link.resolve() != target.resolve():
+            raise OSError("Windows skill junction did not resolve to its shared target") from error
+
+
 def ensure_claude_symlinks() -> None:
-    """全 shared skill の .claude/skills symlink を保証し、broken/非正規エントリを正規化する。"""
+    """Keep canonical shared skill links, including unprivileged Windows junctions."""
     if not SKILLS_DIR.exists():
         return
     CLAUDE_SKILLS_DIR.mkdir(parents=True, exist_ok=True)
     for link in sorted(CLAUDE_SKILLS_DIR.iterdir()):
-        # shared 実体を失ったエントリは種別 (symlink / copy 化した実 dir / ファイル) を
-        # 問わず掃除する。lock から削除された skill の copy を Claude が読み続けないため
-        if (SKILLS_DIR / link.name / "SKILL.md").exists():
-            continue
-        if link.is_symlink() or link.is_file():
-            link.unlink()
-        elif link.is_dir():
-            shutil.rmtree(link)
+        if not (SKILLS_DIR / link.name / "SKILL.md").exists():
+            remove_claude_entry(link)
     for skill_dir in sorted(SKILLS_DIR.iterdir()):
         if not (skill_dir / "SKILL.md").exists():
             continue
         link = CLAUDE_SKILLS_DIR / skill_dir.name
-        expected_target = skill_dir.resolve()
-        if link.is_symlink():
-            if link.resolve() == expected_target:
-                continue
-            link.unlink()  # 別ターゲットを指す symlink は正規化する
-        elif link.is_dir():
-            shutil.rmtree(link)  # symlink 失敗時などに copy 化した stale dir を置換する
-        elif link.exists():
-            link.unlink()
-        link.symlink_to(Path("..") / ".." / ".agents" / "skills" / skill_dir.name)
+        if (link.is_symlink() or link.is_junction()) and link.resolve() == skill_dir.resolve():
+            continue
+        remove_claude_entry(link)
+        create_claude_skill_link(link, skill_dir)
 
 
 def backup_existing(name: str) -> Path | None:
@@ -221,8 +377,8 @@ def restore_backup(name: str, backup: Path) -> None:
 
 def main() -> int:
     lock_path = PROJECT_ROOT / "skills-lock.json"
-    lock_text_before = lock_path.read_text(encoding="utf-8")
-    lock_before = json.loads(lock_text_before)
+    lock_bytes_before = lock_path.read_bytes()
+    lock_before = json.loads(lock_bytes_before)
 
     unknown = unknown_source_entries(lock_before)
     if unknown:
@@ -270,36 +426,33 @@ def main() -> int:
     failed: list[str] = []
     succeeded: list[str] = []
     backups: dict[str, Path] = {}
-    for name, entry, reason in targets:
-        src = source_arg(entry)
-        print(f"install: {name} <- {src} ({reason})")
-        backup = backup_existing(name)
-        # --agent codex で universal 配置 (.agents/skills) のみに限定する。agent 未検出の
-        # ホストで -y が全 agent へ展開するのを防ぐ (実測: .codex/ 等への書き込みは無し)。
-        # Claude Code 用 symlink は後段の ensure_claude_symlinks() が作る
-        result = subprocess.run(
-            ["npx", "--yes", "skills", "add", src, "--skill", name, "--agent", "codex", "-y"],
-            cwd=PROJECT_ROOT,
-            env=npx_env(),
-        )
-        # CLI は per-agent の書き込み失敗をログに出しつつ exit 0 で終えることがあるため、
-        # returncode だけでなく実体 (SKILL.md) が書かれたことを成功条件にする
-        if result.returncode == 0 and (SKILLS_DIR / name / "SKILL.md").exists():
-            succeeded.append(name)
-            if backup is not None:
-                # バックアップの破棄は drift 照合の通過後まで遅延する
-                # (add 成功でも drift 却下されると新旧両方を失うため)
-                backups[name] = backup
-        else:
-            failed.append(name)
-            if backup is not None:
-                # 失敗時は手元で動いていた旧実体へ戻す (次回また lock-updated として再試行)
-                restore_backup(name, backup)
+    with tempfile.TemporaryDirectory(prefix="lorairo-skill-sources-") as cache:
+        for name, entry, reason in targets:
+            src = source_arg(entry)
+            print(f"install: {name} <- {src} ({reason})")
+            result, backup = install_skill(name, entry, Path(cache))
+            # CLI は per-agent の書き込み失敗をログに出しつつ exit 0 で終えることがあるため、
+            # returncode だけでなく実体 (SKILL.md) が書かれたことを成功条件にする
+            if result.returncode == 0 and (SKILLS_DIR / name / "SKILL.md").exists():
+                succeeded.append(name)
+                if backup is not None:
+                    # バックアップの破棄は drift 照合の通過後まで遅延する
+                    # (add 成功でも drift 却下されると新旧両方を失うため)
+                    backups[name] = backup
+            else:
+                failed.append(name)
+                if backup is not None:
+                    # 失敗時は手元で動いていた旧実体へ戻す (次回また lock-updated として再試行)
+                    restore_backup(name, backup)
 
     # 復元内容が lock 記録時と同一かを computedHash で照合する。`npx skills add` は
     # 取得内容の hash を lock に書き戻すため、hash が変わった = upstream drift。
     # 一部の add が失敗していても成功分の照合は必ず行う (汚れた lock を残さない)。
-    lock_after = json.loads(lock_path.read_text(encoding="utf-8"))
+    try:
+        lock_after = json.loads(lock_path.read_text(encoding="utf-8"))
+    finally:
+        # Restore means reproduce the lock, never accept CLI source/format rewrites.
+        lock_path.write_bytes(lock_bytes_before)
     drifted: list[str] = []
     for name in succeeded:
         expected = lock_before["skills"][name].get("computedHash")
@@ -319,7 +472,6 @@ def main() -> int:
                 shutil.rmtree(skill_dir)
             if name in backups:
                 restore_backup(name, backups.pop(name))
-        lock_path.write_text(lock_text_before, encoding="utf-8")
 
     # drift 照合を通過した分のバックアップだけをここで破棄する
     for backup in backups.values():

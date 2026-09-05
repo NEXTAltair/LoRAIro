@@ -1,0 +1,17 @@
+{
+  "schema": 1,
+  "runtime": "ef6bf6d35a21c1b741c1bc2f994d715f4bf4329b35a75c031662ef2c1fcc5a8c",
+  "files": {
+    "hooks/bootstrap.py": "34966d74c4a3e991afcbaa0bb1a99a97d9b269807a438126fe287e03ae7745c7",
+    "hooks/rules/pre_commands.default.json": "99f39958e6e5d556834a74f48e6bee4cef98fa100bbb5e765bbddec34da85e10",
+    "hooks/rules/pre_edit_worktree.default.json": "a52240c01e1045205a788dff6ae905c0b095e58730c63fea0a4a965b8bcf5b96",
+    "hooks/rules/pre_pr_submodule_check.default.json": "e32edece94a17d9e479554f066b0238d4728911d4496cd4f155ea7fc56df2a96",
+    "hooks/rules/response_monitor.default.json": "02f048db74e57b57a6dc3dd1c05185950fd65e059fad17480f3b34547e1b968b",
+    "hooks/scripts/hook_common.py": "1da259fa39d9f416af59b4d76c77a0d4b9bd4a5dea3952eeb9adaf06b41735e5",
+    "hooks/scripts/hook_pre_commands.py": "a8680928c1c69c891fc581c0ba91956dbe5677226abf48955527f613963d9212",
+    "hooks/scripts/hook_pre_edit_worktree.py": "f2b7d38dfe616d6c614cffbe457e4c3fadd32a33d15e27cccb97f7d51d33f52a",
+    "hooks/scripts/hook_pre_pr_submodule_check.py": "22103092512be12a3da040a89037537f936a1ac32e6aa471a64cecdb0388a4e3",
+    "hooks/scripts/hook_response_monitor.py": "2183ddb3fe9fac323e449259824ed737ae6b8709ddd49eabfd90de4a96d19095",
+    "hooks/scripts/hook_worktree_create.py": "9d49de5c306f692b886e5c5386b1584e3abf95fbee71765b3c05a6cd40c3fd4f"
+  }
+}

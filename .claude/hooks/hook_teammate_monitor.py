@@ -12,14 +12,18 @@ Agent Teams のチームメート活動を監視する統合フック。
 """
 
 import json
+import os
 import subprocess
 import sys
 from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-LOG_DIR = Path("/workspaces/LoRAIro/.claude/logs")
-PROJECT_DIR = Path("/workspaces/LoRAIro")
+sys.path.insert(0, str(Path(__file__).parent))
+from hook_common import find_project_root, find_shared_root, get_log_dir
+
+PROJECT_DIR = find_project_root()
+LOG_DIR = get_log_dir(PROJECT_DIR)
 
 
 def log_debug(message: str) -> None:
@@ -50,10 +54,12 @@ def get_changed_python_files() -> list[str]:
     """git diff で変更された .py ファイルのリストを取得する"""
     try:
         result = subprocess.run(
-            ["git", "diff", "--name-only", "HEAD"],
+            ["git", "-c", "core.quotepath=false", "diff", "--name-only", "HEAD"],
             cwd=PROJECT_DIR,
             capture_output=True,
             text=True,
+            encoding="utf-8",
+            errors="replace",
             timeout=10,
         )
         if result.returncode != 0:
@@ -86,11 +92,20 @@ def handle_task_completed(data: dict[str, Any], rules: dict[str, Any]) -> None:
 
     # 変更ファイルのみ ruff check
     try:
+        environment = os.environ.copy()
+        shared_env = find_shared_root(PROJECT_DIR) / ".venv"
+        if not shared_env.is_dir():
+            log_debug(f"共有 venv がありません: {shared_env}")
+            return
+        environment["UV_PROJECT_ENVIRONMENT"] = str(shared_env)
         result = subprocess.run(
-            ["uv", "run", "ruff", "check", *changed_files],
+            ["uv", "run", "--no-sync", "ruff", "check", *changed_files],
+            env=environment,
             cwd=PROJECT_DIR,
             capture_output=True,
             text=True,
+            encoding="utf-8",
+            errors="replace",
             timeout=60,
         )
         if result.returncode != 0:
@@ -165,6 +180,7 @@ def handle_teammate_idle(data: dict[str, Any], rules: dict[str, Any]) -> None:
 
 def main() -> None:
     """メイン処理: イベント種別を判定してルーティング"""
+    global PROJECT_DIR, LOG_DIR
     log_debug("=== Teammate Monitor Hook ===")
 
     # テスト実行時（stdin なし）は早期終了
@@ -174,6 +190,19 @@ def main() -> None:
 
     try:
         data: dict[str, Any] = json.load(sys.stdin)
+        cwd = Path(
+            os.environ.get("AGENT_KIT_PROJECT_DIR") or data.get("cwd") or find_project_root()
+        ).resolve()
+        PROJECT_DIR = Path(
+            subprocess.check_output(
+                ["git", "rev-parse", "--show-toplevel"],
+                cwd=cwd,
+                text=True,
+                encoding="utf-8",
+                timeout=5,
+            ).strip()
+        ).resolve()
+        LOG_DIR = get_log_dir(PROJECT_DIR)
         event = data.get("hook_event_name", "")
         log_debug(f"イベント受信: {event}")
 
