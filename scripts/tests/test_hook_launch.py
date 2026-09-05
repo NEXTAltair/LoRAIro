@@ -178,6 +178,13 @@ class FreshCheckoutTests(unittest.TestCase):
         finally:
             path.write_bytes(original)
 
+    def test_documented_restore_is_not_redirected_to_syncing_uv(self):
+        for root in (self.main, self.linked):
+            result = self.run_hook(
+                root, "PreToolUse", "python -X utf8 scripts/install_agent_harness.py"
+            )
+            self.assertEqual(result.stdout, "")
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -18,6 +18,10 @@ use `python`, so that executable must also be available to the agent process.
 `make setup` includes this restoration step. No application dependency sync is
 needed to restore or launch common hooks.
 
+The consumer no longer redirects plain Python/tool commands to `uv run` through
+its hook overrides. Restoration uses standard-library Python directly; application
+checks use the selected shared interpreter or explicit `uv run --no-sync`.
+
 `agent-harness.lock.json` selects the upstream commit. The tracked
 `.agent-kit/hooks.lock.json` identifies and hashes that branch's runtime.
 Restoration verifies and publishes the immutable files under the shared main
