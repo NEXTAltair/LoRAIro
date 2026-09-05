@@ -26,8 +26,26 @@ fi
 # 1) venv ownership
 sudo chown -R vscode:vscode /workspaces/LoRAIro/.venv || true
 
+# Docker Desktop exposes the Windows checkout with a different owner. Trust
+# the workspace and its two submodules before setup invokes Git. Submodule
+# repositories have their own ownership checks; do not trust arbitrary paths.
+for repository in \
+    "$WORKSPACE" \
+    "$WORKSPACE/local_packages/genai-tag-db-tools" \
+    "$WORKSPACE/local_packages/image-annotator-lib"; do
+    if ! git config --global --get-all safe.directory | grep -Fxq "$repository"; then
+        git config --global --add safe.directory "$repository"
+    fi
+done
+
+# Match CRLF files from a Windows checkout against Git's LF index without
+# rewriting the files. Preserve any explicit container-user preference.
+if ! git config --global --get core.autocrlf >/dev/null; then
+    git config --global core.autocrlf input
+fi
+
 # 2) Keep any nested virtual environments from the Windows workspace.
-# The host checkout is also used to run LoRAIro directly on Windows, so its
+# The H: checkout is also used to run LoRAIro directly on Windows, so its
 # environments must not be removed during Dev Container initialization.
 
 # 3) fetch submodules + install python deps (single source of truth: `make setup`)
