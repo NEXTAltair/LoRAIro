@@ -8,6 +8,10 @@ on:
       - scripts/generate_ui.py
       - scripts/safe_cleanup.py
       - scripts/tests/**
+      - .devcontainer/Dockerfile
+      - .devcontainer/devcontainer.json
+      - .devcontainer/postCreateCommand.sh
+      - .devcontainer/README.md
       - .github/workflows/dev-tasks.yml
   push:
     branches: [main]
@@ -17,6 +21,10 @@ on:
       - scripts/generate_ui.py
       - scripts/safe_cleanup.py
       - scripts/tests/**
+      - .devcontainer/Dockerfile
+      - .devcontainer/devcontainer.json
+      - .devcontainer/postCreateCommand.sh
+      - .devcontainer/README.md
       - .github/workflows/dev-tasks.yml
 
 permissions:
@@ -38,5 +46,6 @@ jobs:
         run: python -X utf8 scripts/install_agent_harness.py
       - name: Test task planning and worktree isolation without syncing environments
         run: |
+          bash -n .devcontainer/postCreateCommand.sh
           python -m pip install pytest
           python -X utf8 -m pytest scripts/tests -q -o addopts=''

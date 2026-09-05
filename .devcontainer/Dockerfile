@@ -1,3 +1,7 @@
+# Copy only Node's runtime and global npm tools. Keeping Node in this stage makes
+# its ownership, version, and use by Codex independent of Dev Container features.
+FROM node:24-bookworm AS node-runtime
+
 # Use an official Python runtime as a parent image
 FROM mcr.microsoft.com/devcontainers/python:3.13-bookworm
 
@@ -5,7 +9,7 @@ FROM mcr.microsoft.com/devcontainers/python:3.13-bookworm
 # We do not use Yarn in this project, so disable it to keep apt stable.
 RUN rm -f /etc/apt/sources.list.d/yarn.list /etc/apt/sources.list.d/yarn*.list || true
 
-# Prevent npm prefix config from breaking nvm-based Node feature
+# Prevent an inherited npm prefix from changing the image-owned global location.
 RUN rm -f /home/vscode/.npmrc /root/.npmrc || true
 
 # Set environment variables
@@ -35,46 +39,19 @@ RUN mkdir -p /etc/apt/keyrings && \
     chmod go+r /etc/apt/keyrings/githubcli-archive-keyring.gpg && \
     echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" | tee /etc/apt/sources.list.d/github-cli.list > /dev/null
 
-# Install all system dependencies in a single layer
+# Install only headless-test and command-line dependencies in a single layer.
+# The interactive Qt GUI runs on Windows; this image never needs X11, GTK,
+# audio, font, or XCB platform packages.
 # Note: build-essential, git, curl, wget, gnupg, procps, lsb-release are pre-installed in base image
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    # OpenGL libraries for headless GUI testing (Qt/PySide6)
-    libgl1-mesa-glx \
-    libgl1-mesa-dri \
-    libegl1-mesa \
-    libegl1-mesa-dev \
+    # Qt/PySide6 offscreen platform and software-rendering runtime
+    libegl1 \
+    libgl1 \
     libglib2.0-0 \
-    libxrender1 \
-    libxtst6 \
-    libxi6 \
-    libxrandr2 \
-    libasound2 \
-    libatk-bridge2.0-0 \
-    libdrm2 \
-    libxcomposite1 \
-    libxdamage1 \
-    libxss1 \
-    libgconf-2-4 \
-    libnss3 \
-    libxcursor1 \
     libxkbcommon0 \
-    libgtk-3-0 \
-    # XCB libraries for Qt6/X11 GUI (Issue #14)
-    libxcb-cursor0 \
-    libxcb-icccm4 \
-    libxcb-image0 \
-    libxcb-keysyms1 \
-    libxcb-randr0 \
-    libxcb-render-util0 \
-    libxcb-xinerama0 \
-    libxcb-xfixes0 \
-    libxkbcommon-x11-0 \
     libdbus-1-3 \
-    # Japanese fonts for GUI (Issue #14)
-    fonts-noto-cjk \
     # Database tools
     sqlite3 \
-    libsqlite3-dev \
     # Git LFS and JSON tools
     git-lfs \
     jq \
@@ -92,6 +69,21 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # Install uv using the official method from docs
 COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /bin/
 
+# Node is an image dependency, not a post-create dependency. Copying these
+# narrow paths avoids overwriting Python's /usr/local tree with the Node image.
+COPY --from=node-runtime /usr/local/bin/node /usr/local/bin/node
+COPY --from=node-runtime /usr/local/lib/node_modules /usr/local/lib/node_modules
+
+# Keep rebuilds reproducible; update this reviewed version deliberately.
+ARG CODEX_VERSION=0.153.4
+RUN ln -sf /usr/local/lib/node_modules/npm/bin/npm-cli.js /usr/local/bin/npm \
+    && ln -sf /usr/local/lib/node_modules/npm/bin/npx-cli.js /usr/local/bin/npx \
+    && ln -sf /usr/local/lib/node_modules/corepack/dist/corepack.js /usr/local/bin/corepack \
+    && node --version \
+    && npm --version \
+    && npm install --global --no-audit --no-fund "@openai/codex@${CODEX_VERSION}" \
+    && codex --version
+
 # Create workspaces directory and .venv with proper ownership
 RUN mkdir -p /workspaces/LoRAIro/.venv && chown -R vscode:vscode /workspaces
 
@@ -107,8 +99,8 @@ RUN mkdir -p /home/vscode/.vscode-server/bin \
     && mkdir -p /home/vscode/.vscode-server/data \
     && mkdir -p /home/vscode/.vscode-server/extensions
 
-# Claude Code: native install with auto-update
-RUN curl -fsSL https://claude.ai/install.sh | bash
+# Claude Code: native installer; verify the executable during the image build.
+RUN curl -fsSL https://claude.ai/install.sh | bash && claude --version
 
 # Set bash history persistence
 RUN echo 'export HISTFILE=/home/vscode/.bash_history' >> ~/.bashrc \

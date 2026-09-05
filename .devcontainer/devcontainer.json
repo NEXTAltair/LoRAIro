@@ -65,10 +65,6 @@
         "version": "latest",
         "ports": "22",
         "passwordAccess": "disabled"
-        },
-        "ghcr.io/devcontainers/features/node:1": {
-        "version": "24",
-        "installYarnUsingApt": false
         }
     }
 }
