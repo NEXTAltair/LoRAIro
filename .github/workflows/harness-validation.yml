@@ -54,7 +54,9 @@ jobs:
         # The runtime is distributed by the pinned kit, not copied into this repository.
         run: python -X utf8 scripts/install_agent_harness.py
       - name: Test restored hook contracts
-        run: python -X utf8 -m unittest discover -s scripts/tests -v
+        run: |
+          python -m pip install pytest
+          python -X utf8 -m pytest -o addopts="" scripts/tests -v
 
   validate-harness:
     name: Validate Agent Harness

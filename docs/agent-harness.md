@@ -60,7 +60,7 @@ Do not remove a `.agent-kit/.pin-update` guard while its installer is running.
 ## Verification
 
 ```console
-python -X utf8 -m unittest discover -s scripts/tests -v
+python -X utf8 -m pytest -o addopts="" scripts/tests -v
 python -X utf8 scripts/validate_harness.py
 ```
 
