@@ -33,6 +33,11 @@ ENV/
 # Agent worktree チェックアウト (.agents/worktree/<branch>。git worktree の実体、追跡しない)
 .agents/worktree/
 
+# Local agent-kit checkout, one-off release smoke, and retained working notes
+/altairs-agent-dev-kit/
+/.agents/kit-release-smoke.py
+/.agents/retained/
+
 # 外部 skill の導入状態・退避先 (scripts/install_agent_skills.py が管理)
 .agents/skills/.installed-lock-hashes.json
 .agents/skills/.pending-replace/
