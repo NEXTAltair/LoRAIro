@@ -100,6 +100,7 @@ ADR は OKF (Open Knowledge Format) バンドルとして管理する。各 ADR 
 | [0088](0088-export-tag-language-directories.md) | Export tag language directories for Kohya-compatible datasets | 2026-07-09 | Accepted |
 | [0089](0089-pillow-security-lock-update.md) | Pillow セキュリティ修正版を uv.lock の正準バージョンとする | 2026-07-22 | Accepted |
 | [0090](0090-transitive-security-update-boundary.md) | transitive依存のセキュリティ更新と環境別torch境界 | 2026-07-22 | Accepted |
+| [0091](0091-multilingual-user-guide.md) | Japanese-first multilingual user guide on GitHub Pages | 2026-09-05 | Accepted |
 <!-- OKF-TABLE:END -->
 
 ## ADR テンプレート

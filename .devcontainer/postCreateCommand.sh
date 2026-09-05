@@ -8,7 +8,7 @@ echo "[postCreate] start"
 export NVM_DIR="/usr/local/share/nvm"
 # shellcheck disable=SC1091
 [ -s "$NVM_DIR/nvm.sh" ] && . "$NVM_DIR/nvm.sh"
-nvm use 20 >/dev/null || true
+nvm use default >/dev/null
 
 # 1) venv ownership
 sudo chown -R vscode:vscode /workspaces/LoRAIro/.venv || true

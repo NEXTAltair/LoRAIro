@@ -9,6 +9,14 @@ tags: [process]
 
 LoRAIro の3層ドキュメント構造の維持方針。
 
+## 利用者向け公開ガイド
+
+GitHub Pagesで公開する詳細な利用ガイドは `site/src/content/docs/` に置く。
+日本語（`ja`）を原本とし、英語（`en`）・繁体字（`zh-tw`）・簡体字（`zh-cn`）をAI支援で揃える。
+更新手順・翻訳の原文hash記録・不足や鮮度の検証は `site/README.md` を参照する。
+文書サイトはStarlightで生成し、GitHub Actionsから公開する。Sphinxは使用しない。
+下記の開発者向け設計資料やADRは引き続きリポジトリ内で管理し、利用ガイドとの重複を避ける。
+
 ## 3層アーキテクチャ
 
 | 層 | ファイル | 更新頻度 | 内容 |
