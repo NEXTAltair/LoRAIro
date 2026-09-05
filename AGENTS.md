@@ -5,16 +5,18 @@
 - Key subpackages: `config/` (settings), `database/` (SQLAlchemy + Alembic), `gui/` (PySide6 UI), `image/` (image processing), `utils/` (shared helpers).
 - `tests/` contains pytest suites and fixtures; `tests/resources/` stores test assets.
 - `local_packages/` includes editable submodules used by the app (e.g., `genai-tag-db-tools/`, `image-annotator-lib/`).
-- `docs/` contains Sphinx docs; `scripts/` contains dev utilities (e.g., GUI launcher, UI generation).
+- `docs/` contains developer references and ADRs; `site/` contains the multilingual Starlight user guide.
+- `scripts/` contains portable dev utilities (GUI launcher, UI generation, tests).
 
 ## Build, Test, and Development Commands
 - `uv sync` (or `make install`) installs runtime dependencies.
 - `make install-dev` installs dev dependencies and editable package setup.
-- `uv run lorairo` or `make run-gui` starts the GUI.
+- `uv run --no-sync lorairo` or `make run-gui` starts the GUI on Windows; container tests are headless.
 - `make test` runs pytest with repo defaults.
 - `make mypy` runs strict type checks against the `lorairo` package.
 - `make format` applies Ruff formatting and fixes.
-- `make docs` builds Sphinx documentation; `make docs-serve` serves it locally.
+- From `site/`, `npm ci` installs documentation dependencies, `npm run build` validates translations and builds
+  the user guide, and `npm run preview` serves the build. See `site/README.md` for Japanese-first authoring.
 
 ## Coding Style & Naming Conventions
 - Python 3.12; 4-space indentation; line length 108.

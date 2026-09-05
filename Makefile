@@ -1,17 +1,24 @@
 # LoRAIro Project Makefile
 # Development task automation
 
-.PHONY: help setup test test-iam-lib test-runtime-local test-runtime-webapi test-genai-tag test-all mypy format format-iam-lib format-genai-tag adr-drift adr-index adr-okf docs-okf install install-dev clean run-gui generate-ui venv-rebuild worktree-cleanup-merged worktree-cleanup-merged-dry-run _ensure-submodules _ensure-root-venv
+.PHONY: help setup test test-iam-lib test-runtime-local test-runtime-webapi test-genai-tag test-all mypy format format-iam-lib format-genai-tag adr-drift adr-index adr-okf docs-okf install install-dev clean run-gui generate-ui venv-rebuild worktree-cleanup-merged worktree-cleanup-merged-dry-run _ensure-submodules
 
-WORKTREE_ROOT := /workspaces/LoRAIro/.agents/worktree
-ifeq ($(filter $(WORKTREE_ROOT)/%,$(CURDIR)),)
-LORAIRO_UV_PROJECT_ENVIRONMENT := $(CURDIR)/.venv
+ifeq ($(OS),Windows_NT)
+PYTHON ?= python
 else
-LORAIRO_UV_PROJECT_ENVIRONMENT := /workspaces/LoRAIro/.venv
-export UV_PROJECT_ENVIRONMENT := $(LORAIRO_UV_PROJECT_ENVIRONMENT)
+PYTHON ?= python3
+endif
+
+# Preserve the existing Linux guard for legacy targets not migrated below.
+# Portable tasks validate the environment again via Git in dev_tasks.py.
+WORKTREE_ROOT := /workspaces/LoRAIro/.agents/worktree
+ifneq ($(filter $(WORKTREE_ROOT)/%,$(CURDIR)),)
+export UV_PROJECT_ENVIRONMENT := /workspaces/LoRAIro/.venv
 endif
 
 # Default target
+.PHONY: lint
+
 help:
 	@echo "LoRAIro Project - Available Commands:"
 	@echo ""
@@ -29,6 +36,7 @@ help:
 	@echo "  test-genai-tag Run genai-tag-db-tools tests in its package root"
 	@echo "  test-all     Run all 3 package test sessions sequentially"
 	@echo "  mypy         Run code check (mypy)"
+	@echo "  lint         Read-only Ruff lint and formatting checks"
 	@echo "  format       Format LoRAIro main code (ruff format + check --fix on src/ tests/)"
 	@echo "  format-iam-lib Format image-annotator-lib in its package root"
 	@echo "  format-genai-tag Format genai-tag-db-tools in its package root"
@@ -41,51 +49,27 @@ help:
 	@echo "  worktree-cleanup-merged Remove clean merged /workspaces/LoRAIro/.agents/worktree entries"
 	@echo "  worktree-cleanup-merged-dry-run Show clean merged /workspaces/LoRAIro/.agents/worktree entries"
 
-# Development targets
-# setup: 開発環境セットアップの唯一の人間向け入口。submodule 取得 + dev 依存インストール +
-# 外部ソース skill の復元。devcontainer の postCreateCommand.sh もコンテナ固有処理の後にこの target を呼ぶ。
-setup: _ensure-submodules
-	@echo "Setting up LoRAIro development environment..."
-	uv sync --dev
+# Setup is explicit and may update dependencies; normal tasks never sync.
+setup:
+	git submodule update --init --recursive
+	$(PYTHON) scripts/dev_tasks.py install-dev
 	$(MAKE) skills-install
 	$(MAKE) harness-install
 
 harness-install:
 	python3 scripts/install_agent_harness.py
 
-# skills-install: 外部ソース由来の agent skills を skills-lock.json から復元する。
-# 外部 skill (altairs-agent-dev-kit / サードパーティ) は git 追跡しないため、
-# fresh clone / まっさらな devcontainer ではこの target が実体を再導入する (要 Node.js/npx)。
 skills-install:
-	python3 scripts/install_agent_skills.py
+	$(PYTHON) scripts/install_agent_skills.py
 
-install: _ensure-submodules
-	@echo "Installing project dependencies..."
-	uv sync
+# Portable Python entrypoint is also usable without Make on Windows.
+install install-dev run-gui test test-iam-lib test-runtime-local test-runtime-webapi test-genai-tag test-all mypy lint format format-iam-lib format-genai-tag:
+	$(PYTHON) scripts/dev_tasks.py $@
 
-install-dev: _ensure-submodules
-	@echo "Installing development dependencies..."
-	uv sync --dev
-
-run-gui: _ensure-submodules
-	@echo "Running LoRAIro GUI..."
-	uv run lorairo
-
+# UI generation and legacy cleanup/docs targets are migrated separately.
 generate-ui: _ensure-submodules
-	@echo "Generating Python files from Qt Designer UI files..."
 	uv run python scripts/generate_ui.py
 
-test: _ensure-submodules
-	@echo "Running LoRAIro main tests (testpaths=[\"tests\"], ADR 0024)..."
-	uv run pytest
-
-# NOTE (ADR 0024 amended #291): `cd <pkg> && UV_PROJECT_ENVIRONMENT=$(LORAIRO_UV_PROJECT_ENVIRONMENT) uv run --no-sync pytest`
-# で LoRAIro root `.venv` を共有 (bind mount I/O 制約回避、ADR 0024 amendment 参照)。
-# worktree (`/workspaces/LoRAIro/.agents/worktree/<wt>`) では `/workspaces/LoRAIro/.venv` を強制し、worktree 内 `.venv` を作らない。
-# `_ensure-root-venv` prerequisite で dev deps の install を保証 (fresh checkout / new dev deps pull 直後でも fail しない)。
-# `--no-sync` は LoRAIro `.venv` が iam-lib pyproject に合わせて re-sync されるのを防ぐ。
-# iam-lib dev deps (pytest-clarity / pytest-mock / pytest-xdist) は LoRAIro [dependency-groups] dev に統合済。
-# pytest セッション境界 = package 境界 は維持 (cwd = package root、conftest は iam-lib 側、coverage は package 自身)。
 _ensure-submodules:
 	@if git submodule status --recursive | grep -q '^U'; then \
 		echo "Submodule conflict detected. Resolve it before running this target."; \
@@ -96,61 +80,6 @@ _ensure-submodules:
 		git submodule update --init --recursive; \
 	fi
 
-_ensure-root-venv: _ensure-submodules
-	@uv sync --dev
-
-test-iam-lib: _ensure-root-venv
-	@echo "Running image-annotator-lib tests (sharing LoRAIro root .venv via UV_PROJECT_ENVIRONMENT)..."
-	cd local_packages/image-annotator-lib && \
-		UV_PROJECT_ENVIRONMENT=$(LORAIRO_UV_PROJECT_ENVIRONMENT) \
-		uv run --no-sync pytest \
-		-m "not downloads_and_runs_model and not calls_real_webapi"
-
-test-runtime-local: _ensure-submodules
-	@echo "Running local-only image-annotator-lib real model runtime smoke tests..."
-	cd local_packages/image-annotator-lib && uv run pytest tests/runtime_validation/test_real_model_runtime.py -m downloads_and_runs_model
-
-test-runtime-webapi: _ensure-root-venv
-	@echo "Running local-only image-annotator-lib real WebAPI runtime validation..."
-	uv run python scripts/run_runtime_webapi_tests.py
-
-test-genai-tag: _ensure-submodules
-	@echo "Running genai-tag-db-tools tests (creates local_packages/genai-tag-db-tools/.venv)..."
-	cd local_packages/genai-tag-db-tools && \
-		UV_PROJECT_ENVIRONMENT=$(CURDIR)/local_packages/genai-tag-db-tools/.venv \
-		QT_QPA_PLATFORM=offscreen \
-		uv run pytest
-
-test-all: _ensure-submodules
-	@echo "Running all package test sessions sequentially (ADR 0024)..."
-	$(MAKE) test
-	$(MAKE) test-iam-lib
-	$(MAKE) test-genai-tag
-
-mypy: _ensure-submodules
-	@echo "Running mypy..."
-	uv run mypy -p lorairo
-
-format: _ensure-submodules
-	@echo "Formatting code..."
-	uv run ruff format src/ tests/
-	uv run ruff check src/ tests/ --fix
-
-format-iam-lib: _ensure-root-venv
-	@echo "Formatting image-annotator-lib (sharing LoRAIro root .venv via UV_PROJECT_ENVIRONMENT)..."
-	cd local_packages/image-annotator-lib && \
-		UV_PROJECT_ENVIRONMENT=$(LORAIRO_UV_PROJECT_ENVIRONMENT) \
-		uv run --no-sync ruff format src/ tests/ && \
-		UV_PROJECT_ENVIRONMENT=$(LORAIRO_UV_PROJECT_ENVIRONMENT) \
-		uv run --no-sync ruff check src/ tests/ --fix
-
-format-genai-tag: _ensure-submodules
-	@echo "Formatting genai-tag-db-tools (uses local_packages/genai-tag-db-tools/.venv)..."
-	cd local_packages/genai-tag-db-tools && \
-		UV_PROJECT_ENVIRONMENT=$(CURDIR)/local_packages/genai-tag-db-tools/.venv \
-		uv run ruff format . && \
-		UV_PROJECT_ENVIRONMENT=$(CURDIR)/local_packages/genai-tag-db-tools/.venv \
-		uv run ruff check . --fix
 
 adr-drift:
 	@echo "Checking ADR drift (見直し候補)..."

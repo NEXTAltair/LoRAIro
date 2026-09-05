@@ -2,6 +2,8 @@
 
 ## 概要
 
+**[詳しい利用ガイド（日本語・English・繁體中文・简体中文）](https://nextaltair.github.io/LoRAIro/)**
+
 本プロジェクトは、LoRA（Low-Rank Adaptation）学習用の画像データセット作成を自動化するPythonツールです。画像のリサイズ、AI自動タグ付け、キャプション生成、データベース管理などの機能を統合的に提供し、効率的なデータセット作成をサポートします。GUIとCLIの両方のインターフェースを備えています。
 
 ### 主な機能
@@ -86,8 +88,8 @@ uv run lorairo-cli project list
 # 画像登録
 uv run lorairo-cli images register ./images --project "my-project"
 
-# データセットエクスポート（フィルタ条件は必須）
-uv run lorairo-cli export create -p "my-project" -o ./dataset --tags cat
+# データセットエクスポート（登録後に確認した画像IDを指定）
+uv run --no-sync lorairo-cli export create -p "my-project" -o ./dataset --image-ids 42,57
 ```
 
 #### エージェント / 機械可読モード
@@ -111,25 +113,12 @@ exit code はエラーコードから機械的に導出されます（0=成功 /
 
 以前の CLI バージョンを使用していた場合、以下の **破壊的変更** があります。
 
-**1. `export create` のフィルタ条件が必須化 (ADR 0019)**
+**1. `export create` は画像ID指定方式です**
 
-フィルタ条件なしの呼び出しはエラー (exit_code=2) になります:
-
-```bash
-# NG: フィルタ条件なし
-uv run lorairo-cli export create -p "my-project" -o ./dataset
-
-# OK: 最低1つのフィルタ条件が必要
-uv run lorairo-cli export create -p "my-project" -o ./dataset --tags cat
-```
-
-エラー出力例:
-
-```
-Error: エクスポートには最低1つのフィルタ条件が必要です
-例: lorairo-cli export create --project foo --tags cat --output /tmp/out
-詳細: lorairo-cli export create --help
-```
+検索と出力は分離されています。先に `images search` などで対象画像のIDを確認し、
+`--image-ids 42,57` または `--image-ids-file ids.txt` を指定してください。
+旧 `--tags` などの検索フィルターは `export create` では利用できません。
+詳しくは[出力ガイド](https://nextaltair.github.io/LoRAIro/ja/export/)を参照してください。
 
 **2. CLI プロジェクト保存場所の変更 (ADR 0018)**
 
@@ -196,7 +185,7 @@ lorairo/
 # ヘルプの表示
 make help
 
-# 開発環境のセットアップ（サブモジュール取得 + uv sync --dev、推奨エントリーポイント）
+# 開発環境のセットアップ（サブモジュール取得 + 全workspace開発依存 + 外部skills復元）
 make setup
 
 # コードの品質チェック
