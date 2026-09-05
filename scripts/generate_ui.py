@@ -24,14 +24,21 @@ PROJECT_ROOT = Path(__file__).parent.parent.resolve()
 UI_DESIGNER_DIR = PROJECT_ROOT / "src" / "lorairo" / "gui" / "designer"
 
 
+def uic_command() -> list[str]:
+    """Use PySide's entrypoint in this interpreter, without shell or dependency sync."""
+    return [sys.executable, "-X", "utf8", "-c", "from PySide6.scripts.pyside_tool import uic; uic()"]
+
+
 def check_pyside6_uic() -> bool:
     """Check if pyside6-uic is available in the environment."""
     try:
         result = subprocess.run(
-            "uv run which pyside6-uic",
+            [*uic_command(), "--version"],
             capture_output=True,
             text=True,
-            shell=True
+            encoding="utf-8",
+            errors="replace",
+            timeout=30,
         )
         return result.returncode == 0
     except Exception:
@@ -82,17 +89,15 @@ def generate_python_from_ui(ui_file: Path) -> bool:
 
     try:
         # Run pyside6-uic to convert .ui to .py
-        cmd = [
-            "uv", "run", "pyside6-uic",
-            str(ui_file),
-            "-o", str(py_file)
-        ]
+        cmd = [*uic_command(), str(ui_file), "-o", str(py_file)]
 
         result = subprocess.run(
-            " ".join(cmd),
-            shell=True,
+            cmd,
             capture_output=True,
-            text=True
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            timeout=90,
         )
 
         if result.returncode == 0:

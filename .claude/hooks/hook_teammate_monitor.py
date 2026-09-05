@@ -190,7 +190,16 @@ def main() -> None:
 
     try:
         data: dict[str, Any] = json.load(sys.stdin)
-        PROJECT_DIR = Path(data.get("cwd") or find_project_root()).resolve()
+        cwd = Path(data.get("cwd") or find_project_root()).resolve()
+        PROJECT_DIR = Path(
+            subprocess.check_output(
+                ["git", "rev-parse", "--show-toplevel"],
+                cwd=cwd,
+                text=True,
+                encoding="utf-8",
+                timeout=5,
+            ).strip()
+        ).resolve()
         LOG_DIR = get_log_dir(PROJECT_DIR)
         event = data.get("hook_event_name", "")
         log_debug(f"イベント受信: {event}")
