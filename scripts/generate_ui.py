@@ -112,7 +112,8 @@ def main():
     # Check if pyside6-uic is available
     if not check_pyside6_uic():
         print("❌ pyside6-uic not found. Please install PySide6 tools:")
-        print("   uv add pyside6[tools]")
+        print("   Check that this Python belongs to the shared LoRAIro environment.")
+        print("   If dependencies are missing, run python scripts/dev_tasks.py install-dev from main.")
         sys.exit(1)
 
     print("✅ pyside6-uic is available")
