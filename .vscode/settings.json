@@ -6,5 +6,5 @@
   "python.testing.pytestEnabled": true,
   "claudeCode.useTerminal": true
   // All VS Code settings moved to lorairo.code-workspace
-  // This file is kept minimal for any cursor-specific overrides if needed
+  // Folder-level pytest discovery also works without the workspace file.
 }
