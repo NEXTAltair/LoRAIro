@@ -68,3 +68,56 @@ The launch tests download the pinned archive into a temporary fresh checkout,
 create a linked worktree, exercise actual registrations from nested directories,
 and verify active-branch overrides and teammate hooks without copied common
 framework files. They require Git and network access to GitHub codeload.
+
+## External skill reproducibility and provenance
+
+All 13 formerly unpinned GitHub skills now use exact commits. Existing kit release
+tags remain unchanged. Restoration caches each repository revision only within
+that invocation, so multiple skills from one pinned source share one download.
+
+- Six `wshobson/agents` skills use `a30778f8c4e6b0a87567941b7cca4f534bf642b6`
+  (2026-09-01). Independent staged CLI installs match all six **existing** hashes;
+  no hash or skill content update was accepted. Their current hashes were introduced
+  by LoRAIro `ddd40b80` / `2f444930` on 2026-07-05, not by the initial May import.
+- Seven `vercel-labs/agent-skills` skills use historical commit
+  `b9c8ee0643d87d3c5a953d1e22382ff2ead39229` (2026-05-05). Every previously tracked
+  file was compared byte-for-byte against the corresponding files originally
+  committed by LoRAIro `4e1d2cda` (2026-05-12). Those seven original lock hashes do
+  not match the preserved historical contents. Their exact original hash-generation
+  cause is **not proven**. The correction is grounded in repository-tracked bytes
+  and an independent staged `npx skills add` digest, not an assumed algorithm cause.
+
+The corrected Vercel directory digests are recorded below and in `skills-lock.json`:
+
+| Skill | Verified CLI SHA-256 |
+| --- | --- |
+| `deploy-to-vercel` | `d2b5bcc7c09fdb649129ffc7dd7b647ec1b155736974b974292675afd588cb39` |
+| `vercel-cli-with-tokens` | `a2f596ac516fe8986386f9562f4c94604af9fb6a0fc417d263cbe6dc05117b72` |
+| `vercel-composition-patterns` | `f98931159fa9c7fed043bcd18a891a46dcf89ababa38df13a4c5b7b30dc0ce07` |
+| `vercel-react-best-practices` | `3219a1944e404ffc14d1d9d6aef6dd2e3855b81387ee0a044ccbfe14d34c2357` |
+| `vercel-react-native-skills` | `2e9088a7333666d8c2833b8ff58bd51b955501c42b4c7244f72b4cbf22dafcc4` |
+| `vercel-react-view-transitions` | `4fea9144f604256d0a21faaea904b7e205e7676e316721ba5fdd68c2600c7d42` |
+| `web-design-guidelines` | `a6a44d5498f7e8f68289902f3dedfc6f38ae0cee1e96527c80724cf27f727c2a` |
+
+The six Vercel skills other than `vercel-react-view-transitions` also produce the
+same directory hashes at current inspected commit
+`063bee94c3f4df8453406c830b0a7df0f2860278`. The view-transition skill is deliberately
+restored to its originally tracked contents, without adopting its August changes.
+
+`deploy-to-vercel` has one explicit artifact exception: its upstream `Archive.zip`
+was present in the selected historical source, but was not tracked in LoRAIro's
+original import. The complete pinned skill includes that original source artifact.
+The historical and inspected current archives contain identical 11,314-byte ZIPs,
+SHA-256 `37c0d035b3d2c6256105316a2492c1487f3688efa21f030a8a623a9f7f0ee02f`.
+Its three originally tracked files still match byte-for-byte. The directory hash
+above includes the ZIP; no archive contents are executed during restoration.
+
+The skills CLI's `github:owner/repo#<full SHA>` clone fallback interprets the SHA
+as a branch and fails. `scripts/install_agent_skills.py` therefore downloads full
+SHA references through GitHub codeload, safely extracts into a temporary directory,
+and invokes the CLI in an isolated temporary project to verify its `computedHash`.
+Only matching content is copied into the consumer. Existing skill files remain
+untouched on hash mismatch. The project lock is preserved byte-for-byte after
+restoration, including GitHub provenance and other entries, rather than accepting
+the CLI's temporary local paths or incidental rewrites. Branch and tag refs continue
+through the existing CLI restoration path with the same hash rejection checks.
