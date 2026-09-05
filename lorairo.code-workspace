@@ -20,8 +20,10 @@
     "python.envFile": "${workspaceFolder}/.env",
 
     // Python インタープリター設定
-    "python.defaultInterpreterPath": "${workspaceFolder}/.venv/bin/python",
-    "python.languageServer": "None",
+    // Folder discovery supports Windows Scripts/ and container bin/ layouts.
+    // In a linked worktree, select the main checkout's shared interpreter manually.
+    "python.defaultInterpreterPath": "${workspaceFolder}/.venv",
+    "python.languageServer": "Pylance",
 
     // Python テスト設定
     "python.testing.cwd": "${workspaceFolder}",
@@ -81,11 +83,6 @@
 
     // 検索設定
     "search.useIgnoreFiles": false,
-
-    // WSL UNC アクセス許可
-    "security.allowedUNCHosts": [
-      "wsl.localhost"
-    ],
 
     // Git 設定
     "git.autofetch": true,
@@ -183,8 +180,5 @@
   // Extensions managed by devcontainer.json
   "extensions": {
     "recommendations": []
-  },
-  "security.allowedUNCHosts": [
-    "wsl.localhost"
-  ]
+  }
 }

@@ -3,11 +3,13 @@
   "tasks": [
     {
       "label": "module-path-resolver",
-      "type": "shell",
-      "command": "python",
+      "type": "process",
+      "command": "${command:python.interpreterPath}",
       "args": [
         "-c",
-        "import sys; from pathlib import Path; file_path = '${file}'; workspace = '${workspaceFolder}'; rel_path = Path(file_path).relative_to(Path(workspace)); module_path = str(rel_path).replace('\\\\', '.').replace('/', '.').replace('.py', ''); print(f'Module Path Resolver:'); print(f'Current file: {file_path}'); print(f'Module path: {module_path}'); print(f'PYTHONPATH: src + local_packages'); print(f'Ready to run with enhanced path resolution'); sys.exit(0)"
+        "import sys; from pathlib import Path; file_path = Path(sys.argv[1]); relative = file_path.relative_to(Path(sys.argv[2])); parts = relative.with_suffix('').parts; parts = parts[1:] if parts[0] == 'src' else parts; print('Current file:', file_path); print('Module path:', '.'.join(parts))",
+        "${file}",
+        "${workspaceFolder}"
       ],
       "group": "build",
       "presentation": {
