@@ -28,6 +28,11 @@ TASKS = (
     "run-gui",
     "test-runtime-local",
     "test-runtime-webapi",
+    "generate-ui",
+    "adr-drift",
+    "adr-index",
+    "adr-okf",
+    "docs-okf",
 )
 
 
@@ -109,6 +114,11 @@ def build_plan(task: str, root: Path, base_env: Mapping[str, str]) -> list[dict]
 def runtime_plan(task: str, root: Path, overlay: dict[str, str], interpreter: Path) -> list[dict]:
     """Keep package-local command selection separate from environment validation."""
     prefix = ["uv", "run", "--no-sync", "--python", str(interpreter), "python"]
+    if task in ("generate-ui", "adr-drift", "adr-index", "adr-okf", "docs-okf"):
+        return [
+            {"argv": prefix + args, "cwd": str(root), "env": overlay.copy()}
+            for args in documentation_commands(task, root)
+        ]
     plan = []
 
     def add(args: list[str], package: str | None = None) -> None:
@@ -150,6 +160,65 @@ def runtime_plan(task: str, root: Path, overlay: dict[str, str], interpreter: Pa
         add(["-m", "ruff", "format", *targets], package)
         add(["-m", "ruff", "check", *targets, "--fix"], package)
     return plan
+
+
+def documentation_commands(task: str, root: Path) -> list[list[str]]:
+    """Preserve OKF commands while avoiding shell loops and line continuations."""
+    if task in ("generate-ui", "adr-drift"):
+        script = "generate_ui.py" if task == "generate-ui" else "check_adr_drift.py"
+        return [[f"scripts/{script}"]]
+    scripts = ".agents/skills/okf-bundle/scripts"
+    validate = f"{scripts}/okf_validate.py"
+    index = f"{scripts}/okf_index.py"
+    if task == "docs-okf":
+        exclude = "README.md,CHANGELOG.md,CLAUDE.md,AGENTS.md,GEMINI.md,SKILL.md"
+        roots = ["docs", *[f"local_packages/{package}/docs" for package in PACKAGES]]
+        return [
+            [validate, "--bundle-root", path, "--skip-missing", "--exclude", exclude]
+            for path in roots
+            if path == "docs" or (root / path).is_dir()
+        ]
+    common = [index, "--bundle-root", "docs/decisions"]
+    commands = [
+        [
+            *common,
+            "--table",
+            "--columns",
+            "id,title,timestamp,status",
+            "--headers",
+            "ADR,タイトル,日付,ステータス",
+            "--link-column",
+            "id",
+            "--exclude",
+            "README.md",
+            "--table-output",
+            "docs/decisions/README.md",
+        ],
+        [
+            *common,
+            "--index",
+            "--index-output",
+            "docs/decisions/index.md",
+            "--index-title",
+            "Architecture Decision Records",
+            "--exclude",
+            "README.md",
+        ],
+    ]
+    if task == "adr-okf":
+        return [
+            [
+                validate,
+                "--bundle-root",
+                "docs/decisions",
+                "--require",
+                "type,title,status,timestamp",
+                "--exclude",
+                "README.md",
+            ],
+            *[[*command, "--check"] for command in commands],
+        ]
+    return commands
 
 
 def main(argv: list[str] | None = None) -> int:

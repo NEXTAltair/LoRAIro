@@ -46,9 +46,30 @@ Test tasks select Qt `offscreen`; Windows GUI runs do not acquire that setting f
 this runner. Real model and paid API tests remain explicit `test-runtime-local` and
 `test-runtime-webapi` tasks; they are not part of normal `test-all`.
 
-## Not migrated here
+## UI, ADR and cleanup
 
-UI generation, documentation/ADR utilities, `clean`, `venv-rebuild` and worktree
-cleanup still use their existing implementations. Do not assume those targets are
-Windows-safe. No kit hooks, Codex config, stored API keys, existing venvs or volumes
-are modified by this migration.
+`generate-ui`, `adr-drift`, `adr-index`, `adr-okf` and `docs-okf` use the same
+portable runner. Existing `.ui` generation remains available without Qt Designer
+editing tools. UIC runs under the selected interpreter, without a shell or extra sync.
+
+Preview maintenance before applying it:
+
+```text
+python scripts/safe_cleanup.py clean --dry-run
+python scripts/safe_cleanup.py venv-rebuild --dry-run
+```
+
+Omit `--dry-run` to execute, or use `make clean` / `make venv-rebuild`.
+Clean only removes named root build outputs and Python caches beneath `src`,
+`tests`, and `scripts`. It never traverses nested repositories, environments,
+links/junctions, data directories or worktrees. Removed caches are regenerable,
+but not backed up. Local package caches are intentionally left alone.
+
+Rebuild must run from the main checkout using a **system Python**. Stop other
+environment users first. The old `.venv` is renamed to `.venv.backup-<unique ID>`
+before explicit `install-dev`; the backup is kept even if installation fails.
+No automatic deletion or rollback is performed. Inspect the printed backup path
+and recover it manually if needed; do not run rebuild concurrently with other tasks.
+
+Worktree cleanup remains owned by the separate kit effort. No kit hooks or Codex
+configuration are changed here.
