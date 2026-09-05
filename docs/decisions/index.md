@@ -90,3 +90,4 @@
 * [Export tag language directories for Kohya-compatible datasets](0088-export-tag-language-directories.md)
 * [Pillow セキュリティ修正版を uv.lock の正準バージョンとする](0089-pillow-security-lock-update.md)
 * [transitive依存のセキュリティ更新と環境別torch境界](0090-transitive-security-update-boundary.md)
+* [Japanese-first multilingual user guide on GitHub Pages](0091-multilingual-user-guide.md)
