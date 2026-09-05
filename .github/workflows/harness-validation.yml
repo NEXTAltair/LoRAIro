@@ -18,6 +18,7 @@ on:
       - "scripts/validate_harness.py"
       - "skills-lock.json"
       - "agent-harness.lock.json"
+      - ".agent-kit/hooks.lock.json"
       - "scripts/install_agent_harness.py"
   pull_request:
     branches: [main]
@@ -36,6 +37,7 @@ on:
       - "scripts/validate_harness.py"
       - "skills-lock.json"
       - "agent-harness.lock.json"
+      - ".agent-kit/hooks.lock.json"
       - "scripts/install_agent_harness.py"
 
 jobs:
