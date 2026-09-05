@@ -121,3 +121,9 @@ untouched on hash mismatch. The project lock is preserved byte-for-byte after
 restoration, including GitHub provenance and other entries, rather than accepting
 the CLI's temporary local paths or incidental rewrites. Branch and tag refs continue
 through the existing CLI restoration path with the same hash rejection checks.
+
+On Windows without symlink privileges, Claude skill links use directory junctions
+with an exact validated target under `.agents/skills`. They are not copied skill
+directories. Existing wrong-target links are rejected by validation and repaired
+without traversing or deleting their target directories. Unix and privileged
+Windows environments continue to use directory symlinks.

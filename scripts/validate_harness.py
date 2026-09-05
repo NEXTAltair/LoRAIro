@@ -80,7 +80,7 @@ def validate_claude_skill_links(project_root: Path) -> list[str]:
     claude_skill_names = {
         skill_link.name
         for skill_link in claude_skills_dir.iterdir()
-        if skill_link.is_dir() or skill_link.is_symlink()
+        if skill_link.is_dir() or skill_link.is_symlink() or skill_link.is_junction()
     }
 
     missing_links = sorted(shared_skill_names - claude_skill_names)
@@ -91,8 +91,10 @@ def validate_claude_skill_links(project_root: Path) -> list[str]:
         errors.append(f"Claude skills: symlink has no shared skill target: {name}")
 
     for skill_link in sorted(claude_skills_dir.iterdir()):
-        if not skill_link.is_symlink():
-            errors.append(f"Claude skills: expected symlink, found real path: {skill_link.name}")
+        if not (skill_link.is_symlink() or skill_link.is_junction()):
+            errors.append(
+                f"Claude skills: expected symlink or junction, found real path: {skill_link.name}"
+            )
             continue
         target = skill_link.resolve()
         expected = (shared_skills_dir / skill_link.name).resolve()

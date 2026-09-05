@@ -298,34 +298,60 @@ def prune_removed_skills(lock: dict, state: dict[str, str]) -> tuple[list[str], 
     return pruned, unknown_orphans
 
 
+def remove_claude_entry(link: Path) -> None:
+    """Remove an entry without traversing a Windows junction into its target."""
+    if link.is_junction():
+        link.rmdir()
+    elif link.is_symlink() or link.is_file():
+        link.unlink()
+    elif link.is_dir():
+        shutil.rmtree(link)
+
+
+def create_claude_skill_link(link: Path, target: Path) -> None:
+    """Use a directory junction when Windows disallows unprivileged symlinks."""
+    relative = Path("..") / ".." / ".agents" / "skills" / target.name
+    try:
+        link.symlink_to(relative, target_is_directory=True)
+    except OSError as error:
+        if os.name != "nt" or getattr(error, "winerror", None) != 1314:
+            raise
+        subprocess.run(
+            [
+                "powershell",
+                "-NoProfile",
+                "-NonInteractive",
+                "-Command",
+                "New-Item -ItemType Junction -Path $env:AGENT_SKILL_LINK "
+                "-Value $env:AGENT_SKILL_TARGET -ErrorAction Stop | Out-Null",
+            ],
+            env=dict(os.environ, AGENT_SKILL_LINK=str(link), AGENT_SKILL_TARGET=str(target.resolve())),
+            check=True,
+            capture_output=True,
+            text=True,
+            timeout=15,
+            creationflags=subprocess.CREATE_NO_WINDOW,
+        )
+        if not link.is_junction() or link.resolve() != target.resolve():
+            raise OSError("Windows skill junction did not resolve to its shared target") from error
+
+
 def ensure_claude_symlinks() -> None:
-    """全 shared skill の .claude/skills symlink を保証し、broken/非正規エントリを正規化する。"""
+    """Keep canonical shared skill links, including unprivileged Windows junctions."""
     if not SKILLS_DIR.exists():
         return
     CLAUDE_SKILLS_DIR.mkdir(parents=True, exist_ok=True)
     for link in sorted(CLAUDE_SKILLS_DIR.iterdir()):
-        # shared 実体を失ったエントリは種別 (symlink / copy 化した実 dir / ファイル) を
-        # 問わず掃除する。lock から削除された skill の copy を Claude が読み続けないため
-        if (SKILLS_DIR / link.name / "SKILL.md").exists():
-            continue
-        if link.is_symlink() or link.is_file():
-            link.unlink()
-        elif link.is_dir():
-            shutil.rmtree(link)
+        if not (SKILLS_DIR / link.name / "SKILL.md").exists():
+            remove_claude_entry(link)
     for skill_dir in sorted(SKILLS_DIR.iterdir()):
         if not (skill_dir / "SKILL.md").exists():
             continue
         link = CLAUDE_SKILLS_DIR / skill_dir.name
-        expected_target = skill_dir.resolve()
-        if link.is_symlink():
-            if link.resolve() == expected_target:
-                continue
-            link.unlink()  # 別ターゲットを指す symlink は正規化する
-        elif link.is_dir():
-            shutil.rmtree(link)  # symlink 失敗時などに copy 化した stale dir を置換する
-        elif link.exists():
-            link.unlink()
-        link.symlink_to(Path("..") / ".." / ".agents" / "skills" / skill_dir.name)
+        if (link.is_symlink() or link.is_junction()) and link.resolve() == skill_dir.resolve():
+            continue
+        remove_claude_entry(link)
+        create_claude_skill_link(link, skill_dir)
 
 
 def backup_existing(name: str) -> Path | None:
