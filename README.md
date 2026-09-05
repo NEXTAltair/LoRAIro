@@ -223,4 +223,4 @@ MIT
 - [sd-webui-bayesian-merger](https://github.com/s1dlx/sd-webui-bayesian-merger) - スコアリング実装の参考
 - [stable-diffusion-webui-dataset-tag-editor](https://github.com/toshiaki1729/stable-diffusion-webui-dataset-tag-editor) - スコアリング実装の参考
 
-Agent hook の初期導入・worktree 復元・更新手順は [Agent harness restoration](docs/agent-harness.md) を参照してください。
+Agent hook の初期導入は Claude/Codex を起動する前に通常のターミナルで実行してください。runtime 未復元時は agent 内の復元コマンドもフックに拒否されます。worktree 復元・更新を含む手順は [Agent harness restoration](docs/agent-harness.md) を参照してください。

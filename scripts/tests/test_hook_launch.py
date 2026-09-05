@@ -180,10 +180,51 @@ class FreshCheckoutTests(unittest.TestCase):
 
     def test_documented_restore_is_not_redirected_to_syncing_uv(self):
         for root in (self.main, self.linked):
-            result = self.run_hook(
-                root, "PreToolUse", "python -X utf8 scripts/install_agent_harness.py"
-            )
+            result = self.run_hook(root, "PreToolUse", "python -X utf8 scripts/install_agent_harness.py")
             self.assertEqual(result.stdout, "")
+
+    def test_cold_start_recovers_from_normal_terminal_before_agent(self):
+        with tempfile.TemporaryDirectory() as directory:
+            cold = Path(directory) / "cold checkout"
+            cold.mkdir()
+            for name in (
+                "agent-harness.lock.json",
+                ".agent-kit/hooks.lock.json",
+                ".claude/settings.json",
+                "scripts/install_agent_harness.py",
+            ):
+                destination = cold / name
+                destination.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copyfile(ROOT / name, destination)
+            subprocess.run(["git", "init", str(cold)], check=True, capture_output=True)
+            handler = json.loads((cold / ".claude/settings.json").read_text())["hooks"]["PreToolUse"][0][
+                "hooks"
+            ][0]
+            self.assertFalse((cold / ".agent-kit/runtimes").exists())
+            blocked = subprocess.run(
+                [handler["command"], *handler["args"]],
+                cwd=cold,
+                input=json.dumps(
+                    {
+                        "tool_name": "Bash",
+                        "tool_input": {"command": "python -X utf8 scripts/install_agent_harness.py"},
+                    }
+                ),
+                text=True,
+                encoding="utf-8",
+                capture_output=True,
+                timeout=20,
+            )
+            self.assertEqual(json.loads(blocked.stdout)["hookSpecificOutput"]["permissionDecision"], "deny")
+            # Run from the OS terminal, not through the agent's unavailable hook.
+            subprocess.run(
+                [sys.executable, "-X", "utf8", "scripts/install_agent_harness.py"],
+                cwd=cold,
+                check=True,
+                capture_output=True,
+                timeout=120,
+            )
+            self.assertEqual(self.run_hook(cold, "PreToolUse").stdout, "")
 
 
 if __name__ == "__main__":

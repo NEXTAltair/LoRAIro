@@ -7,11 +7,19 @@ back into `.claude/hooks` or `.codex/hooks`.
 
 ## Fresh checkout or linked worktree
 
-Run from the target checkout with Python 3.12 or newer and Git on PATH:
+Before starting Claude/Codex, run from the target checkout in a normal terminal
+(PowerShell, cmd, or your Linux shell), with Python 3.12 or newer and Git on PATH:
 
 ```console
 python -X utf8 scripts/install_agent_harness.py
 ```
+
+This terminal command is the cold-start recovery path. A missing runtime causes
+the agent's PreToolUse hook to reject tool calls, including restoration requested
+through that agent. Do not ask the agent to run its own first-time restoration.
+If a branch switch selects an uncached runtime, stop the agent, run the command
+in the normal terminal, then resume the agent. The same applies to `make setup`:
+run initial setup in a normal terminal, before opening the agent session.
 
 On Linux, `python3` may be used for this command. The tracked Claude registrations
 use `python`, so that executable must also be available to the agent process.
@@ -68,7 +76,9 @@ python -X utf8 -m pytest -o addopts="" scripts/tests -v
 python -X utf8 scripts/validate_harness.py
 ```
 
-The launch tests download the pinned archive into a temporary fresh checkout,
+The launch tests verify rejection with no runtime cache, then recover via the
+normal terminal command and verify hook execution. They also download the pinned
+archive into a temporary fresh checkout,
 create a linked worktree, exercise actual registrations from nested directories,
 and verify active-branch overrides and teammate hooks without copied common
 framework files. They require Git and network access to GitHub codeload.

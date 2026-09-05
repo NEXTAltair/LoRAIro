@@ -1,5 +1,8 @@
 # Agent harness restoration
 
+初回導入や未キャッシュruntimeへのbranch切替時は、Claude/Codexを停止し、通常のターミナルで以下を実行する。
+runtime未復元時はagent内の復元ツール呼び出しも拒否される。復元後にagentを再開する。
+
 共通フック本体とデフォルトルールは `NEXTAltair/altairs-agent-dev-kit` が管理する。
 LoRAIroには接続設定、固有のルール、teammate監視だけを置く。共通コードをここへ再移植しない。
 
