@@ -29,7 +29,7 @@ help:
 	@echo "  install-dev  Install development dependencies"
 	@echo "  run-gui      Run LoRAIro GUI application"
 	@echo "  generate-ui  Generate Python files from Qt Designer .ui files"
-	@echo "  test         Run LoRAIro main tests only (uv run pytest, ADR 0024)"
+	@echo "  test         Run LoRAIro main tests only (shared Python, ADR 0024)"
 	@echo "  test-iam-lib Run image-annotator-lib tests in its package root"
 	@echo "  test-runtime-local Run local-only iam-lib real model runtime smoke tests"
 	@echo "  test-runtime-webapi Run local-only iam-lib real WebAPI runtime validation"

@@ -16,7 +16,7 @@ from typing import Any
 from lorairo.services.configuration_service import ConfigurationService
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from dev_tasks import resolve_shared_environment
+from dev_tasks import environment_python, resolve_shared_environment
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 IAM_LIB_DIR = REPO_ROOT / "local_packages" / "image-annotator-lib"
@@ -73,15 +73,12 @@ def build_child_env(
     return env
 
 
-def build_pytest_command() -> list[str]:
-    """Return the iam-lib runtime validation pytest command."""
+def build_pytest_command(interpreter: Path) -> list[str]:
+    """Use the validated shared interpreter, even when invoked as a standalone script."""
     return [
-        "uv",
-        "run",
-        "--no-sync",
-        "--python",
-        sys.executable,
-        "python",
+        str(interpreter),
+        "-X",
+        "utf8",
         "-m",
         "pytest",
         RUNTIME_TEST_PATH,
@@ -111,8 +108,8 @@ def run_runtime_webapi_tests(
     api_keys = load_api_keys(config_service)
     print_key_status(api_keys)
 
-    command = build_pytest_command()
     env = build_child_env(api_keys, base_env=base_env)
+    command = build_pytest_command(environment_python(Path(env["UV_PROJECT_ENVIRONMENT"])))
     result = runner(command, cwd=IAM_LIB_DIR, env=env, check=False)
     return int(result.returncode)
 
