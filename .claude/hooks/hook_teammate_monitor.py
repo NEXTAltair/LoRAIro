@@ -190,7 +190,9 @@ def main() -> None:
 
     try:
         data: dict[str, Any] = json.load(sys.stdin)
-        cwd = Path(data.get("cwd") or find_project_root()).resolve()
+        cwd = Path(
+            os.environ.get("AGENT_KIT_PROJECT_DIR") or data.get("cwd") or find_project_root()
+        ).resolve()
         PROJECT_DIR = Path(
             subprocess.check_output(
                 ["git", "rev-parse", "--show-toplevel"],

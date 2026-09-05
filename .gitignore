@@ -185,3 +185,7 @@ data/
 .claude/hooks/rules/*.default.json
 .codex/agents/
 .codex/hooks/*.py
+
+# Immutable kit runtime cache is shared; the branch lock is tracked.
+.agent-kit/*
+!.agent-kit/hooks.lock.json

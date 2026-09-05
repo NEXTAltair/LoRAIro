@@ -20,7 +20,7 @@ INSTALLER = """from pathlib import Path
 import shutil
 KIT = Path(__file__).resolve().parents[1]
 def install_runtime(target, force=False):
-    assert force is True
+    assert force is False
     for directory, pattern, destination in (
         ("hooks/scripts", "*.py", ".claude/hooks"),
         ("hooks/rules", "*.default.json", ".claude/hooks/rules"),

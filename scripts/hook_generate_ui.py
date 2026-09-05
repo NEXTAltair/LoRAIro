@@ -9,7 +9,9 @@ from pathlib import Path
 
 def main() -> int:
     data = json.load(sys.stdin)
-    cwd = Path(data.get("cwd") or Path(__file__).resolve().parent.parent)
+    cwd = Path(
+        os.environ.get("AGENT_KIT_PROJECT_DIR") or data.get("cwd") or Path(__file__).resolve().parent.parent
+    )
     root = Path(
         subprocess.check_output(
             ["git", "rev-parse", "--show-toplevel"], cwd=cwd, text=True, encoding="utf-8"
