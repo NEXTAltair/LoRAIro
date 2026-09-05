@@ -83,6 +83,7 @@ _build/
 
 # Qt Designer/UI 関連
 *_ui.py
+!scripts/hook_generate_ui.py
 !src/lorairo/gui/designer/*.ui
 
 # 環境変数・シークレット
@@ -183,3 +184,4 @@ data/
 .claude/hooks/hook_worktree_create.py
 .claude/hooks/rules/*.default.json
 .codex/agents/
+.codex/hooks/*.py

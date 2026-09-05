@@ -48,6 +48,10 @@ setup: _ensure-submodules
 	@echo "Setting up LoRAIro development environment..."
 	uv sync --dev
 	$(MAKE) skills-install
+	$(MAKE) harness-install
+
+harness-install:
+	python3 scripts/install_agent_harness.py
 
 # skills-install: 外部ソース由来の agent skills を skills-lock.json から復元する。
 # 外部 skill (altairs-agent-dev-kit / サードパーティ) は git 追跡しないため、

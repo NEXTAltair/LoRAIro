@@ -6,23 +6,56 @@ on:
     paths:
       - ".agents/skills/**"
       - ".claude/**"
+      - ".codex/hooks/**"
+      - ".codex/hooks.json"
+      - "scripts/validate_hook_settings.py"
+      - "scripts/hook_generate_ui.py"
+      - "scripts/tests/**"
+      - ".github/workflows/harness-validation.yml"
       - "CLAUDE.md"
       - "scripts/install_agent_skills.py"
       - "scripts/validate_docs.py"
       - "scripts/validate_harness.py"
       - "skills-lock.json"
+      - "agent-harness.lock.json"
+      - "scripts/install_agent_harness.py"
   pull_request:
     branches: [main]
     paths:
       - ".agents/skills/**"
       - ".claude/**"
+      - ".codex/hooks/**"
+      - ".codex/hooks.json"
+      - "scripts/validate_hook_settings.py"
+      - "scripts/hook_generate_ui.py"
+      - "scripts/tests/**"
+      - ".github/workflows/harness-validation.yml"
       - "CLAUDE.md"
       - "scripts/install_agent_skills.py"
       - "scripts/validate_docs.py"
       - "scripts/validate_harness.py"
       - "skills-lock.json"
+      - "agent-harness.lock.json"
+      - "scripts/install_agent_harness.py"
 
 jobs:
+  hook-portability:
+    name: Hook portability (${{ matrix.os }})
+    strategy:
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - name: Test hook contracts without application dependencies
+        # The runtime is distributed by the pinned kit, not copied into this repository.
+        run: python -X utf8 scripts/install_agent_harness.py
+      - name: Test restored hook contracts
+        run: python -X utf8 -m unittest discover -s scripts/tests -v
+
   validate-harness:
     name: Validate Agent Harness
     runs-on: ubuntu-latest
@@ -46,6 +79,8 @@ jobs:
         run: python scripts/install_agent_skills.py
 
       - name: Validate harness (skills, hooks, settings)
+        run: python -X utf8 scripts/install_agent_harness.py
+      - name: Validate restored harness
         run: python scripts/validate_harness.py
 
       - name: Validate documentation consistency
