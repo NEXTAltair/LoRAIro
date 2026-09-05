@@ -3,7 +3,6 @@ from __future__ import annotations
 import importlib.util
 import os
 import subprocess
-import sys
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -150,12 +149,9 @@ def test_run_runtime_webapi_tests_invokes_iam_lib_pytest_without_printing_keys(
     assert len(calls) == 1
     command, cwd, env, check = calls[0]
     assert command == [
-        "uv",
-        "run",
-        "--no-sync",
-        "--python",
-        sys.executable,
-        "python",
+        str(runner_script.environment_python(shared_checkout / ".venv")),
+        "-X",
+        "utf8",
         "-m",
         "pytest",
         "tests/runtime_validation/test_real_webapi_runtime.py",

@@ -24,14 +24,19 @@ PROJECT_ROOT = Path(__file__).parent.parent.resolve()
 UI_DESIGNER_DIR = PROJECT_ROOT / "src" / "lorairo" / "gui" / "designer"
 
 
+def uic_command() -> list[str]:
+    """Use PySide6 from the active interpreter without a shell or nested uv sync."""
+    return [sys.executable, "-c", "from PySide6.scripts.pyside_tool import uic; uic()"]
+
+
 def check_pyside6_uic() -> bool:
     """Check if pyside6-uic is available in the environment."""
     try:
         result = subprocess.run(
-            "uv run which pyside6-uic",
+            [*uic_command(), "--version"],
             capture_output=True,
             text=True,
-            shell=True
+            check=False,
         )
         return result.returncode == 0
     except Exception:
@@ -82,18 +87,9 @@ def generate_python_from_ui(ui_file: Path) -> bool:
 
     try:
         # Run pyside6-uic to convert .ui to .py
-        cmd = [
-            "uv", "run", "pyside6-uic",
-            str(ui_file),
-            "-o", str(py_file)
-        ]
+        cmd = [*uic_command(), str(ui_file), "-o", str(py_file)]
 
-        result = subprocess.run(
-            " ".join(cmd),
-            shell=True,
-            capture_output=True,
-            text=True
-        )
+        result = subprocess.run(cmd, check=False, capture_output=True, text=True)
 
         if result.returncode == 0:
             add_type_hints_to_ui(py_file)
@@ -116,7 +112,8 @@ def main():
     # Check if pyside6-uic is available
     if not check_pyside6_uic():
         print("❌ pyside6-uic not found. Please install PySide6 tools:")
-        print("   uv add pyside6[tools]")
+        print("   Check that this Python belongs to the shared LoRAIro environment.")
+        print("   If dependencies are missing, run python scripts/dev_tasks.py install-dev from main.")
         sys.exit(1)
 
     print("✅ pyside6-uic is available")

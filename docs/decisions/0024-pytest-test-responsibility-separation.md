@@ -120,7 +120,7 @@ Git common directory で検出した共有 checkout の `.venv` を全3パッケ
 
 - 依存導入は共有 checkout で明示的に `install-dev` を実行する。
   `uv sync --all-packages --all-groups` で member の dev 依存も導入する。
-- 通常のテスト・整形・型検査は `--no-sync`。worktree 内への環境作成や
+- 通常のテスト・整形・型検査は同期しない。worktree 内への環境作成や
   実行のたびの共有環境更新を行わない。更新と他の検証を並行実行しない。
 - ソースは対象 worktree の `PYTHONPATH` を優先する。pytest は各 package root で
   別プロセスとして起動し、conftest・coverage の境界は従来どおり維持する。
@@ -130,6 +130,36 @@ Git common directory で検出した共有 checkout の `.venv` を全3パッケ
 既存 uv と Python 標準ライブラリを再利用する。新しいタスク管理依存は増やさない。
 根拠: https://docs.astral.sh/uv/concepts/projects/config/#project-environment-path
 および https://docs.astral.sh/uv/reference/cli/#uv-sync 。
+
+### 2026-09-05 amendment: task prerequisite boundaries (Issue #1302)
+
+PR #1301 で文書専用タスクにもアプリ全体の前提条件を要求し、個別免除後も
+同じ境界の指摘が再発した。タスク名の例外を増やさず、`TaskSpec` に実行環境、
+必要な package 集合、worktree import 経路の要否、headless 要否を宣言する。
+
+- stdlib: ADR / OKF は起動中の Python を直接使い、Git common directory・共有
+  `.venv`・uv・submodule 検査を経由しない。drift 本体の Git 利用と fallback は維持。
+- shared: インストール済み共有 Python を直接使う。以前の `uv run --no-sync`
+  wrapper は不要とし、通常実行には環境解決・作成・同期の経路を持たせない。
+  アプリを import するタスクだけ対象 worktree の必要ソースを優先する。
+- sync: `install` / `install-dev` だけ uv を呼ぶ。共有 main checkout 限定とし、
+  workspace 全 member を要求する。並行して共有環境を書き換えない。
+- Ruff / UI生成にはアプリの全 submodule を要求しない。package 単独のテストや
+  整形はその package だけを検査する。コマンドと依存の表は `scripts/DEV_TASKS.md`。
+- 環境更新と成果物の書込みは別責務。整形・index/UI生成・テスト出力は従来通り。
+  この宣言は OS の権限・sandbox 機構ではない。
+
+既存解も比較したが、新しい task framework は追加しない。Nox は通常 virtualenv を
+作成し、Poe の uv executor は環境選択を追加し、Just は OS 別シェル設定が必要になる。
+いずれも LoRAIro 固有の共有環境・必要 submodule の判断は別途必要であり、既存
+stdlib runner の薄い分類表が最小の変更となる。
+
+参考: [Nox](https://nox.thea.codes/en/stable/usage.html)、
+[Poe](https://poethepoet.natn.io/guides/without_poetry.html)、
+[Just](https://just.systems/man/en/prerequisites.html)。
+
+全タスクの必要 package 欠落行列と、Git/uv/venv/submodule のない文書専用実プロセスを
+Windows/Linux で検証する。Kit の設定・hook・worktree lifecycle は本変更の対象外。
 
 ### Links
 

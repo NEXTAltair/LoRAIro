@@ -26,6 +26,7 @@ wheels/
 # 仮想環境
 venv/
 .venv/
+/.venv.backup-*/
 env/
 ENV/
 
