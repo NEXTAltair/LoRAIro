@@ -56,8 +56,9 @@ setup:
 	$(MAKE) skills-install
 	$(MAKE) harness-install
 
+.PHONY: harness-install skills-install
 harness-install:
-	python3 scripts/install_agent_harness.py
+	$(PYTHON) -X utf8 scripts/install_agent_harness.py
 
 skills-install:
 	$(PYTHON) scripts/install_agent_skills.py
