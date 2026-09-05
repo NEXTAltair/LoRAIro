@@ -38,6 +38,11 @@ test('untranslated copy fails', async (t) => {
   await writeFile(f.path('en'), f.source);
   await assert.rejects(checkTranslations(f.root), /untranslated/);
 });
+test('translated title cannot hide an unchanged Japanese body', async (t) => {
+  const f = await fixture(t);
+  await writeFile(f.path('en'), f.source.replace('title: 日本語', 'title: English').replaceAll('\n', '\r\n'));
+  await assert.rejects(checkTranslations(f.root), /untranslated/);
+});
 test('translations cannot silently introduce different commands', async (t) => {
   const f = await fixture(t);
   await writeFile(f.path('en'), '---\ntitle: English\n---\n```powershell\ninvalid command\n```\n');

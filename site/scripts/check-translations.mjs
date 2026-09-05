@@ -6,6 +6,7 @@ import { fileURLToPath } from 'node:url';
 export const languages = ['en', 'zh-tw', 'zh-cn'];
 export const digest = (text) => createHash('sha256').update(text.replaceAll('\r\n', '\n')).digest('hex');
 const codeBlocks = (text) => [...text.replaceAll('\r\n', '\n').matchAll(/^```[^\n]*\n([\s\S]*?)^```/gm)].map(m => m[1]);
+const body = (text) => text.replaceAll('\r\n', '\n').replace(/^---\n[\s\S]*?\n---(?:\n|$)/, '').trim();
 
 async function pages(directory) {
   const result = [];
@@ -34,7 +35,7 @@ export async function checkTranslations(root) {
     for (const language of languages) {
       const translation = await readFile(join(content, language, page), 'utf8');
       if (manifest[page][language] !== digest(source)) throw new Error(`${language}/${page}: stale translation`);
-      if (translation.trim() === source.trim()) throw new Error(`${language}/${page}: untranslated Japanese copy`);
+      if (body(translation) === body(source)) throw new Error(`${language}/${page}: untranslated Japanese copy`);
       if (JSON.stringify(codeBlocks(translation)) !== JSON.stringify(codeBlocks(source))) {
         throw new Error(`${language}/${page}: code examples differ from Japanese source`);
       }
