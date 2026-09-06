@@ -724,6 +724,18 @@ class AnnotateImportBatchResult(BaseModel):
     model_config = ConfigDict(title="AnnotateImportBatchResult")
 
 
+class ErrorsListInput(BaseModel):
+    """Bounded error-record pagination, including the existing zero-row request."""
+
+    project: str
+    operation: str | None = None
+    error_type: str | None = None
+    message_contains: str | None = None
+    all: bool = False
+    limit: int = Field(default=50, ge=0, le=500, description="0 returns no records.")
+    offset: int = Field(default=0, ge=0)
+
+
 class ErrorRecordItem(BaseModel):
     """JSONL item payload emitted by ``errors list --json``."""
 
@@ -2367,9 +2379,10 @@ TOOL_SPECS: dict[str, ToolSpec] = {
                     _f("error_type", "str?", description="Filter by error_type"),
                     _f("message_contains", "str?", description="Partial match on error_message"),
                     _f("all", "bool", default=False, description="Include resolved records"),
-                    _f("limit", "int", default=50, description="Max records (max 500)"),
-                    _f("offset", "int", default=0),
+                    _f("limit", "int[0,500]", default=50, description="Max records; 0 returns no records"),
+                    _f("offset", "int>=0", default=0),
                 ),
+                schema=ErrorsListInput,
             ),
         ),
         outputs=(

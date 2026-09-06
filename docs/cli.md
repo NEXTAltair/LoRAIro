@@ -599,8 +599,8 @@ lorairo-cli --json describe "errors list"
 - `error_type`: `str?` (optional) - Filter by error_type
 - `message_contains`: `str?` (optional) - Partial match on error_message
 - `all`: `bool` (optional, default `False`) - Include resolved records
-- `limit`: `int` (optional, default `50`) - Max records (max 500)
-- `offset`: `int` (optional, default `0`)
+- `limit`: `int[0,500]` (optional, default `50`) - Max records; 0 returns no records
+- `offset`: `int>=0` (optional, default `0`)
 
 **Output `ErrorRecordItem`**
 

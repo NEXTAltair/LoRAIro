@@ -57,8 +57,12 @@ def list_errors(
     all_records: bool = typer.Option(
         False, "--all", help="Include resolved records (default: unresolved only)"
     ),
-    limit: int = typer.Option(50, "--limit", help="Max records to return (max 500)"),
-    offset: int = typer.Option(0, "--offset", help="Offset for pagination"),
+    limit: int = typer.Option(
+        50,
+        "--limit",
+        help="Max records to return (0..500; 0 returns no records)",
+    ),
+    offset: int = typer.Option(0, "--offset", help="Nonnegative offset for pagination"),
 ) -> None:
     """List error records.
 
@@ -68,10 +72,14 @@ def list_errors(
         lorairo-cli errors list --project proj --operation search --error-type RuntimeError
     """
     with command_boundary():
+        # Validate inside the JSONL boundary, before any project lookup or DB access.
+        if not 0 <= limit <= MAX_LIST_LIMIT:
+            raise click.UsageError(
+                f"--limit must be between 0 and {MAX_LIST_LIMIT} (0 returns no records)."
+            )
+        if offset < 0:
+            raise click.UsageError("--offset must be nonnegative.")
         api_get_project(project)
-        if limit > MAX_LIST_LIMIT:
-            raise click.UsageError(f"--limit は最大 {MAX_LIST_LIMIT}。")
-
         container = get_service_container()
         container.set_active_project(project)
         repo = container.db_manager.error_record_repo
