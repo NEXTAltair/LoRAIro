@@ -5,6 +5,7 @@ compatible with kohya-ss/sd-scripts requirements.
 """
 
 import json
+from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -29,6 +30,73 @@ if TYPE_CHECKING:
 # ADR 0068 Phase 3: 学習 export のデフォルト target format
 _DEFAULT_EXPORT_TAG_FORMAT = "danbooru"
 _CANONICAL_TAG_LANGUAGE = "canonical"
+
+
+@dataclass
+class ExportResult:
+    """Track this operation's completed formats, artifacts and per-image failures.
+
+    Existing files are overwritten by the writers; files from previous operations
+    are never counted as successes and are not removed on failure.
+    """
+
+    image_ids: list[int]
+    completed: dict[int, set[str]] = field(default_factory=dict)
+    artifacts: dict[int, list[str]] = field(default_factory=dict)
+    failures: dict[int, list[dict[str, str]]] = field(default_factory=dict)
+
+    def __post_init__(self) -> None:
+        self.image_ids = list(dict.fromkeys(self.image_ids))
+
+    def fail(self, image_id: int, stage: str, reason: str, message: str) -> None:
+        """Record an unsuccessful image without losing earlier artifacts."""
+        self.failures.setdefault(image_id, []).append(
+            {"stage": stage, "reason": reason, "message": message}
+        )
+
+    def record_artifact(self, image_id: int, path: Path) -> None:
+        """Record a file only after its writer has completed."""
+        paths = self.artifacts.setdefault(image_id, [])
+        if str(path) not in paths:
+            paths.append(str(path))
+
+    def summary(self) -> dict[str, Any]:
+        """Return counts and retry evidence for the complete TXT/JSON operation."""
+        exported_ids = [
+            image_id
+            for image_id in self.image_ids
+            if self.completed.get(image_id) == {"txt", "json"} and image_id not in self.failures
+        ]
+        exported_id_set = set(exported_ids)
+        failed_ids = [image_id for image_id in self.image_ids if image_id not in exported_id_set]
+        skipped_ids = [
+            image_id
+            for image_id in failed_ids
+            if self.failures.get(image_id)
+            and all(
+                error["reason"] in {"image_not_found", "processed_image_missing"}
+                for error in self.failures[image_id]
+            )
+        ]
+        return {
+            "ok": not failed_ids,
+            "status": "success" if not failed_ids else "partial_success" if exported_ids else "failed",
+            "requested": len(self.image_ids),
+            "exported": len(exported_ids),
+            "skipped": len(skipped_ids),
+            "failed": len(failed_ids) - len(skipped_ids),
+            "exported_ids": exported_ids,
+            "failed_ids": failed_ids,
+            "error_details": [
+                {
+                    "image_id": image_id,
+                    "errors": self.failures.get(image_id, []),
+                    "completed_formats": sorted(self.completed.get(image_id, set())),
+                    "output_files": self.artifacts.get(image_id, []),
+                }
+                for image_id in failed_ids
+            ],
+        }
 
 
 class DatasetExportService:
@@ -71,6 +139,7 @@ class DatasetExportService:
         tag_format: str = _DEFAULT_EXPORT_TAG_FORMAT,
         overlay_plan: ExportOverlayPlan | None = None,
         tag_languages: list[str] | None = None,
+        report: ExportResult | None = None,
     ) -> Path:
         """Export dataset in TXT format compatible with kohya-ss training.
 
@@ -90,6 +159,8 @@ class DatasetExportService:
             tag_languages: 出力するタグ言語。None / ["canonical"] は従来の canonical 出力。
                 1 言語なら output_path 直下へ、複数言語なら ``output_path/<language>/`` ごとに
                 完全な dataset を出力する (ADR 0088)。
+            report: Optional operation result collector, shared by both format writers.
+                Records completed files and failures without changing the Path return value.
 
         Returns:
             Path: Path to the exported dataset directory
@@ -101,6 +172,8 @@ class DatasetExportService:
         if not image_ids:
             raise ValueError("image_ids list cannot be empty")
 
+        tracking = report is not None
+        report = report or ExportResult(image_ids)
         language_roots = self._resolve_language_output_roots(output_path, tag_languages)
         for _, language_output_path in language_roots:
             language_output_path.mkdir(parents=True, exist_ok=True)
@@ -119,19 +192,10 @@ class DatasetExportService:
         exported_count = 0
         for image_id in image_ids:
             try:
-                # Get processed image path for specified resolution
-                processed_image_path = self._resolve_processed_image_path(image_id, resolution)
-                if not processed_image_path:
-                    logger.warning(
-                        f"Processed image not found for ID {image_id} at resolution {resolution}"
-                    )
+                export_input = self._get_export_input(image_id, resolution, report, "txt", tracking)
+                if export_input is None:
                     continue
-
-                # Get image metadata and annotations
-                image_data = self._get_image_export_data(image_id)
-                if not image_data:
-                    logger.warning(f"No export data found for image ID {image_id}")
-                    continue
+                processed_image_path, image_data = export_input
 
                 base_filename = processed_image_path.stem
 
@@ -151,6 +215,7 @@ class DatasetExportService:
 
                     # Copy processed image
                     self.file_system_manager.copy_file(processed_image_path, output_image_path)
+                    report.record_artifact(image_id, output_image_path)
 
                     tags = ", ".join(
                         self._translate_export_tag_list(
@@ -165,17 +230,21 @@ class DatasetExportService:
 
                     with open(txt_file, "w", encoding="utf-8") as f:
                         f.write(tags)
+                    report.record_artifact(image_id, txt_file)
 
                     # Write caption file
                     if captions:
                         with open(caption_file, "w", encoding="utf-8") as f:
                             f.write(captions)
+                        report.record_artifact(image_id, caption_file)
 
                 exported_count += 1
+                report.completed.setdefault(image_id, set()).add("txt")
                 logger.debug(f"Exported image {image_id}: {base_filename}")
 
             except Exception as e:
                 logger.error(f"Failed to export image ID {image_id}: {e}")
+                report.fail(image_id, "txt", "export_error", str(e))
                 continue
 
         logger.info(f"TXT format export completed: {exported_count}/{len(image_ids)} images exported")
@@ -190,6 +259,7 @@ class DatasetExportService:
         tag_format: str = _DEFAULT_EXPORT_TAG_FORMAT,
         overlay_plan: ExportOverlayPlan | None = None,
         tag_languages: list[str] | None = None,
+        report: ExportResult | None = None,
     ) -> Path:
         """Export dataset in JSON metadata format compatible with kohya-ss.
 
@@ -209,6 +279,8 @@ class DatasetExportService:
             tag_languages: 出力するタグ言語。None / ["canonical"] は従来の canonical 出力。
                 1 言語なら output_path 直下へ、複数言語なら ``output_path/<language>/`` ごとに
                 完全な dataset を出力する (ADR 0088)。
+            report: Optional operation result collector, shared by both format writers.
+                Records completed files and failures without changing the Path return value.
 
         Returns:
             Path: Path to the exported dataset directory
@@ -220,6 +292,8 @@ class DatasetExportService:
         if not image_ids:
             raise ValueError("image_ids list cannot be empty")
 
+        tracking = report is not None
+        report = report or ExportResult(image_ids)
         language_roots = self._resolve_language_output_roots(output_path, tag_languages)
         for _, language_output_path in language_roots:
             language_output_path.mkdir(parents=True, exist_ok=True)
@@ -242,19 +316,10 @@ class DatasetExportService:
 
         for image_id in image_ids:
             try:
-                # Get processed image path for specified resolution
-                processed_image_path = self._resolve_processed_image_path(image_id, resolution)
-                if not processed_image_path:
-                    logger.warning(
-                        f"Processed image not found for ID {image_id} at resolution {resolution}"
-                    )
+                export_input = self._get_export_input(image_id, resolution, report, "json", tracking)
+                if export_input is None:
                     continue
-
-                # Get image metadata and annotations
-                image_data = self._get_image_export_data(image_id)
-                if not image_data:
-                    logger.warning(f"No export data found for image ID {image_id}")
-                    continue
+                processed_image_path, image_data = export_input
 
                 # タグ文字列構築: overlay 有無で分岐（ADR 0080）
                 export_tags = self._resolve_export_tags(image_data["tags"])
@@ -277,6 +342,7 @@ class DatasetExportService:
                 for tag_language, language_output_path in language_roots:
                     output_image_path = language_output_path / processed_image_path.name
                     self.file_system_manager.copy_file(processed_image_path, output_image_path)
+                    report.record_artifact(image_id, output_image_path)
                     metadata_by_language[tag_language][str(output_image_path)] = {
                         "tags": ", ".join(
                             self._translate_export_tag_list(
@@ -293,20 +359,77 @@ class DatasetExportService:
                     }
 
                 exported_count += 1
+                report.completed.setdefault(image_id, set()).add("json")
                 logger.debug(f"Exported image {image_id}: {processed_image_path.name}")
 
             except Exception as e:
                 logger.error(f"Failed to export image ID {image_id}: {e}")
+                report.fail(image_id, "json", "export_error", str(e))
                 continue
 
-        # Write metadata JSON file (proper JSON format, not append mode)
-        for tag_language, language_output_path in language_roots:
-            metadata_path = language_output_path / metadata_filename
-            with open(metadata_path, "w", encoding="utf-8") as f:
-                json.dump(metadata_by_language[tag_language], f, indent=2, ensure_ascii=False)
+        self._write_metadata_files(
+            language_roots, metadata_filename, metadata_by_language, image_ids, report, tracking
+        )
 
         logger.info(f"JSON format export completed: {exported_count}/{len(image_ids)} images exported")
         return output_path
+
+    def _get_export_input(
+        self, image_id: int, resolution: int, report: ExportResult, stage: str, tracking: bool
+    ) -> tuple[Path, dict[str, Any]] | None:
+        """Resolve export inputs while distinguishing absent images and operational errors."""
+        if tracking and not self.db_manager.get_image_metadata(image_id):
+            report.fail(image_id, stage, "image_not_found", "Image ID does not exist")
+            return None
+        path = (
+            self._resolve_processed_image_path(image_id, resolution, strict=True)
+            if tracking
+            else self._resolve_processed_image_path(image_id, resolution)
+        )
+        if path is None:
+            report.fail(
+                image_id,
+                stage,
+                "processed_image_missing",
+                "Processed image is not available at the requested resolution",
+            )
+            return None
+        data = (
+            self._get_image_export_data(image_id, strict=True)
+            if tracking
+            else self._get_image_export_data(image_id)
+        )
+        if data is None:
+            report.fail(image_id, stage, "image_not_found", "Image metadata disappeared")
+            return None
+        return path, data
+
+    @staticmethod
+    def _write_metadata_files(
+        language_roots: list[tuple[str, Path]],
+        metadata_filename: str,
+        metadata_by_language: dict[str, dict[str, dict[str, Any]]],
+        image_ids: list[int],
+        report: ExportResult,
+        tracking: bool,
+    ) -> None:
+        """Finalize JSON files, attributing late failures to the affected images."""
+        prepared_ids = [
+            image_id for image_id in image_ids if "json" in report.completed.get(image_id, set())
+        ]
+        for language, root in language_roots:
+            path = root / metadata_filename
+            try:
+                with open(path, "w", encoding="utf-8") as stream:
+                    json.dump(metadata_by_language[language], stream, indent=2, ensure_ascii=False)
+                for image_id in prepared_ids:
+                    report.record_artifact(image_id, path)
+            except Exception as exc:
+                if not tracking:
+                    raise
+                for image_id in prepared_ids:
+                    report.completed[image_id].discard("json")
+                    report.fail(image_id, "json", "metadata_write_error", str(exc))
 
     def export_filtered_dataset(
         self,
@@ -386,12 +509,15 @@ class DatasetExportService:
             **kwargs,
         )
 
-    def _resolve_processed_image_path(self, image_id: int, resolution: int) -> Path | None:
+    def _resolve_processed_image_path(
+        self, image_id: int, resolution: int, *, strict: bool = False
+    ) -> Path | None:
         """Resolve the file system path for a processed image at specified resolution.
 
         Args:
             image_id: Database image ID
             resolution: Target resolution (e.g., 512, 768, 1024)
+            strict: Propagate operational errors for reporting callers.
 
         Returns:
             Path to processed image file, None if not found
@@ -418,6 +544,8 @@ class DatasetExportService:
 
         except Exception as e:
             logger.error(f"Error resolving processed image path for ID {image_id}: {e}")
+            if strict:
+                raise
             return None
 
     def _build_export_tags_str(
@@ -563,6 +691,11 @@ class DatasetExportService:
         return [(language, output_path / language) for language in languages]
 
     @staticmethod
+    def validate_tag_languages(tag_languages: list[str] | None) -> None:
+        """Validate command-wide options before starting image processing or DB access."""
+        DatasetExportService._normalize_tag_languages(tag_languages)
+
+    @staticmethod
     def _normalize_tag_languages(tag_languages: list[str] | None) -> list[str]:
         """tag language 指定を正規化・検証する。"""
         if tag_languages is None:
@@ -611,11 +744,12 @@ class DatasetExportService:
         # genai_tag_db_tools は mypy 上 untyped 扱いのため str へ明示変換する
         return str(convert_tags(reader, tags, tag_format, exclude_types=["meta"]))
 
-    def _get_image_export_data(self, image_id: int) -> dict[str, Any] | None:
+    def _get_image_export_data(self, image_id: int, *, strict: bool = False) -> dict[str, Any] | None:
         """Get image data required for export (tags, captions, metadata).
 
         Args:
             image_id: Database image ID
+            strict: Propagate operational errors for reporting callers.
 
         Returns:
             Dictionary with image export data, None if not found
@@ -641,6 +775,8 @@ class DatasetExportService:
 
         except Exception as e:
             logger.error(f"Error getting export data for image ID {image_id}: {e}")
+            if strict:
+                raise
             return None
 
     def get_available_resolutions(self, image_ids: list[int]) -> dict[int, list[int]]:
