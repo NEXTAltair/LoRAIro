@@ -73,6 +73,10 @@ Batch の 0 解像度は最小、正値は従来の closest/exact 選択です�
 `project`、`target_count`、`interrupted`、`unprocessed` を持ちます。大量 item を再格納しません。
 終端の `error_details` は最大 100 件のサンプルです。省略があれば `error_details_truncated=true`、
 実際の失敗件数は `errors` で確認し、各 item の完全な `error` を参照します。ID 集合は切り詰めません。
+画像行の登録後に sidecar 取込みが失敗・中断した場合も、確定した `image_id` と登録 `outcome` を保持します。
+この item は `error` を持ち、終端では成功件数ではなく `errors` に数えます。`selected` は登録 outcome と
+重複選択方針から決めるため、確定した新規・別版 ID を復旧用に保持できます。終端失敗を無視して後続へ
+自動実行せず、sidecar の保存状態を確認してください。
 Python API の既定 `collect_items=True` は従来どおり全エラー詳細を保持します。
 登録失敗・中断は exit 1、正常な重複 skip や空ディレクトリは exit 0 です。
 書き込み失敗や終端欠落は完全な登録集合を保証しません。切り詰めた集合をそのまま処理しないでください。
@@ -81,6 +85,8 @@ Python API の既定 `collect_items=True` は従来どおり全エラー詳細�
 `status=completed|failed|skipped|unexecuted` と `saved` で DB 保存を確認できます。
 一部モデルのみ失敗した画像は、保存済み情報を保持しつつ failed になります。
 例外・中断時は既に確定した結果を維持し、当該実行単位の未確定 ID を failed、残りを unexecuted とします。
+事前準備の予期しない例外・中断では、推論を開始していない対象 ID をすべて unexecuted として失敗終端を返します。
+API キー不足等の意図した入力検証エラーは従来どおり入力エラーとして扱います。
 終端 result は集計だけを持ち、失敗・未実行があれば `ok=false`、exit 1 です。
 
 Batch は DB の取得単位と独立した Provider adapter 上限 500 でジョブを分けます。
@@ -88,5 +94,6 @@ Batch は DB の取得単位と独立した Provider adapter 上限 500 でジ�
 `type=batch_submission` 行に `status=submitted|failed|unsubmitted`、`image_ids`、`job_id`、`reason` を出力します。
 各ジョブの成功直後に割当集合を出力し、後続失敗でも先行 job ID を失いません。
 終端 result は `job_ids` と submitted/failed/unsubmitted 件数を持ちます。
+互換フィールド `job_id` と `job` は先頭ジョブだけを指します。先頭の metadata を取得できなければ `job=null` を維持し、後続ジョブの情報で置き換えません。
 送信中の例外は Provider 側受付後に発生した可能性があります。failed は送信未確認の集合です。
 Provider とローカル job 状態を確認してから再開し、送信済み集合を含む全件の自動再送は行いません。

@@ -617,3 +617,116 @@ def test_all_filtered_annotation_ids_emit_complete_skipped_result(tmp_path, caps
     repo.get_processed_image_paths_by_resolution.assert_not_called()
     container.annotator_library.annotate.assert_not_called()
     container.annotation_save_service.save_annotation_results.assert_not_called()
+
+
+@pytest.mark.parametrize(
+    "classification,outcome,skip_duplicates,selected",
+    [
+        ("new", "registered", True, True),
+        ("variant", "variant", True, True),
+        ("duplicate", "duplicate", True, False),
+        ("duplicate", "duplicate", False, True),
+    ],
+)
+@pytest.mark.parametrize("failure", [RuntimeError("sidecar database locked"), KeyboardInterrupt()])
+def test_sidecar_failure_preserves_authoritative_registration(
+    classification, outcome, skip_duplicates, selected, failure
+):
+    from lorairo.database.db_manager import ImageDatabaseManager
+
+    manager = ImageDatabaseManager.__new__(ImageDatabaseManager)
+    manager.register_original_image = MagicMock(return_value=(42, {"phash_classification": classification}))
+    manager._import_associated_files = MagicMock(side_effect=failure)
+    manager.image_repo = MagicMock()
+    emitted = []
+    result = _register_into_db(
+        manager,
+        MagicMock(),
+        [Path("committed.png")],
+        skip_duplicates=skip_duplicates,
+        project_name="demo",
+        on_item=emitted.append,
+    )
+    assert len(emitted) == 1
+    item = emitted[0]
+    assert (item.outcome, item.image_id, item.selected) == (outcome, 42, selected)
+    assert item.error == (str(failure) or type(failure).__name__)
+    assert result.failed == 1
+    assert result.successful + result.variant + result.skipped == 0
+    assert result.target_count == int(selected)
+    assert result.interrupted is isinstance(failure, KeyboardInterrupt)
+    assert result.unprocessed == 0
+    assert manager.image_repo.mock_calls == []  # Never infer the ID via a second DB lookup.
+    manager.register_original_image.assert_called_once()
+    # The default GUI/direct manager contract still propagates the original side-effect exception.
+    with pytest.raises(type(failure)):
+        manager.register_image_with_side_effects(Path("committed.png"), MagicMock())
+
+
+@pytest.mark.parametrize("failure", [RuntimeError("preflight setup failed"), KeyboardInterrupt()])
+def test_annotation_preflight_setup_failure_partitions_validated_ids(
+    tmp_path, monkeypatch, capsys, failure
+):
+    container = container_for_ids(tmp_path, 3)
+    monkeypatch.setattr("lorairo.cli._annotation_ids._make_preflight", MagicMock(side_effect=failure))
+    with pytest.raises(typer.Exit) as caught:
+        run_id_annotation(
+            container,
+            image_ids=[1, 2, 3],
+            file_input=True,
+            project="demo",
+            criteria=ImageFilterCriteria(),
+            offset=0,
+            limit=None,
+            resolution=512,
+            batch_size=2,
+            models=["fake"],
+        )
+    assert caught.value.exit_code == 1
+    output = rows(capsys)
+    assert {r["image_id"]: r["status"] for r in output if r.get("type") == "annotation_outcome"} == {
+        1: "unexecuted",
+        2: "unexecuted",
+        3: "unexecuted",
+    }
+    assert output[-1]["status"] == "failed"
+    assert output[-1]["unexecuted"] == 3
+    assert output[-1]["interrupted"] is isinstance(failure, KeyboardInterrupt)
+    container.annotator_library.annotate.assert_not_called()
+
+
+def test_annotation_preflight_input_error_keeps_validation_boundary(tmp_path, monkeypatch, capsys):
+    container = container_for_ids(tmp_path, 1)
+    monkeypatch.setattr(
+        "lorairo.cli._annotation_ids._make_preflight",
+        MagicMock(side_effect=click.UsageError("missing key")),
+    )
+    with pytest.raises(click.UsageError, match="missing key"):
+        run_id_annotation(
+            container,
+            image_ids=[1],
+            file_input=True,
+            project="demo",
+            criteria=ImageFilterCriteria(),
+            offset=0,
+            limit=None,
+            resolution=512,
+            batch_size=2,
+            models=["fake"],
+        )
+    assert rows(capsys) == []
+    container.annotator_library.annotate.assert_not_called()
+
+
+@pytest.mark.parametrize("first_lookup", [None, RuntimeError("metadata unavailable")])
+def test_batch_first_job_metadata_never_comes_from_later_job(tmp_path, capsys, first_lookup):
+    container = container_for_ids(tmp_path, 501)
+    lookup = container.db_manager.provider_batch_repo.get_provider_batch_job
+    lookup.side_effect = [first_lookup, SimpleNamespace(id=41)]
+    submit(container, list(range(1, 502)))
+    output = rows(capsys)
+    assert output[-1]["job_ids"] == [40, 41]
+    assert output[-1]["job_id"] == 40
+    assert output[-1]["job"] is None
+    lookup.assert_called_once_with(40)
+    assert output[-1]["submitted"] == 501

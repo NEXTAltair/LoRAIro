@@ -2,6 +2,7 @@
 
 from typing import Any
 
+import click
 import typer
 from loguru import logger
 
@@ -183,8 +184,8 @@ def _execute_ids(
     interrupted = False
     failure_reason = None
     current: list[int] = []
-    preflight = _make_preflight(container, models)
     try:
+        preflight = _make_preflight(container, models)
         # Both DB metadata and PIL image lists remain bounded even with100,000 IDs.
         for start in range(0, len(active), min(batch_size, BULK_CHUNK_SIZE)):
             current = active[start : start + min(batch_size, BULK_CHUNK_SIZE)]
@@ -195,6 +196,8 @@ def _execute_ids(
                 for record in records:
                     record["stored_image_path"] = paths[int(record["id"])]
             _annotate_chunk(container, records, models, preflight, statuses, counters)
+    except (click.UsageError, typer.Exit):
+        raise
     except (Exception, KeyboardInterrupt) as exc:
         interrupted = isinstance(exc, KeyboardInterrupt)
         failure_reason = str(exc) or type(exc).__name__

@@ -7,7 +7,7 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from lorairo.database.db_manager import RegistrationOutcome
+from lorairo.database.db_manager import RegistrationOutcome, RegistrationSideEffectResult
 from lorairo.public_api.exceptions import ImageRegistrationError
 from lorairo.public_api.types import RegistrationItem, RegistrationResult
 from lorairo.services.service_container import ServiceContainer
@@ -148,8 +148,12 @@ def _register_into_db(
     selected_ids: set[int] = set()
     errors: list[str] = []
     for index, image_file in enumerate(image_files):
+        confirmed: list[RegistrationSideEffectResult] = []
+        interrupted = False
         try:
-            side_effect = db_manager.register_image_with_side_effects(image_file, fsm)
+            side_effect = db_manager.register_image_with_side_effects(
+                image_file, fsm, on_registered=confirmed.append
+            )
             outcome = side_effect.outcome
             item = RegistrationItem(
                 input_path=str(image_file),
@@ -158,17 +162,24 @@ def _register_into_db(
                 project=project_name,
                 error="登録失敗" if outcome is RegistrationOutcome.FAILED else None,
             )
-        except KeyboardInterrupt:
-            result.interrupted = True
-            result.unprocessed = len(image_files) - index
-            break
-        except Exception as exc:
+        except (Exception, KeyboardInterrupt) as exc:
+            interrupted = isinstance(exc, KeyboardInterrupt)
+            if interrupted:
+                result.interrupted = True
+                result.unprocessed = len(image_files) - index - bool(confirmed)
+                if not confirmed:
+                    break
+            saved = confirmed[0] if confirmed else None
             item = RegistrationItem(
-                input_path=str(image_file), outcome="failed", project=project_name, error=str(exc)
+                input_path=str(image_file),
+                outcome=saved.outcome.value if saved else "failed",
+                image_id=saved.image_id if saved else None,
+                project=project_name,
+                error=str(exc) or type(exc).__name__,
             )
-        if item.outcome == "failed":
+        if item.error is not None:
             _record_registration_error(result, errors, item, collect_items=collect_items)
-        _count_registration(result, item.outcome, skip_duplicates)
+        _count_registration(result, "failed" if item.error is not None else item.outcome, skip_duplicates)
         eligible = item.outcome in {"registered", "variant"} or (
             item.outcome == "duplicate" and not skip_duplicates
         )
@@ -180,6 +191,8 @@ def _register_into_db(
         # Output failures must escape, not be misclassified as failed DB registration.
         if on_item is not None:
             on_item(item)
+        if interrupted:
+            break
     result.target_count = len(selected_ids)
     result.error_details = errors or None
     return result

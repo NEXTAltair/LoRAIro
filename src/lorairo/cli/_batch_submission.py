@@ -118,7 +118,7 @@ def submit_validated_ids(
         job_ids.append(job_id)
         submitted += len(chunk)
         _outcome("submitted", chunk, job_id=job_id)
-        if first_job is None:
+        if len(job_ids) == 1:
             try:
                 job = container.db_manager.provider_batch_repo.get_provider_batch_job(job_id)
                 first_job = _job_dict(job) if job is not None else None
