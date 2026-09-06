@@ -195,7 +195,10 @@ def test_annotation_id_input_is_complete_and_bounded(tmp_path, monkeypatch, caps
     container.db_manager.image_repo.get_images_by_filter.assert_not_called()
 
 
-@pytest.mark.parametrize("failure", [RuntimeError("inference failed"), KeyboardInterrupt()])
+@pytest.mark.parametrize(
+    "failure",
+    [RuntimeError("inference failed"), KeyboardInterrupt(), click.UsageError("inference refused")],
+)
 def test_annotation_interruption_partitions_all_input_ids(tmp_path, monkeypatch, capsys, failure):
     container = container_for_ids(tmp_path, 5)
     monkeypatch.setattr("lorairo.cli._annotation_ids._make_preflight", lambda *_: None)

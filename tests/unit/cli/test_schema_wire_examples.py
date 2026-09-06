@@ -145,15 +145,21 @@ def test_images_update_terminal_variants_match_schema(variant, monkeypatch):
 
 
 @pytest.mark.parametrize("has_job", [False, True])
-def test_batch_submit_terminal_with_optional_job(has_job, monkeypatch):
+def test_batch_submit_terminal_with_optional_job(has_job, monkeypatch, tmp_path):
+    from PIL import Image
+
     from lorairo.cli.commands.batch import _JOB_DETAIL_FIELDS
 
     container = MagicMock()
     container.db_manager.model_repo.get_model_by_litellm_id.return_value = SimpleNamespace(
         id=7, provider="openai", litellm_model_id="openai/synthetic"
     )
+    processed = tmp_path / "processed_images" / "1.png"
+    processed.parent.mkdir()
+    Image.new("RGB", (16, 16), "blue").save(processed)
+    container.db_manager.image_repo.get_candidate_image_ids.return_value = [1]
     container.db_manager.image_repo.get_images_by_ids.return_value = [
-        {"id": 1, "stored_image_path": "image_dataset/processed_images/1.jpg"}
+        {"id": 1, "stored_image_path": str(processed)}
     ]
     job = dict.fromkeys(_JOB_DETAIL_FIELDS)
     job.update(

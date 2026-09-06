@@ -196,9 +196,10 @@ def _execute_ids(
                 for record in records:
                     record["stored_image_path"] = paths[int(record["id"])]
             _annotate_chunk(container, records, models, preflight, statuses, counters)
-    except (click.UsageError, typer.Exit):
-        raise
     except (Exception, KeyboardInterrupt) as exc:
+        if not current and isinstance(exc, (click.UsageError, typer.Exit)):
+            # Setup validation keeps the input-error boundary; execution failures retain ID accounting.
+            raise
         interrupted = isinstance(exc, KeyboardInterrupt)
         failure_reason = str(exc) or type(exc).__name__
         for image_id in current:
