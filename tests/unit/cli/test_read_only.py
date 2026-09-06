@@ -273,3 +273,56 @@ def test_strict_fetch_and_manual_rating_filter_without_model_seed(project):
     with factory() as session:
         assert list(session.execute(select(Model.id)).scalars()) == []
     assert snapshot(path) == before
+
+
+def test_selected_default_repository_respects_strict_mode(tmp_path):
+    from lorairo.database.access_policy import read_only_scope
+    from lorairo.services.service_container import service_container_scope
+    from lorairo.utils.config import resolve_runtime_configuration, runtime_configuration_scope
+
+    selected = resolve_runtime_configuration(tmp_path / "workspace", None)
+    old_default_factory = db_core._default_session_factory
+    with runtime_configuration_scope(selected), read_only_scope(), service_container_scope() as container:
+        with pytest.raises(ReadOnlyPreconditionError) as error:
+            _ = container.image_repository
+        assert error.value.details["database_path"] == str(
+            selected.workspace / "lorairo_data/image_database.db"
+        )
+    assert db_core._default_session_factory is old_default_factory
+    assert not selected.workspace.exists()
+
+
+def test_readonly_alone_isolates_existing_writable_factories(project, tmp_path, monkeypatch):
+    import importlib
+
+    from lorairo.database.access_policy import is_read_only
+    from lorairo.services.service_container import ServiceContainer
+
+    workspace, _ = project
+    config = tmp_path / "legacy.toml"
+    config.write_text(
+        "[directories]\ndatabase_base_dir = " + json.dumps(str(workspace / "lorairo_data")) + "\n"
+    )
+    monkeypatch.setattr(importlib.import_module("lorairo.cli.main"), "DEFAULT_CONFIG_PATH", config)
+    legacy = ServiceContainer()
+    previous_repository = legacy._image_repository
+    cached_repository = Mock()
+    legacy._image_repository = cached_repository
+    cached_factory = Mock(side_effect=AssertionError("legacy writable factory reused"))
+    monkeypatch.setattr(db_core, "_default_session_factory", cached_factory)
+    before = snapshot(workspace)
+    try:
+        for _ in range(2):
+            result = runner.invoke(
+                app, ["--json", "--read-only", "images", "list", "--project", "synthetic"]
+            )
+            assert result.exit_code == 1, result.output
+            assert json.loads(result.stdout.splitlines()[-1])["code"] == "PRECONDITION_FAILED"
+            assert not is_read_only()
+            assert legacy._image_repository is cached_repository
+        cached_factory.assert_not_called()
+        assert not cached_repository.mock_calls
+        assert snapshot(workspace) == before
+        assert config.read_text().startswith("[directories]")
+    finally:
+        legacy._image_repository = previous_repository

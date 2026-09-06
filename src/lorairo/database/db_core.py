@@ -287,6 +287,15 @@ def ensure_tag_db_initialized() -> None:
     global _tag_db_initialized, DB_DIR, USER_TAG_DB_PATH
     selected = get_runtime_configuration()
     scope = _TAG_DATABASE_SCOPE.get()
+    from .access_policy import is_read_only
+
+    if is_read_only() and (selected is None or scope is None):
+        from ..public_api.exceptions import ReadOnlyPreconditionError
+
+        raise ReadOnlyPreconditionError(
+            "Read-only tag access requires an isolated configuration scope",
+            reason="tag_database_scope_required",
+        )
     if selected is not None:
         if scope is None:
             raise RuntimeError("Explicit configuration requires a tag database scope")
@@ -299,7 +308,6 @@ def ensure_tag_db_initialized() -> None:
         DB_DIR = ensure_default_db_dir()
         target_directory = DB_DIR
     token = os.environ.get("HF_TOKEN") or os.environ.get("HUGGINGFACE_TOKEN")
-    from .access_policy import is_read_only
 
     try:
         from genai_tag_db_tools import initialize_databases
