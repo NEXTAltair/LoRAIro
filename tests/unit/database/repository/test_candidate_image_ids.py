@@ -6,7 +6,7 @@ from sqlalchemy.orm import sessionmaker
 
 from lorairo.database.filter_criteria import ImageFilterCriteria
 from lorairo.database.repository.image import ImageRepository
-from lorairo.database.schema import Base, Image, ProcessedImage, Rating
+from lorairo.database.schema import Base, Image, Model, ProcessedImage, Rating
 
 
 @pytest.fixture
@@ -30,6 +30,7 @@ def candidate_repo():
             )
             for i in range(1, 1002)
         )
+        session.add(Model(id=1, name="test", litellm_model_id="test-model"))
         session.add(Rating(image_id=2, model_id=1, raw_rating_value="PG", normalized_rating="PG"))
         session.add_all(
             ProcessedImage(
@@ -74,3 +75,8 @@ def test_bulk_processed_selection_matches_existing_individual_contract(candidate
     old = candidate_repo.get_processed_image(1, resolution=resolution)
     bulk = candidate_repo.get_processed_image_paths_by_resolution([1, 2], resolution)
     assert bulk == ({1: old["stored_image_path"]} if old else {})
+
+
+def test_missing_model_intersection_only_returns_candidate_ids(candidate_repo):
+    criteria = ImageFilterCriteria(missing_model_litellm_id="test-model", include_nsfw=True)
+    assert candidate_repo.get_candidate_image_ids([1, 2], criteria) == [1]

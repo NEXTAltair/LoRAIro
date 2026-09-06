@@ -97,7 +97,7 @@ def test_registration_interrupt_keeps_completed_results_and_unprocessed_count():
     assert result.items[0].image_id == 1
 
 
-@pytest.mark.parametrize("count", [0, 1, 500, 501, 100001])
+@pytest.mark.parametrize("count", [0, 1, 500, 501, 100000, 100001])
 def test_id_file_boundaries(tmp_path, count):
     path = tmp_path / "ids.txt"
     path.write_text("\n".join(map(str, range(1, count + 1))), encoding="utf-8")

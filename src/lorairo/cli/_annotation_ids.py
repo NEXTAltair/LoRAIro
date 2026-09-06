@@ -3,6 +3,7 @@
 from typing import Any
 
 import typer
+from loguru import logger
 
 from lorairo.cli._emit import emit_item, emit_result
 from lorairo.cli._image_guard import reject_original_image_records
@@ -134,7 +135,14 @@ def _make_preflight(container: Any, models: list[str]) -> Any:
     for model in _get_deprecated_models_best_effort(annotator, models):
         _status_console().print(f"Warning: Model '{model}' is deprecated")
     preflight = None
-    if selection_includes_webapi_model(models, annotator):
+    try:
+        should_preflight = selection_includes_webapi_model(models, annotator)
+    except Exception as exc:
+        logger.opt(exception=True).warning(
+            f"WebAPI model detection failed; moderation preflight skipped: {exc}"
+        )
+        should_preflight = False
+    if should_preflight:
         preflight = ModerationPreflightService(
             image_repo=container.db_manager.image_repo,
             model_repo=container.db_manager.model_repo,
