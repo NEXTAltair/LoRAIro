@@ -4,6 +4,7 @@ DatasetExportService をラップし、エクスポート機能を提供。
 """
 
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from lorairo.database.db_core import get_current_project_root
 from lorairo.database.filter_criteria import ImageFilterCriteria
@@ -15,6 +16,32 @@ from lorairo.public_api.exceptions import (
 )
 from lorairo.public_api.types import ExportCriteria, ExportResult
 from lorairo.services.service_container import ServiceContainer
+
+if TYPE_CHECKING:
+    from lorairo.services.dataset_export_service import ExportResult as ExportOperationResult
+
+
+def export_images_all_formats(
+    project_name: str,
+    image_ids: list[int],
+    output_path: str | Path,
+    resolution: int = 512,
+    *,
+    tag_languages: list[str] | None = None,
+) -> "ExportOperationResult":
+    """Export exact IDs as TXT/caption/JSON in one pass, returning per-ID evidence.
+
+    Existing filtered and single-format APIs remain available through export_dataset.
+    """
+    from lorairo.services.dataset_export_service import DatasetExportService
+
+    DatasetExportService.validate_tag_languages(tag_languages)
+    container = ServiceContainer()
+    container.set_active_project(project_name)
+    return container.dataset_export_service.export_dataset_all_formats(
+        image_ids, Path(output_path), resolution, tag_languages=tag_languages
+    )
+
 
 # NOTE: LoRAIro は db_core.py でデータベースをグローバルに初期化する。
 # project_name は存在確認に使うだけでは、config/lorairo.toml が別プロジェクトを

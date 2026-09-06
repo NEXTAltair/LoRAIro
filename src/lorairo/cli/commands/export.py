@@ -16,7 +16,7 @@ from lorairo.cli._emit import emit_result
 from lorairo.cli._image_ids import resolve_image_ids_input
 from lorairo.cli._output_mode import is_json_mode
 from lorairo.public_api.project import get_project as api_get_project
-from lorairo.services.dataset_export_service import DatasetExportService, ExportResult
+from lorairo.services.dataset_export_service import DatasetExportService
 from lorairo.services.service_container import get_service_container
 
 # サブコマンドアプリ定義
@@ -102,19 +102,9 @@ def create(
         if not is_json_mode():
             console.print(f"Exporting {len(image_ids)} image(s) to {output}")
 
-        report = ExportResult(image_ids)
-        # Both format writers retain partial output evidence, including late JSON writes.
-        for format_name, writer in (
-            ("txt", export_service.export_dataset_txt_format),
-            ("json", export_service.export_dataset_json_format),
-        ):
-            try:
-                writer(image_ids, output_path, resolution, tag_languages=tag_languages, report=report)
-            except Exception as exc:
-                # Setup/finalization failures can affect every image in this format.
-                for image_id in image_ids:
-                    report.completed.setdefault(image_id, set()).discard(format_name)
-                    report.fail(image_id, format_name, "export_error", str(exc))
+        report = export_service.export_dataset_all_formats(
+            image_ids, output_path, resolution, tag_languages=tag_languages
+        )
         summary = report.summary()
         message = (
             "Export completed successfully."

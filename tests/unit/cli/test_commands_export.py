@@ -18,16 +18,14 @@ def _make_export_container(tmp_path: Path) -> MagicMock:
     out_dir = tmp_path / "out"
     out_dir.mkdir()
 
-    def complete(format_name):
-        def export(image_ids, output_path, resolution, *, report, **kwargs):
-            for image_id in image_ids:
-                report.completed.setdefault(image_id, set()).add(format_name)
-            return output_path
+    def export(image_ids, output_path, resolution, **kwargs):
+        from lorairo.services.dataset_export_service import ExportResult
 
-        return export
+        report = ExportResult(image_ids)
+        report.completed = {image_id: {"txt", "json"} for image_id in image_ids}
+        return report
 
-    container.dataset_export_service.export_dataset_txt_format.side_effect = complete("txt")
-    container.dataset_export_service.export_dataset_json_format.side_effect = complete("json")
+    container.dataset_export_service.export_dataset_all_formats.side_effect = export
     return container
 
 
@@ -44,8 +42,8 @@ def mock_export_context(tmp_path, monkeypatch):
 
 @pytest.mark.unit
 class TestExportCreate:
-    def test_create_with_image_ids_calls_both_exporters(self, mock_export_context, tmp_path):
-        """--image-ids 指定時に txt と json 両エクスポーターが呼ばれる。"""
+    def test_create_with_image_ids_calls_all_formats_once(self, mock_export_context, tmp_path):
+        """--image-ids 指定時に 全形式エクスポーターが一度呼ばれる。"""
         container, _ = mock_export_context
         result = runner.invoke(
             app,
@@ -61,8 +59,7 @@ class TestExportCreate:
             ],
         )
         assert result.exit_code == 0
-        container.dataset_export_service.export_dataset_txt_format.assert_called_once()
-        container.dataset_export_service.export_dataset_json_format.assert_called_once()
+        container.dataset_export_service.export_dataset_all_formats.assert_called_once()
 
     def test_create_without_image_ids_fails(self, mock_export_context, tmp_path):
         """--image-ids なしは exit 2 (INVALID_INPUT)。"""
@@ -127,7 +124,7 @@ class TestExportCreate:
         assert result.exit_code == 2
 
     def test_create_resolution_passed_to_exporters(self, mock_export_context, tmp_path):
-        """--resolution が両エクスポーターに渡される。"""
+        """--resolution が全形式エクスポーターに渡される。"""
         container, _ = mock_export_context
         runner.invoke(
             app,
@@ -144,18 +141,12 @@ class TestExportCreate:
                 "1024",
             ],
         )
-        call_args_txt = container.dataset_export_service.export_dataset_txt_format.call_args
-        call_args_json = container.dataset_export_service.export_dataset_json_format.call_args
-        assert call_args_txt is not None
-        assert call_args_json is not None
-        # resolution は第3引数 (positional) または keyword "resolution" で渡される
-        txt_args = call_args_txt[0]
-        json_args = call_args_json[0]
-        assert 1024 in txt_args or call_args_txt[1].get("resolution") == 1024
-        assert 1024 in json_args or call_args_json[1].get("resolution") == 1024
+        call = container.dataset_export_service.export_dataset_all_formats.call_args
+        assert call is not None
+        assert 1024 in call.args or call.kwargs.get("resolution") == 1024
 
     def test_create_tag_languages_passed_to_exporters(self, mock_export_context, tmp_path):
-        """--tag-language の複数指定が両エクスポーターに渡される。"""
+        """--tag-language の複数指定が全形式エクスポーターに渡される。"""
         container, _ = mock_export_context
         result = runner.invoke(
             app,
@@ -175,10 +166,8 @@ class TestExportCreate:
             ],
         )
         assert result.exit_code == 0
-        txt_kwargs = container.dataset_export_service.export_dataset_txt_format.call_args.kwargs
-        json_kwargs = container.dataset_export_service.export_dataset_json_format.call_args.kwargs
-        assert txt_kwargs["tag_languages"] == ["canonical", "ja"]
-        assert json_kwargs["tag_languages"] == ["canonical", "ja"]
+        kwargs = container.dataset_export_service.export_dataset_all_formats.call_args.kwargs
+        assert kwargs["tag_languages"] == ["canonical", "ja"]
 
 
 @pytest.mark.unit
@@ -204,7 +193,7 @@ class TestExportCreateImageIdsFile:
             ],
         )
         assert result.exit_code == 0
-        called_ids = container.dataset_export_service.export_dataset_txt_format.call_args.args[0]
+        called_ids = container.dataset_export_service.export_dataset_all_formats.call_args.args[0]
         assert called_ids == [1, 2, 3]
 
     def test_create_both_ids_inputs_rejected(self, mock_export_context, tmp_path):
@@ -295,7 +284,7 @@ def test_duplicate_csv_ids_report_unique_actual_outputs(real_export_context, tmp
     assert row["exported_ids"] == [1]
     assert len(list((tmp_path / "out").glob("*.png"))) == 1
     assert len(json.loads((tmp_path / "out" / "metadata.json").read_text())) == 1
-    assert service.file_system_manager.copy_file.call_count == 2  # One per current format writer.
+    assert service.file_system_manager.copy_file.call_count == 1  # Shared by all output formats.
 
 
 @pytest.mark.parametrize("language", ["../bad", "bad/value", "bad!value"])
@@ -325,8 +314,8 @@ def test_invalid_export_language_is_input_error_before_side_effects(
     assert rows[0]["kind"] == "error"
     assert rows[0]["code"] == "INVALID_INPUT"
     container.set_active_project.assert_not_called()
-    container.dataset_export_service.export_dataset_txt_format.assert_not_called()
-    container.dataset_export_service.export_dataset_json_format.assert_not_called()
+    container.dataset_export_service.export_dataset_all_formats.assert_not_called()
+    container.dataset_export_service.export_dataset_all_formats.assert_not_called()
     assert not (tmp_path / "uncreated").exists()
 
 

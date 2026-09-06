@@ -42,3 +42,24 @@ leave an incomplete file, and `output_files` lists only completed writes. For re
 correct the reported cause and write `failed_ids` to a new output directory; to rebuild
 a complete dataset in the same directory, rerun the original full ID list.
 CSV input remains limited to 500 IDs; use `--image-ids-file` for up to 100,000 IDs.
+
+## Shared work for all formats
+
+`export create` uses `DatasetExportService.export_dataset_all_formats` and copies each
+processed image once per language destination. For N unique IDs and L languages,
+successful copies are NL instead of 2NL. Processed-path resolution, image metadata,
+annotations, and canonical tag normalization run once per image; translation runs
+once per image and language and is shared by TXT and JSON. Exact/closest processed
+resolution selection uses the existing resolver.
+
+Input records are consumed one image at a time. Translation caches reset every 500
+images; their size depends on the tags in that window. Final JSON document dictionaries
+still grow with the output dataset, as in the existing JSON writer. This change does
+not batch SQL queries or claim bounded total memory or a measured speedup factor.
+
+Python callers can use `lorairo.public_api.export.export_images_all_formats` with a
+project name, exact image IDs, output path, resolution, and optional languages. It
+returns the same service `ExportResult` collector, whose `summary()` exposes the CLI
+result fields above. Existing single-format methods remain available. A TXT failure
+can leave successful JSON output, and a late JSON failure retains completed TXT files;
+both remain incomplete image results and can be retried using `failed_ids`.
