@@ -891,7 +891,8 @@ lorairo-cli --json describe "images register"
 - `ok`: `bool` (optional)
 - `status`: `Literal[success, partial_success, failed]` (optional, default `success`) - Failures, including partial success, return ok=false and exit 1; normal skip/empty returns exit 0.
 - `variant`: `int` (optional, default `0`)
-- `error_details`: `list[str]` (optional)
+- `error_details`: `list[str]` (optional) - At most 100 samples; complete errors remain in item rows.
+- `error_details_truncated`: `bool` (optional, default `False`)
 - `project`: `str` (optional)
 - `target_count`: `int` (optional)
 - `interrupted`: `bool` (optional)

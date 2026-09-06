@@ -71,6 +71,9 @@ Batch の 0 解像度は最小、正値は従来の closest/exact 選択です�
 
 登録の終端 result は `status=success|partial_success|failed`、`ok`、既存件数、
 `project`、`target_count`、`interrupted`、`unprocessed` を持ちます。大量 item を再格納しません。
+終端の `error_details` は最大 100 件のサンプルです。省略があれば `error_details_truncated=true`、
+実際の失敗件数は `errors` で確認し、各 item の完全な `error` を参照します。ID 集合は切り詰めません。
+Python API の既定 `collect_items=True` は従来どおり全エラー詳細を保持します。
 登録失敗・中断は exit 1、正常な重複 skip や空ディレクトリは exit 0 です。
 書き込み失敗や終端欠落は完全な登録集合を保証しません。切り詰めた集合をそのまま処理しないでください。
 

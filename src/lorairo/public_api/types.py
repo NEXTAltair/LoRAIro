@@ -117,6 +117,7 @@ class RegistrationResult(BaseModel):
     interrupted: bool = False
     unprocessed: int = 0
     error_details: list[str] | None = None
+    error_details_truncated: bool = False
 
     @property
     def success_rate(self) -> float:

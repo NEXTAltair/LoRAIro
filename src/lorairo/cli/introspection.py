@@ -275,7 +275,12 @@ class ImagesRegisterResult(BaseModel):
     registered: int
     skipped: int
     errors: int
-    error_details: list[str] = Field(default_factory=list)
+    error_details: list[str] = Field(
+        default_factory=list,
+        max_length=100,
+        description="At most 100 sampled errors; full errors remain in item rows.",
+    )
+    error_details_truncated: bool = False
 
     model_config = ConfigDict(title="ImagesRegisterResult")
 
@@ -1158,7 +1163,12 @@ TOOL_SPECS: dict[str, ToolSpec] = {
                         description="Failures, including partial success, return ok=false and exit 1; normal skip/empty returns exit 0.",
                     ),
                     _f("variant", "int", default=0),
-                    _f("error_details", "list[str]"),
+                    _f(
+                        "error_details",
+                        "list[str]",
+                        description="At most 100 samples; complete error details are in item rows.",
+                    ),
+                    _f("error_details_truncated", "bool", default=False),
                     _f("project", "str"),
                     _f("target_count", "int"),
                     _f("interrupted", "bool"),

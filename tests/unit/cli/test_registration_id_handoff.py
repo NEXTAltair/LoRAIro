@@ -527,3 +527,55 @@ def test_mid_save_interrupt_emits_real_committed_ids_and_exact_counts(
     with factory() as session:
         assert list(session.scalars(select(Caption.image_id))) == [1]
     engine.dispose()
+
+
+@pytest.mark.parametrize("count", [100, 101])
+@pytest.mark.parametrize("collect_items", [False, True])
+def test_registration_streaming_error_sample_is_bounded_without_losing_items(count, collect_items):
+    manager = MagicMock()
+    manager.register_image_with_side_effects.side_effect = ValueError("full failure detail")
+    emitted = []
+    result = _register_into_db(
+        manager,
+        MagicMock(),
+        [Path(f"{i}.png") for i in range(count)],
+        collect_items=collect_items,
+        on_item=emitted.append,
+    )
+    assert len(emitted) == result.failed == count
+    assert all(item.error == "full failure detail" for item in emitted)
+    assert len(result.error_details) == (count if collect_items else min(count, 100))
+    assert result.error_details_truncated is (not collect_items and count > 100)
+    assert result.target_count == 0
+
+
+def test_cli_registration_terminal_exposes_truncated_error_sample(tmp_path, monkeypatch):
+    from typer.testing import CliRunner
+
+    from lorairo.cli.introspection import ImagesRegisterResult
+    from lorairo.cli.main import app
+
+    manager = MagicMock()
+    manager.register_image_with_side_effects.side_effect = ValueError("full failure detail")
+    monkeypatch.setattr("lorairo.cli.commands.images.api_get_project", MagicMock())
+    monkeypatch.setattr("lorairo.cli.commands.images.get_service_container", MagicMock())
+    monkeypatch.setattr(
+        "lorairo.cli.commands.images.api_register_images",
+        lambda path, skip_duplicates, **kwargs: _register_into_db(
+            manager,
+            MagicMock(),
+            [Path(f"{i}.png") for i in range(101)],
+            skip_duplicates=skip_duplicates,
+            **kwargs,
+        ),
+    )
+    result = CliRunner().invoke(app, ["--json", "images", "register", str(tmp_path), "--project", "demo"])
+    assert result.exit_code == 1
+    output = [json.loads(line) for line in result.stdout.splitlines()]
+    assert len(output) == 102
+    assert all(row["error"] == "full failure detail" for row in output[:-1])
+    terminal = ImagesRegisterResult.model_validate(output[-1])
+    assert ImagesRegisterResult.model_json_schema()["properties"]["error_details"]["maxItems"] == 100
+    assert terminal.errors == 101 and terminal.error_details_truncated
+    assert len(terminal.error_details) == 100
+    assert not terminal.ok and terminal.status == "failed"

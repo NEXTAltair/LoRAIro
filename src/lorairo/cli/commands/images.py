@@ -236,6 +236,7 @@ def register(
                 interrupted=result.interrupted,
                 unprocessed=result.unprocessed,
                 error_details=list(result.error_details) if result.error_details else [],
+                error_details_truncated=result.error_details_truncated,
             )
         else:
             if result.total == 0:

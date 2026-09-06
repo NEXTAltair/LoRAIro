@@ -96,6 +96,20 @@ def _count_registration(result: RegistrationResult, outcome: str, skip_duplicate
         result.failed += 1
 
 
+REGISTRATION_ERROR_SAMPLE_LIMIT = 100
+
+
+def _record_registration_error(
+    result: RegistrationResult, errors: list[str], item: RegistrationItem, *, collect_items: bool
+) -> None:
+    # Public API's default collected result preserves its complete error list.
+    # CLI streaming already emits each full error in its authoritative item row.
+    if collect_items or len(errors) < REGISTRATION_ERROR_SAMPLE_LIMIT:
+        errors.append(f"{Path(item.input_path).name}: {item.error}")
+    else:
+        result.error_details_truncated = True
+
+
 def _register_into_db(
     db_manager: "ImageDatabaseManager",
     fsm: "FileSystemManager",
@@ -153,7 +167,7 @@ def _register_into_db(
                 input_path=str(image_file), outcome="failed", project=project_name, error=str(exc)
             )
         if item.outcome == "failed":
-            errors.append(f"{image_file.name}: {item.error}")
+            _record_registration_error(result, errors, item, collect_items=collect_items)
         _count_registration(result, item.outcome, skip_duplicates)
         eligible = item.outcome in {"registered", "variant"} or (
             item.outcome == "duplicate" and not skip_duplicates
