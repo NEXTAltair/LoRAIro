@@ -833,8 +833,18 @@ lorairo-cli --json describe "export create"
 
 **Output `ExportCreateResult`**
 
+Missing or failed images return ok=false and exit 1; total_images remains the requested count. See [export result and retry contract](cli-export-results.md).
+
 - `kind`: `result` (optional, default `result`)
-- `ok`: `true` (optional, default `True`)
+- `ok`: `bool` (optional, default `True`)
+- `status`: `success | partial_success | failed` (required)
+- `requested`: `int` (required)
+- `exported`: `int` (required)
+- `skipped`: `int` (required)
+- `failed`: `int` (required)
+- `exported_ids`: `list[int]` (required)
+- `failed_ids`: `list[int]` (required)
+- `error_details`: `list[dict]` (required)
 - `message`: `str` (required)
 - `output_path`: `str?` (optional, default `None`)
 - `total_images`: `int?` (optional, default `None`)
