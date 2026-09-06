@@ -3083,11 +3083,12 @@ class ImageRepository(BaseRepository):
             query = query.where(func.lower(Image.format) == criteria.format_name.strip().lower())
         if criteria.original_path_prefix:
             # DB は Windows の ``\\`` と POSIX の ``/`` の双方を保存し得るため、
-            # 照合前に ``/`` へ正規化する。入力末尾に区切りを付加して sibling
-            # directory (``/foo`` と ``/foobar``) の混入を防ぐ。
+            # 照合前に ``/`` へ正規化する。LIKE では ``%`` / ``_`` を含む実在パスを
+            # ワイルドカードとして扱ってしまうため、literal な substr 比較を用いる。
+            # 入力末尾に区切りを付加して sibling directory の混入も防ぐ。
             prefix = criteria.original_path_prefix.replace("\\", "/").rstrip("/") + "/"
             normalized_path = func.replace(Image.original_image_path, "\\", "/")
-            query = query.where(normalized_path.like(f"{prefix}%"))
+            query = query.where(func.substr(normalized_path, 1, len(prefix)) == prefix)
         return query
 
     def get_images_by_filter(

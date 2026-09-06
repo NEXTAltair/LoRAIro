@@ -207,6 +207,30 @@ class TestGetImagesByFilterPaging:
         assert total == 1
         assert [record["id"] for record in results] == [matching]
 
+    def test_original_path_prefix_treats_like_metacharacters_as_literals(
+        self, image_repository: ImageRepository
+    ) -> None:
+        """`%` と `_` を含む実在ディレクトリ名で別パスを巻き込まない (#1308)。"""
+        matching = _insert_image(
+            image_repository,
+            uuid="u-source-symbols-1",
+            phash="p-source-symbols-1",
+            original_image_path="/tmp/run_100%/one.png",
+        )
+        _insert_image(
+            image_repository,
+            uuid="u-source-symbols-2",
+            phash="p-source-symbols-2",
+            original_image_path="/tmp/runA100x/two.png",
+        )
+
+        results, total = image_repository.get_images_by_filter(
+            ImageFilterCriteria(include_nsfw=True, original_path_prefix="/tmp/run_100%")
+        )
+
+        assert total == 1
+        assert [record["id"] for record in results] == [matching]
+
     def test_resolution_filter_restricts_count_before_limit(
         self, image_repository: ImageRepository
     ) -> None:

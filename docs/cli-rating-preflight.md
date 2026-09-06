@@ -97,6 +97,9 @@ lorairo-cli batch submit --project main_dataset \
   --image-ids-file untagged-unrated.ids
 ```
 
+The CLI splits an ID file into 500-item provider jobs and reports every created
+job ID. Fetch and import each reported job before moving to local tagging.
+
 After the Batch result is fetched and imported, use the same ID file for a local
 tagger. The annotator streams the selected images by `--batch-size`, so the ID
 file can exceed the interactive 500-image selector limit.

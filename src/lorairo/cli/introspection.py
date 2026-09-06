@@ -521,6 +521,8 @@ class BatchJobResult(BaseModel):
     message: str
     job_id: int | None = None
     job: dict[str, Any] | None = None
+    job_ids: list[int] | None = None
+    jobs: list[dict[str, Any]] | None = None
 
     model_config = ConfigDict(title="BatchJobResult")
 
@@ -2056,7 +2058,16 @@ TOOL_SPECS: dict[str, ToolSpec] = {
             ),
         ),
         outputs=(
-            _output("BatchJobResult", (_f("job_id", "int"), _f("job", "dict?")), schema=BatchJobResult),
+            _output(
+                "BatchJobResult",
+                (
+                    _f("job_id", "int"),
+                    _f("job", "dict?"),
+                    _f("job_ids", "list[int]?"),
+                    _f("jobs", "list[dict]?"),
+                ),
+                schema=BatchJobResult,
+            ),
         ),
         errors=(ERROR_MODEL,),
     ),

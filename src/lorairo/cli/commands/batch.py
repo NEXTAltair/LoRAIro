@@ -29,6 +29,9 @@ console = make_console()
 
 _SUPPORTED_SUBMIT_PROVIDERS = {"openai", "anthropic"}
 _SUPPORTED_TASK_TYPES = {"annotation", "rating_preflight"}
+# image-annotator-lib の各 provider adapter が 1 ジョブで受け付ける上限。
+# CLI はより大きい ID file をこの単位で複数ジョブへ安全に分割する (#1307)。
+_MAX_PROVIDER_BATCH_ITEMS = 500
 _TASK_TYPE_ENDPOINTS = {
     "annotation": {
         "openai": "/v1/chat/completions",
@@ -400,6 +403,48 @@ def _resolve_processed_image_paths(
     return paths
 
 
+def _submit_image_chunks(
+    workflow_service: Any,
+    provider_batch_repo: Any,
+    *,
+    provider: str,
+    endpoint: str,
+    litellm_model_id: str,
+    prompt_profile: str,
+    image_ids: list[int],
+    model_id: int,
+    description: str | None,
+    task_type: str,
+    image_paths: dict[int, str] | None,
+) -> tuple[list[int], list[Any]]:
+    """Submit image IDs in provider-safe chunks and return their persisted jobs."""
+    job_ids: list[int] = []
+    jobs: list[Any] = []
+    for start in range(0, len(image_ids), _MAX_PROVIDER_BATCH_ITEMS):
+        image_id_chunk = image_ids[start : start + _MAX_PROVIDER_BATCH_ITEMS]
+        image_path_chunk = (
+            {image_id: image_paths[image_id] for image_id in image_id_chunk}
+            if image_paths is not None
+            else None
+        )
+        job_id = workflow_service.submit_images(
+            provider=provider,
+            endpoint=endpoint,
+            litellm_model_id=litellm_model_id,
+            prompt_profile=prompt_profile,
+            image_ids=image_id_chunk,
+            model_id=model_id,
+            description=description,
+            task_type=task_type,
+            image_paths=image_path_chunk,
+        )
+        job_ids.append(job_id)
+        job = provider_batch_repo.get_provider_batch_job(job_id)
+        if job is not None:
+            jobs.append(job)
+    return job_ids, jobs
+
+
 @app.command("submit")
 def submit(
     project: str = typer.Option(..., "--project", "-p", help="Project name"),
@@ -475,7 +520,9 @@ def submit(
         if resolution is not None:
             image_paths = _resolve_processed_image_paths(container, image_ids, resolution)
 
-        job_id = container.provider_batch_workflow_service.submit_images(
+        job_ids, jobs = _submit_image_chunks(
+            container.provider_batch_workflow_service,
+            provider_batch_repo,
             provider=resolved_provider,
             endpoint=resolved_endpoint,
             litellm_model_id=db_model.litellm_model_id,
@@ -486,18 +533,22 @@ def submit(
             task_type=normalized_task_type,
             image_paths=image_paths,
         )
-        job = provider_batch_repo.get_provider_batch_job(job_id)
         if is_json_mode():
             emit_result(
-                f"Provider Batch job submitted: {job_id}",
-                job_id=job_id,
-                job=_job_dict(job) if job is not None else None,
+                f"Submitted {len(job_ids)} Provider Batch job(s)",
+                job_id=job_ids[0],
+                job=_job_dict(jobs[0]) if jobs else None,
+                job_ids=job_ids,
+                jobs=[_job_dict(job) for job in jobs],
             )
         else:
             if resolution is not None:
                 console.print(f"[dim]Using processed images at resolution {resolution}px[/dim]")
-            console.print(f"[green]Provider Batch job submitted:[/green] {job_id}")
-            if job is not None:
+            job_label = "job" if len(job_ids) == 1 else "jobs"
+            console.print(
+                f"[green]Provider Batch {job_label} submitted:[/green] {', '.join(map(str, job_ids))}"
+            )
+            for job in jobs:
                 _print_job_detail(job)
 
 

@@ -462,6 +462,8 @@ lorairo-cli --json describe "batch submit"
 
 - `job_id`: `int` (optional)
 - `job`: `dict?` (optional)
+- `job_ids`: `list[int]?` (optional)
+- `jobs`: `list[dict]?` (optional)
 
 **Error `CliErrorResponse`**
 

@@ -344,7 +344,12 @@ def test_remaining_cli_result_schemas_do_not_reuse_api_dtos() -> None:
             {"successful", "failed", "variant"},
         ),
         "models refresh": ("output", "ModelsRefreshResult", {"discovered", "summary"}, {"success", "data"}),
-        "batch submit": ("output", "BatchJobResult", {"job_id", "job"}, {"success", "data"}),
+        "batch submit": (
+            "output",
+            "BatchJobResult",
+            {"job_id", "job", "job_ids", "jobs"},
+            {"success", "data"},
+        ),
         "batch cancel": ("output", "BatchJobResult", {"job_id", "job"}, {"success", "data"}),
         "batch fetch": (
             "output",

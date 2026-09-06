@@ -416,6 +416,45 @@ def test_batch_submit_accepts_image_ids_file(mock_get_container: MagicMock, tmp_
 @pytest.mark.unit
 @pytest.mark.cli
 @patch("lorairo.cli.commands.batch.get_service_container")
+def test_batch_submit_splits_large_image_ids_file(mock_get_container: MagicMock, tmp_path) -> None:
+    """Provider adapter 上限の 500 件ごとに別ジョブへ分割する (#1308)。"""
+    ids_file = tmp_path / "many-ids.txt"
+    ids_file.write_text(",".join(str(image_id) for image_id in range(1, 502)), encoding="utf-8")
+    container = _container()
+    container.db_manager.model_repo.get_model_by_litellm_id.return_value = _model(
+        id=11,
+        litellm_model_id="openai/omni-moderation-latest",
+        model_types=(SimpleNamespace(name="ratings"),),
+    )
+    container.provider_batch_workflow_service.submit_images.side_effect = [42, 43]
+    mock_get_container.return_value = container
+
+    result = runner.invoke(
+        app,
+        [
+            "batch",
+            "submit",
+            "--project",
+            "demo",
+            "--model",
+            "openai/omni-moderation-latest",
+            "--task-type",
+            "rating_preflight",
+            "--image-ids-file",
+            str(ids_file),
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    assert container.provider_batch_workflow_service.submit_images.call_count == 2
+    first, second = container.provider_batch_workflow_service.submit_images.call_args_list
+    assert first.kwargs["image_ids"] == list(range(1, 501))
+    assert second.kwargs["image_ids"] == [501]
+
+
+@pytest.mark.unit
+@pytest.mark.cli
+@patch("lorairo.cli.commands.batch.get_service_container")
 def test_batch_submit_rejects_original_image_records(mock_get_container: MagicMock) -> None:
     container = _container()
     container.db_manager.image_repo.get_images_by_ids.return_value = [
