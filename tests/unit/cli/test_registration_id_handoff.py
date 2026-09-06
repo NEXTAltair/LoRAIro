@@ -137,12 +137,14 @@ def container_for_ids(tmp_path, count):
         p: {"fake": {"tags": ["tag"], "error": None}} for p in phash_list
     }
     save = MagicMock()
-    save.save_annotation_results.side_effect = lambda results, allowed_image_ids: AnnotationSaveResult(
-        success_count=len(allowed_image_ids),
-        skip_count=0,
-        error_count=0,
-        total_count=len(allowed_image_ids),
-        image_outcomes=dict.fromkeys(allowed_image_ids, "success"),
+    save.save_annotation_results.side_effect = lambda results, allowed_image_ids, confirmed_outcomes=None: (
+        AnnotationSaveResult(
+            success_count=len(allowed_image_ids),
+            skip_count=0,
+            error_count=0,
+            total_count=len(allowed_image_ids),
+            image_outcomes=dict.fromkeys(allowed_image_ids, "success"),
+        )
     )
     workflow = MagicMock()
     workflow.submit_images.side_effect = range(40, 100)
@@ -423,3 +425,105 @@ def test_emitted_registration_annotation_batch_rows_match_published_schemas(tmp_
     batch = rows(capsys)
     BatchSubmissionItem.model_validate(batch[0])
     BatchJobResult.model_validate(batch[-1])
+
+
+@pytest.mark.parametrize("fallback", [False, True])
+def test_mid_save_interrupt_emits_real_committed_ids_and_exact_counts(
+    tmp_path, monkeypatch, capsys, fallback
+):
+    from sqlalchemy import create_engine, select
+    from sqlalchemy.orm import sessionmaker
+
+    from lorairo.database.repository.annotation_record import AnnotationRepository
+    from lorairo.database.schema import Base, Caption, Model
+    from lorairo.database.schema import Image as ImageRow
+    from lorairo.services.annotation_save_service import AnnotationSaveService
+
+    engine = create_engine("sqlite:///:memory:")
+    Base.metadata.create_all(engine)
+    factory = sessionmaker(engine)
+    with factory() as session:
+        session.add(Model(id=1, name="fake", litellm_model_id="fake"))
+        session.add_all(
+            ImageRow(
+                id=i,
+                uuid=str(i),
+                phash=str(i),
+                original_image_path=f"{i}.png",
+                stored_image_path=f"{i}.png",
+                width=16,
+                height=16,
+                format="PNG",
+                extension="png",
+                filename=f"{i}.png",
+            )
+            for i in range(1, 4)
+        )
+        session.commit()
+    annotation_repo = AnnotationRepository(session_factory=factory)
+    container = container_for_ids(tmp_path, 3)
+    image_repo = container.db_manager.image_repo
+    image_repo.find_image_ids_by_phashes_multi.side_effect = lambda phashes: {p: [int(p)] for p in phashes}
+    model_repo = MagicMock()
+    model_repo.get_models_by_litellm_ids.return_value = {"fake": SimpleNamespace(id=1)}
+    service = AnnotationSaveService(annotation_repo, image_repo, model_repo, MagicMock())
+    container.annotation_save_service = service
+    container.annotator_library.annotate.side_effect = lambda images, litellm_model_ids, phash_list: {
+        p: {"fake": {"captions": ["persisted caption"], "tags": [], "error": None}} for p in phash_list
+    }
+    monkeypatch.setattr("lorairo.cli._annotation_ids._make_preflight", lambda *_: None)
+    if fallback:
+        monkeypatch.setattr(
+            annotation_repo, "save_annotations_batch", MagicMock(side_effect=RuntimeError("fallback"))
+        )
+        original = annotation_repo.save_annotations
+
+        def persist_one(image_id, *args, **kwargs):
+            if image_id == 2:
+                raise KeyboardInterrupt()
+            return original(image_id, *args, **kwargs)
+
+        monkeypatch.setattr(annotation_repo, "save_annotations", persist_one)
+    else:
+        monkeypatch.setattr(service, "_annotation_save_chunk_size", lambda: 1)
+        original = annotation_repo.save_annotations_batch
+
+        def persist_chunk(items, **kwargs):
+            if items[0].image_id == 2:
+                raise KeyboardInterrupt()
+            return original(items, **kwargs)
+
+        monkeypatch.setattr(annotation_repo, "save_annotations_batch", persist_chunk)
+    with pytest.raises(typer.Exit) as caught:
+        run_id_annotation(
+            container,
+            image_ids=[1, 2, 3],
+            file_input=True,
+            project="demo",
+            criteria=ImageFilterCriteria(),
+            offset=0,
+            limit=None,
+            resolution=512,
+            batch_size=2,
+            models=["fake"],
+        )
+    assert caught.value.exit_code == 1
+    output = rows(capsys)
+    outcomes = {row["image_id"]: row for row in output if row.get("type") == "annotation_outcome"}
+    assert {i: row["status"] for i, row in outcomes.items()} == {
+        1: "completed",
+        2: "failed",
+        3: "unexecuted",
+    }
+    assert outcomes[1]["saved"] is True
+    assert outcomes[2]["saved"] is False
+    assert {key: output[-1][key] for key in ("annotated", "completed", "errors", "unexecuted")} == {
+        "annotated": 1,
+        "completed": 1,
+        "errors": 1,
+        "unexecuted": 1,
+    }
+    assert output[-1]["interrupted"] and output[-1]["status"] == "partial_success"
+    with factory() as session:
+        assert list(session.scalars(select(Caption.image_id))) == [1]
+    engine.dispose()

@@ -463,6 +463,8 @@ class AnnotationSaveService:
         """全結果からユニークなモデル名とタグ文字列を収集する。
 
         Args:
+            confirmed_outcomes: Optional caller-owned progress map, updated after confirmed commits.
+                Remains available if an exception or KeyboardInterrupt prevents returning a result.
             results: PHashAnnotationResults ({phash: {model_name: UnifiedAnnotationResult}})
 
         Returns:
@@ -657,7 +659,11 @@ class AnnotationSaveService:
         return [matched_image_ids[0]]
 
     def save_annotation_results(
-        self, results: Any, *, allowed_image_ids: set[int] | None = None
+        self,
+        results: Any,
+        *,
+        allowed_image_ids: set[int] | None = None,
+        confirmed_outcomes: dict[int, str] | None = None,
     ) -> AnnotationSaveResult:
         """アノテーション結果をDBに保存する。
 
@@ -707,7 +713,7 @@ class AnnotationSaveService:
         error_count = 0
         error_details: list[str] = []
         prepared_items: list[_PreparedAnnotationSave] = []
-        image_outcomes: dict[int, str] = {}
+        image_outcomes: dict[int, str] = confirmed_outcomes if confirmed_outcomes is not None else {}
 
         for phash, phash_annotations in results.items():
             target_image_ids: list[int] = []

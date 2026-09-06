@@ -876,3 +876,29 @@ def test_per_image_outcomes_identify_partial_commit(service, mock_repository):
     )
     assert (result.success_count, result.error_count) == (1, 1)
     assert result.image_outcomes == {1: "success", 2: "failed"}
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("fallback", [False, True])
+def test_caller_progress_survives_interrupt_after_confirmed_save(
+    service, mock_repository, monkeypatch, fallback
+):
+    mock_repository.find_image_ids_by_phashes_multi.return_value = {"p1": [1], "p2": [2]}
+    mock_repository.get_models_by_litellm_ids.return_value = {"fake": MagicMock(id=1)}
+    if fallback:
+        mock_repository.save_annotations_batch.side_effect = RuntimeError("force per-image fallback")
+        mock_repository.save_annotations.side_effect = [None, KeyboardInterrupt()]
+    else:
+        monkeypatch.setattr(service, "_annotation_save_chunk_size", lambda: 1)
+        mock_repository.save_annotations_batch.side_effect = [None, KeyboardInterrupt()]
+    confirmed = {}
+    with pytest.raises(KeyboardInterrupt):
+        service.save_annotation_results(
+            {
+                "p1": {"fake": _make_success_result(captions=["first"])},
+                "p2": {"fake": _make_success_result(captions=["second"])},
+            },
+            allowed_image_ids={1, 2},
+            confirmed_outcomes=confirmed,
+        )
+    assert confirmed == {1: "success"}

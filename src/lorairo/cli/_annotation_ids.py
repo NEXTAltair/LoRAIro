@@ -48,6 +48,33 @@ def _validate_selection(repo: Any, selected: list[int], resolution: int | None) 
     return paths
 
 
+def _record_save_outcomes(
+    results: Any,
+    loaded_records: list[dict[str, Any]],
+    per_id: dict[int, str],
+    statuses: dict[int, str],
+    *,
+    all_saved: bool = False,
+) -> None:
+    from lorairo.cli.commands.annotate import _annotation_value
+
+    for record in loaded_records:
+        image_id = int(record["id"])
+        model_results = (results or {}).get(str(record["phash"]), {})
+        errors = [
+            str(_annotation_value(value, "error"))
+            for value in model_results.values()
+            if _annotation_value(value, "error") is not None
+        ]
+        saved = per_id.get(image_id) == "success" or (not per_id and all_saved)
+        status = "completed" if saved and not errors else "failed"
+        if per_id.get(image_id) == "skipped" and not errors:
+            status = "skipped"
+        statuses[image_id] = status
+        reason = "; ".join(errors) if errors else (None if saved else "No confirmed saved annotation")
+        _emit_outcome(image_id, status, reason=reason, saved=saved)
+
+
 def _annotate_chunk(
     container: Any,
     records: list[dict[str, Any]],
@@ -57,7 +84,6 @@ def _annotate_chunk(
     counters: dict[str, int],
 ) -> None:
     from lorairo.cli.commands.annotate import (
-        _annotation_value,
         _apply_moderation_preflight_to_records,
         _emit_annotation_items,
         _load_batch_images,
@@ -86,30 +112,19 @@ def _annotate_chunk(
             images, litellm_model_ids=models, phash_list=[str(record["phash"]) for record in loaded_records]
         )
         counters["results"] += len(results or {})
-        save_result = container.annotation_save_service.save_annotation_results(
-            results,
-            allowed_image_ids=loaded_ids,
-        )
+        confirmed: dict[int, str] = {}
+        try:
+            save_result = container.annotation_save_service.save_annotation_results(
+                results, allowed_image_ids=loaded_ids, confirmed_outcomes=confirmed
+            )
+        except (Exception, KeyboardInterrupt):
+            counters["saved"] += sum(value == "success" for value in confirmed.values())
+            _record_save_outcomes(results, loaded_records, confirmed, statuses)
+            raise
         counters["saved"] += save_result.success_count
         per_id = getattr(save_result, "image_outcomes", {})
-        # Compatibility with alternate save adapters returning only aggregate success.
-        # Never attribute a partial aggregate success to an arbitrary subset of IDs.
         all_saved = save_result.success_count == len(loaded_ids) and not save_result.error_count
-        for record in loaded_records:
-            image_id = int(record["id"])
-            model_results = (results or {}).get(str(record["phash"]), {})
-            errors = [
-                str(_annotation_value(value, "error"))
-                for value in model_results.values()
-                if _annotation_value(value, "error") is not None
-            ]
-            saved = per_id.get(image_id) == "success" or (not per_id and all_saved)
-            status = "completed" if saved and not errors else "failed"
-            if per_id.get(image_id) == "skipped" and not errors:
-                status = "skipped"
-            statuses[image_id] = status
-            reason = "; ".join(errors) if errors else (None if saved else "No confirmed saved annotation")
-            _emit_outcome(image_id, status, reason=reason, saved=saved)
+        _record_save_outcomes(results, loaded_records, per_id, statuses, all_saved=all_saved)
         _emit_annotation_items(results, loaded_records)
     finally:
         for image in images:
