@@ -857,6 +857,29 @@ def _print_annotation_filter_summary(
         _status_console().print(f"[cyan]Filter: missing model {missing_model_litellm_id}[/cyan]")
 
 
+def _fetch_annotation_records(
+    image_repo: Any,
+    criteria: ImageFilterCriteria,
+    *,
+    image_id: list[int],
+    image_ids_file: str | None,
+) -> tuple[list[dict[str, Any]], int, list[int] | None]:
+    """Fetch annotation candidates, limiting ID-file requests to their exact ID set."""
+    if image_id and image_ids_file:
+        raise click.UsageError("--image-id and --image-ids-file cannot be used together.")
+    requested_image_ids = parse_image_ids_file(image_ids_file) if image_ids_file else image_id or None
+
+    # ID file は最大 100,000 件を受け付ける。先に解析して exact ID 集合だけを
+    # repository の有界チャンクで取得し、プロジェクト全件の metadata / annotation
+    # relationship を materialize しない (#1307)。criteria も同じ SQL 側で適用する。
+    if image_ids_file:
+        records = image_repo.get_images_by_ids(requested_image_ids, criteria=criteria)
+        return records, len(records), requested_image_ids
+
+    records, total_in_db = image_repo.get_images_by_filter(criteria)
+    return records, total_in_db, requested_image_ids
+
+
 @app.command("run")
 def run(
     project: str = typer.Option(
@@ -966,7 +989,12 @@ def run(
             missing_model=missing_model,
         )
 
-        image_records, total_in_db = image_repo.get_images_by_filter(criteria)
+        image_records, total_in_db, requested_image_ids = _fetch_annotation_records(
+            image_repo,
+            criteria,
+            image_id=image_id,
+            image_ids_file=image_ids_file,
+        )
 
         if not image_records:
             _handle_no_image_records(
@@ -976,9 +1004,6 @@ def run(
 
         # Issue #538 (Track B): limit/offset/image-id によるレコード選択。
         # placeholder は全件返すが、本実装後もここで絞り込んだ集合を処理する。
-        if image_id and image_ids_file:
-            raise click.UsageError("--image-id and --image-ids-file cannot be used together.")
-        requested_image_ids = parse_image_ids_file(image_ids_file) if image_ids_file else image_id or None
         records_to_process = _select_image_records(
             image_records,
             limit=limit,

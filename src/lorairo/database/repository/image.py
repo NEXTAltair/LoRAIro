@@ -3394,11 +3394,16 @@ class ImageRepository(BaseRepository):
 
     # --- By IDs (alternative entry, used by error workflow) ---
 
-    def get_images_by_ids(self, image_ids: list[int]) -> list[dict[str, Any]]:
+    def get_images_by_ids(
+        self,
+        image_ids: list[int],
+        criteria: ImageFilterCriteria | None = None,
+    ) -> list[dict[str, Any]]:
         """画像IDリストから画像メタデータを取得
 
         Args:
             image_ids: 画像IDリスト
+            criteria: 任意の画像フィルタ。指定時も image_ids の範囲だけを照会する。
 
         Returns:
             list[dict]: 画像メタデータリスト（既存フォーマット互換）
@@ -3419,9 +3424,14 @@ class ImageRepository(BaseRepository):
                 for i in range(0, len(image_ids), self.BATCH_CHUNK_SIZE):
                     chunk = image_ids[i : i + self.BATCH_CHUNK_SIZE]
                     # アノテーション情報を含めて取得
+                    selected_ids = select(Image.id).where(Image.id.in_(chunk))
+                    if criteria is not None:
+                        selected_ids = self._build_image_filter_query(session, criteria).where(
+                            Image.id.in_(chunk)
+                        )
                     stmt = (
                         select(Image)
-                        .where(Image.id.in_(chunk))
+                        .where(Image.id.in_(selected_ids))
                         .options(
                             joinedload(Image.tags).joinedload(Tag.model),
                             joinedload(Image.captions).joinedload(Caption.model),
