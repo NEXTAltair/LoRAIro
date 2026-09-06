@@ -406,7 +406,11 @@ def test_batch_submit_accepts_image_ids_file(mock_get_container: MagicMock, tmp_
     )
 
     assert result.exit_code == 0, result.output
-    assert container.provider_batch_workflow_service.submit_images.call_args.kwargs["image_ids"] == [2, 7, 11]
+    assert container.provider_batch_workflow_service.submit_images.call_args.kwargs["image_ids"] == [
+        2,
+        7,
+        11,
+    ]
 
 
 @pytest.mark.unit
