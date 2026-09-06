@@ -30,6 +30,7 @@ if TYPE_CHECKING:
 # ADR 0068 Phase 3: 学習 export のデフォルト target format
 _DEFAULT_EXPORT_TAG_FORMAT = "danbooru"
 _CANONICAL_TAG_LANGUAGE = "canonical"
+_EXPORT_TRANSLATION_CACHE_IMAGES = 500
 
 
 @dataclass
@@ -150,6 +151,160 @@ class DatasetExportService:
         self.db_manager = db_manager
         self.search_processor = search_processor
         logger.debug("DatasetExportService initialized")
+
+    def export_dataset_all_formats(
+        self,
+        image_ids: list[int],
+        output_path: Path,
+        resolution: int = 512,
+        *,
+        tag_format: str = _DEFAULT_EXPORT_TAG_FORMAT,
+        overlay_plan: ExportOverlayPlan | None = None,
+        tag_languages: list[str] | None = None,
+    ) -> ExportResult:
+        """Export TXT, caption and JSON with one input read and copy per destination.
+
+        Input records are processed one at a time. Translation caches are discarded
+        every 500 images; the existing final JSON output document is shared rather
+        than fetching and normalizing its records a second time.
+        """
+        if not image_ids:
+            raise ValueError("image_ids list cannot be empty")
+        language_roots = self._resolve_language_output_roots(output_path, tag_languages)
+        report = ExportResult(image_ids)
+        metadata_by_language: dict[str, dict[str, dict[str, Any]]] = {
+            language: {} for language, _ in language_roots
+        }
+        staged_ids_by_language: dict[str, set[int]] = {language: set() for language, _ in language_roots}
+        try:
+            for _, root in language_roots:
+                root.mkdir(parents=True, exist_ok=True)
+            reader = self._get_export_reader()
+        except Exception as exc:
+            for image_id in report.image_ids:
+                report.fail(image_id, "setup", "export_error", str(exc))
+            return report
+        for offset in range(0, len(report.image_ids), _EXPORT_TRANSLATION_CACHE_IMAGES):
+            translation_cache: dict[str, dict[str, str]] = {language: {} for language, _ in language_roots}
+            for image_id in report.image_ids[offset : offset + _EXPORT_TRANSLATION_CACHE_IMAGES]:
+                try:
+                    export_input = self._get_export_input(image_id, resolution, report, "input", True)
+                    if export_input is None:
+                        continue
+                    source, data = export_input
+                    canonical_tags = self._build_export_tag_list(
+                        [tag["tag"] for tag in self._resolve_export_tags(data["tags"])],
+                        image_id,
+                        tag_format,
+                        reader,
+                        overlay_plan,
+                    )
+                    caption = self._resolve_export_caption(data["captions"])
+                    captions = caption["caption"] if caption else ""
+                    if not self._reserve_export_destinations(
+                        image_id, source, language_roots, report, "all", bool(captions)
+                    ):
+                        continue
+                    self._export_all_record(
+                        image_id,
+                        source,
+                        data,
+                        canonical_tags,
+                        captions,
+                        language_roots,
+                        reader,
+                        translation_cache,
+                        metadata_by_language,
+                        staged_ids_by_language,
+                        report,
+                    )
+                except Exception as exc:
+                    report.fail(image_id, "input", "export_error", str(exc))
+        self._write_metadata_files(
+            language_roots, "metadata.json", metadata_by_language, staged_ids_by_language, report, True
+        )
+        return report
+
+    def _export_all_record(
+        self,
+        image_id: int,
+        source: Path,
+        data: dict[str, Any],
+        canonical_tags: list[str],
+        captions: str,
+        language_roots: list[tuple[str, Path]],
+        reader: "MergedTagReader | None",
+        translation_cache: dict[str, dict[str, str]],
+        metadata_by_language: dict[str, dict[str, dict[str, Any]]],
+        staged_ids_by_language: dict[str, set[int]],
+        report: ExportResult,
+    ) -> None:
+        """Share each language's translated tags and copied image across both writers."""
+        txt_complete = True
+        json_complete = True
+        for language, root in language_roots:
+            output_image = root / source.name
+            try:
+                tags = ", ".join(
+                    self._translate_export_tag_list(
+                        canonical_tags, language, reader, translation_cache[language]
+                    )
+                )
+                self.file_system_manager.copy_file(source, output_image)
+                report.record_artifact(image_id, output_image)
+            except Exception as exc:
+                report.fail(image_id, "copy", "export_error", str(exc))
+                txt_complete = json_complete = False
+                continue
+            try:
+                self._write_export_text_files(image_id, output_image, tags, captions, report)
+            except Exception as exc:
+                report.fail(image_id, "txt", "export_error", str(exc))
+                txt_complete = False
+            try:
+                metadata_by_language[language][str(output_image)] = self._json_export_payload(
+                    data, tags, captions
+                )
+                staged_ids_by_language[language].add(image_id)
+            except Exception as exc:
+                report.fail(image_id, "json", "export_error", str(exc))
+                json_complete = False
+        if txt_complete:
+            report.completed.setdefault(image_id, set()).add("txt")
+        if json_complete:
+            report.completed.setdefault(image_id, set()).add("json")
+
+    @staticmethod
+    def _write_export_text_files(
+        image_id: int, output_image: Path, tags: str, captions: str, report: ExportResult
+    ) -> None:
+        """Write the existing TXT/caption filenames and retain partial-write evidence."""
+        txt_path = output_image.with_suffix(".txt")
+        with open(txt_path, "w", encoding="utf-8") as stream:
+            stream.write(tags)
+        report.record_artifact(image_id, txt_path)
+        if captions:
+            caption_path = output_image.with_suffix(".caption")
+            with open(caption_path, "w", encoding="utf-8") as stream:
+                stream.write(captions)
+            report.record_artifact(image_id, caption_path)
+
+    @staticmethod
+    def _json_export_payload(data: dict[str, Any], tags: str, captions: str) -> dict[str, Any]:
+        """Build the established kohya-ss JSON payload without additional DB reads."""
+        return {
+            "tags": tags,
+            "caption": captions,
+            "score_labels": [
+                {
+                    "model": label.get("model", "Unknown"),
+                    "label": label.get("label", ""),
+                    "is_edited_manually": bool(label.get("is_edited_manually")),
+                }
+                for label in data.get("score_labels", [])
+            ],
+            "quality_summary": data.get("quality_summary", {}),
+        }
 
     def export_dataset_txt_format(
         self,

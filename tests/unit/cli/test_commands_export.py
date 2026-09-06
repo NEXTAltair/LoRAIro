@@ -18,16 +18,14 @@ def _make_export_container(tmp_path: Path) -> MagicMock:
     out_dir = tmp_path / "out"
     out_dir.mkdir()
 
-    def complete(format_name):
-        def export(image_ids, output_path, resolution, *, report, **kwargs):
-            for image_id in image_ids:
-                report.completed.setdefault(image_id, set()).add(format_name)
-            return output_path
+    def export(image_ids, output_path, resolution, **kwargs):
+        from lorairo.services.dataset_export_service import ExportResult
 
-        return export
+        report = ExportResult(image_ids)
+        report.completed = {image_id: {"txt", "json"} for image_id in image_ids}
+        return report
 
-    container.dataset_export_service.export_dataset_txt_format.side_effect = complete("txt")
-    container.dataset_export_service.export_dataset_json_format.side_effect = complete("json")
+    container.dataset_export_service.export_dataset_all_formats.side_effect = export
     return container
 
 
@@ -44,8 +42,8 @@ def mock_export_context(tmp_path, monkeypatch):
 
 @pytest.mark.unit
 class TestExportCreate:
-    def test_create_with_image_ids_calls_both_exporters(self, mock_export_context, tmp_path):
-        """--image-ids 指定時に txt と json 両エクスポーターが呼ばれる。"""
+    def test_create_with_image_ids_calls_all_formats_once(self, mock_export_context, tmp_path):
+        """--image-ids 指定時に 全形式エクスポーターが一度呼ばれる。"""
         container, _ = mock_export_context
         result = runner.invoke(
             app,
@@ -61,8 +59,7 @@ class TestExportCreate:
             ],
         )
         assert result.exit_code == 0
-        container.dataset_export_service.export_dataset_txt_format.assert_called_once()
-        container.dataset_export_service.export_dataset_json_format.assert_called_once()
+        container.dataset_export_service.export_dataset_all_formats.assert_called_once()
 
     def test_create_without_image_ids_fails(self, mock_export_context, tmp_path):
         """--image-ids なしは exit 2 (INVALID_INPUT)。"""
@@ -127,7 +124,7 @@ class TestExportCreate:
         assert result.exit_code == 2
 
     def test_create_resolution_passed_to_exporters(self, mock_export_context, tmp_path):
-        """--resolution が両エクスポーターに渡される。"""
+        """--resolution が全形式エクスポーターに渡される。"""
         container, _ = mock_export_context
         runner.invoke(
             app,
@@ -144,18 +141,12 @@ class TestExportCreate:
                 "1024",
             ],
         )
-        call_args_txt = container.dataset_export_service.export_dataset_txt_format.call_args
-        call_args_json = container.dataset_export_service.export_dataset_json_format.call_args
-        assert call_args_txt is not None
-        assert call_args_json is not None
-        # resolution は第3引数 (positional) または keyword "resolution" で渡される
-        txt_args = call_args_txt[0]
-        json_args = call_args_json[0]
-        assert 1024 in txt_args or call_args_txt[1].get("resolution") == 1024
-        assert 1024 in json_args or call_args_json[1].get("resolution") == 1024
+        call = container.dataset_export_service.export_dataset_all_formats.call_args
+        assert call is not None
+        assert 1024 in call.args or call.kwargs.get("resolution") == 1024
 
     def test_create_tag_languages_passed_to_exporters(self, mock_export_context, tmp_path):
-        """--tag-language の複数指定が両エクスポーターに渡される。"""
+        """--tag-language の複数指定が全形式エクスポーターに渡される。"""
         container, _ = mock_export_context
         result = runner.invoke(
             app,
@@ -175,10 +166,8 @@ class TestExportCreate:
             ],
         )
         assert result.exit_code == 0
-        txt_kwargs = container.dataset_export_service.export_dataset_txt_format.call_args.kwargs
-        json_kwargs = container.dataset_export_service.export_dataset_json_format.call_args.kwargs
-        assert txt_kwargs["tag_languages"] == ["canonical", "ja"]
-        assert json_kwargs["tag_languages"] == ["canonical", "ja"]
+        kwargs = container.dataset_export_service.export_dataset_all_formats.call_args.kwargs
+        assert kwargs["tag_languages"] == ["canonical", "ja"]
 
 
 @pytest.mark.unit
@@ -204,7 +193,7 @@ class TestExportCreateImageIdsFile:
             ],
         )
         assert result.exit_code == 0
-        called_ids = container.dataset_export_service.export_dataset_txt_format.call_args.args[0]
+        called_ids = container.dataset_export_service.export_dataset_all_formats.call_args.args[0]
         assert called_ids == [1, 2, 3]
 
     def test_create_both_ids_inputs_rejected(self, mock_export_context, tmp_path):
@@ -287,8 +276,8 @@ def _invoke_real_export(output, image_ids="1,2"):
 
 
 @pytest.mark.parametrize("use_file", [False, True])
-def test_export_reuses_metadata_lookup_per_format(real_export_context, tmp_path, use_file):
-    """Tracking must retain the legacy two metadata reads per ID across both writers."""
+def test_export_reuses_metadata_lookup_across_formats(real_export_context, tmp_path, use_file):
+    """The shared operation reads metadata once per ID while preserving failure evidence."""
     from collections import Counter
 
     _service, db, _paths = real_export_context
@@ -308,8 +297,8 @@ def test_export_reuses_metadata_lookup_per_format(real_export_context, tmp_path,
     assert row["exported_ids"] == [1, 2]
     assert row["failed_ids"] == [99]
     assert all(error["reason"] == "image_not_found" for error in row["error_details"][0]["errors"])
-    assert Counter(call.args[0] for call in db.get_image_metadata.call_args_list) == {1: 2, 2: 2, 99: 2}
-    assert Counter(call.args[0] for call in db.get_image_annotations.call_args_list) == {1: 2, 2: 2}
+    assert Counter(call.args[0] for call in db.get_image_metadata.call_args_list) == {1: 1, 2: 1, 99: 1}
+    assert Counter(call.args[0] for call in db.get_image_annotations.call_args_list) == {1: 1, 2: 1}
     assert len(json.loads((output / "metadata.json").read_text())) == 2
     assert len(list(output.glob("*.txt"))) == 2
     assert len(list(output.glob("*.caption"))) == 2
@@ -378,8 +367,8 @@ def test_export_collision_preserves_first_image_across_formats(
     failure = row["error_details"][0]
     assert failure["errors"][0]["reason"] == "output_path_collision"
     assert failure["output_files"] == failure["completed_formats"] == []
-    assert db.get_image_metadata.call_count == 2 * count - 1
-    assert service.file_system_manager.copy_file.call_count == 2 * (count - 1) * len(languages)
+    assert db.get_image_metadata.call_count == count
+    assert service.file_system_manager.copy_file.call_count == (count - 1) * len(languages)
     for language in languages:
         root = output / language if len(languages) > 1 else output
         assert (root / "shared.png").read_bytes() == b"image-1"
@@ -428,14 +417,29 @@ def test_json_only_allows_same_stem_with_distinct_image_extensions(real_export_c
 @pytest.mark.parametrize("failed_language", ["canonical", "ja"])
 @pytest.mark.parametrize("failure_kind", ["copy", "translation"])
 @pytest.mark.parametrize("metadata_failure", [None, "canonical", "ja"])
+@pytest.mark.parametrize("single_pass", [False, True])
 def test_metadata_evidence_follows_each_languages_staged_images(
-    real_export_context, tmp_path, monkeypatch, failed_language, failure_kind, metadata_failure
+    real_export_context, tmp_path, monkeypatch, failed_language, failure_kind, metadata_failure, single_pass
 ):
     """A partial image owns only documents containing its successfully staged entry."""
     import builtins
     from collections import Counter
 
     service, db, _paths = real_export_context
+    if not single_pass:
+        from lorairo.services.dataset_export_service import ExportResult
+
+        def legacy_operation(image_ids, output, resolution, *, tag_languages):
+            report = ExportResult(image_ids)
+            service.export_dataset_txt_format(
+                image_ids, output, resolution, tag_languages=tag_languages, report=report
+            )
+            service.export_dataset_json_format(
+                image_ids, output, resolution, tag_languages=tag_languages, report=report
+            )
+            return report
+
+        monkeypatch.setattr(service, "export_dataset_all_formats", legacy_operation)
     db.get_image_annotations.side_effect = lambda image_id: {
         "tags": [{"tag": f"tag{image_id}"}],
         "captions": [],
@@ -450,9 +454,9 @@ def test_metadata_evidence_follows_each_languages_staged_images(
             failure_kind == "copy"
             and destination.parent.name == failed_language
             and destination.name == "source-1.png"
-            and attempts[("copy", str(destination))] == 2
+            and attempts[("copy", str(destination))] == (1 if single_pass else 2)
         ):
-            raise OSError("second-format copy failure")
+            raise OSError("selected language copy failure")
         return copy(source, destination)
 
     def translate_with_failure(tags, language, reader, cache):
@@ -461,9 +465,9 @@ def test_metadata_evidence_follows_each_languages_staged_images(
             failure_kind == "translation"
             and language == failed_language
             and tags == ["tag1"]
-            and attempts[("translation", language, tuple(tags))] == 2
+            and attempts[("translation", language, tuple(tags))] == (1 if single_pass else 2)
         ):
-            raise RuntimeError("second-format translation failure")
+            raise RuntimeError("selected language translation failure")
         return translate(tags, language, reader, cache)
 
     original_open = builtins.open
@@ -500,11 +504,24 @@ def test_metadata_evidence_follows_each_languages_staged_images(
     assert result.exit_code == 1
     assert row["exported"] == (1 if metadata_failure is None else 0)
     failures = {item["image_id"]: item for item in row["error_details"]}
-    assert failures[1]["completed_formats"] == ["txt"]
+    assert failures[1]["completed_formats"] == ([] if single_pass else ["txt"])
+    assert db.get_image_metadata.call_count == (2 if single_pass else 4)
+    assert db.get_image_annotations.call_count == (2 if single_pass else 4)
+    if single_pass:
+        assert service.file_system_manager.copy_file.call_count <= 4
+    _assert_staged_language_evidence(failures, output, failed_language, metadata_failure, single_pass)
+
+
+def _assert_staged_language_evidence(failures, output, failed_language, metadata_failure, single_pass):
+    """Compare per-image reporting with the actual per-language JSON documents."""
     for image_id, failure in failures.items():
         for language in ("canonical", "ja"):
             metadata = output / language / "metadata.json"
-            staged = image_id == 2 or (failed_language == "ja" and language == "canonical")
+            staged = image_id == 2 or (
+                language != failed_language
+                if single_pass
+                else failed_language == "ja" and language == "canonical"
+            )
             if language != metadata_failure:
                 contents = json.loads(metadata.read_text())
                 assert (str(output / language / f"source-{image_id}.png") in contents) is staged
@@ -526,7 +543,7 @@ def test_duplicate_csv_ids_report_unique_actual_outputs(real_export_context, tmp
     assert row["exported_ids"] == [1]
     assert len(list((tmp_path / "out").glob("*.png"))) == 1
     assert len(json.loads((tmp_path / "out" / "metadata.json").read_text())) == 1
-    assert service.file_system_manager.copy_file.call_count == 2  # One per current format writer.
+    assert service.file_system_manager.copy_file.call_count == 1  # Shared by all output formats.
 
 
 @pytest.mark.parametrize("language", ["../bad", "bad/value", "bad!value"])
@@ -556,8 +573,8 @@ def test_invalid_export_language_is_input_error_before_side_effects(
     assert rows[0]["kind"] == "error"
     assert rows[0]["code"] == "INVALID_INPUT"
     container.set_active_project.assert_not_called()
-    container.dataset_export_service.export_dataset_txt_format.assert_not_called()
-    container.dataset_export_service.export_dataset_json_format.assert_not_called()
+    container.dataset_export_service.export_dataset_all_formats.assert_not_called()
+    container.dataset_export_service.export_dataset_all_formats.assert_not_called()
     assert not (tmp_path / "uncreated").exists()
 
 
