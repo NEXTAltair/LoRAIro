@@ -85,7 +85,8 @@ Batch取込みの従来 `skipped` は正常skipと取込み不能の両方を含
 保存結果が件数のみで部分成功のIDを確定できない場合、`failed_custom_ids` は保存完了を確認できない候補を保守的に含めます。
 この集合だけを根拠に全件再送せず、保存状態を確認してください。
 空結果は exit 0 ですが、`job_imported=false` はジョブ全体の完了を意味しません。
-`errors resolve` は `requested` と `resolved` を保持し、repositoryが失敗を返した場合に exit 1 となります。
+`errors resolve` は重複を除いた `requested` と実更新件数 `resolved` を保持します。repositoryの失敗や
+要求IDの未存在による更新件数不足は exit 1 です。既に解決済みの存在するIDは従来どおり再更新して成功とします。
 
 以前はこれらの部分失敗でも exit 0 となる場合がありました。終了コードだけで後続処理へ進むスクリプトは、
 exit 1 を処理し成功件数を保存してください。成功済み登録や送信済みBatchを全件再送する自動retryは行いません。

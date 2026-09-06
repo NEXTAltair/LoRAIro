@@ -179,7 +179,7 @@ def test_provider_import_terminal(
         (True, 2, [1, 2], False, "success"),
         (True, 0, [], False, "success"),
         (True, 0, [1, 2], True, "success"),
-        (True, 0, [1, 2], False, "success"),
+        (True, 0, [1, 2], False, "failed"),
         (False, 1, [1, 2], False, "partial_success"),
         (False, 0, [1, 2], False, "failed"),
     ],

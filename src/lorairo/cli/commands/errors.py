@@ -221,6 +221,7 @@ def resolve_errors(
                 message_contains=message_contains,
             )
 
+        target_ids = list(dict.fromkeys(target_ids))
         target_count = len(target_ids)
 
         if dry_run:
@@ -242,7 +243,8 @@ def resolve_errors(
                 console.print("[dim]No matching error records found.[/dim]")
             return
 
-        success, updated = repo.mark_errors_resolved_batch(target_ids)
+        committed, updated = repo.mark_errors_resolved_batch(target_ids)
+        success = committed and updated == target_count
 
         if is_json_mode():
             emit_result(
