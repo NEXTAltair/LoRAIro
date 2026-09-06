@@ -878,7 +878,7 @@ def run(
         None,
         "--output",
         "-o",
-        help="Output directory for annotation results (optional)",
+        help="Unsupported/deprecated: results are saved to the project DB. Use export create for files.",
     ),
     batch_size: int = typer.Option(
         10,
@@ -927,7 +927,8 @@ def run(
 ) -> None:
     """Run annotation on project images.
 
-    プロジェクトの画像に対してアノテーションを実行します。
+    プロジェクトの画像に対してアノテーションを実行し、結果をDBへ保存します。
+    --output/-o is unsupported and fails before annotation. Use export create for files.
     使用可能なモデル ID は 'lorairo-cli models list' で確認してください。
 
     Issue #245 / ADR 0023 Phase 1.11: `--model` には `litellm_model_id` (registry
@@ -941,6 +942,11 @@ def run(
             --model openrouter/openai/gpt-4o --model openrouter/anthropic/claude-3-5-sonnet
     """
     with command_boundary():
+        if output is not None:
+            raise click.UsageError(
+                "--output/-o is unsupported: annotate run saves results to the project database. "
+                "Omit --output, then use export create with explicit image IDs for file output."
+            )
         # API層経由でプロジェクト確認 & DB 接続切り替え
         api_get_project(project)
 

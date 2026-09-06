@@ -628,6 +628,28 @@ class BatchStatusResult(BaseModel):
     model_config = ConfigDict(title="BatchStatusResult")
 
 
+class AnnotateRunInput(BaseModel):
+    """Accepted inputs for DB annotation; legacy output paths are rejected (#1310)."""
+
+    project: str
+    model: list[str]
+    output: None = Field(
+        default=None,
+        description="Unsupported/deprecated CLI option: any --output/-o value fails with INVALID_INPUT "
+        "(exit 2) before annotation. Omit it and use export create for files.",
+        deprecated=True,
+    )
+    limit: int | None = Field(default=None, ge=1)
+    offset: int = Field(default=0, ge=0)
+    image_id: list[int] = Field(default_factory=list)
+    batch_size: int = Field(default=10, ge=1)
+    unrated: bool = False
+    missing_model: str | None = None
+    resolution: int | None = Field(default=None, ge=1)
+
+    model_config = ConfigDict(title="AnnotateRunInput")
+
+
 class AnnotateRunModelResult(BaseModel):
     """Per-model annotation entry inside an ``annotate run`` item row."""
 
@@ -1079,7 +1101,7 @@ TOOL_SPECS: dict[str, ToolSpec] = {
     "annotate run": ToolSpec(
         name="annotate run",
         path="annotate run",
-        summary="Run annotation for selected project images.",
+        summary="Run annotation for selected project images and save to DB; --output is unsupported.",
         read_only=False,
         side_effects=("db_read", "db_write", "file_read", "network"),
         inputs=(
@@ -1088,6 +1110,12 @@ TOOL_SPECS: dict[str, ToolSpec] = {
                 (
                     _f("project", "str", required=True),
                     _f("model", "list[str]", required=True),
+                    _f(
+                        "output",
+                        "None",
+                        description="Unsupported/deprecated: any --output/-o value returns INVALID_INPUT (exit 2) before annotation. Omit it and use export create for files.",
+                    ),
+                    _f("resolution", "int>=1?"),
                     _f("limit", "int>=1?"),
                     _f("offset", "int>=0", default=0),
                     _f("image_id", "list[int]?"),
@@ -1095,6 +1123,7 @@ TOOL_SPECS: dict[str, ToolSpec] = {
                     _f("unrated", "bool", default=False),
                     _f("missing_model", "str?"),
                 ),
+                schema=AnnotateRunInput,
             ),
         ),
         outputs=(
