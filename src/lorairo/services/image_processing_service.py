@@ -101,10 +101,7 @@ class ImageProcessingService:
             if max(image.size) != resolution:
                 raise RuntimeError("resize_resolution_mismatch: output long side differs from request")
             if existing and existing_path:
-                if image.size != (existing["width"], existing["height"]):
-                    raise ValueError(
-                        "processed_metadata_mismatch: rebuild dimensions differ from existing row"
-                    )
+                self._validate_rebuild_metadata(image, existing)
                 self._replace_processed_output(image, existing_path)
                 processed_id = int(existing["id"])
                 output = existing_path
@@ -153,6 +150,22 @@ class ImageProcessingService:
             raise ValueError("unsafe_processed_path: output points at original image storage")
 
     @staticmethod
+    def _validate_rebuild_metadata(image: "PILImage", metadata: dict[str, Any]) -> None:
+        """Refuse replacements that would invalidate the preserved processed row."""
+        if image.size != (metadata["width"], metadata["height"]):
+            raise ValueError("processed_metadata_mismatch: rebuild dimensions differ from existing row")
+        if (
+            metadata.get("upscaler_used")
+            or metadata.get("mode") not in (None, image.mode)
+            or bool(metadata.get("has_alpha")) != ("A" in image.getbands())
+        ):
+            raise ValueError(
+                "processed_provenance_mismatch: offline rebuild cannot preserve existing "
+                "upscaler/mode/alpha metadata; choose another resolution for a new offline output "
+                "or restore the existing processed file"
+            )
+
+    @staticmethod
     def _valid_processed_output(path: Path, metadata: dict[str, Any]) -> bool:
         """Validate decode and dimensions before counting an existing file as usable."""
         from PIL import Image, UnidentifiedImageError
@@ -160,7 +173,11 @@ class ImageProcessingService:
         try:
             with Image.open(path) as image:
                 image.load()
-                return image.size == (metadata["width"], metadata["height"])
+                return (
+                    image.size == (metadata["width"], metadata["height"])
+                    and metadata.get("mode") in (None, image.mode)
+                    and bool(metadata.get("has_alpha")) == ("A" in image.getbands())
+                )
         except (OSError, UnidentifiedImageError):
             return False
 

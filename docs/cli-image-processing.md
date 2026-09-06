@@ -30,14 +30,19 @@ and configured upscalers do not override the explicit size. No model is loaded o
 downloaded, no inference API is called, and GPU is not required. A small original can
 be enlarged with ordinary Lanczos interpolation; this does not invoke a learned model.
 
-A valid, decodable exact-resolution output whose dimensions match its DB record is
-skipped. When multiple exact-resolution rows exist, a valid file is preferred over
+A valid, decodable exact-resolution output whose dimensions, mode and alpha match
+its DB record is skipped. When multiple exact-resolution rows exist, a valid file is preferred over
 missing/corrupt candidates. A nearby resolution does not substitute for the requested size. Missing or
 corrupt exact output is rebuilt at its existing processed path; `--rebuild` also
 regenerates a valid file. Replacement uses a temporary file in the same directory and
 an atomic rename, without changing the original image row or processed-image ID.
 If regenerated dimensions differ from existing DB metadata, the command reports
 `processed_metadata_mismatch` instead of replacing the file with inconsistent data.
+An existing nonempty `upscaler_used`, or a mode/alpha mismatch, rejects offline rebuild
+with `processed_provenance_mismatch`, preserving the previous file and row. Choose a
+different resolution to create a separate offline output, or restore the old processed
+file. A valid upscaled file can still be skipped without `--rebuild`; its provenance
+is retained because the file is unchanged.
 Paths outside the project's image dataset or inside original-image storage are never
 replaced. New resolutions create a processed file and associate it with the original
 ID through the existing DB registration service. A DB registration failure reports

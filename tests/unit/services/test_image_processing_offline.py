@@ -220,3 +220,28 @@ def test_offline_rejects_wrong_generated_size(offline_service, monkeypatch):
     assert outcome.status == "failed"
     assert "resize_resolution_mismatch" in outcome.reason
     service.idm.register_processed_image.assert_not_called()
+
+
+@pytest.mark.parametrize(
+    "changed", [{"upscaler_used": "RealESRGAN"}, {"mode": "RGBA"}, {"has_alpha": True}]
+)
+def test_offline_rebuild_preserves_incompatible_provenance(offline_service, changed):
+    service, _originals, records = offline_service
+    first = service.process_image_ids_offline([1], 256)[0]
+    output = Path(first.output_path)
+    before = output.read_bytes()
+    records[1, 256].update(changed)
+    row_before = dict(records[1, 256])
+    outcome = service.process_image_ids_offline([1], 256, rebuild=True)[0]
+    assert outcome.status == "failed"
+    assert "processed_provenance_mismatch" in outcome.reason
+    assert "choose another resolution" in outcome.reason
+    assert output.read_bytes() == before
+    assert records[1, 256] == row_before
+
+
+def test_offline_valid_upscaled_file_can_be_skipped(offline_service):
+    service, _originals, records = offline_service
+    service.process_image_ids_offline([1], 256)
+    records[1, 256]["upscaler_used"] = "RealESRGAN"
+    assert service.process_image_ids_offline([1], 256)[0].status == "skipped"
