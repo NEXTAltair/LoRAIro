@@ -19,7 +19,7 @@ from rich.table import Table
 from lorairo.cli._boundary import command_boundary
 from lorairo.cli._console import make_console
 from lorairo.cli._emit import emit_item, emit_result
-from lorairo.cli._image_guard import reject_original_image_records
+from lorairo.cli._image_ids import BULK_CHUNK_SIZE, parse_image_ids_file
 from lorairo.cli._output_mode import is_json_mode
 from lorairo.services.service_container import get_service_container
 
@@ -368,17 +368,10 @@ def _resolve_processed_image_paths(
     image_repo = container.db_manager.image_repo
     missing: list[int] = []
     paths: dict[int, str] = {}
-
-    for image_id in image_ids:
-        processed = image_repo.get_processed_image(image_id, resolution=resolution)
-        if processed is None:
-            missing.append(image_id)
-            continue
-        stored_path = processed.get("stored_image_path") if isinstance(processed, dict) else None
-        if not stored_path:
-            missing.append(image_id)
-            continue
-        paths[image_id] = str(stored_path)
+    for start in range(0, len(image_ids), BULK_CHUNK_SIZE):
+        chunk = image_ids[start : start + BULK_CHUNK_SIZE]
+        paths.update(image_repo.get_processed_image_paths_by_resolution(chunk, resolution))
+    missing = [image_id for image_id in image_ids if not paths.get(image_id)]
 
     if missing:
         sample = ", ".join(str(i) for i in missing[:5])
@@ -394,10 +387,15 @@ def _resolve_processed_image_paths(
 def submit(
     project: str = typer.Option(..., "--project", "-p", help="Project name"),
     model: str = typer.Option(..., "--model", "-m", help="LiteLLM model ID or unique display name"),
-    image_ids_csv: str = typer.Option(
-        ...,
+    image_ids_csv: str | None = typer.Option(
+        None,
         "--image-ids",
         help="Comma-separated image IDs to submit (example: 2,7,11)",
+    ),
+    image_ids_file: str | None = typer.Option(
+        None,
+        "--image-ids-file",
+        help="UTF-8 newline/comma ID file, max100,000; exclusive with --image-ids.",
     ),
     provider: str | None = typer.Option(None, "--provider", help="Provider override: openai/anthropic"),
     endpoint: str | None = typer.Option(None, "--endpoint", help="Provider endpoint override"),
@@ -421,12 +419,22 @@ def submit(
         ),
     ),
 ) -> None:
-    """Submit registered images to a Provider Batch API job."""
+    """Submit registered images to Provider Batch jobs.
+
+    CSV and UTF-8 ID-file inputs are exclusive. Validate the entire input before sending;
+    provider jobs contain at most 500 images. JSON assignment rows retain job IDs and
+    submitted/failed/unsubmitted image sets. Inspect uncertain failures before retrying.
+    """
     with command_boundary():
-        image_ids = _parse_image_ids_csv(image_ids_csv)
+        if image_ids_csv is not None and image_ids_file is not None:
+            raise click.UsageError("--image-ids and --image-ids-file are mutually exclusive.")
+        image_ids = (
+            parse_image_ids_file(image_ids_file)
+            if image_ids_file is not None
+            else _parse_image_ids_csv(image_ids_csv or "")
+        )
         container = _activate_project(project)
         model_repo = container.db_manager.model_repo
-        provider_batch_repo = container.db_manager.provider_batch_repo
         db_model = _resolve_model(model_repo, model)
         resolved_provider = _infer_provider(db_model, provider)
         _validate_submit_provider(resolved_provider)
@@ -445,45 +453,22 @@ def submit(
                 )
 
         resolved_endpoint = _resolve_submit_endpoint(resolved_provider, normalized_task_type, endpoint)
-        image_repo = container.db_manager.image_repo
 
-        # --resolution 指定時は processed image を使うため、original image guard をスキップする。
-        # ADR 0064 が禁止するのはオリジナル画像の直接投入であり、
-        # processed path を override して送信する場合は image_id がオリジナルでも正当。
-        if resolution is None:
-            reject_original_image_records(
-                image_repo.get_images_by_ids(image_ids),
-                command_name="batch submit",
-            )
+        from lorairo.cli._batch_submission import submit_validated_ids
 
-        image_paths: dict[int, str] | None = None
-        if resolution is not None:
-            image_paths = _resolve_processed_image_paths(container, image_ids, resolution)
-
-        job_id = container.provider_batch_workflow_service.submit_images(
+        submit_validated_ids(
+            container,
+            image_ids=image_ids,
+            project=project,
+            resolution=resolution,
             provider=resolved_provider,
             endpoint=resolved_endpoint,
             litellm_model_id=db_model.litellm_model_id,
-            prompt_profile=prompt_profile,
-            image_ids=image_ids,
             model_id=db_model.id,
+            prompt_profile=prompt_profile,
             description=description,
             task_type=normalized_task_type,
-            image_paths=image_paths,
         )
-        job = provider_batch_repo.get_provider_batch_job(job_id)
-        if is_json_mode():
-            emit_result(
-                f"Provider Batch job submitted: {job_id}",
-                job_id=job_id,
-                job=_job_dict(job) if job is not None else None,
-            )
-        else:
-            if resolution is not None:
-                console.print(f"[dim]Using processed images at resolution {resolution}px[/dim]")
-            console.print(f"[green]Provider Batch job submitted:[/green] {job_id}")
-            if job is not None:
-                _print_job_detail(job)
 
 
 @app.command("list")

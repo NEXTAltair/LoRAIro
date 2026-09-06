@@ -226,9 +226,19 @@ lorairo-cli --json describe "annotate run"
 - `limit`: `int>=1?` (optional, default `None`) - Max number of images to annotate (>=1) (CLI: `--limit`)
 - `offset`: `int>=0` (optional, default `0`) - Skip the first N eligible images (for sharding) (CLI: `--offset`)
 - `image_id`: `list[int]` (optional, default `[]`) - Target specific image ID(s); repeatable (CLI: `--image-id`, `-i`)
+- `image_ids_file`: `str?` (optional, default `None`) - UTF-8 newline/comma IDs, max 100,000; exclusive with image_id. Filter intersection, ascending ID order, offset, limit; per-image outcomes streamed. (CLI: `--image-ids-file`)
 - `unrated`: `bool` (optional, default `False`) - Annotate only images without any saved rating rows. (CLI: `--unrated`)
 - `missing_model`: `str?` (optional, default `None`) - Annotate only images without saved annotations from the given LiteLLM model ID. (CLI: `--missing-model`)
 - `resolution`: `int>=1?` (optional, default `None`) - Use processed images at this resolution (long side in pixels). Images without a matching processed image are skipped. (CLI: `--resolution`)
+
+**Output `AnnotateRunOutcome`**
+
+- `kind`: `item` (optional, default `item`)
+- `type`: `annotation_outcome` (optional, default `annotation_outcome`)
+- `image_id`: `int` (required)
+- `status`: `completed | failed | skipped | unexecuted` (required)
+- `reason`: `str?` (optional, default `None`)
+- `saved`: `bool` (optional, default `False`)
 
 **Output `AnnotateRunItem`**
 
@@ -241,11 +251,18 @@ lorairo-cli --json describe "annotate run"
 **Output `AnnotateRunResult`**
 
 - `kind`: `result` (optional, default `result`)
-- `ok`: `true` (optional, default `True`)
+- `ok`: `bool` (optional, default `True`)
 - `message`: `str` (required)
+- `status`: `success | partial_success | failed?` (optional, default `None`)
+- `project`: `str?` (optional, default `None`)
+- `total`: `int?` (optional, default `None`)
+- `completed`: `int?` (optional, default `None`)
+- `unexecuted`: `int?` (optional, default `None`)
+- `interrupted`: `bool` (optional, default `False`)
+- `reason`: `str?` (optional, default `None`)
+- `resolution_skipped`: `int` (optional, default `0`)
 - `annotated`: `int` (required)
 - `skipped`: `int` (required)
-- `resolution_skipped`: `int` (optional, default `0`)
 - `errors`: `int` (required)
 - `loaded`: `int` (required)
 - `results`: `int` (required)
@@ -287,8 +304,16 @@ lorairo-cli --json describe "batch cancel"
 **Output `BatchJobResult`**
 
 - `kind`: `result` (optional, default `result`)
-- `ok`: `true` (optional, default `True`)
+- `ok`: `bool` (optional, default `True`)
 - `message`: `str` (required)
+- `status`: `success | partial_success | failed?` (optional, default `None`)
+- `project`: `str?` (optional, default `None`)
+- `total`: `int?` (optional, default `None`)
+- `submitted`: `int?` (optional, default `None`)
+- `failed`: `int?` (optional, default `None`)
+- `unsubmitted`: `int?` (optional, default `None`)
+- `interrupted`: `bool` (optional, default `False`)
+- `job_ids`: `list[int]` (optional)
 - `job_id`: `int?` (optional, default `None`)
 - `job`: `dict?` (optional, default `None`)
 
@@ -553,7 +578,8 @@ lorairo-cli --json describe "batch submit"
 
 - `project`: `str` (required) - Project name (CLI: `--project`, `-p`)
 - `model`: `str` (required) - LiteLLM model ID or unique display name (CLI: `--model`, `-m`)
-- `image_ids`: `str` (required) - Comma-separated image IDs, e.g. 2,7,11. (CLI: `--image-ids`)
+- `image_ids`: `str?` (optional, default `None`) - Comma-separated image IDs, exclusive with image_ids_file. (CLI: `--image-ids`)
+- `image_ids_file`: `str?` (optional, default `None`) - UTF-8 newline/comma IDs; max 100,000; exclusive with image_ids. Entire input validated before sending; jobs split at provider limit 500. (CLI: `--image-ids-file`)
 - `provider`: `str?` (optional, default `None`) - Provider override: openai/anthropic (CLI: `--provider`)
 - `endpoint`: `str?` (optional, default `None`) - Provider endpoint override (CLI: `--endpoint`)
 - `prompt_profile`: `str` (optional, default `default`) - Prompt profile name (CLI: `--prompt-profile`)
@@ -561,11 +587,28 @@ lorairo-cli --json describe "batch submit"
 - `task_type`: `str` (optional, default `annotation`) - Task type: annotation or rating_preflight. rating_preflight requires direct openai, endpoint /v1/moderations, an openai/omni-moderation-* model, and ratings model_type. (CLI: `--task-type`)
 - `resolution`: `int?` (optional, default `None`) - Processed image long-edge resolution to use (e.g. 512). Omit to use stored_image_path. When specified, the original image guard is bypassed and processed images are submitted. (CLI: `--resolution`)
 
+**Output `BatchSubmissionItem`**
+
+- `kind`: `item` (optional, default `item`)
+- `type`: `batch_submission` (optional, default `batch_submission`)
+- `status`: `submitted | failed | unsubmitted` (required)
+- `image_ids`: `list[int]` (required) - At most 500 IDs assigned to this job/attempt.
+- `job_id`: `int?` (optional, default `None`)
+- `reason`: `str?` (optional, default `None`)
+
 **Output `BatchJobResult`**
 
 - `kind`: `result` (optional, default `result`)
-- `ok`: `true` (optional, default `True`)
+- `ok`: `bool` (optional, default `True`)
 - `message`: `str` (required)
+- `status`: `success | partial_success | failed?` (optional, default `None`)
+- `project`: `str?` (optional, default `None`)
+- `total`: `int?` (optional, default `None`)
+- `submitted`: `int?` (optional, default `None`)
+- `failed`: `int?` (optional, default `None`)
+- `unsubmitted`: `int?` (optional, default `None`)
+- `interrupted`: `bool` (optional, default `False`)
+- `job_ids`: `list[int]` (optional)
 - `job_id`: `int?` (optional, default `None`)
 - `job`: `dict?` (optional, default `None`)
 
@@ -907,7 +950,7 @@ Structured error payload emitted as kind=error by the CLI boundary.
 
 ### `images register`
 
-Register images from a file or directory into a project.
+Register images and stream authoritative DB outcomes with unique selected IDs. See docs/cli-registration-workflow.md for same-project ID handoff and partial failures.
 
 - Read only: `false`
 - Side effects: `file_read`, `file_write`, `db_read`, `db_write`
@@ -924,7 +967,17 @@ lorairo-cli --json describe "images register"
 
 - `path`: `str` (required) - Image file or directory path (CLI: `path`)
 - `project`: `str` (required) - Project name (CLI: `--project`, `-p`)
-- `skip_duplicates`: `bool` (optional, default `True`) - Skip duplicate images (detected by pHash) (CLI: `--skip-duplicates`, `--include-duplicates`)
+- `skip_duplicates`: `bool` (optional, default `True`) - Exclude duplicate IDs from downstream selection; --include-duplicates selects existing IDs once. (CLI: `--skip-duplicates`, `--include-duplicates`)
+
+**Output `ImagesRegisterItem`**
+
+- `input_path`: `str` (required)
+- `outcome`: `registered | variant | duplicate | failed` (required)
+- `image_id`: `int?` (optional, default `None`)
+- `project`: `str?` (optional, default `None`)
+- `selected`: `bool` (optional, default `False`) - True once per unique eligible ID; duplicates require include-duplicates.
+- `error`: `str?` (optional, default `None`)
+- `kind`: `item` (optional, default `item`)
 
 **Output `ImagesRegisterResult`**
 
@@ -933,11 +986,16 @@ lorairo-cli --json describe "images register"
 - `message`: `str` (required)
 - `status`: `success | partial_success | failed` (optional, default `success`) - Failures, including partial success, return ok=false and exit 1; normal skip/empty returns exit 0.
 - `variant`: `int` (optional, default `0`)
+- `project`: `str?` (optional, default `None`)
+- `target_count`: `int` (optional, default `0`)
+- `interrupted`: `bool` (optional, default `False`)
+- `unprocessed`: `int` (optional, default `0`)
 - `total`: `int` (required)
 - `registered`: `int` (required)
 - `skipped`: `int` (required)
 - `errors`: `int` (required)
-- `error_details`: `list[str]` (optional)
+- `error_details`: `list[str]` (optional) - At most 100 samples; complete error details are in item rows.
+- `error_details_truncated`: `bool` (optional, default `False`)
 
 **Error `CliErrorResponse`**
 

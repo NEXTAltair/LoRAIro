@@ -33,6 +33,7 @@ from lorairo.cli._boundary import command_boundary
 from lorairo.cli._console import make_console
 from lorairo.cli._emit import emit_item, emit_result
 from lorairo.cli._image_guard import reject_original_image_records
+from lorairo.cli._image_ids import resolve_annotation_ids
 from lorairo.cli._output_mode import is_json_mode
 from lorairo.database.db_core import resolve_stored_path
 from lorairo.database.filter_criteria import ImageFilterCriteria
@@ -856,6 +857,11 @@ def _print_annotation_filter_summary(
         _status_console().print(f"[cyan]Filter: missing model {missing_model_litellm_id}[/cyan]")
 
 
+def _warn_deprecated_models(annotator: Any, models: list[str]) -> None:
+    for model in _get_deprecated_models_best_effort(annotator, models):
+        _status_console().print(f"[yellow]Warning: Model '{model}' is deprecated[/yellow]")
+
+
 @app.command("run")
 def run(
     project: str = typer.Option(
@@ -905,6 +911,11 @@ def run(
         "-i",
         help="Target specific image ID(s); repeatable",
     ),
+    image_ids_file: str | None = typer.Option(
+        None,
+        "--image-ids-file",
+        help="UTF-8 newline/comma ID file, max100,000; exclusive with --image-id. Selection and image loading are chunked.",
+    ),
     unrated: bool = typer.Option(
         False,
         "--unrated",
@@ -931,6 +942,10 @@ def run(
     --output/-o is unsupported and fails before annotation. Use export create for files.
     使用可能なモデル ID は 'lorairo-cli models list' で確認してください。
 
+    Explicit ID files are UTF-8 newline/comma lists (max 100,000). Filters intersect the input;
+    ascending ID order, offset, then limit apply before resolution selection. Missing processed
+    images are skipped. JSON outcome rows distinguish completed/failed/skipped/unexecuted.
+
     Issue #245 / ADR 0023 Phase 1.11: `--model` には `litellm_model_id` (registry
     key SSoT) を渡すこと。display 名 (`Model.name`) は同一値で複数 route の行が
     共存しうるため、曖昧時は Error で abort し候補一覧を表示する。
@@ -947,6 +962,7 @@ def run(
                 "--output/-o is unsupported: annotate run saves results to the project database. "
                 "Omit --output, then use export create with explicit image IDs for file output."
             )
+        explicit_ids = resolve_annotation_ids(image_id, image_ids_file)
         # API層経由でプロジェクト確認 & DB 接続切り替え
         api_get_project(project)
 
@@ -965,6 +981,23 @@ def run(
             unrated=unrated,
             missing_model=missing_model,
         )
+
+        if explicit_ids:
+            from lorairo.cli._annotation_ids import run_id_annotation
+
+            run_id_annotation(
+                container,
+                image_ids=explicit_ids,
+                file_input=image_ids_file is not None,
+                project=project,
+                criteria=criteria,
+                offset=offset,
+                limit=limit,
+                resolution=resolution,
+                batch_size=batch_size,
+                models=resolved_litellm_ids,
+            )
+            return
 
         image_records, total_in_db = image_repo.get_images_by_filter(criteria)
 
@@ -1016,9 +1049,7 @@ def run(
         annotator = container.annotator_library
         config = container.config_service
 
-        deprecated_models = _get_deprecated_models_best_effort(annotator, resolved_litellm_ids)
-        for deprecated_model in deprecated_models:
-            target_console.print(f"[yellow]Warning: Model '{deprecated_model}' is deprecated[/yellow]")
+        _warn_deprecated_models(annotator, resolved_litellm_ids)
 
         # Issue #241: 実行直前に LoRAIro 側で API key 不足を事前検出する。
         # 旧実装は「3 種類キー全部無いとき警告」だけで、片方の provider key だけ

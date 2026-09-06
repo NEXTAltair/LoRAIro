@@ -196,6 +196,7 @@ def test_annotate_run_describes_only_supported_flags() -> None:
         "limit",
         "offset",
         "image_id",
+        "image_ids_file",
         "batch_size",
         "unrated",
         "missing_model",
@@ -242,8 +243,9 @@ def test_batch_submit_describes_csv_image_ids() -> None:
     fields = {field["name"]: field for field in input_row["fields"]}
 
     assert "image_id" not in fields
-    assert fields["image_ids"]["type"] == "str"
-    assert fields["image_ids"]["required"] is True
+    assert fields["image_ids"]["type"] == "str?"
+    assert fields["image_ids"]["required"] is False
+    assert "image_ids_file" in fields
     assert "Comma-separated" in fields["image_ids"]["description"]
 
 

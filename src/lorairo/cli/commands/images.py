@@ -179,7 +179,7 @@ def register(
     skip_duplicates: bool = typer.Option(
         True,
         "--skip-duplicates/--include-duplicates",
-        help="Skip duplicate images (detected by pHash)",
+        help="Exclude duplicate IDs from downstream selection; --include-duplicates selects existing IDs once.",
     ),
 ) -> None:
     """Register images from file or directory to project.
@@ -187,6 +187,9 @@ def register(
     画像ファイルまたはディレクトリからプロジェクトへ画像を登録します。
     pHashを計算して重複検出を行います。
 
+    JSON item rows carry input_path/outcome/image_id/project/selected. Registered and variant IDs
+    are selected once; --include-duplicates also selects existing duplicate IDs. Check terminal
+    result target_count and success before creating an ID file for the same project.
     Partial or complete failures exit 1; successful/empty/normal skip results exit 0.
     """
     with command_boundary():
@@ -203,44 +206,42 @@ def register(
         get_service_container().set_active_project(project)
 
         # API層経由で画像登録（プロジェクトコンテキスト付き）
-        result = api_register_images(input_path, skip_duplicates, project_name=project)
+        result = api_register_images(
+            input_path,
+            skip_duplicates,
+            project_name=project,
+            on_item=emit_item if is_json_mode() else None,
+            collect_items=False,
+        )
 
-        if result.total == 0:
-            if is_json_mode():
-                emit_result(
-                    f"No image files found in {path}",
-                    status="success",
-                    total=0,
-                    registered=0,
-                    variant=0,
-                    skipped=0,
-                    errors=0,
-                )
-            else:
-                console.print(f"[yellow]Warning:[/yellow] No image files found in {path}")
-            return
-
+        failed = bool(result.failed or result.interrupted)
+        status = (
+            "success"
+            if not failed
+            else ("partial_success" if result.successful + result.variant + result.skipped else "failed")
+        )
         if is_json_mode():
             emit_result(
                 f"Registered {result.successful} image(s) to project: {project}",
-                ok=result.failed == 0,
-                status=(
-                    "success"
-                    if result.failed == 0
-                    else "partial_success"
-                    if result.successful + result.variant + result.skipped
-                    else "failed"
-                ),
+                ok=not failed,
+                status=status,
+                project=project,
                 total=result.total,
                 registered=result.successful,
                 variant=result.variant,
                 skipped=result.skipped,
                 errors=result.failed,
+                target_count=result.target_count,
+                interrupted=result.interrupted,
+                unprocessed=result.unprocessed,
                 error_details=list(result.error_details) if result.error_details else [],
+                error_details_truncated=result.error_details_truncated,
             )
         else:
+            if result.total == 0:
+                console.print(f"[yellow]Warning:[/yellow] No image files found in {path}")
             _print_registration_summary(result, project)
-        if result.failed:
+        if failed:
             raise typer.Exit(1)
 
 
