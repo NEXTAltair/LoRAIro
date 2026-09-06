@@ -16,6 +16,7 @@ from lorairo.cli._emit import emit_result
 from lorairo.cli._image_ids import resolve_image_ids_input
 from lorairo.cli._output_mode import is_json_mode
 from lorairo.public_api.project import get_project as api_get_project
+from lorairo.services.dataset_export_service import ExportResult
 from lorairo.services.service_container import get_service_container
 
 # サブコマンドアプリ定義
@@ -94,24 +95,35 @@ def create(
 
         export_service = container.dataset_export_service
         output_path = Path(output)
-        output_path.mkdir(parents=True, exist_ok=True)
 
         if not is_json_mode():
             console.print(f"Exporting {len(image_ids)} image(s) to {output}")
 
-        # タグ txt + キャプション txt
-        txt_path = export_service.export_dataset_txt_format(
-            image_ids, output_path, resolution, tag_languages=tag_languages
-        )
-        # JSON メタデータ
-        export_service.export_dataset_json_format(
-            image_ids, output_path, resolution, tag_languages=tag_languages
+        report = ExportResult(image_ids)
+        # Both format writers retain partial output evidence, including late JSON writes.
+        for format_name, writer in (
+            ("txt", export_service.export_dataset_txt_format),
+            ("json", export_service.export_dataset_json_format),
+        ):
+            try:
+                writer(image_ids, output_path, resolution, tag_languages=tag_languages, report=report)
+            except Exception as exc:
+                # Setup/finalization failures can affect every image in this format.
+                for image_id in image_ids:
+                    report.completed.setdefault(image_id, set()).discard(format_name)
+                    report.fail(image_id, format_name, "export_error", str(exc))
+        summary = report.summary()
+        message = (
+            "Export completed successfully."
+            if summary["ok"]
+            else "Export incomplete. Retry failed_ids after correcting error_details."
         )
 
         if is_json_mode():
             emit_result(
-                "Export completed successfully.",
-                output_path=str(txt_path),
+                message,
+                **summary,
+                output_path=str(output_path),
                 total_images=len(image_ids),
                 resolution=resolution,
                 tag_languages=tag_languages or ["canonical"],
@@ -120,9 +132,16 @@ def create(
             table = Table()
             table.add_column("Metric", style="cyan")
             table.add_column("Value", style="green")
-            table.add_row("Total Images", str(len(image_ids)))
+            table.add_row("Requested Images", str(len(image_ids)))
+            for metric in ("exported", "skipped", "failed"):
+                table.add_row(metric.title(), str(summary[metric]))
             table.add_row("Resolution", f"{resolution}px")
             table.add_row("Tag Languages", ", ".join(tag_languages or ["canonical"]))
-            table.add_row("Output Path", str(txt_path))
+            table.add_row("Output Path", str(output_path))
             console.print(table)
-            console.print("\nExport completed successfully!")
+            console.print(message)
+            if not summary["ok"]:
+                console.print(f"Retry image IDs: {summary['failed_ids']}")
+                console.print(summary["error_details"])
+        if not summary["ok"]:
+            raise typer.Exit(code=1)

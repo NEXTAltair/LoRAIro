@@ -323,7 +323,15 @@ class ExportCreateResult(BaseModel):
     """JSONL result payload emitted by ``export create --json``."""
 
     kind: Literal["result"] = "result"
-    ok: Literal[True] = True
+    ok: bool = True
+    status: Literal["success", "partial_success", "failed"]
+    requested: int
+    exported: int
+    skipped: int
+    failed: int
+    exported_ids: list[int]
+    failed_ids: list[int]
+    error_details: list[dict[str, Any]]
     message: str
     output_path: str | None = None
     total_images: int | None = None
@@ -1198,11 +1206,24 @@ TOOL_SPECS: dict[str, ToolSpec] = {
             _output(
                 "ExportCreateResult",
                 (
+                    _f("ok", "bool", required=True),
+                    _f("status", "success|partial_success|failed", required=True),
+                    _f("requested", "int", required=True),
+                    _f("exported", "int", required=True),
+                    _f("skipped", "int", required=True),
+                    _f("failed", "int", required=True),
+                    _f("exported_ids", "list[int]", required=True),
+                    _f("failed_ids", "list[int]", required=True),
+                    _f("error_details", "list[dict]", required=True),
                     _f("output_path", "path?"),
                     _f("total_images", "int?"),
                     _f("resolution", "int?"),
                     _f("tag_languages", "list[str]?"),
                     _f("count", "int?"),
+                ),
+                description=(
+                    "Missing or failed images return ok=false and exit 1; total_images remains the requested "
+                    "count. See [export result and retry contract](cli-export-results.md)."
                 ),
                 schema=ExportCreateResult,
             ),

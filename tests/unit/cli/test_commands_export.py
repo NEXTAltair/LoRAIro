@@ -17,8 +17,17 @@ def _make_export_container(tmp_path: Path) -> MagicMock:
     container = MagicMock()
     out_dir = tmp_path / "out"
     out_dir.mkdir()
-    container.dataset_export_service.export_dataset_txt_format.return_value = out_dir
-    container.dataset_export_service.export_dataset_json_format.return_value = out_dir
+
+    def complete(format_name):
+        def export(image_ids, output_path, resolution, *, report, **kwargs):
+            for image_id in image_ids:
+                report.completed.setdefault(image_id, set()).add(format_name)
+            return output_path
+
+        return export
+
+    container.dataset_export_service.export_dataset_txt_format.side_effect = complete("txt")
+    container.dataset_export_service.export_dataset_json_format.side_effect = complete("json")
     return container
 
 
@@ -217,3 +226,209 @@ class TestExportCreateImageIdsFile:
             ],
         )
         assert result.exit_code == 2
+
+
+@pytest.fixture
+def real_export_context(tmp_path, monkeypatch):
+    """Real writers and local artifacts with isolated DB/copy boundaries."""
+    import shutil
+
+    from lorairo.services.dataset_export_service import DatasetExportService
+
+    db = MagicMock()
+    db.annotation_repo.get_merged_reader.return_value = None
+    db.get_image_metadata.side_effect = lambda image_id: {"id": image_id} if image_id in (1, 2) else None
+    db.get_image_annotations.return_value = {
+        "tags": [{"tag": "sample"}],
+        "captions": [{"caption": "Synthetic image"}],
+        "score_labels": [],
+        "quality_summary": {},
+    }
+    paths = {}
+    for image_id in (1, 2):
+        path = tmp_path / f"source-{image_id}.png"
+        path.write_bytes(b"synthetic processed image")
+        paths[image_id] = path
+    db.check_processed_image_exists.side_effect = lambda image_id, resolution: (
+        {"stored_image_path": str(paths[image_id])} if image_id in paths else None
+    )
+    fs = MagicMock()
+    fs.copy_file.side_effect = shutil.copyfile
+    service = DatasetExportService(MagicMock(), fs, db, MagicMock())
+    container = MagicMock()
+    container.dataset_export_service = service
+    monkeypatch.setattr("lorairo.cli.commands.export.api_get_project", MagicMock())
+    monkeypatch.setattr("lorairo.cli.commands.export.get_service_container", lambda: container)
+    monkeypatch.setattr("lorairo.services.dataset_export_service.resolve_stored_path", Path)
+    return service, db, paths
+
+
+def _invoke_real_export(output, image_ids="1,2"):
+    result = runner.invoke(
+        app,
+        [
+            "--json",
+            "export",
+            "create",
+            "--project",
+            "synthetic",
+            "--image-ids",
+            image_ids,
+            "--output",
+            str(output),
+        ],
+    )
+    rows = [json.loads(line) for line in result.stdout.splitlines()]
+    assert len(rows) == 1
+    from lorairo.cli.introspection import ExportCreateResult
+
+    ExportCreateResult.model_validate(rows[0])
+    return result, rows[0]
+
+
+@pytest.mark.parametrize(
+    ("missing", "copy_error", "expected_exported", "expected_skipped", "expected_failed"),
+    [((), False, 2, 0, 0), ((1, 2), False, 0, 2, 0), ((2,), False, 1, 1, 0), ((), True, 0, 0, 2)],
+)
+def test_real_export_counts_match_artifacts(
+    real_export_context, tmp_path, missing, copy_error, expected_exported, expected_skipped, expected_failed
+):
+    service, _db, paths = real_export_context
+    for image_id in missing:
+        paths[image_id].unlink()
+    if copy_error:
+        service.file_system_manager.copy_file.side_effect = OSError("copy failed")
+    output = tmp_path / "out"
+    result, row = _invoke_real_export(output)
+    assert result.exit_code == (0 if expected_exported == 2 else 1)
+    assert row["ok"] is (expected_exported == 2)
+    assert row["requested"] == row["total_images"] == 2
+    assert (row["exported"], row["skipped"], row["failed"]) == (
+        expected_exported,
+        expected_skipped,
+        expected_failed,
+    )
+    metadata = json.loads((output / "metadata.json").read_text())
+    assert (
+        len(metadata)
+        == len(list(output.glob("*.png")))
+        == len(list(output.glob("*.txt")))
+        == expected_exported
+    )
+    for entry in metadata.values():
+        assert entry["tags"] == "sample"
+        assert entry["caption"] == "Synthetic image"
+    assert row["status"] == (
+        "success" if expected_exported == 2 else "partial_success" if expected_exported else "failed"
+    )
+
+
+def test_export_missing_id_differs_from_missing_processed(real_export_context, tmp_path):
+    _service, _db, paths = real_export_context
+    paths[2].unlink()
+    result, row = _invoke_real_export(tmp_path / "out", "2,99")
+    assert result.exit_code == 1
+    reasons = {item["image_id"]: item["errors"][0]["reason"] for item in row["error_details"]}
+    assert reasons == {2: "processed_image_missing", 99: "image_not_found"}
+
+
+@pytest.mark.parametrize(
+    "operation", ["get_image_metadata", "check_processed_image_exists", "get_image_annotations"]
+)
+def test_export_db_errors_are_failures_not_missing(real_export_context, tmp_path, operation):
+    _service, db, _paths = real_export_context
+    getattr(db, operation).side_effect = RuntimeError("DB read failed")
+    result, row = _invoke_real_export(tmp_path / "out")
+    assert result.exit_code == 1
+    assert row["failed"] == 2
+    assert row["skipped"] == 0
+    assert all(
+        error["reason"] == "export_error" for item in row["error_details"] for error in item["errors"]
+    )
+
+
+def test_json_finalization_failure_preserves_txt_and_retry_ids(real_export_context, tmp_path, monkeypatch):
+    import builtins
+
+    original_open = builtins.open
+
+    def fail_metadata(file, mode="r", *args, **kwargs):
+        if Path(file).name == "metadata.json" and mode == "w":
+            raise OSError("metadata disk error")
+        return original_open(file, mode, *args, **kwargs)
+
+    monkeypatch.setattr(builtins, "open", fail_metadata)
+    output = tmp_path / "out"
+    result, row = _invoke_real_export(output)
+    assert result.exit_code == 1
+    assert row["exported"] == 0
+    assert row["failed_ids"] == [1, 2]
+    assert len(list(output.glob("*.txt"))) == 2
+    for item in row["error_details"]:
+        assert item["completed_formats"] == ["txt"]
+        assert any(path.endswith(".txt") for path in item["output_files"])
+        assert item["errors"][0]["reason"] == "metadata_write_error"
+    monkeypatch.setattr(builtins, "open", original_open)
+    retry, retry_row = _invoke_real_export(tmp_path / "retry", ",".join(map(str, row["failed_ids"])))
+    assert retry.exit_code == 0
+    assert retry_row["exported_ids"] == [1, 2]
+
+
+@pytest.mark.parametrize(
+    ("count", "file_input", "expected_exit"),
+    [(0, False, 2), (1, False, 0), (500, False, 0), (501, False, 2), (501, True, 0)],
+)
+def test_export_input_boundaries(mock_export_context, tmp_path, count, file_input, expected_exit):
+    values = ",".join(str(value) for value in range(1, count + 1))
+    option = "--image-ids"
+    if file_input:
+        file_path = tmp_path / "ids.txt"
+        file_path.write_text(values)
+        values = str(file_path)
+        option = "--image-ids-file"
+    result = runner.invoke(
+        app,
+        [
+            "--json",
+            "export",
+            "create",
+            "--project",
+            "synthetic",
+            option,
+            values,
+            "--output",
+            str(tmp_path / "out"),
+        ],
+    )
+    assert result.exit_code == expected_exit
+
+
+def test_human_export_failure_does_not_claim_success(real_export_context, tmp_path):
+    service, _db, _paths = real_export_context
+    service.file_system_manager.copy_file.side_effect = OSError("copy failed")
+    result = runner.invoke(
+        app,
+        [
+            "export",
+            "create",
+            "--project",
+            "synthetic",
+            "--image-ids",
+            "1,2",
+            "--output",
+            str(tmp_path / "out"),
+        ],
+    )
+    assert result.exit_code == 1
+    assert "Export completed successfully" not in result.stdout
+    assert "Export incomplete" in result.stdout
+    assert "Retry image IDs" in result.stdout
+
+
+def test_export_output_directory_failure_retains_counts(real_export_context, tmp_path):
+    output = tmp_path / "occupied"
+    output.write_text("preexisting file")
+    result, row = _invoke_real_export(output)
+    assert result.exit_code == 1
+    assert row["failed"] == row["requested"] == 2
+    assert output.read_text() == "preexisting file"
