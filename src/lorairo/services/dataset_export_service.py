@@ -378,7 +378,8 @@ class DatasetExportService:
         self, image_id: int, resolution: int, report: ExportResult, stage: str, tracking: bool
     ) -> tuple[Path, dict[str, Any]] | None:
         """Resolve export inputs while distinguishing absent images and operational errors."""
-        if tracking and not self.db_manager.get_image_metadata(image_id):
+        metadata = self.db_manager.get_image_metadata(image_id) if tracking else None
+        if tracking and not metadata:
             report.fail(image_id, stage, "image_not_found", "Image ID does not exist")
             return None
         path = (
@@ -395,7 +396,7 @@ class DatasetExportService:
             )
             return None
         data = (
-            self._get_image_export_data(image_id, strict=True)
+            self._get_image_export_data(image_id, strict=True, metadata=metadata)
             if tracking
             else self._get_image_export_data(image_id)
         )
@@ -744,19 +745,23 @@ class DatasetExportService:
         # genai_tag_db_tools は mypy 上 untyped 扱いのため str へ明示変換する
         return str(convert_tags(reader, tags, tag_format, exclude_types=["meta"]))
 
-    def _get_image_export_data(self, image_id: int, *, strict: bool = False) -> dict[str, Any] | None:
+    def _get_image_export_data(
+        self, image_id: int, *, strict: bool = False, metadata: dict[str, Any] | None = None
+    ) -> dict[str, Any] | None:
         """Get image data required for export (tags, captions, metadata).
 
         Args:
             image_id: Database image ID
             strict: Propagate operational errors for reporting callers.
+            metadata: Reuse a caller's metadata lookup; None performs the lookup here.
 
         Returns:
             Dictionary with image export data, None if not found
         """
         try:
             # Get image metadata
-            metadata = self.db_manager.get_image_metadata(image_id)
+            if metadata is None:
+                metadata = self.db_manager.get_image_metadata(image_id)
             if not metadata:
                 return None
 

@@ -286,6 +286,35 @@ def _invoke_real_export(output, image_ids="1,2"):
     return result, rows[0]
 
 
+@pytest.mark.parametrize("use_file", [False, True])
+def test_export_reuses_metadata_lookup_per_format(real_export_context, tmp_path, use_file):
+    """Tracking must retain the legacy two metadata reads per ID across both writers."""
+    from collections import Counter
+
+    _service, db, _paths = real_export_context
+    output = tmp_path / "out"
+    selection = ["--image-ids", "1,2,99"]
+    if use_file:
+        ids_file = tmp_path / "ids.txt"
+        ids_file.write_text("1\n2\n99\n", encoding="utf-8")
+        selection = ["--image-ids-file", str(ids_file)]
+    result = runner.invoke(
+        app,
+        ["--json", "export", "create", "--project", "synthetic", *selection, "--output", str(output)],
+    )
+    row = json.loads(result.stdout.splitlines()[-1])
+    assert result.exit_code == 1
+    assert row["status"] == "partial_success"
+    assert row["exported_ids"] == [1, 2]
+    assert row["failed_ids"] == [99]
+    assert all(error["reason"] == "image_not_found" for error in row["error_details"][0]["errors"])
+    assert Counter(call.args[0] for call in db.get_image_metadata.call_args_list) == {1: 2, 2: 2, 99: 2}
+    assert Counter(call.args[0] for call in db.get_image_annotations.call_args_list) == {1: 2, 2: 2}
+    assert len(json.loads((output / "metadata.json").read_text())) == 2
+    assert len(list(output.glob("*.txt"))) == 2
+    assert len(list(output.glob("*.caption"))) == 2
+
+
 def test_duplicate_csv_ids_report_unique_actual_outputs(real_export_context, tmp_path):
     service, _db, _paths = real_export_context
     result, row = _invoke_real_export(tmp_path / "out", "1,1")
