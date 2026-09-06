@@ -1345,3 +1345,115 @@ class TestKeywordGroupSearch:
         )
         # untagged かつ caption に hello を含む画像のみ (tagged は untagged filter で除外)
         assert {r["id"] for r in results} == {untagged_hit}
+
+
+@pytest.mark.parametrize("size", [0, 1, 500, 501, 1000, 10000])
+def test_id_pages_use_one_count_and_one_id_cursor(
+    size, memory_session_factory, image_repository, monkeypatch
+):
+    """Ordinary bulk output loads no image objects/annotations and holds <=500 IDs per page."""
+    from sqlalchemy import event, insert
+
+    with memory_session_factory() as session:
+        if size:
+            session.execute(
+                insert(Image),
+                [
+                    {
+                        "uuid": f"stream-{i}",
+                        "phash": f"stream-{i}",
+                        "filename": f"{i:06}.png",
+                        "original_image_path": f"/tmp/{i}.png",
+                        "stored_image_path": f"/tmp/{i}.png",
+                        "width": 64,
+                        "height": 64,
+                        "format": "PNG",
+                        "extension": ".png",
+                    }
+                    for i in range(size)
+                ],
+            )
+            session.commit()
+    engine = memory_session_factory.kw["bind"]
+    queries = []
+
+    def record(_conn, _cursor, statement, _parameters, _context, _many):
+        queries.append(statement)
+
+    event.listen(engine, "before_cursor_execute", record)
+    fetch_metadata = image_repository._fetch_filtered_metadata
+    monkeypatch.setattr(
+        image_repository, "_fetch_filtered_metadata", Mock(side_effect=AssertionError("metadata loaded"))
+    )
+    try:
+        with image_repository.image_id_pages(
+            ImageFilterCriteria(offset=123, limit=1, include_nsfw=True)
+        ) as (total, pages):
+            assert total == size
+            received = []
+            for page in pages:
+                assert 1 <= len(page) <= 500
+                received.extend(page)
+        assert received == list(range(1, size + 1))
+        assert len(queries) == 2
+        assert sum("count(" in q.lower() for q in queries) == 1
+        assert all("images.uuid" not in q and "annotations" not in q for q in queries)
+        new_sql_count = len(queries)
+        queries.clear()
+        monkeypatch.setattr(image_repository, "_fetch_filtered_metadata", fetch_metadata)
+        # Reproduce the former count + metadata-page orchestration against real SQL.
+        old_total = image_repository.get_images_count_only(ImageFilterCriteria(include_nsfw=True))
+        old_ids = []
+        for start in range(0, old_total, 500):
+            metadata, _ = image_repository.get_images_by_filter(
+                ImageFilterCriteria(include_nsfw=True, offset=start, limit=500)
+            )
+            old_ids.extend(row["id"] for row in metadata)
+        assert old_ids == received
+        assert sum("count(" in q.lower() for q in queries) == 1 + (size + 499) // 500
+        print(
+            {
+                "N": size,
+                "old_count_sql": 1 + (size + 499) // 500,
+                "new_count_sql": 1,
+                "old_total_sql": len(queries),
+                "new_total_sql": new_sql_count,
+                "old_metadata_rows": len(old_ids),
+                "new_metadata_rows": 0,
+            }
+        )
+    finally:
+        event.remove(engine, "before_cursor_execute", record)
+
+
+def test_id_pages_sort_limits_and_exact_set(image_repository):
+    first = _insert_image(image_repository, uuid="one", phash="one", filename="z.png")
+    second = _insert_image(image_repository, uuid="two", phash="two", filename="a.png")
+    _insert_processed_image(image_repository, image_id=second)
+    with image_repository.image_id_pages(ImageFilterCriteria(sort_field="file_path"), max_ids=1) as (
+        total,
+        pages,
+    ):
+        assert total == 2
+        assert list(pages) == [[second]]
+    with image_repository.image_id_pages(ImageFilterCriteria(sort_direction="desc")) as (total, pages):
+        assert total == 2
+        assert list(pages) == [[second, first]]
+    exact = ImageFilterCriteria(
+        image_ids=[second, first, second, 999], tags=["absent"], offset=100, limit=1
+    )
+    with image_repository.image_id_pages(exact) as (total, pages):
+        assert total == 2
+        assert list(pages) == [[second, first]]
+    exact.resolution = 512
+    with image_repository.image_id_pages(exact) as (total, pages):
+        assert total == 1
+        assert list(pages) == [[second]]
+
+
+@pytest.mark.parametrize(
+    "kwargs", [{"page_size": 0}, {"page_size": 501}, {"max_ids": -1}, {"max_ids": 100001}]
+)
+def test_id_pages_invalid_bounds(image_repository, kwargs):
+    with pytest.raises(ValueError), image_repository.image_id_pages(ImageFilterCriteria(), **kwargs):
+        pass

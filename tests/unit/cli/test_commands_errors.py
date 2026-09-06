@@ -272,3 +272,58 @@ class TestErrorsResolve:
             ["--json", "errors", "resolve", "--project", "proj", "--ids", ""],
         )
         assert result.exit_code != 0
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("json_mode", [False, True])
+@pytest.mark.parametrize(
+    "selection,expected_status,expected_updated,expected_requested",
+    [
+        ("existing_missing", "partial_success", 1, 2),
+        ("missing_only", "failed", 0, 1),
+        ("duplicate_existing", "success", 1, 1),
+        ("already_resolved", "success", 1, 1),
+    ],
+)
+def test_resolve_real_repository_requires_all_unique_ids(
+    monkeypatch,
+    test_error_record_repository,
+    json_mode,
+    selection,
+    expected_status,
+    expected_updated,
+    expected_requested,
+):
+    """A committed UPDATE is not proof that every requested ID existed (#1313 review)."""
+    repo = test_error_record_repository
+    existing = repo.save_error_record(
+        operation_type="annotation", error_type="TestError", error_message="synthetic"
+    )
+    missing = existing + 100000
+    ids = {
+        "existing_missing": f"{existing},{missing}",
+        "missing_only": str(missing),
+        "duplicate_existing": f"{existing},{existing}",
+        "already_resolved": str(existing),
+    }[selection]
+    if selection == "already_resolved":
+        assert repo.mark_errors_resolved_batch([existing]) == (True, 1)
+    container = MagicMock()
+    container.db_manager.error_record_repo = repo
+    monkeypatch.setattr("lorairo.cli.commands.errors.api_get_project", MagicMock())
+    monkeypatch.setattr("lorairo.cli.commands.errors.get_service_container", lambda: container)
+    result = runner.invoke(
+        app, (["--json"] if json_mode else []) + ["errors", "resolve", "-p", "demo", "--ids", ids]
+    )
+    assert result.exit_code == (0 if expected_status == "success" else 1), result.output
+    if json_mode:
+        rows = [json.loads(line) for line in result.stdout.splitlines()]
+        assert len(rows) == 1
+        assert rows[0]["kind"] == "result"
+        assert rows[0]["ok"] is (expected_status == "success")
+        assert rows[0]["status"] == expected_status
+        assert rows[0]["resolved"] == expected_updated
+        assert rows[0]["requested"] == expected_requested
+    record = repo.get_error_record(existing)
+    assert record is not None
+    assert (record.resolved_at is not None) is (selection != "missing_only")
