@@ -6,8 +6,6 @@ CLI/GUI双方から利用可能にする。Qt 依存なし。
 
 import json
 import shutil
-import stat
-from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 
@@ -20,30 +18,6 @@ from lorairo.public_api.exceptions import (
 )
 from lorairo.public_api.types import ProjectInfo
 from lorairo.utils.config import get_config
-
-
-@dataclass
-class _CreatedDirectory:
-    """Track filesystem identity separately from a path that another process can replace."""
-
-    path: Path
-    identity: tuple[int, int] | None = None
-
-    def capture_identity(self) -> None:
-        created_stat = self.path.lstat()
-        if not stat.S_ISDIR(created_stat.st_mode):
-            raise OSError("Created directory was replaced before its identity could be recorded")
-        self.identity = (created_stat.st_dev, created_stat.st_ino)
-
-    def verify_identity(self) -> None:
-        if self.identity is None:
-            raise OSError("Directory identity unavailable; cleanup skipped to preserve existing contents")
-        current_stat = self.path.lstat()
-        if not stat.S_ISDIR(current_stat.st_mode) or self.identity != (
-            current_stat.st_dev,
-            current_stat.st_ino,
-        ):
-            raise OSError("Directory identity changed; replacement preserved, original may have been moved")
 
 
 class ProjectManagementService:
@@ -71,6 +45,8 @@ class ProjectManagementService:
     def create_project(self, name: str, description: str = "") -> ProjectInfo:
         """プロジェクトを作成。
 
+        単一操作の失敗を復旧する。別プロセスによる同時変更・パス置換は保証対象外。
+
         ディレクトリ構造:
         ```
         lorairo_data/  (config/lorairo.toml の database_base_dir, ADR 0018)
@@ -92,8 +68,8 @@ class ProjectManagementService:
             ProjectAlreadyExistsError: 同名プロジェクトが既に存在。
             ProjectOperationError: プロジェクト作成に失敗。
         """
-        owned_project: _CreatedDirectory | None = None
-        created_parents: list[_CreatedDirectory] = []
+        owned_project: Path | None = None
+        created_parents: list[Path] = []
         try:
             # 既存確認
             if self._project_exists(name):
@@ -111,15 +87,14 @@ class ProjectManagementService:
             counter = 1
             while True:
                 try:
-                    # Exclusive creation establishes ownership even if another caller races us.
+                    # Exclusive creation preserves any path that existed before this call.
                     project_dir.mkdir()
                 except FileExistsError:
                     date_str = now.strftime(f"%Y%m%d_%H%M%S_{counter}")
                     project_dir = self.projects_base_dir / f"{name}_{date_str}"
                     counter += 1
                 else:
-                    owned_project = _CreatedDirectory(project_dir)
-                    owned_project.capture_identity()
+                    owned_project = project_dir
                     break
 
             (project_dir / "image_dataset").mkdir(exist_ok=True)
@@ -131,7 +106,7 @@ class ProjectManagementService:
                 "created": date_str,
                 "description": description,
             }
-            metadata_file = project_dir / ".lorairo-project"
+            metadata_file = project_dir / ".lorairo-project.pending"
             metadata_file.write_text(json.dumps(metadata, indent=2, ensure_ascii=False))
 
             # 初期データベースファイル作成（ダミー）
@@ -139,15 +114,18 @@ class ProjectManagementService:
             db_file = project_dir / "image_database.db"
             db_file.touch()
 
-            logger.info(f"プロジェクト作成: {name} -> {project_dir}")
-
-            return ProjectInfo(
+            project_info = ProjectInfo(
                 name=name,
                 path=project_dir,
                 created=now,
                 description=description if description else None,
                 image_count=0,
             )
+            # Publish only after writes (including close), directories and DB creation succeed.
+            # Pending metadata is ignored by discovery, even when rollback cannot remove it.
+            logger.debug(f"プロジェクト公開準備完了: {name} -> {project_dir}")
+            metadata_file.replace(project_dir / ".lorairo-project")
+            return project_info
 
         except ProjectAlreadyExistsError:
             raise
@@ -155,8 +133,8 @@ class ProjectManagementService:
             logger.opt(exception=True).error(f"プロジェクト作成失敗: {name}")
             cleanup_errors, residual_paths = self._rollback_creation(owned_project, created_parents)
             recovery = (
-                "Inspect residual_paths, resolve the filesystem error, and remove only the incomplete "
-                "project after checking its contents; then retry project create."
+                "Resolve the filesystem error and retry project create with the same name. "
+                "Inspect residual_paths separately; remove incomplete leftovers only after checking contents."
                 if residual_paths
                 else "Resolve the filesystem error and retry project create with the same name."
             )
@@ -175,7 +153,7 @@ class ProjectManagementService:
                 },
             ) from e
 
-    def _create_base_directories(self, created_parents: list[_CreatedDirectory]) -> None:
+    def _create_base_directories(self, created_parents: list[Path]) -> None:
         """Create missing parents and record ownership for empty-directory rollback."""
         missing_parents = []
         candidate = self.projects_base_dir
@@ -189,32 +167,28 @@ class ProjectManagementService:
                 if not parent.is_dir():
                     raise
             else:
-                created_parent = _CreatedDirectory(parent)
-                created_parents.append(created_parent)
-                created_parent.capture_identity()
+                created_parents.append(parent)
 
     @staticmethod
     def _rollback_creation(
-        owned_project: _CreatedDirectory | None, created_parents: list[_CreatedDirectory]
+        owned_project: Path | None, created_parents: list[Path]
     ) -> tuple[list[dict[str, str]], list[str]]:
         """Remove only this call's project and empty parents; retain all cleanup errors."""
         cleanup_errors: list[dict[str, str]] = []
         residual_paths: list[str] = []
         if owned_project is not None:
             try:
-                owned_project.verify_identity()
-                shutil.rmtree(owned_project.path)
+                shutil.rmtree(owned_project)
             except OSError as cleanup_error:
-                cleanup_errors.append({"path": str(owned_project.path), "error": str(cleanup_error)})
-                residual_paths.append(str(owned_project.path))
+                cleanup_errors.append({"path": str(owned_project), "error": str(cleanup_error)})
+                residual_paths.append(str(owned_project))
         for parent in reversed(created_parents):
             try:
                 # Never recursively remove shared parents or someone else's files.
-                parent.verify_identity()
-                parent.path.rmdir()
+                parent.rmdir()
             except OSError as cleanup_error:
-                cleanup_errors.append({"path": str(parent.path), "error": str(cleanup_error)})
-                residual_paths.append(str(parent.path))
+                cleanup_errors.append({"path": str(parent), "error": str(cleanup_error)})
+                residual_paths.append(str(parent))
         return cleanup_errors, residual_paths
 
     def list_projects(self) -> list[ProjectInfo]:

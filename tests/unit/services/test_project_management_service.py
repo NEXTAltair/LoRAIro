@@ -435,7 +435,7 @@ def test_create_failure_rolls_back_and_allows_retry(
         return original_mkdir(path, *args, **kwargs)
 
     def write(path: Path, *args, **kwargs):
-        if failure_point == "metadata" and path.name == ".lorairo-project":
+        if failure_point == "metadata" and path.name == ".lorairo-project.pending":
             original_write(path, "partial metadata")
             raise OSError("creation failed")
         return original_write(path, *args, **kwargs)
@@ -576,41 +576,95 @@ def test_create_failure_removes_new_base_ancestors(tmp_path: Path, monkeypatch: 
 
 
 @pytest.mark.unit
-@pytest.mark.parametrize("replace_parent", [False, True])
-def test_create_rollback_preserves_replaced_directory(
-    service: ProjectManagementService, monkeypatch: pytest.MonkeyPatch, replace_parent: bool
+@pytest.mark.parametrize("failure_point", ["metadata_close", "db", "project_info", "publish"])
+@pytest.mark.parametrize("cleanup_fails", [False, True])
+def test_creation_publishes_only_complete_projects(
+    service: ProjectManagementService,
+    monkeypatch: pytest.MonkeyPatch,
+    failure_point: str,
+    cleanup_fails: bool,
 ) -> None:
-    """Replacing the owned project or its new parent must not authorize deleting the replacement."""
-    replacements = []
+    """Complete temporary JSON must remain undiscoverable after any pre-publication failure."""
+    service.projects_base_dir.mkdir()
+    original_write = Path.write_text
+    original_touch = Path.touch
+    original_replace = Path.replace
 
-    def fail_touch(path: Path, *args, **kwargs):
-        replaced = service.projects_base_dir if replace_parent else path.parent
-        moved = replaced.with_name(replaced.name + "-moved")
-        replaced.rename(moved)
-        replaced.mkdir()
-        if not replace_parent:
-            (replaced / "keep.txt").write_text("replacement data")
-        replacements.append((replaced, moved))
-        raise OSError("db failed after replacement")
+    def write(path: Path, *args, **kwargs):
+        result = original_write(path, *args, **kwargs)
+        if failure_point == "metadata_close" and path.name == ".lorairo-project.pending":
+            raise OSError("metadata close failed")
+        return result
+
+    def touch(path: Path, *args, **kwargs):
+        result = original_touch(path, *args, **kwargs)
+        if failure_point == "db" and path.name == "image_database.db":
+            raise OSError("db failed")
+        return result
+
+    def replace(path: Path, target: Path):
+        assert service.list_projects() == []
+        assert service._find_project_directory("retry") is None
+        assert (path.parent / "image_database.db").is_file()
+        assert (path.parent / "image_dataset" / "original_images").is_dir()
+        if failure_point == "publish":
+            raise OSError("publish failed")
+        return original_replace(path, target)
 
     with monkeypatch.context() as patcher:
-        patcher.setattr(Path, "touch", fail_touch)
+        patcher.setattr(Path, "write_text", write)
+        patcher.setattr(Path, "touch", touch)
+        patcher.setattr(Path, "replace", replace)
+        if failure_point == "project_info":
+            patcher.setattr(
+                "lorairo.services.project_management_service.ProjectInfo",
+                Mock(side_effect=ValueError("result construction failed")),
+            )
+        if cleanup_fails:
+            patcher.setattr(
+                "lorairo.services.project_management_service.shutil.rmtree",
+                Mock(side_effect=PermissionError("cleanup denied")),
+            )
         with pytest.raises(ProjectOperationError) as caught:
-            service.create_project("replace")
-    replaced, moved = replacements[0]
-    assert replaced.is_dir()
-    assert moved.is_dir()
-    if replace_parent:
-        assert list(replaced.iterdir()) == []  # Even an empty replacement parent must survive.
-        assert list(moved.glob("*/.lorairo-project"))
+            service.create_project("retry")
+    assert caught.value.__cause__ is not None
+    assert service.list_projects() == []
+    with pytest.raises(ProjectNotFoundError):
+        service.get_project("retry")
+    assert not list(service.projects_base_dir.rglob(".lorairo-project"))
+    residuals = list(service.projects_base_dir.iterdir())
+    assert bool(residuals) == cleanup_fails
+    if cleanup_fails:
+        assert caught.value.details["residual_paths"] == [str(residuals[0])]
+        assert caught.value.details["cleanup_errors"][0]["error"] == "cleanup denied"
+        assert json.loads((residuals[0] / ".lorairo-project.pending").read_text())["name"] == "retry"
+    info = service.create_project("retry")
+    assert service.get_project("retry").path == info.path
+    assert [project.name for project in service.list_projects()] == ["retry"]
+    assert not (info.path / ".lorairo-project.pending").exists()
+    assert all(path.exists() for path in residuals)
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("existing_file", [False, True])
+def test_create_preserves_preexisting_timestamp_destination(
+    service: ProjectManagementService, existing_file: bool
+) -> None:
+    """The exact generated destination may already be a file or an unrelated directory."""
+    from datetime import datetime
+
+    now = datetime(2026, 9, 6, 10, 0, 0)
+    service.projects_base_dir.mkdir()
+    existing = service.projects_base_dir / "same_20260906_100000"
+    if existing_file:
+        existing.write_bytes(b"keep")
+        protected = existing
     else:
-        assert (replaced / "keep.txt").read_text() == "replacement data"
-        assert (moved / ".lorairo-project").exists()
-    details = caught.value.details
-    assert details["original_error"] == "db failed after replacement"
-    assert str(replaced) in details["residual_paths"]
-    assert any(
-        error["path"] == str(replaced) and "identity changed" in error["error"]
-        for error in details["cleanup_errors"]
-    )
-    assert str(caught.value.__cause__) == "db failed after replacement"
+        existing.mkdir()
+        protected = existing / "keep.txt"
+        protected.write_bytes(b"keep")
+    with patch("lorairo.services.project_management_service.datetime") as clock:
+        clock.now.return_value = now
+        info = service.create_project("same")
+    assert info.path.name == "same_20260906_100000_1"
+    assert protected.read_bytes() == b"keep"
