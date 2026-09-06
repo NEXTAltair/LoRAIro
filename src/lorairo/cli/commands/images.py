@@ -185,6 +185,8 @@ def register(
 
     画像ファイルまたはディレクトリからプロジェクトへ画像を登録します。
     pHashを計算して重複検出を行います。
+
+    Partial or complete failures exit 1; successful/empty/normal skip results exit 0.
     """
     with command_boundary():
         input_path = Path(path).resolve()
@@ -206,8 +208,10 @@ def register(
             if is_json_mode():
                 emit_result(
                     f"No image files found in {path}",
+                    status="success",
                     total=0,
                     registered=0,
+                    variant=0,
                     skipped=0,
                     errors=0,
                 )
@@ -218,14 +222,25 @@ def register(
         if is_json_mode():
             emit_result(
                 f"Registered {result.successful} image(s) to project: {project}",
+                ok=result.failed == 0,
+                status=(
+                    "success"
+                    if result.failed == 0
+                    else "partial_success"
+                    if result.successful + result.variant + result.skipped
+                    else "failed"
+                ),
                 total=result.total,
                 registered=result.successful,
+                variant=result.variant,
                 skipped=result.skipped,
                 errors=result.failed,
                 error_details=list(result.error_details) if result.error_details else [],
             )
         else:
             _print_registration_summary(result, project)
+        if result.failed:
+            raise typer.Exit(1)
 
 
 @app.command("list")
