@@ -894,7 +894,9 @@ class ToolSpec:
             "global_options": [field.to_dict() for field in GLOBAL_OPTIONS.fields],
             "strict_read_only_supported": self.read_only,
             "conditional_side_effects": (
-                ["db_create", "schema_migration", "model_seed", "directory_create"]
+                ["model_config_create"]
+                if self.path == "models list"
+                else ["db_create", "schema_migration", "model_seed", "directory_create"]
                 if "db_read" in self.side_effects and self.path not in {"models list", "project list"}
                 else []
             ),

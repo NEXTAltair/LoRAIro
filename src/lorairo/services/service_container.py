@@ -570,7 +570,15 @@ def service_container_scope() -> Iterator[ServiceContainer]:
     from ..database import db_core
 
     with db_core.tag_database_scope():
-        # Snapshot/restore process-wide image routing under the same lock as tags.
+        from ..database.access_policy import is_read_only
+
+        # The documented package policy must be set before its first public import.
+        # Keep process-wide environment and routing changes under the runtime lock.
+        policy_name = "IMAGE_ANNOTATOR_CONFIG_READ_ONLY"
+        previous_policy = os.environ.get(policy_name)
+        strict = is_read_only()
+        if strict:
+            os.environ[policy_name] = "1"
         previous_db_path = db_core.IMG_DB_PATH
         token = _SCOPED_CONTAINER.set(container)
         try:
@@ -578,6 +586,11 @@ def service_container_scope() -> Iterator[ServiceContainer]:
         finally:
             db_core.IMG_DB_PATH = previous_db_path
             _SCOPED_CONTAINER.reset(token)
+            if strict:
+                if previous_policy is None:
+                    os.environ.pop(policy_name, None)
+                else:
+                    os.environ[policy_name] = previous_policy
 
 
 # 便利な関数でサービス取得を簡略化

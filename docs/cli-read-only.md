@@ -50,7 +50,7 @@ lorairo-cli --workspace "/data/作業 領域" project prepare --project sample -
 | `project list` | プロジェクトメタデータ |
 | `images list`, `images search`, `images show` | 既存 image DB |
 | `tags translations show` | 既存 image DB + キャッシュ済み tag DB |
-| `models list` | ローカル registry メタデータ（モデルダウンロードなし） |
+| `models list` | 準備済みのローカル registry 設定（モデルダウンロードなし） |
 | `batch list` | 既存 image DB の batch 情報 |
 | `errors list`, `errors get` | 既存 image DB のエラー記録 |
 
@@ -59,6 +59,14 @@ lorairo-cli --workspace "/data/作業 領域" project prepare --project sample -
 従来の `read_only` / `side_effects` は ADR 0059 の定常状態の分類を維持し、
 条件付き DB 作成・migration・seed・ディレクトリ作成を別フィールドで判別できます。
 `--help`、`list-commands`、`describe` 自体も strict モードで使用できます。
+
+`models list` の cold start は通常 CWD の `config/annotator_config.toml` を必要とします。
+未準備なら `PRECONDITION_FAILED` を返し、設定のコピー・ディレクトリ作成は行いません。
+書込み権限を得て同じ CWD で `models list` を `--read-only` なしで実行し、準備後に再試行します。
+依存パッケージの公開ポリシー `IMAGE_ANNOTATOR_CONFIG_READ_ONLY=1` は import 前に
+既存 runtime lock 内で設定し、終了時に元の値へ復元します。パッケージ内部でも設定作成と
+system/user/runtime-cache 保存を拒否するため、存在確認後にファイルが消えても再作成しません。
+このポリシーはモデルの推論やダウンロードを許可するものではありません。
 
 ## ファイルシステム上の保証
 
@@ -74,3 +82,5 @@ lorairo-cli --workspace "/data/作業 領域" project prepare --project sample -
 genai-tag-db-tools を再利用します。新しい migration 基盤や schema 自体の変更は導入していません。
 Python の接続層は `create_project_session_factory(path, read_only=True)` でも同じ互換性検査と
 読み取り接続を選択できます。
+
+Unreadable or syntactically invalid model TOML requires backing up and repairing the configuration; writable `models list` does not repair it. This check covers reading and TOML parsing, not complete validation of every model configuration field.

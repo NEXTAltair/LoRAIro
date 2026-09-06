@@ -1083,6 +1083,7 @@ List available annotator models.
 
 - Read only: `true`
 - Strict read only: `true` (root `--read-only`; see [contract](cli-read-only.md))
+- Conditional initialization: `model_config_create` without `--read-only`; missing cold configuration returns `PRECONDITION_FAILED` in strict mode.
 - Side effects: `db_read`, `file_read`
 
 #### Compact Introspection
