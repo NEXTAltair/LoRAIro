@@ -719,8 +719,12 @@ def test_annotate_run_with_output_option(
         ],
     )
 
-    assert result.exit_code == 0
-    assert "Found 3 image(s)" in result.stdout
+    assert result.exit_code == 2
+    assert "unsupported" in result.stderr
+    mock_get_container.assert_not_called()
+    mock_annotator.annotate.assert_not_called()
+    mock_config.get_setting.assert_not_called()
+    assert not output_dir.exists()
 
 
 @pytest.mark.unit
@@ -1449,3 +1453,87 @@ def test_annotate_run_phash_mismatch_skips_gracefully(
     assert result.exit_code == 0
     # スキップされてもエラーにならない
     assert "Saved to DB" in result.stdout
+
+
+@pytest.mark.unit
+@pytest.mark.cli
+@pytest.mark.parametrize("json_mode", [False, True])
+@pytest.mark.parametrize("option", ["--output", "-o"])
+@pytest.mark.parametrize("target_kind", ["missing", "unwritable", "empty"])
+def test_output_rejected_before_project_or_annotation_side_effects(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, json_mode: bool, option: str, target_kind: str
+) -> None:
+    """Unsupported paths never activate DB/config or run inference/save/export (#1310)."""
+    target = tmp_path / "annotation-output"
+    if target_kind == "unwritable":
+        target.mkdir()
+        (target / "existing.txt").write_text("preserve", encoding="utf-8")
+        target.chmod(0o555)
+    value = "" if target_kind == "empty" else str(target)
+    forbidden = {}
+    for name in [
+        "api_get_project",
+        "get_service_container",
+        "_resolve_model_identifier",
+        "_stream_annotate",
+    ]:
+        forbidden[name] = MagicMock(side_effect=AssertionError(f"unexpected side effect: {name}"))
+        monkeypatch.setattr(f"lorairo.cli.commands.annotate.{name}", forbidden[name])
+    try:
+        result = runner.invoke(
+            app,
+            (["--json"] if json_mode else [])
+            + ["annotate", "run", "-p", "nonexistent-project", "-m", "fake", option, value],
+        )
+        assert result.exit_code == 2, result.output
+        if json_mode:
+            rows = [json.loads(line) for line in result.stdout.splitlines()]
+            assert len(rows) == 1
+            assert rows[0]["kind"] == "error"
+            assert rows[0]["code"] == "INVALID_INPUT"
+            assert rows[0]["ok"] is False
+            assert "unsupported" in rows[0]["message"]
+            assert "export create" in rows[0]["message"]
+        else:
+            assert "unsupported" in result.stderr
+            assert "export create" in result.stderr
+        for mocked in forbidden.values():
+            mocked.assert_not_called()
+        if target_kind == "unwritable":
+            assert list(target.iterdir()) == [target / "existing.txt"]
+            assert (target / "existing.txt").read_text(encoding="utf-8") == "preserve"
+        else:
+            assert not target.exists()
+    finally:
+        if target_kind == "unwritable":
+            target.chmod(0o755)
+
+
+@pytest.mark.unit
+@pytest.mark.cli
+def test_output_rejection_is_discoverable_in_help_and_describe() -> None:
+    """Both schema forms publish the unsupported option and migration route."""
+    from lorairo.cli.introspection import AnnotateRunInput
+
+    result = runner.invoke(app, ["annotate", "run", "--help"])
+    assert result.exit_code == 0
+    assert "Unsupported/deprecated" in result.stdout
+    compact = runner.invoke(app, ["--json", "describe", "annotate run"])
+    assert compact.exit_code == 0
+    models = [json.loads(line) for line in compact.stdout.splitlines()]
+    input_model = next(row for row in models if row.get("name") == "AnnotateRunInput")
+    output = next(field for field in input_model["fields"] if field["name"] == "output")
+    assert output["type"] == "None"
+    assert "INVALID_INPUT" in output["description"]
+    assert "export create" in output["description"]
+    schema = runner.invoke(app, ["--json", "describe", "annotate run", "--schema", "json_schema"])
+    assert schema.exit_code == 0
+    schemas = [json.loads(line) for line in schema.stdout.splitlines()]
+    input_schema = next(row for row in schemas if row.get("name") == "AnnotateRunInput")["schema"]
+    assert input_schema["properties"]["output"]["type"] == "null"
+    assert input_schema["properties"]["output"]["default"] is None
+    assert input_schema["properties"]["output"]["deprecated"] is True
+    with pytest.warns(DeprecationWarning):
+        assert AnnotateRunInput(project="demo", model=["fake"]).output is None
+    with pytest.raises(ValueError):
+        AnnotateRunInput.model_validate({"project": "demo", "model": ["fake"], "output": "ignored"})

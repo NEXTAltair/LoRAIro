@@ -186,6 +186,8 @@ def register(
 
     画像ファイルまたはディレクトリからプロジェクトへ画像を登録します。
     pHashを計算して重複検出を行います。
+
+    Partial or complete failures exit 1; successful/empty/normal skip results exit 0.
     """
     with command_boundary():
         input_path = Path(path).resolve()
