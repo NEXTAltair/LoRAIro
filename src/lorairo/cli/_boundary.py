@@ -80,6 +80,28 @@ def command_boundary() -> Iterator[None]:
         typer.Exit: 例外発生時、分類コードの exit code で送出する。
     """
     try:
+        from lorairo.database.access_policy import is_read_only
+
+        if is_read_only():
+            context = click.get_current_context(silent=True)
+            parts = []
+            while context is not None and context.parent is not None:
+                parts.append(context.info_name or "")
+                context = context.parent
+            path = " ".join(reversed(parts))
+            if path and path not in {"list-commands", "describe"}:
+                from lorairo.cli.introspection import TOOL_SPECS
+                from lorairo.public_api.exceptions import ReadOnlyPreconditionError
+
+                spec = TOOL_SPECS.get(path)
+                if spec is None or not spec.read_only:
+                    error = ReadOnlyPreconditionError(
+                        f"Command does not support --read-only: {path}", reason="write_command"
+                    )
+                    error.hint = (
+                        "Choose a read_only=true command using list-commands, or obtain write permission."
+                    )
+                    raise error
         yield
     except (typer.Exit, typer.Abort):
         raise

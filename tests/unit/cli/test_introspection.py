@@ -104,6 +104,7 @@ def test_images_update_describes_only_supported_input_fields() -> None:
     assert {field["name"] for field in input_rows[0]["fields"]} == {
         "workspace",
         "config",
+        "read_only",
         "log_level",
         "json_output",
         "install_completion",
@@ -196,6 +197,7 @@ def test_annotate_run_describes_only_supported_flags() -> None:
         "limit",
         "offset",
         "image_id",
+        "image_ids_file",
         "batch_size",
         "unrated",
         "missing_model",
@@ -242,8 +244,9 @@ def test_batch_submit_describes_csv_image_ids() -> None:
     fields = {field["name"]: field for field in input_row["fields"]}
 
     assert "image_id" not in fields
-    assert fields["image_ids"]["type"] == "str"
-    assert fields["image_ids"]["required"] is True
+    assert fields["image_ids"]["type"] == "str?"
+    assert fields["image_ids"]["required"] is False
+    assert "image_ids_file" in fields
     assert "Comma-separated" in fields["image_ids"]["description"]
 
 
@@ -911,3 +914,13 @@ def test_generated_docs_match_schemas_and_preserve_migration_guidance() -> None:
     assert "部分失敗と既存スクリプトの移行 (#1313)" in rendered
     assert "`--output` の移行 (#1310)" in rendered
     assert "read_only" in rendered
+
+
+def test_translation_show_discloses_conditional_cache_initialization() -> None:
+    result = runner.invoke(app, ["--json", "describe", "tags translations show"])
+    assert result.exit_code == 0
+    tool = _jsonl(result.stdout)[0]
+    assert tool["read_only"] is tool["strict_read_only_supported"] is True
+    assert {"network_download", "tag_cache_create", "db_create", "directory_create"} <= set(
+        tool["conditional_side_effects"]
+    )

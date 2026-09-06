@@ -1,6 +1,7 @@
 """Explicit CLI workspace/config selection uses temporary projects only (#1311)."""
 
 import json
+import os
 from pathlib import Path
 from unittest.mock import Mock
 
@@ -206,7 +207,9 @@ def test_help_and_describe_expose_root_path_contract():
         result = runner.invoke(app, ["--json", "describe", "project list", "--schema", schema])
         assert result.exit_code == 0
         rows = [json.loads(line) for line in result.stdout.splitlines()]
-        assert {"workspace", "config"} <= {option["name"] for option in rows[0]["global_options"]}
+        assert {"workspace", "config", "read_only"} <= {
+            option["name"] for option in rows[0]["global_options"]
+        }
         assert any(row.get("name") == "GlobalOptions" for row in rows)
 
 
@@ -469,3 +472,22 @@ def test_models_refresh_without_project_writes_only_selected_default(tmp_path, m
     assert all(path.is_file() for path in paths)
     assert db_core._default_session_factory is previous_factory
     legacy.assert_not_called()
+
+
+@pytest.mark.parametrize("previous", [None, "external-policy"])
+def test_strict_model_config_policy_restores_nested_and_failed_scopes(monkeypatch, previous):
+    from lorairo.database.access_policy import read_only_scope
+
+    name = "IMAGE_ANNOTATOR_CONFIG_READ_ONLY"
+    if previous is None:
+        monkeypatch.delenv(name, raising=False)
+    else:
+        monkeypatch.setenv(name, previous)
+    with pytest.raises(RuntimeError, match="scope failed"):
+        with read_only_scope(), service_container_scope():
+            assert os.environ[name] == "1"
+            with service_container_scope():
+                assert os.environ[name] == "1"
+            assert os.environ[name] == "1"
+            raise RuntimeError("scope failed")
+    assert os.environ.get(name) == previous

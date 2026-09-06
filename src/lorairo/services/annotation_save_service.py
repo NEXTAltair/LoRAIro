@@ -47,6 +47,7 @@ class AnnotationSaveResult:
     error_count: int
     total_count: int
     error_details: list[str] = field(default_factory=list)
+    image_outcomes: dict[int, str] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)
@@ -567,6 +568,7 @@ class AnnotationSaveService:
         error_message: Callable[[_PreparedAnnotationSave, Exception], str],
         log_message: Callable[[_PreparedAnnotationSave, Exception], str],
         commit_chunk: int | None = None,
+        image_outcomes: dict[int, str] | None = None,
     ) -> tuple[int, int, list[str]]:
         """準備済み annotation を chunked batch 保存し、失敗 chunk は per-image retry する。
 
@@ -602,6 +604,8 @@ class AnnotationSaveService:
             try:
                 self._annotation_repo.save_annotations_batch(repo_items, chunk_size=len(repo_items))
                 success_count += len(repo_items)
+                if image_outcomes is not None:
+                    image_outcomes.update({item.image_id: "success" for item in chunk})
                 continue
             except Exception as e:
                 logger.warning(
@@ -618,10 +622,14 @@ class AnnotationSaveService:
                         tag_id_cache=tag_id_cache if tag_id_cache else None,
                     )
                     success_count += 1
+                    if image_outcomes is not None:
+                        image_outcomes[item.image_id] = "success"
                 except Exception as e:
                     error_msg = error_message(item, e)
                     error_details.append(error_msg)
                     error_count += 1
+                    if image_outcomes is not None:
+                        image_outcomes[item.image_id] = "failed"
                     logger.opt(exception=True).error(log_message(item, e))
 
         return (success_count, error_count, error_details)
@@ -649,7 +657,11 @@ class AnnotationSaveService:
         return [matched_image_ids[0]]
 
     def save_annotation_results(
-        self, results: Any, *, allowed_image_ids: set[int] | None = None
+        self,
+        results: Any,
+        *,
+        allowed_image_ids: set[int] | None = None,
+        confirmed_outcomes: dict[int, str] | None = None,
     ) -> AnnotationSaveResult:
         """アノテーション結果をDBに保存する。
 
@@ -669,6 +681,8 @@ class AnnotationSaveService:
           未選択別版への書き込み汚染を避ける)。
 
         Args:
+            confirmed_outcomes: Optional caller-owned progress map, updated after confirmed commits.
+                Remains available if an exception or KeyboardInterrupt prevents returning a result.
             results: PHashAnnotationResults ({phash: {model_name: UnifiedAnnotationResult}})
             allowed_image_ids: 保存対象を限定するバッチ image_id 集合。None なら pHash ごとに
                 先頭 1 件のみ保存する。
@@ -699,8 +713,10 @@ class AnnotationSaveService:
         error_count = 0
         error_details: list[str] = []
         prepared_items: list[_PreparedAnnotationSave] = []
+        image_outcomes: dict[int, str] = confirmed_outcomes if confirmed_outcomes is not None else {}
 
         for phash, phash_annotations in results.items():
+            target_image_ids: list[int] = []
             try:
                 target_image_ids = self._resolve_target_image_ids(
                     phash_to_image_ids.get(phash) or [], allowed_image_ids
@@ -719,6 +735,7 @@ class AnnotationSaveService:
                         phash_annotations, models_cache, image_id=image_id
                     )
                     if not annotations_dict or not any(annotations_dict.values()):
+                        image_outcomes[image_id] = "skipped"
                         logger.debug(f"画像ID {image_id} に保存するアノテーションがありません")
                         continue
                     prepared_items.append(
@@ -732,6 +749,7 @@ class AnnotationSaveService:
                 if not appended:
                     skip_count += 1
             except Exception as e:
+                image_outcomes.update(dict.fromkeys(target_image_ids, "failed"))
                 error_msg = f"phash={phash[:8]}...: {e}"
                 error_details.append(error_msg)
                 error_count += 1
@@ -739,6 +757,7 @@ class AnnotationSaveService:
 
         success_count, batch_error_count, batch_error_details = self._save_prepared_batch(
             prepared_items,
+            image_outcomes=image_outcomes,
             tag_id_cache=tag_id_cache,
             error_message=lambda item, e: f"phash={item.source_key[:8]}...: {e}",
             log_message=lambda item, e: f"保存失敗 phash={item.source_key[:8]}...: {e}",
@@ -755,6 +774,7 @@ class AnnotationSaveService:
             error_count=error_count,
             total_count=total_count,
             error_details=error_details,
+            image_outcomes=image_outcomes,
         )
 
     def save_provider_batch_results_by_image_id(

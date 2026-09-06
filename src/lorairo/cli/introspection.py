@@ -14,7 +14,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from lorairo.cli._emit import emit_item, emit_result
 from lorairo.cli.commands.images import ImageSearchQuery
-from lorairo.public_api.types import ProjectCreateRequest
+from lorairo.public_api.types import ProjectCreateRequest, RegistrationItem
 
 SideEffect = Literal["db_read", "db_write", "file_read", "file_write", "network"]
 SchemaMode = Literal["compact", "json_schema"]
@@ -220,6 +220,12 @@ class StatusResult(BaseModel):
     model_config = ConfigDict(title="StatusResult")
 
 
+class ImagesRegisterItem(RegistrationItem):
+    """One authoritative DB registration outcome; selected IDs are unique."""
+
+    kind: Literal["item"] = "item"
+
+
 class ImagesProcessInput(BaseModel):
     """Offline generation command options."""
 
@@ -268,11 +274,20 @@ class ImagesRegisterResult(BaseModel):
     message: str
     status: Literal["success", "partial_success", "failed"] = "success"
     variant: int = 0
+    project: str | None = None
+    target_count: int = 0
+    interrupted: bool = False
+    unprocessed: int = 0
     total: int
     registered: int
     skipped: int
     errors: int
-    error_details: list[str] = Field(default_factory=list)
+    error_details: list[str] = Field(
+        default_factory=list,
+        max_length=100,
+        description="At most 100 sampled errors; full errors remain in item rows.",
+    )
+    error_details_truncated: bool = False
 
     model_config = ConfigDict(title="ImagesRegisterResult")
 
@@ -570,8 +585,16 @@ class BatchJobResult(BaseModel):
     """JSONL result payload for batch commands returning a job."""
 
     kind: Literal["result"] = "result"
-    ok: Literal[True] = True
+    ok: bool = True
     message: str
+    status: Literal["success", "partial_success", "failed"] | None = None
+    project: str | None = None
+    total: int | None = None
+    submitted: int | None = None
+    failed: int | None = None
+    unsubmitted: int | None = None
+    interrupted: bool = False
+    job_ids: list[int] = Field(default_factory=list)
     job_id: int | None = None
     job: dict[str, Any] | None = None
 
@@ -710,6 +733,10 @@ class AnnotateRunInput(BaseModel):
     limit: int | None = Field(default=None, ge=1)
     offset: int = Field(default=0, ge=0)
     image_id: list[int] = Field(default_factory=list)
+    image_ids_file: str | None = Field(
+        default=None,
+        description="UTF-8 newline/comma IDs, max 100,000; exclusive with image_id. Sorted IDs after filter intersection, then offset/limit.",
+    )
     batch_size: int = Field(default=10, ge=1)
     unrated: bool = False
     missing_model: str | None = None
@@ -741,15 +768,60 @@ class AnnotateRunItem(BaseModel):
     model_config = ConfigDict(title="AnnotateRunItem")
 
 
+class AnnotateRunOutcome(BaseModel):
+    kind: Literal["item"] = "item"
+    type: Literal["annotation_outcome"] = "annotation_outcome"
+    image_id: int
+    status: Literal["completed", "failed", "skipped", "unexecuted"]
+    reason: str | None = None
+    saved: bool = False
+
+
+class BatchSubmitInput(BaseModel):
+    project: str
+    model: str
+    image_ids: str | None = Field(
+        default=None, description="CSV IDs; exactly one of image_ids/image_ids_file is required."
+    )
+    image_ids_file: str | None = Field(
+        default=None, description="UTF-8 newline/comma IDs, max 100,000; exclusive with image_ids."
+    )
+    provider: Literal["openai", "anthropic"] | None = None
+    endpoint: str | None = None
+    prompt_profile: str = "default"
+    description: str | None = None
+    task_type: Literal["annotation", "rating_preflight"] = "annotation"
+    resolution: int | None = Field(
+        default=None,
+        description="Closest processed size; 0 selects smallest, omitted requires processed registered records.",
+    )
+
+
+class BatchSubmissionItem(BaseModel):
+    kind: Literal["item"] = "item"
+    type: Literal["batch_submission"] = "batch_submission"
+    status: Literal["submitted", "failed", "unsubmitted"]
+    image_ids: list[int]
+    job_id: int | None = None
+    reason: str | None = None
+
+
 class AnnotateRunResult(BaseModel):
     """JSONL terminal result payload emitted by ``annotate run --json``."""
 
     kind: Literal["result"] = "result"
-    ok: Literal[True] = True
+    ok: bool = True
     message: str
+    status: Literal["success", "partial_success", "failed"] | None = None
+    project: str | None = None
+    total: int | None = None
+    completed: int | None = None
+    unexecuted: int | None = None
+    interrupted: bool = False
+    reason: str | None = None
+    resolution_skipped: int = 0
     annotated: int
     skipped: int
-    resolution_skipped: int = 0
     errors: int
     loaded: int
     results: int
@@ -930,6 +1002,17 @@ class ToolSpec:
             "read_only": self.read_only,
             "side_effects": list(self.side_effects),
             "global_options": [field.to_dict() for field in get_global_options().resolved_fields()],
+            "strict_read_only_supported": self.read_only,
+            "conditional_side_effects": (
+                ["model_config_create"]
+                if self.path == "models list"
+                else ["network_download", "tag_cache_create", "db_create", "directory_create"]
+                if self.path == "tags translations show"
+                else ["db_create", "schema_migration", "model_seed", "directory_create"]
+                if "db_read" in self.side_effects and self.path not in {"models list", "project list"}
+                else []
+            ),
+            "read_only_contract": "steady_state; use root --read-only to prohibit logical writes and implicit preparation",
         }
 
 
@@ -944,7 +1027,24 @@ def _f(
     return FieldSpec(name=name, type=type_, required=required, default=default, description=description)
 
 
+class ProjectPrepareInput(BaseModel):
+    project: str
+    tags: bool = False
+
+
+class ProjectPrepareResult(BaseModel):
+    kind: Literal["result"] = "result"
+    ok: Literal[True] = True
+    message: str
+    project: str
+    tags: bool
+
+
 class GlobalOptionsSchema(BaseModel):
+    read_only: bool = Field(
+        default=False,
+        description="Root --read-only: only read_only=true commands; existing compatible DBs via mode=ro, no implicit preparation. PRECONDITION_FAILED gives preparation guidance. SQLite WAL/SHM coordination may occur.",
+    )
     workspace: str | None = Field(
         default=None,
         description="Root --workspace: anchor relative configured directories. Workspace/config/lorairo.toml is optional when --config is absent.",
@@ -965,6 +1065,12 @@ GLOBAL_OPTIONS = ModelSpec(
             description=GlobalOptionsSchema.model_fields["workspace"].description or "",
         ),
         _f("config", "path?", description=GlobalOptionsSchema.model_fields["config"].description or ""),
+        _f(
+            "read_only",
+            "bool",
+            default=False,
+            description=GlobalOptionsSchema.model_fields["read_only"].description or "",
+        ),
     ),
     description="Options precede the command name. See docs/cli-workspace-config.md for precedence.",
     schema_model=GlobalOptionsSchema,
@@ -1005,6 +1111,28 @@ def _output(
 
 
 TOOL_SPECS: dict[str, ToolSpec] = {
+    "project prepare": ToolSpec(
+        name="project prepare",
+        path="project prepare",
+        summary="Explicitly prepare image schema/model seeds; --tags also prepares/downloads tag databases.",
+        read_only=False,
+        side_effects=("db_read", "db_write", "file_write", "network"),
+        inputs=(
+            _input(
+                "ProjectPrepareInput",
+                (_f("project", "str", required=True), _f("tags", "bool", default=False)),
+                schema=ProjectPrepareInput,
+            ),
+        ),
+        outputs=(
+            _output(
+                "ProjectPrepareResult",
+                (_f("project", "str"), _f("tags", "bool")),
+                schema=ProjectPrepareResult,
+            ),
+        ),
+        errors=(ERROR_MODEL,),
+    ),
     "version": ToolSpec(
         name="version",
         path="version",
@@ -1123,7 +1251,7 @@ TOOL_SPECS: dict[str, ToolSpec] = {
     "images register": ToolSpec(
         name="images register",
         path="images register",
-        summary="Register images from a file or directory into a project.",
+        summary="Register images and stream authoritative DB outcomes with unique selected IDs. See docs/cli-registration-workflow.md for same-project ID handoff and partial failures.",
         read_only=False,
         side_effects=("file_read", "file_write", "db_read", "db_write"),
         inputs=(
@@ -1138,6 +1266,22 @@ TOOL_SPECS: dict[str, ToolSpec] = {
         ),
         outputs=(
             _output(
+                "ImagesRegisterItem",
+                (
+                    _f("input_path", "str"),
+                    _f("outcome", "registered|variant|duplicate|failed"),
+                    _f("image_id", "int?"),
+                    _f("project", "str?"),
+                    _f(
+                        "selected",
+                        "bool",
+                        description="True once per unique eligible ID; duplicates require include-duplicates.",
+                    ),
+                    _f("error", "str?"),
+                ),
+                schema=ImagesRegisterItem,
+            ),
+            _output(
                 "ImagesRegisterResult",
                 (
                     _f("ok", "bool"),
@@ -1148,7 +1292,16 @@ TOOL_SPECS: dict[str, ToolSpec] = {
                         description="Failures, including partial success, return ok=false and exit 1; normal skip/empty returns exit 0.",
                     ),
                     _f("variant", "int", default=0),
-                    _f("error_details", "list[str]"),
+                    _f(
+                        "error_details",
+                        "list[str]",
+                        description="At most 100 samples; complete error details are in item rows.",
+                    ),
+                    _f("error_details_truncated", "bool", default=False),
+                    _f("project", "str"),
+                    _f("target_count", "int"),
+                    _f("interrupted", "bool"),
+                    _f("unprocessed", "int"),
                     _f("total", "int"),
                     _f("registered", "int"),
                     _f("skipped", "int"),
@@ -1348,6 +1501,11 @@ TOOL_SPECS: dict[str, ToolSpec] = {
                     _f("limit", "int>=1?"),
                     _f("offset", "int>=0", default=0),
                     _f("image_id", "list[int]?"),
+                    _f(
+                        "image_ids_file",
+                        "path?",
+                        description="UTF-8 newline/comma IDs, max 100,000; exclusive with image_id. Filter intersection, ascending ID order, offset, limit; per-image outcomes streamed.",
+                    ),
                     _f("batch_size", "int>=1", default=10),
                     _f("unrated", "bool", default=False),
                     _f("missing_model", "str?"),
@@ -1356,6 +1514,17 @@ TOOL_SPECS: dict[str, ToolSpec] = {
             ),
         ),
         outputs=(
+            _output(
+                "AnnotateRunOutcome",
+                (
+                    _f("type", "annotation_outcome"),
+                    _f("image_id", "int"),
+                    _f("status", "completed|failed|skipped|unexecuted"),
+                    _f("saved", "bool"),
+                    _f("reason", "str?"),
+                ),
+                schema=AnnotateRunOutcome,
+            ),
             _output(
                 "AnnotateRunItem",
                 (
@@ -1370,6 +1539,9 @@ TOOL_SPECS: dict[str, ToolSpec] = {
             _output(
                 "AnnotateRunResult",
                 (
+                    _f("status", "success|partial_success|failed?"),
+                    _f("completed", "int?"),
+                    _f("unexecuted", "int?"),
                     _f("annotated", "int"),
                     _f("skipped", "int"),
                     _f("errors", "int"),
@@ -2318,19 +2490,52 @@ TOOL_SPECS: dict[str, ToolSpec] = {
                     _f(
                         "image_ids",
                         "csv[int]",
-                        required=True,
-                        description="Comma-separated image IDs, e.g. 2,7,11.",
+                        description="Comma-separated image IDs, exclusive with image_ids_file.",
                     ),
+                    _f(
+                        "image_ids_file",
+                        "path?",
+                        description="UTF-8 newline/comma IDs; max 100,000; exclusive with image_ids. Entire input validated before sending; jobs split at provider limit 500.",
+                    ),
+                    _f("resolution", "int?"),
                     _f("provider", "openai|anthropic?"),
                     _f("endpoint", "str?"),
                     _f("prompt_profile", "str", default="default"),
                     _f("description", "str?"),
                     _f("task_type", "annotation|rating_preflight", default="annotation"),
                 ),
+                schema=BatchSubmitInput,
             ),
         ),
         outputs=(
-            _output("BatchJobResult", (_f("job_id", "int"), _f("job", "dict?")), schema=BatchJobResult),
+            _output(
+                "BatchSubmissionItem",
+                (
+                    _f("type", "batch_submission"),
+                    _f("status", "submitted|failed|unsubmitted"),
+                    _f(
+                        "image_ids",
+                        "list[int]",
+                        description="At most 500 IDs assigned to this job/attempt.",
+                    ),
+                    _f("job_id", "int?"),
+                    _f("reason", "str?"),
+                ),
+                schema=BatchSubmissionItem,
+            ),
+            _output(
+                "BatchJobResult",
+                (
+                    _f("status", "success|partial_success|failed"),
+                    _f("job_ids", "list[int]"),
+                    _f("submitted", "int"),
+                    _f("failed", "int"),
+                    _f("unsubmitted", "int"),
+                    _f("job_id", "int?"),
+                    _f("job", "dict?"),
+                ),
+                schema=BatchJobResult,
+            ),
         ),
         errors=(ERROR_MODEL,),
     ),
