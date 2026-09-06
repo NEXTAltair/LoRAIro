@@ -1,5 +1,9 @@
 import os
+from collections.abc import Iterator
+from contextlib import contextmanager
+from contextvars import ContextVar
 from copy import deepcopy
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
@@ -180,7 +184,11 @@ def deep_update(d: dict[str, Any], u: dict[str, Any], path: tuple[str, ...] = ()
     return d
 
 
-def get_config(config_file: Path = DEFAULT_CONFIG_PATH) -> dict[str, Any]:
+def get_config(config_file: Path | None = None) -> dict[str, Any]:
+    runtime = get_runtime_configuration()
+    if config_file is None and runtime is not None:
+        return deepcopy(runtime.settings)
+    config_file = config_file or DEFAULT_CONFIG_PATH
     final_config = deepcopy(DEFAULT_CONFIG)
     try:
         loaded_config = load_config(config_file)
@@ -189,6 +197,68 @@ def get_config(config_file: Path = DEFAULT_CONFIG_PATH) -> dict[str, Any]:
         # Missing files are handled without side effects; creation is explicit.
         pass
     return final_config
+
+
+@dataclass(frozen=True)
+class RuntimeConfiguration:
+    """Explicit CLI path selection, scoped to one invocation without changing CWD."""
+
+    workspace: Path
+    config_path: Path
+    settings: dict[str, Any]
+
+
+_RUNTIME_CONFIGURATION: ContextVar[RuntimeConfiguration | None] = ContextVar(
+    "lorairo_runtime_configuration", default=None
+)
+
+
+def get_runtime_configuration() -> RuntimeConfiguration | None:
+    return _RUNTIME_CONFIGURATION.get()
+
+
+def resolve_runtime_configuration(workspace: Path | None, config_path: Path | None) -> RuntimeConfiguration:
+    """Resolve explicit CLI paths; a specified config must exist and parse successfully.
+
+    CLI paths are relative to invocation CWD. Relative configured directories use
+    workspace, or the explicit config's parent when workspace is omitted.
+    """
+    selected_config = config_path.expanduser().resolve() if config_path is not None else None
+    if selected_config is not None and not selected_config.is_file():
+        raise ValueError(f"Config file does not exist or is not a file: {selected_config}")
+    root = (
+        workspace.expanduser().resolve()
+        if workspace is not None
+        else selected_config.parent
+        if selected_config
+        else Path.cwd()
+    )
+    if root.exists() and not root.is_dir():
+        raise ValueError(f"Workspace is not a directory: {root}")
+    selected_config = selected_config or root / "config" / "lorairo.toml"
+    settings = (
+        deep_update(deepcopy(DEFAULT_CONFIG), load_config(selected_config))
+        if config_path is not None
+        else get_config(selected_config)
+    )
+    if not isinstance(settings["directories"], dict):
+        raise ValueError("Config [directories] must be a table")
+    for key, value in settings["directories"].items():
+        if key.endswith("_dir") and value:
+            if not isinstance(value, str):
+                raise ValueError(f"Config directories.{key} must be a path string")
+            directory = Path(value).expanduser()
+            settings["directories"][key] = str((root / directory).resolve())
+    return RuntimeConfiguration(root, selected_config, settings)
+
+
+@contextmanager
+def runtime_configuration_scope(configuration: RuntimeConfiguration) -> Iterator[None]:
+    token = _RUNTIME_CONFIGURATION.set(configuration)
+    try:
+        yield
+    finally:
+        _RUNTIME_CONFIGURATION.reset(token)
 
 
 def write_config_file(config_data: dict[str, Any], file_path: Path = DEFAULT_CONFIG_PATH) -> None:

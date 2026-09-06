@@ -207,6 +207,10 @@ class StatusResult(BaseModel):
     environment: str
     phase: str
     config_found: bool
+    workspace: str | None = None
+    config_path: str | None = None
+    projects_base_dir: str | None = None
+    tag_database_dir: str | None = None
     api_keys: dict[str, bool] | None = None
     initialized_services: dict[str, bool] | None = None
 
@@ -847,6 +851,7 @@ class ToolSpec:
             "summary": self.summary,
             "read_only": self.read_only,
             "side_effects": list(self.side_effects),
+            "global_options": [field.to_dict() for field in GLOBAL_OPTIONS.fields],
         }
 
 
@@ -859,6 +864,33 @@ def _f(
     description: str = "",
 ) -> FieldSpec:
     return FieldSpec(name=name, type=type_, required=required, default=default, description=description)
+
+
+class GlobalOptionsSchema(BaseModel):
+    workspace: str | None = Field(
+        default=None,
+        description="Root --workspace: anchor relative configured directories. Workspace/config/lorairo.toml is optional when --config is absent.",
+    )
+    config: str | None = Field(
+        default=None,
+        description="Root --config: existing TOML; anchors directories at its parent unless --workspace is specified. CLI paths resolve against CWD; absolute configured directories stay absolute. No flags retain legacy CWD behavior.",
+    )
+
+
+GLOBAL_OPTIONS = ModelSpec(
+    name="GlobalOptions",
+    role="input",
+    fields=(
+        _f(
+            "workspace",
+            "path?",
+            description=GlobalOptionsSchema.model_fields["workspace"].description or "",
+        ),
+        _f("config", "path?", description=GlobalOptionsSchema.model_fields["config"].description or ""),
+    ),
+    description="Options precede the command name. See docs/cli-workspace-config.md for precedence.",
+    schema_model=GlobalOptionsSchema,
+)
 
 
 ERROR_MODEL = ModelSpec(
@@ -925,6 +957,10 @@ TOOL_SPECS: dict[str, ToolSpec] = {
                     _f("environment", "str"),
                     _f("phase", "str"),
                     _f("config_found", "bool"),
+                    _f("workspace", "path"),
+                    _f("config_path", "path"),
+                    _f("projects_base_dir", "path"),
+                    _f("tag_database_dir", "path"),
                     _f("api_keys", "dict[str,bool]?"),
                     _f("initialized_services", "dict[str,bool]?"),
                 ),
@@ -2527,7 +2563,7 @@ def emit_describe(command: str, schema: SchemaMode = "compact") -> None:
     item_count = 1
     if schema == "json_schema":
         seen: set[str] = set()
-        for model in (*spec.inputs, *spec.outputs, *spec.errors):
+        for model in (GLOBAL_OPTIONS, *spec.inputs, *spec.outputs, *spec.errors):
             payload = model.schema_payload(spec.path)
             if payload is None or payload["name"] in seen:
                 continue
@@ -2535,7 +2571,7 @@ def emit_describe(command: str, schema: SchemaMode = "compact") -> None:
             emit_item(payload)
             item_count += 1
     else:
-        for model in (*spec.inputs, *spec.outputs, *spec.errors):
+        for model in (GLOBAL_OPTIONS, *spec.inputs, *spec.outputs, *spec.errors):
             emit_item(model.compact_payload(spec.path))
             item_count += 1
 

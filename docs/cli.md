@@ -16,6 +16,9 @@ uv sync
 lorairo-cli --help
 ```
 
+設定と保存先を固定するには root オプション `--workspace DIR` / `--config FILE` を使います。
+[workspace/config の優先順位と移行](cli-workspace-config.md) を参照してください。
+
 ## 基本的な使い方
 
 OpenAI Moderation で未評価画像に rating を付与する CLI 手順は
@@ -1195,6 +1198,10 @@ lorairo-cli --json describe "status"
 - `environment`: `str` (optional)
 - `phase`: `str` (optional)
 - `config_found`: `bool` (optional)
+- `workspace`: `path` (optional)
+- `config_path`: `path` (optional)
+- `projects_base_dir`: `path` (optional)
+- `tag_database_dir`: `path` (optional)
 - `api_keys`: `dict[str,bool]?` (optional)
 - `initialized_services`: `dict[str,bool]?` (optional)
 
