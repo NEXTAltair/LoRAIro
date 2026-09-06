@@ -568,7 +568,12 @@ class ProviderBatchWorkflowService:
         skipped_image_count = save_result.skip_count + not_saved_image_count
         # total = save 対象 image (success+skip+error) + save 対象外 image。
         image_total_count = save_result.total_count + not_saved_image_count
-        excluded_custom_ids = set(prepared.imported_custom_ids) | set(unique_missing_custom_ids)
+        # Importable candidates are not confirmed saved until the whole save result
+        # permits marking them imported. On partial saves, report all unconfirmed
+        # candidates: the aggregate save API cannot identify individual successes.
+        excluded_custom_ids = set(unique_missing_custom_ids)
+        if mark_imported_items:
+            excluded_custom_ids.update(prepared.imported_custom_ids)
         excluded_custom_ids.update(
             db_item.custom_id for db_item in refreshed_job.items if db_item.status == "imported"
         )

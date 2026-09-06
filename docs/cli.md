@@ -82,6 +82,8 @@ JSONL の終端は既存の `kind=result` と件数を維持し、`status` と `
 Batch取込みの従来 `skipped` は正常skipと取込み不能の両方を含みます。新しい `already_imported`、
 `non_importable`、`save_skipped`、`missing_custom_ids`、`failed_custom_ids`、`error_details` で調査し、
 `incomplete=true` の場合は `batch status JOB_ID --project PROJECT` と保存済みitemエラーを確認してください。
+保存結果が件数のみで部分成功のIDを確定できない場合、`failed_custom_ids` は保存完了を確認できない候補を保守的に含めます。
+この集合だけを根拠に全件再送せず、保存状態を確認してください。
 空結果は exit 0 ですが、`job_imported=false` はジョブ全体の完了を意味しません。
 `errors resolve` は `requested` と `resolved` を保持し、repositoryが失敗を返した場合に exit 1 となります。
 

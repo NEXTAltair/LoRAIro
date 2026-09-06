@@ -155,6 +155,7 @@ def test_provider_import_terminal(
         job_imported=job_imported,
         already_imported_count=already,
         missing_custom_ids=("missing-id",) if skip and not already else (),
+        failed_custom_ids=("unconfirmed-save-id",) if errors or (skip and not already) else (),
         save_result=SimpleNamespace(error_details=["image 5: write failed"] if errors else []),
     )
     monkeypatch.setattr("lorairo.cli.commands.batch._activate_project", lambda _: container)
@@ -164,6 +165,9 @@ def test_provider_import_terminal(
     if row:
         assert (row["imported"], row["skipped"], row["errors"]) == (imported, skip, errors)
         assert row["job_id"] == 42
+        assert row["failed_custom_ids"] == (
+            ["unconfirmed-save-id"] if errors or (skip and not already) else []
+        )
         if status != "success":
             assert "batch status 42" in row["hint"]
 
