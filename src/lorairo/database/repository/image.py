@@ -3437,9 +3437,35 @@ class ImageRepository(BaseRepository):
                     # アノテーション情報を含めて取得
                     selected_ids = select(Image.id).where(Image.id.in_(chunk))
                     if criteria is not None:
-                        selected_ids = self._build_image_filter_query(session, criteria).where(
-                            Image.id.in_(chunk)
+                        selected_ids = self._build_image_filter_query(
+                            session=session,
+                            tags=criteria.tags,
+                            excluded_tags=criteria.excluded_tags,
+                            caption=criteria.caption,
+                            use_and=criteria.use_and,
+                            start_date=criteria.start_date,
+                            end_date=criteria.end_date,
+                            include_untagged=criteria.include_untagged,
+                            include_nsfw=criteria.include_nsfw,
+                            include_unrated=criteria.include_unrated,
+                            only_unrated=criteria.only_unrated,
+                            missing_model_litellm_id=criteria.missing_model_litellm_id,
+                            manual_rating_filter=criteria.manual_rating_filter,
+                            ai_rating_filter=criteria.ai_rating_filter,
+                            manual_edit_filter=criteria.manual_edit_filter,
+                            project_name=criteria.project_name,
+                            project_id=criteria.project_id,
+                            reviewed_at_filter=criteria.reviewed_at_filter,
+                            error_state_filter=criteria.error_state_filter,
+                            model_filter=criteria.model_filter,
+                            rating_combine=criteria.rating_combine,
+                            keyword_groups=criteria.keyword_groups,
                         )
+                        selected_ids = self._apply_image_metadata_filter(selected_ids, criteria)
+                        selected_ids = self._apply_processed_resolution_filter(
+                            selected_ids, criteria.resolution
+                        )
+                        selected_ids = selected_ids.where(Image.id.in_(chunk))
                     stmt = (
                         select(Image)
                         .where(Image.id.in_(selected_ids))
