@@ -2,6 +2,7 @@
 
 import json
 from pathlib import Path
+from unittest.mock import Mock
 
 import pytest
 from typer.testing import CliRunner
@@ -428,3 +429,34 @@ def test_project_delete_json_mode_requires_force(mock_projects_dir: Path) -> Non
     # 削除は実行されず、プロジェクトは残る
     projects = [d.name for d in mock_projects_dir.iterdir() if d.name.startswith("json-force-test_")]
     assert len(projects) > 0
+
+
+@pytest.mark.unit
+@pytest.mark.cli
+@pytest.mark.parametrize("cleanup_fails", [False, True])
+def test_project_create_failure_json_recovery(
+    mock_projects_dir: Path, monkeypatch: pytest.MonkeyPatch, cleanup_fails: bool
+) -> None:
+    """Real API/service wiring exposes cleanup diagnostics and allows ordinary retry."""
+    with monkeypatch.context() as patcher:
+        patcher.setattr(Path, "touch", Mock(side_effect=OSError("db failed")))
+        if cleanup_fails:
+            patcher.setattr(
+                "lorairo.services.project_management_service.shutil.rmtree",
+                Mock(side_effect=PermissionError("cleanup denied")),
+            )
+        result = runner.invoke(app, ["--json", "project", "create", "recovery"])
+    assert result.exit_code == 1
+    payload = json.loads(result.stdout)
+    assert payload["code"] == "INTERNAL_ERROR"
+    details = payload["details"]
+    assert details["original_error"] == "db failed"
+    assert "retry project create" in details["recovery"]
+    if cleanup_fails:
+        assert details["cleanup_errors"][0]["error"] == "cleanup denied"
+        assert details["residual_paths"] == [str(next(mock_projects_dir.iterdir()))]
+    else:
+        assert details["residual_paths"] == []
+        assert list(mock_projects_dir.iterdir()) == []
+        retry = runner.invoke(app, ["--json", "project", "create", "recovery"])
+        assert retry.exit_code == 0

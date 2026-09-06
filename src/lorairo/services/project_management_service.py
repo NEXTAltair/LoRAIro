@@ -66,13 +66,15 @@ class ProjectManagementService:
             ProjectAlreadyExistsError: 同名プロジェクトが既に存在。
             ProjectOperationError: プロジェクト作成に失敗。
         """
+        owned_project: Path | None = None
+        created_parents: list[Path] = []
         try:
             # 既存確認
             if self._project_exists(name):
                 raise ProjectAlreadyExistsError(name)
 
             # ベースディレクトリ作成
-            self.projects_base_dir.mkdir(parents=True, exist_ok=True)
+            self._create_base_directories(created_parents)
 
             # プロジェクトディレクトリ名生成（名前_YYYYMMDD_HHMMSS）
             now = datetime.now()
@@ -81,13 +83,18 @@ class ProjectManagementService:
 
             # 競合時のリトライ（極めて稀だが念のため）
             counter = 1
-            while project_dir.exists():
-                date_str = now.strftime(f"%Y%m%d_%H%M%S_{counter}")
-                project_dir = self.projects_base_dir / f"{name}_{date_str}"
-                counter += 1
+            while True:
+                try:
+                    # Exclusive creation establishes ownership even if another caller races us.
+                    project_dir.mkdir()
+                except FileExistsError:
+                    date_str = now.strftime(f"%Y%m%d_%H%M%S_{counter}")
+                    project_dir = self.projects_base_dir / f"{name}_{date_str}"
+                    counter += 1
+                else:
+                    owned_project = project_dir
+                    break
 
-            # ディレクトリ構造作成
-            project_dir.mkdir(parents=True, exist_ok=True)
             (project_dir / "image_dataset").mkdir(exist_ok=True)
             (project_dir / "image_dataset" / "original_images").mkdir(exist_ok=True)
 
@@ -119,7 +126,65 @@ class ProjectManagementService:
             raise
         except Exception as e:
             logger.opt(exception=True).error(f"プロジェクト作成失敗: {name}")
-            raise ProjectOperationError(name, "作成", str(e)) from e
+            cleanup_errors, residual_paths = self._rollback_creation(owned_project, created_parents)
+            recovery = (
+                "Inspect residual_paths, resolve the filesystem error, and remove only the incomplete "
+                "project after checking its contents; then retry project create."
+                if residual_paths
+                else "Resolve the filesystem error and retry project create with the same name."
+            )
+            reason = str(e)
+            if cleanup_errors:
+                reason += f"; cleanup failed: {cleanup_errors}; {recovery}"
+            raise ProjectOperationError(
+                name,
+                "作成",
+                reason,
+                details={
+                    "original_error": str(e),
+                    "cleanup_errors": cleanup_errors,
+                    "residual_paths": residual_paths,
+                    "recovery": recovery,
+                },
+            ) from e
+
+    def _create_base_directories(self, created_parents: list[Path]) -> None:
+        """Create missing parents and record ownership for empty-directory rollback."""
+        missing_parents = []
+        candidate = self.projects_base_dir
+        while not candidate.exists():
+            missing_parents.append(candidate)
+            candidate = candidate.parent
+        for parent in reversed(missing_parents):
+            try:
+                parent.mkdir()
+            except FileExistsError:
+                if not parent.is_dir():
+                    raise
+            else:
+                created_parents.append(parent)
+
+    @staticmethod
+    def _rollback_creation(
+        owned_project: Path | None, created_parents: list[Path]
+    ) -> tuple[list[dict[str, str]], list[str]]:
+        """Remove only this call's project and empty parents; retain all cleanup errors."""
+        cleanup_errors: list[dict[str, str]] = []
+        residual_paths: list[str] = []
+        if owned_project is not None:
+            try:
+                shutil.rmtree(owned_project)
+            except OSError as cleanup_error:
+                cleanup_errors.append({"path": str(owned_project), "error": str(cleanup_error)})
+                residual_paths.append(str(owned_project))
+        for parent in reversed(created_parents):
+            try:
+                # Never recursively remove shared parents or someone else's files.
+                parent.rmdir()
+            except OSError as cleanup_error:
+                cleanup_errors.append({"path": str(parent), "error": str(cleanup_error)})
+                residual_paths.append(str(parent))
+        return cleanup_errors, residual_paths
 
     def list_projects(self) -> list[ProjectInfo]:
         """プロジェクト一覧を取得。

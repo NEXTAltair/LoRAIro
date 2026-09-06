@@ -2,13 +2,14 @@
 
 import json
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 import pytest
 
 from lorairo.public_api.exceptions import (
     ProjectAlreadyExistsError,
     ProjectNotFoundError,
+    ProjectOperationError,
 )
 from lorairo.public_api.types import ProjectInfo
 from lorairo.services.project_management_service import ProjectManagementService
@@ -410,3 +411,165 @@ class TestProjectCrud:
         projects = service.list_projects()
 
         assert [p.name for p in projects] == ["alpha"]
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("failure_point", ["base", "project", "dataset", "original", "metadata", "db"])
+def test_create_failure_rolls_back_and_allows_retry(
+    service: ProjectManagementService, monkeypatch: pytest.MonkeyPatch, failure_point: str
+) -> None:
+    """Every creation stage cleans up its own partial output, including partial writes."""
+    original_mkdir = Path.mkdir
+    original_write = Path.write_text
+    original_touch = Path.touch
+
+    def mkdir(path: Path, *args, **kwargs):
+        fails = {
+            "base": path == service.projects_base_dir,
+            "project": path.parent == service.projects_base_dir,
+            "dataset": path.name == "image_dataset",
+            "original": path.name == "original_images",
+        }
+        if fails.get(failure_point, False):
+            raise OSError("creation failed")
+        return original_mkdir(path, *args, **kwargs)
+
+    def write(path: Path, *args, **kwargs):
+        if failure_point == "metadata" and path.name == ".lorairo-project":
+            original_write(path, "partial metadata")
+            raise OSError("creation failed")
+        return original_write(path, *args, **kwargs)
+
+    def touch(path: Path, *args, **kwargs):
+        if failure_point == "db" and path.name == "image_database.db":
+            original_touch(path, *args, **kwargs)
+            raise OSError("creation failed")
+        return original_touch(path, *args, **kwargs)
+
+    with monkeypatch.context() as patcher:
+        patcher.setattr(Path, "mkdir", mkdir)
+        patcher.setattr(Path, "write_text", write)
+        patcher.setattr(Path, "touch", touch)
+        with pytest.raises(ProjectOperationError) as caught:
+            service.create_project("retry")
+    assert isinstance(caught.value.__cause__, OSError)
+    assert caught.value.details["original_error"] == "creation failed"
+    assert caught.value.details["residual_paths"] == []
+    assert not service.projects_base_dir.exists()
+    info = service.create_project("retry")
+    assert (info.path / "image_database.db").is_file()
+    with pytest.raises(ProjectAlreadyExistsError):
+        service.create_project("retry")
+
+
+@pytest.mark.unit
+def test_create_failure_preserves_existing_files_and_projects(
+    service: ProjectManagementService, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    existing = service.create_project("existing")
+    image = existing.path / "image_dataset" / "original_images" / "keep.png"
+    image.write_bytes(b"existing image")
+    unrelated = service.projects_base_dir / "keep.txt"
+    unrelated.write_text("keep")
+    incomplete = service.projects_base_dir / "incomplete"
+    incomplete.mkdir()
+    (incomplete / ".lorairo-project").write_text('{"name": "old-incomplete"}')
+    before = {str(p): p.read_bytes() for p in service.projects_base_dir.rglob("*") if p.is_file()}
+    with monkeypatch.context() as patcher:
+        patcher.setattr(Path, "touch", Mock(side_effect=OSError("db failed")))
+        with pytest.raises(ProjectOperationError):
+            service.create_project("new")
+        with pytest.raises(ProjectAlreadyExistsError):
+            service.create_project("existing")
+        with pytest.raises(ProjectAlreadyExistsError):
+            service.create_project("old-incomplete")
+    after = {str(p): p.read_bytes() for p in service.projects_base_dir.rglob("*") if p.is_file()}
+    assert after == before
+    assert service.create_project("new").path.is_dir()
+
+
+@pytest.mark.unit
+def test_create_collision_never_claims_existing_directory(
+    service: ProjectManagementService, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A directory appearing during mkdir belongs to the competing creator."""
+    service.projects_base_dir.mkdir()
+    original_mkdir = Path.mkdir
+    collision = []
+
+    def mkdir(path: Path, *args, **kwargs):
+        if path.parent == service.projects_base_dir and not collision:
+            original_mkdir(path)
+            (path / "keep.txt").write_text("other creator")
+            collision.append(path)
+        return original_mkdir(path, *args, **kwargs)
+
+    with monkeypatch.context() as patcher:
+        patcher.setattr(Path, "mkdir", mkdir)
+        patcher.setattr(Path, "touch", Mock(side_effect=OSError("db failed")))
+        with pytest.raises(ProjectOperationError):
+            service.create_project("race")
+    assert list(service.projects_base_dir.iterdir()) == collision
+    assert (collision[0] / "keep.txt").read_text() == "other creator"
+
+
+@pytest.mark.unit
+def test_create_cleanup_failure_preserves_original_error_and_recovery(
+    service: ProjectManagementService, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    service.projects_base_dir.mkdir()
+    with monkeypatch.context() as patcher:
+        patcher.setattr(Path, "touch", Mock(side_effect=OSError("db failed")))
+        patcher.setattr(
+            "lorairo.services.project_management_service.shutil.rmtree",
+            Mock(side_effect=PermissionError("cleanup denied")),
+        )
+        with pytest.raises(ProjectOperationError) as caught:
+            service.create_project("cleanup")
+    error = caught.value
+    assert str(error.__cause__) == "db failed"
+    residual = next(service.projects_base_dir.iterdir())
+    assert error.details["original_error"] == "db failed"
+    assert error.details["residual_paths"] == [str(residual)]
+    assert error.details["cleanup_errors"] == [{"path": str(residual), "error": "cleanup denied"}]
+    assert "retry project create" in error.details["recovery"]
+    assert "cleanup denied" in str(error)
+    assert str(residual) in str(error)
+
+
+@pytest.mark.unit
+def test_create_failure_keeps_foreign_files_in_new_parent(
+    service: ProjectManagementService, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Empty-only rollback preserves files added to a shared parent during creation."""
+
+    def fail_touch(path: Path, *args, **kwargs):
+        (service.projects_base_dir / "foreign.txt").write_text("keep")
+        raise OSError("db failed")
+
+    with monkeypatch.context() as patcher:
+        patcher.setattr(Path, "touch", fail_touch)
+        with pytest.raises(ProjectOperationError) as caught:
+            service.create_project("retry")
+    assert (service.projects_base_dir / "foreign.txt").read_text() == "keep"
+    assert caught.value.details["residual_paths"] == [str(service.projects_base_dir)]
+    assert caught.value.details["cleanup_errors"]
+    assert service.create_project("retry").path.is_dir()
+
+
+@pytest.mark.unit
+def test_create_failure_removes_new_base_ancestors(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    service = ProjectManagementService(tmp_path / "new" / "nested" / "projects")
+    original_mkdir = Path.mkdir
+
+    def mkdir(path: Path, *args, **kwargs):
+        if path == service.projects_base_dir:
+            raise OSError("mkdir failed")
+        return original_mkdir(path, *args, **kwargs)
+
+    with monkeypatch.context() as patcher:
+        patcher.setattr(Path, "mkdir", mkdir)
+        with pytest.raises(ProjectOperationError):
+            service.create_project("retry")
+    assert list(tmp_path.iterdir()) == []
+    assert service.create_project("retry").path.is_dir()
