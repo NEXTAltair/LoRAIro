@@ -10,6 +10,7 @@ custom_id には 2 系統がある:
 - ファイル名 stem 形式 (外部生成 JSONL 等の旧来フォーマット)。
 """
 
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import PurePosixPath
 
@@ -38,7 +39,12 @@ class BatchImageMatcher:
     def __init__(self, repository: ImageRepository) -> None:
         self._repository = repository
 
-    def match_all(self, custom_ids: list[str]) -> ImageMatchResult:
+    def match_all(
+        self,
+        custom_ids: list[str],
+        *,
+        filename_index_loader: Callable[[], dict[str, int]] | None = None,
+    ) -> ImageMatchResult:
         """全custom_idを一括照合する。
 
         ADR 0062 形式 (``ph:{phash}:le:{long_edge}``) は pHash で、それ以外は
@@ -46,6 +52,7 @@ class BatchImageMatcher:
 
         Args:
             custom_ids: OpenAI Batch APIのcustom_idリスト。
+            filename_index_loader: 操作内で共有する遅延索引取得関数。省略時は毎回最新を取得する。
 
         Returns:
             マッチング結果。
@@ -83,7 +90,7 @@ class BatchImageMatcher:
 
         # 旧来フォーマット: ファイル名 stem で照合
         if stem_custom_ids:
-            filename_index = self._repository.get_all_image_filename_index()
+            filename_index = (filename_index_loader or self._repository.get_all_image_filename_index)()
             for custom_id in stem_custom_ids:
                 stem = self.extract_stem(custom_id)
                 image_id = filename_index.get(stem)
