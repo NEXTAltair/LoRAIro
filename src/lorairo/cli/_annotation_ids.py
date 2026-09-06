@@ -198,9 +198,9 @@ def run_id_annotation(
     from lorairo.cli.commands.annotate import (
         MAX_ANNOTATE_IMAGES,
         AnnotationSelectionError,
-        ResultSetTooLargeError,
         _status_console,
     )
+    from lorairo.public_api.exceptions import ResultSetTooLargeError
 
     repo = container.db_manager.image_repo
     image_ids = validate_candidate_ids(repo, image_ids)

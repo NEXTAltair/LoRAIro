@@ -419,7 +419,12 @@ def submit(
         ),
     ),
 ) -> None:
-    """Submit registered images to a Provider Batch API job."""
+    """Submit registered images to Provider Batch jobs.
+
+    CSV and UTF-8 ID-file inputs are exclusive. Validate the entire input before sending;
+    provider jobs contain at most 500 images. JSON assignment rows retain job IDs and
+    submitted/failed/unsubmitted image sets. Inspect uncertain failures before retrying.
+    """
     with command_boundary():
         if image_ids_csv is not None and image_ids_file is not None:
             raise click.UsageError("--image-ids and --image-ids-file are mutually exclusive.")

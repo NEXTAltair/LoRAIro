@@ -857,6 +857,11 @@ def _print_annotation_filter_summary(
         _status_console().print(f"[cyan]Filter: missing model {missing_model_litellm_id}[/cyan]")
 
 
+def _warn_deprecated_models(annotator: Any, models: list[str]) -> None:
+    for model in _get_deprecated_models_best_effort(annotator, models):
+        _status_console().print(f"[yellow]Warning: Model '{model}' is deprecated[/yellow]")
+
+
 @app.command("run")
 def run(
     project: str = typer.Option(
@@ -936,6 +941,10 @@ def run(
     プロジェクトの画像に対してアノテーションを実行し、結果をDBへ保存します。
     --output/-o is unsupported and fails before annotation. Use export create for files.
     使用可能なモデル ID は 'lorairo-cli models list' で確認してください。
+
+    Explicit ID files are UTF-8 newline/comma lists (max 100,000). Filters intersect the input;
+    ascending ID order, offset, then limit apply before resolution selection. Missing processed
+    images are skipped. JSON outcome rows distinguish completed/failed/skipped/unexecuted.
 
     Issue #245 / ADR 0023 Phase 1.11: `--model` には `litellm_model_id` (registry
     key SSoT) を渡すこと。display 名 (`Model.name`) は同一値で複数 route の行が
@@ -1040,9 +1049,7 @@ def run(
         annotator = container.annotator_library
         config = container.config_service
 
-        deprecated_models = _get_deprecated_models_best_effort(annotator, resolved_litellm_ids)
-        for deprecated_model in deprecated_models:
-            target_console.print(f"[yellow]Warning: Model '{deprecated_model}' is deprecated[/yellow]")
+        _warn_deprecated_models(annotator, resolved_litellm_ids)
 
         # Issue #241: 実行直前に LoRAIro 側で API key 不足を事前検出する。
         # 旧実装は「3 種類キー全部無いとき警告」だけで、片方の provider key だけ

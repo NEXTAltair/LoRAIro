@@ -167,7 +167,7 @@ Structured error payload emitted as kind=error by the CLI boundary.
 
 ### `annotate run`
 
-Run annotation for selected project images.
+Run annotation for selected project images and save to DB; --output is unsupported.
 
 - Read only: `false`
 - Side effects: `db_read`, `db_write`, `file_read`, `network`
@@ -194,16 +194,25 @@ lorairo-cli --json describe "annotate run"
 
 **Input `AnnotateRunInput`**
 
-- `output`: `None` (optional, default `None`) - Deprecated/unsupported: every `--output`/`-o` value is rejected with `INVALID_INPUT` / exit 2. Use `export create` for files.
-- `resolution`: `int>=1?` (optional) - Select existing processed images.
 - `project`: `str` (required)
 - `model`: `list[str]` (required)
+- `output`: `None` (optional) - Unsupported/deprecated: any --output/-o value returns INVALID_INPUT (exit 2) before annotation. Omit it and use export create for files.
+- `resolution`: `int>=1?` (optional)
 - `limit`: `int>=1?` (optional)
 - `offset`: `int>=0` (optional, default `0`)
 - `image_id`: `list[int]?` (optional)
+- `image_ids_file`: `path?` (optional) - UTF-8 newline/comma IDs, max 100,000; exclusive with image_id. Filter intersection, ascending ID order, offset, limit; per-image outcomes streamed.
 - `batch_size`: `int>=1` (optional, default `10`)
 - `unrated`: `bool` (optional, default `False`)
 - `missing_model`: `str?` (optional)
+
+**Output `AnnotateRunOutcome`**
+
+- `type`: `annotation_outcome` (optional)
+- `image_id`: `int` (optional)
+- `status`: `completed|failed|skipped|unexecuted` (optional)
+- `saved`: `bool` (optional)
+- `reason`: `str?` (optional)
 
 **Output `AnnotateRunItem`**
 
@@ -215,6 +224,9 @@ lorairo-cli --json describe "annotate run"
 
 **Output `AnnotateRunResult`**
 
+- `status`: `success|partial_success|failed?` (optional)
+- `completed`: `int?` (optional)
+- `unexecuted`: `int?` (optional)
 - `annotated`: `int` (optional)
 - `skipped`: `int` (optional)
 - `errors`: `int` (optional)
@@ -506,16 +518,31 @@ lorairo-cli --json describe "batch submit"
 
 - `project`: `str` (required)
 - `model`: `str` (required)
-- `image_ids`: `csv[int]` (required) - Comma-separated image IDs, e.g. 2,7,11.
+- `image_ids`: `csv[int]` (optional) - Comma-separated image IDs, exclusive with image_ids_file.
+- `image_ids_file`: `path?` (optional) - UTF-8 newline/comma IDs; max 100,000; exclusive with image_ids. Entire input validated before sending; jobs split at provider limit 500.
+- `resolution`: `int?` (optional)
 - `provider`: `openai|anthropic?` (optional)
 - `endpoint`: `str?` (optional)
 - `prompt_profile`: `str` (optional, default `default`)
 - `description`: `str?` (optional)
 - `task_type`: `annotation|rating_preflight` (optional, default `annotation`)
 
+**Output `BatchSubmissionItem`**
+
+- `type`: `batch_submission` (optional)
+- `status`: `submitted|failed|unsubmitted` (optional)
+- `image_ids`: `list[int]` (optional) - At most 500 IDs assigned to this job/attempt.
+- `job_id`: `int?` (optional)
+- `reason`: `str?` (optional)
+
 **Output `BatchJobResult`**
 
-- `job_id`: `int` (optional)
+- `status`: `success|partial_success|failed` (optional)
+- `job_ids`: `list[int]` (optional)
+- `submitted`: `int` (optional)
+- `failed`: `int` (optional)
+- `unsubmitted`: `int` (optional)
+- `job_id`: `int?` (optional)
 - `job`: `dict?` (optional)
 
 **Error `CliErrorResponse`**
@@ -770,7 +797,7 @@ Structured error payload emitted as kind=error by the CLI boundary.
 
 ### `images register`
 
-Register images from a file or directory into a project.
+Register images and stream authoritative DB outcomes with unique selected IDs. See docs/cli-registration-workflow.md for same-project ID handoff and partial failures.
 
 - Read only: `false`
 - Side effects: `file_read`, `file_write`, `db_read`, `db_write`
@@ -789,12 +816,25 @@ lorairo-cli --json describe "images register"
 - `project`: `str` (required)
 - `skip_duplicates`: `bool` (optional, default `True`)
 
+**Output `ImagesRegisterItem`**
+
+- `input_path`: `str` (optional)
+- `outcome`: `registered|variant|duplicate|failed` (optional)
+- `image_id`: `int?` (optional)
+- `project`: `str?` (optional)
+- `selected`: `bool` (optional) - True once per unique eligible ID; duplicates require include-duplicates.
+- `error`: `str?` (optional)
+
 **Output `ImagesRegisterResult`**
 
-- `status`: `success | partial_success | failed` (optional, default `success`)
 - `ok`: `bool` (optional)
-- `variant`: `int` (optional)
+- `status`: `Literal[success, partial_success, failed]` (optional, default `success`) - Failures, including partial success, return ok=false and exit 1; normal skip/empty returns exit 0.
+- `variant`: `int` (optional, default `0`)
 - `error_details`: `list[str]` (optional)
+- `project`: `str` (optional)
+- `target_count`: `int` (optional)
+- `interrupted`: `bool` (optional)
+- `unprocessed`: `int` (optional)
 - `total`: `int` (optional)
 - `registered`: `int` (optional)
 - `skipped`: `int` (optional)

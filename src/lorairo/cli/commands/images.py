@@ -179,7 +179,7 @@ def register(
     skip_duplicates: bool = typer.Option(
         True,
         "--skip-duplicates/--include-duplicates",
-        help="Skip duplicate images (detected by pHash)",
+        help="Exclude duplicate IDs from downstream selection; --include-duplicates selects existing IDs once.",
     ),
 ) -> None:
     """Register images from file or directory to project.
@@ -187,6 +187,9 @@ def register(
     画像ファイルまたはディレクトリからプロジェクトへ画像を登録します。
     pHashを計算して重複検出を行います。
 
+    JSON item rows carry input_path/outcome/image_id/project/selected. Registered and variant IDs
+    are selected once; --include-duplicates also selects existing duplicate IDs. Check terminal
+    result target_count and success before creating an ID file for the same project.
     Partial or complete failures exit 1; successful/empty/normal skip results exit 0.
     """
     with command_boundary():

@@ -142,7 +142,7 @@ def container_for_ids(tmp_path, count):
         skip_count=0,
         error_count=0,
         total_count=len(allowed_image_ids),
-        image_outcomes={i: "success" for i in allowed_image_ids},
+        image_outcomes=dict.fromkeys(allowed_image_ids, "success"),
     )
     workflow = MagicMock()
     workflow.submit_images.side_effect = range(40, 100)
@@ -261,7 +261,7 @@ def test_batch_failure_emits_already_submitted_and_unsent_assignments(tmp_path, 
 @pytest.mark.parametrize("count", [1, 500, 501])
 def test_batch_all_ids_sent_once_with_bounded_processed_lookup(tmp_path, capsys, count):
     container = container_for_ids(tmp_path, count)
-    submit(container, list(range(1, count + 1)) + [1])
+    submit(container, [*range(1, count + 1), 1])
     output = rows(capsys)
     assigned = [i for row in output if row.get("status") == "submitted" for i in row["image_ids"]]
     assert assigned == list(range(1, count + 1))
@@ -281,3 +281,145 @@ def test_batch_late_missing_id_prevents_all_submissions(tmp_path):
     with pytest.raises(Exception, match="502"):
         submit(container, list(range(1, 503)))
     container.provider_batch_workflow_service.submit_images.assert_not_called()
+
+
+@pytest.mark.parametrize("failure", ["missing_path", "corrupt_path", "bad_request"])
+def test_batch_validates_last_chunk_before_first_provider_call(tmp_path, failure):
+    container = container_for_ids(tmp_path, 501)
+    repo = container.db_manager.image_repo
+    original = repo.get_processed_image_paths_by_resolution.side_effect
+    if failure in ("missing_path", "corrupt_path"):
+        bad = tmp_path / "corrupt.png"
+        bad.write_text("not an image")
+
+        def selected(ids, resolution):
+            result = original(ids, resolution)
+            if 501 in result:
+                if failure == "missing_path":
+                    result.pop(501)
+                else:
+                    result[501] = str(bad)
+            return result
+
+        repo.get_processed_image_paths_by_resolution.side_effect = selected
+    else:
+        container.provider_batch_workflow_service.build_submit_request.side_effect = [
+            None,
+            ValueError("bad metadata"),
+        ]
+    with pytest.raises((click.UsageError, ValueError)):
+        submit(container, list(range(1, 502)))
+    container.provider_batch_workflow_service.submit_images.assert_not_called()
+
+
+def test_batch_interrupt_preserves_job_assignment(tmp_path, capsys):
+    container = container_for_ids(tmp_path, 1001)
+    container.provider_batch_workflow_service.submit_images.side_effect = [42, KeyboardInterrupt()]
+    with pytest.raises(typer.Exit):
+        submit(container, list(range(1, 1002)))
+    output = rows(capsys)
+    assert output[-1]["interrupted"]
+    assert output[-1]["job_ids"] == [42]
+    assert [row["status"] for row in output[:-1]] == ["submitted", "failed", "unsubmitted"]
+
+
+def test_annotation_filter_order_offset_missing_resolution_and_unrelated_ids(tmp_path, monkeypatch, capsys):
+    container = container_for_ids(tmp_path, 1001)
+    repo = container.db_manager.image_repo
+    repo.get_candidate_image_ids.side_effect = lambda ids, criteria=None: (
+        ids if criteria is None else [i for i in ids if i != 2]
+    )
+    original = repo.get_processed_image_paths_by_resolution.side_effect
+    repo.get_processed_image_paths_by_resolution.side_effect = lambda ids, resolution: {
+        i: path for i, path in original(ids, resolution).items() if i != 4
+    }
+    monkeypatch.setattr("lorairo.cli._annotation_ids._make_preflight", lambda *_: None)
+    run_id_annotation(
+        container,
+        image_ids=[5, 4, 3, 2, 1, 1],
+        file_input=True,
+        project="demo",
+        criteria=ImageFilterCriteria(only_unrated=True),
+        offset=1,
+        limit=2,
+        resolution=512,
+        batch_size=2,
+        models=["fake"],
+    )
+    output = rows(capsys)
+    outcomes = {r["image_id"]: r["status"] for r in output if r.get("type") == "annotation_outcome"}
+    assert outcomes == {1: "skipped", 2: "skipped", 3: "completed", 4: "skipped", 5: "skipped"}
+    assert output[-1]["ok"]
+    assert [call.args[0] for call in repo.get_images_by_ids.call_args_list] == [[3]]
+    repo.get_images_by_filter.assert_not_called()
+
+
+@pytest.mark.parametrize("command", ["annotate", "batch"])
+@pytest.mark.parametrize("case", ["empty", "invalid", "missing", "conflict"])
+def test_cli_explicit_bad_id_files_never_fall_back(tmp_path, monkeypatch, command, case):
+    from typer.testing import CliRunner
+
+    from lorairo.cli.main import app
+
+    file = tmp_path / "ids.txt"
+    if case != "missing":
+        file.write_text("" if case == "empty" else "not-id" if case == "invalid" else "1", encoding="utf-8")
+    get_project = MagicMock(side_effect=AssertionError("project touched before bad input rejected"))
+    boundary = "api_get_project" if command == "annotate" else "_activate_project"
+    monkeypatch.setattr(f"lorairo.cli.commands.{command}.{boundary}", get_project)
+    args = [
+        "--json",
+        command,
+        "run" if command == "annotate" else "submit",
+        "--project",
+        "demo",
+        "--model",
+        "fake",
+        "--image-ids-file",
+        str(file),
+    ]
+    if case == "conflict":
+        args.extend(["--image-id" if command == "annotate" else "--image-ids", "1"])
+    result = CliRunner().invoke(app, args)
+    assert result.exit_code == 2, result.stdout + result.stderr
+    assert json.loads(result.stdout.splitlines()[-1])["code"] == "INVALID_INPUT"
+    get_project.assert_not_called()
+
+
+def test_emitted_registration_annotation_batch_rows_match_published_schemas(tmp_path, monkeypatch, capsys):
+    from lorairo.cli._emit import emit_item
+    from lorairo.cli.introspection import (
+        AnnotateRunOutcome,
+        AnnotateRunResult,
+        BatchJobResult,
+        BatchSubmissionItem,
+        ImagesRegisterItem,
+    )
+
+    manager = MagicMock()
+    manager.register_image_with_side_effects.return_value = RegistrationSideEffectResult(
+        RegistrationOutcome.REGISTERED, 1, {}
+    )
+    _register_into_db(manager, MagicMock(), [Path("incoming.png")], project_name="demo", on_item=emit_item)
+    ImagesRegisterItem.model_validate(rows(capsys)[0])
+    container = container_for_ids(tmp_path, 1)
+    monkeypatch.setattr("lorairo.cli._annotation_ids._make_preflight", lambda *_: None)
+    run_id_annotation(
+        container,
+        image_ids=[1],
+        file_input=True,
+        project="demo",
+        criteria=ImageFilterCriteria(),
+        offset=0,
+        limit=None,
+        resolution=512,
+        batch_size=10,
+        models=["fake"],
+    )
+    annotation = rows(capsys)
+    AnnotateRunOutcome.model_validate(next(r for r in annotation if r.get("type") == "annotation_outcome"))
+    AnnotateRunResult.model_validate(annotation[-1])
+    submit(container, [1])
+    batch = rows(capsys)
+    BatchSubmissionItem.model_validate(batch[0])
+    BatchJobResult.model_validate(batch[-1])
