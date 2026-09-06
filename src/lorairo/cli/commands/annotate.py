@@ -878,7 +878,7 @@ def run(
         None,
         "--output",
         "-o",
-        help="Output directory for annotation results (optional)",
+        help="Unsupported/deprecated: results are saved to the project DB. Use export create for files.",
     ),
     batch_size: int = typer.Option(
         10,
@@ -927,7 +927,8 @@ def run(
 ) -> None:
     """Run annotation on project images.
 
-    プロジェクトの画像に対してアノテーションを実行します。
+    プロジェクトの画像に対してアノテーションを実行し、結果をDBへ保存します。
+    --output/-o is unsupported and fails before annotation. Use export create for files.
     使用可能なモデル ID は 'lorairo-cli models list' で確認してください。
 
     Issue #245 / ADR 0023 Phase 1.11: `--model` には `litellm_model_id` (registry
@@ -941,6 +942,11 @@ def run(
             --model openrouter/openai/gpt-4o --model openrouter/anthropic/claude-3-5-sonnet
     """
     with command_boundary():
+        if output is not None:
+            raise click.UsageError(
+                "--output/-o is unsupported: annotate run saves results to the project database. "
+                "Omit --output, then use export create with explicit image IDs for file output."
+            )
         # API層経由でプロジェクト確認 & DB 接続切り替え
         api_get_project(project)
 
@@ -1140,6 +1146,8 @@ def import_batch(
     """Import OpenAI Batch API result JSONL files in bulk.
     OpenAI Batch API結果JSONLを一括インポートする。
 
+    Partial or complete failures exit 1; successful/empty/normal skip results exit 0.
+
     Reads all JSONL files in the directory, matches custom_id against
     registered image filenames in the DB, and imports annotation results.
     ディレクトリ内の全JSONLファイルを読み込み、
@@ -1158,9 +1166,15 @@ def import_batch(
             dry_run=dry_run,
             model_name_override=model_name,
         )
+        failures = result.parse_errors + result.save_errors + result.unmatched
+        successes = result.matched if dry_run else result.saved
         if is_json_mode():
             emit_result(
                 f"Imported {result.saved} batch annotation(s)",
+                ok=failures == 0,
+                status="success" if not failures else "partial_success" if successes else "failed",
+                unmatched_ids=list(result.unmatched_ids),
+                error_details=list(result.error_details),
                 total_records=result.total_records,
                 parsed_ok=result.parsed_ok,
                 parse_errors=result.parse_errors,
@@ -1171,6 +1185,7 @@ def import_batch(
                 model_name=result.model_name,
                 dry_run=dry_run,
             )
-            return
-
-        _display_batch_import_result(result, dry_run=dry_run)
+        else:
+            _display_batch_import_result(result, dry_run=dry_run)
+        if failures:
+            raise typer.Exit(1)

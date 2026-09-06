@@ -667,11 +667,24 @@ def import_results(
     project: str = typer.Option(..., "--project", "-p", help="Project name"),
     output_dir: Path | None = typer.Option(None, "--output-dir", "-o", help="Artifact output directory"),
 ) -> None:
-    """Fetch and import Provider Batch results into annotations."""
+    """Fetch and import Provider Batch results into annotations.
+
+    Partial/incomplete imports exit 1; successful/empty/normal skip results exit 0.
+    """
     with command_boundary():
         container = _activate_project(project)
         result = container.provider_batch_workflow_service.import_results(
             job_id, destination_dir=output_dir
+        )
+        incomplete = bool(result.total_count and not result.job_imported)
+        failed = bool(result.error_count or incomplete)
+        already_imported = getattr(result, "already_imported_count", 0)
+        status = (
+            "success"
+            if not failed
+            else "partial_success"
+            if result.imported_count + already_imported
+            else "failed"
         )
         rating_breakdown = _get_rating_breakdown(container, job_id)
         ratings_saved = sum(rating_breakdown.values())
@@ -679,6 +692,18 @@ def import_results(
         if is_json_mode():
             emit_result(
                 f"Provider Batch results imported: {job_id}",
+                ok=not failed,
+                status=status,
+                incomplete=incomplete,
+                already_imported=already_imported,
+                non_importable=getattr(result, "non_importable_count", 0),
+                save_skipped=getattr(result, "save_skipped_count", 0),
+                missing_custom_ids=list(getattr(result, "missing_custom_ids", ())),
+                failed_custom_ids=list(getattr(result, "failed_custom_ids", ())),
+                error_details=list(getattr(getattr(result, "save_result", None), "error_details", ())),
+                hint=f"Inspect batch status {job_id} --project {project} and its stored item errors."
+                if failed
+                else None,
                 job_id=job_id,
                 imported=result.imported_count,
                 skipped=result.skipped_count,
@@ -700,3 +725,6 @@ def import_results(
             console.print(table)
             if rating_breakdown:
                 _print_rating_breakdown(rating_breakdown, ratings_saved)
+
+        if failed:
+            raise typer.Exit(1)
