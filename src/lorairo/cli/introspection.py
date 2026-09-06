@@ -741,6 +741,7 @@ class AnnotateRunResult(BaseModel):
     message: str
     annotated: int
     skipped: int
+    resolution_skipped: int = 0
     errors: int
     loaded: int
     results: int

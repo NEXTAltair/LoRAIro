@@ -142,3 +142,41 @@ def test_images_update_terminal_variants_match_schema(variant, monkeypatch):
         assert output[-1]["count"] == 0
     else:
         assert output[-1]["target_images"] == 1
+
+
+@pytest.mark.parametrize("has_job", [False, True])
+def test_batch_submit_terminal_with_optional_job(has_job, monkeypatch):
+    from lorairo.cli.commands.batch import _JOB_DETAIL_FIELDS
+
+    container = MagicMock()
+    container.db_manager.model_repo.get_model_by_litellm_id.return_value = SimpleNamespace(
+        id=7, provider="openai", litellm_model_id="openai/synthetic"
+    )
+    container.db_manager.image_repo.get_images_by_ids.return_value = [
+        {"id": 1, "stored_image_path": "image_dataset/processed_images/1.jpg"}
+    ]
+    job = dict.fromkeys(_JOB_DETAIL_FIELDS)
+    job.update(
+        id=42,
+        provider="openai",
+        status="submitted",
+        request_count=1,
+        succeeded_count=0,
+        failed_count=0,
+        canceled_count=0,
+        expired_count=0,
+    )
+    container.db_manager.provider_batch_repo.get_provider_batch_job.return_value = (
+        SimpleNamespace(**job) if has_job else None
+    )
+    container.provider_batch_workflow_service.submit_images.return_value = 42
+    monkeypatch.setattr("lorairo.cli.commands.batch._activate_project", lambda project: container)
+    output = rows(
+        runner.invoke(
+            app,
+            ["--json", "batch", "submit", "-p", "temporary", "-m", "openai/synthetic", "--image-ids", "1"],
+        )
+    )
+    assert output[-1]["job_id"] == 42
+    assert (output[-1]["job"] is not None) is has_job
+    container.provider_batch_workflow_service.submit_images.assert_called_once()

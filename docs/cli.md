@@ -245,6 +245,7 @@ lorairo-cli --json describe "annotate run"
 - `message`: `str` (required)
 - `annotated`: `int` (required)
 - `skipped`: `int` (required)
+- `resolution_skipped`: `int` (optional, default `0`)
 - `errors`: `int` (required)
 - `loaded`: `int` (required)
 - `results`: `int` (required)
