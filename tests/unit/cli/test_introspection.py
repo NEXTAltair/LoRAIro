@@ -185,6 +185,7 @@ def test_annotate_run_describes_only_supported_flags() -> None:
         "limit",
         "offset",
         "image_id",
+        "image_ids_file",
         "batch_size",
         "unrated",
         "missing_model",
@@ -220,7 +221,7 @@ def test_import_batch_describes_actual_argument_names() -> None:
     assert {"total_records", "matched", "saved", "dry_run"} <= {f["name"] for f in output_row["fields"]}
 
 
-def test_batch_submit_describes_csv_image_ids() -> None:
+def test_batch_submit_describes_image_ids_inputs() -> None:
     result = runner.invoke(app, ["--json", "describe", "batch submit"])
 
     assert result.exit_code == 0
@@ -231,8 +232,9 @@ def test_batch_submit_describes_csv_image_ids() -> None:
     fields = {field["name"]: field for field in input_row["fields"]}
 
     assert "image_id" not in fields
-    assert fields["image_ids"]["type"] == "csv[int]"
-    assert fields["image_ids"]["required"] is True
+    assert fields["image_ids"]["type"] == "csv[int]?"
+    assert fields["image_ids"]["required"] is False
+    assert fields["image_ids_file"]["type"] == "path?"
     assert "Comma-separated" in fields["image_ids"]["description"]
 
 
@@ -342,7 +344,12 @@ def test_remaining_cli_result_schemas_do_not_reuse_api_dtos() -> None:
             {"successful", "failed", "variant"},
         ),
         "models refresh": ("output", "ModelsRefreshResult", {"discovered", "summary"}, {"success", "data"}),
-        "batch submit": ("output", "BatchJobResult", {"job_id", "job"}, {"success", "data"}),
+        "batch submit": (
+            "output",
+            "BatchJobResult",
+            {"job_id", "job", "job_ids", "jobs"},
+            {"success", "data"},
+        ),
         "batch cancel": ("output", "BatchJobResult", {"job_id", "job"}, {"success", "data"}),
         "batch fetch": (
             "output",

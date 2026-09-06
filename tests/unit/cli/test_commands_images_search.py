@@ -123,6 +123,7 @@ class TestImagesSearch:
                     "height_min": 100,
                     "filename_pattern": "sample_%",
                     "format": "jpeg",
+                    "original_path_prefix": "J:/source/untagged",
                     "tags": ["absurdres"],
                 }
             )
@@ -137,6 +138,7 @@ class TestImagesSearch:
         assert criteria.height_min == 100
         assert criteria.filename_pattern == "sample_%"
         assert criteria.format_name == "jpeg"
+        assert criteria.original_path_prefix == "J:/source/untagged"
 
     def test_emit_ids_pages_all_matching_bypassing_guard(
         self, mock_search_context: tuple, tmp_path

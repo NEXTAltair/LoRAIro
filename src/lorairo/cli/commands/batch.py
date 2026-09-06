@@ -20,6 +20,7 @@ from lorairo.cli._boundary import command_boundary
 from lorairo.cli._console import make_console
 from lorairo.cli._emit import emit_item, emit_result
 from lorairo.cli._image_guard import reject_original_image_records
+from lorairo.cli._image_ids import parse_image_ids_file
 from lorairo.cli._output_mode import is_json_mode
 from lorairo.services.service_container import get_service_container
 
@@ -28,6 +29,9 @@ console = make_console()
 
 _SUPPORTED_SUBMIT_PROVIDERS = {"openai", "anthropic"}
 _SUPPORTED_TASK_TYPES = {"annotation", "rating_preflight"}
+# image-annotator-lib の各 provider adapter が 1 ジョブで受け付ける上限。
+# CLI はより大きい ID file をこの単位で複数ジョブへ安全に分割する (#1307)。
+_MAX_PROVIDER_BATCH_ITEMS = 500
 _TASK_TYPE_ENDPOINTS = {
     "annotation": {
         "openai": "/v1/chat/completions",
@@ -226,6 +230,15 @@ def _parse_image_ids_csv(value: str) -> list[int]:
     return image_ids
 
 
+def _resolve_submit_image_ids(image_ids_csv: str | None, image_ids_file: str | None) -> list[int]:
+    """Resolve the mutually exclusive Batch image-ID inputs (#1307)."""
+    if image_ids_csv and image_ids_file:
+        raise click.UsageError("--image-ids and --image-ids-file cannot be used together.")
+    if image_ids_file:
+        return parse_image_ids_file(image_ids_file)
+    return _parse_image_ids_csv(image_ids_csv or "")
+
+
 def _print_jobs_table(jobs: list[Any]) -> None:
     table = Table(title="Provider Batch Jobs")
     table.add_column("ID", style="cyan", no_wrap=True)
@@ -390,14 +403,83 @@ def _resolve_processed_image_paths(
     return paths
 
 
+def _validate_submit_image_records(records: list[dict[str, Any]], image_ids: list[int]) -> None:
+    """Fail before submission if any requested image cannot produce a batch request."""
+    found_ids = {record.get("id") for record in records}
+    missing_ids = [image_id for image_id in dict.fromkeys(image_ids) if image_id not in found_ids]
+    invalid_path_ids = [
+        int(record["id"])
+        for record in records
+        if record.get("id") is not None and not record.get("stored_image_path")
+    ]
+    if not missing_ids and not invalid_path_ids:
+        return
+
+    problems: list[str] = []
+    if missing_ids:
+        problems.append(f"not found: {', '.join(map(str, missing_ids[:5]))}")
+    if invalid_path_ids:
+        problems.append(f"missing stored image path: {', '.join(map(str, invalid_path_ids[:5]))}")
+    raise click.UsageError(
+        "Cannot submit requested image ID(s): " + "; ".join(problems) + ". No batch jobs were submitted."
+    )
+
+
+def _submit_image_chunks(
+    workflow_service: Any,
+    provider_batch_repo: Any,
+    *,
+    provider: str,
+    endpoint: str,
+    litellm_model_id: str,
+    prompt_profile: str,
+    image_ids: list[int],
+    model_id: int,
+    description: str | None,
+    task_type: str,
+    image_paths: dict[int, str] | None,
+) -> tuple[list[int], list[Any]]:
+    """Submit image IDs in provider-safe chunks and return their persisted jobs."""
+    job_ids: list[int] = []
+    jobs: list[Any] = []
+    for start in range(0, len(image_ids), _MAX_PROVIDER_BATCH_ITEMS):
+        image_id_chunk = image_ids[start : start + _MAX_PROVIDER_BATCH_ITEMS]
+        image_path_chunk = (
+            {image_id: image_paths[image_id] for image_id in image_id_chunk}
+            if image_paths is not None
+            else None
+        )
+        job_id = workflow_service.submit_images(
+            provider=provider,
+            endpoint=endpoint,
+            litellm_model_id=litellm_model_id,
+            prompt_profile=prompt_profile,
+            image_ids=image_id_chunk,
+            model_id=model_id,
+            description=description,
+            task_type=task_type,
+            image_paths=image_path_chunk,
+        )
+        job_ids.append(job_id)
+        job = provider_batch_repo.get_provider_batch_job(job_id)
+        if job is not None:
+            jobs.append(job)
+    return job_ids, jobs
+
+
 @app.command("submit")
 def submit(
     project: str = typer.Option(..., "--project", "-p", help="Project name"),
     model: str = typer.Option(..., "--model", "-m", help="LiteLLM model ID or unique display name"),
-    image_ids_csv: str = typer.Option(
-        ...,
+    image_ids_csv: str | None = typer.Option(
+        None,
         "--image-ids",
         help="Comma-separated image IDs to submit (example: 2,7,11)",
+    ),
+    image_ids_file: str | None = typer.Option(
+        None,
+        "--image-ids-file",
+        help="Newline/comma-separated image ID file (up to 100,000 IDs).",
     ),
     provider: str | None = typer.Option(None, "--provider", help="Provider override: openai/anthropic"),
     endpoint: str | None = typer.Option(None, "--endpoint", help="Provider endpoint override"),
@@ -423,7 +505,7 @@ def submit(
 ) -> None:
     """Submit registered images to a Provider Batch API job."""
     with command_boundary():
-        image_ids = _parse_image_ids_csv(image_ids_csv)
+        image_ids = _resolve_submit_image_ids(image_ids_csv, image_ids_file)
         container = _activate_project(project)
         model_repo = container.db_manager.model_repo
         provider_batch_repo = container.db_manager.provider_batch_repo
@@ -446,13 +528,15 @@ def submit(
 
         resolved_endpoint = _resolve_submit_endpoint(resolved_provider, normalized_task_type, endpoint)
         image_repo = container.db_manager.image_repo
+        image_records = image_repo.get_images_by_ids(image_ids)
+        _validate_submit_image_records(image_records, image_ids)
 
         # --resolution 指定時は processed image を使うため、original image guard をスキップする。
         # ADR 0064 が禁止するのはオリジナル画像の直接投入であり、
         # processed path を override して送信する場合は image_id がオリジナルでも正当。
         if resolution is None:
             reject_original_image_records(
-                image_repo.get_images_by_ids(image_ids),
+                image_records,
                 command_name="batch submit",
             )
 
@@ -460,7 +544,9 @@ def submit(
         if resolution is not None:
             image_paths = _resolve_processed_image_paths(container, image_ids, resolution)
 
-        job_id = container.provider_batch_workflow_service.submit_images(
+        job_ids, jobs = _submit_image_chunks(
+            container.provider_batch_workflow_service,
+            provider_batch_repo,
             provider=resolved_provider,
             endpoint=resolved_endpoint,
             litellm_model_id=db_model.litellm_model_id,
@@ -471,18 +557,22 @@ def submit(
             task_type=normalized_task_type,
             image_paths=image_paths,
         )
-        job = provider_batch_repo.get_provider_batch_job(job_id)
         if is_json_mode():
             emit_result(
-                f"Provider Batch job submitted: {job_id}",
-                job_id=job_id,
-                job=_job_dict(job) if job is not None else None,
+                f"Submitted {len(job_ids)} Provider Batch job(s)",
+                job_id=job_ids[0],
+                job=_job_dict(jobs[0]) if jobs else None,
+                job_ids=job_ids,
+                jobs=[_job_dict(job) for job in jobs],
             )
         else:
             if resolution is not None:
                 console.print(f"[dim]Using processed images at resolution {resolution}px[/dim]")
-            console.print(f"[green]Provider Batch job submitted:[/green] {job_id}")
-            if job is not None:
+            job_label = "job" if len(job_ids) == 1 else "jobs"
+            console.print(
+                f"[green]Provider Batch {job_label} submitted:[/green] {', '.join(map(str, job_ids))}"
+            )
+            for job in jobs:
                 _print_job_detail(job)
 
 

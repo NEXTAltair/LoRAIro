@@ -3081,6 +3081,25 @@ class ImageRepository(BaseRepository):
             query = query.where(Image.filename.ilike(criteria.filename_pattern))
         if criteria.format_name:
             query = query.where(func.lower(Image.format) == criteria.format_name.strip().lower())
+        if criteria.original_path_prefix:
+            # DB は Windows の ``\\`` と POSIX の ``/`` の双方を保存し得るため、
+            # 照合前に ``/`` へ正規化する。LIKE では ``%`` / ``_`` を含む実在パスを
+            # ワイルドカードとして扱ってしまうため、literal な substr 比較を用いる。
+            # 入力末尾に区切りを付加して sibling directory の混入も防ぐ。
+            prefix = criteria.original_path_prefix.replace("\\", "/").rstrip("/") + "/"
+            normalized_path = func.replace(Image.original_image_path, "\\", "/")
+            leading_path = func.substr(normalized_path, 1, len(prefix))
+            # POSIX path は case-sensitive のままにする一方、drive-letter を持つ
+            # Windows path は filesystem semantics に合わせて case-insensitive に照合する。
+            query = query.where(
+                or_(
+                    leading_path == prefix,
+                    and_(
+                        func.substr(normalized_path, 2, 1) == ":",
+                        func.lower(leading_path) == prefix.lower(),
+                    ),
+                )
+            )
         return query
 
     def get_images_by_filter(
@@ -3386,11 +3405,16 @@ class ImageRepository(BaseRepository):
 
     # --- By IDs (alternative entry, used by error workflow) ---
 
-    def get_images_by_ids(self, image_ids: list[int]) -> list[dict[str, Any]]:
+    def get_images_by_ids(
+        self,
+        image_ids: list[int],
+        criteria: ImageFilterCriteria | None = None,
+    ) -> list[dict[str, Any]]:
         """画像IDリストから画像メタデータを取得
 
         Args:
             image_ids: 画像IDリスト
+            criteria: 任意の画像フィルタ。指定時も image_ids の範囲だけを照会する。
 
         Returns:
             list[dict]: 画像メタデータリスト（既存フォーマット互換）
@@ -3411,9 +3435,40 @@ class ImageRepository(BaseRepository):
                 for i in range(0, len(image_ids), self.BATCH_CHUNK_SIZE):
                     chunk = image_ids[i : i + self.BATCH_CHUNK_SIZE]
                     # アノテーション情報を含めて取得
+                    selected_ids = select(Image.id).where(Image.id.in_(chunk))
+                    if criteria is not None:
+                        selected_ids = self._build_image_filter_query(
+                            session=session,
+                            tags=criteria.tags,
+                            excluded_tags=criteria.excluded_tags,
+                            caption=criteria.caption,
+                            use_and=criteria.use_and,
+                            start_date=criteria.start_date,
+                            end_date=criteria.end_date,
+                            include_untagged=criteria.include_untagged,
+                            include_nsfw=criteria.include_nsfw,
+                            include_unrated=criteria.include_unrated,
+                            only_unrated=criteria.only_unrated,
+                            missing_model_litellm_id=criteria.missing_model_litellm_id,
+                            manual_rating_filter=criteria.manual_rating_filter,
+                            ai_rating_filter=criteria.ai_rating_filter,
+                            manual_edit_filter=criteria.manual_edit_filter,
+                            project_name=criteria.project_name,
+                            project_id=criteria.project_id,
+                            reviewed_at_filter=criteria.reviewed_at_filter,
+                            error_state_filter=criteria.error_state_filter,
+                            model_filter=criteria.model_filter,
+                            rating_combine=criteria.rating_combine,
+                            keyword_groups=criteria.keyword_groups,
+                        )
+                        selected_ids = self._apply_image_metadata_filter(selected_ids, criteria)
+                        selected_ids = self._apply_processed_resolution_filter(
+                            selected_ids, criteria.resolution
+                        )
+                        selected_ids = selected_ids.where(Image.id.in_(chunk))
                     stmt = (
                         select(Image)
-                        .where(Image.id.in_(chunk))
+                        .where(Image.id.in_(selected_ids))
                         .options(
                             joinedload(Image.tags).joinedload(Tag.model),
                             joinedload(Image.captions).joinedload(Caption.model),

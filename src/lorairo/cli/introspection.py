@@ -68,6 +68,10 @@ class ImageFilterCriteriaSchema(BaseModel):
         default=None, description="Case-insensitive SQL LIKE pattern on filename."
     )
     format_name: str | None = Field(default=None, description="Case-insensitive exact image format.")
+    original_path_prefix: str | None = Field(
+        default=None,
+        description="Prefix of the original source image path; path separators are normalized.",
+    )
     project_name: str | None = Field(default=None, description="Project name scope.")
     project_id: int | None = Field(default=None, description="Project ID scope.")
     limit: int | None = Field(default=None, ge=1, description="Maximum result count.")
@@ -517,6 +521,8 @@ class BatchJobResult(BaseModel):
     message: str
     job_id: int | None = None
     job: dict[str, Any] | None = None
+    job_ids: list[int] | None = None
+    jobs: list[dict[str, Any]] | None = None
 
     model_config = ConfigDict(title="BatchJobResult")
 
@@ -1091,6 +1097,7 @@ TOOL_SPECS: dict[str, ToolSpec] = {
                     _f("limit", "int>=1?"),
                     _f("offset", "int>=0", default=0),
                     _f("image_id", "list[int]?"),
+                    _f("image_ids_file", "path?", description=_IMAGE_IDS_FILE_DESC),
                     _f("batch_size", "int>=1", default=10),
                     _f("unrated", "bool", default=False),
                     _f("missing_model", "str?"),
@@ -1212,7 +1219,7 @@ TOOL_SPECS: dict[str, ToolSpec] = {
     "images search": ToolSpec(
         name="images search",
         path="images search",
-        summary="Search images by JSON query. Returns image_ids for use with export create or tags commands.",
+        summary="Search images by JSON query. Returns image_ids for downstream batch, annotation, export, or tag commands.",
         read_only=True,
         side_effects=("db_read",),
         inputs=(
@@ -1267,6 +1274,11 @@ TOOL_SPECS: dict[str, ToolSpec] = {
                         "str?",
                         description="Case-insensitive exact match on image format (e.g. 'jpeg', 'png').",
                     ),
+                    _f(
+                        "original_path_prefix",
+                        "str?",
+                        description="Source-directory prefix on original_image_path; separators are normalized (#1307).",
+                    ),
                     _f("limit", "int[1,500]", default=500),
                     _f("offset", "int>=0", default=0),
                     _f(
@@ -1276,7 +1288,7 @@ TOOL_SPECS: dict[str, ToolSpec] = {
                         description=(
                             "Emit ALL matching image_ids (paged internally), bypassing the "
                             "count-first ResultSetTooLargeError guard, for piping into "
-                            "tags --image-ids-file (Issue #1216). Capped at 100,000."
+                            "--image-ids-file consumers (Issue #1216 / #1307). Capped at 100,000."
                         ),
                     ),
                 ),
@@ -2035,12 +2047,8 @@ TOOL_SPECS: dict[str, ToolSpec] = {
                 (
                     _f("project", "str", required=True),
                     _f("model", "str", required=True),
-                    _f(
-                        "image_ids",
-                        "csv[int]",
-                        required=True,
-                        description="Comma-separated image IDs, e.g. 2,7,11.",
-                    ),
+                    _f("image_ids", "csv[int]?", description="Comma-separated image IDs, e.g. 2,7,11."),
+                    _f("image_ids_file", "path?", description=_IMAGE_IDS_FILE_DESC),
                     _f("provider", "openai|anthropic?"),
                     _f("endpoint", "str?"),
                     _f("prompt_profile", "str", default="default"),
@@ -2050,7 +2058,16 @@ TOOL_SPECS: dict[str, ToolSpec] = {
             ),
         ),
         outputs=(
-            _output("BatchJobResult", (_f("job_id", "int"), _f("job", "dict?")), schema=BatchJobResult),
+            _output(
+                "BatchJobResult",
+                (
+                    _f("job_id", "int"),
+                    _f("job", "dict?"),
+                    _f("job_ids", "list[int]?"),
+                    _f("jobs", "list[dict]?"),
+                ),
+                schema=BatchJobResult,
+            ),
         ),
         errors=(ERROR_MODEL,),
     ),

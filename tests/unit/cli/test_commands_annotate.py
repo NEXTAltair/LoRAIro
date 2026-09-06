@@ -82,6 +82,55 @@ def test_select_image_records_missing_warning_uses_stderr_in_json(
     assert "Image ID(s) not found" in captured.err
 
 
+@pytest.mark.unit
+@pytest.mark.cli
+@patch("lorairo.cli.commands.annotate.get_service_container")
+def test_annotate_run_ids_file_fetches_only_requested_records(
+    mock_get_container: MagicMock,
+    tmp_path: Path,
+) -> None:
+    """Large --image-ids-file avoids eagerly fetching every project record (#1307)."""
+    image_file = tmp_path / "ids.txt"
+    image_file.write_text("7, 9", encoding="utf-8")
+    records = [
+        {"id": 7, "phash": "hash7", "stored_image_path": "image_dataset/processed_images/7.jpg"},
+        {"id": 9, "phash": "hash9", "stored_image_path": "image_dataset/processed_images/9.jpg"},
+    ]
+    container = MagicMock()
+    container.db_manager.image_repo.get_images_by_ids.return_value = records
+    container.annotator_library.annotate.return_value = {}
+    container.config_service.get_setting.return_value = "test_key"
+    mock_get_container.return_value = container
+
+    with (
+        patch("lorairo.cli.commands.annotate.api_get_project"),
+        patch("lorairo.cli.commands.annotate.resolve_stored_path", return_value=tmp_path / "missing.jpg"),
+    ):
+        result = runner.invoke(
+            app,
+            [
+                "annotate",
+                "run",
+                "--project",
+                "demo",
+                "--model",
+                "wd-vit-tagger-v3",
+                "--image-ids-file",
+                str(image_file),
+                "--resolution",
+                "512",
+            ],
+        )
+
+    assert result.exit_code != 2
+    container.db_manager.image_repo.get_images_by_ids.assert_called_once()
+    assert container.db_manager.image_repo.get_images_by_ids.call_args.args == ([7, 9],)
+    assert (
+        container.db_manager.image_repo.get_images_by_ids.call_args.kwargs["criteria"].include_nsfw is True
+    )
+    container.db_manager.image_repo.get_images_by_filter.assert_not_called()
+
+
 @pytest.fixture(autouse=True)
 def _bypass_model_resolver(monkeypatch: pytest.MonkeyPatch) -> None:
     """`annotate run` コマンドテスト群で `_resolve_model_identifier` を bypass する。

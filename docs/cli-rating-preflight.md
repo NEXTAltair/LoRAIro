@@ -79,6 +79,38 @@ lorairo-cli batch import 1 --project main_dataset
 `rating_preflight` requires direct OpenAI, endpoint `/v1/moderations`, an
 `openai/omni-moderation-*` model, and a model registered with `ratings` model type.
 
+## Directory-scoped batch and local tagging
+
+When a project already has images, first produce an ID file for just the newly
+registered source directory. `emit_ids` writes one ID per line, so its output can
+be passed directly to the Batch and local annotation commands. The source-path
+prefix accepts either Windows or POSIX path separators.
+
+```bash
+lorairo-cli images search --project main_dataset \
+  --query '{"original_path_prefix":"J:/Ryzen5/Downloads/1_素材/タグなし","only_unrated":true,"emit_ids":true}' \
+  > untagged-unrated.ids
+
+lorairo-cli batch submit --project main_dataset \
+  --task-type rating_preflight \
+  --model openai/omni-moderation-latest \
+  --image-ids-file untagged-unrated.ids
+```
+
+The CLI splits an ID file into 500-item provider jobs and reports every created
+job ID. Fetch and import each reported job before moving to local tagging.
+
+After the Batch result is fetched and imported, use the same ID file for a local
+tagger. The annotator streams the selected images by `--batch-size`, so the ID
+file can exceed the interactive 500-image selector limit.
+
+```bash
+lorairo-cli annotate run --project main_dataset \
+  --model wd-vit-tagger-v3 \
+  --image-ids-file untagged-unrated.ids \
+  --batch-size 10
+```
+
 ## Duplicate Submit and Rating Upsert Behavior
 
 ### Why duplicate submission can occur

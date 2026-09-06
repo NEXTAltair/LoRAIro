@@ -33,6 +33,7 @@ from lorairo.cli._boundary import command_boundary
 from lorairo.cli._console import make_console
 from lorairo.cli._emit import emit_item, emit_result
 from lorairo.cli._image_guard import reject_original_image_records
+from lorairo.cli._image_ids import parse_image_ids_file
 from lorairo.cli._output_mode import is_json_mode
 from lorairo.database.db_core import resolve_stored_path
 from lorairo.database.filter_criteria import ImageFilterCriteria
@@ -856,6 +857,29 @@ def _print_annotation_filter_summary(
         _status_console().print(f"[cyan]Filter: missing model {missing_model_litellm_id}[/cyan]")
 
 
+def _fetch_annotation_records(
+    image_repo: Any,
+    criteria: ImageFilterCriteria,
+    *,
+    image_id: list[int],
+    image_ids_file: str | None,
+) -> tuple[list[dict[str, Any]], int, list[int] | None]:
+    """Fetch annotation candidates, limiting ID-file requests to their exact ID set."""
+    if image_id and image_ids_file:
+        raise click.UsageError("--image-id and --image-ids-file cannot be used together.")
+    requested_image_ids = parse_image_ids_file(image_ids_file) if image_ids_file else image_id or None
+
+    # ID file は最大 100,000 件を受け付ける。先に解析して exact ID 集合だけを
+    # repository の有界チャンクで取得し、プロジェクト全件の metadata / annotation
+    # relationship を materialize しない (#1307)。criteria も同じ SQL 側で適用する。
+    if image_ids_file:
+        records = image_repo.get_images_by_ids(requested_image_ids, criteria=criteria)
+        return records, len(records), requested_image_ids
+
+    records, total_in_db = image_repo.get_images_by_filter(criteria)
+    return records, total_in_db, requested_image_ids
+
+
 @app.command("run")
 def run(
     project: str = typer.Option(
@@ -904,6 +928,11 @@ def run(
         "--image-id",
         "-i",
         help="Target specific image ID(s); repeatable",
+    ),
+    image_ids_file: str | None = typer.Option(
+        None,
+        "--image-ids-file",
+        help="Newline/comma-separated image ID file (up to 100,000 IDs).",
     ),
     unrated: bool = typer.Option(
         False,
@@ -960,7 +989,12 @@ def run(
             missing_model=missing_model,
         )
 
-        image_records, total_in_db = image_repo.get_images_by_filter(criteria)
+        image_records, total_in_db, requested_image_ids = _fetch_annotation_records(
+            image_repo,
+            criteria,
+            image_id=image_id,
+            image_ids_file=image_ids_file,
+        )
 
         if not image_records:
             _handle_no_image_records(
@@ -974,7 +1008,7 @@ def run(
             image_records,
             limit=limit,
             offset=offset,
-            image_ids=image_id or None,
+            image_ids=requested_image_ids,
         )
 
         if not records_to_process:
@@ -993,7 +1027,7 @@ def run(
         else:
             reject_original_image_records(records_to_process, command_name="annotate run")
 
-        if len(records_to_process) > MAX_ANNOTATE_IMAGES:
+        if len(records_to_process) > MAX_ANNOTATE_IMAGES and image_ids_file is None:
             raise ResultSetTooLargeError(len(records_to_process), MAX_ANNOTATE_IMAGES)
 
         target_console = _status_console()
