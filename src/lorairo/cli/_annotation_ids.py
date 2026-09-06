@@ -220,7 +220,6 @@ def run_id_annotation(
 ) -> None:
     from lorairo.cli.commands.annotate import (
         MAX_ANNOTATE_IMAGES,
-        AnnotationSelectionError,
         _status_console,
     )
     from lorairo.public_api.exceptions import ResultSetTooLargeError
@@ -230,11 +229,10 @@ def run_id_annotation(
     selected = _select_ids(repo, image_ids, criteria, offset, limit)
     if not file_input and len(selected) > MAX_ANNOTATE_IMAGES:
         raise ResultSetTooLargeError(len(selected), MAX_ANNOTATE_IMAGES)
-    if not selected:
-        raise AnnotationSelectionError("No images selected for annotation")
     paths = _validate_selection(repo, selected, resolution)
     statuses: dict[int, str] = {}
     selected_set = set(selected)
+    resolution_skipped = sum(image_id not in paths for image_id in selected) if paths is not None else 0
     for image_id in image_ids:
         reason = (
             "filter or offset/limit"
@@ -264,7 +262,7 @@ def run_id_annotation(
         status: sum(value == status for value in statuses.values())
         for status in ("completed", "failed", "skipped", "unexecuted")
     }
-    unsuccessful = bool(counts["failed"] or counts["unexecuted"] or not active)
+    unsuccessful = bool(counts["failed"] or counts["unexecuted"] or (selected and not active))
     status = "success" if not unsuccessful else "partial_success" if counts["completed"] else "failed"
     if is_json_mode():
         emit_result(
@@ -275,6 +273,7 @@ def run_id_annotation(
             total=len(image_ids),
             annotated=counters["saved"],
             skipped=counts["skipped"],
+            resolution_skipped=resolution_skipped,
             errors=counts["failed"],
             completed=counts["completed"],
             unexecuted=counts["unexecuted"],

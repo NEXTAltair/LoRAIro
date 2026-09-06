@@ -351,6 +351,8 @@ def test_annotation_filter_order_offset_missing_resolution_and_unrelated_ids(tmp
     output = rows(capsys)
     outcomes = {r["image_id"]: r["status"] for r in output if r.get("type") == "annotation_outcome"}
     assert outcomes == {1: "skipped", 2: "skipped", 3: "completed", 4: "skipped", 5: "skipped"}
+    assert output[-1]["resolution_skipped"] == 1
+    assert output[-1]["skipped"] == 4
     assert output[-1]["ok"]
     assert [call.args[0] for call in repo.get_images_by_ids.call_args_list] == [[3]]
     repo.get_images_by_filter.assert_not_called()
@@ -579,3 +581,39 @@ def test_cli_registration_terminal_exposes_truncated_error_sample(tmp_path, monk
     assert terminal.errors == 101 and terminal.error_details_truncated
     assert len(terminal.error_details) == 100
     assert not terminal.ok and terminal.status == "failed"
+
+
+@pytest.mark.parametrize("selection", ["filter", "offset", "limit"])
+def test_all_filtered_annotation_ids_emit_complete_skipped_result(tmp_path, capsys, selection):
+    container = container_for_ids(tmp_path, 2)
+    repo = container.db_manager.image_repo
+    if selection == "filter":
+        repo.get_candidate_image_ids.side_effect = lambda ids, criteria=None: (
+            ids if criteria is None else []
+        )
+    run_id_annotation(
+        container,
+        image_ids=[2, 1],
+        file_input=True,
+        project="demo",
+        criteria=ImageFilterCriteria(only_unrated=True),
+        offset=2 if selection == "offset" else 0,
+        limit=0 if selection == "limit" else None,
+        resolution=512,
+        batch_size=2,
+        models=["fake"],
+    )
+    output = rows(capsys)
+    outcomes = {r["image_id"]: r["status"] for r in output if r.get("type") == "annotation_outcome"}
+    assert outcomes == {1: "skipped", 2: "skipped"}
+    result = output[-1]
+    assert result["kind"] == "result"
+    assert result["ok"] is True
+    assert result["status"] == "success"
+    assert result["total"] == result["skipped"] == 2
+    assert result["completed"] == result["errors"] == result["unexecuted"] == 0
+    assert result["resolution_skipped"] == 0
+    repo.get_images_by_ids.assert_not_called()
+    repo.get_processed_image_paths_by_resolution.assert_not_called()
+    container.annotator_library.annotate.assert_not_called()
+    container.annotation_save_service.save_annotation_results.assert_not_called()
