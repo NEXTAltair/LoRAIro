@@ -551,14 +551,15 @@ def service_container_scope() -> Iterator[ServiceContainer]:
     container._cli_mode = True
     from ..database import db_core
 
-    previous_db_path = db_core.IMG_DB_PATH
-    token = _SCOPED_CONTAINER.set(container)
-    try:
-        with db_core.tag_database_scope():
+    with db_core.tag_database_scope():
+        # Snapshot/restore process-wide image routing under the same lock as tags.
+        previous_db_path = db_core.IMG_DB_PATH
+        token = _SCOPED_CONTAINER.set(container)
+        try:
             yield container
-    finally:
-        db_core.IMG_DB_PATH = previous_db_path
-        _SCOPED_CONTAINER.reset(token)
+        finally:
+            db_core.IMG_DB_PATH = previous_db_path
+            _SCOPED_CONTAINER.reset(token)
 
 
 # 便利な関数でサービス取得を簡略化

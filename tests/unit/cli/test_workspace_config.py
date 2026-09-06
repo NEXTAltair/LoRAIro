@@ -363,3 +363,57 @@ def test_tag_initialization_failure_can_retry_in_selected_scope(tmp_path, monkey
         db_core.ensure_tag_db_initialized()
         assert db_core.get_user_tag_db_path() == selected.workspace / "lorairo_data/user_tags.sqlite"
     assert initialize.call_count == 2
+
+
+@pytest.mark.unit
+def test_waiting_service_scope_restores_original_image_routing(tmp_path, monkeypatch):
+    from concurrent.futures import ThreadPoolExecutor
+    from contextlib import contextmanager
+    from threading import Event, local
+
+    from lorairo.database import db_core
+
+    entered, waiting, release = Event(), Event(), Event()
+    thread = local()
+    tag_scope = db_core.tag_database_scope
+    previous = db_core.IMG_DB_PATH
+
+    @contextmanager
+    def tracked_tag_scope():
+        if getattr(thread, "second", False):
+            waiting.set()
+        with tag_scope():
+            yield
+
+    monkeypatch.setattr(db_core, "tag_database_scope", tracked_tag_scope)
+
+    def first():
+        with (
+            runtime_configuration_scope(resolve_runtime_configuration(tmp_path / "first", None)),
+            service_container_scope(),
+        ):
+            db_core.IMG_DB_PATH = tmp_path / "first.sqlite"
+            entered.set()
+            assert release.wait(10)
+
+    def second():
+        assert entered.wait(10)
+        thread.second = True
+        with (
+            runtime_configuration_scope(resolve_runtime_configuration(tmp_path / "second", None)),
+            service_container_scope(),
+        ):
+            assert db_core.IMG_DB_PATH == previous
+            db_core.IMG_DB_PATH = tmp_path / "second.sqlite"
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        first_job = pool.submit(first)
+        second_job = pool.submit(second)
+        try:
+            assert entered.wait(10)
+            assert waiting.wait(10)
+        finally:
+            release.set()
+        first_job.result(timeout=10)
+        second_job.result(timeout=10)
+    assert db_core.IMG_DB_PATH == previous
