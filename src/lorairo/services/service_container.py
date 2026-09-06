@@ -138,7 +138,22 @@ class ServiceContainer:
     def image_repository(self) -> ImageRepository:
         """画像リポジトリ取得（遅延初期化）"""
         if self._image_repository is None:
-            self._image_repository = ImageRepository(session_factory=DefaultSessionLocal)
+            from pathlib import Path
+
+            from ..database import db_core
+            from ..utils.config import get_runtime_configuration
+
+            runtime = get_runtime_configuration()
+            if runtime is None:
+                self._image_repository = ImageRepository(session_factory=DefaultSessionLocal)
+            else:
+                directories = runtime.settings["directories"]
+                directory = directories.get("database_dir") or directories["database_base_dir"]
+                db_path = Path(directory) / db_core.IMG_DB_FILENAME
+                db_core.IMG_DB_PATH = db_path
+                self._image_repository = ImageRepository(
+                    session_factory=db_core.create_project_session_factory(db_path)
+                )
             logger.debug("ImageRepository初期化完了")
         return self._image_repository
 
@@ -554,14 +569,15 @@ def service_container_scope() -> Iterator[ServiceContainer]:
     container._cli_mode = True
     from ..database import db_core
 
-    previous_db_path = db_core.IMG_DB_PATH
-    token = _SCOPED_CONTAINER.set(container)
-    try:
-        with db_core.tag_database_scope():
+    with db_core.tag_database_scope():
+        # Snapshot/restore process-wide image routing under the same lock as tags.
+        previous_db_path = db_core.IMG_DB_PATH
+        token = _SCOPED_CONTAINER.set(container)
+        try:
             yield container
-    finally:
-        db_core.IMG_DB_PATH = previous_db_path
-        _SCOPED_CONTAINER.reset(token)
+        finally:
+            db_core.IMG_DB_PATH = previous_db_path
+            _SCOPED_CONTAINER.reset(token)
 
 
 # 便利な関数でサービス取得を簡略化

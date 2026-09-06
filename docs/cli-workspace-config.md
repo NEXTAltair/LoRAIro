@@ -63,3 +63,11 @@ ADR 0018 の `database_base_dir` 統一と既存の ConfigurationService / Proje
 ServiceContainer を再利用しました。新しい設定ライブラリや別のプロジェクト registry は
 導入していません。コマンド単位の設定には標準ライブラリ
 [ContextVar](https://docs.python.org/3/library/contextvars.html) を使い、終了時に復元します。
+
+
+When `models refresh` omits `--project` in explicit workspace/config mode, its default
+image DB is `database_dir/image_database.db`, or `database_base_dir/image_database.db`
+when `database_dir` is empty. It uses an invocation-local factory and never the cached
+legacy default factory. `--project` still selects that project's database. All directory
+settings must be strings, including empty values; TOML booleans, arrays and numbers
+are rejected as `INVALID_INPUT` before command execution.

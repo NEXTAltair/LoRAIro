@@ -367,3 +367,109 @@ def test_tag_initialization_failure_can_retry_in_selected_scope(tmp_path, monkey
         db_core.ensure_tag_db_initialized()
         assert db_core.get_user_tag_db_path() == selected.workspace / "lorairo_data/user_tags.sqlite"
     assert initialize.call_count == 2
+
+
+@pytest.mark.unit
+def test_waiting_service_scope_restores_original_image_routing(tmp_path, monkeypatch):
+    from concurrent.futures import ThreadPoolExecutor
+    from contextlib import contextmanager
+    from threading import Event, local
+
+    from lorairo.database import db_core
+
+    entered, waiting, release = Event(), Event(), Event()
+    thread = local()
+    tag_scope = db_core.tag_database_scope
+    previous = db_core.IMG_DB_PATH
+
+    @contextmanager
+    def tracked_tag_scope():
+        if getattr(thread, "second", False):
+            waiting.set()
+        with tag_scope():
+            yield
+
+    monkeypatch.setattr(db_core, "tag_database_scope", tracked_tag_scope)
+
+    def first():
+        with (
+            runtime_configuration_scope(resolve_runtime_configuration(tmp_path / "first", None)),
+            service_container_scope(),
+        ):
+            db_core.IMG_DB_PATH = tmp_path / "first.sqlite"
+            entered.set()
+            assert release.wait(10)
+
+    def second():
+        assert entered.wait(10)
+        thread.second = True
+        with (
+            runtime_configuration_scope(resolve_runtime_configuration(tmp_path / "second", None)),
+            service_container_scope(),
+        ):
+            assert db_core.IMG_DB_PATH == previous
+            db_core.IMG_DB_PATH = tmp_path / "second.sqlite"
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        first_job = pool.submit(first)
+        second_job = pool.submit(second)
+        try:
+            assert entered.wait(10)
+            assert waiting.wait(10)
+        finally:
+            release.set()
+        first_job.result(timeout=10)
+        second_job.result(timeout=10)
+    assert db_core.IMG_DB_PATH == previous
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("value", ["false", "[]", "0"])
+def test_falsy_nonstring_directory_is_input_error(tmp_path, value):
+    config = tmp_path / "invalid.toml"
+    config.write_text(f"[directories]\ndatabase_base_dir = {value}\n")
+    result = runner.invoke(app, ["--json", "--config", str(config), "status"])
+    assert result.exit_code == 2
+    row = json.loads(result.stdout)
+    assert row["code"] == "INVALID_INPUT"
+
+
+@pytest.mark.unit
+def test_models_refresh_without_project_writes_only_selected_default(tmp_path, monkeypatch):
+    from types import SimpleNamespace
+
+    from sqlalchemy import select
+
+    from lorairo.database import db_core
+    from lorairo.database.schema import Model
+    from lorairo.services.model_sync_service import ModelSyncService
+
+    previous_factory = db_core._default_session_factory
+    previous_path = db_core.IMG_DB_PATH
+    legacy = Mock(side_effect=AssertionError("legacy default accessed"))
+    monkeypatch.setattr(db_core, "_get_default_session_factory", legacy)
+    adapter = Mock()
+    adapter.refresh_available_models.return_value = []
+    monkeypatch.setattr(ServiceContainer, "annotator_library", property(lambda self: adapter))
+    paths = []
+
+    def sync(_self):
+        repo = ServiceContainer().image_repository
+        with repo.session_factory() as session:
+            assert session.execute(select(Model).where(Model.name == "scoped-marker")).first() is None
+            session.add(Model(name="scoped-marker", litellm_model_id="scoped-marker"))
+            session.commit()
+        paths.append(db_core.IMG_DB_PATH)
+        return SimpleNamespace(errors=[], summary="synthetic sync complete")
+
+    monkeypatch.setattr(ModelSyncService, "sync_available_models", sync)
+    for name in ("first", "second"):
+        rows = invoke(tmp_path / name, "models", "refresh")
+        assert rows[-1]["kind"] == "result"
+        assert db_core.IMG_DB_PATH == previous_path
+    assert paths == [
+        tmp_path / name / "lorairo_data" / db_core.IMG_DB_FILENAME for name in ("first", "second")
+    ]
+    assert all(path.is_file() for path in paths)
+    assert db_core._default_session_factory is previous_factory
+    legacy.assert_not_called()
