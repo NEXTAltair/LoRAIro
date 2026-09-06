@@ -130,3 +130,9 @@ ADR 0057 の「コマンド実行は `result` / `error` で終わる」不変条
 - ADR 0020 (CLI Message Language Policy) — 人間向け / 機械向けメッセージの言語方針
 - ADR 0049 (Apply CLI Image List Limit in the Repository Query) — read/list 系の挙動
 - tag-db ADR 0002 (CLI/GUI Entrypoint Policy) — 思想の参照元 (LoRAIro は GUI 主体ゆえ entry を分離する点が差分)
+## 2026-09-06 追補: 部分失敗の終了コード (#1313)
+
+ADR 0057の登録・取込み・エラー解決の部分失敗契約は、明示`--json`の有無にかかわらず同じ終了コードを使う。
+正常・空・正常skipは0、部分失敗／全失敗は1。JSONLは件数を保持したresult行へstatus/okを出力し、
+人間向け表示は既存サマリを維持する。モード選択とエントリポイントは変更しない。
+以前の部分失敗exit 0に依存するスクリプトの移行については [CLIドキュメント](../cli.md) を参照。

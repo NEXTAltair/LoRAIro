@@ -217,8 +217,10 @@ class ImagesRegisterResult(BaseModel):
     """JSONL result payload emitted by ``images register --json``."""
 
     kind: Literal["result"] = "result"
-    ok: Literal[True] = True
+    ok: bool = True
     message: str
+    status: Literal["success", "partial_success", "failed"] = "success"
+    variant: int = 0
     total: int
     registered: int
     skipped: int
@@ -541,8 +543,19 @@ class BatchImportResult(BaseModel):
     """JSONL result payload emitted by ``batch import --json``."""
 
     kind: Literal["result"] = "result"
-    ok: Literal[True] = True
+    ok: bool = True
     message: str
+    status: Literal["success", "partial_success", "failed"] = "success"
+    incomplete: bool = False
+    already_imported: int = 0
+    non_importable: int = 0
+    save_skipped: int = 0
+    missing_custom_ids: list[str] = Field(default_factory=list)
+    failed_custom_ids: list[str] = Field(default_factory=list)
+    error_details: list[str] = Field(default_factory=list)
+    hint: str | None = None
+    ratings_saved: int | None = None
+    rating_breakdown: dict[str, int] | None = None
     job_id: int | None = None
     imported: int
     skipped: int
@@ -671,8 +684,11 @@ class AnnotateImportBatchResult(BaseModel):
     """JSONL result payload emitted by ``annotate import-batch --json``."""
 
     kind: Literal["result"] = "result"
-    ok: Literal[True] = True
+    ok: bool = True
     message: str
+    status: Literal["success", "partial_success", "failed"] = "success"
+    unmatched_ids: list[str] = Field(default_factory=list)
+    error_details: list[str] = Field(default_factory=list)
     total_records: int
     parsed_ok: int
     parse_errors: int
@@ -718,6 +734,8 @@ class ErrorsResolveResult(BaseModel):
     kind: Literal["result"] = "result"
     ok: bool
     message: str
+    status: Literal["success", "partial_success", "failed"] = "success"
+    requested: int | None = None
     resolved: int
     dry_run: bool
 
@@ -973,7 +991,21 @@ TOOL_SPECS: dict[str, ToolSpec] = {
         outputs=(
             _output(
                 "ImagesRegisterResult",
-                (_f("total", "int"), _f("registered", "int"), _f("skipped", "int"), _f("errors", "int")),
+                (
+                    _f("ok", "bool"),
+                    _f(
+                        "status",
+                        "Literal[success, partial_success, failed]",
+                        default="success",
+                        description="Failures, including partial success, return ok=false and exit 1; normal skip/empty returns exit 0.",
+                    ),
+                    _f("variant", "int", default=0),
+                    _f("error_details", "list[str]"),
+                    _f("total", "int"),
+                    _f("registered", "int"),
+                    _f("skipped", "int"),
+                    _f("errors", "int"),
+                ),
                 schema=ImagesRegisterResult,
             ),
         ),
@@ -1145,6 +1177,15 @@ TOOL_SPECS: dict[str, ToolSpec] = {
             _output(
                 "AnnotateImportBatchResult",
                 (
+                    _f("ok", "bool"),
+                    _f(
+                        "status",
+                        "Literal[success, partial_success, failed]",
+                        default="success",
+                        description="Failures, including partial success, return ok=false and exit 1; normal skip/empty returns exit 0.",
+                    ),
+                    _f("unmatched_ids", "list[str]"),
+                    _f("error_details", "list[str]"),
                     _f("total_records", "int"),
                     _f("parsed_ok", "int"),
                     _f("parse_errors", "int"),
@@ -2249,6 +2290,23 @@ TOOL_SPECS: dict[str, ToolSpec] = {
             _output(
                 "BatchImportResult",
                 (
+                    _f("ok", "bool"),
+                    _f(
+                        "status",
+                        "Literal[success, partial_success, failed]",
+                        default="success",
+                        description="Failures, including partial success, return ok=false and exit 1; normal skip/empty returns exit 0.",
+                    ),
+                    _f("incomplete", "bool", default=False),
+                    _f("already_imported", "int", default=0),
+                    _f("non_importable", "int", default=0),
+                    _f("save_skipped", "int", default=0),
+                    _f("missing_custom_ids", "list[str]"),
+                    _f("failed_custom_ids", "list[str]"),
+                    _f("error_details", "list[str]"),
+                    _f("hint", "str?"),
+                    _f("ratings_saved", "int?"),
+                    _f("rating_breakdown", "dict[str, int]?"),
                     _f("job_id", "int?"),
                     _f("imported", "int"),
                     _f("skipped", "int"),
@@ -2378,6 +2436,13 @@ TOOL_SPECS: dict[str, ToolSpec] = {
                 "ErrorsResolveResult",
                 (
                     _f("ok", "bool"),
+                    _f(
+                        "status",
+                        "Literal[success, partial_success, failed]",
+                        default="success",
+                        description="Failures, including partial success, return ok=false and exit 1; normal skip/empty returns exit 0.",
+                    ),
+                    _f("requested", "int?"),
                     _f("resolved", "int"),
                     _f("dry_run", "bool"),
                 ),
