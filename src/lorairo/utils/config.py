@@ -244,11 +244,12 @@ def resolve_runtime_configuration(workspace: Path | None, config_path: Path | No
     if not isinstance(settings["directories"], dict):
         raise ValueError("Config [directories] must be a table")
     for key, value in settings["directories"].items():
-        if key.endswith("_dir") and value:
+        if key.endswith("_dir"):
             if not isinstance(value, str):
                 raise ValueError(f"Config directories.{key} must be a path string")
-            directory = Path(value).expanduser()
-            settings["directories"][key] = str((root / directory).resolve())
+            if value:
+                directory = Path(value).expanduser()
+                settings["directories"][key] = str((root / directory).resolve())
     return RuntimeConfiguration(root, selected_config, settings)
 
 
