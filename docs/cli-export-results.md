@@ -26,6 +26,12 @@ An image is exported only when all requested languages and both TXT and JSON fin
 and exit 1. `status` is `success` for complete output, `partial_success` when some
 images exported, and `failed` when none exported. A TXT file can remain after a JSON
 write fails; it is listed as partial evidence and does not increment `exported`.
+JSON evidence is tracked separately for each language. When an image's later language
+fails, an earlier language's completed `metadata.json` can still contain that image
+and is listed in its `output_files`. A metadata write failure is attributed to every
+image staged in that specific document, including images already failing elsewhere;
+the error message identifies the document path. Neither partial staging nor one
+successful language makes the image's overall JSON format complete.
 Missing IDs (`image_not_found`) and missing processed files (`processed_image_missing`)
 are distinct from `export_error` and late `metadata_write_error` failures.
 `output_path_collision` means a later selected image would overwrite an earlier
