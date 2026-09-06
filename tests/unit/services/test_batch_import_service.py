@@ -223,6 +223,86 @@ class TestBatchImportServiceSingleFile:
 class TestBatchImportServiceDirectory:
     """import_from_directory()のテスト。"""
 
+    @pytest.mark.parametrize("image_count", [1, 500, 501, 1000, 10000])
+    @pytest.mark.parametrize("file_count", [1, 3])
+    @pytest.mark.parametrize("dry_run", [False, True])
+    def test_stem_index_built_once_per_operation(
+        self, tmp_path: Path, mock_repository: MagicMock, image_count: int, file_count: int, dry_run: bool
+    ) -> None:
+        """N画像/Fファイルでも全画像索引の走査はN件を1回だけ。"""
+        scanned_rows = 0
+
+        def build_index() -> dict[str, int]:
+            nonlocal scanned_rows
+            scanned_rows += image_count
+            return {f"image-{i}": i + 1 for i in range(image_count)}
+
+        mock_repository.get_all_image_filename_index.side_effect = build_index
+        for number in range(file_count):
+            record = _make_batch_record("image-0", "Tags: solo\n\nCaption: test")
+            (tmp_path / f"batch-{number}.jsonl").write_text(json.dumps(record), encoding="utf-8")
+
+        result = _make_service(mock_repository).import_from_directory(tmp_path, dry_run=dry_run)
+
+        assert result.total_records == result.matched == file_count
+        assert result.saved == (0 if dry_run else file_count)
+        mock_repository.get_all_image_filename_index.assert_called_once()
+        assert scanned_rows == image_count
+
+    def test_phash_only_does_not_build_stem_index(self, tmp_path: Path, mock_repository: MagicMock) -> None:
+        mock_repository.find_image_ids_by_phash_long_edge.return_value = {("aaaaaaaaaaaaaaaa", 1024): [7]}
+        for number in range(3):
+            record = _make_batch_record("ph:aaaaaaaaaaaaaaaa:le:1024", "Tags: solo\n\nCaption: test")
+            (tmp_path / f"batch-{number}.jsonl").write_text(json.dumps(record), encoding="utf-8")
+
+        result = _make_service(mock_repository).import_from_directory(tmp_path, dry_run=True)
+
+        assert result.matched == 3
+        mock_repository.get_all_image_filename_index.assert_not_called()
+
+    def test_new_alias_visible_next_operation_and_other_project(
+        self, tmp_path: Path, mock_repository: MagicMock
+    ) -> None:
+        record = _make_batch_record("new-alias", "Tags: solo\n\nCaption: test")
+        jsonl_path = _create_jsonl_file(tmp_path, [record])
+        mock_repository.get_all_image_filename_index.side_effect = [{}, {"new-alias": 8}, {}]
+        service = _make_service(mock_repository)
+
+        assert service.import_from_directory(tmp_path, dry_run=True).unmatched == 1
+        assert service.import_from_directory(tmp_path, dry_run=True).matched == 1
+        assert service.import_from_jsonl(jsonl_path, dry_run=True).unmatched == 1
+        assert mock_repository.get_all_image_filename_index.call_count == 3
+
+        other_repository = MagicMock()
+        other_repository.get_all_image_filename_index.return_value = {}
+        assert _make_service(other_repository).import_from_directory(tmp_path, dry_run=True).unmatched == 1
+        other_repository.get_all_image_filename_index.assert_called_once()
+
+    def test_mixed_records_preserve_partial_parse_and_unmatched_results(
+        self, tmp_path: Path, mock_repository: MagicMock
+    ) -> None:
+        mock_repository.find_image_ids_by_phash_long_edge.return_value = {
+            ("aaaaaaaaaaaaaaaa", 1024): [7, 9]
+        }
+        records = [
+            _make_batch_record("ph:aaaaaaaaaaaaaaaa:le:1024", "Tags: solo\n\nCaption: test"),
+            _make_batch_record("0262_1227", "Tags: solo\n\nCaption: test"),
+            _make_batch_record("unmatched", "Tags: solo\n\nCaption: test"),
+            _make_batch_record("invalid", "Invalid content without tags"),
+        ]
+        for number in range(3):
+            (tmp_path / f"batch-{number}.jsonl").write_text(
+                "\n".join(json.dumps(record) for record in records), encoding="utf-8"
+            )
+
+        result = _make_service(mock_repository).import_from_directory(tmp_path, dry_run=True)
+
+        assert (result.total_records, result.parsed_ok, result.parse_errors) == (12, 9, 3)
+        assert (result.matched, result.unmatched, result.saved) == (6, 3, 0)
+        assert result.unmatched_ids == ["unmatched"] * 3
+        assert len(result.error_details) == 3
+        mock_repository.get_all_image_filename_index.assert_called_once()
+
     def test_multiple_jsonl_files(self, tmp_path: Path, mock_repository: MagicMock) -> None:
         """複数JSONLファイルの結果が集約される。"""
         records1 = [_make_batch_record("0262_1227", "Tags: 1girl\n\nCaption: a")]

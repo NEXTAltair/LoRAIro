@@ -60,7 +60,7 @@ stdout には機械可読 JSONL のみを出力する。1 行 = 1 つの valid J
 //        list 系コマンドと、annotate の画像ごとアノテーション結果が該当。
 {"kind": "item", ...}
 
-// result — 成功時の末尾 1 行。ok:true + message + 件数メタ。
+// result — 集計の末尾 1 行。成功は ok:true、部分失敗は後述の契約で ok:false。
 {"kind": "result", "ok": true, "message": "...", "processed": 480, "total": 480}
 
 // error — 失敗時の末尾 1 行。
@@ -174,7 +174,7 @@ LoRAIro はプロバイダ SDK に到達する前に自前で `APIKeyNotConfigur
 | 2 | 入力・検証 | `INVALID_INPUT`, `VALIDATION_FAILED`, `RESULT_SET_TOO_LARGE` (ADR 0060) |
 | 1 | 実行時 | 上記以外すべて |
 
-exit code はエラーコードから機械的に導出する。Click の usage error 既定が exit 2 であることと整合する。
+例外の exit code はエラーコードから機械的に導出する。Click の usage error 既定が exit 2 であることと整合する。
 `RESULT_SET_TOO_LARGE` は入力 (選択/検索が広すぎる) を直す user-actionable なエラーのため exit 2
 (従来 `INVALID_INPUT` が担っていた cap 違反の exit を維持する、ADR 0060)。
 
@@ -259,3 +259,14 @@ ADR 0060 (CLI Bounded Pagination and Count-First Contract) が本 ADR を以下�
 - ADR 0058 (CLI Output Mode Trigger and Entry-Point Policy) — 出力モードのトリガ (`--json`) とエントリ方針を供給 (本 ADR の前提)
 - tag-db ADR 0003 (CLI JSONL Output & Error Contract) — 移植元の参照契約
 - tag-db ADR 0005 (CLI Command Introspection) — 後続の introspection 契約 (別 ADR)
+## 2026-09-06 追補: 集計結果と部分失敗 (#1313)
+
+`images register` / `annotate import-batch` / `batch import` / `errors resolve` の集計完了は、
+成功件数を保持するため `kind=result` を使用する。`status=success` は `ok=true` / exit 0、
+`partial_success` と `failed` は `ok=false` / exit 1。正常skipと空集合はsuccess、
+成功または正常skipを含む失敗はpartial_success、それ以外の失敗はfailed。
+legacyの未一致・parseエラー・保存エラー、Batchの未完了取込みも失敗として扱う。
+Batchの空結果はジョブ完了と同義ではなく `job_imported` を別途確認する。
+集計を返せない例外は既存の `kind=error` 契約を維持する。resultの後にerrorを重ねず、終端1行を守る。
+既存件数は維持し、失敗対象・理由を追加する。従来の部分失敗exit 0への依存は移行が必要。
+詳細と調査フィールドは [CLIの部分失敗契約](../cli.md#部分失敗と既存スクリプトの移行-1313) を参照。

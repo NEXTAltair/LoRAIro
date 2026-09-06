@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 from typing import Any
 
+import pytest
 from typer.testing import CliRunner
 
 from lorairo.cli.main import app
@@ -183,6 +184,8 @@ def test_annotate_run_describes_only_supported_flags() -> None:
     assert field_names == {
         "project",
         "model",
+        "output",
+        "resolution",
         "limit",
         "offset",
         "image_id",
@@ -340,7 +343,7 @@ def test_remaining_cli_result_schemas_do_not_reuse_api_dtos() -> None:
             "output",
             "ImagesRegisterResult",
             {"total", "registered", "skipped", "errors", "error_details"},
-            {"successful", "failed", "variant"},
+            {"successful", "failed"},
         ),
         "models refresh": ("output", "ModelsRefreshResult", {"discovered", "summary"}, {"success", "data"}),
         "batch submit": ("output", "BatchJobResult", {"job_id", "job"}, {"success", "data"}),
@@ -688,3 +691,26 @@ def test_describe_translations_suppress_and_unsuppress_expose_apply_field() -> N
         input_row = next(row for row in rows if row.get("type") == "model" and row["name"] == input_name)
         apply_field = next(f for f in input_row["fields"] if f["name"] == "apply")
         assert apply_field["default"] is False
+
+
+@pytest.mark.parametrize(
+    "command,model",
+    [
+        ("images register", "ImagesRegisterResult"),
+        ("annotate import-batch", "AnnotateImportBatchResult"),
+        ("batch import", "BatchImportResult"),
+        ("errors resolve", "ErrorsResolveResult"),
+    ],
+)
+def test_partial_failure_status_exposed_in_both_schema_modes(command, model):
+    compact = runner.invoke(app, ["--json", "describe", command])
+    assert compact.exit_code == 0
+    result_model = next(row for row in _jsonl(compact.stdout) if row.get("name") == model)
+    fields = {field["name"]: field for field in result_model["fields"]}
+    assert "partial_success" in fields["status"]["type"]
+    assert "exit 1" in fields["status"]["description"]
+    schema_result = runner.invoke(app, ["--json", "describe", command, "--schema", "json_schema"])
+    assert schema_result.exit_code == 0
+    schema = next(row["schema"] for row in _jsonl(schema_result.stdout) if row.get("name") == model)
+    assert schema["properties"]["status"]["enum"] == ["success", "partial_success", "failed"]
+    assert schema["properties"]["ok"]["type"] == "boolean"
