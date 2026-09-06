@@ -28,6 +28,17 @@ images exported, and `failed` when none exported. A TXT file can remain after a 
 write fails; it is listed as partial evidence and does not increment `exported`.
 Missing IDs (`image_not_found`) and missing processed files (`processed_image_missing`)
 are distinct from `export_error` and late `metadata_write_error` failures.
+`output_path_collision` means a later selected image would overwrite an earlier
+image's output. Flat filenames remain unchanged: different source directories with
+the same basename, or different extensions with the same TXT/caption stem, conflict.
+The later ID fails before writing any language or format, preserving the earlier
+image's files and JSON entry. Correct the source naming or export the conflicting
+IDs into separate directories before retrying.
+
+Destination ownership is retained for the entire operation, including across 500-ID
+boundaries and between TXT/JSON passes, using O(selected IDs × languages) memory.
+All destinations for an ID are checked before reservation; a rejected ID does not
+reserve unrelated names. This ownership record is separate from translation caches.
 
 This changes the former exit-0 behavior for incomplete exports. Scripts should inspect
 exit status and `ok`, then use `exported`, rather than treating `total_images` as success.
