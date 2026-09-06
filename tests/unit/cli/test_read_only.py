@@ -326,3 +326,42 @@ def test_readonly_alone_isolates_existing_writable_factories(project, tmp_path, 
         assert config.read_text().startswith("[directories]")
     finally:
         legacy._image_repository = previous_repository
+
+
+@pytest.mark.parametrize("state", ["untracked", "incompatible", "unreadable"])
+def test_legacy_or_damaged_database_guidance_does_not_promise_prepare_repair(project, state):
+    from sqlalchemy import create_engine
+
+    from lorairo.database.schema import Base
+
+    workspace, path = project
+    db = path / "image_database.db"
+    if state == "unreadable":
+        db.write_bytes(b"synthetic invalid SQLite data")
+    elif state == "untracked":
+        engine = create_engine(f"sqlite:///{db}")
+        Base.metadata.create_all(engine)
+        engine.dispose()
+    else:
+        engine = db_core._prepare_project_database(db)
+        with engine.begin() as connection:
+            connection.execute(text("DROP TABLE score_labels"))
+        engine.dispose()
+    before = snapshot(path)
+    result = invoke(workspace, ["images", "list"])
+    assert result.exit_code == 1, result.output
+    payload = json.loads(result.stdout.splitlines()[-1])
+    assert payload["code"] == "PRECONDITION_FAILED"
+    assert (
+        payload["details"]["reason"]
+        == {
+            "untracked": "untracked_schema",
+            "incompatible": "incompatible_schema",
+            "unreadable": "unreadable_or_incompatible_database",
+        }[state]
+    )
+    assert "Preserve a backup" in payload["hint"]
+    assert "project prepare may not repair" in payload["hint"]
+    assert payload["details"]["documentation"] == "docs/cli-read-only.md"
+    assert payload["details"]["recovery_action"] == "supported_migration_or_recovery"
+    assert snapshot(path) == before

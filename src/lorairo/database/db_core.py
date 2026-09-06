@@ -592,9 +592,17 @@ def _open_read_only_project_database(project_db_path: Path) -> Engine:
     path = project_db_path.resolve()
 
     def precondition(reason: str) -> ReadOnlyPreconditionError:
-        return ReadOnlyPreconditionError(
+        error = ReadOnlyPreconditionError(
             f"Read-only database is not ready ({reason}): {path}", reason=reason, database_path=str(path)
         )
+        if reason in {"untracked_schema", "incompatible_schema", "unreadable_or_incompatible_database"}:
+            error.hint = (
+                "Preserve a backup and use a supported migration or database recovery procedure; "
+                "project prepare may not repair this database. See docs/cli-read-only.md before retrying."
+            )
+            error.details["recovery_action"] = "supported_migration_or_recovery"
+            error.details["documentation"] = "docs/cli-read-only.md"
+        return error
 
     if not path.is_file():
         raise precondition("missing_database")
