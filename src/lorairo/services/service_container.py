@@ -6,6 +6,9 @@ Phase 1: Qt依存除去による CLI対応
 """
 
 import os
+from collections.abc import Iterator
+from contextlib import contextmanager
+from contextvars import ContextVar
 from typing import TYPE_CHECKING, Any, Optional
 
 if TYPE_CHECKING:
@@ -47,6 +50,9 @@ class ServiceContainer:
 
     def __new__(cls) -> "ServiceContainer":
         """シングルトンインスタンス作成"""
+        scoped = _SCOPED_CONTAINER.get()
+        if scoped is not None:
+            return scoped
         if cls._instance is None:
             cls._instance = super().__new__(cls)
         return cls._instance
@@ -56,9 +62,13 @@ class ServiceContainer:
 
         重複初期化を防ぐため、_initializedフラグで制御
         """
-        if ServiceContainer._initialized:
+        if self is _SCOPED_CONTAINER.get() or ServiceContainer._initialized:
             return
+        self._initialize_services()
+        ServiceContainer._initialized = True
 
+    def _initialize_services(self) -> None:
+        """Initialize caches for a singleton or an isolated explicit CLI invocation."""
         logger.info("ServiceContainer初期化開始")
 
         # コアサービス初期化
@@ -76,7 +86,6 @@ class ServiceContainer:
         # Phase 4: プロダクション統合モード制御
         self._use_production_mode: bool = True
 
-        ServiceContainer._initialized = True
         logger.info("ServiceContainer初期化完了")
 
         # Phase 4: AnnotatorLibraryAdapter統合
@@ -443,7 +452,7 @@ class ServiceContainer:
                 "image_registration_service": self._image_registration_service is not None,
                 "provider_batch_workflow_service": self._provider_batch_workflow_service is not None,
             },
-            "container_initialized": ServiceContainer._initialized,
+            "container_initialized": self is _SCOPED_CONTAINER.get() or ServiceContainer._initialized,
             "phase": "Phase 4 (Production Integration)"
             if self._use_production_mode
             else "Phase 1-2 (Mock Implementation)",
@@ -527,6 +536,29 @@ class ServiceContainer:
             bool: True=実ライブラリ使用, False=Mock使用
         """
         return self._use_production_mode
+
+
+_SCOPED_CONTAINER: ContextVar[ServiceContainer | None] = ContextVar(
+    "lorairo_scoped_container", default=None
+)
+
+
+@contextmanager
+def service_container_scope() -> Iterator[ServiceContainer]:
+    """Isolate explicit CLI commands from cached services of any previous project."""
+    container = object.__new__(ServiceContainer)
+    container._initialize_services()
+    container._cli_mode = True
+    from ..database import db_core
+
+    previous_db_path = db_core.IMG_DB_PATH
+    token = _SCOPED_CONTAINER.set(container)
+    try:
+        with db_core.tag_database_scope():
+            yield container
+    finally:
+        db_core.IMG_DB_PATH = previous_db_path
+        _SCOPED_CONTAINER.reset(token)
 
 
 # 便利な関数でサービス取得を簡略化

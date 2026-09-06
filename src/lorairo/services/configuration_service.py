@@ -3,7 +3,13 @@
 from pathlib import Path
 from typing import Any
 
-from ..utils.config import DEFAULT_CONFIG_PATH, ensure_config_file, write_config_file
+from ..utils.config import (
+    DEFAULT_CONFIG_PATH,
+    ensure_config_file,
+    get_config,
+    get_runtime_configuration,
+    write_config_file,
+)
 from ..utils.log import logger
 
 
@@ -21,11 +27,14 @@ class ConfigurationService:
             config_path (Optional[Path]): 設定ファイルのパス。Noneの場合、デフォルトパスを使用。
             shared_config (Optional[dict]): 共有設定オブジェクト。複数インスタンス間で設定を共有する場合に使用。
         """
-        self._config_path = config_path or DEFAULT_CONFIG_PATH
+        runtime = get_runtime_configuration() if config_path is None else None
+        self._config_path = config_path or (runtime.config_path if runtime else DEFAULT_CONFIG_PATH)
 
         if shared_config is not None:
             self._config = shared_config
             logger.debug("共有設定オブジェクトを使用してConfigurationServiceを初期化しました")
+        elif runtime is not None:
+            self._config = get_config()
         else:
             try:
                 self._config = ensure_config_file(self._config_path)
