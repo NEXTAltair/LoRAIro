@@ -417,14 +417,29 @@ def test_json_only_allows_same_stem_with_distinct_image_extensions(real_export_c
 @pytest.mark.parametrize("failed_language", ["canonical", "ja"])
 @pytest.mark.parametrize("failure_kind", ["copy", "translation"])
 @pytest.mark.parametrize("metadata_failure", [None, "canonical", "ja"])
+@pytest.mark.parametrize("single_pass", [False, True])
 def test_metadata_evidence_follows_each_languages_staged_images(
-    real_export_context, tmp_path, monkeypatch, failed_language, failure_kind, metadata_failure
+    real_export_context, tmp_path, monkeypatch, failed_language, failure_kind, metadata_failure, single_pass
 ):
     """A partial image owns only documents containing its successfully staged entry."""
     import builtins
     from collections import Counter
 
     service, db, _paths = real_export_context
+    if not single_pass:
+        from lorairo.services.dataset_export_service import ExportResult
+
+        def legacy_operation(image_ids, output, resolution, *, tag_languages):
+            report = ExportResult(image_ids)
+            service.export_dataset_txt_format(
+                image_ids, output, resolution, tag_languages=tag_languages, report=report
+            )
+            service.export_dataset_json_format(
+                image_ids, output, resolution, tag_languages=tag_languages, report=report
+            )
+            return report
+
+        monkeypatch.setattr(service, "export_dataset_all_formats", legacy_operation)
     db.get_image_annotations.side_effect = lambda image_id: {
         "tags": [{"tag": f"tag{image_id}"}],
         "captions": [],
@@ -439,9 +454,9 @@ def test_metadata_evidence_follows_each_languages_staged_images(
             failure_kind == "copy"
             and destination.parent.name == failed_language
             and destination.name == "source-1.png"
-            and attempts[("copy", str(destination))] == 2
+            and attempts[("copy", str(destination))] == (1 if single_pass else 2)
         ):
-            raise OSError("second-format copy failure")
+            raise OSError("selected language copy failure")
         return copy(source, destination)
 
     def translate_with_failure(tags, language, reader, cache):
@@ -450,9 +465,9 @@ def test_metadata_evidence_follows_each_languages_staged_images(
             failure_kind == "translation"
             and language == failed_language
             and tags == ["tag1"]
-            and attempts[("translation", language, tuple(tags))] == 2
+            and attempts[("translation", language, tuple(tags))] == (1 if single_pass else 2)
         ):
-            raise RuntimeError("second-format translation failure")
+            raise RuntimeError("selected language translation failure")
         return translate(tags, language, reader, cache)
 
     original_open = builtins.open
@@ -489,11 +504,24 @@ def test_metadata_evidence_follows_each_languages_staged_images(
     assert result.exit_code == 1
     assert row["exported"] == (1 if metadata_failure is None else 0)
     failures = {item["image_id"]: item for item in row["error_details"]}
-    assert failures[1]["completed_formats"] == ["txt"]
+    assert failures[1]["completed_formats"] == ([] if single_pass else ["txt"])
+    assert db.get_image_metadata.call_count == (2 if single_pass else 4)
+    assert db.get_image_annotations.call_count == (2 if single_pass else 4)
+    if single_pass:
+        assert service.file_system_manager.copy_file.call_count <= 4
+    _assert_staged_language_evidence(failures, output, failed_language, metadata_failure, single_pass)
+
+
+def _assert_staged_language_evidence(failures, output, failed_language, metadata_failure, single_pass):
+    """Compare per-image reporting with the actual per-language JSON documents."""
     for image_id, failure in failures.items():
         for language in ("canonical", "ja"):
             metadata = output / language / "metadata.json"
-            staged = image_id == 2 or (failed_language == "ja" and language == "canonical")
+            staged = image_id == 2 or (
+                language != failed_language
+                if single_pass
+                else failed_language == "ja" and language == "canonical"
+            )
             if language != metadata_failure:
                 contents = json.loads(metadata.read_text())
                 assert (str(output / language / f"source-{image_id}.png") in contents) is staged

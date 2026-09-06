@@ -175,6 +175,7 @@ class DatasetExportService:
         metadata_by_language: dict[str, dict[str, dict[str, Any]]] = {
             language: {} for language, _ in language_roots
         }
+        staged_ids_by_language: dict[str, set[int]] = {language: set() for language, _ in language_roots}
         try:
             for _, root in language_roots:
                 root.mkdir(parents=True, exist_ok=True)
@@ -214,12 +215,13 @@ class DatasetExportService:
                         reader,
                         translation_cache,
                         metadata_by_language,
+                        staged_ids_by_language,
                         report,
                     )
                 except Exception as exc:
                     report.fail(image_id, "input", "export_error", str(exc))
         self._write_metadata_files(
-            language_roots, "metadata.json", metadata_by_language, report.image_ids, report, True
+            language_roots, "metadata.json", metadata_by_language, staged_ids_by_language, report, True
         )
         return report
 
@@ -234,6 +236,7 @@ class DatasetExportService:
         reader: "MergedTagReader | None",
         translation_cache: dict[str, dict[str, str]],
         metadata_by_language: dict[str, dict[str, dict[str, Any]]],
+        staged_ids_by_language: dict[str, set[int]],
         report: ExportResult,
     ) -> None:
         """Share each language's translated tags and copied image across both writers."""
@@ -262,6 +265,7 @@ class DatasetExportService:
                 metadata_by_language[language][str(output_image)] = self._json_export_payload(
                     data, tags, captions
                 )
+                staged_ids_by_language[language].add(image_id)
             except Exception as exc:
                 report.fail(image_id, "json", "export_error", str(exc))
                 json_complete = False
