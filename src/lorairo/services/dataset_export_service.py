@@ -488,6 +488,7 @@ class DatasetExportService:
         metadata_by_language: dict[str, dict[str, dict[str, Any]]] = {
             language: {} for language, _ in language_roots
         }
+        staged_ids_by_language: dict[str, set[int]] = {language: set() for language, _ in language_roots}
         exported_count = 0
 
         for image_id in image_ids:
@@ -537,6 +538,7 @@ class DatasetExportService:
                         # ADR 0029: 統一品質 tier (derived view)
                         "quality_summary": image_data.get("quality_summary", {}),
                     }
+                    staged_ids_by_language[tag_language].add(image_id)
 
                 exported_count += 1
                 report.completed.setdefault(image_id, set()).add("json")
@@ -548,7 +550,12 @@ class DatasetExportService:
                 continue
 
         self._write_metadata_files(
-            language_roots, metadata_filename, metadata_by_language, image_ids, report, tracking
+            language_roots,
+            metadata_filename,
+            metadata_by_language,
+            staged_ids_by_language,
+            report,
+            tracking,
         )
 
         logger.info(f"JSON format export completed: {exported_count}/{len(image_ids)} images exported")
@@ -610,27 +617,24 @@ class DatasetExportService:
         language_roots: list[tuple[str, Path]],
         metadata_filename: str,
         metadata_by_language: dict[str, dict[str, dict[str, Any]]],
-        image_ids: list[int],
+        staged_ids_by_language: dict[str, set[int]],
         report: ExportResult,
         tracking: bool,
     ) -> None:
-        """Finalize JSON files, attributing late failures to the affected images."""
-        prepared_ids = [
-            image_id for image_id in image_ids if "json" in report.completed.get(image_id, set())
-        ]
+        """Attribute each written document to its staged IDs, independently of overall success."""
         for language, root in language_roots:
             path = root / metadata_filename
             try:
                 with open(path, "w", encoding="utf-8") as stream:
                     json.dump(metadata_by_language[language], stream, indent=2, ensure_ascii=False)
-                for image_id in prepared_ids:
+                for image_id in staged_ids_by_language[language]:
                     report.record_artifact(image_id, path)
             except Exception as exc:
                 if not tracking:
                     raise
-                for image_id in prepared_ids:
-                    report.completed[image_id].discard("json")
-                    report.fail(image_id, "json", "metadata_write_error", str(exc))
+                for image_id in staged_ids_by_language[language]:
+                    report.completed.setdefault(image_id, set()).discard("json")
+                    report.fail(image_id, "json", "metadata_write_error", f"{path}: {exc}")
 
     def export_filtered_dataset(
         self,

@@ -414,6 +414,98 @@ def test_json_only_allows_same_stem_with_distinct_image_extensions(real_export_c
     assert not list(output.glob("*.txt"))
 
 
+@pytest.mark.parametrize("failed_language", ["canonical", "ja"])
+@pytest.mark.parametrize("failure_kind", ["copy", "translation"])
+@pytest.mark.parametrize("metadata_failure", [None, "canonical", "ja"])
+def test_metadata_evidence_follows_each_languages_staged_images(
+    real_export_context, tmp_path, monkeypatch, failed_language, failure_kind, metadata_failure
+):
+    """A partial image owns only documents containing its successfully staged entry."""
+    import builtins
+    from collections import Counter
+
+    service, db, _paths = real_export_context
+    db.get_image_annotations.side_effect = lambda image_id: {
+        "tags": [{"tag": f"tag{image_id}"}],
+        "captions": [],
+    }
+    attempts = Counter()
+    copy = service.file_system_manager.copy_file.side_effect
+    translate = service._translate_export_tag_list
+
+    def copy_with_failure(source, destination):
+        attempts[("copy", str(destination))] += 1
+        if (
+            failure_kind == "copy"
+            and destination.parent.name == failed_language
+            and destination.name == "source-1.png"
+            and attempts[("copy", str(destination))] == 2
+        ):
+            raise OSError("second-format copy failure")
+        return copy(source, destination)
+
+    def translate_with_failure(tags, language, reader, cache):
+        attempts[("translation", language, tuple(tags))] += 1
+        if (
+            failure_kind == "translation"
+            and language == failed_language
+            and tags == ["tag1"]
+            and attempts[("translation", language, tuple(tags))] == 2
+        ):
+            raise RuntimeError("second-format translation failure")
+        return translate(tags, language, reader, cache)
+
+    original_open = builtins.open
+
+    def open_with_failure(file, mode="r", *args, **kwargs):
+        path = Path(file)
+        if path.name == "metadata.json" and path.parent.name == metadata_failure and mode == "w":
+            raise OSError("metadata finalization failure")
+        return original_open(file, mode, *args, **kwargs)
+
+    service.file_system_manager.copy_file.side_effect = copy_with_failure
+    monkeypatch.setattr(service, "_translate_export_tag_list", translate_with_failure)
+    monkeypatch.setattr(builtins, "open", open_with_failure)
+    output = tmp_path / "out"
+    result = runner.invoke(
+        app,
+        [
+            "--json",
+            "export",
+            "create",
+            "--project",
+            "synthetic",
+            "--image-ids",
+            "1,2",
+            "--output",
+            str(output),
+            "--tag-language",
+            "canonical",
+            "--tag-language",
+            "ja",
+        ],
+    )
+    row = json.loads(result.stdout.splitlines()[-1])
+    assert result.exit_code == 1
+    assert row["exported"] == (1 if metadata_failure is None else 0)
+    failures = {item["image_id"]: item for item in row["error_details"]}
+    assert failures[1]["completed_formats"] == ["txt"]
+    for image_id, failure in failures.items():
+        for language in ("canonical", "ja"):
+            metadata = output / language / "metadata.json"
+            staged = image_id == 2 or (failed_language == "ja" and language == "canonical")
+            if language != metadata_failure:
+                contents = json.loads(metadata.read_text())
+                assert (str(output / language / f"source-{image_id}.png") in contents) is staged
+            assert (str(metadata) in failure["output_files"]) is (staged and language != metadata_failure)
+            metadata_errors = [
+                error
+                for error in failure["errors"]
+                if error["reason"] == "metadata_write_error" and str(metadata) in error["message"]
+            ]
+            assert bool(metadata_errors) is (staged and language == metadata_failure)
+
+
 def test_duplicate_csv_ids_report_unique_actual_outputs(real_export_context, tmp_path):
     service, _db, _paths = real_export_context
     result, row = _invoke_real_export(tmp_path / "out", "1,1")
