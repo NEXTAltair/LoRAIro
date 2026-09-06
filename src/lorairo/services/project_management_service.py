@@ -6,6 +6,8 @@ CLI/GUI双方から利用可能にする。Qt 依存なし。
 
 import json
 import shutil
+import stat
+from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 
@@ -18,6 +20,30 @@ from lorairo.public_api.exceptions import (
 )
 from lorairo.public_api.types import ProjectInfo
 from lorairo.utils.config import get_config
+
+
+@dataclass
+class _CreatedDirectory:
+    """Track filesystem identity separately from a path that another process can replace."""
+
+    path: Path
+    identity: tuple[int, int] | None = None
+
+    def capture_identity(self) -> None:
+        created_stat = self.path.lstat()
+        if not stat.S_ISDIR(created_stat.st_mode):
+            raise OSError("Created directory was replaced before its identity could be recorded")
+        self.identity = (created_stat.st_dev, created_stat.st_ino)
+
+    def verify_identity(self) -> None:
+        if self.identity is None:
+            raise OSError("Directory identity unavailable; cleanup skipped to preserve existing contents")
+        current_stat = self.path.lstat()
+        if not stat.S_ISDIR(current_stat.st_mode) or self.identity != (
+            current_stat.st_dev,
+            current_stat.st_ino,
+        ):
+            raise OSError("Directory identity changed; replacement preserved, original may have been moved")
 
 
 class ProjectManagementService:
@@ -66,8 +92,8 @@ class ProjectManagementService:
             ProjectAlreadyExistsError: 同名プロジェクトが既に存在。
             ProjectOperationError: プロジェクト作成に失敗。
         """
-        owned_project: Path | None = None
-        created_parents: list[Path] = []
+        owned_project: _CreatedDirectory | None = None
+        created_parents: list[_CreatedDirectory] = []
         try:
             # 既存確認
             if self._project_exists(name):
@@ -92,7 +118,8 @@ class ProjectManagementService:
                     project_dir = self.projects_base_dir / f"{name}_{date_str}"
                     counter += 1
                 else:
-                    owned_project = project_dir
+                    owned_project = _CreatedDirectory(project_dir)
+                    owned_project.capture_identity()
                     break
 
             (project_dir / "image_dataset").mkdir(exist_ok=True)
@@ -148,7 +175,7 @@ class ProjectManagementService:
                 },
             ) from e
 
-    def _create_base_directories(self, created_parents: list[Path]) -> None:
+    def _create_base_directories(self, created_parents: list[_CreatedDirectory]) -> None:
         """Create missing parents and record ownership for empty-directory rollback."""
         missing_parents = []
         candidate = self.projects_base_dir
@@ -162,28 +189,32 @@ class ProjectManagementService:
                 if not parent.is_dir():
                     raise
             else:
-                created_parents.append(parent)
+                created_parent = _CreatedDirectory(parent)
+                created_parents.append(created_parent)
+                created_parent.capture_identity()
 
     @staticmethod
     def _rollback_creation(
-        owned_project: Path | None, created_parents: list[Path]
+        owned_project: _CreatedDirectory | None, created_parents: list[_CreatedDirectory]
     ) -> tuple[list[dict[str, str]], list[str]]:
         """Remove only this call's project and empty parents; retain all cleanup errors."""
         cleanup_errors: list[dict[str, str]] = []
         residual_paths: list[str] = []
         if owned_project is not None:
             try:
-                shutil.rmtree(owned_project)
+                owned_project.verify_identity()
+                shutil.rmtree(owned_project.path)
             except OSError as cleanup_error:
-                cleanup_errors.append({"path": str(owned_project), "error": str(cleanup_error)})
-                residual_paths.append(str(owned_project))
+                cleanup_errors.append({"path": str(owned_project.path), "error": str(cleanup_error)})
+                residual_paths.append(str(owned_project.path))
         for parent in reversed(created_parents):
             try:
                 # Never recursively remove shared parents or someone else's files.
-                parent.rmdir()
+                parent.verify_identity()
+                parent.path.rmdir()
             except OSError as cleanup_error:
-                cleanup_errors.append({"path": str(parent), "error": str(cleanup_error)})
-                residual_paths.append(str(parent))
+                cleanup_errors.append({"path": str(parent.path), "error": str(cleanup_error)})
+                residual_paths.append(str(parent.path))
         return cleanup_errors, residual_paths
 
     def list_projects(self) -> list[ProjectInfo]:

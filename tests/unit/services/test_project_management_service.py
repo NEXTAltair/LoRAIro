@@ -573,3 +573,44 @@ def test_create_failure_removes_new_base_ancestors(tmp_path: Path, monkeypatch: 
             service.create_project("retry")
     assert list(tmp_path.iterdir()) == []
     assert service.create_project("retry").path.is_dir()
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("replace_parent", [False, True])
+def test_create_rollback_preserves_replaced_directory(
+    service: ProjectManagementService, monkeypatch: pytest.MonkeyPatch, replace_parent: bool
+) -> None:
+    """Replacing the owned project or its new parent must not authorize deleting the replacement."""
+    replacements = []
+
+    def fail_touch(path: Path, *args, **kwargs):
+        replaced = service.projects_base_dir if replace_parent else path.parent
+        moved = replaced.with_name(replaced.name + "-moved")
+        replaced.rename(moved)
+        replaced.mkdir()
+        if not replace_parent:
+            (replaced / "keep.txt").write_text("replacement data")
+        replacements.append((replaced, moved))
+        raise OSError("db failed after replacement")
+
+    with monkeypatch.context() as patcher:
+        patcher.setattr(Path, "touch", fail_touch)
+        with pytest.raises(ProjectOperationError) as caught:
+            service.create_project("replace")
+    replaced, moved = replacements[0]
+    assert replaced.is_dir()
+    assert moved.is_dir()
+    if replace_parent:
+        assert list(replaced.iterdir()) == []  # Even an empty replacement parent must survive.
+        assert list(moved.glob("*/.lorairo-project"))
+    else:
+        assert (replaced / "keep.txt").read_text() == "replacement data"
+        assert (moved / ".lorairo-project").exists()
+    details = caught.value.details
+    assert details["original_error"] == "db failed after replacement"
+    assert str(replaced) in details["residual_paths"]
+    assert any(
+        error["path"] == str(replaced) and "identity changed" in error["error"]
+        for error in details["cleanup_errors"]
+    )
+    assert str(caught.value.__cause__) == "db failed after replacement"
