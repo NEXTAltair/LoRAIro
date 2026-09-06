@@ -772,6 +772,9 @@ def test_every_public_model_has_matching_compact_and_json_schema(path: str) -> N
     models = {row["name"]: row for row in compact if row.get("type") == "model"}
     schemas = {row["name"]: row for row in complete if row.get("type") == "schema"}
     assert models.keys() == schemas.keys()
+    for output in (compact, complete):
+        tool = next(row for row in output if row.get("type") == "tool")
+        assert tool["global_options"] == models["GlobalOptions"]["fields"]
     for name, model in models.items():
         schema = schemas[name]["schema"]
         fields = {item["name"]: item for item in model["fields"]}

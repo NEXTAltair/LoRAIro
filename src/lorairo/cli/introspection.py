@@ -921,7 +921,7 @@ class ToolSpec:
             "summary": self.summary,
             "read_only": self.read_only,
             "side_effects": list(self.side_effects),
-            "global_options": [field.to_dict() for field in GLOBAL_OPTIONS.fields],
+            "global_options": [field.to_dict() for field in get_global_options().resolved_fields()],
         }
 
 
