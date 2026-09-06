@@ -458,5 +458,5 @@ def test_project_create_failure_json_recovery(
     else:
         assert details["residual_paths"] == []
         assert list(mock_projects_dir.iterdir()) == []
-        retry = runner.invoke(app, ["--json", "project", "create", "recovery"])
-        assert retry.exit_code == 0
+    retry = runner.invoke(app, ["--json", "project", "create", "recovery"])
+    assert retry.exit_code == 0
