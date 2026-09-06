@@ -3088,7 +3088,18 @@ class ImageRepository(BaseRepository):
             # 入力末尾に区切りを付加して sibling directory の混入も防ぐ。
             prefix = criteria.original_path_prefix.replace("\\", "/").rstrip("/") + "/"
             normalized_path = func.replace(Image.original_image_path, "\\", "/")
-            query = query.where(func.substr(normalized_path, 1, len(prefix)) == prefix)
+            leading_path = func.substr(normalized_path, 1, len(prefix))
+            # POSIX path は case-sensitive のままにする一方、drive-letter を持つ
+            # Windows path は filesystem semantics に合わせて case-insensitive に照合する。
+            query = query.where(
+                or_(
+                    leading_path == prefix,
+                    and_(
+                        func.substr(normalized_path, 2, 1) == ":",
+                        func.lower(leading_path) == prefix.lower(),
+                    ),
+                )
+            )
         return query
 
     def get_images_by_filter(

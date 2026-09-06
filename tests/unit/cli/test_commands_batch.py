@@ -180,6 +180,38 @@ def test_batch_submit_accepts_openai_annotation(mock_get_container: MagicMock) -
 @pytest.mark.unit
 @pytest.mark.cli
 @patch("lorairo.cli.commands.batch.get_service_container")
+def test_batch_submit_validates_all_ids_before_submitting_chunks(mock_get_container: MagicMock) -> None:
+    """A missing ID in a later provider chunk must not create an earlier job (#1307)."""
+    container = _container()
+    image_ids = list(range(1, 502))
+    container.db_manager.image_repo.get_images_by_ids.return_value = [
+        {"id": image_id, "stored_image_path": f"image_dataset/processed_images/{image_id}.jpg"}
+        for image_id in image_ids[:-1]
+    ]
+    mock_get_container.return_value = container
+
+    result = runner.invoke(
+        app,
+        [
+            "batch",
+            "submit",
+            "--project",
+            "demo",
+            "--model",
+            "openai/gpt-4.1-mini",
+            "--image-ids",
+            ",".join(map(str, image_ids)),
+        ],
+    )
+
+    assert result.exit_code == 2
+    assert "No batch jobs were submitted" in result.output
+    container.provider_batch_workflow_service.submit_images.assert_not_called()
+
+
+@pytest.mark.unit
+@pytest.mark.cli
+@patch("lorairo.cli.commands.batch.get_service_container")
 def test_batch_submit_rating_preflight_calls_workflow_service(mock_get_container: MagicMock) -> None:
     container = _container()
     container.db_manager.model_repo.get_model_by_litellm_id.return_value = _model(
@@ -387,6 +419,10 @@ def test_batch_submit_accepts_image_ids_file(mock_get_container: MagicMock, tmp_
         litellm_model_id="openai/omni-moderation-latest",
         model_types=(SimpleNamespace(name="ratings"),),
     )
+    container.db_manager.image_repo.get_images_by_ids.return_value = [
+        {"id": image_id, "stored_image_path": f"image_dataset/processed_images/{image_id}.jpg"}
+        for image_id in [2, 7, 11]
+    ]
     mock_get_container.return_value = container
 
     result = runner.invoke(
@@ -427,6 +463,10 @@ def test_batch_submit_splits_large_image_ids_file(mock_get_container: MagicMock,
         model_types=(SimpleNamespace(name="ratings"),),
     )
     container.provider_batch_workflow_service.submit_images.side_effect = [42, 43]
+    container.db_manager.image_repo.get_images_by_ids.return_value = [
+        {"id": image_id, "stored_image_path": f"image_dataset/processed_images/{image_id}.jpg"}
+        for image_id in range(1, 502)
+    ]
     mock_get_container.return_value = container
 
     result = runner.invoke(
@@ -936,8 +976,8 @@ def test_submit_with_resolution_resolves_processed_paths(mock_get_container: Mag
             2: "image_dataset/processed_images/512/2.jpg",
         },
     )
-    # --resolution 指定時は original image guard をスキップ
-    container.db_manager.image_repo.get_images_by_ids.assert_not_called()
+    # --resolution 指定時も、全IDを送信前に検証する（original image guard はスキップ）。
+    container.db_manager.image_repo.get_images_by_ids.assert_called_once_with([1, 2])
     assert "512px" in result.stdout
     assert "Provider Batch job submitted" in result.stdout
 

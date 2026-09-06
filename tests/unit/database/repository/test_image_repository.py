@@ -231,6 +231,30 @@ class TestGetImagesByFilterPaging:
         assert total == 1
         assert [record["id"] for record in results] == [matching]
 
+    def test_original_path_prefix_is_case_insensitive_for_windows_paths(
+        self, image_repository: ImageRepository
+    ) -> None:
+        """Windows drive paths match regardless of casing, unlike POSIX paths (#1308)."""
+        matching = _insert_image(
+            image_repository,
+            uuid="u-source-win-case-1",
+            phash="p-source-win-case-1",
+            original_image_path=r"J:\Source\Untagged\one.png",
+        )
+        _insert_image(
+            image_repository,
+            uuid="u-source-posix-case-1",
+            phash="p-source-posix-case-1",
+            original_image_path="/Source/Untagged/two.png",
+        )
+
+        results, total = image_repository.get_images_by_filter(
+            ImageFilterCriteria(include_nsfw=True, original_path_prefix="j:/source/untagged")
+        )
+
+        assert total == 1
+        assert [record["id"] for record in results] == [matching]
+
     def test_resolution_filter_restricts_count_before_limit(
         self, image_repository: ImageRepository
     ) -> None:

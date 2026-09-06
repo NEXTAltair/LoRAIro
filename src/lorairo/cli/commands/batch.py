@@ -403,6 +403,28 @@ def _resolve_processed_image_paths(
     return paths
 
 
+def _validate_submit_image_records(records: list[dict[str, Any]], image_ids: list[int]) -> None:
+    """Fail before submission if any requested image cannot produce a batch request."""
+    found_ids = {record.get("id") for record in records}
+    missing_ids = [image_id for image_id in dict.fromkeys(image_ids) if image_id not in found_ids]
+    invalid_path_ids = [
+        int(record["id"])
+        for record in records
+        if record.get("id") is not None and not record.get("stored_image_path")
+    ]
+    if not missing_ids and not invalid_path_ids:
+        return
+
+    problems: list[str] = []
+    if missing_ids:
+        problems.append(f"not found: {', '.join(map(str, missing_ids[:5]))}")
+    if invalid_path_ids:
+        problems.append(f"missing stored image path: {', '.join(map(str, invalid_path_ids[:5]))}")
+    raise click.UsageError(
+        "Cannot submit requested image ID(s): " + "; ".join(problems) + ". No batch jobs were submitted."
+    )
+
+
 def _submit_image_chunks(
     workflow_service: Any,
     provider_batch_repo: Any,
@@ -506,13 +528,15 @@ def submit(
 
         resolved_endpoint = _resolve_submit_endpoint(resolved_provider, normalized_task_type, endpoint)
         image_repo = container.db_manager.image_repo
+        image_records = image_repo.get_images_by_ids(image_ids)
+        _validate_submit_image_records(image_records, image_ids)
 
         # --resolution 指定時は processed image を使うため、original image guard をスキップする。
         # ADR 0064 が禁止するのはオリジナル画像の直接投入であり、
         # processed path を override して送信する場合は image_id がオリジナルでも正当。
         if resolution is None:
             reject_original_image_records(
-                image_repo.get_images_by_ids(image_ids),
+                image_records,
                 command_name="batch submit",
             )
 
