@@ -463,8 +463,6 @@ class AnnotationSaveService:
         """全結果からユニークなモデル名とタグ文字列を収集する。
 
         Args:
-            confirmed_outcomes: Optional caller-owned progress map, updated after confirmed commits.
-                Remains available if an exception or KeyboardInterrupt prevents returning a result.
             results: PHashAnnotationResults ({phash: {model_name: UnifiedAnnotationResult}})
 
         Returns:
@@ -683,6 +681,8 @@ class AnnotationSaveService:
           未選択別版への書き込み汚染を避ける)。
 
         Args:
+            confirmed_outcomes: Optional caller-owned progress map, updated after confirmed commits.
+                Remains available if an exception or KeyboardInterrupt prevents returning a result.
             results: PHashAnnotationResults ({phash: {model_name: UnifiedAnnotationResult}})
             allowed_image_ids: 保存対象を限定するバッチ image_id 集合。None なら pHash ごとに
                 先頭 1 件のみ保存する。
