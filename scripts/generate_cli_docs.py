@@ -38,6 +38,8 @@ def _tool_section(spec: ToolSpec) -> list[str]:
         spec.summary,
         "",
         f"- Read only: `{str(spec.read_only).lower()}`",
+        f"- Strict read only: `{str(spec.read_only).lower()}` (root `--read-only`; see [contract](cli-read-only.md))",
+        f"- Conditional initialization: `{spec.tool_payload()['conditional_side_effects']}`",
         f"- Side effects: {', '.join(f'`{effect}`' for effect in spec.side_effects)}",
         "",
         "#### Compact Introspection",

@@ -13,8 +13,8 @@ from pathlib import Path
 from typing import Any
 
 # SQLAlchemy imports
-from sqlalchemy import StaticPool, create_engine, event, inspect
-from sqlalchemy.engine import Engine
+from sqlalchemy import StaticPool, create_engine, event, inspect, select, text
+from sqlalchemy.engine import Connection, Engine
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session, sessionmaker
 
@@ -299,6 +299,8 @@ def ensure_tag_db_initialized() -> None:
         DB_DIR = ensure_default_db_dir()
         target_directory = DB_DIR
     token = os.environ.get("HF_TOKEN") or os.environ.get("HUGGINGFACE_TOKEN")
+    from .access_policy import is_read_only
+
     try:
         from genai_tag_db_tools import initialize_databases
 
@@ -307,6 +309,7 @@ def ensure_tag_db_initialized() -> None:
             user_db_dir=target_directory,
             format_name="Lorairo",
             token=token,
+            **({"read_only": True} if is_read_only() else {}),
         )
         user_path = target_directory / "user_tags.sqlite"
         if selected is not None and scope is not None:
@@ -316,6 +319,16 @@ def ensure_tag_db_initialized() -> None:
             _tag_db_initialized = True
         logger.info(f"Tag databases initialized: {len(results)} base DB(s) + user DB at {user_path}")
     except Exception as e:
+        if is_read_only():
+            from ..public_api.exceptions import ReadOnlyPreconditionError
+
+            error = ReadOnlyPreconditionError(
+                f"Tag databases require preparation: {e}",
+                reason="tag_database_preparation_required",
+                database_path=str(target_directory),
+            )
+            error.hint = "Use project prepare --project NAME --tags without --read-only, with write permission, then retry."
+            raise error from e
         logger.opt(exception=True).error(f"Failed to initialize tag databases: {e}.")
         raise RuntimeError("Tag database initialization failed") from e
 
@@ -536,7 +549,81 @@ def _prepare_project_database(project_db_path: Path) -> Engine:
     return engine
 
 
-def create_project_session_factory(project_db_path: Path) -> sessionmaker[Session]:
+def _read_only_schema_reason(connection: Connection, path: Path) -> str | None:
+    """Return an actionable compatibility category without exposing schema internals."""
+    from alembic.script import ScriptDirectory
+
+    from .schema import Base, ModelType
+
+    inspector = inspect(connection)
+    tables = set(inspector.get_table_names())
+    if "alembic_version" not in tables:
+        return "untracked_schema"
+    heads = set(ScriptDirectory.from_config(_make_alembic_config(path)).get_heads())
+    current = set(connection.execute(text("SELECT version_num FROM alembic_version")).scalars())
+    if current != heads:
+        return "schema_upgrade_required"
+    for table in Base.metadata.sorted_tables:
+        if table.name not in tables:
+            return "incompatible_schema"
+        columns = {column["name"] for column in inspector.get_columns(table.name)}
+        if not set(table.columns.keys()).issubset(columns):
+            return "incompatible_schema"
+    model_types = set(connection.execute(select(ModelType.name)).scalars())
+    if not {"tags", "scores", "caption", "upscaler", "multimodal", "ratings"}.issubset(model_types):
+        return "model_seed_required"
+    return None
+
+
+def _open_read_only_project_database(project_db_path: Path) -> Engine:
+    """Open an existing compatible schema with SQLite-enforced logical read-only access."""
+    from sqlalchemy.pool import NullPool
+
+    from ..public_api.exceptions import ReadOnlyPreconditionError
+
+    path = project_db_path.resolve()
+
+    def precondition(reason: str) -> ReadOnlyPreconditionError:
+        return ReadOnlyPreconditionError(
+            f"Read-only database is not ready ({reason}): {path}", reason=reason, database_path=str(path)
+        )
+
+    if not path.is_file():
+        raise precondition("missing_database")
+    if path.stat().st_size == 0:
+        raise precondition("empty_database")
+    # as_uri escapes spaces, Unicode, '?' and '#' without misinterpreting filename parameters.
+    engine = create_engine(
+        f"sqlite:///{path.as_uri()}?mode=ro&uri=true",
+        connect_args={"check_same_thread": False},
+        poolclass=NullPool,
+    )
+
+    @event.listens_for(engine, "connect")
+    def protect_connection(connection: Any, record: Any) -> None:
+        connection.execute("PRAGMA query_only=ON")
+        connection.execute("PRAGMA temp_store=MEMORY")
+
+    try:
+        with engine.connect() as connection:
+            reason = _read_only_schema_reason(connection, path)
+            if reason is not None:
+                raise precondition(reason)
+        return engine
+    except ReadOnlyPreconditionError:
+        engine.dispose()
+        raise
+    except SQLAlchemyError:
+        engine.dispose()
+        raise precondition("unreadable_or_incompatible_database") from None
+    except BaseException:
+        engine.dispose()
+        raise
+
+
+def create_project_session_factory(
+    project_db_path: Path, *, read_only: bool = False
+) -> sessionmaker[Session]:
     """指定プロジェクト DB 用セッションファクトリを生成。
 
     新規 DB（touch で空ファイル）の場合はスキーマを初期化する。
@@ -548,7 +635,13 @@ def create_project_session_factory(project_db_path: Path) -> sessionmaker[Sessio
     Returns:
         sessionmaker[Session]: プロジェクト専用セッションファクトリ。
     """
-    engine = _prepare_project_database(project_db_path)
+    from .access_policy import is_read_only
+
+    engine = (
+        _open_read_only_project_database(project_db_path)
+        if read_only or is_read_only()
+        else _prepare_project_database(project_db_path)
+    )
     return create_session_factory(engine)
 
 
@@ -561,6 +654,10 @@ _default_session_factory: sessionmaker[Session] | None = None
 def _get_default_session_factory() -> sessionmaker[Session]:
     """Prepare the default project DB lazily and return its session factory."""
     global DB_DIR, IMG_DB_PATH, DATABASE_URL, default_engine, _default_session_factory
+    from .access_policy import is_read_only
+
+    if is_read_only():
+        return create_project_session_factory(IMG_DB_PATH, read_only=True)
     if _default_session_factory is None:
         if IMG_DB_PATH == DB_DIR / IMG_DB_FILENAME:
             DB_DIR = ensure_default_db_dir()

@@ -107,6 +107,10 @@ def hint_for(code: ErrorCode, exc: BaseException | None = None) -> str | None:
     Returns:
         対処ヒント文字列、定義がなければ ``None``。
     """
+    if exc is not None and code is ErrorCode.PRECONDITION_FAILED:
+        hint = getattr(exc, "hint", None)
+        if isinstance(hint, str):
+            return hint
     if exc is not None and code is ErrorCode.IO_ERROR:
         from lorairo.database.db_errors import is_sqlite_disk_io_error
 
@@ -238,6 +242,8 @@ def _classify_lorairo_exception(exc: BaseException) -> ErrorInfo | None:
         return ErrorInfo(ErrorCode.NOT_FOUND, retryable=False, user_action_required=True)
     if isinstance(exc, (app_exc.ProjectAlreadyExistsError, app_exc.DuplicateImageError)):
         return ErrorInfo(ErrorCode.ALREADY_EXISTS, retryable=False, user_action_required=True)
+    if isinstance(exc, app_exc.ReadOnlyPreconditionError):
+        return ErrorInfo(ErrorCode.PRECONDITION_FAILED, retryable=False, user_action_required=True)
     if isinstance(exc, app_exc.ResultSetTooLargeError):
         return ErrorInfo(ErrorCode.RESULT_SET_TOO_LARGE, retryable=False, user_action_required=True)
     if isinstance(exc, app_exc.BatchImportError):
@@ -312,6 +318,10 @@ def classify_exception(exc: BaseException) -> ErrorInfo:
     Returns:
         コードと再試行/ユーザー操作フラグを持つ :class:`ErrorInfo`。
     """
+    from lorairo.public_api.exceptions import ReadOnlyPreconditionError
+
+    if isinstance(exc, ReadOnlyPreconditionError):
+        return ErrorInfo(ErrorCode.PRECONDITION_FAILED, retryable=False, user_action_required=True)
     for predicate, info in _CHAIN_CLASSIFIERS:
         if predicate(exc):
             return info

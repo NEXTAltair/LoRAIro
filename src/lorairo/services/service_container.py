@@ -414,7 +414,10 @@ class ServiceContainer:
         self._image_repository = ImageRepository(session_factory=session_factory)
 
         # FileSystemManager をプロジェクトディレクトリで初期化（CLI の DB 書き込みに必要）
-        self.file_system_manager.initialize(project_info.path)
+        from ..database.access_policy import is_read_only
+
+        if not is_read_only():
+            self.file_system_manager.initialize(project_info.path)
 
         # 依存サービスをリセット（次参照時に新しい image_repository で再初期化）
         self._db_manager = None
