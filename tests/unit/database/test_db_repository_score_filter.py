@@ -560,3 +560,48 @@ class TestApplyTagFilterExcludeIntegration:
 
         assert result_query is not None
         assert result_query != base_query
+
+
+def test_id_pages_score_aggregation_runs_once_and_matches_metadata_path(
+    score_repository, memory_session_factory, monkeypatch
+):
+    excluded = _make_image_with_scores(memory_session_factory, _ISSUE_838_SCORES)
+    included = _make_image_with_scores(memory_session_factory, [(9.5, "MANUAL_EDIT", True)])
+    criteria = ImageFilterCriteria(score_min=9.11, score_max=10.0, include_nsfw=True)
+    metadata, count = score_repository.get_images_by_filter(criteria)
+    resolver = Mock(wraps=score_repository._resolve_score_filtered_ids)
+    monkeypatch.setattr(score_repository, "_resolve_score_filtered_ids", resolver)
+    monkeypatch.setattr(
+        score_repository,
+        "_fetch_filtered_metadata",
+        Mock(side_effect=AssertionError("output metadata loaded")),
+    )
+    from sqlalchemy import event
+
+    queries = []
+    engine = memory_session_factory.kw["bind"]
+
+    def record(_conn, _cursor, statement, _parameters, _context, _many):
+        queries.append(statement)
+
+    event.listen(engine, "before_cursor_execute", record)
+    try:
+        with score_repository.image_id_pages(criteria, page_size=1) as (total, pages):
+            ids = [image_id for page in pages for image_id in page]
+    finally:
+        event.remove(engine, "before_cursor_execute", record)
+    assert len(queries) == 5  # candidate IDs, image batch, scores, models, model types
+    assert sum("FROM scores" in query for query in queries) == 1
+    print(
+        {
+            "score_candidates": 2,
+            "matches": total,
+            "sql": len(queries),
+            "score_loads": 1,
+            "output_metadata": 0,
+        }
+    )
+    assert total == count == 1
+    assert ids == [m["id"] for m in metadata] == [included]
+    assert excluded not in ids
+    assert resolver.call_count == 1

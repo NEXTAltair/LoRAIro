@@ -7,6 +7,8 @@
 
 from collections.abc import Callable, Generator
 from contextlib import contextmanager
+from contextvars import ContextVar
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
@@ -16,7 +18,7 @@ from sqlalchemy.engine import Engine
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session, sessionmaker
 
-from ..utils.config import get_config
+from ..utils.config import get_config, get_runtime_configuration
 from ..utils.log import logger
 
 # --- Configuration --- #
@@ -248,27 +250,71 @@ USER_TAG_DB_PATH: Path | None = None
 _tag_db_initialized: bool = False
 
 
+@dataclass
+class _TagDatabaseScope:
+    initialized_directory: Path | None = None
+
+
+_TAG_DATABASE_SCOPE: ContextVar[_TagDatabaseScope | None] = ContextVar("tag_database_scope", default=None)
+
+
+def get_tag_database_directory() -> Path:
+    """Resolve the explicit stable tag directory without creating files."""
+    selected = get_runtime_configuration()
+    if selected is None:
+        return DB_DIR
+    directories = selected.settings["directories"]
+    return Path(directories.get("database_dir") or directories["database_base_dir"]).resolve()
+
+
+@contextmanager
+def tag_database_scope() -> Generator[None, None, None]:
+    """Isolate a synchronous CLI invocation using the package's public runtime scope."""
+    from genai_tag_db_tools import database_runtime_scope
+
+    with database_runtime_scope():
+        token = _TAG_DATABASE_SCOPE.set(_TagDatabaseScope())
+        try:
+            yield
+        finally:
+            _TAG_DATABASE_SCOPE.reset(token)
+
+
 def ensure_tag_db_initialized() -> None:
     """タグDBを遅延初期化する。初回呼び出し時のみ HF Hub に接続する。"""
     import os
 
     global _tag_db_initialized, DB_DIR, USER_TAG_DB_PATH
-    if _tag_db_initialized:
-        return
-    DB_DIR = ensure_default_db_dir()
+    selected = get_runtime_configuration()
+    scope = _TAG_DATABASE_SCOPE.get()
+    if selected is not None:
+        if scope is None:
+            raise RuntimeError("Explicit configuration requires a tag database scope")
+        target_directory = get_tag_database_directory()
+        if scope.initialized_directory == target_directory:
+            return
+    else:
+        if _tag_db_initialized:
+            return
+        DB_DIR = ensure_default_db_dir()
+        target_directory = DB_DIR
     token = os.environ.get("HF_TOKEN") or os.environ.get("HUGGINGFACE_TOKEN")
     try:
         from genai_tag_db_tools import initialize_databases
 
         logger.info("Initializing genai-tag-db-tools databases...")
         results = initialize_databases(
-            user_db_dir=DB_DIR,
+            user_db_dir=target_directory,
             format_name="Lorairo",
             token=token,
         )
-        USER_TAG_DB_PATH = DB_DIR / "user_tags.sqlite"
-        _tag_db_initialized = True
-        logger.info(f"Tag databases initialized: {len(results)} base DB(s) + user DB at {USER_TAG_DB_PATH}")
+        user_path = target_directory / "user_tags.sqlite"
+        if selected is not None and scope is not None:
+            scope.initialized_directory = target_directory
+        else:
+            USER_TAG_DB_PATH = user_path
+            _tag_db_initialized = True
+        logger.info(f"Tag databases initialized: {len(results)} base DB(s) + user DB at {user_path}")
     except Exception as e:
         logger.opt(exception=True).error(f"Failed to initialize tag databases: {e}.")
         raise RuntimeError("Tag database initialization failed") from e
@@ -276,6 +322,11 @@ def ensure_tag_db_initialized() -> None:
 
 def get_user_tag_db_path() -> Path | None:
     """タグDBパスを返す（ensure_tag_db_initialized() 呼び出し後に設定される）。"""
+    if get_runtime_configuration() is not None:
+        scope = _TAG_DATABASE_SCOPE.get()
+        if scope is None or scope.initialized_directory is None:
+            return None
+        return scope.initialized_directory / "user_tags.sqlite"
     return USER_TAG_DB_PATH
 
 
@@ -286,6 +337,12 @@ def create_db_engine(database_url: str | None = None) -> Engine:
     """指定された URL で SQLAlchemy エンジンを作成し、イベントリスナーを設定します。"""
     if database_url is None:
         database_url = DATABASE_URL
+    runtime = get_runtime_configuration()
+    busy_timeout_ms = (
+        int(runtime.settings.get("database", {}).get("busy_timeout_ms", BUSY_TIMEOUT_MS))
+        if runtime is not None
+        else BUSY_TIMEOUT_MS
+    )
     logger.info(f"Creating SQLAlchemy engine for: {database_url}")
     # StaticPool は 1 本の生コネクションを全セッションで共有するため、GUI メインスレッドと
     # RefinementWorker (QThread) が同一エンジンを共有すると sqlite3 の真の同時アクセスで
@@ -320,8 +377,8 @@ def create_db_engine(database_url: str | None = None) -> Engine:
             try:
                 # busy_timeout は synchronous より先に、かつ単独の try/except で設定する
                 # (Issue #767 の待機が他 PRAGMA の失敗で無効化されるのを防ぐ、Issue #1002)。
-                cursor.execute(f"PRAGMA busy_timeout={BUSY_TIMEOUT_MS}")
-                logger.debug(f"PRAGMA busy_timeout={BUSY_TIMEOUT_MS} executed.")
+                cursor.execute(f"PRAGMA busy_timeout={busy_timeout_ms}")
+                logger.debug(f"PRAGMA busy_timeout={busy_timeout_ms} executed.")
             except Exception:
                 logger.opt(exception=True).warning("Failed to configure PRAGMA busy_timeout")
 

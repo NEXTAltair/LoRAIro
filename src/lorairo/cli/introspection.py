@@ -6,7 +6,8 @@ Payload ``type`` differentiates tools, compact models, and JSON Schema rows.
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
+from functools import lru_cache
 from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -126,6 +127,8 @@ class ImagesListResult(BaseModel):
     limit: int | None = None
     offset: int | None = None
     has_more: bool | None = None
+    emit_ids: bool | None = None
+    truncated: bool | None = None
 
     model_config = ConfigDict(title="ImagesListResult")
 
@@ -207,10 +210,54 @@ class StatusResult(BaseModel):
     environment: str
     phase: str
     config_found: bool
+    workspace: str | None = None
+    config_path: str | None = None
+    projects_base_dir: str | None = None
+    tag_database_dir: str | None = None
     api_keys: dict[str, bool] | None = None
     initialized_services: dict[str, bool] | None = None
 
     model_config = ConfigDict(title="StatusResult")
+
+
+class ImagesProcessInput(BaseModel):
+    """Offline generation command options."""
+
+    project: str
+    image_ids: str | None = None
+    image_ids_file: str | None = None
+    resolution: int = Field(default=512, ge=32, le=8192, multiple_of=32)
+    rebuild: bool = False
+
+
+class ImagesProcessItem(BaseModel):
+    """Per-original-ID processing result."""
+
+    kind: Literal["item"] = "item"
+    image_id: int
+    status: Literal["success", "skipped", "failed"]
+    resolution: int
+    output_path: str | None = None
+    processed_image_id: int | None = None
+    reason: str | None = None
+
+
+class ImagesProcessResult(BaseModel):
+    """Terminal processing counts; normal existing-output skips are successful."""
+
+    kind: Literal["result"] = "result"
+    ok: bool
+    status: Literal["success", "partial_success", "failed"]
+    message: str
+    project: str
+    resolution: int
+    total: int
+    processed: int
+    skipped: int
+    failed: int
+    processed_ids: list[int]
+    skipped_ids: list[int]
+    failed_ids: list[int]
 
 
 class ImagesRegisterResult(BaseModel):
@@ -702,6 +749,7 @@ class AnnotateRunResult(BaseModel):
     message: str
     annotated: int
     skipped: int
+    resolution_skipped: int = 0
     errors: int
     loaded: int
     results: int
@@ -791,6 +839,7 @@ class FieldSpec:
     required: bool = False
     default: Any = None
     description: str = ""
+    schema: dict[str, Any] | None = None
 
     def to_dict(self) -> dict[str, Any]:
         data: dict[str, Any] = {
@@ -798,8 +847,12 @@ class FieldSpec:
             "type": self.type,
             "required": self.required,
         }
-        if self.default is not None:
+        if (self.schema is not None and "default" in self.schema) or (
+            self.schema is None and self.default is not None
+        ):
             data["default"] = self.default
+        if self.schema is not None:
+            data["schema"] = self.schema
         if self.description:
             data["description"] = self.description
         return data
@@ -820,8 +873,29 @@ class ModelSpec:
             "name": self.name,
             "role": self.role,
             "description": self.description,
-            "fields": [field.to_dict() for field in self.fields],
+            "fields": [field.to_dict() for field in self.resolved_fields()],
         }
+
+    def resolved_fields(self) -> tuple[FieldSpec, ...]:
+        """Derive compact required/default/type data from the same published schema."""
+        from lorairo.cli.introspection_schema import compact_type
+
+        if self.schema_model is None:
+            raise ValueError(f"Missing schema model: {self.name}")
+        schema = self.schema_model.model_json_schema()
+        descriptions = {item.name: item.description for item in self.fields}
+        required = set(schema.get("required", []))
+        return tuple(
+            FieldSpec(
+                name=name,
+                type=compact_type(prop),
+                required=name in required,
+                default=prop.get("default"),
+                description=descriptions.get(name) or prop.get("description", ""),
+                schema=prop,
+            )
+            for name, prop in schema.get("properties", {}).items()
+        )
 
     def schema_payload(self, command: str) -> dict[str, Any] | None:
         if self.schema_model is None:
@@ -855,6 +929,7 @@ class ToolSpec:
             "summary": self.summary,
             "read_only": self.read_only,
             "side_effects": list(self.side_effects),
+            "global_options": [field.to_dict() for field in get_global_options().resolved_fields()],
         }
 
 
@@ -867,6 +942,33 @@ def _f(
     description: str = "",
 ) -> FieldSpec:
     return FieldSpec(name=name, type=type_, required=required, default=default, description=description)
+
+
+class GlobalOptionsSchema(BaseModel):
+    workspace: str | None = Field(
+        default=None,
+        description="Root --workspace: anchor relative configured directories. Workspace/config/lorairo.toml is optional when --config is absent.",
+    )
+    config: str | None = Field(
+        default=None,
+        description="Root --config: existing TOML; anchors directories at its parent unless --workspace is specified. CLI paths resolve against CWD; absolute configured directories stay absolute. No flags retain legacy CWD behavior.",
+    )
+
+
+GLOBAL_OPTIONS = ModelSpec(
+    name="GlobalOptions",
+    role="input",
+    fields=(
+        _f(
+            "workspace",
+            "path?",
+            description=GlobalOptionsSchema.model_fields["workspace"].description or "",
+        ),
+        _f("config", "path?", description=GlobalOptionsSchema.model_fields["config"].description or ""),
+    ),
+    description="Options precede the command name. See docs/cli-workspace-config.md for precedence.",
+    schema_model=GlobalOptionsSchema,
+)
 
 
 ERROR_MODEL = ModelSpec(
@@ -933,6 +1035,10 @@ TOOL_SPECS: dict[str, ToolSpec] = {
                     _f("environment", "str"),
                     _f("phase", "str"),
                     _f("config_found", "bool"),
+                    _f("workspace", "path"),
+                    _f("config_path", "path"),
+                    _f("projects_base_dir", "path"),
+                    _f("tag_database_dir", "path"),
                     _f("api_keys", "dict[str,bool]?"),
                     _f("initialized_services", "dict[str,bool]?"),
                 ),
@@ -1049,6 +1155,77 @@ TOOL_SPECS: dict[str, ToolSpec] = {
                     _f("errors", "int"),
                 ),
                 schema=ImagesRegisterResult,
+            ),
+        ),
+        errors=(ERROR_MODEL,),
+    ),
+    "images process": ToolSpec(
+        name="images process",
+        path="images process",
+        summary="Generate processed images offline from exact registered IDs; preserve originals.",
+        read_only=False,
+        side_effects=("db_read", "db_write", "file_read", "file_write"),
+        inputs=(
+            _input(
+                "ImagesProcessInput",
+                (
+                    _f("project", "str", required=True),
+                    _f(
+                        "image_ids",
+                        "csv[int]?",
+                        description="Exact original IDs, max 500; exclusive with image_ids_file.",
+                    ),
+                    _f(
+                        "image_ids_file",
+                        "path?",
+                        description="ID list file, max 100,000; exclusive with image_ids.",
+                    ),
+                    _f(
+                        "resolution",
+                        "int",
+                        default=512,
+                        description="Long side, multiple of 32 from 32 to 8192; offline CPU resize.",
+                    ),
+                    _f(
+                        "rebuild",
+                        "bool",
+                        default=False,
+                        description="Regenerate valid exact-resolution outputs too.",
+                    ),
+                ),
+                schema=ImagesProcessInput,
+            ),
+        ),
+        outputs=(
+            _output(
+                "ImagesProcessItem",
+                (
+                    _f("image_id", "int", required=True),
+                    _f("status", "success|skipped|failed", required=True),
+                    _f("resolution", "int", required=True),
+                    _f("output_path", "path?"),
+                    _f("processed_image_id", "int?"),
+                    _f("reason", "str?"),
+                ),
+                schema=ImagesProcessItem,
+            ),
+            _output(
+                "ImagesProcessResult",
+                (
+                    _f("ok", "bool", required=True),
+                    _f("status", "success|partial_success|failed", required=True),
+                    _f("project", "str", required=True),
+                    _f("resolution", "int", required=True),
+                    _f("total", "int", required=True),
+                    _f("processed", "int", required=True),
+                    _f("skipped", "int", required=True),
+                    _f("failed", "int", required=True),
+                    _f("processed_ids", "list[int]", required=True),
+                    _f("skipped_ids", "list[int]", required=True),
+                    _f("failed_ids", "list[int]", required=True),
+                ),
+                description="Any failed ID returns ok=false and exit 1. See [offline processing](cli-image-processing.md).",
+                schema=ImagesProcessResult,
             ),
         ),
         errors=(ERROR_MODEL,),
@@ -2519,14 +2696,14 @@ TOOL_SPECS: dict[str, ToolSpec] = {
 
 def iter_tool_specs() -> tuple[ToolSpec, ...]:
     """Return all command specs in stable path order."""
-    return tuple(TOOL_SPECS[path] for path in sorted(TOOL_SPECS))
+    return tuple(_resolved_tool_specs()[path] for path in sorted(TOOL_SPECS))
 
 
 def get_tool_spec(path: str) -> ToolSpec:
     """Resolve a space-separated command path."""
     normalized = " ".join(path.split())
     try:
-        return TOOL_SPECS[normalized]
+        return _resolved_tool_specs()[normalized]
     except KeyError as exc:
         known = ", ".join(sorted(TOOL_SPECS))
         raise ValueError(f"Unknown command path: {path!r}. Known commands: {known}") from exc
@@ -2537,7 +2714,7 @@ def emit_list_commands() -> None:
     specs = iter_tool_specs()
     for spec in specs:
         emit_item(spec.tool_payload())
-    emit_result(f"{len(specs)} command(s)", count=len(specs))
+    emit_result(f"{len(specs)} command(s)", count=len(specs), excluded_commands=INTROSPECTION_EXCLUSIONS)
 
 
 def emit_describe(command: str, schema: SchemaMode = "compact") -> None:
@@ -2548,7 +2725,7 @@ def emit_describe(command: str, schema: SchemaMode = "compact") -> None:
     item_count = 1
     if schema == "json_schema":
         seen: set[str] = set()
-        for model in (*spec.inputs, *spec.outputs, *spec.errors):
+        for model in (get_global_options(), *spec.inputs, *spec.outputs, *spec.errors):
             payload = model.schema_payload(spec.path)
             if payload is None or payload["name"] in seen:
                 continue
@@ -2556,8 +2733,69 @@ def emit_describe(command: str, schema: SchemaMode = "compact") -> None:
             emit_item(payload)
             item_count += 1
     else:
-        for model in (*spec.inputs, *spec.outputs, *spec.errors):
+        for model in (get_global_options(), *spec.inputs, *spec.outputs, *spec.errors):
             emit_item(model.compact_payload(spec.path))
             item_count += 1
 
     emit_result(f"Description for {spec.path}", command=spec.path, count=item_count, schema=schema)
+
+
+INTROSPECTION_EXCLUSIONS = {
+    "describe": "Self-description command; excluded from the operational command catalog.",
+    "list-commands": "Catalog discovery command; excluded from its own operational command catalog.",
+}
+
+
+@lru_cache(maxsize=1)
+def get_global_options() -> ModelSpec:
+    from lorairo.cli.introspection_schema import command_tree, input_model
+
+    root, _ = command_tree()
+    schema = input_model(
+        "GlobalOptions",
+        root,
+        {item.name: item.description for item in GLOBAL_OPTIONS.fields},
+        path="",
+    )
+    return replace(GLOBAL_OPTIONS, schema_model=schema)
+
+
+@lru_cache(maxsize=1)
+def _resolved_tool_specs() -> dict[str, ToolSpec]:
+    """Connect all models lazily, after Typer finishes registering the command tree."""
+    from lorairo.cli.introspection_outputs import OUTPUT_MODELS
+    from lorairo.cli.introspection_schema import command_tree, input_model
+
+    _, leaves = command_tree()
+    terminal_models = {
+        "project list": "ProjectListResult",
+        "batch list": "BatchListResult",
+        "models list": "ModelsListResult",
+        "errors get": "ErrorsGetResult",
+    }
+    resolved = {}
+    for path, spec in TOOL_SPECS.items():
+        inputs = list(spec.inputs)
+        if inputs:
+            primary = inputs[0]
+            schema = input_model(
+                primary.name,
+                leaves[path],
+                {item.name: item.description for item in primary.fields},
+                path=path,
+            )
+            inputs[0] = replace(primary, schema_model=schema)
+        elif leaves[path].params:
+            raise ValueError(f"Command input model missing: {path}")
+        outputs = [
+            replace(model, schema_model=model.schema_model or OUTPUT_MODELS.get(model.name))
+            for model in spec.outputs
+        ]
+        if path in terminal_models:
+            name = terminal_models[path]
+            outputs.append(_output(name, (), schema=OUTPUT_MODELS[name]))
+        for model in (*inputs, *outputs, *spec.errors):
+            if model.schema_model is None:
+                raise ValueError(f"Missing schema for {path}: {model.name}")
+        resolved[path] = replace(spec, inputs=tuple(inputs), outputs=tuple(outputs))
+    return resolved
