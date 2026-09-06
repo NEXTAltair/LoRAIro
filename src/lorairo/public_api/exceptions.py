@@ -72,9 +72,18 @@ class ProjectOperationError(ProjectError):
         project_name: 操作対象のプロジェクト名。
         operation: 実行した操作（'作成', '削除' など）。
         reason: 失敗した理由。
+        details: CLI JSON エラーにも伝播する復旧情報（省略可）。
     """
 
-    def __init__(self, project_name: str, operation: str, reason: str) -> None:
+    def __init__(
+        self,
+        project_name: str,
+        operation: str,
+        reason: str,
+        *,
+        details: dict[str, object] | None = None,
+    ) -> None:
+        self.details = details
         self.project_name = project_name
         self.operation = operation
         super().__init__(f"プロジェクト '{project_name}' の{operation}に失敗しました: {reason}")
