@@ -286,6 +286,50 @@ def _invoke_real_export(output, image_ids="1,2"):
     return result, rows[0]
 
 
+def test_duplicate_csv_ids_report_unique_actual_outputs(real_export_context, tmp_path):
+    service, _db, _paths = real_export_context
+    result, row = _invoke_real_export(tmp_path / "out", "1,1")
+    assert result.exit_code == 0
+    assert row["total_images"] == 2  # Preserve the legacy CSV input count.
+    assert row["requested"] == row["exported"] == 1
+    assert row["exported_ids"] == [1]
+    assert len(list((tmp_path / "out").glob("*.png"))) == 1
+    assert len(json.loads((tmp_path / "out" / "metadata.json").read_text())) == 1
+    assert service.file_system_manager.copy_file.call_count == 2  # One per current format writer.
+
+
+@pytest.mark.parametrize("language", ["../bad", "bad/value", "bad!value"])
+def test_invalid_export_language_is_input_error_before_side_effects(
+    mock_export_context, tmp_path, language
+):
+    container, _ = mock_export_context
+    result = runner.invoke(
+        app,
+        [
+            "--json",
+            "export",
+            "create",
+            "--project",
+            "proj",
+            "--image-ids",
+            "1,2",
+            "--output",
+            str(tmp_path / "uncreated"),
+            "--tag-language",
+            language,
+        ],
+    )
+    assert result.exit_code == 2
+    rows = [json.loads(line) for line in result.stdout.splitlines()]
+    assert len(rows) == 1
+    assert rows[0]["kind"] == "error"
+    assert rows[0]["code"] == "INVALID_INPUT"
+    container.set_active_project.assert_not_called()
+    container.dataset_export_service.export_dataset_txt_format.assert_not_called()
+    container.dataset_export_service.export_dataset_json_format.assert_not_called()
+    assert not (tmp_path / "uncreated").exists()
+
+
 @pytest.mark.parametrize(
     ("missing", "copy_error", "expected_exported", "expected_skipped", "expected_failed"),
     [((), False, 2, 0, 0), ((1, 2), False, 0, 2, 0), ((2,), False, 1, 1, 0), ((), True, 0, 0, 2)],

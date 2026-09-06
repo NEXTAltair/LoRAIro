@@ -45,6 +45,9 @@ class ExportResult:
     artifacts: dict[int, list[str]] = field(default_factory=dict)
     failures: dict[int, list[dict[str, str]]] = field(default_factory=dict)
 
+    def __post_init__(self) -> None:
+        self.image_ids = list(dict.fromkeys(self.image_ids))
+
     def fail(self, image_id: int, stage: str, reason: str, message: str) -> None:
         """Record an unsuccessful image without losing earlier artifacts."""
         self.failures.setdefault(image_id, []).append(
@@ -686,6 +689,11 @@ class DatasetExportService:
         if len(languages) == 1:
             return [(languages[0], output_path)]
         return [(language, output_path / language) for language in languages]
+
+    @staticmethod
+    def validate_tag_languages(tag_languages: list[str] | None) -> None:
+        """Validate command-wide options before starting image processing or DB access."""
+        DatasetExportService._normalize_tag_languages(tag_languages)
 
     @staticmethod
     def _normalize_tag_languages(tag_languages: list[str] | None) -> list[str]:

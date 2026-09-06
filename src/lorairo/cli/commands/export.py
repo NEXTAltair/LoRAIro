@@ -16,7 +16,7 @@ from lorairo.cli._emit import emit_result
 from lorairo.cli._image_ids import resolve_image_ids_input
 from lorairo.cli._output_mode import is_json_mode
 from lorairo.public_api.project import get_project as api_get_project
-from lorairo.services.dataset_export_service import ExportResult
+from lorairo.services.dataset_export_service import DatasetExportService, ExportResult
 from lorairo.services.service_container import get_service_container
 
 # サブコマンドアプリ定義
@@ -82,12 +82,15 @@ def create(
         lorairo-cli export create --project proj --image-ids $(cat ids.txt) --output /tmp/out
     """
     with command_boundary():
+        DatasetExportService.validate_tag_languages(tag_languages)
         # API層経由でプロジェクト確認 (未存在は ProjectNotFoundError → NOT_FOUND で伝播)
         api_get_project(project)
 
         # image_ids パース・検証 (--image-ids / --image-ids-file 排他、Issue #1216)。
         # click.UsageError → 境界が INVALID_INPUT exit 2
         image_ids, _is_file = resolve_image_ids_input(image_ids_csv, image_ids_file)
+        total_images = len(image_ids)
+        image_ids = list(dict.fromkeys(image_ids))
 
         # ServiceContainer を取得してプロジェクト DB に切り替え
         container = get_service_container()
@@ -124,7 +127,7 @@ def create(
                 message,
                 **summary,
                 output_path=str(output_path),
-                total_images=len(image_ids),
+                total_images=total_images,
                 resolution=resolution,
                 tag_languages=tag_languages or ["canonical"],
             )

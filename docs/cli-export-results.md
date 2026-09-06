@@ -14,7 +14,7 @@ An image is exported only when all requested languages and both TXT and JSON fin
 
 | Field | Meaning |
 | --- | --- |
-| `requested` | Number of requested IDs; equal to `total_images` |
+| `requested` | Number of unique requested IDs; duplicate CSV IDs are exported once |
 | `exported` | Images with complete TXT/JSON output |
 | `skipped` | IDs missing from the DB or without a usable processed image |
 | `failed` | Images with operational failures, such as DB, copy, or writer errors |
