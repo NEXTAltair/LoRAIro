@@ -219,6 +219,46 @@ class ImagesRegisterItem(RegistrationItem):
     kind: Literal["item"] = "item"
 
 
+class ImagesProcessInput(BaseModel):
+    """Offline generation command options."""
+
+    project: str
+    image_ids: str | None = None
+    image_ids_file: str | None = None
+    resolution: int = Field(default=512, ge=32, le=8192, multiple_of=32)
+    rebuild: bool = False
+
+
+class ImagesProcessItem(BaseModel):
+    """Per-original-ID processing result."""
+
+    kind: Literal["item"] = "item"
+    image_id: int
+    status: Literal["success", "skipped", "failed"]
+    resolution: int
+    output_path: str | None = None
+    processed_image_id: int | None = None
+    reason: str | None = None
+
+
+class ImagesProcessResult(BaseModel):
+    """Terminal processing counts; normal existing-output skips are successful."""
+
+    kind: Literal["result"] = "result"
+    ok: bool
+    status: Literal["success", "partial_success", "failed"]
+    message: str
+    project: str
+    resolution: int
+    total: int
+    processed: int
+    skipped: int
+    failed: int
+    processed_ids: list[int]
+    skipped_ids: list[int]
+    failed_ids: list[int]
+
+
 class ImagesRegisterResult(BaseModel):
     """JSONL result payload emitted by ``images register --json``."""
 
@@ -1129,6 +1169,77 @@ TOOL_SPECS: dict[str, ToolSpec] = {
                     _f("errors", "int"),
                 ),
                 schema=ImagesRegisterResult,
+            ),
+        ),
+        errors=(ERROR_MODEL,),
+    ),
+    "images process": ToolSpec(
+        name="images process",
+        path="images process",
+        summary="Generate processed images offline from exact registered IDs; preserve originals.",
+        read_only=False,
+        side_effects=("db_read", "db_write", "file_read", "file_write"),
+        inputs=(
+            _input(
+                "ImagesProcessInput",
+                (
+                    _f("project", "str", required=True),
+                    _f(
+                        "image_ids",
+                        "csv[int]?",
+                        description="Exact original IDs, max 500; exclusive with image_ids_file.",
+                    ),
+                    _f(
+                        "image_ids_file",
+                        "path?",
+                        description="ID list file, max 100,000; exclusive with image_ids.",
+                    ),
+                    _f(
+                        "resolution",
+                        "int",
+                        default=512,
+                        description="Long side, multiple of 32 from 32 to 8192; offline CPU resize.",
+                    ),
+                    _f(
+                        "rebuild",
+                        "bool",
+                        default=False,
+                        description="Regenerate valid exact-resolution outputs too.",
+                    ),
+                ),
+                schema=ImagesProcessInput,
+            ),
+        ),
+        outputs=(
+            _output(
+                "ImagesProcessItem",
+                (
+                    _f("image_id", "int", required=True),
+                    _f("status", "success|skipped|failed", required=True),
+                    _f("resolution", "int", required=True),
+                    _f("output_path", "path?"),
+                    _f("processed_image_id", "int?"),
+                    _f("reason", "str?"),
+                ),
+                schema=ImagesProcessItem,
+            ),
+            _output(
+                "ImagesProcessResult",
+                (
+                    _f("ok", "bool", required=True),
+                    _f("status", "success|partial_success|failed", required=True),
+                    _f("project", "str", required=True),
+                    _f("resolution", "int", required=True),
+                    _f("total", "int", required=True),
+                    _f("processed", "int", required=True),
+                    _f("skipped", "int", required=True),
+                    _f("failed", "int", required=True),
+                    _f("processed_ids", "list[int]", required=True),
+                    _f("skipped_ids", "list[int]", required=True),
+                    _f("failed_ids", "list[int]", required=True),
+                ),
+                description="Any failed ID returns ok=false and exit 1. See [offline processing](cli-image-processing.md).",
+                schema=ImagesProcessResult,
             ),
         ),
         errors=(ERROR_MODEL,),
