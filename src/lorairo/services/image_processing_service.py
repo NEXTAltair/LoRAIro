@@ -79,7 +79,13 @@ class ImageProcessingService:
         if not original:
             raise ValueError("image_not_found: original image ID does not exist")
         source = resolve_stored_path(original["stored_image_path"])
-        existing = self._find_exact_processed_output(image_id, resolution, source)
+        if not source.is_file():
+            raise FileNotFoundError("original_file_missing: registered original file is unavailable")
+        from PIL import Image
+
+        with Image.open(source) as original_file:
+            original_file.load()
+        existing = self._find_exact_processed_output(image_id, resolution)
         existing_path = resolve_stored_path(existing["stored_image_path"]) if existing else None
         if existing_path is not None:
             self._validate_processed_destination(existing_path, source)
@@ -90,8 +96,6 @@ class ImageProcessingService:
             and self._valid_processed_output(existing_path, existing)
         ):
             return ProcessingOutcome(image_id, "skipped", resolution, str(existing_path), existing["id"])
-        if not source.is_file():
-            raise FileNotFoundError("original_file_missing: registered original file is unavailable")
         image, _metadata = manager.process_image(
             source, original.get("has_alpha", False), original.get("mode", "RGB"), upscaler=None
         )
@@ -122,22 +126,12 @@ class ImageProcessingService:
             image.close()
         return ProcessingOutcome(image_id, "success", resolution, str(output), processed_id)
 
-    def _find_exact_processed_output(
-        self, image_id: int, resolution: int, source: Path
-    ) -> dict[str, Any] | None:
-        """Prefer usable exact-resolution files when an ID has multiple processed rows."""
-        from ..database.db_core import resolve_stored_path
-
+    def _find_exact_processed_output(self, image_id: int, resolution: int) -> dict[str, Any] | None:
+        """Repair the first exact row, matching downstream repository selection."""
         rows = self.idm.image_repo.get_processed_image(image_id, all_data=True)
         if not isinstance(rows, list):
             raise RuntimeError("processed_lookup_failed: expected processed metadata list")
-        exact = [row for row in rows if max(row["width"], row["height"]) == resolution]
-        for row in exact:
-            path = resolve_stored_path(row["stored_image_path"])
-            self._validate_processed_destination(path, source)
-            if self._valid_processed_output(path, row):
-                return row
-        return exact[0] if exact else None
+        return next((row for row in rows if max(row["width"], row["height"]) == resolution), None)
 
     def _validate_processed_destination(self, output: Path, source: Path) -> None:
         """Restrict replacement to this project's non-original image dataset."""

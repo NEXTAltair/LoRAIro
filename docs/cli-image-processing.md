@@ -31,8 +31,10 @@ downloaded, no inference API is called, and GPU is not required. A small origina
 be enlarged with ordinary Lanczos interpolation; this does not invoke a learned model.
 
 A valid, decodable exact-resolution output whose dimensions, mode and alpha match
-its DB record is skipped. When multiple exact-resolution rows exist, a valid file is preferred over
-missing/corrupt candidates. A nearby resolution does not substitute for the requested size. Missing or
+its DB record is skipped after verifying the original still exists and decodes. When multiple
+exact-resolution rows exist, the first exact row is used, matching annotation/Batch/export selection;
+a broken first row is repaired rather than skipping to a later valid file.
+A nearby resolution does not substitute for the requested size. Missing or
 corrupt exact output is rebuilt at its existing processed path; `--rebuild` also
 regenerates a valid file. Replacement uses a temporary file in the same directory and
 an atomic rename, without changing the original image row or processed-image ID.

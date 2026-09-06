@@ -182,7 +182,7 @@ def test_offline_same_basename_distinct_ids_do_not_overwrite(offline_service, tm
     assert Path(outcomes[0].output_path).read_bytes() == first_bytes
 
 
-def test_offline_prefers_valid_exact_row_after_broken_exact_row(offline_service):
+def test_offline_repairs_first_exact_row_used_by_downstream_consumers(offline_service):
     service, _originals, records = offline_service
     first = service.process_image_ids_offline([1], 256)[0]
     valid = records[1, 256]
@@ -194,8 +194,13 @@ def test_offline_prefers_valid_exact_row_after_broken_exact_row(offline_service)
     service.idm.image_repo.get_processed_image.side_effect = None
     service.idm.image_repo.get_processed_image.return_value = [broken, valid]
     outcome = service.process_image_ids_offline([1], 256)[0]
-    assert outcome.status == "skipped"
-    assert outcome.processed_image_id == first.processed_image_id
+    assert outcome.status == "success"
+    assert outcome.processed_image_id == broken["id"]
+    assert outcome.output_path == broken["stored_image_path"]
+    with Image.open(outcome.output_path) as repaired:
+        repaired.verify()
+    with Image.open(first.output_path) as untouched:
+        untouched.verify()
     assert service.idm.register_processed_image.call_count == 1
 
 
@@ -245,3 +250,19 @@ def test_offline_valid_upscaled_file_can_be_skipped(offline_service):
     service.process_image_ids_offline([1], 256)
     records[1, 256]["upscaler_used"] = "RealESRGAN"
     assert service.process_image_ids_offline([1], 256)[0].status == "skipped"
+
+
+@pytest.mark.parametrize("damage", ["missing", "corrupt"])
+def test_offline_existing_output_does_not_hide_original_loss(offline_service, damage):
+    service, originals, _records = offline_service
+    first = service.process_image_ids_offline([1], 256)[0]
+    output = Path(first.output_path)
+    before = output.read_bytes()
+    source = Path(originals[1]["stored_image_path"])
+    if damage == "missing":
+        source.unlink()
+    else:
+        source.write_bytes(b"not an image")
+    outcome = service.process_image_ids_offline([1], 256)[0]
+    assert outcome.status == "failed"
+    assert output.read_bytes() == before
