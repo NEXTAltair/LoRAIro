@@ -25,6 +25,7 @@ from lorairo.cli._emit import emit_item, emit_result
 from lorairo.cli._glyphs import OK
 from lorairo.cli._image_ids import MAX_IMAGE_IDS, parse_image_ids, validate_image_ids_exist
 from lorairo.cli._output_mode import is_json_mode
+from lorairo.cli.commands.processing import process as process_images_command
 from lorairo.database.filter_criteria import ImageFilterCriteria
 from lorairo.database.repository.annotation_record import AnnotationRepository
 from lorairo.public_api.exceptions import ImageNotFoundError, ResultSetTooLargeError
@@ -698,3 +699,8 @@ def show(
                     )
                 console.print(f"  tags: {', '.join(tag_names) if tag_names else '(none)'}")
                 console.print(f"  captions: {' | '.join(caption_texts) if caption_texts else '(none)'}")
+
+
+# Registration stays in this module; offline processing lives in its own command module.
+
+app.command("process")(process_images_command)

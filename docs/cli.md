@@ -768,6 +768,67 @@ Structured error payload emitted as kind=error by the CLI boundary.
 - `hint`: `str?` (optional)
 - `details`: `dict?` (optional)
 
+### `images process`
+
+Generate processed images offline from exact registered IDs; preserve originals.
+
+- Read only: `false`
+- Side effects: `db_read`, `db_write`, `file_read`, `file_write`
+
+#### Compact Introspection
+
+```bash
+lorairo-cli --json describe "images process"
+```
+
+#### Models
+
+**Input `ImagesProcessInput`**
+
+- `project`: `str` (required)
+- `image_ids`: `csv[int]?` (optional) - Exact original IDs, max 500; exclusive with image_ids_file.
+- `image_ids_file`: `path?` (optional) - ID list file, max 100,000; exclusive with image_ids.
+- `resolution`: `int` (optional, default `512`) - Long side, multiple of 32 from 32 to 8192; offline CPU resize.
+- `rebuild`: `bool` (optional, default `False`) - Regenerate valid exact-resolution outputs too.
+
+**Output `ImagesProcessItem`**
+
+- `image_id`: `int` (required)
+- `status`: `success|skipped|failed` (required)
+- `resolution`: `int` (required)
+- `output_path`: `path?` (optional)
+- `processed_image_id`: `int?` (optional)
+- `reason`: `str?` (optional)
+
+**Output `ImagesProcessResult`**
+
+Any failed ID returns ok=false and exit 1. See [offline processing](cli-image-processing.md).
+
+- `ok`: `bool` (required)
+- `status`: `success|partial_success|failed` (required)
+- `project`: `str` (required)
+- `resolution`: `int` (required)
+- `total`: `int` (required)
+- `processed`: `int` (required)
+- `skipped`: `int` (required)
+- `failed`: `int` (required)
+- `processed_ids`: `list[int]` (required)
+- `skipped_ids`: `list[int]` (required)
+- `failed_ids`: `list[int]` (required)
+
+**Error `CliErrorResponse`**
+
+Structured error payload emitted as kind=error by the CLI boundary.
+
+- `kind`: `error` (required)
+- `ok`: `false` (required)
+- `code`: `str` (required)
+- `message`: `str` (required)
+- `retryable`: `bool` (required)
+- `user_action_required`: `bool` (required)
+- `hint`: `str?` (optional)
+- `details`: `dict?` (optional)
+
 ### `images register`
 
 Register images from a file or directory into a project.
