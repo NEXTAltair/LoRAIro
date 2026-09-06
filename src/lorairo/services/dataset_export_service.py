@@ -44,6 +44,8 @@ class ExportResult:
     completed: dict[int, set[str]] = field(default_factory=dict)
     artifacts: dict[int, list[str]] = field(default_factory=dict)
     failures: dict[int, list[dict[str, str]]] = field(default_factory=dict)
+    _destination_owners: dict[Path, int] = field(default_factory=dict, repr=False)
+    _colliding_ids: set[int] = field(default_factory=set, repr=False)
 
     def __post_init__(self) -> None:
         self.image_ids = list(dict.fromkeys(self.image_ids))
@@ -59,6 +61,25 @@ class ExportResult:
         paths = self.artifacts.setdefault(image_id, [])
         if str(path) not in paths:
             paths.append(str(path))
+
+    def reserve_destinations(self, image_id: int, paths: list[Path], stage: str) -> bool:
+        """Reserve one image's filename group before any writes, across format passes."""
+        if image_id in self._colliding_ids:
+            return False
+        destinations = [path.resolve() for path in paths]
+        for path in destinations:
+            owner = self._destination_owners.get(path)
+            if owner is not None and owner != image_id:
+                self.fail(
+                    image_id,
+                    stage,
+                    "output_path_collision",
+                    f"Output path is already reserved by image {owner}: {path}",
+                )
+                self._colliding_ids.add(image_id)
+                return False
+        self._destination_owners.update(dict.fromkeys(destinations, image_id))
+        return True
 
     def summary(self) -> dict[str, Any]:
         """Return counts and retry evidence for the complete TXT/JSON operation."""
@@ -207,6 +228,10 @@ class DatasetExportService:
                     tag_list, image_id, tag_format, reader, overlay_plan
                 )
                 captions = export_caption["caption"] if export_caption else ""
+                if not self._reserve_export_destinations(
+                    image_id, processed_image_path, language_roots, report, "txt", bool(captions)
+                ):
+                    continue
 
                 for tag_language, language_output_path in language_roots:
                     txt_file = language_output_path / f"{base_filename}.txt"
@@ -320,6 +345,10 @@ class DatasetExportService:
                 if export_input is None:
                     continue
                 processed_image_path, image_data = export_input
+                if not self._reserve_export_destinations(
+                    image_id, processed_image_path, language_roots, report, "json"
+                ):
+                    continue
 
                 # タグ文字列構築: overlay 有無で分岐（ADR 0080）
                 export_tags = self._resolve_export_tags(image_data["tags"])
@@ -374,10 +403,30 @@ class DatasetExportService:
         logger.info(f"JSON format export completed: {exported_count}/{len(image_ids)} images exported")
         return output_path
 
+    @staticmethod
+    def _reserve_export_destinations(
+        image_id: int,
+        source: Path,
+        language_roots: list[tuple[str, Path]],
+        report: ExportResult,
+        stage: str,
+        include_caption: bool = False,
+    ) -> bool:
+        """Keep an image, its tags and caption together under the existing flat names."""
+        names = [source.name]
+        if stage in {"txt", "all"}:
+            names.append(f"{source.stem}.txt")
+            if include_caption:
+                names.append(f"{source.stem}.caption")
+        paths = [root / name for _, root in language_roots for name in names]
+        return report.reserve_destinations(image_id, paths, stage)
+
     def _get_export_input(
         self, image_id: int, resolution: int, report: ExportResult, stage: str, tracking: bool
     ) -> tuple[Path, dict[str, Any]] | None:
         """Resolve export inputs while distinguishing absent images and operational errors."""
+        if image_id in report._colliding_ids:
+            return None
         metadata = self.db_manager.get_image_metadata(image_id) if tracking else None
         if tracking and not metadata:
             report.fail(image_id, stage, "image_not_found", "Image ID does not exist")

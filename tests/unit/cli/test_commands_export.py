@@ -315,6 +315,116 @@ def test_export_reuses_metadata_lookup_per_format(real_export_context, tmp_path,
     assert len(list(output.glob("*.caption"))) == 2
 
 
+@pytest.mark.parametrize("use_file,count", [(False, 2), (True, 2), (True, 501)])
+@pytest.mark.parametrize("languages", [["canonical"], ["canonical", "ja"]])
+@pytest.mark.parametrize("last_suffix", [".png", ".webp"])
+def test_export_collision_preserves_first_image_across_formats(
+    real_export_context, tmp_path, use_file, count, languages, last_suffix
+):
+    """Flat image or tag filenames must not silently replace another selected ID."""
+    service, db, paths = real_export_context
+    db.get_image_metadata.side_effect = lambda image_id: {"id": image_id}
+    db.get_image_annotations.side_effect = lambda image_id: {
+        "tags": [{"tag": f"tag{image_id}"}],
+        "captions": [{"caption": f"caption{image_id}"}],
+    }
+    for image_id in range(1, count + 1):
+        source = (
+            tmp_path
+            / "sources"
+            / str(image_id)
+            / (
+                "shared.png"
+                if image_id == 1
+                else f"shared{last_suffix}"
+                if image_id == count
+                else "unique.png"
+            )
+        )
+        if image_id not in (1, count):
+            source = source.with_name(f"unique-{image_id}.png")
+        source.parent.mkdir(parents=True)
+        source.write_bytes(f"image-{image_id}".encode())
+        paths[image_id] = source
+    selection = ["--image-ids", ",".join(map(str, range(1, count + 1)))]
+    if use_file:
+        ids_file = tmp_path / "ids.txt"
+        ids_file.write_text("\n".join(map(str, range(1, count + 1))), encoding="utf-8")
+        selection = ["--image-ids-file", str(ids_file)]
+    output = tmp_path / "out"
+    language_options = [option for language in languages for option in ("--tag-language", language)]
+    result = runner.invoke(
+        app,
+        [
+            "--json",
+            "export",
+            "create",
+            "--project",
+            "synthetic",
+            *selection,
+            "--output",
+            str(output),
+            *language_options,
+        ],
+    )
+    row = json.loads(result.stdout.splitlines()[-1])
+    assert result.exit_code == 1
+    assert row["status"] == "partial_success"
+    assert row["exported"] == count - 1
+    assert row["failed"] == 1
+    assert row["skipped"] == 0
+    assert row["failed_ids"] == [count]
+    assert row["exported_ids"] == list(range(1, count))
+    failure = row["error_details"][0]
+    assert failure["errors"][0]["reason"] == "output_path_collision"
+    assert failure["output_files"] == failure["completed_formats"] == []
+    assert db.get_image_metadata.call_count == 2 * count - 1
+    assert service.file_system_manager.copy_file.call_count == 2 * (count - 1) * len(languages)
+    for language in languages:
+        root = output / language if len(languages) > 1 else output
+        assert (root / "shared.png").read_bytes() == b"image-1"
+        assert (root / "shared.txt").read_text() == "tag1"
+        assert (root / "shared.caption").read_text() == "caption1"
+        metadata = json.loads((root / "metadata.json").read_text())
+        assert len(metadata) == count - 1
+        assert metadata[str(root / "shared.png")]["tags"] == "tag1"
+        assert len(list(root.glob("*.png"))) == count - 1
+        assert len(list(root.glob("*.txt"))) == count - 1
+        if last_suffix != ".png":
+            assert not (root / f"shared{last_suffix}").exists()
+
+
+def test_destination_collision_does_not_reserve_other_paths(tmp_path):
+    from lorairo.services.dataset_export_service import ExportResult
+
+    report = ExportResult([1, 2, 3])
+    first, other = tmp_path / "first.png", tmp_path / "other.png"
+    assert report.reserve_destinations(1, [first], "txt")
+    assert not report.reserve_destinations(2, [other, first], "txt")
+    assert report.reserve_destinations(3, [other], "txt")
+    assert report.reserve_destinations(1, [first], "json")
+    assert not report.reserve_destinations(2, [tmp_path / "new.png"], "json")
+
+
+def test_json_only_allows_same_stem_with_distinct_image_extensions(real_export_context, tmp_path):
+    from lorairo.services.dataset_export_service import ExportResult
+
+    service, _db, paths = real_export_context
+    for image_id, suffix in ((1, ".png"), (2, ".webp")):
+        source = tmp_path / f"shared{suffix}"
+        source.write_bytes(f"image-{image_id}".encode())
+        paths[image_id] = source
+    output = tmp_path / "json-only"
+    report = ExportResult([1, 2])
+    service.export_dataset_json_format([1, 2], output, report=report)
+    assert not report.failures
+    assert report.completed == {1: {"json"}, 2: {"json"}}
+    assert len(json.loads((output / "metadata.json").read_text())) == 2
+    assert (output / "shared.png").read_bytes() == b"image-1"
+    assert (output / "shared.webp").read_bytes() == b"image-2"
+    assert not list(output.glob("*.txt"))
+
+
 def test_duplicate_csv_ids_report_unique_actual_outputs(real_export_context, tmp_path):
     service, _db, _paths = real_export_context
     result, row = _invoke_real_export(tmp_path / "out", "1,1")
