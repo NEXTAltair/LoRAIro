@@ -365,3 +365,64 @@ def test_legacy_or_damaged_database_guidance_does_not_promise_prepare_repair(pro
     assert payload["details"]["documentation"] == "docs/cli-read-only.md"
     assert payload["details"]["recovery_action"] == "supported_migration_or_recovery"
     assert snapshot(path) == before
+
+
+def test_strict_exclusive_lock_is_retryable_and_uses_configured_timeout(project):
+    import sqlite3
+    import time
+
+    workspace, path = project
+    db = path / "image_database.db"
+    db_core._prepare_project_database(db).dispose()
+    config = workspace / "lock-config.toml"
+    config.write_text("[directories]\n[database]\nbusy_timeout_ms = 30\n")
+    with sqlite3.connect(db) as writer:
+        assert writer.execute("PRAGMA journal_mode=DELETE").fetchone()[0] == "delete"
+        before = db.read_bytes()
+        writer.execute("BEGIN EXCLUSIVE")
+        started = time.monotonic()
+        result = runner.invoke(
+            app,
+            [
+                "--json",
+                "--workspace",
+                str(workspace),
+                "--config",
+                str(config),
+                "--read-only",
+                "images",
+                "list",
+                "--project",
+                "synthetic",
+            ],
+        )
+        elapsed = time.monotonic() - started
+        writer.rollback()
+    payload = json.loads(result.stdout.splitlines()[-1])
+    assert result.exit_code == 1, result.output
+    assert payload["code"] == "CONFLICT"
+    assert payload["retryable"] is True
+    assert payload["user_action_required"] is False
+    assert elapsed < 3, "configured 30ms timeout must not fall back to sqlite's 5-second default"
+    assert db.read_bytes() == before
+    retry = invoke(workspace, ["images", "list"])
+    assert retry.exit_code == 0, retry.output
+
+
+def test_strict_connection_preserves_configured_busy_timeout(project):
+    from lorairo.utils.config import RuntimeConfiguration, runtime_configuration_scope
+
+    workspace, path = project
+    db = path / "image_database.db"
+    db_core._prepare_project_database(db).dispose()
+    runtime = RuntimeConfiguration(
+        workspace, workspace / "synthetic.toml", {"database": {"busy_timeout_ms": 47}}
+    )
+    with runtime_configuration_scope(runtime):
+        engine = db_core._open_read_only_project_database(db)
+    try:
+        with engine.connect() as connection:
+            assert connection.exec_driver_sql("PRAGMA busy_timeout").scalar() == 47
+            assert connection.exec_driver_sql("PRAGMA query_only").scalar() == 1
+    finally:
+        engine.dispose()

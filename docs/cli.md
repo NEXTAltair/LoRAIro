@@ -1909,7 +1909,7 @@ Show ja/en translation status for tags (read-only). Issue #1173 / ADR 0085.
 
 - Read only: `true`
 - Strict read only: `true` (root `--read-only`; see [contract](cli-read-only.md))
-- Conditional initialization: `['db_create', 'schema_migration', 'model_seed', 'directory_create']`
+- Conditional initialization: `['network_download', 'tag_cache_create', 'db_create', 'directory_create']`
 - Side effects: `db_read`
 
 #### Compact Introspection

@@ -926,6 +926,8 @@ class ToolSpec:
             "conditional_side_effects": (
                 ["model_config_create"]
                 if self.path == "models list"
+                else ["network_download", "tag_cache_create", "db_create", "directory_create"]
+                if self.path == "tags translations show"
                 else ["db_create", "schema_migration", "model_seed", "directory_create"]
                 if "db_read" in self.side_effects and self.path not in {"models list", "project list"}
                 else []

@@ -354,16 +354,21 @@ def get_user_tag_db_path() -> Path | None:
 DATABASE_URL = f"sqlite:///{IMG_DB_PATH.resolve()}?check_same_thread=False"
 
 
-def create_db_engine(database_url: str | None = None) -> Engine:
-    """指定された URL で SQLAlchemy エンジンを作成し、イベントリスナーを設定します。"""
-    if database_url is None:
-        database_url = DATABASE_URL
+def _get_busy_timeout_ms() -> int:
+    """Resolve the configured connection wait consistently for writable and strict reads."""
     runtime = get_runtime_configuration()
-    busy_timeout_ms = (
+    return (
         int(runtime.settings.get("database", {}).get("busy_timeout_ms", BUSY_TIMEOUT_MS))
         if runtime is not None
         else BUSY_TIMEOUT_MS
     )
+
+
+def create_db_engine(database_url: str | None = None) -> Engine:
+    """指定された URL で SQLAlchemy エンジンを作成し、イベントリスナーを設定します。"""
+    if database_url is None:
+        database_url = DATABASE_URL
+    busy_timeout_ms = _get_busy_timeout_ms()
     logger.info(f"Creating SQLAlchemy engine for: {database_url}")
     # StaticPool は 1 本の生コネクションを全セッションで共有するため、GUI メインスレッドと
     # RefinementWorker (QThread) が同一エンジンを共有すると sqlite3 の真の同時アクセスで
@@ -611,7 +616,7 @@ def _open_read_only_project_database(project_db_path: Path) -> Engine:
     # as_uri escapes spaces, Unicode, '?' and '#' without misinterpreting filename parameters.
     engine = create_engine(
         f"sqlite:///{path.as_uri()}?mode=ro&uri=true",
-        connect_args={"check_same_thread": False},
+        connect_args={"check_same_thread": False, "timeout": _get_busy_timeout_ms() / 1000},
         poolclass=NullPool,
     )
 
@@ -626,11 +631,12 @@ def _open_read_only_project_database(project_db_path: Path) -> Engine:
             if reason is not None:
                 raise precondition(reason)
         return engine
-    except ReadOnlyPreconditionError:
+    except SQLAlchemyError as exc:
+        from .db_errors import is_sqlite_lock_error
+
         engine.dispose()
-        raise
-    except SQLAlchemyError:
-        engine.dispose()
+        if is_sqlite_lock_error(exc):
+            raise
         raise precondition("unreadable_or_incompatible_database") from None
     except BaseException:
         engine.dispose()
