@@ -1140,6 +1140,8 @@ def import_batch(
     """Import OpenAI Batch API result JSONL files in bulk.
     OpenAI Batch API結果JSONLを一括インポートする。
 
+    Partial or complete failures exit 1; successful/empty/normal skip results exit 0.
+
     Reads all JSONL files in the directory, matches custom_id against
     registered image filenames in the DB, and imports annotation results.
     ディレクトリ内の全JSONLファイルを読み込み、
@@ -1158,9 +1160,15 @@ def import_batch(
             dry_run=dry_run,
             model_name_override=model_name,
         )
+        failures = result.parse_errors + result.save_errors + result.unmatched
+        successes = result.matched if dry_run else result.saved
         if is_json_mode():
             emit_result(
                 f"Imported {result.saved} batch annotation(s)",
+                ok=failures == 0,
+                status="success" if not failures else "partial_success" if successes else "failed",
+                unmatched_ids=list(result.unmatched_ids),
+                error_details=list(result.error_details),
                 total_records=result.total_records,
                 parsed_ok=result.parsed_ok,
                 parse_errors=result.parse_errors,
@@ -1171,6 +1179,7 @@ def import_batch(
                 model_name=result.model_name,
                 dry_run=dry_run,
             )
-            return
-
-        _display_batch_import_result(result, dry_run=dry_run)
+        else:
+            _display_batch_import_result(result, dry_run=dry_run)
+        if failures:
+            raise typer.Exit(1)

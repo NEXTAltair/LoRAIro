@@ -189,6 +189,8 @@ def resolve_errors(
 ) -> None:
     """Mark error records as resolved.
 
+    Partial or complete failures exit 1; successful/empty/normal skip results exit 0.
+
     --ids でレコード ID を指定するか、--operation / --error-type / --message-contains
     でフィルターして一括解決する。
 
@@ -225,6 +227,7 @@ def resolve_errors(
             if is_json_mode():
                 emit_result(
                     f"Dry-run: {target_count} record(s) would be resolved",
+                    status="success",
                     resolved=target_count,
                     dry_run=True,
                 )
@@ -234,7 +237,7 @@ def resolve_errors(
 
         if not target_ids:
             if is_json_mode():
-                emit_result("No matching error records found", resolved=0, dry_run=False)
+                emit_result("No matching error records found", status="success", resolved=0, dry_run=False)
             else:
                 console.print("[dim]No matching error records found.[/dim]")
             return
@@ -245,11 +248,17 @@ def resolve_errors(
             emit_result(
                 f"Resolved {updated} error record(s)",
                 ok=success,
+                status="success" if success else "partial_success" if updated else "failed",
+                requested=target_count,
                 resolved=updated,
                 dry_run=False,
             )
         else:
-            if success:
-                console.print(f"[green]Resolved {updated} error record(s)[/green]")
-            else:
-                console.print(f"[yellow]Partial resolve: {updated}/{target_count}[/yellow]")
+            console.print(
+                f"[green]Resolved {updated} error record(s)[/green]"
+                if success
+                else f"[yellow]Partial resolve: {updated}/{target_count}[/yellow]"
+            )
+
+        if not success:
+            raise typer.Exit(1)

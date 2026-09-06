@@ -57,13 +57,37 @@ LoRAIro の画像 DB は SQLite です。SQLite は同時読み取りは可能�
 
 ## Exit Code
 
-exit code はエラーコードから機械的に導出されます (`src/lorairo/cli/_errors.py`):
+例外の exit code はエラーコードから機械的に導出されます (`src/lorairo/cli/_errors.py`):
 
 | exit code | 意味 |
 |---|---|
 | 0 | 成功 |
 | 2 | 入力・検証エラー (引数不正、フィルタ未指定等) |
 | 1 | その他の実行時エラー |
+
+### 部分失敗と既存スクリプトの移行 (#1313)
+
+`images register`、`annotate import-batch`、`batch import`、`errors resolve` は、
+集計結果を返した後も失敗があれば exit 1 で終了します。人間向け出力にも同じ終了コードを適用します。
+JSONL の終端は既存の `kind=result` と件数を維持し、`status` と `ok` で結果を判定できます。
+
+| status | ok | exit | 意味 |
+|---|---|---|---|
+| success | true | 0 | 成功、空集合、重複／既取込みの正常skip、正常dry-run |
+| partial_success | false | 1 | 成功または正常skipを含み、一部が失敗 |
+| failed | false | 1 | 成功済み対象がなく失敗 |
+
+登録は `errors` と `error_details`、legacy取込みは `parse_errors` / `save_errors` /
+`unmatched` と `unmatched_ids` / `error_details` を確認します。dry-runでもparse不正や未一致は失敗です。
+Batch取込みの従来 `skipped` は正常skipと取込み不能の両方を含みます。新しい `already_imported`、
+`non_importable`、`save_skipped`、`missing_custom_ids`、`failed_custom_ids`、`error_details` で調査し、
+`incomplete=true` の場合は `batch status JOB_ID --project PROJECT` と保存済みitemエラーを確認してください。
+空結果は exit 0 ですが、`job_imported=false` はジョブ全体の完了を意味しません。
+`errors resolve` は `requested` と `resolved` を保持し、repositoryが失敗を返した場合に exit 1 となります。
+
+以前はこれらの部分失敗でも exit 0 となる場合がありました。終了コードだけで後続処理へ進むスクリプトは、
+exit 1 を処理し成功件数を保存してください。成功済み登録や送信済みBatchを全件再送する自動retryは行いません。
+例外により集計結果を返せない場合は、従来どおり `kind=error` と安定エラーコードを出力します。
 
 ## Machine-Readable Introspection
 
@@ -111,6 +135,10 @@ lorairo-cli --json describe "annotate import-batch"
 
 **Output `AnnotateImportBatchResult`**
 
+- `status`: `success | partial_success | failed` (optional, default `success`)
+- `ok`: `bool` (optional)
+- `unmatched_ids`: `list[str]` (optional)
+- `error_details`: `list[str]` (optional)
 - `total_records`: `int` (optional)
 - `parsed_ok`: `int` (optional)
 - `parse_errors`: `int` (optional)
@@ -294,6 +322,18 @@ lorairo-cli --json describe "batch import"
 
 **Output `BatchImportResult`**
 
+- `status`: `success | partial_success | failed` (optional, default `success`)
+- `ok`: `bool` (optional)
+- `incomplete`: `bool` (optional)
+- `already_imported`: `int` (optional)
+- `non_importable`: `int` (optional)
+- `save_skipped`: `int` (optional)
+- `missing_custom_ids`: `list[str]` (optional)
+- `failed_custom_ids`: `list[str]` (optional)
+- `error_details`: `list[str]` (optional)
+- `hint`: `str?` (optional)
+- `ratings_saved`: `int?` (optional)
+- `rating_breakdown`: `dict[str, int]?` (optional)
 - `job_id`: `int?` (optional)
 - `imported`: `int` (optional)
 - `skipped`: `int` (optional)
@@ -598,6 +638,8 @@ lorairo-cli --json describe "errors resolve"
 
 **Output `ErrorsResolveResult`**
 
+- `status`: `success | partial_success | failed` (optional, default `success`)
+- `requested`: `int?` (optional)
 - `ok`: `bool` (optional)
 - `resolved`: `int` (optional)
 - `dry_run`: `bool` (optional)
@@ -732,6 +774,10 @@ lorairo-cli --json describe "images register"
 
 **Output `ImagesRegisterResult`**
 
+- `status`: `success | partial_success | failed` (optional, default `success`)
+- `ok`: `bool` (optional)
+- `variant`: `int` (optional)
+- `error_details`: `list[str]` (optional)
 - `total`: `int` (optional)
 - `registered`: `int` (optional)
 - `skipped`: `int` (optional)

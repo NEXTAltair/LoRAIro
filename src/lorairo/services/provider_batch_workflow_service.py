@@ -84,6 +84,11 @@ class ProviderBatchImportResult:
     total_count: int
     missing_custom_ids: tuple[str, ...] = field(default_factory=tuple)
     job_imported: bool = False
+    # Existing skipped_count also contains incomplete outcomes; distinguish normal skips.
+    already_imported_count: int = 0
+    non_importable_count: int = 0
+    save_skipped_count: int = 0
+    failed_custom_ids: tuple[str, ...] = field(default_factory=tuple)
 
 
 @dataclass
@@ -563,6 +568,10 @@ class ProviderBatchWorkflowService:
         skipped_image_count = save_result.skip_count + not_saved_image_count
         # total = save 対象 image (success+skip+error) + save 対象外 image。
         image_total_count = save_result.total_count + not_saved_image_count
+        excluded_custom_ids = set(prepared.imported_custom_ids) | set(unique_missing_custom_ids)
+        excluded_custom_ids.update(
+            db_item.custom_id for db_item in refreshed_job.items if db_item.status == "imported"
+        )
         return ProviderBatchImportResult(
             save_result=save_result,
             apply_result=apply_result,
@@ -572,6 +581,14 @@ class ProviderBatchWorkflowService:
             total_count=image_total_count,
             missing_custom_ids=unique_missing_custom_ids,
             job_imported=job_imported,
+            already_imported_count=prepared.already_imported_image_count,
+            non_importable_count=prepared.non_importable_image_count,
+            save_skipped_count=save_result.skip_count,
+            failed_custom_ids=tuple(
+                item.custom_id
+                for raw_item in normalized_fetch.items
+                if (item := self._coerce_result_item(raw_item)).custom_id not in excluded_custom_ids
+            ),
         )
 
     @staticmethod

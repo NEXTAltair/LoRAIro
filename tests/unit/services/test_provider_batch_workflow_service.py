@@ -351,6 +351,9 @@ class TestProviderBatchWorkflowService:
         # 1 provider item の失敗だが、fan-out 込みで 2 image が skip / total に算入される。
         assert result.imported_count == 0
         assert result.skipped_count == 2
+        assert result.non_importable_count == 2
+        assert result.already_imported_count == 0
+        assert result.failed_custom_ids == ("ph:dupdupdupdupdup0:le:1024",)
         assert result.total_count == 2
         assert result.job_imported is False
 
@@ -1132,6 +1135,9 @@ class TestProviderBatchLibraryAdapter:
 
         assert result.error_count == 1
         assert result.skipped_count == 1
+        assert result.already_imported_count == 1
+        assert result.non_importable_count == 0
+        assert result.save_skipped_count == 0
         items = {
             item.custom_id: item
             for item in test_provider_batch_repository.list_provider_batch_items(job_id)
