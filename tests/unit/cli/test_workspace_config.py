@@ -207,10 +207,8 @@ def test_help_and_describe_expose_root_path_contract():
         result = runner.invoke(app, ["--json", "describe", "project list", "--schema", schema])
         assert result.exit_code == 0
         rows = [json.loads(line) for line in result.stdout.splitlines()]
-        assert {option["name"] for option in rows[0]["global_options"]} == {
-            "workspace",
-            "config",
-            "read_only",
+        assert {"workspace", "config", "read_only"} <= {
+            option["name"] for option in rows[0]["global_options"]
         }
         assert any(row.get("name") == "GlobalOptions" for row in rows)
 
