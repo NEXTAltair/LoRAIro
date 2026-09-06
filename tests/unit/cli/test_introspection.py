@@ -183,6 +183,8 @@ def test_annotate_run_describes_only_supported_flags() -> None:
     assert field_names == {
         "project",
         "model",
+        "output",
+        "resolution",
         "limit",
         "offset",
         "image_id",

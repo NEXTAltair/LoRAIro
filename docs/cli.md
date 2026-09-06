@@ -172,6 +172,18 @@ Run annotation for selected project images.
 - Read only: `false`
 - Side effects: `db_read`, `db_write`, `file_read`, `network`
 
+#### `--output` の移行 (#1310)
+
+`annotate run` はプロジェクトDBへ注釈を保存します。従来の `--output` / `-o` は実装がなく、
+指定先へファイルを書かずに成功していました。このオプションは非推奨とし、値が指定されると
+プロジェクト確認・DB接続・モデル／設定取得・推論・出力先アクセスの前に `INVALID_INPUT` / exit 2 で拒否します。
+空文字列、存在しないパス、書込み不能なパスも同じ契約です。
+
+既存スクリプトでは `--output DIR` を削除し、注釈後に同じプロジェクトと明示的な対象IDを使って
+`export create` を実行してください。以前の実行結果がDBに保存済みなら、出力ファイルがないことだけを
+理由に注釈を再実行せず、保存内容を確認してexportしてください。`--output` 未指定時のDB保存・
+推論部分失敗・保存失敗の契約は維持します。
+
 #### Compact Introspection
 
 ```bash
@@ -182,6 +194,8 @@ lorairo-cli --json describe "annotate run"
 
 **Input `AnnotateRunInput`**
 
+- `output`: `None` (optional, default `None`) - Deprecated/unsupported: every `--output`/`-o` value is rejected with `INVALID_INPUT` / exit 2. Use `export create` for files.
+- `resolution`: `int>=1?` (optional) - Select existing processed images.
 - `project`: `str` (required)
 - `model`: `list[str]` (required)
 - `limit`: `int>=1?` (optional)
