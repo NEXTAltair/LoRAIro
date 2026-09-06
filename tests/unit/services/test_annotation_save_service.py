@@ -413,6 +413,7 @@ def test_save_annotation_results_handles_partial_save_failure(
     assert result.skip_count == 0
     assert len(result.error_details) == 1
     assert "phash001" in result.error_details[0]
+    assert result.image_outcomes == {1: "failed"}
 
 
 @pytest.mark.unit
@@ -857,3 +858,21 @@ class TestAppendScoresWebApi:
             result=result,
         )
         assert len(result["scores"]) == 0
+
+
+@pytest.mark.unit
+def test_per_image_outcomes_identify_partial_commit(service, mock_repository):
+    model = MagicMock(id=1)
+    mock_repository.find_image_ids_by_phashes_multi.return_value = {"p1": [1], "p2": [2]}
+    mock_repository.get_models_by_litellm_ids.return_value = {"fake": model}
+    mock_repository.save_annotations_batch.side_effect = RuntimeError("batch failed")
+    mock_repository.save_annotations.side_effect = [None, RuntimeError("image2 failed")]
+    result = service.save_annotation_results(
+        {
+            "p1": {"fake": _make_success_result(tags=["ok"])},
+            "p2": {"fake": _make_success_result(tags=["bad"])},
+        },
+        allowed_image_ids={1, 2},
+    )
+    assert (result.success_count, result.error_count) == (1, 1)
+    assert result.image_outcomes == {1: "success", 2: "failed"}

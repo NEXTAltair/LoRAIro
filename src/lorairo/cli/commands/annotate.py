@@ -33,6 +33,7 @@ from lorairo.cli._boundary import command_boundary
 from lorairo.cli._console import make_console
 from lorairo.cli._emit import emit_item, emit_result
 from lorairo.cli._image_guard import reject_original_image_records
+from lorairo.cli._image_ids import resolve_annotation_ids
 from lorairo.cli._output_mode import is_json_mode
 from lorairo.database.db_core import resolve_stored_path
 from lorairo.database.filter_criteria import ImageFilterCriteria
@@ -905,6 +906,11 @@ def run(
         "-i",
         help="Target specific image ID(s); repeatable",
     ),
+    image_ids_file: str | None = typer.Option(
+        None,
+        "--image-ids-file",
+        help="UTF-8 newline/comma ID file, max100,000; exclusive with --image-id. Selection and image loading are chunked.",
+    ),
     unrated: bool = typer.Option(
         False,
         "--unrated",
@@ -941,6 +947,7 @@ def run(
             --model openrouter/openai/gpt-4o --model openrouter/anthropic/claude-3-5-sonnet
     """
     with command_boundary():
+        explicit_ids = resolve_annotation_ids(image_id, image_ids_file)
         # API層経由でプロジェクト確認 & DB 接続切り替え
         api_get_project(project)
 
@@ -959,6 +966,23 @@ def run(
             unrated=unrated,
             missing_model=missing_model,
         )
+
+        if explicit_ids:
+            from lorairo.cli._annotation_ids import run_id_annotation
+
+            run_id_annotation(
+                container,
+                image_ids=explicit_ids,
+                file_input=image_ids_file is not None,
+                project=project,
+                criteria=criteria,
+                offset=offset,
+                limit=limit,
+                resolution=resolution,
+                batch_size=batch_size,
+                models=resolved_litellm_ids,
+            )
+            return
 
         image_records, total_in_db = image_repo.get_images_by_filter(criteria)
 

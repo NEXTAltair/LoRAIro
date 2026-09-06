@@ -201,32 +201,42 @@ def register(
         get_service_container().set_active_project(project)
 
         # API層経由で画像登録（プロジェクトコンテキスト付き）
-        result = api_register_images(input_path, skip_duplicates, project_name=project)
+        result = api_register_images(
+            input_path,
+            skip_duplicates,
+            project_name=project,
+            on_item=emit_item if is_json_mode() else None,
+            collect_items=False,
+        )
 
-        if result.total == 0:
-            if is_json_mode():
-                emit_result(
-                    f"No image files found in {path}",
-                    total=0,
-                    registered=0,
-                    skipped=0,
-                    errors=0,
-                )
-            else:
-                console.print(f"[yellow]Warning:[/yellow] No image files found in {path}")
-            return
-
+        failed = bool(result.failed or result.interrupted)
+        status = (
+            "success"
+            if not failed
+            else ("partial_success" if result.successful + result.variant + result.skipped else "failed")
+        )
         if is_json_mode():
             emit_result(
                 f"Registered {result.successful} image(s) to project: {project}",
+                ok=not failed,
+                status=status,
+                project=project,
                 total=result.total,
                 registered=result.successful,
+                variant=result.variant,
                 skipped=result.skipped,
                 errors=result.failed,
+                target_count=result.target_count,
+                interrupted=result.interrupted,
+                unprocessed=result.unprocessed,
                 error_details=list(result.error_details) if result.error_details else [],
             )
         else:
+            if result.total == 0:
+                console.print(f"[yellow]Warning:[/yellow] No image files found in {path}")
             _print_registration_summary(result, project)
+        if failed:
+            raise typer.Exit(1)
 
 
 @app.command("list")

@@ -9,6 +9,7 @@ in sync.
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Any
 
 import click
 
@@ -42,6 +43,16 @@ def parse_image_ids(image_ids_csv: str) -> list[int]:
         raise click.UsageError(f"--image-ids には整数のみ指定可: {e}") from e
 
 
+def _positive_file_id(token: str) -> int:
+    try:
+        value = int(token)
+    except ValueError as exc:
+        raise click.UsageError(f"--image-ids-file contains invalid ID: {token!r}") from exc
+    if value <= 0:
+        raise click.UsageError("--image-ids-file IDs must be positive integers.")
+    return value
+
+
 def parse_image_ids_file(file_path: str) -> list[int]:
     """改行/カンマ区切りの ID リストファイルを int リストへ変換する (Issue #1216)。
 
@@ -60,23 +71,25 @@ def parse_image_ids_file(file_path: str) -> list[int]:
     path = Path(file_path)
     if not path.is_file():
         raise click.UsageError(f"--image-ids-file '{file_path}' が見つかりません。")
-    tokens: list[str] = []
-    for raw_line in path.read_text(encoding="utf-8").splitlines():
-        tokens.extend(part.strip() for part in raw_line.split(",") if part.strip())
     seen: set[int] = set()
     image_ids: list[int] = []
-    for token in tokens:
-        try:
-            value = int(token)
-        except ValueError as e:
-            raise click.UsageError(f"--image-ids-file に整数以外の値: '{token}' ({e})") from e
-        if value not in seen:
-            seen.add(value)
-            image_ids.append(value)
+    try:
+        with path.open(encoding="utf-8") as stream:
+            for raw_line in stream:
+                for token in raw_line.split(","):
+                    token = token.strip()
+                    if not token:
+                        continue
+                    value = _positive_file_id(token)
+                    if value not in seen:
+                        seen.add(value)
+                        image_ids.append(value)
+                        if len(image_ids) > MAX_IMAGE_IDS_FILE:
+                            raise click.UsageError(f"--image-ids-file は最大 {MAX_IMAGE_IDS_FILE} 件まで。")
+    except (OSError, UnicodeError) as exc:
+        raise click.UsageError(f"Cannot read UTF-8 --image-ids-file: {exc}") from exc
     if not image_ids:
         raise click.UsageError("--image-ids-file に有効な画像 ID がありません。")
-    if len(image_ids) > MAX_IMAGE_IDS_FILE:
-        raise click.UsageError(f"--image-ids-file は最大 {MAX_IMAGE_IDS_FILE} 件まで。")
     return image_ids
 
 
@@ -125,3 +138,23 @@ def validate_image_ids_exist(container: ServiceContainer, image_ids: list[int]) 
     missing = [i for i in image_ids if i not in found_ids]
     if missing:
         raise ImageNotFoundError(missing[0])
+
+
+def validate_candidate_ids(repository: Any, image_ids: list[int]) -> list[int]:
+    """Validate an explicit set in500-ID queries without materializing metadata."""
+    unique_ids = list(dict.fromkeys(image_ids))
+    if not unique_ids or any(image_id <= 0 for image_id in unique_ids):
+        raise click.UsageError("Explicit image IDs must be a nonempty set of positive integers.")
+    for start in range(0, len(unique_ids), BULK_CHUNK_SIZE):
+        chunk = unique_ids[start : start + BULK_CHUNK_SIZE]
+        existing = set(repository.get_candidate_image_ids(chunk))
+        missing = [image_id for image_id in chunk if image_id not in existing]
+        if missing:
+            raise ImageNotFoundError(missing[0])
+    return unique_ids
+
+
+def resolve_annotation_ids(image_ids: list[int], image_ids_file: str | None) -> list[int]:
+    if image_ids_file is not None and image_ids:
+        raise click.UsageError("--image-id and --image-ids-file are mutually exclusive.")
+    return parse_image_ids_file(image_ids_file) if image_ids_file is not None else image_ids

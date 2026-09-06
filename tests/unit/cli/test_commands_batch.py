@@ -21,6 +21,14 @@ def _wide_terminal(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("COLUMNS", "200")
 
 
+@pytest.fixture(autouse=True)
+def _isolate_submit_artifact_io(monkeypatch):
+    # These tests inspect mocked workflow calls. Real file prevalidation is covered
+    # by test_registration_id_handoff using actual synthetic artifacts.
+    monkeypatch.setattr("lorairo.cli._batch_submission._validate_image_paths", lambda _: None)
+    monkeypatch.setattr("lorairo.cli._batch_submission.resolve_stored_path", lambda path: Path(path))
+
+
 def _job(**overrides):
     values = {
         "id": 42,
@@ -58,6 +66,9 @@ def _model(**overrides):
 
 def _container() -> MagicMock:
     container = MagicMock()
+    container.db_manager.image_repo.get_candidate_image_ids.side_effect = lambda ids: [
+        i for i in ids if i in {1, 2}
+    ]
     container.db_manager.model_repo.get_model_by_litellm_id.return_value = _model()
     container.db_manager.model_repo.get_models_by_name.return_value = []
     container.db_manager.image_repo.get_images_by_ids.return_value = [
@@ -820,10 +831,9 @@ def test_batch_status_has_more_false_when_items_below_limit(mock_get_container: 
 def test_submit_with_resolution_resolves_processed_paths(mock_get_container: MagicMock) -> None:
     """--resolution 512 指定時に processed image path が解決されて submit_images に渡される。"""
     container = _container()
-    container.db_manager.image_repo.get_processed_image.side_effect = lambda image_id, resolution: {
-        1: {"id": 10, "stored_image_path": "image_dataset/processed_images/512/1.jpg"},
-        2: {"id": 11, "stored_image_path": "image_dataset/processed_images/512/2.jpg"},
-    }.get(image_id)
+    container.db_manager.image_repo.get_processed_image_paths_by_resolution.side_effect = (
+        lambda ids, resolution: {i: f"image_dataset/processed_images/512/{i}.jpg" for i in ids}
+    )
     mock_get_container.return_value = container
 
     result = runner.invoke(
@@ -870,11 +880,9 @@ def test_submit_with_resolution_missing_processed_image_errors(mock_get_containe
     """指定解像度の processed image が存在しない image_id はエラーを返す。"""
     container = _container()
     # image_id=1 は見つかるが image_id=2 は None
-    container.db_manager.image_repo.get_processed_image.side_effect = lambda image_id, resolution: (
-        {"id": 10, "stored_image_path": "image_dataset/processed_images/512/1.jpg"}
-        if image_id == 1
-        else None
-    )
+    container.db_manager.image_repo.get_processed_image_paths_by_resolution.return_value = {
+        1: "image_dataset/processed_images/512/1.jpg"
+    }
     mock_get_container.return_value = container
 
     result = runner.invoke(

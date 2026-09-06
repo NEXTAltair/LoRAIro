@@ -3,12 +3,13 @@
 ImageRegistrationService をラップし、画像登録・管理機能を提供。
 """
 
+from collections.abc import Callable
 from pathlib import Path
 from typing import TYPE_CHECKING
 
 from lorairo.database.db_manager import RegistrationOutcome
 from lorairo.public_api.exceptions import ImageRegistrationError
-from lorairo.public_api.types import RegistrationResult
+from lorairo.public_api.types import RegistrationItem, RegistrationResult
 from lorairo.services.service_container import ServiceContainer
 
 if TYPE_CHECKING:
@@ -20,6 +21,9 @@ def register_images(
     directory: str | Path,
     skip_duplicates: bool = True,
     project_name: str | None = None,
+    *,
+    on_item: Callable[[RegistrationItem], None] | None = None,
+    collect_items: bool = True,
 ) -> RegistrationResult:
     """ディレクトリから画像を登録。
 
@@ -64,18 +68,32 @@ def register_images(
         if not image_files:
             if directory_path.is_file():
                 raise ImageRegistrationError(f"サポートされていない画像形式: {directory_path}", 0)
-            return RegistrationResult(total=0, successful=0, failed=0, skipped=0)
+            return RegistrationResult(total=0, successful=0, failed=0, skipped=0, project=project_name)
 
         return _register_into_db(
             container.db_manager,
             container.file_system_manager,
             image_files,
             skip_duplicates=skip_duplicates,
+            project_name=project_name,
+            on_item=on_item,
+            collect_items=collect_items,
         )
 
     # プロジェクト未指定: ファイルコピーのみ（DB 登録なし）
     service = container.image_registration_service
     return service.register_images(directory_path, skip_duplicates, None)
+
+
+def _count_registration(result: RegistrationResult, outcome: str, skip_duplicates: bool) -> None:
+    if outcome == "registered" or (outcome == "duplicate" and not skip_duplicates):
+        result.successful += 1
+    elif outcome == "variant":
+        result.variant += 1
+    elif outcome == "duplicate":
+        result.skipped += 1
+    else:
+        result.failed += 1
 
 
 def _register_into_db(
@@ -84,6 +102,9 @@ def _register_into_db(
     image_files: list[Path],
     *,
     skip_duplicates: bool = True,
+    project_name: str | None = None,
+    on_item: Callable[[RegistrationItem], None] | None = None,
+    collect_items: bool = True,
 ) -> RegistrationResult:
     """project-scoped な DB 登録を統一エントリ経由で行い、outcome を統計へ集計する (#633)。
 
@@ -107,41 +128,47 @@ def _register_into_db(
     Returns:
         RegistrationResult: 登録結果 (successful / variant / skipped / failed)。
     """
-    registered = 0
-    variant = 0
-    skipped = 0
-    failed = 0
-    errors: list[str] = []
-
-    for image_file in image_files:
-        try:
-            side_effect_result = db_manager.register_image_with_side_effects(image_file, fsm)
-            outcome = side_effect_result.outcome
-            if outcome is RegistrationOutcome.REGISTERED:
-                registered += 1
-            elif outcome is RegistrationOutcome.VARIANT:
-                variant += 1
-            elif outcome is RegistrationOutcome.DUPLICATE:
-                # include-duplicates 時は既存画像参照を成功として数える (#633, codex review)
-                if skip_duplicates:
-                    skipped += 1
-                else:
-                    registered += 1
-            else:
-                failed += 1
-                errors.append(f"{image_file.name}: 登録失敗")
-        except Exception as e:
-            failed += 1
-            errors.append(f"{image_file.name}: {e!s}")
-
-    return RegistrationResult(
-        total=len(image_files),
-        successful=registered,
-        failed=failed,
-        skipped=skipped,
-        variant=variant,
-        error_details=errors or None,
+    result = RegistrationResult(
+        total=len(image_files), successful=0, failed=0, skipped=0, project=project_name
     )
+    selected_ids: set[int] = set()
+    errors: list[str] = []
+    for index, image_file in enumerate(image_files):
+        try:
+            side_effect = db_manager.register_image_with_side_effects(image_file, fsm)
+            outcome = side_effect.outcome
+            item = RegistrationItem(
+                input_path=str(image_file),
+                outcome=outcome.value,
+                image_id=side_effect.image_id,
+                project=project_name,
+                error="登録失敗" if outcome is RegistrationOutcome.FAILED else None,
+            )
+        except KeyboardInterrupt:
+            result.interrupted = True
+            result.unprocessed = len(image_files) - index
+            break
+        except Exception as exc:
+            item = RegistrationItem(
+                input_path=str(image_file), outcome="failed", project=project_name, error=str(exc)
+            )
+        if item.outcome == "failed":
+            errors.append(f"{image_file.name}: {item.error}")
+        _count_registration(result, item.outcome, skip_duplicates)
+        eligible = item.outcome in {"registered", "variant"} or (
+            item.outcome == "duplicate" and not skip_duplicates
+        )
+        item.selected = eligible and item.image_id is not None and item.image_id not in selected_ids
+        if item.selected and item.image_id is not None:
+            selected_ids.add(item.image_id)
+        if collect_items:
+            result.items.append(item)
+        # Output failures must escape, not be misclassified as failed DB registration.
+        if on_item is not None:
+            on_item(item)
+    result.target_count = len(selected_ids)
+    result.error_details = errors or None
+    return result
 
 
 def detect_duplicate_images(
