@@ -101,7 +101,14 @@ def test_images_update_describes_only_supported_input_fields() -> None:
     rows = _jsonl(result.stdout)
     input_rows = [row for row in rows if row.get("type") == "model" and row["role"] == "input"]
     assert [row["name"] for row in input_rows] == ["GlobalOptions", "ImagesUpdateInput"]
-    assert {field["name"] for field in input_rows[0]["fields"]} == {"workspace", "config"}
+    assert {field["name"] for field in input_rows[0]["fields"]} == {
+        "workspace",
+        "config",
+        "log_level",
+        "json_output",
+        "install_completion",
+        "show_completion",
+    }
     assert {field["name"] for field in input_rows[1]["fields"]} == {"project", "tags", "image_id"}
 
 
@@ -235,7 +242,7 @@ def test_batch_submit_describes_csv_image_ids() -> None:
     fields = {field["name"]: field for field in input_row["fields"]}
 
     assert "image_id" not in fields
-    assert fields["image_ids"]["type"] == "csv[int]"
+    assert fields["image_ids"]["type"] == "str"
     assert fields["image_ids"]["required"] is True
     assert "Comma-separated" in fields["image_ids"]["description"]
 
@@ -714,3 +721,190 @@ def test_partial_failure_status_exposed_in_both_schema_modes(command, model):
     schema = next(row["schema"] for row in _jsonl(schema_result.stdout) if row.get("name") == model)
     assert schema["properties"]["status"]["enum"] == ["success", "partial_success", "failed"]
     assert schema["properties"]["ok"]["type"] == "boolean"
+
+
+def test_registered_leaves_have_explicit_catalog_policy() -> None:
+    from lorairo.cli.introspection import INTROSPECTION_EXCLUSIONS, iter_tool_specs
+    from lorairo.cli.introspection_schema import command_tree
+
+    _, leaves = command_tree()
+    specs = {spec.path for spec in iter_tool_specs()}
+    assert set(leaves) == specs | set(INTROSPECTION_EXCLUSIONS)
+    assert not specs & set(INTROSPECTION_EXCLUSIONS)
+    rows = _jsonl(runner.invoke(app, ["--json", "list-commands"]).stdout)
+    assert rows[-1]["excluded_commands"] == INTROSPECTION_EXCLUSIONS
+    assert rows[-1]["count"] == len(specs)
+
+
+def _catalog_paths() -> list[str]:
+    from lorairo.cli.introspection import iter_tool_specs
+
+    return [spec.path for spec in iter_tool_specs()]
+
+
+@pytest.mark.parametrize("path", _catalog_paths())
+def test_every_leaf_help_and_argument_destinations_match_schema(path: str) -> None:
+    from lorairo.cli.introspection import get_tool_spec
+    from lorairo.cli.introspection_schema import command_tree
+
+    _, leaves = command_tree()
+    command = leaves[path]
+    result = runner.invoke(app, [*path.split(), "--help"])
+    assert result.exit_code == 0
+    spec = get_tool_spec(path)
+    fields = spec.inputs[0].schema_model.model_json_schema()["properties"] if spec.inputs else {}
+    destinations = {destination for prop in fields.values() for destination in prop["x-cli-destinations"]}
+    assert destinations == {param.name for param in command.params if not param.is_eager}
+    for parameter in command.params:
+        if parameter.is_eager:
+            continue
+        prop = next(prop for prop in fields.values() if parameter.name in prop["x-cli-destinations"])
+        assert set(parameter.opts) <= set(prop["x-cli-options"])
+        assert set(getattr(parameter, "secondary_opts", [])) <= set(prop["x-cli-options"])
+
+
+@pytest.mark.parametrize("path", _catalog_paths())
+def test_every_public_model_has_matching_compact_and_json_schema(path: str) -> None:
+    from lorairo.cli.introspection_schema import compact_type
+
+    compact = _jsonl(runner.invoke(app, ["--json", "describe", path]).stdout)
+    complete = _jsonl(runner.invoke(app, ["--json", "describe", path, "--schema", "json_schema"]).stdout)
+    models = {row["name"]: row for row in compact if row.get("type") == "model"}
+    schemas = {row["name"]: row for row in complete if row.get("type") == "schema"}
+    assert models.keys() == schemas.keys()
+    for name, model in models.items():
+        schema = schemas[name]["schema"]
+        fields = {item["name"]: item for item in model["fields"]}
+        assert fields.keys() == schema["properties"].keys()
+        assert model["role"] == schemas[name]["role"]
+        for field_name, prop in schema["properties"].items():
+            compact_field = fields[field_name]
+            assert compact_field["required"] == (field_name in schema.get("required", []))
+            assert compact_field["type"] == compact_type(prop)
+            assert compact_field["schema"] == prop
+            assert ("default" in compact_field) == ("default" in prop)
+            if "default" in prop:
+                assert compact_field["default"] == prop["default"]
+
+
+@pytest.mark.parametrize("path,minimum", [("annotate run", 1), ("batch submit", None)])
+def test_resolution_constraints_match_execution(path: str, minimum: int | None) -> None:
+    from pydantic import ValidationError
+
+    from lorairo.cli.introspection import get_tool_spec
+
+    model = get_tool_spec(path).inputs[0].schema_model
+    schema = model.model_json_schema()
+    prop = schema["properties"]["resolution"]
+    assert prop["default"] is None
+    integer = next(choice for choice in prop["anyOf"] if choice.get("type") == "integer")
+    assert integer.get("minimum") == minimum
+    base = {"project": "temporary", "model": ["fake"] if path == "annotate run" else "fake"}
+    if path == "batch submit":
+        base["image_ids"] = "1"
+    assert model.model_validate(base).resolution is None
+    if minimum:
+        with pytest.raises(ValidationError):
+            model.model_validate({**base, "resolution": 0})
+    else:
+        assert model.model_validate({**base, "resolution": 0}).resolution == 0
+
+
+def test_json_query_body_and_aliases_stay_distinct() -> None:
+    from lorairo.cli.introspection import get_tool_spec
+
+    search = get_tool_spec("images search")
+    assert [model.name for model in search.inputs] == ["ImagesSearchInput", "ImageSearchQuery"]
+    arguments, body = (model.schema_model.model_json_schema() for model in search.inputs)
+    assert {"query", "query_file", "project"} == set(arguments["properties"])
+    assert "tags" in body["properties"] and "query" not in body["properties"]
+    alias = get_tool_spec("tags alias").inputs[0].schema_model.model_json_schema()
+    assert alias["properties"]["from"]["x-cli-options"] == ["--from"]
+    assert alias["properties"]["from"]["x-cli-destinations"] == ["from_tag"]
+    show = get_tool_spec("images show").inputs[0].schema_model.model_json_schema()
+    assert set(show["properties"]["image_ids"]["x-cli-destinations"]) == {
+        "image_ids_positional",
+        "image_ids_csv",
+    }
+
+
+def test_global_defaults_and_case_insensitive_log_level_match_parser() -> None:
+    from pydantic import ValidationError
+
+    from lorairo.cli.introspection import get_global_options
+
+    model = get_global_options().schema_model
+    defaults = model.model_validate({})
+    assert defaults.log_level == "INFO"
+    assert defaults.json_output is None
+    assert defaults.workspace is None
+    assert defaults.config is None
+    assert model.model_validate({"log_level": "debug"}).log_level == "debug"
+    with pytest.raises(ValidationError):
+        model.model_validate({"log_level": "unrecognized"})
+
+
+@pytest.mark.parametrize("path", _catalog_paths())
+def test_argument_required_and_defaults_come_from_parser(path: str) -> None:
+    from enum import Enum
+
+    from lorairo.cli.introspection import get_tool_spec
+    from lorairo.cli.introspection_schema import command_tree
+
+    _, leaves = command_tree()
+    spec = get_tool_spec(path)
+    if not spec.inputs:
+        assert not leaves[path].params
+        return
+    schema = spec.inputs[0].schema_model.model_json_schema()
+    for parameter in leaves[path].params:
+        if parameter.is_eager:
+            continue
+        name, prop = next(
+            (name, prop)
+            for name, prop in schema["properties"].items()
+            if parameter.name in prop["x-cli-destinations"]
+        )
+        if path == "images show" and name == "image_ids":
+            # One logical required selector has positional and option aliases.
+            assert name in schema["required"]
+            continue
+        assert (name in schema.get("required", [])) == parameter.required
+        if not parameter.required:
+            default = parameter.default
+            if isinstance(default, Enum):
+                default = default.value
+            if getattr(parameter, "multiple", False) and default is not None:
+                default = list(default)
+            assert prop.get("default") == default
+
+
+def test_errors_pagination_schema_includes_body_validation_bounds() -> None:
+    from pydantic import ValidationError
+
+    from lorairo.cli.commands.errors import MAX_LIST_LIMIT
+    from lorairo.cli.introspection import get_tool_spec
+
+    model = get_tool_spec("errors list").inputs[0].schema_model
+    props = model.model_json_schema()["properties"]
+    assert props["limit"]["minimum"] == 0
+    assert props["limit"]["maximum"] == MAX_LIST_LIMIT
+    assert props["offset"]["minimum"] == 0
+    assert "maximum" not in props["offset"]
+    for value in (-1, MAX_LIST_LIMIT + 1):
+        with pytest.raises(ValidationError):
+            model.model_validate({"project": "temporary", "limit": value})
+    assert model.model_validate({"project": "temporary", "limit": 0}).limit == 0
+
+
+def test_generated_docs_match_schemas_and_preserve_migration_guidance() -> None:
+    import runpy
+    from pathlib import Path
+
+    root = Path(__file__).resolve().parents[3]
+    generator = runpy.run_path(str(root / "scripts" / "generate_cli_docs.py"))
+    rendered = generator["render"]()
+    assert rendered == (root / "docs" / "cli.md").read_text(encoding="utf-8")
+    assert "部分失敗と既存スクリプトの移行 (#1313)" in rendered
+    assert "`--output` の移行 (#1310)" in rendered
+    assert "read_only" in rendered
