@@ -376,6 +376,42 @@ def test_batch_submit_rejects_invalid_image_ids_csv(mock_get_container: MagicMoc
 @pytest.mark.unit
 @pytest.mark.cli
 @patch("lorairo.cli.commands.batch.get_service_container")
+def test_batch_submit_accepts_image_ids_file(mock_get_container: MagicMock, tmp_path) -> None:
+    """大量 ID はファイル経由で Batch workflow へ渡せる (#1307)。"""
+    ids_file = tmp_path / "ids.txt"
+    ids_file.write_text("2,7,11", encoding="utf-8")
+
+    container = _container()
+    container.db_manager.model_repo.get_model_by_litellm_id.return_value = _model(
+        id=11,
+        litellm_model_id="openai/omni-moderation-latest",
+        model_types=(SimpleNamespace(name="ratings"),),
+    )
+    mock_get_container.return_value = container
+
+    result = runner.invoke(
+        app,
+        [
+            "batch",
+            "submit",
+            "--project",
+            "demo",
+            "--model",
+            "openai/omni-moderation-latest",
+            "--task-type",
+            "rating_preflight",
+            "--image-ids-file",
+            str(ids_file),
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    assert container.provider_batch_workflow_service.submit_images.call_args.kwargs["image_ids"] == [2, 7, 11]
+
+
+@pytest.mark.unit
+@pytest.mark.cli
+@patch("lorairo.cli.commands.batch.get_service_container")
 def test_batch_submit_rejects_original_image_records(mock_get_container: MagicMock) -> None:
     container = _container()
     container.db_manager.image_repo.get_images_by_ids.return_value = [

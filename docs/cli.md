@@ -156,6 +156,7 @@ lorairo-cli --json describe "annotate run"
 - `limit`: `int>=1?` (optional)
 - `offset`: `int>=0` (optional, default `0`)
 - `image_id`: `list[int]?` (optional)
+- `image_ids_file`: `path?` (optional) - Path to a newline/comma-separated image ID list for bulk operations (chunked internally, max 100,000; mutually exclusive with image_ids, Issue #1216). For tags commands, bulk mode emits TagsBulkProgressItem chunk-progress rows instead of per-image TagsEditItem.
 - `batch_size`: `int>=1` (optional, default `10`)
 - `unrated`: `bool` (optional, default `False`)
 - `missing_model`: `str?` (optional)
@@ -449,7 +450,8 @@ lorairo-cli --json describe "batch submit"
 
 - `project`: `str` (required)
 - `model`: `str` (required)
-- `image_ids`: `csv[int]` (required) - Comma-separated image IDs, e.g. 2,7,11.
+- `image_ids`: `csv[int]?` (optional) - Comma-separated image IDs, e.g. 2,7,11.
+- `image_ids_file`: `path?` (optional) - Path to a newline/comma-separated image ID list for bulk operations (chunked internally, max 100,000; mutually exclusive with image_ids, Issue #1216). For tags commands, bulk mode emits TagsBulkProgressItem chunk-progress rows instead of per-image TagsEditItem.
 - `provider`: `openai|anthropic?` (optional)
 - `endpoint`: `str?` (optional)
 - `prompt_profile`: `str` (optional, default `default`)
@@ -752,7 +754,7 @@ Structured error payload emitted as kind=error by the CLI boundary.
 
 ### `images search`
 
-Search images by JSON query. Returns image_ids for use with export create or tags commands.
+Search images by JSON query. Returns image_ids for downstream batch, annotation, export, or tag commands.
 
 - Read only: `true`
 - Side effects: `db_read`
@@ -794,9 +796,10 @@ JSON body schema passed via --query or --query-file.
 - `height_max`: `int?` (optional) - Maximum original image height in px.
 - `filename_pattern`: `str?` (optional) - Case-insensitive SQL LIKE pattern on filename ('%'/'_' wildcards).
 - `format`: `str?` (optional) - Case-insensitive exact match on image format (e.g. 'jpeg', 'png').
+- `original_path_prefix`: `str?` (optional) - Source-directory prefix on original_image_path; separators are normalized (#1307).
 - `limit`: `int[1,500]` (optional, default `500`)
 - `offset`: `int>=0` (optional, default `0`)
-- `emit_ids`: `bool` (optional, default `False`) - Emit ALL matching image_ids (paged internally), bypassing the count-first ResultSetTooLargeError guard, for piping into tags --image-ids-file (Issue #1216). Capped at 100,000.
+- `emit_ids`: `bool` (optional, default `False`) - Emit ALL matching image_ids (paged internally), bypassing the count-first ResultSetTooLargeError guard, for piping into --image-ids-file consumers (Issue #1216 / #1307). Capped at 100,000.
 
 **Output `ImagesListItem`**
 

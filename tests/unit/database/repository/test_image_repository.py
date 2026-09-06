@@ -69,12 +69,13 @@ def _insert_image(
     height: int = 64,
     has_alpha: bool = False,
     is_grayscale_like: bool = False,
+    original_image_path: str | None = None,
 ) -> int:
     """テスト用画像を 1 件作成して id を返す (was_inserted は捨てる)。"""
     info = {
         "uuid": uuid,
         "phash": phash,
-        "original_image_path": f"/tmp/{filename}",
+        "original_image_path": original_image_path or f"/tmp/{filename}",
         "stored_image_path": f"/tmp/{filename}",
         "width": width,
         "height": height,
@@ -181,6 +182,30 @@ class TestGetImagesByFilterPaging:
             ImageFilterCriteria(include_nsfw=True, format_name="jpeg")
         )
         assert none_total == 0
+
+    def test_original_path_prefix_is_separator_normalized_and_directory_bounded(
+        self, image_repository: ImageRepository
+    ) -> None:
+        """登録元ディレクトリで絞り込み、名前が似た sibling は含めない (#1307)。"""
+        matching = _insert_image(
+            image_repository,
+            uuid="u-source-1",
+            phash="p-source-1",
+            original_image_path=r"J:\source\untagged\one.png",
+        )
+        _insert_image(
+            image_repository,
+            uuid="u-source-2",
+            phash="p-source-2",
+            original_image_path=r"J:\source\untagged-old\two.png",
+        )
+
+        results, total = image_repository.get_images_by_filter(
+            ImageFilterCriteria(include_nsfw=True, original_path_prefix="J:/source/untagged")
+        )
+
+        assert total == 1
+        assert [record["id"] for record in results] == [matching]
 
     def test_resolution_filter_restricts_count_before_limit(
         self, image_repository: ImageRepository

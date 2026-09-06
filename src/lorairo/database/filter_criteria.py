@@ -63,6 +63,8 @@ class ImageFilterCriteria:
         manual_edit_filter: アノテーションが手動編集されたかでフィルタするか
         score_min: 最小スコア値（0.0-10.0）
         score_max: 最大スコア値（0.0-10.0）
+        original_path_prefix: 元ファイルの絶対パスの前方一致。登録元ディレクトリを
+            安全に絞り込むために使用する。区切り文字は ``/`` / ``\\`` のどちらでもよい。
         project_name: フィルタ対象プロジェクト名（Phase C完了後に有効化）
         project_id: フィルタ対象プロジェクトID（Phase C完了後に高速路）
         limit: 取得件数上限。None の場合は無制限
@@ -102,6 +104,7 @@ class ImageFilterCriteria:
     manual_edit_filter: bool | None = None
     score_min: float | None = None
     score_max: float | None = None
+    original_path_prefix: str | None = None
     # Phase 4: Search サイドバー強化 facets
     reviewed_at_filter: str | None = None  # "unreviewed" | "reviewed" | None=全て
     error_state_filter: str | None = None  # "has_error" | "no_error" | None=全て

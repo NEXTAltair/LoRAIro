@@ -73,6 +73,7 @@ class ImageSearchQuery(BaseModel):
     height_max: int | None = Field(default=None, ge=1)
     filename_pattern: str | None = None
     format_name: str | None = Field(default=None, alias="format")
+    original_path_prefix: str | None = None
     limit: int = Field(default=500, ge=1, le=500)
     offset: int = Field(default=0, ge=0)
     # Issue #1216: bulk workflow 用に全マッチ ID を出力する opt-in。count-first の
@@ -473,6 +474,7 @@ def _search_query_to_criteria(q: ImageSearchQuery) -> ImageFilterCriteria:
         height_max=q.height_max,
         filename_pattern=q.filename_pattern,
         format_name=q.format_name,
+        original_path_prefix=q.original_path_prefix,
         limit=q.limit,
         offset=q.offset,
         sort_field=sort_spec.field,

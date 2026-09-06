@@ -33,6 +33,7 @@ from lorairo.cli._boundary import command_boundary
 from lorairo.cli._console import make_console
 from lorairo.cli._emit import emit_item, emit_result
 from lorairo.cli._image_guard import reject_original_image_records
+from lorairo.cli._image_ids import parse_image_ids_file
 from lorairo.cli._output_mode import is_json_mode
 from lorairo.database.db_core import resolve_stored_path
 from lorairo.database.filter_criteria import ImageFilterCriteria
@@ -905,6 +906,11 @@ def run(
         "-i",
         help="Target specific image ID(s); repeatable",
     ),
+    image_ids_file: str | None = typer.Option(
+        None,
+        "--image-ids-file",
+        help="Newline/comma-separated image ID file (up to 100,000 IDs).",
+    ),
     unrated: bool = typer.Option(
         False,
         "--unrated",
@@ -970,11 +976,14 @@ def run(
 
         # Issue #538 (Track B): limit/offset/image-id によるレコード選択。
         # placeholder は全件返すが、本実装後もここで絞り込んだ集合を処理する。
+        if image_id and image_ids_file:
+            raise click.UsageError("--image-id and --image-ids-file cannot be used together.")
+        requested_image_ids = parse_image_ids_file(image_ids_file) if image_ids_file else image_id or None
         records_to_process = _select_image_records(
             image_records,
             limit=limit,
             offset=offset,
-            image_ids=image_id or None,
+            image_ids=requested_image_ids,
         )
 
         if not records_to_process:
@@ -993,7 +1002,7 @@ def run(
         else:
             reject_original_image_records(records_to_process, command_name="annotate run")
 
-        if len(records_to_process) > MAX_ANNOTATE_IMAGES:
+        if len(records_to_process) > MAX_ANNOTATE_IMAGES and image_ids_file is None:
             raise ResultSetTooLargeError(len(records_to_process), MAX_ANNOTATE_IMAGES)
 
         target_console = _status_console()

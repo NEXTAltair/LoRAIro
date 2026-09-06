@@ -20,6 +20,7 @@ from lorairo.cli._boundary import command_boundary
 from lorairo.cli._console import make_console
 from lorairo.cli._emit import emit_item, emit_result
 from lorairo.cli._image_guard import reject_original_image_records
+from lorairo.cli._image_ids import parse_image_ids_file
 from lorairo.cli._output_mode import is_json_mode
 from lorairo.services.service_container import get_service_container
 
@@ -226,6 +227,15 @@ def _parse_image_ids_csv(value: str) -> list[int]:
     return image_ids
 
 
+def _resolve_submit_image_ids(image_ids_csv: str | None, image_ids_file: str | None) -> list[int]:
+    """Resolve the mutually exclusive Batch image-ID inputs (#1307)."""
+    if image_ids_csv and image_ids_file:
+        raise click.UsageError("--image-ids and --image-ids-file cannot be used together.")
+    if image_ids_file:
+        return parse_image_ids_file(image_ids_file)
+    return _parse_image_ids_csv(image_ids_csv or "")
+
+
 def _print_jobs_table(jobs: list[Any]) -> None:
     table = Table(title="Provider Batch Jobs")
     table.add_column("ID", style="cyan", no_wrap=True)
@@ -394,10 +404,15 @@ def _resolve_processed_image_paths(
 def submit(
     project: str = typer.Option(..., "--project", "-p", help="Project name"),
     model: str = typer.Option(..., "--model", "-m", help="LiteLLM model ID or unique display name"),
-    image_ids_csv: str = typer.Option(
-        ...,
+    image_ids_csv: str | None = typer.Option(
+        None,
         "--image-ids",
         help="Comma-separated image IDs to submit (example: 2,7,11)",
+    ),
+    image_ids_file: str | None = typer.Option(
+        None,
+        "--image-ids-file",
+        help="Newline/comma-separated image ID file (up to 100,000 IDs).",
     ),
     provider: str | None = typer.Option(None, "--provider", help="Provider override: openai/anthropic"),
     endpoint: str | None = typer.Option(None, "--endpoint", help="Provider endpoint override"),
@@ -423,7 +438,7 @@ def submit(
 ) -> None:
     """Submit registered images to a Provider Batch API job."""
     with command_boundary():
-        image_ids = _parse_image_ids_csv(image_ids_csv)
+        image_ids = _resolve_submit_image_ids(image_ids_csv, image_ids_file)
         container = _activate_project(project)
         model_repo = container.db_manager.model_repo
         provider_batch_repo = container.db_manager.provider_batch_repo
