@@ -132,6 +132,7 @@ Options precede the command name. See docs/cli-workspace-config.md for precedenc
 
 - `log_level`: `str` (optional, default `INFO`) - Logging verbosity (DEBUG/INFO/WARNING/ERROR/CRITICAL). (CLI: `--log-level`)
 - `json_output`: `bool?` (optional, default `None`) - Emit machine-readable JSONL on stdout (--json) or human-readable rich output (--no-json). (CLI: `--json`, `--no-json`)
+- `read_only`: `bool` (optional, default `False`) - Root --read-only: only read_only=true commands; existing compatible DBs via mode=ro, no implicit preparation. PRECONDITION_FAILED gives preparation guidance. SQLite WAL/SHM coordination may occur. (CLI: `--read-only`)
 - `workspace`: `str?` (optional, default `None`) - Root --workspace: anchor relative configured directories. Workspace/config/lorairo.toml is optional when --config is absent. (CLI: `--workspace`)
 - `config`: `str?` (optional, default `None`) - Root --config: existing TOML; anchors directories at its parent unless --workspace is specified. CLI paths resolve against CWD; absolute configured directories stay absolute. No flags retain legacy CWD behavior. (CLI: `--config`)
 - `install_completion`: `bool?` (optional, default `None`) - Install completion for the current shell. (CLI: `--install-completion`)
@@ -142,6 +143,8 @@ Options precede the command name. See docs/cli-workspace-config.md for precedenc
 Import provider batch annotation JSONL results.
 
 - Read only: `false`
+- Strict read only: `false` (root `--read-only`; see [contract](cli-read-only.md))
+- Conditional initialization: `['db_create', 'schema_migration', 'model_seed', 'directory_create']`
 - Side effects: `file_read`, `db_read`, `db_write`
 
 #### Compact Introspection
@@ -195,6 +198,8 @@ Structured error payload emitted as kind=error by the CLI boundary.
 Run annotation for selected project images and save to DB; --output is unsupported.
 
 - Read only: `false`
+- Strict read only: `false` (root `--read-only`; see [contract](cli-read-only.md))
+- Conditional initialization: `['db_create', 'schema_migration', 'model_seed', 'directory_create']`
 - Side effects: `db_read`, `db_write`, `file_read`, `network`
 
 #### `--output` の移行 (#1310)
@@ -286,6 +291,8 @@ Structured error payload emitted as kind=error by the CLI boundary.
 Cancel a provider batch job.
 
 - Read only: `false`
+- Strict read only: `false` (root `--read-only`; see [contract](cli-read-only.md))
+- Conditional initialization: `['db_create', 'schema_migration', 'model_seed', 'directory_create']`
 - Side effects: `db_read`, `db_write`, `network`
 
 #### Compact Introspection
@@ -335,6 +342,8 @@ Structured error payload emitted as kind=error by the CLI boundary.
 Fetch normalized provider batch results and artifacts.
 
 - Read only: `false`
+- Strict read only: `false` (root `--read-only`; see [contract](cli-read-only.md))
+- Conditional initialization: `['db_create', 'schema_migration', 'model_seed', 'directory_create']`
 - Side effects: `db_read`, `db_write`, `file_write`, `network`
 
 #### Compact Introspection
@@ -381,6 +390,8 @@ Structured error payload emitted as kind=error by the CLI boundary.
 Fetch and import provider batch results into annotations.
 
 - Read only: `false`
+- Strict read only: `false` (root `--read-only`; see [contract](cli-read-only.md))
+- Conditional initialization: `['db_create', 'schema_migration', 'model_seed', 'directory_create']`
 - Side effects: `db_read`, `db_write`, `file_write`, `network`
 
 #### Compact Introspection
@@ -438,6 +449,8 @@ Structured error payload emitted as kind=error by the CLI boundary.
 List persisted provider batch jobs.
 
 - Read only: `true`
+- Strict read only: `true` (root `--read-only`; see [contract](cli-read-only.md))
+- Conditional initialization: `['db_create', 'schema_migration', 'model_seed', 'directory_create']`
 - Side effects: `db_read`
 
 #### Compact Introspection
@@ -501,6 +514,8 @@ Structured error payload emitted as kind=error by the CLI boundary.
 Show provider batch job status. Pass --items to list per-image items (custom_id, image_id, model_id, task_type, status, error_type); useful for auditing duplicate rating_preflight submissions.
 
 - Read only: `false`
+- Strict read only: `false` (root `--read-only`; see [contract](cli-read-only.md))
+- Conditional initialization: `['db_create', 'schema_migration', 'model_seed', 'directory_create']`
 - Side effects: `db_read`, `db_write`, `network`
 
 #### Compact Introspection
@@ -564,6 +579,8 @@ Structured error payload emitted as kind=error by the CLI boundary.
 Submit registered images to a provider batch job.
 
 - Read only: `false`
+- Strict read only: `false` (root `--read-only`; see [contract](cli-read-only.md))
+- Conditional initialization: `['db_create', 'schema_migration', 'model_seed', 'directory_create']`
 - Side effects: `db_read`, `db_write`, `network`
 
 #### Compact Introspection
@@ -630,6 +647,8 @@ Structured error payload emitted as kind=error by the CLI boundary.
 Get a single error record by ID (full detail). `list` は error_message を切り詰め stack_trace / file_path / image_id を省くため、1 件の全容を確認するには本コマンドを使う。
 
 - Read only: `true`
+- Strict read only: `true` (root `--read-only`; see [contract](cli-read-only.md))
+- Conditional initialization: `['db_create', 'schema_migration', 'model_seed', 'directory_create']`
 - Side effects: `db_read`
 
 #### Compact Introspection
@@ -684,6 +703,8 @@ Structured error payload emitted as kind=error by the CLI boundary.
 List error records. Default: unresolved only.
 
 - Read only: `true`
+- Strict read only: `true` (root `--read-only`; see [contract](cli-read-only.md))
+- Conditional initialization: `['db_create', 'schema_migration', 'model_seed', 'directory_create']`
 - Side effects: `db_read`
 
 #### Compact Introspection
@@ -740,6 +761,8 @@ Structured error payload emitted as kind=error by the CLI boundary.
 Mark error records as resolved. Use --dry-run to preview.
 
 - Read only: `false`
+- Strict read only: `false` (root `--read-only`; see [contract](cli-read-only.md))
+- Conditional initialization: `['db_create', 'schema_migration', 'model_seed', 'directory_create']`
 - Side effects: `db_read`, `db_write`
 
 #### Compact Introspection
@@ -787,6 +810,8 @@ Structured error payload emitted as kind=error by the CLI boundary.
 Export a dataset from a list of image IDs. Use 'images search' to resolve IDs first.
 
 - Read only: `false`
+- Strict read only: `false` (root `--read-only`; see [contract](cli-read-only.md))
+- Conditional initialization: `['db_create', 'schema_migration', 'model_seed', 'directory_create']`
 - Side effects: `db_read`, `file_read`, `file_write`
 
 #### Compact Introspection
@@ -835,6 +860,8 @@ Structured error payload emitted as kind=error by the CLI boundary.
 List images in a project. Count-first (ADR 0060): default returns only the matching count; --fetch returns id+path rows but only when the total is <= 500.
 
 - Read only: `true`
+- Strict read only: `true` (root `--read-only`; see [contract](cli-read-only.md))
+- Conditional initialization: `['db_create', 'schema_migration', 'model_seed', 'directory_create']`
 - Side effects: `db_read`, `file_read`
 
 #### Compact Introspection
@@ -889,6 +916,8 @@ Structured error payload emitted as kind=error by the CLI boundary.
 Generate processed images offline from exact registered IDs; preserve originals.
 
 - Read only: `false`
+- Strict read only: `false` (root `--read-only`; see [contract](cli-read-only.md))
+- Conditional initialization: `['db_create', 'schema_migration', 'model_seed', 'directory_create']`
 - Side effects: `db_read`, `db_write`, `file_read`, `file_write`
 
 #### Compact Introspection
@@ -953,6 +982,8 @@ Structured error payload emitted as kind=error by the CLI boundary.
 Register images and stream authoritative DB outcomes with unique selected IDs. See docs/cli-registration-workflow.md for same-project ID handoff and partial failures.
 
 - Read only: `false`
+- Strict read only: `false` (root `--read-only`; see [contract](cli-read-only.md))
+- Conditional initialization: `['db_create', 'schema_migration', 'model_seed', 'directory_create']`
 - Side effects: `file_read`, `file_write`, `db_read`, `db_write`
 
 #### Compact Introspection
@@ -1015,6 +1046,8 @@ Structured error payload emitted as kind=error by the CLI boundary.
 Search images by JSON query. Returns image_ids for use with export create or tags commands.
 
 - Read only: `true`
+- Strict read only: `true` (root `--read-only`; see [contract](cli-read-only.md))
+- Conditional initialization: `['db_create', 'schema_migration', 'model_seed', 'directory_create']`
 - Side effects: `db_read`
 
 #### Compact Introspection
@@ -1095,6 +1128,8 @@ Structured error payload emitted as kind=error by the CLI boundary.
 Show current tags, captions, scores, and ratings for images (read-only). Use as judgment material before tags add/remove/replace.
 
 - Read only: `true`
+- Strict read only: `true` (root `--read-only`; see [contract](cli-read-only.md))
+- Conditional initialization: `['db_create', 'schema_migration', 'model_seed', 'directory_create']`
 - Side effects: `db_read`
 
 #### Compact Introspection
@@ -1147,6 +1182,8 @@ Structured error payload emitted as kind=error by the CLI boundary.
 Add tags to images in a project.
 
 - Read only: `false`
+- Strict read only: `false` (root `--read-only`; see [contract](cli-read-only.md))
+- Conditional initialization: `['db_create', 'schema_migration', 'model_seed', 'directory_create']`
 - Side effects: `db_read`, `db_write`
 
 #### Compact Introspection
@@ -1193,6 +1230,8 @@ Structured error payload emitted as kind=error by the CLI boundary.
 List available annotator models.
 
 - Read only: `true`
+- Strict read only: `true` (root `--read-only`; see [contract](cli-read-only.md))
+- Conditional initialization: `['model_config_create']`
 - Side effects: `db_read`, `file_read`
 
 #### Compact Introspection
@@ -1249,6 +1288,8 @@ Structured error payload emitted as kind=error by the CLI boundary.
 Refresh available WebAPI model metadata and sync it into the DB.
 
 - Read only: `false`
+- Strict read only: `false` (root `--read-only`; see [contract](cli-read-only.md))
+- Conditional initialization: `['db_create', 'schema_migration', 'model_seed', 'directory_create']`
 - Side effects: `network`, `db_write`, `db_read`
 
 #### Compact Introspection
@@ -1289,6 +1330,8 @@ Structured error payload emitted as kind=error by the CLI boundary.
 Create a project.
 
 - Read only: `false`
+- Strict read only: `false` (root `--read-only`; see [contract](cli-read-only.md))
+- Conditional initialization: `[]`
 - Side effects: `file_write`, `db_write`
 
 #### Compact Introspection
@@ -1330,6 +1373,8 @@ Structured error payload emitted as kind=error by the CLI boundary.
 Delete a project.
 
 - Read only: `false`
+- Strict read only: `false` (root `--read-only`; see [contract](cli-read-only.md))
+- Conditional initialization: `[]`
 - Side effects: `file_write`, `db_write`
 
 #### Compact Introspection
@@ -1370,6 +1415,8 @@ Structured error payload emitted as kind=error by the CLI boundary.
 List projects.
 
 - Read only: `true`
+- Strict read only: `true` (root `--read-only`; see [contract](cli-read-only.md))
+- Conditional initialization: `[]`
 - Side effects: `file_read`, `db_read`
 
 #### Compact Introspection
@@ -1410,11 +1457,56 @@ Structured error payload emitted as kind=error by the CLI boundary.
 - `hint`: `str?` (optional, default `None`)
 - `details`: `dict?` (optional, default `None`)
 
+### `project prepare`
+
+Explicitly prepare image schema/model seeds; --tags also prepares/downloads tag databases.
+
+- Read only: `false`
+- Strict read only: `false` (root `--read-only`; see [contract](cli-read-only.md))
+- Conditional initialization: `['db_create', 'schema_migration', 'model_seed', 'directory_create']`
+- Side effects: `db_read`, `db_write`, `file_write`, `network`
+
+#### Compact Introspection
+
+```bash
+lorairo-cli --json describe "project prepare"
+```
+
+#### Models
+
+**Input `ProjectPrepareInput`**
+
+- `project`: `str` (required) - Existing project to prepare for database access (CLI: `--project`, `-p`)
+- `tags`: `bool` (optional, default `False`) - Also initialize/download tag databases with write permission (CLI: `--tags`)
+
+**Output `ProjectPrepareResult`**
+
+- `kind`: `result` (optional, default `result`)
+- `ok`: `true` (optional, default `True`)
+- `message`: `str` (required)
+- `project`: `str` (required)
+- `tags`: `bool` (required)
+
+**Error `CliErrorResponse`**
+
+Structured error payload emitted as kind=error by the CLI boundary.
+
+- `kind`: `error` (optional, default `error`)
+- `ok`: `false` (optional, default `False`)
+- `code`: `str` (required)
+- `message`: `str` (required)
+- `retryable`: `bool` (required)
+- `user_action_required`: `bool` (required)
+- `hint`: `str?` (optional, default `None`)
+- `details`: `dict?` (optional, default `None`)
+
 ### `status`
 
 Show system status (config file and API key availability).
 
 - Read only: `true`
+- Strict read only: `true` (root `--read-only`; see [contract](cli-read-only.md))
+- Conditional initialization: `[]`
 - Side effects: `file_read`
 
 #### Compact Introspection
@@ -1458,6 +1550,8 @@ Structured error payload emitted as kind=error by the CLI boundary.
 Add tags to images. Default dry-run; use --apply to write.
 
 - Read only: `false`
+- Strict read only: `false` (root `--read-only`; see [contract](cli-read-only.md))
+- Conditional initialization: `['db_create', 'schema_migration', 'model_seed', 'directory_create']`
 - Side effects: `db_read`, `db_write`
 
 #### Compact Introspection
@@ -1535,6 +1629,8 @@ Structured error payload emitted as kind=error by the CLI boundary.
 Record a typo → preferred-tag alias in the user DB. Dry-run by default.
 
 - Read only: `false`
+- Strict read only: `false` (root `--read-only`; see [contract](cli-read-only.md))
+- Conditional initialization: `['db_create', 'schema_migration', 'model_seed', 'directory_create']`
 - Side effects: `db_read`, `db_write`
 
 #### Compact Introspection
@@ -1583,6 +1679,8 @@ Structured error payload emitted as kind=error by the CLI boundary.
 Remove tags from images. Default dry-run; use --apply to write.
 
 - Read only: `false`
+- Strict read only: `false` (root `--read-only`; see [contract](cli-read-only.md))
+- Conditional initialization: `['db_create', 'schema_migration', 'model_seed', 'directory_create']`
 - Side effects: `db_read`, `db_write`
 
 #### Compact Introspection
@@ -1658,6 +1756,8 @@ Structured error payload emitted as kind=error by the CLI boundary.
 Replace a tag with another across images. Default dry-run; use --apply to write.
 
 - Read only: `false`
+- Strict read only: `false` (root `--read-only`; see [contract](cli-read-only.md))
+- Conditional initialization: `['db_create', 'schema_migration', 'model_seed', 'directory_create']`
 - Side effects: `db_read`, `db_write`
 
 #### Compact Introspection
@@ -1733,6 +1833,8 @@ Structured error payload emitted as kind=error by the CLI boundary.
 Add translations to tags (user DB overlay). Dry-run by default; --apply to write.
 
 - Read only: `false`
+- Strict read only: `false` (root `--read-only`; see [contract](cli-read-only.md))
+- Conditional initialization: `['db_create', 'schema_migration', 'model_seed', 'directory_create']`
 - Side effects: `db_read`, `db_write`, `file_read`
 
 #### Compact Introspection
@@ -1805,6 +1907,8 @@ Structured error payload emitted as kind=error by the CLI boundary.
 Delete a user DB overlay translation (dry-run by default). Issue #1237. Only removes translations added via `translations add`; base-DB rows return not_found.
 
 - Read only: `false`
+- Strict read only: `false` (root `--read-only`; see [contract](cli-read-only.md))
+- Conditional initialization: `['db_create', 'schema_migration', 'model_seed', 'directory_create']`
 - Side effects: `db_read`, `db_write`
 
 #### Compact Introspection
@@ -1862,6 +1966,8 @@ Structured error payload emitted as kind=error by the CLI boundary.
 Show ja/en translation status for tags (read-only). Issue #1173 / ADR 0085.
 
 - Read only: `true`
+- Strict read only: `true` (root `--read-only`; see [contract](cli-read-only.md))
+- Conditional initialization: `['network_download', 'tag_cache_create', 'db_create', 'directory_create']`
 - Side effects: `db_read`
 
 #### Compact Introspection
@@ -1935,6 +2041,8 @@ Structured error payload emitted as kind=error by the CLI boundary.
 Hide a translation from merged display via tombstone (dry-run by default). Issue #1237. Base DB is not modified; use for base-DB-origin mistranslations that cannot be deleted.
 
 - Read only: `false`
+- Strict read only: `false` (root `--read-only`; see [contract](cli-read-only.md))
+- Conditional initialization: `['db_create', 'schema_migration', 'model_seed', 'directory_create']`
 - Side effects: `db_read`, `db_write`
 
 #### Compact Introspection
@@ -1991,6 +2099,8 @@ Structured error payload emitted as kind=error by the CLI boundary.
 Remove a suppress tombstone (dry-run by default). Issue #1237.
 
 - Read only: `false`
+- Strict read only: `false` (root `--read-only`; see [contract](cli-read-only.md))
+- Conditional initialization: `['db_create', 'schema_migration', 'model_seed', 'directory_create']`
 - Side effects: `db_read`, `db_write`
 
 #### Compact Introspection
@@ -2048,6 +2158,8 @@ Structured error payload emitted as kind=error by the CLI boundary.
 Show version information.
 
 - Read only: `true`
+- Strict read only: `true` (root `--read-only`; see [contract](cli-read-only.md))
+- Conditional initialization: `[]`
 - Side effects: 
 
 #### Compact Introspection

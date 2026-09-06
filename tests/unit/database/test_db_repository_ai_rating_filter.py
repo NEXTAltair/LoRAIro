@@ -349,15 +349,7 @@ class TestUnratedFilter:
         base_query = select(Image.id)
         mock_session = Mock(spec=Session)
 
-        # ADR 0035 段階 4: 新 ImageRepository (`repository/image.py`) は
-        # MANUAL_EDIT model lookup を `ModelRepository._get_or_create_manual_edit_model`
-        # static helper に直接委譲しているため、import 元 (`lorairo.database.repository.image`)
-        # の参照を mock する。
-        with patch(
-            "lorairo.database.repository.image.ModelRepository._get_or_create_manual_edit_model",
-            return_value=1,
-        ):
-            result_query = repository._apply_manual_filters(base_query, "UNRATED", None, mock_session)
+        result_query = repository._apply_manual_filters(base_query, "UNRATED", None, mock_session)
 
         # クエリが変更されたことを確認
         assert result_query is not None
@@ -444,11 +436,7 @@ class TestRatedFilter:
         base_query = select(Image.id)
         mock_session = Mock(spec=Session)
 
-        with patch(
-            "lorairo.database.repository.image.ModelRepository._get_or_create_manual_edit_model",
-            return_value=1,
-        ):
-            result_query = repository._apply_manual_filters(base_query, "RATED", None, mock_session)
+        result_query = repository._apply_manual_filters(base_query, "RATED", None, mock_session)
 
         assert result_query is not None
         assert result_query != base_query
@@ -496,24 +484,16 @@ class TestMultiSelectRatingFilter:
     def test_build_manual_rating_condition_list(self, repository):
         """手動レーティング複数値で条件式が生成される。"""
         mock_session = Mock(spec=Session)
-        with patch(
-            "lorairo.database.repository.image.ModelRepository._get_or_create_manual_edit_model",
-            return_value=1,
-        ):
-            condition = repository._build_manual_rating_condition(["PG", "R"], mock_session)
-            assert condition is not None
-            assert repository._build_manual_rating_condition(None, mock_session) is None
+        condition = repository._build_manual_rating_condition(["PG", "R"], mock_session)
+        assert condition is not None
+        assert repository._build_manual_rating_condition(None, mock_session) is None
 
     def test_get_images_by_filter_multi_and(self, repository_with_mock_session):
         """manual / AI 複数値 + AND 結合 (既定) でクエリが実行される。"""
         repository, mock_session = repository_with_mock_session
-        with patch(
-            "lorairo.database.repository.image.ModelRepository._get_or_create_manual_edit_model",
-            return_value=1,
-        ):
-            results, count = repository.get_images_by_filter(
-                ImageFilterCriteria(manual_rating_filter=["PG", "R"], ai_rating_filter=["X"])
-            )
+        results, count = repository.get_images_by_filter(
+            ImageFilterCriteria(manual_rating_filter=["PG", "R"], ai_rating_filter=["X"])
+        )
         assert mock_session.execute.called
         assert results == []
         assert count == 0
@@ -521,15 +501,9 @@ class TestMultiSelectRatingFilter:
     def test_get_images_by_filter_multi_or(self, repository_with_mock_session):
         """manual / AI 両方指定 + rating_combine='or' で OR 合成パスが実行される。"""
         repository, mock_session = repository_with_mock_session
-        with patch(
-            "lorairo.database.repository.image.ModelRepository._get_or_create_manual_edit_model",
-            return_value=1,
-        ):
-            _results, count = repository.get_images_by_filter(
-                ImageFilterCriteria(
-                    manual_rating_filter=["PG"], ai_rating_filter=["R"], rating_combine="or"
-                )
-            )
+        _results, count = repository.get_images_by_filter(
+            ImageFilterCriteria(manual_rating_filter=["PG"], ai_rating_filter=["R"], rating_combine="or")
+        )
         assert mock_session.execute.called
         assert count == 0
 

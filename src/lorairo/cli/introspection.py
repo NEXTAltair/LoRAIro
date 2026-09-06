@@ -994,6 +994,17 @@ class ToolSpec:
             "read_only": self.read_only,
             "side_effects": list(self.side_effects),
             "global_options": [field.to_dict() for field in get_global_options().resolved_fields()],
+            "strict_read_only_supported": self.read_only,
+            "conditional_side_effects": (
+                ["model_config_create"]
+                if self.path == "models list"
+                else ["network_download", "tag_cache_create", "db_create", "directory_create"]
+                if self.path == "tags translations show"
+                else ["db_create", "schema_migration", "model_seed", "directory_create"]
+                if "db_read" in self.side_effects and self.path not in {"models list", "project list"}
+                else []
+            ),
+            "read_only_contract": "steady_state; use root --read-only to prohibit logical writes and implicit preparation",
         }
 
 
@@ -1008,7 +1019,24 @@ def _f(
     return FieldSpec(name=name, type=type_, required=required, default=default, description=description)
 
 
+class ProjectPrepareInput(BaseModel):
+    project: str
+    tags: bool = False
+
+
+class ProjectPrepareResult(BaseModel):
+    kind: Literal["result"] = "result"
+    ok: Literal[True] = True
+    message: str
+    project: str
+    tags: bool
+
+
 class GlobalOptionsSchema(BaseModel):
+    read_only: bool = Field(
+        default=False,
+        description="Root --read-only: only read_only=true commands; existing compatible DBs via mode=ro, no implicit preparation. PRECONDITION_FAILED gives preparation guidance. SQLite WAL/SHM coordination may occur.",
+    )
     workspace: str | None = Field(
         default=None,
         description="Root --workspace: anchor relative configured directories. Workspace/config/lorairo.toml is optional when --config is absent.",
@@ -1029,6 +1057,12 @@ GLOBAL_OPTIONS = ModelSpec(
             description=GlobalOptionsSchema.model_fields["workspace"].description or "",
         ),
         _f("config", "path?", description=GlobalOptionsSchema.model_fields["config"].description or ""),
+        _f(
+            "read_only",
+            "bool",
+            default=False,
+            description=GlobalOptionsSchema.model_fields["read_only"].description or "",
+        ),
     ),
     description="Options precede the command name. See docs/cli-workspace-config.md for precedence.",
     schema_model=GlobalOptionsSchema,
@@ -1069,6 +1103,28 @@ def _output(
 
 
 TOOL_SPECS: dict[str, ToolSpec] = {
+    "project prepare": ToolSpec(
+        name="project prepare",
+        path="project prepare",
+        summary="Explicitly prepare image schema/model seeds; --tags also prepares/downloads tag databases.",
+        read_only=False,
+        side_effects=("db_read", "db_write", "file_write", "network"),
+        inputs=(
+            _input(
+                "ProjectPrepareInput",
+                (_f("project", "str", required=True), _f("tags", "bool", default=False)),
+                schema=ProjectPrepareInput,
+            ),
+        ),
+        outputs=(
+            _output(
+                "ProjectPrepareResult",
+                (_f("project", "str"), _f("tags", "bool")),
+                schema=ProjectPrepareResult,
+            ),
+        ),
+        errors=(ERROR_MODEL,),
+    ),
     "version": ToolSpec(
         name="version",
         path="version",

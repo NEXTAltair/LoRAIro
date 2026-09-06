@@ -121,6 +121,11 @@ def _configure(
         "--json/--no-json",
         help="Emit machine-readable JSONL on stdout (--json) or human-readable rich output (--no-json).",
     ),
+    read_only: bool = typer.Option(
+        False,
+        "--read-only",
+        help="Require compatible existing databases; reject writes and implicit preparation.",
+    ),
     workspace: Path | None = typer.Option(
         None,
         "--workspace",
@@ -150,12 +155,23 @@ def _configure(
     elif not has_prescanned_mode():
         set_json_mode(resolve_output_mode([]))
 
-    if workspace is not None or config_path is not None:
+    if workspace is not None or config_path is not None or read_only:
         with command_boundary():
             try:
-                selected = resolve_runtime_configuration(workspace, config_path)
+                if workspace is None and config_path is None:
+                    from lorairo.utils.config import RuntimeConfiguration
+
+                    selected = RuntimeConfiguration(
+                        Path.cwd(), DEFAULT_CONFIG_PATH, get_config(DEFAULT_CONFIG_PATH)
+                    )
+                else:
+                    selected = resolve_runtime_configuration(workspace, config_path)
             except (ValueError, KeyError, OSError) as exc:
                 raise click.BadParameter(str(exc), param_hint="--workspace / --config") from exc
+            if read_only:
+                from lorairo.database.access_policy import read_only_scope
+
+                ctx.with_resource(read_only_scope())
             ctx.with_resource(runtime_configuration_scope(selected))
             ctx.with_resource(service_container_scope())
 

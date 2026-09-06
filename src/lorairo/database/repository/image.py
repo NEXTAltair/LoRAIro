@@ -66,7 +66,6 @@ from ..schema import (
     Tag,
 )
 from .base import BaseRepository
-from .model import ModelRepository
 
 
 class PhashClassification(StrEnum):
@@ -2000,8 +1999,10 @@ class ImageRepository(BaseRepository):
             )
 
             # 手動レーティングに基づく除外条件（ratingsテーブルから最新のMANUAL_EDIT ratingを参照）
-            # ADR 0035 段階 4: MANUAL_EDIT model lookup は ModelRepository static helper を直接呼ぶ。
-            manual_edit_model_id = ModelRepository._get_or_create_manual_edit_model(session)
+            # 読み取りフィルタではモデルを作らず、未登録なら一致なしとなる scalar SELECT を使う。
+            manual_edit_model_id = (
+                select(Model.id).where(Model.litellm_model_id == MANUAL_EDIT_LITELLM_ID).scalar_subquery()
+            )
             manual_nsfw_condition = (
                 exists()
                 .where(
@@ -2233,8 +2234,10 @@ class ImageRepository(BaseRepository):
         if not values:
             return None
 
-        # ADR 0035 段階 4: MANUAL_EDIT model lookup は ModelRepository static helper を直接呼ぶ。
-        manual_edit_model_id = ModelRepository._get_or_create_manual_edit_model(session)
+        # 読み取りフィルタではモデルを作らず、未登録なら一致なしとなる scalar SELECT を使う。
+        manual_edit_model_id = (
+            select(Model.id).where(Model.litellm_model_id == MANUAL_EDIT_LITELLM_ID).scalar_subquery()
+        )
         has_manual_rating_subq = (
             select(Rating.image_id).where(Rating.model_id == manual_edit_model_id).distinct()
         )

@@ -104,6 +104,7 @@ def test_images_update_describes_only_supported_input_fields() -> None:
     assert {field["name"] for field in input_rows[0]["fields"]} == {
         "workspace",
         "config",
+        "read_only",
         "log_level",
         "json_output",
         "install_completion",
@@ -913,3 +914,13 @@ def test_generated_docs_match_schemas_and_preserve_migration_guidance() -> None:
     assert "部分失敗と既存スクリプトの移行 (#1313)" in rendered
     assert "`--output` の移行 (#1310)" in rendered
     assert "read_only" in rendered
+
+
+def test_translation_show_discloses_conditional_cache_initialization() -> None:
+    result = runner.invoke(app, ["--json", "describe", "tags translations show"])
+    assert result.exit_code == 0
+    tool = _jsonl(result.stdout)[0]
+    assert tool["read_only"] is tool["strict_read_only_supported"] is True
+    assert {"network_download", "tag_cache_create", "db_create", "directory_create"} <= set(
+        tool["conditional_side_effects"]
+    )

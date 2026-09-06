@@ -107,6 +107,28 @@ def hint_for(code: ErrorCode, exc: BaseException | None = None) -> str | None:
     Returns:
         対処ヒント文字列、定義がなければ ``None``。
     """
+    if exc is not None and code is ErrorCode.PRECONDITION_FAILED:
+        if _is_read_only_model_config_error(exc):
+            details = getattr(exc, "details", {})
+            action = details.get("action") if isinstance(details, dict) else None
+            if action == "system_config_unreadable":
+                return (
+                    "Back up the model configuration and repair its readability and TOML syntax before "
+                    "retrying. Writable models list does not repair invalid configuration. "
+                    "See docs/cli-read-only.md."
+                )
+            if action == "write_forbidden":
+                return (
+                    "This operation requires configuration write permission. Run the intended update "
+                    "without --read-only, then retry the read. See docs/cli-read-only.md."
+                )
+            return (
+                "Prepare model configuration with write permission: run models list without --read-only "
+                "in the same working directory, then retry. See docs/cli-read-only.md."
+            )
+        hint = getattr(exc, "hint", None)
+        if isinstance(hint, str):
+            return hint
     if exc is not None and code is ErrorCode.IO_ERROR:
         from lorairo.database.db_errors import is_sqlite_disk_io_error
 
@@ -238,6 +260,8 @@ def _classify_lorairo_exception(exc: BaseException) -> ErrorInfo | None:
         return ErrorInfo(ErrorCode.NOT_FOUND, retryable=False, user_action_required=True)
     if isinstance(exc, (app_exc.ProjectAlreadyExistsError, app_exc.DuplicateImageError)):
         return ErrorInfo(ErrorCode.ALREADY_EXISTS, retryable=False, user_action_required=True)
+    if isinstance(exc, app_exc.ReadOnlyPreconditionError):
+        return ErrorInfo(ErrorCode.PRECONDITION_FAILED, retryable=False, user_action_required=True)
     if isinstance(exc, app_exc.ResultSetTooLargeError):
         return ErrorInfo(ErrorCode.RESULT_SET_TOO_LARGE, retryable=False, user_action_required=True)
     if isinstance(exc, app_exc.BatchImportError):
@@ -299,6 +323,13 @@ def _classify_standard_exception(exc: BaseException) -> ErrorInfo:
     return ErrorInfo(ErrorCode.INTERNAL_ERROR, retryable=False, user_action_required=False)
 
 
+def _is_read_only_model_config_error(exc: BaseException) -> bool:
+    """Classify failed cold public imports without importing the package again."""
+    return _name_in_mro(exc, frozenset({"ReadOnlyConfigError"})) and _module_chain_matches(
+        exc, ("image_annotator_lib.config_policy",)
+    )
+
+
 def classify_exception(exc: BaseException) -> ErrorInfo:
     """raise された例外を安定 :class:`ErrorInfo` に写す。
 
@@ -312,6 +343,10 @@ def classify_exception(exc: BaseException) -> ErrorInfo:
     Returns:
         コードと再試行/ユーザー操作フラグを持つ :class:`ErrorInfo`。
     """
+    from lorairo.public_api.exceptions import ReadOnlyPreconditionError
+
+    if isinstance(exc, ReadOnlyPreconditionError) or _is_read_only_model_config_error(exc):
+        return ErrorInfo(ErrorCode.PRECONDITION_FAILED, retryable=False, user_action_required=True)
     for predicate, info in _CHAIN_CLASSIFIERS:
         if predicate(exc):
             return info
