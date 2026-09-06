@@ -2,14 +2,18 @@
 
 from collections.abc import Callable
 from pathlib import Path
+from tempfile import NamedTemporaryFile
 from typing import TYPE_CHECKING, Any
 
 from ..database.db_manager import ImageDatabaseManager
 from ..filesystem import FileSystemManager
+from ..public_api.processing import ProcessingOutcome
 from ..utils.log import logger
 from .configuration_service import ConfigurationService
 
 if TYPE_CHECKING:
+    from PIL.Image import Image as PILImage
+
     from ..image_transforms.image_processor import ImageProcessingManager
 
 # ImageAnalyzer はアノテーション関連なので、ここでは直接使わない想定 (必要なら別サービス経由)
@@ -36,6 +40,155 @@ class ImageProcessingService:
         self.fsm = fsm
         self.idm = idm
         # ImageProcessingManager は処理時に一時的に作成（永続インスタンスは削除）
+
+    def process_image_ids_offline(
+        self, image_ids: list[int], target_resolution: int, *, rebuild: bool = False
+    ) -> list[ProcessingOutcome]:
+        """Generate exact-ID outputs using the existing CPU resize pipeline.
+
+        No upscaler is selected, regardless of configured defaults. Preferred-size
+        buckets are disabled so the requested long side remains authoritative.
+        Valid existing outputs are skipped unless rebuild is explicit. Missing or
+        corrupt exact outputs are repaired in place when their dimensions agree.
+        """
+        from ..image_transforms.image_processor import ImageProcessingManager
+
+        if not 32 <= target_resolution <= 8192 or target_resolution % 32:
+            raise ValueError("resolution must be a multiple of 32 between 32 and 8192")
+        if any(image_id <= 0 for image_id in image_ids):
+            raise ValueError("image IDs must be positive")
+        if not image_ids:
+            return []
+        manager = ImageProcessingManager(self.fsm, target_resolution, [], self.config_service)
+        outcomes: list[ProcessingOutcome] = []
+        for image_id in dict.fromkeys(image_ids):
+            try:
+                outcomes.append(self._process_id_offline(image_id, target_resolution, rebuild, manager))
+            except Exception as exc:
+                logger.opt(exception=True).error("Offline processing failed for ID {}: {}", image_id, exc)
+                outcomes.append(ProcessingOutcome(image_id, "failed", target_resolution, reason=str(exc)))
+        return outcomes
+
+    def _process_id_offline(
+        self, image_id: int, resolution: int, rebuild: bool, manager: "ImageProcessingManager"
+    ) -> ProcessingOutcome:
+        """Resolve a registered original and publish its offline processed output."""
+        from ..database.db_core import resolve_stored_path
+
+        original = self.idm.get_image_metadata(image_id)
+        if not original:
+            raise ValueError("image_not_found: original image ID does not exist")
+        source = resolve_stored_path(original["stored_image_path"])
+        if not source.is_file():
+            raise FileNotFoundError("original_file_missing: registered original file is unavailable")
+        from PIL import Image
+
+        with Image.open(source) as original_file:
+            original_file.load()
+        existing = self._find_exact_processed_output(image_id, resolution)
+        existing_path = resolve_stored_path(existing["stored_image_path"]) if existing else None
+        if existing_path is not None:
+            self._validate_processed_destination(existing_path, source)
+        if (
+            existing
+            and existing_path
+            and not rebuild
+            and self._valid_processed_output(existing_path, existing)
+        ):
+            return ProcessingOutcome(image_id, "skipped", resolution, str(existing_path), existing["id"])
+        image, _metadata = manager.process_image(
+            source, original.get("has_alpha", False), original.get("mode", "RGB"), upscaler=None
+        )
+        if image is None:
+            raise RuntimeError("resize_failed: offline image processing returned no image")
+        try:
+            if max(image.size) != resolution:
+                raise RuntimeError("resize_resolution_mismatch: output long side differs from request")
+            if existing and existing_path:
+                self._validate_rebuild_metadata(image, existing)
+                self._replace_processed_output(image, existing_path)
+                processed_id = int(existing["id"])
+                output = existing_path
+            else:
+                # Validate the same directory computed by FileSystemManager before writing.
+                destination = self.fsm.get_resolution_dir(resolution) / source.parent.name
+                self._validate_processed_destination(destination / "pending.webp", source)
+                output = self.fsm.save_processed_image(image, source, resolution)
+                self._validate_processed_destination(output, source)
+                metadata = self.fsm.get_image_info(output)
+                registered_id = self.idm.register_processed_image(image_id, output, metadata)
+                if registered_id is None:
+                    raise RuntimeError(
+                        f"processed_registration_failed: unlinked output remains at {output}"
+                    )
+                processed_id = registered_id
+        finally:
+            image.close()
+        return ProcessingOutcome(image_id, "success", resolution, str(output), processed_id)
+
+    def _find_exact_processed_output(self, image_id: int, resolution: int) -> dict[str, Any] | None:
+        """Repair the first exact row, matching downstream repository selection."""
+        rows = self.idm.image_repo.get_processed_image(image_id, all_data=True)
+        if not isinstance(rows, list):
+            raise RuntimeError("processed_lookup_failed: expected processed metadata list")
+        return next((row for row in rows if max(row["width"], row["height"]) == resolution), None)
+
+    def _validate_processed_destination(self, output: Path, source: Path) -> None:
+        """Restrict replacement to this project's non-original image dataset."""
+        root = self.fsm.image_dataset_dir
+        resolved = output.resolve()
+        if root is None or not resolved.is_relative_to(root.resolve()):
+            raise ValueError("unsafe_processed_path: output is outside the project image dataset")
+        relative = resolved.relative_to(root.resolve())
+        if resolved == source.resolve() or "original_images" in relative.parts:
+            raise ValueError("unsafe_processed_path: output points at original image storage")
+
+    @staticmethod
+    def _validate_rebuild_metadata(image: "PILImage", metadata: dict[str, Any]) -> None:
+        """Refuse replacements that would invalidate the preserved processed row."""
+        if image.size != (metadata["width"], metadata["height"]):
+            raise ValueError("processed_metadata_mismatch: rebuild dimensions differ from existing row")
+        if (
+            metadata.get("upscaler_used")
+            or metadata.get("mode") not in (None, image.mode)
+            or bool(metadata.get("has_alpha")) != ("A" in image.getbands())
+        ):
+            raise ValueError(
+                "processed_provenance_mismatch: offline rebuild cannot preserve existing "
+                "upscaler/mode/alpha metadata; choose another resolution for a new offline output "
+                "or restore the existing processed file"
+            )
+
+    @staticmethod
+    def _valid_processed_output(path: Path, metadata: dict[str, Any]) -> bool:
+        """Validate decode and dimensions before counting an existing file as usable."""
+        from PIL import Image, UnidentifiedImageError
+
+        try:
+            with Image.open(path) as image:
+                image.load()
+                return (
+                    image.size == (metadata["width"], metadata["height"])
+                    and metadata.get("mode") in (None, image.mode)
+                    and bool(metadata.get("has_alpha")) == ("A" in image.getbands())
+                )
+        except (OSError, UnidentifiedImageError):
+            return False
+
+    @staticmethod
+    def _replace_processed_output(image: "PILImage", output: Path) -> None:
+        """Atomically replace only a previously associated processed-image file.
+
+        The Pillow type is imported only for type checking to preserve lazy imports.
+        """
+        output.parent.mkdir(parents=True, exist_ok=True)
+        with NamedTemporaryFile(dir=output.parent, suffix=output.suffix, delete=False) as stream:
+            temporary = Path(stream.name)
+        try:
+            image.save(temporary)
+            temporary.replace(output)
+        finally:
+            temporary.unlink(missing_ok=True)
 
     def create_processing_manager(self, target_resolution: int) -> "ImageProcessingManager":
         """処理時に一時的な ImageProcessingManager インスタンスを作成します。

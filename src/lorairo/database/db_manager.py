@@ -1,6 +1,7 @@
 """DBマネージャー (高レベルインターフェース)"""
 
 import uuid
+from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from enum import StrEnum
@@ -323,6 +324,7 @@ class ImageDatabaseManager:
         *,
         associated_annotations: dict[str, Any] | None = None,
         tag_id_cache: dict[str, int | None] | None = None,
+        on_registered: Callable[[RegistrationSideEffectResult], None] | None = None,
     ) -> RegistrationSideEffectResult:
         """画像を登録し、分類結果駆動の副作用を全経路統一ルールで適用する (ADR 0061 §4, #633)。
 
@@ -347,6 +349,7 @@ class ImageDatabaseManager:
                 (``SidecarAnnotationReader.get_existing_annotations`` の戻り値)。
                 None の場合は本メソッド内で読み込む。
             tag_id_cache: 正規化済みタグ → tag_id のキャッシュ (N+1 回避用)。
+            on_registered: 登録確定直後、副作用の前に結果を通知する任意 callback。
 
         Returns:
             RegistrationSideEffectResult: outcome / image_id / metadata。
@@ -364,6 +367,9 @@ class ImageDatabaseManager:
         image_id, metadata = result
         classification = metadata.get("phash_classification")
         outcome = self._classification_to_outcome(classification)
+        confirmed = RegistrationSideEffectResult(outcome, image_id, metadata)
+        if on_registered is not None:
+            on_registered(confirmed)
 
         # 関連 .txt / .caption を分類結果に従った image_id へ取り込む。
         # variant は新規 ID、duplicate は既存 ID。いずれも result の image_id がターゲット。
@@ -379,7 +385,7 @@ class ImageDatabaseManager:
         if outcome is RegistrationOutcome.DUPLICATE:
             self._register_filename_alias(image_id, image_path.stem)
 
-        return RegistrationSideEffectResult(outcome, image_id, metadata)
+        return confirmed
 
     @staticmethod
     def _classification_to_outcome(classification: object) -> RegistrationOutcome:

@@ -7,16 +7,18 @@
 
 from collections.abc import Callable, Generator
 from contextlib import contextmanager
+from contextvars import ContextVar
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
 # SQLAlchemy imports
-from sqlalchemy import StaticPool, create_engine, event, inspect
-from sqlalchemy.engine import Engine
+from sqlalchemy import StaticPool, create_engine, event, inspect, select, text
+from sqlalchemy.engine import Connection, Engine
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session, sessionmaker
 
-from ..utils.config import get_config
+from ..utils.config import get_config, get_runtime_configuration
 from ..utils.log import logger
 
 # --- Configuration --- #
@@ -248,44 +250,135 @@ USER_TAG_DB_PATH: Path | None = None
 _tag_db_initialized: bool = False
 
 
+@dataclass
+class _TagDatabaseScope:
+    initialized_directory: Path | None = None
+
+
+_TAG_DATABASE_SCOPE: ContextVar[_TagDatabaseScope | None] = ContextVar("tag_database_scope", default=None)
+
+
+def get_tag_database_directory() -> Path:
+    """Resolve the explicit stable tag directory without creating files."""
+    selected = get_runtime_configuration()
+    if selected is None:
+        return DB_DIR
+    directories = selected.settings["directories"]
+    return Path(directories.get("database_dir") or directories["database_base_dir"]).resolve()
+
+
+@contextmanager
+def tag_database_scope() -> Generator[None, None, None]:
+    """Isolate a synchronous CLI invocation using the package's public runtime scope."""
+    from genai_tag_db_tools import database_runtime_scope
+
+    with database_runtime_scope():
+        token = _TAG_DATABASE_SCOPE.set(_TagDatabaseScope())
+        try:
+            yield
+        finally:
+            _TAG_DATABASE_SCOPE.reset(token)
+
+
 def ensure_tag_db_initialized() -> None:
     """タグDBを遅延初期化する。初回呼び出し時のみ HF Hub に接続する。"""
     import os
 
     global _tag_db_initialized, DB_DIR, USER_TAG_DB_PATH
-    if _tag_db_initialized:
-        return
-    DB_DIR = ensure_default_db_dir()
-    token = os.environ.get("HF_TOKEN") or os.environ.get("HUGGINGFACE_TOKEN")
-    try:
-        from genai_tag_db_tools import initialize_databases
+    selected = get_runtime_configuration()
+    scope = _TAG_DATABASE_SCOPE.get()
+    from .access_policy import is_read_only
 
+    if is_read_only() and (selected is None or scope is None):
+        from ..public_api.exceptions import ReadOnlyPreconditionError
+
+        raise ReadOnlyPreconditionError(
+            "Read-only tag access requires an isolated configuration scope",
+            reason="tag_database_scope_required",
+        )
+    if selected is not None:
+        if scope is None:
+            raise RuntimeError("Explicit configuration requires a tag database scope")
+        target_directory = get_tag_database_directory()
+        if scope.initialized_directory == target_directory:
+            return
+    else:
+        if _tag_db_initialized:
+            return
+        DB_DIR = ensure_default_db_dir()
+        target_directory = DB_DIR
+    token = os.environ.get("HF_TOKEN") or os.environ.get("HUGGINGFACE_TOKEN")
+
+    from genai_tag_db_tools import ReadOnlyDatabaseError, initialize_databases
+
+    try:
         logger.info("Initializing genai-tag-db-tools databases...")
         results = initialize_databases(
-            user_db_dir=DB_DIR,
+            user_db_dir=target_directory,
             format_name="Lorairo",
             token=token,
+            **({"read_only": True} if is_read_only() else {}),
         )
-        USER_TAG_DB_PATH = DB_DIR / "user_tags.sqlite"
-        _tag_db_initialized = True
-        logger.info(f"Tag databases initialized: {len(results)} base DB(s) + user DB at {USER_TAG_DB_PATH}")
+        user_path = target_directory / "user_tags.sqlite"
+        if selected is not None and scope is not None:
+            scope.initialized_directory = target_directory
+        else:
+            USER_TAG_DB_PATH = user_path
+            _tag_db_initialized = True
+        logger.info(f"Tag databases initialized: {len(results)} base DB(s) + user DB at {user_path}")
     except Exception as e:
+        if is_read_only():
+            # Preparation is a typed package condition, not every initialization failure.
+            if _has_sqlite_operational_cause(e) or not isinstance(e, ReadOnlyDatabaseError):
+                raise
+            from ..public_api.exceptions import ReadOnlyPreconditionError
+
+            error = ReadOnlyPreconditionError(
+                f"Tag databases require preparation: {e}",
+                reason="tag_database_preparation_required",
+                database_path=str(target_directory),
+            )
+            error.hint = "Use project prepare --project NAME --tags without --read-only, with write permission, then retry."
+            raise error from e
         logger.opt(exception=True).error(f"Failed to initialize tag databases: {e}.")
         raise RuntimeError("Tag database initialization failed") from e
 
 
 def get_user_tag_db_path() -> Path | None:
     """タグDBパスを返す（ensure_tag_db_initialized() 呼び出し後に設定される）。"""
+    if get_runtime_configuration() is not None:
+        scope = _TAG_DATABASE_SCOPE.get()
+        if scope is None or scope.initialized_directory is None:
+            return None
+        return scope.initialized_directory / "user_tags.sqlite"
     return USER_TAG_DB_PATH
 
 
 DATABASE_URL = f"sqlite:///{IMG_DB_PATH.resolve()}?check_same_thread=False"
 
 
+def _has_sqlite_operational_cause(error: BaseException) -> bool:
+    """Keep actionable connection failures distinct from missing/incompatible preparation."""
+    from .db_errors import is_sqlite_disk_io_error, is_sqlite_lock_error
+
+    return is_sqlite_lock_error(error) or is_sqlite_disk_io_error(error)
+
+
+def _get_busy_timeout_ms() -> int:
+    """Resolve the configured connection wait consistently for writable and strict reads."""
+    runtime = get_runtime_configuration()
+    return (
+        int(runtime.settings.get("database", {}).get("busy_timeout_ms", BUSY_TIMEOUT_MS))
+        if runtime is not None
+        else BUSY_TIMEOUT_MS
+    )
+
+
 def create_db_engine(database_url: str | None = None) -> Engine:
     """指定された URL で SQLAlchemy エンジンを作成し、イベントリスナーを設定します。"""
     if database_url is None:
         database_url = DATABASE_URL
+    busy_timeout_ms = _get_busy_timeout_ms()
     logger.info(f"Creating SQLAlchemy engine for: {database_url}")
     # StaticPool は 1 本の生コネクションを全セッションで共有するため、GUI メインスレッドと
     # RefinementWorker (QThread) が同一エンジンを共有すると sqlite3 の真の同時アクセスで
@@ -320,8 +413,8 @@ def create_db_engine(database_url: str | None = None) -> Engine:
             try:
                 # busy_timeout は synchronous より先に、かつ単独の try/except で設定する
                 # (Issue #767 の待機が他 PRAGMA の失敗で無効化されるのを防ぐ、Issue #1002)。
-                cursor.execute(f"PRAGMA busy_timeout={BUSY_TIMEOUT_MS}")
-                logger.debug(f"PRAGMA busy_timeout={BUSY_TIMEOUT_MS} executed.")
+                cursor.execute(f"PRAGMA busy_timeout={busy_timeout_ms}")
+                logger.debug(f"PRAGMA busy_timeout={busy_timeout_ms} executed.")
             except Exception:
                 logger.opt(exception=True).warning("Failed to configure PRAGMA busy_timeout")
 
@@ -479,7 +572,88 @@ def _prepare_project_database(project_db_path: Path) -> Engine:
     return engine
 
 
-def create_project_session_factory(project_db_path: Path) -> sessionmaker[Session]:
+def _read_only_schema_reason(connection: Connection, path: Path) -> str | None:
+    """Return an actionable compatibility category without exposing schema internals."""
+    from alembic.script import ScriptDirectory
+
+    from .schema import Base, ModelType
+
+    inspector = inspect(connection)
+    tables = set(inspector.get_table_names())
+    if "alembic_version" not in tables:
+        return "untracked_schema"
+    heads = set(ScriptDirectory.from_config(_make_alembic_config(path)).get_heads())
+    current = set(connection.execute(text("SELECT version_num FROM alembic_version")).scalars())
+    if current != heads:
+        return "schema_upgrade_required"
+    for table in Base.metadata.sorted_tables:
+        if table.name not in tables:
+            return "incompatible_schema"
+        columns = {column["name"] for column in inspector.get_columns(table.name)}
+        if not set(table.columns.keys()).issubset(columns):
+            return "incompatible_schema"
+    model_types = set(connection.execute(select(ModelType.name)).scalars())
+    if not {"tags", "scores", "caption", "upscaler", "multimodal", "ratings"}.issubset(model_types):
+        return "model_seed_required"
+    return None
+
+
+def _open_read_only_project_database(project_db_path: Path) -> Engine:
+    """Open an existing compatible schema with SQLite-enforced logical read-only access."""
+    from sqlalchemy.pool import NullPool
+
+    from ..public_api.exceptions import ReadOnlyPreconditionError
+
+    path = project_db_path.resolve()
+
+    def precondition(reason: str) -> ReadOnlyPreconditionError:
+        error = ReadOnlyPreconditionError(
+            f"Read-only database is not ready ({reason}): {path}", reason=reason, database_path=str(path)
+        )
+        if reason in {"untracked_schema", "incompatible_schema", "unreadable_or_incompatible_database"}:
+            error.hint = (
+                "Preserve a backup and use a supported migration or database recovery procedure; "
+                "project prepare may not repair this database. See docs/cli-read-only.md before retrying."
+            )
+            error.details["recovery_action"] = "supported_migration_or_recovery"
+            error.details["documentation"] = "docs/cli-read-only.md"
+        return error
+
+    if not path.is_file():
+        raise precondition("missing_database")
+    if path.stat().st_size == 0:
+        raise precondition("empty_database")
+    # as_uri escapes spaces, Unicode, '?' and '#' without misinterpreting filename parameters.
+    engine = create_engine(
+        f"sqlite:///{path.as_uri()}?mode=ro&uri=true",
+        connect_args={"check_same_thread": False, "timeout": _get_busy_timeout_ms() / 1000},
+        poolclass=NullPool,
+    )
+
+    @event.listens_for(engine, "connect")
+    def protect_connection(connection: Any, record: Any) -> None:
+        connection.execute("PRAGMA query_only=ON")
+        connection.execute("PRAGMA temp_store=MEMORY")
+
+    try:
+        with engine.connect() as connection:
+            reason = _read_only_schema_reason(connection, path)
+            if reason is not None:
+                raise precondition(reason)
+        return engine
+    except SQLAlchemyError as exc:
+        engine.dispose()
+        if _has_sqlite_operational_cause(exc):
+            raise
+        raise precondition("unreadable_or_incompatible_database") from None
+    except BaseException:
+        engine.dispose()
+        raise
+
+
+def create_project_session_factory(
+    project_db_path: Path, *, read_only: bool = False
+) -> sessionmaker[Session]:
     """指定プロジェクト DB 用セッションファクトリを生成。
 
     新規 DB（touch で空ファイル）の場合はスキーマを初期化する。
@@ -491,7 +665,13 @@ def create_project_session_factory(project_db_path: Path) -> sessionmaker[Sessio
     Returns:
         sessionmaker[Session]: プロジェクト専用セッションファクトリ。
     """
-    engine = _prepare_project_database(project_db_path)
+    from .access_policy import is_read_only
+
+    engine = (
+        _open_read_only_project_database(project_db_path)
+        if read_only or is_read_only()
+        else _prepare_project_database(project_db_path)
+    )
     return create_session_factory(engine)
 
 
@@ -504,6 +684,10 @@ _default_session_factory: sessionmaker[Session] | None = None
 def _get_default_session_factory() -> sessionmaker[Session]:
     """Prepare the default project DB lazily and return its session factory."""
     global DB_DIR, IMG_DB_PATH, DATABASE_URL, default_engine, _default_session_factory
+    from .access_policy import is_read_only
+
+    if is_read_only():
+        return create_project_session_factory(IMG_DB_PATH, read_only=True)
     if _default_session_factory is None:
         if IMG_DB_PATH == DB_DIR / IMG_DB_FILENAME:
             DB_DIR = ensure_default_db_dir()

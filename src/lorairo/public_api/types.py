@@ -6,7 +6,7 @@ Pydantic モデルを使用してバリデーション付きのデータ型を�
 
 from datetime import datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 
@@ -80,6 +80,17 @@ class ImageMetadata(BaseModel):
     captions: list[str] = Field(default_factory=list)
 
 
+class RegistrationItem(BaseModel):
+    """One input's authoritative DB registration outcome (#1307)."""
+
+    input_path: str
+    outcome: Literal["registered", "variant", "duplicate", "failed"]
+    image_id: int | None = None
+    project: str | None = None
+    selected: bool = False
+    error: str | None = None
+
+
 class RegistrationResult(BaseModel):
     """画像登録結果。
 
@@ -100,7 +111,13 @@ class RegistrationResult(BaseModel):
     failed: int
     skipped: int
     variant: int = 0
+    project: str | None = None
+    target_count: int = 0
+    items: list[RegistrationItem] = Field(default_factory=list)
+    interrupted: bool = False
+    unprocessed: int = 0
     error_details: list[str] | None = None
+    error_details_truncated: bool = False
 
     @property
     def success_rate(self) -> float:

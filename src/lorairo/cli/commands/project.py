@@ -131,3 +131,28 @@ def delete(
             emit_result(f"Project deleted: {name}", name=name)
         else:
             console.print(f"[green]{OK}[/green] Project deleted: [bold]{name}[/bold]")
+
+
+@app.command("prepare")
+def prepare(
+    project: str = typer.Option(
+        ..., "--project", "-p", help="Existing project to prepare for database access"
+    ),
+    tags: bool = typer.Option(
+        False, "--tags", help="Also initialize/download tag databases with write permission"
+    ),
+) -> None:
+    """Explicitly initialize/migrate the image database and seed required model types."""
+    with command_boundary():
+        from lorairo.services.service_container import get_service_container
+
+        container = get_service_container()
+        container.set_active_project(project)
+        if tags:
+            from lorairo.database.db_core import ensure_tag_db_initialized
+
+            ensure_tag_db_initialized()
+        if is_json_mode():
+            emit_result("Project database prepared", project=project, tags=tags)
+        else:
+            console.print(f"Project database prepared: {project}")

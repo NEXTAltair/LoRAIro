@@ -27,6 +27,8 @@
 from __future__ import annotations
 
 import datetime
+from collections.abc import Iterator
+from contextlib import contextmanager
 from enum import StrEnum
 from pathlib import Path
 from typing import Any, ClassVar
@@ -64,7 +66,6 @@ from ..schema import (
     Tag,
 )
 from .base import BaseRepository
-from .model import ModelRepository
 
 
 class PhashClassification(StrEnum):
@@ -1058,7 +1059,11 @@ class ImageRepository(BaseRepository):
 
         result: dict[int, str] = {}
         for image_id, metadata_list in by_image.items():
-            selected = self._filter_by_resolution(metadata_list, resolution)
+            selected = (
+                min(metadata_list, key=lambda item: item["width"] * item["height"])
+                if resolution == 0
+                else self._filter_by_resolution(metadata_list, resolution)
+            )
             if selected:
                 result[image_id] = selected["stored_image_path"]
         return result
@@ -1994,8 +1999,10 @@ class ImageRepository(BaseRepository):
             )
 
             # 手動レーティングに基づく除外条件（ratingsテーブルから最新のMANUAL_EDIT ratingを参照）
-            # ADR 0035 段階 4: MANUAL_EDIT model lookup は ModelRepository static helper を直接呼ぶ。
-            manual_edit_model_id = ModelRepository._get_or_create_manual_edit_model(session)
+            # 読み取りフィルタではモデルを作らず、未登録なら一致なしとなる scalar SELECT を使う。
+            manual_edit_model_id = (
+                select(Model.id).where(Model.litellm_model_id == MANUAL_EDIT_LITELLM_ID).scalar_subquery()
+            )
             manual_nsfw_condition = (
                 exists()
                 .where(
@@ -2227,8 +2234,10 @@ class ImageRepository(BaseRepository):
         if not values:
             return None
 
-        # ADR 0035 段階 4: MANUAL_EDIT model lookup は ModelRepository static helper を直接呼ぶ。
-        manual_edit_model_id = ModelRepository._get_or_create_manual_edit_model(session)
+        # 読み取りフィルタではモデルを作らず、未登録なら一致なしとなる scalar SELECT を使う。
+        manual_edit_model_id = (
+            select(Model.id).where(Model.litellm_model_id == MANUAL_EDIT_LITELLM_ID).scalar_subquery()
+        )
         has_manual_rating_subq = (
             select(Rating.image_id).where(Rating.model_id == manual_edit_model_id).distinct()
         )
@@ -3083,6 +3092,91 @@ class ImageRepository(BaseRepository):
             query = query.where(func.lower(Image.format) == criteria.format_name.strip().lower())
         return query
 
+    def _build_filtered_id_query(self, session: Session, criteria: ImageFilterCriteria) -> Select[Any]:
+        """Share the existing non-score filter construction across ID and metadata searches."""
+        query = self._build_image_filter_query(
+            session=session,
+            tags=criteria.tags,
+            excluded_tags=criteria.excluded_tags,
+            caption=criteria.caption,
+            use_and=criteria.use_and,
+            start_date=criteria.start_date,
+            end_date=criteria.end_date,
+            include_untagged=criteria.include_untagged,
+            include_nsfw=criteria.include_nsfw,
+            include_unrated=criteria.include_unrated,
+            only_unrated=criteria.only_unrated,
+            missing_model_litellm_id=criteria.missing_model_litellm_id,
+            manual_rating_filter=criteria.manual_rating_filter,
+            ai_rating_filter=criteria.ai_rating_filter,
+            manual_edit_filter=criteria.manual_edit_filter,
+            project_name=criteria.project_name,
+            project_id=criteria.project_id,
+            reviewed_at_filter=criteria.reviewed_at_filter,
+            error_state_filter=criteria.error_state_filter,
+            model_filter=criteria.model_filter,
+            rating_combine=criteria.rating_combine,
+            keyword_groups=criteria.keyword_groups,
+        )
+        query = self._apply_image_metadata_filter(query, criteria)
+        query = self._apply_processed_resolution_filter(query, criteria.resolution)
+        return query
+
+    @contextmanager
+    def image_id_pages(
+        self, criteria: ImageFilterCriteria, *, page_size: int = 500, max_ids: int = 100_000
+    ) -> Iterator[tuple[int, Iterator[list[int]]]]:
+        """Count once and stream IDs without materializing image/annotation output.
+
+        Bulk emit ignores criteria offset/limit, as its existing CLI contract does.
+        A single SELECT cursor serves ordinary pages; total is sampled just before
+        opening that cursor. Concurrent writes between those statements may change
+        the emitted count. No database-wide snapshot or persistent cache is promised.
+        Exact sets preserve input order and bypass other filters. Score filtering
+        retains the existing O(candidate IDs) post-filter, executed once per operation.
+        """
+        if not 1 <= page_size <= 500 or not 0 <= max_ids <= 100_000:
+            raise ValueError("ID pages require page_size 1..500 and max_ids 0..100000")
+        with self.session_factory() as session:
+            ordered_ids: list[int] | None = None
+            if criteria.image_ids is not None:
+                requested = list(dict.fromkeys(criteria.image_ids))
+                if len(requested) > self.EXACT_SET_MAX_IDS:
+                    raise ValueError(f"image_ids exact-set is limited to {self.EXACT_SET_MAX_IDS}")
+                query = self._apply_processed_resolution_filter(
+                    select(Image.id).where(Image.id.in_(requested)), criteria.resolution
+                )
+                existing = set(session.execute(query).scalars())
+                ordered_ids = [image_id for image_id in requested if image_id in existing]
+            else:
+                query = self._build_filtered_id_query(session, criteria)
+                scored = self._resolve_score_filtered_ids(
+                    session, query, criteria.score_min, criteria.score_max
+                )
+                if scored is not None:
+                    ordered_ids = self._page_score_filtered_ids(
+                        session, scored, criteria.sort_field, criteria.sort_direction, 0, None
+                    )
+            if ordered_ids is not None:
+                total = len(ordered_ids)
+                yield (
+                    total,
+                    (
+                        ordered_ids[start : min(start + page_size, max_ids)]
+                        for start in range(0, min(total, max_ids), page_size)
+                    ),
+                )
+                return
+
+            total = session.execute(select(func.count()).select_from(query.subquery())).scalar_one()
+            sort_column = Image.filename if criteria.sort_field == "file_path" else Image.id
+            ordering = sort_column.desc() if criteria.sort_direction == "desc" else sort_column.asc()
+            result = session.execute(query.order_by(ordering).limit(max_ids)).scalars().yield_per(page_size)
+            try:
+                yield total, (list(partition) for partition in result.partitions(page_size))
+            finally:
+                result.close()
+
     def get_images_by_filter(
         self,
         criteria: ImageFilterCriteria | None = None,
@@ -3121,32 +3215,7 @@ class ImageRepository(BaseRepository):
 
         with self.session_factory() as session:
             try:
-                query = self._build_image_filter_query(
-                    session=session,
-                    tags=filter_criteria.tags,
-                    excluded_tags=filter_criteria.excluded_tags,
-                    caption=filter_criteria.caption,
-                    use_and=filter_criteria.use_and,
-                    start_date=filter_criteria.start_date,
-                    end_date=filter_criteria.end_date,
-                    include_untagged=filter_criteria.include_untagged,
-                    include_nsfw=filter_criteria.include_nsfw,
-                    include_unrated=filter_criteria.include_unrated,
-                    only_unrated=filter_criteria.only_unrated,
-                    missing_model_litellm_id=filter_criteria.missing_model_litellm_id,
-                    manual_rating_filter=filter_criteria.manual_rating_filter,
-                    ai_rating_filter=filter_criteria.ai_rating_filter,
-                    manual_edit_filter=filter_criteria.manual_edit_filter,
-                    project_name=filter_criteria.project_name,
-                    project_id=filter_criteria.project_id,
-                    reviewed_at_filter=filter_criteria.reviewed_at_filter,
-                    error_state_filter=filter_criteria.error_state_filter,
-                    model_filter=filter_criteria.model_filter,
-                    rating_combine=filter_criteria.rating_combine,
-                    keyword_groups=filter_criteria.keyword_groups,
-                )
-                query = self._apply_image_metadata_filter(query, filter_criteria)
-                query = self._apply_processed_resolution_filter(query, filter_criteria.resolution)
+                query = self._build_filtered_id_query(session, filter_criteria)
 
                 # Score Filter は表示側と同じ集約スコアで Python post-filter する (Issue #1026)。
                 # count / ページングは Python で完結させ、単一 SQL への巨大 IN を避ける
@@ -3222,34 +3291,7 @@ class ImageRepository(BaseRepository):
 
         with self.session_factory() as session:
             try:
-                filtered_query = self._build_image_filter_query(
-                    session=session,
-                    tags=filter_criteria.tags,
-                    excluded_tags=filter_criteria.excluded_tags,
-                    caption=filter_criteria.caption,
-                    use_and=filter_criteria.use_and,
-                    start_date=filter_criteria.start_date,
-                    end_date=filter_criteria.end_date,
-                    include_untagged=filter_criteria.include_untagged,
-                    include_nsfw=filter_criteria.include_nsfw,
-                    include_unrated=filter_criteria.include_unrated,
-                    only_unrated=filter_criteria.only_unrated,
-                    missing_model_litellm_id=filter_criteria.missing_model_litellm_id,
-                    manual_rating_filter=filter_criteria.manual_rating_filter,
-                    ai_rating_filter=filter_criteria.ai_rating_filter,
-                    manual_edit_filter=filter_criteria.manual_edit_filter,
-                    project_name=filter_criteria.project_name,
-                    project_id=filter_criteria.project_id,
-                    reviewed_at_filter=filter_criteria.reviewed_at_filter,
-                    error_state_filter=filter_criteria.error_state_filter,
-                    model_filter=filter_criteria.model_filter,
-                    rating_combine=filter_criteria.rating_combine,
-                    keyword_groups=filter_criteria.keyword_groups,
-                )
-                filtered_query = self._apply_image_metadata_filter(filtered_query, filter_criteria)
-                filtered_query = self._apply_processed_resolution_filter(
-                    filtered_query, filter_criteria.resolution
-                )
+                filtered_query = self._build_filtered_id_query(session, filter_criteria)
                 # get_images_by_filter と同一の集約スコア絞り込みを通し件数を一致させる (Issue #1026)。
                 # スコア指定時は Python 側で len() 集計し、巨大 IN の count クエリを避ける
                 # (Codex PR #1043 P2 対応)。
@@ -3385,6 +3427,56 @@ class ImageRepository(BaseRepository):
                 raise  # または、目的のエラー処理に応じて0を返します
 
     # --- By IDs (alternative entry, used by error workflow) ---
+
+    def get_candidate_image_ids(
+        self, image_ids: list[int], criteria: ImageFilterCriteria | None = None
+    ) -> list[int]:
+        """Select only supplied IDs, optionally intersecting filters; max500 per query.
+
+        Unlike the legacy exact-set selector, criteria are applied as an intersection.
+        No image metadata/annotations are loaded. Pagination is applied by the caller
+        after combining eligible IDs in deterministic ID order.
+        """
+        if len(image_ids) > 500:
+            raise ValueError("Candidate selection accepts at most500 image IDs per call")
+        if not image_ids:
+            return []
+        with self.session_factory() as session:
+            if criteria is None:
+                return list(session.execute(select(Image.id).where(Image.id.in_(image_ids))).scalars())
+            query = self._build_image_filter_query(
+                session=session,
+                tags=criteria.tags,
+                excluded_tags=criteria.excluded_tags,
+                caption=criteria.caption,
+                use_and=criteria.use_and,
+                start_date=criteria.start_date,
+                end_date=criteria.end_date,
+                include_untagged=criteria.include_untagged,
+                include_nsfw=criteria.include_nsfw,
+                include_unrated=criteria.include_unrated,
+                only_unrated=criteria.only_unrated,
+                missing_model_litellm_id=criteria.missing_model_litellm_id,
+                manual_rating_filter=criteria.manual_rating_filter,
+                ai_rating_filter=criteria.ai_rating_filter,
+                manual_edit_filter=criteria.manual_edit_filter,
+                project_name=criteria.project_name,
+                project_id=criteria.project_id,
+                reviewed_at_filter=criteria.reviewed_at_filter,
+                error_state_filter=criteria.error_state_filter,
+                model_filter=criteria.model_filter,
+                rating_combine=criteria.rating_combine,
+                keyword_groups=criteria.keyword_groups,
+            )
+            query = self._apply_image_metadata_filter(query, criteria)
+            query = self._apply_processed_resolution_filter(query, criteria.resolution)
+            query = query.where(Image.id.in_(image_ids))
+            scored = self._resolve_score_filtered_ids(
+                session, query, criteria.score_min, criteria.score_max
+            )
+            if scored is not None:
+                return sorted(scored)
+            return list(session.execute(query.order_by(Image.id)).scalars())
 
     def get_images_by_ids(self, image_ids: list[int]) -> list[dict[str, Any]]:
         """画像IDリストから画像メタデータを取得

@@ -14,6 +14,19 @@ class LoRAIroException(Exception):
     pass
 
 
+class ReadOnlyPreconditionError(LoRAIroException):
+    """Requested read-only operation requires explicit preparation or write permission."""
+
+    def __init__(self, message: str, *, reason: str, database_path: str | None = None) -> None:
+        super().__init__(message)
+        self.details: dict[str, object] = {"reason": reason, "read_only": True}
+        if database_path is not None:
+            self.details["database_path"] = database_path
+        self.hint = (
+            "Use project prepare --project NAME without --read-only, with write permission, then retry."
+        )
+
+
 # プロジェクト関連例外
 class ProjectError(LoRAIroException):
     """プロジェクト操作エラーの基底クラス。"""

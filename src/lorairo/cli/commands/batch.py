@@ -19,7 +19,7 @@ from rich.table import Table
 from lorairo.cli._boundary import command_boundary
 from lorairo.cli._console import make_console
 from lorairo.cli._emit import emit_item, emit_result
-from lorairo.cli._image_guard import reject_original_image_records
+from lorairo.cli._image_ids import BULK_CHUNK_SIZE, parse_image_ids_file
 from lorairo.cli._output_mode import is_json_mode
 from lorairo.services.service_container import get_service_container
 
@@ -368,17 +368,10 @@ def _resolve_processed_image_paths(
     image_repo = container.db_manager.image_repo
     missing: list[int] = []
     paths: dict[int, str] = {}
-
-    for image_id in image_ids:
-        processed = image_repo.get_processed_image(image_id, resolution=resolution)
-        if processed is None:
-            missing.append(image_id)
-            continue
-        stored_path = processed.get("stored_image_path") if isinstance(processed, dict) else None
-        if not stored_path:
-            missing.append(image_id)
-            continue
-        paths[image_id] = str(stored_path)
+    for start in range(0, len(image_ids), BULK_CHUNK_SIZE):
+        chunk = image_ids[start : start + BULK_CHUNK_SIZE]
+        paths.update(image_repo.get_processed_image_paths_by_resolution(chunk, resolution))
+    missing = [image_id for image_id in image_ids if not paths.get(image_id)]
 
     if missing:
         sample = ", ".join(str(i) for i in missing[:5])
@@ -394,10 +387,15 @@ def _resolve_processed_image_paths(
 def submit(
     project: str = typer.Option(..., "--project", "-p", help="Project name"),
     model: str = typer.Option(..., "--model", "-m", help="LiteLLM model ID or unique display name"),
-    image_ids_csv: str = typer.Option(
-        ...,
+    image_ids_csv: str | None = typer.Option(
+        None,
         "--image-ids",
         help="Comma-separated image IDs to submit (example: 2,7,11)",
+    ),
+    image_ids_file: str | None = typer.Option(
+        None,
+        "--image-ids-file",
+        help="UTF-8 newline/comma ID file, max100,000; exclusive with --image-ids.",
     ),
     provider: str | None = typer.Option(None, "--provider", help="Provider override: openai/anthropic"),
     endpoint: str | None = typer.Option(None, "--endpoint", help="Provider endpoint override"),
@@ -421,12 +419,22 @@ def submit(
         ),
     ),
 ) -> None:
-    """Submit registered images to a Provider Batch API job."""
+    """Submit registered images to Provider Batch jobs.
+
+    CSV and UTF-8 ID-file inputs are exclusive. Validate the entire input before sending;
+    provider jobs contain at most 500 images. JSON assignment rows retain job IDs and
+    submitted/failed/unsubmitted image sets. Inspect uncertain failures before retrying.
+    """
     with command_boundary():
-        image_ids = _parse_image_ids_csv(image_ids_csv)
+        if image_ids_csv is not None and image_ids_file is not None:
+            raise click.UsageError("--image-ids and --image-ids-file are mutually exclusive.")
+        image_ids = (
+            parse_image_ids_file(image_ids_file)
+            if image_ids_file is not None
+            else _parse_image_ids_csv(image_ids_csv or "")
+        )
         container = _activate_project(project)
         model_repo = container.db_manager.model_repo
-        provider_batch_repo = container.db_manager.provider_batch_repo
         db_model = _resolve_model(model_repo, model)
         resolved_provider = _infer_provider(db_model, provider)
         _validate_submit_provider(resolved_provider)
@@ -445,45 +453,22 @@ def submit(
                 )
 
         resolved_endpoint = _resolve_submit_endpoint(resolved_provider, normalized_task_type, endpoint)
-        image_repo = container.db_manager.image_repo
 
-        # --resolution 指定時は processed image を使うため、original image guard をスキップする。
-        # ADR 0064 が禁止するのはオリジナル画像の直接投入であり、
-        # processed path を override して送信する場合は image_id がオリジナルでも正当。
-        if resolution is None:
-            reject_original_image_records(
-                image_repo.get_images_by_ids(image_ids),
-                command_name="batch submit",
-            )
+        from lorairo.cli._batch_submission import submit_validated_ids
 
-        image_paths: dict[int, str] | None = None
-        if resolution is not None:
-            image_paths = _resolve_processed_image_paths(container, image_ids, resolution)
-
-        job_id = container.provider_batch_workflow_service.submit_images(
+        submit_validated_ids(
+            container,
+            image_ids=image_ids,
+            project=project,
+            resolution=resolution,
             provider=resolved_provider,
             endpoint=resolved_endpoint,
             litellm_model_id=db_model.litellm_model_id,
-            prompt_profile=prompt_profile,
-            image_ids=image_ids,
             model_id=db_model.id,
+            prompt_profile=prompt_profile,
             description=description,
             task_type=normalized_task_type,
-            image_paths=image_paths,
         )
-        job = provider_batch_repo.get_provider_batch_job(job_id)
-        if is_json_mode():
-            emit_result(
-                f"Provider Batch job submitted: {job_id}",
-                job_id=job_id,
-                job=_job_dict(job) if job is not None else None,
-            )
-        else:
-            if resolution is not None:
-                console.print(f"[dim]Using processed images at resolution {resolution}px[/dim]")
-            console.print(f"[green]Provider Batch job submitted:[/green] {job_id}")
-            if job is not None:
-                _print_job_detail(job)
 
 
 @app.command("list")
@@ -667,11 +652,24 @@ def import_results(
     project: str = typer.Option(..., "--project", "-p", help="Project name"),
     output_dir: Path | None = typer.Option(None, "--output-dir", "-o", help="Artifact output directory"),
 ) -> None:
-    """Fetch and import Provider Batch results into annotations."""
+    """Fetch and import Provider Batch results into annotations.
+
+    Partial/incomplete imports exit 1; successful/empty/normal skip results exit 0.
+    """
     with command_boundary():
         container = _activate_project(project)
         result = container.provider_batch_workflow_service.import_results(
             job_id, destination_dir=output_dir
+        )
+        incomplete = bool(result.total_count and not result.job_imported)
+        failed = bool(result.error_count or incomplete)
+        already_imported = getattr(result, "already_imported_count", 0)
+        status = (
+            "success"
+            if not failed
+            else "partial_success"
+            if result.imported_count + already_imported
+            else "failed"
         )
         rating_breakdown = _get_rating_breakdown(container, job_id)
         ratings_saved = sum(rating_breakdown.values())
@@ -679,6 +677,18 @@ def import_results(
         if is_json_mode():
             emit_result(
                 f"Provider Batch results imported: {job_id}",
+                ok=not failed,
+                status=status,
+                incomplete=incomplete,
+                already_imported=already_imported,
+                non_importable=getattr(result, "non_importable_count", 0),
+                save_skipped=getattr(result, "save_skipped_count", 0),
+                missing_custom_ids=list(getattr(result, "missing_custom_ids", ())),
+                failed_custom_ids=list(getattr(result, "failed_custom_ids", ())),
+                error_details=list(getattr(getattr(result, "save_result", None), "error_details", ())),
+                hint=f"Inspect batch status {job_id} --project {project} and its stored item errors."
+                if failed
+                else None,
                 job_id=job_id,
                 imported=result.imported_count,
                 skipped=result.skipped_count,
@@ -700,3 +710,6 @@ def import_results(
             console.print(table)
             if rating_breakdown:
                 _print_rating_breakdown(rating_breakdown, ratings_saved)
+
+        if failed:
+            raise typer.Exit(1)

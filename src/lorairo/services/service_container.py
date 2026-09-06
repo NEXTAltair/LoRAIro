@@ -6,6 +6,9 @@ Phase 1: Qt依存除去による CLI対応
 """
 
 import os
+from collections.abc import Iterator
+from contextlib import contextmanager
+from contextvars import ContextVar
 from typing import TYPE_CHECKING, Any, Optional
 
 if TYPE_CHECKING:
@@ -47,6 +50,9 @@ class ServiceContainer:
 
     def __new__(cls) -> "ServiceContainer":
         """シングルトンインスタンス作成"""
+        scoped = _SCOPED_CONTAINER.get()
+        if scoped is not None:
+            return scoped
         if cls._instance is None:
             cls._instance = super().__new__(cls)
         return cls._instance
@@ -56,9 +62,13 @@ class ServiceContainer:
 
         重複初期化を防ぐため、_initializedフラグで制御
         """
-        if ServiceContainer._initialized:
+        if self is _SCOPED_CONTAINER.get() or ServiceContainer._initialized:
             return
+        self._initialize_services()
+        ServiceContainer._initialized = True
 
+    def _initialize_services(self) -> None:
+        """Initialize caches for a singleton or an isolated explicit CLI invocation."""
         logger.info("ServiceContainer初期化開始")
 
         # コアサービス初期化
@@ -76,7 +86,6 @@ class ServiceContainer:
         # Phase 4: プロダクション統合モード制御
         self._use_production_mode: bool = True
 
-        ServiceContainer._initialized = True
         logger.info("ServiceContainer初期化完了")
 
         # Phase 4: AnnotatorLibraryAdapter統合
@@ -129,7 +138,22 @@ class ServiceContainer:
     def image_repository(self) -> ImageRepository:
         """画像リポジトリ取得（遅延初期化）"""
         if self._image_repository is None:
-            self._image_repository = ImageRepository(session_factory=DefaultSessionLocal)
+            from pathlib import Path
+
+            from ..database import db_core
+            from ..utils.config import get_runtime_configuration
+
+            runtime = get_runtime_configuration()
+            if runtime is None:
+                self._image_repository = ImageRepository(session_factory=DefaultSessionLocal)
+            else:
+                directories = runtime.settings["directories"]
+                directory = directories.get("database_dir") or directories["database_base_dir"]
+                db_path = Path(directory) / db_core.IMG_DB_FILENAME
+                db_core.IMG_DB_PATH = db_path
+                self._image_repository = ImageRepository(
+                    session_factory=db_core.create_project_session_factory(db_path)
+                )
             logger.debug("ImageRepository初期化完了")
         return self._image_repository
 
@@ -405,7 +429,10 @@ class ServiceContainer:
         self._image_repository = ImageRepository(session_factory=session_factory)
 
         # FileSystemManager をプロジェクトディレクトリで初期化（CLI の DB 書き込みに必要）
-        self.file_system_manager.initialize(project_info.path)
+        from ..database.access_policy import is_read_only
+
+        if not is_read_only():
+            self.file_system_manager.initialize(project_info.path)
 
         # 依存サービスをリセット（次参照時に新しい image_repository で再初期化）
         self._db_manager = None
@@ -443,7 +470,7 @@ class ServiceContainer:
                 "image_registration_service": self._image_registration_service is not None,
                 "provider_batch_workflow_service": self._provider_batch_workflow_service is not None,
             },
-            "container_initialized": ServiceContainer._initialized,
+            "container_initialized": self is _SCOPED_CONTAINER.get() or ServiceContainer._initialized,
             "phase": "Phase 4 (Production Integration)"
             if self._use_production_mode
             else "Phase 1-2 (Mock Implementation)",
@@ -527,6 +554,43 @@ class ServiceContainer:
             bool: True=実ライブラリ使用, False=Mock使用
         """
         return self._use_production_mode
+
+
+_SCOPED_CONTAINER: ContextVar[ServiceContainer | None] = ContextVar(
+    "lorairo_scoped_container", default=None
+)
+
+
+@contextmanager
+def service_container_scope() -> Iterator[ServiceContainer]:
+    """Isolate explicit CLI commands from cached services of any previous project."""
+    container = object.__new__(ServiceContainer)
+    container._initialize_services()
+    container._cli_mode = True
+    from ..database import db_core
+
+    with db_core.tag_database_scope():
+        from ..database.access_policy import is_read_only
+
+        # The documented package policy must be set before its first public import.
+        # Keep process-wide environment and routing changes under the runtime lock.
+        policy_name = "IMAGE_ANNOTATOR_CONFIG_READ_ONLY"
+        previous_policy = os.environ.get(policy_name)
+        strict = is_read_only()
+        if strict:
+            os.environ[policy_name] = "1"
+        previous_db_path = db_core.IMG_DB_PATH
+        token = _SCOPED_CONTAINER.set(container)
+        try:
+            yield container
+        finally:
+            db_core.IMG_DB_PATH = previous_db_path
+            _SCOPED_CONTAINER.reset(token)
+            if strict:
+                if previous_policy is None:
+                    os.environ.pop(policy_name, None)
+                else:
+                    os.environ[policy_name] = previous_policy
 
 
 # 便利な関数でサービス取得を簡略化

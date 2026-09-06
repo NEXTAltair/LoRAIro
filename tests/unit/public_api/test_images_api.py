@@ -57,6 +57,8 @@ class TestRegisterImages:
         assert result.total == 3
         assert result.successful > 0
         assert result.failed == 0
+        assert result.items == []  # Direct API registration has no database identity.
+        assert result.target_count == 0
 
     def test_with_string_path(self, images_dir: Path) -> None:
         """文字列パスでも動作。"""

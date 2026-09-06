@@ -16,6 +16,7 @@ from lorairo.cli._emit import emit_result
 from lorairo.cli._image_ids import resolve_image_ids_input
 from lorairo.cli._output_mode import is_json_mode
 from lorairo.public_api.project import get_project as api_get_project
+from lorairo.services.dataset_export_service import DatasetExportService
 from lorairo.services.service_container import get_service_container
 
 # サブコマンドアプリ定義
@@ -81,12 +82,15 @@ def create(
         lorairo-cli export create --project proj --image-ids $(cat ids.txt) --output /tmp/out
     """
     with command_boundary():
+        DatasetExportService.validate_tag_languages(tag_languages)
         # API層経由でプロジェクト確認 (未存在は ProjectNotFoundError → NOT_FOUND で伝播)
         api_get_project(project)
 
         # image_ids パース・検証 (--image-ids / --image-ids-file 排他、Issue #1216)。
         # click.UsageError → 境界が INVALID_INPUT exit 2
         image_ids, _is_file = resolve_image_ids_input(image_ids_csv, image_ids_file)
+        total_images = len(image_ids)
+        image_ids = list(dict.fromkeys(image_ids))
 
         # ServiceContainer を取得してプロジェクト DB に切り替え
         container = get_service_container()
@@ -94,25 +98,26 @@ def create(
 
         export_service = container.dataset_export_service
         output_path = Path(output)
-        output_path.mkdir(parents=True, exist_ok=True)
 
         if not is_json_mode():
             console.print(f"Exporting {len(image_ids)} image(s) to {output}")
 
-        # タグ txt + キャプション txt
-        txt_path = export_service.export_dataset_txt_format(
+        report = export_service.export_dataset_all_formats(
             image_ids, output_path, resolution, tag_languages=tag_languages
         )
-        # JSON メタデータ
-        export_service.export_dataset_json_format(
-            image_ids, output_path, resolution, tag_languages=tag_languages
+        summary = report.summary()
+        message = (
+            "Export completed successfully."
+            if summary["ok"]
+            else "Export incomplete. Retry failed_ids after correcting error_details."
         )
 
         if is_json_mode():
             emit_result(
-                "Export completed successfully.",
-                output_path=str(txt_path),
-                total_images=len(image_ids),
+                message,
+                **summary,
+                output_path=str(output_path),
+                total_images=total_images,
                 resolution=resolution,
                 tag_languages=tag_languages or ["canonical"],
             )
@@ -120,9 +125,16 @@ def create(
             table = Table()
             table.add_column("Metric", style="cyan")
             table.add_column("Value", style="green")
-            table.add_row("Total Images", str(len(image_ids)))
+            table.add_row("Requested Images", str(len(image_ids)))
+            for metric in ("exported", "skipped", "failed"):
+                table.add_row(metric.title(), str(summary[metric]))
             table.add_row("Resolution", f"{resolution}px")
             table.add_row("Tag Languages", ", ".join(tag_languages or ["canonical"]))
-            table.add_row("Output Path", str(txt_path))
+            table.add_row("Output Path", str(output_path))
             console.print(table)
-            console.print("\nExport completed successfully!")
+            console.print(message)
+            if not summary["ok"]:
+                console.print(f"Retry image IDs: {summary['failed_ids']}")
+                console.print(summary["error_details"])
+        if not summary["ok"]:
+            raise typer.Exit(code=1)

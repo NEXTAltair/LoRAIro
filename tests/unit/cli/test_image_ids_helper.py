@@ -133,7 +133,7 @@ class TestResolveImageIdsInput:
         from lorairo.cli._image_ids import resolve_image_ids_input
 
         f = tmp_path / "ids.txt"
-        f.write_text("\n".join(str(i) for i in range(600)))
+        f.write_text("\n".join(str(i) for i in range(1, 601)))
         ids, is_file = resolve_image_ids_input(None, str(f))
         assert len(ids) == 600
         assert is_file is True

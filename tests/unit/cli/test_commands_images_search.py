@@ -144,13 +144,10 @@ class TestImagesSearch:
         """emit_ids は 500 超でも count-first ガードをバイパスし全 ID をページ出力する (Issue #1216)。"""
         container, _ = mock_search_context
         # 総数 600 (>500 でガード発火域)。500 件 → 100 件の 2 ページで返す。
-        container.db_manager.image_repo.get_images_count_only.return_value = 600
-        pages = [
-            ([{"id": i, "image_id": i, "file_path": f"{i}.webp"} for i in range(1, 501)], 600),
-            ([{"id": i, "image_id": i, "file_path": f"{i}.webp"} for i in range(501, 601)], 600),
-            ([], 600),
-        ]
-        container.db_manager.image_repo.get_images_by_filter.side_effect = pages
+        container.db_manager.image_repo.image_id_pages.return_value.__enter__.return_value = (
+            600,
+            iter([list(range(1, 501)), list(range(501, 601))]),
+        )
         query_file = tmp_path / "emit.json"
         query_file.write_text(json.dumps({"tags": ["absurdres"], "emit_ids": True}))
         result = runner.invoke(
@@ -169,11 +166,10 @@ class TestImagesSearch:
     def test_emit_ids_non_json_stdout_is_integer_only(self, mock_search_context: tuple, tmp_path) -> None:
         """非 JSON emit_ids の stdout は整数 ID のみ (--image-ids-file へ pipe 可能、Codex P2)。"""
         container, _ = mock_search_context
-        container.db_manager.image_repo.get_images_count_only.return_value = 3
-        container.db_manager.image_repo.get_images_by_filter.side_effect = [
-            ([{"id": 1, "image_id": 1}, {"id": 2, "image_id": 2}, {"id": 3, "image_id": 3}], 3),
-            ([], 3),
-        ]
+        container.db_manager.image_repo.image_id_pages.return_value.__enter__.return_value = (
+            3,
+            iter([[1, 2, 3]]),
+        )
         query_file = tmp_path / "emit.json"
         query_file.write_text(json.dumps({"tags": ["absurdres"], "emit_ids": True}))
         result = runner.invoke(
@@ -229,3 +225,28 @@ class TestImagesSearch:
         assert result.exit_code == 0
         assert "1\ta.webp" in result.output
         assert "2\tb.webp" in result.output
+
+
+@pytest.mark.parametrize("size", [0, 1, 500, 501, 1000, 10000, 100001])
+def test_emit_ids_terminal_contract_at_page_and_output_boundaries(size, mock_search_context):
+    container, _ = mock_search_context
+    end = min(size, 100000)
+    container.db_manager.image_repo.image_id_pages.return_value.__enter__.return_value = (
+        size,
+        (list(range(start, min(start + 500, end + 1))) for start in range(1, end + 1, 500)),
+    )
+    result = runner.invoke(
+        app, ["--json", "images", "search", "--project", "proj", "--query", '{"emit_ids":true}']
+    )
+    assert result.exit_code == 0
+    rows = [json.loads(line) for line in result.stdout.splitlines()]
+    assert [row["image_id"] for row in rows if row["kind"] == "item"] == list(range(1, end + 1))
+    terminal = rows[-1]
+    assert terminal["kind"] == "result"
+    assert terminal["count"] == end
+    assert terminal["total"] == size
+    assert terminal["truncated"] is (size > 100000)
+    kwargs = container.db_manager.image_repo.image_id_pages.call_args.kwargs
+    assert kwargs == {"page_size": 500, "max_ids": 100000}
+    container.db_manager.image_repo.get_images_by_filter.assert_not_called()
+    container.db_manager.image_repo.get_images_count_only.assert_not_called()

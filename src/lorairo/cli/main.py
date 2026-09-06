@@ -16,6 +16,7 @@ early_init()
 import sys
 import traceback
 from enum import StrEnum
+from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 import click
@@ -36,8 +37,15 @@ from lorairo.cli._output_mode import (
 )
 from lorairo.cli.commands import annotate, batch, errors, export, images, models, project, tags
 from lorairo.cli.introspection import emit_describe, emit_list_commands
-from lorairo.services.service_container import get_service_container
-from lorairo.utils.config import DEFAULT_CLI_LOG_PATH, DEFAULT_CONFIG_PATH
+from lorairo.services.service_container import get_service_container, service_container_scope
+from lorairo.utils.config import (
+    DEFAULT_CLI_LOG_PATH,
+    DEFAULT_CONFIG_PATH,
+    get_config,
+    get_runtime_configuration,
+    resolve_runtime_configuration,
+    runtime_configuration_scope,
+)
 from lorairo.utils.log import initialize_logging
 
 if TYPE_CHECKING:
@@ -101,6 +109,7 @@ app.add_typer(errors.app, name="errors", help="Error record management commands"
 
 @app.callback()
 def _configure(
+    ctx: typer.Context,
     log_level: LogLevel = typer.Option(
         LogLevel.INFO,
         "--log-level",
@@ -111,6 +120,21 @@ def _configure(
         None,
         "--json/--no-json",
         help="Emit machine-readable JSONL on stdout (--json) or human-readable rich output (--no-json).",
+    ),
+    read_only: bool = typer.Option(
+        False,
+        "--read-only",
+        help="Require compatible existing databases; reject writes and implicit preparation.",
+    ),
+    workspace: Path | None = typer.Option(
+        None,
+        "--workspace",
+        help="Anchor relative configured directories here; default config: DIR/config/lorairo.toml.",
+    ),
+    config_path: Path | None = typer.Option(
+        None,
+        "--config",
+        help="Read this existing TOML file; without --workspace, anchor directories at its parent.",
     ),
 ) -> None:
     """全サブコマンド共通の初期化フック。
@@ -130,6 +154,26 @@ def _configure(
         set_json_mode(json_output)
     elif not has_prescanned_mode():
         set_json_mode(resolve_output_mode([]))
+
+    if workspace is not None or config_path is not None or read_only:
+        with command_boundary():
+            try:
+                if workspace is None and config_path is None:
+                    from lorairo.utils.config import RuntimeConfiguration
+
+                    selected = RuntimeConfiguration(
+                        Path.cwd(), DEFAULT_CONFIG_PATH, get_config(DEFAULT_CONFIG_PATH)
+                    )
+                else:
+                    selected = resolve_runtime_configuration(workspace, config_path)
+            except (ValueError, KeyError, OSError) as exc:
+                raise click.BadParameter(str(exc), param_hint="--workspace / --config") from exc
+            if read_only:
+                from lorairo.database.access_policy import read_only_scope
+
+                ctx.with_resource(read_only_scope())
+            ctx.with_resource(runtime_configuration_scope(selected))
+            ctx.with_resource(service_container_scope())
 
     os.environ.setdefault("LORAIRO_CLI_MODE", "true")
     # CLI ログパスは env で上書き可能にする (Issue #1176: テストや別環境が
@@ -190,13 +234,29 @@ def describe(
         emit_describe(command, schema=schema)  # type: ignore[arg-type]
 
 
+def _resolved_cli_paths() -> dict[str, str]:
+    from lorairo.database.db_core import get_tag_database_directory
+
+    selected = get_runtime_configuration()
+    base = Path(get_config().get("directories", {}).get("database_base_dir", "lorairo_data")).resolve()
+    return {
+        "workspace": str(selected.workspace if selected else Path.cwd()),
+        "config_path": str(selected.config_path if selected else DEFAULT_CONFIG_PATH),
+        "projects_base_dir": str(base),
+        "tag_database_dir": str(get_tag_database_directory()),
+    }
+
+
 def _show_cli_status(container: ServiceContainer) -> None:
     """CLIモードのステータス表示。設定ファイルとAPIキー状況を表示する。"""
     table = Table(title="LoRAIro CLI Status")
     table.add_column("Item", style="cyan")
     table.add_column("Status", style="green")
 
-    config_file_found = DEFAULT_CONFIG_PATH.exists()
+    selected = get_runtime_configuration()
+    config_file_found = (selected.config_path if selected else DEFAULT_CONFIG_PATH).exists()
+    for label, value in _resolved_cli_paths().items():
+        table.add_row(label, value)
     table.add_row("Config File", f"{OK} Found" if config_file_found else f"{FAIL} Not Found")
 
     if config_file_found:
@@ -244,8 +304,10 @@ def _emit_status_json(
     container: ServiceContainer, summary: dict[str, Any], environment: str, phase: str
 ) -> None:
     """status を単一の ``result`` 行で機械可読出力する (ADR 0057/0058、Issue #662)。"""
-    config_found = DEFAULT_CONFIG_PATH.exists()
+    selected = get_runtime_configuration()
+    config_found = (selected.config_path if selected else DEFAULT_CONFIG_PATH).exists()
     output: dict[str, Any] = {"environment": environment, "phase": phase, "config_found": config_found}
+    output.update(_resolved_cli_paths())
     if environment == "CLI":
         # CLI 経路は設定ファイルと API キー設定状況を返す。
         output["api_keys"] = _collect_api_key_status(container) if config_found else {}

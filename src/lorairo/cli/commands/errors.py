@@ -57,8 +57,12 @@ def list_errors(
     all_records: bool = typer.Option(
         False, "--all", help="Include resolved records (default: unresolved only)"
     ),
-    limit: int = typer.Option(50, "--limit", help="Max records to return (max 500)"),
-    offset: int = typer.Option(0, "--offset", help="Offset for pagination"),
+    limit: int = typer.Option(
+        50,
+        "--limit",
+        help="Max records to return (0..500; 0 returns no records)",
+    ),
+    offset: int = typer.Option(0, "--offset", help="Nonnegative offset for pagination"),
 ) -> None:
     """List error records.
 
@@ -68,10 +72,14 @@ def list_errors(
         lorairo-cli errors list --project proj --operation search --error-type RuntimeError
     """
     with command_boundary():
+        # Validate inside the JSONL boundary, before any project lookup or DB access.
+        if not 0 <= limit <= MAX_LIST_LIMIT:
+            raise click.UsageError(
+                f"--limit must be between 0 and {MAX_LIST_LIMIT} (0 returns no records)."
+            )
+        if offset < 0:
+            raise click.UsageError("--offset must be nonnegative.")
         api_get_project(project)
-        if limit > MAX_LIST_LIMIT:
-            raise click.UsageError(f"--limit は最大 {MAX_LIST_LIMIT}。")
-
         container = get_service_container()
         container.set_active_project(project)
         repo = container.db_manager.error_record_repo
@@ -189,6 +197,8 @@ def resolve_errors(
 ) -> None:
     """Mark error records as resolved.
 
+    Partial or complete failures exit 1; successful/empty/normal skip results exit 0.
+
     --ids でレコード ID を指定するか、--operation / --error-type / --message-contains
     でフィルターして一括解決する。
 
@@ -219,12 +229,14 @@ def resolve_errors(
                 message_contains=message_contains,
             )
 
+        target_ids = list(dict.fromkeys(target_ids))
         target_count = len(target_ids)
 
         if dry_run:
             if is_json_mode():
                 emit_result(
                     f"Dry-run: {target_count} record(s) would be resolved",
+                    status="success",
                     resolved=target_count,
                     dry_run=True,
                 )
@@ -234,22 +246,29 @@ def resolve_errors(
 
         if not target_ids:
             if is_json_mode():
-                emit_result("No matching error records found", resolved=0, dry_run=False)
+                emit_result("No matching error records found", status="success", resolved=0, dry_run=False)
             else:
                 console.print("[dim]No matching error records found.[/dim]")
             return
 
-        success, updated = repo.mark_errors_resolved_batch(target_ids)
+        committed, updated = repo.mark_errors_resolved_batch(target_ids)
+        success = committed and updated == target_count
 
         if is_json_mode():
             emit_result(
                 f"Resolved {updated} error record(s)",
                 ok=success,
+                status="success" if success else "partial_success" if updated else "failed",
+                requested=target_count,
                 resolved=updated,
                 dry_run=False,
             )
         else:
-            if success:
-                console.print(f"[green]Resolved {updated} error record(s)[/green]")
-            else:
-                console.print(f"[yellow]Partial resolve: {updated}/{target_count}[/yellow]")
+            console.print(
+                f"[green]Resolved {updated} error record(s)[/green]"
+                if success
+                else f"[yellow]Partial resolve: {updated}/{target_count}[/yellow]"
+            )
+
+        if not success:
+            raise typer.Exit(1)

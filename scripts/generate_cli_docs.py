@@ -8,15 +8,65 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 
-from lorairo.cli.introspection import FieldSpec, ModelSpec, ToolSpec, iter_tool_specs  # noqa: E402
+from lorairo.cli.introspection import (  # noqa: E402
+    FieldSpec,
+    ModelSpec,
+    ToolSpec,
+    get_global_options,
+    iter_tool_specs,
+)
 
 OUTPUT = ROOT / "docs" / "cli.md"
 
 
+# Preserve migration guidance when regenerating the command reference.
+PARTIAL_FAILURE_MIGRATION = """### 部分失敗と既存スクリプトの移行 (#1313)
+
+`images register`、`annotate import-batch`、`batch import`、`errors resolve` は、
+集計結果を返した後も失敗があれば exit 1 で終了します。人間向け出力にも同じ終了コードを適用します。
+JSONL の終端は既存の `kind=result` と件数を維持し、`status` と `ok` で結果を判定できます。
+
+| status | ok | exit | 意味 |
+|---|---|---|---|
+| success | true | 0 | 成功、空集合、重複/既取込みの正常skip、正常dry-run |
+| partial_success | false | 1 | 成功または正常skipを含み、一部が失敗 |
+| failed | false | 1 | 成功済み対象がなく失敗 |
+
+登録は `errors` と `error_details`、legacy取込みは `parse_errors` / `save_errors` /
+`unmatched` と `unmatched_ids` / `error_details` を確認します。dry-runでもparse不正や未一致は失敗です。
+Batch取込みの従来 `skipped` は正常skipと取込み不能の両方を含みます。新しい `already_imported`、
+`non_importable`、`save_skipped`、`missing_custom_ids`、`failed_custom_ids`、`error_details` で調査し、
+`incomplete=true` の場合は `batch status JOB_ID --project PROJECT` と保存済みitemエラーを確認してください。
+保存結果が件数のみで部分成功のIDを確定できない場合、`failed_custom_ids` は保存完了を確認できない候補を保守的に含めます。
+この集合だけを根拠に全件再送せず、保存状態を確認してください。
+空結果は exit 0 ですが、`job_imported=false` はジョブ全体の完了を意味しません。
+`errors resolve` は重複を除いた `requested` と実更新件数 `resolved` を保持します。repositoryの失敗や
+要求IDの未存在による更新件数不足は exit 1 です。既に解決済みの存在するIDは従来どおり再更新して成功とします。
+
+以前はこれらの部分失敗でも exit 0 となる場合がありました。終了コードだけで後続処理へ進むスクリプトは、
+exit 1 を処理し成功件数を保存してください。成功済み登録や送信済みBatchを全件再送する自動retryは行いません。
+例外により集計結果を返せない場合は、従来どおり `kind=error` と安定エラーコードを出力します。"""
+OUTPUT_OPTION_MIGRATION = """#### `--output` の移行 (#1310)
+
+`annotate run` はプロジェクトDBへ注釈を保存します。従来の `--output` / `-o` は実装がなく、
+指定先へファイルを書かずに成功していました。このオプションは非推奨とし、値が指定されると
+プロジェクト確認・DB接続・モデル/設定取得・推論・出力先アクセスの前に `INVALID_INPUT` / exit 2 で拒否します。
+空文字列、存在しないパス、書込み不能なパスも同じ契約です。
+
+既存スクリプトでは `--output DIR` を削除し、注釈後に同じプロジェクトと明示的な対象IDを使って
+`export create` を実行してください。以前の実行結果がDBに保存済みなら、出力ファイルがないことだけを
+理由に注釈を再実行せず、保存内容を確認してexportしてください。`--output` 未指定時のDB保存・
+推論部分失敗・保存失敗の契約は維持します。"""
+
+
 def _field_text(field: FieldSpec) -> str:
     required = "required" if field.required else "optional"
-    default = f", default `{field.default}`" if field.default is not None else ""
+    has_default = "default" in field.to_dict()
+    default = f", default `{field.default}`" if has_default else ""
     description = f" - {field.description}" if field.description else ""
+    aliases = (field.schema or {}).get("x-cli-options", [])
+    if aliases:
+        description += " (CLI: " + ", ".join(f"`{alias}`" for alias in aliases) + ")"
     return f"- `{field.name}`: `{field.type}` ({required}{default}){description}"
 
 
@@ -25,9 +75,9 @@ def _model_section(model: ModelSpec) -> list[str]:
     if model.description:
         lines.append("")
         lines.append(model.description)
-    if model.fields:
+    if model.resolved_fields():
         lines.append("")
-        lines.extend(_field_text(field) for field in model.fields)
+        lines.extend(_field_text(field) for field in model.resolved_fields())
     return lines
 
 
@@ -38,6 +88,8 @@ def _tool_section(spec: ToolSpec) -> list[str]:
         spec.summary,
         "",
         f"- Read only: `{str(spec.read_only).lower()}`",
+        f"- Strict read only: `{str(spec.read_only).lower()}` (root `--read-only`; see [contract](cli-read-only.md))",
+        f"- Conditional initialization: `{spec.tool_payload()['conditional_side_effects']}`",
         f"- Side effects: {', '.join(f'`{effect}`' for effect in spec.side_effects)}",
         "",
         "#### Compact Introspection",
@@ -49,6 +101,9 @@ def _tool_section(spec: ToolSpec) -> list[str]:
         "#### Models",
         "",
     ]
+    if spec.path == "annotate run":
+        index = lines.index("#### Compact Introspection")
+        lines[index:index] = [*OUTPUT_OPTION_MIGRATION.splitlines(), ""]
     for model in (*spec.inputs, *spec.outputs, *spec.errors):
         lines.extend(_model_section(model))
         lines.append("")
@@ -89,6 +144,9 @@ def render() -> str:
         "uv sync",
         "lorairo-cli --help",
         "```",
+        "",
+        "設定と保存先を固定するには root オプション `--workspace DIR` / `--config FILE` を使います。",
+        "[workspace/config の優先順位と移行](cli-workspace-config.md) を参照してください。",
         "",
         "## 基本的な使い方",
         "",
@@ -133,13 +191,15 @@ def render() -> str:
         "",
         "## Exit Code",
         "",
-        "exit code はエラーコードから機械的に導出されます (`src/lorairo/cli/_errors.py`):",
+        "例外の exit code はエラーコードから機械的に導出されます (`src/lorairo/cli/_errors.py`):",
         "",
         "| exit code | 意味 |",
         "|---|---|",
         "| 0 | 成功 |",
         "| 2 | 入力・検証エラー (引数不正、フィルタ未指定等) |",
         "| 1 | その他の実行時エラー |",
+        "",
+        *PARTIAL_FAILURE_MIGRATION.splitlines(),
         "",
         "## Machine-Readable Introspection",
         "",
@@ -156,14 +216,25 @@ def render() -> str:
         "`read_only` と `side_effects` を含めます。`describe` の既定 `compact` は",
         '`type:"model"` 行で入力・出力・エラーの簡易フィールドを返します。',
         '`--schema json_schema` は Pydantic 由来の公開スキーマを `type:"schema"` の',
-        "`item` 行に包みます。検索駆動コマンドは公開フィルタ契約",
-        "`ImageFilterCriteria` を晒しますが、生 SQL や DB スキーマは晒しません。",
+        "`item` 行に包みます。入力は登録済み Typer/Click の型・必須・既定値・範囲から導出し、",
+        "compact も同じ Pydantic スキーマから生成します。既定値が定義されたフィールドは null を含めて公開します。",
+        "各 compact フィールドの `schema` は制約を含む対応プロパティです。JSON Schema の",
+        "`x-cli-options` / `x-cli-destinations` が引数・短縮別名と Python パラメータの対応を示します。",
+        "`images search` の `ImagesSearchInput` は CLI 引数、`ImageSearchQuery` は渡す JSON 本体です。",
+        "処理本体で行う排他・ID 件数・ファイル内容の検証はフィールド説明も参照してください。",
+        "生 SQL や DB スキーマは公開しません。",
+        "",
+        "自己記述の `describe` / `list-commands` は操作コマンド一覧には含めません。終端 result の",
+        "`excluded_commands` にこの方針を明示します。`count` は引き続き列挙した操作コマンド数です。",
+        "各操作について item と終端 result の両モデルを公開します。",
         "",
         "## Command Reference",
         "",
         "> Generated by `scripts/generate_cli_docs.py`. Edit introspection specs, then regenerate.",
         "",
     ]
+    lines.extend(_model_section(get_global_options()))
+    lines.append("")
     for spec in iter_tool_specs():
         lines.extend(_tool_section(spec))
     return "\n".join(lines).rstrip() + "\n"
