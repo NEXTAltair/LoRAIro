@@ -174,10 +174,8 @@ def test_missing_model_seed_is_a_precondition(project):
     assert error.value.details["reason"] == "model_seed_required"
 
 
-@pytest.mark.parametrize("cache_available", [True, False])
-def test_translation_reads_use_offline_protected_tag_runtime(
-    project, tmp_path, monkeypatch, cache_available
-):
+@pytest.fixture
+def offline_tag_databases(project, tmp_path, monkeypatch):
     import genai_tag_db_tools
     from genai_tag_db_tools import core_api, database_runtime_scope
     from genai_tag_db_tools.db import runtime
@@ -194,13 +192,28 @@ def test_translation_reads_use_offline_protected_tag_runtime(
         runtime.init_user_db(workspace / "lorairo_data", format_name="Lorairo")
     monkeypatch.setattr(genai_tag_db_tools, "initialize_databases", core_api.initialize_databases)
     monkeypatch.setattr(runtime, "get_user_session_factory", runtime.get_user_session_factory_optional)
-    monkeypatch.setattr(
-        "huggingface_hub.try_to_load_from_cache", Mock(return_value=str(base) if cache_available else None)
-    )
+    monkeypatch.setattr("huggingface_hub.try_to_load_from_cache", Mock(return_value=str(base)))
     monkeypatch.setattr("socket.socket.connect", Mock(side_effect=AssertionError("network forbidden")))
     monkeypatch.setattr(
         core_api, "ensure_databases", Mock(side_effect=AssertionError("download forbidden"))
     )
+    monkeypatch.setattr(runtime, "_BUSY_TIMEOUT_MS", 30)
+    monkeypatch.setattr(
+        "lorairo.filesystem.FileSystemManager.initialize",
+        Mock(side_effect=AssertionError("directory preparation forbidden")),
+    )
+    directories = {item.relative_to(workspace) for item in workspace.rglob("*") if item.is_dir()}
+    yield workspace, path, base, workspace / "lorairo_data" / "user_tags.sqlite"
+    assert {item.relative_to(workspace) for item in workspace.rglob("*") if item.is_dir()} == directories
+
+
+@pytest.mark.parametrize("cache_available", [True, False])
+def test_translation_reads_use_offline_protected_tag_runtime(
+    offline_tag_databases, monkeypatch, cache_available
+):
+    workspace, _path, _base, _user = offline_tag_databases
+    if not cache_available:
+        monkeypatch.setattr("huggingface_hub.try_to_load_from_cache", Mock(return_value=None))
     before = snapshot(workspace)
     result = invoke(workspace, ["tags", "translations", "show", "--tags", "cat"])
     payload = json.loads(result.stdout.splitlines()[-1])
@@ -426,3 +439,117 @@ def test_strict_connection_preserves_configured_busy_timeout(project):
             assert connection.exec_driver_sql("PRAGMA query_only").scalar() == 1
     finally:
         engine.dispose()
+
+
+@pytest.mark.parametrize("database", ["base", "user"])
+def test_strict_tag_lock_preserves_conflict_and_same_process_retry(offline_tag_databases, database):
+    import sqlite3
+
+    workspace, _path, base, user = offline_tag_databases
+    target = base if database == "base" else user
+    statements = []
+
+    def capture(conn, cursor, statement, parameters, context, executemany):
+        statements.append(statement)
+
+    with sqlite3.connect(target) as writer:
+        assert writer.execute("PRAGMA journal_mode=DELETE").fetchone()[0] == "delete"
+        before = snapshot(workspace)
+        base_before = base.read_bytes()
+        writer.execute("BEGIN EXCLUSIVE")
+        event.listen(Engine, "before_cursor_execute", capture)
+        try:
+            result = invoke(workspace, ["tags", "translations", "show", "--tags", "cat"])
+        finally:
+            event.remove(Engine, "before_cursor_execute", capture)
+            writer.rollback()
+    payload = json.loads(result.stdout.splitlines()[-1])
+    assert result.exit_code == 1, result.output
+    assert payload["code"] == "CONFLICT"
+    assert payload["retryable"] is True
+    assert payload["user_action_required"] is False
+    assert "prepare" not in payload.get("hint", "")
+    assert snapshot(workspace) == before
+    assert base.read_bytes() == base_before
+    assert not any(
+        sql.lstrip().upper().startswith(("CREATE", "INSERT", "UPDATE", "DELETE", "ALTER"))
+        for sql in statements
+    )
+    retry = invoke(workspace, ["tags", "translations", "show", "--tags", "cat"])
+    assert retry.exit_code == 0, retry.output
+    assert snapshot(workspace) == before
+    assert base.read_bytes() == base_before
+
+
+@pytest.mark.parametrize("database", ["project", "base", "user"])
+def test_strict_database_disk_io_preserves_environment_hint(offline_tag_databases, database):
+    import sqlite3
+
+    workspace, path, base, user = offline_tag_databases
+    target = {"project": path / "image_database.db", "base": base, "user": user}[database]
+    command = (
+        ["images", "list"] if database == "project" else ["tags", "translations", "show", "--tags", "cat"]
+    )
+    before = snapshot(workspace)
+    base_before = base.read_bytes()
+
+    def fail_read(conn, cursor, statement, parameters, context, executemany):
+        if conn.engine.url.query.get("mode") == "ro" and str(conn.engine.url.database).endswith(
+            target.name
+        ):
+            raise OperationalError(statement, parameters, sqlite3.OperationalError("disk I/O error"))
+
+    event.listen(Engine, "before_cursor_execute", fail_read)
+    try:
+        result = invoke(workspace, command)
+    finally:
+        event.remove(Engine, "before_cursor_execute", fail_read)
+    payload = json.loads(result.stdout.splitlines()[-1])
+    assert result.exit_code == 1, result.output
+    assert payload["code"] == "IO_ERROR"
+    assert payload["retryable"] is False
+    assert payload["user_action_required"] is True
+    assert "同一 OS" in payload["hint"]
+    assert "prepare" not in payload["hint"]
+    assert snapshot(workspace) == before
+    assert base.read_bytes() == base_before
+    assert invoke(workspace, command).exit_code == 0
+
+
+@pytest.mark.parametrize("state", ["missing", "incompatible"])
+def test_strict_tag_preparation_conditions_remain_preconditions(offline_tag_databases, state):
+    import sqlite3
+
+    workspace, _path, base, user = offline_tag_databases
+    if state == "missing":
+        user.unlink()
+    else:
+        with sqlite3.connect(user) as connection:
+            connection.execute("DROP TABLE TAG_TRANSLATIONS")
+    before = snapshot(workspace)
+    base_before = base.read_bytes()
+    result = invoke(workspace, ["tags", "translations", "show", "--tags", "cat"])
+    payload = json.loads(result.stdout.splitlines()[-1])
+    assert result.exit_code == 1, result.output
+    assert payload["code"] == "PRECONDITION_FAILED"
+    assert payload["retryable"] is False
+    assert "project prepare" in payload["hint"]
+    assert snapshot(workspace) == before
+    assert base.read_bytes() == base_before
+
+
+def test_strict_tag_untyped_initialization_failure_is_not_preparation(offline_tag_databases, monkeypatch):
+    workspace, _path, base, _user = offline_tag_databases
+    monkeypatch.setattr(
+        "genai_tag_db_tools.initialize_databases",
+        Mock(side_effect=OSError("synthetic initialization I/O failure")),
+    )
+    before = snapshot(workspace)
+    base_before = base.read_bytes()
+    result = invoke(workspace, ["tags", "translations", "show", "--tags", "cat"])
+    payload = json.loads(result.stdout.splitlines()[-1])
+    assert result.exit_code == 1, result.output
+    assert payload["code"] == "IO_ERROR"
+    assert "prepare" not in payload.get("hint", "")
+    assert snapshot(workspace) == before
+    assert base.read_bytes() == base_before

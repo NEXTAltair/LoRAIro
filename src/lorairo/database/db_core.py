@@ -309,9 +309,9 @@ def ensure_tag_db_initialized() -> None:
         target_directory = DB_DIR
     token = os.environ.get("HF_TOKEN") or os.environ.get("HUGGINGFACE_TOKEN")
 
-    try:
-        from genai_tag_db_tools import initialize_databases
+    from genai_tag_db_tools import ReadOnlyDatabaseError, initialize_databases
 
+    try:
         logger.info("Initializing genai-tag-db-tools databases...")
         results = initialize_databases(
             user_db_dir=target_directory,
@@ -328,6 +328,9 @@ def ensure_tag_db_initialized() -> None:
         logger.info(f"Tag databases initialized: {len(results)} base DB(s) + user DB at {user_path}")
     except Exception as e:
         if is_read_only():
+            # Preparation is a typed package condition, not every initialization failure.
+            if _has_sqlite_operational_cause(e) or not isinstance(e, ReadOnlyDatabaseError):
+                raise
             from ..public_api.exceptions import ReadOnlyPreconditionError
 
             error = ReadOnlyPreconditionError(
@@ -352,6 +355,13 @@ def get_user_tag_db_path() -> Path | None:
 
 
 DATABASE_URL = f"sqlite:///{IMG_DB_PATH.resolve()}?check_same_thread=False"
+
+
+def _has_sqlite_operational_cause(error: BaseException) -> bool:
+    """Keep actionable connection failures distinct from missing/incompatible preparation."""
+    from .db_errors import is_sqlite_disk_io_error, is_sqlite_lock_error
+
+    return is_sqlite_lock_error(error) or is_sqlite_disk_io_error(error)
 
 
 def _get_busy_timeout_ms() -> int:
@@ -632,10 +642,8 @@ def _open_read_only_project_database(project_db_path: Path) -> Engine:
                 raise precondition(reason)
         return engine
     except SQLAlchemyError as exc:
-        from .db_errors import is_sqlite_lock_error
-
         engine.dispose()
-        if is_sqlite_lock_error(exc):
+        if _has_sqlite_operational_cause(exc):
             raise
         raise precondition("unreadable_or_incompatible_database") from None
     except BaseException:

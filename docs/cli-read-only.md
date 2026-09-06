@@ -84,3 +84,14 @@ Python の接続層は `create_project_session_factory(path, read_only=True)` �
 読み取り接続を選択できます。
 
 Unreadable or syntactically invalid model TOML requires backing up and repairing the configuration; writable `models list` does not repair it. This check covers reading and TOML parsing, not complete validation of every model configuration field.
+
+
+画像DB・タグDBとも、接続時のロック競合は `CONFLICT` (`retryable=true`) を保持します。
+他の処理がロックを解放してから再実行してください。SQLite の `disk I/O error` は
+`IO_ERROR` と既存の実行環境確認ヒントを保持します。これらの運用障害を準備不足として扱い、
+書込みモードでの `project prepare` を案内することはありません。
+タグ初期化では、ライブラリの型付き準備エラーだけを `PRECONDITION_FAILED` へ変換します。
+この型には必要なキャッシュ/DBの欠落・互換性不足に加え、破損などによる読取り不能も含まれます。
+`project prepare` の案内はすべての破損を修復できる保証ではありません。破損が疑われる場合は
+バックアップを保持し、対応した復旧手順を確認してください。ライブラリが準備エラーに包んだ場合も、
+原因がロックやディスク I/O なら元の運用エラー分類を優先します。
