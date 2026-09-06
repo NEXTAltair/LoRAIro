@@ -8,7 +8,6 @@ API層（lorairo.public_api）を経由してService層を利用する。
 に集約する。
 """
 
-import dataclasses
 import json
 import sys
 from pathlib import Path
@@ -507,31 +506,24 @@ def _emit_all_matching_ids(container: object, criteria: ImageFilterCriteria) -> 
     """全マッチ image_id をページングで出力する (Issue #1216 emit_ids opt-in)。
 
     count-first の ResultSetTooLargeError ガードを明示バイパスして呼ばれる。500 件
-    ずつ offset ページングし、image_id のみの item 行を全件出力する。tags
+    ずつ単一 ID カーソルから取得し、image_id のみの item 行を全件出力する。tags
     --image-ids-file へ pipe する用途。_EMIT_IDS_MAX を超える場合は上限で打ち切り、
     result に truncated=true を明示する (silent 打ち切りを避ける)。
     """
     repo = container.db_manager.image_repo  # type: ignore[attr-defined]
-    total = repo.get_images_count_only(criteria)
     emitted = 0
-    offset = 0
-    truncated = False
-    while emitted < min(total, _EMIT_IDS_MAX):
-        page_criteria = dataclasses.replace(criteria, limit=_EMIT_IDS_PAGE_SIZE, offset=offset)
-        records, _ = repo.get_images_by_filter(page_criteria)
-        if not records:
-            break
-        for record in records:
-            image_id = record.get("id") or record.get("image_id")
-            if is_json_mode():
-                emit_item({"image_id": image_id})
-            else:
-                print(image_id)
-            emitted += 1
-            if emitted >= _EMIT_IDS_MAX:
-                truncated = emitted < total
-                break
-        offset += len(records)
+    with repo.image_id_pages(criteria, page_size=_EMIT_IDS_PAGE_SIZE, max_ids=_EMIT_IDS_MAX) as (
+        total,
+        pages,
+    ):
+        for image_ids in pages:
+            for image_id in image_ids:
+                if is_json_mode():
+                    emit_item({"image_id": image_id})
+                else:
+                    print(image_id)
+                emitted += 1
+    truncated = emitted < total
     if is_json_mode():
         emit_result(
             f"{emitted} image id(s)",

@@ -100,8 +100,9 @@ def test_images_update_describes_only_supported_input_fields() -> None:
     assert result.exit_code == 0
     rows = _jsonl(result.stdout)
     input_rows = [row for row in rows if row.get("type") == "model" and row["role"] == "input"]
-    assert [row["name"] for row in input_rows] == ["ImagesUpdateInput"]
-    assert {field["name"] for field in input_rows[0]["fields"]} == {"project", "tags", "image_id"}
+    assert [row["name"] for row in input_rows] == ["GlobalOptions", "ImagesUpdateInput"]
+    assert {field["name"] for field in input_rows[0]["fields"]} == {"workspace", "config"}
+    assert {field["name"] for field in input_rows[1]["fields"]} == {"project", "tags", "image_id"}
 
 
 def test_describe_images_list_documents_count_first_gate() -> None:
