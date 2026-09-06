@@ -5,7 +5,9 @@ JSONLファイル読み込み → contentパース → custom_id照合 → DB保
 """
 
 import json
+from collections.abc import Callable
 from dataclasses import dataclass, field
+from functools import cache
 from pathlib import Path
 from typing import Any, cast
 
@@ -115,9 +117,15 @@ class BatchImportService:
         all_unmatched_ids: list[str] = []
         all_error_details: list[str] = []
 
+        # 最初の stem 照合時点の索引をこの操作だけで共有する。同時追加された alias は
+        # 次の取込みで反映する。phash のみなら索引は取得せず、操作終了で cache を破棄する。
+        filename_index_loader = cache(self._image_repository.get_all_image_filename_index)
         for jsonl_path in jsonl_files:
-            result = self.import_from_jsonl(
-                jsonl_path, dry_run=dry_run, model_name_override=model_name_override
+            result = self._import_from_jsonl(
+                jsonl_path,
+                dry_run=dry_run,
+                model_name_override=model_name_override,
+                filename_index_loader=filename_index_loader,
             )
             total_records += result.total_records
             parsed_ok += result.parsed_ok
@@ -168,6 +176,17 @@ class BatchImportService:
         Returns:
             インポート結果。
         """
+        return self._import_from_jsonl(jsonl_path, dry_run=dry_run, model_name_override=model_name_override)
+
+    def _import_from_jsonl(
+        self,
+        jsonl_path: Path,
+        *,
+        dry_run: bool,
+        model_name_override: str | None,
+        filename_index_loader: Callable[[], dict[str, int]] | None = None,
+    ) -> BatchImportResult:
+        """指定操作の遅延索引を使用して単一ファイルを処理する。"""
         error_details: list[str] = []
 
         # 1. JSONLパース
@@ -189,7 +208,9 @@ class BatchImportService:
                 logger.debug(f"パースエラー [{custom_id}]: {e}")
 
         # 3. custom_id → image_id マッチング
-        match_result = self._matcher.match_all(list(parsed.keys()))
+        match_result = self._matcher.match_all(
+            list(parsed.keys()), filename_index_loader=filename_index_loader
+        )
 
         if dry_run:
             return BatchImportResult(

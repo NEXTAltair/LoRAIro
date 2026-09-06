@@ -1,10 +1,55 @@
 """BatchImageMatcherのユニットテスト。"""
 
+from functools import cache
 from unittest.mock import MagicMock
 
 import pytest
 
 from lorairo.services.batch_image_matcher import BatchImageMatcher, ImageMatchResult
+
+
+def test_operation_snapshot_preserves_alias_and_duplicate_stem_precedence() -> None:
+    """実repositoryのalias fallback/重複stemの代表選択を共有索引でも保持する。"""
+    from sqlalchemy import create_engine
+    from sqlalchemy.orm import sessionmaker
+
+    from lorairo.database.repository.image import ImageRepository
+    from lorairo.database.schema import Base, Image, ImageFilenameAlias
+
+    engine = create_engine("sqlite:///:memory:")
+    Base.metadata.create_all(engine)
+    repository = ImageRepository(session_factory=sessionmaker(engine))
+    with repository.session_factory() as session:
+        for image_id in (1, 2):
+            session.add(
+                Image(
+                    id=image_id,
+                    uuid=f"uuid-{image_id}",
+                    phash=f"phash-{image_id}",
+                    filename="shared.png",
+                    original_image_path=f"/synthetic/{image_id}/shared.png",
+                    stored_image_path=f"/synthetic/{image_id}/shared.png",
+                    width=64,
+                    height=64,
+                    format="PNG",
+                    extension=".png",
+                )
+            )
+        session.flush()
+        session.add_all(
+            [ImageFilenameAlias(image_id=1, stem="alias"), ImageFilenameAlias(image_id=1, stem="shared")]
+        )
+        session.commit()
+
+    try:
+        loader = cache(repository.get_all_image_filename_index)
+        matcher = BatchImageMatcher(repository)
+        for _ in range(3):
+            result = matcher.match_all(["alias.png", "shared.png"], filename_index_loader=loader)
+            assert result.matched == {"alias.png": 1, "shared.png": 2}
+        assert loader.cache_info().misses == 1
+    finally:
+        engine.dispose()
 
 
 class TestExtractStem:
