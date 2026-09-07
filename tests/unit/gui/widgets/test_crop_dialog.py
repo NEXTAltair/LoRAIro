@@ -311,6 +311,26 @@ class TestSave:
         recorder.gate.set()
         _wait_save_finished(qtbot, dialog)
 
+    def test_editable_controls_frozen_while_saving_and_restored_after_failure(
+        self, qtbot, dialog, recorder
+    ):
+        """保存中は矩形・タグ・レーティングの編集を凍結し、失敗後に再び編集できる。"""
+        recorder.gate = threading.Event()
+        recorder.error = ValueError("一時的な失敗")
+        dialog.set_rect(CropRect(0, 0, 1024, 768))
+        dialog._save_button.click()
+        qtbot.waitUntil(recorder.started.is_set, timeout=WAIT_MS)
+        assert dialog._selector.isEnabled() is False
+        assert dialog._candidate_list.isEnabled() is False
+        assert dialog._adopted_list.isEnabled() is False
+        assert dialog._rating_control.isEnabled() is False
+        recorder.gate.set()
+        _wait_save_finished(qtbot, dialog)
+        assert dialog._selector.isEnabled() is True
+        assert dialog._candidate_list.isEnabled() is True
+        assert dialog._adopted_list.isEnabled() is True
+        assert dialog._rating_control.isEnabled() is True
+
     def test_second_click_while_saving_does_not_call_again(self, qtbot, dialog, recorder):
         recorder.gate = threading.Event()
         dialog.set_rect(CropRect(0, 0, 1024, 768))

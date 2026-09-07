@@ -458,6 +458,7 @@ class CropDialog(QDialog):
 
         self._show_error("")
         self._save_in_progress = True
+        self._set_editing_enabled(False)
         self._update_save_enabled()
 
         thread = QThread(self)
@@ -513,7 +514,18 @@ class CropDialog(QDialog):
         self._save_thread = None
         self._save_worker = None
         self._save_in_progress = False
+        self._set_editing_enabled(True)
         self._update_save_enabled()
+
+    def _set_editing_enabled(self, enabled: bool) -> None:
+        """矩形・タグ・レーティングの編集コントロールをまとめて有効/無効にする。
+
+        保存中は request 取得済みの値と画面表示がずれないよう編集を凍結する。
+        """
+        self._selector.setEnabled(enabled)
+        self._candidate_list.setEnabled(enabled)
+        self._adopted_list.setEnabled(enabled)
+        self._rating_control.setEnabled(enabled)
 
     # ------------------------------------------------------------------
     # 閉じる際の破棄確認
