@@ -1,8 +1,8 @@
 {
   "schema": 1,
-  "runtime": "ef6bf6d35a21c1b741c1bc2f994d715f4bf4329b35a75c031662ef2c1fcc5a8c",
+  "runtime": "56eb449d00f145071590887cd81091bd5427fe1073538649ce5e3db89d6cdf82",
   "files": {
-    "hooks/bootstrap.py": "34966d74c4a3e991afcbaa0bb1a99a97d9b269807a438126fe287e03ae7745c7",
+    "hooks/bootstrap.py": "d26162a625d20dd3fb0f3dc337dbc6a0a7e8a4d72cd56124bcc605b9faea250d",
     "hooks/rules/pre_commands.default.json": "99f39958e6e5d556834a74f48e6bee4cef98fa100bbb5e765bbddec34da85e10",
     "hooks/rules/pre_edit_worktree.default.json": "a52240c01e1045205a788dff6ae905c0b095e58730c63fea0a4a965b8bcf5b96",
     "hooks/rules/pre_pr_submodule_check.default.json": "e32edece94a17d9e479554f066b0238d4728911d4496cd4f155ea7fc56df2a96",
