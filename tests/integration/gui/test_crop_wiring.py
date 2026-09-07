@@ -12,8 +12,11 @@ from unittest.mock import Mock
 
 import pytest
 from PIL import Image
+from sqlalchemy import create_engine
+from sqlalchemy.orm import sessionmaker
 
 from lorairo.database.db_manager import ImageDatabaseManager
+from lorairo.database.schema import Base
 from lorairo.domain.crop_request import CropRect
 from lorairo.filesystem import FileSystemManager
 from lorairo.gui.state.dataset_state import DatasetStateManager
@@ -22,6 +25,25 @@ from lorairo.gui.tab.search_tab import SearchTabWidget
 from lorairo.gui.widgets.crop_dialog import CropDialog
 
 PARENT_SIZE = (1600, 1200)
+SAVE_TIMEOUT_MS = 15000
+"""保存ワーカーの完了待ち上限 (ms、#1345 で保存は非同期化)。"""
+
+
+@pytest.fixture
+def crop_db_manager(tmp_path: Path, mock_config_service: object) -> ImageDatabaseManager:
+    """ファイル実体の SQLite を使う DB マネージャー。
+
+    #1345 で保存はワーカースレッドへ移ったため、単一スレッド前提のインメモリ SQLite
+    (conftest の ``test_db_manager``) では ``check_same_thread`` に阻まれる。本番は
+    ``db_core`` がファイル DB を ``check_same_thread=False`` で開くため、テストも
+    ファイル DB を使って同じ前提に揃える。
+    """
+    engine = create_engine(f"sqlite:///{tmp_path / 'crop_test.db'}")
+    Base.metadata.create_all(engine)
+    return ImageDatabaseManager(
+        config_service=mock_config_service,
+        session_factory=sessionmaker(autocommit=False, autoflush=False, bind=engine),
+    )
 
 
 @pytest.fixture
@@ -39,14 +61,14 @@ def service_container(fs_manager: FileSystemManager) -> Mock:
 
 @pytest.fixture
 def parent_image_id(
-    test_db_manager: ImageDatabaseManager,
+    crop_db_manager: ImageDatabaseManager,
     fs_manager: FileSystemManager,
     tmp_path: Path,
 ) -> int:
     """クロップ元となる親画像を登録して ID を返す。"""
     source = tmp_path / "wiring_parent.png"
     Image.new("RGB", PARENT_SIZE, (40, 90, 170)).save(source)
-    registered = test_db_manager.register_original_image(source, fs_manager)
+    registered = crop_db_manager.register_original_image(source, fs_manager)
     assert registered is not None
     image_id: int = registered[0]
     return image_id
@@ -62,14 +84,14 @@ def dataset_state() -> DatasetStateManager:
 def tab(
     qtbot,
     service_container: Mock,
-    test_db_manager: ImageDatabaseManager,
+    crop_db_manager: ImageDatabaseManager,
     dataset_state: DatasetStateManager,
 ) -> SearchTabWidget:
     """実 DB を注入した検索タブ。"""
-    dataset_state.set_db_manager(test_db_manager)
+    dataset_state.set_db_manager(crop_db_manager)
     widget = SearchTabWidget(
         service_container=service_container,
-        db_manager=test_db_manager,
+        db_manager=crop_db_manager,
         dataset_state_manager=dataset_state,
         staging_state_manager=StagingStateManager(),
         worker_service=Mock(),
@@ -88,7 +110,8 @@ def _crop_via_list(qtbot, tab: SearchTabWidget, image_id: int, rect: CropRect) -
     dialog = dialogs[-1]
     qtbot.addWidget(dialog)
     dialog.set_rect(rect)
-    dialog._on_save()
+    with qtbot.waitSignal(dialog.saved, timeout=SAVE_TIMEOUT_MS):
+        dialog._on_save()
     child_id = dialog.child_image_id()
     assert child_id is not None
     return dialog, child_id
@@ -111,7 +134,7 @@ def test_saved_crop_becomes_current_image_with_relation(
     tab: SearchTabWidget,
     parent_image_id: int,
     dataset_state: DatasetStateManager,
-    test_db_manager: ImageDatabaseManager,
+    crop_db_manager: ImageDatabaseManager,
 ) -> None:
     """保存でダイアログが閉じ、作成した子が現在画像として一覧へ反映される。"""
     dialog, child_id = _crop_via_list(
@@ -120,7 +143,7 @@ def test_saved_crop_becomes_current_image_with_relation(
 
     assert dialog.isVisible() is False
     assert dataset_state.current_image_id == child_id
-    relation = test_db_manager.get_crop_parent(child_id)
+    relation = crop_db_manager.get_crop_parent(child_id)
     assert relation is not None
     assert relation.parent_image_id == parent_image_id
 
@@ -159,7 +182,7 @@ def test_recrop_from_preview_creates_grandchild(
     qtbot,
     tab: SearchTabWidget,
     parent_image_id: int,
-    test_db_manager: ImageDatabaseManager,
+    crop_db_manager: ImageDatabaseManager,
 ) -> None:
     """プレビュー側の導線からも同じランチャーが動き、子から孫を作れる。"""
     _, child_id = _crop_via_list(qtbot, tab, parent_image_id, CropRect(x=0, y=0, width=1200, height=900))
@@ -170,10 +193,11 @@ def test_recrop_from_preview_creates_grandchild(
     dialog = dialogs[-1]
     qtbot.addWidget(dialog)
     dialog.set_rect(CropRect(x=10, y=10, width=300, height=300))
-    dialog._on_save()
+    with qtbot.waitSignal(dialog.saved, timeout=SAVE_TIMEOUT_MS):
+        dialog._on_save()
     grandchild_id = dialog.child_image_id()
 
     assert grandchild_id is not None
-    relation = test_db_manager.get_crop_parent(grandchild_id)
+    relation = crop_db_manager.get_crop_parent(grandchild_id)
     assert relation is not None
     assert relation.parent_image_id == child_id

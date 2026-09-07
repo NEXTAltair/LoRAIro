@@ -31,6 +31,8 @@ PARENT_WIDTH = 1600
 PARENT_HEIGHT = 1200
 PARENT_TAGS = ("solo", "outdoors")
 PARENT_RATING = "PG-13"
+SAVE_TIMEOUT_MS = 15000
+"""保存ワーカーの完了待ち上限 (ms、#1345 で保存は非同期化)。"""
 
 
 @dataclass
@@ -42,7 +44,6 @@ class WiringContext:
     db_manager: ImageDatabaseManager
     db_path: Path
     parent_id: int
-    qtbot: object
     dialog: CropDialog | None = None
     saved_ids: list[int] = field(default_factory=list)
     reopened: ImageDatabaseManager | None = None
@@ -137,7 +138,6 @@ def given_search_tab_with_parent_image(
         db_manager=db_manager,
         db_path=db_path,
         parent_id=parent_id,
-        qtbot=qtbot,
     )
     launcher = tab._crop_dialog_launcher
     assert launcher is not None
@@ -172,10 +172,18 @@ def when_crop_requested_from_preview(ctx: WiringContext) -> None:
 
 
 @when(parsers.parse("矩形 {x:d},{y:d},{width:d},{height:d} を選んで保存する"))
-def when_rect_selected_and_saved(ctx: WiringContext, x: int, y: int, width: int, height: int) -> None:
-    assert ctx.dialog is not None
-    ctx.dialog.set_rect(CropRect(x=x, y=y, width=width, height=height))
-    ctx.dialog._on_save()
+def when_rect_selected_and_saved(
+    qtbot, ctx: WiringContext, x: int, y: int, width: int, height: int
+) -> None:
+    dialog = ctx.dialog
+    assert dialog is not None
+    dialog.set_rect(CropRect(x=x, y=y, width=width, height=height))
+    dialog._on_save()
+    # 保存は worker スレッドで走る (#1345)。成功 (子 ID) か失敗 (エラー表示) の終端まで待つ。
+    qtbot.waitUntil(
+        lambda: dialog.child_image_id() is not None or dialog.error_message() != "",
+        timeout=SAVE_TIMEOUT_MS,
+    )
 
 
 @when("データベースを開き直す")
