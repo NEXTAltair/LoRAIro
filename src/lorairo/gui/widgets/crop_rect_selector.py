@@ -19,6 +19,7 @@ from PySide6.QtCore import QPointF, QRect, QRectF, Qt, Signal
 from PySide6.QtGui import (
     QBrush,
     QColor,
+    QImageReader,
     QMouseEvent,
     QPainter,
     QPen,
@@ -101,10 +102,17 @@ class CropRectSelectorWidget(QGraphicsView):
     def set_image(self, path: Path) -> None:
         """表示する元画像を差し替える (選択矩形はクリアされる)。
 
+        EXIF Orientation は ``QImageReader.setAutoTransform`` で適用してから読み込む。
+        これにより scene 座標 (= 選択矩形の座標系) が、通常のプレビュー表示
+        (``image_preview.py``) と同じ「EXIF 適用後の表示ピクセル」にそろう。
+
         Args:
             path: 元画像のファイルパス。読み込めない場合は表示をクリアする。
         """
-        pixmap = QPixmap(str(path))
+        reader = QImageReader(str(path))
+        reader.setAutoTransform(True)
+        image = reader.read()
+        pixmap = QPixmap() if image.isNull() else QPixmap.fromImage(image)
         if pixmap.isNull():
             logger.warning(f"クロップ元画像の読み込みに失敗しました: {path}")
             self.clear_image()
@@ -186,6 +194,11 @@ class CropRectSelectorWidget(QGraphicsView):
             self._drag_mode = _MODE_MOVE
         else:
             self._drag_mode = _MODE_CREATE
+            # 新規作成の開始時点で古い矩形を捨てる。ドラッグせずに離した場合でも
+            # 古い矩形が生き残らないようにするため (release 時の潰れ判定では
+            # 「幅高さが正のまま残った古い矩形」を検出できない)。
+            self._drag_start_rect = None
+            self._set_rect_internal(None)
         event.accept()
 
     def mouseMoveEvent(self, event: QMouseEvent) -> None:

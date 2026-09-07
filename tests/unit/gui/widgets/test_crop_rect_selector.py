@@ -138,6 +138,51 @@ class TestDragCreatesRect:
         qtbot.mouseRelease(selector.viewport(), Qt.MouseButton.LeftButton, pos=pos)
         assert selector.crop_rect() is None
 
+    def test_click_outside_existing_rect_without_drag_clears_selection(self, qtbot, selector):
+        """既存矩形がある状態で枠外をクリック (ドラッグなし) すると選択が解除される。"""
+        selector.set_rect(CropRect(50, 40, 100, 90))
+        pos = _view_pos(selector, 320, 260)
+        qtbot.mousePress(selector.viewport(), Qt.MouseButton.LeftButton, pos=pos)
+        qtbot.mouseRelease(selector.viewport(), Qt.MouseButton.LeftButton, pos=pos)
+        assert selector.crop_rect() is None
+
+    def test_click_outside_existing_rect_emits_none(self, qtbot, selector):
+        """枠外クリックによる解除は rect_changed(None) として通知される。"""
+        selector.set_rect(CropRect(50, 40, 100, 90))
+        received: list[object] = []
+        selector.rect_changed.connect(received.append)
+        pos = _view_pos(selector, 320, 260)
+        qtbot.mousePress(selector.viewport(), Qt.MouseButton.LeftButton, pos=pos)
+        qtbot.mouseRelease(selector.viewport(), Qt.MouseButton.LeftButton, pos=pos)
+        assert received == [None]
+
+
+class TestExifOrientation:
+    def test_exif_rotation_is_applied_to_scene_size(self, qtbot, tmp_path):
+        """EXIF Orientation=6 の JPEG は回転後の実寸が座標系になる。"""
+        path = tmp_path / "rotated.jpg"
+        image = Image.new("RGB", (400, 200), (30, 60, 90))
+        exif = Image.Exif()
+        exif[0x0112] = 6  # 反時計回り 90 度回転して表示する指定
+        image.save(path, exif=exif)
+
+        widget = CropRectSelectorWidget()
+        qtbot.addWidget(widget)
+        widget.set_image(path)
+
+        assert widget.image_size() == (200, 400)
+
+    def test_exif_free_image_keeps_stored_size(self, qtbot, tmp_path):
+        """EXIF を持たない画像は保存時の実寸のまま扱う。"""
+        path = tmp_path / "plain.jpg"
+        Image.new("RGB", (400, 200), (30, 60, 90)).save(path)
+
+        widget = CropRectSelectorWidget()
+        qtbot.addWidget(widget)
+        widget.set_image(path)
+
+        assert widget.image_size() == (400, 200)
+
 
 class TestHandleResize:
     def test_corner_handle_resizes(self, qtbot, selector):

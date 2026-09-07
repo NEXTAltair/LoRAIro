@@ -142,8 +142,15 @@ def when_close_with_answer(monkeypatch: pytest.MonkeyPatch, ctx: dict[str, Any],
 
 
 @when("保存ボタンを押す")
-def when_click_save(ctx: dict[str, Any]) -> None:
-    ctx["dialog"]._save_button.click()
+def when_click_save(qtbot, ctx: dict[str, Any]) -> None:
+    """保存ボタンを押し、ワーカースレッドでの保存完了まで待つ。
+
+    保存は別スレッドで実行されるため、押しただけでは成否が確定しない。矩形未選択で
+    そもそも保存が始まらない場合は ``_save_in_progress`` が False のままなので即座に抜ける。
+    """
+    dialog = ctx["dialog"]
+    dialog._save_button.click()
+    qtbot.waitUntil(lambda: not dialog._save_in_progress, timeout=5000)
 
 
 # ---------------------------------------------------------------------------
