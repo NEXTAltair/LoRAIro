@@ -97,7 +97,6 @@ class ImagesCropItem(BaseModel):
     width: int
     height: int
     origin: str
-    tag_count: int
     rating: str | None = None
 
     model_config = ConfigDict(title="ImagesCropItem")
@@ -792,7 +791,6 @@ def crop(
                     width=request.rect.width,
                     height=request.rect.height,
                     origin=request.origin,
-                    tag_count=len(request.tags),
                     rating=request.rating,
                 )
             )

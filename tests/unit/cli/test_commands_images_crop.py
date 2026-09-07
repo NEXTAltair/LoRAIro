@@ -99,8 +99,8 @@ class TestImagesCrop:
         assert item["parent_image_id"] == crop_cli_context
         assert (item["x"], item["y"], item["width"], item["height"]) == (10, 20, 320, 240)
         assert item["origin"] == "manual"
-        # タグ・レーティングは既定で親から継承する。
-        assert item["tag_count"] == 1
+        # タグ・レーティングは既定で親から継承する (保存タグ数は出力に含めず DB で確認する)。
+        assert len(test_db_manager.get_image_annotations(item["child_image_id"])["tags"]) == 1
         assert item["rating"] == "PG"
         assert terminal["kind"] == "result"
         assert terminal["ok"] is True
@@ -145,7 +145,6 @@ class TestImagesCrop:
 
         assert result.exit_code == 0, result.output
         item = next(row for row in _jsonl(result.stdout) if row["kind"] == "item")
-        assert item["tag_count"] == 2
         assert item["rating"] == "R"
         assert item["origin"] == "detector-v1"
 
@@ -154,12 +153,12 @@ class TestImagesCrop:
         }
         assert child_tags == {"closeup", "face"}
 
-    def test_tag_count_reports_stored_tags_after_dedup(
+    def test_duplicate_tags_are_stored_once_and_item_has_no_tag_count(
         self,
         crop_cli_context: int,
         test_db_manager: ImageDatabaseManager,
     ) -> None:
-        """--tag の重複は保存時に畳まれ、tag_count は実際に保存された件数を返す。"""
+        """--tag の重複は保存時に畳まれる。保存タグ数は出力契約に含めない (SSoT は images show)。"""
         result = runner.invoke(
             app,
             [
@@ -187,7 +186,8 @@ class TestImagesCrop:
         assert result.exit_code == 0, result.output
         item = next(row for row in _jsonl(result.stdout) if row["kind"] == "item")
         stored = test_db_manager.get_image_annotations(item["child_image_id"])["tags"]
-        assert item["tag_count"] == len(stored) == 1
+        assert len(stored) == 1
+        assert "tag_count" not in item
 
     def test_invalid_rectangle_exits_two_with_error_row(
         self,
