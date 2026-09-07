@@ -138,6 +138,51 @@ class TestDragCreatesRect:
         qtbot.mouseRelease(selector.viewport(), Qt.MouseButton.LeftButton, pos=pos)
         assert selector.crop_rect() is None
 
+    def test_click_outside_existing_rect_without_drag_clears_selection(self, qtbot, selector):
+        """既存矩形がある状態で枠外をクリック (ドラッグなし) すると選択が解除される。"""
+        selector.set_rect(CropRect(50, 40, 100, 90))
+        pos = _view_pos(selector, 320, 260)
+        qtbot.mousePress(selector.viewport(), Qt.MouseButton.LeftButton, pos=pos)
+        qtbot.mouseRelease(selector.viewport(), Qt.MouseButton.LeftButton, pos=pos)
+        assert selector.crop_rect() is None
+
+    def test_click_outside_existing_rect_emits_none(self, qtbot, selector):
+        """枠外クリックによる解除は rect_changed(None) として通知される。"""
+        selector.set_rect(CropRect(50, 40, 100, 90))
+        received: list[object] = []
+        selector.rect_changed.connect(received.append)
+        pos = _view_pos(selector, 320, 260)
+        qtbot.mousePress(selector.viewport(), Qt.MouseButton.LeftButton, pos=pos)
+        qtbot.mouseRelease(selector.viewport(), Qt.MouseButton.LeftButton, pos=pos)
+        assert received == [None]
+
+
+class TestExifOrientation:
+    def test_exif_rotation_is_applied_to_scene_size(self, qtbot, tmp_path):
+        """EXIF Orientation=6 の JPEG は回転後の実寸が座標系になる。"""
+        path = tmp_path / "rotated.jpg"
+        image = Image.new("RGB", (400, 200), (30, 60, 90))
+        exif = Image.Exif()
+        exif[0x0112] = 6  # 反時計回り 90 度回転して表示する指定
+        image.save(path, exif=exif)
+
+        widget = CropRectSelectorWidget()
+        qtbot.addWidget(widget)
+        widget.set_image(path)
+
+        assert widget.image_size() == (200, 400)
+
+    def test_exif_free_image_keeps_stored_size(self, qtbot, tmp_path):
+        """EXIF を持たない画像は保存時の実寸のまま扱う。"""
+        path = tmp_path / "plain.jpg"
+        Image.new("RGB", (400, 200), (30, 60, 90)).save(path)
+
+        widget = CropRectSelectorWidget()
+        qtbot.addWidget(widget)
+        widget.set_image(path)
+
+        assert widget.image_size() == (400, 200)
+
 
 class TestHandleResize:
     def test_corner_handle_resizes(self, qtbot, selector):
@@ -196,7 +241,72 @@ class TestMove:
         assert rect.fits_within(IMAGE_WIDTH, IMAGE_HEIGHT)
 
 
+class TestLetterboxMargin:
+    """fitInView のレターボックス余白での押下は選択に影響しない。"""
+
+    @staticmethod
+    def _margin_pos(widget: CropRectSelectorWidget) -> QPoint:
+        widget.resize(900, 300)
+        widget._fit()
+        left_edge = widget.mapFromScene(QPointF(0.0, IMAGE_HEIGHT / 2)).x()
+        assert left_edge > 20, "レターボックス余白が生じる前提"
+        return QPoint(left_edge - 15, widget.viewport().rect().center().y())
+
+    def test_press_in_margin_keeps_existing_rect(self, qtbot, selector):
+        selector.set_rect(CropRect(100, 80, 200, 180))
+        pos = self._margin_pos(selector)
+        qtbot.mousePress(selector.viewport(), Qt.MouseButton.LeftButton, pos=pos)
+        qtbot.mouseRelease(selector.viewport(), Qt.MouseButton.LeftButton, pos=pos)
+        assert selector.crop_rect() == CropRect(100, 80, 200, 180)
+
+    def test_drag_from_margin_creates_nothing(self, qtbot, selector):
+        pos = self._margin_pos(selector)
+        qtbot.mousePress(selector.viewport(), Qt.MouseButton.LeftButton, pos=pos)
+        qtbot.mouseMove(selector.viewport(), pos=_view_pos(selector, 200, 150))
+        qtbot.mouseRelease(
+            selector.viewport(), Qt.MouseButton.LeftButton, pos=_view_pos(selector, 200, 150)
+        )
+        assert selector.crop_rect() is None
+
+    def test_near_boundary_handle_is_not_grabbable_from_margin(self, qtbot, selector):
+        """境界に接していない辺のハンドルは、当たり判定が余白に届いても掴めない。"""
+        selector.set_rect(CropRect(3, 80, 200, 180))
+        selector.resize(900, 300)
+        selector._fit()
+        press = selector.mapFromScene(QPointF(-1.0, 80 + 90))
+        qtbot.mousePress(selector.viewport(), Qt.MouseButton.LeftButton, pos=press)
+        qtbot.mouseMove(selector.viewport(), pos=_view_pos(selector, 60, 170))
+        qtbot.mouseRelease(selector.viewport(), Qt.MouseButton.LeftButton, pos=_view_pos(selector, 60, 170))
+        assert selector.crop_rect() == CropRect(3, 80, 200, 180)
+
+    def test_edge_handle_is_still_grabbable_from_outside(self, qtbot, selector):
+        selector.set_rect(CropRect(0, 80, 200, 180))
+        selector.resize(900, 300)
+        selector._fit()
+        handle_center = selector.mapFromScene(QPointF(0.0, 80 + 90))
+        press = QPoint(handle_center.x() - 3, handle_center.y())
+        qtbot.mousePress(selector.viewport(), Qt.MouseButton.LeftButton, pos=press)
+        qtbot.mouseMove(selector.viewport(), pos=_view_pos(selector, 40, 170))
+        qtbot.mouseRelease(selector.viewport(), Qt.MouseButton.LeftButton, pos=_view_pos(selector, 40, 170))
+        rect = selector.crop_rect()
+        assert rect is not None
+        assert rect.x == 40 and rect.x + rect.width == 200
+
+
 class TestClamping:
+    def test_set_rect_crossing_top_left_keeps_far_edges(self, selector):
+        """左上をはみ出す矩形は交差 (右辺・下辺は元の位置) にクランプされる。"""
+        selector.set_rect(CropRect(-10, 20, 20, 30))
+        assert selector.crop_rect() == CropRect(0, 20, 10, 30)
+
+    def test_set_rect_fully_outside_becomes_none(self, selector):
+        selector.set_rect(CropRect(IMAGE_WIDTH + 5, 0, 10, 10))
+        assert selector.crop_rect() is None
+
+    def test_set_rect_zero_width_becomes_none(self, selector):
+        selector.set_rect(CropRect(10, 10, 0, 50))
+        assert selector.crop_rect() is None
+
     def test_created_rect_never_exceeds_image(self, qtbot, selector):
         viewport_rect = selector.viewport().rect()
         qtbot.mousePress(selector.viewport(), Qt.MouseButton.LeftButton, pos=_view_pos(selector, 20, 20))

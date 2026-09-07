@@ -15,8 +15,8 @@ from __future__ import annotations
 from collections.abc import Callable, Sequence
 from pathlib import Path
 
-from PySide6.QtCore import QRect, Qt, Signal, Slot
-from PySide6.QtGui import QCloseEvent, QPixmap, QResizeEvent
+from PySide6.QtCore import QObject, QRect, Qt, QThread, Signal, Slot
+from PySide6.QtGui import QCloseEvent, QPainter, QPaintEvent, QPixmap
 from PySide6.QtWidgets import (
     QDialog,
     QDialogButtonBox,
@@ -52,7 +52,13 @@ _TAG_LIST_MAX_HEIGHT = 180
 
 
 class _CropPreviewLabel(QLabel):
-    """切り出し結果を縦横比を保って表示するプレビュー用ラベル。"""
+    """元画像の選択範囲を、縦横比を保って表示するプレビュー用ラベル。
+
+    元画像と選択矩形をそのまま保持し、``paintEvent`` で表示サイズの矩形へ直接
+    描画する。ドラッグ中の毎フレームでフル解像度の切り出しコピー
+    (``QPixmap.copy``) を作らないため、4K/8K の選択でも確保するメモリは
+    ラベル寸法ぶんだけで済む。
+    """
 
     def __init__(self, parent: QWidget | None = None) -> None:
         """プレビューラベルを構築する。
@@ -62,6 +68,7 @@ class _CropPreviewLabel(QLabel):
         """
         super().__init__(parent)
         self._source: QPixmap | None = None
+        self._crop: CropRect | None = None
         self.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.setMinimumSize(200, 150)
         self.setStyleSheet(
@@ -71,33 +78,98 @@ class _CropPreviewLabel(QLabel):
         )
         self.setText(_NO_SELECTION_TEXT)
 
-    def set_source_pixmap(self, pixmap: QPixmap | None) -> None:
-        """表示する切り出し結果を差し替える。
+    def set_preview(self, source: QPixmap | None, crop: CropRect | None) -> None:
+        """表示する元画像と切り出し範囲を差し替える。
 
         Args:
-            pixmap: 切り出し済みの QPixmap。None で「選択範囲なし」表示に戻す。
+            source: 切り出し元の QPixmap (コピーせず参照だけ保持する)。
+            crop: 切り出し範囲。None / 無効な矩形なら「選択範囲なし」表示に戻す。
         """
-        self._source = pixmap
-        self._rescale()
-
-    def resizeEvent(self, event: QResizeEvent) -> None:
-        """リサイズに追従してスケールし直す。"""
-        super().resizeEvent(event)
-        self._rescale()
-
-    def _rescale(self) -> None:
-        """保持している pixmap を現在のラベル寸法へ収める。"""
-        if self._source is None or self._source.isNull():
-            self.clear()
+        self._source = source
+        self._crop = crop
+        if self._source_rect() is None:
             self.setText(_NO_SELECTION_TEXT)
+        else:
+            # 文字列を消して背景と枠だけを基底クラスに描かせ、その上に自前描画する
+            self.setText("")
+        self.update()
+
+    def paintEvent(self, event: QPaintEvent) -> None:
+        """背景・枠を基底クラスに描かせたうえで、選択範囲を表示サイズへ直接描く。"""
+        super().paintEvent(event)
+        source_rect = self._source_rect()
+        target_rect = self._target_rect(source_rect)
+        if self._source is None or source_rect is None or target_rect is None:
             return
-        self.setPixmap(
-            self._source.scaled(
-                self.size(),
-                Qt.AspectRatioMode.KeepAspectRatio,
-                Qt.TransformationMode.SmoothTransformation,
-            )
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform, True)
+        painter.drawPixmap(target_rect, self._source, source_rect)
+        painter.end()
+
+    def _source_rect(self) -> QRect | None:
+        """元画像から切り出す矩形 (画像範囲内へクリップ済み)。描けないなら None。"""
+        if self._source is None or self._source.isNull():
+            return None
+        if self._crop is None or not self._crop.has_positive_size():
+            return None
+        clipped = QRect(self._crop.x, self._crop.y, self._crop.width, self._crop.height).intersected(
+            self._source.rect()
         )
+        return clipped if not clipped.isEmpty() else None
+
+    def _target_rect(self, source_rect: QRect | None) -> QRect | None:
+        """切り出し範囲を縦横比を保って中央配置したときの描画先矩形。"""
+        if source_rect is None:
+            return None
+        area = self.contentsRect()
+        if area.isEmpty():
+            return None
+        scaled = source_rect.size().scaled(area.size(), Qt.AspectRatioMode.KeepAspectRatio)
+        return QRect(
+            area.x() + (area.width() - scaled.width()) // 2,
+            area.y() + (area.height() - scaled.height()) // 2,
+            scaled.width(),
+            scaled.height(),
+        )
+
+
+class _CropSaveWorker(QObject):
+    """保存 callback を GUI スレッド外で実行するワーカー。
+
+    Signals:
+        succeeded (int): 保存に成功した際、生成された子画像 ID を emit する。
+        failed (object): 保存に失敗した際、送出された例外オブジェクトを emit する。
+    """
+
+    succeeded = Signal(int)
+    failed = Signal(object)
+
+    def __init__(self, callback: Callable[[CropCreateRequest], int], request: CropCreateRequest) -> None:
+        """ワーカーを構築する。
+
+        Args:
+            callback: 保存要求を受け取り子画像 ID を返す callback。
+            request: 実行する保存要求。
+
+        Note:
+            ``moveToThread`` するため親は持たせない (所有権はダイアログ側の属性で保持する)。
+        """
+        super().__init__()
+        self._callback = callback
+        self._request = request
+
+    @Slot()
+    def run(self) -> None:
+        """保存 callback を実行し、結果または例外を Signal で返す。"""
+        try:
+            child_image_id = self._callback(self._request)
+        except Exception as exc:
+            # save_callback は呼び出し側 (service / DB 層) の任意の例外を投げうる。
+            # ワーカースレッドで例外を落とすとアプリごと終了しうるため、ここだけ広く受けて
+            # GUI スレッドへ渡す (提示と後始末はダイアログの責務)。
+            self.failed.emit(exc)
+            return
+        self.succeeded.emit(int(child_image_id))
 
 
 class CropDialog(QDialog):
@@ -141,6 +213,10 @@ class CropDialog(QDialog):
         self._rating: str | None = self._initial_rating
         self._save_callback = save_callback
         self._save_in_progress = False
+        # 実行中に GC されると emit 先が消えてクラッシュするため、thread / worker の
+        # 両方を属性で保持する (docs/lessons-learned.md の PySide6 節)
+        self._save_thread: QThread | None = None
+        self._save_worker: _CropSaveWorker | None = None
         self._saved = False
         self._child_image_id: int | None = None
         # closeEvent → QDialog::closeEvent → reject() の二重確認を防ぐフラグ
@@ -371,7 +447,7 @@ class CropDialog(QDialog):
 
     @Slot()
     def _on_save(self) -> None:
-        """保存 callback を呼び、成功なら閉じ、失敗ならエラーを表示して残る。"""
+        """保存 callback をワーカースレッドで実行する (完了は Signal で受ける)。"""
         if self._save_in_progress:
             return
         try:
@@ -382,21 +458,31 @@ class CropDialog(QDialog):
 
         self._show_error("")
         self._save_in_progress = True
+        self._set_editing_enabled(False)
         self._update_save_enabled()
-        try:
-            child_image_id = self._save_callback(request)
-        except Exception as exc:
-            # save_callback は呼び出し側 (service / DB 層) の任意の例外を投げうる。
-            # ダイアログを閉じずに失敗を提示する責務があるため、ここだけ広く受ける。
-            logger.opt(exception=True).error(
-                f"クロップ画像の保存に失敗しました (parent={self._parent_image_id}): {exc}"
-            )
-            self._show_error(f"保存に失敗しました: {exc}")
-            return
-        finally:
-            self._save_in_progress = False
-            self._update_save_enabled()
 
+        thread = QThread(self)
+        worker = _CropSaveWorker(self._save_callback, request)
+        worker.moveToThread(thread)
+        thread.started.connect(worker.run)
+        # worker は別スレッドにいるので、既定の AutoConnection で GUI スレッドへ queued 配送される
+        worker.succeeded.connect(self._on_save_succeeded)
+        worker.failed.connect(self._on_save_failed)
+        # 終端 Signal で worker を所属スレッド側で破棄予約し、スレッドを止める。
+        # スレッド自身は finished 後に GUI スレッドで破棄する (再試行で蓄積させない)。
+        worker.succeeded.connect(worker.deleteLater)
+        worker.failed.connect(worker.deleteLater)
+        worker.succeeded.connect(thread.quit)
+        worker.failed.connect(thread.quit)
+        thread.finished.connect(thread.deleteLater)
+        self._save_thread = thread
+        self._save_worker = worker
+        thread.start()
+
+    @Slot(int)
+    def _on_save_succeeded(self, child_image_id: int) -> None:
+        """保存成功をダイアログへ反映し、閉じる。"""
+        self._finish_save()
         self._child_image_id = int(child_image_id)
         self._saved = True
         logger.info(
@@ -405,18 +491,59 @@ class CropDialog(QDialog):
         self.saved.emit(self._child_image_id)
         self.accept()
 
+    @Slot(object)
+    def _on_save_failed(self, error: object) -> None:
+        """保存失敗をログとエラーラベルへ反映し、ダイアログは閉じずに残す。"""
+        self._finish_save()
+        exc = error if isinstance(error, BaseException) else RuntimeError(str(error))
+        logger.opt(exception=exc).error(
+            f"クロップ画像の保存に失敗しました (parent={self._parent_image_id}): {exc}"
+        )
+        self._show_error(f"保存に失敗しました: {exc}")
+
+    def _finish_save(self) -> None:
+        """保存スレッドの終了を待って参照を解放し、保存中フラグを下ろす。
+
+        worker / thread の破棄は Signal 配線 (deleteLater) に任せ、ここでは
+        Python 側の参照だけ切る。
+        """
+        thread = self._save_thread
+        if thread is not None:
+            thread.quit()
+            thread.wait()
+        self._save_thread = None
+        self._save_worker = None
+        self._save_in_progress = False
+        self._set_editing_enabled(True)
+        self._update_save_enabled()
+
+    def _set_editing_enabled(self, enabled: bool) -> None:
+        """矩形・タグ・レーティングの編集コントロールをまとめて有効/無効にする。
+
+        保存中は request 取得済みの値と画面表示がずれないよう編集を凍結する。
+        """
+        self._selector.setEnabled(enabled)
+        self._candidate_list.setEnabled(enabled)
+        self._adopted_list.setEnabled(enabled)
+        self._rating_control.setEnabled(enabled)
+
     # ------------------------------------------------------------------
     # 閉じる際の破棄確認
     # ------------------------------------------------------------------
 
     def reject(self) -> None:
-        """未保存の変更があれば破棄確認を挟んでから閉じる。"""
+        """未保存の変更があれば破棄確認を挟んでから閉じる (保存中は閉じない)。"""
+        if self._save_in_progress:
+            return
         if self._close_confirmed or self._confirm_discard():
             self._close_confirmed = False
             super().reject()
 
     def closeEvent(self, event: QCloseEvent) -> None:
-        """ウィンドウを閉じる操作にも破棄確認を挟む。"""
+        """ウィンドウを閉じる操作にも破棄確認を挟む (保存中は閉じない)。"""
+        if self._save_in_progress:
+            event.ignore()
+            return
         if not self._confirm_discard():
             event.ignore()
             return
@@ -482,7 +609,7 @@ class CropDialog(QDialog):
 
     def _refresh_rect_dependent(self, crop: CropRect | None) -> None:
         """矩形に連動する表示 (プレビュー / 実寸 / 警告 / 保存可否) を更新する。"""
-        self._preview.set_source_pixmap(self._cropped_pixmap(crop))
+        self._preview.set_preview(self._selector.source_pixmap(), crop)
         if crop is None:
             self._size_label.setText(_NO_SELECTION_TEXT)
         else:
@@ -492,13 +619,6 @@ class CropDialog(QDialog):
         )
         self._warning_label.setHidden(not show_warning)
         self._update_save_enabled()
-
-    def _cropped_pixmap(self, crop: CropRect | None) -> QPixmap | None:
-        """選択矩形で元画像を切り出した QPixmap を返す。無効なら None。"""
-        source = self._selector.source_pixmap()
-        if source is None or crop is None or not crop.has_positive_size():
-            return None
-        return source.copy(QRect(crop.x, crop.y, crop.width, crop.height))
 
     def _update_save_enabled(self) -> None:
         """矩形の妥当性と保存実行中フラグから保存ボタンの有効/無効を決める。"""

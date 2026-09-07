@@ -19,6 +19,7 @@ from PySide6.QtCore import QPointF, QRect, QRectF, Qt, Signal
 from PySide6.QtGui import (
     QBrush,
     QColor,
+    QImageReader,
     QMouseEvent,
     QPainter,
     QPen,
@@ -101,10 +102,17 @@ class CropRectSelectorWidget(QGraphicsView):
     def set_image(self, path: Path) -> None:
         """表示する元画像を差し替える (選択矩形はクリアされる)。
 
+        EXIF Orientation は ``QImageReader.setAutoTransform`` で適用してから読み込む。
+        これにより scene 座標 (= 選択矩形の座標系) が、通常のプレビュー表示
+        (``image_preview.py``) と同じ「EXIF 適用後の表示ピクセル」にそろう。
+
         Args:
             path: 元画像のファイルパス。読み込めない場合は表示をクリアする。
         """
-        pixmap = QPixmap(str(path))
+        reader = QImageReader(str(path))
+        reader.setAutoTransform(True)
+        image = reader.read()
+        pixmap = QPixmap() if image.isNull() else QPixmap.fromImage(image)
         if pixmap.isNull():
             logger.warning(f"クロップ元画像の読み込みに失敗しました: {path}")
             self.clear_image()
@@ -176,16 +184,28 @@ class CropRectSelectorWidget(QGraphicsView):
         if event.button() != Qt.MouseButton.LeftButton or self._pixmap is None:
             super().mousePressEvent(event)
             return
+        raw_point = self.mapToScene(event.position().toPoint())
+        handle = self._hit_handle(raw_point)
+        if not self._inside_image(raw_point) and not self._boundary_handle_reachable(handle, raw_point):
+            # fitInView のレターボックス余白での押下は無視する。例外は「押下がはみ出した側の
+            # 画像境界に、そのハンドルの辺がちょうど接している」場合だけ (当たり判定の許容幅が
+            # 画像外へはみ出すため)。境界に近いだけの辺は掴ませない。
+            super().mousePressEvent(event)
+            return
         point = self._clamped_scene_point(event.position())
         self._drag_start_rect = self._rect
         self._drag_anchor = point
-        handle = self._hit_handle(point)
         if handle is not None:
             self._drag_mode = handle
         elif self._rect is not None and self._contains(self._rect, point):
             self._drag_mode = _MODE_MOVE
         else:
             self._drag_mode = _MODE_CREATE
+            # 新規作成の開始時点で古い矩形を捨てる。ドラッグせずに離した場合でも
+            # 古い矩形が生き残らないようにするため (release 時の潰れ判定では
+            # 「幅高さが正のまま残った古い矩形」を検出できない)。
+            self._drag_start_rect = None
+            self._set_rect_internal(None)
         event.accept()
 
     def mouseMoveEvent(self, event: QMouseEvent) -> None:
@@ -259,6 +279,32 @@ class CropRectSelectorWidget(QGraphicsView):
             return view_px
         return view_px / scale
 
+    def _boundary_handle_reachable(self, handle: str | None, scene_point: QPointF) -> bool:
+        """画像外の押下でも掴めるハンドルか (はみ出した各側で、辺が画像境界に接している)。"""
+        if handle is None or self._rect is None:
+            return False
+        size = self.image_size()
+        if size is None:
+            return False
+        width, height = size
+        rect = self._rect
+        if scene_point.x() < 0.0 and not ("l" in handle and rect.x == 0):
+            return False
+        if scene_point.x() > float(width) and not ("r" in handle and rect.x + rect.width == width):
+            return False
+        if scene_point.y() < 0.0 and not ("t" in handle and rect.y == 0):
+            return False
+        return not (
+            scene_point.y() > float(height) and not ("b" in handle and rect.y + rect.height == height)
+        )
+
+    def _inside_image(self, scene_point: QPointF) -> bool:
+        """scene 座標が画像の範囲内 (境界を含む) か。画像未設定なら False。"""
+        size = self.image_size()
+        if size is None:
+            return False
+        return 0.0 <= scene_point.x() <= float(size[0]) and 0.0 <= scene_point.y() <= float(size[1])
+
     def _clamped_scene_point(self, position: QPointF) -> QPointF:
         """ビューポート座標を画像範囲内の scene 座標へ変換する。"""
         scene_point = self.mapToScene(position.toPoint())
@@ -280,13 +326,28 @@ class CropRectSelectorWidget(QGraphicsView):
         return CropRect(x=left, y=top, width=right - left, height=bottom - top)
 
     @staticmethod
-    def _clamp_rect(rect: CropRect, image_width: int, image_height: int) -> CropRect:
-        """矩形を画像範囲内へクランプする。"""
-        x = min(max(rect.x, 0), image_width)
-        y = min(max(rect.y, 0), image_height)
-        width = min(max(rect.width, 0), image_width - x)
-        height = min(max(rect.height, 0), image_height - y)
-        return CropRect(x=x, y=y, width=width, height=height)
+    def _clamp_rect(rect: CropRect, image_width: int, image_height: int) -> CropRect | None:
+        """矩形を画像範囲との交差へクランプする。
+
+        左上を先にクランプしてから幅高さを切ると、上辺・左辺をはみ出した矩形で
+        「遠い辺」(右辺・下辺) が押し出されて元の指定より広くなる。元の
+        ``x + width`` / ``y + height`` から右下を求めてから寸法を導く。
+
+        Args:
+            rect: クランプ対象の矩形。
+            image_width: 画像の幅 (px)。
+            image_height: 画像の高さ (px)。
+
+        Returns:
+            画像範囲との交差矩形。交差が空 (完全に範囲外・潰れた矩形) なら None。
+        """
+        left = max(rect.x, 0)
+        top = max(rect.y, 0)
+        right = min(rect.x + rect.width, image_width)
+        bottom = min(rect.y + rect.height, image_height)
+        if right <= left or bottom <= top:
+            return None
+        return CropRect(x=left, y=top, width=right - left, height=bottom - top)
 
     @staticmethod
     def _contains(rect: CropRect, point: QPointF) -> bool:
