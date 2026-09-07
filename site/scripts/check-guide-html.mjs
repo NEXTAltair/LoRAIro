@@ -23,10 +23,18 @@ export async function checkGuideHtml(root) {
       if (/^#{1,6}\s|^```|^\|(?:[^\n]*\|)+$/m.test(html)) errors.push(`${locale}/${chapter}: Markdown syntax remains in HTML source`);
       if (placeholderChapters.includes(chapter)) {
         const figure = html.match(/<figure class="guide-placeholder"[\s\S]*?<\/figure>/);
-        if (!figure || !/1280×720/.test(figure[0]) || !/data-aspect-ratio="16 \/ 9"/.test(figure[0])) {
+        if (!figure) {
+          errors.push(`${locale}/${chapter}: missing operation example figure`);
+          continue;
+        }
+        const image = figure[0].match(/<img\b[^>]*>/i)?.[0];
+        if (image) {
+          if (!/\bsrc\s*=\s*(["'])[^"']+\1/i.test(image) || !/\balt\s*=\s*(["'])[^"']+\1/i.test(image) || !/<figcaption>[\s\S]*?<\/figcaption>/i.test(figure[0])) {
+            errors.push(`${locale}/${chapter}: image replacement needs src, localized alt text, and a caption`);
+          }
+        } else if (!/guide-placeholder__frame/.test(figure[0]) || !/1280×720/.test(figure[0]) || !/data-aspect-ratio="16 \/ 9"/.test(figure[0])) {
           errors.push(`${locale}/${chapter}: missing standard operation placeholder`);
         }
-        if (/<img\b[^>]*\bsrc=/i.test(figure?.[0] ?? '')) errors.push(`${locale}/${chapter}: placeholder must not reference an image`);
       }
     }
     const annotation = await readFile(join(directory, 'annotation.html'), 'utf8');

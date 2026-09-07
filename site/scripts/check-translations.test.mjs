@@ -48,3 +48,14 @@ test('translations cannot silently introduce different commands', async (t) => {
   await writeFile(f.path('en'), '<!doctype html><html lang="en"><head><title>English</title></head><body><pre><code>invalid command\n</code></pre></body></html>');
   await assert.rejects(checkTranslations(f.root), /code examples differ/);
 });
+
+test('translations cannot hide different commands with whitespace around code elements', async (t) => {
+  const f = await fixture(t);
+  const source = '<!doctype html><html lang="ja"><head><title>日本語</title></head><body><p>利用方法</p><pre>\n<code>source command</code>\n</pre></body></html>';
+  await writeFile(f.path('ja'), source);
+  for (const language of languages) {
+    await writeFile(f.path(language), `<!doctype html><html lang="${language}"><head><title>${language}</title></head><body><p>Guide</p><pre>\n<code>translated command</code>\n</pre></body></html>`);
+  }
+  await writeFile(join(f.root, 'translations.json'), JSON.stringify({ 'index.html': Object.fromEntries(languages.map((language) => [language, digest(source)])) }));
+  await assert.rejects(checkTranslations(f.root), /code examples differ/);
+});

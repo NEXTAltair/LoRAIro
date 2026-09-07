@@ -5,7 +5,7 @@ import { fileURLToPath } from 'node:url';
 
 export const languages = ['en', 'zh-tw', 'zh-cn'];
 export const digest = (text) => createHash('sha256').update(text.replaceAll('\r\n', '\n')).digest('hex');
-const codeBlocks = (text) => [...text.replaceAll('\r\n', '\n').matchAll(/<pre><code(?:\s[^>]*)?>([\s\S]*?)<\/code><\/pre>/g)].map(m => m[1]);
+const codeBlocks = (text) => [...text.replaceAll('\r\n', '\n').matchAll(/<pre\b[^>]*>\s*<code(?:\s[^>]*)?>([\s\S]*?)<\/code>\s*<\/pre>/gi)].map(m => m[1]);
 const body = (text) => text.replaceAll('\r\n', '\n').match(/<body>([\s\S]*?)<\/body>/i)?.[1].trim() ?? '';
 
 async function pages(directory) {
