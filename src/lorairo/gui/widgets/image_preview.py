@@ -2,9 +2,17 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from PIL import Image
-from PySide6.QtCore import QPoint, Qt, QTimer, Slot
+from PySide6.QtCore import QPoint, Qt, QTimer, Signal, Slot
 from PySide6.QtGui import QAction, QImageReader, QPainter, QPixmap, QResizeEvent, QShowEvent
-from PySide6.QtWidgets import QApplication, QGraphicsPixmapItem, QGraphicsScene, QMenu, QWidget
+from PySide6.QtWidgets import (
+    QApplication,
+    QGraphicsPixmapItem,
+    QGraphicsScene,
+    QHBoxLayout,
+    QMenu,
+    QPushButton,
+    QWidget,
+)
 
 from ...gui.designer.ImagePreviewWidget_ui import Ui_ImagePreviewWidget
 from ...utils.log import logger
@@ -14,7 +22,15 @@ if TYPE_CHECKING:
 
 
 class ImagePreviewWidget(QWidget, Ui_ImagePreviewWidget):
-    """DatasetStateManager統合対応プレビューウィジェット"""
+    """DatasetStateManager統合対応プレビューウィジェット
+
+    Signals:
+        crop_requested (int): クロップ作成ボタンが押された画像の ``images.id`` (#1346)。
+    """
+
+    # クロップ作成要求 (#1346)。表示中の画像 ID を上げるだけで、ダイアログ生成は
+    # CropDialogLauncher が担う。
+    crop_requested = Signal(int)
 
     # プレビュー表示に使う最大辺 (px)。オリジナルがこれを超える場合はデコード時に
     # 縮小し、選択のたびのフル解像度デコード CPU を抑える (#1221)。
@@ -35,6 +51,11 @@ class ImagePreviewWidget(QWidget, Ui_ImagePreviewWidget):
         self.pixmap_item: QGraphicsPixmapItem | None = None
         self._current_image_path: Path | None = None
         self._current_pixmap: QPixmap | None = None
+        # 現在画像 ID は current_image_data_changed (dict チャネル) だけを SSoT とする
+        # (#1222 の教訓: 表示クリアの経路を1本化する)。path ベースの load_image() は触らない。
+        self._current_image_id: int | None = None
+
+        self._setup_crop_action_bar()
 
         self.previewGraphicsView.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self.previewGraphicsView.customContextMenuRequested.connect(self._show_preview_context_menu)
@@ -147,6 +168,53 @@ class ImagePreviewWidget(QWidget, Ui_ImagePreviewWidget):
             return QPixmap()
         return QPixmap.fromImage(image)
 
+    def _setup_crop_action_bar(self) -> None:
+        """プレビュー下部にクロップ作成ボタンの操作バーを追加する (#1346)。
+
+        .ui は変更せず code-only で 1 行追加する。エクスポート/その他の再利用箇所で
+        死んだボタンを見せないため既定は非表示で、配線したタブが
+        :meth:`set_crop_action_visible` で表示する。
+        """
+        self._crop_action_bar = QWidget(self)
+        bar_layout = QHBoxLayout(self._crop_action_bar)
+        bar_layout.setContentsMargins(4, 2, 4, 2)
+        bar_layout.setSpacing(4)
+        bar_layout.addStretch(1)
+
+        self._crop_button = QPushButton("クロップして学習素材を作成…", self._crop_action_bar)
+        self._crop_button.setObjectName("previewCropButton")
+        self._crop_button.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._crop_button.setEnabled(False)
+        self._crop_button.clicked.connect(self._on_crop_button_clicked)
+        bar_layout.addWidget(self._crop_button)
+
+        self.verticalLayout.addWidget(self._crop_action_bar)
+        self._crop_action_bar.setVisible(False)
+
+    def set_crop_action_visible(self, visible: bool) -> None:
+        """クロップ作成ボタンの表示/非表示を切り替える (#1346)。
+
+        Args:
+            visible: True で操作バーを表示する。
+        """
+        self._crop_action_bar.setVisible(visible)
+
+    def current_image_id(self) -> int | None:
+        """プレビュー中の画像 ID。未選択なら None。"""
+        return self._current_image_id
+
+    def _set_current_image_id(self, image_id: int | None) -> None:
+        """現在画像 ID を更新し、クロップボタンの活性を追従させる。"""
+        self._current_image_id = image_id
+        self._crop_button.setEnabled(image_id is not None)
+
+    def _on_crop_button_clicked(self) -> None:
+        """クロップ作成ボタン押下を crop_requested へ変換する。"""
+        if self._current_image_id is None:
+            logger.debug("Crop requested without a current image - ignored")
+            return
+        self.crop_requested.emit(self._current_image_id)
+
     def _adjust_view_size(self) -> None:
         # pixmap_item が None の場合はスキップ（sceneRect が (0,0,0,0) の状態での縮小を防ぐ）
         if self.pixmap_item is not None:
@@ -254,6 +322,9 @@ class ImagePreviewWidget(QWidget, Ui_ImagePreviewWidget):
                 f"ImagePreviewWidget: current_image_data_changed シグナル受信 - データサイズ: {len(image_data) if image_data else 0}"
             )
 
+            # 表示できるまでは現在画像 ID を未確定に戻し、クロップ導線を無効化する
+            self._set_current_image_id(None)
+
             # 空データの場合はプレビューをクリア
             if not image_data:
                 logger.debug("Empty image data received, clearing preview")
@@ -281,6 +352,7 @@ class ImagePreviewWidget(QWidget, Ui_ImagePreviewWidget):
                 return
 
             self.load_image(image_path)
+            self._set_current_image_id(image_id if isinstance(image_id, int) else None)
 
             logger.debug(f"プレビュー表示成功: ID={image_id}, path={image_path.name}")
 
@@ -288,6 +360,7 @@ class ImagePreviewWidget(QWidget, Ui_ImagePreviewWidget):
             logger.opt(exception=True).error(
                 f"プレビュー更新エラー データ:{image_data.get('id', 'Unknown')} | エラー: {e}"
             )
+            self._set_current_image_id(None)
             self._clear_preview()
 
     def _clear_preview(self) -> None:

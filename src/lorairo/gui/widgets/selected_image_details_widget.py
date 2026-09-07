@@ -41,6 +41,7 @@ from ...gui.designer.SelectedImageDetailsWidget_ui import Ui_SelectedImageDetail
 from ...services.date_formatter import format_datetime_for_display
 from ...utils.language_keys import language_alias_keys
 from ...utils.log import logger
+from ..services.crop_relation_service import CropRelationService
 from ..services.image_db_write_service import ImageDBWriteService
 from .annotation_data_display_widget import (
     AnnotationData,
@@ -48,6 +49,7 @@ from .annotation_data_display_widget import (
     ImageDetails,
 )
 from .rating_score_edit_widget import RatingScoreEditWidget
+from .related_images_widget import RelatedImagesWidget
 from .tag_panel_widget import ACTION_TOOL_BUTTON_QSS
 
 if TYPE_CHECKING:
@@ -95,6 +97,8 @@ class SelectedImageDetailsWidget(QWidget):
     score_changed = Signal(int, int)  # (image_id, score) - 単一選択時
     batch_rating_changed = Signal(list, str)  # (image_ids, rating) - 複数選択時
     batch_score_changed = Signal(list, int)  # (image_ids, score) - 複数選択時
+    # 関連画像 (クロップ親子) の行クリックによる遷移要求 (#1346)。引数は遷移先 image_id。
+    related_image_activated = Signal(int)
 
     def __init__(
         self,
@@ -154,6 +158,9 @@ class SelectedImageDetailsWidget(QWidget):
         # tagdb userdb 系書き込み (#989): set_tag_management_service で配線。
         self._tag_management_service: TagManagementService | None = None
         self._image_db_write_service: ImageDBWriteService | None = None
+
+        # クロップ親子関係 (#1346): set_crop_relation_service で配線。未配線ならセクション非表示。
+        self._crop_relation_service: CropRelationService | None = None
 
         # shutdown 後に遅延起動 (QTimer.singleShot) が worker を再起動しないためのフラグ (#1206)
         self._closing: bool = False
@@ -300,6 +307,12 @@ class SelectedImageDetailsWidget(QWidget):
         )
         layout.addWidget(self.ui.annotationDataDisplay)
         layout.addWidget(self._rating_score_widget)
+
+        # 関連画像 (クロップ親子、#1346)。CropRelationService 未配線のタブでは非表示のまま。
+        self._related_images_widget = RelatedImagesWidget(container)
+        self._related_images_widget.image_activated.connect(self.related_image_activated.emit)
+        self._related_images_widget.setVisible(False)
+        layout.addWidget(self._related_images_widget)
         # 全 widget をトップ詰めにし、余剰高さは末尾 spacer (= プレーン背景) へ逃がす (#827)。
         # widgetResizable=True で Qt が FlowLayout の heightForWidth を正しく計算するため、
         # レーティング詳細と評価スコア編集の間に隙間が出ず、タグが多くてもクリップしない
@@ -459,6 +472,38 @@ class SelectedImageDetailsWidget(QWidget):
         self.annotation_display.tag_move_to_caption_requested.connect(self._on_tag_move_to_caption)
         self._image_db_write_service = ImageDBWriteService(db_manager)
         logger.debug("SelectedImageDetailsWidget: soft-reject 編集モードを有効化")
+
+    def set_crop_relation_service(self, service: CropRelationService) -> None:
+        """クロップ親子関係の取得サービスを配線し、関連画像セクションを表示する (#1346)。
+
+        Args:
+            service: `crop_relations` から親 / 子を引く GUI サービス。
+        """
+        self._crop_relation_service = service
+        self._related_images_widget.setVisible(True)
+        self.refresh_related_images()
+        logger.debug("SelectedImageDetailsWidget: 関連画像セクションを有効化")
+
+    def refresh_related_images(self) -> None:
+        """現在表示中の画像の親 / 子を取り直して関連画像セクションへ反映する (#1346)。
+
+        クロップ保存直後など、DB 側の親子関係が変わった後に呼ぶ。サービス未配線または
+        未選択のときは「なし」表示へ戻す。
+        """
+        service = self._crop_relation_service
+        image_id = self.current_image_id
+        if service is None or image_id is None:
+            self._related_images_widget.clear()
+            return
+        try:
+            parent_entry = service.get_parent(image_id)
+            child_entries = service.get_children(image_id)
+        except SQLAlchemyError:
+            # 関連画像は付加情報なので、取得失敗でも詳細表示全体は落とさず「なし」に留める。
+            logger.opt(exception=True).error(f"関連画像の取得に失敗しました: image_id={image_id}")
+            self._related_images_widget.clear()
+            return
+        self._related_images_widget.set_related(parent_entry, child_entries)
 
     def set_refinement_service(
         self, service: "RefinementService", worker_manager: "WorkerManager | None" = None
@@ -1359,6 +1404,7 @@ class SelectedImageDetailsWidget(QWidget):
         details = self._build_image_details_from_metadata(image_data)
         self._update_details_display(details)
         self._populate_rejected_tags()
+        self.refresh_related_images()
         # 翻訳/使用頻度/type を background で解決し、完了時に反映する (#1046)
         self._current_tags_list = list(image_data.get("tags", []))
         self._trigger_tag_metadata_fetch(self._current_tags_list)
@@ -1732,6 +1778,8 @@ class SelectedImageDetailsWidget(QWidget):
 
         # AnnotationDataDisplayWidgetのクリア
         self.annotation_display.clear_data()
+        # 関連画像 (クロップ親子) のクリア (#1346)
+        self._related_images_widget.clear()
         if self._copy_details_button:
             self._copy_details_button.setEnabled(False)
         if self._reload_from_db_button:

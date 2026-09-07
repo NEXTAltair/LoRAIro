@@ -60,6 +60,9 @@ class ThumbnailSelectorWidget(QWidget, Ui_ThumbnailSelectorWidget):
     image_selected = Signal(Path)  # 単一画像選択時
     stage_selected_requested = Signal(list)  # バッチタグのステージング追加要求（visible image_ids）
     quick_tag_requested = Signal(list)  # クイックタグ追加要求（image_ids）
+    # クロップ作成要求（1 枚選択時のみ、image_id）。配線側が set_crop_action_enabled(True)
+    # を呼んだタブでのみ右クリックメニューへ項目が出る (#1346)。
+    crop_requested = Signal(int)
 
     def __init__(
         self,
@@ -83,6 +86,9 @@ class ThumbnailSelectorWidget(QWidget, Ui_ThumbnailSelectorWidget):
 
         # 状態管理
         self.dataset_state = dataset_state
+        # クロップ導線 (#1346): 検索タブのみ有効化する opt-in。既定 False で、
+        # エクスポート/ステージングの再利用インスタンスに死んだメニュー項目を出さない。
+        self._crop_action_enabled = False
 
         # UI設定
         self.thumbnail_size = QSize(128, 128)
@@ -592,6 +598,12 @@ class ThumbnailSelectorWidget(QWidget, Ui_ThumbnailSelectorWidget):
         action_quick_tag = menu.addAction("クイックタグ追加...")
         action_quick_tag.setEnabled(bool(visible_selected_ids))
 
+        # クロップ作成 (#1346)。1 枚選択時のみ有効 (矩形指定は単一画像に対する操作)。
+        action_crop = None
+        if self._crop_action_enabled:
+            action_crop = menu.addAction("クロップして学習素材を作成…")
+            action_crop.setEnabled(len(visible_selected_ids) == 1)
+
         menu.addSeparator()
 
         # すべて選択
@@ -607,10 +619,23 @@ class ThumbnailSelectorWidget(QWidget, Ui_ThumbnailSelectorWidget):
             self.stage_selected_requested.emit(visible_selected_ids)
         elif action == action_quick_tag:
             self.quick_tag_requested.emit(visible_selected_ids)
+        elif action_crop is not None and action == action_crop:
+            self.crop_requested.emit(visible_selected_ids[0])
         elif action == action_select_all:
             self._select_all_items()
         elif action == action_deselect:
             self._deselect_all_items()
+
+    def set_crop_action_enabled(self, enabled: bool) -> None:
+        """右クリックメニューの「クロップして学習素材を作成…」項目を有効化する (#1346)。
+
+        エクスポート / ステージングで再利用される同一ウィジェットに死んだ項目を出さない
+        ため、クロップ導線を配線したタブ (検索タブ) だけが True を指定する。
+
+        Args:
+            enabled: True でメニュー項目を表示する。
+        """
+        self._crop_action_enabled = enabled
 
     def _select_all_items(self) -> None:
         """すべてのサムネイルアイテムを選択する。"""
