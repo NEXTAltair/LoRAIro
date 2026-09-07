@@ -1,16 +1,6 @@
 {
   "version": 1,
   "skills": {
-    "agent-pr-autoloop": {
-      "source": "/workspaces/LoRAIro/.agents/skills",
-      "sourceType": "local",
-      "computedHash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
-    },
-    "agent-pr-maintainer": {
-      "source": "/workspaces/LoRAIro/.agents/skills",
-      "sourceType": "local",
-      "computedHash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
-    },
     "check-existing": {
       "source": "NEXTAltair/altairs-agent-dev-kit",
       "ref": "v0.2.2",
@@ -61,7 +51,7 @@
       "computedHash": "04fbd26c508595c33b7866cdcb073f26cdd0ad6a3ffa78d2eaed763edf28d795"
     },
     "interface-design": {
-      "source": "/workspaces/LoRAIro/.agents/skills",
+      "source": "./.agents/skills",
       "sourceType": "local",
       "computedHash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
     },
@@ -73,34 +63,48 @@
       "computedHash": "f9046376071d9e41bd7bc5ac75505a6b9dc23bf9ff2a9e667752c446fe88c91b"
     },
     "lorairo-cli-db-access": {
-      "source": "/workspaces/LoRAIro/.agents/skills",
+      "source": "./.agents/skills",
       "sourceType": "local",
       "computedHash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
     },
     "lorairo-design-capture": {
-      "source": "/workspaces/LoRAIro/.agents/skills",
+      "source": "./.agents/skills",
       "sourceType": "local",
       "computedHash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
     },
     "lorairo-qt-widget": {
-      "source": "/workspaces/LoRAIro/.agents/skills",
+      "source": "./.agents/skills",
       "sourceType": "local",
       "computedHash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
     },
     "lorairo-repository-pattern": {
-      "source": "/workspaces/LoRAIro/.agents/skills",
+      "source": "./.agents/skills",
       "sourceType": "local",
       "computedHash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
     },
     "lorairo-test-generator": {
-      "source": "/workspaces/LoRAIro/.agents/skills",
+      "source": "./.agents/skills",
       "sourceType": "local",
       "computedHash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
     },
     "okf-bundle": {
-      "source": "/workspaces/LoRAIro/.agents/skills",
+      "source": "./.agents/skills",
       "sourceType": "local",
       "computedHash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "pr-autoloop": {
+      "source": "NEXTAltair/altairs-agent-dev-kit",
+      "ref": "v0.3.0",
+      "sourceType": "github",
+      "skillPath": "skills/pr-autoloop/SKILL.md",
+      "computedHash": "6f8fa6bc6b482791ee79199e4a15cf60d5916711328f9fb40ba83850e9ad0234"
+    },
+    "pr-maintainer": {
+      "source": "NEXTAltair/altairs-agent-dev-kit",
+      "ref": "v0.3.0",
+      "sourceType": "github",
+      "skillPath": "skills/pr-maintainer/SKILL.md",
+      "computedHash": "e6343a62f1cde64d6d6a8095e1277fdeb7653e337f269c2513de2e939855f4f0"
     },
     "prompt-optimizer": {
       "source": "NEXTAltair/altairs-agent-dev-kit",
@@ -159,7 +163,7 @@
       "ref": "a30778f8c4e6b0a87567941b7cca4f534bf642b6"
     },
     "sqlalchemy-query-patterns": {
-      "source": "/workspaces/LoRAIro/.agents/skills",
+      "source": "./.agents/skills",
       "sourceType": "local",
       "computedHash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
     },

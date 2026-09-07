@@ -217,14 +217,14 @@ Agent Teams 有効（実験的）。チームメートとしても利用可能�
 
 ### Skills
 
-`.agents/skills/`: `check-existing` (実装前の既存解調査), `lorairo-repository-pattern`, `interface-design`, `lorairo-qt-widget`, `lorairo-test-generator`, `lorairo-cli-db-access` (画像DB調査は sqlite3 直叩きでなく lorairo-cli 経由), `lazy-import-refactor`, `agent-pr-maintainer` (PR保守ポリシー), `agent-pr-autoloop` (PR保守ループ自走)
+`.agents/skills/`: `check-existing` (実装前の既存解調査), `lorairo-repository-pattern`, `interface-design`, `lorairo-qt-widget`, `lorairo-test-generator`, `lorairo-cli-db-access` (画像DB調査は sqlite3 直叩きでなく lorairo-cli 経由), `lazy-import-refactor`, `pr-maintainer` (PR保守ポリシー), `pr-autoloop` (PR保守ループ自走)
 
 `npx skills` (Vercel) で管理。`.claude/skills/<name>` は `.agents/skills/<name>` への symlink。
 外部ソース skill ([altairs-agent-dev-kit](https://github.com/NEXTAltair/altairs-agent-dev-kit) 由来 + サードパーティ) は git 追跡外で、`make setup` / `make skills-install` が `skills-lock.json` から自動復元する (`docs/development-workflow.md` 参照)。
 
-#### agent-pr-autoloop の Claude Code 実装
+#### pr-autoloop の Claude Code 実装
 
-`agent-pr-autoloop` skill の poll 待機は Claude Code では **ScheduleWakeup 自走** で回す (repair / reply / escalation / merge の判断基準は `agent-pr-maintainer` skill と ADR 0039 に従う):
+`pr-autoloop` skill の poll 待機は Claude Code では **ScheduleWakeup 自走** で回す (repair / reply / escalation / merge の判断基準は `pr-maintainer` skill と ADR 0039 に従う):
 
 - 1ターン = 1 poll サイクル (`gh pr view` / `gh pr checks` で状態取得 → continue / repair / escalate / merge / timeout を分類)。
 - 分類が **continue** なら `ScheduleWakeup(delaySeconds=180, prompt=skill再実行)` で次サイクルを予約する。3分間隔は ADR 0039、180s は prompt cache 温存域 (<270s)。

@@ -188,7 +188,7 @@ webhook watcher や常駐 daemon を先に導入するより、PR 作成エー�
 
 - ADR 0014 (Agent Teams Integration)
 - ADR 0020 (CLI Message Language Policy)
-- `.agents/skills/agent-pr-maintainer/SKILL.md` (保守ポリシー)
-- `.agents/skills/agent-pr-autoloop/SKILL.md` (保守ループ自走。作法差分は CLAUDE.md / AGENTS.md で吸収)
-- `CLAUDE.md` (agent-pr-autoloop の Claude Code 実装: ScheduleWakeup 自走)
+- `.agents/skills/pr-maintainer/SKILL.md` (保守ポリシー。altairs-agent-dev-kit 由来)
+- `.agents/skills/pr-autoloop/SKILL.md` (保守ループ自走。作法差分は CLAUDE.md / AGENTS.md で吸収)
+- `CLAUDE.md` (pr-autoloop の Claude Code 実装: ScheduleWakeup 自走)
 - `AGENTS.md` (Agent Git Workflow / Codex Parallel Agent Workflow)
