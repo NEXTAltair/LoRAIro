@@ -9,6 +9,7 @@ from pathlib import Path
 from unittest.mock import Mock
 
 import pytest
+import shiboken6
 from PIL import Image
 from PySide6.QtWidgets import QMessageBox
 from pytest_bdd import given, parsers, scenarios, then, when
@@ -70,6 +71,11 @@ def _open_file_db(db_path: Path, config_service: object) -> ImageDatabaseManager
         config_service=config_service,
         session_factory=sessionmaker(autocommit=False, autoflush=False, bind=engine),
     )
+
+
+def _dialog_closed(dialog: CropDialog) -> bool:
+    """閉じたダイアログは deleteLater で破棄されるため、破棄済みも「閉じている」と扱う。"""
+    return not shiboken6.isValid(dialog) or not dialog.isVisible()
 
 
 def _visible_dialog(ctx: WiringContext) -> CropDialog:
@@ -181,7 +187,11 @@ def when_rect_selected_and_saved(
     dialog._on_save()
     # 保存は worker スレッドで走る (#1345)。成功 (子 ID) か失敗 (エラー表示) の終端まで待つ。
     qtbot.waitUntil(
-        lambda: dialog.child_image_id() is not None or dialog.error_message() != "",
+        lambda: (
+            not shiboken6.isValid(dialog)
+            or dialog.child_image_id() is not None
+            or dialog.error_message() != ""
+        ),
         timeout=SAVE_TIMEOUT_MS,
     )
 
@@ -211,7 +221,7 @@ def then_candidate_tags_shown(ctx: WiringContext) -> None:
 @then("クロップダイアログは閉じている")
 def then_dialog_closed(ctx: WiringContext) -> None:
     assert ctx.dialog is not None
-    assert ctx.dialog.isVisible() is False
+    assert _dialog_closed(ctx.dialog)
 
 
 @then("クロップダイアログは開いたままである")

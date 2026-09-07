@@ -219,6 +219,21 @@ def test_preview_crop_button_emits_current_image_id(qtbot, preview_image: Path) 
 
 
 @pytest.mark.gui
+def test_preview_crop_button_stays_disabled_when_decoding_fails(qtbot, tmp_path: Path) -> None:
+    """ファイルは存在するがデコードできない画像ではクロップを有効にしない。"""
+    corrupt = tmp_path / "corrupt.png"
+    corrupt.write_bytes(b"not an image")
+    widget = ImagePreviewWidget()
+    qtbot.addWidget(widget)
+    widget.set_crop_action_visible(True)
+
+    widget._on_image_data_received({"id": 7, "stored_image_path": str(corrupt)})
+
+    assert widget.current_image_id() is None
+    assert widget._crop_button.isEnabled() is False
+
+
+@pytest.mark.gui
 def test_preview_crop_button_disabled_on_empty_selection(qtbot, preview_image: Path) -> None:
     """選択解除 (空データ) でボタンは再び無効になり、現在画像 ID もクリアされる。"""
     widget = ImagePreviewWidget()

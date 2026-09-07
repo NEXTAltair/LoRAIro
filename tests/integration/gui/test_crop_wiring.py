@@ -11,6 +11,7 @@ from pathlib import Path
 from unittest.mock import Mock
 
 import pytest
+import shiboken6
 from PIL import Image
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
@@ -110,10 +111,10 @@ def _crop_via_list(qtbot, tab: SearchTabWidget, image_id: int, rect: CropRect) -
     dialog = dialogs[-1]
     qtbot.addWidget(dialog)
     dialog.set_rect(rect)
-    with qtbot.waitSignal(dialog.saved, timeout=SAVE_TIMEOUT_MS):
+    with qtbot.waitSignal(dialog.saved, timeout=SAVE_TIMEOUT_MS) as blocker:
         dialog._on_save()
-    child_id = dialog.child_image_id()
-    assert child_id is not None
+    # 閉じたダイアログは deleteLater で破棄されるため、子 ID は Signal 引数から取る
+    child_id = int(blocker.args[0])
     return dialog, child_id
 
 
@@ -154,7 +155,7 @@ def test_saved_crop_becomes_current_image_with_relation(
         qtbot, tab, parent_image_id, CropRect(x=100, y=100, width=800, height=600)
     )
 
-    assert dialog.isVisible() is False
+    assert not shiboken6.isValid(dialog) or dialog.isVisible() is False
     # 一覧 (サムネイルが描画元にする画像集合) に子画像が載っている
     assert child_id in {image["id"] for image in dataset_state.filtered_images}
     assert dataset_state.get_image_by_id(child_id) is not None
@@ -211,11 +212,10 @@ def test_recrop_from_preview_creates_grandchild(
     dialog = dialogs[-1]
     qtbot.addWidget(dialog)
     dialog.set_rect(CropRect(x=10, y=10, width=300, height=300))
-    with qtbot.waitSignal(dialog.saved, timeout=SAVE_TIMEOUT_MS):
+    with qtbot.waitSignal(dialog.saved, timeout=SAVE_TIMEOUT_MS) as blocker:
         dialog._on_save()
-    grandchild_id = dialog.child_image_id()
+    grandchild_id = int(blocker.args[0])
 
-    assert grandchild_id is not None
     relation = crop_db_manager.get_crop_parent(grandchild_id)
     assert relation is not None
     assert relation.parent_image_id == child_id

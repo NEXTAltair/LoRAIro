@@ -352,6 +352,11 @@ class ImagePreviewWidget(QWidget, Ui_ImagePreviewWidget):
                 return
 
             self.load_image(image_path)
+            if self._current_pixmap is None:
+                # デコード失敗 (破損・非対応形式) はプレビュー空のままクロップも無効にする
+                logger.warning(f"プレビューを生成できなかったためクロップを無効化 ID:{image_id}")
+                self._set_current_image_id(None)
+                return
             self._set_current_image_id(image_id if isinstance(image_id, int) else None)
 
             logger.debug(f"プレビュー表示成功: ID={image_id}, path={image_path.name}")

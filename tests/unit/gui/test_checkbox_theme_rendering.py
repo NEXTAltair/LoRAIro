@@ -50,9 +50,13 @@ def _hex_rgb(token: str) -> tuple[int, int, int]:
     return (int(token[1:3], 16), int(token[3:5], 16), int(token[5:7], 16))
 
 
-@pytest.fixture(autouse=True)
+@pytest.fixture(autouse=True, scope="module")
 def _global_qss(qapp):
-    """テーマのグローバル QSS を適用する (checkbox 描画に必須)。"""
+    """テーマのグローバル QSS を適用する (checkbox 描画に必須)。
+
+    QApplication 全体への QSS 適用は数秒かかる (全ウィジェットの再ポリッシュ) ため、
+    テストごとではなくモジュールで 1 回だけ適用し、終了時に元へ戻す。
+    """
     previous = qapp.styleSheet()
     qapp.setStyleSheet(theme.build_global_qss())
     yield
