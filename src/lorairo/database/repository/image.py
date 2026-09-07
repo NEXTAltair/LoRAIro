@@ -37,6 +37,7 @@ from sqlalchemy import (
     ColumnElement,
     Select,
     and_,
+    delete,
     exists,
     func,
     not_,
@@ -54,6 +55,7 @@ from ..schema import (
     MANUAL_EDIT_LITELLM_ID,
     MANUAL_EDIT_NAME,
     Caption,
+    CropRelation,
     ErrorRecord,
     Image,
     ImageFilenameAlias,
@@ -153,6 +155,51 @@ class ImageRepository(BaseRepository):
             except SQLAlchemyError as e:
                 session.rollback()
                 logger.opt(exception=True).error(f"エイリアス登録エラー: {e}")
+                raise
+
+    def delete_image_with_dependents(self, image_id: int) -> list[str]:
+        """画像行と従属レコードを削除し、削除対象の画像ファイルの stored path 一覧を返す。
+
+        クロップ作成 (ADR 0092) の補償処理専用。画像登録後にタグ・レーティング・
+        親子関係の保存が失敗した場合、半端に登録された子画像を取り消して
+        pHash 重複判定による再試行不能を防ぐ。通常運用で登録済み画像を削除する
+        API ではない (画像削除機能は対象外)。
+
+        ORM の cascade (processed_images / tags / captions / scores / ratings /
+        error_records) と crop_relations の明示削除で従属行を消す。ファイル自体は
+        削除しないので、呼び出し側が戻り値のパスを削除する。
+
+        Args:
+            image_id: 削除する画像の ID。
+
+        Returns:
+            削除した画像 (オリジナル + 加工済み) の stored path 一覧。画像が無ければ空。
+
+        Raises:
+            SQLAlchemyError: データベース操作でエラーが発生した場合。
+        """
+        with self.session_factory() as session:
+            try:
+                image = session.get(Image, image_id)
+                if image is None:
+                    return []
+                stored_paths = [image.stored_image_path]
+                stored_paths.extend(processed.stored_image_path for processed in image.processed_images)
+                session.execute(
+                    delete(CropRelation).where(
+                        or_(
+                            CropRelation.child_image_id == image_id,
+                            CropRelation.parent_image_id == image_id,
+                        )
+                    )
+                )
+                session.delete(image)
+                session.commit()
+                logger.debug(f"画像と従属レコードを削除 (補償処理): image_id={image_id}")
+                return stored_paths
+            except SQLAlchemyError:
+                session.rollback()
+                logger.opt(exception=True).error(f"画像削除 (補償処理) エラー: image_id={image_id}")
                 raise
 
     # --- Image CRUD ---

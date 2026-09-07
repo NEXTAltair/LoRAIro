@@ -782,6 +782,7 @@ def crop(
             db_manager=db_manager,
             fsm=container.file_system_manager,
         )
+        stored_tag_count = len(db_manager.get_image_annotations(child_id)["tags"])
 
         if is_json_mode():
             emit_item(
@@ -793,7 +794,7 @@ def crop(
                     width=request.rect.width,
                     height=request.rect.height,
                     origin=request.origin,
-                    tag_count=len(request.tags),
+                    tag_count=stored_tag_count,
                     rating=request.rating,
                 )
             )

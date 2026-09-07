@@ -154,6 +154,41 @@ class TestImagesCrop:
         }
         assert child_tags == {"closeup", "face"}
 
+    def test_tag_count_reports_stored_tags_after_dedup(
+        self,
+        crop_cli_context: int,
+        test_db_manager: ImageDatabaseManager,
+    ) -> None:
+        """--tag の重複は保存時に畳まれ、tag_count は実際に保存された件数を返す。"""
+        result = runner.invoke(
+            app,
+            [
+                "--json",
+                "images",
+                "crop",
+                str(crop_cli_context),
+                "--project",
+                "proj",
+                "--x",
+                "0",
+                "--y",
+                "0",
+                "--width",
+                "128",
+                "--height",
+                "128",
+                "--tag",
+                "solo",
+                "--tag",
+                "solo",
+            ],
+        )
+
+        assert result.exit_code == 0, result.output
+        item = next(row for row in _jsonl(result.stdout) if row["kind"] == "item")
+        stored = test_db_manager.get_image_annotations(item["child_image_id"])["tags"]
+        assert item["tag_count"] == len(stored) == 1
+
     def test_invalid_rectangle_exits_two_with_error_row(
         self,
         crop_cli_context: int,

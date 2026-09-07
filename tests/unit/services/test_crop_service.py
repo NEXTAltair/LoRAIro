@@ -267,18 +267,30 @@ class TestCreateCropImage:
         assert parent_relation is not None
         assert parent_relation.parent_image_id == parent_image
 
-    def test_tag_copy_failure_keeps_child_traceable_from_parent(
+    def test_tag_copy_failure_discards_registered_child(
         self,
         test_db_manager: ImageDatabaseManager,
         fs_manager: FileSystemManager,
         parent_image: int,
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
-        """画像登録後にタグコピーが DB 例外で失敗しても、親子関係は保存済みで例外が伝播する。"""
+        """画像登録後にタグコピーが DB 例外で失敗したら、子画像 (行 + ファイル) を取り消して例外を伝播する。"""
+        before = _counts(test_db_manager, parent_image, fs_manager)
+        registered_child_ids: list[int] = []
+        original_register = test_db_manager.register_original_image
+
+        def _register_and_record(
+            image_path: Path, fsm: FileSystemManager
+        ) -> tuple[int, dict[str, object]] | None:
+            result = original_register(image_path, fsm)
+            if result is not None:
+                registered_child_ids.append(result[0])
+            return result
 
         def _raise_operational_error(image_id: int, tags_data: list[TagAnnotationData]) -> None:
             raise OperationalError("INSERT INTO tags", {}, Exception("database is locked"))
 
+        monkeypatch.setattr(test_db_manager, "register_original_image", _register_and_record)
         monkeypatch.setattr(test_db_manager, "save_tags", _raise_operational_error)
         request = CropCreateRequest(
             parent_image_id=parent_image,
@@ -290,12 +302,19 @@ class TestCreateCropImage:
         with pytest.raises(OperationalError):
             create_crop_image(request, db_manager=test_db_manager, fsm=fs_manager)
 
-        children = test_db_manager.get_crop_children(parent_image)
-        assert len(children) == 1
-        child_id = children[0].child_image_id
-        assert test_db_manager.get_crop_parent(child_id) is not None
-        assert _tag_names(test_db_manager, child_id) == set()
-        assert _manual_rating(test_db_manager, child_id) is None
+        assert len(registered_child_ids) == 1
+        child_id = registered_child_ids[0]
+        assert test_db_manager.get_image_metadata(child_id) is None
+        assert test_db_manager.get_crop_parent(child_id) is None
+        assert test_db_manager.get_crop_children(parent_image) == []
+        assert _counts(test_db_manager, parent_image, fs_manager) == before
+
+        # 同じ矩形を再試行すると pHash 重複に阻まれず成功する
+        monkeypatch.undo()
+        retry_child_id = create_crop_image(request, db_manager=test_db_manager, fsm=fs_manager)
+        assert test_db_manager.get_image_metadata(retry_child_id) is not None
+        assert test_db_manager.get_crop_parent(retry_child_id) is not None
+        assert _tag_names(test_db_manager, retry_child_id) == {"solo"}
 
     def test_child_can_be_cropped_again_into_a_grandchild(
         self,

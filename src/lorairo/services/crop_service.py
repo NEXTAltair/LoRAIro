@@ -110,10 +110,11 @@ def create_crop_image(
     すべて済ませるため、検証失敗時は副作用が残らない。元画像のファイル・タグ・
     レーティングは一切変更しない。
 
-    画像登録以降の各ステップは個別 commit で原子的ではない。親子関係を画像登録の
-    直後に保存することで、後続のタグ・レーティングコピーが DB 例外で失敗しても
-    子画像は親から追跡でき (孤児にならない)、ERROR ログに子画像 ID を残して
-    例外を伝播させる。一度登録した画像は削除しない運用のため自動削除はしない。
+    画像登録以降の各ステップは個別 commit で原子的ではない。親子関係・タグ・
+    レーティングの保存が DB 例外で失敗した場合は、登録済みの子画像 (行と保存
+    ファイル) を補償削除してから例外を伝播させる。半端な子画像を残すと pHash
+    重複判定で同じ矩形の再試行が永久に失敗するため。補償削除自体が失敗した
+    場合は子画像 ID を ERROR ログに残し、元の例外を伝播させる。
 
     Args:
         request: 親画像 ID・切り出し矩形・採用タグ・レーティング・由来。
@@ -140,28 +141,27 @@ def create_crop_image(
     child_id = _register_cropped_file(request, parent_path, db_manager=db_manager, fsm=fsm)
 
     rect = request.rect
-    db_manager.add_crop_relation(
-        parent_image_id=request.parent_image_id,
-        child_image_id=child_id,
-        x=rect.x,
-        y=rect.y,
-        width=rect.width,
-        height=rect.height,
-        origin=request.origin,
-    )
-
     try:
+        db_manager.add_crop_relation(
+            parent_image_id=request.parent_image_id,
+            child_image_id=child_id,
+            x=rect.x,
+            y=rect.y,
+            width=rect.width,
+            height=rect.height,
+            origin=request.origin,
+        )
         _copy_tags(request, child_id, db_manager=db_manager)
         if request.rating is not None:
             db_manager.annotation_repo.update_manual_rating(child_id, request.rating)
     except SQLAlchemyError:
-        # 子画像と親子関係は登録済み。タグ/レーティングだけ欠けた状態を運用者が特定できるよう残す
         logger.opt(exception=True).error(
-            "クロップ画像のタグ/レーティングコピーに失敗 (子画像は登録済み): "
+            "クロップ画像の親子関係/タグ/レーティング保存に失敗、登録済みの子画像を取り消す: "
             "parent_image_id={}, child_image_id={}",
             request.parent_image_id,
             child_id,
         )
+        _discard_child_image(child_id, db_manager=db_manager)
         raise
     logger.debug(
         "クロップ画像を作成: parent_image_id={}, child_image_id={}, "
@@ -272,6 +272,29 @@ def _register_cropped_file(
             f"新しい画像は登録されませんでした"
         )
     return child_id
+
+
+def _discard_child_image(child_id: int, *, db_manager: ImageDatabaseManager) -> None:
+    """登録済みの子画像 (行 + 保存ファイル) を取り消す補償処理。
+
+    補償処理の失敗は元の例外を隠さないよう ERROR ログに留め、例外は投げない。
+    """
+    try:
+        stored_paths = db_manager.image_repo.delete_image_with_dependents(child_id)
+    except SQLAlchemyError:
+        logger.opt(exception=True).error(
+            "子画像の補償削除 (DB) に失敗、手動確認が必要: child_image_id={}", child_id
+        )
+        return
+    for stored in stored_paths:
+        try:
+            resolve_stored_path(stored).unlink(missing_ok=True)
+        except OSError:
+            logger.opt(exception=True).error(
+                "子画像の補償削除 (ファイル) に失敗、手動確認が必要: child_image_id={}, path={}",
+                child_id,
+                stored,
+            )
 
 
 def _copy_tags(
