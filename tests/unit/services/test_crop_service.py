@@ -8,6 +8,7 @@ from pathlib import Path
 
 import pytest
 from PIL import Image
+from sqlalchemy.exc import OperationalError
 
 from lorairo.database.db_manager import ImageDatabaseManager
 from lorairo.database.schema import TagAnnotationData
@@ -265,6 +266,36 @@ class TestCreateCropImage:
         parent_relation = test_db_manager.get_crop_parent(child_id)
         assert parent_relation is not None
         assert parent_relation.parent_image_id == parent_image
+
+    def test_tag_copy_failure_keeps_child_traceable_from_parent(
+        self,
+        test_db_manager: ImageDatabaseManager,
+        fs_manager: FileSystemManager,
+        parent_image: int,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """画像登録後にタグコピーが DB 例外で失敗しても、親子関係は保存済みで例外が伝播する。"""
+
+        def _raise_operational_error(image_id: int, tags_data: list[TagAnnotationData]) -> None:
+            raise OperationalError("INSERT INTO tags", {}, Exception("database is locked"))
+
+        monkeypatch.setattr(test_db_manager, "save_tags", _raise_operational_error)
+        request = CropCreateRequest(
+            parent_image_id=parent_image,
+            rect=CropRect(x=0, y=0, width=800, height=600),
+            tags=("solo",),
+            rating="R",
+        )
+
+        with pytest.raises(OperationalError):
+            create_crop_image(request, db_manager=test_db_manager, fsm=fs_manager)
+
+        children = test_db_manager.get_crop_children(parent_image)
+        assert len(children) == 1
+        child_id = children[0].child_image_id
+        assert test_db_manager.get_crop_parent(child_id) is not None
+        assert _tag_names(test_db_manager, child_id) == set()
+        assert _manual_rating(test_db_manager, child_id) is None
 
     def test_child_can_be_cropped_again_into_a_grandchild(
         self,

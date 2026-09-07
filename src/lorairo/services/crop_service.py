@@ -19,6 +19,7 @@ from typing import Any
 
 from loguru import logger
 from PIL import Image
+from sqlalchemy.exc import SQLAlchemyError
 
 from lorairo.database.db_core import resolve_stored_path
 from lorairo.database.db_manager import ImageDatabaseManager
@@ -104,10 +105,15 @@ def create_crop_image(
     矩形の出所 (GUI の手動選択か物体検出か) は関知しない。呼び出し側が組み立てた
     request の値をそのまま保存する。1 件単位で完結し、バッチは #1340 の担当。
 
-    処理順は「事前検証 → 切り出し → ファイル保存 → 画像登録 → タグコピー →
-    レーティングコピー → 親子関係保存」。事前検証はファイル・DB へ触れる前に
+    処理順は「事前検証 → 切り出し → ファイル保存 → 画像登録 → 親子関係保存 →
+    タグコピー → レーティングコピー」。事前検証はファイル・DB へ触れる前に
     すべて済ませるため、検証失敗時は副作用が残らない。元画像のファイル・タグ・
     レーティングは一切変更しない。
+
+    画像登録以降の各ステップは個別 commit で原子的ではない。親子関係を画像登録の
+    直後に保存することで、後続のタグ・レーティングコピーが DB 例外で失敗しても
+    子画像は親から追跡でき (孤児にならない)、ERROR ログに子画像 ID を残して
+    例外を伝播させる。一度登録した画像は削除しない運用のため自動削除はしない。
 
     Args:
         request: 親画像 ID・切り出し矩形・採用タグ・レーティング・由来。
@@ -133,10 +139,6 @@ def create_crop_image(
     parent_path = resolve_stored_path(str(metadata["stored_image_path"]))
     child_id = _register_cropped_file(request, parent_path, db_manager=db_manager, fsm=fsm)
 
-    _copy_tags(request, child_id, db_manager=db_manager)
-    if request.rating is not None:
-        db_manager.annotation_repo.update_manual_rating(child_id, request.rating)
-
     rect = request.rect
     db_manager.add_crop_relation(
         parent_image_id=request.parent_image_id,
@@ -147,6 +149,20 @@ def create_crop_image(
         height=rect.height,
         origin=request.origin,
     )
+
+    try:
+        _copy_tags(request, child_id, db_manager=db_manager)
+        if request.rating is not None:
+            db_manager.annotation_repo.update_manual_rating(child_id, request.rating)
+    except SQLAlchemyError:
+        # 子画像と親子関係は登録済み。タグ/レーティングだけ欠けた状態を運用者が特定できるよう残す
+        logger.opt(exception=True).error(
+            "クロップ画像のタグ/レーティングコピーに失敗 (子画像は登録済み): "
+            "parent_image_id={}, child_image_id={}",
+            request.parent_image_id,
+            child_id,
+        )
+        raise
     logger.debug(
         "クロップ画像を作成: parent_image_id={}, child_image_id={}, "
         "rect=({}, {}, {}, {}), tags={}, origin={}",
