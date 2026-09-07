@@ -117,6 +117,13 @@ def _crop_via_list(qtbot, tab: SearchTabWidget, image_id: int, rect: CropRect) -
     return dialog, child_id
 
 
+def _displayed_page_image_ids(tab: SearchTabWidget) -> list[int]:
+    """サムネイル一覧が現在表示しているページの画像 ID を返す。"""
+    pagination = tab.thumbnail_selector.pagination_state
+    assert pagination is not None, "ページネーションが初期化されていない"
+    return pagination.get_page_image_ids(pagination.current_page)
+
+
 @pytest.mark.integration
 @pytest.mark.gui
 def test_crop_entry_points_are_wired(tab: SearchTabWidget) -> None:
@@ -151,6 +158,8 @@ def test_saved_crop_becomes_current_image_with_relation(
     # 一覧 (サムネイルが描画元にする画像集合) に子画像が載っている
     assert child_id in {image["id"] for image in dataset_state.filtered_images}
     assert dataset_state.get_image_by_id(child_id) is not None
+    # 表示中のサムネイルページにも載っている (末尾ページに落ちていない、Codex P2)
+    assert child_id in _displayed_page_image_ids(tab)
     assert dataset_state.current_image_id == child_id
     relation = crop_db_manager.get_crop_parent(child_id)
     assert relation is not None

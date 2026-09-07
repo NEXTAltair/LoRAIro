@@ -20,11 +20,13 @@ from PySide6.QtWidgets import (
 )
 
 from ...gui.designer.ThumbnailSelectorWidget_ui import Ui_ThumbnailSelectorWidget
+from ...services.search_models import SearchConditions
 from ...utils.log import logger
 from .. import theme
 from ..cache.thumbnail_page_cache import ThumbnailPageCache
 from ..state.dataset_state import DatasetStateManager
 from ..state.pagination_state import PaginationStateManager
+from ..workers.search_worker import SearchResult
 from ..workers.terminal import CancelReason
 from ..workers.thumbnail_worker import ThumbnailLoadResult
 from .custom_graphics_view import CustomGraphicsView
@@ -33,7 +35,6 @@ from .thumbnail_item import ThumbnailItem
 
 if TYPE_CHECKING:
     from ..services.worker_service import WorkerService
-    from ..workers.search_worker import SearchResult
 
 
 class ThumbnailSelectorWidget(QWidget, Ui_ThumbnailSelectorWidget):
@@ -630,14 +631,55 @@ class ThumbnailSelectorWidget(QWidget, Ui_ThumbnailSelectorWidget):
         """dataset_state の画像集合が変わった後、現在ページを読み直す (#1346)。
 
         ページキャッシュはページ番号でしか引けないため、集合が変わると古い内容を
-        描画してしまう。キャッシュを捨てて現在ページを再要求する。検索がまだ走って
-        おらずページネーション未初期化なら何もしない。
+        描画してしまう。キャッシュを捨て、サムネイル要求の参照元を dataset_state
+        (SSoT) から作り直したうえで、ページネーションの現在ページを再要求する。
+
+        参照元を作り直すのは、``ThumbnailWorker`` が要求 ID のメタデータを
+        ``_active_search_result`` からしか解決しないため (Codex P2)。検索結果のまま
+        だと追加した画像が省かれて灰色プレースホルダになり、検索未実行なら参照元が
+        無くサムネイルを要求できずローディング表示が残る。
+
+        dataset_state 未注入 (ページネーション未初期化) なら何もしない。
         """
-        if not self.pagination_state:
+        if not self.pagination_state or not self.dataset_state:
             logger.debug("ページネーション未初期化のため一覧の再読込をスキップ")
             return
         self.page_cache.clear()
-        self._display_or_request_page(self._current_display_page, cancel_previous=True)
+        self._sync_active_search_result_from_dataset_state()
+        self._display_or_request_page(self.pagination_state.current_page, cancel_previous=True)
+
+    def _sync_active_search_result_from_dataset_state(self) -> None:
+        """サムネイル要求の参照メタデータを dataset_state の現在の画像集合で作り直す (#1346)。
+
+        ``filter_conditions`` は由来表示にしか使わないため、直前の検索があればそれを
+        引き継ぎ、検索未実行なら空条件を置く。
+        """
+        if not self.dataset_state:
+            return
+
+        images = self.dataset_state.filtered_images
+        if self._active_search_result is not None:
+            filter_conditions = self._active_search_result.filter_conditions
+        else:
+            filter_conditions = SearchConditions(search_type="tags", keywords=[], tag_logic="and")
+        self._active_search_result = SearchResult(
+            image_metadata=images,
+            total_count=len(images),
+            search_time=0.0,
+            filter_conditions=filter_conditions,
+        )
+        logger.debug(f"サムネイル参照メタデータを dataset_state から再構築: {len(images)}件")
+
+    def set_worker_service(self, worker_service: WorkerService) -> None:
+        """検索完了を待たずにサムネイル読み込みを要求できるよう WorkerService を注入する (#1346)。
+
+        クロップ保存直後のように、検索を一度も走らせていない状態から一覧を描き直す経路が
+        あるため、``initialize_pagination_search`` より前に配線できるようにしている。
+
+        Args:
+            worker_service: サムネイル読み込みを実行する WorkerService。
+        """
+        self._worker_service = worker_service
 
     def set_crop_action_enabled(self, enabled: bool) -> None:
         """右クリックメニューの「クロップして学習素材を作成…」項目を有効化する (#1346)。

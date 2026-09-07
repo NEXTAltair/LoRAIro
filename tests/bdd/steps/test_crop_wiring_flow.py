@@ -228,6 +228,15 @@ def then_list_contains_child(ctx: WiringContext) -> None:
     assert ctx.saved_ids[-1] in image_ids
 
 
+@then("表示中のサムネイルページにクロップ画像が含まれる")
+def then_displayed_page_contains_child(ctx: WiringContext) -> None:
+    """末尾ページではなく、いま描画しているページに載っていることを固定する (Codex P2)。"""
+    assert ctx.saved_ids
+    pagination = ctx.tab.thumbnail_selector.pagination_state
+    assert pagination is not None, "ページネーションが初期化されていない"
+    assert ctx.saved_ids[-1] in pagination.get_page_image_ids(pagination.current_page)
+
+
 @then("一覧にクロップ画像は追加されない")
 def then_list_has_no_child(ctx: WiringContext) -> None:
     assert ctx.dataset_state.filtered_images == []

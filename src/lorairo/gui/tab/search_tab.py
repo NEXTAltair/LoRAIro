@@ -152,6 +152,12 @@ class SearchTabWidget(QWidget, Ui_SearchTab):
         else:
             logger.warning("DatasetStateManager未初期化 - ThumbnailSelectorWidget接続をスキップ")
 
+        # 検索を介さない一覧更新 (クロップ保存直後など、#1346) でもサムネイルを要求できるよう、
+        # 検索完了を待たずに WorkerService を注入する。
+        if self._worker_service is not None:
+            self._thumbnail_selector.set_worker_service(self._worker_service)
+            logger.debug("ThumbnailSelectorWidget WorkerService接続完了")
+
         # 画像プレビュー: データシグナル接続
         if dsm is not None:
             self._image_preview_widget.connect_to_data_signals(dsm)

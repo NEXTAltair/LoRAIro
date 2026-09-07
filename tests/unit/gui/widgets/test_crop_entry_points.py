@@ -8,6 +8,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Any
 
 import pytest
 from PIL import Image
@@ -29,6 +30,36 @@ class _StubThumbnail:
 
     def update(self) -> None:
         """選択変更時の再描画トリガー (スタブでは何もしない)。"""
+
+
+class _RecordingWorkerService:
+    """``start_thumbnail_page_load`` の引数だけを記録する WorkerService スタブ。
+
+    ``cancel_thumbnail_load`` は実装しない (ウィジェット側が hasattr で分岐するため、
+    未完了要求のキャンセル経路には入らない)。
+    """
+
+    def __init__(self) -> None:
+        self.calls: list[dict[str, Any]] = []
+
+    def start_thumbnail_page_load(
+        self,
+        search_result: Any,
+        thumbnail_size: Any,
+        image_ids: list[int],
+        page_num: int,
+        request_id: str,
+        cancel_previous: bool = True,
+    ) -> str:
+        self.calls.append(
+            {
+                "search_result": search_result,
+                "image_ids": list(image_ids),
+                "page_num": page_num,
+                "request_id": request_id,
+            }
+        )
+        return f"worker-{len(self.calls)}"
 
 
 class _FakeAction:
@@ -229,3 +260,74 @@ def test_refresh_current_page_drops_stale_page_cache(
     thumbnail_widget.refresh_current_page()
 
     assert thumbnail_widget.cache_usage_info()["page_cache_count"] == 0
+
+
+@pytest.mark.gui
+def test_refresh_current_page_requests_added_image_from_dataset_state(
+    thumbnail_widget: ThumbnailSelectorWidget,
+) -> None:
+    """再読込は dataset_state (SSoT) のメタデータで追加画像を要求する (Codex P2)。
+
+    ``ThumbnailWorker`` は要求 ID のメタデータを渡された ``SearchResult`` からしか
+    解決しないため、検索結果のままだと追加画像が省かれて灰色プレースホルダになる。
+    """
+    worker_service = _RecordingWorkerService()
+    thumbnail_widget.set_worker_service(worker_service)
+    dataset_state = thumbnail_widget.dataset_state
+    assert dataset_state is not None
+    dataset_state.set_dataset_images([{"id": 11, "stored_image_path": "/test/a.jpg"}])
+
+    dataset_state.add_image({"id": 99, "stored_image_path": "/test/crop.jpg"})
+    thumbnail_widget.refresh_current_page()
+
+    call = worker_service.calls[-1]
+    assert 99 in call["image_ids"]
+    requested = {item["id"]: item for item in call["search_result"].image_metadata}
+    assert requested[99]["stored_image_path"] == "/test/crop.jpg"
+
+
+@pytest.mark.gui
+def test_refresh_current_page_requests_page_without_prior_search(
+    thumbnail_widget: ThumbnailSelectorWidget,
+) -> None:
+    """検索未実行 (一覧が空) から追加しても、その 1 件のページを要求する (Codex P2)。
+
+    旧実装は検索結果が無いとサムネイルを要求できず、ローディング表示が残っていた。
+    """
+    worker_service = _RecordingWorkerService()
+    thumbnail_widget.set_worker_service(worker_service)
+    dataset_state = thumbnail_widget.dataset_state
+    assert dataset_state is not None
+    assert dataset_state.filtered_images == []
+
+    dataset_state.add_image({"id": 77, "stored_image_path": "/test/crop.jpg"})
+    thumbnail_widget.refresh_current_page()
+
+    call = worker_service.calls[-1]
+    assert call["page_num"] == 1
+    assert call["image_ids"] == [77]
+    assert [item["id"] for item in call["search_result"].image_metadata] == [77]
+
+
+@pytest.mark.gui
+def test_refresh_current_page_shows_added_image_on_displayed_page(
+    thumbnail_widget: ThumbnailSelectorWidget,
+) -> None:
+    """100 件超の一覧で 2 ページ目表示中に追加しても、表示ページに追加画像が載る (Codex P2)。"""
+    worker_service = _RecordingWorkerService()
+    thumbnail_widget.set_worker_service(worker_service)
+    dataset_state = thumbnail_widget.dataset_state
+    assert dataset_state is not None
+    dataset_state.set_dataset_images(
+        [{"id": image_id, "stored_image_path": f"/test/{image_id}.jpg"} for image_id in range(1, 151)]
+    )
+    assert thumbnail_widget.pagination_state is not None
+    thumbnail_widget.pagination_state.set_page(2)
+
+    dataset_state.add_image({"id": 999, "stored_image_path": "/test/crop.jpg"})
+    thumbnail_widget.refresh_current_page()
+
+    call = worker_service.calls[-1]
+    assert call["page_num"] == 1
+    assert call["image_ids"][0] == 999
+    assert 999 in {item["id"] for item in call["search_result"].image_metadata}

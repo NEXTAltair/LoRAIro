@@ -549,14 +549,26 @@ class TestDatasetStateManager:
         )
         assert state_manager.get_filtered_image_ids_slice(0, 4) == [1, 4]
 
-    def test_add_image_appends_to_list_without_search(self, state_manager, sample_image_metadata):
-        """add_image は検索を介さず一覧の画像集合へ 1 件追加する (#1346)"""
+    def test_add_image_inserts_at_head_without_search(self, state_manager, sample_image_metadata):
+        """add_image は検索を介さず一覧の画像集合の先頭へ 1 件追加する (#1346)"""
         state_manager.set_dataset_images(sample_image_metadata)
 
         state_manager.add_image({"id": 4, "stored_image_path": "/test/crop.jpg"})
 
-        assert [image["id"] for image in state_manager.filtered_images] == [1, 2, 3, 4]
+        assert [image["id"] for image in state_manager.filtered_images] == [4, 1, 2, 3]
         assert state_manager.get_image_by_id(4) == {"id": 4, "stored_image_path": "/test/crop.jpg"}
+
+    def test_add_image_lands_on_first_page_of_large_list(self, state_manager):
+        """100 件超の一覧でも追加した画像は 1 ページ目 (先頭 100 件) に入る (Codex P2)
+
+        ``images_filtered`` を受けたページネーションは 1 ページ目へリセットされるため、
+        末尾に積むと表示中のページに現れない。
+        """
+        state_manager.set_dataset_images([{"id": image_id} for image_id in range(1, 151)])
+
+        state_manager.add_image({"id": 999, "stored_image_path": "/test/crop.jpg"})
+
+        assert state_manager.get_filtered_image_ids_slice(0, 100)[0] == 999
 
     def test_add_image_into_empty_list(self, state_manager):
         """検索前 (一覧が空) でも追加できる (フィルタ未指定で検索がスキップされるケース)"""
@@ -564,13 +576,13 @@ class TestDatasetStateManager:
 
         assert [image["id"] for image in state_manager.filtered_images] == [7]
 
-    def test_add_image_replaces_existing_id(self, state_manager, sample_image_metadata):
-        """同じ ID が既にあれば置き換え、重複させない"""
+    def test_add_image_replaces_existing_id_at_head(self, state_manager, sample_image_metadata):
+        """同じ ID が既にあれば元の位置から取り除き、先頭へ移して重複させない"""
         state_manager.set_dataset_images(sample_image_metadata)
 
         state_manager.add_image({"id": 2, "stored_image_path": "/test/updated.jpg"})
 
-        assert [image["id"] for image in state_manager.filtered_images] == [1, 2, 3]
+        assert [image["id"] for image in state_manager.filtered_images] == [2, 1, 3]
         assert state_manager.get_image_by_id(2)["stored_image_path"] == "/test/updated.jpg"
 
     def test_add_image_emits_images_filtered(self, qtbot, state_manager):
