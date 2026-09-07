@@ -535,3 +535,16 @@ def test_tab_does_not_host_annotate_responsibilities(tab: SearchTabWidget) -> No
     }
     for child in tab.findChildren(QWidget):
         assert type(child).__name__ not in forbidden
+
+
+def test_shutdown_stops_crop_launcher_and_details_workers(tab: SearchTabWidget) -> None:
+    """shutdown はクロップ翻訳 worker と詳細ペインの worker を止める (#1355 Codex P2)。"""
+    launcher = Mock()
+    tab._crop_dialog_launcher = launcher
+    details = Mock()
+    tab._selected_image_details_widget = details
+
+    tab.shutdown()
+
+    launcher.shutdown.assert_called_once_with()
+    details.shutdown.assert_called_once_with()

@@ -12,7 +12,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from pathlib import Path
 
 from PySide6.QtCore import QObject, QRect, Qt, QThread, Signal, Slot
@@ -34,10 +34,17 @@ from ...domain.crop_request import (
     CropCreateRequest,
     CropRect,
 )
+from ...utils.language_keys import (
+    canonical_language_key,
+    dedupe_languages_by_family,
+    language_alias_keys,
+    translation_for_language,
+)
 from ...utils.log import logger
 from .. import theme
 from .crop_rect_selector import CropRectSelectorWidget
 from .crop_tag_list_widget import ClickableTagListWidget
+from .ds_no_scroll_combo_box import DsNoScrollComboBox
 from .ds_segmented_control import DsSegmentedControl
 
 # レーティングの正準順序。rating_score_edit_widget._RATING_ORDER と同じ並びだが、
@@ -49,6 +56,8 @@ _RESOLUTION_WARNING_TEXT = (
     "長辺が1024px未満です。学習時に拡大すると、ぼけや細部不足が品質に影響する場合があります。"
 )
 _TAG_LIST_MAX_HEIGHT = 180
+_ORIGINAL_LANGUAGE = "english"
+"""言語コンボの先頭に置く「原文のみ表示」の sentinel (詳細カラムと同じ語彙、#1355)。"""
 
 
 class _CropPreviewLabel(QLabel):
@@ -209,6 +218,9 @@ class CropDialog(QDialog):
         self._initial_candidates: list[str] = list(candidate_tags)
         self._candidate_tags: list[str] = list(candidate_tags)
         self._adopted_tags: list[str] = []
+        # 原文タグ -> {language: translation} (#1355、launcher が非同期に注入する)
+        self._translations: dict[str, dict[str, str]] = {}
+        self._available_languages: list[str] = []
         self._initial_rating: str | None = parent_rating if parent_rating in _RATING_VALUES else None
         self._rating: str | None = self._initial_rating
         self._save_callback = save_callback
@@ -238,8 +250,7 @@ class CropDialog(QDialog):
         self._connect_signals()
 
         self._selector.set_image(image_path)
-        self._candidate_list.set_tags(self._candidate_tags)
-        self._adopted_list.set_tags(self._adopted_tags)
+        self._refresh_tag_lists()
         self._refresh_rect_dependent(self._selector.crop_rect())
 
     # ------------------------------------------------------------------
@@ -254,6 +265,18 @@ class CropDialog(QDialog):
         left.addWidget(self._section_label("元画像 — ドラッグで切り出し範囲を選択"))
         self._selector = CropRectSelectorWidget(self)
         left.addWidget(self._selector, 1)
+        self._language_bar = QWidget(self)
+        language_layout = QHBoxLayout(self._language_bar)
+        language_layout.setContentsMargins(0, 0, 0, 0)
+        language_layout.addWidget(self._section_label("表示言語"))
+        # タグ一覧はスクロール領域なので、ホイール通過で値が変わらない DS 部品を使う (#1051)
+        self._language_combo = DsNoScrollComboBox(self._language_bar)
+        self._language_combo.setToolTip("候補タグ / 採用タグに併記する翻訳の言語を選びます")
+        language_layout.addWidget(self._language_combo, 1)
+        # 翻訳が 1 件も無いうちは丸ごと隠す (翻訳到着で set_tag_translations が出す)
+        self._language_bar.setHidden(True)
+        left.addWidget(self._language_bar)
+
         left.addWidget(self._section_label("候補タグ — クリックで採用へ移動"))
         self._candidate_list = ClickableTagListWidget(self)
         self._candidate_list.setMaximumHeight(_TAG_LIST_MAX_HEIGHT)
@@ -335,6 +358,7 @@ class CropDialog(QDialog):
         self._selector.rect_changed.connect(self._on_rect_changed)
         self._candidate_list.tag_clicked.connect(self._on_candidate_clicked)
         self._adopted_list.tag_clicked.connect(self._on_adopted_clicked)
+        self._language_combo.currentTextChanged.connect(self._on_language_changed)
         self._rating_control.value_changed.connect(self._on_rating_changed)
         self._save_button.clicked.connect(self._on_save)
         self._cancel_button.clicked.connect(self.reject)
@@ -366,6 +390,56 @@ class CropDialog(QDialog):
     def rating(self) -> str | None:
         """現在選択中のレーティング。未選択なら None。"""
         return self._rating
+
+    def set_tag_translations(
+        self,
+        translations: Mapping[str, Mapping[str, str]],
+        available_languages: Sequence[str],
+    ) -> None:
+        """候補/採用タグに併記する翻訳を差し替える (#1355)。
+
+        DB 非依存を保つため、翻訳の解決は呼び出し側 (GUI サービス) が行い、本メソッドは
+        表示用データを受け取るだけにする。ダイアログ表示をブロックしないよう、原文で
+        開いた後に非同期で呼ばれることを前提とした 2 段階描画になる。
+
+        Args:
+            translations: 原文タグ -> ``{language: translation}``。
+            available_languages: 言語セレクタに並べる言語。翻訳が 1 件も無ければ
+                セレクタは表示しない。
+
+        Note:
+            採用/候補の往復と ``build_request`` は原文ベースのまま変わらない。
+        """
+        self._translations = {
+            str(tag): {str(lang): str(text) for lang, text in values.items() if text}
+            for tag, values in translations.items()
+            if values
+        }
+        self._available_languages = [str(language) for language in available_languages]
+        self._rebuild_language_selector()
+        self._refresh_tag_lists()
+
+    def current_language(self) -> str:
+        """現在の表示言語 (原文表示なら ``"english"``)。"""
+        text = self._language_combo.currentText()
+        return text if text else _ORIGINAL_LANGUAGE
+
+    def is_language_selector_visible(self) -> bool:
+        """言語セレクタが表示状態か。
+
+        Note:
+            ``isVisible()`` は親が未表示だと常に False になるため、明示的な
+            hide/show を反映する ``isHidden()`` で判定する。
+        """
+        return not self._language_bar.isHidden()
+
+    def candidate_labels(self) -> list[str]:
+        """候補リストの行ラベル一覧 (翻訳併記後の表示文字列)。"""
+        return self._candidate_list.labels()
+
+    def adopted_labels(self) -> list[str]:
+        """採用リストの行ラベル一覧 (翻訳併記後の表示文字列)。"""
+        return self._adopted_list.labels()
 
     def size_text(self) -> str:
         """実寸ピクセル表示の文字列。"""
@@ -438,6 +512,12 @@ class CropDialog(QDialog):
             return
         self._adopted_tags.remove(tag)
         self._candidate_tags.insert(self._candidate_insert_index(tag), tag)
+        self._refresh_tag_lists()
+
+    @Slot(str)
+    def _on_language_changed(self, language: str) -> None:
+        """表示言語の変更を候補/採用リストのラベルへ反映する。"""
+        logger.debug(f"クロップダイアログの表示言語を変更: {language or _ORIGINAL_LANGUAGE}")
         self._refresh_tag_lists()
 
     @Slot(str)
@@ -603,9 +683,74 @@ class CropDialog(QDialog):
         return len(self._candidate_tags)
 
     def _refresh_tag_lists(self) -> None:
-        """候補・採用の 2 リストを現在の状態で描き直す。"""
-        self._candidate_list.set_tags(self._candidate_tags)
-        self._adopted_list.set_tags(self._adopted_tags)
+        """候補・採用の 2 リストを現在の状態 (表示言語込み) で描き直す。"""
+        labels = self._tag_labels()
+        self._candidate_list.set_tags(self._candidate_tags, labels)
+        self._adopted_list.set_tags(self._adopted_tags, labels)
+
+    def _tag_labels(self) -> dict[str, str]:
+        """現在の表示言語での「原文 / 翻訳」ラベルを作る (翻訳が無い分は含めない)。
+
+        Returns:
+            原文タグ -> 表示文字列。原文表示中や翻訳未取得なら空 dict。
+        """
+        language = self.current_language()
+        if language == _ORIGINAL_LANGUAGE or not self._translations:
+            return {}
+        labels: dict[str, str] = {}
+        for tag, values in self._translations.items():
+            translated = translation_for_language(values, language)
+            if translated and translated != tag:
+                labels[tag] = f"{tag} / {translated}"
+        return labels
+
+    def _rebuild_language_selector(self) -> None:
+        """言語セレクタの候補を作り直す (選択は可能な限り維持する)。
+
+        候補の並びは詳細カラム (``TagPanelWidget.update_language_selector``) と同じ語彙で、
+        先頭が原文 sentinel ``english``、続いてエイリアス族を畳んだ翻訳言語。既定は
+        「最初の翻訳言語 (ja 族があれば ja)」とし、翻訳が届いた時点で利用者の操作なしに
+        翻訳が見えるようにする (表示は ``原文 / 翻訳`` なので原文は失われない)。
+        """
+        previous = self.current_language() if self._language_combo.count() > 0 else ""
+        languages = (
+            [
+                language
+                for language in dedupe_languages_by_family(self._available_languages)
+                # en/english 族は原文 sentinel と重複するため丸ごと除外する (#1235)
+                if canonical_language_key(language) != "en"
+            ]
+            if self._translations
+            else []
+        )
+
+        self._language_combo.blockSignals(True)
+        self._language_combo.clear()
+        if languages:
+            self._language_combo.addItem(_ORIGINAL_LANGUAGE)
+            for language in languages:
+                self._language_combo.addItem(language)
+            index = self._find_language(previous) if previous else -1
+            if index < 0:
+                index = self._find_language("ja")
+            self._language_combo.setCurrentIndex(index if index >= 0 else 1)
+        self._language_combo.blockSignals(False)
+        self._language_bar.setHidden(not languages)
+
+    def _find_language(self, language: str) -> int:
+        """言語コンボ内の index をエイリアス込みで探す (見つからなければ -1)。
+
+        Args:
+            language: 探す言語キー ("ja" / "japanese" 等の表記ゆれを吸収する)。
+
+        Returns:
+            見つかった index。無ければ -1。
+        """
+        for alias in language_alias_keys(language):
+            index = self._language_combo.findText(alias)
+            if index >= 0:
+                return index
+        return -1
 
     def _refresh_rect_dependent(self, crop: CropRect | None) -> None:
         """矩形に連動する表示 (プレビュー / 実寸 / 警告 / 保存可否) を更新する。"""

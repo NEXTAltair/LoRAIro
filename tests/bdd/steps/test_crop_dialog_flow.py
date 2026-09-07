@@ -22,6 +22,14 @@ scenarios(str(_FEATURE_FILE))
 
 CHILD_IMAGE_ID = 555
 
+# クロップダイアログへ注入する翻訳 (原文タグ -> {language: translation})。
+# "sunset" は未翻訳のままにして原文フォールバックを固定する。
+TAG_TRANSLATIONS: dict[str, dict[str, str]] = {
+    "cat": {"ja": "猫", "zh": "猫 (zh)"},
+    "outdoor": {"ja": "屋外"},
+}
+TRANSLATION_LANGUAGES = ["ja", "zh"]
+
 
 class _SaveRecorder:
     """保存 callback のスタブ (呼び出し記録 + 任意で例外送出)。"""
@@ -50,10 +58,10 @@ def auto_mock_qmessagebox(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 def _click_tag(qtbot, tag_list: ClickableTagListWidget, tag: str) -> None:
-    """タグリストの該当行を実際にクリックする。"""
-    for row in range(tag_list.count()):
+    """タグリストの該当行 (原文タグで指定) を実際にクリックする。"""
+    for row, original in enumerate(tag_list.tags()):
         item = tag_list.item(row)
-        if item is not None and item.text() == tag:
+        if item is not None and original == tag:
             qtbot.mouseClick(
                 tag_list.viewport(),
                 Qt.MouseButton.LeftButton,
@@ -141,6 +149,17 @@ def when_close_with_answer(monkeypatch: pytest.MonkeyPatch, ctx: dict[str, Any],
     ctx["dialog"].close()
 
 
+@when("タグ翻訳が届く")
+def when_translations_arrive(ctx: dict[str, Any]) -> None:
+    """launcher が解決した翻訳の到着を模す (#1355)。"""
+    ctx["dialog"].set_tag_translations(TAG_TRANSLATIONS, TRANSLATION_LANGUAGES)
+
+
+@when(parsers.parse('表示言語 "{language}" を選ぶ'))
+def when_select_language(ctx: dict[str, Any], language: str) -> None:
+    ctx["dialog"]._language_combo.setCurrentText(language)
+
+
 @when("保存ボタンを押す")
 def when_click_save(qtbot, ctx: dict[str, Any]) -> None:
     """保存ボタンを押し、ワーカースレッドでの保存完了まで待つ。
@@ -196,6 +215,31 @@ def then_candidate_tags(ctx: dict[str, Any], tags: str) -> None:
 @then(parsers.parse('レーティングは "{value}" である'))
 def then_rating_is(ctx: dict[str, Any], value: str) -> None:
     assert ctx["dialog"].rating() == value
+
+
+@then("言語セレクタが表示される")
+def then_language_selector_shown(ctx: dict[str, Any]) -> None:
+    assert ctx["dialog"].is_language_selector_visible() is True
+
+
+@then("言語セレクタは表示されない")
+def then_language_selector_hidden(ctx: dict[str, Any]) -> None:
+    assert ctx["dialog"].is_language_selector_visible() is False
+
+
+@then(parsers.parse('候補タグの表示は "{labels}" である'))
+def then_candidate_labels(ctx: dict[str, Any], labels: str) -> None:
+    assert ctx["dialog"].candidate_labels() == _split_tags(labels)
+
+
+@then(parsers.parse('採用タグの表示は "{labels}" である'))
+def then_adopted_labels(ctx: dict[str, Any], labels: str) -> None:
+    assert ctx["dialog"].adopted_labels() == _split_tags(labels)
+
+
+@then(parsers.parse('保存 request のタグは "{tags}" である'))
+def then_request_tags(ctx: dict[str, Any], tags: str) -> None:
+    assert list(ctx["dialog"].build_request().tags) == _split_tags(tags)
 
 
 @then("破棄確認が表示される")

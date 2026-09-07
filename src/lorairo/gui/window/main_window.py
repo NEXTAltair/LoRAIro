@@ -1647,11 +1647,12 @@ class MainWindow(QMainWindow, Ui_MainWindow):
         # 親ウィンドウ閉鎖で発火しないため明示的に呼ぶ、#949/#961 P2)。
         if self.export_tab is not None:
             self.export_tab.shutdown()
-        # refinement worker を停止する (検索/エクスポート両タブの詳細ペイン、#931 P2)。
-        # QThread が widget より長生きして Qt teardown 警告/クラッシュになるのを防ぐ。
-        for tab in (self.search_tab, self.export_tab):
-            if tab is not None:
-                tab.selected_image_details_widget.shutdown()
+        # 検索タブの worker (詳細ペインの refinement/tag metadata、クロップ翻訳 launcher) を
+        # 停止する (#931 P2 / #1355)。エクスポートタブの詳細ペインは上の export_tab.shutdown()
+        # が止めるので、ここでは各タブの shutdown を 1 回だけ呼ぶ (二重 shutdown は応答しない
+        # worker の grace 待ちを重ねて終了を遅らせる、#1355 Codex P2)。
+        if self.search_tab is not None:
+            self.search_tab.shutdown()
         # Provider Batch 結果回収 worker を停止する (#1158 Codex P2)。埋め込み widget の
         # closeEvent は親閉鎖で発火しないため、Jobs タブ経由で明示的に停止して待つ。
         if self.jobs_tab is not None:

@@ -6,7 +6,9 @@ crop_saved 中継」まで通し、再クロップ (親 → 子 → 孫) と保�
 
 from __future__ import annotations
 
+import threading
 from pathlib import Path
+from typing import Any
 
 import pytest
 from PIL import Image
@@ -20,6 +22,62 @@ from lorairo.domain.crop_request import CropRect
 from lorairo.filesystem import FileSystemManager
 from lorairo.gui.services.crop_dialog_launcher import CropDialogLauncher
 from lorairo.gui.widgets.crop_dialog import CropDialog
+
+TRANSLATED_TAGS = {"blue hair": 101, "smile": 202}
+"""翻訳解決テスト用の親タグ (タグ名 -> tag_id)。"""
+
+TAG_TRANSLATIONS: dict[int, dict[str, str]] = {
+    101: {"ja": "青い髪", "zh": "蓝发"},
+    202: {"ja": "笑顔"},
+}
+"""FakeMergedTagReader が返す翻訳 (tag_id -> {language: translation})。"""
+
+
+class _FakeTranslationRow:
+    """``get_translations_batch`` が返す行のスタブ。"""
+
+    def __init__(self, language: str, translation: str) -> None:
+        self.language = language
+        self.translation = translation
+
+
+class FakeMergedTagReader:
+    """TagMetadataWorker が呼ぶ範囲だけを実装した MergedTagReader スタブ。
+
+    ``gate`` を渡すと ``get_translations_batch`` がそれを待ってから返すため、
+    「翻訳解決の完了前にダイアログが閉じる」順序をテストから制御できる。
+    """
+
+    def __init__(self, translations: dict[int, dict[str, str]], gate: threading.Event | None = None):
+        self._translations = translations
+        self._gate = gate
+
+    def get_translations_batch(self, tag_ids: list[int]) -> dict[int, list[_FakeTranslationRow]]:
+        if self._gate is not None:
+            assert self._gate.wait(timeout=15), "gate が解放されませんでした"
+        return {
+            tag_id: [
+                _FakeTranslationRow(language, text) for language, text in self._translations[tag_id].items()
+            ]
+            for tag_id in tag_ids
+            if tag_id in self._translations
+        }
+
+    def get_preferred_translations_batch(self, tag_ids: list[int]) -> dict[int, dict[str, str]]:
+        return {}
+
+    def get_format_map(self) -> dict[int, str]:
+        return {}
+
+    def get_usage_counts_batch(self, tag_ids: list[int]) -> dict[int, dict[int, int]]:
+        return {}
+
+    def get_tag_languages(self) -> list[str]:
+        return sorted({language for values in self._translations.values() for language in values})
+
+    def search_tags_bulk_all(self, queries: list[str], **kwargs: Any) -> dict[str, list[Any]]:
+        return {}
+
 
 PARENT_WIDTH = 1600
 PARENT_HEIGHT = 1200
@@ -267,3 +325,228 @@ def test_finished_dialog_is_destroyed_not_only_forgotten(
 
     qtbot.waitUntil(lambda: host.findChildren(CropDialog) == [], timeout=5000)
     assert launcher._open_dialogs == []
+
+
+@pytest.fixture
+def translated_parent_image_id(
+    crop_db_manager: ImageDatabaseManager,
+    fs_manager: FileSystemManager,
+    tmp_path: Path,
+) -> int:
+    """tag_id を持つタグと、tag_id 無しの手動タグを併せ持つ親画像 (#1355)。"""
+    source = tmp_path / "translated_parent.png"
+    Image.new("RGB", (PARENT_WIDTH, PARENT_HEIGHT), (90, 60, 30)).save(source)
+    registered = crop_db_manager.register_original_image(source, fs_manager)
+    assert registered is not None
+    parent_id: int = registered[0]
+    crop_db_manager.save_tags(
+        parent_id,
+        [
+            {
+                "tag": tag,
+                "tag_id": tag_id,
+                "model_id": None,
+                "existing": True,
+                "is_edited_manually": False,
+                "confidence_score": None,
+            }
+            for tag, tag_id in TRANSLATED_TAGS.items()
+        ]
+        + [
+            {
+                "tag": "手動タグ",
+                "tag_id": None,
+                "model_id": None,
+                "existing": True,
+                "is_edited_manually": True,
+                "confidence_score": None,
+            }
+        ],
+    )
+    return parent_id
+
+
+def _translating_launcher(
+    crop_db_manager: ImageDatabaseManager,
+    fs_manager: FileSystemManager,
+    gate: threading.Event | None = None,
+) -> CropDialogLauncher:
+    """翻訳を返す fake reader を注入したランチャー。"""
+    return CropDialogLauncher(
+        db_manager=crop_db_manager,
+        fsm=fs_manager,
+        merged_reader=FakeMergedTagReader(TAG_TRANSLATIONS, gate),
+    )
+
+
+@pytest.mark.gui
+def test_translations_reach_dialog_after_open(
+    qtbot,
+    crop_db_manager: ImageDatabaseManager,
+    fs_manager: FileSystemManager,
+    translated_parent_image_id: int,
+) -> None:
+    """ダイアログを開いた後、非同期に解決された翻訳が候補タグへ反映される (#1355)。"""
+    launcher = _translating_launcher(crop_db_manager, fs_manager)
+
+    dialog = launcher.open_for_image(translated_parent_image_id)
+
+    assert dialog is not None
+    qtbot.addWidget(dialog)
+    # 開いた直後は原文のみ (翻訳待ちで表示をブロックしない)
+    assert dialog.is_language_selector_visible() is False
+    qtbot.waitUntil(dialog.is_language_selector_visible, timeout=15000)
+    assert dialog.current_language() == "ja"
+    assert dialog.candidate_labels() == ["blue hair / 青い髪", "smile / 笑顔", "手動タグ"]
+    # tag_id を持たない手動タグは原文のまま、原文タグ側は変わらない
+    assert dialog.candidate_tags() == ["blue hair", "smile", "手動タグ"]
+
+
+@pytest.mark.gui
+def test_language_can_be_switched_after_translations_arrive(
+    qtbot,
+    crop_db_manager: ImageDatabaseManager,
+    fs_manager: FileSystemManager,
+    translated_parent_image_id: int,
+) -> None:
+    """解決済みの言語だけがセレクタに並び、切り替えると表示が変わる。"""
+    launcher = _translating_launcher(crop_db_manager, fs_manager)
+    dialog = launcher.open_for_image(translated_parent_image_id)
+    assert dialog is not None
+    qtbot.addWidget(dialog)
+    qtbot.waitUntil(dialog.is_language_selector_visible, timeout=15000)
+
+    dialog._language_combo.setCurrentText("zh")
+
+    assert dialog.candidate_labels() == ["blue hair / 蓝发", "smile", "手動タグ"]
+
+
+@pytest.mark.gui
+def test_dialog_opens_without_reader(
+    qtbot, launcher: CropDialogLauncher, translated_parent_image_id: int
+) -> None:
+    """MergedTagReader 未注入でもダイアログは開き、原文表示のまま動く。"""
+    dialog = launcher.open_for_image(translated_parent_image_id)
+
+    assert dialog is not None
+    qtbot.addWidget(dialog)
+    assert dialog.is_language_selector_visible() is False
+    assert dialog.candidate_labels() == ["blue hair", "smile", "手動タグ"]
+
+
+@pytest.mark.gui
+def test_translations_are_discarded_for_closed_dialog(
+    qtbot,
+    crop_db_manager: ImageDatabaseManager,
+    fs_manager: FileSystemManager,
+    translated_parent_image_id: int,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """解決完了より先に閉じられたダイアログへは翻訳を適用しない (破棄済み参照を触らない)。"""
+    gate = threading.Event()
+    launcher = _translating_launcher(crop_db_manager, fs_manager, gate)
+    # 閉じたダイアログは deleteLater で破棄されるため、qtbot の close 対象にはしない
+    # (teardown で破棄済み C++ オブジェクトに触れて RuntimeError になる)。
+    dialog = launcher.open_for_image(translated_parent_image_id)
+    assert dialog is not None
+    applied: list[object] = []
+    monkeypatch.setattr(dialog, "set_tag_translations", lambda *args, **kwargs: applied.append(args))
+
+    dialog.reject()
+    gate.set()
+
+    manager = launcher._tag_metadata_manager
+    assert manager is not None
+    qtbot.waitUntil(lambda: not manager.active_workers, timeout=15000)
+    assert applied == []
+    assert launcher._tag_metadata_targets == {}
+
+
+def test_closing_dialog_requests_cancel_of_its_translation_worker(
+    qtbot,
+    crop_db_manager: ImageDatabaseManager,
+    fs_manager: FileSystemManager,
+    translated_parent_image_id: int,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """解決中にダイアログを閉じたら、その worker に協調キャンセルを要求する。"""
+    gate = threading.Event()
+    launcher = _translating_launcher(crop_db_manager, fs_manager, gate)
+    dialog = launcher.open_for_image(translated_parent_image_id)
+    assert dialog is not None
+    manager = launcher._tag_metadata_manager
+    assert manager is not None
+    requested: list[str] = []
+    original_request = manager.request_cancel_worker
+
+    def _record(worker_id: str, *args: object, **kwargs: object) -> bool:
+        requested.append(worker_id)
+        return original_request(worker_id, *args, **kwargs)
+
+    monkeypatch.setattr(manager, "request_cancel_worker", _record)
+    active_ids = list(manager.active_workers)
+    assert len(active_ids) == 1
+
+    dialog.reject()
+    gate.set()
+
+    assert requested == active_ids
+    qtbot.waitUntil(lambda: not manager.active_workers, timeout=15000)
+    assert launcher._tag_metadata_targets == {}
+
+
+def test_shutdown_cancels_workers_and_blocks_new_ones(
+    qtbot,
+    crop_db_manager: ImageDatabaseManager,
+    fs_manager: FileSystemManager,
+    translated_parent_image_id: int,
+) -> None:
+    """shutdown は実行中の翻訳 worker を止め、以降はダイアログを開いても worker を起動しない。"""
+    gate = threading.Event()
+    launcher = _translating_launcher(crop_db_manager, fs_manager, gate)
+    first = launcher.open_for_image(translated_parent_image_id)
+    assert first is not None
+    qtbot.addWidget(first)
+    manager = launcher._tag_metadata_manager
+    assert manager is not None
+    assert manager.active_workers
+
+    gate.set()
+    launcher.shutdown()
+
+    qtbot.waitUntil(lambda: not manager.active_workers, timeout=15000)
+    assert launcher._tag_metadata_targets == {}
+    second = launcher.open_for_image(translated_parent_image_id)
+    assert second is not None
+    qtbot.addWidget(second)
+    assert not manager.active_workers
+
+
+def test_translations_are_applied_on_gui_thread(
+    qtbot,
+    crop_db_manager: ImageDatabaseManager,
+    fs_manager: FileSystemManager,
+    translated_parent_image_id: int,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """worker の完了は launcher の Signal 経由で queued 配送され、翻訳適用は GUI スレッドで行われる。"""
+    from PySide6.QtCore import QCoreApplication, QThread
+
+    launcher = _translating_launcher(crop_db_manager, fs_manager)
+    dialog = launcher.open_for_image(translated_parent_image_id)
+    assert dialog is not None
+    qtbot.addWidget(dialog)
+    seen_threads: list[QThread] = []
+    original = dialog.set_tag_translations
+
+    def _record(*args: object, **kwargs: object) -> None:
+        seen_threads.append(QThread.currentThread())
+        original(*args, **kwargs)
+
+    monkeypatch.setattr(dialog, "set_tag_translations", _record)
+
+    qtbot.waitUntil(lambda: bool(seen_threads), timeout=15000)
+
+    app = QCoreApplication.instance()
+    assert app is not None
+    assert seen_threads == [app.thread()]

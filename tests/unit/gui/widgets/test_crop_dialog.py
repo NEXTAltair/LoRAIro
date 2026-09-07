@@ -91,10 +91,10 @@ def dialog(qtbot, image_path: Path, recorder: SaveRecorder, candidates: list[str
 
 
 def _click_tag(qtbot, tag_list: ClickableTagListWidget, tag: str) -> None:
-    """タグリストの該当行を実際にクリックする。"""
-    for row in range(tag_list.count()):
+    """タグリストの該当行 (原文タグで指定) を実際にクリックする。"""
+    for row, original in enumerate(tag_list.tags()):
         item = tag_list.item(row)
-        if item is not None and item.text() == tag:
+        if item is not None and original == tag:
             qtbot.mouseClick(
                 tag_list.viewport(),
                 Qt.MouseButton.LeftButton,
@@ -204,6 +204,100 @@ class TestTagMovement:
         dialog.set_rect(CropRect(0, 0, 1200, 900))
         dialog.set_rect(CropRect(10, 10, 300, 300))
         assert dialog.adopted_tags() == ["cat"]
+
+
+# 翻訳表示テスト用のデータ ("sunset" は未翻訳のまま残して原文フォールバックを固定する)
+TAG_TRANSLATIONS: dict[str, dict[str, str]] = {
+    "cat": {"ja": "猫", "zh": "猫 (zh)"},
+    "outdoor": {"ja": "屋外"},
+}
+TRANSLATION_LANGUAGES = ["ja", "zh"]
+
+
+class TestTagTranslations:
+    """候補/採用タグの翻訳表示と言語切替 (#1355)。"""
+
+    def test_selector_is_hidden_until_translations_arrive(self, dialog):
+        """翻訳が無いうちは言語セレクタを出さず、原文だけを表示する。"""
+        assert dialog.is_language_selector_visible() is False
+        assert dialog.candidate_labels() == CANDIDATE_TAGS
+
+    def test_empty_translations_keep_selector_hidden(self, dialog):
+        """空の翻訳を渡してもセレクタは出ない。"""
+        dialog.set_tag_translations({}, [])
+
+        assert dialog.is_language_selector_visible() is False
+        assert dialog.candidate_labels() == CANDIDATE_TAGS
+
+    def test_translations_are_appended_to_candidate_labels(self, dialog):
+        """翻訳到着で候補タグが「原文 / 翻訳」表示になる (未翻訳タグは原文のみ)。"""
+        dialog.set_tag_translations(TAG_TRANSLATIONS, TRANSLATION_LANGUAGES)
+
+        assert dialog.is_language_selector_visible() is True
+        assert dialog.current_language() == "ja"
+        assert dialog.candidate_labels() == ["cat / 猫", "outdoor / 屋外", "sunset"]
+
+    def test_adopted_labels_are_translated_too(self, qtbot, dialog):
+        """採用済みタグにも翻訳が付く。"""
+        _click_tag(qtbot, dialog._candidate_list, "outdoor")
+
+        dialog.set_tag_translations(TAG_TRANSLATIONS, TRANSLATION_LANGUAGES)
+
+        assert dialog.adopted_labels() == ["outdoor / 屋外"]
+        assert dialog.candidate_labels() == ["cat / 猫", "sunset"]
+
+    def test_language_switch_changes_display(self, dialog):
+        """言語を切り替えると併記される翻訳が変わる。"""
+        dialog.set_tag_translations(TAG_TRANSLATIONS, TRANSLATION_LANGUAGES)
+
+        dialog._language_combo.setCurrentText("zh")
+
+        assert dialog.current_language() == "zh"
+        assert dialog.candidate_labels() == ["cat / 猫 (zh)", "outdoor", "sunset"]
+
+    def test_english_selection_shows_original_only(self, dialog):
+        """原文 (english) を選ぶと翻訳併記が消える。"""
+        dialog.set_tag_translations(TAG_TRANSLATIONS, TRANSLATION_LANGUAGES)
+
+        dialog._language_combo.setCurrentText("english")
+
+        assert dialog.candidate_labels() == CANDIDATE_TAGS
+
+    def test_language_alias_keys_are_treated_as_same_language(self, dialog):
+        """ "japanese" 表記の翻訳も ja として引ける (#1084 のエイリアス)。"""
+        dialog.set_tag_translations({"cat": {"japanese": "猫"}}, ["japanese"])
+
+        assert dialog.candidate_labels() == ["cat / 猫", "outdoor", "sunset"]
+
+    def test_selection_is_kept_across_translation_updates(self, dialog):
+        """再解決で候補が入れ替わっても選択中の言語を維持する。"""
+        dialog.set_tag_translations(TAG_TRANSLATIONS, TRANSLATION_LANGUAGES)
+        dialog._language_combo.setCurrentText("zh")
+
+        dialog.set_tag_translations(TAG_TRANSLATIONS, TRANSLATION_LANGUAGES)
+
+        assert dialog.current_language() == "zh"
+
+    def test_tag_round_trip_stays_original_after_translation(self, qtbot, dialog):
+        """翻訳表示中でも候補↔採用の往復は原文ベースで動く。"""
+        dialog.set_tag_translations(TAG_TRANSLATIONS, TRANSLATION_LANGUAGES)
+
+        _click_tag(qtbot, dialog._candidate_list, "cat")
+        assert dialog.adopted_tags() == ["cat"]
+
+        _click_tag(qtbot, dialog._adopted_list, "cat")
+        assert dialog.adopted_tags() == []
+        assert dialog.candidate_tags() == CANDIDATE_TAGS
+
+    def test_build_request_tags_stay_original(self, qtbot, dialog):
+        """保存 request のタグは翻訳ではなく原文のまま。"""
+        dialog.set_tag_translations(TAG_TRANSLATIONS, TRANSLATION_LANGUAGES)
+        _click_tag(qtbot, dialog._candidate_list, "cat")
+        dialog.set_rect(CropRect(0, 0, 1024, 768))
+
+        request = dialog.build_request()
+
+        assert request.tags == ("cat",)
 
 
 class TestRating:
