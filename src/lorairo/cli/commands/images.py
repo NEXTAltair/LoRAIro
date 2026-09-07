@@ -27,10 +27,12 @@ from lorairo.cli._output_mode import is_json_mode
 from lorairo.cli.commands.processing import process as process_images_command
 from lorairo.database.filter_criteria import ImageFilterCriteria
 from lorairo.database.repository.annotation_record import AnnotationRepository
+from lorairo.domain.crop_request import DEFAULT_CROP_ORIGIN, CropCreateRequest, CropRect
 from lorairo.public_api.exceptions import ImageNotFoundError, ResultSetTooLargeError
 from lorairo.public_api.images import register_images as api_register_images
 from lorairo.public_api.project import get_project as api_get_project
 from lorairo.public_api.types import RegistrationResult
+from lorairo.services.crop_service import create_crop_image, get_crop_source_info
 from lorairo.services.service_container import get_service_container
 
 # サブコマンドアプリ定義
@@ -82,6 +84,35 @@ class ImageSearchQuery(BaseModel):
     sort: list[_SortSpec] = Field(default_factory=lambda: [_SortSpec()])
 
     model_config = ConfigDict(populate_by_name=True)
+
+
+class ImagesCropItem(BaseModel):
+    """JSONL item payload emitted by ``images crop --json`` (ADR 0092)."""
+
+    kind: Literal["item"] = "item"
+    parent_image_id: int
+    child_image_id: int
+    x: int
+    y: int
+    width: int
+    height: int
+    origin: str
+    tag_count: int
+    rating: str | None = None
+
+    model_config = ConfigDict(title="ImagesCropItem")
+
+
+class ImagesCropResult(BaseModel):
+    """JSONL result payload emitted by ``images crop --json``."""
+
+    kind: Literal["result"] = "result"
+    ok: Literal[True] = True
+    message: str
+    parent_image_id: int
+    child_image_id: int
+
+    model_config = ConfigDict(title="ImagesCropResult")
 
 
 def _print_registration_summary(result: RegistrationResult, project: str) -> None:
@@ -692,6 +723,87 @@ def show(
                     )
                 console.print(f"  tags: {', '.join(tag_names) if tag_names else '(none)'}")
                 console.print(f"  captions: {' | '.join(caption_texts) if caption_texts else '(none)'}")
+
+
+@app.command("crop")
+def crop(
+    image_id: int = typer.Argument(
+        ...,
+        metavar="IMAGE_ID",
+        help="Parent image ID to crop from.",
+    ),
+    project: str = typer.Option(..., "--project", "-p", help="Project name"),
+    x: int = typer.Option(..., "--x", help="Crop rectangle left edge in parent pixels."),
+    y: int = typer.Option(..., "--y", help="Crop rectangle top edge in parent pixels."),
+    width: int = typer.Option(..., "--width", help="Crop rectangle width in parent pixels."),
+    height: int = typer.Option(..., "--height", help="Crop rectangle height in parent pixels."),
+    tag: list[str] | None = typer.Option(
+        None,
+        "--tag",
+        help="Tag to copy onto the crop; repeatable. Omit to copy every candidate tag of the parent.",
+    ),
+    rating: str | None = typer.Option(
+        None,
+        "--rating",
+        help="Rating for the crop (PG, PG-13, R, X, XXX). Omit to inherit the parent manual rating.",
+    ),
+    origin: str = typer.Option(
+        DEFAULT_CROP_ORIGIN,
+        "--origin",
+        help="Provenance stored on the parent-child relation, e.g. manual or a detector name.",
+    ),
+) -> None:
+    """Create a crop image from an explicit rectangle and return the new child image ID.
+
+    親画像の矩形を切り出し、独立した画像 ID で登録します (ADR 0092)。タグと
+    レーティングは既定で親からコピーし、``--tag`` / ``--rating`` で上書きできます。
+    元画像のファイル・タグ・レーティングは変更しません。
+
+    Example:
+        lorairo-cli images crop 42 --project proj --x 10 --y 20 --width 512 --height 512 --json
+    """
+    with command_boundary():
+        api_get_project(project)
+        container = get_service_container()
+        container.set_active_project(project)
+
+        db_manager = container.db_manager
+        source = get_crop_source_info(image_id, db_manager=db_manager)
+        tags = tuple(tag) if tag else source.candidate_tags
+        request = CropCreateRequest(
+            parent_image_id=image_id,
+            rect=CropRect(x=x, y=y, width=width, height=height),
+            tags=tags,
+            rating=rating if rating is not None else source.rating,
+            origin=origin,
+        )
+        child_id = create_crop_image(
+            request,
+            db_manager=db_manager,
+            fsm=container.file_system_manager,
+        )
+
+        if is_json_mode():
+            emit_item(
+                ImagesCropItem(
+                    parent_image_id=request.parent_image_id,
+                    child_image_id=child_id,
+                    x=request.rect.x,
+                    y=request.rect.y,
+                    width=request.rect.width,
+                    height=request.rect.height,
+                    origin=request.origin,
+                    tag_count=len(request.tags),
+                    rating=request.rating,
+                )
+            )
+            emit_result(
+                "Crop image created",
+                parent_image_id=request.parent_image_id,
+                child_image_id=child_id,
+            )
+        else:
+            console.print(f"[green]{OK}[/green] child_image_id={child_id}")
 
 
 # Registration stays in this module; offline processing lives in its own command module.
