@@ -27,6 +27,7 @@ from lorairo.database.db_manager import ImageDatabaseManager
 from lorairo.database.schema import TagAnnotationData
 from lorairo.domain.crop_request import CropCreateRequest, CropRect
 from lorairo.filesystem import FileSystemManager
+from lorairo.public_api.exceptions import DuplicateImageError
 
 CANONICAL_RATINGS: frozenset[str] = frozenset({"PG", "PG-13", "R", "X", "XXX"})
 """``normalized_rating`` として許容する Civitai 基準の正準値 (schema.py と同一)。"""
@@ -138,8 +139,9 @@ def create_crop_image(
     Raises:
         ValueError: 親画像が存在しない、矩形の幅/高さが 0 以下、矩形が親画像の
             範囲外、レーティングが正準値外のいずれかの場合。
-        RuntimeError: 切り出し画像の登録が成立しなかった場合 (登録失敗、または
-            既存画像と重複判定され新規 ID が発行されなかった場合)。
+        DuplicateImageError: 切り出し結果が既存画像の重複と判定され、新規 ID が
+            発行されなかった場合 (``existing_id`` に既存画像 ID を持つ)。
+        RuntimeError: 切り出し画像の登録が成立しなかった場合。
         OSError: 切り出し画像の読み書きに失敗した場合。
         SQLAlchemyError: DB 操作に失敗した場合は呼び出し元へ伝播させる。
     """
@@ -279,12 +281,8 @@ def _register_cropped_file(
         )
     child_id, child_metadata = result
     if child_metadata.get("phash_classification") == "duplicate":
-        raise RuntimeError(
-            f"Cropped image was classified as a duplicate of image_id={child_id}; "
-            f"no new image was registered\n"
-            f"切り出し画像が既存画像 (image_id={child_id}) の重複と判定されたため、"
-            f"新しい画像は登録されませんでした"
-        )
+        # 既存画像との重複は想定内の競合 (CLI では ALREADY_EXISTS に分類される)。
+        raise DuplicateImageError(filename, child_id)
     return child_id
 
 
@@ -336,7 +334,8 @@ def _copy_tags(
     """採用タグを子画像へコピーする (親のタグ属性を引き継ぐ)。
 
     親に同名タグがあれば ``model_id`` / ``confidence_score`` / ``existing`` /
-    ``is_edited_manually`` を引き継ぎ、無ければ手動由来の既存タグ扱いで登録する。
+    ``is_edited_manually`` を引き継ぎ、無ければユーザーが新たに与えたタグとして
+    手動編集扱い (``is_edited_manually=True``、``model_id=None``) で登録する。
     親のタグ自体は変更しない。
     """
     tags = normalize_crop_tags(request.tags)
@@ -355,7 +354,7 @@ def _copy_tags(
                     "tag_id": None,
                     "model_id": None,
                     "existing": True,
-                    "is_edited_manually": False,
+                    "is_edited_manually": True,
                     "confidence_score": None,
                 }
             )

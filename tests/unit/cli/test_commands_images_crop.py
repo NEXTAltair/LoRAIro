@@ -221,6 +221,40 @@ class TestImagesCrop:
         assert error["code"] == "INVALID_INPUT"
         assert test_db_manager.get_crop_children(crop_cli_context) == []
 
+    def test_full_bounds_crop_is_reported_as_already_exists(
+        self,
+        crop_cli_context: int,
+        test_db_manager: ImageDatabaseManager,
+    ) -> None:
+        """親と同じ画素になる切り出しは ALREADY_EXISTS (想定内の競合) で報告される。"""
+        metadata = test_db_manager.get_image_metadata(crop_cli_context)
+        assert metadata is not None
+        result = runner.invoke(
+            app,
+            [
+                "--json",
+                "images",
+                "crop",
+                str(crop_cli_context),
+                "--project",
+                "proj",
+                "--x",
+                "0",
+                "--y",
+                "0",
+                "--width",
+                str(metadata["width"]),
+                "--height",
+                str(metadata["height"]),
+            ],
+        )
+
+        assert result.exit_code != 0, result.output
+        error = _jsonl(result.stdout)[-1]
+        assert error["kind"] == "error"
+        assert error["code"] == "ALREADY_EXISTS"
+        assert test_db_manager.get_crop_children(crop_cli_context) == []
+
     def test_zero_size_rectangle_exits_two(self, crop_cli_context: int) -> None:
         """幅 0 の矩形も INVALID_INPUT で拒否される。"""
         result = runner.invoke(

@@ -14,6 +14,7 @@ from lorairo.database.db_manager import ImageDatabaseManager
 from lorairo.database.schema import TagAnnotationData
 from lorairo.domain.crop_request import CropCreateRequest, CropRect
 from lorairo.filesystem import FileSystemManager
+from lorairo.public_api.exceptions import DuplicateImageError
 from lorairo.services.crop_service import (
     CropSourceInfo,
     create_crop_image,
@@ -209,6 +210,27 @@ class TestCreateCropImage:
         assert [tag["tag"] for tag in child_tags] == ["closeup"]
         assert child_tags[0]["existing"] is True
         assert child_tags[0]["model_id"] is None
+        assert child_tags[0]["is_edited_manually"] is True
+
+    def test_full_bounds_crop_raises_duplicate_image_error_without_relation(
+        self,
+        test_db_manager: ImageDatabaseManager,
+        fs_manager: FileSystemManager,
+        parent_image: int,
+    ) -> None:
+        """親と同じ画素になる切り出しは DuplicateImageError (既存 ID 付き) で、関係は作られない。"""
+        before = _counts(test_db_manager, parent_image, fs_manager)
+        request = CropCreateRequest(
+            parent_image_id=parent_image,
+            rect=CropRect(x=0, y=0, width=PARENT_WIDTH, height=PARENT_HEIGHT),
+        )
+
+        with pytest.raises(DuplicateImageError) as exc_info:
+            create_crop_image(request, db_manager=test_db_manager, fsm=fs_manager)
+
+        assert exc_info.value.existing_id == parent_image
+        assert test_db_manager.get_crop_children(parent_image) == []
+        assert _counts(test_db_manager, parent_image, fs_manager) == before
 
     def test_rating_is_copied_and_can_differ_from_parent(
         self,
