@@ -357,6 +357,15 @@ class TestSave:
         assert dialog._save_thread is None
         assert dialog._save_worker is None
 
+    def test_stopped_threads_are_deleted_after_failures(self, qtbot, dialog, recorder):
+        """失敗を繰り返しても止まった QThread がダイアログの子として蓄積しない。"""
+        recorder.error = ValueError("一時的な失敗")
+        dialog.set_rect(CropRect(0, 0, 1024, 768))
+        for _ in range(3):
+            dialog._save_button.click()
+            _wait_save_finished(qtbot, dialog)
+        qtbot.waitUntil(lambda: dialog.findChildren(QThread) == [], timeout=WAIT_MS)
+
     def test_retry_after_failure_succeeds(self, qtbot, dialog, recorder):
         recorder.error = ValueError("一時的な失敗")
         dialog.set_rect(CropRect(0, 0, 1024, 768))

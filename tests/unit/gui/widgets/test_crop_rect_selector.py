@@ -268,6 +268,17 @@ class TestLetterboxMargin:
         )
         assert selector.crop_rect() is None
 
+    def test_near_boundary_handle_is_not_grabbable_from_margin(self, qtbot, selector):
+        """境界に接していない辺のハンドルは、当たり判定が余白に届いても掴めない。"""
+        selector.set_rect(CropRect(3, 80, 200, 180))
+        selector.resize(900, 300)
+        selector._fit()
+        press = selector.mapFromScene(QPointF(-1.0, 80 + 90))
+        qtbot.mousePress(selector.viewport(), Qt.MouseButton.LeftButton, pos=press)
+        qtbot.mouseMove(selector.viewport(), pos=_view_pos(selector, 60, 170))
+        qtbot.mouseRelease(selector.viewport(), Qt.MouseButton.LeftButton, pos=_view_pos(selector, 60, 170))
+        assert selector.crop_rect() == CropRect(3, 80, 200, 180)
+
     def test_edge_handle_is_still_grabbable_from_outside(self, qtbot, selector):
         selector.set_rect(CropRect(0, 80, 200, 180))
         selector.resize(900, 300)

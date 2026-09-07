@@ -186,9 +186,10 @@ class CropRectSelectorWidget(QGraphicsView):
             return
         raw_point = self.mapToScene(event.position().toPoint())
         handle = self._hit_handle(raw_point)
-        if handle is None and not self._inside_image(raw_point):
-            # fitInView のレターボックス余白での押下は無視する。境界上のハンドルだけは
-            # 当たり判定の許容幅が画像外へはみ出すので先に判定する。
+        if not self._inside_image(raw_point) and not self._boundary_handle_reachable(handle, raw_point):
+            # fitInView のレターボックス余白での押下は無視する。例外は「押下がはみ出した側の
+            # 画像境界に、そのハンドルの辺がちょうど接している」場合だけ (当たり判定の許容幅が
+            # 画像外へはみ出すため)。境界に近いだけの辺は掴ませない。
             super().mousePressEvent(event)
             return
         point = self._clamped_scene_point(event.position())
@@ -277,6 +278,25 @@ class CropRectSelectorWidget(QGraphicsView):
         if scale <= 0.0:
             return view_px
         return view_px / scale
+
+    def _boundary_handle_reachable(self, handle: str | None, scene_point: QPointF) -> bool:
+        """画像外の押下でも掴めるハンドルか (はみ出した各側で、辺が画像境界に接している)。"""
+        if handle is None or self._rect is None:
+            return False
+        size = self.image_size()
+        if size is None:
+            return False
+        width, height = size
+        rect = self._rect
+        if scene_point.x() < 0.0 and not ("l" in handle and rect.x == 0):
+            return False
+        if scene_point.x() > float(width) and not ("r" in handle and rect.x + rect.width == width):
+            return False
+        if scene_point.y() < 0.0 and not ("t" in handle and rect.y == 0):
+            return False
+        return not (
+            scene_point.y() > float(height) and not ("b" in handle and rect.y + rect.height == height)
+        )
 
     def _inside_image(self, scene_point: QPointF) -> bool:
         """scene 座標が画像の範囲内 (境界を含む) か。画像未設定なら False。"""
