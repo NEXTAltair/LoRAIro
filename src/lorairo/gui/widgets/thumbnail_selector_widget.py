@@ -20,11 +20,13 @@ from PySide6.QtWidgets import (
 )
 
 from ...gui.designer.ThumbnailSelectorWidget_ui import Ui_ThumbnailSelectorWidget
+from ...services.search_models import SearchConditions
 from ...utils.log import logger
 from .. import theme
 from ..cache.thumbnail_page_cache import ThumbnailPageCache
 from ..state.dataset_state import DatasetStateManager
 from ..state.pagination_state import PaginationStateManager
+from ..workers.search_worker import SearchResult
 from ..workers.terminal import CancelReason
 from ..workers.thumbnail_worker import ThumbnailLoadResult
 from .custom_graphics_view import CustomGraphicsView
@@ -33,7 +35,6 @@ from .thumbnail_item import ThumbnailItem
 
 if TYPE_CHECKING:
     from ..services.worker_service import WorkerService
-    from ..workers.search_worker import SearchResult
 
 
 class ThumbnailSelectorWidget(QWidget, Ui_ThumbnailSelectorWidget):
@@ -60,6 +61,9 @@ class ThumbnailSelectorWidget(QWidget, Ui_ThumbnailSelectorWidget):
     image_selected = Signal(Path)  # 単一画像選択時
     stage_selected_requested = Signal(list)  # バッチタグのステージング追加要求（visible image_ids）
     quick_tag_requested = Signal(list)  # クイックタグ追加要求（image_ids）
+    # クロップ作成要求（1 枚選択時のみ、image_id）。配線側が set_crop_action_enabled(True)
+    # を呼んだタブでのみ右クリックメニューへ項目が出る (#1346)。
+    crop_requested = Signal(int)
 
     def __init__(
         self,
@@ -83,6 +87,9 @@ class ThumbnailSelectorWidget(QWidget, Ui_ThumbnailSelectorWidget):
 
         # 状態管理
         self.dataset_state = dataset_state
+        # クロップ導線 (#1346): 検索タブのみ有効化する opt-in。既定 False で、
+        # エクスポート/ステージングの再利用インスタンスに死んだメニュー項目を出さない。
+        self._crop_action_enabled = False
 
         # UI設定
         self.thumbnail_size = QSize(128, 128)
@@ -592,6 +599,12 @@ class ThumbnailSelectorWidget(QWidget, Ui_ThumbnailSelectorWidget):
         action_quick_tag = menu.addAction("クイックタグ追加...")
         action_quick_tag.setEnabled(bool(visible_selected_ids))
 
+        # クロップ作成 (#1346)。1 枚選択時のみ有効 (矩形指定は単一画像に対する操作)。
+        action_crop = None
+        if self._crop_action_enabled:
+            action_crop = menu.addAction("クロップして学習素材を作成…")
+            action_crop.setEnabled(len(visible_selected_ids) == 1)
+
         menu.addSeparator()
 
         # すべて選択
@@ -607,10 +620,77 @@ class ThumbnailSelectorWidget(QWidget, Ui_ThumbnailSelectorWidget):
             self.stage_selected_requested.emit(visible_selected_ids)
         elif action == action_quick_tag:
             self.quick_tag_requested.emit(visible_selected_ids)
+        elif action_crop is not None and action == action_crop:
+            self.crop_requested.emit(visible_selected_ids[0])
         elif action == action_select_all:
             self._select_all_items()
         elif action == action_deselect:
             self._deselect_all_items()
+
+    def refresh_current_page(self) -> None:
+        """dataset_state の画像集合が変わった後、現在ページを読み直す (#1346)。
+
+        ページキャッシュはページ番号でしか引けないため、集合が変わると古い内容を
+        描画してしまう。キャッシュを捨て、サムネイル要求の参照元を dataset_state
+        (SSoT) から作り直したうえで、ページネーションの現在ページを再要求する。
+
+        参照元を作り直すのは、``ThumbnailWorker`` が要求 ID のメタデータを
+        ``_active_search_result`` からしか解決しないため (Codex P2)。検索結果のまま
+        だと追加した画像が省かれて灰色プレースホルダになり、検索未実行なら参照元が
+        無くサムネイルを要求できずローディング表示が残る。
+
+        dataset_state 未注入 (ページネーション未初期化) なら何もしない。
+        """
+        if not self.pagination_state or not self.dataset_state:
+            logger.debug("ページネーション未初期化のため一覧の再読込をスキップ")
+            return
+        self.page_cache.clear()
+        self._sync_active_search_result_from_dataset_state()
+        self._display_or_request_page(self.pagination_state.current_page, cancel_previous=True)
+
+    def _sync_active_search_result_from_dataset_state(self) -> None:
+        """サムネイル要求の参照メタデータを dataset_state の現在の画像集合で作り直す (#1346)。
+
+        ``filter_conditions`` は由来表示にしか使わないため、直前の検索があればそれを
+        引き継ぎ、検索未実行なら空条件を置く。
+        """
+        if not self.dataset_state:
+            return
+
+        images = self.dataset_state.filtered_images
+        if self._active_search_result is not None:
+            filter_conditions = self._active_search_result.filter_conditions
+        else:
+            filter_conditions = SearchConditions(search_type="tags", keywords=[], tag_logic="and")
+        self._active_search_result = SearchResult(
+            image_metadata=images,
+            total_count=len(images),
+            search_time=0.0,
+            filter_conditions=filter_conditions,
+        )
+        logger.debug(f"サムネイル参照メタデータを dataset_state から再構築: {len(images)}件")
+
+    def set_worker_service(self, worker_service: WorkerService) -> None:
+        """検索完了を待たずにサムネイル読み込みを要求できるよう WorkerService を注入する (#1346)。
+
+        クロップ保存直後のように、検索を一度も走らせていない状態から一覧を描き直す経路が
+        あるため、``initialize_pagination_search`` より前に配線できるようにしている。
+
+        Args:
+            worker_service: サムネイル読み込みを実行する WorkerService。
+        """
+        self._worker_service = worker_service
+
+    def set_crop_action_enabled(self, enabled: bool) -> None:
+        """右クリックメニューの「クロップして学習素材を作成…」項目を有効化する (#1346)。
+
+        エクスポート / ステージングで再利用される同一ウィジェットに死んだ項目を出さない
+        ため、クロップ導線を配線したタブ (検索タブ) だけが True を指定する。
+
+        Args:
+            enabled: True でメニュー項目を表示する。
+        """
+        self._crop_action_enabled = enabled
 
     def _select_all_items(self) -> None:
         """すべてのサムネイルアイテムを選択する。"""

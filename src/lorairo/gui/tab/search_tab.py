@@ -39,14 +39,18 @@ from typing import Any
 
 from PySide6.QtCore import QSettings, Qt, Signal, Slot
 from PySide6.QtWidgets import QSplitter, QWidget
+from sqlalchemy.exc import SQLAlchemyError
 
 from ...database.db_manager import ImageDatabaseManager
+from ...filesystem import FileSystemManager
 from ...services.model_selection_service import ModelSelectionService
 from ...services.refinement_service import RefinementService
 from ...services.service_container import ServiceContainer
 from ...utils.log import logger
 from ..designer.SearchTab_ui import Ui_SearchTab
 from ..message_box import show_critical
+from ..services.crop_dialog_launcher import CropDialogLauncher
+from ..services.crop_relation_service import CropRelationService
 from ..services.image_db_write_service import ImageDBWriteService
 from ..services.search_filter_service import SearchFilterService
 from ..services.worker_service import WorkerService
@@ -106,6 +110,8 @@ class SearchTabWidget(QWidget, Ui_SearchTab):
 
         # rating/score 書込サービス (詳細パネル編集に使う)。_setup_image_db_write_service で生成。
         self._image_db_write_service: ImageDBWriteService | None = None
+        # クロップ導線 (#1346)。_setup_crop_integration で生成 (db_manager 未注入なら None)。
+        self._crop_dialog_launcher: CropDialogLauncher | None = None
         # パネルトグル時の splitter サイズ退避領域 (#865 とは別の表示/非表示制御)
         self._main_splitter_sizes_before_filter_hide: list[int] | None = None
         self._main_splitter_sizes_before_preview_hide: list[int] | None = None
@@ -121,6 +127,7 @@ class SearchTabWidget(QWidget, Ui_SearchTab):
         self._setup_widgets()
         self._setup_search_filter_integration()
         self._setup_image_db_write_service()
+        self._setup_crop_integration()
         self._connect_thumbnail_preview_signals()
         self._connect_details_widget_signals()
         self._connect_dataset_state_signals()
@@ -145,6 +152,12 @@ class SearchTabWidget(QWidget, Ui_SearchTab):
             logger.debug("ThumbnailSelectorWidget DatasetStateManager接続完了")
         else:
             logger.warning("DatasetStateManager未初期化 - ThumbnailSelectorWidget接続をスキップ")
+
+        # 検索を介さない一覧更新 (クロップ保存直後など、#1346) でもサムネイルを要求できるよう、
+        # 検索完了を待たずに WorkerService を注入する。
+        if self._worker_service is not None:
+            self._thumbnail_selector.set_worker_service(self._worker_service)
+            logger.debug("ThumbnailSelectorWidget WorkerService接続完了")
 
         # 画像プレビュー: データシグナル接続
         if dsm is not None:
@@ -267,6 +280,115 @@ class SearchTabWidget(QWidget, Ui_SearchTab):
             logger.debug("SelectedImageDetailsWidget は閲覧専用 - 編集シグナル未接続")
 
     # -- 初期化: Signal 配線 ---------------------------------------------------
+
+    def _setup_crop_integration(self) -> None:
+        """クロップ導線 (#1346) を配線する。
+
+        一覧の右クリックとプレビューのボタンは ``crop_requested(image_id)`` を上げるだけで、
+        ダイアログ生成・保存・結果の中継は :class:`CropDialogLauncher` が担う。詳細カラムの
+        関連画像セクションには :class:`CropRelationService` を注入する。
+        """
+        if self._db_manager is None:
+            logger.warning("db_manager 未初期化 - クロップ導線をスキップ")
+            return
+
+        # 登録経路 (WorkerService / DatasetController) と同じ FileSystemManager を共有する。
+        # ServiceContainer 側の FSM は GUI では初期化されない (set_active_project は CLI 経路のみ)。
+        worker_fsm = getattr(self._worker_service, "fsm", None)
+        fsm = (
+            worker_fsm
+            if isinstance(worker_fsm, FileSystemManager)
+            else self._service_container.file_system_manager
+        )
+        self._crop_dialog_launcher = CropDialogLauncher(
+            db_manager=self._db_manager,
+            fsm=fsm,
+            parent=self,
+        )
+        self._crop_dialog_launcher.crop_saved.connect(self._on_crop_saved)
+
+        self._thumbnail_selector.set_crop_action_enabled(True)
+        self._thumbnail_selector.crop_requested.connect(self._on_crop_requested)
+        self._image_preview_widget.set_crop_action_visible(True)
+        self._image_preview_widget.crop_requested.connect(self._on_crop_requested)
+
+        self._selected_image_details_widget.set_crop_relation_service(CropRelationService(self._db_manager))
+        self._selected_image_details_widget.related_image_activated.connect(
+            self._on_related_image_activated
+        )
+        logger.debug("クロップ導線 (一覧/プレビュー → CropDialogLauncher) 配線完了")
+
+    @Slot(int)
+    def _on_crop_requested(self, image_id: int) -> None:
+        """一覧 / プレビューからのクロップ要求でダイアログを開く。
+
+        Args:
+            image_id: クロップ元となる画像 ID (子画像を指定すれば孫を作る)。
+        """
+        if self._crop_dialog_launcher is None:
+            logger.warning("クロップ導線未配線 - クロップ要求を無視")
+            return
+        self._crop_dialog_launcher.open_for_image(image_id, parent=self)
+
+    @Slot(int, int)
+    def _on_crop_saved(self, parent_image_id: int, child_image_id: int) -> None:
+        """クロップ保存成功を一覧・詳細へ反映する。
+
+        再検索 (``load_images_from_db``) は使わない。フィルタ未指定だと検索自体が
+        スキップされ、一覧に子画像が載らないため (Codex P2)。DB から子のメタデータを
+        引いて一覧の画像集合へ直接追加し、サムネイルの現在ページを読み直す。
+
+        Args:
+            parent_image_id: 切り出し元となった画像 ID。
+            child_image_id: 作成されたクロップ画像 ID。
+        """
+        dsm = self._dataset_state_manager
+        if dsm is None:
+            # 選択 SSoT が無いタブ構成でも、詳細カラムの親子表示だけは追従させる
+            self._selected_image_details_widget.refresh_related_images()
+        else:
+            metadata = self._fetch_child_metadata(child_image_id)
+            if metadata is not None:
+                dsm.add_image(metadata)
+                self._thumbnail_selector.refresh_current_page()
+            dsm.set_current_image(child_image_id)
+        self.status_message.emit(
+            f"クロップ画像を作成しました (元: {parent_image_id} → 新規: {child_image_id})"
+        )
+
+    def _fetch_child_metadata(self, child_image_id: int) -> dict[str, Any] | None:
+        """一覧へ載せるためのクロップ画像メタデータを取得する。
+
+        Args:
+            child_image_id: 作成されたクロップ画像 ID。
+
+        Returns:
+            画像メタデータ。取得できなければ None (一覧追加をスキップする)。
+        """
+        if self._db_manager is None:
+            return None
+        try:
+            metadata: dict[str, Any] | None = self._db_manager.get_image_metadata(child_image_id)
+        except SQLAlchemyError:
+            logger.opt(exception=True).error(
+                f"クロップ画像のメタデータ取得に失敗しました: image_id={child_image_id}"
+            )
+            return None
+        if metadata is None:
+            logger.warning(f"クロップ画像のメタデータが見つかりません: image_id={child_image_id}")
+        return metadata
+
+    @Slot(int)
+    def _on_related_image_activated(self, image_id: int) -> None:
+        """関連画像セクションの行クリックで対象画像へ遷移する。
+
+        Args:
+            image_id: 遷移先の画像 ID。
+        """
+        if self._dataset_state_manager is None:
+            logger.warning("DatasetStateManager 未初期化 - 関連画像への遷移をスキップ")
+            return
+        self._dataset_state_manager.set_current_image(image_id)
 
     def _connect_thumbnail_preview_signals(self) -> None:
         """サムネイル → プレビュー間の接続と、ステージ/クイックタグの上方 emit を行う。"""
