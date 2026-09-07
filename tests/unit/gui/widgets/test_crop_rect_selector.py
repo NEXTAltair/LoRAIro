@@ -242,6 +242,19 @@ class TestMove:
 
 
 class TestClamping:
+    def test_set_rect_crossing_top_left_keeps_far_edges(self, selector):
+        """左上をはみ出す矩形は交差 (右辺・下辺は元の位置) にクランプされる。"""
+        selector.set_rect(CropRect(-10, 20, 20, 30))
+        assert selector.crop_rect() == CropRect(0, 20, 10, 30)
+
+    def test_set_rect_fully_outside_becomes_none(self, selector):
+        selector.set_rect(CropRect(IMAGE_WIDTH + 5, 0, 10, 10))
+        assert selector.crop_rect() is None
+
+    def test_set_rect_zero_width_becomes_none(self, selector):
+        selector.set_rect(CropRect(10, 10, 0, 50))
+        assert selector.crop_rect() is None
+
     def test_created_rect_never_exceeds_image(self, qtbot, selector):
         viewport_rect = selector.viewport().rect()
         qtbot.mousePress(selector.viewport(), Qt.MouseButton.LeftButton, pos=_view_pos(selector, 20, 20))

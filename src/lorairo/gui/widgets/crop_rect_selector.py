@@ -293,13 +293,28 @@ class CropRectSelectorWidget(QGraphicsView):
         return CropRect(x=left, y=top, width=right - left, height=bottom - top)
 
     @staticmethod
-    def _clamp_rect(rect: CropRect, image_width: int, image_height: int) -> CropRect:
-        """矩形を画像範囲内へクランプする。"""
-        x = min(max(rect.x, 0), image_width)
-        y = min(max(rect.y, 0), image_height)
-        width = min(max(rect.width, 0), image_width - x)
-        height = min(max(rect.height, 0), image_height - y)
-        return CropRect(x=x, y=y, width=width, height=height)
+    def _clamp_rect(rect: CropRect, image_width: int, image_height: int) -> CropRect | None:
+        """矩形を画像範囲との交差へクランプする。
+
+        左上を先にクランプしてから幅高さを切ると、上辺・左辺をはみ出した矩形で
+        「遠い辺」(右辺・下辺) が押し出されて元の指定より広くなる。元の
+        ``x + width`` / ``y + height`` から右下を求めてから寸法を導く。
+
+        Args:
+            rect: クランプ対象の矩形。
+            image_width: 画像の幅 (px)。
+            image_height: 画像の高さ (px)。
+
+        Returns:
+            画像範囲との交差矩形。交差が空 (完全に範囲外・潰れた矩形) なら None。
+        """
+        left = max(rect.x, 0)
+        top = max(rect.y, 0)
+        right = min(rect.x + rect.width, image_width)
+        bottom = min(rect.y + rect.height, image_height)
+        if right <= left or bottom <= top:
+            return None
+        return CropRect(x=left, y=top, width=right - left, height=bottom - top)
 
     @staticmethod
     def _contains(rect: CropRect, point: QPointF) -> bool:
