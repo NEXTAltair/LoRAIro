@@ -685,6 +685,7 @@ def import_results(
                 save_skipped=getattr(result, "save_skipped_count", 0),
                 missing_custom_ids=list(getattr(result, "missing_custom_ids", ())),
                 failed_custom_ids=list(getattr(result, "failed_custom_ids", ())),
+                failed_image_ids=list(getattr(result, "failed_image_ids", ())),
                 error_details=list(getattr(getattr(result, "save_result", None), "error_details", ())),
                 hint=f"Inspect batch status {job_id} --project {project} and its stored item errors."
                 if failed
@@ -708,6 +709,14 @@ def import_results(
             table.add_row("Total", str(result.total_count))
             table.add_row("Job Imported", "yes" if result.job_imported else "no")
             console.print(table)
+            failed_image_ids = list(getattr(result, "failed_image_ids", ()))
+            if failed_image_ids:
+                ids_csv = ",".join(str(image_id) for image_id in failed_image_ids)
+                console.print(f"[red]Failed image IDs:[/red] {ids_csv}")
+                console.print(
+                    f"[green]Retry:[/green] lorairo-cli batch submit --image-ids {ids_csv} "
+                    f"--project {project} --model <model>"
+                )
             if rating_breakdown:
                 _print_rating_breakdown(rating_breakdown, ratings_saved)
 

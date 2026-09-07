@@ -41,6 +41,7 @@ from lorairo.services.provider_batch_service import (
     ProviderBatchJobService,
     ProviderBatchRawPayload,
     ProviderBatchResultItem,
+    image_ids_for_batch_item,
 )
 from lorairo.utils.log import logger
 
@@ -89,6 +90,9 @@ class ProviderBatchImportResult:
     non_importable_count: int = 0
     save_skipped_count: int = 0
     failed_custom_ids: tuple[str, ...] = field(default_factory=tuple)
+    # #1337: failed_custom_ids を image_id (ADR 0062 dedupe fan-out 込み) へ変換した集合。
+    # DB item 自体が見つからない custom_id (missing_custom_ids) は変換できないため含まない。
+    failed_image_ids: tuple[int, ...] = field(default_factory=tuple)
 
 
 @dataclass
@@ -577,6 +581,24 @@ class ProviderBatchWorkflowService:
         excluded_custom_ids.update(
             db_item.custom_id for db_item in refreshed_job.items if db_item.status == "imported"
         )
+        failed_custom_ids = tuple(
+            item.custom_id
+            for raw_item in normalized_fetch.items
+            if (item := self._coerce_result_item(raw_item)).custom_id not in excluded_custom_ids
+        )
+        # #1337: custom_id (provider item 単位) では復旧対象の image_id が分からないため、
+        # DB item の raw_request (ADR 0062 dedupe fan-out) を経由して image_id へ変換する。
+        items_by_custom_id = {db_item.custom_id: db_item for db_item in refreshed_job.items}
+        failed_image_ids = tuple(
+            sorted(
+                {
+                    image_id
+                    for custom_id in failed_custom_ids
+                    if (db_item := items_by_custom_id.get(custom_id)) is not None
+                    for image_id in self._image_ids_for_db_item(db_item)
+                }
+            )
+        )
         return ProviderBatchImportResult(
             save_result=save_result,
             apply_result=apply_result,
@@ -589,11 +611,8 @@ class ProviderBatchWorkflowService:
             already_imported_count=prepared.already_imported_image_count,
             non_importable_count=prepared.non_importable_image_count,
             save_skipped_count=save_result.skip_count,
-            failed_custom_ids=tuple(
-                item.custom_id
-                for raw_item in normalized_fetch.items
-                if (item := self._coerce_result_item(raw_item)).custom_id not in excluded_custom_ids
-            ),
+            failed_custom_ids=failed_custom_ids,
+            failed_image_ids=failed_image_ids,
         )
 
     @staticmethod
@@ -697,48 +716,12 @@ class ProviderBatchWorkflowService:
 
     @staticmethod
     def _image_ids_for_db_item(item: ProviderBatchItem) -> list[int]:
-        """DB item から annotation 反映対象の image_id 群を取り出す。
+        """DB item から annotation 反映対象の image_id 群を取り出す (ADR 0062)。
 
-        ADR 0062: dedupe で統合した重複 image_id 群を ``raw_request`` の
-        ``lorairo_image_ids`` (LoRAIro local) に保存している。これを読み戻して
-        custom_id -> image_id[] の対応として使う。欠落時は代表 ``image_id`` のみを返す
-        (旧フォーマット job との後方互換)。
-
-        Args:
-            item: 対象の ``ProviderBatchItem``。``image_id`` は非 None である前提。
-
-        Returns:
-            annotation を反映する image_id のリスト。重複は除き、代表 image_id を必ず含む。
+        変換ロジック本体は :func:`lorairo.services.provider_batch_service.image_ids_for_batch_item`
+        に集約する (#1337: 結果ファイル削除済みエラー経路とも共有するため)。
         """
-        representative = item.image_id
-        if representative is None:
-            return []
-        mapped = ProviderBatchWorkflowService._parse_mapped_image_ids(item.raw_request)
-        if not mapped:
-            return [representative]
-        ordered = list(dict.fromkeys([representative, *mapped]))
-        return ordered
-
-    @staticmethod
-    def _parse_mapped_image_ids(raw_request: str | None) -> list[int]:
-        if not raw_request:
-            return []
-        try:
-            payload = json.loads(raw_request)
-        except (json.JSONDecodeError, TypeError):
-            return []
-        if not isinstance(payload, Mapping):
-            return []
-        mapped = payload.get("lorairo_image_ids")
-        if not isinstance(mapped, list):
-            return []
-        result: list[int] = []
-        for value in mapped:
-            if isinstance(value, bool):
-                continue
-            if isinstance(value, int):
-                result.append(value)
-        return result
+        return image_ids_for_batch_item(item)
 
     def _mark_items_imported(self, job_id: int, custom_ids: Sequence[str]) -> None:
         updates_by_custom_id = {custom_id: {"status": "imported"} for custom_id in custom_ids}

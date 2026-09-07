@@ -29,7 +29,25 @@ _PHASH_CUSTOM_ID_PATTERN = re.compile(r"^ph:(?P<phash>[A-Za-z0-9_-]+):le:(?P<lon
 
 
 class ProviderBatchError(RuntimeError):
-    """Provider Batch service の基底例外。"""
+    """Provider Batch service の基底例外。
+
+    Args:
+        message: エラーメッセージ。
+        details: ADR 0057 の CLI 構造化エラー ``details`` へそのまま転記される
+            付加情報 (#1337: 結果ファイル削除済み時の ``affected_image_ids`` 等)。
+        hint: ADR 0057 の CLI 構造化エラー ``hint`` へそのまま転記される対処ヒント。
+    """
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        details: Mapping[str, Any] | None = None,
+        hint: str | None = None,
+    ) -> None:
+        super().__init__(message)
+        self.details: dict[str, Any] | None = dict(details) if details is not None else None
+        self.hint: str | None = hint
 
 
 _T = TypeVar("_T")
@@ -69,10 +87,64 @@ def _batch_job_error_to_provider_error(error: BaseException) -> ProviderBatchErr
     if _is_result_file_gone(error):
         return ProviderBatchError(
             "結果ファイルは provider 側で削除済みです（保存期限切れの可能性）。"
-            "このジョブの結果は回収できません。再送は Annotate から行ってください。"
+            "このジョブの結果は回収できません。再送は Annotate から行ってください。",
+            # #1337: _fetch_from_adapter が job の未 import item から affected_image_ids を
+            # 埋め、_errors.py が reason で retryable=True に分類する。
+            details={"reason": "result_file_missing"},
+            hint=(
+                "details.affected_image_ids の image_id を "
+                "`lorairo-cli batch submit --image-ids` で再送してください。"
+            ),
         )
     code = str(getattr(error, "code", "") or "error")
     return ProviderBatchError(f"Batch API の結果取得に失敗しました ({code}): {error}")
+
+
+def _parse_mapped_image_ids(raw_request: str | None) -> list[int]:
+    """ADR 0062 の ``raw_request.lorairo_image_ids`` (dedupe fan-out 群) を復元する。"""
+    if not raw_request:
+        return []
+    try:
+        payload = json.loads(raw_request)
+    except (json.JSONDecodeError, TypeError):
+        return []
+    if not isinstance(payload, Mapping):
+        return []
+    mapped = payload.get("lorairo_image_ids")
+    if not isinstance(mapped, list):
+        return []
+    result: list[int] = []
+    for value in mapped:
+        if isinstance(value, bool):
+            continue
+        if isinstance(value, int):
+            result.append(value)
+    return result
+
+
+def image_ids_for_batch_item(item: Any) -> list[int]:
+    """DB item (``ProviderBatchItem``) から dedupe fan-out 込みの image_id 群を取り出す。
+
+    ADR 0062: dedupe で統合した重複 image_id 群を ``raw_request`` の
+    ``lorairo_image_ids`` (LoRAIro local) に保存している。これを読み戻して
+    custom_id -> image_id[] の対応として使う。欠落時は代表 ``image_id`` のみを返す
+    (旧フォーマット job との後方互換)。``item.image_id`` が ``None`` (未 submit 完了等)
+    の場合は空リストを返す。
+
+    Args:
+        item: 対象の ``ProviderBatchItem`` (または同じ属性を持つオブジェクト)。
+
+    Returns:
+        annotation 反映 / 復旧対象の image_id のリスト。重複は除き、代表 image_id を
+        先頭に必ず含む。
+    """
+    representative = getattr(item, "image_id", None)
+    if representative is None:
+        return []
+    mapped = _parse_mapped_image_ids(getattr(item, "raw_request", None))
+    if not mapped:
+        return [representative]
+    return list(dict.fromkeys([representative, *mapped]))
 
 
 class ProviderBatchAdapterNotFoundError(ProviderBatchError):
@@ -585,18 +657,43 @@ class ProviderBatchJobService:
         api_keys: Mapping[str, str] | None,
     ) -> ProviderBatchFetchResult:
         adapter = self._get_adapter(job.provider)
-        if hasattr(adapter, "fetch_batch_results"):
-            raw_result = self._run_adapter(
-                lambda: adapter.fetch_batch_results(self._build_handle(job, api_keys), destination_dir)
-            )
-        else:
-            raw_result = self._run_adapter(
-                lambda: adapter.download_results(  # type: ignore[attr-defined]
-                    job.provider_job_id,
-                    destination_dir,
+        try:
+            if hasattr(adapter, "fetch_batch_results"):
+                raw_result = self._run_adapter(
+                    lambda: adapter.fetch_batch_results(self._build_handle(job, api_keys), destination_dir)
                 )
-            )
+            else:
+                raw_result = self._run_adapter(
+                    lambda: adapter.download_results(  # type: ignore[attr-defined]
+                        job.provider_job_id,
+                        destination_dir,
+                    )
+                )
+        except ProviderBatchError as error:
+            self._attach_affected_image_ids(error, job.id)
+            raise
         return self._coerce_fetch_result(raw_result, job.provider_job_id or "")
+
+    def _attach_affected_image_ids(self, error: ProviderBatchError, job_id: int) -> None:
+        """結果ファイル削除済みエラーに未 import item の image_id 一覧を付与する (#1337)。
+
+        ``_batch_job_error_to_provider_error`` が ``details.reason`` を
+        ``result_file_missing`` にマークしたエラーのみを対象にする。そうでない
+        ``ProviderBatchError`` (一過性の取得失敗等) には手を加えない。
+        """
+        details = error.details
+        if not isinstance(details, dict) or details.get("reason") != "result_file_missing":
+            return
+        items = self._repository.list_provider_batch_items(job_id)
+        affected_image_ids = sorted(
+            {
+                image_id
+                for item in items
+                if item.status != "imported"
+                for image_id in image_ids_for_batch_item(item)
+            }
+        )
+        error.details = {**details, "affected_image_ids": affected_image_ids}
 
     def _register_fetch_artifacts(
         self,

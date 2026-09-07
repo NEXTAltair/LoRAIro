@@ -420,6 +420,7 @@ lorairo-cli --json describe "batch import"
 - `save_skipped`: `int` (optional, default `0`)
 - `missing_custom_ids`: `list[str]` (optional)
 - `failed_custom_ids`: `list[str]` (optional)
+- `failed_image_ids`: `list[int]` (optional)
 - `error_details`: `list[str]` (optional)
 - `hint`: `str?` (optional, default `None`)
 - `ratings_saved`: `int?` (optional, default `None`)

@@ -631,6 +631,8 @@ class BatchImportResult(BaseModel):
     save_skipped: int = 0
     missing_custom_ids: list[str] = Field(default_factory=list)
     failed_custom_ids: list[str] = Field(default_factory=list)
+    # #1337: failed_custom_ids を image_id (ADR 0062 dedupe fan-out 込み) へ変換した集合。
+    failed_image_ids: list[int] = Field(default_factory=list)
     error_details: list[str] = Field(default_factory=list)
     hint: str | None = None
     ratings_saved: int | None = None

@@ -197,3 +197,33 @@ def test_hint_for_disk_io_error_returns_environment_guidance() -> None:
     # 通常の IO_ERROR (FileNotFoundError 等) には環境案内を出さない
     assert hint_for(ErrorCode.IO_ERROR, FileNotFoundError("missing")) is None
     assert hint_for(ErrorCode.IO_ERROR) is None
+
+
+@pytest.mark.unit
+@pytest.mark.cli
+def test_classify_provider_batch_result_file_missing_is_retryable() -> None:
+    """#1337: 結果ファイル削除済みは affected_image_ids で再送できるため retryable=True。"""
+    from lorairo.services.provider_batch_service import ProviderBatchError
+
+    exc = ProviderBatchError(
+        "結果ファイルは provider 側で削除済みです。",
+        details={"reason": "result_file_missing", "affected_image_ids": [1, 2]},
+        hint="details.affected_image_ids の image_id を submit --image-ids で再送してください。",
+    )
+    info = classify_exception(exc)
+    assert info.code == ErrorCode.PRECONDITION_FAILED
+    assert info.retryable is True
+    assert info.user_action_required is True
+    assert hint_for(info.code, exc) == exc.hint
+
+
+@pytest.mark.unit
+@pytest.mark.cli
+def test_classify_provider_batch_other_error_is_not_retryable() -> None:
+    """#1337: result_file_missing 以外の ProviderBatchError は retryable=False のまま。"""
+    from lorairo.services.provider_batch_service import ProviderBatchError
+
+    exc = ProviderBatchError("Batch API の結果取得に失敗しました (timeout): boom")
+    info = classify_exception(exc)
+    assert info.code == ErrorCode.PRECONDITION_FAILED
+    assert info.retryable is False

@@ -354,6 +354,8 @@ class TestProviderBatchWorkflowService:
         assert result.non_importable_count == 2
         assert result.already_imported_count == 0
         assert result.failed_custom_ids == ("ph:dupdupdupdupdup0:le:1024",)
+        # #1337: dedupe fan-out された両方の image_id (1, 2) が復旧対象として返る。
+        assert result.failed_image_ids == (1, 2)
         assert result.total_count == 2
         assert result.job_imported is False
 
@@ -1617,6 +1619,7 @@ class TestProviderBatchLibraryAdapter:
         assert result.error_count == int(not save_skip)
         assert result.save_skipped_count == int(save_skip)
         assert result.failed_custom_ids == (_expected_custom_id(1),)
+        assert result.failed_image_ids == (1,)
         assert result.job_imported is False
         job = test_provider_batch_repository.get_provider_batch_job(job_id)
         assert job is not None

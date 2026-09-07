@@ -700,6 +700,29 @@ class TestBatchJobErrorConversion:
         with pytest.raises(ProviderBatchError, match="削除済み"):
             service.fetch_results(job_id, Path("/tmp/batch_results"))
 
+    def test_result_file_missing_attaches_affected_image_ids(
+        self, test_provider_batch_repository: ProviderBatchRepository
+    ) -> None:
+        """#1337: 未 import item の image_id を details.affected_image_ids に付与する。"""
+        error = BatchJobError(
+            code="result_file_missing",
+            message="OpenAI batch completed but did not provide output/error file IDs",
+        )
+        adapter = _FetchRaisingAdapter(error)
+        service = ProviderBatchJobService(test_provider_batch_repository, {"openai": adapter})
+        job_id = service.submit_batch(make_submit_request())
+
+        with pytest.raises(ProviderBatchError) as exc:
+            service.fetch_results(job_id, Path("/tmp/batch_results"))
+
+        details = exc.value.details
+        assert details is not None
+        assert details["reason"] == "result_file_missing"
+        # make_submit_request() のデフォルト item は image_id=1, 2。
+        assert details["affected_image_ids"] == [1, 2]
+        assert exc.value.hint is not None
+        assert "submit --image-ids" in exc.value.hint
+
     def test_other_batch_job_error_converts_with_generic_message(
         self, test_provider_batch_repository: ProviderBatchRepository
     ) -> None:
@@ -712,6 +735,8 @@ class TestBatchJobErrorConversion:
             service.fetch_results(job_id, Path("/tmp/batch_results"))
         assert "download_failed" in str(exc.value)
         assert "削除済み" not in str(exc.value)
+        # #1337: result_file_missing 以外の一過性エラーには details を付与しない。
+        assert exc.value.details is None
 
     def test_refresh_also_converts_batch_job_error(
         self, test_provider_batch_repository: ProviderBatchRepository
