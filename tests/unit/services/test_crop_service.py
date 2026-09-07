@@ -503,3 +503,59 @@ class TestNormalizeCropTags:
 
         assert _tag_names(test_db_manager, child_id) == {"solo"}
         assert len(test_db_manager.get_image_annotations(child_id)["tags"]) == 1
+
+
+class TestExifOrientation:
+    """矩形の座標系は EXIF orientation 適用後 (表示向き) のピクセル座標である。"""
+
+    @staticmethod
+    def _make_rotated_jpeg(path: Path) -> Path:
+        """生 300x200 (左半分 赤 / 右半分 青) に Orientation=6 (時計回り 90 度) を付けた JPEG を作る。"""
+        image = Image.new("RGB", (300, 200), (255, 0, 0))
+        image.paste((0, 0, 255), (150, 0, 300, 200))
+        exif = Image.Exif()
+        exif[0x0112] = 6
+        image.save(path, format="JPEG", quality=100, subsampling=0, exif=exif.tobytes())
+        return path
+
+    def test_source_info_reports_oriented_size(
+        self,
+        test_db_manager: ImageDatabaseManager,
+        fs_manager: FileSystemManager,
+        tmp_path: Path,
+    ) -> None:
+        source = self._make_rotated_jpeg(tmp_path / "rotated.jpg")
+        parent_id = _register_parent(test_db_manager, fs_manager, source)
+
+        info = get_crop_source_info(parent_id, db_manager=test_db_manager)
+
+        assert (info.width, info.height) == (200, 300)
+
+    def test_crop_uses_display_orientation(
+        self,
+        test_db_manager: ImageDatabaseManager,
+        fs_manager: FileSystemManager,
+        tmp_path: Path,
+    ) -> None:
+        source = self._make_rotated_jpeg(tmp_path / "rotated.jpg")
+        parent_id = _register_parent(test_db_manager, fs_manager, source)
+        # 表示向き (200x300) では生画像の左半分 (赤) が上半分になる。
+        # y=250 は生の高さ 200 を超えるので、生座標系で検証していれば範囲外になる。
+        request = CropCreateRequest(
+            parent_image_id=parent_id, rect=CropRect(x=0, y=0, width=200, height=150)
+        )
+        lower_request = CropCreateRequest(
+            parent_image_id=parent_id, rect=CropRect(x=0, y=250, width=200, height=50)
+        )
+
+        child_id = create_crop_image(request, db_manager=test_db_manager, fsm=fs_manager)
+        lower_child_id = create_crop_image(lower_request, db_manager=test_db_manager, fsm=fs_manager)
+
+        with Image.open(_stored_path(test_db_manager, child_id)) as child:
+            assert child.size == (200, 150)
+            red, green, blue = child.convert("RGB").getpixel((100, 75))[:3]
+            assert red > 200 and green < 60 and blue < 60
+        with Image.open(_stored_path(test_db_manager, lower_child_id)) as lower_child:
+            assert lower_child.size == (200, 50)
+            red, green, blue = lower_child.convert("RGB").getpixel((100, 25))[:3]
+            assert blue > 200 and red < 60 and green < 60

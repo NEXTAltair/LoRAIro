@@ -19,7 +19,7 @@ from pathlib import Path
 from typing import Any
 
 from loguru import logger
-from PIL import Image
+from PIL import Image, ImageOps
 from sqlalchemy.exc import SQLAlchemyError
 
 from lorairo.database.db_core import resolve_stored_path
@@ -34,6 +34,8 @@ CANONICAL_RATINGS: frozenset[str] = frozenset({"PG", "PG-13", "R", "X", "XXX"})
 _MANUAL_RATING_SOURCE = "Manual"
 """``get_image_annotations`` の rating 行が手動編集由来であることを示す ``source`` 値。"""
 
+_EXIF_ORIENTATION_TAG = 0x0112
+_EXIF_ROTATED_ORIENTATIONS = frozenset({5, 6, 7, 8})
 _CROP_TEMP_SUBDIR = "crops"
 """一時ディレクトリ内のサブディレクトリ名。
 
@@ -77,17 +79,20 @@ def get_crop_source_info(
         db_manager: 画像 DB マネージャー。
 
     Returns:
-        親画像のパス・寸法・候補タグ・手動レーティング。
+        親画像のパス・寸法・候補タグ・手動レーティング。寸法は EXIF orientation
+        適用後 (表示向き) の値で、GUI の表示座標系と一致する。
 
     Raises:
-        ValueError: 親画像が存在しない、またはメタデータに寸法が無い場合。
+        ValueError: 親画像が存在しない場合。
+        OSError: 親画像ファイルを読めない場合。
         SQLAlchemyError: DB 操作に失敗した場合は呼び出し元へ伝播させる。
     """
     metadata = _require_parent_metadata(parent_image_id, db_manager=db_manager)
-    width, height = _parent_size(parent_image_id, metadata)
+    image_path = resolve_stored_path(str(metadata["stored_image_path"]))
+    width, height = _oriented_parent_size(image_path)
     annotations = db_manager.get_image_annotations(parent_image_id)
     return CropSourceInfo(
-        image_path=resolve_stored_path(str(metadata["stored_image_path"])),
+        image_path=image_path,
         width=width,
         height=height,
         candidate_tags=_candidate_tags(annotations["tags"]),
@@ -107,9 +112,14 @@ def create_crop_image(
     request の値をそのまま保存する。1 件単位で完結し、バッチは #1340 の担当。
 
     処理順は「事前検証 → 切り出し → ファイル保存 → 画像登録 → 親子関係保存 →
-    タグコピー → レーティングコピー」。事前検証はファイル・DB へ触れる前に
+    タグコピー → レーティングコピー」。事前検証はファイル・DB へ書き込む前に
     すべて済ませるため、検証失敗時は副作用が残らない。元画像のファイル・タグ・
     レーティングは一切変更しない。
+
+    矩形の座標系は EXIF orientation 適用後 (表示向き) のピクセル座標。検証も
+    切り出しも ``ImageOps.exif_transpose`` 後の画像に対して行い、GUI (``QImageReader``
+    の auto transform) と同じ見え方を基準にする。``images.width/height`` は登録時の
+    生ピクセル値のままで、この関数はそれを座標系として使わない。
 
     画像登録以降の各ステップは個別 commit で原子的ではない。親子関係・タグ・
     レーティングの保存が DB 例外で失敗した場合は、登録済みの子画像 (行と保存
@@ -134,11 +144,11 @@ def create_crop_image(
         SQLAlchemyError: DB 操作に失敗した場合は呼び出し元へ伝播させる。
     """
     metadata = _require_parent_metadata(request.parent_image_id, db_manager=db_manager)
-    parent_width, parent_height = _parent_size(request.parent_image_id, metadata)
+    parent_path = resolve_stored_path(str(metadata["stored_image_path"]))
+    parent_width, parent_height = _oriented_parent_size(parent_path)
     _validate_rect(request.rect, parent_width, parent_height)
     _validate_rating(request.rating)
 
-    parent_path = resolve_stored_path(str(metadata["stored_image_path"]))
     child_id = _register_cropped_file(request, parent_path, db_manager=db_manager, fsm=fsm)
 
     rect = request.rect
@@ -194,15 +204,17 @@ def _require_parent_metadata(
     return metadata
 
 
-def _parent_size(parent_image_id: int, metadata: dict[str, Any]) -> tuple[int, int]:
-    """親画像の寸法をメタデータから取り出す。欠落していれば ValueError。"""
-    width = metadata.get("width")
-    height = metadata.get("height")
-    if not isinstance(width, int) or not isinstance(height, int) or width <= 0 or height <= 0:
-        raise ValueError(
-            f"Parent image has no usable dimensions: image_id={parent_image_id}\n"
-            f"親画像の寸法が取得できません: image_id={parent_image_id}"
-        )
+def _oriented_parent_size(parent_path: Path) -> tuple[int, int]:
+    """親画像の EXIF orientation 適用後の寸法 (幅, 高さ) を返す。
+
+    画素をデコードせず、ヘッダの orientation タグ (0x0112) が 90 度系
+    (5 / 6 / 7 / 8) なら幅と高さを入れ替える。
+    """
+    with Image.open(parent_path) as source:
+        width, height = source.size
+        orientation = source.getexif().get(_EXIF_ORIENTATION_TAG)
+    if orientation in _EXIF_ROTATED_ORIENTATIONS:
+        return height, width
     return width, height
 
 
@@ -254,7 +266,8 @@ def _register_cropped_file(
         crop_dir.mkdir(parents=True, exist_ok=True)
         crop_path = crop_dir / filename
         with Image.open(parent_path) as source:
-            cropped = source.crop((rect.x, rect.y, rect.x + rect.width, rect.y + rect.height))
+            oriented = ImageOps.exif_transpose(source)
+            cropped = oriented.crop((rect.x, rect.y, rect.x + rect.width, rect.y + rect.height))
             cropped.save(crop_path)
 
         result = db_manager.register_original_image(crop_path, fsm)
