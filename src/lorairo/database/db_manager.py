@@ -13,11 +13,13 @@ from sqlalchemy.engine import Result
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
+from ..domain.crop_request import DEFAULT_CROP_ORIGIN
 from ..filesystem import FileSystemManager
 from ..utils.log import logger
 from ..utils.tools import calculate_phash
 from .filter_criteria import ImageFilterCriteria
 from .repository.annotation_record import AnnotationRepository
+from .repository.crop_relation import CropRelationRepository
 from .repository.error_record import ErrorRecordRepository
 from .repository.image import ImageRepository, PhashClassification
 from .repository.model import ModelRepository
@@ -27,6 +29,7 @@ from .schema import (
     REJECT_REASON_INCORRECT,
     AnnotationsDict,
     CaptionAnnotationData,
+    CropRelation,
     RatingAnnotationData,
     ScoreAnnotationData,
     TagAnnotationData,
@@ -92,6 +95,7 @@ class ImageDatabaseManager:
         image_repo: ImageRepository | None = None,
         annotation_repo: AnnotationRepository | None = None,
         provider_batch_repo: ProviderBatchRepository | None = None,
+        crop_relation_repo: CropRelationRepository | None = None,
     ):
         """ImageDatabaseManagerのコンストラクタ。
 
@@ -116,6 +120,7 @@ class ImageDatabaseManager:
                 (ADR 0035 段階 5)。
             provider_batch_repo: Provider Batch API job/item/artifact の Repository
                 (ADR 0035 段階 6)。
+            crop_relation_repo: クロップ親子関係の Repository (ADR 0092, #1343)。
 
         """
         self.config_service = config_service
@@ -128,6 +133,7 @@ class ImageDatabaseManager:
                 error_record_repo,
                 annotation_repo,
                 provider_batch_repo,
+                crop_relation_repo,
             ):
                 session_factory = getattr(repo, "session_factory", None)
                 if session_factory is not None:
@@ -152,6 +158,10 @@ class ImageDatabaseManager:
             session_factory=session_factory
         )
         self.provider_batch_repo: ProviderBatchRepository = provider_batch_repo or ProviderBatchRepository(
+            session_factory=session_factory
+        )
+        # ADR 0092 (#1343): クロップ親子関係 (crop_relations) の Repository。
+        self.crop_relation_repo: CropRelationRepository = crop_relation_repo or CropRelationRepository(
             session_factory=session_factory
         )
         self._cached_project_id: int | None = None
@@ -1872,6 +1882,62 @@ class ImageDatabaseManager:
 
         """
         return self.image_repo.get_annotated_image_ids(image_ids)
+
+    def add_crop_relation(
+        self,
+        parent_image_id: int,
+        child_image_id: int,
+        x: int,
+        y: int,
+        width: int,
+        height: int,
+        origin: str = DEFAULT_CROP_ORIGIN,
+    ) -> int:
+        """クロップ親子関係を登録する (Manager 層 Facade, ADR 0092)。
+
+        Args:
+            parent_image_id: 直接の親画像 ID。
+            child_image_id: 子 (クロップ画像) の ID。
+            x: 親画像基準の左上 x 座標 (px)。
+            y: 親画像基準の左上 y 座標 (px)。
+            width: 切り出し幅 (px)。
+            height: 切り出し高さ (px)。
+            origin: 切り出し由来 (既定は手動選択の `manual`)。
+
+        Returns:
+            作成された `crop_relations.id`。
+        """
+        return self.crop_relation_repo.add_relation(
+            parent_image_id=parent_image_id,
+            child_image_id=child_image_id,
+            x=x,
+            y=y,
+            width=width,
+            height=height,
+            origin=origin,
+        )
+
+    def get_crop_children(self, parent_image_id: int) -> list[CropRelation]:
+        """親画像から切り出された子の関係行を作成順に返す (Manager 層 Facade)。
+
+        Args:
+            parent_image_id: 親画像 ID。
+
+        Returns:
+            `CropRelation` のリスト (登録順)。子が無ければ空リスト。
+        """
+        return self.crop_relation_repo.get_children(parent_image_id)
+
+    def get_crop_parent(self, child_image_id: int) -> CropRelation | None:
+        """子画像の直接の親の関係行を返す (Manager 層 Facade)。
+
+        Args:
+            child_image_id: 子 (クロップ画像) の ID。
+
+        Returns:
+            `CropRelation`。クロップ画像でなければ None。
+        """
+        return self.crop_relation_repo.get_parent(child_image_id)
 
     def save_error_record(
         self,

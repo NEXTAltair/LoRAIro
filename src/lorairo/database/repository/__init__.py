@@ -14,6 +14,7 @@
 
 from .annotation_record import AnnotationRepository
 from .base import BaseRepository
+from .crop_relation import CropRelationRepository
 from .error_record import ErrorRecordRepository
 from .image import ImageRepository
 from .model import ModelRepository
@@ -23,6 +24,7 @@ from .provider_batch import ProviderBatchRepository
 __all__ = [
     "AnnotationRepository",
     "BaseRepository",
+    "CropRelationRepository",
     "ErrorRecordRepository",
     "ImageRepository",
     "ModelRepository",
