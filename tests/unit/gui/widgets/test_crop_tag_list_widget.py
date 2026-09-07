@@ -46,6 +46,50 @@ class TestClickableTagListScroll:
         assert widget.visualItemRect(last_item).bottom() <= widget.viewport().height()
 
 
+class TestClickableTagListLabels:
+    """表示ラベルと原文タグの分離 (#1355)。"""
+
+    def test_labels_change_display_while_tags_stay_original(self, qtbot):
+        """ラベルを渡すと表示だけ変わり、tags() は原文を返す。"""
+        widget = ClickableTagListWidget()
+        qtbot.addWidget(widget)
+
+        widget.set_tags(["blue hair", "smile"], {"blue hair": "blue hair / 青い髪"})
+
+        assert widget.labels() == ["blue hair / 青い髪", "smile"]
+        assert widget.tags() == ["blue hair", "smile"]
+
+    def test_tag_clicked_emits_original_tag_for_labeled_row(self, qtbot):
+        """翻訳ラベル付きの行をクリックしても emit されるのは原文タグ。"""
+        widget = ClickableTagListWidget()
+        qtbot.addWidget(widget)
+        widget.set_tags(["blue hair"], {"blue hair": "blue hair / 青い髪"})
+        widget.show()
+        qtbot.waitExposed(widget)
+
+        with qtbot.waitSignal(widget.tag_clicked, timeout=2000) as blocker:
+            item = widget.item(0)
+            assert item is not None
+            qtbot.mouseClick(
+                widget.viewport(),
+                Qt.MouseButton.LeftButton,
+                pos=widget.visualItemRect(item).center(),
+            )
+
+        assert blocker.args == ["blue hair"]
+
+    def test_labels_are_dropped_when_set_tags_called_without_labels(self, qtbot):
+        """ラベルなしで再設定すると原文表示へ戻る。"""
+        widget = ClickableTagListWidget()
+        qtbot.addWidget(widget)
+        widget.set_tags(["blue hair"], {"blue hair": "blue hair / 青い髪"})
+
+        widget.set_tags(["blue hair"])
+
+        assert widget.labels() == ["blue hair"]
+        assert widget.tags() == ["blue hair"]
+
+
 class TestCropDialogTagListsScroll:
     def test_candidate_and_adopted_lists_scroll_with_many_tags(self, qtbot, tmp_path: Path):
         image_path = tmp_path / "parent.png"

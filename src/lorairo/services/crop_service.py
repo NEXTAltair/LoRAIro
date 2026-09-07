@@ -14,7 +14,7 @@ from __future__ import annotations
 
 import tempfile
 from collections.abc import Iterable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
@@ -55,6 +55,8 @@ class CropSourceInfo:
         width: 親画像の幅 (px)。
         height: 親画像の高さ (px)。
         candidate_tags: 子へコピーする候補タグ (soft-reject 除外・重複除去・安定順)。
+        candidate_tag_ids: 候補タグ名 -> tagdb の ``tag_id``。tag_id 未解決 (手動追加等)
+            のタグは含まない。GUI (#1355) が翻訳を解決する際の逆引きに使う。
         rating: 親の手動レーティング。未設定なら None。
     """
 
@@ -63,6 +65,7 @@ class CropSourceInfo:
     height: int
     candidate_tags: tuple[str, ...]
     rating: str | None
+    candidate_tag_ids: dict[str, int] = field(default_factory=dict)
 
 
 def get_crop_source_info(
@@ -92,12 +95,14 @@ def get_crop_source_info(
     image_path = resolve_stored_path(str(metadata["stored_image_path"]))
     width, height = _oriented_parent_size(image_path)
     annotations = db_manager.get_image_annotations(parent_image_id)
+    tag_rows = annotations["tags"]
     return CropSourceInfo(
         image_path=image_path,
         width=width,
         height=height,
-        candidate_tags=_candidate_tags(annotations["tags"]),
+        candidate_tags=_candidate_tags(tag_rows),
         rating=_latest_manual_rating(annotations["ratings"]),
+        candidate_tag_ids=_candidate_tag_ids(tag_rows),
     )
 
 
@@ -384,6 +389,27 @@ def _candidate_tags(tag_rows: list[dict[str, Any]]) -> tuple[str, ...]:
         if tag:
             seen.setdefault(tag, None)
     return tuple(seen)
+
+
+def _candidate_tag_ids(tag_rows: list[dict[str, Any]]) -> dict[str, int]:
+    """候補タグ名 -> tagdb の ``tag_id`` を作る (``_candidate_tags`` と同じ行集合)。
+
+    tag_id を持たない行 (手動追加タグ等) は含めない。同名タグが複数行にある場合は
+    最初に見つかった tag_id を採用する (行順は ``_candidate_tags`` の安定順と同じ)。
+
+    Args:
+        tag_rows: ``get_image_annotations`` のタグ行。
+
+    Returns:
+        タグ名から tag_id への対応表。
+    """
+    tag_ids: dict[str, int] = {}
+    for row in tag_rows:
+        tag = str(row["tag"])
+        tag_id = row.get("tag_id")
+        if tag and tag_id is not None and tag not in tag_ids:
+            tag_ids[tag] = int(tag_id)
+    return tag_ids
 
 
 def _latest_manual_rating(rating_rows: list[dict[str, Any]]) -> str | None:

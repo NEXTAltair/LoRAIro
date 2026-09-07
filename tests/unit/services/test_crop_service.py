@@ -502,6 +502,61 @@ class TestGetCropSourceInfo:
         with pytest.raises(ValueError):
             get_crop_source_info(parent_image + 9999, db_manager=test_db_manager)
 
+    def test_candidate_tag_ids_maps_candidates_and_skips_rows_without_tag_id(
+        self,
+        test_db_manager: ImageDatabaseManager,
+        fs_manager: FileSystemManager,
+        tmp_path: Path,
+    ) -> None:
+        """候補タグのうち tag_id を持つものだけが candidate_tag_ids に載る (#1355)。"""
+        source = _make_image(tmp_path / "tagged.png", 400, 300, (10, 200, 90))
+        parent_id = _register_parent(test_db_manager, fs_manager, source)
+        tags_data: list[TagAnnotationData] = [
+            {
+                "tag": "blue hair",
+                "tag_id": 101,
+                "model_id": None,
+                "existing": True,
+                "is_edited_manually": False,
+                "confidence_score": None,
+            },
+            {
+                "tag": "smile",
+                "tag_id": 202,
+                "model_id": None,
+                "existing": True,
+                "is_edited_manually": False,
+                "confidence_score": None,
+            },
+            {
+                "tag": "手動タグ",
+                "tag_id": None,
+                "model_id": None,
+                "existing": True,
+                "is_edited_manually": True,
+                "confidence_score": None,
+            },
+        ]
+        test_db_manager.save_tags(parent_id, tags_data)
+
+        info = get_crop_source_info(parent_id, db_manager=test_db_manager)
+
+        assert set(info.candidate_tags) == {"blue hair", "smile", "手動タグ"}
+        assert info.candidate_tag_ids == {"blue hair": 101, "smile": 202}
+        # 候補タグの部分集合であり、tag_id 未解決のタグは含まれない
+        assert set(info.candidate_tag_ids) <= set(info.candidate_tags)
+
+    def test_candidate_tag_ids_is_empty_when_no_tag_is_resolved(
+        self,
+        test_db_manager: ImageDatabaseManager,
+        parent_image: int,
+    ) -> None:
+        """tag_id を持たない候補だけなら candidate_tag_ids は空 dict。"""
+        info = get_crop_source_info(parent_image, db_manager=test_db_manager)
+
+        assert info.candidate_tags != ()
+        assert info.candidate_tag_ids == {}
+
 
 class TestNormalizeCropTags:
     def test_trims_drops_empty_and_dedupes_preserving_order(self) -> None:
