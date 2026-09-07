@@ -520,3 +520,33 @@ def test_shutdown_cancels_workers_and_blocks_new_ones(
     assert second is not None
     qtbot.addWidget(second)
     assert not manager.active_workers
+
+
+def test_translations_are_applied_on_gui_thread(
+    qtbot,
+    crop_db_manager: ImageDatabaseManager,
+    fs_manager: FileSystemManager,
+    translated_parent_image_id: int,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """worker の完了は launcher の Signal 経由で queued 配送され、翻訳適用は GUI スレッドで行われる。"""
+    from PySide6.QtCore import QCoreApplication, QThread
+
+    launcher = _translating_launcher(crop_db_manager, fs_manager)
+    dialog = launcher.open_for_image(translated_parent_image_id)
+    assert dialog is not None
+    qtbot.addWidget(dialog)
+    seen_threads: list[QThread] = []
+    original = dialog.set_tag_translations
+
+    def _record(*args: object, **kwargs: object) -> None:
+        seen_threads.append(QThread.currentThread())
+        original(*args, **kwargs)
+
+    monkeypatch.setattr(dialog, "set_tag_translations", _record)
+
+    qtbot.waitUntil(lambda: bool(seen_threads), timeout=15000)
+
+    app = QCoreApplication.instance()
+    assert app is not None
+    assert seen_threads == [app.thread()]

@@ -15,7 +15,7 @@ from collections.abc import Callable
 from typing import TYPE_CHECKING
 
 import shiboken6
-from PySide6.QtCore import QObject, Signal
+from PySide6.QtCore import QObject, Signal, Slot
 from PySide6.QtWidgets import QMessageBox, QWidget
 from sqlalchemy.exc import SQLAlchemyError
 
@@ -44,6 +44,12 @@ class CropDialogLauncher(QObject):
     """
 
     crop_saved = Signal(int, int)
+    # worker (別スレッド) からの終端通知を GUI スレッドへ queued 配送するための内部 Signal。
+    # worker.finished に lambda を直結すると worker スレッドで実行され、ウィジェットを
+    # GUI スレッド外から触ることになる (Codex P1)。
+    _tag_metadata_done = Signal(str, object)
+    _tag_metadata_failed = Signal(str, str)
+    _tag_metadata_dropped = Signal(str)
 
     def __init__(
         self,
@@ -75,6 +81,10 @@ class CropDialogLauncher(QObject):
         # worker_id -> (ダイアログ, tag_id -> 原文タグ)。結果到着時の逆引きに使う。
         self._tag_metadata_targets: dict[str, tuple[CropDialog, dict[int, str]]] = {}
         self._closing = False
+        # 受信側 (self) は GUI スレッド所属の QObject なので AutoConnection で queued になる
+        self._tag_metadata_done.connect(self._on_tag_metadata_finished)
+        self._tag_metadata_failed.connect(self._on_tag_metadata_error)
+        self._tag_metadata_dropped.connect(self._on_tag_metadata_dropped)
         logger.debug("CropDialogLauncher initialized")
 
     def shutdown(self) -> None:
@@ -168,11 +178,16 @@ class CropDialogLauncher(QObject):
             tags_list=tags_list,
             generation=self._tag_metadata_generation,
         )
-        worker.finished.connect(lambda result: self._on_tag_metadata_finished(worker_id, result))
-        worker.error_occurred.connect(lambda message: self._on_tag_metadata_error(worker_id, message))
-        worker.canceled.connect(lambda: self._tag_metadata_targets.pop(worker_id, None))
+        # 以下の lambda は worker スレッドで走るが、launcher の Signal を emit するだけ
+        # (スレッド安全)。ウィジェット操作は queued 配送先の Slot で GUI スレッドが行う。
+        worker.finished.connect(lambda result, wid=worker_id: self._tag_metadata_done.emit(wid, result))
+        worker.error_occurred.connect(
+            lambda message, wid=worker_id: self._tag_metadata_failed.emit(wid, str(message))
+        )
+        worker.canceled.connect(lambda wid=worker_id: self._tag_metadata_dropped.emit(wid))
         self._tag_metadata_manager.start_worker(worker_id, worker)
 
+    @Slot(str, object)
     def _on_tag_metadata_finished(self, worker_id: str, result: object) -> None:
         """解決済み翻訳をダイアログへ反映する (閉じたダイアログの結果は捨てる)。
 
@@ -208,10 +223,16 @@ class CropDialogLauncher(QObject):
             f"languages={len(available_languages)}"
         )
 
+    @Slot(str, str)
     def _on_tag_metadata_error(self, worker_id: str, message: str) -> None:
         """翻訳解決の失敗を記録する (翻訳なしで原文表示のまま続行する)。"""
         self._tag_metadata_targets.pop(worker_id, None)
         logger.warning(f"クロップダイアログのタグ翻訳解決に失敗 (原文のまま表示): {message}")
+
+    @Slot(str)
+    def _on_tag_metadata_dropped(self, worker_id: str) -> None:
+        """キャンセルされた worker の適用先を外す。"""
+        self._tag_metadata_targets.pop(worker_id, None)
 
     def _ensure_fsm_initialized(self) -> None:
         """保存先ディレクトリが未初期化なら現在のプロジェクトルートで初期化する。
