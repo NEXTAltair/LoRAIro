@@ -1438,7 +1438,12 @@ TOOL_SPECS: dict[str, ToolSpec] = {
                     _f("width", "int", required=True),
                     _f("height", "int", required=True),
                     _f("origin", "str", required=True),
-                    _f("tag_count", "int", required=True, description="Tags actually stored on the crop."),
+                    _f(
+                        "tag_count",
+                        "int",
+                        required=True,
+                        description="Distinct tags stored on the crop (after trimming and de-duplicating the input).",
+                    ),
                     _f("rating", "str?", description="Rating stored on the crop; null when unset."),
                 ),
                 schema=ImagesCropItem,

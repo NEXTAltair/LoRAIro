@@ -14,7 +14,12 @@ from lorairo.database.db_manager import ImageDatabaseManager
 from lorairo.database.schema import TagAnnotationData
 from lorairo.domain.crop_request import CropCreateRequest, CropRect
 from lorairo.filesystem import FileSystemManager
-from lorairo.services.crop_service import CropSourceInfo, create_crop_image, get_crop_source_info
+from lorairo.services.crop_service import (
+    CropSourceInfo,
+    create_crop_image,
+    get_crop_source_info,
+    normalize_crop_tags,
+)
 
 pytestmark = pytest.mark.unit
 
@@ -474,3 +479,27 @@ class TestGetCropSourceInfo:
         """存在しない親画像 ID では ValueError。"""
         with pytest.raises(ValueError):
             get_crop_source_info(parent_image + 9999, db_manager=test_db_manager)
+
+
+class TestNormalizeCropTags:
+    def test_trims_drops_empty_and_dedupes_preserving_order(self) -> None:
+        """前後空白を除き、空文字を捨て、初出順を保って重複を除く。"""
+        assert normalize_crop_tags([" solo", "solo ", "", "  ", "sky", "solo", "sky"]) == ("solo", "sky")
+
+    def test_duplicate_request_tags_are_stored_once(
+        self,
+        test_db_manager: ImageDatabaseManager,
+        fs_manager: FileSystemManager,
+        parent_image: int,
+    ) -> None:
+        """request に重複タグがあっても子画像には 1 件だけ保存される。"""
+        request = CropCreateRequest(
+            parent_image_id=parent_image,
+            rect=CropRect(x=0, y=0, width=800, height=600),
+            tags=("solo", "solo", " solo"),
+        )
+
+        child_id = create_crop_image(request, db_manager=test_db_manager, fsm=fs_manager)
+
+        assert _tag_names(test_db_manager, child_id) == {"solo"}
+        assert len(test_db_manager.get_image_annotations(child_id)["tags"]) == 1

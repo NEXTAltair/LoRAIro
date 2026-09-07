@@ -13,6 +13,7 @@ ADR 0092 のデータ層の上に立つ Qt 非依存レイヤー。**矩形の�
 from __future__ import annotations
 
 import tempfile
+from collections.abc import Iterable
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -274,6 +275,22 @@ def _register_cropped_file(
     return child_id
 
 
+def normalize_crop_tags(tags: Iterable[str]) -> tuple[str, ...]:
+    """採用タグを保存前に正規化する (前後空白除去・空文字除去・順序を保った重複除去)。
+
+    CLI / GUI が request を組み立てる時と、サービスが子画像へ保存する時の両方で
+    同じ関数を通すことで、呼び出し側が数えたタグ数と実際に保存されるタグ数を
+    一致させる (保存後の読み戻しを不要にする)。
+
+    Args:
+        tags: 正規化前のタグ列。
+
+    Returns:
+        正規化済みタグの tuple (入力順を保持)。
+    """
+    return tuple(dict.fromkeys(stripped for tag in tags if (stripped := tag.strip())))
+
+
 def _discard_child_image(child_id: int, *, db_manager: ImageDatabaseManager) -> None:
     """登録済みの子画像 (行 + 保存ファイル) を取り消す補償処理。
 
@@ -309,13 +326,14 @@ def _copy_tags(
     ``is_edited_manually`` を引き継ぎ、無ければ手動由来の既存タグ扱いで登録する。
     親のタグ自体は変更しない。
     """
-    if not request.tags:
+    tags = normalize_crop_tags(request.tags)
+    if not tags:
         return
     parent_annotations = db_manager.get_image_annotations(request.parent_image_id)
     parent_tags = {str(tag["tag"]): tag for tag in parent_annotations["tags"]}
 
     tags_data: list[TagAnnotationData] = []
-    for tag in request.tags:
+    for tag in tags:
         source = parent_tags.get(tag)
         if source is None:
             tags_data.append(

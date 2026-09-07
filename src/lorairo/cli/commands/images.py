@@ -32,7 +32,7 @@ from lorairo.public_api.exceptions import ImageNotFoundError, ResultSetTooLargeE
 from lorairo.public_api.images import register_images as api_register_images
 from lorairo.public_api.project import get_project as api_get_project
 from lorairo.public_api.types import RegistrationResult
-from lorairo.services.crop_service import create_crop_image, get_crop_source_info
+from lorairo.services.crop_service import create_crop_image, get_crop_source_info, normalize_crop_tags
 from lorairo.services.service_container import get_service_container
 
 # サブコマンドアプリ定義
@@ -769,7 +769,7 @@ def crop(
 
         db_manager = container.db_manager
         source = get_crop_source_info(image_id, db_manager=db_manager)
-        tags = tuple(tag) if tag else source.candidate_tags
+        tags = normalize_crop_tags(tag) if tag else source.candidate_tags
         request = CropCreateRequest(
             parent_image_id=image_id,
             rect=CropRect(x=x, y=y, width=width, height=height),
@@ -782,8 +782,6 @@ def crop(
             db_manager=db_manager,
             fsm=container.file_system_manager,
         )
-        stored_tag_count = len(db_manager.get_image_annotations(child_id)["tags"])
-
         if is_json_mode():
             emit_item(
                 ImagesCropItem(
@@ -794,7 +792,7 @@ def crop(
                     width=request.rect.width,
                     height=request.rect.height,
                     origin=request.origin,
-                    tag_count=stored_tag_count,
+                    tag_count=len(request.tags),
                     rating=request.rating,
                 )
             )

@@ -904,7 +904,7 @@ lorairo-cli --json describe "images crop"
 - `width`: `int` (required)
 - `height`: `int` (required)
 - `origin`: `str` (required)
-- `tag_count`: `int` (required) - Tags actually stored on the crop.
+- `tag_count`: `int` (required) - Distinct tags stored on the crop (after trimming and de-duplicating the input).
 - `rating`: `str?` (optional, default `None`) - Rating stored on the crop; null when unset.
 
 **Output `ImagesCropResult`**
