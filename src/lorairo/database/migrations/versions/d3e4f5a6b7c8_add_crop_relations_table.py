@@ -42,6 +42,7 @@ def upgrade() -> None:
         sa.Column(
             "created_at",
             sa.TIMESTAMP(timezone=True),
+            nullable=False,
             server_default=sa.func.now(),
         ),
         sa.UniqueConstraint("child_image_id", name="uix_crop_relations_child"),

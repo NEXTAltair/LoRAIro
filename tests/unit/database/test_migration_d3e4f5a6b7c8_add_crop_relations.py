@@ -62,7 +62,7 @@ def test_migration_creates_table_with_expected_columns(tmp_path: Path) -> None:
         "origin",
         "created_at",
     }
-    for name in ("parent_image_id", "child_image_id", "x", "y", "width", "height", "origin"):
+    for name in ("parent_image_id", "child_image_id", "x", "y", "width", "height", "origin", "created_at"):
         assert columns[name]["nullable"] is False
 
 
