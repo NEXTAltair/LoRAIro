@@ -281,6 +281,16 @@ class SearchTabWidget(QWidget, Ui_SearchTab):
 
     # -- 初期化: Signal 配線 ---------------------------------------------------
 
+    def shutdown(self) -> None:
+        """タブが持つ worker を停止する (ウィンドウ閉鎖時、MainWindow.closeEvent から呼ぶ)。
+
+        クロップダイアログのタグ翻訳 worker (#1355) と詳細ペインの worker を止め、
+        QThread がウィジェットより長生きして Qt teardown 警告になるのを防ぐ。
+        """
+        if self._crop_dialog_launcher is not None:
+            self._crop_dialog_launcher.shutdown()
+        self._selected_image_details_widget.shutdown()
+
     def _setup_crop_integration(self) -> None:
         """クロップ導線 (#1346) を配線する。
 

@@ -74,7 +74,20 @@ class CropDialogLauncher(QObject):
         self._tag_metadata_generation = 0
         # worker_id -> (ダイアログ, tag_id -> 原文タグ)。結果到着時の逆引きに使う。
         self._tag_metadata_targets: dict[str, tuple[CropDialog, dict[int, str]]] = {}
+        self._closing = False
         logger.debug("CropDialogLauncher initialized")
+
+    def shutdown(self) -> None:
+        """実行中のタグ翻訳 worker をキャンセルし、以降の起動を止める (#1355)。
+
+        ウィンドウ閉鎖時に呼ぶ。launcher が持つ WorkerManager の QThread が
+        launcher より長生きして Qt teardown 警告/クラッシュになるのを防ぐ。
+        """
+        self._closing = True
+        self._tag_metadata_targets.clear()
+        manager = self._tag_metadata_manager
+        if manager is not None:
+            manager.cancel_all_workers()
 
     def open_for_image(self, image_id: int, parent: QWidget | None = None) -> CropDialog | None:
         """指定画像を親としてクロップダイアログを開く。
@@ -140,6 +153,9 @@ class CropDialogLauncher(QObject):
             logger.debug("tag_id を持つ候補タグが無いため、クロップダイアログのタグ翻訳をスキップ")
             return
 
+        if self._closing:
+            logger.debug("shutdown 後のためクロップダイアログのタグ翻訳 worker を起動しない")
+            return
         if self._tag_metadata_manager is None:
             self._tag_metadata_manager = WorkerManager(self)
         self._tag_metadata_generation += 1
@@ -236,8 +252,11 @@ class CropDialogLauncher(QObject):
         """
         if dialog in self._open_dialogs:
             self._open_dialogs.remove(dialog)
-        # 未完了の翻訳 worker が破棄済みダイアログを掴み続けないよう対象から外す (#1355)
+        # 未完了の翻訳 worker は結果の適用先が無くなるので協調キャンセルを要求し、
+        # 対象から外す (#1355)。request_cancel_worker は待たずに戻るため GUI を塞がない。
         stale = [key for key, (target, _) in self._tag_metadata_targets.items() if target is dialog]
         for worker_id in stale:
             del self._tag_metadata_targets[worker_id]
+            if self._tag_metadata_manager is not None:
+                self._tag_metadata_manager.request_cancel_worker(worker_id)
         dialog.deleteLater()

@@ -460,3 +460,63 @@ def test_translations_are_discarded_for_closed_dialog(
     qtbot.waitUntil(lambda: not manager.active_workers, timeout=15000)
     assert applied == []
     assert launcher._tag_metadata_targets == {}
+
+
+def test_closing_dialog_requests_cancel_of_its_translation_worker(
+    qtbot,
+    crop_db_manager: ImageDatabaseManager,
+    fs_manager: FileSystemManager,
+    translated_parent_image_id: int,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """解決中にダイアログを閉じたら、その worker に協調キャンセルを要求する。"""
+    gate = threading.Event()
+    launcher = _translating_launcher(crop_db_manager, fs_manager, gate)
+    dialog = launcher.open_for_image(translated_parent_image_id)
+    assert dialog is not None
+    manager = launcher._tag_metadata_manager
+    assert manager is not None
+    requested: list[str] = []
+    original_request = manager.request_cancel_worker
+
+    def _record(worker_id: str, *args: object, **kwargs: object) -> bool:
+        requested.append(worker_id)
+        return original_request(worker_id, *args, **kwargs)
+
+    monkeypatch.setattr(manager, "request_cancel_worker", _record)
+    active_ids = list(manager.active_workers)
+    assert len(active_ids) == 1
+
+    dialog.reject()
+    gate.set()
+
+    assert requested == active_ids
+    qtbot.waitUntil(lambda: not manager.active_workers, timeout=15000)
+    assert launcher._tag_metadata_targets == {}
+
+
+def test_shutdown_cancels_workers_and_blocks_new_ones(
+    qtbot,
+    crop_db_manager: ImageDatabaseManager,
+    fs_manager: FileSystemManager,
+    translated_parent_image_id: int,
+) -> None:
+    """shutdown は実行中の翻訳 worker を止め、以降はダイアログを開いても worker を起動しない。"""
+    gate = threading.Event()
+    launcher = _translating_launcher(crop_db_manager, fs_manager, gate)
+    first = launcher.open_for_image(translated_parent_image_id)
+    assert first is not None
+    qtbot.addWidget(first)
+    manager = launcher._tag_metadata_manager
+    assert manager is not None
+    assert manager.active_workers
+
+    gate.set()
+    launcher.shutdown()
+
+    qtbot.waitUntil(lambda: not manager.active_workers, timeout=15000)
+    assert launcher._tag_metadata_targets == {}
+    second = launcher.open_for_image(translated_parent_image_id)
+    assert second is not None
+    qtbot.addWidget(second)
+    assert not manager.active_workers
