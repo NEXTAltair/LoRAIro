@@ -598,6 +598,49 @@ class ImageFilenameAlias(Base):
         return f"<ImageFilenameAlias(id={self.id}, stem='{self.stem}', image_id={self.image_id})>"
 
 
+class CropRelation(Base):
+    """クロップ画像の直接の親子関係と切り出し座標 (ADR 0092, Issue #1343)。
+
+    クロップ画像は親画像と同じ `images` テーブルへ独立した ID で登録し、本テーブルは
+    「どの画像のどの矩形から切り出されたか」だけを保持する。親 → 子 → 孫は直接の
+    親子行を連鎖させて表現し、座標は常に直接の親画像基準のピクセル値。
+    リサイズ加工画像 (`processed_images`) は同一画像の派生であり責務が別。
+    """
+
+    __tablename__ = "crop_relations"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    parent_image_id: Mapped[int] = mapped_column(
+        ForeignKey("images.id", ondelete="CASCADE"), nullable=False
+    )
+    # 1 子 = 1 親 (直接の親は一意)。再クロップは子を親とする別行で表現する。
+    child_image_id: Mapped[int] = mapped_column(ForeignKey("images.id", ondelete="CASCADE"), nullable=False)
+    # 親画像基準の切り出し矩形 (px)
+    x: Mapped[int] = mapped_column(Integer, nullable=False)
+    y: Mapped[int] = mapped_column(Integer, nullable=False)
+    width: Mapped[int] = mapped_column(Integer, nullable=False)
+    height: Mapped[int] = mapped_column(Integer, nullable=False)
+    # 切り出し由来。手動矩形選択は "manual"、物体検出由来は検出器名等 (#1340)。
+    origin: Mapped[str] = mapped_column(String, nullable=False, server_default=text("'manual'"))
+    created_at: Mapped[datetime.datetime] = mapped_column(
+        TIMESTAMP(timezone=True), server_default=func.now()
+    )
+
+    parent_image: Mapped[Image] = relationship("Image", foreign_keys=[parent_image_id])
+    child_image: Mapped[Image] = relationship("Image", foreign_keys=[child_image_id])
+
+    __table_args__ = (
+        UniqueConstraint("child_image_id", name="uix_crop_relations_child"),
+        Index("ix_crop_relations_parent_image_id", "parent_image_id"),
+    )
+
+    def __repr__(self) -> str:
+        return (
+            f"<CropRelation(id={self.id}, parent_image_id={self.parent_image_id}, "
+            f"child_image_id={self.child_image_id})>"
+        )
+
+
 class ProviderBatchJob(Base):
     """プロバイダ Batch API の永続 job 状態。"""
 
