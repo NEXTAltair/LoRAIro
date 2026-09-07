@@ -13,7 +13,8 @@ from typing import Any, Literal
 from pydantic import BaseModel, ConfigDict, Field
 
 from lorairo.cli._emit import emit_item, emit_result
-from lorairo.cli.commands.images import ImageSearchQuery
+from lorairo.cli.commands.images import ImagesCropItem, ImagesCropResult, ImageSearchQuery
+from lorairo.domain.crop_request import DEFAULT_CROP_ORIGIN
 from lorairo.public_api.types import ProjectCreateRequest, RegistrationItem
 
 SideEffect = Literal["db_read", "db_write", "file_read", "file_write", "network"]
@@ -1379,6 +1380,76 @@ TOOL_SPECS: dict[str, ToolSpec] = {
                 ),
                 description="Any failed ID returns ok=false and exit 1. See [offline processing](cli-image-processing.md).",
                 schema=ImagesProcessResult,
+            ),
+        ),
+        errors=(ERROR_MODEL,),
+    ),
+    "images crop": ToolSpec(
+        name="images crop",
+        path="images crop",
+        summary=(
+            "Crop one rectangle out of a parent image and register it as an independent image. "
+            "Tags and rating are copied from the parent at creation time and then managed separately."
+        ),
+        read_only=False,
+        side_effects=("db_read", "db_write", "file_read", "file_write"),
+        inputs=(
+            _input(
+                "ImagesCropInput",
+                (
+                    _f("image_id", "int", required=True, description="Parent image ID to crop from."),
+                    _f("project", "str", required=True),
+                    _f("x", "int", required=True, description="Left edge in parent pixels."),
+                    _f("y", "int", required=True, description="Top edge in parent pixels."),
+                    _f("width", "int", required=True, description="Width in parent pixels; must be >= 1."),
+                    _f(
+                        "height",
+                        "int",
+                        required=True,
+                        description="Height in parent pixels; must be >= 1.",
+                    ),
+                    _f(
+                        "tag",
+                        "list[str]?",
+                        description="Tags copied onto the crop; repeat the flag. Omit to copy every candidate tag of the parent.",
+                    ),
+                    _f(
+                        "rating",
+                        "str?",
+                        description="PG, PG-13, R, X or XXX. Omit to inherit the parent manual rating.",
+                    ),
+                    _f(
+                        "origin",
+                        "str",
+                        default=DEFAULT_CROP_ORIGIN,
+                        description="Provenance stored on the relation row, e.g. manual or a detector name.",
+                    ),
+                ),
+            ),
+        ),
+        outputs=(
+            _output(
+                "ImagesCropItem",
+                (
+                    _f("parent_image_id", "int", required=True),
+                    _f("child_image_id", "int", required=True),
+                    _f("x", "int", required=True),
+                    _f("y", "int", required=True),
+                    _f("width", "int", required=True),
+                    _f("height", "int", required=True),
+                    _f("origin", "str", required=True),
+                    _f("rating", "str?", description="Rating stored on the crop; null when unset."),
+                ),
+                schema=ImagesCropItem,
+            ),
+            _output(
+                "ImagesCropResult",
+                (
+                    _f("parent_image_id", "int", required=True),
+                    _f("child_image_id", "int", required=True),
+                ),
+                description="An invalid rectangle or missing parent exits 2 with INVALID_INPUT and leaves no rows or files behind.",
+                schema=ImagesCropResult,
             ),
         ),
         errors=(ERROR_MODEL,),

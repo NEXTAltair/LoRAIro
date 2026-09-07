@@ -865,6 +865,70 @@ Structured error payload emitted as kind=error by the CLI boundary.
 - `hint`: `str?` (optional, default `None`)
 - `details`: `dict?` (optional, default `None`)
 
+### `images crop`
+
+Crop one rectangle out of a parent image and register it as an independent image. Tags and rating are copied from the parent at creation time and then managed separately.
+
+- Read only: `false`
+- Strict read only: `false` (root `--read-only`; see [contract](cli-read-only.md))
+- Conditional initialization: `['db_create', 'schema_migration', 'model_seed', 'directory_create']`
+- Side effects: `db_read`, `db_write`, `file_read`, `file_write`
+
+#### Compact Introspection
+
+```bash
+lorairo-cli --json describe "images crop"
+```
+
+#### Models
+
+**Input `ImagesCropInput`**
+
+- `image_id`: `int` (required) - Parent image ID to crop from. (CLI: `image_id`)
+- `project`: `str` (required) - Project name (CLI: `--project`, `-p`)
+- `x`: `int` (required) - Left edge in parent pixels. (CLI: `--x`)
+- `y`: `int` (required) - Top edge in parent pixels. (CLI: `--y`)
+- `width`: `int` (required) - Width in parent pixels; must be >= 1. (CLI: `--width`)
+- `height`: `int` (required) - Height in parent pixels; must be >= 1. (CLI: `--height`)
+- `tag`: `list[str]?` (optional, default `None`) - Tags copied onto the crop; repeat the flag. Omit to copy every candidate tag of the parent. (CLI: `--tag`)
+- `rating`: `str?` (optional, default `None`) - PG, PG-13, R, X or XXX. Omit to inherit the parent manual rating. (CLI: `--rating`)
+- `origin`: `str` (optional, default `manual`) - Provenance stored on the relation row, e.g. manual or a detector name. (CLI: `--origin`)
+
+**Output `ImagesCropItem`**
+
+- `kind`: `item` (optional, default `item`)
+- `parent_image_id`: `int` (required)
+- `child_image_id`: `int` (required)
+- `x`: `int` (required)
+- `y`: `int` (required)
+- `width`: `int` (required)
+- `height`: `int` (required)
+- `origin`: `str` (required)
+- `rating`: `str?` (optional, default `None`) - Rating stored on the crop; null when unset.
+
+**Output `ImagesCropResult`**
+
+An invalid rectangle or missing parent exits 2 with INVALID_INPUT and leaves no rows or files behind.
+
+- `kind`: `result` (optional, default `result`)
+- `ok`: `true` (optional, default `True`)
+- `message`: `str` (required)
+- `parent_image_id`: `int` (required)
+- `child_image_id`: `int` (required)
+
+**Error `CliErrorResponse`**
+
+Structured error payload emitted as kind=error by the CLI boundary.
+
+- `kind`: `error` (optional, default `error`)
+- `ok`: `false` (optional, default `False`)
+- `code`: `str` (required)
+- `message`: `str` (required)
+- `retryable`: `bool` (required)
+- `user_action_required`: `bool` (required)
+- `hint`: `str?` (optional, default `None`)
+- `details`: `dict?` (optional, default `None`)
+
 ### `images list`
 
 List images in a project. Count-first (ADR 0060): default returns only the matching count; --fetch returns id+path rows but only when the total is <= 500.
