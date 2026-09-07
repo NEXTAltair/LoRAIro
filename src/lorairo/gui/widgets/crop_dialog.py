@@ -388,7 +388,9 @@ class CropDialog(QDialog):
         except Exception as exc:
             # save_callback は呼び出し側 (service / DB 層) の任意の例外を投げうる。
             # ダイアログを閉じずに失敗を提示する責務があるため、ここだけ広く受ける。
-            logger.error(f"クロップ画像の保存に失敗しました (parent={self._parent_image_id}): {exc}")
+            logger.opt(exception=True).error(
+                f"クロップ画像の保存に失敗しました (parent={self._parent_image_id}): {exc}"
+            )
             self._show_error(f"保存に失敗しました: {exc}")
             return
         finally:
