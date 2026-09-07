@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Install on Windows</title>
+  <meta name="description" content="Create a Windows environment from source and start the GUI and CLI.">
+  <meta name="guide:sidebar-order" content="2">
+</head>
+<body>
+<h2 id="requirements">Requirements</h2>
+<ul>
+<li>Git, uv and Python 3.13. Python can be installed with uv.</li>
+<li>Free space for models and images.</li>
+<li>A compatible NVIDIA GPU and driver if you use the standard GPU inference environment.</li>
+</ul>
+<p>These instructions install from source. The standard PyTorch source provides CUDA 13.2 builds. Check driver and GPU compatibility for your environment. Switching to a CPU build or another CUDA version requires dependency configuration and lockfile changes, not just a launch option.</p>
+<h2 id="first-time-setup">First-time setup</h2>
+<p>Run these commands in PowerShell. Quote paths that contain spaces.</p>
+<pre><code class="language-powershell">git clone https://github.com/NEXTAltair/LoRAIro.git
+cd LoRAIro
+git submodule update --init --recursive
+uv python install 3.13
+uv sync --python 3.13
+uv run --no-sync lorairo
+</code></pre>
+<p>Installing dependencies requires network access and time. Do not update the environment with <code>uv sync</code> while the app is running.</p>
+<h2 id="subsequent-launches">Subsequent launches</h2>
+<p>Run from the repository directory.</p>
+<pre><code class="language-powershell">uv run --no-sync lorairo
+uv run --no-sync lorairo-cli --help
+</code></pre>
+<p><code>--no-sync</code> prevents dependency updates at launch. After dependency changes, stop the app and tests before explicitly running <code>uv sync</code>.</p>
+<h2 id="resuming-from-a-restored-copy">Resuming from a restored copy</h2>
+<p>You do not need to delete existing images, databases or settings to reinstall. First read <a href="../troubleshooting/">backup and recovery</a>. A <code>.venv</code> copied from another OS cannot be used unchanged. Keep Windows and container Linux Python environments separate.</p>
+<p>If <code>UV_PROJECT_ENVIRONMENT</code> still points to an old container path such as <code>/workspaces/...</code>, correct it to the actual shared Windows environment. Do not create the old path just to suppress an error.</p>
+<h2 id="developing-as-well">Developing as well</h2>
+<p>See <a href="../development/">development environment</a> for test and formatting tools and the role of Dev Containers.</p>
+</body>
+</html>

@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Projects and image registration</title>
+  <meta name="description" content="Understand project storage and register images safely.">
+  <meta name="guide:sidebar-order" content="3">
+</head>
+<body>
+<h2 id="what-is-stored">What is stored</h2>
+<p>Image information, annotations and edits are managed per project. The usual location is <code>lorairo_data/&#x3C;project>_YYYYMMDD_NNN/</code>, containing a SQLite database, <code>image_dataset/</code> and other files. Custom settings can change this location.</p>
+<p>Distinguish the original image folder from LoRAIro project storage. Back up the entire project, not just the image database.</p>
+<h2 id="register-images-in-the-gui">Register images in the GUI</h2>
+<ol>
+<li>Open the Search tab (「検索」).</li>
+<li>Under Dataset (「データセット」), choose Select (「選択」) and select the image folder.</li>
+<li>Wait for registration to finish, then check search results and counts.</li>
+</ol>
+<figure class="guide-placeholder" data-aspect-ratio="16 / 9" style="--guide-placeholder-ratio: 16 / 9">
+  <div class="guide-placeholder__frame" role="img" aria-label="Dataset selection and registration results — Image in preparation; Expected image size: 1280×720">
+    <strong>Dataset selection and registration results</strong>
+    <span>Image in preparation</span>
+    <small>Expected image size: 1280×720</small>
+  </div>
+  <figcaption>Dataset selection and registration results (1280×720)</figcaption>
+</figure>
+
+<p>Select chooses the source folder for registration. It is not a button for opening an existing project. Start with a small test folder to avoid registering an unintended directory tree.</p>
+<h2 id="specify-the-project-in-the-cli">Specify the project in the CLI</h2>
+<pre><code class="language-powershell">uv run --no-sync lorairo-cli project create "my-project"
+uv run --no-sync lorairo-cli project list
+uv run --no-sync lorairo-cli images register ./images --project "my-project"
+uv run --no-sync lorairo-cli images list --project "my-project" --fetch
+</code></pre>
+<p>Replace <code>my-project</code> with your project name. Check image IDs in the post-registration listing; do not use the sample IDs unchanged.</p>
+<p>CLI registration skips images with identical pHash values by default. Use <code>--include-duplicates</code> only when duplicate registration is intentional.</p>
+<h2 id="after-registration">After registration</h2>
+<p>Registration alone does not run annotation or export. Choose targets in <a href="../search/">search and staging</a> before continuing. Do not perform writes such as registration or editing simultaneously in the GUI and CLI.</p>
+</body>
+</html>

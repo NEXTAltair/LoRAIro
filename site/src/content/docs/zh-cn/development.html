@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="zh-cn">
+<head>
+  <meta charset="utf-8">
+  <title>开发环境与无界面测试</title>
+  <meta name="description" content="区分 Windows 运行、容器开发和共享 Python 环境。">
+  <meta name="guide:sidebar-order" content="10">
+</head>
+<body>
+<h2 id="windows-与容器的分工">Windows 与容器的分工</h2>
+<p>在 Dev Container 中编辑代码，在 Windows 中运行图形界面。容器不显示 GUI，测试使用 Qt offscreen。Windows 与 Linux 不共享同一份 <code>.venv</code> 实体；各操作系统内的 main 和 worktree 共享该系统专用环境。</p>
+<h2 id="安装开发依赖">安装开发依赖</h2>
+<p>在 main 共享 checkout 中执行，需要 Python、Git 和 uv。</p>
+<pre><code class="language-powershell">git submodule update --init --recursive
+python scripts/dev_tasks.py install-dev
+</code></pre>
+<p>Linux 中若没有 <code>python</code>，请使用 <code>python3</code>。此操作会更新共享环境，请在其他应用、测试和智能体未使用它时执行。Kit 的安装和配置单独管理。</p>
+<h2 id="常用开发命令">常用开发命令</h2>
+<pre><code class="language-powershell">python scripts/dev_tasks.py test
+python scripts/dev_tasks.py test-all
+python scripts/dev_tasks.py lint
+python scripts/dev_tasks.py format
+python scripts/dev_tasks.py test-all --dry-run
+</code></pre>
+<p><code>test</code> 测试 LoRAIro 本体；<code>test-all</code> 按顺序以独立测试进程运行三个包。BDD 继续使用 pytest-bdd。<code>lint</code> 是只读检查；<code>format</code> 使用 Ruff 自动格式化并修复。常规任务不会自动同步依赖。</p>
+<p><code>test-runtime-local</code> 运行真实 GPU 模型，<code>test-runtime-webapi</code> 调用可能实际计费的 API。两者都需要显式执行，不包含在常规 <code>test-all</code> 中。</p>
+<h2 id="worktree">worktree</h2>
+<p>不要在工作用 worktree 中创建专用 <code>.venv</code>。共享命令通过 Git 找到 main 环境，并使用目标 worktree 的源码。如果设置了 <code>UV_PROJECT_ENVIRONMENT</code>，它必须与该环境 main 共享 <code>.venv</code> 的绝对路径一致。</p>
+<p>直接在 VS Code 中打开 worktree 时，通过“Python: Select Interpreter”选择 main 的共享解释器。启动 Windows GUI 时不要使用 offscreen。</p>
+<p>详细命令约定见<a href="https://github.com/NEXTAltair/LoRAIro/blob/main/scripts/DEV_TASKS.md">开发任务说明</a>。</p>
+</body>
+</html>

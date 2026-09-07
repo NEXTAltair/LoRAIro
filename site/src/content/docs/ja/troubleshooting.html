@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <title>設定・バックアップ・問題解決</title>
+  <meta name="description" content="秘密情報とプロジェクトを守り、復旧時の問題を切り分けます。">
+  <meta name="guide:sidebar-order" content="8">
+</head>
+<body>
+<h2 id="設定">設定</h2>
+<p>GUIの「設定」（Ctrl+,）で設定を確認できます。<code>config/lorairo.toml</code>には保存先やAPIキーなどが入ります。APIキー、設定ファイル全体、秘密の画像パスが見えるスクリーンショットを公開しないでください。</p>
+<p>主な設定には、APIキー、プロジェクト・出力・Batch結果の保存先、追加プロンプト、モデルの接続経路、DB待機時間、ログレベルがあります。復旧時はコピー元PCの絶対パスが残っていないか確認します。</p>
+<h2 id="バックアップ">バックアップ</h2>
+<ol>
+<li>GUI、CLI、Batch取り込みなど、DBへ書き込む処理を終了します。</li>
+<li>実際の保存先にあるプロジェクト全体を別の場所へコピーします。通常は<code>lorairo_data/</code>内です。</li>
+<li><code>image_database.db</code>だけでなく、<code>image_dataset/</code>、ユーザータグDB（<code>user_tags.sqlite</code>）なども保存します。</li>
+<li><code>config/lorairo.toml</code>と必要なBatch結果を、秘密情報として別途保管します。</li>
+</ol>
+<p>稼働中のSQLite DBファイルだけをコピーする方法は避けます。復旧時はバックアップ原本を上書きせず、復旧用コピーを使って画像・タグ・設定を確認してください。</p>
+<h2 id="起動や依存エラー">起動や依存エラー</h2>
+<p>WindowsとLinuxの<code>.venv</code>は別物です。別OSの環境をコピーして使わず、対象OSで依存を導入します。共有環境を再構築する前には、動作中のアプリ・テスト・エージェントの利用を止めます。</p>
+<p>GUIが表示されない場合は、Windows側に<code>QT_QPA_PLATFORM=offscreen</code>が設定されていないか確認します。コンテナのテストではoffscreenが正常です。</p>
+<h2 id="gpuを認識しない">GPUを認識しない</h2>
+<pre><code class="language-powershell">nvidia-smi
+uv run --no-sync python -c "import torch; print(torch.__version__); print(torch.cuda.is_available()); print(torch.version.cuda)"
+</code></pre>
+<p>GPUを利用する予定なのにfalseの場合は、ドライバー、GPUの対応、PyTorch環境を確認します。アプリのデータを削除してもGPU構成の問題は解決しません。</p>
+<h2 id="db競合外部通信">DB競合・外部通信</h2>
+<p><code>CONFLICT</code>が出た場合は、他の書き込み処理を終えてから再試行します。GUIとCLIで同時に書き込まないでください。初回タグDB取得に失敗した場合はネットワークと、必要ならHugging Face認証設定を確認します。</p>
+<p>WebAPIエラーは認証・利用上限・モデル対応・送信制限などを確認し、同じ操作を繰り返す前に原因を調べます。</p>
+<h2 id="問題を報告する">問題を報告する</h2>
+<p>操作手順、OS、再現条件と、関連するログの短い範囲を添えます。主なログは<code>logs/lorairo.log</code>、<code>logs/image-annotator-lib.log</code>、<code>logs/lorairo-cli.log</code>です。APIキーや個人情報、公開したくない画像パスを伏せてください。</p>
+</body>
+</html>

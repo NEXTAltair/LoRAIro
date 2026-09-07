@@ -1,0 +1,61 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>AI annotation and Jobs</title>
+  <meta name="description" content="Choose between local inference, WebAPI and Provider Batch.">
+  <meta name="guide:sidebar-order" content="5">
+</head>
+<body>
+<h2 id="before-running">Before running</h2>
+<p>Check the staged images and count, selected model, and output types (tags, caption, score, rating). Available models vary by environment and provider.</p>
+<table>
+<thead>
+<tr>
+<th>Method</th>
+<th>Processing location and precautions</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Local model</td>
+<td>Runs inference locally. Initial model or tag database downloads may require network access.</td>
+</tr>
+<tr>
+<td>Synchronous WebAPI</td>
+<td>Sends target images and prompts to an external provider. Check charges and permission to send.</td>
+</tr>
+<tr>
+<td>Provider Batch</td>
+<td>Processes external submissions as asynchronous jobs. It is neither free processing nor local inference.</td>
+</tr>
+</tbody>
+</table>
+<p>Before sending confidential or third-party images, confirm that you may send them. The app does not enforce API spending limits. Reruns and retries may create additional requests.</p>
+<h2 id="run-in-the-gui">Run in the GUI</h2>
+<ol>
+<li>Select a model and check the target count.</li>
+<li>Choose Synchronous run (「同期実行」) or Batch API run (「Batch API 実行」). Batch eligibility depends on the model.</li>
+<li>Check progress, completion and failures in Jobs.</li>
+<li>Review tags and captions after completion. Read the cause of a failure before retrying.</li>
+</ol>
+<figure class="guide-placeholder" data-aspect-ratio="16 / 9" style="--guide-placeholder-ratio: 16 / 9">
+  <div class="guide-placeholder__frame" role="img" aria-label="Model selection and Jobs confirmation — Image in preparation; Expected image size: 1280×720">
+    <strong>Model selection and Jobs confirmation</strong>
+    <span>Image in preparation</span>
+    <small>Expected image size: 1280×720</small>
+  </div>
+  <figcaption>Model selection and Jobs confirmation (1280×720)</figcaption>
+</figure>
+
+<p>There is no automatic fallback between providers. Canceling a Batch does not necessarily undo processing or charges already incurred.</p>
+<h2 id="run-synchronously-in-the-cli">Run synchronously in the CLI</h2>
+<pre><code class="language-powershell">uv run --no-sync lorairo-cli models list
+uv run --no-sync lorairo-cli annotate run -p "my-project" --model "MODEL_ID" --image-id 42 --image-id 57
+</code></pre>
+<p>Replace <code>MODEL_ID</code> with a model ID from the listing. Repeat <code>--image-id</code> to select images. <code>--batch-size</code> controls synchronous processing chunks; it does not submit a Provider Batch.</p>
+<h2 id="manage-provider-batch">Manage Provider Batch</h2>
+<p>The CLI provides <code>batch submit/list/status/fetch/import/cancel</code>. Check arguments with <code>uv run --no-sync lorairo-cli batch --help</code> and each subcommand's <code>--help</code>. Fetching results and importing them into the database are separate operations. <code>import</code> updates the project database.</p>
+<p>Batch support is not universal across providers. Do not publish result files containing API keys or images.</p>
+</body>
+</html>

@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <title>プロジェクトと画像登録</title>
+  <meta name="description" content="プロジェクトの保存内容と、安全に画像を登録する方法。">
+  <meta name="guide:sidebar-order" content="3">
+</head>
+<body>
+<h2 id="保存されるもの">保存されるもの</h2>
+<p>画像情報、アノテーション、編集内容はプロジェクト単位で管理します。通常の保存先は<code>lorairo_data/&#x3C;project>_YYYYMMDD_NNN/</code>で、SQLiteデータベースと<code>image_dataset/</code>などが含まれます。設定を変更した環境では保存先も異なります。</p>
+<p>元の画像フォルダーと、LoRAIroのプロジェクト保存先を区別してください。バックアップには画像DBだけでなくプロジェクト全体が必要です。</p>
+<h2 id="guiで画像を登録する">GUIで画像を登録する</h2>
+<ol>
+<li>「検索」タブを開きます。</li>
+<li>「データセット」の「選択」から画像フォルダーを選びます。</li>
+<li>登録処理の終了を待ち、検索結果と件数を確認します。</li>
+</ol>
+<figure class="guide-placeholder" data-aspect-ratio="16 / 9" style="--guide-placeholder-ratio: 16 / 9">
+  <div class="guide-placeholder__frame" role="img" aria-label="データセット選択と登録結果 — 画像準備中; 想定画像寸法: 1280×720">
+    <strong>データセット選択と登録結果</strong>
+    <span>画像準備中</span>
+    <small>想定画像寸法: 1280×720</small>
+  </div>
+  <figcaption>データセット選択と登録結果 (1280×720)</figcaption>
+</figure>
+
+<p>この「選択」は登録元フォルダーを選ぶ操作です。既存プロジェクトを開くボタンではありません。意図しないフォルダー全体を指定しないよう、最初は小さな検証用フォルダーで試してください。</p>
+<h2 id="cliで対象プロジェクトを明示する">CLIで対象プロジェクトを明示する</h2>
+<pre><code class="language-powershell">uv run --no-sync lorairo-cli project create "my-project"
+uv run --no-sync lorairo-cli project list
+uv run --no-sync lorairo-cli images register ./images --project "my-project"
+uv run --no-sync lorairo-cli images list --project "my-project" --fetch
+</code></pre>
+<p><code>my-project</code>は自分のプロジェクト名に置き換えます。画像IDは登録後の一覧で確認し、ガイドの例にあるIDをそのまま使わないでください。</p>
+<p>CLIの登録は、既定で同一pHashの画像をスキップします。重複を含める<code>--include-duplicates</code>は、重複登録が必要な場合だけ使用します。</p>
+<h2 id="登録後">登録後</h2>
+<p>画像を登録しただけではアノテーションや出力は実行されません。<a href="../search/">検索とステージング</a>で対象を選んでから次へ進みます。登録や編集などの書き込みをGUIとCLIで同時に行わないでください。</p>
+</body>
+</html>

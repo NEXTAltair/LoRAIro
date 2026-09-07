@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Export a dataset</title>
+  <meta name="description" content="Create training files from staging or explicit image IDs.">
+  <meta name="guide:sidebar-order" content="7">
+</head>
+<body>
+<h2 id="export-in-the-gui">Export in the GUI</h2>
+<ol>
+<li>Check staged images and their count.</li>
+<li>In Export (「エクスポート」), select resolution and format.</li>
+<li>Review export tag adjustments and run Validate (「検証」).</li>
+<li>If there are no issues, run Export and inspect the generated images and text.</li>
+</ol>
+<figure class="guide-placeholder" data-aspect-ratio="16 / 9" style="--guide-placeholder-ratio: 16 / 9">
+  <div class="guide-placeholder__frame" role="img" aria-label="Format, resolution, and validation settings — Image in preparation; Expected image size: 1280×720">
+    <strong>Format, resolution, and validation settings</strong>
+    <span>Image in preparation</span>
+    <small>Expected image size: 1280×720</small>
+  </div>
+  <figcaption>Format, resolution, and validation settings (1280×720)</figcaption>
+</figure>
+
+<p>Resolution choices are 512, 768, 1024 and 1536. Formats include TXT with separate tags (「TXT（タグ分離）」), TXT with merged captions (「TXT（キャプション統合）」), and JSON. Choose the format your training tool expects.</p>
+<p>Temporary output exclusions differ from database rejects. See <a href="../editing/">tag editing</a>.</p>
+<h2 id="specify-image-ids-in-the-cli">Specify image IDs in the CLI</h2>
+<p>The current <code>export create</code> does not accept search filters. Search first and check the target IDs. Old examples using <code>--tags cat</code> no longer work.</p>
+<pre><code class="language-powershell">uv run --no-sync lorairo-cli export create -p "my-project" --image-ids 42,57 -o ./dataset
+uv run --no-sync lorairo-cli export create -p "my-project" --image-ids-file ids.txt -o ./dataset
+</code></pre>
+<p>These two lines are alternatives. <code>--image-ids</code> and <code>--image-ids-file</code> cannot be combined. Direct input supports up to 500 IDs. For bulk export, use <code>ids.txt</code> containing newline- or comma-separated IDs. The CLI generates both TXT and JSON.</p>
+<p>Use a dedicated empty output directory to avoid mixing with an existing dataset unintentionally. Check file counts, images and tags before passing the dataset to training.</p>
+<h2 id="separate-datasets-by-tag-language">Separate datasets by tag language</h2>
+<p>Explicitly request multilingual tag export in the CLI.</p>
+<pre><code class="language-powershell">uv run --no-sync lorairo-cli export create -p "my-project" --image-ids 42,57 -o ./dataset --tag-language canonical --tag-language ja
+</code></pre>
+<p>For multiple languages, complete datasets including images are created in directories such as <code>canonical/</code> and <code>ja/</code>. Allow enough disk space for these copies. A single language uses the output root.</p>
+<p>Tags without a registered preferred translation fall back to canonical text. This does not automatically translate captions. It is separate from this guide's four-language support and does not guarantee four translations for every tag. Instructions for multilingual tag export from the GUI are not currently provided.</p>
+</body>
+</html>

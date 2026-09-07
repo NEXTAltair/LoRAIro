@@ -1,0 +1,26 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <title>利用ガイド</title>
+  <meta name="description" content="LoRAIroで画像登録からAIアノテーション、学習用データセット出力まで進める手順。">
+  <meta name="guide:sidebar-order" content="1">
+</head>
+<body>
+<p>LoRAIroは、LoRA学習用の画像を登録し、AIでタグ・キャプション・評価を付け、内容を確認してデータセットへ出力するデスクトップアプリです。学習そのものを実行するツールではありません。</p>
+<h2 id="初めて使うとき">初めて使うとき</h2>
+<ol>
+<li><a href="./installation/">Windowsでインストール</a>してGUIを起動します。</li>
+<li><a href="./projects/">画像を登録</a>し、<a href="./search/">検索してステージング</a>します。</li>
+<li><a href="./annotation/">アノテーション</a>を実行し、Jobsで結果を確認します。</li>
+<li><a href="./editing/">タグを確認・修正</a>してから、<a href="./export/">データセットを出力</a>します。</li>
+</ol>
+<p>最初は少数の画像で一連の操作を試してください。WebAPIを選ぶと画像が外部に送信され、利用料金が発生する場合があります。</p>
+<h2 id="このガイドの範囲">このガイドの範囲</h2>
+<p>利用者向けの手順は日本語・英語・繁体字・簡体字で提供します。日本語が原本で、他言語はAI支援翻訳です。意味の食い違いがあれば日本語を基準にし、GitHubで報告してください。</p>
+<p>ガイドの4言語対応は、アプリ画面の4言語化や、画像タグ・キャプションの自動翻訳を意味しません。各機能の対応範囲は個別の章で説明します。</p>
+<p>開発者向けの設計資料・ADRは<a href="https://github.com/NEXTAltair/LoRAIro/tree/main/docs">リポジトリのdocs</a>に残しています。旧Sphinxの自動生成API一覧ではなく、現行操作に沿った利用ガイドです。</p>
+<h2 id="データを守る">データを守る</h2>
+<p>アノテーションやタグ編集はプロジェクトのデータベースを書き換えます。大きな変更の前には<a href="./troubleshooting/">バックアップ</a>を取り、出力用の一時変更とDBの恒久変更を区別してください。</p>
+</body>
+</html>

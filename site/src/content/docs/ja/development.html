@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <title>開発環境とヘッドレステスト</title>
+  <meta name="description" content="Windows実行・コンテナ開発と共有Python環境の使い分け。">
+  <meta name="guide:sidebar-order" content="10">
+</head>
+<body>
+<h2 id="windowsとコンテナの役割">Windowsとコンテナの役割</h2>
+<p>コード編集はDev Container、GUI実行はWindowsで行います。コンテナはGUIを表示せず、テストはQt offscreenで実行します。WindowsとLinuxで<code>.venv</code>の実体を共有するのではなく、各OS内でmainとworktreeがそのOS用環境を共有します。</p>
+<h2 id="開発依存の導入">開発依存の導入</h2>
+<p>mainの共有チェックアウトで実行します。Python、Git、uvが必要です。</p>
+<pre><code class="language-powershell">git submodule update --init --recursive
+python scripts/dev_tasks.py install-dev
+</code></pre>
+<p>Linuxで<code>python</code>がなければ<code>python3</code>を使います。この操作は共有環境を更新するため、他のアプリ・テスト・エージェントが使っていない時に行います。Kitの導入・設定は別の管理対象です。</p>
+<h2 id="通常の開発コマンド">通常の開発コマンド</h2>
+<pre><code class="language-powershell">python scripts/dev_tasks.py test
+python scripts/dev_tasks.py test-all
+python scripts/dev_tasks.py lint
+python scripts/dev_tasks.py format
+python scripts/dev_tasks.py test-all --dry-run
+</code></pre>
+<p><code>test</code>はLoRAIro本体、<code>test-all</code>は3パッケージをそれぞれ独立したテスト処理で順に実行します。BDDも引き続きpytest-bddで扱います。<code>lint</code>は読み取り専用、<code>format</code>はRuffによる自動整形・修正です。通常タスクは依存を自動同期しません。</p>
+<p>GPU実モデルの<code>test-runtime-local</code>と、実際に課金され得るAPIの<code>test-runtime-webapi</code>は明示実行用です。通常の<code>test-all</code>に混ぜません。</p>
+<h2 id="worktree">worktree</h2>
+<p>作業用worktreeには専用<code>.venv</code>を作りません。共通コマンドはGitからmain側の環境を特定し、対象worktreeのソースを使います。<code>UV_PROJECT_ENVIRONMENT</code>が設定されている場合は、その環境のmain共有<code>.venv</code>の絶対パスと一致させます。</p>
+<p>VS Codeでworktreeを直接開く場合は「Python: Select Interpreter」でmain側の共有インタープリターを選びます。Windows GUIの起動にはoffscreenを付けません。</p>
+<p>詳しいコマンドの契約は<a href="https://github.com/NEXTAltair/LoRAIro/blob/main/scripts/DEV_TASKS.md">開発タスク説明</a>にあります。</p>
+</body>
+</html>

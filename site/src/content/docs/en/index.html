@@ -1,0 +1,26 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>User guide</title>
+  <meta name="description" content="From image registration to AI annotation and training dataset export.">
+  <meta name="guide:sidebar-order" content="1">
+</head>
+<body>
+<p>LoRAIro is a desktop app for registering images for LoRA training, generating tags, captions and evaluations with AI, reviewing them, and exporting datasets. It does not run training itself.</p>
+<h2 id="getting-started">Getting started</h2>
+<ol>
+<li><a href="./installation/">Install on Windows</a> and start the GUI.</li>
+<li><a href="./projects/">Register images</a>, then <a href="./search/">search and stage them</a>.</li>
+<li>Run <a href="./annotation/">annotation</a> and check the results in Jobs.</li>
+<li><a href="./editing/">Review and edit tags</a>, then <a href="./export/">export the dataset</a>.</li>
+</ol>
+<p>Try the entire workflow with a few images first. Choosing a WebAPI sends images outside your computer and may incur charges.</p>
+<h2 id="scope-of-this-guide">Scope of this guide</h2>
+<p>The user guide is available in Japanese, English, Traditional Chinese and Simplified Chinese. Japanese is the original; other languages are AI-assisted translations. If meanings differ, refer to Japanese and report the discrepancy on GitHub.</p>
+<p>Four-language documentation does not mean that the app interface supports four languages or that image tags and captions are automatically translated. Each chapter explains the supported scope.</p>
+<p>Developer design documents and ADRs remain in the <a href="https://github.com/NEXTAltair/LoRAIro/tree/main/docs">repository docs</a>. This guide follows current operations rather than the old Sphinx-generated API listing.</p>
+<h2 id="protect-your-data">Protect your data</h2>
+<p>Annotation and tag editing modify the project database. <a href="./troubleshooting/">Back up your data</a> before major changes, and distinguish temporary export adjustments from persistent database changes.</p>
+</body>
+</html>

@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="zh-cn">
+<head>
+  <meta charset="utf-8">
+  <title>导出数据集</title>
+  <meta name="description" content="从待处理区或图片 ID 创建训练用文件。">
+  <meta name="guide:sidebar-order" content="7">
+</head>
+<body>
+<h2 id="在图形界面导出">在图形界面导出</h2>
+<ol>
+<li>确认待处理图片及数量。</li>
+<li>在「エクスポート」（导出）中选择分辨率和格式。</li>
+<li>检查导出用标签调整，执行「検証」（验证）。</li>
+<li>确认没有问题后执行「エクスポート」，并检查生成的图片和文本。</li>
+</ol>
+<figure class="guide-placeholder" data-aspect-ratio="16 / 9" style="--guide-placeholder-ratio: 16 / 9">
+  <div class="guide-placeholder__frame" role="img" aria-label="格式、分辨率和验证设置 — 图片准备中; 预计图片尺寸：1280×720">
+    <strong>格式、分辨率和验证设置</strong>
+    <span>图片准备中</span>
+    <small>预计图片尺寸：1280×720</small>
+  </div>
+  <figcaption>格式、分辨率和验证设置 (预计图片尺寸：1280×720)</figcaption>
+</figure>
+
+<p>分辨率选项为 512、768、1024、1536。格式包括「TXT（タグ分離）」（标签分离）、「TXT（キャプション統合）」（描述文本合并）和「JSON」。请选择训练工具要求的格式。</p>
+<p>临时排除输出与数据库 reject 不同。详情见<a href="../editing/">修改标签</a>。</p>
+<h2 id="命令行使用图片-id">命令行使用图片 ID</h2>
+<p>当前 <code>export create</code> 不接受搜索筛选条件。请先搜索并确认目标 ID。旧版 <code>--tags cat</code> 示例已不能使用。</p>
+<pre><code class="language-powershell">uv run --no-sync lorairo-cli export create -p "my-project" --image-ids 42,57 -o ./dataset
+uv run --no-sync lorairo-cli export create -p "my-project" --image-ids-file ids.txt -o ./dataset
+</code></pre>
+<p>这两行是替代用法，<code>--image-ids</code> 与 <code>--image-ids-file</code> 不能同时指定。直接指定最多 500 个 ID。批量导出时，使用以换行或逗号分隔 ID 的 <code>ids.txt</code>。命令行会同时生成 TXT 和 JSON。</p>
+<p>请使用空的专用输出目录，避免意外与现有数据集混合。执行后先检查文件数量、图片和标签，再用于训练。</p>
+<h2 id="按标签语言分开的数据集">按标签语言分开的数据集</h2>
+<p>多语言标签导出需在命令行中明确指定。</p>
+<pre><code class="language-powershell">uv run --no-sync lorairo-cli export create -p "my-project" --image-ids 42,57 -o ./dataset --tag-language canonical --tag-language ja
+</code></pre>
+<p>指定多种语言时，会在 <code>canonical/</code>、<code>ja/</code> 等目录中各创建一份包含图片的完整数据集，因此需要更多可用空间。仅指定一种语言时，使用输出根目录。</p>
+<p>没有已登记首选译文的标签会回退到 canonical 文本。此功能不会自动翻译描述文本。它与指南支持四种语言是不同功能，也不保证每个标签都有四种语言的译文。目前未提供通过图形界面导出多语言标签的操作流程。</p>
+</body>
+</html>

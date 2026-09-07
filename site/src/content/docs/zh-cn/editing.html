@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="zh-cn">
+<head>
+  <meta charset="utf-8">
+  <title>修改标签与检查描述文本</title>
+  <meta name="description" content="区分数据库编辑和仅在导出时生效的调整。">
+  <meta name="guide:sidebar-order" content="6">
+</head>
+<body>
+<h2 id="先检查生成结果">先检查生成结果</h2>
+<p>选择图片，在详情面板检查标签、描述文本和评分。AI 结果不一定正确，请检查是否包含训练不需要的标签或与图片不符的表述。</p>
+<figure class="guide-placeholder" data-aspect-ratio="16 / 9" style="--guide-placeholder-ratio: 16 / 9">
+  <div class="guide-placeholder__frame" role="img" aria-label="标签和只读 caption 的详细显示 — 图片准备中; 预计图片尺寸：1280×720">
+    <strong>标签和只读 caption 的详细显示</strong>
+    <span>图片准备中</span>
+    <small>预计图片尺寸：1280×720</small>
+  </div>
+  <figcaption>标签和只读 caption 的详细显示 (预计图片尺寸：1280×720)</figcaption>
+</figure>
+
+<p>当前描述文本显示为只读。不要假设存在可自由输入的描述文本编辑框。可通过标签菜单使用将标签移至描述文本的功能。</p>
+<h2 id="永久修改与导出调整">永久修改与导出调整</h2>
+<ul>
+<li>添加、替换或 reject 标签会影响数据库内容。</li>
+<li>导出 overlay 中的「出力除外」（排除输出）只是导出时的临时调整。</li>
+<li>「reject(DB)」不是临时排除。请检查影响范围，不要假设操作可以撤销。</li>
+</ul>
+<p>模型可能不会返回 AI 标签各自的 confidence。因此，并非总能根据 confidence 自动清理噪声标签。</p>
+<h2 id="在命令行中先预览再应用">在命令行中先预览再应用</h2>
+<p>标签修改默认为 dry-run。请先不加 <code>--apply</code> 来确认目标。</p>
+<pre><code class="language-powershell">uv run --no-sync lorairo-cli tags add -p "my-project" --image-ids 42,57 --tags "cat,outdoor"
+uv run --no-sync lorairo-cli tags add -p "my-project" --image-ids 42,57 --tags "cat,outdoor" --apply
+uv run --no-sync lorairo-cli tags remove -p "my-project" --image-ids 42 --tags "bad_tag" --apply
+uv run --no-sync lorairo-cli tags replace -p "my-project" --image-ids 42 --from "bad tag" --to "good_tag" --apply
+</code></pre>
+<p>移除以 soft-reject 方式处理，但这并不保证有通用的“撤销”操作。批量修改前请先备份。通过命令行修改后，请在图形界面重新搜索或重新加载，确认最新状态。</p>
+</body>
+</html>

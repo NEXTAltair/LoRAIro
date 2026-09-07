@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Edit tags and review captions</title>
+  <meta name="description" content="Distinguish database edits from export-only adjustments.">
+  <meta name="guide:sidebar-order" content="6">
+</head>
+<body>
+<h2 id="review-generated-results-first">Review generated results first</h2>
+<p>Select an image and inspect tags, captions and evaluations in the details panel. AI output may be wrong. Look for unnecessary training tags or wording that contradicts the image.</p>
+<figure class="guide-placeholder" data-aspect-ratio="16 / 9" style="--guide-placeholder-ratio: 16 / 9">
+  <div class="guide-placeholder__frame" role="img" aria-label="Tags and read-only caption details — Image in preparation; Expected image size: 1280×720">
+    <strong>Tags and read-only caption details</strong>
+    <span>Image in preparation</span>
+    <small>Expected image size: 1280×720</small>
+  </div>
+  <figcaption>Tags and read-only caption details (1280×720)</figcaption>
+</figure>
+
+<p>The current caption display is read-only. Do not assume there is a free-text caption editor. A tag menu provides the operation for moving a tag into the caption.</p>
+<h2 id="persistent-changes-and-export-adjustments">Persistent changes and export adjustments</h2>
+<ul>
+<li>Adding, replacing or rejecting tags affects database contents.</li>
+<li>Exclude from output (「出力除外」) in the export overlay is a temporary export adjustment.</li>
+<li><code>reject(DB)</code> is not temporary exclusion. Check the stated scope and do not assume it can be undone.</li>
+</ul>
+<p>Models may not return individual confidence values for AI tags. Automatic noise removal based on confidence is not always available.</p>
+<h2 id="preview-cli-changes-before-applying-them">Preview CLI changes before applying them</h2>
+<p>Tag changes default to dry-run. First inspect the target without <code>--apply</code>.</p>
+<pre><code class="language-powershell">uv run --no-sync lorairo-cli tags add -p "my-project" --image-ids 42,57 --tags "cat,outdoor"
+uv run --no-sync lorairo-cli tags add -p "my-project" --image-ids 42,57 --tags "cat,outdoor" --apply
+uv run --no-sync lorairo-cli tags remove -p "my-project" --image-ids 42 --tags "bad_tag" --apply
+uv run --no-sync lorairo-cli tags replace -p "my-project" --image-ids 42 --from "bad tag" --to "good_tag" --apply
+</code></pre>
+<p>Removal is handled as soft-reject, but this does not guarantee a general Undo operation. Back up before bulk changes. After CLI edits, search again or reload the GUI to check the latest state.</p>
+</body>
+</html>

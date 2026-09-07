@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Development and headless tests</title>
+  <meta name="description" content="Separate Windows execution, container development and shared Python environments.">
+  <meta name="guide:sidebar-order" content="10">
+</head>
+<body>
+<h2 id="roles-of-windows-and-containers">Roles of Windows and containers</h2>
+<p>Edit code in a Dev Container and run the GUI on Windows. The container does not display the GUI; tests run with Qt offscreen. Windows and Linux do not share the same physical <code>.venv</code>. Within each OS, main and worktrees share that OS's environment.</p>
+<h2 id="install-development-dependencies">Install development dependencies</h2>
+<p>Run in the main shared checkout. Python, Git and uv are required.</p>
+<pre><code class="language-powershell">git submodule update --init --recursive
+python scripts/dev_tasks.py install-dev
+</code></pre>
+<p>Use <code>python3</code> on Linux if <code>python</code> is unavailable. This updates the shared environment, so run it only when other apps, tests and agents are not using it. Kit installation and configuration are managed separately.</p>
+<h2 id="routine-development-commands">Routine development commands</h2>
+<pre><code class="language-powershell">python scripts/dev_tasks.py test
+python scripts/dev_tasks.py test-all
+python scripts/dev_tasks.py lint
+python scripts/dev_tasks.py format
+python scripts/dev_tasks.py test-all --dry-run
+</code></pre>
+<p><code>test</code> runs LoRAIro tests. <code>test-all</code> runs three packages in separate test processes, sequentially. BDD continues to use pytest-bdd. <code>lint</code> is read-only; <code>format</code> applies Ruff formatting and fixes. Routine tasks do not automatically synchronize dependencies.</p>
+<p><code>test-runtime-local</code> runs real GPU models and <code>test-runtime-webapi</code> calls APIs that may incur charges. Both require explicit execution and are not included in routine <code>test-all</code>.</p>
+<h2 id="worktrees">Worktrees</h2>
+<p>Do not create a separate <code>.venv</code> in a worktree. Shared commands use Git to locate the main environment and run the target worktree's source. If <code>UV_PROJECT_ENVIRONMENT</code> is set, it must match the absolute path of that environment's main shared <code>.venv</code>.</p>
+<p>When opening a worktree directly in VS Code, use Python: Select Interpreter to select the main shared interpreter. Do not use offscreen when launching the Windows GUI.</p>
+<p>See the <a href="https://github.com/NEXTAltair/LoRAIro/blob/main/scripts/DEV_TASKS.md">development task documentation</a> for command contracts.</p>
+</body>
+</html>

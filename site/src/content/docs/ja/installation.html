@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <title>Windowsでインストール</title>
+  <meta name="description" content="ソースからWindows用環境を作り、GUIとCLIを起動します。">
+  <meta name="guide:sidebar-order" content="2">
+</head>
+<body>
+<h2 id="必要なもの">必要なもの</h2>
+<ul>
+<li>Git、uv、Python 3.13。Pythonはuvで導入できます。</li>
+<li>モデルと画像を保存できる空き容量。</li>
+<li>標準のGPU推論環境を使う場合は、対応するNVIDIA GPUとドライバー。</li>
+</ul>
+<p>この手順はソースからの導入です。標準PyTorchの取得先はCUDA 13.2用です。ドライバーやGPUの対応状況は環境ごとに確認してください。CPU版や別CUDA版への変更は、単なる起動オプションではなく依存設定・lockfileの変更を伴います。</p>
+<h2 id="初回セットアップ">初回セットアップ</h2>
+<p>PowerShellで実行します。パスに空白がある場合は引用符で囲みます。</p>
+<pre><code class="language-powershell">git clone https://github.com/NEXTAltair/LoRAIro.git
+cd LoRAIro
+git submodule update --init --recursive
+uv python install 3.13
+uv sync --python 3.13
+uv run --no-sync lorairo
+</code></pre>
+<p>依存のインストールにはネットワーク通信と時間が必要です。アプリを起動したまま<code>uv sync</code>で環境を更新しないでください。</p>
+<h2 id="次回以降の起動">次回以降の起動</h2>
+<p>リポジトリのディレクトリから実行します。</p>
+<pre><code class="language-powershell">uv run --no-sync lorairo
+uv run --no-sync lorairo-cli --help
+</code></pre>
+<p><code>--no-sync</code>は起動時の依存更新を防ぎます。依存変更後はアプリやテストを停止してから、明示的に<code>uv sync</code>を実行します。</p>
+<h2 id="復旧コピーから再開する場合">復旧コピーから再開する場合</h2>
+<p>既存の画像・DB・設定を消して再インストールする必要はありません。まず<a href="../troubleshooting/">バックアップと復旧</a>を確認します。別OSからコピーした<code>.venv</code>はそのまま使用できません。Windows用とコンテナ内Linux用のPython環境を分けてください。</p>
+<p><code>UV_PROJECT_ENVIRONMENT</code>に旧コンテナの<code>/workspaces/...</code>が残っている場合は、Windows用の実際の共有環境に設定を直します。エラーを避けるためだけに旧パスを作成しないでください。</p>
+<h2 id="開発も行う場合">開発も行う場合</h2>
+<p>テスト・整形ツールを含める手順とDev Containerの使い分けは<a href="../development/">開発環境</a>にまとめています。</p>
+</body>
+</html>

@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Using the CLI</title>
+  <meta name="description" content="Inspect commands and handle JSONL output in PowerShell.">
+  <meta name="guide:sidebar-order" content="9">
+</head>
+<body>
+<h2 id="inspect-commands">Inspect commands</h2>
+<p>Run from the repository directory using the environment already created.</p>
+<pre><code class="language-powershell">uv run --no-sync lorairo-cli --help
+uv run --no-sync lorairo-cli images --help
+uv run --no-sync lorairo-cli export create --help
+uv run --no-sync lorairo-cli --json list-commands
+uv run --no-sync lorairo-cli --json describe "images update"
+</code></pre>
+<p><code>list-commands</code> and <code>describe</code> let agents inspect available operations and arguments. If arguments from old instructions are not recognized, compare them with current <code>--help</code>.</p>
+<h2 id="jsonl-mode">JSONL mode</h2>
+<p>Place <code>--json</code> before the command to emit one JSON object per stdout line. Logs and progress go to stderr. Check the final <code>result</code> or <code>error</code>. Exit codes are 0 for success, 2 for input or validation errors, and 1 for other errors.</p>
+<p>The environment variable <code>LORAIRO_CLI_JSON=1</code> is also supported, but an explicit flag makes intent clearer for interactive use.</p>
+<p>JSONL is not simply an image ID list. When extracting IDs from search output, inspect structures such as <code>kind</code> and exclude message rows.</p>
+<h2 id="task-based-instructions">Task-based instructions</h2>
+<ul>
+<li><a href="../projects/">Create projects and register images</a></li>
+<li><a href="../search/">Search using a JSON file</a></li>
+<li><a href="../annotation/">List models and run synchronous annotation</a></li>
+<li><a href="../editing/">Preview and apply tag edits</a></li>
+<li><a href="../export/">Export by image IDs</a></li>
+</ul>
+<p>The CLI uses the same project data as the GUI. Back up before bulk updates and avoid simultaneous writes from the GUI. Detailed developer contracts are in the <a href="https://github.com/NEXTAltair/LoRAIro/blob/main/docs/cli.md">CLI reference</a>.</p>
+</body>
+</html>
