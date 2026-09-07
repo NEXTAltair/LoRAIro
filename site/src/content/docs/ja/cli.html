@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <title>CLIの使い方</title>
+  <meta name="description" content="PowerShellでも使えるコマンド確認とJSONL出力の扱い。">
+  <meta name="guide:sidebar-order" content="9">
+</head>
+<body>
+<h2 id="コマンドを確認する">コマンドを確認する</h2>
+<p>リポジトリのディレクトリから、作成済みの環境を使って実行します。</p>
+<pre><code class="language-powershell">uv run --no-sync lorairo-cli --help
+uv run --no-sync lorairo-cli images --help
+uv run --no-sync lorairo-cli export create --help
+uv run --no-sync lorairo-cli --json list-commands
+uv run --no-sync lorairo-cli --json describe "images update"
+</code></pre>
+<p><code>list-commands</code>と<code>describe</code>は、エージェントが利用可能な操作や引数を確認するための入口です。古い手順の引数が認識されない場合は、現行の<code>--help</code>と照合してください。</p>
+<h2 id="jsonlモード">JSONLモード</h2>
+<p><code>--json</code>をコマンドの前に指定すると、標準出力が1行1JSONオブジェクトになります。ログや進捗は標準エラーへ出ます。終端の<code>result</code>または<code>error</code>を確認してください。終了コードは成功0、入力・検証エラー2、その他のエラー1です。</p>
+<p>環境変数<code>LORAIRO_CLI_JSON=1</code>も利用できますが、対話用途では明示フラグの方が意図を確認しやすくなります。</p>
+<p>JSONLは画像IDだけの一覧ではありません。検索結果からIDを抽出する場合は<code>kind</code>などの構造を確認し、メッセージ行を混ぜないようにします。</p>
+<h2 id="目的別の手順">目的別の手順</h2>
+<ul>
+<li><a href="../projects/">プロジェクト作成・画像登録</a></li>
+<li><a href="../search/">JSONファイルによる検索</a></li>
+<li><a href="../annotation/">モデル一覧・同期アノテーション</a></li>
+<li><a href="../editing/">dry-run後のタグ編集</a></li>
+<li><a href="../export/">画像IDによる出力</a></li>
+</ul>
+<p>CLIはGUIと同じプロジェクトデータを扱います。大量更新前はバックアップし、GUIと同時書き込みしないでください。詳細な開発者向け契約は<a href="https://github.com/NEXTAltair/LoRAIro/blob/main/docs/cli.md">CLIリファレンス</a>にあります。</p>
+</body>
+</html>

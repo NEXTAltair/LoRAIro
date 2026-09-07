@@ -1,0 +1,56 @@
+@layer starlight.user {
+  .guide-placeholder {
+    margin: 1.5rem 0;
+  }
+
+  .guide-placeholder__frame {
+    display: grid;
+    width: 100%;
+    max-width: 100%;
+    aspect-ratio: var(--guide-placeholder-ratio, 16 / 9);
+    place-content: center;
+    gap: 0.5rem;
+    box-sizing: border-box;
+    overflow: hidden;
+    padding: 1.5rem;
+    border: 1px dashed var(--sl-color-gray-3);
+    border-radius: 0.5rem;
+    background: var(--sl-color-gray-6);
+    color: var(--sl-color-gray-1);
+    text-align: center;
+  }
+
+  .guide-placeholder__frame strong {
+    color: var(--sl-color-white);
+  }
+
+  .guide-placeholder > img {
+    display: block;
+    width: 100%;
+    max-width: 100%;
+    height: auto;
+    border: 1px solid var(--sl-color-gray-4);
+    border-radius: 0.5rem;
+  }
+
+  .guide-placeholder__frame small,
+  .guide-placeholder figcaption {
+    color: var(--sl-color-gray-2);
+  }
+
+  .guide-placeholder figcaption {
+    margin-top: 0.5rem;
+    font-size: var(--sl-text-sm);
+  }
+
+  .sl-markdown-content table {
+    display: block;
+    max-width: 100%;
+    overflow-x: auto;
+  }
+
+  .sl-markdown-content pre {
+    max-width: 100%;
+    overflow-x: auto;
+  }
+}

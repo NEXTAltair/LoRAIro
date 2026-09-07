@@ -1,0 +1,24 @@
+---
+import StarlightPage from '@astrojs/starlight/components/StarlightPage.astro';
+import { guideDocuments, guideFor, guideSidebar } from '../lib/guide-documents';
+
+export function getStaticPaths() {
+  return guideDocuments.map((document) => ({
+    params: { slug: document.slug === 'index' ? document.locale : `${document.locale}/${document.slug}` },
+    props: { document },
+  }));
+}
+
+const { document } = Astro.props;
+const current = guideFor(document.locale, document.slug);
+if (!current) throw new Error('Guide document was not found.');
+const editUrl = `https://github.com/NEXTAltair/LoRAIro/edit/main/site/src/content/docs/${current.locale}/${current.slug}.html`;
+---
+
+<StarlightPage
+  frontmatter={{ title: current.title, description: current.description, editUrl }}
+  headings={current.headings}
+  sidebar={guideSidebar(current.locale)}
+>
+  <Fragment set:html={current.body} />
+</StarlightPage>

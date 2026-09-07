@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="zh-cn">
+<head>
+  <meta charset="utf-8">
+  <title>在 Windows 安装</title>
+  <meta name="description" content="从源码创建 Windows 环境，启动图形界面和命令行。">
+  <meta name="guide:sidebar-order" content="2">
+</head>
+<body>
+<h2 id="所需条件">所需条件</h2>
+<ul>
+<li>Git、uv、Python 3.13。可以通过 uv 安装 Python。</li>
+<li>足够存放模型和图片的可用空间。</li>
+<li>如果使用标准 GPU 推理环境，需要兼容的 NVIDIA GPU 和驱动程序。</li>
+</ul>
+<p>本流程从源码安装。标准 PyTorch 下载源使用 CUDA 13.2 版本，请根据实际环境确认驱动和 GPU 兼容性。改用 CPU 版本或其他 CUDA 版本需要修改依赖配置和 lockfile，而不只是更改启动选项。</p>
+<h2 id="首次设置">首次设置</h2>
+<p>在 PowerShell 中执行。路径含空格时请加引号。</p>
+<pre><code class="language-powershell">git clone https://github.com/NEXTAltair/LoRAIro.git
+cd LoRAIro
+git submodule update --init --recursive
+uv python install 3.13
+uv sync --python 3.13
+uv run --no-sync lorairo
+</code></pre>
+<p>安装依赖需要联网并花费一定时间。应用运行期间不要通过 <code>uv sync</code> 更新环境。</p>
+<h2 id="后续启动">后续启动</h2>
+<p>从仓库目录执行。</p>
+<pre><code class="language-powershell">uv run --no-sync lorairo
+uv run --no-sync lorairo-cli --help
+</code></pre>
+<p><code>--no-sync</code> 防止启动时更新依赖。依赖配置变更后，请先停止应用和测试，再显式运行 <code>uv sync</code>。</p>
+<h2 id="从恢复副本继续使用">从恢复副本继续使用</h2>
+<p>无需删除现有图片、数据库和设置来重新安装。请先阅读<a href="../troubleshooting/">备份与恢复</a>。从其他操作系统复制的 <code>.venv</code> 不能直接使用；请将 Windows 与容器内 Linux 的 Python 环境分开。</p>
+<p>如果 <code>UV_PROJECT_ENVIRONMENT</code> 仍指向旧容器的 <code>/workspaces/...</code>，请改为 Windows 实际使用的共享环境。不要只为绕过错误而创建旧路径。</p>
+<h2 id="同时进行开发">同时进行开发</h2>
+<p>测试和格式化工具的安装方式以及 Dev Container 的用途见<a href="../development/">开发环境</a>。</p>
+</body>
+</html>

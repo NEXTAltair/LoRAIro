@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Search and staging</title>
+  <meta name="description" content="Explicitly choose which search results to process.">
+  <meta name="guide:sidebar-order" content="4">
+</head>
+<body>
+<h2 id="search-results-are-not-execution-targets">Search results are not execution targets</h2>
+<p>Filter images by tags or other conditions in the GUI, select thumbnails, and use Add selection to staging (「選択をステージングへ」). Appearing in search results or selecting a thumbnail alone does not make an image an execution target.</p>
+<p>Annotation and export share the staging set. It holds up to 500 images and does not add the same image twice. Check its contents and count immediately before running a task.</p>
+<p>Clear (「クリア」) removes images from the staging set; it does not delete them from the database.</p>
+<h2 id="gui-search">GUI search</h2>
+<p>Tag searches support exclusions (<code>-tag</code>). After changing conditions, check counts and thumbnails to confirm that the intended images are included. Combine relevant conditions, such as ratings or missing model results.</p>
+<figure class="guide-placeholder" data-aspect-ratio="16 / 9" style="--guide-placeholder-ratio: 16 / 9">
+  <div class="guide-placeholder__frame" role="img" aria-label="Search results and processing targets — Image in preparation; Expected image size: 1280×720">
+    <strong>Search results and processing targets</strong>
+    <span>Image in preparation</span>
+    <small>Expected image size: 1280×720</small>
+  </div>
+  <figcaption>Search results and processing targets (1280×720)</figcaption>
+</figure>
+
+<h2 id="cli-search">CLI search</h2>
+<p>Create a UTF-8 <code>query.json</code> file to avoid quoting problems when embedding JSON directly in PowerShell.</p>
+<pre><code class="language-json">{"tags":["cat"],"excluded_tags":["dog"],"limit":100}
+</code></pre>
+<pre><code class="language-powershell">uv run --no-sync lorairo-cli --json images search -p "my-project" --query-file query.json
+uv run --no-sync lorairo-cli images show 42 57 -p "my-project"
+</code></pre>
+<p><code>include_nsfw</code> is false by default. Do not confuse exclusion by search conditions with missing registration. Large result sets have a count guard. Explicitly add <code>"emit_ids":true</code> to the query when enumerating many IDs.</p>
+<p>With <code>--json</code>, stdout is JSONL. Some rows carry message types rather than just results, so do not use the entire output directly as an image ID file. See <a href="../cli/">CLI notes</a>.</p>
+</body>
+</html>

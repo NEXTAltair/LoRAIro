@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="zh-cn">
+<head>
+  <meta charset="utf-8">
+  <title>项目与图片导入</title>
+  <meta name="description" content="了解项目保存内容，安全地导入图片。">
+  <meta name="guide:sidebar-order" content="3">
+</head>
+<body>
+<h2 id="保存哪些内容">保存哪些内容</h2>
+<p>图片信息、AI 标注和编辑内容按项目管理。通常保存在 <code>lorairo_data/&#x3C;project>_YYYYMMDD_NNN/</code>，其中包含 SQLite 数据库、<code>image_dataset/</code> 等。修改过配置的环境可能使用其他保存位置。</p>
+<p>请区分原始图片文件夹与 LoRAIro 项目保存位置。备份需要包含整个项目，而不只是图片数据库。</p>
+<h2 id="在图形界面导入图片">在图形界面导入图片</h2>
+<ol>
+<li>打开「検索」（搜索）选项卡。</li>
+<li>在「データセット」（数据集）下点击「選択」（选择），选取图片文件夹。</li>
+<li>等待导入完成，然后检查搜索结果和数量。</li>
+</ol>
+<figure class="guide-placeholder" data-aspect-ratio="16 / 9" style="--guide-placeholder-ratio: 16 / 9">
+  <div class="guide-placeholder__frame" role="img" aria-label="数据集选择与导入结果 — 图片准备中; 预计图片尺寸：1280×720">
+    <strong>数据集选择与导入结果</strong>
+    <span>图片准备中</span>
+    <small>预计图片尺寸：1280×720</small>
+  </div>
+  <figcaption>数据集选择与导入结果 (预计图片尺寸：1280×720)</figcaption>
+</figure>
+
+<p>这里的「選択」用于选择导入来源文件夹，不是打开现有项目的按钮。请先用小型测试文件夹尝试，避免误导入整个不需要的目录。</p>
+<h2 id="在命令行中明确指定项目">在命令行中明确指定项目</h2>
+<pre><code class="language-powershell">uv run --no-sync lorairo-cli project create "my-project"
+uv run --no-sync lorairo-cli project list
+uv run --no-sync lorairo-cli images register ./images --project "my-project"
+uv run --no-sync lorairo-cli images list --project "my-project" --fetch
+</code></pre>
+<p>将 <code>my-project</code> 替换为自己的项目名。图片 ID 应从导入后的列表中确认，不要照搬指南中的示例 ID。</p>
+<p>命令行导入默认跳过 pHash 相同的图片。只有确实需要重复导入时，才使用 <code>--include-duplicates</code>。</p>
+<h2 id="导入之后">导入之后</h2>
+<p>仅导入图片不会自动执行标注或导出。请通过<a href="../search/">搜索与待处理区</a>选择目标后再继续。不要同时通过图形界面和命令行执行导入、编辑等写入操作。</p>
+</body>
+</html>

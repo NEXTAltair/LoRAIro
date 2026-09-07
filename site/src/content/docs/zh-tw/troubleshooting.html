@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="zh-tw">
+<head>
+  <meta charset="utf-8">
+  <title>設定、備份與疑難排解</title>
+  <meta name="description" content="保護機密資訊與專案，排查復原時的問題。">
+  <meta name="guide:sidebar-order" content="8">
+</head>
+<body>
+<h2 id="設定">設定</h2>
+<p>在 GUI 的「設定」（Ctrl+,）查看設定。<code>config/lorairo.toml</code> 包含儲存位置及 API 金鑰等資訊。請勿公開 API 金鑰、完整設定檔，或顯示私人圖片路徑的螢幕擷取畫面。</p>
+<p>主要設定包括 API 金鑰、專案與匯出及 Batch 結果位置、額外提示詞、模型連線路由、資料庫等待時間與日誌層級。復原時請確認是否殘留原電腦的絕對路徑。</p>
+<h2 id="備份">備份</h2>
+<ol>
+<li>結束 GUI、CLI、Batch 匯入等會寫入資料庫的程序。</li>
+<li>將實際儲存位置的整個專案複製到別處，通常位於 <code>lorairo_data/</code>。</li>
+<li>除了 <code>image_database.db</code>，也保存 <code>image_dataset/</code>、使用者標籤資料庫（<code>user_tags.sqlite</code>）等內容。</li>
+<li>將 <code>config/lorairo.toml</code> 及必要的 Batch 結果視為機密資訊，另外保存。</li>
+</ol>
+<p>避免只複製使用中的 SQLite 資料庫檔案。復原時不要覆寫備份原本；請使用復原副本檢查圖片、標籤與設定。</p>
+<h2 id="啟動或相依套件錯誤">啟動或相依套件錯誤</h2>
+<p>Windows 與 Linux 的 <code>.venv</code> 不同。不要直接使用從另一個作業系統複製的環境，應在目標系統安裝相依套件。重建共用環境前，先停止使用中的應用程式、測試與代理程式。</p>
+<p>GUI 未顯示時，請確認 Windows 是否設定了 <code>QT_QPA_PLATFORM=offscreen</code>。容器測試使用 offscreen 則是正常情況。</p>
+<h2 id="無法辨識-gpu">無法辨識 GPU</h2>
+<pre><code class="language-powershell">nvidia-smi
+uv run --no-sync python -c "import torch; print(torch.__version__); print(torch.cuda.is_available()); print(torch.version.cuda)"
+</code></pre>
+<p>預期使用 GPU 卻顯示 false 時，請檢查驅動程式、GPU 相容性與 PyTorch 環境。刪除應用程式資料無法解決 GPU 設定問題。</p>
+<h2 id="資料庫衝突與外部連線">資料庫衝突與外部連線</h2>
+<p>出現 <code>CONFLICT</code> 時，請等待其他寫入作業結束後再試。不要同時用 GUI 與 CLI 寫入。首次取得標籤資料庫失敗時，請檢查網路，必要時確認 Hugging Face 驗證設定。</p>
+<p>WebAPI 錯誤請檢查驗證、用量上限、模型支援及傳送限制，先調查原因再重複操作。</p>
+<h2 id="回報問題">回報問題</h2>
+<p>請附上操作步驟、作業系統、重現條件及一小段相關日誌。主要日誌為 <code>logs/lorairo.log</code>、<code>logs/image-annotator-lib.log</code>、<code>logs/lorairo-cli.log</code>。請遮蔽 API 金鑰、個人資訊與不希望公開的圖片路徑。</p>
+</body>
+</html>

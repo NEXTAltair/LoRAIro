@@ -1,0 +1,61 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <title>AIアノテーションとJobs</title>
+  <meta name="description" content="ローカル推論・WebAPI・Provider Batchを区別して実行します。">
+  <meta name="guide:sidebar-order" content="5">
+</head>
+<body>
+<h2 id="実行前の確認">実行前の確認</h2>
+<p>ステージングの画像と枚数、使うモデル、生成する種類（tags、caption、score、rating）を確認します。利用可能なモデルは環境やプロバイダーによって異なります。</p>
+<table>
+<thead>
+<tr>
+<th>実行方法</th>
+<th>処理場所と注意</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>ローカルモデル</td>
+<td>手元で推論します。初回のモデル・タグDB取得には通信が必要な場合があります。</td>
+</tr>
+<tr>
+<td>WebAPI同期実行</td>
+<td>対象画像とプロンプトを外部プロバイダーへ送信します。料金と送信許可を確認します。</td>
+</tr>
+<tr>
+<td>Provider Batch</td>
+<td>外部送信を非同期ジョブとして処理します。無料処理やローカル推論ではありません。</td>
+</tr>
+</tbody>
+</table>
+<p>機密画像や第三者の画像を送る前に、送信してよいか確認してください。アプリはAPI費用の上限管理を行いません。再実行・リトライも追加リクエストになる場合があります。</p>
+<h2 id="guiで実行する">GUIで実行する</h2>
+<ol>
+<li>モデルを選び、対象枚数を確認します。</li>
+<li>「同期実行」または「Batch API 実行」を選びます。Batchの適格性はモデルによって異なります。</li>
+<li>Jobsで進行状態・完了・失敗を確認します。</li>
+<li>完了後、画像のタグやキャプションを確認します。失敗時は原因を読んでから再試行します。</li>
+</ol>
+<figure class="guide-placeholder" data-aspect-ratio="16 / 9" style="--guide-placeholder-ratio: 16 / 9">
+  <div class="guide-placeholder__frame" role="img" aria-label="モデル選択とJobs確認 — 画像準備中; 想定画像寸法: 1280×720">
+    <strong>モデル選択とJobs確認</strong>
+    <span>画像準備中</span>
+    <small>想定画像寸法: 1280×720</small>
+  </div>
+  <figcaption>モデル選択とJobs確認 (1280×720)</figcaption>
+</figure>
+
+<p>プロバイダー間の自動フォールバックはありません。Batchをキャンセルしても、既に行われた処理や課金が取り消されるとは限りません。</p>
+<h2 id="cliで同期実行する">CLIで同期実行する</h2>
+<pre><code class="language-powershell">uv run --no-sync lorairo-cli models list
+uv run --no-sync lorairo-cli annotate run -p "my-project" --model "MODEL_ID" --image-id 42 --image-id 57
+</code></pre>
+<p><code>MODEL_ID</code>は一覧にあるモデルIDに置き換えます。画像は<code>--image-id</code>を繰り返して指定します。<code>--batch-size</code>は同期処理の分割幅で、Provider Batchへ送信する指定ではありません。</p>
+<h2 id="provider-batchの管理">Provider Batchの管理</h2>
+<p>CLIには<code>batch submit/list/status/fetch/import/cancel</code>があります。引数は<code>uv run --no-sync lorairo-cli batch --help</code>と各サブコマンドの<code>--help</code>で確認します。取得とDBへの取り込みは別の操作です。<code>import</code>はプロジェクトDBを更新します。</p>
+<p>Batch対応は全プロバイダー共通ではありません。APIキーや画像を含む結果ファイルは公開しないでください。</p>
+</body>
+</html>

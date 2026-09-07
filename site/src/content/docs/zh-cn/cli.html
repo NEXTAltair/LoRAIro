@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="zh-cn">
+<head>
+  <meta charset="utf-8">
+  <title>使用命令行</title>
+  <meta name="description" content="在 PowerShell 中确认命令并处理 JSONL 输出。">
+  <meta name="guide:sidebar-order" content="9">
+</head>
+<body>
+<h2 id="确认命令">确认命令</h2>
+<p>从仓库目录使用已创建的环境执行。</p>
+<pre><code class="language-powershell">uv run --no-sync lorairo-cli --help
+uv run --no-sync lorairo-cli images --help
+uv run --no-sync lorairo-cli export create --help
+uv run --no-sync lorairo-cli --json list-commands
+uv run --no-sync lorairo-cli --json describe "images update"
+</code></pre>
+<p><code>list-commands</code> 和 <code>describe</code> 可让智能体确认可用操作及参数。如果旧步骤中的参数无法识别，请与当前的 <code>--help</code> 对照。</p>
+<h2 id="jsonl-模式">JSONL 模式</h2>
+<p>在命令前指定 <code>--json</code> 后，标准输出每行包含一个 JSON 对象。日志和进度写入标准错误。请检查最后的 <code>result</code> 或 <code>error</code>。退出码为：成功 0，输入或验证错误 2，其他错误 1。</p>
+<p>也支持环境变量 <code>LORAIRO_CLI_JSON=1</code>，但交互使用时，显式标志更容易体现意图。</p>
+<p>JSONL 不是单纯的图片 ID 列表。从搜索结果提取 ID 时，请检查 <code>kind</code> 等结构，避免混入消息行。</p>
+<h2 id="按目的查阅">按目的查阅</h2>
+<ul>
+<li><a href="../projects/">创建项目与导入图片</a></li>
+<li><a href="../search/">使用 JSON 文件搜索</a></li>
+<li><a href="../annotation/">模型列表与同步标注</a></li>
+<li><a href="../editing/">预览后应用标签编辑</a></li>
+<li><a href="../export/">使用图片 ID 导出</a></li>
+</ul>
+<p>命令行和图形界面使用相同的项目数据。批量更新前请备份，不要与图形界面同时写入。开发者详细约定见 <a href="https://github.com/NEXTAltair/LoRAIro/blob/main/docs/cli.md">CLI 参考文档</a>。</p>
+</body>
+</html>

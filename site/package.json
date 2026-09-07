@@ -5,7 +5,7 @@
   "engines": { "node": ">=24" },
   "scripts": {
     "dev": "astro dev",
-    "check": "node scripts/check-translations.mjs",
+    "check": "node scripts/check-translations.mjs && node scripts/check-guide-html.mjs",
     "build": "npm run check && astro build && node scripts/check-build.mjs",
     "preview": "astro preview",
     "test": "node --test scripts/*.test.mjs"

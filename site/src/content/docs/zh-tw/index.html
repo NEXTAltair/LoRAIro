@@ -1,0 +1,26 @@
+<!doctype html>
+<html lang="zh-tw">
+<head>
+  <meta charset="utf-8">
+  <title>使用指南</title>
+  <meta name="description" content="從圖片匯入、AI 標註到訓練資料集匯出的操作步驟。">
+  <meta name="guide:sidebar-order" content="1">
+</head>
+<body>
+<p>LoRAIro 是桌面應用程式，可匯入 LoRA 訓練圖片、使用 AI 產生標籤、描述文字與評分，檢查內容後匯出資料集。它不負責執行模型訓練。</p>
+<h2 id="第一次使用">第一次使用</h2>
+<ol>
+<li><a href="./installation/">在 Windows 安裝</a>並啟動圖形介面。</li>
+<li><a href="./projects/">匯入圖片</a>，接著<a href="./search/">搜尋並加入待處理區</a>。</li>
+<li>執行 <a href="./annotation/">AI 標註</a>，在 Jobs 查看結果。</li>
+<li><a href="./editing/">檢查及修改標籤</a>，再<a href="./export/">匯出資料集</a>。</li>
+</ol>
+<p>請先用少量圖片走完一次流程。選用 WebAPI 時，圖片會傳送至外部服務，且可能產生費用。</p>
+<h2 id="本指南的範圍">本指南的範圍</h2>
+<p>本使用指南提供日文、英文、繁體中文與簡體中文。日文為原文，其他語言由 AI 協助翻譯。如有語意差異，請以日文為準，並在 GitHub 回報。</p>
+<p>指南提供四種語言，不代表應用程式介面支援四種語言，也不代表圖片標籤與描述文字會自動翻譯。各功能的支援範圍會在對應章節說明。</p>
+<p>開發者設計文件與 ADR 保留在<a href="https://github.com/NEXTAltair/LoRAIro/tree/main/docs">儲存庫的 docs</a>。本指南依目前操作流程編寫，不是舊版 Sphinx 自動產生的 API 清單。</p>
+<h2 id="保護資料">保護資料</h2>
+<p>AI 標註與標籤編輯會修改專案資料庫。大量變更前請先<a href="./troubleshooting/">備份</a>，並區分僅供匯出的暫時調整與資料庫的永久變更。</p>
+</body>
+</html>

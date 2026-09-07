@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="zh-tw">
+<head>
+  <meta charset="utf-8">
+  <title>專案與圖片匯入</title>
+  <meta name="description" content="了解專案儲存內容，安全地匯入圖片。">
+  <meta name="guide:sidebar-order" content="3">
+</head>
+<body>
+<h2 id="儲存的內容">儲存的內容</h2>
+<p>圖片資訊、AI 標註與編輯內容以專案為單位管理。通常儲存在 <code>lorairo_data/&#x3C;project>_YYYYMMDD_NNN/</code>，包含 SQLite 資料庫、<code>image_dataset/</code> 等內容。若變更過設定，儲存位置也可能不同。</p>
+<p>請區分原始圖片資料夾與 LoRAIro 專案儲存位置。備份需要整個專案，不只是圖片資料庫。</p>
+<h2 id="在圖形介面匯入圖片">在圖形介面匯入圖片</h2>
+<ol>
+<li>開啟「検索」（搜尋）分頁。</li>
+<li>在「データセット」（資料集）的「選択」（選取）中選擇圖片資料夾。</li>
+<li>等待匯入完成，再確認搜尋結果與數量。</li>
+</ol>
+<figure class="guide-placeholder" data-aspect-ratio="16 / 9" style="--guide-placeholder-ratio: 16 / 9">
+  <div class="guide-placeholder__frame" role="img" aria-label="資料集選取與匯入結果 — 圖片準備中; 預計圖片尺寸：1280×720">
+    <strong>資料集選取與匯入結果</strong>
+    <span>圖片準備中</span>
+    <small>預計圖片尺寸：1280×720</small>
+  </div>
+  <figcaption>資料集選取與匯入結果 (預計圖片尺寸：1280×720)</figcaption>
+</figure>
+
+<p>此處的「選択」是選擇匯入來源資料夾，不是開啟既有專案的按鈕。請先用小型測試資料夾操作，避免意外匯入整個不需要的目錄。</p>
+<h2 id="在命令列明確指定專案">在命令列明確指定專案</h2>
+<pre><code class="language-powershell">uv run --no-sync lorairo-cli project create "my-project"
+uv run --no-sync lorairo-cli project list
+uv run --no-sync lorairo-cli images register ./images --project "my-project"
+uv run --no-sync lorairo-cli images list --project "my-project" --fetch
+</code></pre>
+<p>請將 <code>my-project</code> 換成自己的專案名稱。匯入後從清單確認圖片 ID，不要直接使用指南的範例 ID。</p>
+<p>命令列匯入預設會略過 pHash 相同的圖片。只有確實需要重複匯入時，才使用 <code>--include-duplicates</code>。</p>
+<h2 id="匯入之後">匯入之後</h2>
+<p>只匯入圖片不會自動執行標註或匯出。請透過<a href="../search/">搜尋與待處理區</a>選擇目標後再繼續。請勿同時用圖形介面與命令列執行匯入、編輯等寫入操作。</p>
+</body>
+</html>

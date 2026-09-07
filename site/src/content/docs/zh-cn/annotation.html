@@ -1,0 +1,61 @@
+<!doctype html>
+<html lang="zh-cn">
+<head>
+  <meta charset="utf-8">
+  <title>AI 标注与 Jobs</title>
+  <meta name="description" content="区分本地推理、WebAPI 和 Provider Batch 的执行方式。">
+  <meta name="guide:sidebar-order" content="5">
+</head>
+<body>
+<h2 id="执行前检查">执行前检查</h2>
+<p>请确认待处理图片及数量、使用的模型，以及生成类型（tags、caption、score、rating）。可用模型因环境和服务提供商而异。</p>
+<table>
+<thead>
+<tr>
+<th>执行方式</th>
+<th>处理位置和注意事项</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>本地模型</td>
+<td>在本地进行推理；首次下载模型或标签数据库可能需要联网。</td>
+</tr>
+<tr>
+<td>WebAPI 同步执行</td>
+<td>将目标图片和提示词发送到外部提供商；请确认费用和发送权限。</td>
+</tr>
+<tr>
+<td>Provider Batch</td>
+<td>将外部提交内容作为异步任务处理；不是免费处理，也不是本地推理。</td>
+</tr>
+</tbody>
+</table>
+<p>发送机密图片或第三方图片前，请确认是否有权发送。应用不管理 API 费用上限。重新执行和重试可能产生额外请求。</p>
+<h2 id="在图形界面执行">在图形界面执行</h2>
+<ol>
+<li>选择模型并确认目标图片数量。</li>
+<li>选择「同期実行」（同步执行）或「Batch API 実行」。是否符合 Batch 条件取决于模型。</li>
+<li>在 Jobs 中检查进度、完成和失败状态。</li>
+<li>完成后检查图片标签和描述文本。失败时请先阅读原因，再重试。</li>
+</ol>
+<figure class="guide-placeholder" data-aspect-ratio="16 / 9" style="--guide-placeholder-ratio: 16 / 9">
+  <div class="guide-placeholder__frame" role="img" aria-label="模型选择和 Jobs 确认 — 图片准备中; 预计图片尺寸：1280×720">
+    <strong>模型选择和 Jobs 确认</strong>
+    <span>图片准备中</span>
+    <small>预计图片尺寸：1280×720</small>
+  </div>
+  <figcaption>模型选择和 Jobs 确认 (预计图片尺寸：1280×720)</figcaption>
+</figure>
+
+<p>系统不会自动切换到其他提供商。取消 Batch 不一定能撤销已经完成的处理或已经产生的费用。</p>
+<h2 id="在命令行同步执行">在命令行同步执行</h2>
+<pre><code class="language-powershell">uv run --no-sync lorairo-cli models list
+uv run --no-sync lorairo-cli annotate run -p "my-project" --model "MODEL_ID" --image-id 42 --image-id 57
+</code></pre>
+<p>将 <code>MODEL_ID</code> 替换为列表中的模型 ID。重复使用 <code>--image-id</code> 指定图片。<code>--batch-size</code> 是同步处理的分块大小，不是提交 Provider Batch 的选项。</p>
+<h2 id="管理-provider-batch">管理 Provider Batch</h2>
+<p>命令行提供 <code>batch submit/list/status/fetch/import/cancel</code>。请使用 <code>uv run --no-sync lorairo-cli batch --help</code> 及各子命令的 <code>--help</code> 确认参数。获取结果和导入数据库是两个不同操作；<code>import</code> 会更新项目数据库。</p>
+<p>并非所有提供商都支持 Batch。不要公开含有 API 密钥或图片的结果文件。</p>
+</body>
+</html>

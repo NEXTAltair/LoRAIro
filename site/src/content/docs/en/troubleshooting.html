@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Settings, backups and troubleshooting</title>
+  <meta name="description" content="Protect secrets and projects while diagnosing recovery problems.">
+  <meta name="guide:sidebar-order" content="8">
+</head>
+<body>
+<h2 id="settings">Settings</h2>
+<p>Open Settings (「設定」, Ctrl+,) in the GUI. <code>config/lorairo.toml</code> contains storage paths and API keys. Do not publish API keys, the full settings file, or screenshots exposing private image paths.</p>
+<p>Key settings cover API keys; project, export and Batch result locations; additional prompts; model routes; database wait time; and log level. After restoring, check for absolute paths left over from the original PC.</p>
+<h2 id="backups">Backups</h2>
+<ol>
+<li>Stop processes that write to the database, including the GUI, CLI and Batch imports.</li>
+<li>Copy the entire project from its actual storage location to another location. It is usually under <code>lorairo_data/</code>.</li>
+<li>Preserve not only <code>image_database.db</code>, but also <code>image_dataset/</code>, the user tag database (<code>user_tags.sqlite</code>) and related files.</li>
+<li>Store <code>config/lorairo.toml</code> and any needed Batch results separately as confidential data.</li>
+</ol>
+<p>Avoid copying only a live SQLite database file. During recovery, do not overwrite the original backup. Use a recovery copy to check images, tags and settings.</p>
+<h2 id="startup-and-dependency-errors">Startup and dependency errors</h2>
+<p>Windows and Linux <code>.venv</code> environments are different. Install dependencies on the target OS instead of reusing a copied environment from another OS. Stop apps, tests and agents using the shared environment before rebuilding it.</p>
+<p>If the GUI does not appear, check whether Windows has <code>QT_QPA_PLATFORM=offscreen</code> set. Offscreen is expected for container tests.</p>
+<h2 id="gpu-not-detected">GPU not detected</h2>
+<pre><code class="language-powershell">nvidia-smi
+uv run --no-sync python -c "import torch; print(torch.__version__); print(torch.cuda.is_available()); print(torch.version.cuda)"
+</code></pre>
+<p>If the result is false when GPU use is intended, check the driver, GPU compatibility and PyTorch environment. Deleting app data will not solve a GPU configuration problem.</p>
+<h2 id="database-conflicts-and-external-connections">Database conflicts and external connections</h2>
+<p>For <code>CONFLICT</code>, wait for other writes to finish before retrying. Do not write simultaneously from the GUI and CLI. If the initial tag database download fails, check the network and Hugging Face authentication if required.</p>
+<p>For WebAPI errors, check authentication, usage limits, model support and submission restrictions. Investigate before repeating the same operation.</p>
+<h2 id="report-a-problem">Report a problem</h2>
+<p>Include the steps, OS, reproduction conditions and a short relevant log excerpt. Main logs are <code>logs/lorairo.log</code>, <code>logs/image-annotator-lib.log</code> and <code>logs/lorairo-cli.log</code>. Redact API keys, personal information and image paths you do not want to disclose.</p>
+</body>
+</html>

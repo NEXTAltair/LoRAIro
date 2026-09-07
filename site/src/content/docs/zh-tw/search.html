@@ -1,0 +1,34 @@
+<!doctype html>
+<html lang="zh-tw">
+<head>
+  <meta charset="utf-8">
+  <title>搜尋與待處理區</title>
+  <meta name="description" content="從搜尋結果中明確選擇實際要處理的圖片。">
+  <meta name="guide:sidebar-order" content="4">
+</head>
+<body>
+<h2 id="搜尋結果不等於執行目標">搜尋結果不等於執行目標</h2>
+<p>在圖形介面以標籤等條件篩選圖片、選取縮圖，再按「選択をステージングへ」（將選取圖片加入待處理區）。只出現在搜尋結果或只選取縮圖，都不會成為執行目標。</p>
+<p>AI 標註與匯出共用同一組待處理圖片，最多 500 張，同一圖片不會重複加入。執行前請再次確認圖片內容與數量。</p>
+<p>待處理區的「クリア」（清空）只移除處理目標，不會從資料庫刪除圖片。</p>
+<h2 id="圖形介面搜尋">圖形介面搜尋</h2>
+<p>標籤搜尋支援排除條件（<code>-tag</code>）。變更條件後，請確認數量與縮圖，檢查目標圖片是否包含在內。也可搭配評分、缺少模型結果等適合用途的條件。</p>
+<figure class="guide-placeholder" data-aspect-ratio="16 / 9" style="--guide-placeholder-ratio: 16 / 9">
+  <div class="guide-placeholder__frame" role="img" aria-label="搜尋結果與處理目標的差異 — 圖片準備中; 預計圖片尺寸：1280×720">
+    <strong>搜尋結果與處理目標的差異</strong>
+    <span>圖片準備中</span>
+    <small>預計圖片尺寸：1280×720</small>
+  </div>
+  <figcaption>搜尋結果與處理目標的差異 (1280×720)</figcaption>
+</figure>
+<h2 id="命令列搜尋">命令列搜尋</h2>
+<p>為避免在 PowerShell 直接嵌入 JSON 時的引號問題，請建立 UTF-8 編碼的 <code>query.json</code>。</p>
+<pre><code class="language-json">{"tags":["cat"],"excluded_tags":["dog"],"limit":100}
+</code></pre>
+<pre><code class="language-powershell">uv run --no-sync lorairo-cli --json images search -p "my-project" --query-file query.json
+uv run --no-sync lorairo-cli images show 42 57 -p "my-project"
+</code></pre>
+<p>搜尋預設的 <code>include_nsfw</code> 為 false。請勿把被條件排除的圖片誤認為尚未匯入。大量結果有數量保護限制；若要列出大量 ID，請在查詢中明確加入 <code>"emit_ids":true</code>。</p>
+<p><code>--json</code> 的標準輸出為 JSONL，除了結果，也包含帶有訊息類型的資料列。請勿把整份輸出直接當成圖片 ID 檔案使用。另請參閱 <a href="../cli/">CLI 說明</a>。</p>
+</body>
+</html>

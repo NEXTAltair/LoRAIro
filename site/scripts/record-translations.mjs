@@ -5,8 +5,8 @@ import { fileURLToPath } from 'node:url';
 import { digest, languages } from './check-translations.mjs';
 
 const [language, ...pages] = process.argv.slice(2);
-if (!languages.includes(language) || !pages.length || pages.some(p => !/^[a-z-]+\.md$/.test(p))) {
-  throw new Error('Usage: node scripts/record-translations.mjs en|zh-tw|zh-cn page.md [...]');
+if (!languages.includes(language) || !pages.length || pages.some(p => !/^[a-z-]+\.html$/.test(p))) {
+  throw new Error('Usage: node scripts/record-translations.mjs en|zh-tw|zh-cn page.html [...]');
 }
 const root = fileURLToPath(new URL('../', import.meta.url));
 const path = join(root, 'translations.json');

@@ -7,6 +7,7 @@ export default defineConfig({
   trailingSlash: 'always',
   integrations: [starlight({
     title: 'LoRAIro',
+    customCss: ['./src/styles/guide.css'],
     disable404Route: true,
     defaultLocale: 'ja',
     locales: {
