@@ -219,3 +219,28 @@ def test_recrop_from_preview_creates_grandchild(
     relation = crop_db_manager.get_crop_parent(grandchild_id)
     assert relation is not None
     assert relation.parent_image_id == child_id
+
+
+def test_launcher_shares_worker_service_fsm(
+    qtbot,
+    service_container: Mock,
+    crop_db_manager: ImageDatabaseManager,
+    dataset_state: DatasetStateManager,
+    fs_manager: FileSystemManager,
+) -> None:
+    """クロップ保存は登録経路 (WorkerService) と同じ FileSystemManager を使う。"""
+    dataset_state.set_db_manager(crop_db_manager)
+    worker_service = Mock()
+    worker_service.fsm = fs_manager
+    service_container.file_system_manager = FileSystemManager()  # 未初期化 (GUI の実態)
+    widget = SearchTabWidget(
+        service_container=service_container,
+        db_manager=crop_db_manager,
+        dataset_state_manager=dataset_state,
+        staging_state_manager=StagingStateManager(),
+        worker_service=worker_service,
+    )
+    qtbot.addWidget(widget)
+
+    assert widget._crop_dialog_launcher is not None
+    assert widget._crop_dialog_launcher._fsm is fs_manager

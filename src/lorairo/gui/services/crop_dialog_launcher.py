@@ -17,6 +17,7 @@ from PySide6.QtCore import QObject, Signal
 from PySide6.QtWidgets import QMessageBox, QWidget
 from sqlalchemy.exc import SQLAlchemyError
 
+from ...database.db_core import get_current_project_root
 from ...database.db_manager import ImageDatabaseManager
 from ...domain.crop_request import CropCreateRequest
 from ...filesystem import FileSystemManager
@@ -47,7 +48,8 @@ class CropDialogLauncher(QObject):
 
         Args:
             db_manager: 親画像情報の取得とクロップ画像の登録に使う DB マネージャー。
-            fsm: 切り出しファイルの保存先を握る FileSystemManager (initialize 済み)。
+            fsm: 切り出しファイルの保存先を握る FileSystemManager。未初期化なら
+                ダイアログを開く時点で現在のプロジェクトルートで初期化する。
             parent: 親 QObject。
         """
         super().__init__(parent)
@@ -70,6 +72,7 @@ class CropDialogLauncher(QObject):
             開いた :class:`CropDialog`。親画像情報を取得できなかった場合は None。
         """
         try:
+            self._ensure_fsm_initialized()
             source = get_crop_source_info(image_id, db_manager=self._db_manager)
         except (ValueError, OSError, SQLAlchemyError) as exc:
             logger.opt(exception=True).error(f"クロップ元画像の取得に失敗しました: image_id={image_id}")
@@ -90,6 +93,21 @@ class CropDialogLauncher(QObject):
         dialog.open()
         logger.info(f"クロップダイアログを開きました: parent_image_id={image_id}")
         return dialog
+
+    def _ensure_fsm_initialized(self) -> None:
+        """保存先ディレクトリが未初期化なら現在のプロジェクトルートで初期化する。
+
+        GUI の FileSystemManager はデータセット登録を実行した時にしか初期化されないため、
+        登録を経ずにクロップだけ行うセッションでも ``save_original_image`` が動くようにする。
+
+        Raises:
+            OSError: プロジェクト配下のディレクトリ作成に失敗した場合。
+        """
+        if self._fsm.original_images_dir is not None:
+            return
+        project_root = get_current_project_root()
+        self._fsm.initialize(project_root)
+        logger.info(f"クロップ保存用に FileSystemManager を初期化: {project_root}")
 
     def _build_save_callback(self) -> Callable[[CropCreateRequest], int]:
         """ダイアログへ渡す保存 callback を作る (Qt には触れない)。"""

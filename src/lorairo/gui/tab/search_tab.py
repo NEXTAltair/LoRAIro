@@ -42,6 +42,7 @@ from PySide6.QtWidgets import QSplitter, QWidget
 from sqlalchemy.exc import SQLAlchemyError
 
 from ...database.db_manager import ImageDatabaseManager
+from ...filesystem import FileSystemManager
 from ...services.model_selection_service import ModelSelectionService
 from ...services.refinement_service import RefinementService
 from ...services.service_container import ServiceContainer
@@ -291,9 +292,17 @@ class SearchTabWidget(QWidget, Ui_SearchTab):
             logger.warning("db_manager 未初期化 - クロップ導線をスキップ")
             return
 
+        # 登録経路 (WorkerService / DatasetController) と同じ FileSystemManager を共有する。
+        # ServiceContainer 側の FSM は GUI では初期化されない (set_active_project は CLI 経路のみ)。
+        worker_fsm = getattr(self._worker_service, "fsm", None)
+        fsm = (
+            worker_fsm
+            if isinstance(worker_fsm, FileSystemManager)
+            else self._service_container.file_system_manager
+        )
         self._crop_dialog_launcher = CropDialogLauncher(
             db_manager=self._db_manager,
-            fsm=self._service_container.file_system_manager,
+            fsm=fsm,
             parent=self,
         )
         self._crop_dialog_launcher.crop_saved.connect(self._on_crop_saved)

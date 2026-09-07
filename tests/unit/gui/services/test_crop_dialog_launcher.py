@@ -220,3 +220,28 @@ def test_missing_source_image_reports_error_and_returns_none(
 
     assert dialog is None
     assert shown and "クロップを開始できません" in shown[0]
+
+
+def test_open_initializes_uninitialized_fsm_from_project_root(
+    qtbot,
+    crop_db_manager: ImageDatabaseManager,
+    parent_image_id: int,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """未初期化の FileSystemManager でも、開く時点で現在のプロジェクトルートで初期化される。"""
+    from lorairo.database import db_core
+
+    project_root = tmp_path / "gui_project"
+    project_root.mkdir()
+    monkeypatch.setattr(db_core, "IMG_DB_PATH", project_root / "image_database.db")
+    fresh_fsm = FileSystemManager()
+    assert fresh_fsm.original_images_dir is None
+    launcher = CropDialogLauncher(db_manager=crop_db_manager, fsm=fresh_fsm)
+
+    dialog = launcher.open_for_image(parent_image_id)
+
+    assert dialog is not None
+    qtbot.addWidget(dialog)
+    assert fresh_fsm.original_images_dir is not None
+    assert fresh_fsm.original_images_dir.is_relative_to(project_root / "image_dataset")
