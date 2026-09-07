@@ -300,14 +300,9 @@ class SearchTabWidget(QWidget, Ui_SearchTab):
             if isinstance(worker_fsm, FileSystemManager)
             else self._service_container.file_system_manager
         )
-        # 候補/採用タグの翻訳表示 (#1355)。tagdb 不可でもクロップ導線自体は動かす
+        # 候補/採用タグの翻訳表示 (#1355)。get_merged_reader は tagdb 不可なら None を返す
         # (詳細カラムと同じ graceful degradation)。
-        try:
-            merged_reader = self._db_manager.annotation_repo.get_merged_reader()
-        except Exception as e:
-            # tagdb 初期化は base DB 欠損等で任意の例外を投げうるため広く捕捉する
-            logger.warning(f"クロップダイアログのタグ翻訳を無効化 (tagdb 不可?): {e}")
-            merged_reader = None
+        merged_reader = self._db_manager.annotation_repo.get_merged_reader()
         self._crop_dialog_launcher = CropDialogLauncher(
             db_manager=self._db_manager,
             fsm=fsm,

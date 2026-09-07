@@ -76,14 +76,6 @@ class CropDialogLauncher(QObject):
         self._tag_metadata_targets: dict[str, tuple[CropDialog, dict[int, str]]] = {}
         logger.debug("CropDialogLauncher initialized")
 
-    def set_merged_reader(self, reader: MergedTagReader | None) -> None:
-        """タグ翻訳取得用の MergedTagReader を差し替える (#1355)。
-
-        Args:
-            reader: MergedTagReader。None で翻訳表示を無効にする。
-        """
-        self._merged_reader = reader
-
     def open_for_image(self, image_id: int, parent: QWidget | None = None) -> CropDialog | None:
         """指定画像を親としてクロップダイアログを開く。
 
