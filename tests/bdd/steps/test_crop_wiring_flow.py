@@ -221,6 +221,18 @@ def then_dialog_still_open(ctx: WiringContext) -> None:
     assert ctx.dialog.child_image_id() is None
 
 
+@then("一覧にクロップ画像が含まれる")
+def then_list_contains_child(ctx: WiringContext) -> None:
+    assert ctx.saved_ids
+    image_ids = {image["id"] for image in ctx.dataset_state.filtered_images}
+    assert ctx.saved_ids[-1] in image_ids
+
+
+@then("一覧にクロップ画像は追加されない")
+def then_list_has_no_child(ctx: WiringContext) -> None:
+    assert ctx.dataset_state.filtered_images == []
+
+
 @then("一覧の現在画像はクロップ画像になる")
 def then_current_image_is_child(ctx: WiringContext) -> None:
     assert ctx.saved_ids

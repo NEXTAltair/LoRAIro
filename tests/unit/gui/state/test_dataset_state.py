@@ -548,3 +548,42 @@ class TestDatasetStateManager:
             ]
         )
         assert state_manager.get_filtered_image_ids_slice(0, 4) == [1, 4]
+
+    def test_add_image_appends_to_list_without_search(self, state_manager, sample_image_metadata):
+        """add_image は検索を介さず一覧の画像集合へ 1 件追加する (#1346)"""
+        state_manager.set_dataset_images(sample_image_metadata)
+
+        state_manager.add_image({"id": 4, "stored_image_path": "/test/crop.jpg"})
+
+        assert [image["id"] for image in state_manager.filtered_images] == [1, 2, 3, 4]
+        assert state_manager.get_image_by_id(4) == {"id": 4, "stored_image_path": "/test/crop.jpg"}
+
+    def test_add_image_into_empty_list(self, state_manager):
+        """検索前 (一覧が空) でも追加できる (フィルタ未指定で検索がスキップされるケース)"""
+        state_manager.add_image({"id": 7, "stored_image_path": "/test/crop.jpg"})
+
+        assert [image["id"] for image in state_manager.filtered_images] == [7]
+
+    def test_add_image_replaces_existing_id(self, state_manager, sample_image_metadata):
+        """同じ ID が既にあれば置き換え、重複させない"""
+        state_manager.set_dataset_images(sample_image_metadata)
+
+        state_manager.add_image({"id": 2, "stored_image_path": "/test/updated.jpg"})
+
+        assert [image["id"] for image in state_manager.filtered_images] == [1, 2, 3]
+        assert state_manager.get_image_by_id(2)["stored_image_path"] == "/test/updated.jpg"
+
+    def test_add_image_emits_images_filtered(self, qtbot, state_manager):
+        """追加後の集合が images_filtered で通知される (ページネーション更新用)"""
+        with qtbot.waitSignal(state_manager.images_filtered, timeout=1000) as blocker:
+            state_manager.add_image({"id": 9, "stored_image_path": "/test/crop.jpg"})
+
+        assert [image["id"] for image in blocker.args[0]] == [9]
+
+    def test_add_image_without_id_is_ignored(self, state_manager, sample_image_metadata):
+        """id を持たないメタデータは追加しない"""
+        state_manager.set_dataset_images(sample_image_metadata)
+
+        state_manager.add_image({"stored_image_path": "/test/no_id.jpg"})
+
+        assert [image["id"] for image in state_manager.filtered_images] == [1, 2, 3]

@@ -39,6 +39,7 @@ from typing import Any
 
 from PySide6.QtCore import QSettings, Qt, Signal, Slot
 from PySide6.QtWidgets import QSplitter, QWidget
+from sqlalchemy.exc import SQLAlchemyError
 
 from ...database.db_manager import ImageDatabaseManager
 from ...services.model_selection_service import ModelSelectionService
@@ -318,19 +319,49 @@ class SearchTabWidget(QWidget, Ui_SearchTab):
     def _on_crop_saved(self, parent_image_id: int, child_image_id: int) -> None:
         """クロップ保存成功を一覧・詳細へ反映する。
 
+        再検索 (``load_images_from_db``) は使わない。フィルタ未指定だと検索自体が
+        スキップされ、一覧に子画像が載らないため (Codex P2)。DB から子のメタデータを
+        引いて一覧の画像集合へ直接追加し、サムネイルの現在ページを読み直す。
+
         Args:
             parent_image_id: 切り出し元となった画像 ID。
             child_image_id: 作成されたクロップ画像 ID。
         """
-        self.load_images_from_db()
-        if self._dataset_state_manager is not None:
-            self._dataset_state_manager.set_current_image(child_image_id)
-        else:
+        dsm = self._dataset_state_manager
+        if dsm is None:
             # 選択 SSoT が無いタブ構成でも、詳細カラムの親子表示だけは追従させる
             self._selected_image_details_widget.refresh_related_images()
+        else:
+            metadata = self._fetch_child_metadata(child_image_id)
+            if metadata is not None:
+                dsm.add_image(metadata)
+                self._thumbnail_selector.refresh_current_page()
+            dsm.set_current_image(child_image_id)
         self.status_message.emit(
             f"クロップ画像を作成しました (元: {parent_image_id} → 新規: {child_image_id})"
         )
+
+    def _fetch_child_metadata(self, child_image_id: int) -> dict[str, Any] | None:
+        """一覧へ載せるためのクロップ画像メタデータを取得する。
+
+        Args:
+            child_image_id: 作成されたクロップ画像 ID。
+
+        Returns:
+            画像メタデータ。取得できなければ None (一覧追加をスキップする)。
+        """
+        if self._db_manager is None:
+            return None
+        try:
+            metadata: dict[str, Any] | None = self._db_manager.get_image_metadata(child_image_id)
+        except SQLAlchemyError:
+            logger.opt(exception=True).error(
+                f"クロップ画像のメタデータ取得に失敗しました: image_id={child_image_id}"
+            )
+            return None
+        if metadata is None:
+            logger.warning(f"クロップ画像のメタデータが見つかりません: image_id={child_image_id}")
+        return metadata
 
     @Slot(int)
     def _on_related_image_activated(self, image_id: int) -> None:

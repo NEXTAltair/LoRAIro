@@ -199,3 +199,33 @@ def test_preview_crop_button_disabled_on_empty_selection(qtbot, preview_image: P
 
     assert widget.current_image_id() is None
     assert widget._crop_button.isEnabled() is False
+
+
+@pytest.mark.gui
+def test_refresh_current_page_is_noop_without_pagination(qtbot) -> None:
+    """dataset_state 未注入 (ページネーション未初期化) の一覧再読込は安全に no-op (#1346)。"""
+    widget = ThumbnailSelectorWidget(dataset_state=None)
+    qtbot.addWidget(widget)
+    assert widget.pagination_state is None
+
+    widget.refresh_current_page()
+
+    assert widget.pagination_state is None
+
+
+@pytest.mark.gui
+def test_refresh_current_page_drops_stale_page_cache(
+    thumbnail_widget: ThumbnailSelectorWidget,
+) -> None:
+    """一覧の画像集合が変わった後の再読込でページキャッシュを捨てる (#1346)。
+
+    ページキャッシュはページ番号でしか引けないため、集合が変わったまま再利用すると
+    追加した画像が描画されない。
+    """
+    assert thumbnail_widget.pagination_state is not None
+    thumbnail_widget.page_cache.set_page(1, [])
+    assert thumbnail_widget.cache_usage_info()["page_cache_count"] == 1
+
+    thumbnail_widget.refresh_current_page()
+
+    assert thumbnail_widget.cache_usage_info()["page_cache_count"] == 0

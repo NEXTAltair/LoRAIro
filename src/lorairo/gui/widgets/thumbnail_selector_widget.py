@@ -626,6 +626,19 @@ class ThumbnailSelectorWidget(QWidget, Ui_ThumbnailSelectorWidget):
         elif action == action_deselect:
             self._deselect_all_items()
 
+    def refresh_current_page(self) -> None:
+        """dataset_state の画像集合が変わった後、現在ページを読み直す (#1346)。
+
+        ページキャッシュはページ番号でしか引けないため、集合が変わると古い内容を
+        描画してしまう。キャッシュを捨てて現在ページを再要求する。検索がまだ走って
+        おらずページネーション未初期化なら何もしない。
+        """
+        if not self.pagination_state:
+            logger.debug("ページネーション未初期化のため一覧の再読込をスキップ")
+            return
+        self.page_cache.clear()
+        self._display_or_request_page(self._current_display_page, cancel_previous=True)
+
     def set_crop_action_enabled(self, enabled: bool) -> None:
         """右クリックメニューの「クロップして学習素材を作成…」項目を有効化する (#1346)。
 

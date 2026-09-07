@@ -207,6 +207,36 @@ class DatasetStateManager(QObject):
 
         logger.debug(f"データ同期完了: all_images={len(self._all_images)}")
 
+    def add_image(self, metadata: dict[str, Any]) -> None:
+        """一覧の画像集合へ 1 件だけ追加する (検索を介さない即時反映、#1346)。
+
+        クロップ保存直後のように「検索条件とは無関係に、いま作った画像を一覧へ載せたい」
+        経路で使う。フィルタ未指定だと検索自体がスキップされ再検索では反映されないため、
+        検索状態に依存しない追加経路を分けている。同じ ID が既にあれば置き換える。
+
+        Args:
+            metadata: 追加する画像のメタデータ (``id`` キー必須)。
+
+        Side Effects:
+            - ``_all_images`` へ追加/置換し、``images_filtered`` を発行する
+              (ページネーションが 1 ページ目へリセットされる)。
+        """
+        image_id = metadata.get("id")
+        if image_id is None:
+            logger.warning("id を持たないメタデータは一覧へ追加できません")
+            return
+
+        for index, existing in enumerate(self._all_images):
+            if existing.get("id") == image_id:
+                self._all_images[index] = metadata
+                break
+        else:
+            self._all_images.append(metadata)
+        self._invalidate_image_index()
+
+        logger.debug(f"一覧へ画像を追加: ID {image_id} (合計 {len(self._all_images)}件)")
+        self.images_filtered.emit(self._all_images)
+
     # === Selection Management ===
 
     def set_selected_images(self, image_ids: list[int]) -> None:

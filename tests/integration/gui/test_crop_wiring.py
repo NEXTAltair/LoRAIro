@@ -136,12 +136,21 @@ def test_saved_crop_becomes_current_image_with_relation(
     dataset_state: DatasetStateManager,
     crop_db_manager: ImageDatabaseManager,
 ) -> None:
-    """保存でダイアログが閉じ、作成した子が現在画像として一覧へ反映される。"""
+    """保存でダイアログが閉じ、作成した子が一覧の画像集合と現在画像へ反映される。
+
+    検索フィルタ未指定 (= 再検索がスキップされる状態) でも一覧へ載ることを確認する
+    (Codex P2: 旧実装は load_images_from_db() 頼みで no-op になっていた)。
+    """
+    assert dataset_state.filtered_images == [], "フィルタ未指定で一覧が空の状態から始める"
+
     dialog, child_id = _crop_via_list(
         qtbot, tab, parent_image_id, CropRect(x=100, y=100, width=800, height=600)
     )
 
     assert dialog.isVisible() is False
+    # 一覧 (サムネイルが描画元にする画像集合) に子画像が載っている
+    assert child_id in {image["id"] for image in dataset_state.filtered_images}
+    assert dataset_state.get_image_by_id(child_id) is not None
     assert dataset_state.current_image_id == child_id
     relation = crop_db_manager.get_crop_parent(child_id)
     assert relation is not None
