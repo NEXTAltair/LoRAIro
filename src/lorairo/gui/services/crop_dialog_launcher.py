@@ -126,6 +126,11 @@ class CropDialogLauncher(QObject):
         self.crop_saved.emit(parent_image_id, child_image_id)
 
     def _forget_dialog(self, dialog: CropDialog) -> None:
-        """閉じたダイアログの参照を解放する。"""
+        """閉じたダイアログの参照を解放し、Qt 側でも破棄予約する。
+
+        ダイアログは親ウィジェット (長寿命のタブ) に parent されているため、参照を
+        外すだけでは QObject ツリーに残り元画像の pixmap を保持し続ける。
+        """
         if dialog in self._open_dialogs:
             self._open_dialogs.remove(dialog)
+        dialog.deleteLater()

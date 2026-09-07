@@ -245,3 +245,25 @@ def test_open_initializes_uninitialized_fsm_from_project_root(
     qtbot.addWidget(dialog)
     assert fresh_fsm.original_images_dir is not None
     assert fresh_fsm.original_images_dir.is_relative_to(project_root / "image_dataset")
+
+
+def test_finished_dialog_is_destroyed_not_only_forgotten(
+    qtbot,
+    launcher: CropDialogLauncher,
+    parent_image_id: int,
+) -> None:
+    """閉じたダイアログは参照解放だけでなく Qt 側でも破棄され、親の子ツリーに残らない。"""
+    from PySide6.QtWidgets import QWidget
+
+    from lorairo.gui.widgets.crop_dialog import CropDialog
+
+    host = QWidget()
+    qtbot.addWidget(host)
+    dialog = launcher.open_for_image(parent_image_id, parent=host)
+    assert dialog is not None
+    assert host.findChildren(CropDialog) == [dialog]
+
+    dialog.reject()
+
+    qtbot.waitUntil(lambda: host.findChildren(CropDialog) == [], timeout=5000)
+    assert launcher._open_dialogs == []
