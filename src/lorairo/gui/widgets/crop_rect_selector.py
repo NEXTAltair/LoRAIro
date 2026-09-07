@@ -184,10 +184,16 @@ class CropRectSelectorWidget(QGraphicsView):
         if event.button() != Qt.MouseButton.LeftButton or self._pixmap is None:
             super().mousePressEvent(event)
             return
+        raw_point = self.mapToScene(event.position().toPoint())
+        handle = self._hit_handle(raw_point)
+        if handle is None and not self._inside_image(raw_point):
+            # fitInView のレターボックス余白での押下は無視する。境界上のハンドルだけは
+            # 当たり判定の許容幅が画像外へはみ出すので先に判定する。
+            super().mousePressEvent(event)
+            return
         point = self._clamped_scene_point(event.position())
         self._drag_start_rect = self._rect
         self._drag_anchor = point
-        handle = self._hit_handle(point)
         if handle is not None:
             self._drag_mode = handle
         elif self._rect is not None and self._contains(self._rect, point):
@@ -271,6 +277,13 @@ class CropRectSelectorWidget(QGraphicsView):
         if scale <= 0.0:
             return view_px
         return view_px / scale
+
+    def _inside_image(self, scene_point: QPointF) -> bool:
+        """scene 座標が画像の範囲内 (境界を含む) か。画像未設定なら False。"""
+        size = self.image_size()
+        if size is None:
+            return False
+        return 0.0 <= scene_point.x() <= float(size[0]) and 0.0 <= scene_point.y() <= float(size[1])
 
     def _clamped_scene_point(self, position: QPointF) -> QPointF:
         """ビューポート座標を画像範囲内の scene 座標へ変換する。"""

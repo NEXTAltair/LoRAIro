@@ -241,6 +241,47 @@ class TestMove:
         assert rect.fits_within(IMAGE_WIDTH, IMAGE_HEIGHT)
 
 
+class TestLetterboxMargin:
+    """fitInView のレターボックス余白での押下は選択に影響しない。"""
+
+    @staticmethod
+    def _margin_pos(widget: CropRectSelectorWidget) -> QPoint:
+        widget.resize(900, 300)
+        widget._fit()
+        left_edge = widget.mapFromScene(QPointF(0.0, IMAGE_HEIGHT / 2)).x()
+        assert left_edge > 20, "レターボックス余白が生じる前提"
+        return QPoint(left_edge - 15, widget.viewport().rect().center().y())
+
+    def test_press_in_margin_keeps_existing_rect(self, qtbot, selector):
+        selector.set_rect(CropRect(100, 80, 200, 180))
+        pos = self._margin_pos(selector)
+        qtbot.mousePress(selector.viewport(), Qt.MouseButton.LeftButton, pos=pos)
+        qtbot.mouseRelease(selector.viewport(), Qt.MouseButton.LeftButton, pos=pos)
+        assert selector.crop_rect() == CropRect(100, 80, 200, 180)
+
+    def test_drag_from_margin_creates_nothing(self, qtbot, selector):
+        pos = self._margin_pos(selector)
+        qtbot.mousePress(selector.viewport(), Qt.MouseButton.LeftButton, pos=pos)
+        qtbot.mouseMove(selector.viewport(), pos=_view_pos(selector, 200, 150))
+        qtbot.mouseRelease(
+            selector.viewport(), Qt.MouseButton.LeftButton, pos=_view_pos(selector, 200, 150)
+        )
+        assert selector.crop_rect() is None
+
+    def test_edge_handle_is_still_grabbable_from_outside(self, qtbot, selector):
+        selector.set_rect(CropRect(0, 80, 200, 180))
+        selector.resize(900, 300)
+        selector._fit()
+        handle_center = selector.mapFromScene(QPointF(0.0, 80 + 90))
+        press = QPoint(handle_center.x() - 3, handle_center.y())
+        qtbot.mousePress(selector.viewport(), Qt.MouseButton.LeftButton, pos=press)
+        qtbot.mouseMove(selector.viewport(), pos=_view_pos(selector, 40, 170))
+        qtbot.mouseRelease(selector.viewport(), Qt.MouseButton.LeftButton, pos=_view_pos(selector, 40, 170))
+        rect = selector.crop_rect()
+        assert rect is not None
+        assert rect.x == 40 and rect.x + rect.width == 200
+
+
 class TestClamping:
     def test_set_rect_crossing_top_left_keeps_far_edges(self, selector):
         """左上をはみ出す矩形は交差 (右辺・下辺は元の位置) にクランプされる。"""
