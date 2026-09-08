@@ -277,6 +277,24 @@ def _classify_lorairo_exception(exc: BaseException) -> ErrorInfo | None:
     return None
 
 
+def _classify_provider_batch_exception(exc: BaseException) -> ErrorInfo | None:
+    """Provider Batch サービス固有例外を分類する (該当しなければ ``None``)。
+
+    #1337: 結果ファイル削除済みエラー (``details.reason == "result_file_missing"``) は
+    ``details.affected_image_ids`` を使って別ジョブとして再送できるため ``retryable=True``
+    にする。従来はどの分類にも該当せず ``INTERNAL_ERROR, retryable=False`` の最終フォール
+    バックに落ちており、「再送してください」という例外メッセージと矛盾していた。
+    """
+    from lorairo.services.provider_batch_service import ProviderBatchError
+
+    if not isinstance(exc, ProviderBatchError):
+        return None
+    details = getattr(exc, "details", None)
+    if isinstance(details, dict) and details.get("reason") == "result_file_missing":
+        return ErrorInfo(ErrorCode.PRECONDITION_FAILED, retryable=True, user_action_required=True)
+    return ErrorInfo(ErrorCode.PRECONDITION_FAILED, retryable=False, user_action_required=True)
+
+
 # cause-chain で真因を優先判定する分類器テーブル (順序が結果優先順位、上が勝つ)。
 # wrap された OOM / 認証 / ネットワークを真因として拾うため LoRAIro 独自例外より先に評価する。
 # SQLite ロックは SQLAlchemy ``OperationalError`` でもあるため、汎用 DB エラーより先に
@@ -353,4 +371,7 @@ def classify_exception(exc: BaseException) -> ErrorInfo:
     lorairo_info = _classify_lorairo_exception(exc)
     if lorairo_info is not None:
         return lorairo_info
+    provider_batch_info = _classify_provider_batch_exception(exc)
+    if provider_batch_info is not None:
+        return provider_batch_info
     return _classify_standard_exception(exc)

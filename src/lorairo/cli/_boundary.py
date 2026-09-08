@@ -63,6 +63,11 @@ def _report(
         _console_err.print(f"[red]Error:[/red] {message}")
         if hint:
             _console_err.print(f"[yellow]Hint:[/yellow] {hint}")
+        # #1364 Codex P2: JSON モードのみ details を出すと --json なしの利用者が
+        # affected_image_ids 等の復旧情報 (details 参照の hint) を確認できない。
+        if details:
+            for key, value in details.items():
+                _console_err.print(f"[dim]{key}:[/dim] {value}")
 
 
 @contextmanager

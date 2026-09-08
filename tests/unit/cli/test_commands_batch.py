@@ -12,6 +12,7 @@ import pytest
 from typer.testing import CliRunner
 
 from lorairo.cli.main import app
+from lorairo.services.provider_batch_service import ProviderBatchError
 
 runner = CliRunner()
 
@@ -532,6 +533,28 @@ def test_batch_fetch_derives_counts_from_items_when_provider_counts_missing(
 @pytest.mark.unit
 @pytest.mark.cli
 @patch("lorairo.cli.commands.batch.get_service_container")
+def test_batch_fetch_result_file_missing_shows_affected_image_ids(
+    mock_get_container: MagicMock, tmp_path: Path
+) -> None:
+    """#1364 Codex P2: rich (非 --json) 出力でも details.affected_image_ids を表示する。"""
+    container = _container()
+    container.provider_batch_workflow_service.fetch_results.side_effect = ProviderBatchError(
+        "結果ファイルは provider 側で削除済みです。",
+        details={"reason": "result_file_missing", "affected_image_ids": [5, 9]},
+        hint="details.affected_image_ids の image_id を submit --image-ids で再送してください。",
+    )
+    mock_get_container.return_value = container
+
+    result = runner.invoke(app, ["batch", "fetch", "42", "--project", "demo", "-o", str(tmp_path)])
+
+    assert result.exit_code == 1
+    assert "affected_image_ids" in result.stderr
+    assert "[5, 9]" in result.stderr
+
+
+@pytest.mark.unit
+@pytest.mark.cli
+@patch("lorairo.cli.commands.batch.get_service_container")
 def test_batch_import_shows_summary(mock_get_container: MagicMock, tmp_path: Path) -> None:
     container = _container()
     container.provider_batch_workflow_service.import_results.return_value = SimpleNamespace(
@@ -554,6 +577,63 @@ def test_batch_import_shows_summary(mock_get_container: MagicMock, tmp_path: Pat
     assert "Summary" in result.stdout
     assert "Imported" in result.stdout
     assert "yes" in result.stdout
+
+
+@pytest.mark.unit
+@pytest.mark.cli
+@patch("lorairo.cli.commands.batch.get_service_container")
+def test_batch_import_shows_failed_image_ids_and_retry_command(mock_get_container: MagicMock) -> None:
+    """#1337: 失敗 image_id と再送コマンド例を rich 表示する。"""
+    container = _container()
+    container.provider_batch_workflow_service.import_results.return_value = SimpleNamespace(
+        imported_count=1,
+        skipped_count=0,
+        error_count=1,
+        total_count=2,
+        job_imported=False,
+        failed_image_ids=(5, 9),
+    )
+    container.db_manager.provider_batch_repo.list_provider_batch_items.return_value = [
+        _batch_item(id=1, image_id=5, task_type="annotation"),
+        _batch_item(id=2, image_id=9, task_type="annotation"),
+    ]
+    mock_get_container.return_value = container
+
+    result = runner.invoke(app, ["batch", "import", "42", "--project", "demo"])
+
+    assert result.exit_code == 1
+    assert "Failed image IDs:" in result.stdout
+    assert "5,9" in result.stdout
+    assert "lorairo-cli batch submit --image-ids 5,9" in result.stdout
+    assert "--task-type" not in result.stdout
+
+
+@pytest.mark.unit
+@pytest.mark.cli
+@patch("lorairo.cli.commands.batch.get_service_container")
+def test_batch_import_retry_command_preserves_rating_preflight_task_type(
+    mock_get_container: MagicMock,
+) -> None:
+    """#1364 Codex P2: rating_preflight 失敗の再送コマンドは --task-type を保持する。"""
+    container = _container()
+    container.provider_batch_workflow_service.import_results.return_value = SimpleNamespace(
+        imported_count=0,
+        skipped_count=0,
+        error_count=2,
+        total_count=2,
+        job_imported=False,
+        failed_image_ids=(5, 9),
+    )
+    container.db_manager.provider_batch_repo.list_provider_batch_items.return_value = [
+        _batch_item(id=1, image_id=5, task_type="rating_preflight"),
+        _batch_item(id=2, image_id=9, task_type="rating_preflight"),
+    ]
+    mock_get_container.return_value = container
+
+    result = runner.invoke(app, ["batch", "import", "42", "--project", "demo"])
+
+    assert "lorairo-cli batch submit --image-ids 5,9" in result.stdout
+    assert "--task-type rating_preflight" in result.stdout
 
 
 @pytest.mark.unit

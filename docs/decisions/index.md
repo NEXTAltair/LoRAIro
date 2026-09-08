@@ -92,3 +92,4 @@
 * [transitive依存のセキュリティ更新と環境別torch境界](0090-transitive-security-update-boundary.md)
 * [Japanese-first multilingual user guide on GitHub Pages](0091-multilingual-user-guide.md)
 * [クロップ画像の親子関係を専用テーブル crop_relations で保持する](0092-crop-parent-child-relation.md)
+* [Provider Batch 失敗 image_id の CLI 復旧経路](0093-batch-failure-image-id-recovery.md)

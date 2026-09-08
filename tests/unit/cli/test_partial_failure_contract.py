@@ -156,6 +156,8 @@ def test_provider_import_terminal(
         already_imported_count=already,
         missing_custom_ids=("missing-id",) if skip and not already else (),
         failed_custom_ids=("unconfirmed-save-id",) if errors or (skip and not already) else (),
+        # #1337: failed_custom_ids を image_id へ変換した集合。CLI 出力へそのまま転記される。
+        failed_image_ids=(5,) if errors or (skip and not already) else (),
         save_result=SimpleNamespace(error_details=["image 5: write failed"] if errors else []),
     )
     monkeypatch.setattr("lorairo.cli.commands.batch._activate_project", lambda _: container)
@@ -168,6 +170,7 @@ def test_provider_import_terminal(
         assert row["failed_custom_ids"] == (
             ["unconfirmed-save-id"] if errors or (skip and not already) else []
         )
+        assert row["failed_image_ids"] == ([5] if errors or (skip and not already) else [])
         if status != "success":
             assert "batch status 42" in row["hint"]
 
