@@ -609,14 +609,20 @@ def fetch(
             _print_artifacts(result)
 
 
+def _job_items_and_task_types(container: Any, job_id: int) -> tuple[list[Any], set[str]]:
+    """job の items (最大 500 件、CLI 上限) と、そこに現れる task_type 集合を返す。"""
+    items = container.db_manager.provider_batch_repo.list_provider_batch_items(job_id, limit=500)
+    task_types = {_item_value(item, "task_type") for item in items if _item_value(item, "task_type")}
+    return items, task_types
+
+
 def _get_rating_breakdown(container: Any, job_id: int) -> dict[str, int]:
     """rating_preflight job の image_id セットに対する normalized_rating 別件数を返す。
 
     job の items を最大 500 件取得し、task_type が rating_preflight の image_id を抽出する。
     500 件超の job では最初の 500 件で近似する（CLI 上限 = 500）。
     """
-    items = container.db_manager.provider_batch_repo.list_provider_batch_items(job_id, limit=500)
-    task_types = {_item_value(item, "task_type") for item in items}
+    items, task_types = _job_items_and_task_types(container, job_id)
     if "rating_preflight" not in task_types:
         return {}
 
@@ -627,6 +633,19 @@ def _get_rating_breakdown(container: Any, job_id: int) -> dict[str, int]:
         return {}
 
     return dict(container.db_manager.annotation_repo.get_rating_breakdown_for_images(image_ids))
+
+
+def _retry_submit_task_type_flag(container: Any, job_id: int) -> str:
+    """再送コマンド例に task_type を反映する (#1364 Codex P2)。
+
+    rating_preflight の失敗を ``submit`` 既定の ``annotation`` で再送すると
+    ``/v1/moderations`` ではなく chat-completions エンドポイントに送られてしまうため、
+    job の item task_type を見て ``--task-type`` を明示する。
+    """
+    _, task_types = _job_items_and_task_types(container, job_id)
+    if "rating_preflight" in task_types:
+        return " --task-type rating_preflight"
+    return ""
 
 
 def _print_rating_breakdown(breakdown: dict[str, int], total: int) -> None:
@@ -712,10 +731,11 @@ def import_results(
             failed_image_ids = list(getattr(result, "failed_image_ids", ()))
             if failed_image_ids:
                 ids_csv = ",".join(str(image_id) for image_id in failed_image_ids)
+                task_type_flag = _retry_submit_task_type_flag(container, job_id)
                 console.print(f"[red]Failed image IDs:[/red] {ids_csv}")
                 console.print(
                     f"[green]Retry:[/green] lorairo-cli batch submit --image-ids {ids_csv} "
-                    f"--project {project} --model <model>"
+                    f"--project {project} --model <model>{task_type_flag}"
                 )
             if rating_breakdown:
                 _print_rating_breakdown(rating_breakdown, ratings_saved)
