@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from typing import TYPE_CHECKING
 
 from .base import LoRAIroWorkerBase
@@ -38,6 +39,7 @@ class AnnotationReviewWorker(LoRAIroWorkerBase[AnnotationReviewWorkerResult]):
         self._image_id = image_id
         self._generation = generation
         self._store = store
+        self._requested_at = datetime.now(UTC)
 
     def execute(self) -> AnnotationReviewWorkerResult:
         self._check_cancellation()
@@ -45,5 +47,5 @@ class AnnotationReviewWorker(LoRAIroWorkerBase[AnnotationReviewWorkerResult]):
         self._check_cancellation()
         review = self._service.review(snapshot, is_cancelled=self.cancellation.is_canceled)
         if self._store is not None:
-            self._store.save(review, self._service.warning_threshold)
+            self._store.save(review, self._service.warning_threshold, requested_at=self._requested_at)
         return AnnotationReviewWorkerResult(generation=self._generation, review=review)

@@ -1,7 +1,7 @@
 """Fixed targets, preflight ordering, independent saves and cancellation."""
 
 from pathlib import Path
-from unittest.mock import Mock
+from unittest.mock import ANY, Mock
 
 import pytest
 
@@ -47,6 +47,7 @@ def batch_context():
 
     service.review.side_effect = review
     store = Mock()
+    store.save.return_value = True
     return service, store, snapshots, review
 
 
@@ -71,6 +72,7 @@ def test_target_list_frozen_ordered_and_deduplicated_before_worker_runs(batch_co
         snapshots[2],
     ]
     assert not result.cancelled
+    assert result.processed_count == 3
     assert store.save.call_count == 3
 
 
@@ -85,7 +87,10 @@ def test_preflight_finishes_before_first_review_and_save_precedes_signal(batch_c
         events.append(f"review {snapshot.image_id}"),
         review(snapshot, **kwargs),
     )[1]
-    store.save.side_effect = lambda result, threshold: events.append(f"save {result.image_id}")
+    store.save.side_effect = lambda result, threshold, **kwargs: (
+        events.append(f"save {result.image_id}"),
+        True,
+    )[1]
     worker = AnnotationReviewBatchWorker(service, store, (1, 2), 3)
     worker.per_image_finished.connect(lambda payload: events.append(f"signal {payload.review.image_id}"))
     worker.execute()
@@ -107,6 +112,7 @@ def test_cancellation_preserves_completed_images_and_leaves_unstarted_targets_al
     worker.per_image_finished.connect(lambda payload: worker.cancel())
     result = worker.execute()
     assert result.cancelled
+    assert result.processed_count == 1
     assert [review.image_id for review in result.reviews] == [1]
     assert store.save.call_count == 1
     assert store.save.call_args.args[0].status == "completed"
@@ -137,6 +143,7 @@ def test_cancellation_during_preflight_sends_nothing(batch_context):
     service.prepare_reviews.side_effect = cancel_during_preparation
     result = worker.execute()
     assert result.cancelled and result.reviews == ()
+    assert result.processed_count == 0
     service.review.assert_not_called()
     store.save.assert_not_called()
 
@@ -205,7 +212,7 @@ def test_single_image_worker_persists_before_completion(batch_context):
     worker = AnnotationReviewWorker(service, 1, 7, store=store)
     result = worker.execute()
     assert result.generation == 7 and result.review.image_id == 1
-    store.save.assert_called_once_with(result.review, 0.2)
+    store.save.assert_called_once_with(result.review, 0.2, requested_at=ANY)
 
 
 def test_single_image_worker_keeps_read_only_compatibility_when_no_store(batch_context):
@@ -213,3 +220,22 @@ def test_single_image_worker_keeps_read_only_compatibility_when_no_store(batch_c
     service.prepare_review.return_value = snapshots[1]
     AnnotationReviewWorker(service, 1, 7).execute()
     store.save.assert_not_called()
+
+
+def test_newer_stored_results_suppress_obsolete_completion_signals_and_results(batch_context):
+    service, store, _, _ = batch_context
+    store.save.side_effect = [False, True, False]
+    worker = AnnotationReviewBatchWorker(service, store, (1, 2, 3), 1)
+    emitted = []
+    progress = []
+    worker.per_image_finished.connect(emitted.append)
+    worker.progress_updated.connect(progress.append)
+
+    result = worker.execute()
+
+    assert result.processed_count == 3
+    assert [review.image_id for review in result.reviews] == [2]
+    assert [payload.review.image_id for payload in emitted] == [2]
+    assert progress[-1].processed_count == 3 and progress[-1].percentage == 100
+    requested_dates = [call.kwargs["requested_at"] for call in store.save.call_args_list]
+    assert len(set(requested_dates)) == 1

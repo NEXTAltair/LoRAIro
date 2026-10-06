@@ -275,3 +275,36 @@ def test_unrelated_database_integrity_error_still_propagates(saved_context, monk
     monkeypatch.setattr(store._repository, "save_result", Mock(side_effect=error))
     with pytest.raises(IntegrityError):
         store.save(review, 0.2)
+
+
+def test_old_batch_finishing_late_cannot_overwrite_newer_single_image_result(saved_context):
+    from lorairo.gui.workers.annotation_review_batch_worker import AnnotationReviewBatchWorker
+    from lorairo.gui.workers.annotation_review_worker import AnnotationReviewWorker
+
+    db, service, review = saved_context
+    old_store = AnnotationReviewStore(db)
+    new_store = AnnotationReviewStore(db)
+    service.review.return_value = replace(
+        review,
+        items=(AnnotationReviewItem("tag_11", "tag", "old dog", None, "unevaluated"),),
+        status="stale",
+    )
+    old_batch = AnnotationReviewBatchWorker(service, old_store, (7,), 1)
+    emitted = []
+    old_batch.per_image_finished.connect(emitted.append)
+
+    new_service = Mock(spec=AnnotationReviewService)
+    new_service.warning_threshold = 0.2
+    new_service.prepare_review.return_value = ReviewSnapshot(7, Path("7.png"), (), (), "new source")
+    newer_review = replace(review, fingerprint="new source")
+    new_service.review.return_value = newer_review
+    new_worker = AnnotationReviewWorker(new_service, 7, 2, store=new_store)
+    new_worker.execute()
+    saved_before_late_completion = new_store.get_results()[7]
+
+    result = old_batch.execute()
+
+    assert result.processed_count == 1 and result.reviews == ()
+    assert emitted == []
+    assert old_store.get_results()[7] == saved_before_late_completion
+    assert old_store.get_results()[7].review == newer_review

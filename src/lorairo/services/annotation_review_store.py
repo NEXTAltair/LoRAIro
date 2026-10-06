@@ -43,12 +43,18 @@ class AnnotationReviewStore:
     def __init__(self, db_manager: ImageDatabaseManager) -> None:
         self._repository = AnnotationReviewRepository(db_manager.image_repo.session_factory)
 
-    def save(self, review: AnnotationReviewResult, warning_threshold: float) -> None:
+    def save(
+        self,
+        review: AnnotationReviewResult,
+        warning_threshold: float,
+        *,
+        requested_at: datetime | None = None,
+    ) -> bool:
         """Commit one image independently; empty cancellation preserves earlier results."""
         if review.status == "cancelled" and not any(item.probability is not None for item in review.items):
-            return
+            return False
         try:
-            self._repository.save_result(
+            return self._repository.save_result(
                 image_id=review.image_id,
                 fingerprint=review.fingerprint,
                 model_name=review.model_name,
@@ -60,6 +66,7 @@ class AnnotationReviewStore:
                     allow_nan=False,
                 ),
                 error=review.error,
+                requested_at=requested_at,
             )
         except IntegrityError as error:
             if getattr(error.orig, "sqlite_errorname", None) == "SQLITE_CONSTRAINT_FOREIGNKEY":

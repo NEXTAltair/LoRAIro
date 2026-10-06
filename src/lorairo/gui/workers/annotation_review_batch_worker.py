@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 from dataclasses import dataclass, replace
+from datetime import UTC, datetime
 from typing import TYPE_CHECKING, ClassVar
 
 from PySide6.QtCore import Signal
@@ -35,6 +36,7 @@ class AnnotationReviewBatchWorkerResult:
     image_ids: tuple[int, ...]
     reviews: tuple[AnnotationReviewResult, ...]
     cancelled: bool
+    processed_count: int | None = None
 
 
 class AnnotationReviewBatchWorker(LoRAIroWorkerBase[AnnotationReviewBatchWorkerResult]):
@@ -69,10 +71,12 @@ class AnnotationReviewBatchWorker(LoRAIroWorkerBase[AnnotationReviewBatchWorkerR
         self._store = store
         self._image_ids = tuple(targets)
         self._generation = generation
+        self._requested_at = datetime.now(UTC)
 
     def execute(self) -> AnnotationReviewBatchWorkerResult:
         """Preflight all images, then evaluate sequentially with cooperative cancellation."""
         reviews: list[AnnotationReviewResult] = []
+        processed_count = 0
         self._report_progress(
             0, "確認する画像とアノテーションを準備しています", total_count=len(self._image_ids)
         )
@@ -101,6 +105,13 @@ class AnnotationReviewBatchWorker(LoRAIroWorkerBase[AnnotationReviewBatchWorkerR
                     error_code=blocked_error.error_code,
                 )
             else:
+                self._report_progress(
+                    int(processed_count / len(self._image_ids) * 100),
+                    f"アノテーション確認 {processed_count + 1}/{len(self._image_ids)}画像を確認中",
+                    str(image_id),
+                    processed_count,
+                    len(self._image_ids),
+                )
                 review = self._service.review(prepared, is_cancelled=self.cancellation.is_canceled)
                 if review.error_code in self._STOP_ERROR_CODES:
                     blocked_error = review
@@ -108,9 +119,15 @@ class AnnotationReviewBatchWorker(LoRAIroWorkerBase[AnnotationReviewBatchWorkerR
                 item.probability is not None for item in review.items
             ):
                 break
+            processed_count += 1
             saved = True
             try:
-                self._store.save(review, self._service.warning_threshold)
+                accepted = self._store.save(
+                    review, self._service.warning_threshold, requested_at=self._requested_at
+                )
+                if not accepted:
+                    self._report_processed(processed_count, review.image_id)
+                    continue
             except AnnotationReviewImageMissingError:
                 saved = False
                 message = "Image was removed; annotation review result could not be saved."
@@ -126,21 +143,26 @@ class AnnotationReviewBatchWorker(LoRAIroWorkerBase[AnnotationReviewBatchWorkerR
                 )
             reviews.append(review)
             self.per_image_finished.emit(AnnotationReviewBatchImageResult(self._generation, review, saved))
-            completed = len(reviews)
-            self._report_progress(
-                int(completed / len(self._image_ids) * 100),
-                f"アノテーション確認 {completed}/{len(self._image_ids)}画像",
-                str(review.image_id),
-                completed,
-                len(self._image_ids),
-            )
-            self._report_batch_progress(completed, len(self._image_ids), str(review.image_id))
-        return self._result(reviews)
+            self._report_processed(processed_count, review.image_id)
+        return self._result(reviews, processed_count)
 
-    def _result(self, reviews: list[AnnotationReviewResult]) -> AnnotationReviewBatchWorkerResult:
+    def _report_processed(self, processed_count: int, image_id: int) -> None:
+        self._report_progress(
+            int(processed_count / len(self._image_ids) * 100),
+            f"アノテーション確認 {processed_count}/{len(self._image_ids)}画像",
+            str(image_id),
+            processed_count,
+            len(self._image_ids),
+        )
+        self._report_batch_progress(processed_count, len(self._image_ids), str(image_id))
+
+    def _result(
+        self, reviews: list[AnnotationReviewResult], processed_count: int = 0
+    ) -> AnnotationReviewBatchWorkerResult:
         return AnnotationReviewBatchWorkerResult(
             generation=self._generation,
             image_ids=self._image_ids,
             reviews=tuple(reviews),
             cancelled=self.cancellation.is_canceled(),
+            processed_count=processed_count,
         )
