@@ -35,7 +35,7 @@ from lorairo.cli._output_mode import (
     set_json_mode,
     strip_mode_flags,
 )
-from lorairo.cli.commands import annotate, batch, errors, export, images, models, project, tags
+from lorairo.cli.commands import annotate, batch, errors, export, images, models, project, review, tags
 from lorairo.cli.introspection import emit_describe, emit_list_commands
 from lorairo.services.service_container import get_service_container, service_container_scope
 from lorairo.utils.config import (
@@ -100,6 +100,7 @@ console_err = make_console(stderr=True)
 app.add_typer(project.app, name="project", help="Project management commands")
 app.add_typer(images.app, name="images", help="Image management commands")
 app.add_typer(annotate.app, name="annotate", help="Annotation commands")
+app.add_typer(review.app, name="review", help="Read-only Clef annotation review commands")
 app.add_typer(export.app, name="export", help="Dataset export commands")
 app.add_typer(models.app, name="models", help="Model registry commands")
 app.add_typer(batch.app, name="batch", help="Provider Batch API job commands")
