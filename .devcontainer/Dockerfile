@@ -9,7 +9,7 @@ FROM mcr.microsoft.com/devcontainers/python:3.13-bookworm
 # We do not use Yarn in this project, so disable it to keep apt stable.
 RUN rm -f /etc/apt/sources.list.d/yarn.list /etc/apt/sources.list.d/yarn*.list || true
 
-# Prevent an inherited npm prefix from changing the image-owned global location.
+# Clear inherited npm configuration before choosing the container-user prefix.
 RUN rm -f /home/vscode/.npmrc /root/.npmrc || true
 
 # Set environment variables
@@ -20,8 +20,9 @@ ENV QT_QPA_PLATFORM=offscreen
 ENV DEBIAN_FRONTEND=noninteractive
 ENV LANG=C.UTF-8
 ENV LC_ALL=C.UTF-8
-# Claude Code native install path
+# User-owned CLI paths let vscode update Codex and Claude without sudo.
 ENV PATH="/home/vscode/.local/bin:${PATH}"
+ENV NPM_CONFIG_PREFIX=/home/vscode/.local
 
 # Configure sudo for vscode user (base image may have partial config)
 RUN apt-get update && \
@@ -74,15 +75,11 @@ COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /bin/
 COPY --from=node-runtime /usr/local/bin/node /usr/local/bin/node
 COPY --from=node-runtime /usr/local/lib/node_modules /usr/local/lib/node_modules
 
-# Keep rebuilds reproducible; update this reviewed version deliberately.
-ARG CODEX_VERSION=0.153.4
 RUN ln -sf /usr/local/lib/node_modules/npm/bin/npm-cli.js /usr/local/bin/npm \
     && ln -sf /usr/local/lib/node_modules/npm/bin/npx-cli.js /usr/local/bin/npx \
     && ln -sf /usr/local/lib/node_modules/corepack/dist/corepack.js /usr/local/bin/corepack \
     && node --version \
-    && npm --version \
-    && npm install --global --no-audit --no-fund "@openai/codex@${CODEX_VERSION}" \
-    && codex --version
+    && npm --version
 
 # Create workspaces directory and .venv with proper ownership
 RUN mkdir -p /workspaces/LoRAIro/.venv && chown -R vscode:vscode /workspaces
@@ -93,6 +90,12 @@ SHELL ["/bin/bash", "-c"]
 # Switch to vscode user
 USER vscode
 WORKDIR /workspaces
+
+# Install as the same user who runs updates. Default to the current stable CLI;
+# a CODEX_VERSION build argument can still pin a version when needed.
+ARG CODEX_VERSION=latest
+RUN npm install --global --no-audit --no-fund "@openai/codex@${CODEX_VERSION}" \
+    && codex --version
 
 # Create VS Code Server directories with proper permissions
 RUN mkdir -p /home/vscode/.vscode-server/bin \
