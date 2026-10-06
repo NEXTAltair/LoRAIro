@@ -86,6 +86,17 @@ def tab(
 
 
 @pytest.mark.gui
+def test_manual_review_reveals_hidden_preview_without_toggling_it_off(tab: SearchTabWidget) -> None:
+    tab.framePreviewDetailPanel.hide()
+
+    tab.show_preview_panel()
+    assert not tab.framePreviewDetailPanel.isHidden()
+
+    tab.show_preview_panel()
+    assert not tab.framePreviewDetailPanel.isHidden()
+
+
+@pytest.mark.gui
 def test_tab_builds_work_area_widgets(tab: SearchTabWidget) -> None:
     """生成で 5 つの公開プロパティが実型で構築される。"""
     assert isinstance(tab.filter_search_panel, FilterSearchPanel)

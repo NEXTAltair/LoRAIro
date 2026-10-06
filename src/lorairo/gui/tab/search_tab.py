@@ -665,6 +665,12 @@ class SearchTabWidget(QWidget, Ui_SearchTab):
         logger.debug(f"フィルタパネル表示: {new_visible}")
 
     @Slot()
+    def show_preview_panel(self) -> None:
+        """Reveal the manual editor without toggling an already visible panel."""
+        if self.framePreviewDetailPanel.isHidden():
+            self.toggle_preview_panel()
+
+    @Slot()
     def toggle_preview_panel(self) -> None:
         """プレビュー/詳細パネルの表示/非表示を切り替える (splitter サイズ退避/復元)。"""
         panel = self.framePreviewDetailPanel

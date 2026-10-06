@@ -678,6 +678,12 @@ class MainWindow(QMainWindow, Ui_MainWindow):
         # Reload even when the requested image is already current, so the editor
         # shows current annotations rather than a previous cached selection.
         self.dataset_state_manager.refresh_images([image_id])
+        self.search_tab.show_preview_panel()
+        preview_action = getattr(self, "actionTogglePreviewPanel", None)
+        if preview_action is not None:
+            previously_blocked = preview_action.blockSignals(True)
+            preview_action.setChecked(True)
+            preview_action.blockSignals(previously_blocked)
         self.tabWidgetMainMode.setCurrentWidget(self.tabWorkspace)
 
     def _setup_errors_tab(self) -> None:
@@ -1479,7 +1485,8 @@ class MainWindow(QMainWindow, Ui_MainWindow):
 
         if self.search_tab is not None:
             self.search_tab.reload_annotation_review_service()
-        self._reload_results_annotation_review_service()
+        if getattr(self, "results_tab", None) is not None:
+            self._reload_results_annotation_review_service()
 
         if self.annotate_tab is None:
             return
