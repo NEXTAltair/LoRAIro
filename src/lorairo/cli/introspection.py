@@ -1012,7 +1012,8 @@ class ToolSpec:
                 else ["network_download", "tag_cache_create", "db_create", "directory_create"]
                 if self.path == "tags translations show"
                 else ["db_create", "schema_migration", "model_seed", "directory_create"]
-                if "db_read" in self.side_effects and self.path not in {"models list", "project list"}
+                if "db_read" in self.side_effects
+                and self.path not in {"models list", "project list", "review run"}
                 else []
             ),
             "read_only_contract": "steady_state; use root --read-only to prohibit logical writes and implicit preparation",
@@ -1550,6 +1551,37 @@ TOOL_SPECS: dict[str, ToolSpec] = {
                 ),
                 schema=ImagesUpdateResult,
             ),
+        ),
+        errors=(ERROR_MODEL,),
+    ),
+    "review run": ToolSpec(
+        name="review run",
+        path="review run",
+        summary="Evaluate existing tags/captions with Cloudflare Clef; explicit IDs required, no DB changes.",
+        read_only=True,
+        side_effects=("db_read", "file_read", "network"),
+        inputs=(
+            _input(
+                "ReviewRunInput",
+                (
+                    _f("project", "str", required=True),
+                    _f(
+                        "image_ids",
+                        "str?",
+                        description="Explicit positive image IDs in CSV; one of image_ids/image_ids_file is required. Review max 500 unique images per run; larger selections fail with RESULT_SET_TOO_LARGE before opening the project or sending requests. CSV reader accepts up to 100,000 IDs; duplicates evaluated once. No implicit all-image review.",
+                    ),
+                    _f(
+                        "image_ids_file",
+                        "path?",
+                        description="UTF-8 newline/comma IDs, exclusive with image_ids. Review max 500 unique images per run; larger selections fail with RESULT_SET_TOO_LARGE before opening the project or sending requests. File reader accepts up to 100,000 IDs; duplicates evaluated once.",
+                    ),
+                ),
+            ),
+        ),
+        outputs=(
+            _output("ReviewRunItem", ()),
+            _output("ReviewRunOutcome", ()),
+            _output("ReviewRunResult", ()),
         ),
         errors=(ERROR_MODEL,),
     ),

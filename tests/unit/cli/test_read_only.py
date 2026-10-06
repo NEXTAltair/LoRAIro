@@ -136,6 +136,7 @@ def test_strict_metadata_inventory_and_config_read_preservation(tmp_path, monkey
         "images list",
         "images search",
         "images show",
+        "review run",
         "tags translations show",
         "models list",
         "batch list",

@@ -120,6 +120,19 @@ def test_export_tab_builds_three_pane_layout(
 
 
 @pytest.mark.gui
+def test_export_tab_keeps_unconfigured_clef_review_hidden(qtbot, export_tab_with_staging) -> None:
+    """共有詳細ペインにサービス未配線の Clef 操作を表示しない。"""
+    tab, _staging = export_tab_with_staging
+    tab.show()
+    details = tab._selected_image_details_widget
+    details._on_image_data_received({"id": 5, "tags": [], "caption_text": "original"})
+
+    assert details.annotation_review_widget.isHidden()
+    assert details.annotation_review_widget._service is None
+    assert details.annotation_review_widget._manager is None
+
+
+@pytest.mark.gui
 def test_set_image_ids_updates_current_export_ids(
     qtbot, service_container: Mock, staging_manager: StagingStateManager
 ) -> None:

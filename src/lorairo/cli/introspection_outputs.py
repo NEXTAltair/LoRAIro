@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Literal
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 
 class ResultRow(BaseModel):
@@ -159,6 +159,45 @@ class TagsAliasResult(ResultRow):
     status: Literal["dry_run", "changed", "noop"]
 
 
+class ReviewRunItem(BaseModel):
+    kind: Literal["item"] = "item"
+    type: Literal["annotation_review"]
+    image_id: int
+    fingerprint: str
+    model_name: str
+    candidate_id: str
+    candidate_kind: Literal["tag", "caption"]
+    text: str
+    probability: float | None = Field(ge=0.0, le=1.0)
+    status: Literal["ok", "warning", "failed", "unevaluated"]
+    error: str | None
+
+
+class ReviewRunOutcome(BaseModel):
+    kind: Literal["item"] = "item"
+    type: Literal["annotation_review_outcome"]
+    image_id: int
+    fingerprint: str
+    model_name: str
+    status: Literal["completed", "partial", "failed", "cancelled", "stale", "unevaluated"]
+    item_count: int
+    error: str | None
+
+
+class ReviewRunResult(ResultRow):
+    project: str
+    status: Literal["success", "partial_success", "failed"]
+    image_count: int
+    item_count: int
+    successful: int
+    partial: int
+    failed: int
+    cancelled: int
+    stale: int
+    unevaluated: int
+    warnings: int
+
+
 # Keep registry lookup explicit and limited to wire models; no arbitrary import by name.
 OUTPUT_MODELS: dict[str, type[BaseModel]] = {
     model.__name__: model
@@ -181,5 +220,8 @@ OUTPUT_MODELS: dict[str, type[BaseModel]] = {
         TagsTranslationsUnsuppressItem,
         TagsTranslationsUnsuppressResult,
         TagsAliasResult,
+        ReviewRunItem,
+        ReviewRunOutcome,
+        ReviewRunResult,
     )
 }

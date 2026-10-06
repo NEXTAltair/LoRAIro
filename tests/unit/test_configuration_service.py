@@ -24,6 +24,31 @@ from lorairo.utils.config import (
 )
 
 
+@pytest.mark.parametrize("env_token_key", ["CLOUDFLARE_API_TOKEN", "CLOUDFLARE_AUTH_TOKEN"])
+def test_cloudflare_credentials_environment_overrides_local_config(monkeypatch, env_token_key):
+    monkeypatch.delenv("CLOUDFLARE_API_TOKEN", raising=False)
+    monkeypatch.delenv("CLOUDFLARE_AUTH_TOKEN", raising=False)
+    monkeypatch.setenv("CLOUDFLARE_ACCOUNT_ID", " environment-account ")
+    monkeypatch.setenv(env_token_key, " environment-token ")
+    service = ConfigurationService(
+        shared_config={
+            "api": {"cloudflare_account_id": "local-account", "cloudflare_api_token": "local-token"}
+        }
+    )
+    assert service.get_cloudflare_credentials() == ("environment-account", "environment-token")
+    assert service.get_provider_api_keys() == {}
+
+
+def test_cloudflare_credentials_local_and_missing_config(monkeypatch):
+    for key in ("CLOUDFLARE_ACCOUNT_ID", "CLOUDFLARE_API_TOKEN", "CLOUDFLARE_AUTH_TOKEN"):
+        monkeypatch.delenv(key, raising=False)
+    configured = ConfigurationService(
+        shared_config={"api": {"cloudflare_account_id": " account ", "cloudflare_api_token": " token "}}
+    )
+    assert configured.get_cloudflare_credentials() == ("account", "token")
+    assert ConfigurationService(shared_config={}).get_cloudflare_credentials() == ("", "")
+
+
 class TestConfigUtils:
     """config.py の初回生成とマージ挙動のテスト"""
 

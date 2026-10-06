@@ -11,10 +11,16 @@ orientation 維持 (#865)・パネルトグル・入口 Signal・MainWindow 連�
 
 from __future__ import annotations
 
+import json
+import sys
+from functools import partial
 from pathlib import Path
-from unittest.mock import Mock
+from types import SimpleNamespace
+from unittest.mock import Mock, patch
 
+import httpx
 import pytest
+from PIL import Image
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QSplitter, QWidget
 
@@ -31,6 +37,7 @@ from lorairo.gui.widgets.thumbnail_selector_widget import ThumbnailSelectorWidge
 def service_container() -> Mock:
     """SearchFilterService 生成 / merged reader / favorite filters を満たす最小 ServiceContainer。"""
     container = Mock()
+    container.config_service.get_setting.side_effect = lambda section, key, default=None: default
     # ModelSelectionService.create(db_repository=...).load_models() が空で済むよう repo を固定
     container.db_manager.model_repo.get_model_objects.return_value = []
     # SelectedImageDetailsWidget へ注入する MergedTagReader (言語セレクタ初期化で iterate される)
@@ -86,6 +93,170 @@ def test_tab_builds_work_area_widgets(tab: SearchTabWidget) -> None:
     assert isinstance(tab.image_preview_widget, ImagePreviewWidget)
     assert isinstance(tab.selected_image_details_widget, SelectedImageDetailsWidget)
     assert isinstance(tab.main_splitter, QSplitter)
+
+
+@pytest.mark.gui
+def test_clef_review_uses_injected_config_and_image_database(
+    tab: SearchTabWidget, service_container: Mock, db_manager: Mock
+) -> None:
+    service = tab.selected_image_details_widget.annotation_review_widget._service
+    assert service is not None
+    assert service._config_service is service_container.config_service
+    assert service._db_manager is db_manager
+
+
+@pytest.mark.gui
+def test_invalid_clef_settings_keep_search_tab_usable(
+    qtbot, service_container: Mock, db_manager: Mock
+) -> None:
+    service_container.config_service.get_setting.side_effect = lambda section, key, default=None: (
+        "invalid-model" if key == "model" else default
+    )
+    widget = SearchTabWidget(
+        service_container=service_container,
+        db_manager=db_manager,
+        dataset_state_manager=DatasetStateManager(),
+        staging_state_manager=StagingStateManager(),
+        worker_service=Mock(),
+    )
+    qtbot.addWidget(widget)
+    try:
+        review = widget.selected_image_details_widget.annotation_review_widget
+        assert not review.isHidden()
+        assert "設定を確認" in review.status_label.text()
+        assert not review.evaluate_button.isEnabled()
+        assert widget.thumbnail_selector is not None
+    finally:
+        widget.shutdown()
+
+
+@pytest.mark.gui
+@pytest.mark.parametrize("original_credentials", [("", ""), ("old-account", "old-token")])
+def test_settings_save_replaces_clef_credentials_and_invalidates_results(
+    qtbot, service_container: Mock, db_manager: Mock, monkeypatch, tmp_path, original_credentials
+) -> None:
+    """First setup and rotation affect the next explicit request without a restart."""
+    from lorairo.gui.window.main_window import MainWindow
+    from lorairo.services.annotation_review_service import AnnotationReviewItem, AnnotationReviewResult
+
+    package = (
+        Path(__file__).resolve().parents[4] / "local_packages/image-annotator-lib/src/image_annotator_lib"
+    )
+    monkeypatch.setattr(sys.modules["image_annotator_lib"], "__path__", [str(package)])
+    from image_annotator_lib.decisions import CloudflareDecisionClient
+
+    original_config = service_container.config_service
+    original_config.get_cloudflare_credentials.return_value = original_credentials
+    saved_config = Mock()
+    saved_config.get_setting.side_effect = lambda section, key, default=None: default
+    saved_config.get_cloudflare_credentials.return_value = ("new-account", "new-token")
+
+    class ReloadingContainer:
+        """Model the real container cache and its reload after settings save."""
+
+        def __init__(self):
+            self._config = original_config
+
+        @property
+        def config_service(self):
+            if self._config is None:
+                self._config = saved_config
+            return self._config
+
+        @config_service.deleter
+        def config_service(self):
+            self._config = None
+
+        def __getattr__(self, name):
+            return getattr(service_container, name)
+
+    container = ReloadingContainer()
+    widget = SearchTabWidget(
+        service_container=container,
+        db_manager=db_manager,
+        dataset_state_manager=DatasetStateManager(),
+        staging_state_manager=StagingStateManager(),
+        worker_service=Mock(),
+    )
+    qtbot.addWidget(widget)
+    review = widget.selected_image_details_widget.annotation_review_widget
+    old_service = review._service
+    review.set_image(5)
+    review._display_result(
+        AnnotationReviewResult(
+            5,
+            "old-result",
+            "@cf/cloudflare/clef-flash",
+            (AnnotationReviewItem("tag_1", "tag", "red_hair", 0.9, "ok"),),
+            "completed",
+        )
+    )
+    assert review.results_table.rowCount() == 1
+    generation = review._generation
+    requests = []
+    try:
+        # This is the actual MainWindow settings-save reload path, including cache deletion.
+        # Annotate may be unavailable; search review must still refresh.
+        window = SimpleNamespace(search_tab=widget, annotate_tab=None)
+        with patch("lorairo.gui.window.main_window.get_service_container", return_value=container):
+            MainWindow._reload_model_widget_after_settings(window)
+
+        service = review._service
+        assert service is not None and service is not old_service
+        assert service._config_service is saved_config
+        assert review._generation > generation
+        assert review.results_table.rowCount() == 0
+        assert "未評価" in review.status_label.text()
+        assert requests == []
+        saved_config.get_cloudflare_credentials.assert_not_called()
+        original_config.get_cloudflare_credentials.assert_not_called()
+
+        image_path = tmp_path / "review.png"
+        Image.new("RGB", (8, 8), "red").save(image_path)
+        db_manager.get_image_metadata.return_value = {"id": 5, "stored_image_path": str(image_path)}
+        db_manager.get_image_annotations.return_value = {"tags": [{"id": 1, "tag": "red_hair"}]}
+
+        def respond(request):
+            requests.append(request)
+            payload = json.loads(request.content)
+            return httpx.Response(
+                200,
+                json={
+                    "success": True,
+                    "result": {
+                        "model": "clef-flash",
+                        "answers": {key: {"type": "noul", "noul": 0.9} for key in payload["questions"]},
+                    },
+                },
+            )
+
+        service._client_factory = partial(CloudflareDecisionClient, transport=httpx.MockTransport(respond))
+        qtbot.mouseClick(review.evaluate_button, Qt.MouseButton.LeftButton)
+        qtbot.waitUntil(lambda: "評価完了" in review.status_label.text(), timeout=3000)
+
+        assert len(requests) == 1
+        assert "/accounts/new-account/" in str(requests[0].url)
+        assert requests[0].headers["authorization"] == "Bearer new-token"
+        saved_config.get_cloudflare_credentials.assert_called_once()
+        original_config.get_cloudflare_credentials.assert_not_called()
+    finally:
+        widget.shutdown()
+
+
+@pytest.mark.gui
+def test_failed_saved_clef_config_disables_review_without_breaking_search(
+    tab: SearchTabWidget, service_container: Mock
+) -> None:
+    service_container.config_service.get_setting.side_effect = OSError("Cannot read saved config")
+
+    tab.reload_annotation_review_service()
+
+    review = tab.selected_image_details_widget.annotation_review_widget
+    assert review._service is None
+    assert "設定を確認" in review.status_label.text()
+    assert "Cannot read saved config" in review.status_label.text()
+    assert not review.evaluate_button.isEnabled()
+    assert tab.thumbnail_selector is not None
 
 
 @pytest.mark.gui

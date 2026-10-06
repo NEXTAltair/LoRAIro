@@ -48,6 +48,7 @@ from .annotation_data_display_widget import (
     AnnotationDataDisplayWidget,
     ImageDetails,
 )
+from .annotation_review_widget import AnnotationReviewWidget
 from .rating_score_edit_widget import RatingScoreEditWidget
 from .related_images_widget import RelatedImagesWidget
 from .tag_panel_widget import ACTION_TOOL_BUTTON_QSS
@@ -55,6 +56,7 @@ from .tag_panel_widget import ACTION_TOOL_BUTTON_QSS
 if TYPE_CHECKING:
     from genai_tag_db_tools.db.repository import MergedTagReader
 
+    from ...services.annotation_review_service import AnnotationReviewService
     from ...services.refinement_service import RefinementService
     from ...services.tag_management_service import TagManagementService
     from ..state.dataset_state import DatasetStateManager
@@ -307,6 +309,9 @@ class SelectedImageDetailsWidget(QWidget):
         )
         layout.addWidget(self.ui.annotationDataDisplay)
         layout.addWidget(self._rating_score_widget)
+        self.annotation_review_widget = AnnotationReviewWidget(container)
+        self.annotation_review_widget.setVisible(False)
+        layout.addWidget(self.annotation_review_widget)
 
         # 関連画像 (クロップ親子、#1346)。CropRelationService 未配線のタブでは非表示のまま。
         self._related_images_widget = RelatedImagesWidget(container)
@@ -504,6 +509,11 @@ class SelectedImageDetailsWidget(QWidget):
             self._related_images_widget.clear()
             return
         self._related_images_widget.set_related(parent_entry, child_entries)
+
+    def set_annotation_review_service(self, service: "AnnotationReviewService") -> None:
+        """Inject the explicit, read-only Clef review service into the details panel."""
+        self.annotation_review_widget.set_service(service)
+        self.annotation_review_widget.setVisible(True)
 
     def set_refinement_service(
         self, service: "RefinementService", worker_manager: "WorkerManager | None" = None
@@ -891,6 +901,7 @@ class SelectedImageDetailsWidget(QWidget):
         (QTimer.singleShot) が shutdown 後に worker を再起動するのを防ぐ (#1206)。
         """
         self._closing = True
+        self.annotation_review_widget.shutdown()
         self._user_db_poll_timer.stop()
         self._refinement_pending = None
         self._tag_metadata_pending = None
@@ -1397,6 +1408,7 @@ class SelectedImageDetailsWidget(QWidget):
 
         image_id = image_data.get("id")
         self.current_image_id = image_id
+        self.annotation_review_widget.set_image(image_id)
         logger.debug(
             f"SelectedImageDetailsWidget(instance={id(self)}): current_image_data_changed シグナル受信 - image_id: {image_id}"
         )
@@ -1752,6 +1764,7 @@ class SelectedImageDetailsWidget(QWidget):
         """
         self.current_details = None
         self.current_image_id = None
+        self.annotation_review_widget.set_image(None)
 
         self.ui.labelFileNameValue.setText("-")
         self.ui.labelImageSizeValue.setText("-")

@@ -152,6 +152,32 @@ class TestConfigurationWindow:
         # 触っていない欄は保存済の値を維持
         assert settings["api"]["openai_key"] == "sk-test-openai"
 
+    def test_cloudflare_credentials_are_preserved_and_token_is_masked(
+        self, config_service: MagicMock, qtbot
+    ) -> None:
+        config_service.get_all_settings.return_value["api"].update(
+            cloudflare_account_id="account-123", cloudflare_api_token="secret-saved-token"
+        )
+        dlg = ConfigurationWindow(config_service)
+        qtbot.addWidget(dlg)
+        token = dlg.findChild(QLineEdit, "lineEditCloudflareApiToken")
+        account = dlg.findChild(QLineEdit, "lineEditCloudflareAccountId")
+
+        assert token is not None and account is not None
+        assert token.text() == ""
+        assert token.echoMode() == QLineEdit.EchoMode.Password
+        assert token.placeholderText() == "保存済（変更する場合のみ入力）"
+        assert account.text() == "account-123"
+        settings = dlg._collect_settings()
+        assert settings["api"]["cloudflare_api_token"] == "secret-saved-token"
+        assert settings["api"]["cloudflare_account_id"] == "account-123"
+
+        token.setText("  new-token  ")
+        account.setText("  changed-account  ")
+        settings = dlg._collect_settings()
+        assert settings["api"]["cloudflare_api_token"] == "new-token"
+        assert settings["api"]["cloudflare_account_id"] == "changed-account"
+
     def test_focus_api_key_field_highlights_provider_row(self, dialog: ConfigurationWindow) -> None:
         """Issue #755: needs key 導線で該当プロバイダ欄をハイライトする。"""
         # 詳細設定タブへ移しておき、基本設定タブへ戻ることを検証

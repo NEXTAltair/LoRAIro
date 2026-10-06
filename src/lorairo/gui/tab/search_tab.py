@@ -167,6 +167,7 @@ class SearchTabWidget(QWidget, Ui_SearchTab):
         # 選択画像詳細: DB Manager / MergedTagReader / 選択シグナル接続
         if self._db_manager is not None:
             self._selected_image_details_widget.set_db_manager(self._db_manager)
+        self.reload_annotation_review_service()
         merged_reader = self._service_container.db_manager.annotation_repo.get_merged_reader()
         self._selected_image_details_widget.set_merged_reader(merged_reader)
         # refinement リコメンド (#931): RefinementService を注入。ignore 保存先は注入された
@@ -202,6 +203,26 @@ class SearchTabWidget(QWidget, Ui_SearchTab):
         self.splitterPreviewDetails.setStretchFactor(0, 1)
         self.splitterPreviewDetails.setStretchFactor(1, 1)
         logger.debug("検索タブ splitter 初期化完了")
+
+    @Slot()
+    def reload_annotation_review_service(self) -> None:
+        """Recreate Clef review with the container's current saved settings.
+
+        Reusing the widget's injection path invalidates old results and cancels
+        its existing worker without starting a request or reconnecting handlers.
+        """
+        if self._db_manager is None:
+            return
+        from ...services.annotation_review_service import AnnotationReviewService
+
+        try:
+            self._selected_image_details_widget.set_annotation_review_service(
+                AnnotationReviewService(self._service_container.config_service, self._db_manager)
+            )
+        except Exception as error:
+            # Optional review remains unavailable while the dataset can still be browsed.
+            self._selected_image_details_widget.annotation_review_widget.set_unavailable_reason(str(error))
+            logger.warning("Clef review configuration could not be loaded: {}", error)
 
     def _resolve_refinement_service(self) -> RefinementService:
         """注入された db_manager の DB に ignore を保存する RefinementService を解決する (#978)。

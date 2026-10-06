@@ -1434,7 +1434,7 @@ class MainWindow(QMainWindow, Ui_MainWindow):
             self.progress_state_service = None
 
     def _reload_model_widget_after_settings(self) -> None:
-        """設定保存後にモデル選択ウィジェットへ最新のキー状況を反映する。
+        """設定保存後にモデル選択と Clef 評価へ最新の設定を反映する。
 
         Issue #249: route_preference 等の保存値を即時反映。
         Issue #755: API キー保存による ● API ready / ○ needs key の更新もここで行う。
@@ -1447,6 +1447,9 @@ class MainWindow(QMainWindow, Ui_MainWindow):
             del container.config_service
         except (RuntimeError, AttributeError) as e:
             logger.warning(f"ServiceContainer の config_service 再読込に失敗 (継続可): {e}")
+
+        if self.search_tab is not None:
+            self.search_tab.reload_annotation_review_service()
 
         if self.annotate_tab is None:
             return

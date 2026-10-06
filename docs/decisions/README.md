@@ -103,6 +103,7 @@ ADR は OKF (Open Knowledge Format) バンドルとして管理する。各 ADR 
 | [0091](0091-multilingual-user-guide.md) | Japanese-first multilingual user guide on GitHub Pages | 2026-09-05 | Accepted |
 | [0092](0092-crop-parent-child-relation.md) | クロップ画像の親子関係を専用テーブル crop_relations で保持する | 2026-09-07 | Accepted |
 | [0093](0093-batch-failure-image-id-recovery.md) | Provider Batch 失敗 image_id の CLI 復旧経路 | 2026-09-07 | Accepted |
+| [0094](0094-clef-annotation-review.md) | Clef annotation review の独立 API と一時的な個別警告 | 2026-10-06 | Accepted |
 <!-- OKF-TABLE:END -->
 
 ## ADR テンプレート
