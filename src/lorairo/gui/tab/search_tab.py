@@ -167,6 +167,18 @@ class SearchTabWidget(QWidget, Ui_SearchTab):
         # 選択画像詳細: DB Manager / MergedTagReader / 選択シグナル接続
         if self._db_manager is not None:
             self._selected_image_details_widget.set_db_manager(self._db_manager)
+            from ...services.annotation_review_service import AnnotationReviewService
+
+            try:
+                self._selected_image_details_widget.set_annotation_review_service(
+                    AnnotationReviewService(self._service_container.config_service, self._db_manager)
+                )
+            except ValueError as error:
+                # Invalid optional Clef settings should remain recoverable from the settings dialog.
+                self._selected_image_details_widget.annotation_review_widget.set_unavailable_reason(
+                    str(error)
+                )
+                logger.warning("Clef review settings are invalid: {}", error)
         merged_reader = self._service_container.db_manager.annotation_repo.get_merged_reader()
         self._selected_image_details_widget.set_merged_reader(merged_reader)
         # refinement リコメンド (#931): RefinementService を注入。ignore 保存先は注入された

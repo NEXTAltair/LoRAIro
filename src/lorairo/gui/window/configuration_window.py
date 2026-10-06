@@ -44,6 +44,7 @@ _API_KEY_ROWS: tuple[tuple[str, str, str, str], ...] = (
     ("google", "Google API Key:", "google_key", "lineEditGoogleKey"),
     ("anthropic", "Claude API Key:", "claude_key", "lineEditClaudeKey"),
     ("openrouter", "OpenRouter API Key:", "openrouter_key", "lineEditOpenRouterKey"),
+    ("cloudflare", "Cloudflare API Token:", "cloudflare_api_token", "lineEditCloudflareApiToken"),
 )
 _API_KEY_SAVED_TEXT = "保存済"
 _API_KEY_UNSET_TEXT = "未設定"
@@ -134,6 +135,17 @@ class ConfigurationWindow(QDialog):
 
             self._api_key_edits[provider] = key_edit
             self._api_key_status_labels[provider] = status_label
+
+        self._line_edit_cloudflare_account_id = QLineEdit()
+        self._line_edit_cloudflare_account_id.setObjectName("lineEditCloudflareAccountId")
+        api_layout.addRow("Cloudflare Account ID:", self._line_edit_cloudflare_account_id)
+        cloudflare_note = QLabel(
+            "Clef 評価には Cloudflare の Account ID と Workers AI 用 API Token を使用します。\n"
+            "CLOUDFLARE_ACCOUNT_ID / CLOUDFLARE_API_TOKEN 環境変数が設定より優先されます。"
+        )
+        cloudflare_note.setWordWrap(True)
+        cloudflare_note.setStyleSheet(f"color: {theme.INK_SOFT}; font-size: {theme.FONT_SIZE_SMALL}px;")
+        api_layout.addRow(cloudflare_note)
 
         tab_layout.addWidget(api_group)
 
@@ -241,6 +253,7 @@ class ConfigurationWindow(QDialog):
 
         # API設定 (Issue #755: 保存済キーは欄に echo back せず「保存済かだけ分かる」表示)
         api = config.get("api", {})
+        self._line_edit_cloudflare_account_id.setText(str(api.get("cloudflare_account_id", "") or ""))
         for provider, _label_text, config_key, _object_name in _API_KEY_ROWS:
             saved_key = str(api.get(config_key, "") or "")
             self._saved_api_keys[provider] = saved_key
@@ -338,6 +351,7 @@ class ConfigurationWindow(QDialog):
             config_key: (self._api_key_edits[provider].text().strip() or self._saved_api_keys[provider])
             for provider, _label_text, config_key, _object_name in _API_KEY_ROWS
         }
+        api_settings["cloudflare_account_id"] = self._line_edit_cloudflare_account_id.text().strip()
         return {
             "api": api_settings,
             "directories": {

@@ -31,6 +31,7 @@ from lorairo.gui.widgets.thumbnail_selector_widget import ThumbnailSelectorWidge
 def service_container() -> Mock:
     """SearchFilterService 生成 / merged reader / favorite filters を満たす最小 ServiceContainer。"""
     container = Mock()
+    container.config_service.get_setting.side_effect = lambda section, key, default=None: default
     # ModelSelectionService.create(db_repository=...).load_models() が空で済むよう repo を固定
     container.db_manager.model_repo.get_model_objects.return_value = []
     # SelectedImageDetailsWidget へ注入する MergedTagReader (言語セレクタ初期化で iterate される)
@@ -86,6 +87,40 @@ def test_tab_builds_work_area_widgets(tab: SearchTabWidget) -> None:
     assert isinstance(tab.image_preview_widget, ImagePreviewWidget)
     assert isinstance(tab.selected_image_details_widget, SelectedImageDetailsWidget)
     assert isinstance(tab.main_splitter, QSplitter)
+
+
+@pytest.mark.gui
+def test_clef_review_uses_injected_config_and_image_database(
+    tab: SearchTabWidget, service_container: Mock, db_manager: Mock
+) -> None:
+    service = tab.selected_image_details_widget.annotation_review_widget._service
+    assert service is not None
+    assert service._config_service is service_container.config_service
+    assert service._db_manager is db_manager
+
+
+@pytest.mark.gui
+def test_invalid_clef_settings_keep_search_tab_usable(
+    qtbot, service_container: Mock, db_manager: Mock
+) -> None:
+    service_container.config_service.get_setting.side_effect = lambda section, key, default=None: (
+        "invalid-model" if key == "model" else default
+    )
+    widget = SearchTabWidget(
+        service_container=service_container,
+        db_manager=db_manager,
+        dataset_state_manager=DatasetStateManager(),
+        staging_state_manager=StagingStateManager(),
+        worker_service=Mock(),
+    )
+    qtbot.addWidget(widget)
+    try:
+        review = widget.selected_image_details_widget.annotation_review_widget
+        assert "設定を確認" in review.status_label.text()
+        assert not review.evaluate_button.isEnabled()
+        assert widget.thumbnail_selector is not None
+    finally:
+        widget.shutdown()
 
 
 @pytest.mark.gui
