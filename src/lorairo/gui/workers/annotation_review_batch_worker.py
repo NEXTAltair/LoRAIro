@@ -10,7 +10,7 @@ from typing import TYPE_CHECKING, ClassVar
 from PySide6.QtCore import Signal
 
 from lorairo.services.annotation_review_service import AnnotationReviewItem, AnnotationReviewResult
-from lorairo.services.annotation_review_store import AnnotationReviewImageMissingError
+from lorairo.services.annotation_review_store import AnnotationReviewImageMissingError, StoredReviewResult
 
 from .base import LoRAIroWorkerBase
 
@@ -26,6 +26,7 @@ class AnnotationReviewBatchImageResult:
     generation: int
     review: AnnotationReviewResult
     saved: bool = True
+    stored: StoredReviewResult | None = None
 
 
 @dataclass(frozen=True)
@@ -141,10 +142,22 @@ class AnnotationReviewBatchWorker(LoRAIroWorkerBase[AnnotationReviewBatchWorkerR
                     error=message,
                     error_code=None,
                 )
+            review, stored = self._load_current(review, saved)
             reviews.append(review)
-            self.per_image_finished.emit(AnnotationReviewBatchImageResult(self._generation, review, saved))
+            self.per_image_finished.emit(
+                AnnotationReviewBatchImageResult(self._generation, review, saved, stored)
+            )
             self._report_processed(processed_count, review.image_id)
         return self._result(reviews, processed_count)
+
+    def _load_current(
+        self, review: AnnotationReviewResult, saved: bool
+    ) -> tuple[AnnotationReviewResult, StoredReviewResult | None]:
+        if saved:
+            current = self._store.get_current_result(review.image_id, self._service)
+            if isinstance(current, StoredReviewResult):
+                return current.review, current
+        return review, None
 
     def _report_processed(self, processed_count: int, image_id: int) -> None:
         self._report_progress(

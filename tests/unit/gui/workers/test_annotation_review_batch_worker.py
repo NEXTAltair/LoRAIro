@@ -1,5 +1,6 @@
 """Fixed targets, preflight ordering, independent saves and cancellation."""
 
+from datetime import UTC, datetime
 from pathlib import Path
 from unittest.mock import ANY, Mock
 
@@ -15,6 +16,7 @@ from lorairo.services.annotation_review_service import (
     ReviewCandidate,
     ReviewSnapshot,
 )
+from lorairo.services.annotation_review_store import StoredReviewResult
 
 pytestmark = pytest.mark.unit
 
@@ -239,3 +241,21 @@ def test_newer_stored_results_suppress_obsolete_completion_signals_and_results(b
     assert progress[-1].processed_count == 3 and progress[-1].percentage == 100
     requested_dates = [call.kwargs["requested_at"] for call in store.save.call_args_list]
     assert len(set(requested_dates)) == 1
+
+
+def test_per_image_signal_carries_dated_current_result_loaded_inside_worker(batch_context):
+    service, store, snapshots, make_review = batch_context
+    review = make_review(snapshots[1], is_cancelled=lambda: False)
+    dated_result = StoredReviewResult(review, 0.2, datetime.now(UTC))
+    store.get_current_result.return_value = dated_result
+    worker = AnnotationReviewBatchWorker(service, store, (1,), 42)
+    emitted = []
+    worker.per_image_finished.connect(emitted.append)
+
+    result = worker.execute()
+
+    store.get_current_result.assert_called_once_with(1, service)
+    assert emitted[0].stored is dated_result
+    assert emitted[0].stored.checked_at.tzinfo is UTC
+    assert emitted[0].review is dated_result.review
+    assert result.reviews == (dated_result.review,)
