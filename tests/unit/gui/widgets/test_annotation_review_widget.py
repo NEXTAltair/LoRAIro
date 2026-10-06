@@ -170,6 +170,41 @@ def test_completed_results_are_cleared_on_annotation_reload(wired_widget) -> Non
     assert "未評価" in widget.status_label.text()
 
 
+def test_service_reinjection_cancels_inflight_and_uses_refreshed_service_on_next_click(
+    wired_widget,
+) -> None:
+    widget, original_service, manager = wired_widget
+    widget._on_evaluate_requested()
+    generation = widget._generation
+    worker_id = manager.started[0][0]
+    refreshed_service = Mock()
+    refreshed_service.warning_threshold = 0.2
+    refreshed_service.prepare_review.return_value = make_snapshot()
+
+    widget.set_service(refreshed_service)
+
+    assert widget._manager is manager
+    assert len(manager.started) == 1
+    assert manager.cancel_requests == [(worker_id, CancelReason.USER_REQUESTED)]
+    assert widget.results_table.rowCount() == 0
+    assert not widget.evaluate_button.isEnabled()
+    original_service.review.assert_not_called()
+    refreshed_service.review.assert_not_called()
+    manager.worker_terminal.emit(
+        WorkerTerminalEvent(
+            worker_id,
+            "annotation_review",
+            WorkerOutcome.SUCCEEDED,
+            result=AnnotationReviewWorkerResult(generation, make_result()),
+        )
+    )
+    assert widget.results_table.rowCount() == 0
+    assert widget.evaluate_button.isEnabled()
+
+    widget._on_evaluate_requested()
+    assert manager.started[-1][1]._service is refreshed_service
+
+
 def test_external_edit_fingerprint_rejects_old_result(wired_widget) -> None:
     widget, service, manager = wired_widget
     widget._on_evaluate_requested()
