@@ -72,9 +72,12 @@ class TestServiceContainerProviderBatch:
         assert container2._provider_batch_workflow_service is None
         assert container2.provider_batch_workflow_service is not service
 
-    def test_provider_batch_workflow_service_registers_annotator_library_adapters(self) -> None:
+    def test_provider_batch_workflow_service_registers_annotator_library_adapters(
+        self, tmp_path: Path
+    ) -> None:
         container = ServiceContainer()
         fake_library = FakeBatchAnnotatorLibrary()
+        image_path = tmp_path / "container-image.webp"
         # ADR 0035 段階 6 (#423): facade 撤廃後、workflow service は manager 経由で
         # image_repo / provider_batch_repo / annotation_repo を取得する。Manager を
         # Mock 化し、各 Repo を個別に stub する。
@@ -82,7 +85,7 @@ class TestServiceContainerProviderBatch:
         image_repo.get_images_metadata_batch.return_value = [
             {
                 "id": 1,
-                "stored_image_path": "/tmp/container-image.webp",
+                "stored_image_path": str(image_path),
                 "phash": "containerimage01",
                 "width": 1024,
                 "height": 768,
@@ -116,7 +119,7 @@ class TestServiceContainerProviderBatch:
         assert fake_library.submitted_request.provider == "openai"
         assert fake_library.submitted_request.endpoint == "/v1/moderations"
         assert fake_library.submitted_request.items[0].task_type == "rating_preflight"
-        assert fake_library.submitted_request.items[0].image_path == Path("/tmp/container-image.webp")
+        assert fake_library.submitted_request.items[0].image_path == image_path
 
     def test_provider_batch_adapter_fetch_passes_destination_dir(self, tmp_path: Path) -> None:
         container = ServiceContainer()

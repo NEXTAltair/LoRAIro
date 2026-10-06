@@ -221,7 +221,7 @@ class TestProviderBatchJobService:
         assert job.endpoint == "responses"
         assert job.model_id == 10
         assert job.request_count == 2
-        assert job.input_artifact_path == "/tmp/input.jsonl"
+        assert job.input_artifact_path == str(Path("/tmp/input.jsonl"))
         assert job.raw_provider_payload == '{"id": "batch_123", "status": "validating"}'
         items = test_provider_batch_repository.list_provider_batch_items(job_id)
         assert [(item.custom_id, item.image_id, item.model_id, item.status) for item in items] == [
@@ -470,8 +470,8 @@ class TestProviderBatchJobService:
         assert [artifact.artifact_type for artifact in registered] == ["output", "error"]
         job = test_provider_batch_repository.get_provider_batch_job(job_id)
         assert job is not None
-        assert job.output_artifact_path == "/tmp/output.jsonl"
-        assert job.error_artifact_path == "/tmp/error.jsonl"
+        assert job.output_artifact_path == str(Path("/tmp/output.jsonl"))
+        assert job.error_artifact_path == str(Path("/tmp/error.jsonl"))
         assert job.raw_provider_payload == '{"output_file_id": "file_out"}'
 
     def test_fetch_results_registers_artifacts_items_and_updates_job_status(
@@ -506,7 +506,7 @@ class TestProviderBatchJobService:
         assert job.provider_status == "completed"
         assert job.succeeded_count == 1
         assert job.failed_count == 1
-        assert job.output_artifact_path == "/tmp/output.jsonl"
+        assert job.output_artifact_path == str(Path("/tmp/output.jsonl"))
         assert job.raw_provider_payload == '{"status": "completed"}'
 
     def test_download_results_is_idempotent_for_existing_artifacts(
@@ -559,7 +559,7 @@ class TestProviderBatchJobService:
         assert job is not None
         assert job.status == "imported"
         assert job.provider_status == "completed"
-        assert job.output_artifact_path == "/tmp/output.jsonl"
+        assert job.output_artifact_path == str(Path("/tmp/output.jsonl"))
 
     def test_download_results_does_not_rewrite_terminal_status_for_legacy_artifacts(
         self,
@@ -579,7 +579,7 @@ class TestProviderBatchJobService:
         job = test_provider_batch_repository.get_provider_batch_job(job_id)
         assert job is not None
         assert job.status == "failed"
-        assert job.error_artifact_path == "/tmp/error.jsonl"
+        assert job.error_artifact_path == str(Path("/tmp/error.jsonl"))
 
     def test_fetch_results_coerces_mapping_artifacts_and_timestamps(
         self,
@@ -609,7 +609,7 @@ class TestProviderBatchJobService:
         assert job is not None
         assert job.completed_at is not None
         assert job.completed_at.isoformat() == "2026-05-25T02:00:00"
-        assert job.output_artifact_path == "/tmp/output.jsonl"
+        assert job.output_artifact_path == str(Path("/tmp/output.jsonl"))
 
     def test_fetch_results_does_not_complete_mapping_without_provider_status(
         self,
@@ -629,7 +629,7 @@ class TestProviderBatchJobService:
         assert job is not None
         assert job.status == "validating"
         assert job.provider_status == "validating"
-        assert job.output_artifact_path == "/tmp/output.jsonl"
+        assert job.output_artifact_path == str(Path("/tmp/output.jsonl"))
 
     def test_missing_adapter_raises(self, test_provider_batch_repository: ProviderBatchRepository) -> None:
         service = ProviderBatchJobService(test_provider_batch_repository)
