@@ -1,7 +1,7 @@
 ---
 type: ADR
 title: Clef annotation review の独立 API と一時的な個別警告
-status: Accepted
+status: Accepted (結果保持・GUI バッチ実行は ADR 0095 で改定)
 timestamp: 2026-10-06
 tags: [clef, annotation, review, api]
 ---
@@ -51,10 +51,13 @@ DB や生成アノテーションに依存せず追加できる。
 一度に 64 質問までなので、大量の注釈は分割して送信する。分割の途中で失敗すると
 成功部分、失敗部分、未評価部分が混在する。画面や CLI はこの違いを表示する。
 キャンセルは送信済み HTTP を中断せず、次の送信と結果適用を止める。
-再起動・再選択時は再点検が必要。点検結果はタグ confidence や品質スコアには利用しない。
+初期実装では再起動・再選択時に再確認が必要だった。確認結果はタグ confidence や品質スコアには利用しない。
+
+結果の保存、固定対象の GUI バッチ実行、結果画面からの手動確認は
+[ADR 0095](0095-clef-review-batch-results.md) で改定する。
 
 タグ `dog` (`tag_123`) への回答 `NoulAnswer(probability=0.03)` はタグの要確認表示。
 キャプション「赤髪の女性」(`caption_456`) への回答 `NoulAnswer(probability=0.96)` は
 警告対象外。いずれも元の行と文章を変更せず、理由文をモデルが生成できる前提にはしない。
 
-仕様と運用手順: [Clef によるタグ・キャプション点検](../annotation-review.md)。
+仕様と運用手順: [Clef によるアノテーション確認](../annotation-review.md)。

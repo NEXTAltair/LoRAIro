@@ -214,8 +214,12 @@ class SearchTabWidget(QWidget, Ui_SearchTab):
         if self._db_manager is None:
             return
         from ...services.annotation_review_service import AnnotationReviewService
+        from ...services.annotation_review_store import AnnotationReviewStore
 
         try:
+            self._selected_image_details_widget.annotation_review_widget.set_store(
+                AnnotationReviewStore(self._db_manager)
+            )
             self._selected_image_details_widget.set_annotation_review_service(
                 AnnotationReviewService(self._service_container.config_service, self._db_manager)
             )

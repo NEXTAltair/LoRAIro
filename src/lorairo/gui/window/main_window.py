@@ -649,7 +649,36 @@ class MainWindow(QMainWindow, Ui_MainWindow):
         )
         container.layout().addWidget(widget)
         self.results_tab = widget
+        widget.manual_review_requested.connect(self._open_annotation_review_image)
+        self._reload_results_annotation_review_service()
         logger.info("✅ 結果タブ (ResultsTabWidget) initialized")
+
+    def _reload_results_annotation_review_service(self) -> None:
+        """Bind saved Clef results and current configuration to the results tab."""
+        if self.results_tab is None or self.db_manager is None:
+            return
+        from ...services.annotation_review_service import AnnotationReviewService
+        from ...services.annotation_review_store import AnnotationReviewStore
+
+        try:
+            self.results_tab.set_annotation_review_services(
+                AnnotationReviewService(get_service_container().config_service, self.db_manager),
+                AnnotationReviewStore(self.db_manager),
+            )
+        except Exception as error:
+            self.results_tab.set_annotation_review_unavailable_reason(str(error))
+            logger.warning("Clef results configuration could not be loaded: {}", error)
+
+    def _open_annotation_review_image(self, image_id: int) -> None:
+        """Open an image's existing manual editor from a retained warning."""
+        if self.dataset_state_manager is None or self.search_tab is None:
+            return
+        self.dataset_state_manager.set_selected_images([image_id])
+        self.dataset_state_manager.set_current_image(image_id)
+        # Reload even when the requested image is already current, so the editor
+        # shows current annotations rather than a previous cached selection.
+        self.dataset_state_manager.refresh_images([image_id])
+        self.tabWidgetMainMode.setCurrentWidget(self.tabWorkspace)
 
     def _setup_errors_tab(self) -> None:
         """エラータブに ErrorsTabWidget を埋め込む。
@@ -1450,6 +1479,7 @@ class MainWindow(QMainWindow, Ui_MainWindow):
 
         if self.search_tab is not None:
             self.search_tab.reload_annotation_review_service()
+        self._reload_results_annotation_review_service()
 
         if self.annotate_tab is None:
             return
@@ -1656,6 +1686,8 @@ class MainWindow(QMainWindow, Ui_MainWindow):
         # worker の grace 待ちを重ねて終了を遅らせる、#1355 Codex P2)。
         if self.search_tab is not None:
             self.search_tab.shutdown()
+        if self.results_tab is not None:
+            self.results_tab.shutdown()
         # Provider Batch 結果回収 worker を停止する (#1158 Codex P2)。埋め込み widget の
         # closeEvent は親閉鎖で発火しないため、Jobs タブ経由で明示的に停止して待つ。
         if self.jobs_tab is not None:
