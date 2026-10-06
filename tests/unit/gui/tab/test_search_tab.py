@@ -122,6 +122,7 @@ def test_invalid_clef_settings_keep_search_tab_usable(
     qtbot.addWidget(widget)
     try:
         review = widget.selected_image_details_widget.annotation_review_widget
+        assert not review.isHidden()
         assert "設定を確認" in review.status_label.text()
         assert not review.evaluate_button.isEnabled()
         assert widget.thumbnail_selector is not None
