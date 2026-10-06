@@ -72,7 +72,10 @@ def db_manager(temp_project_dir):
         fsm=fsm,
         image_repo=repository,
     )
-    return manager
+    try:
+        yield manager
+    finally:
+        engine.dispose()
 
 
 @pytest.fixture

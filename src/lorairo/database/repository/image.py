@@ -118,6 +118,7 @@ class ImageRepository(BaseRepository):
                 results = session.execute(stmt).all()
                 index: dict[str, int] = {}
                 for image_id, filename in results:
+                    assert filename is not None  # The query excludes NULL filenames.
                     stem = Path(filename).stem
                     index[stem] = image_id
 

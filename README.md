@@ -51,6 +51,13 @@
    uv sync
    ```
 
+   2026年10月の依存更新より前に作成した環境では、初回の更新時に次を実行してください。
+   旧 `griffe` の削除で同じモジュールを提供する `griffelib` のファイルも消えるため、再インストールします。
+
+   ```bash
+   uv sync --dev --reinstall-package griffelib
+   ```
+
    LoRAIro は PyTorch / torchvision を `https://download.pytorch.org/whl/cu132` から取得する設定です。
    `uv sync` または初回の `uv run lorairo` 時に、CUDA 13.2 向けの PyTorch wheel が仮想環境へインストールされます。
 

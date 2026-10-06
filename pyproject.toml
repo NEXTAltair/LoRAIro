@@ -41,7 +41,10 @@ dependencies = [
     "alembic>=1.15.2",
     "huggingface_hub[hf_xet]",
     # CLI系
-    "typer>=0.12.0",
+    # Typer 0.26+ は Click を vendor 化し、コマンド introspection とエラー境界で
+    # 使用する外部 Click API をサポートしないため、互換版の上限を維持する。
+    # https://typer.tiangolo.com/tutorial/click/
+    "typer>=0.12.0,<0.26.0",
     "rich>=13.0.0",
     # GUI系
     "PySide6>=6.8.0.2",
@@ -58,15 +61,6 @@ dependencies = [
     # 使わない (実装コードに該当プロバイダー参照ゼロ) ため機能影響なし。
     "pydantic-ai>=1.94.0",
     "litellm>=1.84.0",
-    # 2026-05-28: pydantic-ai (1.100 / 1.103 いずれも) の `pydantic_ai/_griffe.py` が
-    # `from griffe import Docstring` 等の旧 griffe 1.x top-level API を期待するが、
-    # universal lock では `griffelib 2.0.2` (top-level export を `_internal` に移動)
-    # が transitive に resolve されるのみで `griffe` 本体が install されず、
-    # LoRAIro CLI 起動時に ImportError になる (Issue #525)。
-    # upstream pydantic-ai が griffelib API に追従するまでの workaround として
-    # griffe 1.x の direct dep を明示する。pydantic-ai bump 時に解除可否を確認すること。
-    # 参照: https://github.com/pydantic/pydantic-ai/blob/main/pydantic_ai_slim/pydantic_ai/_griffe.py
-    "griffe>=1.15.0,<2.0",
 ]
 
 
@@ -98,12 +92,15 @@ exclude-dependencies = ["triton"]
 # 修正版は 0.38.0。image-annotator-lib の `diffusers>=0.24.0` は下限が緩いため、
 # root resolution で 0.38.0 以上を強制する。
 #
-# diffusers 0.38.0 は `safetensors>=0.8.0rc0` (プレリリース) を要求する。
-# `prerelease = "allow"` は全パッケージにプレリリースを許可してしまい、月次
-# `uv lock --upgrade` で無関係な RC が混入しうる。代わりに constraint に
-# プレリリース specifier を明示することで safetensors のみプレリリースを許可する。
-# safetensors 安定版 0.8.0 リリース後は `safetensors>=0.8.0rc0` を削除する。
-constraint-dependencies = ["diffusers>=0.38.0", "safetensors>=0.8.0rc0"]
+# safetensors は安定版 0.8.0 が利用可能になったため、プレリリース許可の
+# workaround は不要。
+# Anthropic SDK 1.x は httpx2 へ移行したが、pydantic-ai の AnthropicProvider と
+# retry client は httpx.AsyncClient を注入するため TypeError になる。対応まで 0.x を使う。
+# https://github.com/anthropics/anthropic-sdk-python/blob/main/MIGRATION.md
+# Click 8.5 は Argument.help を追加し、Typer 0.25.1 の位置引数の help を None で
+# 上書きするため、CLI help と公開 schema を維持できる 8.4 系までに制限する。
+# https://click.palletsprojects.com/en/stable/api/#click.Argument
+constraint-dependencies = ["diffusers>=0.38.0", "anthropic<1.0", "click<8.5"]
 
 [[tool.uv.index]]
 name = "pytorch"
