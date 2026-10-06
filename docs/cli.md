@@ -1595,7 +1595,7 @@ lorairo-cli --json describe "review run"
 **Input `ReviewRunInput`**
 
 - `project`: `str` (required) - Existing project to review. (CLI: `--project`, `-p`)
-- `image_ids`: `str?` (optional, default `None`) - Explicit positive image IDs in CSV (max 500); one of image_ids/image_ids_file is required. Duplicates evaluated once. No implicit all-image review. (CLI: `--image-ids`)
+- `image_ids`: `str?` (optional, default `None`) - Explicit positive image IDs in CSV; one of image_ids/image_ids_file is required. Review max 500 unique images per run; larger selections fail with RESULT_SET_TOO_LARGE before opening the project or sending requests. CSV reader accepts up to 100,000 IDs; duplicates evaluated once. No implicit all-image review. (CLI: `--image-ids`)
 - `image_ids_file`: `str?` (optional, default `None`) - UTF-8 newline/comma IDs, exclusive with image_ids. Review max 500 unique images per run; larger selections fail with RESULT_SET_TOO_LARGE before opening the project or sending requests. File reader accepts up to 100,000 IDs; duplicates evaluated once. (CLI: `--image-ids-file`)
 
 **Output `ReviewRunItem`**
