@@ -33,7 +33,15 @@ target_metadata = Base.metadata  # Set your Base's metadata here
 def include_object(
     object: SchemaItem,
     name: str | None,
-    type_: Literal["schema", "table", "column", "index", "unique_constraint", "foreign_key_constraint"],
+    type_: Literal[
+        "schema",
+        "table",
+        "column",
+        "index",
+        "unique_constraint",
+        "foreign_key_constraint",
+        "check_constraint",
+    ],
     reflected: bool,
     compare_to: SchemaItem | None,
 ) -> bool:

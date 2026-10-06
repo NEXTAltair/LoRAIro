@@ -151,10 +151,13 @@ class TestProviderBatchWorkflowService:
         workflow: tuple[ProviderBatchWorkflowService, FakeProviderBatchAdapter],
         test_provider_batch_repository: ProviderBatchRepository,
         db_session_factory: sessionmaker,
+        tmp_path: Path,
     ) -> None:
         service, adapter = workflow
-        _insert_image(db_session_factory, 1, "/tmp/images/one.webp")
-        _insert_image(db_session_factory, 2, "/tmp/images/two.webp")
+        one_path = tmp_path / "images" / "one.webp"
+        two_path = tmp_path / "images" / "two.webp"
+        _insert_image(db_session_factory, 1, str(one_path))
+        _insert_image(db_session_factory, 2, str(two_path))
 
         job_id = service.submit_images(
             provider="anthropic",
@@ -170,8 +173,8 @@ class TestProviderBatchWorkflowService:
             (item.custom_id, item.image_id, item.image_path, item.task_type)
             for item in adapter.submitted_request.items
         ] == [
-            (_expected_custom_id(1), 1, Path("/tmp/images/one.webp"), "annotation"),
-            (_expected_custom_id(2), 2, Path("/tmp/images/two.webp"), "annotation"),
+            (_expected_custom_id(1), 1, one_path, "annotation"),
+            (_expected_custom_id(2), 2, two_path, "annotation"),
         ]
         job = test_provider_batch_repository.get_provider_batch_job(job_id)
         assert job is not None

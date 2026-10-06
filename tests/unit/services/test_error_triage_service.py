@@ -29,7 +29,7 @@ def _row(
     model_name: str | None = "gpt-4o",
     image_id: int | None = 1,
     resolved: bool = False,
-    created_at: datetime | None | object = _UNSET,
+    created_at: datetime | object | None = _UNSET,
 ) -> ErrorRow:
     """テスト用 ErrorRow を組み立てる。
 

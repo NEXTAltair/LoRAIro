@@ -534,7 +534,7 @@ def test_create_cleanup_failure_preserves_original_error_and_recovery(
     assert error.details["cleanup_errors"] == [{"path": str(residual), "error": "cleanup denied"}]
     assert "retry project create" in error.details["recovery"]
     assert "cleanup denied" in str(error)
-    assert str(residual) in str(error)
+    assert repr(str(residual)) in str(error)
 
 
 @pytest.mark.unit

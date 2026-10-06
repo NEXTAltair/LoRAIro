@@ -943,8 +943,8 @@ def test_submit_with_resolution_resolves_processed_paths(mock_get_container: Mag
         description=None,
         task_type="annotation",
         image_paths={
-            1: "image_dataset/processed_images/512/1.jpg",
-            2: "image_dataset/processed_images/512/2.jpg",
+            1: str(Path("image_dataset/processed_images/512/1.jpg")),
+            2: str(Path("image_dataset/processed_images/512/2.jpg")),
         },
     )
     # --resolution 指定時は original image guard をスキップ

@@ -152,8 +152,8 @@ class AnnotationFilterWidget(QWidget, Ui_AnnotationFilterWidget):
 
     def set_filters(
         self,
-        capabilities: list[str] | None | object = _UNSET,
-        environment: str | None | object = _UNSET,
+        capabilities: list[str] | object | None = _UNSET,
+        environment: str | object | None = _UNSET,
     ) -> None:
         """
         フィルター状態を設定

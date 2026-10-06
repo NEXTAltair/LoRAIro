@@ -86,7 +86,7 @@ def test_workspace_precedence_and_absolute_configured_base(tmp_path, monkeypatch
     config.write_text('[directories]\ndatabase_base_dir = "custom-data"\n')
     for value, expected in (
         ("custom-data", workspace / "custom-data"),
-        (str(tmp_path / "absolute"), tmp_path / "absolute"),
+        ((tmp_path / "absolute").as_posix(), tmp_path / "absolute"),
     ):
         config.write_text(f'[directories]\ndatabase_base_dir = "{value}"\n')
         result = runner.invoke(
