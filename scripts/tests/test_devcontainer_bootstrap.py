@@ -11,12 +11,13 @@ def test_image_installs_codex_and_post_create_rejects_a_pre_harness_checkout() -
 
     assert "FROM node:24-bookworm AS node-runtime" in dockerfile
     assert '"@openai/codex@${CODEX_VERSION}"' in dockerfile
-    assert "ARG CODEX_VERSION=0.153.4" in dockerfile
+    assert "ARG CODEX_VERSION=latest" in dockerfile
+    assert "ENV NPM_CONFIG_PREFIX=/home/vscode/.local" in dockerfile
     assert "codex --version" in script
     assert 'cd "$WORKSPACE"' in script
     assert "scripts/install_agent_harness.py" in script
     assert "scripts/validate_harness.py" in script
     assert "git pull --ff-only" in script
-    assert "ghcr.io/devcontainers/features/node:1" not in (ROOT / ".devcontainer" / "devcontainer.json").read_text(
-        encoding="utf-8"
-    )
+    assert "ghcr.io/devcontainers/features/node:1" not in (
+        ROOT / ".devcontainer" / "devcontainer.json"
+    ).read_text(encoding="utf-8")

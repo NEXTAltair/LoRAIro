@@ -22,8 +22,36 @@ checkout, so rebuilding an old checkout cannot supply newly added setup scripts:
 git pull --ff-only
 ```
 
-The image itself installs Node 24 and a pinned Codex CLI; their versions are
-reviewed in `Dockerfile`. Post-create only performs workspace setup: it changes
+The image itself installs Node 24 and the current stable Codex CLI. Codex is
+installed as `vscode` under `/home/vscode/.local`, which is also the global npm
+prefix. Update it from a container terminal without `sudo`:
+
+```bash
+npm install -g @openai/codex@latest
+codex --version
+```
+
+Restart Codex after updating. Updates made inside a running container last until
+that container is replaced. The default `CODEX_VERSION=latest` is resolved when
+Docker executes the install layer; a cached layer can retain an older release.
+Use **Dev Containers: Rebuild Container Without Cache** when rebuilding to get
+the current release. Set `build.args.CODEX_VERSION` in `devcontainer.json` to an
+exact release only when a pinned CLI is needed.
+
+For an existing container built with the old root-owned installation, the same
+user-owned prefix can be configured before rebuilding:
+
+```bash
+npm config set prefix /home/vscode/.local
+export PATH="/home/vscode/.local/bin:$PATH"
+npm install -g @openai/codex@latest
+hash -r
+codex --version
+```
+
+The rebuilt image supplies this prefix and PATH automatically.
+
+Post-create only performs workspace setup: it changes
 to `/workspaces/LoRAIro`, records all output in `.devcontainer/postCreate.log`,
 runs `make setup` (including pinned harness restoration), and validates the
 harness. It fails explicitly if `scripts/install_agent_harness.py` is absent

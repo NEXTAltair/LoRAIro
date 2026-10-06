@@ -121,9 +121,9 @@ class DocValidator:
 
         actual_count = len(business_services) + len(gui_services)
 
-        # Expected count from actual codebase (#1029 で SignalManager 系 3 ファイル削除後の実数)
-        expected_business_count = 38
-        expected_gui_count = 7
+        # Reviewed inventory after adding crop services in #1349 and #1354.
+        expected_business_count = 39
+        expected_gui_count = 9
         expected_count = expected_business_count + expected_gui_count
 
         if actual_count != expected_count:
