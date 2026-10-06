@@ -11,6 +11,7 @@ import pytest
 from lorairo.gui.state.staging_state import StagingStateManager
 from lorairo.gui.tab.results_tab import ResultsTabWidget
 from lorairo.gui.widgets.results_widget import ResultsWidget
+from lorairo.gui.workers.annotation_review_results_loader import AnnotationReviewResultsLoader
 
 
 @pytest.fixture
@@ -47,6 +48,33 @@ def test_results_tab_updates_next_review_scope_when_staging_changes(qtbot, stagi
 
     assert widget.annotation_review_widget._image_ids == (4, 9)
     assert not widget.annotation_review_widget.start_button.isEnabled()
+
+
+@pytest.mark.gui
+@pytest.mark.parametrize("visible", [False, True])
+def test_saved_reviews_load_when_results_are_opened(qtbot, staging, visible: bool) -> None:
+    widget = ResultsTabWidget(db_manager=MagicMock(), staging_state_manager=staging)
+    qtbot.addWidget(widget)
+    service, store, manager = MagicMock(), MagicMock(), MagicMock()
+    store.get_current_results.return_value = {}
+    if visible:
+        widget.show()
+
+    widget.set_annotation_review_services(service, store, manager)
+
+    if not visible:
+        manager.start_worker.assert_not_called()
+        store.get_current_results.assert_not_called()
+        widget.show()
+        widget.refresh()
+
+    manager.start_worker.assert_called_once()
+    loader = manager.start_worker.call_args.args[1]
+    assert isinstance(loader, AnnotationReviewResultsLoader)
+    loader.execute()
+    store.get_current_results.assert_called_once_with(service, limit=500)
+    service.review.assert_not_called()
+    widget.shutdown()
 
 
 @pytest.mark.gui

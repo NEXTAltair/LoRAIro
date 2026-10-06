@@ -155,6 +155,8 @@ class AnnotationReviewBatchWidget(QGroupBox):
         service: AnnotationReviewService,
         store: AnnotationReviewStore,
         worker_manager: WorkerManager | None = None,
+        *,
+        load_history: bool = True,
     ) -> None:
         """Reload settings without accepting a result from the previous configuration."""
         self._generation += 1
@@ -180,7 +182,8 @@ class AnnotationReviewBatchWidget(QGroupBox):
             # QObject emits destroyed before destroying child managers. No widget
             # method is called here, so deletion also drains or parks live threads.
             self.destroyed.connect(stop_on_destroy)
-        self.refresh()
+        if load_history:
+            self.refresh()
         self._update_controls()
 
     def set_unavailable_reason(self, reason: str) -> None:

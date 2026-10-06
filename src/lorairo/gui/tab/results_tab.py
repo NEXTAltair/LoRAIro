@@ -90,7 +90,10 @@ class ResultsTabWidget(QWidget):
         store: AnnotationReviewStore,
         worker_manager: WorkerManager | None = None,
     ) -> None:
-        self._annotation_review_widget.set_services(service, store, worker_manager)
+        # MainWindow calls refresh when this tab opens; avoid threads during its construction.
+        self._annotation_review_widget.set_services(
+            service, store, worker_manager, load_history=self.isVisible()
+        )
         self._annotation_review_widget.setVisible(True)
         self._update_review_scope()
 
