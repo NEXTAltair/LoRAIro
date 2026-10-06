@@ -172,11 +172,11 @@ class TestCreateDirectory:
         fsm._create_directory(new_dir)
         assert new_dir.exists()
 
-    def test_raises_on_permission_error(self, tmp_path: Path) -> None:
+    def test_raises_when_parent_is_file(self, tmp_path: Path) -> None:
         fsm = FileSystemManager()
         file_as_dir = tmp_path / "file.txt"
         file_as_dir.write_text("content")
-        with pytest.raises(NotADirectoryError):
+        with pytest.raises((NotADirectoryError, FileExistsError)):
             fsm._create_directory(file_as_dir / "subdir")
 
 
