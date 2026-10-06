@@ -6,7 +6,12 @@
 MainWindow は本ウィジェットを配置し依存を注入するだけ (glue)。
 """
 
-from PySide6.QtCore import Slot
+from __future__ import annotations
+
+from typing import TYPE_CHECKING
+
+from PySide6.QtCore import Signal, Slot
+from PySide6.QtGui import QCloseEvent
 from PySide6.QtWidgets import QVBoxLayout, QWidget
 
 from ...database.db_core import resolve_stored_path
@@ -14,7 +19,13 @@ from ...database.db_manager import ImageDatabaseManager
 from ...services.quality_issue_detection_service import QualityIssueDetectionService
 from ...utils.log import logger
 from ..state.staging_state import StagingStateManager
+from ..widgets.annotation_review_batch_widget import AnnotationReviewBatchWidget
 from ..widgets.results_widget import _VIRTUALIZE_THRESHOLD, ResultsWidget
+
+if TYPE_CHECKING:
+    from ...services.annotation_review_service import AnnotationReviewService
+    from ...services.annotation_review_store import AnnotationReviewStore
+    from ..workers.manager import WorkerManager
 
 
 class ResultsTabWidget(QWidget):
@@ -23,6 +34,8 @@ class ResultsTabWidget(QWidget):
     ステージング集合の各画像を `QualityIssueDetectionService` でトリアージし、
     `ResultsWidget` に表示する。accept 操作で DB の reviewed 状態を更新する。
     """
+
+    manual_review_requested = Signal(int)
 
     def __init__(
         self,
@@ -43,6 +56,14 @@ class ResultsTabWidget(QWidget):
         self._staging_state_manager = staging_state_manager
         self._quality_service = QualityIssueDetectionService()
 
+        self._annotation_review_widget = AnnotationReviewBatchWidget(self)
+        self._annotation_review_widget.manual_review_requested.connect(self.manual_review_requested)
+        self._annotation_review_widget.setVisible(False)
+        if staging_state_manager is not None:
+            staging_state_manager.staged_images_changed.connect(
+                self._annotation_review_widget.set_image_ids
+            )
+
         self._results_widget = ResultsWidget(parent=self)
         self._results_widget.accept_requested.connect(self._on_accept)
         self._results_widget.unaccept_requested.connect(self._on_unaccept)
@@ -50,12 +71,47 @@ class ResultsTabWidget(QWidget):
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
+        layout.addWidget(self._annotation_review_widget)
         layout.addWidget(self._results_widget)
 
     @property
     def results_widget(self) -> ResultsWidget:
         """内包する `ResultsWidget` を返す (タブ内配線・テスト用)。"""
         return self._results_widget
+
+    @property
+    def annotation_review_widget(self) -> AnnotationReviewBatchWidget:
+        """ステージ済み画像のアノテーション確認と保存結果を表示する。"""
+        return self._annotation_review_widget
+
+    def set_annotation_review_services(
+        self,
+        service: AnnotationReviewService,
+        store: AnnotationReviewStore,
+        worker_manager: WorkerManager | None = None,
+    ) -> None:
+        self._annotation_review_widget.set_services(service, store, worker_manager)
+        self._annotation_review_widget.setVisible(True)
+        self._update_review_scope()
+
+    def set_annotation_review_unavailable_reason(self, reason: str) -> None:
+        self._annotation_review_widget.set_unavailable_reason(reason)
+        self._annotation_review_widget.setVisible(True)
+
+    def _update_review_scope(self) -> None:
+        ids = (
+            list(self._staging_state_manager.get_staged_items())
+            if self._staging_state_manager is not None
+            else []
+        )
+        self._annotation_review_widget.set_image_ids(ids)
+
+    def shutdown(self) -> None:
+        self._annotation_review_widget.shutdown()
+
+    def closeEvent(self, event: QCloseEvent) -> None:
+        self.shutdown()
+        super().closeEvent(event)
 
     @Slot(int)
     def _on_accept(self, image_id: int) -> None:
@@ -82,6 +138,8 @@ class ResultsTabWidget(QWidget):
 
     def refresh(self) -> None:
         """ステージング集合のトリアージを再計算して描画する (タブ表示時に呼ぶ)。"""
+        self._update_review_scope()
+        self._annotation_review_widget.refresh()
         if not self._db_manager or self._staging_state_manager is None:
             self._results_widget.clear()
             return

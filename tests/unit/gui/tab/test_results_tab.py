@@ -25,6 +25,28 @@ def test_results_tab_hosts_results_widget(qtbot, staging: StagingStateManager) -
 
     assert isinstance(widget.results_widget, ResultsWidget)
     assert widget.results_widget.parent() is widget
+    assert widget.annotation_review_widget.isHidden()
+
+
+@pytest.mark.gui
+def test_results_tab_forwards_manual_review_for_saved_image(qtbot, staging: StagingStateManager) -> None:
+    widget = ResultsTabWidget(db_manager=MagicMock(), staging_state_manager=staging)
+    qtbot.addWidget(widget)
+
+    with qtbot.waitSignal(widget.manual_review_requested) as emission:
+        widget.annotation_review_widget.manual_review_requested.emit(42)
+
+    assert emission.args == [42]
+
+
+@pytest.mark.gui
+def test_results_tab_updates_next_review_scope_when_staging_changes(qtbot, staging) -> None:
+    widget = ResultsTabWidget(db_manager=MagicMock(), staging_state_manager=staging)
+    qtbot.addWidget(widget)
+    staging.staged_images_changed.emit([4, 9])
+
+    assert widget.annotation_review_widget._image_ids == (4, 9)
+    assert not widget.annotation_review_widget.start_button.isEnabled()
 
 
 @pytest.mark.gui

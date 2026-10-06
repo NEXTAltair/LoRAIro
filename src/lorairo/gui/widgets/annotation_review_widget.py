@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from typing import TYPE_CHECKING
+from weakref import ref
 
 from PySide6.QtCore import Qt, Slot
 from PySide6.QtGui import QCloseEvent, QColor
@@ -25,19 +26,20 @@ from ..workers.terminal import CancelReason, WorkerOutcome, WorkerTerminalEvent
 
 if TYPE_CHECKING:
     from ...services.annotation_review_service import AnnotationReviewResult, AnnotationReviewService
+    from ...services.annotation_review_store import AnnotationReviewStore
 
 
 class AnnotationReviewWidget(QWidget):
     """Own review display, single-flight lifecycle, and stale-result rejection.
 
-    This widget has no annotation write operation. Image selection and annotation
-    reloads invalidate results; a fresh service snapshot also protects against
-    edits from another process while a request is running.
+    This widget has no annotation write operation. Saved results survive image
+    selection; matching the current fingerprint protects against annotation edits.
     """
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self._service: AnnotationReviewService | None = None
+        self._store: AnnotationReviewStore | None = None
         self._manager: WorkerManager | None = None
         self._image_id: int | None = None
         self._generation = 0
@@ -52,7 +54,7 @@ class AnnotationReviewWidget(QWidget):
         layout.setContentsMargins(0, theme.SPACE_1, 0, theme.SPACE_1)
         layout.setSpacing(theme.SPACE_1)
         header = QHBoxLayout()
-        title = QLabel("画像との整合性", self)
+        title = QLabel("アノテーション確認", self)
         title.setStyleSheet(f"font-weight: {theme.FONT_WEIGHT_SEMIBOLD};")
         header.addWidget(title, 1)
         self.evaluate_button = QPushButton("Clef で確認", self)
@@ -105,6 +107,16 @@ class AnnotationReviewWidget(QWidget):
         if self._manager is None:
             self._manager = worker_manager if worker_manager is not None else WorkerManager(self)
             self._manager.worker_terminal.connect(self._on_worker_terminal)
+            manager = self._manager
+            owner_ref = ref(self)
+
+            def stop_on_destroy() -> None:
+                owner = owner_ref()
+                if owner is not None:
+                    owner._closing = True
+                manager.cancel_all_workers(reason=CancelReason.SHUTDOWN, total_grace_ms=1000)
+
+            self.destroyed.connect(stop_on_destroy)
         self.set_image(self._image_id)
 
     def set_unavailable_reason(self, reason: str) -> None:
@@ -113,6 +125,11 @@ class AnnotationReviewWidget(QWidget):
         self._unavailable_reason = reason
         self.set_image(self._image_id)
         self.setVisible(True)
+
+    def set_store(self, store: AnnotationReviewStore) -> None:
+        """Restore the project's saved result when returning to an image."""
+        self._store = store
+        self._restore_saved_result()
 
     @Slot(object)
     def set_image(self, image_id: int | None) -> None:
@@ -127,6 +144,20 @@ class AnnotationReviewWidget(QWidget):
         self.model_label.setVisible(False)
         self.cancel_button.setVisible(False)
         self._show_idle_state()
+        self._restore_saved_result()
+
+    def _restore_saved_result(self) -> bool:
+        if self._store is None or self._service is None or self._image_id is None or self._closing:
+            return False
+        try:
+            saved = self._store.get_current_result(self._image_id, self._service)
+        except Exception:
+            self._set_status("保存済みの確認結果を読み込めませんでした。", theme.WARN)
+            return False
+        if saved is not None:
+            self._display_result(saved.review)
+            return True
+        return False
 
     def _show_idle_state(self) -> None:
         if self._unavailable_reason is not None:
@@ -169,7 +200,7 @@ class AnnotationReviewWidget(QWidget):
         self.cancel_button.setEnabled(True)
         self.cancel_button.setVisible(True)
         self._update_button_state()
-        worker = AnnotationReviewWorker(self._service, self._image_id, self._generation)
+        worker = AnnotationReviewWorker(self._service, self._image_id, self._generation, store=self._store)
         if not self._manager.start_worker(self._inflight_id, worker):
             self._inflight_id = None
             self.cancel_button.setVisible(False)
@@ -191,12 +222,13 @@ class AnnotationReviewWidget(QWidget):
             return
         worker_generation = int(event.worker_id.rsplit("_", 1)[1])
         self._inflight_id = None
-        self.cancel_button.setVisible(False)
-        self._update_button_state()
         if self._closing:
             return
+        self.cancel_button.setVisible(False)
+        self._update_button_state()
         if worker_generation != self._generation:
             self._show_idle_state()
+            self._restore_saved_result()
             return
         if event.outcome != WorkerOutcome.SUCCEEDED:
             if event.outcome == WorkerOutcome.CANCELED:
@@ -228,13 +260,24 @@ class AnnotationReviewWidget(QWidget):
             )
             return
         if result.review.fingerprint != current_snapshot.fingerprint:
-            self._set_status("未評価 — 内容が変更されました。もう一度評価してください。", theme.WARN)
+            self._set_status(
+                "未評価 — 内容が変更されたか、設定が更新されました。もう一度確認してください。", theme.WARN
+            )
             return
-        self._display_result(result.review)
+        if self._store is not None:
+            if not self._restore_saved_result():
+                self._set_status("確認は終了しましたが、保存結果を表示できませんでした。", theme.WARN)
+        else:
+            self._display_result(result.review)
 
     def _display_result(self, result: AnnotationReviewResult) -> None:
         if result.status == "stale":
-            self._set_status("未評価 — 内容が変更されました。もう一度評価してください。", theme.WARN)
+            self.results_table.setRowCount(0)
+            self.results_table.setVisible(False)
+            self.model_label.setVisible(False)
+            self._set_status(
+                "未評価 — 内容が変更されたか、設定が更新されました。もう一度確認してください。", theme.WARN
+            )
             return
         statuses = {
             "ok": ("目安内", theme.INK),
