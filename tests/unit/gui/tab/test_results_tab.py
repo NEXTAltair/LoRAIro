@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections import OrderedDict
+from pathlib import Path
 from unittest.mock import MagicMock
 
 import pytest
@@ -61,21 +62,30 @@ def test_refresh_without_staging_items_clears(qtbot, staging: StagingStateManage
 
 
 @pytest.mark.gui
-def test_resolve_thumbnail_path_prefers_low_res(qtbot, staging: StagingStateManager) -> None:
+def test_resolve_thumbnail_path_prefers_low_res(
+    qtbot, staging: StagingStateManager, tmp_path: Path
+) -> None:
     """低解像度処理済み画像パスがあればそれを優先する (Issue #1104 / #1140 バッチ化)。"""
     widget = ResultsTabWidget(db_manager=MagicMock(), staging_state_manager=staging)
     qtbot.addWidget(widget)
 
-    assert widget._resolve_thumbnail_path({"stored_image_path": "/orig.png"}, "/low.png") == "/low.png"
+    original = tmp_path / "orig.png"
+    low_res = tmp_path / "low.png"
+    assert widget._resolve_thumbnail_path({"stored_image_path": str(original)}, str(low_res)) == str(
+        low_res
+    )
 
 
 @pytest.mark.gui
-def test_resolve_thumbnail_path_falls_back_to_stored(qtbot, staging: StagingStateManager) -> None:
+def test_resolve_thumbnail_path_falls_back_to_stored(
+    qtbot, staging: StagingStateManager, tmp_path: Path
+) -> None:
     """低解像度画像が無ければオリジナルの stored path にフォールバックする (Issue #1104)。"""
     widget = ResultsTabWidget(db_manager=MagicMock(), staging_state_manager=staging)
     qtbot.addWidget(widget)
 
-    assert widget._resolve_thumbnail_path({"stored_image_path": "/orig.png"}, None) == "/orig.png"
+    original = tmp_path / "orig.png"
+    assert widget._resolve_thumbnail_path({"stored_image_path": str(original)}, None) == str(original)
 
 
 @pytest.mark.gui
