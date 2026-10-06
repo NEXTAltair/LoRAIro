@@ -28,6 +28,9 @@ def upgrade() -> None:
         sa.Column("status", sa.String(), nullable=False),
         sa.Column("items_json", sa.Text(), nullable=False),
         sa.Column("error", sa.Text(), nullable=True),
+        sa.Column(
+            "requested_at", sa.TIMESTAMP(timezone=True), server_default=sa.func.now(), nullable=False
+        ),
         sa.Column("checked_at", sa.TIMESTAMP(timezone=True), server_default=sa.func.now(), nullable=False),
     )
     op.create_index("ix_annotation_review_results_checked_at", "annotation_review_results", ["checked_at"])

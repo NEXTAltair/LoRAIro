@@ -25,6 +25,7 @@ class StoredAnnotationReview:
     items_json: str
     error: str | None
     checked_at: datetime
+    requested_at: datetime | None = None
 
 
 class AnnotationReviewRepository(BaseRepository):
@@ -40,8 +41,12 @@ class AnnotationReviewRepository(BaseRepository):
         status: str,
         items_json: str,
         error: str | None,
-    ) -> None:
+        requested_at: datetime | None = None,
+    ) -> bool:
         """最新結果を原子的に upsert する。元の画像やアノテーション行は変更しない。"""
+        started_at = requested_at if requested_at is not None else datetime.now(UTC)
+        if started_at.tzinfo is None or started_at.utcoffset() is None:
+            raise ValueError("requested_at must include a timezone")
         statement = insert(AnnotationReviewRecord).values(
             image_id=image_id,
             fingerprint=fingerprint,
@@ -50,6 +55,7 @@ class AnnotationReviewRepository(BaseRepository):
             status=status,
             items_json=items_json,
             error=error,
+            requested_at=started_at.astimezone(UTC),
             checked_at=datetime.now(UTC),
         )
         statement = statement.on_conflict_do_update(
@@ -61,13 +67,18 @@ class AnnotationReviewRepository(BaseRepository):
                 "status": statement.excluded.status,
                 "items_json": statement.excluded.items_json,
                 "error": statement.excluded.error,
+                "requested_at": statement.excluded.requested_at,
                 "checked_at": statement.excluded.checked_at,
             },
+            where=statement.excluded.requested_at >= AnnotationReviewRecord.requested_at,
         )
         with self.session_factory() as session:
             try:
-                session.execute(statement)
+                saved = session.execute(
+                    statement.returning(AnnotationReviewRecord.image_id)
+                ).scalar_one_or_none()
                 session.commit()
+                return saved is not None
             except SQLAlchemyError:
                 session.rollback()
                 logger.opt(exception=True).error(f"アノテーション確認結果の保存エラー: image_id={image_id}")
@@ -115,6 +126,9 @@ class AnnotationReviewRepository(BaseRepository):
         checked_at = record.checked_at
         if checked_at.tzinfo is None:
             checked_at = checked_at.replace(tzinfo=UTC)
+        requested_at = record.requested_at
+        if requested_at.tzinfo is None:
+            requested_at = requested_at.replace(tzinfo=UTC)
         return StoredAnnotationReview(
             image_id=record.image_id,
             fingerprint=record.fingerprint,
@@ -124,4 +138,5 @@ class AnnotationReviewRepository(BaseRepository):
             items_json=record.items_json,
             error=record.error,
             checked_at=checked_at.astimezone(UTC),
+            requested_at=requested_at.astimezone(UTC),
         )

@@ -3,7 +3,7 @@
 from collections.abc import Iterator
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import FrozenInstanceError
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from json import dumps
 from pathlib import Path
 
@@ -59,6 +59,40 @@ def _save(repository: AnnotationReviewRepository, image_id: int, label: str = "f
         ),
         error=None,
     )
+
+
+@pytest.mark.parametrize("late_status", ["stale", "failed", "completed", "partial"])
+def test_older_request_finishing_last_cannot_replace_newer_review(
+    review_sessions: sessionmaker[Session], late_status: str
+) -> None:
+    repository = AnnotationReviewRepository(review_sessions)
+    old_started_at = datetime.now(UTC)
+    new_started_at = old_started_at + timedelta(seconds=1)
+    assert repository.save_result(
+        image_id=1,
+        fingerprint="new-source",
+        model_name="clef-flash",
+        warning_threshold=0.3,
+        status="completed",
+        items_json='[{"probability":0.9}]',
+        error=None,
+        requested_at=new_started_at,
+    )
+    fresh = repository.get_results()[1]
+
+    assert not repository.save_result(
+        image_id=1,
+        fingerprint="old-source",
+        model_name="clef",
+        warning_threshold=0.2,
+        status=late_status,
+        items_json="[]",
+        error="Old result completed late",
+        requested_at=old_started_at,
+    )
+
+    assert repository.get_results()[1] == fresh
+    assert fresh.requested_at == new_started_at
 
 
 def test_results_survive_repository_and_connection_reload(review_sessions: sessionmaker[Session]) -> None:
