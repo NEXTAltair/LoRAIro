@@ -93,6 +93,74 @@ def test_source_rows_probability_direction_threshold_and_read_only(review_contex
     assert {call[0] for call in db.method_calls} == {"get_image_metadata", "get_image_annotations"}
 
 
+def test_batch_snapshots_use_existing_bulk_database_queries(review_context):
+    make, db, _, annotations, requests, path, _ = review_context
+    service = make()
+    db.get_images_metadata_batch.return_value = [
+        {"id": image_id, "stored_image_path": str(path)} for image_id in (7, 8)
+    ]
+    db.get_image_annotations_batch.return_value = {7: annotations, 8: annotations}
+    snapshots = service.prepare_reviews((7, 8, 7))
+    assert list(snapshots) == [7, 8]
+    assert snapshots[7] == service.prepare_review(7)
+    db.get_images_metadata_batch.assert_called_once_with([7, 8], include_annotations=False)
+    db.get_image_annotations_batch.assert_called_once_with([7, 8])
+    assert requests == []
+
+
+def test_batch_preflight_failure_does_not_disguise_missing_image_as_success(review_context):
+    make, db, _, annotations, requests, path, _ = review_context
+    db.get_images_metadata_batch.return_value = [{"id": 7, "stored_image_path": str(path)}]
+    db.get_image_annotations_batch.return_value = {7: annotations, 8: {}}
+    snapshots = make().prepare_reviews((7, 8))
+    assert snapshots[8].status == "failed"
+    assert snapshots[8].image_id == 8 and snapshots[8].items == ()
+    assert requests == []
+
+
+def test_later_batch_image_edit_cannot_retarget_its_fixed_annotation_snapshot(review_context):
+    from copy import deepcopy
+
+    from lorairo.gui.workers.annotation_review_batch_worker import AnnotationReviewBatchWorker
+
+    make, db, _, annotations, requests, path, success = review_context
+    sources = {7: deepcopy(annotations), 8: deepcopy(annotations)}
+    db.get_images_metadata_batch.return_value = [
+        {"id": image_id, "stored_image_path": str(path)} for image_id in (7, 8)
+    ]
+    db.get_image_annotations_batch.return_value = sources
+    db.get_image_annotations.side_effect = lambda image_id: sources[image_id]
+
+    def edit_later_image(request):
+        sources[8]["tags"][0]["tag"] = "changed while first image was running"
+        return success(request)
+
+    service = make(edit_later_image)
+    store = Mock()
+    result = AnnotationReviewBatchWorker(service, store, (7, 8), 1).execute()
+    assert [review.status for review in result.reviews] == ["completed", "stale"]
+    assert result.reviews[1].items[0].text == "red_hair"
+    assert result.reviews[1].items[0].probability is None
+    assert len(requests) == 1
+    assert store.save.call_count == 2
+
+
+def test_edit_between_chunks_stops_more_paid_requests(review_context):
+    make, _, _, annotations, requests, _, success = review_context
+    annotations["tags"] = [{"id": index, "tag": f"tag {index}"} for index in range(130)]
+    annotations["captions"] = []
+
+    def edit_after_first_chunk(request):
+        annotations["tags"][0]["tag"] = "changed"
+        return success(request)
+
+    service = make(edit_after_first_chunk)
+    result = service.review(service.prepare_review(7))
+    assert result.status == "stale"
+    assert all(item.probability is None for item in result.items)
+    assert len(requests) == 1
+
+
 @pytest.mark.gui
 def test_explicit_gui_click_runs_real_service_and_transport_in_worker(review_context, qtbot):
     from lorairo.gui.widgets.annotation_review_widget import AnnotationReviewWidget
@@ -169,6 +237,7 @@ def test_failure_cannot_be_interpreted_as_no_warning(review_context, failure):
     assert result.error
     assert all(item.status == "failed" and item.probability is None for item in result.items)
     assert "test-token" not in str(result)
+    assert result.error_code == ("authentication" if failure == "http" else "invalid_response")
 
 
 def test_empty_candidates_do_not_send_or_require_credentials(review_context):
@@ -192,6 +261,7 @@ def test_missing_credentials_are_explicit_failure(review_context, monkeypatch):
     result = service.review(service.prepare_review(7))
     assert result.status == "failed"
     assert all(item.status == "failed" for item in result.items)
+    assert result.error_code == "configuration"
     assert requests == []
 
 

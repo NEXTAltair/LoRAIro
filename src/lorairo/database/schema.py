@@ -251,6 +251,9 @@ class Image(Base):
     provider_batch_items: Mapped[list[ProviderBatchItem]] = relationship(
         "ProviderBatchItem", back_populates="image"
     )
+    annotation_review: Mapped[AnnotationReviewRecord | None] = relationship(
+        "AnnotationReviewRecord", back_populates="image", cascade="all, delete-orphan"
+    )
 
     # uuid と phash の組み合わせはユニークであるべき
     # phash が NOT NULL になったため、複合ユニーク制約を追加可能
@@ -258,6 +261,28 @@ class Image(Base):
 
     def __repr__(self) -> str:
         return f"<Image(id={self.id}, uuid='{self.uuid}', filename='{self.filename}')>"
+
+
+class AnnotationReviewRecord(Base):
+    """画像ごとの最新アノテーション確認結果。元のアノテーションは変更しない。"""
+
+    __tablename__ = "annotation_review_results"
+
+    image_id: Mapped[int] = mapped_column(ForeignKey("images.id", ondelete="CASCADE"), primary_key=True)
+    fingerprint: Mapped[str] = mapped_column(String, nullable=False)
+    model_name: Mapped[str] = mapped_column(String, nullable=False)
+    warning_threshold: Mapped[float] = mapped_column(Float, nullable=False)
+    status: Mapped[str] = mapped_column(String, nullable=False)
+    items_json: Mapped[str] = mapped_column(Text, nullable=False)
+    error: Mapped[str | None] = mapped_column(Text)
+    requested_at: Mapped[datetime.datetime] = mapped_column(
+        TIMESTAMP(timezone=True), server_default=func.now(), nullable=False
+    )
+    checked_at: Mapped[datetime.datetime] = mapped_column(
+        TIMESTAMP(timezone=True), server_default=func.now(), nullable=False, index=True
+    )
+
+    image: Mapped[Image] = relationship("Image", back_populates="annotation_review")
 
 
 class ProcessedImage(Base):

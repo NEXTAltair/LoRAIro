@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
+from datetime import UTC, datetime
 from pathlib import Path
 from threading import Event
 from unittest.mock import Mock
@@ -20,6 +22,7 @@ from lorairo.services.annotation_review_service import (
     ReviewCandidate,
     ReviewSnapshot,
 )
+from lorairo.services.annotation_review_store import StoredReviewResult
 
 pytestmark = pytest.mark.gui
 
@@ -168,6 +171,54 @@ def test_completed_results_are_cleared_on_annotation_reload(wired_widget) -> Non
     assert widget.results_table.rowCount() == 0
     assert widget.model_label.isHidden()
     assert "未評価" in widget.status_label.text()
+
+
+def test_saved_result_returns_after_switching_images_without_a_cloud_request(wired_widget) -> None:
+    widget, service, manager = wired_widget
+    store = Mock()
+    saved = StoredReviewResult(make_result(), 0.2, datetime.now(UTC))
+    store.get_current_result.side_effect = lambda image_id, _service: saved if image_id == 5 else None
+    widget.set_store(store)
+    assert widget.results_table.rowCount() == 2
+
+    widget.set_image(9)
+    assert widget.results_table.rowCount() == 0
+    widget.set_image(5)
+
+    assert widget.results_table.item(0, 3).text() == "8.0%"
+    assert manager.started == []
+    service.review.assert_not_called()
+
+
+def test_saved_result_with_changed_content_hides_previous_probability(wired_widget) -> None:
+    widget, _, _ = wired_widget
+    store = Mock()
+    saved = StoredReviewResult(make_result(), 0.2, datetime.now(UTC))
+    store.get_current_result.return_value = saved
+    widget.set_store(store)
+    assert widget.results_table.rowCount() == 2
+    store.get_current_result.return_value = replace(saved, review=replace(saved.review, status="stale"))
+
+    widget.set_image(5)
+
+    assert widget.results_table.rowCount() == 0
+    assert widget.results_table.isHidden()
+    assert "内容が変更" in widget.status_label.text()
+
+
+def test_completion_displays_latest_store_result_instead_of_an_older_worker_result(wired_widget) -> None:
+    widget, _, manager = wired_widget
+    latest = make_result()
+    latest = replace(latest, items=(replace(latest.items[0], probability=0.97, status="ok"),))
+    store = Mock()
+    store.get_current_result.return_value = StoredReviewResult(latest, 0.2, datetime.now(UTC))
+    widget.set_store(store)
+    widget._on_evaluate_requested()
+
+    finish(widget, manager, make_result())
+
+    assert widget.results_table.rowCount() == 1
+    assert widget.results_table.item(0, 3).text() == "97.0%"
 
 
 def test_service_reinjection_cancels_inflight_and_uses_refreshed_service_on_next_click(

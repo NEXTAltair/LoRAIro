@@ -9,10 +9,10 @@ from __future__ import annotations
 import hashlib
 import json
 import math
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from dataclasses import asdict, dataclass, replace
 from pathlib import Path
-from typing import TYPE_CHECKING, Literal, cast
+from typing import TYPE_CHECKING, Any, Literal, cast
 
 from lorairo.database.db_core import resolve_stored_path
 
@@ -60,6 +60,7 @@ class AnnotationReviewResult:
     items: tuple[AnnotationReviewItem, ...]
     status: ReviewStatus
     error: str | None = None
+    error_code: str | None = None
 
 
 class AnnotationReviewService:
@@ -102,9 +103,63 @@ class AnnotationReviewService:
         metadata = self._db_manager.get_image_metadata(image_id)
         if metadata is None or not metadata.get("stored_image_path"):
             raise ValueError(f"Image {image_id} does not exist or has no stored image")
+        annotations = self._db_manager.get_image_annotations(image_id)
+        return self._prepare_snapshot(image_id, metadata, annotations)
+
+    def prepare_reviews(
+        self,
+        image_ids: Sequence[int],
+        *,
+        is_cancelled: Callable[[], bool] | None = None,
+    ) -> dict[int, ReviewSnapshot | AnnotationReviewResult]:
+        """Snapshot a fixed batch with bounded database queries and no HTTP calls."""
+        if any(
+            isinstance(image_id, bool) or not isinstance(image_id, int) or image_id <= 0
+            for image_id in image_ids
+        ):
+            raise ValueError("image_ids must contain positive integers")
+        targets = tuple(dict.fromkeys(image_ids))
+        if not targets:
+            return {}
+        cancelled = is_cancelled or (lambda: False)
+        if cancelled():
+            return {}
+        metadata = {
+            int(row["id"]): row
+            for row in self._db_manager.get_images_metadata_batch(list(targets), include_annotations=False)
+        }
+        if cancelled():
+            return {}
+        annotations = self._db_manager.get_image_annotations_batch(list(targets))
+        snapshots: dict[int, ReviewSnapshot | AnnotationReviewResult] = {}
+        for image_id in targets:
+            if cancelled():
+                break
+            try:
+                snapshots[image_id] = self._prepare_snapshot(
+                    image_id, metadata.get(image_id), annotations.get(image_id, {})
+                )
+            except (OSError, ValueError):
+                snapshots[image_id] = AnnotationReviewResult(
+                    image_id=image_id,
+                    fingerprint="",
+                    model_name=self.model_name,
+                    items=(),
+                    status="failed",
+                    error=f"Image {image_id} could not be prepared for annotation review.",
+                )
+        return snapshots
+
+    @staticmethod
+    def _prepare_snapshot(
+        image_id: int,
+        metadata: dict[str, Any] | None,
+        annotations: dict[str, Any],
+    ) -> ReviewSnapshot:
+        if metadata is None or not metadata.get("stored_image_path"):
+            raise ValueError(f"Image {image_id} does not exist or has no stored image")
         image_path = resolve_stored_path(str(metadata["stored_image_path"])).resolve()
         stat = image_path.stat()
-        annotations = self._db_manager.get_image_annotations(image_id)
         candidates: dict[str, tuple[ReviewCandidate, ...]] = {}
         revisions: list[tuple[str, str]] = []
         for kind, group, text_key in (("tag", "tags", "tag"), ("caption", "captions", "caption")):
@@ -180,7 +235,7 @@ class AnnotationReviewService:
         except ValueError:
             message = "Configure Cloudflare account ID and API token before running annotation review."
             failed = [replace(item, status="failed", error=message) for item in items]
-            return self._result(snapshot, failed, "failed", message)
+            return self._result(snapshot, failed, "failed", message, error_code="configuration")
 
         result = self._evaluate_chunks(snapshot, items, cancelled, client)
         if not self.is_current(snapshot):
@@ -207,10 +262,22 @@ class AnnotationReviewService:
 
         candidates = snapshot.tags + snapshot.captions
         error: str | None = None
+        error_code: str | None = None
         actual_model = self.model_name
         for start in range(0, len(candidates), 64):
             if cancelled():
                 return self._result(snapshot, items, "cancelled", model_name=actual_model)
+            if not self.is_current(snapshot):
+                stale_items = [
+                    replace(item, probability=None, status="unevaluated", error=None) for item in items
+                ]
+                return self._result(
+                    snapshot,
+                    stale_items,
+                    "stale",
+                    "Annotations or image changed; run review again.",
+                    actual_model,
+                )
             chunk = candidates[start : start + 64]
             request = DecisionRequest(
                 request_id=f"review-{snapshot.image_id}-{snapshot.fingerprint[:16]}-{start // 64}",
@@ -240,6 +307,7 @@ class AnnotationReviewService:
                 return self._result(snapshot, items, "cancelled", model_name=actual_model)
             if decision.error is not None:
                 error = decision.error.message
+                error_code = decision.error.code.value
                 for index in range(start, start + len(chunk)):
                     items[index] = replace(items[index], status="failed", error=error)
                 break
@@ -257,7 +325,7 @@ class AnnotationReviewService:
             )
         else:
             status = "completed"
-        return self._result(snapshot, items, status, error, actual_model)
+        return self._result(snapshot, items, status, error, actual_model, error_code)
 
     def _result(
         self,
@@ -266,6 +334,7 @@ class AnnotationReviewService:
         status: ReviewStatus,
         error: str | None = None,
         model_name: str | None = None,
+        error_code: str | None = None,
     ) -> AnnotationReviewResult:
         return AnnotationReviewResult(
             snapshot.image_id,
@@ -274,4 +343,5 @@ class AnnotationReviewService:
             tuple(items),
             status,
             error,
+            error_code,
         )

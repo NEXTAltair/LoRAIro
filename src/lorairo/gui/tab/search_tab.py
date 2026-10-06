@@ -214,8 +214,12 @@ class SearchTabWidget(QWidget, Ui_SearchTab):
         if self._db_manager is None:
             return
         from ...services.annotation_review_service import AnnotationReviewService
+        from ...services.annotation_review_store import AnnotationReviewStore
 
         try:
+            self._selected_image_details_widget.annotation_review_widget.set_store(
+                AnnotationReviewStore(self._db_manager)
+            )
             self._selected_image_details_widget.set_annotation_review_service(
                 AnnotationReviewService(self._service_container.config_service, self._db_manager)
             )
@@ -659,6 +663,12 @@ class SearchTabWidget(QWidget, Ui_SearchTab):
         if new_visible and self._main_splitter_sizes_before_filter_hide is not None:
             self._main_splitter.setSizes(self._main_splitter_sizes_before_filter_hide)
         logger.debug(f"フィルタパネル表示: {new_visible}")
+
+    @Slot()
+    def show_preview_panel(self) -> None:
+        """Reveal the manual editor without toggling an already visible panel."""
+        if self.framePreviewDetailPanel.isHidden():
+            self.toggle_preview_panel()
 
     @Slot()
     def toggle_preview_panel(self) -> None:
