@@ -55,7 +55,7 @@
    旧 `griffe` の削除で同じモジュールを提供する `griffelib` のファイルも消えるため、再インストールします。
 
    ```bash
-   uv sync --dev --reinstall-package griffelib
+   uv sync --reinstall-package griffelib
    ```
 
    LoRAIro は PyTorch / torchvision を `https://download.pytorch.org/whl/cu132` から取得する設定です。
