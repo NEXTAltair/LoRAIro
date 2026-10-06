@@ -1573,7 +1573,7 @@ TOOL_SPECS: dict[str, ToolSpec] = {
                     _f(
                         "image_ids_file",
                         "path?",
-                        description="UTF-8 newline/comma IDs (max 100,000), exclusive with image_ids; streamed per-image review outcomes.",
+                        description="UTF-8 newline/comma IDs, exclusive with image_ids. Review max 500 unique images per run; larger selections fail with RESULT_SET_TOO_LARGE before opening the project or sending requests. File reader accepts up to 100,000 IDs; duplicates evaluated once.",
                     ),
                 ),
             ),

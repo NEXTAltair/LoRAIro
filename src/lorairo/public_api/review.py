@@ -9,13 +9,13 @@ from typing import TYPE_CHECKING
 
 from sqlalchemy.exc import SQLAlchemyError
 
-from lorairo.public_api.exceptions import ImageNotFoundError, InvalidInputError
+from lorairo.public_api.exceptions import ImageNotFoundError, InvalidInputError, ResultSetTooLargeError
 
 if TYPE_CHECKING:
     from lorairo.services.annotation_review_service import AnnotationReviewResult, ReviewSnapshot
     from lorairo.services.service_container import ServiceContainer
 
-_MAX_REVIEW_IMAGES = 100_000
+_MAX_REVIEW_IMAGES = 500
 _VALIDATION_CHUNK_SIZE = 500
 
 
@@ -49,7 +49,7 @@ def _validate_image_ids(image_ids: list[int]) -> list[int]:
         raise InvalidInputError("image_ids", "Specify a nonempty set of positive integer image IDs.")
     unique_ids = list(dict.fromkeys(image_ids))
     if len(unique_ids) > _MAX_REVIEW_IMAGES:
-        raise InvalidInputError("image_ids", f"At most {_MAX_REVIEW_IMAGES:,} images may be reviewed.")
+        raise ResultSetTooLargeError(len(unique_ids), _MAX_REVIEW_IMAGES)
     return unique_ids
 
 
@@ -63,7 +63,9 @@ def review_annotations(
 ) -> list[AnnotationReviewResult]:
     """Evaluate saved tags and captions, without modifying annotations or the DB.
 
-    The complete explicit image selection is checked before any paid request.
+    At most 500 unique images may be reviewed per call; this cap is checked before
+    opening the project. The complete explicit ID selection is validated before
+    making a paid request.
     Duplicate IDs are reviewed once, in first-occurrence order. Empty active
     annotations retain the service's ``unevaluated`` result and make no request.
     Per-image failures do not discard successful results from other images.

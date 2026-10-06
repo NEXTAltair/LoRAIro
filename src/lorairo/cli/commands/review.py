@@ -72,12 +72,15 @@ def run(
     image_ids_file: str | None = typer.Option(
         None,
         "--image-ids-file",
-        help="UTF-8 newline/comma-separated image IDs (max 100,000; mutually exclusive with --image-ids).",
+        help=(
+            "UTF-8 newline/comma-separated IDs; review max 500 unique images "
+            "(file reader max 100,000 IDs; mutually exclusive with --image-ids)."
+        ),
     ),
 ) -> None:
     """Evaluate existing annotations with Clef, using the configured model and threshold.
 
-    Requires an explicit image selection. This command sends selected images
+    Requires an explicit selection of at most 500 unique images. This command sends selected images
     and their existing annotation candidates to Cloudflare and leaves the DB
     unchanged. Low probability warnings are review decisions, not failures.
     """

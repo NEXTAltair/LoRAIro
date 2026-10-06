@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from contextlib import contextmanager
 from unittest.mock import Mock
 
 import pytest
@@ -11,6 +12,7 @@ from typer.testing import CliRunner
 from lorairo.cli.commands import review
 from lorairo.cli.main import app
 from lorairo.public_api.exceptions import ImageNotFoundError
+from lorairo.services import annotation_review_service
 from lorairo.services.annotation_review_service import AnnotationReviewItem, AnnotationReviewResult
 
 pytestmark = [pytest.mark.unit, pytest.mark.cli]
@@ -106,6 +108,72 @@ def test_duplicate_selection_is_counted_once(api):
     outcomes = [row for row in _rows(result) if row.get("type") == "annotation_review_outcome"]
     assert [row["image_id"] for row in outcomes] == [2, 1]
     assert _rows(result)[-1]["image_count"] == 2
+
+
+@pytest.fixture
+def real_review_api(monkeypatch):
+    """Keep the facade's real bounds and validation, mock only its dependencies."""
+    from lorairo.public_api import review as review_api
+
+    container = Mock()
+    container.db_manager.image_repo.get_candidate_image_ids.side_effect = lambda ids: ids
+
+    @contextmanager
+    def context(project_name):
+        yield container
+
+    context_factory = Mock(side_effect=context)
+    monkeypatch.setattr(review_api, "_project_context", context_factory)
+    service = Mock(model_name="@cf/cloudflare/clef-flash")
+    service.prepare_review.side_effect = lambda image_id: image_id
+    service.review.side_effect = lambda snapshot, **kwargs: _result(snapshot)
+    service_factory = Mock(return_value=service)
+    monkeypatch.setattr(annotation_review_service, "AnnotationReviewService", service_factory)
+    network = Mock(side_effect=AssertionError("No network expected in bounded selection tests"))
+    monkeypatch.setattr("socket.socket.connect", network)
+    return context_factory, service_factory, service, network
+
+
+def test_file_selection_above_500_returns_result_set_too_large_without_project_or_network(
+    real_review_api, tmp_path
+):
+    context, factory, service, network = real_review_api
+    ids_file = tmp_path / "501-images.txt"
+    ids_file.write_text("\n".join(str(image_id) for image_id in range(1, 502)))
+
+    result = _invoke("--image-ids-file", str(ids_file))
+
+    assert result.exit_code == 2, result.output
+    rows = _rows(result)
+    assert len(rows) == 1 and rows[0]["kind"] == "error"
+    assert rows[0]["code"] == "RESULT_SET_TOO_LARGE"
+    assert rows[0]["details"] == {"limit": 500, "matched": 501}
+    context.assert_not_called()
+    factory.assert_not_called()
+    service.prepare_review.assert_not_called()
+    service.review.assert_not_called()
+    network.assert_not_called()
+
+
+@pytest.mark.parametrize("duplicate_ids", [[], [500, 1, 250, 500]])
+def test_file_selection_accepts_500_unique_images_and_reviews_duplicates_once(
+    real_review_api, tmp_path, duplicate_ids
+):
+    context, factory, service, network = real_review_api
+    ids_file = tmp_path / "500-images.txt"
+    ids = [*range(1, 501), *duplicate_ids]
+    ids_file.write_text("\n".join(str(image_id) for image_id in ids))
+
+    result = _invoke("--image-ids-file", str(ids_file))
+
+    assert result.exit_code == 0, result.output
+    summary = _rows(result)[-1]
+    assert summary["image_count"] == summary["successful"] == 500
+    assert service.prepare_review.call_count == service.review.call_count == 500
+    assert [call.args[0] for call in service.prepare_review.call_args_list] == list(range(1, 501))
+    context.assert_called_once_with("test-project")
+    factory.assert_called_once()
+    network.assert_not_called()
 
 
 def test_file_selection_preserves_unique_id_order_and_streams(api, tmp_path):
@@ -207,3 +275,6 @@ def test_describe_publishes_read_only_network_and_nullable_probabilities():
     assert probability["anyOf"] == [{"maximum": 1.0, "minimum": 0.0, "type": "number"}, {"type": "null"}]
     assert {"unevaluated", "stale"} <= set(schemas["ReviewRunOutcome"]["properties"]["status"]["enum"])
     assert "warnings" in schemas["ReviewRunResult"]["properties"]
+    file_description = schemas["ReviewRunInput"]["properties"]["image_ids_file"]["description"]
+    assert "500 unique images" in file_description and "RESULT_SET_TOO_LARGE" in file_description
+    assert "File reader accepts up to 100,000 IDs" in file_description

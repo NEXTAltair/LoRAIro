@@ -11,7 +11,7 @@ from sqlalchemy.exc import OperationalError
 import lorairo.public_api as public_api
 from lorairo.database.access_policy import is_read_only
 from lorairo.public_api import review
-from lorairo.public_api.exceptions import ImageNotFoundError, InvalidInputError
+from lorairo.public_api.exceptions import ImageNotFoundError, InvalidInputError, ResultSetTooLargeError
 from lorairo.services import annotation_review_service
 from lorairo.services.annotation_review_service import AnnotationReviewItem, AnnotationReviewResult
 
@@ -62,20 +62,37 @@ def test_duplicate_ids_reviewed_once_in_first_occurrence_order(services):
     factory.assert_called_once_with(container.config_service, container.db_manager)
 
 
-def test_entire_large_selection_checked_before_first_paid_request(services):
+def test_maximum_selection_deduplicated_and_checked_before_first_paid_request(services):
     container, service, _factory = services
-    ids = list(range(1, 1202))
+    ids = list(range(1, 501))
 
     def validate(chunk):
         service.review.assert_not_called()
         return chunk
 
     container.db_manager.image_repo.get_candidate_image_ids.side_effect = validate
-    results = review.review_annotations("project", ids)
+    results = review.review_annotations("project", [*ids, *ids])
     assert [
         len(call.args[0]) for call in container.db_manager.image_repo.get_candidate_image_ids.call_args_list
-    ] == [500, 500, 201]
+    ] == [500]
     assert [result.image_id for result in results] == ids
+    assert service.review.call_count == 500
+
+
+def test_selection_above_500_rejected_before_project_or_service(services, monkeypatch):
+    container, service, factory = services
+    context = Mock(side_effect=AssertionError("Oversized selection must not open a project"))
+    monkeypatch.setattr(review, "_project_context", context)
+
+    with pytest.raises(ResultSetTooLargeError) as error:
+        review.review_annotations("project", list(range(1, 502)))
+
+    assert error.value.details == {"limit": 500, "matched": 501}
+    context.assert_not_called()
+    factory.assert_not_called()
+    container.db_manager.image_repo.get_candidate_image_ids.assert_not_called()
+    service.prepare_review.assert_not_called()
+    service.review.assert_not_called()
 
 
 def test_missing_id_aborts_complete_selection_before_any_review(services):
