@@ -1568,7 +1568,7 @@ TOOL_SPECS: dict[str, ToolSpec] = {
                     _f(
                         "image_ids",
                         "str?",
-                        description="Explicit positive image IDs in CSV (max 500); one of image_ids/image_ids_file is required. Duplicates evaluated once. No implicit all-image review.",
+                        description="Explicit positive image IDs in CSV; one of image_ids/image_ids_file is required. Review max 500 unique images per run; larger selections fail with RESULT_SET_TOO_LARGE before opening the project or sending requests. CSV reader accepts up to 100,000 IDs; duplicates evaluated once. No implicit all-image review.",
                     ),
                     _f(
                         "image_ids_file",

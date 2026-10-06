@@ -76,7 +76,7 @@ def test_warning_reviews_are_successful_and_emit_source_candidates(api):
         ("--image-ids", ""),
         ("--image-ids", "  ,  "),
         ("--image-ids", "1,no"),
-        ("--image-ids", ",".join(str(value) for value in range(1, 502))),
+        ("--image-ids", ",".join(["1"] * 100_001)),
         ("--image-ids", "1", "--image-ids-file", "ids.txt"),
     ],
 )
@@ -134,14 +134,20 @@ def real_review_api(monkeypatch):
     return context_factory, service_factory, service, network
 
 
-def test_file_selection_above_500_returns_result_set_too_large_without_project_or_network(
-    real_review_api, tmp_path
+@pytest.mark.parametrize("source", ["csv", "file"])
+def test_selection_above_500_returns_result_set_too_large_without_project_or_network(
+    real_review_api, tmp_path, source
 ):
     context, factory, service, network = real_review_api
-    ids_file = tmp_path / "501-images.txt"
-    ids_file.write_text("\n".join(str(image_id) for image_id in range(1, 502)))
+    ids = [str(image_id) for image_id in range(1, 502)]
+    if source == "file":
+        ids_file = tmp_path / "501-images.txt"
+        ids_file.write_text("\n".join(ids))
+        args = ("--image-ids-file", str(ids_file))
+    else:
+        args = ("--image-ids", ",".join(ids))
 
-    result = _invoke("--image-ids-file", str(ids_file))
+    result = _invoke(*args)
 
     assert result.exit_code == 2, result.output
     rows = _rows(result)
@@ -152,6 +158,32 @@ def test_file_selection_above_500_returns_result_set_too_large_without_project_o
     factory.assert_not_called()
     service.prepare_review.assert_not_called()
     service.review.assert_not_called()
+    network.assert_not_called()
+
+
+@pytest.mark.parametrize(
+    "ids, expected",
+    [([7] * 501, [7]), ([*range(1, 501), *range(500, 0, -1)], list(range(1, 501)))],
+    ids=["501-repeated", "1000-raw-500-unique"],
+)
+def test_csv_selection_accepts_more_than_500_raw_ids_and_reviews_each_image_once(
+    real_review_api, ids, expected
+):
+    context, factory, service, network = real_review_api
+
+    result = _invoke("--image-ids", ",".join(str(image_id) for image_id in ids))
+
+    assert result.exit_code == 0, result.output
+    rows = _rows(result)
+    summary = rows[-1]
+    assert summary["image_count"] == summary["successful"] == len(expected)
+    assert summary["item_count"] == summary["warnings"] == 2 * len(expected)
+    outcomes = [row for row in rows if row.get("type") == "annotation_review_outcome"]
+    assert [row["image_id"] for row in outcomes] == expected
+    assert service.prepare_review.call_count == service.review.call_count == len(expected)
+    assert [call.args[0] for call in service.prepare_review.call_args_list] == expected
+    context.assert_called_once_with("test-project")
+    factory.assert_called_once()
     network.assert_not_called()
 
 
@@ -275,6 +307,9 @@ def test_describe_publishes_read_only_network_and_nullable_probabilities():
     assert probability["anyOf"] == [{"maximum": 1.0, "minimum": 0.0, "type": "number"}, {"type": "null"}]
     assert {"unevaluated", "stale"} <= set(schemas["ReviewRunOutcome"]["properties"]["status"]["enum"])
     assert "warnings" in schemas["ReviewRunResult"]["properties"]
+    csv_description = schemas["ReviewRunInput"]["properties"]["image_ids"]["description"]
+    assert "500 unique images" in csv_description and "RESULT_SET_TOO_LARGE" in csv_description
+    assert "CSV reader accepts up to 100,000 IDs; duplicates evaluated once" in csv_description
     file_description = schemas["ReviewRunInput"]["properties"]["image_ids_file"]["description"]
     assert "500 unique images" in file_description and "RESULT_SET_TOO_LARGE" in file_description
     assert "File reader accepts up to 100,000 IDs" in file_description

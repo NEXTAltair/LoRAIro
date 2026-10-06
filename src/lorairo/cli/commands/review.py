@@ -4,12 +4,13 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+import click
 import typer
 
 from lorairo.cli._boundary import command_boundary
 from lorairo.cli._console import make_console
 from lorairo.cli._emit import emit_item, emit_result
-from lorairo.cli._image_ids import resolve_image_ids_input
+from lorairo.cli._image_ids import MAX_IMAGE_IDS_FILE, parse_image_ids, parse_image_ids_file
 from lorairo.cli._output_mode import is_json_mode
 from lorairo.public_api.review import review_annotations
 
@@ -20,6 +21,20 @@ app = typer.Typer(
     help="Review existing tags and captions with Cloudflare Clef; annotations remain unchanged."
 )
 console = make_console()
+
+
+def _resolve_review_image_ids(image_ids: str | None, image_ids_file: str | None) -> list[int]:
+    """Parse explicit input; the review API caps the deduplicated selection."""
+    if bool(image_ids) == bool(image_ids_file):
+        raise click.UsageError("--image-ids か --image-ids-file のどちらか一方を指定してください。")
+    if image_ids_file:
+        return parse_image_ids_file(image_ids_file)
+    selected = parse_image_ids(image_ids or "")
+    if not selected:
+        raise click.UsageError("--image-ids に有効な値がありません。")
+    if len(selected) > MAX_IMAGE_IDS_FILE:
+        raise click.UsageError(f"--image-ids は最大 {MAX_IMAGE_IDS_FILE} 件まで。")
+    return selected
 
 
 def _emit_review(result: AnnotationReviewResult) -> None:
@@ -67,7 +82,11 @@ def run(
     image_ids: str | None = typer.Option(
         None,
         "--image-ids",
-        help="Explicit comma-separated image IDs (max 500; mutually exclusive with --image-ids-file).",
+        help=(
+            "Explicit comma-separated image IDs (max 500 unique images; reader max 100,000 IDs; "
+            "duplicates evaluated once; "
+            "mutually exclusive with --image-ids-file)."
+        ),
     ),
     image_ids_file: str | None = typer.Option(
         None,
@@ -85,7 +104,7 @@ def run(
     unchanged. Low probability warnings are review decisions, not failures.
     """
     with command_boundary():
-        selected, _ = resolve_image_ids_input(image_ids, image_ids_file)
+        selected = _resolve_review_image_ids(image_ids, image_ids_file)
         counts = dict.fromkeys(("successful", "partial", "failed", "cancelled", "stale", "unevaluated"), 0)
         item_count = 0
         warnings = 0
