@@ -831,44 +831,31 @@ def test_tag_db_path(temp_dir):
     """
     from genai_tag_db_tools.db import runtime as tag_runtime
 
-    # テスト後にリセットするためランタイム状態を保存
-    orig_base_db_paths = tag_runtime._base_db_paths
-    orig_user_db_path = tag_runtime._user_db_path
-    orig_user_engine = tag_runtime._user_engine
-    orig_user_session_local = tag_runtime._UserSessionLocal
-
-    source_db_env = os.getenv("TEST_TAG_DB_PATH")
-    if not source_db_env:
-        # 環境変数未設定の場合: CI用にスキーマ+Lorairoフォーマットを持つ空DBを作成
-        test_db_path = tag_runtime.init_user_db(user_db_dir=temp_dir, format_name="Lorairo")
-        tag_runtime.set_base_database_paths([test_db_path])
-    else:
-        # 環境変数設定時: 指定DBをコピーして使用（本番DB汚染防止）
-        test_db_path = temp_dir / "tags_test.db"
-        source_db_path = Path(source_db_env)
-        if source_db_path.exists():
-            shutil.copy(source_db_path, test_db_path)
+    with tag_runtime.database_runtime_scope():
+        source_db_env = os.getenv("TEST_TAG_DB_PATH")
+        if not source_db_env:
+            # 環境変数未設定の場合: CI用にスキーマ+Lorairoフォーマットを持つ空DBを作成
+            test_db_path = tag_runtime.init_user_db(user_db_dir=temp_dir, format_name="Lorairo")
+            tag_runtime.set_base_database_paths([test_db_path])
         else:
-            prod_tag_db = Path("local_packages/genai-tag-db-tools/src/genai_tag_db_tools/data/tags_v4.db")
-            if prod_tag_db.exists():
-                shutil.copy(prod_tag_db, test_db_path)
+            # 環境変数設定時: 指定DBをコピーして使用（本番DB汚染防止）
+            test_db_path = temp_dir / "tags_test.db"
+            source_db_path = Path(source_db_env)
+            if source_db_path.exists():
+                shutil.copy(source_db_path, test_db_path)
             else:
-                test_db_path.touch()
-        # 指定DB使用時もTagRegisterServiceが動作するようにランタイムを設定
-        tag_runtime.init_user_db(user_db_dir=temp_dir / "user_db", format_name="Lorairo")
-        tag_runtime.set_base_database_paths([test_db_path])
+                prod_tag_db = Path(
+                    "local_packages/genai-tag-db-tools/src/genai_tag_db_tools/data/tags_v4.db"
+                )
+                if prod_tag_db.exists():
+                    shutil.copy(prod_tag_db, test_db_path)
+                else:
+                    test_db_path.touch()
+            # 指定DB使用時もTagRegisterServiceが動作するようにランタイムを設定
+            tag_runtime.init_user_db(user_db_dir=temp_dir / "user_db", format_name="Lorairo")
+            tag_runtime.set_base_database_paths([test_db_path])
 
-    yield test_db_path
-
-    # ランタイムの状態をリセット（他のテストへの副作用を防止）
-    # init_user_db が作成した一時エンジンを先に dispose してからリセット
-    temp_user_engine = tag_runtime._user_engine
-    if temp_user_engine is not None and temp_user_engine is not orig_user_engine:
-        temp_user_engine.dispose()
-    tag_runtime._base_db_paths = orig_base_db_paths
-    tag_runtime._user_db_path = orig_user_db_path
-    tag_runtime._user_engine = orig_user_engine
-    tag_runtime._UserSessionLocal = orig_user_session_local
+        yield test_db_path
 
 
 @pytest.fixture(scope="function")
