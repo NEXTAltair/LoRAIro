@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import json
 import sys
+from datetime import UTC, datetime
 from functools import partial
 from pathlib import Path
 from types import SimpleNamespace
@@ -149,6 +150,23 @@ def test_settings_save_replaces_clef_credentials_and_invalidates_results(
     """First setup and rotation affect the next explicit request without a restart."""
     from lorairo.gui.window.main_window import MainWindow
     from lorairo.services.annotation_review_service import AnnotationReviewItem, AnnotationReviewResult
+    from lorairo.services.annotation_review_store import StoredReviewResult
+
+    # This test isolates settings/HTTP wiring; db_manager is a Mock rather than
+    # a SQLAlchemy-backed project. Persistence has its own real-DB tests.
+    review_store = Mock()
+    review_store.get_current_result.return_value = None
+
+    def save_review(result, threshold, **kwargs):
+        review_store.get_current_result.return_value = StoredReviewResult(
+            result, threshold, datetime.now(UTC)
+        )
+        return True
+
+    review_store.save.side_effect = save_review
+    monkeypatch.setattr(
+        "lorairo.services.annotation_review_store.AnnotationReviewStore", Mock(return_value=review_store)
+    )
 
     package = (
         Path(__file__).resolve().parents[4] / "local_packages/image-annotator-lib/src/image_annotator_lib"
