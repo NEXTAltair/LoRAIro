@@ -416,6 +416,8 @@ def wired_tab(qtbot, service_container: Mock, staging_manager: StagingStateManag
     tab._staging_tag_panel.load_tags = Mock()
     tab._thumbnail_selector.load_thumbnails_from_paths = Mock()
     tab._aggregation_service = Mock()
+    # This fixture exercises signal wiring; refinement workers are tested separately.
+    tab._selected_image_details_widget._refinement_service = None
     return tab, db_manager
 
 
