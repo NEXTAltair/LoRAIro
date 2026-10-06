@@ -112,6 +112,7 @@ class AnnotationReviewWidget(QWidget):
         self._service = None
         self._unavailable_reason = reason
         self.set_image(self._image_id)
+        self.setVisible(True)
 
     @Slot(object)
     def set_image(self, image_id: int | None) -> None:

@@ -357,10 +357,13 @@ def test_real_worker_success_delivers_results_to_the_widget(qtbot) -> None:
 def test_selected_details_forwards_edits_clear_and_shutdown(qtbot) -> None:
     details = SelectedImageDetailsWidget()
     qtbot.addWidget(details)
+    details.show()
+    assert details.annotation_review_widget.isHidden()
     service = Mock()
     service.warning_threshold = 0.2
     details.set_annotation_review_service(service)
     try:
+        assert details.annotation_review_widget.isVisible()
         details._on_image_data_received({"id": 5, "tags": [], "caption_text": "original"})
         assert details.annotation_review_widget._image_id == 5
         generation = details.annotation_review_widget._generation
@@ -372,3 +375,22 @@ def test_selected_details_forwards_edits_clear_and_shutdown(qtbot) -> None:
     finally:
         details.shutdown()
     assert details.annotation_review_widget._closing
+
+
+def test_selected_details_shows_explicit_review_configuration_error(qtbot) -> None:
+    details = SelectedImageDetailsWidget()
+    qtbot.addWidget(details)
+    details.show()
+    try:
+        details._on_image_data_received({"id": 5, "tags": [], "caption_text": "original"})
+        assert details.annotation_review_widget.isHidden()
+
+        details.annotation_review_widget.set_unavailable_reason("warning_threshold must be between 0 and 1")
+
+        assert details.annotation_review_widget.isVisible()
+        assert "設定を確認してください" in details.annotation_review_widget.status_label.text()
+        assert "warning_threshold" in details.annotation_review_widget.status_label.text()
+        assert not details.annotation_review_widget.evaluate_button.isEnabled()
+        assert details.annotation_review_widget._manager is None
+    finally:
+        details.shutdown()

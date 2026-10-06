@@ -310,6 +310,7 @@ class SelectedImageDetailsWidget(QWidget):
         layout.addWidget(self.ui.annotationDataDisplay)
         layout.addWidget(self._rating_score_widget)
         self.annotation_review_widget = AnnotationReviewWidget(container)
+        self.annotation_review_widget.setVisible(False)
         layout.addWidget(self.annotation_review_widget)
 
         # 関連画像 (クロップ親子、#1346)。CropRelationService 未配線のタブでは非表示のまま。
@@ -512,6 +513,7 @@ class SelectedImageDetailsWidget(QWidget):
     def set_annotation_review_service(self, service: "AnnotationReviewService") -> None:
         """Inject the explicit, read-only Clef review service into the details panel."""
         self.annotation_review_widget.set_service(service)
+        self.annotation_review_widget.setVisible(True)
 
     def set_refinement_service(
         self, service: "RefinementService", worker_manager: "WorkerManager | None" = None
