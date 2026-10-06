@@ -7,12 +7,6 @@ from threading import Event
 from unittest.mock import Mock
 
 import pytest
-from lorairo.services.annotation_review_service import (
-    AnnotationReviewItem,
-    AnnotationReviewResult,
-    ReviewCandidate,
-    ReviewSnapshot,
-)
 from PySide6.QtCore import QObject, Qt, Signal
 from PySide6.QtWidgets import QAbstractItemView
 
@@ -20,6 +14,12 @@ from lorairo.gui.widgets.annotation_review_widget import AnnotationReviewWidget
 from lorairo.gui.widgets.selected_image_details_widget import SelectedImageDetailsWidget
 from lorairo.gui.workers.annotation_review_worker import AnnotationReviewWorkerResult
 from lorairo.gui.workers.terminal import CancelReason, WorkerOutcome, WorkerTerminalEvent
+from lorairo.services.annotation_review_service import (
+    AnnotationReviewItem,
+    AnnotationReviewResult,
+    ReviewCandidate,
+    ReviewSnapshot,
+)
 
 pytestmark = pytest.mark.gui
 

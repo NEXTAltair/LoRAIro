@@ -1575,6 +1575,84 @@ Structured error payload emitted as kind=error by the CLI boundary.
 - `hint`: `str?` (optional, default `None`)
 - `details`: `dict?` (optional, default `None`)
 
+### `review run`
+
+Evaluate existing tags/captions with Cloudflare Clef; explicit IDs required, no DB changes.
+
+- Read only: `true`
+- Strict read only: `true` (root `--read-only`; see [contract](cli-read-only.md))
+- Conditional initialization: `[]`
+- Side effects: `db_read`, `file_read`, `network`
+
+#### Compact Introspection
+
+```bash
+lorairo-cli --json describe "review run"
+```
+
+#### Models
+
+**Input `ReviewRunInput`**
+
+- `project`: `str` (required) - Existing project to review. (CLI: `--project`, `-p`)
+- `image_ids`: `str?` (optional, default `None`) - Explicit positive image IDs in CSV (max 500); one of image_ids/image_ids_file is required. Duplicates evaluated once. No implicit all-image review. (CLI: `--image-ids`)
+- `image_ids_file`: `str?` (optional, default `None`) - UTF-8 newline/comma IDs, exclusive with image_ids. Review max 500 unique images per run; larger selections fail with RESULT_SET_TOO_LARGE before opening the project or sending requests. File reader accepts up to 100,000 IDs; duplicates evaluated once. (CLI: `--image-ids-file`)
+
+**Output `ReviewRunItem`**
+
+- `kind`: `item` (optional, default `item`)
+- `type`: `annotation_review` (required)
+- `image_id`: `int` (required)
+- `fingerprint`: `str` (required)
+- `model_name`: `str` (required)
+- `candidate_id`: `str` (required)
+- `candidate_kind`: `tag | caption` (required)
+- `text`: `str` (required)
+- `probability`: `float[0.0,1.0]?` (required)
+- `status`: `ok | warning | failed | unevaluated` (required)
+- `error`: `str?` (required)
+
+**Output `ReviewRunOutcome`**
+
+- `kind`: `item` (optional, default `item`)
+- `type`: `annotation_review_outcome` (required)
+- `image_id`: `int` (required)
+- `fingerprint`: `str` (required)
+- `model_name`: `str` (required)
+- `status`: `completed | partial | failed | cancelled | stale | unevaluated` (required)
+- `item_count`: `int` (required)
+- `error`: `str?` (required)
+
+**Output `ReviewRunResult`**
+
+- `kind`: `result` (optional, default `result`)
+- `ok`: `bool` (optional, default `True`)
+- `message`: `str` (required)
+- `project`: `str` (required)
+- `status`: `success | partial_success | failed` (required)
+- `image_count`: `int` (required)
+- `item_count`: `int` (required)
+- `successful`: `int` (required)
+- `partial`: `int` (required)
+- `failed`: `int` (required)
+- `cancelled`: `int` (required)
+- `stale`: `int` (required)
+- `unevaluated`: `int` (required)
+- `warnings`: `int` (required)
+
+**Error `CliErrorResponse`**
+
+Structured error payload emitted as kind=error by the CLI boundary.
+
+- `kind`: `error` (optional, default `error`)
+- `ok`: `false` (optional, default `False`)
+- `code`: `str` (required)
+- `message`: `str` (required)
+- `retryable`: `bool` (required)
+- `user_action_required`: `bool` (required)
+- `hint`: `str?` (optional, default `None`)
+- `details`: `dict?` (optional, default `None`)
+
 ### `status`
 
 Show system status (config file and API key availability).

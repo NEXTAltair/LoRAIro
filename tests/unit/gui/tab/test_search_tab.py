@@ -135,9 +135,8 @@ def test_settings_save_replaces_clef_credentials_and_invalidates_results(
     qtbot, service_container: Mock, db_manager: Mock, monkeypatch, tmp_path, original_credentials
 ) -> None:
     """First setup and rotation affect the next explicit request without a restart."""
-    from lorairo.services.annotation_review_service import AnnotationReviewItem, AnnotationReviewResult
-
     from lorairo.gui.window.main_window import MainWindow
+    from lorairo.services.annotation_review_service import AnnotationReviewItem, AnnotationReviewResult
 
     package = (
         Path(__file__).resolve().parents[4] / "local_packages/image-annotator-lib/src/image_annotator_lib"
