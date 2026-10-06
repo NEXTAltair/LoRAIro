@@ -34,7 +34,10 @@ def test_database(temp_db_path):
     database_url = f"sqlite:///{temp_db_path.resolve()}?check_same_thread=False"
     engine = create_db_engine(database_url)
     Base.metadata.create_all(engine)
-    return temp_db_path
+    try:
+        yield temp_db_path
+    finally:
+        engine.dispose()
 
 
 @pytest.fixture
@@ -45,7 +48,10 @@ def image_repository(test_database):
     database_url = f"sqlite:///{test_database.resolve()}?check_same_thread=False"
     engine = create_db_engine(database_url)
     session_factory = create_session_factory(engine)
-    return ImageRepository(session_factory)
+    try:
+        yield ImageRepository(session_factory)
+    finally:
+        engine.dispose()
 
 
 @pytest.fixture
