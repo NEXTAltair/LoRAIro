@@ -650,6 +650,12 @@ class MainWindow(QMainWindow, Ui_MainWindow):
         container.layout().addWidget(widget)
         self.results_tab = widget
         widget.manual_review_requested.connect(self._open_annotation_review_image)
+        widget.review_target_selection_requested.connect(
+            partial(self.tabWidgetMainMode.setCurrentWidget, self.tabWorkspace)
+        )
+        widget.review_target_list_requested.connect(
+            partial(self.tabWidgetMainMode.setCurrentWidget, self.tabBatchTag)
+        )
         self._reload_results_annotation_review_service()
         logger.info("✅ 結果タブ (ResultsTabWidget) initialized")
 

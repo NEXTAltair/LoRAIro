@@ -135,6 +135,43 @@ def test_start_freezes_scope_despite_source_list_and_staging_changes(qtbot, wire
     assert worker_id == widget._inflight_id
 
 
+def test_target_navigation_is_available_before_staging_and_never_starts_review(qtbot, wired) -> None:
+    widget, service, _, manager = wired
+    started = len(manager.started)
+    assert not widget.start_button.isEnabled()
+    assert not widget.target_list_button.isEnabled()
+    assert "選択画像" in widget.target_names_label.text()
+    with qtbot.waitSignal(widget.target_selection_requested):
+        qtbot.mouseClick(widget.select_targets_button, Qt.MouseButton.LeftButton)
+
+    widget.set_image_ids([5, 7])
+    assert widget.start_button.isEnabled()
+    assert widget.start_button.text() == "この 2 枚を確認"
+    with qtbot.waitSignal(widget.target_list_requested):
+        qtbot.mouseClick(widget.target_list_button, Qt.MouseButton.LeftButton)
+
+    assert len(manager.started) == started
+    service.review.assert_not_called()
+
+
+def test_displayed_filenames_freeze_with_the_running_target(wired) -> None:
+    widget, _, _, _ = wired
+    names = {5: "portrait.jpg", 7: "garden.jpg"}
+    widget.set_image_names(names)
+    widget.set_image_ids([5, 7])
+    widget._on_start_requested()
+
+    names[5] = "changed.jpg"
+    widget.set_image_names({99: "next.jpg"})
+    widget.set_image_ids([99])
+
+    assert "portrait.jpg" in widget.target_names_label.text()
+    assert "garden.jpg" in widget.target_names_label.text()
+    assert "next.jpg" not in widget.target_names_label.text()
+    assert widget._running_image_ids == (5, 7)
+    assert "次回" in widget.target_list_button.text()
+
+
 def test_saved_warning_opens_original_image_and_keeps_candidate_text(qtbot, wired) -> None:
     widget, service, store, manager = wired
     store.get_current_results.return_value = {5: saved_result()}

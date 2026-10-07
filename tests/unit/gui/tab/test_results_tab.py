@@ -41,6 +41,27 @@ def test_results_tab_forwards_manual_review_for_saved_image(qtbot, staging: Stag
 
 
 @pytest.mark.gui
+def test_review_target_controls_forward_navigation_without_running_review(qtbot, staging) -> None:
+    widget = ResultsTabWidget(db_manager=MagicMock(), staging_state_manager=staging)
+    qtbot.addWidget(widget)
+    review = widget.annotation_review_widget
+
+    with qtbot.waitSignal(widget.review_target_selection_requested):
+        review.select_targets_button.click()
+
+    state = MagicMock()
+    state.get_image_by_id.return_value = {"stored_image_path": "/images/portrait.jpg"}
+    staging.set_dataset_state_manager(state)
+    staging.add_image_ids([42])
+    assert "portrait.jpg" in review.target_names_label.text()
+    with qtbot.waitSignal(widget.review_target_list_requested):
+        review.target_list_button.click()
+
+    assert not review.start_button.isEnabled()
+    assert review._inflight_id is None
+
+
+@pytest.mark.gui
 def test_results_tab_updates_next_review_scope_when_staging_changes(qtbot, staging) -> None:
     widget = ResultsTabWidget(db_manager=MagicMock(), staging_state_manager=staging)
     qtbot.addWidget(widget)

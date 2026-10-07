@@ -47,6 +47,8 @@ class AnnotationReviewBatchWidget(QGroupBox):
     """Keep active scope independent of staging and saved results independent of selection."""
 
     manual_review_requested = Signal(int)
+    target_selection_requested = Signal()
+    target_list_requested = Signal()
 
     MAX_IMAGES = 500
 
@@ -57,6 +59,8 @@ class AnnotationReviewBatchWidget(QGroupBox):
         self._manager: WorkerManager | None = None
         self._image_ids: tuple[int, ...] = ()
         self._running_image_ids: tuple[int, ...] = ()
+        self._image_names: dict[int, str] = {}
+        self._running_image_names: dict[int, str] = {}
         self._generation = 0
         self._inflight_id: str | None = None
         self._worker: AnnotationReviewBatchWorker | None = None
@@ -82,13 +86,31 @@ class AnnotationReviewBatchWidget(QGroupBox):
 
     def _build_ui(self) -> None:
         layout = QVBoxLayout(self)
-        layout.setSpacing(theme.SPACE_1)
+        layout.setSpacing(theme.SPACE_2)
+        self.instructions_label = QLabel(
+            "複数画像の確認: 検索で画像を選択 →「選択をステージングへ」→ この画面で確認を開始", self
+        )
+        self.instructions_label.setWordWrap(True)
+        layout.addWidget(self.instructions_label)
         run_bar = QHBoxLayout()
         self.scope_label = QLabel(self)
         self.scope_label.setWordWrap(True)
+        self.scope_label.setStyleSheet(f"font-weight: {theme.FONT_WEIGHT_SEMIBOLD};")
         run_bar.addWidget(self.scope_label, 1)
-        self.start_button = QPushButton("ステージ済み画像を確認", self)
+        self.select_targets_button = QPushButton("検索で対象画像を選ぶ", self)
+        self.select_targets_button.clicked.connect(self.target_selection_requested)
+        run_bar.addWidget(self.select_targets_button)
+        self.target_list_button = QPushButton("対象一覧を開く", self)
+        self.target_list_button.setToolTip("アノテーション画面でステージした画像を確認・削除できます。")
+        self.target_list_button.clicked.connect(self.target_list_requested)
+        run_bar.addWidget(self.target_list_button)
+        self.start_button = QPushButton("確認を開始", self)
         self.start_button.setObjectName("buttonStartAnnotationReviewBatch")
+        self.start_button.setStyleSheet(
+            f"QPushButton:enabled {{ background: {theme.ACCENT}; color: {theme.TEXT_ON_ACCENT};"
+            f" border-color: {theme.ACCENT}; font-weight: {theme.FONT_WEIGHT_SEMIBOLD}; }}"
+            f"QPushButton:enabled:hover {{ background: {theme.ACCENT_HOVER}; }}"
+        )
         self.start_button.clicked.connect(self._on_start_requested)
         run_bar.addWidget(self.start_button)
         self.cancel_button = QPushButton("中止", self)
@@ -96,15 +118,20 @@ class AnnotationReviewBatchWidget(QGroupBox):
         self.cancel_button.setVisible(False)
         run_bar.addWidget(self.cancel_button)
         layout.addLayout(run_bar)
+        self.target_names_label = QLabel(self)
+        self.target_names_label.setTextFormat(Qt.TextFormat.PlainText)
+        self.target_names_label.setWordWrap(True)
+        self.target_names_label.setStyleSheet(f"color: {theme.INK_SOFT};")
+        layout.addWidget(self.target_names_label)
         notice = QLabel(
-            "開始時の画像・有効なタグ・キャプションを Cloudflare に送信します。"
-            "結果は画像ごとに保存されます。警告は手動で確認してください。",
+            "開始ボタンを押すと、対象の画像・タグ・キャプションを Cloudflare に送信します（有料 API）。"
+            "開始後の対象は固定されます。結果は保存され、タグ・キャプションは自動では変更されません。",
             self,
         )
         notice.setWordWrap(True)
         notice.setStyleSheet(f"color: {theme.INK_SOFT}; font-size: {theme.FONT_SIZE_SMALL}px;")
         layout.addWidget(notice)
-        self.status_label = QLabel("未実行 — ステージ済み画像を確認できます。", self)
+        self.status_label = QLabel("未実行 — 対象画像を追加してから、確認を開始してください。", self)
         self.status_label.setTextFormat(Qt.TextFormat.PlainText)
         self.status_label.setWordWrap(True)
         layout.addWidget(self.status_label)
@@ -215,6 +242,11 @@ class AnnotationReviewBatchWidget(QGroupBox):
         self._image_ids = tuple(dict.fromkeys(image_ids))
         self._update_controls()
 
+    def set_image_names(self, image_names: dict[int, str]) -> None:
+        """Display staged filenames without reading images or querying the DB."""
+        self._image_names = image_names.copy()
+        self._update_controls()
+
     def _update_controls(self) -> None:
         active = self._inflight_id is not None
         if active:
@@ -222,8 +254,42 @@ class AnnotationReviewBatchWidget(QGroupBox):
                 f"確認対象 {len(self._running_image_ids)} 枚（開始時に固定）"
                 f" / 現在のステージ {len(self._image_ids)} 枚"
             )
+            self.start_button.setText(f"{len(self._running_image_ids)} 枚を確認中")
         else:
-            self.scope_label.setText(f"ステージ済み {len(self._image_ids)} 枚")
+            self.scope_label.setText(
+                f"対象: ステージ済み {len(self._image_ids)} 枚"
+                if self._image_ids
+                else "対象: 0 枚 — 検索画面から画像を追加してください。"
+            )
+            self.start_button.setText(
+                f"この {len(self._image_ids)} 枚を確認" if self._image_ids else "確認を開始"
+            )
+        displayed_ids = self._running_image_ids if active else self._image_ids
+        names = self._running_image_names if active else self._image_names
+        labels = [
+            f"{names[image_id]} (ID: {image_id})" if names.get(image_id) else f"画像 {image_id}"
+            for image_id in displayed_ids
+        ]
+        self.target_names_label.setText(
+            "対象画像: "
+            + " / ".join(labels[:3])
+            + (f" / ほか {len(labels) - 3} 枚" if len(labels) > 3 else "")
+            if labels
+            else "現在の選択画像や、保存済み結果の画像は自動では対象に入りません。"
+        )
+        self.target_names_label.setToolTip("\n".join(labels))
+        self.target_list_button.setEnabled(bool(self._image_ids))
+        self.target_list_button.setText("次回の対象一覧を開く" if active else "対象一覧を開く")
+        self.select_targets_button.setText("次回の対象画像を選ぶ" if active else "検索で対象画像を選ぶ")
+        self.start_button.setToolTip(
+            "ステージに追加した画像だけを Cloudflare に送信して確認します（有料 API）。"
+        )
+        if self.status_label.text().startswith(("未実行", "一度に確認できる画像は")) and not active:
+            self.status_label.setText(
+                f"未実行 —「この {len(self._image_ids)} 枚を確認」を押すと開始します。"
+                if self._image_ids
+                else "未実行 — 検索で画像を選び、「選択をステージングへ」で対象に追加してください。"
+            )
         self.start_button.setEnabled(
             not self._closing
             and not active
@@ -248,6 +314,7 @@ class AnnotationReviewBatchWidget(QGroupBox):
             return
         self._generation += 1
         self._running_image_ids = self._image_ids
+        self._running_image_names = self._image_names.copy()
         self._processed_ids.clear()
         self._inflight_id = f"annotation_review_batch_{id(self)}_{self._generation}"
         worker = AnnotationReviewBatchWorker(
@@ -504,7 +571,7 @@ class AnnotationReviewBatchWidget(QGroupBox):
             return "未評価", theme.INK_SOFT
         if any(item.status == "warning" for item in review.items):
             return "⚠ 要確認", theme.WARN
-        return "目安内", theme.INK
+        return "警告なし", theme.INK
 
     def _record_for_display(self, record: StoredReviewResult) -> StoredReviewResult:
         """Hide a cached score until its current fingerprint has been checked."""
@@ -555,7 +622,7 @@ class AnnotationReviewBatchWidget(QGroupBox):
                 else ""
             )
         )
-        labels = {"ok": "目安内", "warning": "⚠ 要確認", "failed": "確認失敗", "unevaluated": "未評価"}
+        labels = {"ok": "警告なし", "warning": "⚠ 要確認", "failed": "確認失敗", "unevaluated": "未評価"}
         self.details_table.setRowCount(len(review.items))
         for row, result in enumerate(review.items):
             values = (

@@ -36,6 +36,8 @@ class ResultsTabWidget(QWidget):
     """
 
     manual_review_requested = Signal(int)
+    review_target_selection_requested = Signal()
+    review_target_list_requested = Signal()
 
     def __init__(
         self,
@@ -58,11 +60,13 @@ class ResultsTabWidget(QWidget):
 
         self._annotation_review_widget = AnnotationReviewBatchWidget(self)
         self._annotation_review_widget.manual_review_requested.connect(self.manual_review_requested)
+        self._annotation_review_widget.target_selection_requested.connect(
+            self.review_target_selection_requested
+        )
+        self._annotation_review_widget.target_list_requested.connect(self.review_target_list_requested)
         self._annotation_review_widget.setVisible(False)
         if staging_state_manager is not None:
-            staging_state_manager.staged_images_changed.connect(
-                self._annotation_review_widget.set_image_ids
-            )
+            staging_state_manager.staged_images_changed.connect(self._on_review_scope_changed)
 
         self._results_widget = ResultsWidget(parent=self)
         self._results_widget.accept_requested.connect(self._on_accept)
@@ -107,7 +111,15 @@ class ResultsTabWidget(QWidget):
             if self._staging_state_manager is not None
             else []
         )
-        self._annotation_review_widget.set_image_ids(ids)
+        self._on_review_scope_changed(ids)
+
+    @Slot(list)
+    def _on_review_scope_changed(self, image_ids: list[int]) -> None:
+        items = self._staging_state_manager.get_staged_items() if self._staging_state_manager else {}
+        self._annotation_review_widget.set_image_names(
+            {image_id: item[0] for image_id, item in items.items()}
+        )
+        self._annotation_review_widget.set_image_ids(image_ids)
 
     def shutdown(self) -> None:
         self._annotation_review_widget.shutdown()

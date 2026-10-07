@@ -106,6 +106,8 @@ def test_selection_and_service_injection_do_not_request_cloud_review(wired_widge
     assert manager.started == []
     assert "未評価" in widget.status_label.text()
     assert widget.evaluate_button.isEnabled()
+    assert "画像 1 枚（ID: 5）" in widget.scope_label.text()
+    assert "ステージ済み画像は含みません" in widget.scope_label.text()
 
 
 def test_click_shows_running_then_item_probabilities_without_edit_controls(qtbot, wired_widget) -> None:
