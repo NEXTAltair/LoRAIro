@@ -57,7 +57,7 @@ class AnnotationReviewWidget(QWidget):
         title = QLabel("アノテーション確認", self)
         title.setStyleSheet(f"font-weight: {theme.FONT_WEIGHT_SEMIBOLD};")
         header.addWidget(title, 1)
-        self.evaluate_button = QPushButton("Clef で確認", self)
+        self.evaluate_button = QPushButton("この画像を確認", self)
         self.evaluate_button.setObjectName("buttonReviewAnnotations")
         self.evaluate_button.setToolTip(
             "選択画像と既存の有効なタグ・キャプションを Cloudflare に送信して評価します。"
@@ -69,12 +69,18 @@ class AnnotationReviewWidget(QWidget):
         self.cancel_button.setVisible(False)
         header.addWidget(self.cancel_button)
         layout.addLayout(header)
+        self.scope_label = QLabel(self)
+        self.scope_label.setTextFormat(Qt.TextFormat.PlainText)
+        self.scope_label.setWordWrap(True)
+        layout.addWidget(self.scope_label)
         self.status_label = QLabel(self)
         self.status_label.setWordWrap(True)
         self.status_label.setTextFormat(Qt.TextFormat.PlainText)
         self.status_label.setObjectName("labelAnnotationReviewStatus")
         layout.addWidget(self.status_label)
-        self.notice_label = QLabel("画像・有効なタグ・キャプションを Cloudflare に送信します。", self)
+        self.notice_label = QLabel(
+            "ボタンを押すと、この画像・タグ・キャプションを Cloudflare に送信します（有料 API）。", self
+        )
         self.notice_label.setWordWrap(True)
         self.notice_label.setStyleSheet(f"color: {theme.INK_SOFT}; font-size: {theme.FONT_SIZE_SMALL}px;")
         layout.addWidget(self.notice_label)
@@ -136,6 +142,11 @@ class AnnotationReviewWidget(QWidget):
         """Invalidate even same-image reloads so annotation edits cannot retain results."""
         self._generation += 1
         self._image_id = image_id
+        self.scope_label.setText(
+            f"対象: 表示中の画像 1 枚（ID: {image_id}）。ステージ済み画像は含みません。"
+            if image_id is not None
+            else "対象: 画像を選択してください。"
+        )
         if self._manager is not None and self._inflight_id is not None:
             self._manager.request_cancel_worker(self._inflight_id, reason=CancelReason.USER_REQUESTED)
         self.results_table.setRowCount(0)
@@ -169,7 +180,7 @@ class AnnotationReviewWidget(QWidget):
         elif self._inflight_id is not None:
             message = "未評価 — 前の評価を停止しています。"
         else:
-            message = "未評価 — ボタンを押すと既存の内容を確認します。"
+            message = "未評価 —「この画像を確認」を押すと、表示中の画像の内容を確認します。"
         self._set_status(message, theme.INK_SOFT)
         self._update_button_state()
 
@@ -280,7 +291,7 @@ class AnnotationReviewWidget(QWidget):
             )
             return
         statuses = {
-            "ok": ("目安内", theme.INK),
+            "ok": ("警告なし", theme.INK),
             "warning": ("⚠ 要確認", theme.WARN),
             "failed": ("評価失敗", theme.ERR),
             "unevaluated": ("未評価", theme.INK_FAINT),

@@ -5,8 +5,9 @@ from unittest.mock import Mock
 
 import pytest
 from PySide6.QtGui import QAction
-from PySide6.QtWidgets import QTabWidget, QWidget
+from PySide6.QtWidgets import QTabWidget, QVBoxLayout, QWidget
 
+from lorairo.gui.state.staging_state import StagingStateManager
 from lorairo.gui.window.main_window import MainWindow
 
 
@@ -52,3 +53,39 @@ def test_warning_navigation_without_search_leaves_selection_unchanged() -> None:
 
     state.set_current_image.assert_not_called()
     state.set_selected_images.assert_not_called()
+
+
+@pytest.mark.gui
+def test_review_target_controls_open_search_and_staging_without_starting(qtbot) -> None:
+    tabs = QTabWidget()
+    qtbot.addWidget(tabs)
+    search, annotation, results = QWidget(), QWidget(), QWidget()
+    QVBoxLayout(results)
+    tabs.addTab(search, "検索")
+    tabs.addTab(annotation, "アノテーション")
+    tabs.addTab(results, "結果")
+    tabs.setCurrentWidget(results)
+    window = SimpleNamespace(
+        tabResults=results,
+        tabWorkspace=search,
+        tabBatchTag=annotation,
+        tabWidgetMainMode=tabs,
+        db_manager=Mock(),
+        staging_state_manager=StagingStateManager(),
+        _open_annotation_review_image=Mock(),
+        _reload_results_annotation_review_service=Mock(),
+    )
+    MainWindow._setup_results_tab(window)
+    review = window.results_tab.annotation_review_widget
+
+    review.select_targets_button.click()
+    assert tabs.currentWidget() is search
+    state = Mock()
+    state.get_image_by_id.return_value = {"stored_image_path": "/images/portrait.jpg"}
+    window.staging_state_manager.set_dataset_state_manager(state)
+    window.staging_state_manager.add_image_ids([42])
+    tabs.setCurrentWidget(results)
+    review.target_list_button.click()
+    assert tabs.currentWidget() is annotation
+    assert review._inflight_id is None
+    assert window.staging_state_manager.get_image_ids() == [42]
