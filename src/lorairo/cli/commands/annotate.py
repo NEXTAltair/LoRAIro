@@ -722,7 +722,8 @@ def _resolve_model_identifier(repository: ModelRepository, identifier: str) -> s
 
     # アプリの WebAPI 経路と Google の既存 alias。slash を含むローカルの
     # namespace (例: google/siglip-so400m) は正当な表示名なので、単一一致の
-    # requires_api_key=False を確認して区別する。cloud の別経路へは補完しない。
+    # requires_api_key=False と local provider を確認して区別する。旧 DB 行の
+    # key 要否フラグだけでは cloud を local と判断せず、別経路へは補完しない。
     provider, separator, _ = identifier.partition("/")
     explicit_provider = separator and provider.lower() in {
         "openai",
@@ -732,7 +733,11 @@ def _resolve_model_identifier(repository: ModelRepository, identifier: str) -> s
         "vertex_ai",
         "openrouter",
     }
-    local_name_match = len(by_name) == 1 and by_name[0].requires_api_key is False
+    local_name_match = (
+        len(by_name) == 1
+        and by_name[0].requires_api_key is False
+        and (by_name[0].provider or "").strip().lower() in {"", "local"}
+    )
     if explicit_provider and not local_name_match:
         raise click.UsageError(
             f"Unknown model ID '{identifier}': an explicit provider-qualified ID must match exactly. "

@@ -20,14 +20,21 @@ from lorairo.services.annotation_save_service import AnnotationSaveResult
 
 
 def _fake_model(
-    litellm_model_id: str, name: str, provider: str | None = None, *, available: bool = True
+    litellm_model_id: str,
+    name: str,
+    provider: str | None = None,
+    *,
+    available: bool = True,
+    requires_api_key: bool | None = None,
 ) -> SimpleNamespace:
     """`Model` 互換の軽量 fake。"""
     return SimpleNamespace(
         litellm_model_id=litellm_model_id,
         name=name,
         provider=provider,
-        requires_api_key=provider not in {None, "", "local"},
+        requires_api_key=(provider or "").strip().lower() not in {"", "local"}
+        if requires_api_key is None
+        else requires_api_key,
         available=available,
     )
 
@@ -148,10 +155,11 @@ class TestResolveModelIdentifier:
     @pytest.mark.parametrize(
         "display_name", ["SmilingWolf/wd-tagger", "google/siglip-so400m", "openai/clip-vit-large-patch14"]
     )
-    def test_local_namespace_display_name_still_resolves(self, repository, display_name):
+    @pytest.mark.parametrize("local_provider", [None, "", "local", "LOCAL", " local "])
+    def test_local_namespace_display_name_still_resolves(self, repository, display_name, local_provider):
         repository.get_model_by_litellm_id.return_value = None
         repository.get_models_by_name.return_value = [
-            _fake_model("local-classifier", display_name, "local")
+            _fake_model("local-classifier", display_name, local_provider)
         ]
         assert _resolve_model_identifier(repository, display_name) == "local-classifier"
 
@@ -188,10 +196,15 @@ def cli_route_flow(monkeypatch, tmp_path):
 
 
 @pytest.mark.parametrize("explicit_images", [False, True])
-def test_cli_explicit_missing_id_fails_before_image_or_api_calls(cli_route_flow, explicit_images):
+@pytest.mark.parametrize("requires_api_key", [False, True])
+def test_cli_explicit_missing_id_fails_before_image_or_api_calls(
+    cli_route_flow, explicit_images, requires_api_key
+):
     container = cli_route_flow
     container.db_manager.model_repo.get_models_by_name.return_value = [
-        _fake_model("openrouter/openai/gpt-4o", "openai/gpt-4o", "openrouter")
+        _fake_model(
+            "openrouter/openai/gpt-4o", "openai/gpt-4o", "openrouter", requires_api_key=requires_api_key
+        )
     ]
     args = ["annotate", "run", "--project", "mock-project", "--model", "openai/gpt-4o"]
     if explicit_images:
@@ -212,6 +225,10 @@ def test_cli_explicit_missing_id_fails_before_image_or_api_calls(cli_route_flow,
         ("gpt-4o", "openrouter/openai/gpt-4o", "openrouter", False),
         ("SmilingWolf/wd-tagger", "wd-tagger", "local", False),
         ("google/siglip-so400m", "local-siglip", "local", False),
+        ("google/siglip-so400m", "local-siglip", None, False),
+        ("google/siglip-so400m", "local-siglip", "", False),
+        ("google/siglip-so400m", "local-siglip", "LOCAL", False),
+        ("google/siglip-so400m", "local-siglip", " local ", False),
         ("openai/clip-vit-large-patch14", "local-clip", "local", False),
     ],
 )
