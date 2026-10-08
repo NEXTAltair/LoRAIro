@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING
 
@@ -48,4 +48,10 @@ class AnnotationReviewWorker(LoRAIroWorkerBase[AnnotationReviewWorkerResult]):
         review = self._service.review(snapshot, is_cancelled=self.cancellation.is_canceled)
         if self._store is not None:
             self._store.save(review, self._service.warning_threshold, requested_at=self._requested_at)
+        elif self._service.prepare_review(self._image_id).fingerprint != review.fingerprint:
+            review = replace(
+                review,
+                status="stale",
+                items=tuple(replace(item, probability=None, status="unevaluated") for item in review.items),
+            )
         return AnnotationReviewWorkerResult(generation=self._generation, review=review)

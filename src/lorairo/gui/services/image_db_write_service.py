@@ -220,6 +220,16 @@ class ImageDBWriteService:
             logger.opt(exception=True).error(f"DB error updating caption for image_id {image_id}")
             return False
 
+    def edit_caption(self, image_id: int, caption_id: int, text: str, *, expected_text: str) -> bool:
+        """Replace an identified caption without leaving the original active."""
+        try:
+            return self.db_manager.annotation_repo.edit_caption(
+                image_id, caption_id, text, expected_text=expected_text
+            )
+        except (ValueError, SQLAlchemyError):
+            logger.opt(exception=True).warning("Caption row could not be edited: {}", caption_id)
+            return False
+
     def add_tag_batch(self, image_ids: list[int], tag: str) -> bool:
         """
         複数画像に1つのタグを追加（既存タグに追加、重複は許可しない）

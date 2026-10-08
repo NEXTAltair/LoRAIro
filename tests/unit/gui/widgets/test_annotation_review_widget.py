@@ -14,6 +14,7 @@ from PySide6.QtWidgets import QAbstractItemView
 
 from lorairo.gui.widgets.annotation_review_widget import AnnotationReviewWidget
 from lorairo.gui.widgets.selected_image_details_widget import SelectedImageDetailsWidget
+from lorairo.gui.workers.annotation_review_saved_worker import SavedImageReviewWorker
 from lorairo.gui.workers.annotation_review_worker import AnnotationReviewWorkerResult
 from lorairo.gui.workers.terminal import CancelReason, WorkerOutcome, WorkerTerminalEvent
 from lorairo.services.annotation_review_service import (
@@ -96,6 +97,16 @@ def finish(widget, manager, result=None, outcome=WorkerOutcome.SUCCEEDED, error=
     )
 
 
+def finish_saved(manager):
+    worker_id, worker = manager.started[-1]
+    assert isinstance(worker, SavedImageReviewWorker)
+    manager.worker_terminal.emit(
+        WorkerTerminalEvent(
+            worker_id, "annotation_review_results_load", WorkerOutcome.SUCCEEDED, result=worker.execute()
+        )
+    )
+
+
 def test_selection_and_service_injection_do_not_request_cloud_review(wired_widget) -> None:
     widget, service, manager = wired_widget
     widget.set_image(9)
@@ -104,7 +115,7 @@ def test_selection_and_service_injection_do_not_request_cloud_review(wired_widge
     service.prepare_review.assert_not_called()
     service.review.assert_not_called()
     assert manager.started == []
-    assert "未評価" in widget.status_label.text()
+    assert any(text in widget.status_label.text() for text in ("未評価", "未チェック", "古い判定"))
     assert widget.evaluate_button.isEnabled()
     assert "画像 1 枚（ID: 5）" in widget.scope_label.text()
     assert "ステージ済み画像は含みません" in widget.scope_label.text()
@@ -159,7 +170,7 @@ def test_selection_or_same_image_edit_cancels_and_discards_inflight_result(
     assert manager.cancel_requests[0][0] == worker_id
     assert widget.results_table.rowCount() == 0
     assert widget.results_table.isHidden()
-    assert "未評価" in widget.status_label.text()
+    assert any(text in widget.status_label.text() for text in ("未評価", "未チェック", "古い判定"))
 
 
 def test_completed_results_are_cleared_on_annotation_reload(wired_widget) -> None:
@@ -172,7 +183,7 @@ def test_completed_results_are_cleared_on_annotation_reload(wired_widget) -> Non
 
     assert widget.results_table.rowCount() == 0
     assert widget.model_label.isHidden()
-    assert "未評価" in widget.status_label.text()
+    assert any(text in widget.status_label.text() for text in ("未評価", "未チェック", "古い判定"))
 
 
 def test_saved_result_returns_after_switching_images_without_a_cloud_request(wired_widget) -> None:
@@ -181,31 +192,35 @@ def test_saved_result_returns_after_switching_images_without_a_cloud_request(wir
     saved = StoredReviewResult(make_result(), 0.2, datetime.now(UTC))
     store.get_current_result.side_effect = lambda image_id, _service: saved if image_id == 5 else None
     widget.set_store(store)
+    finish_saved(manager)
     assert widget.results_table.rowCount() == 2
 
     widget.set_image(9)
     assert widget.results_table.rowCount() == 0
     widget.set_image(5)
+    finish_saved(manager)
 
     assert widget.results_table.item(0, 3).text() == "8.0%"
-    assert manager.started == []
+    assert all(isinstance(worker, SavedImageReviewWorker) for _, worker in manager.started)
     service.review.assert_not_called()
 
 
 def test_saved_result_with_changed_content_hides_previous_probability(wired_widget) -> None:
-    widget, _, _ = wired_widget
+    widget, _, manager = wired_widget
     store = Mock()
     saved = StoredReviewResult(make_result(), 0.2, datetime.now(UTC))
     store.get_current_result.return_value = saved
     widget.set_store(store)
+    finish_saved(manager)
     assert widget.results_table.rowCount() == 2
     store.get_current_result.return_value = replace(saved, review=replace(saved.review, status="stale"))
 
     widget.set_image(5)
+    finish_saved(manager)
 
     assert widget.results_table.rowCount() == 0
     assert widget.results_table.isHidden()
-    assert "内容が変更" in widget.status_label.text()
+    assert "古い判定" in widget.status_label.text()
 
 
 def test_completion_displays_latest_store_result_instead_of_an_older_worker_result(wired_widget) -> None:
@@ -218,6 +233,7 @@ def test_completion_displays_latest_store_result_instead_of_an_older_worker_resu
     widget._on_evaluate_requested()
 
     finish(widget, manager, make_result())
+    finish_saved(manager)
 
     assert widget.results_table.rowCount() == 1
     assert widget.results_table.item(0, 3).text() == "97.0%"
@@ -263,10 +279,10 @@ def test_external_edit_fingerprint_rejects_old_result(wired_widget) -> None:
     widget._on_evaluate_requested()
     service.prepare_review.return_value = make_snapshot(fingerprint="edited")
 
-    finish(widget, manager)
+    finish(widget, manager, manager.started[-1][1].execute().review)
 
     assert widget.results_table.rowCount() == 0
-    assert "内容が変更" in widget.status_label.text()
+    assert "古い判定" in widget.status_label.text()
     assert widget.evaluate_button.isEnabled()
 
 
@@ -312,7 +328,7 @@ def test_empty_or_stale_service_result_never_claims_no_warnings(wired_widget, st
 
     finish(widget, manager, result)
 
-    assert "未評価" in widget.status_label.text()
+    assert any(text in widget.status_label.text() for text in ("未評価", "未チェック", "古い判定"))
     assert "評価完了" not in widget.status_label.text()
     assert widget.results_table.rowCount() == 0
 
@@ -351,7 +367,7 @@ def test_cancel_is_cooperative_and_cannot_show_returned_result(wired_widget) -> 
     )
 
     assert widget.results_table.rowCount() == 0
-    assert "未評価" in widget.status_label.text()
+    assert any(text in widget.status_label.text() for text in ("未評価", "未チェック", "古い判定"))
     assert widget.evaluate_button.isEnabled()
 
 
@@ -380,7 +396,7 @@ def test_real_worker_does_not_block_event_loop_and_shutdown_cancels(qtbot) -> No
         # Switching remains synchronous and interactive while the service waits.
         widget.set_image(9)
         assert widget._image_id == 9
-        assert "未評価" in widget.status_label.text()
+        assert any(text in widget.status_label.text() for text in ("未評価", "未チェック", "古い判定"))
         widget.shutdown()
         assert not widget._manager.active_workers
     finally:

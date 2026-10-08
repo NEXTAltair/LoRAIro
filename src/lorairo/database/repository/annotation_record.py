@@ -1639,6 +1639,28 @@ class AnnotationRepository(BaseRepository):
                 session.add(new_tag)
                 existing_tags_map[(tag_string, model_id)] = new_tag
 
+    def edit_caption(self, image_id: int, caption_id: int, text: str, *, expected_text: str) -> bool:
+        """Edit the exact active row, rejecting a concurrent change or wrong image."""
+        if not text.strip():
+            raise ValueError("Caption must not be empty")
+        with self.session_factory() as session:
+            result = session.execute(
+                update(Caption)
+                .where(
+                    Caption.id == caption_id,
+                    Caption.image_id == image_id,
+                    Caption.rejected_at.is_(None),
+                    Caption.caption == expected_text,
+                )
+                .values(
+                    caption=text.strip(),
+                    is_edited_manually=True,
+                    updated_at=datetime.datetime.now(datetime.UTC),
+                )
+            )
+            session.commit()
+            return cast(CursorResult[Any], result).rowcount == 1
+
     def _save_captions(
         self,
         session: Session,

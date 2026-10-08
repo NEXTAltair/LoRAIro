@@ -176,6 +176,7 @@ class SelectableTagChip(QLabel):
         # 候補タグ -> {format: count} (#1052、set_refinement で更新)
         self._candidate_counts: dict[str, dict[str, int]] = {}
         self.refinement: RefinementRecommendation | None = None
+        self.review_warning = False
         # 種別インジケータ (Issue #1233 / #1241)。set_type_indicator で更新される。
         # 左端ストライプ色 (None = 無印) と表示用グリフ文字を保持する。
         self.stripe_color: str | None = None
@@ -209,6 +210,8 @@ class SelectableTagChip(QLabel):
         stripe_color = getattr(self, "stripe_color", None)
         if stripe_color:
             style_sheet = f"{style_sheet}\nQLabel {{ border-left: 4px solid {stripe_color}; }}"
+        if getattr(self, "review_warning", False):
+            style_sheet += f"\nQLabel {{ border-bottom: 2px solid {theme.WARN}; }}"
         super().setStyleSheet(style_sheet)
 
     def mousePressEvent(self, event: QMouseEvent) -> None:
@@ -255,6 +258,17 @@ class SelectableTagChip(QLabel):
         else:
             self.setText(self._base_text)
             self.setToolTip(self._base_tooltip)
+        if self.review_warning:
+            if not self.text().startswith("⚠"):
+                self.setText(f"⚠ {self.text()}")
+            self.setToolTip(
+                self.toolTip() + "\nClef: 画像との一致が低い判定です。画像を見て手動確認してください。"
+            )
+
+    def set_review_warning(self, warning: bool) -> None:
+        self.review_warning = warning
+        self.set_refinement(self.refinement, self._candidate_counts)
+        self.setStyleSheet(self.base_qss)
 
     def replacement_candidates(self) -> list[str]:
         """refinement の適用可能な修正候補タグを返す (#1007)。
@@ -1098,6 +1112,7 @@ class TagPanelWidget(QWidget):
 
         # 描画中の chip 群と refinement 保持 (#931: chip 再生成をまたいで ⚠ を復元)
         self._tag_chips: list[SelectableTagChip] = []
+        self._review_warning_tags: set[str] = set()
         self._last_refinements: dict[str, RefinementRecommendation] = {}
         # 候補タグ -> {format: count} (#1052、apply_refinements で更新)
         self._last_candidate_counts: dict[str, dict[str, int]] = {}
@@ -1303,6 +1318,7 @@ class TagPanelWidget(QWidget):
         # 消すと、外したタグが破線復活 chip として即再出現する (PR #992 Codex P2)。
         image_changed = image_id is None or image_id != self._image_id
         self._image_id = image_id
+        self._review_warning_tags.clear()
         # type map はソート (_sort_tags_by_type) より先に確定させる (#1056)。
         # 別画像で type 情報が来ていない場合は前画像の map を引き継がない
         # (無関係な canonical が前画像の type でグループ化される。Codex P2)
@@ -1689,6 +1705,7 @@ class TagPanelWidget(QWidget):
         破棄しない (タグが無いので metric バーは自然に隠れる)。
         """
         self._tags = []
+        self._review_warning_tags.clear()
         self._translations = {}
         self._disabled_display = set()
         self._hidden = set()
@@ -2092,6 +2109,7 @@ class TagPanelWidget(QWidget):
         glyph = _TYPE_GLYPHS.get(type_name, "") if type_name else ""
         chip = SelectableTagChip(f"{glyph} {display}" if glyph else display, original)
         chip.set_type_indicator(type_name)
+        chip.review_warning = original in self._review_warning_tags
         if is_translated and not has_translation and self._tag_metadata_pending:
             # 翻訳解決中 (#1191): 「翻訳なし」の点線と区別し、反映失敗との誤認を防ぐ。
             chip.base_qss = theme.chip_qss("accent")
@@ -2583,6 +2601,12 @@ class TagPanelWidget(QWidget):
 
     # ─── refinement (#931) ──────────────────────────────────────────────
 
+    def set_review_warning_tags(self, tags: set[str]) -> None:
+        """Keep Clef markers across translation/refinement redraws."""
+        self._review_warning_tags = tags.copy()
+        for chip in self._tag_chips:
+            chip.set_review_warning(chip.canonical in tags)
+
     def _apply_refinements_to_chips(self) -> None:
         """保持中のリコメンド (_last_refinements) を現在の chip 群へ反映する (#931)。
 
@@ -2593,7 +2617,11 @@ class TagPanelWidget(QWidget):
         無印なら丸ごとスキップする。refinement 確定後や、確定済み ⚠ を消す再適用は
         従来どおり実行する (⚠ 表示の正しさは不変)。
         """
-        if not self._last_refinements and not self._chips_carry_refinements:
+        if (
+            not self._last_refinements
+            and not self._chips_carry_refinements
+            and not self._review_warning_tags
+        ):
             return
         applied = 0
         for chip in self._tag_chips:

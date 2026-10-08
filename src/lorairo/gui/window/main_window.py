@@ -649,6 +649,15 @@ class MainWindow(QMainWindow, Ui_MainWindow):
         )
         container.layout().addWidget(widget)
         self.results_tab = widget
+        self._batch_review_status = QLabel(self)
+        self._batch_review_status.setTextFormat(Qt.TextFormat.PlainText)
+        self.statusBar().addPermanentWidget(self._batch_review_status)
+        widget.running_status_changed.connect(self._batch_review_status.setText)
+        widget.running_status_changed.connect(
+            lambda message: self._batch_review_status.setVisible(bool(message))
+        )
+        self._batch_review_status.setVisible(False)
+        widget.review_result_saved.connect(self._refresh_search_annotation_review)
         widget.manual_review_requested.connect(self._open_annotation_review_image)
         widget.review_target_selection_requested.connect(
             partial(self.tabWidgetMainMode.setCurrentWidget, self.tabWorkspace)
@@ -658,6 +667,10 @@ class MainWindow(QMainWindow, Ui_MainWindow):
         )
         self._reload_results_annotation_review_service()
         logger.info("✅ 結果タブ (ResultsTabWidget) initialized")
+
+    def _refresh_search_annotation_review(self, image_id: int) -> None:
+        if self.search_tab is not None:
+            self.search_tab.refresh_annotation_review(image_id)
 
     def _reload_results_annotation_review_service(self) -> None:
         """Bind saved Clef results and current configuration to the results tab."""
@@ -807,6 +820,21 @@ class MainWindow(QMainWindow, Ui_MainWindow):
             self.search_tab.stage_to_annotation_requested.connect(self.send_selected_to_batch_tag)
             # #896: クイックタグはタブ内で完結。タブの status_message を statusBar へ橋渡しする。
             self.search_tab.status_message.connect(self.statusBar().showMessage)
+            details = self.search_tab.selected_image_details_widget
+            details.annotations_changed.connect(self.search_tab.refresh_annotation_review)
+            details.annotation_review_widget.review_result_saved.connect(
+                self.search_tab.refresh_annotation_review
+            )
+            self._single_review_status = QLabel(self)
+            self._single_review_status.setTextFormat(Qt.TextFormat.PlainText)
+            self.statusBar().addPermanentWidget(self._single_review_status)
+            details.annotation_review_widget.running_status_changed.connect(
+                self._single_review_status.setText
+            )
+            details.annotation_review_widget.running_status_changed.connect(
+                lambda message: self._single_review_status.setVisible(bool(message))
+            )
+            self._single_review_status.setVisible(False)
             self.search_tab.export_requested.connect(self.export_data)
             self.search_tab.dataset_selection_requested.connect(self.select_and_process_dataset)
             self.search_tab.settings_requested.connect(self.open_settings)

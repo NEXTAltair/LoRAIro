@@ -5,7 +5,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 from weakref import ref
 
-from PySide6.QtCore import Qt, Slot
+from PySide6.QtCore import Qt, Signal, Slot
 from PySide6.QtGui import QCloseEvent, QColor
 from PySide6.QtWidgets import (
     QAbstractItemView,
@@ -20,13 +20,15 @@ from PySide6.QtWidgets import (
 )
 
 from .. import theme
+from ..workers.annotation_review_saved_worker import SavedImageReview, SavedImageReviewWorker
 from ..workers.annotation_review_worker import AnnotationReviewWorker, AnnotationReviewWorkerResult
 from ..workers.manager import WorkerManager
 from ..workers.terminal import CancelReason, WorkerOutcome, WorkerTerminalEvent
 
 if TYPE_CHECKING:
+    from ...services.annotation_review_adoption_service import AnnotationReviewAdoptionService
     from ...services.annotation_review_service import AnnotationReviewResult, AnnotationReviewService
-    from ...services.annotation_review_store import AnnotationReviewStore
+    from ...services.annotation_review_store import AnnotationReviewStore, StoredReviewResult
 
 
 class AnnotationReviewWidget(QWidget):
@@ -35,6 +37,11 @@ class AnnotationReviewWidget(QWidget):
     This widget has no annotation write operation. Saved results survive image
     selection; matching the current fingerprint protects against annotation edits.
     """
+
+    review_result_saved = Signal(int)
+    result_displayed = Signal(object)
+    annotations_changed = Signal(int)
+    running_status_changed = Signal(str)
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -46,6 +53,10 @@ class AnnotationReviewWidget(QWidget):
         self._inflight_id: str | None = None
         self._closing = False
         self._unavailable_reason: str | None = None
+        self._saved: StoredReviewResult | None = None
+        self._adoption: AnnotationReviewAdoptionService | None = None
+        self._load_id: str | None = None
+        self._load_sequence = 0
         self._build_ui()
         self.set_image(None)
 
@@ -54,10 +65,10 @@ class AnnotationReviewWidget(QWidget):
         layout.setContentsMargins(0, theme.SPACE_1, 0, theme.SPACE_1)
         layout.setSpacing(theme.SPACE_1)
         header = QHBoxLayout()
-        title = QLabel("アノテーション確認", self)
+        title = QLabel("アノテーションチェック", self)
         title.setStyleSheet(f"font-weight: {theme.FONT_WEIGHT_SEMIBOLD};")
         header.addWidget(title, 1)
-        self.evaluate_button = QPushButton("この画像を確認", self)
+        self.evaluate_button = QPushButton("この画像をチェック", self)
         self.evaluate_button.setObjectName("buttonReviewAnnotations")
         self.evaluate_button.setToolTip(
             "選択画像と既存の有効なタグ・キャプションを Cloudflare に送信して評価します。"
@@ -97,6 +108,19 @@ class AnnotationReviewWidget(QWidget):
         self.results_table.setMaximumHeight(240)
         self.results_table.setVisible(False)
         layout.addWidget(self.results_table)
+        self.suggestions_label = QLabel(
+            "未付与候補の判定 —「追加候補」のタグを選んで手動で採用できます。", self
+        )
+        self.suggestions_label.setVisible(False)
+        layout.addWidget(self.suggestions_label)
+        self.suggestions_table = QTableWidget(0, 4, self)
+        self.suggestions_table.setObjectName("tableAnnotationReviewSuggestions")
+        self.suggestions_table.setHorizontalHeaderLabels(["未付与タグ", "Clef 一致確率", "判定", "操作"])
+        self.suggestions_table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
+        self.suggestions_table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
+        self.suggestions_table.setMaximumHeight(180)
+        self.suggestions_table.setVisible(False)
+        layout.addWidget(self.suggestions_table)
         self.model_label = QLabel(self)
         self.model_label.setTextFormat(Qt.TextFormat.PlainText)
         self.model_label.setWordWrap(True)
@@ -137,11 +161,19 @@ class AnnotationReviewWidget(QWidget):
         self._store = store
         self._restore_saved_result()
 
+    def set_adoption_service(self, service: AnnotationReviewAdoptionService) -> None:
+        self._adoption = service
+
     @Slot(object)
     def set_image(self, image_id: int | None) -> None:
         """Invalidate even same-image reloads so annotation edits cannot retain results."""
         self._generation += 1
         self._image_id = image_id
+        self._saved = None
+        self.result_displayed.emit(None)
+        self.suggestions_table.setRowCount(0)
+        self.suggestions_table.setVisible(False)
+        self.suggestions_label.setVisible(False)
         self.scope_label.setText(
             f"対象: 表示中の画像 1 枚（ID: {image_id}）。ステージ済み画像は含みません。"
             if image_id is not None
@@ -158,17 +190,32 @@ class AnnotationReviewWidget(QWidget):
         self._restore_saved_result()
 
     def _restore_saved_result(self) -> bool:
-        if self._store is None or self._service is None or self._image_id is None or self._closing:
+        if (
+            self._store is None
+            or self._service is None
+            or self._image_id is None
+            or self._closing
+            or self._manager is None
+        ):
             return False
-        try:
-            saved = self._store.get_current_result(self._image_id, self._service)
-        except Exception:
-            self._set_status("保存済みの確認結果を読み込めませんでした。", theme.WARN)
+        if self._load_id is not None:
+            self._manager.request_cancel_worker(self._load_id, reason=CancelReason.USER_REQUESTED)
+        self._load_sequence += 1
+        self._load_id = f"saved_review_{id(self)}_{self._load_sequence}"
+        worker = SavedImageReviewWorker(self._service, self._store, self._image_id, self._generation)
+        if not self._manager.start_worker(self._load_id, worker):
+            self._load_id = None
+            self._set_status("保存済みのチェック結果を読み込めませんでした。", theme.WARN)
             return False
-        if saved is not None:
-            self._display_result(saved.review)
-            return True
-        return False
+        return True
+
+    @Slot()
+    def refresh_saved_result(self) -> None:
+        self._saved = None
+        self.result_displayed.emit(None)
+        self.suggestions_table.setVisible(False)
+        self.suggestions_label.setVisible(False)
+        self._restore_saved_result()
 
     def _show_idle_state(self) -> None:
         if self._unavailable_reason is not None:
@@ -180,7 +227,7 @@ class AnnotationReviewWidget(QWidget):
         elif self._inflight_id is not None:
             message = "未評価 — 前の評価を停止しています。"
         else:
-            message = "未評価 —「この画像を確認」を押すと、表示中の画像の内容を確認します。"
+            message = "未チェック —「この画像をチェック」で開始します。処理中も他の画像を操作できます。"
         self._set_status(message, theme.INK_SOFT)
         self._update_button_state()
 
@@ -203,17 +250,21 @@ class AnnotationReviewWidget(QWidget):
         if self._image_id is None or self._inflight_id is not None:
             return
         self._generation += 1
+        self._saved = None
+        self.result_displayed.emit(None)
         self.results_table.setRowCount(0)
         self.results_table.setVisible(False)
         self.model_label.setVisible(False)
         self._inflight_id = f"annotation_review_{id(self)}_{self._generation}"
         self._set_status("Cloudflare で評価中…", theme.INFO)
+        self.running_status_changed.emit(f"アノテーションチェック: 画像 {self._image_id} を処理中")
         self.cancel_button.setEnabled(True)
         self.cancel_button.setVisible(True)
         self._update_button_state()
         worker = AnnotationReviewWorker(self._service, self._image_id, self._generation, store=self._store)
         if not self._manager.start_worker(self._inflight_id, worker):
             self._inflight_id = None
+            self.running_status_changed.emit("")
             self.cancel_button.setVisible(False)
             self._set_status("評価に失敗しました — ワーカーを開始できません。", theme.ERR)
             self._update_button_state()
@@ -226,13 +277,20 @@ class AnnotationReviewWidget(QWidget):
         self._manager.request_cancel_worker(self._inflight_id, reason=CancelReason.USER_REQUESTED)
         self.cancel_button.setEnabled(False)
         self._set_status("評価を停止しています…", theme.INFO)
+        self.running_status_changed.emit("アノテーションチェック: 停止中")
 
     @Slot(object)
     def _on_worker_terminal(self, event: WorkerTerminalEvent) -> None:
+        if event.worker_id == self._load_id:
+            self._accept_saved_review(event)
+            return
         if event.worker_id != self._inflight_id:
             return
         worker_generation = int(event.worker_id.rsplit("_", 1)[1])
         self._inflight_id = None
+        self.running_status_changed.emit("")
+        if isinstance(event.result, AnnotationReviewWorkerResult) and self._store is not None:
+            self.review_result_saved.emit(event.result.review.image_id)
         if self._closing:
             return
         self.cancel_button.setVisible(False)
@@ -255,6 +313,21 @@ class AnnotationReviewWidget(QWidget):
             return
         self._accept_review_result(result)
 
+    def _accept_saved_review(self, event: WorkerTerminalEvent) -> None:
+        self._load_id = None
+        loaded = event.result
+        if self._closing or not isinstance(loaded, SavedImageReview):
+            if not self._closing and event.outcome == WorkerOutcome.FAILED:
+                self._set_status("保存済みのチェック結果を読み込めませんでした。", theme.WARN)
+            return
+        if loaded.generation == self._generation and loaded.image_id == self._image_id:
+            self._saved = loaded.saved
+            if loaded.saved is not None and self._inflight_id is None:
+                self._display_result(loaded.saved.review)
+            elif self._inflight_id is None:
+                self._show_idle_state()
+        return
+
     def _accept_review_result(self, result: AnnotationReviewWorkerResult) -> None:
         """Apply only a result whose generation, image, and DB fingerprint still match."""
         if result.generation != self._generation or result.review.image_id != self._image_id:
@@ -263,18 +336,6 @@ class AnnotationReviewWidget(QWidget):
         service = self._service
         if service is None or self._image_id is None:
             return
-        try:
-            current_snapshot = service.prepare_review(self._image_id)
-        except Exception:
-            self._set_status(
-                "未評価 — 現在の内容を確認できません。画像を再読み込みしてください。", theme.WARN
-            )
-            return
-        if result.review.fingerprint != current_snapshot.fingerprint:
-            self._set_status(
-                "未評価 — 内容が変更されたか、設定が更新されました。もう一度確認してください。", theme.WARN
-            )
-            return
         if self._store is not None:
             if not self._restore_saved_result():
                 self._set_status("確認は終了しましたが、保存結果を表示できませんでした。", theme.WARN)
@@ -282,12 +343,16 @@ class AnnotationReviewWidget(QWidget):
             self._display_result(result.review)
 
     def _display_result(self, result: AnnotationReviewResult) -> None:
+        self.result_displayed.emit(result)
+        self.suggestions_table.setRowCount(0)
+        self.suggestions_table.setVisible(False)
+        self.suggestions_label.setVisible(False)
         if result.status == "stale":
             self.results_table.setRowCount(0)
             self.results_table.setVisible(False)
             self.model_label.setVisible(False)
             self._set_status(
-                "未評価 — 内容が変更されたか、設定が更新されました。もう一度確認してください。", theme.WARN
+                "古い判定 — 内容や設定が変更されました。もう一度チェックしてください。", theme.WARN
             )
             return
         statuses = {
@@ -296,8 +361,9 @@ class AnnotationReviewWidget(QWidget):
             "failed": ("評価失敗", theme.ERR),
             "unevaluated": ("未評価", theme.INK_FAINT),
         }
-        self.results_table.setRowCount(len(result.items))
-        for row, review_item in enumerate(result.items):
+        existing_items = tuple(item for item in result.items if item.kind != "suggestion")
+        self.results_table.setRowCount(len(existing_items))
+        for row, review_item in enumerate(existing_items):
             label, color = statuses[review_item.status]
             values = (
                 "タグ" if review_item.kind == "tag" else "キャプション",
@@ -315,6 +381,7 @@ class AnnotationReviewWidget(QWidget):
                 self.results_table.setItem(row, column, item)
         self.results_table.resizeRowsToContents()
         self.results_table.setVisible(bool(result.items))
+        self._display_suggestions(result)
         warnings = sum(item.status == "warning" for item in result.items)
         failed = sum(item.status in ("failed", "unevaluated") for item in result.items)
         if result.status == "cancelled":
@@ -325,7 +392,7 @@ class AnnotationReviewWidget(QWidget):
             self._set_status(
                 f"一部を評価できませんでした — 要確認 {warnings} 件 / 失敗・未評価 {failed} 件", theme.WARN
             )
-        elif not result.items:
+        elif result.status == "unevaluated" or not result.items:
             self._set_status("未評価 — 評価対象の有効なタグ・キャプションがありません。", theme.INK_SOFT)
         else:
             self._set_status(
@@ -338,11 +405,50 @@ class AnnotationReviewWidget(QWidget):
         )
         self.model_label.setVisible(True)
 
+    def _display_suggestions(self, result: AnnotationReviewResult) -> None:
+        suggestions = tuple(item for item in result.items if item.kind == "suggestion")
+        self.suggestions_table.setRowCount(len(suggestions))
+        for row, item in enumerate(suggestions):
+            self.suggestions_table.setItem(row, 0, QTableWidgetItem(item.text))
+            self.suggestions_table.setItem(
+                row, 1, QTableWidgetItem(f"{item.probability:.1%}" if item.probability is not None else "—")
+            )
+            state = {
+                "suggestion": "追加候補",
+                "ok": "候補外",
+                "failed": "評価失敗",
+                "unevaluated": "未評価",
+            }.get(item.status, "未評価")
+            self.suggestions_table.setItem(row, 2, QTableWidgetItem(state))
+            button = QPushButton("採用", self.suggestions_table)
+            button.setEnabled(
+                self._adoption is not None and self._saved is not None and item.status == "suggestion"
+            )
+            button.clicked.connect(
+                lambda checked=False, candidate_id=item.candidate_id: self._adopt_candidate(candidate_id)
+            )
+            self.suggestions_table.setCellWidget(row, 3, button)
+        self.suggestions_table.setVisible(bool(suggestions))
+        self.suggestions_label.setVisible(bool(suggestions))
+
+    def _adopt_candidate(self, candidate_id: str) -> None:
+        if self._adoption is None or self._saved is None or self._image_id is None:
+            return
+        if not self._adoption.adopt(self._image_id, candidate_id, self._saved.checked_at):
+            self._set_status(
+                "採用できませんでした — 内容が変わっていないか、再チェックしてください。", theme.WARN
+            )
+            self.refresh_saved_result()
+            return
+        self.annotations_changed.emit(self._image_id)
+        self.refresh_saved_result()
+
     def shutdown(self) -> None:
         """Stop boundedly and let WorkerManager safely retain an unresponsive thread."""
         if self._closing:
             return
         self._closing = True
+        self.running_status_changed.emit("")
         self._generation += 1
         self._update_button_state()
         if self._manager is not None:
