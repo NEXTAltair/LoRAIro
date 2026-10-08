@@ -132,8 +132,9 @@ class AnnotationReviewBatchWidget(QGroupBox):
         layout.addWidget(self.target_names_label)
         self._build_candidate_controls(layout)
         self.notice_label = QLabel(
-            "チェックを実行すると、対象の画像・タグ・キャプションを Cloudflare に送信します（有料 API）。"
-            "処理には時間がかかります。バックグラウンドで進むため、他のタブで作業できます。"
+            "ローカルの Clef でチェックします。画像は外部へ送信されません。"
+            "必要なファイルは「設定 → 基本設定 → Clef（ローカル）」で選択してください。"
+            "初回のモデル読み込みには時間がかかります。バックグラウンドで進むため、他のタブで作業できます。"
             "実行時の対象と候補条件は固定されます。結果は保存され、タグ・キャプションは自動では変更されません。",
             self,
         )
@@ -363,9 +364,7 @@ class AnnotationReviewBatchWidget(QGroupBox):
         self.target_list_button.setEnabled(bool(self._image_ids))
         self.target_list_button.setText("次回の対象一覧を開く" if active else "対象一覧を開く")
         self.select_targets_button.setText("次回の対象画像を選ぶ" if active else "検索で対象画像を選ぶ")
-        self.start_button.setToolTip(
-            "ステージに追加した画像を Cloudflare に送信してチェックします（有料 API）。"
-        )
+        self.start_button.setToolTip("ステージに追加した画像をローカルの Clef でチェックします。")
         candidates_enabled = self.candidate_checkbox.isChecked()
         candidate_conditions_valid = not candidates_enabled or bool(
             self.candidate_keyword_edit.text().strip()

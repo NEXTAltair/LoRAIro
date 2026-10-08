@@ -24,29 +24,49 @@ from lorairo.utils.config import (
 )
 
 
-@pytest.mark.parametrize("env_token_key", ["CLOUDFLARE_API_TOKEN", "CLOUDFLARE_AUTH_TOKEN"])
-def test_cloudflare_credentials_environment_overrides_local_config(monkeypatch, env_token_key):
-    monkeypatch.delenv("CLOUDFLARE_API_TOKEN", raising=False)
-    monkeypatch.delenv("CLOUDFLARE_AUTH_TOKEN", raising=False)
-    monkeypatch.setenv("CLOUDFLARE_ACCOUNT_ID", " environment-account ")
-    monkeypatch.setenv(env_token_key, " environment-token ")
-    service = ConfigurationService(
-        shared_config={
-            "api": {"cloudflare_account_id": "local-account", "cloudflare_api_token": "local-token"}
-        }
-    )
-    assert service.get_cloudflare_credentials() == ("environment-account", "environment-token")
-    assert service.get_provider_api_keys() == {}
+def test_clef_defaults_are_local_and_require_no_provider_credentials():
+    config = create_user_config_defaults()
+    assert "cloudflare_account_id" not in config["api"]
+    assert "cloudflare_api_token" not in config["api"]
+    assert config["annotation_review"]["model"] == "clef-flash"
+    assert config["annotation_review"]["n_gpu_layers"] == 10
+    assert config["annotation_review"]["context_size"] == 4096
+    assert config["annotation_review"]["timeout"] == 300.0
 
 
-def test_cloudflare_credentials_local_and_missing_config(monkeypatch):
-    for key in ("CLOUDFLARE_ACCOUNT_ID", "CLOUDFLARE_API_TOKEN", "CLOUDFLARE_AUTH_TOKEN"):
-        monkeypatch.delenv(key, raising=False)
-    configured = ConfigurationService(
-        shared_config={"api": {"cloudflare_account_id": " account ", "cloudflare_api_token": " token "}}
-    )
-    assert configured.get_cloudflare_credentials() == ("account", "token")
-    assert ConfigurationService(shared_config={}).get_cloudflare_credentials() == ("", "")
+@pytest.mark.parametrize("shared", [False, True])
+def test_legacy_clef_credentials_are_removed_on_load_and_save(tmp_path, shared):
+    path = tmp_path / "lorairo.toml"
+    settings = {
+        "directories": {},
+        "api": {
+            "cloudflare_account_id": "retired-account",
+            "cloudflare_api_token": "retired-token",
+            "openai_key": "keep-other-provider",
+        },
+        "annotation_review": {"warning_threshold": 0.3},
+    }
+    path.write_text(toml.dumps(settings), encoding="utf-8")
+    service = ConfigurationService(config_path=path, shared_config=settings if shared else None)
+
+    assert service.get_setting("api", "cloudflare_account_id") is None
+    assert service.get_setting("api", "cloudflare_api_token") is None
+    assert service.save_settings()
+    saved = toml.load(path)
+    assert "cloudflare_account_id" not in saved["api"]
+    assert "cloudflare_api_token" not in saved["api"]
+    assert saved["api"]["openai_key"] == "keep-other-provider"
+    assert saved["annotation_review"]["warning_threshold"] == 0.3
+
+
+def test_saving_cannot_restore_a_retired_clef_token_from_shared_settings(tmp_path):
+    path = tmp_path / "lorairo.toml"
+    settings = {"api": {"openai_key": "keep-other-provider"}}
+    service = ConfigurationService(config_path=path, shared_config=settings)
+    settings["api"]["cloudflare_api_token"] = "retired-token"
+
+    assert service.save_settings()
+    assert toml.load(path)["api"] == {"openai_key": "keep-other-provider"}
 
 
 class TestConfigUtils:

@@ -288,9 +288,15 @@ def test_invalid_clef_settings_keep_search_tab_usable(
 
 
 @pytest.mark.gui
-@pytest.mark.parametrize("original_credentials", [("", ""), ("old-account", "old-token")])
-def test_settings_save_replaces_clef_credentials_and_invalidates_results(
-    qtbot, service_container: Mock, db_manager: Mock, monkeypatch, tmp_path, original_credentials
+@pytest.mark.parametrize("original_configured", [False, True])
+def test_settings_save_replaces_local_clef_files_and_invalidates_results(
+    qtbot,
+    service_container: Mock,
+    db_manager: Mock,
+    monkeypatch,
+    tmp_path,
+    original_configured,
+    local_clef_settings,
 ) -> None:
     """First setup and rotation affect the next explicit request without a restart."""
     from lorairo.gui.window.main_window import MainWindow
@@ -317,13 +323,17 @@ def test_settings_save_replaces_clef_credentials_and_invalidates_results(
         Path(__file__).resolve().parents[4] / "local_packages/image-annotator-lib/src/image_annotator_lib"
     )
     monkeypatch.setattr(sys.modules["image_annotator_lib"], "__path__", [str(package)])
-    from image_annotator_lib.decisions import CloudflareDecisionClient
+    from image_annotator_lib.decisions import LocalDecisionClient
 
     original_config = service_container.config_service
-    original_config.get_cloudflare_credentials.return_value = original_credentials
+    original_settings = local_clef_settings if original_configured else {}
+    original_config.get_setting.side_effect = lambda section, key, default=None: (
+        original_settings.get(key, default) if section == "annotation_review" else default
+    )
     saved_config = Mock()
-    saved_config.get_setting.side_effect = lambda section, key, default=None: default
-    saved_config.get_cloudflare_credentials.return_value = ("new-account", "new-token")
+    saved_config.get_setting.side_effect = lambda section, key, default=None: (
+        local_clef_settings.get(key, default) if section == "annotation_review" else default
+    )
 
     class ReloadingContainer:
         """Model the real container cache and its reload after settings save."""
@@ -360,7 +370,7 @@ def test_settings_save_replaces_clef_credentials_and_invalidates_results(
         AnnotationReviewResult(
             5,
             "old-result",
-            "@cf/cloudflare/clef-flash",
+            "clef-flash",
             (AnnotationReviewItem("tag_1", "tag", "red_hair", 0.9, "ok"),),
             "completed",
         )
@@ -382,8 +392,7 @@ def test_settings_save_replaces_clef_credentials_and_invalidates_results(
         assert review.results_table.rowCount() == 0
         assert "未チェック" in review.status_label.text()
         assert requests == []
-        saved_config.get_cloudflare_credentials.assert_not_called()
-        original_config.get_cloudflare_credentials.assert_not_called()
+        assert service._local_paths == local_clef_settings
 
         image_path = tmp_path / "review.png"
         Image.new("RGB", (8, 8), "red").save(image_path)
@@ -396,23 +405,18 @@ def test_settings_save_replaces_clef_credentials_and_invalidates_results(
             return httpx.Response(
                 200,
                 json={
-                    "success": True,
-                    "result": {
-                        "model": "clef-flash",
-                        "answers": {key: {"type": "noul", "noul": 0.9} for key in payload["questions"]},
-                    },
+                    "model": "clef-flash",
+                    "answers": {key: {"type": "noul", "noul": 0.9} for key in payload["questions"]},
                 },
             )
 
-        service._client_factory = partial(CloudflareDecisionClient, transport=httpx.MockTransport(respond))
+        service._client_factory = partial(LocalDecisionClient, transport=httpx.MockTransport(respond))
         qtbot.mouseClick(review.evaluate_button, Qt.MouseButton.LeftButton)
         qtbot.waitUntil(lambda: "評価完了" in review.status_label.text(), timeout=3000)
 
         assert len(requests) == 1
-        assert "/accounts/new-account/" in str(requests[0].url)
-        assert requests[0].headers["authorization"] == "Bearer new-token"
-        saved_config.get_cloudflare_credentials.assert_called_once()
-        original_config.get_cloudflare_credentials.assert_not_called()
+        assert str(requests[0].url) == "http://127.0.0.1:11437/v1/systemone"
+        assert requests[0].headers["authorization"] == "Bearer test-runtime-key"
     finally:
         widget.shutdown()
 

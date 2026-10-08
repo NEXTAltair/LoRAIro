@@ -26,9 +26,7 @@ def _result(image_id=1, status="completed", *, probability=0.1, item_status="war
     )
     if status == "unevaluated":
         items = ()
-    return AnnotationReviewResult(
-        image_id, "snapshot-fingerprint", "@cf/cloudflare/clef-flash", items, status, error
-    )
+    return AnnotationReviewResult(image_id, "snapshot-fingerprint", "clef-flash", items, status, error)
 
 
 def _rows(result):
@@ -124,7 +122,7 @@ def real_review_api(monkeypatch):
 
     context_factory = Mock(side_effect=context)
     monkeypatch.setattr(review_api, "_project_context", context_factory)
-    service = Mock(model_name="@cf/cloudflare/clef-flash")
+    service = Mock(model_name="clef-flash")
     service.prepare_review.side_effect = lambda image_id: image_id
     service.review.side_effect = lambda snapshot, **kwargs: _result(snapshot)
     service_factory = Mock(return_value=service)

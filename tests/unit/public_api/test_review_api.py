@@ -22,7 +22,7 @@ def _result(image_id=1, status="completed"):
     items = (AnnotationReviewItem("tag_10", "tag", "cat", 0.1, "warning"),)
     if status == "unevaluated":
         items = ()
-    return AnnotationReviewResult(image_id, "fingerprint", "@cf/cloudflare/clef-flash", items, status)
+    return AnnotationReviewResult(image_id, "fingerprint", "clef-flash", items, status)
 
 
 @pytest.fixture
@@ -36,7 +36,7 @@ def services(monkeypatch):
         yield container
 
     monkeypatch.setattr(review, "_project_context", context)
-    service = Mock(model_name="@cf/cloudflare/clef-flash")
+    service = Mock(model_name="clef-flash")
     service.prepare_review.side_effect = lambda image_id: image_id
     service.review.side_effect = lambda snapshot, **kwargs: _result(snapshot)
     factory = Mock(return_value=service)
@@ -174,6 +174,50 @@ def test_expected_evaluation_failure_preserves_candidate_mapping_and_fingerprint
     assert [item.candidate_id for item in results[0].items] == ["tag_10", "caption_20"]
     assert all(item.status == "failed" and item.probability is None for item in results[0].items)
     assert all("secret" not in item.error for item in results[0].items)
+
+
+@pytest.mark.parametrize("error_code", ["configuration", "transport", "timeout"])
+@pytest.mark.parametrize("collect_results", [True, False])
+def test_fatal_runtime_error_stops_inference_but_reports_remaining_images(
+    services, tmp_path, error_code, collect_results
+):
+    _container, service, _factory = services
+    snapshots = {
+        image_id: annotation_review_service.ReviewSnapshot(
+            image_id,
+            tmp_path / "image.png",
+            (annotation_review_service.ReviewCandidate(f"tag_{image_id}", "tag", "cat"),),
+            (),
+            f"fingerprint-{image_id}",
+        )
+        for image_id in [1, 2, 3]
+    }
+    service.prepare_review.side_effect = snapshots.__getitem__
+    failure = AnnotationReviewResult(
+        2,
+        "fingerprint-2",
+        "clef-flash",
+        (),
+        "failed",
+        error="Local Clef unavailable",
+        error_code=error_code,
+    )
+    service.review.side_effect = [
+        _result(1),
+        failure,
+        AssertionError("Repeated inference after fatal error"),
+    ]
+    observed = []
+    results = review.review_annotations(
+        "project", [1, 2, 3], on_result=observed.append, collect_results=collect_results
+    )
+    assert service.review.call_count == 2
+    assert [result.status for result in observed] == ["completed", "failed", "unevaluated"]
+    assert observed[2].image_id == 3 and observed[2].fingerprint == "fingerprint-3"
+    assert observed[2].error_code == error_code and observed[2].error == failure.error
+    assert observed[2].items[0].candidate_id == "tag_3"
+    assert observed[2].items[0].probability is None and observed[2].items[0].status == "unevaluated"
+    assert results == (observed if collect_results else [])
 
 
 def test_project_context_activates_strict_read_only_and_restores_policy(monkeypatch):

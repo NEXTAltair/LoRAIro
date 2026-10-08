@@ -1,6 +1,5 @@
 """アプリケーションの設定を管理するサービスモジュール。"""
 
-import os
 from pathlib import Path
 from typing import Any
 
@@ -43,6 +42,14 @@ class ConfigurationService:
             except Exception:
                 logger.opt(exception=True).error("設定ファイルの読み込み中に予期せぬエラーが発生しました。")
                 raise
+        self._discard_retired_clef_credentials()
+
+    def _discard_retired_clef_credentials(self) -> None:
+        """Remove credentials for the deleted hosted Clef backend without logging values."""
+        api_settings = self._config.get("api")
+        if isinstance(api_settings, dict):
+            api_settings.pop("cloudflare_account_id", None)
+            api_settings.pop("cloudflare_api_token", None)
 
     def get_setting(self, section: str, key: str, default: Any | None = None) -> Any:
         """指定されたセクションとキーの設定値を取得します。
@@ -55,7 +62,8 @@ class ConfigurationService:
         Returns:
             Any: 設定値。見つからない場合は default。
         """
-        return self._config.get(section, {}).get(key, default)
+        settings = self._config.get(section)
+        return settings.get(key, default) if isinstance(settings, dict) else default
 
     def get_all_settings(self) -> dict[str, Any]:
         """現在のすべての設定を取得します。
@@ -76,7 +84,7 @@ class ConfigurationService:
             key (str): 設定のキー名。
             value (Any): 新しい設定値。
         """
-        if section not in self._config:
+        if not isinstance(self._config.get(section), dict):
             self._config[section] = {}
         self._config[section][key] = value
         # キー名に機密情報パターンが含まれる場合はマスキングしてログ出力
@@ -101,6 +109,7 @@ class ConfigurationService:
             return False
 
         try:
+            self._discard_retired_clef_credentials()
             # FileSystemManager.save_toml_config(self._config, save_path) # FileSystemManager経由にするか検討
             write_config_file(self._config, save_path)
             logger.info("設定をファイルに保存しました: {}", save_path)
@@ -231,22 +240,6 @@ class ConfigurationService:
             for key_name, provider in provider_key_map.items()
             if api_config.get(key_name) and api_config[key_name].strip()
         }
-
-    def get_cloudflare_credentials(self) -> tuple[str, str]:
-        """Resolve review credentials from environment, then local configuration.
-
-        Cloudflare decisions are separate from annotation model discovery.
-        Credentials are deliberately not included in provider model selection.
-        """
-        account_id = os.environ.get("CLOUDFLARE_ACCOUNT_ID") or self.get_setting(
-            "api", "cloudflare_account_id", ""
-        )
-        api_token = (
-            os.environ.get("CLOUDFLARE_API_TOKEN")
-            or os.environ.get("CLOUDFLARE_AUTH_TOKEN")
-            or self.get_setting("api", "cloudflare_api_token", "")
-        )
-        return str(account_id).strip(), str(api_token).strip()
 
     def is_provider_available(self, provider: str) -> bool:
         """指定されたプロバイダーが利用可能かチェックします。"""

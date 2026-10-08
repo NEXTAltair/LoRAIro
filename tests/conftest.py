@@ -11,6 +11,7 @@ import os
 import sys
 import types
 import unittest.mock
+from contextlib import contextmanager
 
 # --- 1. image_annotator_lib Mock (prevents torch/tensorflow loading) ---
 # image_annotator_lib の __init__.py は model_class/ 内の全モジュールを動的にインポートし、
@@ -1042,3 +1043,25 @@ def _collect_qt_wrappers_on_main_thread() -> Iterator[None]:
     """モジュール終端ごとにメインスレッドで gc.collect() を実行する (#1077/#1090)。"""
     yield
     gc.collect()
+
+
+@pytest.fixture
+def local_clef_settings(tmp_path, monkeypatch):
+    """Use the real decision client and HTTP validation without starting a model."""
+    package = (
+        _IalPath(__file__).parent.parent / "local_packages/image-annotator-lib/src/image_annotator_lib"
+    )
+    monkeypatch.setattr(sys.modules["image_annotator_lib"], "__path__", [str(package)])
+    from image_annotator_lib.decisions.runtime import ManagedEndpoint
+
+    @contextmanager
+    def runtime_session(settings, timeout):
+        yield ManagedEndpoint("http://127.0.0.1:11437", "test-runtime-key")
+
+    monkeypatch.setattr("image_annotator_lib.decisions.local.runtime_session", runtime_session)
+    settings = {}
+    for name in ("server_path", "model_path", "mmproj_path"):
+        path = tmp_path / name
+        path.write_bytes(b"local-model-test")
+        settings[name] = str(path)
+    return settings

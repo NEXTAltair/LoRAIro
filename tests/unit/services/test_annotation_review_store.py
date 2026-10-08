@@ -55,7 +55,7 @@ def saved_context(test_repository, db_session_factory):
     db = Mock()
     db.image_repo = test_repository
     service = Mock(spec=AnnotationReviewService)
-    service.model_name = "@cf/cloudflare/clef-flash"
+    service.model_name = "clef-flash"
     service.warning_threshold = 0.2
     service.prepare_reviews.return_value = {
         image_id: ReviewSnapshot(image_id, Path(f"{image_id}.png"), (), (), "original")
@@ -97,7 +97,7 @@ def test_changed_source_or_settings_stale_only_for_display(saved_context, change
     if change == "image":
         service.prepare_reviews.return_value[7] = ReviewSnapshot(7, Path("7.png"), (), (), "edited")
     elif change == "model":
-        service.model_name = "@cf/cloudflare/clef"
+        service.model_name = "clef"
     elif change == "threshold":
         service.warning_threshold = 0.1
     else:
@@ -111,14 +111,14 @@ def test_changed_source_or_settings_stale_only_for_display(saved_context, change
     assert displayed.checked_at == store.get_results()[7].checked_at
 
 
-def test_authentication_failure_roundtrip_retains_typed_batch_stop_code(saved_context):
+def test_local_runtime_failure_roundtrip_retains_typed_batch_stop_code(saved_context):
     db, _, review = saved_context
     failed = replace(
         review,
-        items=(AnnotationReviewItem("tag_11", "tag", "dog", None, "failed", "Authentication failed"),),
+        items=(AnnotationReviewItem("tag_11", "tag", "dog", None, "failed", "Local runtime unavailable"),),
         status="failed",
-        error="Authentication failed",
-        error_code="authentication",
+        error="Local runtime unavailable",
+        error_code="transport",
     )
     store = AnnotationReviewStore(db)
     store.save(failed, 0.2)
@@ -334,7 +334,7 @@ def test_adoption_rejects_stale_settings_sources_or_obsolete_ui_result(saved_con
     if change == "image":
         service.prepare_reviews.return_value[7] = ReviewSnapshot(7, Path("7.png"), (), (), "changed")
     elif change == "model":
-        service.model_name = "@cf/cloudflare/clef"
+        service.model_name = "clef"
     elif change == "warning_threshold":
         service.warning_threshold = 0.1
     elif change == "suggestion_threshold":
@@ -429,8 +429,8 @@ def test_adoption_uses_manual_provenance_no_probability_confidence_and_preserves
     assert store.get_results((7,))[7].review == review
 
 
-def test_image_deleted_during_paid_request_does_not_abort_later_fixed_targets(
-    saved_context, db_session_factory, tmp_path, monkeypatch
+def test_image_deleted_during_local_request_does_not_abort_later_fixed_targets(
+    saved_context, db_session_factory, tmp_path, monkeypatch, local_clef_settings
 ):
     from lorairo.gui.workers.annotation_review_batch_worker import AnnotationReviewBatchWorker
 
@@ -438,7 +438,7 @@ def test_image_deleted_during_paid_request_does_not_abort_later_fixed_targets(
         Path(__file__).resolve().parents[3] / "local_packages/image-annotator-lib/src/image_annotator_lib"
     )
     monkeypatch.setattr(sys.modules["image_annotator_lib"], "__path__", [str(package)])
-    from image_annotator_lib.decisions import CloudflareDecisionClient
+    from image_annotator_lib.decisions import LocalDecisionClient
 
     db, _, _ = saved_context
     path = tmp_path / "image.png"
@@ -467,20 +467,16 @@ def test_image_deleted_during_paid_request_does_not_abort_later_fixed_targets(
         return httpx.Response(
             200,
             json={
-                "result": {
-                    "model": "clef-flash",
-                    "answers": {key: {"type": "noul", "noul": 0.9} for key in payload["questions"]},
-                }
+                "model": "clef-flash",
+                "answers": {key: {"type": "noul", "noul": 0.9} for key in payload["questions"]},
             },
         )
 
-    config = ConfigurationService(
-        shared_config={"api": {"cloudflare_account_id": "account", "cloudflare_api_token": "token"}}
-    )
+    config = ConfigurationService(shared_config={"annotation_review": local_clef_settings})
     service = AnnotationReviewService(
         config,
         db,
-        client_factory=partial(CloudflareDecisionClient, transport=httpx.MockTransport(delete_first_image)),
+        client_factory=partial(LocalDecisionClient, transport=httpx.MockTransport(delete_first_image)),
     )
     store = AnnotationReviewStore(db)
     worker = AnnotationReviewBatchWorker(service, store, (7, 8), 1)

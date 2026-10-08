@@ -25,7 +25,7 @@ pytestmark = pytest.mark.unit
 @pytest.fixture
 def batch_context():
     service = Mock(spec=AnnotationReviewService)
-    service.model_name = "@cf/cloudflare/clef-flash"
+    service.model_name = "clef-flash"
     service.warning_threshold = 0.2
     snapshots = {
         image_id: ReviewSnapshot(
@@ -185,7 +185,7 @@ def test_missing_image_is_retained_as_failure_while_other_images_are_reviewed(ba
     assert store.save.call_count == 3
 
 
-@pytest.mark.parametrize("code", ["configuration", "authentication", "rate_limit"])
+@pytest.mark.parametrize("code", ["configuration", "transport", "timeout"])
 def test_global_provider_failure_stops_later_calls_and_retains_explicit_unevaluated_images(
     batch_context, code
 ):

@@ -17,9 +17,7 @@ from lorairo.public_api.review import review_annotations
 if TYPE_CHECKING:
     from lorairo.services.annotation_review_service import AnnotationReviewResult
 
-app = typer.Typer(
-    help="Review existing tags and captions with Cloudflare Clef; annotations remain unchanged."
-)
+app = typer.Typer(help="Review existing tags and captions with local Clef; annotations remain unchanged.")
 console = make_console()
 
 
@@ -99,9 +97,8 @@ def run(
 ) -> None:
     """Evaluate existing annotations with Clef, using the configured model and threshold.
 
-    Requires an explicit selection of at most 500 unique images. This command sends selected images
-    and their existing annotation candidates to Cloudflare and leaves the DB
-    unchanged. Low probability warnings are review decisions, not failures.
+    Requires an explicit selection of at most 500 unique images. This command evaluates selected images and their existing annotation
+    candidates with the configured local Clef model and leaves the DB unchanged. Low probability warnings are review decisions, not failures.
     """
     with command_boundary():
         selected = _resolve_review_image_ids(image_ids, image_ids_file)

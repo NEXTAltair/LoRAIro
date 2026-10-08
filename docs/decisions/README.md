@@ -106,6 +106,7 @@ ADR は OKF (Open Knowledge Format) バンドルとして管理する。各 ADR 
 | [0094](0094-clef-annotation-review.md) | Clef annotation review の独立 API と一時的な個別警告 | 2026-10-06 | Accepted (結果保持・GUI バッチ実行は ADR 0095 で改定) |
 | [0095](0095-clef-review-batch-results.md) | Clef アノテーション確認の固定対象バッチと画像別結果保持 | 2026-10-06 | Accepted |
 | [0096](0096-clef-search-tag-suggestions.md) | Clef の検索警告と関連画像群のタグ候補・手動修正 | 2026-10-08 | Accepted |
+| [0097](0097-clef-local-only.md) | Clef をローカルモデル専用に変更 | 2026-10-08 | Accepted |
 <!-- OKF-TABLE:END -->
 
 ## ADR テンプレート

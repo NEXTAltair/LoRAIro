@@ -8,7 +8,8 @@ from io import StringIO
 from unittest.mock import MagicMock, patch
 
 import pytest
-from PySide6.QtWidgets import QComboBox, QLabel, QLineEdit, QTabWidget
+from PySide6.QtCore import Qt
+from PySide6.QtWidgets import QComboBox, QGroupBox, QLabel, QLineEdit, QPushButton, QSpinBox, QTabWidget
 
 from lorairo.gui import theme
 from lorairo.gui.window.configuration_window import ConfigurationWindow
@@ -130,6 +131,7 @@ class TestConfigurationWindow:
             "image_processing",
             "prompts",
             "model_selection",
+            "annotation_review",
         }
         assert set(settings.keys()) == expected_sections
 
@@ -152,7 +154,7 @@ class TestConfigurationWindow:
         # 触っていない欄は保存済の値を維持
         assert settings["api"]["openai_key"] == "sk-test-openai"
 
-    def test_cloudflare_credentials_are_preserved_and_token_is_masked(
+    def test_cloudflare_controls_and_collected_credentials_are_removed(
         self, config_service: MagicMock, qtbot
     ) -> None:
         config_service.get_all_settings.return_value["api"].update(
@@ -160,23 +162,98 @@ class TestConfigurationWindow:
         )
         dlg = ConfigurationWindow(config_service)
         qtbot.addWidget(dlg)
-        token = dlg.findChild(QLineEdit, "lineEditCloudflareApiToken")
-        account = dlg.findChild(QLineEdit, "lineEditCloudflareAccountId")
+        assert dlg.findChild(QLineEdit, "lineEditCloudflareApiToken") is None
+        assert dlg.findChild(QLineEdit, "lineEditCloudflareAccountId") is None
+        assert not any("cloudflare" in key for key in dlg._collect_settings()["api"])
+        assert not any("Cloudflare" in label.text() for label in dlg.findChildren(QLabel))
 
-        assert token is not None and account is not None
-        assert token.text() == ""
-        assert token.echoMode() == QLineEdit.EchoMode.Password
-        assert token.placeholderText() == "保存済（変更する場合のみ入力）"
-        assert account.text() == "account-123"
-        settings = dlg._collect_settings()
-        assert settings["api"]["cloudflare_api_token"] == "secret-saved-token"
-        assert settings["api"]["cloudflare_account_id"] == "account-123"
+    def test_clef_defaults_are_local_and_separate_from_api(self, dialog: ConfigurationWindow) -> None:
+        group = dialog.findChild(QGroupBox, "groupClefLocal")
+        assert group is not None
+        assert group.title() == "Clef（ローカル）"
+        assert group.findChild(QLineEdit, "lineEditClefServerPath") is not None
+        assert dialog._collect_settings()["annotation_review"] == {
+            "server_path": "",
+            "model_path": "",
+            "mmproj_path": "",
+            "n_gpu_layers": 10,
+            "context_size": 4096,
+        }
 
-        token.setText("  new-token  ")
-        account.setText("  changed-account  ")
-        settings = dlg._collect_settings()
-        assert settings["api"]["cloudflare_api_token"] == "new-token"
-        assert settings["api"]["cloudflare_account_id"] == "changed-account"
+    def test_clef_settings_load_and_save(self, config_service: MagicMock, qtbot) -> None:
+        config_service.get_all_settings.return_value["annotation_review"] = {
+            "server_path": "C:/llama/llama-server.exe",
+            "model_path": "C:/models/clef.gguf",
+            "mmproj_path": "C:/models/mmproj.gguf",
+            "n_gpu_layers": 20,
+            "context_size": 8192,
+        }
+        dlg = ConfigurationWindow(config_service)
+        qtbot.addWidget(dlg)
+        assert (
+            dlg._collect_settings()["annotation_review"]
+            == (config_service.get_all_settings.return_value["annotation_review"])
+        )
+
+        model = dlg.findChild(QLineEdit, "lineEditClefModelPath")
+        gpu_layers = dlg.findChild(QSpinBox, "spinBoxClefGpuLayers")
+        assert model is not None and gpu_layers is not None
+        model.setText("  D:/models/new-clef.gguf  ")
+        gpu_layers.setValue(0)
+        with (
+            patch("lorairo.gui.window.configuration_window.initialize_logging"),
+            qtbot.waitSignal(dlg.accepted, timeout=3000),
+        ):
+            dlg._on_accepted()
+        config_service.update_setting.assert_any_call(
+            "annotation_review", "model_path", "D:/models/new-clef.gguf"
+        )
+        config_service.update_setting.assert_any_call("annotation_review", "n_gpu_layers", 0)
+        config_service.update_setting.assert_any_call("annotation_review", "context_size", 8192)
+
+    def test_clef_file_browse_updates_field(self, dialog: ConfigurationWindow, qtbot) -> None:
+        browse = dialog.findChild(QPushButton, "lineEditClefMmprojPathBrowse")
+        edit = dialog.findChild(QLineEdit, "lineEditClefMmprojPath")
+        assert browse is not None and edit is not None
+        with patch(
+            "lorairo.gui.window.configuration_window.QFileDialog.getOpenFileName",
+            return_value=("C:/models/mmproj.gguf", "GGUF モデル (*.gguf)"),
+        ) as picker:
+            qtbot.mouseClick(browse, Qt.MouseButton.LeftButton)
+        picker.assert_called_once()
+        assert edit.text() == "C:/models/mmproj.gguf"
+
+    def test_invalid_clef_settings_can_be_corrected(self, config_service: MagicMock, qtbot) -> None:
+        config_service.get_all_settings.return_value["annotation_review"] = {
+            "n_gpu_layers": None,
+            "context_size": "invalid",
+        }
+        dlg = ConfigurationWindow(config_service)
+        qtbot.addWidget(dlg)
+        settings = dlg._collect_settings()["annotation_review"]
+        assert settings["n_gpu_layers"] == 10
+        assert settings["context_size"] == 4096
+
+    @pytest.mark.parametrize("invalid", ["bad", 5, True, ["bad"], None])
+    def test_non_table_clef_settings_can_be_repaired_and_saved(self, tmp_path, qtbot, invalid) -> None:
+        config_path = tmp_path / "lorairo.toml"
+        service = ConfigurationService(
+            config_path=config_path, shared_config={"annotation_review": invalid}
+        )
+        assert service.get_setting("annotation_review", "model", "clef-flash") == "clef-flash"
+        dlg = ConfigurationWindow(service)
+        qtbot.addWidget(dlg)
+        model = dlg.findChild(QLineEdit, "lineEditClefModelPath")
+        assert model is not None and model.text() == ""
+        model.setText("C:/models/clef.gguf")
+        with (
+            patch("lorairo.gui.window.configuration_window.initialize_logging"),
+            qtbot.waitSignal(dlg.accepted, timeout=3000),
+        ):
+            dlg._on_accepted()
+        reloaded = ConfigurationService(config_path=config_path)
+        assert reloaded.get_setting("annotation_review", "model_path") == "C:/models/clef.gguf"
+        assert reloaded.get_setting("annotation_review", "n_gpu_layers") == 10
 
     def test_focus_api_key_field_highlights_provider_row(self, dialog: ConfigurationWindow) -> None:
         """Issue #755: needs key 導線で該当プロバイダ欄をハイライトする。"""

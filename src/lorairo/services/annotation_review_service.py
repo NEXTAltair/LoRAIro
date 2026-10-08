@@ -15,9 +15,10 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal, cast
 
 from lorairo.database.db_core import resolve_stored_path
+from lorairo.utils.config import PROJECT_ROOT, get_runtime_configuration
 
 if TYPE_CHECKING:
-    from image_annotator_lib.decisions import CloudflareDecisionClient
+    from image_annotator_lib.decisions import LocalDecisionClient
 
     from lorairo.database.db_manager import ImageDatabaseManager
     from lorairo.services.configuration_service import ConfigurationService
@@ -93,29 +94,61 @@ class AnnotationReviewResult:
 
 
 class AnnotationReviewService:
-    """Own candidate mapping, warning policy and invalidation; lib owns transport."""
+    """Own candidates and invalidation; the library runs Clef on this computer."""
+
+    # Leave room for image tokens and annotation text in the default local context.
+    QUESTIONS_PER_REQUEST = 16
 
     def __init__(
         self,
         config_service: ConfigurationService,
         db_manager: ImageDatabaseManager,
         *,
-        client_factory: Callable[..., CloudflareDecisionClient] | None = None,
+        client_factory: Callable[..., LocalDecisionClient] | None = None,
     ) -> None:
         self._config_service = config_service
         self._db_manager = db_manager
         self._client_factory = client_factory
-        configured_model = str(config_service.get_setting("annotation_review", "model", "clef-flash"))
-        self.model_name = (
-            f"@cf/cloudflare/{configured_model}"
-            if configured_model in ("clef", "clef-flash")
-            else configured_model
-        )
-        if self.model_name not in ("@cf/cloudflare/clef", "@cf/cloudflare/clef-flash"):
+        self.model_name = str(config_service.get_setting("annotation_review", "model", "clef-flash"))
+        if self.model_name not in ("clef", "clef-flash"):
             raise ValueError("annotation_review.model must be clef or clef-flash")
         self.warning_threshold = self._number_setting("warning_threshold", 0.2, 0, 1)
         self.suggestion_threshold = self._number_setting("suggestion_threshold", 0.8, 0, 1)
-        self._timeout = self._number_setting("timeout", 60, 1, 600)
+        self._timeout = self._number_setting("timeout", 300, 1, 3600)
+        runtime = get_runtime_configuration()
+        root = runtime.workspace if runtime else PROJECT_ROOT
+        self._local_paths: dict[str, str] = {}
+        for name in ("server_path", "model_path", "mmproj_path"):
+            value = config_service.get_setting("annotation_review", name, "")
+            if not isinstance(value, str):
+                raise ValueError(f"annotation_review.{name} must be a local file path")
+            self._local_paths[name] = (
+                str((root / Path(value).expanduser()).resolve()) if value.strip() else ""
+            )
+        self._n_gpu_layers = self._integer_setting("n_gpu_layers", 10, 0, 999)
+        self._context_size = self._integer_setting("context_size", 4096, 512, 131072)
+
+    def _integer_setting(self, name: str, default: int, low: int, high: int) -> int:
+        value = self._config_service.get_setting("annotation_review", name, default)
+        if isinstance(value, bool) or not isinstance(value, int) or not low <= value <= high:
+            raise ValueError(f"annotation_review.{name} must be an integer between {low} and {high}")
+        return value
+
+    def _local_model_identity(self) -> dict[str, Any]:
+        """Invalidate results when local weights, projector, runtime or settings change."""
+        files = {}
+        for name, path in self._local_paths.items():
+            try:
+                stat = Path(path).stat() if path else None
+            except OSError:
+                stat = None
+            files[name] = (path, (stat.st_size, stat.st_mtime_ns, stat.st_ctime_ns) if stat else None)
+        return {
+            "files": files,
+            "model": self.model_name,
+            "n_gpu_layers": self._n_gpu_layers,
+            "context_size": self._context_size,
+        }
 
     def _number_setting(self, name: str, default: float, low: float, high: float) -> float:
         value = self._config_service.get_setting("annotation_review", name, default)
@@ -146,7 +179,7 @@ class AnnotationReviewService:
         is_cancelled: Callable[[], bool] | None = None,
         candidate_source: ReviewCandidateSource | None = None,
     ) -> dict[int, ReviewSnapshot | AnnotationReviewResult]:
-        """Snapshot a fixed batch with bounded database queries and no HTTP calls."""
+        """Snapshot a fixed batch with bounded database queries and no model execution."""
         if any(
             isinstance(image_id, bool) or not isinstance(image_id, int) or image_id <= 0
             for image_id in image_ids
@@ -221,8 +254,8 @@ class AnnotationReviewService:
         )
         return replace(snapshot, suggestions=suggestions, candidate_source=source)
 
-    @staticmethod
     def _prepare_snapshot(
+        self,
         image_id: int,
         metadata: dict[str, Any] | None,
         annotations: dict[str, Any],
@@ -257,6 +290,7 @@ class AnnotationReviewService:
                     "tags": [asdict(item) for item in candidates["tags"]],
                     "captions": [asdict(item) for item in candidates["captions"]],
                     "revisions": revisions,
+                    "local_model": self._local_model_identity(),
                 },
                 sort_keys=True,
                 ensure_ascii=False,
@@ -292,19 +326,26 @@ class AnnotationReviewService:
         if not candidates:
             return self._result(snapshot, items, "unevaluated")
 
-        from image_annotator_lib.decisions import CloudflareDecisionClient
+        from image_annotator_lib.decisions import LocalDecisionClient
 
         try:
-            account_id, api_token = self._config_service.get_cloudflare_credentials()
-            factory = self._client_factory or CloudflareDecisionClient
+            if not all(self._local_paths.values()):
+                raise ValueError("Local Clef files have not been configured")
+            factory = self._client_factory or LocalDecisionClient
             client = factory(
-                account_id=account_id,
-                api_token=api_token,
+                server_path=self._local_paths["server_path"],
+                model_path=self._local_paths["model_path"],
+                mmproj_path=self._local_paths["mmproj_path"],
                 model_name=self.model_name,
+                n_gpu_layers=self._n_gpu_layers,
+                context_size=self._context_size,
                 timeout=self._timeout,
             )
         except ValueError:
-            message = "Configure Cloudflare account ID and API token before running annotation review."
+            message = (
+                "設定の「Clef（ローカル）」で、実行ファイル・モデル GGUF・画像プロジェクター GGUF を"
+                "指定してください。"
+            )
             failed = [replace(item, status="failed", error=message) for item in items]
             return self._result(snapshot, failed, "failed", message, error_code="configuration")
 
@@ -327,7 +368,7 @@ class AnnotationReviewService:
         snapshot: ReviewSnapshot,
         items: list[AnnotationReviewItem],
         cancelled: Callable[[], bool],
-        client: CloudflareDecisionClient,
+        client: LocalDecisionClient,
     ) -> AnnotationReviewResult:
         from image_annotator_lib.decisions import DecisionRequest, NoulAnswer, NoulQuestion
 
@@ -335,7 +376,8 @@ class AnnotationReviewService:
         error: str | None = None
         error_code: str | None = None
         actual_model = self.model_name
-        for start in range(0, len(candidates), 64):
+        chunk_size = self.QUESTIONS_PER_REQUEST
+        for start in range(0, len(candidates), chunk_size):
             if cancelled():
                 return self._result(snapshot, items, "cancelled", model_name=actual_model)
             if not self.is_current(snapshot):
@@ -349,9 +391,9 @@ class AnnotationReviewService:
                     "Annotations or image changed; run review again.",
                     actual_model,
                 )
-            chunk = candidates[start : start + 64]
+            chunk = candidates[start : start + chunk_size]
             request = DecisionRequest(
-                request_id=f"review-{snapshot.image_id}-{snapshot.fingerprint[:16]}-{start // 64}",
+                request_id=f"review-{snapshot.image_id}-{snapshot.fingerprint[:16]}-{start // chunk_size}",
                 state={
                     "target_image_index": 0,
                     "annotations": {

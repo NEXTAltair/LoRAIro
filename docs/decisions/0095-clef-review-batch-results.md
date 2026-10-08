@@ -7,6 +7,8 @@ tags: [clef, annotation, review, worker, persistence]
 ---
 # ADR 0095: Clef アノテーション確認の固定対象バッチと画像別結果保持
 
+> 2026-10-08追記: Clefの実行先・認証設定は [ADR 0097](0097-clef-local-only.md) によりローカル専用へ変更した。
+
 ## Context
 
 ADR 0094 の初期実装は選択画像の一時的な警告に対応した。画像を切り替えると結果が消え、

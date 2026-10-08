@@ -4,18 +4,24 @@ ConfigurationService と連携して、API KEY、ディレクトリ、ログ設�
 全UIをPythonコードで構築（Qt Designer不使用）。
 """
 
+from functools import partial
 from typing import Any
 
+from PySide6.QtCore import Slot
 from PySide6.QtWidgets import (
     QComboBox,
     QDialog,
     QDialogButtonBox,
+    QFileDialog,
     QFormLayout,
     QGroupBox,
     QHBoxLayout,
     QLabel,
     QLineEdit,
     QPlainTextEdit,
+    QPushButton,
+    QScrollArea,
+    QSpinBox,
     QTabWidget,
     QVBoxLayout,
     QWidget,
@@ -44,7 +50,6 @@ _API_KEY_ROWS: tuple[tuple[str, str, str, str], ...] = (
     ("google", "Google API Key:", "google_key", "lineEditGoogleKey"),
     ("anthropic", "Claude API Key:", "claude_key", "lineEditClaudeKey"),
     ("openrouter", "OpenRouter API Key:", "openrouter_key", "lineEditOpenRouterKey"),
-    ("cloudflare", "Cloudflare API Token:", "cloudflare_api_token", "lineEditCloudflareApiToken"),
 )
 _API_KEY_SAVED_TEXT = "保存済"
 _API_KEY_UNSET_TEXT = "未設定"
@@ -58,7 +63,7 @@ class ConfigurationWindow(QDialog):
     """アプリケーション設定ダイアログ。
 
     ConfigurationService 経由で設定の読み込み・更新・保存を行う。
-    2タブ構成: 基本設定（API、ディレクトリ、ログ）と詳細設定（画像処理、プロンプト）。
+    2タブ構成: 基本設定（Clef、API、ディレクトリ、ログ）と詳細設定（画像処理、プロンプト）。
     """
 
     def __init__(
@@ -108,6 +113,8 @@ class ConfigurationWindow(QDialog):
         tab = QWidget()
         tab_layout = QVBoxLayout(tab)
 
+        tab_layout.addWidget(self._build_clef_group())
+
         # API設定 (Issue #755: マスク入力 + 保存済/未設定ステータスのみ表示。
         # 保存済キーは UI に echo back しない。クリアは config/lorairo.toml 直接編集で行う)
         api_group = QGroupBox("API設定")
@@ -135,17 +142,6 @@ class ConfigurationWindow(QDialog):
 
             self._api_key_edits[provider] = key_edit
             self._api_key_status_labels[provider] = status_label
-
-        self._line_edit_cloudflare_account_id = QLineEdit()
-        self._line_edit_cloudflare_account_id.setObjectName("lineEditCloudflareAccountId")
-        api_layout.addRow("Cloudflare Account ID:", self._line_edit_cloudflare_account_id)
-        cloudflare_note = QLabel(
-            "Clef 評価には Cloudflare の Account ID と Workers AI 用 API Token を使用します。\n"
-            "CLOUDFLARE_ACCOUNT_ID / CLOUDFLARE_API_TOKEN 環境変数が設定より優先されます。"
-        )
-        cloudflare_note.setWordWrap(True)
-        cloudflare_note.setStyleSheet(f"color: {theme.INK_SOFT}; font-size: {theme.FONT_SIZE_SMALL}px;")
-        api_layout.addRow(cloudflare_note)
 
         tab_layout.addWidget(api_group)
 
@@ -183,7 +179,83 @@ class ConfigurationWindow(QDialog):
         tab_layout.addWidget(log_group)
         tab_layout.addStretch()
 
-        return tab
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setWidget(tab)
+        return scroll
+
+    def _build_clef_group(self) -> QGroupBox:
+        """ローカル Clef の実行ファイルとモデル設定を構築する。"""
+        group = QGroupBox("Clef（ローカル）")
+        group.setObjectName("groupClefLocal")
+        layout = QFormLayout(group)
+        note = QLabel(
+            "アノテーションチェックに使う3つのファイルを選択してください。\n"
+            "チェック時にローカルモデルを自動起動します。画像は外部へ送信されません。"
+            "初回のモデル読み込みには時間がかかります。"
+        )
+        note.setWordWrap(True)
+        note.setStyleSheet(f"color: {theme.INK_SOFT}; font-size: {theme.FONT_SIZE_SMALL}px;")
+        layout.addRow(note)
+
+        self._clef_path_edits: dict[str, QLineEdit] = {}
+        for key, label, object_name, placeholder, file_filter in (
+            (
+                "server_path",
+                "実行ファイル:",
+                "lineEditClefServerPath",
+                "llama-server.exe / llama-server",
+                "実行ファイル (llama-server.exe llama-server);;すべてのファイル (*)",
+            ),
+            (
+                "model_path",
+                "Clef モデル:",
+                "lineEditClefModelPath",
+                "Clef のモデルファイル (.gguf)",
+                "GGUF モデル (*.gguf);;すべてのファイル (*)",
+            ),
+            (
+                "mmproj_path",
+                "画像プロジェクター:",
+                "lineEditClefMmprojPath",
+                "モデルに対応する mmproj ファイル (.gguf)",
+                "GGUF モデル (*.gguf);;すべてのファイル (*)",
+            ),
+        ):
+            row = QWidget()
+            row_layout = QHBoxLayout(row)
+            row_layout.setContentsMargins(0, 0, 0, 0)
+            edit = QLineEdit()
+            edit.setObjectName(object_name)
+            edit.setPlaceholderText(placeholder)
+            edit.setToolTip(placeholder)
+            browse = QPushButton("参照…")
+            browse.setObjectName(f"{object_name}Browse")
+            browse.clicked.connect(partial(self._browse_clef_file, key, file_filter))
+            row_layout.addWidget(edit, stretch=1)
+            row_layout.addWidget(browse)
+            layout.addRow(label, row)
+            self._clef_path_edits[key] = edit
+
+        self._spin_clef_gpu_layers = QSpinBox()
+        self._spin_clef_gpu_layers.setObjectName("spinBoxClefGpuLayers")
+        self._spin_clef_gpu_layers.setRange(0, 999)
+        self._spin_clef_gpu_layers.setToolTip("GPUで処理する層数。0でCPUのみを使用します。")
+        layout.addRow("GPUで処理する層数:", self._spin_clef_gpu_layers)
+
+        self._spin_clef_context_size = QSpinBox()
+        self._spin_clef_context_size.setObjectName("spinBoxClefContextSize")
+        self._spin_clef_context_size.setRange(512, 131072)
+        self._spin_clef_context_size.setSingleStep(512)
+        layout.addRow("コンテキストサイズ:", self._spin_clef_context_size)
+        return group
+
+    @Slot(str, str)
+    def _browse_clef_file(self, key: str, file_filter: str) -> None:
+        edit = self._clef_path_edits[key]
+        path, _ = QFileDialog.getOpenFileName(self, "Clef のファイルを選択", edit.text(), file_filter)
+        if path:
+            edit.setText(path)
 
     def _build_advanced_tab(self) -> QWidget:
         """詳細設定タブを構築する。
@@ -253,7 +325,6 @@ class ConfigurationWindow(QDialog):
 
         # API設定 (Issue #755: 保存済キーは欄に echo back せず「保存済かだけ分かる」表示)
         api = config.get("api", {})
-        self._line_edit_cloudflare_account_id.setText(str(api.get("cloudflare_account_id", "") or ""))
         for provider, _label_text, config_key, _object_name in _API_KEY_ROWS:
             saved_key = str(api.get(config_key, "") or "")
             self._saved_api_keys[provider] = saved_key
@@ -268,6 +339,8 @@ class ConfigurationWindow(QDialog):
                 key_edit.setPlaceholderText(_API_KEY_UNSET_TEXT)
                 status_label.setText(_API_KEY_UNSET_TEXT)
                 status_label.setStyleSheet(_API_KEY_UNSET_STATUS_STYLE)
+
+        self._populate_clef_settings(config.get("annotation_review", {}))
 
         # ディレクトリ設定
         dirs = config.get("directories", {})
@@ -317,6 +390,26 @@ class ConfigurationWindow(QDialog):
         prompts = config.get("prompts", {})
         self._text_edit_prompt.setPlainText(prompts.get("additional", ""))
 
+    def _populate_clef_settings(self, review: object) -> None:
+        """設定不備があっても修正用ダイアログを開けるようにする。"""
+        if not isinstance(review, dict):
+            logger.warning("Clef の設定がテーブル形式ではないため既定値を表示します。")
+            review = {}
+        for key, edit in self._clef_path_edits.items():
+            edit.setText(str(review.get(key, "") or ""))
+        for key, control, default in (
+            ("n_gpu_layers", self._spin_clef_gpu_layers, 10),
+            ("context_size", self._spin_clef_context_size, 4096),
+        ):
+            try:
+                value = int(review.get(key, default))
+                if not control.minimum() <= value <= control.maximum():
+                    raise ValueError("outside supported range")
+            except (TypeError, ValueError, OverflowError):
+                logger.warning("Clef の {} 設定が不正なため既定値 {} を表示します。", key, default)
+                value = default
+            control.setValue(value)
+
     def focus_api_key_field(self, provider: str) -> bool:
         """指定 provider の API キー欄をハイライトしてフォーカスする (Issue #755)。
 
@@ -351,9 +444,13 @@ class ConfigurationWindow(QDialog):
             config_key: (self._api_key_edits[provider].text().strip() or self._saved_api_keys[provider])
             for provider, _label_text, config_key, _object_name in _API_KEY_ROWS
         }
-        api_settings["cloudflare_account_id"] = self._line_edit_cloudflare_account_id.text().strip()
         return {
             "api": api_settings,
+            "annotation_review": {
+                **{key: edit.text().strip() for key, edit in self._clef_path_edits.items()},
+                "n_gpu_layers": self._spin_clef_gpu_layers.value(),
+                "context_size": self._spin_clef_context_size.value(),
+            },
             "directories": {
                 "database_base_dir": self._dir_picker_database_dir.get_selected_path() or "",
                 "database_project_name": self._line_edit_project_name.text().strip(),

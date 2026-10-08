@@ -52,7 +52,7 @@ def review_search_context(test_repository, db_session_factory):
     db.image_repo = test_repository
     db.get_images_by_filter.return_value = (images, len(images))
     service = Mock(spec=AnnotationReviewService)
-    service.model_name = "@cf/cloudflare/clef-flash"
+    service.model_name = "clef-flash"
     service.warning_threshold = 0.2
     service.prepare_reviews.side_effect = lambda image_ids: {
         image_id: ReviewSnapshot(

@@ -8,6 +8,8 @@ tags: [clef, annotation, review, search, tags]
 
 # ADR 0096: Clef の検索警告と関連画像群のタグ候補・手動修正
 
+> 2026-10-08追記: Clefの実行先・認証設定は [ADR 0097](0097-clef-local-only.md) によりローカル専用へ変更した。
+
 ## Context
 
 Issue #1366 の 2026-10-08 合意は、検索中に怪しい注釈に気づき、その場で手動修正する

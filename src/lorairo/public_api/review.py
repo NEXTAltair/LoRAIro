@@ -17,6 +17,7 @@ if TYPE_CHECKING:
 
 _MAX_REVIEW_IMAGES = 500
 _VALIDATION_CHUNK_SIZE = 500
+_STOP_REVIEW_ERROR_CODES = frozenset({"configuration", "transport", "timeout"})
 
 
 @contextmanager
@@ -65,10 +66,11 @@ def review_annotations(
 
     At most 500 unique images may be reviewed per call; this cap is checked before
     opening the project. The complete explicit ID selection is validated before
-    making a paid request.
+    starting local inference.
     Duplicate IDs are reviewed once, in first-occurrence order. Empty active
     annotations retain the service's ``unevaluated`` result and make no request.
     Per-image failures do not discard successful results from other images.
+    Fatal runtime failures stop inference; remaining images are reported unevaluated.
 
     ``on_result`` receives each result immediately. Set ``collect_results=False``
     to stream large selections without retaining their complete candidate output.
@@ -92,11 +94,32 @@ def review_annotations(
                 raise ImageNotFoundError(missing[0])
 
         service = AnnotationReviewService(container.config_service, container.db_manager)
+        blocked_error: AnnotationReviewResult | None = None
         for image_id in selected:
             snapshot: ReviewSnapshot | None = None
             try:
                 snapshot = service.prepare_review(image_id)
-                result = service.review(snapshot, is_cancelled=is_cancelled)
+                if blocked_error is not None:
+                    result = AnnotationReviewResult(
+                        image_id=image_id,
+                        fingerprint=snapshot.fingerprint,
+                        model_name=service.model_name,
+                        items=tuple(
+                            AnnotationReviewItem(
+                                item.candidate_id, item.kind, item.text, None, "unevaluated"
+                            )
+                            for item in snapshot.tags + snapshot.captions + snapshot.suggestions
+                        ),
+                        status="unevaluated",
+                        error=blocked_error.error,
+                        error_code=blocked_error.error_code,
+                        candidate_source=snapshot.candidate_source,
+                        suggestion_threshold=blocked_error.suggestion_threshold,
+                    )
+                else:
+                    result = service.review(snapshot, is_cancelled=is_cancelled)
+                    if result.error_code in _STOP_REVIEW_ERROR_CODES:
+                        blocked_error = result
             except (ValueError, OSError, SQLAlchemyError) as exc:
                 # Snapshot errors (missing files, concurrently removed images)
                 # remain image-scoped instead of hiding preceding results.

@@ -1557,7 +1557,7 @@ TOOL_SPECS: dict[str, ToolSpec] = {
     "review run": ToolSpec(
         name="review run",
         path="review run",
-        summary="Evaluate existing tags/captions with Cloudflare Clef; explicit IDs required, no DB changes.",
+        summary="Evaluate existing tags/captions with local Clef; explicit IDs required, no DB changes.",
         read_only=True,
         side_effects=("db_read", "file_read", "network"),
         inputs=(
