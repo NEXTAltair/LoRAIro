@@ -390,8 +390,11 @@ class ConfigurationWindow(QDialog):
         prompts = config.get("prompts", {})
         self._text_edit_prompt.setPlainText(prompts.get("additional", ""))
 
-    def _populate_clef_settings(self, review: dict[str, Any]) -> None:
+    def _populate_clef_settings(self, review: object) -> None:
         """設定不備があっても修正用ダイアログを開けるようにする。"""
+        if not isinstance(review, dict):
+            logger.warning("Clef の設定がテーブル形式ではないため既定値を表示します。")
+            review = {}
         for key, edit in self._clef_path_edits.items():
             edit.setText(str(review.get(key, "") or ""))
         for key, control, default in (

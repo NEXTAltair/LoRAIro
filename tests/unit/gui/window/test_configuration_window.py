@@ -234,6 +234,27 @@ class TestConfigurationWindow:
         assert settings["n_gpu_layers"] == 10
         assert settings["context_size"] == 4096
 
+    @pytest.mark.parametrize("invalid", ["bad", 5, True, ["bad"], None])
+    def test_non_table_clef_settings_can_be_repaired_and_saved(self, tmp_path, qtbot, invalid) -> None:
+        config_path = tmp_path / "lorairo.toml"
+        service = ConfigurationService(
+            config_path=config_path, shared_config={"annotation_review": invalid}
+        )
+        assert service.get_setting("annotation_review", "model", "clef-flash") == "clef-flash"
+        dlg = ConfigurationWindow(service)
+        qtbot.addWidget(dlg)
+        model = dlg.findChild(QLineEdit, "lineEditClefModelPath")
+        assert model is not None and model.text() == ""
+        model.setText("C:/models/clef.gguf")
+        with (
+            patch("lorairo.gui.window.configuration_window.initialize_logging"),
+            qtbot.waitSignal(dlg.accepted, timeout=3000),
+        ):
+            dlg._on_accepted()
+        reloaded = ConfigurationService(config_path=config_path)
+        assert reloaded.get_setting("annotation_review", "model_path") == "C:/models/clef.gguf"
+        assert reloaded.get_setting("annotation_review", "n_gpu_layers") == 10
+
     def test_focus_api_key_field_highlights_provider_row(self, dialog: ConfigurationWindow) -> None:
         """Issue #755: needs key 導線で該当プロバイダ欄をハイライトする。"""
         # 詳細設定タブへ移しておき、基本設定タブへ戻ることを検証

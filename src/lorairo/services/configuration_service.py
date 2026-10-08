@@ -62,7 +62,8 @@ class ConfigurationService:
         Returns:
             Any: 設定値。見つからない場合は default。
         """
-        return self._config.get(section, {}).get(key, default)
+        settings = self._config.get(section)
+        return settings.get(key, default) if isinstance(settings, dict) else default
 
     def get_all_settings(self) -> dict[str, Any]:
         """現在のすべての設定を取得します。
@@ -83,7 +84,7 @@ class ConfigurationService:
             key (str): 設定のキー名。
             value (Any): 新しい設定値。
         """
-        if section not in self._config:
+        if not isinstance(self._config.get(section), dict):
             self._config[section] = {}
         self._config[section][key] = value
         # キー名に機密情報パターンが含まれる場合はマスキングしてログ出力
