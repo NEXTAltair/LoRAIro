@@ -128,6 +128,65 @@ def test_review_save_reload_is_async_and_preserves_source_metadata(review_refres
 
 
 @pytest.mark.gui
+@pytest.mark.parametrize("failure", ["database", "cancel", "launch"])
+def test_review_load_failure_ends_checking_and_allows_later_refresh(review_refresh_tab, failure):
+    from lorairo.gui.workers.terminal import WorkerOutcome, WorkerTerminalEvent
+
+    tab = review_refresh_tab
+    tab.refresh_annotation_review(1)
+    tab._review_load_timer.stop()
+    if failure == "launch":
+        tab._review_manager.start_worker.return_value = False
+    tab._start_review_load()
+    if failure != "launch":
+        worker_id, worker = tab._review_manager.start_worker.call_args.args
+        if failure == "database":
+            from sqlalchemy.exc import OperationalError
+
+            tab._review_store.get_current_results.side_effect = OperationalError(
+                "load reviews", {}, RuntimeError("database is locked")
+            )
+            with pytest.raises(OperationalError):
+                worker.execute()
+        outcome = WorkerOutcome.FAILED if failure == "database" else WorkerOutcome.CANCELED
+        tab._on_review_load_terminal(WorkerTerminalEvent(worker_id, "search_review_load", outcome))
+    image = tab._dataset_state_manager.get_image_by_id(1)
+    assert image["annotation_review_status"] == "load_failed"
+    assert image["annotation_review_warning_count"] == 0
+    assert image["tags"] == [{"tag": "dog"}]
+    assert tab._review_load_id is None
+    assert not tab._review_pending_ids
+    assert not tab._review_load_timer.isActive()
+
+    tab._review_manager.start_worker.return_value = True
+    tab.refresh_annotation_review(1)
+    assert image["annotation_review_status"] == "checking"
+    tab._review_load_timer.stop()
+    tab._start_review_load()
+    assert tab._review_load_id is not None
+
+
+@pytest.mark.gui
+@pytest.mark.parametrize("superseded_by", ["edit", "search"])
+def test_failed_review_load_does_not_overwrite_newer_pending_load(review_refresh_tab, superseded_by):
+    from lorairo.gui.workers.terminal import WorkerOutcome, WorkerTerminalEvent
+
+    tab = review_refresh_tab
+    tab.refresh_annotation_review(1)
+    tab._review_load_timer.stop()
+    tab._start_review_load()
+    worker_id = tab._review_load_id
+    if superseded_by == "edit":
+        tab.refresh_annotation_review(1)
+    else:
+        tab._on_review_images_loaded([{"id": 1}])
+    tab._on_review_load_terminal(WorkerTerminalEvent(worker_id, "search_review_load", WorkerOutcome.FAILED))
+    assert tab._dataset_state_manager.get_image_by_id(1)["annotation_review_status"] == "checking"
+    assert tab._review_load_timer.isActive()
+    assert 1 in tab._review_pending_ids
+
+
+@pytest.mark.gui
 @pytest.mark.parametrize("superseded_by", ["edit", "search", "shutdown"])
 def test_review_load_cannot_overwrite_newer_edit_search_or_shutdown(review_refresh_tab, superseded_by):
     from lorairo.gui.workers.search_review_loader import SearchReviewMetadataLoaded

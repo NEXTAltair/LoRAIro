@@ -49,6 +49,7 @@ class TestThumbnailItemOverlayTexts:
             ("partial", 0, "一部未評価"),
             ("partial", 2, "要確認 2件\n一部未評価"),
             ("failed", 0, "チェック失敗"),
+            ("load_failed", 0, "照合失敗"),
             ("unevaluated", 0, "未評価"),
             ("cancelled", 0, "中断・未評価"),
             ("stale", 2, "再チェック必要"),

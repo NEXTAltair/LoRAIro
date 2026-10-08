@@ -163,8 +163,9 @@ class ThumbnailItem(QGraphicsObject):
             "stale": "再チェック必要",
             "checking": "照合中",
             "unavailable": "設定を確認",
+            "load_failed": "照合失敗",
         }
-        color = theme.ERR_SOFT if status == "failed" else theme.PAPER_SHADE
+        color = theme.ERR_SOFT if status in ("failed", "load_failed") else theme.PAPER_SHADE
         return labels.get(status, "未チェック"), color
 
     def refresh_review_badge(self) -> None:

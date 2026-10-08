@@ -120,6 +120,8 @@ class SearchTabWidget(QWidget, Ui_SearchTab):
         self._review_pending_ids: set[int] = set()
         self._review_load_id: str | None = None
         self._review_load_sequence = 0
+        self._review_load_generation = 0
+        self._review_load_revisions: dict[int, int] = {}
         self._review_closing = False
         self._review_manager = WorkerManager(self)
         self._review_manager.worker_terminal.connect(self._on_review_load_terminal)
@@ -329,6 +331,8 @@ class SearchTabWidget(QWidget, Ui_SearchTab):
             image_id: self._review_revisions.get(image_id, 0) for image_id in self._review_pending_ids
         }
         self._review_pending_ids.clear()
+        self._review_load_generation = self._review_generation
+        self._review_load_revisions = revisions
         self._review_load_sequence += 1
         self._review_load_id = f"search_review_load_{self._review_load_sequence}"
         worker = SearchReviewLoader(
@@ -336,6 +340,7 @@ class SearchTabWidget(QWidget, Ui_SearchTab):
         )
         if not self._review_manager.start_worker(self._review_load_id, worker):
             self._review_load_id = None
+            self._fail_review_load()
             logger.warning("Saved search review metadata could not be loaded")
 
     @Slot(object)
@@ -348,10 +353,29 @@ class SearchTabWidget(QWidget, Ui_SearchTab):
         loaded = event.result
         if event.outcome == WorkerOutcome.SUCCEEDED and isinstance(loaded, SearchReviewMetadataLoaded):
             self._apply_review_metadata(loaded)
-        elif event.outcome != WorkerOutcome.CANCELED:
-            logger.warning("Saved search review metadata could not be loaded: {}", event.error)
+        else:
+            self._fail_review_load()
+            if event.outcome != WorkerOutcome.CANCELED:
+                logger.warning("Saved search review metadata could not be loaded: {}", event.error)
+        self._review_load_revisions = {}
         if self._review_pending_ids:
             self._review_load_timer.start()
+
+    def _fail_review_load(self) -> None:
+        """End checking badges without overwriting a newer edit or search."""
+        self._apply_review_metadata(
+            SearchReviewMetadataLoaded(
+                self._review_load_generation,
+                self._review_load_revisions,
+                {
+                    image_id: {
+                        "annotation_review_status": "load_failed",
+                        "annotation_review_warning_count": 0,
+                    }
+                    for image_id in self._review_load_revisions
+                },
+            )
+        )
 
     def _apply_review_metadata(self, loaded: SearchReviewMetadataLoaded) -> None:
         dsm = self._dataset_state_manager
