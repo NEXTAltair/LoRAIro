@@ -2,7 +2,7 @@
 type: Reference
 title: サービス層アーキテクチャ
 status: Accepted
-timestamp: 2026-06-26
+timestamp: 2026-10-08
 tags: [service-layer]
 depends_on: [pyside6]
 ---
@@ -67,6 +67,21 @@ Qt依存のないビジネスロジックサービス群。CLI、GUI、API全て
 
 ### AIアノテーション
 
+#### AnnotationReviewService
+- **Path**: `src/lorairo/services/annotation_review_service.py`
+- **Purpose**: 既存タグ・キャプションと、関連画像群から抽出した未付与タグを Clef の型付き判定 API で照合する
+- **Boundary**: タグクラウドの集計を再利用し、警告と追加候補を別の基準で判定する。注釈・confidence・reviewed は変更しない
+
+#### AnnotationReviewStore
+- **Path**: `src/lorairo/services/annotation_review_store.py`
+- **Purpose**: 画像ごとの最新判定・候補条件を保存し、現在の画像・注釈・設定との一致を検証する
+- **Currentness**: 内容が変わった結果は古い判定として返し、確率と採用操作を無効にする
+
+#### AnnotationReviewAdoptionService
+- **Path**: `src/lorairo/services/annotation_review_adoption_service.py`
+- **Purpose**: 最新かつ現在有効な追加候補を、ユーザーの選択により手動タグとして採用する
+- **Boundary**: 保存時刻・候補 ID・画像と注釈の鮮度を照合し、確率を confidence や手動スコアへ書き込まない
+
 #### AnnotationSaveService
 - **Path**: `src/lorairo/services/annotation_save_service.py`
 - **Class**: `AnnotationSaveService`
@@ -129,6 +144,11 @@ Qt依存のないビジネスロジックサービス群。CLI、GUI、API全て
 - **Purpose**: モデルレジストリのプロトコル定義
 
 ### Search & Filter
+
+#### search_review_status (helper)
+- **Path**: `src/lorairo/services/search_review_status.py`
+- **Purpose**: 保存済みの Clef 判定を鮮度確認して検索サムネイルへ付与し、全検索結果から現在有効な警告を絞り込む
+- **Boundary**: 検索時に Clef API は実行しない。未チェック・失敗・未評価・古い結果を区別する
 
 #### SearchCriteriaProcessor
 - **Path**: `src/lorairo/services/search_criteria_processor.py`

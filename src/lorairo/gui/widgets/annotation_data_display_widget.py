@@ -34,6 +34,7 @@ from PySide6.QtWidgets import (
 
 from ...gui.designer.AnnotationDataDisplayWidget_ui import Ui_AnnotationDataDisplayWidget
 from ...utils.log import logger
+from .caption_review_panel import CaptionReviewPanel
 from .ds_badge import DsBadge
 from .tag_panel_widget import SelectableTagChip, TagPanelWidget
 
@@ -76,6 +77,7 @@ class AnnotationData:
     # canonical -> tagdb type 名 ("character"/"general" 等、小文字)。
     # チップの type 別グループソートに使う (Issue #1056)
     tag_types: dict[str, str] = field(default_factory=dict)
+    captions: list[dict[str, Any]] = field(default_factory=list)
 
 
 @dataclass
@@ -132,6 +134,7 @@ class AnnotationDataDisplayWidget(QWidget, Ui_AnnotationDataDisplayWidget):
     tags_toggle_requested = Signal(list, list)  # (to_disable, to_restore) まとめて無効化⇄復活
     tag_replace_requested = Signal(str, str)  # 修正候補を適用 = 置換 (from, to) (#1007)
     tag_move_to_caption_requested = Signal(str)  # タグをキャプションへ移動 (#1240)
+    caption_edit_requested = Signal(int, str)
     # refinement リコメンドを無視 (canonical, reason_code, this_image_only) (#931/#1053)
     refinement_ignored = Signal(str, str, bool)
     translation_add_requested = Signal(str, str, str)  # canonical, language, translation (#989)
@@ -308,6 +311,14 @@ class AnnotationDataDisplayWidget(QWidget, Ui_AnnotationDataDisplayWidget):
         """タグテーブルの選択セルを TSV コピーする (TagPanelWidget へ委譲)。"""
         return self._tag_panel.copy_selected_tag_cells_to_clipboard()
 
+    def set_review_warnings(self, tag_ids: set[int], caption_ids: set[int]) -> None:
+        """Highlight current source rows, without inventing word-level locations."""
+        tags = {
+            str(row["tag"]) for row in self.current_data.tags if row.get("id") in tag_ids and row.get("tag")
+        }
+        self._tag_panel.set_review_warning_tags(tags)
+        self.caption_review_panel.set_warning_ids(caption_ids)
+
     def _render_tag_chips(self, chip_items: list[tuple[str, str, bool]], *, is_translated: bool) -> None:
         """タグチップを再描画する (TagPanelWidget へ委譲、#931 のテスト互換)。"""
         self._tag_panel._render_tag_chips(chip_items, is_translated=is_translated)
@@ -322,6 +333,10 @@ class AnnotationDataDisplayWidget(QWidget, Ui_AnnotationDataDisplayWidget):
         self._make_label_copyable(self.labelOverallValue)
 
     def _setup_caption_compact_view(self) -> None:
+        self.caption_review_panel = CaptionReviewPanel(self.groupBoxCaption)
+        self.caption_review_panel.edit_requested.connect(self.caption_edit_requested)
+        self.verticalLayoutCaption.insertWidget(0, self.caption_review_panel)
+        self.caption_review_panel.setVisible(False)
         self._caption_compact_label = QLabel(self.groupBoxCaption)
         self._caption_compact_label.setWordWrap(True)
         self._set_caption_compact_text("", is_placeholder=True)
@@ -490,6 +505,8 @@ class AnnotationDataDisplayWidget(QWidget, Ui_AnnotationDataDisplayWidget):
 
             # キャプション表示更新
             self._update_caption_display(data.caption)
+            self.caption_review_panel.set_rows(data.captions)
+            self._caption_compact_label.setVisible(not bool(data.captions))
 
             # スコア表示更新
             self._update_scores_display(data.aesthetic_score, data.overall_score, data.score_type)
@@ -677,6 +694,7 @@ class AnnotationDataDisplayWidget(QWidget, Ui_AnnotationDataDisplayWidget):
             self.textEditCaption.clear()
             self.textEditCaption.setPlaceholderText(_CAPTION_PLACEHOLDER_TEXT)
             self._set_caption_compact_text("", is_placeholder=True)
+            self.caption_review_panel.set_rows([])
 
             self.labelScoreTypeValue.setText("-")
             self.labelOverallValue.setText("0")

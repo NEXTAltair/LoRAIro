@@ -41,6 +41,23 @@ def test_results_tab_forwards_manual_review_for_saved_image(qtbot, staging: Stag
 
 
 @pytest.mark.gui
+def test_results_tab_forwards_background_status_and_saved_result_notifications(qtbot, staging) -> None:
+    widget = ResultsTabWidget(db_manager=MagicMock(), staging_state_manager=staging)
+    qtbot.addWidget(widget)
+    widget.hide()
+
+    with qtbot.waitSignal(widget.running_status_changed) as emission:
+        widget.annotation_review_widget.running_status_changed.emit("チェック中 1 / 2 枚")
+    assert emission.args == ["チェック中 1 / 2 枚"]
+    with qtbot.waitSignal(widget.review_result_saved) as emission:
+        widget.annotation_review_widget.review_result_saved.emit(42)
+    assert emission.args == [42]
+    with qtbot.waitSignal(widget.running_status_changed) as emission:
+        widget.annotation_review_widget.running_status_changed.emit("")
+    assert emission.args == [""]
+
+
+@pytest.mark.gui
 def test_review_target_controls_forward_navigation_without_running_review(qtbot, staging) -> None:
     widget = ResultsTabWidget(db_manager=MagicMock(), staging_state_manager=staging)
     qtbot.addWidget(widget)

@@ -2,7 +2,7 @@
 
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from sqlalchemy.exc import SQLAlchemyError
 
@@ -14,7 +14,12 @@ from ...services.model_registry_protocol import (
 from ...services.model_selection_service import ModelSelectionCriteria, ModelSelectionService
 from ...services.search_criteria_processor import build_tag_resolver
 from ...services.search_models import SearchConditions, ValidationResult
+from ...services.search_review_status import apply_review_filter
 from ...utils.log import logger
+
+if TYPE_CHECKING:
+    from ...services.annotation_review_service import AnnotationReviewService
+    from ...services.annotation_review_store import AnnotationReviewStore
 
 
 @dataclass
@@ -68,8 +73,17 @@ class SearchFilterService:
 
         # UI状態管理
         self.current_conditions: SearchConditions | None = None
+        self._review_service: AnnotationReviewService | None = None
+        self._review_store: AnnotationReviewStore | None = None
 
         logger.info("SearchFilterService (純化版) initialized with new service layer integration")
+
+    def set_review_context(
+        self, service: "AnnotationReviewService | None", store: "AnnotationReviewStore | None"
+    ) -> None:
+        """Set the context used by background warning count estimates."""
+        self._review_service = service
+        self._review_store = store
 
     def parse_search_input(self, input_text: str) -> tuple[list[str], list[str]]:
         """UI入力テキストの解析とキーワード抽出
@@ -129,6 +143,7 @@ class SearchFilterService:
         reviewed_at_filter: str | None = None,
         error_state_filter: str | None = None,
         model_filter: list[str] | None = None,
+        annotation_review_warnings_only: bool = False,
     ) -> SearchConditions:
         """UIフォームデータからSearchConditionsオブジェクトを作成
 
@@ -168,6 +183,7 @@ class SearchFilterService:
             reviewed_at_filter=reviewed_at_filter,
             error_state_filter=error_state_filter,
             model_filter=model_filter,
+            annotation_review_warnings_only=annotation_review_warnings_only,
         )
 
         self.current_conditions = conditions
@@ -395,6 +411,15 @@ class SearchFilterService:
     def get_estimated_count(self, conditions: SearchConditions) -> int:
         """現在の検索条件に対する概算件数を取得する。"""
         try:
+            if conditions.annotation_review_warnings_only:
+                if self._review_service is None or self._review_store is None:
+                    return 0
+                images, _ = self.criteria_processor.execute_search_with_filters(conditions)
+                return len(
+                    apply_review_filter(
+                        images, self._review_service, self._review_store, warnings_only=True
+                    )
+                )
             # #1094: 件数見積もりも検索本体と同じタグ翻訳解決を適用して整合させる
             tag_resolver = build_tag_resolver(self.db_manager)
             criteria = conditions.to_filter_criteria(tag_resolver=tag_resolver)

@@ -35,9 +35,10 @@ worker dispatch・PipelineControlService 所有・staging fan-out・タブ間遷
       / ``selected_image_details_widget`` / ``main_splitter``
 """
 
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
-from PySide6.QtCore import QSettings, Qt, Signal, Slot
+from PySide6.QtCore import QSettings, Qt, QTimer, Signal, Slot
+from PySide6.QtGui import QCloseEvent
 from PySide6.QtWidgets import QSplitter, QWidget
 from sqlalchemy.exc import SQLAlchemyError
 
@@ -61,6 +62,13 @@ from ..widgets.image_preview import ImagePreviewWidget
 from ..widgets.quick_tag_dialog import QuickTagDialog
 from ..widgets.selected_image_details_widget import SelectedImageDetailsWidget
 from ..widgets.thumbnail_selector_widget import ThumbnailSelectorWidget
+from ..workers.manager import WorkerManager
+from ..workers.search_review_loader import SearchReviewLoader, SearchReviewMetadataLoaded
+from ..workers.terminal import CancelReason, WorkerOutcome, WorkerTerminalEvent
+
+if TYPE_CHECKING:
+    from ...services.annotation_review_service import AnnotationReviewService
+    from ...services.annotation_review_store import AnnotationReviewStore
 
 
 class SearchTabWidget(QWidget, Ui_SearchTab):
@@ -105,6 +113,26 @@ class SearchTabWidget(QWidget, Ui_SearchTab):
         self._dataset_state_manager = dataset_state_manager
         self._staging_state_manager = staging_state_manager
         self._worker_service = worker_service
+        self._review_service: AnnotationReviewService | None = None
+        self._review_store: AnnotationReviewStore | None = None
+        self._review_generation = 0
+        self._review_revisions: dict[int, int] = {}
+        self._review_pending_ids: set[int] = set()
+        self._review_load_id: str | None = None
+        self._review_load_sequence = 0
+        self._review_load_generation = 0
+        self._review_load_revisions: dict[int, int] = {}
+        self._review_closing = False
+        self._review_manager = WorkerManager(self)
+        self._review_manager.worker_terminal.connect(self._on_review_load_terminal)
+        self._review_load_timer = QTimer(self)
+        self._review_load_timer.setSingleShot(True)
+        self._review_load_timer.setInterval(40)
+        self._review_load_timer.timeout.connect(self._start_review_load)
+        self._review_search_timer = QTimer(self)
+        self._review_search_timer.setSingleShot(True)
+        self._review_search_timer.setInterval(75)
+        self._review_search_timer.timeout.connect(self.load_images_from_db)
 
         self.setupUi(self)
 
@@ -217,16 +245,161 @@ class SearchTabWidget(QWidget, Ui_SearchTab):
         from ...services.annotation_review_store import AnnotationReviewStore
 
         try:
-            self._selected_image_details_widget.annotation_review_widget.set_store(
-                AnnotationReviewStore(self._db_manager)
+            self._review_store = AnnotationReviewStore(self._db_manager)
+            self._review_service = AnnotationReviewService(
+                self._service_container.config_service, self._db_manager
             )
-            self._selected_image_details_widget.set_annotation_review_service(
-                AnnotationReviewService(self._service_container.config_service, self._db_manager)
-            )
+            self._selected_image_details_widget.annotation_review_widget.set_store(self._review_store)
+            self._selected_image_details_widget.set_annotation_review_service(self._review_service)
         except Exception as error:
+            self._review_store = None
+            self._review_service = None
             # Optional review remains unavailable while the dataset can still be browsed.
             self._selected_image_details_widget.annotation_review_widget.set_unavailable_reason(str(error))
             logger.warning("Clef review configuration could not be loaded: {}", error)
+        self._review_generation += 1
+        self._sync_search_review_context()
+        dsm = self._dataset_state_manager
+        if dsm is not None and dsm.image_count:
+            self.refresh_annotation_reviews([image["id"] for image in dsm.all_images])
+
+    def _sync_search_review_context(self) -> None:
+        """Share freshness context with the search and background count workers."""
+        if self._worker_service is not None:
+            self._worker_service.set_search_review_context(self._review_service, self._review_store)
+        service = self._filter_search_panel.search_filter_service
+        if service is not None:
+            service.set_review_context(self._review_service, self._review_store)
+
+    @Slot(int)
+    def refresh_annotation_review(self, image_id: int) -> None:
+        """Reload one saved/edited image without synchronously checking fingerprints."""
+        self.refresh_annotation_reviews([image_id])
+
+    @Slot(list)
+    def refresh_annotation_reviews(self, image_ids: list[int]) -> None:
+        """Coalesce saves/annotation edits and refresh a warning-filtered search."""
+        if self._review_closing:
+            return
+        for image_id in image_ids:
+            self._review_revisions[image_id] = self._review_revisions.get(image_id, 0) + 1
+            self._review_pending_ids.add(image_id)
+        if image_ids:
+            self._invalidate_review_badges(image_ids)
+            self._review_load_timer.start()
+            if self._filter_search_panel.get_current_conditions().get("annotation_review_warnings_only"):
+                self._review_search_timer.start()
+
+    @Slot(list)
+    def _on_review_images_loaded(self, images: list[dict[str, Any]]) -> None:
+        """Invalidate replaced-list callbacks and read missing/newer saved metadata."""
+        self._review_generation += 1
+        self._review_pending_ids.update(
+            image["id"]
+            for image in images
+            if "annotation_review_status" not in image or image["id"] in self._review_revisions
+        )
+        if self._review_pending_ids:
+            self._invalidate_review_badges(list(self._review_pending_ids))
+            self._review_load_timer.start()
+
+    def _invalidate_review_badges(self, image_ids: list[int]) -> None:
+        """Remove old warning counts immediately while local freshness is loading."""
+        dsm = self._dataset_state_manager
+        if dsm is None:
+            return
+        for image_id in image_ids:
+            image = dsm.get_image_by_id(image_id)
+            if image is not None:
+                image["annotation_review_status"] = (
+                    "checking" if self._review_service is not None else "unavailable"
+                )
+                image["annotation_review_warning_count"] = 0
+        self._thumbnail_selector.refresh_review_badges(image_ids)
+
+    @Slot()
+    def _start_review_load(self) -> None:
+        if (
+            self._review_closing
+            or self._review_load_id is not None
+            or self._review_service is None
+            or self._review_store is None
+            or not self._review_pending_ids
+        ):
+            return
+        revisions = {
+            image_id: self._review_revisions.get(image_id, 0) for image_id in self._review_pending_ids
+        }
+        self._review_pending_ids.clear()
+        self._review_load_generation = self._review_generation
+        self._review_load_revisions = revisions
+        self._review_load_sequence += 1
+        self._review_load_id = f"search_review_load_{self._review_load_sequence}"
+        worker = SearchReviewLoader(
+            self._review_service, self._review_store, self._review_generation, revisions
+        )
+        if not self._review_manager.start_worker(self._review_load_id, worker):
+            self._review_load_id = None
+            self._fail_review_load()
+            logger.warning("Saved search review metadata could not be loaded")
+
+    @Slot(object)
+    def _on_review_load_terminal(self, event: WorkerTerminalEvent) -> None:
+        if event.worker_id != self._review_load_id:
+            return
+        self._review_load_id = None
+        if self._review_closing:
+            return
+        loaded = event.result
+        if event.outcome == WorkerOutcome.SUCCEEDED and isinstance(loaded, SearchReviewMetadataLoaded):
+            self._apply_review_metadata(loaded)
+        else:
+            self._fail_review_load()
+            if event.outcome != WorkerOutcome.CANCELED:
+                logger.warning("Saved search review metadata could not be loaded: {}", event.error)
+        self._review_load_revisions = {}
+        if self._review_pending_ids:
+            self._review_load_timer.start()
+
+    def _fail_review_load(self) -> None:
+        """End checking badges without overwriting a newer edit or search."""
+        self._apply_review_metadata(
+            SearchReviewMetadataLoaded(
+                self._review_load_generation,
+                self._review_load_revisions,
+                {
+                    image_id: {
+                        "annotation_review_status": "load_failed",
+                        "annotation_review_warning_count": 0,
+                    }
+                    for image_id in self._review_load_revisions
+                },
+            )
+        )
+
+    def _apply_review_metadata(self, loaded: SearchReviewMetadataLoaded) -> None:
+        dsm = self._dataset_state_manager
+        if loaded.generation != self._review_generation or dsm is None:
+            return
+        changed: list[int] = []
+        for image_id, metadata in loaded.metadata.items():
+            if loaded.revisions[image_id] != self._review_revisions.get(image_id, 0):
+                continue
+            image = dsm.get_image_by_id(image_id)
+            if image is not None:
+                # Review fields are independent of source annotation metadata;
+                # avoid re-emitting a selection for this badge-only update.
+                image.update(metadata)
+                changed.append(image_id)
+        self._thumbnail_selector.refresh_review_badges(changed)
+        if dsm.current_image_id in changed:
+            refresh = getattr(
+                self._selected_image_details_widget.annotation_review_widget,
+                "refresh_saved_result",
+                None,
+            )
+            if callable(refresh):
+                refresh()
 
     def _resolve_refinement_service(self) -> RefinementService:
         """注入された db_manager の DB に ignore を保存する RefinementService を解決する (#978)。
@@ -251,6 +424,7 @@ class SearchTabWidget(QWidget, Ui_SearchTab):
         """
         search_filter_service = self._create_search_filter_service()
         self._filter_search_panel.set_search_filter_service(search_filter_service)
+        self._sync_search_review_context()
 
         if self._worker_service is not None:
             self._filter_search_panel.set_worker_service(self._worker_service)
@@ -312,9 +486,21 @@ class SearchTabWidget(QWidget, Ui_SearchTab):
         クロップダイアログのタグ翻訳 worker (#1355) と詳細ペインの worker を止め、
         QThread がウィジェットより長生きして Qt teardown 警告になるのを防ぐ。
         """
+        if self._review_closing:
+            return
+        self._review_closing = True
+        self._review_generation += 1
+        self._review_pending_ids.clear()
+        self._review_load_timer.stop()
+        self._review_search_timer.stop()
+        self._review_manager.cancel_all_workers(reason=CancelReason.SHUTDOWN, total_grace_ms=1000)
         if self._crop_dialog_launcher is not None:
             self._crop_dialog_launcher.shutdown()
         self._selected_image_details_widget.shutdown()
+
+    def closeEvent(self, event: QCloseEvent) -> None:
+        self.shutdown()
+        super().closeEvent(event)
 
     def _setup_crop_integration(self) -> None:
         """クロップ導線 (#1346) を配線する。
@@ -474,6 +660,7 @@ class SearchTabWidget(QWidget, Ui_SearchTab):
             success = self._image_db_write_service.add_tag_batch(image_ids, tag)
             if success and self._dataset_state_manager is not None:
                 self._dataset_state_manager.refresh_images(image_ids)
+                self.refresh_annotation_reviews(image_ids)
 
         if success:
             self.status_message.emit(f"クイックタグ '{tag}' を追加しました")
@@ -496,6 +683,7 @@ class SearchTabWidget(QWidget, Ui_SearchTab):
         if self._dataset_state_manager is None:
             return
         self._dataset_state_manager.selection_changed.connect(self._handle_selection_changed_for_rating)
+        self._dataset_state_manager.images_loaded.connect(self._on_review_images_loaded)
         logger.debug("DatasetStateManager selection_changed シグナル接続完了")
 
     def _connect_entry_signals(self) -> None:

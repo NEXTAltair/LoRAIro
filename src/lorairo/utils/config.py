@@ -72,6 +72,8 @@ DEFAULT_CONFIG = {
         "model": "clef-flash",
         # Probability the candidate is supported by the image; warning iff p < threshold.
         "warning_threshold": 0.2,
+        # Candidate suggestions are actionable iff p >= this threshold.
+        "suggestion_threshold": 0.8,
         "timeout": 60.0,
     },
     "text_extensions": [".txt", ".caption"],

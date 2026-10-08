@@ -15,7 +15,7 @@ from lorairo.services.annotation_review_store import AnnotationReviewImageMissin
 from .base import LoRAIroWorkerBase
 
 if TYPE_CHECKING:
-    from lorairo.services.annotation_review_service import AnnotationReviewService
+    from lorairo.services.annotation_review_service import AnnotationReviewService, ReviewCandidateSource
     from lorairo.services.annotation_review_store import AnnotationReviewStore
 
 
@@ -57,6 +57,8 @@ class AnnotationReviewBatchWorker(LoRAIroWorkerBase[AnnotationReviewBatchWorkerR
         store: AnnotationReviewStore,
         image_ids: Sequence[int],
         generation: int,
+        *,
+        candidate_source: ReviewCandidateSource | None = None,
     ) -> None:
         super().__init__()
         targets: dict[int, None] = {}
@@ -72,6 +74,7 @@ class AnnotationReviewBatchWorker(LoRAIroWorkerBase[AnnotationReviewBatchWorkerR
         self._store = store
         self._image_ids = tuple(targets)
         self._generation = generation
+        self._candidate_source = candidate_source
         self._requested_at = datetime.now(UTC)
 
     def execute(self) -> AnnotationReviewBatchWorkerResult:
@@ -81,9 +84,16 @@ class AnnotationReviewBatchWorker(LoRAIroWorkerBase[AnnotationReviewBatchWorkerR
         self._report_progress(
             0, "確認する画像とアノテーションを準備しています", total_count=len(self._image_ids)
         )
-        snapshots = self._service.prepare_reviews(
-            self._image_ids, is_cancelled=self.cancellation.is_canceled
-        )
+        if self._candidate_source is None:
+            snapshots = self._service.prepare_reviews(
+                self._image_ids, is_cancelled=self.cancellation.is_canceled
+            )
+        else:
+            snapshots = self._service.prepare_reviews(
+                self._image_ids,
+                is_cancelled=self.cancellation.is_canceled,
+                candidate_source=self._candidate_source,
+            )
 
         blocked_error: AnnotationReviewResult | None = None
         for image_id in self._image_ids:
@@ -99,16 +109,18 @@ class AnnotationReviewBatchWorker(LoRAIroWorkerBase[AnnotationReviewBatchWorkerR
                     model_name=self._service.model_name,
                     items=tuple(
                         AnnotationReviewItem(item.candidate_id, item.kind, item.text, None, "unevaluated")
-                        for item in prepared.tags + prepared.captions
+                        for item in prepared.tags + prepared.captions + prepared.suggestions
                     ),
                     status="unevaluated",
                     error=blocked_error.error,
                     error_code=blocked_error.error_code,
+                    candidate_source=prepared.candidate_source,
+                    suggestion_threshold=blocked_error.suggestion_threshold,
                 )
             else:
                 self._report_progress(
                     int(processed_count / len(self._image_ids) * 100),
-                    f"アノテーション確認 {processed_count + 1}/{len(self._image_ids)}画像を確認中",
+                    f"アノテーションチェック {processed_count + 1}/{len(self._image_ids)}画像を確認中",
                     str(image_id),
                     processed_count,
                     len(self._image_ids),
@@ -162,7 +174,7 @@ class AnnotationReviewBatchWorker(LoRAIroWorkerBase[AnnotationReviewBatchWorkerR
     def _report_processed(self, processed_count: int, image_id: int) -> None:
         self._report_progress(
             int(processed_count / len(self._image_ids) * 100),
-            f"アノテーション確認 {processed_count}/{len(self._image_ids)}画像",
+            f"アノテーションチェック {processed_count}/{len(self._image_ids)}画像",
             str(image_id),
             processed_count,
             len(self._image_ids),

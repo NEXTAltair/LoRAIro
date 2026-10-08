@@ -43,6 +43,18 @@ def panel_with_service(qtbot):
 @pytest.mark.unit
 @pytest.mark.gui
 class TestSearchFacetsSidebarComposition:
+    def test_warning_filter_favorite_roundtrip_and_legacy_reset(self, panel):
+        panel._search_facets_sidebar.set_review_warnings_only(True)
+        saved = panel.get_current_conditions()
+        assert saved["annotation_review_warnings_only"] is True
+        panel._clear_all_inputs()
+        assert panel.get_current_conditions()["annotation_review_warnings_only"] is False
+        panel.apply_conditions(saved)
+        assert panel.get_current_conditions()["annotation_review_warnings_only"] is True
+        assert panel._facet_values["annotation_review_warnings_only"] is True
+        panel.apply_conditions({"search_type": "tags", "keywords": ["dog"]})
+        assert panel.get_current_conditions()["annotation_review_warnings_only"] is False
+
     """SearchFacetsSidebar が FilterSearchPanel に正しく組み込まれることを検証する。"""
 
     def test_search_facets_sidebar_is_created(self, panel):

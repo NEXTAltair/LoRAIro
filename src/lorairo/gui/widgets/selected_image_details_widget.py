@@ -23,6 +23,8 @@ from typing import TYPE_CHECKING, Any
 from PySide6.QtCore import QElapsedTimer, QPoint, Qt, QTimer, Signal, Slot
 from PySide6.QtWidgets import (
     QApplication,
+    QDialog,
+    QDialogButtonBox,
     QFrame,
     QHBoxLayout,
     QLabel,
@@ -30,6 +32,7 @@ from PySide6.QtWidgets import (
     QMessageBox,
     QScrollArea,
     QSizePolicy,
+    QTextEdit,
     QToolButton,
     QVBoxLayout,
     QWidget,
@@ -101,6 +104,7 @@ class SelectedImageDetailsWidget(QWidget):
     batch_score_changed = Signal(list, int)  # (image_ids, score) - 複数選択時
     # 関連画像 (クロップ親子) の行クリックによる遷移要求 (#1346)。引数は遷移先 image_id。
     related_image_activated = Signal(int)
+    annotations_changed = Signal(int)
 
     def __init__(
         self,
@@ -310,6 +314,10 @@ class SelectedImageDetailsWidget(QWidget):
         layout.addWidget(self.ui.annotationDataDisplay)
         layout.addWidget(self._rating_score_widget)
         self.annotation_review_widget = AnnotationReviewWidget(container)
+        self.annotation_review_widget.result_displayed.connect(self._apply_review_highlights)
+        self.annotation_review_widget.annotations_changed.connect(
+            lambda image_id: self._reload_current_image()
+        )
         self.annotation_review_widget.setVisible(False)
         layout.addWidget(self.annotation_review_widget)
 
@@ -476,6 +484,8 @@ class SelectedImageDetailsWidget(QWidget):
         self.annotation_display.tag_replace_requested.connect(self._on_tag_replace)
         self.annotation_display.tag_move_to_caption_requested.connect(self._on_tag_move_to_caption)
         self._image_db_write_service = ImageDBWriteService(db_manager)
+        self.annotation_display.caption_review_panel.set_editable(True)
+        self.annotation_display.caption_edit_requested.connect(self._edit_caption)
         logger.debug("SelectedImageDetailsWidget: soft-reject 編集モードを有効化")
 
     def set_crop_relation_service(self, service: CropRelationService) -> None:
@@ -513,7 +523,69 @@ class SelectedImageDetailsWidget(QWidget):
     def set_annotation_review_service(self, service: "AnnotationReviewService") -> None:
         """Inject the explicit, read-only Clef review service into the details panel."""
         self.annotation_review_widget.set_service(service)
+        if getattr(self, "_db_manager", None) is not None:
+            from ...services.annotation_review_adoption_service import AnnotationReviewAdoptionService
+            from ...services.annotation_review_store import AnnotationReviewStore
+
+            self.annotation_review_widget.set_adoption_service(
+                AnnotationReviewAdoptionService(
+                    self._db_manager, service, AnnotationReviewStore(self._db_manager)
+                )
+            )
         self.annotation_review_widget.setVisible(True)
+
+    @Slot(object)
+    def _apply_review_highlights(self, result: Any) -> None:
+        from ...services.annotation_review_service import AnnotationReviewResult
+
+        tag_ids: set[int] = set()
+        caption_ids: set[int] = set()
+        if (
+            isinstance(result, AnnotationReviewResult)
+            and result.image_id == self.current_image_id
+            and result.status != "stale"
+        ):
+            for item in result.items:
+                if item.status == "warning" and item.kind in ("tag", "caption"):
+                    raw_id = item.candidate_id.removeprefix(f"{item.kind}_")
+                    if not raw_id.isdecimal():
+                        continue
+                    row_id = int(raw_id)
+                    (tag_ids if item.kind == "tag" else caption_ids).add(row_id)
+        self.annotation_display.set_review_warnings(tag_ids, caption_ids)
+
+    @Slot(int, str)
+    def _edit_caption(self, caption_id: int, original: str) -> None:
+        image_id = self.current_image_id
+        if image_id is None or self._image_db_write_service is None:
+            return
+        dialog = QDialog(self)
+        dialog.setWindowTitle("キャプションを編集")
+        dialog.resize(520, 280)
+        layout = QVBoxLayout(dialog)
+        editor = QTextEdit(dialog)
+        editor.setPlainText(original)
+        layout.addWidget(editor)
+        buttons = QDialogButtonBox(
+            QDialogButtonBox.StandardButton.Save | QDialogButtonBox.StandardButton.Cancel, dialog
+        )
+        buttons.accepted.connect(dialog.accept)
+        buttons.rejected.connect(dialog.reject)
+        layout.addWidget(buttons)
+        if dialog.exec() != QDialog.DialogCode.Accepted:
+            return
+        if self.current_image_id != image_id:
+            return
+        if self._image_db_write_service.edit_caption(
+            image_id, caption_id, editor.toPlainText(), expected_text=original
+        ):
+            self._reload_current_image()
+        else:
+            QMessageBox.warning(
+                self,
+                "保存できません",
+                "キャプションが変更されたか、空の文章です。再読み込みして編集してください。",
+            )
 
     def set_refinement_service(
         self, service: "RefinementService", worker_manager: "WorkerManager | None" = None
@@ -1052,6 +1124,7 @@ class SelectedImageDetailsWidget(QWidget):
         """
         if self.current_image_id is None:
             return
+        self.annotations_changed.emit(self.current_image_id)
         dsm = self._dataset_state_manager
         if dsm is not None:
             # アノテーションのみ DB 再取得 + キャッシュ merge + current_image_data_changed 発行。
@@ -1508,6 +1581,7 @@ class SelectedImageDetailsWidget(QWidget):
         annotation_data = AnnotationData(
             tags=tags_list,  # ← list[dict] をそのまま渡す
             caption=caption_text,
+            captions=metadata.get("captions", []),
             aesthetic_score=score_value,
             overall_score=0,  # Rating値は文字列なのでoverall_scoreには使用しない
             score_labels=score_labels_list,

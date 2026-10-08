@@ -152,3 +152,40 @@ class TestBuildGraph:
         svc.refresh()
         after = svc.build_graph("kw", [])
         assert after.total_images == 2
+
+
+@pytest.mark.unit
+class TestCandidateTags:
+    def test_frequency_counts_distinct_normalized_tags_per_image(self):
+        service = _make_service(
+            {
+                1: ["scope", "rare", " RARE ", "rare", "common"],
+                2: ["scope", "common"],
+            }
+        )
+        assert service.get_candidate_tags("SCOPE") == ("common", "scope", "RARE")
+
+    def test_graph_normalizes_raw_database_tag_spellings(self):
+        service = _make_service({1: [" HAIR ", "Fate/Grand Order"]})
+        graph = service.build_graph("hair")
+        assert {node.tag for node in graph.nodes} == {"hair", "fate/grand order"}
+        assert service.get_candidate_tags("hair") == ("Fate/Grand Order", "HAIR")
+
+    def test_selected_tags_are_and_filters_and_excluded_from_candidates(self):
+        service = _make_service(
+            {
+                1: ["long_hair", "smile", "eyes", "included"],
+                2: ["long_hair", "smile", "excluded"],
+                3: ["tree", "smile", "eyes", "excluded"],
+            }
+        )
+        assert service.get_candidate_tags("hair", ("SMILE", " eyes ")) == ("included", "long_hair")
+
+    def test_selected_tags_alone_define_cohort(self):
+        service = _make_service({1: ["seed", "included"], 2: ["excluded"]})
+        assert service.get_candidate_tags("", ("seed",)) == ("included",)
+
+    def test_empty_scope_does_not_load_tags(self):
+        service = _make_service({1: ["everything"]})
+        assert service.get_candidate_tags(" ", ("",)) == ()
+        service._load_tags.assert_not_called()

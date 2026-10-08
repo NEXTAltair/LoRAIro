@@ -692,6 +692,13 @@ class ThumbnailSelectorWidget(QWidget, Ui_ThumbnailSelectorWidget):
         """
         self._crop_action_enabled = enabled
 
+    def refresh_review_badges(self, image_ids: list[int]) -> None:
+        """Repaint saved review overlays without rebuilding the thumbnail grid."""
+        changed = set(image_ids)
+        for item in self.scene.items():
+            if isinstance(item, ThumbnailItem) and item.image_id in changed:
+                item.refresh_review_badge()
+
     def _select_all_items(self) -> None:
         """すべてのサムネイルアイテムを選択する。"""
         if not self.dataset_state or not self.thumbnail_items:

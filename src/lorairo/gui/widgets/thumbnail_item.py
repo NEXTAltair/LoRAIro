@@ -47,6 +47,7 @@ class ThumbnailItem(QGraphicsObject):
         self.setAcceptHoverEvents(True)
         self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsSelectable, True)
         self._is_selected = False
+        self.refresh_review_badge()
 
     def isSelected(self) -> bool:
         """
@@ -105,6 +106,8 @@ class ThumbnailItem(QGraphicsObject):
             return
 
         score_text, rating_text, resolution_text = self._overlay_texts(metadata)
+        review_text, review_color = self._review_badge(metadata)
+        self._draw_badge(painter, rect, review_text, "top-left", review_color)
         if score_text is not None:
             self._draw_badge(painter, rect, score_text, "top-right")
         if rating_text is not None:
@@ -138,7 +141,47 @@ class ThumbnailItem(QGraphicsObject):
         return score_text, rating_text, resolution_text
 
     @staticmethod
-    def _draw_badge(painter: QPainter, rect: QRectF, text: str, corner: str) -> None:
+    def _review_badge(metadata: dict[str, Any]) -> tuple[str, str]:
+        """Warnings use amber, failures red, and unknown/incomplete states neutral."""
+        status = metadata.get("annotation_review_status", "unchecked")
+        count = metadata.get("annotation_review_warning_count", 0)
+        if status != "stale" and isinstance(count, int) and count > 0:
+            suffix = {
+                "partial": "\n一部未評価",
+                "cancelled": "\n中断・未評価",
+                "failed": "\nチェック失敗",
+                "unevaluated": "\n未評価",
+            }.get(status, "")
+            return f"要確認 {count}件{suffix}", theme.WARN_SOFT
+        labels = {
+            "unchecked": "未チェック",
+            "completed": "チェック済み",
+            "partial": "一部未評価",
+            "failed": "チェック失敗",
+            "unevaluated": "未評価",
+            "cancelled": "中断・未評価",
+            "stale": "再チェック必要",
+            "checking": "照合中",
+            "unavailable": "設定を確認",
+            "load_failed": "照合失敗",
+        }
+        color = theme.ERR_SOFT if status in ("failed", "load_failed") else theme.PAPER_SHADE
+        return labels.get(status, "未チェック"), color
+
+    def refresh_review_badge(self) -> None:
+        """Refresh the tooltip and paint from current DSM metadata."""
+        dsm = self.parent_widget.dataset_state
+        metadata = dsm.get_image_by_id(self.image_id) if dsm is not None else None
+        if metadata is not None:
+            text, _ = self._review_badge(metadata)
+            checked_at = metadata.get("annotation_review_checked_at", "")
+            self.setToolTip(f"{self.image_path.name}\nClef: {text}\n{checked_at}".rstrip())
+        self.update()
+
+    @staticmethod
+    def _draw_badge(
+        painter: QPainter, rect: QRectF, text: str, corner: str, background: str | None = None
+    ) -> None:
         """指定コーナーに DS トークン配色のバッジ (ink 地 + paper 文字) を描画する。
 
         Args:
@@ -155,11 +198,15 @@ class ThumbnailItem(QGraphicsObject):
 
         metrics = painter.fontMetrics()
         pad_x, pad_y, margin = 4, 1, 3
-        badge_w = metrics.horizontalAdvance(text) + pad_x * 2
-        badge_h = metrics.height() + pad_y * 2
+        lines = text.splitlines()
+        badge_w = max(metrics.horizontalAdvance(line) for line in lines) + pad_x * 2
+        badge_h = metrics.height() * len(lines) + pad_y * 2
 
         if corner == "top-right":
             x = rect.right() - badge_w - margin
+            y = rect.top() + margin
+        elif corner == "top-left":
+            x = rect.left() + margin
             y = rect.top() + margin
         elif corner == "bottom-right":
             x = rect.right() - badge_w - margin
@@ -169,12 +216,16 @@ class ThumbnailItem(QGraphicsObject):
             y = rect.bottom() - badge_h - margin
         badge_rect = QRectF(x, y, badge_w, badge_h)
 
-        ink = QColor(theme.INK)
+        ink = QColor(background or theme.INK)
         ink.setAlpha(205)
-        painter.setPen(Qt.PenStyle.NoPen)
+        border = {theme.WARN_SOFT: theme.WARN, theme.ERR_SOFT: theme.ERR}.get(background or "")
+        if border is not None:
+            painter.setPen(QPen(QColor(border), 1))
+        else:
+            painter.setPen(Qt.PenStyle.NoPen)
         painter.setBrush(ink)
         painter.drawRoundedRect(badge_rect, 3, 3)
 
-        painter.setPen(QColor(theme.PAPER))
+        painter.setPen(QColor(theme.INK if background else theme.PAPER))
         painter.drawText(badge_rect, int(Qt.AlignmentFlag.AlignCenter), text)
         painter.restore()
