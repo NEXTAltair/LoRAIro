@@ -59,7 +59,7 @@ def saved_result(image_id: int = 5, *, status="completed") -> StoredReviewResult
         review=AnnotationReviewResult(
             image_id,
             "original",
-            "@cf/cloudflare/clef-flash",
+            "clef-flash",
             (
                 AnnotationReviewItem("tag_1", "tag", "blue_eyes", 0.08, "warning"),
                 AnnotationReviewItem("caption_2", "caption", "A smiling person.", 0.81, "ok"),
@@ -89,7 +89,7 @@ def wired(qtbot):
     widget = AnnotationReviewBatchWidget()
     qtbot.addWidget(widget)
     service = Mock()
-    service.model_name = "@cf/cloudflare/clef-flash"
+    service.model_name = "clef-flash"
     service.warning_threshold = 0.2
     store = Mock()
     store.get_current_results.return_value = {}
@@ -101,12 +101,16 @@ def wired(qtbot):
     widget.shutdown()
 
 
-def test_service_injection_loads_bounded_history_without_cloud_request(wired) -> None:
+def test_service_injection_loads_bounded_history_without_starting_review(wired) -> None:
     widget, service, store, manager = wired
     store.get_current_results.assert_called_once_with(service, limit=500)
     service.review.assert_not_called()
     assert not widget.start_button.isEnabled()
     assert all(isinstance(worker, AnnotationReviewResultsLoader) for _, worker in manager.started)
+    assert "ローカルの Clef" in widget.notice_label.text()
+    assert "初回のモデル読み込み" in widget.notice_label.text()
+    assert "Clef（ローカル）" in widget.notice_label.text()
+    assert "Cloudflare" not in widget.notice_label.text()
 
 
 def test_start_freezes_scope_despite_source_list_and_staging_changes(qtbot, wired) -> None:
@@ -495,10 +499,10 @@ def test_worker_progress_counts_processed_images_and_keeps_stop_message(wired) -
     widget._on_start_requested()
     _, worker = manager.started[-1]
     worker.progress_updated.emit(
-        WorkerProgress(50, "Cloudflare で確認中…", processed_count=1, total_count=2)
+        WorkerProgress(50, "ローカルの Clef で確認中…", processed_count=1, total_count=2)
     )
 
-    assert "Cloudflare" in widget.status_label.text()
+    assert "ローカルの Clef" in widget.status_label.text()
     assert widget.progress_bar.value() == 1
     widget._on_cancel_requested()
     worker.progress_updated.emit(WorkerProgress(100, "完了", processed_count=2, total_count=2))
@@ -707,7 +711,7 @@ def test_parent_destruction_cancels_active_batch_without_restarting_a_history_lo
         entered.set()
         while not released.wait(0.01):
             if is_cancelled():
-                return AnnotationReviewResult(5, "original", "@cf/cloudflare/clef-flash", (), "cancelled")
+                return AnnotationReviewResult(5, "original", "clef-flash", (), "cancelled")
         return saved_result().review
 
     service.review.side_effect = review

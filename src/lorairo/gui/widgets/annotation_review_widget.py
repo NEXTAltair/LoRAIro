@@ -72,7 +72,7 @@ class AnnotationReviewWidget(QWidget):
         self.evaluate_button = QPushButton("この画像をチェック", self)
         self.evaluate_button.setObjectName("buttonReviewAnnotations")
         self.evaluate_button.setToolTip(
-            "選択画像と既存の有効なタグ・キャプションを Cloudflare に送信して評価します。"
+            "選択画像と既存の有効なタグ・キャプションをローカルの Clef で評価します。"
         )
         self.evaluate_button.clicked.connect(self._on_evaluate_requested)
         header.addWidget(self.evaluate_button)
@@ -91,7 +91,10 @@ class AnnotationReviewWidget(QWidget):
         self.status_label.setObjectName("labelAnnotationReviewStatus")
         layout.addWidget(self.status_label)
         self.notice_label = QLabel(
-            "ボタンを押すと、この画像・タグ・キャプションを Cloudflare に送信します（有料 API）。", self
+            "ローカルの Clef でチェックします。画像は外部へ送信されません。"
+            "初回のモデル読み込みには時間がかかります。"
+            "必要なファイルは「設定 → 基本設定 → Clef（ローカル）」で選択してください。",
+            self,
         )
         self.notice_label.setWordWrap(True)
         self.notice_label.setStyleSheet(f"color: {theme.INK_SOFT}; font-size: {theme.FONT_SIZE_SMALL}px;")
@@ -267,7 +270,7 @@ class AnnotationReviewWidget(QWidget):
         self.results_table.setVisible(False)
         self.model_label.setVisible(False)
         self._inflight_id = f"annotation_review_{id(self)}_{self._generation}"
-        self._set_status("Cloudflare で評価中…", theme.INFO)
+        self._set_status("ローカルの Clef で評価中… 初回はモデル読み込みに時間がかかります。", theme.INFO)
         self.running_status_changed.emit(f"アノテーションチェック: 画像 {self._image_id} を処理中")
         self.cancel_button.setEnabled(True)
         self.cancel_button.setVisible(True)

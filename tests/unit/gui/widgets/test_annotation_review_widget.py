@@ -64,7 +64,7 @@ def make_result(*, status="completed", fingerprint="original", image_id=5) -> An
     return AnnotationReviewResult(
         image_id=image_id,
         fingerprint=fingerprint,
-        model_name="@cf/cloudflare/clef-flash",
+        model_name="clef-flash",
         items=(
             AnnotationReviewItem("tag:1", "tag", "blue_eyes", 0.08, "warning", None),
             AnnotationReviewItem("caption:2", "caption", "A smiling person.", 0.81, "ok", None),
@@ -107,7 +107,7 @@ def finish_saved(manager):
     )
 
 
-def test_selection_and_service_injection_do_not_request_cloud_review(wired_widget) -> None:
+def test_selection_and_service_injection_do_not_start_review(wired_widget) -> None:
     widget, service, manager = wired_widget
     widget.set_image(9)
     widget.set_image(5)
@@ -119,6 +119,10 @@ def test_selection_and_service_injection_do_not_request_cloud_review(wired_widge
     assert widget.evaluate_button.isEnabled()
     assert "画像 1 枚（ID: 5）" in widget.scope_label.text()
     assert "ステージ済み画像は含みません" in widget.scope_label.text()
+    assert "ローカルの Clef" in widget.notice_label.text()
+    assert "初回のモデル読み込み" in widget.notice_label.text()
+    assert "Clef（ローカル）" in widget.notice_label.text()
+    assert "Cloudflare" not in widget.notice_label.text()
 
 
 def test_click_shows_running_then_item_probabilities_without_edit_controls(qtbot, wired_widget) -> None:
@@ -142,7 +146,7 @@ def test_click_shows_running_then_item_probabilities_without_edit_controls(qtbot
     assert widget.results_table.item(1, 3).text() == "81.0%"
     assert widget.results_table.editTriggers() == QAbstractItemView.EditTrigger.NoEditTriggers
     assert "20% 未満" in widget.model_label.text()
-    assert "cloudflare/clef-flash" in widget.model_label.text()
+    assert "clef-flash" in widget.model_label.text()
     assert widget.evaluate_button.isEnabled()
 
 
@@ -312,10 +316,10 @@ def test_external_edit_fingerprint_rejects_old_result(wired_widget) -> None:
 def test_failed_worker_is_distinct_from_a_warning_free_result(wired_widget) -> None:
     widget, _service, manager = wired_widget
     widget._on_evaluate_requested()
-    finish(widget, manager, outcome=WorkerOutcome.FAILED, error="Cloudflare credentials are missing")
+    finish(widget, manager, outcome=WorkerOutcome.FAILED, error="Clef model file is missing")
 
     assert "失敗" in widget.status_label.text()
-    assert "credentials" in widget.status_label.text()
+    assert "model file is missing" in widget.status_label.text()
     assert widget.results_table.rowCount() == 0
     assert widget.evaluate_button.isEnabled()
 
@@ -326,7 +330,7 @@ def test_partial_result_keeps_failures_and_unevaluated_items_visible(wired_widge
     result = AnnotationReviewResult(
         image_id=5,
         fingerprint="original",
-        model_name="@cf/cloudflare/clef-flash",
+        model_name="clef-flash",
         items=(
             AnnotationReviewItem("tag:1", "tag", "blue_eyes", None, "failed", "timeout"),
             AnnotationReviewItem("caption:2", "caption", "A smiling person.", None, "unevaluated", None),
@@ -347,7 +351,7 @@ def test_partial_result_keeps_failures_and_unevaluated_items_visible(wired_widge
 def test_empty_or_stale_service_result_never_claims_no_warnings(wired_widget, status) -> None:
     widget, _service, manager = wired_widget
     widget._on_evaluate_requested()
-    result = AnnotationReviewResult(5, "original", "@cf/cloudflare/clef-flash", (), status, None)
+    result = AnnotationReviewResult(5, "original", "clef-flash", (), status, None)
 
     finish(widget, manager, result)
 
