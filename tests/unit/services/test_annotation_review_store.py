@@ -206,14 +206,14 @@ def test_candidates_with_equal_text_preserve_distinct_row_ids(saved_context):
     assert len(json.loads(record.items_json)["items"]) == 3
 
 
-def _suggestion_review(review, *, probability=0.8, status="suggestion"):
+def _suggestion_review(review, *, probability=0.8, status="suggestion", text="new_tag"):
     source = ReviewCandidateSource("hair", ("smile",), 12)
-    candidate_id = "suggestion_" + hashlib.sha256(b"new_tag").hexdigest()
+    candidate_id = "suggestion_" + hashlib.sha256(text.casefold().encode("utf-8")).hexdigest()
     return replace(
         review,
         items=(
             *review.items,
-            AnnotationReviewItem(candidate_id, "suggestion", "new_tag", probability, status),
+            AnnotationReviewItem(candidate_id, "suggestion", text, probability, status),
         ),
         candidate_source=source,
         suggestion_threshold=0.8,
@@ -374,12 +374,13 @@ def test_adoption_requires_evaluated_high_probability_suggestion(saved_context, 
     db.add_manual_tag.assert_not_called()
 
 
+@pytest.mark.parametrize("text", ["new_tag", "Fate/Grand Order"])
 def test_adoption_uses_manual_provenance_no_probability_confidence_and_preserves_reviewed_state(
-    saved_context, test_db_manager, db_session_factory, monkeypatch
+    saved_context, test_db_manager, db_session_factory, monkeypatch, text
 ):
     db, service, review = saved_context
     service.suggestion_threshold = 0.8
-    review = _suggestion_review(review)
+    review = _suggestion_review(review, text=text)
     store = AnnotationReviewStore(db)
     store.save(review, 0.2)
     expected = store.get_results((7,))[7].checked_at
@@ -395,7 +396,7 @@ def test_adoption_uses_manual_provenance_no_probability_confidence_and_preserves
     adoption = AnnotationReviewAdoptionService(test_db_manager, service, store)
     assert adoption.adopt(7, review.items[-1].candidate_id, expected)
     with db_session_factory() as session:
-        tag = session.query(Tag).filter_by(image_id=7, tag="new_tag").one()
+        tag = session.query(Tag).filter_by(image_id=7, tag=text).one()
         assert tag.is_edited_manually and tag.confidence_score is None
         assert tag.model_id == test_db_manager.get_manual_edit_model_id()
         assert session.get(Image, 7).reviewed_at.replace(tzinfo=UTC) == reviewed_at

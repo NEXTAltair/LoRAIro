@@ -41,8 +41,8 @@ class ReviewCandidateSource:
             raise ValueError("Candidate selected_tags must be a sequence of strings")
         if any(not isinstance(tag, str) for tag in self.selected_tags):
             raise ValueError("Candidate selected_tags must contain strings")
-        if isinstance(self.limit, bool) or not isinstance(self.limit, int) or self.limit <= 0:
-            raise ValueError("Candidate limit must be a positive integer")
+        if isinstance(self.limit, bool) or not isinstance(self.limit, int) or not 1 <= self.limit <= 64:
+            raise ValueError("Candidate limit must be an integer between 1 and 64")
         object.__setattr__(self, "keyword", self.keyword.strip().lower())
         object.__setattr__(
             self,
@@ -206,19 +206,18 @@ class AnnotationReviewService:
     def _with_suggestions(
         snapshot: ReviewSnapshot, source: ReviewCandidateSource | None, candidate_tags: tuple[str, ...]
     ) -> ReviewSnapshot:
-        existing = {candidate.text.strip().lower() for candidate in snapshot.tags}
-        texts = tuple(
-            dict.fromkeys(
-                tag.strip().lower()
-                for tag in candidate_tags
-                if tag.strip() and tag.strip().lower() not in existing
-            )
-        )
+        existing = {candidate.text.strip().casefold() for candidate in snapshot.tags}
+        texts: dict[str, str] = {}
+        for tag in candidate_tags:
+            text = tag.strip()
+            key = text.casefold()
+            if text and key not in existing:
+                texts.setdefault(key, text)
         suggestions = tuple(
             ReviewCandidate(
-                "suggestion_" + hashlib.sha256(text.encode("utf-8")).hexdigest(), "suggestion", text
+                "suggestion_" + hashlib.sha256(key.encode("utf-8")).hexdigest(), "suggestion", text
             )
-            for text in texts[: source.limit if source is not None else 0]
+            for key, text in tuple(texts.items())[: source.limit if source is not None else 0]
         )
         return replace(snapshot, suggestions=suggestions, candidate_source=source)
 

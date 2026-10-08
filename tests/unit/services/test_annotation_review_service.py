@@ -350,11 +350,31 @@ def test_candidate_scope_is_immutable_normalized_and_deduplicated():
 
 
 @pytest.mark.parametrize(
-    "kwargs", [{"limit": True}, {"limit": 0}, {"keyword": None}, {"selected_tags": "hair"}]
+    "kwargs", [{"limit": True}, {"limit": 0}, {"limit": 65}, {"keyword": None}, {"selected_tags": "hair"}]
 )
 def test_invalid_candidate_scope_is_rejected(kwargs):
     with pytest.raises(ValueError):
         ReviewCandidateSource(**kwargs)
+
+
+def test_candidate_limit_accepts_maximum_boundary():
+    assert ReviewCandidateSource("hair", limit=64).limit == 64
+
+
+def test_candidate_original_spelling_survives_normalized_dedup_and_existing_exclusion(
+    review_context, monkeypatch
+):
+    import hashlib
+
+    make, _, _, _, _, _, _ = review_context
+    monkeypatch.setattr(
+        TagCloudService, "_load_tags", lambda self: {1: ["HAIR", "Fate/Grand Order", "DOG"]}
+    )
+    snapshot = make().prepare_review(7, candidate_source=ReviewCandidateSource("hair"))
+    assert [candidate.text for candidate in snapshot.suggestions] == ["Fate/Grand Order", "HAIR"]
+    assert snapshot.suggestions[0].candidate_id == (
+        "suggestion_" + hashlib.sha256(b"fate/grand order").hexdigest()
+    )
 
 
 def test_candidates_exclude_existing_and_duplicates_before_per_image_limit_and_freeze_batch(

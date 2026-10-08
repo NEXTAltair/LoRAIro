@@ -100,7 +100,10 @@ class TagCloudService:
         Returns:
             GraphResult — ノード・エッジ・隣接情報と該当件数。
         """
-        image_tags = self._get_image_tags()
+        image_tags = {
+            image_id: [tag.strip().lower() for tag in tags if tag.strip()]
+            for image_id, tags in self._get_image_tags().items()
+        }
         total = len(image_tags)
 
         keyword_norm = keyword.strip().lower()
@@ -160,19 +163,28 @@ class TagCloudService:
         existing tags before applying its own limit. An empty scope never loads
         or submits the entire tag database.
         """
-        keyword_norm = keyword.strip().lower()
-        selected_set = {tag.strip().lower() for tag in selected_tags if tag.strip()}
+        keyword_norm = keyword.strip().casefold()
+        selected_set = {tag.strip().casefold() for tag in selected_tags if tag.strip()}
         if not keyword_norm and not selected_set:
             return ()
-        image_tags = {
-            image_id: list(dict.fromkeys(tag.strip().lower() for tag in tags if tag.strip()))
-            for image_id, tags in self._get_image_tags().items()
-        }
+        image_tags: dict[int, list[str]] = {}
+        spellings: dict[str, str] = {}
+        for image_id, tags in self._get_image_tags().items():
+            normalized: dict[str, None] = {}
+            for tag in tags:
+                text = tag.strip()
+                if not text:
+                    continue
+                key = text.casefold()
+                normalized[key] = None
+                # A deterministic original spelling survives duplicate DB rows.
+                spellings[key] = min(spellings.get(key, text), text)
+            image_tags[image_id] = list(normalized)
         matched = self._filter_matched(image_tags, keyword_norm, selected_set)
         frequency: Counter[str] = Counter()
         for tags in matched:
             frequency.update(set(tags) - selected_set)
-        return tuple(sorted(frequency, key=lambda tag: (-frequency[tag], tag)))
+        return tuple(spellings[tag] for tag in sorted(frequency, key=lambda tag: (-frequency[tag], tag)))
 
     # ------------------------------------------------------------------
     # Internal helpers
@@ -271,7 +283,7 @@ class TagCloudService:
                 rows = session.execute(select(Tag.image_id, Tag.tag).where(Tag.rejected_at.is_(None))).all()
                 for image_id, tag in rows:
                     if image_id in result:
-                        result[image_id].append(tag.lower())
+                        result[image_id].append(tag)
         except Exception as exc:
             logger.opt(exception=True).error(f"タグ読込エラー: {exc}")
             raise

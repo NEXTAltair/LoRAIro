@@ -163,7 +163,13 @@ class TestCandidateTags:
                 2: ["scope", "common"],
             }
         )
-        assert service.get_candidate_tags("SCOPE") == ("common", "scope", "rare")
+        assert service.get_candidate_tags("SCOPE") == ("common", "scope", "RARE")
+
+    def test_graph_normalizes_raw_database_tag_spellings(self):
+        service = _make_service({1: [" HAIR ", "Fate/Grand Order"]})
+        graph = service.build_graph("hair")
+        assert {node.tag for node in graph.nodes} == {"hair", "fate/grand order"}
+        assert service.get_candidate_tags("hair") == ("Fate/Grand Order", "HAIR")
 
     def test_selected_tags_are_and_filters_and_excluded_from_candidates(self):
         service = _make_service(

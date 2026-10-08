@@ -62,10 +62,11 @@ class AnnotationReviewAdoptionService:
             or not stored.suggestion_threshold <= candidate.probability <= 1
         ):
             return False
-        tag = candidate.text.strip().lower()
+        tag = candidate.text.strip()
         if (
             not tag
-            or candidate.candidate_id != "suggestion_" + hashlib.sha256(tag.encode("utf-8")).hexdigest()
+            or candidate.candidate_id
+            != "suggestion_" + hashlib.sha256(tag.casefold().encode("utf-8")).hexdigest()
         ):
             return False
         # This centralized path supplies manual provenance and handles duplicates.
