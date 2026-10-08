@@ -103,6 +103,7 @@ if not __name__ == "__main__":
 
         # シグナル定義 (Issue #245: selected_litellm_model_ids を emit)
         model_selection_changed = Signal(list)  # selected_litellm_model_ids
+        model_options_changed = Signal()  # route / availability / filter rebuild
         selection_count_changed = Signal(int, int)  # selected_count, total_count
         WEB_API_UNAVAILABLE_PLACEHOLDER = (
             "利用可能なWeb APIモデルがありません。APIキー設定とモデルregistry同期状態を確認してください。"
@@ -446,6 +447,7 @@ if not __name__ == "__main__":
                 self.placeholderLabel.setVisible(True)
                 self._update_selection_count()
                 self._last_render_signature = signature
+                self.model_options_changed.emit()
                 return
 
             # プレースホルダーを非表示
@@ -472,6 +474,23 @@ if not __name__ == "__main__":
 
             self._update_selection_count()
             self._last_render_signature = signature
+            self.model_options_changed.emit()
+
+        def selectable_litellm_model_ids(self) -> set[str]:
+            """現在の経路・API key で選択可能な ID (カテゴリフィルタ適用前)。
+
+            picker / preset は一覧の別カテゴリのモデルも選べるため、表示中の
+            checkbox だけでは判定しない。同じモデルの別経路は選び直さない。
+            """
+            models = [model for model in self.model_selection_service.load_models() if model.available]
+            # 接続経路の設定は WebAPI 専用。local は openrouter preference でも有効。
+            local_ids = {model.litellm_model_id for model in models if not model.requires_api_key}
+            options = build_display_options(
+                [model for model in models if model.requires_api_key],
+                available_providers=self._build_available_providers(),
+                preference=self._get_route_preference(),
+            )
+            return local_ids | {option.preferred.litellm_model_id for option in options if option.available}
 
         def _compute_render_signature(
             self, options: list[DisplayModelOption], web_api_placeholder: bool
@@ -779,10 +798,16 @@ if not __name__ == "__main__":
             target_ids = litellm_model_ids
             if self._single_selection_mode:
                 # 存在するモデルのうち最初の1件だけ選択する
-                present = [mid for mid in litellm_model_ids if mid in self.model_checkbox_widgets]
+                present = [
+                    mid
+                    for mid in litellm_model_ids
+                    if (widget := self.model_checkbox_widgets.get(mid)) is not None
+                    and widget.is_selectable()
+                ]
                 target_ids = present[:1]
             for litellm_model_id, widget in self.model_checkbox_widgets.items():
-                widget.set_selected(litellm_model_id in target_ids)
+                widget.set_selected(litellm_model_id in target_ids and widget.is_selectable())
+            self._update_selection_count()
 
         # -------------------------------------------------------------------
         # ADR 0041: Provider Batch 単一選択 / batch-capable フィルタ API

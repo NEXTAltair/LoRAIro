@@ -685,9 +685,10 @@ def _resolve_model_identifier(repository: ModelRepository, identifier: str) -> s
 
     解決順:
       1. `litellm_model_id` 完全一致 → そのまま返す (推奨経路)
-      2. `name` 一致が単一 → その行の `litellm_model_id` を返す (convenience)
-      3. `name` 一致が複数 → typer.Exit(code=1) で候補一覧を表示して中断
-      4. 一致なし → typer.Exit(code=1) で `models list` を案内して中断
+      2. provider を明示した ID が完全一致しなければ中断 (経路補完しない)
+      3. `name` 一致が単一 → その行の `litellm_model_id` を返す (convenience)
+      4. `name` 一致が複数 → UsageError で候補一覧を表示して中断
+      5. 一致なし → UsageError で `models list` を案内して中断
 
     ADR 0023 Phase 1.11: `Model.name` は非 UNIQUE、`Model.litellm_model_id` は
     UNIQUE NOT NULL の registry key SSoT。同一 name で route の異なる行が
@@ -701,12 +702,28 @@ def _resolve_model_identifier(repository: ModelRepository, identifier: str) -> s
         str: 解決後の `litellm_model_id`。
 
     Raises:
-        typer.Exit: 曖昧マッチまたは一致なしの場合 (code=1)。
+        click.UsageError: 曖昧マッチまたは一致なしの場合。
     """
     by_litellm = repository.get_model_by_litellm_id(identifier)
     if by_litellm is not None:
         _abort_if_discontinued(by_litellm)
         return by_litellm.litellm_model_id
+
+    # アプリの WebAPI 経路と Google の既存 alias。slash を含むローカルの
+    # namespace (例: SmilingWolf/wd-tagger) は正当な表示名なので区別する。
+    provider, separator, _ = identifier.partition("/")
+    if separator and provider.lower() in {
+        "openai",
+        "anthropic",
+        "google",
+        "gemini",
+        "vertex_ai",
+        "openrouter",
+    }:
+        raise click.UsageError(
+            f"Unknown model ID '{identifier}': an explicit provider-qualified ID must match exactly. "
+            "Run `lorairo-cli models list` to see available IDs."
+        )
 
     by_name = repository.get_models_by_name(identifier)
     if len(by_name) == 1:
@@ -948,7 +965,8 @@ def run(
 
     Issue #245 / ADR 0023 Phase 1.11: `--model` には `litellm_model_id` (registry
     key SSoT) を渡すこと。display 名 (`Model.name`) は同一値で複数 route の行が
-    共存しうるため、曖昧時は Error で abort し候補一覧を表示する。
+    共存しうるため、曖昧時は Error で abort し候補一覧を表示する。provider を
+    明示した ID は完全一致が必須で、別経路の表示名一致へ補完しない。
 
     Examples:
         lorairo-cli annotate run --project myproject --model openai/gpt-4o

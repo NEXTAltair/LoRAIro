@@ -11,8 +11,12 @@ from unittest.mock import Mock
 
 import click
 import pytest
+from PIL import Image
+from typer.testing import CliRunner
 
 from lorairo.cli.commands.annotate import _resolve_model_identifier
+from lorairo.cli.main import app
+from lorairo.services.annotation_save_service import AnnotationSaveResult
 
 
 def _fake_model(
@@ -63,15 +67,15 @@ class TestResolveModelIdentifier:
         """同 name 複数 provider の曖昧マッチは UsageError で候補一覧を表示"""
         repository.get_model_by_litellm_id.return_value = None
         repository.get_models_by_name.return_value = [
-            _fake_model("openai/gpt-4o", "openai/gpt-4o", "openai"),
-            _fake_model("openrouter/openai/gpt-4o", "openai/gpt-4o", "openrouter"),
+            _fake_model("openai/gpt-4o", "gpt-4o", "openai"),
+            _fake_model("openrouter/openai/gpt-4o", "gpt-4o", "openrouter"),
         ]
 
         with pytest.raises(click.UsageError) as excinfo:
-            _resolve_model_identifier(repository, "openai/gpt-4o")
+            _resolve_model_identifier(repository, "gpt-4o")
 
         out = excinfo.value.message
-        assert "Ambiguous model 'openai/gpt-4o'" in out
+        assert "Ambiguous model 'gpt-4o'" in out
         # 両方の候補が表示される
         assert "openai/gpt-4o (provider: openai)" in out
         assert "openrouter/openai/gpt-4o (provider: openrouter)" in out
@@ -126,3 +130,109 @@ class TestResolveModelIdentifier:
             _resolve_model_identifier(repository, "removed")
 
         assert "discontinued" in excinfo.value.message
+
+    @pytest.mark.parametrize(
+        "provider", ["openai", "anthropic", "google", "gemini", "vertex_ai", "openrouter"]
+    )
+    def test_explicit_provider_id_cannot_fall_back_to_name(self, repository, provider):
+        identifier = f"{provider}/missing"
+        repository.get_model_by_litellm_id.return_value = None
+        repository.get_models_by_name.return_value = [
+            _fake_model(f"openrouter/{identifier}", identifier, "openrouter")
+        ]
+        with pytest.raises(click.UsageError, match="must match exactly"):
+            _resolve_model_identifier(repository, identifier)
+        repository.get_models_by_name.assert_not_called()
+
+    def test_local_namespace_display_name_still_resolves(self, repository):
+        repository.get_model_by_litellm_id.return_value = None
+        repository.get_models_by_name.return_value = [
+            _fake_model("wd-tagger", "SmilingWolf/wd-tagger", "local")
+        ]
+        assert _resolve_model_identifier(repository, "SmilingWolf/wd-tagger") == "wd-tagger"
+
+
+@pytest.fixture
+def cli_route_flow(monkeypatch, tmp_path):
+    """Exercise the real CLI run and image-loading paths with only DB/API calls mocked."""
+    image_path = tmp_path / "processed.png"
+    Image.new("RGB", (8, 8)).save(image_path)
+    record = {"id": 1, "phash": "hash", "stored_image_path": str(image_path)}
+    container = Mock()
+    repo = container.db_manager.model_repo
+    repo.get_model_by_litellm_id.return_value = None
+    image_repo = container.db_manager.image_repo
+    image_repo.get_existing_image_ids.return_value = [1]
+    image_repo.get_candidate_image_ids.return_value = [1]
+    image_repo.get_images_by_ids.return_value = [record]
+    image_repo.get_images_by_filter.return_value = ([record], 1)
+    container.config_service.get_setting.side_effect = lambda section, key, default="": (
+        "mock-key" if key.endswith("key") else default
+    )
+    container.annotator_library.is_model_deprecated.return_value = False
+    container.annotator_library.annotate.return_value = {"hash": {"result": {"tags": ["test"]}}}
+    container.annotation_save_service.save_annotation_results.return_value = AnnotationSaveResult(
+        success_count=1, error_count=0, skip_count=0, total_count=1
+    )
+    monkeypatch.setattr("lorairo.cli.commands.annotate.api_get_project", Mock())
+    monkeypatch.setattr("lorairo.cli.commands.annotate.get_service_container", lambda: container)
+    monkeypatch.setattr("lorairo.cli.commands.annotate.selection_includes_webapi_model", lambda *_: False)
+    monkeypatch.setattr(
+        "lorairo.services.model_registry_protocol.selection_includes_webapi_model", lambda *_: False
+    )
+    return container
+
+
+@pytest.mark.parametrize("explicit_images", [False, True])
+def test_cli_explicit_missing_id_fails_before_image_or_api_calls(cli_route_flow, explicit_images):
+    container = cli_route_flow
+    container.db_manager.model_repo.get_models_by_name.return_value = [
+        _fake_model("openrouter/openai/gpt-4o", "openai/gpt-4o", "openrouter")
+    ]
+    args = ["annotate", "run", "--project", "mock-project", "--model", "openai/gpt-4o"]
+    if explicit_images:
+        args += ["--image-id", "1"]
+    result = CliRunner().invoke(app, args)
+    assert result.exit_code == 2, result.output
+    assert "must match exactly" in " ".join(result.output.split())
+    container.db_manager.image_repo.get_images_by_filter.assert_not_called()
+    container.db_manager.image_repo.get_images_by_ids.assert_not_called()
+    container.annotator_library.annotate.assert_not_called()
+    container.annotation_save_service.save_annotation_results.assert_not_called()
+
+
+@pytest.mark.parametrize(
+    "identifier,resolved,provider,exact",
+    [
+        ("openrouter/openai/gpt-4o", "openrouter/openai/gpt-4o", "openrouter", True),
+        ("gpt-4o", "openrouter/openai/gpt-4o", "openrouter", False),
+        ("SmilingWolf/wd-tagger", "wd-tagger", "local", False),
+    ],
+)
+def test_cli_resolves_legitimate_identifier_and_sends_exact_target(
+    cli_route_flow, identifier, resolved, provider, exact
+):
+    container = cli_route_flow
+    model = _fake_model(resolved, identifier, provider)
+    container.db_manager.model_repo.get_model_by_litellm_id.side_effect = lambda mid: (
+        model if mid == resolved and (exact or mid != identifier) else None
+    )
+    container.db_manager.model_repo.get_models_by_name.return_value = [model]
+    result = CliRunner().invoke(
+        app, ["annotate", "run", "--project", "mock-project", "--model", identifier, "--image-id", "1"]
+    )
+    assert result.exit_code == 0, result.output
+    assert container.annotator_library.annotate.call_args.kwargs["litellm_model_ids"] == [resolved]
+    container.annotation_save_service.save_annotation_results.assert_called_once()
+
+
+def test_cli_ambiguous_display_name_stops_before_api_call(cli_route_flow):
+    container = cli_route_flow
+    container.db_manager.model_repo.get_models_by_name.return_value = [
+        _fake_model("openai/gpt-4o", "gpt-4o", "openai"),
+        _fake_model("openrouter/openai/gpt-4o", "gpt-4o", "openrouter"),
+    ]
+    result = CliRunner().invoke(app, ["annotate", "run", "--project", "mock-project", "--model", "gpt-4o"])
+    assert result.exit_code == 2
+    assert "Ambiguous model" in result.output
+    container.annotator_library.annotate.assert_not_called()

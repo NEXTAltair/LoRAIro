@@ -280,6 +280,7 @@ class AnnotateTabWidget(QWidget, Ui_AnnotateTab):
 
         # Signal 配線
         self._batch_model_selection.model_selection_changed.connect(self._on_pipeline_models_changed)
+        self._batch_model_selection.model_options_changed.connect(self.reconcile_model_selection)
         self._pipeline_stage_table.add_model_requested.connect(self._on_pipeline_add_model_requested)
         self._pipeline_stage_table.remove_model_requested.connect(self._on_pipeline_remove_model_requested)
         # preset 配線 (Issue #847): preset chip 選択 / 保存要求をハンドラへ接続
@@ -518,6 +519,21 @@ class AnnotateTabWidget(QWidget, Ui_AnnotateTab):
         self._refresh_preflight_summary()
 
     # -- 実行系 getter (MainWindow.start_annotation が読む) --------------------
+
+    def refresh_model_selection(self) -> None:
+        """設定保存後・実行直前に最新の経路と選択状態を同期する。"""
+        self._batch_model_selection.update_model_display()
+        # 同一表示で rebuild が省略されても stale な SSoT を検証する。
+        self.reconcile_model_selection()
+
+    @Slot()
+    def reconcile_model_selection(self) -> None:
+        """利用できなくなった経路を解除し、有効な offscreen 選択は維持する。"""
+        selectable = self._batch_model_selection.selectable_litellm_model_ids()
+        selected = [mid for mid in self.selected_litellm_model_ids() if mid in selectable]
+        self._batch_model_selection.set_selected_models(selected)
+        self._sync_widget_selection_to_state(selected)
+        self._refresh_pipeline_panel(selected)
 
     def _sync_widget_selection_to_state(self, selected: list[str] | None = None) -> None:
         """widget の programmatic な選択変更を state manager (SSoT) へ反映する (#884)。
@@ -1127,7 +1143,7 @@ class AnnotateTabWidget(QWidget, Ui_AnnotateTab):
         except (RuntimeError, AttributeError) as e:
             logger.warning(f"ServiceContainer の config_service 再読込に失敗 (継続可): {e}")
         try:
-            self._batch_model_selection.update_model_display()
+            self.refresh_model_selection()
         except (RuntimeError, AttributeError) as e:
             logger.warning(f"モデル選択ウィジェットの更新に失敗 (継続可): {e}")
 
