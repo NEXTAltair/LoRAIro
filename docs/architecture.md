@@ -179,6 +179,17 @@ widget-local debounce helpers (`widgets/count_estimate.py`, `widgets/tag_suggest
 - **File Organization**: Images with metadata files (.txt/.caption)
 - **Project Structure**: `lorairo_data/project_name_YYYYMMDD_NNN/` format
 
+**付属テキストの取り込み** (#1374):
+GUI 登録ワーカーと共通 DB 登録入口は `SidecarAnnotationReader` を共有する。
+`.txt` / `.caption` はそれぞれ通常ファイル・最大 1 MiB に限定し、リンクや特殊ファイル、
+読込前の置換、サイズ超過はファイル名と理由を記録して個別にスキップする。
+POSIX では `O_NOFOLLOW` / `O_NONBLOCK` と open 前後のファイル同一性検査を使い、
+Windows では reparse point と open 前後の同一性を検査する。親ディレクトリの隔離は対象外。
+実際の読込も 1 MiB と超過検出用 1 byte までに制限し、超過時は部分的な内容を保存しない。
+正常な兄弟ファイル・空ファイル・画像本体・後続画像は処理を継続し、文字コードフォールバックと
+タグ / caption の解釈を維持する。本文・未解決タグ全文は関連保存ログに出さず、件数・ID・例外型を記録する。
+汎用 `read_text_with_fallback` にはこのサイズ・ファイル種別制限を適用しない。
+
 **保存場所の統一** (Epic #166):
 GUI と CLI はともに `lorairo_data/` (config/lorairo.toml の `[directories] database_base_dir`) をプロジェクト保存場所として使用する。旧 CLI 保存場所 (`~/.lorairo/projects/`) は廃止され、`lorairo_data/` に統一済み。
 

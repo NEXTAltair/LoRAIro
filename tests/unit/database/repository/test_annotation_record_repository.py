@@ -43,6 +43,7 @@ from lorairo.database.schema import (
     Tag,
 )
 from lorairo.services.configuration_service import ConfigurationService
+from lorairo.utils.log import logger
 
 
 @pytest.fixture
@@ -1190,3 +1191,54 @@ class TestMixedCaseStoredTagWritePaths:
         by_tag = {row.tag: row for row in rows}
         assert by_tag["Mixed Case"].rejected_at is not None
         assert by_tag["other tag"].rejected_at is None
+
+
+@pytest.mark.parametrize(
+    "failure",
+    ["unavailable", "search", "registration", "retry", "batch_search", "batch_registration", "batch_retry"],
+)
+def test_sidecar_payload_and_tag_service_errors_are_absent_from_logs(
+    annotation_repository, image_id, monkeypatch, failure
+):
+    """1 MiB の未解決タグ・caption・入力を含む例外でも本文を記録しない (#1374)。"""
+    payload = "PRIVATESIDEBODY".ljust(1024 * 1024, "x")
+    repo = annotation_repository
+    reader = Mock()
+    reader.search_tags_bulk.return_value = {}
+    service = Mock()
+    repo.tag_register_service = service
+    if failure != "unavailable":
+        repo.merged_reader = reader
+    empty_result = Mock(items=[])
+    search = Mock(return_value=empty_result)
+    monkeypatch.setattr("lorairo.database.repository.annotation_record.search_tags", search)
+    if failure == "search":
+        reader.search_tags_bulk.side_effect = RuntimeError(payload)
+        search.side_effect = RuntimeError(payload)
+    elif failure in ("registration", "batch_registration"):
+        service.register_tag.side_effect = ValueError(payload)
+    elif failure in ("retry", "batch_retry"):
+        service.register_tag.side_effect = ValueError("FOREIGN KEY constraint failed: " + payload)
+        search.side_effect = (
+            [empty_result, RuntimeError(payload)] if failure == "retry" else RuntimeError(payload)
+        )
+    elif failure == "batch_search":
+        reader.search_tags_bulk.side_effect = RuntimeError(payload)
+
+    messages = []
+    sink = logger.add(lambda message: messages.append(str(message)), level="DEBUG", format="{message}")
+    try:
+        cache = repo.batch_resolve_tag_ids({payload}) if failure.startswith("batch_") else None
+        repo.save_annotations(
+            image_id,
+            {
+                "tags": [{"tag": payload}],
+                "captions": [{"caption": payload}],
+            },
+            tag_id_cache=cache,
+        )
+    finally:
+        logger.remove(sink)
+    assert messages
+    assert all("PRIVATESIDEBODY" not in line and len(line) < 300 for line in messages)
+    assert any("1 tags could not be linked" in line and f"image_id={image_id}" in line for line in messages)

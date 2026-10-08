@@ -164,39 +164,39 @@ class TestSidecarAnnotationReader:
             if txt_path.exists():
                 txt_path.unlink()
 
-    @patch("lorairo.annotation.sidecar_reader.Path.exists")
-    @patch("builtins.open", side_effect=FileNotFoundError("File not found"))
-    def test_get_existing_annotations_file_error(self, mock_file, mock_exists):
-        """ファイル読み込みエラーのテスト"""
+    def test_get_existing_annotations_file_error(self, tmp_path):
+        """読込失敗を個別に記録し、正常な兄弟ファイルを取り込む。"""
         reader = SidecarAnnotationReader()
-        image_path = Path("test_image.jpg")
-
-        mock_exists.return_value = True
-
-        with patch("lorairo.annotation.sidecar_reader.logger") as mock_logger:
-            mock_logger.opt.return_value = mock_logger
+        image_path = tmp_path / "test_image.jpg"
+        image_path.with_suffix(".txt").write_text("tag")
+        image_path.with_suffix(".caption").write_text("normal caption")
+        with (
+            patch.object(reader, "_read_annotations", side_effect=PermissionError("private body")),
+            patch("lorairo.annotation.sidecar_reader.logger") as mock_logger,
+        ):
             result = reader.get_existing_annotations(image_path)
+        mock_logger.warning.assert_called_once()
+        assert result["tags"] == []
+        assert result["captions"] == ["normal caption"]
+        assert "private body" not in str(mock_logger.warning.call_args)
 
-        # エラーログが出力されることを確認
-        mock_logger.error.assert_called_once()
-        assert result is None
-
-    @patch("lorairo.annotation.sidecar_reader.Path.exists")
-    @patch("builtins.open", side_effect=UnicodeDecodeError("utf-8", b"", 0, 1, "invalid"))
-    def test_get_existing_annotations_encoding_error(self, mock_file, mock_exists):
-        """エンコーディングエラーのテスト"""
+    def test_get_existing_annotations_encoding_error(self, tmp_path):
+        """解釈失敗時も本文をログに出さず画像登録を継続できる。"""
         reader = SidecarAnnotationReader()
-        image_path = Path("test_image.jpg")
-
-        mock_exists.return_value = True
-
-        with patch("lorairo.annotation.sidecar_reader.logger") as mock_logger:
-            mock_logger.opt.return_value = mock_logger
+        image_path = tmp_path / "test_image.jpg"
+        image_path.with_suffix(".txt").write_bytes(b"private body")
+        with (
+            patch(
+                "lorairo.annotation.sidecar_reader.decode_text_with_fallback",
+                side_effect=UnicodeDecodeError("utf-8", b"private body", 0, 1, "invalid"),
+            ),
+            patch("lorairo.annotation.sidecar_reader.logger") as mock_logger,
+        ):
             result = reader.get_existing_annotations(image_path)
-
-        # エラーログが出力されることを確認
-        mock_logger.error.assert_called_once()
-        assert result is None
+        mock_logger.warning.assert_called_once()
+        assert result["tags"] == []
+        assert result["captions"] == []
+        assert "private body" not in str(mock_logger.warning.call_args)
 
     def test_tag_cleaner_integration(self):
         """TagCleaner の統合テスト"""
