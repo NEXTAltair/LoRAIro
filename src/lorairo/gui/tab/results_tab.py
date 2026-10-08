@@ -38,6 +38,8 @@ class ResultsTabWidget(QWidget):
     manual_review_requested = Signal(int)
     review_target_selection_requested = Signal()
     review_target_list_requested = Signal()
+    running_status_changed = Signal(str)
+    review_result_saved = Signal(int)
 
     def __init__(
         self,
@@ -64,6 +66,8 @@ class ResultsTabWidget(QWidget):
             self.review_target_selection_requested
         )
         self._annotation_review_widget.target_list_requested.connect(self.review_target_list_requested)
+        self._annotation_review_widget.running_status_changed.connect(self.running_status_changed)
+        self._annotation_review_widget.review_result_saved.connect(self.review_result_saved)
         self._annotation_review_widget.setVisible(False)
         if staging_state_manager is not None:
             staging_state_manager.staged_images_changed.connect(self._on_review_scope_changed)
@@ -85,7 +89,7 @@ class ResultsTabWidget(QWidget):
 
     @property
     def annotation_review_widget(self) -> AnnotationReviewBatchWidget:
-        """ステージ済み画像のアノテーション確認と保存結果を表示する。"""
+        """ステージ済み画像のアノテーションチェックと保存結果を表示する。"""
         return self._annotation_review_widget
 
     def set_annotation_review_services(
