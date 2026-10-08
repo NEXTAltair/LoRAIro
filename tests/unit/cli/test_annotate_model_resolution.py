@@ -27,6 +27,7 @@ def _fake_model(
         litellm_model_id=litellm_model_id,
         name=name,
         provider=provider,
+        requires_api_key=provider not in {None, "", "local"},
         available=available,
     )
 
@@ -142,14 +143,17 @@ class TestResolveModelIdentifier:
         ]
         with pytest.raises(click.UsageError, match="must match exactly"):
             _resolve_model_identifier(repository, identifier)
-        repository.get_models_by_name.assert_not_called()
+        repository.get_models_by_name.assert_called_once_with(identifier)
 
-    def test_local_namespace_display_name_still_resolves(self, repository):
+    @pytest.mark.parametrize(
+        "display_name", ["SmilingWolf/wd-tagger", "google/siglip-so400m", "openai/clip-vit-large-patch14"]
+    )
+    def test_local_namespace_display_name_still_resolves(self, repository, display_name):
         repository.get_model_by_litellm_id.return_value = None
         repository.get_models_by_name.return_value = [
-            _fake_model("wd-tagger", "SmilingWolf/wd-tagger", "local")
+            _fake_model("local-classifier", display_name, "local")
         ]
-        assert _resolve_model_identifier(repository, "SmilingWolf/wd-tagger") == "wd-tagger"
+        assert _resolve_model_identifier(repository, display_name) == "local-classifier"
 
 
 @pytest.fixture
@@ -207,6 +211,8 @@ def test_cli_explicit_missing_id_fails_before_image_or_api_calls(cli_route_flow,
         ("openrouter/openai/gpt-4o", "openrouter/openai/gpt-4o", "openrouter", True),
         ("gpt-4o", "openrouter/openai/gpt-4o", "openrouter", False),
         ("SmilingWolf/wd-tagger", "wd-tagger", "local", False),
+        ("google/siglip-so400m", "local-siglip", "local", False),
+        ("openai/clip-vit-large-patch14", "local-clip", "local", False),
     ],
 )
 def test_cli_resolves_legitimate_identifier_and_sends_exact_target(
@@ -233,6 +239,23 @@ def test_cli_ambiguous_display_name_stops_before_api_call(cli_route_flow):
         _fake_model("openrouter/openai/gpt-4o", "gpt-4o", "openrouter"),
     ]
     result = CliRunner().invoke(app, ["annotate", "run", "--project", "mock-project", "--model", "gpt-4o"])
+    assert result.exit_code == 2
+    assert "Ambiguous model" in result.output
+    container.annotator_library.annotate.assert_not_called()
+
+
+@pytest.mark.parametrize(
+    "providers", [("local", "local"), ("local", "openrouter"), ("openai", "openrouter")]
+)
+def test_cli_provider_namespace_name_with_multiple_matches_stops_before_api_call(cli_route_flow, providers):
+    container = cli_route_flow
+    container.db_manager.model_repo.get_models_by_name.return_value = [
+        _fake_model("first-target", "openai/gpt-4o", providers[0]),
+        _fake_model("second-target", "openai/gpt-4o", providers[1]),
+    ]
+    result = CliRunner().invoke(
+        app, ["annotate", "run", "--project", "mock-project", "--model", "openai/gpt-4o", "--image-id", "1"]
+    )
     assert result.exit_code == 2
     assert "Ambiguous model" in result.output
     container.annotator_library.annotate.assert_not_called()

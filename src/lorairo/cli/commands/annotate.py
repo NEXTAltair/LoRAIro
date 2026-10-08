@@ -685,9 +685,9 @@ def _resolve_model_identifier(repository: ModelRepository, identifier: str) -> s
 
     解決順:
       1. `litellm_model_id` 完全一致 → そのまま返す (推奨経路)
-      2. provider を明示した ID が完全一致しなければ中断 (経路補完しない)
-      3. `name` 一致が単一 → その行の `litellm_model_id` を返す (convenience)
-      4. `name` 一致が複数 → UsageError で候補一覧を表示して中断
+      2. `name` 一致が複数 → UsageError で候補一覧を表示して中断
+      3. provider 付き入力はローカル表示名の単一一致以外、完全一致が必須
+      4. `name` 一致が単一 → その行の `litellm_model_id` を返す (convenience)
       5. 一致なし → UsageError で `models list` を案内して中断
 
     ADR 0023 Phase 1.11: `Model.name` は非 UNIQUE、`Model.litellm_model_id` は
@@ -709,29 +709,7 @@ def _resolve_model_identifier(repository: ModelRepository, identifier: str) -> s
         _abort_if_discontinued(by_litellm)
         return by_litellm.litellm_model_id
 
-    # アプリの WebAPI 経路と Google の既存 alias。slash を含むローカルの
-    # namespace (例: SmilingWolf/wd-tagger) は正当な表示名なので区別する。
-    provider, separator, _ = identifier.partition("/")
-    if separator and provider.lower() in {
-        "openai",
-        "anthropic",
-        "google",
-        "gemini",
-        "vertex_ai",
-        "openrouter",
-    }:
-        raise click.UsageError(
-            f"Unknown model ID '{identifier}': an explicit provider-qualified ID must match exactly. "
-            "Run `lorairo-cli models list` to see available IDs."
-        )
-
     by_name = repository.get_models_by_name(identifier)
-    if len(by_name) == 1:
-        _abort_if_discontinued(by_name[0])
-        resolved = by_name[0].litellm_model_id
-        logger.debug(f"--model '{identifier}' を name 経由で {resolved} に解決")
-        return resolved
-
     if len(by_name) > 1:
         candidate_lines = "\n".join(
             f"  - {m.litellm_model_id} (provider: {m.provider or 'unknown'})" for m in by_name
@@ -741,6 +719,31 @@ def _resolve_model_identifier(repository: ModelRepository, identifier: str) -> s
             f"{candidate_lines}\n"
             "Use the full LiteLLM model ID. Run `lorairo-cli models list` to see available IDs."
         )
+
+    # アプリの WebAPI 経路と Google の既存 alias。slash を含むローカルの
+    # namespace (例: google/siglip-so400m) は正当な表示名なので、単一一致の
+    # requires_api_key=False を確認して区別する。cloud の別経路へは補完しない。
+    provider, separator, _ = identifier.partition("/")
+    explicit_provider = separator and provider.lower() in {
+        "openai",
+        "anthropic",
+        "google",
+        "gemini",
+        "vertex_ai",
+        "openrouter",
+    }
+    local_name_match = len(by_name) == 1 and by_name[0].requires_api_key is False
+    if explicit_provider and not local_name_match:
+        raise click.UsageError(
+            f"Unknown model ID '{identifier}': an explicit provider-qualified ID must match exactly. "
+            "Run `lorairo-cli models list` to see available IDs."
+        )
+
+    if len(by_name) == 1:
+        _abort_if_discontinued(by_name[0])
+        resolved = by_name[0].litellm_model_id
+        logger.debug(f"--model '{identifier}' を name 経由で {resolved} に解決")
+        return resolved
 
     raise click.UsageError(
         f"Unknown model '{identifier}'. Run `lorairo-cli models list` to see available IDs."
