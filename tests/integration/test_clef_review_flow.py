@@ -22,13 +22,13 @@ pytestmark = pytest.mark.integration
 
 
 def test_saved_warning_and_proposal_remain_correlated_through_manual_edits(
-    test_db_manager, db_session_factory, tmp_path, monkeypatch
+    test_db_manager, db_session_factory, tmp_path, monkeypatch, local_clef_settings
 ):
     package = (
         Path(__file__).resolve().parents[2] / "local_packages/image-annotator-lib/src/image_annotator_lib"
     )
     monkeypatch.setattr(sys.modules["image_annotator_lib"], "__path__", [str(package)])
-    from image_annotator_lib.decisions import CloudflareDecisionClient
+    from image_annotator_lib.decisions import LocalDecisionClient
 
     path = tmp_path / "portrait.png"
     PILImage.new("RGB", (32, 32), "red").save(path)
@@ -69,17 +69,13 @@ def test_saved_warning_and_proposal_remain_correlated_through_manual_edits(
         for question_id, annotation in payload["state"]["annotations"].items():
             probability = 0.04 if annotation["kind"] == "caption" or annotation["text"] == "dog" else 0.93
             answers[question_id] = {"type": "noul", "noul": probability}
-        return httpx.Response(
-            200, json={"success": True, "result": {"model": "clef-flash", "answers": answers}}
-        )
+        return httpx.Response(200, json={"model": "clef-flash", "answers": answers})
 
-    config = ConfigurationService(
-        shared_config={"api": {"cloudflare_account_id": "account", "cloudflare_api_token": "fake-token"}}
-    )
+    config = ConfigurationService(shared_config={"annotation_review": local_clef_settings})
     service = AnnotationReviewService(
         config,
         test_db_manager,
-        client_factory=partial(CloudflareDecisionClient, transport=httpx.MockTransport(transport)),
+        client_factory=partial(LocalDecisionClient, transport=httpx.MockTransport(transport)),
     )
     store = AnnotationReviewStore(test_db_manager)
     result = AnnotationReviewBatchWorker(

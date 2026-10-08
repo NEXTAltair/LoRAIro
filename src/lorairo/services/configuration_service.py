@@ -1,6 +1,5 @@
 """アプリケーションの設定を管理するサービスモジュール。"""
 
-import os
 from pathlib import Path
 from typing import Any
 
@@ -231,22 +230,6 @@ class ConfigurationService:
             for key_name, provider in provider_key_map.items()
             if api_config.get(key_name) and api_config[key_name].strip()
         }
-
-    def get_cloudflare_credentials(self) -> tuple[str, str]:
-        """Resolve review credentials from environment, then local configuration.
-
-        Cloudflare decisions are separate from annotation model discovery.
-        Credentials are deliberately not included in provider model selection.
-        """
-        account_id = os.environ.get("CLOUDFLARE_ACCOUNT_ID") or self.get_setting(
-            "api", "cloudflare_account_id", ""
-        )
-        api_token = (
-            os.environ.get("CLOUDFLARE_API_TOKEN")
-            or os.environ.get("CLOUDFLARE_AUTH_TOKEN")
-            or self.get_setting("api", "cloudflare_api_token", "")
-        )
-        return str(account_id).strip(), str(api_token).strip()
 
     def is_provider_available(self, provider: str) -> bool:
         """指定されたプロバイダーが利用可能かチェックします。"""

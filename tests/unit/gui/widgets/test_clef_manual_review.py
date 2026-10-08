@@ -57,7 +57,7 @@ def test_addition_proposals_are_separate_and_require_manual_adoption(qtbot):
     review = AnnotationReviewResult(
         5,
         "fp",
-        "@cf/cloudflare/clef-flash",
+        "clef-flash",
         (
             AnnotationReviewItem("tag_7", "tag", "dog", 0.1, "warning"),
             AnnotationReviewItem("suggestion_cat", "suggestion", "cat", 0.9, "suggestion"),

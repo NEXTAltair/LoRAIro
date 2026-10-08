@@ -22,7 +22,7 @@ def _result(image_id=1, status="completed"):
     items = (AnnotationReviewItem("tag_10", "tag", "cat", 0.1, "warning"),)
     if status == "unevaluated":
         items = ()
-    return AnnotationReviewResult(image_id, "fingerprint", "@cf/cloudflare/clef-flash", items, status)
+    return AnnotationReviewResult(image_id, "fingerprint", "clef-flash", items, status)
 
 
 @pytest.fixture
@@ -36,7 +36,7 @@ def services(monkeypatch):
         yield container
 
     monkeypatch.setattr(review, "_project_context", context)
-    service = Mock(model_name="@cf/cloudflare/clef-flash")
+    service = Mock(model_name="clef-flash")
     service.prepare_review.side_effect = lambda image_id: image_id
     service.review.side_effect = lambda snapshot, **kwargs: _result(snapshot)
     factory = Mock(return_value=service)

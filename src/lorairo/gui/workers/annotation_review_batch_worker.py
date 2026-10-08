@@ -45,9 +45,7 @@ class AnnotationReviewBatchWorker(LoRAIroWorkerBase[AnnotationReviewBatchWorkerR
 
     _OPERATION_TYPE = "annotation_review"
     MAX_IMAGES: ClassVar[int] = 500
-    _STOP_ERROR_CODES: ClassVar[frozenset[str]] = frozenset(
-        {"configuration", "authentication", "rate_limit"}
-    )
+    _STOP_ERROR_CODES: ClassVar[frozenset[str]] = frozenset({"configuration", "transport", "timeout"})
 
     per_image_finished = Signal(AnnotationReviewBatchImageResult)
 

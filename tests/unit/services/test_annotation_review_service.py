@@ -16,13 +16,13 @@ from lorairo.services.tag_cloud_service import TagCloudService
 
 
 @pytest.fixture
-def review_context(tmp_path, monkeypatch):
+def review_context(tmp_path, monkeypatch, local_clef_settings):
     # The repository's native-library mock still allows this lightweight API.
     package = (
         Path(__file__).resolve().parents[3] / "local_packages/image-annotator-lib/src/image_annotator_lib"
     )
     monkeypatch.setattr(sys.modules["image_annotator_lib"], "__path__", [str(package)])
-    from image_annotator_lib.decisions import CloudflareDecisionClient
+    from image_annotator_lib.decisions import LocalDecisionClient
 
     path = tmp_path / "crop.png"
     Image.new("RGB", (32, 32), "red").save(path)
@@ -37,9 +37,7 @@ def review_context(tmp_path, monkeypatch):
     db = Mock()
     db.get_image_metadata.return_value = {"id": 7, "stored_image_path": str(path)}
     db.get_image_annotations.return_value = annotations
-    config = ConfigurationService(
-        shared_config={"api": {"cloudflare_account_id": "account", "cloudflare_api_token": "test-token"}}
-    )
+    config = ConfigurationService(shared_config={"annotation_review": local_clef_settings})
     requests = []
 
     def success(request):
@@ -49,13 +47,10 @@ def review_context(tmp_path, monkeypatch):
         return httpx.Response(
             200,
             json={
-                "success": True,
-                "result": {
-                    "model": "clef-flash",
-                    "answers": {
-                        key: {"type": "noul", "noul": probabilities.get(key, 0.7)}
-                        for key in payload["questions"]
-                    },
+                "model": "clef-flash",
+                "answers": {
+                    key: {"type": "noul", "noul": probabilities.get(key, 0.7)}
+                    for key in payload["questions"]
                 },
             },
         )
@@ -64,7 +59,7 @@ def review_context(tmp_path, monkeypatch):
         return AnnotationReviewService(
             config,
             db,
-            client_factory=partial(CloudflareDecisionClient, transport=httpx.MockTransport(handler)),
+            client_factory=partial(LocalDecisionClient, transport=httpx.MockTransport(handler)),
         )
 
     return make_service, db, config, annotations, requests, path, success
@@ -84,7 +79,7 @@ def test_source_rows_probability_direction_threshold_and_read_only(review_contex
         ("tag_12", "warning", 0.03),
         ("caption_21", "ok", 0.2),
     ]
-    assert result.model_name == "@cf/cloudflare/clef-flash"
+    assert result.model_name == "clef-flash"
     assert len(requests) == 1
     assert set(requests[0]["questions"]) == {"tag_11", "tag_12", "caption_21"}
     assert requests[0]["state"]["annotations"]["tag_12"]["text"] == "dog"
@@ -146,7 +141,7 @@ def test_later_batch_image_edit_cannot_retarget_its_fixed_annotation_snapshot(re
     assert store.save.call_count == 2
 
 
-def test_edit_between_chunks_stops_more_paid_requests(review_context):
+def test_edit_between_chunks_stops_more_local_inference(review_context):
     make, _, _, annotations, requests, _, success = review_context
     annotations["tags"] = [{"id": index, "tag": f"tag {index}"} for index in range(130)]
     annotations["captions"] = []
@@ -197,11 +192,11 @@ def test_large_annotation_set_chunks_and_retains_partial_failure(review_context)
     service = make(second_chunk_fails)
     result = service.review(service.prepare_review(7))
     assert result.status == "partial"
-    assert [len(request["questions"]) for request in requests] == [64, 64]
-    assert [len(request["state"]["annotations"]) for request in requests] == [64, 64]
-    assert all(item.probability is not None for item in result.items[:64])
-    assert all(item.status == "failed" and item.probability is None for item in result.items[64:128])
-    assert all(item.status == "unevaluated" for item in result.items[128:])
+    assert [len(request["questions"]) for request in requests] == [16, 16]
+    assert [len(request["state"]["annotations"]) for request in requests] == [16, 16]
+    assert all(item.probability is not None for item in result.items[:16])
+    assert all(item.status == "failed" and item.probability is None for item in result.items[16:32])
+    assert all(item.status == "unevaluated" for item in result.items[32:])
     assert "private-provider-detail" not in str(result)
 
 
@@ -212,7 +207,7 @@ def test_three_chunks_cover_every_candidate_once(review_context):
     service = make()
     result = service.review(service.prepare_review(7))
     assert result.status == "completed"
-    assert [len(request["questions"]) for request in requests] == [64, 64, 2]
+    assert [len(request["questions"]) for request in requests] == [16] * 8 + [2]
     assert len(result.items) == 130
     assert len({item.candidate_id for item in result.items}) == 130
 
@@ -230,7 +225,7 @@ def test_failure_cannot_be_interpreted_as_no_warning(review_context, failure):
         }
         if failure == "missing_answer":
             del answers["tag_12"]
-        return httpx.Response(200, json={"result": {"model": "clef-flash", "answers": answers}})
+        return httpx.Response(200, json={"model": "clef-flash", "answers": answers})
 
     service = make(fail)
     result = service.review(service.prepare_review(7))
@@ -238,14 +233,14 @@ def test_failure_cannot_be_interpreted_as_no_warning(review_context, failure):
     assert result.error
     assert all(item.status == "failed" and item.probability is None for item in result.items)
     assert "test-token" not in str(result)
-    assert result.error_code == ("authentication" if failure == "http" else "invalid_response")
+    assert result.error_code == ("provider" if failure == "http" else "invalid_response")
 
 
-def test_empty_candidates_do_not_send_or_require_credentials(review_context):
+def test_empty_candidates_do_not_run_or_require_model_files(review_context):
     make, _, config, annotations, requests, _, _ = review_context
     annotations["tags"] = []
     annotations["captions"] = []
-    config.update_setting("api", "cloudflare_api_token", "")
+    config.update_setting("annotation_review", "model_path", "")
     service = make()
     result = service.review(service.prepare_review(7))
     assert result.status == "unevaluated"
@@ -253,11 +248,9 @@ def test_empty_candidates_do_not_send_or_require_credentials(review_context):
     assert requests == []
 
 
-def test_missing_credentials_are_explicit_failure(review_context, monkeypatch):
+def test_missing_local_model_settings_are_explicit_failure(review_context):
     make, _, config, _, requests, _, _ = review_context
-    for name in ("CLOUDFLARE_API_TOKEN", "CLOUDFLARE_AUTH_TOKEN", "CLOUDFLARE_ACCOUNT_ID"):
-        monkeypatch.delenv(name, raising=False)
-    config.update_setting("api", "cloudflare_api_token", "")
+    config.update_setting("annotation_review", "model_path", "")
     service = make()
     result = service.review(service.prepare_review(7))
     assert result.status == "failed"
@@ -334,6 +327,43 @@ def test_invalid_config_is_rejected_offline(review_context, field, value):
     config.update_setting("annotation_review", field, value)
     with pytest.raises(ValueError, match="annotation_review"):
         make()
+    assert requests == []
+
+
+@pytest.mark.parametrize("setting", ["server_path", "model_path", "mmproj_path"])
+def test_replaced_local_model_files_invalidate_snapshot_before_inference(review_context, setting):
+    make, _, config, _, requests, _, _ = review_context
+    service = make()
+    snapshot = service.prepare_review(7)
+    Path(config.get_setting("annotation_review", setting)).write_bytes(b"replacement-model-file")
+
+    result = service.review(snapshot)
+
+    assert result.status == "stale"
+    assert all(item.probability is None for item in result.items)
+    assert requests == []
+
+
+@pytest.mark.parametrize("name,value", [("n_gpu_layers", 0), ("context_size", 8192)])
+def test_changed_local_execution_settings_invalidate_saved_snapshot(review_context, name, value):
+    make, _, config, _, requests, _, _ = review_context
+    snapshot = make().prepare_review(7)
+    config.update_setting("annotation_review", name, value)
+
+    assert not make().is_current(snapshot)
+    assert requests == []
+
+
+def test_cloudflare_environment_cannot_enable_an_unconfigured_local_model(review_context, monkeypatch):
+    make, _, config, _, requests, _, _ = review_context
+    monkeypatch.setenv("CLOUDFLARE_ACCOUNT_ID", "unused-account")
+    monkeypatch.setenv("CLOUDFLARE_API_TOKEN", "unused-token")
+    config.update_setting("annotation_review", "model_path", "")
+    service = make()
+
+    result = service.review(service.prepare_review(7))
+
+    assert result.status == "failed" and result.error_code == "configuration"
     assert requests == []
 
 
@@ -436,13 +466,11 @@ def test_suggestion_probability_direction_boundary_and_safe_stable_ids(review_co
         return httpx.Response(
             200,
             json={
-                "result": {
-                    "model": "clef-flash",
-                    "answers": {
-                        key: {"type": "noul", "noul": 0.8 if data["text"] == "new" else 0.79}
-                        for key, data in payload["state"]["annotations"].items()
-                    },
-                }
+                "model": "clef-flash",
+                "answers": {
+                    key: {"type": "noul", "noul": 0.8 if data["text"] == "new" else 0.79}
+                    for key, data in payload["state"]["annotations"].items()
+                },
             },
         )
 
@@ -469,7 +497,7 @@ def test_suggestions_keep_explicit_partial_or_cancelled_status_in_later_chunks(
     review_context, monkeypatch, cancel
 ):
     make, _, _, annotations, requests, _, success = review_context
-    annotations["tags"] = [{"id": index, "tag": f"tag {index}"} for index in range(64)]
+    annotations["tags"] = [{"id": index, "tag": f"tag {index}"} for index in range(16)]
     annotations["captions"] = []
     monkeypatch.setattr(TagCloudService, "_load_tags", lambda self: {1: ["scope", "new"]})
     cancelled = False
@@ -486,6 +514,6 @@ def test_suggestions_keep_explicit_partial_or_cancelled_status_in_later_chunks(
     snapshot = service.prepare_review(7, candidate_source=ReviewCandidateSource("scope"))
     result = service.review(snapshot, is_cancelled=lambda: cancelled)
     assert result.status == ("cancelled" if cancel else "partial")
-    assert all(item.probability is not None for item in result.items[:64])
-    assert all(item.kind == "suggestion" and item.probability is None for item in result.items[64:])
-    assert all(item.status == ("unevaluated" if cancel else "failed") for item in result.items[64:])
+    assert all(item.probability is not None for item in result.items[:16])
+    assert all(item.kind == "suggestion" and item.probability is None for item in result.items[16:])
+    assert all(item.status == ("unevaluated" if cancel else "failed") for item in result.items[16:])

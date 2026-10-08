@@ -24,29 +24,14 @@ from lorairo.utils.config import (
 )
 
 
-@pytest.mark.parametrize("env_token_key", ["CLOUDFLARE_API_TOKEN", "CLOUDFLARE_AUTH_TOKEN"])
-def test_cloudflare_credentials_environment_overrides_local_config(monkeypatch, env_token_key):
-    monkeypatch.delenv("CLOUDFLARE_API_TOKEN", raising=False)
-    monkeypatch.delenv("CLOUDFLARE_AUTH_TOKEN", raising=False)
-    monkeypatch.setenv("CLOUDFLARE_ACCOUNT_ID", " environment-account ")
-    monkeypatch.setenv(env_token_key, " environment-token ")
-    service = ConfigurationService(
-        shared_config={
-            "api": {"cloudflare_account_id": "local-account", "cloudflare_api_token": "local-token"}
-        }
-    )
-    assert service.get_cloudflare_credentials() == ("environment-account", "environment-token")
-    assert service.get_provider_api_keys() == {}
-
-
-def test_cloudflare_credentials_local_and_missing_config(monkeypatch):
-    for key in ("CLOUDFLARE_ACCOUNT_ID", "CLOUDFLARE_API_TOKEN", "CLOUDFLARE_AUTH_TOKEN"):
-        monkeypatch.delenv(key, raising=False)
-    configured = ConfigurationService(
-        shared_config={"api": {"cloudflare_account_id": " account ", "cloudflare_api_token": " token "}}
-    )
-    assert configured.get_cloudflare_credentials() == ("account", "token")
-    assert ConfigurationService(shared_config={}).get_cloudflare_credentials() == ("", "")
+def test_clef_defaults_are_local_and_require_no_provider_credentials():
+    config = create_user_config_defaults()
+    assert "cloudflare_account_id" not in config["api"]
+    assert "cloudflare_api_token" not in config["api"]
+    assert config["annotation_review"]["model"] == "clef-flash"
+    assert config["annotation_review"]["n_gpu_layers"] == 10
+    assert config["annotation_review"]["context_size"] == 4096
+    assert config["annotation_review"]["timeout"] == 300.0
 
 
 class TestConfigUtils:

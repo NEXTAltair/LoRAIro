@@ -1577,7 +1577,7 @@ Structured error payload emitted as kind=error by the CLI boundary.
 
 ### `review run`
 
-Evaluate existing tags/captions with Cloudflare Clef; explicit IDs required, no DB changes.
+Evaluate existing tags/captions with local Clef; explicit IDs required, no DB changes.
 
 - Read only: `true`
 - Strict read only: `true` (root `--read-only`; see [contract](cli-read-only.md))

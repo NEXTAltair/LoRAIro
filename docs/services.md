@@ -69,7 +69,7 @@ Qt依存のないビジネスロジックサービス群。CLI、GUI、API全て
 
 #### AnnotationReviewService
 - **Path**: `src/lorairo/services/annotation_review_service.py`
-- **Purpose**: 既存タグ・キャプションと、関連画像群から抽出した未付与タグを Clef の型付き判定 API で照合する
+- **Purpose**: 既存タグ・キャプションと、関連画像群から抽出した未付与タグを ローカル Clef の型付き判定 API で照合する
 - **Boundary**: タグクラウドの集計を再利用し、警告と追加候補を別の基準で判定する。注釈・confidence・reviewed は変更しない
 
 #### AnnotationReviewStore
@@ -148,7 +148,7 @@ Qt依存のないビジネスロジックサービス群。CLI、GUI、API全て
 #### search_review_status (helper)
 - **Path**: `src/lorairo/services/search_review_status.py`
 - **Purpose**: 保存済みの Clef 判定を鮮度確認して検索サムネイルへ付与し、全検索結果から現在有効な警告を絞り込む
-- **Boundary**: 検索時に Clef API は実行しない。未チェック・失敗・未評価・古い結果を区別する
+- **Boundary**: 検索時にローカル Clef の起動・推論は行わない。未チェック・失敗・未評価・古い結果を区別する
 
 #### SearchCriteriaProcessor
 - **Path**: `src/lorairo/services/search_criteria_processor.py`

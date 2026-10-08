@@ -20,7 +20,7 @@ class AnnotationReviewResultsLoaded:
 
 
 class AnnotationReviewResultsLoader(LoRAIroWorkerBase[AnnotationReviewResultsLoaded]):
-    """Freshness only: this worker never calls the Cloudflare review API."""
+    """Freshness only: this worker never starts the local Clef model."""
 
     _OPERATION_TYPE = "annotation_review_results_load"
 

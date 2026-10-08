@@ -7,6 +7,8 @@ tags: [clef, annotation, review, api]
 ---
 # ADR 0094: Clef annotation review の独立 API と一時的な個別警告
 
+> 2026-10-08追記: Clefの実行先・認証設定は [ADR 0097](0097-clef-local-only.md) によりローカル専用へ変更した。
+
 ## Context
 
 LoRAIro #1366 の確定した用途は、既存タグ・キャプションの内容を画像と照合し、

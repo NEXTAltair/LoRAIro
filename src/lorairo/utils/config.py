@@ -42,8 +42,6 @@ DEFAULT_CONFIG = {
         "claude_key": "",
         "google_key": "",
         "openrouter_key": "",
-        "cloudflare_account_id": "",
-        "cloudflare_api_token": "",
     },
     "directories": {
         "database_dir": "",  # 空文字列 = 自動生成 (日付+連番プロジェクト)
@@ -70,11 +68,16 @@ DEFAULT_CONFIG = {
     "prompts": {"additional": ""},
     "annotation_review": {
         "model": "clef-flash",
+        "server_path": "",
+        "model_path": "",
+        "mmproj_path": "",
+        "n_gpu_layers": 10,
+        "context_size": 4096,
         # Probability the candidate is supported by the image; warning iff p < threshold.
         "warning_threshold": 0.2,
         # Candidate suggestions are actionable iff p >= this threshold.
         "suggestion_threshold": 0.8,
-        "timeout": 60.0,
+        "timeout": 300.0,
     },
     "text_extensions": [".txt", ".caption"],
     "preferred_resolutions": [
