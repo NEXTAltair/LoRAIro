@@ -13,7 +13,7 @@ import httpx
 import pytest
 from PIL import Image as PILImage
 from sqlalchemy import delete
-from sqlalchemy.exc import IntegrityError
+from sqlalchemy.exc import IntegrityError, OperationalError
 
 from lorairo.database.repository.annotation_review import AnnotationReviewRepository
 from lorairo.database.schema import Image, Tag
@@ -349,6 +349,30 @@ def test_adoption_rejects_stale_settings_sources_or_obsolete_ui_result(saved_con
         7, review.items[-1].candidate_id, expected
     )
     db.add_manual_tag.assert_not_called()
+
+
+@pytest.mark.parametrize("phase", ["read", "write"])
+def test_adoption_database_failure_returns_false_without_escaping(saved_context, phase):
+    db, service, review = saved_context
+    service.suggestion_threshold = 0.8
+    review = _suggestion_review(review)
+    store = AnnotationReviewStore(db)
+    store.save(review, 0.2)
+    expected = store.get_results((7,))[7].checked_at
+    error = OperationalError("adopt suggestion", {}, RuntimeError("database is locked"))
+    if phase == "read":
+        store = Mock(spec=AnnotationReviewStore)
+        store.get_current_result.side_effect = error
+    else:
+        db.add_manual_tag.side_effect = error
+
+    assert not AnnotationReviewAdoptionService(db, service, store).adopt(
+        7, review.items[-1].candidate_id, expected
+    )
+    if phase == "read":
+        db.add_manual_tag.assert_not_called()
+    else:
+        db.add_manual_tag.assert_called_once_with(7, review.items[-1].text)
 
 
 @pytest.mark.parametrize("candidate", ["regular_tag", "missing", "low_probability", "unevaluated"])

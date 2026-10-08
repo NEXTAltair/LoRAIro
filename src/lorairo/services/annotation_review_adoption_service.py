@@ -6,6 +6,10 @@ import hashlib
 from datetime import datetime
 from typing import TYPE_CHECKING
 
+from sqlalchemy.exc import SQLAlchemyError
+
+from lorairo.utils.log import logger
+
 if TYPE_CHECKING:
     from lorairo.database.db_manager import ImageDatabaseManager
     from lorairo.services.annotation_review_service import AnnotationReviewService
@@ -37,7 +41,11 @@ class AnnotationReviewAdoptionService:
             or expected_checked_at.utcoffset() is None
         ):
             return False
-        stored = self._store.get_current_result(image_id, self._review_service)
+        try:
+            stored = self._store.get_current_result(image_id, self._review_service)
+        except SQLAlchemyError as error:
+            logger.warning("Clef suggestion could not be read for image {}: {}", image_id, error)
+            return False
         if stored is None or stored.checked_at != expected_checked_at:
             return False
         review = stored.review
@@ -71,4 +79,8 @@ class AnnotationReviewAdoptionService:
             return False
         # This centralized path supplies manual provenance and handles duplicates.
         # Clef probability is deliberately never copied into tag confidence.
-        return self._db_manager.add_manual_tag(image_id, tag)
+        try:
+            return self._db_manager.add_manual_tag(image_id, tag)
+        except SQLAlchemyError as error:
+            logger.warning("Clef suggestion could not be adopted for image {}: {}", image_id, error)
+            return False
