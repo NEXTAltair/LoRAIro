@@ -896,18 +896,19 @@ class AnnotationRepository(BaseRepository):
         normalized_tag = TagCleaner.clean_format(tag_string).strip()
 
         if not normalized_tag:
-            logger.warning(f"Tag normalization resulted in empty string: '{tag_string}'")
+            logger.warning("Tag normalization resulted in empty string (length={})", len(tag_string))
             return None
 
         # 2. MergedTagReaderが利用可能か確認
         merged_reader = self._get_merged_reader()
         if merged_reader is None:
             logger.debug(
-                f"MergedTagReader unavailable, skipping external tag search for '{normalized_tag}'",
+                "MergedTagReader unavailable, skipping external tag search (length={})",
+                len(normalized_tag),
             )
             return None
 
-        logger.debug(f"Searching tag in external tag_db: '{tag_string}' → '{normalized_tag}'")
+        logger.debug("Searching tag in external tag_db (length={})", len(normalized_tag))
 
         # 3. 既存タグ検索（公開API search_tags()使用、完全一致）
         try:
@@ -922,16 +923,14 @@ class AnnotationRepository(BaseRepository):
 
             if result.items and len(result.items) > 0:
                 tag_id: int = result.items[0].tag_id
-                logger.debug(f"Found existing tag_id {tag_id} for '{normalized_tag}' in external tag_db")
+                logger.debug("Found existing tag_id {} in external tag_db", tag_id)
                 return tag_id
 
             # 検索結果なし → 新規タグ登録
             return self._register_new_tag(normalized_tag, tag_string, request)
 
         except Exception as e:
-            logger.opt(exception=True).error(
-                f"Error searching tag in external tag_db: '{normalized_tag}': {e}"
-            )
+            logger.error("Error searching tag in external tag_db ({})", type(e).__name__)
             return None  # 検索失敗時は縮退動作（tag_id=None で保存）  # その他のエラーも縮退動作
 
     @staticmethod
@@ -1247,7 +1246,9 @@ class AnnotationRepository(BaseRepository):
             登録されたtag_id。エラー時はNone。
 
         """
-        logger.debug(f"Tag '{normalized_tag}' not found in external tag_db. Attempting registration...")
+        logger.debug(
+            "Tag not found in external tag_db, attempting registration (length={})", len(normalized_tag)
+        )
 
         # TagRegisterService遅延初期化
         if self.tag_register_service is None:
@@ -1266,7 +1267,7 @@ class AnnotationRepository(BaseRepository):
         try:
             register_result = self.tag_register_service.register_tag(register_request)
             tag_id = register_result.tag_id
-            logger.debug(f"Registered new tag_id {tag_id} for '{normalized_tag}'")
+            logger.debug("Registered new tag_id {}", tag_id)
             return cast("int | None", tag_id)
         except IntegrityError:
             # 競合検出（他のプロセスが同時に登録）→ リトライ
@@ -1279,10 +1280,10 @@ class AnnotationRepository(BaseRepository):
             if self._is_retryable_db_error(ve):
                 logger.warning("Race condition (wrapped) during tag registration, retrying search...")
                 return self._retry_new_tag_search(normalized_tag, search_request)
-            logger.error(f"Tag registration failed (invalid format/type): {ve}")
+            logger.error("Tag registration failed (invalid format/type, {})", type(ve).__name__)
             return None
         except Exception as reg_error:
-            logger.opt(exception=True).error(f"Unexpected error during tag registration: {reg_error}")
+            logger.error("Unexpected error during tag registration ({})", type(reg_error).__name__)
             return None
 
     def _retry_new_tag_search(self, normalized_tag: str, search_request: TagSearchRequest) -> int | None:
@@ -1302,10 +1303,10 @@ class AnnotationRepository(BaseRepository):
             retry_result = search_tags(merged_reader, search_request)
             if retry_result.items and len(retry_result.items) > 0:
                 tag_id = retry_result.items[0].tag_id
-                logger.debug(f"Found tag_id {tag_id} on retry for '{normalized_tag}'")
+                logger.debug("Found tag_id {} on retry", tag_id)
                 return cast("int | None", tag_id)
         except Exception as retry_error:
-            logger.opt(exception=True).error(f"Retry search failed: {retry_error}")
+            logger.error("Retry search failed ({})", type(retry_error).__name__)
         return None
 
     def batch_resolve_tag_ids(self, normalized_tags: set[str]) -> dict[str, int | None]:
@@ -1338,14 +1339,14 @@ class AnnotationRepository(BaseRepository):
                 resolve_preferred=False,
             )
         except Exception as e:
-            logger.opt(exception=True).error(f"search_tags_bulk failed: {e}")
+            logger.error("search_tags_bulk failed ({})", type(e).__name__)
             return dict.fromkeys(normalized_tags)
 
         # deprecated除外フィルタ適用（現行 include_deprecated=False と同等）
         result: dict[str, int | None] = {}
         for tag_str, row in bulk_results.items():
             if row.get("deprecated", False):
-                logger.debug(f"Excluding deprecated tag from bulk result: '{tag_str}'")
+                logger.debug("Excluding deprecated tag from bulk result (length={})", len(tag_str))
                 continue
             result[tag_str] = row["tag_id"]
 
@@ -1430,11 +1431,11 @@ class AnnotationRepository(BaseRepository):
             )
             register_result = self.tag_register_service.register_tag(register_request)
             tag_id: int = register_result.tag_id
-            logger.debug(f"Registered new tag_id {tag_id} for '{tag_str}'")
+            logger.debug("Registered new tag_id {}", tag_id)
             return tag_id
         except IntegrityError:
             # 競合検出 → リトライ検索
-            logger.warning(f"Race condition for '{tag_str}', retrying search...")
+            logger.warning("Race condition during tag registration, retrying search...")
             return self._retry_tag_search(tag_str)
         except ValueError as value_error:
             # genai-tag-db-tools は sqlite3/SQLAlchemy IntegrityError を ValueError に包んで
@@ -1443,12 +1444,14 @@ class AnnotationRepository(BaseRepository):
             # FK / DB 操作失敗由来の ValueError のみ競合として retry し、正規化空文字などの
             # 正当な入力エラー (message pattern 非一致) は retry せず None を返す。
             if self._is_retryable_db_error(value_error):
-                logger.warning(f"Race condition (wrapped) for '{tag_str}', retrying search...")
+                logger.warning("Race condition (wrapped) during tag registration, retrying search...")
                 return self._retry_tag_search(tag_str)
-            logger.error(f"Tag registration failed for '{tag_str}': {value_error}")
+            logger.error(
+                "Tag registration failed ({}, length={})", type(value_error).__name__, len(tag_str)
+            )
             return None
         except Exception as reg_error:
-            logger.error(f"Tag registration failed for '{tag_str}': {reg_error}")
+            logger.error("Tag registration failed ({}, length={})", type(reg_error).__name__, len(tag_str))
             return None
 
     def _retry_tag_search(self, tag_str: str) -> int | None:
@@ -1478,7 +1481,7 @@ class AnnotationRepository(BaseRepository):
                 return tag_id
             return None
         except Exception as retry_error:
-            logger.error(f"Retry search failed for '{tag_str}': {retry_error}")
+            logger.error("Retry search failed ({}, length={})", type(retry_error).__name__, len(tag_str))
             return None
 
     def _resolve_danbooru_canonical(self, clean_tags: set[str]) -> dict[str, CanonicalTag]:
@@ -1511,7 +1514,7 @@ class AnnotationRepository(BaseRepository):
             )
         except Exception as e:
             # tag_db は任意依存 (ADR 0068): 解決失敗時は整形済みのまま保存へ縮退する。
-            logger.opt(exception=True).error(f"danbooru canonical の一括解決に失敗: {e}")
+            logger.error("danbooru canonical の一括解決に失敗 ({})", type(e).__name__)
             return {}
 
         result: dict[str, CanonicalTag] = {}
@@ -1571,6 +1574,7 @@ class AnnotationRepository(BaseRepository):
         }
         canonical_map = self._resolve_danbooru_canonical(canonical_targets)
 
+        unresolved_count = 0
         for tag_info in tags_data:
             # 全取込経路の tag をまず clean_format 整形に統一する (lower 化はしない)。
             clean_tag = TagCleaner.clean_format(tag_info["tag"]).strip()
@@ -1603,10 +1607,7 @@ class AnnotationRepository(BaseRepository):
                         external_tag_id = self._get_or_create_tag_id_external(session, clean_tag)
 
             if external_tag_id is None:
-                logger.warning(
-                    f"Tag '{tag_string}' could not be linked to external tag_db. "
-                    "Saving with tag_id=None (limited taxonomy features).",
-                )
+                unresolved_count += 1
 
             # 既存レコードを整形後キーで検索
             existing_record = existing_tags_map.get((tag_string, model_id))
@@ -1617,7 +1618,7 @@ class AnnotationRepository(BaseRepository):
                 # (他カラム無変更だと onupdate が発火しないため明示。Issue #1065)。
                 # rejected_at / reject_reason は触らない: soft-reject はユーザー判断を
                 # 優先して維持する (Issue #1065 ユーザー確認済みポリシー / ADR 0065)。
-                logger.debug(f"Updating existing tag: id={existing_record.id}, tag='{tag_string}'")
+                logger.debug("Updating existing tag: id={}", existing_record.id)
                 existing_record.tag = tag_string
                 existing_record.tag_id = external_tag_id
                 existing_record.confidence_score = confidence
@@ -1626,7 +1627,7 @@ class AnnotationRepository(BaseRepository):
                 existing_record.updated_at = func.now()
             else:
                 # 新規作成
-                logger.debug(f"Adding new tag: tag='{tag_string}'")
+                logger.debug("Adding new tag: image_id={}, length={}", image_id, len(tag_string))
                 new_tag = Tag(
                     image_id=image_id,
                     model_id=model_id,
@@ -1638,6 +1639,14 @@ class AnnotationRepository(BaseRepository):
                 )
                 session.add(new_tag)
                 existing_tags_map[(tag_string, model_id)] = new_tag
+
+        if unresolved_count:
+            logger.warning(
+                "{} tags could not be linked to external tag_db for image_id={}. "
+                "Saving with tag_id=None (limited taxonomy features).",
+                unresolved_count,
+                image_id,
+            )
 
     def edit_caption(self, image_id: int, caption_id: int, text: str, *, expected_text: str) -> bool:
         """Edit the exact active row, rejecting a concurrent change or wrong image."""
@@ -1692,7 +1701,7 @@ class AnnotationRepository(BaseRepository):
                 )  # 渡された値を使用 (Nullable)
             else:
                 # 新規作成
-                logger.debug(f"Adding new caption: caption='{caption_string[:20]}...'")
+                logger.debug("Adding new caption: image_id={}, length={}", image_id, len(caption_string))
                 new_caption = Caption(
                     image_id=image_id,
                     model_id=model_id,

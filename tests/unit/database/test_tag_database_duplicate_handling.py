@@ -99,15 +99,14 @@ class TestTagDatabaseDuplicateHandling:
         # テストデータ
         tag_string = "error tag"
 
-        # モック設定:search_tags()がExceptionを発生
+        # モック設定:search_tags()がタグ本文を含む例外を発生
         # ADR 0035 段階 5: logger は annotation_record.py 側に移動したため、
         # patch path も合わせる。
         with patch(
             "lorairo.database.repository.annotation_record.search_tags",
-            side_effect=Exception("Database error"),
+            side_effect=RuntimeError(f"Database error: {tag_string}"),
         ):
             with patch("lorairo.database.repository.annotation_record.logger") as mock_logger:
-                mock_logger.opt.return_value = mock_logger  # opt(exception=True).error 経路を捕捉 (#1153)
                 # テスト実行
                 result = repository._get_or_create_tag_id_external(mock_session, tag_string)
 
@@ -116,9 +115,13 @@ class TestTagDatabaseDuplicateHandling:
 
                 # エラーログが呼び出されたか確認
                 mock_logger.error.assert_called_once()
-                error_call = mock_logger.error.call_args[0][0]
-                assert "Error searching tag" in error_call
-                assert tag_string in error_call
+                message, *arguments = mock_logger.error.call_args.args
+                rendered = message.format(*arguments)
+                assert "Error searching tag" in rendered
+                assert "RuntimeError" in rendered
+                assert tag_string not in rendered
+                assert "Database error" not in rendered
+                mock_logger.opt.assert_not_called()
 
     def test_get_or_create_tag_id_external_edge_cases(self, repository, mock_session):
         """エッジケース: 特殊文字を含むタグ"""
