@@ -5,7 +5,7 @@ from unittest.mock import Mock
 
 import pytest
 from PySide6.QtGui import QAction
-from PySide6.QtWidgets import QTabWidget, QVBoxLayout, QWidget
+from PySide6.QtWidgets import QStatusBar, QTabWidget, QVBoxLayout, QWidget
 
 from lorairo.gui.state.staging_state import StagingStateManager
 from lorairo.gui.window.main_window import MainWindow
@@ -65,6 +65,7 @@ def test_review_target_controls_open_search_and_staging_without_starting(qtbot) 
     tabs.addTab(annotation, "アノテーション")
     tabs.addTab(results, "結果")
     tabs.setCurrentWidget(results)
+    status_bar = QStatusBar(tabs)
     window = SimpleNamespace(
         tabResults=results,
         tabWorkspace=search,
@@ -74,6 +75,8 @@ def test_review_target_controls_open_search_and_staging_without_starting(qtbot) 
         staging_state_manager=StagingStateManager(),
         _open_annotation_review_image=Mock(),
         _reload_results_annotation_review_service=Mock(),
+        _refresh_search_annotation_review=Mock(),
+        statusBar=lambda: status_bar,
     )
     MainWindow._setup_results_tab(window)
     review = window.results_tab.annotation_review_widget
@@ -89,3 +92,10 @@ def test_review_target_controls_open_search_and_staging_without_starting(qtbot) 
     assert tabs.currentWidget() is annotation
     assert review._inflight_id is None
     assert window.staging_state_manager.get_image_ids() == [42]
+    review.running_status_changed.emit("チェック中 1 / 2 枚")
+    assert window._batch_review_status.text() == "チェック中 1 / 2 枚"
+    assert not window._batch_review_status.isHidden()
+    review.review_result_saved.emit(42)
+    window._refresh_search_annotation_review.assert_called_once_with(42)
+    review.running_status_changed.emit("")
+    assert window._batch_review_status.isHidden()

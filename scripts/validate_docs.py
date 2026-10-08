@@ -121,8 +121,8 @@ class DocValidator:
 
         actual_count = len(business_services) + len(gui_services)
 
-        # Reviewed inventory after adding crop services in #1349 and #1354.
-        expected_business_count = 39
+        # Reviewed inventory including Clef review, persistence, adoption, and search status (#1366).
+        expected_business_count = 43
         expected_gui_count = 9
         expected_count = expected_business_count + expected_gui_count
 

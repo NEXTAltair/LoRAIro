@@ -197,6 +197,7 @@ def test_saved_result_returns_after_switching_images_without_a_cloud_request(wir
 
     widget.set_image(9)
     assert widget.results_table.rowCount() == 0
+    finish_saved(manager)
     widget.set_image(5)
     finish_saved(manager)
 
@@ -230,6 +231,7 @@ def test_completion_displays_latest_store_result_instead_of_an_older_worker_resu
     store = Mock()
     store.get_current_result.return_value = StoredReviewResult(latest, 0.2, datetime.now(UTC))
     widget.set_store(store)
+    finish_saved(manager)
     widget._on_evaluate_requested()
 
     finish(widget, manager, make_result())
@@ -237,6 +239,27 @@ def test_completion_displays_latest_store_result_instead_of_an_older_worker_resu
 
     assert widget.results_table.rowCount() == 1
     assert widget.results_table.item(0, 3).text() == "97.0%"
+
+
+def test_saved_loader_coalesces_selection_changes_into_one_pending_worker(wired_widget):
+    widget, service, manager = wired_widget
+    store = Mock()
+    store.get_current_result.return_value = None
+    widget.set_store(store)
+    first_id = manager.started[0][0]
+    widget.set_image(9)
+    widget.set_image(8)
+    widget.set_image(5)
+    assert len(manager.started) == 1
+    assert widget._load_id == first_id
+    manager.worker_terminal.emit(
+        WorkerTerminalEvent(first_id, "annotation_review_results_load", WorkerOutcome.CANCELED)
+    )
+    assert len(manager.started) == 2
+    assert manager.started[-1][1]._image_id == 5
+    finish_saved(manager)
+    assert widget._load_id is None
+    service.review.assert_not_called()
 
 
 def test_service_reinjection_cancels_inflight_and_uses_refreshed_service_on_next_click(

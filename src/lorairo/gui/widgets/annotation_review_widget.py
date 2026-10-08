@@ -57,6 +57,7 @@ class AnnotationReviewWidget(QWidget):
         self._adoption: AnnotationReviewAdoptionService | None = None
         self._load_id: str | None = None
         self._load_sequence = 0
+        self._load_pending = False
         self._build_ui()
         self.set_image(None)
 
@@ -199,7 +200,9 @@ class AnnotationReviewWidget(QWidget):
         ):
             return False
         if self._load_id is not None:
+            self._load_pending = True
             self._manager.request_cancel_worker(self._load_id, reason=CancelReason.USER_REQUESTED)
+            return True
         self._load_sequence += 1
         self._load_id = f"saved_review_{id(self)}_{self._load_sequence}"
         worker = SavedImageReviewWorker(self._service, self._store, self._image_id, self._generation)
@@ -213,6 +216,11 @@ class AnnotationReviewWidget(QWidget):
     def refresh_saved_result(self) -> None:
         self._saved = None
         self.result_displayed.emit(None)
+        self.results_table.setRowCount(0)
+        self.results_table.setVisible(False)
+        self.model_label.setVisible(False)
+        if self._inflight_id is None:
+            self._set_status("保存済みの判定を照合中…", theme.INK_SOFT)
         self.suggestions_table.setVisible(False)
         self.suggestions_label.setVisible(False)
         self._restore_saved_result()
@@ -252,6 +260,9 @@ class AnnotationReviewWidget(QWidget):
         self._generation += 1
         self._saved = None
         self.result_displayed.emit(None)
+        self.suggestions_table.setRowCount(0)
+        self.suggestions_table.setVisible(False)
+        self.suggestions_label.setVisible(False)
         self.results_table.setRowCount(0)
         self.results_table.setVisible(False)
         self.model_label.setVisible(False)
@@ -282,7 +293,12 @@ class AnnotationReviewWidget(QWidget):
     @Slot(object)
     def _on_worker_terminal(self, event: WorkerTerminalEvent) -> None:
         if event.worker_id == self._load_id:
-            self._accept_saved_review(event)
+            self._load_id = None
+            if self._load_pending and not self._closing:
+                self._load_pending = False
+                self._restore_saved_result()
+            else:
+                self._accept_saved_review(event)
             return
         if event.worker_id != self._inflight_id:
             return
@@ -448,6 +464,7 @@ class AnnotationReviewWidget(QWidget):
         if self._closing:
             return
         self._closing = True
+        self._load_pending = False
         self.running_status_changed.emit("")
         self._generation += 1
         self._update_button_state()

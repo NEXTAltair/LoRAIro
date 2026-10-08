@@ -547,7 +547,10 @@ class SelectedImageDetailsWidget(QWidget):
         ):
             for item in result.items:
                 if item.status == "warning" and item.kind in ("tag", "caption"):
-                    row_id = int(item.candidate_id.rsplit("_", 1)[1])
+                    raw_id = item.candidate_id.removeprefix(f"{item.kind}_")
+                    if not raw_id.isdecimal():
+                        continue
+                    row_id = int(raw_id)
                     (tag_ids if item.kind == "tag" else caption_ids).add(row_id)
         self.annotation_display.set_review_warnings(tag_ids, caption_ids)
 

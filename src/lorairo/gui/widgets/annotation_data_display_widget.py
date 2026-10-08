@@ -59,7 +59,6 @@ class AnnotationData:
 
     tags: list[dict[str, Any]] = field(default_factory=list)  # Repository層から提供される詳細情報
     caption: str = ""
-    captions: list[dict[str, Any]] = field(default_factory=list)
     aesthetic_score: float | None = None
     overall_score: int = 0
     score_type: str = "Aesthetic"
@@ -78,6 +77,7 @@ class AnnotationData:
     # canonical -> tagdb type 名 ("character"/"general" 等、小文字)。
     # チップの type 別グループソートに使う (Issue #1056)
     tag_types: dict[str, str] = field(default_factory=dict)
+    captions: list[dict[str, Any]] = field(default_factory=list)
 
 
 @dataclass

@@ -120,7 +120,7 @@ class AnnotationReviewBatchWorker(LoRAIroWorkerBase[AnnotationReviewBatchWorkerR
             else:
                 self._report_progress(
                     int(processed_count / len(self._image_ids) * 100),
-                    f"アノテーション確認 {processed_count + 1}/{len(self._image_ids)}画像を確認中",
+                    f"アノテーションチェック {processed_count + 1}/{len(self._image_ids)}画像を確認中",
                     str(image_id),
                     processed_count,
                     len(self._image_ids),
@@ -174,7 +174,7 @@ class AnnotationReviewBatchWorker(LoRAIroWorkerBase[AnnotationReviewBatchWorkerR
     def _report_processed(self, processed_count: int, image_id: int) -> None:
         self._report_progress(
             int(processed_count / len(self._image_ids) * 100),
-            f"アノテーション確認 {processed_count}/{len(self._image_ids)}画像",
+            f"アノテーションチェック {processed_count}/{len(self._image_ids)}画像",
             str(image_id),
             processed_count,
             len(self._image_ids),

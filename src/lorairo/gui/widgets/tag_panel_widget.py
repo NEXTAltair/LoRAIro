@@ -208,6 +208,7 @@ class SelectableTagChip(QLabel):
         スタイルに関わらず常に維持する。
         """
         stripe_color = getattr(self, "stripe_color", None)
+        self._state_qss = style_sheet
         if stripe_color:
             style_sheet = f"{style_sheet}\nQLabel {{ border-left: 4px solid {stripe_color}; }}"
         if getattr(self, "review_warning", False):
@@ -268,7 +269,7 @@ class SelectableTagChip(QLabel):
     def set_review_warning(self, warning: bool) -> None:
         self.review_warning = warning
         self.set_refinement(self.refinement, self._candidate_counts)
-        self.setStyleSheet(self.base_qss)
+        self.setStyleSheet(getattr(self, "_state_qss", self.base_qss))
 
     def replacement_candidates(self) -> list[str]:
         """refinement の適用可能な修正候補タグを返す (#1007)。

@@ -149,15 +149,15 @@ class ThumbnailItem(QGraphicsObject):
             suffix = {
                 "partial": "\n一部未評価",
                 "cancelled": "\n中断・未評価",
-                "failed": "\n確認失敗",
+                "failed": "\nチェック失敗",
                 "unevaluated": "\n未評価",
             }.get(status, "")
             return f"要確認 {count}件{suffix}", theme.WARN_SOFT
         labels = {
             "unchecked": "未チェック",
-            "completed": "確認済み",
+            "completed": "チェック済み",
             "partial": "一部未評価",
-            "failed": "確認失敗",
+            "failed": "チェック失敗",
             "unevaluated": "未評価",
             "cancelled": "中断・未評価",
             "stale": "再チェック必要",

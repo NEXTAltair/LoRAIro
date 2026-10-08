@@ -649,7 +649,7 @@ class MainWindow(QMainWindow, Ui_MainWindow):
         )
         container.layout().addWidget(widget)
         self.results_tab = widget
-        self._batch_review_status = QLabel(self)
+        self._batch_review_status = QLabel(container)
         self._batch_review_status.setTextFormat(Qt.TextFormat.PlainText)
         self.statusBar().addPermanentWidget(self._batch_review_status)
         widget.running_status_changed.connect(self._batch_review_status.setText)

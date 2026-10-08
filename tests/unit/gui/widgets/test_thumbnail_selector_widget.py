@@ -44,11 +44,11 @@ class TestThumbnailItemOverlayTexts:
         ("status", "count", "label"),
         [
             ("unchecked", 0, "未チェック"),
-            ("completed", 0, "確認済み"),
+            ("completed", 0, "チェック済み"),
             ("completed", 2, "要確認 2件"),
             ("partial", 0, "一部未評価"),
             ("partial", 2, "要確認 2件\n一部未評価"),
-            ("failed", 0, "確認失敗"),
+            ("failed", 0, "チェック失敗"),
             ("unevaluated", 0, "未評価"),
             ("cancelled", 0, "中断・未評価"),
             ("stale", 2, "再チェック必要"),

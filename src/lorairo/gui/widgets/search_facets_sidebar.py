@@ -104,7 +104,7 @@ class SearchFacetsSidebar(QWidget):
         layout.addWidget(self._make_separator())
 
         review_warnings_box, self._review_warnings_group, self._review_warnings_buttons = (
-            self._make_radio_group("アノテーション確認", "Clef", ["全て", "要確認あり"])
+            self._make_radio_group("アノテーションチェック", "Clef", ["全て", "要確認あり"])
         )
         self._review_warnings_buttons[1].setToolTip(
             "現在の画像・タグ・キャプション・設定に対する保存済みの警告がある画像"
