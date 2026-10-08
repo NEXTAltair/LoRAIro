@@ -7,6 +7,7 @@ from types import SimpleNamespace
 from unittest.mock import Mock
 
 import pytest
+from sqlalchemy.exc import OperationalError
 
 from lorairo.database.schema import Image
 from lorairo.gui.workers.base import CancellationError
@@ -119,6 +120,50 @@ def test_background_count_estimate_matches_warning_filtered_search(review_search
         == 1
     )
     service.review.assert_not_called()
+
+
+@pytest.mark.parametrize("phase", ["saved", "fingerprint"])
+@pytest.mark.parametrize("warnings_only", [False, True])
+def test_failed_auxiliary_review_read_preserves_only_ordinary_search(
+    review_search_context, monkeypatch, phase, warnings_only
+):
+    db, service, store, original = review_search_context
+    error = OperationalError("read review", {}, RuntimeError("database is locked"))
+    if phase == "saved":
+        monkeypatch.setattr(store, "get_results", Mock(side_effect=error))
+    else:
+        service.prepare_reviews.side_effect = error
+    worker = SearchWorker(
+        db,
+        SearchConditions("tags", [], "and", annotation_review_warnings_only=warnings_only),
+        review_service=service,
+        review_store=store,
+    )
+    if warnings_only:
+        with pytest.raises(OperationalError):
+            worker.execute()
+        db.save_error_record.assert_called_once()
+    else:
+        result = worker.execute()
+        assert result.total_count == 204
+        assert [image["id"] for image in result.image_metadata] == [image["id"] for image in original]
+        assert all(image["annotation_review_status"] == "load_failed" for image in result.image_metadata)
+        assert all(image["annotation_review_warning_count"] == 0 for image in result.image_metadata)
+        assert result.image_metadata[-1]["source"] == original[-1]["source"]
+        db.save_error_record.assert_not_called()
+    assert all("annotation_review_status" not in image for image in original)
+    service.review.assert_not_called()
+
+
+def test_cancellation_during_optional_review_read_still_cancels_search(review_search_context, monkeypatch):
+    db, service, store, _ = review_search_context
+    monkeypatch.setattr(store, "get_results", Mock(side_effect=CancellationError()))
+    worker = SearchWorker(
+        db, SearchConditions("tags", [], "and"), review_service=service, review_store=store
+    )
+    with pytest.raises(CancellationError):
+        worker.execute()
+    db.save_error_record.assert_not_called()
 
 
 def test_suggestions_are_not_warnings():

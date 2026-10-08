@@ -68,13 +68,31 @@ class SearchWorker(LoRAIroWorkerBase[SearchResult]):
             self._check_cancellation()
 
             if self._review_service is not None and self._review_store is not None:
-                image_metadata = apply_review_filter(
-                    image_metadata,
-                    self._review_service,
-                    self._review_store,
-                    warnings_only=self.search_conditions.annotation_review_warnings_only,
-                    check_cancellation=self._check_cancellation,
-                )
+                try:
+                    image_metadata = apply_review_filter(
+                        image_metadata,
+                        self._review_service,
+                        self._review_store,
+                        warnings_only=self.search_conditions.annotation_review_warnings_only,
+                        check_cancellation=self._check_cancellation,
+                    )
+                except CancellationError:
+                    raise
+                except Exception as error:
+                    # Saved review badges are optional for an ordinary search.
+                    # A requested warning filter cannot be evaluated without them.
+                    if self.search_conditions.annotation_review_warnings_only:
+                        raise
+                    self._check_cancellation()
+                    logger.warning("Saved Clef metadata unavailable; retaining search results: {}", error)
+                    image_metadata = [
+                        {
+                            **image,
+                            "annotation_review_status": "load_failed",
+                            "annotation_review_warning_count": 0,
+                        }
+                        for image in image_metadata
+                    ]
                 if self.search_conditions.annotation_review_warnings_only:
                     total_count = len(image_metadata)
             elif self.search_conditions.annotation_review_warnings_only:
