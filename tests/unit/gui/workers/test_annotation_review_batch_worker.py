@@ -14,6 +14,7 @@ from lorairo.services.annotation_review_service import (
     AnnotationReviewResult,
     AnnotationReviewService,
     ReviewCandidate,
+    ReviewCandidateSource,
     ReviewSnapshot,
 )
 from lorairo.services.annotation_review_store import StoredReviewResult
@@ -259,3 +260,39 @@ def test_per_image_signal_carries_dated_current_result_loaded_inside_worker(batc
     assert emitted[0].stored.checked_at.tzinfo is UTC
     assert emitted[0].review is dated_result.review
     assert result.reviews == (dated_result.review,)
+
+
+def test_batch_candidate_scope_is_forwarded_and_blocked_images_retain_frozen_suggestions(batch_context):
+    from dataclasses import replace
+
+    service, store, snapshots, _ = batch_context
+    source = ReviewCandidateSource("hair", ("smile",))
+    snapshots[2] = replace(
+        snapshots[2],
+        suggestions=(ReviewCandidate("suggestion_example", "suggestion", "new_tag"),),
+        candidate_source=source,
+    )
+    service.review.side_effect = None
+    service.review.return_value = AnnotationReviewResult(
+        1,
+        "snapshot-1",
+        service.model_name,
+        (),
+        "failed",
+        "Configure credentials",
+        "configuration",
+        source,
+        0.85,
+    )
+    worker = AnnotationReviewBatchWorker(service, store, (1, 2), 1, candidate_source=source)
+    result = worker.execute()
+
+    assert worker._candidate_source is source
+    service.prepare_reviews.assert_called_once_with(
+        (1, 2), is_cancelled=worker.cancellation.is_canceled, candidate_source=source
+    )
+    assert service.review.call_count == 1
+    second = result.reviews[1]
+    assert second.candidate_source is source and second.suggestion_threshold == 0.85
+    assert second.items[-1].kind == "suggestion" and second.items[-1].status == "unevaluated"
+    assert second.items[-1].probability is None

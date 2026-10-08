@@ -1,8 +1,10 @@
 """Keep independent review history durable and distinguish stale results."""
 
+import hashlib
 import json
 import sys
 from dataclasses import replace
+from datetime import UTC, datetime, timedelta
 from functools import partial
 from pathlib import Path
 from unittest.mock import Mock
@@ -15,10 +17,12 @@ from sqlalchemy.exc import IntegrityError
 
 from lorairo.database.repository.annotation_review import AnnotationReviewRepository
 from lorairo.database.schema import Image, Tag
+from lorairo.services.annotation_review_adoption_service import AnnotationReviewAdoptionService
 from lorairo.services.annotation_review_service import (
     AnnotationReviewItem,
     AnnotationReviewResult,
     AnnotationReviewService,
+    ReviewCandidateSource,
     ReviewSnapshot,
 )
 from lorairo.services.annotation_review_store import AnnotationReviewStore
@@ -200,6 +204,204 @@ def test_candidates_with_equal_text_preserve_distinct_row_ids(saved_context):
     assert store.get_results()[7].review == duplicate_text
     record = AnnotationReviewRepository(db.image_repo.session_factory).get_results()[7]
     assert len(json.loads(record.items_json)["items"]) == 3
+
+
+def _suggestion_review(review, *, probability=0.8, status="suggestion"):
+    source = ReviewCandidateSource("hair", ("smile",), 12)
+    candidate_id = "suggestion_" + hashlib.sha256(b"new_tag").hexdigest()
+    return replace(
+        review,
+        items=(
+            *review.items,
+            AnnotationReviewItem(candidate_id, "suggestion", "new_tag", probability, status),
+        ),
+        candidate_source=source,
+        suggestion_threshold=0.8,
+    )
+
+
+def test_suggestion_restart_roundtrip_keeps_scope_threshold_and_actual_source_fingerprint(saved_context):
+    db, service, review = saved_context
+    service.suggestion_threshold = 0.8
+    review = _suggestion_review(review)
+    AnnotationReviewStore(db).save(review, 0.2)
+
+    loaded = AnnotationReviewStore(db).get_current_result(7, service)
+
+    assert loaded.review == review
+    assert loaded.candidate_source == review.candidate_source
+    assert loaded.suggestion_threshold == 0.8
+    # Currentness uses the actual annotations, never re-extracts candidate tags.
+    service.prepare_reviews.assert_called_once_with((7,))
+    assert loaded.review.fingerprint == "original"
+
+
+def test_suggestion_threshold_change_invalidates_saved_suggestions_only(saved_context):
+    db, service, review = saved_context
+    service.suggestion_threshold = 0.8
+    store = AnnotationReviewStore(db)
+    store.save(_suggestion_review(review), 0.2)
+    store.save(replace(review, image_id=8), 0.2)
+    service.suggestion_threshold = 0.9
+
+    current = store.get_current_results(service)
+
+    assert current[7].review.status == "stale"
+    assert all(item.probability is None for item in current[7].review.items)
+    assert current[8].review.status == "completed"
+    assert store.get_results((7,))[7].review.status == "completed"
+
+
+def test_old_json_payload_without_candidate_metadata_remains_readable(saved_context):
+    from dataclasses import asdict
+
+    db, service, review = saved_context
+    repository = AnnotationReviewRepository(db.image_repo.session_factory)
+    repository.save_result(
+        image_id=7,
+        fingerprint=review.fingerprint,
+        model_name=review.model_name,
+        warning_threshold=0.2,
+        status=review.status,
+        items_json=json.dumps({"items": [asdict(item) for item in review.items]}),
+        error=None,
+    )
+    restored = AnnotationReviewStore(db).get_current_result(7, service)
+    assert restored.review == review
+    assert restored.candidate_source is None and restored.suggestion_threshold == 0.8
+
+
+@pytest.mark.parametrize(
+    "corruption",
+    [
+        "tag_suggestion_status",
+        "suggestion_warning_status",
+        "high_ok_status",
+        "low_suggestion_status",
+        "missing_source",
+        "invalid_source",
+        "invalid_threshold",
+    ],
+)
+def test_restore_rejects_incoherent_suggestion_kind_status_probability_and_metadata(
+    saved_context, corruption
+):
+    db, _, review = saved_context
+    store = AnnotationReviewStore(db)
+    store.save(_suggestion_review(review), 0.2)
+    repository = AnnotationReviewRepository(db.image_repo.session_factory)
+    record = repository.get_results((7,))[7]
+    payload = json.loads(record.items_json)
+    suggestion = payload["items"][-1]
+    if corruption == "tag_suggestion_status":
+        suggestion["kind"] = "tag"
+    elif corruption == "suggestion_warning_status":
+        suggestion["status"] = "warning"
+        suggestion["probability"] = 0.1
+    elif corruption == "high_ok_status":
+        suggestion["status"] = "ok"
+    elif corruption == "low_suggestion_status":
+        suggestion["probability"] = 0.79
+    elif corruption == "missing_source":
+        payload.pop("candidate_source")
+    elif corruption == "invalid_source":
+        payload["candidate_source"]["selected_tags"] = "smile"
+    else:
+        payload["suggestion_threshold"] = True
+    repository.save_result(
+        image_id=7,
+        fingerprint=record.fingerprint,
+        model_name=record.model_name,
+        warning_threshold=record.warning_threshold,
+        status=record.status,
+        items_json=json.dumps(payload),
+        error=None,
+    )
+    restored = store.get_results((7,))[7]
+    assert restored.review.status == "failed" and restored.review.items == ()
+
+
+@pytest.mark.parametrize(
+    "change", ["image", "model", "warning_threshold", "suggestion_threshold", "newer", "missing"]
+)
+def test_adoption_rejects_stale_settings_sources_or_obsolete_ui_result(saved_context, change):
+    db, service, review = saved_context
+    service.suggestion_threshold = 0.8
+    review = _suggestion_review(review)
+    store = AnnotationReviewStore(db)
+    store.save(review, 0.2)
+    expected = store.get_results((7,))[7].checked_at
+    if change == "image":
+        service.prepare_reviews.return_value[7] = ReviewSnapshot(7, Path("7.png"), (), (), "changed")
+    elif change == "model":
+        service.model_name = "@cf/cloudflare/clef"
+    elif change == "warning_threshold":
+        service.warning_threshold = 0.1
+    elif change == "suggestion_threshold":
+        service.suggestion_threshold = 0.9
+    elif change == "newer":
+        store.save(review, 0.2)
+        assert store.get_results((7,))[7].checked_at != expected
+    else:
+        service.prepare_reviews.return_value = {}
+
+    assert not AnnotationReviewAdoptionService(db, service, store).adopt(
+        7, review.items[-1].candidate_id, expected
+    )
+    db.add_manual_tag.assert_not_called()
+
+
+@pytest.mark.parametrize("candidate", ["regular_tag", "missing", "low_probability", "unevaluated"])
+def test_adoption_requires_evaluated_high_probability_suggestion(saved_context, candidate):
+    db, service, review = saved_context
+    service.suggestion_threshold = 0.8
+    if candidate == "low_probability":
+        review = _suggestion_review(review, probability=0.79, status="ok")
+    elif candidate == "unevaluated":
+        review = _suggestion_review(review, probability=None, status="unevaluated")
+        review = replace(review, status="partial")
+    else:
+        review = _suggestion_review(review)
+    store = AnnotationReviewStore(db)
+    store.save(review, 0.2)
+    expected = store.get_results((7,))[7].checked_at
+    candidate_id = (
+        "tag_11"
+        if candidate == "regular_tag"
+        else ("missing" if candidate == "missing" else review.items[-1].candidate_id)
+    )
+    assert not AnnotationReviewAdoptionService(db, service, store).adopt(7, candidate_id, expected)
+    db.add_manual_tag.assert_not_called()
+
+
+def test_adoption_uses_manual_provenance_no_probability_confidence_and_preserves_reviewed_state(
+    saved_context, test_db_manager, db_session_factory, monkeypatch
+):
+    db, service, review = saved_context
+    service.suggestion_threshold = 0.8
+    review = _suggestion_review(review)
+    store = AnnotationReviewStore(db)
+    store.save(review, 0.2)
+    expected = store.get_results((7,))[7].checked_at
+    reviewed_at = datetime(2026, 10, 1, tzinfo=UTC)
+    with db_session_factory() as session:
+        session.get(Image, 7).reviewed_at = reviewed_at
+        session.commit()
+    monkeypatch.setattr(
+        test_db_manager.annotation_repo,
+        "_resolution_for_batch_add",
+        lambda session, tag, resolved: (tag, None),
+    )
+    adoption = AnnotationReviewAdoptionService(test_db_manager, service, store)
+    assert adoption.adopt(7, review.items[-1].candidate_id, expected)
+    with db_session_factory() as session:
+        tag = session.query(Tag).filter_by(image_id=7, tag="new_tag").one()
+        assert tag.is_edited_manually and tag.confidence_score is None
+        assert tag.model_id == test_db_manager.get_manual_edit_model_id()
+        assert session.get(Image, 7).reviewed_at.replace(tzinfo=UTC) == reviewed_at
+    assert not adoption.adopt(7, review.items[-1].candidate_id, expected)
+    assert not adoption.adopt(7, review.items[-1].candidate_id, expected - timedelta(seconds=1))
+    assert store.get_results((7,))[7].review == review
 
 
 def test_image_deleted_during_paid_request_does_not_abort_later_fixed_targets(

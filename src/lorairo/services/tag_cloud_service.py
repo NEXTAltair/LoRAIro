@@ -9,6 +9,7 @@
 from __future__ import annotations
 
 from collections import Counter
+from collections.abc import Sequence
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
@@ -152,6 +153,27 @@ class TagCloudService:
         """タグキャッシュを破棄し、次回 build 時に DB から再ロードする。"""
         self._image_tags = None
 
+    def get_candidate_tags(self, keyword: str, selected_tags: Sequence[str] = ()) -> tuple[str, ...]:
+        """Rank co-occurring tags from an explicit cohort, counting each image once.
+
+        Return the full ranked pool so the review service can exclude each target's
+        existing tags before applying its own limit. An empty scope never loads
+        or submits the entire tag database.
+        """
+        keyword_norm = keyword.strip().lower()
+        selected_set = {tag.strip().lower() for tag in selected_tags if tag.strip()}
+        if not keyword_norm and not selected_set:
+            return ()
+        image_tags = {
+            image_id: list(dict.fromkeys(tag.strip().lower() for tag in tags if tag.strip()))
+            for image_id, tags in self._get_image_tags().items()
+        }
+        matched = self._filter_matched(image_tags, keyword_norm, selected_set)
+        frequency: Counter[str] = Counter()
+        for tags in matched:
+            frequency.update(set(tags) - selected_set)
+        return tuple(sorted(frequency, key=lambda tag: (-frequency[tag], tag)))
+
     # ------------------------------------------------------------------
     # Internal helpers
     # ------------------------------------------------------------------
@@ -173,7 +195,7 @@ class TagCloudService:
         for tags in image_tags.values():
             if selected_set and not selected_set.issubset(tags):
                 continue
-            if not any(keyword_norm in tag for tag in tags):
+            if keyword_norm and not any(keyword_norm in tag for tag in tags):
                 continue
             matched.append(tags)
         return matched

@@ -16,6 +16,7 @@ from lorairo.services.annotation_review_service import (
     AnnotationReviewItem,
     AnnotationReviewResult,
     AnnotationReviewService,
+    ReviewCandidateSource,
     ReviewSnapshot,
     ReviewStatus,
 )
@@ -31,6 +32,8 @@ class StoredReviewResult:
     review: AnnotationReviewResult
     warning_threshold: float
     checked_at: datetime
+    suggestion_threshold: float = 0.8
+    candidate_source: ReviewCandidateSource | None = None
 
 
 class AnnotationReviewImageMissingError(ValueError):
@@ -61,7 +64,14 @@ class AnnotationReviewStore:
                 warning_threshold=warning_threshold,
                 status=review.status,
                 items_json=json.dumps(
-                    {"items": [asdict(item) for item in review.items], "error_code": review.error_code},
+                    {
+                        "items": [asdict(item) for item in review.items],
+                        "error_code": review.error_code,
+                        "candidate_source": asdict(review.candidate_source)
+                        if review.candidate_source
+                        else None,
+                        "suggestion_threshold": review.suggestion_threshold,
+                    },
                     ensure_ascii=False,
                     allow_nan=False,
                 ),
@@ -106,6 +116,8 @@ class AnnotationReviewStore:
                 review.model_name == service.model_name
                 and stored.warning_threshold == service.warning_threshold
             )
+            if any(item.kind == "suggestion" for item in review.items):
+                current = current and stored.suggestion_threshold == service.suggestion_threshold
             # Preparation failures have no source fingerprint to compare. Keep
             # their actionable error rather than disguising it as a stale score.
             if current and not review.fingerprint and review.status == "failed":
@@ -134,6 +146,8 @@ class AnnotationReviewStore:
 
     @staticmethod
     def _restore(record: StoredAnnotationReview) -> StoredReviewResult:
+        suggestion_threshold = 0.8
+        candidate_source = None
         try:
             payload = json.loads(record.items_json)
             if not isinstance(payload, dict) or not isinstance(payload.get("items"), list):
@@ -144,7 +158,23 @@ class AnnotationReviewStore:
             statuses = {"completed", "partial", "failed", "cancelled", "unevaluated", "stale"}
             if record.status not in statuses:
                 raise ValueError("Invalid review status")
-            items = tuple(AnnotationReviewStore._restore_item(item) for item in payload["items"])
+            suggestion_threshold = AnnotationReviewStore._restore_threshold(
+                payload.get("suggestion_threshold", 0.8)
+            )
+            warning_threshold = AnnotationReviewStore._restore_threshold(record.warning_threshold)
+            source = payload.get("candidate_source")
+            if source is not None:
+                if not isinstance(source, dict):
+                    raise ValueError("Invalid candidate source")
+                candidate_source = ReviewCandidateSource(**source)
+            items = tuple(
+                AnnotationReviewStore._restore_item(item, warning_threshold, suggestion_threshold)
+                for item in payload["items"]
+            )
+            if any(item.kind == "suggestion" for item in items) and (
+                candidate_source is None or not (candidate_source.keyword or candidate_source.selected_tags)
+            ):
+                raise ValueError("Suggestions require an explicit candidate source")
             if len({item.candidate_id for item in items}) != len(items):
                 raise ValueError("Duplicate review candidate")
             review = AnnotationReviewResult(
@@ -155,6 +185,8 @@ class AnnotationReviewStore:
                 status=cast(ReviewStatus, record.status),
                 error=record.error,
                 error_code=error_code,
+                candidate_source=candidate_source,
+                suggestion_threshold=suggestion_threshold,
             )
         except (TypeError, ValueError, RecursionError):
             review = AnnotationReviewResult(
@@ -165,10 +197,22 @@ class AnnotationReviewStore:
                 status="failed",
                 error="Saved annotation review result could not be read; run review again.",
             )
-        return StoredReviewResult(review, record.warning_threshold, record.checked_at)
+        return StoredReviewResult(
+            review, record.warning_threshold, record.checked_at, suggestion_threshold, candidate_source
+        )
 
     @staticmethod
-    def _restore_item(value: object) -> AnnotationReviewItem:
+    def _restore_threshold(value: object) -> float:
+        if isinstance(value, bool) or not isinstance(value, (int, float)):
+            raise ValueError("Invalid saved review threshold")
+        if not math.isfinite(value) or not 0 <= value <= 1:
+            raise ValueError("Invalid saved review threshold")
+        return float(value)
+
+    @staticmethod
+    def _restore_item(
+        value: object, warning_threshold: float = 0.2, suggestion_threshold: float = 0.8
+    ) -> AnnotationReviewItem:
         if not isinstance(value, dict):
             raise ValueError("Invalid review item")
         candidate_id = value.get("candidate_id")
@@ -179,18 +223,22 @@ class AnnotationReviewStore:
         error = value.get("error")
         if not isinstance(candidate_id, str) or not candidate_id:
             raise ValueError("Invalid review candidate ID")
-        if kind not in ("tag", "caption") or not isinstance(text, str):
+        if kind not in ("tag", "caption", "suggestion") or not isinstance(text, str) or not text.strip():
             raise ValueError("Invalid review candidate")
-        if status not in ("ok", "warning", "failed", "unevaluated"):
+        if status not in ("ok", "warning", "suggestion", "failed", "unevaluated"):
             raise ValueError("Invalid review item status")
         if probability is not None:
-            if isinstance(probability, bool) or not isinstance(probability, (float, int)):
-                raise ValueError("Invalid review probability")
-            if not math.isfinite(probability) or not 0 <= probability <= 1:
-                raise ValueError("Invalid review probability")
-            probability = float(probability)
-        if (status in ("ok", "warning")) != (probability is not None):
+            probability = AnnotationReviewStore._restore_threshold(probability)
+        if (status in ("ok", "warning", "suggestion")) != (probability is not None):
             raise ValueError("Review item status contradicts probability")
+        if probability is not None:
+            expected_status = (
+                ("suggestion" if probability >= suggestion_threshold else "ok")
+                if kind == "suggestion"
+                else ("warning" if probability < warning_threshold else "ok")
+            )
+            if status != expected_status:
+                raise ValueError("Review item kind, threshold and probability contradict status")
         if error is not None and not isinstance(error, str):
             raise ValueError("Invalid review item error")
         return AnnotationReviewItem(candidate_id, kind, text, probability, status, error)
