@@ -140,7 +140,8 @@ class TestResolveModelIdentifier:
         assert "discontinued" in excinfo.value.message
 
     @pytest.mark.parametrize(
-        "provider", ["openai", "anthropic", "google", "gemini", "vertex_ai", "openrouter"]
+        "provider",
+        ["openai", "anthropic", "google", "gemini", "vertex_ai", "openrouter", "vercel_ai_gateway"],
     )
     def test_explicit_provider_id_cannot_fall_back_to_name(self, repository, provider):
         identifier = f"{provider}/missing"
@@ -196,17 +197,16 @@ def cli_route_flow(monkeypatch, tmp_path):
 
 
 @pytest.mark.parametrize("explicit_images", [False, True])
+@pytest.mark.parametrize("identifier", ["openai/gpt-4o", "vercel_ai_gateway/openai/o1"])
 @pytest.mark.parametrize("requires_api_key", [False, True])
 def test_cli_explicit_missing_id_fails_before_image_or_api_calls(
-    cli_route_flow, explicit_images, requires_api_key
+    cli_route_flow, explicit_images, requires_api_key, identifier
 ):
     container = cli_route_flow
     container.db_manager.model_repo.get_models_by_name.return_value = [
-        _fake_model(
-            "openrouter/openai/gpt-4o", "openai/gpt-4o", "openrouter", requires_api_key=requires_api_key
-        )
+        _fake_model("openrouter/openai/gpt-4o", identifier, "openrouter", requires_api_key=requires_api_key)
     ]
-    args = ["annotate", "run", "--project", "mock-project", "--model", "openai/gpt-4o"]
+    args = ["annotate", "run", "--project", "mock-project", "--model", identifier]
     if explicit_images:
         args += ["--image-id", "1"]
     result = CliRunner().invoke(app, args)
@@ -223,6 +223,7 @@ def test_cli_explicit_missing_id_fails_before_image_or_api_calls(
     [
         ("openrouter/openai/gpt-4o", "openrouter/openai/gpt-4o", "openrouter", True),
         ("gpt-4o", "openrouter/openai/gpt-4o", "openrouter", False),
+        ("Curated/Caption Model", "openrouter/openai/gpt-4o", "openrouter", False),
         ("SmilingWolf/wd-tagger", "wd-tagger", "local", False),
         ("google/siglip-so400m", "local-siglip", "local", False),
         ("google/siglip-so400m", "local-siglip", None, False),
@@ -230,6 +231,7 @@ def test_cli_explicit_missing_id_fails_before_image_or_api_calls(
         ("google/siglip-so400m", "local-siglip", "LOCAL", False),
         ("google/siglip-so400m", "local-siglip", " local ", False),
         ("openai/clip-vit-large-patch14", "local-clip", "local", False),
+        ("vercel_ai_gateway/local-classifier", "local-classifier", "local", False),
     ],
 )
 def test_cli_resolves_legitimate_identifier_and_sends_exact_target(

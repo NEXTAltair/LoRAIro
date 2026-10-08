@@ -52,7 +52,11 @@ from PySide6.QtWidgets import (
 from ...database.db_core import resolve_stored_path
 from ...database.db_manager import ImageDatabaseManager
 from ...services.dispatch_projection_service import batch_eligible_litellm_ids
-from ...services.model_route_service import build_available_providers, required_provider_for
+from ...services.model_route_service import (
+    build_available_providers,
+    is_webapi_model_id,
+    required_provider_for,
+)
 from ...services.model_selection_service import ModelSelectionService
 from ...services.pipeline_composition import PipelineCompositionService, PipelineStage, StageModelInfo
 from ...services.provider_batch_capability import is_omni_moderation_model
@@ -954,8 +958,8 @@ class AnnotateTabWidget(QWidget, Ui_AnnotateTab):
     def _build_stage_model_infos(self, selected_ids: list[str]) -> list[StageModelInfo]:
         """選択 litellm_model_id を StageModelInfo へ変換する。
 
-        capabilities は DB Model の model_types 由来。provider が空または "local" の
-        モデルはローカル ML として扱う (ModelSelectionService._provider_key と同じ規約)。
+        capabilities は DB Model の model_types 由来。API / local 判定はモデル一覧と
+        同じ helper で provider と key 要否の metadata を確認する。
 
         Args:
             selected_ids: ModelSelectionWidget で選択中の litellm_model_id リスト。
@@ -975,7 +979,7 @@ class AnnotateTabWidget(QWidget, Ui_AnnotateTab):
                 logger.debug(f"選択モデルが DB モデル一覧に見つかりません: {litellm_id}")
                 continue
             provider = model.provider
-            is_api = provider is not None and provider != "" and provider.lower() != "local"
+            is_api = is_webapi_model_id(litellm_id, provider, getattr(model, "requires_api_key", None))
             input_cost, output_cost = cost_by_id.get(litellm_id, (None, None))
             infos.append(
                 StageModelInfo(

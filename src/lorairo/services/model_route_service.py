@@ -48,6 +48,12 @@ _PROVIDER_ALIAS_MAP: dict[str, str] = {
     "gemini": "google",
     "vertex_ai": "google",
 }
+_WEBAPI_PROVIDER_NAMESPACES = (
+    frozenset({"openai", "anthropic", "google"})
+    | frozenset(_PROVIDER_ALIAS_MAP)
+    | frozenset(_PROVIDER_ALIAS_MAP.values())
+    | _DISPLAY_GATEWAY_PREFIXES
+)
 
 _DISPLAY_FAMILY_NAMES: dict[str, str] = {
     "openai": "OpenAI",
@@ -108,6 +114,23 @@ def _normalized_provider_hint(provider_hint: str | None) -> str | None:
     return normalized
 
 
+def is_explicit_webapi_model_id(identifier: str) -> bool:
+    """直接 provider・alias・gateway namespace を明示した入力かを判定する。"""
+    provider, separator, _ = identifier.partition("/")
+    return bool(separator) and provider.strip().lower() in _WEBAPI_PROVIDER_NAMESPACES
+
+
+def is_local_model_metadata(provider_hint: str | None, requires_api_key: bool | None) -> bool:
+    """ローカルを示す provider と key 要否の両方が揃っている場合だけ True。
+
+    旧 DB の cloud 行も key 要否の既定値 False を持つため、フラグ単独では判断しない。
+    """
+    return requires_api_key is False and (
+        provider_hint is None
+        or (isinstance(provider_hint, str) and provider_hint.strip().lower() in {"", _LOCAL_PROVIDER})
+    )
+
+
 def is_webapi_model_id(
     litellm_model_id: str,
     provider_hint: str | None = None,
@@ -115,11 +138,12 @@ def is_webapi_model_id(
 ) -> bool:
     """litellm_model_id が Web API 経路 ID かを判定する。
 
-    ``requires_api_key`` が分かる caller ではそれを一次ソースにする。local model の
-    ``info.name`` には slash 付き namespace が入り得るため、slash の有無だけでは判定しない。
+    ``requires_api_key=False`` は local/未設定 provider のときだけローカルを示す。
+    cloud provider の旧 DB 行では False の既定値が残り得るため、provider も確認する。
+    local model の名前には namespace が入り得るため、slash 単独では判定しない。
     """
     if requires_api_key is not None:
-        return requires_api_key
+        return not is_local_model_metadata(provider_hint, requires_api_key)
 
     normalized_provider = _normalized_provider_hint(provider_hint)
     if normalized_provider == _LOCAL_PROVIDER:
@@ -155,7 +179,7 @@ def build_model_route_identity(
 ) -> ModelRouteIdentity:
     """1 モデル行の route / canonical / display identity を構築する。
 
-    `requires_api_key` が分かる場合は local/WebAPI 判定の一次情報として扱う。
+    `requires_api_key` と provider metadata を合わせて local/WebAPI を判定する。
     slash の有無は WebAPI 判定には使わず、WebAPI と判定された後の表示 key
     解析にだけ使う。
     """

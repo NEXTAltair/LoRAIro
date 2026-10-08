@@ -45,6 +45,7 @@ else:
         RoutePreference,
         build_available_providers,
         build_display_options,
+        is_local_model_metadata,
         parse_route_preference,
     )
     from ...services.model_selection_service import ModelSelectionCriteria, ModelSelectionService
@@ -484,9 +485,13 @@ if not __name__ == "__main__":
             """
             models = [model for model in self.model_selection_service.load_models() if model.available]
             # 接続経路の設定は WebAPI 専用。local は openrouter preference でも有効。
-            local_ids = {model.litellm_model_id for model in models if not model.requires_api_key}
+            local_ids = {
+                model.litellm_model_id
+                for model in models
+                if is_local_model_metadata(model.provider, model.requires_api_key)
+            }
             options = build_display_options(
-                [model for model in models if model.requires_api_key],
+                [model for model in models if model.litellm_model_id not in local_ids],
                 available_providers=self._build_available_providers(),
                 preference=self._get_route_preference(),
             )
@@ -660,8 +665,8 @@ if not __name__ == "__main__":
                 provider=option.display_family or model.provider or "local",
                 capabilities=list(option.capabilities),
                 litellm_model_id=option.preferred.litellm_model_id,
-                is_local=not model.requires_api_key,
-                requires_api_key=model.requires_api_key,
+                is_local=not option.preferred.identity.is_webapi,
+                requires_api_key=option.preferred.identity.is_webapi,
                 route=option.preferred.route,
                 alternatives=tuple(c.litellm_model_id for c in option.alternatives),
                 available=option.available,

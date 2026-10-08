@@ -28,8 +28,8 @@ def _model(model_id, provider, capabilities=None):
     )
 
 
-@pytest.fixture
-def route_flow(qtbot, monkeypatch):
+@pytest.fixture(params=[False, True], ids=["current-cloud-flags", "legacy-cloud-flags"])
+def route_flow(qtbot, monkeypatch, request):
     settings = {"route": "openrouter", "openai_key": "mock-key", "openrouter_key": "mock-key"}
     config = Mock()
     config.get_setting.side_effect = lambda section, key, default="": (
@@ -41,6 +41,10 @@ def route_flow(qtbot, monkeypatch):
         _model(LOCAL_ID, "local"),
         _model("anthropic/claude-test", "anthropic"),
     ]
+    if request.param:
+        for model in models:
+            if model.provider != "local":
+                model.requires_api_key = False
     db = Mock()
     db.model_repo.get_model_objects.return_value = models
     db.model_repo.get_model_by_litellm_id.side_effect = lambda mid: next(
@@ -92,7 +96,13 @@ def route_flow(qtbot, monkeypatch):
         is_annotate_tab_active=lambda: True,
     )
     return SimpleNamespace(
-        tab=tab, state=state, settings=settings, controller=controller, worker=worker, container=container
+        tab=tab,
+        state=state,
+        settings=settings,
+        controller=controller,
+        worker=worker,
+        container=container,
+        models=models,
     )
 
 
@@ -194,6 +204,47 @@ def test_key_removal_clears_unselectable_model(route_flow):
     assert flow.state.get_selected() == []
     assert flow.tab.batch_model_selection.get_selected_models() == []
     assert not flow.tab.batch_model_selection.model_checkbox_widgets[ROUTER_ID].is_selectable()
+
+
+def test_cloud_rendering_and_auto_route_availability_use_provider_metadata(route_flow):
+    flow = route_flow
+    router_checkbox = flow.tab.batch_model_selection.model_checkbox_widgets[ROUTER_ID]
+    assert router_checkbox.model_info.is_local is False
+    assert router_checkbox.model_info.requires_api_key is True
+    assert router_checkbox.labelStatus.text() == "● API ready"
+    flow.state.set_selected([ROUTER_ID])
+    flow.settings.update(openai_key="", openrouter_key="")
+    _save_route(flow, "auto")
+    assert flow.state.get_selected() == []
+    direct_checkbox = flow.tab.batch_model_selection.model_checkbox_widgets[DIRECT_ID]
+    assert direct_checkbox.labelStatus.text() == "○ needs key"
+    assert not direct_checkbox.is_selectable()
+    assert flow.tab.batch_model_selection.selectable_litellm_model_ids() == {LOCAL_ID}
+    assert flow.controller.start_annotation("sync") is False
+    flow.worker.start_enhanced_batch_annotation.assert_not_called()
+
+
+def test_execution_environment_filters_agree_with_cloud_route_metadata(route_flow):
+    flow = route_flow
+    _save_route(flow, "direct")
+    flow.tab.batch_model_selection.apply_filters(execution_env="APIモデルのみ")
+    assert DIRECT_ID in flow.tab.batch_model_selection.model_checkbox_widgets
+    assert LOCAL_ID not in flow.tab.batch_model_selection.model_checkbox_widgets
+    flow.tab.batch_model_selection.apply_filters(execution_env="ローカルモデルのみ")
+    assert set(flow.tab.batch_model_selection.model_checkbox_widgets) == {LOCAL_ID}
+
+
+@pytest.mark.parametrize("provider", [None, "", "local", "LOCAL", " local "])
+def test_genuine_local_metadata_survives_route_switch_and_execution(route_flow, provider):
+    flow = route_flow
+    local_model = next(model for model in flow.models if model.litellm_model_id == LOCAL_ID)
+    local_model.provider = provider
+    flow.state.set_selected([LOCAL_ID])
+    _save_route(flow, "direct")
+    _save_route(flow, "openrouter")
+    assert flow.state.get_selected() == [LOCAL_ID]
+    assert flow.controller.start_annotation("sync") is True
+    assert flow.worker.start_enhanced_batch_annotation.call_args.kwargs["litellm_model_ids"] == [LOCAL_ID]
 
 
 def test_picker_and_preset_selections_survive_same_route_preflight(route_flow, monkeypatch):

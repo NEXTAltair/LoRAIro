@@ -44,7 +44,11 @@ from lorairo.public_api.exceptions import (
 )
 from lorairo.public_api.project import get_project as api_get_project
 from lorairo.services.model_registry_protocol import selection_includes_webapi_model
-from lorairo.services.model_route_service import validate_api_keys_for_models
+from lorairo.services.model_route_service import (
+    is_explicit_webapi_model_id,
+    is_local_model_metadata,
+    validate_api_keys_for_models,
+)
 from lorairo.services.moderation_preflight_service import (
     ModerationPreflightService,
     build_annotation_runner_runner,
@@ -720,25 +724,14 @@ def _resolve_model_identifier(repository: ModelRepository, identifier: str) -> s
             "Use the full LiteLLM model ID. Run `lorairo-cli models list` to see available IDs."
         )
 
-    # アプリの WebAPI 経路と Google の既存 alias。slash を含むローカルの
+    # アプリの WebAPI provider / alias / gateway。slash を含むローカルの
     # namespace (例: google/siglip-so400m) は正当な表示名なので、単一一致の
     # requires_api_key=False と local provider を確認して区別する。旧 DB 行の
     # key 要否フラグだけでは cloud を local と判断せず、別経路へは補完しない。
-    provider, separator, _ = identifier.partition("/")
-    explicit_provider = separator and provider.lower() in {
-        "openai",
-        "anthropic",
-        "google",
-        "gemini",
-        "vertex_ai",
-        "openrouter",
-    }
-    local_name_match = (
-        len(by_name) == 1
-        and by_name[0].requires_api_key is False
-        and (by_name[0].provider or "").strip().lower() in {"", "local"}
+    local_name_match = len(by_name) == 1 and is_local_model_metadata(
+        by_name[0].provider, by_name[0].requires_api_key
     )
-    if explicit_provider and not local_name_match:
+    if is_explicit_webapi_model_id(identifier) and not local_name_match:
         raise click.UsageError(
             f"Unknown model ID '{identifier}': an explicit provider-qualified ID must match exactly. "
             "Run `lorairo-cli models list` to see available IDs."

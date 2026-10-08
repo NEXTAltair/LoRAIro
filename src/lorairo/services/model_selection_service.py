@@ -7,7 +7,12 @@ from dataclasses import dataclass
 from ..database.repository.model import ModelRepository
 from ..database.schema import Model
 from ..utils.log import logger
-from .model_route_service import DisplayModelOption, RoutePreference, build_display_options
+from .model_route_service import (
+    DisplayModelOption,
+    RoutePreference,
+    build_display_options,
+    is_local_model_metadata,
+)
 
 
 @dataclass
@@ -173,10 +178,12 @@ class ModelSelectionService:
         # 実行環境フィルタ（execution_env による分類）
         if criteria.execution_env and criteria.execution_env != "すべて":
             if criteria.execution_env == "APIモデルのみ":
-                filtered = [m for m in filtered if m.requires_api_key]
+                filtered = [
+                    m for m in filtered if not is_local_model_metadata(m.provider, m.requires_api_key)
+                ]
                 logger.debug(f"  実行環境フィルタ後（APIモデルのみ）: {len(filtered)}件")
             elif criteria.execution_env == "ローカルモデルのみ":
-                filtered = [m for m in filtered if not m.requires_api_key]
+                filtered = [m for m in filtered if is_local_model_metadata(m.provider, m.requires_api_key)]
                 logger.debug(f"  実行環境フィルタ後（ローカルモデルのみ）: {len(filtered)}件")
 
         # プロバイダーフィルタ

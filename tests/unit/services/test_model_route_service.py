@@ -22,6 +22,8 @@ from lorairo.services.model_route_service import (
     display_family_for,
     display_model_name_for,
     group_model_routes,
+    is_explicit_webapi_model_id,
+    is_local_model_metadata,
     is_webapi_model_id,
     parse_route_preference,
     required_provider_for,
@@ -136,6 +138,52 @@ class TestDisplayHelpers:
     def test_is_webapi_model_id_prefers_requires_api_key(self) -> None:
         assert is_webapi_model_id("some/very/deep/local-tagger", "local", False) is False
         assert is_webapi_model_id("gpt-4o", "openai", True) is True
+
+
+@pytest.mark.parametrize(
+    "provider", ["openai", "anthropic", "google", "gemini", "vertex_ai", "openrouter", "vercel_ai_gateway"]
+)
+def test_all_supported_webapi_namespaces_are_explicit(provider):
+    assert is_explicit_webapi_model_id(f"{provider}/model") is True
+    assert is_explicit_webapi_model_id(f"{provider.upper()}/model") is True
+    assert is_explicit_webapi_model_id(provider) is False
+
+
+@pytest.mark.parametrize("provider", [None, "", "local", "LOCAL", " local "])
+def test_local_classification_requires_local_provider_and_false_flag(provider):
+    assert is_local_model_metadata(provider, False) is True
+    assert is_local_model_metadata(provider, True) is False
+    assert is_local_model_metadata(provider, None) is False
+    assert is_webapi_model_id("google/siglip-so400m", provider, False) is False
+
+
+@pytest.mark.parametrize(
+    "provider,required_provider",
+    [
+        ("openai", "openai"),
+        ("anthropic", "anthropic"),
+        ("google", "google"),
+        ("gemini", "google"),
+        ("vertex_ai", "google"),
+        ("openrouter", "openrouter"),
+        ("vercel_ai_gateway", "vercel_ai_gateway"),
+    ],
+)
+def test_legacy_cloud_false_flag_keeps_cloud_identity_and_key_availability(provider, required_provider):
+    model_id = f"{provider}/openai/model"
+    assert is_local_model_metadata(provider, False) is False
+    assert is_webapi_model_id(model_id, provider, False) is True
+    model = _fake_model(model_id, "legacy", provider, requires_api_key=False)
+    missing_key_option = build_display_options([model], set())[0]
+    assert missing_key_option.preferred.identity.is_webapi is True
+    assert missing_key_option.preferred.required_provider == required_provider
+    assert missing_key_option.available is False
+    ready_option = build_display_options([model], {required_provider})[0]
+    assert ready_option.available is True
+
+
+def test_local_namespace_is_not_automatically_a_provider_id():
+    assert is_explicit_webapi_model_id("SmilingWolf/wd-tagger") is False
 
 
 @pytest.mark.unit
