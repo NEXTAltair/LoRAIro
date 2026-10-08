@@ -1052,10 +1052,11 @@ def local_clef_settings(tmp_path, monkeypatch):
         _IalPath(__file__).parent.parent / "local_packages/image-annotator-lib/src/image_annotator_lib"
     )
     monkeypatch.setattr(sys.modules["image_annotator_lib"], "__path__", [str(package)])
+    from image_annotator_lib.decisions.runtime import ManagedEndpoint
 
     @contextmanager
     def runtime_session(settings, timeout):
-        yield "http://127.0.0.1:11437"
+        yield ManagedEndpoint("http://127.0.0.1:11437", "test-runtime-key")
 
     monkeypatch.setattr("image_annotator_lib.decisions.local.runtime_session", runtime_session)
     settings = {}

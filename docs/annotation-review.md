@@ -42,7 +42,7 @@ n_gpu_layers = 10
 context_size = 4096
 warning_threshold = 0.2
 suggestion_threshold = 0.8
-timeout = 300.0           # ローカル起動・推論の待機上限 (1–3600秒)
+timeout = 300.0           # ローカル起動・推論それぞれの待機上限 (1–3600秒)
 ```
 
 GUIでは絶対パスの選択を推奨する。相対パスは通常はアプリのルート、CLIの明示指定時は
@@ -156,7 +156,8 @@ Alembic マイグレーションで更新される。保存対象は確認結果
 
 `image_annotator_lib.decisions` は `annotate()` と別の公開 API。
 `LocalDecisionClient` が llama.cpp のローカルプロセスを管理し、真偽・候補選択・段階評価の型と検証を担当する。
-通信先は内部で起動したループバックのプロセスに固定し、外部URL・認証・プロキシ・リダイレクトを使わない。
+通信先は内部で起動したループバックのプロセスに固定し、アプリが生成する一時キーで接続を確認する。
+外部URL・ユーザーのAPIキー設定・プロキシ・リダイレクトを使わない。
 LoRAIro は DB の注釈 ID を質問 ID (`tag_123` / `caption_456`) に対応付け、質問文、
 警告基準、画面表示、編集後の無効化を担当する。
 通常の annotation モデル選択や `AnnotationSaveService` に判定結果を流さない。

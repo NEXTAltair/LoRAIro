@@ -416,7 +416,7 @@ def test_settings_save_replaces_local_clef_files_and_invalidates_results(
 
         assert len(requests) == 1
         assert str(requests[0].url) == "http://127.0.0.1:11437/v1/systemone"
-        assert "authorization" not in requests[0].headers
+        assert requests[0].headers["authorization"] == "Bearer test-runtime-key"
     finally:
         widget.shutdown()
 

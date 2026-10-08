@@ -42,6 +42,14 @@ class ConfigurationService:
             except Exception:
                 logger.opt(exception=True).error("設定ファイルの読み込み中に予期せぬエラーが発生しました。")
                 raise
+        self._discard_retired_clef_credentials()
+
+    def _discard_retired_clef_credentials(self) -> None:
+        """Remove credentials for the deleted hosted Clef backend without logging values."""
+        api_settings = self._config.get("api")
+        if isinstance(api_settings, dict):
+            api_settings.pop("cloudflare_account_id", None)
+            api_settings.pop("cloudflare_api_token", None)
 
     def get_setting(self, section: str, key: str, default: Any | None = None) -> Any:
         """指定されたセクションとキーの設定値を取得します。
@@ -100,6 +108,7 @@ class ConfigurationService:
             return False
 
         try:
+            self._discard_retired_clef_credentials()
             # FileSystemManager.save_toml_config(self._config, save_path) # FileSystemManager経由にするか検討
             write_config_file(self._config, save_path)
             logger.info("設定をファイルに保存しました: {}", save_path)
