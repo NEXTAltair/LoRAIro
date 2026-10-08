@@ -322,7 +322,7 @@ class TestModelSelectionWidgetLitellmIdKeying:
     """
 
     @pytest.fixture
-    def widget_with_dual_routes(self, qtbot, mock_model_service):
+    def widget_with_dual_routes(self, qtbot, mock_model_service, monkeypatch):
         """migration 経路 (OpenRouter, name 縮退) と新規 sync 経路 (OpenAI 直接版)
         の両方を含む DB fixture を simple ではなく advanced モードでロードする。
         """
@@ -343,6 +343,7 @@ class TestModelSelectionWidgetLitellmIdKeying:
         mock_model_service.filter_models.return_value = [migration_route, new_sync_direct]
         mock_model_service.load_models.return_value = [migration_route, new_sync_direct]
         mock_model_service.get_recommended_models.return_value = [new_sync_direct]
+        monkeypatch.setattr(ModelSelectionWidget, "_build_available_providers", lambda self: {"openai"})
 
         w = ModelSelectionWidget(model_selection_service=mock_model_service, mode="advanced")
         qtbot.addWidget(w)
@@ -425,7 +426,7 @@ class TestModelSelectionWidgetWebApiDisplay:
         assert any("Qwen Models" in label for label in group_labels)
 
     def test_selection_still_returns_raw_litellm_id_for_short_display_name(
-        self, qtbot, mock_model_service
+        self, qtbot, mock_model_service, monkeypatch
     ) -> None:
         model = _fake_db_model(
             name="openrouter/qwen/qwen3.7-max",
@@ -435,6 +436,7 @@ class TestModelSelectionWidgetWebApiDisplay:
         )
         mock_model_service.load_models.return_value = [model]
         mock_model_service.get_recommended_models.return_value = [model]
+        monkeypatch.setattr(ModelSelectionWidget, "_build_available_providers", lambda self: {"openrouter"})
 
         w = ModelSelectionWidget(model_selection_service=mock_model_service, mode="simple")
         qtbot.addWidget(w)

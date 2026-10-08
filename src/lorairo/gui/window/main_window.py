@@ -1524,9 +1524,8 @@ class MainWindow(QMainWindow, Ui_MainWindow):
 
         if self.annotate_tab is None:
             return
-        batch_widget = self.annotate_tab.batch_model_selection
         try:
-            batch_widget.update_model_display()
+            self.annotate_tab.refresh_model_selection()
             logger.debug("設定変更を反映してモデル選択ウィジェットを更新しました")
         except Exception as e:
             logger.warning(f"モデル選択ウィジェットの更新に失敗 (継続可): {e}")

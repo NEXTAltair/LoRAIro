@@ -23,7 +23,7 @@ from lorairo.services.dispatch_projection_service import (
     DispatchProjectionError,
     project_async_batch_dispatch,
 )
-from lorairo.services.model_route_service import validate_api_keys_for_models
+from lorairo.services.model_route_service import is_local_model_metadata, validate_api_keys_for_models
 from lorairo.services.provider_batch_capability import (
     direct_provider_for_model,
     is_omni_moderation_model,
@@ -513,7 +513,15 @@ class AnnotationWorkflowController(QObject):
         # アノテーションタブの選択モデルを取得 (Issue #245: litellm_model_id ベース、#868)
         selected_litellm_model_ids: list[str] = []
         if annotate_tab is not None:
+            annotate_tab.refresh_model_selection()
             selected_litellm_model_ids = annotate_tab.selected_litellm_model_ids()
+            if not selected_litellm_model_ids:
+                show_warning(
+                    self._parent_widget,
+                    "モデル未選択",
+                    "アノテーションに使用するモデルを選択してください。",
+                )
+                return False
             logger.debug(
                 f"アノテタブから選択されたモデル (litellm_model_ids): {selected_litellm_model_ids}"
             )
@@ -534,12 +542,9 @@ class AnnotationWorkflowController(QObject):
         # 実行詳細設定 (RunOptions) を同期アノテフローへ伝搬する (Issue #803)。
         run_options = annotate_tab.run_options() if annotate_tab is not None else None
 
-        # チェックボックスから選択されたモデルを優先し、無ければダイアログ callback へ
+        # タブの選択集合を使用する。未選択なら上で停止し、別モデルへ補完しない。
         return self.start_annotation_workflow(
-            selected_litellm_model_ids=selected_litellm_model_ids if selected_litellm_model_ids else None,
-            model_selection_callback=annotate_tab.show_model_selection_dialog
-            if not selected_litellm_model_ids and annotate_tab is not None
-            else None,
+            selected_litellm_model_ids=selected_litellm_model_ids,
             image_paths=override_image_paths,
             run_options=run_options,
         )
@@ -599,6 +604,9 @@ class AnnotationWorkflowController(QObject):
             if not models_to_use:
                 return False
 
+            if not self._validate_current_model_selection(models_to_use):
+                return False
+
             if self._warn_deprecated_models(models_to_use) is False:
                 return False
 
@@ -622,6 +630,22 @@ class AnnotationWorkflowController(QObject):
                     error_msg,
                 )
             return False
+
+    def _validate_current_model_selection(self, model_ids: list[str]) -> bool:
+        """送信直前に current route と照合し、SSoT の古い経路も解除する。"""
+        if self._annotate_tab is None:
+            return True
+        self._annotate_tab.refresh_model_selection()
+        selectable = self._annotate_tab.batch_model_selection.selectable_litellm_model_ids()
+        if all(mid in selectable for mid in model_ids):
+            return True
+        show_warning(
+            self._parent_widget,
+            "モデル選択の変更",
+            "選択したモデルの接続経路が変更されたか、現在利用できません。\n"
+            "モデルを選択し直してから実行してください。",
+        )
+        return False
 
     def _resolve_models_to_use(
         self,
@@ -785,7 +809,7 @@ class AnnotationWorkflowController(QObject):
 
         ``selection_includes_webapi_model`` のような registry 経由判定とは異なり、
         provider 単位の不足を ``(litellm_model_id, missing_provider)`` ペアで列挙する。
-        DB から ``Model.provider`` を hint として取得して判定精度を上げる。
+        DB metadata でローカル配布元を ``local`` hint に正規化してから不足を確認する。
 
         Args:
             litellm_model_ids: 実行直前に検証するモデルの ``litellm_model_id`` リスト。
@@ -805,7 +829,13 @@ class AnnotationWorkflowController(QObject):
             provider_hints: dict[str, str] = {}
             for litellm_id in litellm_model_ids:
                 model = repository.get_model_by_litellm_id(litellm_id)
-                if model is not None and model.provider:
+                if model is None:
+                    continue
+                if is_local_model_metadata(
+                    model.provider, getattr(model, "requires_api_key", None), litellm_id
+                ):
+                    provider_hints[litellm_id] = "local"
+                elif model.provider:
                     provider_hints[litellm_id] = model.provider
 
             missing = validate_api_keys_for_models(litellm_model_ids, api_keys, provider_hints)
@@ -938,7 +968,15 @@ class AnnotationWorkflowController(QObject):
             return False
 
         # #1098/#1133: moderation を含めば rating_preflight、無ければ annotation。
+        self._annotate_tab.refresh_model_selection()
         selected_litellm_model_ids = self._annotate_tab.selected_litellm_model_ids()
+        if not selected_litellm_model_ids:
+            show_warning(
+                self._parent_widget,
+                "モデル未選択",
+                "アノテーションに使用するモデルを選択してください。",
+            )
+            return False
         task_type = _resolve_dispatch_task_type(selected_litellm_model_ids, db_manager)
 
         container = self._service_container

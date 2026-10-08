@@ -48,6 +48,12 @@ _PROVIDER_ALIAS_MAP: dict[str, str] = {
     "gemini": "google",
     "vertex_ai": "google",
 }
+_WEBAPI_PROVIDER_NAMESPACES = (
+    frozenset({"openai", "anthropic", "google"})
+    | frozenset(_PROVIDER_ALIAS_MAP)
+    | frozenset(_PROVIDER_ALIAS_MAP.values())
+    | _DISPLAY_GATEWAY_PREFIXES
+)
 
 _DISPLAY_FAMILY_NAMES: dict[str, str] = {
     "openai": "OpenAI",
@@ -108,6 +114,31 @@ def _normalized_provider_hint(provider_hint: str | None) -> str | None:
     return normalized
 
 
+def is_explicit_webapi_model_id(identifier: str) -> bool:
+    """直接 provider・alias・gateway namespace を明示した入力かを判定する。"""
+    provider, separator, _ = identifier.partition("/")
+    return bool(separator) and provider.strip().lower() in _WEBAPI_PROVIDER_NAMESPACES
+
+
+def is_local_model_metadata(
+    provider_hint: str | None,
+    requires_api_key: bool | None,
+    litellm_model_id: str | None = None,
+) -> bool:
+    """key 不要のローカルモデルを provider と登録済み ID から判定する。
+
+    ローカルの provider には SmilingWolf/cafe 等の配布元や OpenAI も残り得る。
+    旧 cloud 行の False 既定値は、既知 cloud provider と provider 付き canonical
+    ID が揃う場合に限り補正する。provider が未設定/local の namespace ID は保つ。
+    canonical ID が未提供の場合は、既知 cloud provider を保守的に cloud と扱う。
+    """
+    if requires_api_key is not False:
+        return False
+    if _normalized_provider_hint(provider_hint) not in _WEBAPI_PROVIDER_NAMESPACES:
+        return True
+    return litellm_model_id is not None and not is_explicit_webapi_model_id(litellm_model_id)
+
+
 def is_webapi_model_id(
     litellm_model_id: str,
     provider_hint: str | None = None,
@@ -115,11 +146,12 @@ def is_webapi_model_id(
 ) -> bool:
     """litellm_model_id が Web API 経路 ID かを判定する。
 
-    ``requires_api_key`` が分かる caller ではそれを一次ソースにする。local model の
-    ``info.name`` には slash 付き namespace が入り得るため、slash の有無だけでは判定しない。
+    ``requires_api_key=False`` はローカル配布元や bare ID を保ちつつ、既知 cloud
+    provider + provider 付き canonical ID の旧 DB 行では False 既定値を補正する。
+    local model の名前には namespace が入り得るため、slash 単独では判定しない。
     """
     if requires_api_key is not None:
-        return requires_api_key
+        return not is_local_model_metadata(provider_hint, requires_api_key, litellm_model_id)
 
     normalized_provider = _normalized_provider_hint(provider_hint)
     if normalized_provider == _LOCAL_PROVIDER:
@@ -155,9 +187,8 @@ def build_model_route_identity(
 ) -> ModelRouteIdentity:
     """1 モデル行の route / canonical / display identity を構築する。
 
-    `requires_api_key` が分かる場合は local/WebAPI 判定の一次情報として扱う。
-    slash の有無は WebAPI 判定には使わず、WebAPI と判定された後の表示 key
-    解析にだけ使う。
+    `requires_api_key`、provider、登録済み ID を合わせて local/WebAPI を判定する。
+    slash を含むローカル namespace は保ち、WebAPI と判定された後で表示 key を解析する。
     """
     route = detect_route(litellm_model_id)
     ckey = canonical_key(litellm_model_id)

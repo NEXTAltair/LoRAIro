@@ -52,7 +52,11 @@ from PySide6.QtWidgets import (
 from ...database.db_core import resolve_stored_path
 from ...database.db_manager import ImageDatabaseManager
 from ...services.dispatch_projection_service import batch_eligible_litellm_ids
-from ...services.model_route_service import build_available_providers, required_provider_for
+from ...services.model_route_service import (
+    build_available_providers,
+    is_webapi_model_id,
+    required_provider_for,
+)
 from ...services.model_selection_service import ModelSelectionService
 from ...services.pipeline_composition import PipelineCompositionService, PipelineStage, StageModelInfo
 from ...services.provider_batch_capability import is_omni_moderation_model
@@ -280,6 +284,7 @@ class AnnotateTabWidget(QWidget, Ui_AnnotateTab):
 
         # Signal 配線
         self._batch_model_selection.model_selection_changed.connect(self._on_pipeline_models_changed)
+        self._batch_model_selection.model_options_changed.connect(self.reconcile_model_selection)
         self._pipeline_stage_table.add_model_requested.connect(self._on_pipeline_add_model_requested)
         self._pipeline_stage_table.remove_model_requested.connect(self._on_pipeline_remove_model_requested)
         # preset 配線 (Issue #847): preset chip 選択 / 保存要求をハンドラへ接続
@@ -518,6 +523,21 @@ class AnnotateTabWidget(QWidget, Ui_AnnotateTab):
         self._refresh_preflight_summary()
 
     # -- 実行系 getter (MainWindow.start_annotation が読む) --------------------
+
+    def refresh_model_selection(self) -> None:
+        """設定保存後・実行直前に最新の経路と選択状態を同期する。"""
+        self._batch_model_selection.update_model_display()
+        # 同一表示で rebuild が省略されても stale な SSoT を検証する。
+        self.reconcile_model_selection()
+
+    @Slot()
+    def reconcile_model_selection(self) -> None:
+        """利用できなくなった経路を解除し、有効な offscreen 選択は維持する。"""
+        selectable = self._batch_model_selection.selectable_litellm_model_ids()
+        selected = [mid for mid in self.selected_litellm_model_ids() if mid in selectable]
+        self._batch_model_selection.set_selected_models(selected)
+        self._sync_widget_selection_to_state(selected)
+        self._refresh_pipeline_panel(selected)
 
     def _sync_widget_selection_to_state(self, selected: list[str] | None = None) -> None:
         """widget の programmatic な選択変更を state manager (SSoT) へ反映する (#884)。
@@ -938,8 +958,8 @@ class AnnotateTabWidget(QWidget, Ui_AnnotateTab):
     def _build_stage_model_infos(self, selected_ids: list[str]) -> list[StageModelInfo]:
         """選択 litellm_model_id を StageModelInfo へ変換する。
 
-        capabilities は DB Model の model_types 由来。provider が空または "local" の
-        モデルはローカル ML として扱う (ModelSelectionService._provider_key と同じ規約)。
+        capabilities は DB Model の model_types 由来。API / local 判定はモデル一覧と
+        同じ helper で provider と key 要否の metadata を確認する。
 
         Args:
             selected_ids: ModelSelectionWidget で選択中の litellm_model_id リスト。
@@ -959,7 +979,7 @@ class AnnotateTabWidget(QWidget, Ui_AnnotateTab):
                 logger.debug(f"選択モデルが DB モデル一覧に見つかりません: {litellm_id}")
                 continue
             provider = model.provider
-            is_api = provider is not None and provider != "" and provider.lower() != "local"
+            is_api = is_webapi_model_id(litellm_id, provider, getattr(model, "requires_api_key", None))
             input_cost, output_cost = cost_by_id.get(litellm_id, (None, None))
             infos.append(
                 StageModelInfo(
@@ -1127,7 +1147,7 @@ class AnnotateTabWidget(QWidget, Ui_AnnotateTab):
         except (RuntimeError, AttributeError) as e:
             logger.warning(f"ServiceContainer の config_service 再読込に失敗 (継続可): {e}")
         try:
-            self._batch_model_selection.update_model_display()
+            self.refresh_model_selection()
         except (RuntimeError, AttributeError) as e:
             logger.warning(f"モデル選択ウィジェットの更新に失敗 (継続可): {e}")
 

@@ -111,3 +111,33 @@ class TestValidateRequiredApiKeys:
 
         # openai/gpt-4o は openai key 有り -> 不足なし
         _validate_required_api_keys(repository, config, ["openai/gpt-4o"])
+
+    @pytest.mark.parametrize(
+        "provider,model_id",
+        [
+            ("SmilingWolf", "wd-vit-large-tagger-v3"),
+            ("cafe", "cafe_aesthetic"),
+            ("xinntao", "RealESRGAN_x4plus"),
+            ("openai", "classification_ViT-L-14_openai"),
+            (None, "google/siglip-so400m"),
+            ("local", "openai/clip-vit-large-patch14"),
+        ],
+    )
+    def test_keyless_local_metadata_skips_vendor_key_requirement(self, provider, model_id):
+        repository = Mock()
+        repository.get_model_by_litellm_id.return_value = SimpleNamespace(
+            provider=provider, requires_api_key=False
+        )
+        _validate_required_api_keys(repository, _fake_config({}), [model_id])
+
+    @pytest.mark.parametrize(
+        "provider",
+        ["openai", "anthropic", "google", "gemini", "vertex_ai", "openrouter", "vercel_ai_gateway"],
+    )
+    def test_legacy_qualified_cloud_false_flag_still_requires_api_key(self, provider):
+        repository = Mock()
+        repository.get_model_by_litellm_id.return_value = SimpleNamespace(
+            provider=provider, requires_api_key=False
+        )
+        with pytest.raises(click.UsageError, match="Missing API keys"):
+            _validate_required_api_keys(repository, _fake_config({}), [f"{provider}/model"])

@@ -44,7 +44,7 @@ class TestReloadModelWidgetAfterSettings:
         MainWindow._reload_model_widget_after_settings(mock_window)
 
         assert container.config_deleted is True
-        mock_window.annotate_tab.batch_model_selection.update_model_display.assert_called_once_with()
+        mock_window.annotate_tab.refresh_model_selection.assert_called_once_with()
 
     def test_skips_widget_update_when_annotate_tab_missing(self, monkeypatch):
         """annotate_tab が None でも container 破棄まで実施し例外を出さない。"""

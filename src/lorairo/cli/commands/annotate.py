@@ -44,7 +44,11 @@ from lorairo.public_api.exceptions import (
 )
 from lorairo.public_api.project import get_project as api_get_project
 from lorairo.services.model_registry_protocol import selection_includes_webapi_model
-from lorairo.services.model_route_service import validate_api_keys_for_models
+from lorairo.services.model_route_service import (
+    is_explicit_webapi_model_id,
+    is_local_model_metadata,
+    validate_api_keys_for_models,
+)
 from lorairo.services.moderation_preflight_service import (
     ModerationPreflightService,
     build_annotation_runner_runner,
@@ -685,9 +689,10 @@ def _resolve_model_identifier(repository: ModelRepository, identifier: str) -> s
 
     解決順:
       1. `litellm_model_id` 完全一致 → そのまま返す (推奨経路)
-      2. `name` 一致が単一 → その行の `litellm_model_id` を返す (convenience)
-      3. `name` 一致が複数 → typer.Exit(code=1) で候補一覧を表示して中断
-      4. 一致なし → typer.Exit(code=1) で `models list` を案内して中断
+      2. `name` 一致が複数 → UsageError で候補一覧を表示して中断
+      3. provider 付き入力はローカル表示名の単一一致以外、完全一致が必須
+      4. `name` 一致が単一 → その行の `litellm_model_id` を返す (convenience)
+      5. 一致なし → UsageError で `models list` を案内して中断
 
     ADR 0023 Phase 1.11: `Model.name` は非 UNIQUE、`Model.litellm_model_id` は
     UNIQUE NOT NULL の registry key SSoT。同一 name で route の異なる行が
@@ -701,7 +706,7 @@ def _resolve_model_identifier(repository: ModelRepository, identifier: str) -> s
         str: 解決後の `litellm_model_id`。
 
     Raises:
-        typer.Exit: 曖昧マッチまたは一致なしの場合 (code=1)。
+        click.UsageError: 曖昧マッチまたは一致なしの場合。
     """
     by_litellm = repository.get_model_by_litellm_id(identifier)
     if by_litellm is not None:
@@ -709,12 +714,6 @@ def _resolve_model_identifier(repository: ModelRepository, identifier: str) -> s
         return by_litellm.litellm_model_id
 
     by_name = repository.get_models_by_name(identifier)
-    if len(by_name) == 1:
-        _abort_if_discontinued(by_name[0])
-        resolved = by_name[0].litellm_model_id
-        logger.debug(f"--model '{identifier}' を name 経由で {resolved} に解決")
-        return resolved
-
     if len(by_name) > 1:
         candidate_lines = "\n".join(
             f"  - {m.litellm_model_id} (provider: {m.provider or 'unknown'})" for m in by_name
@@ -724,6 +723,25 @@ def _resolve_model_identifier(repository: ModelRepository, identifier: str) -> s
             f"{candidate_lines}\n"
             "Use the full LiteLLM model ID. Run `lorairo-cli models list` to see available IDs."
         )
+
+    # アプリの WebAPI provider / alias / gateway。slash を含むローカルの
+    # namespace (例: google/siglip-so400m) は正当な表示名なので、単一一致の
+    # key 要否・配布元 provider・登録済み ID を確認して区別する。vendor 名付き
+    # ローカルは保ち、旧 cloud 行の False フラグから別経路へは補完しない。
+    local_name_match = len(by_name) == 1 and is_local_model_metadata(
+        by_name[0].provider, by_name[0].requires_api_key, by_name[0].litellm_model_id
+    )
+    if is_explicit_webapi_model_id(identifier) and not local_name_match:
+        raise click.UsageError(
+            f"Unknown model ID '{identifier}': an explicit provider-qualified ID must match exactly. "
+            "Run `lorairo-cli models list` to see available IDs."
+        )
+
+    if len(by_name) == 1:
+        _abort_if_discontinued(by_name[0])
+        resolved = by_name[0].litellm_model_id
+        logger.debug(f"--model '{identifier}' を name 経由で {resolved} に解決")
+        return resolved
 
     raise click.UsageError(
         f"Unknown model '{identifier}'. Run `lorairo-cli models list` to see available IDs."
@@ -740,7 +758,8 @@ def _validate_required_api_keys(
     旧実装は「3 種類キー全部無いとき警告」だけで、片方の provider key のみ設定
     された環境で OpenRouter 経由モデルを選ぶと library 内で ``MissingApiKeyError``
     が出てから失敗していた。本 helper は registry key (litellm_model_id) の prefix
-    と DB ``Model.provider`` を hint として provider 別の不足を列挙する。
+    と DB metadata を確認して provider 別の不足を列挙する。key 不要のローカル
+    配布元 provider は ``local`` hint に正規化し、vendor API key を要求しない。
 
     Args:
         repository: LoRAIro DB リポジトリ (Model.provider 解決用)。
@@ -762,7 +781,13 @@ def _validate_required_api_keys(
     provider_hints: dict[str, str] = {}
     for litellm_id in resolved_litellm_ids:
         db_model = repository.get_model_by_litellm_id(litellm_id)
-        if db_model is not None and db_model.provider:
+        if db_model is None:
+            continue
+        if is_local_model_metadata(
+            db_model.provider, getattr(db_model, "requires_api_key", None), litellm_id
+        ):
+            provider_hints[litellm_id] = "local"
+        elif db_model.provider:
             provider_hints[litellm_id] = db_model.provider
 
     missing = validate_api_keys_for_models(resolved_litellm_ids, api_keys, provider_hints)
@@ -948,7 +973,8 @@ def run(
 
     Issue #245 / ADR 0023 Phase 1.11: `--model` には `litellm_model_id` (registry
     key SSoT) を渡すこと。display 名 (`Model.name`) は同一値で複数 route の行が
-    共存しうるため、曖昧時は Error で abort し候補一覧を表示する。
+    共存しうるため、曖昧時は Error で abort し候補一覧を表示する。provider を
+    明示した ID は完全一致が必須で、別経路の表示名一致へ補完しない。
 
     Examples:
         lorairo-cli annotate run --project myproject --model openai/gpt-4o
