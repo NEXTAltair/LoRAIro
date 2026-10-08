@@ -23,7 +23,7 @@ from lorairo.services.dispatch_projection_service import (
     DispatchProjectionError,
     project_async_batch_dispatch,
 )
-from lorairo.services.model_route_service import validate_api_keys_for_models
+from lorairo.services.model_route_service import is_local_model_metadata, validate_api_keys_for_models
 from lorairo.services.provider_batch_capability import (
     direct_provider_for_model,
     is_omni_moderation_model,
@@ -809,7 +809,7 @@ class AnnotationWorkflowController(QObject):
 
         ``selection_includes_webapi_model`` のような registry 経由判定とは異なり、
         provider 単位の不足を ``(litellm_model_id, missing_provider)`` ペアで列挙する。
-        DB から ``Model.provider`` を hint として取得して判定精度を上げる。
+        DB metadata でローカル配布元を ``local`` hint に正規化してから不足を確認する。
 
         Args:
             litellm_model_ids: 実行直前に検証するモデルの ``litellm_model_id`` リスト。
@@ -829,7 +829,13 @@ class AnnotationWorkflowController(QObject):
             provider_hints: dict[str, str] = {}
             for litellm_id in litellm_model_ids:
                 model = repository.get_model_by_litellm_id(litellm_id)
-                if model is not None and model.provider:
+                if model is None:
+                    continue
+                if is_local_model_metadata(
+                    model.provider, getattr(model, "requires_api_key", None), litellm_id
+                ):
+                    provider_hints[litellm_id] = "local"
+                elif model.provider:
                     provider_hints[litellm_id] = model.provider
 
             missing = validate_api_keys_for_models(litellm_model_ids, api_keys, provider_hints)

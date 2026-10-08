@@ -149,12 +149,29 @@ def test_all_supported_webapi_namespaces_are_explicit(provider):
     assert is_explicit_webapi_model_id(provider) is False
 
 
-@pytest.mark.parametrize("provider", [None, "", "local", "LOCAL", " local "])
-def test_local_classification_requires_local_provider_and_false_flag(provider):
+@pytest.mark.parametrize(
+    "provider",
+    [None, "", "local", "LOCAL", " local ", "SmilingWolf", "cafe", "xinntao", "esrgan", "unknown"],
+)
+def test_keyless_local_vendor_metadata_preserves_namespaced_local_ids(provider):
     assert is_local_model_metadata(provider, False) is True
     assert is_local_model_metadata(provider, True) is False
     assert is_local_model_metadata(provider, None) is False
     assert is_webapi_model_id("google/siglip-so400m", provider, False) is False
+    assert is_webapi_model_id("google/siglip-so400m", provider, True) is True
+
+
+def test_keyless_openai_local_scorer_uses_bare_canonical_id():
+    model_id = "classification_ViT-L-14_openai"  # tests/conftest.py seeded local scores model
+    assert is_local_model_metadata("openai", False, model_id) is True
+    assert is_webapi_model_id(model_id, "openai", False) is False
+    assert is_webapi_model_id(model_id, "openai", True) is True
+    model = _fake_model(model_id, model_id, "openai", requires_api_key=False, capabilities=["scores"])
+    option = build_display_options([model], set())[0]
+    assert option.preferred.required_provider == "local"
+    assert option.preferred.identity.is_webapi is False
+    assert option.display_name == model_id
+    assert option.available is True
 
 
 @pytest.mark.parametrize(
@@ -171,7 +188,8 @@ def test_local_classification_requires_local_provider_and_false_flag(provider):
 )
 def test_legacy_cloud_false_flag_keeps_cloud_identity_and_key_availability(provider, required_provider):
     model_id = f"{provider}/openai/model"
-    assert is_local_model_metadata(provider, False) is False
+    assert is_local_model_metadata(provider, False, model_id) is False
+    assert is_local_model_metadata(provider, False) is False  # no canonical ID: conservative fallback
     assert is_webapi_model_id(model_id, provider, False) is True
     model = _fake_model(model_id, "legacy", provider, requires_api_key=False)
     missing_key_option = build_display_options([model], set())[0]

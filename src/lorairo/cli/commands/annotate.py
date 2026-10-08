@@ -726,10 +726,10 @@ def _resolve_model_identifier(repository: ModelRepository, identifier: str) -> s
 
     # アプリの WebAPI provider / alias / gateway。slash を含むローカルの
     # namespace (例: google/siglip-so400m) は正当な表示名なので、単一一致の
-    # requires_api_key=False と local provider を確認して区別する。旧 DB 行の
-    # key 要否フラグだけでは cloud を local と判断せず、別経路へは補完しない。
+    # key 要否・配布元 provider・登録済み ID を確認して区別する。vendor 名付き
+    # ローカルは保ち、旧 cloud 行の False フラグから別経路へは補完しない。
     local_name_match = len(by_name) == 1 and is_local_model_metadata(
-        by_name[0].provider, by_name[0].requires_api_key
+        by_name[0].provider, by_name[0].requires_api_key, by_name[0].litellm_model_id
     )
     if is_explicit_webapi_model_id(identifier) and not local_name_match:
         raise click.UsageError(
@@ -758,7 +758,8 @@ def _validate_required_api_keys(
     旧実装は「3 種類キー全部無いとき警告」だけで、片方の provider key のみ設定
     された環境で OpenRouter 経由モデルを選ぶと library 内で ``MissingApiKeyError``
     が出てから失敗していた。本 helper は registry key (litellm_model_id) の prefix
-    と DB ``Model.provider`` を hint として provider 別の不足を列挙する。
+    と DB metadata を確認して provider 別の不足を列挙する。key 不要のローカル
+    配布元 provider は ``local`` hint に正規化し、vendor API key を要求しない。
 
     Args:
         repository: LoRAIro DB リポジトリ (Model.provider 解決用)。
@@ -780,7 +781,13 @@ def _validate_required_api_keys(
     provider_hints: dict[str, str] = {}
     for litellm_id in resolved_litellm_ids:
         db_model = repository.get_model_by_litellm_id(litellm_id)
-        if db_model is not None and db_model.provider:
+        if db_model is None:
+            continue
+        if is_local_model_metadata(
+            db_model.provider, getattr(db_model, "requires_api_key", None), litellm_id
+        ):
+            provider_hints[litellm_id] = "local"
+        elif db_model.provider:
             provider_hints[litellm_id] = db_model.provider
 
     missing = validate_api_keys_for_models(resolved_litellm_ids, api_keys, provider_hints)

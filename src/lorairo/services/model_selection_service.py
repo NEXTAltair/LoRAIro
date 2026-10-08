@@ -179,11 +179,21 @@ class ModelSelectionService:
         if criteria.execution_env and criteria.execution_env != "すべて":
             if criteria.execution_env == "APIモデルのみ":
                 filtered = [
-                    m for m in filtered if not is_local_model_metadata(m.provider, m.requires_api_key)
+                    m
+                    for m in filtered
+                    if not is_local_model_metadata(
+                        m.provider, m.requires_api_key, getattr(m, "litellm_model_id", None)
+                    )
                 ]
                 logger.debug(f"  実行環境フィルタ後（APIモデルのみ）: {len(filtered)}件")
             elif criteria.execution_env == "ローカルモデルのみ":
-                filtered = [m for m in filtered if is_local_model_metadata(m.provider, m.requires_api_key)]
+                filtered = [
+                    m
+                    for m in filtered
+                    if is_local_model_metadata(
+                        m.provider, m.requires_api_key, getattr(m, "litellm_model_id", None)
+                    )
+                ]
                 logger.debug(f"  実行環境フィルタ後（ローカルモデルのみ）: {len(filtered)}件")
 
         # プロバイダーフィルタ

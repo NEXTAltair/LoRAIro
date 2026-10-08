@@ -156,11 +156,14 @@ class TestResolveModelIdentifier:
     @pytest.mark.parametrize(
         "display_name", ["SmilingWolf/wd-tagger", "google/siglip-so400m", "openai/clip-vit-large-patch14"]
     )
-    @pytest.mark.parametrize("local_provider", [None, "", "local", "LOCAL", " local "])
+    @pytest.mark.parametrize(
+        "local_provider",
+        [None, "", "local", "LOCAL", " local ", "SmilingWolf", "cafe", "xinntao", "esrgan"],
+    )
     def test_local_namespace_display_name_still_resolves(self, repository, display_name, local_provider):
         repository.get_model_by_litellm_id.return_value = None
         repository.get_models_by_name.return_value = [
-            _fake_model("local-classifier", display_name, local_provider)
+            _fake_model("local-classifier", display_name, local_provider, requires_api_key=False)
         ]
         assert _resolve_model_identifier(repository, display_name) == "local-classifier"
 
@@ -249,6 +252,56 @@ def test_cli_resolves_legitimate_identifier_and_sends_exact_target(
     assert result.exit_code == 0, result.output
     assert container.annotator_library.annotate.call_args.kwargs["litellm_model_ids"] == [resolved]
     container.annotation_save_service.save_annotation_results.assert_called_once()
+
+
+@pytest.mark.parametrize(
+    "identifier,resolved,provider",
+    [
+        ("wd-vit-large-tagger-v3", "wd-vit-large-tagger-v3", "SmilingWolf"),
+        ("cafe_aesthetic", "cafe_aesthetic", "cafe"),
+        ("classification_ViT-L-14_openai", "classification_ViT-L-14_openai", "openai"),
+        ("openai/clip-vit-large-patch14", "classification_ViT-L-14_openai", "openai"),
+        ("google/siglip-so400m", "google/siglip-so400m", None),
+        ("openai/clip-vit-large-patch14", "openai/clip-vit-large-patch14", "local"),
+        *[
+            (identifier, "local-classifier", provider)
+            for identifier in ("google/siglip-so400m", "openai/clip-vit-large-patch14")
+            for provider in ("SmilingWolf", "cafe", "xinntao", "esrgan")
+        ],
+    ],
+)
+def test_cli_keyless_vendor_local_models_execute_without_any_api_key(
+    cli_route_flow, identifier, resolved, provider
+):
+    container = cli_route_flow
+    model = _fake_model(resolved, identifier, provider, requires_api_key=False)
+    container.db_manager.model_repo.get_model_by_litellm_id.side_effect = lambda mid: (
+        model if mid == resolved else None
+    )
+    container.db_manager.model_repo.get_models_by_name.return_value = [model]
+    container.config_service.get_setting.side_effect = lambda section, key, default="": default
+    result = CliRunner().invoke(
+        app, ["annotate", "run", "--project", "mock-project", "--model", identifier, "--image-id", "1"]
+    )
+    assert result.exit_code == 0, result.output
+    assert container.annotator_library.annotate.call_args.kwargs["litellm_model_ids"] == [resolved]
+    container.annotation_save_service.save_annotation_results.assert_called_once()
+
+
+@pytest.mark.parametrize("requires_api_key", [False, True])
+def test_cli_qualified_cloud_model_still_requires_its_key_before_api_call(cli_route_flow, requires_api_key):
+    container = cli_route_flow
+    model_id = "openrouter/openai/gpt-4o"
+    model = _fake_model(model_id, "gpt-4o", "openrouter", requires_api_key=requires_api_key)
+    container.db_manager.model_repo.get_model_by_litellm_id.return_value = model
+    container.config_service.get_setting.side_effect = lambda section, key, default="": default
+    result = CliRunner().invoke(
+        app, ["annotate", "run", "--project", "mock-project", "--model", model_id, "--image-id", "1"]
+    )
+    assert result.exit_code == 2, result.output
+    assert "Missing API keys" in " ".join(result.output.split())
+    container.annotator_library.annotate.assert_not_called()
+    container.annotation_save_service.save_annotation_results.assert_not_called()
 
 
 def test_cli_ambiguous_display_name_stops_before_api_call(cli_route_flow):

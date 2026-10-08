@@ -234,17 +234,39 @@ def test_execution_environment_filters_agree_with_cloud_route_metadata(route_flo
     assert set(flow.tab.batch_model_selection.model_checkbox_widgets) == {LOCAL_ID}
 
 
-@pytest.mark.parametrize("provider", [None, "", "local", "LOCAL", " local "])
+@pytest.mark.parametrize(
+    "provider",
+    [None, "", "local", "LOCAL", " local ", "SmilingWolf", "cafe", "xinntao", "esrgan", "openai"],
+)
 def test_genuine_local_metadata_survives_route_switch_and_execution(route_flow, provider):
     flow = route_flow
     local_model = next(model for model in flow.models if model.litellm_model_id == LOCAL_ID)
     local_model.provider = provider
-    flow.state.set_selected([LOCAL_ID])
+    if provider == "openai":
+        local_model.litellm_model_id = "classification_ViT-L-14_openai"
+        local_model.capabilities = ["scores"]
+    elif provider == "cafe":
+        local_model.litellm_model_id = "cafe_aesthetic"
+        local_model.capabilities = ["scores"]
+    local_id = local_model.litellm_model_id
+    local_model.name = local_id
+    flow.settings.update(openai_key="", openrouter_key="")
+    flow.state.set_selected([local_id])
     _save_route(flow, "direct")
+    checkbox = flow.tab.batch_model_selection.model_checkbox_widgets[local_id]
+    assert checkbox.is_selectable()
+    assert checkbox.model_info.is_local is True
+    assert checkbox.model_info.requires_api_key is False
+    assert checkbox.labelStatus.text() == "● installed"
+    assert flow.tab._build_stage_model_infos([local_id])[0].is_api is False
+    flow.tab.batch_model_selection.apply_filters(execution_env="APIモデルのみ")
+    assert local_id not in flow.tab.batch_model_selection.model_checkbox_widgets
+    flow.tab.batch_model_selection.apply_filters(execution_env="ローカルモデルのみ")
+    assert set(flow.tab.batch_model_selection.model_checkbox_widgets) == {local_id}
     _save_route(flow, "openrouter")
-    assert flow.state.get_selected() == [LOCAL_ID]
+    assert flow.state.get_selected() == [local_id]
     assert flow.controller.start_annotation("sync") is True
-    assert flow.worker.start_enhanced_batch_annotation.call_args.kwargs["litellm_model_ids"] == [LOCAL_ID]
+    assert flow.worker.start_enhanced_batch_annotation.call_args.kwargs["litellm_model_ids"] == [local_id]
 
 
 def test_picker_and_preset_selections_survive_same_route_preflight(route_flow, monkeypatch):

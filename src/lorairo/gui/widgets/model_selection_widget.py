@@ -488,7 +488,7 @@ if not __name__ == "__main__":
             local_ids = {
                 model.litellm_model_id
                 for model in models
-                if is_local_model_metadata(model.provider, model.requires_api_key)
+                if is_local_model_metadata(model.provider, model.requires_api_key, model.litellm_model_id)
             }
             options = build_display_options(
                 [model for model in models if model.litellm_model_id not in local_ids],
