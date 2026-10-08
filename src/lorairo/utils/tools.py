@@ -1,5 +1,6 @@
 """使い回せそうなスタティックメソッドを提供するモジュール"""
 
+from io import BytesIO, TextIOWrapper
 from pathlib import Path
 
 import imagehash
@@ -45,6 +46,23 @@ def calculate_phash(image_path: Path) -> str:
 
 
 _FALLBACK_ENCODINGS = ("utf-8", "shift_jis", "euc-jp", "latin-1")
+
+
+def decode_text_with_fallback(data: bytes, encodings: tuple[str, ...] = _FALLBACK_ENCODINGS) -> str:
+    """取得済みのバイト列を既存の文字コード順・改行変換でデコードする。
+
+    ファイルの取得方針は呼び出し元が決める。通常のテキスト読み込みと同じく、
+    CRLF / CR は LF に変換する。
+    """
+    last_error: UnicodeDecodeError | None = None
+    for encoding in encodings:
+        try:
+            with TextIOWrapper(BytesIO(data), encoding=encoding) as stream:
+                return stream.read()
+        except UnicodeDecodeError as error:
+            last_error = error
+    assert last_error is not None
+    raise last_error
 
 
 def read_text_with_fallback(file_path: Path, encodings: tuple[str, ...] = _FALLBACK_ENCODINGS) -> str:
