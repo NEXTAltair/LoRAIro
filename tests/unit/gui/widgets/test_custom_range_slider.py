@@ -14,6 +14,7 @@ from lorairo.gui.widgets.filter_search_panel import (
     PipelineState,
     RatingChipToggleRow,
 )
+from lorairo.services.search_models import SearchConditions
 
 
 class TestCustomRangeSlider:
@@ -507,10 +508,9 @@ class TestFilterSearchPanel:
         # MockSearchFilterServiceを設定
         mock_search_service = Mock()
         mock_search_service.parse_search_input.return_value = (["test"], [])
-        mock_search_service.create_search_conditions.return_value = {
-            "search_text": "test",
-            "search_type": "tags",
-        }
+        mock_search_service.create_search_conditions.return_value = SearchConditions(
+            search_type="tags", keywords=["test"], tag_logic="and"
+        )
         mock_search_service.criteria_processor.execute_search_with_filters.return_value = ([], 0)
         filter_panel.search_filter_service = mock_search_service
 

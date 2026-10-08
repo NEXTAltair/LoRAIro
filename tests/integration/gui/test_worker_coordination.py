@@ -64,7 +64,9 @@ class TestWorkerSystemCoordination:
             worker_id = worker_service.start_search(filter_conditions)
 
             # ワーカー作成確認
-            mock_worker_class.assert_called_once_with(mock_db_manager, filter_conditions)
+            mock_worker_class.assert_called_once_with(
+                mock_db_manager, filter_conditions, review_service=None, review_store=None
+            )
 
             # ワーカー開始確認
             worker_service.worker_manager.start_worker.assert_called_once()

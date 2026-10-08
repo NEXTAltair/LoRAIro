@@ -321,7 +321,7 @@ def test_settings_save_replaces_clef_credentials_and_invalidates_results(
         assert service._config_service is saved_config
         assert review._generation > generation
         assert review.results_table.rowCount() == 0
-        assert "未評価" in review.status_label.text()
+        assert "未チェック" in review.status_label.text()
         assert requests == []
         saved_config.get_cloudflare_credentials.assert_not_called()
         original_config.get_cloudflare_credentials.assert_not_called()
