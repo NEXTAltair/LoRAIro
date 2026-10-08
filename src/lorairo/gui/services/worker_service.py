@@ -26,6 +26,8 @@ from ..workers.thumbnail_worker import ThumbnailWorker
 from .operation_events import OperationContext, OperationOutcome, OperationType, WorkerOperationEvent
 
 if TYPE_CHECKING:
+    from ...services.annotation_review_service import AnnotationReviewService
+    from ...services.annotation_review_store import AnnotationReviewStore
     from ..widgets.run_settings_dialog import RunOptions
 
 # ADR 0066 §3: Jobs 台帳に載せる operation (Pipeline/Operation レベル) とその表示タイトル。
@@ -126,6 +128,8 @@ class WorkerService(QObject):
         self._operation_sequence = 0
         self._search_generation = 0
         self._thumbnail_generation = 0
+        self._search_review_service: AnnotationReviewService | None = None
+        self._search_review_store: AnnotationReviewStore | None = None
 
         # ADR 0066 §6: ローカル GPU 推論ジョブの直列キュー (VRAM 競合防止、同時 1 件)
         self._gpu_active_worker_id: str | None = None
@@ -444,6 +448,22 @@ class WorkerService(QObject):
 
     # === Search ===
 
+    def set_search_review_context(
+        self,
+        service: "AnnotationReviewService | None",
+        store: "AnnotationReviewStore | None",
+    ) -> None:
+        """Inject the active database and settings for local review freshness checks."""
+        if self.current_search_worker_id is not None:
+            # In-flight searches retain their starting config; their terminal
+            # events must not replace results checked against newer settings.
+            self._search_generation += 1
+            worker_info = self.worker_manager.active_workers.get(self.current_search_worker_id)
+            if worker_info is not None:
+                worker_info["worker"].cancel()
+        self._search_review_service = service
+        self._search_review_store = store
+
     def start_search(self, search_conditions: SearchConditions) -> str:
         """
         検索開始（既存の検索は自動キャンセル）
@@ -466,7 +486,12 @@ class WorkerService(QObject):
             )
             self.current_search_worker_id = None
 
-        worker = SearchWorker(self.db_manager, search_conditions)
+        worker = SearchWorker(
+            self.db_manager,
+            search_conditions,
+            review_service=self._search_review_service,
+            review_store=self._search_review_store,
+        )
         worker_id = f"search_{uuid.uuid4().hex[:8]}"
         self._search_generation += 1
         self._register_operation(worker_id, OperationType.SEARCH, generation=self._search_generation)

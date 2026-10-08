@@ -103,6 +103,15 @@ class SearchFacetsSidebar(QWidget):
         layout.addWidget(reviewed_box)
         layout.addWidget(self._make_separator())
 
+        review_warnings_box, self._review_warnings_group, self._review_warnings_buttons = (
+            self._make_radio_group("アノテーション確認", "Clef", ["全て", "要確認あり"])
+        )
+        self._review_warnings_buttons[1].setToolTip(
+            "現在の画像・タグ・キャプション・設定に対する保存済みの警告がある画像"
+        )
+        layout.addWidget(review_warnings_box)
+        layout.addWidget(self._make_separator())
+
         # エラー状態セクション
         error_box, self._error_group, self._error_buttons = self._make_radio_group(
             "エラー状態", "ErrorRecord", ["全て", "あり", "なし"]
@@ -141,6 +150,7 @@ class SearchFacetsSidebar(QWidget):
         # シグナル接続
         self._manual_edit_group.buttonClicked.connect(lambda _: self._emit_facets_changed())
         self._reviewed_group.buttonClicked.connect(lambda _: self._emit_facets_changed())
+        self._review_warnings_group.buttonClicked.connect(lambda _: self._emit_facets_changed())
         self._error_group.buttonClicked.connect(lambda _: self._emit_facets_changed())
         self._model_list.itemSelectionChanged.connect(self._emit_facets_changed)
         self._histogram.range_selected.connect(self._on_range_selected)
@@ -271,10 +281,17 @@ class SearchFacetsSidebar(QWidget):
         return {
             "manual_edit_filter": manual_edit_filter,
             "reviewed_at_filter": reviewed_at_filter,
+            "annotation_review_warnings_only": self._get_radio_value(
+                self._review_warnings_group, [None, True]
+            ),
             "error_state_filter": error_state_filter,
             "model_filter": model_filter,
             "created_at_range": self._created_at_range,
         }
+
+    def set_review_warnings_only(self, enabled: bool) -> None:
+        """Restore the saved review facet without executing a search."""
+        self._review_warnings_buttons[int(enabled)].setChecked(True)
 
     def update_models(self, model_ids: list[str]) -> None:
         """モデルフィルタ用リストに model_ids を設定する。
@@ -297,7 +314,12 @@ class SearchFacetsSidebar(QWidget):
     def clear_all(self) -> None:
         """すべての facet を初期値（全て）にリセットする。"""
         # ラジオボタンを先頭（全て）に戻す
-        for buttons in (self._manual_edit_buttons, self._reviewed_buttons, self._error_buttons):
+        for buttons in (
+            self._manual_edit_buttons,
+            self._reviewed_buttons,
+            self._error_buttons,
+            self._review_warnings_buttons,
+        ):
             buttons[0].setChecked(True)
         self._model_search.clear()
         self._model_list.clearSelection()

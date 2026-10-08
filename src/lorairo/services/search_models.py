@@ -61,6 +61,7 @@ class SearchConditions:
     reviewed_at_filter: str | None = None  # "unreviewed" | "reviewed" | None=全て
     error_state_filter: str | None = None  # "has_error" | "no_error" | None=全て
     model_filter: list[str] | None = None  # litellm_id リスト。None=全モデル
+    annotation_review_warnings_only: bool = False  # 現在の保存済み Clef 警告のみ
 
     def is_tag_search_enabled(self) -> bool:
         """タグを検索対象にするか。search_tags 未指定時は search_type から導出 (後方互換)。"""

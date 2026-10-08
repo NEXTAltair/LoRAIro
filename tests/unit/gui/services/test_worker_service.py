@@ -193,7 +193,9 @@ class TestWorkerService:
         worker_id = worker_service.start_search(filter_conditions)
 
         # ワーカー作成確認
-        mock_worker_class.assert_called_once_with(worker_service.db_manager, filter_conditions)
+        mock_worker_class.assert_called_once_with(
+            worker_service.db_manager, filter_conditions, review_service=None, review_store=None
+        )
 
         # ワーカーマネージャー呼び出し確認
         worker_service.worker_manager.start_worker.assert_called_once()
@@ -205,6 +207,25 @@ class TestWorkerService:
 
         # 現在の検索ワーカーID設定確認
         assert worker_service.current_search_worker_id == worker_id
+
+    @patch("lorairo.gui.services.worker_service.SearchWorker")
+    def test_search_receives_saved_review_context(self, mock_worker_class, worker_service):
+        service, store = Mock(), Mock()
+        worker_service.set_search_review_context(service, store)
+        conditions = SearchConditions("tags", [], "and", annotation_review_warnings_only=True)
+        worker_service.start_search(conditions)
+        mock_worker_class.assert_called_once_with(
+            worker_service.db_manager, conditions, review_service=service, review_store=store
+        )
+
+    def test_changing_review_settings_invalidates_running_search_generation(self, worker_service):
+        worker_service.current_search_worker_id = "search_old"
+        old_worker = Mock()
+        worker_service.worker_manager.active_workers = {"search_old": {"worker": old_worker}}
+        generation = worker_service._search_generation
+        worker_service.set_search_review_context(Mock(), Mock())
+        assert worker_service._search_generation == generation + 1
+        old_worker.cancel.assert_called_once()
 
     @patch("lorairo.gui.services.worker_service.SearchWorker")
     def test_start_search_marks_current_before_fast_terminal_event(self, mock_worker_class, worker_service):

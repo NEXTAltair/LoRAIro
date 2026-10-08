@@ -947,6 +947,7 @@ class FilterSearchPanel(QScrollArea):
             reviewed_at_filter=cast(str | None, self._facet_values.get("reviewed_at_filter")),
             error_state_filter=cast(str | None, self._facet_values.get("error_state_filter")),
             model_filter=cast(list[str] | None, self._facet_values.get("model_filter")),
+            annotation_review_warnings_only=bool(self._facet_values.get("annotation_review_warnings_only")),
         )
 
     def _on_facets_changed(self, facets: dict[str, object]) -> None:
@@ -1009,6 +1010,12 @@ class FilterSearchPanel(QScrollArea):
             if conditions is None:
                 return
 
+            if conditions.annotation_review_warnings_only:
+                # Freshness reads source files and annotations, which must stay
+                # on the asynchronous search/count workers.
+                self._show_status_message("要確認フィルターには非同期検索が必要です")
+                return
+
             results, count = self.search_filter_service.criteria_processor.execute_search_with_filters(
                 conditions
             )
@@ -1066,6 +1073,10 @@ class FilterSearchPanel(QScrollArea):
         self.ui.checkboxOnlyUntagged.setChecked(bool(conditions.get("only_untagged", False)))
         self.ui.checkboxOnlyUncaptioned.setChecked(bool(conditions.get("only_uncaptioned", False)))
         self.ui.checkboxExcludeDuplicates.setChecked(bool(conditions.get("exclude_duplicates", False)))
+        self._search_facets_sidebar.set_review_warnings_only(
+            bool(conditions.get("annotation_review_warnings_only", False))
+        )
+        self._facet_values = self._search_facets_sidebar.get_facet_values()
 
         # レーティング chip (#811) とスコア範囲も復元対象に含める
         self._rating_chips.clear()
@@ -1121,6 +1132,7 @@ class FilterSearchPanel(QScrollArea):
             ("only_untagged", "only_untagged"),
             ("only_uncaptioned", "only_uncaptioned"),
             ("exclude_duplicates", "exclude_duplicates"),
+            ("annotation_review_warnings_only", "annotation_review_warnings_only"),
         ):
             if conditions.get(legacy_key) is not None:
                 migrated[new_key] = conditions[legacy_key]
@@ -1203,6 +1215,12 @@ class FilterSearchPanel(QScrollArea):
         self.ui.checkboxOnlyUntagged.setChecked(False)
         self.ui.checkboxOnlyUncaptioned.setChecked(False)
         self.ui.checkboxExcludeDuplicates.setChecked(False)
+        self._search_facets_sidebar.blockSignals(True)
+        try:
+            self._search_facets_sidebar.clear_all()
+        finally:
+            self._search_facets_sidebar.blockSignals(False)
+        self._facet_values = self._search_facets_sidebar.get_facet_values()
 
         # レーティング chip を全解除し、組合せトグルを既定 (AND) に戻す (Issue #811)
         self._rating_chips.clear()
@@ -1246,6 +1264,9 @@ class FilterSearchPanel(QScrollArea):
             "only_untagged": self.ui.checkboxOnlyUntagged.isChecked(),
             "only_uncaptioned": self.ui.checkboxOnlyUncaptioned.isChecked(),
             "exclude_duplicates": self.ui.checkboxExcludeDuplicates.isChecked(),
+            "annotation_review_warnings_only": bool(
+                self._search_facets_sidebar.get_facet_values().get("annotation_review_warnings_only")
+            ),
             "rating_filter": self._get_rating_filter_value(),
             "ai_rating_filter": self._get_ai_rating_filter_value(),
             "rating_combine": self._rating_combine_toggle.value() or "and",

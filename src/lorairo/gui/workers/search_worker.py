@@ -5,11 +5,14 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
 from ...services.search_criteria_processor import SearchCriteriaProcessor
+from ...services.search_review_status import apply_review_filter
 from ...utils.log import logger
 from .base import CancellationError, LoRAIroWorkerBase
 
 if TYPE_CHECKING:
     from ...database.db_manager import ImageDatabaseManager
+    from ...services.annotation_review_service import AnnotationReviewService
+    from ...services.annotation_review_store import AnnotationReviewStore
     from ...services.search_models import SearchConditions
 
 
@@ -28,11 +31,20 @@ class SearchWorker(LoRAIroWorkerBase[SearchResult]):
 
     _OPERATION_TYPE = "search"
 
-    def __init__(self, db_manager: "ImageDatabaseManager", search_conditions: "SearchConditions"):
+    def __init__(
+        self,
+        db_manager: "ImageDatabaseManager",
+        search_conditions: "SearchConditions",
+        *,
+        review_service: "AnnotationReviewService | None" = None,
+        review_store: "AnnotationReviewStore | None" = None,
+    ):
         super().__init__(db_manager=db_manager)
         self.db_manager = db_manager
         self.criteria_processor = SearchCriteriaProcessor(db_manager)
         self.search_conditions = search_conditions
+        self._review_service = review_service
+        self._review_store = review_store
 
     def execute(self) -> SearchResult:
         """検索処理を実行"""
@@ -54,6 +66,19 @@ class SearchWorker(LoRAIroWorkerBase[SearchResult]):
                 self.search_conditions
             )
             self._check_cancellation()
+
+            if self._review_service is not None and self._review_store is not None:
+                image_metadata = apply_review_filter(
+                    image_metadata,
+                    self._review_service,
+                    self._review_store,
+                    warnings_only=self.search_conditions.annotation_review_warnings_only,
+                    check_cancellation=self._check_cancellation,
+                )
+                if self.search_conditions.annotation_review_warnings_only:
+                    total_count = len(image_metadata)
+            elif self.search_conditions.annotation_review_warnings_only:
+                raise ValueError("Clef の設定を確認してから要確認フィルターを使用してください")
 
             search_time = time.time() - start_time
 

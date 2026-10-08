@@ -10,6 +10,17 @@ from lorairo.gui.widgets.search_facets_sidebar import SearchFacetsSidebar
 @pytest.mark.unit
 @pytest.mark.gui
 class TestSearchFacetsSidebar:
+    def test_review_warnings_facet_does_not_replace_manual_review(self, qtbot):
+        sidebar = SearchFacetsSidebar()
+        qtbot.addWidget(sidebar)
+        sidebar._reviewed_buttons[1].click()
+        with qtbot.waitSignal(sidebar.facets_changed) as emitted:
+            sidebar._review_warnings_buttons[1].click()
+        assert emitted.args[0]["annotation_review_warnings_only"] is True
+        assert emitted.args[0]["reviewed_at_filter"] == "unreviewed"
+        sidebar.clear_all()
+        assert sidebar.get_facet_values()["annotation_review_warnings_only"] is None
+
     def test_initial_facet_values_all_none(self, qtbot: pytest.FixtureRequest) -> None:
         """初期状態で全ファセット値が None であることを確認する。"""
         sidebar = SearchFacetsSidebar()

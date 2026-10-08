@@ -83,6 +83,92 @@ def tab(
     return widget
 
 
+@pytest.fixture
+def review_refresh_tab(tab, dataset_state_manager):
+    """Capture loader submissions, keeping all DB/file work explicit in tests."""
+    tab._review_manager = Mock()
+    tab._review_manager.start_worker.return_value = True
+    tab._review_store = Mock()
+    tab._review_store.get_current_results.return_value = {}
+    dataset_state_manager.blockSignals(True)
+    dataset_state_manager.set_dataset_images(
+        [{"id": 1, "tags": [{"tag": "dog"}], "stored_image_path": "1.png"}]
+    )
+    dataset_state_manager.set_current_image(1)
+    dataset_state_manager.blockSignals(False)
+    return tab
+
+
+@pytest.mark.gui
+def test_review_save_reload_is_async_and_preserves_source_metadata(review_refresh_tab, monkeypatch):
+    from lorairo.gui.workers.terminal import WorkerOutcome, WorkerTerminalEvent
+
+    tab = review_refresh_tab
+    detail_refresh = Mock()
+    monkeypatch.setattr(
+        tab.selected_image_details_widget.annotation_review_widget,
+        "refresh_saved_result",
+        detail_refresh,
+        raising=False,
+    )
+    tab.refresh_annotation_review(1)
+    tab._review_store.get_current_results.assert_not_called()
+    tab._review_load_timer.stop()
+    tab._start_review_load()
+    worker_id, worker = tab._review_manager.start_worker.call_args.args
+    loaded = worker.execute()
+    tab._on_review_load_terminal(
+        WorkerTerminalEvent(worker_id, "search_review_load", WorkerOutcome.SUCCEEDED, loaded)
+    )
+    image = tab._dataset_state_manager.get_image_by_id(1)
+    assert image["tags"] == [{"tag": "dog"}]
+    assert image["annotation_review_status"] == "unchecked"
+    tab._review_store.get_current_results.assert_called_once_with(tab._review_service, (1,))
+    detail_refresh.assert_called_once()
+
+
+@pytest.mark.gui
+@pytest.mark.parametrize("superseded_by", ["edit", "search", "shutdown"])
+def test_review_load_cannot_overwrite_newer_edit_search_or_shutdown(review_refresh_tab, superseded_by):
+    from lorairo.gui.workers.search_review_loader import SearchReviewMetadataLoaded
+    from lorairo.gui.workers.terminal import WorkerOutcome, WorkerTerminalEvent
+
+    tab = review_refresh_tab
+    tab.refresh_annotation_review(1)
+    tab._review_load_timer.stop()
+    tab._start_review_load()
+    worker_id = tab._review_load_id
+    old = SearchReviewMetadataLoaded(
+        tab._review_generation,
+        {1: tab._review_revisions[1]},
+        {1: {"annotation_review_status": "completed", "annotation_review_warning_count": 3}},
+    )
+    if superseded_by == "edit":
+        tab.refresh_annotation_review(1)
+    elif superseded_by == "search":
+        tab._on_review_images_loaded([{"id": 1}])
+    else:
+        tab.shutdown()
+    tab._on_review_load_terminal(
+        WorkerTerminalEvent(worker_id, "search_review_load", WorkerOutcome.SUCCEEDED, old)
+    )
+    image = tab._dataset_state_manager.get_image_by_id(1)
+    assert image["annotation_review_status"] == "checking"
+    assert image["annotation_review_warning_count"] == 0
+    if superseded_by == "shutdown":
+        tab._review_manager.cancel_all_workers.assert_called_once()
+        assert not tab._review_load_timer.isActive()
+
+
+@pytest.mark.gui
+def test_saved_result_outside_warning_filtered_list_restarts_complete_search(review_refresh_tab):
+    tab = review_refresh_tab
+    tab.filter_search_panel._search_facets_sidebar.set_review_warnings_only(True)
+    tab.refresh_annotation_review(201)
+    assert tab._review_search_timer.isActive()
+    assert 201 in tab._review_pending_ids
+
+
 # == 1. 構築 ==================================================================
 
 
@@ -493,6 +579,7 @@ def test_handle_quick_tag_add_success_emits_status(tab: SearchTabWidget, qtbot) 
     tab._image_db_write_service = Mock()
     tab._image_db_write_service.add_tag_batch.return_value = True
     tab._dataset_state_manager = Mock()
+    tab._dataset_state_manager.get_image_by_id.return_value = None
 
     with qtbot.waitSignal(tab.status_message, timeout=1000) as blocker:
         tab._handle_quick_tag_add([1, 2], "portrait")

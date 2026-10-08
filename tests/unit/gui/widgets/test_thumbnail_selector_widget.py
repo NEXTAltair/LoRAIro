@@ -40,6 +40,32 @@ class TestThumbnailItemOverlayTexts:
         meta = {"rating_value": "R"}
         assert ThumbnailItem._overlay_texts(meta) == (None, "R", None)
 
+    @pytest.mark.parametrize(
+        ("status", "count", "label"),
+        [
+            ("unchecked", 0, "未チェック"),
+            ("completed", 0, "確認済み"),
+            ("completed", 2, "要確認 2件"),
+            ("partial", 0, "一部未評価"),
+            ("partial", 2, "要確認 2件\n一部未評価"),
+            ("failed", 0, "確認失敗"),
+            ("unevaluated", 0, "未評価"),
+            ("cancelled", 0, "中断・未評価"),
+            ("stale", 2, "再チェック必要"),
+        ],
+    )
+    def test_review_badge_preserves_incomplete_and_stale_states(self, status, count, label):
+        from lorairo.gui import theme
+
+        text, color = ThumbnailItem._review_badge(
+            {"annotation_review_status": status, "annotation_review_warning_count": count}
+        )
+        assert text == label
+        if text.startswith("要確認"):
+            assert color == theme.WARN_SOFT
+        elif status == "failed":
+            assert color == theme.ERR_SOFT
+
 
 class TestThumbnailSelectorWidgetBasic:
     """ThumbnailSelectorWidget 基本機能テスト"""
