@@ -1,14 +1,16 @@
 """Fixed targets, preflight ordering, independent saves and cancellation."""
 
+import sqlite3
 from datetime import UTC, datetime
 from pathlib import Path
 from unittest.mock import ANY, Mock
 
 import pytest
+from sqlalchemy.exc import OperationalError, SQLAlchemyError
 
 from lorairo.gui.workers.annotation_review_batch_worker import AnnotationReviewBatchWorker
 from lorairo.gui.workers.annotation_review_worker import AnnotationReviewWorker
-from lorairo.gui.workers.base import WorkerStatus
+from lorairo.gui.workers.base import CancellationError, WorkerStatus
 from lorairo.services.annotation_review_service import (
     AnnotationReviewItem,
     AnnotationReviewResult,
@@ -17,7 +19,7 @@ from lorairo.services.annotation_review_service import (
     ReviewCandidateSource,
     ReviewSnapshot,
 )
-from lorairo.services.annotation_review_store import StoredReviewResult
+from lorairo.services.annotation_review_store import AnnotationReviewImageMissingError, StoredReviewResult
 
 pytestmark = pytest.mark.unit
 
@@ -260,6 +262,81 @@ def test_per_image_signal_carries_dated_current_result_loaded_inside_worker(batc
     assert emitted[0].stored.checked_at.tzinfo is UTC
     assert emitted[0].review is dated_result.review
     assert result.reviews == (dated_result.review,)
+
+
+@pytest.mark.parametrize(
+    "error",
+    [
+        SQLAlchemyError("database is unavailable"),
+        OSError("disk is full"),
+        ValueError("invalid JSON value"),
+        TypeError("unsupported JSON type"),
+        AnnotationReviewImageMissingError("image removed"),
+    ],
+)
+def test_save_failure_preserves_actual_review_and_continues_independent_images(batch_context, error):
+    service, store, _, _ = batch_context
+    store.save.side_effect = [True, error, True]
+    worker = AnnotationReviewBatchWorker(service, store, (1, 2, 3), 1)
+    emitted = []
+    worker.per_image_finished.connect(emitted.append)
+
+    result = worker.execute()
+
+    assert result.processed_count == 3
+    assert [payload.saved for payload in emitted] == [True, False, True]
+    assert emitted[1].stored is None
+    assert "保存できません" in emitted[1].save_error
+    assert emitted[1].review.status == "completed"
+    assert emitted[1].review.items[0].probability == 0.03
+    assert emitted[1].review.items[0].status == "warning"
+    assert [call.args[0] for call in store.get_current_result.call_args_list] == [1, 3]
+    assert service.review.call_count == store.save.call_count == 3
+    assert [review.image_id for review in result.reviews] == [1, 2, 3]
+
+
+def test_saved_commit_is_not_relabelled_unsaved_when_currentness_read_fails(batch_context):
+    service, store, _, _ = batch_context
+    store.get_current_result.side_effect = [SQLAlchemyError("read failed"), None]
+    worker = AnnotationReviewBatchWorker(service, store, (1, 2), 1)
+    emitted = []
+    worker.per_image_finished.connect(emitted.append)
+
+    result = worker.execute()
+
+    assert result.processed_count == 2
+    assert all(payload.saved for payload in emitted)
+    assert emitted[0].save_error is None
+    assert emitted[0].stored is None
+    assert "保存済み" in emitted[0].currentness_error
+    assert emitted[0].review.items[0].probability == 0.03
+    assert emitted[1].currentness_error is None
+
+
+@pytest.mark.parametrize("error", [CancellationError("cancel"), RuntimeError("programming error")])
+def test_save_boundary_does_not_swallow_cancellation_or_unexpected_errors(batch_context, error):
+    service, store, _, _ = batch_context
+    store.save.side_effect = error
+    worker = AnnotationReviewBatchWorker(service, store, (1, 2), 1)
+    with pytest.raises(type(error)):
+        worker.execute()
+    assert store.save.call_count == 1
+
+
+@pytest.mark.parametrize("operation", ["save", "get_current_result"])
+def test_cooperative_sql_interrupt_remains_cancellation(batch_context, operation):
+    service, store, _, _ = batch_context
+    worker = AnnotationReviewBatchWorker(service, store, (1, 2), 1)
+    error = OperationalError("query", {}, sqlite3.OperationalError("interrupted"))
+
+    def interrupt(*args, **kwargs):
+        worker.cancel()
+        raise error
+
+    getattr(store, operation).side_effect = interrupt
+    with pytest.raises(OperationalError):
+        worker.execute()
+    assert service.review.call_count == 1
 
 
 def test_batch_candidate_scope_is_forwarded_and_blocked_images_retain_frozen_suggestions(batch_context):

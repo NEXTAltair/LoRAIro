@@ -3,14 +3,16 @@
 from __future__ import annotations
 
 from collections.abc import Sequence
-from dataclasses import dataclass, replace
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, ClassVar
 
 from PySide6.QtCore import Signal
+from sqlalchemy.exc import SQLAlchemyError
 
 from lorairo.services.annotation_review_service import AnnotationReviewItem, AnnotationReviewResult
 from lorairo.services.annotation_review_store import AnnotationReviewImageMissingError, StoredReviewResult
+from lorairo.utils.log import logger
 
 from .base import LoRAIroWorkerBase
 
@@ -27,6 +29,8 @@ class AnnotationReviewBatchImageResult:
     review: AnnotationReviewResult
     saved: bool = True
     stored: StoredReviewResult | None = None
+    save_error: str | None = None
+    currentness_error: str | None = None
 
 
 @dataclass(frozen=True)
@@ -131,43 +135,58 @@ class AnnotationReviewBatchWorker(LoRAIroWorkerBase[AnnotationReviewBatchWorkerR
             ):
                 break
             processed_count += 1
-            saved = True
-            try:
-                accepted = self._store.save(
-                    review, self._service.warning_threshold, requested_at=self._requested_at
-                )
-                if not accepted:
-                    self._report_processed(processed_count, review.image_id)
-                    continue
-            except AnnotationReviewImageMissingError:
-                saved = False
-                message = "Image was removed; annotation review result could not be saved."
-                review = replace(
-                    review,
-                    items=tuple(
-                        replace(item, probability=None, status="failed", error=message)
-                        for item in review.items
-                    ),
-                    status="failed",
-                    error=message,
-                    error_code=None,
-                )
-            review, stored = self._load_current(review, saved)
+            saved, save_error = self._save_review(review)
+            if not saved and save_error is None:
+                self._report_processed(processed_count, review.image_id)
+                continue
+            review, stored, currentness_error = self._load_current(review, saved)
             reviews.append(review)
             self.per_image_finished.emit(
-                AnnotationReviewBatchImageResult(self._generation, review, saved, stored)
+                AnnotationReviewBatchImageResult(
+                    self._generation, review, saved, stored, save_error, currentness_error
+                )
             )
             self._report_processed(processed_count, review.image_id)
         return self._result(reviews, processed_count)
 
+    def _save_review(self, review: AnnotationReviewResult) -> tuple[bool, str | None]:
+        """Keep a persistence error distinct from an obsolete result's rejected write."""
+        try:
+            accepted = self._store.save(
+                review, self._service.warning_threshold, requested_at=self._requested_at
+            )
+            return accepted, None
+        except AnnotationReviewImageMissingError as error:
+            logger.warning("Annotation review save failed for image {}: {}", review.image_id, error)
+            return False, "画像が削除されたため、結果を保存できませんでした。"
+        except (SQLAlchemyError, OSError, ValueError, TypeError) as error:
+            if self.cancellation.is_canceled() and self._is_query_interrupt_error(error):
+                raise
+            # Each save commits independently. A failed commit/serialization
+            # must not discard earlier images or prevent later saves.
+            logger.warning("Annotation review save failed for image {}: {}", review.image_id, error)
+            return False, f"結果を保存できませんでした: {error}"
+
     def _load_current(
         self, review: AnnotationReviewResult, saved: bool
-    ) -> tuple[AnnotationReviewResult, StoredReviewResult | None]:
+    ) -> tuple[AnnotationReviewResult, StoredReviewResult | None, str | None]:
         if saved:
-            current = self._store.get_current_result(review.image_id, self._service)
+            try:
+                current = self._store.get_current_result(review.image_id, self._service)
+            except (SQLAlchemyError, OSError, ValueError, TypeError) as error:
+                if self.cancellation.is_canceled() and self._is_query_interrupt_error(error):
+                    raise
+                # The save already committed. Currentness verification failing
+                # must not relabel the committed result as a save failure.
+                logger.warning(
+                    "Saved annotation review currentness load failed for image {}: {}",
+                    review.image_id,
+                    error,
+                )
+                return review, None, f"結果は保存済みですが、現在の内容との照合に失敗しました: {error}"
             if isinstance(current, StoredReviewResult):
-                return current.review, current
-        return review, None
+                return current.review, current, None
+        return review, None, None
 
     def _report_processed(self, processed_count: int, image_id: int) -> None:
         self._report_progress(
