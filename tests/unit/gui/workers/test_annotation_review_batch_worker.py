@@ -328,6 +328,8 @@ def test_cooperative_sql_interrupt_remains_cancellation(batch_context, operation
     service, store, _, _ = batch_context
     worker = AnnotationReviewBatchWorker(service, store, (1, 2), 1)
     error = OperationalError("query", {}, sqlite3.OperationalError("interrupted"))
+    emitted = []
+    worker.per_image_finished.connect(emitted.append)
 
     def interrupt(*args, **kwargs):
         worker.cancel()
@@ -337,6 +339,36 @@ def test_cooperative_sql_interrupt_remains_cancellation(batch_context, operation
     with pytest.raises(OperationalError):
         worker.execute()
     assert service.review.call_count == 1
+    if operation == "get_current_result":
+        assert len(emitted) == 1
+        assert emitted[0].saved and emitted[0].stored is None
+        assert emitted[0].save_error is None
+        assert "保存済み" in emitted[0].currentness_error
+    else:
+        assert emitted == []
+
+
+def test_explicit_cancellation_during_post_commit_read_notifies_saved_before_cancelled_terminal(
+    batch_context,
+):
+    service, store, _, _ = batch_context
+    store.get_current_result.side_effect = CancellationError("post-commit read cancelled")
+    worker = AnnotationReviewBatchWorker(service, store, (1, 2), 1)
+    events = []
+    emitted = []
+    worker.per_image_finished.connect(lambda payload: (emitted.append(payload), events.append("saved")))
+    worker.canceled.connect(lambda: events.append("cancelled"))
+    worker.finished.connect(lambda payload: events.append("finished"))
+
+    worker.run()
+
+    assert events == ["saved", "cancelled"]
+    assert worker.status == WorkerStatus.CANCELED
+    assert store.save.call_count == service.review.call_count == 1
+    assert emitted[0].saved and emitted[0].stored is None
+    assert emitted[0].save_error is None
+    assert emitted[0].review.items[0].probability == 0.03
+    assert "照合は未完了" in emitted[0].currentness_error
 
 
 def test_batch_candidate_scope_is_forwarded_and_blocked_images_retain_frozen_suggestions(batch_context):

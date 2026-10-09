@@ -20,7 +20,7 @@ from lorairo.gui.workers.annotation_review_batch_worker import (
     AnnotationReviewBatchWorkerResult,
 )
 from lorairo.gui.workers.annotation_review_results_loader import AnnotationReviewResultsLoader
-from lorairo.gui.workers.base import WorkerProgress
+from lorairo.gui.workers.base import CancellationError, WorkerProgress
 from lorairo.gui.workers.terminal import CancelReason, WorkerOutcome, WorkerTerminalEvent
 from lorairo.services.annotation_review_service import (
     AnnotationReviewItem,
@@ -373,6 +373,40 @@ def test_search_saved_failed_and_unevaluated_reviews_do_not_claim_checks_succeed
     assert "保存済み 2 枚" in widget.status_label.text()
     assert "チェック失敗 1 枚" in widget.status_label.text()
     assert "未評価・一部未評価 1 枚" in widget.status_label.text()
+
+
+@pytest.mark.parametrize("shutdown", [False, True])
+def test_post_commit_cancel_notifies_saved_without_unverified_warning_or_shutdown_updates(wired, shutdown):
+    widget, service, store, manager = wired
+    widget.set_image_ids([5, 7])
+    widget._on_start_requested()
+    worker_id, worker = manager.started[-1]
+    service.prepare_reviews.return_value = {5: Mock(), 7: Mock()}
+    service.review.return_value = saved_result().review
+    store.save.return_value = True
+    store.get_current_result.side_effect = CancellationError("read cancelled")
+    saved = QSignalSpy(widget.review_result_saved)
+    if shutdown:
+        widget.shutdown()
+    before = widget.status_label.text()
+
+    worker.run()
+    manager.worker_terminal.emit(
+        WorkerTerminalEvent(worker_id, "annotation_review", WorkerOutcome.CANCELED)
+    )
+
+    if shutdown:
+        assert saved.count() == 0
+        assert widget.status_label.text() == before
+        assert widget._saved_results == {}
+    else:
+        assert saved.count() == 1 and saved.at(0) == [5]
+        assert "保存済み 1 枚" in widget.status_label.text()
+        assert "保存失敗" not in widget.status_label.text()
+        assert "中止" in widget.status_label.text()
+        cached = widget._saved_results[5].review
+        assert cached.status == "stale"
+        assert all(item.probability is None and item.status != "warning" for item in cached.items)
 
 
 def test_service_injection_loads_bounded_history_without_starting_review(wired) -> None:

@@ -14,7 +14,7 @@ from lorairo.services.annotation_review_service import AnnotationReviewItem, Ann
 from lorairo.services.annotation_review_store import AnnotationReviewImageMissingError, StoredReviewResult
 from lorairo.utils.log import logger
 
-from .base import LoRAIroWorkerBase
+from .base import CancellationError, LoRAIroWorkerBase
 
 if TYPE_CHECKING:
     from lorairo.services.annotation_review_service import AnnotationReviewService, ReviewCandidateSource
@@ -173,8 +173,12 @@ class AnnotationReviewBatchWorker(LoRAIroWorkerBase[AnnotationReviewBatchWorkerR
         if saved:
             try:
                 current = self._store.get_current_result(review.image_id, self._service)
+            except CancellationError:
+                self._publish_saved_before_cancel(review)
+                raise
             except (SQLAlchemyError, OSError, ValueError, TypeError) as error:
                 if self.cancellation.is_canceled() and self._is_query_interrupt_error(error):
+                    self._publish_saved_before_cancel(review)
                     raise
                 # The save already committed. Currentness verification failing
                 # must not relabel the committed result as a save failure.
@@ -187,6 +191,17 @@ class AnnotationReviewBatchWorker(LoRAIroWorkerBase[AnnotationReviewBatchWorkerR
             if isinstance(current, StoredReviewResult):
                 return current.review, current, None
         return review, None, None
+
+    def _publish_saved_before_cancel(self, review: AnnotationReviewResult) -> None:
+        """Notify the committed image before preserving the cancellation exception."""
+        self.per_image_finished.emit(
+            AnnotationReviewBatchImageResult(
+                self._generation,
+                review,
+                saved=True,
+                currentness_error="結果は保存済みです。停止したため、現在の内容との照合は未完了です。",
+            )
+        )
 
     def _report_processed(self, processed_count: int, image_id: int) -> None:
         self._report_progress(
