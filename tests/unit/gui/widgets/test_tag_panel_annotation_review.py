@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import replace
 
 import pytest
+from PySide6.QtCore import QPoint
 from PySide6.QtWidgets import QApplication, QLabel, QToolButton
 
 from lorairo.gui import theme
@@ -55,6 +56,20 @@ def headers(panel):
         for index in range(sections.count())
         if isinstance(sections.itemAt(index).widget(), QLabel)
     ]
+
+
+def test_grouped_saved_review_fits_both_groups_after_first_show(panel, review, qtbot):
+    panel.set_tag_edit_enabled(True)
+    panel.resize(700, 300)
+    panel.set_annotation_review_result(review)
+    panel._group_by_type_checkbox.setChecked(True)
+    panel.show()
+
+    qtbot.waitUntil(lambda: panel._tags_scroll.height() <= panel._TAGS_MAX_HEIGHT)
+    assert headers(panel) == ["要確認（1件）", "一般 (1)"]
+    normal = next(chip for chip in panel._tag_chips if chip.canonical == "solo")
+    viewport = panel._tags_scroll.viewport()
+    assert normal.mapTo(viewport, QPoint(0, normal.height())).y() <= viewport.height()
 
 
 def test_review_decorates_only_current_existing_warning_tags(panel, review):

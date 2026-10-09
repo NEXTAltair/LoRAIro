@@ -17,7 +17,7 @@ from collections.abc import Callable, Sequence
 from math import isfinite
 from typing import TYPE_CHECKING, Any, ClassVar
 
-from PySide6.QtCore import QModelIndex, QPersistentModelIndex, QPoint, QRect, Qt, Signal, Slot
+from PySide6.QtCore import QModelIndex, QPersistentModelIndex, QPoint, QRect, Qt, QTimer, Signal, Slot
 from PySide6.QtGui import (
     QContextMenuEvent,
     QKeySequence,
@@ -25,6 +25,7 @@ from PySide6.QtGui import (
     QPainter,
     QResizeEvent,
     QShortcut,
+    QShowEvent,
     QStandardItemModel,
 )
 from PySide6.QtWidgets import (
@@ -2791,6 +2792,13 @@ class TagPanelWidget(QWidget):
         menu.exec(label.mapToGlobal(position))
 
     # ─── サイジング (#835) ──────────────────────────────────────────────
+
+    def showEvent(self, event: QShowEvent) -> None:
+        super().showEvent(event)
+        # Saved reviews can build groups before the details pane is visible.
+        # Measure after child layouts activate; their pre-show size hints omit
+        # editable chip rows and leave an unnecessarily short scroll viewport.
+        QTimer.singleShot(0, self, self._adjust_tags_chip_height)
 
     def resizeEvent(self, event: QResizeEvent) -> None:
         super().resizeEvent(event)
