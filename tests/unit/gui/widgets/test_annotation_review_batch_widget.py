@@ -627,12 +627,40 @@ def test_suggestions_are_distinct_from_warnings_and_open_for_manual_adoption(qtb
     assert widget.results_table.item(0, 2).text() == "0"
     assert widget.results_table.item(0, 3).text() == "1"
     assert widget.results_table.item(0, 4).text() == "0"
-    assert widget.details_table.item(1, 0).text() == "追加候補"
-    assert widget.details_table.item(1, 2).text() == "追加候補"
-    assert widget.details_table.item(1, 3).text() == "88.0%"
+    assert widget.details_table.rowCount() == 1
+    assert widget.details_table.item(0, 0).text() == "追加候補"
+    assert widget.details_table.item(0, 2).text() == "追加候補"
+    assert widget.details_table.item(0, 3).text() == "88.0%"
     with qtbot.waitSignal(widget.manual_review_requested) as emission:
         widget.manual_review_button.click()
     assert emission.args == [5]
+    store.save.assert_not_called()
+
+
+def test_history_details_list_only_unassigned_candidates_and_hide_unverified_scores(wired) -> None:
+    widget, service, store, manager = wired
+    stored = saved_result()
+    suggestion = AnnotationReviewItem("suggestion_1", "suggestion", "long_hair", 0.88, "suggestion")
+    stored = replace(stored, review=replace(stored.review, items=(*stored.review.items, suggestion)))
+    store.get_current_results.return_value = {5: stored}
+    widget.refresh()
+    complete_load(widget, manager)
+    widget.results_table.selectRow(0)
+
+    assert widget.results_table.item(0, 2).text() == "1"
+    assert widget.details_table.rowCount() == 1
+    assert widget.details_table.item(0, 1).text() == "long_hair"
+    assert widget.details_table.item(0, 3).text() == "88.0%"
+    assert widget.manual_review_button.isEnabled()
+    assert "画像を開いて手動確認" in widget.detail_label.text()
+    widget.set_image_ids([])
+    widget.refresh()
+    assert widget.details_table.rowCount() == 1
+    assert widget.details_table.item(0, 1).text() == "long_hair"
+    assert widget.details_table.item(0, 3).text() == "—"
+    complete_load(widget, manager)
+    assert widget.details_table.item(0, 3).text() == "88.0%"
+    service.review.assert_not_called()
     store.save.assert_not_called()
 
 
@@ -661,7 +689,7 @@ def test_candidate_help_and_saved_details_use_configured_suggestion_threshold(wi
     assert widget.details_table.item(0, 2).text() == "採用候補外"
 
 
-def test_saved_warning_opens_original_image_and_keeps_candidate_text(qtbot, wired) -> None:
+def test_saved_warning_opens_original_image_without_duplicate_tag_details(qtbot, wired) -> None:
     widget, service, store, manager = wired
     store.get_current_results.return_value = {5: saved_result()}
     widget.refresh()
@@ -669,8 +697,9 @@ def test_saved_warning_opens_original_image_and_keeps_candidate_text(qtbot, wire
     widget.results_table.selectRow(0)
 
     assert widget.results_table.item(0, 1).text() == "⚠ 要確認"
-    assert widget.details_table.item(0, 1).text() == "blue_eyes"
-    assert widget.details_table.item(0, 3).text() == "8.0%"
+    assert widget.details_table.rowCount() == 0
+    assert widget.details_table.isHidden()
+    assert "既存タグ・キャプション" in widget.detail_label.text()
     with qtbot.waitSignal(widget.manual_review_requested) as emission:
         qtbot.mouseClick(widget.manual_review_button, Qt.MouseButton.LeftButton)
     assert emission.args == [5]
@@ -720,8 +749,10 @@ def test_stale_history_retains_text_and_manual_navigation_without_probabilities(
 
     assert "再チェックが必要" in widget.results_table.item(0, 1).text()
     assert widget.results_table.item(0, 2).text() == "—"
-    assert widget.details_table.item(0, 1).text() == "blue_eyes"
-    assert widget.details_table.item(0, 3).text() == "—"
+    assert widget.details_table.rowCount() == 0
+    assert widget.details_table.isHidden()
+    assert widget._saved_results[5].review.items[0].text == "blue_eyes"
+    assert widget._record_for_display(widget._saved_results[5]).review.items[0].probability is None
     assert widget.manual_review_button.isEnabled()
 
 
@@ -731,15 +762,16 @@ def test_refresh_hides_cached_probabilities_until_currentness_is_checked(wired) 
     widget.refresh()
     complete_load(widget, manager)
     widget.results_table.selectRow(0)
-    assert widget.details_table.item(0, 3).text() == "8.0%"
+    assert widget._record_for_display(widget._saved_results[5]).review.items[0].probability == 0.08
 
     widget.refresh()
 
     assert "照合中" in widget.results_table.item(0, 1).text()
-    assert widget.details_table.item(0, 3).text() == "—"
+    assert widget._record_for_display(widget._saved_results[5]).review.items[0].probability is None
+    assert widget.details_table.rowCount() == 0
     assert widget.manual_review_button.isEnabled()
     complete_load(widget, manager)
-    assert widget.details_table.item(0, 3).text() == "8.0%"
+    assert widget._record_for_display(widget._saved_results[5]).review.items[0].probability == 0.08
 
 
 def test_settings_reload_rejects_old_image_event_and_reloads_history(wired) -> None:
@@ -863,7 +895,8 @@ def test_deleted_image_failure_is_visible_without_a_saved_result_or_navigation(q
 
     store.get_current_result.assert_not_called()
     assert "保存できません" in widget.results_table.item(0, 1).text()
-    assert widget.details_table.item(0, 3).text() == "—"
+    assert widget.details_table.rowCount() == 0
+    assert widget._record_for_display(widget._saved_results[5]).review.items[0].probability is None
     assert not widget.manual_review_button.isEnabled()
     assert "処理しました" in widget.status_label.text()
     widget.refresh()
@@ -929,7 +962,8 @@ def test_missing_stream_wrapper_hides_unverified_probability_without_gui_databas
     widget.results_table.selectRow(0)
 
     assert "再チェックが必要" in widget.results_table.item(0, 1).text()
-    assert widget.details_table.item(0, 3).text() == "—"
+    assert widget.details_table.rowCount() == 0
+    assert widget._record_for_display(widget._saved_results[5]).review.items[0].probability is None
     store.get_current_result.assert_not_called()
 
 
@@ -943,8 +977,9 @@ def test_invalid_settings_keep_saved_text_but_hide_probabilities_and_disable_sta
     widget.set_unavailable_reason("warning_threshold is invalid")
 
     assert not widget.start_button.isEnabled()
-    assert widget.details_table.item(0, 1).text() == "blue_eyes"
-    assert widget.details_table.item(0, 3).text() == "—"
+    assert widget.details_table.rowCount() == 0
+    assert widget._saved_results[5].review.items[0].text == "blue_eyes"
+    assert widget._record_for_display(widget._saved_results[5]).review.items[0].probability is None
     assert widget.manual_review_button.isEnabled()
     assert "設定を確認" in widget.status_label.text()
 

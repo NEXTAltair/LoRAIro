@@ -187,7 +187,7 @@ class AnnotationReviewBatchWidget(QGroupBox):
         self.results_table.cellDoubleClicked.connect(self._on_result_double_clicked)
         layout.addWidget(self.results_table)
         details_bar = QHBoxLayout()
-        self.detail_label = QLabel("画像を選ぶと、タグ・キャプションごとの結果を表示します。", self)
+        self.detail_label = QLabel("画像を選ぶと、チェック状態とタグの追加候補を表示します。", self)
         self.detail_label.setWordWrap(True)
         details_bar.addWidget(self.detail_label, 1)
         self.manual_review_button = QPushButton("画像を開いて手動確認", self)
@@ -197,7 +197,7 @@ class AnnotationReviewBatchWidget(QGroupBox):
         layout.addLayout(details_bar)
         self.details_table = QTableWidget(0, 4, self)
         self.details_table.setObjectName("tableAnnotationReviewBatchItems")
-        self.details_table.setHorizontalHeaderLabels(["種類", "内容・追加候補", "判定", "Clef 一致確率"])
+        self.details_table.setHorizontalHeaderLabels(["種類", "追加候補", "判定", "Clef 一致確率"])
         self._configure_table(self.details_table)
         self.details_table.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
         self.details_table.setMinimumHeight(95)
@@ -907,20 +907,18 @@ class AnnotationReviewBatchWidget(QGroupBox):
             record is not None and self._selected_image_id not in self._unsaved_image_ids
         )
         if record is None:
-            self.detail_label.setText("画像を選ぶと、タグ・キャプションごとの結果を表示します。")
+            self.detail_label.setText("画像を選ぶと、チェック状態とタグの追加候補を表示します。")
             self.details_table.setRowCount(0)
             self.details_table.setVisible(False)
             return
         record = self._record_for_display(record)
         review = record.review
+        suggestions = tuple(item for item in review.items if item.kind == "suggestion")
         self.detail_label.setText(
             f"画像 {review.image_id} / {review.model_name}"
             f" / 要確認: 一致確率 {record.warning_threshold:.0%} 未満"
-            + (
-                f" / 追加候補: 一致確率 {record.suggestion_threshold:.0%} 以上"
-                if any(item.kind == "suggestion" for item in review.items)
-                else ""
-            )
+            + (f" / 追加候補: 一致確率 {record.suggestion_threshold:.0%} 以上" if suggestions else "")
+            + "\n既存タグ・キャプションの判定や編集は「画像を開いて手動確認」で確認できます。"
             + (
                 "\n現在の内容と照合しています。"
                 if self._loading_currentness and review.image_id not in self._fresh_image_ids
@@ -936,17 +934,12 @@ class AnnotationReviewBatchWidget(QGroupBox):
             "failed": "チェック失敗",
             "unevaluated": "未評価",
         }
-        kinds = {"tag": "既存タグ", "caption": "キャプション", "suggestion": "追加候補"}
-        self.details_table.setRowCount(len(review.items))
-        for row, result in enumerate(review.items):
+        self.details_table.setRowCount(len(suggestions))
+        for row, result in enumerate(suggestions):
             values = (
-                "候補タグ"
-                if result.kind == "suggestion" and result.status != "suggestion"
-                else kinds[result.kind],
+                "追加候補" if result.status == "suggestion" else "候補タグ",
                 result.text,
-                "採用候補外"
-                if result.kind == "suggestion" and result.status == "ok"
-                else labels[result.status],
+                "採用候補外" if result.status == "ok" else labels[result.status],
                 f"{result.probability:.1%}" if result.probability is not None else "—",
             )
             for column, value in enumerate(values):
@@ -958,7 +951,7 @@ class AnnotationReviewBatchWidget(QGroupBox):
                     cell.setForeground(QColor(theme.INFO))
                 self.details_table.setItem(row, column, cell)
         self.details_table.resizeRowsToContents()
-        self.details_table.setVisible(bool(review.items))
+        self.details_table.setVisible(bool(suggestions) and not self._selection_mode)
 
     @Slot()
     def _on_manual_review_requested(self) -> None:
