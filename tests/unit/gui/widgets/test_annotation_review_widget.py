@@ -10,7 +10,6 @@ from unittest.mock import Mock
 
 import pytest
 from PySide6.QtCore import QObject, Qt, Signal
-from PySide6.QtWidgets import QAbstractItemView
 
 from lorairo.gui.widgets.annotation_review_widget import AnnotationReviewWidget
 from lorairo.gui.widgets.selected_image_details_widget import SelectedImageDetailsWidget
@@ -138,13 +137,10 @@ def test_click_shows_running_then_item_probabilities_without_edit_controls(qtbot
     service.review.assert_called_once()
     finish(widget, manager, envelope.review)
 
-    assert widget.results_table.rowCount() == 2
-    assert widget.results_table.item(0, 1).text() == "blue_eyes"
-    assert widget.results_table.item(0, 2).text() == "⚠ 要確認"
-    assert widget.results_table.item(0, 3).text() == "8.0%"
-    assert widget.results_table.item(1, 0).text() == "キャプション"
-    assert widget.results_table.item(1, 3).text() == "81.0%"
-    assert widget.results_table.editTriggers() == QAbstractItemView.EditTrigger.NoEditTriggers
+    assert widget.current_result == make_result()
+    assert not hasattr(widget, "results_table")
+    assert widget.current_result.items[0].probability == 0.08
+    assert "要確認 1 件" in widget.status_label.text()
     assert "20% 未満" in widget.model_label.text()
     assert "clef-flash" in widget.model_label.text()
     assert widget.evaluate_button.isEnabled()
@@ -172,8 +168,8 @@ def test_selection_or_same_image_edit_cancels_and_discards_inflight_result(
     )
 
     assert manager.cancel_requests[0][0] == worker_id
-    assert widget.results_table.rowCount() == 0
-    assert widget.results_table.isHidden()
+    assert widget.current_result is None or widget.current_result.status in ("stale", "unevaluated")
+    assert not hasattr(widget, "results_table")
     assert any(text in widget.status_label.text() for text in ("未評価", "未チェック", "古い判定"))
 
 
@@ -181,11 +177,11 @@ def test_completed_results_are_cleared_on_annotation_reload(wired_widget) -> Non
     widget, _service, manager = wired_widget
     widget._on_evaluate_requested()
     finish(widget, manager)
-    assert widget.results_table.rowCount() == 2
+    assert widget.current_result == make_result()
 
     widget.set_image(5)
 
-    assert widget.results_table.rowCount() == 0
+    assert widget.current_result is None or widget.current_result.status in ("stale", "unevaluated")
     assert widget.model_label.isHidden()
     assert any(text in widget.status_label.text() for text in ("未評価", "未チェック", "古い判定"))
 
@@ -197,15 +193,15 @@ def test_saved_result_returns_after_switching_images_without_a_cloud_request(wir
     store.get_current_result.side_effect = lambda image_id, _service: saved if image_id == 5 else None
     widget.set_store(store)
     finish_saved(manager)
-    assert widget.results_table.rowCount() == 2
+    assert widget.current_result == make_result()
 
     widget.set_image(9)
-    assert widget.results_table.rowCount() == 0
+    assert widget.current_result is None or widget.current_result.status in ("stale", "unevaluated")
     finish_saved(manager)
     widget.set_image(5)
     finish_saved(manager)
 
-    assert widget.results_table.item(0, 3).text() == "8.0%"
+    assert widget.current_result.items[0].probability == 0.08
     assert all(isinstance(worker, SavedImageReviewWorker) for _, worker in manager.started)
     service.review.assert_not_called()
 
@@ -217,14 +213,14 @@ def test_saved_result_with_changed_content_hides_previous_probability(wired_widg
     store.get_current_result.return_value = saved
     widget.set_store(store)
     finish_saved(manager)
-    assert widget.results_table.rowCount() == 2
+    assert widget.current_result == make_result()
     store.get_current_result.return_value = replace(saved, review=replace(saved.review, status="stale"))
 
     widget.set_image(5)
     finish_saved(manager)
 
-    assert widget.results_table.rowCount() == 0
-    assert widget.results_table.isHidden()
+    assert widget.current_result is None or widget.current_result.status in ("stale", "unevaluated")
+    assert not hasattr(widget, "results_table")
     assert "古い判定" in widget.status_label.text()
 
 
@@ -241,8 +237,8 @@ def test_completion_displays_latest_store_result_instead_of_an_older_worker_resu
     finish(widget, manager, make_result())
     finish_saved(manager)
 
-    assert widget.results_table.rowCount() == 1
-    assert widget.results_table.item(0, 3).text() == "97.0%"
+    assert widget.current_result == latest
+    assert widget.current_result.items[0].probability == 0.97
 
 
 def test_saved_loader_coalesces_selection_changes_into_one_pending_worker(wired_widget):
@@ -282,7 +278,7 @@ def test_service_reinjection_cancels_inflight_and_uses_refreshed_service_on_next
     assert widget._manager is manager
     assert len(manager.started) == 1
     assert manager.cancel_requests == [(worker_id, CancelReason.USER_REQUESTED)]
-    assert widget.results_table.rowCount() == 0
+    assert widget.current_result is None or widget.current_result.status in ("stale", "unevaluated")
     assert not widget.evaluate_button.isEnabled()
     original_service.review.assert_not_called()
     refreshed_service.review.assert_not_called()
@@ -294,7 +290,7 @@ def test_service_reinjection_cancels_inflight_and_uses_refreshed_service_on_next
             result=AnnotationReviewWorkerResult(generation, make_result()),
         )
     )
-    assert widget.results_table.rowCount() == 0
+    assert widget.current_result is None or widget.current_result.status in ("stale", "unevaluated")
     assert widget.evaluate_button.isEnabled()
 
     widget._on_evaluate_requested()
@@ -308,7 +304,7 @@ def test_external_edit_fingerprint_rejects_old_result(wired_widget) -> None:
 
     finish(widget, manager, manager.started[-1][1].execute().review)
 
-    assert widget.results_table.rowCount() == 0
+    assert widget.current_result is None or widget.current_result.status in ("stale", "unevaluated")
     assert "古い判定" in widget.status_label.text()
     assert widget.evaluate_button.isEnabled()
 
@@ -320,7 +316,7 @@ def test_failed_worker_is_distinct_from_a_warning_free_result(wired_widget) -> N
 
     assert "失敗" in widget.status_label.text()
     assert "model file is missing" in widget.status_label.text()
-    assert widget.results_table.rowCount() == 0
+    assert widget.current_result is None or widget.current_result.status in ("stale", "unevaluated")
     assert widget.evaluate_button.isEnabled()
 
 
@@ -341,10 +337,9 @@ def test_partial_result_keeps_failures_and_unevaluated_items_visible(wired_widge
     finish(widget, manager, result)
 
     assert "一部を評価できません" in widget.status_label.text()
-    assert widget.results_table.item(0, 2).text() == "評価失敗"
-    assert widget.results_table.item(0, 3).text() == "—"
-    assert widget.results_table.item(0, 2).toolTip() == "timeout"
-    assert widget.results_table.item(1, 2).text() == "未評価"
+    assert widget.current_result == result
+    assert "失敗・未評価 2 件" in widget.status_label.text()
+    assert not hasattr(widget, "results_table")
 
 
 @pytest.mark.parametrize("status", ["unevaluated", "stale"])
@@ -356,8 +351,8 @@ def test_empty_or_stale_service_result_never_claims_no_warnings(wired_widget, st
     finish(widget, manager, result)
 
     assert any(text in widget.status_label.text() for text in ("未評価", "未チェック", "古い判定"))
-    assert "評価完了" not in widget.status_label.text()
-    assert widget.results_table.rowCount() == 0
+    assert "チェック済み" not in widget.status_label.text()
+    assert widget.current_result is None or widget.current_result.status in ("stale", "unevaluated")
 
 
 def test_worker_start_failure_and_shutdown_release_ui_without_restarting(wired_widget) -> None:
@@ -393,7 +388,7 @@ def test_cancel_is_cooperative_and_cannot_show_returned_result(wired_widget) -> 
         )
     )
 
-    assert widget.results_table.rowCount() == 0
+    assert widget.current_result is None or widget.current_result.status in ("stale", "unevaluated")
     assert any(text in widget.status_label.text() for text in ("未評価", "未チェック", "古い判定"))
     assert widget.evaluate_button.isEnabled()
 
@@ -442,8 +437,8 @@ def test_real_worker_success_delivers_results_to_the_widget(qtbot) -> None:
     widget.set_image(5)
     try:
         widget._on_evaluate_requested()
-        qtbot.waitUntil(lambda: widget.results_table.rowCount() == 2, timeout=2000)
-        assert "評価完了" in widget.status_label.text()
+        qtbot.waitUntil(lambda: widget.current_result is not None, timeout=2000)
+        assert "チェック済み" in widget.status_label.text()
         assert widget.evaluate_button.isEnabled()
         service.review.assert_called_once()
     finally:

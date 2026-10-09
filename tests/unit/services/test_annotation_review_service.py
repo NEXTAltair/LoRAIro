@@ -160,20 +160,25 @@ def test_edit_between_chunks_stops_more_local_inference(review_context):
 @pytest.mark.gui
 def test_explicit_gui_click_runs_real_service_and_transport_in_worker(review_context, qtbot):
     from lorairo.gui.widgets.annotation_review_widget import AnnotationReviewWidget
+    from lorairo.gui.widgets.tag_panel_widget import TagPanelWidget
 
-    make, db, _, _, requests, _, _ = review_context
+    make, db, _, annotations, requests, _, _ = review_context
     widget = AnnotationReviewWidget()
+    tags = TagPanelWidget()
     qtbot.addWidget(widget)
+    qtbot.addWidget(tags)
+    tags.set_tags(annotations["tags"], image_id=7)
+    widget.result_displayed.connect(tags.set_annotation_review_result)
     widget.set_service(make())
     widget.set_image(7)
     assert requests == []
     widget.evaluate_button.click()
-    qtbot.waitUntil(lambda: "評価完了" in widget.status_label.text(), timeout=5000)
+    qtbot.waitUntil(lambda: "チェック済み" in widget.status_label.text(), timeout=5000)
     assert len(requests) == 1
-    assert widget.results_table.rowCount() == 3
-    assert widget.results_table.item(1, 1).text() == "dog"
-    assert "要確認" in widget.results_table.item(1, 2).text()
-    assert widget.results_table.item(1, 3).text() == "3.0%"
+    assert not hasattr(widget, "results_table")
+    dog = next(chip for chip in tags._tag_chips if chip.canonical == "dog")
+    assert dog.review_warning and "!" in dog.text()
+    assert "判定値 0.030" in dog.toolTip()
     assert {call[0] for call in db.method_calls} == {"get_image_metadata", "get_image_annotations"}
     widget.shutdown()
 

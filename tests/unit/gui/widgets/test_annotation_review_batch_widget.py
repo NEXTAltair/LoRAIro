@@ -11,7 +11,7 @@ from unittest.mock import Mock
 import pytest
 from PySide6.QtCore import QObject, Qt, QTimer, Signal
 from PySide6.QtTest import QSignalSpy
-from PySide6.QtWidgets import QWidget
+from PySide6.QtWidgets import QApplication, QDialog, QDialogButtonBox, QListWidget, QWidget
 
 from lorairo.gui.widgets.annotation_review_batch_widget import AnnotationReviewBatchWidget
 from lorairo.gui.workers.annotation_review_batch_worker import (
@@ -20,7 +20,7 @@ from lorairo.gui.workers.annotation_review_batch_worker import (
     AnnotationReviewBatchWorkerResult,
 )
 from lorairo.gui.workers.annotation_review_results_loader import AnnotationReviewResultsLoader
-from lorairo.gui.workers.base import WorkerProgress
+from lorairo.gui.workers.base import CancellationError, WorkerProgress
 from lorairo.gui.workers.terminal import CancelReason, WorkerOutcome, WorkerTerminalEvent
 from lorairo.services.annotation_review_service import (
     AnnotationReviewItem,
@@ -99,6 +99,314 @@ def wired(qtbot):
     complete_load(widget, manager)
     yield widget, service, store, manager
     widget.shutdown()
+
+
+@pytest.fixture
+def selected(qtbot, monkeypatch):
+    widget = AnnotationReviewBatchWidget(selection_mode=True)
+    qtbot.addWidget(widget)
+    service = Mock()
+    service.model_name = "clef-flash"
+    service.warning_threshold = 0.2
+    store = Mock()
+    manager = FakeManager()
+    widget.set_services(service, store, manager)
+    monkeypatch.setattr(widget, "_confirm_scope", lambda *args: True)
+    yield widget, service, store, manager
+    widget.shutdown()
+
+
+def test_selection_mode_has_compact_controls_and_never_loads_a_duplicate_ledger(selected):
+    widget, service, store, manager = selected
+    assert widget.start_button.text() == "選択画像をチェック（0枚）"
+    assert not widget.start_button.isEnabled()
+    for control in (
+        widget.instructions_label,
+        widget.notice_label,
+        widget.select_targets_button,
+        widget.target_list_button,
+        widget.candidate_options_widget,
+        widget.history_label,
+        widget.results_table,
+        widget.details_table,
+        widget.detail_label,
+        widget.manual_review_button,
+    ):
+        assert control.isHidden()
+    widget.set_image_ids([5, 7, 5])
+    widget.set_image_names({5: "portrait.jpg", 7: "garden.jpg"})
+    assert widget.start_button.text() == "選択画像をチェック（2枚）"
+    assert widget.start_button.isEnabled()
+    assert "portrait.jpg" in widget.target_names_label.text()
+    assert "選択画像 2 枚" in widget.scope_label.text()
+    widget.refresh()
+    assert manager.started == []
+    store.get_current_results.assert_not_called()
+    service.review.assert_not_called()
+    widget.candidate_checkbox.setChecked(True)
+    assert not widget.candidate_options_widget.isHidden()
+
+
+def test_search_selection_and_names_freeze_before_confirmation_returns(selected, monkeypatch):
+    widget, service, _, manager = selected
+    widget.set_image_ids([5, 7])
+    widget.set_image_names({5: "portrait.jpg", 7: "garden.jpg"})
+    widget.candidate_checkbox.setChecked(True)
+    widget.candidate_keyword_edit.setText("hair")
+    confirmations = []
+
+    def confirm(image_ids, image_names, candidate_source):
+        confirmations.append((image_ids, image_names.copy(), candidate_source))
+        assert not widget.start_button.isEnabled()
+        widget.set_image_ids([99])
+        widget.set_image_names({99: "changed.jpg"})
+        widget.candidate_keyword_edit.setText("eyes")
+        widget._on_start_requested()  # Nested request cannot open another dialog.
+        return True
+
+    monkeypatch.setattr(widget, "_confirm_scope", confirm)
+    widget._on_start_requested()
+    _, worker = manager.started[-1]
+    assert isinstance(worker, AnnotationReviewBatchWorker)
+    assert confirmations == [((5, 7), {5: "portrait.jpg", 7: "garden.jpg"}, ReviewCandidateSource("hair"))]
+    assert worker._image_ids == (5, 7)
+    assert worker._service is service
+    assert worker._candidate_source == ReviewCandidateSource("hair")
+    assert widget._running_image_names == {5: "portrait.jpg", 7: "garden.jpg"}
+    assert "現在の選択 1 枚" in widget.scope_label.text()
+    assert "portrait.jpg" in widget.target_names_label.text()
+    assert "changed.jpg" not in widget.target_names_label.text()
+    assert "準備中" in widget.status_label.text()
+    assert manager.cancel_requests == []
+
+
+def test_confirmation_return_and_changed_configuration_never_launch_a_review(selected, monkeypatch):
+    widget, service, store, manager = selected
+    widget.set_image_ids([5])
+    monkeypatch.setattr(widget, "_confirm_scope", lambda *args: False)
+    widget._on_start_requested()
+    assert manager.started == []
+    assert widget.start_button.isEnabled()
+
+    def update_config(*args):
+        widget.set_services(service, store)
+        return True
+
+    monkeypatch.setattr(widget, "_confirm_scope", update_config)
+    widget._on_start_requested()
+    assert manager.started == []
+    assert widget.start_button.isEnabled()
+
+
+@pytest.mark.parametrize("accept", [True, False])
+def test_search_confirmation_lists_all_targets_and_requires_explicit_choice(qtbot, accept):
+    widget = AnnotationReviewBatchWidget(selection_mode=True)
+    qtbot.addWidget(widget)
+    observed = []
+
+    def inspect_dialog():
+        dialog = QApplication.activeModalWidget()
+        assert isinstance(dialog, QDialog)
+        targets = dialog.findChild(QListWidget, "listAnnotationReviewConfirmedTargets")
+        observed.extend(targets.item(index).text() for index in range(targets.count()))
+        buttons = dialog.findChild(QDialogButtonBox)
+        button = QDialogButtonBox.StandardButton.Ok if accept else QDialogButtonBox.StandardButton.Cancel
+        buttons.button(button).click()
+
+    QTimer.singleShot(0, inspect_dialog)
+    assert (
+        widget._confirm_scope(
+            (5, 7, 9, 11), {5: "portrait.jpg", 7: "garden.jpg"}, ReviewCandidateSource("hair")
+        )
+        is accept
+    )
+    assert observed == ["portrait.jpg (ID: 5)", "garden.jpg (ID: 7)", "画像 9", "画像 11"]
+
+
+def test_search_single_image_saved_result_is_forwarded_without_showing_tables(selected):
+    widget, _, _, manager = selected
+    widget.set_image_ids([5])
+    assert widget.start_button.text() == "選択画像をチェック（1枚）"
+    saved = QSignalSpy(widget.review_result_saved)
+    widget._on_start_requested()
+    worker_id, worker = manager.started[-1]
+    worker.per_image_finished.emit(
+        AnnotationReviewBatchImageResult(widget._generation, saved_result().review, True, saved_result())
+    )
+    result = AnnotationReviewBatchWorkerResult(widget._generation, (5,), (saved_result().review,), False)
+    manager.worker_terminal.emit(
+        WorkerTerminalEvent(worker_id, "annotation_review", WorkerOutcome.SUCCEEDED, result=result)
+    )
+    assert saved.count() == 1 and saved.at(0) == [5]
+    assert "終了" in widget.status_label.text()
+    assert "保存済み 1 枚" in widget.status_label.text()
+    assert "保存失敗" not in widget.status_label.text()
+    assert len(manager.started) == 1
+    assert widget.results_table.rowCount() == 0
+    assert widget.results_table.isHidden() and widget.details_table.isHidden()
+
+
+def test_search_cancel_reports_saved_and_unsaved_images_separately(selected):
+    widget, _, _, manager = selected
+    widget.set_image_ids([5, 7, 9])
+    saved = QSignalSpy(widget.review_result_saved)
+    widget._on_start_requested()
+    worker_id, worker = manager.started[-1]
+    worker.per_image_finished.emit(
+        AnnotationReviewBatchImageResult(widget._generation, saved_result().review, True, saved_result())
+    )
+    worker.per_image_finished.emit(
+        AnnotationReviewBatchImageResult(
+            widget._generation, saved_result(7).review, False, save_error="DBへの保存に失敗しました。"
+        )
+    )
+    assert "保存失敗 1 枚（未保存）" in widget.status_label.text()
+    widget._on_cancel_requested()
+    manager.worker_terminal.emit(
+        WorkerTerminalEvent(worker_id, "annotation_review", WorkerOutcome.CANCELED)
+    )
+    assert saved.count() == 1 and saved.at(0) == [5]
+    assert "中止" in widget.status_label.text()
+    assert "2 / 3 枚" in widget.status_label.text()
+    assert "保存済み 1 枚" in widget.status_label.text()
+    assert "保存失敗 1 枚（未保存）" in widget.status_label.text()
+    assert "未処理の画像は今回チェックしていません" in widget.status_label.text()
+
+
+def test_search_save_failure_is_preserved_in_successful_terminal_summary(selected):
+    widget, _, _, manager = selected
+    widget.set_image_ids([5, 7])
+    widget._on_start_requested()
+    worker_id, worker = manager.started[-1]
+    worker.per_image_finished.emit(
+        AnnotationReviewBatchImageResult(widget._generation, saved_result().review, True, saved_result())
+    )
+    worker.per_image_finished.emit(
+        AnnotationReviewBatchImageResult(widget._generation, saved_result(7).review, False)
+    )
+    result = AnnotationReviewBatchWorkerResult(
+        widget._generation, (5, 7), (saved_result().review, saved_result(7).review), False
+    )
+    manager.worker_terminal.emit(
+        WorkerTerminalEvent(worker_id, "annotation_review", WorkerOutcome.SUCCEEDED, result=result)
+    )
+    assert "終了" in widget.status_label.text()
+    assert "保存済み 1 枚" in widget.status_label.text()
+    assert "保存失敗 1 枚（未保存）" in widget.status_label.text()
+    assert "完了" not in widget.status_label.text()
+
+
+def test_search_post_save_read_failure_stays_saved_and_reports_currentness_failure(selected):
+    widget, _, _, manager = selected
+    widget.set_image_ids([5])
+    saved = QSignalSpy(widget.review_result_saved)
+    widget._on_start_requested()
+    _, worker = manager.started[-1]
+    worker.per_image_finished.emit(
+        AnnotationReviewBatchImageResult(
+            widget._generation,
+            saved_result().review,
+            currentness_error="結果は保存済みですが、照合に失敗しました。",
+        )
+    )
+    assert saved.count() == 1
+    assert "保存済み 1 枚" in widget.status_label.text()
+    assert "保存後の照合失敗 1 枚" in widget.status_label.text()
+    assert "保存失敗" not in widget.status_label.text()
+
+
+def test_search_reinjection_cancels_frozen_worker_and_forwards_old_generation_saves(selected):
+    widget, old_service, store, manager = selected
+    widget.set_image_ids([5, 7])
+    widget._on_start_requested()
+    worker_id, worker = manager.started[-1]
+    generation = widget._generation
+    saved = QSignalSpy(widget.review_result_saved)
+    current_service = Mock()
+    current_service.warning_threshold = 0.5
+    widget.set_services(current_service, store)
+    assert worker._service is old_service
+    assert worker._image_ids == (5, 7)
+    assert manager.cancel_requests == [(worker_id, CancelReason.USER_REQUESTED)]
+    worker.per_image_finished.emit(
+        AnnotationReviewBatchImageResult(generation, saved_result().review, True, saved_result())
+    )
+    assert saved.count() == 1 and saved.at(0) == [5]
+    assert widget._saved_results == {}
+    manager.worker_terminal.emit(
+        WorkerTerminalEvent(worker_id, "annotation_review", WorkerOutcome.CANCELED)
+    )
+    assert "設定を更新" in widget.status_label.text()
+    assert "保存された結果は保持" in widget.status_label.text()
+    assert widget.start_button.isEnabled()
+    assert len(manager.started) == 1
+
+
+def test_search_terminal_failure_preserves_and_counts_already_saved_images(selected):
+    widget, _, _, manager = selected
+    widget.set_image_ids([5, 7])
+    widget._on_start_requested()
+    worker_id, worker = manager.started[-1]
+    worker.per_image_finished.emit(
+        AnnotationReviewBatchImageResult(widget._generation, saved_result().review, True, saved_result())
+    )
+    manager.worker_terminal.emit(
+        WorkerTerminalEvent(worker_id, "annotation_review", WorkerOutcome.FAILED, error="prepare failed")
+    )
+    assert "失敗しました" in widget.status_label.text()
+    assert "prepare failed" in widget.status_label.text()
+    assert "保存済み 1 枚" in widget.status_label.text()
+    assert "保持" in widget.status_label.text()
+    assert widget.start_button.isEnabled()
+
+
+def test_search_saved_failed_and_unevaluated_reviews_do_not_claim_checks_succeeded(selected):
+    widget, _, _, manager = selected
+    widget.set_image_ids([5, 7])
+    widget._on_start_requested()
+    _, worker = manager.started[-1]
+    for image_id, status in ((5, "failed"), (7, "unevaluated")):
+        stored = saved_result(image_id, status=status)
+        worker.per_image_finished.emit(
+            AnnotationReviewBatchImageResult(widget._generation, stored.review, True, stored)
+        )
+    assert "保存済み 2 枚" in widget.status_label.text()
+    assert "チェック失敗 1 枚" in widget.status_label.text()
+    assert "未評価・一部未評価 1 枚" in widget.status_label.text()
+
+
+@pytest.mark.parametrize("shutdown", [False, True])
+def test_post_commit_cancel_notifies_saved_without_unverified_warning_or_shutdown_updates(wired, shutdown):
+    widget, service, store, manager = wired
+    widget.set_image_ids([5, 7])
+    widget._on_start_requested()
+    worker_id, worker = manager.started[-1]
+    service.prepare_reviews.return_value = {5: Mock(), 7: Mock()}
+    service.review.return_value = saved_result().review
+    store.save.return_value = True
+    store.get_current_result.side_effect = CancellationError("read cancelled")
+    saved = QSignalSpy(widget.review_result_saved)
+    if shutdown:
+        widget.shutdown()
+    before = widget.status_label.text()
+
+    worker.run()
+    manager.worker_terminal.emit(
+        WorkerTerminalEvent(worker_id, "annotation_review", WorkerOutcome.CANCELED)
+    )
+
+    if shutdown:
+        assert saved.count() == 0
+        assert widget.status_label.text() == before
+        assert widget._saved_results == {}
+    else:
+        assert saved.count() == 1 and saved.at(0) == [5]
+        assert "保存済み 1 枚" in widget.status_label.text()
+        assert "保存失敗" not in widget.status_label.text()
+        assert "中止" in widget.status_label.text()
+        cached = widget._saved_results[5].review
+        assert cached.status == "stale"
+        assert all(item.probability is None and item.status != "warning" for item in cached.items)
 
 
 def test_service_injection_loads_bounded_history_without_starting_review(wired) -> None:
@@ -319,12 +627,40 @@ def test_suggestions_are_distinct_from_warnings_and_open_for_manual_adoption(qtb
     assert widget.results_table.item(0, 2).text() == "0"
     assert widget.results_table.item(0, 3).text() == "1"
     assert widget.results_table.item(0, 4).text() == "0"
-    assert widget.details_table.item(1, 0).text() == "追加候補"
-    assert widget.details_table.item(1, 2).text() == "追加候補"
-    assert widget.details_table.item(1, 3).text() == "88.0%"
+    assert widget.details_table.rowCount() == 1
+    assert widget.details_table.item(0, 0).text() == "追加候補"
+    assert widget.details_table.item(0, 2).text() == "追加候補"
+    assert widget.details_table.item(0, 3).text() == "88.0%"
     with qtbot.waitSignal(widget.manual_review_requested) as emission:
         widget.manual_review_button.click()
     assert emission.args == [5]
+    store.save.assert_not_called()
+
+
+def test_history_details_list_only_unassigned_candidates_and_hide_unverified_scores(wired) -> None:
+    widget, service, store, manager = wired
+    stored = saved_result()
+    suggestion = AnnotationReviewItem("suggestion_1", "suggestion", "long_hair", 0.88, "suggestion")
+    stored = replace(stored, review=replace(stored.review, items=(*stored.review.items, suggestion)))
+    store.get_current_results.return_value = {5: stored}
+    widget.refresh()
+    complete_load(widget, manager)
+    widget.results_table.selectRow(0)
+
+    assert widget.results_table.item(0, 2).text() == "1"
+    assert widget.details_table.rowCount() == 1
+    assert widget.details_table.item(0, 1).text() == "long_hair"
+    assert widget.details_table.item(0, 3).text() == "88.0%"
+    assert widget.manual_review_button.isEnabled()
+    assert "画像を開いて手動確認" in widget.detail_label.text()
+    widget.set_image_ids([])
+    widget.refresh()
+    assert widget.details_table.rowCount() == 1
+    assert widget.details_table.item(0, 1).text() == "long_hair"
+    assert widget.details_table.item(0, 3).text() == "—"
+    complete_load(widget, manager)
+    assert widget.details_table.item(0, 3).text() == "88.0%"
+    service.review.assert_not_called()
     store.save.assert_not_called()
 
 
@@ -353,7 +689,7 @@ def test_candidate_help_and_saved_details_use_configured_suggestion_threshold(wi
     assert widget.details_table.item(0, 2).text() == "採用候補外"
 
 
-def test_saved_warning_opens_original_image_and_keeps_candidate_text(qtbot, wired) -> None:
+def test_saved_warning_opens_original_image_without_duplicate_tag_details(qtbot, wired) -> None:
     widget, service, store, manager = wired
     store.get_current_results.return_value = {5: saved_result()}
     widget.refresh()
@@ -361,8 +697,9 @@ def test_saved_warning_opens_original_image_and_keeps_candidate_text(qtbot, wire
     widget.results_table.selectRow(0)
 
     assert widget.results_table.item(0, 1).text() == "⚠ 要確認"
-    assert widget.details_table.item(0, 1).text() == "blue_eyes"
-    assert widget.details_table.item(0, 3).text() == "8.0%"
+    assert widget.details_table.rowCount() == 0
+    assert widget.details_table.isHidden()
+    assert "既存タグ・キャプション" in widget.detail_label.text()
     with qtbot.waitSignal(widget.manual_review_requested) as emission:
         qtbot.mouseClick(widget.manual_review_button, Qt.MouseButton.LeftButton)
     assert emission.args == [5]
@@ -412,8 +749,10 @@ def test_stale_history_retains_text_and_manual_navigation_without_probabilities(
 
     assert "再チェックが必要" in widget.results_table.item(0, 1).text()
     assert widget.results_table.item(0, 2).text() == "—"
-    assert widget.details_table.item(0, 1).text() == "blue_eyes"
-    assert widget.details_table.item(0, 3).text() == "—"
+    assert widget.details_table.rowCount() == 0
+    assert widget.details_table.isHidden()
+    assert widget._saved_results[5].review.items[0].text == "blue_eyes"
+    assert widget._record_for_display(widget._saved_results[5]).review.items[0].probability is None
     assert widget.manual_review_button.isEnabled()
 
 
@@ -423,15 +762,16 @@ def test_refresh_hides_cached_probabilities_until_currentness_is_checked(wired) 
     widget.refresh()
     complete_load(widget, manager)
     widget.results_table.selectRow(0)
-    assert widget.details_table.item(0, 3).text() == "8.0%"
+    assert widget._record_for_display(widget._saved_results[5]).review.items[0].probability == 0.08
 
     widget.refresh()
 
     assert "照合中" in widget.results_table.item(0, 1).text()
-    assert widget.details_table.item(0, 3).text() == "—"
+    assert widget._record_for_display(widget._saved_results[5]).review.items[0].probability is None
+    assert widget.details_table.rowCount() == 0
     assert widget.manual_review_button.isEnabled()
     complete_load(widget, manager)
-    assert widget.details_table.item(0, 3).text() == "8.0%"
+    assert widget._record_for_display(widget._saved_results[5]).review.items[0].probability == 0.08
 
 
 def test_settings_reload_rejects_old_image_event_and_reloads_history(wired) -> None:
@@ -555,7 +895,8 @@ def test_deleted_image_failure_is_visible_without_a_saved_result_or_navigation(q
 
     store.get_current_result.assert_not_called()
     assert "保存できません" in widget.results_table.item(0, 1).text()
-    assert widget.details_table.item(0, 3).text() == "—"
+    assert widget.details_table.rowCount() == 0
+    assert widget._record_for_display(widget._saved_results[5]).review.items[0].probability is None
     assert not widget.manual_review_button.isEnabled()
     assert "処理しました" in widget.status_label.text()
     widget.refresh()
@@ -621,7 +962,8 @@ def test_missing_stream_wrapper_hides_unverified_probability_without_gui_databas
     widget.results_table.selectRow(0)
 
     assert "再チェックが必要" in widget.results_table.item(0, 1).text()
-    assert widget.details_table.item(0, 3).text() == "—"
+    assert widget.details_table.rowCount() == 0
+    assert widget._record_for_display(widget._saved_results[5]).review.items[0].probability is None
     store.get_current_result.assert_not_called()
 
 
@@ -635,8 +977,9 @@ def test_invalid_settings_keep_saved_text_but_hide_probabilities_and_disable_sta
     widget.set_unavailable_reason("warning_threshold is invalid")
 
     assert not widget.start_button.isEnabled()
-    assert widget.details_table.item(0, 1).text() == "blue_eyes"
-    assert widget.details_table.item(0, 3).text() == "—"
+    assert widget.details_table.rowCount() == 0
+    assert widget._saved_results[5].review.items[0].text == "blue_eyes"
+    assert widget._record_for_display(widget._saved_results[5]).review.items[0].probability is None
     assert widget.manual_review_button.isEnabled()
     assert "設定を確認" in widget.status_label.text()
 

@@ -12,11 +12,14 @@ from PySide6.QtGui import QCloseEvent, QColor
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QCheckBox,
+    QDialog,
+    QDialogButtonBox,
     QGroupBox,
     QHBoxLayout,
     QHeaderView,
     QLabel,
     QLineEdit,
+    QListWidget,
     QProgressBar,
     QPushButton,
     QSpinBox,
@@ -58,8 +61,10 @@ class AnnotationReviewBatchWidget(QGroupBox):
 
     MAX_IMAGES = 500
 
-    def __init__(self, parent: QWidget | None = None) -> None:
+    def __init__(self, parent: QWidget | None = None, *, selection_mode: bool = False) -> None:
         super().__init__("アノテーションチェック", parent)
+        self._selection_mode = selection_mode
+        self._confirming_scope = False
         self._service: AnnotationReviewService | None = None
         self._store: AnnotationReviewStore | None = None
         self._manager: WorkerManager | None = None
@@ -79,6 +84,11 @@ class AnnotationReviewBatchWidget(QGroupBox):
         self._loading_currentness = False
         self._fresh_image_ids: set[int] = set()
         self._processed_ids: set[int] = set()
+        self._run_saved_image_ids: set[int] = set()
+        self._run_unsaved_image_ids: set[int] = set()
+        self._run_failed_image_ids: set[int] = set()
+        self._run_unevaluated_image_ids: set[int] = set()
+        self._run_currentness_failed_image_ids: set[int] = set()
         self._unsaved_image_ids: set[int] = set()
         self._saved_results: dict[int, StoredReviewResult] = {}
         self._selected_image_id: int | None = None
@@ -95,23 +105,29 @@ class AnnotationReviewBatchWidget(QGroupBox):
         layout = QVBoxLayout(self)
         layout.setSpacing(theme.SPACE_2)
         self.instructions_label = QLabel(
-            "1. 対象を準備: 検索で画像を選択 →「選択をステージングへ」→ 対象一覧を確認\n"
+            "検索で画像を選択し、対象を確認してからチェックします。結果は既存タグに反映されます。"
+            if self._selection_mode
+            else "1. 対象を準備: 検索で画像を選択 →「選択をステージングへ」→ 対象一覧を確認\n"
             "2. この画面で「チェックを実行」を押して、画像とアノテーションの一致を確認",
             self,
         )
         self.instructions_label.setWordWrap(True)
+        self.instructions_label.setVisible(not self._selection_mode)
         layout.addWidget(self.instructions_label)
         target_bar = QHBoxLayout()
         self.scope_label = QLabel(self)
+        self.scope_label.setTextFormat(Qt.TextFormat.PlainText)
         self.scope_label.setWordWrap(True)
         self.scope_label.setStyleSheet(f"font-weight: {theme.FONT_WEIGHT_SEMIBOLD};")
         target_bar.addWidget(self.scope_label, 1)
         self.select_targets_button = QPushButton("検索で対象画像を選ぶ", self)
         self.select_targets_button.clicked.connect(self.target_selection_requested)
+        self.select_targets_button.setVisible(not self._selection_mode)
         target_bar.addWidget(self.select_targets_button)
         self.target_list_button = QPushButton("対象一覧を開く", self)
         self.target_list_button.setToolTip("アノテーション画面でステージした画像を確認・削除できます。")
         self.target_list_button.clicked.connect(self.target_list_requested)
+        self.target_list_button.setVisible(not self._selection_mode)
         target_bar.addWidget(self.target_list_button)
         layout.addLayout(target_bar)
         self.start_button = QPushButton("チェックを実行", self)
@@ -141,6 +157,9 @@ class AnnotationReviewBatchWidget(QGroupBox):
         self.notice_label.setWordWrap(True)
         self.notice_label.setStyleSheet(f"color: {theme.INK_SOFT}; font-size: {theme.FONT_SIZE_SMALL}px;")
         layout.addWidget(self.notice_label)
+        self.notice_label.setVisible(not self._selection_mode)
+        if self._selection_mode:
+            self.setToolTip(self.notice_label.text())
         run_bar = QHBoxLayout()
         run_bar.addWidget(self.start_button)
         run_bar.addWidget(self.cancel_button)
@@ -168,7 +187,7 @@ class AnnotationReviewBatchWidget(QGroupBox):
         self.results_table.cellDoubleClicked.connect(self._on_result_double_clicked)
         layout.addWidget(self.results_table)
         details_bar = QHBoxLayout()
-        self.detail_label = QLabel("画像を選ぶと、タグ・キャプションごとの結果を表示します。", self)
+        self.detail_label = QLabel("画像を選ぶと、チェック状態とタグの追加候補を表示します。", self)
         self.detail_label.setWordWrap(True)
         details_bar.addWidget(self.detail_label, 1)
         self.manual_review_button = QPushButton("画像を開いて手動確認", self)
@@ -178,19 +197,31 @@ class AnnotationReviewBatchWidget(QGroupBox):
         layout.addLayout(details_bar)
         self.details_table = QTableWidget(0, 4, self)
         self.details_table.setObjectName("tableAnnotationReviewBatchItems")
-        self.details_table.setHorizontalHeaderLabels(["種類", "内容・追加候補", "判定", "Clef 一致確率"])
+        self.details_table.setHorizontalHeaderLabels(["種類", "追加候補", "判定", "Clef 一致確率"])
         self._configure_table(self.details_table)
         self.details_table.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
         self.details_table.setMinimumHeight(95)
         self.details_table.setMaximumHeight(170)
         self.details_table.setVisible(False)
         layout.addWidget(self.details_table)
+        if self._selection_mode:
+            for control in (
+                self.history_label,
+                self.results_table,
+                self.detail_label,
+                self.manual_review_button,
+            ):
+                control.hide()
 
     def _build_candidate_controls(self, layout: QVBoxLayout) -> None:
         self.candidate_checkbox = QCheckBox("タグの追加候補も探す", self)
         self.candidate_checkbox.setObjectName("checkBoxAnnotationReviewCandidates")
         self.candidate_checkbox.toggled.connect(self._on_candidate_options_changed)
         layout.addWidget(self.candidate_checkbox)
+        self.candidate_options_widget = QWidget(self)
+        candidate_layout = QVBoxLayout(self.candidate_options_widget)
+        candidate_layout.setContentsMargins(0, 0, 0, 0)
+        candidate_layout.setSpacing(theme.SPACE_2)
         candidate_row = QHBoxLayout()
         candidate_row.addWidget(QLabel("キーワード", self))
         self.candidate_keyword_edit = QLineEdit(self)
@@ -213,13 +244,14 @@ class AnnotationReviewBatchWidget(QGroupBox):
         self.candidate_limit_spin.setRange(1, 64)
         self.candidate_limit_spin.setValue(32)
         candidate_row.addWidget(self.candidate_limit_spin)
-        layout.addLayout(candidate_row)
+        candidate_layout.addLayout(candidate_row)
         self.candidate_help_label = QLabel(self)
         self.candidate_help_label.setWordWrap(True)
         self.candidate_help_label.setStyleSheet(
             f"color: {theme.INK_SOFT}; font-size: {theme.FONT_SIZE_SMALL}px;"
         )
-        layout.addWidget(self.candidate_help_label)
+        candidate_layout.addWidget(self.candidate_help_label)
+        layout.addWidget(self.candidate_options_widget)
         self._update_candidate_help()
 
     def _update_candidate_help(self) -> None:
@@ -294,7 +326,7 @@ class AnnotationReviewBatchWidget(QGroupBox):
             # QObject emits destroyed before destroying child managers. No widget
             # method is called here, so deletion also drains or parks live threads.
             self.destroyed.connect(stop_on_destroy)
-        if load_history:
+        if load_history and not self._selection_mode:
             self.refresh()
         self._update_controls()
 
@@ -328,25 +360,30 @@ class AnnotationReviewBatchWidget(QGroupBox):
         self._update_controls()
 
     def set_image_names(self, image_names: dict[int, str]) -> None:
-        """Display staged filenames without reading images or querying the DB."""
+        """Display target filenames without reading images or querying the DB."""
         self._image_names = image_names.copy()
         self._update_controls()
 
     def _update_controls(self) -> None:
         active = self._inflight_id is not None
+        scope_source = "選択" if self._selection_mode else "ステージ"
         if active:
             self.scope_label.setText(
                 f"チェック対象 {len(self._running_image_ids)} 枚（実行時に固定）"
-                f" / 現在のステージ {len(self._image_ids)} 枚"
+                f" / 現在の{scope_source} {len(self._image_ids)} 枚"
             )
             self.start_button.setText(f"{len(self._running_image_ids)} 枚をチェック中")
         else:
             self.scope_label.setText(
-                f"対象: ステージ済み {len(self._image_ids)} 枚"
+                f"対象: {'選択画像' if self._selection_mode else 'ステージ済み'} {len(self._image_ids)} 枚"
                 if self._image_ids
                 else "対象: 0 枚 — 検索画面から画像を追加してください。"
             )
-            self.start_button.setText("チェックを実行")
+            self.start_button.setText(
+                f"選択画像をチェック（{len(self._image_ids)}枚）"
+                if self._selection_mode
+                else "チェックを実行"
+            )
         displayed_ids = self._running_image_ids if active else self._image_ids
         names = self._running_image_names if active else self._image_names
         labels = [
@@ -358,14 +395,21 @@ class AnnotationReviewBatchWidget(QGroupBox):
             + " / ".join(labels[:3])
             + (f" / ほか {len(labels) - 3} 枚" if len(labels) > 3 else "")
             if labels
+            else "検索結果からチェックする画像を選択してください。"
+            if self._selection_mode
             else "現在の選択画像や、保存済み結果の画像は自動では対象に入りません。"
         )
         self.target_names_label.setToolTip("\n".join(labels))
         self.target_list_button.setEnabled(bool(self._image_ids))
         self.target_list_button.setText("次回の対象一覧を開く" if active else "対象一覧を開く")
         self.select_targets_button.setText("次回の対象画像を選ぶ" if active else "検索で対象画像を選ぶ")
-        self.start_button.setToolTip("ステージに追加した画像をローカルの Clef でチェックします。")
+        self.start_button.setToolTip(
+            "検索で選択した画像を確認してから、ローカルの Clef でチェックします。"
+            if self._selection_mode
+            else "ステージに追加した画像をローカルの Clef でチェックします。"
+        )
         candidates_enabled = self.candidate_checkbox.isChecked()
+        self.candidate_options_widget.setVisible(not self._selection_mode or candidates_enabled)
         candidate_conditions_valid = not candidates_enabled or bool(
             self.candidate_keyword_edit.text().strip()
             or any(tag.strip() for tag in self.candidate_tags_edit.text().split(","))
@@ -380,12 +424,15 @@ class AnnotationReviewBatchWidget(QGroupBox):
             and not active
         ):
             self.status_label.setText(
-                f"未実行 — 対象 {len(self._image_ids)} 枚を確認して、「チェックを実行」を押してください。"
+                f"未実行 — 対象 {len(self._image_ids)} 枚を確認して、チェックを実行してください。"
                 if self._image_ids
+                else "未実行 — 検索結果からチェックする画像を選択してください。"
+                if self._selection_mode
                 else "未実行 — 検索で画像を選び、「選択をステージングへ」で対象に追加してください。"
             )
         self.start_button.setEnabled(
             not self._closing
+            and not self._confirming_scope
             and not active
             and self._service is not None
             and self._store is not None
@@ -402,6 +449,7 @@ class AnnotationReviewBatchWidget(QGroupBox):
     def _on_start_requested(self) -> None:
         if (
             self._closing
+            or self._confirming_scope
             or self._inflight_id is not None
             or self._service is None
             or self._store is None
@@ -414,11 +462,29 @@ class AnnotationReviewBatchWidget(QGroupBox):
         except ValueError as error:
             self.status_label.setText(str(error))
             return
+        image_ids = self._image_ids
+        image_names = self._image_names.copy()
+        generation = self._generation
+        if self._selection_mode:
+            self._confirming_scope = True
+            self._update_controls()
+            try:
+                confirmed = self._confirm_scope(image_ids, image_names, candidate_source)
+            finally:
+                self._confirming_scope = False
+                self._update_controls()
+            if not confirmed or self._closing or generation != self._generation:
+                return
         self._generation += 1
-        self._running_image_ids = self._image_ids
-        self._running_image_names = self._image_names.copy()
+        self._running_image_ids = image_ids
+        self._running_image_names = image_names
         self._running_candidate_source = candidate_source
         self._processed_ids.clear()
+        self._run_saved_image_ids.clear()
+        self._run_unsaved_image_ids.clear()
+        self._run_failed_image_ids.clear()
+        self._run_unevaluated_image_ids.clear()
+        self._run_currentness_failed_image_ids.clear()
         self._inflight_id = f"annotation_review_batch_{id(self)}_{self._generation}"
         worker = AnnotationReviewBatchWorker(
             self._service,
@@ -447,6 +513,69 @@ class AnnotationReviewBatchWidget(QGroupBox):
             self.running_status_changed.emit("")
             self._update_controls()
 
+    def _confirm_scope(
+        self,
+        image_ids: tuple[int, ...],
+        image_names: dict[int, str],
+        candidate_source: ReviewCandidateSource | None,
+    ) -> bool:
+        """Show every frozen target before accepting an explicit search run."""
+        dialog = QDialog(self)
+        dialog.setWindowTitle("チェック対象の確認")
+        layout = QVBoxLayout(dialog)
+        summary = QLabel(f"選択した {len(image_ids)} 枚をチェックし、画像ごとに結果を保存します。", dialog)
+        summary.setWordWrap(True)
+        layout.addWidget(summary)
+        targets = QListWidget(dialog)
+        targets.setObjectName("listAnnotationReviewConfirmedTargets")
+        targets.addItems(
+            [
+                f"{image_names[image_id]} (ID: {image_id})"
+                if image_names.get(image_id)
+                else f"画像 {image_id}"
+                for image_id in image_ids
+            ]
+        )
+        targets.setMinimumHeight(100)
+        targets.setMaximumHeight(240)
+        layout.addWidget(targets)
+        if candidate_source is not None:
+            conditions = QLabel(
+                f"追加候補: キーワード「{candidate_source.keyword or '指定なし'}」"
+                f" / 関連タグ: {', '.join(candidate_source.selected_tags) or '指定なし'}"
+                f" / 上限 {candidate_source.limit} 件",
+                dialog,
+            )
+            conditions.setTextFormat(Qt.TextFormat.PlainText)
+            conditions.setWordWrap(True)
+            layout.addWidget(conditions)
+        explanation = QLabel("開始後に選択を変えても、この対象画像は変わりません。", dialog)
+        layout.addWidget(explanation)
+        buttons = QDialogButtonBox(
+            QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel, dialog
+        )
+        buttons.button(QDialogButtonBox.StandardButton.Ok).setText("チェックを開始")
+        buttons.button(QDialogButtonBox.StandardButton.Cancel).setText("戻る")
+        buttons.accepted.connect(dialog.accept)
+        buttons.rejected.connect(dialog.reject)
+        layout.addWidget(buttons)
+        accepted = dialog.exec() == QDialog.DialogCode.Accepted
+        dialog.deleteLater()
+        return accepted
+
+    def _save_summary(self) -> str:
+        """Report this run's persistence independently of check success."""
+        summary = f"保存済み {len(self._run_saved_image_ids)} 枚"
+        if self._run_unsaved_image_ids:
+            summary += f" / 保存失敗 {len(self._run_unsaved_image_ids)} 枚（未保存）"
+        if self._run_failed_image_ids:
+            summary += f" / チェック失敗 {len(self._run_failed_image_ids)} 枚"
+        if self._run_unevaluated_image_ids:
+            summary += f" / 未評価・一部未評価 {len(self._run_unevaluated_image_ids)} 枚"
+        if self._run_currentness_failed_image_ids:
+            summary += f" / 保存後の照合失敗 {len(self._run_currentness_failed_image_ids)} 枚"
+        return summary + "。"
+
     def _request_cancel(self) -> None:
         if self._manager is not None and self._inflight_id is not None:
             self._cancel_requested = True
@@ -466,7 +595,9 @@ class AnnotationReviewBatchWidget(QGroupBox):
             return
         self.progress_bar.setValue(progress.processed_count)
         if not self._cancel_requested:
-            self._set_running_status(progress.status_message)
+            self._set_running_status(
+                progress.status_message + (f"\n{self._save_summary()}" if self._processed_ids else "")
+            )
 
     @Slot(object)
     def _on_image_finished(self, result: AnnotationReviewBatchImageResult) -> None:
@@ -480,13 +611,17 @@ class AnnotationReviewBatchWidget(QGroupBox):
             return
         if result.review.image_id not in self._running_image_ids:
             return
-        self._processed_ids.add(result.review.image_id)
+        self._record_run_result(result)
+        image_id = result.review.image_id
         self._results_revision += 1
         done = len(self._processed_ids)
         self.progress_bar.setValue(done)
         self._set_running_status(
             f"{'チェックを停止しています…' if self._cancel_requested else 'チェック中…'}"
             f" {done} / {len(self._running_image_ids)} 枚を処理しました。"
+            f"\n{self._save_summary()}"
+            + (f"\n画像 {image_id}: {result.save_error}" if result.save_error else "")
+            + (f"\n画像 {image_id}: {result.currentness_error}" if result.currentness_error else "")
         )
         if self._store is not None and self._service is not None:
             # The worker supplies a saved result whose fingerprint/settings were
@@ -509,6 +644,8 @@ class AnnotationReviewBatchWidget(QGroupBox):
                 else:
                     review = replace(
                         review,
+                        status="failed",
+                        error=result.save_error or review.error or "結果を保存できませんでした。",
                         items=tuple(
                             replace(item, probability=None, status="failed") for item in review.items
                         ),
@@ -524,6 +661,23 @@ class AnnotationReviewBatchWidget(QGroupBox):
             self._fresh_image_ids.add(result.review.image_id)
             if not self._render_timer.isActive():
                 self._render_timer.start()
+
+    def _record_run_result(self, result: AnnotationReviewBatchImageResult) -> None:
+        """Track checking, saving and currentness as separate outcomes."""
+        image_id = result.review.image_id
+        self._processed_ids.add(image_id)
+        if result.saved:
+            self._run_saved_image_ids.add(image_id)
+            self._run_unsaved_image_ids.discard(image_id)
+        else:
+            self._run_unsaved_image_ids.add(image_id)
+            self._run_saved_image_ids.discard(image_id)
+        if result.currentness_error:
+            self._run_currentness_failed_image_ids.add(image_id)
+        if result.review.status == "failed":
+            self._run_failed_image_ids.add(image_id)
+        elif result.review.status in ("partial", "cancelled", "unevaluated"):
+            self._run_unevaluated_image_ids.add(image_id)
 
     @Slot(object)
     def _on_worker_terminal(self, event: WorkerTerminalEvent) -> None:
@@ -541,11 +695,20 @@ class AnnotationReviewBatchWidget(QGroupBox):
         self._update_controls()
         self.refresh()
         if generation != self._generation:
-            self.status_label.setText("設定を更新しました。保存済みの結果を現在の内容と照合しました。")
+            self.status_label.setText(
+                "設定を更新しました。実行時の設定で保存された結果は保持されています。"
+            )
         elif event.outcome == WorkerOutcome.CANCELED:
-            self.status_label.setText("チェックを中止しました。保存済みの結果は保持されています。")
+            self.status_label.setText(
+                f"チェックを中止しました — {len(self._processed_ids)} / {len(self._running_image_ids)} 枚。"
+                f"{self._save_summary()}保存済みの結果は保持されています。"
+                "未処理の画像は今回チェックしていません。"
+            )
         elif event.outcome != WorkerOutcome.SUCCEEDED:
-            self.status_label.setText(f"チェックに失敗しました: {event.error or '結果を取得できません。'}")
+            self.status_label.setText(
+                f"チェック・保存処理に失敗しました: {event.error or '結果を取得できません。'}"
+                f"\n{self._save_summary()}保存済みの結果は保持されています。"
+            )
         elif not isinstance(event.result, AnnotationReviewBatchWorkerResult):
             self.status_label.setText(
                 "チェック結果を読み取れませんでした。保存結果を再読み込みしてください。"
@@ -558,16 +721,24 @@ class AnnotationReviewBatchWidget(QGroupBox):
             if result.cancelled:
                 self.status_label.setText(
                     f"チェックを中止しました — {done} 枚を処理しました。保存済みの結果は保持されています。"
+                    f"\n{self._save_summary()}未処理の画像は今回チェックしていません。"
                 )
             else:
                 self.status_label.setText(
                     f"チェックが終了しました — {done} / {len(result.image_ids)} 枚。"
+                    f"\n{self._save_summary()}"
                     "警告・失敗・未評価の画像と追加候補を確認してください。"
                 )
 
     def refresh(self) -> None:
         """Read latest saved results, including images removed from staging."""
-        if self._store is None or self._service is None or self._manager is None or self._closing:
+        if (
+            self._selection_mode
+            or self._store is None
+            or self._service is None
+            or self._manager is None
+            or self._closing
+        ):
             return
         if self._load_inflight_id is not None:
             self._load_pending = True
@@ -620,7 +791,7 @@ class AnnotationReviewBatchWidget(QGroupBox):
 
     @Slot()
     def _render_results(self) -> None:
-        if self._closing:
+        if self._closing or self._selection_mode:
             return
         self._render_timer.stop()
         saved = self._saved_results
@@ -648,7 +819,7 @@ class AnnotationReviewBatchWidget(QGroupBox):
             if self._loading_currentness and review.image_id not in self._fresh_image_ids:
                 label, color = "現在の内容と照合中…", theme.INK_SOFT
             if review.image_id in self._unsaved_image_ids:
-                label, color = "画像なし — 結果を保存できません", theme.ERR
+                label, color = "保存失敗 — 結果を保存できません", theme.ERR
             warnings = sum(item.status == "warning" for item in review.items)
             suggestions = sum(item.status == "suggestion" for item in review.items)
             incomplete = sum(item.status in ("failed", "unevaluated") for item in review.items)
@@ -736,20 +907,18 @@ class AnnotationReviewBatchWidget(QGroupBox):
             record is not None and self._selected_image_id not in self._unsaved_image_ids
         )
         if record is None:
-            self.detail_label.setText("画像を選ぶと、タグ・キャプションごとの結果を表示します。")
+            self.detail_label.setText("画像を選ぶと、チェック状態とタグの追加候補を表示します。")
             self.details_table.setRowCount(0)
             self.details_table.setVisible(False)
             return
         record = self._record_for_display(record)
         review = record.review
+        suggestions = tuple(item for item in review.items if item.kind == "suggestion")
         self.detail_label.setText(
             f"画像 {review.image_id} / {review.model_name}"
             f" / 要確認: 一致確率 {record.warning_threshold:.0%} 未満"
-            + (
-                f" / 追加候補: 一致確率 {record.suggestion_threshold:.0%} 以上"
-                if any(item.kind == "suggestion" for item in review.items)
-                else ""
-            )
+            + (f" / 追加候補: 一致確率 {record.suggestion_threshold:.0%} 以上" if suggestions else "")
+            + "\n既存タグ・キャプションの判定や編集は「画像を開いて手動確認」で確認できます。"
             + (
                 "\n現在の内容と照合しています。"
                 if self._loading_currentness and review.image_id not in self._fresh_image_ids
@@ -765,17 +934,12 @@ class AnnotationReviewBatchWidget(QGroupBox):
             "failed": "チェック失敗",
             "unevaluated": "未評価",
         }
-        kinds = {"tag": "既存タグ", "caption": "キャプション", "suggestion": "追加候補"}
-        self.details_table.setRowCount(len(review.items))
-        for row, result in enumerate(review.items):
+        self.details_table.setRowCount(len(suggestions))
+        for row, result in enumerate(suggestions):
             values = (
-                "候補タグ"
-                if result.kind == "suggestion" and result.status != "suggestion"
-                else kinds[result.kind],
+                "追加候補" if result.status == "suggestion" else "候補タグ",
                 result.text,
-                "採用候補外"
-                if result.kind == "suggestion" and result.status == "ok"
-                else labels[result.status],
+                "採用候補外" if result.status == "ok" else labels[result.status],
                 f"{result.probability:.1%}" if result.probability is not None else "—",
             )
             for column, value in enumerate(values):
@@ -787,7 +951,7 @@ class AnnotationReviewBatchWidget(QGroupBox):
                     cell.setForeground(QColor(theme.INFO))
                 self.details_table.setItem(row, column, cell)
         self.details_table.resizeRowsToContents()
-        self.details_table.setVisible(bool(review.items))
+        self.details_table.setVisible(bool(suggestions) and not self._selection_mode)
 
     @Slot()
     def _on_manual_review_requested(self) -> None:

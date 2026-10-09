@@ -14,9 +14,10 @@ dispatch は親 (`SelectedImageDetailsWidget`) が担う。これにより保存
 from __future__ import annotations
 
 from collections.abc import Callable, Sequence
+from math import isfinite
 from typing import TYPE_CHECKING, Any, ClassVar
 
-from PySide6.QtCore import QModelIndex, QPersistentModelIndex, QPoint, QRect, Qt, Signal, Slot
+from PySide6.QtCore import QModelIndex, QPersistentModelIndex, QPoint, QRect, Qt, QTimer, Signal, Slot
 from PySide6.QtGui import (
     QContextMenuEvent,
     QKeySequence,
@@ -24,6 +25,7 @@ from PySide6.QtGui import (
     QPainter,
     QResizeEvent,
     QShortcut,
+    QShowEvent,
     QStandardItemModel,
 )
 from PySide6.QtWidgets import (
@@ -70,6 +72,8 @@ from .tag_cloud_widget import FlowLayout
 
 if TYPE_CHECKING:
     from genai_tag_db_tools.models import RefinementRecommendation
+
+    from ...services.annotation_review_service import AnnotationReviewItem, AnnotationReviewResult
 
 # 使用頻度 第2軸セレクタの「なし」選択肢ラベル (ADR 0083 §5 / #990)。
 # 選択時は metric_source を空にして chip の count 補助表示を消す。
@@ -177,6 +181,7 @@ class SelectableTagChip(QLabel):
         self._candidate_counts: dict[str, dict[str, int]] = {}
         self.refinement: RefinementRecommendation | None = None
         self.review_warning = False
+        self._review_tooltip = ""
         # 種別インジケータ (Issue #1233 / #1241)。set_type_indicator で更新される。
         # 左端ストライプ色 (None = 無印) と表示用グリフ文字を保持する。
         self.stripe_color: str | None = None
@@ -209,10 +214,10 @@ class SelectableTagChip(QLabel):
         """
         stripe_color = getattr(self, "stripe_color", None)
         self._state_qss = style_sheet
+        if getattr(self, "review_warning", False):
+            style_sheet += f"\nQLabel {{ border: 1px solid {theme.WARN}; }}"
         if stripe_color:
             style_sheet = f"{style_sheet}\nQLabel {{ border-left: 4px solid {stripe_color}; }}"
-        if getattr(self, "review_warning", False):
-            style_sheet += f"\nQLabel {{ border-bottom: 2px solid {theme.WARN}; }}"
         super().setStyleSheet(style_sheet)
 
     def mousePressEvent(self, event: QMouseEvent) -> None:
@@ -260,14 +265,16 @@ class SelectableTagChip(QLabel):
             self.setText(self._base_text)
             self.setToolTip(self._base_tooltip)
         if self.review_warning:
-            if not self.text().startswith("⚠"):
-                self.setText(f"⚠ {self.text()}")
-            self.setToolTip(
-                self.toolTip() + "\nClef: 画像との一致が低い判定です。画像を見て手動確認してください。"
-            )
+            self.setText(f"{self.text()} !")
+        if self._review_tooltip:
+            self.setToolTip("\n".join(part for part in (self.toolTip(), self._review_tooltip) if part))
 
-    def set_review_warning(self, warning: bool) -> None:
+    def set_review_warning(self, warning: bool, tooltip: str = "") -> None:
+        """チェック警告を種別・選択・refinement の状態と独立して更新する。"""
         self.review_warning = warning
+        self._review_tooltip = tooltip or (
+            "Clef: 画像との一致が低い判定です。画像を見て手動確認してください。" if warning else ""
+        )
         self.set_refinement(self.refinement, self._candidate_counts)
         self.setStyleSheet(getattr(self, "_state_qss", self.base_qss))
 
@@ -1096,7 +1103,7 @@ class TagPanelWidget(QWidget):
         self._tag_edit_enabled: bool = False
 
         # 「種別で分ける」トグル状態 (Issue #1241)。widget ローカルで非永続。
-        # 2 種別以上存在するときのみチェックボックスを有効化する (_render_tag_chips)。
+        # 2 種別以上、または要確認タグがあるときに有効化する (_render_tag_chips)。
         self._group_by_type: bool = False
 
         # 操作の表示状態 (Issue #1003: DB の reject_reason から reload 毎に再構築される)。
@@ -1114,6 +1121,7 @@ class TagPanelWidget(QWidget):
         # 描画中の chip 群と refinement 保持 (#931: chip 再生成をまたいで ⚠ を復元)
         self._tag_chips: list[SelectableTagChip] = []
         self._review_warning_tags: set[str] = set()
+        self._review_tooltips: dict[str, str] = {}
         self._last_refinements: dict[str, RefinementRecommendation] = {}
         # 候補タグ -> {format: count} (#1052、apply_refinements で更新)
         self._last_candidate_counts: dict[str, dict[str, int]] = {}
@@ -1320,6 +1328,7 @@ class TagPanelWidget(QWidget):
         image_changed = image_id is None or image_id != self._image_id
         self._image_id = image_id
         self._review_warning_tags.clear()
+        self._review_tooltips.clear()
         # type map はソート (_sort_tags_by_type) より先に確定させる (#1056)。
         # 別画像で type 情報が来ていない場合は前画像の map を引き継がない
         # (無関係な canonical が前画像の type でグループ化される。Codex P2)
@@ -1706,7 +1715,9 @@ class TagPanelWidget(QWidget):
         破棄しない (タグが無いので metric バーは自然に隠れる)。
         """
         self._tags = []
+        self._all_tag_rows = []
         self._review_warning_tags.clear()
+        self._review_tooltips.clear()
         self._translations = {}
         self._disabled_display = set()
         self._hidden = set()
@@ -1924,8 +1935,8 @@ class TagPanelWidget(QWidget):
 
         ✕ で非表示にしたタグ (``_hidden``) は描画しない。soft-rejected (DB 由来) は
         破線 chip としてインライン追記する。無効化 (``_disabled_display``) と翻訳欠落は
-        破線スタイルで示す。「種別で分ける」トグル (#1241) が ON かつ 2 種別以上あれば
-        ヘッダ付きセクションへ分割し、それ以外は現状同様のフラット表示にする。
+        破線スタイルで示す。「種別で分ける」が ON で 2 種別以上か要確認タグがあれば
+        ヘッダ付きセクションへ分割し、それ以外はフラット表示にする。
 
         Args:
             chip_items: (表示名, 原文, 翻訳ありか) のタプルリスト (アクティブタグ)。
@@ -1977,11 +1988,15 @@ class TagPanelWidget(QWidget):
         ]
         render_items.extend((original, original, True, True) for original in rejected_only)
 
-        # 「種別で分ける」トグル (#1241): 2 種別以上あるときだけ有効化する。
+        # 要確認は表示上の分類 (#1378)。本来の種別は変更せず、単一種別でも使える。
         distinct_types = {self._tag_types.get(original, "") for _d, original, _h, _dis in render_items}
-        self._group_by_type_checkbox.setEnabled(len(distinct_types) > 1)
+        has_review_warnings = any(
+            original in self._review_warning_tags for _d, original, _h, _dis in render_items
+        )
+        can_group = len(distinct_types) > 1 or has_review_warnings
+        self._group_by_type_checkbox.setEnabled(can_group)
 
-        if self._group_by_type and len(distinct_types) > 1:
+        if self._group_by_type and can_group:
             self._render_grouped_chips(render_items, is_translated=is_translated)
         else:
             self._render_flat_chips(render_items, is_translated=is_translated)
@@ -2037,12 +2052,31 @@ class TagPanelWidget(QWidget):
         (Codex P1)。ここで type グループ順に stable-sort し、active/rejected を問わず
         全同一 type を連続させてから変化点で区切る。
         """
+        warning_items = [item for item in render_items if item[1] in self._review_warning_tags]
+        if warning_items:
+            header = QLabel(f"要確認（{len(warning_items)}件）", self._tags_chip_container)
+            header.setObjectName("annotationReviewGroupHeader")
+            header.setStyleSheet(theme.badge_qss("warn"))
+            self._tags_chip_sections_layout.addWidget(header)
+            flow = self._new_chip_flow_section()
+            self._tags_chip_layout = flow
+            for display, original, has_tr, disabled in warning_items:
+                self._add_chip(
+                    display,
+                    original,
+                    has_translation=has_tr,
+                    is_translated=is_translated,
+                    disabled=disabled,
+                    target_layout=flow,
+                )
         render_items = sorted(
-            render_items,
+            (item for item in render_items if item[1] not in self._review_warning_tags),
             key=lambda item: self._TYPE_GROUP_ORDER.get(
                 self._tag_types.get(item[1], ""), self._UNKNOWN_TYPE_GROUP
             ),
         )
+        if not render_items:
+            return
 
         counts: dict[str, int] = {}
         for _display, original, _has_tr, _disabled in render_items:
@@ -2110,7 +2144,6 @@ class TagPanelWidget(QWidget):
         glyph = _TYPE_GLYPHS.get(type_name, "") if type_name else ""
         chip = SelectableTagChip(f"{glyph} {display}" if glyph else display, original)
         chip.set_type_indicator(type_name)
-        chip.review_warning = original in self._review_warning_tags
         if is_translated and not has_translation and self._tag_metadata_pending:
             # 翻訳解決中 (#1191): 「翻訳なし」の点線と区別し、反映失敗との誤認を防ぐ。
             chip.base_qss = theme.chip_qss("accent")
@@ -2140,6 +2173,10 @@ class TagPanelWidget(QWidget):
         if original in self._selected_canonicals:
             chip.selected = True
             chip.setStyleSheet(self._selected_chip_qss())
+        if original in self._review_warning_tags or original in self._review_tooltips:
+            chip.set_review_warning(
+                original in self._review_warning_tags, self._review_tooltips.get(original, "")
+            )
         chip.clicked.connect(lambda c=chip: self._on_chip_clicked(c))
         chip.ctrl_clicked.connect(lambda c=chip: self._on_chip_ctrl_clicked(c))
         # refinement「この理由を無視」を上位へ中継 (#931)
@@ -2603,10 +2640,59 @@ class TagPanelWidget(QWidget):
     # ─── refinement (#931) ──────────────────────────────────────────────
 
     def set_review_warning_tags(self, tags: set[str]) -> None:
-        """Keep Clef markers across translation/refinement redraws."""
+        """互換 API: 詳細のない警告集合を表示し、再描画でも保持する。"""
         self._review_warning_tags = tags.copy()
-        for chip in self._tag_chips:
-            chip.set_review_warning(chip.canonical in tags)
+        self._review_tooltips.clear()
+        self._refresh_tags_for_language(self._current_language())
+
+    def set_annotation_review_result(self, result: AnnotationReviewResult | None) -> None:
+        """親が保存と鮮度を確認した判定を既存タグへ反映する (#1378)。
+
+        DB / モデルへアクセスせず、表示中画像と一致する有効な結果だけを使う。
+        古い判定・画像全体の失敗・未評価・別画像は警告と分類を消す。部分完了と
+        中断では評価済みのタグだけを表示し、未付与の追加候補は含めない。
+        """
+        self._review_warning_tags.clear()
+        self._review_tooltips.clear()
+        if (
+            result is not None
+            and result.image_id == self._image_id
+            and result.status in ("completed", "partial", "cancelled")
+        ):
+            current_sources = {
+                (f"tag_{row['id']}", str(row.get("tag", "")))
+                for row in self._all_tag_rows
+                if row.get("id") is not None and row.get("rejected_at") is None
+            }
+            items_by_tag: dict[str, list[AnnotationReviewItem]] = {}
+            for item in result.items:
+                if item.kind != "tag" or (item.candidate_id, item.text) not in current_sources:
+                    continue
+                items_by_tag.setdefault(item.text, []).append(item)
+                probability = item.probability
+                if (
+                    item.status == "warning"
+                    and probability is not None
+                    and isfinite(probability)
+                    and 0 <= probability <= 1
+                ):
+                    self._review_warning_tags.add(item.text)
+            for canonical, items in items_by_tag.items():
+                lines = [f"Clef · モデル: {result.model_name}", f"判定対象: {canonical}"]
+                for item in items:
+                    probability = item.probability
+                    if probability is not None and isfinite(probability) and 0 <= probability <= 1:
+                        state = "要確認" if item.status == "warning" else "チェック済み"
+                        lines.append(f"{item.candidate_id}: 判定値 {probability:.3f} · {state}")
+                    else:
+                        state = "失敗" if item.status == "failed" else "未評価"
+                        lines.append(f"{item.candidate_id}: {state}")
+                    if item.error:
+                        lines.append(item.error)
+                if canonical in self._review_warning_tags:
+                    lines.append("画像との一致が低い判定です。画像を見て手動確認してください。")
+                self._review_tooltips[canonical] = "\n".join(lines)
+        self._refresh_tags_for_language(self._current_language())
 
     def _apply_refinements_to_chips(self) -> None:
         """保持中のリコメンド (_last_refinements) を現在の chip 群へ反映する (#931)。
@@ -2706,6 +2792,13 @@ class TagPanelWidget(QWidget):
         menu.exec(label.mapToGlobal(position))
 
     # ─── サイジング (#835) ──────────────────────────────────────────────
+
+    def showEvent(self, event: QShowEvent) -> None:
+        super().showEvent(event)
+        # Saved reviews can build groups before the details pane is visible.
+        # Measure after child layouts activate; their pre-show size hints omit
+        # editable chip rows and leave an unnecessarily short scroll viewport.
+        QTimer.singleShot(0, self, self._adjust_tags_chip_height)
 
     def resizeEvent(self, event: QResizeEvent) -> None:
         super().resizeEvent(event)

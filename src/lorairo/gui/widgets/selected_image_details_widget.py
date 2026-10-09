@@ -314,6 +314,7 @@ class SelectedImageDetailsWidget(QWidget):
         layout.addWidget(self.ui.annotationDataDisplay)
         layout.addWidget(self._rating_score_widget)
         self.annotation_review_widget = AnnotationReviewWidget(container)
+        self.annotation_review_widget.set_check_controls_visible(False)
         self.annotation_review_widget.result_displayed.connect(self._apply_review_highlights)
         self.annotation_review_widget.annotations_changed.connect(
             lambda image_id: self._reload_current_image()
@@ -538,21 +539,11 @@ class SelectedImageDetailsWidget(QWidget):
     def _apply_review_highlights(self, result: Any) -> None:
         from ...services.annotation_review_service import AnnotationReviewResult
 
-        tag_ids: set[int] = set()
-        caption_ids: set[int] = set()
-        if (
-            isinstance(result, AnnotationReviewResult)
-            and result.image_id == self.current_image_id
-            and result.status != "stale"
-        ):
-            for item in result.items:
-                if item.status == "warning" and item.kind in ("tag", "caption"):
-                    raw_id = item.candidate_id.removeprefix(f"{item.kind}_")
-                    if not raw_id.isdecimal():
-                        continue
-                    row_id = int(raw_id)
-                    (tag_ids if item.kind == "tag" else caption_ids).add(row_id)
-        self.annotation_display.set_review_warnings(tag_ids, caption_ids)
+        self.annotation_display.set_annotation_review_result(
+            result
+            if isinstance(result, AnnotationReviewResult) and result.image_id == self.current_image_id
+            else None
+        )
 
     @Slot(int, str)
     def _edit_caption(self, caption_id: int, original: str) -> None:

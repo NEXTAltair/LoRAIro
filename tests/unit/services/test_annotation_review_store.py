@@ -485,8 +485,12 @@ def test_image_deleted_during_local_request_does_not_abort_later_fixed_targets(
 
     result = worker.execute()
 
-    assert [review.status for review in result.reviews] == ["failed", "completed"]
+    # The source disappeared during inference, so its judgment is stale.
+    # Persistence failure is reported independently and must not prevent image 8.
+    assert [review.status for review in result.reviews] == ["stale", "completed"]
     assert [payload.saved for payload in received] == [False, True]
+    assert "画像が削除された" in received[0].save_error
+    assert all(item.probability is None for item in result.reviews[0].items)
     assert list(store.get_results()) == [8]
     assert len(requests) == 2
 

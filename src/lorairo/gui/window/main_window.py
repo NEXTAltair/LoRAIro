@@ -828,10 +828,8 @@ class MainWindow(QMainWindow, Ui_MainWindow):
             self._single_review_status = QLabel(self)
             self._single_review_status.setTextFormat(Qt.TextFormat.PlainText)
             self.statusBar().addPermanentWidget(self._single_review_status)
-            details.annotation_review_widget.running_status_changed.connect(
-                self._single_review_status.setText
-            )
-            details.annotation_review_widget.running_status_changed.connect(
+            self.search_tab.review_running_status_changed.connect(self._single_review_status.setText)
+            self.search_tab.review_running_status_changed.connect(
                 lambda message: self._single_review_status.setVisible(bool(message))
             )
             self._single_review_status.setVisible(False)

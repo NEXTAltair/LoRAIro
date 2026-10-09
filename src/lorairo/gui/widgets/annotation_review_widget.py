@@ -1,4 +1,4 @@
-"""A read-only Clef review ledger for the selected image's annotations."""
+"""Saved review status and separate addition proposals for the displayed image."""
 
 from __future__ import annotations
 
@@ -6,7 +6,7 @@ from typing import TYPE_CHECKING
 from weakref import ref
 
 from PySide6.QtCore import Qt, Signal, Slot
-from PySide6.QtGui import QCloseEvent, QColor
+from PySide6.QtGui import QCloseEvent
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QHBoxLayout,
@@ -54,6 +54,8 @@ class AnnotationReviewWidget(QWidget):
         self._closing = False
         self._unavailable_reason: str | None = None
         self._saved: StoredReviewResult | None = None
+        self.current_result: AnnotationReviewResult | None = None
+        self._check_controls_visible = True
         self._adoption: AnnotationReviewAdoptionService | None = None
         self._load_id: str | None = None
         self._load_sequence = 0
@@ -99,19 +101,6 @@ class AnnotationReviewWidget(QWidget):
         self.notice_label.setWordWrap(True)
         self.notice_label.setStyleSheet(f"color: {theme.INK_SOFT}; font-size: {theme.FONT_SIZE_SMALL}px;")
         layout.addWidget(self.notice_label)
-        self.results_table = QTableWidget(0, 4, self)
-        self.results_table.setObjectName("tableAnnotationReviewResults")
-        self.results_table.setHorizontalHeaderLabels(["種類", "既存の内容", "判定", "Clef 一致確率"])
-        self.results_table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
-        self.results_table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
-        self.results_table.setWordWrap(True)
-        self.results_table.verticalHeader().setVisible(False)
-        self.results_table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.ResizeToContents)
-        self.results_table.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
-        self.results_table.setMinimumHeight(120)
-        self.results_table.setMaximumHeight(240)
-        self.results_table.setVisible(False)
-        layout.addWidget(self.results_table)
         self.suggestions_label = QLabel(
             "未付与候補の判定 —「追加候補」のタグを選んで手動で採用できます。", self
         )
@@ -131,6 +120,14 @@ class AnnotationReviewWidget(QWidget):
         self.model_label.setStyleSheet(f"color: {theme.INK_SOFT}; font-size: {theme.FONT_SIZE_SMALL}px;")
         self.model_label.setVisible(False)
         layout.addWidget(self.model_label)
+
+    def set_check_controls_visible(self, visible: bool) -> None:
+        """Use the search selection's batch controls while showing image-specific state."""
+        self._check_controls_visible = visible
+        self.evaluate_button.setVisible(visible)
+        self.scope_label.setVisible(visible)
+        self.notice_label.setVisible(visible)
+        self.cancel_button.setVisible(visible and self._inflight_id is not None)
 
     def set_service(
         self, service: AnnotationReviewService, worker_manager: WorkerManager | None = None
@@ -174,6 +171,7 @@ class AnnotationReviewWidget(QWidget):
         self._generation += 1
         self._image_id = image_id
         self._saved = None
+        self.current_result = None
         self.result_displayed.emit(None)
         self.suggestions_table.setRowCount(0)
         self.suggestions_table.setVisible(False)
@@ -185,8 +183,6 @@ class AnnotationReviewWidget(QWidget):
         )
         if self._manager is not None and self._inflight_id is not None:
             self._manager.request_cancel_worker(self._inflight_id, reason=CancelReason.USER_REQUESTED)
-        self.results_table.setRowCount(0)
-        self.results_table.setVisible(False)
         self.model_label.clear()
         self.model_label.setVisible(False)
         self.cancel_button.setVisible(False)
@@ -218,9 +214,8 @@ class AnnotationReviewWidget(QWidget):
     @Slot()
     def refresh_saved_result(self) -> None:
         self._saved = None
+        self.current_result = None
         self.result_displayed.emit(None)
-        self.results_table.setRowCount(0)
-        self.results_table.setVisible(False)
         self.model_label.setVisible(False)
         if self._inflight_id is None:
             self._set_status("保存済みの判定を照合中…", theme.INK_SOFT)
@@ -238,7 +233,7 @@ class AnnotationReviewWidget(QWidget):
         elif self._inflight_id is not None:
             message = "未評価 — 前の評価を停止しています。"
         else:
-            message = "未チェック —「この画像をチェック」で開始します。処理中も他の画像を操作できます。"
+            message = "未チェック — 検索画面の「選択画像をチェック」で開始できます。"
         self._set_status(message, theme.INK_SOFT)
         self._update_button_state()
 
@@ -262,18 +257,17 @@ class AnnotationReviewWidget(QWidget):
             return
         self._generation += 1
         self._saved = None
+        self.current_result = None
         self.result_displayed.emit(None)
         self.suggestions_table.setRowCount(0)
         self.suggestions_table.setVisible(False)
         self.suggestions_label.setVisible(False)
-        self.results_table.setRowCount(0)
-        self.results_table.setVisible(False)
         self.model_label.setVisible(False)
         self._inflight_id = f"annotation_review_{id(self)}_{self._generation}"
         self._set_status("ローカルの Clef で評価中… 初回はモデル読み込みに時間がかかります。", theme.INFO)
         self.running_status_changed.emit(f"アノテーションチェック: 画像 {self._image_id} を処理中")
         self.cancel_button.setEnabled(True)
-        self.cancel_button.setVisible(True)
+        self.cancel_button.setVisible(self._check_controls_visible)
         self._update_button_state()
         worker = AnnotationReviewWorker(self._service, self._image_id, self._generation, store=self._store)
         if not self._manager.start_worker(self._inflight_id, worker):
@@ -362,44 +356,17 @@ class AnnotationReviewWidget(QWidget):
             self._display_result(result.review)
 
     def _display_result(self, result: AnnotationReviewResult) -> None:
+        self.current_result = result
         self.result_displayed.emit(result)
         self.suggestions_table.setRowCount(0)
         self.suggestions_table.setVisible(False)
         self.suggestions_label.setVisible(False)
         if result.status == "stale":
-            self.results_table.setRowCount(0)
-            self.results_table.setVisible(False)
             self.model_label.setVisible(False)
             self._set_status(
                 "古い判定 — 内容や設定が変更されました。もう一度チェックしてください。", theme.WARN
             )
             return
-        statuses = {
-            "ok": ("警告なし", theme.INK),
-            "warning": ("⚠ 要確認", theme.WARN),
-            "failed": ("評価失敗", theme.ERR),
-            "unevaluated": ("未評価", theme.INK_FAINT),
-        }
-        existing_items = tuple(item for item in result.items if item.kind != "suggestion")
-        self.results_table.setRowCount(len(existing_items))
-        for row, review_item in enumerate(existing_items):
-            label, color = statuses[review_item.status]
-            values = (
-                "タグ" if review_item.kind == "tag" else "キャプション",
-                review_item.text,
-                label,
-                f"{review_item.probability:.1%}" if review_item.probability is not None else "—",
-            )
-            for column, value in enumerate(values):
-                item = QTableWidgetItem(value)
-                if column in (2, 3):
-                    item.setForeground(QColor(color))
-                if column == 3:
-                    item.setTextAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
-                item.setToolTip(review_item.error or review_item.text)
-                self.results_table.setItem(row, column, item)
-        self.results_table.resizeRowsToContents()
-        self.results_table.setVisible(bool(result.items))
         self._display_suggestions(result)
         warnings = sum(item.status == "warning" for item in result.items)
         failed = sum(item.status in ("failed", "unevaluated") for item in result.items)
@@ -415,12 +382,19 @@ class AnnotationReviewWidget(QWidget):
             self._set_status("未評価 — 評価対象の有効なタグ・キャプションがありません。", theme.INK_SOFT)
         else:
             self._set_status(
-                f"評価完了 — 要確認 {warnings} 件 / {len(result.items)} 件",
+                f"チェック済み — 要確認 {warnings} 件 / {len(result.items)} 件",
                 theme.WARN if warnings else theme.INK,
             )
         threshold = self._service.warning_threshold if self._service is not None else 0.2
+        if self._saved is not None:
+            threshold = self._saved.warning_threshold
+        saved_label = (
+            f"保存済み: {self._saved.checked_at.astimezone():%Y-%m-%d %H:%M:%S}\n"
+            if self._saved is not None
+            else ""
+        )
         self.model_label.setText(
-            f"{result.model_name}\n一致確率が {threshold * 100:g}% 未満を要確認と表示します。結果は確認の目安です。"
+            f"{saved_label}{result.model_name}\n一致確率が {threshold * 100:g}% 未満を要確認と表示します。結果は確認の目安です。"
         )
         self.model_label.setVisible(True)
 
