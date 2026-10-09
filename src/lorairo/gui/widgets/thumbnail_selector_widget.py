@@ -59,6 +59,7 @@ class ThumbnailSelectorWidget(QWidget, Ui_ThumbnailSelectorWidget):
 
     # === Unified Modern Signals（統一snake_case命名規約） ===
     image_selected = Signal(Path)  # 単一画像選択時
+    selection_synced = Signal(list)  # ドラッグ選択を状態管理へ反映した後の image_ids
     stage_selected_requested = Signal(list)  # バッチタグのステージング追加要求（visible image_ids）
     quick_tag_requested = Signal(list)  # クイックタグ追加要求（image_ids）
     # クロップ作成要求（1 枚選択時のみ、image_id）。配線側が set_crop_action_enabled(True)
@@ -928,6 +929,7 @@ class ThumbnailSelectorWidget(QWidget, Ui_ThumbnailSelectorWidget):
             self.dataset_state.set_selected_images(selected_image_ids)
             self.dataset_state.blockSignals(False)
 
+        self.selection_synced.emit(list(self.dataset_state.selected_image_ids))
         logger.debug(
             f"Selection synced to state: {len(self.dataset_state.selected_image_ids)} images selected"
         )
