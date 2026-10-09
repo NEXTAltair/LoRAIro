@@ -228,6 +228,47 @@ def test_saved_result_outside_warning_filtered_list_restarts_complete_search(rev
     assert 201 in tab._review_pending_ids
 
 
+@pytest.mark.gui
+def test_search_selection_counts_names_and_freezes_worker_scope(tab, dataset_state_manager, monkeypatch):
+    selection = tab.selection_review_widget
+    monkeypatch.setattr(
+        tab.selected_image_details_widget._rating_score_widget, "populate_from_selection", Mock()
+    )
+    dataset_state_manager.blockSignals(True)
+    dataset_state_manager.set_dataset_images(
+        [{"id": 1, "stored_image_path": "one.png"}, {"id": 2, "stored_image_path": "two.png"}]
+    )
+    dataset_state_manager.blockSignals(False)
+    dataset_state_manager.set_selected_images([1, 2])
+    assert selection._image_ids == (1, 2)
+    assert "2枚" in selection.start_button.text()
+    assert "one.png" in selection.target_names_label.text()
+    assert "two.png" in selection.target_names_label.text()
+    assert tab.selected_image_details_widget.annotation_review_widget.evaluate_button.isHidden()
+    selection._manager = Mock()
+    selection._manager.start_worker.return_value = True
+    monkeypatch.setattr(selection, "_confirm_scope", lambda *args: True)
+    selection._on_start_requested()
+    _worker_id, worker = selection._manager.start_worker.call_args.args
+    assert worker._image_ids == (1, 2)
+    dataset_state_manager.set_selected_images([2])
+    assert selection._running_image_ids == (1, 2)
+    assert worker._image_ids == (1, 2)
+    assert selection._image_ids == (2,)
+    selection.shutdown()
+
+
+@pytest.mark.gui
+def test_search_check_saved_event_refreshes_and_progress_reaches_window(tab, qtbot):
+    selection = tab.selection_review_widget
+    with qtbot.waitSignal(tab.review_running_status_changed) as signal:
+        selection.running_status_changed.emit("チェック中 1 / 2 枚")
+    assert signal.args == ["チェック中 1 / 2 枚"]
+    selection.review_result_saved.emit(1)
+    assert 1 in tab._review_pending_ids
+    tab._review_load_timer.stop()
+
+
 # == 1. 構築 ==================================================================
 
 
@@ -375,7 +416,7 @@ def test_settings_save_replaces_local_clef_files_and_invalidates_results(
             "completed",
         )
     )
-    assert review.results_table.rowCount() == 1
+    assert review.current_result is not None
     generation = review._generation
     requests = []
     try:
@@ -389,7 +430,7 @@ def test_settings_save_replaces_local_clef_files_and_invalidates_results(
         assert service is not None and service is not old_service
         assert service._config_service is saved_config
         assert review._generation > generation
-        assert review.results_table.rowCount() == 0
+        assert review.current_result is None
         assert "未チェック" in review.status_label.text()
         assert requests == []
         assert service._local_paths == local_clef_settings
@@ -411,8 +452,8 @@ def test_settings_save_replaces_local_clef_files_and_invalidates_results(
             )
 
         service._client_factory = partial(LocalDecisionClient, transport=httpx.MockTransport(respond))
-        qtbot.mouseClick(review.evaluate_button, Qt.MouseButton.LeftButton)
-        qtbot.waitUntil(lambda: "評価完了" in review.status_label.text(), timeout=3000)
+        review._on_evaluate_requested()
+        qtbot.waitUntil(lambda: "チェック済み" in review.status_label.text(), timeout=3000)
 
         assert len(requests) == 1
         assert str(requests[0].url) == "http://127.0.0.1:11437/v1/systemone"

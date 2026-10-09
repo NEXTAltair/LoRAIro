@@ -311,6 +311,24 @@ class AnnotationDataDisplayWidget(QWidget, Ui_AnnotationDataDisplayWidget):
         """タグテーブルの選択セルを TSV コピーする (TagPanelWidget へ委譲)。"""
         return self._tag_panel.copy_selected_tag_cells_to_clipboard()
 
+    def set_annotation_review_result(self, result: Any) -> None:
+        """Apply a freshness-checked saved result to the existing annotation rows."""
+        from ...services.annotation_review_service import AnnotationReviewResult
+
+        self._tag_panel.set_annotation_review_result(result)
+        caption_ids: set[int] = set()
+        if isinstance(result, AnnotationReviewResult) and result.status in (
+            "completed",
+            "partial",
+            "cancelled",
+        ):
+            for item in result.items:
+                if item.kind == "caption" and item.status == "warning":
+                    row_id = item.candidate_id.removeprefix("caption_")
+                    if row_id.isdecimal():
+                        caption_ids.add(int(row_id))
+        self.caption_review_panel.set_warning_ids(caption_ids)
+
     def set_review_warnings(self, tag_ids: set[int], caption_ids: set[int]) -> None:
         """Highlight current source rows, without inventing word-level locations."""
         tags = {

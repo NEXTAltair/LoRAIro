@@ -35,6 +35,7 @@ worker dispatch・PipelineControlService 所有・staging fan-out・タブ間遷
       / ``selected_image_details_widget`` / ``main_splitter``
 """
 
+from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from PySide6.QtCore import QSettings, Qt, QTimer, Signal, Slot
@@ -57,6 +58,7 @@ from ..services.search_filter_service import SearchFilterService
 from ..services.worker_service import WorkerService
 from ..state.dataset_state import DatasetStateManager
 from ..state.staging_state import StagingStateManager
+from ..widgets.annotation_review_batch_widget import AnnotationReviewBatchWidget
 from ..widgets.filter_search_panel import FilterSearchPanel
 from ..widgets.image_preview import ImagePreviewWidget
 from ..widgets.quick_tag_dialog import QuickTagDialog
@@ -86,6 +88,7 @@ class SearchTabWidget(QWidget, Ui_SearchTab):
     dataset_selection_requested = Signal()
     settings_requested = Signal()
     search_error_occurred = Signal(str)
+    review_running_status_changed = Signal(str)
 
     def __init__(
         self,
@@ -135,6 +138,12 @@ class SearchTabWidget(QWidget, Ui_SearchTab):
         self._review_search_timer.timeout.connect(self.load_images_from_db)
 
         self.setupUi(self)
+        self.selection_review_widget = AnnotationReviewBatchWidget(
+            self.frameThumbnailGrid, selection_mode=True
+        )
+        self.verticalLayout_thumbnailGrid.insertWidget(1, self.selection_review_widget)
+        self.selection_review_widget.review_result_saved.connect(self.refresh_annotation_review)
+        self.selection_review_widget.running_status_changed.connect(self.review_running_status_changed)
 
         # rating/score 書込サービス (詳細パネル編集に使う)。_setup_image_db_write_service で生成。
         self._image_db_write_service: ImageDBWriteService | None = None
@@ -251,11 +260,15 @@ class SearchTabWidget(QWidget, Ui_SearchTab):
             )
             self._selected_image_details_widget.annotation_review_widget.set_store(self._review_store)
             self._selected_image_details_widget.set_annotation_review_service(self._review_service)
+            self.selection_review_widget.set_services(
+                self._review_service, self._review_store, load_history=False
+            )
         except Exception as error:
             self._review_store = None
             self._review_service = None
             # Optional review remains unavailable while the dataset can still be browsed.
             self._selected_image_details_widget.annotation_review_widget.set_unavailable_reason(str(error))
+            self.selection_review_widget.set_unavailable_reason(str(error))
             logger.warning("Clef review configuration could not be loaded: {}", error)
         self._review_generation += 1
         self._sync_search_review_context()
@@ -496,6 +509,7 @@ class SearchTabWidget(QWidget, Ui_SearchTab):
         self._review_manager.cancel_all_workers(reason=CancelReason.SHUTDOWN, total_grace_ms=1000)
         if self._crop_dialog_launcher is not None:
             self._crop_dialog_launcher.shutdown()
+        self.selection_review_widget.shutdown()
         self._selected_image_details_widget.shutdown()
 
     def closeEvent(self, event: QCloseEvent) -> None:
@@ -683,8 +697,25 @@ class SearchTabWidget(QWidget, Ui_SearchTab):
         if self._dataset_state_manager is None:
             return
         self._dataset_state_manager.selection_changed.connect(self._handle_selection_changed_for_rating)
+        self._dataset_state_manager.selection_changed.connect(self._update_review_selection)
+        self._update_review_selection(list(self._dataset_state_manager.selected_image_ids))
         self._dataset_state_manager.images_loaded.connect(self._on_review_images_loaded)
         logger.debug("DatasetStateManager selection_changed シグナル接続完了")
+
+    @Slot(list)
+    def _update_review_selection(self, image_ids: list[int]) -> None:
+        """Keep the next check's scope visible without changing an active batch."""
+        self.selection_review_widget.set_image_ids(image_ids)
+        dsm = self._dataset_state_manager
+        names: dict[int, str] = {}
+        if dsm is not None:
+            for image_id in image_ids:
+                image = dsm.get_image_by_id(image_id)
+                if image is not None:
+                    path = image.get("stored_image_path") or image.get("original_image_path")
+                    if path:
+                        names[image_id] = Path(path).name
+        self.selection_review_widget.set_image_names(names)
 
     def _connect_entry_signals(self) -> None:
         """データセット選択 / 設定 / ステージ / エクスポートの入口を上方 Signal へ橋渡しする。"""

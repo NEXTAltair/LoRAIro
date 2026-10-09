@@ -42,7 +42,7 @@ def test_tag_warning_survives_refinement_and_translation_rebuild(qtbot):
     display.set_review_warnings({7}, {3})
     chip = display._tag_chips[0]
     assert chip.review_warning
-    assert "⚠" in chip.text()
+    assert "!" in chip.text()
     display.apply_refinements([])
     display._tag_panel._refresh_tags_for_language("english")
     assert display._tag_chips[0].review_warning
@@ -71,7 +71,7 @@ def test_addition_proposals_are_separate_and_require_manual_adoption(qtbot):
     adoption.adopt.return_value = True
     widget.set_adoption_service(adoption)
     widget._display_result(review)
-    assert widget.results_table.rowCount() == 1
+    assert not hasattr(widget, "results_table")
     assert widget.suggestions_table.rowCount() == 1
     assert "要確認 1 件" in widget.status_label.text()
     adoption.adopt.assert_not_called()
@@ -81,4 +81,4 @@ def test_addition_proposals_are_separate_and_require_manual_adoption(qtbot):
     adoption.adopt.assert_called_once_with(5, "suggestion_cat", saved.checked_at)
     widget._display_result(AnnotationReviewResult(5, "fp", "clef-flash", review.items, "stale"))
     assert widget.suggestions_table.isHidden()
-    assert widget.results_table.rowCount() == 0
+    assert not hasattr(widget, "results_table")
