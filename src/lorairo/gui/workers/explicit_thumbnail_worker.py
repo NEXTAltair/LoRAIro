@@ -3,6 +3,7 @@
 from dataclasses import dataclass
 from pathlib import Path
 from threading import Event
+from typing import cast
 
 from PySide6.QtCore import QObject, QRunnable, QSize, Qt, Signal
 from PySide6.QtGui import QImage
@@ -57,10 +58,13 @@ class ExplicitThumbnailWorker(QRunnable):
         image = QImage(str(path))
         if image.isNull():
             return image
-        return image.scaled(
-            QSize(width, height),
-            Qt.AspectRatioMode.KeepAspectRatio,
-            Qt.TransformationMode.SmoothTransformation,
+        return cast(
+            QImage,
+            image.scaled(
+                QSize(width, height),
+                Qt.AspectRatioMode.KeepAspectRatio,
+                Qt.TransformationMode.SmoothTransformation,
+            ),
         )
 
     def run(self) -> None:
