@@ -342,6 +342,79 @@ def test_selection_change_discards_delayed_load_even_when_same_id_is_selected_ag
         assert updates[0]["id"] == 4
 
 
+@pytest.mark.parametrize("phase", ["lookup", "load", "idle"])
+def test_search_replacement_keeps_retained_images_on_asynchronous_refresh(
+    qtbot, refresh_setup, monkeypatch, phase
+):
+    state, repo = refresh_setup
+    if phase != "idle":
+        state.set_current_image(1)
+    repo.load_release.clear()
+    if phase == "lookup":
+        repo.lookup_release.clear()
+    state.refresh_annotations_after_execution({"a"})
+    if phase == "lookup":
+        qtbot.waitUntil(repo.lookup_started.is_set)
+    elif phase == "load":
+        qtbot.waitUntil(repo.load_started.is_set)
+    else:
+        wait_for_lookup(qtbot, state)
+    old_load = state._annotation_load_request
+    repo.annotations[1]["tags_text"] = "after-search"
+    replacement = [
+        {"id": image_id, "stored_image_path": f"/search/{image_id}.webp", "long_edge": 512}
+        for image_id in (1, 2)
+    ]
+    updates = []
+    state.current_image_data_changed.connect(lambda data: updates.append(data.copy()))
+    ensure = Mock(side_effect=AssertionError("Retained invalidations cannot load on GUI"))
+    monkeypatch.setattr(state, "_ensure_annotations_loaded", ensure)
+
+    state.update_from_search_results(replacement)
+    if phase == "idle":
+        state.set_current_image(1)
+    assert updates[-1]["id"] == 1
+    assert updates[-1]["stored_image_path"] == "/search/1.webp"
+    assert "tags" not in updates[-1]
+    if old_load is not None:
+        state._apply_annotation_load(old_load, {"tags_text": "stale"})
+        assert "tags_text" not in state.get_image_by_id(1)
+        assert repo.load_calls == [1]
+    assert_gui_tick(qtbot)
+    repo.lookup_release.set()
+    repo.load_release.set()
+    qtbot.waitUntil(lambda: state.get_image_by_id(1).get("tags_text") == "after-search")
+    assert updates[-1]["stored_image_path"] == "/search/1.webp"
+    assert state._annotation_invalidated_ids == {2}
+
+    repo.load_release.clear()
+    state.set_current_image(2)
+    assert updates[-1]["id"] == 2
+    assert "tags" not in updates[-1]
+    assert_gui_tick(qtbot)
+    repo.load_release.set()
+    qtbot.waitUntil(lambda: state.get_image_by_id(2).get("tags_text") == "fresh-2")
+    ensure.assert_not_called()
+    assert repo.load_calls == ([1, 1, 2] if phase == "load" else [1, 2])
+
+
+def test_search_replacement_preserves_manual_edit_priority_for_pending_lookup(qtbot, refresh_setup):
+    state, repo = refresh_setup
+    repo.lookup_release.clear()
+    state.refresh_annotations_after_execution({"a"})
+    qtbot.waitUntil(repo.lookup_started.is_set)
+    manual = {"id": 1, "stored_image_path": "/manual/1.webp", "tags": [], "tags_text": "manual"}
+    state.update_image_metadata(1, manual)
+    state.update_from_search_results([manual.copy(), {"id": 2, "stored_image_path": "/search/2.webp"}])
+    state.set_current_image(1)
+    repo.lookup_release.set()
+    wait_for_lookup(qtbot, state)
+
+    assert state.get_image_by_id(1)["tags_text"] == "manual"
+    assert state._annotation_invalidated_ids == {2}
+    assert repo.load_calls == []
+
+
 @pytest.mark.parametrize("phase", ["lookup", "load"])
 def test_shutdown_retires_blocked_worker_without_waiting_or_accepting_results(qtbot, refresh_setup, phase):
     state, repo = refresh_setup
@@ -408,11 +481,15 @@ def test_context_changes_do_not_accept_old_query_results(qtbot, refresh_setup, p
     updates = []
     state.current_image_data_changed.connect(lambda data: updates.append(data.copy()))
     release.set()
-    qtbot.waitUntil(lambda: state._annotation_worker_manager.get_active_worker_count() == 0)
-    assert updates == []
-    if change in ("search", "dataset"):
+    if change == "search":
+        qtbot.waitUntil(lambda: state.get_image_by_id(1).get("tags_text") == "fresh-1")
+        assert updates[-1]["stored_image_path"] == "/new/1.webp"
+    else:
+        qtbot.waitUntil(lambda: state._annotation_worker_manager.get_active_worker_count() == 0)
+        assert updates == []
+    if change == "dataset":
         assert state.get_image_by_id(1) == replacement[0]
-    if phase == "lookup":
+    if phase == "lookup" and change != "search":
         assert repo.load_calls == []
 
 
@@ -520,7 +597,7 @@ def test_context_replacement_waits_for_canceled_physical_worker_before_new_looku
 
     release.set()
     qtbot.waitUntil(lambda: state.get_image_by_id(3).get("tags_text") == "fresh-3")
-    assert repo.lookup_calls == [{"a"}, {"b"}]
+    assert repo.lookup_calls == [{"a"}, {"a", "b"} if phase == "lookup" else {"b"}]
     assert state.get_image_by_id(3)["stored_image_path"] == "/new/3.webp"
 
 

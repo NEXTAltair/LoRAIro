@@ -231,12 +231,27 @@ class DatasetStateManager(QObject):
             - 現在選択中の画像が結果に含まれない場合、選択をクリア
         """
         logger.info(f"検索結果によるデータ完全更新: {len(search_results)}件")
+        # A search replaces the cache, but keeps the same DB/project. Preserve
+        # execution invalidations and re-arm reads against the replacement data;
+        # the context change still rejects every result from the old cache.
+        invalidated_ids = self._annotation_invalidated_ids.copy()
+        pending_phashes = self._annotation_pending_phashes.copy()
+        if self._annotation_lookup_request is not None:
+            pending_phashes = self._annotation_lookup_request.edit_cutoffs | pending_phashes
+        edited_at = self._annotation_edited_at.copy()
         self._reset_annotation_refresh_context()
 
         # 完全データ置換（Single Source of Truth）。Issue #969: 2 層統合により
         # コピーは 1 回のみ (呼び出し元が保持する list との別オブジェクト化のため必要)。
         self._all_images = search_results.copy()
         self._invalidate_image_index()
+        index = self._get_all_images_index()
+        self._annotation_invalidated_ids = invalidated_ids.intersection(index)
+        self._annotation_pending_phashes.update(pending_phashes)
+        self._annotation_edited_at.update(edited_at)
+        for image_id in self._annotation_invalidated_ids:
+            for key in (*self._ANNOTATION_CACHE_KEYS, *self._ANNOTATION_REVIEW_CACHE_KEYS):
+                index[image_id].pop(key, None)
 
         # フィルター条件はクリア（検索結果が新しい基準）
         self._filter_conditions = {}
@@ -253,6 +268,11 @@ class DatasetStateManager(QObject):
                     f"現在の画像ID {self._current_image_id} が検索結果に含まれていないため選択をクリア"
                 )
                 self.clear_current_image()
+            else:
+                self.current_image_data_changed.emit(index[self._current_image_id])
+
+        self._start_annotation_lookup()
+        self._start_current_annotation_load()
 
         logger.debug(f"データ同期完了: all_images={len(self._all_images)}")
 
