@@ -304,6 +304,19 @@ class SearchTabWidget(QWidget, Ui_SearchTab):
                 self._review_search_timer.start()
 
     @Slot(list)
+    def _on_execution_annotations_invalidated(self, cached_image_ids: list[int]) -> None:
+        """Reload cached badges asynchronously and reconsider warning membership."""
+        if self._review_closing:
+            return
+        self.refresh_annotation_reviews(cached_image_ids)
+        # An updated image outside the cache can enter or leave this search.
+        # Rerun the existing search worker without loading that image's review.
+        if not cached_image_ids and self._filter_search_panel.get_current_conditions().get(
+            "annotation_review_warnings_only"
+        ):
+            self._review_search_timer.start()
+
+    @Slot(list)
     def _on_review_images_loaded(self, images: list[dict[str, Any]]) -> None:
         """Invalidate replaced-list callbacks and read missing/newer saved metadata."""
         self._review_generation += 1
@@ -701,6 +714,9 @@ class SearchTabWidget(QWidget, Ui_SearchTab):
         self._dataset_state_manager.selection_changed.connect(self._update_review_selection)
         self._update_review_selection(list(self._dataset_state_manager.selected_image_ids))
         self._dataset_state_manager.images_loaded.connect(self._on_review_images_loaded)
+        self._dataset_state_manager.execution_annotations_invalidated.connect(
+            self._on_execution_annotations_invalidated
+        )
         logger.debug("DatasetStateManager selection_changed シグナル接続完了")
 
     @Slot(list)

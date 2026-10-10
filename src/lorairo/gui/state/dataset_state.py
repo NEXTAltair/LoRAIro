@@ -43,6 +43,9 @@ class DatasetStateManager(QObject):
     images_filtered = Signal(list)  # List[Dict[str, Any]] - filtered image metadata
     images_loaded = Signal(list)  # List[Dict[str, Any]] - all image metadata
     filter_cleared = Signal()
+    # Cached IDs only; an empty list still invalidates warning-search membership
+    # when execution updated images outside the current search results.
+    execution_annotations_invalidated = Signal(list)
 
     # === 選択状態シグナル ===
     selection_changed = Signal(list)  # List[int] - selected image IDs
@@ -614,6 +617,13 @@ class DatasetStateManager(QObject):
         "manual_rating_value",
         "quality_summary",
     )
+    _ANNOTATION_REVIEW_CACHE_KEYS = (
+        "annotation_review_status",
+        "annotation_review_warning_count",
+        "annotation_review_checked_at",
+        "annotation_review_model",
+        "annotation_review_threshold",
+    )
 
     def invalidate_annotations(self, image_ids: list[int]) -> None:
         """指定画像のアノテーションキャッシュを無効化し、次回選択時に DB を再照会させる (Issue #1171)。
@@ -861,6 +871,7 @@ class DatasetStateManager(QObject):
         invalidated = 0
         edited = 0
         cached_count = 0
+        invalidated_ids: list[int] = []
         for image_id, cutoff in cutoffs_by_id.items():
             cached = index.get(image_id)
             if cached is None:
@@ -869,16 +880,19 @@ class DatasetStateManager(QObject):
             if self._annotation_edited_at.get(image_id, 0) > cutoff:
                 edited += 1
                 continue
-            for key in self._ANNOTATION_CACHE_KEYS:
+            for key in (*self._ANNOTATION_CACHE_KEYS, *self._ANNOTATION_REVIEW_CACHE_KEYS):
                 cached.pop(key, None)
             self._annotation_versions[image_id] = self._annotation_versions.get(image_id, 0) + 1
             self._annotation_invalidated_ids.add(image_id)
             invalidated += 1
+            invalidated_ids.append(image_id)
         logger.info(
             f"実行後の注釈キャッシュ無効化: pHash {len(request.edit_cutoffs)}件、"
             f"ID 解決 {len(cutoffs_by_id)}件、検索キャッシュ {cached_count}件、"
             f"無効化 {invalidated}件、後続の編集優先 {edited}件"
         )
+        if cutoffs_by_id:
+            self.execution_annotations_invalidated.emit(invalidated_ids)
 
     def _apply_annotation_load(
         self, request: _AnnotationLoadRequest, annotations: dict[str, Any] | None

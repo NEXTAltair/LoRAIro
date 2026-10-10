@@ -84,6 +84,11 @@ def refresh_setup(qapp, qtbot):
                 "ratings": [{"rating": "old"}],
                 "manual_rating_value": "old",
                 "quality_summary": {"tier": "old"},
+                "annotation_review_status": "completed",
+                "annotation_review_warning_count": 3,
+                "annotation_review_checked_at": "old-check",
+                "annotation_review_model": "old-model",
+                "annotation_review_threshold": 0.5,
             }
             for image_id in (1, 2, 3, 4)
         ]
@@ -119,6 +124,8 @@ def assert_gui_tick(qtbot):
 def test_multiversion_lookup_only_invalidates_unique_cached_annotations(qtbot, refresh_setup):
     state, repo = refresh_setup
     original = {image["id"]: image.copy() for image in state.all_images}
+    review_updates = []
+    state.execution_annotations_invalidated.connect(review_updates.append)
     state.refresh_annotations_after_execution({"a", "b"})
     wait_for_lookup(qtbot, state)
 
@@ -127,10 +134,14 @@ def test_multiversion_lookup_only_invalidates_unique_cached_annotations(qtbot, r
     for image_id in (1, 2, 3):
         cached = state.get_image_by_id(image_id)
         assert not set(cached).intersection(state._ANNOTATION_CACHE_KEYS)
+        assert not set(cached).intersection(state._ANNOTATION_REVIEW_CACHE_KEYS)
         assert cached["stored_image_path"] == original[image_id]["stored_image_path"]
         assert cached["long_edge"] == 768
     assert state.get_image_by_id(4) == original[4]
     assert repo.load_calls == []
+    assert len(review_updates) == 1
+    assert set(review_updates[0]) == {1, 2, 3}
+    assert len(review_updates[0]) == 3
     repo.get_image_metadata.assert_not_called()
     repo.get_images_metadata_batch.assert_not_called()
 
@@ -245,6 +256,8 @@ def test_lookup_failure_does_not_invalidate_or_emit_success(qtbot, refresh_setup
     state, repo = refresh_setup
     original = state.get_image_by_id(1).copy()
     repo.lookup_error = RuntimeError("lookup failed")
+    review_updates = []
+    state.execution_annotations_invalidated.connect(review_updates.append)
     messages = []
     sink = logger.add(lambda message: messages.append(str(message)), level="DEBUG")
     try:
@@ -255,6 +268,7 @@ def test_lookup_failure_does_not_invalidate_or_emit_success(qtbot, refresh_setup
 
     assert state.get_image_by_id(1) == original
     assert repo.load_calls == []
+    assert review_updates == []
     assert any("ID 解決失敗" in message for message in messages)
     assert not any(
         "注釈キャッシュ無効化" in message or "画像キャッシュを更新" in message for message in messages
@@ -303,6 +317,8 @@ def test_shutdown_retires_blocked_worker_without_waiting_or_accepting_results(qt
     release.clear()
     state.refresh_annotations_after_execution({"a"})
     qtbot.waitUntil(started.is_set)
+    review_updates = []
+    state.execution_annotations_invalidated.connect(review_updates.append)
     worker_manager = state._annotation_worker_manager
     request = state._annotation_lookup_request if phase == "lookup" else state._annotation_load_request
     active_info = worker_manager.active_workers[request.worker_id]
@@ -320,9 +336,11 @@ def test_shutdown_retires_blocked_worker_without_waiting_or_accepting_results(qt
         )
     )
     assert updates == []
+    assert review_updates == []
     release.set()
     qtbot.waitUntil(lambda: worker_manager.get_active_worker_count() == 0)
     assert updates == []
+    assert review_updates == []
     if phase == "lookup":
         assert repo.load_calls == []
 
