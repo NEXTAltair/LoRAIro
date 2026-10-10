@@ -515,6 +515,53 @@ def test_selection_updates_overlay_bar_preview(qtbot, wired_tab) -> None:
 
 
 @pytest.mark.gui
+def test_search_preview_clear_preserves_staging_and_export(
+    qtbot, wired_tab, staging_manager: StagingStateManager
+) -> None:
+    """検索の詳細表示を空にしても、ステージングと独立した export 表示は保つ (#1388)。"""
+    from lorairo.gui.state.dataset_state import DatasetStateManager
+    from lorairo.gui.widgets.selected_image_details_widget import SelectedImageDetailsWidget
+    from lorairo.services.staging_tag_aggregation import TagCount
+
+    tab, db = wired_tab
+    search_state = DatasetStateManager()
+    images = [
+        {"id": image_id, "stored_image_path": f"/img/{image_id}.png", "tags": [{"tag": "smile"}]}
+        for image_id in (1, 2)
+    ]
+    search_state.set_dataset_images(images)
+    staging_manager.set_dataset_state_manager(search_state)
+    staging_manager.add_image_ids([1, 2])
+    staged_items = staging_manager.get_staged_items().copy()
+
+    # タグ集計自体は DB サービスで取得する。表示が検索通知でクリアされないことを確認する。
+    counts = [TagCount(tag="smile", count=2, manual=False)]
+    tab.staging_tag_panel._service = Mock()
+    tab.staging_tag_panel._service.aggregate.return_value = counts
+    StagingTagPanel.load_tags(tab.staging_tag_panel, [1, 2])
+    tab._dataset_state_manager.set_dataset_images([image.copy() for image in images])
+    tab._dataset_state_manager.set_current_image(1)
+
+    search_details = SelectedImageDetailsWidget()
+    qtbot.addWidget(search_details)
+    search_details.connect_to_dataset_state_manager(search_state)
+    search_state.set_current_image(1)
+    assert search_details.current_details.annotation_data.tags == [{"tag": "smile"}]
+
+    # 同じ画像を保持する通常検索は注釈なし行を通知する。このプレビューの空表示は許容する。
+    search_state.update_from_search_results([{"id": 1, "stored_image_path": "/img/1.png"}])
+
+    assert search_details.current_details.annotation_data.tags == []
+    assert staging_manager.get_staged_items() == staged_items
+    assert tab.current_export_ids() == [1, 2]
+    assert tab.staging_tag_panel._all_tags == counts
+    assert tab._selected_image_details_widget.current_details.annotation_data.tags == [{"tag": "smile"}]
+    assert tab.overlay_bar._selected_db_tags == ["smile"]
+    tab.staging_tag_panel.load_tags.assert_not_called()
+    db.soft_reject_tag_batch.assert_not_called()
+
+
+@pytest.mark.gui
 def test_scope_filtered_keeps_all_export_ids(qtbot, wired_tab) -> None:
     """scope=filtered でもエクスポート対象は全 staged のまま (overlay 適用範囲のみ変わる, Codex P1)。"""
     tab, _db = wired_tab
