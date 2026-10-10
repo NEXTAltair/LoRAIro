@@ -23,6 +23,7 @@ import httpx
 import pytest
 from PIL import Image
 from PySide6.QtCore import Qt
+from PySide6.QtGui import QPixmap
 from PySide6.QtWidgets import QSplitter, QWidget
 
 from lorairo.gui.state.dataset_state import DatasetStateManager
@@ -227,6 +228,167 @@ def test_saved_result_outside_warning_filtered_list_restarts_complete_search(rev
     tab.refresh_annotation_review(201)
     assert tab._review_search_timer.isActive()
     assert 201 in tab._review_pending_ids
+
+
+@pytest.fixture
+def execution_review_tab(review_refresh_tab):
+    """Exercise completion wiring with real thumbnail items and captured workers."""
+    tab = review_refresh_tab
+    state = tab._dataset_state_manager
+    state.blockSignals(True)
+    state.clear_current_image()
+    state.set_dataset_images(
+        [
+            {
+                "id": image_id,
+                "tags": [{"tag": "old"}],
+                "stored_image_path": f"{image_id}.png",
+                "annotation_review_status": "completed",
+                "annotation_review_warning_count": 3,
+                "annotation_review_checked_at": "old-check",
+            }
+            for image_id in (1, 2, 3)
+        ]
+    )
+    state.blockSignals(False)
+    state.set_db_manager(SimpleNamespace(image_repo=Mock()))
+    state._annotation_worker_manager = Mock()
+    state._annotation_worker_manager.start_worker.return_value = True
+    tab._review_service = Mock()
+    for image_id in (1, 2, 3):
+        item = ThumbnailItem(QPixmap(8, 8), Path(f"{image_id}.png"), image_id, tab.thumbnail_selector)
+        tab.thumbnail_selector.scene.addItem(item)
+        assert "要確認 3件" in item.toolTip()
+    return tab
+
+
+def deliver_execution_lookup(tab, mapping, *, outcome=None, before_terminal=None):
+    """Deliver the same terminal payload as the ID-resolution worker."""
+    from lorairo.gui.workers.terminal import WorkerOutcome, WorkerTerminalEvent
+
+    state = tab._dataset_state_manager
+    state.refresh_annotations_after_execution(set(mapping))
+    request = state._annotation_lookup_request
+    if before_terminal is not None:
+        before_terminal()
+    state._on_annotation_refresh_terminal(
+        WorkerTerminalEvent(
+            request.worker_id,
+            "annotation_refresh_lookup",
+            outcome or WorkerOutcome.SUCCEEDED,
+            mapping,
+        )
+    )
+
+
+@pytest.mark.gui
+def test_execution_versions_refresh_badges_and_warning_search_without_gui_reads(
+    qtbot, execution_review_tab, monkeypatch
+):
+    from lorairo.gui.workers.terminal import WorkerOutcome, WorkerTerminalEvent
+
+    tab = execution_review_tab
+    stale_review = SimpleNamespace(
+        review=SimpleNamespace(status="stale", items=[], model_name="Clef"),
+        checked_at=datetime.now(UTC),
+        warning_threshold=0.5,
+    )
+    tab._review_store.get_current_results.return_value = {1: stale_review, 2: stale_review}
+    tab.filter_search_panel._search_facets_sidebar.set_review_warnings_only(True)
+    search = Mock()
+    monkeypatch.setattr(tab.filter_search_panel, "_on_search_requested", search)
+    deliver_execution_lookup(tab, {"same-phash": [1, 2, 999], "other-phash": [2]})
+
+    assert tab._review_pending_ids == {1, 2}
+    tab._review_store.get_current_results.assert_not_called()
+    for item in tab.thumbnail_selector.scene.items():
+        if item.image_id in (1, 2):
+            assert "照合中" in item.toolTip()
+            assert "要確認" not in item.toolTip()
+            assert "old-check" not in item.toolTip()
+        else:
+            assert "要確認 3件" in item.toolTip()
+    tab._review_load_timer.stop()
+    tab._start_review_load()
+    worker_id, worker = tab._review_manager.start_worker.call_args.args
+    loaded = worker.execute()
+    tab._on_review_load_terminal(
+        WorkerTerminalEvent(worker_id, "search_review_load", WorkerOutcome.SUCCEEDED, loaded)
+    )
+    tab._review_store.get_current_results.assert_called_once_with(tab._review_service, (1, 2))
+    for image_id in (1, 2):
+        image = tab._dataset_state_manager.get_image_by_id(image_id)
+        assert image["annotation_review_status"] == "stale"
+        assert image["annotation_review_warning_count"] == 0
+        assert image["stored_image_path"] == f"{image_id}.png"
+    qtbot.waitUntil(lambda: search.called)
+    search.assert_called_once_with()
+
+
+@pytest.mark.gui
+def test_execution_outside_cache_reruns_warning_search_without_loading_reviews(
+    qtbot, execution_review_tab, monkeypatch
+):
+    tab = execution_review_tab
+    tab.filter_search_panel._search_facets_sidebar.set_review_warnings_only(True)
+    search = Mock()
+    monkeypatch.setattr(tab.filter_search_panel, "_on_search_requested", search)
+    deliver_execution_lookup(tab, {"outside": [999]})
+    assert not tab._review_pending_ids
+    assert not tab._review_load_timer.isActive()
+    tab._review_manager.start_worker.assert_not_called()
+    tab._review_store.get_current_results.assert_not_called()
+    qtbot.waitUntil(lambda: search.called)
+    search.assert_called_once_with()
+
+
+@pytest.mark.gui
+def test_execution_invalidation_rejects_earlier_review_result(execution_review_tab):
+    from lorairo.gui.workers.search_review_loader import SearchReviewMetadataLoaded
+    from lorairo.gui.workers.terminal import WorkerOutcome, WorkerTerminalEvent
+
+    tab = execution_review_tab
+    tab.refresh_annotation_review(1)
+    tab._review_load_timer.stop()
+    tab._start_review_load()
+    worker_id = tab._review_load_id
+    earlier = SearchReviewMetadataLoaded(
+        tab._review_generation,
+        {1: tab._review_revisions[1]},
+        {1: {"annotation_review_status": "completed", "annotation_review_warning_count": 3}},
+    )
+    deliver_execution_lookup(tab, {"same-phash": [1, 2]})
+    tab._on_review_load_terminal(
+        WorkerTerminalEvent(worker_id, "search_review_load", WorkerOutcome.SUCCEEDED, earlier)
+    )
+    image = tab._dataset_state_manager.get_image_by_id(1)
+    assert image["annotation_review_status"] == "checking"
+    assert image["annotation_review_warning_count"] == 0
+
+
+@pytest.mark.gui
+@pytest.mark.parametrize("guard", ["lookup_failure", "state_shutdown", "tab_shutdown"])
+def test_execution_review_notification_respects_failure_and_close_guards(execution_review_tab, guard):
+    from lorairo.gui.workers.terminal import WorkerOutcome
+
+    tab = execution_review_tab
+    tab.filter_search_panel._search_facets_sidebar.set_review_warnings_only(True)
+    before_terminal = None
+    if guard == "state_shutdown":
+        before_terminal = tab._dataset_state_manager.shutdown_annotation_refresh
+    elif guard == "tab_shutdown":
+        before_terminal = tab.shutdown
+    deliver_execution_lookup(
+        tab,
+        {"same-phash": [1, 2]},
+        outcome=WorkerOutcome.FAILED if guard == "lookup_failure" else WorkerOutcome.SUCCEEDED,
+        before_terminal=before_terminal,
+    )
+    assert not tab._review_pending_ids
+    assert not tab._review_load_timer.isActive()
+    assert not tab._review_search_timer.isActive()
+    tab._review_manager.start_worker.assert_not_called()
+    tab._review_store.get_current_results.assert_not_called()
 
 
 @pytest.mark.gui

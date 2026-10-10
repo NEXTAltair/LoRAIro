@@ -29,6 +29,7 @@ class TestMainWindowAnnotationCompletion:
     def mock_window_with_annotation(self):
         """アノテーション完了テスト用のモックMainWindow"""
         window = Mock()
+        window._closing = False
         window.dataset_state_manager = Mock()
         window.db_manager = Mock()
         window.db_manager.repository = Mock()
@@ -46,8 +47,8 @@ class TestMainWindowAnnotationCompletion:
             models_used=["model1"],
         )
 
-    def test_on_annotation_finished_updates_cache(self, mock_window_with_annotation):
-        """アノテーション完了時にサマリーダイアログ表示後、画像キャッシュが更新される"""
+    def test_on_annotation_finished_schedules_annotation_refresh(self, mock_window_with_annotation):
+        """完了ハンドラはpHashを渡し、GUI上でDB再取得しない。"""
         from lorairo.gui.window.main_window import MainWindow
 
         result = self._make_execution_result(
@@ -56,12 +57,6 @@ class TestMainWindowAnnotationCompletion:
                 "xyz789ghi012": {"model1": Mock()},
             }
         )
-
-        # find_image_ids_by_phashes_multi のモック (#633: 別版で複数 image_id になり得る)
-        mock_window_with_annotation.db_manager.image_repo.find_image_ids_by_phashes_multi.return_value = {
-            "abc123def456": [101],
-            "xyz789ghi012": [102],
-        }
 
         with patch(
             "lorairo.gui.widgets.annotation_summary_dialog.AnnotationSummaryDialog"
@@ -72,11 +67,11 @@ class TestMainWindowAnnotationCompletion:
         mock_dialog_class.assert_called_once_with(result, parent=mock_window_with_annotation)
         mock_dialog_class.return_value.exec.assert_called_once()
 
-        # pHashから画像IDを検索 (multi)
-        mock_window_with_annotation.db_manager.image_repo.find_image_ids_by_phashes_multi.assert_called_once()
-
-        # キャッシュが更新される
-        mock_window_with_annotation.dataset_state_manager.refresh_images.assert_called_once_with([101, 102])
+        mock_window_with_annotation.dataset_state_manager.refresh_annotations_after_execution.assert_called_once_with(
+            {"abc123def456", "xyz789ghi012"}
+        )
+        mock_window_with_annotation.db_manager.image_repo.find_image_ids_by_phashes_multi.assert_not_called()
+        mock_window_with_annotation.dataset_state_manager.refresh_images.assert_not_called()
 
     def test_on_annotation_finished_handles_empty_result(self, mock_window_with_annotation):
         """空の結果でもダイアログ表示のみでエラーが発生しない"""
@@ -92,12 +87,14 @@ class TestMainWindowAnnotationCompletion:
         mock_dialog_class.return_value.exec.assert_called_once()
         # 結果が空なら pHash 検索は行わない
         assert not mock_window_with_annotation.db_manager.image_repo.find_image_ids_by_phashes_multi.called
+        mock_window_with_annotation.dataset_state_manager.refresh_annotations_after_execution.assert_not_called()
 
     def test_on_annotation_finished_handles_missing_dependencies(self):
         """依存関係なし時はダイアログ表示後に早期リターン"""
         from lorairo.gui.window.main_window import MainWindow
 
         mock_window = Mock()
+        mock_window._closing = False
         mock_window.dataset_state_manager = None
         mock_window.db_manager = Mock()
 
@@ -112,13 +109,13 @@ class TestMainWindowAnnotationCompletion:
         # find_image_ids_by_phashes_multi は呼ばれない
         assert not mock_window.db_manager.image_repo.find_image_ids_by_phashes_multi.called
 
-    def test_on_annotation_finished_handles_phash_lookup_failure(self, mock_window_with_annotation):
-        """pHash検索失敗時にエラーログを出力する"""
+    def test_on_annotation_finished_handles_refresh_start_failure(self, mock_window_with_annotation):
+        """更新開始失敗を保存結果と区別し、成功ログを出さない。"""
         from lorairo.gui.window.main_window import MainWindow
 
         result = self._make_execution_result({"abc123": {"model1": Mock()}})
-        mock_window_with_annotation.db_manager.image_repo.find_image_ids_by_phashes_multi.side_effect = (
-            Exception("DB error")
+        mock_window_with_annotation.dataset_state_manager.refresh_annotations_after_execution.side_effect = Exception(
+            "DB error"
         )
 
         with (
@@ -130,7 +127,64 @@ class TestMainWindowAnnotationCompletion:
 
             # エラーログが出力される
             mock_logger.error.assert_called_once()
-            assert "キャッシュ更新失敗" in mock_logger.error.call_args[0][0]
+            assert "画面更新開始失敗" in mock_logger.error.call_args[0][0]
+            assert "保存結果とは別" in mock_logger.error.call_args[0][0]
+            mock_logger.info.assert_not_called()
+
+    def test_on_annotation_finished_ignores_completion_after_close(self, mock_window_with_annotation):
+        from lorairo.gui.window.main_window import MainWindow
+
+        mock_window_with_annotation._closing = True
+        result = self._make_execution_result({"abc": {"model1": Mock()}})
+
+        with patch("lorairo.gui.widgets.annotation_summary_dialog.AnnotationSummaryDialog") as dialog:
+            MainWindow._on_annotation_finished(mock_window_with_annotation, result)
+
+        dialog.assert_not_called()
+        mock_window_with_annotation.dataset_state_manager.refresh_annotations_after_execution.assert_not_called()
+
+    def test_on_annotation_finished_ignores_close_during_summary(self, mock_window_with_annotation):
+        """サマリーのネストしたイベントループで閉じても新しい取得を開始しない。"""
+        from lorairo.gui.window.main_window import MainWindow
+
+        result = self._make_execution_result({"abc": {"model1": Mock()}})
+
+        def close_during_dialog():
+            mock_window_with_annotation._closing = True
+
+        with patch("lorairo.gui.widgets.annotation_summary_dialog.AnnotationSummaryDialog") as dialog:
+            dialog.return_value.exec.side_effect = close_during_dialog
+            MainWindow._on_annotation_finished(mock_window_with_annotation, result)
+
+        mock_window_with_annotation.dataset_state_manager.refresh_annotations_after_execution.assert_not_called()
+
+    def test_close_stops_annotation_refresh_before_other_shutdown(self, qtbot):
+        """実際のQt closeイベントで、終了フラグを立ててから取得を停止する。"""
+        from PySide6.QtWidgets import QMainWindow
+
+        from lorairo.gui.window.main_window import MainWindow
+
+        with patch.object(MainWindow, "__init__", QMainWindow.__init__):
+            window = MainWindow()
+        qtbot.addWidget(window)
+        window._closing = False
+        window._save_window_state = Mock()
+        window.dataset_state_manager = Mock()
+        window.export_tab = None
+        window.search_tab = None
+        window.results_tab = None
+        window.jobs_tab = None
+
+        def check_closing():
+            assert window._closing is True
+            window._save_window_state.assert_not_called()
+
+        window.dataset_state_manager.shutdown_annotation_refresh.side_effect = check_closing
+        window.close()
+
+        window.dataset_state_manager.shutdown_annotation_refresh.assert_called_once_with()
+        window._save_window_state.assert_called_once_with()
+        window.dataset_state_manager.shutdown_annotation_refresh.side_effect = None
 
     def test_setup_worker_pipeline_signals_includes_annotation(self):
         """WorkerService pipeline シグナル接続にアノテーション完了が含まれる"""

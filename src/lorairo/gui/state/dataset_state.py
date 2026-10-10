@@ -1,11 +1,32 @@
 # src/lorairo/gui/state/dataset_state.py
 
+from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
-from PySide6.QtCore import QObject, Signal
+from PySide6.QtCore import QObject, Qt, Signal, Slot
 
 from ...utils.log import logger
+from ..workers.annotation_refresh_worker import AnnotationRefreshLoadWorker, AnnotationRefreshLookupWorker
+from ..workers.manager import WorkerManager
+from ..workers.terminal import CancelReason, WorkerOutcome, WorkerTerminalEvent
+
+
+@dataclass(frozen=True)
+class _AnnotationLookupRequest:
+    worker_id: str
+    context_version: int
+    edit_cutoffs: dict[str, int]
+
+
+@dataclass(frozen=True)
+class _AnnotationLoadRequest:
+    worker_id: str
+    context_version: int
+    selection_version: int
+    image_id: int
+    annotation_version: int
+    cached: dict[str, Any]
 
 
 class DatasetStateManager(QObject):
@@ -22,6 +43,9 @@ class DatasetStateManager(QObject):
     images_filtered = Signal(list)  # List[Dict[str, Any]] - filtered image metadata
     images_loaded = Signal(list)  # List[Dict[str, Any]] - all image metadata
     filter_cleared = Signal()
+    # Cached IDs only; an empty list still invalidates warning-search membership
+    # when execution updated images outside the current search results.
+    execution_annotations_invalidated = Signal(list)
 
     # === 選択状態シグナル ===
     selection_changed = Signal(list)  # List[int] - selected image IDs
@@ -58,6 +82,25 @@ class DatasetStateManager(QObject):
         # === DB Manager 参照（バッチ操作後のリフレッシュに使用） ===
         self._db_manager: Any = None
 
+        # #1384: execution completion resolves IDs asynchronously, invalidates only
+        # annotation fields, then fetches only the current image on demand.
+        self._annotation_worker_manager: WorkerManager | None = None
+        self._annotation_refresh_closed = False
+        self._annotation_context_version = 0
+        self._annotation_selection_version = 0
+        self._annotation_worker_serial = 0
+        self._annotation_edit_serial = 0
+        self._annotation_edited_at: dict[int, int] = {}
+        self._annotation_versions: dict[int, int] = {}
+        self._annotation_invalidated_ids: set[int] = set()
+        self._annotation_pending_phashes: dict[str, int] = {}
+        # Cancellation invalidates the logical request immediately, but SQL may
+        # still be running. Keep the physical slot until its terminal event.
+        self._annotation_active_worker_id: str | None = None
+        self._annotation_lookup_request: _AnnotationLookupRequest | None = None
+        self._annotation_load_request: _AnnotationLoadRequest | None = None
+        self._annotation_failed_load: _AnnotationLoadRequest | None = None
+
         logger.debug("DatasetStateManager initialized")
 
     def set_db_manager(self, db_manager: Any) -> None:
@@ -69,7 +112,9 @@ class DatasetStateManager(QObject):
         Args:
             db_manager: ImageDatabaseManager インスタンス
         """
-        self._db_manager = db_manager
+        if self._db_manager is not db_manager:
+            self._reset_annotation_refresh_context()
+            self._db_manager = db_manager
         logger.debug("ImageDatabaseManager reference set in DatasetStateManager")
 
     # === Public Properties (Read-Only) ===
@@ -127,12 +172,14 @@ class DatasetStateManager(QObject):
     def set_dataset_path(self, dataset_path: Path) -> None:
         """データセットパスを設定"""
         if self._dataset_path != dataset_path:
+            self._reset_annotation_refresh_context()
             self._dataset_path = dataset_path
             logger.info(f"データセットパス変更: {dataset_path}")
             self.dataset_changed.emit(str(dataset_path))
 
     def set_dataset_images(self, images: list[dict[str, Any]]) -> None:
         """データセットの全画像リストを設定"""
+        self._reset_annotation_refresh_context()
         self._all_images = images.copy()
         self._invalidate_image_index()
 
@@ -146,6 +193,7 @@ class DatasetStateManager(QObject):
 
     def clear_dataset(self) -> None:
         """データセット状態をクリア"""
+        self._reset_annotation_refresh_context()
         self._dataset_path = None
         self._all_images = []
         self._filter_conditions = {}
@@ -183,11 +231,27 @@ class DatasetStateManager(QObject):
             - 現在選択中の画像が結果に含まれない場合、選択をクリア
         """
         logger.info(f"検索結果によるデータ完全更新: {len(search_results)}件")
+        # A search replaces the cache, but keeps the same DB/project. Preserve
+        # execution invalidations and re-arm reads against the replacement data;
+        # the context change still rejects every result from the old cache.
+        invalidated_ids = self._annotation_invalidated_ids.copy()
+        pending_phashes = self._annotation_pending_phashes.copy()
+        if self._annotation_lookup_request is not None:
+            pending_phashes = self._annotation_lookup_request.edit_cutoffs | pending_phashes
+        edited_at = self._annotation_edited_at.copy()
+        self._reset_annotation_refresh_context()
 
         # 完全データ置換（Single Source of Truth）。Issue #969: 2 層統合により
         # コピーは 1 回のみ (呼び出し元が保持する list との別オブジェクト化のため必要)。
         self._all_images = search_results.copy()
         self._invalidate_image_index()
+        index = self._get_all_images_index()
+        self._annotation_invalidated_ids = invalidated_ids.intersection(index)
+        self._annotation_pending_phashes.update(pending_phashes)
+        self._annotation_edited_at.update(edited_at)
+        for image_id in self._annotation_invalidated_ids:
+            for key in (*self._ANNOTATION_CACHE_KEYS, *self._ANNOTATION_REVIEW_CACHE_KEYS):
+                index[image_id].pop(key, None)
 
         # フィルター条件はクリア（検索結果が新しい基準）
         self._filter_conditions = {}
@@ -204,6 +268,11 @@ class DatasetStateManager(QObject):
                     f"現在の画像ID {self._current_image_id} が検索結果に含まれていないため選択をクリア"
                 )
                 self.clear_current_image()
+            else:
+                self.current_image_data_changed.emit(index[self._current_image_id])
+
+        self._start_annotation_lookup()
+        self._start_current_annotation_load()
 
         logger.debug(f"データ同期完了: all_images={len(self._all_images)}")
 
@@ -230,6 +299,8 @@ class DatasetStateManager(QObject):
         if image_id is None:
             logger.warning("id を持たないメタデータは一覧へ追加できません")
             return
+
+        self._note_annotation_edit(image_id)
 
         for index, existing in enumerate(self._all_images):
             if existing.get("id") == image_id:
@@ -278,6 +349,8 @@ class DatasetStateManager(QObject):
     def set_current_image(self, image_id: int) -> None:
         """現在の画像IDを設定"""
         if self._current_image_id != image_id:
+            self._annotation_selection_version += 1
+            self._cancel_annotation_load()
             self._current_image_id = image_id
 
             # 後方互換性のためIDシグナルを維持
@@ -286,6 +359,12 @@ class DatasetStateManager(QObject):
             # 新しいデータシグナルで完全な画像メタデータを送信
             image_data = self.get_image_by_id(image_id)
             if image_data:
+                if image_id in self._annotation_invalidated_ids:
+                    # Selection must show this image's basic/processed metadata
+                    # immediately, including when annotation retrieval fails.
+                    self.current_image_data_changed.emit(image_data)
+                    self._start_current_annotation_load()
+                    return
                 self._ensure_annotations_loaded(image_data)
                 self.current_image_data_changed.emit(image_data)
                 logger.debug(f"画像選択成功: ID {image_id} - current_image_data_changed シグナル発行")
@@ -315,6 +394,8 @@ class DatasetStateManager(QObject):
         stale な表示が残る。ExportTab は両シグナルを購読するが空クリアは冪等。
         """
         if self._current_image_id is not None:
+            self._annotation_selection_version += 1
+            self._cancel_annotation_load()
             self._current_image_id = None
             self.current_image_cleared.emit()
             self.current_image_data_changed.emit({})
@@ -427,6 +508,8 @@ class DatasetStateManager(QObject):
             logger.warning(f"メタデータ検証失敗: {image_id}")
             return
 
+        self._note_annotation_edit(image_id)
+
         # _all_imagesを更新
         found_in_all = False
         for i, img in enumerate(self._all_images):
@@ -525,6 +608,7 @@ class DatasetStateManager(QObject):
         if not annotations:
             return
 
+        self._note_annotation_edit(image_id)
         # live 参照を in-place 更新するためパス/processed フィールドは保持される
         cached.update(annotations)
         logger.debug(f"アノテーションキャッシュ更新: image_id={image_id}")
@@ -553,6 +637,13 @@ class DatasetStateManager(QObject):
         "manual_rating_value",
         "quality_summary",
     )
+    _ANNOTATION_REVIEW_CACHE_KEYS = (
+        "annotation_review_status",
+        "annotation_review_warning_count",
+        "annotation_review_checked_at",
+        "annotation_review_model",
+        "annotation_review_threshold",
+    )
 
     def invalidate_annotations(self, image_ids: list[int]) -> None:
         """指定画像のアノテーションキャッシュを無効化し、次回選択時に DB を再照会させる (Issue #1171)。
@@ -576,6 +667,7 @@ class DatasetStateManager(QObject):
             cached = self.get_image_by_id(image_id)
             if cached is None:
                 continue
+            self._note_annotation_edit(image_id)
             for key in self._ANNOTATION_CACHE_KEYS:
                 cached.pop(key, None)
             invalidated += 1
@@ -586,6 +678,267 @@ class DatasetStateManager(QObject):
         # (refresh_image_annotations はキャッシュ未登録なら refresh_image へフォールバック)
         if self._current_image_id is not None and self._current_image_id in set(image_ids):
             self.refresh_image_annotations(self._current_image_id)
+
+    def refresh_annotations_after_execution(self, phashes: set[str]) -> None:
+        """完了した実行の注釈だけを非同期で無効化・必要時再取得する (#1384)。
+
+        pHash に対応する全画像版の ID 解決は専用 worker で行う。検索キャッシュに
+        存在する画像の注釈キーだけを外し、現在画像と後から選択する画像の注釈だけを
+        worker で読み込む。検索結果外のメタデータや全件の注釈は取得しない。
+        複数の完了通知は pending pHash をまとめ、取りこぼさず順次処理する。
+        """
+        if not phashes or self._annotation_refresh_closed:
+            return
+        if self._db_manager is None:
+            logger.warning("DB Manager 未設定のため、実行後の注釈キャッシュ更新を開始できません")
+            return
+
+        # A new execution can have written newer annotations than an in-flight
+        # read. Keep invalidated IDs, but do not apply that old read's result.
+        self._cancel_annotation_load()
+        for phash in phashes:
+            self._annotation_pending_phashes[phash] = self._annotation_edit_serial
+        self._start_annotation_lookup()
+
+    def shutdown_annotation_refresh(self) -> None:
+        """後続の取得・反映を抑止し、実行中の worker を待たずに退避する。
+
+        repo 内の実行中 SQL を即座に中断できる保証はない。終了時は既存 manager の
+        retirement に所有権を渡し、QThread の実行中破棄と GUI の終了待機を避ける。
+        """
+        if self._annotation_refresh_closed:
+            return
+        self._annotation_refresh_closed = True
+        self._reset_annotation_refresh_context()
+        if self._annotation_worker_manager is not None:
+            self._annotation_worker_manager.cancel_all_workers(
+                reason=CancelReason.SHUTDOWN, total_grace_ms=0
+            )
+
+    def _get_annotation_worker_manager(self) -> WorkerManager:
+        if self._annotation_worker_manager is None:
+            self._annotation_worker_manager = WorkerManager(self)
+            # WorkerManager's terminal signal can originate in its worker signal
+            # forwarding callback. The receiving QObject slot must run on GUI.
+            self._annotation_worker_manager.worker_terminal.connect(
+                self._on_annotation_refresh_terminal, Qt.ConnectionType.QueuedConnection
+            )
+            self._annotation_worker_manager.worker_thread_released.connect(
+                self._on_annotation_refresh_thread_released, Qt.ConnectionType.QueuedConnection
+            )
+        return self._annotation_worker_manager
+
+    def _next_annotation_worker_id(self, operation: str) -> str:
+        self._annotation_worker_serial += 1
+        return f"annotation_refresh_{operation}_{self._annotation_worker_serial}"
+
+    def _reset_annotation_refresh_context(self) -> None:
+        """検索結果・プロジェクト・DB の交換前の要求を無効にする。"""
+        self._annotation_context_version += 1
+        self._annotation_pending_phashes.clear()
+        self._annotation_invalidated_ids.clear()
+        self._annotation_versions.clear()
+        self._annotation_edited_at.clear()
+        self._annotation_failed_load = None
+        self._cancel_annotation_load()
+        request = self._annotation_lookup_request
+        self._annotation_lookup_request = None
+        if request is not None and self._annotation_worker_manager is not None:
+            self._annotation_worker_manager.request_cancel_worker(
+                request.worker_id, reason=CancelReason.SEARCH_REPLACED
+            )
+
+    def _cancel_annotation_load(self) -> None:
+        request = self._annotation_load_request
+        self._annotation_load_request = None
+        if request is not None and self._annotation_worker_manager is not None:
+            self._annotation_worker_manager.request_cancel_worker(
+                request.worker_id, reason=CancelReason.SEARCH_REPLACED
+            )
+
+    def _note_annotation_edit(self, image_id: int) -> None:
+        """手動編集/明示的再読込より前に開始した結果による上書きを防ぐ。"""
+        self._annotation_edit_serial += 1
+        self._annotation_edited_at[image_id] = self._annotation_edit_serial
+        self._annotation_versions[image_id] = self._annotation_versions.get(image_id, 0) + 1
+        self._annotation_invalidated_ids.discard(image_id)
+        if self._annotation_load_request is not None and self._annotation_load_request.image_id == image_id:
+            self._cancel_annotation_load()
+
+    def _start_annotation_lookup(self) -> None:
+        if (
+            self._annotation_refresh_closed
+            or self._annotation_active_worker_id is not None
+            or self._annotation_lookup_request is not None
+            or not self._annotation_pending_phashes
+            or self._db_manager is None
+        ):
+            return
+        cutoffs = self._annotation_pending_phashes.copy()
+        self._annotation_pending_phashes.clear()
+        worker_id = self._next_annotation_worker_id("lookup")
+        self._annotation_lookup_request = _AnnotationLookupRequest(
+            worker_id, self._annotation_context_version, cutoffs
+        )
+        worker = AnnotationRefreshLookupWorker(self._db_manager.image_repo, set(cutoffs))
+        self._annotation_active_worker_id = worker_id
+        if not self._get_annotation_worker_manager().start_worker(
+            worker_id, worker, defer_thread_release=True
+        ):
+            self._annotation_active_worker_id = None
+            self._annotation_lookup_request = None
+            logger.error(f"注釈キャッシュ更新の ID 解決 worker を開始できません: pHash {len(cutoffs)}件")
+
+    def _start_current_annotation_load(self) -> None:
+        image_id = self._current_image_id
+        if (
+            self._annotation_refresh_closed
+            or self._annotation_active_worker_id is not None
+            or self._annotation_load_request is not None
+            or self._annotation_lookup_request is not None
+            or self._annotation_pending_phashes
+            or self._db_manager is None
+            or image_id is None
+            or image_id not in self._annotation_invalidated_ids
+        ):
+            return
+        cached = self._get_all_images_index().get(image_id)
+        if cached is None:
+            return
+        failed = self._annotation_failed_load
+        if (
+            failed is not None
+            and failed.context_version == self._annotation_context_version
+            and failed.selection_version == self._annotation_selection_version
+            and failed.image_id == image_id
+            and failed.annotation_version == self._annotation_versions.get(image_id, 0)
+        ):
+            return
+        worker_id = self._next_annotation_worker_id("load")
+        self._annotation_load_request = _AnnotationLoadRequest(
+            worker_id,
+            self._annotation_context_version,
+            self._annotation_selection_version,
+            image_id,
+            self._annotation_versions.get(image_id, 0),
+            cached,
+        )
+        worker = AnnotationRefreshLoadWorker(self._db_manager.image_repo, image_id)
+        self._annotation_active_worker_id = worker_id
+        if not self._get_annotation_worker_manager().start_worker(
+            worker_id, worker, defer_thread_release=True
+        ):
+            self._annotation_active_worker_id = None
+            self._annotation_load_request = None
+            logger.error(f"注釈再取得 worker を開始できません: image_id={image_id}")
+
+    @Slot(object)
+    def _on_annotation_refresh_terminal(self, event: WorkerTerminalEvent) -> None:
+        """worker の取得結果だけを GUI スレッドの状態へ反映する。"""
+        if self._annotation_refresh_closed:
+            return
+        if event.worker_id != self._annotation_active_worker_id:
+            return
+        lookup = self._annotation_lookup_request
+        if lookup is not None and event.worker_id == lookup.worker_id:
+            self._annotation_lookup_request = None
+            if lookup.context_version != self._annotation_context_version:
+                return
+            if event.outcome is WorkerOutcome.SUCCEEDED:
+                self._apply_annotation_lookup(lookup, cast(dict[str, list[int]], event.result))
+            elif event.outcome is not WorkerOutcome.CANCELED:
+                logger.error(
+                    f"実行後の注釈キャッシュ ID 解決失敗: pHash {len(lookup.edit_cutoffs)}件: {event.error}"
+                )
+
+        load = self._annotation_load_request
+        if load is not None and event.worker_id == load.worker_id:
+            self._annotation_load_request = None
+            if event.outcome is WorkerOutcome.SUCCEEDED:
+                annotations = cast(dict[str, Any] | None, event.result)
+                self._apply_annotation_load(load, annotations)
+                self._annotation_failed_load = load if not annotations else None
+            elif event.outcome is not WorkerOutcome.CANCELED:
+                self._annotation_failed_load = load
+                logger.error(f"注釈再取得失敗: image_id={load.image_id}: {event.error}")
+            # A failed/missing read stays invalidated for a later selection or
+            # execution notification; do not create an automatic retry loop.
+            return
+
+    @Slot(str)
+    def _on_annotation_refresh_thread_released(self, worker_id: str) -> None:
+        """旧 worker の QObject 破棄まで完了してから最新要求を開始する。"""
+        if worker_id != self._annotation_active_worker_id:
+            return
+        self._annotation_active_worker_id = None
+        if self._annotation_refresh_closed:
+            return
+        self._start_annotation_lookup()
+        self._start_current_annotation_load()
+
+    def _apply_annotation_lookup(
+        self, request: _AnnotationLookupRequest, phash_to_ids: dict[str, list[int]]
+    ) -> None:
+        # Several pHashes can resolve the same ID. Invalidation counts must
+        # describe unique cached images, including all versions of each pHash.
+        cutoffs_by_id: dict[int, int] = {}
+        for phash, ids in phash_to_ids.items():
+            cutoff = request.edit_cutoffs.get(phash)
+            if cutoff is not None:
+                for image_id in ids:
+                    cutoffs_by_id[image_id] = max(cutoffs_by_id.get(image_id, cutoff), cutoff)
+        index = self._get_all_images_index()
+        invalidated = 0
+        edited = 0
+        cached_count = 0
+        invalidated_ids: list[int] = []
+        for image_id, cutoff in cutoffs_by_id.items():
+            cached = index.get(image_id)
+            if cached is None:
+                continue
+            cached_count += 1
+            if self._annotation_edited_at.get(image_id, 0) > cutoff:
+                edited += 1
+                continue
+            for key in (*self._ANNOTATION_CACHE_KEYS, *self._ANNOTATION_REVIEW_CACHE_KEYS):
+                cached.pop(key, None)
+            self._annotation_versions[image_id] = self._annotation_versions.get(image_id, 0) + 1
+            self._annotation_invalidated_ids.add(image_id)
+            invalidated += 1
+            invalidated_ids.append(image_id)
+        if self._current_image_id is not None and self._current_image_id in invalidated_ids:
+            self.current_image_data_changed.emit(index[self._current_image_id])
+        logger.info(
+            f"実行後の注釈キャッシュ無効化: pHash {len(request.edit_cutoffs)}件、"
+            f"ID 解決 {len(cutoffs_by_id)}件、検索キャッシュ {cached_count}件、"
+            f"無効化 {invalidated}件、後続の編集優先 {edited}件"
+        )
+        if cutoffs_by_id:
+            self.execution_annotations_invalidated.emit(invalidated_ids)
+
+    def _apply_annotation_load(
+        self, request: _AnnotationLoadRequest, annotations: dict[str, Any] | None
+    ) -> None:
+        if (
+            request.context_version != self._annotation_context_version
+            or request.selection_version != self._annotation_selection_version
+            or request.image_id != self._current_image_id
+            or request.annotation_version != self._annotation_versions.get(request.image_id, 0)
+            or self._get_all_images_index().get(request.image_id) is not request.cached
+        ):
+            logger.debug(f"古い注釈再取得結果を破棄: image_id={request.image_id}、反映 0件")
+            return
+        if not annotations:
+            logger.warning(f"注釈再取得: image_id={request.image_id}、取得 0件、反映 0件")
+            return
+        # Restrict the merge to annotation keys even if a repository substitute
+        # supplies extra metadata. Processed resolution and paths stay intact.
+        request.cached.update(
+            {key: annotations[key] for key in self._ANNOTATION_CACHE_KEYS if key in annotations}
+        )
+        self._annotation_invalidated_ids.discard(request.image_id)
+        self.current_image_data_changed.emit(request.cached)
+        logger.info(f"注釈再取得: image_id={request.image_id}、取得 1件、反映 1件")
 
     def refresh_images(self, image_ids: list[int]) -> None:
         """
