@@ -10,9 +10,12 @@ Qt-free: GUI への変更通知は WorkerService (Qt 層) が ``job_ledger_chang
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import datetime, timedelta
 from enum import Enum
+from time import monotonic
+
+from .annotation_progress import AnnotationPhase, AnnotationProgress
 
 # ADR 0066 §5 / Issue #754: model installer 用 job_type。
 # OperationType.MODEL_INSTALL (gui/services/operation_events.py) と同値で、
@@ -48,6 +51,7 @@ class JobStatus(Enum):
     """Ledger-visible lifecycle status of one job (ADR 0066 §1)."""
 
     RUNNING = "running"
+    CANCELING = "canceling"
     QUEUED = "queued"
     FINISHED = "finished"
     FAILED = "failed"
@@ -64,13 +68,13 @@ class StageProgress:
     """実行中ジョブのステージ (アノテーション種別) 別進捗 (Issue #805 / DS JobsScreen)。
 
     DS の per-stage ProgressBar カード 1 行ぶんに対応する。すべて実データ由来で、
-    捏造値は持たない (集計不能な値は ``percentage=0`` / ``detail=""`` で表す)。
+    捏造値は持たない (集計不能な値は ``percentage=None`` / ``detail="実行状況不明"``)。
 
     Attributes:
         stage: ステージ表示ラベル ("TAGS" / "CAPTION" / "SCORE" / "RATING" / "ANNOTATE")。
         model_name: 表示モデル名。
         meta: 補助メタ ("OpenAI · api" / "local" 等、provider + 経路)。
-        percentage: 進捗率 (0-100)。処理済み画像数 / 総数から算出。
+        percentage: 進捗率 (0-100)、詳細不明時は None。
         detail: 右端の done テキスト ("6 / 9" / "失敗" 等)。
         tone: 表示トーン ("ok" 完了 / "info" 実行中 / "err" 失敗)。
     """
@@ -78,7 +82,7 @@ class StageProgress:
     stage: str
     model_name: str
     meta: str
-    percentage: int
+    percentage: int | None
     detail: str
     tone: str
 
@@ -140,6 +144,7 @@ class JobEntry:
     summary: str = ""
     # Issue #805: 実行中ジョブのステージ別進捗 (terminal 後は据え置き、UI は実行中のみ表示)。
     stage_progress: list[StageProgress] = field(default_factory=list)
+    annotation_progress: AnnotationProgress | None = None
 
 
 def build_stage_progress(
@@ -150,6 +155,7 @@ def build_stage_progress(
     finished: bool = False,
     completed_keys: set[str] | None = None,
     errored_keys: set[str] | None = None,
+    progress_unknown: bool = False,
 ) -> list[StageProgress]:
     """選択モデル群から DS JobsScreen 用のステージ別進捗を構築する (Qt-free)。
 
@@ -174,7 +180,11 @@ def build_stage_progress(
     errored = errored_keys or set()
     running_pct = _ratio_to_percentage(processed_count, total_count)
     detail_progress = f"{processed_count} / {total_count}" if total_count > 0 else ""
-    detail_done = f"{total_count} / {total_count}" if total_count > 0 else "完了"
+    detail_done = (
+        "結果取得済み"
+        if progress_unknown
+        else (f"{total_count} / {total_count}" if total_count > 0 else "完了")
+    )
 
     rows: list[StageProgress] = []
     for model in models:
@@ -186,7 +196,14 @@ def build_stage_progress(
                 rows.append(StageProgress(stage, model.model_name, meta, 100, detail_done, "ok"))
             else:
                 rows.append(
-                    StageProgress(stage, model.model_name, meta, running_pct, detail_progress, "info")
+                    StageProgress(
+                        stage,
+                        model.model_name,
+                        meta,
+                        None if progress_unknown else running_pct,
+                        "実行状況不明" if progress_unknown else detail_progress,
+                        "info",
+                    )
                 )
     rows.sort(
         key=lambda row: _STAGE_ORDER.index(row.stage) if row.stage in _STAGE_ORDER else len(_STAGE_ORDER)
@@ -305,6 +322,15 @@ class JobLedgerService:
         entry.status = status
         entry.summary = summary
         entry.finished_at = datetime.now()
+        if entry.annotation_progress is not None:
+            phase = {
+                JobStatus.FINISHED: AnnotationPhase.COMPLETED,
+                JobStatus.FAILED: AnnotationPhase.FAILED,
+                JobStatus.CANCELED: AnnotationPhase.CANCELED,
+            }[status]
+            entry.annotation_progress = replace(
+                entry.annotation_progress, phase=phase, stopped_at=monotonic()
+            )
         return entry
 
     def set_stage_progress(self, job_id: str, stages: list[StageProgress]) -> JobEntry | None:
@@ -318,9 +344,15 @@ class JobLedgerService:
             更新後の JobEntry。未登録の job_id なら None。
         """
         entry = self._entries.get(job_id)
-        if entry is None:
+        if entry is None or entry.status.is_terminal:
             return None
         entry.stage_progress = stages
+        return entry
+
+    def set_annotation_progress(self, job_id: str, progress: AnnotationProgress) -> JobEntry | None:
+        entry = self._entries.get(job_id)
+        if entry is not None and not entry.status.is_terminal:
+            entry.annotation_progress = progress
         return entry
 
     def summary(self, *, now: datetime | None = None) -> JobsSummary:
@@ -336,7 +368,7 @@ class JobLedgerService:
         window_start = reference - timedelta(days=_DONE_WINDOW_DAYS)
         running = queued = done_7d = failed_7d = 0
         for entry in self._entries.values():
-            if entry.status is JobStatus.RUNNING:
+            if entry.status in {JobStatus.RUNNING, JobStatus.CANCELING}:
                 running += 1
             elif entry.status is JobStatus.QUEUED:
                 queued += 1

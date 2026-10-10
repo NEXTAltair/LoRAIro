@@ -9,6 +9,7 @@ from typing import TYPE_CHECKING, ClassVar
 
 from PySide6.QtCore import QObject, Signal
 
+from ...services.annotation_progress import AnnotationProgress
 from ...utils.log import logger
 
 if TYPE_CHECKING:
@@ -35,6 +36,7 @@ class WorkerProgress:
     current_item: str = ""
     processed_count: int = 0
     total_count: int = 0
+    annotation_progress: AnnotationProgress | None = None
 
 
 class CancellationController:

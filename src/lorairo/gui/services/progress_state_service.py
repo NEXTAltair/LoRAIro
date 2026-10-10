@@ -11,6 +11,10 @@ from typing import Any
 from loguru import logger
 from PySide6.QtWidgets import QStatusBar
 
+from lorairo.services.annotation_progress import AnnotationProgress
+
+from ..widgets.annotation_progress_widget import AnnotationProgressWidget
+
 
 class ProgressStateService:
     """進捗状態管理サービス
@@ -28,6 +32,9 @@ class ProgressStateService:
             status_bar: ステータスバー（進捗表示に使用）
         """
         self.status_bar = status_bar
+        self._annotation_widget: AnnotationProgressWidget | None = None
+        self._annotation_worker_id: str | None = None
+        self._annotation_started_at = -1.0
 
     # ============================================================
     # バッチ登録進捗管理
@@ -113,6 +120,10 @@ class ProgressStateService:
             return
 
         try:
+            annotation_progress = getattr(progress, "annotation_progress", None)
+            if isinstance(annotation_progress, AnnotationProgress):
+                self._show_annotation_progress(worker_id, annotation_progress)
+                return
             # WorkerProgress (gui.workers.base) 形式: percentage / status_message / processed_count
             if hasattr(progress, "percentage") and hasattr(progress, "status_message"):
                 detail = ""
@@ -141,6 +152,21 @@ class ProgressStateService:
 
         except Exception as e:
             logger.warning(f"進捗更新処理エラー: {e}")
+
+    def _show_annotation_progress(self, worker_id: str, progress: AnnotationProgress) -> None:
+        if self.status_bar is None:
+            return
+        if worker_id != self._annotation_worker_id:
+            if progress.started_at < self._annotation_started_at:
+                return
+            self._annotation_worker_id = worker_id
+            self._annotation_started_at = progress.started_at
+        if isinstance(self.status_bar, QStatusBar):
+            if self._annotation_widget is None:
+                self._annotation_widget = AnnotationProgressWidget(self.status_bar)
+                self.status_bar.addPermanentWidget(self._annotation_widget, 1)
+            self._annotation_widget.set_progress(progress)
+        self.status_bar.showMessage(progress.phase.value)
 
     def on_worker_batch_progress(self, worker_id: str, current: int, total: int, filename: str) -> None:
         """Workerバッチ進捗更新時のステータスバー表示

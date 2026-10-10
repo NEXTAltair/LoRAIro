@@ -1,15 +1,16 @@
 # src/lorairo/services/worker_service.py
 
 import uuid
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-from PySide6.QtCore import QObject, QSize, Signal
+from PySide6.QtCore import QObject, QSize, Signal, Slot
 
 from ...annotation.annotation_runner import AnnotationRunner
 from ...database.db_manager import ImageDatabaseManager
 from ...filesystem import FileSystemManager
+from ...services.annotation_progress import AnnotationPhase, AnnotationProgress
 from ...services.job_ledger_service import JobLedgerService, JobStatus
 from ...services.model_registry_protocol import local_ml_model_names
 from ...services.search_models import SearchConditions
@@ -96,6 +97,9 @@ class WorkerService(QObject):
     operation_event = Signal(object)  # WorkerOperationEvent
     job_ledger_changed = Signal()  # ADR 0066: 同期ジョブ台帳の変更通知
 
+    _annotation_progress_received = Signal(str, object)
+    _annotation_stages_received = Signal(str, object)
+
     # === 全体管理シグナル ===
     active_worker_count_changed = Signal(int)
     all_workers_finished = Signal()
@@ -117,6 +121,9 @@ class WorkerService(QObject):
         # 通常は worker_started の同期登録が先行するため未使用だが、登録順に依存しない
         # 安全網として、登録時に flush する (Codex P2)。
         self._pending_stage_progress: dict[str, Any] = {}
+        self._pending_annotation_progress: dict[str, AnnotationProgress] = {}
+        self._annotation_progress_received.connect(self._on_annotation_progress)
+        self._annotation_stages_received.connect(self._on_annotation_stage_progress)
 
         # シングルトンワーカー管理
         self.current_search_worker_id: str | None = None
@@ -272,11 +279,11 @@ class WorkerService(QObject):
 
         # 進捗シグナル接続
         worker.progress_updated.connect(
-            lambda progress: self.worker_progress_updated.emit(worker_id, progress)
+            lambda progress: self._annotation_progress_received.emit(worker_id, progress)
         )
         # Issue #805: ステージ別進捗を同期ジョブ台帳へ反映 (DS JobsScreen per-stage カード)
         worker.stage_progress_updated.connect(
-            lambda stages: self._on_annotation_stage_progress(worker_id, stages)
+            lambda stages: self._annotation_stages_received.emit(worker_id, stages)
         )
 
         # Issue #803 (Codex P2): dry-run は実作業を一切行わない契約のため、未インストール
@@ -338,7 +345,7 @@ class WorkerService(QObject):
         """
         if self._cancel_queued_gpu_job(worker_id):
             return True
-        return self.worker_manager.cancel_worker(worker_id)
+        return self._request_annotation_cancel(worker_id)
 
     # === Model Install (Issue #754, ADR 0066 §5) ===
 
@@ -407,6 +414,32 @@ class WorkerService(QObject):
         if self.job_ledger.update(worker_id, summary=progress.status_message) is not None:
             self.job_ledger_changed.emit()
 
+    @Slot(str, object)
+    def _on_annotation_progress(self, worker_id: str, progress: WorkerProgress) -> None:
+        snapshot = progress.annotation_progress
+        if snapshot is not None:
+            current = self.job_ledger.get(worker_id)
+            if (
+                current is not None
+                and current.status is JobStatus.CANCELING
+                and not snapshot.phase.is_terminal
+            ):
+                snapshot = replace(snapshot, phase=AnnotationPhase.CANCELING)
+                progress = replace(
+                    progress, status_message=snapshot.phase.value, annotation_progress=snapshot
+                )
+            entry = self.job_ledger.set_annotation_progress(worker_id, snapshot)
+            if entry is None:
+                self._pending_annotation_progress[worker_id] = snapshot
+            elif entry.status.is_terminal:
+                return
+            else:
+                if snapshot.phase is AnnotationPhase.CANCELING:
+                    self.job_ledger.update(worker_id, status=JobStatus.CANCELING)
+                self.job_ledger_changed.emit()
+        self.worker_progress_updated.emit(worker_id, progress)
+
+    @Slot(str, object)
     def _on_annotation_stage_progress(self, worker_id: str, stages: Any) -> None:
         """アノテーションのステージ別進捗を同期ジョブ台帳へ反映する (Issue #805)。
 
@@ -703,7 +736,26 @@ class WorkerService(QObject):
         """
         if self._cancel_queued_gpu_job(worker_id):
             return True
-        return self.worker_manager.cancel_worker(worker_id)
+        return self._request_annotation_cancel(worker_id)
+
+    def _request_annotation_cancel(self, worker_id: str) -> bool:
+        entry = self.job_ledger.get(worker_id)
+        if worker_id.startswith("annotation_"):
+            requested = self.worker_manager.request_cancel_worker(worker_id)
+        else:
+            requested = self.worker_manager.cancel_worker(worker_id)
+        if requested and entry is not None and not entry.status.is_terminal:
+            snapshot = entry.annotation_progress
+            if snapshot is not None:
+                self._on_annotation_progress(
+                    worker_id,
+                    WorkerProgress(
+                        0,
+                        AnnotationPhase.CANCELING.value,
+                        annotation_progress=replace(snapshot, phase=AnnotationPhase.CANCELING),
+                    ),
+                )
+        return requested
 
     # === プライベートメソッド ===
 
@@ -969,6 +1021,11 @@ class WorkerService(QObject):
         pending_stages = self._pending_stage_progress.pop(context.worker_id, None)
         if pending_stages is not None:
             self.job_ledger.set_stage_progress(context.worker_id, pending_stages)
+        pending_progress = self._pending_annotation_progress.pop(context.worker_id, None)
+        if pending_progress is not None:
+            self.job_ledger.set_annotation_progress(context.worker_id, pending_progress)
+            if pending_progress.phase is AnnotationPhase.CANCELING:
+                self.job_ledger.update(context.worker_id, status=JobStatus.CANCELING)
         self.job_ledger_changed.emit()
 
     # === GPU 直列キュー (ADR 0066 §6) ===
@@ -1109,8 +1166,21 @@ class WorkerService(QObject):
             return
         # Issue #805: 未 flush のステージ進捗バッファが残っていれば破棄 (leak 防止)。
         self._pending_stage_progress.pop(event.worker_id, None)
+        self._pending_annotation_progress.pop(event.worker_id, None)
         status, summary = self._ledger_status_for_outcome(outcome, event)
-        if self.job_ledger.finish(event.worker_id, status, summary) is not None:
+        entry = self.job_ledger.finish(event.worker_id, status, summary)
+        if entry is not None:
+            if entry.annotation_progress is not None:
+                if status is JobStatus.FINISHED:
+                    entry.summary = entry.annotation_progress.result_summary
+                self.worker_progress_updated.emit(
+                    event.worker_id,
+                    WorkerProgress(
+                        100 if status is JobStatus.FINISHED else 0,
+                        entry.annotation_progress.phase.value,
+                        annotation_progress=entry.annotation_progress,
+                    ),
+                )
             self.job_ledger_changed.emit()
 
     @staticmethod
