@@ -35,12 +35,14 @@ from lorairo.services.job_ledger_service import (
     StageProgress,
 )
 
+from .annotation_progress_widget import AnnotationProgressWidget
 from .ds_card import DsCard
 from .ds_chip import DsChip
 
 _COLUMNS = ("種別", "タイトル", "状態", "開始", "終了", "サマリー", "操作")
 _STATUS_LABELS = {
     JobStatus.RUNNING: "実行中",
+    JobStatus.CANCELING: "停止待ち",
     JobStatus.QUEUED: "待機中",
     JobStatus.FINISHED: "完了",
     JobStatus.FAILED: "失敗",
@@ -50,6 +52,7 @@ _STATUS_LABELS = {
 # DS v12 JobsScreen 履歴 (Issue #790): 状態 → chip 文法の kind
 _STATUS_CHIP_KINDS: dict[JobStatus, theme.ChipKind] = {
     JobStatus.RUNNING: "info",
+    JobStatus.CANCELING: "warn",
     JobStatus.QUEUED: "neutral",
     JobStatus.FINISHED: "ok",
     JobStatus.FAILED: "err",
@@ -218,7 +221,11 @@ class SyncJobLedgerWidget(DsCard):
             table.setItem(row, 5, self._build_summary_item(entry.summary, entry.status))
 
             if not entry.status.is_terminal:
-                table.setCellWidget(row, len(_COLUMNS) - 1, self._build_cancel_button(entry.job_id))
+                button = self._build_cancel_button(entry.job_id)
+                button.setEnabled(entry.status is not JobStatus.CANCELING)
+                if entry.status is JobStatus.CANCELING:
+                    button.setText("停止待ち")
+                table.setCellWidget(row, len(_COLUMNS) - 1, button)
 
     def _build_badge(self, job_type: str) -> QLabel:
         """種別バッジ (DS TypeBadge 文法) を生成する。"""
@@ -277,7 +284,9 @@ class SyncJobLedgerWidget(DsCard):
         """
         self._clear_running_stages()
         running_with_stages = [
-            entry for entry in entries if not entry.status.is_terminal and entry.stage_progress
+            entry
+            for entry in entries
+            if not entry.status.is_terminal and (entry.stage_progress or entry.annotation_progress)
         ]
         for entry in running_with_stages:
             self._running_layout.addWidget(self._build_stage_card(entry))
@@ -291,6 +300,8 @@ class SyncJobLedgerWidget(DsCard):
                 continue
             widget = item.widget()
             if widget is not None:
+                for progress_widget in widget.findChildren(AnnotationProgressWidget):
+                    progress_widget.stop()
                 # deleteLater は遅延削除のため、即座に親子関係を切って再描画と
                 # findChild の整合を保つ。
                 widget.setParent(None)
@@ -310,7 +321,13 @@ class SyncJobLedgerWidget(DsCard):
         grid.setHorizontalSpacing(8)
         grid.setVerticalSpacing(3)
         grid.setColumnStretch(2, 1)
-        for row, stage in enumerate(entry.stage_progress):
+        offset = 0
+        if entry.annotation_progress is not None:
+            progress_widget = AnnotationProgressWidget(body)
+            progress_widget.set_progress(entry.annotation_progress)
+            grid.addWidget(progress_widget, 0, 0, 1, 4)
+            offset = 1
+        for row, stage in enumerate(entry.stage_progress, start=offset):
             grid.addWidget(self._build_stage_label(stage.stage), row, 0)
             grid.addWidget(self._build_model_label(stage), row, 1)
             grid.addWidget(self._build_stage_bar(stage), row, 2)
@@ -340,8 +357,11 @@ class SyncJobLedgerWidget(DsCard):
     def _build_stage_bar(self, stage: StageProgress) -> QProgressBar:
         """ステージ進捗バー (tone により chunk 色を変える) を生成する。"""
         bar = QProgressBar(self._running_container)
-        bar.setRange(0, 100)
-        bar.setValue(stage.percentage)
+        if stage.percentage is None:
+            bar.setRange(0, 0)
+        else:
+            bar.setRange(0, 100)
+            bar.setValue(stage.percentage)
         bar.setTextVisible(False)
         bar.setFixedHeight(10)
         # ok tone は theme の共有定数を使う (Issue #1105 項目7)。info/err は対応する
