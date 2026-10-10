@@ -129,37 +129,19 @@ class TestThumbnailSelectorWidgetLoadImages:
         assert widget._explicit_path_items == []
         assert widget.thumbnail_items == []
 
-    @patch("lorairo.gui.widgets.thumbnail_selector_widget.QPixmap")
-    def test_load_thumbnails_from_paths_uses_direct_path(self, mock_pixmap_class, widget):
-        """staging用の明示パス表示は渡されたパスを直接使用する"""
-        # モックPixmapの設定
-        mock_pixmap = Mock()
-        mock_pixmap.scaled.return_value = mock_pixmap
-        mock_pixmap.rect.return_value = Mock(width=lambda: 128, height=lambda: 128)
-        mock_pixmap.isNull.return_value = False  # 正常なPixmapをシミュレート
-        mock_pixmap_class.return_value = mock_pixmap
-
-        # GUI処理をモック化してテストを高速化
-        with (
-            patch("lorairo.gui.widgets.thumbnail_selector_widget.ThumbnailItem") as mock_item_class,
-            patch.object(widget.scene, "addItem") as mock_add_item,
-        ):
-            mock_item = Mock()
-            mock_item_class.return_value = mock_item
-
-            widget.load_thumbnails_from_paths([("test_image.jpg", 123)])
-
-            # QPixmapがパスで呼び出されることを確認
-            mock_pixmap_class.assert_called_with("test_image.jpg")
-            mock_pixmap.scaled.assert_called_once_with(
-                widget.thumbnail_size,
-                Qt.AspectRatioMode.KeepAspectRatio,
-                Qt.TransformationMode.SmoothTransformation,
-            )
-
-            # ThumbnailItemが作成されsceneに追加されることを確認
-            mock_item_class.assert_called_once()
-            mock_add_item.assert_called_once_with(mock_item)
+    def test_load_thumbnails_from_paths_uses_direct_path(self, widget, qtbot, tmp_path):
+        """Explicit paths are decoded by the worker and displayed without database access."""
+        path = tmp_path / "test_image.png"
+        image = QImage(32, 16, QImage.Format.Format_RGB32)
+        image.fill(Qt.GlobalColor.red)
+        assert image.save(str(path))
+        widget.load_thumbnails_from_paths([(str(path), 123)])
+        qtbot.waitUntil(lambda: not widget._explicit_pending, timeout=3000)
+        item = widget.thumbnail_items[0]
+        assert item.image_path == path
+        assert item.image_id == 123
+        assert item.pixmap.size() == QSize(128, 64)
+        assert item.pixmap.toImage().pixelColor(0, 0).red() == 255
 
 
 class TestThumbnailSelectorWidgetResponsibilitySeparation:

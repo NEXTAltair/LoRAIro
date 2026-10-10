@@ -20,7 +20,7 @@ from collections.abc import Callable
 from typing import TYPE_CHECKING, cast
 
 from PySide6.QtCore import QSize, Qt, QTimer, Signal, Slot
-from PySide6.QtGui import QPixmap, QResizeEvent, QShowEvent
+from PySide6.QtGui import QResizeEvent, QShowEvent
 from PySide6.QtWidgets import QFrame, QGraphicsView, QSplitter, QWidget
 
 from ...gui.designer.StagingWidget_ui import Ui_StagingWidget
@@ -83,9 +83,6 @@ class StagingWidget(QWidget):
         # ステージング集合の SSoT (既定は自前。共有時は set_staging_state_manager で差替)
         self._staging_state = StagingStateManager(self)
 
-        # サムネイルキャッシュ（表示用の縮小Pixmap、view ローカル）
-        self._thumbnail_cache: dict[int, QPixmap] = {}
-
         # DatasetStateManager への参照（パス解決フォールバック用、view ローカル保持）
         self._dataset_state_manager: DatasetStateManager | None = None
 
@@ -126,7 +123,6 @@ class StagingWidget(QWidget):
     @Slot()
     def _on_state_cleared(self) -> None:
         """SSoT のクリアを表示へ反映し、ウィジェットシグナルとして再 emit する。"""
-        self._thumbnail_cache.clear()
         self._refresh_staging_list_ui()
         self.staging_cleared.emit()
 

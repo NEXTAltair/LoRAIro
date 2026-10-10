@@ -3,11 +3,13 @@
 from __future__ import annotations
 
 import uuid
+from collections import OrderedDict
 from collections.abc import Callable
 from pathlib import Path
+from threading import Event
 from typing import TYPE_CHECKING, Any, cast
 
-from PySide6.QtCore import QPoint, QSize, Qt, QTimer, Signal, Slot
+from PySide6.QtCore import QPoint, QSize, Qt, QThreadPool, QTimer, Signal, Slot
 from PySide6.QtGui import QPixmap, QResizeEvent
 from PySide6.QtWidgets import (
     QGraphicsScene,
@@ -26,6 +28,12 @@ from .. import theme
 from ..cache.thumbnail_page_cache import ThumbnailPageCache
 from ..state.dataset_state import DatasetStateManager
 from ..state.pagination_state import PaginationStateManager
+from ..workers.explicit_thumbnail_worker import (
+    ExplicitThumbnailRequest,
+    ExplicitThumbnailResult,
+    ExplicitThumbnailWorker,
+    ThumbnailKey,
+)
 from ..workers.search_worker import SearchResult
 from ..workers.terminal import CancelReason
 from ..workers.thumbnail_worker import ThumbnailLoadResult
@@ -127,7 +135,18 @@ class ThumbnailSelectorWidget(QWidget, Ui_ThumbnailSelectorWidget):
 
         # 表示中アイテム状態
         self.thumbnail_items: list[ThumbnailItem] = []  # ThumbnailItem のリスト
-        self._explicit_path_items: list[tuple[Path, int]] = []  # stagingなど小規模明示パス表示用
+        self._explicit_path_items: list[tuple[Path, int]] = []
+        self._explicit_path_mode = False
+        self._explicit_items_by_id: dict[int, ThumbnailItem] = {}
+        self._explicit_thumbnail_cache: OrderedDict[ThumbnailKey, QPixmap] = OrderedDict()
+        self._explicit_cache_limit = 500
+        self._explicit_thumbnail_size = QSize(self.thumbnail_size)
+        self._explicit_request_seq = 0
+        self._explicit_pending: dict[int, ExplicitThumbnailRequest] = {}
+        self._explicit_tasks: dict[str, ExplicitThumbnailWorker] = {}
+        # The global pool outlives the view: deleting a widget must not wait for image I/O.
+        self._explicit_shutdown = Event()
+        self.destroyed.connect(self._explicit_shutdown.set)
         self.last_selected_item: ThumbnailItem | None = None
 
         # コンテンツ準拠の推奨高さ (staging 用途のオプトイン、#1097)。
@@ -227,6 +246,9 @@ class ThumbnailSelectorWidget(QWidget, Ui_ThumbnailSelectorWidget):
 
         self._cancel_pending_thumbnail_requests()
         self.page_cache.clear()
+        self._clear_explicit_thumbnail_requests()
+        self._explicit_items_by_id.clear()
+        self._explicit_path_mode = False
         self._explicit_path_items.clear()
         self.thumbnail_items.clear()
         self._prefetch_queue.clear()
@@ -495,6 +517,10 @@ class ThumbnailSelectorWidget(QWidget, Ui_ThumbnailSelectorWidget):
         page_pixmap_map = dict(cached)
         page_image_ids = self.pagination_state.get_page_image_ids(page)
 
+        self._clear_explicit_thumbnail_requests()
+        self._explicit_items_by_id.clear()
+        self._explicit_path_mode = False
+        self.last_selected_item = None
         self.scene.clear()
         self.thumbnail_items.clear()
         self._explicit_path_items.clear()
@@ -646,6 +672,7 @@ class ThumbnailSelectorWidget(QWidget, Ui_ThumbnailSelectorWidget):
             logger.debug("ページネーション未初期化のため一覧の再読込をスキップ")
             return
         self.page_cache.clear()
+        self._clear_explicit_thumbnail_requests()
         self._sync_active_search_result_from_dataset_state()
         self._display_or_request_page(self.pagination_state.current_page, cancel_previous=True)
 
@@ -725,6 +752,7 @@ class ThumbnailSelectorWidget(QWidget, Ui_ThumbnailSelectorWidget):
         大きな状態変更時に呼び出される。
         """
         self.page_cache.clear()
+        self._clear_explicit_thumbnail_requests()
         self._cancel_pending_thumbnail_requests()
         self._prefetch_queue.clear()
         self._prefetch_request_ids.clear()
@@ -745,38 +773,127 @@ class ThumbnailSelectorWidget(QWidget, Ui_ThumbnailSelectorWidget):
         }
 
     def _display_explicit_path_items(self) -> None:
-        """stagingなど小規模な明示パスリストからサムネイル表示を構築する。"""
-        self.scene.clear()
-        self.thumbnail_items.clear()
+        """Diff by ID/path, retaining items and requesting only missing scaled images."""
+        size_changed = self._explicit_thumbnail_size != self.thumbnail_size
+        if size_changed:
+            self._clear_explicit_thumbnail_requests()
+            self._explicit_thumbnail_size = QSize(self.thumbnail_size)
 
-        if not self._explicit_path_items:
-            self._update_image_count_display()
-            if self._content_height_enabled:
-                self.updateGeometry()
-            return
+        desired = {image_id: path for path, image_id in self._explicit_path_items}
+        self._remove_explicit_items(set(desired))
 
-        button_width = self.thumbnail_size.width()
-        grid_width = max(self.scrollAreaThumbnails.viewport().width(), self.thumbnail_size.width())
-        column_count = max(grid_width // button_width, 1)
+        requests: list[ExplicitThumbnailRequest] = []
+        placeholder: QPixmap | None = None
+        for image_path, image_id in self._explicit_path_items:
+            item = self._explicit_items_by_id.get(image_id)
+            if item is not None and item.image_path == image_path and not size_changed:
+                continue
+            if item is not None:
+                old_key = self._explicit_key(item.image_path)
+                self._explicit_thumbnail_cache.pop(old_key, None)
+                self._explicit_pending.pop(image_id, None)
+            key = self._explicit_key(image_path)
+            pixmap = self._explicit_thumbnail_cache.get(key)
+            if pixmap is None:
+                if placeholder is None:
+                    placeholder = QPixmap(self.thumbnail_size)
+                    placeholder.fill(Qt.GlobalColor.gray)
+                pixmap = placeholder
+                self._explicit_request_seq += 1
+                request = ExplicitThumbnailRequest(image_id, key, self._explicit_request_seq)
+                self._explicit_pending[image_id] = request
+                requests.append(request)
+            else:
+                self._explicit_thumbnail_cache.move_to_end(key)
+            if item is None:
+                item = ThumbnailItem(pixmap, image_path, image_id, self)
+                self.scene.addItem(item)
+                self._explicit_items_by_id[image_id] = item
+            else:
+                item.image_path = image_path
+                self._set_explicit_item_pixmap(item, pixmap)
+                item.setToolTip("")
+                item.refresh_review_badge()
 
-        for index, (image_path, image_id) in enumerate(self._explicit_path_items):
-            pixmap = QPixmap(str(image_path)).scaled(
-                self.thumbnail_size,
-                Qt.AspectRatioMode.KeepAspectRatio,
-                Qt.TransformationMode.SmoothTransformation,
-            )
+        self.thumbnail_items = [
+            self._explicit_items_by_id[image_id] for _, image_id in self._explicit_path_items
+        ]
+        self._layout_explicit_path_items()
+        self._update_image_count_display()
+        if requests:
+            self._start_explicit_thumbnail_requests(requests)
+
+    def _start_explicit_thumbnail_requests(self, requests: list[ExplicitThumbnailRequest]) -> None:
+        task_id = uuid.uuid4().hex
+        task = ExplicitThumbnailWorker(task_id, requests, self._explicit_shutdown)
+        task.signals.loaded.connect(self._on_explicit_thumbnails_loaded, Qt.ConnectionType.QueuedConnection)
+        task.signals.finished.connect(self._on_explicit_task_finished, Qt.ConnectionType.QueuedConnection)
+        # Keep the signal source alive until the queued completion is delivered.
+        self._explicit_tasks[task_id] = task
+        QThreadPool.globalInstance().start(task)
+
+    def _explicit_key(self, path: Path) -> ThumbnailKey:
+        return path, self.thumbnail_size.width(), self.thumbnail_size.height()
+
+    def _remove_explicit_items(self, desired_ids: set[int]) -> None:
+        for image_id in self._explicit_items_by_id.keys() - desired_ids:
+            item = self._explicit_items_by_id.pop(image_id)
+            self._explicit_pending.pop(image_id, None)
+            if self.last_selected_item is item:
+                self.last_selected_item = None
+            self.scene.removeItem(item)
+            item.deleteLater()
+
+    def _clear_explicit_thumbnail_requests(self) -> None:
+        for task in self._explicit_tasks.values():
+            task.canceled.set()
+        self._explicit_pending.clear()
+        self._explicit_thumbnail_cache.clear()
+        self._explicit_thumbnail_size = QSize()
+
+    @staticmethod
+    def _set_explicit_item_pixmap(item: ThumbnailItem, pixmap: QPixmap) -> None:
+        item.prepareGeometryChange()
+        item.pixmap = pixmap
+        item.update()
+
+    @Slot(list)
+    def _on_explicit_thumbnails_loaded(self, results: list[ExplicitThumbnailResult]) -> None:
+        """Accept only the current per-image token; removed/replaced results cannot revive it."""
+        for result in results:
+            request = result.request
+            if self._explicit_pending.get(request.image_id) != request:
+                continue
+            self._explicit_pending.pop(request.image_id)
+            item = self._explicit_items_by_id.get(request.image_id)
+            if item is None or self._explicit_key(item.image_path) != request.key:
+                continue
+            pixmap = QPixmap.fromImage(result.image)
             if pixmap.isNull():
-                logger.warning(f"Failed to load staging thumbnail from image path: {image_path}")
                 pixmap = QPixmap(self.thumbnail_size)
                 pixmap.fill(Qt.GlobalColor.gray)
-            self._add_thumbnail_item_from_cache(image_path, image_id, index, column_count, pixmap)
+            self._explicit_thumbnail_cache[request.key] = pixmap
+            self._explicit_thumbnail_cache.move_to_end(request.key)
+            while len(self._explicit_thumbnail_cache) > self._explicit_cache_limit:
+                self._explicit_thumbnail_cache.popitem(last=False)
+            self._set_explicit_item_pixmap(item, pixmap)
 
-        row_count = (len(self._explicit_path_items) + column_count - 1) // column_count
-        scene_height = row_count * self.thumbnail_size.height()
-        self.scene.setSceneRect(0, 0, grid_width, scene_height)
-        self._update_image_count_display()
+    @Slot(str)
+    def _on_explicit_task_finished(self, task_id: str) -> None:
+        self._explicit_tasks.pop(task_id, None)
+
+    def _layout_explicit_path_items(self) -> None:
+        """Reposition existing items on width changes without decoding or scaling."""
+        column_count = self._current_column_count()
+        grid_width = max(self.scrollAreaThumbnails.viewport().width(), self.thumbnail_size.width())
+        for index, item in enumerate(self.thumbnail_items):
+            item.setPos(
+                (index % column_count) * self.thumbnail_size.width(),
+                (index // column_count) * self.thumbnail_size.height(),
+            )
+        row_count = (len(self.thumbnail_items) + column_count - 1) // column_count
+        self.scene.setSceneRect(0, 0, grid_width, row_count * self.thumbnail_size.height())
         if self._content_height_enabled:
-            # 行数変化を QSplitter へ通知し推奨高さを更新する (#1097)。
             self.updateGeometry()
 
     def _add_thumbnail_item_from_cache(
@@ -1033,22 +1150,20 @@ class ThumbnailSelectorWidget(QWidget, Ui_ThumbnailSelectorWidget):
 
     def load_thumbnails_from_paths(self, items: list[tuple[str, int]]) -> None:
         """
-        ファイルパスとIDの一覧からサムネイルをロードする（stagingなど小規模表示用）。
+        明示パスの差分を表示し、未生成分の読み込み・縮小を非同期で要求する。
 
         Args:
             items: [(stored_path, image_id), ...]
         """
-        self.scene.clear()
-        self.thumbnail_items.clear()
-        self.clear_cache()
-        self._explicit_path_items.clear()
+        if not self._explicit_path_mode:
+            self.clear_thumbnails()
+            self._explicit_path_mode = True
+        self._explicit_path_items = [(Path(path) if path else Path(), image_id) for path, image_id in items]
+        if not items:
+            self._clear_explicit_thumbnail_requests()
         self._active_search_result = None
         if self.pagination_nav:
             self.pagination_nav.setVisible(False)
-
-        for path_str, image_id in items:
-            path = Path(path_str) if path_str else Path()
-            self._explicit_path_items.append((path, image_id))
 
         self._display_explicit_path_items()
         self._update_image_count_display()
@@ -1071,6 +1186,9 @@ class ThumbnailSelectorWidget(QWidget, Ui_ThumbnailSelectorWidget):
         新しい検索結果受信に備える。
         """
         self.scene.clear()
+        self._explicit_items_by_id.clear()
+        self._explicit_path_mode = False
+        self.last_selected_item = None
         self.thumbnail_items.clear()
         self._explicit_path_items.clear()
         self._current_display_page = 1
@@ -1188,14 +1306,17 @@ class ThumbnailSelectorWidget(QWidget, Ui_ThumbnailSelectorWidget):
         - QTimer.timeout Signal (thumbnail.py:183) - リサイズ遅延実行
         - _on_thumbnail_size_changed (thumbnail.py:296) - サムネイルサイズ変更時
         - _on_images_filtered (thumbnail.py:260) - 少量データフィルタ結果表示時
-        検索結果はページキャッシュから再表示する。staging等の明示パス表示は
-        小規模用途として private な明示パスリストから再構築する。
+        検索結果はページキャッシュから再表示する。明示パス表示は既存アイテムを
+        再配置し、サムネイルサイズが変わった場合だけ再生成する。
         """
-        if self.pagination_state and self.page_cache.has_page(self._current_display_page):
+        if self._explicit_path_mode:
+            if self._explicit_thumbnail_size != self.thumbnail_size:
+                self._display_explicit_path_items()
+            else:
+                self._layout_explicit_path_items()
+        elif self.pagination_state and self.page_cache.has_page(self._current_display_page):
             logger.debug(f"ページキャッシュからレイアウト更新: page={self._current_display_page}")
             self._display_page(self._current_display_page)
-        elif self._explicit_path_items:
-            self._display_explicit_path_items()
 
     # === Utility Methods ===
 
