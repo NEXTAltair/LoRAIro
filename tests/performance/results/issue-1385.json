@@ -1,0 +1,478 @@
+{
+  "baseline": {
+    "increments": {
+      "label": "baseline",
+      "platform": "Linux-6.18.33.2-microsoft-standard-WSL2-x86_64-with-glibc2.36",
+      "python": "3.13.15",
+      "qt_version": "6.11.2",
+      "qt_platform": "offscreen",
+      "scope": "synthetic real-image staging; Linux offscreen is not a Windows production measurement",
+      "image_count": 500,
+      "image_size": [
+        768,
+        640
+      ],
+      "formats": {
+        "JPEG": 250,
+        "WEBP": 250
+      },
+      "image_generation_is_timed": false,
+      "manifest_sha256": "0b3937f528c3d2ed4c07f5a02881e21bb0a789df4bdf5303ec0df2e76390bd63",
+      "sources": {
+        "StagingWidget": {
+          "path": "/workspaces/LoRAIro/.agents/worktree/issue-1385-staging-performance/src/lorairo/gui/widgets/staging_widget.py",
+          "sha256": "e4e48312418cf15b786c9aeb42a0a3ef11355718ee2b682c6f07b49ce516bbcb"
+        },
+        "ThumbnailSelectorWidget": {
+          "path": "/workspaces/LoRAIro/.agents/worktree/issue-1385-staging-performance/src/lorairo/gui/widgets/thumbnail_selector_widget.py",
+          "sha256": "3ca64e7aa4bb7b8792396fd7661682cd7a8a731ee4575b82ebb5b53b990ed524"
+        }
+      },
+      "measurements": [
+        {
+          "scenario": "add_100_to_100",
+          "expected_images": 100,
+          "completed_images": 100,
+          "call_ms": 1674.9429290066473,
+          "complete_ms": 1676.2309710029513,
+          "settled_ms": 2068.4864560025744,
+          "max_gui_gap_ms": 1680.3657530108467,
+          "heartbeat_samples": 39,
+          "heartbeat_interval_ms": 10,
+          "queued_input": {
+            "text": "x",
+            "delay_ms": 1676.614154013805,
+            "completed_images": 100
+          },
+          "operations": []
+        },
+        {
+          "scenario": "add_100_to_200",
+          "expected_images": 200,
+          "completed_images": 200,
+          "call_ms": 3146.4959239965538,
+          "complete_ms": 3150.2638060046593,
+          "settled_ms": 3548.6404620023677,
+          "max_gui_gap_ms": 3157.368703003158,
+          "heartbeat_samples": 40,
+          "heartbeat_interval_ms": 10,
+          "queued_input": {
+            "text": "x",
+            "delay_ms": 3150.698393001221,
+            "completed_images": 200
+          },
+          "operations": []
+        },
+        {
+          "scenario": "add_100_to_300",
+          "expected_images": 300,
+          "completed_images": 300,
+          "call_ms": 4957.886103002238,
+          "complete_ms": 4962.2365399991395,
+          "settled_ms": 5351.4642259979155,
+          "max_gui_gap_ms": 4978.351665995433,
+          "heartbeat_samples": 38,
+          "heartbeat_interval_ms": 10,
+          "queued_input": {
+            "text": "x",
+            "delay_ms": 4962.82887099369,
+            "completed_images": 300
+          },
+          "operations": []
+        },
+        {
+          "scenario": "add_100_to_400",
+          "expected_images": 400,
+          "completed_images": 400,
+          "call_ms": 6793.890055996599,
+          "complete_ms": 6799.680598996929,
+          "settled_ms": 7203.046576993074,
+          "max_gui_gap_ms": 6807.060852996074,
+          "heartbeat_samples": 40,
+          "heartbeat_interval_ms": 10,
+          "queued_input": {
+            "text": "x",
+            "delay_ms": 6800.105846996303,
+            "completed_images": 400
+          },
+          "operations": []
+        },
+        {
+          "scenario": "add_100_to_500",
+          "expected_images": 500,
+          "completed_images": 500,
+          "call_ms": 7894.896719997632,
+          "complete_ms": 7902.809589999379,
+          "settled_ms": 8294.994195995969,
+          "max_gui_gap_ms": 7916.531918992405,
+          "heartbeat_samples": 38,
+          "heartbeat_interval_ms": 10,
+          "queued_input": {
+            "text": "x",
+            "delay_ms": 7903.296735996264,
+            "completed_images": 500
+          },
+          "operations": []
+        }
+      ]
+    },
+    "initial-and-resize": {
+      "label": "baseline",
+      "platform": "Linux-6.18.33.2-microsoft-standard-WSL2-x86_64-with-glibc2.36",
+      "python": "3.13.15",
+      "qt_version": "6.11.2",
+      "qt_platform": "offscreen",
+      "scope": "synthetic real-image staging; Linux offscreen is not a Windows production measurement",
+      "image_count": 500,
+      "image_size": [
+        768,
+        640
+      ],
+      "formats": {
+        "JPEG": 250,
+        "WEBP": 250
+      },
+      "image_generation_is_timed": false,
+      "manifest_sha256": "0b3937f528c3d2ed4c07f5a02881e21bb0a789df4bdf5303ec0df2e76390bd63",
+      "sources": {
+        "StagingWidget": {
+          "path": "/workspaces/LoRAIro/.agents/worktree/issue-1385-staging-performance/src/lorairo/gui/widgets/staging_widget.py",
+          "sha256": "e4e48312418cf15b786c9aeb42a0a3ef11355718ee2b682c6f07b49ce516bbcb"
+        },
+        "ThumbnailSelectorWidget": {
+          "path": "/workspaces/LoRAIro/.agents/worktree/issue-1385-staging-performance/src/lorairo/gui/widgets/thumbnail_selector_widget.py",
+          "sha256": "3ca64e7aa4bb7b8792396fd7661682cd7a8a731ee4575b82ebb5b53b990ed524"
+        }
+      },
+      "measurements": [
+        {
+          "scenario": "initial_500",
+          "expected_images": 500,
+          "completed_images": 500,
+          "call_ms": 7993.661357002566,
+          "complete_ms": 8005.322863988113,
+          "settled_ms": 8426.906391992816,
+          "max_gui_gap_ms": 8019.855971986544,
+          "heartbeat_samples": 41,
+          "heartbeat_interval_ms": 10,
+          "queued_input": {
+            "text": "x",
+            "delay_ms": 8005.940989998635,
+            "completed_images": 500
+          },
+          "operations": []
+        },
+        {
+          "scenario": "width_change_500",
+          "expected_images": 500,
+          "completed_images": 500,
+          "call_ms": 0.23383300867863,
+          "complete_ms": 8187.197969004046,
+          "settled_ms": 8560.465346003184,
+          "max_gui_gap_ms": 7919.747043008101,
+          "heartbeat_samples": 64,
+          "heartbeat_interval_ms": 10,
+          "queued_input": {
+            "text": "x",
+            "delay_ms": 6.473124012700282,
+            "completed_images": 500
+          },
+          "operations": []
+        }
+      ]
+    },
+    "interaction": {
+      "label": "baseline",
+      "platform": "Linux-6.18.33.2-microsoft-standard-WSL2-x86_64-with-glibc2.36",
+      "python": "3.13.15",
+      "qt_version": "6.11.2",
+      "qt_platform": "offscreen",
+      "scope": "synthetic real-image staging; Linux offscreen is not a Windows production measurement",
+      "image_count": 500,
+      "image_size": [
+        768,
+        640
+      ],
+      "formats": {
+        "JPEG": 250,
+        "WEBP": 250
+      },
+      "image_generation_is_timed": false,
+      "manifest_sha256": "0b3937f528c3d2ed4c07f5a02881e21bb0a789df4bdf5303ec0df2e76390bd63",
+      "sources": {
+        "StagingWidget": {
+          "path": "/workspaces/LoRAIro/.agents/worktree/issue-1385-staging-performance/src/lorairo/gui/widgets/staging_widget.py",
+          "sha256": "e4e48312418cf15b786c9aeb42a0a3ef11355718ee2b682c6f07b49ce516bbcb"
+        },
+        "ThumbnailSelectorWidget": {
+          "path": "/workspaces/LoRAIro/.agents/worktree/issue-1385-staging-performance/src/lorairo/gui/widgets/thumbnail_selector_widget.py",
+          "sha256": "3ca64e7aa4bb7b8792396fd7661682cd7a8a731ee4575b82ebb5b53b990ed524"
+        }
+      },
+      "measurements": [
+        {
+          "scenario": "initial_500_with_input_scroll_resize",
+          "expected_images": 500,
+          "completed_images": 500,
+          "call_ms": 8166.143506008666,
+          "complete_ms": 8176.142604992492,
+          "settled_ms": 16342.315885005519,
+          "max_gui_gap_ms": 8188.685643995996,
+          "heartbeat_samples": 31,
+          "heartbeat_interval_ms": 10,
+          "queued_input": {
+            "text": "x",
+            "delay_ms": 8176.923435996287,
+            "completed_images": 500
+          },
+          "operations": [
+            {
+              "delay_ms": 8189.6347790025175,
+              "completed_images": 500,
+              "scroll_value": 4437,
+              "width": 720
+            }
+          ]
+        }
+      ]
+    }
+  },
+  "fixed": {
+    "increments": {
+      "label": "fixed",
+      "platform": "Linux-6.18.33.2-microsoft-standard-WSL2-x86_64-with-glibc2.36",
+      "python": "3.13.15",
+      "qt_version": "6.11.2",
+      "qt_platform": "offscreen",
+      "scope": "synthetic real-image staging; Linux offscreen is not a Windows production measurement",
+      "image_count": 500,
+      "image_size": [
+        768,
+        640
+      ],
+      "formats": {
+        "JPEG": 250,
+        "WEBP": 250
+      },
+      "image_generation_is_timed": false,
+      "manifest_sha256": "0b3937f528c3d2ed4c07f5a02881e21bb0a789df4bdf5303ec0df2e76390bd63",
+      "sources": {
+        "StagingWidget": {
+          "path": "/workspaces/LoRAIro/.agents/worktree/issue-1385-staging-thumbnails/src/lorairo/gui/widgets/staging_widget.py",
+          "sha256": "8e7d86c2cb57dbc6aa44068c8e0a70ea6ae9d6d62eabb5e239ac9a61f754aaf4"
+        },
+        "ThumbnailSelectorWidget": {
+          "path": "/workspaces/LoRAIro/.agents/worktree/issue-1385-staging-thumbnails/src/lorairo/gui/widgets/thumbnail_selector_widget.py",
+          "sha256": "1d686edc2c09a2d8f5d17f6abea876cf563afe22e03dfe6afc4a1514ca3d0a00"
+        }
+      },
+      "measurements": [
+        {
+          "scenario": "add_100_to_100",
+          "expected_images": 100,
+          "completed_images": 100,
+          "call_ms": 16.32747500843834,
+          "complete_ms": 1545.7971860014368,
+          "settled_ms": 1933.3373510016827,
+          "max_gui_gap_ms": 22.286029008682817,
+          "heartbeat_samples": 192,
+          "heartbeat_interval_ms": 10,
+          "queued_input": {
+            "text": "x",
+            "delay_ms": 18.649624005774967,
+            "completed_images": 0
+          },
+          "operations": []
+        },
+        {
+          "scenario": "add_100_to_200",
+          "expected_images": 200,
+          "completed_images": 200,
+          "call_ms": 7.884159989771433,
+          "complete_ms": 1718.485055011115,
+          "settled_ms": 2100.5348400067305,
+          "max_gui_gap_ms": 23.17121000669431,
+          "heartbeat_samples": 208,
+          "heartbeat_interval_ms": 10,
+          "queued_input": {
+            "text": "x",
+            "delay_ms": 13.39071401162073,
+            "completed_images": 100
+          },
+          "operations": []
+        },
+        {
+          "scenario": "add_100_to_300",
+          "expected_images": 300,
+          "completed_images": 300,
+          "call_ms": 8.693278999999166,
+          "complete_ms": 1774.4064400030766,
+          "settled_ms": 2151.175183011219,
+          "max_gui_gap_ms": 23.174119007308036,
+          "heartbeat_samples": 213,
+          "heartbeat_interval_ms": 10,
+          "queued_input": {
+            "text": "x",
+            "delay_ms": 16.20318301138468,
+            "completed_images": 200
+          },
+          "operations": []
+        },
+        {
+          "scenario": "add_100_to_400",
+          "expected_images": 400,
+          "completed_images": 400,
+          "call_ms": 15.593328003888018,
+          "complete_ms": 1583.1501820066478,
+          "settled_ms": 1955.7061689993134,
+          "max_gui_gap_ms": 27.68715600541327,
+          "heartbeat_samples": 193,
+          "heartbeat_interval_ms": 10,
+          "queued_input": {
+            "text": "x",
+            "delay_ms": 21.05709200259298,
+            "completed_images": 300
+          },
+          "operations": []
+        },
+        {
+          "scenario": "add_100_to_500",
+          "expected_images": 500,
+          "completed_images": 500,
+          "call_ms": 20.659267000155523,
+          "complete_ms": 1713.8178979948862,
+          "settled_ms": 2100.1670620025834,
+          "max_gui_gap_ms": 46.51226699934341,
+          "heartbeat_samples": 206,
+          "heartbeat_interval_ms": 10,
+          "queued_input": {
+            "text": "x",
+            "delay_ms": 27.22997500677593,
+            "completed_images": 400
+          },
+          "operations": []
+        }
+      ]
+    },
+    "initial-and-resize": {
+      "label": "fixed",
+      "platform": "Linux-6.18.33.2-microsoft-standard-WSL2-x86_64-with-glibc2.36",
+      "python": "3.13.15",
+      "qt_version": "6.11.2",
+      "qt_platform": "offscreen",
+      "scope": "synthetic real-image staging; Linux offscreen is not a Windows production measurement",
+      "image_count": 500,
+      "image_size": [
+        768,
+        640
+      ],
+      "formats": {
+        "JPEG": 250,
+        "WEBP": 250
+      },
+      "image_generation_is_timed": false,
+      "manifest_sha256": "0b3937f528c3d2ed4c07f5a02881e21bb0a789df4bdf5303ec0df2e76390bd63",
+      "sources": {
+        "StagingWidget": {
+          "path": "/workspaces/LoRAIro/.agents/worktree/issue-1385-staging-thumbnails/src/lorairo/gui/widgets/staging_widget.py",
+          "sha256": "8e7d86c2cb57dbc6aa44068c8e0a70ea6ae9d6d62eabb5e239ac9a61f754aaf4"
+        },
+        "ThumbnailSelectorWidget": {
+          "path": "/workspaces/LoRAIro/.agents/worktree/issue-1385-staging-thumbnails/src/lorairo/gui/widgets/thumbnail_selector_widget.py",
+          "sha256": "1d686edc2c09a2d8f5d17f6abea876cf563afe22e03dfe6afc4a1514ca3d0a00"
+        }
+      },
+      "measurements": [
+        {
+          "scenario": "initial_500",
+          "expected_images": 500,
+          "completed_images": 500,
+          "call_ms": 53.53062500944361,
+          "complete_ms": 8132.241387997055,
+          "settled_ms": 8529.04463300365,
+          "max_gui_gap_ms": 68.05183499818668,
+          "heartbeat_samples": 842,
+          "heartbeat_interval_ms": 10,
+          "queued_input": {
+            "text": "x",
+            "delay_ms": 61.723902996163815,
+            "completed_images": 0
+          },
+          "operations": []
+        },
+        {
+          "scenario": "width_change_500",
+          "expected_images": 500,
+          "completed_images": 500,
+          "call_ms": 0.245975999860093,
+          "complete_ms": 277.5249169935705,
+          "settled_ms": 648.7873589940136,
+          "max_gui_gap_ms": 15.877091005677357,
+          "heartbeat_samples": 64,
+          "heartbeat_interval_ms": 10,
+          "queued_input": {
+            "text": "x",
+            "delay_ms": 5.605114987702109,
+            "completed_images": 500
+          },
+          "operations": []
+        }
+      ]
+    },
+    "interaction": {
+      "label": "fixed",
+      "platform": "Linux-6.18.33.2-microsoft-standard-WSL2-x86_64-with-glibc2.36",
+      "python": "3.13.15",
+      "qt_version": "6.11.2",
+      "qt_platform": "offscreen",
+      "scope": "synthetic real-image staging; Linux offscreen is not a Windows production measurement",
+      "image_count": 500,
+      "image_size": [
+        768,
+        640
+      ],
+      "formats": {
+        "JPEG": 250,
+        "WEBP": 250
+      },
+      "image_generation_is_timed": false,
+      "manifest_sha256": "0b3937f528c3d2ed4c07f5a02881e21bb0a789df4bdf5303ec0df2e76390bd63",
+      "sources": {
+        "StagingWidget": {
+          "path": "/workspaces/LoRAIro/.agents/worktree/issue-1385-staging-thumbnails/src/lorairo/gui/widgets/staging_widget.py",
+          "sha256": "8e7d86c2cb57dbc6aa44068c8e0a70ea6ae9d6d62eabb5e239ac9a61f754aaf4"
+        },
+        "ThumbnailSelectorWidget": {
+          "path": "/workspaces/LoRAIro/.agents/worktree/issue-1385-staging-thumbnails/src/lorairo/gui/widgets/thumbnail_selector_widget.py",
+          "sha256": "1d686edc2c09a2d8f5d17f6abea876cf563afe22e03dfe6afc4a1514ca3d0a00"
+        }
+      },
+      "measurements": [
+        {
+          "scenario": "initial_500_with_input_scroll_resize",
+          "expected_images": 500,
+          "completed_images": 500,
+          "call_ms": 27.534876004210673,
+          "complete_ms": 8058.127298994805,
+          "settled_ms": 8429.47435399401,
+          "max_gui_gap_ms": 39.87144900020212,
+          "heartbeat_samples": 837,
+          "heartbeat_interval_ms": 10,
+          "queued_input": {
+            "text": "x",
+            "delay_ms": 34.495047002565116,
+            "completed_images": 0
+          },
+          "operations": [
+            {
+              "delay_ms": 40.21872699377127,
+              "completed_images": 0,
+              "scroll_value": 4437,
+              "width": 720
+            }
+          ]
+        }
+      ]
+    }
+  }
+}

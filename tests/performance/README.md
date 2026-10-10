@@ -52,3 +52,38 @@ harness from the ordinary CI suites.
 On Linux, the repository test configuration uses the Qt offscreen plugin. Those
 results are a synthetic Linux comparison, not evidence of Windows production
 performance. Run the harness separately on Windows for that evidence.
+
+
+## Issue #1385 measurement (2026-10-10)
+
+Linux/WSL2 offscreen, Python 3.13.15, Qt 6.11.2. The baseline is `4215b805`;
+the fixed implementation is `af4ceede`. Both used the same 500 generated images
+(manifest SHA256 `0b3937f528c3d2ed4c07f5a02881e21bb0a789df4bdf5303ec0df2e76390bd63`).
+These are individual runs with filesystem/load variability, not Windows timings.
+
+| Scenario | Baseline max GUI gap | Fixed max GUI gap |
+| --- | ---: | ---: |
+| Add 100 (total 100) | 1,680 ms | 22 ms |
+| Add 100 (total 200) | 3,157 ms | 23 ms |
+| Add 100 (total 300) | 4,978 ms | 23 ms |
+| Add 100 (total 400) | 6,807 ms | 28 ms |
+| Add 100 (total 500) | 7,917 ms | 47 ms |
+| Initial 500 | 8,020 ms | 68 ms |
+| Width change with 500 | 7,920 ms | 16 ms |
+| Add 500 with input/scroll/resize | 8,189 ms | 40 ms |
+
+The fixed run passed all three scenarios with the 100 ms gap gate and the
+input-during-loading gate enabled. In the interaction scenario, queued input
+ran after 34 ms and scroll/resize after 40 ms, before any thumbnail batch was
+delivered. All 500 images eventually appeared in the correct order. Image
+loading still takes time in the background; the measurement demonstrates
+continued GUI event processing rather than instantaneous image loading.
+
+The focused regression test additionally counted exactly 500 background
+load/scale calls across five additions and retained existing item identities.
+The width regression retained pixmap cache keys and changed only item positions,
+scene dimensions, and recommended height.
+
+[Raw measurements with source hashes](results/issue-1385.json)
+
+![500 staged images and processed keyboard input](results/issue-1385-fixed.png)
