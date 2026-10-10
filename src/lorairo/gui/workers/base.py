@@ -161,7 +161,7 @@ class LoRAIroWorkerBase[T](QObject):
 
             result = self.execute()
 
-            if not self.cancellation.is_canceled():
+            if not self._should_cancel_completed_result():
                 self._set_status(WorkerStatus.COMPLETED)
                 self.finished.emit(result)
                 logger.debug(f"ワーカー実行完了: {self.__class__.__name__}")
@@ -190,6 +190,14 @@ class LoRAIroWorkerBase[T](QObject):
             self.error_occurred.emit(error_msg)
         finally:
             sql_abort.unregister_current_thread()
+
+    def _should_cancel_completed_result(self) -> bool:
+        """Whether a late cancellation may discard an execute() result.
+
+        Workers that have committed irreversible changes can preserve their completed
+        result by overriding this boundary without clearing the cancellation request.
+        """
+        return self.cancellation.is_canceled()
 
     @staticmethod
     def _is_query_interrupt_error(e: Exception) -> bool:

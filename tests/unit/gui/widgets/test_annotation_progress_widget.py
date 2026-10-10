@@ -302,6 +302,133 @@ def test_global_progress_ignores_older_job_terminals(qtbot, progress):
 
 
 @pytest.mark.parametrize(
+    "terminal", [AnnotationPhase.COMPLETED, AnnotationPhase.FAILED, AnnotationPhase.CANCELED]
+)
+def test_global_progress_returns_to_older_active_job(qtbot, progress, terminal):
+    statusbar = QStatusBar()
+    qtbot.addWidget(statusbar)
+    service = ProgressStateService(statusbar)
+    service.on_worker_progress_updated("annotation_a", WorkerProgress(0, "", annotation_progress=progress))
+    newer = replace(progress, started_at=progress.started_at + 1)
+    service.on_worker_progress_updated("annotation_b", WorkerProgress(0, "", annotation_progress=newer))
+    b_terminal = replace(newer, phase=terminal, stopped_at=monotonic())
+    service.on_worker_progress_updated(
+        "annotation_b", WorkerProgress(0, "", annotation_progress=b_terminal)
+    )
+    widget = service._annotation_widget
+    assert service._annotation_worker_id == "annotation_a"
+    assert widget._progress == progress
+    assert widget._progress.started_at == progress.started_at
+    assert widget._elapsed_timer.isActive()
+    assert widget.progress_bar.maximum() == 0
+    # Duplicate terminal delivery must not take the display back from the active job.
+    service.on_worker_progress_updated(
+        "annotation_b", WorkerProgress(0, "", annotation_progress=b_terminal)
+    )
+    assert widget._progress == progress
+    a_terminal = replace(progress, phase=terminal, stopped_at=monotonic())
+    service.on_worker_progress_updated(
+        "annotation_a", WorkerProgress(0, "", annotation_progress=a_terminal)
+    )
+    assert widget._progress == a_terminal
+    assert not widget._elapsed_timer.isActive()
+    assert not service._active_annotation_progress
+
+
+def test_first_progress_accepts_negative_synthetic_start_time(qtbot, progress):
+    """A fresh CI VM may have an uptime shorter than the simulated elapsed time."""
+    statusbar = QStatusBar()
+    qtbot.addWidget(statusbar)
+    service = ProgressStateService(statusbar)
+    synthetic = replace(progress, started_at=-261.30653696)
+    service.on_worker_progress_updated("annotation_a", WorkerProgress(0, "", annotation_progress=synthetic))
+    assert service._annotation_widget is not None
+    assert service._annotation_widget._progress == synthetic
+    assert service._annotation_widget._elapsed_timer.isActive()
+
+
+def test_cancel_during_save_preserves_committed_result_and_finished_signal(qtbot, monkeypatch):
+    saving = Event()
+    release_save = Event()
+    committed = {}
+    annotations = {"phash": {"model": {"tags": ["cat"], "error": None}}}
+    runner = Mock()
+    runner.execute_annotation.return_value = annotations
+    registry = Mock()
+    registry.get_available_models.return_value = []
+    worker = AnnotationWorker(runner, ["/image.jpg"], ["model"], Mock(), registry)
+    monkeypatch.setattr(worker, "_refresh_input_phash_cache", lambda: None)
+    monkeypatch.setattr(worker, "_apply_refusal_prefilter", lambda: [])
+
+    def save_results(results):
+        saving.set()
+        assert release_save.wait(10)
+        committed.update(results)
+        return 1, 0, [], {"phash": "image.jpg"}
+
+    monkeypatch.setattr(worker, "_save_results_to_database", save_results)
+    service = WorkerService(Mock(), Mock())
+    service.worker_manager = Mock()
+    service.worker_manager.request_cancel_worker.side_effect = lambda wid: worker.cancel() or True
+    worker_id = "annotation_save_cancel"
+    service._on_worker_started(worker_id)
+    worker.progress_updated.connect(
+        lambda event: service._annotation_progress_received.emit(worker_id, event)
+    )
+    received = []
+    canceled = []
+    service.enhanced_annotation_finished.connect(received.append)
+
+    class Caller(QObject):
+        @Slot(object)
+        def finished(self, result):
+            service._on_worker_terminal(
+                WorkerTerminalEvent(worker_id, "annotation", WorkerOutcome.SUCCEEDED, result=result)
+            )
+
+        @Slot()
+        def canceled(self):
+            canceled.append(True)
+
+    caller = Caller()
+    worker.finished.connect(caller.finished)
+    worker.canceled.connect(caller.canceled)
+    thread = QThread()
+    worker.moveToThread(thread)
+    thread.started.connect(worker.run)
+    worker.finished.connect(thread.quit)
+    worker.canceled.connect(thread.quit)
+    worker.error_occurred.connect(thread.quit)
+    thread.start()
+    try:
+        entry = service.job_ledger.get(worker_id)
+        qtbot.waitUntil(
+            lambda: (
+                saving.is_set()
+                and entry.annotation_progress is not None
+                and entry.annotation_progress.phase is AnnotationPhase.SAVING
+            )
+        )
+        assert service.cancel_job(worker_id)
+        assert entry.status is JobStatus.CANCELING
+        assert not received and not committed
+        release_save.set()
+        qtbot.waitUntil(lambda: bool(received))
+        result = received[0]
+        assert committed == annotations == result.results
+        assert result.db_save_success == 1
+        assert result.phash_to_filename == {"phash": "image.jpg"}
+        assert not canceled
+        assert entry.status is JobStatus.FINISHED
+        assert entry.annotation_progress.phase is AnnotationPhase.COMPLETED
+        assert "保存 1件" in entry.summary
+    finally:
+        release_save.set()
+        thread.quit()
+        assert thread.wait(5000)
+
+
+@pytest.mark.parametrize(
     "outcome, phase",
     [
         (WorkerOutcome.SUCCEEDED, AnnotationPhase.COMPLETED),

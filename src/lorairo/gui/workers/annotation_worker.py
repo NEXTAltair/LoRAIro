@@ -176,6 +176,7 @@ class AnnotationWorker(LoRAIroWorkerBase["AnnotationExecutionResult"]):
         self._annotation_started_at: float | None = None
         self._annotation_phase: AnnotationPhase | None = None
         self._annotation_result_summary = ""
+        self._results_saved = False
 
         logger.info(
             f"AnnotationWorker初期化 - Images: {len(self.image_paths)}, "
@@ -222,6 +223,11 @@ class AnnotationWorker(LoRAIroWorkerBase["AnnotationExecutionResult"]):
         phase = terminal_phases.get(status)
         if phase is not None and self._annotation_phase is not phase:
             self._report_annotation_phase(phase)
+
+    def _should_cancel_completed_result(self) -> bool:
+        # Saved annotations must reach the caller so caches and the result summary
+        # reflect the committed work, even if cancellation arrived during saving.
+        return not self._results_saved and super()._should_cancel_completed_result()
 
     def _save_error_records(
         self,
@@ -651,6 +657,7 @@ class AnnotationWorker(LoRAIroWorkerBase["AnnotationExecutionResult"]):
         )
 
         self._report_annotation_phase(AnnotationPhase.PREPARING)
+        self._results_saved = False
 
         # Issue #803 (Codex P1): dry-run は実推論・送信・DB保存を一切行わず件数のみ算出する。
         # RunSettings 契約は「実際に推論せずジョブ件数・推定コストだけを検証する」であり、
@@ -693,9 +700,9 @@ class AnnotationWorker(LoRAIroWorkerBase["AnnotationExecutionResult"]):
             db_save_success, db_save_skip, image_summaries, phash_to_filename = (
                 self._save_results_to_database(merged_results)
             )
+            self._results_saved = True
 
             model_statistics = self._build_model_statistics(merged_results)
-            self._check_cancellation()
             self._annotation_result_summary = (
                 f"保存 {db_save_success}件 / 保存スキップ {db_save_skip}件 / エラー {len(model_errors)}件"
             )

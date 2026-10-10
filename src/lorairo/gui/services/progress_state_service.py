@@ -34,7 +34,8 @@ class ProgressStateService:
         self.status_bar = status_bar
         self._annotation_widget: AnnotationProgressWidget | None = None
         self._annotation_worker_id: str | None = None
-        self._annotation_started_at = -1.0
+        self._active_annotation_progress: dict[str, AnnotationProgress] = {}
+        self._terminal_annotation_jobs: set[str] = set()
 
     # ============================================================
     # バッチ登録進捗管理
@@ -156,11 +157,20 @@ class ProgressStateService:
     def _show_annotation_progress(self, worker_id: str, progress: AnnotationProgress) -> None:
         if self.status_bar is None:
             return
-        if worker_id != self._annotation_worker_id:
-            if progress.started_at < self._annotation_started_at:
+        if progress.phase.is_terminal:
+            self._terminal_annotation_jobs.add(worker_id)
+            self._active_annotation_progress.pop(worker_id, None)
+            if self._annotation_worker_id is not None and worker_id != self._annotation_worker_id:
                 return
-            self._annotation_worker_id = worker_id
-            self._annotation_started_at = progress.started_at
+        else:
+            if worker_id in self._terminal_annotation_jobs:
+                return
+            self._active_annotation_progress[worker_id] = progress
+        if self._active_annotation_progress:
+            worker_id, progress = max(
+                self._active_annotation_progress.items(), key=lambda item: item[1].started_at
+            )
+        self._annotation_worker_id = worker_id
         if isinstance(self.status_bar, QStatusBar):
             if self._annotation_widget is None:
                 self._annotation_widget = AnnotationProgressWidget(self.status_bar)
