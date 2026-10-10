@@ -163,17 +163,53 @@ def test_lookup_and_current_load_keep_gui_live_and_apply_on_gui_thread(qapp, qtb
     repo.lookup_release.set()
     qtbot.waitUntil(repo.load_started.is_set)
     assert_gui_tick(qtbot)
-    assert updates == []
-    repo.load_release.set()
-    qtbot.waitUntil(lambda: len(updates) == 1)
-
-    assert updates[0]["tags_text"] == "fresh-1"
+    assert len(updates) == 1
+    assert updates[0]["id"] == 1
+    assert "tags" not in updates[0]
+    assert "ratings" not in updates[0]
     assert updates[0]["stored_image_path"] == "/processed/1.webp"
-    assert updates[0]["long_edge"] == 768
+    repo.load_release.set()
+    qtbot.waitUntil(lambda: len(updates) == 2)
+
+    assert updates[-1]["tags_text"] == "fresh-1"
+    assert updates[-1]["stored_image_path"] == "/processed/1.webp"
+    assert updates[-1]["long_edge"] == 768
     assert repo.load_calls == [1]
     assert all(thread_id != threading.get_ident() for thread_id in repo.query_threads)
-    assert update_threads == [qapp.thread()]
+    assert update_threads == [qapp.thread(), qapp.thread()]
     assert "tags" not in state.get_image_by_id(2)
+
+
+@pytest.mark.parametrize("load_result", ["error", None, {}])
+def test_current_image_invalidation_clears_display_even_if_reload_fails(qtbot, refresh_setup, load_result):
+    state, repo = refresh_setup
+    state.set_current_image(1)
+    displayed = state.get_current_image_data().copy()
+    updates = []
+
+    def display(data):
+        displayed.clear()
+        displayed.update(data)
+        updates.append(data.copy())
+
+    state.current_image_data_changed.connect(display)
+    if load_result == "error":
+        query = Mock(side_effect=RuntimeError("annotation query failed"))
+    else:
+        query = Mock(return_value=load_result)
+    repo.get_image_annotation_metadata = query
+
+    state.refresh_annotations_after_execution({"a"})
+    qtbot.waitUntil(lambda: bool(repo.lookup_calls) and state._annotation_active_worker_id is None)
+
+    query.assert_called_once_with(1)
+    assert len(updates) == 1
+    assert displayed["id"] == 1
+    assert displayed["stored_image_path"] == "/processed/1.webp"
+    assert displayed["long_edge"] == 768
+    assert not set(displayed).intersection(state._ANNOTATION_CACHE_KEYS)
+    assert not set(displayed).intersection(state._ANNOTATION_REVIEW_CACHE_KEYS)
+    assert 1 in state._annotation_invalidated_ids
 
 
 def test_selecting_invalidated_image_loads_async_and_shows_basic_metadata(
@@ -317,6 +353,7 @@ def test_shutdown_retires_blocked_worker_without_waiting_or_accepting_results(qt
     release.clear()
     state.refresh_annotations_after_execution({"a"})
     qtbot.waitUntil(started.is_set)
+    updates_before_shutdown = updates.copy()
     review_updates = []
     state.execution_annotations_invalidated.connect(review_updates.append)
     worker_manager = state._annotation_worker_manager
@@ -335,11 +372,11 @@ def test_shutdown_retires_blocked_worker_without_waiting_or_accepting_results(qt
             request.worker_id, "annotation", WorkerOutcome.SUCCEEDED, {"tags_text": "stale"}
         )
     )
-    assert updates == []
+    assert updates == updates_before_shutdown
     assert review_updates == []
     release.set()
     qtbot.waitUntil(lambda: worker_manager.get_active_worker_count() == 0)
-    assert updates == []
+    assert updates == updates_before_shutdown
     assert review_updates == []
     if phase == "lookup":
         assert repo.load_calls == []

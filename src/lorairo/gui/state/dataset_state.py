@@ -886,6 +886,8 @@ class DatasetStateManager(QObject):
             self._annotation_invalidated_ids.add(image_id)
             invalidated += 1
             invalidated_ids.append(image_id)
+        if self._current_image_id is not None and self._current_image_id in invalidated_ids:
+            self.current_image_data_changed.emit(index[self._current_image_id])
         logger.info(
             f"実行後の注釈キャッシュ無効化: pHash {len(request.edit_cutoffs)}件、"
             f"ID 解決 {len(cutoffs_by_id)}件、検索キャッシュ {cached_count}件、"
