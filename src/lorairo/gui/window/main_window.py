@@ -128,6 +128,7 @@ class MainWindow(QMainWindow, Ui_MainWindow):
         # 初期化失敗フラグ
         self._initialization_failed = False
         self._initialization_error: str | None = None
+        self._closing = False
 
         try:
             # Phase 1: 基本UI設定（最優先）
@@ -1305,36 +1306,28 @@ class MainWindow(QMainWindow, Ui_MainWindow):
         """
         from lorairo.gui.widgets.annotation_summary_dialog import AnnotationSummaryDialog
 
+        if self._closing:
+            return
+
         # #1156: 同期アノテ完了で実行ボタンを再有効化する (連打ガード解除)
         self._reset_annotation_execute_buttons()
 
         # Phase 1: サマリーダイアログ表示
         dialog = AnnotationSummaryDialog(result, parent=self)
         dialog.exec()
-        raw_results = result.results
 
-        # Phase 2: 検索結果キャッシュ更新
-        # ワークスペースタブで選択中の画像がアノテーション対象に含まれていた場合、
-        # 詳細パネル（SelectedImageDetailsWidget）に最新情報が反映される
-        if not self.dataset_state_manager or not self.db_manager:
+        # exec() のネストしたイベントループ中に終了要求が届く場合がある。
+        # 終了後は DB 取得を開始しない。
+        if self._closing or not self.dataset_state_manager or not self.db_manager:
             return
 
-        if raw_results:
+        if result.results:
             try:
-                # #633: 同一 pHash に別版 (複数 image_id) が紐づき得るため、全 image_id を更新する。
-                phash_to_image_ids = self.db_manager.image_repo.find_image_ids_by_phashes_multi(
-                    set(raw_results.keys())
-                )
-                image_ids = [
-                    img_id for ids in phash_to_image_ids.values() for img_id in ids if img_id is not None
-                ]
-
-                if image_ids:
-                    self.dataset_state_manager.refresh_images(image_ids)
-                    logger.info(f"アノテーション完了: {len(image_ids)}件の画像キャッシュを更新")
-
+                self.dataset_state_manager.refresh_annotations_after_execution(set(result.results))
             except Exception as e:
-                logger.opt(exception=True).error(f"アノテーション完了後のキャッシュ更新失敗: {e}")
+                logger.opt(exception=True).error(
+                    f"アノテーション保存後の画面更新開始失敗（保存結果とは別）: {e}"
+                )
 
     def _on_annotation_error(self, error_msg: str) -> None:
         # #1156: 同期アノテ失敗で実行ボタンを再有効化する
@@ -1709,6 +1702,9 @@ class MainWindow(QMainWindow, Ui_MainWindow):
         Args:
             event: クローズイベント
         """
+        self._closing = True
+        if self.dataset_state_manager is not None:
+            self.dataset_state_manager.shutdown_annotation_refresh()
         self._save_window_state()
         # メインスレッド watchdog を停止する (#1221)。
         watchdog = getattr(self, "_main_thread_watchdog", None)
