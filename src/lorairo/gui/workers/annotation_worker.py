@@ -8,12 +8,14 @@ import traceback
 from collections.abc import Callable, Iterator
 from dataclasses import dataclass, field
 from pathlib import Path
+from time import monotonic
 from typing import TYPE_CHECKING, Any
 
 from image_annotator_lib import PHashAnnotationResults
 from PySide6.QtCore import Signal
 
 from lorairo.annotation.annotation_runner import AnnotationRunner
+from lorairo.services.annotation_progress import AnnotationPhase, AnnotationProgress
 from lorairo.services.annotation_save_service import AnnotationSaveService
 from lorairo.services.job_ledger_service import (
     StageModelInput,
@@ -32,7 +34,7 @@ from lorairo.services.moderation_preflight_service import (
 )
 from lorairo.utils.log import logger
 
-from .base import CancellationError, LoRAIroWorkerBase
+from .base import CancellationError, LoRAIroWorkerBase, WorkerProgress, WorkerStatus
 
 if TYPE_CHECKING:
     from lorairo.database.db_manager import ImageDatabaseManager
@@ -171,6 +173,10 @@ class AnnotationWorker(LoRAIroWorkerBase["AnnotationExecutionResult"]):
         self._phash_to_input_path: dict[str, str] = {}
         self._phash_to_input_filename: dict[str, str] = {}
         self._path_to_image_id: dict[str, int] = {}
+        self._annotation_started_at: float | None = None
+        self._annotation_phase: AnnotationPhase | None = None
+        self._annotation_result_summary = ""
+        self._results_saved = False
 
         logger.info(
             f"AnnotationWorker初期化 - Images: {len(self.image_paths)}, "
@@ -178,6 +184,50 @@ class AnnotationWorker(LoRAIroWorkerBase["AnnotationExecutionResult"]):
         )
         logger.debug(f"  選択モデル (litellm_model_ids): {self.litellm_model_ids}")
         logger.debug(f"  対象画像パス: {self.image_paths[:5]}{'...' if len(self.image_paths) > 5 else ''}")
+
+    def _report_annotation_phase(self, phase: AnnotationPhase) -> None:
+        if self._annotation_started_at is None:
+            self._annotation_started_at = monotonic()
+        # A cancellation request remains pending until the worker confirms its terminal.
+        if self.cancellation.is_canceled() and not phase.is_terminal:
+            phase = AnnotationPhase.CANCELING
+        self._annotation_phase = phase
+        snapshot = AnnotationProgress(
+            phase,
+            len(self.image_paths),
+            len(self.litellm_model_ids),
+            self._annotation_started_at,
+            monotonic() if phase.is_terminal else None,
+            self._annotation_result_summary,
+        )
+        # cancel() may be called by the GUI while execute() blocks the worker thread.
+        # Emit directly so a GUI-originated snapshot is never queued behind that API call
+        # through ProgressReporter's separate QObject affinity.
+        self.progress_updated.emit(
+            WorkerProgress(
+                100 if phase is AnnotationPhase.COMPLETED else 0,
+                phase.value,
+                total_count=len(self.image_paths),
+                annotation_progress=snapshot,
+            )
+        )
+
+    def _set_status(self, status: WorkerStatus) -> None:
+        super()._set_status(status)
+        terminal_phases = {
+            WorkerStatus.COMPLETED: AnnotationPhase.COMPLETED,
+            WorkerStatus.FAILED: AnnotationPhase.FAILED,
+            WorkerStatus.CANCELED: AnnotationPhase.CANCELED,
+            WorkerStatus.CANCELING: AnnotationPhase.CANCELING,
+        }
+        phase = terminal_phases.get(status)
+        if phase is not None and self._annotation_phase is not phase:
+            self._report_annotation_phase(phase)
+
+    def _should_cancel_completed_result(self) -> bool:
+        # Saved annotations must reach the caller so caches and the result summary
+        # reflect the committed work, even if cancellation arrived during saving.
+        return not self._results_saved and super()._should_cancel_completed_result()
 
     def _save_error_records(
         self,
@@ -384,6 +434,7 @@ class AnnotationWorker(LoRAIroWorkerBase["AnnotationExecutionResult"]):
         finished: bool = False,
         completed_keys: set[str] | None = None,
         errored_keys: set[str] | None = None,
+        progress_unknown: bool = False,
     ) -> None:
         """ステージ別進捗を構築して signal で通知する (Issue #805)。"""
         if not stage_inputs:
@@ -395,6 +446,7 @@ class AnnotationWorker(LoRAIroWorkerBase["AnnotationExecutionResult"]):
             finished=finished,
             completed_keys=completed_keys,
             errored_keys=errored_keys,
+            progress_unknown=progress_unknown,
         )
         self.stage_progress_updated.emit(stages)
 
@@ -437,14 +489,8 @@ class AnnotationWorker(LoRAIroWorkerBase["AnnotationExecutionResult"]):
         logger.debug(f"モデル一括実行開始: {total_models}モデル = {self.litellm_model_ids}")
 
         stage_inputs = self._build_stage_model_inputs()
-        self._report_progress(
-            5,
-            f"AIモデル一括実行中: {total_models}モデル",
-            processed_count=0,
-            total_count=len(self.image_paths),
-        )
-        # 実行開始時点のステージ別進捗 (全モデル 0 件処理済み) を通知する。
-        self._emit_stage_progress(stage_inputs, processed_count=0)
+        self._report_annotation_phase(AnnotationPhase.RUNNING)
+        self._emit_stage_progress(stage_inputs, processed_count=0, progress_unknown=True)
 
         try:
             self._check_cancellation()
@@ -456,6 +502,7 @@ class AnnotationWorker(LoRAIroWorkerBase["AnnotationExecutionResult"]):
                 ),
                 phash_list=phash_list,
             )
+            self._check_cancellation()
             valid_results = self._collect_valid_model_results(
                 bulk_results,
                 set(self.litellm_model_ids),
@@ -464,23 +511,19 @@ class AnnotationWorker(LoRAIroWorkerBase["AnnotationExecutionResult"]):
             self._collect_l1_model_errors(valid_results, model_errors)
             self._merge_annotation_results(merged_results, valid_results)
 
-            self._report_progress(
-                90,
-                f"AIモデル一括実行完了: {total_models}モデル",
-                processed_count=len(self.image_paths),
-                total_count=len(self.image_paths),
-            )
             # 一括実行完了: result.error を持つモデル (例外を投げない L1 エラー) は
             # 失敗ステージとして通知し、それ以外を完了 (100% / ok) にする。
             # finished=True で一律 ok にすると result_error のモデルが成功表示になり、
             # サマリーと矛盾する (Codex P2)。
             errored_keys = self._stage_errored_model_keys(valid_results)
-            completed_keys = {key for key in self.litellm_model_ids if key not in errored_keys}
+            returned_keys = {key for annotations in valid_results.values() for key in annotations}
+            completed_keys = returned_keys - errored_keys
             self._emit_stage_progress(
                 stage_inputs,
                 processed_count=len(self.image_paths),
                 completed_keys=completed_keys,
                 errored_keys=errored_keys,
+                progress_unknown=True,
             )
             logger.debug(f"モデル一括実行完了: 結果={len(bulk_results)}件")
             return merged_results, model_errors
@@ -516,20 +559,13 @@ class AnnotationWorker(LoRAIroWorkerBase["AnnotationExecutionResult"]):
         for model_idx, litellm_model_id in enumerate(self.litellm_model_ids):
             self._check_cancellation()
 
-            processed_steps = model_idx * len(self.image_paths)
-            total_steps = max(total_models * len(self.image_paths), 1)
-            progress = 5 + int((processed_steps / total_steps) * 85)
-            self._report_progress(
-                progress,
-                f"AIモデル実行中: {litellm_model_id} ({model_idx + 1}/{total_models})",
-                processed_count=min(processed_steps, len(self.image_paths)),
-                total_count=len(self.image_paths),
-            )
+            self._report_annotation_phase(AnnotationPhase.RUNNING)
             self._emit_stage_progress(
                 stage_inputs,
                 processed_count=0,
                 completed_keys=completed_keys,
                 errored_keys=errored_keys,
+                progress_unknown=True,
             )
 
             try:
@@ -544,6 +580,7 @@ class AnnotationWorker(LoRAIroWorkerBase["AnnotationExecutionResult"]):
                     phash_list=phash_list,
                 )
 
+                self._check_cancellation()
                 valid_model_results = self._collect_valid_model_results(
                     model_results,
                     {litellm_model_id},
@@ -553,7 +590,9 @@ class AnnotationWorker(LoRAIroWorkerBase["AnnotationExecutionResult"]):
 
                 self._merge_annotation_results(merged_results, valid_model_results)
 
-                completed_keys.add(litellm_model_id)
+                errored_keys.update(self._stage_errored_model_keys(valid_model_results))
+                if any(litellm_model_id in annotations for annotations in valid_model_results.values()):
+                    completed_keys.add(litellm_model_id)
 
                 logger.debug(
                     f"モデル実行完了: {litellm_model_id}, 結果={len(model_results)}件, "
@@ -588,13 +627,6 @@ class AnnotationWorker(LoRAIroWorkerBase["AnnotationExecutionResult"]):
                     )
                 # エラーでも次のモデルに進む(部分的成功を許容)
 
-            completed_steps = (model_idx + 1) * len(self.image_paths)
-            self._report_progress(
-                5 + int((completed_steps / max(total_models * len(self.image_paths), 1)) * 85),
-                f"AIモデル実行完了: {litellm_model_id} ({model_idx + 1}/{total_models})",
-                processed_count=len(self.image_paths),
-                total_count=len(self.image_paths),
-            )
             # このモデルの完了/失敗を反映したステージ別進捗を通知する。
             # 未起動モデルは completed_keys に無いため 0% のまま (false 100% を出さない)。
             self._emit_stage_progress(
@@ -602,6 +634,7 @@ class AnnotationWorker(LoRAIroWorkerBase["AnnotationExecutionResult"]):
                 processed_count=0,
                 completed_keys=completed_keys,
                 errored_keys=errored_keys,
+                progress_unknown=True,
             )
 
         logger.debug(f"モデル単位 fallback 実行完了: 最終結果={len(merged_results)}件")
@@ -623,6 +656,9 @@ class AnnotationWorker(LoRAIroWorkerBase["AnnotationExecutionResult"]):
             f"アノテーション処理開始 - {len(self.image_paths)}画像, {len(self.litellm_model_ids)}モデル"
         )
 
+        self._report_annotation_phase(AnnotationPhase.PREPARING)
+        self._results_saved = False
+
         # Issue #803 (Codex P1): dry-run は実推論・送信・DB保存を一切行わず件数のみ算出する。
         # RunSettings 契約は「実際に推論せずジョブ件数・推定コストだけを検証する」であり、
         # 有料 WebAPI 呼び出しや preflight 副作用を発生させてはならない。最終保存だけの
@@ -632,6 +668,8 @@ class AnnotationWorker(LoRAIroWorkerBase["AnnotationExecutionResult"]):
                 "dry-run: 推論・送信・DB保存をスキップし件数のみ算出 "
                 f"({len(self.image_paths)}画像 × {len(self.litellm_model_ids)}モデル)"
             )
+            self._annotation_result_summary = "ドライラン: 推論・結果保存は実行していません"
+            self._report_annotation_phase(AnnotationPhase.COMPLETED)
             return AnnotationExecutionResult(
                 results=PHashAnnotationResults(),
                 total_images=len(self.image_paths),
@@ -646,49 +684,29 @@ class AnnotationWorker(LoRAIroWorkerBase["AnnotationExecutionResult"]):
             # progress total_count として使う。
             self._refresh_input_phash_cache()
 
-            self._report_progress(
-                5,
-                "refusal filter を適用中...",
-                total_count=len(self.image_paths),
-            )
             self._check_cancellation()
             preflight_errors = self._apply_refusal_prefilter()
 
             # Phase 1: アノテーション実行(5-90%)
-            self._report_progress(5, "アノテーション処理を開始...", total_count=len(self.image_paths))
             self._check_cancellation()
 
             merged_results, model_errors = self._run_annotation()
             model_errors = preflight_errors + model_errors
 
             # Phase 2: DB保存(90-95%)
-            self._report_progress(
-                90,
-                "結果をDBに保存中...",
-                processed_count=len(self.image_paths),
-                total_count=len(self.image_paths),
-            )
+            self._report_annotation_phase(AnnotationPhase.SAVING)
             self._check_cancellation()
 
             db_save_success, db_save_skip, image_summaries, phash_to_filename = (
                 self._save_results_to_database(merged_results)
             )
+            self._results_saved = True
 
-            # Phase 3: 統計集計(95-100%)
-            self._report_progress(
-                95,
-                "統計を集計中...",
-                processed_count=len(self.image_paths),
-                total_count=len(self.image_paths),
-            )
             model_statistics = self._build_model_statistics(merged_results)
-
-            self._report_progress(
-                100,
-                "アノテーション処理が完了しました",
-                processed_count=len(self.image_paths),
-                total_count=len(self.image_paths),
+            self._annotation_result_summary = (
+                f"保存 {db_save_success}件 / 保存スキップ {db_save_skip}件 / エラー {len(model_errors)}件"
             )
+            self._report_annotation_phase(AnnotationPhase.COMPLETED)
 
             logger.info(f"アノテーション処理完了: {len(merged_results)}件の結果")
             return AnnotationExecutionResult(
@@ -705,10 +723,12 @@ class AnnotationWorker(LoRAIroWorkerBase["AnnotationExecutionResult"]):
             )
 
         except CancellationError:
+            self._report_annotation_phase(AnnotationPhase.CANCELED)
             logger.info("アノテーション処理がキャンセルされました")
             raise
 
         except Exception as e:
+            self._report_annotation_phase(AnnotationPhase.FAILED)
             logger.opt(exception=True).error(f"アノテーション処理エラー: {e}")
             self._save_error_records(e, self.image_paths, model_name=None, error_type=self._ERROR_TYPE_L3)
             self._error_already_recorded = True

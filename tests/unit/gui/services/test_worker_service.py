@@ -873,11 +873,12 @@ class TestWorkerService:
         assert entry.finished_at is not None
 
     def test_cancel_job_delegates_to_worker_manager(self, worker_service):
-        """Jobs 行のキャンセルは worker_manager.cancel_worker へ委譲される"""
-        worker_service.worker_manager.cancel_worker.return_value = True
+        """実行中annotationのキャンセルはGUIを待機させず要求する。"""
+        worker_service.worker_manager.request_cancel_worker.return_value = True
 
         assert worker_service.cancel_job("annotation_abc12345") is True
-        worker_service.worker_manager.cancel_worker.assert_called_once_with("annotation_abc12345")
+        worker_service.worker_manager.request_cancel_worker.assert_called_once_with("annotation_abc12345")
+        worker_service.worker_manager.cancel_worker.assert_not_called()
 
     def test_worker_id_uniqueness(self, worker_service):
         """ワーカーID一意性テスト"""

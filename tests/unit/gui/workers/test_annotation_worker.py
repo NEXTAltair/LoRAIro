@@ -1344,8 +1344,8 @@ class TestAnnotationWorkerStageProgress:
                     break
         assert snapshot is not None, "model-a 完了 / model-b 未完了のスナップショットが必要"
         assert snapshot["model-a"].percentage == 100
-        # 未起動の model-b は 0% (false 100% を出さない)
-        assert snapshot["model-b"].percentage == 0
+        # 未完了モデルの状況を数値で断定しない。
+        assert snapshot["model-b"].percentage is None
         assert snapshot["model-b"].tone == "info"
 
     @staticmethod
