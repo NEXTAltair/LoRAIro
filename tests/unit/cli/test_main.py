@@ -264,7 +264,9 @@ def test_callback_configures_logging_default_info(monkeypatch: pytest.MonkeyPatc
     assert config_arg["level"] == "INFO"
     log_path = Path(config_arg["file_path"])
     assert log_path.name == "lorairo-cli.log"
-    assert log_path.parent.name == "logs"
+    from platformdirs import user_log_path
+
+    assert log_path.parent == user_log_path("LoRAIro", appauthor=False)
     assert config_arg["rotation"] == "25 MB"
 
 
