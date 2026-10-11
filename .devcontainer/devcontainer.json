@@ -16,8 +16,8 @@
     ],
     // 複数の Devcontainer がある場合、プロジェクトごとにこのポート番号を変える
     "forwardPorts": [2222],
-    "workspaceMount": "source=${localWorkspaceFolder},target=/workspaces/LoRAIro,type=bind,consistency=delegated",
-    "workspaceFolder": "/workspaces/LoRAIro",
+    "workspaceMount": "source=${localWorkspaceFolder},target=/workspaces/LoRAIro,type=bind,readonly",
+    "workspaceFolder": "/workspaces/LoRAIro-linux",
     "customizations": {
         "vscode": {
             "extensions": [
@@ -47,18 +47,27 @@
     "remoteUser": "vscode",
     "remoteEnv": {
         "CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS": "1",
-        "UV_PROJECT_ENVIRONMENT": "/workspaces/LoRAIro/.venv",
+        "UV_PROJECT_ENVIRONMENT": "/workspaces/LoRAIro-linux/.venv",
         "QT_QPA_PLATFORM": "offscreen",
-        "CLAUDE_CONFIG_DIR": "/home/vscode/.claude"
+        "CLAUDE_CONFIG_DIR": "/home/vscode/.claude",
+        "CODEX_HOME": "/home/vscode/.codex",
+        "GIT_CONFIG_GLOBAL": "/home/vscode/.config/git/config",
+        "PYTHONDONTWRITEBYTECODE": "1"
     },
     "mounts": [
         "source=lorairo-bashhistory,target=/home/vscode/.bash_history,type=volume",
         "source=lorairo-vscode-extensions,target=/home/vscode/.vscode-server/extensions,type=volume",
         "source=lorairo-venv,target=/workspaces/LoRAIro/.venv,type=volume",
+        "source=lorairo-linux-checkout,target=/workspaces/LoRAIro-linux,type=volume",
+        "source=lorairo-venv,target=/workspaces/LoRAIro-linux/.venv,type=volume",
         "source=lorairo-claude-config,target=/home/vscode/.claude,type=volume",
+        "source=lorairo-codex-config,target=/home/vscode/.codex,type=volume",
+        "source=lorairo-linux-config,target=/home/vscode/.config,type=volume",
+        "source=lorairo-linux-cache,target=/home/vscode/.cache,type=volume",
+        "source=lorairo-linux-state,target=/home/vscode/.local/state,type=volume",
         "source=lorairo-worktrees,target=/tmp/worktrees,type=volume"
     ],
-    "postCreateCommand": "bash .devcontainer/postCreateCommand.sh",
+    "postCreateCommand": "bash /workspaces/LoRAIro/.devcontainer/postCreateCommand.sh",
     "postAttachCommand": {},
     "features": {
         "ghcr.io/devcontainers/features/sshd:1": {

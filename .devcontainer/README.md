@@ -1,78 +1,118 @@
-# Container / Windows responsibilities
+# Windows / Linux environment isolation
 
-- Edit code and run headless tests in the Dev Container. Qt uses `offscreen`;
-  no host X server or `DISPLAY` forwarding is needed.
-- Run the interactive LoRAIro GUI on Windows. Container environment settings
-  must not be copied into the Windows shell.
-- The image intentionally contains only Qt's offscreen/OpenGL runtime. X11,
-  XCB, GTK, audio, GUI fonts, and SQLite development headers are not part of
-  the container contract.
-- The named `lorairo-venv` volume masks the host `.venv` inside the container.
-  Keep it: Windows and Linux virtual environments are not interchangeable.
-- Container initialization must not delete `local_packages/**/.venv` from the
-  bind-mounted host workspace. These may belong to Windows workflows.
-- Ruff formatting, BDD, CI automation and existing UI code generation remain.
-  Removing the Qt editing extension does not remove `.ui` files or their generator.
-- Gemini CLI and autoDocstring are no longer installed by the container setup.
+Windows owns the host checkout. The container mounts it **read-only** at
+/workspaces/LoRAIro and develops in an independent checkout at
+/workspaces/LoRAIro-linux. The Linux checkout has its own index, branches,
+submodule repositories and .agents/worktree/. Configuration isolation alone
+cannot make Git worktree absolute paths or branch switching portable.
 
-Before a rebuild, update the **host checkout**. A Dev Container bind-mounts that
-checkout, so rebuilding an old checkout cannot supply newly added setup scripts:
+| State | Windows | Container |
+| --- | --- | --- |
+| Git/source/project hooks, rules, agents, skills | Host checkout | lorairo-linux-checkout volume, same committed main |
+| Shared Python per OS | Host .venv/Scripts/python.exe | Existing lorairo-venv, at Linux checkout .venv/bin/python |
+| Codex user settings/auth/history | Windows user .codex | lorairo-codex-config at /home/vscode/.codex |
+| Claude user settings/auth/history | Windows user .claude | Existing lorairo-claude-config at /home/vscode/.claude |
+| LoRAIro user config/log | LocalAppData/LoRAIro | Linux XDG config/state volumes |
+| Annotator user config/runtime cache/install markers/log | LocalAppData/image-annotator-lib | Linux XDG config/cache/state volumes |
+| node_modules/build/test and type caches/coverage | Host checkout | Linux checkout volume |
 
-```powershell
-git pull --ff-only
-```
+The old host-mounted .venv remains covered by the same lorairo-venv volume
+for compatibility. Both Linux mounts reference that one existing volume.
+Windows environments and all existing named volumes are retained.
+Project .claude/.codex directories are not covered by home volumes.
+Common settings remain readable in each checkout.
 
-The image itself installs Node 24 and the current stable Codex CLI. Codex is
-installed as `vscode` under `/home/vscode/.local`, which is also the global npm
-prefix. Update it from a container terminal without `sudo`:
+## First migration and rebuild
 
-```bash
-npm install -g @openai/codex@latest
-codex --version
-```
+Finish agent work first. Inspect processes and dirty worktrees; preserve any
+in-progress work. Never prune/repair a worktree because its other-OS path looks
+missing. Existing mixed worktree registrations are retained on the host;
+clean them only from their originating OS after verifying their work is saved.
 
-Restart Codex after updating. Updates made inside a running container last until
-that container is replaced. The default `CODEX_VERSION=latest` is resolved when
-Docker executes the install layer; a cached layer can retain an older release.
-Use **Dev Containers: Rebuild Container Without Cache** when rebuilding to get
-the current release. Set `build.args.CODEX_VERSION` in `devcontainer.json` to an
-exact release only when a pinned CLI is needed.
+Before replacing the old container, back up and migrate its **Linux** Codex
+home. Use an access-restricted, ignored backup directory. The helper freezes
+SQLite writers while copying all state, retains an opaque archive, refuses to
+overwrite a nonempty destination volume, and verifies credential bytes without
+printing them. It never accesses Windows Codex credentials.
 
-For an existing container built with the old root-owned installation, the same
-user-owned prefix can be configured before rebuilding:
+~~~powershell
+python scripts/migrate_container_codex.py --container <old-container-id> --backup-dir <private-new-directory>
+~~~
 
-```bash
-npm config set prefix /home/vscode/.local
-export PATH="/home/vscode/.local/bin:$PATH"
-npm install -g @openai/codex@latest
-hash -r
-codex --version
-```
+Back up Linux-only app/XDG state before removing the container too. Do not seed
+Linux user settings from Windows absolute paths. Move the host's existing
+config/lorairo.toml to the Windows user config only after preserving both files;
+the shared file is read-only defaults and should contain portable paths. Legacy
+annotator overrides require explicit migration to the corresponding OS user
+directory; they are not automatically adopted by another OS.
 
-The rebuilt image supplies this prefix and PATH automatically.
+After the PR is merged, update the host main checkout with git pull --ff-only.
+Use **Dev Containers: Rebuild Container** or the installed Dev Containers CLI:
 
-Post-create only performs workspace setup: it changes
-to `/workspaces/LoRAIro`, records all output in `.devcontainer/postCreate.log`,
-runs `make setup` (including pinned harness restoration), and validates the
-harness. It fails explicitly if `scripts/install_agent_harness.py` is absent
-instead of silently configuring an old checkout. Existing globally
-installed extensions or CLIs are not automatically uninstalled by this change.
-No named volumes or Windows environments need to be deleted.
+~~~powershell
+node <devContainersSpecCLI.js> up --workspace-folder H:/LoRAIro --remove-existing-container
+~~~
 
-If post-create is interrupted, use a normal terminal inside the exact workspace:
+No volume deletion is required. Initialization imports the host's committed main
+into the Linux checkout, never its uncommitted files. An existing dirty Linux
+checkout or another checked-out branch causes setup to stop with its work intact.
+A divergent main refuses fast-forward; it is never reset. Save/publish that work
+before rerunning setup. The startup log is Linux-only:
+/home/vscode/.local/state/LoRAIro/postCreate.log.
 
-```bash
-cd /workspaces/LoRAIro
-python -X utf8 scripts/install_agent_harness.py
+## Setup and priority
+
+make setup deliberately serializes submodule initialization, dependency sync,
+OS user agent configuration, tracked Git hook installation, skill restoration,
+and harness restoration. On Windows without Make, run those scripts in that
+order. Ordinary scripts/dev_tasks.py commands never synchronize dependencies.
+
+scripts/configure_agent_environment.py merges UV_PROJECT_ENVIRONMENT into
+the **current OS user** Codex and Claude settings. It removes that key from
+project Codex config and Claude local/project settings, since project settings
+override user settings. Changing CODEX_HOME alone is insufficient. Other
+preferences are retained, with private backups before migration.
+
+The default environment is this OS checkout's Git common root .venv, also
+when configuring from a linked worktree. Windows resolves Scripts/python.exe;
+Linux resolves bin/python. Never create worktree or nested package environments.
+Existing Linux local_packages/*/.venv on the host are retained but unused.
+
+Skills are projected as ordinary directories rather than OS-specific symlinks
+or junctions. Reinstallation checks the projection manifest and preserves user
+edits. Tracked .githooks/pre-commit selects the current OS shared interpreter;
+core.hooksPath=.githooks prevents a generated Linux hook from replacing the
+Windows hook. pre-commit install is unnecessary; rerun the project setup.
+
+LoRAIro config precedence is code defaults < portable project defaults < OS user
+settings. Explicit config paths remain supported for isolated tests. Annotator
+system catalog/model weights remain project assets; user overrides, runtime
+metadata and installation markers are local to the OS. Do not copy caches or
+native executables across OS boundaries.
+
+## Verify after rebuild
+
+~~~bash
+cd /workspaces/LoRAIro-linux
+python scripts/dev_tasks.py lint --dry-run
 python -X utf8 scripts/validate_harness.py
-```
+git config --local --get core.hooksPath
+uv run --no-sync python -c 'import sys; print(sys.executable)'
+codex login status
+~~~
 
-SSH/port 2222, GPU configuration, dependency upgrades and agent-kit integration
-are outside this cleanup. `make setup` still restores external skills and can
-fail on the separately tracked skill-lock mismatch; this change does not bypass it.
+Repeat setup and confirm the host's settings, venv and worktree registrations
+are unchanged. Validate with test data only. Interactive Qt belongs on Windows;
+container Qt tests use offscreen. Simultaneous Windows GUI/container CLI
+access to a real SQLite database remains unsupported.
 
-The ignored Codex project config currently needs separate Windows/container
-environment handling. This cleanup does not change it: do not run `uv` from a
-worktree until its actual shared environment is correctly configured.
+The old shared caches and logs were real collision candidates. Site
+node_modules was absent at migration, so its issue was prospective. Separate
+checkouts isolate future generated files as well as today's caches.
 
-Reference: [uv project environment configuration](https://docs.astral.sh/uv/concepts/projects/config/#project-environment-path).
+The image installs Node/Codex/Claude as vscode. Their executables are image
+state; their user data is volume state. Cached image layers may retain an older
+CLI; rebuild without cache only when a CLI update is intended.
+
+References: [Docker read-only bind mounts](https://docs.docker.com/engine/storage/bind-mounts/),
+[VS Code source mount configuration](https://code.visualstudio.com/remote/advancedcontainers/change-default-source-mount).

@@ -1,7 +1,7 @@
 ---
 type: ADR
 title: Local ML Model Config Ownership
-status: Accepted
+status: Accepted (amended 2026-10-11: OS-local user config and runtime cache)
 timestamp: 2026-05-24
 tags: []
 ---
@@ -73,7 +73,6 @@ system catalog が通常 runtime/test から暗黙に書き換え可能な設計
 - WebAPI モデル discovery / route selection / API key injection
 - LiteLLM DB の provider/model metadata
 - LoRAIro DB schema 上の `models` / `model_types` の正規化
-- OS user config/cache directory への移行
 
 ## Decision
 
@@ -93,10 +92,12 @@ image-annotator-lib は、同ファイルが存在しない場合に限り、pac
 package resource の `resources/system/annotator_config.toml` は、初期生成用 template として扱う。
 直接編集・runtime 書き戻し・test fixture 注入の対象ではない。
 
-### 3. user override は `config/user_config.toml` に保存する
+### 3. user override は OS user config directory に保存する
 
-ユーザーまたは利用側 project が local model の実行設定を変える場合、`config/user_config.toml`
-を使う。
+ユーザーが local model の実行設定を変える場合、platformdirs による
+`image-annotator-lib` の OS user config directory の `user_config.toml` を使う。
+Windows は LocalAppData、Linux は XDG config home。共有 `config/user_config.toml` は
+自動採用せず、内容と所有 OS を確認して明示移行する。明示 config path はテスト等で引き続き使える。
 
 主な user override 対象:
 
@@ -119,8 +120,12 @@ model loader が実行時に計算した metadata は `config/annotator_config.t
 初期候補:
 
 ```text
-config/model_runtime_cache.toml
+<OS user cache directory>/image-annotator-lib/model_runtime_cache.toml
 ```
+
+実行時 metadata と `install_markers` は OS user cache に分離する。モデル重みと
+system catalog は portable な project assets として維持する。生成ファイルと OS 固有の
+モデル実行パスを共有 checkout で奪い合わない。
 
 `estimated_size_gb` の有効値は以下の優先順位で解決する。
 

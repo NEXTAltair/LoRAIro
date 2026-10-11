@@ -47,12 +47,20 @@
 - For issue resolution or feature implementation, completion means: implement, validate, commit, push, open a ready-for-review PR, run PR maintenance automation through CI/review, and merge when safe, unless the user explicitly asks to stop before publishing or keep the PR as draft.
 - Do not end issue or multi-file feature work after local implementation only. Report the PR URL and final monitored state as the outcome.
 - If PR creation is blocked by auth, network, failing validation, or unclear scope, report the blocker explicitly instead of silently stopping at local changes.
-- When running `uv` from a `.agents/worktree/` checkout, use the shared execution environment `/workspaces/LoRAIro/.venv`.
-  Codex sessions should set this once in `.codex/config.toml` under `[shell_environment_policy.set]` as
-  `UV_PROJECT_ENVIRONMENT = "/workspaces/LoRAIro/.venv"` and then run normal commands like `uv run ruff ...`.
-  This path is the canonical devcontainer path; if it does not exist in a different environment, stop and configure that environment's actual shared LoRAIro `.venv` instead of letting `uv` create a new one at the wrong path.
+- When running `uv` from a `.agents/worktree/` checkout, use this OS checkout's Git common root `.venv`.
+  Windows uses the host checkout `.venv`; the Dev Container uses `/workspaces/LoRAIro-linux/.venv`
+  (the existing `lorairo-venv` named volume). The host is mounted read-only at `/workspaces/LoRAIro`;
+  implementation belongs in the independent Linux checkout, never the host bind mount.
+  Run `python scripts/configure_agent_environment.py` to set `UV_PROJECT_ENVIRONMENT` in the current
+  OS **user** Codex config and Claude settings. Do not put OS-specific absolute paths in shared
+  `.codex/config.toml`, `.claude/settings.json`, or `.claude/settings.local.json`. Project settings
+  override user settings, so changing `CODEX_HOME` or adding a home volume alone does not fix them.
+  This repository overrides kit guidance examples that place venv paths in project settings.
+  If the shared environment is missing, stop and configure the actual OS environment rather than
+  letting `uv` create a new one at a stale path.
   Do not prefix every Codex command with `UV_PROJECT_ENVIRONMENT=...`; it creates unnecessary command-approval friction and hides the normal command shape.
-  In shells where that environment is not configured, use the inline form `UV_PROJECT_ENVIRONMENT=/workspaces/LoRAIro/.venv uv ...` explicitly. This inline argument is the only fallback.
+  In shells where that environment is not configured, explicitly set `UV_PROJECT_ENVIRONMENT` to
+  this OS checkout's shared `.venv` for the command. This inline argument is the only fallback.
   Do not create a worktree-local `.venv`, and do not symlink a worktree `.venv` to the shared one. A worktree `.venv` (real or symlinked) only adds risk: `uv` can delete-and-recreate it on a Python-version mismatch and corrupt the shared environment, and it leaves residue to clean up. If the shared environment cannot be used, only a bare `uv` help/inspection command is allowed without `UV_PROJECT_ENVIRONMENT`.
   Run verification commands from the target worktree. For CLI smoke tests, read-only checks, or parallel worker verification, use `uv run --no-sync` plus an explicit `PYTHONPATH` pointing at the target worktree `src` and local package `src` directories when editable-install ambiguity matters.
   Treat default-sync `uv run`, `uv sync`, dependency updates, and other environment-mutating `uv` operations as shared `.venv` writes; do not run them concurrently across workers, and sequence them deliberately.
@@ -62,6 +70,12 @@
 - After an agent-created PR is merged, immediately remove the clean worktree with `git worktree remove <path>` or run `make worktree-cleanup-merged` from the shared checkout. Do not leave merged worktrees behind.
 - **`pr-autoloop` の Codex 実装 (wait mechanism override):** the shared PR maintenance loop is described by the `pr-autoloop` skill (policy in `pr-maintainer`, decision in ADR 0039). Codex runs that loop **inline in the same session**: after creating the PR, poll `gh pr view` / `gh pr checks` about every 3 minutes for up to 20 minutes, classify each cycle into continue / repair / escalate / merge / timeout, repair actionable findings in the PR worktree, reply in Japanese, and squash merge when safe. Codex does not use Claude Code's `ScheduleWakeup`; it polls within the session and reports the final monitored state, escalating instead of looping past the 4-repair limit.
 - Keep agent-specific rules as references to this file and `.claude/rules/git-workflow.md` rather than duplicating conflicting workflow text.
+- Keep Windows and Linux Git metadata in separate checkouts. Existing mixed worktree registrations
+  are protected legacy state: never prune/repair/remove another OS's worktree because its absolute
+  path appears missing. Clean up only on its originating OS after checking local changes.
+- Setup restores common hooks, rules, agents and skills in both checkouts. Skills are portable
+  directory copies; `core.hooksPath=.githooks` selects shared hooks with the current OS interpreter.
+  Do not run `pre-commit install` to generate a hook with one OS's Python path.
 
 ## Codex Parallel Agent Workflow
 - For large, multi-issue, multi-PR, or broad refactoring work, Codex should proactively use sub-agents instead of serializing all work in one session.

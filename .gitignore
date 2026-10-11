@@ -159,7 +159,7 @@ dev_config/
 .claude/skills/
 .claude/settings.local.json
 .claude/scheduled_tasks.lock
-.codex/config.toml
+# .codex/config.toml is shared portable policy; OS paths live in user settings.
 
 # システム固有 (uv.lock は ADR 0025 で tracked。広域 *.lock glob は使わない)
 *.pid
