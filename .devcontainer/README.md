@@ -30,7 +30,13 @@ missing. Existing mixed worktree registrations are retained on the host;
 clean them only from their originating OS after verifying their work is saved.
 
 Before replacing the old container, back up and migrate its **Linux** Codex
-home. Use an access-restricted, ignored backup directory. The helper freezes
+home. Specify a new, ignored backup directory. The helper creates its leaf with
+POSIX mode 0700 and every archive, copied Git config and manifest with mode 0600,
+before writing any bytes. On Windows it atomically creates a protected DACL
+granting access only to the current user, verifies that ACL before writing, and
+refuses storage which cannot enforce it. Existing backup directories/files are
+retained and refused; choose a new destination after a partial migration.
+The helper freezes
 SQLite writers while copying all state, retains an opaque archive, refuses to
 overwrite a nonempty destination volume, and verifies credential bytes without
 printing them. It never accesses Windows Codex credentials.

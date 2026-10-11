@@ -15,6 +15,7 @@ import tomllib
 from pathlib import Path
 
 from configure_agent_environment import migrate_codex_local_preferences
+from private_backup import create_private_directory, open_private_file, validate_private_directory
 
 
 def docker(*args: str, **kwargs) -> subprocess.CompletedProcess:
@@ -78,7 +79,7 @@ p.chmod(0o600)
 
 
 def migrate(container: str, backup_dir: Path, volume: str, project_config: Path | None = None) -> None:
-    backup_dir.mkdir(parents=True, exist_ok=False)
+    create_private_directory(backup_dir)
     archive = backup_dir / "codex-linux.tar"
     info = json.loads(docker("inspect", container, capture_output=True, text=True).stdout)[0]
     if not info["State"]["Running"] or info["State"]["Paused"]:
@@ -86,12 +87,12 @@ def migrate(container: str, backup_dir: Path, volume: str, project_config: Path 
     if any(m["Destination"] == "/home/vscode/.codex" for m in info["Mounts"]):
         raise ValueError("Codex already has a mounted home; back up that volume instead")
     # Freeze the writers for the entire copy, including SQLite WAL/SHM files.
-    docker("pause", container, stdout=subprocess.DEVNULL)
-    try:
-        with archive.open("xb") as destination:
+    with open_private_file(archive) as destination:
+        docker("pause", container, stdout=subprocess.DEVNULL)
+        try:
             docker("cp", f"{container}:/home/vscode/.codex", "-", stdout=destination)
-    finally:
-        docker("unpause", container, stdout=subprocess.DEVNULL)
+        finally:
+            docker("unpause", container, stdout=subprocess.DEVNULL)
     with archive.open("rb") as source:
         digest = hashlib.file_digest(source, "sha256").hexdigest()
     with tarfile.open(archive) as contents:
@@ -150,25 +151,31 @@ print(hashlib.sha256(p.read_bytes()).hexdigest() if p.is_file() else 'absent')
     preferences_migrated = (
         preserve_project_preferences(info["Image"], volume, project_config) if project_config else False
     )
-    (backup_dir / "migration.json").write_text(
-        json.dumps(
-            {
-                "container": container,
-                "volume": volume,
-                "archive_sha256": digest,
-                "credential_bytes_match": True,
-                "portable_project_preferences_migrated": preferences_migrated,
-            },
-            indent=2,
+    with open_private_file(backup_dir / "migration.json") as destination:
+        destination.write(
+            (
+                json.dumps(
+                    {
+                        "container": container,
+                        "volume": volume,
+                        "archive_sha256": digest,
+                        "credential_bytes_match": True,
+                        "portable_project_preferences_migrated": preferences_migrated,
+                    },
+                    indent=2,
+                )
+                + "\n"
+            ).encode("utf-8")
         )
-        + "\n",
-        encoding="utf-8",
-    )
     print("Linux Codex backup and volume migration verified; Windows Codex home was not accessed.")
 
 
-def migrate_xdg(container: str, backup_dir: Path) -> None:
+def migrate_xdg(container: str, backup_dir: Path, *, reuse_private_directory: bool = False) -> None:
     """Retain GitHub/Qt preferences, caches and state which new XDG mounts would hide."""
+    if reuse_private_directory:
+        validate_private_directory(backup_dir)
+    else:
+        create_private_directory(backup_dir)
     info = json.loads(docker("inspect", container, capture_output=True, text=True).stdout)[0]
     domains = (
         ("/home/vscode/.config", ".config", "lorairo-linux-config"),
@@ -190,14 +197,14 @@ def migrate_xdg(container: str, backup_dir: Path) -> None:
     for path, basename, volume in domains:
         archive = backup_dir / f"linux-{basename.lstrip('.')}.tar"
         if present[path]:
-            docker("pause", container, stdout=subprocess.DEVNULL)
-            try:
-                with archive.open("xb") as destination:
+            with open_private_file(archive) as destination:
+                docker("pause", container, stdout=subprocess.DEVNULL)
+                try:
                     docker("cp", f"{container}:{path}", "-", stdout=destination)
-            finally:
-                docker("unpause", container, stdout=subprocess.DEVNULL)
+                finally:
+                    docker("unpause", container, stdout=subprocess.DEVNULL)
         else:
-            with tarfile.open(archive, "x"):
+            with open_private_file(archive) as destination, tarfile.open(fileobj=destination, mode="w"):
                 pass
         with archive.open("rb") as source:
             manifest[volume] = hashlib.file_digest(source, "sha256").hexdigest()
@@ -240,7 +247,9 @@ else
 fi
 """
     if present["/home/vscode/.gitconfig"]:
-        docker("cp", f"{container}:/home/vscode/.gitconfig", str(gitconfig))
+        # Docker must never create a host destination using inherited permissions.
+        with open_private_file(gitconfig) as destination:
+            docker("exec", container, "cat", "/home/vscode/.gitconfig", stdout=destination)
         with gitconfig.open("rb") as source:
             docker(
                 "run",
@@ -257,7 +266,8 @@ fi
                 install_gitconfig,
                 stdin=source,
             )
-    (backup_dir / "xdg-migration.json").write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
+    with open_private_file(backup_dir / "xdg-migration.json") as destination:
+        destination.write((json.dumps(manifest, indent=2) + "\n").encode("utf-8"))
     print("Linux XDG settings, caches, state and global Git config backed up and migrated.")
 
 
@@ -273,4 +283,4 @@ if __name__ == "__main__":
     )
     args = parser.parse_args()
     migrate(args.container, args.backup_dir, args.volume, args.project_config)
-    migrate_xdg(args.container, args.backup_dir)
+    migrate_xdg(args.container, args.backup_dir, reuse_private_directory=True)
