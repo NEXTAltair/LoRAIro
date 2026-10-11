@@ -1,6 +1,7 @@
 """Restore kit-owned hook runtimes from the project's pinned agent harness revision."""
 
 import argparse
+import hashlib
 import importlib.util
 import json
 import re
@@ -38,8 +39,49 @@ def install_from_source(source: Path, target: Path, refresh_wiring: bool = False
     spec.loader.exec_module(module)
     # Refuse to change an existing branch runtime lock during ordinary restoration.
     module.install_runtime(target, force=refresh_wiring)
+    restore_guidance(source, target)
     if refresh_wiring:
         refresh_registrations(module, target)
+
+
+def guidance_digest(path: Path) -> str:
+    """Treat Git's LF/CRLF checkout differences as the same guidance content."""
+    return hashlib.sha256(path.read_bytes().replace(b"\r\n", b"\n")).hexdigest()
+
+
+def restore_guidance(source: Path, target: Path) -> None:
+    """Restore common agents/rules without overwriting consumer modifications.
+
+    Runtime-only installation intentionally does not call the kit's full
+    install/install_codex APIs: those expand absolute venv paths into project
+    configuration. Copy portable guidance separately, preserving its overrides.
+    """
+    state_path = target / ".agent-kit/guidance-state.json"
+    state = json.loads(state_path.read_text(encoding="utf-8")) if state_path.exists() else {}
+    if not isinstance(state, dict):
+        raise ValueError("Agent guidance state must be an object")
+    for directory, pattern, destination in (
+        ("agents", "*.md", ".claude/agents"),
+        ("rules", "*.md", ".claude/rules"),
+        ("codex/agents", "*.toml", ".codex/agents"),
+    ):
+        for file in sorted((source / directory).glob(pattern)):
+            relative = f"{destination}/{file.name}"
+            output = target / relative
+            if output.is_symlink() or output.is_junction():
+                print(f"PRESERVE (guidance link): {relative}")
+                continue
+            incoming = guidance_digest(file)
+            if output.exists():
+                current = guidance_digest(output)
+                if current != incoming and current != state.get(relative):
+                    print(f"PRESERVE (consumer guidance): {relative}")
+                    continue
+            output.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copyfile(file, output)
+            state[relative] = incoming
+    state_path.parent.mkdir(parents=True, exist_ok=True)
+    state_path.write_text(json.dumps(state, indent=2, sort_keys=True) + "\n", encoding="utf-8")
 
 
 def refresh_registrations(kit, target: Path) -> None:

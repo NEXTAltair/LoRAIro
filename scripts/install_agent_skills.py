@@ -32,10 +32,9 @@ lock diff を確認して commit する。drift 照合は一部の add が失敗
 lock 更新による再導入では、旧実体を .agents/skills/.pending-replace/ へ退避してから
 add を実行し、失敗時は旧実体を復元する (ネットワーク障害等で手元の動く copy を失わない)。
 
-また、`.claude/skills/<name>` symlink は復元分だけでなく全 skill (LoRAIro 固有の
-local skill 含む) について保証する。実体を失った broken symlink、および正規ターゲット
-(.agents/skills/<name>) を指さない symlink や実体 dir 化したエントリは正規 symlink に
-置き換える (validate_harness.py の要求と一致させる)。
+また、`.claude/skills/<name>` は共通ソースから portable なコピーを生成する。
+Windows の junction や Linux の symlink は bind mount の反対側で解決できないため
+生成しない。manifest で管理したコピーだけを更新し、ユーザー編集は上書きしない。
 
 呼び出し元: `make setup` (devcontainer postCreateCommand.sh も make setup 経由で実行)。
 """
@@ -51,6 +50,8 @@ import tarfile
 import tempfile
 import urllib.request
 from pathlib import Path
+
+from skill_projection import MANIFEST, ignored, tree_digest
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 SKILLS_DIR = PROJECT_ROOT / ".agents" / "skills"
@@ -190,7 +191,7 @@ def install_skill(
     backup = None
     # --agent codex で universal 配置 (.agents/skills) のみに限定する。agent 未検出の
     # ホストで -y が全 agent へ展開するのを防ぐ (実測: .codex/ 等への書き込みは無し)。
-    # Claude Code 用 symlink は後段の ensure_claude_symlinks() が作る
+    # Claude Code 用 portable copy は後段の ensure_claude_symlinks() が作る
     try:
         if re.fullmatch(r"[0-9a-fA-F]{40}", entry.get("ref", "")):
             backup = restore_exact_ref(name, entry, source_cache)
@@ -308,50 +309,81 @@ def remove_claude_entry(link: Path) -> None:
         shutil.rmtree(link)
 
 
-def create_claude_skill_link(link: Path, target: Path) -> None:
-    """Use a directory junction when Windows disallows unprivileged symlinks."""
-    relative = Path("..") / ".." / ".agents" / "skills" / target.name
-    try:
-        link.symlink_to(relative, target_is_directory=True)
-    except OSError as error:
-        if os.name != "nt" or getattr(error, "winerror", None) != 1314:
-            raise
-        subprocess.run(
-            [
-                "powershell",
-                "-NoProfile",
-                "-NonInteractive",
-                "-Command",
-                "New-Item -ItemType Junction -Path $env:AGENT_SKILL_LINK "
-                "-Value $env:AGENT_SKILL_TARGET -ErrorAction Stop | Out-Null",
-            ],
-            env=dict(os.environ, AGENT_SKILL_LINK=str(link), AGENT_SKILL_TARGET=str(target.resolve())),
-            check=True,
-            capture_output=True,
-            text=True,
-            timeout=15,
-            creationflags=subprocess.CREATE_NO_WINDOW,
-        )
-        if not link.is_junction() or link.resolve() != target.resolve():
-            raise OSError("Windows skill junction did not resolve to its shared target") from error
-
-
 def ensure_claude_symlinks() -> None:
-    """Keep canonical shared skill links, including unprivileged Windows junctions."""
+    """Synchronize portable projections; the old name remains an installer API.
+
+    A manifest records the last generated content, so changing the source updates
+    the copy but an edited copy is preserved and reported before any writes.
+    Legacy directory links are unlinked without resolving/deleting their target.
+    """
     if not SKILLS_DIR.exists():
         return
     CLAUDE_SKILLS_DIR.mkdir(parents=True, exist_ok=True)
-    for link in sorted(CLAUDE_SKILLS_DIR.iterdir()):
-        if not (SKILLS_DIR / link.name / "SKILL.md").exists():
-            remove_claude_entry(link)
+    manifest = CLAUDE_SKILLS_DIR / MANIFEST
+    state = json.loads(manifest.read_text(encoding="utf-8")) if manifest.exists() else {}
+    if not isinstance(state, dict):
+        raise ValueError("Claude skill projection manifest must be an object")
+    desired, replacements = projection_replacements(state)
+    removed = projection_removals(desired, state)
+    for link, skill_dir in replacements:
+        publish_projection(link, skill_dir)
+    for link in removed:
+        remove_claude_entry(link)
+    manifest.write_text(json.dumps(desired, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+
+
+def projection_replacements(state: dict[str, str]) -> tuple[dict[str, str], list[tuple[Path, Path]]]:
+    """Validate every existing copy before staging any replacements."""
+    desired = {}
+    replacements = []
     for skill_dir in sorted(SKILLS_DIR.iterdir()):
         if not (skill_dir / "SKILL.md").exists():
             continue
+        digest = tree_digest(skill_dir)
+        desired[skill_dir.name] = digest
         link = CLAUDE_SKILLS_DIR / skill_dir.name
-        if (link.is_symlink() or link.is_junction()) and link.resolve() == skill_dir.resolve():
+        if link.is_symlink() or link.is_junction() or not link.exists():
+            replacements.append((link, skill_dir))
             continue
+        actual = tree_digest(link) if link.is_dir() else None
+        if actual == digest:
+            continue
+        if actual != state.get(link.name) or actual is None:
+            raise ValueError(
+                f"Preserving edited or unmanaged Claude skill: {link}; edit .agents/skills instead"
+            )
+        replacements.append((link, skill_dir))
+    return desired, replacements
+
+
+def projection_removals(desired: dict[str, str], state: dict[str, str]) -> list[Path]:
+    """Remove only known generated copies and legacy link entries."""
+    removed = []
+    for link in sorted(CLAUDE_SKILLS_DIR.iterdir()):
+        if link.name.startswith(".") or link.name in desired:
+            continue
+        if link.is_symlink() or link.is_junction():
+            removed.append(link)
+        elif link.is_dir() and state.get(link.name) == tree_digest(link):
+            removed.append(link)
+        else:
+            raise ValueError(f"Preserving unmanaged Claude skill: {link}")
+    return removed
+
+
+def publish_projection(link: Path, skill_dir: Path) -> None:
+    """Stage first so a failed source copy retains the previous working content."""
+    with tempfile.TemporaryDirectory(prefix=".projection-", dir=CLAUDE_SKILLS_DIR) as temporary:
+        stage = Path(temporary) / link.name
+        shutil.copytree(
+            skill_dir,
+            stage,
+            ignore=lambda directory, names: [
+                name for name in names if ignored((Path(directory) / name).relative_to(skill_dir))
+            ],
+        )
         remove_claude_entry(link)
-        create_claude_skill_link(link, skill_dir)
+        stage.rename(link)
 
 
 def backup_existing(name: str) -> Path | None:
@@ -502,4 +534,8 @@ def main() -> int:
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    try:
+        sys.exit(main())
+    except (OSError, ValueError) as error:
+        print(f"ERROR: skill installation failed: {error}", file=sys.stderr)
+        sys.exit(1)

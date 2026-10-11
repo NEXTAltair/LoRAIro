@@ -4,12 +4,14 @@ import importlib.util
 import io
 import json
 import subprocess
+import sys
 import tarfile
 import tempfile
 import unittest
 from pathlib import Path
 from unittest.mock import patch
 
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 SPEC = importlib.util.spec_from_file_location(
     "skill_restorer", Path(__file__).resolve().parents[1] / "install_agent_skills.py"
 )

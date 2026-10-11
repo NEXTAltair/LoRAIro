@@ -48,6 +48,9 @@ class HarnessRestoreTests(unittest.TestCase):
             "hooks/rules/pre_commands.default.json": "{}\n",
             "hooks/rules/pre_commands.json": "DO NOT COPY\n",
             "codex/hooks/hook_pre_commands.py": "# restored adapter\n",
+            "agents/investigation.md": "# common agent\n",
+            "rules/git-workflow.md": "# common workflow\n",
+            "codex/agents/investigation.toml": 'model = "default"\n',
         }.items():
             path = self.kit / name
             path.parent.mkdir(parents=True, exist_ok=True)
@@ -88,6 +91,27 @@ class HarnessRestoreTests(unittest.TestCase):
                 with self.assertRaises(ValueError):
                     HARNESS.restore(self.target)
                 download.assert_not_called()
+
+    def test_missing_common_guidance_restored_without_generating_environment_config(self):
+        HARNESS.restore(self.target, self.kit)
+        self.assertEqual((self.target / ".claude/agents/investigation.md").read_text(), "# common agent\n")
+        self.assertEqual((self.target / ".claude/rules/git-workflow.md").read_text(), "# common workflow\n")
+        self.assertTrue((self.target / ".codex/agents/investigation.toml").is_file())
+        self.assertFalse((self.target / ".codex/config.toml").exists())
+
+    def test_existing_consumer_guidance_preserved_across_reinstall(self):
+        HARNESS.restore(self.target, self.kit)
+        workflow = self.target / ".claude/rules/git-workflow.md"
+        workflow.write_text("# consumer instructions\n", encoding="utf-8")
+        (self.kit / "rules/git-workflow.md").write_text("# new kit instructions\n", encoding="utf-8")
+        HARNESS.restore(self.target, self.kit)
+        self.assertEqual(workflow.read_text(), "# consumer instructions\n")
+
+    def test_kit_guidance_updates_only_the_unmodified_generated_copy(self):
+        HARNESS.restore(self.target, self.kit)
+        (self.kit / "agents/investigation.md").write_text("# new agent\n", encoding="utf-8")
+        HARNESS.restore(self.target, self.kit)
+        self.assertEqual((self.target / ".claude/agents/investigation.md").read_text(), "# new agent\n")
 
     def test_pinned_archive_download_and_restore(self):
         content = io.BytesIO()
