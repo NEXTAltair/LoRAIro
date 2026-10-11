@@ -15,6 +15,10 @@ RUN rm -f /home/vscode/.npmrc /root/.npmrc || true
 # Set environment variables
 ENV PYTHONDONTWRITEBYTECODE=1
 ENV PYTHONUNBUFFERED=1
+ENV CODEX_HOME=/home/vscode/.codex
+ENV CLAUDE_CONFIG_DIR=/home/vscode/.claude
+ENV GIT_CONFIG_GLOBAL=/home/vscode/.config/git/config
+ENV UV_PROJECT_ENVIRONMENT=/workspaces/LoRAIro-linux/.venv
 # Container tests are headless; interactive GUI execution belongs to Windows.
 ENV QT_QPA_PLATFORM=offscreen
 ENV DEBIAN_FRONTEND=noninteractive
