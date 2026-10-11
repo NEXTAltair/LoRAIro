@@ -14,6 +14,8 @@ if [[ ! -d "$WORKSPACE/.git" ]]; then
     git -C "$WORKSPACE" remote add origin "$(git -C "$SOURCE" remote get-url origin)"
     git -C "$WORKSPACE" fetch --no-recurse-submodules "$SOURCE" main:refs/remotes/host/main
     git -C "$WORKSPACE" checkout -b main refs/remotes/host/main
+    git -C "$WORKSPACE" config branch.main.remote origin
+    git -C "$WORKSPACE" config branch.main.merge refs/heads/main
 else
     if [[ "$(git -C "$WORKSPACE" branch --show-current)" != main ]] ||
        [[ -n "$(git -C "$WORKSPACE" status --porcelain)" ]]; then

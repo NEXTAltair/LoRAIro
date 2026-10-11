@@ -50,6 +50,8 @@ def test_linux_checkout_has_independent_git_and_refuses_dirty_setup(tmp_path):
     script = ROOT / ".devcontainer/initialize-linux-workspace.sh"
     subprocess.run([shutil.which("bash"), str(script)], env=env, check=True)
     assert (linux / ".git").is_dir()
+    assert git(linux, "config", "branch.main.remote") == "origin"
+    assert git(linux, "config", "branch.main.merge") == "refs/heads/main"
     assert (linux / "shared.txt").read_text() == "committed"
     assert (host / "shared.txt").read_text() == "unsaved host edit"
     assert sentinel.read_text() == "existing environment"
