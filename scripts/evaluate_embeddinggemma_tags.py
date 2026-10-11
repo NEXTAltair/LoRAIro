@@ -345,8 +345,8 @@ def evaluate_scores(
                 }
             )
         for name, group in groups.items():
-            observed = set(group).intersection(example.reference_tags)
-            if len(observed) != 1 or len(group) < 2:
+            observed = set(GROUPS[name]).intersection(example.reference_tags)
+            if len(observed) != 1 or len(group) < 2 or not observed.issubset(scores):
                 continue
             expected = next(iter(observed))
             ordered = sorted(group, key=lambda tag: (-scores[tag], tag))
@@ -609,6 +609,10 @@ def write_report(path: Path, summary: dict[str, Any], ks: list[int]) -> None:
 def run(args: argparse.Namespace) -> None:
     if not 1 <= args.limit <= 500 or args.batch_size < 1 or any(k < 1 for k in args.top_k):
         raise ValueError("limit must be 1-500; batch-size and top-k must be positive.")
+    if args.output_dir.exists() and any(args.output_dir.iterdir()):
+        raise ValueError(
+            "Output directory must be empty; choose a new directory to preserve previous results."
+        )
     examples, vocabulary, manifest = prepare(args)
     validate_sample(examples, vocabulary)
     overrides = load_overrides(args.tag_texts)

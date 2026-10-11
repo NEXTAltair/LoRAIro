@@ -111,6 +111,39 @@ def test_stratifies_reference_ranking_and_skips_ambiguous_attribute_groups():
     assert tags[-1]["rank"] is None
 
 
+@pytest.mark.parametrize("positives", [["black_hair", "blue_hair"], ["blue_hair"]])
+def test_group_reference_is_not_changed_by_candidate_vocabulary(positives):
+    _, _, groups, _ = evaluation.evaluate_scores(
+        [example(positives=positives)],
+        ["black_hair", "brown_hair"],
+        np.array([[0.8, 0.2]]),
+        [1],
+        "test",
+    )
+    assert not groups
+
+
+def test_prepare_only_refuses_previous_results_without_overwriting(tmp_path, monkeypatch):
+    old_files = ["manifest.json", "summary.json", "rankings.csv", "report.md", "embeddings.npz"]
+    for name in old_files:
+        (tmp_path / name).write_bytes(b"previous results")
+    monkeypatch.setattr(
+        evaluation, "prepare", lambda _: pytest.fail("Must reject the output before reading a DB")
+    )
+    args = evaluation.parser().parse_args(
+        [
+            "--db",
+            "unused.db",
+            "--output-dir",
+            str(tmp_path),
+            "--prepare-only",
+        ]
+    )
+    with pytest.raises(ValueError, match="must be empty"):
+        evaluation.run(args)
+    assert all((tmp_path / name).read_bytes() == b"previous results" for name in old_files)
+
+
 @pytest.mark.parametrize("matrix", [np.array([[float("nan")]]), np.zeros((2, 1))])
 def test_rejects_bad_model_scores(matrix):
     with pytest.raises(ValueError, match=r"wrong shape|non-finite"):

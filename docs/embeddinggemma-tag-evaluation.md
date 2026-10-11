@@ -21,6 +21,7 @@ SQLite の `mode=ro` / `query_only=ON` により、migration・タグ更新を�
 ## 実行
 
 リポジトリルートで実行する。worktree では AGENTS.md に従い、共有 `.venv` を設定する。
+出力先は空のディレクトリにする。再実行では別の出力先を指定し、古い結果と新しい標本の混在を防ぐ。
 Sentence Transformers 6.1.0 以上と、EmbeddingGemma 2 対応の Transformers 5.19.0 以上が必要。
 実験用ライブラリだけを専用ディレクトリへ配置し、既存の PyTorch / torchvision を使用する。
 以下は Windows の共有環境 `H:/LoRAIro/.venv` を使う手順。別環境では共有 Python と出力先の
