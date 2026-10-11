@@ -2,7 +2,7 @@
 type: Reference
 title: サービス層アーキテクチャ
 status: Accepted
-timestamp: 2026-10-08
+timestamp: 2026-10-11
 tags: [service-layer]
 depends_on: [pyside6]
 ---
@@ -66,6 +66,12 @@ Qt依存のないビジネスロジックサービス群。CLI、GUI、API全て
 - **Note**: trigger はリテラル (convert バイパス)。正規化せずそのまま格納しdedupする
 
 ### AIアノテーション
+
+#### AnnotationProgress (Qt-free)
+- **Path**: `src/lorairo/services/annotation_progress.py`
+- **Classes**: `AnnotationPhase`, `AnnotationProgress`
+- **Purpose**: アノテーションの工程、対象画像・モデル数、経過時間をセッション内のスナップショットとして保持する (Issue #1386)
+- **Boundary**: 処理済み件数や残り時間を推定しない。キャンセル要求後の停止待ちを完了と区別し、終了後は経過時間を固定する
 
 #### AnnotationReviewService
 - **Path**: `src/lorairo/services/annotation_review_service.py`

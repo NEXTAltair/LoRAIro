@@ -82,7 +82,8 @@ class AgentEnvironmentTests(unittest.TestCase):
         self.assertEqual(config["model"], "personal")
         self.assertEqual(config["shell_environment_policy"]["set"]["EXISTING"], "keep")
         self.assertEqual(
-            config["shell_environment_policy"]["set"]["UV_PROJECT_ENVIRONMENT"], self.venv.as_posix()
+            config["shell_environment_policy"]["set"]["UV_PROJECT_ENVIRONMENT"],
+            self.venv.resolve().as_posix(),
         )
         project = tomllib.loads((self.project / ".codex/config.toml").read_text(encoding="utf-8"))
         self.assertEqual(project["shell_environment_policy"]["set"], {"PORTABLE": "yes"})
