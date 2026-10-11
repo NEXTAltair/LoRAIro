@@ -22,11 +22,24 @@ SQLite の `mode=ro` / `query_only=ON` により、migration・タグ更新を�
 
 リポジトリルートで実行する。worktree では AGENTS.md に従い、共有 `.venv` を設定する。
 Sentence Transformers 6.1.0 以上と、EmbeddingGemma 2 対応の Transformers 5.19.0 以上が必要。
-`--with` は実験用の依存を一時環境に追加し、`--no-sync` は既存のアプリ環境の同期を省く。
+実験用ライブラリだけを専用ディレクトリへ配置し、既存の PyTorch / torchvision を使用する。
+以下は Windows の共有環境 `H:/LoRAIro/.venv` を使う手順。別環境では共有 Python と出力先の
+絶対パスを置き換える。worktree 内に `.venv` は作らない。
 
 ```powershell
-uv run --no-sync --with "sentence-transformers>=6.1.0,<7" --with "transformers>=5.19.0,<6" python scripts/evaluate_embeddinggemma_tags.py --db "H:/LoRAIro/lorairo_data/main_dataset_20250707_001/image_database.db" --output-dir ".agents/artifacts/embeddinggemma-tags" --limit 64
+$sharedPython = "H:/LoRAIro/.venv/Scripts/python.exe"
+$evalRuntime = "H:/LoRAIro/.agents/artifacts/embeddinggemma-runtime"
+uv pip install --python $sharedPython --target $evalRuntime --no-deps -r scripts/embeddinggemma_tag_eval_requirements.txt
+$sourceDirectory = (Resolve-Path src).Path
+$env:PYTHONPATH = "$evalRuntime;$sourceDirectory;$env:PYTHONPATH"
+& $sharedPython scripts/evaluate_embeddinggemma_tags.py --db "H:/LoRAIro/lorairo_data/main_dataset_20250707_001/image_database.db" --output-dir "H:/LoRAIro/.agents/artifacts/embeddinggemma-tags" --limit 64
 ```
+
+この requirements は LoRAIro の共有環境に追加する overlay 用であり、単独の完全な依存集合ではない。
+NumPy・Pillow・Hugging Face Hub・PyTorch / torchvision などは共有環境のものを使う。
+`uv --with` は PyTorch も別の版へ解決することがあり、Windows では共有 torchvision と組み合わせて
+`operator torchvision::nms does not exist` になったため、この手順では使用しない。
+Linux では共有 Python を `.venv/bin/python` とし、`PYTHONPATH` の区切りを `:` にする。
 
 初回は Hugging Face からモデルをダウンロードする。以降はローカルキャッシュを使用する。
 画像や DB の内容を外部推論 API へ送信しない。モデルの実行は CUDA があれば CUDA、なければ CPU。
@@ -36,13 +49,13 @@ GPU で BF16 が使える場合は BF16、それ以外は FP32 を使う。FP16 
 モデルを読み込まず、まず評価対象だけ固定する場合:
 
 ```powershell
-uv run --no-sync python scripts/evaluate_embeddinggemma_tags.py --db "H:/LoRAIro/lorairo_data/main_dataset_20250707_001/image_database.db" --output-dir ".agents/artifacts/tag-sample" --limit 64 --seed 42 --prepare-only
+& $sharedPython scripts/evaluate_embeddinggemma_tags.py --db "H:/LoRAIro/lorairo_data/main_dataset_20250707_001/image_database.db" --output-dir "H:/LoRAIro/.agents/artifacts/tag-sample" --limit 64 --seed 42 --prepare-only
 ```
 
 固定した画像 ID・候補語彙を再利用する場合:
 
 ```powershell
-uv run --no-sync --with "sentence-transformers>=6.1.0,<7" --with "transformers>=5.19.0,<6" python scripts/evaluate_embeddinggemma_tags.py --manifest ".agents/artifacts/tag-sample/manifest.json" --output-dir ".agents/artifacts/tag-run" --vision-tokens 560 --dimensions 768 512 256
+& $sharedPython scripts/evaluate_embeddinggemma_tags.py --manifest "H:/LoRAIro/.agents/artifacts/tag-sample/manifest.json" --output-dir "H:/LoRAIro/.agents/artifacts/tag-run" --vision-tokens 560 --dimensions 768 512 256
 ```
 
 `--revision` にモデルのコミットを指定すると、モデルも固定できる。実際に解決されたコミットと
