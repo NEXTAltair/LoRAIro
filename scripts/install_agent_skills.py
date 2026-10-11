@@ -51,7 +51,7 @@ import tempfile
 import urllib.request
 from pathlib import Path
 
-from skill_projection import MANIFEST, ignored, tree_digest
+from skill_projection import MANIFEST, filesystem_link, ignored, linux_reparse_link, tree_digest
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 SKILLS_DIR = PROJECT_ROOT / ".agents" / "skills"
@@ -301,7 +301,7 @@ def prune_removed_skills(lock: dict, state: dict[str, str]) -> tuple[list[str], 
 
 def remove_claude_entry(link: Path) -> None:
     """Remove an entry without traversing a Windows junction into its target."""
-    if link.is_junction():
+    if linux_reparse_link(link) or link.is_junction():
         link.rmdir()
     elif link.is_symlink() or link.is_file():
         link.unlink()
@@ -342,7 +342,7 @@ def projection_replacements(state: dict[str, str]) -> tuple[dict[str, str], list
         digest = tree_digest(skill_dir)
         desired[skill_dir.name] = digest
         link = CLAUDE_SKILLS_DIR / skill_dir.name
-        if link.is_symlink() or link.is_junction() or not link.exists():
+        if filesystem_link(link) or not link.exists():
             replacements.append((link, skill_dir))
             continue
         actual = tree_digest(link) if link.is_dir() else None
@@ -362,7 +362,7 @@ def projection_removals(desired: dict[str, str], state: dict[str, str]) -> list[
     for link in sorted(CLAUDE_SKILLS_DIR.iterdir()):
         if link.name.startswith(".") or link.name in desired:
             continue
-        if link.is_symlink() or link.is_junction():
+        if filesystem_link(link):
             removed.append(link)
         elif link.is_dir() and state.get(link.name) == tree_digest(link):
             removed.append(link)

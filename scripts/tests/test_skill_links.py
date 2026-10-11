@@ -4,7 +4,7 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 import install_agent_skills as installer
@@ -12,6 +12,17 @@ from validate_harness import validate_claude_skill_links
 
 
 class SkillLinkTests(unittest.TestCase):
+    def test_windows_lx_symlink_is_detected_without_dereferencing(self):
+        from skill_projection import filesystem_link
+
+        path = Mock()
+        path.lstat.return_value.st_reparse_tag = 0xA000001D
+        path.is_symlink.return_value = False
+        path.is_junction.return_value = False
+        path.exists.side_effect = OSError("Windows cannot dereference a Linux symlink")
+        self.assertTrue(filesystem_link(path))
+        path.exists.assert_not_called()
+
     def setUp(self):
         self.temporary = tempfile.TemporaryDirectory(prefix="skill copies ")
         self.addCleanup(self.temporary.cleanup)

@@ -19,7 +19,7 @@ import tomllib
 from pathlib import Path
 
 from configure_agent_environment import MANAGED_KEYS, json_settings, path_platform
-from skill_projection import tree_digest
+from skill_projection import filesystem_link, tree_digest
 from validate_hook_settings import validate_hook_settings
 
 SHARED_SKILLS_DIR = ".agents/skills"
@@ -84,7 +84,7 @@ def validate_claude_skill_links(project_root: Path) -> list[str]:
         skill_link.name
         for skill_link in claude_skills_dir.iterdir()
         if not skill_link.name.startswith(".")
-        and (skill_link.is_dir() or skill_link.is_symlink() or skill_link.is_junction())
+        and (filesystem_link(skill_link) or skill_link.is_dir())
     }
 
     missing_links = sorted(shared_skill_names - claude_skill_names)
@@ -97,7 +97,7 @@ def validate_claude_skill_links(project_root: Path) -> list[str]:
     for skill_link in sorted(claude_skills_dir.iterdir()):
         if skill_link.name.startswith("."):
             continue
-        if skill_link.is_symlink() or skill_link.is_junction():
+        if filesystem_link(skill_link):
             errors.append(f"Claude skills: OS-specific link must be migrated: {skill_link.name}")
             continue
         source = shared_skills_dir / skill_link.name

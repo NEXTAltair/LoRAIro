@@ -317,7 +317,8 @@ def test_readonly_alone_isolates_existing_writable_factories(project, tmp_path, 
     config.write_text(
         "[directories]\ndatabase_base_dir = " + json.dumps(str(workspace / "lorairo_data")) + "\n"
     )
-    monkeypatch.setattr(importlib.import_module("lorairo.cli.main"), "DEFAULT_CONFIG_PATH", config)
+    # Absolute machine data paths now belong to the OS user layer.
+    monkeypatch.setattr(importlib.import_module("lorairo.utils.config"), "USER_CONFIG_PATH", config)
     legacy = ServiceContainer()
     previous_repository = legacy._image_repository
     cached_repository = Mock()
