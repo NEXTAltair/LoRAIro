@@ -3,12 +3,14 @@
 import importlib.util
 import io
 import json
+import sys
 import tarfile
 import tempfile
 import unittest
 from pathlib import Path
 from unittest.mock import patch
 
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 SCRIPT = Path(__file__).resolve().parents[1] / "install_agent_harness.py"
 SPEC = importlib.util.spec_from_file_location("install_agent_harness", SCRIPT)
 HARNESS = importlib.util.module_from_spec(SPEC)
@@ -112,6 +114,110 @@ class HarnessRestoreTests(unittest.TestCase):
         (self.kit / "agents/investigation.md").write_text("# new agent\n", encoding="utf-8")
         HARNESS.restore(self.target, self.kit)
         self.assertEqual((self.target / ".claude/agents/investigation.md").read_text(), "# new agent\n")
+
+    def test_removed_and_renamed_generated_guidance_is_reconciled_in_all_destinations(self):
+        HARNESS.restore(self.target, self.kit)
+        names = (
+            ("agents/investigation.md", ".claude/agents/investigation.md"),
+            ("rules/git-workflow.md", ".claude/rules/git-workflow.md"),
+            ("codex/agents/investigation.toml", ".codex/agents/investigation.toml"),
+        )
+        for source, _destination in names:
+            upstream = self.kit / source
+            upstream.rename(upstream.with_name("renamed" + upstream.suffix))
+        HARNESS.restore(self.target, self.kit)
+        state_path = self.target / ".agent-kit/guidance-state.json"
+        state = json.loads(state_path.read_text())
+        for source, destination in names:
+            self.assertFalse((self.target / destination).exists())
+            renamed = Path(destination).with_name("renamed" + Path(source).suffix)
+            self.assertTrue((self.target / renamed).is_file())
+            self.assertNotIn(destination, state)
+            self.assertIn(renamed.as_posix(), state)
+            (self.kit / source).with_name("renamed" + Path(source).suffix).unlink()
+        HARNESS.restore(self.target, self.kit)
+        self.assertEqual(json.loads(state_path.read_text()), {})
+        HARNESS.restore(self.target, self.kit)
+        self.assertEqual(json.loads(state_path.read_text()), {})
+
+    def test_removed_edited_guidance_is_preserved_and_no_longer_generated(self):
+        HARNESS.restore(self.target, self.kit)
+        output = self.target / ".claude/rules/git-workflow.md"
+        output.write_text("# consumer instructions\n", encoding="utf-8")
+        (self.kit / "rules/git-workflow.md").unlink()
+        for _ in range(2):
+            HARNESS.restore(self.target, self.kit)
+            self.assertEqual(output.read_text(), "# consumer instructions\n")
+            state = json.loads((self.target / ".agent-kit/guidance-state.json").read_text())
+            self.assertNotIn(".claude/rules/git-workflow.md", state)
+
+    def test_absent_guidance_state_is_retired_without_touching_unmanaged_files(self):
+        HARNESS.restore(self.target, self.kit)
+        (self.kit / "agents/investigation.md").unlink()
+        (self.target / ".claude/agents/investigation.md").unlink()
+        personal = self.target / ".claude/agents/personal.md"
+        personal.write_text("# personal agent\n", encoding="utf-8")
+        HARNESS.restore(self.target, self.kit)
+        state = json.loads((self.target / ".agent-kit/guidance-state.json").read_text())
+        self.assertNotIn(".claude/agents/investigation.md", state)
+        self.assertEqual(personal.read_text(), "# personal agent\n")
+
+    def test_unmanaged_manifest_entries_never_authorize_deletion(self):
+        HARNESS.restore(self.target, self.kit)
+        unrelated = self.target / "personal.md"
+        unrelated.write_text("private work", encoding="utf-8")
+        external = self.root / "outside.md"
+        external.write_text("outside the checkout", encoding="utf-8")
+        invalid_digest = self.target / ".claude/agents/personal.md"
+        invalid_digest.write_text("unmanaged", encoding="utf-8")
+        state_path = self.target / ".agent-kit/guidance-state.json"
+        state = json.loads(state_path.read_text())
+        extra = {
+            "personal.md": HARNESS.guidance_digest(unrelated),
+            "../outside.md": HARNESS.guidance_digest(external),
+            ".claude/agents/personal.md": "not-a-generated-digest",
+        }
+        state.update(extra)
+        state_path.write_text(json.dumps(state), encoding="utf-8")
+        HARNESS.restore(self.target, self.kit)
+        self.assertEqual(unrelated.read_text(), "private work")
+        self.assertEqual(external.read_text(), "outside the checkout")
+        self.assertEqual(invalid_digest.read_text(), "unmanaged")
+        restored = json.loads(state_path.read_text())
+        for key, value in extra.items():
+            self.assertEqual(restored[key], value)
+
+    def test_stale_guidance_below_linked_parent_is_not_read_or_deleted(self):
+        HARNESS.restore(self.target, self.kit)
+        (self.kit / "agents/investigation.md").unlink()
+        relative = ".claude/agents/investigation.md"
+        output = self.target / relative
+        parent = output.parent
+        original = HARNESS.guidance_digest
+
+        def digest(path):
+            self.assertNotEqual(path, output, "Never read guidance below a linked parent")
+            return original(path)
+
+        with (
+            patch.object(HARNESS, "filesystem_link", side_effect=lambda path: path == parent),
+            patch.object(HARNESS, "guidance_digest", digest),
+        ):
+            HARNESS.restore(self.target, self.kit)
+        self.assertEqual((self.target / relative).read_text(), "# common agent\n")
+        self.assertNotIn(relative, json.loads((self.target / ".agent-kit/guidance-state.json").read_text()))
+
+    def test_stale_guidance_replaced_with_consumer_directory_is_preserved(self):
+        HARNESS.restore(self.target, self.kit)
+        (self.kit / "agents/investigation.md").unlink()
+        output = self.target / ".claude/agents/investigation.md"
+        output.unlink()
+        output.mkdir()
+        personal = output / "notes.txt"
+        personal.write_text("unfinished work", encoding="utf-8")
+        for _ in range(2):
+            HARNESS.restore(self.target, self.kit)
+            self.assertEqual(personal.read_text(), "unfinished work")
 
     def test_pinned_archive_download_and_restore(self):
         content = io.BytesIO()

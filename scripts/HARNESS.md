@@ -14,6 +14,10 @@ python -X utf8 scripts/validate_harness.py
 
 `agent-harness.lock.json` のcommitからkitを取得し、kitのruntime-only導入処理を呼ぶ。
 復元先はgitignoredの共通Pythonフックと `*.default.json`。
+共通の `.claude/agents`、`.claude/rules`、`.codex/agents` も復元し、生成元のdigestを
+`.agent-kit/guidance-state.json` に記録する。pin更新で削除・改名されたファイルは、
+現在のdigestが前回生成時と一致する場合だけ削除する。手編集や管理外のファイル、リンクは保持する。
+保持した旧ファイルは生成管理から外し、次回以降も自動削除しない。
 追跡中のイベント設定、固有ルール、`.codex/config.toml` は変更しない。
 `make setup` でも復元する。既存環境の修復にはPythonコマンドか `make harness-install` を使う。
 

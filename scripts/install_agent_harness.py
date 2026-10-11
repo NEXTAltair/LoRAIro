@@ -11,8 +11,16 @@ import tempfile
 import urllib.request
 from pathlib import Path
 
+from skill_projection import filesystem_link
+
 REPOSITORY = "NEXTAltair/altairs-agent-dev-kit"
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
+GUIDANCE_DIRECTORIES = (
+    ("agents", "*.md", ".claude/agents"),
+    ("rules", "*.md", ".claude/rules"),
+    ("codex/agents", "*.toml", ".codex/agents"),
+)
+GUIDANCE_PATH = re.compile(r"(?:\.claude/(?:agents|rules)/[^/\\:]+\.md|\.codex/agents/[^/\\:]+\.toml)")
 
 
 def read_pin(target: Path) -> str:
@@ -60,28 +68,70 @@ def restore_guidance(source: Path, target: Path) -> None:
     state = json.loads(state_path.read_text(encoding="utf-8")) if state_path.exists() else {}
     if not isinstance(state, dict):
         raise ValueError("Agent guidance state must be an object")
-    for directory, pattern, destination in (
-        ("agents", "*.md", ".claude/agents"),
-        ("rules", "*.md", ".claude/rules"),
-        ("codex/agents", "*.toml", ".codex/agents"),
-    ):
-        for file in sorted((source / directory).glob(pattern)):
-            relative = f"{destination}/{file.name}"
-            output = target / relative
-            if output.is_symlink() or output.is_junction():
-                print(f"PRESERVE (guidance link): {relative}")
-                continue
-            incoming = guidance_digest(file)
-            if output.exists():
-                current = guidance_digest(output)
-                if current != incoming and current != state.get(relative):
-                    print(f"PRESERVE (consumer guidance): {relative}")
-                    continue
-            output.parent.mkdir(parents=True, exist_ok=True)
-            shutil.copyfile(file, output)
-            state[relative] = incoming
+    # Read all source content before altering any existing generated guidance.
+    incoming = collect_guidance(source)
+    copy_shared_guidance(incoming, target, state)
+    prune_removed_guidance(set(incoming), target, state)
     state_path.parent.mkdir(parents=True, exist_ok=True)
     state_path.write_text(json.dumps(state, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+
+
+def collect_guidance(source: Path) -> dict[str, tuple[Path, str]]:
+    incoming = {}
+    for directory, pattern, destination in GUIDANCE_DIRECTORIES:
+        for file in sorted((source / directory).glob(pattern)):
+            relative = f"{destination}/{file.name}"
+            if not GUIDANCE_PATH.fullmatch(relative):
+                raise ValueError("Unsupported kit guidance filename")
+            incoming[relative] = (file, guidance_digest(file))
+    return incoming
+
+
+def guidance_path_linked(target: Path, relative: str) -> bool:
+    """Do not follow links in the output or its parent directories during reconciliation."""
+    path = target
+    for component in relative.split("/"):
+        path = path / component
+        if filesystem_link(path):
+            return True
+    return False
+
+
+def copy_shared_guidance(incoming: dict[str, tuple[Path, str]], target: Path, state: dict) -> None:
+    for relative, (file, digest) in incoming.items():
+        output = target / relative
+        if guidance_path_linked(target, relative):
+            print(f"PRESERVE (guidance link): {relative}")
+            continue
+        if output.exists():
+            if not output.is_file() or guidance_digest(output) not in (digest, state.get(relative)):
+                print(f"PRESERVE (consumer guidance): {relative}")
+                continue
+        output.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(file, output)
+        state[relative] = digest
+
+
+def prune_removed_guidance(incoming: set[str], target: Path, state: dict) -> None:
+    """Retire known state entries; delete only unchanged generated regular files."""
+    for relative, digest in list(state.items()):
+        if relative in incoming:
+            continue
+        # Never treat unknown or malformed manifest entries as deletion authority.
+        if not GUIDANCE_PATH.fullmatch(relative) or not isinstance(digest, str):
+            continue
+        if not re.fullmatch(r"[0-9a-f]{64}", digest):
+            continue
+        output = target / relative
+        if guidance_path_linked(target, relative):
+            print(f"PRESERVE (removed guidance link): {relative}")
+        elif output.is_file() and guidance_digest(output) == digest:
+            output.unlink()
+            print(f"REMOVE (retired kit guidance): {relative}")
+        elif output.exists():
+            print(f"PRESERVE (removed consumer guidance): {relative}")
+        # Edited stale files become consumer-owned, not candidates for later cleanup.
+        state.pop(relative)
 
 
 def refresh_registrations(kit, target: Path) -> None:
