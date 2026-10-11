@@ -35,7 +35,7 @@ DEFAULT_CONFIG_PATH = PROJECT_ROOT / "config" / "lorairo.toml"
 # Project configuration is a portable, read-only layer. Mutable preferences and
 # logs belong to the current OS user, outside a bind-mounted checkout.
 USER_CONFIG_PATH = (
-    Path(os.environ["LORAIRO_CONFIG_HOME"]).expanduser()
+    Path(os.environ["LORAIRO_CONFIG_HOME"]).expanduser().resolve()
     if os.environ.get("LORAIRO_CONFIG_HOME")
     else user_config_path("LoRAIro", appauthor=False)
 ) / "lorairo.toml"

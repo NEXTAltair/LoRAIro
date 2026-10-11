@@ -1,5 +1,8 @@
 """OS user overrides never rewrite a shared bind-mounted project config."""
 
+import os
+import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -115,6 +118,30 @@ def test_default_paths_use_platformdirs_outside_the_checkout():
     assert config.DEFAULT_CLI_LOG_PATH.parent == config.DEFAULT_LOG_PATH.parent
     assert not config.DEFAULT_LOG_PATH.is_relative_to(config.PROJECT_ROOT)
     assert user_config_path("LoRAIro", appauthor=False).is_absolute()
+
+
+def test_relative_user_config_home_stays_fixed_after_chdir(tmp_path):
+    later = tmp_path / "later"
+    later.mkdir()
+    environment = dict(os.environ)
+    environment["LORAIRO_CONFIG_HOME"] = "preferences"
+    environment["PYTHONPATH"] = str(Path(config.__file__).resolve().parents[2])
+    subprocess.run(
+        [
+            sys.executable,
+            "-c",
+            "import os; from pathlib import Path; from lorairo.utils import config; "
+            "expected = Path.cwd() / 'preferences' / 'lorairo.toml'; "
+            "os.chdir('later'); config.ensure_config_file(); "
+            "assert config.get_user_config_path() == expected; "
+            "assert expected.is_file(); assert not Path('preferences').exists()",
+        ],
+        cwd=tmp_path,
+        env=environment,
+        check=True,
+        capture_output=True,
+        text=True,
+    )
 
 
 def test_workspace_uses_local_preferences_without_importing_user_data_directories(isolated_paths, tmp_path):
