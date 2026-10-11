@@ -1,16 +1,22 @@
 """Migration removes higher-priority overrides and preserves each OS user home."""
 
+import ctypes
+import hashlib
 import json
 import os
+import stat
+import subprocess
 import sys
 import tempfile
 import tomllib
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 import configure_agent_environment as settings
+import private_backup
 from validate_harness import validate_project_environment
 
 
@@ -18,7 +24,7 @@ class AgentEnvironmentTests(unittest.TestCase):
     def setUp(self):
         self.temporary = tempfile.TemporaryDirectory()
         self.addCleanup(self.temporary.cleanup)
-        self.root = Path(self.temporary.name)
+        self.root = Path(self.temporary.name).resolve()
         self.project = self.root / "project"
         self.project.mkdir()
         self.codex = self.root / "windows/.codex"
@@ -174,6 +180,260 @@ class AgentEnvironmentTests(unittest.TestCase):
         )
         self.assertNotIn("shell_environment_policy.set", cleaned)
         self.assertTrue(tomllib.loads(cleaned)["features"]["existing"])
+
+    def assert_private_file(self, path):
+        if os.name == "nt":
+            security = private_backup._windows_security()
+            handle = security.kernel.CreateFileW(str(path), 0x00020000, 7, None, 3, 0x80, None)
+            self.assertNotEqual(handle, ctypes.c_void_p(-1).value)
+            try:
+                security.verify_handle(handle, directory=False)
+            finally:
+                security.kernel.CloseHandle(handle)
+        else:
+            self.assertEqual(stat.S_IMODE(path.stat().st_mode), 0o600)
+
+    def test_settings_and_backups_are_private_before_first_write(self):
+        created = []
+        original_open = settings.open_private_file
+
+        def open_verified(path):
+            stream = original_open(path)
+            private_backup.validate_private_directory(path.parent)
+            self.assertEqual(stream.tell(), 0)
+            if os.name == "nt":
+                import msvcrt
+
+                private_backup._windows_security().verify_handle(
+                    msvcrt.get_osfhandle(stream.fileno()), directory=False
+                )
+            else:
+                self.assertEqual(stat.S_IMODE(os.fstat(stream.fileno()).st_mode), 0o600)
+            created.append(path)
+            return stream
+
+        with patch.object(settings, "open_private_file", side_effect=open_verified):
+            self.configure()
+            new = self.codex / "new-settings.json"
+            settings.write_preserving_backup(
+                new, '{"fixture":"opaque"}', self.codex / "lorairo-config-backups"
+            )
+        self.assertGreaterEqual(len(created), 9)
+        for path in (self.codex / "config.toml", self.claude / "settings.json", new):
+            self.assert_private_file(path)
+        for home in (self.codex, self.claude):
+            for backup in (home / "lorairo-config-backups").iterdir():
+                self.assert_private_file(backup)
+        self.assertFalse(list(self.project.rglob(".lorairo-settings-*")))
+
+    def test_legacy_broad_root_is_preserved_and_private_sibling_reused(self):
+        root = self.codex / "lorairo-config-backups"
+        root.mkdir()
+        if os.name != "nt":
+            root.chmod(0o755)
+        legacy = root / "original.toml"
+        legacy.write_bytes(b"legacy fixture")
+        before = (legacy.read_bytes(), legacy.stat().st_mtime_ns, root.stat().st_mode)
+        destination = self.codex / "config.toml"
+        original = destination.read_bytes()
+        settings.write_preserving_backup(destination, 'model = "new"\n', root)
+        private = root.with_name(root.name + "-private")
+        private_backup.validate_private_directory(private)
+        backups = {path: path.read_bytes() for path in private.iterdir()}
+        self.assertEqual(list(backups.values()), [original])
+        settings.write_preserving_backup(destination, 'model = "new"\n', root)
+        self.assertEqual(len(list(private.iterdir())), 1)
+        settings.write_preserving_backup(destination, 'model = "newer"\n', root)
+        self.assertEqual(len(list(private.iterdir())), 2)
+        for path, data in backups.items():
+            self.assertEqual(path.read_bytes(), data)
+        self.assertEqual(before, (legacy.read_bytes(), legacy.stat().st_mtime_ns, root.stat().st_mode))
+
+    def test_existing_backup_collision_preserves_both_files(self):
+        destination = self.codex / "config.toml"
+        original = destination.read_bytes()
+        root = self.codex / "lorairo-config-backups"
+        settings.create_private_directory(root)
+        identifier = hashlib.sha256(str(destination.resolve()).encode()).hexdigest()[:16]
+        digest = hashlib.sha256(original).hexdigest()[:16]
+        backup = root / f"{identifier}-{digest}-fixed-{destination.name}"
+        backup.write_bytes(b"unfinished prior backup")
+        with patch.object(settings.uuid, "uuid4", return_value=SimpleNamespace(hex="fixed")):
+            with self.assertRaises(FileExistsError):
+                settings.write_preserving_backup(destination, "new", root)
+        self.assertEqual(destination.read_bytes(), original)
+        self.assertEqual(backup.read_bytes(), b"unfinished prior backup")
+
+    def test_root_links_and_non_directory_backups_are_refused(self):
+        destination = self.codex / "config.toml"
+        original = destination.read_bytes()
+        root = self.codex / "lorairo-config-backups"
+        root.write_bytes(b"consumer-owned file")
+        with self.assertRaises(PermissionError):
+            settings.write_preserving_backup(destination, "new", root)
+        self.assertEqual(root.read_bytes(), b"consumer-owned file")
+        root.unlink()
+        with patch.object(settings, "filesystem_link", side_effect=lambda path: path == root):
+            with self.assertRaises(PermissionError):
+                settings.write_preserving_backup(destination, "new", root)
+        self.assertEqual(destination.read_bytes(), original)
+
+    def test_existing_staging_collision_is_never_cleaned(self):
+        path = self.codex / "new.json"
+        stage = path.parent / ".lorairo-settings-fixed"
+        stage.mkdir()
+        consumer = stage / "notes"
+        consumer.write_bytes(b"unsaved work")
+        with patch.object(settings.uuid, "uuid4", return_value=SimpleNamespace(hex="fixed")):
+            with self.assertRaises(FileExistsError):
+                settings.write_preserving_backup(path, "new", self.codex / "lorairo-config-backups")
+        self.assertEqual(consumer.read_bytes(), b"unsaved work")
+        self.assertFalse(path.exists())
+
+    def test_existing_replacement_collision_is_never_cleaned(self):
+        path = self.codex / "new.json"
+        original_open = settings.open_private_file
+        preserved = []
+
+        def colliding(output):
+            output.write_bytes(b"consumer-owned collision")
+            preserved.append(output)
+            return original_open(output)
+
+        with patch.object(settings, "open_private_file", side_effect=colliding):
+            with self.assertRaises(FileExistsError):
+                settings.write_preserving_backup(path, "new", self.codex / "lorairo-config-backups")
+        self.assertFalse(path.exists())
+        self.assertEqual(preserved[0].read_bytes(), b"consumer-owned collision")
+
+    def test_unsafe_private_fallback_preserves_all_existing_files(self):
+        root = self.codex / "lorairo-config-backups"
+        fallback = root.with_name(root.name + "-private")
+        for directory in (root, fallback):
+            directory.mkdir()
+            if os.name != "nt":
+                directory.chmod(0o755)
+        consumer = fallback / "pending"
+        consumer.write_bytes(b"existing fallback work")
+        path = self.codex / "config.toml"
+        before = path.read_bytes()
+        with self.assertRaises(PermissionError):
+            settings.write_preserving_backup(path, "new", root)
+        self.assertEqual(path.read_bytes(), before)
+        self.assertEqual(consumer.read_bytes(), b"existing fallback work")
+        self.assertEqual(list(root.iterdir()), [])
+
+    def test_failed_replacement_preserves_original_and_backup_and_removes_stage(self):
+        path = self.codex / "config.toml"
+        original = path.read_bytes()
+        backup_root = self.codex / "lorairo-config-backups"
+        with patch.object(settings.os, "replace", side_effect=OSError("fixture replace failure")):
+            with self.assertRaisesRegex(OSError, "fixture replace failure"):
+                settings.write_preserving_backup(path, "new", backup_root)
+        self.assertEqual(path.read_bytes(), original)
+        self.assertEqual([p.read_bytes() for p in backup_root.iterdir()], [original])
+        self.assertFalse(list(path.parent.glob(".lorairo-settings-*")))
+
+    def test_interrupted_staging_paths_are_gitignored(self):
+        fixture = self.root / "git-fixture"
+        subprocess.run(["git", "init", str(fixture)], capture_output=True, check=True)
+        (fixture / ".gitignore").write_bytes((settings.ROOT / ".gitignore").read_bytes())
+        paths = [
+            ".codex/.lorairo-settings-fixture/config.toml",
+            ".claude/.lorairo-settings-fixture/settings.json",
+        ]
+        result = subprocess.run(
+            ["git", "-C", str(fixture), "check-ignore", "--no-index", "--stdin", "-z"],
+            input=("\0".join(paths) + "\0").encode(),
+            capture_output=True,
+            check=True,
+        )
+        self.assertEqual(result.stdout.decode().split("\0")[:-1], paths)
+
+    def test_linked_sources_are_rejected_before_planning_reads(self):
+        before = (self.codex / "config.toml").read_bytes()
+        for location in (self.codex, self.project / ".claude/settings.local.json"):
+            with (
+                self.subTest(location=location.name),
+                patch.object(
+                    settings, "filesystem_link", side_effect=lambda path, linked=location: path == linked
+                ),
+                patch.object(
+                    Path, "read_text", side_effect=AssertionError("No configuration should be read")
+                ),
+            ):
+                with self.assertRaises(PermissionError):
+                    self.configure()
+        self.assertEqual((self.codex / "config.toml").read_bytes(), before)
+        self.assertFalse((self.codex / "lorairo-config-backups").exists())
+
+    def test_failed_partial_stage_write_is_cleaned_and_original_preserved(self):
+        path = self.codex / "config.toml"
+        before = path.read_bytes()
+        root = self.codex / "lorairo-config-backups"
+        original_open = settings.open_private_file
+
+        class PartialWriter:
+            def __init__(self, stream):
+                self.stream = stream
+
+            def __enter__(self):
+                return self
+
+            def write(self, content):
+                self.stream.write(content[:2])
+                raise OSError("fixture partial-write failure")
+
+            def __exit__(self, *_args):
+                self.stream.close()
+
+        def fail_on_stage(output):
+            stream = original_open(output)
+            return PartialWriter(stream) if output.parent.name.startswith(".lorairo-settings-") else stream
+
+        with patch.object(settings, "open_private_file", side_effect=fail_on_stage):
+            with self.assertRaisesRegex(OSError, "fixture partial-write failure"):
+                settings.write_preserving_backup(path, "new values", root)
+        self.assertEqual(path.read_bytes(), before)
+        self.assertEqual([p.read_bytes() for p in root.iterdir()], [before])
+        self.assertFalse(list(path.parent.glob(".lorairo-settings-*")))
+
+    def test_unc_paths_and_posix_permission_grammar_are_distinct(self):
+        for value, expected in (
+            (r"\\server\share\models", "nt"),
+            ("//server/share/models", "nt"),
+            (r"\\?\UNC\server\share\models", "nt"),
+            (r'Bash("\\server\share\python.exe" *)', "nt"),
+            ('Bash("//server/share/python.exe" *)', "nt"),
+            ("Read(//workspaces/LoRAIro/**)", "posix"),
+            ("Edit(//home/vscode/project/**)", "posix"),
+            ("Bash(/workspaces/LoRAIro/.venv/bin/python *)", "posix"),
+            ("https://server/share/models", None),
+            ("Bash(git *)", None),
+        ):
+            with self.subTest(value=value):
+                self.assertEqual(settings.path_platform(value), expected)
+
+    def test_unc_environment_and_permissions_migrate_only_to_windows(self):
+        unc = r"\\server\share\models"
+        local = {
+            "env": {"MODEL_DIR": unc, "CACHE_DIR": "//server/share/cache"},
+            "permissions": {"allow": [f"Bash({unc} *)", "Read(//workspaces/LoRAIro/**)", "Bash(git *)"]},
+        }
+        self.write(self.project / ".claude/settings.local.json", json.dumps(local))
+        self.assertTrue(validate_project_environment(self.project))
+        self.configure()
+        self.assertEqual(validate_project_environment(self.project), [])
+        user = json.loads((self.claude / "settings.json").read_text())
+        if os.name == "nt":
+            self.assertEqual(user["env"]["MODEL_DIR"], unc)
+            self.assertEqual(user["env"]["CACHE_DIR"], "//server/share/cache")
+            self.assertIn(f"Bash({unc} *)", user["permissions"]["allow"])
+            self.assertNotIn("Read(//workspaces/LoRAIro/**)", user["permissions"]["allow"])
+        else:
+            self.assertNotIn("MODEL_DIR", user["env"])
+            self.assertNotIn("CACHE_DIR", user["env"])
+            self.assertIn("Read(//workspaces/LoRAIro/**)", user["permissions"]["allow"])
 
 
 if __name__ == "__main__":

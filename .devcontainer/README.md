@@ -84,6 +84,17 @@ the **current OS user** Codex and Claude settings. It removes that key from
 project Codex config and Claude local/project settings, since project settings
 override user settings. Changing CODEX_HOME alone is insufficient. Other
 preferences are retained, with private backups before migration.
+Backups use new exclusive files in a verified private directory. An existing
+broad backup directory remains intact; new backups use its private sibling.
+Settings are replaced from a private staging directory on the destination's
+filesystem, preserving POSIX 0600 or the current-user-only protected Windows
+DACL. Staging files are cleaned on failure and ignored by Git after interruption.
+
+Restore shared guidance/runtime with `scripts/install_agent_harness.py` or
+`make harness-install`. This runtime-only wrapper preserves OS user settings.
+Running the upstream full installer directly can regenerate absolute project
+paths; run `configure_agent_environment.py` afterwards and verify that shared
+project settings contain no OS-specific absolute paths before using the agents.
 
 The default environment is this OS checkout's Git common root .venv, also
 when configuring from a linked worktree. Windows resolves Scripts/python.exe;

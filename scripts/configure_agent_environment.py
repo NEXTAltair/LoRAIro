@@ -12,9 +12,14 @@ import hashlib
 import json
 import os
 import re
+import stat
 import subprocess
 import tomllib
+import uuid
 from pathlib import Path
+
+from private_backup import create_private_directory, open_private_file, validate_private_directory
+from skill_projection import filesystem_link
 
 ROOT = Path(__file__).resolve().parents[1]
 MANAGED_KEYS = frozenset({"UV_PROJECT_ENVIRONMENT"})
@@ -54,6 +59,12 @@ def merge_codex_scalar(text: str, table: str | None, key: str, value: str) -> st
 def path_platform(value: str) -> str | None:
     """Recognize absolute paths and permission rules containing machine paths."""
     if re.search(r"(?<![\w])[A-Za-z]:[/\\]", value):
+        return "nt"
+    # Claude filesystem permissions use // for an absolute POSIX-rooted glob.
+    if re.match(r"^(?:Read|Edit|Write|Glob|Grep|NotebookEdit)\(\s*//", value):
+        return "posix"
+    # UNC values/commands are Windows paths; avoid matching URL scheme separators.
+    if re.search(r"(?<![\w/\\])\\\\[^/\\\s]+\\[^/\\\s]+|(?<![\w:/])//[^/\\\s]+/[^/\\\s]+", value):
         return "nt"
     if value.startswith("/") or re.search(r"\(\s*//|[\s=(\"']/(?!/)", value):
         return "posix"
@@ -108,6 +119,7 @@ def rewrite_codex_environment(text: str, updates: dict[str, str], *, project: bo
 
 
 def json_settings(path: Path) -> dict:
+    reject_non_regular_config(path)
     if not path.exists():
         return {}
     value = json.loads(path.read_text(encoding="utf-8"))
@@ -157,8 +169,58 @@ def relocate_claude_environment(project: dict, user: dict) -> bool:
     return True
 
 
+def reject_linked_path(path: Path) -> None:
+    """Do not read or write configuration through consumer filesystem links."""
+    if any(filesystem_link(parent) for parent in (path, *path.parents)):
+        raise PermissionError("Agent configuration paths must not contain filesystem links")
+
+
+def private_backup_directory(root: Path) -> Path:
+    """Leave legacy broad directories intact and use a separate protected sibling."""
+    reject_linked_path(root)
+    if root.exists() and not stat.S_ISDIR(root.lstat().st_mode):
+        raise PermissionError("Agent backup root must be a regular directory")
+    try:
+        create_private_directory(root)
+        return root
+    except FileExistsError:
+        try:
+            validate_private_directory(root)
+            return root
+        except PermissionError:
+            # Never rewrite an old directory's ACL/mode or inspect its backup files.
+            fallback = root.with_name(root.name + "-private")
+            reject_linked_path(fallback)
+            try:
+                create_private_directory(fallback)
+            except FileExistsError:
+                validate_private_directory(fallback)
+            return fallback
+
+
+def reject_non_regular_config(path: Path) -> None:
+    reject_linked_path(path)
+    if path.exists() and not stat.S_ISREG(path.lstat().st_mode):
+        raise PermissionError("Agent configuration destination must be a regular file")
+
+
+def validate_configuration_sources(target: Path, codex_home: Path, claude_home: Path) -> None:
+    """Validate all locations before resolving roots or parsing any configuration."""
+    for location in (target, codex_home, claude_home):
+        reject_linked_path(location)
+    for path in (
+        codex_home / "config.toml",
+        claude_home / "settings.json",
+        target / ".codex/config.toml",
+        target / ".claude/settings.json",
+        target / ".claude/settings.local.json",
+    ):
+        reject_non_regular_config(path)
+
+
 def write_preserving_backup(path: Path, content: str, backup_root: Path) -> None:
-    """Keep private, content-addressed originals before changing a configuration."""
+    """Back up originals and replace settings through protected same-filesystem staging."""
+    reject_non_regular_config(path)
     original = path.read_bytes() if path.exists() else None
     encoded = content.encode("utf-8")
     if original == encoded:
@@ -166,12 +228,34 @@ def write_preserving_backup(path: Path, content: str, backup_root: Path) -> None
     if original is not None:
         identifier = hashlib.sha256(str(path.resolve()).encode()).hexdigest()[:16]
         digest = hashlib.sha256(original).hexdigest()[:16]
-        backup = backup_root / f"{identifier}-{digest}-{path.name}"
-        backup.parent.mkdir(parents=True, exist_ok=True)
-        backup.write_bytes(original)
-        backup.chmod(0o600)
+        directory = private_backup_directory(backup_root)
+        backup = directory / f"{identifier}-{digest}-{uuid.uuid4().hex}-{path.name}"
+        with open_private_file(backup) as destination:
+            destination.write(original)
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_bytes(encoded)
+    # Agent homes and the project may live on different drives. Keep staging
+    # beside the destination so rename preserves the protected file's ACL/mode.
+    staging = path.parent / f".lorairo-settings-{uuid.uuid4().hex}"
+    create_private_directory(staging)
+    replacement = staging / path.name
+    replacement_created = False
+    try:
+        with open_private_file(replacement) as destination:
+            replacement_created = True
+            destination.write(encoded)
+        os.replace(replacement, path)
+    finally:
+        # Delete only a replacement which this operation successfully created.
+        # A failed exclusive creation must preserve any preexisting file.
+        if replacement_created:
+            try:
+                replacement.unlink(missing_ok=True)
+            except OSError:
+                pass
+        try:
+            staging.rmdir()
+        except OSError:
+            pass
 
 
 def configure(
@@ -183,6 +267,7 @@ def configure(
     migrate_codex_preferences: bool = False,
 ) -> list[Path]:
     """Merge into OS user settings and remove competing project environment keys."""
+    validate_configuration_sources(target, codex_home, claude_home)
     target, venv = target.resolve(), venv.resolve()
     codex_home, claude_home = codex_home.resolve(), claude_home.resolve()
     if any(home.is_relative_to(target) for home in (codex_home, claude_home)):
@@ -201,6 +286,7 @@ def configure(
     user_settings = json_settings(claude_config)
     user_settings.setdefault("env", {})["UV_PROJECT_ENVIRONMENT"] = value
     project_codex = target / ".codex/config.toml"
+    reject_linked_path(project_codex)
     if project_codex.exists():
         text = project_codex.read_text(encoding="utf-8")
         project_settings = tomllib.loads(text)
