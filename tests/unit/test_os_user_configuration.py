@@ -117,13 +117,37 @@ def test_default_paths_use_platformdirs_outside_the_checkout():
     assert user_config_path("LoRAIro", appauthor=False).is_absolute()
 
 
-def test_explicit_runtime_scope_preserves_config_and_does_not_load_user_override(isolated_paths, tmp_path):
+def test_workspace_uses_local_preferences_without_importing_user_data_directories(isolated_paths, tmp_path):
     _, user = isolated_paths
-    write_settings(user, annotation_review={"n_gpu_layers": 99})
+    user.parent.mkdir(parents=True, exist_ok=True)
+    user.write_text(
+        toml.dumps(
+            {
+                "directories": {"database_base_dir": "H:/private/real-data"},
+                "annotation_review": {"n_gpu_layers": 99},
+                "api": {"openai_key": "local-test-key"},
+            }
+        ),
+        encoding="utf-8",
+    )
     workspace = tmp_path / "workspace"
     runtime = config.resolve_runtime_configuration(workspace, None)
     with config.runtime_configuration_scope(runtime):
         service = ConfigurationService()
-        assert service.get_setting("annotation_review", "n_gpu_layers") == 10
+        assert service.get_setting("annotation_review", "n_gpu_layers") == 99
+        assert service.get_setting("api", "openai_key") == "local-test-key"
+        assert Path(service.get_setting("directories", "database_base_dir")) == workspace / "lorairo_data"
         assert service._config_path == workspace / "config" / "lorairo.toml"
     assert not (workspace / "config").exists()
+
+
+def test_explicit_runtime_config_remains_independent_of_user_preferences(isolated_paths, tmp_path):
+    _, user = isolated_paths
+    write_settings(user, api={"openai_key": "local-test-key"}, annotation_review={"n_gpu_layers": 99})
+    explicit = tmp_path / "portable.toml"
+    write_settings(explicit, annotation_review={"n_gpu_layers": 2})
+    runtime = config.resolve_runtime_configuration(tmp_path / "workspace", explicit)
+    with config.runtime_configuration_scope(runtime):
+        service = ConfigurationService()
+        assert service.get_setting("annotation_review", "n_gpu_layers") == 2
+        assert service.get_setting("api", "openai_key") == ""

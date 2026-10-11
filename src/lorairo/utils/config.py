@@ -316,6 +316,16 @@ def resolve_runtime_configuration(workspace: Path | None, config_path: Path | No
         if config_path is not None
         else get_config(selected_config)
     )
+    if config_path is None:
+        try:
+            preferences = load_config(get_user_config_path())
+        except FileNotFoundError:
+            preferences = {}
+        # --workspace selects data directories, while credentials and executable
+        # preferences still belong to the OS user. An explicit --config stays
+        # fully independent from user preferences for portable invocations.
+        preferences.pop("directories", None)
+        settings = deep_update(settings, preferences)
     if not isinstance(settings["directories"], dict):
         raise ValueError("Config [directories] must be a table")
     for key, value in settings["directories"].items():
