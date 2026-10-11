@@ -37,6 +37,7 @@ dependencies = [
     # データ処理系
     "toml>=0.10.2",
     "loguru>=0.7.2",
+    "platformdirs>=4.3.0",
     "sqlalchemy>=2.0.40",
     "alembic>=1.15.2",
     "huggingface_hub[hf_xet]",

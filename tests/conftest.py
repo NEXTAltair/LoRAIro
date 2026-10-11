@@ -9,9 +9,15 @@
 import gc
 import os
 import sys
+import tempfile
 import types
 import unittest.mock
 from contextlib import contextmanager
+
+# Isolate user preferences before collection imports db_core/get_config. Tests
+# must not read or overwrite the actual OS user's credentials and model paths.
+_test_user_config = tempfile.TemporaryDirectory(prefix="lorairo-user-config-")
+os.environ["LORAIRO_CONFIG_HOME"] = _test_user_config.name
 
 # --- 1. image_annotator_lib Mock (prevents torch/tensorflow loading) ---
 # image_annotator_lib の __init__.py は model_class/ 内の全モジュールを動的にインポートし、

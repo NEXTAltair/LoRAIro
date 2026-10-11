@@ -162,9 +162,7 @@ def _configure(
                 if workspace is None and config_path is None:
                     from lorairo.utils.config import RuntimeConfiguration
 
-                    selected = RuntimeConfiguration(
-                        Path.cwd(), DEFAULT_CONFIG_PATH, get_config(DEFAULT_CONFIG_PATH)
-                    )
+                    selected = RuntimeConfiguration(Path.cwd(), DEFAULT_CONFIG_PATH, get_config())
                 else:
                     selected = resolve_runtime_configuration(workspace, config_path)
             except (ValueError, KeyError, OSError) as exc:
