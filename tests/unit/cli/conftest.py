@@ -86,7 +86,7 @@ def _validate_wire_rows(path, spec, stdout):
         for model in models:
             schema = model.schema_model
             assert schema is not None
-            properties = schema.model_json_schema().get("properties", {})
+            properties = _json_schema_validator(schema).schema.get("properties", {})
             missing = set(row) - set(properties) - {"kind"}
             if missing:
                 errors.append(f"{model.name}: unpublished keys {sorted(missing)}")

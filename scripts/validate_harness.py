@@ -83,8 +83,7 @@ def validate_claude_skill_links(project_root: Path) -> list[str]:
     claude_skill_names = {
         skill_link.name
         for skill_link in claude_skills_dir.iterdir()
-        if not skill_link.name.startswith(".")
-        and (filesystem_link(skill_link) or skill_link.is_dir())
+        if not skill_link.name.startswith(".") and (filesystem_link(skill_link) or skill_link.is_dir())
     }
 
     missing_links = sorted(shared_skill_names - claude_skill_names)
