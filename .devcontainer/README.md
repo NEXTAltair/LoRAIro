@@ -39,6 +39,12 @@ printing them. It never accesses Windows Codex credentials.
 python scripts/migrate_container_codex.py --container <old-container-id> --backup-dir <private-new-directory>
 ~~~
 
+If the formerly ignored project Codex config contained active sandbox/inherit
+preferences, add `--project-config <original-project-config.toml>` before replacing
+that file. Only those portable preferences are retained in the Linux user config;
+project environment paths and Windows user-home state are never imported. Missing
+optional XDG directories or a legacy .gitconfig are treated as empty state.
+
 Back up Linux-only app/XDG state before removing the container too. Do not seed
 Linux user settings from Windows absolute paths. Move the host's existing
 config/lorairo.toml to the Windows user config only after preserving both files;

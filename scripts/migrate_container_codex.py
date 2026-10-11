@@ -11,14 +11,73 @@ import hashlib
 import json
 import subprocess
 import tarfile
+import tomllib
 from pathlib import Path
+
+from configure_agent_environment import migrate_codex_local_preferences
 
 
 def docker(*args: str, **kwargs) -> subprocess.CompletedProcess:
     return subprocess.run(["docker", *args], check=True, **kwargs)
 
 
-def migrate(container: str, backup_dir: Path, volume: str) -> None:
+def preserve_project_preferences(image: str, volume: str, project_config: Path) -> bool:
+    """Keep formerly active portable sandbox/inherit preferences, never project environment paths."""
+    project = tomllib.loads(project_config.read_text(encoding="utf-8"))
+    read_config = "import pathlib, sys; p=pathlib.Path('/home/vscode/.codex/config.toml'); sys.stdout.write(p.read_text() if p.is_file() else '')"
+    original = docker(
+        "run",
+        "--rm",
+        "--mount",
+        f"source={volume},target=/home/vscode/.codex,type=volume,readonly",
+        "--entrypoint",
+        "python3",
+        image,
+        "-c",
+        read_config,
+        capture_output=True,
+        text=True,
+    ).stdout
+    migrated = migrate_codex_local_preferences(original, project)
+    if migrated == original:
+        return False
+    original_digest = hashlib.sha256(original.encode()).hexdigest()
+    write_config = """
+import hashlib, pathlib, sys
+p = pathlib.Path('/home/vscode/.codex/config.toml')
+original = p.read_bytes() if p.is_file() else b''
+assert hashlib.sha256(original).hexdigest() == sys.argv[1], 'Linux config changed; refusing overwrite'
+if original:
+    backup = p.parent / 'lorairo-config-backups' / (sys.argv[1] + '-config.toml')
+    backup.parent.mkdir(mode=0o700, exist_ok=True)
+    if backup.exists():
+        assert backup.read_bytes() == original, 'Existing backup differs'
+    else:
+        backup.write_bytes(original)
+        backup.chmod(0o600)
+p.write_bytes(sys.stdin.buffer.read())
+p.chmod(0o600)
+"""
+    docker(
+        "run",
+        "--rm",
+        "-i",
+        "--user",
+        "1000:1000",
+        "--mount",
+        f"source={volume},target=/home/vscode/.codex,type=volume",
+        "--entrypoint",
+        "python3",
+        image,
+        "-c",
+        write_config,
+        original_digest,
+        input=migrated.encode(),
+    )
+    return True
+
+
+def migrate(container: str, backup_dir: Path, volume: str, project_config: Path | None = None) -> None:
     backup_dir.mkdir(parents=True, exist_ok=False)
     archive = backup_dir / "codex-linux.tar"
     info = json.loads(docker("inspect", container, capture_output=True, text=True).stdout)[0]
@@ -88,6 +147,9 @@ print(hashlib.sha256(p.read_bytes()).hexdigest() if p.is_file() else 'absent')
     ).stdout.strip()
     if verified != (auth_digest or "absent"):
         raise ValueError("Credential migration verification failed; backup retained")
+    preferences_migrated = (
+        preserve_project_preferences(info["Image"], volume, project_config) if project_config else False
+    )
     (backup_dir / "migration.json").write_text(
         json.dumps(
             {
@@ -95,6 +157,7 @@ print(hashlib.sha256(p.read_bytes()).hexdigest() if p.is_file() else 'absent')
                 "volume": volume,
                 "archive_sha256": digest,
                 "credential_bytes_match": True,
+                "portable_project_preferences_migrated": preferences_migrated,
             },
             indent=2,
         )
@@ -112,15 +175,30 @@ def migrate_xdg(container: str, backup_dir: Path) -> None:
         ("/home/vscode/.cache", ".cache", "lorairo-linux-cache"),
         ("/home/vscode/.local/state", "state", "lorairo-linux-state"),
     )
+    # Old images need not have created any XDG state or a legacy global Git config.
+    source_paths = {path: "is_dir" for path, _, _ in domains}
+    source_paths["/home/vscode/.gitconfig"] = "is_file"
+    check_sources = (
+        "import json, pathlib; "
+        f"checks = {source_paths!r}; "
+        "print(json.dumps({p: getattr(pathlib.Path(p), check)() for p, check in checks.items()}))"
+    )
+    present = json.loads(
+        docker("exec", container, "python3", "-c", check_sources, capture_output=True, text=True).stdout
+    )
     manifest = {}
     for path, basename, volume in domains:
         archive = backup_dir / f"linux-{basename.lstrip('.')}.tar"
-        docker("pause", container, stdout=subprocess.DEVNULL)
-        try:
-            with archive.open("xb") as destination:
-                docker("cp", f"{container}:{path}", "-", stdout=destination)
-        finally:
-            docker("unpause", container, stdout=subprocess.DEVNULL)
+        if present[path]:
+            docker("pause", container, stdout=subprocess.DEVNULL)
+            try:
+                with archive.open("xb") as destination:
+                    docker("cp", f"{container}:{path}", "-", stdout=destination)
+            finally:
+                docker("unpause", container, stdout=subprocess.DEVNULL)
+        else:
+            with tarfile.open(archive, "x"):
+                pass
         with archive.open("rb") as source:
             manifest[volume] = hashlib.file_digest(source, "sha256").hexdigest()
         restore = f"""
@@ -150,7 +228,6 @@ chown -R 1000:1000 /restore/{basename}
             )
     # Persist the old global Git config in XDG; never mix it with Windows Git settings.
     gitconfig = backup_dir / "linux.gitconfig"
-    docker("cp", f"{container}:/home/vscode/.gitconfig", str(gitconfig))
     install_gitconfig = """
 set -eu
 mkdir -p /config/git
@@ -162,22 +239,24 @@ else
     chmod 600 /config/git/config
 fi
 """
-    with gitconfig.open("rb") as source:
-        docker(
-            "run",
-            "--rm",
-            "-i",
-            "--user",
-            "0",
-            "--mount",
-            "source=lorairo-linux-config,target=/config,type=volume",
-            "--entrypoint",
-            "bash",
-            info["Image"],
-            "-c",
-            install_gitconfig,
-            stdin=source,
-        )
+    if present["/home/vscode/.gitconfig"]:
+        docker("cp", f"{container}:/home/vscode/.gitconfig", str(gitconfig))
+        with gitconfig.open("rb") as source:
+            docker(
+                "run",
+                "--rm",
+                "-i",
+                "--user",
+                "0",
+                "--mount",
+                "source=lorairo-linux-config,target=/config,type=volume",
+                "--entrypoint",
+                "bash",
+                info["Image"],
+                "-c",
+                install_gitconfig,
+                stdin=source,
+            )
     (backup_dir / "xdg-migration.json").write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
     print("Linux XDG settings, caches, state and global Git config backed up and migrated.")
 
@@ -187,6 +266,11 @@ if __name__ == "__main__":
     parser.add_argument("--container", required=True)
     parser.add_argument("--backup-dir", required=True, type=Path)
     parser.add_argument("--volume", default="lorairo-codex-config")
+    parser.add_argument(
+        "--project-config",
+        type=Path,
+        help="Original project config, to retain only portable sandbox/inherit preferences",
+    )
     args = parser.parse_args()
-    migrate(args.container, args.backup_dir, args.volume)
+    migrate(args.container, args.backup_dir, args.volume, args.project_config)
     migrate_xdg(args.container, args.backup_dir)
