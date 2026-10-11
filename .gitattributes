@@ -13,6 +13,7 @@
 *.css text eol=lf
 *.js text eol=lf
 *.sh text eol=lf
+.githooks/* text eol=lf
 
 # Configuration files
 *.ini text eol=lf
