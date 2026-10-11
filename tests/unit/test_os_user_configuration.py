@@ -3,6 +3,7 @@
 import os
 import subprocess
 import sys
+from copy import deepcopy
 from pathlib import Path
 
 import pytest
@@ -67,6 +68,82 @@ def test_first_run_and_repeated_save_leave_project_and_other_os_user_untouched(
     )
     assert windows_user.read_bytes() == windows_saved
     assert shared.read_bytes() == before
+
+
+def test_implicit_save_keeps_inherited_defaults_live_even_if_project_changes_before_save(isolated_paths):
+    shared, user = isolated_paths
+    write_settings(shared, log={"level": "DEBUG"}, annotation_review={"context_size": 2048})
+    service = ConfigurationService()
+    assert service.save_settings()
+    assert toml.load(user) == {"directories": {}}
+    service.update_setting("annotation_review", "server_path", "C:/local/llama.exe")
+    write_settings(shared, log={"level": "ERROR"}, annotation_review={"context_size": 8192})
+    assert service.save_settings()
+    assert service.save_settings()
+    assert toml.load(user) == {
+        "directories": {},
+        "annotation_review": {"server_path": "C:/local/llama.exe"},
+    }
+    reloaded = ConfigurationService()
+    assert reloaded.get_setting("log", "level") == "ERROR"
+    assert reloaded.get_setting("annotation_review", "context_size") == 8192
+    assert reloaded.get_setting("annotation_review", "server_path") == "C:/local/llama.exe"
+
+
+def test_implicit_save_preserves_existing_explicit_and_blank_user_overrides(isolated_paths):
+    shared, user = isolated_paths
+    write_settings(shared, log={"level": "DEBUG"}, directories={"export_dir": "portable-export"})
+    write_settings(
+        user,
+        log={"level": "DEBUG"},
+        directories={"export_dir": ""},
+        api={"openai_key": "local-test-key"},
+    )
+    service = ConfigurationService()
+    service.update_setting("api", "openai_key", "")
+    assert service.save_settings()
+    assert toml.load(user) == {
+        "directories": {"export_dir": ""},
+        "log": {"level": "DEBUG"},
+        "api": {"openai_key": ""},
+    }
+    write_settings(shared, log={"level": "ERROR"}, directories={"export_dir": "new-portable-export"})
+    reloaded = ConfigurationService()
+    assert reloaded.get_setting("log", "level") == "DEBUG"
+    assert reloaded.get_setting("directories", "export_dir") == "new-portable-export"
+
+
+def test_implicit_save_does_not_pin_future_code_defaults(isolated_paths, monkeypatch):
+    _, user = isolated_paths
+    service = ConfigurationService()
+    defaults = deepcopy(config.DEFAULT_CONFIG)
+    defaults["annotation_review"]["context_size"] = 16384
+    monkeypatch.setattr(config, "DEFAULT_CONFIG", defaults)
+    assert service.save_settings()
+    assert toml.load(user) == {"directories": {}}
+    assert ConfigurationService().get_setting("annotation_review", "context_size") == 16384
+
+
+def test_explicit_export_and_workspace_save_keep_full_settings_contract(isolated_paths, tmp_path):
+    shared, user = isolated_paths
+    write_settings(shared, log={"level": "DEBUG"})
+    service = ConfigurationService()
+    before = user.read_bytes()
+    export = tmp_path / "export.toml"
+    assert service.save_settings(export)
+    assert toml.load(export)["log"]["level"] == "DEBUG"
+    assert "context_size" in toml.load(export)["annotation_review"]
+    assert user.read_bytes() == before
+    workspace = tmp_path / "workspace"
+    (workspace / "config").mkdir(parents=True)
+    runtime = config.resolve_runtime_configuration(workspace, None)
+    with config.runtime_configuration_scope(runtime):
+        scoped = ConfigurationService()
+        scoped.update_setting("log", "level", "ERROR")
+        assert scoped.save_settings()
+    assert toml.load(runtime.config_path)["log"]["level"] == "ERROR"
+    assert "context_size" in toml.load(runtime.config_path)["annotation_review"]
+    assert user.read_bytes() == before
 
 
 @pytest.mark.parametrize(

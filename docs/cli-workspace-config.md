@@ -43,6 +43,12 @@ CLI の `--output` や画像入力など、コマンド引数の相対パスの�
 `config_found` は選択した設定の有無を表します。`--help` と
 `describe "project list" --schema json_schema` の `GlobalOptions` からも指定契約を取得できます。
 
+通常モードの `config_path` は OS ユーザー設定を指します。共通の既定値は
+`project_config_path` / `project_config_found`、ユーザー設定は
+`user_config_path` / `user_config_found` で区別します。`--workspace` では
+`config_found` は workspace 設定の有無を維持し、API 状態には読み込んだユーザー設定も反映します。
+`--config` はそのファイルだけを参照し、他の設定層の状態を表示しません。
+
 明示モードはコマンドごとに設定と ServiceContainer を分離し、以前のプロジェクトの
 キャッシュを引き継ぎません。既存の `set_active_project` で DB を選択します。
 タグの user DB は明示モードでは `directories.database_dir`（空なら

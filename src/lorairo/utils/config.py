@@ -216,18 +216,55 @@ def get_config(config_file: Path | None = None) -> dict[str, Any]:
     runtime = get_runtime_configuration()
     if config_file is None and runtime is not None:
         return deepcopy(runtime.settings)
-    final_config = deepcopy(DEFAULT_CONFIG)
-    paths = [config_file] if config_file is not None else [DEFAULT_CONFIG_PATH, get_user_config_path()]
+    final_config = deepcopy(DEFAULT_CONFIG) if config_file is not None else get_project_config()
+    paths = [config_file] if config_file is not None else [get_user_config_path()]
     for path in paths:
         try:
             loaded_config = load_config(path)
-            if config_file is None and path == DEFAULT_CONFIG_PATH:
-                loaded_config = _portable_project_config(loaded_config)
             final_config = deep_update(final_config, loaded_config)
         except FileNotFoundError:
             # Missing files are handled without side effects; creation is explicit.
             pass
     return final_config
+
+
+def get_project_config() -> dict[str, Any]:
+    """Read lower configuration layers without including mutable user preferences."""
+    settings = deepcopy(DEFAULT_CONFIG)
+    try:
+        return deep_update(settings, _portable_project_config(load_config(DEFAULT_CONFIG_PATH)))
+    except FileNotFoundError:
+        return settings
+
+
+def user_config_overrides(
+    settings: dict[str, Any],
+    defaults: dict[str, Any],
+    existing: dict[str, Any],
+    path: tuple[str, ...] = (),
+) -> dict[str, Any]:
+    """Persist differences while retaining keys explicitly present in the user layer."""
+    overrides: dict[str, Any] = {}
+    for key, value in settings.items():
+        current_path = (*path, key)
+        baseline = defaults.get(key)
+        previous = existing.get(key)
+        if isinstance(value, dict):
+            nested = user_config_overrides(
+                value,
+                baseline if isinstance(baseline, dict) else {},
+                previous if isinstance(previous, dict) else {},
+                current_path,
+            )
+            if nested or key in existing:
+                overrides[key] = nested
+        elif (
+            key in existing and value == baseline and _should_keep_default_for_blank(current_path, previous)
+        ):
+            overrides[key] = previous
+        elif key in existing or key not in defaults or value != baseline:
+            overrides[key] = deepcopy(value)
+    return overrides
 
 
 def _portable_project_config(settings: dict[str, Any]) -> dict[str, Any]:
@@ -281,6 +318,8 @@ class RuntimeConfiguration:
     workspace: Path
     config_path: Path
     settings: dict[str, Any]
+    user_config_path: Path | None = None
+    project_config_path: Path | None = None
 
 
 _RUNTIME_CONFIGURATION: ContextVar[RuntimeConfiguration | None] = ContextVar(
@@ -335,7 +374,12 @@ def resolve_runtime_configuration(workspace: Path | None, config_path: Path | No
             if value:
                 directory = Path(value).expanduser()
                 settings["directories"][key] = str((root / directory).resolve())
-    return RuntimeConfiguration(root, selected_config, settings)
+    return RuntimeConfiguration(
+        root,
+        selected_config,
+        settings,
+        user_config_path=get_user_config_path() if config_path is None else None,
+    )
 
 
 @contextmanager

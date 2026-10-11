@@ -43,6 +43,7 @@ from lorairo.utils.config import (
     DEFAULT_CONFIG_PATH,
     get_config,
     get_runtime_configuration,
+    get_user_config_path,
     resolve_runtime_configuration,
     runtime_configuration_scope,
 )
@@ -162,7 +163,13 @@ def _configure(
                 if workspace is None and config_path is None:
                     from lorairo.utils.config import RuntimeConfiguration
 
-                    selected = RuntimeConfiguration(Path.cwd(), DEFAULT_CONFIG_PATH, get_config())
+                    selected = RuntimeConfiguration(
+                        Path.cwd(),
+                        get_user_config_path(),
+                        get_config(),
+                        user_config_path=get_user_config_path(),
+                        project_config_path=DEFAULT_CONFIG_PATH,
+                    )
                 else:
                     selected = resolve_runtime_configuration(workspace, config_path)
             except (ValueError, KeyError, OSError) as exc:
@@ -233,17 +240,41 @@ def describe(
         emit_describe(command, schema=schema)  # type: ignore[arg-type]
 
 
+def _configuration_sources() -> tuple[Path, Path | None, Path | None]:
+    selected = get_runtime_configuration()
+    if selected is not None:
+        return selected.config_path, selected.user_config_path, selected.project_config_path
+    user_config = get_user_config_path()
+    return user_config, user_config, DEFAULT_CONFIG_PATH
+
+
+def _config_file_status() -> dict[str, bool]:
+    selected, user, project = _configuration_sources()
+    status = {"config_found": selected.exists()}
+    if user is not None:
+        status["user_config_found"] = user.exists()
+    if project is not None:
+        status["project_config_found"] = project.exists()
+    return status
+
+
 def _resolved_cli_paths() -> dict[str, str]:
     from lorairo.database.db_core import get_tag_database_directory
 
     selected = get_runtime_configuration()
+    config_path, user_config, project_config = _configuration_sources()
     base = Path(get_config().get("directories", {}).get("database_base_dir", "lorairo_data")).resolve()
-    return {
+    paths = {
         "workspace": str(selected.workspace if selected else Path.cwd()),
-        "config_path": str(selected.config_path if selected else DEFAULT_CONFIG_PATH),
+        "config_path": str(config_path),
         "projects_base_dir": str(base),
         "tag_database_dir": str(get_tag_database_directory()),
     }
+    if user_config is not None:
+        paths["user_config_path"] = str(user_config)
+    if project_config is not None:
+        paths["project_config_path"] = str(project_config)
+    return paths
 
 
 def _show_cli_status(container: ServiceContainer) -> None:
@@ -252,13 +283,16 @@ def _show_cli_status(container: ServiceContainer) -> None:
     table.add_column("Item", style="cyan")
     table.add_column("Status", style="green")
 
-    selected = get_runtime_configuration()
-    config_file_found = (selected.config_path if selected else DEFAULT_CONFIG_PATH).exists()
+    config_files = _config_file_status()
     for label, value in _resolved_cli_paths().items():
         table.add_row(label, value)
-    table.add_row("Config File", f"{OK} Found" if config_file_found else f"{FAIL} Not Found")
+    table.add_row("Config File", f"{OK} Found" if config_files["config_found"] else f"{FAIL} Not Found")
+    for source in ("user", "project"):
+        found = config_files.get(f"{source}_config_found")
+        if found is not None:
+            table.add_row(f"{source.title()} Config File", f"{OK} Found" if found else f"{FAIL} Not Found")
 
-    if config_file_found:
+    if any(config_files.values()):
         config = container.config_service
         api_providers = {
             "OpenAI": config.get_setting("api", "openai_key", ""),
@@ -303,13 +337,12 @@ def _emit_status_json(
     container: ServiceContainer, summary: dict[str, Any], environment: str, phase: str
 ) -> None:
     """status を単一の ``result`` 行で機械可読出力する (ADR 0057/0058、Issue #662)。"""
-    selected = get_runtime_configuration()
-    config_found = (selected.config_path if selected else DEFAULT_CONFIG_PATH).exists()
-    output: dict[str, Any] = {"environment": environment, "phase": phase, "config_found": config_found}
+    config_files = _config_file_status()
+    output: dict[str, Any] = {"environment": environment, "phase": phase, **config_files}
     output.update(_resolved_cli_paths())
     if environment == "CLI":
         # CLI 経路は設定ファイルと API キー設定状況を返す。
-        output["api_keys"] = _collect_api_key_status(container) if config_found else {}
+        output["api_keys"] = _collect_api_key_status(container) if any(config_files.values()) else {}
     else:
         # GUI 経路はサービス初期化状況を返す。
         output["initialized_services"] = summary.get("initialized_services", {})
