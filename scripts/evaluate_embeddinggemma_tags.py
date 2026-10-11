@@ -140,7 +140,13 @@ def open_database(db: Path) -> Any:
         raise RuntimeError(str(exc)) from exc
 
 
-def load_database(db: Path, limit: int, seed: int, reference: str) -> tuple[list[Example], dict[str, Any]]:
+def load_database(
+    db: Path,
+    limit: int,
+    seed: int,
+    reference: str,
+    excluded_tags: set[str] | None = None,
+) -> tuple[list[Example], dict[str, Any]]:
     """Use the existing protected DB factory, with no migrations or app initialization."""
     factory = open_database(db)
     from sqlalchemy import select
@@ -150,6 +156,7 @@ def load_database(db: Path, limit: int, seed: int, reference: str) -> tuple[list
     engine = factory.kw["bind"]
     examples: list[Example] = []
     skipped = Counter()
+    excluded = {canonical_tag(tag) for tag in (excluded_tags or set())}
     try:
         with factory() as session:
             eligible = Tag.rejected_at.is_(None)
@@ -194,6 +201,9 @@ def load_database(db: Path, limit: int, seed: int, reference: str) -> tuple[list
                         reference,
                         image.reviewed_at is not None,
                     )
+                    positives = sorted(set(positives) - excluded)
+                    manual = sorted(set(manual) - excluded)
+                    rejected = sorted(set(rejected) - excluded)
                     if not positives:
                         skipped["no_reference_tags"] += 1
                         continue
@@ -522,14 +532,8 @@ def prepare(args: argparse.Namespace) -> tuple[list[Example], list[str], dict[st
             raise ValueError("Unsupported manifest schema version.")
         examples = [Example(**row) for row in manifest["examples"]]
         return examples, manifest["candidate_tags"], manifest
-    examples, sampling = load_database(args.db.resolve(), args.limit, args.seed, args.reference)
     excluded = {canonical_tag(tag) for tag in args.exclude_tag}
-    for example in examples:
-        example.reference_tags = sorted(set(example.reference_tags) - excluded)
-        example.manual_tags = sorted(set(example.manual_tags) - excluded)
-        example.rejected_tags = sorted(set(example.rejected_tags) - excluded)
-    removed = sum(not example.reference_tags for example in examples)
-    examples = [example for example in examples if example.reference_tags]
+    examples, sampling = load_database(args.db.resolve(), args.limit, args.seed, args.reference, excluded)
     vocabulary = build_vocabulary(examples, args.candidate_tags, args.exclude_tag)
     manifest = {
         "schema_version": 1,
@@ -538,7 +542,6 @@ def prepare(args: argparse.Namespace) -> tuple[list[Example], list[str], dict[st
         "reference": args.reference,
         "sampling": sampling,
         "excluded_tags": sorted(excluded),
-        "images_without_labels_after_exclusion": removed,
         "candidate_tags": vocabulary,
         "examples": [asdict(example) for example in examples],
     }

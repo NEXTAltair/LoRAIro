@@ -258,6 +258,40 @@ def test_missing_db_is_reported_without_creating_it(tmp_path):
     assert not path.exists()
 
 
+def test_excluded_only_images_are_replaced_before_sample_limit(tmp_path):
+    from lorairo.database import db_core
+    from lorairo.database.schema import Image, Tag
+
+    db = tmp_path / "image_database.db"
+    factory = db_core.create_project_session_factory(db)
+    with factory() as session:
+        for image_id, label in [(1, "trigger"), (2, "black_hair")]:
+            image_path = tmp_path / f"{image_id}.bin"
+            image_path.write_text("not an image", encoding="utf-8")
+            session.add(
+                Image(
+                    id=image_id,
+                    uuid=f"fixture-{image_id}",
+                    phash=str(image_id),
+                    stored_image_path=image_path.name,
+                    original_image_path="",
+                    width=1,
+                    height=1,
+                    format="BIN",
+                    extension="bin",
+                )
+            )
+            session.flush()
+            session.add(Tag(image_id=image_id, tag=label, existing=True))
+        session.commit()
+    factory.kw["bind"].dispose()
+    # Seed 0 visits ID 1 first, then ID 2. The limit must apply after label exclusions.
+    examples, sampling = evaluation.load_database(db, 1, 0, "all", {"trigger"})
+    assert [item.image_id for item in examples] == [2]
+    assert examples[0].reference_tags == ["black_hair"]
+    assert sampling["skipped"]["no_reference_tags"] == 1
+
+
 def test_full_run_passes_only_paths_to_image_model_and_writes_numeric_reports(tmp_path, monkeypatch):
     sample = example()
     vocabulary = ["black_hair", "blue_hair"]
