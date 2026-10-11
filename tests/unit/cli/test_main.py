@@ -10,6 +10,7 @@ from typer.testing import CliRunner
 
 from lorairo.cli.introspection import StatusResult
 from lorairo.cli.main import app, main
+from lorairo.services.service_container import ServiceContainer
 from lorairo.utils import config as config_module
 
 runner = CliRunner()
@@ -120,6 +121,38 @@ def test_explicit_status_does_not_advertise_or_use_implicit_config_sources(statu
     assert "user_config_path" not in row and "project_config_path" not in row
 
 
+@pytest.mark.parametrize("json_output", [False, True])
+@pytest.mark.parametrize("read_only", [False, True])
+def test_status_reads_portable_api_without_creating_missing_user_config(
+    status_config_paths, tmp_path, monkeypatch, json_output, read_only
+):
+    project, user = status_config_paths
+    project.parent.mkdir()
+    project.write_text(toml.dumps({"directories": {}, "api": {"openai_key": "portable-test-key"}}))
+    before = project.read_bytes()
+    monkeypatch.setenv("LORAIRO_CLI_MODE", "true")
+    monkeypatch.setenv("LORAIRO_CLI_LOG_PATH", str(tmp_path / "logs" / "status.log"))
+    container = ServiceContainer()
+    assert container._config_service is None
+    arguments = (["--json"] if json_output else []) + (["--read-only"] if read_only else []) + ["status"]
+    with patch("lorairo.cli.main.get_service_container", return_value=container):
+        result = runner.invoke(app, arguments)
+    assert result.exit_code == 0, result.output
+    assert not user.exists() and not user.parent.exists()
+    assert container._config_service is None
+    assert project.read_bytes() == before
+    assert "portable-test-key" not in result.output
+    if json_output:
+        row = json.loads(result.stdout)
+        assert row["config_path"] == str(user)
+        assert row["config_found"] is False
+        assert row["user_config_found"] is False
+        assert row["project_config_found"] is True
+        assert row["api_keys"]["openai"] is True
+    else:
+        assert "OpenAI" in result.stdout and "Configured" in result.stdout
+
+
 @pytest.mark.unit
 @pytest.mark.cli
 def test_cli_help() -> None:
@@ -182,9 +215,13 @@ def test_cli_status(
 def test_cli_status_shows_configured_api_key(
     mock_get_container: MagicMock,
     mock_config_path: MagicMock,
+    status_config_paths,
 ) -> None:
     """Test: status コマンドがAPIキー設定済みを正しく表示する。"""
     mock_config_path.return_value.exists.return_value = True
+    _, user = status_config_paths
+    user.parent.mkdir()
+    user.write_text(toml.dumps({"directories": {}, "api": {"openai_key": "sk-test-key"}}))
 
     mock_container = MagicMock()
     mock_container.get_service_summary.return_value = {
@@ -283,9 +320,13 @@ def test_version_json_emits_single_result_line() -> None:
 def test_status_json_emits_pure_jsonl_result(
     mock_get_container: MagicMock,
     mock_config_path: MagicMock,
+    status_config_paths,
 ) -> None:
     """Test: status --json は stdout が純 JSONL の単一 result になる (Issue #662)。"""
     mock_config_path.return_value.exists.return_value = True
+    _, user = status_config_paths
+    user.parent.mkdir()
+    user.write_text(toml.dumps({"directories": {}, "api": {"openai_key": "sk-test-key"}}))
 
     mock_container = MagicMock()
     mock_container.get_service_summary.return_value = {

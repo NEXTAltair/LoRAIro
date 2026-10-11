@@ -17,7 +17,7 @@ import sys
 import traceback
 from enum import StrEnum
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
 import click
 import typer
@@ -48,9 +48,6 @@ from lorairo.utils.config import (
     runtime_configuration_scope,
 )
 from lorairo.utils.log import initialize_logging
-
-if TYPE_CHECKING:
-    from lorairo.services.service_container import ServiceContainer
 
 
 class LogLevel(StrEnum):
@@ -258,12 +255,12 @@ def _config_file_status() -> dict[str, bool]:
     return status
 
 
-def _resolved_cli_paths() -> dict[str, str]:
+def _resolved_cli_paths(settings: dict[str, Any]) -> dict[str, str]:
     from lorairo.database.db_core import get_tag_database_directory
 
     selected = get_runtime_configuration()
     config_path, user_config, project_config = _configuration_sources()
-    base = Path(get_config().get("directories", {}).get("database_base_dir", "lorairo_data")).resolve()
+    base = Path(settings.get("directories", {}).get("database_base_dir", "lorairo_data")).resolve()
     paths = {
         "workspace": str(selected.workspace if selected else Path.cwd()),
         "config_path": str(config_path),
@@ -277,14 +274,14 @@ def _resolved_cli_paths() -> dict[str, str]:
     return paths
 
 
-def _show_cli_status(container: ServiceContainer) -> None:
+def _show_cli_status(settings: dict[str, Any]) -> None:
     """CLIモードのステータス表示。設定ファイルとAPIキー状況を表示する。"""
     table = Table(title="LoRAIro CLI Status")
     table.add_column("Item", style="cyan")
     table.add_column("Status", style="green")
 
     config_files = _config_file_status()
-    for label, value in _resolved_cli_paths().items():
+    for label, value in _resolved_cli_paths(settings).items():
         table.add_row(label, value)
     table.add_row("Config File", f"{OK} Found" if config_files["config_found"] else f"{FAIL} Not Found")
     for source in ("user", "project"):
@@ -293,15 +290,10 @@ def _show_cli_status(container: ServiceContainer) -> None:
             table.add_row(f"{source.title()} Config File", f"{OK} Found" if found else f"{FAIL} Not Found")
 
     if any(config_files.values()):
-        config = container.config_service
-        api_providers = {
-            "OpenAI": config.get_setting("api", "openai_key", ""),
-            "Anthropic": config.get_setting("api", "claude_key", ""),
-            "Google": config.get_setting("api", "google_key", ""),
-        }
-        for provider, key in api_providers.items():
-            configured = bool(key and key.strip())
-            table.add_row(f"API Key ({provider})", f"{OK} Configured" if configured else f"{FAIL} Not set")
+        api_providers = _collect_api_key_status(settings)
+        for provider, label in {"openai": "OpenAI", "anthropic": "Anthropic", "google": "Google"}.items():
+            configured = api_providers[provider]
+            table.add_row(f"API Key ({label})", f"{OK} Configured" if configured else f"{FAIL} Not set")
 
     console.print(table)
     console.print("\n[dim]Services initialize on demand when commands are executed.[/dim]")
@@ -322,27 +314,29 @@ def _show_gui_status(summary: dict[str, Any]) -> None:
     console.print(table)
 
 
-def _collect_api_key_status(container: ServiceContainer) -> dict[str, bool]:
+def _collect_api_key_status(settings: dict[str, Any]) -> dict[str, bool]:
     """設定済み API キーの有無を provider 別に返す (rich / JSONL 共通の収集ロジック)。"""
-    config = container.config_service
+    api_settings = settings.get("api", {})
+    if not isinstance(api_settings, dict):
+        api_settings = {}
     api_providers = {
-        "openai": config.get_setting("api", "openai_key", ""),
-        "anthropic": config.get_setting("api", "claude_key", ""),
-        "google": config.get_setting("api", "google_key", ""),
+        "openai": api_settings.get("openai_key", ""),
+        "anthropic": api_settings.get("claude_key", ""),
+        "google": api_settings.get("google_key", ""),
     }
-    return {provider: bool(key and key.strip()) for provider, key in api_providers.items()}
+    return {provider: bool(isinstance(key, str) and key.strip()) for provider, key in api_providers.items()}
 
 
 def _emit_status_json(
-    container: ServiceContainer, summary: dict[str, Any], environment: str, phase: str
+    settings: dict[str, Any], summary: dict[str, Any], environment: str, phase: str
 ) -> None:
     """status を単一の ``result`` 行で機械可読出力する (ADR 0057/0058、Issue #662)。"""
     config_files = _config_file_status()
     output: dict[str, Any] = {"environment": environment, "phase": phase, **config_files}
-    output.update(_resolved_cli_paths())
+    output.update(_resolved_cli_paths(settings))
     if environment == "CLI":
         # CLI 経路は設定ファイルと API キー設定状況を返す。
-        output["api_keys"] = _collect_api_key_status(container) if any(config_files.values()) else {}
+        output["api_keys"] = _collect_api_key_status(settings) if any(config_files.values()) else {}
     else:
         # GUI 経路はサービス初期化状況を返す。
         output["initialized_services"] = summary.get("initialized_services", {})
@@ -358,14 +352,16 @@ def status() -> None:
         environment = summary.get("environment", "Unknown")
         phase = summary.get("phase", "Unknown")
 
+        # Read a snapshot: initializing config_service would create a missing
+        # user config and make this status operation change its own report.
         if is_json_mode():
-            _emit_status_json(container, summary, environment, phase)
+            _emit_status_json(get_config(), summary, environment, phase)
             return
 
         console.print(f"[dim]Environment:[/dim] {environment}")
         console.print(f"[dim]Phase:[/dim] {phase}\n")
         if environment == "CLI":
-            _show_cli_status(container)
+            _show_cli_status(get_config())
         else:
             _show_gui_status(summary)
 
