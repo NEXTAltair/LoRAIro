@@ -132,6 +132,8 @@ def test_status_reads_portable_api_without_creating_missing_user_config(
     before = project.read_bytes()
     monkeypatch.setenv("LORAIRO_CLI_MODE", "true")
     monkeypatch.setenv("LORAIRO_CLI_LOG_PATH", str(tmp_path / "logs" / "status.log"))
+    monkeypatch.setattr(ServiceContainer, "_instance", None)
+    monkeypatch.setattr(ServiceContainer, "_initialized", False)
     container = ServiceContainer()
     assert container._config_service is None
     arguments = (["--json"] if json_output else []) + (["--read-only"] if read_only else []) + ["status"]
