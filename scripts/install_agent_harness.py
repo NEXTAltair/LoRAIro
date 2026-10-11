@@ -47,6 +47,13 @@ def install_from_source(source: Path, target: Path, refresh_wiring: bool = False
     spec.loader.exec_module(module)
     # Refuse to change an existing branch runtime lock during ordinary restoration.
     module.install_runtime(target, force=refresh_wiring)
+    # The upstream writer uses native text newlines. Keep the shared tracked lock
+    # consistent with .gitattributes after Windows restoration too.
+    runtime_lock = target / ".agent-kit/hooks.lock.json"
+    if runtime_lock.is_file():
+        content = runtime_lock.read_bytes()
+        if b"\r\n" in content:
+            runtime_lock.write_bytes(content.replace(b"\r\n", b"\n"))
     restore_guidance(source, target)
     if refresh_wiring:
         refresh_registrations(module, target)
