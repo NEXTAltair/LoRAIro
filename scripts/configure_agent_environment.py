@@ -265,6 +265,7 @@ def configure(
     claude_home: Path,
     *,
     migrate_codex_preferences: bool = False,
+    legacy_codex_config: Path | None = None,
 ) -> list[Path]:
     """Merge into OS user settings and remove competing project environment keys."""
     validate_configuration_sources(target, codex_home, claude_home)
@@ -282,6 +283,8 @@ def configure(
     # leave the homes updated while its higher-precedence override still wins.
     changes = []
     codex_updates = {"UV_PROJECT_ENVIRONMENT": value}
+    if legacy_codex_config is not None:
+        original = migrate_saved_codex_config(original, legacy_codex_config, target)
     claude_config = claude_home / "settings.json"
     user_settings = json_settings(claude_config)
     user_settings.setdefault("env", {})["UV_PROJECT_ENVIRONMENT"] = value
@@ -312,6 +315,14 @@ def configure(
     for path, content, home in changes:
         write_preserving_backup(path, content, home / "lorairo-config-backups")
     return [path for path, _, _ in changes]
+
+
+def migrate_saved_codex_config(user: str, saved: Path, target: Path) -> str:
+    """git pull が追跡ファイルで上書きする前に退避した旧 ignored 設定から移行する。"""
+    reject_linked_path(saved)
+    if saved.resolve().is_relative_to(target):
+        raise ValueError("Legacy Codex config must be saved outside the shared project checkout")
+    return migrate_codex_local_preferences(user, tomllib.loads(saved.read_text(encoding="utf-8")))
 
 
 def codex_machine_environment(project: dict) -> dict[str, str]:
@@ -367,6 +378,11 @@ def main() -> None:
         action="store_true",
         help="Preserve sandbox/inherit preferences before replacing a formerly ignored project config",
     )
+    parser.add_argument(
+        "--legacy-codex-config",
+        type=Path,
+        help="Former ignored .codex/config.toml saved outside the checkout before git pull",
+    )
     args = parser.parse_args()
     try:
         paths = configure(
@@ -375,6 +391,7 @@ def main() -> None:
             args.codex_home,
             args.claude_home,
             migrate_codex_preferences=args.migrate_codex_preferences,
+            legacy_codex_config=args.legacy_codex_config,
         )
     except (OSError, ValueError, subprocess.SubprocessError) as error:
         parser.exit(1, f"Agent environment configuration failed: {error}\n")

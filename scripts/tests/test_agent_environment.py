@@ -155,6 +155,22 @@ class AgentEnvironmentTests(unittest.TestCase):
         self.assertEqual(user["shell_environment_policy"]["inherit"], "all")
         self.assertEqual(user["model"], "personal")
 
+    def test_saved_legacy_config_migrates_after_tracked_file_replaced_it(self):
+        # pull で追跡ファイルに置き換わった後でも、退避した旧設定から移行できる
+        self.write(self.project / ".codex/config.toml", "# portable policy\n")
+        saved = self.codex.parent / "saved-codex-config.toml"
+        self.write(saved, 'sandbox_mode="danger-full-access"\n[shell_environment_policy]\ninherit="all"\n')
+        settings.configure(self.project, self.venv, self.codex, self.claude, legacy_codex_config=saved)
+        user = tomllib.loads((self.codex / "config.toml").read_text())
+        self.assertEqual(user["sandbox_mode"], "danger-full-access")
+        self.assertEqual(user["shell_environment_policy"]["inherit"], "all")
+
+    def test_legacy_config_inside_checkout_is_rejected(self):
+        inside = self.project / "saved.toml"
+        self.write(inside, 'sandbox_mode="workspace-write"\n')
+        with self.assertRaisesRegex(ValueError, "outside the shared"):
+            settings.configure(self.project, self.venv, self.codex, self.claude, legacy_codex_config=inside)
+
     def test_shared_project_cannot_be_used_as_agent_home(self):
         with self.assertRaisesRegex(ValueError, "outside the shared"):
             self.configure(codex=self.project / ".codex")

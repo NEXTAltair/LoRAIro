@@ -58,7 +58,13 @@ the shared file is read-only defaults and should contain portable paths. Legacy
 annotator overrides require explicit migration to the corresponding OS user
 directory; they are not automatically adopted by another OS.
 
-After the PR is merged, update the host main checkout with git pull --ff-only.
+Before updating the host main checkout, save any existing ignored `.codex/config.toml`
+outside the checkout: `git pull --ff-only` replaces that ignored file with the tracked
+portable policy without warning. After the pull, run
+`python scripts/configure_agent_environment.py --legacy-codex-config <saved-config.toml>` to keep its
+sandbox/inherit preferences in the OS user Codex config.
+
+After the PR is merged and the file is saved, update the host main checkout with git pull --ff-only.
 Use **Dev Containers: Rebuild Container** or the installed Dev Containers CLI:
 
 ~~~powershell
