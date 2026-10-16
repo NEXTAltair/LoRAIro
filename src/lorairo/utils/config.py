@@ -1,13 +1,15 @@
 import os
+import warnings
 from collections.abc import Iterator
 from contextlib import contextmanager
 from contextvars import ContextVar
 from copy import deepcopy
 from dataclasses import dataclass
-from pathlib import Path
+from pathlib import Path, PurePosixPath, PureWindowsPath
 from typing import Any
 
 import toml
+from platformdirs import user_config_path, user_log_path
 
 
 # Test isolation: Use temp directory for tests, actual project root otherwise
@@ -30,8 +32,21 @@ def get_project_root() -> Path:
 
 PROJECT_ROOT = get_project_root()
 DEFAULT_CONFIG_PATH = PROJECT_ROOT / "config" / "lorairo.toml"
-DEFAULT_LOG_PATH = PROJECT_ROOT / "logs" / "lorairo.log"
-DEFAULT_CLI_LOG_PATH = PROJECT_ROOT / "logs" / "lorairo-cli.log"
+# Project configuration is a portable, read-only layer. Mutable preferences and
+# logs belong to the current OS user, outside a bind-mounted checkout.
+USER_CONFIG_PATH = (
+    Path(os.environ["LORAIRO_CONFIG_HOME"]).expanduser().resolve()
+    if os.environ.get("LORAIRO_CONFIG_HOME")
+    else user_config_path("LoRAIro", appauthor=False)
+) / "lorairo.toml"
+DEFAULT_LOG_PATH = user_log_path("LoRAIro", appauthor=False) / "lorairo.log"
+DEFAULT_CLI_LOG_PATH = DEFAULT_LOG_PATH.with_name("lorairo-cli.log")
+
+
+def get_user_config_path() -> Path:
+    """Return the mutable OS user config; never migrate shared legacy files implicitly."""
+    return USER_CONFIG_PATH
+
 
 # Runtime defaults used after merging user configuration.
 # Keep this as the single source of truth for default configuration values.
@@ -201,15 +216,99 @@ def get_config(config_file: Path | None = None) -> dict[str, Any]:
     runtime = get_runtime_configuration()
     if config_file is None and runtime is not None:
         return deepcopy(runtime.settings)
-    config_file = config_file or DEFAULT_CONFIG_PATH
-    final_config = deepcopy(DEFAULT_CONFIG)
-    try:
-        loaded_config = load_config(config_file)
-        final_config = deep_update(final_config, loaded_config)
-    except FileNotFoundError:
-        # Missing files are handled without side effects; creation is explicit.
-        pass
+    final_config = deepcopy(DEFAULT_CONFIG) if config_file is not None else get_project_config()
+    paths = [config_file] if config_file is not None else [get_user_config_path()]
+    for path in paths:
+        try:
+            loaded_config = load_config(path)
+            final_config = deep_update(final_config, loaded_config)
+        except FileNotFoundError:
+            # Missing files are handled without side effects; creation is explicit.
+            pass
     return final_config
+
+
+def get_project_config() -> dict[str, Any]:
+    """Read lower configuration layers without including mutable user preferences."""
+    settings = deepcopy(DEFAULT_CONFIG)
+    try:
+        return deep_update(settings, _portable_project_config(load_config(DEFAULT_CONFIG_PATH)))
+    except FileNotFoundError:
+        return settings
+
+
+def user_config_overrides(
+    settings: dict[str, Any],
+    defaults: dict[str, Any],
+    existing: dict[str, Any],
+    path: tuple[str, ...] = (),
+) -> dict[str, Any]:
+    """Persist differences while retaining keys explicitly present in the user layer."""
+    overrides: dict[str, Any] = {}
+    for key, value in settings.items():
+        current_path = (*path, key)
+        baseline = defaults.get(key)
+        previous = existing.get(key)
+        if isinstance(value, dict):
+            nested = user_config_overrides(
+                value,
+                baseline if isinstance(baseline, dict) else {},
+                previous if isinstance(previous, dict) else {},
+                current_path,
+            )
+            if nested or key in existing:
+                overrides[key] = nested
+        elif (
+            key in existing and value == baseline and _should_keep_default_for_blank(current_path, previous)
+        ):
+            overrides[key] = previous
+        elif key in existing or key not in defaults or value != baseline:
+            overrides[key] = deepcopy(value)
+    return overrides
+
+
+def _portable_project_config(settings: dict[str, Any]) -> dict[str, Any]:
+    """Ignore absolute machine paths in the implicit shared project layer.
+
+    Both path dialects are checked so a Windows legacy file cannot configure a
+    Linux process. Explicit config files and OS user preferences are unchanged.
+    No setting values are included in the diagnostic.
+    """
+    rejected: list[str] = []
+
+    def portable(value: Any, location: tuple[str, ...]) -> Any:
+        if isinstance(value, dict):
+            result: dict[str, Any] = {}
+            for key, item in value.items():
+                is_path = key == "path" or key.endswith(("_path", "_dir"))
+                if (
+                    is_path
+                    and isinstance(item, str)
+                    and (PureWindowsPath(item).is_absolute() or PurePosixPath(item).is_absolute())
+                ):
+                    rejected.append(".".join((*location, key)))
+                    continue
+                rejected_before = len(rejected)
+                candidate = portable(item, (*location, key))
+                # A partially stripped model definition has no usable path.
+                # Keep the code default for an entire affected list instead.
+                if not (isinstance(item, list) and len(rejected) > rejected_before):
+                    result[key] = candidate
+            return result
+        if isinstance(value, list):
+            return [portable(item, (*location, str(index))) for index, item in enumerate(value)]
+        return value
+
+    result: dict[str, Any] = portable(settings, ())
+    if rejected:
+        warnings.warn(
+            "Absolute paths in shared project config were ignored: "
+            + ", ".join(rejected)
+            + f". Move OS-specific settings explicitly to {get_user_config_path()}.",
+            RuntimeWarning,
+            stacklevel=3,
+        )
+    return result
 
 
 @dataclass(frozen=True)
@@ -219,6 +318,8 @@ class RuntimeConfiguration:
     workspace: Path
     config_path: Path
     settings: dict[str, Any]
+    user_config_path: Path | None = None
+    project_config_path: Path | None = None
 
 
 _RUNTIME_CONFIGURATION: ContextVar[RuntimeConfiguration | None] = ContextVar(
@@ -254,6 +355,16 @@ def resolve_runtime_configuration(workspace: Path | None, config_path: Path | No
         if config_path is not None
         else get_config(selected_config)
     )
+    if config_path is None:
+        try:
+            preferences = load_config(get_user_config_path())
+        except FileNotFoundError:
+            preferences = {}
+        # --workspace selects data directories, while credentials and executable
+        # preferences still belong to the OS user. An explicit --config stays
+        # fully independent from user preferences for portable invocations.
+        preferences.pop("directories", None)
+        settings = deep_update(settings, preferences)
     if not isinstance(settings["directories"], dict):
         raise ValueError("Config [directories] must be a table")
     for key, value in settings["directories"].items():
@@ -263,7 +374,12 @@ def resolve_runtime_configuration(workspace: Path | None, config_path: Path | No
             if value:
                 directory = Path(value).expanduser()
                 settings["directories"][key] = str((root / directory).resolve())
-    return RuntimeConfiguration(root, selected_config, settings)
+    return RuntimeConfiguration(
+        root,
+        selected_config,
+        settings,
+        user_config_path=get_user_config_path() if config_path is None else None,
+    )
 
 
 @contextmanager
@@ -275,18 +391,24 @@ def runtime_configuration_scope(configuration: RuntimeConfiguration) -> Iterator
         _RUNTIME_CONFIGURATION.reset(token)
 
 
-def write_config_file(config_data: dict[str, Any], file_path: Path = DEFAULT_CONFIG_PATH) -> None:
-    """設定をファイルに保存します。"""
+def write_config_file(config_data: dict[str, Any], file_path: Path | None = None) -> None:
+    """Save preferences to the OS user path unless a file is explicitly selected."""
+    if file_path is None:
+        file_path = get_user_config_path()
+        file_path.parent.mkdir(parents=True, exist_ok=True)
     with open(file_path, "w", encoding="utf-8") as f:
         toml.dump(config_data, f)
 
 
-def ensure_config_file(config_file: Path = DEFAULT_CONFIG_PATH) -> dict[str, Any]:
-    """Create a user-facing config file if needed and return effective config."""
+def ensure_config_file(config_file: Path | None = None) -> dict[str, Any]:
+    """Create an OS user override or an explicitly selected portable config."""
+    use_user_config = config_file is None
+    config_file = config_file or get_user_config_path()
     if not config_file.exists():
         config_file.parent.mkdir(parents=True, exist_ok=True)
-        write_config_file(create_user_config_defaults(), config_file)
-    return get_config(config_file)
+        initial_config = {"directories": {}} if use_user_config else create_user_config_defaults()
+        write_config_file(initial_config, config_file)
+    return get_config() if use_user_config else get_config(config_file)
 
 
 if __name__ == "__main__":

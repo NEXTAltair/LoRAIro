@@ -34,7 +34,7 @@ def _project_context(project_name: str) -> Iterator[ServiceContainer]:
     )
 
     configuration = get_runtime_configuration() or RuntimeConfiguration(
-        Path.cwd(), DEFAULT_CONFIG_PATH, get_config(DEFAULT_CONFIG_PATH)
+        Path.cwd(), DEFAULT_CONFIG_PATH, get_config()
     )
     with (
         runtime_configuration_scope(configuration),

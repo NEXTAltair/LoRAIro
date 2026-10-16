@@ -1,0 +1,16 @@
+#!/usr/bin/env bash
+set -eu
+# This file is shared source; the interpreter belongs to the current OS checkout.
+common=$(git rev-parse --path-format=absolute --git-common-dir)
+expected="$(dirname "$common")/.venv"
+venv=${UV_PROJECT_ENVIRONMENT:-$expected}
+case "$(uname -s)" in
+    MINGW*|MSYS*|CYGWIN*) python="$venv/Scripts/python.exe" ;;
+    *) python="$venv/bin/python" ;;
+esac
+if [ ! -x "$python" ]; then
+    echo "Shared pre-commit Python is missing for this OS: $python" >&2
+    echo "Run python scripts/configure_agent_environment.py in this OS checkout." >&2
+    exit 1
+fi
+exec "$python" -m pre_commit run --config=.pre-commit-config.yaml

@@ -192,6 +192,7 @@ class FreshCheckoutTests(unittest.TestCase):
                 ".agent-kit/hooks.lock.json",
                 ".claude/settings.json",
                 "scripts/install_agent_harness.py",
+                "scripts/skill_projection.py",
             ):
                 destination = cold / name
                 destination.parent.mkdir(parents=True, exist_ok=True)

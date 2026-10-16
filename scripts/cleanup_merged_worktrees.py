@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Remove clean, merged agent worktrees under /workspaces/LoRAIro/.agents/worktree."""
+"""Remove clean, merged worktrees owned by the current OS checkout only."""
 
 from __future__ import annotations
 
@@ -10,7 +10,7 @@ import sys
 from dataclasses import dataclass
 from pathlib import Path
 
-WORKTREE_ROOT = Path("/workspaces/LoRAIro/.agents/worktree")
+WORKTREE_ROOT = Path(__file__).resolve().parents[1] / ".agents/worktree"
 DEFAULT_BASE = "origin/main"
 
 
@@ -133,6 +133,7 @@ def remove_worktree(worktree: Worktree, *, repo: Path, force: bool) -> subproces
 
 
 def main() -> int:
+    global WORKTREE_ROOT
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
         "--base", default=DEFAULT_BASE, help=f"base ref used for ancestry checks (default: {DEFAULT_BASE})"
@@ -144,6 +145,10 @@ def main() -> int:
     args = parser.parse_args()
 
     repo = Path(run_git(["rev-parse", "--show-toplevel"], cwd=Path.cwd()).stdout.strip())
+    common = Path(
+        run_git(["rev-parse", "--path-format=absolute", "--git-common-dir"], cwd=repo).stdout.strip()
+    )
+    WORKTREE_ROOT = common.parent / ".agents/worktree"
     worktree_list = run_git(["worktree", "list", "--porcelain"], cwd=repo).stdout
     worktrees = parse_worktrees(worktree_list)
 
@@ -171,7 +176,7 @@ def main() -> int:
             )
 
     if matched == 0:
-        print("no clean merged worktrees found under /workspaces/LoRAIro/.agents/worktree")
+        print(f"no clean merged worktrees found under {WORKTREE_ROOT}")
         return 0
     elif args.dry_run:
         print(f"found {matched} removable worktree(s)")

@@ -14,15 +14,20 @@ python -X utf8 scripts/validate_harness.py
 
 `agent-harness.lock.json` のcommitからkitを取得し、kitのruntime-only導入処理を呼ぶ。
 復元先はgitignoredの共通Pythonフックと `*.default.json`。
+共通の `.claude/agents`、`.claude/rules`、`.codex/agents` も復元し、生成元のdigestを
+`.agent-kit/guidance-state.json` に記録する。pin更新で削除・改名されたファイルは、
+現在のdigestが前回生成時と一致する場合だけ削除する。手編集や管理外のファイル、リンクは保持する。
+保持した旧ファイルは生成管理から外し、次回以降も自動削除しない。
 追跡中のイベント設定、固有ルール、`.codex/config.toml` は変更しない。
 `make setup` でも復元する。既存環境の修復にはPythonコマンドか `make harness-install` を使う。
 
-Windowsとコンテナは別の共有 `.venv` を使う。Codexのローカル設定
-`.codex/config.toml` の `[shell_environment_policy.set]` に、Windowsでは
-`UV_PROJECT_ENVIRONMENT = "H:/LoRAIro/.venv"`、コンテナでは
-`UV_PROJECT_ENVIRONMENT = "/workspaces/LoRAIro/.venv"` を設定する。
-Windowsの実パスが異なる場合は読み替える。同じ設定ファイルをbind mountで共有する場合は
-一方の絶対パスを他方でも使わないこと。環境別設定の分離はDev Container再整備で扱う。
+Windowsとコンテナは別の共有 `.venv` を使う。
+`python scripts/configure_agent_environment.py` は現在 OS の Git common root `.venv` を検証し、
+Codex **ユーザー設定** と Claude **ユーザー設定** に共有環境を指定する。
+プロジェクト `.codex/config.toml`、`.claude/settings.json`、`settings.local.json` には
+OS 固有の絶対パスを置かない。プロジェクト設定の優先度が高いため、home volume 追加のみでは
+解決しない。Linux の独立 checkout は `/workspaces/LoRAIro-linux`、既存 venv volume は
+その `.venv` にマウントする。詳細は [環境分離](../.devcontainer/README.md) を参照。
 フック起動には両環境のPATH上に `python` とGitが必要（汎用Linux kitの既定は `python3`）。
 
 Claudeはexec形式、CodexはGitルート解決とWindows用コマンドを使う。

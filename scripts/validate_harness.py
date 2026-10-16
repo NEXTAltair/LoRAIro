@@ -3,7 +3,7 @@
 
 Validates that Claude Code/Codex skills, hooks, and settings are internally consistent:
 - Skills: each shared skill directory has a SKILL.md with required frontmatter fields
-- Claude skill links: .claude/skills/<name> points at .agents/skills/<name>
+- Claude skill projections: portable copies match .agents/skills/<name>
 - Skills lock: skills-lock.json entries match installed shared skills
 - Hooks: hook script files referenced in settings.local.json exist on disk
 - Settings: settings.local.json has required structural fields
@@ -15,8 +15,11 @@ Usage:
 import json
 import re
 import sys
+import tomllib
 from pathlib import Path
 
+from configure_agent_environment import MANAGED_KEYS, json_settings, path_platform
+from skill_projection import filesystem_link, tree_digest
 from validate_hook_settings import validate_hook_settings
 
 SHARED_SKILLS_DIR = ".agents/skills"
@@ -64,7 +67,7 @@ def validate_skills(project_root: Path) -> list[str]:
 
 
 def validate_claude_skill_links(project_root: Path) -> list[str]:
-    """Validate Claude Code skill symlinks point to shared skill directories."""
+    """Validate Claude Code portable copies match their shared source skills."""
     errors: list[str] = []
     shared_skills_dir = project_root / SHARED_SKILLS_DIR
     claude_skills_dir = project_root / CLAUDE_SKILLS_DIR
@@ -80,26 +83,30 @@ def validate_claude_skill_links(project_root: Path) -> list[str]:
     claude_skill_names = {
         skill_link.name
         for skill_link in claude_skills_dir.iterdir()
-        if skill_link.is_dir() or skill_link.is_symlink() or skill_link.is_junction()
+        if not skill_link.name.startswith(".") and (filesystem_link(skill_link) or skill_link.is_dir())
     }
 
     missing_links = sorted(shared_skill_names - claude_skill_names)
     extra_links = sorted(claude_skill_names - shared_skill_names)
     for name in missing_links:
-        errors.append(f"Claude skills: missing symlink for shared skill: {name}")
+        errors.append(f"Claude skills: missing projection for shared skill: {name}")
     for name in extra_links:
-        errors.append(f"Claude skills: symlink has no shared skill target: {name}")
+        errors.append(f"Claude skills: projection has no shared skill source: {name}")
 
     for skill_link in sorted(claude_skills_dir.iterdir()):
-        if not (skill_link.is_symlink() or skill_link.is_junction()):
-            errors.append(
-                f"Claude skills: expected symlink or junction, found real path: {skill_link.name}"
-            )
+        if skill_link.name.startswith("."):
             continue
-        target = skill_link.resolve()
-        expected = (shared_skills_dir / skill_link.name).resolve()
-        if target != expected:
-            errors.append(f"Claude skills: {skill_link.name} points to {target}, expected {expected}")
+        if filesystem_link(skill_link):
+            errors.append(f"Claude skills: OS-specific link must be migrated: {skill_link.name}")
+            continue
+        source = shared_skills_dir / skill_link.name
+        if skill_link.name not in shared_skill_names:
+            continue
+        try:
+            if not skill_link.is_dir() or tree_digest(skill_link) != tree_digest(source):
+                errors.append(f"Claude skills: stale or edited projection: {skill_link.name}")
+        except (OSError, ValueError) as error:
+            errors.append(f"Claude skills: {skill_link.name}: {error}")
 
     return errors
 
@@ -173,6 +180,39 @@ def validate_settings_structure(project_root: Path) -> list[str]:
     return errors
 
 
+def validate_project_environment(project_root: Path) -> list[str]:
+    """Reject machine overrides that would outrank the OS user configuration."""
+    errors = []
+    for relative in (".codex/config.toml", ".claude/settings.json", ".claude/settings.local.json"):
+        path = project_root / relative
+        if not path.exists():
+            continue
+        try:
+            if relative.endswith(".toml"):
+                settings = tomllib.loads(path.read_text(encoding="utf-8"))
+                environment = settings.get("shell_environment_policy", {}).get("set", {})
+            else:
+                settings = json_settings(path)
+                environment = settings.get("env", {})
+            for key, value in environment.items():
+                if key in MANAGED_KEYS or (isinstance(value, str) and path_platform(value)):
+                    errors.append(
+                        f"Settings: {relative}: move machine environment {key} to the OS user home"
+                    )
+            errors.extend(validate_permission_paths(settings, relative))
+        except (OSError, ValueError, AttributeError) as error:
+            errors.append(f"Settings: {relative}: {error}")
+    return errors
+
+
+def validate_permission_paths(settings: dict, relative: str) -> list[str]:
+    errors = []
+    for key, rules in settings.get("permissions", {}).items():
+        if isinstance(rules, list) and any(isinstance(rule, str) and path_platform(rule) for rule in rules):
+            errors.append(f"Settings: {relative}: move machine permissions.{key} to the OS user home")
+    return errors
+
+
 def main() -> int:
     """Run all harness validation checks.
 
@@ -186,7 +226,7 @@ def main() -> int:
     print("Validating skills...")
     all_errors.extend(validate_skills(project_root))
 
-    print("Validating Claude skill symlinks...")
+    print("Validating Claude skill projections...")
     all_errors.extend(validate_claude_skill_links(project_root))
 
     print("Validating skills lock...")
@@ -197,6 +237,8 @@ def main() -> int:
 
     print("Validating settings structure...")
     all_errors.extend(validate_settings_structure(project_root))
+    print("Validating project configuration portability...")
+    all_errors.extend(validate_project_environment(project_root))
 
     print("\n" + "=" * 60)
     print("HARNESS VALIDATION RESULTS")

@@ -121,8 +121,8 @@ class DocValidator:
 
         actual_count = len(business_services) + len(gui_services)
 
-        # Reviewed inventory including Clef review, persistence, adoption, and search status (#1366).
-        expected_business_count = 43
+        # Reviewed inventory including Clef review (#1366) and annotation progress snapshots (#1386).
+        expected_business_count = 44
         expected_gui_count = 9
         expected_count = expected_business_count + expected_gui_count
 

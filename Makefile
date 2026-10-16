@@ -9,12 +9,8 @@ else
 PYTHON ?= python3
 endif
 
-# Preserve the existing Linux guard for legacy targets not migrated below.
-# Portable tasks validate the environment again via Git in dev_tasks.py.
-WORKTREE_ROOT := /workspaces/LoRAIro/.agents/worktree
-ifneq ($(filter $(WORKTREE_ROOT)/%,$(CURDIR)),)
-export UV_PROJECT_ENVIRONMENT := /workspaces/LoRAIro/.venv
-endif
+# OS-specific environment selection lives in user/session settings. Portable
+# tasks validate it using this checkout's Git common directory (dev_tasks.py).
 
 # Default target
 .PHONY: lint
@@ -46,13 +42,15 @@ help:
 	@echo "  docs-okf     Validate documentation OKF frontmatter (lazy, ADR 0082)"
 	@echo "  clean        Remove app-owned build artifacts (clean-dry-run previews)"
 	@echo "  venv-rebuild Back up shared .venv and reinstall from main (venv-rebuild-dry-run previews)"
-	@echo "  worktree-cleanup-merged Remove clean merged /workspaces/LoRAIro/.agents/worktree entries"
-	@echo "  worktree-cleanup-merged-dry-run Show clean merged /workspaces/LoRAIro/.agents/worktree entries"
+	@echo "  worktree-cleanup-merged Remove clean merged worktrees owned by this OS checkout"
+	@echo "  worktree-cleanup-merged-dry-run Preview this OS checkout's clean merged worktrees"
 
 # Setup is explicit and may update dependencies; normal tasks never sync.
 setup:
 	git submodule update --init --recursive
 	$(PYTHON) scripts/dev_tasks.py install-dev
+	$(PYTHON) scripts/configure_agent_environment.py
+	$(PYTHON) scripts/install_git_hooks.py
 	$(MAKE) skills-install
 	$(MAKE) harness-install
 
@@ -79,7 +77,7 @@ venv-rebuild-dry-run:
 
 # Shared-kit worktree lifecycle commands are intentionally unchanged here.
 worktree-cleanup-merged:
-	uv run python scripts/cleanup_merged_worktrees.py
+	$(PYTHON) scripts/cleanup_merged_worktrees.py
 
 worktree-cleanup-merged-dry-run:
-	uv run python scripts/cleanup_merged_worktrees.py --dry-run
+	$(PYTHON) scripts/cleanup_merged_worktrees.py --dry-run

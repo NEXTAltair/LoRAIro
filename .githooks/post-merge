@@ -1,0 +1,3 @@
+#!/usr/bin/env sh
+command -v git-lfs >/dev/null 2>&1 || { echo 'git-lfs is required for this repository.' >&2; exit 2; }
+git lfs post-merge "$@"

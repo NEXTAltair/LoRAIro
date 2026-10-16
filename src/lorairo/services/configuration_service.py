@@ -4,10 +4,13 @@ from pathlib import Path
 from typing import Any
 
 from ..utils.config import (
-    DEFAULT_CONFIG_PATH,
     ensure_config_file,
     get_config,
+    get_project_config,
     get_runtime_configuration,
+    get_user_config_path,
+    load_config,
+    user_config_overrides,
     write_config_file,
 )
 from ..utils.log import logger
@@ -24,17 +27,26 @@ class ConfigurationService:
         """ConfigurationServiceを初期化します。
 
         Args:
-            config_path (Optional[Path]): 設定ファイルのパス。Noneの場合、デフォルトパスを使用。
+            config_path (Optional[Path]): 明示設定ファイル。Noneの場合は OS ユーザー設定へ保存。
             shared_config (Optional[dict]): 共有設定オブジェクト。複数インスタンス間で設定を共有する場合に使用。
         """
         runtime = get_runtime_configuration() if config_path is None else None
-        self._config_path = config_path or (runtime.config_path if runtime else DEFAULT_CONFIG_PATH)
+        self._uses_user_config = config_path is None and runtime is None
+        self._config_path = config_path or (runtime.config_path if runtime else get_user_config_path())
+        self._user_defaults: dict[str, Any] | None = None
+        self._user_overrides: dict[str, Any] | None = None
 
         if shared_config is not None:
             self._config = shared_config
             logger.debug("共有設定オブジェクトを使用してConfigurationServiceを初期化しました")
         elif runtime is not None:
             self._config = get_config()
+        elif self._uses_user_config:
+            # An empty override keeps portable project defaults effective on
+            # first run. Existing shared files are neither copied nor rewritten.
+            self._config = ensure_config_file()
+            self._user_defaults = get_project_config()
+            self._user_overrides = load_config(self._config_path)
         else:
             try:
                 self._config = ensure_config_file(self._config_path)
@@ -110,8 +122,23 @@ class ConfigurationService:
 
         try:
             self._discard_retired_clef_credentials()
+            settings = self._config
+            if self._uses_user_config and target_path is None:
+                save_path.parent.mkdir(parents=True, exist_ok=True)
+                if self._user_defaults is None:
+                    self._user_defaults = get_project_config()
+                    try:
+                        self._user_overrides = load_config(save_path)
+                    except FileNotFoundError:
+                        self._user_overrides = {}
+                settings = user_config_overrides(
+                    self._config, self._user_defaults, self._user_overrides or {}
+                )
+                settings.setdefault("directories", {})
             # FileSystemManager.save_toml_config(self._config, save_path) # FileSystemManager経由にするか検討
-            write_config_file(self._config, save_path)
+            write_config_file(settings, save_path)
+            if self._uses_user_config and target_path is None:
+                self._user_overrides = settings
             logger.info("設定をファイルに保存しました: {}", save_path)
             return True
         except OSError:

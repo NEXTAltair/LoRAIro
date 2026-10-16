@@ -213,6 +213,10 @@ class StatusResult(BaseModel):
     config_found: bool
     workspace: str | None = None
     config_path: str | None = None
+    user_config_path: str | None = None
+    project_config_path: str | None = None
+    user_config_found: bool | None = None
+    project_config_found: bool | None = None
     projects_base_dir: str | None = None
     tag_database_dir: str | None = None
     api_keys: dict[str, bool] | None = None
@@ -1169,6 +1173,10 @@ TOOL_SPECS: dict[str, ToolSpec] = {
                     _f("config_found", "bool"),
                     _f("workspace", "path"),
                     _f("config_path", "path"),
+                    _f("user_config_path", "path?"),
+                    _f("project_config_path", "path?"),
+                    _f("user_config_found", "bool?"),
+                    _f("project_config_found", "bool?"),
                     _f("projects_base_dir", "path"),
                     _f("tag_database_dir", "path"),
                     _f("api_keys", "dict[str,bool]?"),

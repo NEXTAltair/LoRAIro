@@ -1,0 +1,5 @@
+# Shared project configuration must remain portable between Windows and Linux.
+# Machine-specific environment overrides belong in the current OS CODEX_HOME.
+# Run python scripts/configure_agent_environment.py after initializing the shared venv.
+# Project configuration has higher precedence than the user configuration;
+# never add UV_PROJECT_ENVIRONMENT or other machine-specific absolute paths here.

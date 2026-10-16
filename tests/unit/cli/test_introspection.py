@@ -69,7 +69,16 @@ def test_describe_status_exposes_status_result_schema() -> None:
     schema_rows = [row for row in rows if row.get("type") == "schema"]
     status_schema = next(row for row in schema_rows if row["name"] == "StatusResult")
     properties = set(status_schema["schema"]["properties"])
-    assert {"environment", "phase", "config_found", "api_keys"} <= properties
+    assert {
+        "environment",
+        "phase",
+        "config_found",
+        "api_keys",
+        "user_config_path",
+        "project_config_path",
+        "user_config_found",
+        "project_config_found",
+    } <= properties
 
 
 def test_describe_compact_emits_tool_model_items_and_result() -> None:

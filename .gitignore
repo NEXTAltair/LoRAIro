@@ -159,7 +159,9 @@ dev_config/
 .claude/skills/
 .claude/settings.local.json
 .claude/scheduled_tasks.lock
-.codex/config.toml
+# .codex/config.toml is shared portable policy; OS paths live in user settings.
+# Protected setting replacements retained after abrupt interruption contain local values.
+.lorairo-settings-*/
 
 # システム固有 (uv.lock は ADR 0025 で tracked。広域 *.lock glob は使わない)
 *.pid
@@ -181,7 +183,7 @@ data/
 # superpowers visual companion (brainstorm mockups)
 .superpowers/
 
-# altairs-agent-dev-kit が配布・上書きする kit 管理ファイル (install.sh --all で再導入)
+# kit 管理ファイルは scripts/install_agent_harness.py / make harness-install で再導入
 # プロジェクト層 (.claude/hooks/rules/*.json override, hook_teammate_monitor.py,
 # CLAUDE.md, AGENTS.md) は従来どおり追跡する
 .claude/rules/
