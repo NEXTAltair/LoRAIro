@@ -66,7 +66,8 @@ def path_platform(value: str) -> str | None:
     # UNC values/commands are Windows paths; avoid matching URL scheme separators.
     if re.search(r"(?<![\w/\\])\\\\[^/\\\s]+\\[^/\\\s]+|(?<![\w:/])//[^/\\\s]+/[^/\\\s]+", value):
         return "nt"
-    if value.startswith("/") or re.search(r"\(\s*//|[\s=(\"']/(?!/)", value):
+    # cmd の /c /d のような1文字スイッチはパスではない
+    if value.startswith("/") or re.search(r"\(\s*//|[\s=(\"']/(?!/)(?![A-Za-z?](?:[\s\"')]|$))", value):
         return "posix"
     return None
 

@@ -426,6 +426,9 @@ class AgentEnvironmentTests(unittest.TestCase):
             ("Bash(/workspaces/LoRAIro/.venv/bin/python *)", "posix"),
             ("https://server/share/models", None),
             ("Bash(git *)", None),
+            ("Bash(cmd /c echo hi)", None),
+            ("Bash(cmd.exe /d /c *)", None),
+            ("Bash(cmd /c /workspaces/LoRAIro/run.sh)", "posix"),
         ):
             with self.subTest(value=value):
                 self.assertEqual(settings.path_platform(value), expected)
