@@ -1,0 +1,9 @@
+# Evaluation overlay only. Install with --no-deps into --target; use LoRAIro's existing PyTorch.
+sentence-transformers==6.1.0
+transformers==5.19.0
+scikit-learn==1.9.1
+scipy==1.18.1
+joblib==1.6.0
+threadpoolctl==3.7.0
+cloudpickle==3.1.2
+narwhals==2.27.1
