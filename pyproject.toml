@@ -101,7 +101,9 @@ exclude-dependencies = ["triton"]
 # Click 8.5 は Argument.help を追加し、Typer 0.25.1 の位置引数の help を None で
 # 上書きするため、CLI help と公開 schema を維持できる 8.4 系までに制限する。
 # https://click.palletsprojects.com/en/stable/api/#click.Argument
-constraint-dependencies = ["diffusers>=0.38.0", "anthropic<1.0", "click<8.5"]
+# pre-commit の virtualenv は既定のバックグラウンド更新でも wheel を取得する。
+# 検証失敗した wheel が再利用キャッシュに残る GHSA-494p-63j8-28p3 の修正版を使う。
+constraint-dependencies = ["diffusers>=0.38.0", "anthropic<1.0", "click<8.5", "virtualenv>=21.14.9"]
 
 [[tool.uv.index]]
 name = "pytorch"
