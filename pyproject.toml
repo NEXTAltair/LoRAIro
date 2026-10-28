@@ -103,7 +103,15 @@ exclude-dependencies = ["triton"]
 # https://click.palletsprojects.com/en/stable/api/#click.Argument
 # pre-commit の virtualenv は既定のバックグラウンド更新でも wheel を取得する。
 # 検証失敗した wheel が再利用キャッシュに残る GHSA-494p-63j8-28p3 の修正版を使う。
-constraint-dependencies = ["diffusers>=0.38.0", "anthropic<1.0", "click<8.5", "virtualenv>=21.14.9"]
+# certifi の侵害された emSign 中間CAを信頼するルートを除去する (GHSA-6q48-6c7w-9gw2)。
+# 2026.10.19 は影響のないルートを復元した版。API通信・モデル取得のTLS検証に使われる。
+constraint-dependencies = [
+    "diffusers>=0.38.0",
+    "anthropic<1.0",
+    "click<8.5",
+    "virtualenv>=21.14.9",
+    "certifi>=2026.10.19",
+]
 
 [[tool.uv.index]]
 name = "pytorch"
