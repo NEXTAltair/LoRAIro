@@ -4,6 +4,7 @@ import json
 import os
 import subprocess
 import sys
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 import pytest
@@ -84,12 +85,39 @@ main()
 """
 
 
-@pytest.mark.parametrize("json_mode", [True, False])
-@pytest.mark.parametrize("status,expected", [("success", 0), ("partial_success", 3), ("failed", 1)])
-@pytest.mark.parametrize(
-    "scenario", ["processing", "register", "resolve", "import", "legacy_import", "update", "export"]
+@pytest.fixture(
+    scope="module",
+    params=[
+        pytest.param((scenario, status, expected), id=f"{scenario}-{status}-{expected}")
+        for scenario in ("processing", "register", "resolve", "import", "legacy_import", "update", "export")
+        for status, expected in (("success", 0), ("partial_success", 3), ("failed", 1))
+    ],
 )
-def test_process_exit_contract(tmp_path, scenario, status, expected, json_mode):
+def process_case(request, tmp_path_factory):
+    """Overlap two fresh CLI startups, keeping 42 independently reported cases.
+
+    Only the JSON/non-JSON pair shares this fixture. At most two children run,
+    including on two-core CI; each retains its own files and 60-second timeout.
+    Snapshot the environment on the pytest thread before function fixtures run.
+    """
+    scenario, status, expected = request.param
+    base_env = dict(os.environ)
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        results = {
+            json_mode: executor.submit(
+                _run_process,
+                tmp_path_factory.mktemp(f"exit-{scenario}-{status}-{json_mode}"),
+                scenario,
+                status,
+                json_mode,
+                base_env,
+            )
+            for json_mode in (True, False)
+        }
+        yield scenario, status, expected, results
+
+
+def _run_process(tmp_path, scenario, status, json_mode, base_env):
     root = Path(__file__).resolve().parents[3]
     commands = {
         "processing": ["images", "process", "--image-ids", "1,2"],
@@ -107,7 +135,9 @@ def test_process_exit_contract(tmp_path, scenario, status, expected, json_mode):
         ],
         "export": ["export", "create", "--image-ids", "1,2", "--output", str(tmp_path / "output")],
     }
-    env = dict(os.environ)
+    child_tmp = tmp_path / "tmp"
+    child_tmp.mkdir()
+    env = dict(base_env)
     env.update(
         LORAIRO_CONFIG_HOME=str(tmp_path / "config"),
         LORAIRO_CLI_LOG_PATH=str(tmp_path / "cli.log"),
@@ -115,6 +145,9 @@ def test_process_exit_contract(tmp_path, scenario, status, expected, json_mode):
         PYTHONUTF8="1",
         NO_COLOR="1",
         TERM="dumb",
+        TMP=str(child_tmp),
+        TEMP=str(child_tmp),
+        TMPDIR=str(child_tmp),
         PYTHONPATH=os.pathsep.join(
             str(root / path)
             for path in (
@@ -124,7 +157,7 @@ def test_process_exit_contract(tmp_path, scenario, status, expected, json_mode):
             )
         ),
     )
-    result = subprocess.run(
+    return subprocess.run(
         [
             sys.executable,
             "-B",
@@ -145,6 +178,12 @@ def test_process_exit_contract(tmp_path, scenario, status, expected, json_mode):
         timeout=60,
         check=False,
     )
+
+
+@pytest.mark.parametrize("json_mode", [True, False])
+def test_process_exit_contract(process_case, json_mode):
+    scenario, status, expected, results = process_case
+    result = results[json_mode].result()
     assert result.returncode == expected, result.stdout + result.stderr
     if json_mode:
         row = json.loads(result.stdout.splitlines()[-1])
