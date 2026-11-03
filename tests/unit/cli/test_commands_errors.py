@@ -315,7 +315,9 @@ def test_resolve_real_repository_requires_all_unique_ids(
     result = runner.invoke(
         app, (["--json"] if json_mode else []) + ["errors", "resolve", "-p", "demo", "--ids", ids]
     )
-    assert result.exit_code == (0 if expected_status == "success" else 1), result.output
+    assert result.exit_code == {"success": 0, "partial_success": 3, "failed": 1}[expected_status], (
+        result.output
+    )
     if json_mode:
         rows = [json.loads(line) for line in result.stdout.splitlines()]
         assert len(rows) == 1

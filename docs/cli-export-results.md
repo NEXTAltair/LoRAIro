@@ -22,9 +22,10 @@ An image is exported only when all requested languages and both TXT and JSON fin
 | `failed_ids` | Every incomplete ID, including skipped images; suitable for retry input |
 | `error_details` | Per-ID reasons, completed formats, and files whose writers completed |
 
-`requested = exported + skipped + failed`. Any incomplete image produces `ok:false`
-and exit 1. `status` is `success` for complete output, `partial_success` when some
-images exported, and `failed` when none exported. A TXT file can remain after a JSON
+`requested = exported + skipped + failed`. Any incomplete image produces `ok:false`.
+`status` is `success` (exit 0) for complete output, `partial_success` (exit 3) when some
+images exported, and `failed` (exit 1) when none exported. Invalid input remains exit 2.
+A TXT file can remain after a JSON
 write fails; it is listed as partial evidence and does not increment `exported`.
 JSON evidence is tracked separately for each language. When an image's later language
 fails, an earlier language's completed `metadata.json` can still contain that image
@@ -80,3 +81,50 @@ returns the same service `ExportResult` collector, whose `summary()` exposes the
 result fields above. Existing single-format methods remain available. A TXT failure
 can leave successful JSON output, and a late JSON failure retains completed TXT files;
 both remain incomplete image results and can be retried using `failed_ids`.
+
+## Preview without output writes
+
+Add `--dry-run` to preview the same exact IDs, processed image resolution selection,
+tag language directories, TXT/caption names, and filename collisions used by real export:
+
+```sh
+lorairo-cli --json export create --project training --image-ids-file ids.txt \
+  --output planned-dataset --tag-language canonical --tag-language ja --dry-run
+```
+
+The preview emits a `kind:item` JSONL row for each image ready for export, followed by
+one `kind:result`. Each item contains `image_id`, `source_path`, and `destinations`.
+Each destination contains `language`, `image_path`, `tags_path`, `caption_path`
+(`null` when there is no caption), and `metadata_path`. Paths follow the same spelling
+and relative/absolute convention as the real export, and language aliases and repeated
+language options are normalized by the shared path resolver.
+
+The result sets `dry_run:true`, replaces `exported` with `would_export`, and replaces
+`exported_ids` with `ready_ids`. It also lists the planned per-language `metadata_files`.
+`requested`, `skipped`, `failed`, `failed_ids`, and `error_details` retain their meanings
+for input validation. Preview error details contain reasons without completed-format or
+written-file evidence. `requested = would_export + skipped + failed`. Exit 0 means all
+requested inputs are ready; exit 3 means some are ready; exit 1 means none are ready.
+The manifest and counts describe a plan and do not claim that any files were exported.
+
+Plain `--dry-run` already requires existing compatible project and tag databases and
+cached tag data. It never creates output directories, copies images, writes metadata,
+initializes user tag databases, downloads base tag data, or migrates the project DB.
+Missing preparation returns `PRECONDITION_FAILED`; run the separately authorized
+`project prepare` workflow before trying again. `--read-only` can also be combined with
+`--dry-run`; `--read-only export create` without `--dry-run` is rejected.
+The existing CLI log and SQLite read-only WAL/shared-memory bookkeeping remain in
+use; the guarantee covers dataset output and logical database content, not those
+runtime bookkeeping files.
+
+The shared planner resolves tags, captions, translations, optional Python overlays,
+and output name ownership before returning paths. It does not attempt writes to prove
+permissions, available disk space, or future write success. Source changes and races
+between preview and real export remain possible, and existing destination files will
+be overwritten by a later real export as before.
+
+Python callers can use `lorairo.public_api.export.preview_images_all_formats` with the
+same project name, exact IDs, output path, resolution and languages as the real facade.
+It returns `ExportPreview`, containing `manifest`, `metadata_files`, and `summary()`.
+Service callers can use `DatasetExportService.preview_dataset_all_formats` and supply
+the same `tag_format` and `overlay_plan` options as `export_dataset_all_formats`.

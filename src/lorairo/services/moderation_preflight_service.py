@@ -84,6 +84,7 @@ class ModerationPreflightService:
         annotation_save_service: AnnotationSaveService,
         config_service: ConfigurationService,
         moderation_runner: ModerationRunner,
+        retry_failed_batch: bool = True,
     ) -> None:
         self._image_repo = image_repo
         self._model_repo = model_repo
@@ -91,6 +92,7 @@ class ModerationPreflightService:
         self._annotation_save_service = annotation_save_service
         self._config_service = config_service
         self._moderation_runner = moderation_runner
+        self._retry_failed_batch = retry_failed_batch
 
     def apply(self, image_paths: list[str]) -> ModerationPreflightResult:
         """Return image paths that may proceed to WebAPI annotation."""
@@ -231,6 +233,10 @@ class ModerationPreflightService:
             )
             save_result = self._annotation_save_service.save_annotation_results(results)
         except Exception as exc:
+            if not self._retry_failed_batch:
+                # A provider response/save failure can follow an accepted request.
+                # Durable callers keep the image in_flight and must not resend it.
+                raise
             logger.opt(exception=True).warning(
                 f"moderation preflight batch failed; retrying per image: {exc}"
             )

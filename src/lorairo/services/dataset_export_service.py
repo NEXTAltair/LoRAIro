@@ -15,6 +15,7 @@ from genai_tag_db_tools.db.schema import USER_TAG_ID_OFFSET
 from loguru import logger
 from sqlalchemy.exc import SQLAlchemyError
 
+from ..database.access_policy import is_read_only, read_only_scope
 from ..database.db_core import resolve_stored_path
 from ..database.db_manager import ImageDatabaseManager
 from ..database.filter_criteria import ImageFilterCriteria
@@ -121,6 +122,27 @@ class ExportResult:
         }
 
 
+@dataclass
+class ExportPreview:
+    """Read-only export plan; ready inputs are not evidence of completed writes."""
+
+    report: ExportResult
+    manifest: list[dict[str, Any]]
+    metadata_files: list[str]
+
+    def summary(self) -> dict[str, Any]:
+        """Expose planning outcomes without claiming that files were exported."""
+        summary = self.report.summary()
+        summary["dry_run"] = True
+        summary["would_export"] = summary.pop("exported")
+        summary["ready_ids"] = summary.pop("exported_ids")
+        summary["metadata_files"] = self.metadata_files
+        summary["error_details"] = [
+            {"image_id": item["image_id"], "errors": item["errors"]} for item in summary["error_details"]
+        ]
+        return summary
+
+
 class DatasetExportService:
     """Service for exporting training datasets compatible with kohya-ss/sd-scripts.
 
@@ -188,23 +210,12 @@ class DatasetExportService:
             translation_cache: dict[str, dict[str, str]] = {language: {} for language, _ in language_roots}
             for image_id in report.image_ids[offset : offset + _EXPORT_TRANSLATION_CACHE_IMAGES]:
                 try:
-                    export_input = self._get_export_input(image_id, resolution, report, "input", True)
-                    if export_input is None:
-                        continue
-                    source, data = export_input
-                    canonical_tags = self._build_export_tag_list(
-                        [tag["tag"] for tag in self._resolve_export_tags(data["tags"])],
-                        image_id,
-                        tag_format,
-                        reader,
-                        overlay_plan,
+                    planned = self._prepare_all_formats_record(
+                        image_id, resolution, language_roots, report, tag_format, reader, overlay_plan
                     )
-                    caption = self._resolve_export_caption(data["captions"])
-                    captions = caption["caption"] if caption else ""
-                    if not self._reserve_export_destinations(
-                        image_id, source, language_roots, report, "all", bool(captions)
-                    ):
+                    if planned is None:
                         continue
+                    source, data, canonical_tags, captions = planned
                     self._export_all_record(
                         image_id,
                         source,
@@ -224,6 +235,114 @@ class DatasetExportService:
             language_roots, "metadata.json", metadata_by_language, staged_ids_by_language, report, True
         )
         return report
+
+    def _prepare_all_formats_record(
+        self,
+        image_id: int,
+        resolution: int,
+        language_roots: list[tuple[str, Path]],
+        report: ExportResult,
+        tag_format: str,
+        reader: "MergedTagReader | None",
+        overlay_plan: ExportOverlayPlan | None,
+    ) -> tuple[Path, dict[str, Any], list[str], str] | None:
+        """Share selection, tags, captions and path ownership between preview and writes."""
+        export_input = self._get_export_input(image_id, resolution, report, "input", True)
+        if export_input is None:
+            return None
+        source, data = export_input
+        canonical_tags = self._build_export_tag_list(
+            [tag["tag"] for tag in self._resolve_export_tags(data["tags"])],
+            image_id,
+            tag_format,
+            reader,
+            overlay_plan,
+        )
+        caption = self._resolve_export_caption(data["captions"])
+        captions = caption["caption"] if caption else ""
+        if not self._reserve_export_destinations(
+            image_id, source, language_roots, report, "all", bool(captions)
+        ):
+            return None
+        return source, data, canonical_tags, captions
+
+    def preview_dataset_all_formats(
+        self,
+        image_ids: list[int],
+        output_path: Path,
+        resolution: int = 512,
+        *,
+        tag_format: str = _DEFAULT_EXPORT_TAG_FORMAT,
+        overlay_plan: ExportOverlayPlan | None = None,
+        tag_languages: list[str] | None = None,
+    ) -> ExportPreview:
+        """Plan the real all-format export without creating output or preparing databases.
+
+        Permission failures, source changes and races after planning remain possible.
+        A ready image means its inputs and destination names are valid now, not that
+        any output has been written. Existing destination files are not modified.
+        """
+        if not image_ids:
+            raise ValueError("image_ids list cannot be empty")
+        language_roots = self._resolve_language_output_roots(output_path, tag_languages)
+        report = ExportResult(image_ids)
+        preview = ExportPreview(report, [], [str(root / "metadata.json") for _, root in language_roots])
+        with read_only_scope():
+            try:
+                reader = self._get_export_reader()
+            except Exception as exc:
+                # Strict preparation failures must remain structured preconditions.
+                from lorairo.public_api.exceptions import ReadOnlyPreconditionError
+
+                if isinstance(exc, ReadOnlyPreconditionError):
+                    raise
+                for image_id in report.image_ids:
+                    report.fail(image_id, "setup", "export_error", str(exc))
+                return preview
+            for offset in range(0, len(report.image_ids), _EXPORT_TRANSLATION_CACHE_IMAGES):
+                translation_cache: dict[str, dict[str, str]] = {
+                    language: {} for language, _ in language_roots
+                }
+                for image_id in report.image_ids[offset : offset + _EXPORT_TRANSLATION_CACHE_IMAGES]:
+                    try:
+                        planned = self._prepare_all_formats_record(
+                            image_id, resolution, language_roots, report, tag_format, reader, overlay_plan
+                        )
+                        if planned is None:
+                            continue
+                        source, data, canonical_tags, captions = planned
+                        destinations = []
+                        for language, root in language_roots:
+                            tags = ", ".join(
+                                self._translate_export_tag_list(
+                                    canonical_tags, language, reader, translation_cache[language]
+                                )
+                            )
+                            # Validate the same payload construction without serializing to disk.
+                            self._json_export_payload(data, tags, captions)
+                            image_path = root / source.name
+                            destinations.append(
+                                {
+                                    "language": language,
+                                    "image_path": str(image_path),
+                                    "tags_path": str(image_path.with_suffix(".txt")),
+                                    "caption_path": str(image_path.with_suffix(".caption"))
+                                    if captions
+                                    else None,
+                                    "metadata_path": str(root / "metadata.json"),
+                                }
+                            )
+                        preview.manifest.append(
+                            {
+                                "image_id": image_id,
+                                "source_path": str(source),
+                                "destinations": destinations,
+                            }
+                        )
+                        report.completed[image_id] = {"txt", "json"}
+                    except Exception as exc:
+                        report.fail(image_id, "input", "export_error", str(exc))
+        return preview
 
     def _export_all_record(
         self,
@@ -931,6 +1050,12 @@ class DatasetExportService:
         Returns:
             MergedTagReader。外部 tag_db が無い場合は None (変換せず素通し)。
         """
+        if is_read_only():
+            from ..database.db_core import ensure_tag_db_initialized
+
+            # The repository's legacy fallback swallows preparation errors. A
+            # preview must expose them instead of silently planning different tags.
+            ensure_tag_db_initialized()
         return self.db_manager.annotation_repo.get_merged_reader()
 
     def _convert_tags_for_export(self, tags: str, tag_format: str, reader: "MergedTagReader | None") -> str:

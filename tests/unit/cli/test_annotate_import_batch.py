@@ -54,7 +54,7 @@ class TestImportBatchCommand:
 
         result = runner.invoke(app, ["annotate", "import-batch", str(jsonl_dir), "-p", "test_project"])
 
-        assert result.exit_code == 1  # Fixture contains parse errors and unmatched input (#1313).
+        assert result.exit_code == 3  # Partial success retains confirmed matches/saves.
         assert "Batch Import Summary" in result.output
         assert "90" in result.output  # saved count
         mock_import.assert_called_once()
@@ -73,7 +73,7 @@ class TestImportBatchCommand:
             ["annotate", "import-batch", str(jsonl_dir), "-p", "test_project", "--dry-run"],
         )
 
-        assert result.exit_code == 1  # Fixture contains parse errors and unmatched input (#1313).
+        assert result.exit_code == 3  # Partial success retains confirmed matches/saves.
         assert "DRY-RUN" in result.output
         call_kwargs = mock_import.call_args
         assert call_kwargs.kwargs["dry_run"] is True
@@ -100,7 +100,7 @@ class TestImportBatchCommand:
             ],
         )
 
-        assert result.exit_code == 1  # Fixture contains parse errors and unmatched input (#1313).
+        assert result.exit_code == 3  # Partial success retains confirmed matches/saves.
         call_kwargs = mock_import.call_args
         assert call_kwargs.kwargs["model_name_override"] == "custom-model"
 
@@ -143,7 +143,7 @@ class TestImportBatchCommand:
 
         result = runner.invoke(app, ["annotate", "import-batch", str(jsonl_dir), "-p", "test_project"])
 
-        assert result.exit_code == 1  # Fixture contains parse errors and unmatched input (#1313).
+        assert result.exit_code == 3  # Partial success retains confirmed matches/saves.
         assert "Unmatched" in result.output
         assert "id_a" in result.output
 
@@ -161,7 +161,7 @@ class TestImportBatchCommand:
             ["--json", "annotate", "import-batch", str(jsonl_dir), "-p", "test_project"],
         )
 
-        assert result.exit_code == 1  # Fixture contains parse errors and unmatched input (#1313).
+        assert result.exit_code == 3  # Partial success retains confirmed matches/saves.
         parsed = []
         for line in result.output.splitlines():
             line = line.strip()
@@ -196,7 +196,7 @@ class TestImportBatchCommand:
             ["--json", "annotate", "import-batch", str(jsonl_dir), "-p", "test_project", "--dry-run"],
         )
 
-        assert result.exit_code == 1  # Fixture contains parse errors and unmatched input (#1313).
+        assert result.exit_code == 3  # Partial success retains confirmed matches/saves.
         parsed = []
         for line in result.output.splitlines():
             line = line.strip()

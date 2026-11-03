@@ -237,7 +237,7 @@ def test_run_corrupted_image_skipped_others_continue(
     """破損画像 (一般 OSError/UnidentifiedImageError) は skip し、残りで継続。
 
     1 枚目を破損させても、残り 2 枚が正常なら annotation 継続。
-    Exit code 期待値: 0 (致命でない skip)。
+    Exit code 期待値: 3 (正常画像は保存済み、破損画像は失敗)。
     """
     # 1 枚目を破損させる (UnidentifiedImageError を誘発)。
     project_with_images[0].write_bytes(b"not an image")
@@ -250,7 +250,7 @@ def test_run_corrupted_image_skipped_others_continue(
         ["annotate", "run", "--project", "fail_dataset", "--model", "gpt-4o-mini"],
     )
 
-    assert result.exit_code == 0, result.stdout
+    assert result.exit_code == 3, result.stdout
     # 破損 1 枚 skip + 正常 2 枚ロード。
     assert "Loaded 2 image(s) (1 failed)" in result.stdout
     # annotate は正常画像で 1 回呼ばれる。

@@ -15,7 +15,6 @@ from PIL import Image
 from typer.testing import CliRunner
 
 from lorairo.cli.commands.annotate import (
-    AnnotationRunFailedError,
     _apply_moderation_preflight_to_records,
     _finalize_annotation_run,
     _StreamAnnotateSummary,
@@ -298,8 +297,11 @@ def test_finalize_annotation_run_all_preflight_skipped_is_success() -> None:
 
 @pytest.mark.unit
 @pytest.mark.cli
-def test_finalize_annotation_run_preflight_skip_plus_load_failure_is_error() -> None:
+def test_finalize_annotation_run_preflight_skip_plus_load_failure_is_partial() -> None:
+    import typer
+
     summary = _StreamAnnotateSummary(total_failed=1, preflight_skipped=1)
 
-    with pytest.raises(AnnotationRunFailedError):
+    with pytest.raises(typer.Exit) as caught:
         _finalize_annotation_run(summary, ["openai/gpt-4o-mini"])
+    assert caught.value.exit_code == 3

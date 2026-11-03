@@ -244,6 +244,7 @@ def real_export_context(tmp_path, monkeypatch):
     fs = MagicMock()
     fs.copy_file.side_effect = shutil.copyfile
     service = DatasetExportService(MagicMock(), fs, db, MagicMock())
+    service._get_export_reader = MagicMock(return_value=None)
     container = MagicMock()
     container.dataset_export_service = service
     monkeypatch.setattr("lorairo.cli.commands.export.api_get_project", MagicMock())
@@ -292,7 +293,7 @@ def test_export_reuses_metadata_lookup_across_formats(real_export_context, tmp_p
         ["--json", "export", "create", "--project", "synthetic", *selection, "--output", str(output)],
     )
     row = json.loads(result.stdout.splitlines()[-1])
-    assert result.exit_code == 1
+    assert result.exit_code == 3
     assert row["status"] == "partial_success"
     assert row["exported_ids"] == [1, 2]
     assert row["failed_ids"] == [99]
@@ -357,7 +358,7 @@ def test_export_collision_preserves_first_image_across_formats(
         ],
     )
     row = json.loads(result.stdout.splitlines()[-1])
-    assert result.exit_code == 1
+    assert result.exit_code == 3
     assert row["status"] == "partial_success"
     assert row["exported"] == count - 1
     assert row["failed"] == 1
@@ -501,7 +502,7 @@ def test_metadata_evidence_follows_each_languages_staged_images(
         ],
     )
     row = json.loads(result.stdout.splitlines()[-1])
-    assert result.exit_code == 1
+    assert result.exit_code == (3 if metadata_failure is None else 1)
     assert row["exported"] == (1 if metadata_failure is None else 0)
     failures = {item["image_id"]: item for item in row["error_details"]}
     assert failures[1]["completed_formats"] == ([] if single_pass else ["txt"])
@@ -592,7 +593,7 @@ def test_real_export_counts_match_artifacts(
         service.file_system_manager.copy_file.side_effect = OSError("copy failed")
     output = tmp_path / "out"
     result, row = _invoke_real_export(output)
-    assert result.exit_code == (0 if expected_exported == 2 else 1)
+    assert result.exit_code == (0 if expected_exported == 2 else 3 if expected_exported else 1)
     assert row["ok"] is (expected_exported == 2)
     assert row["requested"] == row["total_images"] == 2
     assert (row["exported"], row["skipped"], row["failed"]) == (
@@ -724,3 +725,110 @@ def test_export_output_directory_failure_retains_counts(real_export_context, tmp
     assert result.exit_code == 1
     assert row["failed"] == row["requested"] == 2
     assert output.read_text() == "preexisting file"
+
+
+@pytest.mark.parametrize("ids,expected_exit,ready", [("1,2", 0, [1, 2]), ("1,99", 3, [1]), ("99", 1, [])])
+@pytest.mark.parametrize("json_mode", [False, True])
+@pytest.mark.parametrize("strict", [False, True])
+def test_export_dry_run_returns_plans_and_no_files(
+    real_export_context, tmp_path, monkeypatch, ids, expected_exit, ready, json_mode, strict
+):
+    from lorairo.database.access_policy import is_read_only
+
+    service, _db, _paths = real_export_context
+
+    def project_lookup(project):
+        assert project == "synthetic"
+        assert is_read_only(), "plain --dry-run must be strict before project lookup"
+
+    monkeypatch.setattr("lorairo.cli.commands.export.api_get_project", project_lookup)
+    output = tmp_path / "out"
+    before = {str(path): path.read_bytes() for path in tmp_path.rglob("*") if path.is_file()}
+    service._write_export_text_files = MagicMock(side_effect=AssertionError("text writes forbidden"))
+    service._write_metadata_files = MagicMock(side_effect=AssertionError("metadata writes forbidden"))
+    result = runner.invoke(
+        app,
+        [
+            *(["--json"] if json_mode else []),
+            *(["--read-only"] if strict else []),
+            "export",
+            "create",
+            "--dry-run",
+            "--project",
+            "synthetic",
+            "--image-ids",
+            ids,
+            "--output",
+            str(output),
+        ],
+    )
+    assert result.exit_code == expected_exit, result.output
+    assert not output.exists()
+    assert {str(path): path.read_bytes() for path in tmp_path.rglob("*") if path.is_file()} == before
+    assert not is_read_only()
+    service.file_system_manager.copy_file.assert_not_called()
+    service._write_export_text_files.assert_not_called()
+    service._write_metadata_files.assert_not_called()
+    if json_mode:
+        rows = [json.loads(line) for line in result.stdout.splitlines()]
+        assert [row["image_id"] for row in rows[:-1]] == ready
+        assert all(row["kind"] == "item" for row in rows[:-1])
+        summary = rows[-1]
+        assert summary["kind"] == "result"
+        assert summary["dry_run"] is True
+        assert summary["ready_ids"] == ready
+        assert summary["would_export"] == len(ready)
+        assert "exported" not in summary
+    else:
+        assert "Export preview complete" in result.stdout
+        assert "Export completed successfully" not in result.stdout
+
+
+@pytest.mark.parametrize(
+    "selection", [[], ["--image-ids", "abc"], ["--image-ids", "1", "--image-ids-file", "none.txt"]]
+)
+def test_export_dry_run_rejects_invalid_selection_before_service(mock_export_context, tmp_path, selection):
+    container, _ = mock_export_context
+    result = runner.invoke(
+        app,
+        [
+            "--json",
+            "export",
+            "create",
+            "--dry-run",
+            "--project",
+            "synthetic",
+            *selection,
+            "--output",
+            str(tmp_path / "uncreated"),
+        ],
+    )
+    assert result.exit_code == 2
+    assert json.loads(result.stdout.splitlines()[-1])["code"] == "INVALID_INPUT"
+    container.set_active_project.assert_not_called()
+    container.dataset_export_service.preview_dataset_all_formats.assert_not_called()
+    assert not (tmp_path / "uncreated").exists()
+
+
+def test_export_read_only_without_dry_run_is_rejected_before_work(mock_export_context, tmp_path):
+    container, _ = mock_export_context
+    result = runner.invoke(
+        app,
+        [
+            "--json",
+            "--read-only",
+            "export",
+            "create",
+            "--project",
+            "synthetic",
+            "--image-ids",
+            "1",
+            "--output",
+            str(tmp_path / "uncreated"),
+        ],
+    )
+    assert result.exit_code == 1
+    assert json.loads(result.stdout.splitlines()[-1])["details"]["reason"] == "write_command"
+    container.set_active_project.assert_not_called()
+    container.dataset_export_service.export_dataset_all_formats.assert_not_called()
+    assert not (tmp_path / "uncreated").exists()

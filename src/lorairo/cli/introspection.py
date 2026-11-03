@@ -411,6 +411,134 @@ class ExportCreateResult(BaseModel):
     model_config = ConfigDict(title="ExportCreateResult")
 
 
+class ExportPreviewDestination(BaseModel):
+    language: str
+    image_path: str
+    tags_path: str
+    caption_path: str | None
+    metadata_path: str
+
+
+class ExportPreviewItem(BaseModel):
+    kind: Literal["item"] = "item"
+    image_id: int
+    source_path: str
+    destinations: list[ExportPreviewDestination]
+
+
+class ExportPreviewResult(BaseModel):
+    kind: Literal["result"] = "result"
+    ok: bool
+    message: str
+    status: Literal["success", "partial_success", "failed"]
+    dry_run: Literal[True]
+    requested: int
+    would_export: int
+    skipped: int
+    failed: int
+    ready_ids: list[int]
+    failed_ids: list[int]
+    metadata_files: list[str]
+    error_details: list[dict[str, Any]]
+    output_path: str
+    total_images: int
+    resolution: int
+    tag_languages: list[str]
+
+
+class DuplicateMember(BaseModel):
+    image_id: int
+    stored_image_path: str
+    original_image_path: str
+    phash: str
+
+
+class DuplicateClusterItem(BaseModel):
+    kind: Literal["item"] = "item"
+    cluster_id: int
+    member_count: int
+    members: list[DuplicateMember]
+    members_truncated: bool
+
+
+class DuplicateReportResult(BaseModel):
+    kind: Literal["result"] = "result"
+    ok: Literal[True] = True
+    message: str
+    project: str
+    read_only: Literal[True]
+    status: Literal["success"]
+    candidate_only: Literal[True]
+    total_images: int
+    valid_phash_images: int
+    missing_phash_images: int
+    invalid_phash_images: int
+    unique_phashes: int
+    cluster_count: int
+    clustered_images: int
+    unclustered_images: int
+    returned_clusters: int
+    clusters_truncated: bool
+    max_distance: int
+    hash_bits: Literal[64]
+    distance_metric: Literal["hamming"]
+    clustering: Literal["connected_components"]
+    compared_hash_pairs: int
+    limit: int
+    max_images: Literal[10000]
+    max_pair_comparisons: Literal[49995000]
+
+
+class TagHealthFrequencyItem(BaseModel):
+    kind: Literal["item"] = "item"
+    section: Literal["frequency"]
+    tag: str
+    image_count: int
+
+
+class TagHealthVariantItem(BaseModel):
+    kind: Literal["item"] = "item"
+    section: Literal["variant"]
+    tag: str
+    candidate: str
+    reason: Literal["normalization", "spelling"]
+    similarity: float | None
+
+
+class TagHealthMissingItem(BaseModel):
+    kind: Literal["item"] = "item"
+    section: Literal["missing_expected"]
+    expected_tag: str
+    normalized_tag: str
+    missing_count: int
+    image_ids: list[int]
+    image_ids_truncated: bool
+
+
+class TagHealthResult(BaseModel):
+    kind: Literal["result"] = "result"
+    ok: bool = True
+    message: str
+    project: str
+    read_only: Literal[True]
+    total_images: int
+    tagged_images: int
+    untagged_images: int
+    unique_tags: int
+    expected_tag_count: int
+    frequency_count: int
+    variant_count: int
+    missing_expected_count: int
+    frequencies_truncated: bool
+    variants_truncated: bool
+    missing_expected_truncated: bool
+    spelling_vocabulary_limit: int
+    spelling_max_tag_length: int
+    spelling_similarity_threshold: float
+    spelling_candidates_truncated: bool
+    limit: int
+
+
 class TagsEditItem(BaseModel):
     """JSONL item payload emitted per image by ``tags add/remove/replace --json``."""
 
@@ -779,7 +907,7 @@ class AnnotateRunOutcome(BaseModel):
     kind: Literal["item"] = "item"
     type: Literal["annotation_outcome"] = "annotation_outcome"
     image_id: int
-    status: Literal["completed", "failed", "skipped", "unexecuted"]
+    status: Literal["completed", "failed", "skipped", "unexecuted", "pending", "in_flight"]
     reason: str | None = None
     saved: bool = False
 
@@ -826,6 +954,11 @@ class AnnotateRunResult(BaseModel):
     unexecuted: int | None = None
     interrupted: bool = False
     reason: str | None = None
+    run_id: str | None = None
+    resumed: bool | None = None
+    state_path: str | None = None
+    pending: int | None = None
+    in_flight: int | None = None
     resolution_skipped: int = 0
     annotated: int
     skipped: int
@@ -1301,7 +1434,7 @@ TOOL_SPECS: dict[str, ToolSpec] = {
                         "status",
                         "Literal[success, partial_success, failed]",
                         default="success",
-                        description="Failures, including partial success, return ok=false and exit 1; normal skip/empty returns exit 0.",
+                        description="Partial success returns ok=false and exit 3; total failure exits 1; normal skip/empty exits 0.",
                     ),
                     _f("variant", "int", default=0),
                     _f(
@@ -1389,7 +1522,7 @@ TOOL_SPECS: dict[str, ToolSpec] = {
                     _f("skipped_ids", "list[int]", required=True),
                     _f("failed_ids", "list[int]", required=True),
                 ),
-                description="Any failed ID returns ok=false and exit 1. See [offline processing](cli-image-processing.md).",
+                description="Partial success returns ok=false and exit 3; total failure exits 1. See [offline processing](cli-image-processing.md).",
                 schema=ImagesProcessResult,
             ),
         ),
@@ -1558,6 +1691,7 @@ TOOL_SPECS: dict[str, ToolSpec] = {
                     _f("count", "int?", description="Set to 0 on the no-image (no-target) success path."),
                 ),
                 schema=ImagesUpdateResult,
+                description="Legacy payload retains ok=true; inspect failed_tags and exit code: partial success 3, total failure 1, success 0.",
             ),
         ),
         errors=(ERROR_MODEL,),
@@ -1596,9 +1730,9 @@ TOOL_SPECS: dict[str, ToolSpec] = {
     "annotate run": ToolSpec(
         name="annotate run",
         path="annotate run",
-        summary="Run annotation for selected project images and save to DB; --output is unsupported.",
+        summary="Run annotation and save to DB. Use --run-id to persist a run and --resume to process pending items only. See [resume contract](cli-annotation-resume.md).",
         read_only=False,
-        side_effects=("db_read", "db_write", "file_read", "network"),
+        side_effects=("db_read", "db_write", "file_read", "file_write", "network"),
         inputs=(
             _input(
                 "AnnotateRunInput",
@@ -1622,6 +1756,12 @@ TOOL_SPECS: dict[str, ToolSpec] = {
                     _f("batch_size", "int>=1", default=10),
                     _f("unrated", "bool", default=False),
                     _f("missing_model", "str?"),
+                    _f("run_id", "str?", description="New durable run identity; exclusive with resume."),
+                    _f(
+                        "resume",
+                        "str?",
+                        description="Resume pending items from this run; same project/models/config required; no selection or resolution overrides.",
+                    ),
                 ),
                 schema=AnnotateRunInput,
             ),
@@ -1632,7 +1772,7 @@ TOOL_SPECS: dict[str, ToolSpec] = {
                 (
                     _f("type", "annotation_outcome"),
                     _f("image_id", "int"),
-                    _f("status", "completed|failed|skipped|unexecuted"),
+                    _f("status", "completed|failed|skipped|unexecuted|pending|in_flight"),
                     _f("saved", "bool"),
                     _f("reason", "str?"),
                 ),
@@ -1693,7 +1833,7 @@ TOOL_SPECS: dict[str, ToolSpec] = {
                         "status",
                         "Literal[success, partial_success, failed]",
                         default="success",
-                        description="Failures, including partial success, return ok=false and exit 1; normal skip/empty returns exit 0.",
+                        description="Partial success returns ok=false and exit 3; total failure exits 1; normal skip/empty exits 0.",
                     ),
                     _f("unmatched_ids", "list[str]"),
                     _f("error_details", "list[str]"),
@@ -1715,7 +1855,7 @@ TOOL_SPECS: dict[str, ToolSpec] = {
     "export create": ToolSpec(
         name="export create",
         path="export create",
-        summary="Export a dataset from a list of image IDs. Use 'images search' to resolve IDs first.",
+        summary="Export selected IDs; --dry-run previews count and manifest without writes and supports root --read-only. See [export contract](cli-export-results.md).",
         read_only=False,
         side_effects=("db_read", "file_read", "file_write"),
         inputs=(
@@ -1766,11 +1906,13 @@ TOOL_SPECS: dict[str, ToolSpec] = {
                     _f("count", "int?"),
                 ),
                 description=(
-                    "Missing or failed images return ok=false and exit 1; total_images remains the requested "
+                    "Partial success exits 3; total failure exits 1; both return ok=false; total_images remains the requested "
                     "count. See [export result and retry contract](cli-export-results.md)."
                 ),
                 schema=ExportCreateResult,
             ),
+            _output("ExportPreviewItem", (), schema=ExportPreviewItem),
+            _output("ExportPreviewResult", (), schema=ExportPreviewResult),
         ),
         errors=(ERROR_MODEL,),
     ),
@@ -2330,7 +2472,7 @@ TOOL_SPECS: dict[str, ToolSpec] = {
                     _f("skipped_candidates", "int?", description="--file バッチ時のみ。"),
                     _f("errors", "int?", description="--file バッチ時のみ。"),
                 ),
-                description="終端 result 行。既定は dry-run (dry_run=true) で書き込みなし。",
+                description="終端 result 行。既定は dry-run (dry_run=true) で書き込みなし。--file は既存 ok=true を維持するため errors と終了コードを確認: 部分成功3、全件失敗1、成功0。",
             ),
         ),
         errors=(ERROR_MODEL,),
@@ -2852,7 +2994,7 @@ TOOL_SPECS: dict[str, ToolSpec] = {
                         "status",
                         "Literal[success, partial_success, failed]",
                         default="success",
-                        description="Failures, including partial success, return ok=false and exit 1; normal skip/empty returns exit 0.",
+                        description="Partial success returns ok=false and exit 3; total failure exits 1; normal skip/empty exits 0.",
                     ),
                     _f("incomplete", "bool", default=False),
                     _f("already_imported", "int", default=0),
@@ -2873,6 +3015,71 @@ TOOL_SPECS: dict[str, ToolSpec] = {
                 ),
                 schema=BatchImportResult,
             ),
+        ),
+        errors=(ERROR_MODEL,),
+    ),
+    "images duplicates": ToolSpec(
+        name="images duplicates",
+        path="images duplicates",
+        summary="Read-only duplicate candidates from saved 64-bit pHashes, capped at 10,000 project images. See [duplicate report](cli-duplicate-report.md).",
+        read_only=True,
+        side_effects=("db_read",),
+        inputs=(
+            _input(
+                "DuplicateReportInput",
+                (
+                    _f("project", "str", required=True),
+                    _f(
+                        "max_distance",
+                        "int[0,64]",
+                        default=4,
+                        description="Maximum Hamming distance of connecting pairs; cluster endpoints may exceed this threshold.",
+                    ),
+                    _f(
+                        "limit",
+                        "int[1,500]",
+                        default=100,
+                        description="Output cap for clusters and members; detection and counts cover the complete bounded project.",
+                    ),
+                ),
+            ),
+        ),
+        outputs=(
+            _output("DuplicateClusterItem", (), schema=DuplicateClusterItem),
+            _output("DuplicateReportResult", (), schema=DuplicateReportResult),
+        ),
+        errors=(ERROR_MODEL,),
+    ),
+    "tags health": ToolSpec(
+        name="tags health",
+        path="tags health",
+        summary="Read-only tag frequencies, variant suggestions and explicitly expected missing tags. See [tag health](cli-tag-health.md).",
+        read_only=True,
+        side_effects=("db_read",),
+        inputs=(
+            _input(
+                "TagHealthInput",
+                (
+                    _f("project", "str", required=True),
+                    _f(
+                        "expected_tag",
+                        "list[str]?",
+                        description="Explicit tags expected on every image; repeat the option. No implicit expectations.",
+                    ),
+                    _f(
+                        "limit",
+                        "int[1,500]",
+                        default=100,
+                        description="Maximum rows per section and IDs per missing-tag sample; counts cover all images.",
+                    ),
+                ),
+            ),
+        ),
+        outputs=(
+            _output("TagHealthFrequencyItem", (), schema=TagHealthFrequencyItem),
+            _output("TagHealthVariantItem", (), schema=TagHealthVariantItem),
+            _output("TagHealthMissingItem", (), schema=TagHealthMissingItem),
+            _output("TagHealthResult", (), schema=TagHealthResult),
         ),
         errors=(ERROR_MODEL,),
     ),
@@ -2998,7 +3205,7 @@ TOOL_SPECS: dict[str, ToolSpec] = {
                         "status",
                         "Literal[success, partial_success, failed]",
                         default="success",
-                        description="Failures, including partial success, return ok=false and exit 1; normal skip/empty returns exit 0.",
+                        description="Partial success returns ok=false and exit 3; total failure exits 1; normal skip/empty exits 0.",
                     ),
                     _f("requested", "int?"),
                     _f("resolved", "int"),

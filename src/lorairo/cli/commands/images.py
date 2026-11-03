@@ -17,13 +17,16 @@ import click
 import typer
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 from rich.table import Table
+from sqlalchemy.exc import SQLAlchemyError
 
 from lorairo.cli._boundary import command_boundary
 from lorairo.cli._console import make_console
 from lorairo.cli._emit import emit_item, emit_result
+from lorairo.cli._errors import result_exit_code
 from lorairo.cli._glyphs import OK
 from lorairo.cli._image_ids import MAX_IMAGE_IDS, parse_image_ids, validate_image_ids_exist
 from lorairo.cli._output_mode import is_json_mode
+from lorairo.cli.commands.duplicates import report as report_duplicates_command
 from lorairo.cli.commands.processing import process as process_images_command
 from lorairo.database.filter_criteria import ImageFilterCriteria
 from lorairo.database.repository.annotation_record import AnnotationRepository
@@ -156,7 +159,13 @@ def _apply_tags_to_images(
     total_added = 0
     failed_tags: list[str] = []
     for tag in tag_list:
-        success, added = repository.add_tag_to_images_batch(image_ids, tag, None)
+        try:
+            success, added = repository.add_tag_to_images_batch(image_ids, tag, None)
+        except SQLAlchemyError:
+            # Each repository call owns its transaction. Preserve earlier committed
+            # tag results and report the failed operation in the existing payload.
+            failed_tags.append(tag)
+            continue
         if success:
             total_added += added
         else:
@@ -220,7 +229,7 @@ def register(
     JSON item rows carry input_path/outcome/image_id/project/selected. Registered and variant IDs
     are selected once; --include-duplicates also selects existing duplicate IDs. Check terminal
     result target_count and success before creating an ID file for the same project.
-    Partial or complete failures exit 1; successful/empty/normal skip results exit 0.
+    Partial success exits 3 and complete failure exits 1; successful/empty/normal skip results exit 0.
     """
     with command_boundary():
         input_path = Path(path).resolve()
@@ -272,7 +281,7 @@ def register(
                 console.print(f"[yellow]Warning:[/yellow] No image files found in {path}")
             _print_registration_summary(result, project)
         if failed:
-            raise typer.Exit(1)
+            raise typer.Exit(result_exit_code(status))
 
 
 @app.command("list")
@@ -447,9 +456,10 @@ def update(
                 failed_tags=failed_tags,
             )
 
-        # 一部タグが失敗した場合は exit 1 (部分失敗を exit code で示す)。
+        # Preserve the existing result payload; distinguish successful tag operations from total failure.
         if failed_tags:
-            raise typer.Exit(code=1)
+            status = "partial_success" if len(failed_tags) < len(tag_list) else "failed"
+            raise typer.Exit(code=result_exit_code(status))
 
 
 def _load_search_query(query_file: str | None, query: str | None) -> ImageSearchQuery:
@@ -806,3 +816,4 @@ def crop(
 # Registration stays in this module; offline processing lives in its own command module.
 
 app.command("process")(process_images_command)
+app.command("duplicates")(report_duplicates_command)

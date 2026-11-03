@@ -235,7 +235,7 @@ def test_missing_image_uses_existing_not_found_error_contract(api):
 
 
 @pytest.mark.parametrize("status", ["partial", "failed", "cancelled", "stale"])
-def test_operational_incomplete_review_returns_exit_one_with_complete_summary(api, status):
+def test_operational_incomplete_review_returns_exit_three_with_complete_summary(api, status):
     def execute(project, ids, *, on_result, collect_results):
         on_result(_result(1))
         on_result(
@@ -246,7 +246,7 @@ def test_operational_incomplete_review_returns_exit_one_with_complete_summary(ap
     api.side_effect = execute
     result = _invoke("--image-ids", "1,2")
 
-    assert result.exit_code == 1, result.output
+    assert result.exit_code == 3, result.output
     rows = _rows(result)
     summary = rows[-1]
     assert summary["ok"] is False and summary["status"] == "partial_success"
@@ -270,6 +270,30 @@ def test_empty_candidates_are_explicitly_unevaluated_without_claiming_review_suc
     assert rows[0]["status"] == "unevaluated" and rows[0]["item_count"] == 0
     assert rows[-1]["successful"] == 0 and rows[-1]["unevaluated"] == 1
     assert rows[-1]["warnings"] == rows[-1]["item_count"] == 0
+
+
+@pytest.mark.parametrize(
+    "first_status,skip_error,expected_exit,expected_status",
+    [
+        ("failed", "Runtime unavailable", 1, "failed"),
+        ("completed", "Runtime unavailable", 3, "partial_success"),
+        ("failed", None, 3, "partial_success"),
+    ],
+)
+def test_unexecuted_after_runtime_failure_is_not_a_successful_skip(
+    api, first_status, skip_error, expected_exit, expected_status
+):
+    def execute(project, ids, *, on_result, collect_results):
+        on_result(
+            _result(1, first_status, error="Runtime unavailable" if first_status == "failed" else None)
+        )
+        on_result(_result(2, "unevaluated", error=skip_error))
+        return []
+
+    api.side_effect = execute
+    result = _invoke("--image-ids", "1,2")
+    assert result.exit_code == expected_exit, result.output
+    assert _rows(result)[-1]["status"] == expected_status
 
 
 def test_review_command_supports_root_read_only(api):

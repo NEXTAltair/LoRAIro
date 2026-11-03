@@ -24,7 +24,9 @@ pytestmark = [pytest.mark.unit, pytest.mark.cli]
 
 
 def check_terminal(result, json_mode, expected_status):
-    assert result.exit_code == (0 if expected_status == "success" else 1), result.output
+    assert result.exit_code == {"success": 0, "partial_success": 3, "failed": 1}[expected_status], (
+        result.output
+    )
     if json_mode:
         rows = [json.loads(line) for line in result.stdout.splitlines()]
         assert len(rows) == 1
@@ -45,6 +47,34 @@ def check_terminal(result, json_mode, expected_status):
         assert set(row) <= set(schema.model_fields)
         return row
     return None
+
+
+@pytest.mark.parametrize("json_mode", [False, True])
+@pytest.mark.parametrize("first_added,expected_exit", [(1, 3), (0, 3), (None, 1)])
+def test_image_tag_update_preserves_committed_or_existing_tags_after_database_failure(
+    monkeypatch, json_mode, first_added, expected_exit
+):
+    from sqlalchemy.exc import SQLAlchemyError
+
+    container = MagicMock()
+    container.db_manager.image_repo.get_image_metadata.return_value = {"id": 1}
+    repo = container.db_manager.annotation_repo
+    repo.add_tag_to_images_batch.side_effect = [
+        SQLAlchemyError("fixture failure") if first_added is None else (True, first_added),
+        SQLAlchemyError("fixture failure"),
+    ]
+    monkeypatch.setattr("lorairo.cli.commands.images.api_get_project", MagicMock())
+    monkeypatch.setattr("lorairo.cli.commands.images.get_service_container", lambda: container)
+    result = runner.invoke(
+        app,
+        (["--json"] if json_mode else ["--no-json"])
+        + ["images", "update", "-p", "fixture", "--image-id", "1", "--tags", "cat,dog"],
+    )
+    assert result.exit_code == expected_exit, result.output
+    if json_mode:
+        row = json.loads(result.stdout.splitlines()[-1])
+        assert row["added"] == (first_added or 0)
+        assert row["failed_tags"] == (["cat", "dog"] if first_added is None else ["dog"])
 
 
 @pytest.mark.parametrize("json_mode", [False, True])

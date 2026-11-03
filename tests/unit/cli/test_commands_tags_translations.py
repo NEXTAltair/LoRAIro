@@ -51,6 +51,43 @@ def _rows(output: str) -> list[dict]:
     return [json.loads(line) for line in output.strip().splitlines() if line.strip().startswith("{")]
 
 
+@pytest.mark.parametrize("json_mode", [True, False])
+@pytest.mark.parametrize("successful,expected_exit", [(0, 1), (1, 3), (2, 0)])
+def test_translation_batch_exit_preserves_partial_success(
+    mock_env, tmp_path, monkeypatch, json_mode, successful, expected_exit
+):
+    from lorairo.public_api.exceptions import DatabaseError
+
+    path = tmp_path / "translations.jsonl"
+    path.write_text(
+        "\n".join(json.dumps({"tag": tag, "lang": "en", "text": tag}) for tag in ("cat", "dog")),
+        encoding="utf-8",
+    )
+    writer = MagicMock(
+        side_effect=[(10, False)] * successful + [DatabaseError("fixture")] * (2 - successful)
+    )
+    monkeypatch.setattr("lorairo.cli.commands.tags._write_translation", writer)
+    result = runner.invoke(
+        app,
+        [
+            "--json" if json_mode else "--no-json",
+            "tags",
+            "translations",
+            "add",
+            "-p",
+            "fixture",
+            "--file",
+            str(path),
+            "--apply",
+        ],
+    )
+    assert result.exit_code == expected_exit, result.output
+    if json_mode:
+        row = _rows(result.stdout)[-1]
+        assert row["changed"] == successful
+        assert row["errors"] == 2 - successful
+
+
 @pytest.mark.unit
 class TestTranslationsShow:
     def test_show_by_tags_reports_missing_languages(self, mock_env: MagicMock) -> None:

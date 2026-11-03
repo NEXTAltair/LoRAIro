@@ -7,6 +7,7 @@ import typer
 from loguru import logger
 
 from lorairo.cli._emit import emit_item, emit_result
+from lorairo.cli._errors import result_exit_code
 from lorairo.cli._image_guard import reject_original_image_records
 from lorairo.cli._image_ids import BULK_CHUNK_SIZE, validate_candidate_ids
 from lorairo.cli._output_mode import is_json_mode
@@ -92,11 +93,19 @@ def _annotate_chunk(
 
     original_ids = {int(record["id"]) for record in records}
     if preflight is not None:
-        records, _ = _apply_moderation_preflight_to_records(records, preflight)
+        preflight_outcomes: dict[int, str] = {}
+        records, _ = _apply_moderation_preflight_to_records(records, preflight, outcomes=preflight_outcomes)
         remaining = {int(record["id"]) for record in records}
         for image_id in original_ids - remaining:
-            statuses[image_id] = "skipped"
-            _emit_outcome(image_id, "skipped", reason="moderation preflight")
+            status = preflight_outcomes.get(image_id, "failed")
+            statuses[image_id] = status
+            if status == "skipped":
+                counters["normal_skipped"] = counters.get("normal_skipped", 0) + 1
+            _emit_outcome(
+                image_id,
+                status,
+                reason="moderation preflight" if status == "skipped" else "moderation preflight failed",
+            )
     images, loaded_records, loaded, failed = _load_batch_images(records)
     counters["loaded"] += loaded
     counters["load_failed"] += failed
@@ -132,7 +141,9 @@ def _annotate_chunk(
             image.close()
 
 
-def _make_preflight(container: Any, models: list[str]) -> Any:
+def _make_preflight(
+    container: Any, models: list[str], *, strict: bool = False, retry_failed_batch: bool = True
+) -> Any:
     from lorairo.annotation.annotation_runner import AnnotationRunner
     from lorairo.cli.commands.annotate import (
         _get_deprecated_models_best_effort,
@@ -154,6 +165,8 @@ def _make_preflight(container: Any, models: list[str]) -> Any:
     try:
         should_preflight = selection_includes_webapi_model(models, annotator)
     except Exception as exc:
+        if strict:
+            raise
         logger.opt(exception=True).warning(
             f"WebAPI model detection failed; moderation preflight skipped: {exc}"
         )
@@ -168,6 +181,7 @@ def _make_preflight(container: Any, models: list[str]) -> Any:
             moderation_runner=build_annotation_runner_runner(
                 AnnotationRunner(annotator).execute_annotation
             ),
+            retry_failed_batch=retry_failed_batch,
         )
     return preflight
 
@@ -267,7 +281,8 @@ def run_id_annotation(
         for status in ("completed", "failed", "skipped", "unexecuted")
     }
     unsuccessful = bool(counts["failed"] or counts["unexecuted"] or (selected and not active))
-    status = "success" if not unsuccessful else "partial_success" if counts["completed"] else "failed"
+    successful = bool(counters["saved"] or counters.get("normal_skipped", 0))
+    status = "success" if not unsuccessful else "partial_success" if successful else "failed"
     if is_json_mode():
         emit_result(
             f"Annotated {counters['saved']} image(s)",
@@ -290,4 +305,4 @@ def run_id_annotation(
     else:
         _status_console().print(f"Annotation {status}: {counts}; saved={counters['saved']}")
     if unsuccessful:
-        raise typer.Exit(1)
+        raise typer.Exit(result_exit_code(status))

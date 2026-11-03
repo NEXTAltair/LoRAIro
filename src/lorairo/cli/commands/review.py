@@ -10,6 +10,7 @@ import typer
 from lorairo.cli._boundary import command_boundary
 from lorairo.cli._console import make_console
 from lorairo.cli._emit import emit_item, emit_result
+from lorairo.cli._errors import result_exit_code
 from lorairo.cli._image_ids import MAX_IMAGE_IDS_FILE, parse_image_ids, parse_image_ids_file
 from lorairo.cli._output_mode import is_json_mode
 from lorairo.public_api.review import review_annotations
@@ -105,23 +106,30 @@ def run(
         counts = dict.fromkeys(("successful", "partial", "failed", "cancelled", "stale", "unevaluated"), 0)
         item_count = 0
         warnings = 0
+        blocked = 0
+        normal_skips = 0
 
         def on_result(result: AnnotationReviewResult) -> None:
-            nonlocal item_count, warnings
+            nonlocal item_count, warnings, blocked, normal_skips
             _emit_review(result)
             category = "successful" if result.status == "completed" else result.status
             counts[category] += 1
+            if result.status == "unevaluated":
+                if result.error or result.error_code:
+                    blocked += 1
+                else:
+                    normal_skips += 1
             item_count += len(result.items)
             warnings += sum(item.status == "warning" for item in result.items)
 
         review_annotations(project, selected, on_result=on_result, collect_results=False)
-        operational_failures = sum(counts[name] for name in ("partial", "failed", "cancelled", "stale"))
+        operational_failures = blocked + sum(
+            counts[name] for name in ("partial", "failed", "cancelled", "stale")
+        )
         status = "success"
         if operational_failures:
             status = (
-                "partial_success"
-                if counts["successful"] or counts["partial"] or counts["unevaluated"]
-                else "failed"
+                "partial_success" if counts["successful"] or counts["partial"] or normal_skips else "failed"
             )
         message = (
             f"Review: {counts['successful']} successful, {counts['partial']} partial, "
@@ -142,4 +150,4 @@ def run(
         else:
             console.print(message)
         if operational_failures:
-            raise typer.Exit(code=1)
+            raise typer.Exit(code=result_exit_code(status))

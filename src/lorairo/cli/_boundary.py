@@ -89,6 +89,7 @@ def command_boundary() -> Iterator[None]:
 
         if is_read_only():
             context = click.get_current_context(silent=True)
+            export_preview = context is not None and context.params.get("dry_run") is True
             parts = []
             while context is not None and context.parent is not None:
                 parts.append(context.info_name or "")
@@ -99,7 +100,9 @@ def command_boundary() -> Iterator[None]:
                 from lorairo.public_api.exceptions import ReadOnlyPreconditionError
 
                 spec = TOOL_SPECS.get(path)
-                if spec is None or not spec.read_only:
+                if spec is None or (
+                    not spec.read_only and not (path == "export create" and export_preview)
+                ):
                     error = ReadOnlyPreconditionError(
                         f"Command does not support --read-only: {path}", reason="write_command"
                     )

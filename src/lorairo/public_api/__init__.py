@@ -72,6 +72,8 @@ if TYPE_CHECKING:
 _API_FUNCTION_MODULES: dict[str, tuple[str, str]] = {
     "annotate_images": ("lorairo.public_api.annotations", "annotate_images"),
     "review_annotations": ("lorairo.public_api.review", "review_annotations"),
+    "report_tag_health": ("lorairo.public_api.tag_health", "report_tag_health"),
+    "report_duplicates": ("lorairo.public_api.duplicate_report", "report_duplicates"),
     "export_dataset": ("lorairo.public_api.export", "export_dataset"),
     "register_images": ("lorairo.public_api.images", "register_images"),
     "detect_duplicate_images": ("lorairo.public_api.images", "detect_duplicate_images"),
@@ -150,6 +152,8 @@ __all__ = [
     "get_unknown_tags",
     "list_projects",
     "register_images",
+    "report_duplicates",
+    "report_tag_health",
     "review_annotations",
     "update_project",
 ]

@@ -210,6 +210,8 @@ def test_annotate_run_describes_only_supported_flags() -> None:
         "batch_size",
         "unrated",
         "missing_model",
+        "run_id",
+        "resume",
     }
     assert "tags" not in field_names
 
@@ -727,7 +729,8 @@ def test_partial_failure_status_exposed_in_both_schema_modes(command, model):
     result_model = next(row for row in _jsonl(compact.stdout) if row.get("name") == model)
     fields = {field["name"]: field for field in result_model["fields"]}
     assert "partial_success" in fields["status"]["type"]
-    assert "exit 1" in fields["status"]["description"]
+    assert "exit 3" in fields["status"]["description"]
+    assert "exits 1" in fields["status"]["description"]
     schema_result = runner.invoke(app, ["--json", "describe", command, "--schema", "json_schema"])
     assert schema_result.exit_code == 0
     schema = next(row["schema"] for row in _jsonl(schema_result.stdout) if row.get("name") == model)

@@ -27,6 +27,7 @@ if TYPE_CHECKING:
 from lorairo.cli._boundary import command_boundary
 from lorairo.cli._console import make_console
 from lorairo.cli._emit import emit_item, emit_result
+from lorairo.cli._errors import result_exit_code
 from lorairo.cli._glyphs import OK
 from lorairo.cli._image_ids import (
     BULK_CHUNK_SIZE,
@@ -45,6 +46,52 @@ console = make_console()
 # 診断/警告用 stderr console。show --missing-only の stdout (add --file 入力) を
 # 機械可読に保つため、打ち切り警告等は stderr へ回す (Issue #1211 / Codex P2)。
 err_console = make_console(stderr=True)
+
+
+@app.command("health")
+def health(
+    project: str = typer.Option(..., "--project", "-p", help="Project name"),
+    expected_tag: list[str] | None = typer.Option(
+        None,
+        "--expected-tag",
+        help="Tag expected on every image; repeat for multiple tags (at most 500). No inferred expectations.",
+    ),
+    limit: int = typer.Option(
+        100, "--limit", min=1, max=500, help="Maximum rows per section and IDs per missing-tag sample"
+    ),
+) -> None:
+    """Read-only tag frequencies, possible variants, and explicitly expected missing tags.
+
+    Requires an existing compatible project DB. Suggestions never change annotations.
+    Rejected tags are excluded; frequency counts each saved tag once per image.
+    """
+    from dataclasses import asdict
+
+    from lorairo.public_api.tag_health import report_tag_health
+
+    with command_boundary():
+        report = report_tag_health(project, expected_tag or (), limit=limit)
+        sections = (
+            ("frequency", report.frequencies),
+            ("variant", report.variants),
+            ("missing_expected", report.missing_expected),
+        )
+        if is_json_mode():
+            for section, records in sections:
+                for record in records:
+                    emit_item({"section": section, **asdict(record)})
+            emit_result("Tag health report complete", project=project, read_only=True, **report.summary())
+        else:
+            console.print(
+                f"Tag health: {report.total_images} images, {report.unique_tags} distinct tags, "
+                f"{report.untagged_images} images without accepted tags"
+            )
+            for section, records in sections:
+                console.print(f"\n{section}:")
+                for record in records:
+                    console.print(str(asdict(record)), markup=False)
+            console.print(str(report.summary()), markup=False)
+            console.print("Suggestions only; no annotations were changed.")
 
 
 def _apply_classified_tags(
@@ -1088,6 +1135,9 @@ def _add_translations_batch(
         )
     else:
         console.print(f"{'[dry-run] ' if dry_run else ''}{OK} {len(requests)} 件処理: {counts}")
+    if counts["error"]:
+        result_status = "partial_success" if counts["error"] < len(requests) else "failed"
+        raise typer.Exit(code=result_exit_code(result_status))
 
 
 @trans_app.command("add")

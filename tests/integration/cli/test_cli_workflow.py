@@ -172,7 +172,7 @@ def test_cli_full_workflow_with_fake_annotator(
         ["annotate", "run", "--project", project_name, "--model", FAKE_MODEL_ID],
     )
     assert annotate_result.exit_code == 0, annotate_result.stdout + annotate_result.stderr
-    assert "Annotation completed successfully" in annotate_result.stdout
+    assert "Annotation success: 1 saved to DB" in annotate_result.stdout
 
     # 登録済み画像IDをDBから取得して --image-ids に渡す
     with sqlite3.connect(project_dir / "image_database.db") as conn:
