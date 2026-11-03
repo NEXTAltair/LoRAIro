@@ -8,6 +8,7 @@ Exit code policy (ADR 0057 §6 / ADR 0060):
     0 = 成功
     2 = 入力・検証 (``INVALID_INPUT`` / ``VALIDATION_FAILED`` / ``RESULT_SET_TOO_LARGE``)
     1 = 実行時 (上記以外すべて)
+    3 = 部分成功 (成功を含む処理結果に未完了・失敗がある)
 
 例外 → コード分類 (:func:`classify_exception`) は 2 つの技法を使う:
 
@@ -50,6 +51,22 @@ class ErrorCode(StrEnum):
 EXIT_SUCCESS = 0
 EXIT_RUNTIME_ERROR = 1
 EXIT_INPUT_ERROR = 2
+EXIT_PARTIAL_SUCCESS = 3
+
+
+def result_exit_code(status: str) -> int:
+    """Map an operation summary to its shell exit code without changing its JSON schema.
+
+    Partial success is deliberately nonzero: callers must retain completed work and
+    inspect failed/unprocessed items instead of blindly repeating the whole operation.
+    Exception classification remains independent (runtime 1, invalid input 2).
+    """
+    return {
+        "success": EXIT_SUCCESS,
+        "partial_success": EXIT_PARTIAL_SUCCESS,
+        "failed": EXIT_RUNTIME_ERROR,
+    }[status]
+
 
 # 呼び出し側の不正リクエストを表すコード (exit 2)。
 _INPUT_CODES = frozenset(
