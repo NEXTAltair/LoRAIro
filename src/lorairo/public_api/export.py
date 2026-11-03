@@ -18,7 +18,45 @@ from lorairo.public_api.types import ExportCriteria, ExportResult
 from lorairo.services.service_container import ServiceContainer
 
 if TYPE_CHECKING:
+    from lorairo.services.dataset_export_service import ExportPreview
     from lorairo.services.dataset_export_service import ExportResult as ExportOperationResult
+
+
+def preview_images_all_formats(
+    project_name: str,
+    image_ids: list[int],
+    output_path: str | Path,
+    resolution: int = 512,
+    *,
+    tag_languages: list[str] | None = None,
+) -> "ExportPreview":
+    """Preview exact-ID export using existing compatible DBs and no output writes."""
+    from lorairo.database.access_policy import read_only_scope
+    from lorairo.services.dataset_export_service import DatasetExportService
+    from lorairo.services.service_container import service_container_scope
+    from lorairo.utils.config import (
+        DEFAULT_CONFIG_PATH,
+        RuntimeConfiguration,
+        get_config,
+        get_runtime_configuration,
+        runtime_configuration_scope,
+    )
+
+    DatasetExportService.validate_tag_languages(tag_languages)
+    if not image_ids:
+        raise ValueError("image_ids list cannot be empty")
+    configuration = get_runtime_configuration() or RuntimeConfiguration(
+        Path.cwd(), DEFAULT_CONFIG_PATH, get_config()
+    )
+    with (
+        runtime_configuration_scope(configuration),
+        read_only_scope(),
+        service_container_scope() as container,
+    ):
+        container.set_active_project(project_name)
+        return container.dataset_export_service.preview_dataset_all_formats(
+            image_ids, Path(output_path), resolution, tag_languages=tag_languages
+        )
 
 
 def export_images_all_formats(

@@ -5,6 +5,7 @@ image_ids を受け取り、タグ txt / キャプション txt / JSON の全形
 検索責務は ``lorairo-cli images search`` に委譲する (Issue #698)。
 """
 
+from contextlib import ExitStack
 from pathlib import Path
 
 import typer
@@ -12,12 +13,14 @@ from rich.table import Table
 
 from lorairo.cli._boundary import command_boundary
 from lorairo.cli._console import make_console
-from lorairo.cli._emit import emit_result
+from lorairo.cli._emit import emit_item, emit_result
+from lorairo.cli._errors import result_exit_code
 from lorairo.cli._image_ids import resolve_image_ids_input
 from lorairo.cli._output_mode import is_json_mode
+from lorairo.database.access_policy import read_only_scope
 from lorairo.public_api.project import get_project as api_get_project
 from lorairo.services.dataset_export_service import DatasetExportService
-from lorairo.services.service_container import get_service_container
+from lorairo.services.service_container import get_service_container, service_container_scope
 
 # サブコマンドアプリ定義
 app = typer.Typer(help="Dataset export commands")
@@ -64,6 +67,11 @@ def create(
             "language-specific dataset directories."
         ),
     ),
+    dry_run: bool = typer.Option(
+        False,
+        "--dry-run",
+        help="Preview image count and manifest without writing dataset outputs or database records.",
+    ),
 ) -> None:
     """Create a dataset export from a list of image IDs.
 
@@ -81,7 +89,11 @@ def create(
         # 取得した ids でエクスポート
         lorairo-cli export create --project proj --image-ids $(cat ids.txt) --output /tmp/out
     """
-    with command_boundary():
+    with command_boundary(), ExitStack() as stack:
+        if dry_run:
+            # Do this before project lookup so even plain --dry-run cannot prepare DBs.
+            stack.enter_context(read_only_scope())
+            stack.enter_context(service_container_scope())
         DatasetExportService.validate_tag_languages(tag_languages)
         # API層経由でプロジェクト確認 (未存在は ProjectNotFoundError → NOT_FOUND で伝播)
         api_get_project(project)
@@ -100,17 +112,30 @@ def create(
         output_path = Path(output)
 
         if not is_json_mode():
-            console.print(f"Exporting {len(image_ids)} image(s) to {output}")
+            action = "Previewing" if dry_run else "Exporting"
+            console.print(f"{action} {len(image_ids)} image(s) to {output}")
 
-        report = export_service.export_dataset_all_formats(
-            image_ids, output_path, resolution, tag_languages=tag_languages
-        )
-        summary = report.summary()
-        message = (
-            "Export completed successfully."
-            if summary["ok"]
-            else "Export incomplete. Retry failed_ids after correcting error_details."
-        )
+        if dry_run:
+            preview = export_service.preview_dataset_all_formats(
+                image_ids, output_path, resolution, tag_languages=tag_languages
+            )
+            summary = preview.summary()
+            message = "Export preview complete; no dataset outputs or database records were written."
+            for item in preview.manifest:
+                if is_json_mode():
+                    emit_item(item)
+                else:
+                    console.print(item)
+        else:
+            report = export_service.export_dataset_all_formats(
+                image_ids, output_path, resolution, tag_languages=tag_languages
+            )
+            summary = report.summary()
+            message = (
+                "Export completed successfully."
+                if summary["ok"]
+                else "Export incomplete. Retry failed_ids after correcting error_details."
+            )
 
         if is_json_mode():
             emit_result(
@@ -126,7 +151,7 @@ def create(
             table.add_column("Metric", style="cyan")
             table.add_column("Value", style="green")
             table.add_row("Requested Images", str(len(image_ids)))
-            for metric in ("exported", "skipped", "failed"):
+            for metric in (("would_export" if dry_run else "exported"), "skipped", "failed"):
                 table.add_row(metric.title(), str(summary[metric]))
             table.add_row("Resolution", f"{resolution}px")
             table.add_row("Tag Languages", ", ".join(tag_languages or ["canonical"]))
@@ -137,4 +162,4 @@ def create(
                 console.print(f"Retry image IDs: {summary['failed_ids']}")
                 console.print(summary["error_details"])
         if not summary["ok"]:
-            raise typer.Exit(code=1)
+            raise typer.Exit(code=result_exit_code(summary["status"]))
