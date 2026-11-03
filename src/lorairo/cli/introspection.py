@@ -411,6 +411,91 @@ class ExportCreateResult(BaseModel):
     model_config = ConfigDict(title="ExportCreateResult")
 
 
+class ExportPreviewDestination(BaseModel):
+    language: str
+    image_path: str
+    tags_path: str
+    caption_path: str | None
+    metadata_path: str
+
+
+class ExportPreviewItem(BaseModel):
+    kind: Literal["item"] = "item"
+    image_id: int
+    source_path: str
+    destinations: list[ExportPreviewDestination]
+
+
+class ExportPreviewResult(BaseModel):
+    kind: Literal["result"] = "result"
+    ok: bool
+    message: str
+    status: Literal["success", "partial_success", "failed"]
+    dry_run: Literal[True]
+    requested: int
+    would_export: int
+    skipped: int
+    failed: int
+    ready_ids: list[int]
+    failed_ids: list[int]
+    metadata_files: list[str]
+    error_details: list[dict[str, Any]]
+    output_path: str
+    total_images: int
+    resolution: int
+    tag_languages: list[str]
+
+
+class TagHealthFrequencyItem(BaseModel):
+    kind: Literal["item"] = "item"
+    section: Literal["frequency"]
+    tag: str
+    image_count: int
+
+
+class TagHealthVariantItem(BaseModel):
+    kind: Literal["item"] = "item"
+    section: Literal["variant"]
+    tag: str
+    candidate: str
+    reason: Literal["normalization", "spelling"]
+    similarity: float | None
+
+
+class TagHealthMissingItem(BaseModel):
+    kind: Literal["item"] = "item"
+    section: Literal["missing_expected"]
+    expected_tag: str
+    normalized_tag: str
+    missing_count: int
+    image_ids: list[int]
+    image_ids_truncated: bool
+
+
+class TagHealthResult(BaseModel):
+    kind: Literal["result"] = "result"
+    ok: bool = True
+    message: str
+    project: str
+    read_only: Literal[True]
+    total_images: int
+    tagged_images: int
+    untagged_images: int
+    unique_tags: int
+    expected_tag_count: int
+    frequency_count: int
+    variant_count: int
+    missing_expected_count: int
+    frequencies_truncated: bool
+    variants_truncated: bool
+    missing_expected_truncated: bool
+    spelling_vocabulary_limit: int
+    spelling_max_tag_length: int
+    spelling_similarity_threshold: float
+    spelling_candidates_truncated: bool
+    limit: int
+
+
 class TagsEditItem(BaseModel):
     """JSONL item payload emitted per image by ``tags add/remove/replace --json``."""
 
@@ -779,7 +864,7 @@ class AnnotateRunOutcome(BaseModel):
     kind: Literal["item"] = "item"
     type: Literal["annotation_outcome"] = "annotation_outcome"
     image_id: int
-    status: Literal["completed", "failed", "skipped", "unexecuted"]
+    status: Literal["completed", "failed", "skipped", "unexecuted", "pending", "in_flight"]
     reason: str | None = None
     saved: bool = False
 
@@ -826,6 +911,11 @@ class AnnotateRunResult(BaseModel):
     unexecuted: int | None = None
     interrupted: bool = False
     reason: str | None = None
+    run_id: str | None = None
+    resumed: bool | None = None
+    state_path: str | None = None
+    pending: int | None = None
+    in_flight: int | None = None
     resolution_skipped: int = 0
     annotated: int
     skipped: int
@@ -1301,7 +1391,7 @@ TOOL_SPECS: dict[str, ToolSpec] = {
                         "status",
                         "Literal[success, partial_success, failed]",
                         default="success",
-                        description="Failures, including partial success, return ok=false and exit 1; normal skip/empty returns exit 0.",
+                        description="Partial success returns ok=false and exit 3; total failure exits 1; normal skip/empty exits 0.",
                     ),
                     _f("variant", "int", default=0),
                     _f(
@@ -1389,7 +1479,7 @@ TOOL_SPECS: dict[str, ToolSpec] = {
                     _f("skipped_ids", "list[int]", required=True),
                     _f("failed_ids", "list[int]", required=True),
                 ),
-                description="Any failed ID returns ok=false and exit 1. See [offline processing](cli-image-processing.md).",
+                description="Partial success returns ok=false and exit 3; total failure exits 1. See [offline processing](cli-image-processing.md).",
                 schema=ImagesProcessResult,
             ),
         ),
@@ -1596,9 +1686,9 @@ TOOL_SPECS: dict[str, ToolSpec] = {
     "annotate run": ToolSpec(
         name="annotate run",
         path="annotate run",
-        summary="Run annotation for selected project images and save to DB; --output is unsupported.",
+        summary="Run annotation and save to DB. Use --run-id to persist a run and --resume to process pending items only. See [resume contract](cli-annotation-resume.md).",
         read_only=False,
-        side_effects=("db_read", "db_write", "file_read", "network"),
+        side_effects=("db_read", "db_write", "file_read", "file_write", "network"),
         inputs=(
             _input(
                 "AnnotateRunInput",
@@ -1622,6 +1712,12 @@ TOOL_SPECS: dict[str, ToolSpec] = {
                     _f("batch_size", "int>=1", default=10),
                     _f("unrated", "bool", default=False),
                     _f("missing_model", "str?"),
+                    _f("run_id", "str?", description="New durable run identity; exclusive with resume."),
+                    _f(
+                        "resume",
+                        "str?",
+                        description="Resume pending items from this run; same project/models/config required; no selection or resolution overrides.",
+                    ),
                 ),
                 schema=AnnotateRunInput,
             ),
@@ -1632,7 +1728,7 @@ TOOL_SPECS: dict[str, ToolSpec] = {
                 (
                     _f("type", "annotation_outcome"),
                     _f("image_id", "int"),
-                    _f("status", "completed|failed|skipped|unexecuted"),
+                    _f("status", "completed|failed|skipped|unexecuted|pending|in_flight"),
                     _f("saved", "bool"),
                     _f("reason", "str?"),
                 ),
@@ -1693,7 +1789,7 @@ TOOL_SPECS: dict[str, ToolSpec] = {
                         "status",
                         "Literal[success, partial_success, failed]",
                         default="success",
-                        description="Failures, including partial success, return ok=false and exit 1; normal skip/empty returns exit 0.",
+                        description="Partial success returns ok=false and exit 3; total failure exits 1; normal skip/empty exits 0.",
                     ),
                     _f("unmatched_ids", "list[str]"),
                     _f("error_details", "list[str]"),
@@ -1715,7 +1811,7 @@ TOOL_SPECS: dict[str, ToolSpec] = {
     "export create": ToolSpec(
         name="export create",
         path="export create",
-        summary="Export a dataset from a list of image IDs. Use 'images search' to resolve IDs first.",
+        summary="Export selected IDs; --dry-run previews count and manifest without writes and supports root --read-only. See [export contract](cli-export-results.md).",
         read_only=False,
         side_effects=("db_read", "file_read", "file_write"),
         inputs=(
@@ -1747,6 +1843,8 @@ TOOL_SPECS: dict[str, ToolSpec] = {
             ),
         ),
         outputs=(
+            _output("ExportPreviewItem", (), schema=ExportPreviewItem),
+            _output("ExportPreviewResult", (), schema=ExportPreviewResult),
             _output(
                 "ExportCreateResult",
                 (
@@ -1766,7 +1864,7 @@ TOOL_SPECS: dict[str, ToolSpec] = {
                     _f("count", "int?"),
                 ),
                 description=(
-                    "Missing or failed images return ok=false and exit 1; total_images remains the requested "
+                    "Partial success exits 3; total failure exits 1; both return ok=false; total_images remains the requested "
                     "count. See [export result and retry contract](cli-export-results.md)."
                 ),
                 schema=ExportCreateResult,
@@ -2852,7 +2950,7 @@ TOOL_SPECS: dict[str, ToolSpec] = {
                         "status",
                         "Literal[success, partial_success, failed]",
                         default="success",
-                        description="Failures, including partial success, return ok=false and exit 1; normal skip/empty returns exit 0.",
+                        description="Partial success returns ok=false and exit 3; total failure exits 1; normal skip/empty exits 0.",
                     ),
                     _f("incomplete", "bool", default=False),
                     _f("already_imported", "int", default=0),
@@ -2998,7 +3096,7 @@ TOOL_SPECS: dict[str, ToolSpec] = {
                         "status",
                         "Literal[success, partial_success, failed]",
                         default="success",
-                        description="Failures, including partial success, return ok=false and exit 1; normal skip/empty returns exit 0.",
+                        description="Partial success returns ok=false and exit 3; total failure exits 1; normal skip/empty exits 0.",
                     ),
                     _f("requested", "int?"),
                     _f("resolved", "int"),
