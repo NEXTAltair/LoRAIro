@@ -6,7 +6,7 @@ from unittest.mock import Mock
 import pytest
 from typer.testing import CliRunner
 
-from lorairo.cli.main import app
+from lorairo.cli.main import app, main
 from lorairo.public_api.exceptions import ReadOnlyPreconditionError, ResultSetTooLargeError
 from lorairo.services.duplicate_report_service import SavedImageHash, analyze_saved_hashes
 
@@ -71,10 +71,13 @@ def test_duplicates_human_output_identifies_candidates(report_api):
     "option,value",
     [("--max-distance", "-1"), ("--max-distance", "65"), ("--limit", "0"), ("--limit", "501")],
 )
-def test_duplicates_invalid_options_never_reach_api(report_api, option, value):
-    result = runner.invoke(app, ["--json", "images", "duplicates", "--project", "synthetic", option, value])
-    assert result.exit_code == 2, result.output
-    assert json.loads(result.stdout.splitlines()[-1])["code"] == "INVALID_INPUT"
+def test_duplicates_invalid_options_never_reach_api(report_api, option, value, capsys):
+    # The installed entry point formats parse errors before the command boundary;
+    # bare CliRunner(app) uses Click's human-readable parse-error handling.
+    with pytest.raises(SystemExit) as caught:
+        main(["--json", "images", "duplicates", "--project", "synthetic", option, value])
+    assert caught.value.code == 2
+    assert json.loads(capsys.readouterr().out.splitlines()[-1])["code"] == "INVALID_INPUT"
     report_api.assert_not_called()
 
 

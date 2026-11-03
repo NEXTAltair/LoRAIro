@@ -31,7 +31,10 @@ def _snapshot(workspace):
 
 
 @pytest.mark.parametrize("database_state", ["current", "missing", "old", "incompatible"])
-def test_report_uses_real_read_only_database_without_side_effects(tmp_path, monkeypatch, database_state):
+@pytest.mark.parametrize("root_read_only", [False, True])
+def test_report_uses_real_read_only_database_without_side_effects(
+    tmp_path, monkeypatch, database_state, root_read_only
+):
     workspace = tmp_path / "tag-health-workspace"
     monkeypatch.setenv("LORAIRO_CLI_LOG_PATH", str(tmp_path / "cli.log"))
     configuration = resolve_runtime_configuration(workspace, None)
@@ -101,6 +104,7 @@ def test_report_uses_real_read_only_database_without_side_effects(tmp_path, monk
             app,
             [
                 "--json",
+                *(["--read-only"] if root_read_only else []),
                 "--log-level",
                 "ERROR",
                 "--workspace",

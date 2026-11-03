@@ -446,6 +446,49 @@ class ExportPreviewResult(BaseModel):
     tag_languages: list[str]
 
 
+class DuplicateMember(BaseModel):
+    image_id: int
+    stored_image_path: str
+    original_image_path: str
+    phash: str
+
+
+class DuplicateClusterItem(BaseModel):
+    kind: Literal["item"] = "item"
+    cluster_id: int
+    member_count: int
+    members: list[DuplicateMember]
+    members_truncated: bool
+
+
+class DuplicateReportResult(BaseModel):
+    kind: Literal["result"] = "result"
+    ok: Literal[True] = True
+    message: str
+    project: str
+    read_only: Literal[True]
+    status: Literal["success"]
+    candidate_only: Literal[True]
+    total_images: int
+    valid_phash_images: int
+    missing_phash_images: int
+    invalid_phash_images: int
+    unique_phashes: int
+    cluster_count: int
+    clustered_images: int
+    unclustered_images: int
+    returned_clusters: int
+    clusters_truncated: bool
+    max_distance: int
+    hash_bits: Literal[64]
+    distance_metric: Literal["hamming"]
+    clustering: Literal["connected_components"]
+    compared_hash_pairs: int
+    limit: int
+    max_images: Literal[10000]
+    max_pair_comparisons: Literal[49995000]
+
+
 class TagHealthFrequencyItem(BaseModel):
     kind: Literal["item"] = "item"
     section: Literal["frequency"]
@@ -1648,6 +1691,7 @@ TOOL_SPECS: dict[str, ToolSpec] = {
                     _f("count", "int?", description="Set to 0 on the no-image (no-target) success path."),
                 ),
                 schema=ImagesUpdateResult,
+                description="Legacy payload retains ok=true; inspect failed_tags and exit code: partial success 3, total failure 1, success 0.",
             ),
         ),
         errors=(ERROR_MODEL,),
@@ -1843,8 +1887,6 @@ TOOL_SPECS: dict[str, ToolSpec] = {
             ),
         ),
         outputs=(
-            _output("ExportPreviewItem", (), schema=ExportPreviewItem),
-            _output("ExportPreviewResult", (), schema=ExportPreviewResult),
             _output(
                 "ExportCreateResult",
                 (
@@ -1869,6 +1911,8 @@ TOOL_SPECS: dict[str, ToolSpec] = {
                 ),
                 schema=ExportCreateResult,
             ),
+            _output("ExportPreviewItem", (), schema=ExportPreviewItem),
+            _output("ExportPreviewResult", (), schema=ExportPreviewResult),
         ),
         errors=(ERROR_MODEL,),
     ),
@@ -2428,7 +2472,7 @@ TOOL_SPECS: dict[str, ToolSpec] = {
                     _f("skipped_candidates", "int?", description="--file バッチ時のみ。"),
                     _f("errors", "int?", description="--file バッチ時のみ。"),
                 ),
-                description="終端 result 行。既定は dry-run (dry_run=true) で書き込みなし。",
+                description="終端 result 行。既定は dry-run (dry_run=true) で書き込みなし。--file は既存 ok=true を維持するため errors と終了コードを確認: 部分成功3、全件失敗1、成功0。",
             ),
         ),
         errors=(ERROR_MODEL,),
@@ -2971,6 +3015,71 @@ TOOL_SPECS: dict[str, ToolSpec] = {
                 ),
                 schema=BatchImportResult,
             ),
+        ),
+        errors=(ERROR_MODEL,),
+    ),
+    "images duplicates": ToolSpec(
+        name="images duplicates",
+        path="images duplicates",
+        summary="Read-only duplicate candidates from saved 64-bit pHashes, capped at 10,000 project images. See [duplicate report](cli-duplicate-report.md).",
+        read_only=True,
+        side_effects=("db_read",),
+        inputs=(
+            _input(
+                "DuplicateReportInput",
+                (
+                    _f("project", "str", required=True),
+                    _f(
+                        "max_distance",
+                        "int[0,64]",
+                        default=4,
+                        description="Maximum Hamming distance of connecting pairs; cluster endpoints may exceed this threshold.",
+                    ),
+                    _f(
+                        "limit",
+                        "int[1,500]",
+                        default=100,
+                        description="Output cap for clusters and members; detection and counts cover the complete bounded project.",
+                    ),
+                ),
+            ),
+        ),
+        outputs=(
+            _output("DuplicateClusterItem", (), schema=DuplicateClusterItem),
+            _output("DuplicateReportResult", (), schema=DuplicateReportResult),
+        ),
+        errors=(ERROR_MODEL,),
+    ),
+    "tags health": ToolSpec(
+        name="tags health",
+        path="tags health",
+        summary="Read-only tag frequencies, variant suggestions and explicitly expected missing tags. See [tag health](cli-tag-health.md).",
+        read_only=True,
+        side_effects=("db_read",),
+        inputs=(
+            _input(
+                "TagHealthInput",
+                (
+                    _f("project", "str", required=True),
+                    _f(
+                        "expected_tag",
+                        "list[str]?",
+                        description="Explicit tags expected on every image; repeat the option. No implicit expectations.",
+                    ),
+                    _f(
+                        "limit",
+                        "int[1,500]",
+                        default=100,
+                        description="Maximum rows per section and IDs per missing-tag sample; counts cover all images.",
+                    ),
+                ),
+            ),
+        ),
+        outputs=(
+            _output("TagHealthFrequencyItem", (), schema=TagHealthFrequencyItem),
+            _output("TagHealthVariantItem", (), schema=TagHealthVariantItem),
+            _output("TagHealthMissingItem", (), schema=TagHealthMissingItem),
+            _output("TagHealthResult", (), schema=TagHealthResult),
         ),
         errors=(ERROR_MODEL,),
     ),

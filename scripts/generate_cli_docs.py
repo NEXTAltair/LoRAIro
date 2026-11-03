@@ -22,14 +22,18 @@ OUTPUT = ROOT / "docs" / "cli.md"
 # Preserve migration guidance when regenerating the command reference.
 PARTIAL_FAILURE_MIGRATION = """### 部分失敗と既存スクリプトの移行 (#1313)
 
-`images register`、`annotate import-batch`、`batch import`、`errors resolve` は、
-集計結果を返した後も失敗があれば exit 1 で終了します。人間向け出力にも同じ終了コードを適用します。
+`images register/update/process`、`annotate run/import-batch`、`batch submit/import`、
+`errors resolve`、`export create`、`review run`、`tags translations add --file` は、
+集計結果を返した後、部分成功は exit 3、全件失敗は exit 1 で終了します。人間向け出力にも同じ終了コードを適用します。
 JSONL の終端は既存の `kind=result` と件数を維持し、`status` と `ok` で結果を判定できます。
+旧形式の `images update` と `tags translations add --file` は従来payload (`ok=true`) を維持するため、
+それぞれ `failed_tags` / `errors` と終了コードを確認します。
+`annotate run --run-id ID` の安全な再開は [再開契約](cli-annotation-resume.md) を参照してください。
 
 | status | ok | exit | 意味 |
 |---|---|---|---|
 | success | true | 0 | 成功、空集合、重複/既取込みの正常skip、正常dry-run |
-| partial_success | false | 1 | 成功または正常skipを含み、一部が失敗 |
+| partial_success | false | 3 | 成功または正常skipを含み、一部が失敗 |
 | failed | false | 1 | 成功済み対象がなく失敗 |
 
 登録は `errors` と `error_details`、legacy取込みは `parse_errors` / `save_errors` /
@@ -41,10 +45,10 @@ Batch取込みの従来 `skipped` は正常skipと取込み不能の両方を含
 この集合だけを根拠に全件再送せず、保存状態を確認してください。
 空結果は exit 0 ですが、`job_imported=false` はジョブ全体の完了を意味しません。
 `errors resolve` は重複を除いた `requested` と実更新件数 `resolved` を保持します。repositoryの失敗や
-要求IDの未存在による更新件数不足は exit 1 です。既に解決済みの存在するIDは従来どおり再更新して成功とします。
+要求IDの未存在による更新件数不足は、更新済みがあれば exit 3、なければ exit 1 です。既に解決済みの存在するIDは従来どおり再更新して成功とします。
 
 以前はこれらの部分失敗でも exit 0 となる場合がありました。終了コードだけで後続処理へ進むスクリプトは、
-exit 1 を処理し成功件数を保存してください。成功済み登録や送信済みBatchを全件再送する自動retryは行いません。
+exit 3 と exit 1 を区別し成功件数を保存してください。成功済み登録や送信済みBatchを全件再送する自動retryは行いません。
 例外により集計結果を返せない場合は、従来どおり `kind=error` と安定エラーコードを出力します。"""
 OUTPUT_OPTION_MIGRATION = """#### `--output` の移行 (#1310)
 
@@ -197,7 +201,8 @@ def render() -> str:
         "|---|---|",
         "| 0 | 成功 |",
         "| 2 | 入力・検証エラー (引数不正、フィルタ未指定等) |",
-        "| 1 | その他の実行時エラー |",
+        "| 1 | 全件失敗・その他の実行時エラー |",
+        "| 3 | 部分成功 (成功/正常skipと失敗が混在) |",
         "",
         *PARTIAL_FAILURE_MIGRATION.splitlines(),
         "",

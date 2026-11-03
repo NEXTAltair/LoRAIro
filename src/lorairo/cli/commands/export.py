@@ -92,6 +92,18 @@ def create(
     with command_boundary(), ExitStack() as stack:
         if dry_run:
             # Do this before project lookup so even plain --dry-run cannot prepare DBs.
+            from lorairo.utils.config import (
+                DEFAULT_CONFIG_PATH,
+                RuntimeConfiguration,
+                get_config,
+                get_runtime_configuration,
+                runtime_configuration_scope,
+            )
+
+            configuration = get_runtime_configuration() or RuntimeConfiguration(
+                Path.cwd(), DEFAULT_CONFIG_PATH, get_config()
+            )
+            stack.enter_context(runtime_configuration_scope(configuration))
             stack.enter_context(read_only_scope())
             stack.enter_context(service_container_scope())
         DatasetExportService.validate_tag_languages(tag_languages)

@@ -8,6 +8,7 @@ import typer
 from lorairo.cli._boundary import command_boundary
 from lorairo.cli._console import make_console
 from lorairo.cli._emit import emit_item, emit_result
+from lorairo.cli._errors import result_exit_code
 from lorairo.cli._image_ids import resolve_image_ids_input
 from lorairo.cli._output_mode import is_json_mode
 from lorairo.public_api.processing import process_images
@@ -32,7 +33,7 @@ def process(
     """Generate processed images offline while preserving original IDs and files.
 
     Valid exact-resolution files are skipped; missing/corrupt files are rebuilt.
-    Reports one outcome per ID and returns exit 1 if any image fails.
+    Reports one outcome per ID; partial success exits 3 and complete failure exits 1.
     """
     with command_boundary():
         image_ids, _from_file = resolve_image_ids_input(image_ids_csv, image_ids_file)
@@ -73,4 +74,4 @@ def process(
                 console.print(f"{item.image_id}: {item.status} {item.output_path or item.reason or ''}")
             console.print(message)
         if failed_ids:
-            raise typer.Exit(code=1)
+            raise typer.Exit(code=result_exit_code(status))

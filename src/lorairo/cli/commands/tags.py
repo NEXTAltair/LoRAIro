@@ -27,6 +27,7 @@ if TYPE_CHECKING:
 from lorairo.cli._boundary import command_boundary
 from lorairo.cli._console import make_console
 from lorairo.cli._emit import emit_item, emit_result
+from lorairo.cli._errors import result_exit_code
 from lorairo.cli._glyphs import OK
 from lorairo.cli._image_ids import (
     BULK_CHUNK_SIZE,
@@ -1134,6 +1135,9 @@ def _add_translations_batch(
         )
     else:
         console.print(f"{'[dry-run] ' if dry_run else ''}{OK} {len(requests)} 件処理: {counts}")
+    if counts["error"]:
+        result_status = "partial_success" if counts["error"] < len(requests) else "failed"
+        raise typer.Exit(code=result_exit_code(result_status))
 
 
 @trans_app.command("add")

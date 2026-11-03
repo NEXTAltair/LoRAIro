@@ -601,7 +601,7 @@ def test_batch_import_shows_failed_image_ids_and_retry_command(mock_get_containe
 
     result = runner.invoke(app, ["batch", "import", "42", "--project", "demo"])
 
-    assert result.exit_code == 1
+    assert result.exit_code == 3
     assert "Failed image IDs:" in result.stdout
     assert "5,9" in result.stdout
     assert "lorairo-cli batch submit --image-ids 5,9" in result.stdout

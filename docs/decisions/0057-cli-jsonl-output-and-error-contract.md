@@ -263,10 +263,18 @@ ADR 0060 (CLI Bounded Pagination and Count-First Contract) が本 ADR を以下�
 
 `images register` / `annotate import-batch` / `batch import` / `errors resolve` の集計完了は、
 成功件数を保持するため `kind=result` を使用する。`status=success` は `ok=true` / exit 0、
-`partial_success` と `failed` は `ok=false` / exit 1。正常skipと空集合はsuccess、
+`partial_success` と `failed` は `ok=false`。2026-11-03 の追補により部分成功は exit 3、全件失敗は exit 1。正常skipと空集合はsuccess、
 成功または正常skipを含む失敗はpartial_success、それ以外の失敗はfailed。
 legacyの未一致・parseエラー・保存エラー、Batchの未完了取込みも失敗として扱う。
 Batchの空結果はジョブ完了と同義ではなく `job_imported` を別途確認する。
 集計を返せない例外は既存の `kind=error` 契約を維持する。resultの後にerrorを重ねず、終端1行を守る。
 既存件数は維持し、失敗対象・理由を追加する。従来の部分失敗exit 0への依存は移行が必要。
 詳細と調査フィールドは [CLIの部分失敗契約](../cli.md#部分失敗と既存スクリプトの移行-1313) を参照。
+
+## 2026-11-03 追補: 部分成功専用の終了コード
+
+部分成功を終了コード `3` として区別する。成功は `0`、全件失敗と実行時例外は `1`、
+入力・検証失敗は `2` を維持する。JSONLの既存フィールドと正常skipの扱いは維持する。
+対象は登録・画像更新/処理・アノテーション/取込み・Batch送信/取込み・エラー解決・
+エクスポート/予行・レビュー。旧形式の画像更新は `failed_tags` と終了コードを併用する。
+成功済みや送信済み対象を終了コードだけで全件再送しない。

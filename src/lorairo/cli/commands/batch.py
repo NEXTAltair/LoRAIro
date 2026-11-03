@@ -19,6 +19,7 @@ from rich.table import Table
 from lorairo.cli._boundary import command_boundary
 from lorairo.cli._console import make_console
 from lorairo.cli._emit import emit_item, emit_result
+from lorairo.cli._errors import result_exit_code
 from lorairo.cli._image_ids import BULK_CHUNK_SIZE, parse_image_ids_file
 from lorairo.cli._output_mode import is_json_mode
 from lorairo.services.service_container import get_service_container
@@ -673,7 +674,7 @@ def import_results(
 ) -> None:
     """Fetch and import Provider Batch results into annotations.
 
-    Partial/incomplete imports exit 1; successful/empty/normal skip results exit 0.
+    Partial success exits 3 and completely failed imports exit 1; successful/empty/normal skip results exit 0.
     """
     with command_boundary():
         container = _activate_project(project)
@@ -741,4 +742,4 @@ def import_results(
                 _print_rating_breakdown(rating_breakdown, ratings_saved)
 
         if failed:
-            raise typer.Exit(1)
+            raise typer.Exit(result_exit_code(status))

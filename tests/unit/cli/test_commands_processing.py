@@ -52,8 +52,8 @@ def test_processing_id_boundaries(tmp_path, monkeypatch, count, file_input, expe
     [
         (["success"], 0, "success"),
         (["skipped"], 0, "success"),
-        (["success", "failed"], 1, "partial_success"),
-        (["skipped", "failed"], 1, "partial_success"),
+        (["success", "failed"], 3, "partial_success"),
+        (["skipped", "failed"], 3, "partial_success"),
         (["failed"], 1, "failed"),
     ],
 )

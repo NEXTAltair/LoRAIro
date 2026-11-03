@@ -8,6 +8,7 @@ from PIL import Image
 
 from lorairo.cli._console import make_console
 from lorairo.cli._emit import emit_item, emit_result
+from lorairo.cli._errors import result_exit_code
 from lorairo.cli._image_guard import reject_original_image_records
 from lorairo.cli._image_ids import BULK_CHUNK_SIZE, validate_candidate_ids
 from lorairo.cli._output_mode import is_json_mode
@@ -144,4 +145,4 @@ def submit_validated_ids(
             job=first_job,
         )
     if failed:
-        raise typer.Exit(1)
+        raise typer.Exit(result_exit_code(status))

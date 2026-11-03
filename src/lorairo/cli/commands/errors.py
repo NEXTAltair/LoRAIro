@@ -15,6 +15,7 @@ from rich.table import Table
 from lorairo.cli._boundary import command_boundary
 from lorairo.cli._console import make_console
 from lorairo.cli._emit import emit_item, emit_result
+from lorairo.cli._errors import result_exit_code
 from lorairo.cli._output_mode import is_json_mode
 from lorairo.public_api.exceptions import ErrorRecordNotFoundError
 from lorairo.public_api.project import get_project as api_get_project
@@ -197,7 +198,7 @@ def resolve_errors(
 ) -> None:
     """Mark error records as resolved.
 
-    Partial or complete failures exit 1; successful/empty/normal skip results exit 0.
+    Partial success exits 3 and complete failure exits 1; successful/empty/normal skip results exit 0.
 
     --ids でレコード ID を指定するか、--operation / --error-type / --message-contains
     でフィルターして一括解決する。
@@ -253,12 +254,13 @@ def resolve_errors(
 
         committed, updated = repo.mark_errors_resolved_batch(target_ids)
         success = committed and updated == target_count
+        status = "success" if success else "partial_success" if updated else "failed"
 
         if is_json_mode():
             emit_result(
                 f"Resolved {updated} error record(s)",
                 ok=success,
-                status="success" if success else "partial_success" if updated else "failed",
+                status=status,
                 requested=target_count,
                 resolved=updated,
                 dry_run=False,
@@ -271,4 +273,4 @@ def resolve_errors(
             )
 
         if not success:
-            raise typer.Exit(1)
+            raise typer.Exit(result_exit_code(status))

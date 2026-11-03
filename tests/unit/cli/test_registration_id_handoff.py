@@ -219,7 +219,7 @@ def test_annotation_interruption_partitions_all_input_ids(tmp_path, monkeypatch,
             batch_size=2,
             models=["fake"],
         )
-    assert caught.value.exit_code == 1
+    assert caught.value.exit_code == 3
     output = rows(capsys)
     outcomes = {r["image_id"]: r["status"] for r in output if r.get("type") == "annotation_outcome"}
     assert outcomes == {1: "completed", 2: "completed", 3: "failed", 4: "failed", 5: "unexecuted"}
@@ -512,7 +512,7 @@ def test_mid_save_interrupt_emits_real_committed_ids_and_exact_counts(
             batch_size=2,
             models=["fake"],
         )
-    assert caught.value.exit_code == 1
+    assert caught.value.exit_code == 3
     output = rows(capsys)
     outcomes = {row["image_id"]: row for row in output if row.get("type") == "annotation_outcome"}
     assert {i: row["status"] for i, row in outcomes.items()} == {

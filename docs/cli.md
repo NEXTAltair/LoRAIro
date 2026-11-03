@@ -66,18 +66,23 @@ LoRAIro の画像 DB は SQLite です。SQLite は同時読み取りは可能�
 |---|---|
 | 0 | 成功 |
 | 2 | 入力・検証エラー (引数不正、フィルタ未指定等) |
-| 1 | その他の実行時エラー |
+| 1 | 全件失敗・その他の実行時エラー |
+| 3 | 部分成功 (成功/正常skipと失敗が混在) |
 
 ### 部分失敗と既存スクリプトの移行 (#1313)
 
-`images register`、`annotate import-batch`、`batch import`、`errors resolve` は、
-集計結果を返した後も失敗があれば exit 1 で終了します。人間向け出力にも同じ終了コードを適用します。
+`images register/update/process`、`annotate run/import-batch`、`batch submit/import`、
+`errors resolve`、`export create`、`review run`、`tags translations add --file` は、
+集計結果を返した後、部分成功は exit 3、全件失敗は exit 1 で終了します。人間向け出力にも同じ終了コードを適用します。
 JSONL の終端は既存の `kind=result` と件数を維持し、`status` と `ok` で結果を判定できます。
+旧形式の `images update` と `tags translations add --file` は従来payload (`ok=true`) を維持するため、
+それぞれ `failed_tags` / `errors` と終了コードを確認します。
+`annotate run --run-id ID` の安全な再開は [再開契約](cli-annotation-resume.md) を参照してください。
 
 | status | ok | exit | 意味 |
 |---|---|---|---|
 | success | true | 0 | 成功、空集合、重複/既取込みの正常skip、正常dry-run |
-| partial_success | false | 1 | 成功または正常skipを含み、一部が失敗 |
+| partial_success | false | 3 | 成功または正常skipを含み、一部が失敗 |
 | failed | false | 1 | 成功済み対象がなく失敗 |
 
 登録は `errors` と `error_details`、legacy取込みは `parse_errors` / `save_errors` /
@@ -89,10 +94,10 @@ Batch取込みの従来 `skipped` は正常skipと取込み不能の両方を含
 この集合だけを根拠に全件再送せず、保存状態を確認してください。
 空結果は exit 0 ですが、`job_imported=false` はジョブ全体の完了を意味しません。
 `errors resolve` は重複を除いた `requested` と実更新件数 `resolved` を保持します。repositoryの失敗や
-要求IDの未存在による更新件数不足は exit 1 です。既に解決済みの存在するIDは従来どおり再更新して成功とします。
+要求IDの未存在による更新件数不足は、更新済みがあれば exit 3、なければ exit 1 です。既に解決済みの存在するIDは従来どおり再更新して成功とします。
 
 以前はこれらの部分失敗でも exit 0 となる場合がありました。終了コードだけで後続処理へ進むスクリプトは、
-exit 1 を処理し成功件数を保存してください。成功済み登録や送信済みBatchを全件再送する自動retryは行いません。
+exit 3 と exit 1 を区別し成功件数を保存してください。成功済み登録や送信済みBatchを全件再送する自動retryは行いません。
 例外により集計結果を返せない場合は、従来どおり `kind=error` と安定エラーコードを出力します。
 
 ## Machine-Readable Introspection
@@ -167,7 +172,7 @@ lorairo-cli --json describe "annotate import-batch"
 - `kind`: `result` (optional, default `result`)
 - `ok`: `bool` (optional, default `True`)
 - `message`: `str` (required)
-- `status`: `success | partial_success | failed` (optional, default `success`) - Failures, including partial success, return ok=false and exit 1; normal skip/empty returns exit 0.
+- `status`: `success | partial_success | failed` (optional, default `success`) - Partial success returns ok=false and exit 3; total failure exits 1; normal skip/empty exits 0.
 - `unmatched_ids`: `list[str]` (optional)
 - `error_details`: `list[str]` (optional)
 - `total_records`: `int` (required)
@@ -195,12 +200,12 @@ Structured error payload emitted as kind=error by the CLI boundary.
 
 ### `annotate run`
 
-Run annotation for selected project images and save to DB; --output is unsupported.
+Run annotation and save to DB. Use --run-id to persist a run and --resume to process pending items only. See [resume contract](cli-annotation-resume.md).
 
 - Read only: `false`
 - Strict read only: `false` (root `--read-only`; see [contract](cli-read-only.md))
 - Conditional initialization: `['db_create', 'schema_migration', 'model_seed', 'directory_create']`
-- Side effects: `db_read`, `db_write`, `file_read`, `network`
+- Side effects: `db_read`, `db_write`, `file_read`, `file_write`, `network`
 
 #### `--output` の移行 (#1310)
 
@@ -235,13 +240,15 @@ lorairo-cli --json describe "annotate run"
 - `unrated`: `bool` (optional, default `False`) - Annotate only images without any saved rating rows. (CLI: `--unrated`)
 - `missing_model`: `str?` (optional, default `None`) - Annotate only images without saved annotations from the given LiteLLM model ID. (CLI: `--missing-model`)
 - `resolution`: `int>=1?` (optional, default `None`) - Use processed images at this resolution (long side in pixels). Images without a matching processed image are skipped. (CLI: `--resolution`)
+- `run_id`: `str?` (optional, default `None`) - New durable run identity; exclusive with resume. (CLI: `--run-id`)
+- `resume`: `str?` (optional, default `None`) - Resume pending items from this run; same project/models/config required; no selection or resolution overrides. (CLI: `--resume`)
 
 **Output `AnnotateRunOutcome`**
 
 - `kind`: `item` (optional, default `item`)
 - `type`: `annotation_outcome` (optional, default `annotation_outcome`)
 - `image_id`: `int` (required)
-- `status`: `completed | failed | skipped | unexecuted` (required)
+- `status`: `completed | failed | skipped | unexecuted | pending | in_flight` (required)
 - `reason`: `str?` (optional, default `None`)
 - `saved`: `bool` (optional, default `False`)
 
@@ -265,6 +272,11 @@ lorairo-cli --json describe "annotate run"
 - `unexecuted`: `int?` (optional, default `None`)
 - `interrupted`: `bool` (optional, default `False`)
 - `reason`: `str?` (optional, default `None`)
+- `run_id`: `str?` (optional, default `None`)
+- `resumed`: `bool?` (optional, default `None`)
+- `state_path`: `str?` (optional, default `None`)
+- `pending`: `int?` (optional, default `None`)
+- `in_flight`: `int?` (optional, default `None`)
 - `resolution_skipped`: `int` (optional, default `0`)
 - `annotated`: `int` (required)
 - `skipped`: `int` (required)
@@ -413,7 +425,7 @@ lorairo-cli --json describe "batch import"
 - `kind`: `result` (optional, default `result`)
 - `ok`: `bool` (optional, default `True`)
 - `message`: `str` (required)
-- `status`: `success | partial_success | failed` (optional, default `success`) - Failures, including partial success, return ok=false and exit 1; normal skip/empty returns exit 0.
+- `status`: `success | partial_success | failed` (optional, default `success`) - Partial success returns ok=false and exit 3; total failure exits 1; normal skip/empty exits 0.
 - `incomplete`: `bool` (optional, default `False`)
 - `already_imported`: `int` (optional, default `0`)
 - `non_importable`: `int` (optional, default `0`)
@@ -788,7 +800,7 @@ lorairo-cli --json describe "errors resolve"
 - `kind`: `result` (optional, default `result`)
 - `ok`: `bool` (required)
 - `message`: `str` (required)
-- `status`: `success | partial_success | failed` (optional, default `success`) - Failures, including partial success, return ok=false and exit 1; normal skip/empty returns exit 0.
+- `status`: `success | partial_success | failed` (optional, default `success`) - Partial success returns ok=false and exit 3; total failure exits 1; normal skip/empty exits 0.
 - `requested`: `int?` (optional, default `None`)
 - `resolved`: `int` (required)
 - `dry_run`: `bool` (required)
@@ -808,7 +820,7 @@ Structured error payload emitted as kind=error by the CLI boundary.
 
 ### `export create`
 
-Export a dataset from a list of image IDs. Use 'images search' to resolve IDs first.
+Export selected IDs; --dry-run previews count and manifest without writes and supports root --read-only. See [export contract](cli-export-results.md).
 
 - Read only: `false`
 - Strict read only: `false` (root `--read-only`; see [contract](cli-read-only.md))
@@ -831,10 +843,11 @@ lorairo-cli --json describe "export create"
 - `output`: `str` (required) - Output directory for exported dataset (CLI: `--output`, `-o`)
 - `resolution`: `int` (optional, default `512`) - Target resolution for processed images (CLI: `--resolution`, `-r`)
 - `tag_languages`: `list[str]?` (optional, default `None`) - Tag languages to export. 'canonical' keeps existing tag output; multiple values create language-specific dataset directories. (CLI: `--tag-language`)
+- `dry_run`: `bool` (optional, default `False`) - Preview image count and manifest without writing dataset outputs or database records. (CLI: `--dry-run`)
 
 **Output `ExportCreateResult`**
 
-Missing or failed images return ok=false and exit 1; total_images remains the requested count. See [export result and retry contract](cli-export-results.md).
+Partial success exits 3; total failure exits 1; both return ok=false; total_images remains the requested count. See [export result and retry contract](cli-export-results.md).
 
 - `kind`: `result` (optional, default `result`)
 - `ok`: `bool` (optional, default `True`)
@@ -852,6 +865,33 @@ Missing or failed images return ok=false and exit 1; total_images remains the re
 - `resolution`: `int?` (optional, default `None`)
 - `tag_languages`: `list[str]?` (optional, default `None`)
 - `count`: `int?` (optional, default `None`)
+
+**Output `ExportPreviewItem`**
+
+- `kind`: `item` (optional, default `item`)
+- `image_id`: `int` (required)
+- `source_path`: `str` (required)
+- `destinations`: `list[ExportPreviewDestination]` (required)
+
+**Output `ExportPreviewResult`**
+
+- `kind`: `result` (optional, default `result`)
+- `ok`: `bool` (required)
+- `message`: `str` (required)
+- `status`: `success | partial_success | failed` (required)
+- `dry_run`: `true` (required)
+- `requested`: `int` (required)
+- `would_export`: `int` (required)
+- `skipped`: `int` (required)
+- `failed`: `int` (required)
+- `ready_ids`: `list[int]` (required)
+- `failed_ids`: `list[int]` (required)
+- `metadata_files`: `list[str]` (required)
+- `error_details`: `list[dict]` (required)
+- `output_path`: `str` (required)
+- `total_images`: `int` (required)
+- `resolution`: `int` (required)
+- `tag_languages`: `list[str]` (required)
 
 **Error `CliErrorResponse`**
 
@@ -916,6 +956,78 @@ An invalid rectangle or missing parent exits 2 with INVALID_INPUT and leaves no 
 - `message`: `str` (required)
 - `parent_image_id`: `int` (required)
 - `child_image_id`: `int` (required)
+
+**Error `CliErrorResponse`**
+
+Structured error payload emitted as kind=error by the CLI boundary.
+
+- `kind`: `error` (optional, default `error`)
+- `ok`: `false` (optional, default `False`)
+- `code`: `str` (required)
+- `message`: `str` (required)
+- `retryable`: `bool` (required)
+- `user_action_required`: `bool` (required)
+- `hint`: `str?` (optional, default `None`)
+- `details`: `dict?` (optional, default `None`)
+
+### `images duplicates`
+
+Read-only duplicate candidates from saved 64-bit pHashes, capped at 10,000 project images. See [duplicate report](cli-duplicate-report.md).
+
+- Read only: `true`
+- Strict read only: `true` (root `--read-only`; see [contract](cli-read-only.md))
+- Conditional initialization: `['db_create', 'schema_migration', 'model_seed', 'directory_create']`
+- Side effects: `db_read`
+
+#### Compact Introspection
+
+```bash
+lorairo-cli --json describe "images duplicates"
+```
+
+#### Models
+
+**Input `DuplicateReportInput`**
+
+- `project`: `str` (required) - Project name (CLI: `--project`, `-p`)
+- `max_distance`: `int[0,64]` (optional, default `4`) - Maximum Hamming distance of connecting pairs; cluster endpoints may exceed this threshold. (CLI: `--max-distance`)
+- `limit`: `int[1,500]` (optional, default `100`) - Output cap for clusters and members; detection and counts cover the complete bounded project. (CLI: `--limit`)
+
+**Output `DuplicateClusterItem`**
+
+- `kind`: `item` (optional, default `item`)
+- `cluster_id`: `int` (required)
+- `member_count`: `int` (required)
+- `members`: `list[DuplicateMember]` (required)
+- `members_truncated`: `bool` (required)
+
+**Output `DuplicateReportResult`**
+
+- `kind`: `result` (optional, default `result`)
+- `ok`: `true` (optional, default `True`)
+- `message`: `str` (required)
+- `project`: `str` (required)
+- `read_only`: `true` (required)
+- `status`: `success` (required)
+- `candidate_only`: `true` (required)
+- `total_images`: `int` (required)
+- `valid_phash_images`: `int` (required)
+- `missing_phash_images`: `int` (required)
+- `invalid_phash_images`: `int` (required)
+- `unique_phashes`: `int` (required)
+- `cluster_count`: `int` (required)
+- `clustered_images`: `int` (required)
+- `unclustered_images`: `int` (required)
+- `returned_clusters`: `int` (required)
+- `clusters_truncated`: `bool` (required)
+- `max_distance`: `int` (required)
+- `hash_bits`: `64` (required)
+- `distance_metric`: `hamming` (required)
+- `clustering`: `connected_components` (required)
+- `compared_hash_pairs`: `int` (required)
+- `limit`: `int` (required)
+- `max_images`: `10000` (required)
+- `max_pair_comparisons`: `49995000` (required)
 
 **Error `CliErrorResponse`**
 
@@ -1023,7 +1135,7 @@ lorairo-cli --json describe "images process"
 
 **Output `ImagesProcessResult`**
 
-Any failed ID returns ok=false and exit 1. See [offline processing](cli-image-processing.md).
+Partial success returns ok=false and exit 3; total failure exits 1. See [offline processing](cli-image-processing.md).
 
 - `kind`: `result` (optional, default `result`)
 - `ok`: `bool` (required)
@@ -1090,7 +1202,7 @@ lorairo-cli --json describe "images register"
 - `kind`: `result` (optional, default `result`)
 - `ok`: `bool` (optional, default `True`)
 - `message`: `str` (required)
-- `status`: `success | partial_success | failed` (optional, default `success`) - Failures, including partial success, return ok=false and exit 1; normal skip/empty returns exit 0.
+- `status`: `success | partial_success | failed` (optional, default `success`) - Partial success returns ok=false and exit 3; total failure exits 1; normal skip/empty exits 0.
 - `variant`: `int` (optional, default `0`)
 - `project`: `str?` (optional, default `None`)
 - `target_count`: `int` (optional, default `0`)
@@ -1276,6 +1388,8 @@ lorairo-cli --json describe "images update"
 - `image_id`: `int?` (optional, default `None`) - Target specific image by ID (CLI: `--image-id`)
 
 **Output `ImagesUpdateResult`**
+
+Legacy payload retains ok=true; inspect failed_tags and exit code: partial success 3, total failure 1, success 0.
 
 - `kind`: `result` (optional, default `result`)
 - `ok`: `true` (optional, default `True`)
@@ -1831,6 +1945,92 @@ Structured error payload emitted as kind=error by the CLI boundary.
 - `hint`: `str?` (optional, default `None`)
 - `details`: `dict?` (optional, default `None`)
 
+### `tags health`
+
+Read-only tag frequencies, variant suggestions and explicitly expected missing tags. See [tag health](cli-tag-health.md).
+
+- Read only: `true`
+- Strict read only: `true` (root `--read-only`; see [contract](cli-read-only.md))
+- Conditional initialization: `['db_create', 'schema_migration', 'model_seed', 'directory_create']`
+- Side effects: `db_read`
+
+#### Compact Introspection
+
+```bash
+lorairo-cli --json describe "tags health"
+```
+
+#### Models
+
+**Input `TagHealthInput`**
+
+- `project`: `str` (required) - Project name (CLI: `--project`, `-p`)
+- `expected_tag`: `list[str]?` (optional, default `None`) - Explicit tags expected on every image; repeat the option. No implicit expectations. (CLI: `--expected-tag`)
+- `limit`: `int[1,500]` (optional, default `100`) - Maximum rows per section and IDs per missing-tag sample; counts cover all images. (CLI: `--limit`)
+
+**Output `TagHealthFrequencyItem`**
+
+- `kind`: `item` (optional, default `item`)
+- `section`: `frequency` (required)
+- `tag`: `str` (required)
+- `image_count`: `int` (required)
+
+**Output `TagHealthVariantItem`**
+
+- `kind`: `item` (optional, default `item`)
+- `section`: `variant` (required)
+- `tag`: `str` (required)
+- `candidate`: `str` (required)
+- `reason`: `normalization | spelling` (required)
+- `similarity`: `float?` (required)
+
+**Output `TagHealthMissingItem`**
+
+- `kind`: `item` (optional, default `item`)
+- `section`: `missing_expected` (required)
+- `expected_tag`: `str` (required)
+- `normalized_tag`: `str` (required)
+- `missing_count`: `int` (required)
+- `image_ids`: `list[int]` (required)
+- `image_ids_truncated`: `bool` (required)
+
+**Output `TagHealthResult`**
+
+- `kind`: `result` (optional, default `result`)
+- `ok`: `bool` (optional, default `True`)
+- `message`: `str` (required)
+- `project`: `str` (required)
+- `read_only`: `true` (required)
+- `total_images`: `int` (required)
+- `tagged_images`: `int` (required)
+- `untagged_images`: `int` (required)
+- `unique_tags`: `int` (required)
+- `expected_tag_count`: `int` (required)
+- `frequency_count`: `int` (required)
+- `variant_count`: `int` (required)
+- `missing_expected_count`: `int` (required)
+- `frequencies_truncated`: `bool` (required)
+- `variants_truncated`: `bool` (required)
+- `missing_expected_truncated`: `bool` (required)
+- `spelling_vocabulary_limit`: `int` (required)
+- `spelling_max_tag_length`: `int` (required)
+- `spelling_similarity_threshold`: `float` (required)
+- `spelling_candidates_truncated`: `bool` (required)
+- `limit`: `int` (required)
+
+**Error `CliErrorResponse`**
+
+Structured error payload emitted as kind=error by the CLI boundary.
+
+- `kind`: `error` (optional, default `error`)
+- `ok`: `false` (optional, default `False`)
+- `code`: `str` (required)
+- `message`: `str` (required)
+- `retryable`: `bool` (required)
+- `user_action_required`: `bool` (required)
+- `hint`: `str?` (optional, default `None`)
+- `details`: `dict?` (optional, default `None`)
+
 ### `tags remove`
 
 Remove tags from images. Default dry-run; use --apply to write.
@@ -2031,7 +2231,7 @@ lorairo-cli --json describe "tags translations add"
 
 **Output `TagsTranslationsAddResult`**
 
-終端 result 行。既定は dry-run (dry_run=true) で書き込みなし。
+終端 result 行。既定は dry-run (dry_run=true) で書き込みなし。--file は既存 ok=true を維持するため errors と終了コードを確認: 部分成功3、全件失敗1、成功0。
 
 - `kind`: `result` (optional, default `result`)
 - `ok`: `bool` (optional, default `True`)

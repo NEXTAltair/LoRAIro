@@ -53,8 +53,8 @@ the unlinked output path; generated files are not silently deleted.
 Each JSONL `item` contains `image_id`, `status` (`success`, `skipped`, `failed`),
 `resolution`, `output_path`, `processed_image_id`, and `reason`. The terminal result
 contains total/processed/skipped/failed counts and their ID sets. Valid skips retain
-`ok:true`, status `success`, and exit 0. Any failure gives `ok:false`, exit 1, and
-status `partial_success` when another selected ID is usable, otherwise `failed`.
+`ok:true`, status `success`, and exit 0. Any failure gives `ok:false`;
+status `partial_success` exits 3 when another selected ID is usable, otherwise `failed` exits 1.
 Input validation errors exit 2 before processing.
 
 The original-image guard for annotate and Batch remains active: specify
