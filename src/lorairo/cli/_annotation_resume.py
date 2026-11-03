@@ -152,7 +152,7 @@ def _execute_pending(
     if not pending:
         return False, None
     # This creates adapters/validates keys, but performs no provider invocation.
-    preflight = _make_preflight(container, models, strict=True)
+    preflight = _make_preflight(container, models, strict=True, retry_failed_batch=False)
     for row in pending:
         try:
             records = container.db_manager.image_repo.get_images_by_ids([row["image_id"]])

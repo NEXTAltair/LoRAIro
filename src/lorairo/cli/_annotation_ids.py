@@ -133,7 +133,9 @@ def _annotate_chunk(
             image.close()
 
 
-def _make_preflight(container: Any, models: list[str], *, strict: bool = False) -> Any:
+def _make_preflight(
+    container: Any, models: list[str], *, strict: bool = False, retry_failed_batch: bool = True
+) -> Any:
     from lorairo.annotation.annotation_runner import AnnotationRunner
     from lorairo.cli.commands.annotate import (
         _get_deprecated_models_best_effort,
@@ -171,6 +173,7 @@ def _make_preflight(container: Any, models: list[str], *, strict: bool = False) 
             moderation_runner=build_annotation_runner_runner(
                 AnnotationRunner(annotator).execute_annotation
             ),
+            retry_failed_batch=retry_failed_batch,
         )
     return preflight
 

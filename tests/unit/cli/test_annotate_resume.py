@@ -426,3 +426,48 @@ def test_legacy_exact_ids_partial_failure_exits_three_without_ledger(isolated_ru
     assert result.exit_code == 3, result.output
     assert _summary(result)["status"] == "partial_success"
     assert not (run.project / ".lorairo").exists()
+
+
+@pytest.mark.parametrize("failure", ["accepted_timeout", "committed_save"])
+def test_real_moderation_service_never_retries_uncertain_durable_send(isolated_run, monkeypatch, failure):
+    from lorairo.cli._annotation_ids import _make_preflight
+    from lorairo.services.moderation_preflight_service import MODERATION_LITELLM_MODEL_ID
+
+    run = isolated_run
+    run.records.pop(2)
+    run.records.pop(3)
+    repo = run.container.db_manager.image_repo
+    path = run.records[1]["stored_image_path"]
+    repo.get_image_ids_by_filepaths.return_value = {path: 1}
+    repo.get_phashes_by_filepaths.return_value = {path: "1"}
+    repo.get_latest_normalized_ratings_by_image_ids.return_value = {}
+    run.container.db_manager.model_repo.get_model_by_litellm_id.return_value = SimpleNamespace(id=1)
+    run.container.db_manager.error_record_repo = MagicMock()
+    run.container.config_service.get_setting = lambda *_: "fixture-key"
+    monkeypatch.setattr("lorairo.cli._annotation_resume._make_preflight", _make_preflight)
+    monkeypatch.setattr(
+        "lorairo.services.model_registry_protocol.selection_includes_webapi_model", lambda *_: True
+    )
+    monkeypatch.setattr(annotate, "_validate_required_api_keys", lambda *_: None)
+
+    if failure == "accepted_timeout":
+        run.provider.annotate.side_effect = TimeoutError("fixture: accepted but response lost")
+    else:
+
+        def commit_then_fail(_results):
+            with closing(sqlite3.connect(run.database)) as connection, connection:
+                connection.execute("INSERT INTO saved VALUES (1)")
+            raise RuntimeError("fixture: failure after save commit")
+
+        run.saver.save_annotation_results.side_effect = commit_then_fail
+    result = run.invoke("--run-id", "run1")
+    assert result.exit_code == 1, result.output
+    run.provider.annotate.assert_called_once()
+    assert run.provider.annotate.call_args.kwargs["litellm_model_ids"] == [MODERATION_LITELLM_MODEL_ID]
+    assert run.rows()[0]["state"] == "in_flight"
+    if failure == "committed_save":
+        with closing(sqlite3.connect(run.database)) as connection:
+            assert connection.execute("SELECT image_id FROM saved").fetchall() == [(1,)]
+    run.provider.reset_mock()
+    assert run.invoke("--resume", "run1").exit_code == 1
+    run.provider.annotate.assert_not_called()
