@@ -209,7 +209,8 @@ def test_cli_register_process_annotate_batch_export(tmp_path, monkeypatch):
     Image.frombytes("RGB", (96, 64), rng.randbytes(96 * 64 * 3)).save(mixed / "new.png")
     (mixed / "broken.png").write_bytes(b"not an image")
     mixed_run = CliRunner().invoke(app, ["--json", "images", "register", str(mixed), "-p", project])
-    assert mixed_run.exit_code == 1
+    # Successful registrations alongside the corrupt image are partial success.
+    assert mixed_run.exit_code == 3
     mixed_rows = [json.loads(line) for line in mixed_run.stdout.splitlines()]
     items = [row for row in mixed_rows if row["kind"] == "item"]
     outcomes = {Path(row["input_path"]).name: row for row in items}
