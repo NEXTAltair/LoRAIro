@@ -93,11 +93,19 @@ def _annotate_chunk(
 
     original_ids = {int(record["id"]) for record in records}
     if preflight is not None:
-        records, _ = _apply_moderation_preflight_to_records(records, preflight)
+        preflight_outcomes: dict[int, str] = {}
+        records, _ = _apply_moderation_preflight_to_records(records, preflight, outcomes=preflight_outcomes)
         remaining = {int(record["id"]) for record in records}
         for image_id in original_ids - remaining:
-            statuses[image_id] = "skipped"
-            _emit_outcome(image_id, "skipped", reason="moderation preflight")
+            status = preflight_outcomes.get(image_id, "failed")
+            statuses[image_id] = status
+            if status == "skipped":
+                counters["normal_skipped"] = counters.get("normal_skipped", 0) + 1
+            _emit_outcome(
+                image_id,
+                status,
+                reason="moderation preflight" if status == "skipped" else "moderation preflight failed",
+            )
     images, loaded_records, loaded, failed = _load_batch_images(records)
     counters["loaded"] += loaded
     counters["load_failed"] += failed
@@ -273,7 +281,8 @@ def run_id_annotation(
         for status in ("completed", "failed", "skipped", "unexecuted")
     }
     unsuccessful = bool(counts["failed"] or counts["unexecuted"] or (selected and not active))
-    status = "success" if not unsuccessful else "partial_success" if counts["completed"] else "failed"
+    successful = bool(counters["saved"] or counters.get("normal_skipped", 0))
+    status = "success" if not unsuccessful else "partial_success" if successful else "failed"
     if is_json_mode():
         emit_result(
             f"Annotated {counters['saved']} image(s)",

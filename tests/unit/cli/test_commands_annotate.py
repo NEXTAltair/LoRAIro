@@ -1197,6 +1197,9 @@ def test_annotate_run_all_models_failed_exits_nonzero(
         "hash2": {"gpt-4o-mini": error_result},
         "hash3": {"gpt-4o-mini": error_result},
     }
+    mock_container.annotation_save_service.save_annotation_results.return_value = AnnotationSaveResult(
+        0, 3, 0, 3
+    )
 
     image_records = [
         {"id": i + 1, "phash": f"phash{i:016d}", "stored_image_path": str(img_path)}

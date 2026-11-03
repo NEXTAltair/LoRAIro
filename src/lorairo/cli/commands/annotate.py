@@ -286,6 +286,7 @@ class _StreamAnnotateSummary:
     saved: int = 0
     skipped: int = 0
     preflight_skipped: int = 0
+    preflight_failed: int = 0
     resolution_skipped: int = 0
     save_errors: int = 0
     any_success: bool = False
@@ -420,11 +421,16 @@ def _stream_annotate(
         for chunk in _iter_record_batches(records_to_process, batch_size):
             original_chunk_size = len(chunk)
             if moderation_preflight_service is not None:
-                chunk, skipped_count = _apply_moderation_preflight_to_records(
+                preflight_outcomes: dict[int, str] = {}
+                chunk, _ = _apply_moderation_preflight_to_records(
                     chunk,
                     moderation_preflight_service,
+                    outcomes=preflight_outcomes,
                 )
-                summary.preflight_skipped += skipped_count
+                summary.preflight_skipped += sum(
+                    value == "skipped" for value in preflight_outcomes.values()
+                )
+                summary.preflight_failed += sum(value == "failed" for value in preflight_outcomes.values())
                 if not chunk:
                     active_progress.advance(task, advance=original_chunk_size)
                     continue
@@ -477,6 +483,8 @@ class _NullProgress:
 def _apply_moderation_preflight_to_records(
     records_chunk: list[dict[str, Any]],
     moderation_preflight_service: ModerationPreflightService,
+    *,
+    outcomes: dict[int, str] | None = None,
 ) -> tuple[list[dict[str, Any]], int]:
     """Filter a CLI annotation chunk through OpenAI moderation preflight."""
     path_to_record: dict[str, dict[str, Any]] = {}
@@ -494,10 +502,25 @@ def _apply_moderation_preflight_to_records(
 
     result = moderation_preflight_service.apply(list(path_to_record))
     allowed = [path_to_record[path] for path in result.allowed_paths if path in path_to_record]
+    if outcomes is not None:
+        allowed_paths = set(result.allowed_paths)
+        for path, record in path_to_record.items():
+            if path not in allowed_paths:
+                outcomes[int(record["id"])] = _moderation_skip_status(result, path)
     skipped_count = result.skipped_count
     if skipped_count:
         _status_console().print(f"[yellow]Moderation preflight skipped {skipped_count} image(s)[/yellow]")
     return passthrough_records + allowed, skipped_count
+
+
+def _moderation_skip_status(result: Any, image_path: str) -> str:
+    """Only an explicit policy block is a successful skip; absent/failed decisions are failures."""
+    from lorairo.services.moderation_preflight_service import MODERATION_ERROR_TYPE_BLOCKED
+
+    for skip in result.skipped:
+        if skip.image_path == image_path:
+            return "skipped" if skip.reason == MODERATION_ERROR_TYPE_BLOCKED else "failed"
+    return "failed"
 
 
 def _annotate_and_save_chunk(
@@ -589,7 +612,7 @@ def _finalize_annotation_run(summary: _StreamAnnotateSummary, resolved_litellm_i
     if summary.preflight_skipped:
         console.print(f"[yellow]Moderation preflight skipped {summary.preflight_skipped} image(s)[/yellow]")
 
-    if summary.total_loaded == 0 and summary.preflight_skipped > 0 and summary.total_failed == 0:
+    if summary.total_loaded == 0 and summary.preflight_skipped > 0 and status == "success":
         console.print("[green]Annotation completed: all selected images were skipped by preflight[/green]")
         return
     if summary.error_models:
@@ -627,15 +650,24 @@ def _finalize_annotation_run(summary: _StreamAnnotateSummary, resolved_litellm_i
 
 
 def _annotation_summary_status(summary: _StreamAnnotateSummary) -> str:
-    unsuccessful = bool(summary.total_failed or summary.save_errors or summary.error_models)
-    return "success" if not unsuccessful else "partial_success" if summary.saved else "failed"
+    unsuccessful = bool(
+        summary.total_failed
+        or summary.save_errors
+        or summary.error_models
+        or summary.preflight_failed
+        or (summary.total_loaded and not summary.total_results)
+    )
+    successful = bool(summary.saved or summary.preflight_skipped)
+    return "success" if not unsuccessful else "partial_success" if successful else "failed"
 
 
 def _validate_annotation_summary(summary: _StreamAnnotateSummary) -> None:
     """Raise if the completed annotation stream has no usable result."""
+    if summary.saved or summary.preflight_skipped:
+        # Retain the operation summary when other images failed after confirmed
+        # saves or policy skips; callers need a partial result instead of an exception.
+        return
     if summary.total_loaded == 0:
-        if summary.preflight_skipped > 0 and summary.total_failed == 0:
-            return
         raise AnnotationRunFailedError("No images could be loaded for annotation")
     if summary.total_results == 0:
         raise AnnotationRunFailedError("Annotation produced no results")
@@ -654,7 +686,7 @@ def _emit_annotation_result(summary: _StreamAnnotateSummary, resolved_litellm_id
         annotated=summary.saved,
         skipped=summary.skipped + summary.preflight_skipped + summary.total_failed,
         resolution_skipped=summary.resolution_skipped,
-        errors=summary.save_errors + len(summary.error_models),
+        errors=summary.save_errors + len(summary.error_models) + summary.preflight_failed,
         loaded=summary.total_loaded,
         results=summary.total_results,
         models=resolved_litellm_ids,

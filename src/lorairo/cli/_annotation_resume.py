@@ -98,16 +98,21 @@ def _execute_one(
     container: Any, record: dict[str, Any], models: list[str], preflight: Any, counters: dict[str, int]
 ) -> tuple[str, str | None, bool]:
     """Called only after in_flight is durable; exceptions deliberately keep that state."""
-    from lorairo.cli.commands.annotate import _annotation_value, _emit_annotation_items, _load_batch_images
+    from lorairo.cli.commands.annotate import (
+        _annotation_value,
+        _emit_annotation_items,
+        _load_batch_images,
+        _moderation_skip_status,
+    )
 
     if preflight is not None:
         path = str(resolve_stored_path(record["stored_image_path"]))
         result = preflight.apply([path])
         if path not in result.allowed_paths:
-            state = "failed" if result.failure_count else "skipped"
+            state = _moderation_skip_status(result, path)
             return (
                 state,
-                "moderation preflight failed" if result.failure_count else "moderation preflight",
+                "moderation preflight failed" if state == "failed" else "moderation preflight",
                 False,
             )
     images, records, _, _ = _load_batch_images([record])
@@ -199,7 +204,10 @@ def _emit_summary(
         counts["failed"] + counts["pending"] + counts["in_flight"]
     ) or resolution_skipped == len(rows)
     saved = sum(bool(row["saved"]) for row in rows)
-    status = "success" if not unsuccessful else "partial_success" if saved else "failed"
+    normal_skipped = sum(
+        row["state"] == "skipped" and row["reason"] == "moderation preflight" for row in rows
+    )
+    status = "success" if not unsuccessful else "partial_success" if saved or normal_skipped else "failed"
     if is_json_mode():
         emit_result(
             f"Annotation run '{ledger.run_id}': {counts['completed']} completed",

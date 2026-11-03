@@ -471,3 +471,118 @@ def test_real_moderation_service_never_retries_uncertain_durable_send(isolated_r
     run.provider.reset_mock()
     assert run.invoke("--resume", "run1").exit_code == 1
     run.provider.annotate.assert_not_called()
+
+
+def _set_preflight_for_all_routes(run, monkeypatch, preflight):
+    run.container.db_manager.error_record_repo = MagicMock()
+    monkeypatch.setattr("lorairo.cli._annotation_ids._make_preflight", lambda *_: preflight)
+    monkeypatch.setattr("lorairo.cli._annotation_resume._make_preflight", lambda *_, **__: preflight)
+    monkeypatch.setattr(annotate, "ModerationPreflightService", lambda **_: preflight)
+    monkeypatch.setattr(annotate, "_validate_required_api_keys", lambda *_: None)
+    monkeypatch.setattr(annotate, "_warn_deprecated_models", lambda *_: None)
+    monkeypatch.setattr(annotate, "selection_includes_webapi_model", lambda *_: True)
+
+
+@pytest.mark.parametrize("route", ["stream", "ids", "durable"])
+@pytest.mark.parametrize("normal_skip", [True, False])
+def test_preflight_exclusions_and_load_failure_classify_consistently(
+    isolated_run, monkeypatch, route, normal_skip
+):
+    from lorairo.services.moderation_preflight_service import (
+        MODERATION_ERROR_TYPE_BLOCKED,
+        MODERATION_ERROR_TYPE_MISSING_KEY,
+        ModerationPreflightResult,
+        ModerationPreflightSkip,
+    )
+
+    run = isolated_run
+    run.records.pop(3)
+    from pathlib import Path
+
+    Path(run.records[2]["stored_image_path"]).write_bytes(b"fixture corrupt image")
+    blocked_path = run.records[1]["stored_image_path"]
+
+    def preflight(paths):
+        skips = [
+            ModerationPreflightSkip(
+                path,
+                1,
+                MODERATION_ERROR_TYPE_BLOCKED if normal_skip else MODERATION_ERROR_TYPE_MISSING_KEY,
+                "fixture decision",
+            )
+            for path in paths
+            if path == blocked_path
+        ]
+        return ModerationPreflightResult(
+            allowed_paths=[path for path in paths if path != blocked_path],
+            skipped=skips,
+            failure_count=0 if normal_skip else len(skips),
+        )
+
+    _set_preflight_for_all_routes(run, monkeypatch, SimpleNamespace(apply=preflight))
+    args = {"stream": [], "ids": ["--image-id", "1", "--image-id", "2"], "durable": ["--run-id", "run1"]}[
+        route
+    ]
+    result = run.invoke(*args)
+    assert result.exit_code == (3 if normal_skip else 1), result.output
+    assert _summary(result).get("code") != "INTERNAL_ERROR"
+    if normal_skip:
+        assert _summary(result)["kind"] == "result"
+        assert _summary(result)["status"] == "partial_success"
+        assert _summary(result)["annotated"] == 0
+    run.provider.annotate.assert_not_called()
+
+
+@pytest.mark.parametrize("route", ["stream", "ids", "durable"])
+def test_one_image_partial_model_save_is_partial_in_every_route(isolated_run, monkeypatch, route):
+    run = isolated_run
+    run.records.pop(2)
+    run.records.pop(3)
+    _set_preflight_for_all_routes(
+        run,
+        monkeypatch,
+        SimpleNamespace(
+            apply=lambda paths: SimpleNamespace(allowed_paths=paths, skipped=[], skipped_count=0)
+        ),
+    )
+    run.provider.annotate.side_effect = lambda *_args, **_kwargs: {
+        "1": {
+            "fixture-model": SimpleNamespace(error=None, tags=["fixture"]),
+            "second-model": SimpleNamespace(error="fixture failure"),
+        }
+    }
+    args = {"stream": [], "ids": ["--image-id", "1"], "durable": ["--run-id", "run1"]}[route]
+    # The legacy saver does not supply the optional commit-progress dict.
+    run.saver.save_annotation_results.side_effect = lambda *_args, **_kwargs: AnnotationSaveResult(
+        1, 0, 0, 1, image_outcomes={1: "success"}
+    )
+    result = run.invoke(*args, "--model", "second-model")
+    assert result.exit_code == 3, result.output
+    assert _summary(result)["status"] == "partial_success"
+    assert _summary(result)["annotated"] == 1
+
+
+@pytest.mark.parametrize("exclude", ["filter", "resolution"])
+def test_excluded_ids_do_not_count_as_successful_skips(isolated_run, monkeypatch, exclude):
+    run = isolated_run
+    run.records.pop(3)
+    monkeypatch.setattr("lorairo.cli._annotation_ids._make_preflight", lambda *_: None)
+    if exclude == "filter":
+        run.container.db_manager.image_repo.get_candidate_image_ids.side_effect = (
+            lambda ids, criteria=None: ids if criteria is None else [1]
+        )
+        extra = ["--unrated"]
+    else:
+        run.container.db_manager.image_repo.get_processed_image_paths_by_resolution.return_value = {
+            1: run.records[1]["stored_image_path"]
+        }
+        extra = ["--resolution", "512"]
+    run.provider.annotate.side_effect = lambda *_args, **_kwargs: {
+        "1": {"fixture-model": {"error": "fixture failure"}}
+    }
+    run.saver.save_annotation_results.side_effect = lambda *_args, **_kwargs: AnnotationSaveResult(
+        0, 1, 0, 1
+    )
+    result = run.invoke("--image-id", "1", "--image-id", "2", *extra)
+    assert result.exit_code == 1, result.output
+    assert _summary(result)["status"] == "failed"
