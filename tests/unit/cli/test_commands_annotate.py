@@ -19,6 +19,16 @@ from lorairo.services.service_container import ServiceContainer
 runner = CliRunner()
 
 
+def _mock_container() -> MagicMock:
+    """Return concrete save counters so outcome tests do not rely on truthy MagicMocks."""
+    container = MagicMock()
+
+    container.annotation_save_service.save_annotation_results.return_value = AnnotationSaveResult(
+        3, 0, 0, 3
+    )
+    return container
+
+
 def _jsonl(stdout: str) -> list[dict]:
     return [json.loads(line) for line in stdout.splitlines() if line.strip()]
 
@@ -207,7 +217,7 @@ def test_annotate_run_no_images(
     # プロジェクトのみ作成（画像なし）
     runner.invoke(app, ["project", "create", "empty_project"])
 
-    mock_container = MagicMock()
+    mock_container = _mock_container()
     mock_container.db_manager.image_repo.get_images_by_filter.return_value = ([], 0)
     mock_container.db_manager.model_repo.get_model_by_litellm_id.return_value = MagicMock(
         litellm_model_id="gpt-4o-mini", provider="openai"
@@ -267,7 +277,7 @@ def test_annotate_run_with_single_model(
     _project_dir, image_files = test_project_with_images
 
     # ServiceContainer をモック
-    mock_container = MagicMock()
+    mock_container = _mock_container()
     mock_annotator = MagicMock()
     mock_config = MagicMock()
 
@@ -323,7 +333,7 @@ def test_annotate_run_json_emits_items_and_result_only(
     monkeypatch.setenv("LORAIRO_CLI_JSON", "1")
     _project_dir, image_files = test_project_with_images
 
-    mock_container = MagicMock()
+    mock_container = _mock_container()
     mock_annotator = MagicMock()
     mock_config = MagicMock()
     mock_config.get_setting.return_value = "test_key"
@@ -377,7 +387,7 @@ def test_annotate_run_json_rejects_more_than_500_before_items(
     monkeypatch.setenv("LORAIRO_CLI_JSON", "1")
     _project_dir, image_files = test_project_with_images
 
-    mock_container = MagicMock()
+    mock_container = _mock_container()
     mock_config = MagicMock()
     mock_config.get_setting.return_value = "test_key"
     records = [
@@ -413,7 +423,7 @@ def test_annotate_run_rejects_original_image_records(
     monkeypatch.setenv("LORAIRO_CLI_JSON", "1")
     runner.invoke(app, ["project", "create", "original_guard_dataset"])
 
-    mock_container = MagicMock()
+    mock_container = _mock_container()
     mock_config = MagicMock()
     mock_config.get_setting.return_value = "test_key"
     mock_container.db_manager.image_repo.get_images_by_filter.return_value = (
@@ -454,7 +464,7 @@ def test_annotate_run_deprecated_model_shows_warning(
     """Test: annotate run - 廃止モデル指定時は警告を表示して継続。"""
     _project_dir, image_files = test_project_with_images
 
-    mock_container = MagicMock()
+    mock_container = _mock_container()
     mock_annotator = MagicMock()
     mock_config = MagicMock()
 
@@ -504,7 +514,7 @@ def test_annotate_run_deprecated_check_failure_continues(
     """Test: annotate run - 廃止判定失敗時もアノテーションを継続。"""
     _project_dir, image_files = test_project_with_images
 
-    mock_container = MagicMock()
+    mock_container = _mock_container()
     mock_annotator = MagicMock()
     mock_config = MagicMock()
 
@@ -556,7 +566,7 @@ def test_annotate_run_with_multiple_models(
     _project_dir, image_files = test_project_with_images
 
     # ServiceContainer をモック
-    mock_container = MagicMock()
+    mock_container = _mock_container()
     mock_annotator = MagicMock()
     mock_config = MagicMock()
 
@@ -619,7 +629,7 @@ def test_annotate_run_no_api_keys(
     _project_dir, image_files = test_project_with_images
 
     # ServiceContainer をモック
-    mock_container = MagicMock()
+    mock_container = _mock_container()
     mock_annotator = MagicMock()
     mock_config = MagicMock()
 
@@ -680,7 +690,7 @@ def test_annotate_run_with_output_option(
     _project_dir, image_files = test_project_with_images
 
     # ServiceContainer をモック
-    mock_container = MagicMock()
+    mock_container = _mock_container()
     mock_annotator = MagicMock()
     mock_config = MagicMock()
 
@@ -738,7 +748,7 @@ def test_annotate_run_with_batch_size(
     _project_dir, image_files = test_project_with_images
 
     # ServiceContainer をモック
-    mock_container = MagicMock()
+    mock_container = _mock_container()
     mock_annotator = MagicMock()
     mock_config = MagicMock()
 
@@ -789,7 +799,7 @@ def test_annotate_run_unrated_passes_only_unrated_criteria(
     """Test: annotate run --unrated は rating 未保存画像のみに絞る criteria を渡す。"""
     _project_dir, image_files = test_project_with_images
 
-    mock_container = MagicMock()
+    mock_container = _mock_container()
     mock_annotator = MagicMock()
     mock_config = MagicMock()
 
@@ -833,7 +843,7 @@ def test_annotate_run_missing_model_passes_missing_model_criteria(
     """Test: annotate run --missing-model は指定モデル未処理画像のみに絞る criteria を渡す。"""
     _project_dir, image_files = test_project_with_images
 
-    mock_container = MagicMock()
+    mock_container = _mock_container()
     mock_annotator = MagicMock()
     mock_config = MagicMock()
 
@@ -876,7 +886,7 @@ def test_annotate_run_filter_matches_no_images_exits_before_loading(
     test_project_with_images: tuple[Path, list[Path]],
 ) -> None:
     """Test: annotate run のフィルタ結果が0件なら画像ロード前に exit 1。"""
-    mock_container = MagicMock()
+    mock_container = _mock_container()
     mock_container.db_manager.image_repo.get_images_by_filter.return_value = ([], 0)
     mock_get_container.return_value = mock_container
 
@@ -909,7 +919,7 @@ def test_annotate_run_annotation_failure(
     _project_dir, image_files = test_project_with_images
 
     # ServiceContainer をモック
-    mock_container = MagicMock()
+    mock_container = _mock_container()
     mock_annotator = MagicMock()
     mock_config = MagicMock()
 
@@ -956,7 +966,7 @@ def test_annotate_run_annotation_failed_error_exit_code(
     """Test: annotate run - AnnotationFailedError は exit_code=1 (PRECONDITION_FAILED)。"""
     _project_dir, image_files = test_project_with_images
 
-    mock_container = MagicMock()
+    mock_container = _mock_container()
     mock_annotator = MagicMock()
     mock_config = MagicMock()
 
@@ -1002,7 +1012,7 @@ def test_annotate_run_summary_display(
     _project_dir, image_files = test_project_with_images
 
     # ServiceContainer をモック
-    mock_container = MagicMock()
+    mock_container = _mock_container()
     mock_annotator = MagicMock()
     mock_config = MagicMock()
 
@@ -1079,7 +1089,7 @@ def test_annotate_run_with_special_project_name(
     img.save(img_path)
 
     # ServiceContainer をモック
-    mock_container = MagicMock()
+    mock_container = _mock_container()
     mock_annotator = MagicMock()
     mock_config = MagicMock()
 
@@ -1124,7 +1134,7 @@ def test_annotate_run_image_load_failure(
     image_files[0].write_bytes(b"corrupted data")
 
     # ServiceContainer をモック
-    mock_container = MagicMock()
+    mock_container = _mock_container()
     mock_annotator = MagicMock()
     mock_config = MagicMock()
 
@@ -1174,7 +1184,7 @@ def test_annotate_run_all_models_failed_exits_nonzero(
     """Test: annotate run - 全モデルがエラー結果を返した場合は exit_code=1。"""
     _project_dir, image_files = test_project_with_images
 
-    mock_container = MagicMock()
+    mock_container = _mock_container()
     mock_annotator = MagicMock()
     mock_config = MagicMock()
     mock_config.get_setting.return_value = "test_key"
@@ -1217,10 +1227,10 @@ def test_annotate_run_partial_model_failure_shows_warning(
     mock_get_container: MagicMock,
     test_project_with_images: tuple[Path, list[Path]],
 ) -> None:
-    """Test: annotate run - 一部モデルがエラー、一部が成功の場合は exit_code=0 + Warning。"""
+    """Test: annotate run - 一部モデルがエラー、一部が成功の場合は exit_code=3 + Warning。"""
     _project_dir, image_files = test_project_with_images
 
-    mock_container = MagicMock()
+    mock_container = _mock_container()
     mock_annotator = MagicMock()
     mock_config = MagicMock()
     mock_config.get_setting.return_value = "test_key"
@@ -1262,7 +1272,7 @@ def test_annotate_run_partial_model_failure_shows_warning(
         ],
     )
 
-    assert result.exit_code == 0
+    assert result.exit_code == 3
     assert "Warning" in result.stdout
     assert "gpt-4o-mini" in result.stdout
 
@@ -1280,7 +1290,7 @@ def test_annotate_run_saves_results_to_db(
     """Test: annotate run - アノテーション結果がDBに保存される。"""
     _project_dir, image_files = test_project_with_images
 
-    mock_container = MagicMock()
+    mock_container = _mock_container()
     mock_annotator = MagicMock()
     mock_config = MagicMock()
     mock_config.get_setting.return_value = "test_key"
@@ -1333,7 +1343,7 @@ def test_annotate_run_summary_shows_saved_count(
     """Test: annotate run - 保存件数がSummaryに表示される。"""
     _project_dir, image_files = test_project_with_images
 
-    mock_container = MagicMock()
+    mock_container = _mock_container()
     mock_annotator = MagicMock()
     mock_config = MagicMock()
     mock_config.get_setting.return_value = "test_key"
@@ -1376,7 +1386,7 @@ def test_annotate_run_db_save_error_shows_warning(
     """Test: annotate run - DB保存エラー時はWarningを表示して処理継続。"""
     _project_dir, image_files = test_project_with_images
 
-    mock_container = MagicMock()
+    mock_container = _mock_container()
     mock_annotator = MagicMock()
     mock_config = MagicMock()
     mock_config.get_setting.return_value = "test_key"
@@ -1406,8 +1416,8 @@ def test_annotate_run_db_save_error_shows_warning(
         ["annotate", "run", "--project", "test_dataset", "--model", "gpt-4o-mini"],
     )
 
-    # 保存エラーがあっても exit_code=0 で継続
-    assert result.exit_code == 0
+    # 保存成功がない場合は全体失敗。
+    assert result.exit_code == 1
     assert "Warning" in result.stdout
     # 保存件数は0
     assert "Saved to DB" in result.stdout
@@ -1423,7 +1433,7 @@ def test_annotate_run_phash_mismatch_skips_gracefully(
     """Test: annotate run - phashが不一致の場合はスキップして処理継続。"""
     _project_dir, image_files = test_project_with_images
 
-    mock_container = MagicMock()
+    mock_container = _mock_container()
     mock_annotator = MagicMock()
     mock_config = MagicMock()
     mock_config.get_setting.return_value = "test_key"

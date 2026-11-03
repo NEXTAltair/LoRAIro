@@ -7,6 +7,7 @@ import typer
 from loguru import logger
 
 from lorairo.cli._emit import emit_item, emit_result
+from lorairo.cli._errors import result_exit_code
 from lorairo.cli._image_guard import reject_original_image_records
 from lorairo.cli._image_ids import BULK_CHUNK_SIZE, validate_candidate_ids
 from lorairo.cli._output_mode import is_json_mode
@@ -132,7 +133,7 @@ def _annotate_chunk(
             image.close()
 
 
-def _make_preflight(container: Any, models: list[str]) -> Any:
+def _make_preflight(container: Any, models: list[str], *, strict: bool = False) -> Any:
     from lorairo.annotation.annotation_runner import AnnotationRunner
     from lorairo.cli.commands.annotate import (
         _get_deprecated_models_best_effort,
@@ -154,6 +155,8 @@ def _make_preflight(container: Any, models: list[str]) -> Any:
     try:
         should_preflight = selection_includes_webapi_model(models, annotator)
     except Exception as exc:
+        if strict:
+            raise
         logger.opt(exception=True).warning(
             f"WebAPI model detection failed; moderation preflight skipped: {exc}"
         )
@@ -290,4 +293,4 @@ def run_id_annotation(
     else:
         _status_console().print(f"Annotation {status}: {counts}; saved={counters['saved']}")
     if unsuccessful:
-        raise typer.Exit(1)
+        raise typer.Exit(result_exit_code(status))

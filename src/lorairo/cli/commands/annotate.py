@@ -32,6 +32,7 @@ if TYPE_CHECKING:
 from lorairo.cli._boundary import command_boundary
 from lorairo.cli._console import make_console
 from lorairo.cli._emit import emit_item, emit_result
+from lorairo.cli._errors import result_exit_code
 from lorairo.cli._image_guard import reject_original_image_records
 from lorairo.cli._image_ids import resolve_annotation_ids
 from lorairo.cli._output_mode import is_json_mode
@@ -572,8 +573,11 @@ def _finalize_annotation_run(summary: _StreamAnnotateSummary, resolved_litellm_i
         AnnotationRunFailedError: ロード不可・結果ゼロ・全モデル失敗の場合。
     """
     _validate_annotation_summary(summary)
+    status = _annotation_summary_status(summary)
     if is_json_mode():
         _emit_annotation_result(summary, resolved_litellm_ids)
+        if status != "success":
+            raise typer.Exit(result_exit_code(status))
         return
 
     console.print(f"[green]Loaded {summary.total_loaded} image(s) ({summary.total_failed} failed)[/green]")
@@ -617,7 +621,14 @@ def _finalize_annotation_run(summary: _StreamAnnotateSummary, resolved_litellm_i
 
     console.print(summary_table)
 
-    console.print(f"\n[green]Annotation completed successfully! ({summary.saved} saved to DB)[/green]")
+    console.print(f"\nAnnotation {status}: {summary.saved} saved to DB")
+    if status != "success":
+        raise typer.Exit(result_exit_code(status))
+
+
+def _annotation_summary_status(summary: _StreamAnnotateSummary) -> str:
+    unsuccessful = bool(summary.total_failed or summary.save_errors or summary.error_models)
+    return "success" if not unsuccessful else "partial_success" if summary.saved else "failed"
 
 
 def _validate_annotation_summary(summary: _StreamAnnotateSummary) -> None:
@@ -638,6 +649,8 @@ def _emit_annotation_result(summary: _StreamAnnotateSummary, resolved_litellm_id
     """Emit the terminal JSONL result for annotate run."""
     emit_result(
         f"Annotated {summary.saved} image(s)",
+        ok=_annotation_summary_status(summary) == "success",
+        status=_annotation_summary_status(summary),
         annotated=summary.saved,
         skipped=summary.skipped + summary.preflight_skipped + summary.total_failed,
         resolution_skipped=summary.resolution_skipped,
@@ -887,6 +900,24 @@ def _warn_deprecated_models(annotator: Any, models: list[str]) -> None:
         _status_console().print(f"[yellow]Warning: Model '{model}' is deprecated[/yellow]")
 
 
+def _validate_run_options(
+    output: str | None, run_id: str | None, resume: str | None, *, selection_flags: bool
+) -> None:
+    if output is not None:
+        raise click.UsageError(
+            "--output/-o is unsupported: annotate run saves results to the project database. "
+            "Omit --output, then use export create with explicit image IDs for file output."
+        )
+    if run_id is not None and resume is not None:
+        raise click.UsageError("--run-id and --resume are mutually exclusive")
+    if run_id is not None or resume is not None:
+        from lorairo.services.annotation_run_ledger import validate_run_id
+
+        validate_run_id(run_id if run_id is not None else str(resume))
+    if resume is not None and selection_flags:
+        raise click.UsageError("--resume uses the saved selection/resolution; omit selection flags")
+
+
 @app.command("run")
 def run(
     project: str = typer.Option(
@@ -960,6 +991,16 @@ def run(
             "Images without a matching processed image are skipped."
         ),
     ),
+    run_id: str | None = typer.Option(
+        None,
+        "--run-id",
+        help="Create a new durable run ID (1-64 ASCII letters/digits/_/-). Processes one image at a time.",
+    ),
+    resume: str | None = typer.Option(
+        None,
+        "--resume",
+        help="Resume a durable run ID: only pending images; repeat the same --project/--model. No selection flags.",
+    ),
 ) -> None:
     """Run annotation on project images.
 
@@ -970,6 +1011,9 @@ def run(
     Explicit ID files are UTF-8 newline/comma lists (max 100,000). Filters intersect the input;
     ascending ID order, offset, then limit apply before resolution selection. Missing processed
     images are skipped. JSON outcome rows distinguish completed/failed/skipped/unexecuted.
+    --run-id creates durable progress; --resume continues only never-started pending images.
+    Completed, failed and ambiguous in_flight images are never automatically retried.
+    Durable runs process one image at a time regardless of --batch-size. See docs/cli-annotation-resume.md.
 
     Issue #245 / ADR 0023 Phase 1.11: `--model` には `litellm_model_id` (registry
     key SSoT) を渡すこと。display 名 (`Model.name`) は同一値で複数 route の行が
@@ -983,14 +1027,23 @@ def run(
             --model openrouter/openai/gpt-4o --model openrouter/anthropic/claude-3-5-sonnet
     """
     with command_boundary():
-        if output is not None:
-            raise click.UsageError(
-                "--output/-o is unsupported: annotate run saves results to the project database. "
-                "Omit --output, then use export create with explicit image IDs for file output."
-            )
+        _validate_run_options(
+            output,
+            run_id,
+            resume,
+            selection_flags=bool(
+                image_id
+                or image_ids_file is not None
+                or unrated
+                or missing_model is not None
+                or offset
+                or limit is not None
+                or resolution is not None
+            ),
+        )
         explicit_ids = resolve_annotation_ids(image_id, image_ids_file)
         # API層経由でプロジェクト確認 & DB 接続切り替え
-        api_get_project(project)
+        project_info = api_get_project(project)
 
         container = get_service_container()
         container.set_active_project(project)
@@ -1007,6 +1060,25 @@ def run(
             unrated=unrated,
             missing_model=missing_model,
         )
+
+        if run_id is not None or resume is not None:
+            from lorairo.cli._annotation_resume import run_durable_annotation
+
+            run_durable_annotation(
+                container,
+                project_path=project_info.path,
+                project=project,
+                run_id=run_id if run_id is not None else str(resume),
+                resume=resume is not None,
+                models=resolved_litellm_ids,
+                image_ids=explicit_ids,
+                file_input=image_ids_file is not None,
+                criteria=criteria,
+                offset=offset,
+                limit=limit,
+                resolution=resolution,
+            )
+            return
 
         if explicit_ids:
             from lorairo.cli._annotation_ids import run_id_annotation
@@ -1203,7 +1275,7 @@ def import_batch(
     """Import OpenAI Batch API result JSONL files in bulk.
     OpenAI Batch API結果JSONLを一括インポートする。
 
-    Partial or complete failures exit 1; successful/empty/normal skip results exit 0.
+    Partial failures exit 3, complete failures exit 1; successful/empty/normal skip results exit 0.
 
     Reads all JSONL files in the directory, matches custom_id against
     registered image filenames in the DB, and imports annotation results.
@@ -1225,11 +1297,12 @@ def import_batch(
         )
         failures = result.parse_errors + result.save_errors + result.unmatched
         successes = result.matched if dry_run else result.saved
+        status = "success" if not failures else "partial_success" if successes else "failed"
         if is_json_mode():
             emit_result(
                 f"Imported {result.saved} batch annotation(s)",
                 ok=failures == 0,
-                status="success" if not failures else "partial_success" if successes else "failed",
+                status=status,
                 unmatched_ids=list(result.unmatched_ids),
                 error_details=list(result.error_details),
                 total_records=result.total_records,
@@ -1245,4 +1318,4 @@ def import_batch(
         else:
             _display_batch_import_result(result, dry_run=dry_run)
         if failures:
-            raise typer.Exit(1)
+            raise typer.Exit(result_exit_code(status))
