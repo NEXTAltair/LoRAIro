@@ -22,6 +22,12 @@ Windows environments and all existing named volumes are retained.
 Project .claude/.codex directories are not covered by home volumes.
 Common settings remain readable in each checkout.
 
+## Shared-worktree profile (opt-in)
+
+To recreate the current shared-worktree container shape (rw host mount, OS-specific worktrees, shared
+venv) instead of the profile above, see [shared-worktree/README.md](shared-worktree/README.md). It is
+selected only by an explicit `--config` and changes nothing in this default profile.
+
 ## First migration and rebuild
 
 Finish agent work first. Inspect processes and dirty worktrees; preserve any

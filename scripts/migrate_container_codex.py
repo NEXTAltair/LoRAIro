@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import io
 import json
 import subprocess
 import tarfile
@@ -271,7 +272,128 @@ fi
     print("Linux XDG settings, caches, state and global Git config backed up and migrated.")
 
 
-if __name__ == "__main__":
+SHARED_EXTRAS = (
+    # (コンテナ内パス, 永続ボリューム内パス, mode, 必須)
+    ("/home/vscode/.local/bin/herdr", "bin/herdr", 0o755, True),
+    ("/home/vscode/.claude.json", "claude.json", 0o600, True),
+    ("/home/vscode/.ssh/authorized_keys", "ssh/authorized_keys", 0o600, True),
+    ("/home/vscode/.ssh/known_hosts", "ssh/known_hosts", 0o644, False),
+)
+
+
+def preflight_shared_extras(container: str) -> dict[str, bool]:
+    """Check that every required shared extra exists in the source before any volume is written."""
+    check_sources = (
+        "import json, pathlib; "
+        f"print(json.dumps({{p: pathlib.Path(p).is_file() for p, _, _, _ in {SHARED_EXTRAS!r}}}))"
+    )
+    present: dict[str, bool] = json.loads(
+        docker("exec", container, "python3", "-c", check_sources, capture_output=True, text=True).stdout
+    )
+    missing = [path for path, _, _, required in SHARED_EXTRAS if required and not present[path]]
+    if missing:
+        # 必須 source 欠落では成功 archive / manifest を作らない
+        raise ValueError(f"Required shared extras missing in source container: {', '.join(missing)}")
+    return present
+
+
+def migrate_shared_extras(
+    container: str,
+    backup_dir: Path,
+    volume: str = "lorairo-shared-persist",
+    *,
+    reuse_private_directory: bool = False,
+) -> None:
+    """Opt-in: seed the shared-worktree profile's persistent volume (Herdr, ~/.claude.json, authorized_keys).
+
+    Files are copied as opaque bytes into a private tar, never printed. A nonempty destination volume
+    (including a partial earlier attempt) is refused; the backup is always retained.
+    """
+    if reuse_private_directory:
+        validate_private_directory(backup_dir)
+    else:
+        create_private_directory(backup_dir)
+    info = json.loads(docker("inspect", container, capture_output=True, text=True).stdout)[0]
+    if not info["State"]["Running"] or info["State"]["Paused"]:
+        raise ValueError("Source container must be running and unpaused")
+    present = preflight_shared_extras(container)
+    archive = backup_dir / "shared-extras.tar"
+    digests: dict[str, str] = {}
+    with open_private_file(archive) as destination, tarfile.open(fileobj=destination, mode="w") as contents:
+        for source_path, relative, mode, _ in SHARED_EXTRAS:
+            if not present[source_path]:
+                continue
+            data = docker("exec", container, "cat", source_path, capture_output=True).stdout
+            digests[relative] = hashlib.sha256(data).hexdigest()
+            for parent in reversed(Path(relative).parents[:-1]):
+                directory = tarfile.TarInfo(parent.as_posix())
+                directory.type, directory.mode = tarfile.DIRTYPE, 0o700
+                if parent.as_posix() not in contents.getnames():
+                    contents.addfile(directory)
+            member = tarfile.TarInfo(relative)
+            member.size, member.mode = len(data), mode
+            contents.addfile(member, io.BytesIO(data))
+    restore = """
+set -eu
+if [ -n "$(ls -A /restore)" ]; then
+    echo 'Destination shared persist volume is not empty; refusing to overwrite it.' >&2
+    exit 1
+fi
+tar -xpf - -C /restore
+chown -R 1000:1000 /restore
+"""
+    with archive.open("rb") as source:
+        docker(
+            "run",
+            "--rm",
+            "-i",
+            "--user",
+            "0",
+            "--mount",
+            f"source={volume},target=/restore,type=volume",
+            "--entrypoint",
+            "bash",
+            info["Image"],
+            "-c",
+            restore,
+            stdin=source,
+        )
+    verify = (
+        "import hashlib, json, pathlib; "
+        f"rel = {[r for _, r, _, _ in SHARED_EXTRAS]!r}; "
+        "print(json.dumps({r: hashlib.sha256(pathlib.Path('/persist', r).read_bytes()).hexdigest() "
+        "for r in rel if pathlib.Path('/persist', r).is_file()}))"
+    )
+    verified = json.loads(
+        docker(
+            "run",
+            "--rm",
+            "--mount",
+            f"source={volume},target=/persist,type=volume,readonly",
+            "--entrypoint",
+            "python3",
+            info["Image"],
+            "-c",
+            verify,
+            capture_output=True,
+            text=True,
+        ).stdout
+    )
+    if verified != digests:
+        raise ValueError("Shared extras verification failed; backup retained")
+    with open_private_file(backup_dir / "shared-extras-migration.json") as destination:
+        destination.write(
+            (
+                json.dumps({"container": container, "volume": volume, "seeded_sha256": digests}, indent=2)
+                + "\n"
+            ).encode("utf-8")
+        )
+    print(
+        f"Shared-worktree extras seeded into volume {volume}: {len(digests)} file(s); contents not shown."
+    )
+
+
+def main(argv: list[str] | None = None) -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--container", required=True)
     parser.add_argument("--backup-dir", required=True, type=Path)
@@ -281,6 +403,32 @@ if __name__ == "__main__":
         type=Path,
         help="Original project config, to retain only portable sandbox/inherit preferences",
     )
-    args = parser.parse_args()
+    extras = parser.add_mutually_exclusive_group()
+    extras.add_argument(
+        "--shared-extras-only",
+        action="store_true",
+        help="Opt-in: only seed the shared-worktree persist volume (Codex/XDG already live in named volumes)",
+    )
+    extras.add_argument(
+        "--with-shared-extras",
+        action="store_true",
+        help="Opt-in: additionally seed the shared-worktree persist volume",
+    )
+    parser.add_argument("--shared-volume", default="lorairo-shared-persist")
+    args = parser.parse_args(argv)
+    if args.shared_extras_only:
+        migrate_shared_extras(args.container, args.backup_dir, args.shared_volume)
+        return
+    if args.with_shared_extras:
+        # Codex / XDG volume を書く前に必須 source を確認し、部分 migration を避ける
+        preflight_shared_extras(args.container)
     migrate(args.container, args.backup_dir, args.volume, args.project_config)
     migrate_xdg(args.container, args.backup_dir, reuse_private_directory=True)
+    if args.with_shared_extras:
+        migrate_shared_extras(
+            args.container, args.backup_dir, args.shared_volume, reuse_private_directory=True
+        )
+
+
+if __name__ == "__main__":
+    main()
