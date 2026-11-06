@@ -226,6 +226,27 @@ def _drop_inactive_noise_keys(data: dict[str, object]) -> None:
         data.pop(key, None)
 
 
+def _derive_network_train_flags(data: dict[str, object], normalized: dict[str, NormalizedValue]) -> None:
+    """text_encoder_lr / unet_lr から学習対象フラグを導く (lora_gui.py resolve_network_train_flags)。
+
+    0 の学習率は後で取り除かれるため、その前に元の値で判定する。
+    """
+    text_encoder_lr = _to_float(data.get("text_encoder_lr")) or 0.0
+    unet_lr = _to_float(data.get("unet_lr")) or 0.0
+    if text_encoder_lr != 0 and unet_lr == 0:
+        normalized["network_train_text_encoder_only"] = True
+    elif text_encoder_lr == 0 and unet_lr != 0:
+        normalized["network_train_unet_only"] = True
+
+
+def _drop_sdxl_only_keys(data: dict[str, object], is_sdxl: bool) -> None:
+    """GUI は sdxl が偽のとき sdxl 専用の項目を出力しない。"""
+    if is_sdxl:
+        return
+    for key in ("sdxl_cache_text_encoder_outputs", "sdxl_no_half_vae"):
+        data.pop(key, None)
+
+
 def _drop_zero_unset_keys(data: dict[str, object]) -> None:
     """GUI が 0 を無効として出力しないキーの 0 を取り除く。"""
     for key in _ZERO_MEANS_UNSET_KEYS & data.keys():
@@ -331,6 +352,8 @@ def normalize_kohya_gui_config(raw_text: str) -> NormalizedConfig:
         normalized["log_with"] = "wandb"
 
     _drop_inactive_noise_keys(data)
+    _drop_sdxl_only_keys(data, is_sdxl)
+    _derive_network_train_flags(data, normalized)
     _drop_zero_unset_keys(data)
     _apply_lr_warmup(data, normalized, unmapped)
     locon_consumed = _apply_lora_type(data, normalized, unmapped)

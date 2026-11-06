@@ -178,3 +178,32 @@ def test_unknown_noise_type_drops_both_groups_and_missing_type_keeps_values():
     assert other.normalized == {}
     missing = _normalize({"noise_offset": 0.1})
     assert missing.normalized == {"noise_offset": 0.1}
+
+
+def test_text_encoder_only_flag_is_derived_before_zero_unet_lr_is_dropped():
+    result = _normalize({"learning_rate": 0.0001, "text_encoder_lr": 0.00005, "unet_lr": 0})
+    assert result.normalized["network_train_text_encoder_only"] is True
+    assert "network_train_unet_only" not in result.normalized
+    assert "unet_lr" not in result.normalized
+
+
+def test_unet_only_flag_is_derived_when_text_encoder_lr_is_zero():
+    result = _normalize({"learning_rate": "0.0001", "text_encoder_lr": "0", "unet_lr": "0.0002"})
+    assert result.normalized["network_train_unet_only"] is True
+    assert "network_train_text_encoder_only" not in result.normalized
+    assert result.normalized["unet_lr"] == 0.0002
+
+
+def test_no_train_flag_when_both_or_neither_lr_is_set():
+    both = _normalize({"text_encoder_lr": 0.1, "unet_lr": 0.2})
+    neither = _normalize({"text_encoder_lr": 0, "unet_lr": 0})
+    for result in (both, neither):
+        assert "network_train_unet_only" not in result.normalized
+        assert "network_train_text_encoder_only" not in result.normalized
+
+
+def test_sdxl_only_flags_are_dropped_unless_sdxl():
+    off = _normalize({"sdxl_cache_text_encoder_outputs": True, "sdxl_no_half_vae": True})
+    assert off.normalized == {}
+    on = _normalize({"sdxl": True, "sdxl_cache_text_encoder_outputs": True, "sdxl_no_half_vae": True})
+    assert on.normalized == {"cache_text_encoder_outputs": True, "no_half_vae": True}
