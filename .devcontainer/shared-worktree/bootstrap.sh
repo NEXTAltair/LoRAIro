@@ -22,34 +22,33 @@ ENTRIES=(
 )
 
 failed=0
-staged=""
-trap '[[ -z $staged ]] || rm -f -- "$staged"' EXIT
 
 refuse() { echo "[shared-worktree] $1" >&2; failed=1; }
 absent() { [[ ! -e $1 && ! -L $1 ]]; }
 regular() { [[ -f $1 && ! -L $1 ]]; }
 
-install_new() { # source destination mode: 宛先が存在すれば失敗する (ln は no-clobber かつ原子的)
-    local source=$1 destination=$2 mode=$3
-    mkdir -p "$(dirname "$destination")"
-    staged=$(mktemp "$destination.XXXXXX")
-    cp -- "$source" "$staged"
-    chmod "$mode" "$staged"
-    if ln -- "$staged" "$destination" 2>/dev/null; then
-        rm -f -- "$staged"
-        staged=""
-    else
-        return 1
+# 各段階の失敗を明示的に伝播する (呼び出し元が if/|| で使っても errexit 無効の影響を受けない)。
+# 失敗時は temp をその場で削除し、宛先には何も公開しない。
+install_new() { # source destination mode: 宛先が存在すれば失敗 (ln -T は宛先を常に通常パスとして扱う no-clobber)
+    local source=$1 destination=$2 mode=$3 temp
+    mkdir -p -- "$(dirname "$destination")" || return 1
+    temp=$(mktemp "$destination.XXXXXX") || return 1
+    if cp -- "$source" "$temp" && chmod -- "$mode" "$temp" && ln -T -- "$temp" "$destination" 2>/dev/null; then
+        rm -f -- "$temp"
+        return 0
     fi
+    rm -f -- "$temp"
+    return 1
 }
 
-replace_file() { # 既存の通常ファイルを原子的に置換 (呼び出し側で退避済み)
-    local source=$1 destination=$2 mode=$3
-    staged=$(mktemp "$destination.XXXXXX")
-    cp -- "$source" "$staged"
-    chmod "$mode" "$staged"
-    mv -- "$staged" "$destination"
-    staged=""
+replace_file() { # 既存の通常ファイルを原子的に置換 (呼び出し側で旧 bytes を退避済み)
+    local source=$1 destination=$2 mode=$3 temp
+    temp=$(mktemp "$destination.XXXXXX") || return 1
+    if cp -- "$source" "$temp" && chmod -- "$mode" "$temp" && mv -T -- "$temp" "$destination"; then
+        return 0
+    fi
+    rm -f -- "$temp"
+    return 1
 }
 
 restore() {
@@ -68,7 +67,7 @@ restore() {
             if install_new "$saved" "$live" "$mode"; then
                 echo "[shared-worktree] $name: restored"
             else
-                refuse "$name: destination appeared during restore; not overwritten"
+                refuse "$name: could not install (destination appeared or copy failed); nothing published"
             fi
         elif regular "$live" && cmp -s -- "$saved" "$live"; then
             echo "[shared-worktree] $name: already present"
@@ -88,7 +87,7 @@ save() {
             if [[ $required == 1 ]]; then refuse "$name: required live file missing"; else echo "[shared-worktree] $name: no live file (skipped)"; fi
         elif absent "$saved"; then
             mkdir -p "$(dirname "$saved")"
-            if install_new "$live" "$saved" "$mode"; then echo "[shared-worktree] $name: saved"; else refuse "$name: persisted path appeared during save"; fi
+            if install_new "$live" "$saved" "$mode"; then echo "[shared-worktree] $name: saved"; else refuse "$name: could not save (unreadable source or persisted path appeared)"; fi
         elif ! regular "$saved"; then
             refuse "$name: persisted path is not a regular file; refusing"
         elif cmp -s -- "$saved" "$live"; then
@@ -104,11 +103,18 @@ save() {
             else
                 install_new "$saved" "$backup" 600 || { refuse "$name: could not back up previous copy"; continue; }
             fi
-            replace_file "$live" "$saved" "$mode"
-            echo "[shared-worktree] $name: updated (previous copy kept in backups/)"
+            if replace_file "$live" "$saved" "$mode"; then
+                echo "[shared-worktree] $name: updated (previous copy kept in backups/)"
+            else
+                refuse "$name: could not update persisted copy; previous copy untouched"
+            fi
         fi
     done
 }
+
+if [[ ${BASH_SOURCE[0]} != "$0" ]]; then
+    return 0 2>/dev/null || true # テスト用: source された場合は関数定義のみ
+fi
 
 case "${1:-}" in
 restore | save)

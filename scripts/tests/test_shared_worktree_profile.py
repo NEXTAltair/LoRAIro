@@ -58,6 +58,9 @@ def test_default_profile_is_unchanged() -> None:
     assert "shared-worktree" not in default
 
 
+posix_only = pytest.mark.skipif(os.name == "nt", reason="bootstrap.sh runs in the Linux container")
+
+
 def bootstrap(home: Path, persist: Path, mode: str) -> subprocess.CompletedProcess:
     env = dict(os.environ, HOME=str(home), LORAIRO_PERSIST_DIR=str(persist))
     return subprocess.run(
@@ -81,6 +84,7 @@ def seeded(tmp_path):
     return home, persist
 
 
+@posix_only
 def test_restore_into_new_container_keeps_bytes_and_modes(seeded) -> None:
     home, persist = seeded
     result = bootstrap(home, persist, "restore")
@@ -94,6 +98,7 @@ def test_restore_into_new_container_keeps_bytes_and_modes(seeded) -> None:
     assert bootstrap(home, persist, "restore").returncode == 0
 
 
+@posix_only
 def test_restore_refuses_differing_existing_files_and_keeps_them(seeded) -> None:
     home, persist = seeded
     write(home / ".claude.json", b"different settings")
@@ -105,6 +110,7 @@ def test_restore_refuses_differing_existing_files_and_keeps_them(seeded) -> None
     assert (home / ".local/bin/herdr").is_file()
 
 
+@posix_only
 def test_restore_from_empty_volume_fails_instead_of_reporting_success(tmp_path) -> None:
     home, persist = tmp_path / "home", tmp_path / "persist"
     home.mkdir()
@@ -115,6 +121,7 @@ def test_restore_from_empty_volume_fails_instead_of_reporting_success(tmp_path) 
     assert not (home / ".local/bin/herdr").exists()
 
 
+@posix_only
 def test_intentional_fresh_container_may_opt_out_of_required_seeding(tmp_path) -> None:
     home, persist = tmp_path / "home", tmp_path / "persist"
     home.mkdir()
@@ -127,6 +134,7 @@ def test_intentional_fresh_container_may_opt_out_of_required_seeding(tmp_path) -
     assert result.stdout.count("not seeded") == 4
 
 
+@posix_only
 def test_restore_never_replaces_symlinks_directories_or_special_files(seeded) -> None:
     home, persist = seeded
     (home / ".claude.json").symlink_to(home / "missing-target")  # 切れた symlink
@@ -146,6 +154,7 @@ def test_restore_never_replaces_symlinks_directories_or_special_files(seeded) ->
 
 
 @pytest.mark.skipif(not hasattr(os, "mkfifo"), reason="POSIX special file")
+@posix_only
 def test_restore_never_replaces_a_fifo(seeded) -> None:
     home, persist = seeded
     os.mkfifo(home / ".claude.json")
@@ -153,6 +162,7 @@ def test_restore_never_replaces_a_fifo(seeded) -> None:
     assert (home / ".claude.json").is_fifo()
 
 
+@posix_only
 def test_save_copies_live_files_and_keeps_previous_bytes_on_update(tmp_path) -> None:
     home, persist = tmp_path / "home", tmp_path / "persist"
     write(home / ".local/bin/herdr", b"herdr-0.9.3", 0o755)
@@ -173,6 +183,7 @@ def test_save_copies_live_files_and_keeps_previous_bytes_on_update(tmp_path) -> 
     assert (persist / "bin/herdr").read_bytes() == b"herdr-0.9.3"
 
 
+@posix_only
 def test_save_fails_when_a_required_live_file_is_missing(tmp_path) -> None:
     home, persist = tmp_path / "home", tmp_path / "persist"
     write(home / ".claude.json", b"v1")
@@ -181,6 +192,7 @@ def test_save_fails_when_a_required_live_file_is_missing(tmp_path) -> None:
     assert "required live file missing" in result.stderr
 
 
+@posix_only
 def test_known_hosts_is_optional_but_preserved_when_seeded(seeded) -> None:
     home, persist = seeded
     write(persist / "ssh/known_hosts", b"host key line\n", 0o644)
@@ -241,8 +253,9 @@ def test_shared_extras_seed_opaque_bytes_without_printing_them(tmp_path, monkeyp
     assert "do-not-print" not in output.out + output.err
     manifest = (tmp_path / "backup" / "shared-extras-migration.json").read_text()
     assert "do-not-print" not in manifest
-    for path in (tmp_path / "backup").iterdir():
-        assert path.stat().st_mode & 0o777 == 0o600
+    if os.name != "nt":  # Windows の保護 DACL は private_backup 側のテストで検証
+        for path in (tmp_path / "backup").iterdir():
+            assert path.stat().st_mode & 0o777 == 0o600
 
 
 def test_shared_extras_refuse_nonempty_volume_and_keep_backup(tmp_path, monkeypatch) -> None:
@@ -296,3 +309,33 @@ def test_shared_extras_seed_optional_known_hosts_when_present(tmp_path, monkeypa
     monkeypatch.setattr(migration, "docker", fake)
     migration.migrate_shared_extras("old", tmp_path / "backup")
     assert fake.volume["ssh/known_hosts"] == b"hosts"
+
+
+@posix_only
+@pytest.mark.skipif(os.name == "nt" or os.geteuid() == 0, reason="needs a non-root POSIX user")
+def test_save_with_unreadable_source_publishes_nothing_and_leaves_no_temp(tmp_path) -> None:
+    home, persist = tmp_path / "home", tmp_path / "persist"
+    write(home / ".local/bin/herdr", b"herdr", 0o755)
+    write(home / ".claude.json", b"secret", 0o000)  # cp が失敗する
+    write(home / ".ssh/authorized_keys", b"key")
+    result = bootstrap(home, persist, "save")
+    assert result.returncode == 1
+    assert "could not save" in result.stderr
+    assert not (persist / "claude.json").exists()  # 空/切り詰めファイルを公開しない
+    assert [p.name for p in persist.rglob("*") if re.search(r"\.[A-Za-z0-9]{6}$", p.name)] == []
+    (home / ".claude.json").chmod(0o600)
+
+
+@posix_only
+def test_install_new_never_links_into_a_destination_that_became_a_directory(tmp_path) -> None:
+    source = tmp_path / "source"
+    source.write_bytes(b"data")
+    destination = tmp_path / "dest"
+    destination.mkdir()
+    script = f'source "{PROFILE / "bootstrap.sh"}"; set +e; install_new "{source}" "{destination}" 600; echo rc=$?'
+    result = subprocess.run(
+        ["bash", "-c", script], capture_output=True, text=True, env=dict(os.environ, HOME=str(tmp_path))
+    )
+    assert "rc=1" in result.stdout
+    assert list(destination.iterdir()) == []
+    assert sorted(p.name for p in tmp_path.iterdir()) == ["dest", "source"]
