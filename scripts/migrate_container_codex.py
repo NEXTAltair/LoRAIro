@@ -10,6 +10,7 @@ import argparse
 import hashlib
 import io
 import json
+import re
 import subprocess
 import tarfile
 import tomllib
@@ -17,6 +18,30 @@ from pathlib import Path
 
 from configure_agent_environment import migrate_codex_local_preferences
 from private_backup import create_private_directory, open_private_file, validate_private_directory
+
+DEFAULT_PREFIX = "lorairo"
+_PREFIX_PATTERN = re.compile(r"[a-z0-9][a-z0-9_.-]{2,39}")
+
+
+def validate_volume_prefix(prefix: str) -> str:
+    """Reject prefixes that are malformed or would select the existing default volumes."""
+    if not _PREFIX_PATTERN.fullmatch(prefix) or prefix == DEFAULT_PREFIX:
+        raise ValueError(
+            f"Invalid volume prefix {prefix!r}: use 3-40 chars [a-z0-9_.-] starting alphanumeric, "
+            f"and not the default {DEFAULT_PREFIX!r}"
+        )
+    return prefix
+
+
+def volume_names(prefix: str = DEFAULT_PREFIX) -> dict[str, str]:
+    """Codex / XDG / persist volume names; the shared-worktree profile mounts the same names."""
+    return {
+        "codex": f"{prefix}-codex-config",
+        "config": f"{prefix}-linux-config",
+        "cache": f"{prefix}-linux-cache",
+        "state": f"{prefix}-linux-state",
+        "persist": f"{prefix}-shared-persist",
+    }
 
 
 def docker(*args: str, **kwargs) -> subprocess.CompletedProcess:
@@ -171,17 +196,24 @@ print(hashlib.sha256(p.read_bytes()).hexdigest() if p.is_file() else 'absent')
     print("Linux Codex backup and volume migration verified; Windows Codex home was not accessed.")
 
 
-def migrate_xdg(container: str, backup_dir: Path, *, reuse_private_directory: bool = False) -> None:
+def migrate_xdg(
+    container: str,
+    backup_dir: Path,
+    *,
+    reuse_private_directory: bool = False,
+    volumes: dict[str, str] | None = None,
+) -> None:
     """Retain GitHub/Qt preferences, caches and state which new XDG mounts would hide."""
     if reuse_private_directory:
         validate_private_directory(backup_dir)
     else:
         create_private_directory(backup_dir)
     info = json.loads(docker("inspect", container, capture_output=True, text=True).stdout)[0]
+    names = volumes or volume_names()
     domains = (
-        ("/home/vscode/.config", ".config", "lorairo-linux-config"),
-        ("/home/vscode/.cache", ".cache", "lorairo-linux-cache"),
-        ("/home/vscode/.local/state", "state", "lorairo-linux-state"),
+        ("/home/vscode/.config", ".config", names["config"]),
+        ("/home/vscode/.cache", ".cache", names["cache"]),
+        ("/home/vscode/.local/state", "state", names["state"]),
     )
     # Old images need not have created any XDG state or a legacy global Git config.
     source_paths = {path: "is_dir" for path, _, _ in domains}
@@ -259,7 +291,7 @@ fi
                 "--user",
                 "0",
                 "--mount",
-                "source=lorairo-linux-config,target=/config,type=volume",
+                f"source={names['config']},target=/config,type=volume",
                 "--entrypoint",
                 "bash",
                 info["Image"],
@@ -397,7 +429,7 @@ def main(argv: list[str] | None = None) -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--container", required=True)
     parser.add_argument("--backup-dir", required=True, type=Path)
-    parser.add_argument("--volume", default="lorairo-codex-config")
+    parser.add_argument("--volume", default=None, help="Codex volume (default lorairo-codex-config)")
     parser.add_argument(
         "--project-config",
         type=Path,
@@ -414,20 +446,37 @@ def main(argv: list[str] | None = None) -> None:
         action="store_true",
         help="Opt-in: additionally seed the shared-worktree persist volume",
     )
-    parser.add_argument("--shared-volume", default="lorairo-shared-persist")
+    parser.add_argument(
+        "--shared-volume", default=None, help="Persist volume (default lorairo-shared-persist)"
+    )
+    parser.add_argument(
+        "--volume-prefix",
+        help="Opt-in: seed fresh <prefix>-codex-config / -linux-config / -linux-cache / -linux-state / "
+        "-shared-persist volumes instead of the existing ones. The shared-worktree profile must mount the "
+        "same names (LORAIRO_VOLUME_PREFIX). Cannot be combined with --volume / --shared-volume.",
+    )
     args = parser.parse_args(argv)
+    # Docker や backup への書込み前に引数の矛盾・不正を拒否する
+    if args.volume_prefix is not None:
+        if args.volume is not None or args.shared_volume is not None:
+            parser.error("--volume-prefix cannot be combined with --volume or --shared-volume")
+        try:
+            validate_volume_prefix(args.volume_prefix)
+        except ValueError as error:
+            parser.error(str(error))
+    names = volume_names(args.volume_prefix or DEFAULT_PREFIX)
+    codex_volume = args.volume or names["codex"]
+    persist_volume = args.shared_volume or names["persist"]
     if args.shared_extras_only:
-        migrate_shared_extras(args.container, args.backup_dir, args.shared_volume)
+        migrate_shared_extras(args.container, args.backup_dir, persist_volume)
         return
     if args.with_shared_extras:
         # Codex / XDG volume を書く前に必須 source を確認し、部分 migration を避ける
         preflight_shared_extras(args.container)
-    migrate(args.container, args.backup_dir, args.volume, args.project_config)
-    migrate_xdg(args.container, args.backup_dir, reuse_private_directory=True)
+    migrate(args.container, args.backup_dir, codex_volume, args.project_config)
+    migrate_xdg(args.container, args.backup_dir, reuse_private_directory=True, volumes=names)
     if args.with_shared_extras:
-        migrate_shared_extras(
-            args.container, args.backup_dir, args.shared_volume, reuse_private_directory=True
-        )
+        migrate_shared_extras(args.container, args.backup_dir, persist_volume, reuse_private_directory=True)
 
 
 if __name__ == "__main__":

@@ -20,6 +20,8 @@
     "forwardPorts": [2222],
     "workspaceMount": "source=${localWorkspaceFolder},target=/workspaces/LoRAIro,type=bind",
     "workspaceFolder": "/workspaces/LoRAIro",
+    // VS Code 終了で Herdr / agent を落とさない
+    "shutdownAction": "none",
     "overrideCommand": true,
     "remoteUser": "vscode",
     "containerEnv": {
@@ -34,17 +36,19 @@
         "GIT_CONFIG_GLOBAL": "/home/vscode/.config/git/config",
         "PYTHONDONTWRITEBYTECODE": "1"
     },
+    // Codex / XDG / persist の 5 volume 名は LORAIRO_VOLUME_PREFIX (既定 lorairo) で切替。
+    // migrate_container_codex.py --volume-prefix <同じ値> と一致させる。
     "mounts": [
         "source=lorairo-bashhistory,target=/home/vscode/.bash_history,type=volume",
         "source=lorairo-vscode-extensions,target=/home/vscode/.vscode-server/extensions,type=volume",
         "source=lorairo-venv,target=/workspaces/LoRAIro/.venv,type=volume",
         "source=lorairo-claude-config,target=/home/vscode/.claude,type=volume",
-        "source=lorairo-codex-config,target=/home/vscode/.codex,type=volume",
-        "source=lorairo-linux-config,target=/home/vscode/.config,type=volume",
-        "source=lorairo-linux-cache,target=/home/vscode/.cache,type=volume",
-        "source=lorairo-linux-state,target=/home/vscode/.local/state,type=volume",
+        "source=${localEnv:LORAIRO_VOLUME_PREFIX:lorairo}-codex-config,target=/home/vscode/.codex,type=volume",
+        "source=${localEnv:LORAIRO_VOLUME_PREFIX:lorairo}-linux-config,target=/home/vscode/.config,type=volume",
+        "source=${localEnv:LORAIRO_VOLUME_PREFIX:lorairo}-linux-cache,target=/home/vscode/.cache,type=volume",
+        "source=${localEnv:LORAIRO_VOLUME_PREFIX:lorairo}-linux-state,target=/home/vscode/.local/state,type=volume",
         "source=lorairo-worktrees,target=/tmp/worktrees,type=volume",
-        "source=lorairo-shared-persist,target=/home/vscode/.persist,type=volume"
+        "source=${localEnv:LORAIRO_VOLUME_PREFIX:lorairo}-shared-persist,target=/home/vscode/.persist,type=volume"
     ],
     // 独立 checkout 初期化・make setup・uv sync は呼ばない。ボリューム所有権の修正と保全ファイルの復元のみ。
     "postCreateCommand": "sudo chown vscode:vscode /home/vscode/.persist /home/vscode/.codex /home/vscode/.config /home/vscode/.cache /home/vscode/.local/state && bash /workspaces/LoRAIro/.devcontainer/shared-worktree/bootstrap.sh restore",

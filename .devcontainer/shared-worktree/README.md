@@ -24,6 +24,34 @@ existing destination that differs or is a symlink / directory / special file.
 to replace a differing Herdr binary (delete the persisted copy deliberately to upgrade).
 `known_hosts` is preserved as optional opaque bytes; losing it only costs re-verification.
 
+## Existing non-empty volumes: seed a fresh prefix
+
+If `lorairo-codex-config`, `lorairo-linux-config/cache/state` already exist and are non-empty (their purpose
+may be unknown), **keep them untouched** and seed new volumes under an explicit prefix instead. The prefix
+selects five names: `<prefix>-codex-config`, `<prefix>-linux-config`, `<prefix>-linux-cache`,
+`<prefix>-linux-state`, `<prefix>-shared-persist`. Claude, venv, worktrees, extensions and bash history
+volumes keep their `lorairo-*` names. The migration helper (`--volume-prefix`) and the profile
+(`LORAIRO_VOLUME_PREFIX`) must use the **same** value; the helper's XDG Git-config copy goes to the new
+`<prefix>-linux-config` as well. `--volume-prefix` cannot be combined with `--volume` / `--shared-volume`,
+and `lorairo` itself is rejected, before anything is written.
+
+~~~powershell
+$prefix = "lorairo-herdr-20261106"          # new, lower-case, never reuse a partially migrated prefix
+# 1) all five targets must be absent or empty (read-only inspection)
+foreach ($n in "codex-config","linux-config","linux-cache","linux-state","shared-persist") { docker volume inspect "$prefix-$n" }
+# 2) seed (the source container is paused briefly while docker cp runs: agents, Herdr and SSH freeze for that time)
+python scripts/migrate_container_codex.py --container <old-id> --backup-dir <new private dir> --with-shared-extras --volume-prefix $prefix
+# 3) create the new container with the same prefix visible to the Dev Containers CLI
+$env:LORAIRO_VOLUME_PREFIX = $prefix
+devcontainer up --workspace-folder <host checkout> --config .devcontainer/shared-worktree/devcontainer.json --id-label <new-label>
+~~~
+
+A non-empty prefixed volume is refused as well. After a partial migration do **not** retry: keep the backup
+directory and every volume, then choose a new prefix and a new backup directory deliberately. The backup
+directory is created private (0700; files 0600; protected DACL on Windows). The profile sets
+`shutdownAction: none` so closing VS Code does not stop Herdr or the agents.
+These commands were not executed against Docker here (see the end of this file).
+
 ## Recreation runbook (commands marked `<placeholder>` are not verified against this host)
 
 The currently running container has Codex/XDG on its **overlay** (no named home volumes) and no
