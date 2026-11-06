@@ -339,3 +339,21 @@ def test_install_new_never_links_into_a_destination_that_became_a_directory(tmp_
     assert "rc=1" in result.stdout
     assert list(destination.iterdir()) == []
     assert sorted(p.name for p in tmp_path.iterdir()) == ["dest", "source"]
+
+
+def test_with_shared_extras_aborts_before_any_codex_or_xdg_write_when_required_source_is_missing(
+    tmp_path, monkeypatch
+) -> None:
+    files = dict(HOST_FILES)
+    del files["/home/vscode/.ssh/authorized_keys"]
+    fake = FakeDocker(files)
+    monkeypatch.setattr(migration, "docker", fake)
+    monkeypatch.setattr(
+        migration, "migrate", lambda *a, **k: pytest.fail("Codex volume must stay untouched")
+    )
+    monkeypatch.setattr(
+        migration, "migrate_xdg", lambda *a, **k: pytest.fail("XDG volumes must stay untouched")
+    )
+    with pytest.raises(ValueError, match="Required shared extras missing"):
+        migration.main(["--container", "c", "--backup-dir", str(tmp_path / "b"), "--with-shared-extras"])
+    assert not (tmp_path / "b").exists()

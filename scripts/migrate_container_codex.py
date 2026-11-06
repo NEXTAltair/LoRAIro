@@ -281,6 +281,22 @@ SHARED_EXTRAS = (
 )
 
 
+def preflight_shared_extras(container: str) -> dict[str, bool]:
+    """Check that every required shared extra exists in the source before any volume is written."""
+    check_sources = (
+        "import json, pathlib; "
+        f"print(json.dumps({{p: pathlib.Path(p).is_file() for p, _, _, _ in {SHARED_EXTRAS!r}}}))"
+    )
+    present: dict[str, bool] = json.loads(
+        docker("exec", container, "python3", "-c", check_sources, capture_output=True, text=True).stdout
+    )
+    missing = [path for path, _, _, required in SHARED_EXTRAS if required and not present[path]]
+    if missing:
+        # 必須 source 欠落では成功 archive / manifest を作らない
+        raise ValueError(f"Required shared extras missing in source container: {', '.join(missing)}")
+    return present
+
+
 def migrate_shared_extras(
     container: str,
     backup_dir: Path,
@@ -300,17 +316,7 @@ def migrate_shared_extras(
     info = json.loads(docker("inspect", container, capture_output=True, text=True).stdout)[0]
     if not info["State"]["Running"] or info["State"]["Paused"]:
         raise ValueError("Source container must be running and unpaused")
-    check_sources = (
-        "import json, pathlib; "
-        f"print(json.dumps({{p: pathlib.Path(p).is_file() for p, _, _, _ in {SHARED_EXTRAS!r}}}))"
-    )
-    present = json.loads(
-        docker("exec", container, "python3", "-c", check_sources, capture_output=True, text=True).stdout
-    )
-    missing = [path for path, _, _, required in SHARED_EXTRAS if required and not present[path]]
-    if missing:
-        # 必須 source 欠落では成功 archive / manifest を作らない
-        raise ValueError(f"Required shared extras missing in source container: {', '.join(missing)}")
+    present = preflight_shared_extras(container)
     archive = backup_dir / "shared-extras.tar"
     digests: dict[str, str] = {}
     with open_private_file(archive) as destination, tarfile.open(fileobj=destination, mode="w") as contents:
@@ -413,6 +419,9 @@ def main(argv: list[str] | None = None) -> None:
     if args.shared_extras_only:
         migrate_shared_extras(args.container, args.backup_dir, args.shared_volume)
         return
+    if args.with_shared_extras:
+        # Codex / XDG volume を書く前に必須 source を確認し、部分 migration を避ける
+        preflight_shared_extras(args.container)
     migrate(args.container, args.backup_dir, args.volume, args.project_config)
     migrate_xdg(args.container, args.backup_dir, reuse_private_directory=True)
     if args.with_shared_extras:
