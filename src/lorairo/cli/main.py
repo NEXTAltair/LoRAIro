@@ -35,7 +35,18 @@ from lorairo.cli._output_mode import (
     set_json_mode,
     strip_mode_flags,
 )
-from lorairo.cli.commands import annotate, batch, errors, export, images, models, project, review, tags
+from lorairo.cli.commands import (
+    annotate,
+    batch,
+    dataset,
+    errors,
+    export,
+    images,
+    models,
+    project,
+    review,
+    tags,
+)
 from lorairo.cli.introspection import emit_describe, emit_list_commands
 from lorairo.services.service_container import get_service_container, service_container_scope
 from lorairo.utils.config import (
@@ -104,6 +115,7 @@ app.add_typer(models.app, name="models", help="Model registry commands")
 app.add_typer(batch.app, name="batch", help="Provider Batch API job commands")
 app.add_typer(tags.app, name="tags", help="Tag editing commands (agent-friendly)")
 app.add_typer(errors.app, name="errors", help="Error record management commands")
+app.add_typer(dataset.app, name="dataset", help="Kohya-ss training dataset import/export commands")
 
 
 @app.callback()
