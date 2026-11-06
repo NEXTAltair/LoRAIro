@@ -33,7 +33,8 @@ def test_profile_keeps_rw_workspace_and_unifies_uv_environment() -> None:
     assert "source=lorairo-venv,target=/workspaces/LoRAIro/.venv" in mounts
     assert "LoRAIro-linux" not in json.dumps(config)
     # 既存 named volume を再利用し、.local/bin 全体は volume 化しない
-    for volume in ("lorairo-codex-config", "lorairo-claude-config", "lorairo-linux-config"):
+    default = "${localEnv:LORAIRO_VOLUME_PREFIX:lorairo}"
+    for volume in (f"{default}-codex-config", "lorairo-claude-config", f"{default}-linux-config"):
         assert f"source={volume}," in mounts
     assert "target=/home/vscode/.local/bin" not in mounts
 
@@ -358,3 +359,133 @@ def test_with_shared_extras_aborts_before_any_codex_or_xdg_write_when_required_s
     with pytest.raises(ValueError, match="Required shared extras missing"):
         migration.main(["--container", "c", "--backup-dir", str(tmp_path / "b"), "--with-shared-extras"])
     assert not (tmp_path / "b").exists()
+
+
+PREFIX = "lorairo-herdr-20261106"
+
+
+def prefix_main(monkeypatch, tmp_path, *extra):
+    """Docker 呼び出しを記録するだけの模擬で CLI を実行する。"""
+    calls: list[tuple] = []
+    monkeypatch.setattr(migration, "preflight_shared_extras", lambda *a, **k: None)
+    monkeypatch.setattr(migration, "migrate", lambda c, b, volume, p=None: calls.append(("codex", volume)))
+    monkeypatch.setattr(
+        migration,
+        "migrate_xdg",
+        lambda c, b, reuse_private_directory=False, volumes=None: calls.append(("xdg", volumes)),
+    )
+    monkeypatch.setattr(
+        migration,
+        "migrate_shared_extras",
+        lambda c, b, volume="x", reuse_private_directory=False: calls.append(("persist", volume)),
+    )
+    migration.main(["--container", "c", "--backup-dir", str(tmp_path / "b"), *extra])
+    return calls
+
+
+def test_default_volume_names_are_unchanged(tmp_path, monkeypatch) -> None:
+    calls = prefix_main(monkeypatch, tmp_path, "--with-shared-extras")
+    assert calls[0] == ("codex", "lorairo-codex-config")
+    assert calls[1] == (
+        "xdg",
+        {
+            "codex": "lorairo-codex-config",
+            "config": "lorairo-linux-config",
+            "cache": "lorairo-linux-cache",
+            "state": "lorairo-linux-state",
+            "persist": "lorairo-shared-persist",
+        },
+    )
+    assert calls[2] == ("persist", "lorairo-shared-persist")
+
+
+def test_volume_prefix_selects_all_five_destinations(tmp_path, monkeypatch) -> None:
+    calls = prefix_main(monkeypatch, tmp_path, "--with-shared-extras", "--volume-prefix", PREFIX)
+    assert calls[0] == ("codex", f"{PREFIX}-codex-config")
+    assert calls[1][1] == {
+        "codex": f"{PREFIX}-codex-config",
+        "config": f"{PREFIX}-linux-config",
+        "cache": f"{PREFIX}-linux-cache",
+        "state": f"{PREFIX}-linux-state",
+        "persist": f"{PREFIX}-shared-persist",
+    }
+    assert calls[2] == ("persist", f"{PREFIX}-shared-persist")
+
+
+@pytest.mark.parametrize(
+    "extra",
+    [
+        ["--volume-prefix", PREFIX, "--volume", "other"],
+        ["--volume-prefix", PREFIX, "--shared-volume", "other"],
+        ["--volume-prefix", "lorairo"],
+        ["--volume-prefix", "Bad Prefix"],
+        ["--volume-prefix", "../x"],
+        ["--volume-prefix", "ab"],
+    ],
+)
+def test_conflicting_or_invalid_prefix_is_rejected_before_any_side_effect(
+    tmp_path, monkeypatch, extra
+) -> None:
+    monkeypatch.setattr(migration, "docker", lambda *a, **k: pytest.fail("Docker must not run"))
+    monkeypatch.setattr(migration, "create_private_directory", lambda *a: pytest.fail("no backup write"))
+    with pytest.raises(SystemExit):
+        migration.main(
+            ["--container", "c", "--backup-dir", str(tmp_path / "b"), "--with-shared-extras", *extra]
+        )
+    assert not (tmp_path / "b").exists()
+
+
+def test_prefix_propagates_to_xdg_seeding_and_gitconfig_destination(tmp_path, monkeypatch) -> None:
+    volumes = migration.volume_names(PREFIX)
+    runs = []
+
+    def docker(*args, **kwargs):
+        if args[0] == "inspect":
+            return subprocess.CompletedProcess(args, 0, '[{"Image":"img"}]')
+        if args[0] == "exec" and args[2] == "python3":
+            present = {
+                "/home/vscode/.config": False,
+                "/home/vscode/.cache": False,
+                "/home/vscode/.local/state": False,
+                "/home/vscode/.gitconfig": True,
+            }
+            return subprocess.CompletedProcess(args, 0, json.dumps(present))
+        if args[0] == "exec":  # cat .gitconfig
+            kwargs["stdout"].write(b"[user]\n")
+            return subprocess.CompletedProcess(args, 0)
+        runs.append(" ".join(args))
+        return subprocess.CompletedProcess(args, 0)
+
+    monkeypatch.setattr(migration, "docker", docker)
+    migration.migrate_xdg("old", tmp_path / "backup", volumes=volumes)
+    joined = "\n".join(runs)
+    for name in ("config", "cache", "state"):
+        assert f"source={volumes[name]}," in joined
+    assert "source=lorairo-linux-" not in joined  # 既存 4 volume には触れない
+    assert f"source={volumes['config']},target=/config" in joined
+
+
+def test_profile_mounts_match_cli_volume_names_and_keep_other_volumes() -> None:
+    config = load_config(PROFILE / "devcontainer.json")
+    placeholder = "${localEnv:LORAIRO_VOLUME_PREFIX:lorairo}"
+    mounts = {}
+    for mount in config["mounts"]:
+        fields = dict(part.split("=", 1) for part in mount.split(","))
+        mounts[fields["target"]] = fields["source"]
+    for prefix in ("lorairo", PREFIX):
+        names = migration.volume_names(prefix)
+        resolved = {t: v.replace(placeholder, prefix) for t, v in mounts.items()}
+        assert resolved["/home/vscode/.codex"] == names["codex"]
+        assert resolved["/home/vscode/.config"] == names["config"]
+        assert resolved["/home/vscode/.cache"] == names["cache"]
+        assert resolved["/home/vscode/.local/state"] == names["state"]
+        assert resolved["/home/vscode/.persist"] == names["persist"]
+    for target, volume in {
+        "/home/vscode/.claude": "lorairo-claude-config",
+        "/workspaces/LoRAIro/.venv": "lorairo-venv",
+        "/tmp/worktrees": "lorairo-worktrees",
+        "/home/vscode/.vscode-server/extensions": "lorairo-vscode-extensions",
+        "/home/vscode/.bash_history": "lorairo-bashhistory",
+    }.items():
+        assert mounts[target] == volume
+    assert config["shutdownAction"] == "none"
