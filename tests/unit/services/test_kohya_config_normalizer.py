@@ -207,3 +207,116 @@ def test_sdxl_only_flags_are_dropped_unless_sdxl():
     assert off.normalized == {}
     on = _normalize({"sdxl": True, "sdxl_cache_text_encoder_outputs": True, "sdxl_no_half_vae": True})
     assert on.normalized == {"cache_text_encoder_outputs": True, "no_half_vae": True}
+
+
+# --- Kohya_ss GUI の config builder (lora_gui.py train_model) の分岐 ---
+# 範囲は LoRA_type が Standard / LyCORIS/LoCon の SDXL / SD1.5 のみ。
+# flux / sd3 / hunyuan / anima / lumina 系のキーは表に無いため unmapped に残る。
+
+
+def test_attention_selector_is_translated_to_backend_flags():
+    assert _normalize({"xformers": "xformers"}).normalized == {"xformers": True}
+    assert _normalize({"xformers": "sdpa"}).normalized == {"sdpa": True}
+    assert _normalize({"xformers": "none"}).normalized == {}
+    assert "xformers" not in _normalize({"xformers": "none"}).unmapped
+
+
+def test_false_and_zero_values_are_dropped_like_the_gui_filter():
+    result = _normalize(
+        {
+            "gradient_checkpointing": False,
+            "cache_latents": True,
+            "keep_tokens": 0,
+            "max_data_loader_n_workers": 0,
+        }
+    )
+    assert result.normalized == {"cache_latents": True, "max_data_loader_n_workers": 0}
+
+
+def test_epoch_controlled_training_keeps_epoch_as_max_train_epochs():
+    result = _normalize({"epoch": 10, "max_train_steps": 0, "max_train_epochs": 0})
+    assert result.normalized["max_train_epochs"] == 10
+    assert "max_train_steps" not in result.normalized
+
+
+def test_explicit_step_limit_is_not_replaced_by_epoch():
+    result = _normalize({"epoch": 10, "max_train_steps": 1600})
+    assert "max_train_epochs" not in result.normalized
+    assert result.normalized["max_train_steps"] == 1600
+
+
+def test_dataset_config_with_zero_steps_has_no_epoch_derived_limit():
+    result = _normalize({"epoch": 10, "max_train_steps": 0, "dataset_config": "/x/ds.toml"})
+    assert "max_train_epochs" not in result.normalized
+    assert "max_train_steps" not in result.normalized
+
+
+def test_lr_scheduler_num_cycles_defaults_to_epoch():
+    assert (
+        _normalize({"epoch": 7, "lr_scheduler_num_cycles": ""}).normalized["lr_scheduler_num_cycles"] == 7
+    )
+    assert _normalize({"epoch": 7, "lr_scheduler_num_cycles": 3}).normalized["lr_scheduler_num_cycles"] == 3
+
+
+def test_wandb_run_name_defaults_to_output_name():
+    assert _normalize({"output_name": "m", "wandb_run_name": ""}).normalized["wandb_run_name"] == "m"
+    assert _normalize({"output_name": "m", "wandb_run_name": "r"}).normalized["wandb_run_name"] == "r"
+
+
+def test_stop_text_encoder_training_is_ignored_like_the_gui():
+    result = _normalize({"stop_text_encoder_training": 30})
+    assert "stop_text_encoder_training" not in result.normalized
+    assert result.unmapped["stop_text_encoder_training"] == 30
+
+
+def test_sample_prompts_text_is_not_exported_as_a_path():
+    result = _normalize({"sample_prompts": "a cat --w 512"})
+    assert "sample_prompts" not in result.normalized
+    assert result.unmapped["sample_prompts"] == "a cat --w 512"
+
+
+def test_text_encoder_lr_stays_unmapped_because_gui_writes_a_float_list():
+    result = _normalize({"text_encoder_lr": 0.00005, "unet_lr": 0.0001})
+    assert "text_encoder_lr" not in result.normalized
+    assert result.unmapped["text_encoder_lr"] == 0.00005
+
+
+def test_train_inpainting_disables_latent_caching():
+    result = _normalize({"train_inpainting": True, "cache_latents": True, "cache_latents_to_disk": True})
+    assert result.normalized == {"train_inpainting": True}
+
+
+def test_dataset_config_percent_warmup_becomes_absolute_steps():
+    result = _normalize({"dataset_config": "/x.toml", "max_train_steps": 1000, "lr_warmup": 10})
+    assert result.normalized["lr_warmup_steps"] == 100
+    no_steps = _normalize(
+        {"dataset_config": "/x.toml", "max_train_steps": 0, "lr_warmup": 10, "lr_warmup_steps": 50}
+    )
+    assert no_steps.normalized["lr_warmup_steps"] == pytest.approx(0.1)
+
+
+def test_standard_lora_collects_block_args_and_loraplus_into_network_args():
+    result = _normalize(
+        {
+            "LoRA_type": "Standard",
+            "down_lr_weight": "1,1,1",
+            "block_dims": "8,8",
+            "rank_dropout": 0.1,
+            "module_dropout": 0,
+            "loraplus_lr_ratio": 16,
+            "loraplus_unet_lr_ratio": 0,
+        }
+    )
+    assert result.normalized["network_args"] == [
+        "down_lr_weight=1,1,1",
+        "block_dims=8,8",
+        "rank_dropout=0.1",
+        "loraplus_lr_ratio=16",
+    ]
+    for key in ("down_lr_weight", "block_dims", "rank_dropout", "loraplus_lr_ratio"):
+        assert key not in result.unmapped
+
+
+def test_locon_network_args_get_loraplus_appended():
+    result = _normalize({"LoRA_type": "LoCon", "conv_dim": 8, "loraplus_lr_ratio": 4})
+    assert result.normalized["network_args"] == ["conv_dim=8", "algo=locon", "loraplus_lr_ratio=4"]

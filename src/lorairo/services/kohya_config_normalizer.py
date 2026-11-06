@@ -4,7 +4,11 @@
 - kohya_gui/common_gui.py: `resolve_lr_warmup_steps` (lr_warmup の比率 % と lr_warmup_steps の優先順位)、
   `update_my_data` (`use_wandb` -> `log_with="wandb"`、`lora_network_weights` -> `network_weights`)
 - kohya_gui/lora_gui.py: `train_model` の LoCon 用 `network_args` の組み立てと、
-  GUI 引数から sd-scripts 引数への改名 (`optimizer` -> `optimizer_type` など)
+  GUI 引数から sd-scripts 引数への改名 (`optimizer` -> `optimizer_type` など)、
+  `config_toml_data` 組み立て後の「"" / False / 0 を出力しない」フィルタ
+
+対象範囲は LoRA_type が Standard / LyCORIS/LoCon の SDXL / SD1.5 のみ。flux / sd3 / hunyuan /
+anima / lumina 系のキーと、その他の LoRA_type 用のキーは変換せず unmapped に残す (計画の範囲外)。
 """
 
 import json
@@ -56,41 +60,35 @@ _LOCON_ARG_NAMES: dict[str, str] = {"LyCORIS_preset": "preset"}
 _LOCON_TRAIN_NORM_KEY = "train_norm"
 _LOCON_TYPES = frozenset({"LyCORIS/LoCon", "LoCon"})
 
-# GUI の config builder (lora_gui.py train_model) が 0 を「無効」として出力しないキー
-_ZERO_MEANS_UNSET_KEYS = frozenset(
-    {
-        "adaptive_noise_scale",
-        "clip_skip",
-        "ip_noise_gamma",
-        "max_timestep",
-        "max_train_epochs",
-        "max_train_steps",
-        "min_snr_gamma",
-        "min_timestep",
-        "multires_noise_iterations",
-        "noise_offset",
-        "sample_every_n_epochs",
-        "sample_every_n_steps",
-        "save_every_n_epochs",
-        "save_every_n_steps",
-        "save_last_n_epochs",
-        "save_last_n_epochs_state",
-        "save_last_n_steps",
-        "save_last_n_steps_state",
-        "seed",
-        "stop_text_encoder_training",
-        "unet_lr",
-        "v_pred_like_loss",
-        "vae_batch_size",
-    }
-)
-
 # sd-scripts で nargs="*" のキー。GUI は文字列を `str(v).replace('"', "").split()` でリスト化する
 _SPLIT_LIST_KEYS = frozenset({"optimizer_args", "lr_scheduler_args"})
 
 # noise_offset_type ごとに有効なキー (GUI は選択された側だけ出力する)
 _ORIGINAL_NOISE_KEYS = frozenset({"noise_offset", "noise_offset_random_strength", "adaptive_noise_scale"})
 _MULTIRES_NOISE_KEYS = frozenset({"multires_noise_iterations", "multires_noise_discount"})
+
+# GUI のフィルタ (`value not in ["", False, None]`) の後で追加されるため 0 でも出力するキー
+_KEEP_ZERO_KEYS = frozenset({"max_data_loader_n_workers"})
+
+# Standard の network_args に入るキー (train_model の引数順。lora_gui.py の kohya_lora_var_list)
+_STANDARD_ARG_KEYS: tuple[str, ...] = (
+    "down_lr_weight",
+    "mid_lr_weight",
+    "up_lr_weight",
+    "block_lr_zero_threshold",
+    "block_dims",
+    "block_alphas",
+    "conv_block_dims",
+    "conv_block_alphas",
+    "rank_dropout",
+    "module_dropout",
+)
+# append_loraplus_network_args の順序 (真のときだけ追加)
+_LORAPLUS_ARG_KEYS: tuple[str, ...] = (
+    "loraplus_lr_ratio",
+    "loraplus_unet_lr_ratio",
+    "loraplus_text_encoder_lr_ratio",
+)
 
 _SECRET_SUFFIXES = ("_api_key", "_token")
 _TRUE_STRINGS = frozenset({"true", "1"})
@@ -247,11 +245,64 @@ def _drop_sdxl_only_keys(data: dict[str, object], is_sdxl: bool) -> None:
         data.pop(key, None)
 
 
-def _drop_zero_unset_keys(data: dict[str, object]) -> None:
-    """GUI が 0 を無効として出力しないキーの 0 を取り除く。"""
-    for key in _ZERO_MEANS_UNSET_KEYS & data.keys():
-        if _to_float(data[key]) == 0:
-            del data[key]
+def _drop_gui_falsy_values(normalized: dict[str, NormalizedValue]) -> None:
+    """GUI の `value not in ["", False, None]` と同じく、False と数値 0 を取り除く。"""
+    for key in list(normalized):
+        value = normalized[key]
+        if key in _KEEP_ZERO_KEYS or isinstance(value, list | str):
+            continue
+        if value is False or value == 0:
+            del normalized[key]
+
+
+def _apply_attention_selector(data: dict[str, object], normalized: dict[str, NormalizedValue]) -> None:
+    """GUI の xformers 選択 ("xformers" / "sdpa" / "none") を backend フラグへ変換する。"""
+    if "xformers" not in data:
+        return
+    selected = data.pop("xformers")
+    if selected is True or selected == "xformers":
+        normalized["xformers"] = True
+    elif selected == "sdpa":
+        normalized["sdpa"] = True
+
+
+def _move_gui_only_keys(data: dict[str, object], unmapped: dict[str, UnmappedValue]) -> None:
+    """sd-scripts の引数へそのまま渡せない GUI のキーを unmapped へ移す。
+
+    - stop_text_encoder_training: GUI は「未対応」として 0 に上書きし出力しない。
+    - sample_prompts: GUI は本文をファイルに書き、パスを出力する。本文は引数ではない。
+    - text_encoder_lr: GUI は [TE, T5XXL または TE] の float の配列として出力する。
+      正規化値の型 (list[str]) では float の配列を表せないため、変換せず残す。
+    """
+    for key in ("stop_text_encoder_training", "sample_prompts", "text_encoder_lr"):
+        if key in data:
+            value = data.pop(key)
+            if not (_to_float(value) == 0):
+                unmapped[key] = _to_unmapped(value)
+
+
+def _apply_gui_defaults(data: dict[str, object]) -> None:
+    """GUI が空のときに補う既定値 (lr_scheduler_num_cycles = epoch、wandb_run_name = output_name)。"""
+    if "lr_scheduler_num_cycles" not in data and "epoch" in data:
+        data["lr_scheduler_num_cycles"] = data["epoch"]
+    if "wandb_run_name" not in data and "output_name" in data:
+        data["wandb_run_name"] = data["output_name"]
+
+
+def _apply_training_length(data: dict[str, object]) -> None:
+    """epoch 指定の学習長を保つ。
+
+    GUI は dataset_config が無く max_train_steps が 0 のとき、画像数・繰り返し・バッチサイズ・
+    epoch から max_train_steps を計算する。画像数は正規化では分からないため、max_train_epochs に
+    epoch を入れて等価にする (sd-scripts は max_train_epochs から steps を導く)。
+    dataset_config がある場合 GUI は計算せず、steps が 0 なら sd-scripts の既定値 (1600) になる。
+    """
+    steps = _to_float(data.get("max_train_steps")) or 0.0
+    epochs = _to_float(data.get("max_train_epochs")) or 0.0
+    epoch = _to_float(data.get("epoch")) or 0.0
+    if "dataset_config" in data or steps != 0 or epochs != 0 or epoch <= 0:
+        return
+    data["max_train_epochs"] = int(epoch)
 
 
 def _split_args(value: object) -> list[str]:
@@ -278,7 +329,11 @@ def _apply_lr_warmup(
     normalized: dict[str, NormalizedValue],
     unmapped: dict[str, UnmappedValue],
 ) -> None:
-    """lr_warmup (比率 %) と lr_warmup_steps (絶対値) を common_gui.py と同じ規則で解決する。"""
+    """lr_warmup (比率 %) と lr_warmup_steps (絶対値) を GUI と同じ規則で解決する。
+
+    dataset_config がある場合、GUI は max_train_steps が正なら比率を絶対値 (round) に変換し、
+    0 以下なら絶対値の上書きを捨てる (lora_gui.py train_model)。
+    """
     if "lr_warmup" not in data and "lr_warmup_steps" not in data:
         return
     lr_warmup = data.pop("lr_warmup", None)
@@ -292,9 +347,29 @@ def _apply_lr_warmup(
         for key, val in bad:
             unmapped[key] = _to_unmapped(val)
         return
+    if "dataset_config" in data:
+        max_steps = _to_float(data.get("max_train_steps")) or 0.0
+        override = _to_float(lr_warmup_steps) or 0.0
+        percent = _to_float(lr_warmup) or 0.0
+        if max_steps <= 0:
+            lr_warmup_steps = 0
+        elif override <= 0 and percent != 0:
+            lr_warmup_steps = round(percent * int(max_steps) / 100)
+            lr_warmup = 0
     resolved = _resolve_lr_warmup_steps(lr_warmup, lr_warmup_steps)
     if resolved:
         normalized["lr_warmup_steps"] = resolved
+
+
+def _loraplus_args(data: dict[str, object]) -> list[str]:
+    """append_loraplus_network_args と同じ順序で、真の値だけ "k=v" にする。"""
+    return [f"{key}={data[key]}" for key in _LORAPLUS_ARG_KEYS if data.get(key)]
+
+
+def _build_standard_network_args(data: dict[str, object]) -> list[str]:
+    """lora_gui.py の Standard 用 network_args (真の値だけ。続けて loraplus) を作る。"""
+    args = [f"{key}={data[key]}" for key in _STANDARD_ARG_KEYS if data.get(key)]
+    return args + _loraplus_args(data)
 
 
 def _apply_lora_type(
@@ -306,11 +381,15 @@ def _apply_lora_type(
     lora_type = data.pop("LoRA_type", None)
     if lora_type == "Standard":
         normalized["network_module"] = "networks.lora"
-    elif lora_type in _LOCON_TYPES:
+        args = _build_standard_network_args(data)
+        if args:
+            normalized["network_args"] = args
+        return set(_STANDARD_ARG_KEYS) | set(_LORAPLUS_ARG_KEYS)
+    if lora_type in _LOCON_TYPES:
         normalized["network_module"] = "lycoris.kohya"
-        normalized["network_args"] = _build_locon_network_args(data)
-        return set(_LOCON_ARG_KEYS) | {_LOCON_TRAIN_NORM_KEY}
-    elif lora_type is not None:
+        normalized["network_args"] = _build_locon_network_args(data) + _loraplus_args(data)
+        return set(_LOCON_ARG_KEYS) | {_LOCON_TRAIN_NORM_KEY} | set(_LORAPLUS_ARG_KEYS)
+    if lora_type is not None:
         unmapped["LoRA_type"] = _to_unmapped(lora_type)
     return set()
 
@@ -354,7 +433,14 @@ def normalize_kohya_gui_config(raw_text: str) -> NormalizedConfig:
     _drop_inactive_noise_keys(data)
     _drop_sdxl_only_keys(data, is_sdxl)
     _derive_network_train_flags(data, normalized)
-    _drop_zero_unset_keys(data)
+    _apply_attention_selector(data, normalized)
+    _move_gui_only_keys(data, unmapped)
+    if _is_truthy(data.get("train_inpainting", False)):
+        # GUI は inpainting 学習時に latent キャッシュを無効にする
+        data.pop("cache_latents", None)
+        data.pop("cache_latents_to_disk", None)
+    _apply_gui_defaults(data)
+    _apply_training_length(data)
     _apply_lr_warmup(data, normalized, unmapped)
     locon_consumed = _apply_lora_type(data, normalized, unmapped)
 
@@ -375,6 +461,7 @@ def normalize_kohya_gui_config(raw_text: str) -> NormalizedConfig:
         else:
             normalized[name] = coerced
 
+    _drop_gui_falsy_values(normalized)
     output_name = normalized.get("output_name")
     return NormalizedConfig(
         raw_content=raw_content,
