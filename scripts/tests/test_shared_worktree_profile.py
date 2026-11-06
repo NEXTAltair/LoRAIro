@@ -281,6 +281,7 @@ def test_default_cli_flow_does_not_touch_shared_extras(tmp_path, monkeypatch) ->
     monkeypatch.setattr(migration, "migrate", lambda *a, **k: calls.append("codex"))
     monkeypatch.setattr(migration, "migrate_xdg", lambda *a, **k: calls.append("xdg"))
     monkeypatch.setattr(migration, "migrate_shared_extras", lambda *a, **k: calls.append("extras"))
+    monkeypatch.setattr(migration, "preflight_shared_extras", lambda *a, **k: calls.append("preflight"))
     base = ["--container", "c", "--backup-dir", str(tmp_path / "b")]
     migration.main(base)
     assert calls == ["codex", "xdg"]
@@ -289,7 +290,7 @@ def test_default_cli_flow_does_not_touch_shared_extras(tmp_path, monkeypatch) ->
     assert calls == ["extras"]
     calls.clear()
     migration.main([*base, "--with-shared-extras"])
-    assert calls == ["codex", "xdg", "extras"]
+    assert calls == ["preflight", "codex", "xdg", "extras"]
 
 
 def test_shared_extras_reject_missing_required_source_without_any_artifact(tmp_path, monkeypatch) -> None:
