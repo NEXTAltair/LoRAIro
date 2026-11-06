@@ -187,6 +187,192 @@ class Project(Base):
         return f"<Project(id={self.id}, name='{self.name}')>"
 
 
+# --- Kohya-ss 学習データセット (Issue #1404) ---
+# DB 単位の `Project` とは別概念。フォルダごとの学習テキストは画像直下の `Tag` に書かず、
+# 本テーブル群に文字列のまま保持する
+# (docs/superpowers/specs/2026-11-05-kohya-dataset-roundtrip-design.md)。
+
+
+class Dataset(Base):
+    """学習データセット (版の集まり)。"""
+
+    __tablename__ = "datasets"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    name: Mapped[str] = mapped_column(String, unique=True, nullable=False, index=True)
+    description: Mapped[str | None] = mapped_column(String)
+    created_at: Mapped[datetime.datetime] = mapped_column(
+        TIMESTAMP(timezone=True), server_default=func.now()
+    )
+
+    versions: Mapped[list[DatasetVersion]] = relationship(
+        "DatasetVersion",
+        back_populates="dataset",
+        cascade="all, delete-orphan",
+        passive_deletes=True,
+        foreign_keys="DatasetVersion.dataset_id",
+    )
+    training_configs: Mapped[list[TrainingConfig]] = relationship(
+        "TrainingConfig", back_populates="dataset", cascade="all, delete-orphan", passive_deletes=True
+    )
+
+    def __repr__(self) -> str:
+        return f"<Dataset(id={self.id}, name='{self.name}')>"
+
+
+class DatasetVersion(Base):
+    """データセットの版。取り込み後の `raw_text` は書き換えない (固めた中身)。"""
+
+    __tablename__ = "dataset_versions"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    dataset_id: Mapped[int] = mapped_column(ForeignKey("datasets.id", ondelete="CASCADE"), nullable=False)
+    # 派生元の版。派生元が削除されても派生先は残す
+    parent_version_id: Mapped[int | None] = mapped_column(
+        ForeignKey("dataset_versions.id", ondelete="SET NULL")
+    )
+    name: Mapped[str] = mapped_column(String, nullable=False)
+    created_at: Mapped[datetime.datetime] = mapped_column(
+        TIMESTAMP(timezone=True), server_default=func.now()
+    )
+
+    dataset: Mapped[Dataset] = relationship("Dataset", back_populates="versions", foreign_keys=[dataset_id])
+    folders: Mapped[list[DatasetFolder]] = relationship(
+        "DatasetFolder", back_populates="version", cascade="all, delete-orphan", passive_deletes=True
+    )
+
+    __table_args__ = (UniqueConstraint("dataset_id", "name", name="uix_dataset_versions_dataset_name"),)
+
+    def __repr__(self) -> str:
+        return f"<DatasetVersion(id={self.id}, dataset_id={self.dataset_id}, name='{self.name}')>"
+
+
+class DatasetFolder(Base):
+    """版に含まれる Kohya-ss のフォルダ (例: `10_kariginu`)。"""
+
+    __tablename__ = "dataset_folders"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    version_id: Mapped[int] = mapped_column(
+        ForeignKey("dataset_versions.id", ondelete="CASCADE"), nullable=False
+    )
+    dir_name: Mapped[str] = mapped_column(String, nullable=False)
+    name: Mapped[str] = mapped_column(String, nullable=False)
+    num_repeats: Mapped[int] = mapped_column(Integer, nullable=False)
+    trigger_word: Mapped[str | None] = mapped_column(String)
+    position: Mapped[int] = mapped_column(Integer, nullable=False)
+
+    version: Mapped[DatasetVersion] = relationship("DatasetVersion", back_populates="folders")
+    images: Mapped[list[DatasetFolderImage]] = relationship(
+        "DatasetFolderImage", back_populates="folder", cascade="all, delete-orphan", passive_deletes=True
+    )
+
+    __table_args__ = (UniqueConstraint("version_id", "dir_name", name="uix_dataset_folders_version_dir"),)
+
+    def __repr__(self) -> str:
+        return f"<DatasetFolder(id={self.id}, version_id={self.version_id}, dir_name='{self.dir_name}')>"
+
+
+class DatasetFolderImage(Base):
+    """フォルダへの画像の所属。同じ画像が複数フォルダに属してよい。"""
+
+    __tablename__ = "dataset_folder_images"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    folder_id: Mapped[int] = mapped_column(
+        ForeignKey("dataset_folders.id", ondelete="CASCADE"), nullable=False
+    )
+    image_id: Mapped[int] = mapped_column(ForeignKey("images.id", ondelete="CASCADE"), nullable=False)
+    # 取り込み時のファイル名 (拡張子なし)。学習テキストのファイル名の基準
+    file_stem: Mapped[str] = mapped_column(String, nullable=False)
+
+    folder: Mapped[DatasetFolder] = relationship("DatasetFolder", back_populates="images")
+    image: Mapped[Image] = relationship("Image")
+    learning_texts: Mapped[list[DatasetLearningText]] = relationship(
+        "DatasetLearningText",
+        back_populates="folder_image",
+        cascade="all, delete-orphan",
+        passive_deletes=True,
+    )
+
+    __table_args__ = (
+        UniqueConstraint("folder_id", "file_stem", name="uix_dataset_folder_images_folder_stem"),
+        Index("ix_dataset_folder_images_image_id", "image_id"),
+    )
+
+    def __repr__(self) -> str:
+        return (
+            f"<DatasetFolderImage(id={self.id}, folder_id={self.folder_id}, "
+            f"image_id={self.image_id}, file_stem='{self.file_stem}')>"
+        )
+
+
+class DatasetLearningText(Base):
+    """フォルダ内の画像 1 枚に対応する学習テキスト (`.txt` / `.caption`)。"""
+
+    __tablename__ = "dataset_learning_texts"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    folder_image_id: Mapped[int] = mapped_column(
+        ForeignKey("dataset_folder_images.id", ondelete="CASCADE"), nullable=False
+    )
+    extension: Mapped[str] = mapped_column(String, nullable=False)
+    # 取り込んだ本文をそのまま保持する (正規化しない)
+    raw_text: Mapped[str] = mapped_column(Text, nullable=False)
+    # 要素 (カンマ区切り) の JSON 文字列リスト
+    elements_json: Mapped[str] = mapped_column(Text, nullable=False)
+    is_edited: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default="0")
+
+    folder_image: Mapped[DatasetFolderImage] = relationship(
+        "DatasetFolderImage", back_populates="learning_texts"
+    )
+
+    __table_args__ = (
+        UniqueConstraint("folder_image_id", "extension", name="uix_dataset_learning_texts_image_ext"),
+    )
+
+    def __repr__(self) -> str:
+        return (
+            f"<DatasetLearningText(id={self.id}, folder_image_id={self.folder_image_id}, "
+            f"extension='{self.extension}')>"
+        )
+
+
+class TrainingConfig(Base):
+    """取り込んだ学習設定。元の中身と正規化したものの両方を持つ。秘密の値は保存しない。"""
+
+    __tablename__ = "training_configs"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    dataset_id: Mapped[int] = mapped_column(ForeignKey("datasets.id", ondelete="CASCADE"), nullable=False)
+    version_id: Mapped[int | None] = mapped_column(ForeignKey("dataset_versions.id", ondelete="SET NULL"))
+    # kohya_gui_json / sd_scripts_toml / bat / safetensors_header
+    source_kind: Mapped[str] = mapped_column(String, nullable=False)
+    # パスは持たずファイル名だけ
+    source_file_name: Mapped[str] = mapped_column(String, nullable=False)
+    raw_content: Mapped[str] = mapped_column(Text, nullable=False)
+    normalized_json: Mapped[str] = mapped_column(Text, nullable=False)
+    unmapped_json: Mapped[str] = mapped_column(Text, nullable=False)
+    target_script: Mapped[str | None] = mapped_column(String)
+    output_name: Mapped[str | None] = mapped_column(String)
+    base_model: Mapped[str | None] = mapped_column(String)
+    resolution: Mapped[str | None] = mapped_column(String)
+    network_dim: Mapped[int | None] = mapped_column(Integer)
+    network_alpha: Mapped[float | None] = mapped_column(Float)
+    learning_rate: Mapped[float | None] = mapped_column(Float)
+    created_at: Mapped[datetime.datetime] = mapped_column(
+        TIMESTAMP(timezone=True), server_default=func.now()
+    )
+
+    dataset: Mapped[Dataset] = relationship("Dataset", back_populates="training_configs")
+
+    def __repr__(self) -> str:
+        return (
+            f"<TrainingConfig(id={self.id}, dataset_id={self.dataset_id}, "
+            f"source_kind='{self.source_kind}')>"
+        )
+
+
 class Image(Base):
     """オリジナル画像情報を格納するテーブル"""
 
