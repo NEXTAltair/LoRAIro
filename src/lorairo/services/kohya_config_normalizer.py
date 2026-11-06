@@ -7,6 +7,9 @@
   GUI 引数から sd-scripts 引数への改名 (`optimizer` -> `optimizer_type` など)、
   `config_toml_data` 組み立て後の「"" / False / 0 を出力しない」フィルタ
 
+epoch 指定の学習長 (dataset_config が無く max_train_steps / max_train_epochs が 0) は、GUI が画像数から
+steps を計算するため正規化では再現できない。近似せず自動変換を保留し、`epoch` を unmapped に残す。
+
 対象範囲は LoRA_type が Standard / LyCORIS/LoCon の SDXL / SD1.5 のみ。flux / sd3 / hunyuan /
 anima / lumina 系のキーと、その他の LoRA_type 用のキーは変換せず unmapped に残す (計画の範囲外)。
 """
@@ -289,22 +292,6 @@ def _apply_gui_defaults(data: dict[str, object]) -> None:
         data["wandb_run_name"] = data["output_name"]
 
 
-def _apply_training_length(data: dict[str, object]) -> None:
-    """epoch 指定の学習長を保つ。
-
-    GUI は dataset_config が無く max_train_steps が 0 のとき、画像数・繰り返し・バッチサイズ・
-    epoch から max_train_steps を計算する。画像数は正規化では分からないため、max_train_epochs に
-    epoch を入れて等価にする (sd-scripts は max_train_epochs から steps を導く)。
-    dataset_config がある場合 GUI は計算せず、steps が 0 なら sd-scripts の既定値 (1600) になる。
-    """
-    steps = _to_float(data.get("max_train_steps")) or 0.0
-    epochs = _to_float(data.get("max_train_epochs")) or 0.0
-    epoch = _to_float(data.get("epoch")) or 0.0
-    if "dataset_config" in data or steps != 0 or epochs != 0 or epoch <= 0:
-        return
-    data["max_train_epochs"] = int(epoch)
-
-
 def _split_args(value: object) -> list[str]:
     """GUI と同じ規則 (二重引用符を除いて空白で分割) で引数文字列をリストにする。"""
     if isinstance(value, list):
@@ -440,7 +427,6 @@ def normalize_kohya_gui_config(raw_text: str) -> NormalizedConfig:
         data.pop("cache_latents", None)
         data.pop("cache_latents_to_disk", None)
     _apply_gui_defaults(data)
-    _apply_training_length(data)
     _apply_lr_warmup(data, normalized, unmapped)
     locon_consumed = _apply_lora_type(data, normalized, unmapped)
 

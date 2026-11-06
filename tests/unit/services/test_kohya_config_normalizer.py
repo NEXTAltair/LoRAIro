@@ -233,10 +233,11 @@ def test_false_and_zero_values_are_dropped_like_the_gui_filter():
     assert result.normalized == {"cache_latents": True, "max_data_loader_n_workers": 0}
 
 
-def test_epoch_controlled_training_keeps_epoch_as_max_train_epochs():
+def test_epoch_controlled_training_is_deferred_and_epoch_stays_unmapped():
     result = _normalize({"epoch": 10, "max_train_steps": 0, "max_train_epochs": 0})
-    assert result.normalized["max_train_epochs"] == 10
+    assert "max_train_epochs" not in result.normalized
     assert "max_train_steps" not in result.normalized
+    assert result.unmapped["epoch"] == 10
 
 
 def test_explicit_step_limit_is_not_replaced_by_epoch():
