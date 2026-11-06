@@ -1,0 +1,57 @@
+{
+    // 明示 opt-in: devcontainer --config .devcontainer/shared-worktree/devcontainer.json
+    // 既定プロファイル (読み取り専用マウント + 独立 Linux checkout) は変更しない。
+    "name": "LoRAIro Shared Worktree",
+    "build": {
+        "dockerfile": "../Dockerfile",
+        "context": "..",
+        "args": {
+            "TZ": "${localEnv:TZ:UTC}"
+        }
+    },
+    "runArgs": [
+        "--cap-add=SYS_PTRACE",
+        "--security-opt",
+        "seccomp=unconfined",
+        "-p",
+        "2222:2222",
+        "--add-host=host.docker.internal:host-gateway"
+    ],
+    "forwardPorts": [2222],
+    "workspaceMount": "source=${localWorkspaceFolder},target=/workspaces/LoRAIro,type=bind",
+    "workspaceFolder": "/workspaces/LoRAIro",
+    "overrideCommand": true,
+    "remoteUser": "vscode",
+    "containerEnv": {
+        "UV_PROJECT_ENVIRONMENT": "/workspaces/LoRAIro/.venv"
+    },
+    "remoteEnv": {
+        "CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS": "1",
+        "UV_PROJECT_ENVIRONMENT": "/workspaces/LoRAIro/.venv",
+        "QT_QPA_PLATFORM": "offscreen",
+        "CLAUDE_CONFIG_DIR": "/home/vscode/.claude",
+        "CODEX_HOME": "/home/vscode/.codex",
+        "GIT_CONFIG_GLOBAL": "/home/vscode/.config/git/config",
+        "PYTHONDONTWRITEBYTECODE": "1"
+    },
+    "mounts": [
+        "source=lorairo-bashhistory,target=/home/vscode/.bash_history,type=volume",
+        "source=lorairo-vscode-extensions,target=/home/vscode/.vscode-server/extensions,type=volume",
+        "source=lorairo-venv,target=/workspaces/LoRAIro/.venv,type=volume",
+        "source=lorairo-claude-config,target=/home/vscode/.claude,type=volume",
+        "source=lorairo-codex-config,target=/home/vscode/.codex,type=volume",
+        "source=lorairo-linux-config,target=/home/vscode/.config,type=volume",
+        "source=lorairo-linux-cache,target=/home/vscode/.cache,type=volume",
+        "source=lorairo-linux-state,target=/home/vscode/.local/state,type=volume",
+        "source=lorairo-worktrees,target=/tmp/worktrees,type=volume",
+        "source=lorairo-shared-persist,target=/home/vscode/.persist,type=volume"
+    ],
+    // 独立 checkout 初期化・make setup・uv sync は呼ばない。ボリューム所有権の修正と保全ファイルの復元のみ。
+    "postCreateCommand": "sudo chown vscode:vscode /home/vscode/.persist /home/vscode/.codex /home/vscode/.config /home/vscode/.cache /home/vscode/.local/state && bash /workspaces/LoRAIro/.devcontainer/shared-worktree/bootstrap.sh restore",
+    "features": {
+        // schema は version / gatewayPorts のみ。待受は Feature 既定の 2222 (ports/port/passwordAccess は無効)
+        "ghcr.io/devcontainers/features/sshd:1": {
+            "version": "latest"
+        }
+    }
+}
