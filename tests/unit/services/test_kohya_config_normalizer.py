@@ -113,3 +113,68 @@ def test_output_name_is_extracted():
 def test_invalid_json_propagates():
     with pytest.raises(json.JSONDecodeError):
         normalize_kohya_gui_config("{not json")
+
+
+def test_zero_means_unset_for_gui_zero_disabled_keys():
+    result = _normalize(
+        {
+            "max_train_epochs": 0,
+            "max_train_steps": "1600",
+            "seed": "0",
+            "clip_skip": 0,
+            "save_every_n_steps": 0,
+        }
+    )
+    assert result.normalized == {"max_train_steps": 1600}
+    assert result.unmapped == {}
+
+
+def test_nonzero_values_of_zero_disabled_keys_are_kept():
+    result = _normalize({"max_train_epochs": 10, "seed": 42})
+    assert result.normalized == {"max_train_epochs": 10, "seed": 42}
+
+
+def test_optimizer_and_scheduler_args_are_split_into_lists():
+    result = _normalize(
+        {
+            "optimizer_args": 'weight_decay=0.1 "betas=0.9,0.99"',
+            "lr_scheduler_args": "T_max=10",
+        }
+    )
+    assert result.normalized["optimizer_args"] == ["weight_decay=0.1", "betas=0.9,0.99"]
+    assert result.normalized["lr_scheduler_args"] == ["T_max=10"]
+
+
+def test_original_noise_type_drops_multires_settings():
+    result = _normalize(
+        {
+            "noise_offset_type": "Original",
+            "noise_offset": 0.1,
+            "adaptive_noise_scale": 0.05,
+            "multires_noise_iterations": 6,
+            "multires_noise_discount": 0.3,
+        }
+    )
+    assert result.normalized == {"noise_offset": 0.1, "adaptive_noise_scale": 0.05}
+    assert result.unmapped == {"noise_offset_type": "Original"}
+
+
+def test_multires_noise_type_drops_offset_settings():
+    result = _normalize(
+        {
+            "noise_offset_type": "Multires",
+            "noise_offset": 0.1,
+            "noise_offset_random_strength": True,
+            "adaptive_noise_scale": 0.05,
+            "multires_noise_iterations": 6,
+            "multires_noise_discount": 0.3,
+        }
+    )
+    assert result.normalized == {"multires_noise_iterations": 6, "multires_noise_discount": 0.3}
+
+
+def test_unknown_noise_type_drops_both_groups_and_missing_type_keeps_values():
+    other = _normalize({"noise_offset_type": "None", "noise_offset": 0.1, "multires_noise_iterations": 6})
+    assert other.normalized == {}
+    missing = _normalize({"noise_offset": 0.1})
+    assert missing.normalized == {"noise_offset": 0.1}

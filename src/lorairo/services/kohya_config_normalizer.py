@@ -56,6 +56,42 @@ _LOCON_ARG_NAMES: dict[str, str] = {"LyCORIS_preset": "preset"}
 _LOCON_TRAIN_NORM_KEY = "train_norm"
 _LOCON_TYPES = frozenset({"LyCORIS/LoCon", "LoCon"})
 
+# GUI の config builder (lora_gui.py train_model) が 0 を「無効」として出力しないキー
+_ZERO_MEANS_UNSET_KEYS = frozenset(
+    {
+        "adaptive_noise_scale",
+        "clip_skip",
+        "ip_noise_gamma",
+        "max_timestep",
+        "max_train_epochs",
+        "max_train_steps",
+        "min_snr_gamma",
+        "min_timestep",
+        "multires_noise_iterations",
+        "noise_offset",
+        "sample_every_n_epochs",
+        "sample_every_n_steps",
+        "save_every_n_epochs",
+        "save_every_n_steps",
+        "save_last_n_epochs",
+        "save_last_n_epochs_state",
+        "save_last_n_steps",
+        "save_last_n_steps_state",
+        "seed",
+        "stop_text_encoder_training",
+        "unet_lr",
+        "v_pred_like_loss",
+        "vae_batch_size",
+    }
+)
+
+# sd-scripts で nargs="*" のキー。GUI は文字列を `str(v).replace('"', "").split()` でリスト化する
+_SPLIT_LIST_KEYS = frozenset({"optimizer_args", "lr_scheduler_args"})
+
+# noise_offset_type ごとに有効なキー (GUI は選択された側だけ出力する)
+_ORIGINAL_NOISE_KEYS = frozenset({"noise_offset", "noise_offset_random_strength", "adaptive_noise_scale"})
+_MULTIRES_NOISE_KEYS = frozenset({"multires_noise_iterations", "multires_noise_discount"})
+
 _SECRET_SUFFIXES = ("_api_key", "_token")
 _TRUE_STRINGS = frozenset({"true", "1"})
 _FALSE_STRINGS = frozenset({"false", "0"})
@@ -176,6 +212,34 @@ def _to_unmapped(value: object) -> UnmappedValue:
     return str(value)
 
 
+def _drop_inactive_noise_keys(data: dict[str, object]) -> None:
+    """noise_offset_type で選ばれていない側のノイズ設定を取り除く。選択が無ければ何もしない。"""
+    if "noise_offset_type" not in data:
+        return
+    noise_type = data["noise_offset_type"]
+    active: frozenset[str] = frozenset()
+    if noise_type == "Original":
+        active = _ORIGINAL_NOISE_KEYS
+    elif noise_type == "Multires":
+        active = _MULTIRES_NOISE_KEYS
+    for key in (_ORIGINAL_NOISE_KEYS | _MULTIRES_NOISE_KEYS) - active:
+        data.pop(key, None)
+
+
+def _drop_zero_unset_keys(data: dict[str, object]) -> None:
+    """GUI が 0 を無効として出力しないキーの 0 を取り除く。"""
+    for key in _ZERO_MEANS_UNSET_KEYS & data.keys():
+        if _to_float(data[key]) == 0:
+            del data[key]
+
+
+def _split_args(value: object) -> list[str]:
+    """GUI と同じ規則 (二重引用符を除いて空白で分割) で引数文字列をリストにする。"""
+    if isinstance(value, list):
+        return [str(item) for item in value]
+    return str(value).replace('"', "").split()
+
+
 def _build_locon_network_args(data: dict[str, object]) -> list[str]:
     """lora_gui.py の LoCon 用 network_args と同じキー・順序の ["k=v", ...] を作る。"""
     args: list[str] = []
@@ -266,11 +330,16 @@ def normalize_kohya_gui_config(raw_text: str) -> NormalizedConfig:
     if _is_truthy(data.pop("use_wandb", False)):
         normalized["log_with"] = "wandb"
 
+    _drop_inactive_noise_keys(data)
+    _drop_zero_unset_keys(data)
     _apply_lr_warmup(data, normalized, unmapped)
     locon_consumed = _apply_lora_type(data, normalized, unmapped)
 
     for key, value in data.items():
         if key in locon_consumed:
+            continue
+        if key in _SPLIT_LIST_KEYS:
+            normalized[key] = _split_args(value)
             continue
         name = _RENAMES.get(key, key)
         type_name = SD_SCRIPTS_ARG_TYPES.get(name)
