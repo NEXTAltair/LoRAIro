@@ -3268,6 +3268,9 @@ def emit_describe(command: str, schema: SchemaMode = "compact") -> None:
 INTROSPECTION_EXCLUSIONS = {
     "describe": "Self-description command; excluded from the operational command catalog.",
     "list-commands": "Catalog discovery command; excluded from its own operational command catalog.",
+    "dataset import": "Kohya dataset command; ToolSpec catalog entry pending (Issue #1410).",
+    "dataset export": "Kohya dataset command; ToolSpec catalog entry pending (Issue #1410).",
+    "dataset show": "Kohya dataset command; ToolSpec catalog entry pending (Issue #1410).",
 }
 
 
