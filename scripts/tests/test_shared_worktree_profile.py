@@ -1,6 +1,7 @@
 """Opt-in shared-worktree profile: config shape, bootstrap restore/save and extras migration."""
 
 import hashlib
+import importlib
 import io
 import json
 import os
@@ -15,7 +16,7 @@ import pytest
 ROOT = Path(__file__).resolve().parents[2]
 PROFILE = ROOT / ".devcontainer" / "shared-worktree"
 sys.path.insert(0, str(ROOT / "scripts"))
-import migrate_container_codex as migration
+migration = importlib.import_module("migrate_container_codex")
 
 
 def load_config(path: Path) -> dict:
@@ -104,29 +105,87 @@ def test_restore_refuses_differing_existing_files_and_keeps_them(seeded) -> None
     assert (home / ".local/bin/herdr").is_file()
 
 
-def test_restore_with_unseeded_volume_skips_without_failing(tmp_path) -> None:
+def test_restore_from_empty_volume_fails_instead_of_reporting_success(tmp_path) -> None:
     home, persist = tmp_path / "home", tmp_path / "persist"
     home.mkdir()
     persist.mkdir()
     result = bootstrap(home, persist, "restore")
+    assert result.returncode == 1
+    assert result.stderr.count("required file not seeded") == 3
+    assert not (home / ".local/bin/herdr").exists()
+
+
+def test_intentional_fresh_container_may_opt_out_of_required_seeding(tmp_path) -> None:
+    home, persist = tmp_path / "home", tmp_path / "persist"
+    home.mkdir()
+    persist.mkdir()
+    env = dict(os.environ, HOME=str(home), LORAIRO_PERSIST_DIR=str(persist), LORAIRO_ALLOW_UNSEEDED="1")
+    result = subprocess.run(
+        ["bash", str(PROFILE / "bootstrap.sh"), "restore"], capture_output=True, text=True, env=env
+    )
     assert result.returncode == 0
-    assert result.stdout.count("not seeded") == 3
-    assert not (home / ".claude.json").exists()
+    assert result.stdout.count("not seeded") == 4
 
 
-def test_save_copies_live_files_and_refuses_to_replace_a_different_herdr(tmp_path) -> None:
+def test_restore_never_replaces_symlinks_directories_or_special_files(seeded) -> None:
+    home, persist = seeded
+    (home / ".claude.json").symlink_to(home / "missing-target")  # 切れた symlink
+    (home / ".local/bin").mkdir(parents=True)
+    (home / ".local/bin/herdr").mkdir()  # directory
+    (home / ".ssh").mkdir()
+    real = home / "real-keys"
+    real.write_bytes(b"ssh-ed25519 AAAA test\n")  # 内容が同じでも symlink は置換しない
+    (home / ".ssh/authorized_keys").symlink_to(real)
+    result = bootstrap(home, persist, "restore")
+    assert result.returncode == 1
+    assert (home / ".claude.json").is_symlink() and not (home / ".claude.json").exists()
+    assert (home / ".local/bin/herdr").is_dir()
+    assert (home / ".ssh/authorized_keys").is_symlink()
+    assert result.stderr.count("refusing to overwrite") == 3
+    assert not list(home.rglob("*.??????"))  # temp が残らない
+
+
+@pytest.mark.skipif(not hasattr(os, "mkfifo"), reason="POSIX special file")
+def test_restore_never_replaces_a_fifo(seeded) -> None:
+    home, persist = seeded
+    os.mkfifo(home / ".claude.json")
+    assert bootstrap(home, persist, "restore").returncode == 1
+    assert (home / ".claude.json").is_fifo()
+
+
+def test_save_copies_live_files_and_keeps_previous_bytes_on_update(tmp_path) -> None:
     home, persist = tmp_path / "home", tmp_path / "persist"
     write(home / ".local/bin/herdr", b"herdr-0.9.3", 0o755)
     write(home / ".claude.json", b"v1")
-    assert bootstrap(home, persist, "save").returncode == 0
+    write(home / ".ssh/authorized_keys", b"key")
+    first = bootstrap(home, persist, "save")
+    assert first.returncode == 0, first.stderr
     assert (persist / "bin/herdr").read_bytes() == b"herdr-0.9.3"
-    write(home / ".claude.json", b"v2")  # 設定は更新を保存する
+    write(home / ".claude.json", b"v2")
     assert bootstrap(home, persist, "save").returncode == 0
     assert (persist / "claude.json").read_bytes() == b"v2"
+    backups = list((persist / "backups").iterdir())
+    assert [p.read_bytes() for p in backups] == [b"v1"]
+    assert backups[0].stat().st_mode & 0o777 == 0o600
     write(home / ".local/bin/herdr", b"other", 0o755)
     result = bootstrap(home, persist, "save")
     assert result.returncode == 1
     assert (persist / "bin/herdr").read_bytes() == b"herdr-0.9.3"
+
+
+def test_save_fails_when_a_required_live_file_is_missing(tmp_path) -> None:
+    home, persist = tmp_path / "home", tmp_path / "persist"
+    write(home / ".claude.json", b"v1")
+    result = bootstrap(home, persist, "save")
+    assert result.returncode == 1
+    assert "required live file missing" in result.stderr
+
+
+def test_known_hosts_is_optional_but_preserved_when_seeded(seeded) -> None:
+    home, persist = seeded
+    write(persist / "ssh/known_hosts", b"host key line\n", 0o644)
+    assert bootstrap(home, persist, "restore").returncode == 0
+    assert (home / ".ssh/known_hosts").read_bytes() == b"host key line\n"
 
 
 class FakeDocker:
@@ -147,7 +206,7 @@ class FakeDocker:
             return done(json.dumps([{"Image": "img", "State": state}]))
         assert args[0] in {"exec", "run"}, f"unexpected docker command {args[0]}"
         if args[0] == "exec" and args[2] == "python3":
-            return done(json.dumps({p: p in self.files for p, _, _ in migration.SHARED_EXTRAS}))
+            return done(json.dumps({p: p in self.files for p, _, _, _ in migration.SHARED_EXTRAS}))
         if args[0] == "exec":
             return subprocess.CompletedProcess(args, 0, self.files[args[3]])
         if "readonly" in " ".join(args):
@@ -218,3 +277,22 @@ def test_default_cli_flow_does_not_touch_shared_extras(tmp_path, monkeypatch) ->
     calls.clear()
     migration.main([*base, "--with-shared-extras"])
     assert calls == ["codex", "xdg", "extras"]
+
+
+def test_shared_extras_reject_missing_required_source_without_any_artifact(tmp_path, monkeypatch) -> None:
+    files = dict(HOST_FILES)
+    del files["/home/vscode/.local/bin/herdr"]
+    fake = FakeDocker(files)
+    monkeypatch.setattr(migration, "docker", fake)
+    with pytest.raises(ValueError, match="Required shared extras missing"):
+        migration.migrate_shared_extras("old", tmp_path / "backup")
+    assert fake.volume == {}
+    assert not (tmp_path / "backup" / "shared-extras.tar").exists()
+    assert not (tmp_path / "backup" / "shared-extras-migration.json").exists()
+
+
+def test_shared_extras_seed_optional_known_hosts_when_present(tmp_path, monkeypatch) -> None:
+    fake = FakeDocker({**HOST_FILES, "/home/vscode/.ssh/known_hosts": b"hosts"})
+    monkeypatch.setattr(migration, "docker", fake)
+    migration.migrate_shared_extras("old", tmp_path / "backup")
+    assert fake.volume["ssh/known_hosts"] == b"hosts"

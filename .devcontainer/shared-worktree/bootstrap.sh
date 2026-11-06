@@ -1,67 +1,111 @@
 #!/usr/bin/env bash
 # Shared-worktree profile: persist and restore the few user files that named volumes do not cover.
-#   bootstrap.sh restore   (postCreate) restore missing files from the persistent volume
-#   bootstrap.sh save      (before recreation) copy live files into the persistent volume
-# Existing files that differ are never overwritten; the script refuses and exits 1 instead.
+#   bootstrap.sh restore   (postCreate) restore missing files from the persistent volume.
+#                          Required entries absent from the volume are a FAILURE (exit 1);
+#                          set LORAIRO_ALLOW_UNSEEDED=1 only for an intentionally fresh container.
+#   bootstrap.sh save      copy live files into the volume (run before recreation, e.g. over SSH).
+# Destinations are never replaced when they exist in any form (differing file, symlink, directory,
+# special file): the script refuses with exit 1. save keeps the previous persisted bytes of
+# claude.json / authorized_keys / known_hosts under backups/; a differing Herdr binary is refused.
 # Contents are copied as opaque bytes and never printed.
 set -Eeuo pipefail
+umask 077
 
 HOME_DIR="${HOME:?}"
 PERSIST="${LORAIRO_PERSIST_DIR:-$HOME_DIR/.persist}"
-# 名前 | 永続領域内パス | 通常の場所 | mode
+# 名前|永続領域内パス|通常の場所|mode|必須(1)/任意(0)
 ENTRIES=(
-    "herdr|bin/herdr|$HOME_DIR/.local/bin/herdr|755"
-    "claude.json|claude.json|$HOME_DIR/.claude.json|600"
-    "authorized_keys|ssh/authorized_keys|$HOME_DIR/.ssh/authorized_keys|600"
+    "herdr|bin/herdr|$HOME_DIR/.local/bin/herdr|755|1"
+    "claude.json|claude.json|$HOME_DIR/.claude.json|600|1"
+    "authorized_keys|ssh/authorized_keys|$HOME_DIR/.ssh/authorized_keys|600|1"
+    "known_hosts|ssh/known_hosts|$HOME_DIR/.ssh/known_hosts|644|0"
 )
 
-refused=0
+failed=0
+staged=""
+trap '[[ -z $staged ]] || rm -f -- "$staged"' EXIT
 
-install_file() { # source destination mode: 一時ファイル経由で原子的に置く
-    local source=$1 destination=$2 mode=$3 staged
+refuse() { echo "[shared-worktree] $1" >&2; failed=1; }
+absent() { [[ ! -e $1 && ! -L $1 ]]; }
+regular() { [[ -f $1 && ! -L $1 ]]; }
+
+install_new() { # source destination mode: 宛先が存在すれば失敗する (ln は no-clobber かつ原子的)
+    local source=$1 destination=$2 mode=$3
     mkdir -p "$(dirname "$destination")"
     staged=$(mktemp "$destination.XXXXXX")
     cp -- "$source" "$staged"
     chmod "$mode" "$staged"
+    if ln -- "$staged" "$destination" 2>/dev/null; then
+        rm -f -- "$staged"
+        staged=""
+    else
+        return 1
+    fi
+}
+
+replace_file() { # 既存の通常ファイルを原子的に置換 (呼び出し側で退避済み)
+    local source=$1 destination=$2 mode=$3
+    staged=$(mktemp "$destination.XXXXXX")
+    cp -- "$source" "$staged"
+    chmod "$mode" "$staged"
     mv -- "$staged" "$destination"
+    staged=""
 }
 
 restore() {
-    local entry name relative live mode saved
+    local entry name relative live mode required saved missing=0
     for entry in "${ENTRIES[@]}"; do
-        IFS='|' read -r name relative live mode <<<"$entry"
+        IFS='|' read -r name relative live mode required <<<"$entry"
         saved="$PERSIST/$relative"
-        if [[ ! -f $saved ]]; then
-            echo "[shared-worktree] $name: not seeded in persistent volume (skipped)"
-        elif [[ ! -e $live ]]; then
-            install_file "$saved" "$live" "$mode"
-            echo "[shared-worktree] $name: restored"
-        elif cmp -s -- "$saved" "$live"; then
+        if ! regular "$saved"; then
+            if [[ $required == 1 && ${LORAIRO_ALLOW_UNSEEDED:-0} != 1 ]]; then
+                refuse "$name: required file not seeded in persistent volume"
+                missing=1
+            else
+                echo "[shared-worktree] $name: not seeded (skipped)"
+            fi
+        elif absent "$live"; then
+            if install_new "$saved" "$live" "$mode"; then
+                echo "[shared-worktree] $name: restored"
+            else
+                refuse "$name: destination appeared during restore; not overwritten"
+            fi
+        elif regular "$live" && cmp -s -- "$saved" "$live"; then
             echo "[shared-worktree] $name: already present"
         else
-            echo "[shared-worktree] $name: existing file differs from persisted copy; refusing to overwrite" >&2
-            refused=1
+            refuse "$name: existing destination (differs, symlink, directory or special file); refusing to overwrite"
         fi
     done
+    [[ $missing == 0 ]] || echo "[shared-worktree] seed the volume first (migrate_container_codex.py --shared-extras-only, or bootstrap.sh save in the old container)" >&2
 }
 
 save() {
-    local entry name relative live mode saved
+    local entry name relative live mode required saved digest backup
     for entry in "${ENTRIES[@]}"; do
-        IFS='|' read -r name relative live mode <<<"$entry"
+        IFS='|' read -r name relative live mode required <<<"$entry"
         saved="$PERSIST/$relative"
         if [[ ! -f $live ]]; then
-            echo "[shared-worktree] $name: no live file (skipped)"
-        elif [[ -f $saved ]] && cmp -s -- "$saved" "$live"; then
-            echo "[shared-worktree] $name: already saved"
-        elif [[ $name == herdr && -e $saved ]]; then
-            # 実行体の差し替えは意図的な操作に限る
-            echo "[shared-worktree] $name: persisted binary differs; refusing to overwrite" >&2
-            refused=1
-        else
+            if [[ $required == 1 ]]; then refuse "$name: required live file missing"; else echo "[shared-worktree] $name: no live file (skipped)"; fi
+        elif absent "$saved"; then
             mkdir -p "$(dirname "$saved")"
-            install_file "$live" "$saved" "$mode"
-            echo "[shared-worktree] $name: saved"
+            if install_new "$live" "$saved" "$mode"; then echo "[shared-worktree] $name: saved"; else refuse "$name: persisted path appeared during save"; fi
+        elif ! regular "$saved"; then
+            refuse "$name: persisted path is not a regular file; refusing"
+        elif cmp -s -- "$saved" "$live"; then
+            echo "[shared-worktree] $name: already saved"
+        elif [[ $name == herdr ]]; then
+            refuse "$name: persisted binary differs; refusing to replace it (remove it deliberately to upgrade)"
+        else
+            digest=$(sha256sum -- "$saved" | cut -d' ' -f1)
+            backup="$PERSIST/backups/${relative//\//_}.$digest"
+            mkdir -p "$PERSIST/backups"
+            if [[ -e $backup ]]; then
+                cmp -s -- "$saved" "$backup" || { refuse "$name: backup path holds different bytes; refusing"; continue; }
+            else
+                install_new "$saved" "$backup" 600 || { refuse "$name: could not back up previous copy"; continue; }
+            fi
+            replace_file "$live" "$saved" "$mode"
+            echo "[shared-worktree] $name: updated (previous copy kept in backups/)"
         fi
     done
 }
@@ -69,7 +113,7 @@ save() {
 case "${1:-}" in
 restore | save)
     if [[ $1 == restore && ! -d $PERSIST ]]; then
-        echo "[shared-worktree] persistent directory $PERSIST missing; nothing to restore" >&2
+        echo "[shared-worktree] persistent directory $PERSIST missing" >&2
         exit 1
     fi
     mkdir -p "$PERSIST"
@@ -80,4 +124,4 @@ restore | save)
     exit 2
     ;;
 esac
-exit "$refused"
+exit "$failed"

@@ -273,10 +273,11 @@ fi
 
 
 SHARED_EXTRAS = (
-    # (コンテナ内パス, 永続ボリューム内パス, mode)
-    ("/home/vscode/.local/bin/herdr", "bin/herdr", 0o755),
-    ("/home/vscode/.claude.json", "claude.json", 0o600),
-    ("/home/vscode/.ssh/authorized_keys", "ssh/authorized_keys", 0o600),
+    # (コンテナ内パス, 永続ボリューム内パス, mode, 必須)
+    ("/home/vscode/.local/bin/herdr", "bin/herdr", 0o755, True),
+    ("/home/vscode/.claude.json", "claude.json", 0o600, True),
+    ("/home/vscode/.ssh/authorized_keys", "ssh/authorized_keys", 0o600, True),
+    ("/home/vscode/.ssh/known_hosts", "ssh/known_hosts", 0o644, False),
 )
 
 
@@ -301,15 +302,19 @@ def migrate_shared_extras(
         raise ValueError("Source container must be running and unpaused")
     check_sources = (
         "import json, pathlib; "
-        f"print(json.dumps({{p: pathlib.Path(p).is_file() for p, _, _ in {SHARED_EXTRAS!r}}}))"
+        f"print(json.dumps({{p: pathlib.Path(p).is_file() for p, _, _, _ in {SHARED_EXTRAS!r}}}))"
     )
     present = json.loads(
         docker("exec", container, "python3", "-c", check_sources, capture_output=True, text=True).stdout
     )
+    missing = [path for path, _, _, required in SHARED_EXTRAS if required and not present[path]]
+    if missing:
+        # 必須 source 欠落では成功 archive / manifest を作らない
+        raise ValueError(f"Required shared extras missing in source container: {', '.join(missing)}")
     archive = backup_dir / "shared-extras.tar"
     digests: dict[str, str] = {}
     with open_private_file(archive) as destination, tarfile.open(fileobj=destination, mode="w") as contents:
-        for source_path, relative, mode in SHARED_EXTRAS:
+        for source_path, relative, mode, _ in SHARED_EXTRAS:
             if not present[source_path]:
                 continue
             data = docker("exec", container, "cat", source_path, capture_output=True).stdout
@@ -349,7 +354,7 @@ chown -R 1000:1000 /restore
         )
     verify = (
         "import hashlib, json, pathlib; "
-        f"rel = {[r for _, r, _ in SHARED_EXTRAS]!r}; "
+        f"rel = {[r for _, r, _, _ in SHARED_EXTRAS]!r}; "
         "print(json.dumps({r: hashlib.sha256(pathlib.Path('/persist', r).read_bytes()).hexdigest() "
         "for r in rel if pathlib.Path('/persist', r).is_file()}))"
     )
