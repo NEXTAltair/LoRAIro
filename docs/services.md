@@ -267,6 +267,33 @@ Qt依存のないビジネスロジックサービス群。CLI、GUI、API全て
 - **Class**: `PipelineCompositionService`
 - **Purpose**: アノテーションパイプライン構成の Qt-free ドメインモデル (Wireframes v11 Frame 2A / Phase 6a)。
 
+#### DatasetImportService
+- **Path**: `src/lorairo/services/dataset_import_service.py`
+- **Class**: `DatasetImportService`
+- **Purpose**: Kohya-ss 形式の学習データセットを版・フォルダ・学習テキストとして取り込む (Qt-free)。画像は登録のみで画像直下の `Tag` には書かない。永続化は `DatasetRepository` (`src/lorairo/database/repository/dataset.py`)。CLI は `lorairo-cli dataset import / export / show`。
+
+#### KohyaDatasetExportService
+- **Path**: `src/lorairo/services/kohya_dataset_export_service.py`
+- **Class**: `KohyaDatasetExportService`
+- **Purpose**: 保存済みの版を Kohya-ss 形式 (画像 + 学習テキスト + sd-scripts 用 TOML) で書き出す (Qt-free)。
+
+#### KohyaScanner
+- **Path**: `src/lorairo/services/kohya_scanner.py`
+- **Purpose**: `<繰り返し数>_<名前>/` フォルダと学習テキストのスキャン。トリガーワード候補の検出 (Qt-free)。
+
+#### LearningText
+- **Path**: `src/lorairo/services/learning_text.py`
+- **Functions**: `split_elements()`, `join_elements()`
+- **Purpose**: 学習テキストの要素分割と連結 (正規化しない)。
+
+#### KohyaConfigNormalizer
+- **Path**: `src/lorairo/services/kohya_config_normalizer.py`
+- **Purpose**: Kohya_ss GUI の設定 json を sd-scripts の引数名と型へ正規化する。秘密の値の除去、未変換キーの分離。
+
+#### SdScriptsToml / SdScriptsArgTable
+- **Path**: `src/lorairo/services/sd_scripts_toml.py`, `src/lorairo/services/sd_scripts_arg_table.py`
+- **Purpose**: sd-scripts 用 TOML (`--dataset_config` / `--config_file`) の書き出しと、引数名と型の表 (`scripts/gen_sd_scripts_arg_table.py` で生成)。
+
 #### QualityIssueDetectionService
 - **Path**: `src/lorairo/services/quality_issue_detection_service.py`
 - **Class**: `QualityIssueDetectionService`
