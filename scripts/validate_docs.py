@@ -121,8 +121,9 @@ class DocValidator:
 
         actual_count = len(business_services) + len(gui_services)
 
-        # Reviewed inventory including Clef review (#1366) and annotation progress snapshots (#1386).
-        expected_business_count = 44
+        # Reviewed inventory through CLI resume/diagnostic services (#1402):
+        # annotation_run_ledger, duplicate_report_service and tag_health_service add three modules.
+        expected_business_count = 47
         expected_gui_count = 9
         expected_count = expected_business_count + expected_gui_count
 
