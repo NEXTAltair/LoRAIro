@@ -32,6 +32,14 @@ _DEFAULT_CAPTION_EXTENSION = ".txt"
 _SECRET_KEY_SUFFIXES = ("_api_key", "_token")
 
 
+class MixedCaptionExtensionError(ValueError):
+    """同じフォルダに複数の学習テキスト拡張子 (`.txt` と `.caption` など) が混在する場合の例外。
+
+    仮定: 1 subset は 1 つの caption_extension しか持てず、同じ image_dir の重複 subset は
+    画像を二重に読むため、混在フォルダは書き出さず拒否する。
+    """
+
+
 @dataclass(frozen=True)
 class KohyaExportResult:
     """書き出し結果。"""
@@ -85,6 +93,7 @@ class KohyaDatasetExportService:
             FileNotFoundError: 保存済み画像のファイルが無い場合。
             LookupError: 版・画像・学習設定が存在しない場合。
             ValueError: 版にフォルダが無い場合。
+            MixedCaptionExtensionError: 同じフォルダに複数の学習テキスト拡張子が混在する場合。
         """
         # 何も書く前に出力先を判定する
         if output_dir.exists() and (not output_dir.is_dir() or any(output_dir.iterdir())):
@@ -99,6 +108,7 @@ class KohyaDatasetExportService:
         # 画像の実在確認も書き込み前に済ませ、中途半端な出力を避ける
         copy_plans = self._plan_image_copies(snapshot.folders, output_dir)
 
+        # 混在フォルダは書き込み前に拒否する
         subsets = [
             SubsetSpec(
                 image_dir=output_dir / folder.dir_name,
@@ -129,14 +139,15 @@ class KohyaDatasetExportService:
         training_config_path: Path | None = None
         if training_config is not None:
             normalized = self._load_normalized(training_config.normalized_json)
-            training_toml = render_training_config(
-                normalized,
-                {
-                    "train_data_dir": output_dir,
-                    "output_dir": output_dir / "output",
-                    "logging_dir": output_dir / "logs",
-                },
-            )
+            path_overrides = {
+                "train_data_dir": output_dir,
+                "output_dir": output_dir / "output",
+                "logging_dir": output_dir / "logs",
+            }
+            # 旧パスの dataset_config が残ると別の場所を読むため、生成したファイルを指させる
+            if normalized.get("dataset_config"):
+                path_overrides["dataset_config"] = dataset_config_path
+            training_toml = render_training_config(normalized, path_overrides)
             training_config_path = output_dir / _TRAINING_CONFIG_NAME
             training_config_path.write_text(training_toml, encoding="utf-8")
 
@@ -182,11 +193,18 @@ class KohyaDatasetExportService:
 
     @staticmethod
     def _caption_extension(folder: FolderSnapshot) -> str:
-        """フォルダの学習テキスト拡張子 (最初に見つかったもの) を返す。無ければ `.txt`。"""
-        for image in folder.images:
-            for text in image.texts:
-                return text.extension
-        return _DEFAULT_CAPTION_EXTENSION
+        """フォルダの学習テキスト拡張子を返す。無ければ `.txt`。
+
+        Raises:
+            MixedCaptionExtensionError: 複数の拡張子が混在する場合。
+        """
+        extensions = sorted({text.extension for image in folder.images for text in image.texts})
+        if len(extensions) > 1:
+            raise MixedCaptionExtensionError(
+                f"フォルダに学習テキストの拡張子が混在しています: dir_name='{folder.dir_name}', "
+                f"extensions={extensions}"
+            )
+        return extensions[0] if extensions else _DEFAULT_CAPTION_EXTENSION
 
     @staticmethod
     def _write_text(path: Path, text: LearningTextSnapshot) -> None:

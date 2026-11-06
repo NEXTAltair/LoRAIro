@@ -23,7 +23,10 @@ from lorairo.database.repository.dataset import (
     TrainingConfigSpec,
 )
 from lorairo.database.schema import Base, Image
-from lorairo.services.kohya_dataset_export_service import KohyaDatasetExportService
+from lorairo.services.kohya_dataset_export_service import (
+    KohyaDatasetExportService,
+    MixedCaptionExtensionError,
+)
 from lorairo.services.learning_text import split_elements
 
 pytestmark = pytest.mark.integration
@@ -235,3 +238,53 @@ def test_non_empty_output_dir_raises(
 
     # 何も書かれていない
     assert [p.name for p in out.iterdir()] == ["keep.txt"]
+
+
+def test_mixed_caption_extensions_in_folder_is_rejected_before_writing(
+    service: KohyaDatasetExportService,
+    repo: DatasetRepository,
+    session_factory: Callable[[], Session],
+    tmp_path: Path,
+) -> None:
+    id1 = _make_image(session_factory, tmp_path, "img-m1", b"m1")
+    id2 = _make_image(session_factory, tmp_path, "img-m2", b"m2")
+    vid = repo.create_version(repo.ensure_dataset("dsm"), "v1")
+    repo.add_folder(
+        vid,
+        _folder("2_mix", 2, 0),
+        [
+            FolderImageSpec(image_id=id1, file_stem="a", texts=[_text("t1", ".txt")]),
+            FolderImageSpec(image_id=id2, file_stem="b", texts=[_text("t2", ".caption")]),
+        ],
+    )
+
+    out = tmp_path / "out"
+    with pytest.raises(
+        MixedCaptionExtensionError, match=r"2_mix.*\.caption.*\.txt|2_mix.*\.txt.*\.caption"
+    ):
+        service.export_version(vid, out)
+
+    assert not out.exists()
+
+
+def test_training_config_dataset_config_points_to_generated_file(
+    service: KohyaDatasetExportService, repo: DatasetRepository, version_id: int, tmp_path: Path
+) -> None:
+    config_id = repo.add_training_config(
+        repo.ensure_dataset("ds"),
+        version_id,
+        TrainingConfigSpec(
+            source_kind="json",
+            source_file_name="cfg.json",
+            raw_content="{}",
+            normalized_json=json.dumps({"dataset_config": "H:/old/dataset_config.toml"}),
+            unmapped_json="{}",
+        ),
+    )
+
+    out = tmp_path / "out"
+    result = service.export_version(version_id, out, training_config_id=config_id)
+
+    assert result.training_config_path is not None
+    loaded = toml.loads(result.training_config_path.read_text(encoding="utf-8"))
+    assert loaded["dataset_config"] == str(out / "dataset_config.toml")
