@@ -300,6 +300,64 @@ def test_propose_plan_uses_output_name_as_version_hint(
     assert _count(engine, "datasets") == 0
 
 
+def test_propose_plan_uses_explicit_config_files_for_version_hint(
+    service: DatasetImportService, kohya_root: Path, tmp_path: Path
+) -> None:
+    # 画像ディレクトリの外にある json の output_name を版名の候補にし、直下の json は使わない
+    outside = tmp_path / "outside.json"
+    outside.write_text(json.dumps({"output_name": "outside_name"}), encoding="utf-8")
+
+    plan = service.propose_plan(kohya_root, "ds", "", [outside])
+
+    assert plan.version_name == "outside_name"
+    assert plan.config_files == [outside]
+
+
+def test_propose_plan_rejects_missing_explicit_config_and_writes_nothing(
+    service: DatasetImportService, engine: Engine, kohya_root: Path, tmp_path: Path
+) -> None:
+    # 選択後に削除された json を黙って落とすと、設定を欠いた版がコミットされる
+    valid = tmp_path / "valid.json"
+    valid.write_text(json.dumps({"output_name": "valid_name"}), encoding="utf-8")
+    missing = tmp_path / "deleted.json"
+
+    with pytest.raises(FileNotFoundError):
+        service.propose_plan(kohya_root, "ds", "", [valid, missing])
+
+    assert all(count == 0 for count in _counts(engine).values())
+
+
+@pytest.mark.parametrize(
+    "content",
+    [
+        pytest.param(b"{not json", id="broken_json"),
+        pytest.param(b"[1, 2]", id="not_object"),
+        pytest.param(b"\xff\xfe\x00broken", id="not_utf8"),
+    ],
+)
+def test_propose_plan_rejects_unreadable_explicit_config_and_writes_nothing(
+    service: DatasetImportService, engine: Engine, kohya_root: Path, tmp_path: Path, content: bytes
+) -> None:
+    broken = tmp_path / "broken.json"
+    broken.write_bytes(content)
+
+    with pytest.raises(ValueError, match=r"broken\.json"):
+        service.propose_plan(kohya_root, "ds", "", [broken])
+
+    assert all(count == 0 for count in _counts(engine).values())
+
+
+def test_propose_plan_auto_detect_still_skips_unreadable_json(
+    service: DatasetImportService, kohya_root: Path
+) -> None:
+    # 自動検出は任意の json を拾うため、読めないものはこれまでどおりスキップする
+    (kohya_root / "zz_broken.json").write_text("{not json", encoding="utf-8")
+
+    plan = service.propose_plan(kohya_root, "ds", "")
+
+    assert plan.config_files == [kohya_root / "config.json"]
+
+
 def test_propose_plan_keeps_given_version_name(service: DatasetImportService, kohya_root: Path) -> None:
     plan = service.propose_plan(kohya_root, "ds", "v_user")
 
