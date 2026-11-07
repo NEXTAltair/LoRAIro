@@ -59,8 +59,10 @@ class TestAttachLineEdit:
 
         widget.attach_line_edit(line_edit)
 
-        assert isinstance(line_edit.completer(), QCompleter)
-        assert line_edit.completer() is widget._tag_completer
+        assert isinstance(widget._tag_completer, QCompleter)
+        assert widget._tag_completer.widget() is line_edit
+        # QLineEdit 自身の completer にはしない (入力全体の自動置換を避ける、PR #1447 P2)
+        assert line_edit.completer() is None
 
     def test_completer_case_insensitive(self, widget: TagSuggestionWidget) -> None:
         assert widget._tag_completer.caseSensitivity() == Qt.CaseSensitivity.CaseInsensitive
@@ -501,8 +503,9 @@ def test_tag_inputs_show_suggestions_when_service_injected(qtbot, factory) -> No
     qtbot.addWidget(host)
     inject(_FakeAsyncSuggestionService(cached=["blue_hair"]))
 
-    completer = line_edit.completer()
-    assert completer is not None
+    completers = [c for c in host.findChildren(QCompleter) if c.widget() is line_edit]
+    assert len(completers) == 1
+    completer = completers[0]
 
     qtbot.keyClicks(line_edit, "bl")
 
@@ -541,3 +544,51 @@ def test_selected_image_details_injects_suggestion_service_from_reader(qtbot) ->
     widget.set_merged_reader(None)
 
     assert suggestion.tag_suggestion_service is None
+
+
+class TestRealPopupActivation:
+    """実際の completer ポップアップ操作で確定したときの入力内容 (Codex PR #1447 P2)。
+
+    QLineEdit.setCompleter() は completer の activated / highlighted を自前の setText に
+    接続するため、カスタムハンドラを直接呼ぶテストでは既存トークンの消失を検出できない。
+    """
+
+    @staticmethod
+    def _open_popup(qtbot, widget: TagSuggestionWidget, line_edit: QLineEdit, typed: str) -> QCompleter:
+        widget.set_tag_suggestion_service(_FakeAsyncSuggestionService(cached=["blue_hair", "blush"]))
+        line_edit.show()
+        line_edit.activateWindow()
+        line_edit.setFocus()
+        qtbot.waitUntil(line_edit.hasFocus, timeout=2000)
+        qtbot.keyClicks(line_edit, typed)
+        completer = widget._tag_completer
+        qtbot.waitUntil(lambda: completer.popup().isVisible(), timeout=2000)
+        return completer
+
+    def test_multi_tag_popup_selection_preserves_previous_tags(
+        self, attached_widget: tuple[TagSuggestionWidget, QLineEdit], qtbot
+    ) -> None:
+        widget, line_edit = attached_widget
+        line_edit.textEdited.connect(widget.on_search_text_edited)
+        completer = self._open_popup(qtbot, widget, line_edit, "1girl, bl")
+        popup = completer.popup()
+
+        # 候補をキー操作でハイライト (QLineEdit が highlighted で本文を書き換える) してから確定する
+        qtbot.keyClick(popup, Qt.Key.Key_Down)
+        qtbot.keyClick(popup, Qt.Key.Key_Return)
+
+        qtbot.waitUntil(lambda: line_edit.text() == "1girl, blue_hair, ", timeout=2000)
+
+    def test_single_tag_popup_selection_sets_candidate(self, qtbot) -> None:
+        line_edit = QLineEdit()
+        qtbot.addWidget(line_edit)
+        widget = TagSuggestionWidget()
+        qtbot.addWidget(widget)
+        widget.attach_line_edit(line_edit, multi_tag=False, connect_text_edited=True)
+        completer = self._open_popup(qtbot, widget, line_edit, "bl")
+        popup = completer.popup()
+
+        qtbot.keyClick(popup, Qt.Key.Key_Down)
+        qtbot.keyClick(popup, Qt.Key.Key_Return)
+
+        qtbot.waitUntil(lambda: line_edit.text() == "blue_hair", timeout=2000)

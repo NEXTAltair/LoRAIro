@@ -161,7 +161,12 @@ class TagSuggestionWidget(QWidget):
         """
         self._line_edit = line_edit
         self._multi_tag = multi_tag
-        line_edit.setCompleter(self._tag_completer)
+        # QLineEdit.setCompleter() は使わず setWidget() で紐付ける。setCompleter() だと
+        # QLineEdit が (1) キー入力ごとに入力全体を completionPrefix にして候補を絞り直し、
+        # (2) highlighted / activated で入力全体を候補文字列に setText する。カンマ区切り
+        # 入力では最後のトークン以外が消え、ポップアップも閉じてしまう (Codex PR #1447 P2)。
+        # 確定時の本文更新は _on_tag_completion_activated だけが担う。
+        self._tag_completer.setWidget(line_edit)
         if is_enabled_provider is not None:
             self._is_enabled_provider = is_enabled_provider
         if connect_text_edited:
