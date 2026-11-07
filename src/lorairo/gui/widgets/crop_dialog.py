@@ -77,6 +77,7 @@ class _CropPreviewLabel(QLabel):
         """
         super().__init__(parent)
         self._source: QPixmap | None = None
+        self._source_size: tuple[int, int] | None = None
         self._crop: CropRect | None = None
         self.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.setMinimumSize(200, 150)
@@ -87,14 +88,23 @@ class _CropPreviewLabel(QLabel):
         )
         self.setText(_NO_SELECTION_TEXT)
 
-    def set_preview(self, source: QPixmap | None, crop: CropRect | None) -> None:
+    def set_preview(
+        self,
+        source: QPixmap | None,
+        crop: CropRect | None,
+        source_size: tuple[int, int] | None = None,
+    ) -> None:
         """表示する元画像と切り出し範囲を差し替える。
 
         Args:
             source: 切り出し元の QPixmap (コピーせず参照だけ保持する)。
-            crop: 切り出し範囲。None / 無効な矩形なら「選択範囲なし」表示に戻す。
+            crop: 切り出し範囲 (元画像ピクセル座標)。None / 無効な矩形なら
+                「選択範囲なし」表示に戻す。
+            source_size: 元画像の実寸。source が縮小プロキシのとき crop を換算するために使う。
+                None なら source の寸法を元画像寸法とみなす。
         """
         self._source = source
+        self._source_size = source_size
         self._crop = crop
         if self._source_rect() is None:
             self.setText(_NO_SELECTION_TEXT)
@@ -121,9 +131,16 @@ class _CropPreviewLabel(QLabel):
             return None
         if self._crop is None or not self._crop.has_positive_size():
             return None
-        clipped = QRect(self._crop.x, self._crop.y, self._crop.width, self._crop.height).intersected(
-            self._source.rect()
-        )
+        scale_x = scale_y = 1.0
+        if self._source_size is not None and self._source_size[0] > 0 and self._source_size[1] > 0:
+            # source が縮小プロキシのとき、元画像座標の crop をプロキシ座標へ換算する
+            scale_x = self._source.width() / self._source_size[0]
+            scale_y = self._source.height() / self._source_size[1]
+        left = int(self._crop.x * scale_x)
+        top = int(self._crop.y * scale_y)
+        right = max(round((self._crop.x + self._crop.width) * scale_x), left + 1)
+        bottom = max(round((self._crop.y + self._crop.height) * scale_y), top + 1)
+        clipped = QRect(left, top, right - left, bottom - top).intersected(self._source.rect())
         return clipped if not clipped.isEmpty() else None
 
     def _target_rect(self, source_rect: QRect | None) -> QRect | None:
@@ -754,7 +771,7 @@ class CropDialog(QDialog):
 
     def _refresh_rect_dependent(self, crop: CropRect | None) -> None:
         """矩形に連動する表示 (プレビュー / 実寸 / 警告 / 保存可否) を更新する。"""
-        self._preview.set_preview(self._selector.source_pixmap(), crop)
+        self._preview.set_preview(self._selector.source_pixmap(), crop, self._selector.image_size())
         if crop is None:
             self._size_label.setText(_NO_SELECTION_TEXT)
         else:

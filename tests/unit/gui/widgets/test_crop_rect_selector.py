@@ -327,3 +327,36 @@ class TestClamping:
         assert rect.fits_within(IMAGE_WIDTH, IMAGE_HEIGHT)
         _assert_close(rect.x + rect.width, IMAGE_WIDTH, "right")
         _assert_close(rect.y + rect.height, IMAGE_HEIGHT, "bottom")
+
+
+class TestLargeImageProxy:
+    """巨大画像は縮小プロキシでデコードし、座標は元寸法のまま扱う (#1353)。"""
+
+    @pytest.fixture
+    def large_selector(self, qtbot, tmp_path: Path) -> CropRectSelectorWidget:
+        path = tmp_path / "large.png"
+        Image.new("L", (12000, 8000), 128).save(path)
+        widget = CropRectSelectorWidget()
+        qtbot.addWidget(widget)
+        widget.resize(800, 600)
+        widget.set_image(path)
+        return widget
+
+    def test_decoded_pixmap_is_bounded_and_size_is_original(self, large_selector) -> None:
+        pixmap = large_selector.source_pixmap()
+        assert pixmap is not None
+        assert max(pixmap.width(), pixmap.height()) <= 4096
+        assert large_selector.image_size() == (12000, 8000)
+        assert large_selector.sceneRect().width() == 12000
+        assert large_selector.sceneRect().height() == 8000
+
+    def test_rect_roundtrips_in_original_coordinates(self, large_selector) -> None:
+        large_selector.set_rect(CropRect(x=100, y=200, width=9000, height=7000))
+        assert large_selector.crop_rect() == CropRect(x=100, y=200, width=9000, height=7000)
+        large_selector.set_rect(CropRect(x=11000, y=7000, width=5000, height=5000))
+        assert large_selector.crop_rect() == CropRect(x=11000, y=7000, width=1000, height=1000)
+
+    def test_small_image_is_not_downscaled(self, selector) -> None:
+        pixmap = selector.source_pixmap()
+        assert pixmap is not None
+        assert (pixmap.width(), pixmap.height()) == (IMAGE_WIDTH, IMAGE_HEIGHT)

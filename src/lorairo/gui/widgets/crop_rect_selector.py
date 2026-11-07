@@ -15,10 +15,11 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from PySide6.QtCore import QPointF, QRect, QRectF, Qt, Signal
+from PySide6.QtCore import QPointF, QRect, QRectF, QSize, Qt, Signal
 from PySide6.QtGui import (
     QBrush,
     QColor,
+    QImageIOHandler,
     QImageReader,
     QMouseEvent,
     QPainter,
@@ -50,6 +51,13 @@ _HANDLE_ORDER: tuple[str, ...] = ("tl", "tr", "bl", "br", "t", "b", "l", "r")
 # view 上での見かけのハンドル寸法 (px)。scene 座標へは表示倍率で換算する。
 _HANDLE_DRAW_PX = 8.0
 _HANDLE_HIT_PX = 14.0
+
+# 表示用プロキシ画像の長辺上限 (px)。これを超える親画像はデコード時点で縮小する (#1353)
+_PROXY_MAX_EDGE = 4096
+
+# デコード時の確保上限 (MB)。Qt 既定 (256MB) だと 12000x8000 級の PNG 等が
+# 縮小指定付きでも拒否されるため引き上げる。無制限 (0) にはしない。
+_DECODE_ALLOCATION_LIMIT_MB = 1024
 
 # 選択枠の線幅 (cosmetic pen なので表示倍率によらず一定)
 _SELECTION_PEN_WIDTH = 2
@@ -89,6 +97,8 @@ class CropRectSelectorWidget(QGraphicsView):
         self.setMinimumSize(240, 180)
 
         self._pixmap: QPixmap | None = None
+        # EXIF 適用後の元画像寸法。_pixmap は縮小プロキシのことがあるため別途保持する (#1353)
+        self._image_size: tuple[int, int] | None = None
         self._pixmap_item: QGraphicsPixmapItem | None = None
         self._rect: CropRect | None = None
         self._drag_mode: str | None = None
@@ -111,25 +121,60 @@ class CropRectSelectorWidget(QGraphicsView):
         """
         reader = QImageReader(str(path))
         reader.setAutoTransform(True)
+        reader.setAllocationLimit(_DECODE_ALLOCATION_LIMIT_MB)
+        original_size = self._original_size(reader)
+        if original_size is not None:
+            proxy_size = self._proxy_decode_size(reader, original_size)
+            if proxy_size is not None:
+                reader.setScaledSize(proxy_size)
         image = reader.read()
         pixmap = QPixmap() if image.isNull() else QPixmap.fromImage(image)
         if pixmap.isNull():
             logger.warning(f"クロップ元画像の読み込みに失敗しました: {path}")
             self.clear_image()
             return
+        if original_size is None:
+            original_size = (pixmap.width(), pixmap.height())
         self._scene.clear()
         self._pixmap = pixmap
+        self._image_size = original_size
         self._pixmap_item = self._scene.addPixmap(pixmap)
-        self._scene.setSceneRect(QRectF(pixmap.rect()))
+        # scene 座標は元画像ピクセルのまま。プロキシとの倍率は item の拡大で吸収する
+        if pixmap.width() != original_size[0] and pixmap.width() > 0:
+            self._pixmap_item.setScale(original_size[0] / pixmap.width())
+        self._scene.setSceneRect(QRectF(0.0, 0.0, float(original_size[0]), float(original_size[1])))
         self._set_rect_internal(None)
         self._fit()
-        logger.debug(f"クロップ元画像を表示: {path.name} ({pixmap.width()}x{pixmap.height()})")
+        logger.debug(
+            f"クロップ元画像を表示: {path.name} ({original_size[0]}x{original_size[1]}, "
+            f"decoded={pixmap.width()}x{pixmap.height()})"
+        )
+
+    @staticmethod
+    def _original_size(reader: QImageReader) -> tuple[int, int] | None:
+        """EXIF Orientation 適用後の元画像寸法を、デコードせずに求める。取得不能なら None。"""
+        size = reader.size()
+        if not size.isValid():
+            return None
+        # 90 度系の変換では縦横が入れ替わる
+        if reader.transformation() & QImageIOHandler.Transformation.TransformationRotate90:
+            return (size.height(), size.width())
+        return (size.width(), size.height())
+
+    @staticmethod
+    def _proxy_decode_size(reader: QImageReader, original: tuple[int, int]) -> QSize | None:
+        """上限超過時に ``setScaledSize`` へ渡すデコード寸法 (変換前の向き) を返す。"""
+        if max(original) <= _PROXY_MAX_EDGE:
+            return None
+        raw = reader.size()
+        return raw.scaled(_PROXY_MAX_EDGE, _PROXY_MAX_EDGE, Qt.AspectRatioMode.KeepAspectRatio)
 
     def clear_image(self) -> None:
         """表示中の画像と選択矩形をクリアする。"""
         self._scene.clear()
         self._pixmap = None
         self._pixmap_item = None
+        self._image_size = None
         self._scene.setSceneRect(QRectF())
         self._set_rect_internal(None)
 
@@ -139,12 +184,13 @@ class CropRectSelectorWidget(QGraphicsView):
         Returns:
             ``(幅, 高さ)`` の px タプル。画像が未設定なら None。
         """
-        if self._pixmap is None:
-            return None
-        return (self._pixmap.width(), self._pixmap.height())
+        return self._image_size
 
     def source_pixmap(self) -> QPixmap | None:
-        """表示中の元画像の QPixmap を返す (プレビュー切り出し用)。"""
+        """表示中の画像の QPixmap を返す (プレビュー切り出し用)。
+
+        巨大画像では縮小プロキシであり、寸法は :meth:`image_size` と一致しない。
+        """
         return self._pixmap
 
     def crop_rect(self) -> CropRect | None:
