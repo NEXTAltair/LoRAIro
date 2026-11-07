@@ -1579,6 +1579,16 @@ class ImageRepository(BaseRepository):
         # logger.debug(f"Prepared pattern: '{pattern}', is_exact: {is_exact} for term: '{term}'")
         return pattern, is_exact
 
+    @staticmethod
+    def _to_sqlite_utc_text(value: datetime.datetime) -> str:
+        """datetime を SQLite の日時関数が解釈できる UTC テキストへ変換する。
+
+        naive は UTC とみなす (アプリケーションの UTC 統一方針)。小数秒は保持する。
+        """
+        if value.tzinfo is not None:
+            value = value.astimezone(datetime.UTC).replace(tzinfo=None)
+        return value.strftime("%Y-%m-%d %H:%M:%S.%f")
+
     def _apply_date_filter(
         self,
         query: Select[Any],
@@ -1591,11 +1601,16 @@ class ImageRepository(BaseRepository):
 
         # #1440: UI は「登録日 (created_at)」で絞り込むと表示しており、サイドバーの
         # ヒストグラムも created_at 分布なので、更新日時ではなく登録日時で比較する。
+        # SQLite の created_at は server_default (CURRENT_TIMESTAMP) の秒精度テキスト
+        # ("YYYY-MM-DD HH:MM:SS") と ORM 書き込みのマイクロ秒付きテキストが混在し、
+        # SQLAlchemy は境界を ".ffffff" 付きで bind するため、文字列比較では下限ちょうどの
+        # 画像が漏れる。julianday() で両辺を数値化して表現差を吸収する (ミリ秒精度)。
+        created_at_jd = func.julianday(Image.created_at)
         img_date_conds = []
         if start_dt:
-            img_date_conds.append(Image.created_at >= start_dt)
+            img_date_conds.append(created_at_jd >= func.julianday(self._to_sqlite_utc_text(start_dt)))
         if end_dt:
-            img_date_conds.append(Image.created_at <= end_dt)
+            img_date_conds.append(created_at_jd <= func.julianday(self._to_sqlite_utc_text(end_dt)))
         if img_date_conds:
             query = query.where(and_(*img_date_conds))
 

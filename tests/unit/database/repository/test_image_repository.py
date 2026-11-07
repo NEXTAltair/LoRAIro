@@ -25,7 +25,7 @@ from types import SimpleNamespace
 from unittest.mock import Mock
 
 import pytest
-from sqlalchemy import create_engine, select
+from sqlalchemy import create_engine, select, text
 from sqlalchemy.orm import sessionmaker
 
 from lorairo.database.db_manager import ImageDatabaseManager
@@ -609,9 +609,58 @@ class TestApplyDateFilter:
         end = datetime.datetime(2026, 1, 2, tzinfo=datetime.UTC)
         out = image_repository._apply_date_filter(select(Image.id), start, end)
         where_sql = str(out.whereclause)
-        assert "created_at >=" in where_sql
-        assert "created_at <=" in where_sql
+        assert "julianday(images.created_at) >=" in where_sql
+        assert "julianday(images.created_at) <=" in where_sql
         assert "updated_at" not in where_sql
+
+    @staticmethod
+    def _filter_ids(
+        repo: ImageRepository,
+        session_factory,
+        start: datetime.datetime,
+        end: datetime.datetime,
+    ) -> set[int]:
+        """SearchConditions と同じく isoformat 文字列経由で日付フィルタを実 DB に適用する。"""
+        start_dt = repo._parse_datetime_str(start.isoformat())
+        end_dt = repo._parse_datetime_str(end.isoformat())
+        query = repo._apply_date_filter(select(Image.id), start_dt, end_dt)
+        with session_factory() as session:
+            return set(session.execute(query).scalars().all())
+
+    def test_single_timestamp_sole_bin_returns_images(
+        self, image_repository: ImageRepository, memory_session_factory
+    ) -> None:
+        """全画像が同一登録時刻 (server_default の秒精度) でも唯一のビンが画像を返す (#1440)。"""
+        image_id = _insert_image(image_repository, uuid="u-only", phash="p-o", filename="o.png")
+        bins = image_repository.get_created_at_histogram()
+        assert len(bins) == 1
+        bin_start, bin_end, _count = bins[0]
+
+        ids = self._filter_ids(image_repository, memory_session_factory, bin_start, bin_end)
+
+        assert ids == {image_id}
+
+    def test_first_bin_includes_image_at_lower_boundary(
+        self, image_repository: ImageRepository, memory_session_factory
+    ) -> None:
+        """先頭ビンの下限ちょうど (server_default の秒精度テキスト) の画像を含む (#1440)。"""
+        first_id = _insert_image(image_repository, uuid="u-first", phash="p-f", filename="f.png")
+        last_id = _insert_image(image_repository, uuid="u-last", phash="p-l", filename="l.png")
+        # 後の画像だけ秒精度テキストのまま 1 日後へずらす (server_default 形式を維持)
+        with memory_session_factory() as session:
+            session.execute(
+                text("UPDATE images SET created_at = datetime(created_at, '+1 day') WHERE id = :id"),
+                {"id": last_id},
+            )
+            session.commit()
+            raw = session.execute(text("SELECT created_at FROM images WHERE id = :id"), {"id": first_id})
+            assert "." not in raw.scalar_one()  # 秒精度テキストのまま比較していることを担保
+        bins = image_repository.get_created_at_histogram()
+        bin_start, bin_end, _count = bins[0]
+
+        ids = self._filter_ids(image_repository, memory_session_factory, bin_start, bin_end)
+
+        assert ids == {first_id}
 
     def test_fractional_histogram_boundary_excludes_previous_bin(
         self, image_repository: ImageRepository, memory_session_factory
