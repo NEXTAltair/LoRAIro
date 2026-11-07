@@ -8,7 +8,9 @@
   `config_toml_data` 組み立て後の「"" / False / 0 を出力しない」フィルタ
 
 epoch 指定の学習長 (dataset_config が無く max_train_steps / max_train_epochs が 0) は、GUI が画像数から
-steps を計算するため正規化では再現できない。近似せず自動変換を保留し、`epoch` を unmapped に残す。
+max_train_steps を計算する。正規化では画像数が分からないため steps は計算せず、`max_train_epochs = epoch`
+にする (sd-scripts は max_train_epochs があれば max_train_steps を上書きし、自分でステップ数を求める)。
+GUI の式とは切り上げの位置が違い、ステップ数が数十以内でずれることがある。`epoch` は記録として unmapped にも残す。
 
 対象範囲は LoRA_type が Standard / LyCORIS/LoCon の SDXL / SD1.5 のみ。flux / sd3 / hunyuan /
 anima / lumina 系のキーと、その他の LoRA_type 用のキーは変換せず unmapped に残す (計画の範囲外)。
@@ -285,6 +287,24 @@ def _move_gui_only_keys(data: dict[str, object], unmapped: dict[str, UnmappedVal
                 unmapped[key] = _to_unmapped(value)
 
 
+def _apply_epoch_training_length(data: dict[str, object], normalized: dict[str, NormalizedValue]) -> None:
+    """epoch だけで学習長が決まる設定を `max_train_epochs` にする。
+
+    dataset_config が無く、max_train_steps と max_train_epochs がどちらも無効 (空 / 0) のとき、
+    GUI は epoch から steps を求める。ここでは epoch をそのまま max_train_epochs として出す。
+    値の 0 は正規化済みの辞書から取り除かれているので、`normalized` の有無で判定する。
+    """
+    if (
+        "dataset_config" in normalized
+        or "max_train_steps" in normalized
+        or "max_train_epochs" in normalized
+    ):
+        return
+    epoch = _to_float(data.get("epoch"))
+    if epoch is not None and epoch >= 1:
+        normalized["max_train_epochs"] = int(epoch)
+
+
 def _apply_gui_defaults(data: dict[str, object]) -> None:
     """GUI が空のときに補う既定値 (lr_scheduler_num_cycles = epoch、wandb_run_name = output_name)。"""
     if "lr_scheduler_num_cycles" not in data and "epoch" in data:
@@ -449,6 +469,7 @@ def normalize_kohya_gui_config(raw_text: str) -> NormalizedConfig:
             normalized[name] = coerced
 
     _drop_gui_falsy_values(normalized)
+    _apply_epoch_training_length(data, normalized)
     output_name = normalized.get("output_name")
     return NormalizedConfig(
         raw_content=raw_content,
