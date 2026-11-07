@@ -5,6 +5,7 @@ FilterSearchPanel が SearchFacetsSidebar を組み込み、
 facets_changed シグナルを受け取って検索条件に反映することを検証する。
 """
 
+from datetime import UTC, datetime
 from unittest.mock import MagicMock
 
 import pytest
@@ -168,3 +169,70 @@ class TestSetSearchFilterServicePhase4:
         # get_recently_used_model_ids で返した 2 件がサイドバーに反映される
         model_list = panel._search_facets_sidebar._model_list
         assert model_list.count() == 2
+
+
+@pytest.mark.unit
+@pytest.mark.gui
+class TestHistogramCreatedAtRangeApplied:
+    """登録日ヒストグラムの選択範囲が検索条件に反映されることを検証する (#1440)。"""
+
+    def test_histogram_selection_sets_date_conditions(self, panel_with_service, monkeypatch):
+        """ヒストグラム選択だけで date_filter_enabled と範囲 (UTC aware) が渡される。"""
+        widget, service = panel_with_service
+        monkeypatch.setattr(widget, "_on_search_requested", lambda: None)
+        start = datetime(2026, 11, 1, 0, 0, 0)  # SQLite 由来の naive (UTC) を想定
+        end = datetime(2026, 11, 2, 0, 0, 0)
+
+        widget._search_facets_sidebar._histogram.range_selected.emit(start, end)
+        widget._build_search_conditions_from_ui(show_status=False)
+
+        kwargs = service.create_search_conditions.call_args.kwargs
+        assert kwargs["date_filter_enabled"] is True
+        assert kwargs["date_range_start"] == start.replace(tzinfo=UTC)
+        assert kwargs["date_range_end"] == end.replace(tzinfo=UTC)
+
+    def test_histogram_and_slider_ranges_are_intersected(self, panel_with_service, monkeypatch):
+        """スライダー範囲も有効なときは両方を満たす積集合の範囲になる。"""
+        widget, service = panel_with_service
+        monkeypatch.setattr(widget, "_on_search_requested", lambda: None)
+        widget.ui.checkboxDateFilter.setChecked(True)
+        slider_start = int(datetime(2026, 10, 1, tzinfo=UTC).timestamp())
+        slider_end = int(datetime(2026, 11, 1, 12, 0, 0, tzinfo=UTC).timestamp())
+        monkeypatch.setattr(widget.date_range_slider, "get_range", lambda: (slider_start, slider_end))
+        hist_start = datetime(2026, 11, 1, 0, 0, 0)
+        hist_end = datetime(2026, 11, 2, 0, 0, 0)
+
+        widget._search_facets_sidebar._histogram.range_selected.emit(hist_start, hist_end)
+        widget._build_search_conditions_from_ui(show_status=False)
+
+        kwargs = service.create_search_conditions.call_args.kwargs
+        assert kwargs["date_filter_enabled"] is True
+        assert kwargs["date_range_start"] == hist_start.replace(tzinfo=UTC)
+        assert kwargs["date_range_end"] == datetime(2026, 11, 1, 12, 0, 0, tzinfo=UTC)
+
+    def test_no_histogram_selection_keeps_date_filter_disabled(self, panel_with_service, monkeypatch):
+        """ヒストグラム未選択・スライダー無効なら日付条件は付与されない。"""
+        widget, service = panel_with_service
+        monkeypatch.setattr(widget, "_on_search_requested", lambda: None)
+        widget._search_facets_sidebar.facets_changed.emit({"error_state_filter": "has_error"})
+        widget._build_search_conditions_from_ui(show_status=False)
+
+        kwargs = service.create_search_conditions.call_args.kwargs
+        assert kwargs["date_filter_enabled"] is False
+        assert kwargs["date_range_start"] is None
+        assert kwargs["date_range_end"] is None
+
+
+@pytest.mark.unit
+@pytest.mark.gui
+def test_slider_date_range_is_utc_aware(panel, monkeypatch):
+    """スライダーの epoch 秒は UTC aware datetime に変換される (#1440 タイムゾーン不整合)。"""
+    panel.ui.checkboxDateFilter.setChecked(True)
+    start_ts = int(datetime(2026, 1, 1, 0, 0, 0, tzinfo=UTC).timestamp())
+    end_ts = int(datetime(2026, 1, 2, 0, 0, 0, tzinfo=UTC).timestamp())
+    monkeypatch.setattr(panel.date_range_slider, "get_range", lambda: (start_ts, end_ts))
+
+    start, end = panel.get_date_range_from_slider()
+
+    assert start == datetime(2026, 1, 1, 0, 0, 0, tzinfo=UTC)
+    assert end == datetime(2026, 1, 2, 0, 0, 0, tzinfo=UTC)

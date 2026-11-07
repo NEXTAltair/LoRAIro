@@ -20,7 +20,7 @@ Signal/Slot 流通ルール (ADR 0036 §3):
 
 """
 
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any, cast
 
 from PySide6.QtCore import Qt, Signal
@@ -724,10 +724,12 @@ class FilterSearchPanel(QScrollArea):
                 logger.warning(f"開始日付が終了日付より後: start={min_timestamp}, end={max_timestamp}")
                 min_timestamp, max_timestamp = max_timestamp, min_timestamp
 
-            start_date = datetime.fromtimestamp(min_timestamp)
-            end_date = datetime.fromtimestamp(max_timestamp)
+            # #1440: スライダー値は UTC 基準の epoch 秒。ローカル naive に変換すると
+            # 下流 (_parse_datetime_str) で UTC と解釈され時差分ずれるため UTC aware にする。
+            start_date = datetime.fromtimestamp(min_timestamp, tz=UTC)
+            end_date = datetime.fromtimestamp(max_timestamp, tz=UTC)
 
-            current_time = datetime.now()
+            current_time = datetime.now(UTC)
             if start_date > current_time:
                 logger.warning(f"開始日付が未来: {start_date}, 現在時刻に調整")
                 start_date = current_time
@@ -743,6 +745,30 @@ class FilterSearchPanel(QScrollArea):
         except Exception as e:
             logger.opt(exception=True).error(f"予期しない日付範囲変換エラー: {e}")
             return None, None
+
+    def _get_histogram_created_at_range(self) -> tuple[datetime, datetime] | None:
+        """サイドバーの登録日ヒストグラムで選択された範囲を UTC aware で返す (#1440)。
+
+        DB (SQLite) 由来のビン境界は naive の UTC 時刻なので、UTC として tzinfo を付与し、
+        スライダー由来の aware datetime と比較できる形にそろえる。
+
+        Returns:
+            (start, end) の UTC aware datetime タプル。未選択なら None。
+        """
+        created_at_range = self._facet_values.get("created_at_range")
+        if not isinstance(created_at_range, tuple) or len(created_at_range) != 2:
+            return None
+        start, end = created_at_range
+        if not isinstance(start, datetime) or not isinstance(end, datetime):
+            return None
+        return self._as_utc(start), self._as_utc(end)
+
+    @staticmethod
+    def _as_utc(value: datetime) -> datetime:
+        """naive datetime は UTC とみなして tzinfo を付与し、aware は UTC へ変換する。"""
+        if value.tzinfo is None:
+            return value.replace(tzinfo=UTC)
+        return value.astimezone(UTC)
 
     def _get_selected_search_types(self) -> list[str]:
         """選択された検索タイプのリストを取得。"""
@@ -914,6 +940,16 @@ class FilterSearchPanel(QScrollArea):
             if show_status:
                 self._show_status_message("日付範囲が無効です", auto_hide_ms=3000)
             return None
+        date_filter_enabled = self.ui.checkboxDateFilter.isChecked()
+
+        # #1440: サイドバーの登録日ヒストグラムで選んだ範囲を検索条件へ反映する。
+        # スライダーの範囲も有効な場合は両方を満たす (積集合) 範囲にする。
+        histogram_range = self._get_histogram_created_at_range()
+        if histogram_range is not None:
+            hist_start, hist_end = histogram_range
+            date_range_start = hist_start if date_range_start is None else max(date_range_start, hist_start)
+            date_range_end = hist_end if date_range_end is None else min(date_range_end, hist_end)
+            date_filter_enabled = True
 
         rating_filter = self._get_rating_filter_value()
         ai_rating_filter = self._get_ai_rating_filter_value()
@@ -930,7 +966,7 @@ class FilterSearchPanel(QScrollArea):
             tag_logic="and" if self.ui.radioAnd.isChecked() else "or",
             resolution_filter=self.ui.comboResolution.currentText(),
             aspect_ratio_filter=self.ui.comboAspectRatio.currentText(),
-            date_filter_enabled=self.ui.checkboxDateFilter.isChecked(),
+            date_filter_enabled=date_filter_enabled,
             date_range_start=date_range_start,
             date_range_end=date_range_end,
             only_untagged=self.ui.checkboxOnlyUntagged.isChecked(),

@@ -1586,16 +1586,17 @@ class ImageRepository(BaseRepository):
         start_dt: datetime.datetime | None,
         end_dt: datetime.datetime | None,
     ) -> Select[Any]:
-        """クエリに日付フィルタを適用します (画像またはアノテーションの更新日時)。"""
+        """クエリに登録日 (Image.created_at) の日付フィルタを適用します。"""
         if not start_dt and not end_dt:
             return query
 
-        # 画像自体の作成/更新日時のみを考慮
+        # #1440: UI は「登録日 (created_at)」で絞り込むと表示しており、サイドバーの
+        # ヒストグラムも created_at 分布なので、更新日時ではなく登録日時で比較する。
         img_date_conds = []
         if start_dt:
-            img_date_conds.append(Image.updated_at >= start_dt)
+            img_date_conds.append(Image.created_at >= start_dt)
         if end_dt:
-            img_date_conds.append(Image.updated_at <= end_dt)
+            img_date_conds.append(Image.created_at <= end_dt)
         if img_date_conds:
             query = query.where(and_(*img_date_conds))
 

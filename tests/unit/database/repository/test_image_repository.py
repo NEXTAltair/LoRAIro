@@ -603,6 +603,16 @@ class TestApplyDateFilter:
         out = image_repository._apply_date_filter(base, None, None)
         assert out is base
 
+    def test_filters_by_created_at_not_updated_at(self, image_repository: ImageRepository) -> None:
+        """登録日フィルタは Image.created_at で比較する (#1440 回帰)。"""
+        start = datetime.datetime(2026, 1, 1, tzinfo=datetime.UTC)
+        end = datetime.datetime(2026, 1, 2, tzinfo=datetime.UTC)
+        out = image_repository._apply_date_filter(select(Image.id), start, end)
+        where_sql = str(out.whereclause)
+        assert "created_at >=" in where_sql
+        assert "created_at <=" in where_sql
+        assert "updated_at" not in where_sql
+
 
 @pytest.mark.unit
 class TestImageDatabaseManagerDIContract:
