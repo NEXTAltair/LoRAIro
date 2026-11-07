@@ -69,11 +69,13 @@ from ...utils.log import logger
 from .. import theme
 from .ds_no_scroll_combo_box import DsNoScrollComboBox
 from .tag_cloud_widget import FlowLayout
+from .tag_suggestion import TagSuggestionWidget
 
 if TYPE_CHECKING:
     from genai_tag_db_tools.models import RefinementRecommendation
 
     from ...services.annotation_review_service import AnnotationReviewItem, AnnotationReviewResult
+    from ...services.tag_suggestion_service import TagSuggestionService
 
 # 使用頻度 第2軸セレクタの「なし」選択肢ラベル (ADR 0083 §5 / #990)。
 # 選択時は metric_source を空にして chip の count 補助表示を消す。
@@ -1257,6 +1259,12 @@ class TagPanelWidget(QWidget):
         self._tag_add_input.returnPressed.connect(self._on_tag_add_submitted)
         self._tag_add_input.setVisible(False)
         root.addWidget(self._tag_add_input)
+        # タグ補完は共通部品 TagSuggestionWidget へ委ねる (Issue #1439)。候補ソースは
+        # set_tag_suggestion_service() で親から注入し、未注入なら補完なしで動作する。
+        self._tag_add_suggestion = TagSuggestionWidget(self)
+        self._tag_add_suggestion.attach_line_edit(
+            self._tag_add_input, multi_tag=False, connect_text_edited=True
+        )
 
         # コピー / アクセシビリティ用テキストバッキング (非表示)。
         # displayed_tags_text() と詳細コピーが参照する SSoT 文字列を保持する。
@@ -1563,6 +1571,14 @@ class TagPanelWidget(QWidget):
         self._tag_edit_enabled = enabled
         self._tag_add_input.setVisible(enabled)
         self._refresh_tags_for_language(self._current_language())
+
+    def set_tag_suggestion_service(self, service: TagSuggestionService | None) -> None:
+        """手動タグ追加入力のオートコンプリート候補ソースを設定する (Issue #1439)。
+
+        Args:
+            service: タグ候補を返す TagSuggestionService。None で補完を無効化する。
+        """
+        self._tag_add_suggestion.set_tag_suggestion_service(service)
 
     def set_translation_refresh_enabled(self, enabled: bool) -> None:
         """言語バー右端の翻訳再取得ボタンの有効/無効を切り替える (#1210 案A)。

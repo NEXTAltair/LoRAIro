@@ -48,6 +48,7 @@ from ...filesystem import FileSystemManager
 from ...services.model_selection_service import ModelSelectionService
 from ...services.refinement_service import RefinementService
 from ...services.service_container import ServiceContainer
+from ...services.tag_suggestion_service import TagSuggestionService
 from ...utils.log import logger
 from ..designer.SearchTab_ui import Ui_SearchTab
 from ..message_box import show_critical
@@ -147,6 +148,8 @@ class SearchTabWidget(QWidget, Ui_SearchTab):
 
         # rating/score 書込サービス (詳細パネル編集に使う)。_setup_image_db_write_service で生成。
         self._image_db_write_service: ImageDBWriteService | None = None
+        # タグ入力欄の補完候補ソース (Issue #1439)。_setup_widgets で reader から生成。
+        self._tag_suggestion_service: TagSuggestionService | None = None
         # クロップ導線 (#1346)。_setup_crop_integration で生成 (db_manager 未注入なら None)。
         self._crop_dialog_launcher: CropDialogLauncher | None = None
         # パネルトグル時の splitter サイズ退避領域 (#865 とは別の表示/非表示制御)
@@ -207,6 +210,12 @@ class SearchTabWidget(QWidget, Ui_SearchTab):
         self.reload_annotation_review_service()
         merged_reader = self._service_container.db_manager.annotation_repo.get_merged_reader()
         self._selected_image_details_widget.set_merged_reader(merged_reader)
+        # クイックタグ / アノテーションチェック関連タグ入力の補完候補ソース (Issue #1439)。
+        # reader 不在時は None のまま、各入力欄は補完なしで動作する。
+        self._tag_suggestion_service = (
+            TagSuggestionService(merged_reader) if merged_reader is not None else None
+        )
+        self.selection_review_widget.set_tag_suggestion_service(self._tag_suggestion_service)
         # refinement リコメンド (#931): RefinementService を注入。ignore 保存先は注入された
         # db_manager の session factory に追従させ、「表示 DB」と「ignore 保存 DB」の乖離を防ぐ
         # (#978)。db_manager 未注入時のみ container のアクティブ DB へフォールバックする。
@@ -666,7 +675,7 @@ class SearchTabWidget(QWidget, Ui_SearchTab):
             logger.warning("Quick tag dialog requested with empty image list")
             return
 
-        dialog = QuickTagDialog(image_ids, parent=self)
+        dialog = QuickTagDialog(image_ids, parent=self, tag_suggestion_service=self._tag_suggestion_service)
         dialog.tag_add_requested.connect(self._handle_quick_tag_add)
         dialog.exec()
 

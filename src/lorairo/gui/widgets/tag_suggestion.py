@@ -7,9 +7,14 @@
 `_TagSuggestionTask` (QRunnable) を内包し、`_tag_lookup_pool`
 (QThreadPool) でバックグラウンド実行する。
 
-ADR 0036 §3 のシグナル流通ルール: Parent (FilterSearchPanel) は
+ADR 0036 §3 のシグナル流通ルール: Parent (FilterSearchPanel 等) は
 このウィジェットを composition で保持し、`tags_search_enabled()` 等の
 親側状態判定をコールバックで受け取る。
+
+タグ入力欄を持つ各ウィジェット (検索 / 画像詳細の手動タグ追加 / クイックタグ /
+バッチタグ追加 / エクスポートのタグ置換 / アノテーションチェックの関連タグ) は、
+この部品を共通で使う (Issue #1439)。候補ソースは `TagSuggestionService` を親から注入し、
+未注入 (MergedTagReader 不在) の場合は補完を出さずに通常の入力欄として動作する。
 """
 
 from collections.abc import Callable
@@ -95,8 +100,15 @@ class TagSuggestionWidget(QWidget):
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
 
+        # 状態保持用の非描画ウィジェット。レイアウトに入れずに親の子として持つため、
+        # 親の表示時に左上へ空ウィジェットが重なってクリックを奪わないよう明示的に隠す。
+        self.hide()
+
         self._line_edit: QLineEdit | None = None
         self._is_enabled_provider: Callable[[], bool] = lambda: True
+        # True: カンマ区切りの複数タグ入力 (最後のトークンを補完し ", " を付ける)。
+        # False: 1 タグだけの入力 (候補で入力全体を置き換える)。
+        self._multi_tag = True
 
         # TagSuggestionService (依存注入)
         self.tag_suggestion_service: TagSuggestionService | None = None
@@ -132,6 +144,9 @@ class TagSuggestionWidget(QWidget):
         self,
         line_edit: QLineEdit,
         is_enabled_provider: Callable[[], bool] | None = None,
+        *,
+        multi_tag: bool = True,
+        connect_text_edited: bool = False,
     ) -> None:
         """対象 QLineEdit に completer を取り付け、有効判定コールバックを設定する。
 
@@ -139,11 +154,23 @@ class TagSuggestionWidget(QWidget):
             line_edit: 入力ターゲットの QLineEdit。
             is_enabled_provider: 「いまタグ候補を出してよいか」を返す callable。
                 未指定の場合は常時 True。
+            multi_tag: True ならカンマ区切りの複数タグ入力として最後のトークンを補完する。
+                False なら 1 タグ入力として、候補選択で入力全体を置き換える。
+            connect_text_edited: True なら `line_edit.textEdited` を
+                `on_search_text_edited` へ接続する。親側で接続済みの場合は False のまま。
         """
         self._line_edit = line_edit
-        line_edit.setCompleter(self._tag_completer)
+        self._multi_tag = multi_tag
+        # QLineEdit.setCompleter() は使わず setWidget() で紐付ける。setCompleter() だと
+        # QLineEdit が (1) キー入力ごとに入力全体を completionPrefix にして候補を絞り直し、
+        # (2) highlighted / activated で入力全体を候補文字列に setText する。カンマ区切り
+        # 入力では最後のトークン以外が消え、ポップアップも閉じてしまう (Codex PR #1447 P2)。
+        # 確定時の本文更新は _on_tag_completion_activated だけが担う。
+        self._tag_completer.setWidget(line_edit)
         if is_enabled_provider is not None:
             self._is_enabled_provider = is_enabled_provider
+        if connect_text_edited:
+            line_edit.textEdited.connect(self.on_search_text_edited)
 
     def set_tag_suggestion_service(self, service: "TagSuggestionService | None") -> None:
         """TagSuggestionService を設定する (依存注入)。
@@ -163,6 +190,12 @@ class TagSuggestionWidget(QWidget):
         self._inflight_tasks.clear()
 
     # === Static helpers ===
+
+    def _token_for(self, text: str) -> str:
+        """入力モードに応じて補完対象のトークンを返す。"""
+        if self._multi_tag:
+            return self._extract_last_token(text)
+        return text.strip()
 
     @staticmethod
     def _extract_last_token(text: str) -> str:
@@ -191,7 +224,7 @@ class TagSuggestionWidget(QWidget):
             self._clear_tag_suggestions()
             return
 
-        token = self._extract_last_token(text)
+        token = self._token_for(text)
         if self.tag_suggestion_service is None or len(token) < self.tag_suggestion_service.min_chars:
             self._clear_tag_suggestions()
             return
@@ -209,7 +242,7 @@ class TagSuggestionWidget(QWidget):
         if self.tag_suggestion_service is None or self._line_edit is None:
             return
 
-        token = self._extract_last_token(self._line_edit.text())
+        token = self._token_for(self._line_edit.text())
         if len(token) < self.tag_suggestion_service.min_chars:
             self._clear_tag_suggestions()
             return
@@ -244,7 +277,7 @@ class TagSuggestionWidget(QWidget):
         self._inflight_tasks.pop(request_id, None)
 
         if request_id == self._latest_tag_request_id and self._line_edit is not None:
-            current_token = self._extract_last_token(self._line_edit.text())
+            current_token = self._token_for(self._line_edit.text())
             if current_token.casefold() == token.casefold():
                 self._show_tag_suggestions(token, suggestions)
 
@@ -291,10 +324,17 @@ class TagSuggestionWidget(QWidget):
     def _on_tag_completion_activated(self, selected_tag: str) -> None:
         """候補選択時にカンマ区切り入力の最後のトークンを置換する。
 
+        1 タグ入力モード (`multi_tag=False`) では入力全体を候補で置き換える。
+
         Args:
             selected_tag: 選択されたタグ候補。
         """
         if self._line_edit is None:
+            return
+
+        if not self._multi_tag:
+            self._line_edit.setText(selected_tag)
+            self._line_edit.setCursorPosition(len(selected_tag))
             return
 
         current_text = self._line_edit.text()

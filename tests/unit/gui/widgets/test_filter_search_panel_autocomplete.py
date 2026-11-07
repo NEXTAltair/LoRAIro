@@ -89,15 +89,15 @@ class TestCompleterSetup:
 
     def test_completer_attached_to_line_edit(self, panel):
         """lineEditSearch に QCompleter が設定されている。"""
-        completer = panel.ui.lineEditSearch.completer()
-        assert completer is not None
+        completer = panel._tag_suggestion._tag_completer
         assert isinstance(completer, QCompleter)
+        assert completer.widget() is panel.ui.lineEditSearch
 
     def test_completer_is_case_insensitive(self, panel):
         """QCompleter が大文字小文字を区別しない。"""
         from PySide6.QtCore import Qt
 
-        completer = panel.ui.lineEditSearch.completer()
+        completer = panel._tag_suggestion._tag_completer
         assert completer.caseSensitivity() == Qt.CaseSensitivity.CaseInsensitive
 
 

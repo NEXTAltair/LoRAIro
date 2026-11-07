@@ -62,6 +62,7 @@ from ...services.pipeline_composition import PipelineCompositionService, Pipelin
 from ...services.provider_batch_capability import is_omni_moderation_model
 from ...services.provider_batch_service import ProviderBatchError
 from ...services.service_container import ServiceContainer
+from ...services.tag_suggestion_service import TagSuggestionService
 from ...utils.log import logger
 from .. import theme
 from ..designer.AnnotateTab_ui import Ui_AnnotateTab
@@ -168,10 +169,25 @@ class AnnotateTabWidget(QWidget, Ui_AnnotateTab):
         """``batchTagWidgetPlaceholder`` を BatchTagAddWidget に差し替える。"""
         widget = BatchTagAddWidget()
         widget.setObjectName("batchTagAddWidget")
+        widget.set_tag_suggestion_service(self._resolve_tag_suggestion_service())
         index = self.splitterBatchTagMain.indexOf(self.batchTagWidgetPlaceholder)
         self.splitterBatchTagMain.replaceWidget(index, widget)
         self.batchTagWidgetPlaceholder.deleteLater()
         return widget
+
+    def _resolve_tag_suggestion_service(self) -> TagSuggestionService | None:
+        """バッチタグ入力の補完候補ソースを構築する (Issue #1439)。
+
+        Returns:
+            MergedTagReader を引けた場合は TagSuggestionService、引けなければ None
+            (タグ入力は補完なしで動作する)。
+        """
+        try:
+            merged_reader = self._service_container.db_manager.annotation_repo.get_merged_reader()
+        except (AttributeError, RuntimeError) as e:
+            logger.warning(f"MergedTagReader 取得に失敗 (タグ補完なしで継続): {e}")
+            return None
+        return TagSuggestionService(merged_reader) if merged_reader is not None else None
 
     def _attach_tag_input(self) -> None:
         """タグ追加入力を ``batchTagInputPlaceholder`` へ移設する。"""

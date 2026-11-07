@@ -47,6 +47,7 @@ __all__ = [
 if TYPE_CHECKING:
     from genai_tag_db_tools.models import RefinementRecommendation
 
+    from ...services.tag_suggestion_service import TagSuggestionService
     from .tag_cloud_widget import FlowLayout
 
 _CAPTION_PLACEHOLDER_TEXT = "キャプションが表示されます"
@@ -238,6 +239,10 @@ class AnnotationDataDisplayWidget(QWidget, Ui_AnnotationDataDisplayWidget):
     def set_tag_edit_enabled(self, enabled: bool) -> None:
         """タグ soft-reject 編集モードを切り替える (TagPanelWidget へ委譲)。"""
         self._tag_panel.set_tag_edit_enabled(enabled)
+
+    def set_tag_suggestion_service(self, service: TagSuggestionService | None) -> None:
+        """手動タグ追加入力の補完候補ソースを設定する (TagPanelWidget へ委譲、#1439)。"""
+        self._tag_panel.set_tag_suggestion_service(service)
 
     def set_translation_refresh_enabled(self, enabled: bool) -> None:
         """翻訳再取得ボタンの有効/無効を切り替える (TagPanelWidget へ委譲、#1210)。"""

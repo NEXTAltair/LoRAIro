@@ -31,6 +31,7 @@ from PySide6.QtWidgets import QFileDialog, QMessageBox, QSplitter, QVBoxLayout, 
 from ...database.db_core import resolve_stored_path
 from ...services.export_overlay import ExportOverlayPlan, ExportTagOverlay, ScopedOverlayRule
 from ...services.staging_tag_aggregation import StagingTagAggregationService
+from ...services.tag_suggestion_service import TagSuggestionService
 from ..message_box import show_critical, show_warning
 from ..state.dataset_state import DatasetStateManager
 from ..state.staging_state import StagingStateManager
@@ -181,6 +182,8 @@ class ExportTabWidget(QWidget):
         merged_reader = self._resolve_merged_reader()
         if merged_reader is not None:
             self._selected_image_details_widget.set_merged_reader(merged_reader)
+            # 置換先タグ入力の補完 (Issue #1439)。reader 不在時は補完なしで動作する。
+            self._staging_tag_panel.set_tag_suggestion_service(TagSuggestionService(merged_reader))
         # refinement リコメンド (#931): RefinementService を注入。ignore 保存先は注入された
         # db_manager の session factory に追従させ、「表示 DB」と「ignore 保存 DB」の乖離を防ぐ
         # (#978)。db_manager 未注入時のみ container のアクティブ DB へフォールバックする。

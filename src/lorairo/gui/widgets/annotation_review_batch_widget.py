@@ -44,10 +44,12 @@ from ..workers.annotation_review_results_loader import (
 from ..workers.base import WorkerProgress
 from ..workers.manager import WorkerManager
 from ..workers.terminal import CancelReason, WorkerOutcome, WorkerTerminalEvent
+from .tag_suggestion import TagSuggestionWidget
 
 if TYPE_CHECKING:
     from ...services.annotation_review_service import AnnotationReviewService
     from ...services.annotation_review_store import AnnotationReviewStore
+    from ...services.tag_suggestion_service import TagSuggestionService
 
 
 class AnnotationReviewBatchWidget(QGroupBox):
@@ -237,6 +239,9 @@ class AnnotationReviewBatchWidget(QGroupBox):
             "カンマ区切りの関連タグすべてと共起するタグから候補を探します。"
         )
         self.candidate_tags_edit.textChanged.connect(self._on_candidate_options_changed)
+        # カンマ区切り関連タグの補完 (共通部品、Issue #1439)
+        self._candidate_tags_suggestion = TagSuggestionWidget(self)
+        self._candidate_tags_suggestion.attach_line_edit(self.candidate_tags_edit, connect_text_edited=True)
         candidate_row.addWidget(self.candidate_tags_edit, 1)
         candidate_row.addWidget(QLabel("候補上限", self))
         self.candidate_limit_spin = QSpinBox(self)
@@ -329,6 +334,14 @@ class AnnotationReviewBatchWidget(QGroupBox):
         if load_history and not self._selection_mode:
             self.refresh()
         self._update_controls()
+
+    def set_tag_suggestion_service(self, service: TagSuggestionService | None) -> None:
+        """関連タグ入力欄の補完候補ソースを設定する (Issue #1439)。
+
+        Args:
+            service: タグ候補を返す TagSuggestionService。None で補完を無効化する。
+        """
+        self._candidate_tags_suggestion.set_tag_suggestion_service(service)
 
     def set_unavailable_reason(self, reason: str) -> None:
         self._generation += 1
