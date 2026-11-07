@@ -76,11 +76,17 @@ worktree 専用の venv は作らず、共有 checkout の `.venv` を使う。w
 make mypy / make lint / make test / make adr-index / make generate-ui
 
 # 直接 uv を使う場合: 共有 venv を明示 + --no-sync + PYTHONPATH を worktree の src に向ける
-UV_PROJECT_ENVIRONMENT=/workspaces/LoRAIro/.venv PYTHONPATH=src uv run --no-sync pytest <path>
+# <shared-venv> は現在の OS の共有 checkout の .venv (下記)
+UV_PROJECT_ENVIRONMENT=<shared-venv> PYTHONPATH=src uv run --no-sync pytest <path>
 
 # 禁止: worktree 内での uv run (--no-sync なし) / uv sync / uv lock
 ```
 
+- `<shared-venv>` は OS ごとに異なる (例: Dev Container では Linux 側 checkout、Windows ではホスト側 checkout)。
+  パスをハードコードせず、`scripts/configure_agent_environment.py` が設定済みのユーザーレベルの
+  `UV_PROJECT_ENVIRONMENT` をそのまま使う。未設定の shell では
+  `$(git rev-parse --path-format=absolute --git-common-dir)/../.venv` (現在の checkout の Git common root 直下)
+  を指定する。詳細は `AGENTS.md` を参照。
 - `make install` / `make install-dev` (依存同期) は worktree からは拒否される。共有 checkout で実行する。
 - `.ui` 変更後の再生成も worktree 内で `make generate-ui` を使う。
 - 再 pin されて共有 checkout が壊れた場合の復旧: 共有 checkout で
