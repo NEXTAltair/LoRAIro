@@ -285,5 +285,74 @@ class TestMainWindowAnnotationCompletion:
         mock_window.error_notification_widget.update_error_count.assert_not_called()
 
 
+class TestProjectFileSystemManagerInitialization:
+    """GUI の FileSystemManager はプロジェクト確定時 (起動時) に初期化される (#1360)。"""
+
+    def test_create_project_fsm_initializes_with_current_project_root(self, tmp_path, monkeypatch):
+        """登録操作を経なくても FSM はプロジェクトルート配下で初期化済みになる。"""
+        from lorairo.filesystem import FileSystemManager
+        from lorairo.gui.window.main_window import MainWindow
+
+        monkeypatch.setattr("lorairo.gui.window.main_window.get_current_project_root", lambda: tmp_path)
+
+        fsm = MainWindow._create_project_file_system_manager()
+
+        assert isinstance(fsm, FileSystemManager)
+        assert fsm.initialized is True
+        assert fsm.image_dataset_dir == tmp_path / "image_dataset"
+        assert fsm.original_images_dir is not None
+        assert fsm.original_images_dir.is_relative_to(tmp_path / "image_dataset" / "original_images")
+        assert fsm.original_images_dir.is_dir()
+
+    def test_create_project_fsm_returns_uninitialized_on_os_error(self, tmp_path, monkeypatch):
+        """ディレクトリ作成失敗では起動を止めず、未初期化の FSM を返す。"""
+        from lorairo.filesystem import FileSystemManager
+        from lorairo.gui.window.main_window import MainWindow
+
+        monkeypatch.setattr("lorairo.gui.window.main_window.get_current_project_root", lambda: tmp_path)
+
+        def _raise_os_error(self: FileSystemManager, output_dir: object) -> None:
+            raise PermissionError("read-only filesystem")
+
+        monkeypatch.setattr(FileSystemManager, "initialize", _raise_os_error)
+
+        fsm = MainWindow._create_project_file_system_manager()
+
+        assert isinstance(fsm, FileSystemManager)
+        assert fsm.initialized is False
+
+    def test_initialize_services_shares_initialized_fsm_with_worker_service(
+        self, qapp, tmp_path, monkeypatch
+    ):
+        """_initialize_services は初期化済み FSM を WorkerService と共有する。
+
+        DatasetController には同じ ``self.file_system_manager`` が渡され、
+        CropDialogLauncher は ``worker_service.fsm`` を使う (search_tab) ため、
+        この同一性が GUI 全体の FSM 共有の起点になる。
+        """
+        from lorairo.gui.services.worker_service import WorkerService
+        from lorairo.gui.window.main_window import MainWindow
+
+        monkeypatch.setattr("lorairo.gui.window.main_window.get_current_project_root", lambda: tmp_path)
+        container = Mock()
+        container.db_manager = Mock()
+        monkeypatch.setattr(
+            "lorairo.gui.window.main_window.get_service_container", Mock(return_value=container)
+        )
+        monkeypatch.setattr("lorairo.gui.window.main_window.ConfigurationService", Mock())
+        monkeypatch.setattr("lorairo.gui.window.main_window.DatasetStateManager", Mock())
+
+        window = Mock()
+        window._create_project_file_system_manager = MainWindow._create_project_file_system_manager
+
+        MainWindow._initialize_services(window)
+
+        window._handle_critical_initialization_failure.assert_not_called()
+        assert window.file_system_manager.initialized is True
+        assert window.file_system_manager.image_dataset_dir == tmp_path / "image_dataset"
+        assert isinstance(window.worker_service, WorkerService)
+        assert window.worker_service.fsm is window.file_system_manager
+
+
 if __name__ == "__main__":
     pytest.main([__file__])

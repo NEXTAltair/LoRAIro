@@ -237,8 +237,9 @@ class CropDialogLauncher(QObject):
     def _ensure_fsm_initialized(self) -> None:
         """保存先ディレクトリが未初期化なら現在のプロジェクトルートで初期化する。
 
-        GUI の FileSystemManager はデータセット登録を実行した時にしか初期化されないため、
-        登録を経ずにクロップだけ行うセッションでも ``save_original_image`` が動くようにする。
+        GUI の FileSystemManager は MainWindow 起動時にプロジェクトルートで初期化される
+        (#1360) ため通常は no-op。起動時の初期化が失敗した場合や、MainWindow を経ずに
+        ランチャーを組み立てた場合の防御として残し、``save_original_image`` が動くようにする。
 
         Raises:
             OSError: プロジェクト配下のディレクトリ作成に失敗した場合。

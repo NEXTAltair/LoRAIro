@@ -541,6 +541,7 @@ class SearchTabWidget(QWidget, Ui_SearchTab):
             return
 
         # 登録経路 (WorkerService / DatasetController) と同じ FileSystemManager を共有する。
+        # GUI の FSM は MainWindow 起動時にプロジェクトルートで初期化される (#1360)。
         # ServiceContainer 側の FSM は GUI では初期化されない (set_active_project は CLI 経路のみ)。
         worker_fsm = getattr(self._worker_service, "fsm", None)
         fsm = (
