@@ -127,7 +127,10 @@ class TestWorkerService:
         worker_id = worker_service.start_batch_registration(directory)
 
         # ワーカー作成確認
-        mock_worker_class.assert_called_once_with(directory, worker_service.db_manager, worker_service.fsm)
+        # folder_tags 未指定時は共通タグなし (Issue #1409)
+        mock_worker_class.assert_called_once_with(
+            directory, worker_service.db_manager, worker_service.fsm, folder_tags=None
+        )
 
         # ワーカーマネージャー呼び出し確認
         worker_service.worker_manager.start_worker.assert_called_once()
