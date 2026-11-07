@@ -1536,9 +1536,8 @@ class ImageRepository(BaseRepository):
             # ISO 8601形式 (YYYY-MM-DDTHH:MM:SS or YYYY-MM-DD HH:MM:SS) を想定
             # スペース区切りも考慮
             date_str = date_str.replace(" ", "T")
-            # マイクロ秒以下を削除 (存在する場合)
-            if "." in date_str:
-                date_str = date_str.split(".")[0]
+            # #1440: マイクロ秒は保持する。ヒストグラムのビン境界は小数秒になり得るため、
+            # 切り捨てると直前のビンの画像まで含まれる (小数部の後ろのタイムゾーンも保持される)。
 
             # naive datetime としてパースしてからUTCタイムゾーンを設定
             # 入力文字列はUTC時刻として解釈する（アプリケーション統一方針）

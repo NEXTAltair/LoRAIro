@@ -613,6 +613,32 @@ class TestApplyDateFilter:
         assert "created_at <=" in where_sql
         assert "updated_at" not in where_sql
 
+    def test_fractional_histogram_boundary_excludes_previous_bin(
+        self, image_repository: ImageRepository, memory_session_factory
+    ) -> None:
+        """小数秒のビン境界がマイクロ秒精度のまま DB 比較に使われる (#1440 Codex P2)。
+
+        get_created_at_histogram はスパンを等分するため境界が小数秒になる。境界の
+        マイクロ秒を落とすと、直前のビンに属する画像まで含まれてしまう。
+        """
+        before_id = _insert_image(image_repository, uuid="u-before", phash="p-b", filename="b.png")
+        inside_id = _insert_image(image_repository, uuid="u-inside", phash="p-i", filename="i.png")
+        with memory_session_factory() as session:
+            session.get(Image, before_id).created_at = datetime.datetime(2026, 1, 1, 0, 0, 0)
+            session.get(Image, inside_id).created_at = datetime.datetime(2026, 1, 1, 0, 0, 1)
+            session.commit()
+
+        # SearchConditions.to_filter_criteria と同じく isoformat で文字列化して渡す
+        bin_start = datetime.datetime(2026, 1, 1, 0, 0, 0, 500000, tzinfo=datetime.UTC)
+        bin_end = datetime.datetime(2026, 1, 1, 0, 0, 1, 500000, tzinfo=datetime.UTC)
+        start_dt = image_repository._parse_datetime_str(bin_start.isoformat())
+        end_dt = image_repository._parse_datetime_str(bin_end.isoformat())
+        query = image_repository._apply_date_filter(select(Image.id), start_dt, end_dt)
+        with memory_session_factory() as session:
+            ids = set(session.execute(query).scalars().all())
+
+        assert ids == {inside_id}
+
 
 @pytest.mark.unit
 class TestImageDatabaseManagerDIContract:

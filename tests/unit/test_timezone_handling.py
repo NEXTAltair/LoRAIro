@@ -52,13 +52,21 @@ class TestTimezoneHandling:
 
     def test_parse_datetime_str_with_microseconds(self):
         """マイクロ秒を含む日付文字列のテスト"""
-        # マイクロ秒を含む形式（削除される）
+        # マイクロ秒を含む形式（#1440: 境界精度のため保持される）
         result = self.repository._parse_datetime_str("2024-01-15T10:30:00.123456")
 
-        # マイクロ秒は削除されることを確認
+        # マイクロ秒が保持されることを確認
         assert result is not None
-        assert result.microsecond == 0
+        assert result.microsecond == 123456
         assert result.tzinfo == UTC
+
+    def test_parse_datetime_str_with_microseconds_and_offset(self):
+        """小数秒の後ろのタイムゾーンオフセットも保持される (#1440)。"""
+        result = self.repository._parse_datetime_str("2024-01-15T10:30:00.500000+09:00")
+
+        assert result is not None
+        assert result.microsecond == 500000
+        assert result.astimezone(UTC).hour == 1
 
     def test_parse_datetime_str_with_timezone_info(self):
         """タイムゾーン情報を含む日付文字列のテスト"""
