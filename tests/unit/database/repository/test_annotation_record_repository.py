@@ -583,6 +583,80 @@ class TestSaveTagsAndCaptions:
         assert rows[0].tag == "grey hair"
         assert rows[0].tag_id == 42
 
+    def test_save_annotations_batch_resolves_canonical_once_per_chunk(
+        self,
+        annotation_repository: AnnotationRepository,
+        memory_session_factory,
+    ) -> None:
+        """Issue #1350: canonical 解決はチャンク内タグの和集合で 1 回だけ行い、各画像に焼き込む。"""
+        image_ids: list[int] = []
+        with memory_session_factory() as session:
+            for index in range(3):
+                image = Image(
+                    uuid=f"canonical-chunk-uuid-{index}",
+                    phash=f"canonical-chunk-phash-{index}",
+                    original_image_path=f"/tmp/canonical-chunk-{index}.png",
+                    stored_image_path=f"/tmp/canonical-chunk-{index}.png",
+                    width=64,
+                    height=64,
+                    format="PNG",
+                    extension=".png",
+                    filename=f"canonical-chunk-{index}.png",
+                )
+                session.add(image)
+                session.flush()
+                image_ids.append(image.id)
+            session.commit()
+        reader = self._reader_with_canonical(
+            {"gray hair": {"tag": "grey hair", "tag_id": 42, "deprecated": False}}
+        )
+        annotation_repository.merged_reader = reader
+
+        saved = annotation_repository.save_annotations_batch(
+            [
+                AnnotationSaveItem(
+                    image_id=image_ids[0],
+                    annotations={"tags": [{"tag": "gray_hair", "model_id": None, "tag_id": None}]},
+                ),
+                AnnotationSaveItem(
+                    image_id=image_ids[1],
+                    annotations={
+                        "tags": [
+                            {"tag": "gray_hair", "model_id": None, "tag_id": None},
+                            {"tag": "solo", "model_id": None, "tag_id": None},
+                        ]
+                    },
+                ),
+                AnnotationSaveItem(
+                    image_id=image_ids[2],
+                    annotations={
+                        "tags": [
+                            {
+                                "tag": "gray_hair",
+                                "model_id": None,
+                                "tag_id": None,
+                                "is_edited_manually": True,
+                            }
+                        ]
+                    },
+                ),
+            ]
+        )
+
+        assert saved == 3
+        assert reader.search_tags_bulk.call_count == 1
+        assert set(reader.search_tags_bulk.call_args.args[0]) == {"gray hair", "solo"}
+        with memory_session_factory() as session:
+            rows = session.execute(select(Tag).where(Tag.image_id.in_(image_ids))).scalars().all()
+        tags_by_image = {(row.image_id, row.tag, row.tag_id) for row in rows}
+        assert tags_by_image == {
+            (image_ids[0], "grey hair", 42),
+            (image_ids[1], "grey hair", 42),
+            (image_ids[1], "solo", None),
+            # 手動編集タグは和集合解決の結果があっても canonical 化しない
+            (image_ids[2], "gray hair", None),
+        }
+
     def test_save_tags_preserves_manual_edited_tag(
         self,
         annotation_repository: AnnotationRepository,

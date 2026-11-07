@@ -296,10 +296,18 @@ class AnnotationRepository(BaseRepository):
         saved_count = 0
         for start in range(0, len(items), effective_chunk_size):
             chunk = items[start : start + effective_chunk_size]
+            # Issue #1350: canonical 解決 (search_tags_bulk) は 1 呼び出しの固定費が支配的で、
+            # 画像ごとに呼ぶと 50 枚チャンクの保存時間の大半を占める。チャンク内の全タグを
+            # 和集合で 1 回だけ解決し、各画像の _save_tags で共有する。
+            canonical_map = self._resolve_danbooru_canonical(
+                set().union(
+                    *(self._canonical_targets(item.annotations.get("tags") or []) for item in chunk)
+                )
+            )
             with self.session_factory() as session:
                 try:
                     for item in chunk:
-                        self._save_annotations_in_session(session, item)
+                        self._save_annotations_in_session(session, item, canonical_map=canonical_map)
                         # autoflush=False のため、同一 chunk 内で同じ image_id が再登場した場合も
                         # 後続 item の upsert query が先行 item の行を参照できるよう明示 flush する。
                         session.flush()
@@ -319,8 +327,21 @@ class AnnotationRepository(BaseRepository):
 
         return saved_count
 
-    def _save_annotations_in_session(self, session: Session, item: AnnotationSaveItem) -> None:
-        """既存 session 内で1画像分の annotation を保存する（commitしない）。"""
+    def _save_annotations_in_session(
+        self,
+        session: Session,
+        item: AnnotationSaveItem,
+        *,
+        canonical_map: dict[str, CanonicalTag] | None = None,
+    ) -> None:
+        """既存 session 内で1画像分の annotation を保存する（commitしない）。
+
+        Args:
+            session: SQLAlchemy セッション。
+            item: 1 画像分の保存入力。
+            canonical_map: 呼び出し元がチャンク単位で解決済みの canonical マッピング。
+                None の場合は `_save_tags` が画像単位で解決する。
+        """
         image_id = item.image_id
         annotations = item.annotations
         # ADR 0035 段階 5: cross-repo 呼び出しを避けるため、Image 存在チェックを
@@ -333,7 +354,13 @@ class AnnotationRepository(BaseRepository):
 
         # 各アノテーションタイプを処理
         if annotations.get("tags"):
-            self._save_tags(session, image_id, annotations["tags"], tag_id_cache=item.tag_id_cache)
+            self._save_tags(
+                session,
+                image_id,
+                annotations["tags"],
+                tag_id_cache=item.tag_id_cache,
+                canonical_map=canonical_map,
+            )
         if annotations.get("captions"):
             self._save_captions(session, image_id, annotations["captions"])
         if annotations.get("scores"):
@@ -1527,6 +1554,16 @@ class AnnotationRepository(BaseRepository):
             result[clean_tag] = CanonicalTag(tag=canonical_str, tag_id=row.get("tag_id"))
         return result
 
+    @staticmethod
+    def _canonical_targets(tags_data: list[TagAnnotationData]) -> set[str]:
+        """canonical 解決の対象 (非手動タグの clean_format 済み文字列) を集める。"""
+        return {
+            clean
+            for tag_info in tags_data
+            if not tag_info.get("is_edited_manually")
+            and (clean := TagCleaner.clean_format(tag_info["tag"]).strip())
+        }
+
     # --- _save_* (Upsert by entity) ---
 
     def _save_tags(
@@ -1536,6 +1573,7 @@ class AnnotationRepository(BaseRepository):
         tags_data: list[TagAnnotationData],
         *,
         tag_id_cache: dict[str, int | None] | None = None,
+        canonical_map: dict[str, CanonicalTag] | None = None,
     ) -> None:
         """タグ情報を保存・更新 (Upsert)
 
@@ -1551,6 +1589,8 @@ class AnnotationRepository(BaseRepository):
             tag_id_cache: 正規化済みタグ文字列→tag_idのキャッシュ。
                 canonical 解決できなかった非手動タグ・手動タグの tag_id 解決に使う。
                 キャッシュミス時は従来通り_get_or_create_tag_id_external()にフォールバック。
+            canonical_map: チャンク単位で解決済みの canonical マッピング (Issue #1350)。
+                None の場合はこの画像のタグだけで `_resolve_danbooru_canonical` を呼ぶ。
 
         """
         logger.debug(f"Saving/Updating {len(tags_data)} tags for image_id {image_id}")
@@ -1566,13 +1606,8 @@ class AnnotationRepository(BaseRepository):
 
         # ADR 0068 (改訂): 非手動タグは保存時に danbooru canonical (preferred) へ焼き込む。
         # 手動編集タグ (is_edited_manually=True) はユーザーの表記を尊重し canonical 化しない。
-        canonical_targets = {
-            clean
-            for tag_info in tags_data
-            if not tag_info.get("is_edited_manually")
-            and (clean := TagCleaner.clean_format(tag_info["tag"]).strip())
-        }
-        canonical_map = self._resolve_danbooru_canonical(canonical_targets)
+        if canonical_map is None:
+            canonical_map = self._resolve_danbooru_canonical(self._canonical_targets(tags_data))
 
         unresolved_count = 0
         for tag_info in tags_data:
