@@ -79,13 +79,15 @@ class DatasetController:
                 self._start_dataset_import(selection)
                 return
             directory = selection.directory
+            folder_tags = dict(selection.folder_tags)
         else:
             directory = selection
+            folder_tags = {}
 
         logger.info(f"ディレクトリ選択完了: {directory}")
 
         # 2. バッチ登録処理開始
-        self._start_batch_registration(directory)
+        self._start_batch_registration(directory, folder_tags)
 
     def _start_dataset_import(self, selection: DatasetSelection) -> None:
         """Kohya データセット取り込みを開始する（内部メソッド）。
@@ -174,11 +176,12 @@ class DatasetController:
 
         return True
 
-    def _start_batch_registration(self, directory: Path) -> None:
+    def _start_batch_registration(self, directory: Path, folder_tags: dict[Path, tuple[str, ...]]) -> None:
         """バッチ登録処理を開始（内部メソッド）
 
         Args:
             directory: 選択されたデータセットディレクトリ
+            folder_tags: サブフォルダ (directory からの相対パス) → 共通タグ (Issue #1409)
         """
         # Step 1: サービス検証
         if not self._validate_services():
@@ -195,7 +198,9 @@ class DatasetController:
             logger.info(f"FileSystemManager初期化完了: output_dir={output_dir}")
 
             # バッチ登録開始（初期化済みFileSystemManagerを渡す）
-            worker_id = worker_service.start_batch_registration_with_fsm(directory, file_system_manager)
+            worker_id = worker_service.start_batch_registration_with_fsm(
+                directory, file_system_manager, folder_tags=folder_tags
+            )
 
             if worker_id:
                 logger.info(f"バッチ登録開始: worker_id={worker_id}, directory={directory}")

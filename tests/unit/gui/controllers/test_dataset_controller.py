@@ -99,7 +99,7 @@ class TestDatasetController:
 
         # Assert: WorkerServiceが呼ばれる
         mock_worker_service.start_batch_registration_with_fsm.assert_called_once_with(
-            selected_dir, mock_file_system_manager
+            selected_dir, mock_file_system_manager, folder_tags={}
         )
 
     def test_select_and_register_images_user_cancel(self, controller):
@@ -179,7 +179,7 @@ class TestDatasetController:
 
         # Assert: Worker IDが返される
         mock_worker_service.start_batch_registration_with_fsm.assert_called_once_with(
-            selected_dir, mock_file_system_manager
+            selected_dir, mock_file_system_manager, folder_tags={}
         )
 
     def test_select_and_register_images_worker_submission_failed(
@@ -266,7 +266,7 @@ class TestDatasetController:
 
         # Assert: 初期化されたFileSystemManagerがWorkerに渡される
         mock_worker_service.start_batch_registration_with_fsm.assert_called_once_with(
-            selected_dir, mock_file_system_manager
+            selected_dir, mock_file_system_manager, folder_tags={}
         )
 
 
@@ -288,6 +288,17 @@ class TestDatasetControllerKohyaImport:
         controller.select_and_register_images(Mock(return_value=sel))
         mock_worker_service.start_batch_registration_with_fsm.assert_called_once()
         mock_worker_service.start_dataset_import.assert_not_called()
+
+    def test_selection_without_json_passes_folder_tags(
+        self, controller, mock_worker_service, mock_file_system_manager
+    ):
+        from lorairo.gui.widgets.dataset_select_dialog import DatasetSelection
+
+        sel = DatasetSelection(directory=Path("/data/set"), folder_tags={Path("chara_a"): ("chara a",)})
+        controller.select_and_register_images(Mock(return_value=sel))
+        mock_worker_service.start_batch_registration_with_fsm.assert_called_once_with(
+            Path("/data/set"), mock_file_system_manager, folder_tags={Path("chara_a"): ("chara a",)}
+        )
 
     def test_selection_with_json_starts_dataset_import(
         self, controller, mock_worker_service, mock_file_system_manager

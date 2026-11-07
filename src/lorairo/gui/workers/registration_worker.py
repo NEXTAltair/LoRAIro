@@ -5,8 +5,11 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING, ClassVar
 
+from sqlalchemy.exc import SQLAlchemyError
+
 from ...annotation.sidecar_reader import SidecarAnnotationReader
 from ...database.db_manager import RegistrationOutcome
+from ...services.folder_common_tags import FolderCommonTags
 from ...utils.log import logger
 from .base import LoRAIroWorkerBase
 from .progress_helper import ProgressHelper
@@ -51,6 +54,7 @@ class DatabaseRegistrationResult:
     variant_count: int = 0
     directory: Path | None = None
     detail: list[RegistrationDetailItem] = field(default_factory=list)
+    folder_tag_added_count: int = 0
 
 
 class DatabaseRegistrationWorker(LoRAIroWorkerBase[DatabaseRegistrationResult]):
@@ -67,13 +71,21 @@ class DatabaseRegistrationWorker(LoRAIroWorkerBase[DatabaseRegistrationResult]):
     }
 
     def __init__(
-        self, directory: Path, db_manager: "ImageDatabaseManager", fsm: "FileSystemManager"
+        self,
+        directory: Path,
+        db_manager: "ImageDatabaseManager",
+        fsm: "FileSystemManager",
+        folder_tags: FolderCommonTags | None = None,
     ) -> None:
         super().__init__(db_manager=db_manager)
         self.directory = directory
         self.db_manager = db_manager
         self.fsm = fsm
         self.file_reader = SidecarAnnotationReader()
+        # Issue #1409: サブフォルダ (directory からの相対パス) → 共通タグ
+        self.folder_tags: dict[Path, tuple[str, ...]] = {
+            folder: tuple(tags) for folder, tags in (folder_tags or {}).items() if tags
+        }
 
     def execute(self) -> DatabaseRegistrationResult:
         """データベース登録処理を実行
@@ -113,6 +125,8 @@ class DatabaseRegistrationWorker(LoRAIroWorkerBase[DatabaseRegistrationResult]):
         stats = {"registered": 0, "variant": 0, "skipped": 0, "errors": 0}
         processed_paths: list[Path] = []
         detail: list[RegistrationDetailItem] = []
+        # Issue #1409: 共通タグ対象サブフォルダ → 画像 ID (重複画像は既存 ID)
+        folder_image_ids: dict[Path, list[int]] = {}
 
         # バッチ処理開始
         self._report_progress(10, f"バッチ登録開始: {total_count}件")
@@ -122,7 +136,7 @@ class DatabaseRegistrationWorker(LoRAIroWorkerBase[DatabaseRegistrationResult]):
             self._check_cancellation()
 
             # 単一画像の登録と統計更新
-            self._process_single_image_in_batch(
+            image_id = self._process_single_image_in_batch(
                 image_path,
                 i,
                 total_count,
@@ -132,10 +146,81 @@ class DatabaseRegistrationWorker(LoRAIroWorkerBase[DatabaseRegistrationResult]):
                 annotations=annotations_by_path.get(image_path),
                 tag_id_cache=tag_id_cache,
             )
+            folder = self._folder_tag_key(image_path)
+            if image_id is not None and folder is not None:
+                folder_image_ids.setdefault(folder, []).append(image_id)
+
+        folder_tag_added_count = self._apply_folder_common_tags(folder_image_ids)
 
         # 完了処理
         self._report_progress(100, "データベース登録完了")
-        return self._build_registration_result(stats, processed_paths, detail, start_time)
+        result = self._build_registration_result(stats, processed_paths, detail, start_time)
+        result.folder_tag_added_count = folder_tag_added_count
+        return result
+
+    def _folder_tag_key(self, image_path: Path) -> Path | None:
+        """画像が共通タグ対象のサブフォルダ直下にあれば、そのサブフォルダの相対パスを返す。
+
+        Args:
+            image_path: 登録対象の画像パス。
+
+        Returns:
+            共通タグが入力されたサブフォルダの相対パス。対象外なら None。
+        """
+        if not self.folder_tags:
+            return None
+        try:
+            relative = image_path.parent.relative_to(self.directory)
+        except ValueError:
+            return None
+        return relative if relative in self.folder_tags else None
+
+    def _apply_folder_common_tags(self, folder_image_ids: dict[Path, list[int]]) -> int:
+        """サブフォルダ共通タグを手動タグとして付ける (Issue #1409)。
+
+        入力した表記のまま保存し、タグ DB への登録は行わない。既に同じタグを持つ画像は
+        skip する。1 フォルダの保存に失敗しても登録結果は残し、他のフォルダは続ける。
+
+        Args:
+            folder_image_ids: サブフォルダの相対パス → 登録 (または重複で既存) の画像 ID。
+
+        Returns:
+            実際に追加したタグの件数。
+        """
+        if not folder_image_ids:
+            return 0
+        self._report_progress(96, "サブフォルダ共通タグを付与中...")
+        added_total = 0
+        failed_folders = 0
+        for folder, image_ids in folder_image_ids.items():
+            unique_ids = list(dict.fromkeys(image_ids))
+            try:
+                for tag in self.folder_tags[folder]:
+                    added_total += self.db_manager.add_verbatim_manual_tag_batch(unique_ids, tag)
+            except SQLAlchemyError as e:
+                failed_folders += 1
+                logger.opt(exception=True).error(f"サブフォルダ共通タグの保存に失敗: {folder}")
+                self._save_folder_tag_error(folder, e)
+        logger.info(
+            f"サブフォルダ共通タグ付与完了: フォルダ={len(folder_image_ids)}, "
+            f"追加={added_total}件, 失敗フォルダ={failed_folders}"
+        )
+        return added_total
+
+    def _save_folder_tag_error(self, folder: Path, error: SQLAlchemyError) -> None:
+        """共通タグ保存失敗をエラーレコードへ残す (二次エラーはログのみ)。"""
+        try:
+            self.db_manager.save_error_record(
+                operation_type="registration",
+                error_type=type(error).__name__,
+                error_message=f"サブフォルダ共通タグの保存に失敗: {error}",
+                image_id=None,
+                stack_trace=traceback.format_exc(),
+                file_path=str(self.directory / folder),
+                model_name=None,
+            )
+        except SQLAlchemyError as save_error:
+            logger.error(f"エラーレコード保存失敗（二次エラー）: {save_error}")
 
     def _process_single_image_in_batch(
         self,
@@ -148,7 +233,7 @@ class DatabaseRegistrationWorker(LoRAIroWorkerBase[DatabaseRegistrationResult]):
         *,
         annotations: dict[str, object] | None = None,
         tag_id_cache: dict[str, int | None] | None = None,
-    ) -> None:
+    ) -> int | None:
         """バッチ処理内で単一画像を処理し、統計情報を更新する。
 
         Args:
@@ -160,6 +245,9 @@ class DatabaseRegistrationWorker(LoRAIroWorkerBase[DatabaseRegistrationResult]):
             detail: 1ファイル分の内訳を格納するリスト（in-place更新、登録完了サマリ用）。
             annotations: 事前読み込み済みのアノテーション。Noneの場合はその場で読み込む。
             tag_id_cache: 正規化済みタグ→tag_idのキャッシュ。
+
+        Returns:
+            関連付けられた画像 ID (DUPLICATE は既存 ID)。失敗時は None。
         """
         try:
             # 単一画像の登録処理 (統一エントリ経由で副作用は db_manager 側で適用)
@@ -176,6 +264,7 @@ class DatabaseRegistrationWorker(LoRAIroWorkerBase[DatabaseRegistrationResult]):
             # 登録完了サマリ用に内訳を記録 (DUPLICATE=既存ID, VARIANT/REGISTERED=新規ID)
             resolved_id = image_id if image_id is not None and image_id >= 0 else None
             detail.append(RegistrationDetailItem(image_path.name, outcome, resolved_id))
+            return resolved_id
 
         except Exception as e:
             stats["errors"] += 1
@@ -195,6 +284,7 @@ class DatabaseRegistrationWorker(LoRAIroWorkerBase[DatabaseRegistrationResult]):
                 )
             except Exception as save_error:
                 logger.error(f"エラーレコード保存失敗（二次エラー）: {save_error}")
+            return None
 
     def _register_single_image(
         self,
