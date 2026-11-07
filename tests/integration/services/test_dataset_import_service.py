@@ -300,6 +300,19 @@ def test_propose_plan_uses_output_name_as_version_hint(
     assert _count(engine, "datasets") == 0
 
 
+def test_propose_plan_uses_explicit_config_files_for_version_hint(
+    service: DatasetImportService, kohya_root: Path, tmp_path: Path
+) -> None:
+    # 画像ディレクトリの外にある json の output_name を版名の候補にし、直下の json は使わない
+    outside = tmp_path / "outside.json"
+    outside.write_text(json.dumps({"output_name": "outside_name"}), encoding="utf-8")
+
+    plan = service.propose_plan(kohya_root, "ds", "", [outside])
+
+    assert plan.version_name == "outside_name"
+    assert plan.config_files == [outside]
+
+
 def test_propose_plan_keeps_given_version_name(service: DatasetImportService, kohya_root: Path) -> None:
     plan = service.propose_plan(kohya_root, "ds", "v_user")
 

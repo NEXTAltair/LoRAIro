@@ -351,6 +351,11 @@ class WorkerService(QObject):
 
         queued (GPU 直列キュー待機中) のジョブは実行前に即時取り消す (ADR 0066 §6)。
         """
+        if worker_id.startswith("dataset_import_"):
+            # 取り込みは版を先にコミットしてから複数トランザクションで書くため、強制終了すると
+            # 不完全な版が残って同名で再実行できなくなる。中断点を持たせるまでキャンセルを拒否する
+            logger.warning(f"データセット取り込みはキャンセルできません: {worker_id}")
+            return False
         if self._cancel_queued_gpu_job(worker_id):
             return True
         return self._request_annotation_cancel(worker_id)
@@ -741,14 +746,6 @@ class WorkerService(QObject):
         self._worker_operations.pop(worker_id, None)
         raise RuntimeError(f"ワーカー開始失敗: {worker_id}")
 
-    def cancel_dataset_import(self, worker_id: str) -> None:
-        """データセット取り込みワーカーをキャンセルする。
-
-        Args:
-            worker_id: キャンセル対象のワーカーID。
-        """
-        self.worker_manager.cancel_worker(worker_id)
-
     def cancel_batch_import(self, worker_id: str) -> None:
         """バッチインポートワーカーをキャンセルする。
 
@@ -789,6 +786,11 @@ class WorkerService(QObject):
         Returns:
             キャンセル要求を発行できたかどうか。
         """
+        if worker_id.startswith("dataset_import_"):
+            # 取り込みは版を先にコミットしてから複数トランザクションで書くため、強制終了すると
+            # 不完全な版が残って同名で再実行できなくなる。中断点を持たせるまでキャンセルを拒否する
+            logger.warning(f"データセット取り込みはキャンセルできません: {worker_id}")
+            return False
         if self._cancel_queued_gpu_job(worker_id):
             return True
         return self._request_annotation_cancel(worker_id)

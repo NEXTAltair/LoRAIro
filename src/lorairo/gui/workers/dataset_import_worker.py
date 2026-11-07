@@ -5,7 +5,6 @@
 
 from __future__ import annotations
 
-from dataclasses import replace
 from pathlib import Path
 from typing import TYPE_CHECKING, ClassVar
 
@@ -67,9 +66,10 @@ class DatasetImportWorker(LoRAIroWorkerBase[DatasetImportResult]):
         repository = DatasetRepository(session_factory=self._db_manager.image_repo.session_factory)
         service = DatasetImportService(self._db_manager, repository, self._fsm)
 
-        plan = service.propose_plan(self._root, self._dataset_name, self._version_name)
-        # JSON は画像ディレクトリの外にあるため、選択されたものだけを使う (CLI の --config と同じ)
-        plan = replace(plan, config_files=[path.resolve() for path in self._config_files])
+        # JSON は画像ディレクトリの外にあるため、選択されたものだけを使う。
+        # 版名の候補 (output_name) も選択された JSON から作る
+        config_files = [path.resolve() for path in self._config_files]
+        plan = service.propose_plan(self._root, self._dataset_name, self._version_name, config_files)
 
         self._check_cancellation()
         self._report_progress(10, "データセットを取り込み中...")

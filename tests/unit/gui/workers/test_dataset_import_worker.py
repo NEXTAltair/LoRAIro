@@ -32,7 +32,7 @@ def _make_worker(tmp_path: Path, configs: list[Path]) -> DatasetImportWorker:
     return DatasetImportWorker(tmp_path, "ds", "v1", configs, Mock(), Mock())
 
 
-def test_execute_replaces_config_files_and_returns_result(tmp_path, result):
+def test_execute_passes_selected_config_files_to_plan_and_returns_result(tmp_path, result):
     cfg = tmp_path / "cfg.json"
     cfg.write_text("{}")
     with patch(_SERVICE) as service_cls, patch(_REPO):
@@ -41,8 +41,8 @@ def test_execute_replaces_config_files_and_returns_result(tmp_path, result):
         service.import_directory.return_value = result
         out = _make_worker(tmp_path, [cfg]).execute()
     assert out is result
-    plan_passed = service.import_directory.call_args.args[1]
-    assert plan_passed.config_files == [cfg.resolve()]
+    # 版名の候補を選択した JSON から作れるよう、propose_plan に明示して渡す
+    assert service.propose_plan.call_args.args[3] == [cfg.resolve()]
 
 
 def test_run_emits_finished_on_success(qtbot, tmp_path, result):

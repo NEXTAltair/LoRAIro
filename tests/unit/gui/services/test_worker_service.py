@@ -880,6 +880,12 @@ class TestWorkerService:
         worker_service.worker_manager.request_cancel_worker.assert_called_once_with("annotation_abc12345")
         worker_service.worker_manager.cancel_worker.assert_not_called()
 
+    def test_cancel_job_refuses_dataset_import(self, worker_service):
+        """取り込みは強制終了すると不完全な版が残るため、Jobs からのキャンセルを拒否する。"""
+        assert worker_service.cancel_job("dataset_import_abc12345") is False
+        worker_service.worker_manager.cancel_worker.assert_not_called()
+        worker_service.worker_manager.request_cancel_worker.assert_not_called()
+
     def test_worker_id_uniqueness(self, worker_service):
         """ワーカーID一意性テスト"""
         with patch("lorairo.gui.services.worker_service.SearchWorker"):
