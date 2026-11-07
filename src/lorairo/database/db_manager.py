@@ -1349,6 +1349,31 @@ class ImageDatabaseManager:
         success, added = self.annotation_repo.add_tag_to_images_batch([image_id], tag, model_id)
         return success and added > 0
 
+    def add_verbatim_manual_tag_batch(self, image_ids: list[int], tag: str) -> int:
+        """複数画像へ手動タグを入力した表記のまま追加する (Issue #1409)。
+
+        取り込み時のサブフォルダ共通タグ用。canonical 解決とタグ DB への新規登録を
+        行わず、``tag_id`` は空のまま保存する。既に同じタグを持つ画像は skip する
+        (重複判定は ``add_tag_to_images_batch`` に従う)。
+
+        Args:
+            image_ids: 対象画像 ID のリスト。
+            tag: 追加するタグ (前後の空白は除去済み前提)。
+
+        Returns:
+            実際に追加 (または soft-reject から復活) した件数。
+
+        Raises:
+            SQLAlchemyError: データベースエラー時 (ロールバック後に再送出)。
+        """
+        if not image_ids or not tag:
+            return 0
+        model_id = self.get_manual_edit_model_id()
+        success, added = self.annotation_repo.add_tag_to_images_batch(
+            image_ids, tag, model_id, resolved=(tag, None)
+        )
+        return added if success else 0
+
     def get_rejected_tags(self, image_id: int) -> list[dict[str, Any]]:
         """画像の soft-reject 済みタグ一覧を返す (復活セクション表示用)。
 

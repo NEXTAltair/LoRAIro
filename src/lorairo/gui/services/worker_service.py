@@ -11,6 +11,7 @@ from ...annotation.annotation_runner import AnnotationRunner
 from ...database.db_manager import ImageDatabaseManager
 from ...filesystem import FileSystemManager
 from ...services.annotation_progress import AnnotationPhase, AnnotationProgress
+from ...services.folder_common_tags import FolderCommonTags
 from ...services.job_ledger_service import JobLedgerService, JobStatus
 from ...services.model_registry_protocol import local_ml_model_names
 from ...services.search_models import SearchConditions
@@ -198,18 +199,24 @@ class WorkerService(QObject):
         """
         return self.start_batch_registration_with_fsm(directory, self.fsm)
 
-    def start_batch_registration_with_fsm(self, directory: Path, fsm: FileSystemManager) -> str:
+    def start_batch_registration_with_fsm(
+        self,
+        directory: Path,
+        fsm: FileSystemManager,
+        folder_tags: FolderCommonTags | None = None,
+    ) -> str:
         """
         バッチ登録開始（FileSystemManager指定版）
 
         Args:
             directory: 登録対象ディレクトリ
             fsm: 初期化済みFileSystemManager
+            folder_tags: サブフォルダ (directory からの相対パス) → 共通タグ (Issue #1409)
 
         Returns:
             str: ワーカーID
         """
-        worker = DatabaseRegistrationWorker(directory, self.db_manager, fsm)
+        worker = DatabaseRegistrationWorker(directory, self.db_manager, fsm, folder_tags=folder_tags)
         worker_id = f"batch_reg_{uuid.uuid4().hex[:8]}"
         self._register_operation(worker_id, OperationType.BATCH_REGISTRATION)
 

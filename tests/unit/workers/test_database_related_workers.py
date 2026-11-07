@@ -7,7 +7,7 @@
 
 import tempfile
 from pathlib import Path
-from unittest.mock import Mock, patch
+from unittest.mock import Mock, call, patch
 
 import pytest
 
@@ -1196,3 +1196,95 @@ class TestRegisterImageWithSideEffects:
 
         assert result.outcome is RegistrationOutcome.DUPLICATE
         assert result.image_id == 7
+
+
+class TestFolderCommonTags:
+    """サブフォルダ共通タグの付与 (Issue #1409)。"""
+
+    @pytest.fixture
+    def tree(self, tmp_path):
+        root = tmp_path / "src"
+        paths = {
+            "a1": root / "a" / "1.png",
+            "a2": root / "a" / "2.png",
+            "b1": root / "b" / "1.png",
+            "top": root / "top.png",
+        }
+        for path in paths.values():
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_bytes(b"fake")
+        return root, paths
+
+    @staticmethod
+    def _worker(root, paths, folder_tags, outcomes):
+        from lorairo.database.db_manager import RegistrationSideEffectResult
+
+        mock_db_manager = Mock(spec=ImageDatabaseManager)
+        mock_db_manager.add_verbatim_manual_tag_batch.return_value = 1
+        mock_fsm = Mock(spec=FileSystemManager)
+        mock_fsm.get_image_files.return_value = list(paths.values())
+        mock_db_manager.register_image_with_side_effects.side_effect = [
+            RegistrationSideEffectResult(outcome, image_id, None) for outcome, image_id in outcomes
+        ]
+        worker = DatabaseRegistrationWorker(root, mock_db_manager, mock_fsm, folder_tags=folder_tags)
+        worker._preload_associated_annotations = Mock(return_value={})
+        return worker, mock_db_manager
+
+    def test_tags_go_to_folder_images_including_duplicates_and_skip_failed(self, tree):
+        from lorairo.database.db_manager import RegistrationOutcome
+
+        root, paths = tree
+        worker, db = self._worker(
+            root,
+            paths,
+            {Path("a"): ("Chara A", "smile"), Path("b"): ("x",), Path("empty"): ()},
+            [
+                (RegistrationOutcome.REGISTERED, 10),
+                (RegistrationOutcome.DUPLICATE, 3),
+                (RegistrationOutcome.FAILED, None),
+                (RegistrationOutcome.REGISTERED, 12),
+            ],
+        )
+
+        result = worker.execute()
+
+        # a: 新規 + 重複 (既存 ID)。b は登録失敗で対象なし。直下 top は対象外
+        assert db.add_verbatim_manual_tag_batch.call_args_list == [
+            call([10, 3], "Chara A"),
+            call([10, 3], "smile"),
+        ]
+        assert result.folder_tag_added_count == 2
+
+    def test_no_folder_tags_skips_tagging(self, tree):
+        from lorairo.database.db_manager import RegistrationOutcome
+
+        root, paths = tree
+        worker, db = self._worker(
+            root, paths, None, [(RegistrationOutcome.REGISTERED, i) for i in range(4)]
+        )
+
+        result = worker.execute()
+
+        db.add_verbatim_manual_tag_batch.assert_not_called()
+        assert result.folder_tag_added_count == 0
+
+    def test_db_error_on_one_folder_keeps_other_folders(self, tree):
+        from sqlalchemy.exc import SQLAlchemyError
+
+        from lorairo.database.db_manager import RegistrationOutcome
+
+        root, paths = tree
+        worker, db = self._worker(
+            root,
+            paths,
+            {Path("a"): ("ta",), Path("b"): ("tb",)},
+            [(RegistrationOutcome.REGISTERED, i) for i in (1, 2, 3, 4)],
+        )
+        db.add_verbatim_manual_tag_batch.side_effect = [SQLAlchemyError("locked"), 1]
+
+        result = worker.execute()
+
+        assert result.registered_count == 4
+        assert result.error_count == 0
+        assert result.folder_tag_added_count == 1
+        db.save_error_record.assert_called_once()
