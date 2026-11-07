@@ -566,6 +566,7 @@ class WorkerManager(QObject):
         for prefix in (
             "batch_reg_",
             "batch_import_",
+            "dataset_import_",
             "annotation_",
             "search_",
             "thumbnail_",

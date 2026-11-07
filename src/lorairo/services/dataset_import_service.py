@@ -177,7 +177,13 @@ class DatasetImportService:
         self._repository = repository
         self._fsm = fsm
 
-    def propose_plan(self, root: Path, dataset_name: str, version_name: str) -> DatasetImportPlan:
+    def propose_plan(
+        self,
+        root: Path,
+        dataset_name: str,
+        version_name: str,
+        explicit_config_files: list[Path] | None = None,
+    ) -> DatasetImportPlan:
         """スキャン結果から取り込み計画の候補を作る。DB には何も書かない。
 
         トリガーワードはスキャンの候補を確定値にしないため `None` とする。版名は、
@@ -188,6 +194,7 @@ class DatasetImportService:
             root: Kohya 形式のルートディレクトリ。
             dataset_name: データセット名。
             version_name: 版名。空文字なら候補を作る。
+            explicit_config_files: 設定 json を明示する場合のパス。`None` なら `root` 直下を自動検出する。
 
         Returns:
             確認前の取り込み計画。
@@ -206,7 +213,12 @@ class DatasetImportService:
 
         config_files: list[Path] = []
         output_names: list[str] = []
-        for path in sorted(root.glob("*.json"), key=lambda p: p.name):
+        candidates = (
+            sorted(root.glob("*.json"), key=lambda p: p.name)
+            if explicit_config_files is None
+            else explicit_config_files
+        )
+        for path in candidates:
             if not path.is_file():
                 continue
             try:

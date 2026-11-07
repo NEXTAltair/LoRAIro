@@ -3,7 +3,6 @@
 import sys
 from collections.abc import Callable
 from functools import partial
-from pathlib import Path
 from typing import TYPE_CHECKING, Any, cast
 
 from PySide6.QtCore import (
@@ -13,7 +12,6 @@ from PySide6.QtCore import (
 )
 from PySide6.QtGui import QAction, QCloseEvent, QKeySequence
 from PySide6.QtWidgets import (
-    QFileDialog,
     QLabel,
     QMainWindow,
     QMenu,
@@ -52,6 +50,7 @@ from ..tab.map_tab import MapTabWidget
 from ..tab.results_tab import ResultsTabWidget
 from ..tab.search_tab import SearchTabWidget
 from ..watchdog import MainThreadWatchdog
+from ..widgets.dataset_select_dialog import DatasetSelectDialog, DatasetSelection
 from ..widgets.error_notification_widget import ErrorNotificationWidget
 from ..widgets.registration_summary_widget import RegistrationSummaryWidget
 from ..widgets.tag_management_dialog import TagManagementDialog
@@ -1376,15 +1375,9 @@ class MainWindow(QMainWindow, Ui_MainWindow):
             logger.warning("PipelineControlService未初期化 - Pipeline cancellation skipped")
 
     # Placeholder methods for UI actions - implement these based on your requirements
-    def select_dataset_directory(self) -> Path | None:
-        """データセットディレクトリ選択"""
-        directory = QFileDialog.getExistingDirectory(
-            self,
-            "データセットディレクトリを選択してください",
-            "",
-            QFileDialog.Option.ShowDirsOnly,
-        )
-        return Path(directory) if directory else None
+    def select_dataset_directory(self) -> DatasetSelection | None:
+        """データセット選択（ディレクトリ + 任意の Kohya 設定 JSON）"""
+        return DatasetSelectDialog.get_selection(self)
 
     def select_and_process_dataset(self) -> None:
         """データセット選択と自動処理開始（DatasetControllerに委譲）"""
