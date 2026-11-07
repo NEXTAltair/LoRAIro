@@ -60,7 +60,19 @@ tags: [database, schema, migration, crop, repository]
   クロップの親子関係を `processed_images` に混ぜない。
 - 既存テーブルの既存カラムは削除・改名しない。追加は `crop_relations` の新規作成のみ。
 
-### 5. アクセスは Repository 経由 (ADR 0035)
+### 5. 座標系は EXIF orientation 適用後の表示向きとする
+
+`crop_relations` の `x` / `y` / `width` / `height` は、**EXIF orientation を適用した後 (表示向き) の
+ピクセル座標**で保存する。検証と切り出しは `ImageOps.exif_transpose` 後の画像で行い、GUI の矩形選択も
+同じ見え方 (`QImageReader.setAutoTransform(True)`) を基準にする。
+
+- `images.width` / `images.height` は登録時の**生ピクセル値**のままで、この座標系とは別物である。
+  EXIF orientation が 90 度系の画像では両者の縦横が入れ替わる。座標の検証や変換に
+  `images.width/height` を使わない。
+- 親の寸法は、ファイルの orientation タグから算出する (`crop_service._oriented_parent_size`)。
+- `images.width/height` の意味 (生ピクセル) は変更しない。
+
+### 6. アクセスは Repository 経由 (ADR 0035)
 
 `CropRelationRepository` (`add_relation` / `get_children` / `get_parent`) を追加し、
 `ImageDatabaseManager` は `crop_relation_repo` を DI + 既定生成で保持する。
@@ -93,6 +105,8 @@ tags: [database, schema, migration, crop, repository]
 - **矩形供給元の差し替え点**: `CropCreateRequest` (`src/lorairo/domain/crop_request.py`) を受ける
   サービス関数は、矩形の出所を知らない。GUI の矩形選択も物体検出も同じ request 型を組み立てて
   同じサービス関数へ渡す。これが差し替え点であり、検出器を足してもサービス層は変更不要。
+- **矩形の座標系**: 検出器が返す矩形も**表示向き (EXIF orientation 適用後) の座標**で
+  `CropCreateRequest` に渡す。検出器が生ピクセル基準の矩形を返す場合は、呼び出し側で変換してから渡す。
 - **`origin` カラムの用途**: 手動選択は `manual`、検出器由来は検出器名等の文字列を入れる。
   由来別の絞り込み・表示はこの列だけで足りる。
 - **検出モデル名・信頼度**: `crop_relations` には足さない。検出実行のメタデータ (モデル名、
