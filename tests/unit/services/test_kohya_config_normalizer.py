@@ -276,10 +276,18 @@ def test_sample_prompts_text_is_not_exported_as_a_path():
     assert result.unmapped["sample_prompts"] == "a cat --w 512"
 
 
-def test_text_encoder_lr_stays_unmapped_because_gui_writes_a_float_list():
-    result = _normalize({"text_encoder_lr": 0.00005, "unet_lr": 0.0001})
+def test_text_encoder_lr_is_normalized_as_a_float_scalar():
+    from_number = _normalize({"text_encoder_lr": 0.00005, "unet_lr": 0.0001})
+    from_string = _normalize({"text_encoder_lr": "1e-04", "unet_lr": "0.0002"})
+    assert from_number.normalized["text_encoder_lr"] == 0.00005
+    assert from_string.normalized["text_encoder_lr"] == 0.0001
+    assert "text_encoder_lr" not in from_number.unmapped
+
+
+def test_zero_text_encoder_lr_is_dropped():
+    result = _normalize({"text_encoder_lr": "0", "unet_lr": "0.0002"})
     assert "text_encoder_lr" not in result.normalized
-    assert result.unmapped["text_encoder_lr"] == 0.00005
+    assert "text_encoder_lr" not in result.unmapped
 
 
 def test_train_inpainting_disables_latent_caching():

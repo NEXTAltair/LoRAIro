@@ -274,10 +274,11 @@ def _move_gui_only_keys(data: dict[str, object], unmapped: dict[str, UnmappedVal
 
     - stop_text_encoder_training: GUI は「未対応」として 0 に上書きし出力しない。
     - sample_prompts: GUI は本文をファイルに書き、パスを出力する。本文は引数ではない。
-    - text_encoder_lr: GUI は [TE, T5XXL または TE] の float の配列として出力する。
-      正規化値の型 (list[str]) では float の配列を表せないため、変換せず残す。
+    text_encoder_lr は含めない。保存された JSON はスカラー (数値または "1e-04" のような文字列)
+    で、配列にするのは GUI がコマンドを組み立てるときだけ。sd-scripts もスカラーを受け付ける
+    (train_network.py の backward compatibility 分岐) ので、float として通常どおり正規化する。
     """
-    for key in ("stop_text_encoder_training", "sample_prompts", "text_encoder_lr"):
+    for key in ("stop_text_encoder_training", "sample_prompts"):
         if key in data:
             value = data.pop(key)
             if not (_to_float(value) == 0):
