@@ -563,6 +563,48 @@ class TestNormalizeCropTags:
         """前後空白を除き、空文字を捨て、初出順を保って重複を除く。"""
         assert normalize_crop_tags([" solo", "solo ", "", "  ", "sky", "solo", "sky"]) == ("solo", "sky")
 
+    def test_dedupes_by_clean_format_key(self) -> None:
+        """underscore / space の表記ゆれは同一タグとして初出表記だけ残す。"""
+        assert normalize_crop_tags(["blue_hair", "blue hair", "solo"]) == ("blue_hair", "solo")
+
+    def test_variant_spelling_inherits_parent_attributes(
+        self,
+        test_db_manager: ImageDatabaseManager,
+        fs_manager: FileSystemManager,
+        parent_image: int,
+    ) -> None:
+        """親が ``blue hair`` のとき ``blue_hair`` / 両表記指定でも親の属性を継承し 1 行になる。"""
+        tags_data: list[TagAnnotationData] = [
+            {
+                "tag": "blue hair",
+                "tag_id": None,
+                "model_id": None,
+                "existing": False,
+                "is_edited_manually": False,
+                "confidence_score": 0.42,
+            }
+        ]
+        test_db_manager.save_tags(parent_image, tags_data)
+        parent_row = next(
+            t
+            for t in test_db_manager.get_image_annotations(parent_image)["tags"]
+            if t["tag"] == "blue hair"
+        )
+        request = CropCreateRequest(
+            parent_image_id=parent_image,
+            rect=CropRect(x=0, y=0, width=800, height=600),
+            tags=("blue_hair", "blue hair"),
+        )
+
+        child_id = create_crop_image(request, db_manager=test_db_manager, fsm=fs_manager)
+
+        child_tags = test_db_manager.get_image_annotations(child_id)["tags"]
+        assert [t["tag"] for t in child_tags] == ["blue hair"]
+        assert child_tags[0]["confidence_score"] == 0.42
+        assert child_tags[0]["model_id"] == parent_row["model_id"]
+        assert child_tags[0]["is_edited_manually"] is False
+        assert child_tags[0]["existing"] is False
+
     def test_duplicate_request_tags_are_stored_once(
         self,
         test_db_manager: ImageDatabaseManager,
