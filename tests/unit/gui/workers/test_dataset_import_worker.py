@@ -6,7 +6,11 @@ from unittest.mock import Mock, patch
 import pytest
 
 from lorairo.gui.workers.dataset_import_worker import DatasetImportWorker
-from lorairo.services.dataset_import_service import DatasetImportPlan, DatasetImportResult
+from lorairo.services.dataset_import_service import (
+    DatasetImportPlan,
+    DatasetImportResult,
+    DatasetImportService,
+)
 
 _SERVICE = "lorairo.gui.workers.dataset_import_worker.DatasetImportService"
 _REPO = "lorairo.gui.workers.dataset_import_worker.DatasetRepository"
@@ -54,6 +58,21 @@ def test_run_emits_finished_on_success(qtbot, tmp_path, result):
         with qtbot.waitSignal(worker.finished, timeout=5000) as blocker:
             worker.run()
     assert blocker.args == [result]
+
+
+def test_run_rejects_deleted_selected_config_before_import(qtbot, tmp_path):
+    # 選択後に削除された JSON は実 service の propose_plan で拒否され、取り込みに進まない
+    missing = tmp_path / "deleted.json"
+    worker = _make_worker(tmp_path, [missing])
+    with (
+        patch(_REPO),
+        patch.object(DatasetImportService, "import_directory") as import_directory,
+        patch.object(worker, "_record_unhandled_error"),
+    ):
+        with qtbot.waitSignal(worker.error_occurred, timeout=5000) as blocker:
+            worker.run()
+    import_directory.assert_not_called()
+    assert "deleted.json" in blocker.args[0]
 
 
 def test_run_emits_error_on_failure(qtbot, tmp_path):

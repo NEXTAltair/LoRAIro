@@ -91,6 +91,48 @@ def _read_config_text(path: Path) -> str:
     return path.read_text(encoding="utf-8-sig")
 
 
+def _detect_configs(root: Path) -> list[_PreparedConfig]:
+    """`root` 直下の設定 json を自動検出する。読めない json はスキップする。"""
+    prepared: list[_PreparedConfig] = []
+    # 設定 json でない json も置かれうるため、読めないものは黙ってスキップする
+    for path in sorted(root.glob("*.json"), key=lambda p: p.name):
+        if not path.is_file():
+            continue
+        try:
+            normalized = normalize_kohya_gui_config(_read_config_text(path))
+        except (OSError, UnicodeDecodeError, ValueError) as e:
+            # json.JSONDecodeError は ValueError の派生
+            logger.debug(f"設定 json として読めないためスキップ: {path.name}: {type(e).__name__}")
+            continue
+        prepared.append(_PreparedConfig(path, normalized))
+    return prepared
+
+
+def _load_explicit_configs(paths: list[Path]) -> list[_PreparedConfig]:
+    """明示指定の設定 json を読む。1 つでも読めなければ拒否する。
+
+    黙って落とすと設定を欠いた版がコミットされるため、自動検出と違いスキップしない。
+
+    Raises:
+        FileNotFoundError: 設定 json が存在しない場合。
+        ValueError: 設定 json が不正 (json でない・最上位がオブジェクトでない・UTF-8 でない) な場合。
+        OSError: 設定 json を読めない場合。
+    """
+    prepared: list[_PreparedConfig] = []
+    for path in paths:
+        if not path.is_file():
+            raise FileNotFoundError(f"指定された設定 json が見つかりません: {path.name}")
+        try:
+            normalized = normalize_kohya_gui_config(_read_config_text(path))
+        except UnicodeDecodeError as e:
+            # UnicodeDecodeError は ValueError の派生だが、原因が分かるよう明示する
+            raise ValueError(f"指定された設定 json を UTF-8 として読めません: {path.name}") from e
+        except ValueError as e:
+            raise ValueError(f"指定された設定 json が不正です: {path.name}") from e
+        prepared.append(_PreparedConfig(path, normalized))
+    return prepared
+
+
 def _as_str(value: NormalizedValue | None) -> str | None:
     return value if isinstance(value, str) else None
 
@@ -195,9 +237,15 @@ class DatasetImportService:
             dataset_name: データセット名。
             version_name: 版名。空文字なら候補を作る。
             explicit_config_files: 設定 json を明示する場合のパス。`None` なら `root` 直下を自動検出する。
+                自動検出では読めない json をスキップするが、明示指定は 1 つでも読めなければ拒否する。
 
         Returns:
             確認前の取り込み計画。
+
+        Raises:
+            FileNotFoundError: 明示指定の設定 json が存在しない場合。
+            ValueError: 明示指定の設定 json が不正 (json でない・UTF-8 でない等) な場合。
+            OSError: 明示指定の設定 json を読めない場合。
         """
         scanned = scan_kohya_directory(root)
         folders = [
@@ -211,25 +259,15 @@ class DatasetImportService:
             for folder in scanned
         ]
 
-        config_files: list[Path] = []
-        output_names: list[str] = []
-        candidates = (
-            sorted(root.glob("*.json"), key=lambda p: p.name)
+        prepared = (
+            _detect_configs(root)
             if explicit_config_files is None
-            else explicit_config_files
+            else _load_explicit_configs(explicit_config_files)
         )
-        for path in candidates:
-            if not path.is_file():
-                continue
-            try:
-                normalized = normalize_kohya_gui_config(_read_config_text(path))
-            except (OSError, UnicodeDecodeError, ValueError) as e:
-                # json.JSONDecodeError は ValueError の派生
-                logger.debug(f"設定 json として読めないためスキップ: {path.name}: {type(e).__name__}")
-                continue
-            config_files.append(path)
-            if normalized.output_name:
-                output_names.append(normalized.output_name)
+        config_files = [config.path for config in prepared]
+        output_names = [
+            config.normalized.output_name for config in prepared if config.normalized.output_name
+        ]
 
         proposed_version = version_name.strip()
         if not proposed_version:
