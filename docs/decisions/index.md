@@ -97,3 +97,4 @@
 * [Clef アノテーション確認の固定対象バッチと画像別結果保持](0095-clef-review-batch-results.md)
 * [Clef の検索警告と関連画像群のタグ候補・手動修正](0096-clef-search-tag-suggestions.md)
 * [Clef をローカルモデル専用に変更](0097-clef-local-only.md)
+* [Kohya-ss 学習データセットのデータモデルと取り込み・書き出し](0098-kohya-dataset-model.md)
