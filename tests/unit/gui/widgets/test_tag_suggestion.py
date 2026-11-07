@@ -1,12 +1,13 @@
 # tests/unit/gui/widgets/test_tag_suggestion.py
 """TagSuggestionWidget の単独 qtbot テスト (ADR 0036 §5)。"""
 
+from collections.abc import Callable
 from unittest.mock import MagicMock
 
 import pytest
 import shiboken6
 from PySide6.QtCore import Qt
-from PySide6.QtWidgets import QCompleter, QLineEdit
+from PySide6.QtWidgets import QCompleter, QLineEdit, QWidget
 
 from lorairo.gui.widgets.tag_suggestion import TagSuggestionWidget, _TagSuggestionTask
 
@@ -371,3 +372,172 @@ class TestCleanup:
 
         assert not widget._tag_suggestion_timer.isActive()
         assert widget._pending_tag_token is None
+
+
+class TestSingleTagMode:
+    """1 タグ入力モード (`multi_tag=False`) のテスト (Issue #1439)。"""
+
+    @pytest.fixture()
+    def single_widget(self, qtbot) -> tuple[TagSuggestionWidget, QLineEdit]:
+        line_edit = QLineEdit()
+        qtbot.addWidget(line_edit)
+        w = TagSuggestionWidget()
+        qtbot.addWidget(w)
+        w.attach_line_edit(line_edit, multi_tag=False, connect_text_edited=True)
+        return w, line_edit
+
+    def test_activation_replaces_whole_text_without_separator(
+        self, single_widget: tuple[TagSuggestionWidget, QLineEdit]
+    ) -> None:
+        widget, line_edit = single_widget
+        line_edit.setText("blu")
+
+        widget._on_tag_completion_activated("blue_hair")
+
+        assert line_edit.text() == "blue_hair"
+        assert line_edit.cursorPosition() == len("blue_hair")
+
+    def test_token_is_whole_text_even_with_comma(
+        self, single_widget: tuple[TagSuggestionWidget, QLineEdit]
+    ) -> None:
+        widget, _line_edit = single_widget
+        mock_service = MagicMock()
+        mock_service.min_chars = 2
+        mock_service.get_cached_suggestions.return_value = ["a, b"]
+        widget.set_tag_suggestion_service(mock_service)
+
+        widget.on_search_text_edited(" a, b ")
+
+        mock_service.get_cached_suggestions.assert_called_once_with("a, b")
+
+    def test_connect_text_edited_triggers_lookup_on_typing(
+        self, single_widget: tuple[TagSuggestionWidget, QLineEdit], qtbot
+    ) -> None:
+        widget, line_edit = single_widget
+        widget.set_tag_suggestion_service(_FakeAsyncSuggestionService(cached=["blue_hair"]))
+
+        qtbot.keyClicks(line_edit, "bl")
+
+        assert widget._tag_completer_model.stringList() == ["blue_hair"]
+
+    def test_default_attach_keeps_multi_tag_mode(
+        self, attached_widget: tuple[TagSuggestionWidget, QLineEdit]
+    ) -> None:
+        widget, line_edit = attached_widget
+        line_edit.setText("1girl, bl")
+
+        widget._on_tag_completion_activated("blue_hair")
+
+        assert line_edit.text() == "1girl, blue_hair, "
+
+
+def test_widget_is_hidden_so_it_does_not_overlay_parent(qtbot) -> None:
+    """レイアウト外の子として持つため、親表示時に自動表示されない (Issue #1439)。"""
+    parent = QWidget()
+    qtbot.addWidget(parent)
+    child = TagSuggestionWidget(parent)
+
+    parent.show()
+
+    assert child.isHidden()
+
+
+# ─── 各タグ入力欄が共通部品で補完される回帰テスト (Issue #1439) ─────────────
+
+
+def _tag_panel_input(qtbot) -> tuple[QWidget, QLineEdit, Callable[[object], None]]:
+    from lorairo.gui.widgets.tag_panel_widget import TagPanelWidget
+
+    w = TagPanelWidget()
+    w.set_tag_edit_enabled(True)
+    return w, w._tag_add_input, w.set_tag_suggestion_service
+
+
+def _quick_tag_input(qtbot) -> tuple[QWidget, QLineEdit, Callable[[object], None]]:
+    from lorairo.gui.widgets.quick_tag_dialog import QuickTagDialog
+
+    service = _FakeAsyncSuggestionService(cached=["blue_hair"])
+    w = QuickTagDialog([1], tag_suggestion_service=service)
+    return w, w._tag_input, lambda _s: None
+
+
+def _batch_tag_input(qtbot) -> tuple[QWidget, QLineEdit, Callable[[object], None]]:
+    from lorairo.gui.widgets.batch_tag_add_widget import BatchTagAddWidget
+
+    w = BatchTagAddWidget()
+    return w, w.ui.lineEditTag, w.set_tag_suggestion_service
+
+
+def _staging_replace_input(qtbot) -> tuple[QWidget, QLineEdit, Callable[[object], None]]:
+    from lorairo.gui.widgets.staging_tag_panel import StagingTagPanel
+
+    w = StagingTagPanel()
+    return w, w._replace_to_edit, w.set_tag_suggestion_service
+
+
+def _review_candidate_tags_input(qtbot) -> tuple[QWidget, QLineEdit, Callable[[object], None]]:
+    from lorairo.gui.widgets.annotation_review_batch_widget import AnnotationReviewBatchWidget
+
+    w = AnnotationReviewBatchWidget()
+    # 関連タグ入力は「追加候補を探す」有効時のみ編集可能
+    w.candidate_checkbox.setChecked(True)
+    return w, w.candidate_tags_edit, w.set_tag_suggestion_service
+
+
+@pytest.mark.parametrize(
+    "factory",
+    [
+        _tag_panel_input,
+        _quick_tag_input,
+        _batch_tag_input,
+        _staging_replace_input,
+        _review_candidate_tags_input,
+    ],
+    ids=["tag_panel", "quick_tag", "batch_tag", "staging_replace", "review_candidate_tags"],
+)
+def test_tag_inputs_show_suggestions_when_service_injected(qtbot, factory) -> None:
+    """タグ入力欄へ入力すると、注入した候補ソースの候補が completer に載る。"""
+    host, line_edit, inject = factory(qtbot)
+    qtbot.addWidget(host)
+    inject(_FakeAsyncSuggestionService(cached=["blue_hair"]))
+
+    completer = line_edit.completer()
+    assert completer is not None
+
+    qtbot.keyClicks(line_edit, "bl")
+
+    model = completer.model()
+    assert [model.index(row, 0).data() for row in range(model.rowCount())] == ["blue_hair"]
+
+
+def test_tag_input_without_service_has_no_suggestions(qtbot) -> None:
+    """候補ソース未注入 (MergedTagReader 不在) では候補を出さず入力だけ受け付ける。"""
+    from lorairo.gui.widgets.batch_tag_add_widget import BatchTagAddWidget
+
+    w = BatchTagAddWidget()
+    qtbot.addWidget(w)
+
+    qtbot.keyClicks(w.ui.lineEditTag, "bl")
+
+    assert w.ui.lineEditTag.text() == "bl"
+    assert w._tag_suggestion._tag_completer_model.stringList() == []
+
+
+def test_selected_image_details_injects_suggestion_service_from_reader(qtbot) -> None:
+    """画像詳細の set_merged_reader が手動タグ追加入力へ候補ソースを配線する。"""
+    from lorairo.gui.widgets.selected_image_details_widget import SelectedImageDetailsWidget
+    from lorairo.services.tag_suggestion_service import TagSuggestionService
+
+    widget = SelectedImageDetailsWidget()
+    qtbot.addWidget(widget)
+    reader = MagicMock()
+    reader.get_tag_languages.return_value = []
+
+    widget.set_merged_reader(reader)
+
+    suggestion = widget.annotation_display._tag_panel._tag_add_suggestion
+    assert isinstance(suggestion.tag_suggestion_service, TagSuggestionService)
+
+    widget.set_merged_reader(None)
+
+    assert suggestion.tag_suggestion_service is None

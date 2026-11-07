@@ -17,6 +17,7 @@ from PySide6.QtWidgets import QVBoxLayout, QWidget
 from ...database.db_core import resolve_stored_path
 from ...database.db_manager import ImageDatabaseManager
 from ...services.quality_issue_detection_service import QualityIssueDetectionService
+from ...services.tag_suggestion_service import TagSuggestionService
 from ...utils.log import logger
 from ..state.staging_state import StagingStateManager
 from ..widgets.annotation_review_batch_widget import AnnotationReviewBatchWidget
@@ -69,6 +70,7 @@ class ResultsTabWidget(QWidget):
         self._annotation_review_widget.running_status_changed.connect(self.running_status_changed)
         self._annotation_review_widget.review_result_saved.connect(self.review_result_saved)
         self._annotation_review_widget.setVisible(False)
+        self._annotation_review_widget.set_tag_suggestion_service(self._resolve_tag_suggestion_service())
         if staging_state_manager is not None:
             staging_state_manager.staged_images_changed.connect(self._on_review_scope_changed)
 
@@ -104,6 +106,22 @@ class ResultsTabWidget(QWidget):
         )
         self._annotation_review_widget.setVisible(True)
         self._update_review_scope()
+
+    def _resolve_tag_suggestion_service(self) -> TagSuggestionService | None:
+        """関連タグ入力の補完候補ソースを db_manager の tagdb reader から構築する (#1439)。
+
+        Returns:
+            MergedTagReader を引けた場合は TagSuggestionService、引けなければ None
+            (関連タグ入力は補完なしで動作する)。
+        """
+        if self._db_manager is None:
+            return None
+        try:
+            merged_reader = self._db_manager.annotation_repo.get_merged_reader()
+        except (AttributeError, RuntimeError) as e:
+            logger.warning(f"MergedTagReader 取得に失敗 (タグ補完なしで継続): {e}")
+            return None
+        return TagSuggestionService(merged_reader) if merged_reader is not None else None
 
     def set_annotation_review_unavailable_reason(self, reason: str) -> None:
         self._annotation_review_widget.set_unavailable_reason(reason)

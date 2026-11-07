@@ -29,8 +29,10 @@ from ...gui.designer.BatchTagAddWidget_ui import Ui_BatchTagAddWidget
 from ...utils.log import logger
 from ..message_box import show_warning
 from .staging_widget import StagingWidget
+from .tag_suggestion import TagSuggestionWidget
 
 if TYPE_CHECKING:
+    from ...services.tag_suggestion_service import TagSuggestionService
     from ..state.dataset_state import DatasetStateManager
     from ..state.staging_state import StagingStateManager
 
@@ -123,6 +125,12 @@ class BatchTagAddWidget(QWidget):
         self._staging_widget.staged_images_changed.connect(self.staged_images_changed)
         self._staging_widget.staging_cleared.connect(self.staging_cleared)
 
+        # タグ補完 (共通部品、Issue #1439)。候補ソースは set_tag_suggestion_service() で注入する。
+        self._tag_suggestion = TagSuggestionWidget(self)
+        self._tag_suggestion.attach_line_edit(
+            self.ui.lineEditTag, multi_tag=False, connect_text_edited=True
+        )
+
         logger.info("BatchTagAddWidget initialized")
 
     # ------------------------------------------------------------------
@@ -138,6 +146,14 @@ class BatchTagAddWidget(QWidget):
         self._dataset_state_manager = dataset_state_manager
         self._staging_widget.set_dataset_state_manager(dataset_state_manager)
         logger.debug("DatasetStateManager reference set in BatchTagAddWidget")
+
+    def set_tag_suggestion_service(self, service: "TagSuggestionService | None") -> None:
+        """タグ入力欄の補完候補ソースを設定する (Issue #1439)。
+
+        Args:
+            service: タグ候補を返す TagSuggestionService。None で補完を無効化する。
+        """
+        self._tag_suggestion.set_tag_suggestion_service(service)
 
     def set_staging_state_manager(self, manager: "StagingStateManager") -> None:
         """共有 StagingStateManager を内部 StagingWidget へ注入する (ADR 0074)。

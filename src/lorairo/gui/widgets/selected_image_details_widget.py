@@ -42,6 +42,7 @@ from sqlalchemy.exc import SQLAlchemyError
 from ...database.schema import REJECT_REASON_INCORRECT, REJECT_REASON_NOT_NEEDED
 from ...gui.designer.SelectedImageDetailsWidget_ui import Ui_SelectedImageDetailsWidget
 from ...services.date_formatter import format_datetime_for_display
+from ...services.tag_suggestion_service import TagSuggestionService
 from ...utils.language_keys import language_alias_keys
 from ...utils.log import logger
 from ..services.crop_relation_service import CropRelationService
@@ -466,6 +467,10 @@ class SelectedImageDetailsWidget(QWidget):
         self._merged_reader = reader
         self._available_languages = reader.get_tag_languages() if reader is not None else []
         self.annotation_display.initialize_language_selector(self._available_languages)
+        # 手動タグ追加入力の補完候補も同じ reader から引く (Issue #1439)。
+        self.annotation_display.set_tag_suggestion_service(
+            TagSuggestionService(reader) if reader is not None else None
+        )
         logger.debug(f"MergedTagReader設定完了: 利用可能言語={self._available_languages}")
 
     def set_db_manager(self, db_manager: Any) -> None:

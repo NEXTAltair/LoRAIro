@@ -1,6 +1,8 @@
 # src/lorairo/gui/widgets/quick_tag_dialog.py
 """クイックタグダイアログ - サムネイル上でタグを素早く追加するためのモーダルダイアログ。"""
 
+from typing import TYPE_CHECKING
+
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtGui import QShowEvent
 from PySide6.QtWidgets import (
@@ -16,6 +18,10 @@ from PySide6.QtWidgets import (
 from ...utils.log import logger
 from ..message_box import show_warning
 from .batch_tag_add_widget import normalize_tag
+from .tag_suggestion import TagSuggestionWidget
+
+if TYPE_CHECKING:
+    from ...services.tag_suggestion_service import TagSuggestionService
 
 
 class QuickTagDialog(QDialog):
@@ -34,15 +40,19 @@ class QuickTagDialog(QDialog):
         self,
         image_ids: list[int],
         parent: QWidget | None = None,
+        tag_suggestion_service: "TagSuggestionService | None" = None,
     ) -> None:
         """QuickTagDialogを初期化する。
 
         Args:
             image_ids: タグを追加する画像IDのリスト
             parent: 親ウィジェット
+            tag_suggestion_service: タグ入力の補完候補ソース (Issue #1439)。
+                None の場合は補完なしで動作する。
         """
         super().__init__(parent)
         self._image_ids = image_ids
+        self._tag_suggestion_service = tag_suggestion_service
 
         self.setWindowTitle(f"クイックタグ追加 ({len(image_ids)}枚)")
         self.setWindowFlags(Qt.WindowType.Dialog)
@@ -70,6 +80,11 @@ class QuickTagDialog(QDialog):
         self._tag_input.setPlaceholderText("タグを入力...")
         self._tag_input.returnPressed.connect(self._on_add_clicked)
         input_layout.addWidget(self._tag_input)
+
+        # タグ補完 (共通部品、Issue #1439)
+        self._tag_suggestion = TagSuggestionWidget(self)
+        self._tag_suggestion.attach_line_edit(self._tag_input, multi_tag=False, connect_text_edited=True)
+        self._tag_suggestion.set_tag_suggestion_service(self._tag_suggestion_service)
 
         layout.addLayout(input_layout)
 

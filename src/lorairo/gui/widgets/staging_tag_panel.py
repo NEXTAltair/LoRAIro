@@ -27,7 +27,9 @@ from PySide6.QtWidgets import (
 )
 
 from lorairo.gui import theme
+from lorairo.gui.widgets.tag_suggestion import TagSuggestionWidget
 from lorairo.services.staging_tag_aggregation import StagingTagAggregationService, TagCount
+from lorairo.services.tag_suggestion_service import TagSuggestionService
 
 # ------------------------------------------------------------------
 # ソートモード定数
@@ -240,6 +242,11 @@ class StagingTagPanel(QWidget):
             f" QLineEdit:focus {{ border-color: {theme.ACCENT}; }}"
         )
         replace_row.addWidget(self._replace_to_edit, 1)
+        # 置換先タグの補完 (共通部品、Issue #1439)
+        self._replace_to_suggestion = TagSuggestionWidget(self)
+        self._replace_to_suggestion.attach_line_edit(
+            self._replace_to_edit, multi_tag=False, connect_text_edited=True
+        )
 
         self._replace_btn = QPushButton("置換")
         self._replace_btn.setObjectName("replaceBtn")
@@ -273,6 +280,14 @@ class StagingTagPanel(QWidget):
     # ------------------------------------------------------------------
     # Public API
     # ------------------------------------------------------------------
+
+    def set_tag_suggestion_service(self, service: TagSuggestionService | None) -> None:
+        """置換先タグ入力欄の補完候補ソースを設定する (Issue #1439)。
+
+        Args:
+            service: タグ候補を返す TagSuggestionService。None で補完を無効化する。
+        """
+        self._replace_to_suggestion.set_tag_suggestion_service(service)
 
     def load_tags(self, image_ids: list[int]) -> None:
         """ステージング集合の画像 ID を設定してタグ集計を更新する。
