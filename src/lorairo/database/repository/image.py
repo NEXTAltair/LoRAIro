@@ -26,6 +26,7 @@
 
 from __future__ import annotations
 
+import bisect
 import datetime
 from collections.abc import Iterator
 from contextlib import contextmanager
@@ -3888,42 +3889,58 @@ class ImageRepository(BaseRepository):
     ) -> list[tuple[datetime.datetime, datetime.datetime, int]]:
         """Image.created_at の分布ヒストグラムを返す。
 
+        各ビンは **両端を含む閉区間** ``[bin_start, bin_end]`` で、``_apply_date_filter``
+        (``>=`` / ``<=``) にそのまま渡すと count と同じ画像集合が得られる (#1440)。
+        SQLite の日時関数 (julianday) はミリ秒精度なので、境界と割り当てもミリ秒単位で
+        行い、最終ビン以外の上限は「次のビンの開始 - 1ms」とする (内部境界ちょうどの
+        画像は次のビンに属する)。
+
         Args:
-            bins: ビン数（デフォルト 20）。
+            bins: ビン数（デフォルト 20）。期間のミリ秒数がこれより少ない場合は
+                ビンが空区間にならないよう期間のミリ秒数まで減らす。
 
         Returns:
             list of (bin_start, bin_end, count)。空データの場合は空リスト。
         """
         with self.session_factory() as session:
-            result = session.execute(select(func.min(Image.created_at), func.max(Image.created_at))).one()
-            min_dt, max_dt = result[0], result[1]
-            if min_dt is None or max_dt is None:
-                return []
-            if min_dt == max_dt:
-                count = session.execute(select(func.count(Image.id))).scalar_one()
-                return [(min_dt, max_dt, count)]
-
-            all_dates: list[datetime.datetime] = list(
-                session.execute(select(Image.created_at).where(Image.created_at.is_not(None)))
+            all_dates: list[datetime.datetime] = [
+                self._round_to_ms(dt)
+                for dt in session.execute(select(Image.created_at).where(Image.created_at.is_not(None)))
                 .scalars()
                 .all()
-            )
-
-            total_seconds = (max_dt - min_dt).total_seconds()
-            bin_width_sec = total_seconds / bins
-            counts = [0] * bins
-            for dt in all_dates:
-                idx = min(int((dt - min_dt).total_seconds() / bin_width_sec), bins - 1)
-                counts[idx] += 1
-
-            return [
-                (
-                    min_dt + datetime.timedelta(seconds=i * bin_width_sec),
-                    min_dt + datetime.timedelta(seconds=(i + 1) * bin_width_sec),
-                    counts[i],
-                )
-                for i in range(bins)
             ]
+
+        if not all_dates:
+            return []
+        min_dt, max_dt = min(all_dates), max(all_dates)
+        if min_dt == max_dt:
+            return [(min_dt, max_dt, len(all_dates))]
+
+        one_ms = datetime.timedelta(milliseconds=1)
+        span_ms = (max_dt - min_dt) // one_ms
+        bin_count = max(1, min(bins, span_ms))
+        bin_width = (max_dt - min_dt) / bin_count
+        # 幅 >= 1ms なので丸め後も開始境界は狭義単調増加になる
+        starts = [self._round_to_ms(min_dt + bin_width * i) for i in range(bin_count)]
+
+        counts = [0] * bin_count
+        for dt in all_dates:
+            counts[bisect.bisect_right(starts, dt) - 1] += 1
+
+        return [
+            (
+                starts[i],
+                starts[i + 1] - one_ms if i < bin_count - 1 else max_dt,
+                counts[i],
+            )
+            for i in range(bin_count)
+        ]
+
+    @staticmethod
+    def _round_to_ms(value: datetime.datetime) -> datetime.datetime:
+        """SQLite の julianday と同じくミリ秒へ四捨五入する (#1440)。"""
+        whole = value.replace(microsecond=0)
+        return whole + datetime.timedelta(milliseconds=(value.microsecond + 500) // 1000)
 
     def get_recently_used_model_ids(self, limit: int = 10) -> list[str]:
         """アノテーション実績があるモデルの litellm_model_id を返す。
