@@ -240,6 +240,8 @@ def test_package_status_query_does_not_include_unrelated_submodules(checkout, mo
 def test_shared_tool_executes_without_uv_or_unrelated_checkouts(checkout):
     """Use a disposable real interpreter, never install into the user's venv."""
     root, linked, interpreter = checkout
+    # fixture が先に作った 0 byte の placeholder は venv 作成で置換されず PermissionError になるため除去する
+    shutil.rmtree(root / ".venv")
     venv.EnvBuilder(with_pip=False).create(root / ".venv")
     for package in tasks.PACKAGES:
         (linked / "local_packages" / package / "pyproject.toml").unlink()
