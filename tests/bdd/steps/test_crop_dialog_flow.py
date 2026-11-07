@@ -45,18 +45,6 @@ class _SaveRecorder:
         return CHILD_IMAGE_ID
 
 
-@pytest.fixture(autouse=True)
-def auto_mock_qmessagebox(monkeypatch: pytest.MonkeyPatch) -> None:
-    """QMessageBox.question を既定で「はい」に固定する。
-
-    tests/bdd には tests/unit/gui/conftest.py のような autouse mock が無い。
-    pytest-qt は teardown で登録ウィジェットを close() するため、未保存変更が残った
-    ダイアログで実 QMessageBox が開き、テストがブロックする。個別ステップはこの上から
-    さらに monkeypatch して回答と呼び出し回数を制御する。
-    """
-    monkeypatch.setattr(QMessageBox, "question", lambda *args, **kwargs: QMessageBox.StandardButton.Yes)
-
-
 def _click_tag(qtbot, tag_list: ClickableTagListWidget, tag: str) -> None:
     """タグリストの該当行 (原文タグで指定) を実際にクリックする。"""
     for row, original in enumerate(tag_list.tags()):
