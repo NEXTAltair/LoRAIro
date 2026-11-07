@@ -18,6 +18,7 @@ from ...services.service_container import get_service_container
 from ...utils.log import logger
 from ..workers.annotation_worker import AnnotationWorker
 from ..workers.base import LoRAIroWorkerBase, WorkerProgress
+from ..workers.dataset_import_worker import DatasetImportWorker
 from ..workers.manager import WorkerManager
 from ..workers.model_install_worker import ModelInstallWorker
 from ..workers.registration_worker import DatabaseRegistrationWorker
@@ -36,6 +37,7 @@ if TYPE_CHECKING:
 _JOB_LEDGER_TITLES: dict[OperationType, str] = {
     OperationType.BATCH_REGISTRATION: "データベース登録",
     OperationType.BATCH_IMPORT: "バッチインポート",
+    OperationType.DATASET_IMPORT: "データセット取り込み",
     OperationType.ANNOTATION: "アノテーション処理",
     OperationType.MODEL_INSTALL: "モデルインストール",  # Issue #754 (ADR 0066 §5)
 }
@@ -85,6 +87,11 @@ class WorkerService(QObject):
     batch_import_error = Signal(str)  # error_message
     batch_import_canceled = Signal(str)  # worker_id
 
+    dataset_import_started = Signal(str)  # worker_id
+    dataset_import_finished = Signal(object)  # DatasetImportResult
+    dataset_import_error = Signal(str)  # error_message
+    dataset_import_canceled = Signal(str)  # worker_id
+
     model_install_started = Signal(str)  # worker_id (Issue #754)
     model_install_finished = Signal(object)  # ModelInstallResult
     model_install_error = Signal(str)  # error_message
@@ -131,6 +138,7 @@ class WorkerService(QObject):
         self.current_annotation_worker_id: str | None = None
         self.current_thumbnail_worker_id: str | None = None
         self.current_batch_import_worker_id: str | None = None
+        self.current_dataset_import_worker_id: str | None = None
         self._worker_operations: dict[str, OperationContext] = {}
         self._operation_sequence = 0
         self._search_generation = 0
@@ -694,6 +702,53 @@ class WorkerService(QObject):
         self._worker_operations.pop(worker_id, None)
         raise RuntimeError(f"ワーカー開始失敗: {worker_id}")
 
+    def start_dataset_import(
+        self,
+        root: Path,
+        dataset_name: str,
+        version_name: str,
+        config_files: list[Path],
+        fsm: FileSystemManager,
+    ) -> str:
+        """Kohya データセット取り込みワーカーを開始する。
+
+        Args:
+            root: Kohya 形式のルートディレクトリ。
+            dataset_name: データセット名。
+            version_name: 版名 (空可)。
+            config_files: 版に紐づける設定 JSON。
+            fsm: 初期化済み FileSystemManager。
+
+        Returns:
+            ワーカーID。
+
+        Raises:
+            RuntimeError: ワーカーを開始できなかった場合。
+        """
+        worker = DatasetImportWorker(root, dataset_name, version_name, config_files, self.db_manager, fsm)
+        worker_id = f"dataset_import_{uuid.uuid4().hex[:8]}"
+        self._register_operation(worker_id, OperationType.DATASET_IMPORT)
+
+        worker.progress_updated.connect(
+            lambda progress: self.worker_progress_updated.emit(worker_id, progress)
+        )
+
+        if self.worker_manager.start_worker(worker_id, worker):
+            logger.info(f"データセット取り込み開始: {root} (ID: {worker_id})")
+            self.current_dataset_import_worker_id = worker_id
+            return worker_id
+
+        self._worker_operations.pop(worker_id, None)
+        raise RuntimeError(f"ワーカー開始失敗: {worker_id}")
+
+    def cancel_dataset_import(self, worker_id: str) -> None:
+        """データセット取り込みワーカーをキャンセルする。
+
+        Args:
+            worker_id: キャンセル対象のワーカーID。
+        """
+        self.worker_manager.cancel_worker(worker_id)
+
     def cancel_batch_import(self, worker_id: str) -> None:
         """バッチインポートワーカーをキャンセルする。
 
@@ -769,6 +824,9 @@ class WorkerService(QObject):
         elif worker_id.startswith("batch_import_"):
             operation_name = "バッチインポート"
             self.batch_import_started.emit(worker_id)
+        elif worker_id.startswith("dataset_import_"):
+            operation_name = "データセット取り込み"
+            self.dataset_import_started.emit(worker_id)
         elif worker_id.startswith("annotation_"):
             operation_name = "アノテーション処理"
             self.enhanced_annotation_started.emit(worker_id)
@@ -787,7 +845,7 @@ class WorkerService(QObject):
         log_lifecycle = (
             logger.info
             if self._resolve_worker_type(worker_id)
-            in ("batch_reg", "batch_import", "annotation", "model_install")
+            in ("batch_reg", "batch_import", "dataset_import", "annotation", "model_install")
             else logger.debug
         )
         log_lifecycle(f"ワーカー開始: {operation_name} (ID: {worker_id})")
@@ -797,6 +855,7 @@ class WorkerService(QObject):
         for prefix in (
             "batch_reg_",
             "batch_import_",
+            "dataset_import_",
             "annotation_",
             "model_install_",
             "search_",
@@ -812,6 +871,7 @@ class WorkerService(QObject):
         finished_dispatch: dict[str, tuple[Any, str | None]] = {
             "batch_reg": (self.batch_registration_finished, "current_registration_worker_id"),
             "batch_import": (self.batch_import_finished, "current_batch_import_worker_id"),
+            "dataset_import": (self.dataset_import_finished, "current_dataset_import_worker_id"),
             "annotation": (self.enhanced_annotation_finished, "current_annotation_worker_id"),
             "model_install": (self.model_install_finished, None),
             "search": (self.search_finished, "current_search_worker_id"),
@@ -825,7 +885,9 @@ class WorkerService(QObject):
 
         # ライフサイクルINFOはこの1層に集約。search/thumbnailは高頻度なのでDEBUGに落とす。
         log_lifecycle = (
-            logger.info if worker_type in ("batch_reg", "batch_import", "annotation") else logger.debug
+            logger.info
+            if worker_type in ("batch_reg", "batch_import", "dataset_import", "annotation")
+            else logger.debug
         )
         log_lifecycle(f"ワーカー完了: {worker_id}")
 
@@ -837,6 +899,7 @@ class WorkerService(QObject):
         error_dispatch: dict[str, tuple[Any, str | None]] = {
             "batch_reg": (self.batch_registration_error, "current_registration_worker_id"),
             "batch_import": (self.batch_import_error, "current_batch_import_worker_id"),
+            "dataset_import": (self.dataset_import_error, "current_dataset_import_worker_id"),
             "annotation": (self.enhanced_annotation_error, "current_annotation_worker_id"),
             "model_install": (self.model_install_error, None),
             "search": (self.search_error, "current_search_worker_id"),
@@ -897,6 +960,7 @@ class WorkerService(QObject):
         canceled_dispatch: dict[str, tuple[Any, str | None]] = {
             "batch_reg": (self.batch_registration_canceled, "current_registration_worker_id"),
             "batch_import": (self.batch_import_canceled, "current_batch_import_worker_id"),
+            "dataset_import": (self.dataset_import_canceled, "current_dataset_import_worker_id"),
             "annotation": (self.enhanced_annotation_canceled, "current_annotation_worker_id"),
             "model_install": (self.model_install_canceled, None),
             "search": (self.search_canceled, "current_search_worker_id"),
@@ -942,6 +1006,7 @@ class WorkerService(QObject):
         attr_by_type = {
             "batch_reg": "current_registration_worker_id",
             "batch_import": "current_batch_import_worker_id",
+            "dataset_import": "current_dataset_import_worker_id",
             "annotation": "current_annotation_worker_id",
             "search": "current_search_worker_id",
             "thumbnail": "current_thumbnail_worker_id",
@@ -1224,6 +1289,7 @@ class WorkerService(QObject):
         current_attr_by_type = {
             OperationType.BATCH_REGISTRATION: "current_registration_worker_id",
             OperationType.BATCH_IMPORT: "current_batch_import_worker_id",
+            OperationType.DATASET_IMPORT: "current_dataset_import_worker_id",
             OperationType.ANNOTATION: "current_annotation_worker_id",
             OperationType.SEARCH: "current_search_worker_id",
             OperationType.THUMBNAIL: "current_thumbnail_worker_id",
@@ -1244,6 +1310,7 @@ class WorkerService(QObject):
         return {
             "batch_reg": OperationType.BATCH_REGISTRATION,
             "batch_import": OperationType.BATCH_IMPORT,
+            "dataset_import": OperationType.DATASET_IMPORT,
             "annotation": OperationType.ANNOTATION,
             "model_install": OperationType.MODEL_INSTALL,
             "search": OperationType.SEARCH,
