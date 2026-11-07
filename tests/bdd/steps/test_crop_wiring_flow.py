@@ -11,7 +11,6 @@ from unittest.mock import Mock
 import pytest
 import shiboken6
 from PIL import Image
-from PySide6.QtWidgets import QMessageBox
 from pytest_bdd import given, parsers, scenarios, then, when
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
@@ -48,19 +47,6 @@ class WiringContext:
     dialog: CropDialog | None = None
     saved_ids: list[int] = field(default_factory=list)
     reopened: ImageDatabaseManager | None = None
-
-
-@pytest.fixture(autouse=True)
-def auto_mock_qmessagebox(monkeypatch: pytest.MonkeyPatch) -> None:
-    """QMessageBox のネイティブダイアログを抑止する。
-
-    tests/bdd には tests/unit/gui/conftest.py のような autouse mock が無い。pytest-qt の
-    teardown が未保存のダイアログを close() する際に実ダイアログが開くとテストがブロックする。
-    """
-    monkeypatch.setattr(QMessageBox, "question", lambda *a, **kw: QMessageBox.StandardButton.Yes)
-    monkeypatch.setattr(QMessageBox, "warning", lambda *a, **kw: QMessageBox.StandardButton.Ok)
-    monkeypatch.setattr(QMessageBox, "information", lambda *a, **kw: QMessageBox.StandardButton.Ok)
-    monkeypatch.setattr(QMessageBox, "critical", lambda *a, **kw: QMessageBox.StandardButton.Ok)
 
 
 def _open_file_db(db_path: Path, config_service: object) -> ImageDatabaseManager:
