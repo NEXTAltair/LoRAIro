@@ -210,7 +210,7 @@ class MainWindow(QMainWindow, Ui_MainWindow):
             return
 
         try:
-            self.file_system_manager = FileSystemManager()
+            self.file_system_manager = self._create_project_file_system_manager()
             logger.info("✅ FileSystemManager初期化成功")
         except Exception as e:
             logger.error(f"❌ FileSystemManager初期化失敗: {e}")
@@ -247,6 +247,29 @@ class MainWindow(QMainWindow, Ui_MainWindow):
         self._update_database_status_label()
 
         logger.info("サービス初期化完了")
+
+    @staticmethod
+    def _create_project_file_system_manager() -> FileSystemManager:
+        """現在のプロジェクトルートで初期化した FileSystemManager を作る (#1360)。
+
+        GUI のプロジェクトは起動時の DB 接続で確定するため、ここで一度だけ
+        ``initialize(get_current_project_root())`` する。これにより登録操作を経ない
+        セッション (クロップのみ等) でも WorkerService / DatasetController /
+        CropDialogLauncher が共有する FSM が初期化済みになる。
+
+        ディレクトリ作成に失敗しても起動は止めない (未初期化のまま返す)。登録経路は
+        実行時に再初期化し、CropDialogLauncher も開く時点で遅延初期化する。
+
+        Returns:
+            プロジェクトルートで初期化済み (失敗時は未初期化) の FileSystemManager。
+        """
+        fsm = FileSystemManager()
+        project_root = get_current_project_root()
+        try:
+            fsm.initialize(project_root)
+        except OSError as e:
+            logger.opt(exception=True).error(f"FileSystemManager のプロジェクト初期化に失敗: {e}")
+        return fsm
 
     def _initialize_staging_state_manager(self) -> None:
         """ステージング集合の SSoT (StagingStateManager) を初期化する (ADR 0074)。
