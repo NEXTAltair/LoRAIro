@@ -18,6 +18,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+from genai_tag_db_tools.utils.cleanup_str import TagCleaner
 from loguru import logger
 from PIL import Image, ImageOps
 from sqlalchemy.exc import SQLAlchemyError
@@ -294,6 +295,9 @@ def _register_cropped_file(
 def normalize_crop_tags(tags: Iterable[str]) -> tuple[str, ...]:
     """採用タグを保存前に正規化する (前後空白除去・空文字除去・順序を保った重複除去)。
 
+    重複判定は repository の保存時正規化と同じ ``TagCleaner.clean_format`` キーで行う
+    (``blue_hair`` と ``blue hair`` は同一タグ)。残すのは初出の表記。
+
     CLI / GUI が request を組み立てる時と、サービスが子画像へ保存する時の両方で
     同じ関数を通すことで、呼び出し側が数えたタグ数と実際に保存されるタグ数を
     一致させる (保存後の読み戻しを不要にする)。
@@ -304,7 +308,20 @@ def normalize_crop_tags(tags: Iterable[str]) -> tuple[str, ...]:
     Returns:
         正規化済みタグの tuple (入力順を保持)。
     """
-    return tuple(dict.fromkeys(stripped for tag in tags if (stripped := tag.strip())))
+    unique: dict[str, str] = {}
+    for tag in tags:
+        stripped = tag.strip()
+        if not stripped:
+            continue
+        key = _tag_match_key(stripped)
+        if key:
+            unique.setdefault(key, stripped)
+    return tuple(unique.values())
+
+
+def _tag_match_key(tag: str) -> str:
+    """タグ照合キー。repository の保存時正規化 (``TagCleaner.clean_format``) と揃える。"""
+    return str(TagCleaner.clean_format(tag)).strip()
 
 
 def _discard_child_image(child_id: int, *, db_manager: ImageDatabaseManager) -> None:
@@ -347,11 +364,15 @@ def _copy_tags(
     if not tags:
         return
     parent_annotations = db_manager.get_image_annotations(request.parent_image_id)
-    parent_tags = {str(tag["tag"]): tag for tag in parent_annotations["tags"]}
+    # 表記ゆれ (blue_hair / blue hair) でも親の属性を継承できるよう正規化キーで照合する。
+    # 同一キーが複数行ある場合は最初の行を採用する。
+    parent_tags: dict[str, dict[str, Any]] = {}
+    for parent_tag in parent_annotations["tags"]:
+        parent_tags.setdefault(_tag_match_key(str(parent_tag["tag"])), parent_tag)
 
     tags_data: list[TagAnnotationData] = []
     for tag in tags:
-        source = parent_tags.get(tag)
+        source = parent_tags.get(_tag_match_key(tag))
         if source is None:
             tags_data.append(
                 {
