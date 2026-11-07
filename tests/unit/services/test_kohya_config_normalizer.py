@@ -233,9 +233,9 @@ def test_false_and_zero_values_are_dropped_like_the_gui_filter():
     assert result.normalized == {"cache_latents": True, "max_data_loader_n_workers": 0}
 
 
-def test_epoch_controlled_training_is_deferred_and_epoch_stays_unmapped():
+def test_epoch_controlled_training_becomes_max_train_epochs_and_epoch_stays_unmapped():
     result = _normalize({"epoch": 10, "max_train_steps": 0, "max_train_epochs": 0})
-    assert "max_train_epochs" not in result.normalized
+    assert result.normalized["max_train_epochs"] == 10
     assert "max_train_steps" not in result.normalized
     assert result.unmapped["epoch"] == 10
 
@@ -285,6 +285,41 @@ def test_text_encoder_lr_stays_unmapped_because_gui_writes_a_float_list():
 def test_train_inpainting_disables_latent_caching():
     result = _normalize({"train_inpainting": True, "cache_latents": True, "cache_latents_to_disk": True})
     assert result.normalized == {"train_inpainting": True}
+
+
+def test_epoch_only_config_becomes_max_train_epochs():
+    result = _normalize(
+        {"epoch": 50, "max_train_epochs": "0", "max_train_steps": "", "train_data_dir": "x"}
+    )
+    assert result.normalized["max_train_epochs"] == 50
+    assert "max_train_steps" not in result.normalized
+    assert result.unmapped["epoch"] == 50
+
+
+def test_epoch_given_as_string_is_converted_to_int():
+    result = _normalize({"epoch": "12"})
+    assert result.normalized["max_train_epochs"] == 12
+
+
+def test_explicit_max_train_epochs_wins_over_epoch():
+    result = _normalize({"epoch": 50, "max_train_epochs": "30"})
+    assert result.normalized["max_train_epochs"] == 30
+
+
+def test_explicit_max_train_steps_keeps_epoch_out_of_normalized():
+    result = _normalize({"epoch": 50, "max_train_steps": "1000"})
+    assert result.normalized["max_train_steps"] == 1000
+    assert "max_train_epochs" not in result.normalized
+
+
+def test_dataset_config_disables_epoch_derivation():
+    result = _normalize({"epoch": 50, "dataset_config": "ds.toml"})
+    assert "max_train_epochs" not in result.normalized
+
+
+def test_zero_or_missing_epoch_does_not_set_max_train_epochs():
+    assert "max_train_epochs" not in _normalize({"epoch": 0}).normalized
+    assert "max_train_epochs" not in _normalize({"learning_rate": 0.0001}).normalized
 
 
 def test_dataset_config_percent_warmup_becomes_absolute_steps():
