@@ -65,12 +65,26 @@ git worktree list
 git worktree remove ../LoRAIro-feature-name
 ```
 
-**各 worktree で必要なセットアップ:**
+**worktree での実行ルール (共有 venv を壊さない):**
+
+worktree 専用の venv は作らず、共有 checkout の `.venv` を使う。worktree 内で素の `uv run` / `uv sync` を
+実行すると、暗黙 sync で共有 venv の `lorairo` editable install が worktree パスへ再 pin される。
+その worktree を削除すると共有 checkout 側で `ModuleNotFoundError: No module named 'lorairo'` になる (#1362)。
+
 ```bash
-cd ../LoRAIro-feature-name
-uv sync --dev
-uv run python scripts/generate_ui.py  # .ui ファイル変更後は必須
+# worktree 内: Makefile ターゲットは共有 venv を明示し sync しない (推奨)
+make mypy / make lint / make test / make adr-index / make generate-ui
+
+# 直接 uv を使う場合: 共有 venv を明示 + --no-sync + PYTHONPATH を worktree の src に向ける
+UV_PROJECT_ENVIRONMENT=/workspaces/LoRAIro/.venv PYTHONPATH=src uv run --no-sync pytest <path>
+
+# 禁止: worktree 内での uv run (--no-sync なし) / uv sync / uv lock
 ```
+
+- `make install` / `make install-dev` (依存同期) は worktree からは拒否される。共有 checkout で実行する。
+- `.ui` 変更後の再生成も worktree 内で `make generate-ui` を使う。
+- 再 pin されて共有 checkout が壊れた場合の復旧: 共有 checkout で
+  `git submodule update --init --recursive` の後 `uv sync --dev` を実行する。
 
 **ベストプラクティス:**
 - 親ディレクトリに配置 (`../LoRAIro-feature-name`)
