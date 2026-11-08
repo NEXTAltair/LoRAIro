@@ -183,6 +183,10 @@ Qt依存のないビジネスロジックサービス群。CLI、GUI、API全て
 - **Class**: `FavoriteFiltersService`
 - **Purpose**: お気に入りフィルター条件の永続化管理
 
+#### FolderCommonTags (Qt-free)
+- **Path**: `src/lorairo/services/folder_common_tags.py`
+- **Purpose**: ディレクトリ取り込み時のサブフォルダごとの共通タグ (直下の全画像へ MANUAL_EDIT タグとして付与)
+
 #### ImageRegistrationService
 - **Path**: `src/lorairo/services/image_registration_service.py`
 - **Class**: `ImageRegistrationService`
