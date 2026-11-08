@@ -104,15 +104,17 @@ jobs:
 
       - name: Run unit tests
         # LoRAIro 本体のみ (ADR 0024: pytest セッション境界 = package 境界)。
+        # GUI テストは test-unit-gui job に分離 (#1361: 10 分予算対策)。
         # local_packages の単体テストは別 job (test-genai-tag-db-tools / test-image-annotator-lib) で実行する。
         run: |
-          uv run pytest tests/unit \
+          uv run pytest tests/unit --ignore=tests/unit/gui \
             -m "not gui_show and not calls_real_webapi and not downloads_and_runs_model and not slow" \
             --cov=src \
             --cov-report=xml:coverage-unit.xml \
             --cov-report=term-missing \
             --cov-fail-under=0 \
             --timeout=120 \
+            --durations=30 \
             -x
 
       - name: Upload coverage XML
@@ -128,6 +130,73 @@ jobs:
         with:
           name: coverage-unit-data
           path: .coverage
+          include-hidden-files: true
+
+  test-unit-gui:
+    name: Unit Tests (GUI)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+          cache-dependency-glob: "pyproject.toml"
+
+      - name: Install Qt system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libgl1 libgl1-mesa-dri libegl1 \
+            libglib2.0-0 libxrender1 libxtst6 libxi6 libxrandr2 \
+            libxkbcommon0 libxkbcommon-x11-0 \
+            libxcb-cursor0 libxcb-icccm4 libxcb-image0 libxcb-keysyms1 \
+            libxcb-randr0 libxcb-render-util0 libxcb-xinerama0 libxcb-xfixes0 \
+            libdbus-1-3 libgtk-3-0 \
+            fonts-noto-cjk
+
+      - name: Install dependencies
+        run: uv sync --dev
+
+      - name: Generate Qt UI files
+        run: uv run python scripts/generate_ui.py
+
+      - name: Run unit tests
+        # tests/unit/gui のみ (非 GUI は test-unit job)。LoRAIro 本体のみ (ADR 0024: pytest セッション境界 = package 境界)。
+        # local_packages の単体テストは別 job (test-genai-tag-db-tools / test-image-annotator-lib) で実行する。
+        env:
+          COVERAGE_FILE: .coverage.unit-gui
+        run: |
+          uv run pytest tests/unit/gui \
+            -m "not gui_show and not calls_real_webapi and not downloads_and_runs_model and not slow" \
+            --cov=src \
+            --cov-report=xml:coverage-unit-gui.xml \
+            --cov-report=term-missing \
+            --cov-fail-under=0 \
+            --timeout=120 \
+            --durations=30 \
+            -x
+
+      - name: Upload coverage XML
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: coverage-unit-gui
+          path: coverage-unit-gui.xml
+
+      - name: Upload coverage data
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: coverage-unit-gui-data
+          path: .coverage.unit-gui
           include-hidden-files: true
 
   test-integration:
@@ -316,7 +385,7 @@ jobs:
     name: Coverage Gate (LoRAIro Main ≥ 75%)
     # ADR 0024: coverage gate は LoRAIro 本体のみを対象とする。
     # local_packages の coverage は別 job artifact として保持し、ここでは combine しない。
-    needs: [test-unit, test-integration]
+    needs: [test-unit, test-unit-gui, test-integration]
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
@@ -342,6 +411,12 @@ jobs:
           name: coverage-unit-data
           path: coverage-data/unit
 
+      - name: Download unit GUI coverage data
+        uses: actions/download-artifact@v4
+        with:
+          name: coverage-unit-gui-data
+          path: coverage-data/unit-gui
+
       - name: Download integration coverage data
         uses: actions/download-artifact@v4
         with:
@@ -351,6 +426,7 @@ jobs:
       - name: Combine and check coverage
         run: |
           cp coverage-data/unit/.coverage .coverage.unit
+          cp coverage-data/unit-gui/.coverage.unit-gui .coverage.unit-gui
           cp coverage-data/integration/.coverage .coverage.integration
           uv run coverage combine
           uv run coverage report
