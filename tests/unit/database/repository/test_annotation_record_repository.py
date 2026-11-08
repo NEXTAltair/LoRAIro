@@ -646,6 +646,8 @@ class TestSaveTagsAndCaptions:
         assert saved == 3
         assert reader.search_tags_bulk.call_count == 1
         assert set(reader.search_tags_bulk.call_args.args[0]) == {"gray hair", "solo"}
+        # canonical 解決は usage/翻訳を読まない軽量モードで呼ぶ (Issue #1449)
+        assert reader.search_tags_bulk.call_args.kwargs["lightweight"] is True
         with memory_session_factory() as session:
             rows = session.execute(select(Tag).where(Tag.image_id.in_(image_ids))).scalars().all()
         tags_by_image = {(row.image_id, row.tag, row.tag_id) for row in rows}

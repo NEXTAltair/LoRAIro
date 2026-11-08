@@ -1364,6 +1364,7 @@ class AnnotationRepository(BaseRepository):
                 list(normalized_tags),
                 format_name=None,
                 resolve_preferred=False,
+                lightweight=True,  # tag_id / deprecated のみ使う (Issue #1449)
             )
         except Exception as e:
             logger.error("search_tags_bulk failed ({})", type(e).__name__)
@@ -1538,6 +1539,7 @@ class AnnotationRepository(BaseRepository):
                 list(clean_tags),
                 format_name=_DANBOORU_FORMAT,
                 resolve_preferred=True,
+                lightweight=True,  # tag / tag_id / deprecated のみ使う (Issue #1449)
             )
         except Exception as e:
             # tag_db は任意依存 (ADR 0068): 解決失敗時は整形済みのまま保存へ縮退する。
