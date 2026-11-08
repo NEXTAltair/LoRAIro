@@ -12,7 +12,7 @@ from pathlib import Path
 
 import pytest
 from PIL import Image
-from typer.testing import CliRunner
+from typer.testing import CliRunner, Result
 
 from lorairo.cli.main import app
 from lorairo.services.project_management_service import ProjectManagementService
@@ -176,3 +176,109 @@ def test_cli_import_missing_dir_exits_nonzero(
     )
     assert result.exit_code != 0
     assert "Traceback" not in result.stdout + result.stderr
+
+
+def _invoke_import(runner: CliRunner, root: Path, *extra: str, json_mode: bool = True) -> Result:
+    args = ["--json"] if json_mode else []
+    return runner.invoke(
+        app,
+        [
+            *args,
+            "dataset",
+            "import",
+            str(root),
+            "-p",
+            PROJECT,
+            "--dataset",
+            "ds",
+            "--version",
+            "v1",
+            *extra,
+        ],
+    )
+
+
+def _version_count(project_dir: Path) -> int:
+    with sqlite3.connect(project_dir / "image_database.db") as conn:
+        # 引数の検証で止まると DB の初期化 (migration) 前に終わるため、表が無ければ 0 とする
+        exists = conn.execute(
+            "SELECT count(*) FROM sqlite_master WHERE type='table' AND name='dataset_versions'"
+        ).fetchone()[0]
+        if not exists:
+            return 0
+        count: int = conn.execute("SELECT count(*) FROM dataset_versions").fetchone()[0]
+    return count
+
+
+def test_cli_dry_run_shows_plan_with_candidates_and_imports_nothing(
+    cli_runner: CliRunner, project_dir: Path, kohya_root: Path
+) -> None:
+    """--dry-run はフォルダごとの画像数・学習テキストの無い画像数・候補を出し、版を作らない (#1452)。"""
+    _save_noise_image(kohya_root / "10_a" / "no_text.png", seed=9)
+
+    result = _invoke_import(cli_runner, kohya_root, "--exclude-dir", "3_skipme", "--dry-run")
+
+    assert result.exit_code == 0, result.stdout + result.stderr
+    lines = [json.loads(line) for line in result.stdout.strip().splitlines()]
+    items = {line["dir_name"]: line for line in lines if line["kind"] == "item"}
+    assert items["10_a"]["images"] == 2
+    assert items["10_a"]["images_without_text"] == 1
+    assert items["10_a"]["trigger_candidate"] == "Trig_A"
+    assert items["10_a"]["trigger_word"] is None
+    assert items["3_skipme"]["include"] is False
+    summary = lines[-1]
+    assert summary["dry_run"] is True
+    assert summary["folders"] == 2
+    assert summary["images_without_text"] == 1
+    assert _version_count(project_dir) == 0
+
+
+def test_cli_dry_run_rich_output_shows_candidate(
+    cli_runner: CliRunner, project_dir: Path, kohya_root: Path
+) -> None:
+    result = _invoke_import(cli_runner, kohya_root, "--dry-run", json_mode=False)
+
+    assert result.exit_code == 0, result.stdout + result.stderr
+    assert (
+        "+ 10_a  repeats=10  trigger=-  images=1  without_text=0  candidate=Trig_A (100%)" in result.stdout
+    )
+    assert "nothing imported" in result.stdout
+    assert _version_count(project_dir) == 0
+
+
+def test_cli_trigger_option_stores_trigger_word(
+    cli_runner: CliRunner, project_dir: Path, kohya_root: Path
+) -> None:
+    version_id = _import(cli_runner, kohya_root, "--exclude-dir", "3_skipme", "--trigger", "10_a=Trig_A")
+
+    show = cli_runner.invoke(app, ["dataset", "show", str(version_id), "-p", PROJECT])
+    assert show.exit_code == 0, show.stdout + show.stderr
+    assert "10_a  repeats=10  images=1  trigger=Trig_A" in show.stdout
+    # 指定しなかったフォルダは候補があっても確定しない
+    assert "5_b  repeats=5  images=1  trigger=-" in show.stdout
+
+
+@pytest.mark.parametrize("value", ["10_a", "=word", "10_a=", "nope_dir=word"])
+def test_cli_invalid_trigger_option_exits_nonzero_and_imports_nothing(
+    cli_runner: CliRunner, project_dir: Path, kohya_root: Path, value: str
+) -> None:
+    result = _invoke_import(cli_runner, kohya_root, "--trigger", value)
+
+    assert result.exit_code != 0
+    assert "Traceback" not in result.stdout + result.stderr
+    assert _version_count(project_dir) == 0
+
+
+def test_cli_import_without_kohya_folder_fails_and_creates_no_version(
+    cli_runner: CliRunner, project_dir: Path, tmp_path: Path
+) -> None:
+    """取り込めるフォルダが 0 個なら、空の版を作らずに非ゼロ終了し、train_data_dir を示す。"""
+    root = tmp_path / "project_root"
+    _save_noise_image(root / "img_v02" / "x.png", seed=7)
+    (root / "config.json").write_text(json.dumps({"train_data_dir": "D:/train/img_v02"}), encoding="utf-8")
+
+    result = _invoke_import(cli_runner, root)
+
+    assert result.exit_code != 0
+    assert "D:/train/img_v02" in result.stdout + result.stderr
+    assert _version_count(project_dir) == 0
