@@ -20,7 +20,7 @@ Signal/Slot 流通ルール (ADR 0036 §3):
 
 """
 
-from datetime import datetime
+from datetime import date, datetime
 from typing import TYPE_CHECKING, Any, cast
 
 from PySide6.QtCore import Qt, Signal, Slot
@@ -36,6 +36,20 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from ...domain.registration_date_range import (
+    PRESET_ALL,
+    PRESET_CUSTOM,
+    PRESET_LAST_7_DAYS,
+    PRESET_LAST_30_DAYS,
+    PRESET_TODAY,
+    PRESET_YESTERDAY,
+    LocalDayRange,
+    coerce_saved_day,
+    local_today,
+    match_preset,
+    preset_day_range,
+    to_utc_bounds,
+)
 from ...gui.designer.FilterSearchPanel_ui import Ui_FilterSearchPanel
 from ...gui.services.operation_events import OperationOutcome, OperationType, WorkerOperationEvent
 from ...utils.log import logger
@@ -80,6 +94,16 @@ _AI_RATING_OPTIONS: list[tuple[str, str]] = [
     ("UNRATED", "未設定"),
 ]
 _RATING_COMBINE_OPTIONS: list[tuple[str, str]] = [("and", "AND"), ("or", "OR")]
+
+# 登録日のクイック選択 (単一選択チップ, ADR 0100)。「すべて」= 登録日フィルタなし。
+_DATE_PRESET_OPTIONS: list[tuple[str, str]] = [
+    (PRESET_ALL, "すべて"),
+    (PRESET_TODAY, "今日"),
+    (PRESET_YESTERDAY, "昨日"),
+    (PRESET_LAST_7_DAYS, "7日"),
+    (PRESET_LAST_30_DAYS, "30日"),
+    (PRESET_CUSTOM, "カスタム"),
+]
 
 
 def _rating_chip_qss(active: bool) -> str:
@@ -254,15 +278,18 @@ class FilterSearchPanel(QScrollArea):
             QVBoxLayout,
         )
 
-        # 日付範囲スライダー
+        # 登録日フィルタ (ADR 0100): 状態は「有効か」と「スライダーの暦日範囲」の 2 つだけ。
+        # クイック選択チップとヒストグラムはスライダーの値を書き換えるだけで、独自の範囲を持たない。
         self.date_range_slider = CustomRangeSlider()
         self.date_range_slider.set_date_range()
         self._replace_placeholder(self.ui.dateRangeSliderPlaceholder, self.date_range_slider)
-
-        # 登録日フィルタの導線 (checkbox) を見落とされないよう強調 (#821)
-        self.ui.checkboxDateFilter.setStyleSheet(
-            f"QCheckBox {{ font-weight: {theme.FONT_WEIGHT_BOLD}; color: {theme.INK}; }}"
+        self._date_filter_enabled = False
+        self._applying_date_state = False
+        self._date_preset_control = DsSegmentedControl(_DATE_PRESET_OPTIONS, value=PRESET_ALL, size="small")
+        self._date_preset_control.setToolTip(
+            "画像を DB に登録した日付 (created_at、ローカル時刻の暦日) で絞り込みます"
         )
+        self._replace_placeholder(self.ui.datePresetPlaceholder, self._date_preset_control)
 
         # スコア範囲スライダー (内部値 0-1000、表示 0.00-10.00)
         self.score_range_slider = CustomRangeSlider(min_value=0, max_value=1000)
@@ -401,9 +428,10 @@ class FilterSearchPanel(QScrollArea):
         # 解像度フィルター
         self.ui.comboResolution.currentTextChanged.connect(self._on_resolution_changed)
 
-        # 日付フィルター
-        self.ui.checkboxDateFilter.toggled.connect(self._on_date_filter_toggled)
+        # 日付フィルター (ADR 0100)
+        self._date_preset_control.value_changed.connect(self._on_date_preset_selected)
         self.date_range_slider.valueChanged.connect(self._on_date_range_changed)
+        self._search_facets_sidebar.date_range_selected.connect(self._on_histogram_range_selected)
 
         # Rating フィルター (Issue #811: chip トグル群)
         self._rating_chips.changed.connect(self._on_rating_changed)
@@ -418,7 +446,6 @@ class FilterSearchPanel(QScrollArea):
         self.ui.radioOr.toggled.connect(self._on_filter_value_changed)
         self.ui.comboResolution.currentTextChanged.connect(self._on_filter_value_changed)
         self.ui.comboAspectRatio.currentTextChanged.connect(self._on_filter_value_changed)
-        self.ui.checkboxDateFilter.toggled.connect(self._on_filter_value_changed)
         self._rating_chips.changed.connect(self._on_filter_value_changed)
         self._ai_rating_chips.changed.connect(self._on_filter_value_changed)
         self._rating_combine_toggle.value_changed.connect(self._on_filter_value_changed)
@@ -745,13 +772,61 @@ class FilterSearchPanel(QScrollArea):
         """手動 Rating chip 選択変更処理。"""
         logger.debug(f"Manual rating chips changed: {self._rating_chips.selected_values()}")
 
-    def _on_date_filter_toggled(self, checked: bool) -> None:
-        """日付フィルター有効化切り替え処理。"""
-        self.ui.frameDateRange.setVisible(checked)
+    def _set_date_filter_state(
+        self, enabled: bool, day_range: LocalDayRange | None = None, preset: str | None = None
+    ) -> None:
+        """登録日フィルタの状態を書き換える唯一の入口 (ADR 0100)。
 
-    def _on_date_range_changed(self, min_timestamp: int, max_timestamp: int) -> None:
-        """日付範囲変更処理。"""
-        logger.debug(f"日付範囲変更: {min_timestamp} - {max_timestamp}")
+        状態は「有効か」と「スライダーの暦日範囲」だけ。チップの表示・スライダーの表示/非表示・
+        ヒストグラムの強調はすべてこの 2 つから決める。
+
+        Args:
+            enabled: 登録日フィルタを有効にするか。
+            day_range: スライダーに設定する暦日範囲。None はスライダーの値を変えない。
+            preset: チップに表示するプリセット。None はスライダーの範囲から導出する。
+        """
+        if day_range is not None:
+            self._applying_date_state = True
+            try:
+                self.date_range_slider.set_day_range(day_range)
+            finally:
+                self._applying_date_state = False
+        self._date_filter_enabled = enabled
+        current = self.date_range_slider.get_day_range()
+        if not enabled:
+            chip = PRESET_ALL
+        elif preset is not None:
+            chip = preset
+        else:
+            chip = match_preset(current, local_today())
+        self._date_preset_control.set_value(chip)
+        # スライダーはカスタム選択時だけ表示する (#1440 A1)
+        self.ui.frameDateRange.setVisible(chip == PRESET_CUSTOM)
+        self._search_facets_sidebar.set_histogram_selection(current if enabled else None)
+        self._count_estimate.schedule_update()
+
+    def _on_date_preset_selected(self, preset: str) -> None:
+        """クイック選択チップのクリック: スライダーの値を書き換える。"""
+        if preset == PRESET_ALL:
+            self._set_date_filter_state(False)
+        elif preset == PRESET_CUSTOM:
+            self._set_date_filter_state(True, preset=PRESET_CUSTOM)
+        else:
+            self._set_date_filter_state(True, preset_day_range(preset, local_today()), preset)
+
+    def _on_date_range_changed(self, min_day: int, max_day: int) -> None:
+        """スライダーを手で動かしたらカスタム扱いにする (#1440 C1)。"""
+        if self._applying_date_state:
+            return
+        logger.debug(f"登録日の範囲変更 (序数): {min_day} - {max_day}")
+        self._set_date_filter_state(True, preset=PRESET_CUSTOM)
+
+    def _on_histogram_range_selected(self, start: object, end: object) -> None:
+        """ヒストグラムのバー選択: そのビンの暦日範囲をスライダーへ書き込む。"""
+        if not isinstance(start, date) or not isinstance(end, date):
+            logger.warning(f"ヒストグラムの選択範囲が日付ではありません: {start!r} - {end!r}")
+            return
+        self._set_date_filter_state(True, LocalDayRange(min(start, end), max(start, end)), PRESET_CUSTOM)
 
     def _on_filter_value_changed(self, *args: Any) -> None:
         """フィルター変更時に件数更新をデバウンス実行する。"""
@@ -763,40 +838,14 @@ class FilterSearchPanel(QScrollArea):
     # ============================================================
 
     def get_date_range_from_slider(self) -> tuple[datetime | None, datetime | None]:
-        """CustomRangeSlider から日付範囲を取得して datetime に変換。"""
-        if not self.ui.checkboxDateFilter.isChecked():
+        """登録日フィルタの検索境界を返す。無効なら (None, None)。
+
+        境界は :func:`to_utc_bounds` が決める naive UTC の半開区間
+        (開始日 00:00 以上、終了日の翌日 00:00 未満, ADR 0100)。
+        """
+        if not self._date_filter_enabled:
             return None, None
-
-        try:
-            min_timestamp, max_timestamp = self.date_range_slider.get_range()
-
-            if min_timestamp < 0 or max_timestamp < 0:
-                logger.warning(f"無効なタイムスタンプ: min={min_timestamp}, max={max_timestamp}")
-                return None, None
-
-            if min_timestamp > max_timestamp:
-                logger.warning(f"開始日付が終了日付より後: start={min_timestamp}, end={max_timestamp}")
-                min_timestamp, max_timestamp = max_timestamp, min_timestamp
-
-            start_date = datetime.fromtimestamp(min_timestamp)
-            end_date = datetime.fromtimestamp(max_timestamp)
-
-            current_time = datetime.now()
-            if start_date > current_time:
-                logger.warning(f"開始日付が未来: {start_date}, 現在時刻に調整")
-                start_date = current_time
-            if end_date > current_time:
-                logger.info(f"終了日付が未来: {end_date}, 現在時刻に調整")
-                end_date = current_time
-
-            logger.debug(f"日付範囲変換完了: {start_date} - {end_date}")
-            return start_date, end_date
-        except (ValueError, OSError) as e:
-            logger.error(f"日付範囲変換エラー (タイムスタンプ無効): {e}")
-            return None, None
-        except Exception as e:
-            logger.opt(exception=True).error(f"予期しない日付範囲変換エラー: {e}")
-            return None, None
+        return to_utc_bounds(self.date_range_slider.get_day_range())
 
     def _get_selected_search_types(self) -> list[str]:
         """選択された検索タイプのリストを取得。"""
@@ -946,7 +995,7 @@ class FilterSearchPanel(QScrollArea):
             [
                 self.ui.checkboxOnlyUntagged.isChecked(),
                 self.ui.checkboxOnlyUncaptioned.isChecked(),
-                self.ui.checkboxDateFilter.isChecked(),
+                self._date_filter_enabled,
                 self.ui.comboResolution.currentText() != "全て",
                 self.ui.comboAspectRatio.currentText() != "全て",
                 bool(self._get_rating_filter_value()),
@@ -963,11 +1012,6 @@ class FilterSearchPanel(QScrollArea):
             return None
 
         date_range_start, date_range_end = self.get_date_range_from_slider()
-        if self.ui.checkboxDateFilter.isChecked() and (date_range_start is None or date_range_end is None):
-            logger.warning("日付範囲フィルターエラー: 有効だが範囲が無効")
-            if show_status:
-                self._show_status_message("日付範囲が無効です", auto_hide_ms=3000)
-            return None
 
         rating_filter = self._get_rating_filter_value()
         ai_rating_filter = self._get_ai_rating_filter_value()
@@ -984,7 +1028,7 @@ class FilterSearchPanel(QScrollArea):
             tag_logic="and" if self.ui.radioAnd.isChecked() else "or",
             resolution_filter=self.ui.comboResolution.currentText(),
             aspect_ratio_filter=self.ui.comboAspectRatio.currentText(),
-            date_filter_enabled=self.ui.checkboxDateFilter.isChecked(),
+            date_filter_enabled=self._date_filter_enabled,
             date_range_start=date_range_start,
             date_range_end=date_range_end,
             only_untagged=self.ui.checkboxOnlyUntagged.isChecked(),
@@ -1115,14 +1159,13 @@ class FilterSearchPanel(QScrollArea):
         self._set_combo_text_if_choice(self.ui.comboResolution, conditions.get("resolution"))
         self._set_combo_text_if_choice(self.ui.comboAspectRatio, conditions.get("aspect_ratio"))
 
-        self.ui.checkboxDateFilter.setChecked(bool(conditions.get("date_filter_enabled", False)))
-        date_range = conditions.get("date_range")
-        if isinstance(date_range, list | tuple) and len(date_range) == 2:
-            self.date_range_slider.slider.setValue((int(date_range[0]), int(date_range[1])))
-        else:
-            # 保存条件に無い項目は既定へ戻す。残留した旧スライダー値で
-            # 意図しない絞り込みが効き続けるのを防ぐ (Codex P2)
-            self._reset_range_slider(self.date_range_slider)
+        # 登録日: 保存されたスライダーの値 (暦日) から復元する (ADR 0100)。保存条件に無い・
+        # 解釈できない場合は全範囲へ戻し、残留した旧スライダー値で絞り込みが効き続けるのを防ぐ
+        saved_range = self._coerce_saved_day_range(conditions.get("date_range"))
+        self._set_date_filter_state(
+            bool(conditions.get("date_filter_enabled", False)),
+            saved_range or self.date_range_slider.full_day_range(),
+        )
 
         self.ui.checkboxOnlyUntagged.setChecked(bool(conditions.get("only_untagged", False)))
         self.ui.checkboxOnlyUncaptioned.setChecked(bool(conditions.get("only_uncaptioned", False)))
@@ -1152,6 +1195,19 @@ class FilterSearchPanel(QScrollArea):
 
         # 復元した条件で件数見積もりを更新する
         self._count_estimate.schedule_update()
+
+    @staticmethod
+    def _coerce_saved_day_range(value: Any) -> LocalDayRange | None:
+        """保存フィルタの date_range ([開始日, 終了日]) を暦日範囲に戻す。
+
+        現行形式は ISO 日付文字列、旧形式 (スライダーが秒単位だった頃) は epoch 秒。
+        """
+        if not isinstance(value, list | tuple) or len(value) != 2:
+            return None
+        start, end = coerce_saved_day(value[0]), coerce_saved_day(value[1])
+        if start is None or end is None:
+            return None
+        return LocalDayRange(min(start, end), max(start, end))
 
     @staticmethod
     def _reset_range_slider(slider_widget: CustomRangeSlider) -> None:
@@ -1262,9 +1318,7 @@ class FilterSearchPanel(QScrollArea):
         self.ui.comboResolution.setCurrentIndex(0)
         self.ui.comboAspectRatio.setCurrentIndex(0)
 
-        self.ui.checkboxDateFilter.setChecked(False)
-        self.ui.frameDateRange.setVisible(False)
-        self.date_range_slider.slider.setValue((0, 100))
+        self._set_date_filter_state(False, self.date_range_slider.full_day_range())
 
         self.ui.checkboxOnlyUntagged.setChecked(False)
         self.ui.checkboxOnlyUncaptioned.setChecked(False)
@@ -1303,7 +1357,7 @@ class FilterSearchPanel(QScrollArea):
         値は JSON セーフな型のみ (FavoriteFiltersService が JSON 永続化するため)。
         :meth:`_update_ui_from_conditions` と往復一致するスキーマを保つこと。
         """
-        date_min, date_max = self.date_range_slider.get_range()
+        day_range = self.date_range_slider.get_day_range()
         score_min, score_max = self.score_range_slider.get_range()
         return {
             "version": self.CONDITIONS_SCHEMA_VERSION,
@@ -1313,8 +1367,9 @@ class FilterSearchPanel(QScrollArea):
             "tag_logic": "and" if self.ui.radioAnd.isChecked() else "or",
             "resolution": self.ui.comboResolution.currentText(),
             "aspect_ratio": self.ui.comboAspectRatio.currentText(),
-            "date_filter_enabled": self.ui.checkboxDateFilter.isChecked(),
-            "date_range": [date_min, date_max],
+            "date_filter_enabled": self._date_filter_enabled,
+            # スライダーの暦日 (ISO 日付)。保存フィルタはこの値だけから登録日を復元する (ADR 0100)
+            "date_range": [day_range.start.isoformat(), day_range.end.isoformat()],
             "only_untagged": self.ui.checkboxOnlyUntagged.isChecked(),
             "only_uncaptioned": self.ui.checkboxOnlyUncaptioned.isChecked(),
             "exclude_duplicates": self.ui.checkboxExcludeDuplicates.isChecked(),

@@ -16,6 +16,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from lorairo.domain.registration_date_range import LocalDayRange
 from lorairo.gui import theme
 from lorairo.gui.widgets.date_histogram_widget import DateHistogramWidget
 
@@ -71,10 +72,12 @@ class SearchFacetsSidebar(QWidget):
     """
 
     facets_changed = Signal(dict)
+    # ヒストグラムのバー選択 (開始日, 終了日 (含む))。登録日スライダーへ書き込むために転送する。
+    # 選択範囲はファセット値として持たない (スライダーが唯一の状態, ADR 0100)。
+    date_range_selected = Signal(object, object)
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
-        self._created_at_range: tuple[datetime.datetime, datetime.datetime] | None = None
         self._setup_ui()
 
     def _setup_ui(self) -> None:
@@ -153,7 +156,7 @@ class SearchFacetsSidebar(QWidget):
         self._review_warnings_group.buttonClicked.connect(lambda _: self._emit_facets_changed())
         self._error_group.buttonClicked.connect(lambda _: self._emit_facets_changed())
         self._model_list.itemSelectionChanged.connect(self._emit_facets_changed)
-        self._histogram.range_selected.connect(self._on_range_selected)
+        self._histogram.range_selected.connect(self.date_range_selected)
 
     def _make_group(self, title: str, sub: str | None = None) -> tuple[QWidget, QVBoxLayout]:
         """DS Group コンテナ (uppercase ラベル + mono サブコード) を生成する。
@@ -249,11 +252,6 @@ class SearchFacetsSidebar(QWidget):
             return values[0]
         return values[idx]
 
-    def _on_range_selected(self, start: datetime.datetime, end: datetime.datetime) -> None:
-        """ヒストグラムの range_selected シグナルを受け取って facets_changed を発火する。"""
-        self._created_at_range = (start, end)
-        self._emit_facets_changed()
-
     def _emit_facets_changed(self) -> None:
         """現在のファセット値を facets_changed シグナルで emit する。"""
         self.facets_changed.emit(self.get_facet_values())
@@ -267,7 +265,6 @@ class SearchFacetsSidebar(QWidget):
                 reviewed_at_filter: "unreviewed"/"reviewed"/None
                 error_state_filter: "has_error"/"no_error"/None
                 model_filter: litellm_model_id のリスト / None
-                created_at_range: (start, end) タプル / None
         """
         manual_edit_filter = self._get_radio_value(self._manual_edit_group, [None, True, False])
         reviewed_at_filter = self._get_radio_value(self._reviewed_group, [None, "unreviewed", "reviewed"])
@@ -286,7 +283,6 @@ class SearchFacetsSidebar(QWidget):
             ),
             "error_state_filter": error_state_filter,
             "model_filter": model_filter,
-            "created_at_range": self._created_at_range,
         }
 
     def set_review_warnings_only(self, enabled: bool) -> None:
@@ -303,13 +299,21 @@ class SearchFacetsSidebar(QWidget):
         self._model_list.addItems(model_ids)
         self._filter_model_list(self._model_search.text())
 
-    def update_histogram(self, bins: list[tuple[datetime.datetime, datetime.datetime, int]]) -> None:
+    def update_histogram(self, bins: list[tuple[datetime.date, datetime.date, int]]) -> None:
         """DATE ヒストグラムにデータを渡す。
 
         Args:
-            bins: (bin_start, bin_end, count) のリスト。
+            bins: (開始日, 終了日 (含む), count) のリスト (ローカル暦日)。
         """
         self._histogram.update_histogram(bins)
+
+    def set_histogram_selection(self, day_range: LocalDayRange | None) -> None:
+        """登録日スライダーの範囲をヒストグラムの強調表示へ反映する。
+
+        Args:
+            day_range: 登録日フィルタの暦日範囲。フィルタ無効時は None。
+        """
+        self._histogram.set_selected_range(day_range)
 
     def clear_all(self) -> None:
         """すべての facet を初期値（全て）にリセットする。"""
@@ -323,5 +327,4 @@ class SearchFacetsSidebar(QWidget):
             buttons[0].setChecked(True)
         self._model_search.clear()
         self._model_list.clearSelection()
-        self._created_at_range = None
-        self._histogram.clear()
+        self._histogram.set_selected_range(None)

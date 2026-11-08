@@ -3,7 +3,7 @@
 import uuid
 from collections.abc import Callable
 from dataclasses import dataclass
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
 from enum import StrEnum
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -2060,14 +2060,14 @@ class ImageDatabaseManager:
             logger.opt(exception=True).error(f"ファイルパスからの画像ID取得エラー: {e}")
             raise
 
-    def get_created_at_histogram(self, bins: int = 20) -> list[tuple[datetime, datetime, int]]:
+    def get_created_at_histogram(self, bins: int = 20) -> list[tuple[date, date, int]]:
         """Image.created_at 分布ヒストグラムを取得する。
 
         Args:
             bins: ビン数（デフォルト 20）。
 
         Returns:
-            list of (bin_start, bin_end, count)。空データの場合は空リスト。
+            list of (開始日, 終了日 (含む), count)。ローカル時刻の暦日単位。空データの場合は空リスト。
         """
         return self.image_repo.get_created_at_histogram(bins=bins)
 

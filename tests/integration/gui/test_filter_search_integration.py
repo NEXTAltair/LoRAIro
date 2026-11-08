@@ -1,12 +1,13 @@
 # tests/integration/gui/test_filter_search_integration.py
 
 import sys
-from datetime import datetime
+from datetime import date, datetime
 from unittest.mock import Mock, patch
 
 import pytest
 from PySide6.QtWidgets import QApplication
 
+from lorairo.domain.registration_date_range import LocalDayRange, to_utc_bounds
 from lorairo.gui.services.search_filter_service import SearchFilterService
 from lorairo.gui.widgets.custom_range_slider import CustomRangeSlider
 from lorairo.gui.widgets.filter_search_panel import FilterSearchPanel
@@ -165,7 +166,7 @@ class TestFilterSearchIntegration:
         filter_panel.ui.checkboxCaption.setChecked(True)
         filter_panel.ui.radioOr.setChecked(True)
         filter_panel.ui.comboResolution.setCurrentText("1024x1024")
-        filter_panel.ui.checkboxDateFilter.setChecked(True)
+        filter_panel._set_date_filter_state(True)  # ADR 0100: 旧 checkboxDateFilter の代わり
         filter_panel.ui.checkboxOnlyUntagged.setChecked(True)
 
         # SearchFilterServiceを通じて検索条件作成
@@ -204,8 +205,9 @@ class TestFilterSearchIntegration:
             resolution_filter="1024x1024",
             aspect_ratio_filter="正方形 (1:1)",
             date_filter_enabled=True,
-            date_range_start=datetime(2023, 1, 1),
-            date_range_end=datetime(2023, 12, 31),
+            # ADR 0100: naive UTC の半開区間 (終了は翌日 00:00)。表示はローカル暦日に戻す
+            date_range_start=to_utc_bounds(LocalDayRange(date(2023, 1, 1), date(2023, 12, 31)))[0],
+            date_range_end=to_utc_bounds(LocalDayRange(date(2023, 1, 1), date(2023, 12, 31)))[1],
             only_untagged=False,
             only_uncaptioned=True,
             exclude_duplicates=True,

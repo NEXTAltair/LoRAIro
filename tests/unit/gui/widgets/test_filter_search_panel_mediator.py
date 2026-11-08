@@ -14,6 +14,7 @@ from unittest.mock import MagicMock
 import pytest
 from loguru import logger as loguru_logger
 
+from lorairo.domain.registration_date_range import PRESET_LAST_7_DAYS
 from lorairo.gui.widgets.count_estimate import CountEstimateWidget
 from lorairo.gui.widgets.favorite_filter import FavoriteFilterPanel
 from lorairo.gui.widgets.filter_search_panel import FilterSearchPanel
@@ -492,7 +493,10 @@ class TestPlaceholderReplacement:
         from PySide6.QtWidgets import QWidget
 
         assert panel.findChild(QWidget, "dateGroup").title() == "登録日"
-        assert panel.ui.checkboxDateFilter.text() == "登録日で絞り込む"
+        # #1440 A1: 「登録日で絞り込む」checkbox はクイック選択チップ (すべて = 絞り込みなし) に置き換え
+        labels = [button.text() for button in panel._date_preset_control._buttons.values()]
+        assert labels == ["すべて", "今日", "昨日", "7日", "30日", "カスタム"]
+        assert "created_at" in panel._date_preset_control.toolTip()
 
 
 class TestFavoriteConditionsRoundtrip:
@@ -512,7 +516,7 @@ class TestFavoriteConditionsRoundtrip:
             panel.ui.comboResolution.setCurrentIndex(1)
         if panel.ui.comboAspectRatio.count() > 1:
             panel.ui.comboAspectRatio.setCurrentIndex(1)
-        panel.ui.checkboxDateFilter.setChecked(True)
+        panel._on_date_preset_selected(PRESET_LAST_7_DAYS)
         panel.ui.checkboxOnlyUntagged.setChecked(True)
         panel.ui.checkboxOnlyUncaptioned.setChecked(True)
         panel.ui.checkboxExcludeDuplicates.setChecked(True)

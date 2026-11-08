@@ -30,7 +30,8 @@ class TestSearchFacetsSidebar:
         assert vals["reviewed_at_filter"] is None
         assert vals["error_state_filter"] is None
         assert vals["model_filter"] is None
-        assert vals["created_at_range"] is None
+        # 登録日の範囲はファセット値に持たない (スライダーが唯一の状態, ADR 0100)
+        assert "created_at_range" not in vals
 
     def test_facets_changed_signal_emitted_on_radio_change(self, qtbot: pytest.FixtureRequest) -> None:
         """ラジオボタン変更時に facets_changed シグナルが発火することを確認する。"""
@@ -131,27 +132,28 @@ class TestSearchFacetsSidebar:
         assert vals["manual_edit_filter"] is None
         assert vals["reviewed_at_filter"] is None
         assert vals["error_state_filter"] is None
-        assert vals["created_at_range"] is None
 
-    def test_histogram_range_updates_created_at_range(self, qtbot: pytest.FixtureRequest) -> None:
-        """ヒストグラムのクリックで created_at_range が更新されることを確認する。"""
+    def test_histogram_click_forwards_day_range_without_facets_change(
+        self, qtbot: pytest.FixtureRequest
+    ) -> None:
+        """ヒストグラムのバー選択は date_range_selected で転送し、facets_changed は出さない (ADR 0100)。"""
         sidebar = SearchFacetsSidebar()
         qtbot.addWidget(sidebar)
-        now = datetime.datetime.now(datetime.UTC)
-        end = now + datetime.timedelta(days=1)
+        start, end = datetime.date(2026, 11, 1), datetime.date(2026, 11, 3)
+        facets_emitted: list[dict] = []
+        sidebar.facets_changed.connect(facets_emitted.append)
 
-        with qtbot.waitSignal(sidebar.facets_changed, timeout=3000) as blocker:
-            sidebar._histogram.range_selected.emit(now, end)
+        with qtbot.waitSignal(sidebar.date_range_selected, timeout=3000) as blocker:
+            sidebar._histogram.range_selected.emit(start, end)
 
-        vals = blocker.args[0]
-        assert vals["created_at_range"] == (now, end)
+        assert blocker.args == [start, end]
+        assert facets_emitted == []
 
     def test_update_histogram_delegates_to_histogram_widget(self, qtbot: pytest.FixtureRequest) -> None:
         """update_histogram が内部の DateHistogramWidget に委譲されることを確認する。"""
         sidebar = SearchFacetsSidebar()
         qtbot.addWidget(sidebar)
-        now = datetime.datetime.now(datetime.UTC)
-        bins = [(now, now + datetime.timedelta(days=1), 3)]
+        bins = [(datetime.date(2026, 11, 7), datetime.date(2026, 11, 8), 3)]
         sidebar.update_histogram(bins)
         assert sidebar._histogram._bins == bins
 

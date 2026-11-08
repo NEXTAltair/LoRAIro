@@ -109,6 +109,7 @@ ADR は OKF (Open Knowledge Format) バンドルとして管理する。各 ADR 
 | [0097](0097-clef-local-only.md) | Clef をローカルモデル専用に変更 | 2026-10-08 | Accepted |
 | [0098](0098-kohya-dataset-model.md) | Kohya-ss 学習データセットのデータモデルと取り込み・書き出し | 2026-11-06 | Proposed |
 | [0099](0099-read-only-db-maintenance-check.md) | 読み取り専用の DB メンテナンス点検コマンド | 2026-11-08 | Accepted |
+| [0100](0100-registration-date-filter-single-state.md) | 登録日フィルタはスライダーを唯一の状態にし、暦日の境界を 1 箇所で決める | 2026-11-08 | Accepted |
 | [0103](0103-crop-rect-provider-and-batch-crop.md) | クロップ矩形の供給元を CropRectProvider で差し替え可能にし、外部 JSONL から一括作成する | 2026-11-08 | Accepted |
 <!-- OKF-TABLE:END -->
 

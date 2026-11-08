@@ -43,7 +43,9 @@ class ImageFilterCriteria:
         resolution: 検索対象の解像度(長辺)、0の場合はオリジナル画像
         use_and: 複数タグ指定時の検索方法 (True: AND, False: OR)
         start_date: 検索開始日時 (ISO 8601形式)
-        end_date: 検索終了日時 (ISO 8601形式)
+        end_date: 検索終了日時 (ISO 8601形式、含む)
+        end_date_exclusive: 検索終了日時 (ISO 8601形式、含まない)。GUI の登録日フィルタが
+            「終了日の翌日 00:00 未満」を表すのに使う (ADR 0100)。CLI の公開契約には含めない。
         include_untagged: タグが付いていない画像のみを対象とするか
         include_nsfw: NSFWコンテンツを含む画像を除外しないか
         include_unrated: 未評価画像を含めるか (False: 手動またはAI評価のいずれか1つ以上を持つ画像のみ)
@@ -90,6 +92,7 @@ class ImageFilterCriteria:
     use_and: bool = True
     start_date: str | None = None
     end_date: str | None = None
+    end_date_exclusive: str | None = None
     include_untagged: bool = False
     include_nsfw: bool = False
     include_unrated: bool = True

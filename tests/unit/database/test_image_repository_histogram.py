@@ -87,7 +87,7 @@ class TestGetCreatedAtHistogram:
             )
 
         bins = 5
-        result = repository.get_created_at_histogram(bins=bins)
+        result = repository.get_created_at_histogram(bins=bins, tz=datetime.UTC)
         assert len(result) == bins
 
     def test_total_count_equals_image_count(self, repository, session_factory):
@@ -117,8 +117,8 @@ class TestGetCreatedAtHistogram:
         starts = [entry[0] for entry in result]
         assert starts == sorted(starts)
 
-    def test_each_entry_is_tuple_of_datetime_datetime_int(self, repository, session_factory):
-        """各エントリが (datetime, datetime, int) の形式である。"""
+    def test_each_entry_is_tuple_of_date_date_int(self, repository, session_factory):
+        """各エントリが (開始日, 終了日 (含む), int) の暦日形式である (#1457)。"""
         base = datetime.datetime(2025, 3, 1, tzinfo=datetime.UTC)
         for i in range(6):
             _create_image(
@@ -126,11 +126,11 @@ class TestGetCreatedAtHistogram:
                 created_at=base + datetime.timedelta(days=i),
             )
 
-        result = repository.get_created_at_histogram(bins=3)
+        result = repository.get_created_at_histogram(bins=3, tz=datetime.UTC)
         for entry in result:
             assert len(entry) == 3
             bin_start, bin_end, count = entry
-            assert isinstance(bin_start, datetime.datetime)
-            assert isinstance(bin_end, datetime.datetime)
+            assert type(bin_start) is datetime.date
+            assert type(bin_end) is datetime.date
             assert isinstance(count, int)
             assert bin_start <= bin_end
