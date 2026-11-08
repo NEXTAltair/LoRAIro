@@ -1647,13 +1647,30 @@ class ImageRepository(BaseRepository):
 
     @staticmethod
     def _to_sqlite_utc_text(value: datetime.datetime) -> str:
-        """日時を SQLite の日時関数が解釈できる naive UTC テキストにする。
+        """日時を :meth:`_created_at_key` と同じ正規形 (naive UTC、マイクロ秒 6 桁) のテキストにする。
 
         aware は UTC へ変換してから tzinfo を外す (SQLite の datetime は naive UTC で保存される)。
         """
         if value.tzinfo is not None:
             value = value.astimezone(datetime.UTC).replace(tzinfo=None)
         return value.isoformat(sep=" ", timespec="microseconds")
+
+    @staticmethod
+    def _created_at_key() -> ColumnElement[str]:
+        """Image.created_at を比較用の正規形テキスト ``YYYY-MM-DD HH:MM:SS.ffffff`` にする SQL 式。
+
+        保存形式は秒精度 (``CURRENT_TIMESTAMP``)・マイクロ秒付き (SQLAlchemy)・ミリ秒・'T' 区切りが
+        混在しうる。日付と時刻の区切りを空白にそろえ、小数部を 6 桁へ 0 埋めして、境界と同じ形の
+        文字列として比較する。``julianday()`` はミリ秒へ丸めるため、``.999999`` が翌日に
+        入ってしまう (#1457)。正規形の文字列は辞書順 = 時刻順で、精度を落とさない。
+        """
+        raw = Image.created_at
+        seconds_part = func.replace(func.substr(raw, 1, 19), "T", " ")
+        fraction = case(
+            (func.substr(raw, 20, 1) == ".", func.substr(func.substr(raw, 21) + "000000", 1, 6)),
+            else_="000000",
+        )
+        return seconds_part + "." + fraction
 
     @classmethod
     def _created_at_conditions(
@@ -1664,9 +1681,8 @@ class ImageRepository(BaseRepository):
     ) -> list[ColumnElement[bool]]:
         """登録日 (Image.created_at) の範囲条件を作る (#1457)。
 
-        保存値と境界の両方を ``julianday()`` で数値化して比較するため、秒精度
-        (``CURRENT_TIMESTAMP``)・マイクロ秒付き・'T' 区切りの保存形式が混在しても
-        同じ基準で比較できる (文字列比較の精度依存を避ける)。
+        保存値と境界の両方を同じ正規形テキスト (naive UTC、マイクロ秒 6 桁) にして比較するため、
+        保存形式の精度の違いに依存しない (:meth:`_created_at_key`)。
 
         Args:
             start_dt: 開始 (含む)。
@@ -1676,14 +1692,14 @@ class ImageRepository(BaseRepository):
         Returns:
             WHERE 句に AND で渡す条件のリスト。
         """
-        stored = func.julianday(Image.created_at)
+        stored = cls._created_at_key()
         conditions: list[ColumnElement[bool]] = []
         if start_dt:
-            conditions.append(stored >= func.julianday(cls._to_sqlite_utc_text(start_dt)))
+            conditions.append(stored >= cls._to_sqlite_utc_text(start_dt))
         if end_dt:
-            conditions.append(stored <= func.julianday(cls._to_sqlite_utc_text(end_dt)))
+            conditions.append(stored <= cls._to_sqlite_utc_text(end_dt))
         if end_exclusive_dt:
-            conditions.append(stored < func.julianday(cls._to_sqlite_utc_text(end_exclusive_dt)))
+            conditions.append(stored < cls._to_sqlite_utc_text(end_exclusive_dt))
         return conditions
 
     def _apply_date_filter(
@@ -3991,15 +4007,16 @@ class ImageRepository(BaseRepository):
         Returns:
             list of (開始日, 終了日 (含む), count)。空データの場合は空リスト。
         """
-        # julianday → unix epoch ミリ秒 (保存形式の違いに依存しない最小・最大)
-        epoch_ms = func.round((func.julianday(Image.created_at) - 2440587.5) * 86400000.0)
+        # 検索と同じ正規形テキストで最小・最大を取る (保存形式の違いに依存しない)
+        key = self._created_at_key()
         with self.session_factory() as session:
-            min_ms, max_ms = session.execute(select(func.min(epoch_ms), func.max(epoch_ms))).one()
-            if min_ms is None or max_ms is None:
+            min_text, max_text = session.execute(
+                select(func.min(key), func.max(key)).where(Image.created_at.is_not(None))
+            ).one()
+            if min_text is None or max_text is None:
                 return []
-            epoch = datetime.datetime(1970, 1, 1)
-            first_day = utc_to_local_date(epoch + datetime.timedelta(milliseconds=int(min_ms)), tz)
-            last_day = utc_to_local_date(epoch + datetime.timedelta(milliseconds=int(max_ms)), tz)
+            first_day = utc_to_local_date(datetime.datetime.fromisoformat(min_text), tz)
+            last_day = utc_to_local_date(datetime.datetime.fromisoformat(max_text), tz)
             day_bins = build_histogram_day_bins(first_day, last_day, bins)
 
             counters = []

@@ -104,6 +104,43 @@ class TestCreatedAtDayFilter:
         assert _search_ids(repository, _day(7), JST) == {last_moment}
         assert _search_ids(repository, _day(8), JST) == {next_midnight}
 
+    @pytest.mark.parametrize(
+        "stored",
+        [
+            "2026-11-07 14:59:59.999999",  # julianday() ではミリ秒に丸められて翌日に入っていた (Codex P2)
+            "2026-11-07 14:59:59.9996",
+            "2026-11-07T14:59:59.999999",
+        ],
+    )
+    def test_sub_millisecond_value_before_midnight_stays_in_its_day(
+        self, repository, session_factory, stored
+    ):
+        image_id = _add_image(repository, session_factory, stored)
+        assert _search_ids(repository, _day(7), JST) == {image_id}
+        assert _search_ids(repository, _day(8), JST) == set()
+
+    def test_sub_millisecond_histogram_bin_matches_search(self, repository, session_factory):
+        _add_image(repository, session_factory, "2026-11-07 14:59:59.999999")
+        _add_image(repository, session_factory, "2026-11-07 15:00:00")
+        bins = repository.get_created_at_histogram(bins=20, tz=JST)
+        assert bins == [
+            (dt.date(2026, 11, 7), dt.date(2026, 11, 7), 1),
+            (dt.date(2026, 11, 8), dt.date(2026, 11, 8), 1),
+        ]
+
+    def test_fractional_inclusive_bounds_compare_with_microseconds(self, repository, session_factory):
+        image_id = _add_image(repository, session_factory, "2026-11-07 12:00:00.000500")
+        criteria = ImageFilterCriteria(
+            start_date="2026-11-07T12:00:00.000400",
+            end_date="2026-11-07 12:00:00.000500",
+            include_nsfw=True,
+        )
+        images, _ = repository.get_images_by_filter(criteria)
+        assert {int(img["id"]) for img in images} == {image_id}
+        criteria.start_date = "2026-11-07T12:00:00.000501"
+        images, _ = repository.get_images_by_filter(criteria)
+        assert images == []
+
     def test_filters_by_created_at_not_updated_at(self, repository, session_factory):
         image_id = _add_image(repository, session_factory, "2026-11-07 03:00:00")
         with session_factory() as session:
