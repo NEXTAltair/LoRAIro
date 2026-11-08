@@ -193,17 +193,29 @@ class ExportTabWidget(QWidget):
         except Exception as e:
             # graceful degradation (#931): どの初期化エラーでもタブを生かす意図で広く捕捉。
             logger.warning(f"RefinementService 配線をスキップ (tagdb 不可?): {e}")
-        # tagdb userdb 系書き込み (#989): 翻訳追加 / type 補正。tagdb 不可でも degrade する。
-        try:
-            self._selected_image_details_widget.set_tag_management_service(
-                self._service_container.tag_management_service
-            )
-        except Exception as e:
-            logger.warning(f"TagManagementService 配線をスキップ (tagdb 不可?): {e}")
+        # tagdb userdb 系書き込み (#989): 翻訳追加 / type 補正。未準備・tagdb 不可でも degrade する。
+        self._wire_tag_management_service()
         if dsm is not None:
             self._selected_image_details_widget.connect_to_dataset_state_manager(dsm)
 
         self._connect_panel_signals()
+
+    def _wire_tag_management_service(self) -> None:
+        """構築済みの TagManagementService があれば詳細ペインへ注入する (初期化は起動しない, #1438)。"""
+        service = self._service_container.peek_tag_management_service()
+        if service is None:
+            logger.debug("TagManagementService 未準備 - タグ DB 準備完了後に配線する")
+            return
+        self._selected_image_details_widget.set_tag_management_service(service)
+
+    def on_tag_db_ready(self) -> None:
+        """背景で tag DB の準備が終わった後に、翻訳/補完/overlay convert/タグ管理を後付け注入する (#1438)。"""
+        merged_reader = self._resolve_merged_reader()
+        if merged_reader is not None:
+            self._selected_image_details_widget.set_merged_reader(merged_reader)
+            self._staging_tag_panel.set_tag_suggestion_service(TagSuggestionService(merged_reader))
+            self._overlay_bar.set_reader(merged_reader)
+        self._wire_tag_management_service()
 
     def _resolve_refinement_service(self) -> RefinementService:
         """注入された db_manager の DB に ignore を保存する RefinementService を解決する (#978)。
@@ -254,9 +266,12 @@ class ExportTabWidget(QWidget):
         self._preview_splitter.setStretchFactor(1, 1)
 
     def _resolve_merged_reader(self) -> Any:
-        """MergedTagReader を取得する。失敗時は None (graceful degradation)。"""
+        """準備済みの MergedTagReader を返す。未準備・失敗時は None (graceful degradation)。
+
+        tag DB の初期化 (HF Hub 確認) は GUI スレッドで起動しない (#1438)。
+        """
         try:
-            return self._service_container.db_manager.annotation_repo.get_merged_reader()
+            return self._service_container.db_manager.annotation_repo.peek_merged_reader()
         except (AttributeError, RuntimeError) as e:
             logger.warning(f"MergedTagReader 取得に失敗 (convert なしで継続): {e}")
             return None

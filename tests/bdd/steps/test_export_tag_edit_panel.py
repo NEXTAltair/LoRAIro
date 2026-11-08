@@ -25,7 +25,7 @@ scenarios(str(_FEATURE_FILE))
 def given_export_tab_with_staged(qtbot, count: int) -> dict[str, Any]:
     service_container = Mock()
     service_container.dataset_export_service = Mock()
-    service_container.db_manager.annotation_repo.get_merged_reader.return_value = None
+    service_container.db_manager.annotation_repo.peek_merged_reader.return_value = None
     # #1106: 実在解像度取得・エクスポート前検証はデフォルトで「全て有効」を返す。
     service_container.dataset_export_service.get_available_resolutions.return_value = {}
     service_container.dataset_export_service.validate_export_requirements.return_value = {

@@ -163,13 +163,13 @@ class TestServiceInjectionMediation:
         mock_service.parse_search_input = MagicMock()
         mock_service.db_manager = MagicMock()
         mock_service.db_manager.annotation_repo = MagicMock()
-        mock_service.db_manager.annotation_repo.get_merged_reader.return_value = merged_reader
+        mock_service.db_manager.annotation_repo.peek_merged_reader.return_value = merged_reader
 
         panel.set_search_filter_service(mock_service)
 
         assert panel._tag_suggestion.tag_suggestion_service is not None
         assert panel._tag_suggestion.tag_suggestion_service._merged_reader is merged_reader
-        mock_service.db_manager.annotation_repo.get_merged_reader.assert_called_once()
+        mock_service.db_manager.annotation_repo.peek_merged_reader.assert_called_once()
 
     def test_set_search_filter_service_falls_back_to_legacy_repository_reader(self, panel):
         """旧経路 repository.merged_reader も互換性として維持する。"""

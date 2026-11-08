@@ -182,12 +182,17 @@ class AnnotateTabWidget(QWidget, Ui_AnnotateTab):
             MergedTagReader を引けた場合は TagSuggestionService、引けなければ None
             (タグ入力は補完なしで動作する)。
         """
+        # 初期化は起動しない (#1438)。未準備なら補完なしで始め、on_tag_db_ready() で後付けする。
         try:
-            merged_reader = self._service_container.db_manager.annotation_repo.get_merged_reader()
+            merged_reader = self._service_container.db_manager.annotation_repo.peek_merged_reader()
         except (AttributeError, RuntimeError) as e:
             logger.warning(f"MergedTagReader 取得に失敗 (タグ補完なしで継続): {e}")
             return None
         return TagSuggestionService(merged_reader) if merged_reader is not None else None
+
+    def on_tag_db_ready(self) -> None:
+        """背景で tag DB の準備が終わった後に、バッチタグ入力の補完を有効化する (#1438)。"""
+        self._batch_tag_add_widget.set_tag_suggestion_service(self._resolve_tag_suggestion_service())
 
     def _attach_tag_input(self) -> None:
         """タグ追加入力を ``batchTagInputPlaceholder`` へ移設する。"""

@@ -260,6 +260,14 @@ class ServiceContainer:
             logger.info("TagManagementService初期化完了")
         return self._tag_management_service
 
+    def peek_tag_management_service(self) -> "TagManagementService | None":
+        """TagManagementService が構築済みならそれを返す (未構築なら None、初期化しない)。
+
+        GUI の起動パスで tag DB の初期化 (HF Hub 確認) を GUI スレッドに持ち込まないための
+        非ブロッキング accessor (#1438)。
+        """
+        return self._tag_management_service
+
     def create_refinement_service(self, session_factory: "Callable[[], Session]") -> "RefinementService":
         """指定の session factory に ignore を保存する RefinementService を生成する - #978
 
