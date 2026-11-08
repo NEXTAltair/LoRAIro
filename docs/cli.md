@@ -1414,6 +1414,73 @@ Structured error payload emitted as kind=error by the CLI boundary.
 - `hint`: `str?` (optional, default `None`)
 - `details`: `dict?` (optional, default `None`)
 
+### `maintenance check`
+
+Read-only provider batch DB consistency and missing image file checks; no repair, no provider API calls. See [DB maintenance check](cli-maintenance-check.md).
+
+- Read only: `true`
+- Strict read only: `true` (root `--read-only`; see [contract](cli-read-only.md))
+- Conditional initialization: `['db_create', 'schema_migration', 'model_seed', 'directory_create']`
+- Side effects: `db_read`
+
+#### Compact Introspection
+
+```bash
+lorairo-cli --json describe "maintenance check"
+```
+
+#### Models
+
+**Input `MaintenanceCheckInput`**
+
+- `project`: `str` (required) - Project name (CLI: `--project`, `-p`)
+- `scope`: `list[str]?` (optional, default `None`) - Repeat for several scopes: batch, files. Default runs all scopes. (CLI: `--scope`)
+- `limit`: `int[1,500]` (optional, default `100`) - Maximum IDs per check; counts cover the whole project. (CLI: `--limit`)
+
+**Output `MaintenanceCheckItem`**
+
+- `kind`: `item` (optional, default `item`)
+- `check`: `batch_unknown_status | batch_import_marker_mismatch | batch_active_past_expiry | batch_unlinked_items | image_file_missing | processed_file_missing` (required)
+- `scope`: `batch | files` (required)
+- `id_type`: `job_id | image_id` (required)
+- `count`: `int` (required)
+- `ids`: `list[int]` (required)
+- `ids_truncated`: `bool` (required)
+- `description`: `str` (required)
+
+**Output `MaintenanceCheckResult`**
+
+- `kind`: `result` (optional, default `result`)
+- `ok`: `true` (optional, default `True`)
+- `message`: `str` (required)
+- `project`: `str` (required)
+- `read_only`: `true` (required)
+- `status`: `success` (required)
+- `scopes`: `list[batch | files]` (required)
+- `limit`: `int` (required)
+- `checked_batch_jobs`: `int?` (required)
+- `checked_images`: `int?` (required)
+- `checked_processed_images`: `int?` (required)
+- `provider_queried`: `false` (required)
+- `repaired`: `false` (required)
+- `checks_run`: `int` (required)
+- `issue_count`: `int` (required)
+- `issues_found`: `bool` (required)
+- `failing_checks`: `list[str]` (required)
+
+**Error `CliErrorResponse`**
+
+Structured error payload emitted as kind=error by the CLI boundary.
+
+- `kind`: `error` (optional, default `error`)
+- `ok`: `false` (optional, default `False`)
+- `code`: `str` (required)
+- `message`: `str` (required)
+- `retryable`: `bool` (required)
+- `user_action_required`: `bool` (required)
+- `hint`: `str?` (optional, default `None`)
+- `details`: `dict?` (optional, default `None`)
+
 ### `models list`
 
 List available annotator models.

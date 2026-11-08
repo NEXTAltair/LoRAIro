@@ -98,6 +98,67 @@ class ImageRepository(BaseRepository):
     # 値の drift は test で assert する。バインド安全 (BATCH_CHUNK_SIZE) は副次的に満たす。
     EXACT_SET_MAX_IDS: ClassVar[int] = 500
 
+    # --- Read-only maintenance scans (ADR 0099) ---
+
+    def iter_stored_image_paths(self, chunk_size: int = 1000) -> Iterator[tuple[int, str]]:
+        """全画像の ``(image_id, stored_image_path)`` を ID 昇順で返す。
+
+        keyset pagination で chunk ごとに短いセッションを使うため、呼び出し側が
+        ファイル存在確認など時間のかかる処理を挟んでも読み取りトランザクションを保持しない。
+
+        Args:
+            chunk_size: 1 回のクエリで取得する行数。
+
+        Yields:
+            ``(image_id, stored_image_path)``。
+        """
+        last_id = 0
+        while True:
+            with self.session_factory() as session:
+                try:
+                    rows = session.execute(
+                        select(Image.id, Image.stored_image_path)
+                        .where(Image.id > last_id)
+                        .order_by(Image.id)
+                        .limit(chunk_size)
+                    ).all()
+                except SQLAlchemyError as e:
+                    logger.opt(exception=True).error(f"画像パスの走査中にエラーが発生しました: {e}")
+                    raise
+            if not rows:
+                return
+            yield from ((image_id, stored_path) for image_id, stored_path in rows)
+            last_id = rows[-1][0]
+
+    def iter_processed_image_paths(self, chunk_size: int = 1000) -> Iterator[tuple[int, int, str]]:
+        """全処理済み画像の ``(processed_id, image_id, stored_image_path)`` を ID 昇順で返す。
+
+        Args:
+            chunk_size: 1 回のクエリで取得する行数。
+
+        Yields:
+            ``(processed_image_id, image_id, stored_image_path)``。
+        """
+        last_id = 0
+        while True:
+            with self.session_factory() as session:
+                try:
+                    rows = session.execute(
+                        select(ProcessedImage.id, ProcessedImage.image_id, ProcessedImage.stored_image_path)
+                        .where(ProcessedImage.id > last_id)
+                        .order_by(ProcessedImage.id)
+                        .limit(chunk_size)
+                    ).all()
+                except SQLAlchemyError as e:
+                    logger.opt(exception=True).error(f"処理済み画像パスの走査中にエラーが発生しました: {e}")
+                    raise
+            if not rows:
+                return
+            yield from (
+                (processed_id, image_id, stored_path) for processed_id, image_id, stored_path in rows
+            )
+            last_id = rows[-1][0]
+
     # --- Filename Alias ---
 
     def get_all_image_filename_index(self) -> dict[str, int]:

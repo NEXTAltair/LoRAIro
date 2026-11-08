@@ -79,6 +79,15 @@ elif scenario == "legacy_import":
         matched=good + bad, unmatched=0, saved=good, save_errors=bad, model_name="fixture",
         unmatched_ids=[], error_details=["fixture error"] if bad else [],
     ))
+elif scenario == "maintenance":
+    import lorairo.public_api.maintenance as maintenance_api
+    from lorairo.services.db_maintenance_check_service import MaintenanceFinding, MaintenanceReport
+    maintenance_api.check_database = MagicMock(return_value=MaintenanceReport(
+        scopes=["batch", "files"], limit=100,
+        checks=[MaintenanceFinding("image_file_missing", "files", "image_id", bad, [2] if bad else [],
+            False, "fixture")],
+        checked_batch_jobs=0, checked_images=good + bad, checked_processed_images=0,
+    ))
 else:
     raise AssertionError(scenario)
 main()
@@ -134,6 +143,7 @@ def _run_process(tmp_path, scenario, status, json_mode, base_env):
             "cat,dog" if status == "partial_success" else "cat",
         ],
         "export": ["export", "create", "--image-ids", "1,2", "--output", str(tmp_path / "output")],
+        "maintenance": ["maintenance", "check"],
     }
     child_tmp = tmp_path / "tmp"
     child_tmp.mkdir()
@@ -194,3 +204,15 @@ def test_process_exit_contract(process_case, json_mode):
         else:
             assert row["status"] == status
             assert row["ok"] is (status == "success")
+
+
+@pytest.mark.parametrize("json_mode", [True, False])
+@pytest.mark.parametrize("findings", ["success", "failed"], ids=["clean", "issues"])
+def test_maintenance_check_findings_still_exit_zero(tmp_path, json_mode, findings):
+    """Read-only report: inconsistencies are data, not a command failure (ADR 0099)."""
+    result = _run_process(tmp_path, "maintenance", findings, json_mode, dict(os.environ))
+    assert result.returncode == 0, result.stdout + result.stderr
+    if json_mode:
+        row = json.loads(result.stdout.splitlines()[-1])
+        assert row["kind"] == "result" and row["status"] == "success" and row["ok"] is True
+        assert row["issues_found"] is (findings == "failed")

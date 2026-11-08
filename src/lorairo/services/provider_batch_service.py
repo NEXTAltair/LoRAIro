@@ -329,6 +329,8 @@ _COMMON_STATUSES = {
     "expired",
     "imported",
 }
+# ADR 0038 共通 status 語彙の公開ビュー (DB 整合点検 ADR 0099 が参照する)。
+COMMON_BATCH_STATUSES: frozenset[str] = frozenset(_COMMON_STATUSES)
 
 _PROVIDER_STATUS_MAP: dict[str, dict[str, str]] = {
     "openai": {
