@@ -100,3 +100,4 @@
 * [Kohya-ss 学習データセットのデータモデルと取り込み・書き出し](0098-kohya-dataset-model.md)
 * [読み取り専用の DB メンテナンス点検コマンド](0099-read-only-db-maintenance-check.md)
 * [登録日フィルタはスライダーを唯一の状態にし、暦日の境界を 1 箇所で決める](0100-registration-date-filter-single-state.md)
+* [クロップ矩形の供給元を CropRectProvider で差し替え可能にし、外部 JSONL から一括作成する](0103-crop-rect-provider-and-batch-crop.md)
