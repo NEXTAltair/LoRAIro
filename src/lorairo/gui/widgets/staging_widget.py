@@ -21,7 +21,7 @@ from typing import TYPE_CHECKING, cast
 
 from PySide6.QtCore import QSize, Qt, QTimer, Signal, Slot
 from PySide6.QtGui import QResizeEvent, QShowEvent
-from PySide6.QtWidgets import QFrame, QGraphicsView, QSplitter, QWidget
+from PySide6.QtWidgets import QFrame, QGraphicsView, QPushButton, QSplitter, QWidget
 
 from ...gui.designer.StagingWidget_ui import Ui_StagingWidget
 from ...utils.log import logger
@@ -61,6 +61,7 @@ class StagingWidget(QWidget):
     # シグナル (StagingStateManager のシグナルを再 emit し、既存の消費者契約を維持する)
     staged_images_changed = Signal(list)  # list[int] - ステージング画像IDリスト
     staging_cleared = Signal()  # ステージングリストクリア
+    compare_requested = Signal(list)  # list[int] - ステージング画像の比較要求 (#1399)
 
     # 定数
     MAX_STAGING_IMAGES = StagingStateManager.MAX_STAGING_IMAGES
@@ -101,6 +102,7 @@ class StagingWidget(QWidget):
 
         self._staging_thumbnail_widget: ThumbnailSelectorWidget | None = None
         self._setup_staging_thumbnail_widget()
+        self._setup_compare_button()
 
         self._connect_state_signals()
 
@@ -195,6 +197,25 @@ class StagingWidget(QWidget):
 
         self._staging_thumbnail_widget = widget
 
+    def _setup_compare_button(self) -> None:
+        """「比較…」ボタンをクリアの左に足す (#1399)。.ui は変えず code-only で追加する。
+
+        ステージング中の画像を候補にして比較画面を開く。2 枚以上のときだけ有効。
+        """
+        self._compare_button = QPushButton("比較…", self)
+        self._compare_button.setObjectName("pushButtonCompareStaging")
+        self._compare_button.setToolTip("ステージング中の画像を左右に並べて、タグとキャプションを比べる")
+        self._compare_button.setEnabled(False)
+        self._compare_button.clicked.connect(self._on_compare_clicked)
+        layout = self.ui.horizontalLayoutStagingButtons
+        layout.insertWidget(layout.indexOf(self.ui.pushButtonClearStaging), self._compare_button)
+
+    def _on_compare_clicked(self) -> None:
+        """ステージング中の画像 ID を比較要求として上げる (#1399)。"""
+        image_ids = self.get_image_ids()
+        if len(image_ids) >= 2:
+            self.compare_requested.emit(image_ids)
+
     def _update_staging_count_label(self) -> None:
         """ステージング数ラベルを更新する。
 
@@ -202,6 +223,7 @@ class StagingWidget(QWidget):
         """
         count = self._staging_state.count()
         self.ui.labelStagingCount.setText(f"{count} / {self.MAX_STAGING_IMAGES} 枚")
+        self._compare_button.setEnabled(count >= 2)
 
     def add_image_ids(self, image_ids: list[int]) -> None:
         """指定した画像 ID リストをステージングに追加する (SSoT へ委譲)。

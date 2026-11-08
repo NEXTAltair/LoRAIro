@@ -61,6 +61,7 @@ from ..state.dataset_state import DatasetStateManager
 from ..state.staging_state import StagingStateManager
 from ..widgets.annotation_review_batch_widget import AnnotationReviewBatchWidget
 from ..widgets.filter_search_panel import FilterSearchPanel
+from ..widgets.image_comparison_dialog import ImageComparisonLauncher
 from ..widgets.image_preview import ImagePreviewWidget
 from ..widgets.quick_tag_dialog import QuickTagDialog
 from ..widgets.selected_image_details_widget import SelectedImageDetailsWidget
@@ -154,6 +155,8 @@ class SearchTabWidget(QWidget, Ui_SearchTab):
         self._tag_suggestion_service: TagSuggestionService | None = None
         # クロップ導線 (#1346)。_setup_crop_integration で生成 (db_manager 未注入なら None)。
         self._crop_dialog_launcher: CropDialogLauncher | None = None
+        # 画像の比較 (#1399)。サムネイル右クリックの「選択した画像を比較…」から開く (読み取り専用)。
+        self._image_comparison_launcher = ImageComparisonLauncher(db_manager, self, dataset_state_manager)
         # パネルトグル時の splitter サイズ退避領域 (#865 とは別の表示/非表示制御)
         self._main_splitter_sizes_before_filter_hide: list[int] | None = None
         self._main_splitter_sizes_before_preview_hide: list[int] | None = None
@@ -554,6 +557,7 @@ class SearchTabWidget(QWidget, Ui_SearchTab):
         self._review_manager.cancel_all_workers(reason=CancelReason.SHUTDOWN, total_grace_ms=1000)
         if self._crop_dialog_launcher is not None:
             self._crop_dialog_launcher.shutdown()
+        self._image_comparison_launcher.shutdown()
         self.selection_review_widget.shutdown()
         self._selected_image_details_widget.shutdown()
         self._filter_search_panel.shutdown()
@@ -686,7 +690,19 @@ class SearchTabWidget(QWidget, Ui_SearchTab):
         if hasattr(self._thumbnail_selector, "quick_tag_requested"):
             # #896: クイックタグはタブ内で完結 (ダイアログ起動 + 書込)。MainWindow へは bubble しない。
             self._thumbnail_selector.quick_tag_requested.connect(self._show_quick_tag_dialog)
+        self._thumbnail_selector.compare_requested.connect(self._open_image_comparison)
+        self._thumbnail_selector.set_compare_action_enabled(True)
         logger.debug("サムネイル → プレビュー接続完了")
+
+    @Slot(list)
+    def _open_image_comparison(self, image_ids: list[int]) -> None:
+        """選択した画像で比較画面を開く (#1399)。
+
+        Args:
+            image_ids: 選択中の画像 ID (先頭 2 枚を左右に置き、残りは候補)。
+        """
+        if not self._image_comparison_launcher.open(image_ids):
+            self.status_message.emit("比較には異なる画像を 2 枚以上選んでください")
 
     # -- クイックタグ書込 (#896: MainWindow から移送) -------------------------
 

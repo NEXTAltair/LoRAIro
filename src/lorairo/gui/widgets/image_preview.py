@@ -3,7 +3,7 @@ from typing import TYPE_CHECKING, Any
 
 from PIL import Image
 from PySide6.QtCore import QPoint, Qt, QTimer, Signal, Slot
-from PySide6.QtGui import QAction, QImageReader, QPainter, QPixmap, QResizeEvent, QShowEvent
+from PySide6.QtGui import QAction, QImage, QImageReader, QPainter, QPixmap, QResizeEvent, QShowEvent
 from PySide6.QtWidgets import (
     QApplication,
     QGraphicsPixmapItem,
@@ -91,6 +91,32 @@ class ImagePreviewWidget(QWidget, Ui_ImagePreviewWidget):
         except Exception as e:
             logger.error(f"画像の読み込みに失敗しました: {image_path}, エラー: {e}")
             self._clear_preview()
+
+    def show_decoded_image(self, image: QImage | None, image_path: Path | None = None) -> None:
+        """別スレッドでデコード済みの QImage を表示する (#1399)。
+
+        GUI スレッドでは QPixmap への変換だけを行い、ファイルのデコードはしない。
+        ``image`` が None / null ならプレビューを空にする。
+
+        Args:
+            image: 表示する画像。
+            image_path: 元ファイルのパス (右クリックのコピーで元画像を読み直すため)。
+        """
+        self._clear_preview()
+        if image is None or image.isNull():
+            return
+        pixmap = QPixmap.fromImage(image)
+        if pixmap.isNull():
+            return
+        self.pixmap_item = self.graphics_scene.addPixmap(pixmap)
+        self._current_image_path = image_path
+        self._current_pixmap = pixmap
+        self.graphics_scene.setSceneRect(pixmap.rect())
+        QTimer.singleShot(0, self._adjust_view_size)
+
+    def clear_preview(self) -> None:
+        """プレビューを空にする (#1399)。"""
+        self._clear_preview()
 
     def load_image_from_pil(self, pil_image: Image.Image, image_name: str = "Unknown") -> None:
         """PILイメージオブジェクトから直接画像を読み込む（メモリ最適化）"""

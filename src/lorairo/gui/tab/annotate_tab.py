@@ -73,6 +73,7 @@ from ..state.model_selection_state import ModelSelectionStateManager
 from ..state.staging_state import StagingStateManager
 from ..widgets.annotation_filter_widget import AnnotationFilterWidget
 from ..widgets.batch_tag_add_widget import BatchTagAddWidget
+from ..widgets.image_comparison_dialog import ImageComparisonLauncher
 from ..widgets.inference_ledger_widget import InferenceLedgerWidget
 from ..widgets.model_selection_widget import ModelSelectionWidget
 from ..widgets.pipeline_stage_table_widget import PipelinePreset, PipelineStageTableWidget
@@ -433,6 +434,15 @@ class AnnotateTabWidget(QWidget, Ui_AnnotateTab):
         self._batch_tag_add_widget.staging_cleared.connect(self.staging_cleared)
         # #896: batch tag 書込はタブ内で処理し、MainWindow へは bubble しない。
         self._batch_tag_add_widget.tag_add_requested.connect(self._handle_batch_tag_add)
+        # #1399: ステージングの「比較…」から読み取り専用の比較画面を開く。
+        self._image_comparison_launcher = ImageComparisonLauncher(
+            self._db_manager, self, self._dataset_state_manager
+        )
+        self._batch_tag_add_widget.compare_requested.connect(self._image_comparison_launcher.open)
+
+    def shutdown(self) -> None:
+        """タブが持つ比較画面の worker を止める (ウィンドウ閉鎖時、MainWindow.closeEvent から呼ぶ)。"""
+        self._image_comparison_launcher.shutdown()
 
     # -- バッチタグ書込 (#896: MainWindow から移送) ---------------------------
 

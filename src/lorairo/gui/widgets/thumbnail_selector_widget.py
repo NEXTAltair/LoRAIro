@@ -10,7 +10,7 @@ from threading import Event
 from typing import TYPE_CHECKING, Any, cast
 
 from PySide6.QtCore import QPoint, QSize, Qt, QThreadPool, QTimer, Signal, Slot
-from PySide6.QtGui import QPixmap, QResizeEvent
+from PySide6.QtGui import QAction, QPixmap, QResizeEvent
 from PySide6.QtWidgets import (
     QGraphicsScene,
     QGraphicsView,
@@ -70,6 +70,9 @@ class ThumbnailSelectorWidget(QWidget, Ui_ThumbnailSelectorWidget):
     selection_synced = Signal(list)  # ドラッグ選択を状態管理へ反映した後の image_ids
     stage_selected_requested = Signal(list)  # バッチタグのステージング追加要求（visible image_ids）
     quick_tag_requested = Signal(list)  # クイックタグ追加要求（image_ids）
+    # 選択画像の比較要求（image_ids、2 枚以上）。配線側が set_compare_action_enabled(True)
+    # を呼んだタブでのみ右クリックメニューへ項目が出る (#1399)。
+    compare_requested = Signal(list)
     # クロップ作成要求（1 枚選択時のみ、image_id）。配線側が set_crop_action_enabled(True)
     # を呼んだタブでのみ右クリックメニューへ項目が出る (#1346)。
     crop_requested = Signal(int)
@@ -99,6 +102,7 @@ class ThumbnailSelectorWidget(QWidget, Ui_ThumbnailSelectorWidget):
         # クロップ導線 (#1346): 検索タブのみ有効化する opt-in。既定 False で、
         # エクスポート/ステージングの再利用インスタンスに死んだメニュー項目を出さない。
         self._crop_action_enabled = False
+        self._compare_action_enabled = False
 
         # UI設定
         self.thumbnail_size = QSize(128, 128)
@@ -617,42 +621,49 @@ class ThumbnailSelectorWidget(QWidget, Ui_ThumbnailSelectorWidget):
         visible_selected_ids = [id_ for id_ in selected_ids if id_ in visible_ids]
 
         menu = QMenu(self)
+        # (項目, 選ばれたときの処理) の組。表示順に並べる。
+        handlers: list[tuple[QAction, Callable[[], None]]] = []
 
-        # バッチタグへ追加
-        action_stage = menu.addAction("バッチタグへ追加")
-        action_stage.setEnabled(bool(visible_selected_ids))
+        def add(text: str, enabled: bool, handler: Callable[[], None]) -> None:
+            action = menu.addAction(text)
+            action.setEnabled(enabled)
+            handlers.append((action, handler))
 
-        # クイックタグ追加
-        action_quick_tag = menu.addAction("クイックタグ追加...")
-        action_quick_tag.setEnabled(bool(visible_selected_ids))
-
+        add(
+            "バッチタグへ追加",
+            bool(visible_selected_ids),
+            lambda: self.stage_selected_requested.emit(visible_selected_ids),
+        )
+        add(
+            "クイックタグ追加...",
+            bool(visible_selected_ids),
+            lambda: self.quick_tag_requested.emit(visible_selected_ids),
+        )
         # クロップ作成 (#1346)。1 枚選択時のみ有効 (矩形指定は単一画像に対する操作)。
-        action_crop = None
         if self._crop_action_enabled:
-            action_crop = menu.addAction("クロップして学習素材を作成…")
-            action_crop.setEnabled(len(visible_selected_ids) == 1)
-
+            add(
+                "クロップして学習素材を作成…",
+                len(visible_selected_ids) == 1,
+                lambda: self.crop_requested.emit(visible_selected_ids[0]),
+            )
+        # 画像の比較 (#1399)。2 枚以上の選択で有効。先頭 2 枚を左右に置き、残りは候補。
+        if self._compare_action_enabled:
+            add(
+                "選択した画像を比較…",
+                len(visible_selected_ids) >= 2,
+                lambda: self.compare_requested.emit(visible_selected_ids),
+            )
         menu.addSeparator()
+        add("すべて選択", bool(self.thumbnail_items), self._select_all_items)
+        add("選択解除", bool(selected_ids), self._deselect_all_items)
 
-        # すべて選択
-        action_select_all = menu.addAction("すべて選択")
-        action_select_all.setEnabled(bool(self.thumbnail_items))
-
-        # 選択解除
-        action_deselect = menu.addAction("選択解除")
-        action_deselect.setEnabled(bool(selected_ids))
-
-        action = menu.exec(self.graphics_view.mapToGlobal(pos))
-        if action == action_stage:
-            self.stage_selected_requested.emit(visible_selected_ids)
-        elif action == action_quick_tag:
-            self.quick_tag_requested.emit(visible_selected_ids)
-        elif action_crop is not None and action == action_crop:
-            self.crop_requested.emit(visible_selected_ids[0])
-        elif action == action_select_all:
-            self._select_all_items()
-        elif action == action_deselect:
-            self._deselect_all_items()
+        chosen = menu.exec(self.graphics_view.mapToGlobal(pos))
+        if chosen is None:
+            return
+        for action, handler in handlers:
+            if action == chosen:
+                handler()
+                return
 
     def refresh_current_page(self) -> None:
         """dataset_state の画像集合が変わった後、現在ページを読み直す (#1346)。
@@ -719,6 +730,17 @@ class ThumbnailSelectorWidget(QWidget, Ui_ThumbnailSelectorWidget):
             enabled: True でメニュー項目を表示する。
         """
         self._crop_action_enabled = enabled
+
+    def set_compare_action_enabled(self, enabled: bool) -> None:
+        """右クリックメニューの「選択した画像を比較…」項目を有効化する (#1399)。
+
+        比較画面を配線したタブだけが呼ぶ。エクスポート / ステージングで再利用される同一
+        ウィジェットに、押しても何も起きない項目を出さない。
+
+        Args:
+            enabled: True で項目を表示する。
+        """
+        self._compare_action_enabled = enabled
 
     def refresh_review_badges(self, image_ids: list[int]) -> None:
         """Repaint saved review overlays without rebuilding the thumbnail grid."""
