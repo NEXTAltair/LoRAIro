@@ -13,7 +13,13 @@ from typing import Any, Literal
 from pydantic import BaseModel, ConfigDict, Field
 
 from lorairo.cli._emit import emit_item, emit_result
-from lorairo.cli.commands.images import ImagesCropItem, ImagesCropResult, ImageSearchQuery
+from lorairo.cli.commands.images import (
+    ImagesCropBatchItem,
+    ImagesCropBatchResult,
+    ImagesCropItem,
+    ImagesCropResult,
+    ImageSearchQuery,
+)
 from lorairo.domain.crop_request import DEFAULT_CROP_ORIGIN
 from lorairo.public_api.types import ProjectCreateRequest, RegistrationItem
 
@@ -1632,6 +1638,98 @@ TOOL_SPECS: dict[str, ToolSpec] = {
                 ),
                 description="An invalid rectangle or missing parent exits 2 with INVALID_INPUT and leaves no rows or files behind.",
                 schema=ImagesCropResult,
+            ),
+        ),
+        errors=(ERROR_MODEL,),
+    ),
+    "images crop-batch": ToolSpec(
+        name="images crop-batch",
+        path="images crop-batch",
+        summary=(
+            "Create crop images in bulk from an externally prepared JSONL of rectangles (one row = "
+            "image_id + rectangle). Reuses images crop per rectangle; tags and rating are copied from "
+            "the parent. Coordinates are EXIF-oriented display pixels (ADR 0092). See ADR 0103."
+        ),
+        read_only=False,
+        side_effects=("db_read", "db_write", "file_read", "file_write"),
+        inputs=(
+            _input(
+                "ImagesCropBatchInput",
+                (
+                    _f("project", "str", required=True),
+                    _f(
+                        "rects",
+                        "path",
+                        required=True,
+                        description=(
+                            'JSONL, one object per line: {"image_id": int, "x": int, "y": int, '
+                            '"width": int, "height": int, "origin"?: str, "score"?: float}. '
+                            "Unknown keys are rejected; max 500 non-blank rows (RESULT_SET_TOO_LARGE, exit 2)."
+                        ),
+                    ),
+                    _f(
+                        "origin",
+                        "str",
+                        default=DEFAULT_CROP_ORIGIN,
+                        description="Provenance for rows that omit origin.",
+                    ),
+                    _f(
+                        "dry_run",
+                        "bool",
+                        default=False,
+                        description="Validate rectangles and report would_create without writing.",
+                    ),
+                ),
+            ),
+        ),
+        outputs=(
+            _output(
+                "ImagesCropBatchItem",
+                (
+                    _f("line", "int?", description="1-based JSONL line number."),
+                    _f("status", "created|would_create|skipped|failed", required=True),
+                    _f("parent_image_id", "int?"),
+                    _f(
+                        "child_image_id",
+                        "int?",
+                        description="Created child, or the existing image when skipped.",
+                    ),
+                    _f("x", "int?"),
+                    _f("y", "int?"),
+                    _f("width", "int?"),
+                    _f("height", "int?"),
+                    _f("origin", "str?"),
+                    _f("score", "float?", description="Echoed from the row; not stored."),
+                    _f(
+                        "reason",
+                        "already_exists|duplicate_image|invalid_rect|parent_not_found|io_error|registration_failed|invalid_row?",
+                    ),
+                    _f("message", "str?"),
+                ),
+                schema=ImagesCropBatchItem,
+            ),
+            _output(
+                "ImagesCropBatchResult",
+                (
+                    _f("ok", "bool", required=True),
+                    _f(
+                        "status",
+                        "success|partial_success|failed",
+                        required=True,
+                        description="Skipped rows count as success; partial success exits 3; total failure exits 1.",
+                    ),
+                    _f("project", "str", required=True),
+                    _f("dry_run", "bool", required=True),
+                    _f("total", "int", required=True),
+                    _f("created", "int", required=True),
+                    _f("would_create", "int", required=True),
+                    _f("skipped", "int", required=True),
+                    _f("failed", "int", required=True),
+                    _f("created_ids", "list[int]", required=True),
+                    _f("failed_lines", "list[int]", required=True),
+                ),
+                description="Re-running the same file is idempotent: existing parent+rectangle+origin rows are skipped.",
+                schema=ImagesCropBatchResult,
             ),
         ),
         errors=(ERROR_MODEL,),

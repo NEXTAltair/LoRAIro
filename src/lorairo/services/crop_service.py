@@ -4,8 +4,8 @@ ADR 0092 のデータ層の上に立つ Qt 非依存レイヤー。**矩形の�
 モジュールの設計上の要点で、GUI の手動矩形選択 (#1345 / #1346) も物体検出 (#1340) も
 :class:`~lorairo.domain.crop_request.CropCreateRequest` を組み立てて同じ関数を呼ぶ。
 
-処理は **1 件単位**に閉じる。複数矩形をまとめて切り出す際の進捗・部分失敗の扱いは
-#1340 で設計するため、本モジュールにはバッチ API を置かない。
+処理は **1 件単位**に閉じる。複数矩形の一括作成・部分失敗・再実行の扱いは
+:mod:`lorairo.services.crop_batch_service` (#1340 / ADR 0103) が本モジュールを呼んで担う。
 
 ``PySide6`` / ``lorairo.gui`` は import しない (テストがサブプロセスで検証する)。
 """
@@ -116,7 +116,7 @@ def create_crop_image(
     """親画像から矩形を切り出し、独立した画像として登録して子画像 ID を返す。
 
     矩形の出所 (GUI の手動選択か物体検出か) は関知しない。呼び出し側が組み立てた
-    request の値をそのまま保存する。1 件単位で完結し、バッチは #1340 の担当。
+    request の値をそのまま保存する。1 件単位で完結し、一括作成は crop_batch_service の担当。
 
     処理順は「事前検証 → 切り出し → ファイル保存 → 画像登録 → 親子関係保存 →
     タグコピー → レーティングコピー」。事前検証はファイル・DB へ書き込む前に
@@ -154,7 +154,7 @@ def create_crop_image(
     metadata = _require_parent_metadata(request.parent_image_id, db_manager=db_manager)
     parent_path = resolve_stored_path(str(metadata["stored_image_path"]))
     parent_width, parent_height = _oriented_parent_size(parent_path)
-    _validate_rect(request.rect, parent_width, parent_height)
+    validate_crop_rect(request.rect, parent_width, parent_height)
     _validate_rating(request.rating)
 
     child_id = _register_cropped_file(request, parent_path, db_manager=db_manager, fsm=fsm)
@@ -226,8 +226,19 @@ def _oriented_parent_size(parent_path: Path) -> tuple[int, int]:
     return width, height
 
 
-def _validate_rect(rect: CropRect, parent_width: int, parent_height: int) -> None:
-    """矩形の妥当性を検証する (幅/高さ 0 以下・親画像範囲外は ValueError)。"""
+def validate_crop_rect(rect: CropRect, parent_width: int, parent_height: int) -> None:
+    """矩形の妥当性を検証する (幅/高さ 0 以下・親画像範囲外は ValueError)。
+
+    一括作成 (``crop_batch_service``) の dry-run も書き込みなしで同じ判定を使う。
+
+    Args:
+        rect: 検証する矩形 (EXIF orientation 適用後の表示向きの座標)。
+        parent_width: 親画像の表示向きの幅 (px)。
+        parent_height: 親画像の表示向きの高さ (px)。
+
+    Raises:
+        ValueError: 幅/高さが 0 以下、または親画像の範囲外の場合。
+    """
     if not rect.has_positive_size():
         raise ValueError(
             f"Crop rectangle must have positive size, got {rect.width}x{rect.height}\n"
