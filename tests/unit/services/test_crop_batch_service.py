@@ -152,3 +152,43 @@ def test_dry_run_validates_without_writing(
         ("failed", "invalid_rect"),
     ]
     assert test_db_manager.get_crop_children(parent_id) == []
+
+
+def test_dry_run_reports_duplicate_image_like_real_run(
+    parent_id: int, test_db_manager: ImageDatabaseManager, fs_manager: FileSystemManager
+) -> None:
+    """dry-run も実行時と同じく pHash 重複を skipped (duplicate_image) と報告する (PR #1480 Codex P2)。"""
+    created = _run(
+        _FakeProvider({parent_id: [_candidate(0, 0, 100, 100, line=1)]}),
+        [parent_id],
+        test_db_manager,
+        fs_manager,
+    )
+    candidates = [
+        # 作成済みの矩形を由来だけ変えたもの
+        _candidate(0, 0, 100, 100, line=1, origin="yolo"),
+        # 親画像と同じ画素になる全面切り出し
+        _candidate(0, 0, 400, 300, line=2),
+        # 同じ実行内で由来違いの同一矩形が 2 回
+        _candidate(50, 50, 80, 80, line=3, origin="a"),
+        _candidate(50, 50, 80, 80, line=4, origin="b"),
+    ]
+    provider = _FakeProvider({parent_id: candidates})
+
+    preview = _run(provider, [parent_id], test_db_manager, fs_manager, dry_run=True)
+    actual = _run(provider, [parent_id], test_db_manager, fs_manager)
+
+    assert [(o.status, o.reason) for o in preview] == [
+        ("skipped", "duplicate_image"),
+        ("skipped", "duplicate_image"),
+        ("would_create", None),
+        ("skipped", "duplicate_image"),
+    ]
+    assert [(o.status, o.reason) for o in actual] == [
+        ("skipped", "duplicate_image"),
+        ("skipped", "duplicate_image"),
+        ("created", None),
+        ("skipped", "duplicate_image"),
+    ]
+    assert preview[0].child_image_id == created[0].child_image_id
+    assert preview[1].child_image_id == parent_id

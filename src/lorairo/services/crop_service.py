@@ -264,6 +264,48 @@ def _validate_rating(rating: str | None) -> None:
     )
 
 
+def _write_cropped_file(rect: CropRect, parent_path: Path, temp_dir: Path) -> Path:
+    """表示向きの親画像から矩形を切り出し、一時ディレクトリ配下へ保存してパスを返す。"""
+    suffix = parent_path.suffix or ".png"
+    filename = f"{parent_path.stem}_crop_{rect.x}_{rect.y}_{rect.width}_{rect.height}{suffix}"
+    crop_dir = temp_dir / _CROP_TEMP_SUBDIR
+    crop_dir.mkdir(parents=True, exist_ok=True)
+    crop_path = crop_dir / filename
+    with Image.open(parent_path) as source:
+        oriented = ImageOps.exif_transpose(source)
+        cropped = oriented.crop((rect.x, rect.y, rect.x + rect.width, rect.y + rect.height))
+        cropped.save(crop_path)
+    return crop_path
+
+
+def find_duplicate_crop(
+    rect: CropRect,
+    parent_path: Path,
+    *,
+    db_manager: ImageDatabaseManager,
+) -> int | None:
+    """切り出し結果が既存画像の重複 (ADR 0061) になるかを、DB へ書き込まずに判定する。
+
+    一括作成の dry-run が、実行時に ``DuplicateImageError`` になる矩形を事前に
+    報告するために使う。切り出し中間ファイルは一時ディレクトリごと削除する。
+
+    Args:
+        rect: 検証済みの切り出し矩形 (表示向きの座標)。
+        parent_path: 親画像の実ファイルパス。
+        db_manager: 画像 DB マネージャー。
+
+    Returns:
+        重複が確定する既存画像の ID。重複でなければ None。
+
+    Raises:
+        OSError: 親画像の読み込みや一時ファイルの書き込みに失敗した場合。
+        SQLAlchemyError: DB 操作に失敗した場合は呼び出し元へ伝播させる。
+    """
+    with tempfile.TemporaryDirectory(prefix="lorairo_crop_") as temp_dir:
+        crop_path = _write_cropped_file(rect, parent_path, Path(temp_dir))
+        return db_manager.detect_duplicate_image(crop_path)
+
+
 def _register_cropped_file(
     request: CropCreateRequest,
     parent_path: Path,
@@ -276,19 +318,9 @@ def _register_cropped_file(
     一時ディレクトリは ``with`` を抜ける際に必ず削除されるため、登録の成否に
     かかわらず切り出し中間ファイルは残らない。
     """
-    rect = request.rect
-    suffix = parent_path.suffix or ".png"
-    filename = f"{parent_path.stem}_crop_{rect.x}_{rect.y}_{rect.width}_{rect.height}{suffix}"
-
     with tempfile.TemporaryDirectory(prefix="lorairo_crop_") as temp_dir:
-        crop_dir = Path(temp_dir) / _CROP_TEMP_SUBDIR
-        crop_dir.mkdir(parents=True, exist_ok=True)
-        crop_path = crop_dir / filename
-        with Image.open(parent_path) as source:
-            oriented = ImageOps.exif_transpose(source)
-            cropped = oriented.crop((rect.x, rect.y, rect.x + rect.width, rect.y + rect.height))
-            cropped.save(crop_path)
-
+        crop_path = _write_cropped_file(request.rect, parent_path, Path(temp_dir))
+        filename = crop_path.name
         result = db_manager.register_original_image(crop_path, fsm)
 
     if result is None:

@@ -50,7 +50,8 @@ A → B の段階導入とし、本 ADR は Step 1 (案 A) を定める。
   切り出し結果が既存画像の pHash 重複なら `skipped (duplicate_image)`。
 - 範囲外・幅高さ 0 以下は `failed (invalid_rect)`、未登録の親は `failed (parent_not_found)`。
 - DB 例外は個別の失敗にせず伝播させる (継続しても全件失敗するため)。
-- `dry_run` は書き込まずに範囲検証と重複判定だけを行う。
+- `dry_run` は DB とファイル保存先へ書き込まず、範囲検証・関係行の重複・切り出し結果の pHash 重複 (一時ファイルで判定) を
+  実行時と同じ結果になるよう判定する。
 
 ### 3. CLI `images crop-batch --rects FILE`
 

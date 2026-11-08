@@ -7,7 +7,7 @@
 - 候補ごとに独立して処理し、失敗しても残りを続ける (結果は ``failed`` と理由)。
 - 同じ親・矩形・由来の ``crop_relations`` が既にあれば ``skipped`` (``already_exists``)。
   切り出し結果が既存画像の pHash 重複なら ``skipped`` (``duplicate_image``)。
-- ``dry_run`` では DB とファイルへ書き込まず、範囲検証と重複判定だけを行う。
+- ``dry_run`` では DB とファイル保存先へ書き込まず、範囲検証と重複判定 (pHash 重複を含む) だけを行う。
 - DB 例外 (SQLAlchemyError) は個別の失敗にせず呼び出し元へ伝播させる (継続しても全件失敗するため)。
 
 ``PySide6`` / ``lorairo.gui`` は import しない。
@@ -29,6 +29,7 @@ from lorairo.public_api.exceptions import DuplicateImageError
 from lorairo.services.crop_service import (
     CropSourceInfo,
     create_crop_image,
+    find_duplicate_crop,
     get_crop_source_info,
     validate_crop_rect,
 )
@@ -169,8 +170,7 @@ def _process_candidate(
     except ValueError as exc:
         return CropBatchOutcome("failed", parent_id, candidate, reason="invalid_rect", message=str(exc))
     if dry_run:
-        existing[key] = None
-        return CropBatchOutcome("would_create", parent_id, candidate)
+        return _preview_candidate(parent_id, candidate, source, existing, db_manager)
 
     request = CropCreateRequest(
         parent_image_id=parent_id,
@@ -202,6 +202,52 @@ def _process_candidate(
         )
     existing[key] = child_id
     return CropBatchOutcome("created", parent_id, candidate, child_image_id=child_id)
+
+
+def _preview_candidate(
+    parent_id: int,
+    candidate: CropRectCandidate,
+    source: CropSourceInfo,
+    existing: dict[_RelationKey, int | None],
+    db_manager: ImageDatabaseManager,
+) -> CropBatchOutcome:
+    """dry-run: 書き込まずに実行時と同じ ``would_create`` / ``skipped (duplicate_image)`` を判定する。
+
+    既存画像との pHash 重複は切り出し結果を一時ファイルで判定する。同じ実行内で先に
+    作成予定になった同一矩形 (由来違い) は、実行時に画素が重複するため skipped にする。
+    """
+    rect = candidate.rect
+    same_rect = [
+        child_id
+        for (x, y, width, height, _origin), child_id in existing.items()
+        if (x, y, width, height) == (rect.x, rect.y, rect.width, rect.height)
+    ]
+    if same_rect:
+        return CropBatchOutcome(
+            "skipped",
+            parent_id,
+            candidate,
+            child_image_id=same_rect[0],
+            reason="duplicate_image",
+            message="Same rectangle is already created or planned under another origin",
+        )
+    try:
+        duplicate_id = find_duplicate_crop(rect, source.image_path, db_manager=db_manager)
+    except OSError as exc:
+        return CropBatchOutcome(
+            "failed", parent_id, candidate, reason="io_error", message=f"I/O error: {exc.strerror or exc}"
+        )
+    if duplicate_id is not None:
+        return CropBatchOutcome(
+            "skipped",
+            parent_id,
+            candidate,
+            child_image_id=duplicate_id,
+            reason="duplicate_image",
+            message=f"Cropped pixels duplicate existing image_id={duplicate_id}",
+        )
+    existing[(rect.x, rect.y, rect.width, rect.height, candidate.origin)] = None
+    return CropBatchOutcome("would_create", parent_id, candidate)
 
 
 def _log_summary(outcomes: list[CropBatchOutcome], dry_run: bool) -> None:
