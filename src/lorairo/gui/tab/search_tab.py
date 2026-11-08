@@ -691,6 +691,7 @@ class SearchTabWidget(QWidget, Ui_SearchTab):
             # #896: クイックタグはタブ内で完結 (ダイアログ起動 + 書込)。MainWindow へは bubble しない。
             self._thumbnail_selector.quick_tag_requested.connect(self._show_quick_tag_dialog)
         self._thumbnail_selector.compare_requested.connect(self._open_image_comparison)
+        self._thumbnail_selector.set_compare_action_enabled(True)
         logger.debug("サムネイル → プレビュー接続完了")
 
     @Slot(list)

@@ -1154,3 +1154,13 @@ def test_shutdown_stops_crop_launcher_and_details_workers(tab: SearchTabWidget) 
 
     launcher.shutdown.assert_called_once_with()
     details.shutdown.assert_called_once_with()
+
+
+@pytest.mark.gui
+def test_search_tab_opens_image_comparison_from_thumbnail_menu(tab, monkeypatch) -> None:
+    """検索タブは比較項目を有効化し、比較要求をランチャーへ渡す (#1399)。"""
+    assert tab._thumbnail_selector._compare_action_enabled is True
+    opened: list[list[int]] = []
+    monkeypatch.setattr(tab._image_comparison_launcher, "open", lambda ids: opened.append(ids) or True)
+    tab._thumbnail_selector.compare_requested.emit([3, 4])
+    assert opened == [[3, 4]]

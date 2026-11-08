@@ -326,9 +326,21 @@ def thumbnail_widget(qtbot) -> ThumbnailSelectorWidget:
     return widget
 
 
+def test_thumbnail_compare_menu_absent_until_enabled(
+    thumbnail_widget: ThumbnailSelectorWidget, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """比較を配線していないタブ (エクスポート等) には項目を出さない。"""
+    assert thumbnail_widget.dataset_state is not None
+    thumbnail_widget.dataset_state.set_selected_images([11, 12])
+    actions = _patch_menu(monkeypatch, None)
+    thumbnail_widget._on_context_menu_requested(QPoint(0, 0))
+    assert COMPARE_MENU_TEXT not in actions
+
+
 def test_thumbnail_compare_menu_enabled_for_two_or_more(
     thumbnail_widget: ThumbnailSelectorWidget, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    thumbnail_widget.set_compare_action_enabled(True)
     assert thumbnail_widget.dataset_state is not None
     for selection, expected in (([11], False), ([11, 12], True)):
         thumbnail_widget.dataset_state.set_selected_images(selection)
@@ -340,6 +352,7 @@ def test_thumbnail_compare_menu_enabled_for_two_or_more(
 def test_thumbnail_compare_menu_emits_selected_ids(
     qtbot, thumbnail_widget: ThumbnailSelectorWidget, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    thumbnail_widget.set_compare_action_enabled(True)
     assert thumbnail_widget.dataset_state is not None
     thumbnail_widget.dataset_state.set_selected_images([12, 11])
     _patch_menu(monkeypatch, COMPARE_MENU_TEXT)
