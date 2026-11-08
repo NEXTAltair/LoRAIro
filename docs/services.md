@@ -289,12 +289,17 @@ Qt依存のないビジネスロジックサービス群。CLI、GUI、API全て
 #### DatasetImportService
 - **Path**: `src/lorairo/services/dataset_import_service.py`
 - **Class**: `DatasetImportService`
-- **Purpose**: Kohya-ss 形式の学習データセットを版・フォルダ・学習テキストとして取り込む (Qt-free)。画像は登録のみで画像直下の `Tag` には書かない。永続化は `DatasetRepository` (`src/lorairo/database/repository/dataset.py`)。CLI は `lorairo-cli dataset import / export / show`。
+- **Purpose**: Kohya-ss 形式の学習データセットを版・フォルダ・学習テキストとして取り込む (Qt-free)。画像は登録のみで画像直下の `Tag` には書かない。永続化は `DatasetRepository` (`src/lorairo/database/repository/dataset.py`)。CLI は `lorairo-cli dataset import / export / show / diff`。
 
 #### KohyaDatasetExportService
 - **Path**: `src/lorairo/services/kohya_dataset_export_service.py`
 - **Class**: `KohyaDatasetExportService`
 - **Purpose**: 保存済みの版を Kohya-ss 形式 (画像 + 学習テキスト + sd-scripts 用 TOML) で書き出す (Qt-free)。
+
+#### DatasetVersionDiffService
+- **Path**: `src/lorairo/services/dataset_version_diff.py`
+- **Class**: `DatasetVersionDiffService` / Function: `diff_snapshots()`
+- **Purpose**: 2 つの版のフォルダ・画像 (追加 / 削除 / 差し替え)・学習テキスト (要素の追加 / 削除 / 並び替え) の差分を表示時に計算する (Qt-free、保存しない)。CLI は `lorairo-cli dataset diff`。
 
 #### KohyaScanner
 - **Path**: `src/lorairo/services/kohya_scanner.py`
